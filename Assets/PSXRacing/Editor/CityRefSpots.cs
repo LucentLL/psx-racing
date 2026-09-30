@@ -408,6 +408,112 @@ namespace PSXRacing.EditorTools
             Debug.Log($"[CityRefSpots] {cams.Count} sign cameras, {cams.Count * 3} shots to {dir}");
         }
 
+        /// <summary>
+        /// THE POLES, BEFORE AND AFTER (WP-15): the driver's eye in the lane at
+        /// the plan's shot roads - two arterials (Albemarle Rd, Central Ave in
+        /// Plaza Midwood), two two-lane streets (Rocky River Rd, Brentwood Pl
+        /// on the west side), uptown (E Trade St, N Tryon St) and Queens Rd in
+        /// Myers Park (no wires there) - looking down the road at the Street
+        /// View capture's heading, level, by day and at night (the hour
+        /// through TimeOfDay, the lamps lit by hand as the sign shots do it).
+        /// The same cameras every run; PSX_POLE_LABEL names the run (before /
+        /// after), so a run on the tree before the package and one after it
+        /// make the pairs. To Screenshots/City/poles/&lt;spot&gt;_&lt;label&gt;_{day,night}.png.
+        /// Headless (with graphics): -executeMethod PSXRacing.EditorTools.CityRefSpots.RunPoles
+        /// </summary>
+        public static void RunPoles()
+        {
+            var map = CityMap.Get();
+            if (map == null) { Debug.LogError("[CityRefSpots] no city data"); return; }
+            string label = System.Environment.GetEnvironmentVariable("PSX_POLE_LABEL");
+            if (string.IsNullOrEmpty(label)) label = "now";
+            string dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "City", "poles");
+            Directory.CreateDirectory(dir);
+            foreach (var f in Directory.GetFiles(dir, "*_" + label + "_*.png")) File.Delete(f);
+            PSXRacingBuilder.EnsureCityTextures();
+            var spots = new[] { "sv_a15_albemarle", "sv_a11_central", "sv_a10_rockyriver", "sv_a13_brentwood", "sv_a1_trade", "sv_a1_tryon", "sv_a8_queens" };
+            var cams = new List<(string name, Vector3 eye, Vector3 look, Vector2 at)>();
+            var log = new StringBuilder("shot\teye_x\teye_y\teye_z\tlook_x\tlook_y\tlook_z\twhat\n");
+            var go = new GameObject("~cityPoleShots");
+            var world = go.AddComponent<CityWorld>();
+            GameObject sunGo = null;
+            try
+            {
+                DayLight();
+                foreach (var sp in Spots)
+                {
+                    if (System.Array.IndexOf(spots, sp.id) < 0) continue;
+                    if (!Snap(map, LL(sp.lat, sp.lon), sp.road, out var e, out float s, out _)) continue;
+                    var p = e.PointAt(s);
+                    float h = sp.hdg * Mathf.Deg2Rad;
+                    var d = new Vector2(Mathf.Sin(h), Mathf.Cos(h));
+                    // in the lane: half the carriageway's half width to the right
+                    // of travel on a two-way road, the middle of a one-way one
+                    var right = new Vector2(d.y, -d.x);
+                    var q = p + (e.oneway ? Vector2.zero : right * (e.PaveEdgeM(s, 1) * 0.5f));
+                    var eye = new Vector3(q.x, e.YAt(s) + EyeM, q.y);
+                    var look = eye + new Vector3(d.x, 0f, d.y) * 60f + Vector3.up * 1.5f;
+                    string name = sp.id.Replace("sv_", "");
+                    cams.Add((name, eye, look, p));
+                    log.Append($"{name}\t{eye.x:0.0}\t{eye.y:0.00}\t{eye.z:0.0}\t{look.x:0.0}\t{look.y:0.00}\t{look.z:0.0}\t{sp.what}: e{e.index} '{e.name}' cls{e.cls} s={s:0}\n");
+                }
+                foreach (var c in cams)
+                {
+                    world.EnsureRing(new Vector3(c.at.x, 0f, c.at.y), 1);
+                    world.EnsureRing(c.eye, 1);
+                    Shoot(dir, c.name + "_" + label + "_day", c.eye, Quaternion.LookRotation(c.look - c.eye), 0f);
+                    // and the nearest pole ahead, close: its crossarm, cobra-head
+                    // and wires from the road's edge 14 m before it
+                    CityPoles.Pole best = default; float bd = 120f; bool found = false;
+                    var fwd = new Vector2(c.look.x - c.eye.x, c.look.z - c.eye.z).normalized;
+                    foreach (var pt in world.LivePoles)
+                        foreach (var p in pt.poles)
+                        {
+                            var to = new Vector2(p.foot.x - c.eye.x, p.foot.z - c.eye.z);
+                            float ahead = Vector2.Dot(to, fwd);
+                            if (ahead < 15f || to.magnitude > bd) continue;
+                            bd = to.magnitude; best = p; found = true;
+                        }
+                    if (found)
+                    {
+                        var foot = best.foot;
+                        var road = new Vector3(foot.x, best.roadY, foot.z) - new Vector3(best.outward.x, 0f, best.outward.y) * 6f;
+                        var ce = road - new Vector3(best.along.x, 0f, best.along.y) * 14f + Vector3.up * 1.6f;
+                        var cl = new Vector3(foot.x, best.top - 3f, foot.z);
+                        world.EnsureRing(ce, 1);
+                        Shoot(dir, c.name + "_" + label + "_pole", ce, Quaternion.LookRotation(cl - ce), 0f);
+                    }
+                    world.DropAll();
+                }
+                sunGo = new GameObject("~poleSun");
+                var sun = sunGo.AddComponent<Light>();
+                sun.type = LightType.Directional;
+                var globals = sunGo.AddComponent<PSXGlobals>();
+                globals.sun = sun;
+                TimeOfDay.Apply(TimeOfDay.Night, sun);
+                globals.Apply();
+                nightSky = globals.fogColor;
+                foreach (var c in cams)
+                {
+                    world.EnsureRing(new Vector3(c.at.x, 0f, c.at.y), 1);
+                    world.EnsureRing(c.eye, 1);
+                    NightGlow.PreviewAll(true);
+                    globals.Apply();
+                    Shoot(dir, c.name + "_" + label + "_night", c.eye, Quaternion.LookRotation(c.look - c.eye), 0f);
+                    world.DropAll();
+                }
+            }
+            finally
+            {
+                nightSky = null;
+                if (world != null) world.DropAll();
+                Object.DestroyImmediate(go);
+                if (sunGo != null) Object.DestroyImmediate(sunGo);
+            }
+            File.WriteAllText(Path.Combine(dir, "poles_shots_" + label + ".txt"), log.ToString());
+            Debug.Log($"[CityRefSpots] {cams.Count} pole cameras, {cams.Count * 2} shots ({label}) to {dir}");
+        }
+
         /// <summary>The background the sign shots' night frames clear to (the
         /// hour's fog); null by day.</summary>
         static Color? nightSky;

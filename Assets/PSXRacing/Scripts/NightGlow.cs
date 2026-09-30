@@ -63,9 +63,13 @@ namespace PSXRacing
         /// glow was still on it.
         /// </summary>
         public const float HaloSize = 2.6f;
+        /// <summary>A lamp of gain g's halo, as a share of a full lamp's: half
+        /// the size at nothing, all of it at 1.</summary>
+        public static float HaloSizeFor(float g) => Mathf.Lerp(0.5f, 1f, Mathf.Clamp01(g));
 
         Renderer[] glows;                                     // what the hour switches
         readonly List<Vector3> heads = new List<Vector3>();   // lamp heads, world space
+        readonly List<float> gains = new List<float>();       // per head, Init's (1 when none given)
         bool explicitHeads;                                   // Init gave them: never re-collect
         bool built;
         GameObject haloGo;
@@ -109,12 +113,23 @@ namespace PSXRacing
         /// registers the lamps itself, so it works right after AddComponent in
         /// play mode AND in edit mode, where AddComponent runs no Awake.
         /// </summary>
-        public void Init(IList<Vector3> worldHeads)
+        public void Init(IList<Vector3> worldHeads) => Init(worldHeads, null);
+
+        /// <summary>As <see cref="Init(IList{Vector3})"/>, each lamp's light on
+        /// the road scaled by its <paramref name="gain"/> (1 where the list is
+        /// short or null): a city tile's acorn posts are pedestrian lamps, a
+        /// fraction of a cobra-head (WP-15); their halos come out smaller and
+        /// fainter with them (<see cref="BuildHaloMesh(IList{Vector3}, float, IList{float})"/>).</summary>
+        public void Init(IList<Vector3> worldHeads, IList<float> gain)
         {
             explicitHeads = true;
-            heads.Clear();
+            heads.Clear(); gains.Clear();
             if (worldHeads != null)
-                for (int i = 0; i < worldHeads.Count; i++) heads.Add(worldHeads[i]);
+                for (int i = 0; i < worldHeads.Count; i++)
+                {
+                    heads.Add(worldHeads[i]);
+                    gains.Add(gain != null && i < gain.Count ? gain[i] : 1f);
+                }
             Build();
             Enlist();
         }
@@ -209,7 +224,7 @@ namespace PSXRacing
             StreetLights.RemoveAll(this);
             for (int i = 0; i < heads.Count; i++)
                 StreetLights.Add(this, heads[i], StreetLights.StreetRadius, StreetLights.Bulb,
-                                 StreetLights.StreetIntensity, StreetLights.Kind.Street);
+                                 StreetLights.StreetIntensity * (i < gains.Count ? gains[i] : 1f), StreetLights.Kind.Street);
         }
 
         void MakeHalo()
@@ -222,7 +237,7 @@ namespace PSXRacing
             t.SetParent(transform, false);
             scratch.Clear();
             for (int i = 0; i < heads.Count; i++) scratch.Add(t.InverseTransformPoint(heads[i]));
-            haloMesh = BuildHaloMesh(scratch, 1f);
+            haloMesh = BuildHaloMesh(scratch, 1f, gains);
             var mf = haloGo.AddComponent<MeshFilter>();
             mf.sharedMesh = haloMesh;
             var mr = haloGo.AddComponent<MeshRenderer>();
@@ -308,10 +323,17 @@ namespace PSXRacing
         /// its centre (the shader builds the quad in view space, facing the
         /// camera), uv0 = the corner, uv1.x = this halo's size multiplier,
         /// vertex colour white (the tint is the material's _Color, which Unity
-        /// linearises; a vertex colour would not be). Bounds are set by hand:
+        /// linearises; a vertex colour would not be) - or grey for a dimmer
+        /// lamp, a plain brightness scale (WP-15). Bounds are set by hand:
         /// the vertices alone span only the centres.
         /// </summary>
-        public static Mesh BuildHaloMesh(IList<Vector3> localCentres, float sizeMul)
+        public static Mesh BuildHaloMesh(IList<Vector3> localCentres, float sizeMul) => BuildHaloMesh(localCentres, sizeMul, null);
+
+        /// <summary>As above, each halo scaled by its lamp's gain (1 where the
+        /// list is short or null; <see cref="Init(IList{Vector3}, IList{float})"/>):
+        /// a dimmer lamp's glow is smaller (<see cref="HaloSizeFor"/>) and
+        /// fainter (its tint, the gain).</summary>
+        public static Mesh BuildHaloMesh(IList<Vector3> localCentres, float sizeMul, IList<float> gain)
         {
             int n = localCentres != null ? localCentres.Count : 0;
             var mesh = new Mesh { name = HaloMeshName };
@@ -336,8 +358,12 @@ namespace PSXRacing
                 uv0[v + 1] = new Vector2(1f, 0f);
                 uv0[v + 2] = new Vector2(1f, 1f);
                 uv0[v + 3] = new Vector2(0f, 1f);
-                uv1[v] = uv1[v + 1] = uv1[v + 2] = uv1[v + 3] = mul;
-                cols[v] = cols[v + 1] = cols[v + 2] = cols[v + 3] = white;
+                float g = gain != null && i < gain.Count ? Mathf.Clamp01(gain[i]) : 1f;
+                var m = g < 1f ? new Vector2(sizeMul * HaloSizeFor(g), 0f) : mul;
+                byte t = (byte)Mathf.RoundToInt(255f * g);
+                var c32 = g < 1f ? new Color32(t, t, t, 255) : white;
+                uv1[v] = uv1[v + 1] = uv1[v + 2] = uv1[v + 3] = m;
+                cols[v] = cols[v + 1] = cols[v + 2] = cols[v + 3] = c32;
                 int k = i * 6;
                 tris[k] = v; tris[k + 1] = v + 1; tris[k + 2] = v + 2;
                 tris[k + 3] = v; tris[k + 4] = v + 2; tris[k + 5] = v + 3;

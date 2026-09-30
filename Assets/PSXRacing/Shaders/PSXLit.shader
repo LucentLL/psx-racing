@@ -155,6 +155,15 @@ Shader "PSX/Lit"
         // the city prop variants set the keyword; every other material is
         // the variant it always was.
         _AtlasPx ("Atlas side (px)", Float) = 256
+        // THE ROADSIDE FURNITURE (Charlotte WP-15, PSX_FURNITURE): the prop
+        // atlas above, plus WIRES. A wire vertex sits ON the wire's line and
+        // carries (side, half width) in TEXCOORD1 and the wire's direction in
+        // its normal; the vertex shader stands the ribbon across the line,
+        // square to the eye, never thinner than WIRE_MIN_PX framebuffer
+        // pixels (a thinner one breaks into dashes that crawl as the camera
+        // moves), and fades it into the fog from WIRE_FADE_NEAR metres out,
+        // gone by WIRE_GONE. Every other vertex has TEXCOORD1 = 0 and is the
+        // atlas variant's own.
     }
     SubShader
     {
@@ -165,7 +174,15 @@ Shader "PSX/Lit"
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
-            #pragma shader_feature_local __ PSX_ATLAS_RECT
+            #pragma shader_feature_local __ PSX_ATLAS_RECT PSX_FURNITURE
+            // the furniture draws from the prop atlas too
+            #if defined(PSX_ATLAS_RECT) || defined(PSX_FURNITURE)
+                #define PSX_ATLAS 1
+            #endif
+            #define WIRE_MIN_PX        1.0    // a wire is at least this many framebuffer pixels across
+            #define WIRE_FADE_NEAR   100.0    // metres: past this a wire fades into the fog...
+            #define WIRE_FADE_SPAN    80.0    //   ...wholly fogged this much further out
+            #define WIRE_GONE        200.0    // and past this it is not drawn at all (zero width)
             #include "UnityCG.cginc"
             // Colour texels of the 16-bit set arrive undecoded: PSXMainTex decodes them.
             #include "PSXTexDecode.cginc"
@@ -372,8 +389,11 @@ Shader "PSX/Lit"
                 float4 vertex : POSITION;
                 float3 normal : NORMAL;
                 float2 uv : TEXCOORD0;
-            #ifdef PSX_ATLAS_RECT
+            #ifdef PSX_ATLAS
                 fixed4 color : COLOR;       // the cell: see _AtlasPx
+            #endif
+            #ifdef PSX_FURNITURE
+                float2 wire : TEXCOORD1;    // (side -1/+1, half width m); (0, 0) off a wire
             #endif
             };
 
@@ -400,7 +420,7 @@ Shader "PSX/Lit"
                 // The horizon ring's ratio for this vertex's bearing: exactly
                 // 1 in a scene that never applied an hour.
                 half3 ring : TEXCOORD6;
-            #ifdef PSX_ATLAS_RECT
+            #ifdef PSX_ATLAS
                 // the cell as a UV rect: xy its first texel's centre, zw the
                 // span from there to its last texel's centre
                 float4 atlas : TEXCOORD7;
@@ -410,6 +430,31 @@ Shader "PSX/Lit"
             v2f vert (appdata v)
             {
                 v2f o;
+            #ifdef PSX_FURNITURE
+                // A WIRE: the ribbon stood across its line, square to the eye,
+                // at least WIRE_MIN_PX pixels wide, collapsed past WIRE_GONE.
+                float wireFade = 0.0;
+                if (v.wire.y > 0.0)
+                {
+                    float3 wc = mul(unity_ObjectToWorld, v.vertex).xyz;
+                    float3 wt = mul((float3x3)unity_ObjectToWorld, v.normal);
+                    float wt2 = dot(wt, wt);
+                    wt = wt2 > 1e-8 ? wt * rsqrt(wt2) : float3(1, 0, 0);
+                    float3 toCam = _WorldSpaceCameraPos - wc;
+                    float wd = max(length(toCam), 1e-3);
+                    float3 across = cross(wt, toCam / wd);
+                    float ac2 = dot(across, across);
+                    across = ac2 > 1e-8 ? across * rsqrt(ac2) : float3(0, 1, 0);
+                    // one framebuffer pixel at this distance
+                    float onePx = 2.0 * wd / max(abs(UNITY_MATRIX_P[1][1]) * _ScreenParams.y, 1.0);
+                    float hw = max(v.wire.y, 0.5 * WIRE_MIN_PX * onePx) * step(wd, WIRE_GONE);
+                    wc += across * (v.wire.x * hw);
+                    v.vertex = mul(unity_WorldToObject, float4(wc, 1.0));
+                    // lit as a face looking up: the sky's colour, dark anyway
+                    v.normal = mul((float3x3)unity_WorldToObject, float3(0, 1, 0));
+                    wireFade = saturate((wd - WIRE_FADE_NEAR) / WIRE_FADE_SPAN);
+                }
+            #endif
                 float4 clipPos = UnityObjectToClipPos(v.vertex);
 
                 // Vertex snapping: quantize NDC xy to the render target grid.
@@ -460,8 +505,11 @@ Shader "PSX/Lit"
                 float dist = length(mul(UNITY_MATRIX_MV, v.vertex).xyz);
                 float fogT = saturate((dist - _PSXFogNear) / max(_PSXFogFar - _PSXFogNear, 1.0));
                 o.fog = pow(fogT, max(_PSXFogCurve, 1.0));
+            #ifdef PSX_FURNITURE
+                o.fog = max(o.fog, wireFade);
+            #endif
                 o.ring = PSXFogRing(wpos - _WorldSpaceCameraPos, _PSXSkyRotation);
-            #ifdef PSX_ATLAS_RECT
+            #ifdef PSX_ATLAS
                 float4 cell = floor(v.color * 255.0 + 0.5);
                 float px = max(_AtlasPx, 1.0);
                 o.atlas = float4((cell.xy + 0.5) / px, cell.zz / px);
@@ -472,7 +520,7 @@ Shader "PSX/Lit"
             fixed4 frag (v2f i) : SV_Target
             {
                 float2 uv = i.uvw.xy / i.uvw.z;
-            #ifdef PSX_ATLAS_RECT
+            #ifdef PSX_ATLAS
                 uv = i.atlas.xy + frac(uv) * i.atlas.zw;
             #endif
                 // Where the facade texture repeats, for the lit windows below.

@@ -365,6 +365,7 @@ namespace PSXRacing.EditorTools
             ReportFanMouths();
             fanMouths = null;
             LampAudit(map, trims, buildings);
+            PoleAudit(map, trims, buildings);
             TerrainFidelity(map);
             TreeAudit(map, trims, buildings);
             SignAudit(map, trims, buildings);
@@ -1787,11 +1788,12 @@ namespace PSXRacing.EditorTools
             AddEdge(e => e.cls == 0 && !e.link && !e.bridge && e.length > 150f && DistUp(e) > 2000f && DistUp(e) < 5000f,
                     "residential street");
 
-            int total = 0, stations = 0, inLanes = 0, under = 0, uptownLamps = 0;
+            int total = 0, stations = 0, inLanes = 0, under = 0, uptownLamps = 0, inRunOff = 0;
             var rejects = new int[CityMeshes.LampRejectCount];
-            var kindLamps = new int[3];
-            var kindM = new float[3];
-            string[] kindName = { "street", "arterial", "freeway" };
+            // the kinds CityMeshes places by (Lamp.kind); an acorn is uptown's (WP-15)
+            var kindLamps = new int[4];
+            var kindM = new float[4];
+            string[] kindName = { "street", "arterial", "freeway", "acorn" };
             var feet = new List<(Vector3 at, int tile)>();
             var notes = new List<(float sev, string what)>();
             var segs = new HashSet<int>();
@@ -1884,8 +1886,8 @@ namespace PSXRacing.EditorTools
                 var max = min + Vector2.one * ts;
 
                 // carriageway metres on the tile by lamp kind (what could be lit)
-                var tileM = new float[3];
-                var tileLamps = new int[3];
+                var tileM = new float[4];
+                var tileLamps = new int[4];
                 segs.Clear(); edgesHere.Clear();
                 map.EdgeSegsInRect(min, max, segs);
                 foreach (var packed in segs) edgesHere.Add(packed >> 12);
@@ -1893,7 +1895,9 @@ namespace PSXRacing.EditorTools
                 {
                     var e = map.edges[ei];
                     if (e.link || e.tunnel || e.bridge) continue;
-                    int k = e.cls >= 5 ? 2 : e.cls >= 2 ? 1 : 0;
+                    // a road with a pole line is lit by its poles' cobra-heads (the pole audit's)
+                    if (CityPoles.Enabled && CityPoles.IsPoleEdge(map, e)) continue;
+                    int k = CityPoles.IsAcornEdge(map, e) ? 3 : e.cls >= 5 ? 2 : e.cls >= 2 ? 1 : 0;
                     for (float s = 0.5f; s < e.length; s += 1f)
                     {
                         var p = e.PointAt(s);
@@ -1903,7 +1907,7 @@ namespace PSXRacing.EditorTools
 
                 foreach (var l in tm.lamps)
                 {
-                    tileLamps[Mathf.Clamp(l.kind, 0, 2)]++;
+                    tileLamps[Mathf.Clamp(l.kind, 0, 3)]++;
                     var foot = tm.origin + l.foot;
                     var head = tm.origin + l.head;
                     float ground = foot.y + CityMeshes.LampSinkM;
@@ -1948,7 +1952,7 @@ namespace PSXRacing.EditorTools
                         float clear = Vector2.Distance(f2, map.nodes[n]) - reach;
                         if (clear < worst) { worst = clear; worstWhat = $"node {n}'s fan"; }
                     }
-                    string where = $"kind {kindName[Mathf.Clamp(l.kind, 0, 2)]} at ({foot.x:0.0},{foot.z:0.0}) tile {tx},{tz}";
+                    string where = $"kind {kindName[Mathf.Clamp(l.kind, 0, 3)]} at ({foot.x:0.0},{foot.z:0.0}) tile {tx},{tz}";
                     if (worst < LampAuditClearM)
                     {
                         inLanes++;
@@ -1958,6 +1962,12 @@ namespace PSXRacing.EditorTools
                     {
                         under++;
                         notes.Add((5f, $"LAMP  under {overWhat}: {where}"));
+                    }
+                    // WP-15: never in a city race route's run-off
+                    if (RaceRunOff.Inside(map, trims, f2))
+                    {
+                        inRunOff++;
+                        notes.Add((5f, $"LAMP  in race run-off: {where}"));
                     }
                     float bld = BuildingClear(f2, LampAuditBuildingLookM, out int bldIdx);
                     string bldWhat = bldIdx < 0 ? $"no real building within {LampAuditBuildingLookM:0} m"
@@ -1975,7 +1985,7 @@ namespace PSXRacing.EditorTools
                 if (why == "uptown") uptownLamps += tm.lamps.Count;
                 for (int r = 1; r < rejects.Length; r++) rejects[r] += tm.lampRejects[r];
                 var perKind = new StringBuilder();
-                for (int k = 0; k < 3; k++)
+                for (int k = 0; k < 4; k++)
                 {
                     kindLamps[k] += tileLamps[k]; kindM[k] += tileM[k];
                     if (tileM[k] < 1f && tileLamps[k] == 0) continue;
@@ -2018,8 +2028,8 @@ namespace PSXRacing.EditorTools
 
             Line($"lamp audit: {tiles.Count} tiles, {total} lamps of {stations} stations{Refusals(rejects)}; {close} pairs of posts from two roads within 1.5 m of each other (not a check)");
             var perKm = new StringBuilder("    lamps per km of carriageway on those tiles:");
-            for (int k = 0; k < 3; k++)
-                perKm.Append($" {kindName[k]} {(kindM[k] > 1f ? kindLamps[k] / (kindM[k] / 1000f) : 0f):0.0} ({kindLamps[k]} over {kindM[k] / 1000f:0.00} km){(k < 2 ? "," : "")}");
+            for (int k = 0; k < 4; k++)
+                perKm.Append($" {kindName[k]} {(kindM[k] > 1f ? kindLamps[k] / (kindM[k] / 1000f) : 0f):0.0} ({kindLamps[k]} over {kindM[k] / 1000f:0.00} km){(k < 3 ? "," : "")}");
             Line(perKm.ToString());
             Check(total > 0 && uptownLamps > 0, "the city stands street lamps, uptown included (lamp audit)", $"{total} lamps, {uptownLamps} on uptown's 3x3");
             Check(inLanes == 0, "every lamp post stands " + LampAuditClearM + " m or more outside every carriageway and junction fan (lamp audit)", inLanes);
@@ -2027,6 +2037,7 @@ namespace PSXRacing.EditorTools
             Check(inBuilding == 0, "every lamp post stands outside every real building and " + LampAuditBuildingM +
                   " m or more from its walls, buildings centred across a tile seam included (lamp audit)", inBuilding);
             Check(under == 0, "no lamp stands under a structure (lamp audit)", under);
+            Check(inRunOff == 0, "no lamp stands in a city race route's run-off (lamp audit)", inRunOff);
             Check(doubled == 0, "no lamp is stood twice across a tile seam (lamp audit)", doubled);
             Check(same, "a tile stands the same lamps every build (lamp audit)");
             notes.Sort((p, q) => q.sev.CompareTo(p.sev));

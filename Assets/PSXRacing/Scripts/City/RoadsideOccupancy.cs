@@ -352,7 +352,24 @@ namespace PSXRacing.City
             return o;
         }
 
+        /// <summary>How many static masks were built, and in how many
+        /// milliseconds all told (the pole audit's profile).</summary>
+        public static int StaticBuilds;
+        public static double StaticMs;
+
         static RoadsideOccupancy BuildStatic(CityMap map, CityMeshes.Trims trims,
+            Dictionary<long, List<CityBuildings.B>> buildings, int tx, int tz)
+        {
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            try { return BuildStaticNow(map, trims, buildings, tx, tz); }
+            finally
+            {
+                StaticBuilds++;
+                StaticMs += (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            }
+        }
+
+        static RoadsideOccupancy BuildStaticNow(CityMap map, CityMeshes.Trims trims,
             Dictionary<long, List<CityBuildings.B>> buildings, int tx, int tz)
         {
             var o = new RoadsideOccupancy(map, tx, tz);

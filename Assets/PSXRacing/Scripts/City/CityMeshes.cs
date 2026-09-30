@@ -306,7 +306,8 @@ namespace PSXRacing.City
             /// <summary>Foot to lens, metres (the pole height by road class).</summary>
             public float height;
             /// <summary>0 a street lamp (classes 0-1), 1 an arterial's (2-4),
-            /// 2 a freeway's (5): which pitch and height it was placed by.</summary>
+            /// 2 a freeway's (5), 3 uptown's acorn post (<see cref="LampAcorn"/>):
+            /// which pitch and height it was placed by.</summary>
             public byte kind;
         }
 
@@ -2060,6 +2061,19 @@ namespace PSXRacing.City
         /// two-way trunk or freeway, lights both sides staggered by half of
         /// this.</summary>
         const float LampPitchStreetM = 55f, LampPitchArterialM = 38f, LampPitchTrunkM = 42f, LampPitchFreewayM = 60f;
+        /// <summary>
+        /// UPTOWN'S ACORN POSTS (WP-15; the Street View survey, spot A1): black
+        /// pedestrian posts 4.5-5 m tall with an acorn globe, every 20-30 m on
+        /// BOTH sides of every street inside the freeway loop
+        /// (<see cref="CityPoles.IsAcornEdge"/>), and no wires. Placed as
+        /// street lamps are (the same verge, pavement, building and structure
+        /// rules), a lamp every half pitch on alternating sides; the globe is
+        /// the lens (the head stands over the foot, no arm). Drawn black on
+        /// the furniture atlas (CityPoles.EmitLamp) once a tile's furniture
+        /// stands.
+        /// </summary>
+        public const byte LampAcorn = 3;
+        const float AcornPitchM = 25f, AcornHeightM = 4.7f;
         /// <summary>Foot to lens by the same classes: a 25 ft residential
         /// pole, a 30 ft arterial davit, a 40 ft freeway mast.</summary>
         const float LampHeightStreetM = 7.5f, LampHeightArterialM = 9f, LampHeightFreewayM = 12f;
@@ -2122,12 +2136,19 @@ namespace PSXRacing.City
         /// <summary>Why a lamp station stood no lamp, for the audit (the
         /// reason its first try was refused).</summary>
         public const int LampRejectSide = 1, LampRejectStructure = 2, LampRejectBuilding = 3, LampRejectWater = 4,
-                         LampRejectPavement = 5, LampRejectOverhead = 6, LampRejectVerge = 7, LampRejectCount = 8;
+                         LampRejectPavement = 5, LampRejectOverhead = 6, LampRejectVerge = 7, LampRejectRunOff = 8, LampRejectCount = 9;
         public static readonly string[] LampRejectNames =
         {
             "placed", "not a plain verge", "structure approach", "building or lot", "water",
-            "another road's pavement or fan", "under a structure", "no graded verge",
+            "another road's pavement or fan", "under a structure", "no graded verge", "race run-off",
         };
+        /// <summary>WP-15: a post whose foot lands in a city race route's
+        /// run-off (<see cref="RaceRunOff"/>: 8 m past the drawn edge, 16 m on
+        /// the outside of a bend) steps back from the road this much at a time,
+        /// at most <see cref="LampRunOffMaxM"/>; past that it stands nowhere
+        /// there. The racers ran wide into the lamp posts on Tryon (WP-08's
+        /// batch: 33 hits), the one kind of roadside object still inside.</summary>
+        const float LampRunOffStepM = 2f, LampRunOffMaxM = 16f;
 
         /// <summary>The speed a lamp's offset is decided by: the edge's posted
         /// limit where OSM tags one, else North Carolina's statutory limit for
@@ -2138,8 +2159,14 @@ namespace PSXRacing.City
 
         /// <summary>Pitch (already halved where both sides are lit), sides,
         /// pole height and lamp kind for one edge.</summary>
-        static void LampPlanOf(CityMap.Edge e, out float gap, out bool outsideOnly, out float height, out byte kind)
+        static void LampPlanOf(CityMap map, CityMap.Edge e, out float gap, out bool outsideOnly, out float height, out byte kind)
         {
+            if (CityPoles.IsAcornEdge(map, e))
+            {
+                // both sides, alternating: a post every AcornPitchM on each side
+                gap = AcornPitchM * 0.5f; height = AcornHeightM; kind = LampAcorn; outsideOnly = false;
+                return;
+            }
             if (e.cls >= 5) { gap = LampPitchFreewayM; height = LampHeightFreewayM; kind = 2; }
             else if (e.cls == 4) { gap = LampPitchTrunkM; height = LampHeightArterialM; kind = 1; }
             else if (e.cls >= 2) { gap = LampPitchArterialM; height = LampHeightArterialM; kind = 1; }
@@ -2169,6 +2196,9 @@ namespace PSXRacing.City
         static void PlaceLamps(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, Vector2 min, Vector2 max)
         {
             if (e.link || e.tunnel || e.bridge) return;
+            // WP-15: a road with a pole line is lit by the cobra-heads on its
+            // poles (CityPoles); it stands no lamp posts of its own
+            if (CityPoles.Enabled && CityPoles.IsPoleEdge(map, e)) return;
             int n = sections.Count;
             if (n < 2) return;
             if (lampTrims != trims || lampFanReach == null || lampFanReach.Length != map.nodes.Length)
@@ -2178,7 +2208,7 @@ namespace PSXRacing.City
                 lampFanReach = new float[map.nodes.Length];
                 for (int k = 0; k < lampFanReach.Length; k++) lampFanReach[k] = -1f;
             }
-            LampPlanOf(e, out float gap, out bool outsideOnly, out float height, out byte kind);
+            LampPlanOf(map, e, out float gap, out bool outsideOnly, out float height, out byte kind);
             float lo = sections[0].s + LampEndClear(map, trims, e, e.a);
             float hi = sections[n - 1].s - LampEndClear(map, trims, e, e.b);
             float run = hi - lo;
@@ -2251,9 +2281,23 @@ namespace PSXRacing.City
             float off = speed > LampUrbanSpeedKmh
                 ? shoulder + RoadsideRules.ClearZoneM + LampClearZonePadM
                 : shoulder + LampUrbanOffsetM;
-            float arm = Mathf.Clamp(off - LampArmBackM, LampArmMinM, LampArmMaxM);
+            float arm = kind == LampAcorn ? 0f : Mathf.Clamp(off - LampArmBackM, LampArmMinM, LampArmMaxM);
             var footP = edgeW + outw * off;
             var headP = footP - outw * arm;
+            // never in a city race route's run-off: stepped back past it
+            if (RaceRunOff.Inside(map, trims, footP))
+            {
+                float extra = 0f;
+                while (extra < LampRunOffMaxM && RaceRunOff.Inside(map, trims, footP))
+                {
+                    extra += LampRunOffStepM;
+                    footP = edgeW + outw * (off + extra);
+                }
+                if (RaceRunOff.Inside(map, trims, footP)) return LampRejectRunOff;
+                off += extra;
+                arm = kind == LampAcorn ? 0f : Mathf.Clamp(off - LampArmBackM, LampArmMinM, LampArmMaxM);
+                headP = footP - outw * arm;
+            }
 
             // cheapest first. The real buildings are asked with FootprintClear,
             // NOT AnyFootprintNear: that one opens only the bucket of a
@@ -2279,7 +2323,8 @@ namespace PSXRacing.City
             var foot = new Vector3(footP.x, ground - LampSinkM, footP.y) - tm.origin;
             var head = new Vector3(headP.x, ground - LampSinkM + height, headP.y) - tm.origin;
             tm.lamps.Add(new Lamp { foot = foot, head = head, height = height, kind = kind });
-            EmitLamp(foot, head, outw);
+            if (kind == LampAcorn) EmitAcorn(foot, head);
+            else EmitLamp(foot, head, outw);
             return 0;
         }
 
@@ -2477,6 +2522,18 @@ namespace PSXRacing.City
             if (half > 0.01f)
                 EmitLampBox((from + to) * 0.5f, tw * half, up * (LampArmW * 0.5f), ac * (LampArmW * 0.5f), LampSkipEnds);
             EmitLampBox(box, tw * (LampHeadL * 0.5f), up * (LampHeadH * 0.5f), ac * (LampHeadW * 0.5f), 0);
+        }
+
+        /// <summary>An acorn post (WP-15) into the lamp bucket: a post and the
+        /// globe over it. The furniture mesh draws it black once the tile's
+        /// furniture stands (CityPoles); this is the lamp mesh's own copy.</summary>
+        static void EmitAcorn(Vector3 foot, Vector3 head)
+        {
+            const float post = 0.14f, globeW = 0.36f, globeH = 0.46f;
+            float topPost = head.y - globeH * 0.5f;
+            EmitLampBox(new Vector3(foot.x, (foot.y + topPost) * 0.5f, foot.z), Vector3.right * (post * 0.5f),
+                        Vector3.up * ((topPost - foot.y) * 0.5f), Vector3.forward * (post * 0.5f), LampSkipBottom);
+            EmitLampBox(head, Vector3.right * (globeW * 0.5f), Vector3.up * (globeH * 0.5f), Vector3.forward * (globeW * 0.5f), 0);
         }
 
         /// <summary>A box from its centre and three half-axis vectors, every

@@ -220,6 +220,10 @@ namespace PSXRacing.City
             /// <summary>The tile's signs (WP-23), placed on the mask before the
             /// trees; null when the signs are off or have no data.</summary>
             public CitySigns.SignTile signs;
+            /// <summary>The tile's utility poles and wires, and its furniture
+            /// mesh (the poles, wires and the tile's street lamps: WP-15),
+            /// placed on the mask before the signs; null when there are none.</summary>
+            public CityPoles.PoleTile poles;
             /// <summary>What the canopy asks this tile for (density applied,
             /// before the per-tile cap), and what was planted.</summary>
             public float wanted;
@@ -273,7 +277,9 @@ namespace PSXRacing.City
                     }
             tt.wanted = wanted;
             trees &= wanted >= 0.5f;
-            if (!trees && !signs) { tt.ms = (float)clock.Elapsed.TotalMilliseconds; return tt; }
+            // the furniture (WP-15): the poles, and the tile's lamps drawn with them
+            bool furniture = CityPoles.Enabled || (tm != null && tm.lamps.Count > 0);
+            if (!trees && !signs && !furniture) { tt.ms = (float)clock.Elapsed.TotalMilliseconds; return tt; }
             float cap = MaxPerTile * density;
             float scale = wanted > cap ? cap / wanted : 1f;
 
@@ -282,7 +288,10 @@ namespace PSXRacing.City
             var occ = RoadsideOccupancy.Build(map, trims, buildings, tm, tx, tz);
             tt.occ = occ;
             tt.occMs = (float)clock.Elapsed.TotalMilliseconds;
-            // THE SIGNS FIRST (WP-23; the plan's priority: signs before trees):
+            // THE POLES FIRST (WP-15; the plan's priority: poles, lamps, signs,
+            // trees): their feet taken on the mask before the signs and trees
+            if (furniture) tt.poles = CityPoles.Build(map, trims, buildings, tm, occ, tx, tz);
+            // THE SIGNS (WP-23; the plan's priority: signs before trees):
             // they take their ground on the mask, and the trees keep off it
             if (signs) tt.signs = CitySigns.Build(map, trims, buildings, tm, occ, tx, tz);
             if (!trees) { tt.ms = (float)clock.Elapsed.TotalMilliseconds; return tt; }

@@ -223,6 +223,33 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
+        /// Charlotte's roadside furniture (WP-15): the utility poles, their
+        /// wires and cobra-heads, the street lamps and uptown's acorn posts on
+        /// one 256 atlas of the owner's pack wood and metal
+        /// (tools/city/furniture_atlas.py), so a tile's furniture is one draw.
+        /// PSX/Lit's PSX_FURNITURE variant: the prop atlas's cell-in-the-vertex-
+        /// colour wrap (PSX_ATLAS_RECT's), plus the wires stood up square to the
+        /// eye a pixel wide at least and faded out past 100 m (CityPoles).
+        /// Null if the atlas is missing: the furniture then does not draw and
+        /// the lamp posts keep their own mesh.
+        /// </summary>
+        internal static Material CityFurnitureMat()
+        {
+            const string tex = Root + "/Art/City/Furniture/CityFurniture.png";
+            if (AssetDatabase.LoadAssetAtPath<Texture2D>(tex) == null)
+            {
+                Log("WARN: " + tex + " missing (py tools/city/furniture_atlas.py) - Charlotte's poles and wires will not draw.");
+                return null;
+            }
+            var mat = MakeMat("CityFurniture", tex, affine: 0f);
+            if (mat.HasProperty("_AtlasPx")) mat.SetFloat("_AtlasPx", CityPoles.AtlasPx);
+            mat.DisableKeyword("PSX_ATLAS_RECT");
+            mat.EnableKeyword("PSX_FURNITURE");
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        /// <summary>
         /// The city's trees (WP-08), one material per season dress in
         /// <see cref="Seasons"/> order: the stage forest's five atlases
         /// (Art/BRP/Gen, the owner's CC0 retro tree pack composed with every
@@ -309,7 +336,10 @@ namespace PSXRacing.EditorTools
             kit.trees = CityTreeMats();
             kit.treeLowReach = CityTreeLowReach();
             kit.signs = CitySignsMat();
+            kit.furniture = CityFurnitureMat();
             var shaders = new List<Shader>();
+            if (kit.furniture != null && kit.furniture.shader != null && !shaders.Contains(kit.furniture.shader))
+                shaders.Add(kit.furniture.shader);
             foreach (var m in kit.slots)
                 if (m != null && m.shader != null && !shaders.Contains(m.shader)) shaders.Add(m.shader);
             if (kit.lampPost != null && kit.lampPost.shader != null && !shaders.Contains(kit.lampPost.shader))

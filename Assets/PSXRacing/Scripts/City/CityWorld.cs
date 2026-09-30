@@ -152,6 +152,10 @@ namespace PSXRacing.City
         public IEnumerable<CitySigns.SignTile> LiveSigns => liveSigns.Values;
         readonly Dictionary<long, CitySigns.SignTile> liveSigns = new Dictionary<long, CitySigns.SignTile>();
 
+        /// <summary>The live tiles' poles and wires (WP-15), for the tools.</summary>
+        public IEnumerable<CityPoles.PoleTile> LivePoles => livePoles.Values;
+        readonly Dictionary<long, CityPoles.PoleTile> livePoles = new Dictionary<long, CityPoles.PoleTile>();
+
         static double cookTicks;
         static readonly System.Diagnostics.Stopwatch cookClock = new System.Diagnostics.Stopwatch();
 
@@ -218,6 +222,8 @@ namespace PSXRacing.City
             }
             nodeTrims = cachedTrims;
             buildings = cachedBuildings;
+            // the pole lines (WP-15), once a map, at load rather than on a tree frame
+            CityPoles.Warm(Map);
             BuildFoodIndex();
             // the trunk table, on a child of its own that no scene saves
             var tgo = new GameObject("CityTreeTrunks") { hideFlags = HideFlags.DontSave };
@@ -288,7 +294,7 @@ namespace PSXRacing.City
                 for (int dx = -r; dx <= r; dx++)
                 {
                     long k = Key(tx + dx, tz + dz);
-                    if (treesPending.ContainsKey(k)) while (PrepareSigns(k) == 2) { }
+                    if (treesPending.ContainsKey(k)) while (PrepareSigns(k) != 0) { }
                     PlantTrees(k);
                 }
         }
@@ -406,6 +412,7 @@ namespace PSXRacing.City
         {
             treesPending.Remove(key);
             liveSigns.Remove(key);
+            livePoles.Remove(key);
             if (Trunks != null) Trunks.RemoveTable(key);
             if (!live.TryGetValue(key, out var t)) return;
             live.Remove(key);
@@ -438,6 +445,20 @@ namespace PSXRacing.City
                 tile.meshes[tile.meshes.Length - 1] = tt.mesh;
             }
             if (Trunks != null && tt.solids > 0) Trunks.AddTable(key, tt.Trunks());
+            // THE POLES AND WIRES (WP-15): the tile's furniture mesh (its lamp
+            // posts drawn with them), the poles solid
+            var pt = tt.poles;
+            if (pt != null) livePoles[key] = pt;
+            if (pt != null && (pt.mesh != null || pt.poles.Count > 0))
+            {
+                AttachFurniture(tile.go, pt, CityPoles.Material());
+                if (pt.mesh != null)
+                {
+                    System.Array.Resize(ref tile.meshes, tile.meshes.Length + 1);
+                    tile.meshes[tile.meshes.Length - 1] = pt.mesh;
+                }
+                tile.colliders += pt.poles.Count;
+            }
             // THE SIGNS (WP-23), placed on the mask before the trees
             var st = tt.signs;
             if (st != null) liveSigns[key] = st;
@@ -447,24 +468,28 @@ namespace PSXRacing.City
                 System.Array.Resize(ref tile.meshes, tile.meshes.Length + 1);
                 tile.meshes[tile.meshes.Length - 1] = st.mesh;
                 tile.colliders += st.posts.Count;
-                // the billboards' floodlights join the tile's street lamps: one
-                // NightGlow, one halo draw a tile
-                if (st.lamps.Count > 0)
+            }
+            // the billboards' floodlights and the poles' cobra-heads join the
+            // tile's street lamps: one NightGlow, one halo draw a tile
+            int signLamps = st != null && st.mesh != null ? st.lamps.Count : 0;
+            int poleHeads = pt != null ? pt.heads.Count : 0;
+            if (signLamps + poleHeads > 0)
+            {
+                var heads = new List<Vector3>(job.tm.lamps.Count + signLamps + poleHeads);
+                var gains = new List<float>(heads.Capacity);
+                foreach (var l in job.tm.lamps) { heads.Add(job.tm.origin + l.head); gains.Add(LampGain(l)); }
+                if (signLamps > 0) heads.AddRange(st.lamps);
+                if (poleHeads > 0) heads.AddRange(pt.heads);
+                var lt = tile.go.transform.Find("LampLights");
+                GameObject lights = lt != null ? lt.gameObject : null;
+                if (lights == null)
                 {
-                    var heads = new List<Vector3>(job.tm.lamps.Count + st.lamps.Count);
-                    foreach (var l in job.tm.lamps) heads.Add(job.tm.origin + l.head);
-                    heads.AddRange(st.lamps);
-                    var lt = tile.go.transform.Find("LampLights");
-                    GameObject lights = lt != null ? lt.gameObject : null;
-                    if (lights == null)
-                    {
-                        lights = new GameObject("LampLights");
-                        lights.transform.SetParent(tile.go.transform, false);
-                    }
-                    var glow = lights.GetComponent<NightGlow>();
-                    if (glow == null) glow = lights.AddComponent<NightGlow>();
-                    glow.Init(heads);
+                    lights = new GameObject("LampLights");
+                    lights.transform.SetParent(tile.go.transform, false);
                 }
+                var glow = lights.GetComponent<NightGlow>();
+                if (glow == null) glow = lights.AddComponent<NightGlow>();
+                glow.Init(heads, gains);
             }
             var timing = new TileTiming
             {
@@ -479,15 +504,19 @@ namespace PSXRacing.City
         }
 
         /// <summary>A frame's slice of the signs a waiting tile needs decided
-        /// (<see cref="CitySigns.Prepare"/>), timed as a tree frame: 0 when
+        /// (<see cref="CitySigns.Prepare"/>), then of its poles
+        /// (<see cref="CityPoles.Prepare"/>), timed as a tree frame: 0 when
         /// there was nothing to do (the tile may plant this frame), 1 when this
         /// slice finished them, 2 when there is more.</summary>
         public int PrepareSigns(long key)
         {
-            if (!CitySigns.Enabled || Map == null) return 0;
+            if (Map == null) return 0;
             int tx = (int)(key >> 24), tz = (int)((key << 40) >> 40);
             var clock = System.Diagnostics.Stopwatch.StartNew();
-            int r = CitySigns.Prepare(Map, nodeTrims, buildings, tx, tz, SignSliceMs);
+            int r = CitySigns.Enabled ? CitySigns.Prepare(Map, nodeTrims, buildings, tx, tz, SignSliceMs) : 0;
+            // then the tile's poles and wires (WP-15), a slice a frame the same
+            // way, so its tree frame only draws them
+            if (r == 0 && CityPoles.Enabled) r = CityPoles.Prepare(Map, nodeTrims, buildings, tx, tz, SignSliceMs);
             if (r == 0) return 0;
             float ms = (float)clock.Elapsed.TotalMilliseconds;
             var timing = new TileTiming { tx = tx, tz = tz, treeFrame = true, treesMs = ms, totalMs = ms, signsMs = ms };
@@ -549,7 +578,7 @@ namespace PSXRacing.City
             // (the tile's roads, fill houses and lamps are in tm, the lots in
             // the building table) and on a later frame: queued here with the
             // lattice this build cached, planted by PlantTrees.
-            if (CityTrees.Enabled || CitySigns.Enabled) treesPending[key] = (tm, CityMeshes.TakeLattice());
+            if (CityTrees.Enabled || CitySigns.Enabled || CityPoles.Enabled || tm.lamps.Count > 0) treesPending[key] = (tm, CityMeshes.TakeLattice());
             double tTrees = clock.Elapsed.TotalMilliseconds;
 
             // THE LIGHT the street lamps throw (the posts are Attach's). A
@@ -562,10 +591,11 @@ namespace PSXRacing.City
             if (tm.lamps.Count > 0)
             {
                 var heads = new Vector3[tm.lamps.Count];
-                for (int i = 0; i < heads.Length; i++) heads[i] = tm.origin + tm.lamps[i].head;
+                var gains = new float[tm.lamps.Count];
+                for (int i = 0; i < heads.Length; i++) { heads[i] = tm.origin + tm.lamps[i].head; gains[i] = LampGain(tm.lamps[i]); }
                 var lights = new GameObject("LampLights");
                 lights.transform.SetParent(root.transform, false);
-                lights.AddComponent<NightGlow>().Init(heads);
+                lights.AddComponent<NightGlow>().Init(heads, gains);
             }
 
             int colliders = root.GetComponentsInChildren<Collider>(true).Length;
@@ -763,6 +793,63 @@ namespace PSXRacing.City
             }
             return g;
         }
+
+        /// <summary>
+        /// Stand a tile's furniture up under its root (WP-15): the poles, their
+        /// wires and cobra-heads and the tile's street lamps as one render-only
+        /// mesh on the kit's furniture atlas (one draw, no sun-map caster) - the
+        /// lamp posts' own mesh (Attach's "Lamps") is destroyed, since this
+        /// draws them - and a box up every pole on one Solid-layer object named
+        /// <see cref="CityPoles.PostName"/> (utility poles are solid: Q15). A
+        /// null material leaves the lamp mesh as it was and draws no furniture
+        /// (the poles still collide).
+        /// </summary>
+        public static GameObject AttachFurniture(GameObject root, CityPoles.PoleTile pt, Material mat)
+        {
+            if (pt == null) return null;
+            GameObject g = null;
+            if (pt.mesh != null)
+            {
+                g = Child(root, "Furniture", 0);
+                g.AddComponent<MeshFilter>().sharedMesh = pt.mesh;
+                var mr = g.AddComponent<MeshRenderer>();
+                mr.sharedMaterial = mat;
+                mr.enabled = mat != null;
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                mr.receiveShadows = false;
+                SunShadows.Exclude(g);
+                if (mat != null)
+                {
+                    // the lamp posts' own mesh goes: the furniture draws them now
+                    var lamps = root.transform.Find("Lamps");
+                    if (lamps != null)
+                    {
+                        var mf = lamps.GetComponent<MeshFilter>();
+                        if (mf != null) Kill(mf.sharedMesh);
+                        Kill(lamps.gameObject);
+                    }
+                }
+            }
+            if (pt.poles.Count > 0)
+            {
+                var c = Child(root, CityPoles.PostName, SolidLayer);
+                var origin = root.transform.position;
+                foreach (var p in pt.poles)
+                {
+                    var (centre, size) = CityPoles.ColliderOf(p);
+                    var bc = c.AddComponent<BoxCollider>();
+                    bc.center = centre - origin;
+                    bc.size = size;
+                }
+            }
+            return g;
+        }
+
+        /// <summary>How hard a street lamp lights the road, against a
+        /// cobra-head's: uptown's acorn posts are pedestrian lamps, lower and a
+        /// fraction of the wattage, and there are twice as many of them.</summary>
+        public const float AcornLightGain = 0.25f;
+        static float LampGain(CityMeshes.Lamp l) => l.kind == CityMeshes.LampAcorn ? AcornLightGain : 1f;
 
         /// <summary>A lamp post collider's square side, a hair over the drawn
         /// post's 0.26 m so a wheel never clips into the pole it touches.</summary>
