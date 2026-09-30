@@ -1244,6 +1244,7 @@ namespace PSXRacing.City
         static void PrepareSeats(CityMap map)
         {
             seated.Clear();
+            SeatStationsFreed = 0;
             climbs.Clear();
             seatRuns.Clear();
             seatPairs.Clear();
@@ -1593,6 +1594,28 @@ namespace PSXRacing.City
                 crossingTarget = new float[map.crossings.Length];
                 for (int i = 0; i < crossingTarget.Length; i++) crossingTarget[i] = float.NaN;
             }
+            // A SEATED station is its host's (RaiseHump skips it), so a ramp
+            // seated beside its mainline takes the mainline's height where it
+            // crosses something. On a skewed pair crossing the same road the
+            // mainline's hump peaks at its own crossing, metres along from the
+            // ramp's: the I-77 connector over I-85 cleared it by 4.35 m (the
+            // WP-10 review's audit, once PARA had moved it 4 m clear of I-77).
+            // Where a seated branch would clear what it crosses by less than
+            // the audit's margin, the stations its hump needs higher than the
+            // host are FREED and take the hump: the branch rises off its host
+            // there (a separate deck), and nowhere else changes. (Raising the
+            // host instead stood I-77 0.8 m above its own other carriageway.)
+            Dictionary<int, List<int>> seatsOf = null;
+            if (seated.Count > 0)
+            {
+                seatsOf = new Dictionary<int, List<int>>();
+                for (int k = 0; k < seated.Count; k++)
+                {
+                    if (seated[k].host < 0) continue;
+                    if (!seatsOf.TryGetValue(seated[k].edge, out var l)) seatsOf[seated[k].edge] = l = new List<int>();
+                    l.Add(k);
+                }
+            }
             var order = new List<int>();
             for (int i = 0; i < map.crossings.Length; i++) if (crossingOn[i]) order.Add(i);
             order.Sort((p, q) => map.edges[map.crossings[p].over].layer
@@ -1618,8 +1641,38 @@ namespace PSXRacing.City
                         ? Mathf.Max(crossingTarget[ci], t) : t;
                 }
                 RaiseHump(over, sOver, crossingTarget[ci]);
+                // (in the FRESH passes only: by then every host has taken its
+                // own humps, so a branch is freed only where it really falls short)
+                if (fresh && seatsOf != null && seatsOf.TryGetValue(c.over, out var seats))
+                {
+                    ProjectOn(under, c.at, out float sU);
+                    if (over.YAt(sOver) - DeckThick - under.YAt(sU) < ClearanceM - SeatFreeMarginM)
+                    {
+                        int freed = 0;
+                        foreach (var k in seats)
+                        {
+                            var (ei, st, h, hs) = seated[k];
+                            if (h < 0) continue;
+                            float want = crossingTarget[ci] - Mathf.Abs(over.stS[st] - sOver) * ApproachGrade;
+                            if (map.edges[h].YAt(hs) >= want) continue;
+                            seated[k] = (ei, st, -1, hs);
+                            over.stSeat[st] = false;
+                            freed++;
+                        }
+                        if (freed > 0) { SeatStationsFreed += freed; RaiseHump(over, sOver, crossingTarget[ci]); }
+                    }
+                }
             }
         }
+
+        /// <summary>A seated branch clearing what it crosses by less than
+        /// ClearanceM minus this is freed there (see RaiseAllCrossings): just
+        /// inside the audit's 0.6 m margin, so only a branch that would fail
+        /// it moves. (At 0.3 m it freed branches clearing 4.4-4.7 m, which
+        /// passed, and opened two deck gaps on the Uptown Loop's tiles.)</summary>
+        const float SeatFreeMarginM = 0.55f;
+        /// <summary>Seated stations freed to take a crossing's hump, last solve.</summary>
+        public static int SeatStationsFreed { get; private set; }
 
         /// <summary>
         /// Two crossings of the SAME two edges in OPPOSITE directions, close
@@ -2205,7 +2258,8 @@ namespace PSXRacing.City
             segScratch ??= new HashSet<int>();
             segScratch.Clear();
             float reachR = MaxCorridorHalf + CorridorBlend;
-            map.EdgeSegsInRect(new Vector2(x - reachR, z - reachR), new Vector2(x + reachR, z + reachR), segScratch);
+            // only segments within the reach can pin: every other one fails the corridor test below
+            map.EdgeSegsNear(new Vector2(x - reachR, z - reachR), new Vector2(x + reachR, z + reachR), segScratch);
 
             float land = baseY;
             float floorMax = float.MinValue, cutMin = float.MaxValue, capMin = float.MaxValue;

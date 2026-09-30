@@ -251,7 +251,7 @@ namespace PSXRacing.City
         /// is on the ground. A bridge deck IS poured concrete.</summary>
         public static Surface SurfaceOf(CityMap.Edge e, bool elevated)
         {
-            bool fresh = IsFresh(e.pts[0]);
+            bool fresh = IsFresh(e.hasAgeSeed ? e.ageSeed : e.pts[0]);   // one age per chain (WP-11)
             return elevated ? (fresh ? Surface.ConcreteNew : Surface.ConcreteOld)
                             : (fresh ? Surface.AsphaltNew : Surface.AsphaltOld);
         }
@@ -368,6 +368,8 @@ namespace PSXRacing.City
             public readonly List<(int edge, int side, float s0, float s1)> vergeSpans = new List<(int, int, float, float)>();
             public readonly List<(Vector3 a, Vector3 b, Vector3 forward, bool elevated)> goreNoses = new List<(Vector3, Vector3, Vector3, bool)>();
             public float vergeMetres, railMetres;
+            /// <summary>The smoothness gate's tap; null unless <see cref="RecordTap"/>.</summary>
+            public RoadTap tap;
             /// <summary>The fill houses BuildHouses stood (world plan: centre,
             /// unit long axis, half extents), for the roadside occupancy mask
             /// (WP-08): a tree must not grow through one.</summary>
@@ -377,6 +379,51 @@ namespace PSXRacing.City
             /// backfill's depth behind it), for the occupancy mask and the
             /// audit.</summary>
             public readonly List<CulvertEnd> culvertEnds = new List<CulvertEnd>();
+        }
+
+        // ---- the smoothness gate's tap (Editor/CitySmooth.cs, gate spec 5.1) ----
+        /// <summary>Set only by the editor's smoothness gate. While it is set
+        /// every tile build records WHERE its ribbon quads and fans went, so the
+        /// gate can read them back out of <see cref="TileMeshes.roads"/> - the
+        /// mesh the renderer draws. One branch per quad when false; nothing in
+        /// the game sets it.</summary>
+        public static bool RecordTap;
+        public sealed class RoadTap
+        {
+            /// <summary>A ribbon quad: its slot, the index of its first vertex
+            /// in that slot's bucket (A.L, B.L, B.R, A.R follow), the edge, the
+            /// two sections' arcs and flags (<see cref="TapFlags"/>).</summary>
+            public struct Span { public int slot, bucketV, edge; public float sA, sB; public ushort flagsA, flagsB; }
+            /// <summary>A junction fan: centre at bucketV, then count - 1
+            /// corners anticlockwise; bit i of mouths = the chord from corner i
+            /// to i + 1 is a road mouth. Its triangles are triCount of the
+            /// slot's, from index triStart of its list (a star from the centre,
+            /// or ear-clipped corners when they are not star-shaped).</summary>
+            public struct Fan { public int slot, bucketV, count, node, triStart, triCount; public ulong mouths; }
+            public readonly List<Span> spans = new List<Span>();
+            public readonly List<Fan> fans = new List<Fan>();
+            /// <summary>Gore quads (junction-slab slot, no paint): pavement for
+            /// the gate's D1. sA/sB are arcs on the HOST edge.</summary>
+            public readonly List<Span> gores = new List<Span>();
+            /// <summary>tm.roads' vertex index of each used slot's first vertex,
+            /// in tm.roadSlots order (MeshFrom concatenates the buckets).</summary>
+            public int[] slotBase;
+            public const ushort FSqueezedL = 1, FSqueezedR = 2, FClipL = 4, FClipR = 8, FCollapsed = 16, FElevated = 32;
+        }
+        static int[] tapSlotBase;
+        /// <summary>The section's CAUSES, never its symptoms: squeezed L/R -
+        /// SqueezeSection moved that edge in against a parallel neighbour (the
+        /// gate judges it against its I7 envelope; an edge that stands inside
+        /// its half width for any other reason is a regression the gate must
+        /// see against the design edge, so the drawn position must not decide
+        /// this: review 5); clip: the inner side is the host's edge; collapsed;
+        /// on structure. linesim.mjs sets its sqL / sqR the same way.</summary>
+        static ushort TapFlags(in Section c)
+        {
+            int f = (c.sqL ? RoadTap.FSqueezedL : 0) | (c.sqR ? RoadTap.FSqueezedR : 0)
+                  | (c.clippedIn && c.innerSide < 0 ? RoadTap.FClipL : 0) | (c.clippedIn && c.innerSide > 0 ? RoadTap.FClipR : 0)
+                  | (c.collapsed ? RoadTap.FCollapsed : 0) | (c.elev ? RoadTap.FElevated : 0);
+            return (ushort)f;
         }
 
         // ---- growable buckets, one per slot, reused across tiles ----------
@@ -742,14 +789,101 @@ namespace PSXRacing.City
                     t.atA[i] *= k; t.atB[i] *= k;
                 }
             }
+            ChainContinuity(map, t);
             return t;
+        }
+
+        /// <summary>CHAIN CONTINUITY (plan WP-11): walk every chain of edges
+        /// joined through mitred THROUGH joints and give each edge its texture
+        /// V offset and direction along it (V = (vOff + vDir s) / RoadVTile, so
+        /// the dash phase runs on through way splits, decks and seams), and one
+        /// surface-age seed per chain (the head edge's first point). A closed
+        /// ring starts anywhere; its one joint back to the start keeps a phase
+        /// step, which a ring of a whole number of cycles would not.</summary>
+        static void ChainContinuity(CityMap map, Trims t)
+        {
+            int ne = map.edges.Length;
+            var seen = new bool[ne];
+            var chain = new List<int>(64);
+            var fwds = new List<bool>(64);
+            int Partner(CityMap.Edge e, int node)
+            {
+                if (!t.mitre[node]) return -1;
+                int o = t.throughA[node] == e.index ? t.throughB[node] : t.throughB[node] == e.index ? t.throughA[node] : -1;
+                if (o < 0 || o == e.index || map.edges[o].a == map.edges[o].b) return -1;
+                return o;
+            }
+            // the chain's phase must not depend on where the walk began (edge order):
+            // an open chain starts at its end with the lower (x, z), a ring at its
+            // joint with the lower (x, z)
+            bool Lower(Vector2 p, Vector2 q) => p.x < q.x || (p.x == q.x && p.y < q.y);
+            Vector2 EntryPt(int ei, bool fwd) { var e = map.edges[ei]; return fwd ? e.pts[0] : e.pts[e.pts.Length - 1]; }
+            Vector2 ExitPt(int ei, bool fwd) { var e = map.edges[ei]; return fwd ? e.pts[e.pts.Length - 1] : e.pts[0]; }
+            for (int i = 0; i < ne; i++)
+            {
+                var e0 = map.edges[i];
+                if (seen[i] || e0.a == e0.b) continue;
+                // back to the chain's head: the chain is walked a -> b on e0
+                int cur = i, entry = e0.a, guard = 0;
+                bool ring = false;
+                for (;;)
+                {
+                    int p = Partner(map.edges[cur], entry);
+                    if (p == i) { ring = true; break; }
+                    if (p < 0 || seen[p] || ++guard > ne) break;
+                    var pe = map.edges[p];
+                    entry = pe.a == entry ? pe.b : pe.a;
+                    cur = p;
+                }
+                if (ring) { cur = i; entry = e0.a; }
+                chain.Clear(); fwds.Clear();
+                guard = 0;
+                while (cur >= 0 && !seen[cur] && ++guard <= ne)
+                {
+                    var e = map.edges[cur];
+                    seen[cur] = true;
+                    bool fwd = entry == e.a;
+                    chain.Add(cur); fwds.Add(fwd);
+                    int exit = fwd ? e.b : e.a;
+                    cur = Partner(e, exit);
+                    entry = exit;
+                }
+                int n = chain.Count;
+                if (ring)
+                {
+                    int best = 0;
+                    for (int k = 1; k < n; k++) if (Lower(EntryPt(chain[k], fwds[k]), EntryPt(chain[best], fwds[best]))) best = k;
+                    if (best > 0)
+                    {
+                        var c2 = new List<int>(n); var f2 = new List<bool>(n);
+                        for (int k = 0; k < n; k++) { c2.Add(chain[(best + k) % n]); f2.Add(fwds[(best + k) % n]); }
+                        chain.Clear(); chain.AddRange(c2); fwds.Clear(); fwds.AddRange(f2);
+                    }
+                }
+                else if (Lower(ExitPt(chain[n - 1], fwds[n - 1]), EntryPt(chain[0], fwds[0])))
+                {
+                    chain.Reverse(); fwds.Reverse();
+                    for (int k = 0; k < n; k++) fwds[k] = !fwds[k];
+                }
+                Vector2 seed = EntryPt(chain[0], fwds[0]);
+                float acc = 0f;
+                for (int k = 0; k < n; k++)
+                {
+                    var e = map.edges[chain[k]];
+                    bool fwd = fwds[k];
+                    e.vDir = fwd ? 1f : -1f;
+                    e.vOff = Mathf.Repeat(fwd ? acc : acc + e.length, RoadVTile);
+                    e.ageSeed = seed; e.hasAgeSeed = true;
+                    acc = Mathf.Repeat(acc + e.length, RoadVTile);
+                }
+            }
         }
 
         // ==================================================================
         public static TileMeshes Build(CityMap map, Trims trims,
             Dictionary<long, List<CityBuildings.B>> buildings, int tx, int tz)
         {
-            var tm = new TileMeshes { origin = new Vector3(tx * TileSize, 0f, tz * TileSize) };
+            var tm = new TileMeshes { origin = new Vector3(tx * TileSize, 0f, tz * TileSize), tap = RecordTap ? new RoadTap() : null };
             var min = new Vector2(tx * TileSize, tz * TileSize);
             var max = min + new Vector2(TileSize, TileSize);
 
@@ -788,6 +922,7 @@ namespace PSXRacing.City
             tm.groundSlots = gSlots;
             tm.roads = MeshFrom("roads", RoadAndStructureSlots, out var roadSlots);
             tm.roadSlots = roadSlots;
+            if (tm.tap != null) tm.tap.slotBase = tapSlotBase;
             tm.barriers = MeshFromBucket("barriers", barrierBucket);
             tm.kerbs = MeshFromBucket("kerbs", kerbBucket);
             tm.lampPosts = MeshFromBucket("lamps", lampBucket);
@@ -834,9 +969,11 @@ namespace PSXRacing.City
             mesh.SetUVs(0, uvs);
             mesh.subMeshCount = used.Count;
             int baseV = 0;
+            if (RecordTap) tapSlotBase = new int[used.Count];
             for (int i = 0; i < used.Count; i++)
             {
                 var bk = buckets[(int)used[i]];
+                if (RecordTap) tapSlotBase[i] = baseV;
                 var tris = new int[bk.t.Count];
                 for (int j = 0; j < tris.Length; j++) tris[j] = bk.t[j] + baseV;
                 mesh.SetTriangles(tris, i, false);
@@ -1418,6 +1555,8 @@ namespace PSXRacing.City
                         bool elev = H.ElevatedAt(smp.sM);
                         var bk = buckets[(int)SlotOf(JunctionProfile, SurfaceOf(H, elev))];
                         float v0 = prevArc / 12f, v1 = smp.hostArc / 12f;
+                        if (tm.tap != null)
+                            tm.tap.gores.Add(new RoadTap.Span { slot = (int)SlotOf(JunctionProfile, SurfaceOf(H, elev)), bucketV = bk.Count, edge = H.index, sA = prevArc, sB = smp.hostArc });
                         bk.Up(prevOut, vOut, vIn, pIn,
                               new Vector2(0f, v0), new Vector2(0f, v1), new Vector2(1f, v1), new Vector2(1f, v0));
                         quads++;
@@ -1729,6 +1868,9 @@ namespace PSXRacing.City
             /// one barrier or one rail, and a verge only floors half the strip.</summary>
             public int nbL, nbR;
             public float nbAtL, nbAtR, stripL, stripR;
+            /// <summary>The squeeze moved that edge in (SqueezeSection): the
+            /// smoothness gate's tap reads the cause, not the drawn position.</summary>
+            public bool sqL, sqR;
             /// <summary>Texture U at each vertex, from its TRUE lateral
             /// offset. A squeezed or clipped ribbon crops the painted
             /// profile instead of compressing it, so the lane lines stay
@@ -1979,7 +2121,11 @@ namespace PSXRacing.City
                     // viaduct halfway along is asphalt up to the abutment and
                     // concrete over the water.
                     var bk = buckets[(int)RoadSlot(e, f.elev)];
-                    float v0 = A.s / RoadVTile, v1 = B.s / RoadVTile;
+                    // chain distance, not edge s (WP-11): the dash phase runs on through joints
+                    float v0 = (e.vOff + e.vDir * A.s) / RoadVTile, v1 = (e.vOff + e.vDir * B.s) / RoadVTile;
+                    if (tm.tap != null)
+                        tm.tap.spans.Add(new RoadTap.Span { slot = (int)RoadSlot(e, f.elev), bucketV = bk.Count, edge = e.index, sA = A.s, sB = B.s,
+                                                             flagsA = TapFlags(A), flagsB = TapFlags(B) });
                     // U = 0 on the left of travel (the R vertex), so a one-way
                     // carriageway's narrow inside shoulder and wide outside
                     // shoulder land where the painter put them. The winding
@@ -2774,6 +2920,7 @@ namespace PSXRacing.City
                 if (ol.L == null || q.x < ol.minX || q.x > ol.maxX || q.y < ol.minZ || q.y > ol.maxZ) continue;
                 for (int i = 1; i < ol.L.Length; i++)
                 {
+                    if (ol.BlockMisses(i, q.x, q.y, q.x, q.y)) { i += Outline.Block - 1; continue; }
                     if (TriInterval(ol.L[i - 1], ol.L[i], ol.R[i], q, Vector2.right, 0f, out _, out _) &&
                         Mathf.Abs(TriHeight(ol.L[i - 1], ol.L[i], ol.R[i], q) - y) <= PavedOnwardDyM) return true;
                     if (TriInterval(ol.L[i - 1], ol.R[i], ol.R[i - 1], q, Vector2.right, 0f, out _, out _) &&
@@ -3812,6 +3959,7 @@ namespace PSXRacing.City
             float best = limit;
             for (int i = 1; i < ol.L.Length; i++)
             {
+                if (ol.BlockMisses(i, Mathf.Min(p.x, far.x), Mathf.Min(p.y, far.y), Mathf.Max(p.x, far.x), Mathf.Max(p.y, far.y))) { i += Outline.Block - 1; continue; }
                 Vector3 aL = ol.L[i - 1], bL = ol.L[i], bR = ol.R[i], aR = ol.R[i - 1];
                 if (TriInterval(aL, bL, bR, p, dir, limit, out float t0, out float t1) && t1 - t0 > 1e-4f && t0 < best)
                 {
@@ -3894,9 +4042,9 @@ namespace PSXRacing.City
             Squeeze(map, trims, e, p, right, hw, y, ref sqL, ref sqR,
                     out sec.nbL, out sec.nbR, out sec.nbAtL, out sec.nbAtR, out sec.stripL, out sec.stripR);
             if (sqR < hwR - 1e-3f)
-                sec.R = new Vector3(p.x + right.x * sqR - tm.origin.x, y, p.y + right.y * sqR - tm.origin.z);
+            { sec.R = new Vector3(p.x + right.x * sqR - tm.origin.x, y, p.y + right.y * sqR - tm.origin.z); sec.sqR = true; }
             if (sqL < hwL - 1e-3f)
-                sec.L = new Vector3(p.x - right.x * sqL - tm.origin.x, y, p.y - right.y * sqL - tm.origin.z);
+            { sec.L = new Vector3(p.x - right.x * sqL - tm.origin.x, y, p.y - right.y * sqL - tm.origin.z); sec.sqL = true; }
         }
 
         /// <summary>The ribbon's half width each side at an arc position —
@@ -3973,7 +4121,8 @@ namespace PSXRacing.City
         {
             nbL = -1; nbR = -1; nbAtL = 0f; nbAtR = 0f; stripL = -1f; stripR = -1f;
             nbScratch.Clear();
-            map.EdgeSegsInRect(p - Vector2.one * 32f, p + Vector2.one * 32f, nbScratch);
+            // a segment further than 32 m is past any two half widths (13.1 m at most each)
+            map.EdgeSegsNear(p - Vector2.one * 32f, p + Vector2.one * 32f, nbScratch);
             var tan = new Vector2(right.y, -right.x);
             // the nearest parallel road on each side, whatever it is
             float dL = float.MaxValue, dR = float.MaxValue;
@@ -4208,6 +4357,7 @@ namespace PSXRacing.City
                     if (ol.L == null || vw.x < ol.minX - MeetReachM || vw.x > ol.maxX + MeetReachM || vw.y < ol.minZ - MeetReachM || vw.y > ol.maxZ + MeetReachM) continue;
                     for (int i = 1; i < ol.L.Length && !flush; i++)
                     {
+                        if (ol.BlockMisses(i, vw.x - MeetReachM, vw.y - MeetReachM, vw.x + MeetReachM, vw.y + MeetReachM)) { i += Outline.Block - 1; continue; }
                         if (ol.elev[i - 1] || ol.elev[i]) continue;
                         Vector3 aL = ol.L[i - 1], bL = ol.L[i], bR = ol.R[i], aR = ol.R[i - 1];
                         if (vw.x < Mathf.Min(Mathf.Min(aL.x, bL.x), Mathf.Min(bR.x, aR.x)) - MeetReachM || vw.x > Mathf.Max(Mathf.Max(aL.x, bL.x), Mathf.Max(bR.x, aR.x)) + MeetReachM ||
@@ -5198,6 +5348,7 @@ namespace PSXRacing.City
                     if (ol.L == null || pt.x < ol.minX - pad || pt.x > ol.maxX + pad || pt.y < ol.minZ - pad || pt.y > ol.maxZ + pad) continue;
                     for (int i = 1; i < ol.L.Length; i++)
                     {
+                        if (ol.BlockMisses(i, pt.x - pad, pt.y - pad, pt.x + pad, pt.y + pad)) { i += Outline.Block - 1; continue; }
                         bool deck = ol.elev[i - 1] || ol.elev[i];
                         Vector3 aL = ol.L[i - 1], bL = ol.L[i], bR = ol.R[i], aR = ol.R[i - 1];
                         if (pt.x < Mathf.Min(Mathf.Min(aL.x, bL.x), Mathf.Min(bR.x, aR.x)) - pad || pt.x > Mathf.Max(Mathf.Max(aL.x, bL.x), Mathf.Max(bR.x, aR.x)) + pad ||
@@ -5369,6 +5520,7 @@ namespace PSXRacing.City
                 paveSpans.Clear();
                 for (int i = 1; i < ol.L.Length; i++)
                 {
+                    if (ol.BlockMisses(i, bx0, bz0, bx1, bz1)) { i += Outline.Block - 1; continue; }
                     Vector3 aL = ol.L[i - 1], bL = ol.L[i], bR = ol.R[i], aR = ol.R[i - 1];
                     if (bx1 < Mathf.Min(Mathf.Min(aL.x, bL.x), Mathf.Min(bR.x, aR.x)) || bx0 > Mathf.Max(Mathf.Max(aL.x, bL.x), Mathf.Max(bR.x, aR.x)) ||
                         bz1 < Mathf.Min(Mathf.Min(aL.z, bL.z), Mathf.Min(bR.z, aR.z)) || bz0 > Mathf.Max(Mathf.Max(aL.z, bL.z), Mathf.Max(bR.z, aR.z))) continue;
@@ -5539,6 +5691,40 @@ namespace PSXRacing.City
             public Vector3[] L, R;
             public bool[] elev;
             public float minX = float.MaxValue, minZ = float.MaxValue, maxX = float.MinValue, maxZ = float.MinValue;
+            /// <summary>A plan box per block of <see cref="Block"/> spans (4
+            /// floats: min x, min z, max x, max z, padded by BlockPadM), so a
+            /// scan over a long outline skips the blocks nowhere near its
+            /// query. Every scan's own per-span test still decides; a skipped
+            /// block is one no span of which could pass it. WP-11's arcs gave
+            /// a long freeway outline hundreds of spans, each tested by every
+            /// verge probe in the tile (review 2026-09-30: tile p95 +50%).</summary>
+            public float[] bb;
+            public const int Block = 16;
+            const float BlockPadM = 0.01f;
+            public void BuildBlocks()
+            {
+                int nq = L.Length - 1, nb = (nq + Block - 1) / Block;
+                bb = new float[nb * 4];
+                for (int b = 0; b < nb; b++)
+                {
+                    float x0 = float.MaxValue, z0 = float.MaxValue, x1 = float.MinValue, z1 = float.MinValue;
+                    for (int j = b * Block, end = Mathf.Min(L.Length - 1, b * Block + Block); j <= end; j++)
+                    {
+                        x0 = Mathf.Min(x0, Mathf.Min(L[j].x, R[j].x)); x1 = Mathf.Max(x1, Mathf.Max(L[j].x, R[j].x));
+                        z0 = Mathf.Min(z0, Mathf.Min(L[j].z, R[j].z)); z1 = Mathf.Max(z1, Mathf.Max(L[j].z, R[j].z));
+                    }
+                    bb[b * 4] = x0 - BlockPadM; bb[b * 4 + 1] = z0 - BlockPadM; bb[b * 4 + 2] = x1 + BlockPadM; bb[b * 4 + 3] = z1 + BlockPadM;
+                }
+            }
+            /// <summary>At span i opening a block ((i - 1) % Block == 0): does
+            /// that block's box miss the query box? The caller then steps
+            /// past the whole block.</summary>
+            public bool BlockMisses(int i, float x0, float z0, float x1, float z1)
+            {
+                if (((i - 1) & (Block - 1)) != 0 || bb == null) return false;
+                int b = ((i - 1) / Block) * 4;
+                return x1 < bb[b] || x0 > bb[b + 2] || z1 < bb[b + 1] || z0 > bb[b + 3];
+            }
         }
         static readonly Dictionary<int, Outline> outlines = new Dictionary<int, Outline>();
         static readonly List<int> nearEdges = new List<int>(32);
@@ -5580,6 +5766,7 @@ namespace PSXRacing.City
                     ol.minX = Mathf.Min(ol.minX, Mathf.Min(ol.L[i].x, ol.R[i].x)); ol.maxX = Mathf.Max(ol.maxX, Mathf.Max(ol.L[i].x, ol.R[i].x));
                     ol.minZ = Mathf.Min(ol.minZ, Mathf.Min(ol.L[i].z, ol.R[i].z)); ol.maxZ = Mathf.Max(ol.maxZ, Mathf.Max(ol.L[i].z, ol.R[i].z));
                 }
+                ol.BuildBlocks();
             }
             sections.Clear(); sections.AddRange(outlineSections);
             endScratch.Clear(); endScratch.AddRange(outlineEnds);
@@ -5608,6 +5795,7 @@ namespace PSXRacing.City
                     ol.minX = Mathf.Min(ol.minX, Mathf.Min(ol.L[i].x, ol.R[i].x)); ol.maxX = Mathf.Max(ol.maxX, Mathf.Max(ol.L[i].x, ol.R[i].x));
                     ol.minZ = Mathf.Min(ol.minZ, Mathf.Min(ol.L[i].z, ol.R[i].z)); ol.maxZ = Mathf.Max(ol.maxZ, Mathf.Max(ol.L[i].z, ol.R[i].z));
                 }
+                ol.BuildBlocks();
             }
             return ol;
         }
@@ -5635,6 +5823,7 @@ namespace PSXRacing.City
             if (ol.L == null || q.x < ol.minX || q.x > ol.maxX || q.y < ol.minZ || q.y > ol.maxZ) return h;
             for (int i = 1; i < ol.L.Length; i++)
             {
+                if (ol.BlockMisses(i, q.x, q.y, q.x, q.y)) { i += Outline.Block - 1; continue; }
                 for (int k = 0; k < 2; k++)
                 {
                     Vector3 a = ol.L[i - 1], b = k == 0 ? ol.L[i] : ol.R[i], c = k == 0 ? ol.R[i] : ol.R[i - 1];
@@ -5652,6 +5841,7 @@ namespace PSXRacing.City
         {
             for (int i = 1; i < ol.L.Length; i++)
             {
+                if (ol.BlockMisses(i, q.x, q.y, q.x, q.y)) { i += Outline.Block - 1; continue; }
                 if (TriInterval(ol.L[i - 1], ol.L[i], ol.R[i], DeepInsetM, 0f, 0f, q, Vector2.right, 0f, out _, out _)) return true;
                 if (TriInterval(ol.L[i - 1], ol.R[i], ol.R[i - 1], 0f, DeepInsetM, 0f, q, Vector2.right, 0f, out _, out _)) return true;
             }
@@ -5971,6 +6161,13 @@ namespace PSXRacing.City
                 var centre = new Vector3(np.x - tm.origin.x, map.nodeY[n] + proud, np.y - tm.origin.z);
                 FanTriangles(corners, new Vector2(centre.x, centre.z), fanTris);
                 int centerI = bk.v.Count;
+                if (tm.tap != null)
+                {
+                    ulong mouths = 0;
+                    for (int i = 0; i < corners.Count && i < 64; i++) if (corners[i].mouthNext) mouths |= 1UL << i;
+                    tm.tap.fans.Add(new RoadTap.Fan { slot = (int)SlotOf(JunctionProfile, IsFresh(np) ? Surface.AsphaltNew : Surface.AsphaltOld),
+                                                      bucketV = centerI, count = corners.Count + 1, node = n, mouths = mouths, triStart = bk.t.Count, triCount = fanTris.Count / 3 });
+                }
                 bk.v.Add(centre);
                 bk.uv.Add(new Vector2(np.x / 12f, np.y / 12f));
                 for (int i = 0; i < corners.Count; i++)
@@ -7118,6 +7315,7 @@ namespace PSXRacing.City
                 if (ol.L == null || x1 < ol.minX || x0 > ol.maxX || z1 < ol.minZ || z0 > ol.maxZ) continue;
                 for (int i = 1; i < ol.L.Length; i++)
                 {
+                    if (ol.BlockMisses(i, x0, z0, x1, z1)) { i += Outline.Block - 1; continue; }
                     Vector3 aL = ol.L[i - 1], bL = ol.L[i], bR = ol.R[i], aR = ol.R[i - 1];
                     if (x1 < Mathf.Min(Mathf.Min(aL.x, bL.x), Mathf.Min(bR.x, aR.x)) || x0 > Mathf.Max(Mathf.Max(aL.x, bL.x), Mathf.Max(bR.x, aR.x)) ||
                         z1 < Mathf.Min(Mathf.Min(aL.z, bL.z), Mathf.Min(bR.z, aR.z)) || z0 > Mathf.Max(Mathf.Max(aL.z, bL.z), Mathf.Max(bR.z, aR.z))) continue;

@@ -55,7 +55,8 @@
 // tools/city/lib/citydata.mjs, which reads them the way the game does):
 //   charlotte_city.bytes    PSXC v2: a section table, then META NODE NAME EDGE
 //                           PNTS WATR WBED XING SPAN ROUT and GHSH, the graph
-//                           hash (WBED, the creek beds, since WP-04b)
+//                           hash (WBED, the creek beds, since WP-04b), then
+//                           LANW TAPR PARA TAGN (WP-10) and SPLT (WP-11)
 //   charlotte_dem.bytes     PDEM v3: the 30 m height grid in delta-coded
 //                           blocks (lib/pdem3.mjs), datum pinned at 97.0 m
 //   charlotte_bld.bytes     PBLD v1: footprints
@@ -92,6 +93,9 @@ import { load3dep } from './lib/dem3dep.mjs';
 import { buildWaters, waterInputPaths } from './lib/water.mjs';
 import { parseCity, parseDem, parseBld, fingerprint, graphHash, hashHex, CITY_SECTIONS } from './lib/citydata.mjs';
 import { readCredits } from './lib/sources.mjs';
+import { lineClean, LANE_W, LANE_W_LINK } from './lib/lineclean.mjs';
+import { readSmoothRules } from './lib/smoothrules.mjs';
+import { findSplits } from './lib/splits.mjs';
 import { encodePdem3 } from './lib/pdem3.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -258,7 +262,18 @@ console.log(`raw: ${rawWays.length} arterial ways, ${rawMinor.length} minor ways
 // ------------------------------------------------------------- ways -> edges
 const ways = [];
 const seenWay = new Set();
-let tollDropped = 0;
+let tollKept = 0, tollDropped = 0;
+/// The toll roads (the I-77 and I-485 Express Lanes, the Monroe Expressway,
+/// their ramps: 177 ways). The owner wants them (Q3, present day) and WP-10's
+/// PARA pass moves the express lanes clear of the general lanes (93 -> 1 km
+/// of pair short of its gap). HELD BACK for now: kept, the first city audit
+/// failed on them alone - their layer=1 connector flyovers over I-485 clear
+/// the general lanes by -0.55 m, an I-77 connector climbs 39% into a 26 m
+/// bridge (35.3759,-80.8470) and a Monroe Expressway ramp crosses
+/// Independence Boulevard at grade - elevation-solver work, not lines. Flip
+/// this with that fix (tools/city/lib/lineclean.mjs already handles them):
+/// the plan's WP-10t, right after WP-11b ships.
+const KEEP_TOLL = false;
 const tollNodes = new Set();   // every node a dropped toll way touched
 function keepWay(w, minor) {
   if (seenWay.has(w.id)) return;
@@ -268,14 +283,14 @@ function keepWay(w, minor) {
   const link = hw.endsWith('_link');
   const base = link ? hw.slice(0, -5) : hw;
   if (!(base in CLS_RANK)) return;
-  // NO TOLL ROADS. Every toll=yes way in this snapshot is post-2015: the
-  // I-77 Express Lanes (2019), the I-485 Express Lanes (2019) and the Monroe
-  // Expressway (2018), plus their slip ramps. The game is set in 1999, and
-  // the express lanes were also the "zigzag" on I-77: OSM maps them as a
-  // second carriageway 5.5 m from the general lanes, so both ribbons were
-  // squeezed against each other and the paint slalomed wherever the two
-  // mapped lines drifted apart or together.
-  if (t.toll === 'yes') { tollDropped++; for (const id of w.nodes) tollNodes.add(id); return; }
+  // TOLL ROADS (owner Q3, 2026-09-28: present day; KEEP_TOLL above). OSM
+  // maps the express lanes about 5.5 m from the general lanes, so the two
+  // ribbons overlapped and were squeezed into one slalom; WP-10's PARA pass
+  // (lib/lineclean.mjs) moves them apart to a real gap when they are kept.
+  if (t.toll === 'yes') {
+    if (!KEEP_TOLL) { tollDropped++; for (const id of w.nodes) tollNodes.add(id); return; }
+    tollKept++;
+  }
   if (minor) {
     // Named service roads are streets (a shopping-centre ring road); the
     // unnamed ones are car-park aisles and loading bays and would clutter
@@ -317,22 +332,31 @@ function keepWay(w, minor) {
   const refFirst = t.ref ? t.ref.split(';')[0].trim().replace(/^I (\d)/, 'I-$1') : '';
   if (!name || (base === 'motorway' && !link && /^I-\d/.test(refFirst))) name = refFirst || name;
   if (link) name = '';
+  // What WP-10's lane rules read (lib/lineclean.mjs): whether the count was
+  // TAGGED, the per-direction counts, and turn:lanes (which side a lane
+  // opens on). A reversed one-way (oneway=-1) reads its backward tags.
+  const tagged = Number.isFinite(parseInt(t.lanes, 10)) || (Number.isFinite(lf) && Number.isFinite(lb));
+  const rev = onewayOf(t) === -1;
   ways.push({
     id: w.id, base, link, rank: CLS_RANK[base], oneway, lanes, turn, shl, shr,
     bridge, tunnel, level, name, speed: parseSpeedKmh(t),
     roundabout: t.junction === 'roundabout' || t.junction === 'circular',
+    toll: t.toll === 'yes', tagged,
+    lf: Number.isFinite(lf) ? lf : NaN, lb: Number.isFinite(lb) ? lb : NaN,
+    tl: rev ? (t['turn:lanes:backward'] || t['turn:lanes']) : t['turn:lanes'],
+    tlf: t['turn:lanes:forward'], tlb: t['turn:lanes:backward'],
     nodes, geom,
   });
 }
 for (const w of rawWays) keepWay(w, false);
 for (const w of rawMinor) keepWay(w, true);
-console.log(`kept ${ways.length} ways (dropped ${tollDropped} toll ways: the 2018-19 express lanes)`);
-
+console.log(KEEP_TOLL ? `kept ${ways.length} ways (${tollKept} of them toll: the express lanes and the Monroe Expressway, kept - owner Q3)`
+                      : `kept ${ways.length} ways (dropped ${tollDropped} toll ways: held back, see KEEP_TOLL)`);
 // A slip ramp that only ever led to a dropped toll lane now ends in mid-air:
 // an untolled link whose free end is a node only the toll lanes shared. Drop
 // those too, and keep dropping until no ramp leads nowhere (a two-piece ramp
 // loses its far piece first, then its near one).
-{
+if (!KEEP_TOLL) {
   let stubs = 0;
   for (;;) {
     const use = new Map();
@@ -512,6 +536,57 @@ function nearestOnEdge(e, x, z) {
   hashSegs();
 }
 
+// ------------------------------------------------- WP-10: the line clean-up
+// Tagged nodes, lane-count data, simplify, doglegs, TAPR, PARA: the rules and
+// their reasons are in lib/lineclean.mjs. Everything after this (crossings,
+// water spans, routes, the plots) reads the cleaned lines.
+const uptownXY = [toX(-80.8431), toZ(35.2271)];
+// WP-11's fillet numbers are the smoothness gate's (Editor/SmoothRules.cs):
+// R_min by class (B3), the inner-edge floor, the 2 cm sagitta and the chord cap
+const SR = readSmoothRules(join(UNITY, 'Assets', 'PSXRacing', 'Editor', 'SmoothRules.cs'));
+const LC = lineClean({ ways, edges, nodes, rawWays: [...rawWays, ...rawMinor],
+                       rawNodes, toX, toZ, uptown: uptownXY,
+                       fillet: { rMinFor: SR.rMinFor, innerEdgeMinR: SR.InnerEdgeMinRM, eps: SR.DensifyEpsM,
+                                 chordCap: SR.ChordCapM, collinearDeg: SR.CollinearDeg } });
+hashSegs();
+const SPLITS = findSplits(edges, nodes);
+{
+  const st = LC.stats;
+  console.log(`WP-10 lines: ${st.points.before} -> ${st.points.after_simplify} points after collapse + Douglas-Peucker 0.5 m (${st.pinned_vertices} shared raw vertices pinned; first piece held at ${st.simplify_held.taper_ends} lane-change edges, ${st.simplify_held.structure} decks/tunnels left alone); ` +
+              `doglegs ${st.doglegs_raw.all} (${st.doglegs_raw.jog_ge_1m} jog >= 1 m) -> ${st.doglegs_after.all} (fixed ${st.doglegs_fixed.all}, worst jog ${st.doglegs_fixed.worst_jog_m} m)`);
+  console.log(`WP-10 lanes: flickers ${st.lane_fixes.flicker} (${st.lane_fix_km.flicker} km), short pieces ${st.lane_fixes.short} (${st.lane_fix_km.short} km), inferred ${st.lane_fixes.inferred} (${st.lane_fix_km.inferred} km)`);
+  console.log(`WP-10 lanes: ${st.lane_kept_tagged} short tagged pieces kept (turn bays, drawn one-sided); edges drawn below their own lanes= tag: ${st.lane_below_tag}`);
+  console.log(`WP-10 TAPR: ${st.tapr.transitions} lane-count changes, ${st.tapr.oneSided} one-sided (0 symmetric), ${st.tapr.tagged} side from tags, ${st.tapr.bays} turn bays, ${st.tapr.atJunction} full width at a junction mouth, ${st.tapr.shortened} fitted to the chain, ${st.tapr.absorbed} absorbed (no room), ${st.tapr.reanchored} re-anchored at a junction (> 1 lane off), ${st.tapr.recentred} untagged junction-mouth lanes opened on the re-centring side`);
+  console.log(`WP-10 PARA: before ${JSON.stringify(st.para_before)}; after ${JSON.stringify(st.para_after)}; moved ${st.para_moved.chains} chains (max ${st.para_moved.max_offset_m} m)`);
+  {
+    const rv = LC.review.filter(r => r.kind === 'para');
+    const core = rv.filter(r => Math.abs(r.x - uptownXY[0]) <= 4000 && Math.abs(r.z - uptownXY[1]) <= 4000);
+    console.log(`WP-10 PARA review list: ${rv.length} pairs city-wide, ${core.length} in the 8 x 8 km core (${core.reduce((a, r) => a + r.metres, 0).toFixed(0)} m); untagged bridges kept at the default: ${LC.review.filter(r => r.kind === 'untagged-bridge').length}`);
+  }
+  if (process.env.PSX_LC_DIAG) {
+    const kindOf = (E, F) => E.way.link || F.way.link ? 'ramp' : !!E.way.toll !== !!F.way.toll ? 'express' : E.way.oneway && F.way.oneway && E.way.name && E.way.name === F.way.name ? 'divided' : 'other';
+    const rows = (defs, tag) => {
+      const agg = {};
+      for (const d of defs) { const k = (d.exempt ? 'exempt-' : '') + kindOf(d.E, d.F); agg[k] = (agg[k] || 0) + 2.5; }
+      console.log(tag, JSON.stringify(Object.fromEntries(Object.entries(agg).map(([k, v]) => [k, +(v / 1000).toFixed(1)]))));
+    };
+    rows(LC.para.defs0, 'PARA km before by kind');
+    rows(LC.para.defs, 'PARA km after by kind');
+    const top = [...LC.para.moved].sort((a, b) => b.umax - a.umax).slice(0, 12);
+    for (const m of top) { const e = edges[m.edges[0]]; const P = e.pts[e.pts.length >> 1]; console.log('moved', m.umax.toFixed(1), 'm', e.way.name || 'ramp', e.way.id, toLat(P[1]).toFixed(5), toLon(P[0]).toFixed(5), m.edges.length, 'edges'); }
+    writeFileSync(process.env.PSX_LC_DIAG, JSON.stringify(LC.para.pairs.map(p => ({ ...p, kind: kindOf(edges[p.e1], edges[p.e2]), n1: edges[p.e1].way.name, n2: edges[p.e2].way.name, w1: edges[p.e1].way.id, w2: edges[p.e2].way.id, lat: toLat(p.z), lon: toLon(p.x) })).sort((a, b) => b.n - a.n)));
+  }
+  if (st.fillet) {
+    const f = st.fillet;
+    console.log(`WP-11 fillets: ${f.strands} strands (${f.closed} closed loops held at one node), ${f.vertices} vertices, ${f.filleted} filleted, ${f.merged} short-tangent pairs fitted as one curve; ${f.junctionsFilleted} mitred junctions filleted across (${f.armsFollowed} arms followed their node); ` +
+                `${f.tight} under their class floor (listed), ${f.overEmax} past their class Emax (listed); 2-arm nodes moved ${f.nodesMoved} (median ${f.nodeMoveMedian} m, max ${f.nodeMoveMax} m); ` +
+                `points ${f.pointsBefore} -> ${f.pointsAfter}; edge ends off their node before: ${st.fillet_end_gap_m} m`);
+    console.log(`WP-11 fillets (review 2026-09-30): ${f.lone} lone vertices left as vertices (net turn within 10 m under 8 eps / 10 m), ${f.held} near-U-turn nodes held (bend slab, not a fold), ${f.oneWayClash} one-way pairs meeting nose to nose not run across; free vertices still under half width + ${SR.InnerEdgeMinRM} m: ${f.foldFree} (listed)`);
+  }
+  console.log(`WP-11 C11 split nodes (an undivided road opening into its two carriageways; section SPLT for the line model): ${SPLITS.length}`);
+  console.log(`WP-10 tagged nodes: ${st.tagged_nodes} recorded on the raw ways, ${st.tagged_projected.nodes} projected (max move ${st.tagged_projected.moved_max_m} m)`);
+}
+
 // -------------------------------------------------------------- crossings
 function segX(ax, ay, bx, by, cx, cy, dx, dy) {
   const r1x = bx - ax, r1y = by - ay, r2x = dx - cx, r2y = dy - cy;
@@ -523,6 +598,10 @@ function segX(ax, ay, bx, by, cx, cy, dx, dy) {
   return [ax + r1x * t, ay + r1y * t];
 }
 const crossings = [];   // { over, under, x, z, forced }
+/// Two nodes joined by one edge under 50 m.
+const shortLinks = new Set();
+for (const e of edges) if (e.len < 50) { shortLinks.add(e.a + ':' + e.b); shortLinks.add(e.b + ':' + e.a); }
+const shortLink = (a, b) => shortLinks.has(a + ':' + b);
 {
   const pairSeen = new Map();
   let same = 0, guessed = 0;
@@ -537,6 +616,20 @@ const crossings = [];   // { over, under, x, z, forced }
       // a crossing at a node both edges share is the junction itself
       const shared = [ea.a, ea.b].filter(x => x === eb.a || x === eb.b);
       if (shared.some(nn => Math.hypot(nodes[nn][0] - hit[0], nodes[nn][1] - hit[1]) < 3)) continue;
+      // Two edges at the SAME level that share a node and cross within 150 m
+      // of it (150 m: a long ramp taper) are one merging into the other:
+      // their ribbons meet in a gore or a clip, never on a bridge. The mapped
+      // lines touch there, and WP-10's simplify and PARA can leave them
+      // crossing a few metres off the node - a "grade separation" the solver
+      // then lifted (a 70 m I-485 node, 22 of them on the first run).
+      // (or a node one short edge away: a ramp leaving just before the
+      // carriageway it runs beside was split by a junction)
+      if (ea.way.level === eb.way.level) {
+        const near = [...shared];
+        for (const na of [ea.a, ea.b]) for (const nb of [eb.a, eb.b])
+          if (na !== nb && shortLink(na, nb)) near.push(na, nb);
+        if (near.some(nn => Math.hypot(nodes[nn][0] - hit[0], nodes[nn][1] - hit[1]) < 150)) continue;
+      }
       const key = ea.id < eb.id ? `${ea.id}:${eb.id}` : `${eb.id}:${ea.id}`;
       const prior = pairSeen.get(key) || [];
       if (prior.some(q => Math.hypot(q[0] - hit[0], q[1] - hit[1]) < XDEDUP_M)) continue;
@@ -586,7 +679,9 @@ const waters = buildWaters({ cacheDir: CACHE, dem3, toX, toZ, toLat, toLon, box:
   const cells = new Map();
   let maxHw = 0;
   for (const e of edges) {
-    const hw = (e.way.lanes * LANE_M + e.way.shl + e.way.shr) / 2;
+    // the piece's own lane count after WP-10's clean-up (e.lanes), at the
+    // 3.6576 m lanes the game still draws
+    const hw = (e.lanes * LANE_M + e.way.shl + e.way.shr) / 2;
     maxHw = Math.max(maxHw, hw);
     for (let i = 1; i < e.pts.length; i++) {
       const [ax, az] = e.pts[i - 1], [bx, bz] = e.pts[i];
@@ -1145,9 +1240,11 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
       const wy = e.way;
       w.u32(e.a); w.u32(e.b); w.u32(nameIdx(wy.name));
       w.u8(wy.rank);
-      w.u8((wy.link ? 1 : 0) | (wy.oneway ? 2 : 0) | (wy.bridge ? 4 : 0) | (wy.tunnel ? 8 : 0) | (wy.turn ? 16 : 0) | (wy.roundabout ? 32 : 0));
-      w.u8(wy.lanes); w.i8(wy.level);
-      w.f32(wy.lanes * LANE_M + wy.shl + wy.shr); w.f32(wy.shl); w.f32(wy.shr);
+      w.u8((wy.link ? 1 : 0) | (wy.oneway ? 2 : 0) | (wy.bridge ? 4 : 0) | (wy.tunnel ? 8 : 0) | (e.turn ? 16 : 0) | (wy.roundabout ? 32 : 0));
+      w.u8(e.lanes); w.i8(wy.level);
+      // the exporter's width at the REAL lane width of its class (LANW; the
+      // game still draws the profile's 3.6576 m lanes until WP-11b)
+      w.f32(e.lanes * (wy.link ? LANE_W_LINK : LANE_W)[wy.rank] + wy.shl + wy.shr); w.f32(wy.shl); w.f32(wy.shr);
       w.u8(Math.min(255, wy.speed)); w.u32(wy.id);
       if (e.pts.length > 65535) throw new Error(`edge ${e.id} has ${e.pts.length} points (u16)`);
       w.u16(e.pts.length);
@@ -1203,6 +1300,69 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
   // the graph hash, over the points as the file stores them (float32)
   const ghash = graphHash(edges.map(e => ({ a: e.a, b: e.b, pts: e.pts.map(p => [f32r(p[0]), f32r(p[1])]) })));
   section('GHSH', w => w.u32(ghash));
+  // ---- WP-10 (plan A4 + A8; lib/lineclean.mjs has the rules)
+  // LANW: real lane widths by class, rank 0..5, then the links'
+  section('LANW', w => { w.u8(LANE_W.length); for (const v of LANE_W) w.f32(v); for (const v of LANE_W_LINK) w.f32(v); });
+  // TAPR: every lane-count change along a chain - the wide run's edge and
+  // end at the node, the ribbon side that moves (0 left, 1 right of a->b),
+  // where the side came from (0 rule, 1 bay rule, 2 turn:lanes, 3 lanes:
+  // forward/backward), flags (1 turn bay, 2 full width at the node - a
+  // junction mouth, or no room for a taper - with len 0 at a junction, 4 a
+  // drop in chain order, 8 untagged), the width change, the MUTCD length,
+  // the room the chain has, and the wide run's offset at the node; then
+  // every edge's ribbon offset off its OSM line (+ = left of a->b), where
+  // not zero, as o0 + (o1 - o0) * smoothstep((s - t0) / (t1 - t0)): u32
+  // edge, f32 o0, o1, t0, t1. Since the WP-10 review the offset HOLDS along
+  // an edge (o0 = o1, t0 0, t1 1): no mid-block shift; the fields stay for
+  // WP-11b's eases.
+  section('TAPR', w => {
+    w.u32(LC.tapr.length);
+    for (const t of LC.tapr) { w.u32(t.edge); w.u8(t.end); w.u8(t.side); w.u8(t.src); w.u8(t.flags); w.f32(t.dw); w.f32(t.len); w.f32(t.room); w.f32(t.off); }
+    const offs = [];
+    for (let i = 0; i < edges.length; i++) { const r = LC.edgeOffset[i]; if (r && (Math.abs(r.o0) > 1e-4 || Math.abs(r.o1) > 1e-4)) offs.push(i); }
+    w.u32(offs.length);
+    for (const i of offs) { const r = LC.edgeOffset[i]; w.u32(i); w.f32(r.o0); w.f32(r.o1); w.f32(r.t0); w.f32(r.t1); }
+  });
+  // PARA: the carriageway pairs still short of their gap outside an attach
+  // zone (the review list: e1, e2, where, the deficit, metres, in the core,
+  // on a race route), then every edge PARA moved with its largest shift.
+  section('PARA', w => {
+    const onRoute = new Set(routes.flatMap(r => r.chain.map(c => c.e.id)));
+    const items = LC.review.filter(r => r.kind === 'para');
+    {
+      const inC = r => Math.abs(r.x - uptownX) <= 4000 && Math.abs(r.z - uptownZ) <= 4000;
+      const onR = r => onRoute.has(r.edge) || onRoute.has(r.edge2);
+      console.log(`WP-10 PARA review: ${items.length} pairs; core ${items.filter(inC).length}, routes ${items.filter(onR).length}`);
+      if (process.env.PSX_LC_DIAG) for (const r of items.filter(r => inC(r) || onR(r))) console.log(`  PARA ${inC(r) ? 'core' : ''}${onR(r) ? ' route' : ''} e${r.edge}/e${r.edge2} ${r.note} short ${r.deficit.toFixed(2)} m for ${r.metres.toFixed(0)} m at (${r.x.toFixed(0)}, ${r.z.toFixed(0)}) ${toLat(r.z).toFixed(5)},${toLon(r.x).toFixed(5)}`);
+    }
+    w.u32(items.length);
+    for (const r of items) {
+      w.u32(r.edge); w.u32(r.edge2); w.f32(r.x); w.f32(r.z); w.f32(r.deficit); w.f32(r.metres);
+      w.u8(Math.abs(r.x - uptownX) <= 4000 && Math.abs(r.z - uptownZ) <= 4000 ? 1 : 0);
+      w.u8(onRoute.has(r.edge) || onRoute.has(r.edge2) ? 1 : 0);
+    }
+    const movedE = new Map();
+    for (const m of LC.para.moved) for (const id of m.edges) movedE.set(id, Math.max(movedE.get(id) || 0, m.umax));
+    w.u32(movedE.size);
+    for (const [id, u] of movedE) { w.u32(id); w.f32(u); }
+  });
+  // TAGN: control nodes resolved on the RAW ways before any vertex moved
+  // (critic C3): OSM node id (lo, hi), way id, kind (4 signal, 2 stop, 1 give
+  // way), raw distance along the way, and where they are now (edge, s).
+  section('TAGN', w => {
+    w.u32(LC.tagged.length);
+    for (const t of LC.tagged) { w.u32(t.nodeId % 4294967296); w.u32(Math.floor(t.nodeId / 4294967296)); w.u32(t.wayId); w.u8(t.kind); w.f32(t.rawS); w.u32(t.edge); w.f32(t.s); }
+  });
+  // SPLT (WP-11, critic C11; lib/splits.mjs): where an undivided road splits
+  // into its two carriageways - not a junction but a median taper, drawn by
+  // the line model (WP-11b): u32 node, u32 undivided edge, u32 carriageway
+  // leaving, u32 carriageway arriving, f32 their centre offsets at the node
+  // in the undivided edge's frame (+ = left of its direction into the node),
+  // f32 the MUTCD shifting-taper rate (m along per m across).
+  section('SPLT', w => {
+    w.u32(SPLITS.length);
+    for (const t of SPLITS) { w.u32(t.node); w.u32(t.u); w.u32(t.a); w.u32(t.b); w.f32(t.offA); w.f32(t.offB); w.f32(t.rate); }
+  });
   if ([...sec.keys()].join() !== CITY_SECTIONS.join()) throw new Error('PSXC sections out of step with citydata.mjs CITY_SECTIONS');
 
   const align = n => (n + 3) & ~3;
@@ -1345,7 +1505,7 @@ function plot(name, cx, cz, halfM, S) {
     if (!inView(e.pts[0]) && !inView(e.pts[e.pts.length - 1])) continue;
     const wy = e.way;
     const col = wy.bridge ? [120, 40, 160] : wy.link ? [80, 170, 90] : CLS_COLOR[wy.rank];
-    const wpx = Math.max(1, (wy.lanes * LANE_M + wy.shl + wy.shr) * scale);
+    const wpx = Math.max(1, (e.lanes * LANE_M + wy.shl + wy.shr) * scale);
     for (let i = 1; i < e.pts.length; i++) line(px(e.pts[i - 1][0]), py(e.pts[i - 1][1]), px(e.pts[i][0]), py(e.pts[i][1]), wpx, ...col);
   }
   for (const c of crossings) if (inView([c.x, c.z])) line(px(c.x) - 2, py(c.z), px(c.x) + 2, py(c.z), 3, 200, 0, 200);

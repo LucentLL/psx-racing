@@ -19,6 +19,8 @@
 //   HEIGHT    the ground and the road line against USGS 3DEP (tools/city/truth):
 //             city-wide DEM, the core's relief, 8 transects (RMSE, crests and
 //             dips kept, climb, crest radius), the land beside the road
+//   SMOOTH    the smoothness gate's B2 KINK / B3 CURVE on the exported
+//             centreline and its offset curves (smooth.mjs; plan A4 WP-G)
 //   CONTROL   signal / stop / give-way nodes by junction class
 //   SIZE      raw and Brotli bytes per file and per charlotte_city section
 //   ACCURACY  road position and width against county pavement data (C12) -
@@ -34,6 +36,7 @@ import { gunzipSync, brotliCompressSync, constants as Z } from 'node:zlib';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseCity, parseDem, parseBld, roadGridSteps, fingerprint, freeVertices, kmByClass, classOf, CLASSES, DEG, STATION_STEP, signedTurn } from './lib/citydata.mjs';
+import { smoothSection } from './smooth.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UNITY = join(HERE, '..', '..');
@@ -353,6 +356,9 @@ P(`  PSXC v${fp.city.version}, graph hash ${fp.city.graph_hash}; PDEM v${fp.dem.
   for (const [c, k] of Object.entries(K))
     P(`  ${c.padEnd(15)} ${String(k.km).padStart(6)}  ${String(k.ge5_per_km).padStart(6)}  ${String(k.ge10_per_km).padStart(6)}  ${String(k.ge25_per_km).padStart(6)}  ${String(k.ge10_short_leg).padStart(14)}  ${String(k.folds_over_10cm).padStart(10)}  ${String(k.max_deg).padStart(7)}`);
 }
+
+// ================================================================ SMOOTH
+{ const sm = smoothSection(city, join(UNITY, 'Assets/PSXRacing/Editor/SmoothRules.cs')); R.smooth = sm.json; for (const l of sm.lines) P(l); }
 
 // ================================================================ LANES
 {

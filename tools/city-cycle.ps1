@@ -39,6 +39,20 @@ foreach ($rel in @("Assets\PSXRacing\Art\CLT", "Assets\PSXRacing\Art\CLT.meta",
 # for its whole life, so nothing downstream could tell a red city from a green
 # one without reading the text.
 $failed = $false
+
+# THE SMOOTHNESS GATE, offline (plan A4 G-offline; Docs\CHARLOTTE.md
+# "Smoothness gate"): tools\city\linecheck.mjs --ratchet against the recorded
+# baseline, which also runs the gate's own probes (gateprobes.mjs). A new or
+# worse violation, a STALE baseline (the data or the gate's code moved since
+# it was recorded: re-record with --write-baseline, BEFORE -> AFTER in the
+# commit), a check or a pin gating looser, or a failing probe exits 1 - and
+# fails this cycle. Until review 5 nothing ran it, so no regression failed any
+# automatic step. Offline, from the source tree: no Unity.
+if (-not $PreviewOnly) {
+    Write-Host "--- smoothness gate, offline (linecheck --ratchet) ---" -ForegroundColor Cyan
+    & node "$src\tools\city\linecheck.mjs" --no-census --ratchet | Select-String -Pattern "^RATCHET|FAIL|STALE|gateprobes|^LINECHECK" | ForEach-Object { $_.Line }
+    if ($LASTEXITCODE -ne 0) { Write-Host "linecheck --ratchet FAILED (exit $LASTEXITCODE)" -ForegroundColor Red; $failed = $true }
+}
 $jobs = @()
 if (-not $PreviewOnly) { $jobs += @{ Name = "city audit";   Method = "PSXRacing.EditorTools.CityAudit.Run";   Out = "city_audit.txt" } }
 if (-not $AuditOnly)   { $jobs += @{ Name = "city preview"; Method = "PSXRacing.EditorTools.CityPreview.Run"; Out = $null } }

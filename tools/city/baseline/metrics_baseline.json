@@ -323,6 +323,114 @@
    }
   }
  },
+ "smooth": {
+  "V": 0.02500000037252903,
+  "chord_cap_m": 10,
+  "lines": 11881,
+  "vertices": 121043,
+  "b2_centre": 73283,
+  "b2_offset": 157641,
+  "b3_centre": 10096,
+  "b3_inner": 242,
+  "worst_b2_centre": {
+   "f_cm": 377.6,
+   "deg": 173.1,
+   "cls": "motorway",
+   "at": "35.42326,-80.66992"
+  },
+  "worst_b3_centre": {
+   "r_m": 1,
+   "limit_m": 150,
+   "cls": "motorway",
+   "at": "35.42326,-80.66992"
+  },
+  "worst_b3_inner": {
+   "r_m": 0.977,
+   "cls": "motorway",
+   "at": "35.42287,-80.67012"
+  },
+  "by_class": {
+   "motorway": {
+    "vertices": 5064,
+    "b2_centre": 3022,
+    "b2_offset": 6237,
+    "b3_centre": 3010,
+    "b3_inner": 1
+   },
+   "motorway_link": {
+    "vertices": 9576,
+    "b2_centre": 8284,
+    "b2_offset": 16698,
+    "b3_centre": 2654,
+    "b3_inner": 3
+   },
+   "trunk": {
+    "vertices": 2321,
+    "b2_centre": 1118,
+    "b2_offset": 2779,
+    "b3_centre": 769,
+    "b3_inner": 0
+   },
+   "trunk_link": {
+    "vertices": 2092,
+    "b2_centre": 1751,
+    "b2_offset": 3497,
+    "b3_centre": 829,
+    "b3_inner": 11
+   },
+   "primary": {
+    "vertices": 11457,
+    "b2_centre": 6053,
+    "b2_offset": 15002,
+    "b3_centre": 259,
+    "b3_inner": 1
+   },
+   "primary_link": {
+    "vertices": 2266,
+    "b2_centre": 1934,
+    "b2_offset": 3838,
+    "b3_centre": 465,
+    "b3_inner": 26
+   },
+   "secondary": {
+    "vertices": 27302,
+    "b2_centre": 16177,
+    "b2_offset": 37321,
+    "b3_centre": 613,
+    "b3_inner": 17
+   },
+   "secondary_link": {
+    "vertices": 1668,
+    "b2_centre": 1298,
+    "b2_offset": 2554,
+    "b3_centre": 347,
+    "b3_inner": 13
+   },
+   "tertiary": {
+    "vertices": 33759,
+    "b2_centre": 21924,
+    "b2_offset": 46348,
+    "b3_centre": 542,
+    "b3_inner": 39
+   },
+   "tertiary_link": {
+    "vertices": 718,
+    "b2_centre": 525,
+    "b2_offset": 1040,
+    "b3_centre": 101,
+    "b3_inner": 0
+   },
+   "local": {
+    "vertices": 24820,
+    "b2_centre": 11197,
+    "b2_offset": 22327,
+    "b3_centre": 507,
+    "b3_inner": 131
+   }
+  },
+  "elapsed_s": 3.9,
+  "note": "the design line only (exported centreline and its half-width offsets, mitre-joined, through 2-arm nodes); the mesh gate (CitySmooth / linecheck.mjs) measures what is drawn"
+ },
  "lanes": {
   "painted_twltl_km": 154.8,
   "painted_twltl_edges": 2479,
@@ -819,5 +927,5 @@
   "measured": false,
   "note": "Plan critic C12: centreline offset and drawn-minus-real width against Mecklenburg EdgeOfPavementImpervious (CC0/MIT) and County Streets PAVEMENTWIDTH (CC BY 4.0). Neither layer is fetched yet (they belong on D:\\gis\\charlotte, PSX_GIS_DIR); this section reports nothing until they are."
  },
- "elapsed_s": 23
+ "elapsed_s": 27.5
 }

@@ -32,7 +32,7 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static readonly (string cls, float pct, int n)[] CanopyBandTruth =
         {
-            ("secondary", 13.0f, 23746), ("motorway", 14.9f, 10739), ("core arterials", 8.1f, 12997), ("core residential", 31.0f, 23608),
+            ("secondary", 13.1f, 23737), ("motorway", 14.9f, 10726), ("core arterials", 8.1f, 13019), ("core residential", 31.0f, 23561),
         };
         /// <summary>The plan's tolerance on the canopy within 25 m, points.</summary>
         const float CanopyBandTolPts = 5f;

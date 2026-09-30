@@ -77,10 +77,11 @@ class Reader {
 }
 
 /// The section tags of PSXC v2, in file order (a reader skips any other).
-export const CITY_SECTIONS = ['META', 'NODE', 'NAME', 'EDGE', 'PNTS', 'WATR', 'WBED', 'XING', 'SPAN', 'ROUT', 'GHSH'];
+export const CITY_SECTIONS = ['META', 'NODE', 'NAME', 'EDGE', 'PNTS', 'WATR', 'WBED', 'XING', 'SPAN', 'ROUT', 'GHSH', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT'];
 /// Sections a file may lack: added after the version-2 layout first shipped,
-/// so a file exported before them still parses (WBED: WP-04b).
-export const CITY_OPTIONAL = new Set(['WBED']);
+/// so a file exported before them still parses (WBED: WP-04b; LANW, TAPR,
+/// PARA and TAGN: WP-10, lib/lineclean.mjs; SPLT: WP-11, lib/splits.mjs).
+export const CITY_OPTIONAL = new Set(['WBED', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT']);
 
 /// THE GRAPH HASH (WP-02): what derived data keyed by (edge, s) is stamped
 /// with, so data made for one graph is refused by another. CRC-32 (zlib's,
@@ -369,6 +370,9 @@ export function profileFor(cls, link, oneway, lanes, turn) {
     if (cls >= 4) return row('ramp' + clamp(lanes, 1, 3), clamp(lanes, 1, 3), 0.6, 1.8);
     return row('ow' + clamp(lanes, 1, 4), clamp(lanes, 1, 4), 0.3, 0.3);
   }
+  // a ONE-lane freeway carriageway (an express lane, a lane-drop stub) is a
+  // ramp's section, not a two-lane motorway's (WP-10)
+  if (cls >= 4 && lanes <= 1) return row('ramp1', 1, 0.6, 1.8);
   if (cls >= 5) return row('mw' + clamp(lanes, 2, 6), clamp(lanes, 2, 6), 1.2, 3.0);
   if (cls === 4) return row('xw' + clamp(lanes, 2, 4), clamp(lanes, 2, 4), 0.9, 2.4);
   return row('ow' + clamp(lanes, 1, 4), clamp(lanes, 1, 4), 0.3, 0.3);
