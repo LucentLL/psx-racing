@@ -993,6 +993,7 @@ namespace PSXRacing.EditorTools
                 player.Body.linearVelocity = player.transform.forward * Speed;
                 float lastV = Speed, worstLoss = 0f, minUp = 1f, worstAir = 0f, past = 0f, steepest = 0f;
                 bool left = false;
+                string hitWhat = null;
                 var edgeLine = c + n * hw;
                 for (int k = 0; k < Mathf.RoundToInt(7f / Time.fixedDeltaTime); k++)
                 {
@@ -1012,6 +1013,21 @@ namespace PSXRacing.EditorTools
                     // 75-82 km/h five seconds on, tilted to up 0.82, outside the
                     // window), and the steepest ground under the car is logged.
                     if (inRunOff) worstLoss = Mathf.Max(worstLoss, lastV - v);
+                    // WHAT stopped it: the first hard stop names the colliders
+                    // round the car's nose (not its own), with their layer and
+                    // how far past the edge they stand
+                    if (lastV - v >= 4f && hitWhat == null)
+                    {
+                        var nose = player.Body.position + player.transform.forward * 2.2f + Vector3.up * 0.6f;
+                        var names = new List<string>();
+                        foreach (var col in Physics.OverlapSphere(nose, 1.6f, ~0, QueryTriggerInteraction.Ignore))
+                        {
+                            if (col.attachedRigidbody == player.Body || names.Count >= 6) continue;
+                            var cp = col.ClosestPoint(nose);
+                            names.Add($"{col.name} (layer {col.gameObject.layer}, {Vector2.Dot(new Vector2(cp.x, cp.z) - edgeLine, n):0.0} m past the edge, {cp.y - nose.y + 0.6f:+0.00;-0.00} m over the nose's foot)");
+                        }
+                        hitWhat = $"; lost {lastV - v:0.0} m/s at {past:0.0} m past the edge, round the nose: {(names.Count > 0 ? string.Join(", ", names) : "nothing")}";
+                    }
                     minUp = Mathf.Min(minUp, player.transform.up.y);
                     // the ground under the car, not the car: the highest hit that is not its own
                     float gy = float.NegativeInfinity; Vector3 gn = Vector3.up;
@@ -1025,7 +1041,7 @@ namespace PSXRacing.EditorTools
                     lastV = v;
                     if (!inRunOff && v < 1f) break;
                 }
-                string got = $"left the pavement: {(left ? "yes" : "no")}; {past:0.0} m past the edge at the end; worst speed lost in one step across the run-off {worstLoss:0.0} m/s; lowest up {minUp:0.00}; most air under the body {worstAir:0.00} m; steepest ground under it 1V:{(steepest > 1e-3f ? 1f / steepest : 99f):0.0}H; end {player.Body.linearVelocity.magnitude * 3.6f:0} km/h";
+                string got = $"left the pavement: {(left ? "yes" : "no")}; {past:0.0} m past the edge at the end; worst speed lost in one step across the run-off {worstLoss:0.0} m/s; lowest up {minUp:0.00}; most air under the body {worstAir:0.00} m; steepest ground under it 1V:{(steepest > 1e-3f ? 1f / steepest : 99f):0.0}H; end {player.Body.linearVelocity.magnitude * 3.6f:0} km/h{hitWhat}";
                 CityPlayCheck.Check(left && worstLoss < 4f && minUp > 0.7f && worstAir < 1.3f,
                     $"a car driven off at 25 m/s and 15 degrees comes through the {what}", got);
                 driven++;

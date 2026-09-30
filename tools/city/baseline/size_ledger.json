@@ -5,11 +5,11 @@
   "files": [
    {
     "file": "WebGL.data.unityweb",
-    "bytes": 86463042
+    "bytes": 43674116
    },
    {
     "file": "WebGL.framework.js.unityweb",
-    "bytes": 66368
+    "bytes": 67813
    },
    {
     "file": "WebGL.loader.js",
@@ -17,76 +17,76 @@
    },
    {
     "file": "WebGL.wasm.unityweb",
-    "bytes": 7646376
+    "bytes": 7774617
    },
    {
     "file": "index.html",
-    "bytes": 14088
+    "bytes": 14083
    }
   ],
-  "largest_mib": 82.46
+  "largest_mib": 41.65
  },
  "data": {
   "charlotte_city.bytes": {
-   "raw": 3052852,
-   "brotli": 1553428
+   "raw": 5685880,
+   "brotli": 2848275
   },
   "charlotte_dem.bytes": {
-   "raw": 1485788,
-   "brotli": 779434
+   "raw": 3174661,
+   "brotli": 2036268
   },
   "charlotte_bld.bytes": {
-   "raw": 1742686,
-   "brotli": 1149298
+   "raw": 1742804,
+   "brotli": 1149673
   },
   "charlotte_routes.json": {
-   "raw": 16656,
-   "brotli": 5499
+   "raw": 16629,
+   "brotli": 5564
   },
   "charlotte_canopy.bytes": {
    "raw": 742908,
    "brotli": 392574
   },
   "charlotte_signs.bytes": {
-   "raw": 803315,
-   "brotli": 56455
+   "raw": 803405,
+   "brotli": 56521
   }
  },
  "data_total": {
-  "raw": 7844205,
-  "brotli": 3936688
+  "raw": 12166287,
+  "brotli": 6488875
  },
  "build_report": {
   "log": "C:\\Users\\mcgee\\PSXScenery\\build.log",
   "categories": {
-   "Textures": 67633152,
-   "Meshes": 91540685,
+   "Textures": 40055603,
+   "Meshes": 3250586,
    "Animations": 0,
    "Sounds": 24746394,
-   "Shaders": 529920,
-   "Other Assets": 9751757,
+   "Shaders": 542003,
+   "Other Assets": 13316915,
    "Levels": 0,
-   "File headers": 585421,
-   "Total User Assets": 195035136,
-   "Complete build size": 94266982
+   "File headers": 338739,
+   "Total User Assets": 82418074,
+   "Complete build size": 51694797
   },
-  "used_assets": 5867,
+  "used_assets": 3707,
   "charlotte": [
    {
     "asset": "Assets/PSXRacing/Resources/charlotte_city.bytes",
-    "bytes": 3040870
+    "bytes": 5662310
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/charlotte_dem.bytes",
+    "bytes": 3145728
    },
    {
     "asset": "Assets/PSXRacing/Resources/charlotte_bld.bytes",
     "bytes": 1782579
    },
    {
-    "asset": "Assets/PSXRacing/Resources/charlotte_dem.bytes",
-    "bytes": 1468006
-   },
-   {
     "asset": "Assets/PSXRacing/Resources/charlotte_signs.bytes",
-    "bytes": 803328
+    "bytes": 803430
    },
    {
     "asset": "Assets/PSXRacing/Resources/charlotte_canopy.bytes",
@@ -153,6 +153,10 @@
     "bytes": 131174
    },
    {
+    "asset": "Assets/PSXRacing/Art/City/Pack/dirt_pt_7_city.png",
+    "bytes": 131174
+   },
+   {
     "asset": "Assets/PSXRacing/Art/City/Pack/grass_7_city.png",
     "bytes": 131174
    },
@@ -191,82 +195,6 @@
    {
     "asset": "Assets/PSXRacing/Resources/CityProps/city/trailer_05_merged.asset",
     "bytes": 34816
-   },
-   {
-    "asset": "Assets/PSXRacing/Art/City/city_road_track_180_ow_asphalt_new.png",
-    "bytes": 32870
-   },
-   {
-    "asset": "Assets/PSXRacing/Art/City/city_road_track_67_asphalt_new.png",
-    "bytes": 32870
-   },
-   {
-    "asset": "Assets/PSXRacing/Art/City/city_road_track_64_concrete_old.png",
-    "bytes": 32870
-   },
-   {
-    "asset": "Assets/PSXRacing/Art/City/city_road_track_64_concrete_new.png",
-    "bytes": 32870
-   },
-   {
-    "asset": "Assets/PSXRacing/Art/City/city_road_track_64_asphalt_old.png",
-    "bytes": 32870
-   },
-   {
-    "asset": "Assets/PSXRacing/Art/City/city_road_track_64_asphalt_new.png",
-    "bytes": 32870
-   },
-   {
-    "asset": "Assets/PSXRacing/Art/City/city_road_track_61_asphalt_old.png",
-    "bytes": 32870
-   },
-   {
-    "asset": "Assets/PSXRacing/Art/City/city_road_track_61_asphalt_new.png",
-    "bytes": 32870
-   },
-   {
-    "asset": "Assets/PSXRacing/Art/City/city_road_track_140_asphalt_old.png",
-    "bytes": 32870
-   },
-   {
-    "asset": "Assets/PSXRacing/Art/City/city_road_track_130_concrete_old.png",
-    "bytes": 32870
-   },
-   {
-    "asset": "Assets/PSXRacing/Art/City/city_road_track_130_concrete_new.png",
-    "bytes": 32870
-   },
-   {
-    "asset": "Assets/PSXRacing/Art/City/city_road_track_130_asphalt_old.png",
-    "bytes": 32870
-   },
-   {
-    "asset": "Assets/PSXRacing/Art/City/city_road_track_130_asphalt_new.png",
-    "bytes": 32870
-   },
-   {
-    "asset": "Assets/PSXRacing/Art/City/city_road_track_120_concrete_new.png",
-    "bytes": 32870
-   },
-   {
-    "asset": "Assets/PSXRacing/Art/City/city_road_track_120_asphalt_new.png",
-    "bytes": 32870
-   },
-   {
-    "asset": "Assets/PSXRacing/Art/City/city_road_track_110_concrete_old.png",
-    "bytes": 32870
-   },
-   {
-    "asset": "Assets/PSXRacing/Art/City/city_road_track_110_asphalt_old.png",
-    "bytes": 32870
-   },
-   {
-    "asset": "Assets/PSXRacing/Art/City/city_road_track_105_concrete_old.png",
-    "bytes": 32870
-   },
-   {
-    "asset": "Assets/PSXRacing/Art/City/city_road_track_105_asphalt_old.png",
-    "bytes": 32870
    },
    {
     "asset": "Assets/PSXRacing/Art/City/city_road_xw4_concrete_old.png",
@@ -803,9 +731,97 @@
    {
     "asset": "Assets/PSXRacing/Resources/CityProps/tower_01_1.prefab",
     "bytes": 819
+   },
+   {
+    "asset": "Assets/PSXRacing/Art/City/Props/City_trailer_atlas.mat",
+    "bytes": 410
+   },
+   {
+    "asset": "Assets/PSXRacing/Art/City/Props/City_house_atlas.mat",
+    "bytes": 410
+   },
+   {
+    "asset": "Assets/PSXRacing/Materials/CarModels/citroen_cx_velocity_red.mat",
+    "bytes": 307
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/RoadsideOccupancy.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityPropInterior.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityElevation.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityBuildings.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityMeshes.Hydro.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/RoadProfiles.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/RaceRunOff.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityWorld.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityTrees.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CitySigns.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CitySignData.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityProps.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityMinimap.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityMeshes.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityCulverts.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityCanopy.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityMode.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityMap.cs",
+    "bytes": 102
+   },
+   {
+    "asset": "Assets/PSXRacing/Scripts/City/CityKit.cs",
+    "bytes": 102
    }
   ],
-  "charlotte_bytes": 14513613
+  "charlotte_bytes": 18322586
  },
  "git": {
   "paths": {
@@ -814,10 +830,15 @@
     "bytes": 5252602,
     "disk": 2878463
    },
+   "Assets/PSXRacing/Resources/charlotte_canopy.bytes": {
+    "versions": 1,
+    "bytes": 742908,
+    "disk": 409306
+   },
    "Assets/PSXRacing/Resources/charlotte_city.bytes": {
-    "versions": 7,
-    "bytes": 20373986,
-    "disk": 7164176
+    "versions": 13,
+    "bytes": 49915588,
+    "disk": 28023640
    },
    "Assets/PSXRacing/Resources/charlotte_dem.bytes": {
     "versions": 5,
@@ -825,9 +846,14 @@
     "disk": 4960937
    },
    "Assets/PSXRacing/Resources/charlotte_routes.json": {
-    "versions": 6,
-    "bytes": 98778,
-    "disk": 23038
+    "versions": 10,
+    "bytes": 164946,
+    "disk": 55296
+   },
+   "Assets/PSXRacing/Resources/charlotte_signs.bytes": {
+    "versions": 3,
+    "bytes": 2410035,
+    "disk": 252556
    },
    "tools/city/truth/city120.ptru.gz": {
     "versions": 1,
@@ -863,20 +889,10 @@
     "versions": 1,
     "bytes": 2350,
     "disk": 1187
-   },
-   "Assets/PSXRacing/Resources/charlotte_canopy.bytes": {
-    "versions": 1,
-    "bytes": 742908,
-    "disk": 409306
-   },
-   "Assets/PSXRacing/Resources/charlotte_signs.bytes": {
-    "versions": 1,
-    "bytes": 803315,
-    "disk": 74219
    }
   },
-  "total_disk": 16603431,
-  "size_kib": 191331,
+  "total_disk": 37673490,
+  "size_kib": 496843,
   "size-pack_kib": 1814758
  }
 }

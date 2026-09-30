@@ -2068,6 +2068,10 @@ namespace PSXRacing.City
             /// is within <see cref="PitReachM"/>: the design a pit is judged
             /// against.</summary>
             public float nearFloor; public int nearEdge; public float nearDist;
+            /// <summary>WP-25: the creek channel's level where it took the
+            /// land from a bridge approach's spill (<see cref="Ground"/>,
+            /// THE CHANNEL AT A BRIDGE); NaN where it did not.</summary>
+            public float channel;
         }
         /// <summary>How far from a grounded ribbon's pavement the pit census
         /// looks.</summary>
@@ -2158,6 +2162,13 @@ namespace PSXRacing.City
         ///      corridor, flat to 11.5 m past the pavement and blended to the
         ///      DEM over 26 m more, which read on every hill as a road on a
         ///      flat strip;
+        ///   3. THE CHANNEL AT A BRIDGE (WP-25): by a creek, the disc round a
+        ///      bridge approach's vertex (<see cref="SpillsAtStructure"/>)
+        ///      spills at the 1V:2H bank and no further down than the creek's
+        ///      carved channel, and under a deck's footprint no disc holds
+        ///      the land over the channel at all - the approaches' 1V:4H
+        ///      spill buried the water for 20-50 m beside every bridge the
+        ///      owner named;
         ///   5. under structure: no higher than any deck's pavement minus the
         ///      sink within the same band, and dug to UnderDeckAir under the
         ///      soffit within <see cref="CapPadM"/> of the deck — both from
@@ -2169,7 +2180,7 @@ namespace PSXRacing.City
             terms = new GroundTerms
             {
                 floor = float.NaN, protect = float.NaN, deckProtect = float.NaN, deckCap = float.NaN, nearFloor = float.NaN,
-                floorEdge = -1, protectEdge = -1, deckEdge = -1, nearEdge = -1,
+                floorEdge = -1, protectEdge = -1, deckEdge = -1, nearEdge = -1, channel = float.NaN,
             };
             float baseY = BaseY(x, z);
 
@@ -2181,6 +2192,13 @@ namespace PSXRacing.City
             map.RavineSegsInRect(new Vector2(x - reachW, z - reachW), new Vector2(x + reachW, z + reachW), waterScratch);
             var p2 = new Vector2(x, z);
             float demY = baseY;
+            // WP-25: the lowest creek channel here (its carved profile, flat
+            // floor and banks, whether or not it cut the DEM); MaxValue away
+            // from every creek, and with WP-25 off (the A/B instruments'
+            // "before"). A ravine is not a channel: a road over one keeps its
+            // embankment (a culvert).
+            float chanV = float.MaxValue;
+            bool channels = !CityMeshes.HydroOff;
             foreach (var packed in waterScratch)
             {
                 int wi = packed >> 12, si = packed & 0xFFF;
@@ -2198,6 +2216,7 @@ namespace PSXRacing.City
                     else { floorY = bed - WaterBelowBed - CarveBelowWater; flat = CreekFlatHalf(w); }
                     float cut = floorY + Mathf.Max(0f, d - flat) * BankSlope;
                     if (cut < baseY) baseY = cut;
+                    if (channels && !w.ravine && cut < chanV) chanV = cut;
                     continue;
                 }
                 if (w.ravine) continue;
@@ -2227,7 +2246,7 @@ namespace PSXRacing.City
 
             // THE INSIDE OF A LAKE, whatever its shore is doing (WP-04b: the
             // hash holds only a lake's shore now)
-            foreach (int li in map.lakes)
+            foreach (int li in map.LakesAt(p2))
             {
                 var w = map.waters[li];
                 if (CityMap.LakeContains(w, p2)) baseY = Mathf.Min(baseY, w.surfaceY - 2.2f);
@@ -2245,6 +2264,13 @@ namespace PSXRacing.City
             float land = baseY;
             float floorMax = float.MinValue, cutMin = float.MaxValue, capMin = float.MaxValue;
             float deckProtect = float.MaxValue, deckCap = float.MaxValue;
+            // WP-25, THE CHANNEL AT A BRIDGE: the floors from clamped feet
+            // (the discs round a grounded road's vertices) kept apart from
+            // the true feet's, the highest design floor before the channel
+            // took any, and whether the point is under a deck's footprint
+            float floorClampMax = float.MinValue, floorDesignMax = float.MinValue;
+            int floorClampEdge = -1, floorTrueEdge = -1;
+            bool underDeck = false;
             terms.dem = baseY;
             foreach (var packed in segScratch)
             {
@@ -2281,6 +2307,7 @@ namespace PSXRacing.City
                     // cross, its footprint is dug to leave UnderDeckAir under
                     // the soffit. A cap, never a raise: under a real viaduct
                     // the valley is already deeper.
+                    if (dist <= hw + CapPadM) underDeck = true;
                     if (dist <= hw + CapPadM && deckY - DeckThick - UnderDeckAir < deckCap)
                     { deckCap = deckY - DeckThick - UnderDeckAir; terms.deckEdge = ei; }
                     // ...and its pavement is protected like any road's: the
@@ -2334,10 +2361,34 @@ namespace PSXRacing.City
                     if (float.IsNaN(atReach)) atReach = LandAtReach(q, p2, dist, hw + reachS, baseY);
                     floor = SectionFill(pin, bench, past, reachS, baseY, atReach);
                 }
-                if (floor > floorMax) { floorMax = floor; terms.floorEdge = ei; }
                 if (past <= PitReachM && (float.IsNaN(terms.nearFloor) || floor > terms.nearFloor))
                 { terms.nearFloor = floor; terms.nearEdge = ei; terms.nearDist = past; }
+                if (floor > floorDesignMax) floorDesignMax = floor;
+                if (tRaw <= 0f || tRaw >= 1f)
+                {
+                    // THE CHANNEL AT A BRIDGE (WP-25): the disc round an
+                    // approach's vertex spilled its 1V:4H fill down the creek
+                    // beside the deck and buried the water for 20-50 m below
+                    // W Trade St, State St and Archdale Dr. By a creek, that
+                    // spill stands at the steepest graded bank (1V:2H, a
+                    // bridge's spill-through slope) and the channel takes the
+                    // rest. Beside the road (a true foot) the section is as it
+                    // was: its verge grades onto a 1V:4H fill.
+                    if (chanV < floor && SpillsAtStructure(map, e, tRaw <= 0f ? si : si + 1))
+                        floor = Mathf.Min(floor, Mathf.Max(chanV, pin - Mathf.Max(0f, past - bench) * RoadsideRules.CityBankSlope));
+                    if (floor > floorClampMax) { floorClampMax = floor; floorClampEdge = ei; }
+                }
+                else if (floor > floorMax) { floorMax = floor; floorTrueEdge = ei; }
             }
+            // UNDER A DECK over a creek no disc holds the land at all: the
+            // pavement there is the deck, and the channel runs under it
+            // (the land was held 4 m over Irwin Creek's water under W Trade
+            // St, dug only to the soffit's air). A true foot still holds it:
+            // another road's own pavement and verge.
+            if (underDeck && chanV < float.MaxValue) floorClampMax = Mathf.Min(floorClampMax, chanV);
+            terms.floorEdge = floorClampMax > floorMax ? floorClampEdge : floorTrueEdge;
+            floorMax = Mathf.Max(floorMax, floorClampMax);
+            if (floorMax < floorDesignMax - 1e-4f && floorDesignMax > baseY) terms.channel = Mathf.Max(floorMax, baseY);
             if (floorMax > float.MinValue || cutMin < float.MaxValue)
             {
                 // the land cut down to every road's back slope...
@@ -2369,6 +2420,15 @@ namespace PSXRacing.City
         /// a fan on a deck) and give no true foot either. A structure END — a
         /// node with a grounded arm, the edge's run stopping at the vertex — is
         /// not a wedge: that is the disc that dug the approaches.
+        ///
+        /// The other segment's projection must clamp to the SHARED vertex, not
+        /// to its far end: a point beyond the far end has no true foot on it
+        /// either, but it is round that far vertex, not in this one's wedge.
+        /// WP-11's densify put a vertex 2.4 m into Chestnut Lane's 9 m bridge
+        /// over West Fork Twelvemile Creek, and a point on the grounded
+        /// approach 2.9 m short of the deck (its first segment's far side)
+        /// read as the wedge of that vertex: the deck's cap dug the land under
+        /// the approach 1.8 m below the road (the WP-25 culvert audit's hole).
         /// </summary>
         static bool InStructureWedge(CityMap map, CityMap.Edge e, int si, bool atStart, Vector2 p)
         {
@@ -2377,7 +2437,8 @@ namespace PSXRacing.City
             if (vi > 0 && vi < last)
             {
                 int oj = atStart ? si - 1 : si + 1;
-                return !TrueFoot(e.pts[oj], e.pts[oj + 1], p) && e.ElevatedAt(e.s[vi] + (atStart ? -0.5f : 0.5f));
+                // atStart: the other segment ENDS at the vertex; else it starts there
+                return ClampsAt(e.pts[oj], e.pts[oj + 1], p, atStart) && e.ElevatedAt(e.s[vi] + (atStart ? -0.5f : 0.5f));
             }
             int node = vi == 0 ? e.a : e.b;
             bool any = false;
@@ -2388,19 +2449,70 @@ namespace PSXRacing.City
                 bool fromA = o.a == node;
                 if (!o.ElevatedAt(fromA ? 0f : o.length)) return false;
                 int n = o.pts.Length;
-                if (fromA ? TrueFoot(o.pts[0], o.pts[1], p) : TrueFoot(o.pts[n - 2], o.pts[n - 1], p)) return false;
+                if (!(fromA ? ClampsAt(o.pts[0], o.pts[1], p, false) : ClampsAt(o.pts[n - 2], o.pts[n - 1], p, true))) return false;
                 any = true;
             }
             return any;
         }
 
-        static bool TrueFoot(Vector2 a, Vector2 b, Vector2 p)
+        /// <summary>Does <paramref name="p"/>'s projection on segment a-b
+        /// clamp to <paramref name="b"/> (<paramref name="atB"/>) or to
+        /// <paramref name="a"/>? A degenerate segment clamps to either.</summary>
+        static bool ClampsAt(Vector2 a, Vector2 b, Vector2 p, bool atB)
         {
             var d = b - a;
             float L2 = d.sqrMagnitude;
-            if (L2 < 1e-8f) return false;
+            if (L2 < 1e-8f) return true;
             float t = Vector2.Dot(p - a, d) / L2;
-            return t > 0f && t < 1f;
+            return atB ? t >= 1f : t <= 0f;
+        }
+
+        /// <summary>How far along a grounded road from one of its vertices a
+        /// deck may begin for that vertex's disc to be an APPROACH's spill
+        /// (<see cref="SpillsAtStructure"/>).</summary>
+        public const float SpillReachM = 40f;
+
+        /// <summary>
+        /// Is vertex <paramref name="vi"/> of grounded edge
+        /// <paramref name="e"/> a bridge approach's: a station of the edge on
+        /// structure within <see cref="SpillReachM"/> of it along the edge
+        /// (a deck in the middle of the way, W Trade St and State St), or, at
+        /// a node, another arm on structure within that of the node (a deck
+        /// that is its own way, Archdale Dr)? WP-25's channel takes the land
+        /// from such a vertex's disc by a creek (<see cref="Ground"/>).
+        /// </summary>
+        static bool SpillsAtStructure(CityMap map, CityMap.Edge e, int vi)
+        {
+            if (StructureNear(e, e.s[vi], SpillReachM)) return true;
+            if (vi != 0 && vi != e.pts.Length - 1) return false;
+            int node = vi == 0 ? e.a : e.b;
+            foreach (var oi in map.nodeEdges[node])
+            {
+                var o = map.edges[oi];
+                if (o == e || o.stS == null) continue;
+                if (StructureNear(o, o.a == node ? 0f : o.length, SpillReachM)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>A station of <paramref name="e"/> on structure within
+        /// <paramref name="r"/> of arc position <paramref name="at"/>?</summary>
+        static bool StructureNear(CityMap.Edge e, float at, float r)
+        {
+            var st = e.stS;
+            if (st == null || st.Length == 0 || e.stElev == null) return false;
+            int lo = 0, hi = st.Length - 1;
+            float from = at - r;
+            while (lo < hi)
+            {
+                int mid = (lo + hi) >> 1;
+                if (st[mid] < from) lo = mid + 1; else hi = mid;
+            }
+            // one station back: ElevatedAt reads a span on structure when
+            // either end of it is
+            for (int i = Mathf.Max(0, lo - 1); i < st.Length && st[i] <= at + r; i++)
+                if (e.stElev[i]) return true;
+            return false;
         }
 
         static float DistToSeg(Vector2[] pts, int si, Vector2 p)

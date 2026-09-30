@@ -110,6 +110,7 @@ MonoBehaviour:
   - {fileID: 2100000, guid: 6e0cf69609695334eb11881e82baefa1, type: 2}
   - {fileID: 2100000, guid: 6db9e7427b8854f4b86aa8dd1ec68066, type: 2}
   lampPost: {fileID: 2100000, guid: 998abe81626b23548b6cf25c93ca02f4, type: 2}
+  bank: {fileID: 2100000, guid: dfded5dc865c2c14b83c65c2914b85cf, type: 2}
   trees:
   - {fileID: 2100000, guid: 52ce2a532073f514bb66bf5d3812da51, type: 2}
   - {fileID: 2100000, guid: 8f030cffa8d5ea340959c5a6799ae7f0, type: 2}

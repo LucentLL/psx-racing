@@ -648,6 +648,21 @@ namespace PSXRacing.City
                 SunShadows.Exclude(g);
                 meshes.Add(tm.water);
             }
+            if (tm.banks != null)
+            {
+                // WP-25: the creeks' clay banks, draped a hand over the
+                // lattice. Render-only (the lattice under them is what the
+                // wheels meet) and no sun-map caster, like the water.
+                var g = Child(root, "Banks", 0);
+                g.AddComponent<MeshFilter>().sharedMesh = tm.banks;
+                var mr = g.AddComponent<MeshRenderer>();
+                mr.sharedMaterial = matFor != null ? BankMaterial() : null;
+                mr.enabled = mr.sharedMaterial != null;
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                mr.receiveShadows = false;
+                SunShadows.Exclude(g);
+                meshes.Add(tm.banks);
+            }
             if (tm.buildings != null)
             {
                 // The buildings collide as the walls you see. They were
@@ -788,6 +803,16 @@ namespace PSXRacing.City
             lampPostMat.SetColor("_Color", LampPostColor);
             if (lampPostMat.HasProperty("_Affine")) lampPostMat.SetFloat("_Affine", 0f);
             return lampPostMat;
+        }
+
+        /// <summary>WP-25: the creeks' banks, the kit's pack clay in the day's
+        /// dress (the builder registers it with the ground's wardrobe: the
+        /// dirt tints, and the snow turf on a snowy day); null without a kit
+        /// (the banks' renderer is then off).</summary>
+        public static Material BankMaterial()
+        {
+            var kit = CityKit.Get();
+            return kit != null ? SeasonDress.Substitute(kit.bank) : null;
         }
 
         static GameObject Child(GameObject parent, string name, int layer)

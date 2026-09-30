@@ -71,18 +71,18 @@ namespace PSXRacing.EditorTools
         const float CrestMinM = 100f, CrestMaxM = 150f, StepM = 10f;
         const int W = 1280, H = 720;
 
-        static Vector2 LL(double lat, double lon)
+        internal static Vector2 LL(double lat, double lon)
         {
             const double Lat0 = 35.18456015184093, Lon0 = -80.81770185962013;
             double mLon = 111320.0 * System.Math.Cos(Lat0 * System.Math.PI / 180.0);
             return new Vector2((float)((lon - Lon0) * mLon), (float)((lat - Lat0) * 111132.0)) * CityMap.LayoutScale;
         }
 
-        static bool NameHas(string name, string part) =>
+        internal static bool NameHas(string name, string part) =>
             !string.IsNullOrEmpty(name) && !string.IsNullOrEmpty(part) &&
             name.IndexOf(part, System.StringComparison.OrdinalIgnoreCase) >= 0;
 
-        struct Hit
+        internal struct Hit
         {
             public CityMap.Edge edge; public float s; public Vector2 at;
             public CityMap.Water water; public float ws; public string how;
@@ -102,7 +102,7 @@ namespace PSXRacing.EditorTools
 
         /// <summary>Every place a road named <paramref name="road"/> (no
         /// ramps) crosses a creek or ravine named <paramref name="water"/>.</summary>
-        static List<Hit> Crossings(CityMap map, string road, string water)
+        internal static List<Hit> Crossings(CityMap map, string road, string water)
         {
             var hits = new List<Hit>();
             if (map.waters == null || string.IsNullOrEmpty(water)) return hits;
@@ -368,7 +368,7 @@ namespace PSXRacing.EditorTools
             Debug.Log($"[CityCreekShots] {shots} shots to {dir}");
         }
 
-        static void Shoot(string dir, string name, Vector3 pos, Quaternion rot, float fov, float far)
+        internal static void Shoot(string dir, string name, Vector3 pos, Quaternion rot, float fov, float far)
         {
             var camGO = new GameObject("~creekCam");
             var cam = camGO.AddComponent<Camera>();

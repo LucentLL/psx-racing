@@ -1,4 +1,4 @@
-edges 25042, nodes 20194, waters 1890, crossings 783 (213 trenched), wspans 564, footprints 31696, routes 3, DEM yes
+edges 25042, nodes 20194, waters 3121, crossings 783 (213 trenched), wspans 564, footprints 31696, routes 3, DEM yes
   ok  edge count in expected range — 25042
   ok  grade separations present — 783
   ok  water bridge spans present — 564
@@ -94,8 +94,8 @@ roadside audit: 117 tiles (routes + 12 most elevated) built 202.8 km of verge, 4
     roadside tiles on the race routes: -8,22 -8,21 -7,21 -7,20 -6,20 -6,19 -5,19 -5,18 -4,18 -4,17 -5,17 -5,16 -5,15 -6,15 -6,14 -7,14 -7,13 -8,13 -9,13 -10,13 -10,14 -11,14 -11,15 -12,15 -12,16 -13,16 -13,17 -14,17 -15,17 -16,17 -16,18 -16,19 -15,19 -15,20 -15,21 -14,21 -14,22 -14,23 -13,23 -13,24 -12,24 -11,24 -11,25 -10,24 -9,24 -9,23 -9,22 -14,13 -14,14 -13,14 -13,15 -11,16 -11,17 -10,17 -10,18 -9,18 -9,19 -8,19 -8,20 -6,21 -6,22 -5,22 -5,23 -4,23 -3,24 -2,25 -2,26 -1,26 -1,27 0,27 0,28 1,28 2,28 2,29 3,29 -3,15 -3,14 -2,14 -1,14 0,14 1,14 2,14 2,13 3,13 3,12 4,12 5,12 5,11 6,10 7,10 7,9 8,9 8,8 9,8 9,7 10,7 11,7 12,7 13,7 14,7 15,7 15,6 16,6 16,5 17,5 17,4 18,4 18,3 19,3 19,2
     roadside tiles, the elevated ones: -36,-26 -9,77 29,71 -26,-10 -8,77 30,70 -54,27
     open deck: 1 m
-    pits (lattice > 0.5 m under a grounded ribbon's design within 25 m): 7429; held under a lower road's pavement (conflict) 6369; dug under a deck 1019; held under a deck's pavement 41
-  ok  every grounded edge meets its verge within 0.05 m (roadside audit) — 0 of 80410 points step more
+    pits (lattice > 0.5 m under a grounded ribbon's design within 25 m): 7423; held under a lower road's pavement (conflict) 6363; dug under a deck 765; held under a deck's pavement 6; water 286; a creek's channel at a bridge (WP-25) 3
+  ok  every grounded edge meets its verge within 0.05 m (roadside audit) — 0 of 80229 points step more
   ok  no face stops the body box coming back onto a grounded edge (roadside audit) — 0
   ok  no edge over a drop past 1 m is without a barrier: decks, approaches, ledges, fan chords, gore noses (rail census) — 0 runs, 0 m
   ok  every pit beside a grounded ribbon has a rule that put it there (pit census) — 0
@@ -210,6 +210,19 @@ terrain fidelity (WP-04): datum 97.0 m; the roads read the grid through a 0.8-ce
   ok  cut (retaining) walls: at least 50% below WP-04's (graded cuts, WP-14) — 296 m vs 1071 m after WP-04 on the roadside tiles
     decks over water: 563 spans judged; soffit under 1 m above the water 2, under the water 0; lowest 0.99 m e3565 'Tom Short Road' at (2266,-17176) 35.030004,-80.792792 (WP-25 asks >= 1 m); the solve lifted 14 spans to clear their water by 1.0 m, the most by 3.45 m
   ok  no water stands above a deck's soffit (terrain fidelity) — 0 of 563 spans; lowest 0.99 m e3565 'Tom Short Road' at (2266,-17176) 35.030004,-80.792792
+hydro audit (WP-25): 824 ravine crossings of a road: 706 culverts (deck 48, shallow 70 take none), solved in 543 ms
+    culvert ends: 770 (290 headwalls set into the fill, 480 pipes projecting from the toe; 242 culverts with both ends), pipes 0.9 m x482, 1.2 m x91, 1.5 m x197; ends not stood: a building 8, a creek 24, a lake 9, never clear of a road 151, no channel on the lattice 200, shallow at the toe 131, shared 119; nearest end 4.5 m past a pavement
+  ok  every culvert keeps its embankment: the road on the ground over the pipe, the ground under its line held within 1.1 m of it, over the smallest pipe's crown: the ravine's carve never cuts the road (hydro audit) — 0 of 706; deepest 0.89 m
+  ok  every culvert end stands past its road's pavement and clear zone (hydro audit) — 0 of 770
+    25 tiles with ends built: 50 ends drawn of the 50 the solve puts there (15 headwalls, 35 projecting pipes), 0 outside their tile, 0 walls facing the wrong way; the fill behind met the backfill at 15 of the 15 headwalls (backfill p50 6 m, max 6 m); 25 of the 25 tiles drew their ends' clay ditches
+  ok  every culvert end is drawn once, by the tile it stands in (hydro audit) — 50 of 50, 0 outside
+  ok  no headwall stands free on the lawn: the fill behind every one rises through its backfill within 6.5 m (hydro audit, review 2026-09-30) — 0 of 15
+    water shown along the creeks (every 8 m, surface over the drawn ground): 692.6 of 710.0 km (97.5%), 9.2 km under decks not judged
+    shown by creek: Irwin Creek 72%, Stewart Creek 97%, Little Sugar Creek 93%, Briar Creek 97%, McAlpine Creek 100%, Sugar Creek 98%
+    at the named bridges, water shown every 4 m within 60 m off the deck: West Trade Street over Irwin Creek 10 of 24 (within 24 m of the deck 0 of 6), State Street over Stewart Creek 28 of 28 (within 24 m of the deck 10 of 10), Archdale Drive over Little Sugar Creek 26 of 28 (within 24 m of the deck 8 of 10)
+    ponds (0.2-2 ha): 1233 (739 ha), water shown at the middle of 1203
+  ok  no pond within 3.5 m of a road's pavement (hydro audit) — 0
+  ok  no pond's water stands over a grounded road within 16 m (hydro audit) — 0
 tree audit (WP-08): canopy 2024 grid loaded
   ok  the canopy grid (charlotte_canopy.bytes) loads
   ok  the city kit holds a tree material per season dress and the atlas's low-foliage table
@@ -266,4 +279,5 @@ budget: 225 tiles at 9 sites, tile build p50 30.1 / p95 112.4 / max 261.6 ms (ed
 budget: WP-23 signs - at most +7 draws in one view (tryon_start; one per tile with signs in view); tile build p95 114.5 (no signs) / 112.4 (signs) ms on the same tiles; tree frames (signs placed first on them) p95 5.4 / max 12.3 ms
 budget: spawn road y (m above the datum) trade_tryon 134.417, providence 116.582, i77_north 134.362, beatties_ford 144.010, tryon_start 130.208, dilworth 102.881, plaza_midwood 126.522, i485_south 119.256, suburb_6km 124.726
 budget: parse 249 ms + solve 1466 ms, map heap 17.8 MB (+3.3 MB DEM)
+budget: WP-25 culverts and banks - at most +4 draws in one view (i77_north); tile build p95 100.8 (without) / 99.5 (with) ms on the same tiles; tree frames p95 5.8 / max 12.9 ms
 CITY AUDIT OK

@@ -22,11 +22,11 @@
     "links": 2200,
     "oneway": 13295,
     "roundabout_edges": 381,
-    "names": 2019,
-    "waters": 1890,
-    "water_points": 40697,
-    "water_bed_samples": 69990,
-    "lakes": 106,
+    "names": 2030,
+    "waters": 3121,
+    "water_points": 56653,
+    "water_bed_samples": 71221,
+    "lakes": 1337,
     "ravines": 1545,
     "crossings": 783,
     "crossings_forced": 783,
@@ -92,8 +92,8 @@
   },
   "outputs": {
     "charlotte_city.bytes": {
-      "bytes": 5529772,
-      "sha256": "a320afbe4518bc0f6c712b9596f0b901c6ca8733bd2b769cc2c4857bab3623c8"
+      "bytes": 5685880,
+      "sha256": "e95a3459a4e8918055d1860e72f8b81c0b67566417b9dc6e14a8effc9b1ea278"
     },
     "charlotte_dem.bytes": {
       "bytes": 3174661,

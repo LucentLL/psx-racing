@@ -126,16 +126,18 @@ namespace PSXRacing.EditorTools
             // it, so what it costs is measured on identical tiles in one run
             // (the machine is shared; only an A/B inside one run means
             // anything). WP-07's pass was the FULL prop prefabs; WP-08's the
-            // city with NO TREES; WP-23's is the city with NO SIGNS (trees on
-            // both ways). Pass 0 is the game as it ships and is the only one in
-            // ALL; pass 1 is reported beside it.
+            // city with NO TREES; WP-23's the city with NO SIGNS; WP-25's is
+            // the tiles with NO CULVERTS AND NO CREEK BANKS (CityMeshes.HydroOff;
+            // trees and signs on both ways, the ponds are data and in both).
+            // Pass 0 is the game as it ships and is the only one in ALL; pass 1
+            // is reported beside it.
             var fullRows = new List<string>();
             var fullAll = new List<CityWorld.TileTiming>();
             var treeAll = new List<CityWorld.TileTiming>();
             var treeP95BySite = new Dictionary<string, float>();
             var drawsByPass = new Dictionary<string, int[]>[] { new Dictionary<string, int[]>(), new Dictionary<string, int[]>() };
             var tilesByPass = new Dictionary<string, List<float>>[] { new Dictionary<string, List<float>>(), new Dictionary<string, List<float>>() };
-            bool variantsWere = CityProps.UseCityVariants, treesWere = CityTrees.Enabled, signsWere = CitySigns.Enabled;
+            bool variantsWere = CityProps.UseCityVariants, treesWere = CityTrees.Enabled, signsWere = CitySigns.Enabled, hydroOffWas = CityMeshes.HydroOff;
             var treesDensityWas = CityTrees.DensityOverride;
             CityTrees.DensityOverride = 1f;
             var sites = Sites(map);
@@ -156,6 +158,9 @@ namespace PSXRacing.EditorTools
             // and the sign shots' two other roads (WP-23; I-77 north is one of the nine)
             sites.Add(new Site { name = "i277_uptown", at = LL(35.2195, -80.8500), how = "I-277, the uptown loop's north side (WP-23 sign shots)", extra = true });
             sites.Add(new Site { name = "south_blvd", at = LL(35.1930, -80.8680), how = "South Blvd, the commercial strip (WP-23 sign shots)", extra = true });
+            // and two creek crossings (WP-25 water shots)
+            sites.Add(new Site { name = "irwin_trade", at = LL(35.2345, -80.8560), how = "W Trade St over Irwin Creek (WP-25 water shots)", extra = true });
+            sites.Add(new Site { name = "archdale_creek", at = LL(35.1500, -80.8500), how = "Archdale Dr over Little Sugar Creek (WP-25 water shots)", extra = true });
             try
             {
                 // warm-up: the first tile pays the JIT and the static caches
@@ -180,7 +185,8 @@ namespace PSXRacing.EditorTools
                 {
                     CityProps.UseCityVariants = true;
                     CityTrees.Enabled = true;
-                    CitySigns.Enabled = pass == 0;
+                    CitySigns.Enabled = true;
+                    CityMeshes.HydroOff = pass != 0;
                     if (pass == 0 && !site.extra)
                     {
                     // THE SPAWN SEAT here, by CityMode.SeatOnStreet's rule:
@@ -310,6 +316,7 @@ namespace PSXRacing.EditorTools
                 CityProps.UseCityVariants = variantsWere;
                 CityTrees.Enabled = treesWere;
                 CitySigns.Enabled = signsWere;
+                CityMeshes.HydroOff = hydroOffWas;
                 CityTrees.DensityOverride = treesDensityWas;
                 CityWorld.TileBuilt -= onBuilt;
                 if (world != null) world.DropAll();
@@ -327,19 +334,19 @@ namespace PSXRacing.EditorTools
             // plan: this package decides WP-09's place (in the editor; the phone reading is C29's trigger)
             L($"WP-09 trigger (editor): tile p95 {(P(totAll, 95) > 8f ? "OVER" : "under")} 8 ms, worst view {(worstDraw > 300 ? "OVER" : "under")} 300 draws");
 
-            // ---- WP-23: the same sites with no signs ------------------------
+            // ---- WP-25: the same sites with no culverts and no banks --------
             L("");
-            L("WP-23 A/B - the same sites and tiles with NO SIGNS (the city before WP-23; trees both ways), each site built both ways back to back:");
-            foreach (var r in fullRows) L("nosigns " + r);
+            L("WP-25 A/B - the same sites and tiles with NO CULVERTS AND NO CREEK BANKS (the tiles before WP-25; trees, signs and the ponds both ways), each site built both ways back to back:");
+            foreach (var r in fullRows) L("nohydro " + r);
             var fullTot = new List<float>();
             foreach (var t in fullAll) fullTot.Add(t.totalMs);
-            L($"nosigns ALL {fullAll.Count} tiles: total p50 {P(fullTot, 50):0.0} p95 {P(fullTot, 95):0.0} max {P(fullTot, 100):0.0} ms");
+            L($"nohydro ALL {fullAll.Count} tiles: total p50 {P(fullTot, 50):0.0} p95 {P(fullTot, 95):0.0} max {P(fullTot, 100):0.0} ms");
             // the trees' own cost, timed directly: a frame of their own per tile
             var treeTot = new List<float>(); var treePlant = new List<float>();
             foreach (var t in treeAll) { treeTot.Add(t.totalMs); treePlant.Add(t.treePlantMs); }
             L($"TREE FRAMES ALL {treeAll.Count} tiles: p50 {P(treeTot, 50):0.0} p95 {P(treeTot, 95):0.0} max {P(treeTot, 100):0.0} ms (planting p95 {P(treePlant, 95):0.0}); " +
               $"a tile's trees never share a frame with a tile build (CityWorld.PlantTrees), and stand no collider there (the trunk table stands them round the cars)");
-            L("draws the SIGNS add, per heading (ahead/right/back/left), and the most in one view (one draw a tile with signs in view; no sun-map caster):");
+            L("draws the CULVERTS AND BANKS add, per heading (ahead/right/back/left), and the most in one view (a tile's banks one draw, its headwalls the barriers' draw and its pipes the lamp posts'):");
             int mostAdded = 0; string mostAt = "";
             foreach (var site in sites)
             {
@@ -349,11 +356,11 @@ namespace PSXRacing.EditorTools
                 for (int h = 0; h < 4; h++) { parts[h] = (dv[h] - df[h]).ToString(); best = Mathf.Max(best, dv[h] - df[h]); }
                 float p95v = P(tilesByPass[0][site.name], 95), p95f = P(tilesByPass[1][site.name], 95);
                 treeP95BySite.TryGetValue(site.name, out float tf95);
-                L($"  {site.name,-14} added {string.Join("/", parts)}  most {best}  (tile build p95 {p95f:0.0} no signs, {p95v:0.0} signs; the tree frame, signs included, p95 {tf95:0.0} ms)");
+                L($"  {site.name,-14} added {string.Join("/", parts)}  most {best}  (tile build p95 {p95f:0.0} without, {p95v:0.0} with; the tree frame p95 {tf95:0.0} ms)");
                 if (!site.extra && best > mostAdded) { mostAdded = best; mostAt = site.name; }
             }
-            summary.Add($"budget: WP-23 signs - at most +{mostAdded} draws in one view ({mostAt}; one per tile with signs in view); tile build p95 {P(fullTot, 95):0.0} (no signs) / {P(totAll, 95):0.0} (signs) ms on the same tiles; " +
-                        $"tree frames (signs placed first on them) p95 {P(treeTot, 95):0.0} / max {P(treeTot, 100):0.0} ms");
+            summary.Add($"budget: WP-25 culverts and banks - at most +{mostAdded} draws in one view ({mostAt}); tile build p95 {P(fullTot, 95):0.0} (without) / {P(totAll, 95):0.0} (with) ms on the same tiles; " +
+                        $"tree frames p95 {P(treeTot, 95):0.0} / max {P(treeTot, 100):0.0} ms");
 
             L("");
             L($"spawn seats (CityMode.SeatOnStreet's rule; datum {CityElevation.DatumASL:0.000} m ASL, graph hash {map.graphHash:x8})");

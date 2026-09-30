@@ -40,8 +40,13 @@
 //     lake covers. Each must be FLAT in the hydro-flattened 3DEP (60% of its
 //     pixels within 0.3 m of their median, which is its level), or it is not
 //     a lake and is left out. Islands are not kept (one ring per lake).
+//   * PONDS (WP-25). The same rules down to 0.2 ha (half an acre: the
+//     suburbs' retention ponds and farm ponds; the owner's "real density"),
+//     simplified at 2.5 m instead of 12. A pond is a lake with pond: true;
+//     the exporter drops any that comes within a few metres of a road, so a
+//     pond never makes a water span.
 //
-// Output: [{ name, widthM, kind (0 creek, 1 lake, 2 ravine), lake, ravine,
+// Output: [{ name, widthM, kind (0 creek, 1 lake, 2 ravine), lake, pond, ravine,
 // pts: [[x, z]...] (game frame), bed: Float64Array (m ASL every bedStep m
 // along pts from its first point, the last sample at its end; a lake's one
 // value is its level, bedStep 0) }].
@@ -61,6 +66,8 @@ const RAVINE_BED_STEP = 40;
 export const KIND_CREEK = 0, KIND_LAKE = 1, KIND_RAVINE = 2;
 const LAKE_MIN_M2 = 2e4;
 const LAKE_SIMPLIFY_M = 12;
+/// Ponds (WP-25): 0.2 ha up to LAKE_MIN_M2, simplified finer.
+const POND_MIN_M2 = 2e3, POND_SIMPLIFY_M = 2.5;
 const MAX_PTS = 4000;          // CityMap packs a segment index in 12 bits
 const WIDTH_BY_ORDER = { 1: 3, 2: 3, 3: 4, 4: 6, 5: 10, 6: 14, 7: 20, 8: 40, 9: 40 };
 
@@ -233,7 +240,7 @@ export function buildWaters({ cacheDir, dem3, toX, toZ, toLat, toLon, box, log =
   }
 
   const waters = [];
-  const stats = { creeks: 0, creekKm: 0, creekPts: 0, ravines: 0, ravineKm: 0, ravinePts: 0, lakes: 0, lakePts: 0, lakesNotFlat: [], beds: 0, meckParts: meckKept, usgsParts: usgsKept };
+  const stats = { creeks: 0, creekKm: 0, creekPts: 0, ravines: 0, ravineKm: 0, ravinePts: 0, lakes: 0, lakePts: 0, lakesNotFlat: [], ponds: 0, pondPts: 0, pondsNotFlat: 0, beds: 0, meckParts: meckKept, usgsParts: usgsKept };
   const gbox = [box.x0, box.z0, box.x1, box.z1];
   const widthOf = so => WIDTH_BY_ORDER[Math.max(1, Math.min(9, so || USGS_MIN_ORDER))];
   for (const [, g] of [...groups].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))) {
@@ -342,20 +349,24 @@ export function buildWaters({ cacheDir, dem3, toX, toZ, toLat, toLon, box, log =
     let ring = c.ring.map(toG);
     if (ring.length > 1 && ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1]) ring = ring.slice(0, -1);
     ring = clipRing(ring, gbox);
-    if (ring.length < 3 || ringArea(ring) < LAKE_MIN_M2) continue;
+    if (ring.length < 3) continue;
+    const area = ringArea(ring);
+    if (area < POND_MIN_M2) continue;
+    const pond = area < LAKE_MIN_M2;
     // flat in the hydro-flattened DEM, or not a lake
     const vals = pixelsIn(dem3, c.ring).sort((a, b) => a - b);
     if (vals.length < 4) continue;
     const med = vals[Math.floor(vals.length / 2)];
     const flat = vals.filter(v => Math.abs(v - med) <= 0.3).length / vals.length;
-    if (flat < 0.6) { stats.lakesNotFlat.push(`${c.src} ${c.name || '(pond)'} ${(ringArea(ring) / 1e4).toFixed(1)} ha flat ${flat.toFixed(2)}`); continue; }
-    let tol = LAKE_SIMPLIFY_M, simp = dpRing(ring, tol);
+    if (flat < 0.6) { if (pond) stats.pondsNotFlat++; else stats.lakesNotFlat.push(`${c.src} ${c.name || '(pond)'} ${(ringArea(ring) / 1e4).toFixed(1)} ha flat ${flat.toFixed(2)}`); continue; }
+    let tol = pond ? POND_SIMPLIFY_M : LAKE_SIMPLIFY_M, simp = dpRing(ring, tol);
     while (simp.length > MAX_PTS) { tol *= 1.5; simp = dpRing(ring, tol); }
     if (simp.length < 3) continue;
-    waters.push({ name: c.name, widthM: 0, kind: KIND_LAKE, lake: true, ravine: false, pts: simp, src: c.src, level: med, bed: Float64Array.of(med), bedStep: 0, bedLen: 0 });
-    stats.lakes++; stats.lakePts += simp.length;
+    waters.push({ name: c.name, widthM: 0, kind: KIND_LAKE, lake: true, pond, ravine: false, pts: simp, src: c.src, level: med, bed: Float64Array.of(med), bedStep: 0, bedLen: 0 });
+    if (pond) { stats.ponds++; stats.pondPts += simp.length; }
+    else { stats.lakes++; stats.lakePts += simp.length; }
   }
-  log(`water: ${stats.creeks} creek lines (${stats.creekKm.toFixed(0)} km, ${stats.creekPts} points), ${stats.ravines} ravines (${stats.ravineKm.toFixed(0)} km, ${stats.ravinePts} points), ${stats.beds} bed samples (county ${stats.meckParts} parts, 3DHP ${stats.usgsParts}); ${stats.lakes} lakes (${stats.lakePts} points); ${stats.lakesNotFlat.length} water bodies left out as not flat`);
+  log(`water: ${stats.creeks} creek lines (${stats.creekKm.toFixed(0)} km, ${stats.creekPts} points), ${stats.ravines} ravines (${stats.ravineKm.toFixed(0)} km, ${stats.ravinePts} points), ${stats.beds} bed samples (county ${stats.meckParts} parts, 3DHP ${stats.usgsParts}); ${stats.lakes} lakes (${stats.lakePts} points); ${stats.ponds} ponds of 0.2-2 ha (${stats.pondPts} points); ${stats.lakesNotFlat.length} water bodies and ${stats.pondsNotFlat} ponds left out as not flat`);
   return { waters, stats };
 }
 

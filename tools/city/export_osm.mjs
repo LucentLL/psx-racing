@@ -665,6 +665,74 @@ console.log(`3DEP: ${relative(UNITY, dem3.f32Path)} (${dem3.meta.cols} x ${dem3.
 // Creeks and lakes from open data with their beds from 3DEP (WP-04b; the
 // rules are in lib/water.mjs). Each water is { name, widthM, lake, pts, bed }.
 const waters = buildWaters({ cacheDir: CACHE, dem3, toX, toZ, toLat, toLon, box: bbox }).waters;
+// WP-25: a POND never touches a road, so no pond makes a water span (the
+// owner's rule gives every road over water a bridge; a retention pond is
+// not what a road crosses): one within POND_ROAD_CLEAR_M of any road's
+// pavement, or with a road's point inside it, is left out. So is one PERCHED
+// over a road: a road within POND_PERCH_M of its shore whose ground (3DEP at
+// the road's line) is under the pond's level plus POND_PERCH_DY - the road's
+// cut would drain it, and the water would hang over the slope beside the road.
+// The solve can cut a road below 3DEP's ground by a hand or two, so the
+// margin is a metre (the runtime audit judges the solved road at +0.3 m).
+{
+  const POND_ROAD_CLEAR_M = 4, POND_PERCH_M = 16, POND_PERCH_DY = 1.0, C = 64;
+  const cells = new Map();
+  let maxHw = 0;
+  for (const e of edges) {
+    // the piece's own lane count after WP-10's clean-up (e.lanes), at the
+    // 3.6576 m lanes the game still draws
+    const hw = (e.lanes * LANE_M + e.way.shl + e.way.shr) / 2;
+    maxHw = Math.max(maxHw, hw);
+    for (let i = 1; i < e.pts.length; i++) {
+      const [ax, az] = e.pts[i - 1], [bx, bz] = e.pts[i];
+      for (let cx = Math.floor(Math.min(ax, bx) / C); cx <= Math.floor(Math.max(ax, bx) / C); cx++)
+        for (let cz = Math.floor(Math.min(az, bz) / C); cz <= Math.floor(Math.max(az, bz) / C); cz++) {
+          const k = cx * 100003 + cz;
+          let l = cells.get(k); if (!l) cells.set(k, l = []);
+          l.push([ax, az, bx, bz, hw]);
+        }
+    }
+  }
+  const ptSeg = (px, pz, ax, az, bx, bz) => {
+    const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
+    const t = L2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / L2)) : 0;
+    return Math.hypot(px - ax - dx * t, pz - az - dz * t);
+  };
+  const segSeg = (a, b, c, d) => segX(a[0], a[1], b[0], b[1], c[0], c[1], d[0], d[1]) ? 0 :
+    Math.min(ptSeg(a[0], a[1], c[0], c[1], d[0], d[1]), ptSeg(b[0], b[1], c[0], c[1], d[0], d[1]),
+             ptSeg(c[0], c[1], a[0], a[1], b[0], b[1]), ptSeg(d[0], d[1], a[0], a[1], b[0], b[1]));
+  const groundASL = (x, z) => dem3.sample(toLat(z), toLon(x));
+  // 'near' (within the clearance), 'perched' (over a road nearby), or null
+  const nearRoad = w => {
+    const pts = w.pts, reach = maxHw + POND_PERCH_M;
+    let perched = false;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      for (let cx = Math.floor((Math.min(a[0], b[0]) - reach) / C); cx <= Math.floor((Math.max(a[0], b[0]) + reach) / C); cx++)
+        for (let cz = Math.floor((Math.min(a[1], b[1]) - reach) / C); cz <= Math.floor((Math.max(a[1], b[1]) + reach) / C); cz++)
+          for (const [ax, az, bx, bz, hw] of cells.get(cx * 100003 + cz) || []) {
+            const d = segSeg(a, b, [ax, az], [bx, bz]);
+            if (d < hw + POND_ROAD_CLEAR_M) return 'near';
+            if (pointInPoly(pts, ax, az) || pointInPoly(pts, bx, bz)) return 'near';
+            if (!perched && d < hw + POND_PERCH_M) {
+              // the road's line at the foot of this shore point
+              const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
+              const t = L2 > 0 ? Math.max(0, Math.min(1, ((a[0] - ax) * dx + (a[1] - az) * dz) / L2)) : 0;
+              const x = ax + dx * t, z = az + dz * t;
+              if (Math.hypot(a[0] - x, a[1] - z) < hw + POND_PERCH_M && groundASL(x, z) < w.level + POND_PERCH_DY) perched = true;
+            }
+          }
+    }
+    return perched ? 'perched' : null;
+  };
+  let kept = 0, near = 0, perched = 0;
+  for (let i = waters.length - 1; i >= 0; i--) {
+    if (!waters[i].pond) continue;
+    const why = nearRoad(waters[i]);
+    if (why) { waters.splice(i, 1); if (why === 'near') near++; else perched++; } else kept++;
+  }
+  console.log(`ponds: ${kept} kept; left out ${near} within ${POND_ROAD_CLEAR_M} m of a road's pavement, ${perched} perched over a road within ${POND_PERCH_M} m`);
+}
 function pointInPoly(pts, x, y) {
   let inside = false;
   for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {

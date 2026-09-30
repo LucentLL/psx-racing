@@ -376,6 +376,7 @@ namespace PSXRacing.EditorTools
             fanMouths = null;
             LampAudit(map, trims, buildings);
             TerrainFidelity(map);
+            HydroAudit(map, trims, buildings);
             TreeAudit(map, trims, buildings);
             SignAudit(map, trims, buildings);
 
@@ -1414,6 +1415,7 @@ namespace PSXRacing.EditorTools
                             else if (!float.IsNaN(gt.deckProtect) && Mathf.Abs(gy - gt.deckProtect) < 1e-3f) cause = "held under a deck's pavement";
                             else if (!float.IsNaN(gt.protect) && Mathf.Abs(gy - gt.protect) < 1e-3f) cause = "held under a lower road's pavement (conflict)";
                             else if (gt.dem < CityElevation.BaseY(x, z) - 0.05f) cause = "water";
+                            else if (!float.IsNaN(gt.channel)) cause = "a creek's channel at a bridge (WP-25)";
                             else { cause = "UNEXPLAINED"; pitsUnexplained++; }
                             pitByCause.TryGetValue(cause, out int pc); pitByCause[cause] = pc + 1;
                             if (cause == "UNEXPLAINED" || notes.Count < 400)
