@@ -262,7 +262,8 @@ let tollKept = 0, tollDropped = 0;
 /// the general lanes by -0.55 m, an I-77 connector climbs 39% into a 26 m
 /// bridge (35.3759,-80.8470) and a Monroe Expressway ramp crosses
 /// Independence Boulevard at grade - elevation-solver work, not lines. Flip
-/// this with that fix (tools/city/lib/lineclean.mjs already handles them).
+/// this with that fix (tools/city/lib/lineclean.mjs already handles them):
+/// the plan's WP-10t, right after WP-11b ships.
 const KEEP_TOLL = false;
 const tollNodes = new Set();   // every node a dropped toll way touched
 function keepWay(w, minor) {
@@ -536,10 +537,11 @@ const LC = lineClean({ ways, edges, nodes, rawWays: [...rawWays, ...rawMinor],
 hashSegs();
 {
   const st = LC.stats;
-  console.log(`WP-10 lines: ${st.points.before} -> ${st.points.after_simplify} points after collapse + Douglas-Peucker 0.5 m (${st.pinned_vertices} shared raw vertices pinned); ` +
+  console.log(`WP-10 lines: ${st.points.before} -> ${st.points.after_simplify} points after collapse + Douglas-Peucker 0.5 m (${st.pinned_vertices} shared raw vertices pinned; first piece held at ${st.simplify_held.taper_ends} lane-change edges, ${st.simplify_held.structure} decks/tunnels left alone); ` +
               `doglegs ${st.doglegs_raw.all} (${st.doglegs_raw.jog_ge_1m} jog >= 1 m) -> ${st.doglegs_after.all} (fixed ${st.doglegs_fixed.all}, worst jog ${st.doglegs_fixed.worst_jog_m} m)`);
   console.log(`WP-10 lanes: flickers ${st.lane_fixes.flicker} (${st.lane_fix_km.flicker} km), short pieces ${st.lane_fixes.short} (${st.lane_fix_km.short} km), inferred ${st.lane_fixes.inferred} (${st.lane_fix_km.inferred} km)`);
-  console.log(`WP-10 TAPR: ${st.tapr.transitions} lane-count changes, ${st.tapr.oneSided} one-sided (0 symmetric), ${st.tapr.tagged} side from tags, ${st.tapr.bays} turn bays, ${st.tapr.shortened} fitted to the chain, ${st.tapr.absorbed} absorbed at a mouth`);
+  console.log(`WP-10 lanes: ${st.lane_kept_tagged} short tagged pieces kept (turn bays, drawn one-sided); edges drawn below their own lanes= tag: ${st.lane_below_tag}`);
+  console.log(`WP-10 TAPR: ${st.tapr.transitions} lane-count changes, ${st.tapr.oneSided} one-sided (0 symmetric), ${st.tapr.tagged} side from tags, ${st.tapr.bays} turn bays, ${st.tapr.atJunction} full width at a junction mouth, ${st.tapr.shortened} fitted to the chain, ${st.tapr.absorbed} absorbed (no room), ${st.tapr.reanchored} re-anchored at a junction (> 1 lane off), ${st.tapr.recentred} untagged junction-mouth lanes opened on the re-centring side`);
   console.log(`WP-10 PARA: before ${JSON.stringify(st.para_before)}; after ${JSON.stringify(st.para_after)}; moved ${st.para_moved.chains} chains (max ${st.para_moved.max_offset_m} m)`);
   {
     const rv = LC.review.filter(r => r.kind === 'para');
@@ -1212,13 +1214,15 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
   // TAPR: every lane-count change along a chain - the wide run's edge and
   // end at the node, the ribbon side that moves (0 left, 1 right of a->b),
   // where the side came from (0 rule, 1 bay rule, 2 turn:lanes, 3 lanes:
-  // forward/backward), flags (1 turn bay, 2 absorbed at a mouth, 4 a drop in
-  // chain order, 8 untagged), the width change, the MUTCD length, the room
-  // the chain has, and the wide run's offset at the node; then every edge's
-  // ribbon offset off its OSM line (+ = left of a->b), where not zero, as
-  // o0 + (o1 - o0) * smoothstep((s - t0) / (t1 - t0)): u32 edge, f32 o0,
-  // o1, t0, t1 (a long run eases back onto its own line by a MUTCD shifting
-  // taper; t0/t1 may lie past the edge when that taper spans several).
+  // forward/backward), flags (1 turn bay, 2 full width at the node - a
+  // junction mouth, or no room for a taper - with len 0 at a junction, 4 a
+  // drop in chain order, 8 untagged), the width change, the MUTCD length,
+  // the room the chain has, and the wide run's offset at the node; then
+  // every edge's ribbon offset off its OSM line (+ = left of a->b), where
+  // not zero, as o0 + (o1 - o0) * smoothstep((s - t0) / (t1 - t0)): u32
+  // edge, f32 o0, o1, t0, t1. Since the WP-10 review the offset HOLDS along
+  // an edge (o0 = o1, t0 0, t1 1): no mid-block shift; the fields stay for
+  // WP-11b's eases.
   section('TAPR', w => {
     w.u32(LC.tapr.length);
     for (const t of LC.tapr) { w.u32(t.edge); w.u8(t.end); w.u8(t.side); w.u8(t.src); w.u8(t.flags); w.f32(t.dw); w.f32(t.len); w.f32(t.room); w.f32(t.off); }
@@ -1233,6 +1237,12 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
   section('PARA', w => {
     const onRoute = new Set(routes.flatMap(r => r.chain.map(c => c.e.id)));
     const items = LC.review.filter(r => r.kind === 'para');
+    {
+      const inC = r => Math.abs(r.x - uptownX) <= 4000 && Math.abs(r.z - uptownZ) <= 4000;
+      const onR = r => onRoute.has(r.edge) || onRoute.has(r.edge2);
+      console.log(`WP-10 PARA review: ${items.length} pairs; core ${items.filter(inC).length}, routes ${items.filter(onR).length}`);
+      if (process.env.PSX_LC_DIAG) for (const r of items.filter(r => inC(r) || onR(r))) console.log(`  PARA ${inC(r) ? 'core' : ''}${onR(r) ? ' route' : ''} e${r.edge}/e${r.edge2} ${r.note} short ${r.deficit.toFixed(2)} m for ${r.metres.toFixed(0)} m at (${r.x.toFixed(0)}, ${r.z.toFixed(0)}) ${toLat(r.z).toFixed(5)},${toLon(r.x).toFixed(5)}`);
+    }
     w.u32(items.length);
     for (const r of items) {
       w.u32(r.edge); w.u32(r.edge2); w.f32(r.x); w.f32(r.z); w.f32(r.deficit); w.f32(r.metres);

@@ -2,10 +2,10 @@
   "schema": 1,
   "city": {
     "version": 2,
-    "graph_hash": "801cdb1a",
+    "graph_hash": "25298d13",
     "nodes": 20194,
     "edges": 25042,
-    "points": 175319,
+    "points": 184961,
     "node_degrees": [
       0,
       925,
@@ -16,7 +16,7 @@
       6,
       0
     ],
-    "km": 3845.5,
+    "km": 3845.6,
     "bridges": 791,
     "tunnels": 8,
     "links": 2200,
@@ -28,9 +28,9 @@
     "water_bed_samples": 69990,
     "lakes": 106,
     "ravines": 1545,
-    "crossings": 784,
-    "crossings_forced": 784,
-    "water_spans": 562,
+    "crossings": 783,
+    "crossings_forced": 783,
+    "water_spans": 563,
     "controls": {
       "signal": 1668,
       "stop": 140,
@@ -40,12 +40,12 @@
       {
         "id": "uptown",
         "edges": 68,
-        "length_m": 9193.6
+        "length_m": 9193.9
       },
       {
         "id": "tryon",
         "edges": 78,
-        "length_m": 6021.3
+        "length_m": 6021.4
       },
       {
         "id": "independence",
@@ -53,18 +53,18 @@
         "length_m": 7015.4
       }
     ],
-    "free_vertices": 134935,
+    "free_vertices": 144576,
     "kinks_per_km": {
-      "ge5": 7.841,
-      "ge10": 2.772,
-      "ge25": 0.429
+      "ge5": 7.73,
+      "ge10": 2.749,
+      "ge25": 0.412
     },
     "kinks": {
-      "ge5": 30098,
-      "ge10": 10639,
-      "ge25": 1648,
+      "ge5": 29670,
+      "ge10": 10552,
+      "ge25": 1581,
       "max_deg": 173.1,
-      "folds_over_10cm": 1632
+      "folds_over_10cm": 1626
     }
   },
   "dem": {
@@ -92,8 +92,8 @@
   },
   "outputs": {
     "charlotte_city.bytes": {
-      "bytes": 3543138,
-      "sha256": "72881d555ff299ea549c7da1149f292589ad10046ed36b9c02e062fcdb729136"
+      "bytes": 3710438,
+      "sha256": "bab3090a81d2f650d796c06810815e5cb59a2f06e9e46749147667f2193463fa"
     },
     "charlotte_dem.bytes": {
       "bytes": 1485788,
@@ -104,8 +104,8 @@
       "sha256": "21a9e261ed1f807a4559bad111708c22529b2634d00976926aa45cad4a1995f5"
     },
     "charlotte_routes.json": {
-      "bytes": 16525,
-      "sha256": "a4b4c85df85e99b1113b89b1fbd2d906f81f83d967b8fa657008ade1fbc4ec61"
+      "bytes": 16521,
+      "sha256": "33d7b103abaf78659900c46e2cacac7451d124d5129979649244845f2913c327"
     }
   },
   "generated": {

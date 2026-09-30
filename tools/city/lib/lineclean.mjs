@@ -13,11 +13,13 @@
 //      and projected to (edge, s) at the end -> section TAGN. Every vertex
 //      another OSM highway way shares (kept or not: the toll ways, the
 //      private and unnamed service roads) is pinned.
-//   2. LANE-COUNT DATA, per chain: A->B->A flickers under 100 m and pieces
-//      shorter than two taper floors take their neighbours' count; an
-//      untagged ground piece between two tagged ones of the same count takes
-//      theirs ("inferred"); an untagged bridge keeps the default and goes on
-//      the review list (the creek deck, way 16671358, first).
+//   2. LANE-COUNT DATA, per chain: UNTAGGED A->B->A flickers under 100 m
+//      and pieces shorter than two taper floors take their neighbours'
+//      count; an untagged ground piece between two tagged ones of the same
+//      count takes theirs ("inferred"); an untagged bridge keeps the default
+//      and goes on the review list (the creek deck, way 16671358, first). A
+//      piece with its OWN lanes= tag is never changed: a short tagged piece
+//      is a turn bay, drawn on one side by TAPR.
 //   3. SIMPLIFY: collapse vertices under 2 m apart, then Douglas-Peucker at
 //      0.5 m, junction nodes, dead ends and pinned vertices fixed. Links and
 //      roundabouts are left alone until WP-11 fillets them (critic C32).
@@ -28,15 +30,21 @@
 //      or closes on (turn:lanes, lanes:forward/backward; untagged: the right
 //      of the direction that gains it, a centre gain on a two-way road is a
 //      left-turn bay for the direction that gains it - never both outer
-//      edges), the run's lateral OFFSET from its OSM line (the through lanes
-//      keep their position: A8 rule 3), the MUTCD length (WS^2/60 to 40 mph,
-//      WS from 45, turn bays 30-55 m, floors 15/30/90 m) and the room the
-//      chain has for it - never clamped to one OSM piece. -> section TAPR.
+//      edges; an untagged lane at a junction mouth opens on the side that
+//      brings the ribbon back toward its OSM line), the run's lateral OFFSET
+//      from its OSM line, held along the run (the through lanes keep their
+//      position: A8 rules 1 and 3; no mid-block shift), the MUTCD length
+//      (WS^2/60 to 40 mph, WS from 45, turn bays 30-55 m, floors 15/30/90 m)
+//      and the room the chain has for it - never clamped to one OSM piece.
+//      At a junction node the lane opens or ends full width at the mouth (no
+//      taper where cars turn). -> section TAPR.
 //   6. PARA: carriageways whose pavements (at game widths, with the TAPR
 //      offsets and WP-11's lane centring, whichever is wider on the facing
 //      side) overlap or leave less than the class gap are moved apart with a
-//      smooth offset along their chains; what cannot be moved goes on the
-//      review list. -> section PARA.
+//      smooth offset along their chains; where two chains really meet (a
+//      shared node, out to where the mapped lines part; a junction box
+//      across a short connector) they are exempt; what cannot be moved goes
+//      on the review list. -> section PARA.
 // The per-class lane-width table (owner, 2026-09-27: real widths) is written
 // as section LANW; the game keeps 3.6576 m until WP-11b draws paint by line
 // (plan A3, "Lane widths").
@@ -44,6 +52,9 @@ import { profileFor } from './citydata.mjs';
 
 export const SMOOTH = t => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 const DEG = 180 / Math.PI;
+/// A chain's ribbon may sit up to one lane off its OSM line (the map's own
+/// error on a widened road); past that it is re-anchored at a junction mouth.
+const LANE_REANCHOR = 3.6576 + 0.05;
 const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
 
 /// Real US lane widths by class (AASHTO / CDOT): freeway and expressway 12 ft,
@@ -235,13 +246,16 @@ export function lineClean(ctx) {
   // ---------------------------------------------------- 2. lane counts
   let { chains, chainOf } = buildChains(edges, nodes);
   const laneFix = { flicker: 0, short: 0, inferred: 0 }, laneFixM = { flicker: 0, short: 0, inferred: 0 };
+  let keptTagged = 0;
   const runsOf = chain => {
     const runs = [];
     for (let i = 0; i < chain.length; i++) {
       const e = chain[i].e, key = profOf(e).key;
       const last = runs[runs.length - 1];
-      if (last && last.key === key) { last.items.push(i); last.len += e.len; last.tagged = last.tagged && e.way.tagged; last.bridge = last.bridge || e.way.bridge; }
-      else runs.push({ key, items: [i], len: e.len, tagged: e.way.tagged, bridge: e.way.bridge, rep: e });
+      // own: the count is this piece's OWN lanes= tag (not a neighbour's, lent by a fix)
+      const own = e.way.tagged && !e.laneFix;
+      if (last && last.key === key) { last.items.push(i); last.len += e.len; last.tagged = last.tagged && e.way.tagged; last.own = last.own || own; last.bridge = last.bridge || e.way.bridge; }
+      else runs.push({ key, items: [i], len: e.len, tagged: e.way.tagged, own, bridge: e.way.bridge, rep: e });
     }
     return runs;
   };
@@ -252,6 +266,11 @@ export function lineClean(ctx) {
       for (let i = 1; i + 1 < runs.length && !fixed; i++) {
         const A = runs[i - 1], B = runs[i], C = runs[i + 1];
         if (A.key !== C.key) continue;
+        // A piece whose count is its OWN lanes= tag is data - a turn bay, an
+        // auxiliary lane, a real lane drop - and TAPR draws it on ONE side;
+        // it is never deleted (review 1: 2,194 tagged edges, 1,231 of them
+        // naming the lane in turn:lanes, lost it). Only untagged flickers go.
+        if (B.own) { if (B.len < 100 || B.len < 2 * floorOf(B.rep.way)) keptTagged++; continue; }
         let why = null;
         if (B.len < 100) why = 'flicker';
         else if (B.len < 2 * floorOf(B.rep.way)) why = 'short';
@@ -272,6 +291,8 @@ export function lineClean(ctx) {
     }
   }
   stats.lane_fixes = laneFix;
+  stats.lane_kept_tagged = keptTagged;
+  stats.lane_below_tag = edges.filter(e => e.way.tagged && e.laneFix && profOf(e).lanes < profileFor(e.way.rank, e.way.link, e.way.oneway, e.way.lanes, e.way.turn).lanes).length;
   stats.lane_fix_km = Object.fromEntries(Object.entries(laneFixM).map(([k, v]) => [k, +(v / 1000).toFixed(2)]));
 
   // ---------------------------------------------------- doglegs, counted
@@ -378,23 +399,43 @@ export function lineClean(ctx) {
   stats.doglegs_raw = countDoglegs();
 
   // ---------------------------------------------------- 3. simplify
+  // Held: a deck or tunnel is left alone (its vertices place its rails and
+  // approaches), and at an end where the lane count changes the first OSM
+  // piece keeps its length. Until WP-11b draws TAPR the builder tapers a
+  // change over the piece next to the node (0.9 of it), so dropping that
+  // piece's far vertex lengthened the taper - a 49 m mw3-mw4-mw3 deck on
+  // I-277 then never reached full width and its rails stood in the lanes
+  // (the WP-10 review's audit).
+  const holdEnd = new Uint8Array(edges.length);   // 1: a end, 2: b end, 4: whole edge
+  for (const chain of chains) for (let i = 1; i < chain.length; i++) {
+    if (profOf(chain[i].e).key === profOf(chain[i - 1].e).key) continue;
+    const p = chain[i - 1], q = chain[i];
+    holdEnd[p.e.id] |= p.fwd ? 2 : 1;
+    holdEnd[q.e.id] |= q.fwd ? 1 : 2;
+  }
+  for (const e of edges) if (e.way.bridge || e.way.tunnel || e.way.level !== 0) holdEnd[e.id] |= 4;
+  stats.simplify_held = { taper_ends: holdEnd.reduce((a, v) => a + ((v & 3) ? 1 : 0), 0), structure: holdEnd.reduce((a, v) => a + ((v & 4) ? 1 : 0), 0) };
   const DP_M = 0.5;   // the plan's SimplifyEpsM (SmoothRules: the gate's WAVE rule follows it)
   let ptsBefore = 0, ptsAfter = 0;
   for (const e of edges) {
     ptsBefore += e.pts.length;
-    if (e.way.link || e.way.roundabout || e.pts.length <= 2) { ptsAfter += e.pts.length; continue; }
+    if ((holdEnd[e.id] & 4) || e.way.link || e.way.roundabout || e.pts.length <= 2) { ptsAfter += e.pts.length; continue; }
     const P = e.pts, n = P.length;
+    const held = k => isPinned(P[k]) || (k === 1 && (holdEnd[e.id] & 1)) || (k === n - 2 && (holdEnd[e.id] & 2));
     const Q = [P[0]];
     for (let k = 1; k < n - 1; k++) {
-      if (!isPinned(P[k]) && (dist(P[k], Q[Q.length - 1]) < 2 || dist(P[k], P[n - 1]) < 2)) continue;
+      if (!held(k) && (dist(P[k], Q[Q.length - 1]) < 2 || dist(P[k], P[n - 1]) < 2)) continue;
       Q.push(P[k]);
     }
     Q.push(P[n - 1]);
     // Douglas-Peucker between pinned vertices
     const out = [Q[0]];
     let from = 0;
+    const heldQ = new Set();
+    if (holdEnd[e.id] & 1 && n > 2) heldQ.add(P[1]);
+    if (holdEnd[e.id] & 2 && n > 2) heldQ.add(P[n - 2]);
     for (let k = 1; k < Q.length; k++) {
-      if (k === Q.length - 1 || isPinned(Q[k])) {
+      if (k === Q.length - 1 || isPinned(Q[k]) || heldQ.has(Q[k])) {
         const part = DP_M > 0 ? rdp(Q.slice(from, k + 1), DP_M) : Q.slice(from, k + 1);
         for (let q = 1; q < part.length; q++) out.push(part[q]);
         from = k;
@@ -422,7 +463,7 @@ export function lineClean(ctx) {
   /// position (t0, t1 may lie beyond it: one shifting taper over several
   /// edges); null = on its line.
   const edgeOffset = new Array(edges.length).fill(null);
-  const tStats = { transitions: 0, tagged: 0, bays: 0, absorbed: 0, shortened: 0, oneSided: 0, symmetric: 0 };
+  const tStats = { transitions: 0, tagged: 0, bays: 0, atJunction: 0, absorbed: 0, shortened: 0, oneSided: 0, symmetric: 0, reanchored: 0, recentred: 0 };
   for (const chain of chains) {
     const runs = runsOf(chain);
     if (runs.length < 2) continue;
@@ -477,51 +518,54 @@ export function lineClean(ctx) {
     }
     // A run wider than BOTH neighbours opens and closes on ONE side (a bay
     // or a widening): the entry decides unless only the exit is tagged.
+    const peak = i => i > 0 && i + 1 < runs.length && W[i] > W[i - 1] && W[i] > W[i + 1];
+    const locked = new Array(runs.length - 1).fill(false);   // set by a bay's other, tagged end
     for (let i = 1; i + 1 < runs.length; i++) {
-      if (!(W[i] > W[i - 1] && W[i] > W[i + 1])) continue;
+      if (!peak(i)) continue;
       const a = i - 1, b = i;
-      if (srcs[b] >= 2 && srcs[a] < 2) sides[a] = sides[b]; else sides[b] = sides[a];
+      if (srcs[b] >= 2 && srcs[a] < 2) { sides[a] = sides[b]; locked[a] = true; } else { sides[b] = sides[a]; locked[b] = true; }
     }
     // OFFSETS (the ribbon centre off the OSM line, chain-left +). Across a
-    // transition the FIXED edge is continuous, so the run after it starts
-    // at the run before's end offset -+ dw/2. A run long enough for a MUTCD
-    // shifting taper (W x S, WS^2/60 under 45 mph) eases back onto its own
-    // line in its middle: OSM draws a long run down the middle of its own
-    // pavement, and a road that goes 2 -> 4 -> 6 lanes over kilometres must
-    // not drift a lane sideways per change. A bay (too short to shift) keeps
-    // its offset and closes on the side it opened.
-    const offS = new Array(runs.length).fill(0), offE = new Array(runs.length).fill(0);
-    const shiftSpan = new Array(runs.length).fill(null);
-    const chainS0 = []; { let acc = 0; for (const c of chain) { chainS0.push(acc); acc += c.e.len; } }
-    for (let i = 0; i < runs.length; i++) {
-      if (i > 0) {
-        const dw = W[i] - W[i - 1];
-        // the moving edge belongs to the wider run; the other edge is fixed
-        offS[i] = sides[i - 1] === 'R' ? offE[i - 1] - dw / 2 : offE[i - 1] + dw / 2;
-      }
-      offE[i] = offS[i];
-      if (Math.abs(offS[i]) > 0.01) {
-        const rw = runs[i].rep.way;
-        const Ls = Math.max(floorOf(rw), shiftRate(mphOf(rw)) * Math.abs(offS[i]));
-        // room: the run less the lane tapers at its two ends
-        if (runs[i].len >= Ls + 2 * floorOf(rw) + 20) {
-          const r0 = chainS0[runs[i].items[0]], r1 = r0 + runs[i].len, m = (r0 + r1) / 2;
-          shiftSpan[i] = [m - Ls / 2, m + Ls / 2];
-          offE[i] = 0;
+    // transition the FIXED edge is continuous, so the run after it starts at
+    // the run before's offset -+ dw/2, and the offset HOLDS along the run:
+    // the through lanes keep their position (A8 rule 1). No mid-block
+    // shifting taper (review 3: it moved every lane 1.8-3.7 m sideways in
+    // the middle of 1,478 blocks - a swerve, not a lane). A bay closes on the
+    // side it opened, so it comes back to where it started; only a road that
+    // keeps widening one way carries more than one lane off its OSM line, and
+    // that is re-anchored at the next junction mouth (inside the junction
+    // box, where no lane line runs), never mid-block.
+    // At a JUNCTION MOUTH a lane the tags do not place opens on the side that
+    // brings the ribbon back toward its OSM line (A8 rule 2: the side chosen
+    // per spot): the lane appears inside the junction, no taper, and every
+    // through lane still lines up across it. So a carried offset only lives
+    // from a mid-block change to the next junction.
+    const offItem = new Array(chain.length).fill(0);
+    {
+      let cur = 0;
+      const startNode = k => chain[k].fwd ? chain[k].e.a : chain[k].e.b;
+      for (let i = 0; i < runs.length; i++) {
+        if (i > 0) {
+          const t = i - 1, dw = W[i] - W[i - 1];
+          if (srcs[t] < 2 && !locked[t] && nodeDeg[startNode(runs[i].items[0])] >= 3) {
+            const cR = cur - dw / 2, cL = cur + dw / 2;
+            const pick = Math.abs(cR) < Math.abs(cL) - 0.01 ? 'R' : Math.abs(cL) < Math.abs(cR) - 0.01 ? 'L' : sides[t];
+            if (pick !== sides[t]) { sides[t] = pick; tStats.recentred++; }
+            if (peak(i) && locked[i]) sides[i] = pick;   // the bay closes on the side it opened
+          }
+          // the moving edge belongs to the wider run; the other edge is fixed
+          cur = sides[t] === 'R' ? cur - dw / 2 : cur + dw / 2;
+        }
+        for (const k of runs[i].items) {
+          if (Math.abs(cur) > LANE_REANCHOR && nodeDeg[startNode(k)] >= 3) { cur = 0; tStats.reanchored++; }
+          offItem[k] = cur;
         }
       }
     }
-    for (let i = 0; i < runs.length; i++) {
-      for (const k of runs[i].items) {
-        const { e, fwd } = chain[k];
-        const s0e = chainS0[k];
-        const o0 = offS[i], o1 = offE[i];
-        const sp = shiftSpan[i];
-        // to the edge's own a->b frame (left +) and its own s
-        const rec = fwd ? { o0, o1, t0: sp ? sp[0] - s0e : 0, t1: sp ? sp[1] - s0e : 1 }
-                        : { o0: -o1, o1: -o0, t0: sp ? s0e + e.len - sp[1] : 0, t1: sp ? s0e + e.len - sp[0] : 1 };
-        edgeOffset[e.id] = rec;
-      }
+    for (let k = 0; k < chain.length; k++) {
+      const { e, fwd } = chain[k];
+      const o = fwd ? offItem[k] : -offItem[k];     // to the edge's own a->b frame (left +)
+      edgeOffset[e.id] = { o0: o, o1: o, t0: 0, t1: 1 };
     }
     // the records, one per transition, on the wide run's edge at the node
     for (let i = 0; i + 1 < runs.length; i++) {
@@ -540,7 +584,13 @@ export function lineClean(ctx) {
       len = Math.max(len, floor);
       const room = wideWider ? wide.len / 2 : wide.len;
       let flags = (bayF[i] ? 1 : 0) | (gain ? 0 : 4) | (srcs[i] < 2 ? 8 : 0);
-      if (len > room) {
+      if (nodeDeg[node] >= 3) {
+        // at a JUNCTION the lane opens or ends full width at the mouth - a
+        // turn bay runs full width to the stop line (review 2: 1,010 changes
+        // on a junction node carried a taper that pinched the bay to nothing
+        // where cars turn). Tapers only at 2-arm nodes.
+        flags |= 2; len = 0; tStats.atJunction++;
+      } else if (len > room) {
         if (room >= floor) { len = room; tStats.shortened++; }
         else { flags |= 2; len = Math.max(0, room); tStats.absorbed++; }
       }
@@ -625,6 +675,44 @@ function paraResolve({ edges, nodes, chains, chainOf, edgeOffset, isPinned, stat
   // exempt near it, out to where its pavements would part on their own.
   // Found ONCE, on the lines as mapped: a pass that pushed a split apart
   // would otherwise sharpen it past the threshold and lose its own pin.
+  const chainIdx = new Int32Array(edges.length).fill(-1);
+  chains.forEach(c => c.forEach((it, k) => { chainIdx[it.e.id] = k; }));
+  /// The line out of node n along e and on along e's chain, up to maxLen metres.
+  function walkOut(e0, n, maxLen) {
+    const ci = chainOf[e0.id];
+    const items = ci >= 0 ? chains[ci] : [{ e: e0, fwd: e0.a === n }];
+    let k = ci >= 0 ? chainIdx[e0.id] : 0;
+    const it = items[k];
+    const dir = (it.fwd ? it.e.a : it.e.b) === n ? 1 : -1;
+    const pts = []; let L = 0;
+    for (; k >= 0 && k < items.length && L < maxLen; k += dir) {
+      const { e, fwd } = items[k];
+      const P = (fwd === (dir > 0)) ? e.pts : e.pts.slice().reverse();
+      for (let q = pts.length ? 1 : 0; q < P.length && L < maxLen; q++) { if (pts.length) L += dist(P[q], pts[pts.length - 1]); pts.push(P[q]); }
+    }
+    return pts;
+  }
+  /// Arc distance along A (5 m steps) past which A stays `need` clear of B
+  /// to the end of the walk; null if it is not clear there.
+  function partAt(A, B, need) {
+    let s = 0, lastClose = 0, clear = false;
+    for (let k = 1; k < A.length; k++) {
+      const segL = dist(A[k], A[k - 1]), m = Math.max(1, Math.ceil(segL / 5));
+      for (let q = 1; q <= m; q++) {
+        const t = q / m, x = A[k - 1][0] + (A[k][0] - A[k - 1][0]) * t, z = A[k - 1][1] + (A[k][1] - A[k - 1][1]) * t;
+        let d = Infinity;
+        for (let j = 1; j < B.length; j++) {
+          const ax = B[j - 1][0], az = B[j - 1][1], dx = B[j][0] - ax, dz = B[j][1] - az, L2 = dx * dx + dz * dz;
+          let u = L2 > 0 ? ((x - ax) * dx + (z - az) * dz) / L2 : 0; u = Math.max(0, Math.min(1, u));
+          d = Math.min(d, Math.hypot(x - ax - dx * u, z - az - dz * u));
+        }
+        clear = d >= need;
+        if (!clear) lastClose = s + segL * t;
+      }
+      s += segL;
+    }
+    return clear ? lastClose : null;
+  }
   function convergences() {
     const ne = nodeEdgesOf(edges, nodes.length);
     const conv = [];
@@ -638,13 +726,45 @@ function paraResolve({ edges, nodes, chains, chainOf, edgeOffset, isPinned, stat
         // node would drag the other along); the exemption reaches as far as
         // their pavements take to part: need / sin(angle), 10 m past a right angle
         const th = Math.acos(Math.max(-1, Math.min(1, c)));
-        const need = profOf(arms[i]).width / 2 + profOf(arms[j]).width / 2 + 1.2;
+        const offAbs = e => edgeOffset[e.id] ? Math.abs(edgeOffset[e.id].o0) : 0;   // a TAPR offset may face the other way
+        const need = profOf(arms[i]).width / 2 + offAbs(arms[i]) + profOf(arms[j]).width / 2 + offAbs(arms[j]) + 1.2;
         const big = arms[i].way.rank >= 4 || arms[j].way.rank >= 4 || arms[i].way.link || arms[j].way.link;
-        const R = th >= Math.PI / 2 ? 10 : Math.min(big ? 300 : 150, need / Math.sin(Math.max(th, 3 / DEG)) + 10);
+        let R = th >= Math.PI / 2 ? 10 : Math.min(big ? 300 : 150, need / Math.sin(Math.max(th, 3 / DEG)) + 10);
+        // ...measured, where the two lines as mapped CURVE together (a skewed
+        // junction, a ramp's gore that bends in): walk both out of the node
+        // and take where the pavements part for good, if they have parted by
+        // the end of a junction's reach (200 m on a freeway or ramp, 120 m
+        // else). A pair still close there keeps the angle's radius: it is a
+        // carriageway pair running alongside, and PARA moves it.
+        if (th < Math.PI / 2) {
+          const reach = big ? 200 : 120;
+          const A = walkOut(arms[i], n, reach), B = walkOut(arms[j], n, reach + 60);
+          const part = partAt(A, B, need);
+          if (part !== null) R = Math.max(R, Math.min(big ? 300 : 150, part + 10));
+        }
         conv.push({ n, ci: chainOf[arms[i].id], cj: chainOf[arms[j].id], ei: arms[i].id, ej: arms[j].id, R });
       }
     }
-    return conv;
+    // A JUNCTION BOX: a divided road's two carriageways joined across it by
+    // a short connector (the crossing street's median piece, <= 30 m) meet
+    // there - inside the box there is no median, the junction cluster (WP-19)
+    // paves it whole. The pair is exempt within the box (the connector's
+    // length, at least 15 m, plus the crossing street's half width and a
+    // 25 ft curb-return radius, round each end); pushing them apart there
+    // would only tear the crossing street.
+    const box = [];
+    for (const c of edges) {
+      if (c.a === c.b || c.len > 30 || c.way.roundabout) continue;
+      const A = ne[c.a].filter(e => e !== c && e.a !== e.b), B = ne[c.b].filter(e => e !== c && e.a !== e.b);
+      if (!A.length || !B.length) continue;
+      const R = Math.max(15, c.len) + profOf(c).width / 2 + 7.6;   // + the crossing street's half width and a 25 ft curb return
+      for (const ea of A) for (const eb of B) {
+        if (chainOf[ea.id] === chainOf[eb.id] || chainOf[ea.id] === chainOf[c.id] || chainOf[eb.id] === chainOf[c.id]) continue;
+        box.push({ n: c.a, ci: chainOf[ea.id], cj: chainOf[eb.id], R, box: true });
+        box.push({ n: c.b, ci: chainOf[ea.id], cj: chainOf[eb.id], R, box: true });
+      }
+    }
+    return conv.concat(box);
   }
 
   // arc position on F of the point u along its segment j (cumulative lengths cached per pass)
@@ -722,7 +842,8 @@ function paraResolve({ edges, nodes, chains, chainOf, edgeOffset, isPinned, stat
           // exempt near a node where the two really meet (their chains converge there)
           let exempt = false;
           const cl = convBy.get(chainOf[E.id] + ':' + chainOf[F.id]);
-          if (cl) for (const c of cl) if (Math.hypot(nodes[c.n][0] - x, nodes[c.n][1] - z) < c.R) exempt = true;
+          // (either side of the pair inside the zone: the same spot is judged the same from E and from F)
+          if (cl) for (const c of cl) if (Math.min(Math.hypot(nodes[c.n][0] - x, nodes[c.n][1] - z), Math.hypot(nodes[c.n][0] - b.qx, nodes[c.n][1] - b.qz)) < c.R) exempt = true;
           const sh = shareOf(E, F);
           // A ramp lying INSIDE its mainline's pavement (a lane-split exit, a
           // taper mapped on the lane line) is an attach zone, not a mapping
@@ -757,14 +878,14 @@ function paraResolve({ edges, nodes, chains, chainOf, edgeOffset, isPinned, stat
   };
 
   let conv = convergences();
-  const convSet = () => { convAny = new Set(); for (const c of conv) { convAny.add(c.ci + ':' + c.cj); convAny.add(c.cj + ':' + c.ci); } };
+  const convSet = () => { convAny = new Set(); for (const c of conv) { if (c.box) continue; convAny.add(c.ci + ':' + c.cj); convAny.add(c.cj + ':' + c.ci); } };
   convSet();
   let defs = deficits(conv);
   stats.para_before = measure(defs);
   const defs0 = defs;
   const moved = [];   // per chain: max |U|
   const usedCap = new Map();   // chain -> metres already moved (either way)
-  for (let pass = 0; pass < 12; pass++) {
+  for (let pass = 0; pass < 20; pass++) {   // (12 left short residuals at zone edges: the pushes had not converged)
     const byChain = new Map();
     for (const d of defs) {
       if (d.exempt || d.sh === 0) continue;
@@ -814,6 +935,7 @@ function paraResolve({ edges, nodes, chains, chainOf, edgeOffset, isPinned, stat
       // into it elsewhere just follows it
       const partners = new Set(list.map(d => chainOf[d.F.id]));
       for (const c of conv) {
+        if (c.box) continue;   // a junction box exempts, it does not pin
         if (!((c.ci === ci && partners.has(c.cj)) || (c.cj === ci && partners.has(c.ci)))) continue;
         // chain s of the node
         for (let i = 0; i < chain.length; i++) {
@@ -825,14 +947,26 @@ function paraResolve({ edges, nodes, chains, chainOf, edgeOffset, isPinned, stat
         }
       }
       let umax = 0; for (let j = 0; j < nb; j++) umax = Math.max(umax, Math.abs(U[j]));
-      // never past the chain's cap at any point, over all passes
+      // never past the chain's cap at any point, over all passes. The cap is
+      // on the RIBBON's move off its OSM line: a TAPR offset that carries the
+      // ribbon toward the partner may be cancelled on top of it (the net
+      // move stays within the map's error), never the other way.
       {
         const cap = capOf(chain[0].e);
+        const offBin = new Float64Array(nb);
+        for (let i = 0; i < chain.length; i++) {
+          const r = edgeOffset[chain[i].e.id];
+          if (!r || Math.abs(r.o0) < 1e-4) continue;
+          const o = chain[i].fwd ? r.o0 : -r.o0;       // chain-left frame (the offset holds along an edge)
+          for (let j = Math.max(0, Math.floor(s0[i] / STEP)); j <= Math.min(nb - 1, Math.ceil((s0[i] + chain[i].e.len) / STEP)); j++)
+            offBin[j] = Math.abs(o) > Math.abs(offBin[j]) ? o : offBin[j];
+        }
         let acc = usedCap.get(ci);
         if (!acc || acc.length !== nb) { const a2 = new Float64Array(nb); if (acc) for (let j = 0; j < Math.min(nb, acc.length); j++) a2[j] = acc[j]; acc = a2; usedCap.set(ci, acc); }
         umax = 0;
         for (let j = 0; j < nb; j++) {
-          const tgt = Math.max(-cap, Math.min(cap, acc[j] + U[j]));
+          const lo = -cap - Math.max(0, offBin[j]), hi = cap + Math.max(0, -offBin[j]);
+          const tgt = Math.max(lo, Math.min(hi, acc[j] + U[j]));
           U[j] = tgt - acc[j]; acc[j] = tgt;
           umax = Math.max(umax, Math.abs(U[j]));
         }

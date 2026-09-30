@@ -769,41 +769,42 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static readonly (string id, string kind, long way, float x, float z, string why)[] KnownRoadsideSpots =
         {
+            // (pruned 2026-09-29 with WP-10's second round, gone under its lines: open-tyvola-2735, lip-9314)
             ("open-i277-1237", "OPEN", 40153244, -2741f, 6602f,
              "I-277 deck (e1237) where a ramp's approach joins it: the gap in the rail stands over a host surface 12 cm lower, so the audit's flush walk stops at the edge (1 m)"),
-            ("open-tyvola-2735", "OPEN", 172466507, -6547f, -2380f,
-             "Tyvola Road ramp deck (e2735) clipped into the bridge: the host's pavement 12-14 cm under the ramp's, rails of two Tyvola pieces with a slot between them over I-77 (1 m)"),
             ("face-ramp-1489", "FACE", 55204692, -2067f, 3342f,
              "ramp e1489 off I-277 in a 2.3 m cut: its verge climbs to the hill in under a metre (no cut section for a ramp until WP-14)"),
-            ("lip-9314", "LIP", 881103567, 1978f, 2318f,
-             "e9314 beside e9313, pavements touching 7 cm apart in height: the steep connector reads 0.050x m at 5 cm"),
             ("ledge-caldwell-11145", "LEDGE", 1039294229, -1151f, 5048f,
              "North Caldwell Street (e11145) at the East 12th Street junction under the I-277 ramps: a verge ridge between three roads at three heights"),
             ("ledge-ramp-2858", "LEDGE", 173800843, 1749f, 2580f,
              "ramp e2858 leaving the Independence Expressway: a 15 cm slot to the lattice where the clipped verge hands over to the free one"),
-            // WP-10 (2026-09-29): the line clean-up moved these corners a few
-            // metres (lane counts, Douglas-Peucker, PARA's carriageway offsets)
-            // and the same three-heights grading reads them again. North Kings
-            // Drive's two carriageways moved 2.6 m apart; Armory Drive's
-            // one-way connectors between them are clipped against it at 15-20
-            // degrees. Their cure is the same as the six above (WP-14's cut and
-            // fill sections, WP-11b's per-chain squeeze, WP-19's clusters).
-            ("ledge-ramp-1489", "LEDGE", 55204692, -2065f, 3342f,
-             "the ramp e1489 in its 2.3 m cut (face-ramp-1489's spot): the clipped verge's step to the hill reads as a 0.9 m ledge 0.7 m out"),
+            // WP-10 (2026-09-29, second round after its review): PARA moved
+            // these carriageways apart (the owner's "opposite directions merged
+            // into a single road", A8 rule 4) and today's builder, which does
+            // not draw the TAPR offsets yet, reads the corners they left:
+            // North Kings Drive's two carriageways were mapped 5 m apart for
+            // five lanes and now stand 10.8 m apart, into Armory Drive's
+            // one-way connectors, clipped against it at 15-20 degrees; Tyvola
+            // Road moved 1-2 m beside its bridge. NOT handed on: the WP-11 /
+            // 11b package ships this data to city-r1 and fixes these first
+            // (its squeeze and connector clip read the offsets). None is on a
+            // race route.
+            ("ledge-ramp-1489", "LEDGE", 55204692, -2067f, 3343f,
+             "the ramp e1489 in its 2.3 m cut (face-ramp-1489's spot): the clipped verge's step to the hill reads as a 0.9 m ledge 0.2 m out"),
             ("face-kings-9677", "FACE", 993704809, -1070f, 3905f,
              "North Kings Drive (e9677) where Armory Drive's connector leaves it: the gap verge between the two, 0.9 m in"),
-            ("lip-kings-9677", "LIP", 993704809, -1061f, 3913f,
-             "North Kings Drive (e9677) at Armory Drive's gore: the gap verge 14 cm under the edge 5 cm out"),
+            ("lip-kings-9677", "LIP", 993704809, -1068f, 3906f,
+             "North Kings Drive (e9677) at Armory Drive's gore: the gap verge 6 cm under the edge 5 cm out"),
             ("ledge-armory-23550", "LEDGE", 323064834, -1045f, 3919f,
              "Armory Drive's connector (e23550) clipped against North Kings Drive: its clipped verge's slot 1.4 m out"),
             ("nose-kings-armory", "NOSE", 0, -1059f, 3913f,
-             "the gore nose between North Kings Drive and Armory Drive's connector: 0.5-1 m of it over the gap verge's drop"),
-            ("face-12th-11148", "FACE", 1039294233, -1156f, 5052f,
-             "East 12th Street (e11148) at the North Caldwell junction under the I-277 ramps (ledge-caldwell-11145's ridge): its approach rail's footing"),
+             "the gore nose between North Kings Drive and Armory Drive's connector: 0.5 m of it over the gap verge's drop"),
             ("lip-link-11147", "LIP", 1039294232, -1168f, 5046f,
-             "the ramp e11147 clipped against East 12th Street at the same three-heights corner: 5 cm at 5 cm"),
+             "the ramp e11147 clipped against East 12th Street at the North Caldwell three-heights corner (ledge-caldwell-11145's): 5 cm at 5 cm"),
             ("lip-link-14090", "LIP", 1180570223, -2059f, 5639f,
              "the one-lane link e14090 beside I-277 near West 5th: its verge 25 cm under the edge 5 cm out, between two decks' approaches"),
+            ("ledge-tyvola-13557", "LEDGE", 1122600721, -6655f, -2382f,
+             "Tyvola Road (e13557) at its bridge over I-77, moved 1-2 m by PARA: a 0.4 m step 0.2 m past its rail onto the ramp deck below (the open-tyvola-2735 corner)"),
         };
         const float KnownSpotReachM = 15f;
 
@@ -829,31 +830,25 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static readonly (string id, long way, float x, float z, string why)[] KnownLaneSolids =
         {
+            // (pruned 2026-09-29 with WP-10's second round, gone under its lines with every
+            // tile probed: i277-2308, davidson-14101, link-371, tyvola-2736, tyvola-1899,
+            // tyvola-1900, davidson-14100, i277-2352, i277-2351, i77-1891)
             // in the pre-WP-04 audit (2565d60)
-            ("i277-2308", 159022503, -1300f, 5103f, "I-277 (Uptown Loop): its deck approach rail on the squeeze strip beside e9398 at its node"),
-            ("davidson-14101", 1181521355, -1093f, 4920f, "North Davidson Street: its deck rail on the squeeze strip, the face beside the lane line"),
             ("davidson-14102", 1181521356, -1091f, 4922f, "North Davidson Street: the next piece's deck rail 0.4 m above stands over its right lane at node 13275"),
-            ("link-371", 16662607, -982f, 4535f, "the link e371: I-277's deck approach rail at its height beside the lane line"),
-            ("i277-us74-2321", 159022517, -1358f, 3929f, "I-277 (Uptown Loop): US 74's approach rail on its retaining face 1.1 m above, the two drawn into each other (moved 6 m with WP-10's lines)"),
+            ("i277-us74-2321", 159022517, -1362f, 3924f, "I-277 (Uptown Loop): US 74's approach rail on its retaining face 1.1 m above, the two drawn into each other"),
             ("link-7753", 750025978, -2564f, 3908f, "the link e7753 beside South Boulevard: its own rail where the squeeze split varies"),
             ("albemarle-2004-west", 116677926, 4270f, 1647f, "Albemarle Road under the Independence Expressway's retaining face (host and branch at two heights)"),
             ("albemarle-2004-east", 116677926, 4246f, 1665f, "Albemarle Road under the Independence Expressway's retaining face (host and branch at two heights)"),
             // Tyvola Road over I-77: probed since WP-04 (an elevated tile)
-            ("tyvola-2736", 172466508, -6598f, -2395f, "the gore nose rail where the ramp e2736 leaves Tyvola Road's bridge, across the ramp's left lane"),
             ("tyvola-1896", 94753672, -6506f, -2334f, "the ramp e1896: its rail on the retaining face at the squeeze strip beside e328, the face beside the lane line"),
-            ("tyvola-1899", 94753674, -6585f, -2372f, "the ramp deck e1899 where it joins Tyvola Road's bridge: a rail over its left lane"),
-            ("tyvola-1900", 94753675, -6560f, -2403f, "the ramp deck e1900: Tyvola Road's rail at the deck gap, the face beside the lane line"),
             // new with WP-04's ground
             ("link-11144", 1039294228, -1160f, 5056f, "the link e11144 under East 12th Street's approach rail 0.7-0.9 m above, the two drawn into each other at node 11801"),
-            ("davidson-14100", 1181521353, -1093f, 4922f, "North Davidson Street: its deck rail on the squeeze strip at node 3566, the face beside the lane line"),
-            ("i277-2352", 159022555, -1302f, 3970f, "I-277: its deck rail on the squeeze strip beside e2316, the face beside the lane line"),
-            ("i277-2351", 159022554, -1544f, 3686f, "I-277: its rail on the squeeze strip beside e14177, the face beside the lane line"),
             ("link-20364", 1516910799, -2198f, 3448f, "the link e20364: its rail on the retaining face at the squeeze strip beside South McDowell Street, the face beside the lane line"),
-            ("i77-1891", 94750540, -3732f, 5436f, "I-77 (Uptown Loop): the shared deck rail on the squeeze strip beside the other carriageway e1877, the face beside the lane line"),
             ("ramp-2852", 173800811, 4134f, 1576f, "the ramp e2852: its rail on the squeeze strip beside e1229, the face beside the lane line"),
-            // WP-10 (2026-09-29): read again where the line clean-up moved them
-            ("i277-1919", 101537860, -1945f, 5687f, "I-277 (Uptown Loop): its approach rail on the 0.3 m squeeze strip beside e13651 (0.33 m apart in height), the face on the lane line - WP-11b's per-chain squeeze"),
-            ("link-2358", 159022562, -1384f, 3856f, "the link e2358 beside I-277 at the US 74 split: I-277's approach rail at its height, the face beside the lane line"),
+            // WP-10 (2026-09-29, second round): where PARA's moves put a rail face on a lane line (none on a race route; see the roadside block above)
+            ("armory-23550", 323064834, -1052f, 3919f, "Armory Drive's connector (e23550) clipped against North Kings Drive: the verge rail's face beside its lane line"),
+            ("tyvola-328-rail", 16662393, -6480f, -2393f, "the ramp e328 beside Tyvola Road (e2730), moved 1-2 m by PARA: its rail on the 0.3 m squeeze strip, the face beside the lane line"),
+            ("tyvola-328-face", 16662393, -6504f, -2326f, "the ramp e328 at node 597 under the ramp e1896's retaining face 0.8 m above: the rail beside its lane line (tyvola-1896's corner)"),
         };
         const float KnownLaneReachM = 6f;
 
@@ -885,24 +880,23 @@ namespace PSXRacing.EditorTools
         /// </summary>
         static readonly (string id, long way, float x, float z, string why)[] KnownLaneLand =
         {
-            // WP-10 (2026-09-29): North Kings Drive's carriageways moved apart
-            ("armory-23549", 323064832, -1069f, 3906f, "Armory Drive's connector (e23549) leaving North Kings Drive 0.5 m above it: the gap verge between them over the connector's lane (WP-19's cluster)"),
+            // WP-10 (2026-09-29): North Kings Drive's carriageways moved apart (see KnownRoadsideSpots' WP-10 block)
+            ("armory-23549", 323064832, -1069f, 3906f, "Armory Drive's connector (e23549) leaving North Kings Drive 0.5 m above it: the gap verge between them over the connector's lane"),
         };
 
         /// <summary>
         /// JUNCTION FAN MOUTHS, NAMED (WP-10, 2026-09-29), keyed as
         /// <see cref="KnownLaneSolids"/> are (the arm's OSM way and the probe,
-        /// within <see cref="KnownFanReachM"/>). The line clean-up moved these
-        /// fans' arms by centimetres to metres and the mouth probe reads a
-        /// few centimetres of land, or North Kings Drive's deck rail again
-        /// (node 6995, the WP-04 review's spot): WP-19's curb returns and
-        /// clusters own them. A mouth anywhere else still fails.
+        /// within <see cref="KnownFanReachM"/>). The line clean-up moved this
+        /// fan's arm by centimetres and the mouth probe reads 3 cm of land.
+        /// (North Kings Drive's mouth at node 6995 and the Independence
+        /// Expressway's were named in the first round and are fixed: the
+        /// simplify holds the first piece at a lane change.) A mouth anywhere
+        /// else still fails.
         /// </summary>
         static readonly (string id, long way, float x, float z, string why)[] KnownFanMouths =
         {
-            ("fan-kings-6995", 648248401, -1316f, 3747f, "North Kings Drive at node 6995: its deck rail across the lane mouth (RailOverArms' spot from the WP-04 review), back with WP-10's lines"),
-            ("fan-gordon", 16721760, 392f, 3808f, "Gordon Street's mouth: 3 cm of land 1 m back, where the fan's trim stops short of the lane line"),
-            ("fan-independence-3503", 648297612, 4574f, 1229f, "the Independence Expressway's mouth (Independence Sprint): 2 cm of land 1 m back at the outer lane line"),
+            ("fan-gordon", 16721760, 392f, 3808f, "Gordon Street's mouth: 3 cm of land 1 m back, where the fan's trim stops short of the lane line (off the core's routes)"),
         };
         const float KnownFanReachM = 8f;
 

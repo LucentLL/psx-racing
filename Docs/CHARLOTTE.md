@@ -1342,7 +1342,10 @@ sides, as if center aligned." (plan amendment A8). WP-10 is the exporter half
 of the fix: `tools/city/lib/lineclean.mjs`, run by `export_osm.mjs` right after
 the dead-end weld, so crossings, water spans, routes and plots read the
 cleaned lines. The runtime draws its lanes from it in WP-11b; until then the
-ribbons still taper symmetrically (fewer of them: 5,774 -> 3,255 edges).
+ribbons still taper symmetrically, and the census counts every lane change
+as a symmetric taper (5,504 edges; 5,774 before WP-10). WP-10 landed in two
+rounds on 2026-09-29: 051ea80, then its review's fixes. This section
+describes the second.
 
 - **Tagged nodes first** (critic C3): every control node on a kept way is
   recorded as (way id, node id, raw distance) before any vertex moves and
@@ -1351,91 +1354,125 @@ ribbons still taper symmetrically (fewer of them: 5,774 -> 3,255 edges).
   service) - is pinned (23,592). The belt's unfetched residential and
   service ways (the ids-only Overpass query) are not in the cache yet.
 - **Lane-count data**, per CHAIN (a road through its nodes: same one-way-ness,
-  under 45 degrees, same name at a junction): an A->B->A piece under 100 m
-  takes A (2,047, 115.0 km: the "two lanes to three to two" the owner
-  drove); a piece under two taper floors between equal neighbours (110);
-  an untagged ground piece between two tagged ones (92, "inferred"). An
-  untagged bridge keeps the default and is listed (23; the creek deck, way
-  16671358, among them).
+  under 45 degrees, same name at a junction). A piece with its OWN `lanes=`
+  tag is never changed: a short tagged piece is a turn bay or an auxiliary
+  lane, and TAPR draws it on one side (2,521 such pieces under two taper
+  floors; 0 edges drawn below their own tag). The first round deleted them
+  (2,194 tagged edges lost a lane, 1,231 of them naming it in `turn:lanes`,
+  Dalton Avenue's dual left bay and I-277's merge lane among them). Untagged
+  only: an A->B->A flicker under 100 m or a piece under two taper floors
+  takes A (130, 5.8 km); an untagged ground piece between two tagged ones
+  takes theirs (146, "inferred"); an untagged bridge keeps the default and
+  is listed (46).
 - **Simplify**: vertices under 2 m apart collapse, then Douglas-Peucker at
   0.5 m between pinned vertices; links and roundabouts are left for WP-11
-  (critic C32). 179k -> 113k points before PARA (175k after it). Curves
-  lose vertices: kinks of 25 degrees or more 1,275 -> 1,648 until WP-11's
-  fillets and sagitta densify (C32: the two ship together).
+  (critic C32). Decks and tunnels are left alone (801), and where the lane
+  count changes the first OSM piece keeps its length (11,291 edges):
+  today's builder tapers over that piece, and dropping its far vertex
+  stretched a 49 m mw3-mw4-mw3 deck of I-277 (Uptown Loop) into a taper that
+  never reached full width, its rails in the lanes. 179k -> 119k points
+  before PARA.
 - **Doglegs**: two opposite turns of 8 degrees or more within 20 m, 15 m clear
   of a junction, jog up to 4 m: 61 -> 0 (57 straightened, worst 3.64 m).
-- **TAPR** (section `TAPR`): at each of the 3,705 lane-count changes along a
+- **TAPR** (section `TAPR`): at each of the 7,652 lane-count changes along a
   chain, the ribbon SIDE that moves - never both. Tagged sides come from
   `turn:lanes` (a left-turn lane opens on the left, a merge_to_left lane
-  ends on the right) and `lanes:forward/backward` (2,087); untagged, an
+  ends on the right) and `lanes:forward/backward` (5,200); untagged, an
   added lane opens on the right of the direction that gains it and a centre
   gain on a two-way road is a left-turn bay for the direction entering it
   (the other direction's side moves, unless that moves more through lanes).
-  A run wider than both neighbours opens and closes on ONE side. Length:
-  MUTCD WS^2/60 (to 40 mph) or WS, turn bays 30-55 m, floors 15 / 30 / 90 m
-  (street / arterial / freeway), fitted to the chain's room (1,606), and
-  where there is no room for the floor the change is absorbed at the
-  junction mouth (495). Then every edge's OFFSET off its OSM line: the fixed
-  edge is continuous across a change, a bay keeps its offset, and a run long
-  enough for a MUTCD shifting taper eases back onto its own line in its
-  middle (OSM draws a long run down its own pavement): `o0 + (o1 - o0) *
-  smoothstep((s - t0) / (t1 - t0))` per edge (8,894 edges; |offset| p50
-  1.83 m, p90 3.66 m).
+  A run wider than both neighbours opens and closes on ONE side (3,729 turn
+  bays). AT A JUNCTION NODE the lane opens or ends full width at the mouth,
+  with no taper (1,984; flag 2, len 0): a bay runs full width to the stop
+  line (the first round tapered 1,010 of them to nothing where cars turn).
+  Elsewhere the length is MUTCD WS^2/60 (to 40 mph) or WS, turn bays 30-55
+  m, floors 15 / 30 / 90 m, fitted to the chain's room (2,525) or absorbed
+  where there is none (1,916). Then every edge's OFFSET off its OSM line:
+  the fixed edge is continuous across a change and the offset HOLDS along
+  the run, with no mid-block shift (the first round eased long runs back
+  onto their own line with a 1.8-3.7 m shifting taper in 1,478 blocks: a
+  swerve). A bay closes on the side it opened, so it comes back; an
+  untagged lane at a junction mouth opens on the side that brings the
+  ribbon back toward its line (49); past one lane off the line, the next
+  junction mouth re-anchors it (142). 8,998 edges, |offset| p50 1.83 m, p90
+  3.66 m, p99 7.3 m.
 - **PARA** (section `PARA`): carriageways whose pavements, as R4 draws them
   (lanes centred, the facing side's shoulder, the TAPR offset), overlap or
   leave under 1.2 m (one road's two carriageways, express beside general
   lanes) or 1.0 m are moved apart: per chain a lateral offset - the deficit,
   plateau-filled, rate-limited by the MUTCD shifting taper for its speed and
-  box-smoothed - zero where the two chains really meet (every node they
-  share, eased over need / sin(angle)), capped at 6 m (freeways and their
-  ramps) or 4 m, 12 passes. A ramp lying inside its mainline's pavement by
-  more than the cap is an attach zone (WP-18b's gore), a surface street's
-  slip lane under 200 m is junction channelisation (WP-19). Pairs
-  still short by more than 25 cm are the review list.
-  Measured on the pavements R4 draws (km of carriageway pair):
+  box-smoothed - zero where the two chains really meet, capped at 6 m
+  (freeways and their ramps) or 4 m off the RIBBON's own line (a TAPR offset
+  toward the partner is cancelled on top of the cap), 20 passes (12 left
+  short residuals at zone edges). Where two chains meet: a node they share,
+  out to where the mapped lines part for good (walked 120 m, 200 m on a
+  freeway or ramp, the TAPR offsets counted), else need / sin(angle); and a
+  JUNCTION BOX - two carriageways joined across a crossing street by a
+  connector of 30 m or less, exempt (not pinned) within the connector's
+  length (at least 15 m) plus the street's half width and a 25 ft curb
+  return. A ramp lying inside its mainline's pavement by more than the cap
+  is an attach zone (WP-18b's gore), a surface street's slip lane under 200
+  m is junction channelisation (WP-19). Pairs still short by more than 25
+  cm are the review list. Measured on the pavements R4 draws (km of
+  carriageway pair, outside the attach zones):
 
   | | before | after |
   |---|---|---|
-  | one road's two carriageways | 93.1 | 0.1 |
-  | ramps beside a mainline (outside attach zones) | 17.0 | 3.6 |
-  | review pairs, city / 8 x 8 km core / race routes | 2,479 | 97 / 10 (93 m) / 2 (5 m each) |
+  | one road's two carriageways | 107.5 | 0 |
+  | ramps beside a mainline | 3.1 | 0.7 |
+  | review pairs: city / 8 x 8 km core / race routes | 2,089 | 5 / 0 / 0 |
 
-  The core's ten and the routes' two sit at divided-road splits and junction
-  mouths - WP-11's C11 split rebuild. Census "paint inside another ribbon"
-  13.2 -> 7.4 km, "squeezed edge wandering" 16.2 -> 3.2 km.
+  (The first round left 97 / 10 / 2, East 3rd Street's own carriageways
+  0.62 m short for 60 m among them.) Attach zones: 135.7 km of pair, 107.5
+  of it ramps at their gores.
 - **Crossings**: two edges at the same level that share a node (or a node
   one sub-50 m edge away) and cross within 150 m of it are one merging into
   the other, never a grade separation. The simplify and PARA left 22 such
   mapped lines crossing a few metres off their node, and the solver lifted
-  them (a 70 m I-485 node on the first run). 784 crossings, all forced by
-  tags (782 before).
+  them (a 70 m I-485 node on the first run). 783 crossings, all forced by
+  tags.
+- **The solver** (`CityElevation.RaiseAllCrossings`): a ramp seated beside
+  its mainline takes the mainline's height (a seated station is its
+  host's), and on a skewed pair crossing the same road the mainline's hump
+  peaks at its own crossing, metres along from the ramp's: the I-77
+  connector over I-85 cleared it by 4.35 m once PARA had moved it 4 m clear
+  of I-77. In the fresh passes, a seated branch that would clear what it
+  crosses by less than ClearanceM - 0.55 m (just inside the audit's 0.6 m
+  margin) has the stations its hump needs above the host FREED
+  (`SeatStationsFreed`): it rises off its host there and nothing else
+  changes (worst clearance now 4.60 m). Raising the host instead stood I-77
+  0.8 m above its own other carriageway (25 ledge points); freeing at
+  ClearanceM - 0.3 m freed branches that passed and opened two deck gaps on
+  the Uptown Loop's tiles.
 - **Toll roads: HELD BACK** (`KEEP_TOLL = false` in `export_osm.mjs`). Kept,
-  PARA moves the express lanes clear (express beside general lanes 71.3 ->
-  0.9 km), but the city audit failed on them alone: their layer=1 connector
-  flyovers over I-485 clear the general lanes by -0.55 m, an I-77 connector
-  climbs 39% into a 26 m bridge (35.3759,-80.8470), and a Monroe Expressway
-  ramp crossed Independence Boulevard at grade. That is elevation-solver
-  work; `lineclean.mjs` already handles them. A one-lane freeway
-  carriageway (the I-485 express lanes are one lane each way) draws with
-  the `ramp1` section, not as an 11.5 m `mw2` (`RoadProfiles.IndexFor`,
-  `citydata.profileFor`).
+  PARA moves the express lanes clear (express beside general lanes 80.1 ->
+  0.2 km) but the first round's city audit failed on them: their layer=1
+  connector flyovers over I-485 clear the general lanes by -0.55 m, an I-77
+  connector climbs 39% into a 26 m bridge (35.3759,-80.8470), and a Monroe
+  Expressway ramp crossed Independence Boulevard at grade. That is
+  elevation-solver work, scheduled as its own package in the plan (A8's
+  schedule note). A one-lane freeway carriageway (the I-485 express lanes
+  are one lane each way) draws with the `ramp1` section, not as an 11.5 m
+  `mw2` (`RoadProfiles.IndexFor`, `citydata.profileFor`).
 - **LANW**: the real lane widths by class (12 ft freeway and ramp, 11 ft
-  arterial and collector, 10.5 ft tertiary, 10 ft local). EDGE's exporter
-  width uses them; the game keeps 3.6576 m until WP-11b (plan A3).
-- **The city audit's named spots.** The moved lines shift the WP-04 grading's
-  three-heights corners a few metres, and North Kings Drive's carriageways
-  moved 2.6 m apart with Armory Drive's clipped connectors between them.
-  Named as WP-04 named its own (KnownRoadsideSpots: ledge-ramp-1489,
+  arterial and collector, 10.5 ft tertiary, 10 ft local). The game keeps
+  3.6576 m until WP-11b (plan A3).
+- **The city audit's named spots.** PARA moves carriageways apart, and
+  today's builder (no TAPR offsets drawn yet) reads the corners they leave.
+  None is on a race route; North Kings Drive's mouth at node 6995 and the
+  Uptown Loop's I-277 spots of the first round are fixed (the simplify
+  hold). Named for the WP-11 / 11b package that ships this data to fix
+  first: North Kings Drive at Armory Drive (mapped 5 m apart for five
+  lanes, 10.8 m now, into Armory's clipped one-way connectors:
   face-kings-9677, lip-kings-9677, ledge-armory-23550, nose-kings-armory,
-  face-12th-11148, lip-link-11147, lip-link-14090; KnownLaneSolids: i277-1919,
-  link-2358, i277-us74-2321 moved 6 m; KnownLaneLand: armory-23549; the new
-  KnownFanMouths: fan-kings-6995, fan-gordon, fan-independence-3503), for
-  WP-11b's squeeze, WP-14's grading and WP-19's clusters. DRIVE AUDIT zeros
-  unchanged.
+  armory-23550, armory-23549), ledge-ramp-1489, lip-link-11147,
+  lip-link-14090 and fan-gordon, and at Tyvola Road's bridge
+  ledge-tyvola-13557, tyvola-328-rail and tyvola-328-face. The pre-WP-10
+  named lane solids the new lines cleared are pruned.
 - The container gains LANW, TAPR, PARA and TAGN after GHSH (optional in
-  `citydata.mjs`; CityMap skips tags it does not know): +490 KB raw.
-  `PSX_LC_DIAG=<file>` prints PARA by kind before and after and writes the
-  review pairs as JSON.
+  `citydata.mjs`; CityMap skips tags it does not know). `PSX_LC_DIAG=<file>`
+  prints PARA by kind before and after, lists the review pairs in the core
+  and on the routes, and writes them all as JSON.
 
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 
@@ -1561,7 +1598,8 @@ a map to view where I'm at in the city."
   day; only the cars are 1999. WP-10 (2026-09-29, "WP-10 (R4): the line
   clean-up" above) can bring them back, moved apart from the general lanes
   by PARA instead of squeezed, but holds them back (KEEP_TOLL) until their
-  connector flyovers clear I-485 in the solver. Six I-77 ways
+  connector flyovers clear I-485 in the solver (a package of its own in the
+  plan's A8 schedule note). Six I-77 ways
   (3.6 km) still carry the express lanes inside their own `lanes` tag,
   which leaves two kinks (35.33637,-80.84876 and 35.33150,-80.84806).
   Where a squeeze remains (tight divided arterials, frontage roads) the
