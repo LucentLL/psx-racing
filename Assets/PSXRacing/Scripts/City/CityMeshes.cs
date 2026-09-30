@@ -247,7 +247,7 @@ namespace PSXRacing.City
         /// is on the ground. A bridge deck IS poured concrete.</summary>
         public static Surface SurfaceOf(CityMap.Edge e, bool elevated)
         {
-            bool fresh = IsFresh(e.pts[0]);
+            bool fresh = IsFresh(e.hasAgeSeed ? e.ageSeed : e.pts[0]);   // one age per chain (WP-11)
             return elevated ? (fresh ? Surface.ConcreteNew : Surface.ConcreteOld)
                             : (fresh ? Surface.AsphaltNew : Surface.AsphaltOld);
         }
@@ -771,7 +771,94 @@ namespace PSXRacing.City
                     t.atA[i] *= k; t.atB[i] *= k;
                 }
             }
+            ChainContinuity(map, t);
             return t;
+        }
+
+        /// <summary>CHAIN CONTINUITY (plan WP-11): walk every chain of edges
+        /// joined through mitred THROUGH joints and give each edge its texture
+        /// V offset and direction along it (V = (vOff + vDir s) / RoadVTile, so
+        /// the dash phase runs on through way splits, decks and seams), and one
+        /// surface-age seed per chain (the head edge's first point). A closed
+        /// ring starts anywhere; its one joint back to the start keeps a phase
+        /// step, which a ring of a whole number of cycles would not.</summary>
+        static void ChainContinuity(CityMap map, Trims t)
+        {
+            int ne = map.edges.Length;
+            var seen = new bool[ne];
+            var chain = new List<int>(64);
+            var fwds = new List<bool>(64);
+            int Partner(CityMap.Edge e, int node)
+            {
+                if (!t.mitre[node]) return -1;
+                int o = t.throughA[node] == e.index ? t.throughB[node] : t.throughB[node] == e.index ? t.throughA[node] : -1;
+                if (o < 0 || o == e.index || map.edges[o].a == map.edges[o].b) return -1;
+                return o;
+            }
+            // the chain's phase must not depend on where the walk began (edge order):
+            // an open chain starts at its end with the lower (x, z), a ring at its
+            // joint with the lower (x, z)
+            bool Lower(Vector2 p, Vector2 q) => p.x < q.x || (p.x == q.x && p.y < q.y);
+            Vector2 EntryPt(int ei, bool fwd) { var e = map.edges[ei]; return fwd ? e.pts[0] : e.pts[e.pts.Length - 1]; }
+            Vector2 ExitPt(int ei, bool fwd) { var e = map.edges[ei]; return fwd ? e.pts[e.pts.Length - 1] : e.pts[0]; }
+            for (int i = 0; i < ne; i++)
+            {
+                var e0 = map.edges[i];
+                if (seen[i] || e0.a == e0.b) continue;
+                // back to the chain's head: the chain is walked a -> b on e0
+                int cur = i, entry = e0.a, guard = 0;
+                bool ring = false;
+                for (;;)
+                {
+                    int p = Partner(map.edges[cur], entry);
+                    if (p == i) { ring = true; break; }
+                    if (p < 0 || seen[p] || ++guard > ne) break;
+                    var pe = map.edges[p];
+                    entry = pe.a == entry ? pe.b : pe.a;
+                    cur = p;
+                }
+                if (ring) { cur = i; entry = e0.a; }
+                chain.Clear(); fwds.Clear();
+                guard = 0;
+                while (cur >= 0 && !seen[cur] && ++guard <= ne)
+                {
+                    var e = map.edges[cur];
+                    seen[cur] = true;
+                    bool fwd = entry == e.a;
+                    chain.Add(cur); fwds.Add(fwd);
+                    int exit = fwd ? e.b : e.a;
+                    cur = Partner(e, exit);
+                    entry = exit;
+                }
+                int n = chain.Count;
+                if (ring)
+                {
+                    int best = 0;
+                    for (int k = 1; k < n; k++) if (Lower(EntryPt(chain[k], fwds[k]), EntryPt(chain[best], fwds[best]))) best = k;
+                    if (best > 0)
+                    {
+                        var c2 = new List<int>(n); var f2 = new List<bool>(n);
+                        for (int k = 0; k < n; k++) { c2.Add(chain[(best + k) % n]); f2.Add(fwds[(best + k) % n]); }
+                        chain.Clear(); chain.AddRange(c2); fwds.Clear(); fwds.AddRange(f2);
+                    }
+                }
+                else if (Lower(ExitPt(chain[n - 1], fwds[n - 1]), EntryPt(chain[0], fwds[0])))
+                {
+                    chain.Reverse(); fwds.Reverse();
+                    for (int k = 0; k < n; k++) fwds[k] = !fwds[k];
+                }
+                Vector2 seed = EntryPt(chain[0], fwds[0]);
+                float acc = 0f;
+                for (int k = 0; k < n; k++)
+                {
+                    var e = map.edges[chain[k]];
+                    bool fwd = fwds[k];
+                    e.vDir = fwd ? 1f : -1f;
+                    e.vOff = Mathf.Repeat(fwd ? acc : acc + e.length, RoadVTile);
+                    e.ageSeed = seed; e.hasAgeSeed = true;
+                    acc = Mathf.Repeat(acc + e.length, RoadVTile);
+                }
+            }
         }
 
         // ==================================================================
@@ -2007,7 +2094,8 @@ namespace PSXRacing.City
                     // viaduct halfway along is asphalt up to the abutment and
                     // concrete over the water.
                     var bk = buckets[(int)RoadSlot(e, f.elev)];
-                    float v0 = A.s / RoadVTile, v1 = B.s / RoadVTile;
+                    // chain distance, not edge s (WP-11): the dash phase runs on through joints
+                    float v0 = (e.vOff + e.vDir * A.s) / RoadVTile, v1 = (e.vOff + e.vDir * B.s) / RoadVTile;
                     if (tm.tap != null)
                         tm.tap.spans.Add(new RoadTap.Span { slot = (int)RoadSlot(e, f.elev), bucketV = bk.Count, edge = e.index, sA = A.s, sB = B.s,
                                                              flagsA = TapFlags(A), flagsB = TapFlags(B) });

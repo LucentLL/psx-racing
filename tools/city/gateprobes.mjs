@@ -207,10 +207,11 @@ if (want('S')) {
       const res = gateOf(city([{ ...w, pts: [p0, p1] }, { ...w, pts: [p1, p2] }, { ...w, pts: [p2, p3] }]), R, layouts);
       probe(`S1 ${res.S.E[0].profile.key} heading ${(hdg / DEG).toFixed(0)}, split in three at whole dash cycles`, gated(res).length === 0, fmt(res));
     }
-  // split at other lengths the dash phase restarts at every split (V restarts per edge; WP-11's chain continuity): C3, and only C3
+  // split at other lengths: since WP-11 texture V runs on along the chain (CityMeshes.ChainContinuity), so the dash
+  // phase no longer restarts at a split (before it, V restarted per edge and this read C3 DASH)
   const p0 = [0, 0], p1 = fwd(p0, 20 * DEG, 100), p2 = fwd(p1, 20 * DEG, 77.3), p3 = fwd(p2, 20 * DEG, 130);
   const res = gateOf(city([{ pts: [p0, p1], lanes: 4, rank: 1 }, { pts: [p1, p2], lanes: 4, rank: 1 }, { pts: [p2, p3], lanes: 4, rank: 1 }]), R, layouts);
-  probe('S2 tw4 split 100 / 77.3 / 130 m: the dash phase restart is C3 DASH, and nothing else', count(res, 'C3') > 0 && gated(res).every(r => r.check === 'C3'), fmt(res));
+  probe('S2 tw4 split 100 / 77.3 / 130 m: the dash phase runs on across the splits (chain V, WP-11): nothing gated', gated(res).length === 0, fmt(res));
 }
 
 // ---- H: hedged corners (review 3): the parts scored centimetres, the net corner was never judged

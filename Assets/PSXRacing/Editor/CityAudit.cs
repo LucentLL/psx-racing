@@ -805,6 +805,16 @@ namespace PSXRacing.EditorTools
              "the one-lane link e14090 beside I-277 near West 5th: its verge 25 cm under the edge 5 cm out, between two decks' approaches"),
             ("ledge-tyvola-13557", "LEDGE", 1122600721, -6655f, -2382f,
              "Tyvola Road (e13557) at its bridge over I-77, moved 1-2 m by PARA: a 0.4 m step 0.2 m past its rail onto the ramp deck below (the open-tyvola-2735 corner)"),
+            // WP-11 (2026-09-30): the fillets moved these lines by 0-0.6 m at corners
+            // that already hold a squeeze strip, a retaining face or a rail between
+            // roads at two heights (none on a race route). Handed to WP-11b with the
+            // WP-10 spots above: its squeeze and rails read the line model.
+            ("lip-tyvola-13557", "LIP", 1122600721, -6654f, -2383f,
+             "Tyvola Road (e13557) at its bridge (ledge-tyvola-13557's corner): the rail's retaining face on the 0.3 m squeeze strip beside e302 reads as a 0.76 m lip 5 cm out"),
+            ("lip-caldwell-11145", "LIP", 1039294229, -1154f, 5052f,
+             "North Caldwell Street (e11145) at the three-heights corner (ledge-caldwell-11145's): its clipped verge 8 cm under the edge 5 cm out"),
+            ("ledge-ramp-8463", "LEDGE", 836960224, -3476f, 5930f,
+             "the ramp e8463 off I-277 west of uptown: a 0.32 m step 1.1 m past its edge onto the lattice, where its fillet moved it 0.2 m"),
         };
         const float KnownSpotReachM = 15f;
 
@@ -849,6 +859,12 @@ namespace PSXRacing.EditorTools
             ("armory-23550", 323064834, -1052f, 3919f, "Armory Drive's connector (e23550) clipped against North Kings Drive: the verge rail's face beside its lane line"),
             ("tyvola-328-rail", 16662393, -6480f, -2393f, "the ramp e328 beside Tyvola Road (e2730), moved 1-2 m by PARA: its rail on the 0.3 m squeeze strip, the face beside the lane line"),
             ("tyvola-328-face", 16662393, -6504f, -2326f, "the ramp e328 at node 597 under the ramp e1896's retaining face 0.8 m above: the rail beside its lane line (tyvola-1896's corner)"),
+            // WP-11 (2026-09-30): see the WP-11 block of KnownRoadsideSpots (none on a race route)
+            ("us74-2367", 159022587, -1413f, 3869f, "US 74 (e2367) at I-277 (i277-us74-2321's corner): its deck approach rail 1.0 m above, beside I-277's edge at its height; the fillet moved it 0.3 m"),
+            ("i277-8482", 836960243, -2643f, 6530f, "the 3 m I-277 piece e8482 at a deck end: its own deck rail's face beside the lane line"),
+            ("ramp-13344", 1105086186, 1580f, 2736f, "the ramp e13344 beside the Independence Expressway (e11248): the expressway's rail 1.5 m above over its outer lane, the ramp's fillet 0.6 m toward it"),
+            ("ramp-2470", 172249772, -1851f, 19849f, "the ramp deck e2470: its own rail on the 0.3 m squeeze strip beside e1542, the face beside the lane line"),
+            ("tyvola-13557-rail", 1122600721, -6653f, -2382f, "Tyvola Road (e13557) at its bridge (lip-tyvola-13557's spot): its rail on the squeeze strip beside e302"),
         };
         const float KnownLaneReachM = 6f;
 

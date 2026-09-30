@@ -55,7 +55,8 @@
 // tools/city/lib/citydata.mjs, which reads them the way the game does):
 //   charlotte_city.bytes    PSXC v2: a section table, then META NODE NAME EDGE
 //                           PNTS WATR WBED XING SPAN ROUT and GHSH, the graph
-//                           hash (WBED, the creek beds, since WP-04b)
+//                           hash (WBED, the creek beds, since WP-04b), then
+//                           LANW TAPR PARA TAGN (WP-10) and SPLT (WP-11)
 //   charlotte_dem.bytes     PDEM v2: height grid, datum pinned at 97.0 m
 //   charlotte_bld.bytes     PBLD v1: footprints
 //   charlotte_routes.json   the menu's copy of the routes
@@ -92,6 +93,8 @@ import { buildWaters, waterInputPaths } from './lib/water.mjs';
 import { parseCity, parseDem, parseBld, fingerprint, graphHash, hashHex, CITY_SECTIONS } from './lib/citydata.mjs';
 import { readCredits } from './lib/sources.mjs';
 import { lineClean, LANE_W, LANE_W_LINK } from './lib/lineclean.mjs';
+import { readSmoothRules } from './lib/smoothrules.mjs';
+import { findSplits } from './lib/splits.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UNITY = join(HERE, '..', '..');
@@ -532,9 +535,15 @@ function nearestOnEdge(e, x, z) {
 // their reasons are in lib/lineclean.mjs. Everything after this (crossings,
 // water spans, routes, the plots) reads the cleaned lines.
 const uptownXY = [toX(-80.8431), toZ(35.2271)];
+// WP-11's fillet numbers are the smoothness gate's (Editor/SmoothRules.cs):
+// R_min by class (B3), the inner-edge floor, the 2 cm sagitta and the chord cap
+const SR = readSmoothRules(join(UNITY, 'Assets', 'PSXRacing', 'Editor', 'SmoothRules.cs'));
 const LC = lineClean({ ways, edges, nodes, rawWays: [...rawWays, ...rawMinor],
-                       rawNodes, toX, toZ, uptown: uptownXY });
+                       rawNodes, toX, toZ, uptown: uptownXY,
+                       fillet: { rMinFor: SR.rMinFor, innerEdgeMinR: SR.InnerEdgeMinRM, eps: SR.DensifyEpsM,
+                                 chordCap: SR.ChordCapM, collinearDeg: SR.CollinearDeg } });
 hashSegs();
+const SPLITS = findSplits(edges, nodes);
 {
   const st = LC.stats;
   console.log(`WP-10 lines: ${st.points.before} -> ${st.points.after_simplify} points after collapse + Douglas-Peucker 0.5 m (${st.pinned_vertices} shared raw vertices pinned; first piece held at ${st.simplify_held.taper_ends} lane-change edges, ${st.simplify_held.structure} decks/tunnels left alone); ` +
@@ -561,6 +570,13 @@ hashSegs();
     for (const m of top) { const e = edges[m.edges[0]]; const P = e.pts[e.pts.length >> 1]; console.log('moved', m.umax.toFixed(1), 'm', e.way.name || 'ramp', e.way.id, toLat(P[1]).toFixed(5), toLon(P[0]).toFixed(5), m.edges.length, 'edges'); }
     writeFileSync(process.env.PSX_LC_DIAG, JSON.stringify(LC.para.pairs.map(p => ({ ...p, kind: kindOf(edges[p.e1], edges[p.e2]), n1: edges[p.e1].way.name, n2: edges[p.e2].way.name, w1: edges[p.e1].way.id, w2: edges[p.e2].way.id, lat: toLat(p.z), lon: toLon(p.x) })).sort((a, b) => b.n - a.n)));
   }
+  if (st.fillet) {
+    const f = st.fillet;
+    console.log(`WP-11 fillets: ${f.strands} strands (${f.closed} closed loops held at one node), ${f.vertices} vertices, ${f.filleted} filleted, ${f.merged} short-tangent pairs fitted as one curve; ${f.junctionsFilleted} mitred junctions filleted across (${f.armsFollowed} arms followed their node); ` +
+                `${f.tight} under their class floor (listed), ${f.overEmax} past their class Emax (listed); 2-arm nodes moved ${f.nodesMoved} (median ${f.nodeMoveMedian} m, max ${f.nodeMoveMax} m); ` +
+                `points ${f.pointsBefore} -> ${f.pointsAfter}; edge ends off their node before: ${st.fillet_end_gap_m} m`);
+  }
+  console.log(`WP-11 C11 split nodes (an undivided road opening into its two carriageways; section SPLT for the line model): ${SPLITS.length}`);
   console.log(`WP-10 tagged nodes: ${st.tagged_nodes} recorded on the raw ways, ${st.tagged_projected.nodes} projected (max move ${st.tagged_projected.moved_max_m} m)`);
 }
 
@@ -1260,6 +1276,16 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
   section('TAGN', w => {
     w.u32(LC.tagged.length);
     for (const t of LC.tagged) { w.u32(t.nodeId % 4294967296); w.u32(Math.floor(t.nodeId / 4294967296)); w.u32(t.wayId); w.u8(t.kind); w.f32(t.rawS); w.u32(t.edge); w.f32(t.s); }
+  });
+  // SPLT (WP-11, critic C11; lib/splits.mjs): where an undivided road splits
+  // into its two carriageways - not a junction but a median taper, drawn by
+  // the line model (WP-11b): u32 node, u32 undivided edge, u32 carriageway
+  // leaving, u32 carriageway arriving, f32 their centre offsets at the node
+  // in the undivided edge's frame (+ = left of its direction into the node),
+  // f32 the MUTCD shifting-taper rate (m along per m across).
+  section('SPLT', w => {
+    w.u32(SPLITS.length);
+    for (const t of SPLITS) { w.u32(t.node); w.u32(t.u); w.u32(t.a); w.u32(t.b); w.f32(t.offA); w.f32(t.offB); w.f32(t.rate); }
   });
   if ([...sec.keys()].join() !== CITY_SECTIONS.join()) throw new Error('PSXC sections out of step with citydata.mjs CITY_SECTIONS');
 

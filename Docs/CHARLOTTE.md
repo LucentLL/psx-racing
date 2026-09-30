@@ -1474,6 +1474,77 @@ describes the second.
   prints PARA by kind before and after, lists the review pairs in the core
   and on the routes, and writes them all as JSON.
 
+## WP-11 (R4): fillets, sagitta densify, chain continuity (2026-09-30)
+
+The owner's rule of 2026-09-28: "Nor should any sharp angles of road or road
+lines." WP-11 is step 7 of `lineclean.mjs` (`tools/city/lib/fillet.mjs`),
+after PARA and before the tagged nodes are projected, so crossings, water
+spans, routes, `charlotte_routes.json` and the minimap all read the rounded
+lines.
+
+- **Strands.** Edges joined through every 2-arm node AND through the through
+  pair of every mitred junction (a ramp's split or merge, a fork: the
+  builder's own ComputeTrims decision, replicated in `mitredThrough`). Other
+  junction nodes and dead ends are fixed, and the leg touching one keeps
+  max(1 m, a quarter) of its first segment straight, so ComputeTrims'
+  through / branch / fan decisions stand. A 2-arm node or mitred junction
+  moves onto its arc (median 0.06 m, max 10.3 m at a near U-turn); the
+  clipped arms at a moved junction follow it, the move eased out over
+  max(10 m, 20 x the move).
+- **Radius.** Wanted R = max(R_floor, R_E): R_E keeps the arc within the
+  class Emax (street 0.75 m, arterial 1.0, trunk 1.25, motorway 1.5, ramp
+  1.25), R_floor = max(the gate's R_min by class, half width + 3 m) keeps
+  the inner edge from folding; never further off the mapped corner than
+  max(Emax, half the road width). Each segment is shared between its two
+  corners in proportion to their TURN, so the curvature is as even as the
+  mapped line allows (a nearly straight vertex never starves a real corner
+  beside it); a corner capped by its arc leaves the rest to its neighbour.
+  A corner that still cannot reach its floor is fitted together with its
+  same-hand neighbour across the short segment (one corner where their outer
+  tangents meet), if that arc stays within Emax of every mapped vertex.
+  Left under the floor: 790 corners (S-bends on short tangents, single-vertex
+  hairpins), 217 past Emax - counted in the export log, not hidden.
+- **Densify by sagitta.** Chord <= sqrt(8 eps R^2 / (R + hw)), eps = 2 cm
+  (SmoothRules.DensifyEpsM) on the outer drawn edge; past 10 m (ChordCapM)
+  the gate's own lone-vertex facet, min(c, 10 m) x turn / 8 <= eps, sets it.
+  Points 184,961 -> 452,643: charlotte_city.bytes 3.71 -> 5.88 MB raw, 1.99
+  -> 3.6 MB Brotli (the plan's budget was +1.71 MB raw; the fallback, a
+  radius per vertex expanded in CityMap.Parse, is not built).
+- **C11 splits** (891 places where an undivided road opens into its two
+  carriageways): section `SPLT` (`lib/splits.mjs`) records each one's
+  carriageways, their centre offsets in the undivided section and the MUTCD
+  shifting-taper rate. Data only: the line model (WP-11b) draws them as
+  median tapers; the builder still mitres the straighter carriageway and
+  clips the other.
+- **Chain continuity (runtime).** `CityMeshes.ChainContinuity` walks every
+  chain of mitred through joints once per map: texture V = (vOff + vDir s) /
+  RoadVTile, so the dash phase runs on through way splits, decks and tile
+  seams, and the surface age is chosen once per chain (`Edge.ageSeed`).
+  `linesim.mjs` replays the same V.
+- **Measured** (linecheck, the offline gate, BEFORE -> AFTER; the mesh gate
+  agrees within a few %): B2 KINK 413,672 -> 98,690 runs (data-caused
+  352,496 -> 11,587; what is left is mostly the builder's symmetric tapers,
+  WP-11b's), B3 CURVE 8,747 -> 2,527, B1 JITTER 290,814 -> 179,693, C3 DASH
+  11,895 -> 32, A1 OFF 101,416 -> 78,139, C1 GAP 102 -> 91; bend fans (2-arm
+  nodes drawn as junction slabs) 109 -> 0; drawn-edge kinks of 10 degrees or
+  more 12,408 -> 1,155, of 25 or more 2,402 -> 322; quads folding back 193 ->
+  78. Up: A2 SKEW 13,431 -> 16,245 and D1 CROSS 777 -> 822 (builder: tapers
+  and clips on the denser sections). The mesh gate (CitySmooth FULL, every
+  road tile): B2 475,028 -> 100,305, B3 9,059 -> 2,577, B1 256,408 ->
+  179,917, C3 10,922 -> 42, C1 235 -> 104, D1 3,378 -> 2,953, A1 100,812 ->
+  78,219. Both baselines re-recorded on this data.
+- **Audits.** DRIVE AUDIT zeros, CITY AUDIT OK, city-play-check and the three
+  races pass as before (Uptown's two rivals still retire at wp 249, 996 m,
+  "into Roads", as on WP-10's tree). The fillets moved lines 0-0.6 m at eight
+  roadside / lane-survey probes that already stood on a squeeze strip, a
+  retaining face or a rail between roads at two heights (Tyvola Road's
+  bridge, North Caldwell's three heights, US 74 at I-277, the ramps e13344,
+  e2470 and e8463, I-277's e8482): named in CityAudit's WP-11 blocks for
+  WP-11b, none on a race route.
+- The gate probe S2 now reads the dash phase running on across splits (no
+  C3), and the chain's head is its end with the lower (x, z), so the phase
+  never depends on edge order (probe L1).
+
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 
 Reported after the rebuild: "a lot of roads still floating in air, not

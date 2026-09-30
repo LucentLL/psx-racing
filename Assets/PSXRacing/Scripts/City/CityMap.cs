@@ -76,6 +76,16 @@ namespace PSXRacing.City
             public float[] s;        // cumulative arc length per pt
             public float length;
 
+            /// <summary>CHAIN CONTINUITY (WP-11): the road's texture V at arc
+            /// position s is (vOff + vDir * s) / RoadVTile, running on along the
+            /// chain of mitred through joints, so the dash phase carries across
+            /// way splits, decks and tile seams; and the surface age is chosen
+            /// once per chain from ageSeed (the chain head's first point). Set by
+            /// CityMeshes.ComputeTrims; until then V restarts per edge.</summary>
+            public float vOff, vDir = 1f;
+            public Vector2 ageSeed;
+            public bool hasAgeSeed;
+
             // Elevation stations, every ~StationStep metres along the edge
             // (solved once at load by CityElevation).
             public float[] stS;      // arc position of each station

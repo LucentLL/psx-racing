@@ -74,11 +74,11 @@ class Reader {
 }
 
 /// The section tags of PSXC v2, in file order (a reader skips any other).
-export const CITY_SECTIONS = ['META', 'NODE', 'NAME', 'EDGE', 'PNTS', 'WATR', 'WBED', 'XING', 'SPAN', 'ROUT', 'GHSH', 'LANW', 'TAPR', 'PARA', 'TAGN'];
+export const CITY_SECTIONS = ['META', 'NODE', 'NAME', 'EDGE', 'PNTS', 'WATR', 'WBED', 'XING', 'SPAN', 'ROUT', 'GHSH', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT'];
 /// Sections a file may lack: added after the version-2 layout first shipped,
 /// so a file exported before them still parses (WBED: WP-04b; LANW, TAPR,
-/// PARA and TAGN: WP-10, lib/lineclean.mjs).
-export const CITY_OPTIONAL = new Set(['WBED', 'LANW', 'TAPR', 'PARA', 'TAGN']);
+/// PARA and TAGN: WP-10, lib/lineclean.mjs; SPLT: WP-11, lib/splits.mjs).
+export const CITY_OPTIONAL = new Set(['WBED', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT']);
 
 /// THE GRAPH HASH (WP-02): what derived data keyed by (edge, s) is stamped
 /// with, so data made for one graph is refused by another. CRC-32 (zlib's,

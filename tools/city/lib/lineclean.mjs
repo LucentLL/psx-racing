@@ -45,10 +45,16 @@
 //      shared node, out to where the mapped lines part; a junction box
 //      across a short connector) they are exempt; what cannot be moved goes
 //      on the review list. -> section PARA.
+//   7. WP-11 FILLETS (lib/fillet.mjs): every 2-arm node, every free vertex and
+//      the through pair of every mitred junction rounded with tangent arcs at
+//      the class radius, densified by sagitta; the tagged nodes are projected
+//      after it (1b), onto the lines the game draws.
 // The per-class lane-width table (owner, 2026-09-27: real widths) is written
 // as section LANW; the game keeps 3.6576 m until WP-11b draws paint by line
 // (plan A3, "Lane widths").
 import { profileFor } from './citydata.mjs';
+import { filletGraph, emaxOf, mitredThrough } from './fillet.mjs';
+import { writeFileSync } from 'node:fs';
 
 export const SMOOTH = t => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 const DEG = 180 / Math.PI;
@@ -604,6 +610,35 @@ export function lineClean(ctx) {
 
   // ---------------------------------------------------- 6. PARA
   const paraOut = paraResolve({ edges, nodes, chains, chainOf, edgeOffset, isPinned, stats, review, uptown });
+
+  // ---------------------------------------------------- 7. WP-11 fillets
+  // every 2-arm node and free vertex rounded at its class radius, arcs
+  // densified by sagitta (lib/fillet.mjs has the rules)
+  if (ctx.fillet) {
+    let endGap = 0;
+    for (const e of edges) endGap = Math.max(endGap, dist(e.pts[0], nodes[e.a]), dist(e.pts[e.pts.length - 1], nodes[e.b]));
+    stats.fillet_end_gap_m = +endGap.toFixed(3);
+    const RANK = ['local', 'tertiary', 'secondary', 'primary', 'trunk', 'motorway'];
+    const hwOf = e => {
+      const p = profOf(e), r = edgeOffset[e.id];
+      return p.lanes * 3.6576 / 2 + Math.max(p.shl, p.shr) + (r ? Math.max(Math.abs(r.o0), Math.abs(r.o1)) : 0);
+    };
+    const F = ctx.fillet;
+    if (process.env.PSX_FILLET_DUMP) {
+      // the graph as the fillet step gets it, for iterating on lib/fillet.mjs alone
+      writeFileSync(process.env.PSX_FILLET_DUMP, JSON.stringify({
+        nodes, edges: edges.map(e => ({ id: e.id, a: e.a, b: e.b, pts: e.pts, len: e.len, hw: hwOf(e), way: { link: e.way.link, rank: e.way.rank }, pw: profOf(e).width,
+          rf: Math.max(F.rMinFor(RANK[e.way.rank] + (e.way.link ? '_link' : '')), hwOf(e) + F.innerEdgeMinR), em: emaxOf(e.way) })) }));
+    }
+    const out = filletGraph(edges, nodes, {
+      rFloor: e => Math.max(F.rMinFor(RANK[e.way.rank] + (e.way.link ? '_link' : '')), hwOf(e) + F.innerEdgeMinR),
+      emax: e => emaxOf(e.way), hw: hwOf,
+      eps: F.eps, chordCap: F.chordCap, collinearDeg: F.collinearDeg,
+      through: mitredThrough(edges, nodes, e => profOf(e).width / 2),
+    });
+    stats.fillet = out.stats;
+    for (const r of out.review) review.push(r);
+  }
 
   // ---------------------------------------------------- 1b. tagged nodes -> (edge, s)
   {

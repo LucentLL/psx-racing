@@ -233,6 +233,51 @@ export function createSim(city, modelName = 'asbuilt') {
     return t;
   })();
 
+  // CHAIN CONTINUITY (CityMeshes.ChainContinuity, WP-11): texture V = (vOff + vDir s) / RoadVTile along each
+  // chain of mitred through joints, so the dash phase runs on through way splits, decks and seams
+  const chainV = (() => {
+    const ne = E.length, vOff = new Float64Array(ne), vDir = new Float64Array(ne).fill(1), seen = new Uint8Array(ne);
+    const rep = (t, L) => t - Math.floor(t / L) * L;
+    const partner = (e, node) => {
+      if (!T.mitre[node]) return -1;
+      const o = T.throughA[node] === e.index ? T.throughB[node] : T.throughB[node] === e.index ? T.throughA[node] : -1;
+      return o < 0 || o === e.index || E[o].a === E[o].b ? -1 : o;
+    };
+    // the phase must not depend on where the walk began: an open chain starts at its end with the lower (x, z),
+    // a ring at its joint with the lower (x, z) (float32 points, as C# compares them)
+    const lower = (p, q) => p[0] < q[0] || (p[0] === q[0] && p[1] < q[1]);
+    const P2 = (e, k) => [Math.fround(e.pts[k][0]), Math.fround(e.pts[k][1])];
+    const entryPt = (ei, f) => { const e = E[ei]; return f ? P2(e, 0) : P2(e, e.pts.length - 1); };
+    const exitPt = (ei, f) => { const e = E[ei]; return f ? P2(e, e.pts.length - 1) : P2(e, 0); };
+    for (let i = 0; i < ne; i++) {
+      if (seen[i] || E[i].a === E[i].b) continue;
+      let cur = i, entry = E[i].a, guard = 0, ring = false;
+      for (;;) { const q = partner(E[cur], entry); if (q === i) { ring = true; break; } if (q < 0 || seen[q] || ++guard > ne) break; entry = E[q].a === entry ? E[q].b : E[q].a; cur = q; }
+      if (ring) { cur = i; entry = E[i].a; }
+      let chain = [], fwds = []; guard = 0;
+      while (cur >= 0 && !seen[cur] && ++guard <= ne) {
+        const e = E[cur]; seen[cur] = 1;
+        const fwd = entry === e.a; chain.push(cur); fwds.push(fwd);
+        const exit = fwd ? e.b : e.a; cur = partner(e, exit); entry = exit;
+      }
+      const n = chain.length;
+      if (ring) {
+        let best = 0;
+        for (let k = 1; k < n; k++) if (lower(entryPt(chain[k], fwds[k]), entryPt(chain[best], fwds[best]))) best = k;
+        chain = chain.map((_, k) => chain[(best + k) % n]); fwds = fwds.map((_, k) => fwds[(best + k) % n]);
+      } else if (lower(exitPt(chain[n - 1], fwds[n - 1]), entryPt(chain[0], fwds[0]))) {
+        chain.reverse(); fwds = fwds.reverse().map(f => !f);
+      }
+      let acc = 0;
+      for (let k = 0; k < n; k++) {
+        const ci = chain[k], e = E[ci], fwd = fwds[k];
+        vDir[ci] = fwd ? 1 : -1; vOff[ci] = rep(fwd ? acc : acc + e.length, RoadVTile);
+        acc = rep(acc + e.length, RoadVTile);
+      }
+    }
+    return { vOff, vDir };
+  })();
+
   // Trims.HalfWidthAt (CityMeshes.cs:498-506); M0 eases the taper (smoothstep)
   const shapeOf = model.taperShape === 'smooth' ? smooth01 : clamp01;
   function halfWidthAt(e, s) {
@@ -745,7 +790,7 @@ export function createSim(city, modelName = 'asbuilt') {
         const hn = e.width * 0.5;
         sec.uL = clamp01(0.5 - sec.latL / (2 * hn)); sec.uR = clamp01(0.5 - sec.latR / (2 * hn));
       }
-      sec.v = s / RoadVTile;                     // BuildRoadsAndDecks :1913, V restarts per edge
+      sec.v = (chainV.vOff[e.index] + chainV.vDir[e.index] * s) / RoadVTile;   // BuildRoadsAndDecks: chain distance (WP-11)
       out.push(sec);
     }
     return out;

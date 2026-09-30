@@ -2,10 +2,10 @@
   "schema": 1,
   "city": {
     "version": 2,
-    "graph_hash": "25298d13",
+    "graph_hash": "8cdab141",
     "nodes": 20194,
     "edges": 25042,
-    "points": 184961,
+    "points": 452643,
     "node_degrees": [
       0,
       925,
@@ -16,7 +16,7 @@
       6,
       0
     ],
-    "km": 3845.6,
+    "km": 3843.9,
     "bridges": 791,
     "tunnels": 8,
     "links": 2200,
@@ -30,7 +30,7 @@
     "ravines": 1545,
     "crossings": 783,
     "crossings_forced": 783,
-    "water_spans": 563,
+    "water_spans": 566,
     "controls": {
       "signal": 1668,
       "stop": 140,
@@ -40,31 +40,31 @@
       {
         "id": "uptown",
         "edges": 68,
-        "length_m": 9193.9
+        "length_m": 9191.6
       },
       {
         "id": "tryon",
         "edges": 78,
-        "length_m": 6021.4
+        "length_m": 6020.7
       },
       {
         "id": "independence",
         "edges": 38,
-        "length_m": 7015.4
+        "length_m": 7014.3
       }
     ],
-    "free_vertices": 144576,
+    "free_vertices": 407960,
     "kinks_per_km": {
-      "ge5": 7.73,
-      "ge10": 2.749,
-      "ge25": 0.412
+      "ge5": 2.446,
+      "ge10": 0.059,
+      "ge25": 0.014
     },
     "kinks": {
-      "ge5": 29670,
-      "ge10": 10552,
-      "ge25": 1581,
-      "max_deg": 173.1,
-      "folds_over_10cm": 1626
+      "ge5": 9384,
+      "ge10": 227,
+      "ge25": 54,
+      "max_deg": 119.1,
+      "folds_over_10cm": 643
     }
   },
   "dem": {
@@ -92,8 +92,8 @@
   },
   "outputs": {
     "charlotte_city.bytes": {
-      "bytes": 3710438,
-      "sha256": "bab3090a81d2f650d796c06810815e5cb59a2f06e9e46749147667f2193463fa"
+      "bytes": 5876896,
+      "sha256": "07fb8a639f3ed42ff1d7341f8bcebc7965a38ae5a79c4b159604e04449f8a1ff"
     },
     "charlotte_dem.bytes": {
       "bytes": 1485788,
@@ -104,8 +104,8 @@
       "sha256": "21a9e261ed1f807a4559bad111708c22529b2634d00976926aa45cad4a1995f5"
     },
     "charlotte_routes.json": {
-      "bytes": 16521,
-      "sha256": "33d7b103abaf78659900c46e2cacac7451d124d5129979649244845f2913c327"
+      "bytes": 16507,
+      "sha256": "d99112cc09f9142630ea2b81a31f8de51a160547a6c433d85d20276bc1d81b4c"
     }
   },
   "generated": {
