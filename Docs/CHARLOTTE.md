@@ -1683,12 +1683,42 @@ halo is smaller and fainter (`NightGlow.HaloSizeFor`): at full strength they
 took uptown's residential night frame from a median of 0.073 to 0.238 (the
 reference band is 0.09-0.17); at 0.25 it is 0.140.
 
-**No lamp post in race run-off.** WP-08's race batch found the racers running
-wide into the lamp posts on Tryon (33 hits; "the lamps' own package"): a lamp's
-foot in a city race route's run-off (`RaceRunOff`: 8 m past the drawn edge, 16
-m on the outside of a bend) now steps back from the road 2 m at a time, up to
-16 m, and stands nowhere there if it cannot (`LampRejectRunOff`). The lamp
-audit and the pole audit check it.
+**No SOLID lamp post in race run-off.** WP-08's race batch found the racers
+running wide into the lamp posts on Tryon (33 hits; "the lamps' own package").
+A lamp whose foot is in a city race route's run-off (`RaceRunOff`: 8 m past
+the drawn edge, 16 m on the outside of a bend) stands where it would and
+BREAKS AWAY (`CityMeshes.Lamp.breakaway`; Q15's pattern, as the business
+cabinets and the thin trunks): drawn and lit, no collider
+(`CityWorld.Attach` stands a box for every other post). WP-15 first stepped
+such a post back from the road up to 16 m, else stood none - and uptown, where
+the buildings stand at the sidewalk, that left N Tryon without one post by
+day and black at night (the review, from the before/after shots). The lamp
+audit checks every post in run-off breaks away and none outside it does; the
+pole audit stands the tiles up as the game does and counts the colliders
+(one a solid post, none a breakaway one), checks at least 85% of the lamp
+stations of uptown's race streets stand their post, and prints how much of
+those streets is more than 20 m from a light.
+
+**The signs keep clear of the poles.** The review found the telecom cables
+(6-9 m up) running straight through a lit burger sign on the Tryon Sprint out
+of NoDa: a business's cabinet (2.4-3.2 m, 4.5-9.7 m up) stood 0.8 m past the
+clear zone, in the band the pole line stands in (1.0-3.4 m past it), and the
+signs were placed after the poles on a mask that knew only the poles' feet.
+Now a business's cabinet, a billboard's post, the beam to each face and each
+face with its catwalk and floodlights stand only where
+`CityPoles.SignClear` finds no wire (1.13 m either side of the line between
+two poles' feet: the crossarm's primaries), no pole or crossarm and no
+cobra-head arm or head within 0.5 m in plan; they step back from the road
+past the line as they already step back from everything else. The poles
+never look at the signs, so they are decided first and the same either way,
+and a billboard (decided from global data) stays the same in every tile.
+`CityPoles.Prepare` decides the stations round a tile that its business
+signs will ask about, so the tree frame finds them decided. The sign audit
+measures every drawn wire (its six segments, sag and all) and every pole
+part against every sign box - cabinet and posts, face, catwalk and
+floodlights, beam, gantry panel and truss, solid post and leg - in 3D, with
+the signs and poles both on; `PSX_SIGN_POLE_KEEP=0` turns the keep-out off to
+show that check fails without it.
 
 **One draw.** `tools/city/furniture_atlas.py` makes a 256 px atlas of four
 128 px cells from pack art the game already ships: PSX Textures II
@@ -1724,14 +1754,36 @@ freeway, uptown or in Myers Park; every wire 5.5 m over every road it crosses
 (measured every metre with the road's own height); every span's far pole
 standing in its own tile; the pitch p50 40-60 m; the same poles on a second
 build from a cold cache; one mesh a tile; a cobra-head on every pole; uptown lit
-by acorn posts. It also prints why stations stood no pole and how much of the
-pole roads is more than 40 m from any light.
+by acorn posts; no SOLID lamp post in race run-off and none breaking away
+outside it; a box collider for every solid post and none for a breakaway one
+(the tiles stood up as the game does); and at least 85% of the lamp stations
+of uptown's race streets standing their acorn post (the reviewed build stood
+almost none on N Tryon). It also prints why stations stood no pole, how much
+of the pole roads is more than 40 m from any light, and uptown's race streets'
+dark runs (more than 20 m from a light) with what became of the lamp stations
+there (`CityMeshes.LampTrace`): the 10 m either side of a junction are the
+lamps' fan clearance, older than WP-15.
+
+**The sign audit** also measures the signs against the poles in 3D (the
+review): every drawn wire (its six segments, sag and all) and every pole
+part - the pole, its crossarm, its cobra-head's arm and head - against every
+sign box, with 0.3 m of air, on the 3,539 tiles it audits.
+`PSX_SIGN_POLE_KEEP=0` runs it with the keep-out off.
 
 **Shots**: `tools/city-pole-shots.ps1 -Label before|after [-Sheet]`
 (`CityRefSpots.RunPoles`): the driver's eye in the lane at Albemarle Rd,
 Central Ave, Rocky River Rd, Brentwood Pl, E Trade St, N Tryon St and Queens
 Rd W, by day and at night, and a close look at the nearest pole ahead;
-`tools/city/polesheet.py` pairs them.
+`tools/city/polesheet.py` pairs them. `-Spots a15_albemarle,a1_tryon`
+(`PSX_POLE_SPOTS`) shoots only those. At each spot the log checks the feet
+within 120 m of the camera (`CityRefSpots.SpotFeet`): every pole on no cell
+of the static mask (pavement, clear zone, sight triangle, corner, building,
+lot or driveway) and out of every road's keep-out, every lamp post off the
+carriageway and out of the buildings - `CLEAR` or `NOT CLEAR`. `-WireSigns` adds
+`CityRefSpots.RunWireSigns`: one job, the signs placed as the reviewed build
+placed them and as they stand now, from the same cameras (22 m back in the
+lane of the sign's road) at the business signs by the race routes a wire ran
+through, or over (the Tryon Sprint's nearest crossing among them).
 
 
 **Checked** (sandbox PSXShip, the CITY edition):
@@ -1774,10 +1826,7 @@ Rd W, by day and at night, and a close look at the nearest pole ahead;
 
 **Not done:** snapping stations to OSM `power=pole` and taking a line's side
 from `power=line` (the layer is fetched): a two-way road's line takes a
-hashed side. And a race route through uptown (Tryon) now has few acorn posts
-beside it: a post that cannot step back out of the run-off (buildings at the
-sidewalk) stands nowhere there. Breakaway posts would put them back, for the
-owner to decide.
+hashed side.
 
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 

@@ -309,6 +309,11 @@ namespace PSXRacing.City
             /// 2 a freeway's (5), 3 uptown's acorn post (<see cref="LampAcorn"/>):
             /// which pitch and height it was placed by.</summary>
             public byte kind;
+            /// <summary>It stands in a city race route's run-off
+            /// (<see cref="RaceRunOff"/>) and BREAKS AWAY (Q15's pattern, as
+            /// the business cabinets and the thin trunks do): drawn and lit,
+            /// no collider. The WP-15 review.</summary>
+            public bool breakaway;
         }
 
         public class TileMeshes
@@ -2136,19 +2141,19 @@ namespace PSXRacing.City
         /// <summary>Why a lamp station stood no lamp, for the audit (the
         /// reason its first try was refused).</summary>
         public const int LampRejectSide = 1, LampRejectStructure = 2, LampRejectBuilding = 3, LampRejectWater = 4,
-                         LampRejectPavement = 5, LampRejectOverhead = 6, LampRejectVerge = 7, LampRejectRunOff = 8, LampRejectCount = 9;
+                         LampRejectPavement = 5, LampRejectOverhead = 6, LampRejectVerge = 7, LampRejectCount = 8;
         public static readonly string[] LampRejectNames =
         {
             "placed", "not a plain verge", "structure approach", "building or lot", "water",
-            "another road's pavement or fan", "under a structure", "no graded verge", "race run-off",
+            "another road's pavement or fan", "under a structure", "no graded verge",
         };
-        /// <summary>WP-15: a post whose foot lands in a city race route's
-        /// run-off (<see cref="RaceRunOff"/>: 8 m past the drawn edge, 16 m on
-        /// the outside of a bend) steps back from the road this much at a time,
-        /// at most <see cref="LampRunOffMaxM"/>; past that it stands nowhere
-        /// there. The racers ran wide into the lamp posts on Tryon (WP-08's
-        /// batch: 33 hits), the one kind of roadside object still inside.</summary>
-        const float LampRunOffStepM = 2f, LampRunOffMaxM = 16f;
+        // A post whose foot lands in a city race route's run-off (RaceRunOff:
+        // 8 m past the drawn edge, 16 m on the outside of a bend) stands where
+        // it would and BREAKS AWAY (Lamp.breakaway: no collider). The racers
+        // ran wide into the lamp posts on Tryon (WP-08's batch: 33 hits).
+        // WP-15 first stepped such a post back up to 16 m, else stood none -
+        // and uptown, where the buildings stand at the sidewalk, that left
+        // N Tryon without one post by day and black at night (the review).
 
         /// <summary>The speed a lamp's offset is decided by: the edge's posted
         /// limit where OSM tags one, else North Carolina's statutory limit for
@@ -2200,7 +2205,7 @@ namespace PSXRacing.City
             // poles (CityPoles); it stands no lamp posts of its own
             if (CityPoles.Enabled && CityPoles.IsPoleEdge(map, e)) return;
             int n = sections.Count;
-            if (n < 2) return;
+            if (n < 2) { LampTrace?.Invoke(e.index, -2f, -1); return; }
             if (lampTrims != trims || lampFanReach == null || lampFanReach.Length != map.nodes.Length)
             {
                 // per map (the trims are): fan reaches fill in as nodes are met
@@ -2212,7 +2217,7 @@ namespace PSXRacing.City
             float lo = sections[0].s + LampEndClear(map, trims, e, e.a);
             float hi = sections[n - 1].s - LampEndClear(map, trims, e, e.b);
             float run = hi - lo;
-            if (run < LampMinRunM) return;
+            if (run < LampMinRunM) { LampTrace?.Invoke(e.index, -1f, -1); return; }
             int count = Mathf.Max(1, Mathf.RoundToInt(run / gap));
             float step = run / count;
             int phase = Hash01(e.index, 1, LampSalt) < 0.5f ? 0 : 1;
@@ -2241,8 +2246,16 @@ namespace PSXRacing.City
                     }
                 }
                 if (!placed && why > 0) tm.lampRejects[why]++;
+                LampTrace?.Invoke(e.index, s0, placed ? 0 : why);
             }
         }
+
+        /// <summary>The audits' look at why a street has no lamp where it has
+        /// none: (edge, station arc, 0 placed or its first try's
+        /// <see cref="LampRejectNames"/> index) for every station, when set;
+        /// (edge, -1, -1) for an edge shorter than its junctions' fans leave
+        /// room for, (edge, -2, -1) for one the tile drew no span of.</summary>
+        public static System.Action<int, float, int> LampTrace;
 
         /// <summary>How far from a node's end of the ribbon the first lamp
         /// stands back: clear of a junction fan's mouth, nothing at a mitred
@@ -2284,20 +2297,6 @@ namespace PSXRacing.City
             float arm = kind == LampAcorn ? 0f : Mathf.Clamp(off - LampArmBackM, LampArmMinM, LampArmMaxM);
             var footP = edgeW + outw * off;
             var headP = footP - outw * arm;
-            // never in a city race route's run-off: stepped back past it
-            if (RaceRunOff.Inside(map, trims, footP))
-            {
-                float extra = 0f;
-                while (extra < LampRunOffMaxM && RaceRunOff.Inside(map, trims, footP))
-                {
-                    extra += LampRunOffStepM;
-                    footP = edgeW + outw * (off + extra);
-                }
-                if (RaceRunOff.Inside(map, trims, footP)) return LampRejectRunOff;
-                off += extra;
-                arm = kind == LampAcorn ? 0f : Mathf.Clamp(off - LampArmBackM, LampArmMinM, LampArmMaxM);
-                headP = footP - outw * arm;
-            }
 
             // cheapest first. The real buildings are asked with FootprintClear,
             // NOT AnyFootprintNear: that one opens only the bucket of a
@@ -2322,7 +2321,9 @@ namespace PSXRacing.City
 
             var foot = new Vector3(footP.x, ground - LampSinkM, footP.y) - tm.origin;
             var head = new Vector3(headP.x, ground - LampSinkM + height, headP.y) - tm.origin;
-            tm.lamps.Add(new Lamp { foot = foot, head = head, height = height, kind = kind });
+            // in a city race route's run-off it breaks away (the WP-15 review)
+            bool breakaway = RaceRunOff.Inside(map, trims, footP);
+            tm.lamps.Add(new Lamp { foot = foot, head = head, height = height, kind = kind, breakaway = breakaway });
             if (kind == LampAcorn) EmitAcorn(foot, head);
             else EmitLamp(foot, head, outw);
             return 0;

@@ -57,7 +57,10 @@ namespace PSXRacing.City
     /// mask before the trees are planted (the plan's priority: signs before
     /// trees). A billboard and a business's cabinet also keep the trees out of
     /// their drivers' line of sight, as their owners would. Nothing overhangs a
-    /// road but a gantry.
+    /// road but a gantry. A billboard's post and faces and a business's
+    /// cabinet also stand clear of the utility poles, their crossarms,
+    /// cobra-heads and wires (<see cref="CityPoles.SignClear"/>, the WP-15
+    /// review), stepping back from the road past the pole line.
     ///
     /// ACROSS TILE SEAMS: a gantry spans up to 85 m and a billboard's line of
     /// sight runs 60 m, so both are decided from global data only - the
@@ -85,6 +88,11 @@ namespace PSXRacing.City
     {
         /// <summary>Tools switch the signs off for an A/B (the budget probe).</summary>
         public static bool Enabled = true;
+        /// <summary>The signs keep clear of the utility poles, their wires,
+        /// crossarms and cobra-heads (<see cref="CityPoles.SignClear"/>; the
+        /// WP-15 review). The sign audit turns it off once to show its wire
+        /// check has teeth.</summary>
+        public static bool KeepOffPoles = true;
         /// <summary>The sign audit's look at why business signs do not stand:
         /// (the edge, the nominal post, the outcome) for every candidate of a
         /// tile, when set.</summary>
@@ -238,6 +246,10 @@ namespace PSXRacing.City
             /// (a dead end or a T within the view), no free ground, a bend too
             /// sharp for one cabinet.</summary>
             public int poleLost, poleNoStore, poleAtKerb, poleNoDriver, poleNoGround, poleBend;
+            /// <summary>Places a business's cabinet, or one of this tile's
+            /// billboards and gantries, was stepped on from because a utility wire, pole or
+            /// cobra-head was there (<see cref="CityPoles.SignClear"/>).</summary>
+            public int poleWireSteps, boardWireSteps;
             /// <summary>Metres of store frontage in the tile (each side of a
             /// collector or bigger, a store behind it): where the plan wants a
             /// business sign every 30-60 m.</summary>
@@ -266,6 +278,8 @@ namespace PSXRacing.City
             /// look at its own fill houses and lamps).</summary>
             public readonly List<Vector2> feet = new List<Vector2>();
             public readonly List<(Vector2 a, Vector2 b)> spans = new List<(Vector2, Vector2)>();
+            /// <summary>Places tried and left for a utility wire, pole or cobra-head.</summary>
+            public int wireSteps;
             internal readonly List<BoxOp> ops = new List<BoxOp>();
             public Vector2 lo = Vector2.one * float.MaxValue, hi = Vector2.one * float.MinValue;
             internal void Take(Mark m)
@@ -351,7 +365,7 @@ namespace PSXRacing.City
                 if (mine && !pu.placed && pu.kind == Kind.Gantry) st.refusedGantries++;
                 if (!pu.placed || pu.hi.x < min.x || pu.hi.y < min.y || pu.lo.x > max.x || pu.lo.y > max.y) { if (!mine) continue; }
                 foreach (var m in pu.marks) occ.MarkCapsule(m.a, m.b, m.r, m.bit);
-                if (mine) Emit(st, pu);
+                if (mine) { Emit(st, pu); st.boardWireSteps += pu.wireSteps; }
                 else st.foreign++;
             }
             // then the businesses, on what is left
@@ -394,10 +408,13 @@ namespace PSXRacing.City
         static void Setup(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings, int tx, int tz)
         {
             mapNow = map; trimsNow = trims; buildingsNow = buildings;
-            if (pureMap != map || pureTrims != trims || pureBuildings != buildings)
+            // the billboards keep clear of the poles (when both are on): a
+            // tool that switches either decides them again
+            bool withPoles = KeepOffPoles && CityPoles.Enabled;
+            if (pureMap != map || pureTrims != trims || pureBuildings != buildings || pureWithPoles != withPoles)
             {
                 pureCache.Clear();
-                pureMap = map; pureTrims = trims; pureBuildings = buildings;
+                pureMap = map; pureTrims = trims; pureBuildings = buildings; pureWithPoles = withPoles;
                 edgeTile = long.MinValue;
             }
             long key = ((long)tx << 24) ^ (tz & 0xFFFFFF);
@@ -412,7 +429,33 @@ namespace PSXRacing.City
             edgeList.Sort();
         }
         static long edgeTile = long.MinValue;
+        static bool pureWithPoles;
         static readonly HashSet<int> edgeSeen = new HashSet<int>();
+
+        /// <summary>A sign's part (a capsule a..b of radius r in plan) clear
+        /// of the utility poles, their wires, crossarms and cobra-heads
+        /// (<see cref="CityPoles.SignClear"/>), when the signs keep off them.</summary>
+        static bool OffPoles(Vector2 a, Vector2 b, float r) =>
+            !KeepOffPoles || CityPoles.SignClear(mapNow, trimsNow, buildingsNow, a, b, r);
+
+        /// <summary>A business cabinet's half depth (its two faces 0.44 m apart).</summary>
+        const float CabinetHalfD = 0.22f;
+        /// <summary>A gantry's plan half depth along the road: its legs (1.4 m), the truss (1.1 m).</summary>
+        const float GantryHalfD = 0.75f;
+        /// <summary>A billboard face's plan depth: the steel 0.35 m behind the
+        /// picture, the catwalk and the floodlights' heads 1.62 m in front.</summary>
+        const float BoardBackM = 0.35f, BoardFrontM = 1.62f;
+
+        /// <summary>A billboard's post, the beam from its head to a face, and
+        /// the face with its catwalk and floodlights, clear of the poles and
+        /// their wires (the WP-15 review).</summary>
+        static bool BoardOffPoles(Vector2 P, float postR, Vector2 a0, Vector2 a1, Vector3 n)
+        {
+            if (!KeepOffPoles) return true;
+            if (!OffPoles(P, P, postR) || !OffPoles(P, (a0 + a1) * 0.5f, 0.25f)) return false;
+            var off = new Vector2(n.x, n.z) * ((BoardFrontM - BoardBackM) * 0.5f);
+            return OffPoles(a0 + off, a1 + off, (BoardFrontM + BoardBackM) * 0.5f);
+        }
 
         // a slice always decides one at least, so a slice never ends where it began
         static bool Due(long deadline, long key) => deadline != NoDeadline && decided > 0 && !pureCache.ContainsKey(key) && System.Diagnostics.Stopwatch.GetTimestamp() > deadline;
@@ -770,6 +813,19 @@ namespace PSXRacing.City
             // leg out to the carriageway's left edge
             bool cantilever = !FindLeg(c, -right, hwL, out var legL) || Vector2.Distance(legL, legR) > MaxSpanM;
             var armEnd = cantilever ? c - right * (hwL - 0.3f) : legL;
+            // clear of the utility poles and their wires: a leg found past a
+            // frontage road stands its truss over that road's pole line (the
+            // sign audit found three such, the WP-15 review). A left leg's
+            // span that crosses one becomes a cantilever from the right leg;
+            // a right leg's, the next station up the road
+            if (!OffPoles(armEnd, legR, GantryHalfD))
+            {
+                pu.wireSteps++;
+                if (cantilever) return false;
+                cantilever = true;
+                armEnd = c - right * (hwL - 0.3f);
+                if (!OffPoles(armEnd, legR, GantryHalfD)) return false;
+            }
 
             // the highest road under the span
             float roadTop = e.YAt(s);
@@ -1086,6 +1142,10 @@ namespace PSXRacing.City
                 if (two && !PureSegFree(aB0, aB1, BlockBits)) continue;
                 // clear of the gantries (official signs stand first)
                 if (GantryClash(map, trims, P, P, postR) || GantryClash(map, trims, aA0, aA1, faceR) || (two && GantryClash(map, trims, aB0, aB1, faceR))) continue;
+                // and of the utility poles and their wires (the WP-15 review:
+                // the lower cables hang where the faces are): further back
+                float postHalf = bulletin ? 0.45f : 0.3f;
+                if (!BoardOffPoles(P, postHalf, aA0, aA1, nA) || (two && !BoardOffPoles(P, postHalf, aB0, aB1, nB))) { pu.wireSteps++; continue; }
 
                 // heights (NCDOT's total height median is 13.4 m): a freeway
                 // bulletin's face 9.5 m or more over the ground and 8 m over the
@@ -1493,13 +1553,18 @@ namespace PSXRacing.City
                 var a = P - u * (W * 0.5f);
                 var b = P + u * (W * 0.5f);
                 if (!SegFree(occ, a, b, min, max, BlockBits)) { groundWhy += "c,"; continue; }
+                // clear of the utility poles, their crossarms, cobra-heads and
+                // wires (the WP-15 review: a pole line runs along nearly every
+                // road a business sign stands on, and its telecom cables hang
+                // 6-9 m up in the band the cabinet stands in): further back
+                if (!OffPoles(a, b, CabinetHalfD)) { groundWhy += "w,"; st.poleWireSteps++; continue; }
                 float g = CityMeshes.LatticeAt(map, P.x, P.y);
                 float bottom = g + 4.5f + 2f * CityTrees.Hash01(c.edge, (int)(c.s * 3f), 67);
                 var centre = V3(P, bottom + H * 0.5f);
                 // a bend too sharp for one cabinet to face both ways
                 if (Vector3.Dot(n, (viewA - centre).normalized) < FaceDotPlace ||
                     (!e.oneway && Vector3.Dot(-n, (viewB - centre).normalized) < FaceDotPlace)) return 3;
-                BoxFacing(centre, n, W * 0.5f, H * 0.5f, 0.22f, PoleCell(c.cellIndex), BlackSide, PoleCell(c.cellIndex));
+                BoxFacing(centre, n, W * 0.5f, H * 0.5f, CabinetHalfD, PoleCell(c.cellIndex), BlackSide, PoleCell(c.cellIndex));
                 // one post, or two under a wide cabinet
                 int posts = W >= 2.8f ? 2 : 1;
                 float gy = g - 0.3f;

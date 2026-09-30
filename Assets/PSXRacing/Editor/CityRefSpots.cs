@@ -432,6 +432,13 @@ namespace PSXRacing.EditorTools
             foreach (var f in Directory.GetFiles(dir, "*_" + label + "_*.png")) File.Delete(f);
             PSXRacingBuilder.EnsureCityTextures();
             var spots = new[] { "sv_a15_albemarle", "sv_a11_central", "sv_a10_rockyriver", "sv_a13_brentwood", "sv_a1_trade", "sv_a1_tryon", "sv_a8_queens" };
+            // PSX_POLE_SPOTS=a15_albemarle,a1_tryon: only those cameras (a lean run)
+            string only = System.Environment.GetEnvironmentVariable("PSX_POLE_SPOTS");
+            if (!string.IsNullOrEmpty(only))
+            {
+                var want = new HashSet<string>(only.Split(','));
+                spots = System.Array.FindAll(spots, id => want.Contains(id) || want.Contains(id.Replace("sv_", "")));
+            }
             var cams = new List<(string name, Vector3 eye, Vector3 look, Vector2 at)>();
             var log = new StringBuilder("shot\teye_x\teye_y\teye_z\tlook_x\tlook_y\tlook_z\twhat\n");
             var go = new GameObject("~cityPoleShots");
@@ -500,6 +507,7 @@ namespace PSXRacing.EditorTools
                     NightGlow.PreviewAll(true);
                     globals.Apply();
                     Shoot(dir, c.name + "_" + label + "_night", c.eye, Quaternion.LookRotation(c.look - c.eye), 0f);
+                    SpotFeet(world, map, c.name, c.eye, log);
                     world.DropAll();
                 }
             }
@@ -512,6 +520,297 @@ namespace PSXRacing.EditorTools
             }
             File.WriteAllText(Path.Combine(dir, "poles_shots_" + label + ".txt"), log.ToString());
             Debug.Log($"[CityRefSpots] {cams.Count} pole cameras, {cams.Count * 2} shots ({label}) to {dir}");
+        }
+
+        /// <summary>How far round a pole shot's camera its feet are checked.</summary>
+        const float SpotFeetM = 120f;
+
+        /// <summary>
+        /// THE FEET AT A SHOT SPOT, CLEAR OF THE LANES AND DRIVEWAYS (the
+        /// spot's own look, not the city-wide pole audit): every utility pole
+        /// within <see cref="SpotFeetM"/> of the camera on no cell of the
+        /// static roadside mask (pavement, clear zone, sight triangle, corner
+        /// spot, building, lot or driveway, water, deck) and outside every
+        /// road's keep-out, as the pole audit asks; every lamp post (uptown's
+        /// acorns) off every carriageway and out of every real building, its
+        /// tile built as the game builds it. A line to the shots' log (CLEAR
+        /// or NOT CLEAR) and to the Unity log.
+        /// </summary>
+        static void SpotFeet(CityWorld world, CityMap map, string name, Vector3 eye3, StringBuilder log)
+        {
+            var trims = world.NodeTrims;
+            var bld = world.Buildings;
+            var eye = new Vector2(eye3.x, eye3.z);
+            float ts = CityMeshes.TileSize;
+            int poles = 0, polesBad = 0, lamps = 0, lampsBad = 0, lampsLot = 0, acorns = 0, breakaway = 0;
+            float polePave = float.MaxValue, lampPave = float.MaxValue;
+            var bad = new List<string>();
+            float PaveAt(Vector2 f) =>
+                RoadsideOccupancy.Static(map, trims, bld, Mathf.FloorToInt(f.x / ts), Mathf.FloorToInt(f.y / ts)).RoadEdgeDistance(f, out _, out _);
+            string Bits(byte b)
+            {
+                var names = new List<string>();
+                for (int i = 0; i < 8; i++) if ((b & (1 << i)) != 0) names.Add(RoadsideOccupancy.BitNames[i]);
+                return string.Join("+", names);
+            }
+            foreach (var pt in world.LivePoles)
+                foreach (var p in pt.poles)
+                {
+                    var f = new Vector2(p.foot.x, p.foot.z);
+                    if (Vector2.Distance(f, eye) > SpotFeetM) continue;
+                    poles++;
+                    float pave = PaveAt(f);
+                    polePave = Mathf.Min(polePave, pave);
+                    byte sb = RoadsideOccupancy.StaticAt(map, trims, bld, f);
+                    float w = CitySigns.WorstRoad(map, trims, f, out _, out string what);
+                    if (sb == 0 && w >= -0.05f && pave >= 0f) continue;
+                    polesBad++;
+                    bad.Add($"pole ({f.x:0.0},{f.y:0.0}) {pave:0.00} m off the carriageway, mask [{Bits(sb)}], keep-out {w:0.00} m ({what})");
+                }
+            int tx0 = Mathf.FloorToInt((eye.x - SpotFeetM) / ts), tx1 = Mathf.FloorToInt((eye.x + SpotFeetM) / ts);
+            int tz0 = Mathf.FloorToInt((eye.y - SpotFeetM) / ts), tz1 = Mathf.FloorToInt((eye.y + SpotFeetM) / ts);
+            for (int tz = tz0; tz <= tz1; tz++)
+                for (int tx = tx0; tx <= tx1; tx++)
+                {
+                    var tm = CityMeshes.Build(map, trims, bld, tx, tz);
+                    CityMeshes.TakeLattice();
+                    try
+                    {
+                        foreach (var l in tm.lamps)
+                        {
+                            var f3 = tm.origin + l.foot;
+                            var f = new Vector2(f3.x, f3.z);
+                            if (Vector2.Distance(f, eye) > SpotFeetM) continue;
+                            lamps++;
+                            if (l.kind == CityMeshes.LampAcorn) acorns++;
+                            if (l.breakaway) breakaway++;
+                            float pave = PaveAt(f);
+                            lampPave = Mathf.Min(lampPave, pave);
+                            // a lot's or driveway's cell of the mask (padded a cell: not a check)
+                            if ((RoadsideOccupancy.StaticAt(map, trims, bld, f) & (RoadsideOccupancy.Building | RoadsideOccupancy.Other)) != 0) lampsLot++;
+                            bool inBuilding = !map.FootprintClear(f, 0.2f);
+                            if (pave >= 0f && !inBuilding) continue;
+                            lampsBad++;
+                            bad.Add($"lamp kind {l.kind} ({f.x:0.0},{f.y:0.0}) {pave:0.00} m off the carriageway{(inBuilding ? ", in a building" : "")}");
+                        }
+                    }
+                    finally
+                    {
+                        foreach (var m in new[] { tm.ground, tm.roads, tm.barriers, tm.kerbs, tm.water, tm.buildings, tm.lampPosts })
+                            if (m != null) Object.DestroyImmediate(m);
+                    }
+                }
+            string verdict = polesBad + lampsBad == 0 ? "CLEAR" : "NOT CLEAR";
+            string line = $"feet at {name}: {poles} poles within {SpotFeetM:0} m, {polesBad} on a mask cell or in a keep-out, nearest {(poles > 0 ? polePave.ToString("0.00") : "-")} m off a carriageway; " +
+                          $"{lamps} lamp posts ({acorns} acorn, {breakaway} breaking away), {lampsBad} on a carriageway or in a building, nearest {(lamps > 0 ? lampPave.ToString("0.00") : "-")} m off one, " +
+                          $"{lampsLot} on a padded lot cell (not a check) -> {verdict}";
+            log.Append("# " + line + "\n");
+            for (int i = 0; i < Mathf.Min(10, bad.Count); i++) log.Append("#   " + bad[i] + "\n");
+            Debug.Log("[CityRefSpots] " + line);
+        }
+
+        const int WireSignCams = 3;
+        const float WireSignBackM = 22f;
+
+        /// <summary>
+        /// THE SIGNS AND THE WIRES (the WP-15 review), one job, two worlds
+        /// from the same cameras. First the signs as the reviewed build placed
+        /// them (<see cref="CitySigns.KeepOffPoles"/> off): along the city race
+        /// routes, the Tryon Sprint first (the review found the telecom cables
+        /// through a burger sign out of NoDa), the first business signs within
+        /// 60 m of a route that a drawn wire or pole part runs through (the
+        /// sign audit's 3D test), each from its own driver
+        /// <see cref="WireSignBackM"/> before it, looking at the cabinet, by
+        /// day (the log names the near misses too). Then the signs as they stand now (keeping off the poles), from
+        /// the same cameras. To Screenshots/City/poles/wiresign_&lt;n&gt;_{before,after}.png
+        /// and wiresign.txt.
+        /// Headless (with graphics): -executeMethod PSXRacing.EditorTools.CityRefSpots.RunWireSigns
+        /// </summary>
+        public static void RunWireSigns()
+        {
+            var map = CityMap.Get();
+            if (map == null || map.routes == null) { Debug.LogError("[CityRefSpots] no city data"); return; }
+            string dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "City", "poles");
+            Directory.CreateDirectory(dir);
+            foreach (var f in Directory.GetFiles(dir, "wiresign_*")) File.Delete(f);
+            PSXRacingBuilder.EnsureCityTextures();
+            // the Tryon Sprint first (the review's find), then the other race routes
+            var routes = new List<CityMap.Route>();
+            foreach (var r in map.routes) if (r.id == "tryon") routes.Add(r);
+            foreach (var r in map.routes) if (r.id != "tryon") routes.Add(r);
+            var routeDir = new Dictionary<int, int>();
+            foreach (var route in routes)
+                for (int i = 0; i < route.edges.Length; i++)
+                    routeDir[route.edges[i]] = route.dirs != null && i < route.dirs.Length && route.dirs[i] < 0 ? -1 : 1;
+            var cams = new List<(Vector3 eye, Vector3 look, Vector2 at, string what)>();
+            var log = new StringBuilder("shot\teye_x\teye_y\teye_z\tlook_x\tlook_y\tlook_z\twhat\n");
+            var go = new GameObject("~cityWireSigns");
+            var world = go.AddComponent<CityWorld>();
+            bool keepWas = CitySigns.KeepOffPoles;
+            try
+            {
+                DayLight();
+                // BEFORE: the signs as the reviewed build placed them
+                CitySigns.KeepOffPoles = false;
+                var boxes = new List<CityAudit.SignBox>();
+                var caps = new List<(Vector3 a, Vector3 b, float r, bool wire)>();
+                var wires = new List<(Vector3 from, Vector3 to, float sag, float halfW)>();
+                var parts = new List<(Vector3 a, Vector3 b, float r)>();
+                var seen = new HashSet<long>();
+                var found = new List<(CitySigns.Sign sg, Vector3 centre, string what)>();
+                int steps = 0, examined = 0, beside = 0;
+                var closest = new List<(float air, string what)>();
+                // every candidate: (tryon first, a 3D hit before a plan crossing, the plan air), its camera
+                var cands = new List<(int rank, float air, Vector3 eye, Vector3 look, Vector2 at, string what)>();
+                foreach (var route in routes)
+                for (int i = 0; i < route.edges.Length; i++)
+                {
+                    var e = map.edges[route.edges[i]];
+                    for (float s = 0f; s < e.length + 60f; s += 120f)
+                    {
+                        float sa = routeDir[e.index] > 0 ? Mathf.Min(s, e.length) : Mathf.Max(0f, e.length - s);
+                        var p = e.PointAt(sa);
+                        world.EnsureRing(new Vector3(p.x, 0f, p.y), 1);
+                        caps.Clear();
+                        foreach (var pt in world.LivePoles)
+                        {
+                            foreach (var pole in pt.poles)
+                            {
+                                parts.Clear();
+                                CityPoles.PartsOf(pole, parts);
+                                foreach (var (a, b, r) in parts) caps.Add((a, b, r, false));
+                            }
+                            foreach (var (pa, pb) in pt.spans)
+                            {
+                                wires.Clear();
+                                CityPoles.WiresOf(pa, pb, wires);
+                                foreach (var w in wires)
+                                    for (int k = 0; k < CityPoles.WireSegmentsDrawn; k++)
+                                        caps.Add((CityPoles.WirePoint(w.from, w.to, w.sag, k / (float)CityPoles.WireSegmentsDrawn),
+                                                  CityPoles.WirePoint(w.from, w.to, w.sag, (k + 1) / (float)CityPoles.WireSegmentsDrawn), w.halfW, true));
+                            }
+                        }
+                        steps++;
+                        foreach (var st in world.LiveSigns)
+                            foreach (var sg in st.signs)
+                            {
+                                if (sg.kind != CitySigns.Kind.PoleSign || sg.faces <= 0) continue;
+                                if (Vector2.Distance(sg.pos, p) > 140f) continue;
+                                long key = ((long)Mathf.RoundToInt(sg.pos.x) << 32) ^ (uint)Mathf.RoundToInt(sg.pos.y);
+                                if (seen.Contains(key)) continue;
+                                seen.Add(key);
+                                examined++;
+                                // beside the race (its own road within 60 m of the route's)
+                                if (!routeDir.ContainsKey(sg.edge) && !NearRoute(map, routeDir, sg.pos, 60f)) continue;
+                                beside++;
+                                boxes.Clear();
+                                CityAudit.AddSignBoxes(st, sg, boxes);
+                                string hit = null;
+                                foreach (var bx in boxes)
+                                {
+                                    foreach (var c in caps)
+                                        if (CityAudit.CapsuleInBox(c.a, c.b, c.r + CityAudit.SignWireAirM, bx)) { hit = (c.wire ? "a wire through " : "a pole part in ") + bx.what; break; }
+                                    if (hit != null) break;
+                                }
+                                // how close the wires come in plan (the log's look at the near misses)
+                                float air = float.MaxValue;
+                                {
+                                    var cb = boxes[0];
+                                    var ca = new Vector2(cb.c.x, cb.c.z) - new Vector2(cb.x.x, cb.x.z) * cb.hx;
+                                    var cz = new Vector2(cb.c.x, cb.c.z) + new Vector2(cb.x.x, cb.x.z) * cb.hx;
+                                    foreach (var c in caps)
+                                        if (c.wire) air = Mathf.Min(air, RoadsideOccupancy.SegSegDistance(new Vector2(c.a.x, c.a.z), new Vector2(c.b.x, c.b.z), ca, cz) - cb.hz);
+                                    if (hit == null && air < 3f) closest.Add((air, $"{route.id}: cabinet at ({sg.pos.x:0},{sg.pos.y:0}) {air:0.00} m in plan from a wire, y {cb.c.y - cb.hy:0.0}-{cb.c.y + cb.hy:0.0}"));
+                                }
+                                // a wire through it, or crossing its footprint in plan (over it)
+                                if (hit == null && air >= 0f) continue;
+                                if (hit == null) hit = "a wire over (crossing in plan) a business cabinet";
+                                // the camera: in the lane of the sign's own road WireSignBackM
+                                // before it, on the side its front face's driver comes from
+                                var fc = st.faces[sg.firstFace];
+                                var se = map.edges[sg.edge];
+                                float sS = NearestS(se, sg.pos);
+                                int toward = Vector2.Dot(new Vector2(fc.viewer.x, fc.viewer.z) - se.PointAt(sS), se.TangentAt(sS)) >= 0f ? 1 : -1;
+                                float sEye = Mathf.Clamp(sS + toward * WireSignBackM, 0f, se.length);
+                                var travel = -se.TangentAt(sEye) * toward;
+                                var laneRight = new Vector2(travel.y, -travel.x);
+                                var q = se.PointAt(sEye) + (se.oneway ? Vector2.zero : laneRight * (se.PaveEdgeM(sEye, -toward) * 0.5f));
+                                var eye = new Vector3(q.x, se.YAt(sEye) + EyeM, q.y);
+                                found.Add((sg, fc.centre, hit));
+                                int rank = hit.StartsWith("a wire over") ? (route.id == "tryon" ? 1 : 2) : 0;
+                                cands.Add((rank, air, eye, fc.centre, sg.pos, $"{route.id}: {hit}: e{se.index} '{se.name}' at ({sg.pos.x:0.0},{sg.pos.y:0.0})"));
+                            }
+                        world.DropAll();
+                    }
+                }
+                log.Append($"# walked {steps} points of the race routes (tryon first); {examined} business signs near them, {beside} beside them, {found.Count} with a wire through, over or within {CityAudit.SignWireAirM:0.0} m\n");
+                // the 3D hits first, and the Tryon Sprint's nearest crossing (the review's road)
+                cands.Sort((x, y) => x.rank != y.rank ? x.rank.CompareTo(y.rank) : x.air.CompareTo(y.air));
+                int tryonAt = cands.FindIndex(x => x.rank == 1);
+                var pick = new List<int>();
+                for (int i = 0; i < cands.Count && pick.Count < WireSignCams - (tryonAt >= 0 ? 1 : 0); i++) if (i != tryonAt) pick.Add(i);
+                if (tryonAt >= 0) pick.Add(tryonAt);
+                foreach (int i in pick) cams.Add((cands[i].eye, cands[i].look, cands[i].at, cands[i].what));
+                closest.Sort((x, y) => x.air.CompareTo(y.air));
+                for (int i = 0; i < Mathf.Min(8, closest.Count); i++) log.Append("# near miss: " + closest[i].what + "\n");
+                for (int i = 0; i < cams.Count; i++)
+                {
+                    var c = cams[i];
+                    world.EnsureRing(new Vector3(c.at.x, 0f, c.at.y), 1);
+                    world.EnsureRing(c.eye, 1);
+                    Shoot(dir, $"wiresign_{i + 1}_before", c.eye, Quaternion.LookRotation(c.look - c.eye), 0f);
+                    world.DropAll();
+                    log.Append($"wiresign_{i + 1}\t{c.eye.x:0.0}\t{c.eye.y:0.00}\t{c.eye.z:0.0}\t{c.look.x:0.0}\t{c.look.y:0.00}\t{c.look.z:0.0}\t{c.what}\n");
+                }
+                // AFTER: the signs as they stand now, from the same cameras
+                CitySigns.KeepOffPoles = true;
+                for (int i = 0; i < cams.Count; i++)
+                {
+                    var c = cams[i];
+                    world.EnsureRing(new Vector3(c.at.x, 0f, c.at.y), 1);
+                    world.EnsureRing(c.eye, 1);
+                    Shoot(dir, $"wiresign_{i + 1}_after", c.eye, Quaternion.LookRotation(c.look - c.eye), 0f);
+                    world.DropAll();
+                }
+            }
+            finally
+            {
+                CitySigns.KeepOffPoles = keepWas;
+                if (world != null) world.DropAll();
+                Object.DestroyImmediate(go);
+            }
+            File.WriteAllText(Path.Combine(dir, "wiresign.txt"), log.ToString());
+            Debug.Log($"[CityRefSpots] {cams.Count} wire-sign cameras, {cams.Count * 2} shots to {dir}");
+        }
+
+        /// <summary>The arc of an edge nearest a point.</summary>
+        static float NearestS(CityMap.Edge e, Vector2 p)
+        {
+            float best = float.MaxValue, bs = 0f;
+            for (int i = 0; i + 1 < e.pts.Length; i++)
+            {
+                Vector2 a = e.pts[i], d = e.pts[i + 1] - a;
+                float L2 = d.sqrMagnitude;
+                float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, d) / L2) : 0f;
+                float dd = Vector2.Distance(p, a + d * t);
+                if (dd < best) { best = dd; bs = e.s[i] + Mathf.Sqrt(L2) * t; }
+            }
+            return bs;
+        }
+
+        /// <summary>Is a point within r of any of a route's edges?</summary>
+        static bool NearRoute(CityMap map, Dictionary<int, int> routeEdges, Vector2 p, float r)
+        {
+            var segs = new HashSet<int>();
+            map.EdgeSegsInRect(p - Vector2.one * r, p + Vector2.one * r, segs);
+            foreach (int packed in segs)
+            {
+                int ei = packed >> 12, si = packed & 0xFFF;
+                if (!routeEdges.ContainsKey(ei)) continue;
+                var e = map.edges[ei];
+                if (RoadsideOccupancy.DistToSeg(p, e.pts[si], e.pts[si + 1]) < r) return true;
+            }
+            return false;
         }
 
         /// <summary>The background the sign shots' night frames clear to (the

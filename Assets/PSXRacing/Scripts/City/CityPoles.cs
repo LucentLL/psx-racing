@@ -62,6 +62,17 @@ namespace PSXRacing.City
     /// were. SOLID: a box up each pole on a Solid-layer object named
     /// <see cref="PostName"/> (Q15: utility poles are solid); the cobra-heads
     /// light the road at night through the tile's NightGlow like any lamp.
+    ///
+    /// THE SIGNS KEEP CLEAR (the WP-15 review found the telecom cables, 6-9 m
+    /// up and a few metres past the clear zone, running straight through
+    /// business cabinets standing in the same band): a billboard's post and
+    /// faces and a business's cabinet stand only where
+    /// <see cref="SignClear"/> finds no wire, pole, crossarm or cobra-head
+    /// within <see cref="SignAirM"/> in plan, stepping back from the road
+    /// past the line as they already step back from everything else. Poles
+    /// never look at signs, so they are decided first and the same either
+    /// way; the sign audit measures every wire and pole part against every
+    /// sign box in 3D.
     /// </summary>
     public static class CityPoles
     {
@@ -112,6 +123,25 @@ namespace PSXRacing.City
         /// point: the widest half width, a trunk's clear zone, the last offset
         /// and nudge, and a margin.</summary>
         const float StationReachM = 34f;
+
+        // ---- what a sign keeps clear of (the WP-15 review: the telecom
+        //      cables ran straight through business cabinets on the arterials)
+        /// <summary>How far either side of the line between two poles' feet a
+        /// span's wires reach in plan: the crossarm's primaries on their pins
+        /// (each pole's own outward: a wire between two such points never
+        /// strays further off the foot line than they do).</summary>
+        public const float WireReachM = PrimaryOff + 0.08f;
+        /// <summary>The air a sign's part keeps, in plan, from any wire, pole,
+        /// crossarm or cobra-head, besides its own half size.</summary>
+        public const float SignAirM = 0.5f;
+        /// <summary>The largest half size a sign's part asks about (a
+        /// billboard face with its catwalk and floodlights).</summary>
+        public const float SignPartMaxR = 1.0f;
+        /// <summary>How far round a sign's part the stations are looked at: a
+        /// span near it has a pole within half a span of it, that pole's foot
+        /// is within <see cref="StationReachM"/> of its station, and the keep
+        /// itself.</summary>
+        const float KeepReachM = MaxSpanM * 0.5f + StationReachM + WireReachM + SignAirM + CrossArmL * 0.5f;
 
         // ---- the atlas (tools/city/furniture_atlas.py): texel cells from the bottom left
         public const float AtlasPx = 256f;
@@ -670,8 +700,9 @@ namespace PSXRacing.City
 
         /// <summary>
         /// Decide, a slice at a time, every station and span a tile's
-        /// <see cref="Build"/> will ask for (and the static masks they are
-        /// decided on), so its tree frame finds them all decided: CityWorld
+        /// <see cref="Build"/> and its business signs' <see cref="SignClear"/>
+        /// will ask for (and the static masks they are decided on), so its
+        /// tree frame finds them all decided: CityWorld
         /// spends a frame of its own on each slice before it plants, as it does
         /// for the signs (CitySigns.Prepare). 0: nothing was left to decide;
         /// 1: this slice decided the last of them; 2: more to come. A slice
@@ -684,16 +715,47 @@ namespace PSXRacing.City
             if (!Enabled || map == null) return 0;
             long deadline = System.Diagnostics.Stopwatch.GetTimestamp() + (long)(budgetMs * System.Diagnostics.Stopwatch.Frequency / 1000.0);
             Setup(map, trims, buildings);
-            var L = lines;
             float ts = CityMeshes.TileSize;
             var min = new Vector2(tx * ts, tz * ts);
             var max = min + Vector2.one * ts;
-            segScratch.Clear(); edgeSeen.Clear(); edgeList.Clear();
-            map.EdgeSegsInRect(min - Vector2.one * StationReachM, max + Vector2.one * StationReachM, segScratch);
-            foreach (int packed in segScratch) { int ei = packed >> 12; if (L.chainOf[ei] >= 0 && edgeSeen.Add(ei)) edgeList.Add(ei); }
-            edgeList.Sort();
+            // every station and span the tile's Build asks for, and every one
+            // its business signs' keep-out asks for (SignClear: the stations
+            // round a cabinet, which stands inside the tile)
+            float reach = KeepReachM + SignPartMaxR;
+            prepSt.Clear();
+            StationsIn(map, min - Vector2.one * reach, max + Vector2.one * reach, prepSt);
             int did = 0;
-            foreach (int ei in edgeList)
+            bool Due(bool fresh) => fresh && did > 0 && System.Diagnostics.Stopwatch.GetTimestamp() > deadline;
+            foreach (var (chain, k) in prepSt)
+            {
+                bool fresh = !cache.ContainsKey(Key(chain, k));
+                if (Due(fresh)) return 2;
+                var d = Decide(chain, k);
+                if (fresh) did++;
+                if (!d.standing) continue;
+                // the span from it, and those from up to two stations back that may end at it
+                for (int kb = k; kb >= k - 2 && kb >= 0; kb--)
+                {
+                    bool spanFresh = !spanCache.ContainsKey(Key(chain, kb));
+                    if (Due(spanFresh)) return 2;
+                    SpanFrom(chain, kb, out _);
+                    if (spanFresh) did++;
+                }
+            }
+            return did > 0 ? 1 : 0;
+        }
+        static readonly List<(int chain, int k)> prepSt = new List<(int, int)>(512);
+
+        /// <summary>Every station (line, k) whose nominal point on its road
+        /// lies in the rectangle lo..hi, in a fixed order.</summary>
+        static void StationsIn(CityMap map, Vector2 lo, Vector2 hi, List<(int chain, int k)> into)
+        {
+            var L = lines;
+            stSegs.Clear(); stSeen.Clear(); stEdges.Clear();
+            map.EdgeSegsInRect(lo, hi, stSegs);
+            foreach (int packed in stSegs) { int ei = packed >> 12; if (L.chainOf[ei] >= 0 && stSeen.Add(ei)) stEdges.Add(ei); }
+            stEdges.Sort();
+            foreach (int ei in stEdges)
             {
                 int chain = L.chainOf[ei];
                 var e = map.edges[ei];
@@ -703,23 +765,109 @@ namespace PSXRacing.City
                 {
                     float arc = StationArc(chain, k);
                     if (arc < c0 || arc >= c1) continue;
-                    float sl = L.dirOf[ei] > 0 ? arc - c0 : c1 - arc;
-                    var nominal = e.PointAt(sl);
-                    if (nominal.x < min.x - StationReachM || nominal.y < min.y - StationReachM ||
-                        nominal.x > max.x + StationReachM || nominal.y > max.y + StationReachM) continue;
-                    long key = Key(chain, k);
-                    bool fresh = !cache.ContainsKey(key);
-                    if (fresh && did > 0 && System.Diagnostics.Stopwatch.GetTimestamp() > deadline) return 2;
-                    var d = Decide(chain, k);
-                    if (fresh) did++;
-                    if (!d.standing || !InTile(new Vector2(d.pole.foot.x, d.pole.foot.z), min, max)) continue;
-                    bool spanFresh = !spanCache.ContainsKey(key);
-                    if (spanFresh && did > 0 && System.Diagnostics.Stopwatch.GetTimestamp() > deadline) return 2;
-                    SpanFrom(chain, k, out _);
-                    if (spanFresh) did++;
+                    var nominal = e.PointAt(L.dirOf[ei] > 0 ? arc - c0 : c1 - arc);
+                    if (nominal.x < lo.x || nominal.y < lo.y || nominal.x > hi.x || nominal.y > hi.y) continue;
+                    into.Add((chain, k));
                 }
             }
-            return did > 0 ? 1 : 0;
+        }
+        static readonly HashSet<int> stSegs = new HashSet<int>(), stSeen = new HashSet<int>();
+        static readonly List<int> stEdges = new List<int>(256);
+
+        // ==================================================================
+        //  WHAT A SIGN KEEPS CLEAR OF (the WP-15 review)
+        // ==================================================================
+
+        /// <summary>
+        /// Is a sign's part - a capsule a..b of radius <paramref name="r"/> in
+        /// plan: a post, a business cabinet, a billboard's face with its
+        /// catwalk - clear of the utility furniture, with <see cref="SignAirM"/>
+        /// of air: every strung span's wires (<see cref="WireReachM"/> either
+        /// side of the line between its poles' feet), every pole with its
+        /// crossarm, and its cobra-head's arm and head? Plan only (the telecom
+        /// cables hang 6-9 m up, where the cabinets and faces are). Decided
+        /// from the global data the poles are, so a billboard (decided from
+        /// global data too) is the same in every tile that asks; true when
+        /// the poles are off.
+        /// </summary>
+        public static bool SignClear(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings,
+                                     Vector2 a, Vector2 b, float r)
+        {
+            if (!Enabled || map == null) return true;
+            Setup(map, trims, buildings);
+            float reach = KeepReachM + r;
+            keepSt.Clear();
+            StationsIn(map, Vector2.Min(a, b) - Vector2.one * reach, Vector2.Max(a, b) + Vector2.one * reach, keepSt);
+            foreach (var (chain, k) in keepSt)
+            {
+                var d = Decide(chain, k);
+                if (!d.standing) continue;
+                var p = d.pole;
+                if (PartsClash(p, a, b, r)) return false;
+                // its span, and the spans from up to two stations back that end at it
+                int nx = SpanFrom(chain, k, out _);
+                if (nx >= 0 && SpanClash(p, Decide(chain, nx).pole, a, b, r)) return false;
+                for (int kb = k - 2; kb < k; kb++)
+                    if (kb >= 0 && SpanFrom(chain, kb, out _) == k && SpanClash(Decide(chain, kb).pole, p, a, b, r)) return false;
+            }
+            return true;
+        }
+        static readonly List<(int chain, int k)> keepSt = new List<(int, int)>(128);
+
+        static Vector2 Plan(Vector3 v) => new Vector2(v.x, v.z);
+
+        /// <summary>A pole, its crossarm (across the line) and its cobra-head's
+        /// arm and head (out over the road) within reach of a sign's part.</summary>
+        static bool PartsClash(Pole p, Vector2 a, Vector2 b, float r)
+        {
+            var f = Plan(p.foot);
+            float keep = r + SignAirM;
+            if (RoadsideOccupancy.SegSegDistance(a, b, f - p.outward * (CrossArmL * 0.5f), f + p.outward * (CrossArmL * 0.5f)) < keep + PoleW * 0.5f) return true;
+            var headEnd = Plan(p.lens) - p.outward * (HeadL * 0.5f);
+            return RoadsideOccupancy.SegSegDistance(a, b, f, headEnd) < keep + HeadW * 0.5f;
+        }
+
+        static bool SpanClash(Pole pa, Pole pb, Vector2 a, Vector2 b, float r) =>
+            RoadsideOccupancy.SegSegDistance(a, b, Plan(pa.foot), Plan(pb.foot)) < r + SignAirM + WireReachM;
+
+        /// <summary>For the audits: every standing pole whose station's
+        /// nominal point is within reach of the rectangle lo..hi, and every
+        /// span they string (each once).</summary>
+        public static void FurnitureNear(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings,
+                                         Vector2 lo, Vector2 hi, List<Pole> poles, List<(Pole a, Pole b)> spans)
+        {
+            poles.Clear(); spans.Clear();
+            if (!Enabled || map == null) return;
+            Setup(map, trims, buildings);
+            var near = new List<(int chain, int k)>();
+            StationsIn(map, lo - Vector2.one * KeepReachM, hi + Vector2.one * KeepReachM, near);
+            var seen = new HashSet<long>();
+            foreach (var (chain, k) in near)
+            {
+                var d = Decide(chain, k);
+                if (!d.standing) continue;
+                poles.Add(d.pole);
+                for (int kb = k; kb >= k - 2 && kb >= 0; kb--)
+                {
+                    int nx = SpanFrom(chain, kb, out _);
+                    if (nx < 0 || (kb != k && nx != k) || !seen.Add(Key(chain, kb))) continue;
+                    spans.Add((Decide(chain, kb).pole, Decide(chain, nx).pole));
+                }
+            }
+        }
+
+        /// <summary>A pole's solid parts as drawn, for the audits: capsules
+        /// (from, to, radius) - the pole, its crossarm, its cobra-head's arm
+        /// and head.</summary>
+        public static void PartsOf(Pole p, List<(Vector3 a, Vector3 b, float r)> into)
+        {
+            var o = V3(p.outward);
+            into.Add((p.foot, new Vector3(p.foot.x, p.top, p.foot.z), PoleW * 0.5f));
+            float cy = p.top - CrossArmDown;
+            var c = new Vector3(p.foot.x, cy, p.foot.z);
+            into.Add((c - o * (CrossArmL * 0.5f), c + o * (CrossArmL * 0.5f), CrossArmH * 0.5f));
+            float armY = p.lens.y + HeadH * 0.5f;
+            into.Add((new Vector3(p.foot.x, armY, p.foot.z), new Vector3(p.lens.x, armY, p.lens.z) - o * (HeadL * 0.5f), HeadW * 0.5f));
         }
 
         /// <summary>The pole's collider: centre and size, world.</summary>
@@ -825,22 +973,40 @@ namespace PSXRacing.City
         /// <summary>A span's wires between two poles; how many.</summary>
         static int EmitSpan(Pole a, Pole b)
         {
-            int levels = Mathf.Min(a.levels, b.levels), n = 0;
+            wireScratch.Clear();
+            WiresOf(a, b, wireScratch);
+            foreach (var w in wireScratch) Wire(w.from, w.to, w.sag, w.halfW);
+            return wireScratch.Count;
+        }
+        static readonly List<(Vector3 from, Vector3 to, float sag, float halfW)> wireScratch = new List<(Vector3, Vector3, float, float)>(8);
+
+        /// <summary>A span's wires as they are drawn (the audits read them
+        /// too): each one's ends, its sag at the middle and its half width.</summary>
+        public static void WiresOf(Pole a, Pole b, List<(Vector3 from, Vector3 to, float sag, float halfW)> into)
+        {
+            int levels = Mathf.Min(a.levels, b.levels);
             float sag = SagShare * Vector2.Distance(new Vector2(a.foot.x, a.foot.z), new Vector2(b.foot.x, b.foot.z));
             // the crossarm's pair (each pole's own outward: the pins stay on their sides)
             for (int s = -1; s <= 1; s += 2)
             {
                 var pa = new Vector3(a.foot.x, a.top - CrossArmDown + CrossArmH * 0.5f + 0.16f, a.foot.z) + V3(a.outward) * (PrimaryOff * s);
                 var pb = new Vector3(b.foot.x, b.top - CrossArmDown + CrossArmH * 0.5f + 0.16f, b.foot.z) + V3(b.outward) * (PrimaryOff * s);
-                Wire(pa, pb, sag, PrimaryHalfW); n++;
+                into.Add((pa, pb, sag, PrimaryHalfW));
             }
             // the lower levels hang on the road side of the pole
             float off = PoleW * 0.5f + 0.06f;
-            if (levels >= 3) { Wire(At(a, NeutralDown, off), At(b, NeutralDown, off), sag, NeutralHalfW); n++; }
-            Wire(At(a, TelecomDown, off), At(b, TelecomDown, off), sag, TelecomHalfW); n++;
-            if (levels >= 4) { Wire(At(a, Telecom2Down, off), At(b, Telecom2Down, off), sag, TelecomHalfW); n++; }
-            return n;
+            if (levels >= 3) into.Add((At(a, NeutralDown, off), At(b, NeutralDown, off), sag, NeutralHalfW));
+            into.Add((At(a, TelecomDown, off), At(b, TelecomDown, off), sag, TelecomHalfW));
+            if (levels >= 4) into.Add((At(a, Telecom2Down, off), At(b, Telecom2Down, off), sag, TelecomHalfW));
         }
+
+        /// <summary>A point a fraction t along a wire: on its chord, less the
+        /// parabola of its sag (the drawn wire's vertices are these).</summary>
+        public static Vector3 WirePoint(Vector3 from, Vector3 to, float sag, float t) =>
+            Vector3.Lerp(from, to, t) + Vector3.down * (4f * sag * t * (1f - t));
+
+        /// <summary>The segments a wire is drawn with.</summary>
+        public const int WireSegmentsDrawn = WireSegments;
 
         static Vector3 At(Pole p, float down, float toRoad) =>
             new Vector3(p.foot.x, p.top - down, p.foot.z) - V3(p.outward) * toRoad;
@@ -858,7 +1024,7 @@ namespace PSXRacing.City
             for (int i = 0; i <= WireSegments; i++)
             {
                 float t = i / (float)WireSegments;
-                var q = Vector3.Lerp(a, b, t) + Vector3.down * (4f * sag * t * (1f - t));
+                var q = WirePoint(a, b, sag, t);
                 // the tangent of the sagging line here
                 var tan = (b - a) + Vector3.down * (4f * sag * (1f - 2f * t));
                 tan.Normalize();

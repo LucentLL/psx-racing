@@ -10,8 +10,17 @@
 #   powershell -ExecutionPolicy Bypass -File tools\city-pole-shots.ps1 -Label before
 #   powershell -ExecutionPolicy Bypass -File tools\city-pole-shots.ps1 -Label after -Sheet
 #
+# -WireSigns: a second job (CityRefSpots.RunWireSigns, the WP-15 review): the
+# first business signs along the Tryon Sprint a wire ran through when the signs
+# did not keep off the poles, shot from the driver's lane before and after
+# (wiresign_<n>_{before,after}.png, wiresign.txt): one job, the same cameras.
+#
+# -Spots a15_albemarle,a1_tryon: only those cameras (PSX_POLE_SPOTS). Every
+# spot's log line checks the poles and lamp posts within 120 m stand clear of
+# the lanes and driveways (CityRefSpots.SpotFeet): CLEAR or NOT CLEAR.
+#
 # About 4 minutes: code + art into the warm sandbox, one Unity job, no scene build.
-param([string]$Label = "now", [string]$Out = "", [switch]$Sheet)
+param([string]$Label = "now", [string]$Out = "", [switch]$Sheet, [switch]$WireSigns, [string]$Spots = "")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
@@ -31,6 +40,7 @@ $txt = Join-Path $shots "poles_shots_$Label.txt"
 if (Test-Path $txt) { Remove-Item $txt -Force }
 $log = "$proj\citypoleshots.log"
 $env:PSX_POLE_LABEL = $Label
+$env:PSX_POLE_SPOTS = $Spots
 $ok = Invoke-UnityJob -Log $log -MaxMinutes 25 -UnityArgs @(
     "-quit","-batchmode","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.CityRefSpots.RunPoles",
@@ -43,9 +53,28 @@ if (-not $ok -or -not (Test-Path $txt)) {
 }
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 Copy-Item "$shots\*_$Label*" $Out -Force
+# the feet at each spot, clear of the lanes and driveways (CityRefSpots.SpotFeet)
+$feetBad = @(Select-String -Path $txt -Pattern "-> NOT CLEAR" -CaseSensitive).Count
+if ($feetBad -gt 0) { Write-Host "POLE SHOTS: feet NOT CLEAR at $feetBad spot(s) - see $txt" -ForegroundColor Red }
+if ($WireSigns) {
+    $wtxt = Join-Path $shots "wiresign.txt"
+    if (Test-Path $wtxt) { Remove-Item $wtxt -Force }
+    $wlog = "$proj\citywiresigns.log"
+    $ok = Invoke-UnityJob -Log $wlog -MaxMinutes 30 -UnityArgs @(
+        "-quit","-batchmode","-projectPath",$proj,
+        "-executeMethod","PSXRacing.EditorTools.CityRefSpots.RunWireSigns",
+        "-logFile",$wlog,"-accept-apiupdate")
+    Select-String -Path $wlog -Pattern "error CS|Exception|\[CityRefSpots\]" -ErrorAction SilentlyContinue | Select-Object -First 20 | ForEach-Object { $_.Line }
+    if (-not $ok -or -not (Test-Path $wtxt)) {
+        Write-Host "WIRE-SIGN SHOTS FAILED - the job did not finish or wrote nothing" -ForegroundColor Red
+        exit 1
+    }
+    Copy-Item "$shots\wiresign*" $Out -Force
+}
 if ($Sheet) {
     & py "$src\tools\city\polesheet.py" $Out
     if ($LASTEXITCODE -ne 0) { Write-Host "POLE SHOTS: the sheet failed" -ForegroundColor Red; exit 1 }
 }
 Write-Host "POLE SHOTS DONE ($Label) -> $Out"
+if ($feetBad -gt 0) { exit 1 }
 exit 0

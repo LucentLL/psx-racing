@@ -1788,7 +1788,7 @@ namespace PSXRacing.EditorTools
             AddEdge(e => e.cls == 0 && !e.link && !e.bridge && e.length > 150f && DistUp(e) > 2000f && DistUp(e) < 5000f,
                     "residential street");
 
-            int total = 0, stations = 0, inLanes = 0, under = 0, uptownLamps = 0, inRunOff = 0;
+            int total = 0, stations = 0, inLanes = 0, under = 0, uptownLamps = 0, inRunOff = 0, breakaway = 0, breakawayOut = 0;
             var rejects = new int[CityMeshes.LampRejectCount];
             // the kinds CityMeshes places by (Lamp.kind); an acorn is uptown's (WP-15)
             var kindLamps = new int[4];
@@ -1963,11 +1963,19 @@ namespace PSXRacing.EditorTools
                         under++;
                         notes.Add((5f, $"LAMP  under {overWhat}: {where}"));
                     }
-                    // WP-15: never in a city race route's run-off
-                    if (RaceRunOff.Inside(map, trims, f2))
+                    // WP-15 review: a post in a city race route's run-off breaks
+                    // away (no collider); every other post is solid
+                    bool inRun = RaceRunOff.Inside(map, trims, f2);
+                    if (l.breakaway) breakaway++;
+                    if (inRun && !l.breakaway)
                     {
                         inRunOff++;
-                        notes.Add((5f, $"LAMP  in race run-off: {where}"));
+                        notes.Add((5f, $"LAMP  solid in race run-off: {where}"));
+                    }
+                    if (!inRun && l.breakaway)
+                    {
+                        breakawayOut++;
+                        notes.Add((5f, $"LAMP  breaks away outside race run-off: {where}"));
                     }
                     float bld = BuildingClear(f2, LampAuditBuildingLookM, out int bldIdx);
                     string bldWhat = bldIdx < 0 ? $"no real building within {LampAuditBuildingLookM:0} m"
@@ -2037,7 +2045,8 @@ namespace PSXRacing.EditorTools
             Check(inBuilding == 0, "every lamp post stands outside every real building and " + LampAuditBuildingM +
                   " m or more from its walls, buildings centred across a tile seam included (lamp audit)", inBuilding);
             Check(under == 0, "no lamp stands under a structure (lamp audit)", under);
-            Check(inRunOff == 0, "no lamp stands in a city race route's run-off (lamp audit)", inRunOff);
+            Check(inRunOff == 0 && breakawayOut == 0, "a lamp post in a city race route's run-off breaks away (no collider), every other one is solid (lamp audit)",
+                  $"{inRunOff} solid in run-off, {breakawayOut} breaking away outside it; {breakaway} breakaway posts");
             Check(doubled == 0, "no lamp is stood twice across a tile seam (lamp audit)", doubled);
             Check(same, "a tile stands the same lamps every build (lamp audit)");
             notes.Sort((p, q) => q.sev.CompareTo(p.sev));

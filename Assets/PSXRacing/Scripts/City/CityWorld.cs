@@ -156,6 +156,12 @@ namespace PSXRacing.City
         public IEnumerable<CityPoles.PoleTile> LivePoles => livePoles.Values;
         readonly Dictionary<long, CityPoles.PoleTile> livePoles = new Dictionary<long, CityPoles.PoleTile>();
 
+        /// <summary>The node trims and building lots this world places by
+        /// (the same instances), for the tools that ask the roadside mask
+        /// about what it stood (the pole shots' spot check).</summary>
+        public CityMeshes.Trims NodeTrims => nodeTrims;
+        public Dictionary<long, List<CityBuildings.B>> Buildings => buildings;
+
         static double cookTicks;
         static readonly System.Diagnostics.Stopwatch cookClock = new System.Diagnostics.Stopwatch();
 
@@ -714,7 +720,9 @@ namespace PSXRacing.City
                 SunShadows.Exclude(g);
                 meshes.Add(tm.lampPosts);
             }
-            if (tm.lamps.Count > 0)
+            int solidLamps = 0;
+            foreach (var l in tm.lamps) if (!l.breakaway) solidLamps++;
+            if (solidLamps > 0)
             {
                 // SOLID, a box up each pole: a car that leaves a street at
                 // speed meets a pole, as it would (and the fast roads keep
@@ -724,10 +732,12 @@ namespace PSXRacing.City
                 // nothing, and a 0.3 m square pole's yaw is not something a car
                 // can feel. Built here and not in EnsureTile, so the audits
                 // ray-cast the posts the player meets, and skip them by that
-                // name.
+                // name. A post in a race route's run-off BREAKS AWAY (Q15's
+                // pattern; the WP-15 review): drawn and lit, no box.
                 var c = Child(root, LampPostName, SolidLayer);
                 foreach (var l in tm.lamps)
                 {
+                    if (l.breakaway) continue;
                     var bc = c.AddComponent<BoxCollider>();
                     bc.center = l.foot + Vector3.up * (l.height * 0.5f);
                     bc.size = new Vector3(LampColliderM, l.height, LampColliderM);

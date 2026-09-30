@@ -27,6 +27,10 @@ namespace PSXRacing.EditorTools
 
         const float PolePitchLo = 40f, PolePitchHi = 60f;
         const float PoleLampClashM = 0.8f;
+        /// <summary>Uptown's race streets: a point of the road this far from
+        /// every light is dark (printed, not a check); at least this share of
+        /// their lamp stations stand a post.</summary>
+        const float UptownDarkM = 20f, UptownStationShareMin = 0.85f;
 
         /// <summary>The pole audit alone: writes city_pole_audit.txt at the
         /// project root. Headless: -executeMethod PSXRacing.EditorTools.CityAudit.RunPoles</summary>
@@ -63,7 +67,7 @@ namespace PSXRacing.EditorTools
             bool treesWere = CityTrees.Enabled, signsWere = CitySigns.Enabled, polesWere = CityPoles.Enabled;
             CityTrees.Enabled = false; CitySigns.Enabled = false; CityPoles.Enabled = true;
             try { PoleAuditInner(map, trims, buildings); }
-            finally { CityTrees.Enabled = treesWere; CitySigns.Enabled = signsWere; CityPoles.Enabled = polesWere; }
+            finally { CityTrees.Enabled = treesWere; CitySigns.Enabled = signsWere; CityPoles.Enabled = polesWere; CityMeshes.LampTrace = null; }
         }
 
         static void PoleAuditInner(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings)
@@ -114,6 +118,25 @@ namespace PSXRacing.EditorTools
             long FootKey(Vector2 f) => ((long)Mathf.RoundToInt(f.x * 4f) << 32) ^ (uint)Mathf.RoundToInt(f.y * 4f);
             List<Vector3> firstPoles = null;
             float darkM = 0f, poleRoadM = 0f;
+            // every light the audited tiles stand (lamp heads and cobra-heads),
+            // bucketed: how well uptown's race streets are lit (the WP-15 review)
+            var lightCells = new Dictionary<long, List<Vector2>>();
+            long LightCell(Vector2 p) => ((long)Mathf.FloorToInt(p.x / 32f) << 32) ^ (uint)Mathf.FloorToInt(p.y / 32f);
+            void AddLight(Vector2 p) { long k = LightCell(p); if (!lightCells.TryGetValue(k, out var l)) lightCells[k] = l = new List<Vector2>(); l.Add(p); }
+            int lampsBreakaway = 0, lampsSolid = 0, colliderTiles = 0, colliderBad = 0, acornsBreakaway = 0;
+            // why each lamp station of uptown's race streets stood a post or not
+            var acornRace = new HashSet<int>();
+            if (map.routes != null)
+                foreach (var r in map.routes)
+                    foreach (int ei in r.edges)
+                        if (CityPoles.IsAcornEdge(map, map.edges[ei])) acornRace.Add(ei);
+            var lampStations = new Dictionary<int, List<(float s, int why)>>();
+            CityMeshes.LampTrace = (ei, s, w) =>
+            {
+                if (!acornRace.Contains(ei)) return;
+                if (!lampStations.TryGetValue(ei, out var l)) lampStations[ei] = l = new List<(float, int)>();
+                l.Add((s, w));
+            };
 
             for (int ti = 0; ti < tiles.Count; ti++)
             {
@@ -124,12 +147,34 @@ namespace PSXRacing.EditorTools
                 var pt = tt.poles;
                 var min = new Vector2(tx * ts, tz * ts);
                 var max = min + Vector2.one * ts;
+                int tileBreakaway = 0;
                 foreach (var l in tm.lamps)
                 {
                     if (l.kind == CityMeshes.LampAcorn) { acorns++; if (why == "uptown") uptownAcorns++; }
-                    // the lamp posts too keep out of a race route's run-off (WP-15)
+                    // a lamp post in a race route's run-off breaks away (no
+                    // collider; the WP-15 review), every other one is solid
                     var lf = tm.origin + l.foot;
-                    if (RaceRunOff.Inside(map, trims, new Vector2(lf.x, lf.z))) Bad("a lamp post in race run-off", new Vector2(lf.x, lf.z), $"kind {l.kind}");
+                    bool inRun = RaceRunOff.Inside(map, trims, new Vector2(lf.x, lf.z));
+                    if (inRun && !l.breakaway) Bad("a solid lamp post in race run-off", new Vector2(lf.x, lf.z), $"kind {l.kind}");
+                    if (!inRun && l.breakaway) Bad("a breakaway lamp post outside race run-off", new Vector2(lf.x, lf.z), $"kind {l.kind}");
+                    if (l.breakaway) { lampsBreakaway++; tileBreakaway++; if (l.kind == CityMeshes.LampAcorn) acornsBreakaway++; } else lampsSolid++;
+                    var lh = tm.origin + l.head;
+                    AddLight(new Vector2(lh.x, lh.z));
+                }
+                // stood up as the game does: a box on the LampPost object for
+                // every solid post and none for a breakaway one
+                if (tileBreakaway > 0)
+                {
+                    var root = new GameObject("PoleAuditLamps");
+                    try
+                    {
+                        CityWorld.Attach(root, tm, null);
+                        var lp = root.transform.Find(CityWorld.LampPostName);
+                        int boxes = lp != null ? lp.GetComponents<BoxCollider>().Length : 0;
+                        colliderTiles++;
+                        if (boxes != tm.lamps.Count - tileBreakaway) { colliderBad++; Bad("lamp colliders not one a solid post", min + Vector2.one * (ts * 0.5f), $"{boxes} boxes for {tm.lamps.Count - tileBreakaway} solid posts"); }
+                    }
+                    finally { Object.DestroyImmediate(root); }
                 }
                 if (pt == null) { DiscardMeshes(tm); continue; }
                 if (ti == 0) { firstPoles = new List<Vector3>(); foreach (var p in pt.poles) firstPoles.Add(p.foot); }
@@ -140,6 +185,7 @@ namespace PSXRacing.EditorTools
                 if (pt.poles.Count > 0) tilesWith++;
                 if (pt.mesh != null) { if (pt.mesh.subMeshCount != 1) multiSub++; verts += pt.mesh.vertexCount; }
                 heads += pt.heads.Count;
+                foreach (var h in pt.heads) AddLight(new Vector2(h.x, h.z));
                 wires += pt.wires;
 
                 foreach (var p in pt.poles)
@@ -219,6 +265,101 @@ namespace PSXRacing.EditorTools
                 DiscardMeshes(tm);
             }
 
+            // UPTOWN'S RACE STREETS LIT (the WP-15 review: N Tryon lost every
+            // post to the run-off rule, bare by day and black at night): along
+            // every city race route's uptown streets (acorn roads), in the
+            // audited tiles, the share of the road more than UptownDarkM from
+            // any light
+            float upRaceM = 0f, upDarkM = 0f;
+            string upDarkAt = "";
+            var upRouteDark = new Dictionary<string, (float m, float dark)>();
+            var upNearest = new List<float>();
+            var darkRuns = new List<(float m, string what)>();
+            if (map.routes != null)
+                foreach (var r in map.routes)
+                {
+                    var routeEdges = new HashSet<int>(r.edges);
+                    foreach (int ei in routeEdges)
+                    {
+                        var e = map.edges[ei];
+                        if (e.bridge || e.tunnel || !CityPoles.IsAcornEdge(map, e)) continue;
+                        float runM = 0f, runS = 0f;
+                        void EndRun(float sEnd)
+                        {
+                            if (runM <= 0f) return;
+                            var q0 = e.PointAt(runS);
+                            // what is there: a structure (no lamp on a bridge's approach), a junction's mouth, or neither
+                            bool structure = false;
+                            for (float s2 = runS - 30f; s2 <= sEnd + 30f && !structure; s2 += 5f)
+                                if (s2 >= 0f && s2 <= e.length && e.ElevatedAt(s2)) structure = true;
+                            bool node = runS < 30f || e.length - sEnd < 30f;
+                            // the lamp stations round it, and what became of them
+                            var sts = new List<string>();
+                            if (lampStations.TryGetValue(ei, out var ls))
+                                foreach (var (sq, w) in ls)
+                                {
+                                    if (sq == -1f) sts.Add("none: the edge is shorter than its junctions' fans leave room for");
+                                    else if (sq == -2f) sts.Add("none: no span of it drawn");
+                                    else if (sq >= runS - 20f && sq <= sEnd + 20f)
+                                        sts.Add($"{sq:0} {(w == 0 ? "placed" : w > 0 && w < CityMeshes.LampRejectNames.Length ? CityMeshes.LampRejectNames[w] : "?")}");
+                                }
+                            darkRuns.Add((runM, $"{r.id} e{ei} '{e.name}' cls{e.cls} len {e.length:0} {runM:0} m from s {runS:0} ({q0.x:0},{q0.y:0}) {LatLon(q0.x, q0.y)}, " +
+                                               (structure ? "by a structure" : node ? "at a junction's mouth" : "mid-block") +
+                                               $"; its stations there: {(sts.Count > 0 ? string.Join(", ", sts) : "none")}"));
+                            runM = 0f;
+                        }
+                        for (float s = 2.5f; s < e.length; s += 5f)
+                        {
+                            var q = e.PointAt(s);
+                            if (!tileSet.Contains(TileKey(Mathf.FloorToInt(q.x / ts), Mathf.FloorToInt(q.y / ts)))) { EndRun(s); continue; }
+                            float best = float.MaxValue;
+                            int cx = Mathf.FloorToInt(q.x / 32f), cz = Mathf.FloorToInt(q.y / 32f);
+                            for (int dz = -1; dz <= 1; dz++)
+                                for (int dx = -1; dx <= 1; dx++)
+                                    if (lightCells.TryGetValue(((long)(cx + dx) << 32) ^ (uint)(cz + dz), out var cell))
+                                        foreach (var lp in cell) best = Mathf.Min(best, (lp - q).sqrMagnitude);
+                            upNearest.Add(Mathf.Sqrt(best));
+                            upRaceM += 5f;
+                            upRouteDark.TryGetValue(r.id, out var rd);
+                            rd.m += 5f;
+                            if (best > UptownDarkM * UptownDarkM)
+                            {
+                                upDarkM += 5f; rd.dark += 5f;
+                                if (upDarkAt.Length == 0) upDarkAt = $"{r.id} e{ei} '{e.name}' ({q.x:0},{q.y:0}) {LatLon(q.x, q.y)}";
+                                if (runM <= 0f) runS = s;
+                                runM += 5f;
+                            }
+                            else EndRun(s);
+                            upRouteDark[r.id] = rd;
+                        }
+                        EndRun(e.length);
+                    }
+                }
+            var upRows = new List<string>();
+            foreach (var kv in upRouteDark) upRows.Add($"{kv.Key} {kv.Value.m / 1000f:0.00} km, {100f * kv.Value.dark / Mathf.Max(1f, kv.Value.m):0.0}% dark");
+            upNearest.Sort();
+            float UpQ(float q) => upNearest.Count == 0 ? 0f : upNearest[Mathf.Clamp(Mathf.RoundToInt(q * (upNearest.Count - 1)), 0, upNearest.Count - 1)];
+            darkRuns.Sort((a, b) => b.m.CompareTo(a.m));
+            // the lamp stations of uptown's race streets: how many stood their
+            // post (the reviewed build's run-off rule refused nearly all of
+            // Tryon's: buildings at the sidewalk left no room to step back)
+            int upStations = 0, upPlaced = 0, upEdgesShort = 0;
+            var upWhy = new int[CityMeshes.LampRejectNames.Length];
+            foreach (var kv in lampStations)
+            {
+                bool shortEdge = false;
+                foreach (var (sq, w) in kv.Value)
+                {
+                    if (sq < 0f) { shortEdge = true; continue; }
+                    upStations++;
+                    if (w == 0) upPlaced++;
+                    else if (w > 0 && w < upWhy.Length) upWhy[w]++;
+                }
+                if (shortEdge) upEdgesShort++;
+            }
+            var upWhyRow = new List<string>();
+            for (int w = 1; w < upWhy.Length; w++) if (upWhy[w] > 0) upWhyRow.Add($"{CityMeshes.LampRejectNames[w]} {upWhy[w]}");
+
             // a span's far pole, where its tile was audited, stands there
             int endsChecked = 0, endsMissing = 0;
             foreach (var (f, tk) in ends)
@@ -269,13 +410,23 @@ namespace PSXRacing.EditorTools
             int badTotal = 0;
             foreach (var kv in bad) badTotal += kv.Value;
             Check(poles > 0 && spans > 0, "the city stands utility poles and strings wires (pole audit)", $"{poles} poles, {spans} spans");
-            Check(badTotal == 0, "no pole on pavement, in a clear zone, under a deck, in a building, lot, lake or race run-off, on a reserved cell (sight triangle, corner spot), on a fill house or a lamp post; none on a freeway, uptown or in Myers Park; every wire 5.5 m over every road; every span's far pole standing; no lamp post in race run-off (pole audit)", badTotal);
+            Check(badTotal == 0, "no pole on pavement, in a clear zone, under a deck, in a building, lot, lake or race run-off, on a reserved cell (sight triangle, corner spot), on a fill house or a lamp post; none on a freeway, uptown or in Myers Park; every wire 5.5 m over every road; every span's far pole standing; no SOLID lamp post in race run-off, none breaking away outside it (pole audit)", badTotal);
             Check(pitch.Count > 0 && P(0.5f) >= PolePitchLo && P(0.5f) <= PolePitchHi, $"the pitch along a line p50 {PolePitchLo:0}-{PolePitchHi:0} m (pole audit)", $"{P(0.5f):0.0} m");
             Check(worstClear >= CityPoles.WireClearM - 0.01f, $"every wire at least {CityPoles.WireClearM} m over every road (pole audit)", $"{worstClear:0.00} m");
             Check(same, "a tile stands the same poles every build (pole audit)");
             Check(multiSub == 0, "a tile's poles, wires and lamps are one mesh with one material: no draw added (pole audit)", multiSub);
             Check(heads == poles, "a cobra-head on every pole, lit at night (pole audit)", $"{heads} heads, {poles} poles");
             Check(uptownAcorns > 0, "uptown's streets are lit by acorn posts (pole audit)", uptownAcorns);
+            Line($"    lamp posts on these tiles: {lampsSolid} solid, {lampsBreakaway} breaking away in race run-off ({acornsBreakaway} of them acorn posts; their colliders counted on {colliderTiles} tiles stood up as the game does)");
+            Check(colliderBad == 0, "a box collider for every solid lamp post and none for a breakaway one (pole audit)", colliderBad);
+            Line($"    uptown's race streets (acorn roads on the city race routes): {upRaceM / 1000f:0.00} km, {upDarkM / 1000f:0.00} km more than {UptownDarkM:0} m from any light" +
+                 (upDarkAt.Length > 0 ? $", first at {upDarkAt}" : "") + "; " + string.Join("; ", upRows) +
+                 $"; the nearest light p50 {UpQ(0.5f):0.0} p90 {UpQ(0.9f):0.0} max {UpQ(1f):0.0} m");
+            for (int i = 0; i < Mathf.Min(10, darkRuns.Count); i++) Line("      dark: " + darkRuns[i].what);
+            Line($"    (not a check: the 10 m either side of a junction are the lamps' fan clearance, older than WP-15; the long runs are named above)");
+            Check(upStations > 0 && upPlaced >= UptownStationShareMin * upStations,
+                  $"uptown's race streets stand their acorn posts: at least {UptownStationShareMin * 100f:0}% of their lamp stations (pole audit, the WP-15 review: the run-off rule had refused Tryon's)",
+                  $"{upPlaced} of {upStations} ({100f * upPlaced / Mathf.Max(1, upStations):0.0}%); refused: {(upWhyRow.Count > 0 ? string.Join(", ", upWhyRow) : "none")}; {upEdgesShort} edges too short between their junctions' fans for one");
         }
     }
 }
