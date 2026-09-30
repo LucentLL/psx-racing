@@ -711,6 +711,18 @@ namespace PSXRacing.LifeSim
         /// through <see cref="LifeRules.BookingHour"/>, never directly.
         /// </summary>
         public int hourPick;
+        /// <summary>
+        /// The traffic the player chose for this race (owner, 2026-09-30:
+        /// "a toggle to determine traffic amount for each race"), as a
+        /// <see cref="TrafficLevels"/> level PLUS ONE - zero is "the level the
+        /// race's hour puts on the road" (<see cref="TrafficLevels.ForHour"/>),
+        /// which is exactly what every booking written before the setting
+        /// existed ran with, so an old save needs no migration: its zero
+        /// reads as the traffic it always had. Off by one for hourPick's
+        /// reason (zero as a level would be NONE). Read it through
+        /// <see cref="LifeRules.BookingTraffic"/>, never directly.
+        /// </summary>
+        public int trafficPick;
     }
 
     /// <summary>

@@ -58,6 +58,12 @@ namespace PSXRacing.EditorTools
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;
             RaceHandoff.TrackIndex = venue;
+            // PSX_REPLAY_TRAFFIC=0..4 (NONE .. RUSH HOUR): the race's traffic
+            // setting, so a replay is checked with the pool a dense race
+            // builds (the recorder sizes its track off the pool); the hour's
+            // own when unset.
+            if (int.TryParse(System.Environment.GetEnvironmentVariable("PSX_REPLAY_TRAFFIC") ?? "", out int lvl))
+                RaceHandoff.TrafficLevel = lvl;
             var cars = CarCatalog.All;
             if (cars.Count > 4)
             {

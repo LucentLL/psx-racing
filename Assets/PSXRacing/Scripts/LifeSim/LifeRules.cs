@@ -167,7 +167,12 @@ namespace PSXRacing.LifeSim
         /// picked, or -1 for the block's own. An hour outside the block is
         /// dropped to -1 rather than refused: the booking is still a plan,
         /// and a plan at the block's own hour beats no plan.</param>
-        public static bool Book(LifeState s, int day, int slot, int trackIndex, bool practice, int hour)
+        public static bool Book(LifeState s, int day, int slot, int trackIndex, bool practice, int hour) =>
+            Book(s, day, slot, trackIndex, practice, hour, -1);
+
+        /// <param name="traffic">The <see cref="TrafficLevels"/> level the
+        /// player set, or -1 for the hour's own.</param>
+        public static bool Book(LifeState s, int day, int slot, int trackIndex, bool practice, int hour, int traffic)
         {
             if (!CanBookAt(s, day, slot)) return false;
             if (s.bookings == null) s.bookings = new System.Collections.Generic.List<RaceBooking>();
@@ -177,8 +182,28 @@ namespace PSXRacing.LifeSim
                 day = day, slot = slot,
                 trackIndex = trackIndex, practice = practice,
                 hourPick = TimeOfDay.InSlot(hour, slot) ? hour + 1 : 0,
+                trafficPick = TrafficLevels.Valid(traffic) ? traffic + 1 : 0,
             });
             return true;
+        }
+
+        /// <summary>
+        /// The traffic a booked race runs with: the level written into the
+        /// diary with it, or - a booking from before the setting, or one
+        /// that left it to the hour - the level nearest to what its hour puts
+        /// on the road. The ONE reader of <see cref="RaceBooking.trafficPick"/>.
+        /// </summary>
+        public static int BookingTraffic(RaceBooking b)
+        {
+            if (b == null) return TrafficLevels.ForHour(TimeOfDay.Sunset);
+            int level = b.trafficPick - 1;
+            return TrafficLevels.Valid(level) ? level : TrafficLevels.ForHour(BookingHour(b));
+        }
+
+        /// <summary>Change a booked race's traffic, in the diary.</summary>
+        public static void SetBookingTraffic(RaceBooking b, int level)
+        {
+            if (b != null) b.trafficPick = TrafficLevels.Valid(level) ? level + 1 : 0;
         }
 
         /// <summary>

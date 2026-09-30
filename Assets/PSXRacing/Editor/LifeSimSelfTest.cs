@@ -6958,6 +6958,54 @@ namespace PSXRacing.EditorTools
             var round = JsonUtility.FromJson<RaceBooking>(JsonUtility.ToJson(
                 new RaceBooking { day = 15, slot = LifeRules.DaySlot, hourPick = TimeOfDay.Sunset + 1 }));
             Check(LifeRules.BookingHour(round) == TimeOfDay.Sunset, "and the chosen hour survives the save");
+
+            // ---- the TRAFFIC a race is booked with (2026-09-30) ----------
+            // "a toggle to determine traffic amount for each race (none,
+            // light, medium, heavy, rush hour)".
+            Check(TrafficLevels.Count == 5 && TrafficLevels.Name(TrafficLevels.None) == "NONE" &&
+                  TrafficLevels.Name(TrafficLevels.RushHour) == "RUSH HOUR",
+                  "five traffic levels, NONE to RUSH HOUR");
+            bool denser = TrafficLevels.PerKm[TrafficLevels.None] == 0f;
+            for (int i = 1; i < TrafficLevels.Count; i++)
+                if (TrafficLevels.PerKm[i] <= TrafficLevels.PerKm[i - 1]) denser = false;
+            Check(denser, "each level is denser than the one before, and NONE is empty");
+            Check(TrafficLevels.CruiseMax[TrafficLevels.RushHour] < TrafficLevels.CruiseMin[TrafficLevels.Medium] &&
+                  TrafficLevels.PlatoonShare[TrafficLevels.RushHour] > TrafficLevels.PlatoonShare[TrafficLevels.Heavy],
+                  "RUSH HOUR is the slow, bunched one");
+            bool stepsRound = true;
+            int lv = TrafficLevels.None;
+            for (int i = 0; i < TrafficLevels.Count; i++) lv = TrafficLevels.Step(lv);
+            if (lv != TrafficLevels.None) stepsRound = false;
+            Check(stepsRound && TrafficLevels.Step(-1) == TrafficLevels.Light,
+                  "the TRAFFIC button walks NONE .. RUSH HOUR round");
+            // Today's traffic, mapped: what each hour used to put on the road.
+            Check(TrafficLevels.ForHour(TimeOfDay.Night) == TrafficLevels.Light &&
+                  TrafficLevels.ForHour(TimeOfDay.Dusk) == TrafficLevels.Light &&
+                  TrafficLevels.ForHour(TimeOfDay.Dawn) == TrafficLevels.Light &&
+                  TrafficLevels.ForHour(TimeOfDay.Morning) == TrafficLevels.Medium &&
+                  TrafficLevels.ForHour(TimeOfDay.Noon) == TrafficLevels.Medium,
+                  "a race with no level set runs its hour's nearest: night LIGHT, the day MEDIUM",
+                  TrafficLevels.Name(TrafficLevels.ForHour(TimeOfDay.Night)));
+            var tdiary = new LifeState { day = 10, slotIndex = 0 };
+            Check(LifeRules.Book(tdiary, 12, LifeRules.NightSlot, 0, false, TimeOfDay.Dusk, TrafficLevels.RushHour) &&
+                  LifeRules.BookingTraffic(LifeRules.BookingOn(tdiary, 12)) == TrafficLevels.RushHour,
+                  "a race written in with RUSH HOUR traffic runs in rush hour");
+            Check(LifeRules.Book(tdiary, 13, LifeRules.NightSlot, 0, false, TimeOfDay.Dusk, TrafficLevels.None) &&
+                  LifeRules.BookingTraffic(LifeRules.BookingOn(tdiary, 13)) == TrafficLevels.None,
+                  "and one written in with NONE has none (NONE is not 'unset')");
+            var oldT = new RaceBooking { day = 14, slot = LifeRules.DaySlot, hourPick = TimeOfDay.Noon + 1 };
+            Check(LifeRules.BookingTraffic(oldT) == TrafficLevels.ForHour(TimeOfDay.Noon),
+                  "a booking from before the setting runs the traffic its hour always had");
+            var roundT = JsonUtility.FromJson<RaceBooking>(JsonUtility.ToJson(oldT));
+            LifeRules.SetBookingTraffic(roundT, TrafficLevels.Heavy);
+            roundT = JsonUtility.FromJson<RaceBooking>(JsonUtility.ToJson(roundT));
+            Check(LifeRules.BookingTraffic(roundT) == TrafficLevels.Heavy,
+                  "a booking's traffic changed on the pre-race page survives the save");
+            // A strip has none to set.
+            var strip = TrackCatalog.At(TrackCatalog.IndexOf("DragQuarter"));
+            Check(strip != null && !TrafficLevels.VenueHasTraffic(strip) &&
+                  TrafficLevels.VenueHasTraffic(TrackCatalog.At(TrackCatalog.IndexOf("BlueRidge"))),
+                  "a drag strip has no traffic to set; a mountain road does");
         }
 
         // ---------------------------------------------------------------

@@ -4,6 +4,68 @@ using UnityEngine;
 namespace PSXRacing
 {
     /// <summary>
+    /// HOW MUCH TRAFFIC A RACE HAS - the owner, 2026-09-30: "there needs to be
+    /// a toggle to determine traffic amount for each race (none, light,
+    /// medium, heavy, rush hour)". Chosen on the pre-race page and the
+    /// planner, written into the booking (RaceBooking.trafficPick), carried to
+    /// the race in <see cref="RaceHandoff.TrafficLevel"/>.
+    ///
+    /// Each level is a DENSITY (cars per km, per direction - split across the
+    /// lanes when a direction has more than one) and a FLOW (how fast it
+    /// cruises against the posted limit, and how much of it runs in platoons,
+    /// nose to tail behind a slower car). RUSH HOUR is the dense, slow,
+    /// bunched one, both directions. NONE puts nothing on the road.
+    ///
+    /// A race with no level asked for (a delivery, a test drive, a call-out
+    /// from the RIVALS page, an old booking) gets the level nearest to what
+    /// its HOUR used to put on the road: the old per-hour table, mapped.
+    /// </summary>
+    public static class TrafficLevels
+    {
+        public const int None = 0, Light = 1, Medium = 2, Heavy = 3, RushHour = 4, Count = 5;
+        public static readonly string[] Names = { "NONE", "LIGHT", "MEDIUM", "HEAVY", "RUSH HOUR" };
+        /// <summary>Cars per km, per direction.</summary>
+        public static readonly float[] PerKm = { 0f, 1.5f, 4.5f, 8f, 13f };
+        /// <summary>Cruising speed as a share of the posted limit, the slowest
+        /// and the fastest driver.</summary>
+        public static readonly float[] CruiseMin = { 0.82f, 0.82f, 0.82f, 0.78f, 0.50f };
+        public static readonly float[] CruiseMax = { 1.05f, 1.05f, 1.05f, 1.00f, 0.72f };
+        /// <summary>Share of cars born close behind the one before (a
+        /// platoon), rather than at the level's random spacing.</summary>
+        public static readonly float[] PlatoonShare = { 0f, 0f, 0.10f, 0.25f, 0.60f };
+        /// <summary>What each HOUR put on the road before the setting existed
+        /// (cars per km per lane: Dawn, Morning, Noon, Afternoon, Sunset, Dusk,
+        /// Night) - kept only to map an hour to its nearest level.</summary>
+        static readonly float[] HourPerKm = { 2.5f, 6f, 4.5f, 6f, 4.5f, 2f, 0.8f };
+
+        public static bool Valid(int level) => level >= 0 && level < Count;
+        public static string Name(int level) => Valid(level) ? Names[level] : "BY THE HOUR";
+
+        /// <summary>The level nearest to what this hour used to put on the
+        /// road: dawn, dusk and night LIGHT, the day MEDIUM.</summary>
+        public static int ForHour(int hour)
+        {
+            float d = HourPerKm[Mathf.Clamp(hour, 0, HourPerKm.Length - 1)];
+            int best = Light;
+            for (int i = 0; i < Count; i++)
+                if (Mathf.Abs(PerKm[i] - d) < Mathf.Abs(PerKm[best] - d)) best = i;
+            return best;
+        }
+
+        /// <summary>The level a race runs: the one asked for, or the hour's.</summary>
+        public static int Resolve(int pick, int hour) => Valid(pick) ? pick : ForHour(hour);
+
+        /// <summary>The next level on the button: NONE .. RUSH HOUR, round.</summary>
+        public static int Step(int level) => Valid(level) ? (level + 1) % Count : Light;
+
+        /// <summary>Whether a venue has traffic to set at all. A drag strip -
+        /// and a real road closed for a drag (Bogue Banks) - has none: two
+        /// cars and a tree (TrafficSystem.Begin).</summary>
+        public static bool VenueHasTraffic(TrackCatalog.TrackDef def) =>
+            def != null && !def.IsDragEvent && !def.IsRoam;
+    }
+
+    /// <summary>
     /// Moving traffic on the race tracks, during races AND deliveries.
     ///
     /// The owner, 2026-09-25: "Cars should drive on the right side of the road.
@@ -47,14 +109,28 @@ namespace PSXRacing
         public static TrafficSystem Instance { get; private set; }
 
         // ---- the knobs -------------------------------------------------------
-        /// <summary>Cars per km, per direction, by TimeOfDay hour index
-        /// (Dawn, Morning, Noon, Afternoon, Sunset, Dusk, Night). The two rush
-        /// hours are busiest; late night is nearly empty.</summary>
-        static readonly float[] PerKmByHour = { 2.5f, 6f, 4.5f, 6f, 4.5f, 2f, 0.8f };
+        // How MANY and how FAST come from the race's level (TrafficLevels).
         const float Behind = 200f, Ahead = 700f;
+        /// <summary>RUSH HOUR's window ahead: the pool it would take to fill
+        /// 700 m of both lanes at its density is a pool a phone pays for in
+        /// draw calls on every straight.</summary>
+        const float AheadRush = 560f;
         /// <summary>No closer than this to any car in the lane, at birth.</summary>
         const float MinGap = 22f;
-        const int PoolSize = 16;
+        /// <summary>...and inside a platoon: nose to tail, which the
+        /// following model then opens out to its time gap.</summary>
+        const float PlatoonGapMin = 14f, PlatoonGapMean = 8f;
+        /// <summary>The pool: enough for the window at the level's density
+        /// with a margin, within these bounds.</summary>
+        const int PoolMin = 8, PoolMax = 30;
+        /// <summary>How far past the tarmac edge a yielding driver puts its
+        /// outer side: onto the 0.9 m paved verge strip, 5 cm short of its
+        /// edge (a stage's guard wall stands 1.1 m out).</summary>
+        public const float VergeUseM = 0.85f;
+        /// <summary>A racer sitting this close behind (m), for this long (s),
+        /// and even a driver who was not going to move over pulls onto the
+        /// verge and lifts - the courtesy of a mountain road.</summary>
+        const float TailedNearM = 38f, TailedYieldS = 3.5f;
         const float LaneM = City.RoadProfiles.LaneM;
         /// <summary>Lateral grip a traffic driver is willing to use in a bend.</summary>
         const float CornerAccel = 2.6f;
@@ -82,7 +158,12 @@ namespace PSXRacing
         RaceManager rm;
         TrackPath path;
         float total;
+        /// <summary>Cars per km per direction this race (the level's).</summary>
         float perKm;
+        /// <summary>The level this race runs (TrafficLevels), resolved from
+        /// the handoff and the hour.</summary>
+        public int Level { get; private set; }
+        int poolSize;
         /// <summary>Lateral lane centres, metres right of the centreline, per
         /// direction: +1 is the race direction, -1 against it.</summary>
         readonly List<float> lanesFwd = new List<float>(), lanesBack = new List<float>();
@@ -119,6 +200,13 @@ namespace PSXRacing
         /// <summary>The traffic bodies now on the road, for the racers'
         /// avoidance (AIDriver).</summary>
         public readonly List<Rigidbody> Obstacles = new List<Rigidbody>();
+        /// <summary>Half the width of each of <see cref="Obstacles"/>, same
+        /// order: a pass is planned round the car that is there, not round a
+        /// 2.4 m allowance that fits a Transit and wastes a lane on a Golf.</summary>
+        public readonly List<float> ObstacleHalfW = new List<float>();
+        /// <summary>...and which stream each is in: +1 with the race, -1 the
+        /// oncoming one - a car queued in the other lane is still in it.</summary>
+        public readonly List<int> ObstacleDir = new List<int>();
 
         /// <summary>
         /// HOW A DRIVER TAKES A RACER COMING (owner, 2026-09-26: "traffic
@@ -158,6 +246,11 @@ namespace PSXRacing
             public float wanderPhase;
             public float s;          // metres along the path
             public float speed, cruise;
+            /// <summary>Half the collision box's width.</summary>
+            public float halfW;
+            /// <summary>Seconds a racer has sat close behind this car
+            /// (TailedNearM), leaking away once it has gone.</summary>
+            public float tailed;
             public float spin;
             public int hint = -1;
             public float wreckedAt;
@@ -194,17 +287,30 @@ namespace PSXRacing
             path = race.path;
             total = path.TotalLength;
             roadMask = 1 << 8;
-            ahead = path.HasEnds ? Ahead : Mathf.Min(Ahead, total * 0.45f);
-            behind = path.HasEnds ? Behind : Mathf.Min(Behind, total * 0.25f);
 
-            int hour = Mathf.Clamp(TimeOfDay.Current, 0, PerKmByHour.Length - 1);
-            perKm = PerKmByHour[hour];
+            // THE RACE'S LEVEL: the one the player set, or the hour's own.
+            Level = TrafficLevels.Resolve(RaceHandoff.TrafficLevel, TimeOfDay.Current);
+            perKm = TrafficLevels.PerKm[Level];
+
+            float want = Level == TrafficLevels.RushHour ? AheadRush : Ahead;
+            ahead = path.HasEnds ? want : Mathf.Min(want, total * 0.45f);
+            behind = path.HasEnds ? Behind : Mathf.Min(Behind, total * 0.25f);
 
             var def = TrackCatalog.At(RaceHandoff.TrackIndex);
             bool oneWay = def != null && def.oneWay;
+            // The lanes are laid whatever the level: an EMPTY road is still a
+            // two-way road, and the racers keep to their side of it (AIDriver's
+            // lane discipline hangs off TwoWay) - NONE means no cars, not a
+            // closed circuit.
             BuildLanes(path.roadWidth, oneWay);
 
-            for (int i = 0; i < PoolSize; i++) pool.Add(Build(Keys[i % Keys.Length]));
+            // Enough cars for the window at this density, both ways, with a
+            // quarter over for the random gaps; none at all for NONE.
+            int dirs = lanesBack.Count > 0 ? 2 : 1;
+            float expected = (ahead + behind) / 1000f * perKm * dirs;
+            poolSize = Level == TrafficLevels.None ? 0
+                     : Mathf.Clamp(Mathf.CeilToInt(expected * 1.25f) + 3, PoolMin, PoolMax);
+            for (int i = 0; i < poolSize; i++) pool.Add(Build(Keys[i % Keys.Length]));
         }
 
         /// <summary>Lane centres as the painter lays them out: US lanes packed
@@ -277,6 +383,7 @@ namespace PSXRacing
             return new Car
             {
                 go = go, rb = rb, wheels = wheels.ToArray(), wheelR = Mathf.Max(0.2f, def.wheelRadius),
+                halfW = boxW * 0.5f,
                 box = box, rideCenter = box.center, rideSize = box.size,
                 // A WRECK has no suspension to stand on, so its box reaches
                 // down to the tyres' contact. The baked box stops at the sills,
@@ -345,7 +452,7 @@ namespace PSXRacing
             if (rm == null || rm.playerCar == null) return;
 
             // A replay is posing the pool from its recording: nothing drives.
-            if (replaying || RaceReplay.Playing) { Obstacles.Clear(); return; }
+            if (replaying || RaceReplay.Playing) { Obstacles.Clear(); ObstacleHalfW.Clear(); ObstacleDir.Clear(); return; }
 
             // Nothing moves on the road until the race is on: a car arriving
             // at a grid of four stationary racers would be a pile-up the
@@ -364,7 +471,9 @@ namespace PSXRacing
             float dt = Time.fixedDeltaTime;
             foreach (var c in live) Drive(c, dt);
             Obstacles.Clear();
-            foreach (var c in live) Obstacles.Add(c.rb);
+            ObstacleHalfW.Clear();
+            ObstacleDir.Clear();
+            foreach (var c in live) { Obstacles.Add(c.rb); ObstacleHalfW.Add(c.halfW); ObstacleDir.Add(c.dir); }
         }
 
         void MeasureField()
@@ -398,11 +507,11 @@ namespace PSXRacing
                     // lanes, and at 90 m one met a rival still merging into its
                     // own lane 7.5 s in (NC 226A). At 400 m the field is in single
                     // file before the first one arrives.
-                    float d = (dir < 0 ? OncomingStartM : 90f) + Gap();
-                    while (d < ahead && live.Count < PoolSize)
+                    float d = (dir < 0 ? OncomingStartM : 90f) + Gap(dir);
+                    while (d < ahead && live.Count < poolSize)
                     {
                         TrySpawn(Wrap(ps + d), dir, lat);
-                        d += Gap();
+                        d += Gap(dir);
                     }
                 }
         }
@@ -419,13 +528,30 @@ namespace PSXRacing
 
         List<float> LanesFor(int dir) => dir > 0 ? lanesFwd : lanesBack;
 
-        /// <summary>Exponential gap: RANDOM spacing with the hour's mean, never
-        /// tighter than MinGap. Per LANE, so a wide road is not busier per lane.</summary>
-        float Gap()
+        /// <summary>
+        /// The gap to the next car born in a lane: RANDOM (exponential) with
+        /// the level's mean spacing - the level's density split across this
+        /// direction's lanes. At a level with platoons, that share of cars is
+        /// born nose to tail behind the one before instead, and the rest are
+        /// spaced wider so the density comes out the same: bunches with road
+        /// between them, the way a slow car gathers a queue.
+        /// </summary>
+        float Gap(int dir)
         {
-            float mean = 1000f / Mathf.Max(0.05f, perKm);
-            return MinGap + -Mathf.Log(1f - Random.value * 0.999f) * mean;
+            int lanes = Mathf.Max(1, LanesFor(dir).Count);
+            float mean = 1000f / Mathf.Max(0.05f, perKm / lanes);
+            float p = TrafficLevels.PlatoonShare[Level];
+            if (p > 0f && Random.value < p)
+                return PlatoonGapMin + -Mathf.Log(1f - Random.value * 0.999f) * PlatoonGapMean;
+            // The loose share: what is left of the mean once the platoon gaps
+            // have taken theirs.
+            float loose = p > 0f ? (mean - p * (PlatoonGapMin + PlatoonGapMean)) / (1f - p) : mean;
+            loose = Mathf.Max(loose - MinGap, 10f);
+            return MinGap + -Mathf.Log(1f - Random.value * 0.999f) * loose;
         }
+
+        /// <summary>No car is born nearer than this to another in its lane.</summary>
+        float BirthGap => TrafficLevels.PlatoonShare[Level] > 0f ? PlatoonGapMin : MinGap;
 
         float nextEdgeCheck;
         readonly Dictionary<float, float> laneNextGap = new Dictionary<float, float>();
@@ -449,8 +575,8 @@ namespace PSXRacing
                         if (d >= 0f && d < nearest) nearest = d;
                     }
                     float key = dir * 100f + lat;
-                    if (!laneNextGap.TryGetValue(key, out float want)) want = laneNextGap[key] = Gap();
-                    if (nearest >= want && TrySpawn(edge, dir, lat)) laneNextGap[key] = Gap();
+                    if (!laneNextGap.TryGetValue(key, out float want)) want = laneNextGap[key] = Gap(dir);
+                    if (nearest >= want && TrySpawn(edge, dir, lat)) laneNextGap[key] = Gap(dir);
                 }
         }
 
@@ -460,7 +586,7 @@ namespace PSXRacing
             // Never on top of anything: another traffic car in the lane, or a
             // racer (they use the whole road).
             foreach (var c in live)
-                if (Mathf.Abs(Delta(s, c.s)) < MinGap && Mathf.Abs(c.lat - lat) < 1.5f) return false;
+                if (Mathf.Abs(Delta(s, c.s)) < BirthGap && Mathf.Abs(c.lat - lat) < 1.5f) return false;
             Sample(s, out Vector3 p0, out Vector3 t0);
             Vector3 at = p0 + Vector3.Cross(Vector3.up, t0).normalized * lat;
             foreach (var f in field)
@@ -474,9 +600,12 @@ namespace PSXRacing
             free.temper = RollTemper();
             TempersSeen[(int)free.temper]++;
             free.wanderPhase = Random.Range(0f, 6.2832f);
+            free.tailed = 0f;
             var def = TrackCatalog.At(RaceHandoff.TrackIndex);
             float limit = (def != null ? def.speedLimitKmh : 80f) / 3.6f;
-            free.cruise = limit * Random.Range(0.82f, 1.05f);
+            // The level's flow: RUSH HOUR crawls at half to three-quarters of
+            // the limit, the rest drive it.
+            free.cruise = limit * Random.Range(TrafficLevels.CruiseMin[Level], TrafficLevels.CruiseMax[Level]);
             free.speed = free.cruise;
             free.rb.useGravity = false;
             Place(free, true);
@@ -561,16 +690,34 @@ namespace PSXRacing
 
             // A RACER COMING, and what this driver does about it (Temper).
             float latTarget = c.lat;
-            bool coming = RacerComing(c);
-            switch (c.temper)
+            bool coming = RacerComing(c, dt, out float racerLat, out bool sat);
+            // PULLING OVER (2026-09-30, "AI really struggles to pass when there
+            // is heavy traffic"): a Yielder with a racer coming, and ANY
+            // ordinary driver with one sat on its bumper for a few seconds,
+            // moves onto the paved verge and lifts - on a 6.4 m mountain road
+            // that is the room a racer needs to get by without crossing the
+            // centreline into the oncoming queue.
+            bool letBy = (coming || sat) && c.temper == Temper.Yielder
+                      || c.tailed > TailedYieldS && c.temper == Temper.Normal;
+            // Only where the road is NARROW: with a racer's width of tarmac
+            // beside it on the right already (a 12 m street), a driver moving
+            // over only closes the side the racer was going to use (Sunset
+            // City, rush hour: yielders and racers both went right, six hits).
+            // There it holds its lane and eases off. And only where pulling
+            // over makes the room (PullOverMakesRoom).
+            bool narrow = path.roadWidth * 0.5f - (Mathf.Abs(c.lat) + c.halfW) < RoomToPassM;
+            bool pullOver = letBy && narrow && PullOverMakesRoom(c);
+            if (letBy && !narrow) v = Mathf.Min(v, c.cruise * 0.8f);
+            switch (pullOver ? Temper.Yielder : c.temper)
             {
                 case Temper.Yielder:
-                    if (coming)
+                    if (pullOver)
                     {
-                        float side = c.lat >= 0f ? 1f : -1f;
-                        float room = path.roadWidth * 0.5f - 1.0f - Mathf.Abs(c.lat);
-                        latTarget = c.lat + side * Mathf.Clamp(room, 0f, LaneM * 0.6f);
-                        v = Mathf.Min(v, c.cruise * 0.75f);
+                        latTarget = PullOverLat(c, racerLat);
+                        // Lifting: to three-quarters for one coming, to
+                        // six-tenths for one already sat behind - it goes by
+                        // sooner, and at less closing speed.
+                        v = Mathf.Min(v, c.cruise * (sat ? 0.6f : 0.75f));
                     }
                     break;
                 case Temper.Braker:
@@ -602,7 +749,10 @@ namespace PSXRacing
             // The tarmac, where there is a Road collider; the datum plus the
             // builder's road lift where there is not.
             float y = p.y + 0.12f;
-            if (Physics.Raycast(target + Vector3.up * 2f, Vector3.down, out RaycastHit hit, 5f, roadMask,
+            // Pulled onto the verge, the strip it is on: a stage's gravel
+            // shoulder is not on the Road layer (it does not grip like tarmac).
+            int mask = Mathf.Abs(c.latNow) > path.roadWidth * 0.5f ? roadMask | 1 : roadMask;
+            if (Physics.Raycast(target + Vector3.up * 2f, Vector3.down, out RaycastHit hit, 5f, mask,
                                 QueryTriggerInteraction.Ignore))
                 y = hit.point.y;
             target.y = y;
@@ -630,7 +780,7 @@ namespace PSXRacing
                 {
                     float sw = SOf(o.go.transform.position, ref o.hint);
                     float dw = Delta(c.s, sw) * c.dir;
-                    if (dw > 0f && dw < best && LateralNear(o.go.transform.position, sw, c.lat)) { best = dw; leaderV = 0f; }
+                    if (dw > 0f && dw < best && LateralNear(o.go.transform.position, sw, c.latNow)) { best = dw; leaderV = 0f; }
                     continue;
                 }
                 if (o.dir != c.dir || Mathf.Abs(o.lat - c.lat) > 1.5f) continue;
@@ -641,7 +791,10 @@ namespace PSXRacing
             {
                 float d = Delta(c.s, f.s) * c.dir;
                 if (d <= 0f || d >= best || d > 120f) continue;
-                if (!LateralNear(f.pos, f.s, c.lat)) continue;
+                // Where this car IS across the road: pulled onto the verge, a
+                // rival parked there is ahead of it and one going by in the lane
+                // is not.
+                if (!LateralNear(f.pos, f.s, c.latNow)) continue;
                 best = d;
                 Sample(f.s, out _, out Vector3 tan);
                 leaderV = Mathf.Max(0f, Vector3.Dot(f.vel, tan * c.dir));
@@ -662,19 +815,86 @@ namespace PSXRacing
         }
 
         /// <summary>Is a racer (or the player) coming at this car: closing
-        /// from behind in its direction, or on its way toward it from ahead?</summary>
-        bool RacerComing(Car c)
+        /// from behind in its direction, or on its way toward it from ahead?
+        /// <paramref name="sat"/>: one is SITTING behind it in its lane (it
+        /// closed, and is held up - it has not stopped wanting by). Also runs
+        /// the car's <c>tailed</c> clock, and says where across the road the
+        /// nearest racer behind it is.</summary>
+        bool RacerComing(Car c, float dt, out float racerLat, out bool sat)
         {
-            Sample(c.s, out _, out Vector3 tan);
+            racerLat = float.NaN;
+            sat = false;
+            Sample(c.s, out Vector3 p0, out Vector3 tan);
             Vector3 fwd = tan * c.dir;
+            Vector3 right = Vector3.Cross(Vector3.up, tan).normalized;
+            bool coming = false;
+            float nearest = float.MaxValue;
             foreach (var f in field)
             {
                 float d = Delta(c.s, f.s) * c.dir;
                 float vAlong = Vector3.Dot(f.vel, fwd);
-                if (d < -2f && d > -NoticeBehindM && vAlong > c.speed + 4f) return true;
-                if (d > 2f && d < NoticeAheadM && vAlong < -3f) return true;
+                if (d < -2f && d > -NoticeBehindM)
+                {
+                    bool closing = vAlong > c.speed + 4f;
+                    // Behind in this car's own lane at its speed: a racer that
+                    // has caught it and cannot get by.
+                    bool behindClose = d > -TailedNearM && vAlong > 3f &&
+                                       Mathf.Abs(Vector3.Dot(f.pos - p0, right) - c.latNow) < 2.2f;
+                    if (closing || behindClose)
+                    {
+                        if (closing) coming = true;
+                        if (behindClose) sat = true;
+                        if (-d < nearest) { nearest = -d; racerLat = Vector3.Dot(f.pos - p0, right); }
+                    }
+                }
+                if (d > 2f && d < NoticeAheadM && vAlong < -3f) coming = true;
             }
-            return false;
+            c.tailed = sat ? c.tailed + dt : Mathf.Max(0f, c.tailed - dt * 0.5f);
+            return coming;
+        }
+
+        /// <summary>
+        /// Where a driver letting a racer by puts itself across the road: onto
+        /// its own verge - outer side <see cref="VergeUseM"/> past the tarmac
+        /// edge - UNLESS the racer behind is already out on that side, going
+        /// round it on the shoulder; then it holds its lane and eases a little
+        /// toward the centreline instead of shutting the gap on it.
+        /// </summary>
+        float PullOverLat(Car c, float racerLat)
+        {
+            float side = c.lat >= 0f ? 1f : -1f;
+            float outer = path.roadWidth * 0.5f + VergeUseM - c.halfW;
+            if (!float.IsNaN(racerLat) && (racerLat - c.latNow) * side > 0.6f)
+            {
+                float inner = c.halfW + 0.25f;
+                return side * Mathf.Max(inner, Mathf.Abs(c.lat) - 0.4f);
+            }
+            // A lane's width over at most: on a 12 m street the verge is the
+            // kerb four metres away, and a car does not cross a whole lane to
+            // let someone by.
+            return side * Mathf.Max(Mathf.Abs(c.lat), Mathf.Min(outer, Mathf.Abs(c.lat) + PullOverMaxM));
+        }
+        /// <summary>The most a driver moves across to let a racer by.</summary>
+        const float PullOverMaxM = 1.6f;
+
+        /// <summary>Room a racer needs between the centreline and a car pulled
+        /// over, to go by inside its own lane: the racers' own-lane rule
+        /// (centre 1.0 m right of the line), a half-width, and air.</summary>
+        const float RoomToPassM = 1.0f + 0.9f + 0.35f;
+
+        /// <summary>
+        /// Does pulling over leave a racer room to get by inside its lane? A
+        /// Crown Vic on the verge of a 6.4 m road still leaves 2.05 m, not
+        /// the 2.25 a racer needs - and a car that had pulled over AND slowed
+        /// to six-tenths without making the room was only a slower car to be
+        /// stuck behind (and one a racer tried to squeeze past anyway, at 20
+        /// m/s: Blue Ridge, rush hour). Such a driver keeps its lane and its
+        /// speed; the racer passes it in the other lane when that is clear.
+        /// </summary>
+        bool PullOverMakesRoom(Car c)
+        {
+            float outer = Mathf.Min(path.roadWidth * 0.5f + VergeUseM - c.halfW, Mathf.Abs(c.lat) + PullOverMaxM);
+            return outer - c.halfW >= RoomToPassM;
         }
 
         bool LateralNear(Vector3 pos, float s, float lat)

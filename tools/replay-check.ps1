@@ -7,7 +7,8 @@
 #   powershell -ExecutionPolicy Bypass -File tools\replay-check.ps1
 #
 # Exit code 0 = the report has no FAIL; 1 = it does, or the run threw.
-param([switch]$NoWatch, [int]$MaxMinutes = 20)
+#   ... -Traffic 4   the race's traffic setting (0 NONE .. 4 RUSH HOUR); the hour's own by default.
+param([switch]$NoWatch, [int]$MaxMinutes = 20, [string]$Traffic = "")
 $ErrorActionPreference = "Stop"
 $unity = "C:\Program Files\Unity\Hub\Editor\6000.5.5f1\Editor\Unity.exe"
 $proj  = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
@@ -21,6 +22,7 @@ foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor")) {
 # Delete the marker first: a tool that throws never writes its log, and a stale
 # one certifies the previous run just as convincingly as a fresh one.
 Remove-Item "$proj\PSXRacing_replay_check.txt" -ErrorAction SilentlyContinue
+$env:PSX_REPLAY_TRAFFIC = $Traffic
 
 # NO -quit: this one enters play mode and exits itself when it is done.
 # Watched by default: a visible editor plays the test in front of you.

@@ -135,6 +135,15 @@ namespace PSXRacing.LifeSim
         /// this block: the hour GO RACING starts at, or WRITE IT IN books.
         /// </summary>
         int raceHourPick = -1;
+        /// <summary>The TRAFFIC the planner's BOOK A RACE will write, as a
+        /// <see cref="TrafficLevels"/> level, or -1 for the level its hour
+        /// puts on the road (<see cref="PlanTraffic"/>). Beside calHour for
+        /// calHour's reason: it belongs to the race being written.</summary>
+        int calTraffic = -1;
+        /// <summary>...and the pre-race page's, when nothing is booked in this
+        /// block (a booked race carries its own, and the button writes that).
+        /// </summary>
+        int raceTrafficPick = -1;
         CarViewer viewer;
         /// <summary>The turntable, built on first use. Two of the five tabs want
         /// one and the wizard wants none, so a render texture allocated in Start
@@ -1464,6 +1473,63 @@ namespace PSXRacing.LifeSim
         int PlanHour(int day, int slot) =>
             TimeOfDay.InSlot(calHour, slot) ? calHour : TimeOfDay.ForSlot(slot, day);
 
+        /// <summary>The traffic the planner would book: its pick, or the level
+        /// the planned hour puts on the road.</summary>
+        int PlanTraffic(int day, int slot) =>
+            TrafficLevels.Valid(calTraffic) ? calTraffic : TrafficLevels.ForHour(PlanHour(day, slot));
+
+        /// <summary>The traffic the race on the pre-race page runs with: the
+        /// booking's, else this page's pick, else the hour's own level.</summary>
+        int PreRaceTraffic()
+        {
+            var booked = LifeRules.BookingAt(S, S.day, S.slotIndex);
+            if (booked != null) return LifeRules.BookingTraffic(booked);
+            return TrafficLevels.Valid(raceTrafficPick) ? raceTrafficPick : TrafficLevels.ForHour(PreRaceHour());
+        }
+
+        /// <summary>"HEAVY TRAFFIC", "NO TRAFFIC" - for the lines that say what
+        /// a race will be. Empty where the venue has none to speak of.</summary>
+        static string TrafficWords(TrackCatalog.TrackDef t, int level)
+        {
+            if (!TrafficLevels.VenueHasTraffic(t)) return "";
+            return level == TrafficLevels.None ? "NO TRAFFIC" : TrafficLevels.Name(level) + " TRAFFIC";
+        }
+
+        /// <summary>
+        /// A setting stepped with one press - its NAME small and dim on top,
+        /// its VALUE under it. TIME and TRAFFIC share one row this way: a
+        /// one-line "TRAFFIC  ·  RUSH HOUR" is wider than half the planner's
+        /// column at the type floor, and a second 42-unit row is one the
+        /// planner does not have on a phone once a busy block's notes are
+        /// above it. A null <paramref name="act"/> is a dead button, its value
+        /// the reason (a strip: ROAD CLOSED).
+        /// </summary>
+        Button StepperButton(string name, string caption, string value, float left, float y,
+                             float w, float h, UnityEngine.Events.UnityAction act)
+        {
+            var b = MenuKit.Button(body, "", new Vector2(0.5f, 1f), new Vector2(MenuKit.ColLeft(left, w), y),
+                new Vector2(w, h), act, 17, act == null ? MenuKit.BtnBgDisabled : (Color?)null);
+            b.gameObject.name = "Btn_" + name;
+            var rt = (RectTransform)b.transform;
+            MenuKit.Label(rt, caption, MenuKit.Tiny, new Vector2(0.5f, 0.5f), new Vector2(0f, 10.5f),
+                TextAnchor.MiddleCenter, MenuKit.Dim, w - 8f, height: 20f);
+            MenuKit.Label(rt, value, 17, new Vector2(0.5f, 0.5f), new Vector2(0f, -10.5f),
+                TextAnchor.MiddleCenter, act == null ? MenuKit.Dim : Color.white, w - 8f, height: 20f,
+                bold: true);
+            return b;
+        }
+
+        /// <summary>The TRAFFIC stepper for a venue: live, or dead with the
+        /// reason where the venue has no traffic to set.</summary>
+        Button TrafficStepper(TrackCatalog.TrackDef t, int level, float left, float y, float w, float h,
+                              System.Action<int> set)
+        {
+            bool has = TrafficLevels.VenueHasTraffic(t);
+            return StepperButton("TRAFFIC", "TRAFFIC", has ? TrafficLevels.Name(level) : "ROAD CLOSED",
+                left, y, w, h,
+                has ? (UnityEngine.Events.UnityAction)(() => { set(TrafficLevels.Step(level)); Rebuild(); }) : null);
+        }
+
         /// <summary>
         /// What the venue measures, short enough for half a column.
         ///
@@ -2077,7 +2143,9 @@ namespace PSXRacing.LifeSim
                 if (bk != null && bk.slot == slot)
                 {
                     Note("RACE — " + TrackCatalog.At(bk.trackIndex).name, MenuKit.Good);
-                    Note("RUN AT " + TimeOfDay.Label(LifeRules.BookingHour(bk)), MenuKit.Good);
+                    string trafficNote = TrafficWords(TrackCatalog.At(bk.trackIndex), LifeRules.BookingTraffic(bk));
+                    Note("RUN AT " + TimeOfDay.Label(LifeRules.BookingHour(bk)) +
+                         (trafficNote.Length > 0 ? "  ·  " + trafficNote : ""), MenuKit.Good);
                 }
                 else if (bk != null)
                     Note("Race booked for the " + LifeRules.SlotNames[bk.slot] + " block", MenuKit.Dim);
@@ -2177,10 +2245,14 @@ namespace PSXRacing.LifeSim
             // block's own hours rather than a pair of arrows: a block holds two
             // or three, and a second 48-unit row is one this column does not
             // have on a phone once a busy block's notes are above it.
+            // And the TRAFFIC beside it (owner, 2026-09-30: "a toggle to
+            // determine traffic amount for each race"), on the same row: the
+            // planner has no second row to give it.
             int planHour = PlanHour(day, slot);
-            MenuKit.Button(body, "TIME  ·  " + TimeOfDay.Label(planHour), new Vector2(0.5f, 1f),
-                new Vector2(cx, y), new Vector2(w, 42f),
-                () => { calHour = TimeOfDay.StepHour(slot, planHour); Rebuild(); }, 17);
+            int planTraffic = PlanTraffic(day, slot);
+            StepperButton("TIME", "TIME", TimeOfDay.Label(planHour), x, y, half, 44f,
+                () => { calHour = TimeOfDay.StepHour(slot, planHour); Rebuild(); });
+            TrafficStepper(t, planTraffic, x + half + 6f, y, half, 44f, v => calTraffic = v);
             y -= 48f;
             // The shift warning rides ON the button now, where it was a line
             // of its own under it: the TIME row above took the 48 units that
@@ -2195,7 +2267,8 @@ namespace PSXRacing.LifeSim
                     // Always a real race. PRACTICE was a second, quieter race
                     // button and it is gone from the game; the FLAG survives
                     // in the save format for careers booked before that.
-                    if (LifeRules.Book(S, day, slot, calVenue, false, planHour))
+                    if (LifeRules.Book(S, day, slot, calVenue, false, planHour,
+                                       TrafficLevels.VenueHasTraffic(t) ? planTraffic : -1))
                     {
                         LifeSimManager.Save(); Rebuild();
                         Toast(Clip(TrackCatalog.At(calVenue).name, 22) + " — " +
@@ -6981,25 +7054,40 @@ namespace PSXRacing.LifeSim
                 MenuKit.Tiny, new Vector2(0.5f, 1f),
                 new Vector2(tx, y - 28f), TextAnchor.MiddleLeft, Color.white, tw, height: 24f);
             int raceHour = PreRaceHour();
-            MenuKit.Label(body, "RACING AT " + TimeOfDay.Label(raceHour),
+            int raceTraffic = PreRaceTraffic();
+            string trafficWords = TrafficWords(t, raceTraffic);
+            MenuKit.Label(body, "RACING AT " + TimeOfDay.Label(raceHour) +
+                    (trafficWords.Length > 0 ? "  ·  " + trafficWords : ""),
                 MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(tx, y - 54f),
                 TextAnchor.MiddleLeft, MenuKit.Accent, tw, height: 24f);
             y -= MapSize + 8f;
 
             if (booked)
             {
+                // The venue and the hour are the diary's and are not asked
+                // again; the TRAFFIC can still be changed here, into the diary,
+                // on the line's right-hand end.
+                const float trafW = 220f;
                 MenuKit.Label(body, "IN THE DIARY — " + LifeRules.DateLabel(S.day) + "  ·  " +
                         LifeRules.SlotNames[bookedNow.slot], MenuKit.Tiny, new Vector2(0.5f, 1f),
-                    new Vector2(vx, y), TextAnchor.MiddleLeft, MenuKit.Good, vw, height: 24f, bold: true);
-                y -= 28f;
+                    new Vector2(vx, y), TextAnchor.MiddleLeft, MenuKit.Good, vw - trafW - 12f, height: 44f, bold: true);
+                var bookedRef = bookedNow;
+                TrafficStepper(t, raceTraffic, vx + vw - trafW, y, trafW, 44f, v =>
+                {
+                    LifeRules.SetBookingTraffic(bookedRef, v);
+                    LifeSimManager.Save();
+                });
+                y -= 50f;
             }
             else
             {
+                // 44 tall, the steppers' height: a NAME-over-VALUE button in
+                // 40 put its caption against the top rule on a phone.
                 MenuKit.Button(body, "<  VENUE", new Vector2(0.5f, 1f),
-                    new Vector2(MenuKit.ColLeft(vx, 200f), y), new Vector2(200f, 40f),
+                    new Vector2(MenuKit.ColLeft(vx, 200f), y), new Vector2(200f, 44f),
                     () => StepTrack(-1), 17);
                 MenuKit.Button(body, "VENUE  >", new Vector2(0.5f, 1f),
-                    new Vector2(MenuKit.ColLeft(vx + 206f, 200f), y), new Vector2(200f, 40f),
+                    new Vector2(MenuKit.ColLeft(vx + 206f, 200f), y), new Vector2(200f, 44f),
                     () => StepTrack(1), 17);
                 // WHAT TIME, on the venue arrows' own line — the width was
                 // there and the height is not (the car list is under this).
@@ -7009,13 +7097,16 @@ namespace PSXRacing.LifeSim
                 // (A canvas too narrow to hold it there gets it on a line of
                 // its own: a picker that silently is not drawn is the bug this
                 // button was added to fix.)
-                float timeW = Mathf.Min(vw - 412f, 320f);
+                // TRAFFIC beside TIME (owner, 2026-09-30), each a NAME-over-
+                // VALUE stepper sharing what the arrows leave.
+                float pairW = vw - 412f;
+                float stepW = (pairW - 6f) * 0.5f;
                 float timeX = vx + 412f;
-                if (timeW < 264f) { y -= 46f; timeW = Mathf.Min(vw, 406f); timeX = vx; }
-                MenuKit.Button(body, "TIME: " + TimeOfDay.Label(raceHour), new Vector2(0.5f, 1f),
-                    new Vector2(MenuKit.ColLeft(timeX, timeW), y), new Vector2(timeW, 40f),
-                    () => { raceHourPick = TimeOfDay.StepHour(S.slotIndex, raceHour); Rebuild(); }, 17);
-                y -= 46f;
+                if (stepW < 150f) { y -= 50f; pairW = Mathf.Min(vw, 406f); stepW = (pairW - 6f) * 0.5f; timeX = vx; }
+                StepperButton("TIME", "TIME", TimeOfDay.Label(raceHour), timeX, y, stepW, 44f,
+                    () => { raceHourPick = TimeOfDay.StepHour(S.slotIndex, raceHour); Rebuild(); });
+                TrafficStepper(t, raceTraffic, timeX + stepW + 6f, y, stepW, 44f, v => raceTrafficPick = v);
+                y -= 50f;
             }
             MenuKit.Label(body, Clip(t.blurb, 72), MenuKit.Tiny, new Vector2(0.5f, 1f),
                 new Vector2(vx, y), TextAnchor.MiddleLeft, MenuKit.Dim, vw, height: 24f);
@@ -7149,7 +7240,8 @@ namespace PSXRacing.LifeSim
             // could start a race would be the teleport the drive out replaced.
             if (!raceFromLine)
             {
-                BuildRacePlanDoor(ref y, vx, vw, venue, booked, bookedNow, raceHour);
+                BuildRacePlanDoor(ref y, vx, vw, venue, booked, bookedNow, raceHour,
+                                  TrafficLevels.VenueHasTraffic(t) ? raceTraffic : -1);
                 return;
             }
 
@@ -7171,6 +7263,7 @@ namespace PSXRacing.LifeSim
             // written in the diary with the race, and a StartRace that asked
             // for it afterwards would find no booking and run the block's own.
             int capturedHour = raceHour;
+            int capturedTraffic = TrafficLevels.VenueHasTraffic(t) ? raceTraffic : -1;
             MenuKit.Button(body, startLabel, new Vector2(0.5f, 1f), new Vector2(0f, y),
                 new Vector2(Mathf.Min(vw, 560f), 64f),
                 canRace ? (UnityEngine.Events.UnityAction)(() =>
@@ -7181,7 +7274,7 @@ namespace PSXRacing.LifeSim
                     S.trackIndex = capturedVenue;
                     if (capturedBooked) LifeRules.Unbook(S, S.day);
                     LifeSimManager.Save();
-                    StartRace(false, null, capturedHour);
+                    StartRace(false, null, capturedHour, capturedTraffic);
                 }) : null, 21, canRace ? RaceBg : MenuKit.BtnBgDisabled);
             y -= 70f;
         }
@@ -7193,7 +7286,7 @@ namespace PSXRacing.LifeSim
         /// button that looks like a bug.
         /// </summary>
         void BuildRacePlanDoor(ref float y, float vx, float vw, int venue, bool booked,
-                               RaceBooking bookedNow, int raceHour)
+                               RaceBooking bookedNow, int raceHour, int raceTraffic)
         {
             float bw = Mathf.Min(vw, 560f);
             if (booked)
@@ -7231,7 +7324,7 @@ namespace PSXRacing.LifeSim
                 canBook ? (UnityEngine.Events.UnityAction)(() =>
                 {
                     S.trackIndex = capturedVenue;
-                    LifeRules.Book(S, S.day, S.slotIndex, capturedVenue, false, raceHour);
+                    LifeRules.Book(S, S.day, S.slotIndex, capturedVenue, false, raceHour, raceTraffic);
                     LifeSimManager.Save(); Rebuild();
                     Toast("in the diary — drive out when you are ready");
                 }) : null, 19, canBook ? RaceBg : MenuKit.BtnBgDisabled);
@@ -7435,7 +7528,7 @@ namespace PSXRacing.LifeSim
         /// -1 for the block's own. The pre-race page passes the hour it SHOWED
         /// (a booking's, or the page's pick); a call-out from the RIVALS page
         /// has no page to pick on and takes the block's.</param>
-        void StartRace(bool practice = false, BlacklistRival rival = null, int hour = -1)
+        void StartRace(bool practice = false, BlacklistRival rival = null, int hour = -1, int traffic = -1)
         {
             if (!CarIsHere()) return;
             // THE VENUE MUST BE IN THIS BUILD, asked before anything is spent
@@ -7458,6 +7551,10 @@ namespace PSXRacing.LifeSim
                                    : Mathf.Clamp(S.trackIndex, 0, TrackCatalog.Count - 1);
             RaceHandoff.TimeOfDayIndex = TimeOfDay.InSlot(hour, S.slotIndex) ? hour : RaceHour();
             raceHourPick = -1;
+            // The traffic the page showed (-1: the hour's own, which is what a
+            // call-out from the RIVALS page races in).
+            RaceHandoff.TrafficLevel = TrafficLevels.Valid(traffic) ? traffic : -1;
+            raceTrafficPick = -1;
             RaceHandoff.IsPractice = practice;
             // The tank the car is actually carrying. It burns down in real time
             // out there now, and it can be topped up at the forecourt, so this

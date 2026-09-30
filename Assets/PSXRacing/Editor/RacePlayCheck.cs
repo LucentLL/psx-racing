@@ -22,13 +22,82 @@ namespace PSXRacing.EditorTools
         internal static StringBuilder log;
         internal static int failures;
 
+        /// <summary>One race of a run: where, at what traffic, which seed.</summary>
+        internal struct Job { public string venue; public string traffic; public int seed; }
+        static readonly Queue<Job> queue = new Queue<Job>();
+        internal static Job current;
+        /// <summary>More than one race in this Unity session
+        /// (PSX_RACE_MATRIX): each race's report is APPENDED to the log file
+        /// and one SUMMARY line per race goes to PSXRacing_race_matrix.txt.
+        /// </summary>
+        internal static bool matrix;
+        static int totalFailures;
+
+        static string ProjectDir => Path.GetDirectoryName(Application.dataPath);
+
         public static void Run()
         {
             EditionParking.RecoverIfNeeded();   // a killed edition build's park, back first
+            queue.Clear();
+            totalFailures = 0;
+            // PSX_RACE_MATRIX = "Venue:TRAFFIC:seed;Venue:TRAFFIC:seed;..." -
+            // every race in ONE editor session (a Unity start per race was
+            // most of the time a sweep took). Otherwise the one race the
+            // PSX_RACE_VENUE / _TRAFFIC / _SEED variables name.
+            string m = System.Environment.GetEnvironmentVariable("PSX_RACE_MATRIX");
+            if (!string.IsNullOrEmpty(m))
+            {
+                foreach (var part in m.Split(';'))
+                {
+                    var f = part.Trim().Split(':');
+                    if (f.Length == 0 || f[0].Length == 0) continue;
+                    int sd = 0;
+                    if (f.Length > 2) int.TryParse(f[2], out sd);
+                    queue.Enqueue(new Job { venue = f[0], traffic = f.Length > 1 ? f[1] : "", seed = sd });
+                }
+                matrix = true;
+                File.WriteAllText(Path.Combine(ProjectDir, "PSXRacing_race_play_check.txt"), "");
+            }
+            else
+            {
+                string id = System.Environment.GetEnvironmentVariable("PSX_RACE_VENUE");
+                int seed = 0;
+                int.TryParse(System.Environment.GetEnvironmentVariable("PSX_RACE_SEED") ?? "0", out seed);
+                queue.Enqueue(new Job
+                {
+                    venue = string.IsNullOrEmpty(id) ? "GillespieGap" : id,
+                    traffic = System.Environment.GetEnvironmentVariable("PSX_RACE_TRAFFIC") ?? "",
+                    seed = seed,
+                });
+                matrix = false;
+            }
+            StartNext();
+        }
+
+        /// <summary>The traffic level a name asks for (NONE, LIGHT, MEDIUM,
+        /// HEAVY, RUSH / RUSHHOUR, or 0-4), or -1 for the hour's own.</summary>
+        static int TrafficIndex(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return -1;
+            string n = name.Trim().ToUpperInvariant().Replace(" ", "").Replace("_", "");
+            string[] names = { "NONE", "LIGHT", "MEDIUM", "HEAVY", "RUSHHOUR" };
+            for (int i = 0; i < names.Length; i++) if (n == names[i]) return i;
+            if (n == "RUSH") return 4;
+            if (int.TryParse(n, out int k) && k >= 0 && k < names.Length) return k;
+            return -1;
+        }
+
+        static void StartNext()
+        {
+            if (queue.Count == 0)
+            {
+                EditorApplication.Exit(totalFailures == 0 ? 0 : 1);
+                return;
+            }
+            current = queue.Dequeue();
             log = new StringBuilder();
             failures = 0;
-            string id = System.Environment.GetEnvironmentVariable("PSX_RACE_VENUE");
-            if (string.IsNullOrEmpty(id)) id = "GillespieGap";
+            string id = current.venue;
             int index = -1;
             for (int i = 0; i < TrackCatalog.Count; i++)
                 if (TrackCatalog.At(i).id == id) index = i;
@@ -36,9 +105,10 @@ namespace PSXRacing.EditorTools
             int s = index >= 0 ? TrackCatalog.SceneIndex(index) : -1;
             if (s < 0 || s >= scenes.Length || !File.Exists(scenes[s].path))
             {
+                log.AppendLine("race on " + id + ":");
                 Check(false, "the venue " + id + " is built");
                 Finish();
-                EditorApplication.Exit(1);
+                StartNext();
                 return;
             }
             log.AppendLine("race on " + id + ":");
@@ -58,11 +128,21 @@ namespace PSXRacing.EditorTools
                     hourIdx = h;
             RaceHandoff.TimeOfDayIndex = hourIdx;
             log.AppendLine("  hour " + TimeOfDay.All[hourIdx].name);
+            // THE TRAFFIC LEVEL (the owner's per-race toggle), by reflection so
+            // this harness also runs against a build from before it existed -
+            // the BASELINE a change is measured against. Absent there, the
+            // hour's own traffic runs, and the log says so.
+            int lvl = TrafficIndex(current.traffic);
+            var fld = typeof(RaceHandoff).GetField("TrafficLevel",
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            if (fld != null) fld.SetValue(null, lvl);
+            log.AppendLine("  traffic " + (lvl < 0 ? "by the hour" : current.traffic.ToUpperInvariant()) +
+                           (fld == null ? " (this build has no traffic setting: the hour's own)" : ""));
             var cars = CarCatalog.All;
             // Four cars of a price, like a booked race: the player's and the
             // next three in the catalog.
-            int seed = 0;
-            int.TryParse(System.Environment.GetEnvironmentVariable("PSX_RACE_SEED") ?? "0", out seed);
+            int seed = current.seed;
+            log.AppendLine("  seed " + seed);
             int b = Mathf.Clamp(20 + seed * 7, 0, cars.Count - 5);
             RaceHandoff.CarSpecId = cars[b].id;
             RaceHandoff.OpponentSpecIds = cars[b + 1].id + ";" + cars[b + 2].id + ";" + cars[b + 3].id;
@@ -91,9 +171,39 @@ namespace PSXRacing.EditorTools
         internal static void Finish()
         {
             log.AppendLine(failures == 0 ? "RACE CHECK OK." : failures + " FAILURE(S).");
-            File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath),
-                                           "PSXRacing_race_play_check.txt"), log.ToString());
+            totalFailures += failures;
+            string path = Path.Combine(ProjectDir, "PSXRacing_race_play_check.txt");
+            if (matrix) File.AppendAllText(path, log.ToString() + "\n");
+            else File.WriteAllText(path, log.ToString());
             Debug.Log(log.ToString());
+        }
+
+        /// <summary>One machine-readable line per race (the sweep's table).</summary>
+        internal static void Summary(string line)
+        {
+            log.AppendLine("SUMMARY " + line);
+            File.AppendAllText(Path.Combine(ProjectDir, "PSXRacing_race_matrix.txt"), line + "\n");
+        }
+
+        /// <summary>This race is over: the next one, or the exit.</summary>
+        internal static void Done()
+        {
+            Finish();
+            if (!matrix || queue.Count == 0)
+            {
+                EditorApplication.Exit(totalFailures == 0 ? 0 : 1);
+                return;
+            }
+            EditorApplication.playModeStateChanged += OnExited;
+            EditorApplication.ExitPlaymode();
+        }
+
+        static void OnExited(PlayModeStateChange st)
+        {
+            if (st != PlayModeStateChange.EnteredEditMode) return;
+            EditorApplication.playModeStateChanged -= OnExited;
+            // A frame for the editor to settle before the next scene opens.
+            EditorApplication.delayCall += StartNext;
         }
     }
 
@@ -101,6 +211,18 @@ namespace PSXRacing.EditorTools
     {
         RaceManager rm;
         float t0;
+        bool headless;
+
+        /// <summary>Every camera off, twice a second (the replay's and the
+        /// HUD overlay's come and go).</summary>
+        IEnumerator CamerasOff()
+        {
+            while (true)
+            {
+                foreach (var c in Camera.allCameras) if (c != null) c.enabled = false;
+                yield return new WaitForSecondsRealtime(0.5f);
+            }
+        }
 
         IEnumerator Start()
         {
@@ -117,9 +239,30 @@ namespace PSXRacing.EditorTools
             RaceManager.Respawned += OnRespawn;
             // Repeatable per seed: the traffic laid at the green and the race's
             // incident roll both draw from here.
-            int seedN = 0;
-            int.TryParse(System.Environment.GetEnvironmentVariable("PSX_RACE_SEED") ?? "0", out seedN);
+            int seedN = RacePlayCheck.current.seed;
             Random.InitState(9173 + seedN * 101);
+            // PSX_RACE_TIMESCALE=3: the race in a third of the wall-clock time.
+            // Physics keeps its fixed step (more steps per frame), so the
+            // driving is the same; only the waiting goes.
+            float scale = 1f;
+            float.TryParse(System.Environment.GetEnvironmentVariable("PSX_RACE_TIMESCALE") ?? "1", out scale);
+            Time.timeScale = Mathf.Clamp(scale, 0.25f, 8f);
+            if (Time.timeScale > 1f) Time.maximumDeltaTime = 0.1f * Time.timeScale;
+            RacePlayCheck.Note($"  time scale x{Time.timeScale:0.#}");
+            // NO GRAPHICS DEVICE (-nographics): nothing can be drawn, and URP
+            // logged "RenderTexture.Create failed" with a stack every frame -
+            // 1.9 GB of raceplay.log in four races at an unpaced frame rate.
+            // Cameras off (the race does not need them) and the frame rate
+            // paced to 60 game-frames a second, so the per-frame half of the
+            // game (lap counting, the HUD's clocks) steps as it does on a
+            // screen.
+            headless = SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null;
+            if (headless)
+            {
+                QualitySettings.vSyncCount = 0;
+                Application.targetFrameRate = Mathf.RoundToInt(60f * Time.timeScale);
+                StartCoroutine(CamerasOff());
+            }
             float until = Time.realtimeSinceStartup + 15f;
             while (rm.State == RaceManager.RaceState.Countdown && Time.realtimeSinceStartup < until) yield return null;
             RacePlayCheck.Check(rm.State == RaceManager.RaceState.Racing, "the race goes live", rm.State);
@@ -232,7 +375,10 @@ namespace PSXRacing.EditorTools
             CollisionResponder.HitReported -= OnHit;
             CollisionResponder.HitReportedOn -= OnHitOn;
             RaceManager.Respawned -= OnRespawn;
-            ReportEye();
+            // The eye's adaptation is a picture's: with no device and the
+            // cameras off there is nothing to adapt to.
+            if (headless) RacePlayCheck.Note("THE EYE (C10): not traced (no graphics device; cameras off)");
+            else ReportEye();
             float raced = Time.time - t0;
             int rivals = 0;
             foreach (var c in rm.allCars)
@@ -311,7 +457,153 @@ namespace PSXRacing.EditorTools
                 RacePlayCheck.Check(worstWrong <= 2f, "no car drives the wrong way for more than 2 s",
                                     worstWrong > 0f ? wrongWho + " " + worstWrong.ToString("0.0") + " s" : "none");
             }
+            ReportTraffic(retiredAt, finishedAt, raced);
             Done();
+        }
+
+        // ------------------------------------------------------------------
+        //  RACERS IN TRAFFIC (2026-09-30): "AI really struggles to pass when
+        //  there is heavy traffic". Measured from the outside - positions and
+        //  velocities only - so the same numbers come off a build from before
+        //  any change (the baseline) and after it.
+        // ------------------------------------------------------------------
+
+        /// <summary>Per racer and traffic car: the signed along-road gap last
+        /// sample (+ = the traffic car is ahead).</summary>
+        readonly Dictionary<(Object, Object), float> passGap = new Dictionary<(Object, Object), float>();
+        readonly Dictionary<Object, int> hintOf = new Dictionary<Object, int>();
+        /// <summary>Per car name: passes on the left over the centreline, on the
+        /// left inside its own lane, on the right; seconds held up behind
+        /// traffic (following in its lane at its speed or less).</summary>
+        readonly Dictionary<string, int> passL = new Dictionary<string, int>(), passLane = new Dictionary<string, int>(),
+                                         passR = new Dictionary<string, int>();
+        readonly Dictionary<string, float> stuckS = new Dictionary<string, float>();
+        int maxTraffic, trafficHitsRivals, trafficHitsPlayer, headOns, hardTrafficHitsRivals;
+        float lastPassSample;
+        readonly List<string> headOnLines = new List<string>();
+
+        int HintFor(Object o, Vector3 p)
+        {
+            if (!hintOf.TryGetValue(o, out int h)) h = -1;
+            h = rm.path.NearestIndex(p, h);
+            hintOf[o] = h;
+            return h;
+        }
+
+        float LatAt(Vector3 p, int i)
+        {
+            Vector3 r = Vector3.Cross(Vector3.up, rm.path.GetTangent(i)).normalized;
+            return Vector3.Dot(p - rm.path.GetPoint(i), r);
+        }
+
+        /// <summary>Ten times a (game) second: who passed whom and on which
+        /// side, and who is sitting behind traffic.</summary>
+        void SamplePasses()
+        {
+            var ts = TrafficSystem.Instance;
+            if (ts == null || rm.State != RaceManager.RaceState.Racing) return;
+            maxTraffic = Mathf.Max(maxTraffic, ts.Obstacles.Count);
+            float total = rm.path.TotalLength;
+            bool loop = !rm.path.HasEnds;
+            float dtS = Time.fixedTime - lastPassSample;
+            foreach (var c in rm.allCars)
+            {
+                if (c == null || c.Body == null) continue;
+                var p = rm.GetProgress(c);
+                if (p == null || p.finished || p.retired) continue;
+                int ci = HintFor(c, c.transform.position);
+                float cs = ci * rm.path.spacing;
+                float cLat = LatAt(c.transform.position, ci);
+                float cv = c.forwardSpeed;
+                bool held = false;
+                foreach (var rb in ts.Obstacles)
+                {
+                    if (rb == null || !rb.gameObject.activeInHierarchy) continue;
+                    int ti = HintFor(rb, rb.position);
+                    Vector3 tan = rm.path.GetTangent(ti);
+                    float along = Vector3.Dot(rb.linearVelocity, tan);
+                    var key = ((Object)c, (Object)rb);
+                    // Same-direction, driving traffic only: an oncoming car is
+                    // met, not passed; a wreck is scenery.
+                    if (rb.useGravity || along < 1f) { passGap.Remove(key); continue; }
+                    float d = ti * rm.path.spacing - cs;
+                    if (loop) { if (d > total * 0.5f) d -= total; else if (d < -total * 0.5f) d += total; }
+                    float tLat = LatAt(rb.position, ti);
+                    if (passGap.TryGetValue(key, out float was) && Mathf.Abs(d - was) < 20f && was >= 0f && d < 0f && cv > along)
+                    {
+                        // Drawn level and gone by: the side is where the racer
+                        // was at the moment it went past.
+                        string n = c.name;
+                        if (cLat > tLat) passR[n] = (passR.TryGetValue(n, out int k) ? k : 0) + 1;
+                        else if (cLat >= 0.5f) passLane[n] = (passLane.TryGetValue(n, out int k2) ? k2 : 0) + 1;
+                        else passL[n] = (passL.TryGetValue(n, out int k3) ? k3 : 0) + 1;
+                    }
+                    passGap[key] = d;
+                    // Held up: in its lane, 4-40 m behind it, no faster than it.
+                    if (d > 4f && d < 40f && Mathf.Abs(cLat - tLat) < 1.6f && cv <= along + 1f) held = true;
+                }
+                if (held) stuckS[c.name] = (stuckS.TryGetValue(c.name, out float s) ? s : 0f) + dtS;
+            }
+            lastPassSample = Time.fixedTime;
+        }
+
+        void ReportTraffic(Dictionary<CarController, float> retiredAt, Dictionary<CarController, float> finishedAt, float raced)
+        {
+            var car = rm.playerCar;
+            int pl = 0, pln = 0, pr = 0, rivals = 0, retiredTraffic = 0;
+            float stuckSum = 0f, stuckMax = 0f;
+            var parts = new List<string>();
+            foreach (var c in rm.allCars)
+            {
+                if (c == null) continue;
+                string n = c.name;
+                passL.TryGetValue(n, out int l); passLane.TryGetValue(n, out int ln); passR.TryGetValue(n, out int r);
+                stuckS.TryGetValue(n, out float st);
+                parts.Add($"{n}{(c == car ? "*" : "")} L{l}/lane{ln}/R{r} held {st:0}s");
+                if (c == car) continue;
+                rivals++;
+                pl += l; pln += ln; pr += r;
+                stuckSum += st; stuckMax = Mathf.Max(stuckMax, st);
+                if (retiredAt.ContainsKey(c))
+                {
+                    var resp = c.GetComponent<CollisionResponder>();
+                    if (resp != null && resp.WorstHitWhat != null && resp.WorstHitWhat.StartsWith("Traffic")) retiredTraffic++;
+                }
+            }
+            RacePlayCheck.Note("PASSES (L over the line / L inside its own lane / R on the verge) and seconds held up: " +
+                               string.Join("; ", parts));
+            foreach (var h in headOnLines) RacePlayCheck.Note(h);
+            // The RIVALS' spread: the autopilot player drives in the middle of
+            // the traffic window (traffic is born round the player), and its
+            // finish says more about that than about the field.
+            float spread = -1f, first = float.MaxValue, last = float.MinValue;
+            int rivalsHome = 0;
+            foreach (var kv in finishedAt)
+            {
+                if (kv.Key == car) continue;
+                rivalsHome++;
+                first = Mathf.Min(first, kv.Value); last = Mathf.Max(last, kv.Value);
+            }
+            if (rivalsHome >= 2) spread = last - first;
+            passL.TryGetValue(car.name, out int ppl); passLane.TryGetValue(car.name, out int ppn);
+            passR.TryGetValue(car.name, out int ppr); stuckS.TryGetValue(car.name, out float pst);
+            var ts = TrafficSystem.Instance;
+            int wrecksByRivals = 0;
+            if (ts != null)
+                foreach (var w in ts.WreckLog)
+                    foreach (var c in rm.allCars)
+                        if (c != null && c != car && w.Contains(c.name)) { wrecksByRivals++; break; }
+            string venue = RacePlayCheck.current.venue;
+            string lvl = string.IsNullOrEmpty(RacePlayCheck.current.traffic) ? "HOUR" : RacePlayCheck.current.traffic.ToUpperInvariant();
+            RacePlayCheck.Summary($"{venue,-18} {lvl,-9} seed {RacePlayCheck.current.seed} | raced {raced:0}s | " +
+                                  $"passes L {pl} lane {pln} R {pr} | held avg {(rivals > 0 ? stuckSum / rivals : 0f):0}s max {stuckMax:0}s | " +
+                                  $"traffic hits rivals {trafficHitsRivals} (hard {hardTrafficHitsRivals}) player {trafficHitsPlayer} | " +
+                                  $"head-ons {headOns} | retired {retiredAt.Count} (traffic {retiredTraffic}) | " +
+                                  $"wrecks by rivals {wrecksByRivals} | rivals home {rivalsHome}/{rivals} spread {(spread >= 0f ? spread.ToString("0") + "s" : "-")} | " +
+                                  $"player L{ppl}/lane{ppn}/R{ppr} held {pst:0}s{(finishedAt.ContainsKey(car) ? "" : " DNF")} | " +
+                                  $"max traffic {maxTraffic} | fails {RacePlayCheck.failures}");
+            // NONE means none: nothing on the road, the whole race.
+            if (lvl == "NONE") RacePlayCheck.Check(maxTraffic == 0, "TRAFFIC NONE: not one traffic car on the road", maxTraffic);
         }
 
         /// <summary>Per car, the last 3 s: time, lateral (m right of the
@@ -321,6 +613,7 @@ namespace PSXRacing.EditorTools
         void FixedUpdate()
         {
             if (rm == null || rm.path == null || t0 <= 0f) return;
+            if (Time.fixedTime - lastPassSample >= 0.1f) SamplePasses();
             if (Time.fixedTime - lastTrail < 0.25f) return;
             lastTrail = Time.fixedTime;
             foreach (var c in rm.allCars)
@@ -343,6 +636,7 @@ namespace PSXRacing.EditorTools
                            $" st {c.steerInput:+0.00;-0.00} sl {slip:+0;-0} hd {head:+0;-0} vx {vAcross:+0.0;-0.0}" +
                            (ai != null ? $" line {ai.DebugLine:+0.0;-0.0} bias {ai.DebugBias:+0.0;-0.0}" +
                                          (float.IsNegativeInfinity(ai.DebugLeftLimit) ? "" : $" LIM {ai.DebugLeftLimit:+0.0;-0.0}") +
+                                         PassNote(ai) +
                                          // pedals, gear, and what the give-way asked for
                                          $" th {c.throttleInput:0.00} br {c.brakeInput:0.00} g {c.currentGear}" +
                                          (ai.DebugLift > 0f || ai.DebugTrafficBrake > 0f
@@ -354,6 +648,20 @@ namespace PSXRacing.EditorTools
             }
         }
         float lastTrail;
+
+        /// <summary>The pass this tick for the trail (" pass R VERGE"), read by
+        /// reflection so the harness still builds against a baseline from
+        /// before AIDriver.DebugPassSide existed.</summary>
+        static readonly System.Reflection.PropertyInfo passSideProp = typeof(AIDriver).GetProperty("DebugPassSide");
+        static readonly System.Reflection.PropertyInfo onVergeProp = typeof(AIDriver).GetProperty("DebugOnVerge");
+        static string PassNote(AIDriver ai)
+        {
+            if (passSideProp == null || ai == null) return "";
+            int side = (int)passSideProp.GetValue(ai);
+            if (side == 0) return "";
+            bool verge = onVergeProp != null && (bool)onVergeProp.GetValue(ai);
+            return " pass " + (side < 0 ? "L" : "R") + (verge ? " VERGE" : "");
+        }
         /// <summary>Each car's pose at its last trail sample (the recovery
         /// note looks round where the car WAS, not where it was put).</summary>
         readonly Dictionary<string, (Vector3 pos, Quaternion rot)> lastPose = new Dictionary<string, (Vector3, Quaternion)>();
@@ -398,6 +706,19 @@ namespace PSXRacing.EditorTools
             kindCount[kind] = kindCount.TryGetValue(kind, out int k) ? k + 1 : 1;
             kinds.Clear();
             foreach (var kv in kindCount) kinds.Add(kv.Key + " " + kv.Value);
+            if (kind == "traffic")
+            {
+                bool isPlayer = who.GetComponentInParent<CarController>() == rm.playerCar;
+                if (isPlayer) trafficHitsPlayer++;
+                else { trafficHitsRivals++; if (speed >= 10f) hardTrafficHitsRivals++; }
+                // HEAD-ON: the traffic car was coming at us.
+                var orb = lastHitOther != null ? lastHitOther.GetComponentInParent<Rigidbody>() : null;
+                if (orb != null && Vector3.Dot(orb.linearVelocity, who.transform.forward) < -3f)
+                {
+                    headOns++;
+                    headOnLines.Add($"HEAD-ON {who.name} at {Time.time - t0:0}s, {speed:0.0} m/s into {what}");
+                }
+            }
             if (speed < 10f) return;
             // The three seconds before a hard hit, for the car that took it.
             if (speed >= 15f && trail.TryGetValue(who.name, out var tr))
@@ -530,8 +851,14 @@ namespace PSXRacing.EditorTools
 
         void Done()
         {
-            RacePlayCheck.Finish();
-            EditorApplication.Exit(RacePlayCheck.failures == 0 ? 0 : 1);
+            Time.timeScale = 1f;
+            Time.maximumDeltaTime = 1f / 3f;
+            Application.targetFrameRate = -1;
+            StopAllCoroutines();
+            CollisionResponder.HitReported -= OnHit;
+            CollisionResponder.HitReportedOn -= OnHitOn;
+            RaceManager.Respawned -= OnRespawn;
+            RacePlayCheck.Done();
         }
     }
 }

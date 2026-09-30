@@ -530,6 +530,38 @@ namespace PSXRacing.EditorTools
                 Shoot(outDir, "main_plan_open", "main", mustFit: true, sizes: EditionSizes,
                       calDay: st.day + 4, calSlot: LifeRules.DaySlot);
 
+                // THE TRAFFIC SETTING (owner, 2026-09-30: "a toggle to
+                // determine traffic amount for each race (none, light, medium,
+                // heavy, rush hour)"), everywhere a race is set up: the planner
+                // with RUSH HOUR picked (the longest value, on the half-width
+                // stepper, in the column that must not scroll), the pre-race
+                // page booked (the stepper at the end of the diary line), open
+                // with HEAVY, from the zone line (GO RACING, the launcher), and
+                // on a drag strip (ROAD CLOSED, dead).
+                Shoot(outDir, "main_plan_traffic", "main", mustFit: true, sizes: EditionSizes,
+                      calDay: st.day + 4, calSlot: LifeRules.DaySlot,
+                      fields: new (string, object)[] { ("calTraffic", TrafficLevels.RushHour) });
+                st.slotIndex = LifeRules.NightSlot;
+                LifeRules.SetBookingTraffic(LifeRules.BookingAt(st, st.day, LifeRules.NightSlot), TrafficLevels.RushHour);
+                LifeSimManager.Save();
+                Shoot(outDir, "main_prerace_traffic_booked", "prerace", sizes: EditionSizes);
+                st.slotIndex = 0;
+                LifeSimManager.Save();
+                Shoot(outDir, "main_prerace_traffic_open", "prerace", sizes: EditionSizes,
+                      fields: new (string, object)[] { ("raceTrafficPick", TrafficLevels.Heavy) });
+                Shoot(outDir, "main_prerace_traffic_line", "prerace", sizes: EditionSizes,
+                      fields: new (string, object)[] { ("raceFromLine", true), ("raceTrafficPick", TrafficLevels.RushHour) });
+                int stripVenue = TrackCatalog.IndexOf("DragQuarter");
+                int keepVenue = st.trackIndex;
+                st.trackIndex = stripVenue;
+                LifeSimManager.Save();
+                Shoot(outDir, "main_prerace_traffic_strip", "prerace", sizes: EditionSizes);
+                Shoot(outDir, "main_plan_traffic_strip", "main", mustFit: true, sizes: EditionSizes,
+                      calDay: st.day + 4, calSlot: LifeRules.DaySlot,
+                      fields: new (string, object)[] { ("calVenue", stripVenue) });
+                st.trackIndex = keepVenue;
+                LifeSimManager.Save();
+
                 // THE OWNER'S OLD SAVE, loaded by MAIN: a race booked at Tryon
                 // and a blacklist series live on the Tryon road - the toast on
                 // the first screen and the RECENTLY lines it leaves
@@ -851,7 +883,7 @@ namespace PSXRacing.EditorTools
                           string garageCar = null,
                           (string name, int w, int h)[] sizes = null,
                           string cityPage = null, string cityMake = null,
-                          System.Action before = null)
+                          System.Action before = null, (string name, object value)[] fields = null)
         {
             foreach (var size in sizes ?? Sizes)
             {
@@ -892,6 +924,8 @@ namespace PSXRacing.EditorTools
                 }
 
                 if (garageCar != null) SetField(screen, "garageCarId", garageCar);
+                // Any other page state, by name, before the page is built.
+                if (fields != null) foreach (var f in fields) SetField(screen, f.name, f.value);
 
                 // Same trick, one level down: the setup screen's sub-page is
                 // internal state, and switching it after Start would stack two

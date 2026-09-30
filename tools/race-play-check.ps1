@@ -6,7 +6,12 @@
 #   ... -Venue ChimneyRock -Seconds 600 -Finish -MaxMinutes 30   (the whole race: every rival home)
 #   ...  -Edition MAIN   plays it AS the MAIN edition (Scripts/Edition.cs): the
 #                        runtime's filters and door rules are MAIN's. ALL by default.
-param([string]$Venue = "GillespieGap", [int]$Seconds = 150, [int]$Seed = 0, [string]$Hour = "morning", [string]$Mistake = "", [switch]$NoWatch, [int]$MaxMinutes = 20, [switch]$Finish, [string]$Edition = "ALL")
+#   ...  -Traffic HEAVY  the race's traffic setting: NONE, LIGHT, MEDIUM, HEAVY or
+#                        RUSH (RUSH HOUR); empty = the hour's own (what a delivery gets).
+#   ...  -TimeScale 3    the race at 3x game speed (physics keeps its fixed step).
+#   ...  -Matrix "BlueRidge:HEAVY:0;CityCircuit:RUSH:1"  several races in ONE editor
+#                        session; one SUMMARY line each in PSXRacing_race_matrix.txt.
+param([string]$Venue = "GillespieGap", [int]$Seconds = 150, [int]$Seed = 0, [string]$Hour = "morning", [string]$Mistake = "", [switch]$NoWatch, [int]$MaxMinutes = 20, [switch]$Finish, [string]$Edition = "ALL", [string]$Traffic = "", [double]$TimeScale = 1, [string]$Matrix = "")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
@@ -16,6 +21,10 @@ foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor")) {
     robocopy "$src\$d" "$proj\$d" /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
 }
 Remove-Item "$proj\PSXRacing_race_play_check.txt" -ErrorAction SilentlyContinue
+Remove-Item "$proj\PSXRacing_race_matrix.txt" -ErrorAction SilentlyContinue
+$env:PSX_RACE_TRAFFIC = $Traffic
+$env:PSX_RACE_TIMESCALE = "$TimeScale"
+$env:PSX_RACE_MATRIX = $Matrix
 $env:PSX_RACE_VENUE = $Venue
 $env:PSX_RACE_SECONDS = "$Seconds"
 $env:PSX_RACE_SEED = "$Seed"
@@ -33,7 +42,8 @@ Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\raceplay.lo
     "-executeMethod","PSXRacing.EditorTools.RacePlayCheck.Run",
     "-logFile","$proj\raceplay.log","-accept-apiupdate") | Out-Null
 Select-String -Path "$proj\raceplay.log" -Pattern "error CS" | Select-Object -First 10 | ForEach-Object { $_.Line }
-if (Test-Path "$proj\PSXRacing_race_play_check.txt") { Get-Content "$proj\PSXRacing_race_play_check.txt"; exit 0 }
+if (Test-Path "$proj\PSXRacing_race_matrix.txt") { "=== MATRIX ==="; Get-Content "$proj\PSXRacing_race_matrix.txt" }
+if (Test-Path "$proj\PSXRacing_race_play_check.txt") { if (-not $Matrix) { Get-Content "$proj\PSXRacing_race_play_check.txt" }; exit 0 }
 "NO REPORT. Tail of raceplay.log:"
 Get-Content "$proj\raceplay.log" -Tail 30
 exit 1

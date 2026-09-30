@@ -57,6 +57,15 @@
         /// contract the bench keeps for the car.
         /// </summary>
         public static int WeatherOverride = -1;
+        /// <summary>
+        /// How much traffic this race has, as a <see cref="TrafficLevels"/>
+        /// level (NONE .. RUSH HOUR), or -1 for the level the HOUR puts on the
+        /// road (<see cref="TrafficLevels.ForHour"/>) - what a delivery, a
+        /// test drive, a call-out and a standalone editor race get. The
+        /// pre-race page sets it from the booking or its own pick; it rides
+        /// with the request (ClearAll resets it) and survives a RESTART RACE.
+        /// </summary>
+        public static int TrafficLevel = -1;
         /// <summary>Which circuit, as an index into
         /// <see cref="TrackCatalog.All"/>. The scene is loaded from this, so it
         /// is the one field that decides where the car ends up.</summary>
@@ -404,6 +413,7 @@
             PurseWin = PurseSecond = PurseThird = 0;
             TimeOfDayIndex = TimeOfDay.Sunset; TrackIndex = 0; IsPractice = false;
             WeatherOverride = -1;
+            TrafficLevel = -1;
             FreeRoam = false; FreeRoamPlace = null;
             ArriveOnFoot = false; NoCar = false;
             Delivery = false; DeliveryPay = 0; Solo = false;
