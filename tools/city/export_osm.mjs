@@ -575,6 +575,7 @@ const SPLITS = findSplits(edges, nodes);
     console.log(`WP-11 fillets: ${f.strands} strands (${f.closed} closed loops held at one node), ${f.vertices} vertices, ${f.filleted} filleted, ${f.merged} short-tangent pairs fitted as one curve; ${f.junctionsFilleted} mitred junctions filleted across (${f.armsFollowed} arms followed their node); ` +
                 `${f.tight} under their class floor (listed), ${f.overEmax} past their class Emax (listed); 2-arm nodes moved ${f.nodesMoved} (median ${f.nodeMoveMedian} m, max ${f.nodeMoveMax} m); ` +
                 `points ${f.pointsBefore} -> ${f.pointsAfter}; edge ends off their node before: ${st.fillet_end_gap_m} m`);
+    console.log(`WP-11 fillets (review 2026-09-30): ${f.lone} lone vertices left as vertices (net turn within 10 m under 8 eps / 10 m), ${f.held} near-U-turn nodes held (bend slab, not a fold), ${f.oneWayClash} one-way pairs meeting nose to nose not run across; free vertices still under half width + ${SR.InnerEdgeMinRM} m: ${f.foldFree} (listed)`);
   }
   console.log(`WP-11 C11 split nodes (an undivided road opening into its two carriageways; section SPLT for the line model): ${SPLITS.length}`);
   console.log(`WP-10 tagged nodes: ${st.tagged_nodes} recorded on the raw ways, ${st.tagged_projected.nodes} projected (max move ${st.tagged_projected.moved_max_m} m)`);

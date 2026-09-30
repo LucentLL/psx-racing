@@ -365,6 +365,18 @@ namespace PSXRacing.City
                         if (slots.TryGetValue(CellKey(cx, cz), out int s))
                             for (int i = starts[s], end = starts[s + 1]; i < end; i++) outSegs.Add(entries[i]);
             }
+            /// <summary>The same, keeping only road segments whose box meets
+            /// the rectangle (<see cref="CityMap.EdgeSegsNear"/>).</summary>
+            public void Query(Vector2 min, Vector2 max, HashSet<int> outSegs, CityMap map)
+            {
+                int x0 = Mathf.FloorToInt(min.x / cell), x1 = Mathf.FloorToInt(max.x / cell);
+                int z0 = Mathf.FloorToInt(min.y / cell), z1 = Mathf.FloorToInt(max.y / cell);
+                for (int cx = x0; cx <= x1; cx++)
+                    for (int cz = z0; cz <= z1; cz++)
+                        if (slots.TryGetValue(CellKey(cx, cz), out int s))
+                            for (int i = starts[s], end = starts[s + 1]; i < end; i++)
+                                if (map.SegMeets(entries[i], min, max)) outSegs.Add(entries[i]);
+            }
         }
         /// <summary>Ravines hash on coarser cells: 1,545 small streams on
         /// 64 m cells were 29,000 lists; only the ground carve and
@@ -840,6 +852,26 @@ namespace PSXRacing.City
         /// <summary>Visit every (edge, segment) whose segment's cells overlap
         /// the world-space rectangle, deduplicated per edge-segment.</summary>
         public void EdgeSegsInRect(Vector2 min, Vector2 max, HashSet<int> outSegs) => segCells.Query(min, max, outSegs);
+
+        /// <summary><see cref="EdgeSegsInRect"/> less every segment whose own
+        /// box misses the rectangle (a segment wholly beyond it in x or z),
+        /// in the same order. For point queries that ignore a segment further
+        /// than the rectangle's half size (the ground's corridors, the
+        /// squeeze): the same answer from a fraction of the candidates. A
+        /// 64 m cell hands a 100 m ground query up to 192 m square of
+        /// segments, and WP-11's arcs put twice the segments in each
+        /// (review 2026-09-30: tile p95 +50%).</summary>
+        public void EdgeSegsNear(Vector2 min, Vector2 max, HashSet<int> outSegs) => segCells.Query(min, max, outSegs, this);
+
+        /// <summary>Does segment (edge, seg) of <paramref name="packed"/> have
+        /// its plan box within the rectangle?</summary>
+        internal bool SegMeets(int packed, Vector2 min, Vector2 max)
+        {
+            var P = edges[packed >> 12].pts;
+            int si = packed & 0xFFF;
+            Vector2 a = P[si], b = P[si + 1];
+            return !(Mathf.Max(a.x, b.x) < min.x || Mathf.Min(a.x, b.x) > max.x || Mathf.Max(a.y, b.y) < min.y || Mathf.Min(a.y, b.y) > max.y);
+        }
 
         public void WaterSegsInRect(Vector2 min, Vector2 max, HashSet<int> outSegs) => waterCells.Query(min, max, outSegs);
 

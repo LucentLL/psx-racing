@@ -1979,7 +1979,8 @@ namespace PSXRacing.City
             segScratch ??= new HashSet<int>();
             segScratch.Clear();
             float reachR = MaxCorridorHalf + CorridorBlend;
-            map.EdgeSegsInRect(new Vector2(x - reachR, z - reachR), new Vector2(x + reachR, z + reachR), segScratch);
+            // only segments within the reach can pin: every other one fails the corridor test below
+            map.EdgeSegsNear(new Vector2(x - reachR, z - reachR), new Vector2(x + reachR, z + reachR), segScratch);
 
             float wSum = 0f, tSum = 0f, wMax = 0f, tMin = float.MaxValue, floorMax = float.MinValue;
             float deckProtect = float.MaxValue, deckCap = float.MaxValue;

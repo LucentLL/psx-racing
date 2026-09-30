@@ -627,13 +627,13 @@ export function lineClean(ctx) {
     if (process.env.PSX_FILLET_DUMP) {
       // the graph as the fillet step gets it, for iterating on lib/fillet.mjs alone
       writeFileSync(process.env.PSX_FILLET_DUMP, JSON.stringify({
-        nodes, edges: edges.map(e => ({ id: e.id, a: e.a, b: e.b, pts: e.pts, len: e.len, hw: hwOf(e), way: { link: e.way.link, rank: e.way.rank }, pw: profOf(e).width,
+        nodes, edges: edges.map(e => ({ id: e.id, a: e.a, b: e.b, pts: e.pts, len: e.len, hw: hwOf(e), way: { link: e.way.link, rank: e.way.rank, oneway: e.way.oneway }, pw: profOf(e).width,
           rf: Math.max(F.rMinFor(RANK[e.way.rank] + (e.way.link ? '_link' : '')), hwOf(e) + F.innerEdgeMinR), em: emaxOf(e.way) })) }));
     }
     const out = filletGraph(edges, nodes, {
       rFloor: e => Math.max(F.rMinFor(RANK[e.way.rank] + (e.way.link ? '_link' : '')), hwOf(e) + F.innerEdgeMinR),
       emax: e => emaxOf(e.way), hw: hwOf,
-      eps: F.eps, chordCap: F.chordCap, collinearDeg: F.collinearDeg,
+      eps: F.eps, chordCap: F.chordCap, collinearDeg: F.collinearDeg, innerMin: F.innerEdgeMinR,
       through: mitredThrough(edges, nodes, e => profOf(e).width / 2),
     });
     stats.fillet = out.stats;

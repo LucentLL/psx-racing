@@ -1545,6 +1545,61 @@ lines.
   C3), and the chain's head is its end with the lower (x, z), so the phase
   never depends on edge order (probe L1).
 
+**WP-11 review fixes (2026-09-30).** Two majors from the review:
+
+- **Near U-turns folded.** A strand ran through every 2-arm node, including
+  the two I-85 nodes where a carriageway and its ramp meet nose to nose (both
+  arriving, both leaving), and the departure cap max(Emax, hw) left a near
+  U-turn's radius under the half width: R 1.2 m and R 3.8 m hairpins on a
+  9.4 m half width, nodes moved 10.3 m and 8.4 m, and bend slabs became
+  folded mitres (Wynfield Creek Pkwy, Reedy Creek Rd, a primary link, Old
+  Charlotte Hwy). Now two one-way arms that both arrive or both leave are
+  not run across (4 pairs), and an interior node whose fillet cannot keep the
+  inner edge at half width + 3 m is HELD (42): the strand splits there, the
+  node stays mapped, both legs keep their direction and the builder draws
+  the bend slab it drew before WP-11. All six named spots are held (node
+  moves 0), the largest node move is 4.3 m (was 10.3), the gate's worst B3
+  is R 3.2-3.3 m (was R 1.2 m: x27.2 offline and x46.7 mesh, both from
+  x128.8), worst A3 1.69 m (was 3.05). Left: 29 bend fans (0 on f1e139e, 109
+  before WP-11) and 137 free vertices (inside one OSM way) still under half
+  width + 3 m, listed in the export log (raw mitres before WP-11).
+- **Tile build cost.** Profiled per phase (a sandbox-only stopwatch build of
+  CityBudgetProbe), the time went where the points went: the verge solves
+  (DropAt / SolveStrip / ClearRun), the ground's corridor query, the squeeze
+  and the outline scans all walk segments or spans, and 2.45x the points
+  put twice the segments in every 64 m cell and hundreds of spans in a long
+  freeway outline. Three fixes, the first two exact (same output):
+  `CityMap.EdgeSegsNear` drops the cell's segments whose box misses the
+  query (the ground's 100 m corridor query and the squeeze's 64 m one, which
+  ignore anything further); `Outline` keeps a box per 16 spans and every hot
+  outline scan (ClearRun, MeetPavement, PavementAt, PavementAlong,
+  OutlineHeightAt, InsideDeep, the strip seam, the footprint clearance) skips
+  the blocks nowhere near it; and the fillet leaves LONE vertices alone
+  (where the line turns 0.92 degrees or less in all within 10 m either side,
+  the gate's own lone-vertex facet is within eps): 44,238 corners, points
+  452,643 -> 409,241, charlotte_city.bytes 5.88 -> 5.53 MB raw (3.67 -> 3.42
+  MB Brotli). Summed build phases over the probe's 226 tiles: WP-10 5.46 s,
+  f1e139e 8.68 s, now 7.23 s. `CityBudgetProbe` interleaved in PSXCity (the
+  WP-10 tree 2398767 against this one, A B A B): p95 60.1 / 59.4 ms against
+  90.9 / 97.6 ms, **+58%, still over WP-11's +25% trigger**: by the plan's
+  own rule WP-09 (time-sliced tile build) joins R4, to be confirmed on the
+  phone reading (critic C29). By site: dilworth 55 -> 97-101 ms (curvy
+  streets: arcs at 1.5-2 m chords, each a section with its own verge
+  solves), i77_north 44-50 -> 69-71, i485_south 130 -> 167, trade_tryon 86 ->
+  103-114; providence fell 64-66 -> 48-49. The map heap reading swings 20.7-
+  28.6 MB between identical runs; the points' own arrays (Vector2 + arc
+  float) grow by 224k x 12 B = +2.7 MB.
+- Measured on the fixed data: linecheck BEFORE (f1e139e) -> AFTER B1 179,693
+  -> 170,671, B2 98,690 -> 96,864 runs (747.8 km against 732.1: the lone
+  vertices' runs are longer), B3 2,527 -> 2,531, C3 42 -> 31, A1 78,139 ->
+  76,836; up A5 STRAY 15,117 -> 15,227 and C2 END 14,471 -> 14,606. The mesh
+  gate agrees (B1 179,917 -> 170,834, B2 100,305 -> 98,596, C3 42 -> 31, B3
+  2,577 -> 2,579, C2 14,485 -> 14,616). Both baselines re-recorded. DRIVE
+  AUDIT zeros, CITY AUDIT OK, city-play-check OK, 231/231 gate probes; races
+  (150 s): Uptown 2 retired at wp 249 into Roads as on WP-10 and f1e139e,
+  Tryon 3 (lamp posts at lat +5.4 to +8.3, then traffic; WP-10 3),
+  Independence 0.
+
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 
 Reported after the rebuild: "a lot of roads still floating in air, not

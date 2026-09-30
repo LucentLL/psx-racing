@@ -33,6 +33,22 @@
 // (R + hw)) with eps = SmoothRules.DensifyEpsM (2 cm on the outer drawn
 // edge); past ChordCapM (10 m) the gate's lone-vertex facet, min(c, 10 m) *
 // turn / 8 <= eps, sets it (a gentle motorway arc keeps chords of R / 62).
+//
+// Review 2026-09-30:
+//   * LONE VERTICES stay vertices: where the line turns by 8 eps / ChordCapM
+//     (0.92 degrees) or less in all within ChordCapM either side, the facet is
+//     within eps by the gate's own rule, and an arc there was only points
+//     (44k corners; points 452k -> 409k, and the tile build pays per point);
+//   * two one-way arms both arriving at a node or both leaving it (a
+//     carriageway and its ramp nose to nose) are not one road: no strand
+//     runs across them;
+//   * an interior node whose fillet cannot keep the inner edge at innerMin
+//     (SmoothRules.InnerEdgeMinRM) - a near U-turn, where the departure cap
+//     max(Emax, hw) leaves the radius under the half width - is HELD: the
+//     strand splits there, the node stays mapped, both legs keep their
+//     direction into it and the builder draws its bend slab as before WP-11,
+//     never a folded mitre (the I-85 forks, Wynfield Creek Pkwy, Reedy Creek
+//     Rd). A free vertex that still folds is listed (stats.foldFree).
 const DEG = Math.PI / 180;
 const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
 
@@ -97,18 +113,30 @@ export function mitredThrough(edges, nodes, hwOf) {
 
 /// opts: { rFloor(e), emax(e), hw(e), eps, chordCap, collinearDeg, through (mitredThrough's map) }
 export function filletGraph(edges, nodes, opts) {
-  const { rFloor, emax, hw, eps = 0.02, chordCap = 10, collinearDeg = 0.02, through = new Map() } = opts;
+  const { rFloor, emax, hw, eps = 0.02, chordCap = 10, collinearDeg = 0.02, through = new Map(),
+          innerMin = 3, loneRule = true } = opts;
   const colTurn = collinearDeg * DEG;
+  const loneTurn = loneRule ? Math.max(colTurn, 8 * eps / chordCap) : colTurn;
   const arms = Array.from({ length: nodes.length }, () => []);
   for (const e of edges) if (e.a !== e.b) { arms[e.a].push(e); arms[e.b].push(e); }
   const two = arms.map(l => l.length === 2 && l[0] !== l[1]);
   const other = (e, n) => e.a === n ? e.b : e.a;
+  /// Two one-way arms that BOTH arrive at n or BOTH leave it (a carriageway and
+  /// its ramp meeting nose to nose at a dead-end fork, review 2026-09-30: I-85
+  /// e1267/e1268, e2123/e4092) are not one road: no strand runs across them.
+  const oneWayClash = (n, e, o) => {
+    const we = e.way || {}, wo = o.way || {};
+    return !!(we.oneway && wo.oneway) && (e.b === n) === (o.b === n);
+  };
   /// the edge a strand runs on into across node n from e, or null (n ends it)
   const passNext = (n, e) => {
-    if (two[n]) return arms[n][0] === e ? arms[n][1] : arms[n][0];
-    const t = through.get(n);
-    if (t && (t[0] === e || t[1] === e)) return t[0] === e ? t[1] : t[0];
-    return null;
+    let o = null;
+    if (two[n]) o = arms[n][0] === e ? arms[n][1] : arms[n][0];
+    else {
+      const t = through.get(n);
+      if (t && (t[0] === e || t[1] === e)) o = t[0] === e ? t[1] : t[0];
+    }
+    return o && !oneWayClash(n, e, o) ? o : null;
   };
 
   // ---- strands through 2-arm nodes and mitred junctions' through pairs
@@ -163,12 +191,39 @@ export function filletGraph(edges, nodes, opts) {
   };
 
   const stats = { strands: strands.length, closed: 0, vertices: 0, filleted: 0, merged: 0, tight: 0, overEmax: 0,
-                  nodesMoved: 0, nodeMoveMax: 0, pointsBefore: 0, pointsAfter: 0, armsFollowed: 0, junctionsFilleted: 0 };
+                  nodesMoved: 0, nodeMoveMax: 0, pointsBefore: 0, pointsAfter: 0, armsFollowed: 0, junctionsFilleted: 0,
+                  lone: 0, held: 0, oneWayClash: 0, foldFree: 0 };
   const review = [];
   for (const e of edges) stats.pointsBefore += e.pts.length;
+  for (let n = 0; n < nodes.length; n++) if (two[n] && oneWayClash(n, arms[n][0], arms[n][1])) stats.oneWayClash++;
+  for (const [n, t] of through) if (oneWayClash(n, t[0], t[1])) stats.oneWayClash++;
   const moves = [];
 
-  for (const st of strands) {
+  // A strand whose fillet at an interior NODE cannot keep the inner edge at
+  // innerMin or more (a near U-turn: the departure cap max(Emax, hw) leaves the
+  // radius under the half width, review 2026-09-30) is SPLIT there: the node
+  // stays where it was mapped, both legs keep their direction into it, and the
+  // builder draws its bend slab as before WP-11 - never a folded mitre.
+  for (const st0 of strands) {
+    const stack = [st0];
+    while (stack.length) {
+      const st = stack.pop();
+      const h = runStrand(st);
+      if (h === null) continue;
+      stats.held++;
+      const { seq } = st;
+      const k = seq.findIndex(x => other(x.e, x.at) === h);
+      if (st.closed) {
+        stack.push({ seq: [...seq.slice(k + 1), ...seq.slice(0, k + 1)], closed: false, junctions: st.junctions, reopened: true });
+      } else {
+        stack.push({ seq: seq.slice(k + 1), closed: false, junctions: st.junctions });
+        stack.push({ seq: seq.slice(0, k + 1), closed: false, junctions: st.junctions });
+      }
+    }
+  }
+  /// Fillet one strand; returns null when it was emitted, or the interior node
+  /// to hold (nothing mutated past the ends' snap, which is idempotent).
+  function runStrand(st) {
     const { seq } = st;
     // the ends are FIXED where their nodes stand now (a mitred junction may have moved)
     {
@@ -187,9 +242,8 @@ export function filletGraph(edges, nodes, opts) {
       V[V.length - 1].nodes.push(far);
       if (k + 1 < seq.length) V[V.length - 1].cls.push(seq[k + 1].e);
     }
-    // the ends are fixed; a closed ring of 2-arm nodes (none in the 2026-09 data)
-    // is held at its first node, counted in stats.closed
-    if (st.closed) stats.closed++;
+    // the ends are fixed; a closed ring of 2-arm nodes is held at its first
+    // node, counted in stats.closed
     // drop near-duplicate vertices (keep the one carrying nodes)
     const W = [V[0]];
     for (let i = 1; i < V.length; i++) {
@@ -206,7 +260,6 @@ export function filletGraph(edges, nodes, opts) {
       }
       W.push(V[i]);
     }
-    stats.vertices += W.length;
     const fixedEnd = i => i === 0 || i === W.length - 1;
     const RF = v => Math.max(...v.cls.map(rFloor));   // the class floor (the stricter arm at a class change)
     const EM = v => Math.min(...v.cls.map(emax));
@@ -214,7 +267,7 @@ export function filletGraph(edges, nodes, opts) {
     for (const v of W) { v.rf = RF(v); v.em = EM(v); v.hw = HW(v); v.srcs = [v.p]; }
 
     // ---- shares, with merges of short same-hand pairs until nothing merges
-    let T, D, U, Vv, R;
+    let T, D, U, Vv, R, lone;
     const solve = () => {
       const m = W.length;
       D = new Float64Array(m); T = new Float64Array(m); R = new Float64Array(m);
@@ -228,8 +281,26 @@ export function filletGraph(edges, nodes, opts) {
         const lu = Math.hypot(ux, uz), lv = Math.hypot(vx, vz);
         U[i] = [ux / lu, uz / lu]; Vv[i] = [vx / lv, vz / lv];
         D[i] = Math.atan2(ux * vz - uz * vx, ux * vx + uz * vz);
+      }
+      // LONE VERTICES stay vertices: where the line turns by loneTurn or less in
+      // all within ChordCapM either side (every vertex there, this one included),
+      // the facet min(c, ChordCapM) * turn / 8 is within eps - the gate's own
+      // lone-vertex limit - and an arc there only adds points (review
+      // 2026-09-30: 44k such corners were 2-3 points each, tile p95 +50%)
+      lone = new Uint8Array(m);
+      {
+        const S = new Float64Array(m);
+        for (let i = 1; i < m; i++) S[i] = S[i - 1] + L[i - 1];
+        let lo = 1, hi = 1, sum = 0;
+        for (let i = 1; i + 1 < m; i++) {
+          while (hi + 1 < m && S[hi] <= S[i] + chordCap) { sum += Math.abs(D[hi]); hi++; }
+          while (lo < i && S[lo] < S[i] - chordCap) { sum -= Math.abs(D[lo]); lo++; }
+          if (Math.abs(D[i]) < colTurn || sum <= loneTurn) lone[i] = 1;
+        }
+      }
+      for (let i = 1; i + 1 < m; i++) {
         const h = Math.abs(D[i]) / 2;
-        if (Math.abs(D[i]) < colTurn) { want[i] = 0; continue; }
+        if (lone[i]) { want[i] = 0; continue; }
         const rE = W[i].em / (1 / Math.cos(h) - 1);
         // never further off the mapped corner than max(Emax, half the road width): a
         // near U-turn at one vertex keeps a tight turn (listed), not a cut-off loop
@@ -271,7 +342,7 @@ export function filletGraph(edges, nodes, opts) {
     for (let pass = 0; pass < 64; pass++) {
       let did = false;
       for (let i = 1; i + 1 < W.length && !did; i++) {
-        if (Math.abs(D[i]) < colTurn || R[i] >= W[i].rf * 0.999) continue;
+        if (lone[i] || R[i] >= W[i].rf * 0.999) continue;
         // the neighbour across the shorter side that limits it
         const cands = [];
         if (i - 1 >= 1) cands.push(i - 1);
@@ -314,6 +385,24 @@ export function filletGraph(edges, nodes, opts) {
       }
       if (!did) break;
       L = solve();
+    }
+    // a fillet at an interior node that would fold the inner edge: hold that node
+    {
+      const ends = new Set([seq[0].at, other(seq[seq.length - 1].e, seq[seq.length - 1].at)]);
+      for (let i = 1; i + 1 < W.length; i++) {
+        if (!(T[i] > 1e-4) || R[i] >= W[i].hw + innerMin - 1e-6) continue;
+        const h = W[i].nodes.find(n => !ends.has(n));
+        if (h !== undefined) return h;
+      }
+    }
+    if (st.closed && !st.reopened) stats.closed++;
+    stats.vertices += W.length;
+    for (let i = 1; i + 1 < W.length; i++) {
+      if (lone[i] && Math.abs(D[i]) >= colTurn) stats.lone++;
+      if (T[i] > 1e-4 && R[i] < W[i].hw + innerMin - 1e-6) {
+        stats.foldFree++;
+        review.push({ kind: 'foldFree', x: W[i].p[0], z: W[i].p[1], r: R[i], hw: W[i].hw, turnDeg: Math.abs(D[i]) / DEG, edge: W[i].cls[0].id });
+      }
     }
 
     // ---- emit; every node at an arc-length position on the output
@@ -426,6 +515,7 @@ export function filletGraph(edges, nodes, opts) {
       nodes[nd] = p;
       if (mvd > 1e-6 && !two[nd]) movedNodes.add(nd);
     }
+    return null;
   }
   // arms already drawn when a later strand moved their junction follow it
   for (const n of movedNodes) for (const e of arms[n]) {

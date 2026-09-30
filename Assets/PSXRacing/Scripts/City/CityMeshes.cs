@@ -2887,6 +2887,7 @@ namespace PSXRacing.City
                 if (ol.L == null || q.x < ol.minX || q.x > ol.maxX || q.y < ol.minZ || q.y > ol.maxZ) continue;
                 for (int i = 1; i < ol.L.Length; i++)
                 {
+                    if (ol.BlockMisses(i, q.x, q.y, q.x, q.y)) { i += Outline.Block - 1; continue; }
                     if (TriInterval(ol.L[i - 1], ol.L[i], ol.R[i], q, Vector2.right, 0f, out _, out _) &&
                         Mathf.Abs(TriHeight(ol.L[i - 1], ol.L[i], ol.R[i], q) - y) <= PavedOnwardDyM) return true;
                     if (TriInterval(ol.L[i - 1], ol.R[i], ol.R[i - 1], q, Vector2.right, 0f, out _, out _) &&
@@ -3894,6 +3895,7 @@ namespace PSXRacing.City
             float best = limit;
             for (int i = 1; i < ol.L.Length; i++)
             {
+                if (ol.BlockMisses(i, Mathf.Min(p.x, far.x), Mathf.Min(p.y, far.y), Mathf.Max(p.x, far.x), Mathf.Max(p.y, far.y))) { i += Outline.Block - 1; continue; }
                 Vector3 aL = ol.L[i - 1], bL = ol.L[i], bR = ol.R[i], aR = ol.R[i - 1];
                 if (TriInterval(aL, bL, bR, p, dir, limit, out float t0, out float t1) && t1 - t0 > 1e-4f && t0 < best)
                 {
@@ -4055,7 +4057,8 @@ namespace PSXRacing.City
         {
             nbL = -1; nbR = -1; nbAtL = 0f; nbAtR = 0f; stripL = -1f; stripR = -1f;
             nbScratch.Clear();
-            map.EdgeSegsInRect(p - Vector2.one * 32f, p + Vector2.one * 32f, nbScratch);
+            // a segment further than 32 m is past any two half widths (13.1 m at most each)
+            map.EdgeSegsNear(p - Vector2.one * 32f, p + Vector2.one * 32f, nbScratch);
             var tan = new Vector2(right.y, -right.x);
             // the nearest parallel road on each side, whatever it is
             float dL = float.MaxValue, dR = float.MaxValue;
@@ -4290,6 +4293,7 @@ namespace PSXRacing.City
                     if (ol.L == null || vw.x < ol.minX - MeetReachM || vw.x > ol.maxX + MeetReachM || vw.y < ol.minZ - MeetReachM || vw.y > ol.maxZ + MeetReachM) continue;
                     for (int i = 1; i < ol.L.Length && !flush; i++)
                     {
+                        if (ol.BlockMisses(i, vw.x - MeetReachM, vw.y - MeetReachM, vw.x + MeetReachM, vw.y + MeetReachM)) { i += Outline.Block - 1; continue; }
                         if (ol.elev[i - 1] || ol.elev[i]) continue;
                         Vector3 aL = ol.L[i - 1], bL = ol.L[i], bR = ol.R[i], aR = ol.R[i - 1];
                         if (vw.x < Mathf.Min(Mathf.Min(aL.x, bL.x), Mathf.Min(bR.x, aR.x)) - MeetReachM || vw.x > Mathf.Max(Mathf.Max(aL.x, bL.x), Mathf.Max(bR.x, aR.x)) + MeetReachM ||
@@ -5210,6 +5214,7 @@ namespace PSXRacing.City
                     if (ol.L == null || pt.x < ol.minX - pad || pt.x > ol.maxX + pad || pt.y < ol.minZ - pad || pt.y > ol.maxZ + pad) continue;
                     for (int i = 1; i < ol.L.Length; i++)
                     {
+                        if (ol.BlockMisses(i, pt.x - pad, pt.y - pad, pt.x + pad, pt.y + pad)) { i += Outline.Block - 1; continue; }
                         bool deck = ol.elev[i - 1] || ol.elev[i];
                         Vector3 aL = ol.L[i - 1], bL = ol.L[i], bR = ol.R[i], aR = ol.R[i - 1];
                         if (pt.x < Mathf.Min(Mathf.Min(aL.x, bL.x), Mathf.Min(bR.x, aR.x)) - pad || pt.x > Mathf.Max(Mathf.Max(aL.x, bL.x), Mathf.Max(bR.x, aR.x)) + pad ||
@@ -5381,6 +5386,7 @@ namespace PSXRacing.City
                 paveSpans.Clear();
                 for (int i = 1; i < ol.L.Length; i++)
                 {
+                    if (ol.BlockMisses(i, bx0, bz0, bx1, bz1)) { i += Outline.Block - 1; continue; }
                     Vector3 aL = ol.L[i - 1], bL = ol.L[i], bR = ol.R[i], aR = ol.R[i - 1];
                     if (bx1 < Mathf.Min(Mathf.Min(aL.x, bL.x), Mathf.Min(bR.x, aR.x)) || bx0 > Mathf.Max(Mathf.Max(aL.x, bL.x), Mathf.Max(bR.x, aR.x)) ||
                         bz1 < Mathf.Min(Mathf.Min(aL.z, bL.z), Mathf.Min(bR.z, aR.z)) || bz0 > Mathf.Max(Mathf.Max(aL.z, bL.z), Mathf.Max(bR.z, aR.z))) continue;
@@ -5551,6 +5557,40 @@ namespace PSXRacing.City
             public Vector3[] L, R;
             public bool[] elev;
             public float minX = float.MaxValue, minZ = float.MaxValue, maxX = float.MinValue, maxZ = float.MinValue;
+            /// <summary>A plan box per block of <see cref="Block"/> spans (4
+            /// floats: min x, min z, max x, max z, padded by BlockPadM), so a
+            /// scan over a long outline skips the blocks nowhere near its
+            /// query. Every scan's own per-span test still decides; a skipped
+            /// block is one no span of which could pass it. WP-11's arcs gave
+            /// a long freeway outline hundreds of spans, each tested by every
+            /// verge probe in the tile (review 2026-09-30: tile p95 +50%).</summary>
+            public float[] bb;
+            public const int Block = 16;
+            const float BlockPadM = 0.01f;
+            public void BuildBlocks()
+            {
+                int nq = L.Length - 1, nb = (nq + Block - 1) / Block;
+                bb = new float[nb * 4];
+                for (int b = 0; b < nb; b++)
+                {
+                    float x0 = float.MaxValue, z0 = float.MaxValue, x1 = float.MinValue, z1 = float.MinValue;
+                    for (int j = b * Block, end = Mathf.Min(L.Length - 1, b * Block + Block); j <= end; j++)
+                    {
+                        x0 = Mathf.Min(x0, Mathf.Min(L[j].x, R[j].x)); x1 = Mathf.Max(x1, Mathf.Max(L[j].x, R[j].x));
+                        z0 = Mathf.Min(z0, Mathf.Min(L[j].z, R[j].z)); z1 = Mathf.Max(z1, Mathf.Max(L[j].z, R[j].z));
+                    }
+                    bb[b * 4] = x0 - BlockPadM; bb[b * 4 + 1] = z0 - BlockPadM; bb[b * 4 + 2] = x1 + BlockPadM; bb[b * 4 + 3] = z1 + BlockPadM;
+                }
+            }
+            /// <summary>At span i opening a block ((i - 1) % Block == 0): does
+            /// that block's box miss the query box? The caller then steps
+            /// past the whole block.</summary>
+            public bool BlockMisses(int i, float x0, float z0, float x1, float z1)
+            {
+                if (((i - 1) & (Block - 1)) != 0 || bb == null) return false;
+                int b = ((i - 1) / Block) * 4;
+                return x1 < bb[b] || x0 > bb[b + 2] || z1 < bb[b + 1] || z0 > bb[b + 3];
+            }
         }
         static readonly Dictionary<int, Outline> outlines = new Dictionary<int, Outline>();
         static readonly List<int> nearEdges = new List<int>(32);
@@ -5592,6 +5632,7 @@ namespace PSXRacing.City
                     ol.minX = Mathf.Min(ol.minX, Mathf.Min(ol.L[i].x, ol.R[i].x)); ol.maxX = Mathf.Max(ol.maxX, Mathf.Max(ol.L[i].x, ol.R[i].x));
                     ol.minZ = Mathf.Min(ol.minZ, Mathf.Min(ol.L[i].z, ol.R[i].z)); ol.maxZ = Mathf.Max(ol.maxZ, Mathf.Max(ol.L[i].z, ol.R[i].z));
                 }
+                ol.BuildBlocks();
             }
             sections.Clear(); sections.AddRange(outlineSections);
             endScratch.Clear(); endScratch.AddRange(outlineEnds);
@@ -5620,6 +5661,7 @@ namespace PSXRacing.City
                     ol.minX = Mathf.Min(ol.minX, Mathf.Min(ol.L[i].x, ol.R[i].x)); ol.maxX = Mathf.Max(ol.maxX, Mathf.Max(ol.L[i].x, ol.R[i].x));
                     ol.minZ = Mathf.Min(ol.minZ, Mathf.Min(ol.L[i].z, ol.R[i].z)); ol.maxZ = Mathf.Max(ol.maxZ, Mathf.Max(ol.L[i].z, ol.R[i].z));
                 }
+                ol.BuildBlocks();
             }
             return ol;
         }
@@ -5647,6 +5689,7 @@ namespace PSXRacing.City
             if (ol.L == null || q.x < ol.minX || q.x > ol.maxX || q.y < ol.minZ || q.y > ol.maxZ) return h;
             for (int i = 1; i < ol.L.Length; i++)
             {
+                if (ol.BlockMisses(i, q.x, q.y, q.x, q.y)) { i += Outline.Block - 1; continue; }
                 for (int k = 0; k < 2; k++)
                 {
                     Vector3 a = ol.L[i - 1], b = k == 0 ? ol.L[i] : ol.R[i], c = k == 0 ? ol.R[i] : ol.R[i - 1];
@@ -5664,6 +5707,7 @@ namespace PSXRacing.City
         {
             for (int i = 1; i < ol.L.Length; i++)
             {
+                if (ol.BlockMisses(i, q.x, q.y, q.x, q.y)) { i += Outline.Block - 1; continue; }
                 if (TriInterval(ol.L[i - 1], ol.L[i], ol.R[i], DeepInsetM, 0f, 0f, q, Vector2.right, 0f, out _, out _)) return true;
                 if (TriInterval(ol.L[i - 1], ol.R[i], ol.R[i - 1], 0f, DeepInsetM, 0f, q, Vector2.right, 0f, out _, out _)) return true;
             }
@@ -7128,6 +7172,7 @@ namespace PSXRacing.City
                 if (ol.L == null || x1 < ol.minX || x0 > ol.maxX || z1 < ol.minZ || z0 > ol.maxZ) continue;
                 for (int i = 1; i < ol.L.Length; i++)
                 {
+                    if (ol.BlockMisses(i, x0, z0, x1, z1)) { i += Outline.Block - 1; continue; }
                     Vector3 aL = ol.L[i - 1], bL = ol.L[i], bR = ol.R[i], aR = ol.R[i - 1];
                     if (x1 < Mathf.Min(Mathf.Min(aL.x, bL.x), Mathf.Min(bR.x, aR.x)) || x0 > Mathf.Max(Mathf.Max(aL.x, bL.x), Mathf.Max(bR.x, aR.x)) ||
                         z1 < Mathf.Min(Mathf.Min(aL.z, bL.z), Mathf.Min(bR.z, aR.z)) || z0 > Mathf.Max(Mathf.Max(aL.z, bL.z), Mathf.Max(bR.z, aR.z))) continue;
