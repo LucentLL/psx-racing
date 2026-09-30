@@ -72,7 +72,26 @@ namespace PSXRacing.City
                 warned = true;
                 Debug.LogError($"[City] the city kit holds {cached.slotCount} slots and the code has {(int)CityMeshes.Slot.COUNT} - rebuild it (PSXRacingBuilder.EnsureCityKit).");
             }
+            if (cached != null) StampDecode(cached);
             return cached;
+        }
+
+        /// <summary>
+        /// THE 16-BIT DECODE (PSXTexDecode): a material must say its texture
+        /// needs decoding before it is first drawn. The scene-load stamp only
+        /// sees materials already in memory, and the kit comes out of
+        /// Resources later (CityWorld.Start builds the first tiles), so what
+        /// it holds is stamped here, as it loads - the same rule
+        /// PSXTexDecode.LoadPrefab applies to a prefab.
+        /// </summary>
+        static void StampDecode(CityKit kit)
+        {
+            if (kit.slots != null) foreach (var m in kit.slots) PSXTexDecode.Stamp(m);
+            PSXTexDecode.Stamp(kit.lampPost);
+            if (kit.trees != null) foreach (var m in kit.trees) PSXTexDecode.Stamp(m);
+            PSXTexDecode.Stamp(kit.furniture);
+            PSXTexDecode.Stamp(kit.paint);
+            PSXTexDecode.Stamp(kit.signs);
         }
 
         /// <summary>The material for a slot, or null.</summary>

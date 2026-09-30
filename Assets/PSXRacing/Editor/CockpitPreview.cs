@@ -113,7 +113,7 @@ namespace PSXRacing.EditorTools
                 RenderTexture.active = prev;
 
                 string path = Path.Combine(outDir, "cockpit_" + label + ".png");
-                File.WriteAllBytes(path, tex.EncodeToPNG());
+                ShotSidecar.WritePng(path, tex.EncodeToPNG());
                 Debug.Log("[Cockpit] wrote " + path);
 
                 Object.DestroyImmediate(tex);

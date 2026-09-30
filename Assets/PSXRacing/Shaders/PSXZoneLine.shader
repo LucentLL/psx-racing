@@ -36,6 +36,7 @@ Shader "PSX/ZoneLine"
     Properties
     {
         _MainTex ("Curtain", 2D) = "white" {}
+        [HideInInspector] _MainTexRaw ("16-bit texel decode (set at runtime by PSXTexDecode.cs)", Float) = 0
         _Color ("Tint", Color) = (1,1,1,1)
         _Strength ("Strength", Range(0,4)) = 1
     }
@@ -44,13 +45,18 @@ Shader "PSX/ZoneLine"
         Tags { "Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" }
         Pass
         {
-            Blend SrcAlpha OneMinusSrcAlpha
+            // The colour blends; the framebuffer's ALPHA is kept (Zero One):
+            // it is the emitter mask (PSXTone.cginc), and the curtain is not
+            // one of the lights it marks.
+            Blend SrcAlpha OneMinusSrcAlpha, Zero One
             ZWrite Off
             Cull Off
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            // Colour texels of the 16-bit set arrive undecoded: PSXMainTex decodes them.
+            #include "PSXTexDecode.cginc"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
@@ -84,7 +90,7 @@ Shader "PSX/ZoneLine"
 
             fixed4 frag (v2f i) : SV_Target
             {
-                fixed4 t = tex2D(_MainTex, i.uv);
+                fixed4 t = PSXMainTex(_MainTex, i.uv);
                 return fixed4(t.rgb * _Color.rgb, saturate(t.a * _Strength * i.fade));
             }
             ENDCG

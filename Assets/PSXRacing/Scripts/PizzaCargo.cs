@@ -570,7 +570,7 @@ namespace PSXRacing
             var spec = SeatAt(stage);
             innerHalf = spec.bolsterHalf - BolsterSlabHalf;
             tall = spec.NominalHeightMm * 0.001f;
-            var prefab = Resources.Load<GameObject>(PizzaCargoBakerNames.SeatFor(stage));
+            var prefab = PSXTexDecode.LoadPrefab(PizzaCargoBakerNames.SeatFor(stage));
             var mark = prefab != null ? prefab.transform.Find("Bolster") : null;
             if (mark != null) { innerHalf = mark.localPosition.x; tall = mark.localPosition.y; }
         }
@@ -1247,7 +1247,7 @@ namespace PSXRacing
             // the bench's, so a box that looks like it is on the seat is.
             float boxHalf = 0.205f;
             {
-                var probe = Resources.Load<GameObject>(PizzaCargoBakerNames.Box);
+                var probe = PSXTexDecode.LoadPrefab(PizzaCargoBakerNames.Box);
                 if (probe != null)
                 {
                     var pbb = Bounds(probe);
@@ -1258,9 +1258,9 @@ namespace PSXRacing
             bool modelSeat = false;
             // The rung's own seat if the owner made one (the buckets), else the
             // stock seat — which the sport and bucket rungs dress with slabs.
-            var seatPrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.SeatFor(SeatStage));
+            var seatPrefab = PSXTexDecode.LoadPrefab(PizzaCargoBakerNames.SeatFor(SeatStage));
             bool ownSeat = seatPrefab != null;
-            if (seatPrefab == null) seatPrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.Seat);
+            if (seatPrefab == null) seatPrefab = PSXTexDecode.LoadPrefab(PizzaCargoBakerNames.Seat);
             var squabMark = seatPrefab != null ? seatPrefab.transform.Find("SquabPoint") : null;
             var frontMark = seatPrefab != null ? seatPrefab.transform.Find("CushionFront") : null;
             if (squabMark != null && frontMark != null)
@@ -1313,7 +1313,7 @@ namespace PSXRacing
             // The same measurement the stack below is built from.
             float pitch = 0.075f + 0.004f;
             {
-                var probe = Resources.Load<GameObject>(PizzaCargoBakerNames.Box);
+                var probe = PSXTexDecode.LoadPrefab(PizzaCargoBakerNames.Box);
                 if (probe != null)
                 {
                     var pbb = Bounds(probe);
@@ -1448,7 +1448,7 @@ namespace PSXRacing
             Slab(tray, "FootwellR", new Vector3(floorHalfW - 0.02f, kerbY, floorZc),
                  new Vector3(0.04f, KerbH, floorLen), visible: false);
 
-            var boxPrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.Box);
+            var boxPrefab = PSXTexDecode.LoadPrefab(PizzaCargoBakerNames.Box);
             if (boxPrefab == null)
             {
                 Debug.LogWarning("[PizzaCargo] no baked box prefab — run PSX Racing/Bake Pizza Cargo");
@@ -1743,7 +1743,7 @@ namespace PSXRacing
             // body the moment the box opens, with the box's own velocity, so
             // the old worry that "a body that pops into existence mid-crash
             // arrives with no velocity and looks pasted on" does not apply.
-            var topPrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.Topping(topping));
+            var topPrefab = PSXTexDecode.LoadPrefab(PizzaCargoBakerNames.Topping(topping));
             if (topPrefab != null)
             {
                 // Just clear of the tray floor. The prefabs are seated on their
@@ -2787,14 +2787,22 @@ namespace PSXRacing
         /// </summary>
         public float SeatPenetration()
         {
-            var seatModel = tray != null ? tray.Find("SeatModel") : null;
-            if (seatModel == null) return 0f;
-            var seatCols = seatModel.GetComponentsInChildren<Collider>();
             var load = new List<Collider>();
             foreach (var s in slots)
                 if (s.box != null) load.AddRange(s.box.GetComponentsInChildren<Collider>());
             foreach (var b in bottles)
                 if (b != null) load.AddRange(b.GetComponentsInChildren<Collider>());
+            return SunkInSeat(load);
+        }
+
+        /// <summary>How deep the deepest of <paramref name="load"/> is sunk
+        /// into the seat model's colliders, in metres, at the poses their
+        /// transforms hold right now. Zero on the slab bench.</summary>
+        float SunkInSeat(IList<Collider> load)
+        {
+            var seatModel = tray != null ? tray.Find("SeatModel") : null;
+            if (seatModel == null) return 0f;
+            var seatCols = seatModel.GetComponentsInChildren<Collider>();
             float worst = 0f;
             foreach (var a in load)
             {
@@ -2829,6 +2837,54 @@ namespace PSXRacing
             rb.linearVelocity = Vector3.zero;
             rb.angularVelocity = Vector3.zero;
             rb.WakeUp();
+        }
+
+        /// <summary>
+        /// THE HARNESS'S OTHER HAND: put box <paramref name="i"/> where it was
+        /// stacked, moved <paramref name="alongPanM"/> forward ALONG THE PAN,
+        /// lying at the pan's angle, at rest, and leave the settling to
+        /// physics. Returns how far it had to be lifted to clear the seat's
+        /// padding (zero where the cushion is under the pan's line).
+        ///
+        /// For a case that needs a box somewhere it was not spawned, without
+        /// asking the solver to take it there. Case 11 used to SHOVE a lone
+        /// box forward at 1.3 g for 22 steps against a pan that holds about
+        /// 0.9: a slide driven by the difference, across a seat of convex
+        /// pieces, so where it stopped (13-15 cm in five bakes, 29 cm and on
+        /// the floor in a sixth) depended on the order the bake's objects
+        /// came out in and not on the code. A
+        /// placement integrates nothing. The pose is arithmetic on the spawn
+        /// point, and the physics after it is a box at rest settling a few
+        /// millimetres onto a cushion that holds it with most of its grip to
+        /// spare: a stable rest, where a difference in the last bit of a
+        /// float dies away instead of growing.
+        /// </summary>
+        public float PlaceBoxAlongPan(int i, float alongPanM)
+        {
+            if (!Valid(i) || slots[i].box == null || tray == null) return 0f;
+            var rb = slots[i].box;
+            var t = rb.transform;
+            // The spawn's own pose: base on the pan's normal, the spawn's
+            // clearance above the pan's line, turned to the pan. Moved along
+            // the pan it stays exactly that far above the line.
+            t.rotation = tray.rotation * PanRot;
+            t.position = tray.TransformPoint(slots[i].startLocal + PanRot * new Vector3(0f, 0f, alongPanM));
+            // The line is not the cushion. Where the padding stands proud of
+            // it the box would be handed to the solver INSIDE the seat, and
+            // the solver's answer to that is to fire it out: lift it clear.
+            var cols = rb.GetComponentsInChildren<Collider>();
+            float lifted = 0f;
+            while (lifted < 0.05f && SunkInSeat(cols) > 0f)
+            {
+                t.position += t.up * 0.001f;
+                lifted += 0.001f;
+            }
+            rb.position = t.position;
+            rb.rotation = t.rotation;
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+            rb.WakeUp();
+            return lifted;
         }
 
         // ------------------------------------------------------------------
@@ -2935,7 +2991,7 @@ namespace PSXRacing
         /// never baked — a bake from before the variants existed has only
         /// the one.</summary>
         public static GameObject LoadBottle(int i) =>
-            Resources.Load<GameObject>(BottleVariant(i)) ?? Resources.Load<GameObject>(Bottle);
+            PSXTexDecode.LoadPrefab(BottleVariant(i)) ?? PSXTexDecode.LoadPrefab(Bottle);
         /// <summary>How many toppings the baker writes. A saved order names its
         /// pizzas by index into this, so it is append-only.</summary>
         public const int ToppingCount = 10;

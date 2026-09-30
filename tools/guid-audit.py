@@ -13,8 +13,13 @@ from the sandbox exactly as it stood. Nothing looked at a pixel.
 
     py tools/guid-audit.py [project_dir]     (default C:\\Users\\mcgee\\PSXBuild)
 
-Exit 0 = clean, 1 = dangling references (listed), 2 = could not read the project.
-Five seconds on this project.
+ALSO (the colour pass, C1b, 2026-09-29): no shipped .mat may STORE the 16-bit
+decode flag (`_MainTexRaw: 1` / `_DeepTexRaw: 1`). Scripts/PSXTexDecode.cs sets
+it at runtime from the texture itself; a stored 1 is a flag frozen to whatever
+import the baking machine had, which is how a raw read ships unseen.
+
+Exit 0 = clean, 1 = dangling references or a stored decode flag (listed),
+2 = could not read the project. Five seconds on this project.
 """
 import os
 import re
@@ -72,6 +77,7 @@ def main():
 
     seen = set()
     dangling = {}
+    stored_flag = []
     scanned = 0
     while todo:
         path = todo.pop()
@@ -86,6 +92,8 @@ def main():
         if not data.startswith(b"%YAML"):
             continue            # binary serialization: not ours to read
         scanned += 1
+        if path.endswith(".mat") and (b"_MainTexRaw: 1" in data or b"_DeepTexRaw: 1" in data):
+            stored_flag.append(os.path.relpath(path, root))
         for m in GUID_RE.finditer(data):
             g = m.group(1).decode()
             if g in BUILTIN:
@@ -97,6 +105,13 @@ def main():
                 todo.append(target)
 
     print(f"guid audit: {scanned} shipped YAML assets scanned, {len(known)} GUIDs known")
+    if stored_flag:
+        print(f"DECODE FLAG STORED - {len(stored_flag)} shipped .mat file(s) save _MainTexRaw/_DeepTexRaw 1 "
+              "(PSXTexDecode.cs sets it at runtime; rebuild the scenes):")
+        for k in sorted(stored_flag)[:20]:
+            print("  " + k)
+        if not dangling:
+            return 1
     if not dangling:
         print("GUID AUDIT OK - no shipped asset references a missing GUID")
         return 0

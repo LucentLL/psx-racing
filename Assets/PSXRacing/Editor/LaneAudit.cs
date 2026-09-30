@@ -34,7 +34,15 @@ namespace PSXRacing.EditorTools
     ///     grid and the AI all drive to);
     ///   - any painted line misses its smooth (bilinear) position by more
     ///     than V at a mid-quad (the owner's smooth-lines rule);
-    ///   - the ribbon's centre is more than 1 cm off the TrackPath waypoint;
+    ///   - the ribbon's centre is more than 1 cm off the TrackPath waypoint,
+    ///     or a waypoint has no ring of its own (a bend's gaps are laid on
+    ///     slices of a curve since 2026-09-29, so rings are mapped to
+    ///     waypoints by position);
+    ///   - any painted line, tarmac edge or kerb strip outer edge turns a
+    ///     CORNER at a ring: a chord that misses the centripetal Catmull-Rom
+    ///     through its own and its neighbours' vertices by more than V (the
+    ///     owner's "nor should any sharp angles of road or road lines"; the
+    ///     zig test sees only paint inside one quad);
     ///   - the texture's own centre line is off u = 0.5 by more than half a
     ///     texel, or its edge lines do not mirror (the painter, checked
     ///     without any geometry).
@@ -211,7 +219,8 @@ namespace PSXRacing.EditorTools
         // ------------------------------------------------------------------
         class Sec
         {
-            public int quad; public bool mid; public float m;
+            /// <summary>The ring (quad) index, and the waypoint whose gap it lies in.</summary>
+            public int quad, wp; public bool mid; public float m;
             public double left, right, diff, off, asphL, asphR;
             public double zigC, zigL, zigR, wpOff = double.NaN;
             public double Zig => Math.Max(Math.Abs(zigC), Math.Max(Math.Abs(zigL), Math.Abs(zigR)));
@@ -226,6 +235,138 @@ namespace PSXRacing.EditorTools
             public List<int>[] quadTris;
             public int[] tris;
             public TexLines tex, deckTex;
+            /// <summary>Per ring: the waypoint it stands at or whose gap it
+            /// slices, where along that gap (0 at a station), and its metres
+            /// along the road. Since 2026-09-29 a bend's gaps are laid on
+            /// slices of a curve (PSXRacingBuilder.Ribbon.cs), so a ring is no
+            /// longer a waypoint.</summary>
+            public int[] ringWp; public float[] ringT, ringM;
+            public int stationRings, sliceRings;
+        }
+
+        /// <summary>Which rings stand on a waypoint (their centre on it, in
+        /// plan, to 2 mm) and which slice the gap after one. Walks the rings in
+        /// order with the waypoint they must reach next.</summary>
+        static void MapRings(Ribbon rb, TrackPath path)
+        {
+            int n = path.Count;
+            float spacing = path.spacing;
+            rb.ringWp = new int[rb.rings];
+            rb.ringT = new float[rb.rings];
+            rb.ringM = new float[rb.rings];
+            int s = 0, gapStart = 0;
+            void CloseGap(int end)
+            {
+                // Rings gapStart+1 .. end-1 slice the gap from station s.
+                int k = end - gapStart;
+                for (int q = gapStart + 1; q < end; q++)
+                {
+                    rb.ringWp[q] = s;
+                    rb.ringT[q] = (q - gapStart) / (float)k;
+                    rb.ringM[q] = (s + rb.ringT[q]) * spacing;
+                }
+            }
+            rb.ringWp[0] = 0; rb.ringT[0] = 0f; rb.ringM[0] = 0f;
+            rb.stationRings = 1;
+            for (int q = 1; q < rb.rings; q++)
+            {
+                Vector3 c = (rb.L[q] + rb.R[q]) * 0.5f;
+                Vector3 w = path.waypoints[(s + 1) % n];
+                float dx = c.x - w.x, dz = c.z - w.z;
+                if (dx * dx + dz * dz < 0.002f * 0.002f)
+                {
+                    CloseGap(q);
+                    s++;
+                    gapStart = q;
+                    rb.ringWp[q] = s; rb.ringT[q] = 0f; rb.ringM[q] = s * spacing;
+                    rb.stationRings++;
+                }
+            }
+            if (gapStart < rb.rings - 1) CloseGap(rb.rings);
+            rb.sliceRings = rb.rings - rb.stationRings;
+        }
+
+        /// <summary>The last ring at or before s metres along the road.</summary>
+        static int RingAtM(Ribbon rb, float s)
+        {
+            int lo = 0, hi = rb.rings - 1;
+            if (s <= rb.ringM[0]) return 0;
+            if (s >= rb.ringM[hi]) return hi;
+            while (hi - lo > 1)
+            {
+                int mid = (lo + hi) / 2;
+                if (rb.ringM[mid] <= s) lo = mid; else hi = mid;
+            }
+            return lo;
+        }
+
+        // ------------------------------------------------------------------
+        //  Corners: does a painted line or an edge turn a corner at a ring?
+        // ------------------------------------------------------------------
+        /// <summary>A line or edge's chord sagitta against a centripetal
+        /// Catmull-Rom through its own vertices: for each segment, how far the
+        /// smooth curve through that segment and its two neighbours' vertices
+        /// passes from the segment at its middle. A polygon laid on a curve's
+        /// slices reads the slice's sagitta (under a centimetre); one laid on
+        /// 4 m chords round a hairpin reads the chord's (0.3 m at Chimney
+        /// Rock). Also the largest heading change at a vertex.</summary>
+        class Corners
+        {
+            public string name;
+            public double maxSag, maxTurnDeg; public int over, segs, atRing = -1, turnRing = -1;
+        }
+
+        static Corners MeasureCorners(string name, Vector3[] pts, bool closed)
+        {
+            var c = new Corners { name = name };
+            int n = pts.Length;
+            if (closed && n > 2 && (pts[n - 1] - pts[0]).sqrMagnitude < 1e-6f) n--;   // the loop's closing ring
+            if (n < 3) return c;
+            Vector2 P(int i)
+            {
+                if (closed) { i = ((i % n) + n) % n; return new Vector2(pts[i].x, pts[i].z); }
+                if (i < 0) return 2f * new Vector2(pts[0].x, pts[0].z) - new Vector2(pts[1].x, pts[1].z);
+                if (i >= n) return 2f * new Vector2(pts[n - 1].x, pts[n - 1].z) - new Vector2(pts[n - 2].x, pts[n - 2].z);
+                return new Vector2(pts[i].x, pts[i].z);
+            }
+            int segs = closed ? n : n - 1;
+            for (int j = 0; j < segs; j++)
+            {
+                Vector2 o = P(j);
+                double x0 = P(j - 1).x - o.x, z0 = P(j - 1).y - o.y;
+                double x2 = P(j + 1).x - o.x, z2 = P(j + 1).y - o.y;
+                double x3 = P(j + 2).x - o.x, z3 = P(j + 2).y - o.y;
+                double d01 = Math.Sqrt(Math.Sqrt(x0 * x0 + z0 * z0));
+                double d12 = Math.Sqrt(Math.Sqrt(x2 * x2 + z2 * z2));
+                double d23 = Math.Sqrt(Math.Sqrt((x3 - x2) * (x3 - x2) + (z3 - z2) * (z3 - z2)));
+                if (d01 < 1e-4 || d12 < 1e-4 || d23 < 1e-4) continue;
+                double t0 = 0, t1 = d01, t2 = t1 + d12, t3 = t2 + d23, t = t1 + 0.5 * d12;
+                // Barry-Goldman, relative to P(j) (which is the origin).
+                double a1x = (t1 - t) / (t1 - t0) * x0 + (t - t0) / (t1 - t0) * 0.0;
+                double a1z = (t1 - t) / (t1 - t0) * z0;
+                double a2x = (t - t1) / (t2 - t1) * x2, a2z = (t - t1) / (t2 - t1) * z2;
+                double a3x = (t3 - t) / (t3 - t2) * x2 + (t - t2) / (t3 - t2) * x3;
+                double a3z = (t3 - t) / (t3 - t2) * z2 + (t - t2) / (t3 - t2) * z3;
+                double b1x = (t2 - t) / (t2 - t0) * a1x + (t - t0) / (t2 - t0) * a2x;
+                double b1z = (t2 - t) / (t2 - t0) * a1z + (t - t0) / (t2 - t0) * a2z;
+                double b2x = (t3 - t) / (t3 - t1) * a2x + (t - t1) / (t3 - t1) * a3x;
+                double b2z = (t3 - t) / (t3 - t1) * a2z + (t - t1) / (t3 - t1) * a3z;
+                double cx = (t2 - t) / (t2 - t1) * b1x + (t - t1) / (t2 - t1) * b2x;
+                double cz = (t2 - t) / (t2 - t1) * b1z + (t - t1) / (t2 - t1) * b2z;
+                double len = Math.Sqrt(x2 * x2 + z2 * z2);
+                double sag = Math.Abs(cx * z2 - cz * x2) / len;
+                c.segs++;
+                if (sag > V) c.over++;
+                if (sag > c.maxSag) { c.maxSag = sag; c.atRing = j; }
+                // Heading change at vertex j+1.
+                if (closed || j + 2 < n)
+                {
+                    double hx1 = x2, hz1 = z2, hx2 = x3 - x2, hz2 = z3 - z2;
+                    double turn = Math.Abs(Math.Atan2(hx1 * hz2 - hz1 * hx2, hx1 * hx2 + hz1 * hz2)) * 180.0 / Math.PI;
+                    if (turn > c.maxTurnDeg) { c.maxTurnDeg = turn; c.turnRing = (j + 1) % Math.Max(n, 1); }
+                }
+            }
+            return c;
         }
 
         static Ribbon ReadRibbon(GameObject road, StringBuilder log)
@@ -323,11 +464,28 @@ namespace PSXRacing.EditorTools
             "Sections every 2 m (each 4 m ring + each mid-quad). left = centre line to LEFT edge line, right = to RIGHT edge line,\n" +
             "line centre to line centre, metres, in the forward bake direction. off = painted centre minus ribbon centre (+ = right).\n" +
             string.Format(CI, "zig = triangulated paint vs bilinear (smooth) paint at mid-quad. Gates: |L-R| <= {0:0.000}, |off| <= {1:0.0000}, zig <= {0:0.000}, ribbon centre vs waypoint <= {2:0.000} m.\n",
-                          V, V * 0.5f, WaypointTolM);
+                          V, V * 0.5f, WaypointTolM) +
+            string.Format(CI, "corners = every painted line, tarmac edge and kerb strip outer edge, ring by ring: each chord against a centripetal Catmull-Rom through its own and its neighbours' vertices. Gate: chord sagitta <= {0:0.000} m.\n", V);
 
         static string SummaryHeader() =>
-            string.Format(CI, "{0,-20} {1,5} {2,-38} {3,6} {4,7} {5,7} {6,7} {7,7} {8,8} {9,7} {10}",
-                "venue", "W", "texture", "stride", "left", "right", "maxDiff", "maxOff", "zigMax", "wpOff", "verdict");
+            string.Format(CI, "{0,-20} {1,5} {2,-38} {3,6} {4,7} {5,7} {6,7} {7,7} {8,8} {9,7} {10,7} {11}",
+                "venue", "W", "texture", "stride", "left", "right", "maxDiff", "maxOff", "zigMax", "wpOff", "sagMax", "verdict");
+
+        /// <summary>A kerb strip's outer edge, ring by ring, when the strip
+        /// has one row per road ring (flat: inner, outer; street: A B C D).</summary>
+        static Vector3[] KerbOuter(Transform track, string name, int rings)
+        {
+            var go = track.Find(name);
+            var mf = go != null ? go.GetComponent<MeshFilter>() : null;
+            if (mf == null || mf.sharedMesh == null || rings < 2) return null;
+            var v = mf.sharedMesh.vertices;
+            if (v.Length % rings != 0) return null;
+            int stride = v.Length / rings;
+            if (stride < 2) return null;
+            var o = new Vector3[rings];
+            for (int k = 0; k < rings; k++) o[k] = go.TransformPoint(v[k * stride + stride - 1]);
+            return o;
+        }
 
         /// <summary>Every venue: the verify stage (tools\verify.ps1,
         /// tools\lane-audit.ps1). HeldBack venues are measured when their
@@ -437,8 +595,15 @@ namespace PSXRacing.EditorTools
                 if (deckPaint != null) Fail("deck texture " + Path.GetFileName(rb.deckTex.path) + ": " + deckPaint);
                 if (!same) Fail("deck and tarmac paint their lines in different places");
             }
-            sb.AppendFormat(CI, "  ribbon: {0} rings, {1} vertices a ring ({2})\n", rb.rings, rb.stride,
-                            rb.stride == PSXRacingBuilder.RoadStride ? "left | centre | right" : "left | right - an older build");
+            MapRings(rb, path);
+            sb.AppendFormat(CI, "  ribbon: {0} rings, {1} vertices a ring ({2}); {3} on waypoints ({4} waypoints), {5} slicing a bend's gaps\n",
+                            rb.rings, rb.stride,
+                            rb.stride == PSXRacingBuilder.RoadStride ? "left | centre | right" : "left | right - an older build",
+                            rb.stationRings, path.Count, rb.sliceRings);
+            int wantStations = path.HasEnds ? path.Count : path.Count + 1;
+            if (rb.stationRings != wantStations)
+                Fail(string.Format(CI, "RIBBON OFF ITS PATH: {0} rings stand on a waypoint, want {1} (every waypoint{2})",
+                                   rb.stationRings, wantStations, wantStations > path.Count ? " and the loop's closing ring" : ""));
 
             float uL = tx.uEdgeL, uC = tx.uCentre, uR = tx.uEdgeR;
             float lineHalfU = 0f;
@@ -463,7 +628,8 @@ namespace PSXRacing.EditorTools
                     if (rungW < 1e-4) continue;
                     d2 /= (float)rungW;
                     var tris = TrisAround(rb, q, O.x, O.z);
-                    var s = new Sec { quad = q, mid = mid, m = (q + (mid ? 0.5f : 0f)) * spacing };
+                    var s = new Sec { quad = q, wp = rb.ringWp[q], mid = mid,
+                                      m = mid ? (rb.ringM[q] + rb.ringM[q + 1]) * 0.5f : rb.ringM[q] };
                     double sL = SolveS(tris, d2.x, d2.y, uL);
                     double sC = SolveS(tris, d2.x, d2.y, uC);
                     double sR = SolveS(tris, d2.x, d2.y, uR);
@@ -478,9 +644,9 @@ namespace PSXRacing.EditorTools
                     s.zigC = sC - (uC - 0.5) * rungW;
                     s.zigL = sL - (uL - 0.5) * rungW;
                     s.zigR = sR - (uR - 0.5) * rungW;
-                    if (!mid)
+                    if (!mid && rb.ringT[q] == 0f)
                     {
-                        int wi = path.Wrap(q);
+                        int wi = path.Wrap(rb.ringWp[q]);
                         if (wi >= 0 && wi < path.Count)
                         {
                             var wp = path.waypoints[wi];
@@ -506,50 +672,85 @@ namespace PSXRacing.EditorTools
             var worstZig = secs.Where(x => x.mid).OrderByDescending(x => x.Zig).FirstOrDefault();
             double maxWp = rings.Count > 0 ? rings.Max(x => Math.Abs(x.wpOff)) : 0.0;
             double maxZig = zigs.Count > 0 ? zigs.Max() : 0.0;
-            sb.AppendFormat(CI, "  {0} sections over {1:0} m\n", secs.Count, quads * spacing);
+            sb.AppendFormat(CI, "  {0} sections over {1:0} m\n", secs.Count, rb.ringM[rb.rings - 1]);
             sb.AppendFormat(CI, "  lanes     left mean {0:0.000} min {1:0.000} max {2:0.000} | right mean {3:0.000} min {4:0.000} max {5:0.000}\n",
                 secs.Average(x => x.left), secs.Min(x => x.left), secs.Max(x => x.left),
                 secs.Average(x => x.right), secs.Min(x => x.right), secs.Max(x => x.right));
             sb.AppendFormat(CI, "            |L-R| max {0:0.0000} m (wp {1} {2}, {3:0} m) p95 {4:0.0000}; ratio L/R mean {5:0.000}\n",
-                Math.Abs(worst.diff), worst.quad, worst.mid ? "mid" : "ring", worst.m, Pct(absDiff, 0.95),
+                Math.Abs(worst.diff), worst.wp, worst.mid ? "mid" : "ring", worst.m, Pct(absDiff, 0.95),
                 secs.Average(x => x.left / x.right));
             sb.AppendFormat(CI, "  centre    painted centre - ribbon centre: mean {0:+0.0000;-0.0000} max|.| {1:0.0000} m (wp {2} {3})\n",
-                secs.Average(x => x.off), Math.Abs(worstOff.off), worstOff.quad, worstOff.mid ? "mid" : "ring");
+                secs.Average(x => x.off), Math.Abs(worstOff.off), worstOff.wp, worstOff.mid ? "mid" : "ring");
             sb.AppendFormat(CI, "            ribbon centre - TrackPath waypoint (rings): mean {0:+0.0000;-0.0000} max|.| {1:0.0000} m\n",
                 rings.Count > 0 ? rings.Average(x => x.wpOff) : 0.0, maxWp);
             sb.AppendFormat(CI, "  edges     asphalt outside the edge lines: left mean {0:0.000} max {1:0.000} | right mean {2:0.000} max {3:0.000} m\n",
                 secs.Average(x => x.asphL), secs.Max(x => x.asphL), secs.Average(x => x.asphR), secs.Max(x => x.asphR));
             sb.AppendFormat(CI, "  smooth    paint zig (mid-quad, any line) max {0:0.0000} p95 {1:0.0000} m (wp {2}); centre line max {3:0.0000}\n",
-                maxZig, Pct(zigs, 0.95), worstZig != null ? worstZig.quad : -1,
+                maxZig, Pct(zigs, 0.95), worstZig != null ? worstZig.wp : -1,
                 secs.Where(x => x.mid).Select(x => Math.Abs(x.zigC)).DefaultIfEmpty(0).Max());
 
             if (Math.Abs(worst.diff) > V)
                 Fail(string.Format(CI, "LOPSIDED LANES: left {0:0.000} vs right {1:0.000} m at wp {2} ({3:0} m), |L-R| {4:0.000} > {5:0.000}",
-                                   worst.left, worst.right, worst.quad, worst.m, Math.Abs(worst.diff), V));
+                                   worst.left, worst.right, worst.wp, worst.m, Math.Abs(worst.diff), V));
             if (Math.Abs(worstOff.off) > V * 0.5f)
                 Fail(string.Format(CI, "CENTRE LINE OFF CENTRE by {0:+0.000;-0.000} m at wp {1} ({2:0} m), over {3:0.0000}",
-                                   worstOff.off, worstOff.quad, worstOff.m, V * 0.5f));
+                                   worstOff.off, worstOff.wp, worstOff.m, V * 0.5f));
             if (maxZig > V)
                 Fail(string.Format(CI, "PAINT ZIGZAG {0:0.0000} m off its smooth line at wp {1} mid-quad, over {2:0.000}",
-                                   maxZig, worstZig != null ? worstZig.quad : -1, V));
+                                   maxZig, worstZig != null ? worstZig.wp : -1, V));
             if (maxWp > WaypointTolM)
                 Fail(string.Format(CI, "RIBBON OFF ITS PATH: centre {0:0.0000} m from the TrackPath waypoint, over {1:0.000}", maxWp, WaypointTolM));
 
+            // CORNERS (the owner, 2026-09-28: "nor should any sharp angles of
+            // road or road lines"). Every painted line, both tarmac edges and
+            // both kerb strips' outer edges (where the verge meets the
+            // shoulder), ring by ring: a chord that misses the smooth curve
+            // through its own and its neighbours' vertices by more than V is a
+            // corner. The zig above only compares paint inside one quad; this
+            // is the heading change BETWEEN quads.
+            bool closed = !path.HasEnds;
+            var lines = new List<(string name, Vector3[] pts)>
+            {
+                ("tarmac edge L", rb.L),
+                ("edge line L", Enumerable.Range(0, rb.rings).Select(k => Vector3.Lerp(rb.L[k], rb.R[k], uL)).ToArray()),
+                ("centre line", Enumerable.Range(0, rb.rings).Select(k => Vector3.Lerp(rb.L[k], rb.R[k], uC)).ToArray()),
+                ("edge line R", Enumerable.Range(0, rb.rings).Select(k => Vector3.Lerp(rb.L[k], rb.R[k], uR)).ToArray()),
+                ("tarmac edge R", rb.R),
+            };
+            foreach (var kn in new[] { "KerbL", "KerbR" })
+            {
+                var outer = KerbOuter(track.transform, kn, rb.rings);
+                if (outer != null) lines.Add((kn + " outer edge", outer));
+                else sb.AppendLine("    " + kn + ": no ring-for-ring strip to measure its outer edge");
+            }
+            double sagMax = 0.0;
+            foreach (var (name, pts) in lines)
+            {
+                var c = MeasureCorners(name, pts, closed);
+                sagMax = Math.Max(sagMax, c.maxSag);
+                int at = c.atRing >= 0 ? c.atRing : 0, turnAt = c.turnRing >= 0 ? c.turnRing : 0;
+                sb.AppendFormat(CI, "  corners   {0,-18} chord sagitta max {1:0.0000} m (wp {2}, {3:0} m), {4} of {5} over {6:0.000}; turn at a ring max {7:0.0} deg (wp {8})\n",
+                    name, c.maxSag, rb.ringWp[at], rb.ringM[at], c.over, c.segs, V, c.maxTurnDeg, rb.ringWp[turnAt]);
+                if (c.maxSag > V)
+                    Fail(string.Format(CI, "LINE CORNERS: the {0} turns a corner at wp {1} ({2:0} m): its chord misses the curve through its rings by {3:0.000} m, over {4:0.000} ({5} of {6} chords)",
+                        name, rb.ringWp[at], rb.ringM[at], c.maxSag, V, c.over, c.segs));
+            }
+
             KerbReport(track.transform, "KerbL", sb, rb.rings);
             KerbReport(track.transform, "KerbR", sb, rb.rings);
-            if (fails == 0) sb.AppendLine("  ok   " + def.id + ": lanes even, centre line on the centre, lines smooth");
+            if (fails == 0) sb.AppendLine("  ok   " + def.id + ": lanes even, centre line on the centre, lines smooth, no corners");
             sb.AppendLine();
 
-            summary.AppendLine(string.Format(CI, "{0,-20} {1,5:0.0} {2,-38} {3,6} {4,7:0.000} {5,7:0.000} {6,7:0.0000} {7,7:0.0000} {8,8:0.0000} {9,7:0.0000} {10}",
+            summary.AppendLine(string.Format(CI, "{0,-20} {1,5:0.0} {2,-38} {3,6} {4,7:0.000} {5,7:0.000} {6,7:0.0000} {7,7:0.0000} {8,8:0.0000} {9,7:0.0000} {11,7:0.0000} {10}",
                 def.id, W, Path.GetFileName(tx.path), rb.stride, secs.Average(x => x.left), secs.Average(x => x.right),
                 absDiff.Max(), Math.Abs(worstOff.off), maxZig, maxWp,
-                fails == 0 ? "ok" : heldBack ? "fails (held back)" : "FAIL"));
+                fails == 0 ? "ok" : heldBack ? "fails (held back)" : "FAIL", sagMax));
 
-            var csv = new StringBuilder("quad,mid,m,left,right,diff,off,asphL,asphR,zigC,zigL,zigR,wpOff\n");
+            var csv = new StringBuilder("ring,wp,mid,m,left,right,diff,off,asphL,asphR,zigC,zigL,zigR,wpOff\n");
             foreach (var x in secs)
-                csv.AppendLine(string.Format(CI, "{0},{1},{2:0.0},{3:0.0000},{4:0.0000},{5:0.0000},{6:0.0000},{7:0.0000},{8:0.0000},{9:0.00000},{10:0.00000},{11:0.00000},{12:0.00000}",
-                    x.quad, x.mid ? 1 : 0, x.m, x.left, x.right, x.diff, x.off, x.asphL, x.asphR,
-                    x.zigC, x.zigL, x.zigR, x.wpOff));
+                csv.AppendLine(string.Format(CI, "{13},{0},{1},{2:0.0},{3:0.0000},{4:0.0000},{5:0.0000},{6:0.0000},{7:0.0000},{8:0.0000},{9:0.00000},{10:0.00000},{11:0.00000},{12:0.00000}",
+                    x.wp, x.mid ? 1 : 0, x.m, x.left, x.right, x.diff, x.off, x.asphL, x.asphR,
+                    x.zigC, x.zigL, x.zigR, x.wpOff, x.quad));
             File.WriteAllText(Path.Combine(OutDir, "lane_census_" + def.id + ".csv"), csv.ToString());
             return fails;
         }
@@ -604,8 +805,8 @@ namespace PSXRacing.EditorTools
 
         static void CarAt(Ribbon rb, float spacing, float s, float lat, float yawDeg, out Vector3 pos, out Quaternion rot)
         {
-            int k = Mathf.Clamp(Mathf.FloorToInt(s / spacing), 0, rb.rings - 2);
-            float f = Mathf.Clamp01(s / spacing - k);
+            int k = Mathf.Clamp(RingAtM(rb, s), 0, rb.rings - 2);
+            float f = Mathf.Clamp01((s - rb.ringM[k]) / Mathf.Max(rb.ringM[k + 1] - rb.ringM[k], 1e-4f));
             Vector3 c = Vector3.Lerp(RingMid(rb, k), RingMid(rb, k + 1), f);
             Vector3 r = Vector3.Lerp(RingRight(rb, k), RingRight(rb, k + 1), f).normalized;
             pos = c + r * lat;
@@ -674,7 +875,7 @@ namespace PSXRacing.EditorTools
                 Vector3 lp = Quaternion.Inverse(cr) * (camPos - cp);
                 Quaternion lr = Quaternion.Inverse(cr) * camRot;
                 var P = ChaseCamera.ShiftedProjection(vfov, aspect, 0.25f, 1000f, shift);
-                int kc = Mathf.FloorToInt(s / spacing);
+                int kc = RingAtM(rb, s), kf = RingAtM(rb, s + 240f) + 1;
                 for (float lat = lat0; lat <= lat1 + 1e-3f; lat += dl)
                     for (float yaw = yaw0; yaw <= yaw1 + 1e-3f; yaw += dy)
                     {
@@ -682,9 +883,9 @@ namespace PSXRacing.EditorTools
                         Vector3 eye = p2 + r2 * lp;
                         Quaternion er = r2 * lr;
                         var vp = P * ViewOf(eye, er);
-                        var pl = ProjectLine(rb, vp, kc, kc + 60, uL);
-                        var pc = ProjectLine(rb, vp, kc, kc + 60, uC);
-                        var pr = ProjectLine(rb, vp, kc, kc + 60, uR);
+                        var pl = ProjectLine(rb, vp, kc, kf, uL);
+                        var pc = ProjectLine(rb, vp, kc, kf, uC);
+                        var pr = ProjectLine(rb, vp, kc, kf, uR);
                         float err = 0f;
                         foreach (var o in owner)
                         {
@@ -716,6 +917,7 @@ namespace PSXRacing.EditorTools
             var road = GameObject.Find("Track")?.transform.Find("Road");
             var rb = road != null ? ReadRibbon(road.gameObject, log) : null;
             if (rb == null || rb.tex == null) { Debug.LogError("[Lanes] no ribbon"); return; }
+            MapRings(rb, path);
             float uL = rb.tex.uEdgeL, uC = rb.tex.uCentre, uR = rb.tex.uEdgeR;
             log.AppendFormat(CI, "{0}: texture {1} u L/C/R {2:0.0000}/{3:0.0000}/{4:0.0000}, ribbon {5} vertices a ring\n",
                              id, Path.GetFileName(rb.tex.path), uL, uC, uR, rb.stride);
@@ -802,9 +1004,9 @@ namespace PSXRacing.EditorTools
                 {
                     var P = ChaseCamera.ShiftedProjection(bestFit.vfov, aspect, 0.25f, 1000f, bestFit.shift);
                     var vp = P * ViewOf(bestFit.camPos, bestFit.camRot);
-                    int kc = Mathf.FloorToInt(bestFit.s / spacing);
-                    var pl = ProjectLine(rb, vp, kc, kc + 60, uL); var pc = ProjectLine(rb, vp, kc, kc + 60, uC);
-                    var pr = ProjectLine(rb, vp, kc, kc + 60, uR); var ph = ProjectLine(rb, vp, kc, kc + 60, 0.5f);
+                    int kc = RingAtM(rb, bestFit.s), kf = RingAtM(rb, bestFit.s + 240f) + 1;
+                    var pl = ProjectLine(rb, vp, kc, kf, uL); var pc = ProjectLine(rb, vp, kc, kf, uC);
+                    var pr = ProjectLine(rb, vp, kc, kf, uR); var ph = ProjectLine(rb, vp, kc, kf, 0.5f);
                     foreach (var o in owner)
                     {
                         float xl = CrossRow(pl, o.row), xc = CrossRow(pc, o.row), xr = CrossRow(pr, o.row), xh = CrossRow(ph, o.row);
@@ -898,7 +1100,7 @@ namespace PSXRacing.EditorTools
             { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Repeat };
             tex.SetPixels32(px);
             tex.Apply();
-            File.WriteAllBytes(Path.Combine(OutDir, "centred_" + Path.GetFileName(tl.path)), tex.EncodeToPNG());
+            ShotSidecar.WritePng(Path.Combine(OutDir, "centred_" + Path.GetFileName(tl.path)), tex.EncodeToPNG());
             return tex;
         }
 
@@ -944,10 +1146,10 @@ namespace PSXRacing.EditorTools
                         for (int x = 0; x < PhoneW; x++)
                             dst[y * PhoneW + x] = src[Mathf.Min(h - 1, y * h / PhoneH) * w + Mathf.Min(w - 1, x * w / PhoneW)];
                     big.SetPixels32(dst); big.Apply();
-                    File.WriteAllBytes(file, big.EncodeToPNG());
+                    ShotSidecar.WritePng(file, big.EncodeToPNG());
                     Object.DestroyImmediate(big);
                 }
-                else File.WriteAllBytes(file, tex.EncodeToPNG());
+                else ShotSidecar.WritePng(file, tex.EncodeToPNG());
             }
             else Debug.LogWarning("[Lanes] RenderRequest unsupported");
             cam.targetTexture = keepTarget;

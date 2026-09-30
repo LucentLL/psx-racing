@@ -13,7 +13,7 @@ foreach ($d in @("Assets", "Packages", "ProjectSettings")) {
 }
 
 $before = @(Get-Process Unity -ErrorAction SilentlyContinue | ForEach-Object Id)
-Start-Process -FilePath $unity -ArgumentList @("-quit","-batchmode","-nographics","-projectPath",$proj,
+Start-Process -FilePath $unity -ArgumentList @("-quit","-batchmode","-nographics","-projectPath",$proj,"-buildTarget",$(if ($env:PSX_BUILD_TARGET) { $env:PSX_BUILD_TARGET } else { "WebGL" }),
     "-executeMethod","PSXRacing.EditorTools.PSXRacingBuilder.Build",
     "-logFile","$proj\scenebuild.log","-accept-apiupdate") -WindowStyle Hidden | Out-Null
 Start-Sleep -Seconds 5

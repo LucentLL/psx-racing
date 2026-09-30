@@ -78,6 +78,11 @@ Shader "PSX/Rain"
             // first is still fine.
             #include "PSXHeadlights.cginc"
             #include "PSXLamps.cginc"
+            // THE COLOUR PASS (PSXTone.cginc): a drop is LIT - by the sun, the
+            // sky, the lamps and the beams - so its light takes the hour's
+            // exposure like every lit surface's (it adds, so no curve), and
+            // it adds nothing to the emitter mask (the alpha out is zero).
+            #include "PSXTone.cginc"
 
             // THE LOOK OF THE RAIN. Linear-light multipliers on each source.
             //
@@ -187,9 +192,9 @@ Shader "PSX/Rain"
                 float3 scene = _PSXAmbient.rgb
                              + _PSXSkyAmbient.rgb * RAIN_SKY
                              + _PSXLightColor.rgb * RAIN_SUN;
-                float3 light = scene * RAIN_BASE
+                float3 light = (scene * RAIN_BASE
                              + PSXLampsAt(wpos) * RAIN_LAMP
-                             + PSXHeadlightsAt(wpos) * RAIN_HEAD;
+                             + PSXHeadlightsAt(wpos) * RAIN_HEAD) * PSXExposureGain();
 
                 // Fade into the fog band by view distance, on the same curve
                 // the surfaces use.

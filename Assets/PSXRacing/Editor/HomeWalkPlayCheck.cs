@@ -280,7 +280,7 @@ namespace PSXRacing.EditorTools
                 RenderTexture.active = prev;
                 string dir = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Screenshots");
                 Directory.CreateDirectory(dir);
-                File.WriteAllBytes(Path.Combine(dir, "homewalk_" + name + ".png"), tex.EncodeToPNG());
+                ShotSidecar.WritePng(Path.Combine(dir, "homewalk_" + name + ".png"), tex.EncodeToPNG());
                 Object.Destroy(tex);
             }
             rt.Release();

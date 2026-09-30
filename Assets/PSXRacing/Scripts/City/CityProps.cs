@@ -125,7 +125,7 @@ namespace PSXRacing.City
         {
             if (cache.TryGetValue(kind, out var go)) return go;
             if (!Defs.TryGetValue(kind, out var def)) return null;
-            go = Resources.Load<GameObject>(def.res);
+            go = PSXTexDecode.LoadPrefab(def.res);
             if (go == null && warned.Add(kind))
                 Debug.LogWarning("[City] prop prefab missing: " + def.res +
                                  " — run the scene build to bake CityProps.");
@@ -166,7 +166,10 @@ namespace PSXRacing.City
             if (!cityCache.TryGetValue(kind, out var go))
             {
                 if (!Defs.TryGetValue(kind, out var def)) return null;
-                go = Resources.Load<GameObject>(CityVariantDir + System.IO.Path.GetFileName(def.res));
+                // Through the one door (PSXTexDecode.LoadPrefab), like Prefab:
+                // the variant's atlas and pack textures are 16-bit set
+                // textures the shader decodes only on a stamped material.
+                go = PSXTexDecode.LoadPrefab(CityVariantDir + System.IO.Path.GetFileName(def.res));
                 if (go == null && warned.Add((byte)(kind | 0x80)))
                     Debug.LogWarning("[City] city prop variant missing: " + CityVariantDir + System.IO.Path.GetFileName(def.res) +
                                      " - the full prefab stands in (run the scene build to bake the variants).");

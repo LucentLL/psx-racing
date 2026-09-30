@@ -154,7 +154,7 @@ namespace PSXRacing.EditorTools
                 tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
                 tex.Apply();
                 RenderTexture.active = prev;
-                File.WriteAllBytes(Path.Combine(OutDir, name + ".png"), tex.EncodeToPNG());
+                ShotSidecar.WritePng(Path.Combine(OutDir, name + ".png"), tex.EncodeToPNG());
                 Object.DestroyImmediate(tex);
             }
             else Debug.LogWarning("[CarShot] RenderRequest unsupported");

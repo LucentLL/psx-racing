@@ -139,7 +139,7 @@ namespace PSXRacing.EditorTools
                 RenderTexture.active = null;
                 cam.targetTexture = null;
                 string safe = t.name.Replace('.', '_');
-                File.WriteAllBytes(Path.Combine(dir, safe + ".png"), tex.EncodeToPNG());
+                ShotSidecar.WritePng(Path.Combine(dir, safe + ".png"), tex.EncodeToPNG());
                 Object.DestroyImmediate(tex);
                 rt.Release();
                 Object.DestroyImmediate(rt);

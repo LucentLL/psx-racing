@@ -183,6 +183,52 @@ namespace PSXRacing
         /// </summary>
         public Color fogSun = new Color(0f, 0f, 0f, 0f);
 
+        // ------------------------------------------------------------------
+        //  THE COLOUR PASS (2026-09-29; Shaders/PSXTone.cginc). One exposure
+        //  and one tone curve for the whole picture, and the halation and
+        //  lens dirt keyed on light sources. Written by TimeOfDay.Apply, and
+        //  NEVER serialized: a scene saved with a value would freeze it (the
+        //  stale-serialized-values trap), and a scene that never applies an
+        //  hour - every interior - must push the defaults below, under which
+        //  every shader draws exactly what it drew before the pass.
+        // ------------------------------------------------------------------
+
+        /// <summary>1 = the one tone curve and the exposure are on
+        /// (_PSXToneOn); 0 = the old per-surface roll-offs, bit for bit.
+        /// TimeOfDay.Apply: 1 with an hour applied (PSX_TONE=0 in a tool's
+        /// environment is the before-picture).</summary>
+        [System.NonSerialized] public float tone;
+        /// <summary>THE HOUR'S EXPOSURE (_PSXExposure): what every light a
+        /// surface receives is multiplied by (TimeOfDay.ExposureFor; 0.55 at a
+        /// clear noon, 1 at every hour that never passed the old shoulder).
+        /// Read only while <see cref="tone"/> is 1.</summary>
+        [System.NonSerialized] public float exposure = 1f;
+        /// <summary>THE EYE'S ADAPTATION (_PSXAdapt): multiplies the exposure
+        /// and the sky, fog and emitters. Driven in play mode by the roof
+        /// probe (<see cref="ExposureAdapt"/>, C10): 1 under an open sky and
+        /// at night, up to 2.4 in a tunnel by day. Read only while
+        /// <see cref="tone"/> is 1.</summary>
+        [System.NonSerialized] public float adapt = 1f;
+        /// <summary>1 = PSX/Blit's halation and PSX/Lens's dirt glow by the
+        /// framebuffer's emitter mask (_PSXEmitKey); 0 = by brightness, the
+        /// old rule. TimeOfDay.Apply: 1 with an hour applied (PSX_EMITKEY=0 in
+        /// a tool's environment turns it off).</summary>
+        [System.NonSerialized] public float emitKey;
+        /// <summary>THE OWNER'S C11 CHOICE, "G1" (_PSXGradeSun, PSX/Blit): how
+        /// much of the grade's sun-keyed lift fade to take, 0..1 - 1 at a
+        /// clear morning, noon or afternoon WHEN <see cref="LookChoices.SunLift"/>
+        /// is on, 0 otherwise. It ships off: 0 is the signed-off grade bit
+        /// for bit. TimeOfDay.Apply writes it.</summary>
+        [System.NonSerialized] public float gradeSun;
+        /// <summary>THE HOUR'S SKY FILL (TimeOfDay.DayFillFor, the harsh
+        /// sun, review 2026-09-29): the share of its sky light a sunlit hour
+        /// keeps - 1 at every hour but a clear or snowy morning, noon or
+        /// afternoon. Not a shader global: the eye (<see cref="ExposureAdapt"/>)
+        /// opens by its inverse under a roof, so a tunnel is as readable as it
+        /// was while the open shade outside got darker. 0 (a scene that never
+        /// applied an hour) reads as 1.</summary>
+        [System.NonSerialized] public float dayFill = 1f;
+
         void OnEnable()
         {
             // The street-lamp table is pushed per camera, from the render
@@ -193,9 +239,22 @@ namespace PSXRacing
             StreetLights.EnsureHook();
             // And the sun's shadow map, for the same reason in the same place.
             SunShadows.EnsureHook();
+            // And which camera's frame carries the emitter mask (the colour
+            // pass): per camera, from the same callback.
+            EmitterMask.EnsureHook();
+            // A new scene: the eye starts adapted to the open sky (C10).
+            if (Application.isPlaying) ExposureAdapt.Reset();
             Apply();
         }
-        void Update() => Apply();
+
+        void Update()
+        {
+            // THE EYE (the colour pass, C10): stepped here, in play mode,
+            // from the roof probe (ExposureAdapt). The tools set the field
+            // themselves (a settled value for the frame's pose).
+            if (Application.isPlaying) adapt = ExposureAdapt.Tick(this, Time.deltaTime);
+            Apply();
+        }
 
         public void Apply()
         {
@@ -217,6 +276,13 @@ namespace PSXRacing
             Shader.SetGlobalFloat("_PSXSunModel", sunModel > 0.5f ? 1f : 0f);
             Color fs = fogSun.linear;
             Shader.SetGlobalVector("_PSXFogSun", new Vector4(fs.r, fs.g, fs.b, fogSun.a));
+            // The colour pass. Floats pushed as they are: an exposure is a
+            // multiplier on linear light, not a colour to convert.
+            Shader.SetGlobalFloat("_PSXToneOn", tone > 0.5f ? 1f : 0f);
+            Shader.SetGlobalFloat("_PSXExposure", Mathf.Max(0.01f, exposure));
+            Shader.SetGlobalFloat("_PSXAdapt", Mathf.Max(0.01f, adapt));
+            Shader.SetGlobalFloat("_PSXGradeSun", Mathf.Clamp01(gradeSun));
+            Shader.SetGlobalFloat("_PSXEmitKey", emitKey > 0.5f ? 1f : 0f);
             // The map itself is drawn per camera at render time (the hook in
             // OnEnable); this only says how strong and from where.
             // Times the player's own switch (OPTIONS, SUN SHADOWS): the hour

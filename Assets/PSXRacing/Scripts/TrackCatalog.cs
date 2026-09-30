@@ -909,9 +909,20 @@ namespace PSXRacing
             // with the stage builder's end pads, square hairpin wall ends,
             // rock tops carried to another leg's seam, the inside of a
             // hairpin's carried slope eased down to the land where the fold
-            // stops it (ShoulderTuckCapSlope), and a pad under the toe that
-            // crosses the apex over its pit (BuildApexPads). Appended - save
-            // v20 (RemapV19Index).
+            // stops it (ShoulderTuckCapSlope), a pad under the toe that
+            // crosses the apex over its pit (BuildApexPads), guardrails laid
+            // on the road's curve and dry-stone retaining walls under the
+            // top switchback's upper rail (08d044d). Appended - save v20
+            // (RemapV19Index). Appended once (4e02b49), held back again
+            // (cd63392) over four small edge-face ledges, and released on the
+            // owner's word ("Release now, fix after", 2026-09-29): those four
+            // ledges were a NAMED exception in the obstacle audit
+            // (TrackObstacleAudit.OwnerAccepted), each by station, side and
+            // height. Three were fixed the same day (the builder's rise holds
+            // and the end pad carrying the end row's shoulder); the fourth,
+            // 983 R, a hillside falling past the catch, by the fill the owner
+            // chose over a guardrail (the builder's fill tails, which also
+            // fill under 981-982 R's fan). The list is empty.
             new TrackDef
             {
                 id = "ChimneyRock",
@@ -952,7 +963,9 @@ namespace PSXRacing
         /// as well. A venue is NOT appended to Authored and then taken away
         /// again - that would move every twin twice - so a road waits here
         /// until it is ready; then it is appended, with a save remap like
-        /// v20's (see <see cref="RemapV19Index"/>).
+        /// v20's (see <see cref="RemapV19Index"/>). (Chimney Rock did go back
+        /// in here once, cd63392, before anything was pushed; the owner
+        /// released it on 2026-09-29.)
         /// </summary>
         public static readonly TrackDef[] HeldBack = { };
 

@@ -372,7 +372,7 @@ namespace PSXRacing.EditorTools
                 {
                     var shown = PSXScreenshotTool.Dithered(rt);
                     var big = Doubled(Read(shown), w, h, h < 400 ? 2 : 1);
-                    File.WriteAllBytes(Path.Combine(outDir, "speedblur_" + name + ".png"), big.EncodeToPNG());
+                    ShotSidecar.WritePng(Path.Combine(outDir, "speedblur_" + name + ".png"), big.EncodeToPNG());
                     Object.DestroyImmediate(big);
                     if (shown != rt) { shown.Release(); Object.DestroyImmediate(shown); }
                 }

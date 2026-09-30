@@ -11,7 +11,10 @@ Shader "PSX/Shadow"
         Tags { "Queue"="Transparent-100" "RenderType"="Transparent" }
         Pass
         {
-            Blend SrcAlpha OneMinusSrcAlpha
+            // Darkens the colour; the framebuffer's ALPHA is kept (Zero One):
+            // it is the emitter mask (PSXTone.cginc), and a blend like the
+            // colour's would have written the shadow's own a*a into it.
+            Blend SrcAlpha OneMinusSrcAlpha, Zero One
             ZWrite Off
             Cull Off
             CGPROGRAM
