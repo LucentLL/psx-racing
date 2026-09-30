@@ -580,9 +580,8 @@ namespace PSXRacing
             t.horizontalOverflow = HorizontalWrapMode.Overflow;
             t.verticalOverflow = VerticalWrapMode.Overflow;
             t.raycastTarget = false;
-            var sh = go.AddComponent<Shadow>();
-            sh.effectColor = new Color(0f, 0f, 0f, 0.9f);
-            sh.effectDistance = new Vector2(1f, -1f);
+            // An edge on every side (the colour pass, C9; HudOnTop.OutlineText).
+            HudOnTop.AddOutline(go);
             var rt = t.rectTransform;
             rt.anchorMin = anchor; rt.anchorMax = anchor;
             rt.pivot = new Vector2(anchor.x, 0.5f);

@@ -154,7 +154,7 @@ namespace PSXRacing.EditorTools
                 RenderTexture.active = prev;
 
                 string path = Path.Combine(outDir, "controls_" + label + ".png");
-                File.WriteAllBytes(path, tex.EncodeToPNG());
+                ShotSidecar.WritePng(path, tex.EncodeToPNG());
                 Debug.Log("[Preview] wrote " + path);
 
                 Object.DestroyImmediate(tex);
@@ -309,7 +309,7 @@ namespace PSXRacing.EditorTools
                 if (nameBackdrops && !string.IsNullOrEmpty(backdropPath))
                     suffix += "_" + Path.GetFileNameWithoutExtension(backdropPath);
                 string path = Path.Combine(outDir, "cluster_" + label + suffix + ".png");
-                File.WriteAllBytes(path, tex.EncodeToPNG());
+                ShotSidecar.WritePng(path, tex.EncodeToPNG());
                 Debug.Log("[Preview] wrote " + path);
 
                 Object.DestroyImmediate(tex);
@@ -522,7 +522,7 @@ namespace PSXRacing.EditorTools
                 flat.Apply();
 
                 string path = Path.Combine(outDir, "control_" + name.ToLower() + ".png");
-                File.WriteAllBytes(path, flat.EncodeToPNG());
+                ShotSidecar.WritePng(path, flat.EncodeToPNG());
                 Object.DestroyImmediate(flat);
                 Debug.Log("[Preview] wrote " + path + " (" + src.width + "x" + src.height + ")");
             }

@@ -244,7 +244,7 @@ namespace PSXRacing.EditorTools
                             if (tex == null) continue;
                             string name = string.Format("cf_{0}_{1}_{2}_{3}_{4:000}", rig, v.ToString().ToLower(),
                                                         scr.tag, key, kmh);
-                            File.WriteAllBytes(Path.Combine(OutDir, name + ".png"), tex.EncodeToPNG());
+                            ShotSidecar.WritePng(Path.Combine(OutDir, name + ".png"), tex.EncodeToPNG());
                             string sheetKey = rig + "_" + v.ToString().ToLower() + "_" + scr.tag;
                             if (!sheets.TryGetValue(sheetKey, out var list))
                                 sheets[sheetKey] = list = new List<(Texture2D, int, int)>();
@@ -1466,7 +1466,7 @@ namespace PSXRacing.EditorTools
             }
             sheet.SetPixels32(px);
             sheet.Apply();
-            File.WriteAllBytes(Path.Combine(OutDir, "cf_sheet_" + key + ".png"), sheet.EncodeToPNG());
+            ShotSidecar.WritePng(Path.Combine(OutDir, "cf_sheet_" + key + ".png"), sheet.EncodeToPNG());
             Object.DestroyImmediate(sheet);
             foreach (var f in frames) Object.DestroyImmediate(f.tex);
         }

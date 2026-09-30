@@ -380,7 +380,9 @@ namespace PSXRacing.EditorTools
             return GroundKind.None;
         }
 
-        // Winter, Spring, Summer, Fall, Snow. Fall is the baked look.
+        // Winter, Spring, Summer, Fall, Snow. Fall is the baked look. The Snow
+        // entries are not used for colour any more (SnowGroundTint and the
+        // snow turf, below); they stay so the tables keep one row per dress.
         static readonly Color[] DirtTints =
         {
             new Color(0.92f, 0.90f, 0.90f), new Color(0.85f, 1.00f, 0.72f), new Color(0.72f, 0.92f, 0.60f),
@@ -391,6 +393,39 @@ namespace PSXRacing.EditorTools
             new Color(0.82f, 0.78f, 0.66f), new Color(0.95f, 1.00f, 0.85f), Color.white,
             new Color(1.00f, 0.92f, 0.72f), new Color(1.8f, 1.8f, 1.9f),
         };
+
+        /// <summary>
+        /// SNOW IS SNOW (the colour pass, C8, 2026-09-29). The SNOW dress used
+        /// to multiply the ground's own grass or dirt by (1.8, 1.8, 1.9) -
+        /// x3.6-4.1 in linear light, on a texture that is green or brown: a
+        /// lime-green field once decoded, a white sheet while the 16-bit
+        /// textures were read raw ("noon, especially with snow, is blinding"),
+        /// and x13 on the coast, whose ground already carried a 1.8 tint. A
+        /// snowy ground now wears the snow turf the mountain stages already
+        /// had (Gen/Turf_Snow.png: blue-white with grey clumps, albedo about
+        /// 0.7), with a breath of blue, whatever it was before.
+        ///
+        /// AND A LITTLE UNDER WHITE (review, 2026-09-29): at 1.0 the snow's
+        /// radiance sat on the tone curve's shoulder and the grade's ceiling,
+        /// where the turf's own clumps and specks (+-20 codes in the texture)
+        /// came out +-2-5: a snowfield on one or two quantizer levels - 3.2%
+        /// of the owner's snowy Samuel Street frame and 3.3% of Blowing
+        /// Rock's on ONE colour (the plan's plateau <= 1.5%), local contrast
+        /// half the plan's (logstd9 0.064 against 0.12). Swept on the protocol
+        /// (colour-shots -Sets tune, PSX_SNOWTINT_SWEEP): 1.0 put the snow at
+        /// 215 on a 3.5% plateau, 0.9 at 207-210 on 1.9-2.5%, 0.8 at 190 on
+        /// 0.4-0.8%. 0.85 keeps sunlit snow at the plan's 200-228 with its texture
+        /// in it. Every snow-turf ground wears it - the city's, the coast's and
+        /// the circuits' (RegisterSeasonalGround) and the forest stages' own
+        /// (RegisterSeasonalTexture) - and RedressSnowGrounds brings a built
+        /// sandbox's materials to it.
+        /// </summary>
+        public static readonly Color SnowGroundTint = new Color(0.85f, 0.85f, 0.867f);
+        /// <summary>The snow turf every snowy ground wears: the Blue Ridge
+        /// stage's generated one (the forest stages' share folder), a fixed
+        /// path because the city, the town and the coast have no share folder
+        /// of their own - and it ships already, with every forest stage.</summary>
+        const string SnowTurfPath = Root + "/Art/BRP/Gen/Turf_Snow.png";
 
         // ------------------------------------------------------------------
         //  The registry, and the component
@@ -422,11 +457,73 @@ namespace PSXRacing.EditorTools
             var variants = new Material[Seasons.DressCount];
             for (int d = 0; d < Seasons.DressCount; d++)
             {
-                variants[d] = d == (int)Season.Fall
-                    ? baseMat
-                    : MakeMat(key + "_" + DressSuffix[d], texPath, affine: affine, tint: baseTint * tints[d]);
+                variants[d] = d == (int)Season.Fall ? baseMat
+                    : d == Seasons.DressSnow
+                        ? MakeMat(key + "_" + DressSuffix[d], SnowTurfPath, affine: affine, tint: SnowGroundTint)
+                        : MakeMat(key + "_" + DressSuffix[d], texPath, affine: affine, tint: baseTint * tints[d]);
             }
             RegisterSeasonal(baseMat, variants, role);
+        }
+
+        /// <summary>
+        /// C8 WITHOUT A SCENE BUILD: every generated SNOW ground material that
+        /// still wears a tinted grass or dirt (<see cref="RegisterSeasonalGround"/>'s
+        /// old rule) is given the snow turf and <see cref="SnowGroundTint"/> in
+        /// place - the same asset, the same GUID, so every scene that points at
+        /// it wears the new snow on its next load. The materials the builder
+        /// writes today already are; this is for the ones built before.
+        /// Returns how many it changed.
+        /// </summary>
+        public static int RedressSnowGrounds()
+        {
+            string turf = SnowTurfPath;
+            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(turf);
+            if (tex == null) { Debug.LogWarning("RedressSnowGrounds: " + turf + " is missing"); return 0; }
+            int n = 0;
+            foreach (var guid in AssetDatabase.FindAssets("t:Material _Snow", new[] { MatDir }))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                if (!path.EndsWith("_Snow.mat")) continue;
+                var m = AssetDatabase.LoadAssetAtPath<Material>(path);
+                if (m == null || m.mainTexture == null) continue;
+                string texPath = AssetDatabase.GetAssetPath(m.mainTexture);
+                if (GroundKindOf(texPath) != GroundKind.None)
+                {
+                    // A grass or dirt still tinted x(1.8, 1.8, 1.9): the snow turf.
+                    m.mainTexture = tex;
+                    m.color = SnowGroundTint;
+                    Debug.Log("RedressSnowGrounds: " + path + " (was " + Path.GetFileName(texPath) + ")");
+                }
+                else if (IsSnowTurf(texPath) && !SameColour(m.color, SnowGroundTint))
+                {
+                    // Already the snow turf, at another tint (a stage's own, or
+                    // an older rule's): the snow ground's tint.
+                    Debug.Log("RedressSnowGrounds: " + path + " tint " + m.color + " -> " + SnowGroundTint);
+                    m.color = SnowGroundTint;
+                }
+                else continue;   // snow already, as the rule has it (or not a ground: the mottle, the forest)
+                EditorUtility.SetDirty(m);
+                n++;
+            }
+            if (n > 0) AssetDatabase.SaveAssets();
+            return n;
+        }
+
+        /// <summary>The snow turf (Gen/Turf_Snow.png), wherever its folder.</summary>
+        static bool IsSnowTurf(string texPath) =>
+            !string.IsNullOrEmpty(texPath) && Path.GetFileName(texPath) == "Turf_Snow.png";
+
+        static bool SameColour(Color a, Color b) =>
+            Mathf.Abs(a.r - b.r) < 1e-3f && Mathf.Abs(a.g - b.g) < 1e-3f && Mathf.Abs(a.b - b.b) < 1e-3f;
+
+        /// <summary>tools\colour\snow-redress.ps1: <see cref="RedressSnowGrounds"/>
+        /// on a built sandbox, a report line, and quit.</summary>
+        public static void RedressSnowGroundsFromCommandLine()
+        {
+            int n = RedressSnowGrounds();
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_snow_redress.txt"),
+                              "SNOW REDRESS OK: " + n + " snow ground material(s) now wear " + SnowTurfPath + "\n");
+            EditorApplication.Exit(0);
         }
 
         /// <summary>A material that changes TEXTURE with the season — the
@@ -443,9 +540,13 @@ namespace PSXRacing.EditorTools
             for (int d = 0; d < Seasons.DressCount; d++)
             {
                 string tex = texFor(d);
+                // The snow turf wears the snow ground's tint wherever it goes
+                // (SnowGroundTint): a stage's snowy near ground is the same
+                // snow as the city's.
+                Color? t = IsSnowTurf(tex) ? SnowGroundTint : tint;
                 variants[d] = d == (int)Season.Fall || string.IsNullOrEmpty(tex)
                     ? baseMat
-                    : MakeMat(key + "_" + DressSuffix[d], tex, cutoff: cutoff, tint: tint, affine: affine,
+                    : MakeMat(key + "_" + DressSuffix[d], tex, cutoff: cutoff, tint: t, affine: affine,
                               twoSided: twoSided);
             }
             RegisterSeasonal(baseMat, variants, role);

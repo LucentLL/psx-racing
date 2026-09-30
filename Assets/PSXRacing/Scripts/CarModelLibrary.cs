@@ -404,8 +404,15 @@ namespace PSXRacing
             if (string.IsNullOrEmpty(key)) key = Default;
             if (cache.TryGetValue(key, out var hit)) return hit;
 
-            var go = Resources.Load<GameObject>(ResourceDir + key);
+            var go = PSXTexDecode.LoadPrefab(ResourceDir + key);
             var def = go != null ? go.GetComponent<CarModelDef>() : null;
+            if (def != null)
+            {
+                // The liveries hang off the def, not off a renderer of the
+                // prefab: stamp them here too (PSXTexDecode).
+                if (def.skinMaterials != null) foreach (var m in def.skinMaterials) PSXTexDecode.Stamp(m);
+                PSXTexDecode.Stamp(def.wheelMaterial);
+            }
             if (def == null && key != Default)
             {
                 Debug.LogWarning("CarModelLibrary: no baked model '" + key + "' - using " + Default);

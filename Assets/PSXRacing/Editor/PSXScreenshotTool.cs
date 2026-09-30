@@ -292,7 +292,9 @@ namespace PSXRacing.EditorTools
             string venue = System.Environment.GetEnvironmentVariable("PSX_SHOT_VENUE");
             TrackCatalog.TrackDef def = null;
             foreach (var d in TrackCatalog.Scened) if (d.id == venue) { def = d; break; }
-            if (def == null) { Debug.LogError("[PSXShot] no scened venue " + venue); return; }
+            // A held-back venue too, on the scene the stage lab last built.
+            if (def == null) foreach (var d in TrackCatalog.HeldBack) if (d.id == venue) { def = d; break; }
+            if (def == null) { Debug.LogError("[PSXShot] no scened or held-back venue " + venue); return; }
             if (!Open(def, out var cam, out var player)) return;
             var path = Object.FindFirstObjectByType<TrackPath>();
             if (path == null || path.Count < 4) return;
@@ -305,9 +307,16 @@ namespace PSXRacing.EditorTools
             string spots = System.Environment.GetEnvironmentVariable("PSX_SHOT_SPOTS") ?? "0:start";
             foreach (var part in spots.Split(','))
             {
+                // "wp:name", or "wp:name:R:12" to look from above over the
+                // RIGHT (or L) side, 12 m out from the centreline - a roadside
+                // that is not the inside of the bend (a fill, a fan).
                 var kv = part.Split(':');
                 if (!int.TryParse(kv[0].Trim(), out int wp)) continue;
                 string name = kv.Length > 1 ? kv[1].Trim() : "spot";
+                string sideArg = kv.Length > 2 ? kv[2].Trim().ToUpperInvariant() : "";
+                float outM = kv.Length > 3 && float.TryParse(kv[3].Trim(), System.Globalization.NumberStyles.Float,
+                                                              System.Globalization.CultureInfo.InvariantCulture, out float om)
+                    ? om : 6f;
                 int i = Mathf.Clamp(wp, 0, path.Count - 2);
                 Vector3 at = path.GetPoint(i);
                 Vector3 fwd = path.GetPoint(i + 1) - path.GetPoint(Mathf.Max(0, i - 1));
@@ -331,9 +340,48 @@ namespace PSXRacing.EditorTools
                 Vector3 ahead = path.GetPoint(Mathf.Min(path.Count - 1, i + 3)) - at;
                 float turn = Mathf.Sign(Vector3.Dot(ahead, right));
                 if (Mathf.Abs(Vector3.Dot(ahead, right)) < 0.5f) turn = 1f;
-                Vector3 focus = at + right * (turn * 6f);
-                Vector3 up = at - fwd * 16f - right * (turn * 6f) + Vector3.up * 13f;
+                if (sideArg == "R") turn = 1f;
+                else if (sideArg == "L") turn = -1f;
+                Vector3 focus = at + right * (turn * outM);
+                Vector3 up = at - fwd * 16f - right * (turn * 6f) + Vector3.up * (13f + Mathf.Max(0f, outM - 6f) * 0.5f);
                 Shot(cam, tag + "_above", up, Quaternion.LookRotation(focus - up));
+
+                // With a side named, the same roadside once more with the forest
+                // taken away, from higher and nearer overhead: the landform
+                // itself (a fill, a fan, a crest) that the trees stand on.
+                if (sideArg == "R" || sideArg == "L")
+                {
+                    var forest = GameObject.Find("Track/Forest");
+                    bool had = forest != null && forest.activeSelf;
+                    if (had) forest.SetActive(false);
+                    Vector3 over = at + right * (turn * (outM * 0.5f)) - fwd * 12f + Vector3.up * 18f;
+                    Vector3 look = focus + fwd * 2f;
+                    Shot(cam, tag + "_bare", over, Quaternion.LookRotation(look - over));
+                    // And once more with the built-up surfaces tinted - a fill
+                    // tail and the apex pads - which wear the ground's own
+                    // texture and vanish into it otherwise.
+                    var marked = new List<(MeshRenderer r, Material m)>();
+                    foreach (var nm in new[] { "Track/FillTail", "Track/ApexPad" })
+                    {
+                        var go = GameObject.Find(nm);
+                        var mr = go != null ? go.GetComponent<MeshRenderer>() : null;
+                        if (mr == null || mr.sharedMaterial == null) continue;
+                        var tinted = new Material(mr.sharedMaterial)
+                        {
+                            color = nm.EndsWith("FillTail") ? new Color(0.45f, 1f, 0.55f) : new Color(0.5f, 0.7f, 1f),
+                        };
+                        marked.Add((mr, mr.sharedMaterial));
+                        mr.sharedMaterial = tinted;
+                    }
+                    Shot(cam, tag + "_marked", over, Quaternion.LookRotation(look - over));
+                    foreach (var (mr, m) in marked)
+                    {
+                        var tmp = mr.sharedMaterial;
+                        mr.sharedMaterial = m;
+                        Object.DestroyImmediate(tmp);
+                    }
+                    if (had) forest.SetActive(true);
+                }
             }
             Debug.Log("[PSXShot] Spot shots of " + def.id + " written to " + OutDir);
         }
@@ -1261,6 +1309,14 @@ namespace PSXRacing.EditorTools
                 // belt to those braces, and it is also the only push a tool
                 // gets on an editor whose hook has not been installed yet.
                 StreetLights.Push(pos, rot * Vector3.forward);
+                // THE 16-BIT TEXELS DECODED (the colour pass, C1b). Edit mode
+                // has no sceneLoaded, so nothing else has told the materials
+                // of the scene this tool just opened (or the car it just
+                // dressed) that their textures arrive undecoded; the editor
+                // hook does it before every edit-mode camera render too, and
+                // this is the belt to it. The count goes in the sidecar.
+                PSXTexDecode.StampAll();
+                ShotSidecar.Pending["texDecode"] = PSXTexDecode.CountDecoding();
                 // THE LENS, when the environment asks for it. The lens is a
                 // URP pass on the base camera (SpeedBlurFeature's LensPass),
                 // not a Blit property, so a shot that wants droplets has to
@@ -1273,6 +1329,13 @@ namespace PSXRacing.EditorTools
                 request.destination = rt;
                 RenderPipeline.SubmitRenderRequest(cam, request);
                 if (lensSet) LensFx.PreviewSet(null, 0f, 0f, 0f, 0f);
+
+                // THE EMITTER MASK (the colour pass, C4): the camera's own
+                // frame carries it in its alpha, and PSX/Blit's halation glows
+                // by it. How much of the frame claims to be a light source
+                // goes in the sidecar, so a play-check can compare it as well
+                // as the colour; PSX_SHOT_ALPHA=1 also writes it as a picture.
+                EmitterStats(rt, fileName);
 
                 // THROUGH THE DITHER. The game shows this buffer through
                 // PSX/Blit (5-bit quantize, Bayer dither); a shot that skips
@@ -1288,7 +1351,14 @@ namespace PSXRacing.EditorTools
                 if (shown != rt) { shown.Release(); Object.DestroyImmediate(shown); }
 
                 var big = PointDouble(tex);
-                File.WriteAllBytes(Path.Combine(OutDir, fileName + ".png"), big.EncodeToPNG());
+                // The eye, for the sidecar: two frames are one shot only if
+                // this matches too.
+                ShotSidecar.Pending["camera"] = new Dictionary<string, object>
+                {
+                    ["pos"] = pos, ["euler"] = rot.eulerAngles, ["fov"] = cam.fieldOfView,
+                    ["width"] = big.width, ["height"] = big.height, ["framebuffer"] = new Vector2(rt.width, rt.height),
+                };
+                ShotSidecar.WritePng(Path.Combine(OutDir, fileName + ".png"), big.EncodeToPNG());
                 if (big != tex) Object.DestroyImmediate(big);
                 Object.DestroyImmediate(tex);
             }
@@ -1297,6 +1367,43 @@ namespace PSXRacing.EditorTools
             rt.Release();
             Object.DestroyImmediate(rt);
             cam.transform.SetPositionAndRotation(oldPos, oldRot);
+        }
+
+        /// <summary>
+        /// The render's ALPHA - the emitter mask (Shaders/PSXTone.cginc) - in
+        /// numbers for the sidecar ("emitAlpha": the share of the frame over
+        /// 0.02 and over 0.5, and the mean), and with PSX_SHOT_ALPHA=1 as a
+        /// grey picture beside the frame (&lt;name&gt;_alpha.png, no sidecar,
+        /// so no measuring tool mistakes it for a frame).
+        /// </summary>
+        static void EmitterStats(RenderTexture rt, string fileName)
+        {
+            var prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            var t = new Texture2D(rt.width, rt.height, TextureFormat.RGBA32, false);
+            t.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            t.Apply();
+            RenderTexture.active = prev;
+            var px = t.GetPixels32();
+            int over2 = 0, over50 = 0; double sum = 0;
+            foreach (var c in px) { if (c.a > 5) over2++; if (c.a > 127) over50++; sum += c.a; }
+            float n = Mathf.Max(1, px.Length);
+            ShotSidecar.Pending["emitAlpha"] = new Dictionary<string, object>
+            {
+                ["share02"] = over2 / n, ["share50"] = over50 / n, ["mean"] = (float)(sum / n / 255.0),
+                ["writes"] = Shader.GetGlobalFloat("_PSXEmitWrite"), ["key"] = Shader.GetGlobalFloat("_PSXEmitKey"),
+            };
+            if (System.Environment.GetEnvironmentVariable("PSX_SHOT_ALPHA") == "1")
+            {
+                var g = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+                var o = new Color32[px.Length];
+                for (int i = 0; i < px.Length; i++) { byte a = px[i].a; o[i] = new Color32(a, a, a, 255); }
+                g.SetPixels32(o);
+                g.Apply();
+                File.WriteAllBytes(Path.Combine(OutDir, fileName + "_alpha.png"), g.EncodeToPNG());
+                Object.DestroyImmediate(g);
+            }
+            Object.DestroyImmediate(t);
         }
 
         /// <summary>
@@ -1347,6 +1454,10 @@ namespace PSXRacing.EditorTools
             // how to see a frame without it.
             if (tmp.HasProperty("_Grade"))
                 tmp.SetFloat("_Grade", System.Environment.GetEnvironmentVariable("PSX_GRADE") == "0" ? 0f : 1f);
+            // The grade without its halation (the colour protocol's bloom
+            // on/off frames): PSX_HALATION=0.
+            if (tmp.HasProperty("_GlowOff"))
+                tmp.SetFloat("_GlowOff", System.Environment.GetEnvironmentVariable("PSX_HALATION") == "0" ? 1f : 0f);
             var dst = new RenderTexture(src.width, src.height, 0, RenderTextureFormat.ARGB32)
             {
                 filterMode = FilterMode.Point,

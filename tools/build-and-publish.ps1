@@ -95,8 +95,10 @@
 # /city/ publish that would ship the whole game, is refused before the build
 # and again before the deploy (the build's psx-edition.txt is read, so a
 # -SkipBuild of an old or mismatched build is refused too). Any other
-# -PagesDir defaults to ALL. -AllowEditionMismatch overrides - only when the
-# owner asks for exactly that.
+# -PagesDir is a preview of whichever -Edition is named (ALL by default):
+# -PagesDir colour -Edition MAIN -PagesLabel "COLOUR PREVIEW" is the MAIN game
+# with a branch's changes, beside the real one. -AllowEditionMismatch
+# overrides - only when the owner asks for exactly that.
 #
 # EVERY DOOR IS OPENED IN THE PLAYER BEFORE IT GOES LIVE (tools\door-tour.mjs,
 # see Test-DoorTour below): since the editions a door finds its scene through
@@ -112,6 +114,12 @@ param([switch]$SkipBuild, [switch]$SkipDeploy, [switch]$SkipScenes,
       [string]$PagesDir = "",
       [string]$PagesLabel = "",
       [string[]]$KeepDirs = @("city"),
+      # A root publish RETIRES these test folders even though they hold a
+      # psx-subpage.txt (never one in -KeepDirs): -DropDirs colour took the
+      # /colour/ preview down when its work went into the game at the root
+      # (the owner, 2026-09-29: "Why are you making a separate release of the
+      # game just for color? All changes should go directly to the main build").
+      [string[]]$DropDirs = @(),
       [string]$StageDir = "",
       # For offline tests against a local bare repo (file:///...). The live
       # checks after a push only run against the real remote.
@@ -145,7 +153,13 @@ if ($PagesDir) {
 
 # THE EDITION. Resolved and checked BEFORE a forty-minute build.
 $RootEdition = "MAIN"    # the site root's edition; "ALL" once MAIN and CITY are united
-$expectEdition = if ($PagesDir -eq "city") { "CITY" } elseif ($PagesDir) { "ALL" } else { $RootEdition }
+# The root and /city/ have fixed editions. Any other -PagesDir is a preview
+# folder with no edition of its own: it ships the -Edition it is given (ALL
+# when none is named), and every check below holds the build to that edition
+# (2026-09-29: /colour/ = the MAIN game with the colour fix).
+$expectEdition = if ($PagesDir -eq "city") { "CITY" }
+                 elseif ($PagesDir) { if ($Edition) { $Edition.ToUpperInvariant() } else { "ALL" } }
+                 else { $RootEdition }
 if (-not $Edition) { $Edition = $expectEdition }
 $Edition = $Edition.ToUpperInvariant()
 if (@("MAIN", "CITY", "ALL") -notcontains $Edition) {
@@ -261,6 +275,10 @@ function Test-DoorTour([string]$Dir, [string]$Ed) {
 # filters by command line, so the owner opening their editor mid-build no
 # longer holds the deploy hostage -- see the note on that function.
 function Invoke-UnityWait([string[]]$UnityArgs, [int]$MaxMinutes = 40) {
+    # Every Unity job names its build target (see Get-PSXBuildTarget in unity-wait.ps1).
+    if (-not @($UnityArgs | Where-Object { $_ -ieq "-buildTarget" }).Count) {
+        $UnityArgs = @($UnityArgs) + @("-buildTarget", $(if ($env:PSX_BUILD_TARGET) { $env:PSX_BUILD_TARGET } else { "WebGL" }))
+    }
     $before = @(Get-UnityPids $proj)
     Start-Process -FilePath $unity -ArgumentList $UnityArgs -WindowStyle Hidden | Out-Null
     Start-Sleep -Seconds 5
@@ -506,6 +524,11 @@ function Show-AuditWaiver {
     }
     if ($null -eq $problem) {
         Write-Host "Audits: the last tools\verify.ps1 passed on this source." -ForegroundColor Green
+        # ...on the owner-accepted spots too (TrackObstacleAudit.OwnerAccepted),
+        # which ship named, never silently.
+        foreach ($l in $lines) {
+            if ($l -clike "accepted: *") { Write-Host "   $l" -ForegroundColor Yellow }
+        }
         return
     }
     Write-Host $bar -ForegroundColor Yellow
@@ -577,6 +600,12 @@ if (-not $SkipDeploy) {
     $KeepDirs = @($KeepDirs | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     foreach ($k in $KeepDirs) {
         if ($k -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]*$') { Write-Host "-KeepDirs '$k' is not a plain folder name." -ForegroundColor Red; exit 1 }
+    }
+    $DropDirs = @($DropDirs | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    foreach ($k in $DropDirs) {
+        if ($k -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]*$') { Write-Host "-DropDirs '$k' is not a plain folder name." -ForegroundColor Red; exit 1 }
+        if ($KeepDirs -contains $k) { Write-Host "-DropDirs '$k' is also in -KeepDirs." -ForegroundColor Red; exit 1 }
+        if ($PagesDir) { Write-Host "-DropDirs is for a root publish only (this is -PagesDir $PagesDir)." -ForegroundColor Red; exit 1 }
     }
 
     $stage = if ($StageDir) { $StageDir } else { $pages }
@@ -875,6 +904,7 @@ if (-not $SkipDeploy) {
                     $keep = ($name -ne $PagesDir)
                 } elseif ($type -eq "tree") {
                     if ($KeepDirs -contains $name) { $keep = $true }
+                    elseif ($DropDirs -contains $name) { $keep = $false }
                     else {
                         $mk = Invoke-GitOut @("-C", $stage, "ls-tree", "--name-only", $base, "--", "$name/psx-subpage.txt")
                         if ($mk.Text.Trim()) { $keep = $true }

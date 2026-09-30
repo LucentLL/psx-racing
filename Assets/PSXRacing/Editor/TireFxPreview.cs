@@ -192,7 +192,7 @@ namespace PSXRacing.EditorTools
             tex.Apply();
             RenderTexture.active = prev;
 
-            File.WriteAllBytes(path, tex.EncodeToPNG());
+            ShotSidecar.WritePng(path, tex.EncodeToPNG());
             Object.DestroyImmediate(tex);
             cam.targetTexture = null;
             rt.Release();

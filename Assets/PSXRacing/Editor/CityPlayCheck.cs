@@ -646,7 +646,7 @@ namespace PSXRacing.EditorTools
                     tex.Apply();
                     RenderTexture.active = prev == rt || prev == shown ? null : prev;
                     if (shown != rt) { shown.Release(); Object.DestroyImmediate(shown); }
-                    System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+                    ShotSidecar.WritePng(path, tex.EncodeToPNG());
                     Object.DestroyImmediate(tex);
                 }
                 else why = "the pipeline takes no render request";

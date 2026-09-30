@@ -35,9 +35,13 @@
 //
 // LDR, like everything this camera draws: HDR is off and the buffer is 8-bit,
 // so nothing is brighter than 1. The dirt keys on the EXCESS over the same
-// knee PSX/Blit's halation uses (0.57 linear, 0.78 on the display), which is
-// lamps, tail lights, headlights and lit windows - never the road or a grey
-// sky.
+// knee PSX/Blit's halation uses (0.57 linear, 0.78 on the display) - and,
+// since the colour pass (C4, 2026-09-29), only on the part of it that is a
+// LIGHT SOURCE: the frame's alpha is the emitter mask (PSXTone.cginc). The
+// knee alone was meant to mean "lamps, tail lights, headlights and lit
+// windows", but a headlight's own pool on the owner's concrete deck and a
+// snowfield are brighter than the knee too, and the first threw the big
+// bokeh discs of his night frame.
 //
 // Bit-exact where there is nothing on the glass: a pixel in no drop and no
 // dirt disc is handed back exactly as the camera drew it (a point sample at
@@ -137,6 +141,12 @@ Shader "PSX/Lens"
             #else
             #define DIRT_KNEE         0.78
             #endif
+            // The emitter band the dirt glows by (review, 2026-09-29): a tap
+            // counts only by how far its alpha (the emitter mask) is ABOVE this
+            // - the band PSX/Lit keeps lit windows under (WIN_EMIT, the same
+            // number). Lamp heads, lenses and glints (alpha near 1) light the
+            // grime as before; a wall of lit windows does not.
+            #define DIRT_SRC_MIN      0.25
             #define DIRT_CELL_A       0.07    // disc cells, picture heights
             #define DIRT_CELL_B       0.11
             #define DIRT_FILL         0.60    // share of cells holding a disc
@@ -171,6 +181,21 @@ Shader "PSX/Lens"
             float3 LensTap(float2 uv)
             {
                 return SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, uv, 0).rgb;
+            }
+
+            // THE DIRT GLOWS ROUND LIGHTS (the colour pass, C4). What a tap
+            // gives the dirt: its excess over the knee, times how much of it
+            // is a light source - the frame's alpha, the emitter mask
+            // (PSXTone.cginc) - so an oncoming lamp lights the grime and the
+            // pool of our own headlights on a concrete deck never does. With
+            // the key off (a global TimeOfDay sets outdoors) the weight is
+            // exactly 1: the old rule. The copy pass carries the alpha.
+            float _PSXEmitKey;
+            float3 LensGlare(float2 uv)
+            {
+                float4 t = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, uv, 0);
+                float src = saturate((t.a - DIRT_SRC_MIN) * (1.0 / (1.0 - DIRT_SRC_MIN)));
+                return max(t.rgb - DIRT_KNEE, 0.0) * lerp(1.0, src, saturate(_PSXEmitKey));
             }
 
             // The drop covering this pixel best, so far.
@@ -303,10 +328,10 @@ Shader "PSX/Lens"
                 float a = (bayer[idx] + 0.5) * (LENS_TAU / (16.0 * DIRT_TAPS));
                 float2 dir = float2(cos(a), sin(a));
                 float cs = cos(LENS_TAU / DIRT_TAPS), sn = sin(LENS_TAU / DIRT_TAPS);
-                float3 sum = max(LensTap(uv) - DIRT_KNEE, 0.0);
+                float3 sum = LensGlare(uv);
                 for (int k = 0; k < DIRT_TAPS; k++)
                 {
-                    sum += max(LensTap(uv + float2(dir.x * DIRT_RING * invAspect, dir.y * DIRT_RING)) - DIRT_KNEE, 0.0);
+                    sum += LensGlare(uv + float2(dir.x * DIRT_RING * invAspect, dir.y * DIRT_RING));
                     dir = float2(dir.x * cs - dir.y * sn, dir.x * sn + dir.y * cs);
                 }
                 return sum / (DIRT_TAPS + 1.0);

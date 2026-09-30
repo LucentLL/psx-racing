@@ -699,7 +699,7 @@ namespace PSXRacing.EditorTools
                 tex.Apply();
                 RenderTexture.active = prev;
                 string path = Path.Combine(outDir, "menu_" + label + "_" + size.name + ".png");
-                File.WriteAllBytes(path, tex.EncodeToPNG());
+                ShotSidecar.WritePng(path, tex.EncodeToPNG());
                 Debug.Log("[HomePreview] wrote " + path);
                 Object.DestroyImmediate(tex);
                 cam.targetTexture = null;
@@ -1009,7 +1009,7 @@ namespace PSXRacing.EditorTools
                 RenderTexture.active = prev;
 
                 string path = Path.Combine(outDir, "menu_" + label + "_" + size.name + ".png");
-                File.WriteAllBytes(path, tex.EncodeToPNG());
+                ShotSidecar.WritePng(path, tex.EncodeToPNG());
                 Debug.Log("[HomePreview] wrote " + path);
 
                 Object.DestroyImmediate(tex);
