@@ -914,7 +914,7 @@ namespace PSXRacing.City
                     if (q.x < lo.x || q.y < lo.y || q.x > hi.x || q.y > hi.y) continue;
                     if (fw && InterchangeNear(map, q, InterchangeM)) continue;
                     var right = RightOf(e.TangentAt(s));
-                    float off = e.width * 0.5f + ZoneOffM;
+                    float off = e.HalfMax + ZoneOffM;
                     int side = e.oneway ? 1 : (CityTrees.Hash01(ei, k, 31) < 0.5f ? 1 : -1);
                     if ((CitySignData.At(q + right * (side * off)) & CitySignData.Zoned) == 0)
                     {
@@ -926,7 +926,7 @@ namespace PSXRacing.City
                     float setback = fw ? 10f : 5f;
                     cands.Add(new Cand
                     {
-                        station = q, f = f, nominal = q + f * (e.width * 0.5f + RoadsideOccupancy.ClearZoneOf(e) + setback),
+                        station = q, f = f, nominal = q + f * (e.HalfMax + RoadsideOccupancy.ClearZoneOf(e) + setback),
                         edge = ei, s = s, route = ri, freeway = fw, oneway = e.oneway, rank = CityTrees.Hash01(ei, k, 41), lit = true,
                         cell = (int)(CityTrees.Hash01(ei, k, 43) * 1000f), key = (2L << 56) | ((long)ei << 20) | (uint)k,
                     });
@@ -1040,7 +1040,7 @@ namespace PSXRacing.City
             float W = c.freeway ? BulletinW : bulletin ? MedianW : PosterW, H = c.freeway ? BulletinH : bulletin ? MedianH : PosterH;
             var t = e.TangentAt(c.s);
             var right = RightOf(t);
-            float hwRoad = e.width * 0.5f + RoadsideOccupancy.ClearZoneOf(e);
+            float hwRoad = e.HalfMax + RoadsideOccupancy.ClearZoneOf(e);
             float[] tries = c.osm ? new[] { 0f, 3f, 6f, 9f, 12f, 15f } : c.freeway ? new[] { 10f, 14f, 19f, 25f, 32f, 40f } : new[] { 6f, 9f, 12f, 16f, 21f };
             // the drivers each face is turned to
             var viewA = Driver(map, e, c.s, -ViewAheadM, AutoLane, out bool okA);
@@ -1233,7 +1233,7 @@ namespace PSXRacing.City
                 var f = Vector2.Dot(poi.pos - q, right) >= 0f ? right : -right;
                 var cells = KindCells[Mathf.Clamp(poi.kind, 0, KindCells.Length - 1)];
                 float w = 2.4f + 0.8f * CityTrees.Hash01(pi, 3, 71);
-                var pnom = q + f * (e.width * 0.5f + RoadsideOccupancy.ClearZoneOf(e) + w * 0.5f + 0.8f);
+                var pnom = q + f * (e.HalfMax + RoadsideOccupancy.ClearZoneOf(e) + w * 0.5f + 0.8f);
                 // a business at the kerb wears its sign on its wall
                 if (NearestBehind(pnom, f, out float wall) != None && wall < SetbackMinM)
                 {
@@ -1267,7 +1267,7 @@ namespace PSXRacing.City
                     {
                         var f = side == 0 ? right : -right;
                         float w = 2.4f + 0.8f * CityTrees.Hash01(ei, 2 * k + side, 57);
-                        var nom = q + f * (e.width * 0.5f + RoadsideOccupancy.ClearZoneOf(e) + w * 0.5f + 0.8f);
+                        var nom = q + f * (e.HalfMax + RoadsideOccupancy.ClearZoneOf(e) + w * 0.5f + 0.8f);
                         // commercial frontage: the landuse or a business says so,
                         // or the game stands a store on an arterial here; and a
                         // store, not a house or an empty field, is behind
@@ -1349,7 +1349,7 @@ namespace PSXRacing.City
                 Vector2 a = e.pts[si], d = e.pts[si + 1] - a;
                 float L2 = d.sqrMagnitude;
                 float tq = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, d) / L2) : 0f;
-                float dist = Vector2.Distance(p, a + d * tq) - e.width * 0.5f;
+                float dist = Vector2.Distance(p, a + d * tq) - e.HalfMax;
                 if (dist < bd || (Mathf.Approximately(dist, bd) && ei < best)) { bd = dist; best = ei; bestS = e.s[si] + Mathf.Sqrt(L2) * tq; }
             }
             return best >= 0;
@@ -1420,7 +1420,7 @@ namespace PSXRacing.City
                 if (ei == self) continue;
                 var e = map.edges[ei];
                 if (e.tunnel) continue;
-                if (RoadsideOccupancy.SegSegDistance(P, b, e.pts[si], e.pts[si + 1]) < e.width * 0.5f) return true;
+                if (RoadsideOccupancy.SegSegDistance(P, b, e.pts[si], e.pts[si + 1]) < e.HalfMax) return true;
             }
             return false;
         }

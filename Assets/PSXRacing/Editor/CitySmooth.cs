@@ -73,6 +73,10 @@ namespace PSXRacing.EditorTools
             public int edge, slot, tx, tz; public float sA, sB; public ushort fA, fB;
             public Vector3d AL, BL, BR, AR;              // world
             public Vector2 uAL, uBL, uBR, uAR;           // (U, V)
+            /// <summary>A span drawn in PAINT COLUMNS (WP-11b): its strips,
+            /// L to R, each a quad of its own (the paint is read from them);
+            /// AL/BL/BR/AR are then the outer strips' edges. Null: one quad.</summary>
+            public List<Quad> strips;
         }
         /// <summary>A fan: its corners (the perimeter, anticlockwise; mouth
         /// chords flagged) and the triangles the renderer draws (read from the
@@ -123,14 +127,22 @@ namespace PSXRacing.EditorTools
                 foreach (var sp in list)
                 {
                     int b = BaseOf(sp.slot);
-                    if (b < 0 || b + sp.bucketV + 3 >= verts.Length) { tapNotes++; continue; }
+                    int nq = Math.Max(1, sp.strips);
+                    if (b < 0 || b + sp.bucketV + 4 * nq - 1 >= verts.Length) { tapNotes++; continue; }
                     int i = b + sp.bucketV;
-                    into.Add(new Quad
+                    Quad Q(int at) => new Quad
                     {
                         edge = sp.edge, slot = sp.slot, tx = tx, tz = tz, sA = sp.sA, sB = sp.sB, fA = sp.flagsA, fB = sp.flagsB,
-                        AL = W(i), BL = W(i + 1), BR = W(i + 2), AR = W(i + 3),
-                        uAL = uvs[i], uBL = uvs[i + 1], uBR = uvs[i + 2], uAR = uvs[i + 3],
-                    });
+                        AL = W(at), BL = W(at + 1), BR = W(at + 2), AR = W(at + 3),
+                        uAL = uvs[at], uBL = uvs[at + 1], uBR = uvs[at + 2], uAR = uvs[at + 3],
+                    };
+                    if (sp.strips <= 0) { into.Add(Q(i)); continue; }
+                    var strips = new List<Quad>(nq);
+                    for (int k = 0; k < nq; k++) strips.Add(Q(i + 4 * k));
+                    var o = Q(i); var last = strips[nq - 1];
+                    o.BR = last.BR; o.AR = last.AR; o.uBR = last.uBR; o.uAR = last.uAR;
+                    o.strips = strips;
+                    into.Add(o);
                 }
             }
             AddQuads(tap.spans, f.quads);
@@ -628,22 +640,65 @@ namespace PSXRacing.EditorTools
         //  The plan's design edge (the Trims taper TABLE, the plan's shape)
         // ================================================================
 
-        static double HwD(CityMap.Edge e, double s)
+        // WP-11b: the design is the LINE MODEL's (PSXRacing.City.LineModel): the
+        // ribbon's edges off the OSM line (a lane added on ONE side moves the
+        // ribbon off its line; a taper eases only that side) and every painted
+        // line where the model draws it - a line with a partner across a taper
+        // eases to it, one without ends where the taper reaches full width.
+        // (The taper TABLE it replaced was the symmetric one A8 withdrew.)
+        /// <summary>The design edge on a side (sgn +1 left of travel: +ePlus;
+        /// -1: -eMinus), off the OSM line.</summary>
+        static double EdgeD(CityMap.Edge e, double s, double sgn)
         {
-            double hw = e.width * 0.5, ha = hw, hb = hw; int i = e.index;
-            if (trims.taperA[i] > 0f && s < trims.taperA[i]) ha = trims.hwA[i] + (hw - trims.hwA[i]) * Shape(s / trims.taperA[i]);
-            if (trims.taperB[i] > 0f && e.length - s < trims.taperB[i]) hb = trims.hwB[i] + (hw - trims.hwB[i]) * Shape((e.length - s) / trims.taperB[i]);
-            return Math.Min(ha, hb);
+            LineModel.Extents(e, (float)s, out float eM, out float eP);
+            return sgn > 0 ? eP : -eM;
         }
-        static double Shape(double t)
+        static readonly List<LineModel.LineAt> designLines = new List<LineModel.LineAt>(16);
+        static CityMap.Edge designE; static double designS = double.NaN;
+        static void DesignAt(CityMap.Edge e, double s)
         {
-            t = t < 0 ? 0 : t > 1 ? 1 : t;
-            return SmoothRules.PlanTaperShape == 1 ? t * t * (3 - 2 * t) : t;
+            if (designE == e && designS == s) return;
+            designE = e; designS = s;
+            LineModel.LinesAt(e, (float)s, designLines);
         }
-        static double PlanOff(PlanLine L, CityMap.Edge e, double s, double hw) =>
-            L.anchor == 'C' ? L.off : L.anchor == 'L' ? hw - L.inset : -(hw - L.inset);
-        static bool PlanExists(PlanLine L, double hw) =>
-            L.anchor == 'C' ? Math.Abs(L.off) < hw - SmoothRules.ExistInsetM : hw - L.inset > 0;
+        /// <summary>The model line a plan line is (its index in the edge's
+        /// layout), or -1.</summary>
+        static int ModelK(CityMap.Edge e, PlanLine L)
+        {
+            var lay = LineModel.LayoutOf(e.profile);
+            if (L.anchor == 'L' || L.anchor == 'R')
+            {
+                byte want = L.anchor == 'L' ? LineModel.KEdgeP : LineModel.KEdgeM;
+                for (int k = 0; k < lay.kind.Length; k++) if (lay.kind[k] == want) return k;
+                return -1;
+            }
+            double m = lay.W * 0.5 - L.off;
+            int best = -1; double bd = 0.03;
+            for (int k = 0; k < lay.m.Length; k++) { double d = Math.Abs(lay.m[k] - m); if (d < bd) { bd = d; best = k; } }
+            return best;
+        }
+        static double PlanOff(PlanLine L, CityMap.Edge e, double s)
+        {
+            int k = ModelK(e, L);
+            if (k < 0) return L.off;
+            DesignAt(e, s);
+            foreach (var d in designLines) if (d.k == k) return d.lat;
+            return e.lmPlus - LineModel.LayoutOf(e.profile).m[k];
+        }
+        static bool PlanExists(PlanLine L, CityMap.Edge e, double s)
+        {
+            int k = ModelK(e, L);
+            if (k < 0) return false;
+            DesignAt(e, s);
+            foreach (var d in designLines) if (d.k == k) return true;
+            return false;
+        }
+        /// <summary>Inside a line-model taper at s (a side eased in).</summary>
+        static bool InTaper(CityMap.Edge e, double s)
+        {
+            LineModel.Extents(e, (float)s, out float eM, out float eP);
+            return Math.Abs(eM - e.lmMinus) > 1e-3 || Math.Abs(eP - e.lmPlus) > 1e-3;
+        }
 
         // ================================================================
         //  The design centreline (A-family reference)
@@ -1034,7 +1089,8 @@ namespace PSXRacing.EditorTools
                     var q = quads[i];
                     bool adj = i > 0 && Math.Abs(quads[i - 1].sB - q.sA) < 1e-3f;
                     if (!adj) piece = null;
-                    foreach (var sg in QuadIso(q, u))
+                    foreach (var sq in q.strips ?? OneQuad(q))
+                    foreach (var sg in QuadIso(sq, u))
                     {
                         var pa = MakePt(ed, i, sg.ax, sg.ay, sg.az, sg.av, sg.ea); var pb = MakePt(ed, i, sg.bx, sg.by, sg.bz, sg.bv, sg.eb);
                         pa.lid = lid; pb.lid = lid;
@@ -1096,6 +1152,9 @@ namespace PSXRacing.EditorTools
             }
             return ed;
         }
+
+        static readonly List<Quad> oneQuad = new List<Quad>(1);
+        static List<Quad> OneQuad(Quad q) { oneQuad.Clear(); oneQuad.Add(q); return oneQuad; }
 
         static Sec SecOf(CityMap.Edge e, float s, Vector3d L, Vector3d R, ushort f)
         {
@@ -1419,10 +1478,9 @@ namespace PSXRacing.EditorTools
                             double t = m / (double)n, x = a.x + (b.x - a.x) * t, y = a.y + (b.y - a.y) * t, z = a.z + (b.z - a.z) * t, s = a.s + (b.s - a.s) * t;
                             double sd = m == 0 ? sda : m == n ? sdb : Sd(rf, x, z, s);
                             char tag = m == 0 ? a.tag : m == n ? b.tag : 'I'; int span = b.span;
-                            double hw = HwD(e, s);
-                            if (plan != null && PlanExists(plan, hw))
+                            if (plan != null && PlanExists(plan, e, s))
                             {
-                                double err = sd - (PlanOff(plan, e, s, hw) + q);
+                                double err = sd - (PlanOff(plan, e, s) + q);
                                 bA1.Push(x, y, z, e.index, s, err, Math.Abs(err) > V, tag, span);
                                 if (captureEdge == e.index && captureLine == lineId) captured.Add((new Vector3((float)x, (float)y, (float)z), err));
                             }
@@ -1432,9 +1490,9 @@ namespace PSXRacing.EditorTools
                             for (int jj = 0; jj < lay.plan.Count; jj++)
                             {
                                 var pj = lay.plan[jj];
-                                if (pj.col != col || !PlanExists(pj, hw)) continue;
+                                if (pj.col != col || !PlanExists(pj, e, s)) continue;
                                 int kk = lay.planRun[jj];
-                                double d = Math.Abs(sd - PlanOff(pj, e, s, hw) - (kk >= 0 ? lay.runQc[kk] : 0));
+                                double d = Math.Abs(sd - PlanOff(pj, e, s) - (kk >= 0 ? lay.runQc[kk] : 0));
                                 if (d < dmin) dmin = d;
                             }
                             bA5.Push(x, y, z, e.index, s, Math.Min(dmin, 10), dmin > SmoothRules.StrayM, tag, span);
@@ -1473,7 +1531,7 @@ namespace PSXRacing.EditorTools
                         {
                             double t = m / (double)n, x = a.x + (b.x - a.x) * t, y = a.y + (b.y - a.y) * t, z = a.z + (b.z - a.z) * t, s = a.s + (b.s - a.s) * t;
                             double sd = x3 ? 0 : m == 0 ? sda : m == n ? sdb : Sd(rf, x, z, s);
-                            smp.Add(new RibSample { x = x, y = y, z = z, s = s, x3 = x3, sq = sq, err = x3 ? 0 : sd - sgn * HwD(e, s), tag = m == 0 || m == n ? 'S' : 'I', span = b.span });
+                            smp.Add(new RibSample { x = x, y = y, z = z, s = s, x3 = x3, sq = sq, err = x3 ? 0 : sd - EdgeD(e, s, sgn), tag = m == 0 || m == n ? 'S' : 'I', span = b.span });
                         }
                     }
                     double[] dev = null;
@@ -1519,7 +1577,8 @@ namespace PSXRacing.EditorTools
                     {
                         double s = BinS(b); var p = e.PointAt((float)s); int sp = SpanAt(s);
                         double va = G[k1][b], vb = G[k2][b], l = GL[b], r = GR[b];
-                        if (Cropped(sp, ' ') || double.IsNaN(va) || double.IsNaN(vb) || double.IsNaN(l) || double.IsNaN(r)) { b2.Push(p.x, 0, p.y, e.index, s, 0, false); continue; }
+                        // inside a taper the centre pair is off the midline BY DESIGN (one side eases: A8)
+                        if (Cropped(sp, ' ') || InTaper(e, s) || double.IsNaN(va) || double.IsNaN(vb) || double.IsNaN(l) || double.IsNaN(r)) { b2.Push(p.x, 0, p.y, e.index, s, 0, false); continue; }
                         double skew = (va + vb) / 2 - (lay.runQc[k1] + lay.runQc[k2]) / 2 - (l + r) / 2;
                         b2.Push(p.x, 0, p.y, e.index, s, skew, Math.Abs(skew) > V, ' ', sp);
                     }
@@ -1550,13 +1609,13 @@ namespace PSXRacing.EditorTools
                 var pj = lay.plan[j]; var b5 = new RunBuilder("A5b", pj.id);
                 for (int b = 0; b < nb; b++)
                 {
-                    double s = BinS(b); var p = e.PointAt((float)s); double hw = HwD(e, s);
-                    if (!PlanExists(pj, hw)) { b5.Push(p.x, 0, p.y, e.index, s, 0, false); continue; }
+                    double s = BinS(b); var p = e.PointAt((float)s);
+                    if (!PlanExists(pj, e, s)) { b5.Push(p.x, 0, p.y, e.index, s, 0, false); continue; }
                     double near = double.MaxValue;
                     for (int k = 0; k < lay.runs.Count; k++)
                     {
                         if (lay.runs[k].col != pj.col || double.IsNaN(G[k][b])) continue;
-                        near = Math.Min(near, Math.Abs(G[k][b] - (PlanOff(pj, e, s, hw) + lay.runQc[k])));
+                        near = Math.Min(near, Math.Abs(G[k][b] - (PlanOff(pj, e, s) + lay.runQc[k])));
                     }
                     b5.Push(p.x, 0, p.y, e.index, s, Math.Min(near, 10), near > SmoothRules.StrayM);
                 }
@@ -1575,7 +1634,7 @@ namespace PSXRacing.EditorTools
                     foreach (var p in ps[i - 1]) if (p.s > a.s) a = p;
                     foreach (var p in ps[i]) if (p.s < b.s) b = p;
                     double gap = Math.Sqrt((b.x - a.x) * (b.x - a.x) + (b.z - a.z) * (b.z - a.z)), sm = (a.s + b.s) / 2;
-                    if (gap > SmoothRules.GapM && PlanExists(lay.plan[j], HwD(e, sm)))
+                    if (gap > SmoothRules.GapM && PlanExists(lay.plan[j], e, sm))
                         Keep(new Run { check = "C1", lineId = lay.plan[j].id, e = e.index, s = sm, x = (a.x + b.x) / 2, y = (a.y + b.y) / 2, z = (a.z + b.z) / 2, val = gap, len = gap, e0 = e.index, s0 = a.s, e1 = e.index, s1 = b.s, span = a.span });
                 }
             }
@@ -2961,27 +3020,27 @@ namespace PSXRacing.EditorTools
                 // and pattern (a lane drop: one must end), or none within a lane (MatchM). A line that continues across
                 // the node was paired in AnalyzeChain (a JUMP) and never gets here.
                 double s0 = Math.Max(sMin, pt.s - SmoothRules.FanMouthM), s1 = Math.Min(sMax, pt.s + SmoothRules.FanMouthM);
-                if (PlanExists(plan, HwD(e, s0)) != PlanExists(plan, HwD(e, s1))) legit = "plan lane drop";
+                if (PlanExists(plan, e, s0) != PlanExists(plan, e, s1)) legit = "plan lane drop";
                 else if (node >= 0 && JointAt(e, node) >= 0)
                 {
                     var o = map.edges[JointAt(e, node)];
                     var op = PlanOf(RoadProfiles.All[o.profile]);
                     double lat = Sd(RefOf(e), pt.x, pt.z, pt.s);
                     bool same = (e.b == node) == (o.a == node);
-                    double so = o.a == node ? 0 : o.length, hwo = HwD(o, so), hwn = HwD(e, node == e.a ? 0 : e.length);
+                    double so = o.a == node ? 0 : o.length, sn = node == e.a ? 0 : e.length;
                     int nOther = 0, nThis = 0; bool has = false;
                     foreach (var qq in op)
-                        if (qq.col == p.col && qq.dashed == p.dashed && PlanExists(qq, hwo))
+                        if (qq.col == p.col && qq.dashed == p.dashed && PlanExists(qq, o, so))
                         {
                             nOther++;
-                            if (Math.Abs((same ? 1 : -1) * PlanOff(qq, o, so, hwo) - lat) <= SmoothRules.MatchM) has = true;
+                            if (Math.Abs((same ? 1 : -1) * PlanOff(qq, o, so) - lat) <= SmoothRules.MatchM) has = true;
                         }
-                    foreach (var qq in lay.plan) if (qq.col == p.col && qq.dashed == p.dashed && PlanExists(qq, hwn)) nThis++;
+                    foreach (var qq in lay.plan) if (qq.col == p.col && qq.dashed == p.dashed && PlanExists(qq, e, sn)) nThis++;
                     if (nOther < nThis) legit = "plan lane drop at a node";
                     else if (!has) legit = "plan line ends at a node";
                 }
             }
-            double err = plan != null ? Sd(RefOf(e), pt.x, pt.z, pt.s) - (PlanOff(plan, e, pt.s, HwD(e, pt.s)) + lay.runQc[p.k]) : 0;
+            double err = plan != null ? Sd(RefOf(e), pt.x, pt.z, pt.s) - (PlanOff(plan, e, pt.s) + lay.runQc[p.k]) : 0;
             bool inArc = legit == null && SectionNear(ed, pt.s, (ushort)(FClipL | FClipR));
             if (legit == null || Math.Abs(err) > SmoothRules.StrayM)
                 Keep(new Run { check = "C2", lineId = p.id, e = e.index, s = pt.s, x = pt.x, y = pt.y, z = pt.z, val = Math.Max(1, Math.Abs(err) / SmoothRules.StrayM),
@@ -3070,7 +3129,7 @@ namespace PSXRacing.EditorTools
                 // causes: the tap's flags and the data near the worst sample
                 var causes = new List<string>();
                 double lo = r.check == "C1" ? Math.Min(r.s0, r.s1) - 1 : r.s - 1, hi = r.check == "C1" ? Math.Max(r.s0, r.s1) + 1 : r.s + 1;
-                bool taper = (trims.taperA[e.index] > 0 && r.s <= trims.taperA[e.index] + 1) || (trims.taperB[e.index] > 0 && e.length - r.s <= trims.taperB[e.index] + 1);
+                bool taper = InTaper(e, r.s - 1) || InTaper(e, r.s) || InTaper(e, r.s + 1);
                 if (taper) causes.Add("TAPER");
                 if (r.tag == 'D' || (taper && r.tag == 'I')) causes.Add("DIAGONAL");
                 for (int i = 1; i + 1 < e.s.Length; i++) if (e.s[i] >= lo && e.s[i] <= hi) { causes.Add("VERTEX"); break; }

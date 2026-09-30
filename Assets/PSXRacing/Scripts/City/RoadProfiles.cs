@@ -73,6 +73,54 @@ namespace PSXRacing.City
                 Debug.LogError("RoadProfiles.All has " + All.Length + " rows but ProfileCount says " + ProfileCount);
         }
 
+        /// <summary>Half a painted line's width (a 12 cm line).</summary>
+        public const float PaintHalfM = 0.06f;
+
+        /// <summary>The road texture's width in texels: 256, the PS1 page,
+        /// and 512 for the widest carriageways so a 12 cm line keeps two.</summary>
+        public static int TexWidthOf(Profile pr) => pr.Width > 18f ? 512 : 256;
+
+        /// <summary>
+        /// Every line the painter draws on a profile, as m (metres from the
+        /// texture's LEFT edge, the left of travel) and kind (LineModel.KEdgeP
+        /// the left edge line - yellow on any one-way roadway - KEdgeM the
+        /// right one, KYellow, KYellowDash, KWhiteDash). The ONE layout: the
+        /// painter (PSXRacingBuilder.DrawProfileTex) and the line model
+        /// (CityMeshes' paint columns) both read it.
+        /// </summary>
+        public static void PaintLines(Profile pr, System.Collections.Generic.List<float> m, System.Collections.Generic.List<byte> kind)
+        {
+            m.Clear(); kind.Clear();
+            float total = pr.Width;
+            void Add(float at, byte k) { m.Add(at); kind.Add(k); }
+            Add(pr.shl + PaintHalfM, LineModel.KEdgeP);
+            Add(total - pr.shr - PaintHalfM, LineModel.KEdgeM);
+            if (pr.oneway)
+            {
+                for (int i = 1; i < pr.lanes; i++) Add(pr.shl + LaneM * i, LineModel.KWhiteDash);
+                return;
+            }
+            int perSide = (pr.lanes - (pr.turnLane ? 1 : 0)) / 2;
+            float medStart = pr.shl + perSide * LaneM;
+            for (int i = 1; i < perSide; i++) Add(pr.shl + LaneM * i, LineModel.KWhiteDash);
+            if (pr.turnLane)
+            {
+                // two lines with a normal gap at each boundary of the turn lane
+                Add(medStart - PaintHalfM * 2f, LineModel.KYellow);
+                Add(medStart + PaintHalfM * 2f, LineModel.KYellowDash);
+                Add(medStart + LaneM - PaintHalfM * 2f, LineModel.KYellowDash);
+                Add(medStart + LaneM + PaintHalfM * 2f, LineModel.KYellow);
+                for (int i = 1; i < perSide; i++) Add(medStart + LaneM + LaneM * i, LineModel.KWhiteDash);
+            }
+            else
+            {
+                // the double yellow: two normal lines, one normal gap
+                Add(medStart - PaintHalfM * 2f, LineModel.KYellow);
+                Add(medStart + PaintHalfM * 2f, LineModel.KYellow);
+                for (int i = 1; i < perSide; i++) Add(medStart + LaneM * i, LineModel.KWhiteDash);
+            }
+        }
+
         /// <summary>The row an edge is drawn from. Lane counts clamp into the
         /// table rather than growing it: a seven-lane surface street is
         /// painted as six, which nobody driving it will count.</summary>

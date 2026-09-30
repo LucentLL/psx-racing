@@ -665,42 +665,28 @@ namespace PSXRacing.EditorTools
         static void DrawProfileTex(RoadProfiles.Profile pr, CityMeshes.Surface surf)
         {
             float total = pr.Width;
-            int width = total > 18f ? 512 : 256, h = 64;
+            int width = RoadProfiles.TexWidthOf(pr), h = 64;
+            // the ONE layout (RoadProfiles.PaintLines), which the line model
+            // draws its paint columns from (WP-11b)
+            var ms = new List<float>(); var ks = new List<byte>();
+            RoadProfiles.PaintLines(pr, ms, ks);
             var whiteDash = new List<float>();
             var yellowSolid = new List<float>();
             var yellowDash = new List<float>();
-            float leftEdge = pr.shl + PaintHalf, rightEdge = total - pr.shr - PaintHalf;
+            float leftEdge = 0f, rightEdge = 0f;
+            for (int i = 0; i < ms.Count; i++)
+                switch (ks[i])
+                {
+                    case LineModel.KEdgeP: leftEdge = ms[i]; break;
+                    case LineModel.KEdgeM: rightEdge = ms[i]; break;
+                    case LineModel.KYellow: yellowSolid.Add(ms[i]); break;
+                    case LineModel.KYellowDash: yellowDash.Add(ms[i]); break;
+                    default: whiteDash.Add(ms[i]); break;
+                }
             // The MUTCD's rule, not the freeway's: the left edge line of ANY
             // one-way roadway is yellow — a divided arterial's carriageways
             // and a one-way downtown street included.
             bool carriageway = pr.oneway;
-
-            if (pr.oneway)
-            {
-                for (int i = 1; i < pr.lanes; i++) whiteDash.Add(pr.shl + LaneM * i);
-            }
-            else
-            {
-                int perSide = (pr.lanes - (pr.turnLane ? 1 : 0)) / 2;
-                float medStart = pr.shl + perSide * LaneM;
-                for (int i = 1; i < perSide; i++) whiteDash.Add(pr.shl + LaneM * i);
-                if (pr.turnLane)
-                {
-                    // two lines with a normal gap at each boundary of the turn lane
-                    yellowSolid.Add(medStart - PaintHalf * 2f);
-                    yellowDash.Add(medStart + PaintHalf * 2f);
-                    yellowDash.Add(medStart + LaneM - PaintHalf * 2f);
-                    yellowSolid.Add(medStart + LaneM + PaintHalf * 2f);
-                    for (int i = 1; i < perSide; i++) whiteDash.Add(medStart + LaneM + LaneM * i);
-                }
-                else
-                {
-                    // the double yellow: two normal lines, one normal gap
-                    yellowSolid.Add(medStart - PaintHalf * 2f);
-                    yellowSolid.Add(medStart + PaintHalf * 2f);
-                    for (int i = 1; i < perSide; i++) whiteDash.Add(medStart + LaneM * i);
-                }
-            }
 
             WriteTexture(CityTexDir + "/" + RoadTexFile(pr.key, surf), width, h, (x, y) =>
             {

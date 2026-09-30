@@ -228,8 +228,11 @@ namespace PSXRacing.EditorTools
                 var go = new GameObject("~routeProbe");
                 var tp = go.AddComponent<TrackPath>();
                 CityMode.BuildPath(map, r, tp);
-                Check(tp.Count > 500 && Mathf.Abs(tp.Count * tp.spacing - r.lengthM) < TrackCatalog.Spacing * 2f,
-                      "route " + r.id + " builds a path of the right length", tp.Count + " waypoints");
+                // the path runs on the lanes' centre (the line model), which is
+                // off the OSM line on bends and across a one-sided lane change:
+                // within 0.5% of the route (WP-10's own route rule)
+                Check(tp.Count > 500 && Mathf.Abs(tp.Count * tp.spacing - r.lengthM) < Mathf.Max(TrackCatalog.Spacing * 2f, r.lengthM * 0.005f),
+                      "route " + r.id + " builds a path of the right length", tp.Count + " waypoints, " + (tp.Count * tp.spacing).ToString("0") + " m of " + r.lengthM.ToString("0"));
                 if (r.loop)
                     Check(Vector3.Distance(tp.waypoints[tp.Count - 1], tp.waypoints[0]) <= tp.spacing * 1.5f,
                           "route " + r.id + " path closes into a ring",
@@ -296,6 +299,7 @@ namespace PSXRacing.EditorTools
 
             // ---- tiles build, twice the same, walls outward --------------
             var trims = CityMeshes.NodeTrims(map);
+            LineModelReport(map, trims);
             var buildings = CityBuildings.Precompute(map);
             int tx = Mathf.FloorToInt(map.uptown.x / CityMeshes.TileSize);
             int tz = Mathf.FloorToInt(map.uptown.y / CityMeshes.TileSize);
@@ -793,15 +797,24 @@ namespace PSXRacing.EditorTools
             // WP-10 (2026-09-29): PARA moved North Kings Drive's two carriageways
             // apart (mapped 5 m apart for five lanes, 10.8 m now: the owner's
             // "opposite directions merged into a single road", A8 rule 4), into
-            // Armory Drive's one-way connectors. WP-11b's squeeze and connector
-            // clip read the line model and fix these. Not on a race route.
-            ("face-kings-9677", "FACE", 993704809, -1070f, 3905f,
-             "North Kings Drive (e9677) where Armory Drive's connector leaves it: the gap verge between the two, 0.9 m in"),
+            // Armory Drive's one-way connectors. (WP-11b, pruned, gone under the
+            // line model: face-kings-9677, lip-caldwell-11145.) Not on a race route.
             ("lip-kings-9677", "LIP", 993704809, -1068f, 3906f,
              "North Kings Drive (e9677) at Armory Drive's gore: the gap verge 6 cm under the edge 5 cm out"),
-            // WP-11 (2026-09-30), handed to WP-11b with the WP-10 spots (not on a race route)
-            ("lip-caldwell-11145", "LIP", 1039294229, -1154f, 5052f,
-             "North Caldwell Street (e11145) at the East 12th Street junction under the I-277 ramps (three roads at three heights): its clipped verge 8 cm under the edge 5 cm out"),
+            // WP-11b (2026-09-30): the line model moved these ribbons off their OSM
+            // lines (TAPR's one-sided lanes, the lanes centred, the median tapers),
+            // and the verge beside them with them. Handed to WP-14 (roadside v2);
+            // none on a race route.
+            ("lip-link-20364", "LIP", 1516910799, -2233f, 3419f,
+             "the link e20364 beside South McDowell Street (its host, 4.7 m off): its clipped verge 0.66 m under the edge 5 cm out (mcdowell-15185's corner)"),
+            ("lip-mcdowell-15185", "LIP", 1330692952, -2232f, 3419f,
+             "South McDowell Street (e15185) 13 m from its junction, beside the link e20364: its verge 0.48 m under the edge 5 cm out"),
+            ("ledge-mcdowell-15185", "LEDGE", 1330692952, -2232f, 3419f,
+             "South McDowell Street (e15185), the same corner: 0.45 m down 5 cm past its edge onto the ground under the link's verge"),
+            ("ledge-ramp-1229", "LEDGE", 40105026, 4138f, 1573f,
+             "the ramp e1229 (trunk link) 154 m along: 0.30 m down 0.2 m past its right edge onto the graded ground"),
+            ("face-sycamore-22070", "FACE", 16690423, -3336f, 5664f,
+             "South Sycamore Street (e22070) 13 m from its junction: the ground 1 m out stands 9 cm in toward the edge (a face the body box meets)"),
             // the merge of city-r1 (2026-09-30): WP-14's graded land beside WP-10/11's
             // lines. Handed to WP-11b (not on a race route).
             ("ledge-w4th-14607", "LEDGE", 1253749605, -3690f, 5440f,
@@ -836,22 +849,24 @@ namespace PSXRacing.EditorTools
             // tyvola-1900, davidson-14100, i277-2352, i277-2351, i77-1891)
             // in the pre-WP-04 audit (2565d60)
             ("davidson-14102", 1181521356, -1091f, 4922f, "North Davidson Street: the next piece's deck rail 0.4 m above stands over its right lane at node 13275"),
-            ("i277-us74-2321", 159022517, -1362f, 3924f, "I-277 (Uptown Loop): US 74's approach rail on its retaining face 1.1 m above, the two drawn into each other"),
-            ("albemarle-2004-west", 116677926, 4270f, 1647f, "Albemarle Road under the Independence Expressway's retaining face (host and branch at two heights)"),
-            // Tyvola Road over I-77: probed since WP-04 (an elevated tile)
-            // new with WP-04's ground
-            ("link-11144", 1039294228, -1160f, 5056f, "the link e11144 under East 12th Street's approach rail 0.7-0.9 m above, the two drawn into each other at node 11801"),
-            ("link-20364", 1516910799, -2198f, 3448f, "the link e20364: its rail on the retaining face at the squeeze strip beside South McDowell Street, the face beside the lane line"),
-            // WP-10 (2026-09-29, second round): where PARA's moves put a rail face on a lane line (none on a race route; see the roadside block above)
-            // WP-11 (2026-09-30): see the WP-11 block of KnownRoadsideSpots (none on a race route)
-            ("us74-2367", 159022587, -1413f, 3869f, "US 74 (e2367) at I-277 (i277-us74-2321's corner): its deck approach rail 1.0 m above, beside I-277's edge at its height; the fillet moved it 0.3 m"),
-            ("i277-8482", 836960243, -2643f, 6530f, "the 3 m I-277 piece e8482 at a deck end: its own deck rail's face beside the lane line"),
-            ("ramp-13344", 1105086186, 1580f, 2736f, "the ramp e13344 beside the Independence Expressway (e11248): the expressway's rail 1.5 m above over its outer lane, the ramp's fillet 0.6 m toward it"),
-            ("ramp-2470", 172249772, -1851f, 19849f, "the ramp deck e2470: its own rail on the 0.3 m squeeze strip beside e1542, the face beside the lane line"),
-            // the merge of city-r1 (2026-09-30), handed to WP-11b (not on a race route); pruned then,
-            // gone: albemarle-2004-east, tyvola-1896, ramp-2852, armory-23550, tyvola-328-rail,
-            // tyvola-328-face, tyvola-13557-rail
-            ("mcdowell-15185", 1330692952, -2232f, 3419f, "South McDowell Street (e15185) beside the link e20364 (link-20364's corner): the link's rail on its retaining face on the 0.3 m squeeze strip, the face beside McDowell's lane line"),
+            // (WP-11b, 2026-09-30, pruned, gone under the line model: the old i277-us74-2321,
+            // albemarle-2004-west, link-11144, link-20364, us74-2367, i277-8482, ramp-13344,
+            // ramp-2470, mcdowell-15185)
+            // WP-11b (2026-09-30): the same corners, moved with the line model (a lane added
+            // on one side moves a ribbon off its OSM line; the lanes are centred; the squeeze
+            // is eased). Three are on race routes, as i277-us74-2321 was before: each is two
+            // carriageways at two heights where they merge or cross, or a mainline over its
+            // own exit ramp, where TAPR carries the mainline a lane off its line. Handed to
+            // WP-14 (roadside v2) and the next TAPR round.
+            ("i277-us74-2321", 159022517, -1371f, 3911f, "I-277 (Uptown Loop) where US 74 (e2367) joins 0.8 m above: the barrier on US 74's edge within I-277's right lane (the two drawn 0.3 m into each other before the merge)"),
+            ("i277-ramp175-1913", 101537836, -1982f, 5691f, "I-277 deck (e1913, Uptown Loop): its exit ramp e175's outer deck rail inside I-277's right lane - TAPR carries I-277 3.66 m right of its line here (the lane it drops at node 2981), over the ramp's first 56 m"),
+            ("indep-albemarle-2291", 158903886, 4086f, 1707f, "East Independence Expressway deck (e2291, Independence route) beside Albemarle Road's deck (e2300) 0.5 m above: Albemarle's deck rail within the expressway's left lane (albemarle-2004-west's corner)"),
+            ("albemarle-2300", 158903894, 4086f, 1708f, "Albemarle Road deck (e2300) over the East Independence Expressway's deck 0.5 m below: the expressway's rail beside its lane line (indep-albemarle-2291's pair)"),
+            ("indep-albemarle-2292", 158903887, 4240f, 1666f, "East Independence Expressway (e2292) beside Albemarle Road (e2004) 0.6 m below: the median verge's barrier 0.17 m up at its lane line"),
+            ("caldwell-11145", 1039294229, -1148f, 5048f, "North Caldwell Street (e11145) under node 3578's fan chord rail 0.8 m above (the East 12th Street junction under the I-277 ramps: link-11144's corner)"),
+            ("armory-23549", 323064832, -1062f, 3913f, "Armory Drive (e23549) at North Kings Drive's gore (lip-kings-9677's corner): its own clipped gap's rail face beside the lane line"),
+            ("tyvola-1900", 94753675, -6556f, -2408f, "the ramp deck e1900 at Tyvola Road (e14953): the deck gap's face beside its lane line"),
+            ("tyvola-328", 16662393, -6480f, -2393f, "the ramp e328 beside Tyvola Road (e2730), whose two dropped lanes now taper on the ramp's side: the shared rail on the 0.3 m squeeze strip"),
         };
         const float KnownLaneReachM = 6f;
 
@@ -884,6 +899,8 @@ namespace PSXRacing.EditorTools
         static readonly (string id, long way, float x, float z, string why)[] KnownLaneLand =
         {
             // (pruned 2026-09-30 at the merge of city-r1, gone: armory-23549)
+            // WP-11b (2026-09-30), with armory-23549 above (not on a race route)
+            ("armory-23549-land", 323064832, -1065f, 3911f, "Armory Drive (e23549) at North Kings Drive's gore: the gap's ground 0.24 m over its right lane's edge, 3 cm over the road under it"),
         };
 
         /// <summary>
@@ -899,6 +916,13 @@ namespace PSXRacing.EditorTools
         static readonly (string id, long way, float x, float z, string why)[] KnownFanMouths =
         {
             ("fan-gordon", 16721760, 392f, 3808f, "Gordon Street's mouth: 3 cm of land 1 m back, where the fan's trim stops short of the lane line (off the core's routes)"),
+            // WP-11b (2026-09-30): East Morehead Street's two junctions at nodes 13343 and
+            // 14971, whose arms the line model draws off their lines (the lanes a turn
+            // bay adds): the outer lane line 0.3 m back from the mouth past the fan's
+            // chord (not on a race route)
+            ("fan-morehead-16515", 1373210530, -2544f, 3398f, "East Morehead Street (e16515) at node 14971: land 0.31 m down at its outer lane line 0.3 m back from the mouth"),
+            ("fan-morehead-13688", 1145721559, -2565f, 3382f, "East Morehead Street (e13688) at node 13343: land 0.13 m down at its outer lane line 0.3 m back from the mouth"),
+            ("fan-morehead-16516", 1373210532, -2537f, 3392f, "East Morehead Street (e16516) at node 14971: land 0.09 m down at its outer lane line 0.3 m back from the mouth"),
         };
         const float KnownFanReachM = 8f;
 
@@ -2004,7 +2028,7 @@ namespace PSXRacing.EditorTools
                             var p = q == 0 ? f2 : q == 1 ? m2 : h2;
                             float t = Mathf.Clamp01(Vector2.Dot(p - a, d) / L2);
                             float at = o.s[si] + Mathf.Sqrt(L2) * t;
-                            float clear = Vector2.Distance(p, a + d * t) - trims.HalfWidthAt(o, at);
+                            float clear = Vector2.Distance(p, a + d * t) - trims.ReachAt(o, at);
                             float yO = o.YAt(at);
                             if (q == 0 && yO > ground - band && clear < worst)
                             { worst = clear; worstWhat = $"e{oi} '{o.name}' cls{o.cls}{(o.link ? " L" : "")} at {yO - ground:+0.00;-0.00} m"; }
@@ -2244,7 +2268,9 @@ namespace PSXRacing.EditorTools
                 float s0 = trims.atA[e.index], s1 = e.length - trims.atB[e.index];
                 for (float s = s0; s <= s1; s += Step)
                 {
-                    var p = e.PointAt(s);
+                    // about each ribbon's own centre (the line model offsets it)
+                    var tE = e.TangentAt(s);
+                    var p = e.PointAt(s) + new Vector2(-tE.y, tE.x) * trims.CentreAt(e, s);
                     float hwE = trims.HalfWidthAt(e, s);
                     float y = e.YAt(s);
                     segs.Clear();
@@ -2258,8 +2284,9 @@ namespace PSXRacing.EditorTools
                         Vector2 a = o.pts[si], d = o.pts[si + 1] - a;
                         float L2 = d.sqrMagnitude;
                         float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, d) / L2) : 0f;
-                        float dist = Vector2.Distance(p, a + d * t);
                         float sO = o.s[si] + Mathf.Sqrt(L2) * t;
+                        var dn = L2 > 1e-8f ? d / Mathf.Sqrt(L2) : Vector2.up;
+                        float dist = Vector2.Distance(p, a + d * t + new Vector2(-dn.y, dn.x) * trims.CentreAt(o, sO));
                         if (!bestPer.TryGetValue(oi, out var bp) || dist < bp.dist) bestPer[oi] = (dist, sO);
                     }
                     foreach (var kv in bestPer)

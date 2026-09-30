@@ -108,21 +108,37 @@ namespace PSXRacing.City
             /// <summary>How far either side of the centreline the land is
             /// graded to the road. Wider than the pavement so the verge and
             /// the median between two carriageways come out level.</summary>
-            public float CorridorHalf => width * 0.5f + 6.5f;
+            public float CorridorHalf => HalfMax + 6.5f;   // off the OSM line on the further side (the line model)
 
             /// <summary>
             /// THE PAVEMENT EDGE, the one accessor every roadside reader goes
             /// through (WP-14): metres from the OSM centreline out to the drawn
             /// ribbon's edge on <paramref name="side"/> (+1 right of the points'
             /// direction, -1 left; <see cref="SideOf"/>) at arc position
-            /// <paramref name="at"/>. Today every ribbon is centred on its line,
-            /// so it is half the paved width either side. The lines release (R4,
-            /// plan A8: a lane added on ONE side moves the ribbon off the line on
-            /// that side) replaces this body; the roadside section
+            /// <paramref name="at"/>, from the LINE MODEL (WP-11b, plan A8): a
+            /// lane added on ONE side moves the ribbon off its OSM line on that
+            /// side, and a taper eases only that side. The roadside section
             /// (CityElevation.Ground and its section), InCut, the land and ground
             /// probes and the play check's run-off all follow it.
             /// </summary>
-            public float PaveEdgeM(float at, int side) => width * 0.5f;
+            public float PaveEdgeM(float at, int side)
+            {
+                LineModel.Extents(this, at, out float eMinus, out float ePlus);
+                return side > 0 ? eMinus : ePlus;
+            }
+
+            /// <summary>THE LINE MODEL (WP-11b, <see cref="LineModel"/>): the
+            /// lanes' centre off the OSM line (+ = left of a->b: TAPR's offset),
+            /// the ribbon's full extents either side of the OSM line (plus =
+            /// left of a->b, minus = right; the lanes centred on lmOff, each
+            /// side with its own shoulder), and the eased one-sided tapers at
+            /// its ends (null: none; set by CityMeshes.ComputeTrims).</summary>
+            public float lmOff, lmPlus, lmMinus;
+            public LineModel.Ease[] lmEase;
+            /// <summary>The furthest the ribbon reaches off its OSM line on
+            /// either side: the clearance bound for placement that does not
+            /// care which side.</summary>
+            public float HalfMax => lmPlus == 0f && lmMinus == 0f ? width * 0.5f : Mathf.Max(lmPlus, lmMinus);
 
             /// <summary>Which side of segment <paramref name="seg"/> a plan
             /// point is on: +1 right of the points' direction, -1 left.</summary>
@@ -315,6 +331,12 @@ namespace PSXRacing.City
         public int[] nodeControl;         // 0 none, 1 yield, 2 stop, 4 signal
         public Edge[] edges;
         public List<int>[] nodeEdges;     // edges touching each node
+        /// <summary>Section TAPR's lane-count changes (null in older data):
+        /// the line model's taper lengths.</summary>
+        public LineModel.Tapr[] tapr;
+        /// <summary>Section SPLT's splits (null in older data): the line
+        /// model's median tapers.</summary>
+        public LineModel.Split[] splt;
         public Water[] waters;
         public Crossing[] crossings;
         public WaterSpan[] wspans;
@@ -665,6 +687,48 @@ namespace PSXRacing.City
                 Open("GHSH");
                 map.graphHash = r.ReadUInt32();
                 Close("GHSH");
+
+                // TAPR (WP-10; read by the line model, WP-11b): every lane-count
+                // change, then every edge's ribbon offset off its OSM line.
+                // Layout: tools/city/export_osm.mjs, section TAPR.
+                float[] taprOff = null;
+                if (Has("TAPR"))
+                {
+                    Open("TAPR");
+                    int nt = r.ReadInt32();
+                    map.tapr = new LineModel.Tapr[nt];
+                    for (int i = 0; i < nt; i++)
+                        map.tapr[i] = new LineModel.Tapr
+                        {
+                            edge = r.ReadInt32(), end = r.ReadByte(), side = r.ReadByte(), src = r.ReadByte(), flags = r.ReadByte(),
+                            dw = r.ReadSingle(), len = r.ReadSingle() * LayoutScale,
+                            room = r.ReadSingle() * LayoutScale, off = r.ReadSingle(),
+                        };
+                    int no = r.ReadInt32();
+                    taprOff = new float[ne];
+                    for (int i = 0; i < no; i++)
+                    {
+                        int ei = r.ReadInt32();
+                        float o0 = r.ReadSingle(), o1 = r.ReadSingle();
+                        r.ReadSingle(); r.ReadSingle();   // t0, t1: since the WP-10 review the offset holds along the edge
+                        if (ei >= 0 && ei < ne) taprOff[ei] = 0.5f * (o0 + o1);
+                    }
+                    Close("TAPR");
+                }
+                if (Has("SPLT"))
+                {
+                    Open("SPLT");
+                    int nsp = r.ReadInt32();
+                    map.splt = new LineModel.Split[nsp];
+                    for (int i = 0; i < nsp; i++)
+                        map.splt[i] = new LineModel.Split
+                        {
+                            node = r.ReadInt32(), u = r.ReadInt32(), a = r.ReadInt32(), b = r.ReadInt32(),
+                            offA = r.ReadSingle() * LayoutScale, offB = r.ReadSingle() * LayoutScale, rate = r.ReadSingle(),
+                        };
+                    Close("SPLT");
+                }
+                LineModel.Init(map, taprOff);
             }
             uint computed = GraphHashOf(map.edges);
             map.GraphHashMatches = computed == map.graphHash;

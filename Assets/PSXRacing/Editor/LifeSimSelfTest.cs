@@ -13213,7 +13213,7 @@ namespace PSXRacing.EditorTools
                 float len2 = d.sqrMagnitude;
                 float t = len2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, d) / len2) : 0f;
                 float at = e.s[si] + Mathf.Sqrt(len2) * t;
-                float c = Vector2.Distance(p, a + d * t) - trims.HalfWidthAt(e, at);
+                float c = Vector2.Distance(p, a + d * t) - trims.ReachAt(e, at);
                 float dy = e.YAt(at) - ground;
                 if (dy <= -LampBelowM) continue;
                 string name = "e" + e.index + " '" + e.name + "' cls " + e.cls;

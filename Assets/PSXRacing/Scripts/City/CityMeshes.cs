@@ -384,8 +384,11 @@ namespace PSXRacing.City
         {
             /// <summary>A ribbon quad: its slot, the index of its first vertex
             /// in that slot's bucket (A.L, B.L, B.R, A.R follow), the edge, the
-            /// two sections' arcs and flags (<see cref="TapFlags"/>).</summary>
-            public struct Span { public int slot, bucketV, edge; public float sA, sB; public ushort flagsA, flagsB; }
+            /// two sections' arcs and flags (<see cref="TapFlags"/>). A span
+            /// drawn in PAINT COLUMNS (WP-11b) is <c>strips</c> such quads in a
+            /// row from the L edge to the R edge, four vertices each: the
+            /// first's A.L / B.L and the last's B.R / A.R are the ribbon's edges.</summary>
+            public struct Span { public int slot, bucketV, edge; public float sA, sB; public ushort flagsA, flagsB; public int strips; }
             /// <summary>A junction fan: centre at bucketV, then count - 1
             /// corners anticlockwise; bit i of mouths = the chord from corner i
             /// to i + 1 is a road mouth. Its triangles are triCount of the
@@ -559,11 +562,11 @@ namespace PSXRacing.City
             /// <summary>Ribbon trim at each end of each edge: the ribbon runs
             /// from atA to length - atB, the fan patch covers the rest.</summary>
             public float[] atA, atB;
-            /// <summary>Half width the ribbon has AT each end (its own half
-            /// width unless it tapers to a narrower neighbour there).</summary>
+            /// <summary>RETIRED with the symmetric taper (WP-11b): the line
+            /// model's one-sided eases (<see cref="LineModel"/>) replace them.
+            /// Kept, at the plain half width and no taper, for readers that
+            /// still index them.</summary>
             public float[] hwA, hwB;
-            /// <summary>Metres over which the taper from the edge's own half
-            /// width to hwA / hwB runs. Zero when there is none.</summary>
             public float[] taperA, taperB;
             /// <summary>The THROUGH edge this end's ribbon is clipped against
             /// (a ramp at its merge, the minor branch of a fork), or -1.</summary>
@@ -580,16 +583,31 @@ namespace PSXRacing.City
             public float TrimAt(CityMap.Edge e, int node) => e.a == node ? atA[e.index] : atB[e.index];
             public int BranchAt(CityMap.Edge e, int node) => e.a == node ? branchA[e.index] : branchB[e.index];
 
-            /// <summary>The ribbon's half width at an arc position, tapers
-            /// included: the LOWER of what each end asks for.</summary>
+            /// <summary>The ribbon's HALF WIDTH at an arc position, tapers
+            /// included (the line model: it is centred
+            /// <see cref="CentreAt"/> off the OSM line, not on it).</summary>
             public float HalfWidthAt(CityMap.Edge e, float s)
             {
-                float hw = e.width * 0.5f;
-                float ha = hw, hb = hw;
-                int i = e.index;
-                if (taperA[i] > 0f && s < taperA[i]) ha = Mathf.Lerp(hwA[i], hw, s / taperA[i]);
-                if (taperB[i] > 0f && e.length - s < taperB[i]) hb = Mathf.Lerp(hwB[i], hw, (e.length - s) / taperB[i]);
-                return Mathf.Min(ha, hb);
+                LineModel.Extents(e, s, out float eM, out float eP);
+                return 0.5f * (eM + eP);
+            }
+            /// <summary>The ribbon's extents off the OSM line: eMinus to the L
+            /// vertex (p - right * eMinus), ePlus to the R vertex.</summary>
+            public void ExtentsAt(CityMap.Edge e, float s, out float eMinus, out float ePlus) =>
+                LineModel.Extents(e, s, out eMinus, out ePlus);
+            /// <summary>The ribbon's centre off the OSM line along right (the
+            /// left of a->b) at s.</summary>
+            public float CentreAt(CityMap.Edge e, float s)
+            {
+                LineModel.Extents(e, s, out float eM, out float eP);
+                return 0.5f * (eP - eM);
+            }
+            /// <summary>How far the pavement reaches off the OSM line on
+            /// whichever side is further: a clearance bound.</summary>
+            public float ReachAt(CityMap.Edge e, float s)
+            {
+                LineModel.Extents(e, s, out float eM, out float eP);
+                return Mathf.Max(eM, eP);
             }
         }
 
@@ -605,8 +623,6 @@ namespace PSXRacing.City
         /// triangles fold over the arms; a clipped mouth is exact.</summary>
         const float BranchCos = 0.5f;
         const float ContinueCos = -0.906f;  // a two-arm node bending less than 25 deg is a bend in the ribbon
-        const float TaperPerLane = 30f;
-        const float TaperMin = 25f, TaperMax = 80f;
 
         /// <summary>Kept for callers that only ever wanted a per-node
         /// "is there a patch here" — the full table is <see cref="ComputeTrims"/>.</summary>
@@ -633,6 +649,7 @@ namespace PSXRacing.City
 
             var arms = new List<(CityMap.Edge e, Vector2 dir, float hw)>(8);
             var clipped = new List<int>(8);     // arm index -> arm it clips against, or -1
+            var joins = new List<(int node, int e, int o)>(1024);
             for (int n = 0; n < nn; n++)
             {
                 var list = map.nodeEdges[n];
@@ -659,26 +676,13 @@ namespace PSXRacing.City
                         }
                 bool through = tA >= 0 && best < ThroughCos;
 
-                // A width taper on the wider of two through arms whenever
-                // the lane count changes at a mitred node — a plain
-                // continuation OR a merge, where the mainline gains or loses
-                // its auxiliary lane. Without it the edge line stepped a
-                // whole lane at the node and the narrower edge's barrier
-                // ended in the middle of the wider road's outside lane. The
-                // taper is symmetric about the centreline; MUTCD would put
-                // it on one side, but a lane that simply narrows away is
-                // what a PS1 road can afford.
-                void Taper((CityMap.Edge e, Vector2 dir, float hw) a0, (CityMap.Edge e, Vector2 dir, float hw) a1)
-                {
-                    if (Mathf.Abs(a0.hw - a1.hw) <= 0.05f) return;
-                    var wide = a0.hw > a1.hw ? a0 : a1;
-                    var narrow = a0.hw > a1.hw ? a1 : a0;
-                    float dropped = (wide.hw - narrow.hw) * 2f / RoadProfiles.LaneM;
-                    float len = Mathf.Clamp(dropped * TaperPerLane, TaperMin, TaperMax);
-                    len = Mathf.Min(len, wide.e.length * 0.9f);
-                    if (wide.e.a == n) { t.hwA[wide.e.index] = narrow.hw; t.taperA[wide.e.index] = len; }
-                    else { t.hwB[wide.e.index] = narrow.hw; t.taperB[wide.e.index] = len; }
-                }
+                // Where the lane count (or the shoulder) changes at a mitred
+                // node - a plain continuation OR a merge, where the mainline
+                // gains or loses its auxiliary lane - the LINE MODEL eases the
+                // one side that steps (WP-11b, plan A8: never both edges; the
+                // symmetric taper, clamped to 0.9 of one OSM piece, is gone).
+                void Taper((CityMap.Edge e, Vector2 dir, float hw) a0, (CityMap.Edge e, Vector2 dir, float hw) a1) =>
+                    joins.Add((n, a0.e.index, a1.e.index));
 
                 if (arms.Count == 2)
                 {
@@ -754,7 +758,9 @@ namespace PSXRacing.City
                         if (d < ThroughCos) continue;                       // straight through: no overlap
                         if (clipped[i] == j || clipped[j] == i) continue;   // handled by clipping
                         float sin = Mathf.Max(0.5f, Mathf.Sqrt(Mathf.Max(0f, 1f - d * d)));
-                        trimN = Mathf.Max(trimN, (arms[j].hw + arms[i].hw * Mathf.Abs(d) + 0.6f) / sin);
+                        // the reach off the OSM line on the further side: an
+                        // arm offset by the line model overlaps by that much more
+                        trimN = Mathf.Max(trimN, (arms[j].e.HalfMax + arms[i].e.HalfMax * Mathf.Abs(d) + 0.6f) / sin);
                     }
                 for (int i = 0; i < arms.Count; i++)
                 {
@@ -782,6 +788,13 @@ namespace PSXRacing.City
                 }
             }
             ChainContinuity(map, t);
+            // the line model's one-sided tapers, run on through mitred joints
+            LineModel.BuildEases(map, joins, (e, node) =>
+            {
+                if (!t.mitre[node]) return -1;
+                int o = t.throughA[node] == e.index ? t.throughB[node] : t.throughB[node] == e.index ? t.throughA[node] : -1;
+                return o == e.index ? -1 : o;
+            });
             return t;
         }
 
@@ -873,6 +886,16 @@ namespace PSXRacing.City
 
         // ==================================================================
         public static TileMeshes Build(CityMap map, Trims trims,
+            Dictionary<long, List<CityBuildings.B>> buildings, int tx, int tz)
+        {
+            inBuild = true;
+            try { return BuildTile(map, trims, buildings, tx, tz); }
+            finally { inBuild = false; }
+        }
+        /// <summary>Inside a tile build: LaneExtents computes (the section cache is being filled).</summary>
+        static bool inBuild;
+
+        static TileMeshes BuildTile(CityMap map, Trims trims,
             Dictionary<long, List<CityBuildings.B>> buildings, int tx, int tz)
         {
             var tm = new TileMeshes { origin = new Vector3(tx * TileSize, 0f, tz * TileSize), tap = RecordTap ? new RoadTap() : null };
@@ -1351,6 +1374,23 @@ namespace PSXRacing.City
             return sideH > 0 ? hr : hl;
         }
 
+        /// <summary>The point on an edge's drawn pavement edge (the line
+        /// model's, unsqueezed) on the side <paramref name="sign"/> of a
+        /// lateral direction <paramref name="r"/> (a chain's own left, which
+        /// may face either way along the edge), from its OSM point p.</summary>
+        static Vector2 EdgePoint(CityMap.Edge E, float sE, Vector2 p, Vector2 r, float sign) =>
+            p + r * (sign > 0f ? ExtToward(E, sE, r, 1f) : -ExtToward(E, sE, r, -1f));
+
+        /// <summary>How far an edge's pavement reaches off its OSM line toward
+        /// sign * r.</summary>
+        static float ExtToward(CityMap.Edge E, float sE, Vector2 r, float sign)
+        {
+            LineModel.Extents(E, sE, out float eM, out float eP);
+            var t = E.TangentAt(sE);
+            bool same = Vector2.Dot(r, new Vector2(-t.y, t.x)) >= 0f;
+            return (sign > 0f) == same ? eP : eM;
+        }
+
         /// <summary>One sample of a branch beside its host, as EmitBranch and
         /// its refinement read it.</summary>
         struct BranchSample
@@ -1389,15 +1429,15 @@ namespace PSXRacing.City
             if (side == 0 && Mathf.Abs(off) > 0.4f) side = sideNow;
             var rL = new Vector2(-dirL.y, dirL.x);
             float mHalf = side == 0 ? trims.HalfWidthAt(H, sM) : HostHalf(map, trims, H, sM, rM, side);
-            float lHalf = trims.HalfWidthAt(E, sE);
             var outer = q + rM * (side * mHalf);
             float lSign = Vector2.Dot(rL, rM) >= 0f ? -side : side;
-            var inner = p + rL * (lSign * lHalf);
+            float lHalf = ExtToward(E, sE, rL, lSign);
+            var inner = EdgePoint(E, sE, p, rL, lSign);
             float gap = side == 0 ? 0f : Vector2.Dot(inner - outer, rM) * side;
             // CutAgainstHost's collapse test, read along the host's normal:
             // its 15 cm is measured along our cross-line, which meets the
             // host's normal at |cos|.
-            var outerV = p - rL * (lSign * lHalf);
+            var outerV = EdgePoint(E, sE, p, rL, -lSign);
             float outerGap = side == 0 ? 0f : Vector2.Dot(outerV - outer, rM) * side;
             float cross = Mathf.Abs(Vector2.Dot(rL, rM));
             host.Project(outerV, out _, out _, out _, out _, out _, out float outerArc);
@@ -1706,7 +1746,7 @@ namespace PSXRacing.City
             if (br.Walk(Mathf.Min(travelled + 2f, br.Length), out var Eb, out float sEb, out var pEb, out var dEb))
             {
                 var rLb = new Vector2(-dEb.y, dEb.x);
-                var e = pEb + rLb * (n.lSign * trims.HalfWidthAt(Eb, sEb));
+                var e = EdgePoint(Eb, sEb, pEb, rLb, n.lSign);
                 var inB = -rLb * n.lSign;
                 EmitRail(vIn, new Vector3(e.x - o3.x, Eb.YAt(sEb), e.y - o3.z), inB, inB, drop, true, true, v0, v0 + 2f / RoadVTile);
                 railLog?.Add(new RailRecord { edge = Eb.index, side = n.lSign < 0f ? -1 : 1, node = -2, s0 = sEb, s1 = sEb, a = vIn + o3, b = new Vector3(e.x, Eb.YAt(sEb), e.y), inA = inB, inB = inB, overhang = RailOverhangM });
@@ -1788,11 +1828,9 @@ namespace PSXRacing.City
                 int sideNow = off >= 0f ? 1 : -1;
                 if (side == 0 && Mathf.Abs(off) > 0.4f) side = sideNow;
                 var rL = new Vector2(-dirL.y, dirL.x);
-                float mHalf = trims.HalfWidthAt(H, sM);
-                float lHalf = trims.HalfWidthAt(E, sE);
-                var outer = q + rM * (side * mHalf);
+                var outer = side == 0 ? q : EdgePoint(H, sM, q, rM, side);
                 float lSign = Vector2.Dot(rL, rM) >= 0f ? -side : side;
-                var inner = p + rL * (lSign * lHalf);
+                var inner = EdgePoint(E, sE, p, rL, lSign);
                 float gap = side == 0 ? 0f : Vector2.Dot(inner - outer, rM) * side;
                 bool beside = (gap <= GoreMaxGap && sideNow == side) || Mathf.Abs(off) < 0.4f;
                 if (!beside) break;
@@ -1847,6 +1885,11 @@ namespace PSXRacing.City
             public Vector3 L, R;      // tile-local, L = right of travel (see below)
             public Vector2 right;     // map-view unit, R - L direction
             public float hw;          // the half width it was cut from, taper and mitre applied
+            /// <summary>The OSM line's point (world plan) and the ribbon's
+            /// centre off it along right (the line model: lanes kept in place,
+            /// a lane added on one side).</summary>
+            public Vector2 P;
+            public float centre;
             public bool elev;
             public bool clippedIn;    // the inner edge was moved onto the host: no kerb there
             public bool collapsed;    // zero width: the whole ribbon is inside the host
@@ -1892,10 +1935,10 @@ namespace PSXRacing.City
             sampleS.Add(sMin);
             for (int i = 0; i < e.stS.Length; i++) if (e.stS[i] > sMin + 0.6f && e.stS[i] < sMax - 0.6f) sampleS.Add(e.stS[i]);
             for (int i = 1; i + 1 < e.s.Length; i++) if (e.s[i] > sMin + 0.6f && e.s[i] < sMax - 0.6f) sampleS.Add(e.s[i]);
-            int ei = e.index;
-            if (trims.taperA[ei] > 0f && trims.taperA[ei] > sMin + 0.6f && trims.taperA[ei] < sMax - 0.6f) sampleS.Add(trims.taperA[ei]);
-            float tb = e.length - trims.taperB[ei];
-            if (trims.taperB[ei] > 0f && tb > sMin + 0.6f && tb < sMax - 0.6f) sampleS.Add(tb);
+            // the line model's tapers: their ends (where a line starts or
+            // ends) and enough sections between that the eased edge is
+            // faceted within 2 cm (plan A2, I5)
+            LineModel.TaperSamples(e, sMin, sMax, sampleS);
             // A clipped branch's inner edge is the host's edge: it has to
             // bend wherever the host bends, or a 10 m straight across a
             // kink in the mainline leaves a sliver of nothing between them.
@@ -1937,7 +1980,8 @@ namespace PSXRacing.City
                         var tc = e.TangentAt(sc);
                         var rc = new Vector2(-tc.y, tc.x);
                         int state = 0; float lam = 0f;
-                        if (CutAgainstHost(map, trims, e, sc, pc, rc, trims.HalfWidthAt(e, sc), e.YAt(sc), c, out lam, out bool col))
+                        LineModel.CentreAt(e, sc, out float cc, out float hc);
+                        if (CutAgainstHost(map, trims, e, sc, pc + rc * cc, rc, hc, e.YAt(sc), c, out lam, out bool col))
                             state = col ? 2 : 1;
                         bool change = prevState >= 0 && (state != prevState || (state == 1 && Mathf.Abs(lam - prevLam) > 0.8f));
                         if (change)
@@ -2049,6 +2093,185 @@ namespace PSXRacing.City
             return new Vector2(-tan.y, tan.x);
         }
 
+        // ------------------------------------------------------------------
+        //  PAINT COLUMNS (WP-11b; plan A2 I2/I3, A7): a span whose two
+        //  sections are the full model width and nearly parallel is one quad
+        //  with U 1..0 across it - a constant width maps U exactly. Anything
+        //  else (a taper, a squeeze, a clip, a sharper bend) is drawn as a row
+        //  of strips: each painted line its own 12 cm strip at the line's
+        //  texels (U fixed, never against the section's width), the pavement
+        //  between lines from a paint-free band. So no texture is squeezed, no
+        //  diagonal bends a line, and paint appears only where the model has
+        //  a line.
+        // ------------------------------------------------------------------
+        static readonly List<LineModel.LineAt> linesA = new List<LineModel.LineAt>(16), linesB = new List<LineModel.LineAt>(16);
+        static readonly List<(int k, float latA, float latB)> spanLines = new List<(int, float, float)>(16);
+        /// <summary>Spans drawn as one quad and as paint columns (for the
+        /// budget probe).</summary>
+        public static long RibbonQuads, RibbonColumnSpans, RibbonStrips;
+
+        static float LatOf(in Section c, Vector3 v) =>
+            Vector2.Dot(new Vector2(v.x + tileOrigin.x, v.z + tileOrigin.z) - c.P, c.right);
+
+        /// <summary>Draws one ribbon span; returns the strips it drew as
+        /// columns (0: one plain quad).</summary>
+        static int EmitRibbon(Bucket bk, TileMeshes tm, CityMap.Edge e, in Section A, in Section B, float v0, float v1)
+        {
+            float latLA = LatOf(A, A.L), latRA = LatOf(A, A.R), latLB = LatOf(B, B.L), latRB = LatOf(B, B.R);
+            LineModel.Extents(e, A.s, out float eMA, out float ePA);
+            LineModel.Extents(e, B.s, out float eMB, out float ePB);
+            float fullP = e.lmPlus != 0f || e.lmMinus != 0f ? e.lmPlus : e.width * 0.5f;
+            float fullM = e.lmPlus != 0f || e.lmMinus != 0f ? e.lmMinus : e.width * 0.5f;
+            bool Full(in Section c, float eM, float eP, float lL, float lR) =>
+                !c.collapsed && !c.clippedIn && !c.sqL && !c.sqR
+                && Mathf.Abs(eM - fullM) < 1e-3f && Mathf.Abs(eP - fullP) < 1e-3f
+                && Mathf.Abs(lL + eM) < 0.02f && Mathf.Abs(lR - eP) < 0.02f;
+            // a U=c line across two sections turned by theta strays laterally
+            // by w (1 - cos theta) / 2 at most (w the half width): within V/2
+            float w = 0.5f * Mathf.Max(latRA - latLA, latRB - latLB);
+            bool bendOk = w * (1f - Vector2.Dot(A.right, B.right)) * 0.5f <= 0.0125f;
+            if (Full(A, eMA, ePA, latLA, latRA) && Full(B, eMB, ePB, latLB, latRB) && bendOk)
+            {
+                // U = 0 on the left of travel (the R vertex), so a one-way
+                // carriageway's narrow inside shoulder and wide outside
+                // shoulder land where the painter put them. The winding
+                // (near-left, far-left, far-right, near-right) is the
+                // verified face-up order.
+                bk.Quad(A.L, B.L, B.R, A.R,
+                    new Vector2(1f, v0), new Vector2(1f, v1), new Vector2(0f, v1), new Vector2(0f, v0));
+                RibbonQuads++;
+                return 0;
+            }
+            var lay = LineModel.LayoutOf(e.profile);
+            float tw = lay.texW;
+            if (A.collapsed || B.collapsed || latRA - latLA < 0.05f || latRB - latLB < 0.05f)
+            {
+                // nothing of its own to paint: the shoulder's paint-free texels
+                float g0 = 0.25f / tw, g1 = (lay.x0[0] - 0.25f) / tw;
+                bk.Quad(A.L, B.L, B.R, A.R, new Vector2(g1, v0), new Vector2(g1, v1), new Vector2(g0, v1), new Vector2(g0, v0));
+                RibbonQuads++;
+                return 0;
+            }
+            DrawnLines(e, lay, A, eMA, ePA, latLA, latRA, linesA);
+            DrawnLines(e, lay, B, eMB, ePB, latLB, latRB, linesB);
+            // the span draws a line only where both sections have it
+            spanLines.Clear();
+            for (int i = 0, j = 0; i < linesA.Count && j < linesB.Count;)
+            {
+                if (linesA[i].k == linesB[j].k) { spanLines.Add((linesA[i].k, linesA[i].lat, linesB[j].lat)); i++; j++; }
+                else if (linesA[i].k > linesB[j].k) i++; else j++;
+            }
+            const float PH = LineModel.PaintHalf;
+            int strips = 0;
+            // walk from the L edge to the R edge
+            float cA = latLA, cB = latLB;               // the left column of the next strip
+            int prevK = -1;                              // the line just L-ward, or -1 (the L edge)
+            for (int i = 0; i <= spanLines.Count; i++)
+            {
+                bool edge = i == spanLines.Count;
+                float nA = edge ? latRA : spanLines[i].latA - PH, nB = edge ? latRB : spanLines[i].latB - PH;
+                int kn = edge ? -1 : spanLines[i].k;
+                // the pavement strip: the paint-free texels on kn's L side (its
+                // larger-m neighbour gap), or beside the last line at the R edge
+                GapOf(lay, kn, prevK, out float uL, out float uR);
+                if (nA - cA > 1e-3f || nB - cB > 1e-3f)
+                { Strip(bk, A, B, latLA, latRA, latLB, latRB, cA, cB, nA, nB, uL, uR, v0, v1); strips++; }
+                if (edge) break;
+                // the line's own strip, U at the texture's own scale (the
+                // painter's m +- PaintHalf): exactly the texels the old full-width
+                // quad showed there, never stretched
+                float lA = spanLines[i].latA, lB = spanLines[i].latB;
+                float uHi = (lay.m[kn] + PH) / lay.W, uLo = (lay.m[kn] - PH) / lay.W;
+                Strip(bk, A, B, latLA, latRA, latLB, latRB, lA - PH, lB - PH, lA + PH, lB + PH, uHi, uLo, v0, v1); strips++;
+                cA = lA + PH; cB = lB + PH; prevK = kn;
+            }
+            RibbonColumnSpans++; RibbonStrips += strips;
+            return strips;
+        }
+
+        /// <summary>The paint-free U band a pavement strip maps to: the texels
+        /// between line kn (the line R-ward of the strip; -1 = the R edge) and
+        /// the texture's next line on its L side; at the R edge, those between
+        /// the L-ward line and the texture's next line R-ward of it. uL at the
+        /// strip's L column, uR at its R column.</summary>
+        static void GapOf(LineModel.Layout lay, int kn, int kp, out float uL, out float uR)
+        {
+            float tw = lay.texW;
+            int n = lay.m.Length;
+            int lo, hi;   // texel range of the gap
+            if (kn >= 0) { lo = lay.x1[kn] + 1; hi = kn + 1 < n ? lay.x0[kn + 1] - 1 : lay.texW - 1; }
+            else if (kp >= 0) { hi = lay.x0[kp] - 1; lo = kp - 1 >= 0 ? lay.x1[kp - 1] + 1 : 0; }
+            else { lo = 0; hi = n > 0 ? lay.x0[0] - 1 : lay.texW - 1; }
+            if (hi < lo) hi = lo;
+            uL = (hi + 0.75f) / tw; uR = (lo + 0.25f) / tw;
+        }
+
+        const float ColumnOverlapM = 0.002f;
+
+        /// <summary>One strip of a span between two laterals on each section.</summary>
+        static void Strip(Bucket bk, in Section A, in Section B, float lLA, float lRA, float lLB, float lRB,
+                          float aL, float bL, float aR, float bR, float uL, float uR, float v0, float v1)
+        {
+            // each column span reaches 2 mm past its two sections: the next
+            // span may be one quad whose edge the columns' vertices only lie
+            // ON (a T-junction), and a ray down exactly there fell through the
+            // hairline between them (the drive audit's probes land on section
+            // lines). Coplanar, the overlap is never seen.
+            var along = B.P - A.P;
+            along = along.sqrMagnitude > 1e-8f ? along.normalized * ColumnOverlapM : Vector2.zero;
+            float aS = A.s;
+            Vector3 At(in Section c, float lL, float lR, float lat)
+            {
+                var q = c.P + c.right * lat + (c.s <= aS ? -along : along);
+                float t = lR - lL > 1e-4f ? Mathf.Clamp01((lat - lL) / (lR - lL)) : 0.5f;
+                float y = Mathf.Lerp(c.L.y, c.R.y, t);
+                return new Vector3(q.x - tileOrigin.x, y, q.y - tileOrigin.z);
+            }
+            bk.Quad(At(A, lLA, lRA, aL), At(B, lLB, lRB, bL), At(B, lLB, lRB, bR), At(A, lLA, lRA, aR),
+                new Vector2(uL, v0), new Vector2(uL, v1), new Vector2(uR, v1), new Vector2(uR, v0));
+        }
+
+        /// <summary>The lines the ribbon draws at one section: the model's, the
+        /// edge line on a squeezed side moved in with the edge (a clipped inner
+        /// side has none: it runs into its host), and nothing beyond an edge
+        /// line or within 2 cm of a drawn edge.</summary>
+        static void DrawnLines(CityMap.Edge e, LineModel.Layout lay, in Section c, float eM, float eP, float latL, float latR, List<LineModel.LineAt> into)
+        {
+            LineModel.LinesAt(e, c.s, into);
+            const float PH = LineModel.PaintHalf;
+            bool movedL = latL > -eM + 0.01f, movedR = latR < eP - 0.01f;
+            bool clipL = c.clippedIn && c.innerSide < 0, clipR = c.clippedIn && c.innerSide > 0;
+            float lo = latL + 0.02f, hi = latR - 0.02f;
+            int w = 0;
+            for (int i = 0; i < into.Count; i++)
+            {
+                var ln = into[i];
+                byte kind = lay.kind[ln.k];
+                if (kind == LineModel.KEdgeM && movedL) { if (clipL) continue; ln.lat = latL + e.shr + PH; }
+                if (kind == LineModel.KEdgeP && movedR) { if (clipR) continue; ln.lat = latR - e.shl - PH; }
+                into[w++] = ln;
+            }
+            into.RemoveRange(w, into.Count - w);
+            // the edge lines bound the rest
+            for (int i = 0; i < into.Count; i++)
+            {
+                byte kind = lay.kind[into[i].k];
+                if (kind == LineModel.KEdgeM) lo = Mathf.Max(lo, into[i].lat - PH - 0.01f);
+                if (kind == LineModel.KEdgeP) hi = Mathf.Min(hi, into[i].lat + PH + 0.01f);
+            }
+            w = 0;
+            float prev = float.NegativeInfinity;
+            for (int i = 0; i < into.Count; i++)
+            {
+                var ln = into[i];
+                if (ln.lat - PH < lo || ln.lat + PH > hi) continue;
+                if (ln.lat - PH < prev + 0.01f) continue;   // two lines run into each other: keep the first
+                prev = ln.lat + PH;
+                into[w++] = ln;
+            }
+            into.RemoveRange(w, into.Count - w);
+        }
+
         static bool IsThrough(Trims trims, CityMap.Edge e, int node) =>
             trims.throughA[node] == e.index || trims.throughB[node] == e.index;
 
@@ -2112,17 +2335,11 @@ namespace PSXRacing.City
                     var bk = buckets[(int)RoadSlot(e, f.elev)];
                     // chain distance, not edge s (WP-11): the dash phase runs on through joints
                     float v0 = (e.vOff + e.vDir * A.s) / RoadVTile, v1 = (e.vOff + e.vDir * B.s) / RoadVTile;
+                    int firstV = bk.Count;
+                    int strips = EmitRibbon(bk, tm, e, A, B, v0, v1);
                     if (tm.tap != null)
-                        tm.tap.spans.Add(new RoadTap.Span { slot = (int)RoadSlot(e, f.elev), bucketV = bk.Count, edge = e.index, sA = A.s, sB = B.s,
-                                                             flagsA = TapFlags(A), flagsB = TapFlags(B) });
-                    // U = 0 on the left of travel (the R vertex), so a one-way
-                    // carriageway's narrow inside shoulder and wide outside
-                    // shoulder land where the painter put them. The winding
-                    // (near-left, far-left, far-right, near-right) is the
-                    // verified face-up order.
-                    bk.Quad(A.L, B.L, B.R, A.R,
-                        new Vector2(A.uL, v0), new Vector2(B.uL, v1),
-                        new Vector2(B.uR, v1), new Vector2(A.uR, v0));
+                        tm.tap.spans.Add(new RoadTap.Span { slot = (int)RoadSlot(e, f.elev), bucketV = firstV, edge = e.index, sA = A.s, sB = B.s,
+                                                             flagsA = TapFlags(A), flagsB = TapFlags(B), strips = strips });
 
                     if (f.elev)
                     {
@@ -2368,7 +2585,7 @@ namespace PSXRacing.City
             if (!trims.patch[node]) return 0f;
             float hw = 0f;
             foreach (int oi in map.nodeEdges[node])
-                if (oi != e.index) hw = Mathf.Max(hw, map.edges[oi].width * 0.5f);
+                if (oi != e.index) hw = Mathf.Max(hw, map.edges[oi].HalfMax);
             return hw + LampFanClearM;
         }
 
@@ -2480,7 +2697,7 @@ namespace PSXRacing.City
                 // the other carriageway of a divided road, across the median
                 if (oi != e.index && side > 0 && e.oneway && o.oneway && Vector2.Dot(d / len, tanE) < -0.7f)
                     need = LampMedianClearM;
-                if (Vector2.Distance(foot, a + d * tf) - trims.HalfWidthAt(o, atF) < need && yF > yRef - LampBandM)
+                if (Vector2.Distance(foot, a + d * tf) - trims.ReachAt(o, atF) < need && yF > yRef - LampBandM)
                     return yF > yRef + RoadsideRules.CarBandM ? LampRejectOverhead : LampRejectPavement;
 
                 for (int q = 0; q < 2; q++)
@@ -2488,7 +2705,7 @@ namespace PSXRacing.City
                     var p = q == 0 ? armMid : head;
                     float tq = Mathf.Clamp01(Vector2.Dot(p - a, d) / L2);
                     float atQ = o.s[si] + len * tq;
-                    if (Vector2.Distance(p, a + d * tq) - trims.HalfWidthAt(o, atQ) < LampPavementClearM &&
+                    if (Vector2.Distance(p, a + d * tq) - trims.ReachAt(o, atQ) < LampPavementClearM &&
                         o.YAt(atQ) > yRef + RoadsideRules.CarBandM)
                         return LampRejectOverhead;
                 }
@@ -2523,7 +2740,7 @@ namespace PSXRacing.City
             foreach (int oi in map.nodeEdges[node])
             {
                 var o = map.edges[oi];
-                float tr = trims.TrimAt(o, node), hw = o.width * 0.5f;
+                float tr = trims.TrimAt(o, node), hw = o.HalfMax;
                 r = Mathf.Max(r, Mathf.Sqrt(tr * tr + hw * hw));
             }
             lampFanReach[node] = r;
@@ -3276,7 +3493,7 @@ namespace PSXRacing.City
             var pW = new Vector2(ed.x + tm.origin.x, ed.z + tm.origin.z);
             CityElevation.ProjectOn(o, pW, out float at);
             if (at <= 0.01f || at >= o.length - 0.01f) return float.NaN;
-            if (Vector2.Distance(pW, o.PointAt(at)) > o.width * 0.5f + 1.5f) return float.NaN;
+            if (Vector2.Distance(pW, o.PointAt(at)) > o.HalfMax + 1.5f) return float.NaN;
             return ed.y - o.YAt(at);
         }
 
@@ -4042,17 +4259,47 @@ namespace PSXRacing.City
         /// nominal edge and reported every squeezed barrier as a wall.)</summary>
         public static void LaneExtents(CityMap map, Trims trims, CityMap.Edge e, float s, out float hwL, out float hwR)
         {
+            // after a tile build, the ribbon it drew: its sections, as they
+            // stand (the eased squeeze, a clip, a taper), straight between
+            // them as the mesh is - so an audit probes the edge the tile drew
+            if (!inBuild && EaseSqueezes && rawSectionCache.TryGetValue(e.index, out var secs) && secs.Count >= 2
+                && s >= secs[0].s && s <= secs[secs.Count - 1].s)
+            {
+                int lo = 0, hi = secs.Count - 1;
+                while (hi - lo > 1) { int mid = (lo + hi) >> 1; if (secs[mid].s <= s) lo = mid; else hi = mid; }
+                var A = secs[lo]; var B = secs[hi];
+                float t = B.s - A.s > 1e-5f ? (s - A.s) / (B.s - A.s) : 0f;
+                if (A.collapsed && B.collapsed) { hwL = 0f; hwR = 0f; return; }
+                float LatW(in Section c, Vector3 v) => Vector2.Dot(new Vector2(v.x, v.z) - c.P, c.right);
+                hwL = -Mathf.Lerp(LatW(A, A.L), LatW(B, B.L), t);
+                hwR = Mathf.Lerp(LatW(A, A.R), LatW(B, B.R), t);
+                return;
+            }
             var p = e.PointAt(s);
             var tan = e.TangentAt(s);
             var right = new Vector2(-tan.y, tan.x);
-            float hw = trims.HalfWidthAt(e, s);
-            hwL = hw; hwR = hw;
-            Squeeze(map, trims, e, p, right, hw, e.YAt(s), ref hwL, ref hwR, out _, out _, out _, out _, out _, out _);
+            // squeezed and clipped about the ribbon's own centre (the line
+            // model), then returned off the OSM line like every extent
+            LineModel.CentreAt(e, s, out float c, out float hw);
+            var pc = p + right * c;
+            float hl = hw, hr = hw;
+            Squeeze(map, trims, e, pc, right, hw, e.YAt(s), ref hl, ref hr, out _, out _, out _, out _, out _, out _);
+            if (EaseSqueezes && !inBuild)
+            {
+                // the eased squeeze (EaseSqueeze), where the tile's sections
+                // are not to hand
+                hl = Mathf.Min(hl, hw - EasedCut(map, trims, e, s, -1));
+                hr = Mathf.Min(hr, hw - EasedCut(map, trims, e, s, 1));
+            }
             // a clipped branch: its inner edge is the host's edge (or nothing at all)
-            if (extentDepth > 2) return;   // two edges each the other's host: stop at the second level
-            extentDepth++;
-            try { ClipExtents(map, trims, e, s, p, right, hw, ref hwL, ref hwR); }
-            finally { extentDepth--; }
+            if (extentDepth <= 2)   // two edges each the other's host: stop at the second level
+            {
+                extentDepth++;
+                try { ClipExtents(map, trims, e, s, pc, right, hw, ref hl, ref hr); }
+                finally { extentDepth--; }
+            }
+            if (hl <= 0f && hr <= 0f) { hwL = 0f; hwR = 0f; return; }   // collapsed: nothing of its own
+            hwL = hl - c; hwR = hr + c;
         }
         static int extentDepth;
         static void ClipExtents(CityMap map, Trims trims, CityMap.Edge e, float s, Vector2 p, Vector2 right, float hw,
@@ -4062,7 +4309,10 @@ namespace PSXRacing.City
             if (clip == null) return;
             if (!CutAgainstHost(map, trims, e, s, p, right, hw, e.YAt(s), clip, out float lam, out bool collapsed)) return;
             if (collapsed) { hwL = 0f; hwR = 0f; return; }
-            if (clip.innerSide > 0) hwR = Mathf.Clamp(lam, 0f, hwR); else hwL = Mathf.Clamp(-lam, 0f, hwL);
+            // where ClipSection puts the inner vertex, which may lie past the
+            // ribbon's centre (a clip across a one-sided taper): never past the
+            // other edge
+            if (clip.innerSide > 0) hwR = Mathf.Clamp(lam, -hwL, hwR); else hwL = Mathf.Clamp(-lam, -hwR, hwL);
         }
 
         /// <summary>
@@ -4154,8 +4404,10 @@ namespace PSXRacing.City
                     t = t <= 0f ? 0f : 1f;
                 }
                 if (Mathf.Abs(Vector2.Dot(tan, tO)) < 0.9f) continue;
-                var q = a + d * t;
                 float at = o.s[si] + Mathf.Sqrt(L2) * t;
+                // the other ribbon's own centre (the line model offsets it off
+                // its OSM line), p being ours
+                var q = a + d * t + new Vector2(-tO.y, tO.x) * trims.CentreAt(o, at);
                 if ((o.a == e.a || o.a == e.b || o.b == e.a || o.b == e.b) && !ArmsApart(map, trims, e, p, o, at, y)) continue;
                 // A different level has nothing to share only where a car
                 // fits between them. At a metre it did not: I-277's decks
@@ -4205,7 +4457,8 @@ namespace PSXRacing.City
             float mHalf = HostHalf(map, trims, H, sM, rM, clip.side);
             var tan = e.TangentAt(s);
             var right = new Vector2(-tan.y, tan.x);
-            bool cut = CutAgainstHost(map, trims, e, s, p, right, trims.HalfWidthAt(e, s), e.YAt(s), clip, out float lam, out bool collapsed);
+            LineModel.CentreAt(e, s, out float cc, out float hc);
+            bool cut = CutAgainstHost(map, trims, e, s, p + right * cc, right, hc, e.YAt(s), clip, out float lam, out bool collapsed);
             return $" [clip {clip.sFrom:0}..{clip.sTo:0} side{clip.side} inner{(clip.innerSide > 0 ? "R" : "L")} host e{H.index} '{H.name}' ({clip.host.edges.Count} pieces, {clip.host.Length:0} m) at sM={sM:0}/{H.length:0}{(atEnd ? " END" : "")} off {off:+0.0;-0.0} m dy {dy:+0.00;-0.00} hostHw {mHalf:0.0} cut {(cut ? lam.ToString("+0.0;-0.0") : "none")}{(collapsed ? " COLLAPSED" : "")}{(Mathf.Abs(dy) > AttachDy ? " DETACHED(dy)" : "")}]";
         }
 
@@ -4245,10 +4498,18 @@ namespace PSXRacing.City
             // walking (DecideSideFlags, EmitSide)
             rawSaveEnds.Clear(); rawSaveEnds.AddRange(endScratch);
             SamplePositions(map, e, trims, sMin, sMax);
+            for (int k = 0; k < sampleS.Count; k++) list.Add(SectionAt(map, trims, e, sampleS[k], true));
+            if (EaseSqueezes) EaseSqueeze(map, trims, e, list, sMin, sMax);
+            endScratch.Clear(); endScratch.AddRange(rawSaveEnds);
+            return list;
+        }
+
+        /// <summary>One cross-section at s: the line model's extents, the clip,
+        /// and (when asked) the squeeze.</summary>
+        static Section SectionAt(CityMap map, Trims trims, CityMap.Edge e, float s, bool squeeze)
+        {
             var tm = worldOrigin;
-            for (int k = 0; k < sampleS.Count; k++)
             {
-                float s = sampleS[k];
                 var p = e.PointAt(s);
                 var right = RightAt(map, trims, e, s, out float widen);
                 // (-tan.y, tan.x) is tan turned 90 degrees COUNTER-clockwise
@@ -4261,29 +4522,156 @@ namespace PSXRacing.City
                 float y = e.YAt(s);
                 if (s <= 1e-3f && trims.mitre[e.a]) y = map.nodeY[e.a];
                 else if (s >= e.length - 1e-3f && trims.mitre[e.b]) y = map.nodeY[e.b];
-                float hw = trims.HalfWidthAt(e, s) * widen;
+                // THE LINE MODEL: the ribbon spans p - right * eMinus to
+                // p + right * ePlus, off-centre where a lane was added on one
+                // side; clip and squeeze work about its own centre pc
+                LineModel.Extents(e, s, out float eMinus, out float ePlus);
+                float hw = 0.5f * (eMinus + ePlus) * widen, cOff = 0.5f * (ePlus - eMinus);
+                var pc = p + right * cOff;
                 var sec = new Section
                 {
                     s = s, right = right, hw = hw, elev = e.ElevatedAt(s), nbL = -1, nbR = -1, stripL = -1f, stripR = -1f,
-                    L = new Vector3(p.x - right.x * hw, y, p.y - right.y * hw),
-                    R = new Vector3(p.x + right.x * hw, y, p.y + right.y * hw),
+                    P = p, centre = cOff,
+                    L = new Vector3(pc.x - right.x * hw, y, pc.y - right.y * hw),
+                    R = new Vector3(pc.x + right.x * hw, y, pc.y + right.y * hw),
                 };
                 var clip = ClipAt(e, s);
-                if (clip != null) ClipSection(map, trims, tm, e, s, p, right, hw, y, clip, ref sec);
-                SqueezeSection(map, trims, tm, e, p, right, hw, y, ref sec);
-                // U from where the vertex actually is: 1 at the nominal L
-                // edge (-hw), 0 at the nominal R edge (+hw), so a vertex
-                // moved inward by a squeeze or a clip shows the painted
-                // profile CROPPED at that lateral, not squashed into the gap.
-                float latL = Vector2.Dot(new Vector2(sec.L.x, sec.L.z) - p, right);
-                float latR = Vector2.Dot(new Vector2(sec.R.x, sec.R.z) - p, right);
-                sec.uL = hw > 0.05f ? Mathf.Clamp01(0.5f - latL / (2f * hw)) : 1f;
-                sec.uR = hw > 0.05f ? Mathf.Clamp01(0.5f - latR / (2f * hw)) : 0f;
-                list.Add(sec);
+                if (clip != null) ClipSection(map, trims, tm, e, s, pc, right, hw, y, clip, ref sec);
+                if (squeeze) SqueezeSection(map, trims, tm, e, pc, right, hw, y, ref sec);
+                // U at the two edges for a span drawn as ONE quad (both
+                // sections full width, EmitRibbon): 1 at the painter's right
+                // (the L vertex), 0 at its left. Anything narrower is drawn in
+                // paint columns at fixed U, never a squeezed or cropped texture.
+                sec.uL = 1f; sec.uR = 0f;
+                return sec;
             }
-            endScratch.Clear(); endScratch.AddRange(rawSaveEnds);
-            return list;
         }
+
+        /// <summary>THE SQUEEZE, EASED (plan A2 I7): the cut each side is never
+        /// worked out section by section. The cut the squeeze needs is sampled
+        /// on a fixed lattice along the edge (every F / 6 from its a end, the
+        /// same samples whichever tile asks), max-filtered and eased in and out
+        /// like a taper over the class floor F (street 15, arterial 30,
+        /// freeway 90 m; smoothstep), with sections added through every ramp,
+        /// so a squeezed edge (and its edge line, which moves with it) runs
+        /// smooth instead of following every metre of a neighbour's mapped
+        /// line. Never less cut than a section needs. LaneExtents reads the
+        /// same envelope, so the audits probe the edge the tile draws.</summary>
+        public static bool EaseSqueezes = true;
+        static readonly List<float> sqExtra = new List<float>(64);
+        static readonly Dictionary<int, float[]> sqLatL = new Dictionary<int, float[]>(), sqLatR = new Dictionary<int, float[]>();
+        static float SqueezeFloor(CityMap.Edge e) =>
+            (e.cls >= 5 || (e.cls == 4 && e.oneway && !e.link)) ? 90f : (e.link || e.cls >= 2) ? 30f : 15f;
+
+        /// <summary>The raw cut each side at the edge's lattice points (null
+        /// when the squeeze cuts nowhere on it).</summary>
+        static void SqueezeLattice(CityMap map, Trims trims, CityMap.Edge e, out float[] cl, out float[] cr)
+        {
+            if (sqLatL.TryGetValue(e.index, out cl)) { cr = sqLatR[e.index]; return; }
+            float step = SqueezeFloor(e) / 6f;
+            int n = Mathf.Max(2, Mathf.CeilToInt(e.length / step) + 1);
+            cl = new float[n]; cr = new float[n];
+            bool any = false;
+            for (int j = 0; j < n; j++)
+            {
+                float sj = Mathf.Min(j * step, e.length);
+                var p = e.PointAt(sj);
+                var t = e.TangentAt(sj);
+                var right = new Vector2(-t.y, t.x);
+                LineModel.CentreAt(e, sj, out float c, out float hw);
+                float hl = hw, hr = hw;
+                Squeeze(map, trims, e, p + right * c, right, hw, e.YAt(sj), ref hl, ref hr, out _, out _, out _, out _, out _, out _);
+                cl[j] = Mathf.Max(0f, hw - hl); cr[j] = Mathf.Max(0f, hw - hr);
+                if (cl[j] > 1e-3f || cr[j] > 1e-3f) any = true;
+            }
+            if (!any) { cl = null; cr = null; }
+            sqLatL[e.index] = cl; sqLatR[e.index] = cr;
+        }
+
+        /// <summary>The eased cut on a side (-1 L, +1 R) at s: 0 where the
+        /// squeeze cuts nowhere within F.</summary>
+        static float EasedCut(CityMap map, Trims trims, CityMap.Edge e, float s, int side)
+        {
+            SqueezeLattice(map, trims, e, out var cl, out var cr);
+            var cut = side < 0 ? cl : cr;
+            if (cut == null) return 0f;
+            float F = SqueezeFloor(e), step = F / 6f, C = 0f;
+            int j0 = Mathf.Max(0, Mathf.FloorToInt((s - F) / step)), j1 = Mathf.Min(cut.Length - 1, Mathf.CeilToInt((s + F) / step));
+            for (int j = j0; j <= j1; j++)
+            {
+                if (cut[j] <= 1e-3f) continue;
+                float d = Mathf.Abs(s - Mathf.Min(j * step, e.length));
+                if (d >= F) continue;
+                C = Mathf.Max(C, cut[j] * (1f - LineModel.Smooth(d / F)));
+            }
+            return C;
+        }
+
+        static void EaseSqueeze(CityMap map, Trims trims, CityMap.Edge e, List<Section> list, float sMin, float sMax)
+        {
+            // most ribbons are squeezed nowhere: only those whose sections were
+            // pay for the lattice
+            bool any = false;
+            foreach (var c in list) if (c.sqL || c.sqR) { any = true; break; }
+            if (!any) return;
+            SqueezeLattice(map, trims, e, out var cl, out var cr);
+            if (cl == null) return;
+            float F = SqueezeFloor(e), step = F / 6f;
+            // sections through the ramps: at every lattice point within F of a cut
+            sqExtra.Clear();
+            for (int j = 0; j < cl.Length; j++)
+            {
+                if (cl[j] <= 1e-3f && cr[j] <= 1e-3f) continue;
+                for (int k = -6; k <= 6; k++)
+                {
+                    int q = j + k;
+                    if (q < 0 || q >= cl.Length) continue;
+                    float sv = Mathf.Min(q * step, e.length);
+                    if (sv > sMin + 0.3f && sv < sMax - 0.3f) sqExtra.Add(sv);
+                }
+            }
+            if (sqExtra.Count > 0)
+            {
+                sqExtra.Sort();
+                int j = 0;
+                var merged = new List<Section>(list.Count + sqExtra.Count);
+                float lastS = float.NegativeInfinity;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    while (j < sqExtra.Count && sqExtra[j] < list[i].s)
+                    {
+                        float sv = sqExtra[j++];
+                        // not within a fifth of a step of a section already there
+                        if (sv - lastS < step * 0.2f || list[i].s - sv < step * 0.2f) continue;
+                        merged.Add(SectionAt(map, trims, e, sv, true)); lastS = sv;
+                    }
+                    merged.Add(list[i]); lastS = list[i].s;
+                }
+                list.Clear(); list.AddRange(merged);
+            }
+            for (int i = 0; i < list.Count; i++)
+            {
+                var c = list[i];
+                if (c.collapsed) continue;
+                var pc = c.P + c.right * c.centre;
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    // a clipped inner side stays on its host's edge
+                    if (c.clippedIn && c.innerSide == side) continue;
+                    float C = EasedCut(map, trims, e, c.s, side);
+                    if (C <= 1e-3f) continue;
+                    var v = side < 0 ? c.L : c.R;
+                    float cur = Vector2.Distance(new Vector2(v.x, v.z), pc);
+                    float ext = c.hw - C;
+                    if (ext >= cur - 1e-3f) continue;   // the section's own squeeze already cuts this far
+                    var q = pc + c.right * (side * ext);
+                    v = new Vector3(q.x, v.y, q.y);
+                    if (side < 0) { c.L = v; c.sqL = true; } else { c.R = v; c.sqR = true; }
+                }
+                list[i] = c;
+            }
+        }
+
         static readonly Dictionary<int, List<Section>> rawSectionCache = new Dictionary<int, List<Section>>();
         static readonly Stack<List<Section>> rawSectionPool = new Stack<List<Section>>();
         static readonly List<float> rawSaveEnds = new List<float>(8);
@@ -4291,6 +4679,7 @@ namespace PSXRacing.City
         {
             foreach (var kv in rawSectionCache) rawSectionPool.Push(kv.Value);
             rawSectionCache.Clear();
+            sqLatL.Clear(); sqLatR.Clear();
             rawOutlines.Clear();
         }
 
@@ -4404,7 +4793,7 @@ namespace PSXRacing.City
             var o = map.edges[oi];
             if (node >= 0)
             {
-                float near = hw + o.width * 0.5f + MeetNodeM;
+                float near = hw + o.HalfMax + MeetNodeM;
                 if ((map.nodes[node] - p).sqrMagnitude < near * near) return;
             }
             for (int si = 0; si + 1 < o.pts.Length; si++)
@@ -4414,9 +4803,12 @@ namespace PSXRacing.City
                 if (L2 < 1e-6f) continue;
                 float tL = Mathf.Clamp01(Vector2.Dot(vL - a, d) / L2), tR = Mathf.Clamp01(Vector2.Dot(vR - a, d) / L2);
                 float at = o.s[si] + Mathf.Sqrt(L2) * 0.5f * (tL + tR);
-                float hwO = trims.HalfWidthAt(o, at);
-                if (Mathf.Abs(Vector2.Distance(vL, a + d * tL) - hwO) > MeetReachM + MeetSlackM &&
-                    Mathf.Abs(Vector2.Distance(vR, a + d * tR) - hwO) > MeetReachM + MeetSlackM) continue;
+                // its edge on the side each vertex is on (the line model)
+                var rO = new Vector2(-d.y, d.x);
+                float hwOL = ExtToward(o, at, rO, Vector2.Dot(vL - a, rO) >= 0f ? 1f : -1f);
+                float hwOR = ExtToward(o, at, rO, Vector2.Dot(vR - a, rO) >= 0f ? 1f : -1f);
+                if (Mathf.Abs(Vector2.Distance(vL, a + d * tL) - hwOL) > MeetReachM + MeetSlackM &&
+                    Mathf.Abs(Vector2.Distance(vR, a + d * tR) - hwOR) > MeetReachM + MeetSlackM) continue;
                 float yO = o.YAt(at);
                 if (Mathf.Abs(yO - yL) > MeetDyM + MeetSlackM && Mathf.Abs(yO - yR) > MeetDyM + MeetSlackM) continue;
                 meetEdges.Add(oi);
@@ -5624,7 +6016,7 @@ namespace PSXRacing.City
                 // six metres past the half width): no outline is built for a
                 // road the strip cannot reach
                 Vector2 a = o.pts[packed & 0xFFF], b = o.pts[(packed & 0xFFF) + 1];
-                float pad = o.width * 0.5f + 7f;
+                float pad = o.HalfMax + 7f;
                 var box = new Vector4(Mathf.Min(a.x, b.x) - pad, Mathf.Min(a.y, b.y) - pad, Mathf.Max(a.x, b.x) + pad, Mathf.Max(a.y, b.y) + pad);
                 if (nearEdgeAt.TryGetValue(o.index, out int k))
                 {
@@ -6054,7 +6446,7 @@ namespace PSXRacing.City
                 float at = o.s[si] + Mathf.Sqrt(L2) * t;
                 if (o.YAt(at) >= deckY - 1.2f) continue;
                 float dist = SegRectDistance(a - p, o.pts[si + 1] - p, right, tan, hw, 0.7f);
-                if (dist <= o.width * 0.5f + PierClearM) return true;
+                if (dist <= o.HalfMax + PierClearM) return true;
             }
             return false;
         }
@@ -6321,6 +6713,10 @@ namespace PSXRacing.City
         /// perimeter follows the edge lines to where they meet, or bevels
         /// them where that is further back than a trim and a half-width.
         /// </summary>
+        /// <summary>How far back from its mouth an arm's edge line is carried
+        /// where the chord to the next arm would cut its corner (FanCorners).</summary>
+        const float MouthStripM = 1.5f;
+
         static void FanCorners(CityMap map, Trims trims, int n, Vector3 origin, List<FanCorner> corners)
         {
             corners.Clear();
@@ -6349,17 +6745,21 @@ namespace PSXRacing.City
                 float at = e.a == n ? trim : e.length - trim;
                 var p = e.PointAt(at);
                 var right = RightAt(map, trims, e, at, out float widen);
-                float hw = trims.HalfWidthAt(e, at) * widen;
+                // the line model's corners: p - right * eMinus, p + right * ePlus
+                LineModel.Extents(e, at, out float eMinus, out float ePlus);
+                eMinus *= widen; ePlus *= widen;
+                float hw = Mathf.Max(eMinus, ePlus);
                 var tan = e.TangentAt(at);
                 var outDir = e.a == n ? tan : -tan;
                 // leaving the node, the corner on outDir's anticlockwise side is the later one round it
                 int lateSide = Vector2.Dot(right, new Vector2(-outDir.y, outDir.x)) >= 0f ? 1 : -1;
                 var toP = p - np;
+                Vector2 cPlus = p + right * ePlus, cMinus = p - right * eMinus;
                 arms.Add(new FanArm
                 {
                     edge = ei, lateSide = lateSide, trim = trim, hw = hw, yArm = e.YAt(at), outDir = outDir,
                     ang = toP.sqrMagnitude > 0.25f ? Mathf.Atan2(toP.y, toP.x) : Mathf.Atan2(outDir.y, outDir.x),
-                    early = p - right * (hw * lateSide), late = p + right * (hw * lateSide),
+                    early = lateSide > 0 ? cMinus : cPlus, late = lateSide > 0 ? cPlus : cMinus,
                 });
             }
             arms.Sort((a, b) => a.ang != b.ang ? a.ang.CompareTo(b.ang) : a.edge.CompareTo(b.edge));
@@ -6464,6 +6864,22 @@ namespace PSXRacing.City
                             }
                         }
                     }
+                }
+                // THE MOUTH STRIPS (WP-11b): a lane added on one side puts an
+                // arm's corner further out than its neighbour's, and a chord
+                // from corner to corner then cut back across the first metre
+                // of that arm's mouth - land, or the chord's rail, over its
+                // outer lane (North Tryon at Keswick, North Caldwell at 12th).
+                // Each arm's edge line is carried back MouthStripM toward the
+                // node wherever the chord would cut it.
+                if (!carried && Cross2(cA, cB) >= 0f)
+                {
+                    float dA = Mathf.Min(MouthStripM, A.trim * 0.5f), dB = Mathf.Min(MouthStripM, B.trim * 0.5f);
+                    var a2 = a - A.outDir * dA; var b2 = b - B.outDir * dB;
+                    bool cutA = dA > 0.05f && Cross2(ab, a2 - a) < -1e-3f;
+                    bool cutB = dB > 0.05f && Cross2(ab, b2 - a) < -1e-3f;
+                    if (cutA) Add(a2, Back(A, dA), A.edge, A.lateSide, false, true);
+                    if (cutB) Add(b2, Back(B, dB), B.edge, earlyB, false, true);
                 }
                 // a corner poked right past the neighbour's other corner too:
                 // no envelope, and no free edge — FanTriangles cuts the ring into ears
@@ -6644,6 +7060,19 @@ namespace PSXRacing.City
         /// <summary>For the audits: a fan's open chords (world space, the
         /// outward normal) and whether the tile puts it on structure. Empty
         /// where the node draws no fan.</summary>
+        /// <summary>For the diagnostics: a fan's corners, anticlockwise, as
+        /// FanCorners lays them (plan x, z; the arm and side; whether the chord
+        /// to the next is a road mouth).</summary>
+        public static string DescribeFan(CityMap map, Trims trims, int n)
+        {
+            var corners = new List<FanCorner>(12);
+            FanCorners(map, trims, n, Vector3.zero, corners);
+            var sb = new System.Text.StringBuilder();
+            foreach (var k in corners)
+                sb.AppendLine($"    corner ({k.pos.x:0.00}, {k.pos.z:0.00}) e{k.edge} side {k.side}{(k.mouthNext ? " MOUTH->" : "")}{(k.extra ? " extra" : "")}");
+            return sb.ToString();
+        }
+
         public static bool FanPerimeter(CityMap map, Trims trims, int n, List<(Vector3 a, Vector3 b, Vector2 outward)> chords)
         {
             chords.Clear();
@@ -6817,7 +7246,7 @@ namespace PSXRacing.City
                 Vector2 a = e.pts[si], d = e.pts[si + 1] - a;
                 float L2 = d.sqrMagnitude;
                 float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, d) / L2) : 0f;
-                if (Vector2.Distance(p, a + d * t) > e.width * 0.5f + 1.5f) continue;
+                if (Vector2.Distance(p, a + d * t) > e.HalfMax + 1.5f) continue;
                 float at = e.s[si] + Mathf.Sqrt(L2) * t;
                 if (e.ElevatedAt(at)) continue;
                 if (e.YAt(at) < y + 0.5f) return true;

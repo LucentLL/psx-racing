@@ -294,10 +294,11 @@ namespace PSXRacing.City
         /// <summary>
         /// The drawn road at arc <paramref name="s"/> of an edge: the plan
         /// point on its centreline, the unit vector to its right, and the
-        /// ribbon's half width each side. Today the centreline is the OSM
-        /// polyline and the half width the trims' (tapers included; a squeeze
-        /// only ever narrows it, so this errs toward keeping clear). The lines
-        /// release replaces this body with its line model.
+        /// ribbon's extent each side off it (hwL toward -right, hwR toward
+        /// +right): the OSM polyline and the LINE MODEL's extents (WP-11b: a
+        /// lane added on one side moves the ribbon off its line; tapers
+        /// included; a squeeze only ever narrows it, so this errs toward
+        /// keeping clear).
         /// </summary>
         public static void RoadEdgeAt(CityMap.Edge e, CityMeshes.Trims trims, float s,
                                       out Vector2 p, out Vector2 right, out float hwL, out float hwR)
@@ -305,7 +306,7 @@ namespace PSXRacing.City
             p = e.PointAt(s);
             var tan = e.TangentAt(s);
             right = new Vector2(-tan.y, tan.x);
-            hwL = hwR = trims.HalfWidthAt(e, s);
+            LineModel.Extents(e, s, out hwL, out hwR);
         }
 
         /// <summary>How far round a lot's box its use reaches: a drive-thru's

@@ -88,7 +88,7 @@ namespace PSXRacing.City
 
                         var tan = e.TangentAt(at);
                         var nrm = new Vector2(-tan.y, tan.x) * side;
-                        float setback = e.width * 0.5f + 4f + bd * 0.5f
+                        float setback = e.HalfMax + 4f + bd * 0.5f
                                       + Hash01(e.index, slot, 5) * 5f;
                         var c = p + nrm * setback;
 
@@ -108,7 +108,7 @@ namespace PSXRacing.City
                             float L2 = dseg.sqrMagnitude;
                             float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(c - a, dseg) / L2) : 0f;
                             float dd = Vector2.Distance(c, a + dseg * t);
-                            float need = o.width * 0.5f + 3.5f + Mathf.Max(bw, bd) * 0.55f;
+                            float need = o.HalfMax + 3.5f + Mathf.Max(bw, bd) * 0.55f;
                             if (dd < need) { blocked = true; break; }
                         }
                         if (blocked) { at += step; continue; }
@@ -283,7 +283,7 @@ namespace PSXRacing.City
                 int side = Hash01(e.index, 2, 23) < 0.5f ? -1 : 1;
                 var tan = e.TangentAt(at);
                 var nrm = new Vector2(-tan.y, tan.x) * side;
-                float setback = e.width * 0.5f + 6f + def.d * 0.5f;
+                float setback = e.HalfMax + 6f + def.d * 0.5f;
                 var c = p + nrm * setback;
 
                 // a real building already on the lot wins
@@ -302,10 +302,10 @@ namespace PSXRacing.City
                     float L2 = dseg.sqrMagnitude;
                     float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(c - a2, dseg) / L2) : 0f;
                     float dd = Vector2.Distance(c, a2 + dseg * t);
-                    float need = o.width * 0.5f + 3.5f + Mathf.Max(def.w, def.d) * 0.55f;
+                    float need = o.HalfMax + 3.5f + Mathf.Max(def.w, def.d) * 0.55f;
                     if (dd < need && o != e) { blocked = true; break; }
                     // its own street only has to clear the lot's near edge
-                    if (o == e && dd < o.width * 0.5f + 2f + def.d * 0.45f) { blocked = true; break; }
+                    if (o == e && dd < o.HalfMax + 2f + def.d * 0.45f) { blocked = true; break; }
                 }
                 if (blocked) continue;
 
