@@ -349,6 +349,18 @@ namespace PSXRacing.EditorTools
                                 if (Physics.Raycast(player.Body.position + Vector3.up * hy - fwdH * 1f, fwdH, out var fh, 5f, ~(1 << 2), QueryTriggerInteraction.Ignore) && fh.collider.attachedRigidbody != player.Body)
                                     hitWhat += string.Format(CultureInfo.InvariantCulture, " [{0:0.00} m up: {1} (layer {2}, normal y {3:0.00}) at ({4:0.0},{5:0.00},{6:0.0})]", hy, fh.collider.name, fh.collider.gameObject.layer, fh.normal.y, fh.point.x, fh.point.y, fh.point.z);
                             if (hitWhat.Length == 0) hitWhat = " [nothing ahead within 4 m]";
+                            // and what the BODY touches (its box, 0.15 m larger all
+                            // round, which clears the road under the wheels): a
+                            // rail, a barrier, a kerb face, another road's edge
+                            var bt = player.transform;
+                            var boxC = bt.TransformPoint(new Vector3(0f, 0.72f, -0.04f));
+                            var touching = Physics.OverlapBox(boxC, new Vector3(0.93f, 0.5f, 2.2f), bt.rotation, ~(1 << 2), QueryTriggerInteraction.Ignore);
+                            var names = new List<string>();
+                            foreach (var cl in touching) if (cl.attachedRigidbody != player.Body && names.Count < 6) names.Add($"{cl.name}/L{cl.gameObject.layer}");
+                            var nearP = pts[prog]; var alongP = pts[Mathf.Min(pts.Count - 1, prog + 1)] - nearP; alongP.y = 0f;
+                            float latP = Vector3.Dot(player.Body.position - nearP, Vector3.Cross(Vector3.up, alongP.normalized));
+                            hitWhat += string.Format(CultureInfo.InvariantCulture, " at ({0:0.0},{1:0.00},{2:0.0}) {3:0} m past the break, {4:+0.0;-0.0} m off the line, body touching: {5}",
+                                player.Body.position.x, player.Body.position.y, player.Body.position.z, (prog - brk) * 2f, latP, names.Count == 0 ? "nothing" : string.Join(", ", names));
                         }
                         maxDecel = Mathf.Max(maxDecel, dec); maxVAcc = Mathf.Max(maxVAcc, Mathf.Abs(vel.y - lastVy) / dt);
                     }

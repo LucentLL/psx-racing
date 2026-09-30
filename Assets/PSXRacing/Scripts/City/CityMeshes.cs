@@ -1737,6 +1737,11 @@ namespace PSXRacing.City
             /// <summary>Branch pieces beside the host: edge, arc range, and
             /// which way the chain walks it (+1 = from its a end).</summary>
             public readonly List<(int edge, float s0, float s1, int dir)> pieces = new List<(int, float, float, int)>(2);
+            /// <summary>Where the branch's inner edge lies INSIDE the host's
+            /// edge (its lanes run into the host's): edge and arc range. A
+            /// tile cuts the branch against its host there, and any height
+            /// between the two is a seam across the lanes.</summary>
+            public readonly List<(int edge, float s0, float s1)> overlaps = new List<(int, float, float)>(2);
             internal Chain host;
 
             /// <summary>The host edge and arc under a plan point, or -1 where
@@ -1778,6 +1783,7 @@ namespace PSXRacing.City
             var br = BuildChain(map, L, node, linkChain: true, GoreReach + 10f, host);
             int side = 0;
             var on = new Dictionary<int, (float s0, float s1)>();
+            var into = new Dictionary<int, (float s0, float s1)>();
             for (int k = 0; k <= 70; k++)
             {
                 float travelled = k * GoreStep;
@@ -1800,9 +1806,13 @@ namespace PSXRacing.City
                 if (!beside) break;
                 on[E.index] = on.TryGetValue(E.index, out var r)
                     ? (Mathf.Min(r.s0, sE), Mathf.Max(r.s1, sE)) : (sE, sE);
+                if (gap < 0f || Mathf.Abs(off) < 0.4f)
+                    into[E.index] = into.TryGetValue(E.index, out var ri)
+                        ? (Mathf.Min(ri.s0, sE), Mathf.Max(ri.s1, sE)) : (sE, sE);
             }
             if (on.Count == 0) return null;
             var seat = new Seat { node = node, host = host };
+            foreach (var kv in into) seat.overlaps.Add((kv.Key, kv.Value.s0, kv.Value.s1));
             for (int i = 0; i < br.edges.Count; i++)
             {
                 var E = br.edges[i];
@@ -4195,6 +4205,33 @@ namespace PSXRacing.City
         /// <summary>For the audit: the clip state of an edge at an arc
         /// position, from the LAST tile built. Empty when the edge is not a
         /// clipped branch there.</summary>
+        /// <summary>A node as the tile builder draws it, for the launch probe:
+        /// its kind and height, every arm's trim and height there (and its
+        /// branch host), and a fan's ring of corners (an arm with none is
+        /// buried or collapsed: its ribbon starts on the fan).</summary>
+        public static string DescribeNode(CityMap map, Trims trims, int n)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append($"node {n} y {map.nodeY[n]:0.00} {(trims.patch[n] ? "FAN" : trims.mitre[n] ? "MITRE" : "plain")} arms:");
+            foreach (int ei in map.nodeEdges[n])
+            {
+                var e = map.edges[ei];
+                if (e.a == e.b) continue;
+                float trim = trims.TrimAt(e, n);
+                float at = e.a == n ? trim : e.length - trim;
+                int host = trims.BranchAt(e, n);
+                sb.Append($" e{ei}{(e.link ? "L" : "")} '{e.name}' {(e.a == n ? "a" : "b")} trim {trim:0.0} y@trim {e.YAt(Mathf.Clamp(at, 0f, e.length)):0.00} end {(e.a == n ? e.stY[0] : e.stY[e.stY.Length - 1]):0.00}{(host >= 0 ? " branch-of e" + host : "")}{(ArmCollapsedAtTrim(map, trims, e, n) ? " COLLAPSED" : "")};");
+            }
+            if (trims.patch[n])
+            {
+                var ring = new List<FanCorner>();
+                FanCorners(map, trims, n, Vector3.zero, ring);
+                sb.Append(" corners:");
+                foreach (var k in ring) sb.Append($" e{k.edge}/{k.side}{(k.extra ? "x" : "")}{(k.mouthNext ? "m" : "")} ({k.pos.x:0.0},{k.pos.z:0.0}) y {k.pos.y:0.00};");
+            }
+            return sb.ToString();
+        }
+
         public static string DescribeClip(CityMap map, Trims trims, CityMap.Edge e, float s)
         {
             var clip = ClipAt(e, s);
@@ -4283,8 +4320,116 @@ namespace PSXRacing.City
                 sec.uR = hw > 0.05f ? Mathf.Clamp01(0.5f - latR / (2f * hw)) : 0f;
                 list.Add(sec);
             }
+            JoinBuriedEnds(map, trims, e, list, sMin, sMax);
             endScratch.Clear(); endScratch.AddRange(rawSaveEnds);
             return list;
+        }
+
+        /// <summary>A join eases back to the ribbon's own solve over this much
+        /// run per metre of height it has to make up (a 3% grade), and never
+        /// over less than <see cref="JoinMinM"/>.</summary>
+        const float JoinGrade = 0.03f, JoinMinM = 4f;
+
+        /// <summary>
+        /// A BURIED ARM STARTS ON THE FAN, AT THE FAN'S HEIGHT. An arm whose
+        /// whole mouth lies under the fan its two neighbours make is dropped
+        /// from the fan's ring (<see cref="FanCorners"/>) and its ribbon starts
+        /// ON that fan - but at its own height, while the fan there is made of
+        /// the neighbours' corners and the node. Where the two disagree the
+        /// ribbon's first section stood up out of the fan as a kerb across
+        /// the lanes: East Woodlawn Road's e11126 in the South Boulevard fan,
+        /// 0.26 m over it, stopped a car dead at 110 km/h (the owner, 2026-09-30:
+        /// "All roads should meet at smooth junctions and transitions"). So the
+        /// ribbon's first section takes the fan's own height under each of its
+        /// two vertices, and the ribbon eases back to its solve from there
+        /// (<see cref="JoinGrade"/>), never past its other end, which keeps its
+        /// own joint; both ends buried, each eases over half. World space.
+        /// </summary>
+        static void JoinBuriedEnds(CityMap map, Trims trims, CityMap.Edge e, List<Section> list, float sMin, float sMax)
+        {
+            int n = list.Count;
+            if (n < 2 || e.a == e.b) return;
+            float dLa = 0f, dRa = 0f, dLb = 0f, dRb = 0f;
+            bool atA = BuriedEndOffset(map, trims, e, e.a, list[0], out dLa, out dRa);
+            bool atB = BuriedEndOffset(map, trims, e, e.b, list[n - 1], out dLb, out dRb);
+            if (!atA && !atB) return;
+            float span = sMax - sMin, share = atA && atB ? 0.5f : 1f;
+            for (int end = 0; end < 2; end++)
+            {
+                if (end == 0 ? !atA : !atB) continue;
+                float dL = end == 0 ? dLa : dLb, dR = end == 0 ? dRa : dRb;
+                float reach = Mathf.Min(Mathf.Max(Mathf.Max(Mathf.Abs(dL), Mathf.Abs(dR)) / JoinGrade, JoinMinM), span * share);
+                for (int k = 0; k < n; k++)
+                {
+                    float dist = end == 0 ? list[k].s - sMin : sMax - list[k].s;
+                    float w = reach > 1e-3f ? 1f - dist / reach : (dist <= 1e-3f ? 1f : 0f);
+                    if (w <= 0f) continue;
+                    var sec = list[k];
+                    sec.L.y += dL * w; sec.R.y += dR * w;
+                    list[k] = sec;
+                }
+            }
+        }
+
+        /// <summary>How far this end section's two vertices stand off the fan
+        /// they start on, when the arm is buried in the fan at that node
+        /// (below it: positive). False where the arm is not buried, or the
+        /// offsets are under a centimetre.</summary>
+        static bool BuriedEndOffset(CityMap map, Trims trims, CityMap.Edge e, int node, Section sec, out float dL, out float dR)
+        {
+            dL = dR = 0f;
+            // (FanCorners buries only among four arms or more)
+            if (!trims.patch[node] || map.nodeEdges[node].Count < 4 || ArmCollapsedAtTrim(map, trims, e, node)) return false;
+            var (ring, tris) = FanRing(map, trims, node);
+            if (ring.Count < 3 || tris.Count < 3) return false;
+            foreach (var k in ring) if (k.edge == e.index) return false;   // it has a mouth: not buried
+            if (!FanY(map, node, ring, tris, new Vector2(sec.L.x, sec.L.z), out float yL) ||
+                !FanY(map, node, ring, tris, new Vector2(sec.R.x, sec.R.z), out float yR)) return false;
+            dL = yL - FanProudM - sec.L.y;
+            dR = yR - FanProudM - sec.R.y;
+            return Mathf.Abs(dL) >= 0.01f || Mathf.Abs(dR) >= 0.01f;
+        }
+
+        /// <summary>Each patch node's ring and triangles (world space), per
+        /// tile build: <see cref="FanCorners"/> reads the tile's clip table.</summary>
+        static readonly Dictionary<int, (List<FanCorner> ring, List<int> tris)> fanRings = new Dictionary<int, (List<FanCorner>, List<int>)>();
+        static (List<FanCorner> ring, List<int> tris) FanRing(CityMap map, Trims trims, int node)
+        {
+            if (fanRings.TryGetValue(node, out var r)) return r;
+            var ring = new List<FanCorner>(12);
+            var tris = new List<int>(36);
+            FanCorners(map, trims, node, Vector3.zero, ring);
+            if (ring.Count >= 3) FanTriangles(ring, map.nodes[node], tris);
+            r = (ring, tris);
+            fanRings[node] = r;
+            return r;
+        }
+
+        /// <summary>The fan's surface over a plan point: the triangle that holds
+        /// it (or, a hand's width outside them all, the nearest, carried on
+        /// flat), interpolated.</summary>
+        static bool FanY(CityMap map, int node, List<FanCorner> ring, List<int> tris, Vector2 q, out float y)
+        {
+            y = 0f;
+            var np = map.nodes[node];
+            float cy = map.nodeY[node] + FanProudM;
+            float best = float.NegativeInfinity;
+            for (int t = 0; t + 2 < tris.Count; t += 3)
+            {
+                Vector3 P(int i) => i == 0 ? new Vector3(np.x, cy, np.y) : ring[i - 1].pos;
+                Vector3 a = P(tris[t]), b = P(tris[t + 1]), c = P(tris[t + 2]);
+                float d = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
+                if (Mathf.Abs(d) < 1e-6f) continue;
+                float w1 = ((b.z - c.z) * (q.x - c.x) + (c.x - b.x) * (q.y - c.z)) / d;
+                float w2 = ((c.z - a.z) * (q.x - c.x) + (a.x - c.x) * (q.y - c.z)) / d;
+                float w3 = 1f - w1 - w2;
+                float worst = Mathf.Min(w1, Mathf.Min(w2, w3));
+                if (worst <= best) continue;
+                best = worst;
+                float c1 = Mathf.Max(w1, 0f), c2 = Mathf.Max(w2, 0f), c3 = Mathf.Max(w3, 0f), sum = c1 + c2 + c3;
+                y = sum > 1e-6f ? (c1 * a.y + c2 * b.y + c3 * c.y) / sum : a.y;
+            }
+            return best > -0.25f;   // inside one, or within a quarter of a triangle of it
         }
         static readonly Dictionary<int, List<Section>> rawSectionCache = new Dictionary<int, List<Section>>();
         static readonly Stack<List<Section>> rawSectionPool = new Stack<List<Section>>();
@@ -4294,6 +4439,7 @@ namespace PSXRacing.City
             foreach (var kv in rawSectionCache) rawSectionPool.Push(kv.Value);
             rawSectionCache.Clear();
             rawOutlines.Clear();
+            fanRings.Clear();
         }
 
         /// <summary>
@@ -4543,7 +4689,7 @@ namespace PSXRacing.City
                 var p = e.PointAt(sec.s);
                 float latL = Vector2.Dot(new Vector2(sec.L.x, sec.L.z) - p, sec.right);
                 float latR = Vector2.Dot(new Vector2(sec.R.x, sec.R.z) - p, sec.right);
-                sb.Append($"        s={sec.s:0.0} y={sec.L.y:0.00} L{latL:+0.0;-0.0} R{latR:+0.0;-0.0}{(sec.elev ? " deck" : "")}{(sec.collapsed ? " COLLAPSED" : sec.clippedIn ? " clippedIn" : "")}{(sec.innerSide != 0 ? " inner" + (sec.innerSide > 0 ? "R" : "L") : "")}{(sec.nbL >= 0 ? " nbL" + sec.nbL : "")}{(sec.nbR >= 0 ? " nbR" + sec.nbR : "")}\n");
+                sb.Append($"        s={sec.s:0.0} y={sec.L.y:0.00}{(Mathf.Abs(sec.R.y - sec.L.y) > 0.005f ? "/" + sec.R.y.ToString("0.00") : "")} L{latL:+0.0;-0.0} R{latR:+0.0;-0.0}{(sec.elev ? " deck" : "")}{(sec.collapsed ? " COLLAPSED" : sec.clippedIn ? " clippedIn" : "")}{(sec.innerSide != 0 ? " inner" + (sec.innerSide > 0 ? "R" : "L") : "")}{(sec.nbL >= 0 ? " nbL" + sec.nbL : "")}{(sec.nbR >= 0 ? " nbR" + sec.nbR : "")}\n");
             }
             return sb.ToString();
         }

@@ -550,9 +550,11 @@ namespace PSXRacing.EditorTools
         public static void Probe()
         {
             var sb = new StringBuilder();
+            var probeNodes = new HashSet<int>();
             var map = CityMap.Get();
             var trims = CityMeshes.NodeTrims(map);
             var buildings = CityBuildings.Precompute(map);
+            sb.AppendLine($"solve {CityMap.LastSolveMs:0} ms ({CityElevation.LastSolvePhases}); vertical curves: {(CityElevation.VerticalCurvesOn ? CityElevation.VcurveReport : "OFF")}");
             foreach (var pt in (Environment.GetEnvironmentVariable("PSX_LAUNCH_PROBE") ?? "").Split(';'))
             {
                 var c = pt.Split(',');
@@ -588,6 +590,20 @@ namespace PSXRacing.EditorTools
                     }
                 }
                 sb.AppendLine($"   road triangles over the point: {up} up, {down} down");
+                // the barrier (solid) faces within 4 m, as runs of triangles
+                if (tm.barriers != null)
+                {
+                    var v = tm.barriers.vertices; var t = tm.barriers.triangles;
+                    int shown = 0;
+                    for (int i = 0; i + 2 < t.Length && shown < 8; i += 3)
+                    {
+                        Vector3 a = v[t[i]] + tm.origin, b = v[t[i + 1]] + tm.origin, cc = v[t[i + 2]] + tm.origin;
+                        var m = (a + b + cc) / 3f;
+                        if ((new Vector2(m.x, m.z) - new Vector2(x, z)).sqrMagnitude > 16f) continue;
+                        shown++;
+                        sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "   barrier tri ({0:0.0},{1:0.00},{2:0.0}) ({3:0.0},{4:0.00},{5:0.0}) ({6:0.0},{7:0.00},{8:0.0})", a.x, a.y, a.z, b.x, b.y, b.z, cc.x, cc.y, cc.z));
+                    }
+                }
                 var near = new HashSet<int>();
                 map.EdgeSegsInRect(new Vector2(x - 15f, z - 15f), new Vector2(x + 15f, z + 15f), near);
                 var seen = new HashSet<int>();
@@ -600,7 +616,16 @@ namespace PSXRacing.EditorTools
                     float dist = Vector2.Distance(o.PointAt(so), new Vector2(x, z));
                     if (dist > 15f) continue;
                     sb.AppendLine($"   edge e{oi} '{o.name}'{(o.link ? " L" : "")} cls{o.cls} w {o.width:0.0} oneway {o.oneway} at {dist:0.0} m s={so:0}/{o.length:0} y {o.YAt(so):0.00}{(o.ElevatedAt(so) ? " deck" : "")} hw(trim) {trims.HalfWidthAt(o, so):0.0}{CityMeshes.DescribeClip(map, trims, o, so)}");
+                    if (dist > 8f) continue;
+                    var st = new StringBuilder();
+                    for (int i = 0; i < o.stS.Length; i++) st.Append($" {o.stS[i]:0.0}:{o.stY[i]:0.00}{(o.stElev[i] ? "d" : "")}{(o.SeatedAt(i) ? "s" : "")}");
+                    sb.AppendLine($"      a=node {o.a} b=node {o.b} trims {trims.atA[oi]:0.0}/{trims.atB[oi]:0.0} stations{st}");
+                    if (dist < 1.5f) sb.Append(CityMeshes.DescribeSections(map, trims, o));
+                    probeNodes.Add(o.a); probeNodes.Add(o.b);
                 }
+                foreach (int pn in probeNodes)
+                    if ((map.nodes[pn] - new Vector2(x, z)).sqrMagnitude < 25f * 25f) sb.AppendLine("   " + CityMeshes.DescribeNode(map, trims, pn));
+                probeNodes.Clear();
                 UnityEngine.Object.DestroyImmediate(go);
                 DestroyMeshes(tm);
             }

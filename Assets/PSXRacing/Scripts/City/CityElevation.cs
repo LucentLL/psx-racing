@@ -1278,6 +1278,10 @@ namespace PSXRacing.City
         /// gore zone: the vertical curves pull them onto the host's height
         /// (see VerticalCurves), softly - never the host onto them.</summary>
         static readonly List<(int edge, int st, int host, float hostS)> streetSeats = new List<(int, int, int, float)>(2048);
+        /// <summary>Per street seat: the ribbon that station shapes runs into
+        /// its host's lanes there (CityMeshes.Seat.overlaps) - the seats the
+        /// vertical curves PIN, not just pull.</summary>
+        static readonly List<bool> streetSeatInto = new List<bool>(2048);
         /// <summary>Each seated run's last station and which way leads away
         /// from the host (+1 toward the edge's b end).</summary>
         static readonly List<(int edge, int boundary, int dir)> climbs = new List<(int, int, int)>(1024);
@@ -1323,6 +1327,7 @@ namespace PSXRacing.City
             var seats = CityMeshes.BranchSeats(map, seatTrims);
             // the other branches' zones, for the vertical curves' SOFT seats
             streetSeats.Clear();
+            streetSeatInto.Clear();
             if (VerticalCurvesOn)
                 foreach (var seat in CityMeshes.BranchSeats(map, seatTrims, streetsOnly: true))
                     foreach (var (ei, s0, s1, dir) in seat.pieces)
@@ -1332,7 +1337,14 @@ namespace PSXRacing.City
                         {
                             if (e.stS[i] < s0 - 0.01f || e.stS[i] > s1 + 0.01f) continue;
                             int h = seat.HostAt(e.PointAt(e.stS[i]), out float hs);
-                            if (h >= 0 && h != ei) streetSeats.Add((ei, i, h, hs));
+                            if (h < 0 || h == ei) continue;
+                            streetSeats.Add((ei, i, h, hs));
+                            // does the ribbon this station shapes (to its
+                            // neighbours either side) run INTO the host's lanes?
+                            bool into = false;
+                            foreach (var (oe, o0, o1) in seat.overlaps)
+                                if (oe == ei && o1 >= e.stS[i - 1] && o0 <= e.stS[i + 1]) { into = true; break; }
+                            streetSeatInto.Add(into);
                         }
                     }
             // Each run's stations inside the gore, first, per edge, so the
@@ -2135,6 +2147,13 @@ namespace PSXRacing.City
         /// <summary>PSX_CITY_VPLANES=0: junctions keep their arms' own grades
         /// (a measuring override).</summary>
         static readonly bool FanPlanesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_VPLANES") != "0";
+        /// <summary>PSX_CITY_SEATPIN=0: street branches only soft-seated, as
+        /// before the pins (a measuring override; see VerticalCurves).</summary>
+        static readonly bool SeatPinsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SEATPIN") != "0";
+        /// <summary>A street branch station is pinned on its host only within
+        /// this of it: the tile builder's attach range (CityMeshes.AttachDy);
+        /// further apart the two are drawn as different levels.</summary>
+        public const float SeatPinMaxDy = 0.6f;
 
         /// <summary>The crest radius a road needs at its judged speed: the
         /// larger of 1.5 v^2/G (the curve takes two thirds of the wheels'
@@ -2316,6 +2335,39 @@ namespace PSXRacing.City
                 if (held) nodeMob[n] = 0;
             }
 
+            // STREET BRANCHES ONTO THEIR HOSTS, PINNED. The soft seats (in the
+            // sweeps below) pulled each station to within SoftSeatTol of its
+            // host, but where the crest limit disagreed the two cycled and
+            // froze, and the branch stayed off its host where the lanes merge:
+            // North Caldwell Street 0.30 m under East 12th Street where it is
+            // cut against it, a 0.28 m rise in 0.6 m of lane that stopped a
+            // car dead at 70 km/h. A station whose ribbon runs INTO the host's
+            // lanes (streetSeatInto; beside them it stays a soft seat) and that
+            // may move that way is set on its host and HELD, as a ramp's seat
+            // is, and the crest limit rounds the road around it instead (within
+            // the pass's raise and lower caps); it follows its host again after
+            // the sweeps. Only within SeatPinMaxDy: past it the tile builder
+            // draws the two as different levels.
+            int pinnedSeats = 0;
+            var pinnedAt = new List<int>(256);
+            if (SeatPinsOn)
+                for (int k = 0; k < streetSeats.Count; k++)
+                {
+                    if (!streetSeatInto[k]) continue;
+                    var (ei, i, h, hs) = streetSeats[k];
+                    var e = map.edges[ei];
+                    if (i <= 0 || i >= e.stY.Length - 1) continue;
+                    byte m = mob[ei][i];
+                    if (m == 0) continue;
+                    float target = map.edges[h].YAt(hs), off = target - e.stY[i];
+                    if (!(Mathf.Abs(off) <= SeatPinMaxDy)) continue;
+                    if ((off > 0f && (m & Up) == 0) || (off < 0f && (m & Down) == 0)) continue;
+                    e.stY[i] = target;
+                    mob[ei][i] = 0;
+                    pinnedSeats++;
+                    pinnedAt.Add(k);
+                }
+
             // the variables: interior stations in e.stY, nodes in map.nodeY
             float Get(CityMap.Edge e, int i) => e.a != e.b && i == 0 ? map.nodeY[e.a] : e.a != e.b && i == e.stY.Length - 1 ? map.nodeY[e.b] : e.stY[i];
             byte Mob(CityMap.Edge e, int i) => e.a != e.b && i == 0 ? nodeMob[e.a] : e.a != e.b && i == e.stY.Length - 1 ? nodeMob[e.b] : mob[e.index][i];
@@ -2465,6 +2517,13 @@ namespace PSXRacing.City
                 var t1 = activeE; activeE = nextE; nextE = t1;
                 var t2 = activeN; activeN = nextN; nextN = t2;
             }
+            // the pinned seats follow their hosts, which the sweeps may have moved
+            foreach (int k in pinnedAt)
+            {
+                var (ei, i, h, hs) = streetSeats[k];
+                float target = map.edges[h].YAt(hs);
+                if (Mathf.Abs(target - map.edges[ei].stY[i]) <= SeatPinMaxDy) map.edges[ei].stY[i] = target;
+            }
             // the ends take their nodes again
             int moved = 0;
             foreach (var e in map.edges)
@@ -2504,7 +2563,7 @@ namespace PSXRacing.City
                 debugUnsettled = sbd.ToString();
             }
             string r0 = round == 0 ? "" : VcurveReport + "; ";
-            VcurveReport = r0 + debugUnsettled + $" round {round}: {violBefore} crests past their limit -> {violAfter} ({frozen} frozen cycling, {stuck} held by pins), {planeHeld} junction arms set on their major road's plane (up to {planeMove:0.00} m), {streetSeats.Count} street-branch stations soft-seated ({softOff} still off their host), {sweeps} sweeps, {moves} projections, {moved} stations moved > 1 cm (up to +{maxRaise:0.00} / -{maxLower:0.00} m), {clock.ElapsedMilliseconds} ms";
+            VcurveReport = r0 + debugUnsettled + $" round {round}: {violBefore} crests past their limit -> {violAfter} ({frozen} frozen cycling, {stuck} held by pins), {planeHeld} junction arms set on their major road's plane (up to {planeMove:0.00} m), {streetSeats.Count} street-branch stations seated ({pinnedSeats} pinned, {softOff} still off their host), {sweeps} sweeps, {moves} projections, {moved} stations moved > 1 cm (up to +{maxRaise:0.00} / -{maxLower:0.00} m), {clock.ElapsedMilliseconds} ms";
         }
 
         static void RaiseHump(CityMap.Edge e, float sAt, float targetY)
