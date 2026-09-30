@@ -62,17 +62,18 @@ namespace PSXRacing.EditorTools
                         float L2 = d.sqrMagnitude;
                         float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(new Vector2(vx, vz) - a, d) / L2) : 0f;
                         float dist = Vector2.Distance(new Vector2(vx, vz), a + d * t);
-                        // the WP-14 section: metres past the pavement, the bench
-                        float past = dist - e.width * 0.5f;
-                        if (past > RoadsideRules.CityFadeEndM) continue;
+                        // the WP-14 section: metres past the pavement, the bench,
+                        // the reach (CityElevation.SectionReachM)
                         float s = e.s[si] + Mathf.Sqrt(L2) * t;
+                        float edgeM = e.PaveEdgeM(s, e.SideOf(si, new Vector2(vx, vz)));
+                        float past = dist - edgeM;
+                        float w = CityElevation.SectionReachM(edgeM);
+                        if (past > w) continue;
                         float ch = RoadsideRules.CityBenchM(e.cls, e.link);
-                        float w = past <= RoadsideRules.CityFadeStartM ? 1f : 1f - (past - RoadsideRules.CityFadeStartM) / (RoadsideRules.CityFadeEndM - RoadsideRules.CityFadeStartM);
-                        w = w * w * (3f - 2f * w);
                         bool el = e.ElevatedAt(s);
                         string key = ei + ":" + Mathf.RoundToInt(s);
                         if (!seen.Add(key)) continue;
-                        rows.Add((dist, $"    e{ei} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} cls{e.cls} s={s:0.0}/{e.length:0} dist {dist:0.0} past {past:0.0} bench {ch:0.0} hold {w:0.00} y {e.YAt(s):0.00} {(el ? "STRUCTURE cap " + (e.YAt(s) - CityElevation.DeckThick - CityElevation.UnderDeckAir).ToString("0.00") : "pin " + (e.YAt(s) - CityElevation.CorridorSink - e.SagAt(s)).ToString("0.00") + " sag " + e.SagAt(s).ToString("0.00"))}"));
+                        rows.Add((dist, $"    e{ei} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} cls{e.cls} s={s:0.0}/{e.length:0} dist {dist:0.0} past {past:0.0} bench {ch:0.0} reach {w:0.0} y {e.YAt(s):0.00} {(el ? "STRUCTURE cap " + (e.YAt(s) - CityElevation.DeckThick - CityElevation.UnderDeckAir).ToString("0.00") : "pin " + (e.YAt(s) - CityElevation.CorridorSink - e.SagAt(s)).ToString("0.00") + " sag " + e.SagAt(s).ToString("0.00"))}"));
                     }
                     rows.Sort((p, q) => p.dist.CompareTo(q.dist));
                     foreach (var r in rows) sb.AppendLine(r.line);

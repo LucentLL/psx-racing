@@ -925,14 +925,15 @@ namespace PSXRacing.EditorTools
                         {
                             if (e.ElevatedAt(s)) continue;
                             var c = e.PointAt(s); var t = e.TangentAt(s); var n = new Vector2(-t.y, t.x);
-                            float hw = e.width * 0.5f, y = e.YAt(s);
+                            float y = e.YAt(s);
                             bool took = false;
                             for (int side = -1; side <= 1 && !took; side += 2)
                             {
+                                float hw = e.PaveEdgeM(s, e.SideAt(s, c + n * side * 5f));
                                 var q = c + n * side * (hw + Probe);
                                 // no other road beside it: the run is this road's roadside
-                                if (map.NearestRoadPoint(q, hw + Probe + 6f, false, out int oe, out _, out float od) && oe != ei &&
-                                    od < map.edges[oe].width * 0.5f + 14f) continue;
+                                if (map.NearestRoadPoint(q, hw + Probe + 6f, false, out int oe, out float oat, out float od) && oe != ei &&
+                                    od < map.edges[oe].PaveEdgeM(oat, map.edges[oe].SideAt(oat, q)) + 14f) continue;
                                 // graded by THIS road's section: where another road's fill
                                 // or cap sets the land (a bridge approach's embankment
                                 // beside a trench) two roads' grading meets, and that is
@@ -958,7 +959,7 @@ namespace PSXRacing.EditorTools
             {
                 var e = map.edges[pk.e];
                 var c = e.PointAt(pk.s); var t = e.TangentAt(pk.s); var n = new Vector2(-t.y, t.x) * pk.side;
-                float hw = e.width * 0.5f, y = e.YAt(pk.s);
+                float hw = e.PaveEdgeM(pk.s, e.SideAt(pk.s, c + n * 5f)), y = e.YAt(pk.s);
                 // 2 m inside the edge, heading 15 degrees off the road toward it
                 var start2 = c + n * (hw - 2f) - t * 6f;
                 var dir2 = (t * Mathf.Cos(Angle * Mathf.Deg2Rad) + n * Mathf.Sin(Angle * Mathf.Deg2Rad)).normalized;
@@ -976,7 +977,7 @@ namespace PSXRacing.EditorTools
                 for (int k = 0; k < 30; k++) yield return new WaitForFixedUpdate();
                 player.brakeInput = 0f;
                 player.Body.linearVelocity = player.transform.forward * Speed;
-                float lastV = Speed, worstLoss = 0f, minUp = 1f, worstAir = 0f, past = 0f;
+                float lastV = Speed, worstLoss = 0f, minUp = 1f, worstAir = 0f, past = 0f, steepest = 0f;
                 bool left = false;
                 var edgeLine = c + n * hw;
                 for (int k = 0; k < Mathf.RoundToInt(7f / Time.fixedDeltaTime); k++)
@@ -990,23 +991,27 @@ namespace PSXRacing.EditorTools
                     player.brakeInput = left && !inRunOff ? 1f : 0f;
                     yield return new WaitForFixedUpdate();
                     float v = player.Body.linearVelocity.magnitude;
-                    // the braking run past the run-off is judged until something
-                    // other than the land (a tree, a post) could be what stops it
-                    if (inRunOff)
+                    // the speed lost is judged across the run-off only: past it
+                    // something other than the land (a tree, a post) may be what
+                    // stops the car. Upright and air are judged the whole way
+                    // down the bank (the reviewer's point: two runs still did
+                    // 75-82 km/h five seconds on, tilted to up 0.82, outside the
+                    // window), and the steepest ground under the car is logged.
+                    if (inRunOff) worstLoss = Mathf.Max(worstLoss, lastV - v);
+                    minUp = Mathf.Min(minUp, player.transform.up.y);
+                    // the ground under the car, not the car: the highest hit that is not its own
+                    float gy = float.NegativeInfinity; Vector3 gn = Vector3.up;
+                    foreach (var h in Physics.RaycastAll(player.Body.position + Vector3.up * 2f, Vector3.down, 40f, groundMask, QueryTriggerInteraction.Ignore))
+                        if (h.collider.attachedRigidbody != player.Body && h.point.y > gy) { gy = h.point.y; gn = h.normal; }
+                    if (!float.IsNegativeInfinity(gy))
                     {
-                        worstLoss = Mathf.Max(worstLoss, lastV - v);
-                        minUp = Mathf.Min(minUp, player.transform.up.y);
-                        // the ground under the car, not the car: the highest hit that is not its own
-                        float gy = float.NegativeInfinity;
-                        foreach (var h in Physics.RaycastAll(player.Body.position + Vector3.up * 2f, Vector3.down, 40f, groundMask, QueryTriggerInteraction.Ignore))
-                            if (h.collider.attachedRigidbody != player.Body && h.point.y > gy) gy = h.point.y;
-                        if (!float.IsNegativeInfinity(gy)) worstAir = Mathf.Max(worstAir, player.Body.position.y - gy);
+                        worstAir = Mathf.Max(worstAir, player.Body.position.y - gy);
+                        if (left) steepest = Mathf.Max(steepest, Mathf.Sqrt(Mathf.Max(0f, 1f - gn.y * gn.y)) / Mathf.Max(0.05f, gn.y));
                     }
-                    else minUp = Mathf.Min(minUp, player.transform.up.y);
                     lastV = v;
                     if (!inRunOff && v < 1f) break;
                 }
-                string got = $"left the pavement: {(left ? "yes" : "no")}; {past:0.0} m past the edge at the end; worst speed lost in one step across the run-off {worstLoss:0.0} m/s; lowest up {minUp:0.00}; most air under the body {worstAir:0.00} m; end {player.Body.linearVelocity.magnitude * 3.6f:0} km/h";
+                string got = $"left the pavement: {(left ? "yes" : "no")}; {past:0.0} m past the edge at the end; worst speed lost in one step across the run-off {worstLoss:0.0} m/s; lowest up {minUp:0.00}; most air under the body {worstAir:0.00} m; steepest ground under it 1V:{(steepest > 1e-3f ? 1f / steepest : 99f):0.0}H; end {player.Body.linearVelocity.magnitude * 3.6f:0} km/h";
                 CityPlayCheck.Check(left && worstLoss < 4f && minUp > 0.7f && worstAir < 1.3f,
                     $"a car driven off at 25 m/s and 15 degrees comes through the {what}", got);
                 driven++;

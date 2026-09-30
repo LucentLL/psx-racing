@@ -2022,6 +2022,57 @@ namespace PSXRacing.City
 
         public static float GroundY(CityMap map, float x, float z) => Ground(map, x, z, out _);
 
+        // ------------------------------------------------------------------
+        //  THE SECTION (WP-14). One definition, read by Ground, the tile's
+        //  cut-wall test (CityMeshes.InCut) and the probes.
+        // ------------------------------------------------------------------
+        /// <summary>How far past its pavement edge (<paramref name="edgeM"/>
+        /// from the centreline) a road's section reaches: Ground sees every
+        /// segment within <see cref="MaxCorridorHalf"/> +
+        /// <see cref="CorridorBlend"/> of the point, so that less the edge and
+        /// a metre, and at most <see cref="RoadsideRules.CityReachMaxM"/>.</summary>
+        public static float SectionReachM(float edgeM) =>
+            Mathf.Min(RoadsideRules.CityReachMaxM, MaxCorridorHalf + CorridorBlend - edgeM - 1f);
+
+        /// <summary>The natural land (<see cref="BaseY"/>) at the section's
+        /// reach, straight out from the foot <paramref name="foot"/> through
+        /// <paramref name="p"/>: what a bank too deep for its slope meets.
+        /// <paramref name="land"/> (the land at p) where p is on the line.</summary>
+        public static float LandAtReach(Vector2 foot, Vector2 p, float dist, float outM, float land)
+        {
+            if (dist < 1e-3f) return land;
+            var r = foot + (p - foot) * (outM / dist);
+            return BaseY(r.x, r.y);
+        }
+
+        /// <summary>A FILL at <paramref name="past"/> metres past the
+        /// pavement: the pin across the bench, then
+        /// <see cref="RoadsideRules.CityFillSlope"/> (1V:4H) down, and never
+        /// above the <see cref="RoadsideRules.CityBankSlope"/> (1V:2H) bank
+        /// that reaches the land by <paramref name="reach"/> - the land there
+        /// (<paramref name="landAtReach"/>) or here, whichever is lower, so it
+        /// ends ON the land where the ground query stops seeing the road.
+        /// Meaningful where it stands above the land.</summary>
+        public static float SectionFill(float pin, float bench, float past, float reach, float land, float landAtReach)
+        {
+            float f = pin - Mathf.Max(0f, past - bench) * RoadsideRules.CityFillSlope;
+            float bank = Mathf.Min(land, landAtReach) + Mathf.Max(0f, reach - past) * RoadsideRules.CityBankSlope;
+            return Mathf.Min(f, bank);
+        }
+
+        /// <summary>A CUT at <paramref name="past"/> metres past the pavement:
+        /// the pin across the band to <paramref name="start"/>, then
+        /// <see cref="RoadsideRules.BackSlope"/> (1V:3H) up, and never below
+        /// the 1V:2H bank that comes down from the land by
+        /// <paramref name="reach"/> (the higher of the land there and here).
+        /// Meaningful where it stands below the land.</summary>
+        public static float SectionCut(float pin, float start, float past, float reach, float land, float landAtReach)
+        {
+            float c = pin + Mathf.Max(0f, past - start) * RoadsideRules.BackSlope;
+            float bank = Mathf.Max(land, landAtReach) - Mathf.Max(0f, reach - past) * RoadsideRules.CityBankSlope;
+            return Mathf.Max(c, bank);
+        }
+
         /// <summary>
         /// The ground height at a point, and why. In order:
         ///
@@ -2043,10 +2094,14 @@ namespace PSXRacing.City
         ///        disagree the two roads cannot be graded apart, the upper
         ///        edge stands over a drop, and the tile puts a warranted rail
         ///        on it);
-        ///      and past <see cref="RoadsideRules.CityFadeStartM"/> a section
-        ///      lets go of the land by <see cref="RoadsideRules.CityFadeEndM"/>
-        ///      (a cut or fill deeper than its slope can reach by then steepens
-        ///      out there instead of ending in a cliff). It replaced a fixed
+        ///      a section too deep for its slope to meet the land by its reach
+        ///      (<see cref="SectionReachM"/>, where this query stops seeing the
+        ///      road) steepens to a 1V:2H bank for its last stretch
+        ///      (<see cref="SectionFill"/>, <see cref="SectionCut"/>) and meets
+        ///      the land exactly there, never a steeper face nor a cliff; a
+        ///      smoothstep fade over 20-32 m before stood deep sections at up
+        ///      to 1V:1.2H. Measured from the pavement edge the ribbon is
+        ///      drawn to (CityMap.Edge.PaveEdgeM). It replaced a fixed
         ///      corridor, flat to 11.5 m past the pavement and blended to the
         ///      DEM over 26 m more, which read on every hill as a road on a
         ///      flat strip;
@@ -2147,11 +2202,12 @@ namespace PSXRacing.City
                 float t = Mathf.Clamp01(tRaw);
                 Vector2 q = a + d * t;
                 float dist = Vector2.Distance(p2, q);
-                float hw = e.width * 0.5f;
-                // metres past the pavement's edge (negative on it)
-                float past = dist - hw;
-                if (past > RoadsideRules.CityFadeEndM) continue;
                 float at = e.s[si] + Mathf.Sqrt(L2) * t;
+                // metres past the pavement's edge on this side (negative on it)
+                float hw = e.PaveEdgeM(at, e.SideOf(si, p2));
+                float past = dist - hw;
+                float reachS = SectionReachM(hw);
+                if (past > reachS) continue;
                 if (e.ElevatedAt(at))
                 {
                     // Structure does not pin the land — but the land may not
@@ -2185,16 +2241,19 @@ namespace PSXRacing.City
                 // bent road (see MeasureSags)
                 float pin = e.YAt(at) - CorridorSink - e.SagAt(at);
                 float bench = RoadsideRules.CityBenchM(e.cls, e.link);
-                // how firmly the section holds the land: whole to the fade's
-                // start, gone at its end
-                float hold = past <= RoadsideRules.CityFadeStartM ? 1f
-                    : 1f - (past - RoadsideRules.CityFadeStartM) / (RoadsideRules.CityFadeEndM - RoadsideRules.CityFadeStartM);
-                hold = hold * hold * (3f - 2f * hold);
+                // the land at the section's reach straight out from the road,
+                // sampled only where the section binds (SectionCut/SectionFill)
+                float atReach = float.NaN;
                 // THE CUT (the land above the road): the pin across the
-                // lattice band, then the back slope up to the land.
-                float band = Mathf.Max(bench, RoadsideRules.CityCutBandM);
+                // lattice band, then the back slope up to the land, steepened
+                // to the 1V:2H bank only where it cannot meet it by the reach.
+                float band = RoadsideRules.CityCutStartM(e.cls, e.link);
                 float cut = pin + Mathf.Max(0f, past - band) * RoadsideRules.BackSlope;
-                cut = Mathf.Lerp(baseY, cut, hold);
+                if (cut < baseY)
+                {
+                    atReach = LandAtReach(q, p2, dist, hw + reachS, baseY);
+                    cut = SectionCut(pin, band, past, reachS, baseY, atReach);
+                }
                 if (cut < cutMin) cutMin = cut;
                 // THE CAP (every road's protection, whatever grades the land
                 // round it): no vertex of an 8 m lattice triangle that can
@@ -2209,13 +2268,18 @@ namespace PSXRacing.City
                     if (cap < capMin) { capMin = cap; terms.protectEdge = ei; }
                 }
                 // THE FLOOR (a fill's side): the pin across the bench, then
-                // 1V:4H down, fading with the hold as the cut does - but only
-                // where the land is BELOW it. Where the land stands above the
-                // road a floor is no fill, and lerped toward that land it
-                // raised what the cuts had graded down straight back up
-                // (I-277's floor stood the land 5 m over a ramp beside it).
+                // 1V:4H down, steepened to the 1V:2H bank only where it cannot
+                // meet the land by the reach - but only where the land is
+                // BELOW it. Where the land stands above the road a floor is no
+                // fill, and pulled toward that land it raised what the cuts had
+                // graded down straight back up (I-277's floor stood the land
+                // 5 m over a ramp beside it).
                 float floor = pin - Mathf.Max(0f, past - bench) * RoadsideRules.CityFillSlope;
-                if (baseY < floor) floor = Mathf.Lerp(baseY, floor, hold);
+                if (baseY < floor)
+                {
+                    if (float.IsNaN(atReach)) atReach = LandAtReach(q, p2, dist, hw + reachS, baseY);
+                    floor = SectionFill(pin, bench, past, reachS, baseY, atReach);
+                }
                 if (floor > floorMax) { floorMax = floor; terms.floorEdge = ei; }
                 if (past <= PitReachM && (float.IsNaN(terms.nearFloor) || floor > terms.nearFloor))
                 { terms.nearFloor = floor; terms.nearEdge = ei; terms.nearDist = past; }

@@ -99,6 +99,9 @@ namespace PSXRacing
         /// </summary>
         public static float CityBenchM(int cls, bool link) =>
             !link && cls >= 4 ? 8f : link || cls >= 2 ? ClearZoneM + 1f : 2f;
+        /// <summary>Where a CUT's back slope starts: the bench, or the lattice
+        /// band (<see cref="CityCutBandM"/>) where that is wider.</summary>
+        public static float CityCutStartM(int cls, bool link) => System.Math.Max(CityBenchM(cls, link), CityCutBandM);
         /// <summary>A FILL's foreslope from the bench down to the land: 1V:4H,
         /// recoverable all the way down (the verge strip beside the pavement
         /// falls at 1V:6H across the clear zone and then at this, so it
@@ -120,12 +123,20 @@ namespace PSXRacing
         /// corner of a triangle touching the pavement can be, and a road's
         /// cap stops holding the land down.</summary>
         public const float CityLatticeReachM = 11.31f;
-        /// <summary>Past the pavement, a section holds the land whole to
-        /// <see cref="CityFadeStartM"/> and lets go of it by
-        /// <see cref="CityFadeEndM"/>: a cut or fill too deep for its slope to
-        /// reach the land by then steepens out there rather than ending in a
-        /// cliff at the query's reach.</summary>
-        public const float CityFadeStartM = 20f, CityFadeEndM = 32f;
+        /// <summary>
+        /// The steepest graded BANK: 1V:2H. A section runs at its own slope
+        /// (1V:4H fill, 1V:3H back slope) until it meets the land; one too
+        /// deep to meet it by the section's REACH (CityElevation
+        /// .SectionReachM, where the ground query stops seeing the road)
+        /// steepens to this for its last stretch and meets the land exactly
+        /// there, never a steeper face. A cut that cannot meet the land even
+        /// at this is walled (CityMeshes.InCut). It replaced a smoothstep
+        /// fade over 20-32 m that stood deep sections at 1V:1.2H.
+        /// </summary>
+        public const float CityBankSlope = 1f / 2f;
+        /// <summary>The farthest a city section reaches past its pavement,
+        /// however narrow the road.</summary>
+        public const float CityReachMaxM = 44f;
 
         // ------------------------------------------------------------------
         //  Barrier warrant

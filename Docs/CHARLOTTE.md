@@ -1058,15 +1058,29 @@ a grounded road now takes its road's section:
 - **Cap.** No grass through a lower road's lanes: the lowest cap holds. The
   cap is the pin across the band, the back slope out to 11.31 m, and nothing
   past that.
-- **Fade.** Past 20 m a section lets go of the land, and by 32 m it is gone,
-  so a deep cut or fill steepens out there instead of ending in a cliff.
+- **Bank (fix round).** A section runs at its own slope until it meets the
+  land. One too deep to meet it by its REACH (`CityElevation.SectionReachM`:
+  where the ground query stops seeing the road, 50 m less the road's edge,
+  at most 44 m) steepens to a 1V:2H bank (`RoadsideRules.CityBankSlope`)
+  for its last stretch, anchored on the land at the reach, and ends exactly
+  there. `SectionFill` / `SectionCut` are the one definition; Ground, `InCut`
+  and the probes read them.
+  - It replaced a smoothstep fade over 20-32 m, which the review worked out
+    at 1V:1.2H for a 10 m fill and 1V:1.3H for a 10 m cut, steeper than the
+    old 26 m blend.
+- **The pavement edge** is read through one accessor,
+  `CityMap.Edge.PaveEdgeM(at, side)` (with `SideOf` / `SideAt`): the
+  section, `InCut`, the land and ground probes and the play check's
+  run-off. Today it is half the width either side; R4 (plan A8, a lane
+  added on one side) replaces its body.
 - **The verge falls at 1V:4H** past its shoulder (it was 1V:6H across the
   clear zone). That is the fill's own slope, and its search runs 12 m, so it
   comes down onto a fill whose lattice chord sags under the section.
 - **Retaining walls** (`InCut`, freeway outside edges) stand only where the
   graded cut cannot fit. The DEM guard must pass (2 m at 4, 8 and 12 m), and
-  then either the back slope does not reach the land by 32 m, or a road more
-  than 2 m above, or a building, stands in the slope. The audit prints wall
+  then either even the 1V:2H bank would have to start inside the band (over
+  the road's own level), or a road more than 2 m above, or a building,
+  stands in the slope before it meets the land. The audit prints wall
   metres by cause.
 
 What the land does now, from `Editor/CityLandProbe.cs`. The same file runs
@@ -1094,17 +1108,26 @@ zeros held.
 - Cut walls on the 118 roadside tiles: 1.07 -> 0.41 km (the plan: at least
   50% less). By cause: 210 m where the back slope cannot reach the land,
   188 m where a road above stands in the slope, 10 m for a building.
+  - Fix round (the 1V:2H bank): 0.32 km, all of it a road above in the
+    slope; no cut on the audited tiles is too deep for the bank.
 - The land beside the routes, |land - road| p90: 3.81 m at 30 m and 5.57 m
   at 60 m, with 40% of points more than 2 m off the road at 60 m. That meets
   the plan's table with critic C22's 30 m target, now a check.
-- The known roadside spots went from 6 to 3:
+- The known roadside spots went from 6 to 2 (3 before the fix round):
   - four are graded away (the ramp e1489's face in its cut, the lip at e9314,
     the ledges on North Caldwell Street and on ramp e2858);
   - two are deck-rail gaps;
-  - one is new: `ledge-i77-ramp-5219`, 0.49 m. It came with WP-13's
-    road-grid shift and was already in WP-13's own audit. The ramp e5219's
-    connector is clipped against the parallel ramp e2422 and ends
-    mid-wedge. It is left for R4, which rebuilds the clips.
+  - one was new with WP-13: a 0.49 m ledge off I-77 (e2739) beside the ramp
+    e5219. It was first listed for R4; the review refused that, and the fix
+    round FIXED it in the builder. The ramp runs 3.7 m off I-77 and
+    0.98-1.00 m above it. `Ungraded` railed a verge stopped by a road more
+    than `OpenDropM` (1.0 m) below, so the ramp's side flickered between a
+    rail on a retaining face (1.00 m up) and a graded connector (0.98 m up),
+    and the connector's end stood proud beside the wall. A connector that
+    reaches the road below at no more than the traversable 1V:3H is now
+    graded ground whatever its depth (`TraversableConnector`): the ramp's
+    side is one graded slope. The list is down to 2 (the deck-rail gaps);
+    rail on the audited tiles 43.2 -> 42.9 km, verge 198.7 -> 199.0 km.
 - Two WP-13 leftovers were fixed in the builder:
   - Bryant Street's rail on a retaining face over a graded creek bank: the
     verge now falls at 1V:4H.
@@ -1178,6 +1201,79 @@ The code is in the session's scratchpad for that package, not in the branch.
 Fills are 1V:4H from the bench, so the land 3.5 m past the bench is at most
 0.9 m under the road. No fill is 2 m deep inside the clear zone, and WP-24's
 list of fills needing a rail is empty by construction.
+
+**The review's fix round (2026-09-29).**
+- **Faces are measured now.** `CityLandProbe` walks the ground every metre
+  to 48 m past the edge and counts 4 m stretches steeper than 1V:2H and
+  steeper than the DEM there: "section" where this road's own fill or cut
+  sets the ground, "two roads" where another road's floor, cap or deck does.
+  Same file on both codes (city-r1 given only the accessor):
+
+  | Where | Section faces, city-r1 | Now | Two-road faces, city-r1 | Now |
+  |---|---|---|---|---|
+  | Three routes, 3472 station-sides | 38 (1.09%) | 8 (0.23%) | 235 (6.75%) | 144 (4.15%) |
+  | 8 named streets, 24718 | 24 (0.10%) | 1 (0.004%) | 11 (0.04%) | 7 (0.03%) |
+  | Freeways, 84008 | 1129 (1.34%) | 529 (0.63%) | 3697 (4.40%) | 2448 (2.91%) |
+
+  The section faces left are one kind: a cut too deep to grade by its reach,
+  where the bank from the land meets the cap's 11.3 m limit (the lattice
+  may not rise within a triangle of the pavement) - I-85, I-77 and I-485
+  cuts 6-7 m deep with the hill still climbing past 36 m. `InCut` walls such
+  a cut at the edge; the step at 11.3 m behind the wall stays grass until a
+  retaining wall can stand there (not in this package). The two-road faces
+  are floor/cap conflicts between roads a level apart, which the rail
+  warrant guards.
+- **The plan's shots, before/after** (`Editor/CityRoadsideShots.cs`, spots
+  found in the data and written to a file the before run re-reads): the
+  deepest I-485 cut south of the city, the deepest I-77 fill, the deepest
+  I-277 fill north of uptown (Brookshire), Providence Road at its creek, and
+  three streets across a hillside (Andrill Terrace, West Tremont Avenue,
+  Runnymede Lane). Seat, over-the-bank, and over-the-bank with trees off.
+  **The visible payoff is small.** From the driver's seat the pairs differ
+  by 10-20% of pixels; the one change a driver sees at once is the I-485
+  cut's retaining wall gone (a graded bank now). From over the bank the
+  fills fall away sooner and deeper (I-77: -0.6/-1.8/-3.1 m at 10/15/20 m
+  against -0.2/-1.0/-2.4 m), but the land's shape reads much the same. The
+  cut side is still level for 8.5 m - the lattice's band - and that is where
+  the owner's "road on a flat strip" still shows. It needs the verge-strip
+  bank (WP-21), not more grading.
+- **Drive-off judged the whole way.** Upright and air are now judged
+  until the car stops, not only across the 8 m run-off, and the steepest
+  ground under the car is logged. All 5 spots pass; the steepest ground
+  crossed is 1V:3.0H (the I-277 cut) and 1V:3.8-4.0H elsewhere. The two runs
+  that still do 75-82 km/h after 7 s run along the road on 1V:3.8-3.9H
+  ground, not down a bank.
+- **race-play-check** (PSXShip, the three city routes, seeds 0-4, trees on,
+  150 s, `-NoWatch`), against WP-08's trees-on batch on the same seeds:
+
+  | Route | Rivals retired, WP-08 | Now |
+  |---|---|---|
+  | UptownLoop | 7 of 15 | 5 of 15 |
+  | TryonSprint | 13 of 15 | 13 of 15 |
+  | IndependenceSprint | 5 of 15 | 7 of 15 |
+  | All three | 25 of 45 | 25 of 45 |
+
+  None retired into the ground. The causes are the same kinds as WP-08's:
+  traffic (12), lamp posts on Tryon (7), each other or the player (4),
+  Barriers (2: a grid scramble on the Uptown Loop at 9 s, a car running
+  7 m left of the line on Independence at 139 s). Six of Independence's
+  seven are hits on other cars or traffic at 64-144 s. The terrain moved every
+  road a little (WP-13), so a seed does not replay the same race and a
+  per-seed pairing means nothing; 5 runs a route carry +/-2 of noise. The
+  total is at the baseline and no retirement is the roadside's.
+- **G-full** (`verify.ps1 -NoMirror`, edition ALL, PSXShip): scene build
+  OK (21 venues), SELF-TEST OK, town probe OK, every terrain audit OK, LANE
+  AUDIT OK, CITY AUDIT OK, screenshots written. It FAILS on 8 obstacle-audit
+  lines, all Chimney Rock (edge faces at wp 668/983, a face past the reach
+  at wp 2, a pocket behind a wall at wp 914, one ghost collider). They are
+  the same 8 lines, to the centimetre, as the `-city` tree's verify at
+  07:06 on 2026-09-29, before WP-13 or WP-14 existed; this branch touches
+  no stage code. They are Chimney Rock's (held for size), not Charlotte's.
+- **G-budget** (`CityBudgetProbe`): all 225 tiles p95 79.2 ms with trees,
+  75.4 ms without; worst view 209 draws, unchanged. The pre-fix branch read
+  90.4 / 78.8 ms and city-r1 125.4 / 89.6 ms, under heavier machine load,
+  so the one extra DEM sample per binding section costs nothing measurable.
+  No asset changed, so the size ledger is WP-13's (+1.26 MB).
 
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 

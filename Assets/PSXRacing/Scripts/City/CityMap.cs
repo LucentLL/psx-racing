@@ -100,6 +100,30 @@ namespace PSXRacing.City
             /// the median between two carriageways come out level.</summary>
             public float CorridorHalf => width * 0.5f + 6.5f;
 
+            /// <summary>
+            /// THE PAVEMENT EDGE, the one accessor every roadside reader goes
+            /// through (WP-14): metres from the OSM centreline out to the drawn
+            /// ribbon's edge on <paramref name="side"/> (+1 right of the points'
+            /// direction, -1 left; <see cref="SideOf"/>) at arc position
+            /// <paramref name="at"/>. Today every ribbon is centred on its line,
+            /// so it is half the paved width either side. The lines release (R4,
+            /// plan A8: a lane added on ONE side moves the ribbon off the line on
+            /// that side) replaces this body; the roadside section
+            /// (CityElevation.Ground and its section), InCut, the land and ground
+            /// probes and the play check's run-off all follow it.
+            /// </summary>
+            public float PaveEdgeM(float at, int side) => width * 0.5f;
+
+            /// <summary>Which side of segment <paramref name="seg"/> a plan
+            /// point is on: +1 right of the points' direction, -1 left.</summary>
+            public int SideOf(int seg, Vector2 p)
+            {
+                Vector2 d = pts[seg + 1] - pts[seg], r = p - pts[seg];
+                return d.x * r.y - d.y * r.x > 0f ? -1 : 1;
+            }
+            /// <summary><see cref="SideOf"/> at an arc position.</summary>
+            public int SideAt(float at, Vector2 p) => SideOf(SegmentAt(Mathf.Clamp(at, 0f, length), out _), p);
+
             public Vector2 PointAt(float at)
             {
                 at = Mathf.Clamp(at, 0f, length);

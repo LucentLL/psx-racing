@@ -3231,12 +3231,34 @@ namespace PSXRacing.City
         static bool Ungraded(bool laid, bool graded, float stoppedBy, Vector2 pW, float y, Vector3[] prof, bool ledges = true)
         {
             if (graded) return false;
-            if (float.IsNaN(stoppedBy) || y - stoppedBy > RoadsideRules.OpenDropM) return true;
+            if (float.IsNaN(stoppedBy)) return true;
+            // A road more than OpenDropM below is a drop - unless the verge
+            // CONNECTED down to it no steeper than the traversable 1V:3H, which
+            // is graded ground and no critical fall. A hard 1.0 m line here
+            // flickered: the ramp e5219 beside I-77 (e2739) 3.7 m off, 0.98-
+            // 1.00 m above it, stood a rail on a retaining face where WP-13's
+            // road grid put it 1.00 m up and a graded verge where 0.98 m, and
+            // the verge's end beside the wall was a 0.49 m ledge a wheel off
+            // I-77 dropped from.
+            if (y - stoppedBy > RoadsideRules.OpenDropM && !TraversableConnector(laid, stoppedBy, pW, y, prof)) return true;
             // measured to the road beside's VERGE, where a wheel lands: an
             // inch under its pavement (a 0.29 m step to e9986's pavement was
             // a 0.32 m ledge onto its verge, after WP-13 moved them 3 cm)
             return ledges && laid && prof[2].y - (stoppedBy - RoadsideRules.EdgeDropM) > RoadsideRules.LedgeStepM &&
                    Vector2.Distance(new Vector2(prof[2].x, prof[2].z), pW) > VertexSlackM;
+        }
+
+        /// <summary>Did the verge solve connect down to the road that stopped
+        /// it (its last point at that road's verge, an inch under its
+        /// pavement) at no more than RoadsideRules.TraversableSlope from the
+        /// edge?</summary>
+        static bool TraversableConnector(bool laid, float stoppedBy, Vector2 pW, float y, Vector3[] prof)
+        {
+            if (!laid) return false;
+            float run = Vector2.Distance(new Vector2(prof[2].x, prof[2].z), pW);
+            if (run < 0.5f) return false;
+            return Mathf.Abs(prof[2].y - (stoppedBy - RoadsideRules.EdgeDropM)) <= 0.1f
+                   && y - prof[2].y <= RoadsideRules.TraversableSlope * run + RoadsideRules.EdgeDropM;
         }
 
         /// <summary>The surface a given distance out from an edge: another
@@ -4454,14 +4476,17 @@ namespace PSXRacing.City
         /// graded cut cannot fit (WP-14; the owner's DOT rule: walls only where
         /// a slope cannot). The land beside must first stand well above the
         /// road - <see cref="CutWallM"/> at 4, 8 and 12 m out on the DEM (the
-        /// WP-04 guard) - and then the cut Ground grades there (level across
-        /// the lattice band, then the 1V:3H back slope) must fail to reach
-        /// it: it does not daylight before the section has let go of the
-        /// land (RoadsideRules.CityFadeEndM), or something stands in the slope
-        /// before it does - another road's pavement well above this one (a
-        /// street along the top of the trench) or a building. Decided from
-        /// data alone, so every tile sees the same run. Until WP-14 every
-        /// span whose DEM passed the guard was walled: 1.07 km on the audited
+        /// WP-04 guard) - and then the cut Ground grades there
+        /// (CityElevation.SectionCut: level across the lattice band, the 1V:3H
+        /// back slope, steepened to a 1V:2H bank only where the back slope
+        /// cannot meet the land by the section's reach) must not fit: even
+        /// the 1V:2H bank would have to start inside the band, or something
+        /// stands in the slope before it meets the land - another road's
+        /// pavement well above this one (a street along the top of the
+        /// trench) or a building. So every unwalled cut is a graded bank no
+        /// steeper than 1V:2H (CityLandProbe measures it). Decided from data
+        /// alone, so every tile sees the same run. Until WP-14 every span
+        /// whose DEM passed the guard was walled: 1.07 km on the audited
         /// tiles, the graded slope behind hidden by a 24 m shelf.
         /// </summary>
         static bool InCut(CityMap map, CityMap.Edge e, TileMeshes tm, Section A, Section B, Vector2 outward, out byte why)
@@ -4475,19 +4500,26 @@ namespace PSXRacing.City
                 if (!(CityElevation.BaseY(q.x, q.y) - m.y > CutWallM)) return false;
             }
             if (CutWallsEverywhere) { why = 1; return true; }
-            // where the back slope meets the land: by the section's reach
-            // (CityElevation.Ground lets go of the land from
-            // RoadsideRules.CityFadeStartM, so a cut deeper than the slope
-            // reaches by then steepens past it - a graded bank, not a face,
-            // for any cut up to about 10 m)
-            float band = Mathf.Max(RoadsideRules.CityBenchM(e.cls, e.link), RoadsideRules.CityCutBandM);
-            float day = -1f;
-            for (float o = band; o <= RoadsideRules.CityFadeEndM + 1e-3f; o += CutDaylightStepM)
+            // THE SECTION (CityElevation.SectionCut, the one Ground grades
+            // by): level across the band, the 1V:3H back slope, steepened to
+            // the 1V:2H bank only where that cannot meet the land by the
+            // reach. A wall only where even the bank cannot fit: it would
+            // have to start inside the band, over the road's own level.
+            float band = RoadsideRules.CityCutStartM(e.cls, e.link);
+            float sMid = (A.s + B.s) * 0.5f;
+            float reach = CityElevation.SectionReachM(e.PaveEdgeM(sMid, e.SideAt(sMid, p + outward)));
+            var rq = p + outward * reach;
+            float atReach = CityElevation.BaseY(rq.x, rq.y);
+            float pin = m.y - CityElevation.CorridorSink;
+            float land0 = CityElevation.BaseY(p.x + outward.x * band, p.y + outward.y * band);
+            if (CityElevation.SectionCut(pin, band, band, reach, land0, atReach) > pin + CutBankTolM) { why = 1; return true; }
+            float day = reach;
+            for (float o = band; o <= reach + 1e-3f; o += CutDaylightStepM)
             {
                 var q = p + outward * o;
-                if (CityElevation.BaseY(q.x, q.y) - m.y <= (o - band) * RoadsideRules.BackSlope) { day = o; break; }
+                float land = CityElevation.BaseY(q.x, q.y);
+                if (land <= CityElevation.SectionCut(pin, band, o, reach, land, atReach) + 1e-3f) { day = o; break; }
             }
-            if (day < 0f) { why = 1; return true; }
             // ...and nothing in the slope before it
             cutNear.Clear();
             var far = p + outward * day;
@@ -4504,8 +4536,9 @@ namespace PSXRacing.City
                     Vector2 a = oe.pts[si], d = oe.pts[si + 1] - a;
                     float L2 = d.sqrMagnitude;
                     float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(q - a, d) / L2) : 0f;
-                    if (Vector2.Distance(q, a + d * t) > oe.width * 0.5f + 1f) continue;
-                    if (oe.YAt(oe.s[si] + Mathf.Sqrt(L2) * t) - m.y > CutWallM) { why = 2; return true; }
+                    float oat = oe.s[si] + Mathf.Sqrt(L2) * t;
+                    if (Vector2.Distance(q, a + d * t) > oe.PaveEdgeM(oat, oe.SideOf(si, q)) + 1f) continue;
+                    if (oe.YAt(oat) - m.y > CutWallM) { why = 2; return true; }
                 }
             }
             return false;
@@ -4522,6 +4555,10 @@ namespace PSXRacing.City
         static readonly bool CutWallsEverywhere =
             System.Environment.GetEnvironmentVariable("PSX_CITY_CUTWALL_ALL") == "1" || System.Environment.GetEnvironmentVariable("PSX_CITY_CUTWALL_ONE") == "1";
         const float CutDaylightStepM = 2f;
+        /// <summary>How far over the road's own level the 1V:2H bank may have
+        /// to start before the cut is walled instead (float noise and the
+        /// DEM's bilinear wobble).</summary>
+        const float CutBankTolM = 0.25f;
         static readonly HashSet<int> cutNear = new HashSet<int>();
 
         static Vector3 Flat(Vector2 v) => new Vector3(v.x, 0f, v.y);

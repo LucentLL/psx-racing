@@ -765,14 +765,13 @@ namespace PSXRacing.EditorTools
         /// WP-14 (2026-09-29) graded four of the six away - the ramp e1489's
         /// face in its cut, the lip at e9314, the ledges on North Caldwell
         /// Street and ramp e2858 - and they are pruned. Two left are gaps in
-        /// deck rails over a host a hand lower, not grading. One is new with
-        /// WP-13 (the roads' 60 m grid rebuilt from the 30 m one moved them
-        /// 0.17 m RMS): the connector the ramp e5219 lays down to I-77 is
-        /// clipped against the parallel ramp e2422 and ends mid-wedge at its
-        /// span 191.5-193.4 m, so I-77's own verge, 0.49 m lower, is the
-        /// surface past it (the same shape as ledge-ramp-2858: a clipped
-        /// verge handing over). It is the clip's hand-over, left to the lines
-        /// release (R4), which rebuilds the ramp clips.
+        /// deck rails over a host a hand lower, not grading. The ledge WP-13
+        /// brought (I-77 e2739 beside the ramp e5219, 0.49 m: the ramp a
+        /// hair over 1.0 m above I-77 at one section and under it at the next,
+        /// so a rail on a retaining face handed over to a graded connector and
+        /// the connector's end stood proud beside the wall) is FIXED in the
+        /// builder, not listed: a connector no steeper than 1V:3H is graded
+        /// ground however far down it goes (CityMeshes.Ungraded).
         /// </summary>
         static readonly (string id, string kind, long way, float x, float z, string why)[] KnownRoadsideSpots =
         {
@@ -780,8 +779,6 @@ namespace PSXRacing.EditorTools
              "I-277 deck (e1237) where a ramp's approach joins it: the gap in the rail stands over a host surface 12 cm lower, so the audit's flush walk stops at the edge (1 m)"),
             ("open-tyvola-2735", "OPEN", 172466507, -6547f, -2380f,
              "Tyvola Road ramp deck (e2735) clipped into the bridge: the host's pavement 12-14 cm under the ramp's, rails of two Tyvola pieces with a slot between them over I-77 (1 m)"),
-            ("ledge-i77-ramp-5219", "LEDGE", 172467528, -4033f, 4712f,
-             "I-77 (e2739) beside the ramp e5219: the ramp's connector, clipped against the parallel ramp e2422, ends mid-wedge and I-77's verge 0.49 m lower is the surface past it (WP-13)"),
         };
         const float KnownSpotReachM = 15f;
 
