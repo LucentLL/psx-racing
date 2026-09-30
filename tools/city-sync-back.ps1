@@ -50,7 +50,10 @@ $paths = @(
     "Assets\PSXRacing\Resources\CityProps\City.meta",
     "Assets\PSXRacing\Scripts\City\CityKit.cs.meta",
     "Assets\PSXRacing\Scripts\City\CityPropInterior.cs.meta",
-    "Assets\PSXRacing\Editor\CityPropBaker.cs.meta"
+    "Assets\PSXRacing\Editor\CityPropBaker.cs.meta",
+    # WP-15: the furniture material the kit holds (poles, wires, lamps)
+    "Assets\PSXRacing\Materials\CityFurniture.mat",
+    "Assets\PSXRacing\Materials\CityFurniture.mat.meta"
 )
 
 $copied = 0

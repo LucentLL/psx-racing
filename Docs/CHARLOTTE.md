@@ -3030,6 +3030,222 @@ cameras depend only on the data and the ground before WP-25
   d540adf). gh-pages 934e646. Door tour 5/5. The site root is
   byte-identical.
 
+## WP-15 (2026-09-30, release R6): utility poles, wires, cobra-heads, acorn posts
+
+The Street View survey: "Utility poles and wires are the most visible thing
+the game lacks. Wood poles 12-14 m tall, 40-50 m apart, usually one side,
+1-3 m behind the curb or edge. 2-4 wire levels ... on every arterial and
+two-lane in the sample except uptown, freeways and Myers Park. Cobra-head
+street lights usually hang on these poles." Uptown (spot A1): "Black
+pedestrian lamp posts about 4.5-5 m tall with double-globe (acorn) heads ...
+every 20-30 m each side. No overhead wires." Branch `charlotte-poles`.
+
+**Which roads** (`CityPoles.IsPoleEdge`): every street, collector, arterial
+and trunk street, except ramps, tunnels, roundabouts, freeways, trunk
+expressways (posted 85 km/h or more), uptown and Myers Park. **Uptown** is
+measured off the map: inside the freeway loop, nearer Trade and Tryon than the
+nearest motorway in its bearing (32 sectors, 40 m inside;
+`CityPoles.Uptown`). **Myers Park** is a polygon round its streets' extent in
+the OSM cache (Hermitage, Queens Rd W, Wellesley, Colville, Sherwood and the
+rest; `CityPoles.InMyersPark`): its wires run behind the houses. On a pole
+road the cobra-head on every pole IS the street light:
+`CityMeshes.PlaceLamps` stands no lamp post there, and the pitch goes from the
+lamps' 38-55 m to the poles' 35-55 m.
+
+**The lines.** A road is followed through every node where it plainly carries
+on - the straightest arm within 60 degrees at a two-arm node, within 30 and of
+the same name at a junction, a one-way only into a one-way the same way - so a
+line runs down a road on ONE side across its way splits and past its side
+streets (`CityPoles.Chains`, once a map, at load). A one-way carriageway's line
+runs on its outside (a divided road gets one along each outside, as on
+Albemarle and South Blvd); a two-way road's side is a hash of its line.
+Stations every 45 m +- 5 m along it.
+
+**Where a pole stands.** Square off its station, past the pavement edge
+(`CityMap.Edge.PaveEdgeM`, the one accessor R4 replaces) and the road's clear
+zone (`RoadsideOccupancy.ClearZoneOf`) by 1.0, 1.8, 2.6 or 3.4 m, nudged up to
+6 m along: the first spot the STATIC roadside mask leaves free (no pavement,
+clear zone, sight triangle, corner spot, building, lot - a model's yard and
+driveway - water, ground under a deck, race run-off) and that is off every
+road's keep-out (`CitySigns.RoadsClear`), on ground within 3 m of its road's
+height; else none. A tile's own fill houses stand 24 m or more off every road
+and its lamp posts inside the clear zones, so nothing a tile builds for itself
+can be under a pole: every pole is decided from global data alone (the static
+masks), once a session, and every tile finds the same ones. A pole belongs to
+the tile its foot is in; its foot is marked on the tile's mask before the
+signs and the trees (the plan's priority: poles, lamps, signs, trees). The
+decisions a tile needs are made in 3 ms slices on frames of their own after
+the signs' (`CityPoles.Prepare` from `CityWorld.PrepareSigns`), so its tree
+frame only draws them; the lines themselves are worked out as the map loads
+(`CityPoles.Warm`).
+
+**The pole**: a 0.3 m wood pole 12-14 m tall, a 2.4 m crossarm 0.35 m under
+its top with two pins, and a cobra-head on a davit arm (1.6-4.6 m) reaching
+back over the road's edge, its lens 8.2 m over the road. **The wires**, from a
+pole to the next standing one of its line within 70 m (or the one after, over a
+station that stood none): the crossarm's pair, then by the line's hash a
+neutral 1.9 m down, a telecom cable 4.6 m down and a second at 5.2, sagging
+1.5% of the span. A span is not strung when any road under it would be less
+than 5.5 m below its lowest wire (checked every 2 m), when the ground comes
+within 4 m, or when it would pass through a deck or a building. Solid (Q15):
+a box up every pole on a Solid-layer object named `CityPost` (the signs'
+posts' name, the audits' and play checks' one prefix).
+
+**Uptown's acorn posts** are street lamps (`CityMeshes.LampAcorn`, placed by
+`PlaceLamps` under every lamp rule): 4.7 m black posts with an acorn globe,
+every 25 m on each side of every street inside the loop, the globe the lens.
+They are pedestrian lamps and there are four times as many as the street
+lamps they replace, so each lights the road at a quarter of a cobra-head
+(`CityWorld.AcornLightGain` 0.25, `NightGlow.Init(heads, gains)`) and its
+halo is smaller and fainter (`NightGlow.HaloSizeFor`): at full strength they
+took uptown's residential night frame from a median of 0.073 to 0.238 (the
+reference band is 0.09-0.17); at 0.25 it is 0.140.
+
+**No SOLID lamp post in race run-off.** WP-08's race batch found the racers
+running wide into the lamp posts on Tryon (33 hits; "the lamps' own package").
+A lamp whose foot is in a city race route's run-off (`RaceRunOff`: 8 m past
+the drawn edge, 16 m on the outside of a bend) stands where it would and
+BREAKS AWAY (`CityMeshes.Lamp.breakaway`; Q15's pattern, as the business
+cabinets and the thin trunks): drawn and lit, no collider
+(`CityWorld.Attach` stands a box for every other post). WP-15 first stepped
+such a post back from the road up to 16 m, else stood none - and uptown, where
+the buildings stand at the sidewalk, that left N Tryon without one post by
+day and black at night (the review, from the before/after shots). The lamp
+audit checks every post in run-off breaks away and none outside it does; the
+pole audit stands the tiles up as the game does and counts the colliders
+(one a solid post, none a breakaway one), checks at least 85% of the lamp
+stations of uptown's race streets stand their post, and prints how much of
+those streets is more than 20 m from a light.
+
+**The signs keep clear of the poles.** The review found the telecom cables
+(6-9 m up) running straight through a lit burger sign on the Tryon Sprint out
+of NoDa: a business's cabinet (2.4-3.2 m, 4.5-9.7 m up) stood 0.8 m past the
+clear zone, in the band the pole line stands in (1.0-3.4 m past it), and the
+signs were placed after the poles on a mask that knew only the poles' feet.
+Now a business's cabinet, a billboard's post, the beam to each face and each
+face with its catwalk and floodlights stand only where
+`CityPoles.SignClear` finds no wire (1.13 m either side of the line between
+two poles' feet: the crossarm's primaries), no pole or crossarm and no
+cobra-head arm or head within 0.5 m in plan; they step back from the road
+past the line as they already step back from everything else. The poles
+never look at the signs, so they are decided first and the same either way,
+and a billboard (decided from global data) stays the same in every tile.
+`CityPoles.Prepare` decides the stations round a tile that its business
+signs will ask about, so the tree frame finds them decided. The sign audit
+measures every drawn wire (its six segments, sag and all) and every pole
+part against every sign box - cabinet and posts, face, catwalk and
+floodlights, beam, gantry panel and truss, solid post and leg - in 3D, with
+the signs and poles both on; `PSX_SIGN_POLE_KEEP=0` turns the keep-out off to
+show that check fails without it.
+
+**One draw.** `tools/city/furniture_atlas.py` makes a 256 px atlas of four
+128 px cells from pack art the game already ships: PSX Textures II
+`wood_pt_4.png` (the guardrail posts' wood) and the lamp posts' house-pack
+`Metal.jpg`, tinted in linear light by the lamp posts' own material tint (the
+lamp posts drawn from it are the lamp posts they were), to black paint (the
+acorn posts) and near black (the wires). Nothing drawn in code. A tile's poles,
+wires, cobra-heads AND its street lamps (re-emitted from its lamp list) are one
+mesh on the kit's `furniture` material (PSX/Lit's PSX_FURNITURE variant); when
+it stands, the lamp posts' own mesh is destroyed. So the poles cost no draw:
+the tile draws its furniture where it drew its lamps. The cobra-heads join the
+tile's NightGlow with its lamps and the billboards' floodlights: yellow bulbs,
+like every street lamp (the owner's rule).
+
+**The wires in the shader.** A wire 8 cm thick is a pixel wide at 19 m on the
+240-line screen and breaks into crawling dashes past that. PSX_FURNITURE is
+the prop atlas variant (the cell in the vertex colour) plus this: a wire
+vertex sits ON the wire's line with (side, half width) in TEXCOORD1 and the
+wire's direction in its normal, and the vertex shader stands the ribbon up
+across the line, square to the eye, at least one framebuffer pixel wide; it
+fades into the fog from 100 m, gone by 180, and is not drawn past 200 m. Every
+other vertex has TEXCOORD1 = 0. One more PSX/Lit variant (always included:
+none, PSX_ATLAS_RECT, PSX_FURNITURE).
+
+**The pole audit** (`CityAudit.PoleAudit`, in every city audit; alone:
+`CityAudit.RunPoles` -> `city_pole_audit.txt`), on 3x3 tiles round Albemarle
+Rd, Rocky River Rd, Central Ave, uptown, Brentwood Pl, South Blvd,
+Providence Rd, Myers Park and Beatties Ford Rd, and every tile of the three
+race routes: no pole on pavement, in a clear zone, under a deck, in a building,
+lot, lake or race run-off, on a reserved cell of the static mask (sight
+triangles, corner spots), on a fill house or a lamp post of its tile; none on a
+freeway, uptown or in Myers Park; every wire 5.5 m over every road it crosses
+(measured every metre with the road's own height); every span's far pole
+standing in its own tile; the pitch p50 40-60 m; the same poles on a second
+build from a cold cache; one mesh a tile; a cobra-head on every pole; uptown lit
+by acorn posts; no SOLID lamp post in race run-off and none breaking away
+outside it; a box collider for every solid post and none for a breakaway one
+(the tiles stood up as the game does); and at least 85% of the lamp stations
+of uptown's race streets standing their acorn post (the reviewed build stood
+almost none on N Tryon). It also prints why stations stood no pole, how much
+of the pole roads is more than 40 m from any light, and uptown's race streets'
+dark runs (more than 20 m from a light) with what became of the lamp stations
+there (`CityMeshes.LampTrace`): the 10 m either side of a junction are the
+lamps' fan clearance, older than WP-15.
+
+**The sign audit** also measures the signs against the poles in 3D (the
+review): every drawn wire (its six segments, sag and all) and every pole
+part - the pole, its crossarm, its cobra-head's arm and head - against every
+sign box, with 0.3 m of air, on the 3,539 tiles it audits.
+`PSX_SIGN_POLE_KEEP=0` runs it with the keep-out off.
+
+**Shots**: `tools/city-pole-shots.ps1 -Label before|after [-Sheet]`
+(`CityRefSpots.RunPoles`): the driver's eye in the lane at Albemarle Rd,
+Central Ave, Rocky River Rd, Brentwood Pl, E Trade St, N Tryon St and Queens
+Rd W, by day and at night, and a close look at the nearest pole ahead;
+`tools/city/polesheet.py` pairs them. `-Spots a15_albemarle,a1_tryon`
+(`PSX_POLE_SPOTS`) shoots only those. At each spot the log checks the feet
+within 120 m of the camera (`CityRefSpots.SpotFeet`): every pole on no cell
+of the static mask (pavement, clear zone, sight triangle, corner, building,
+lot or driveway) and out of every road's keep-out, every lamp post off the
+carriageway and out of the buildings - `CLEAR` or `NOT CLEAR`. `-WireSigns` adds
+`CityRefSpots.RunWireSigns`: one job, the signs placed as the reviewed build
+placed them and as they stand now, from the same cameras (22 m back in the
+lane of the sign's road) at the business signs by the race routes a wire ran
+through, or over (the Tryon Sprint's nearest crossing among them).
+
+
+**Checked** (sandbox PSXShip, the CITY edition):
+
+- `verify -NoMirror -Edition CITY`: VERIFY PASS (scene build, SELF-TEST OK -
+  the texture-decode test included - terrain, obstacle and lane audits, CITY
+  AUDIT OK, screenshots), after ReleaseBudget (933 textures of the 16-bit set,
+  the atlas already right).
+- CITY AUDIT OK again on the final code: the DRIVE AUDIT's five zeros, the
+  roadside audit, the lamp audit (no lamp in race run-off: 0), the pole audit,
+  the tree audit and the sign audit (billboards 332, business signs 1,677,
+  gantries 182; density within 20%).
+- Pole audit: 182 tiles, 1,279 poles of 1,649 stations, 950 spans, 3,820
+  wires; 0 on pavement, clear zones, sight triangles, corner spots, lots,
+  decks, water or run-off, 0 uptown, in Myers Park or on a freeway; lowest
+  wire over a road 5.56 m; pitch p10/p50/p90 36.2/44.3/52.5 m; 852 of 852
+  span ends standing; same poles from a cold cache.
+- city-play-check CITY: CITY SPAWNS OK (72 ok, the drive-off 5 of 5, the
+  Myers Park trunks, the order bays, the race grids).
+- race-play-check, the three routes x seeds 0-4, 150 s: poles on 24 of 45
+  rivals retired, poles off 26 (the same build, A/B), WP-14's batch 25; then
+  with the lamps out of run-off 21 of 45 (Uptown Loop 10, Tryon 5 - it was 12
+  with 7 lamp-post hits - Independence 6). No car hit a pole in any race.
+- Night look (`nightlook-shots -Only city`, against the same run on the
+  commit before): arterial night median 0.081 -> 0.055 (a pole road now,
+  cobra-heads 35-55 m apart), residential (uptown, acorns) 0.073 -> 0.140,
+  sat 0.57 -> 0.61 (the band's top is 0.58), motorway unchanged; every frame's
+  floor, median and share under 0.10 in band.
+- Budget (CityBudgetProbe): worst view 209 -> 211 draws (+1%); tile build p95
+  70.5 -> 75.6 ms (the pole work is not in the tile build; noise); tree frames
+  p95 5.3 -> 5.0 ms, max 11.0 -> 15.2 (a cold static mask in a slice);
+  furniture about 2,600 vertices a tile with poles.
+- G-web: the CITY WebGL player (BUILD OK, GUID AUDIT OK, the kit's shaders
+  packed) served from 127.0.0.1: the front end, FREE ROAM on Tryon uptown
+  (acorn posts lit at sunset), the TRYON STREET SPRINT II grid in NoDa (poles,
+  crossarms, cobra-heads lit, the wires unbroken lines on the 240-line
+  screen), the same grid at NIGHT 23:15; no console error.
+- Size: WebGL.data 40.30 -> 40.33 MiB (+0.03), shaders 0.52 -> 0.53 MiB (one
+  more PSX/Lit variant), the atlas 64 KB; SIZE LEDGER OK.
+
+**Not done:** snapping stations to OSM `power=pole` and taking a line's side
+from `power=line` (the layer is fetched): a two-way road's line takes a
+hashed side.
+
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 
 Reported after the rebuild: "a lot of roads still floating in air, not

@@ -43,6 +43,8 @@ LINE MODEL (WP-11b): 9005 edges drawn off their OSM line (1150.4 km: TAPR, a lan
   symmetric widenings at mitred joins (a lane added or dropped, both edges moving more than V): 0 of 14182 joins (core 0, routes 0); goal 0
   through-lane continuity: 636 lines jump more than V at a join (core 62, routes 0), worst 11.03 m at node 11397 e10435 'Youngblood Road' 15.2 m / e19491 7.9 m, line kind 2; goal 0
   merged carriageways (opposite one-ways of one road, drawn under 0.3 m apart, 60 m clear of their ends): 0 m (core 0, routes 0); goal 0
+  ok  route tryon builds a path of the right length — 1505 waypoints
+  ok  route independence builds a path of the right length — 1754 waypoints
   ok  uptown tile has roads and ground
   ok  tile build is deterministic — 1004/1004 road verts, 8113/8113 building verts
 uptown tile: 8308 ground, 1004 road, 8113 building verts, 0 solids, 19 footprints, 0 gores
@@ -75,6 +77,9 @@ overlap census: 1152 m of ribbon inside another ribbon at a height between 0.25 
     4 m, worst 4.52 m: e1518 '' L cls5 / e8681 'I-77' cls5 at (-2181,19961) 35.364174,-80.841670
     4 m, worst 4.51 m: e2289 'East Independence Expressway' cls4 / e2299 'Albemarle Road' cls4 at (4321,1593) 35.198896,-80.770208
   ok  no ramp stands off its mainline inside the mainline's pavement (overlap census) — 16 m of branch more than 0.6 m off its host (over 3100 m before ramps were seated); 1152 m of all ribbons at a wrong height, 15584 stations seated
+    48 m, worst 2.10 m: e2004 'Albemarle Road' cls4 / e2292 'East Independence Expressway' cls4 at (4271,1652) 35.199424,-80.770757
+    56 m, worst 1.42 m: e3805 '' L cls3 / e10068 'Wilkinson Boulevard' cls3 at (-14137,6167) 35.240056,-80.973087
+    48 m, worst 1.50 m: e1461 'B. Bayles Mack Highway' cls5 / e2245 'I-77' cls5 at (-10507,-10201) 35.092767,-80.933183
 drive uptown at (-2311,4728): 19 edges, walls 0, steps 0, holes 0, off-surface 0, grass 0
 drive w5th at (-3336,5913): 36 edges, walls 0, steps 0, holes 0, off-surface 0, grass 0
 drive i277_i77 at (-2714,6579): 32 edges, walls 0, steps 0, holes 0, off-surface 0, grass 0
@@ -185,13 +190,79 @@ lamp audit: 12 tiles, 204 lamps of 211 stations; refused: building or lot 3, ano
   ok  the city stands street lamps, uptown included (lamp audit) — 204 lamps, 171 on uptown's 3x3
   ok  every lamp post stands 0.8 m or more outside every carriageway and junction fan (lamp audit) — 0
     tightest lamp foot to a real building: +0.84 m off the wall of real footprint #12509 (centre in bucket -9,19): kind arterial at (-2063.3,5044.8) tile -9,19
+    roadside tiles on the race routes: -8,22 -8,21 -7,21 -7,20 -6,20 -6,19 -5,19 -5,18 -4,18 -4,17 -5,17 -5,16 -5,15 -6,15 -6,14 -7,14 -7,13 -8,13 -9,13 -10,13 -10,14 -11,14 -11,15 -12,15 -12,16 -13,16 -13,17 -14,17 -15,17 -16,17 -16,18 -16,19 -15,19 -15,20 -15,21 -14,21 -14,22 -14,23 -13,23 -13,24 -12,24 -11,24 -11,25 -10,24 -9,24 -9,23 -9,22 -14,13 -14,14 -13,14 -13,15 -11,16 -11,17 -10,17 -10,18 -9,18 -9,19 -8,19 -8,20 -6,21 -6,22 -5,22 -5,23 -4,23 -4,24 -3,24 -2,25 -2,26 -1,26 -1,27 0,27 0,28 1,28 2,28 2,29 3,29 -3,15 -3,14 -2,14 -1,14 0,14 1,14 2,14 2,13 3,13 3,12 4,12 5,12 5,11 6,10 7,10 7,9 8,9 8,8 9,8 9,7 10,7 11,7 12,7 13,7 14,7 15,7 15,6 16,6 16,5 17,5 17,4 18,4 18,3 19,3 19,2
+    pits (lattice > 0.5 m under a grounded ribbon's design within 25 m): 4140; held under a lower road's pavement (conflict) 3502; dug under a deck 630; held under a deck's pavement 8
+    lane survey (not a check): 184619 lane probes on the roadside tiles; land the first thing over a lane 10; something solid within 2 m over a lane 23, another road's edge at another height 10, another road's edge at its height 2, its own edge 11 (a solid top over 0.35 m up, seen from 3 m over the lane: 8)
+    LANE  land over lane2 of e10973 'East 13th Street' s=2.5 (1 probe) tile -6,20 way 1032466012 at (-1364,5375): land +0.12 m on tile_-6_20/Ground, +0.04 m over the road under it; another road's edge at another height: e7396 'North College Street' side R s=55, its surface +0.15 m | span 46.2..55.5: verge
+    KNOWN LANE  solid in lane2 of e2308 'I-277' B s=0.5 (1 probe) tile -6,19 ROUTE uptown way 159022503 at (-1300,5103): tile_-6_19/Barriers +0.95 m; its own edge: e2308 'I-277' side R s=0, its surface +0.00 m | span 0.0..1.9: deck approach rail squeezed(strip 0.30 nb e9398)
+    KNOWN LANE  solid in lane2 of e11144 '' L s=12.5 (1 probe) tile -5,19 way 1039294228 at (-1159,5054): tile_-5_19/Barriers +1.65 m; another road's edge at another height: e11146 'East 12th Street' side L s=3, its surface +0.70 m | span 2.6..7.3: approach rail
+    KNOWN LANE  solid in lane1 of e11144 '' L s=14.5 (1 probe) tile -5,19 way 1039294228 at (-1160,5056): tile_-5_19/Barriers +1.77 m; another road's edge at another height: e11146 'East 12th Street' side L s=6, its surface +0.82 m | span 2.6..7.3: approach rail
+    KNOWN LANE  solid in lane2 of e14100 'North Davidson Street' B s=0.5 (1 probe) tile -5,19 way 1181521353 at (-1093,4922): tile_-5_19/Barriers a face beside the lane line; its own edge: e14100 'North Davidson Street' side R s=0, its surface +0.00 m | span 0.0..1.2: deck rail squeezed(strip 0.30 nb e14101)
+    KNOWN LANE  solid in lane2 of e14101 'North Davidson Street' B s=58.5 (1 probe) tile -5,19 way 1181521355 at (-1093,4920): tile_-5_19/Barriers a face beside the lane line; its own edge: e14101 'North Davidson Street' side R s=58, its surface +0.00 m | span 57.2..61.2: deck rail squeezed(strip 0.30 nb e2354)
+    KNOWN LANE  solid in lane2 of e14102 'North Davidson Street' s=0.5 (1 probe) tile -5,19 way 1181521356 at (-1091,4922): tile_-5_19/Barriers +1.34 m; another road's edge at another height: e14106 'North Davidson Street' side R s=8, its surface +0.41 m | span 7.1..9.6: deck rail squeezed(strip 0.30 nb e14101)
+    KNOWN LANE  solid in lane0 of e371 '' L s=389.0 (1 probe) tile -4,17 way 16662607 at (-982,4535): tile_-4_17/Barriers a face beside the lane line; another road's edge at its height: e2315 'I-277' side L s=527, its surface +0.00 m | span 526.9..529.6: deck(grounded end, verge) approach rail
+    LANE  land over lane0 of e10549 'East 10th Street' s=4.5 (1 probe) tile -5,17 way 1022844722 at (-1040,4495): land +0.05 m on tile_-5_17/Ground, +0.05 m over the road under it; its own edge: e10549 'East 10th Street' side L s=5, its surface +0.00 m | span 4.0..4.7: gap
+    KNOWN LANE  solid in lane0 of e2321 'I-277' s=52.5 (1 probe) tile -6,15 ROUTE uptown way 159022517 at (-1362,3924): tile_-6_15/Barriers +1.98 m; another road's edge at another height: e2367 'US 74' side R s=47, its surface +1.03 m | span 47.0..48.2: approach rail retaining-face
+    KNOWN LANE  solid in lane2 of e2352 'I-277' B s=12.5 (1 probe) tile -6,15 way 159022555 at (-1303,3969): tile_-6_15/Barriers a face beside the lane line; another road's edge at another height: e329 '' L side L s=198, its surface -4.64 m | span 198.1..201.7: verge
+    KNOWN LANE  solid in lane2 of e2352 'I-277' B s=14.5 (1 probe) tile -6,15 way 159022555 at (-1302,3970): tile_-6_15/Barriers a face beside the lane line; its own edge: e2352 'I-277' side R s=14, its surface +0.00 m | span 9.6..19.2: deck rail squeezed(strip 0.30 nb e2316)
+    KNOWN LANE  solid in lane2 of e2351 'I-277' s=78.5..80.5 (2 probes) tile -7,14 way 159022554 at (-1544,3686): tile_-7_14/Barriers a face beside the lane line; its own edge: e2351 'I-277' side R s=79, its surface +0.00 m | span 75.7..83.5: deck rail squeezed(strip 0.30 nb e14177)
+    KNOWN LANE  solid in lane2 of e20364 '' L s=8.5..10.5 (2 probes) tile -9,13 way 1516910799 at (-2198,3448): tile_-9_13/Barriers a face beside the lane line; its own edge: e20364 '' L side R s=9, its surface +0.00 m | span 5.0..9.8: rail retaining-face squeezed(strip 0.30 nb e15185) clipped
+    LANE  land over lane1 of e9770 '' L s=106.5 (1 probe) tile -16,19 way 997151557 at (-3971,4954): land -0.06 m on tile_-16_19/Ground, no road under it; another road's edge at its height: e2046 'West Morehead Street' side R s=0, its surface -0.03 m | span 0.0..8.5: gap
+    KNOWN LANE  solid in lane2 of e1891 'I-77' s=226.5 (1 probe) tile -15,21 ROUTE uptown way 94750540 at (-3732,5436): tile_-15_21/Barriers a face beside the lane line; its own edge: e1891 'I-77' side R s=227, its surface +0.00 m | span 223.4..230.7: deck rail squeezed(strip 0.30 nb e1877)
+    LANE  land over lane0 of e280 '' L s=320.5 (1 probe) tile -14,22 way 16662150 at (-3455,5766): land +0.01 m on tile_-14_22/Ground, no road under it; another road's edge at its height: e2132 'I-77' side L s=299, its surface +0.04 m | span 297.1..299.9: approach gap
+    LANE  land over lane0 of e230 '' L s=2.5 (1 probe) tile -13,23 way 16661878 at (-3162,6142): land -0.02 m on tile_-13_23/Ground, no road under it; another road's edge at its height: e338 '' L side L s=2, its surface +0.00 m | span 0.0..9.9: approach gap
+    LANE  land over lane2 of e21874 'Arlington Avenue' s=12.5..14.5 (2 probes) tile -13,14 way 16685118 at (-3188,3620): land -0.08 m on tile_-13_14/Ground, no road under it (worst probe -0.08 m); its own edge: e21874 'Arlington Avenue' side R s=13, its surface +0.00 m | span 12.4..19.2: verge
+    LANE  land over lane0 of e21874 'Arlington Avenue' s=16.5 (1 probe) tile -13,14 way 16685118 at (-3191,3613): land +0.11 m on tile_-13_14/Ground, no road under it; its own edge: e21874 'Arlington Avenue' side L s=16, its surface +0.00 m | span 12.4..19.2: verge
+    KNOWN LANE  solid in lane2 of e2852 '' L s=134.5 (1 probe) tile 16,6 way 173800811 at (4134,1576): tile_16_6/Barriers a face beside the lane line; its own edge: e2852 '' L side R s=134, its surface +0.00 m | span 128.9..136.9: rail squeezed(strip 0.30 nb e1229)
+    KNOWN LANE  solid in lane2 of e2004 'Albemarle Road' s=410.5..412.5 (2 probes) tile 16,6 way 116677926 at (4270,1647): tile_16_6/Barriers +1.86 m; another road's edge at another height: e2292 'East Independence Expressway' side L s=51, its surface +2.20 m | span 48.2..57.6: rail retaining-face
+    KNOWN LANE  solid in lane1 of e2004 'Albemarle Road' s=440.5 (1 probe) tile 16,6 way 116677926 at (4246,1665): tile_16_6/Barriers +1.90 m; another road's edge at another height: e2292 'East Independence Expressway' side L s=81, its surface +0.94 m | span 77.2..81.3: rail retaining-face
+    LANE  land over lane0 of e8170 '' L s=380.5 (1 probe) tile -36,-26 way 775149655 at (-9004,-6591): land -0.01 m on tile_-36_-26/Ground, no road under it; another road's edge at its height: e2147 'I-485' side L s=788, its surface +0.00 m | span 785.0..790.3: gap
+    KNOWN LANE  solid in lane0 of e2736 '' L B s=16.5 (1 probe) tile -26,-10 way 172466508 at (-6598,-2395): tile_-26_-10/Barriers +0.95 m; another road's edge at its height: e1895 'Tyvola Road' side L s=4, its surface +0.00 m | span 1.9..4.7: deck rail
+    KNOWN LANE  solid in lane0 of e1896 '' L s=50.5 (1 probe) tile -26,-10 way 94753672 at (-6506,-2334): tile_-26_-10/Barriers a face beside the lane line; its own edge: e1896 '' L side L s=51, its surface +0.00 m | span 48.6..53.7: rail retaining-face squeezed(strip 0.30 nb e328)
+    KNOWN LANE  solid in lane0 of e1899 '' L B s=18.5 (1 probe) tile -26,-10 way 94753674 at (-6585,-2372): tile_-26_-10/Barriers +0.95 m; another road's edge at another height: e14751 'I-77' side L s=16, its surface -5.47 m | span 8.9..17.7: verge
+    KNOWN LANE  solid in lane0 of e1900 '' L B s=18.5 (1 probe) tile -26,-10 way 94753675 at (-6560,-2403): tile_-26_-10/Barriers a face beside the lane line; another road's edge at another height: e14953 'Tyvola Road' side L s=9, its surface -0.11 m | span 0.0..9.4: deck gap
+    PIT   3.49 m under e14105 'North Davidson Street' (9.4 m past its pavement) at (-1120,4880) tile -5,19: held under a lower road's pavement (conflict) e2315 'I-277'
+    PIT   2.76 m under e157 '' (10.4 m past its pavement) at (-1464,5336) tile -6,20: held under a lower road's pavement (conflict) e2325 'East 12th Street'
+    PIT   2.58 m under e2384 '' (10.6 m past its pavement) at (-1576,5352) tile -7,20: held under a lower road's pavement (conflict) e14612 'North Tryon Street'
+    PIT   2.05 m under e371 '' (6.2 m past its pavement) at (-1024,4760) tile -5,18: held under a lower road's pavement (conflict) e2315 'I-277'
+fan mouth probe: 304 fans on the probed tiles, 20472 probes; land or nothing 0, a road a level away 13, a solid 0
+lamps tile -11,17 (uptown): 47 of 50 stations; acorn 47 over 0.84 km; refused: building or lot 3
+lamps tile -10,17 (uptown): 54 of 57 stations; acorn 54 over 1.05 km; refused: building or lot 3
+lamps tile -9,17 (uptown): 52 of 52 stations; acorn 52 over 0.81 km
+lamps tile -11,18 (uptown): 60 of 60 stations; acorn 60 over 0.98 km
+lamps tile -10,18 (uptown): 40 of 49 stations; acorn 40 over 0.91 km; refused: building or lot 9
+lamps tile -9,18 (uptown): 44 of 51 stations; acorn 44 over 0.91 km; refused: building or lot 7
+lamps tile -11,19 (uptown): 55 of 55 stations; acorn 55 over 1.00 km
+lamps tile -10,19 (uptown): 61 of 61 stations; acorn 61 over 1.09 km
+lamps tile -9,19 (uptown): 52 of 55 stations; acorn 52 over 0.95 km; refused: building or lot 3
+lamps tile -2,-5 (four-lane arterial: e689 'South Wendover Road' cls3 4 lanes 56 km/h at (-264,-1104)): 0 of 0 stations; 
+lamps tile -21,8 (residential street: e20811 '' cls0 2 lanes 56 km/h at (-5278,2227)): 0 of 0 stations; 
+lamp audit: 12 tiles, 474 lamps of 499 stations; refused: building or lot 25; 0 pairs of posts from two roads within 1.5 m of each other (not a check)
+    lamps per km of carriageway on those tiles: street 0.0 (0 over 0.00 km), arterial 0.0 (0 over 0.00 km), freeway 18.1 (9 over 0.50 km), acorn 54.6 (465 over 8.52 km)
+    tightest lamp foot to a real building: +0.80 m off the wall of real footprint #12481 (centre in bucket -9,18): kind acorn at (-2150.7,4696.6) tile -9,18
   ok  every lamp post stands outside every real building and 0.8 m or more from its walls, buildings centred across a tile seam included (lamp audit) — 0
   ok  no lamp stands under a structure (lamp audit) — 0
+  ok  no lamp stands in a city race route's run-off (lamp audit) — 0
   ok  no lamp is stood twice across a tile seam (lamp audit) — 0
   ok  a tile stands the same lamps every build (lamp audit)
 terrain fidelity (WP-04): datum 97.0 m; the roads read the grid through a 0.8-cell Gaussian (149268 stations and nodes at a divided road's midline; 14 seated stations freed where a lane meets two hosts); water: 239 creek lines, 1545 ravines, 106 lakes, 69990 bed samples; 564 water spans
     creek little_sugar   3DEP 1 m bed 204.60 m: carved terrain 204.48 (-0.12); graded ground 204.48 (-0.12); 30 m grid alone 206.46 (+1.86); creek 'Little Sugar Creek' 6.0 m off, water 205.28 m (+0.68); relief 15.9 m (3DEP 18.9)
     creek irwin          3DEP 1 m bed 198.41 m: carved terrain 197.56 (-0.85); graded ground 199.34 (+0.93, held up there by e8616 'I-77''s corridor (WP-14)); 30 m grid alone 201.10 (+2.69); creek 'Irwin Creek' 8.8 m off, water 198.36 m (-0.05); relief 20.4 m (3DEP 21.5)
+  ok  the city kit's furniture material wears the pack atlas on PSX/Lit's PSX_FURNITURE variant (pole audit)
+    profile: 2254 stations decided in 461 ms (0.20 a station), 1279 spans judged in 166 ms (their far poles' decisions included); 336 static masks built in 597 ms, whoever asked
+pole audit (WP-15): 182 tiles (81 at the shot spots, the rest along the race routes), 135 with poles; 1279 poles of 1649 stations (370 stood none: no free ground), 950 spans, 3820 wires, 1279 cobra-heads; 1472 lamp posts drawn on the furniture mesh, 1169 acorn posts (465 on uptown's 3x3); 345784 furniture verts; poles and wires 3.2 ms a tile (max 33.4)
+    stations that stood no pole, why their own spot was refused: pavement 75, clear zone 250, sight triangle 32, corner spot 13, building 43, water 2, under a deck 28, lot 1, a deck or bridge 90, uptown or Myers Park 18
+    spans not strung: no next pole within two stations or over 70 m 263, a road under them too close 0, the ground too close 0, a deck or building in the way 66; span ends in audited tiles 852, standing there 852
+    pitch along a line: p10 36.2 p50 44.3 p90 52.5 m over 908 pairs; lowest wire over a road 5.56 m at (-3309,4090) 35.221365,-80.854067 line 2354
+    pole roads on these tiles 72.6 km, 6.68 km (9.2%) more than 40 m from any light (not a check)
+  ok  the city stands utility poles and strings wires (pole audit) — 1279 poles, 950 spans
+  ok  no pole on pavement, in a clear zone, under a deck, in a building, lot, lake or race run-off, on a reserved cell (sight triangle, corner spot), on a fill house or a lamp post; none on a freeway, uptown or in Myers Park; every wire 5.5 m over every road; every span's far pole standing; no lamp post in race run-off (pole audit) — 0
+  ok  the pitch along a line p50 40-60 m (pole audit) — 44.3 m
+  ok  every wire at least 5.5 m over every road (pole audit) — 5.56 m
+  ok  a tile stands the same poles every build (pole audit)
+  ok  a tile's poles, wires and lamps are one mesh with one material: no draw added (pole audit) — 0
+  ok  a cobra-head on every pole, lit at night (pole audit) — 1279 heads, 1279 poles
+  ok  uptown's streets are lit by acorn posts (pole audit) — 465
     creek stewart        3DEP 1 m bed 194.43 m: carved terrain 194.08 (-0.35); graded ground 194.08 (-0.35); 30 m grid alone 196.42 (+1.99); creek 'Stewart Creek' 5.0 m off, water 194.88 m (+0.45); relief 24.2 m (3DEP 24.2)
     creek briar          3DEP 1 m bed 201.32 m: carved terrain 200.71 (-0.61); graded ground 200.71 (-0.61); 30 m grid alone 202.44 (+1.12); creek 'Edwards Branch' 5.4 m off, water 201.51 m (+0.19); relief 13.9 m (3DEP 15.0)
     creek mcalpine       3DEP 1 m bed 195.82 m: carved terrain 196.07 (+0.25); graded ground 196.07 (+0.25); 30 m grid alone 197.03 (+1.21); ravine '' 2.8 m off (no water); relief 21.2 m (3DEP 21.7)
@@ -229,6 +300,7 @@ tree audit (WP-08): canopy 2024 grid loaded
     614 tiles, 136100 trees (11359 with a trunk collider), 7 tiles with none; per tile p50 227 p90 400 max 417; plant 3.3 ms a tile (the mask 1.3; max 57.5); grown for the overhang 4, shrunk 1303; in freeway tree walls 825
     candidates refused: pavement 49672, clear zone 19970, sight triangle 130, building 31033, water 24248, under a deck 500, lot, lamp or sign 908, card over the road too low 15, too close to another tree 107723
   ok  the city plants trees (tree audit) — 136100
+    route tryon: sharpest crest off structure R 968 m at wp 1485 (804,7544) 35.252446,-80.808865; on structure R - m (lift-off near 351 km/h)
   ok  no trunk on pavement, in a clear zone or fan, a building or lot, water, under a deck, or on a reserved cell; no low leaves over a road (tree audit) — 0
   ok  every tree stands in the tile that planted it: none doubled across a seam (tree audit) — 0
   ok  a tile plants the same trees every build (tree audit)

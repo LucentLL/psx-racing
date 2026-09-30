@@ -454,7 +454,7 @@ MonoBehaviour:
   - 0.49609375
   - 0.49609375
   - 0.49609375
-  furniture: {fileID: 0}
+  furniture: {fileID: 2100000, guid: b7063e982a5005f4787763a04fe00365, type: 2}
   paint: {fileID: 0}
   signs: {fileID: 2100000, guid: 7fc18ab0222e98d4fb2acb40725701e4, type: 2}
   shaders:

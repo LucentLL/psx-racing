@@ -54,10 +54,118 @@ namespace PSXRacing.EditorTools
                   && sm.GetFloat("_NightWin") > 0.5f && sm.GetTexture("_NightMask") != null,
                   "the city kit's sign material wears the atlas and lights its faces at night (_NightMask, _NightWin, _NightFace)");
             if (!CitySignData.Loaded) return;
-            bool keepTrees = CityTrees.Enabled;
+            bool keepTrees = CityTrees.Enabled, keepOff = CitySigns.KeepOffPoles;
             CityTrees.Enabled = false;   // the signs only: the mask is the same, the trees come after them
+            // PSX_SIGN_POLE_KEEP=0: the signs ignore the poles, to show the
+            // wire check below has teeth (it must then fail)
+            CitySigns.KeepOffPoles = System.Environment.GetEnvironmentVariable("PSX_SIGN_POLE_KEEP") != "0";
+            if (!CitySigns.KeepOffPoles) Line("    PSX_SIGN_POLE_KEEP=0: the signs do NOT keep off the utility poles on this run");
             try { SignAuditInner(map, trims, buildings); }
-            finally { CityTrees.Enabled = keepTrees; }
+            finally { CityTrees.Enabled = keepTrees; CitySigns.KeepOffPoles = keepOff; }
+        }
+
+        // ---- the WP-15 review: no utility wire, pole, crossarm or cobra-head
+        //      through a sign, measured in 3D against what is drawn
+        internal struct SignBox { public Vector3 c, x, y, z; public float hx, hy, hz; public string what; }
+
+        /// <summary>The air a sign keeps from any wire or pole part, in 3D: a
+        /// wire skimming a cabinet's top reads as through it from a driver's
+        /// low eye (the review's frames); the placement keeps 0.5 m in plan.</summary>
+        internal const float SignWireAirM = 0.3f;
+
+        /// <summary>A box on horizontal axes: x across it (<paramref name="along"/>), y up, z along the normal.</summary>
+        static SignBox BoxOn(Vector3 c, Vector3 along, float hx, float hy, float hz, string what)
+        {
+            along.y = 0f;
+            var x = along.sqrMagnitude > 1e-8f ? along.normalized : Vector3.right;
+            var z = Vector3.Cross(x, Vector3.up).normalized;
+            return new SignBox { c = c, x = x, y = Vector3.up, z = z, hx = hx, hy = hy, hz = hz, what = what };
+        }
+
+        /// <summary>The boxes a tile's signs are drawn with, near enough: a
+        /// business's cabinet and its posts; a billboard's faces, the catwalk
+        /// and floodlights in front of each and the beam to it; a gantry's
+        /// panels and truss; every solid post and leg.</summary>
+        internal static void SignBoxesOf(CitySigns.SignTile st, List<SignBox> into)
+        {
+            into.Clear();
+            foreach (var sg in st.signs) AddSignBoxes(st, sg, into);
+            foreach (var (c, size, yaw) in st.posts)
+            {
+                float r = yaw * Mathf.Deg2Rad;
+                into.Add(BoxOn(c, new Vector3(Mathf.Cos(r), 0f, -Mathf.Sin(r)), size.x * 0.5f, size.y * 0.5f, size.z * 0.5f, "a solid post or leg"));
+            }
+        }
+
+        /// <summary>One sign's boxes (its solid posts and legs are the tile's: <see cref="SignBoxesOf"/>).</summary>
+        internal static void AddSignBoxes(CitySigns.SignTile st, CitySigns.Sign sg, List<SignBox> into)
+        {
+            {
+                if (sg.faces <= 0) return;
+                var f0 = st.faces[sg.firstFace];
+                var n0 = new Vector3(f0.normal.x, 0f, f0.normal.z);
+                var across = Vector3.Cross(Vector3.up, n0);
+                switch (sg.kind)
+                {
+                    case CitySigns.Kind.PoleSign:
+                        into.Add(BoxOn(f0.centre, across, f0.w * 0.5f, f0.h * 0.5f, 0.22f, "a business cabinet"));
+                        float gy = sg.ground - 0.3f;
+                        into.Add(BoxOn(new Vector3(sg.pos.x, (gy + sg.bottom) * 0.5f, sg.pos.y), across, f0.w * 0.5f, (sg.bottom - gy) * 0.5f, 0.13f, "a business sign's posts"));
+                        break;
+                    case CitySigns.Kind.Bulletin:
+                    case CitySigns.Kind.Poster:
+                        for (int i = sg.firstFace; i < sg.firstFace + sg.faces; i++)
+                        {
+                            var fc = st.faces[i];
+                            var n = new Vector3(fc.normal.x, 0f, fc.normal.z).normalized;
+                            var ax = Vector3.Cross(Vector3.up, n);
+                            float bottom = fc.centre.y - fc.h * 0.5f;
+                            into.Add(BoxOn(fc.centre - n * 0.175f, ax, fc.w * 0.5f, fc.h * 0.5f, 0.175f, "a billboard face"));
+                            var mid = new Vector3(fc.centre.x, bottom - 0.36f, fc.centre.z) + n * 0.685f;
+                            into.Add(BoxOn(mid, ax, fc.w * 0.5f, 0.2f, 0.935f, "a billboard's catwalk and floodlights"));
+                            var post = new Vector3(sg.pos.x, bottom - 0.35f, sg.pos.y);
+                            var to = new Vector3(fc.centre.x, bottom - 0.35f, fc.centre.z) - post;
+                            if (to.magnitude > 0.2f) into.Add(BoxOn(post + to * 0.5f, to, to.magnitude * 0.5f, 0.25f, 0.2f, "a billboard's beam"));
+                        }
+                        break;
+                    case CitySigns.Kind.Gantry:
+                        for (int i = sg.firstFace; i < sg.firstFace + sg.faces; i++)
+                        {
+                            var fc = st.faces[i];
+                            var n = new Vector3(fc.normal.x, 0f, fc.normal.z).normalized;
+                            into.Add(BoxOn(fc.centre - n * 0.08f, Vector3.Cross(Vector3.up, n), fc.w * 0.5f, fc.h * 0.5f, 0.08f, "a gantry panel"));
+                        }
+                        {
+                            var la = new Vector3(sg.legA.x, sg.top - 0.55f, sg.legA.y);
+                            var lb = new Vector3(sg.legB.x, sg.top - 0.55f, sg.legB.y);
+                            if ((la - lb).sqrMagnitude < 0.01f) la = new Vector3(sg.pos.x, sg.top - 0.55f, sg.pos.y);   // a cantilever: to the carriageway at least
+                            var d = lb - la;
+                            if (d.magnitude > 0.2f) into.Add(BoxOn((la + lb) * 0.5f, d, d.magnitude * 0.5f + 0.35f, 0.55f, 0.55f, "a gantry truss"));
+                        }
+                        break;
+                }
+            }
+        }
+
+        /// <summary>Does a capsule (segment p0..p1, radius r) touch a box
+        /// grown by r (a hair more than the capsule's Minkowski sum)?</summary>
+        internal static bool CapsuleInBox(Vector3 p0, Vector3 p1, float r, SignBox b)
+        {
+            var d0 = p0 - b.c; var d1 = p1 - b.c;
+            var a = new Vector3(Vector3.Dot(d0, b.x), Vector3.Dot(d0, b.y), Vector3.Dot(d0, b.z));
+            var e = new Vector3(Vector3.Dot(d1, b.x), Vector3.Dot(d1, b.y), Vector3.Dot(d1, b.z));
+            var h = new Vector3(b.hx + r, b.hy + r, b.hz + r);
+            float t0 = 0f, t1 = 1f;
+            var dir = e - a;
+            for (int i = 0; i < 3; i++)
+            {
+                if (Mathf.Abs(dir[i]) < 1e-9f) { if (a[i] < -h[i] || a[i] > h[i]) return false; continue; }
+                float u0 = (-h[i] - a[i]) / dir[i], u1 = (h[i] - a[i]) / dir[i];
+                if (u0 > u1) { float tmp = u0; u0 = u1; u1 = tmp; }
+                t0 = Mathf.Max(t0, u0); t1 = Mathf.Min(t1, u1);
+                if (t0 > t1) return false;
+            }
+            return true;
         }
 
         static void SignAuditInner(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings)
@@ -131,6 +239,17 @@ namespace PSXRacing.EditorTools
             int signId = 0, postId = 0, awayFeetN = 0, treesOn = 0, clashes = 0;
             int pLost = 0, pNoStore = 0, pAtKerb = 0, pNoDriver = 0, pNoGround = 0, pBend = 0;
             float storeM = 0f;
+            // the WP-15 review: wires and poles against the signs, in 3D
+            var signBoxes = new List<SignBox>();
+            var furnPoles = new List<CityPoles.Pole>();
+            var furnSpans = new List<(CityPoles.Pole a, CityPoles.Pole b)>();
+            var furnCaps = new List<(Vector3 a, Vector3 b, float r, bool wire)>();
+            var wireList = new List<(Vector3 from, Vector3 to, float sag, float halfW)>();
+            var partList = new List<(Vector3 a, Vector3 b, float r)>();
+            int wireHits = 0, partHits = 0, boxesNearPoles = 0, boxesAll = 0, cabWireSteps = 0, boardWireSteps = 0;
+            float nearestAir = float.MaxValue;
+            string nearestAirAt = "";
+            var hitKinds = new Dictionary<string, int>();
             // the streets at the shot spots: their business signs, and their length (each side)
             var stripSigns = new Dictionary<string, int>();
             var stripM = new Dictionary<string, float>();
@@ -292,6 +411,69 @@ namespace PSXRacing.EditorTools
                     }
                     if ((sg.kind == CitySigns.Kind.Bulletin || sg.kind == CitySigns.Kind.Poster) && !sg.lit) lampBad++;
                 }
+                // NO WIRE, POLE, CROSSARM OR COBRA-HEAD THROUGH A SIGN (the
+                // WP-15 review): every box a sign is drawn with, against every
+                // wire (its drawn segments, sag and all) and every pole part
+                // near it, whichever tile owns them
+                cabWireSteps += st.poleWireSteps; boardWireSteps += st.boardWireSteps;
+                SignBoxesOf(st, signBoxes);
+                if (signBoxes.Count > 0)
+                {
+                    var blo = Vector2.one * float.MaxValue; var bhi = Vector2.one * float.MinValue;
+                    foreach (var bx in signBoxes)
+                    {
+                        float rr = Mathf.Max(bx.hx, bx.hz);
+                        blo = Vector2.Min(blo, P2(bx.c) - Vector2.one * rr); bhi = Vector2.Max(bhi, P2(bx.c) + Vector2.one * rr);
+                    }
+                    CityPoles.FurnitureNear(map, trims, buildings, blo - Vector2.one * 3f, bhi + Vector2.one * 3f, furnPoles, furnSpans);
+                    furnCaps.Clear();
+                    foreach (var p in furnPoles)
+                    {
+                        partList.Clear();
+                        CityPoles.PartsOf(p, partList);
+                        foreach (var (a, b, r) in partList) furnCaps.Add((a, b, r, false));
+                    }
+                    foreach (var (pa, pb) in furnSpans)
+                    {
+                        wireList.Clear();
+                        CityPoles.WiresOf(pa, pb, wireList);
+                        foreach (var w in wireList)
+                            for (int i = 0; i < CityPoles.WireSegmentsDrawn; i++)
+                                furnCaps.Add((CityPoles.WirePoint(w.from, w.to, w.sag, i / (float)CityPoles.WireSegmentsDrawn),
+                                              CityPoles.WirePoint(w.from, w.to, w.sag, (i + 1) / (float)CityPoles.WireSegmentsDrawn), w.halfW, true));
+                    }
+                    foreach (var bx in signBoxes)
+                    {
+                        boxesAll++;
+                        bool near = false, hit = false;
+                        float reachB = Mathf.Sqrt(bx.hx * bx.hx + bx.hz * bx.hz);
+                        foreach (var (a, b, r, wire) in furnCaps)
+                        {
+                            // plan distance from the box's centre to the capsule's line, less the box's reach
+                            float air = RoadsideOccupancy.DistToSeg(P2(bx.c), P2(a), P2(b)) - reachB - r;
+                            if (air > 5f) continue;
+                            near = true;
+                            if (!CapsuleInBox(a, b, r + SignWireAirM, bx)) continue;
+                            hit = true;
+                            if (wire) wireHits++; else partHits++;
+                            hitKinds.TryGetValue(bx.what, out int hk); hitKinds[bx.what] = hk + 1;
+                            Bad(wire ? "a utility wire through a sign" : "a utility pole, crossarm or cobra-head in a sign", P2(bx.c),
+                                $"{bx.what} at ({bx.c.x:0.0},{bx.c.y:0.0},{bx.c.z:0.0}); {(wire ? "a wire" : "a pole part")} from y {a.y:0.0} to {b.y:0.0}");
+                            break;
+                        }
+                        if (near) boxesNearPoles++;
+                        if (!hit && near)
+                        {
+                            // how close the nearest part comes in plan (not a check)
+                            foreach (var (a, b, r, wire) in furnCaps)
+                            {
+                                float air = RoadsideOccupancy.SegSegDistance(P2(a), P2(b), P2(bx.c) - new Vector2(bx.x.x, bx.x.z) * bx.hx, P2(bx.c) + new Vector2(bx.x.x, bx.x.z) * bx.hx) - bx.hz - r;
+                                if (air < nearestAir) { nearestAir = air; nearestAirAt = $"{bx.what} ({bx.c.x:0},{bx.c.z:0}) {LatLon(bx.c.x, bx.c.z)} to a {(wire ? "wire" : "pole part")}"; }
+                            }
+                        }
+                    }
+                }
+
                 // every solid post, for the clash check
                 foreach (var p in st.posts)
                 {
@@ -401,7 +583,7 @@ namespace PSXRacing.EditorTools
             }
             foreach (var kv in bad) Line($"    {kv.Key}: {kv.Value}  e.g. {badWhere[kv.Key]}");
             int badTotal = 0;
-            foreach (var kv in bad) if (!kv.Key.StartsWith("a face not turned")) badTotal += kv.Value;
+            foreach (var kv in bad) if (!kv.Key.StartsWith("a face not turned") && !kv.Key.StartsWith("a utility")) badTotal += kv.Value;
             Check(bulletins + posters > 0 && poles > 0 && gantries > 0, "the city stands billboards, business pole signs and exit gantries (sign audit)", $"{bulletins + posters}, {poles}, {gantries}");
             Check(badTotal == 0, "no post on pavement, in a clear zone, under a deck, in a building, lake or run-off, or on a reserved cell of its own tile's mask or the next tile's; the next tile marks it; no tree on a sign's ground; no post in another; nothing over pavement but a gantry's panels, 5.5 m up (sign audit)", badTotal);
             Check(faceBad == 0, $"every face turned to its traffic: dot {FaceDotMin} or better to a driver {CitySigns.ViewAheadM:0} m up the road ({CitySigns.PoleViewM:0} m for a business's cabinet) (sign audit)", $"{faceBad} faces below; worst {worstDot:0.000} at {worstDotAt}");
@@ -411,6 +593,14 @@ namespace PSXRacing.EditorTools
             Check(multiSub == 0, "a tile's signs are one mesh with one material: at most +1 draw (sign audit)", multiSub);
             Check(lampBad == 0 && lamps >= 2 * bulletins + posters, "every billboard lit: two floodlights under a bulletin face, one under a poster (sign audit)", $"{lamps} lamps for {bulletins} bulletins, {posters} posters");
             Check(posts == 0 || posts >= bulletins + posters, "billboard monopoles and gantry legs are solid; pole-sign cabinets break away (Q15) (sign audit)", $"{posts} posts");
+            var hitRow = new List<string>();
+            foreach (var kv in hitKinds) hitRow.Add($"{kv.Key} {kv.Value}");
+            Line($"    signs and the utility poles (WP-15 review, signs ON, poles ON): {boxesAll} sign boxes (cabinets, posts, faces, catwalks, beams, panels, trusses, legs), " +
+                 $"{boxesNearPoles} within 5 m in plan of a wire or pole part; places stepped on from for a wire or pole: business cabinets {cabWireSteps}, billboards and gantries {boardWireSteps}; " +
+                 $"closest a wire or pole part comes to a sign box in plan {(nearestAir < float.MaxValue ? $"{nearestAir:0.00} m ({nearestAirAt})" : "-")}" +
+                 (hitRow.Count > 0 ? "; THROUGH: " + string.Join(", ", hitRow) : ""));
+            Check(wireHits + partHits == 0 && boxesNearPoles > 0, $"no utility wire, pole, crossarm or cobra-head through or within {SignWireAirM:0.0} m of a sign's cabinet, posts, face, catwalk, beam, panel or truss, measured in 3D on the drawn wires (sign audit, the WP-15 review)",
+                  $"{wireHits} wires, {partHits} pole parts through a sign; {boxesNearPoles} sign boxes within 5 m of one");
 
             // density per route, and per class
             double[] clsKm = new double[3], clsWant = new double[3], clsGot = new double[3];
