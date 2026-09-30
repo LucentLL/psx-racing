@@ -1745,9 +1745,9 @@ namespace PSXRacing.City
             }
             float drop = elev ? CityElevation.DeckThick : RailBuryM;
             float v0 = n.hostArc / RoadVTile;
-            // across the nose, its traffic face toward the gore
-            EmitRail(vOut, vIn, -fwd, -fwd, drop, true, true, v0, v0 + 0.5f);
-            railLog?.Add(new RailRecord { edge = -1, node = -2, a = vOut + o3, b = vIn + o3, inA = -fwd, inB = -fwd, overhang = RailOverhangM });
+            // across the nose, its traffic face toward the gore; each of the
+            // three pieces only where it stands in no lane (RailRunsOffLanes)
+            EmitRailOffLanes(map, trims, o3, vOut, vIn, -fwd, -fwd, drop, v0, v0 + 0.5f, -1, new RailRecord { edge = -1, node = -2 });
             // along the host's edge to its rail's restart (the gap ends one
             // metre past the last attached sample)
             if (host.Walk(Mathf.Min(n.hostArc + 1f, host.Length), out var Hn, out float sHn, out var pHn, out var dHn))
@@ -1756,8 +1756,8 @@ namespace PSXRacing.City
                 float hw = HostHalf(map, trims, Hn, sHn, rHn, side);
                 var e = pHn + rHn * (side * hw);
                 var inH = -rHn * side;
-                EmitRail(vOut, new Vector3(e.x - o3.x, Hn.YAt(sHn), e.y - o3.z), inH, inH, drop, true, true, v0, v0 + 1f / RoadVTile);
-                railLog?.Add(new RailRecord { edge = Hn.index, side = side, node = -2, s0 = sHn, s1 = sHn, a = vOut + o3, b = new Vector3(e.x, Hn.YAt(sHn), e.y), inA = inH, inB = inH, overhang = RailOverhangM });
+                EmitRailOffLanes(map, trims, o3, vOut, new Vector3(e.x - o3.x, Hn.YAt(sHn), e.y - o3.z), inH, inH, drop, v0, v0 + 1f / RoadVTile, -1,
+                                 new RailRecord { edge = Hn.index, side = side, node = -2, s0 = sHn, s1 = sHn });
             }
             // along the branch's inner edge to its rail's restart (two metres)
             if (br.Walk(Mathf.Min(travelled + 2f, br.Length), out var Eb, out float sEb, out var pEb, out var dEb))
@@ -1765,8 +1765,8 @@ namespace PSXRacing.City
                 var rLb = new Vector2(-dEb.y, dEb.x);
                 var e = EdgePoint(Eb, sEb, pEb, rLb, n.lSign);
                 var inB = -rLb * n.lSign;
-                EmitRail(vIn, new Vector3(e.x - o3.x, Eb.YAt(sEb), e.y - o3.z), inB, inB, drop, true, true, v0, v0 + 2f / RoadVTile);
-                railLog?.Add(new RailRecord { edge = Eb.index, side = n.lSign < 0f ? -1 : 1, node = -2, s0 = sEb, s1 = sEb, a = vIn + o3, b = new Vector3(e.x, Eb.YAt(sEb), e.y), inA = inB, inB = inB, overhang = RailOverhangM });
+                EmitRailOffLanes(map, trims, o3, vIn, new Vector3(e.x - o3.x, Eb.YAt(sEb), e.y - o3.z), inB, inB, drop, v0, v0 + 2f / RoadVTile, -1,
+                                 new RailRecord { edge = Eb.index, side = n.lSign < 0f ? -1 : 1, node = -2, s0 = sEb, s1 = sEb });
             }
         }
 
@@ -3225,6 +3225,123 @@ namespace PSXRacing.City
                         Mathf.Abs(TriHeight(T[i], T[i + 1], T[i + 2], q) - y) <= PavedOnwardDyM) return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// A RAIL NEVER STANDS IN A LANE (2026-09-30). The rails a junction
+        /// lays off two roads' geometry - a gore nose's block and its two tails
+        /// (EmitNose), a fan's chord (BuildJunctions) - lay across a lane
+        /// wherever those roads are drawn into each other: where North Caldwell
+        /// Street merges into East 12th Street (node 11802) the nose between
+        /// them ran from East 12th's edge, 0.65 m inside North Caldwell's one
+        /// lane, to its far side, and a car at 70 km/h hit it; node 3578's
+        /// chord rail stood over the same lane 0.3-0.8 m up (CityAudit's
+        /// caldwell-11145). Such a line keeps only its pieces in no lane. A
+        /// sample is in one where drawn pavement - a road's ribbon, or a fan
+        /// other than <paramref name="skipNode"/>'s; one road, or two meeting
+        /// on a seam under the rail - lies <see cref="RailLaneInsetM"/> to
+        /// BOTH sides of the line (a rail on its own edge has pavement on one
+        /// side only), at a height the rail stands in: its top over the
+        /// lane's wheels, its foot less than
+        /// RoadsideRules.OpenDropM over the lane (so the cut opens no drop the
+        /// rail census fails). Fills <see cref="railRuns"/> with the parts
+        /// (0..1 along a..b, world space) to lay; the whole line when clear.
+        /// </summary>
+        static void RailRunsOffLanes(CityMap map, Trims trims, Vector3 a, Vector3 b, int skipNode)
+        {
+            railRuns.Clear();
+            var a2 = new Vector2(a.x, a.z); var b2 = new Vector2(b.x, b.z);
+            float len = Vector2.Distance(a2, b2);
+            if (len < 0.05f) { railRuns.Add((0f, 1f)); return; }
+            var perp = new Vector2(a2.y - b2.y, b2.x - a2.x) / len;
+            GatherNear(map, a2, b2, RailLaneInsetM + 0.5f);
+            GatherPavement(map, trims);
+            int n = Mathf.Max(2, Mathf.CeilToInt(len / RailLaneStepM) + 1);
+            float h = 0.5f / (n - 1);
+            int from = -1;
+            for (int i = 0; i <= n; i++)
+            {
+                bool free = i < n && !InLaneAt(map, trims, Vector2.Lerp(a2, b2, (float)i / (n - 1)), perp, Mathf.Lerp(a.y, b.y, (float)i / (n - 1)), skipNode);
+                if (free) { if (from < 0) from = i; continue; }
+                if (from < 0) continue;
+                float t0 = from == 0 ? 0f : (float)from / (n - 1) - h, t1 = i == n ? 1f : (float)(i - 1) / (n - 1) + h;
+                if ((t1 - t0) * len >= RailLaneMinM) railRuns.Add((t0, t1));
+                from = -1;
+            }
+        }
+
+        const float RailLaneInsetM = 0.3f, RailLaneStepM = 0.25f, RailLaneMinM = 0.5f;
+        static readonly List<(float t0, float t1)> railRuns = new List<(float, float)>(4);
+
+        /// <summary>Lane both sides of the line at q: drawn pavement (one
+        /// road's, or two roads' meeting on a seam under it) at a height the
+        /// rail stands in.</summary>
+        static bool InLaneAt(CityMap map, Trims trims, Vector2 q, Vector2 perp, float y, int skipNode) =>
+            LaneUnder(map, trims, q + perp * RailLaneInsetM, y, skipNode) && LaneUnder(map, trims, q - perp * RailLaneInsetM, y, skipNode);
+
+        static bool LaneUnder(CityMap map, Trims trims, Vector2 q, float y, int skipNode)
+        {
+            for (int k = 0; k < nearEdges.Count; k++)
+            {
+                var box = nearEdgeBox[k];
+                if (q.x < box.x || q.x > box.z || q.y < box.y || q.y > box.w) continue;
+                var ol = OutlineOf(map, trims, nearEdges[k]);
+                if (ol.L == null || q.x < ol.minX || q.x > ol.maxX || q.y < ol.minZ || q.y > ol.maxZ) continue;
+                if (OnOutline(ol, q, out float yl) && RailStandsIn(y, yl)) return true;
+            }
+            foreach (int nf in nearFans)
+            {
+                if (nf == skipNode) continue;
+                var fan = fanPolys[nf];
+                if ((q - fan.centre).sqrMagnitude > fan.reach * fan.reach) continue;
+                if (OnFan(fan, q, out float yf) && RailStandsIn(y, yf)) return true;
+            }
+            return false;
+        }
+
+        static bool RailStandsIn(float yRail, float yLane) =>
+            yLane - yRail < RailH - 0.15f && yRail - yLane < RoadsideRules.OpenDropM;
+
+        static bool OnOutline(Outline ol, Vector2 q, out float y)
+        {
+            y = 0f;
+            for (int i = 1; i < ol.L.Length; i++)
+            {
+                if (ol.BlockMisses(i, q.x, q.y, q.x, q.y)) { i += Outline.Block - 1; continue; }
+                if (TriInterval(ol.L[i - 1], ol.L[i], ol.R[i], q, Vector2.right, 0f, out _, out _)) { y = TriHeight(ol.L[i - 1], ol.L[i], ol.R[i], q); return true; }
+                if (TriInterval(ol.L[i - 1], ol.R[i], ol.R[i - 1], q, Vector2.right, 0f, out _, out _)) { y = TriHeight(ol.L[i - 1], ol.R[i], ol.R[i - 1], q); return true; }
+            }
+            return false;
+        }
+
+        static bool OnFan(FanPoly fan, Vector2 q, out float y)
+        {
+            y = 0f;
+            var T = fan.tris;
+            for (int i = 0; i + 2 < T.Length; i += 3)
+                if (TriInterval(T[i], T[i + 1], T[i + 2], q, Vector2.right, 0f, out _, out _)) { y = TriHeight(T[i], T[i + 1], T[i + 2], q); return true; }
+            return false;
+        }
+
+        /// <summary>A junction's rail from a to b (tile space) laid as
+        /// <see cref="RailRunsOffLanes"/> leaves it, each piece capped and
+        /// logged like <paramref name="rec"/>; the metres laid.</summary>
+        static float EmitRailOffLanes(CityMap map, Trims trims, Vector3 origin, Vector3 a, Vector3 b, Vector2 inA, Vector2 inB, float drop,
+                                      float v0, float v1, int skipNode, RailRecord rec)
+        {
+            RailRunsOffLanes(map, trims, a + origin, b + origin, skipNode);
+            float laid = 0f;
+            foreach (var (t0, t1) in railRuns)
+            {
+                var pa = Vector3.Lerp(a, b, t0); var pb = Vector3.Lerp(a, b, t1);
+                var ia = Vector2.Lerp(inA, inB, t0).normalized; var ib = Vector2.Lerp(inA, inB, t1).normalized;
+                EmitRail(pa, pb, ia, ib, drop, true, true, Mathf.Lerp(v0, v1, t0), Mathf.Lerp(v0, v1, t1));
+                laid += Vector3.Distance(pa, pb);
+                if (railLog == null) continue;
+                rec.a = pa + origin; rec.b = pb + origin; rec.inA = ia; rec.inB = ib; rec.overhang = RailOverhangM;
+                railLog.Add(rec);
+            }
+            return laid;
         }
 
         /// <summary>Is the fan chord that meets this arm's corner railed?</summary>
@@ -6817,9 +6934,9 @@ namespace PSXRacing.City
                         }
                         (onStructure ? con : barrierBucket).WallSloped(k0.pos, k1.pos, y0, k0.pos.y, y1, k1.pos.y,
                                                                          nrm, 0f, 0.6f, 0f, 0.15f);
-                        EmitRail(k0.pos, k1.pos, -nrm, -nrm, onStructure ? dk : RailBuryM, true, true, 0f, len / RoadVTile);
-                        tm.railMetres += len;
-                        railLog?.Add(new RailRecord { edge = -1, side = 0, node = n, a = k0.pos + tm.origin, b = k1.pos + tm.origin, inA = -nrm, inB = -nrm, overhang = RailOverhangM });
+                        // only where it stands in no other road's lane (RailRunsOffLanes)
+                        tm.railMetres += EmitRailOffLanes(map, trims, tm.origin, k0.pos, k1.pos, -nrm, -nrm, onStructure ? dk : RailBuryM, 0f, len / RoadVTile, n,
+                                                          new RailRecord { edge = -1, side = 0, node = n });
                         continue;
                     }
                     kerbBucket.WallSloped(k0.pos, k1.pos, k0.pos.y - KerbFaceM, k0.pos.y, k1.pos.y - KerbFaceM, k1.pos.y,
