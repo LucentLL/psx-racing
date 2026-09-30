@@ -1634,9 +1634,16 @@ sides - the one-sided offsets are in the data (TAPR) and WP-11b draws them.
   DRIVE AUDIT zeros, CITY AUDIT OK.
 - city-play-check: the WP-14 drive-off stage fails at one spot the moved
   lines now let its picker choose (I-277 e1919 s=90, left side, Uptown
-  Loop: the car goes 19 m past the edge toward the ramps e388 / e2947 and
-  rolls, 1.64 m of air), and so runs no cut (its one cut candidate has a
-  rail in the run). Open, for WP-11b.
+  Loop: the probe 12 m out is clear, but I-277's other carriageway e2305
+  converges further along, and the car, braking 19 m past the edge, goes
+  over the median's concrete barriers and rolls: 1.64 m of air). Its one
+  cut candidate had a rail in the run, so no cut was driven (a rerun drove
+  it). A picker that checks the whole run was tried and reverted: it found
+  no fills and a new I-77 level spot (e1891 s=140) with 1.39 m of air 25 m
+  out. Open: the stage's picker (WP-14's) and the run-off past 20 m.
+- Races (150 s): Uptown 2 retired (traffic, wp 1051-1057), Tryon 3
+  (traffic, a lamp post, the player), Independence 1 (OK) - AI against
+  traffic, as on WP-10 and WP-11.
 - Published: /city/ build stamp 20260930090352 (charlotte d854759); the
   site root byte-identical.
 
