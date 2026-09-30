@@ -2828,6 +2828,58 @@ cameras depend only on the data and the ground before WP-25
   swale there. An end where the lattice shows no channel would be the same
   object on a lawn the review took out.
 
+### WP-25 on /city/ (2026-09-30): merged with the lines and published
+
+- **Merged:** origin/city-r1 (0a5e0cd: WP-10/11's lines) into
+  charlotte-hydro.
+- **Data:** re-exported from the merged exporter. Graph 089d7141, as
+  city-r1. 1,231 ponds and 564 water spans. `--check` reproduces the data
+  byte for byte, and the signs and canopy files come out as shipped.
+- **Pond clearance:** the pond filter now measures a road by the piece's own
+  lane count (`e.lanes`, WP-10) and no longer by the way's. The same ponds
+  are kept.
+- **linecheck:** its baseline was STALE only because the NAME section moved
+  (the ponds' names). It was re-recorded, and every check reads the same
+  before and after.
+- **The first verify** failed one check: a culvert on Chestnut Lane at
+  (9790,-13017), 2.9 m short of its 9 m bridge over West Fork Twelvemile
+  Creek, with the ground 1.79 m under the road.
+  - The cause was the deck's cap. WP-11 had put a vertex 2.4 m into the
+    deck, and `InStructureWedge` read a point beyond the deck's first
+    segment as the outer wedge of that vertex.
+  - The wedge now needs the other segment to clamp to the shared vertex
+    (`ClampsAt`), both at an interior vertex and at a node.
+  - The pits change: dug under a deck 900 -> 765, held under a deck's
+    pavement 34 -> 6.
+  - The same bug is on city-r1 before this merge. Only WP-25's audit looks
+    under a road's line there.
+- **The second verify:** VERIFY PASS (CITY). CITY AUDIT OK with 0 of 706
+  culverts failing (deepest 0.89 m). DRIVE AUDIT zeros, roadside audit green,
+  hydro audit green. TEXDECODE AUDIT OK.
+- **Budget:** worst view 207 draws, as city-r1. Tile p95 99.5 ms, against
+  city-r1's recorded 100.1 and WP-25's A/B 100.8 without and 99.5 with.
+  Heap 17.1 MB (city-r1 17.0). All of it within the ratchet.
+- **Size:** WebGL.data 41.65 MiB, against 41.49 MiB for city-r1's last
+  /city/ build. SIZE LEDGER OK.
+- **city-play-check -Edition CITY:** 2 failures, both in WP-14's drive-off
+  stage, as on city-r1.
+  - "At least four spots with fills and cuts" fails as before: the one cut
+    spot has a rail in its run.
+  - e1919 (I-277), city-r1's failing spot, now passes: the car stays
+    upright with 0.12 m of air. Its first hard contact is a tree trunk
+    20.5 m past the edge, outside the run-off.
+  - The newly failing spot is e4746 North Tryon Street s=40 L. The stage now
+    names what stopped the car: a building. In plan, that footprint's corner
+    stands 7.9 m past the pavement edge, 1.24 m beside the run's centre line.
+    The picker's clear-run cast (radius 0.9 m, as far as the car's centre
+    runs) misses it.
+  - Whether the car's centre is still inside the 8 m run-off when it meets
+    the corner decides the verdict: 6.8 m here, just past 8 m on city-r1
+    (9.2 m at the end). This is the picker's open item, not the land.
+- **Published:** /city/ build stamp 20260930121608 (charlotte-hydro
+  d540adf). gh-pages 934e646. Door tour 5/5. The site root is
+  byte-identical.
+
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 
 Reported after the rebuild: "a lot of roads still floating in air, not
