@@ -919,9 +919,10 @@ namespace PSXRacing
             // ledges were a NAMED exception in the obstacle audit
             // (TrackObstacleAudit.OwnerAccepted), each by station, side and
             // height. Three were fixed the same day (the builder's rise holds
-            // and the end pad carrying the end row's shoulder); 983 R, a
-            // natural hillside past the catch, stays named until the owner
-            // picks a guardrail or a fill (OwnerAccepted says why).
+            // and the end pad carrying the end row's shoulder); the fourth,
+            // 983 R, a hillside falling past the catch, by the fill the owner
+            // chose over a guardrail (the builder's fill tails, which also
+            // fill under 981-982 R's fan). The list is empty.
             new TrackDef
             {
                 id = "ChimneyRock",

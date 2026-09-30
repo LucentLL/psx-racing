@@ -225,7 +225,8 @@ namespace PSXRacing.EditorTools
         /// "1049:80" for an 80 m square), straight down every 10 cm, written to
         /// PSXRacing_lab_plan_&lt;id&gt;_&lt;wp&gt;.png beside the project. Colour is
         /// WHAT is hit (road grey, kerb red, shoulder tan, ground green, rock top
-        /// brown, bank collider orange, wall magenta, nothing black), shaded by
+        /// brown, bank collider orange, wall magenta, fill tail pale teal, any
+        /// other surface - an apex or end pad - blue, nothing black), shaded by
         /// height with a contour every 0.5 m; YELLOW is a step of more than
         /// 0.06 m to the next cell (a face a wheel meets). The centreline is
         /// white, every tenth waypoint cyan, the named one a blue cross.</summary>
@@ -257,10 +258,12 @@ namespace PSXRacing.EditorTools
                     names[nm] = names.TryGetValue(nm, out int q) ? q + 1 : 1;
                     kind[k] = nm == "Road" ? (byte)1 : nm.StartsWith("Kerb") ? (byte)2 : nm.StartsWith("RoadEdge") ? (byte)3 :
                               nm.StartsWith("Ground") ? (byte)4 : nm.StartsWith("BankTop") ? (byte)5 :
-                              nm.StartsWith("BankColl") || nm.StartsWith("Bank") ? (byte)6 : nm.StartsWith("Wall") ? (byte)7 : (byte)8;
+                              nm.StartsWith("BankColl") || nm.StartsWith("Bank") ? (byte)6 : nm.StartsWith("Wall") ? (byte)7 :
+                              nm.StartsWith("FillTail") ? (byte)9 : (byte)8;
                 }
             var pal = new[] { new Color(0,0,0), new Color(.45f,.45f,.48f), new Color(.85f,.2f,.2f), new Color(.8f,.68f,.45f),
-                              new Color(.3f,.62f,.3f), new Color(.5f,.33f,.2f), new Color(1f,.55f,.1f), new Color(.9f,.2f,.9f), new Color(.3f,.5f,.9f) };
+                              new Color(.3f,.62f,.3f), new Color(.5f,.33f,.2f), new Color(1f,.55f,.1f), new Color(.9f,.2f,.9f), new Color(.3f,.5f,.9f),
+                              new Color(.55f,.85f,.75f) };
             var px = new Color32[N * N];
             for (int j = 0; j < N; j++)
                 for (int i = 0; i < N; i++)

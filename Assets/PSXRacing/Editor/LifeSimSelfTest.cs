@@ -7160,17 +7160,15 @@ namespace PSXRacing.EditorTools
                       "and the touge meets race up the park road");
 
                 // IT SHIPPED ON FOUR NAMED LEDGES, NOT A WAIVER. The owner,
-                // 2026-09-29: "Release now, fix after". Three are fixed (the
-                // rise holds took 1040-1041 L and 668 R, the end pad 2 L past
-                // the reach) and their entries are out; 983 R stays, a natural
-                // hillside no lowering fixes (TrackObstacleAudit.OwnerAccepted
-                // says why), until the owner picks a rail or a fill. Pinned:
-                // the list is that one, small, short and dated, the matcher
-                // refuses a face one station on, a centimetre taller, on the
-                // other side, of the other kind, half a metre off or on another
-                // venue - and the three fixed spots are no longer on it.
+                // 2026-09-29: "Release now, fix after". All four are fixed and
+                // their entries are out: the rise holds took 1040-1041 L and
+                // 668 R, the end pad 2 L past the reach, and the fill tail -
+                // the owner's pick over a guardrail - 983 R. Pinned: the list
+                // is EMPTY, so every edge face on every venue fails again, and
+                // the matcher passes none of the four spots it once named; any
+                // entry ever added back must be one small, short, dated spot.
                 var acc = TrackObstacleAudit.OwnerAccepted;
-                Check(acc.Length == 1, "the obstacle audit's owner-accepted list is Chimney Rock's one ledge left, 983 R", acc.Length);
+                Check(acc.Length == 0, "the obstacle audit's owner-accepted list is empty: all four Chimney Rock ledges are fixed", acc.Length);
                 string badEntry = null;
                 foreach (var e in acc)
                 {
@@ -7188,14 +7186,14 @@ namespace PSXRacing.EditorTools
                 Check(badEntry == null,
                       "each is one listed spot: a side, at most two stations, under 0.10 m, dated and marked fix pending",
                       badEntry ?? "all");
-                Check(TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.08f, 7.60f) >= 0 &&
-                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.08f, 7.70f) >= 0,
-                      "the audit passes on 983 R as it was measured");
+                Check(TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.08f, 7.70f) < 0,
+                      "983 R, filled, is a failure again if it ever comes back");
                 Check(TrackObstacleAudit.AcceptedFor("ChimneyRock", false, -1, 1041, 0.08f, 5.40f) < 0 &&
                       TrackObstacleAudit.AcceptedFor("ChimneyRock", false, -1, 1040, 0.09f, 5.60f) < 0 &&
                       TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 668, 0.062f, 6.95f) < 0 &&
                       TrackObstacleAudit.AcceptedFor("ChimneyRock", true, -1, 2, 0.08f, 8.85f) < 0,
-                      "and no longer on the three it fixed: 1040-1041 L, 668 R, 2 L past the reach");
+                      "and so are the three fixed before it: 1040-1041 L, 668 R, 2 L past the reach");
                 Check(TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 984, 0.08f, 7.60f) < 0 &&
                       TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 982, 0.08f, 7.60f) < 0 &&
                       TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.09f, 7.60f) < 0 &&

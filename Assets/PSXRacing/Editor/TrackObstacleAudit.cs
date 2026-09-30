@@ -742,29 +742,21 @@ namespace PSXRacing.EditorTools
         /// which now carries the end row's shoulder as well as the road. Their
         /// entries are out.
         ///
-        /// 983 R STAYS, and why. A foreslope graded at 1V:4H meets the land
-        /// 6.0 m out; 7.55 m out a 12 m lattice crease drops into the next
-        /// cell, whose far corners lie in the valley 7 m down toward the leg
-        /// below - a natural hillside falling at about 1V:1.6H. No lattice
-        /// that only lowers can ease a falling facet but by digging its near
-        /// corners (about 2 m, under the catch), and no ribbon meets land that
-        /// falls faster than it. What is left is a design change: a guardrail
-        /// (the fall starts 3 m past the clear zone and 1.7 m past the
-        /// warrant's reach, so the DOT rule does not call for one) or a fill
-        /// carried 15 m down the valley side (the tail, whose fans beside a
-        /// short catch stand metres over the land - 981-982 R already does).
-        /// The owner's call.
+        /// The fourth, 983 R (0.08 m at 7.70 m: a 1V:4H foreslope met the land
+        /// 6.0 m out, and 7.55 m out a 12 m lattice crease fell into the
+        /// valley toward the leg below at about 1V:1.6H - no lattice that only
+        /// lowers can ease that but by digging under the catch), was the
+        /// owner's design call: a guardrail (not DOT-warranted there) or a
+        /// fill. The owner chose the fill ("build up about 15 m of earth fill
+        /// beyond the shoulder so the slope eases down into the valley"), and
+        /// PSXRacingBuilder's FILL TAILS build it (BuildStageFillTails: land
+        /// past a catch that falls like a face inside the reach is filled from
+        /// the crest at 1V:2.9H and rolled down to a toe on the hillside; the
+        /// same builder fills under 981-982 R's fan, whose crest stood 2.59 m
+        /// over the land). Its entry is out, and the list is EMPTY: every
+        /// edge face on every venue is a failure again. The self-test pins it.
         /// </summary>
-        internal static readonly AcceptedFace[] OwnerAccepted =
-        {
-            new AcceptedFace
-            {
-                venue = "ChimneyRock", pastReach = false, side = 1, fromWp = 983, toWp = 983,
-                maxRiseM = 0.08f, atM = 7.7f,
-                accepted = "owner accepted 2026-09-29, fix pending",
-                what = "a natural 0.65 hillside knee past the foreslope's catch",
-            },
-        };
+        internal static readonly AcceptedFace[] OwnerAccepted = { };
 
         /// <summary>The <see cref="OwnerAccepted"/> entry that covers this one
         /// face, or -1: same venue, kind and side, the station inside its

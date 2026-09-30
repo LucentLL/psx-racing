@@ -307,9 +307,16 @@ namespace PSXRacing.EditorTools
             string spots = System.Environment.GetEnvironmentVariable("PSX_SHOT_SPOTS") ?? "0:start";
             foreach (var part in spots.Split(','))
             {
+                // "wp:name", or "wp:name:R:12" to look from above over the
+                // RIGHT (or L) side, 12 m out from the centreline - a roadside
+                // that is not the inside of the bend (a fill, a fan).
                 var kv = part.Split(':');
                 if (!int.TryParse(kv[0].Trim(), out int wp)) continue;
                 string name = kv.Length > 1 ? kv[1].Trim() : "spot";
+                string sideArg = kv.Length > 2 ? kv[2].Trim().ToUpperInvariant() : "";
+                float outM = kv.Length > 3 && float.TryParse(kv[3].Trim(), System.Globalization.NumberStyles.Float,
+                                                              System.Globalization.CultureInfo.InvariantCulture, out float om)
+                    ? om : 6f;
                 int i = Mathf.Clamp(wp, 0, path.Count - 2);
                 Vector3 at = path.GetPoint(i);
                 Vector3 fwd = path.GetPoint(i + 1) - path.GetPoint(Mathf.Max(0, i - 1));
@@ -333,9 +340,48 @@ namespace PSXRacing.EditorTools
                 Vector3 ahead = path.GetPoint(Mathf.Min(path.Count - 1, i + 3)) - at;
                 float turn = Mathf.Sign(Vector3.Dot(ahead, right));
                 if (Mathf.Abs(Vector3.Dot(ahead, right)) < 0.5f) turn = 1f;
-                Vector3 focus = at + right * (turn * 6f);
-                Vector3 up = at - fwd * 16f - right * (turn * 6f) + Vector3.up * 13f;
+                if (sideArg == "R") turn = 1f;
+                else if (sideArg == "L") turn = -1f;
+                Vector3 focus = at + right * (turn * outM);
+                Vector3 up = at - fwd * 16f - right * (turn * 6f) + Vector3.up * (13f + Mathf.Max(0f, outM - 6f) * 0.5f);
                 Shot(cam, tag + "_above", up, Quaternion.LookRotation(focus - up));
+
+                // With a side named, the same roadside once more with the forest
+                // taken away, from higher and nearer overhead: the landform
+                // itself (a fill, a fan, a crest) that the trees stand on.
+                if (sideArg == "R" || sideArg == "L")
+                {
+                    var forest = GameObject.Find("Track/Forest");
+                    bool had = forest != null && forest.activeSelf;
+                    if (had) forest.SetActive(false);
+                    Vector3 over = at + right * (turn * (outM * 0.5f)) - fwd * 12f + Vector3.up * 18f;
+                    Vector3 look = focus + fwd * 2f;
+                    Shot(cam, tag + "_bare", over, Quaternion.LookRotation(look - over));
+                    // And once more with the built-up surfaces tinted - a fill
+                    // tail and the apex pads - which wear the ground's own
+                    // texture and vanish into it otherwise.
+                    var marked = new List<(MeshRenderer r, Material m)>();
+                    foreach (var nm in new[] { "Track/FillTail", "Track/ApexPad" })
+                    {
+                        var go = GameObject.Find(nm);
+                        var mr = go != null ? go.GetComponent<MeshRenderer>() : null;
+                        if (mr == null || mr.sharedMaterial == null) continue;
+                        var tinted = new Material(mr.sharedMaterial)
+                        {
+                            color = nm.EndsWith("FillTail") ? new Color(0.45f, 1f, 0.55f) : new Color(0.5f, 0.7f, 1f),
+                        };
+                        marked.Add((mr, mr.sharedMaterial));
+                        mr.sharedMaterial = tinted;
+                    }
+                    Shot(cam, tag + "_marked", over, Quaternion.LookRotation(look - over));
+                    foreach (var (mr, m) in marked)
+                    {
+                        var tmp = mr.sharedMaterial;
+                        mr.sharedMaterial = m;
+                        Object.DestroyImmediate(tmp);
+                    }
+                    if (had) forest.SetActive(true);
+                }
             }
             Debug.Log("[PSXShot] Spot shots of " + def.id + " written to " + OutDir);
         }

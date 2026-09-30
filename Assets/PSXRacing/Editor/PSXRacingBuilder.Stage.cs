@@ -1564,7 +1564,8 @@ namespace PSXRacing.EditorTools
         /// A FALLING facet is not held here: a steep hillside beyond a catch
         /// can only be eased by lowering its near corners, which digs the
         /// land from under the catch (Chimney Rock 983 R: the crease 7.55 m
-        /// out, the valley 7 m down the next cell - 2 m of dig for 0.46).
+        /// out, the valley 7 m down the next cell - 2 m of dig for 0.46). The
+        /// fill tails build that one up instead (BuildStageFillTails).
         /// Returns how many half-sections asked.
         /// </summary>
         static int CollectRiseHolds(List<Vector3> pts, List<(Vector3 at, Vector3 origin, Vector3 outw)> into)
@@ -3871,6 +3872,876 @@ namespace PSXRacing.EditorTools
             }
             Log($"Stage end pads: the road's surface carried {EndPadCoreM:0} m on past both ends, graded onto the land by {EndPadLengthM:0} m; " +
                 $"{rowsMet} end row side(s) sloped, whose shoulder the pad carries too.");
+        }
+
+        // ------------------------------------------------------------------
+        //  Fill tails
+        // ------------------------------------------------------------------
+        /// <summary>
+        /// THE FILL TAIL: EARTH BUILT UP PAST A CATCH, EASED BACK DOWN INTO THE
+        /// LAND. The owner's choice for Chimney Rock 983 R, 2026-09-29: "Fill
+        /// slope - build up about 15 m of earth fill beyond the shoulder so the
+        /// slope eases down into the valley, natural-looking, no barrier."
+        ///
+        /// There a 1V:4H foreslope met the land 6.0 m out, and 7.55 m out a
+        /// 12 m lattice crease fell into a facet whose far corners lie 7 m down
+        /// in the valley, toward the leg below: 0.08 m in the edge audit's
+        /// 0.13 m at 7.70 m, the last of the four ledges the owner shipped on.
+        /// Every other rule here only LOWERS the lattice, and lowering eases a
+        /// falling facet only by digging its near corners - about 2 m, under the
+        /// catch (see <see cref="CollectRiseHolds"/>, its climbing mirror). No
+        /// ribbon meets land that falls faster than itself, either. So this
+        /// RAISES it: a fill.
+        ///
+        /// Two narrow triggers, one builder.
+        ///   * A FALL PAST THE CATCH (<see cref="CollectFillFalls"/>): an open or
+        ///     graded half-section whose section met the land, where the land
+        ///     past that catch, inside the edge audit's reach, falls more than
+        ///     <see cref="StageFillTriggerM"/> within RoadsideRules.FaceRunM - a
+        ///     face met driving back in, the one the rise holds cannot reach. Its
+        ///     line is filled from where the fall starts no steeper than
+        ///     <see cref="FillTailSlope"/> to past the reach.
+        ///   * A FAN'S CREST OVER FALLING LAND (BuildApexPads' leftovers): the
+        ///     zipper between a long tail and a short catch, standing
+        ///     <see cref="FillFanMinGapM"/> and more over the land where a pad's
+        ///     1V:2.9H cannot reach down to it within its 6 m - a slab's edge in
+        ///     the air beside the road (Chimney Rock 981-982 R, 2.59 m); and the
+        ///     same tail's other edge beside a wall's flat end, whose band the
+        ///     pad caps at ApexPadFlatCapM as the toe in front of a stone - past
+        ///     the wall's zone it is the tail's edge (980-981 R, 2.80 m, which
+        ///     the pad's log had read as 0.24). ONLY for a tail whose other
+        ///     edge is such a fan: taken wherever a wall's end stands beside a
+        ///     tail, it took 28 bands on the first five mountains of a full
+        ///     build (2026-09-29; 16 filled, 12 refused) that nobody had asked
+        ///     about. They are left as the pads left them, counted in the log.
+        /// Each point either trigger yields stands a cone of earth
+        /// (<see cref="FillFall"/>): FillTailSlope for FillTailFlatM, then
+        /// steepening over FillTailRampM to FillTailToeSlope - a rounded
+        /// shoulder that rolls over and runs down steeper than the hillside, so
+        /// it meets it: a fill's toe. The fill is the highest of its cones,
+        /// drawn where it stands over the land and every ribbon, sunk
+        /// <see cref="FillSinkM"/> under the land where it does not (the land,
+        /// the ribbon or the fill - whichever is highest - is the surface, all
+        /// continuous, like the apex pads). A fine grid (<see cref="FillCell"/>),
+        /// in the ground's own material, one "FillTail" mesh a venue.
+        ///
+        /// Built ONLY where it can be built whole. A source is refused, and the
+        /// build log says why and where, if its fill does not get under the land
+        /// within <see cref="FillReachMaxM"/>, or wherever it would stand over
+        /// the land:
+        ///   - on any road's shoulder or kerb strip;
+        ///   - on ANOTHER leg's graded roadside (its section out to the catch,
+        ///     its wall and posts and the pocket behind them, its cut to the
+        ///     crest) or its ribbon, or inside the reach its edge audit walks;
+        ///   - on a rock top within <see cref="FillRockCrestClearM"/> of its
+        ///     crest (behind that, it is the hill behind the face);
+        ///   - inside this road's wall zones (a stone, its posts - guardrail and
+        ///     reflector - and RoadsideRules.PocketBehindM behind it: no post is
+        ///     ever under a fill, and no pocket is made behind a barrier);
+        ///   - over this road's own ribbon inside the clear zone;
+        ///   - steeper than a face (<see cref="FillFaceGrade"/>) inside the
+        ///     reach of a half-section the edge audit walks;
+        ///   - near a tunnel or on a deck.
+        /// The forest stands its trees on the fill (<see cref="StageFillY"/>):
+        /// a trunk the fill would bury is stood on its surface instead.
+        /// </summary>
+        sealed class FillSource
+        {
+            public List<Vector3> pts = new List<Vector3>();
+            /// <summary>The station and side index (0 left, 1 right) the
+            /// source belongs to: its fill is that half-section's roadside.</summary>
+            public int station, side;
+            public string tag, kind;
+            /// <summary>A fall: the worst fall within FaceRunM that set it off;
+            /// a fan: its highest crest over the land.</summary>
+            public float size;
+            /// <summary>A fan's pair: the station whose row is the tail, or -1.</summary>
+            public int tailRow = -1;
+            // The source's own grid, once measured.
+            public float minX, minZ, maxX, maxZ;
+            public float thickest, reachE;
+        }
+
+        /// <summary>One built fill's grid, kept for <see cref="StageFillY"/>.</summary>
+        sealed class FillGrid
+        {
+            public float ox, oz, cell;
+            public int cols, rows;
+            public float[] y;
+            public bool[] drawn;
+        }
+
+        /// <summary>This venue's built fills (null off a stage or before
+        /// BuildStageFillTails).</summary>
+        static List<FillGrid> stageFills;
+        /// <summary>BuildApexPads' crests over falling land that stand a
+        /// slab's height (FillFanMinGapM) over it, for the fill tails.</summary>
+        static List<FillSource> apexLeftovers;
+        /// <summary>The shoulder rows as BuildShoulders laid them (stage only).</summary>
+        static Vector3[][][] stageRowPos;
+        static float[][][] stageRowEs;
+
+        /// <summary>
+        /// The fill's cone: how far it has fallen at plan distance d from a
+        /// source. FillTailSlope (1V:2.9H, the apex pad's: under the edge
+        /// audit's 0.46 face with room for the grid's own sag) for
+        /// FillTailFlatM, then the grade climbs evenly over FillTailRampM to
+        /// FillTailToeSlope and holds there. On Chimney Rock's 1V:1.55H
+        /// hillside (the stage lab, 2026-09-29) that is a fill from 7.1 m at
+        /// 983 R, 0.69 m at its thickest, meeting the hillside again 13.2 m
+        /// out; from 5.9 m at 982 R, 1.0 m thick, running on down (with the
+        /// fan's fills beside it) to the back of the leg below's rock top 17 m
+        /// out; and tapering along the road to nothing past 983.75 R.
+        /// </summary>
+        static float FillFall(float d)
+        {
+            float a = FillTailSlope, b = FillTailToeSlope, d1 = FillTailFlatM, d2 = FillTailRampM;
+            if (d <= d1) return a * d;
+            float r = d - d1;
+            if (r <= d2) return a * d + (b - a) * r * r / (2f * d2);
+            return a * (d1 + d2) + (b - a) * d2 * 0.5f + b * (r - d2);
+        }
+
+        /// <summary>The fill tail (BuildStageFillTails): the cone's first
+        /// grade and run, its ramp and the toe's grade; the furthest a fill may
+        /// reach from its sources before it must be under the land; the grid's
+        /// cell; the least a fall's line must stand over the land to be a
+        /// source; the least a fan's crest must stand over it (under this,
+        /// BuildApexPads' leftovers are the 0.25 m flat-cap class at wall ends,
+        /// left as they were); the fall that sets a half-section off (the rise
+        /// holds' own, mirrored); how close under the land a vertex still
+        /// counts as drawn; how far under it an undrawn vertex is sunk; how far
+        /// over a ribbon the fill may stand before it counts as over it; the
+        /// stations either side of its own that are the source's own road; and
+        /// the stations of a route's end left to the end pads.</summary>
+        // A first build rolled over after a metre and ramped for five to
+        // 1V:1.1H: on Chimney Rock's 1V:1.55H hillside the fill closed only
+        // 17 m out, 1.35 m thick, into the leg below's rock top and roadside
+        // (982-983 R) - so it rolls over just past the reach and ramps in 3 m.
+        // A second rolled over in 3 m to 1V:1H: the toe a 45 degree face a
+        // metre and a half long. Over 4 m the roll-over is most of the fill.
+        const float FillTailSlope = 0.35f, FillTailFlatM = 0.25f, FillTailRampM = 4f, FillTailToeSlope = 1f,
+                    FillReachMaxM = 16f, FillCell = 0.2f, FillMinGapM = 0.01f, FillFanMinGapM = 0.5f,
+                    StageFillTriggerM = 0.057f, FillLiveM = 0.02f, FillSinkM = 0.05f, FillOverRibbonM = 0.02f,
+                    FillFaceGrade = 0.44f;
+        /// <summary>A fall's fill line starts this far before the land first
+        /// falls faster than FillTailSlope, FillLeadUnderM under the land, and
+        /// stands FillLiftM over it by then: a crease is sharp and falls
+        /// between the grid's vertices, and a fill that only departed from it
+        /// there sagged under it across the crossing cell (Chimney Rock 983 R's
+        /// second build: the lattice's 0.07 m face at 7.60 m still showed).
+        /// Starting level with the land, the two interleaved along the lead on
+        /// the 0.2 m grid; from under it, they cross once.</summary>
+        const float FillLeadM = 0.5f, FillLiftM = 0.04f, FillLeadUnderM = 0.03f;
+        /// <summary>A fan's crest samples are thinned to one (the highest) a
+        /// bin this wide: its cone stands no more than 0.025 m under a
+        /// dropped neighbour's, inside ApexPadLiftM.</summary>
+        const float FillThinM = 0.05f;
+        /// <summary>How far under the land a vertex's bound must stand to skip
+        /// its cones: a live vertex's neighbour (the grade guard's centred
+        /// differences read it) is within a cell's diagonal of its fill and of
+        /// its land, which on a 1V:1H hillside is 0.3 m and 0.4 m.</summary>
+        const float FillBoundSlackM = 1f;
+        const int FillOwnStations = 8, FillEndStations = 6;
+
+        /// <summary>How far past a walked half-section's tarmac edge the fill
+        /// may not stand steeper than a face (<see cref="FillFaceGrade"/>,
+        /// under the edge audit's 0.46): the audit's reach, its window and the
+        /// rise holds' slack. Also how far off ANOTHER stretch's edge a fill
+        /// must keep, and half a metre.</summary>
+        static float FillWalkedReachM => TrackObstacleAudit.EdgeReachM + RoadsideRules.FaceRunM + StageRiseReachSlackM;
+
+        /// <summary>The height of a built fill tail at a point, or negative
+        /// infinity where none is drawn - read back the way the grid is
+        /// triangulated (QuadFacing's a-c diagonal).</summary>
+        static float StageFillY(float x, float z)
+        {
+            if (stageFills == null) return float.NegativeInfinity;
+            float best = float.NegativeInfinity;
+            foreach (var g in stageFills)
+            {
+                float fx = (x - g.ox) / g.cell, fz = (z - g.oz) / g.cell;
+                int c = Mathf.FloorToInt(fx), r = Mathf.FloorToInt(fz);
+                if (c < 0 || r < 0 || c >= g.cols || r >= g.rows || !g.drawn[r * g.cols + c]) continue;
+                float u = fx - c, w = fz - r;
+                int stride = g.cols + 1;
+                float y00 = g.y[r * stride + c], y10 = g.y[r * stride + c + 1];
+                float y01 = g.y[(r + 1) * stride + c], y11 = g.y[(r + 1) * stride + c + 1];
+                float y = w <= u ? y00 + (y10 - y00) * u + (y11 - y10) * w
+                                 : y00 + (y11 - y01) * u + (y01 - y00) * w;
+                best = Mathf.Max(best, y);
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// THE LAND PAST A CATCH MAY NOT FALL LIKE A FACE INSIDE THE REACH:
+        /// the fill tail's first trigger. The half-sections the rise holds
+        /// walk (<see cref="CollectRiseHolds"/>: open or graded, their section
+        /// or carry met the land), walked the same way from that catch to the
+        /// edge audit's reach, stopping at another leg; where some window within
+        /// RoadsideRules.FaceRunM falls more than StageFillTriggerM, the line is
+        /// filled from the catch no steeper than FillTailSlope, and every point
+        /// of that line is a source: from FillLeadM before the land first falls
+        /// faster than the fill, flush with it, lifted FillLiftM over it by the
+        /// crest, then no steeper than FillTailSlope. Read on each station's
+        /// line and, between two stations both read, on FillSubLines - 1 more
+        /// (the catch taken between theirs). Not within FillEndStations of a
+        /// route's end (the end pads carry the road on there). Returns how many
+        /// station half-sections asked, and how many lines in all.
+        /// </summary>
+        static int CollectFillFalls(List<Vector3> pts, List<FillSource> into, out int linesAsked)
+        {
+            int n = pts.Count, asked = 0;
+            float half = RoadWidth * 0.5f;
+            float reach = TrackObstacleAudit.EdgeReachM + RoadsideRules.FaceRunM + StageRiseReachSlackM;
+            float pitch = StageCarryReadPitchM;
+            var land = new List<float>();
+            var legs = new List<int>();
+
+            // Where the land starts showing on each station's own line,
+            // exactly as the rise holds find it: the section's end, or where
+            // its carry met the land. NaN where the half-section is not one
+            // this rule reads (walled, faced, a tube, a deck, a route's end,
+            // a carry that never met the land or met it past the reach).
+            var start = new float[2][];
+            for (int s = 0; s < 2; s++)
+            {
+                start[s] = new float[n];
+                float side = s == 0 ? -1f : 1f;
+                for (int i = 0; i < n; i++)
+                {
+                    start[s][i] = float.NaN;
+                    if ((hasTunnels && tunnelIn != null && i < tunnelIn.Length && tunnelIn[i]) || DeckCoversStation(i)) continue;
+                    if (!Loop && (i < FillEndStations || i >= n - FillEndStations)) continue;
+                    var kind = GradedKind(s, i);
+                    if (kind == Roadside.Cut) { if (rsCutFaced != null && rsCutFaced[s][i]) continue; }
+                    else if (kind != Roadside.Open) continue;
+                    var prof = shoulderProfiles[s][i];
+                    int m = prof != null ? prof.Count : 0;
+                    if (m < 2) continue;
+                    Vector3 at = pts[i], outw = rsRight[i] * side;
+                    float eEnd = prof[m - 1].x, yEnd = at.y + RoadLift + prof[m - 1].y;
+                    float Land(float e)
+                    {
+                        Vector3 q = at + outw * (half + e);
+                        return StageLatticeY(q.x, q.z);
+                    }
+                    float e0 = eEnd;
+                    float slope = (prof[m - 2].y - prof[m - 1].y) / Mathf.Max(prof[m - 1].x - prof[m - 2].x, 1e-5f);
+                    if (Mathf.Abs(slope) >= ShoulderSlopedEnd && Land(eEnd) < yEnd)
+                    {
+                        float fall = Mathf.Max(slope, RoadsideRules.SteepestRecoverableSlope);
+                        if (!ShoulderCarry(eEnd, yEnd, fall, ShoulderBendReach(pts, i, side), ShoulderFoldReach(pts, i, side),
+                                           ShoulderTailE, Land, out _, out _, out float catchE, out _, out bool met, out _, out _)
+                            || !met)
+                            continue;
+                        e0 = Mathf.Max(eEnd, catchE - ShoulderCatchStepM);
+                    }
+                    if (e0 + RoadsideRules.FaceRunM >= reach) continue;
+                    start[s][i] = e0;
+                }
+            }
+
+            // Each station's line, and FillSubLines - 1 more between it and
+            // the next where both are read: a car runs wide between stations
+            // as well, and a fill laid on station lines alone is a row of
+            // separate mounds 4 m apart (Chimney Rock 982-983 R's first).
+            int halves = 0;
+            for (int i = 0; i < n; i++)
+            {
+                if (float.IsNaN(start[0][i]) && float.IsNaN(start[1][i])) continue;
+                legs.Clear();
+                float near = 2f * half + reach + StageRiseLegFootprintM + Spacing;
+                for (int j = 0; j < n; j++)
+                {
+                    if (StationSep(i, j, n) <= StageOtherLegStations) continue;
+                    float dx = pts[j].x - pts[i].x, dz = pts[j].z - pts[i].z;
+                    if (dx * dx + dz * dz < near * near) legs.Add(j);
+                }
+                int nxt = Loop ? (i + 1) % n : i + 1;
+                for (int s = 0; s < 2; s++)
+                for (int sub = 0; sub < FillSubLines; sub++)
+                {
+                    if (float.IsNaN(start[s][i])) break;
+                    float t = sub / (float)FillSubLines;
+                    if (sub > 0 && (nxt >= n || float.IsNaN(start[s][nxt]))) break;
+                    float side = s == 0 ? -1f : 1f;
+                    Vector3 at = sub == 0 ? pts[i] : Vector3.Lerp(pts[i], pts[nxt], t);
+                    Vector3 rgt = sub == 0 ? rsRight[i] : Vector3.Lerp(rsRight[i], rsRight[nxt], t).normalized;
+                    Vector3 outw = rgt * side;
+                    float e0 = sub == 0 ? start[s][i] : Mathf.Lerp(start[s][i], start[s][nxt], t);
+                    float Land(float e)
+                    {
+                        Vector3 q = at + outw * (half + e);
+                        return StageLatticeY(q.x, q.z);
+                    }
+                    float eStop = reach;
+                    for (float e = e0; e <= reach && legs.Count > 0; e += pitch)
+                        if (InOtherLegFootprint(pts, legs, at + outw * (half + e))) { eStop = e; break; }
+                    if (eStop - e0 < 2f * pitch) continue;
+
+                    land.Clear();
+                    for (float e = e0; e <= eStop + 1e-4f; e += pitch) land.Add(Land(e));
+                    int win = Mathf.RoundToInt(RoadsideRules.FaceRunM / pitch);
+                    float worst = 0f, worstE = e0;
+                    for (int k = 0; k + 1 < land.Count; k++)
+                    {
+                        int d = Mathf.Min(win, land.Count - 1 - k);
+                        if (d < 2) continue;
+                        float f = (land[k] - land[k + d]) / (d * pitch) * RoadsideRules.FaceRunM;
+                        if (f > worst) { worst = f; worstE = e0 + k * pitch; }
+                    }
+                    if (worst <= StageFillTriggerM) continue;
+
+                    string tag = (sub == 0 ? i.ToString() : (i + t).ToString("0.00")) + (s == 0 ? "L" : "R");
+                    var src = new FillSource { station = i, side = s, tag = tag, kind = "fall", size = worst };
+                    // Where the land first falls faster than the fill will.
+                    int dep = -1;
+                    for (int k = 1; k < land.Count && dep < 0; k++)
+                        if (land[k] < land[k - 1] - FillTailSlope * pitch - 1e-4f) dep = k - 1;
+                    if (dep < 0) continue;
+                    int lead = Mathf.RoundToInt(FillLeadM / pitch), k0 = Mathf.Max(0, dep - lead);
+                    float env = land[k0], thick = 0f, from = e0 + k0 * pitch;
+                    for (int k = k0; k < land.Count; k++)
+                    {
+                        // From a hair UNDER the land to FillLiftM over it: the
+                        // fill crosses the land once, cleanly, inside the lead
+                        // (level with it the two interleaved on a 0.2 m grid).
+                        float lift = Mathf.Lerp(-FillLeadUnderM, FillLiftM,
+                                                Mathf.Clamp01((k - k0) / (float)Mathf.Max(1, dep - k0)));
+                        env = k == k0 ? land[k0] + lift : Mathf.Max(land[k] + lift, env - FillTailSlope * pitch);
+                        Vector3 q = at + outw * (half + e0 + k * pitch);
+                        src.pts.Add(new Vector3(q.x, env, q.z));
+                        thick = Mathf.Max(thick, env - land[k]);
+                    }
+                    if (thick <= FillMinGapM) continue;
+                    into.Add(src);
+                    asked++;
+                    if (sub == 0) halves++;
+                    Log($"  fill wp {src.tag}: land from {e0:0.00} m falls {worst:0.000} m in {RoadsideRules.FaceRunM:0.00} m at " +
+                        $"{worstE:0.00} m{(eStop < reach ? " (to another leg at " + eStop.ToString("0.00") + " m)" : "")}; " +
+                        $"line filled from {from:0.00} m (lifted {FillLiftM:0.00} m by {e0 + dep * pitch:0.00} m) at 1V:{1f / FillTailSlope:0.0}H, " +
+                        $"{thick:0.00} m over the land at the reach");
+                }
+            }
+            linesAsked = asked;
+            return halves;
+        }
+
+        /// <summary>Lines a fall is read on per station gap: the station's
+        /// own, and between it and the next every Spacing / FillSubLines.</summary>
+        const int FillSubLines = 4;
+
+        /// <summary>The highest rock top (BuildStageBanks' rings, rsBankTop)
+        /// over a point, whichever road's cut laid it, or negative infinity.
+        /// A station's ring covers the half Spacing either side of its own
+        /// line.</summary>
+        static float RockTopAt(List<Vector3> pts, float x, float z) => RockTopAt(pts, x, z, out _);
+
+        /// <summary>The same, and how far behind that ring's crest the point
+        /// is (in e along its station's line).</summary>
+        static float RockTopAt(List<Vector3> pts, float x, float z, out float pastCrest)
+        {
+            pastCrest = float.PositiveInfinity;
+            if (rsBankTop == null || rsBankTop.Count == 0 || stageHash == null) return float.NegativeInfinity;
+            float best = float.NegativeInfinity, half = RoadWidth * 0.5f;
+            int cells = Mathf.CeilToInt(FillRockReachM / StageHashCell);
+            int cx = Mathf.FloorToInt(x / StageHashCell), cz = Mathf.FloorToInt(z / StageHashCell);
+            for (int oz = -cells; oz <= cells; oz++)
+                for (int ox = -cells; ox <= cells; ox++)
+                {
+                    long k = ((long)(cx + ox) << 32) ^ (uint)(cz + oz);
+                    if (!stageHash.TryGetValue(k, out var list)) continue;
+                    foreach (int j in list)
+                    {
+                        Vector3 rj = rsRight[j];
+                        float dx = x - pts[j].x, dz = z - pts[j].z;
+                        float along = dx * -rj.z + dz * rj.x;
+                        if (Mathf.Abs(along) > Spacing * 0.5f + 0.1f) continue;
+                        float lat = dx * rj.x + dz * rj.z;
+                        int s = lat < 0f ? 0 : 1;
+                        if (!rsBankTop.TryGetValue(s * RsStationKey + j, out var ring)) continue;
+                        float e = Mathf.Abs(lat) - half, y = RingY(ring, e);
+                        if (y > best) { best = y; pastCrest = e - ring[0].x; }
+                    }
+                }
+            return best;
+        }
+
+        /// <summary>How far behind a cut's crest a fill may cover its rock
+        /// top: past here the rock top is the hill behind the face, out of
+        /// sight from that road below its crest; nearer, the crest itself.</summary>
+        const float FillRockCrestClearM = 4f;
+
+        /// <summary>How far from a point RockTopAt looks for the stations whose
+        /// rock top could be over it: the widest ring a cut lays, and a cell.</summary>
+        const float FillRockReachM = 60f;
+
+        /// <summary>
+        /// The fill tails (see <see cref="FillSource"/>): the sources, each
+        /// measured on a grid of its own and refused whole where it may not
+        /// stand, then every accepted source whose grid overlaps another's
+        /// built as one surface - the highest of all their cones. One "FillTail"
+        /// mesh a venue; the build log names every source, what it built or why
+        /// it was refused.
+        /// </summary>
+        static void BuildStageFillTails(List<Vector3> pts, Transform parent)
+        {
+            stageFills = null;
+            if (!stageDemLoaded || pts == null || pts.Count < 4 || shoulderProfiles == null || rsKind == null) return;
+            int n = pts.Count;
+            float half = RoadWidth * 0.5f;
+
+            var sources = new List<FillSource>();
+            int falls = CollectFillFalls(pts, sources, out int fallLines);
+            int fans = 0, edgesLeft = 0;
+            if (apexLeftovers != null)
+                foreach (var f in apexLeftovers)
+                {
+                    // A tail's edge beside a wall's flat end only where the
+                    // SAME tail's other edge is a fan this fills (981 R's tail:
+                    // 981-982 R and 980-981 R). Everywhere else a wall end's
+                    // band is left as the apex pad left it - a build that took
+                    // them all took 28 such bands on five mountains the owner
+                    // had not been asked about (see FillSource).
+                    if (f.kind == "fan edge")
+                    {
+                        bool sameTail = false;
+                        foreach (var o in apexLeftovers)
+                            if (o.kind == "fan" && o.side == f.side && o.tailRow >= 0 && o.tailRow == f.tailRow) sameTail = true;
+                        if (!sameTail) { edgesLeft++; continue; }
+                    }
+                    // The crest that SHOWS: never inside this half-section's
+                    // clear zone (the section's to grade), never under a rock
+                    // top that stands over it (a fan run down under another
+                    // leg's rock is hidden there), and where the fan's far end
+                    // runs down to another leg, not inside that leg's graded
+                    // roadside or the reach its edge audit walks.
+                    var keep = new List<Vector3>();
+                    int hidden = 0;
+                    foreach (var q in f.pts)
+                    {
+                        if (!StageCorridor(q.x, q.z, 80f, out RoadFoot foot)) continue;
+                        int st = WrapIdx(Mathf.RoundToInt(foot.station), n);
+                        float e = foot.d - half;
+                        bool mine = SideIx(foot.side) == f.side && StationSep(st, f.station, n) <= FillOwnStations;
+                        if (mine && e < KerbWidth + RoadsideRules.ClearZoneM) continue;
+                        // Nor in front of or behind a stone: the band's part at
+                        // a wall's flat end stands over the land by design.
+                        if (mine && rsKind[SideIx(foot.side)][st] == Roadside.Walled &&
+                            e < rsWallE[SideIx(foot.side)][st] + StageWallFaceIn + StageWallDrawThick + StagePostGap + StagePostW
+                                + RoadsideRules.PocketBehindM + StageTreeClearM)
+                            continue;
+                        if (!mine && (e < FillWalkedReachM + 0.5f || OnGradedRoadside(foot))) continue;
+                        if (RockTopAt(pts, q.x, q.z) > q.y) { hidden++; continue; }
+                        keep.Add(new Vector3(q.x, q.y + ApexPadLiftM, q.z));
+                    }
+                    Log($"  fill {f.tag}: fan crest {f.size:0.00} m over falling land, {keep.Count} of {f.pts.Count} crest samples " +
+                        $"showing past its clear zone ({hidden} under a rock top)");
+                    if (keep.Count == 0) continue;
+                    // A crest sample lies on the edges of several triangles at
+                    // once: the same point, over and over. One a FillThinM bin.
+                    var bins = new Dictionary<long, Vector3>();
+                    foreach (var q in keep)
+                    {
+                        long key = ((long)Mathf.FloorToInt(q.x / FillThinM) << 32) ^ (uint)Mathf.FloorToInt(q.z / FillThinM);
+                        if (!bins.TryGetValue(key, out var had) || q.y > had.y) bins[key] = q;
+                    }
+                    keep = new List<Vector3>(bins.Values);
+                    sources.Add(new FillSource
+                    {
+                        pts = keep, station = f.station, side = f.side, tag = f.tag, kind = f.kind, size = f.size, tailRow = f.tailRow,
+                    });
+                    fans++;
+                }
+            if (sources.Count == 0)
+            {
+                Log("Fill tails: no land past a catch falls like a face inside the reach, and no fan's crest stands " +
+                    $"{FillFanMinGapM:0.0} m over falling land - nothing filled" +
+                    (edgesLeft > 0 ? $" ({edgesLeft} tail edge(s) beside a wall's end left as the apex pads left them)." : "."));
+                return;
+            }
+
+            // The rows' plan boxes, once: a fill's grid reads every ribbon
+            // triangle over it.
+            var rowBox = new Rect[2][];
+            if (stageRowPos != null)
+                for (int s = 0; s < 2; s++)
+                {
+                    rowBox[s] = new Rect[n];
+                    for (int i = 0; i < n; i++)
+                    {
+                        var row = stageRowPos[s][i];
+                        if (row == null || row.Length == 0) { rowBox[s][i] = new Rect(float.NaN, float.NaN, 0f, 0f); continue; }
+                        float x0 = float.MaxValue, z0 = float.MaxValue, x1 = float.MinValue, z1 = float.MinValue;
+                        foreach (var v in row) { x0 = Mathf.Min(x0, v.x); z0 = Mathf.Min(z0, v.z); x1 = Mathf.Max(x1, v.x); z1 = Mathf.Max(z1, v.z); }
+                        rowBox[s][i] = Rect.MinMaxRect(x0, z0, x1, z1);
+                    }
+                }
+
+            // Measure each source alone; refuse it whole where it may not stand.
+            var accepted = new List<FillSource>();
+            var refused = new System.Text.StringBuilder();
+            foreach (var src in sources)
+            {
+                var grid = FillGridFor(pts, new List<FillSource> { src }, rowBox, out string why, src);
+                if (grid == null)
+                {
+                    refused.Append(' ').Append(src.tag).Append(" (").Append(src.kind).Append("): ").Append(why).Append(';');
+                    Log($"  fill {src.tag} ({src.kind}) REFUSED: {why}");
+                    continue;
+                }
+                accepted.Add(src);
+                Log($"  fill {src.tag} ({src.kind}): {src.pts.Count} source point(s), up to {src.thickest:0.00} m over the land, " +
+                    $"reaching {src.reachE:0.0} m past the tarmac edge");
+            }
+
+            // One surface for every accepted source whose grid overlaps
+            // another's: the highest of all their cones.
+            var clusters = new List<List<FillSource>>();
+            foreach (var src in accepted)
+            {
+                List<FillSource> into = null;
+                foreach (var cl in clusters)
+                    foreach (var o in cl)
+                        if (src.minX <= o.maxX && o.minX <= src.maxX && src.minZ <= o.maxZ && o.minZ <= src.maxZ) { into = cl; break; }
+                if (into == null) { into = new List<FillSource>(); clusters.Add(into); }
+                into.Add(src);
+            }
+            // (A later source can join two clusters: merge until none overlap.)
+            for (bool merged = true; merged;)
+            {
+                merged = false;
+                for (int a = 0; a < clusters.Count && !merged; a++)
+                    for (int b = a + 1; b < clusters.Count && !merged; b++)
+                        foreach (var p in clusters[a])
+                        {
+                            foreach (var q in clusters[b])
+                                if (p.minX <= q.maxX && q.minX <= p.maxX && p.minZ <= q.maxZ && q.minZ <= p.maxZ)
+                                { clusters[a].AddRange(clusters[b]); clusters.RemoveAt(b); merged = true; break; }
+                            if (merged) break;
+                        }
+            }
+
+            Color tint = string.IsNullOrEmpty(theme.sand) ? (theme.groundTint ?? Color.white) : Color.white;
+            var mat = MakeMat(MeshPrefix + "RoadEdge", theme.ground, affine: 0f, tint: tint);
+            float tile = Mathf.Max(theme.groundTile, 0.01f);
+            GroundUvOrigin(pts, out float uox, out float uoz);
+            var verts = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            var tris = new List<int>();
+            var built = new System.Text.StringBuilder();
+            stageFills = new List<FillGrid>();
+            foreach (var cl in clusters)
+            {
+                var grid = FillGridFor(pts, cl, rowBox, out string why, null);
+                if (grid == null) { Log($"  fill cluster {cl[0].tag}: {why} (as one surface) - left out"); continue; }
+                int stride = grid.cols + 1;
+                var map = new int[stride * (grid.rows + 1)];
+                for (int v = 0; v < map.Length; v++) map[v] = -1;
+                int Vert(int r, int c)
+                {
+                    int v = r * stride + c;
+                    if (map[v] >= 0) return map[v];
+                    float x = grid.ox + c * grid.cell, z = grid.oz + r * grid.cell;
+                    map[v] = verts.Count;
+                    verts.Add(new Vector3(x, grid.y[v], z));
+                    uvs.Add(new Vector2((x - uox) / tile, (z - uoz) / tile));
+                    return map[v];
+                }
+                int cells = 0;
+                for (int r = 0; r < grid.rows; r++)
+                    for (int c = 0; c < grid.cols; c++)
+                    {
+                        if (!grid.drawn[r * grid.cols + c]) continue;
+                        QuadFacing(verts, tris, Vert(r, c), Vert(r, c + 1), Vert(r + 1, c + 1), Vert(r + 1, c), Vector3.up);
+                        cells++;
+                    }
+                stageFills.Add(grid);
+                float thick = 0f, reachE = 0f;
+                foreach (var s in cl) { thick = Mathf.Max(thick, s.thickest); reachE = Mathf.Max(reachE, s.reachE); }
+                built.Append(' ');
+                for (int k = 0; k < cl.Count; k++) built.Append(k > 0 ? "+" : "").Append(cl[k].tag);
+                built.Append('/').Append(thick.ToString("0.00")).Append("m/").Append(reachE.ToString("0.0")).Append("m/")
+                     .Append(cells).Append(" cells");
+            }
+
+            int meshes = 0;
+            if (tris.Count > 0)
+            {
+                var mesh = new Mesh
+                {
+                    indexFormat = verts.Count > 65000
+                        ? UnityEngine.Rendering.IndexFormat.UInt32
+                        : UnityEngine.Rendering.IndexFormat.UInt16,
+                };
+                mesh.SetVertices(verts);
+                mesh.SetUVs(0, uvs);
+                mesh.SetTriangles(tris, 0);
+                mesh.RecalculateNormals();
+                SaveMesh(mesh, "FillTailMesh_0");
+                var go = new GameObject("FillTail");
+                go.transform.SetParent(parent, false);
+                go.AddComponent<MeshFilter>().sharedMesh = mesh;
+                go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+                var col = go.AddComponent<MeshCollider>();
+                col.sharedMesh = mesh;
+                col.sharedMaterial = SlidePhys();
+                go.isStatic = true;
+                meshes = 1;
+            }
+            for (int k = meshes; ; k++)
+            {
+                string stale = GenDir + "/" + MeshPrefix + "FillTailMesh_" + k + ".asset";
+                if (AssetDatabase.LoadAssetAtPath<Mesh>(stale) == null) break;
+                AssetDatabase.DeleteAsset(stale);
+            }
+            Log($"Fill tails: {falls} half-section(s) whose land falls like a face past the catch inside the reach " +
+                $"({fallLines} line(s) with those between stations), " +
+                $"{fans} fan crest(s) {FillFanMinGapM:0.0} m and more over falling land ({edgesLeft} more beside a wall's end " +
+                $"left as the apex pads left them: no fan of the same tail filled); built (sources / thickest over the land / " +
+                $"furthest past the tarmac edge / cells):{(built.Length > 0 ? built.ToString() : " none")}" +
+                (refused.Length > 0 ? "; refused:" + refused : "") + ".");
+        }
+
+        /// <summary>
+        /// One fill's grid over its sources' cones: the highest cone at every
+        /// FillCell vertex, drawn where it stands over the land and every ribbon
+        /// (FillLiveM), sunk FillSinkM under the land where it does not. Null,
+        /// with the reason, where the fill may not stand (see
+        /// <see cref="FillSource"/>): its rim is not under the land within
+        /// FillReachMaxM, or a vertex that stands over the land is on a
+        /// shoulder, another leg's graded roadside or ribbon, a rock top, this
+        /// road's wall zone or clear zone ribbon, a tunnel's zone or a deck.
+        /// With <paramref name="measure"/>, that source's box, thickness and
+        /// reach are written back.
+        /// </summary>
+        static FillGrid FillGridFor(List<Vector3> pts, List<FillSource> srcs, Rect[][] rowBox, out string why, FillSource measure)
+        {
+            why = null;
+            int n = pts.Count;
+            float half = RoadWidth * 0.5f, cell = FillCell;
+            float minX = float.MaxValue, minZ = float.MaxValue, maxX = float.MinValue, maxZ = float.MinValue;
+            foreach (var s in srcs)
+                foreach (var q in s.pts)
+                {
+                    minX = Mathf.Min(minX, q.x); maxX = Mathf.Max(maxX, q.x);
+                    minZ = Mathf.Min(minZ, q.z); maxZ = Mathf.Max(maxZ, q.z);
+                }
+            float margin = FillReachMaxM + cell;
+            float ox = Mathf.Floor((minX - margin) / cell) * cell, oz = Mathf.Floor((minZ - margin) / cell) * cell;
+            int cols = Mathf.CeilToInt((maxX + margin - ox) / cell), rows = Mathf.CeilToInt((maxZ + margin - oz) / cell);
+            int stride = cols + 1, count = stride * (rows + 1);
+            var P = new float[count];
+            var L = new float[count];
+            // The ribbons over the grid: this half-section's own road's (the
+            // rows of the sources' side within FillOwnStations - a fan the fill
+            // finishes is one) and every other's, apart.
+            var Rown = new float[count];
+            var Roth = new float[count];
+            for (int v = 0; v < count; v++) Rown[v] = Roth[v] = float.NegativeInfinity;
+
+            // Every ribbon triangle over the grid, laid as the ribbon lays it
+            // (ZipShoulder): the fill counts as drawn only where it stands over
+            // the ribbon too.
+            if (stageRowPos != null)
+            {
+                var gridRect = Rect.MinMaxRect(ox, oz, ox + cols * cell, oz + rows * cell);
+                var pairTris = new List<int>();
+                var pair = new List<Vector3>();
+                int last = Loop ? n : n - 1;
+                for (int s = 0; s < 2; s++)
+                {
+                    float side = s == 0 ? -1f : 1f;
+                    for (int i = 0; i < last; i++)
+                    {
+                        int a = i, b = Loop ? (i + 1) % n : i + 1;
+                        var A = stageRowPos[s][a];
+                        var B = stageRowPos[s][b];
+                        if (A == null || B == null || A.Length < 2 || B.Length < 2) continue;
+                        if (!rowBox[s][a].Overlaps(gridRect) && !rowBox[s][b].Overlaps(gridRect)) continue;
+                        bool ownRow = false;
+                        foreach (var src in srcs)
+                            if (s == src.side && StationSep(a, src.station, n) <= FillOwnStations) { ownRow = true; break; }
+                        pair.Clear(); pairTris.Clear();
+                        pair.AddRange(A); pair.AddRange(B);
+                        ZipShoulder(pairTris, 0, stageRowEs[s][a], A.Length, stageRowEs[s][b], side);
+                        for (int t = 0; t + 2 < pairTris.Count; t += 3)
+                            RasterMax(pair[pairTris[t]], pair[pairTris[t + 1]], pair[pairTris[t + 2]], ox, oz, cell, cols, rows,
+                                      ownRow ? Rown : Roth);
+                    }
+                }
+            }
+            var R = new float[count];
+            for (int v = 0; v < count; v++) R[v] = Mathf.Max(Rown[v], Roth[v]);
+
+            float thick = 0f, reachE = 0f;
+            // The highest any cone can stand at a vertex is the highest source
+            // less the fall to the sources' box: where even that is well under
+            // the land (most of the FillReachMaxM margin) the vertex keeps that
+            // bound, which is all the draw and the guards read there.
+            float topQ = float.NegativeInfinity;
+            foreach (var s in srcs) foreach (var q in s.pts) topQ = Mathf.Max(topQ, q.y);
+            for (int r = 0; r <= rows; r++)
+                for (int c = 0; c <= cols; c++)
+                {
+                    float x = ox + c * cell, z = oz + r * cell;
+                    int v = r * stride + c;
+                    L[v] = StageLatticeY(x, z);
+                    float bx = Mathf.Max(0f, Mathf.Max(minX - x, x - maxX)), bz = Mathf.Max(0f, Mathf.Max(minZ - z, z - maxZ));
+                    float bound = topQ - FillFall(Mathf.Sqrt(bx * bx + bz * bz));
+                    if (bound < L[v] - FillBoundSlackM) { P[v] = bound; continue; }
+                    float best = float.NegativeInfinity;
+                    foreach (var s in srcs)
+                        foreach (var q in s.pts)
+                        {
+                            float dx = x - q.x, dz = z - q.z;
+                            float h = q.y - FillFall(Mathf.Sqrt(dx * dx + dz * dz));
+                            if (h > best) best = h;
+                        }
+                    P[v] = best;
+                }
+
+            string Where(float x, float z)
+            {
+                if (!StageCorridor(x, z, 80f, out RoadFoot f)) return $"({x:0.0}, {z:0.0})";
+                return $"wp {WrapIdx(Mathf.RoundToInt(f.station), n)} {(f.side < 0f ? "L" : "R")} {f.d - half:0.0} m";
+            }
+            // A rock top that SHOWS (over the lattice, not sunk under it) is
+            // land the fill may not stand on; read only where the fill stands
+            // over everything else, and kept for the draw below.
+            var rockSeen = new Dictionary<int, float>();
+            var rockNearCrest = new HashSet<int>();
+            float RockAt(int v)
+            {
+                if (rockSeen.TryGetValue(v, out float y)) return y;
+                float rock = RockTopAt(pts, ox + (v % stride) * cell, oz + (v / stride) * cell, out float past);
+                y = rock > L[v] - FillSinkM ? rock : float.NegativeInfinity;
+                if (y > float.NegativeInfinity && past < FillRockCrestClearM) rockNearCrest.Add(v);
+                rockSeen[v] = y;
+                return y;
+            }
+            // The fill's own grade at a vertex: the steepest of its four
+            // centred differences (x, z and both diagonals).
+            float GradeAt(int r, int c)
+            {
+                int v = r * stride + c;
+                if (r <= 0 || c <= 0 || r >= rows || c >= cols) return 0f;
+                float gx = Mathf.Abs(P[v + 1] - P[v - 1]) / (2f * cell);
+                float gz = Mathf.Abs(P[v + stride] - P[v - stride]) / (2f * cell);
+                float gd = Mathf.Abs(P[v + stride + 1] - P[v - stride - 1]) / (2.828427f * cell);
+                float ge = Mathf.Abs(P[v + stride - 1] - P[v - stride + 1]) / (2.828427f * cell);
+                return Mathf.Max(Mathf.Max(gx, gz), Mathf.Max(gd, ge));
+            }
+            for (int r = 0; r <= rows && why == null; r++)
+                for (int c = 0; c <= cols && why == null; c++)
+                {
+                    int v = r * stride + c;
+                    float over = Mathf.Max(L[v], R[v]);
+                    if (P[v] <= over - FillLiveM) continue;
+                    float x = ox + c * cell, z = oz + r * cell;
+                    over = Mathf.Max(over, RockAt(v));
+                    if (P[v] <= over - FillLiveM) continue;     // under a rock top that shows
+                    if (r == 0 || c == 0 || r == rows || c == cols)
+                    { why = $"not under the land within {FillReachMaxM:0} m (at {Where(x, z)})"; break; }
+                    if (P[v] <= over) continue;    // live only within the crossing margin
+                    thick = Mathf.Max(thick, P[v] - L[v]);
+                    // Over a rock top: only well behind its crest, where it is
+                    // the hill behind the face (a fan's toe run down to the
+                    // leg below meets the back of that leg's rock).
+                    if (RockAt(v) > float.NegativeInfinity && rockNearCrest.Contains(v))
+                    { why = "a rock top by its crest at " + Where(x, z); break; }
+                    if (InTunnelZone(x, z)) { why = "a tunnel's zone at " + Where(x, z); break; }
+                    if (!StageCorridor(x, z, 80f, out RoadFoot foot)) continue;
+                    int st = WrapIdx(Mathf.RoundToInt(foot.station), n);
+                    int sd = SideIx(foot.side);
+                    float e = foot.d - half;
+                    bool mine = false;
+                    foreach (var s in srcs)
+                        if (sd == s.side && StationSep(st, s.station, n) <= FillOwnStations) { mine = true; break; }
+                    if (mine) reachE = Mathf.Max(reachE, e);
+                    if (DeckCoversStation(st)) { why = "a deck at " + Where(x, z); break; }
+                    if (e < ShoulderEndE) { why = "a shoulder at " + Where(x, z); break; }
+                    var kind = rsKind[sd][st];
+                    if (kind == Roadside.Walled)
+                    {
+                        float zone = rsWallE[sd][st] + StageWallFaceIn + StageWallDrawThick + StagePostGap + StagePostW
+                                   + RoadsideRules.PocketBehindM;
+                        if (e < zone) { why = "a wall's zone at " + Where(x, z); break; }
+                    }
+                    else if (kind == Roadside.Cut)
+                    {
+                        if (e < CutCrestE(sd, st) + StageTreeClearM) { why = "a cut at " + Where(x, z); break; }
+                    }
+                    else if (kind != Roadside.Open) { why = kind + " at " + Where(x, z); break; }
+                    // Another stretch: off its graded roadside, and out of the
+                    // reach its edge audit walks - a fill's toe there would be
+                    // that road's face.
+                    if (!mine && (e < FillWalkedReachM + 0.5f || (kind == Roadside.Open && e < rsCatchE[sd][st] + StageTreeClearM)))
+                    { why = "another stretch's roadside at " + Where(x, z); break; }
+                    if (Roth[v] > float.NegativeInfinity && P[v] > Roth[v] + FillOverRibbonM)
+                    { why = "another stretch's shoulder ribbon at " + Where(x, z); break; }
+                    if (mine && Rown[v] > float.NegativeInfinity && P[v] > Rown[v] + FillOverRibbonM
+                        && e < KerbWidth + RoadsideRules.ClearZoneM)
+                    { why = "the clear zone's ribbon at " + Where(x, z); break; }
+                    // NO FACE WHERE THE EDGE AUDIT WALKS: inside the reach of a
+                    // half-section it walks (not a wall's, which stops the walk
+                    // at its stone), the fill stands no steeper than a face.
+                    if (e < FillWalkedReachM && kind != Roadside.Walled && GradeAt(r, c) > FillFaceGrade)
+                    { why = $"steeper than a face ({GradeAt(r, c):0.00}) inside the reach at " + Where(x, z); break; }
+                }
+            if (why != null) return null;
+
+            var grid = new FillGrid { ox = ox, oz = oz, cell = cell, cols = cols, rows = rows, y = new float[count], drawn = new bool[cols * rows] };
+            float dMinX = float.MaxValue, dMinZ = float.MaxValue, dMaxX = float.MinValue, dMaxZ = float.MinValue;
+            bool Live(int v) => P[v] > Mathf.Max(Mathf.Max(L[v], R[v]), rockSeen.TryGetValue(v, out float rk) ? rk : float.NegativeInfinity) - FillLiveM;
+            for (int v = 0; v < count; v++) grid.y[v] = Mathf.Max(P[v], L[v] - FillSinkM);
+            int drawnCells = 0;
+            for (int r = 0; r < rows; r++)
+                for (int c = 0; c < cols; c++)
+                {
+                    int v = r * stride + c;
+                    if (!Live(v) && !Live(v + 1) && !Live(v + stride) && !Live(v + stride + 1)) continue;
+                    grid.drawn[r * cols + c] = true;
+                    drawnCells++;
+                    float x = ox + c * cell, z = oz + r * cell;
+                    dMinX = Mathf.Min(dMinX, x); dMaxX = Mathf.Max(dMaxX, x + cell);
+                    dMinZ = Mathf.Min(dMinZ, z); dMaxZ = Mathf.Max(dMaxZ, z + cell);
+                }
+            if (drawnCells == 0) { why = "nothing over the land or the ribbon to draw"; return null; }
+            if (measure != null)
+            {
+                measure.minX = dMinX; measure.maxX = dMaxX; measure.minZ = dMinZ; measure.maxZ = dMaxZ;
+                measure.thickest = thick; measure.reachE = reachE;
+            }
+            return grid;
+        }
+
+        /// <summary>Raise <paramref name="R"/> at every grid vertex inside the
+        /// triangle's plan to the triangle's height there.</summary>
+        static void RasterMax(Vector3 a, Vector3 b, Vector3 c, float ox, float oz, float cell, int cols, int rows, float[] R)
+        {
+            float x0 = Mathf.Min(a.x, Mathf.Min(b.x, c.x)), x1 = Mathf.Max(a.x, Mathf.Max(b.x, c.x));
+            float z0 = Mathf.Min(a.z, Mathf.Min(b.z, c.z)), z1 = Mathf.Max(a.z, Mathf.Max(b.z, c.z));
+            int c0 = Mathf.Max(0, Mathf.CeilToInt((x0 - ox) / cell)), c1 = Mathf.Min(cols, Mathf.FloorToInt((x1 - ox) / cell));
+            int r0 = Mathf.Max(0, Mathf.CeilToInt((z0 - oz) / cell)), r1 = Mathf.Min(rows, Mathf.FloorToInt((z1 - oz) / cell));
+            if (c0 > c1 || r0 > r1) return;
+            float d = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
+            if (Mathf.Abs(d) < 1e-8f) return;
+            int stride = cols + 1;
+            for (int r = r0; r <= r1; r++)
+                for (int col = c0; col <= c1; col++)
+                {
+                    float x = ox + col * cell, z = oz + r * cell;
+                    float wa = ((b.z - c.z) * (x - c.x) + (c.x - b.x) * (z - c.z)) / d;
+                    float wb = ((c.z - a.z) * (x - c.x) + (a.x - c.x) * (z - c.z)) / d;
+                    float wc = 1f - wa - wb;
+                    if (wa < -1e-4f || wb < -1e-4f || wc < -1e-4f) continue;
+                    float y = wa * a.y + wb * b.y + wc * c.y;
+                    int v = r * stride + col;
+                    if (y > R[v]) R[v] = y;
+                }
         }
 
         static float SeaDepthAt(float x, float z, float y)
@@ -6480,7 +7351,7 @@ namespace PSXRacing.EditorTools
             foreach (var p in pts) b.Encapsulate(p);
 
             float roadHalf = RoadWidth * 0.5f;
-            int planted = 0, cliffSkip = 0, chunks = 0, underDeck = 0;
+            int planted = 0, cliffSkip = 0, chunks = 0, underDeck = 0, reseatedOnFill = 0;
             // Every tree's trunk, from the very position its billboard is
             // planted at: base in world space and a radius off its card. Too
             // many to bake a collider each — TreeTrunks stands them up round
@@ -6531,7 +7402,12 @@ namespace PSXRacing.EditorTools
                         // half. A trunk stood on the field there floated past its
                         // own sink. ForestBand is well inside NearCoverage, so
                         // every tree stands on a near chunk.
-                        float ground = Mathf.Max(StageLatticeY(wx, wz), StageBankTopY(foot));
+                        //
+                        // And on a FILL TAIL where one stands over the land
+                        // (BuildStageFillTails): a trunk planted on the land
+                        // under it would be buried in the fill.
+                        float ground = Mathf.Max(Mathf.Max(StageLatticeY(wx, wz), StageBankTopY(foot)), StageFillY(wx, wz));
+                        bool onFill = ground > StageLatticeY(wx, wz) + 0.05f && StageFillY(wx, wz) >= ground;
 
                         // True cliffs stay bare — the boulder fields and rock
                         // faces under Grandfather are real, and 50 degrees is
@@ -6606,6 +7482,7 @@ namespace PSXRacing.EditorTools
                         }
 
                         planted++;
+                        if (onFill) reseatedOnFill++;
                         AddTreeQuads(verts, uvs, tris, sp,
                             new Vector3(wx - ox, ground - 0.25f, wz - oz), h,
                             (float)rng.NextDouble() * 360f);
@@ -6635,7 +7512,7 @@ namespace PSXRacing.EditorTools
 
             Log($"Stage forest: {planted} trees in {chunks} chunks " +
                 $"({underDeck} under bridge decks, {cliffSkip} sites left bare as cliff), " +
-                $"{trunks.Count} trunks in the table.");
+                $"{trunks.Count} trunks in the table; {reseatedOnFill} site(s) stood on a fill tail over the land.");
         }
 
         /// <summary>A stage tree's card width: its height for a broadleaf

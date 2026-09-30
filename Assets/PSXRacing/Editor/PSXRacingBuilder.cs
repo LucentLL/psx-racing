@@ -820,7 +820,10 @@ namespace PSXRacing.EditorTools
                              if (theme.stageBanks) BuildStageBanks(waypoints, pathGO.transform); }
             else BuildWalls(waypoints, pathGO.transform);
             if (def.stage) { BuildStageGround(waypoints, pathGO.transform);
-                             BuildStageEndPads(waypoints, pathGO.transform); }
+                             BuildStageEndPads(waypoints, pathGO.transform);
+                             // After the rock tops (it may not bury one) and
+                             // before the forest (which stands on it).
+                             BuildStageFillTails(waypoints, pathGO.transform); }
             else BuildGround(waypoints, pathGO.transform);
             if (def.stage) BuildStageTunnels(waypoints, pathGO.transform);
             BuildBridges(waypoints, pathGO.transform);
@@ -2360,6 +2363,11 @@ namespace PSXRacing.EditorTools
         static void BuildShoulders(List<Vector3> pts, Transform parent, EdgeProfileFn profile)
         {
             shoulderProfiles = null;
+            // The fill tails' inputs (BuildStageFillTails) are this build's:
+            // the rows as laid and the apex pads' leftover crests.
+            stageRowPos = null; stageRowEs = null;
+            apexLeftovers = null;
+            stageFills = null;
             int n = pts != null ? pts.Count : 0;
             if (n < 2 || profile == null) return;
             int last = Loop ? n : n - 1;
@@ -2575,6 +2583,8 @@ namespace PSXRacing.EditorTools
             // apex pad under it (BuildApexPads). Stage only.
             if (stageDemLoaded)
             {
+                stageRowPos = pos; stageRowEs = es;
+                apexLeftovers = new List<FillSource>();
                 int apexPads = BuildApexPads(pts, parent, pos, es, rowPastBend, rowTailed, rowSloped, mat, tile, uox, uoz, phys,
                                              out int apexSamples, out int apexRimInAir);
                 Log($"Apex pads: {apexPads} crest(s) padded ({apexSamples} crest samples over the land; {apexRimInAir} crest(s) over land falling away too fast for one, left as they were).");
@@ -2645,6 +2655,10 @@ namespace PSXRacing.EditorTools
             // is still continuous).
             var groups = new List<List<Vector3>>();
             var groupAt = new List<string>();
+            var groupWp = new List<int>();
+            var groupSide = new List<int>();
+            // The station whose row is a TAIL in each group's pair, or -1.
+            var groupTail = new List<int>();
             var pair = new List<Vector3>();
             var pairTris = new List<int>();
             for (int s = 0; s < 2; s++)
@@ -2683,6 +2697,13 @@ namespace PSXRacing.EditorTools
                     List<Vector3> cur = null;
                     int steepTris = 0, overLand = 0, nearRoad = 0, overCap = 0;
                     float maxOver = 0f;
+                    // A flat end beside a TAIL: the band's high part, over the
+                    // flat cap, is the tail's fan standing over falling land
+                    // (Chimney Rock 980-981 R, 2.80 m, beside 981's 24.7 m tail),
+                    // not the toe in front of a stone - the fill tail's.
+                    bool besideTail = mixed && ((slopedA && tailedRow[s][a]) || (slopedB && tailedRow[s][b]));
+                    List<Vector3> overCapTail = null;
+                    float overCapMax = 0f;
                     for (int t = 0; t + 2 < pairTris.Count; t += 3)
                     {
                         Vector3 p0 = pair[pairTris[t]], p1 = pair[pairTris[t + 1]], p2 = pair[pairTris[t + 2]];
@@ -2708,8 +2729,22 @@ namespace PSXRacing.EditorTools
                                 float eA = (q.x - pts[a].x) * outA.x + (q.z - pts[a].z) * outA.z - half;
                                 float eB = (q.x - pts[b].x) * outB.x + (q.z - pts[b].z) * outB.z - half;
                                 if (Mathf.Min(eA, eB) < ApexPadRoadClearM) { nearRoad++; continue; }
-                                if (mixed && gap > ApexPadFlatCapM) { overCap++; continue; }
-                                if (cur == null) { cur = new List<Vector3>(); groups.Add(cur); groupAt.Add(a + (s == 0 ? "L" : "R")); }
+                                if (mixed && gap > ApexPadFlatCapM)
+                                {
+                                    overCap++;
+                                    if (besideTail && apexLeftovers != null)
+                                    {
+                                        (overCapTail ??= new List<Vector3>()).Add(q);
+                                        overCapMax = Mathf.Max(overCapMax, gap);
+                                    }
+                                    continue;
+                                }
+                                if (cur == null)
+                                {
+                                    cur = new List<Vector3>(); groups.Add(cur); groupAt.Add(a + (s == 0 ? "L" : "R"));
+                                    groupWp.Add(a); groupSide.Add(s);
+                                    groupTail.Add(tailedRow[s][a] ? a : tailedRow[s][b] ? b : -1);
+                                }
                                 cur.Add(q);
                             }
                         }
@@ -2719,6 +2754,13 @@ namespace PSXRacing.EditorTools
                             $"{pairTris.Count / 3} tris, {steepTris} steeper than {ApexPadTuckSlope:0.00}, {overLand} edge points over the land " +
                             $"(highest {maxOver:0.000} m), {nearRoad} within {ApexPadRoadClearM:0.0} m of the road, {overCap} over the flat cap, " +
                             $"{(cur != null ? cur.Count : 0)} crest samples; sliced gap {RibbonSlices(a)}");
+                    if (overCapTail != null && overCapMax >= FillFanMinGapM)
+                        apexLeftovers.Add(new FillSource
+                        {
+                            pts = overCapTail, station = a, side = s,
+                            tag = a + (s == 0 ? "L" : "R") + " beside a tail", kind = "fan edge", size = overCapMax,
+                            tailRow = slopedA && tailedRow[s][a] ? a : b,
+                        });
                 }
             }
 
@@ -2777,7 +2819,22 @@ namespace PSXRacing.EditorTools
                 // A crest over land that falls away faster than the pad for
                 // its whole reach would only move the edge out into the air:
                 // left as it was, and counted.
-                if (liveRim > 0) { rimInAir++; skipped.Append(' ').Append(groupAt[gi]).Append('/').Append(maxGap.ToString("0.00")); continue; }
+                if (liveRim > 0)
+                {
+                    rimInAir++;
+                    skipped.Append(' ').Append(groupAt[gi]).Append('/').Append(maxGap.ToString("0.00"));
+                    // A crest that stands a slab's height over falling land is
+                    // the fill tail's to finish (BuildStageFillTails), later in
+                    // the build: a fill may steepen past a pad's slope to reach
+                    // the land.
+                    if (apexLeftovers != null && maxGap >= FillFanMinGapM)
+                        apexLeftovers.Add(new FillSource
+                        {
+                            pts = new List<Vector3>(g), station = groupWp[gi], side = groupSide[gi],
+                            tag = groupAt[gi], kind = "fan", size = maxGap, tailRow = groupTail[gi],
+                        });
+                    continue;
+                }
 
                 int trisBefore = tris.Count;
                 var map = new int[P.Length];
