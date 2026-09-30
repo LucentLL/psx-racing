@@ -1611,6 +1611,35 @@ lines.
   (150 s): Uptown 2 retired at wp 249 into Roads as on WP-10 and f1e139e,
   Tryon 3 (lamp posts at lat +5.4 to +8.3, then traffic; WP-10 3),
   Independence 0.
+## The lines on /city/ (2026-09-30): WP-10 + WP-11 merged with city-r1 and published
+
+WP-10's and WP-11's lines went to /city/ ahead of WP-11b (the owner, after
+13 hours of line work: ship what is done). Merged with city-r1 at ff8ec74
+(the CITY edition, trees, WP-13/14's 30 m ground and graded land, WP-23's
+signs). What the published page changes: the squiggles (fillets, the
+simplify, the doglegs) and divided roads drawn apart (PARA). What it does
+NOT change yet: a lane added for a turn still widens the road on both
+sides - the one-sided offsets are in the data (TAPR) and WP-11b draws them.
+
+- Data: re-exported from the merged exporter (graph 089d7141); the signs
+  rebuilt off the moved lines, the canopy as shipped; the tree audit's
+  canopy truth re-read. linecheck re-recorded (inputs moved, readings
+  identical).
+- The first verify of the merge failed on two sandbox/import points and two
+  audit spots: ReleaseBudget.Apply had never run on PSXCity since the colour
+  fix (six textures; ApplyFromCommandLine, then verify again), and two
+  off-route spots of the WP-11b families were named (ledge-w4th-14607,
+  mcdowell-15185); 12 roadside spots, 7 lane solids and the lane-land spot
+  the merge took away were pruned. The second verify: VERIFY PASS (CITY),
+  DRIVE AUDIT zeros, CITY AUDIT OK.
+- city-play-check: the WP-14 drive-off stage fails at one spot the moved
+  lines now let its picker choose (I-277 e1919 s=90, left side, Uptown
+  Loop: the car goes 19 m past the edge toward the ramps e388 / e2947 and
+  rolls, 1.64 m of air), and so runs no cut (its one cut candidate has a
+  rail in the run). Open, for WP-11b.
+- Published: /city/ build stamp 20260930090352 (charlotte d854759); the
+  site root byte-identical.
+
 ## WP-07 (2026-09-29): the draw-call prepay, the city kit, the lamp metal
 
 Nothing new to see: this package pays for the trees, poles and signs that
