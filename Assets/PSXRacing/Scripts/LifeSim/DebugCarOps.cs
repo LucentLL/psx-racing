@@ -56,7 +56,7 @@ namespace PSXRacing.LifeSim
         /// grow one because somebody opened the pause menu.
         /// </summary>
         public static bool Available =>
-            RaceHandoff.FromLifeSim && LifeSimManager.State != null &&
+            RaceHandoff.FromLifeSim && Edition.HasCareer && LifeSimManager.State != null &&
             LifeSimManager.State.debugMode;
 
         /// <summary>

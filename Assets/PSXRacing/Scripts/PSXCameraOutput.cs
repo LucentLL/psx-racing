@@ -95,7 +95,7 @@ namespace PSXRacing
             int w = TargetWidth();
             if (rt != null && w == builtWidth && height == builtHeight) return;
 
-            Release();
+            var old = rt;
             builtWidth = w;
             builtHeight = Mathf.Max(1, height);
             rt = new RenderTexture(builtWidth, builtHeight, 24, RenderTextureFormat.Default)
@@ -109,6 +109,18 @@ namespace PSXRacing
             {
                 cam.targetTexture = rt;
                 cam.allowMSAA = false;
+            }
+            // Everything else drawing into the old buffer moves to the new
+            // one BEFORE the old is released. SpeedBlur's HUD camera copies
+            // cam.targetTexture (a frame later, on its own), and releasing a
+            // texture a camera still targets makes Unity log "Releasing
+            // render texture that is set as Camera.targetTexture!" on every
+            // resize - an error the door tour (DoorTour) counts.
+            if (old != null)
+            {
+                Retarget(old, rt);
+                old.Release();
+                Destroy(old);
             }
             if (display != null)
             {
@@ -159,9 +171,19 @@ namespace PSXRacing
         void Release()
         {
             if (rt == null) return;
+            Retarget(rt, null);
             rt.Release();
             Destroy(rt);
             rt = null;
+        }
+
+        /// <summary>Every camera targeting <paramref name="from"/> - active
+        /// or not - now targets <paramref name="to"/>. Runs on a resize or a
+        /// scene's end, never per frame.</summary>
+        static void Retarget(RenderTexture from, RenderTexture to)
+        {
+            foreach (var c in Object.FindObjectsByType<Camera>(FindObjectsInactive.Include))
+                if (c != null && c.targetTexture == from) c.targetTexture = to;
         }
     }
 }

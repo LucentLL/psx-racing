@@ -343,8 +343,10 @@ namespace PSXRacing
             active = null;
         }
 
+        // No career in the CITY edition: the pumps are not in its city, and
+        // asking for the State would grow one.
         static LifeState Life =>
-            RaceHandoff.FromLifeSim ? LifeSimManager.State : null;
+            RaceHandoff.FromLifeSim && Edition.HasCareer ? LifeSimManager.State : null;
 
         static OwnedCar OwnedCar(LifeState s) =>
             s == null ? null : (s.FindCar(RaceHandoff.CarId) ?? s.ActiveCar);

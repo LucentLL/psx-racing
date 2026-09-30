@@ -637,7 +637,7 @@ namespace PSXRacing
         {
             var go = new GameObject("Label");
             go.transform.SetParent(parent, false);
-            var t = go.AddComponent<Text>();
+            var t = go.AddComponent<SafeText>();
             t.font = font;
             t.fontSize = size;
             t.fontStyle = FontStyle.Bold;

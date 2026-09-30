@@ -2882,7 +2882,9 @@ namespace PSXRacing.EditorTools
         static int stageCutsUnfaced;
 
         /// <summary>PSX_CUT_TRACE="660-720,1025-1040": log FinishStageCuts'
-        /// reasoning at those stations (the stage lab's build log).</summary>
+        /// reasoning at those stations, and each shoulder row as BuildShoulders
+        /// lays it ("row trace": e/height over the road[lattice] of every
+        /// point, with the bend and fold reaches) - the stage lab's build log.</summary>
         static bool CutTrace(int i)
         {
             if (cutTraceRanges == null)

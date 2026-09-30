@@ -1,0 +1,21 @@
+MAP AND TERRAIN DATA
+
+Road network data (c) OpenStreetMap contributors, ODbL 1.0
+Licence: ODbL 1.0 - opendatacommons.org/licenses/odbl/1-0
+
+Terrain and creek beds: U.S. Geological Survey, 3D Elevation Program (3DEP)
+Licence: public domain - www.usgs.gov/3d-elevation-program
+
+Creeks, lakes and ponds in Mecklenburg: Mecklenburg County GIS, CC0 1.0
+Licence: CC0 1.0 - creativecommons.org/publicdomain/zero/1.0
+
+Creeks and lakes outside Mecklenburg: U.S. Geological Survey, 3D Hydrography Program (3DHP)
+Licence: public domain - www.usgs.gov/3d-hydrography-program
+
+Tree canopy: USDA Forest Service, NLCD Tree Canopy Cover (2024)
+Licence: public domain - data.fs.usda.gov/geodata/rastergateway/treecanopycover
+
+Billboard density: NCDOT GIS Unit (statistics only)
+Licence: public record, no licence stated - connect.ncdot.gov/resources/gis/pages/gis-data-layers.aspx
+
+The data was adapted for the game: simplified, re-projected and baked into its own formats. Every source and its licence is listed in LICENSES.txt beside the game.

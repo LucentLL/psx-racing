@@ -2,7 +2,7 @@
 #
 #   mirror -> bake car shells -> build the six circuits -> LifeSim self-test
 #   -> town probe -> terrain audit -> obstacle audit (with the edge pass)
-#   -> city audit -> reference screenshots
+#   -> lane audit -> city audit -> reference screenshots
 #
 #   powershell -ExecutionPolicy Bypass -File tools\verify.ps1
 #   powershell -ExecutionPolicy Bypass -File tools\verify.ps1 -NoMirror
@@ -29,11 +29,26 @@
 # tools\build-and-publish.ps1 can print what a deploy is shipping past. It is
 # deleted first thing, so a run that dies leaves no result rather than the last
 # one's.
-param([switch]$NoMirror)
+#
+# PER EDITION (see Scripts/Edition.cs): -Edition MAIN|CITY|ALL, ALL by
+# default. The scene build and the self-test are always the whole game (the
+# build settings are ALL; TestEditions checks both editions as editions).
+# What the edition changes is WHAT IS MEASURED: every audit walks that
+# edition's venues (PSX_EDITION for the Unity jobs -> EditionTarget), MAIN
+# skips the city audit (it ships no city), and CITY skips the town probe (it
+# ships no town). The result file records the edition on its second line and
+# tools\build-and-publish.ps1 holds a publish to it.
+param([switch]$NoMirror, [string]$Edition = "ALL")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
 . "$PSScriptRoot\unity-wait.ps1"
+$Edition = $Edition.ToUpperInvariant()
+if (@("MAIN", "CITY", "ALL") -notcontains $Edition) { Write-Host "-Edition must be MAIN, CITY or ALL" -ForegroundColor Red; exit 1 }
+# Every Unity job below inherits it; the scene builder and the self-test force
+# ALL for themselves, the audits and the screenshots measure this edition.
+$env:PSX_EDITION = $Edition
+Write-Host "Verifying edition $Edition" -ForegroundColor Cyan
 
 $resultFile = "$proj\PSXRacing_verify_result.txt"
 if (Test-Path $resultFile) { Remove-Item $resultFile -Force }
@@ -43,7 +58,7 @@ $failLines = New-Object System.Collections.Generic.List[string]
 
 function Write-VerifyResult([int]$Bad) {
     $head = if ($Bad -gt 0) { "VERIFY FAILED ($Bad stage(s))" } else { "VERIFY PASS" }
-    $body = @($head, ("finished " + (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")), "source $src", "failures:")
+    $body = @($head, "edition $Edition", ("finished " + (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")), "source $src", "failures:")
     $body += @($failLines)
     Set-Content -Path $resultFile -Value $body -Encoding ASCII
 }
@@ -67,6 +82,17 @@ if ($NoMirror) {
     # pass is a renderer FEATURE, and a sandbox without it renders a game with no blur
     # while every assertion about SpeedBlur.cs passes.
     robocopy "$src\Assets\Settings" "$proj\Assets\Settings" /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+    # The WebGL template ships BESIDE the player (index.html, and LICENSES.txt,
+    # which PSXBuildWebGL.PickLicenses picks per edition from LICENSES-MAIN /
+    # LICENSES-CITY.txt), and link.xml is what keeps IL2CPP's stripper off
+    # OSSpecificSynchronizationContext. Neither is under Scripts/Editor/Shaders,
+    # so a -NoMirror pass followed by build-and-publish -SkipScenes built with
+    # whatever the sandbox last had: 2026-09-29, the per-edition LICENSES files
+    # were in the source and not in the sandbox, and the CITY player would have
+    # carried ALL's credits (the SRTM line the CITY door no longer has).
+    # Mirrored like code: a stale extra LICENSES-*.txt must not linger.
+    robocopy "$src\Assets\WebGLTemplates" "$proj\Assets\WebGLTemplates" /MIR /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+    robocopy "$src\Assets\PSXRacing" "$proj\Assets\PSXRacing" link.xml link.xml.meta /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
 } else {
     foreach ($d in @("Assets", "Packages", "ProjectSettings")) {
         robocopy "$src\$d" "$proj\$d" /MIR /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
@@ -77,7 +103,8 @@ if ($NoMirror) {
 # never writes its own output, and the previous run's file then reads as a pass
 # over a run that died -- which has happened here more than once.
 foreach ($f in @("PSXRacing_terrain_audit.txt", "PSXRacing_selftest_log.txt",
-                 "PSXRacing_townprobe.txt", "PSXRacing_obstacle_audit.txt", "city_audit.txt")) {
+                 "PSXRacing_townprobe.txt", "PSXRacing_obstacle_audit.txt", "city_audit.txt",
+                 "PSXRacing_lane_audit.txt")) {
     if (Test-Path "$proj\$f") { Remove-Item "$proj\$f" -Force }
 }
 
@@ -148,6 +175,9 @@ if (Test-Path "$proj\PSXRacing_selftest_log.txt") {
 # NbGroundY's drive side grades (2026-09-14), so any critical station on
 # either map is a regression.
 Write-Host "[4/7] Town probe..." -ForegroundColor Cyan
+if ($Edition -eq "CITY") {
+    Write-Host "  skipped: the CITY edition ships no town and no street" -ForegroundColor DarkGray
+} else {
 Invoke-UnityJob -Log "$proj\townprobe.log" -UnityArgs @(
     "-quit","-batchmode","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.TownProbe.Run",
@@ -176,8 +206,9 @@ if (Test-Path "$proj\PSXRacing_townprobe.txt") {
     $failLines.Add("[town] wrote nothing - it threw")
     $bad++
 }
+}
 
-Write-Host "[5/7] Terrain + obstacle audits..." -ForegroundColor Cyan
+Write-Host "[5/7] Terrain + obstacle + lane audits..." -ForegroundColor Cyan
 Invoke-UnityJob -Log "$proj\terrain.log" -UnityArgs @(
     "-quit","-batchmode","-nographics","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.TerrainAudit.Run",
@@ -242,11 +273,45 @@ if (Test-Path "$proj\PSXRacing_obstacle_audit.txt") {
     $bad++
 }
 
+# THE PAINT ON THE TARMAC. 2026-09-28: every real-width stage shipped with its
+# double yellow 3.658 m in from the LEFT edge (a 3.60 m lane beside a 2.68 m
+# one on the Parkway loops) because nothing measured paint against pavement.
+# LaneAudit cuts every ribbon every 2 m against its own triangles and fails a
+# venue whose lanes differ by more than 2.5 cm, whose centre line stands off
+# the ribbon's centre, whose paint zigzags off its smooth line, or whose
+# texture is not centred. Held-back venues are reported, never failed.
+Invoke-UnityJob -Log "$proj\laneaudit.log" -UnityArgs @(
+    "-quit","-batchmode","-nographics","-projectPath",$proj,
+    "-executeMethod","PSXRacing.EditorTools.LaneAudit.Run",
+    "-logFile","$proj\laneaudit.log","-accept-apiupdate") | Out-Null
+if (Test-Path "$proj\PSXRacing_lane_audit.txt") {
+    $laneFails = 0
+    $inSummary = $false
+    foreach ($line in Get-Content "$proj\PSXRacing_lane_audit.txt") {
+        if ($line -ceq 'SUMMARY') { $inSummary = $true }
+        if ($inSummary) { Write-Host "[lanes] $line" }
+        if ($line -cmatch '^\s*FAIL ') { $failLines.Add("[lanes] " + $line.Trim()); $laneFails++ }
+    }
+    if ($laneFails -gt 0) {
+        Write-Host "LANE AUDIT: $laneFails failing line(s)" -ForegroundColor Red
+        $bad++
+    }
+} else {
+    Write-Host "LANE AUDIT WROTE NOTHING - see $proj\laneaudit.log" -ForegroundColor Red
+    Select-String -Path "$proj\laneaudit.log" -Pattern "error CS|Exception" -ErrorAction SilentlyContinue |
+        Select-Object -First 6 | ForEach-Object { $_.Line }
+    $failLines.Add("[lanes] wrote nothing - it threw")
+    $bad++
+}
+
 # The city is not in either audit above (its tiles are built at runtime, and
 # its scene has no TrackPath), so it was never in verify at all: the city
 # audit ran only from the city scripts, which exited 0 on "N FAILURES".
 # Graphics on, as the city scripts run it.
 Write-Host "[6/7] City audit..." -ForegroundColor Cyan
+if ($Edition -eq "MAIN") {
+    Write-Host "  skipped: the MAIN edition ships no Charlotte (city-verify.ps1 / -Edition CITY is its gate)" -ForegroundColor DarkGray
+} else {
 $cityOk = Invoke-UnityJob -Log "$proj\cityaudit.log" -MaxMinutes 25 -UnityArgs @(
     "-quit","-batchmode","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.CityAudit.Run",
@@ -265,6 +330,7 @@ if (Test-Path "$proj\city_audit.txt") {
         Select-Object -First 6 | ForEach-Object { $_.Line }
     $failLines.Add("[city] wrote nothing - it threw or did not finish")
     $bad++
+}
 }
 
 # Graphics on: these render through the pipeline, and a headless editor has no

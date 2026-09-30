@@ -13,6 +13,12 @@
 $ErrorActionPreference = "Stop"
 $src  = Split-Path -Parent $PSScriptRoot
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
+# Not from a sandbox whose Resources an unfinished edition build has parked:
+# what is parked would be missing here (unity-wait.ps1, Assert-EditionParkClear).
+if (Test-Path "$proj\PSXEditionParked.json") {
+    Write-Host "REFUSING: $proj has Resources parked by an edition build that did not finish ($proj\PSXEditionParked.json). Run any sandbox tool first (it puts them back), then sync." -ForegroundColor Red
+    exit 1
+}
 
 $paths = @(
     "Assets\PSXRacing\Art\City",

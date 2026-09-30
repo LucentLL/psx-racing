@@ -183,6 +183,24 @@ namespace PSXRacing
         /// <summary>Centre-to-centre gap wanted beside a traffic car: two
         /// half-widths and a little air.</summary>
         const float TrafficClearM = 2.4f;
+        /// <summary>ALONGSIDE (UpdateAvoidance): a car further back than
+        /// AlongsideLevelM and nearer this one's line than AlongsideInLineM (two
+        /// cars side by side stand a body width apart, 1.7-1.9 m) is behind it
+        /// in line, following, and is no reason to hold a line or brake.</summary>
+        const float AlongsideLevelM = 1f, AlongsideInLineM = 1.4f;
+        /// <summary>Under this speed the throttle is not eased for a slide:
+        /// a crawl's slip angle is noise (see the steering loop).</summary>
+        const float SlideEaseMinMps = 4f;
+        /// <summary>How fast the stuck and crawl clocks run while the car is
+        /// waiting on traffic it cannot pass (UpdateRecovery): a fifth, so a
+        /// wait of up to 20 s is the car's own.</summary>
+        const float WaitingClockRate = 0.2f;
+        /// <summary>How long a give-way counts as waiting after its last tick
+        /// (the recovery's clocks), and the speed under which a car does not
+        /// brake to drop in behind a car alongside - it is not going anywhere
+        /// to drop back from.</summary>
+        const float WaitHoldSeconds = 1f, DropBehindMinMps = 3f;
+        float waitHold;
         /// <summary>How close to the tarmac edge a pass may take the car's
         /// centre: a half-width and a little shoulder.</summary>
         const float EdgeMarginM = 1.15f;
@@ -206,6 +224,10 @@ namespace PSXRacing
         public float DebugLine => lineOffset;
         public float DebugBias => avoidBias;
         public float DebugLeftLimit { get; private set; } = float.NegativeInfinity;
+        /// <summary>This tick's give-way: the throttle lift and the brake
+        /// UpdateAvoidance asked for (the race play check's trail).</summary>
+        public float DebugLift { get; private set; }
+        public float DebugTrafficBrake { get; private set; }
 
         /// <summary>Steer against sideways drift across the road (per unit of
         /// drift angle), on two-way roads.</summary>
@@ -505,6 +527,8 @@ namespace PSXRacing
 
             // ---- give way to whatever is about to be hit ----
             UpdateAvoidance(dt, out float throttleLift, out float trafficBrake);
+            DebugLift = throttleLift;
+            DebugTrafficBrake = trafficBrake;
 
             // ---- steering: chase a lookahead point ----
             float steer = SteerToLine(speed);
@@ -538,8 +562,12 @@ namespace PSXRacing
             else if (speed > targetSpeed + 2f) brake = Mathf.Clamp01((speed - targetSpeed) * 0.25f);
             else throttle = 0.35f;
 
-            // Ease off throttle while sliding
-            if (Mathf.Abs(car.rearSlipAngle) > 0.25f) throttle *= 0.4f;
+            // Ease off throttle while sliding - a car that is MOVING. At a
+            // crawl the slip angle is the arctangent of centimetres a second
+            // (0.1 across over 0.4 along reads 0.24 rad), and the ease held a
+            // rival pulling away from a stop at 0.4 throttle and 1-2 km/h up
+            // Chimney Rock's 8% switchbacks until the recovery moved it.
+            if (speed > SlideEaseMinMps && Mathf.Abs(car.rearSlipAngle) > 0.25f) throttle *= 0.4f;
 
             // Closing on a car ahead: lift, and brake if the gap is going away
             // fast. Applied after the corner logic so it can only ever slow the
@@ -571,7 +599,14 @@ namespace PSXRacing
             car.brakeInput = brake;
             car.handbrakeInput = false;
 
-            UpdateRecovery(dt, speed);
+            // Holding station behind something it cannot pass (UpdateAvoidance
+            // asked for the brake or the whole throttle) is waiting, not stuck -
+            // for WaitHoldSeconds after the last tick that asked: a car nose to
+            // tail with a crawling one flickers in and out of "closing" every
+            // tick.
+            if (trafficBrake > 0f || throttleLift >= 0.99f) waitHold = WaitHoldSeconds;
+            else waitHold = Mathf.Max(0f, waitHold - dt);
+            UpdateRecovery(dt, speed, waitHold > 0f);
         }
 
         /// <summary>
@@ -819,6 +854,18 @@ namespace PSXRacing
                     if (o.z < -5.5f || o.z > 1.5f || o.oncoming) continue;
                     float side = at - o.lat;
                     if (Mathf.Abs(side) > TrafficClearM + 1.5f) continue;
+                    // BEHIND, IN LINE, is following - not alongside. A rival
+                    // crawling round a hairpin (under StoppedRacerMps, so it is
+                    // in obs) a car length behind this one asked for TrafficClearM
+                    // of the road beside it, which a 6.1 m road has not got, so
+                    // this car braked to "drop in behind" the car behind it -
+                    // which was braking to follow this one: both sat at 1 km/h
+                    // until the recovery put them on (Chimney Rock's switchbacks,
+                    // 2026-09-29: with this, the crawl-slip throttle ease, no
+                    // drop-behind brake at a standstill and the waiting clock,
+                    // a whole race's recoveries went 87 -> 10 up the park road
+                    // and 68 -> 2 down it).
+                    if (o.z < -AlongsideLevelM && Mathf.Abs(side) < AlongsideInLineM) continue;
                     float keep = o.lat + (side >= 0f ? 1f : -1f) * TrafficClearM - lineOffset;
                     if (side < 0f ? wanted > keep : wanted < keep)
                     {
@@ -827,8 +874,13 @@ namespace PSXRacing
                         alongsideHold = side < 0f;
                         // No room beside it on the tarmac: not off the road
                         // for it (Blowing Rock: aimed at +4.0 on a road whose
-                        // edge is +3.2, into the wall) - drop in behind.
-                        if (Mathf.Abs(keep + lineOffset) > roadHalf - TarmacKeepM)
+                        // edge is +3.2, into the wall) - drop in behind. Only
+                        // a car that is MOVING can drop in behind anything: two
+                        // rivals jammed together at a standstill on a 6.1 m
+                        // switchback each braked for the other (Chimney Rock
+                        // wp 250) until the recovery parted them.
+                        if (Mathf.Abs(keep + lineOffset) > roadHalf - TarmacKeepM &&
+                            car.forwardSpeed > DropBehindMinMps)
                         {
                             throttleLift = 1f;
                             trafficBrake = Mathf.Max(trafficBrake, 0.9f);
@@ -841,7 +893,7 @@ namespace PSXRacing
             // coming: a pass already out there comes back at the traffic slew.
             // (Gillespie/Mount Mitchell: a rival on the centreline passing
             // another met an oncoming Camry head-on at 42 m/s.)
-            if (wanted < leftLimit && alongsideHold)
+            if (wanted < leftLimit && alongsideHold && car.forwardSpeed > DropBehindMinMps)
             {
                 // Out in the other lane, level with the car being passed, and
                 // something coming: not into its door - off the throttle and on
@@ -863,7 +915,8 @@ namespace PSXRacing
                         {
                             if (other == null || other == car) continue;
                             Vector3 lo = transform.InverseTransformPoint(other.transform.position);
-                            if (lo.x > 0.5f && lo.x < 4f && lo.z > -5f && lo.z < 6f)
+                            if (lo.x > 0.5f && lo.x < 4f && lo.z > -5f && lo.z < 6f &&
+                                car.forwardSpeed > DropBehindMinMps)
                             {
                                 throttleLift = 1f;
                                 trafficBrake = Mathf.Max(trafficBrake, 0.5f);
@@ -885,11 +938,16 @@ namespace PSXRacing
         /// Two failure modes, two clocks: pinned against something solid, and
         /// pointed the wrong way.
         /// </summary>
-        void UpdateRecovery(float dt, float speed)
+        void UpdateRecovery(float dt, float speed, bool waiting)
         {
             bool pinned = responder != null && responder.InSolidContact;
             float limit = pinned ? PinnedSeconds : StuckSeconds;
-            if (speed < 1f) stuckTimer += dt;
+            // A car stopped behind a queue, or for an oncoming car filling a
+            // narrow road, is WAITING: its clock runs at WaitingClockRate, so it
+            // pulls away itself once the road clears (a queue of three up
+            // Chimney Rock was put back every 4 s) and is still put back if
+            // the wait never ends.
+            if (speed < 1f) stuckTimer += waiting && !pinned ? dt * WaitingClockRate : dt;
             else stuckTimer = 0f;
 
             // Wrong way: measured against the road, not against the car's own
@@ -905,7 +963,7 @@ namespace PSXRacing
             // speed: under CrawlMinM of road in CrawlSeconds is stuck too.
             if (nearestIdx > crawlIdx + Mathf.CeilToInt(CrawlMinM / path.spacing) || nearestIdx < crawlIdx - 20)
             { crawlIdx = nearestIdx; crawlTimer = 0f; }
-            else crawlTimer += dt;
+            else crawlTimer += waiting ? dt * WaitingClockRate : dt;
 
             if (Retired) return;
             if (stuckTimer > limit || wrongWayTimer > WrongWaySeconds || crawlTimer > CrawlSeconds)

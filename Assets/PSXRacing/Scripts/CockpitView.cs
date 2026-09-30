@@ -123,6 +123,12 @@ namespace PSXRacing
 
         void OnDestroy()
         {
+            // The mirror camera lives on the WORLD camera, not under this
+            // cabin, so it can outlive it (a scene unload destroys in no
+            // particular order): let go of the texture before releasing it, or
+            // Unity logs "Releasing render texture that is set as
+            // Camera.targetTexture!" - an error the door tour (DoorTour) counts.
+            if (mirrorCam != null) mirrorCam.targetTexture = null;
             if (mirrorRT != null) { mirrorRT.Release(); Destroy(mirrorRT); }
             // Statics outlive the scene that set them. Leaving a wheel
             // published after this cabin is gone would have the next cluster

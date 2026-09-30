@@ -245,7 +245,7 @@ namespace PSXRacing
         {
             var go = new GameObject("Line");
             go.transform.SetParent(panel.transform, false);
-            var t = go.AddComponent<Text>();
+            var t = go.AddComponent<SafeText>();
             t.font = font;
             t.text = text;
             t.fontSize = size;

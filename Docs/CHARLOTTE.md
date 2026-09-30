@@ -177,15 +177,25 @@ The exporter writes nothing unless told where (2026-09-28):
   file's sha256 (about 10 s). `--check` says the shipped files are the
   export's output; this says the export is a function of its inputs.
 
-**Credits (WP-02, critic C17).** `tools/city/SOURCES.md`'s Credits table is
-also the source of the pause menu's **CREDITS** page (a row beside the column,
-under TOGGLE DEBUG INFO; `CreditsPanel` shows
-`Resources/psx_credits.txt`, wrapped to the column) and of **`LICENSES.txt`**,
-which the WebGL template carries into every build beside `index.html` and
-`build-and-publish.ps1` publishes with it (live: `/city/LICENSES.txt`).
-`node tools/city/credits.mjs --write` regenerates both; without `--write` it
-checks them. `tools/bench-preview.ps1` photographs the page at the three
-aspects and logs any clipped text.
+**Credits (WP-02, critic C17), per edition.** `tools/city/SOURCES.md`'s
+Credits table is also the source of the pause menu's **CREDITS** page (a row
+beside the column, under TOGGLE DEBUG INFO; `CreditsPanel` shows the build's
+own edition's page - `Resources/psx_credits.txt` for ALL,
+`psx_credits_main.txt`, `psx_credits_city.txt` - wrapped to the column), of
+the one-line credit on the CITY front page (`CityFrontEnd.Credits`, CITY's row
+of `Resources/psx_credits_line.txt`, made from the table's `short` column) and
+of **`LICENSES.txt`**, which the WebGL template carries into every build beside
+`index.html` (`LICENSES-MAIN.txt` / `LICENSES-CITY.txt` beside it;
+`PSXBuildWebGL.PickLicenses` keeps the build's own edition's) and
+`build-and-publish.ps1` publishes with it (live: `/city/LICENSES.txt`). A row's
+`shipped in` names the editions whose build carries its data (`CITY: ...;
+MAIN: ...`), so the CITY page credits OpenStreetMap, USGS 3DEP, Mecklenburg
+County GIS and USGS 3DHP and not the stages' terrain, and MAIN the reverse.
+`node tools/city/credits.mjs --write` regenerates them all; without `--write`
+it checks them; `--build <Build/WebGL>` checks a finished build carries its own
+edition's `LICENSES.txt` (the publish runs it before a deploy).
+`tools/bench-preview.ps1` photographs the page at the three aspects and logs
+any clipped text.
 
 **The other OpenStreetMap layers (WP-02, critic C19).**
 `tools/city/fetch/fetch_layers.mjs` fetches, in one step, the layers later

@@ -307,7 +307,9 @@ namespace PSXRacing
             var tank = Tank;
             if (tank == null) return "FUEL TRUCK: N/A";
             if (tank.percent >= 99.5f) return "FUEL TRUCK: TANK FULL";
-            if (!RaceHandoff.FromLifeSim) return "FUEL TRUCK: FILL (FREE)";
+            // Free where there is no wallet: a standalone editor race, and the
+            // CITY edition, which has no career to bill.
+            if (!RaceHandoff.FromLifeSim || !Edition.HasCareer) return "FUEL TRUCK: FILL (FREE)";
             int cost = LifeSim.LifeRules.CallOutRefuelCost(tank.percent, tank.Profile);
             var s = LifeSim.LifeSimManager.State;
             return s.money < cost
@@ -320,7 +322,7 @@ namespace PSXRacing
             var tank = Tank;
             if (tank == null || tank.percent >= 99.5f) return;
 
-            if (RaceHandoff.FromLifeSim)
+            if (RaceHandoff.FromLifeSim && Edition.HasCareer)
             {
                 var s = LifeSim.LifeSimManager.State;
                 int cost = LifeSim.LifeRules.CallOutRefuelCost(tank.percent, tank.Profile);
@@ -811,7 +813,7 @@ namespace PSXRacing
             // Debug readout lives outside the panel so it stays up while driving
             var dbgGO = new GameObject("DebugText");
             dbgGO.transform.SetParent(canvasGO.transform, false);
-            debugText = dbgGO.AddComponent<Text>();
+            debugText = dbgGO.AddComponent<SafeText>();
             debugText.font = font;
             debugText.fontSize = 17;
             debugText.color = new Color(0.6f, 1f, 0.7f);
@@ -835,7 +837,7 @@ namespace PSXRacing
         {
             var go = new GameObject("Text");
             go.transform.SetParent(parent, false);
-            var t = go.AddComponent<Text>();
+            var t = go.AddComponent<SafeText>();
             t.font = font; t.fontSize = size; t.color = Color.white;
             t.alignment = TextAnchor.MiddleCenter;
             t.horizontalOverflow = HorizontalWrapMode.Overflow;
