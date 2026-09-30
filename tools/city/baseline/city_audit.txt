@@ -1,4 +1,4 @@
-edges 25042, nodes 20194, waters 1890, crossings 783 (213 trenched), wspans 564, footprints 31696, routes 3, DEM yes
+edges 25042, nodes 20194, waters 3121, crossings 783 (213 trenched), wspans 564, footprints 31696, routes 3, DEM yes
   ok  edge count in expected range — 25042
   ok  grade separations present — 783
   ok  water bridge spans present — 564
@@ -80,12 +80,12 @@ drive audit: 69123 probes on 9 tiles
   ok  every lane has a surface under it (drive audit) — 0
   ok  every lane surface is where the solve put it (drive audit) — 0
   ok  no land stands on top of any lane (drive audit) — 0
-roadside audit: 116 tiles (routes + 12 most elevated) built 197.6 km of verge, 41.5 km of rail, 123 gore noses, 1609 street lamps (their posts looked through); 80230 verge points, 244543 rail probe points, 1 m of edge over a drop > 1 m without a barrier
+roadside audit: 116 tiles (routes + 12 most elevated) built 197.6 km of verge, 41.5 km of rail, 123 gore noses, 1609 street lamps (their posts looked through); 80229 verge points, 244543 rail probe points, 1 m of edge over a drop > 1 m without a barrier
     roadside tiles on the race routes: -8,22 -8,21 -7,21 -7,20 -6,20 -6,19 -5,19 -5,18 -4,18 -4,17 -5,17 -5,16 -5,15 -6,15 -6,14 -7,14 -7,13 -8,13 -9,13 -10,13 -10,14 -11,14 -11,15 -12,15 -12,16 -13,16 -13,17 -14,17 -15,17 -16,17 -16,18 -16,19 -15,19 -15,20 -15,21 -14,21 -14,22 -14,23 -13,23 -13,24 -12,24 -11,24 -11,25 -10,24 -9,24 -9,23 -9,22 -14,13 -14,14 -13,14 -13,15 -11,16 -11,17 -10,17 -10,18 -9,18 -9,19 -8,19 -8,20 -6,21 -6,22 -5,22 -5,23 -4,23 -3,24 -2,25 -2,26 -1,26 -1,27 0,27 0,28 1,28 2,28 2,29 3,29 -3,15 -3,14 -2,14 -1,14 0,14 1,14 2,14 2,13 3,13 3,12 4,12 5,12 5,11 6,10 7,10 7,9 8,9 8,8 9,8 9,7 10,7 11,7 12,7 13,7 14,7 15,7 15,6 16,6 16,5 17,5 17,4 18,4 18,3 19,3 19,2
     roadside tiles, the elevated ones: -36,-26 -9,77 29,71 -8,77 30,70 -54,27
     open deck: 1 m
-    pits (lattice > 0.5 m under a grounded ribbon's design within 25 m): 7321; held under a lower road's pavement (conflict) 6273; dug under a deck 1013; held under a deck's pavement 35
-  ok  every grounded edge meets its verge within 0.05 m (roadside audit) — 0 of 80230 points step more
+    pits (lattice > 0.5 m under a grounded ribbon's design within 25 m): 7423; held under a lower road's pavement (conflict) 6363; dug under a deck 765; held under a deck's pavement 6; water 286; a creek's channel at a bridge (WP-25) 3
+  ok  every grounded edge meets its verge within 0.05 m (roadside audit) — 0 of 80229 points step more
   ok  no face stops the body box coming back onto a grounded edge (roadside audit) — 0
   ok  no edge over a drop past 1 m is without a barrier: decks, approaches, ledges, fan chords, gore noses (rail census) — 0 runs, 0 m
   ok  every pit beside a grounded ribbon has a rule that put it there (pit census) — 0
@@ -96,7 +96,7 @@ roadside audit: 116 tiles (routes + 12 most elevated) built 197.6 km of verge, 4
     named lane solids (KnownLaneSolids): 10 of 10 still there
   ok  no land stands over a lane, or opens under one, more than 0.12 m but the named spots (lane survey) — 0 runs not named; 0 runs at the named spots; 3 runs within 0.12 m of the lane, counted above
     named lane land (KnownLaneLand): 0 of 0 still there
-  ok  no unguarded ledge 0.3-1 m deep within 1.5 m past a grounded edge (roadside audit) — 0 of 80230 verge points
+  ok  no unguarded ledge 0.3-1 m deep within 1.5 m past a grounded edge (roadside audit) — 0 of 80229 verge points
     -- faces in the body box's way: 1
     KNOWN FACE  normal.y 0.50 0.74 m in from 1 m out, e9677 'North Kings Drive' cls2 s=8.5/54 side L on tile_-5_15/Roads at (-1069.4,3904.8) y -0.45, ground 1 m out -0.54 on tile_-5_15/Ground, tile -5,15 node 9 m deg3/3 trims 0.0/0.0 | span 8.1..9.1: gap
     -- lips past a grounded edge: 2
@@ -123,10 +123,10 @@ roadside audit: 116 tiles (routes + 12 most elevated) built 197.6 km of verge, 4
     -- pits: 400, 10 shown (the worst per edge and side)
     PIT   4.28 m under e2320 'I-277' (6.8 m past its pavement) at (-1560,5368) tile -7,20: held under a lower road's pavement (conflict) e14612 'North Tryon Street'
     PIT   3.54 m under e2305 'I-277' (9.5 m past its pavement) at (-1704,5536) tile -7,21: held under a lower road's pavement (conflict) e388 ''
-    PIT   2.82 m under e1918 'I-277' (5.9 m past its pavement) at (-2032,5816) tile -8,22: dug under a deck
-    PIT   2.81 m under e1920 'I-277' (7.0 m past its pavement) at (-2048,5816) tile -8,22: dug under a deck
     PIT   2.51 m under e2384 '' (10.5 m past its pavement) at (-1576,5352) tile -7,20: held under a lower road's pavement (conflict) e14612 'North Tryon Street'
     PIT   2.48 m under e2322 'I-277' (7.0 m past its pavement) at (-1640,5456) tile -7,21: dug under a deck
+    PIT   2.37 m under e1918 'I-277' (8.1 m past its pavement) at (-2024,5816) tile -8,22: dug under a deck
+    PIT   2.36 m under e1920 'I-277' (7.0 m past its pavement) at (-2048,5816) tile -8,22: dug under a deck
     PIT   2.29 m under e2317 'I-277' (16.4 m past its pavement) at (-1648,5480) tile -7,21: held under a lower road's pavement (conflict) e8920 'North Church Street'
     PIT   1.95 m under e13651 'I-277' (3.7 m past its pavement) at (-1952,5688) tile -8,22: dug under a deck
     PIT   1.81 m under e2146 'I-277' (7.5 m past its pavement) at (-1752,5544) tile -7,21: held under a lower road's pavement (conflict) e2305 'I-277'
@@ -138,25 +138,25 @@ fan mouth probe: 290 fans on the probed tiles, 19872 probes; land or nothing 0, 
     FAN   node 1362 arm e10610 'East 11th Street' way 1025215829 0.3 m back from the mouth, lane line +5.3: a road +0.48 m off (tile_-5_19/Roads) at (-1157.4,4865.3) tile -5,19 deg4 trim 6.3
     FAN   node 11493 arm e10610 'East 11th Street' way 1025215829 0.3 m back from the mouth, lane line +4.3: a road +0.46 m off (tile_-5_19/Roads) at (-1157.7,4864.2) tile -5,18 deg5 trim 6.3
     FAN   node 15383 arm e23270 'Gordon Street' way 16721760 1.0 m back from the mouth, lane line -3.5: KNOWN fan-gordon: land -0.02 m (tile_1_14/Ground) at (392.1,3808.1) tile 1,14 deg3 trim 4.8
-  info smoothness baseline STALE: the baseline (2026-09-30) was measured on other inputs - the DEM (charlotte_dem.bytes). A stale ratchet cannot tell a regression from the move, so this FAILS until the explicit re-record: tools\city-smooth.ps1 -Mode FULL -WriteBaseline, which logs the before and after numbers for the commit; the comparison below is for that commit
+  info smoothness baseline STALE: the baseline (2026-09-29) was measured on other inputs - the gate's code (CitySmooth.cs + the tap in CityMeshes.cs); the DEM (charlotte_dem.bytes); graph 27bccd93 -> 089d7141; container section EDGE; container section NAME; container section NODE; container section PNTS; container section SPAN; container section XING. A stale ratchet cannot tell a regression from the move, so this FAILS until the explicit re-record: tools\city-smooth.ps1 -Mode FULL -WriteBaseline, which logs the before and after numbers for the commit; the comparison below is for that commit
   info smoothness A0 TEXTURE: every painted run within half a texel of its plan line; every plan line painted, every run planned - 0 runs, worst 0.0 cm (x0.0) (baseline 0, ZERO: 0 new, 0 worse, 0 longer keys)
-  info smoothness A1 OFF: every painted line and edge within V of its plan (a squeezed edge within V of its I7 envelope) - 10108 runs, worst 4.83 m (x193.0) (baseline 10108, RATCHET: 3 new, 28 worse, 43 longer keys) [baseline STALE: compared for the re-record]
-  info smoothness A2 SKEW: the centre pair centred on the drawn ribbon - 1461 runs, worst 1.01 m (x40.2) (baseline 1461, RATCHET: 0 new, 0 worse, 0 longer keys) [baseline STALE: compared for the re-record]
-  info smoothness A3 INSET: every edge line at its inset from its own drawn edge - 1726 runs, worst 1.29 m (x51.5) (baseline 1726, RATCHET: 0 new, 9 worse, 0 longer keys) [baseline STALE: compared for the re-record]
-  info smoothness A4 LINEWIDTH: rendered paint width within 25% of the painted run - 2921 runs, worst -78% (x3.1) (baseline 2921, RATCHET: 3 new, 3 worse, 11 longer keys) [baseline STALE: compared for the re-record]
-  info smoothness A5 STRAY: no paint where the plan has no line of its colour - 2007 runs, worst 4.83 m (x9.7) (baseline 2007, RATCHET: 1 new, 6 worse, 6 longer keys) [baseline STALE: compared for the re-record]
-  info smoothness A5b MISSING: every plan line drawn (report-only until the line model draws it) - 3260 runs, worst 10.00 m (x20.0) (baseline 3261, REPORT: 1 new, 3 worse, 3 longer keys)
-  info smoothness B1 JITTER: no line jitters past V from its local circle - 21757 runs, worst 39.0 cm (x15.6) (baseline 21759, RATCHET: 11 new, 13 worse, 13 longer keys) [baseline STALE: compared for the re-record]
-  info smoothness B2 KINK: no line kinks past V (facet sagitta, twice it at a zigzag peak; a corner split over close vertices is one corner, a hedged one is its net turn, a bump or notch its excursion, a jog its step (faster than the plan's ease when wider than 2.5 m), a wave its lobes off their mean line; a bend fan is judged across) - 13363 runs, worst 1.92 m (x76.8) (baseline 13371, RATCHET: 9 new, 40 worse, 36 longer keys) [baseline STALE: compared for the re-record]
-  info smoothness B3 CURVE: no ribbon bends tighter than its class allows - 574 runs, worst R 3.2 m (x46.7) (baseline 576, RATCHET: 0 new, 4 worse, 0 longer keys) [baseline STALE: compared for the re-record]
-  info smoothness B4 JUMP: no line steps sideways past V where it continues - 3298 runs, worst 6.27 m (x250.8) (baseline 3298, RATCHET: 0 new, 0 worse, 0 longer keys) [baseline STALE: compared for the re-record]
+  info smoothness A1 OFF: every painted line and edge within V of its plan (a squeezed edge within V of its I7 envelope) - 10108 runs, worst 4.83 m (x193.0) (baseline 12928, RATCHET: 1007 new, 8550 worse, 10011 longer keys) [baseline STALE: compared for the re-record]
+  info smoothness A2 SKEW: the centre pair centred on the drawn ribbon - 1461 runs, worst 1.01 m (x40.2) (baseline 1436, RATCHET: 60 new, 348 worse, 513 longer keys) [baseline STALE: compared for the re-record]
+  info smoothness A3 INSET: every edge line at its inset from its own drawn edge - 1726 runs, worst 1.29 m (x51.5) (baseline 2070, RATCHET: 440 new, 3367 worse, 3114 longer keys) [baseline STALE: compared for the re-record]
+  info smoothness A4 LINEWIDTH: rendered paint width within 25% of the painted run - 2921 runs, worst -78% (x3.1) (baseline 3347, RATCHET: 600 new, 2015 worse, 3505 longer keys) [baseline STALE: compared for the re-record]
+  info smoothness A5 STRAY: no paint where the plan has no line of its colour - 2007 runs, worst 4.83 m (x9.7) (baseline 2324, RATCHET: 142 new, 1158 worse, 2220 longer keys) [baseline STALE: compared for the re-record]
+  info smoothness A5b MISSING: every plan line drawn (report-only until the line model draws it) - 3260 runs, worst 10.00 m (x20.0) (baseline 3709, REPORT: 671 new, 1490 worse, 3440 longer keys)
+  info smoothness B1 JITTER: no line jitters past V from its local circle - 21757 runs, worst 39.0 cm (x15.6) (baseline 29947, RATCHET: 6424 new, 2277 worse, 1525 longer keys) [baseline STALE: compared for the re-record]
+  info smoothness B2 KINK: no line kinks past V (facet sagitta, twice it at a zigzag peak; a corner split over close vertices is one corner, a hedged one is its net turn, a bump or notch its excursion, a jog its step (faster than the plan's ease when wider than 2.5 m), a wave its lobes off their mean line; a bend fan is judged across) - 13363 runs, worst 1.92 m (x76.8) (baseline 58973, RATCHET: 12228 new, 4498 worse, 6454 longer keys) [baseline STALE: compared for the re-record]
+  info smoothness B3 CURVE: no ribbon bends tighter than its class allows - 574 runs, worst R 3.2 m (x46.7) (baseline 1852, RATCHET: 469 new, 137 worse, 276 longer keys) [baseline STALE: compared for the re-record]
+  info smoothness B4 JUMP: no line steps sideways past V where it continues - 3298 runs, worst 6.27 m (x250.8) (baseline 3536, RATCHET: 1797 new, 9 worse, 0 longer keys) [baseline STALE: compared for the re-record]
   info smoothness B4s SEAM: no line steps at a tile seam (identical sections) - 0 runs, worst 0.0 cm (x0.0) (baseline 0, ZERO: 0 new, 0 worse, 0 longer keys)
-  info smoothness C1 GAP: no solid line interrupted between its plan ends - 13 runs, worst 52.74 m (x263.7) (baseline 14, RATCHET: 0 new, 0 worse, 0 longer keys) [baseline STALE: compared for the re-record]
-  info smoothness C2 END: lines end only at legitimate ends (fan mouth, gore nose, dead end, plan lane drop) - 1882 runs, worst 9.7x (x9.7) (baseline 1884, RATCHET: 1 new, 0 worse, 0 longer keys) [baseline STALE: compared for the re-record]
-  info smoothness C3 DASH: dash and gap lengths along the chained line - 2 runs, worst -23% (x1.2) (baseline 2, RATCHET: 0 new, 0 worse, 0 longer keys) [baseline STALE: compared for the re-record]
-  info smoothness D1 CROSS: no paint inside other pavement at the same level (branch attach arcs report-only) - 418 runs, worst 7.57 m (x37.8) (baseline 417, RATCHET: 0 new, 0 worse, 0 longer keys) [baseline STALE: compared for the re-record]
+  info smoothness C1 GAP: no solid line interrupted between its plan ends - 13 runs, worst 52.74 m (x263.7) (baseline 34, RATCHET: 21 new, 17 worse, 17 longer keys) [baseline STALE: compared for the re-record]
+  info smoothness C2 END: lines end only at legitimate ends (fan mouth, gore nose, dead end, plan lane drop) - 1882 runs, worst 9.7x (x9.7) (baseline 2206, RATCHET: 466 new, 16 worse, 0 longer keys) [baseline STALE: compared for the re-record]
+  info smoothness C3 DASH: dash and gap lengths along the chained line - 2 runs, worst -23% (x1.2) (baseline 1907, RATCHET: 2 new, 0 worse, 0 longer keys) [baseline STALE: compared for the re-record]
+  info smoothness D1 CROSS: no paint inside other pavement at the same level (branch attach arcs report-only) - 418 runs, worst 7.57 m (x37.8) (baseline 486, RATCHET: 119 new, 271 worse, 215 longer keys) [baseline STALE: compared for the re-record]
   info smoothness E1 FLOAT: strip paint 0.5-3 cm over the surface (strip paint only) - 0 runs, worst 0.0 cm (x0.0) (baseline 0, REPORT: 0 new, 0 worse, 0 longer keys)
-  smoothness gate: 1031 tiles, 63039 runs, city_smooth.txt written (173.8 s)
+  smoothness gate: 1031 tiles, 63039 runs, city_smooth.txt written (179.4 s)
 lamps tile -11,17 (uptown): 15 of 15 stations; street 5 over 0.39 km, arterial 10 over 0.45 km
 lamps tile -10,17 (uptown): 18 of 18 stations; street 1 over 0.11 km, arterial 17 over 0.94 km
 lamps tile -9,17 (uptown): 19 of 19 stations; street 2 over 0.12 km, arterial 17 over 0.69 km
@@ -178,7 +178,7 @@ lamp audit: 12 tiles, 217 lamps of 218 stations; refused: building or lot 1; 0 p
   ok  no lamp stands under a structure (lamp audit) — 0
   ok  no lamp is stood twice across a tile seam (lamp audit) — 0
   ok  a tile stands the same lamps every build (lamp audit)
-terrain fidelity (WP-04): datum 97.0 m; the roads read the grid through a 0.8-cell Gaussian (149268 stations and nodes at a divided road's midline; 19 seated stations freed where a lane meets two hosts); water: 239 creek lines, 1545 ravines, 106 lakes, 69990 bed samples; 564 water spans
+terrain fidelity (WP-04): datum 97.0 m; the roads read the grid through a 0.8-cell Gaussian (149268 stations and nodes at a divided road's midline; 19 seated stations freed where a lane meets two hosts); water: 239 creek lines, 1545 ravines, 1337 lakes, 71221 bed samples; 564 water spans
     creek little_sugar   3DEP 1 m bed 204.60 m: carved terrain 204.48 (-0.12); graded ground 204.48 (-0.12); 30 m grid alone 206.46 (+1.86); creek 'Little Sugar Creek' 6.0 m off, water 205.28 m (+0.68); relief 15.9 m (3DEP 18.9)
     creek irwin          3DEP 1 m bed 198.41 m: carved terrain 197.56 (-0.85); graded ground 199.41 (+1.00, held up there by e8616 'I-77''s corridor (WP-14)); 30 m grid alone 201.10 (+2.69); creek 'Irwin Creek' 9.7 m off, water 198.36 m (-0.05); relief 20.1 m (3DEP 21.5)
     creek stewart        3DEP 1 m bed 194.43 m: carved terrain 194.08 (-0.35); graded ground 194.08 (-0.35); 30 m grid alone 196.42 (+1.99); creek 'Stewart Creek' 5.0 m off, water 194.88 m (+0.45); relief 24.2 m (3DEP 24.2)
@@ -191,29 +191,42 @@ terrain fidelity (WP-04): datum 97.0 m; the roads read the grid through a 0.8-ce
     route tryon: sharpest crest off structure R 973 m at wp 1486 (805,7544) 35.252447,-80.808848; on structure R - m (lift-off near 352 km/h)
     route independence: sharpest crest off structure R 900 m at wp 106 (-254,3770) 35.218479,-80.820489; on structure R 498 m at wp 1358 (4079,1703) 35.199883,-80.772865 (lift-off near 252 km/h)
   ok  no crest on a route sharper than R 400 m off structure (terrain fidelity, critic C23) — sharpest R 486 m (uptown at wp 1172 (-3025,4231) 35.222634,-80.850944); on structure R 482 m (uptown at wp 161 (-1570,5378) 35.232951,-80.834961), not judged: the humps are WP-06's
-    land beside the three routes, |land - road| p90: at 30 m 3.78 m, at 60 m 5.51 m, at 100 m 7.03 m; more than 2 m off the road at 60 m: 40% (WP-14 roadside sections)
-  ok  the land leaves the road: |land - road| p90 >= 2.2 m at 30 m and >= 4 m at 60 m, >= 30% over 2 m at 60 m (terrain fidelity, WP-14) — 3.78 m, 5.51 m, 40%
+    land beside the three routes, |land - road| p90: at 30 m 3.84 m, at 60 m 5.51 m, at 100 m 7.03 m; more than 2 m off the road at 60 m: 40% (WP-14 roadside sections)
+  ok  the land leaves the road: |land - road| p90 >= 2.2 m at 30 m and >= 4 m at 60 m, >= 30% over 2 m at 60 m (terrain fidelity, WP-14) — 3.84 m, 5.51 m, 40%
     stations made structure by the 3.5 m last resort: 1554 (before WP-04 1874); trenches 213; cut walls on the 116 roadside tiles 0.30 km (before WP-04 1.34 km; why: the back slope cannot reach the land 0 m, a road above in the slope 264 m, a building 20 m, runs closed over a gap 20 m)
   ok  stations made structure by the 3.5 m margin: at most +25% on WP-04's baseline (terrain fidelity) — 1554 vs 1874
   ok  cut (retaining) walls: at most +20% on WP-04's baseline (terrain fidelity) — 304 m vs 1340 m on the roadside tiles
   ok  cut (retaining) walls: at least 50% below WP-04's (graded cuts, WP-14) — 304 m vs 1071 m after WP-04 on the roadside tiles
     decks over water: 563 spans judged; soffit under 1 m above the water 2, under the water 0; lowest 0.99 m e3565 'Tom Short Road' at (2266,-17176) 35.030004,-80.792792 (WP-25 asks >= 1 m); the solve lifted 14 spans to clear their water by 1.0 m, the most by 3.45 m
   ok  no water stands above a deck's soffit (terrain fidelity) — 0 of 563 spans; lowest 0.99 m e3565 'Tom Short Road' at (2266,-17176) 35.030004,-80.792792
+hydro audit (WP-25): 824 ravine crossings of a road: 706 culverts (deck 48, shallow 70 take none), solved in 543 ms
+    culvert ends: 770 (290 headwalls set into the fill, 480 pipes projecting from the toe; 242 culverts with both ends), pipes 0.9 m x482, 1.2 m x91, 1.5 m x197; ends not stood: a building 8, a creek 24, a lake 9, never clear of a road 151, no channel on the lattice 200, shallow at the toe 131, shared 119; nearest end 4.5 m past a pavement
+  ok  every culvert keeps its embankment: the road on the ground over the pipe, the ground under its line held within 1.1 m of it, over the smallest pipe's crown: the ravine's carve never cuts the road (hydro audit) — 0 of 706; deepest 0.89 m
+  ok  every culvert end stands past its road's pavement and clear zone (hydro audit) — 0 of 770
+    25 tiles with ends built: 50 ends drawn of the 50 the solve puts there (15 headwalls, 35 projecting pipes), 0 outside their tile, 0 walls facing the wrong way; the fill behind met the backfill at 15 of the 15 headwalls (backfill p50 6 m, max 6 m); 25 of the 25 tiles drew their ends' clay ditches
+  ok  every culvert end is drawn once, by the tile it stands in (hydro audit) — 50 of 50, 0 outside
+  ok  no headwall stands free on the lawn: the fill behind every one rises through its backfill within 6.5 m (hydro audit, review 2026-09-30) — 0 of 15
+    water shown along the creeks (every 8 m, surface over the drawn ground): 692.6 of 710.0 km (97.5%), 9.2 km under decks not judged
+    shown by creek: Irwin Creek 72%, Stewart Creek 97%, Little Sugar Creek 93%, Briar Creek 97%, McAlpine Creek 100%, Sugar Creek 98%
+    at the named bridges, water shown every 4 m within 60 m off the deck: West Trade Street over Irwin Creek 10 of 24 (within 24 m of the deck 0 of 6), State Street over Stewart Creek 28 of 28 (within 24 m of the deck 10 of 10), Archdale Drive over Little Sugar Creek 26 of 28 (within 24 m of the deck 8 of 10)
+    ponds (0.2-2 ha): 1233 (739 ha), water shown at the middle of 1203
+  ok  no pond within 3.5 m of a road's pavement (hydro audit) — 0
+  ok  no pond's water stands over a grounded road within 16 m (hydro audit) — 0
 tree audit (WP-08): canopy 2024 grid loaded
   ok  the canopy grid (charlotte_canopy.bytes) loads
   ok  the city kit holds a tree material per season dress and the atlas's low-foliage table
-    614 tiles, 136161 trees (11267 with a trunk collider), 7 tiles with none; per tile p50 227 p90 400 max 417; plant 2.6 ms a tile (the mask 1.1; max 41.6); grown for the overhang 4, shrunk 1295; in freeway tree walls 820
-    candidates refused: pavement 43642, clear zone 20409, sight triangle 134, building 30561, water 24208, under a deck 501, lot, lamp or sign 878, card over the road too low 13, too close to another tree 105947
-  ok  the city plants trees (tree audit) — 136161
+    614 tiles, 135946 trees (11275 with a trunk collider), 7 tiles with none; per tile p50 227 p90 400 max 417; plant 2.9 ms a tile (the mask 1.1; max 36.9); grown for the overhang 4, shrunk 1296; in freeway tree walls 820
+    candidates refused: pavement 43724, clear zone 20437, sight triangle 134, building 30497, water 28849, under a deck 501, lot, lamp or sign 889, card over the road too low 13, too close to another tree 111692
+  ok  the city plants trees (tree audit) — 135946
   ok  no trunk on pavement, in a clear zone or fan, a building or lot, water, under a deck, or on a reserved cell; no low leaves over a road (tree audit) — 0
   ok  every tree stands in the tile that planted it: none doubled across a seam (tree audit) — 0
   ok  a tile plants the same trees every build (tree audit)
     race run-off (RaceRunOff: 8 m past the edge along the routes, 16 m on the outside of bends): 133 tiles; 100 route tiles audited besides the 514 above
   ok  no tree in the city race routes' run-off (tree audit) — 0
-    Q15: 11267 solid (a trunk of 30 cm or more within 25 m of a road: oak 5109, hardwood 3937, pine 1961, sycamore 260), 3742 within reach that break away (crape myrtles, snags, young trees, thin trunks)
+    Q15: 11275 solid (a trunk of 30 cm or more within 25 m of a road: oak 5108, hardwood 3945, pine 1962, sycamore 260), 3753 within reach that break away (crape myrtles, snags, young trees, thin trunks)
   ok  Q15: only trunks of 30 cm or more are solid; crape myrtles, snags and young trees break away (tree audit) — 0
-    planted / what the canopy asks, 575 tiles asking 20+: median 1.00, 565 within +-20%; lowest 0.46 (30 of 66 at tile -39,77 (spread))
-  ok  the planted count per tile matches the canopy map (median within +-20%) (tree audit) — median 1.00, 565 of 575 tiles within +-20%
+    planted / what the canopy asks, 575 tiles asking 20+: median 0.99, 564 within +-20%; lowest 0.46 (30 of 66 at tile -39,77 (spread))
+  ok  the planted count per tile matches the canopy map (median within +-20%) (tree audit) — median 0.99, 564 of 575 tiles within +-20%
   ok  canopy within 25 m of the centreline, secondary: the crowns within 5 points of the canopy map (tree audit) — crowns 9.8%, the 30 m map 13.1% (23737 points; here 23737), the shipped 60 m grid 15.2%
   ok  canopy within 25 m of the centreline, motorway: the crowns within 5 points of the canopy map (tree audit) — crowns 11.4%, the 30 m map 14.9% (10726 points; here 10726), the shipped 60 m grid 23.9%
   ok  canopy within 25 m of the centreline, core arterials: the crowns within 5 points of the canopy map (tree audit) — crowns 6.2%, the 30 m map 8.1% (13019 points; here 13019), the shipped 60 m grid 8.9%
@@ -221,12 +234,12 @@ tree audit (WP-08): canopy 2024 grid loaded
 sign audit (WP-23): data 19 routes, 43 OSM billboards, 3970 businesses
   ok  the sign data (charlotte_signs.bytes) loads
   ok  the city kit's sign material wears the atlas and lights its faces at night (_NightMask, _NightWin, _NightFace)
-    3536 tiles (45 at the shot spots, the rest along the routes and the race routes), 955 with signs; 272 bulletins, 59 posters (32 of them OSM's), 1683 business pole signs, 181 exit gantries (15 cantilevers); 678 solid posts and legs, 1039 floodlights, 3373 faces; place 0.7 ms a tile (max 23.1)
+    3536 tiles (45 at the shot spots, the rest along the routes and the race routes), 955 with signs; 272 bulletins, 59 posters (32 of them OSM's), 1683 business pole signs, 181 exit gantries (14 cantilevers); 679 solid posts and legs, 1039 floodlights, 3373 faces; place 0.7 ms a tile (max 44.5)
     candidates that won their spacing but found no free ground: billboards 39, pole signs 91, gantries 14; gantries and billboards dropped by their own tile on its fill houses or lamps: 4
     across the seams: 303 times a tile marked the ground of another tile's gantry or billboard; 65 legs and posts in a tile not their own (269 such tiles rebuilt and checked: 0 feet that tile did not mark); trees on a sign's ground 0; posts in one another 0
     business pole signs: 1683 (1062 at an OSM business, 621 along the frontage) on 565.2 km of commercial frontage (each side counted): one every 336 m of it (the plan: every 30-60 m)
   ok  a business sign every 30-60 m of store frontage (a store behind a collector or bigger, each side) (sign audit) — 1683 on 32.2 km: one every 19 m (621 frontage fills alone: one every 52 m)
-    business signs that did not stand: lost the spacing 528, a frontage with no store behind 8707, a business or store at the kerb (its sign on its wall) 1081, no drivers to turn to 52, no free ground 91, a bend 4
+    business signs that did not stand: lost the spacing 528, a frontage with no store behind 8707, a business or store at the kerb (its sign on its wall) 1077, no drivers to turn to 52, no free ground 91, a bend 4
     business signs along the shot spots' streets (each side counted; one every N m): East Independence Boulevard 4 on 3.5 km (868 m); Statesville Avenue 8 on 2.7 km (332 m); Atando Avenue 0 on 2.1 km (0 m); South Boulevard 2 on 2.1 km (1032 m); Carson Boulevard 0 on 1.7 km (0 m); South Tryon Street 0 on 1.5 km (0 m); East W T Harris Boulevard 1 on 1.5 km (1456 m); North Tryon Street 0 on 1.4 km (0 m); South College Street 0 on 0.9 km (0 m); East Morehead Street 0 on 0.9 km (0 m)
       East Independence Boulevard: no store behind 52; poi placed 4; poi lost the spacing 1
       Statesville Avenue: store at the kerb 1; fill placed 8; fill lost the spacing 1
@@ -246,13 +259,13 @@ sign audit (WP-23): data 19 routes, 43 OSM billboards, 3970 businesses
   ok  a tile places the same signs every build (sign audit)
   ok  a tile's signs are one mesh with one material: at most +1 draw (sign audit) — 0
   ok  every billboard lit: two floodlights under a bulletin face, one under a poster (sign audit) — 1039 lamps for 272 bulletins, 59 posters
-  ok  billboard monopoles and gantry legs are solid; pole-sign cabinets break away (Q15) (sign audit) — 678 posts
+  ok  billboard monopoles and gantry legs are solid; pole-sign cabinets break away (Q15) (sign audit) — 679 posts
     billboards per route (placed / NCDOT's figure): US 21 0/0 (0.00 per km of 21 km, NCDOT 0.00); US 29 26/33 (0.55 per km of 47 km, NCDOT 0.70); NC 49 5/11 (0.13 per km of 37 km, NCDOT 0.29); I 85 57/66 (1.28 per km of 44 km, NCDOT 1.49); NC 273 12/14 (0.51 per km of 24 km, NCDOT 0.60); NC 27 5/4 (0.19 per km of 27 km, NCDOT 0.16); NC 16 31/28 (0.63 per km of 50 km, NCDOT 0.56); NC 115 6/8 (0.45 per km of 13 km, NCDOT 0.60); NC 51 20/21 (0.56 per km of 36 km, NCDOT 0.60); NC 160 12/14 (0.50 per km of 24 km, NCDOT 0.60); US 74 31/39 (1.00 per km of 31 km, NCDOT 1.25); I 485 29/30 (0.27 per km of 106 km, NCDOT 0.29); I 277 9/14 (1.27 per km of 7 km, NCDOT 1.97); I 77 54/57 (1.14 per km of 47 km, NCDOT 1.20); NC 24 22/20 (0.59 per km of 37 km, NCDOT 0.54); NC 218 2/2 (0.61 per km of 3 km, NCDOT 0.60); US 521 2/3 (0.40 per km of 5 km, NCDOT 0.60)
   ok  billboard density on interstates within +-20% of NCDOT's (sign audit) — 149 placed for 167 (0.73 per km against 0.82; 204 km)
   ok  billboard density on US and NC routes within +-20% of NCDOT's (sign audit) — 174 placed for 197 (0.49 per km against 0.55; 355 km)
     exit gantries 181 over 223 km of motorway in the audited tiles' reach (NCDOT counts 1.01 per km; one per exit here; 14 exits found no legs)
-budget: 225 tiles at 9 sites, tile build p50 26.0 / p95 100.1 / max 278.0 ms (editor), worst view 207 draws (trade_tryon)
-budget: WP-23 signs - at most +7 draws in one view (tryon_start; one per tile with signs in view); tile build p95 94.0 (no signs) / 100.1 (signs) ms on the same tiles; tree frames (signs placed first on them) p95 5.4 / max 14.5 ms
+budget: 225 tiles at 9 sites, tile build p50 28.2 / p95 99.5 / max 228.1 ms (editor), worst view 207 draws (trade_tryon)
+budget: WP-25 culverts and banks - at most +4 draws in one view (i77_north); tile build p95 100.8 (without) / 99.5 (with) ms on the same tiles; tree frames p95 5.8 / max 12.9 ms
 budget: spawn road y (m above the datum) trade_tryon 134.417, providence 116.582, i77_north 134.362, beatties_ford 144.010, tryon_start 130.208, dilworth 102.881, plaza_midwood 126.522, i485_south 119.256, suburb_6km 124.726
-budget: parse 240 ms + solve 1504 ms, map heap 17.0 MB (+3.3 MB DEM)
+budget: parse 338 ms + solve 1798 ms, map heap 17.1 MB (+3.3 MB DEM)
 CITY AUDIT OK

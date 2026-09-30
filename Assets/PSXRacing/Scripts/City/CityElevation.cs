@@ -2420,6 +2420,15 @@ namespace PSXRacing.City
         /// a fan on a deck) and give no true foot either. A structure END — a
         /// node with a grounded arm, the edge's run stopping at the vertex — is
         /// not a wedge: that is the disc that dug the approaches.
+        ///
+        /// The other segment's projection must clamp to the SHARED vertex, not
+        /// to its far end: a point beyond the far end has no true foot on it
+        /// either, but it is round that far vertex, not in this one's wedge.
+        /// WP-11's densify put a vertex 2.4 m into Chestnut Lane's 9 m bridge
+        /// over West Fork Twelvemile Creek, and a point on the grounded
+        /// approach 2.9 m short of the deck (its first segment's far side)
+        /// read as the wedge of that vertex: the deck's cap dug the land under
+        /// the approach 1.8 m below the road (the WP-25 culvert audit's hole).
         /// </summary>
         static bool InStructureWedge(CityMap map, CityMap.Edge e, int si, bool atStart, Vector2 p)
         {
@@ -2428,7 +2437,8 @@ namespace PSXRacing.City
             if (vi > 0 && vi < last)
             {
                 int oj = atStart ? si - 1 : si + 1;
-                return !TrueFoot(e.pts[oj], e.pts[oj + 1], p) && e.ElevatedAt(e.s[vi] + (atStart ? -0.5f : 0.5f));
+                // atStart: the other segment ENDS at the vertex; else it starts there
+                return ClampsAt(e.pts[oj], e.pts[oj + 1], p, atStart) && e.ElevatedAt(e.s[vi] + (atStart ? -0.5f : 0.5f));
             }
             int node = vi == 0 ? e.a : e.b;
             bool any = false;
@@ -2439,10 +2449,22 @@ namespace PSXRacing.City
                 bool fromA = o.a == node;
                 if (!o.ElevatedAt(fromA ? 0f : o.length)) return false;
                 int n = o.pts.Length;
-                if (fromA ? TrueFoot(o.pts[0], o.pts[1], p) : TrueFoot(o.pts[n - 2], o.pts[n - 1], p)) return false;
+                if (!(fromA ? ClampsAt(o.pts[0], o.pts[1], p, false) : ClampsAt(o.pts[n - 2], o.pts[n - 1], p, true))) return false;
                 any = true;
             }
             return any;
+        }
+
+        /// <summary>Does <paramref name="p"/>'s projection on segment a-b
+        /// clamp to <paramref name="b"/> (<paramref name="atB"/>) or to
+        /// <paramref name="a"/>? A degenerate segment clamps to either.</summary>
+        static bool ClampsAt(Vector2 a, Vector2 b, Vector2 p, bool atB)
+        {
+            var d = b - a;
+            float L2 = d.sqrMagnitude;
+            if (L2 < 1e-8f) return true;
+            float t = Vector2.Dot(p - a, d) / L2;
+            return atB ? t >= 1f : t <= 0f;
         }
 
         /// <summary>How far along a grounded road from one of its vertices a
@@ -2491,15 +2513,6 @@ namespace PSXRacing.City
             for (int i = Mathf.Max(0, lo - 1); i < st.Length && st[i] <= at + r; i++)
                 if (e.stElev[i]) return true;
             return false;
-        }
-
-        static bool TrueFoot(Vector2 a, Vector2 b, Vector2 p)
-        {
-            var d = b - a;
-            float L2 = d.sqrMagnitude;
-            if (L2 < 1e-8f) return false;
-            float t = Vector2.Dot(p - a, d) / L2;
-            return t > 0f && t < 1f;
         }
 
         static float DistToSeg(Vector2[] pts, int si, Vector2 p)
