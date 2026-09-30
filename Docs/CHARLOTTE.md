@@ -1647,6 +1647,147 @@ sides - the one-sided offsets are in the data (TAPR) and WP-11b draws them.
 - Published: /city/ build stamp 20260930090352 (charlotte d854759); the
   site root byte-identical.
 
+## WP-11b (R4): one line model - lanes added on ONE side, paint drawn as columns (2026-09-30)
+
+The owner, after ten minutes on /city/: "All sections of road that add an
+additional lane for a turn lane, instead expand a lane and widen on both
+sides, as if center aligned. Two lane to three lane to two lane." (plan A8).
+WP-10 wrote the answer into the data (TAPR: which side each lane change
+opens on, and every edge's ribbon offset off its OSM line; SPLT: where an
+undivided road opens into its carriageways); WP-11b is the runtime that
+draws it. `Scripts/City/LineModel.cs`.
+
+- **The model.** Every drawn lateral - both ribbon edges and every painted
+  line - is the edge's OSM line plus an offset from the model:
+  - OFFSET: the lanes' centre sits `lmOff` (TAPR) off the OSM line, each
+    side with its own shoulder (a freeway's 1.2 m inside and 3 m outside:
+    the lanes, not the pavement, are centred - what PARA separated the
+    carriageways by). `Edge.PaveEdgeM`, `Trims.HalfWidthAt / ExtentsAt /
+    CentreAt / ReachAt`, `LaneExtents`, fans, clips, the squeeze, lamps,
+    signs, buildings, trees, the corridor and the audits all read it.
+  - ONE-SIDED TAPERS: where two through ribbons meet mitred and one edge
+    steps, only that side eases (smoothstep), on the wider arm, over TAPR's
+    MUTCD length - run on through the next mitred joints, never clamped to
+    one OSM piece (`ComputeTrims.Taper` and its 0.9-of-an-edge clamp are
+    gone). No TAPR record for that side: the class default (WS^2/60 to 40
+    mph, WS from 45, floors 15/30/90 m); a junction-mouth record the builder
+    mitres (a lane opening at a merge): the class floor.
+  - BOTH EDGES STEP (a change the data centred on a node the builder
+    mitres, a one-way carriageway leaving a two-way road): one edge is held
+    - a one-way keeps its direction's half, else TAPR's fixed side, else the
+    smaller step - the narrow arm is shifted over to it on a MUTCD shifting
+    taper and the wide arm eases the whole difference on the other side.
+  - MEDIAN TAPERS (SPLT, critic C11): each carriageway starts where its
+    lanes are in the undivided road and eases onto its own line over the
+    shifting taper; the undivided road is not tapered on the other
+    carriageway's half.
+  - MIRRORED TAPR: 14 of WP-10's 7,652 changes (all two lanes, at junction
+    nodes) carried the narrow run's offset mirrored - I-277 at US 74 drew
+    I-277's two lanes as the right pair of the four, and US 74's, joining on
+    the right, squeezed them 4.4 m. The narrow run is put on TAPR's fixed
+    edge at load, out to the junction at its far end (left alone if another
+    change comes first).
+- **Paint columns** (plan A2 I2/I3). A span whose two sections are the full
+  model width and within the bend limit (w (1 - cos theta) / 2 <= V / 2) is
+  one quad with U 1..0, exact. Anything else - a taper, a squeeze, a clip, a
+  tighter bend - is a row of strips: each painted line its own 12 cm strip
+  at its texels (U fixed, a quarter texel in; never measured against the
+  section's width), the pavement between lines from the paint-free texels
+  beside the line R-ward of it. No squeezed texture, no diagonal bending a
+  line, no paint where the model has none. Across a taper a line with a
+  partner in the narrow layout eases to it (edge lines with edges, the
+  centre group in order from the held edge, white lines by the side of the
+  centre they are on, the narrow layout mirrored when the two arms run
+  opposite ways through the node); a line with none ends where the taper
+  reaches full width, on its own section. The layout is ONE function,
+  `RoadProfiles.PaintLines`, which the painter now reads too (PNGs
+  unchanged). The tap records a column span as its strips (`Span.strips`);
+  CitySmooth reads paint from the strips and edges from the outer ones.
+- **The squeeze, eased** (I7): the cut each side is sampled on a fixed
+  lattice along the edge (every F/6 from its a end), max-filtered and eased
+  over the class floor F, with sections through every ramp; a section never
+  cuts less than it needs. After a tile build `LaneExtents` reads the drawn
+  sections, so the audits probe the edge the tile drew.
+- **Fans**: the arms' corners are the model's (off-centre where a lane was
+  added); where the chord from one arm's corner to the next would cut back
+  across the first metre and a half of a mouth (a corner further out than
+  its neighbour's), the arm's edge line is carried back first.
+- **Traffic, the AI, the grid, spawn and respawn** drive the lanes' centre
+  (`LineModel.LanePoint`): the race path is built on it (tapers sampled),
+  the route's start and finish arcs scaled onto its length.
+- **The gate** reads the model: CitySmooth's design edges and lines are the
+  line model's (`EdgeD`, `PlanOff`, `PlanExists`), A2 skips bins inside a
+  taper (the centre pair is off the midline there by design).
+- **Joins that are not a clean one-sided change.** Both edges step (the
+  data centred a lane change on a node the builder mitres, a one-way
+  leaving a two-way road): one edge is held - a one-way keeps its
+  direction's half, else TAPR's fixed side, else the smaller step - and the
+  narrow arm is shifted over to it on a MUTCD shifting taper; the arms
+  stick out on opposite sides (the exporter re-anchored at a junction the
+  builder mitres): the narrower is shifted by the least that makes one edge
+  flush. Every ease and shift is capped at its run's room (the edges it
+  runs on through, up to the next change): a class default of 90 m on a
+  35 m I-277 piece ran into the next join and left 2-4 m steps there.
+- **T-junctions.** A column span's vertices lie ON the next span's single
+  quad edge, and a ray down exactly on a section line fell through the
+  hairline (the drive audit's probes land there). Column spans reach 2 mm
+  past their sections, coplanar.
+- **Diagnostics**: `Editor/LineModelProbe.cs` (PSX_LM_NODES, PSX_LM_EDGES,
+  PSX_LM_PTS: a node's arms and fan corners, an edge's model and sections,
+  what a ray meets on a built tile) and CityAudit's LINE MODEL block.
+- **Measured** (CityAudit LINE MODEL): symmetric widenings at mitred joins
+  (a lane added or dropped, both edges moving more than V) **0 of 14,182**
+  (core 0, routes 0; 545 before the held/crossed/split rules, all joins
+  symmetric before WP-11b); merged carriageways (opposite one-ways of one
+  road drawn under 0.3 m apart, 60 m clear of their ends) **0 m** in the
+  core and on the routes; through-lane continuity: 636 lines still jump
+  more than V at a join (core 62, routes 0) - mostly profile shoulders
+  (a one-way's yellow edge line 6 cm off a two-way's double yellow where a
+  divided road begins; an expressway's 2.4 m outside shoulder against a
+  street's 0.3 m) - open. 9,005 edges drawn off their OSM line (1,150 km),
+  6,529 one-sided tapers, 1,374 median tapers at 891 splits, 85 held and
+  59 crossed joins, 9 mirrored offsets put right (5 left).
+- **Audits**: DRIVE AUDIT zeros, CITY AUDIT OK. The line model fixed the
+  named spots it was handed (face-kings-9677, lip-caldwell-11145, and all
+  nine KnownLaneSolids from WP-04/10/11 but davidson-14102) and moved
+  others: named for WP-14 in the audit's lists with notes (five roadside,
+  nine lane solids and one lane land, three fan mouths at East Morehead
+  Street). Three are on race routes, as i277-us74-2321 was before: I-277 at
+  US 74 (the two drawn 0.3 m into each other before the merge, 0.8 m apart
+  in height), I-277's deck over its exit ramp e175 (TAPR carries I-277 a
+  lane right of its line there), and the Independence Expressway deck
+  beside Albemarle Road's. Tile build p95 98.6-112 ms against 100.1 (three
+  other editors were running); the uptown tile 416 -> 1,004 road vertices.
+- **The moving side's edge line rides its edge** (partner = the narrow
+  layout's shoulder in from the moving edge): anchored on the fixed side it
+  jumped 2.6 m where a taper ran on through a joint whose OTHER side
+  changed (I-277 e2438/e2435).
+- **The smoothness gate** (CitySmooth FULL, every road tile; BEFORE the
+  WP-10/11 baseline d854759 -> AFTER; runs, metres): A1 OFF 76,893 / 936.6
+  km -> 6,069 / 9.8 km (paint off its design line); B1 JITTER 170,834 / 26.6
+  km -> 8,715 / 4.1 km; B2 KINK 98,596 / 742 km -> 44,470 / 114 km; A2 SKEW
+  15,748 -> 48; A3 INSET 12,907 / 335 km -> 331 / 3.5 km; A4 LINEWIDTH
+  26,538 / 274 km -> 570 / 0.7 km; A5 STRAY 15,223 / 160 km -> 635 / 1.8 km;
+  A5b MISSING 23,883 / 244 km -> 6,442 / 98 km; B4 JUMP 24,768 -> 3,344; B4s
+  SEAM 2 -> 0; C1 GAP 102 -> 27; C2 END 14,616 -> 6,983. Up: B3 CURVE 2,579
+  / 5.4 km -> 2,984 / 6.5 km, C3 DASH 31 -> 102 (dashes do not end on a dash
+  boundary yet), D1 CROSS 2,964 / 8.2 km -> 5,760 / 9.8 km (paint over
+  another pavement: ribbons moved off their lines into neighbours that are
+  not squeezed - at two heights, or host and branch). **The creek pin
+  (ways 1078015030, 16671358, 1252904925) reads no violations.** Baseline
+  re-recorded with -AllowLoosen (the gate's reference and tap moved with
+  the builder: its keys cannot be compared across the move; B3, C3 and D1
+  the looser ones). The worst runs left: the edge line on a squeezed side
+  (it moves in with the edge now; the gate's plan still expects it at the
+  model's line), I-277 beside its other carriageway, John Belk's inset.
+- **Not done here**: linecheck's builder replica (lib/linesim.mjs) still
+  models the pre-11b symmetric taper - the offline gate reads the same
+  data but not the new builder; the gate's plan for an edge LINE on a
+  squeezed side (it moves with the edge now) still expects the model's
+  unsqueezed line (A1 OFF there); dashed lines do not yet end on a dash
+  boundary (C3); real lane widths (LANW) not flipped (3.6576 m kept).
+
+
 ## WP-07 (2026-09-29): the draw-call prepay, the city kit, the lamp metal
 
 Nothing new to see: this package pays for the trees, poles and signs that
