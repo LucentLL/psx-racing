@@ -5159,8 +5159,8 @@ namespace PSXRacing.EditorTools
             Line("colour pass - lights, particles, HUD edge, eye:");
             // C5/C6: a beam dimmer than the old 2.0 raw push, glints kept, a
             // 5 W tail lamp under a street lamp's pool and the brake above it.
-            Check(CarLights.BeamIntensity > 0.1f && CarLights.BeamIntensity < 0.5f,
-                  "the low beam's plateau is measured, not the old 2.0 (C5)", CarLights.BeamIntensity);
+            Check(CarLights.BeamIntensity > 0.1f && CarLights.BeamIntensity <= 1.0f,
+                  "the low beam's plateau is measured, not the old 2.0 (C5; 0.80 since the dark-night retune)", CarLights.BeamIntensity);
             Check(CarLights.GlintIntensity > CarLights.BeamIntensity, "the lamps' glints stay a light source's brightness");
             Check(CarLights.TailLampDim < CarLights.TailLampBrake && CarLights.TailLampBrake <= 0.6f,
                   "5 W tail lamps: dim under brake, brake at most 0.6 (C6)",

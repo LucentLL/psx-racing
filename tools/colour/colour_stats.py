@@ -12,6 +12,8 @@
     py tools/colour/colour_stats.py hud    <dir>                   _hud vs _world: label and dial contrast (WCAG), face luma
     py tools/colour/colour_stats.py shade  <dir>                   each frame vs its no-shadow twin (_flat): the car's own
                                                                    shadow on the road, sun:shade and the shade's b* (harsh sun)
+    py tools/colour/colour_stats.py night  <dir>                   the DARK NIGHT targets (-Sets night): unlit road, sky and
+                                                                   frame on each _dark frame; the beam's pool against it
     ... --json out.json   also write every number as JSON
 
 Every frame is a PNG at native resolution with its sidecar (<png>.json,
@@ -898,6 +900,89 @@ def cmd_shade(d, js):
     return out
 
 
+# THE DARK NIGHT TARGETS (2026-09-29, the owner after driving the colour build:
+# "These lights seem pretty dull, and night is hardly dark at all, even without
+# street lights"). Measured off his frames 12-15 (a real highway, a snowy lane
+# and a dirt road by headlight, and NFS Heat's city; scratchpad night2,
+# refmeasure.py) - NOT in the repo, they are other people's pictures:
+#   unlit road / ground   Ycode 2-11 (a treeline 0-2)       -> darkest road box <= 12
+#   sky                   Ycode 1-20 (NFS Heat's city 18)    -> sky_top 6-24
+#   frame                 median 0-22, 49-82% under 20       -> median <= 22, >= 45% under 20
+#   headlit road          55-80 on old asphalt (12: 67; 15's road 48; a dirt road 118;
+#                         lit snow 150-210), 17-28x the unlit road in linear light
+#                                                            -> pool (14-22 m) >= 45 (the owner's fresh
+#                                                               #1e1e22 asphalt >= 28), >= 4x, <= 215
+#   the pool tails off    the band at 40-50 m about a third of the near pool
+NIGHT_UNLIT_ROAD_MAX = 12.0
+NIGHT_SKY = (6.0, 24.0)
+NIGHT_MEDIAN_MAX, NIGHT_UNDER20_MIN = 22.0, 0.45
+NIGHT_POOL_MIN, NIGHT_POOL_MIN_FRESH, NIGHT_POOL_MAX, NIGHT_POOL_RATIO = 45.0, 28.0, 215.0, 4.0
+FRESH_ASPHALT_SPOTS = ("B1", "CC", "CD")
+
+
+def cmd_night(d, js):
+    out = {}
+    fails = 0
+    for dark in sorted(glob.glob(os.path.join(d, "cs_*_night_*_dark*_g1_world.png"))):
+        name = os.path.basename(dark)
+        D = Frame(dark)
+        st = D.frame_stats()
+        yc = D.Yc[D.mask]
+        med, u20 = float(np.median(yc)), float((yc < 20).mean())
+        rt = D.region_table()
+        # The road boxes (any road surface: the town's is "TownMain").
+        onroad = lambda k, v: k.startswith(("road_", "beam_", "tail_")) and _usable(v, road_only=False)
+        roads = {k: v["m"]["Ycode_med"] for k, v in rt.items() if onroad(k, v) and v["m"]["px"] >= 12}
+        sky = rt.get("sky_top", {}).get("m")
+        darkest = min(roads.values()) if roads else None
+        brightest = max(roads.values()) if roads else None
+        ok_road = darkest is not None and darkest <= NIGHT_UNLIT_ROAD_MAX
+        ok_sky = sky is None or NIGHT_SKY[0] <= sky["Ycode_med"] <= NIGHT_SKY[1]
+        ok_frame = med <= NIGHT_MEDIAN_MAX and u20 >= NIGHT_UNDER20_MIN
+        verdict = "ok" if (ok_road and ok_sky and ok_frame) else "MISS"
+        fails += verdict != "ok"
+        print(f"\n{name}\n  UNLIT  frame median {med:.0f} (<= {NIGHT_MEDIAN_MAX:.0f}), under 20 {u20:.0%} (>= {NIGHT_UNDER20_MIN:.0%})"
+              f"  sky_top {fmt(sky['Ycode_med'] if sky else None)} ({NIGHT_SKY[0]:.0f}-{NIGHT_SKY[1]:.0f})"
+              f"  road darkest {fmt(darkest)} (<= {NIGHT_UNLIT_ROAD_MAX:.0f}) brightest {fmt(brightest)}  {verdict}")
+        rec = {"median": med, "under20": u20, "sky": sky["Ycode_med"] if sky else None, "roadDarkest": darkest,
+               "roadBrightest": brightest, "roads": roads, "verdict": verdict, "lit": {}}
+        # The lit twins: the same spot, eye and dress with the lamps on.
+        stem = name.replace("_dark", "_lit", 1)[:-len("_g1_world.png")]
+        for p in sorted(glob.glob(os.path.join(d, stem + "*_g1_world.png"))):
+            pn = os.path.basename(p)
+            rest = pn[len(stem):-len("_g1_world.png")]
+            # the plain lit frame, or the same rig (the dark frame's own suffix)
+            if any(k in rest for k in ("_lens", "_onc", "_brake", "_bi", "_smoke", "_dyn")):
+                continue
+            L = Frame(p).region_table()
+            # The pool at 14-22 m on the box the unlit frame has darkest (a
+            # street lamp's pool is judged as a lamp's, not as the beam's).
+            pool, ratio, far, dmin = None, None, None, None
+            for k in ("road_ahead_14", "beam_22"):
+                if k in L and k in rt and onroad(k, L[k]) and onroad(k, rt[k]):
+                    dk = rt[k]["m"]["Ylin"]
+                    if dmin is None or dk < dmin:
+                        dmin = dk
+                        pool = L[k]["m"]["Ycode_med"]
+                        ratio = L[k]["m"]["Ylin"] / max(dk, 1e-5)
+            for k in ("beam_49", "beam_58"):
+                if k in L and onroad(k, L[k]):
+                    far = L[k]["m"]["Ycode_med"]
+            spot = name.split("_")[1]
+            lo = NIGHT_POOL_MIN_FRESH if spot in FRESH_ASPHALT_SPOTS else NIGHT_POOL_MIN
+            okp = pool is not None and lo <= pool <= NIGHT_POOL_MAX and ratio >= NIGHT_POOL_RATIO
+            fails += not okp
+            print(f"  LIT{rest or ''}  pool {fmt(pool)} ({lo:.0f}-{NIGHT_POOL_MAX:.0f}) x{fmt(ratio, 2)} the unlit road (>= {NIGHT_POOL_RATIO:.0f})"
+                  f"  far (49-58 m) {fmt(far)}  {'ok' if okp else 'MISS'}")
+            rec["lit"][pn] = {"pool": pool, "ratio": ratio, "far": far, "ok": okp}
+        out[name] = rec
+    print(f"\nNIGHT: {fails} miss(es)")
+    if js:
+        with open(js, "w") as f:
+            json.dump(out, f, indent=1)
+    return fails == 0
+
+
 def main(argv):
     js = None
     if "--json" in argv:
@@ -925,6 +1010,8 @@ def main(argv):
         cmd_hud(rest[0], js); return 0
     if cmd == "shade":
         cmd_shade(rest[0], js); return 0
+    if cmd == "night":
+        return 0 if cmd_night(rest[0], js) else 1
     print(__doc__); return 2
 
 

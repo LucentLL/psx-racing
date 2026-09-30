@@ -42,6 +42,13 @@
 //     "headlights so bright ... they completely wash out anything in front
 //     of the car". His NFS reference measures the headlit road 2.3-3.6x the
 //     unlit road beside it, flat within 0.3 stop out to about 65 m.
+//     THE DARK-NIGHT RETUNE (2026-09-29): real night drives and NFS Heat
+//     (the owner's frames 12-15) have the pool 4-5 stops over a near-black
+//     unlit road, and it TAILS OFF - the band 40-50 m out about a third of
+//     the near pool, black by the edge of the range. So the plateau now
+//     fades over the last BEAM_FADE_M = 45 m of the 75 m range (0.87 of
+//     the plateau at 40 m, 0.61 at 49, 0.34 at 58) instead of holding
+//     full to 55 m and dropping over 20.
 //   * The ROAD lights at a grazing angle. A plain N.L on the tarmac twenty
 //     metres out is 0.03 and the road would stay black under a beam that
 //     visibly lights it in every night drive anyone has ever taken. Real
@@ -71,7 +78,7 @@
 #define BEAM_NEAR          0.55    // the tarmac at the bumper, as a share of the plateau...
 #define BEAM_NEAR_FROM     3.0     // ...rising from here...
 #define BEAM_NEAR_TO       10.0    // ...to the whole plateau here
-#define BEAM_FADE_M        20.0    // the plateau fades out over the last this-many metres of the range
+#define BEAM_FADE_M        45.0    // the plateau fades out over the last this-many metres of the range (from 30 m at the 75 m range)
 #define BEAM_CUT_LO        0.016   // the flat top: full below this slope over the axis (0.57 deg under level)...
 #define BEAM_CUT_HI        0.032   // ...none above this one (0.34 deg over level)
 #define BEAM_FACE_LO       -0.05   // N.L at which a surface starts to take the beam...

@@ -44,11 +44,17 @@ import numpy as np
 from PIL import Image
 
 # ---- the measured targets -------------------------------------------------
+# WIDENED DARKWARD 2026-09-29 (the dark-night retune): the owner's second
+# set of night references - a real highway, a snowy lane and a dirt road by
+# headlight, and NFS Heat's city (tools/colour/colour_stats.py "night" holds
+# their numbers) - sit BELOW the NFS 2015 frames this table was measured on:
+# display-luma medians 0.001-0.085, 40-82% of the frame under 0.10. The
+# lower edges now take both sets; the tops are the NFS 2015 ones.
 NIGHT = {
-    "floor":  (0.008, 0.015),   # 0.1th percentile display luma
-    "median": (0.09, 0.17),
-    "lt10":   (0.27, 0.54),     # share of the frame under 0.10
-    "lt20":   (0.60, 0.94),     # share under 0.20
+    "floor":  (0.000, 0.015),   # 0.1th percentile display luma
+    "median": (0.01, 0.17),
+    "lt10":   (0.27, 0.95),     # share of the frame under 0.10
+    "lt20":   (0.60, 0.98),     # share under 0.20
     "sat":    (0.50, 0.58),     # mean saturation
 }
 HIGHLIGHT_MIN = 0.95            # the 99.9th percentile should reach this

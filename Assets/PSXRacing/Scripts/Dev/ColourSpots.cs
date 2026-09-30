@@ -72,7 +72,16 @@ namespace PSXRacing
             // stand over fresh asphalt - the low beam on the owner's darkest
             // road next to the brightest emitters, and the lens over them.
             new Spot { id = "CD",  venue = "Charlotte", how = "grid", note = "downtown Charlotte (the venue's own grid pose, Uptown): window walls over fresh asphalt" },
+            // The owner's TOWN at night in snow (his frame 11, 2026-09-29:
+            // "night is hardly dark at all, even without street lights"), from
+            // the town scene's own car pose - not a catalogue venue, opened by
+            // its scene name (ColourShots.OpenAt).
+            new Spot { id = "TW",  venue = "Town", how = "grid", note = "the drivable town's own car pose: the owner's night-in-snow frame (his 11)" },
         };
+
+        /// <summary>A spot whose scene is not a catalogue venue (the town):
+        /// opened by its scene name.</summary>
+        public static bool IsSceneOnly(Spot s) => s != null && s.venue == "Town";
 
         public static Spot Find(string id)
         {

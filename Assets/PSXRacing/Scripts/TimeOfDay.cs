@@ -246,17 +246,36 @@ namespace PSXRacing
                 // photograph's cloud stops glowing like a lit ceiling. Most
                 // of what a player sees at this hour is now what a LAMP lights,
                 // which is the NFS picture the owner pointed at.
+                //
+                // 2026-09-29: DARKER STILL - the owner, after driving the
+                // colour build: "night is hardly dark at all, even without
+                // street lights", beside real night drives and NFS Heat. On
+                // those frames (tools/colour/colour_stats.py, "night") the
+                // unlit road is Ycode 2-11, a treeline 0-2, the sky 1-20 - and here the
+                // unlit town road measured 24-46, its snow 59-62, the Blue
+                // Ridge trees read like dusk. The light census (colour-shots
+                // -Sets census) split that between the ambient (road +17 of
+                // 27 linear, snow +38 of 48) and the moon (about +10 on
+                // both): both cut together, to about a sixth of their light -
+                // the census showed these two scale the picture in step with
+                // the numbers written here (a first cut to 0.44 only took the
+                // unlit town snow from 59 to 37 and its white warehouse from
+                // 74 to 49) - with the sky, the fog and the horizon taken down
+                // alongside, a pair as always (the photograph's exposure 0.55
+                // to 0.22). What lights a night road now is the car's own beam
+                // and the lamps; the moon keeps a side that faces it, just
+                // barely. colour_stats.py night holds the targets.
                 name = "NIGHT", clock = "23:15",
                 sunEuler = new Vector3(16f, 148f, 0f),
-                sunColor = new Color(0.42f, 0.48f, 0.78f), sunIntensity = 0.22f,
-                ambient = new Color(0.075f, 0.080f, 0.125f),
-                fogColor = new Color(0.045f, 0.050f, 0.090f), fogNear = 45f, fogFar = 190f,
-                skyTop = new Color(0.015f, 0.018f, 0.05f),
-                skyHorizon = new Color(0.07f, 0.075f, 0.14f),
-                skyBottom = new Color(0.04f, 0.04f, 0.08f),
+                sunColor = new Color(0.42f, 0.48f, 0.78f), sunIntensity = 0.036f,
+                ambient = new Color(0.012f, 0.013f, 0.020f),
+                fogColor = new Color(0.019f, 0.022f, 0.040f), fogNear = 45f, fogFar = 190f,
+                skyTop = new Color(0.008f, 0.010f, 0.028f),
+                skyHorizon = new Color(0.032f, 0.034f, 0.064f),
+                skyBottom = new Color(0.016f, 0.016f, 0.032f),
                 skySharpness = 3f, lightsOn = true,
                 skyTex = "sky_night", skyTexAzimuth = 270f,
-                skyTint = 0.55f, skyExposure = 0.55f, skyStars = 1.00f,
+                skyTint = 0.55f, skyExposure = 0.22f, skyStars = 1.00f,
             },
         };
 
@@ -685,7 +704,7 @@ namespace PSXRacing
             // THE CITY LIGHTS ITS OWN SKY. After the weather, so an overcast
             // city night is a murk the cloud holds down rather than a clear
             // sky the weather then greys. See ApplySkyglow.
-            ApplySkyglow(ref p, SkyglowFor(index) * urban);
+            ApplySkyglow(ref p, SkyglowFor(index) * urban, index == Night ? NightMurk : 1f);
 
             // HARSH SUN (the colour pass, review 2026-09-29): see HarshSunFill.
             anchor = p;
@@ -1060,6 +1079,15 @@ namespace PSXRacing
         static readonly Color CoolMurk = new Color(0.125f, 0.137f, 0.15f, 1f);
         static Color Murk => LookChoices.CoolNight ? CoolMurk : SodiumMurk;
 
+        /// <summary>How bright the city's murk is at NIGHT against the colour
+        /// above (dusk and dawn keep it whole): the dark-night retune
+        /// (2026-09-29) took the night's ambient and horizon to about a
+        /// sixth of their light, and a city glowing as brightly as before
+        /// over that would be the old grey night back in every town. NFS
+        /// Heat's skyline sky measures (19,35,48) at its brightest band; the
+        /// murk at 0.45 puts the town's horizon band under it.</summary>
+        const float NightMurk = 0.45f;
+
         /// <summary>
         /// SKYGLOW. A city at night lights the underside of its own haze:
         /// the fog a street fades into is not the deep blue of a mountain
@@ -1078,11 +1106,13 @@ namespace PSXRacing
         /// city gets warmer and not brighter. <paramref name="g"/> 0 is a
         /// no-op, which is every daylight hour and every stage.
         /// </summary>
-        static void ApplySkyglow(ref Preset p, float g)
+        static void ApplySkyglow(ref Preset p, float g, float murkScale = 1f)
         {
             if (g <= 0f) return;
-            // The sodium murk as signed off, or the owner's C12 choice (off).
-            Color murk = Murk;
+            // The sodium murk as signed off, or the owner's C12 choice (off),
+            // at the hour's own strength (NightMurk).
+            Color murk = Murk * murkScale;
+            murk.a = 1f;
             p.fogColor = Opaque(Color.Lerp(p.fogColor, murk, 0.65f * g));
             p.skyHorizon = Opaque(Color.Lerp(p.skyHorizon, murk * 1.35f, 0.70f * g));
             p.skyTop = Opaque(Color.Lerp(p.skyTop, murk * 0.40f, 0.30f * g));

@@ -121,8 +121,31 @@ namespace PSXRacing
         /// plateau over 0.70. Still flat - the beam's own light is the plateau
         /// from 10 m to 55 m (PSXHeadlights.cginc) - and nowhere near the old
         /// blob: the deck at 14 m is 134, where the owner's frame had 235.
+        ///
+        /// 0.80 (the dark-night retune, 2026-09-29). The owner, after driving
+        /// it: "These lights seem pretty dull, and night is hardly dark at
+        /// all", with real night drives and NFS Heat beside it. Those frames
+        /// put the pool on old asphalt at Ycode 55-80 over an unlit road of
+        /// 2-11 - four to five stops, the brightest thing on the road - where
+        /// ours was 1.5-2.5x an unlit road the moon lit to 13-29 (colour_stats
+        /// beam on the night set). The night itself came down about three
+        /// stops (TimeOfDay NIGHT) and the beam came up to 0.80: old asphalt
+        /// at 14-22 m about 60, the owner's fresh #1e1e22 about 35-40 (his
+        /// colour, lit, not lightened), the Samuel Street concrete under
+        /// the tone curve's knee - and it now tails off past 30 m
+        /// (PSXHeadlights.cginc BEAM_FADE_M) instead of holding flat to 55.
+        /// AT NIGHT: by day (headlights on in rain, fog and snow) the beam
+        /// stays the reviewed <see cref="BeamIntensityDay"/>, blended by the
+        /// hour's night (_PSXNight: dusk 0.75, dawn 0.5), so no daylight road
+        /// gets lighter for it - a low beam in daylight is barely there.
         /// </summary>
-        public const float BeamIntensity = 0.42f;
+        public const float BeamIntensity = 0.80f;
+        /// <summary>The beam at a daylight hour (NightFor 0): the colour
+        /// review's 0.42, unchanged.</summary>
+        public const float BeamIntensityDay = 0.42f;
+        /// <summary>The beam for an hour's night (0 day .. 1 night).</summary>
+        public static float BeamIntensityFor(float night) =>
+            Mathf.Lerp(BeamIntensityDay, BeamIntensity, Mathf.Clamp01(night));
         /// <summary>
         /// What each lamp's GLINTS take instead (the streak of an oncoming
         /// car's lamps down a wet road, the lamps of the car behind in your
@@ -140,7 +163,8 @@ namespace PSXRacing
         /// constant. Nothing in the game writes it.</summary>
         public static float BeamIntensityOverride;
         /// <summary>The intensity pushed this frame.</summary>
-        public static float BeamIntensityNow => BeamIntensityOverride > 0f ? BeamIntensityOverride : BeamIntensity;
+        public static float BeamIntensityNow => BeamIntensityOverride > 0f ? BeamIntensityOverride
+            : BeamIntensityFor(Shader.GetGlobalFloat("_PSXNight"));
         /// <summary>
         /// THE BEAM IN THE AIR (PSX/Beam's _Strength) at <see cref="BeamIntensity"/>,
         /// and in proportion to it: the light a cone of air scatters back is
@@ -188,8 +212,15 @@ namespace PSXRacing
         /// owner's night frame the road behind his car was washed pink
         /// (display .35,.27,.24). Now the running light is about a tenth of a
         /// street lamp and the brake three times that: a red wash you notice
-        /// on a wet road behind a braking car, not a red floor.</summary>
-        public const float TailLampRadius = 4.5f, TailLampDim = 0.15f, TailLampBrake = 0.45f;
+        /// on a wet road behind a braking car, not a red floor.
+        ///
+        /// 0.10 and 0.30 since the dark-night retune (2026-09-29): with the
+        /// moon and the ambient taken to about a sixth, the same red on the owner's
+        /// Samuel Street concrete stood alone on a black road and read as a
+        /// red floor again (the road 2 m behind +34 in red, the plan's cap
+        /// +25). The GLOW of the lens went up instead (TailLensDim) - NFS
+        /// Heat's running lamps halo, their road is only tinged.</summary>
+        public const float TailLampRadius = 4.5f, TailLampDim = 0.10f, TailLampBrake = 0.30f;
         /// <summary>How far behind the lenses the light sits, so the car's
         /// own tail panel is not what it lights most.</summary>
         public const float TailLampBack = 0.25f;
@@ -599,7 +630,7 @@ namespace PSXRacing
         /// </summary>
         public static Vector3 BeamLightAt(Vector3 wpos, Vector3 n)
         {
-            const float Near = 0.55f, NearFrom = 3f, NearTo = 10f, FadeM = 20f;
+            const float Near = 0.55f, NearFrom = 3f, NearTo = 10f, FadeM = 45f;   // PSXHeadlights.cginc BEAM_FADE_M (45 since the dark-night retune)
             const float CutLo = 0.016f, CutHi = 0.032f, FaceLo = -0.05f, FaceHi = 0.02f;
             const float Spill = 0.12f, SpillCos = 0.342f, SpillFrom = 10f, SpillTo = 25f, SpillCutLo = 0.05f, SpillCutHi = 0.25f;
             Vector3 sum = Vector3.zero;
@@ -776,12 +807,18 @@ namespace PSXRacing
         }
 
         static Material headMat, tailDim, tailBright, beamMat;
+        /// <summary>The running tail lens's glow (PSX/Glow _Strength). 0.9
+        /// until the dark-night retune (2026-09-29): NFS Heat's running
+        /// lamps (the owner's frame 15) glow a red halo well past the lens -
+        /// cores Ycode 180-195 - where ours read as two small red dots.
+        /// The lens only: its light on the road stays the 5 W TailLampDim.</summary>
+        public const float TailLensDim = 1.35f;
         /// <summary>The lens, in halogen, a touch hotter than the beam so it
         /// reads as the source.</summary>
         static Material HeadMat => headMat != null ? headMat
             : headMat = MakeMat("PSX/Glow", "Headlight", Halogen, 1.6f, true);
         static Material TailDimMat => tailDim != null ? tailDim
-            : tailDim = MakeMat("PSX/Glow", "Taillight", new Color(1.00f, 0.16f, 0.10f), 0.9f, true);
+            : tailDim = MakeMat("PSX/Glow", "Taillight", new Color(1.00f, 0.16f, 0.10f), TailLensDim, true);
         static Material TailBrightMat => tailBright != null ? tailBright
             : tailBright = MakeMat("PSX/Glow", "Brakelight", new Color(1.00f, 0.12f, 0.06f), 2.6f, true);
         /// <summary>The beam in the air. Same halogen; PSX/Beam fades it out
