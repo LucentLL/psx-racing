@@ -1046,8 +1046,11 @@ namespace PSXRacing.EditorTools
             var p = car.transform.position;
             bool near = map.NearestRoadPoint(new Vector2(p.x, p.z), 60f, skipLinks: false,
                 out int ei, out float at, out float dist);
-            CityPlayCheck.Check(near && dist < 6f, who + " is on a street",
-                near ? map.edges[ei].name + " " + dist.ToString("0.0") + " m off the centreline" : "no street within 60 m");
+            // on the pavement the line model draws (a lane added on one side
+            // puts the ribbon, and the grid, off the OSM line: WP-11b)
+            float reach = near ? Mathf.Max(6f, map.edges[ei].PaveEdgeM(at, map.edges[ei].SideAt(at, new Vector2(p.x, p.z)))) : 6f;
+            CityPlayCheck.Check(near && dist < reach, who + " is on a street",
+                near ? map.edges[ei].name + " " + dist.ToString("0.0") + " m off the centreline (pavement " + reach.ToString("0.0") + " m that side)" : "no street within 60 m");
             if (!near) return p.y;
             float roadY = map.edges[ei].YAt(at);
             float dy = p.y - roadY;

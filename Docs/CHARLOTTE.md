@@ -1780,6 +1780,15 @@ draws it. `Scripts/City/LineModel.cs`.
   the looser ones). The worst runs left: the edge line on a squeezed side
   (it moves in with the edge now; the gate's plan still expects it at the
   model's line), I-277 beside its other carriageway, John Belk's inset.
+- **Play**: city-play-check (-NoWatch: a visible editor stops at the
+  window-layout dialog in PSXCity) 2 failures, the same two as before -
+  WP-14's drive-off stage (now at I-277 e1499 s=165; before at I-77 e1891)
+  and its fills-and-cuts count; its "on a street" reads the line model's
+  pavement now (the grid stands on the lanes' centre, 6.3 m off I-277's OSM
+  line). Races (150 s, seed 0): all three run the whole 150 s; Uptown 2
+  retired (traffic, as before), Tryon 1 (a lamp post; 3 before),
+  Independence 2 (car contact with the player's autopilot; 1 before).
+  CityPreview's driver's-eye shots stand on the lanes' centre.
 - **Not done here**: linecheck's builder replica (lib/linesim.mjs) still
   models the pre-11b symmetric taper - the offline gate reads the same
   data but not the new builder; the gate's plan for an edge LINE on a

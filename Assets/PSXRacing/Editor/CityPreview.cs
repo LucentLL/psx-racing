@@ -188,7 +188,8 @@ namespace PSXRacing.EditorTools
                     {
                         float dirS = side == 0 ? 1f : -1f;
                         float s0 = Mathf.Clamp(s - dirS * 70f, 0f, along.length);
-                        var p0 = along.PointAt(s0);
+                        // on the lanes' centre (the line model: a ribbon can sit off its OSM line)
+                        var p0 = LineModel.LanePoint(along, s0);
                         var t0 = along.TangentAt(s0) * dirS;
                         var fwd = new Vector3(t0.x, 0f, t0.y);
                         var eye = new Vector3(p0.x, along.YAt(s0) + 1.5f, p0.y);
