@@ -781,6 +781,29 @@ namespace PSXRacing.EditorTools
              "North Caldwell Street (e11145) at the East 12th Street junction under the I-277 ramps: a verge ridge between three roads at three heights"),
             ("ledge-ramp-2858", "LEDGE", 173800843, 1749f, 2580f,
              "ramp e2858 leaving the Independence Expressway: a 15 cm slot to the lattice where the clipped verge hands over to the free one"),
+            // WP-10 (2026-09-29): the line clean-up moved these corners a few
+            // metres (lane counts, Douglas-Peucker, PARA's carriageway offsets)
+            // and the same three-heights grading reads them again. North Kings
+            // Drive's two carriageways moved 2.6 m apart; Armory Drive's
+            // one-way connectors between them are clipped against it at 15-20
+            // degrees. Their cure is the same as the six above (WP-14's cut and
+            // fill sections, WP-11b's per-chain squeeze, WP-19's clusters).
+            ("ledge-ramp-1489", "LEDGE", 55204692, -2065f, 3342f,
+             "the ramp e1489 in its 2.3 m cut (face-ramp-1489's spot): the clipped verge's step to the hill reads as a 0.9 m ledge 0.7 m out"),
+            ("face-kings-9677", "FACE", 993704809, -1070f, 3905f,
+             "North Kings Drive (e9677) where Armory Drive's connector leaves it: the gap verge between the two, 0.9 m in"),
+            ("lip-kings-9677", "LIP", 993704809, -1061f, 3913f,
+             "North Kings Drive (e9677) at Armory Drive's gore: the gap verge 14 cm under the edge 5 cm out"),
+            ("ledge-armory-23550", "LEDGE", 323064834, -1045f, 3919f,
+             "Armory Drive's connector (e23550) clipped against North Kings Drive: its clipped verge's slot 1.4 m out"),
+            ("nose-kings-armory", "NOSE", 0, -1059f, 3913f,
+             "the gore nose between North Kings Drive and Armory Drive's connector: 0.5-1 m of it over the gap verge's drop"),
+            ("face-12th-11148", "FACE", 1039294233, -1156f, 5052f,
+             "East 12th Street (e11148) at the North Caldwell junction under the I-277 ramps (ledge-caldwell-11145's ridge): its approach rail's footing"),
+            ("lip-link-11147", "LIP", 1039294232, -1168f, 5046f,
+             "the ramp e11147 clipped against East 12th Street at the same three-heights corner: 5 cm at 5 cm"),
+            ("lip-link-14090", "LIP", 1180570223, -2059f, 5639f,
+             "the one-lane link e14090 beside I-277 near West 5th: its verge 25 cm under the edge 5 cm out, between two decks' approaches"),
         };
         const float KnownSpotReachM = 15f;
 
@@ -811,7 +834,7 @@ namespace PSXRacing.EditorTools
             ("davidson-14101", 1181521355, -1093f, 4920f, "North Davidson Street: its deck rail on the squeeze strip, the face beside the lane line"),
             ("davidson-14102", 1181521356, -1091f, 4922f, "North Davidson Street: the next piece's deck rail 0.4 m above stands over its right lane at node 13275"),
             ("link-371", 16662607, -982f, 4535f, "the link e371: I-277's deck approach rail at its height beside the lane line"),
-            ("i277-us74-2321", 159022517, -1362f, 3924f, "I-277 (Uptown Loop): US 74's approach rail on its retaining face 1.1 m above, the two drawn into each other"),
+            ("i277-us74-2321", 159022517, -1358f, 3929f, "I-277 (Uptown Loop): US 74's approach rail on its retaining face 1.1 m above, the two drawn into each other (moved 6 m with WP-10's lines)"),
             ("link-7753", 750025978, -2564f, 3908f, "the link e7753 beside South Boulevard: its own rail where the squeeze split varies"),
             ("albemarle-2004-west", 116677926, 4270f, 1647f, "Albemarle Road under the Independence Expressway's retaining face (host and branch at two heights)"),
             ("albemarle-2004-east", 116677926, 4246f, 1665f, "Albemarle Road under the Independence Expressway's retaining face (host and branch at two heights)"),
@@ -828,6 +851,9 @@ namespace PSXRacing.EditorTools
             ("link-20364", 1516910799, -2198f, 3448f, "the link e20364: its rail on the retaining face at the squeeze strip beside South McDowell Street, the face beside the lane line"),
             ("i77-1891", 94750540, -3732f, 5436f, "I-77 (Uptown Loop): the shared deck rail on the squeeze strip beside the other carriageway e1877, the face beside the lane line"),
             ("ramp-2852", 173800811, 4134f, 1576f, "the ramp e2852: its rail on the squeeze strip beside e1229, the face beside the lane line"),
+            // WP-10 (2026-09-29): read again where the line clean-up moved them
+            ("i277-1919", 101537860, -1945f, 5687f, "I-277 (Uptown Loop): its approach rail on the 0.3 m squeeze strip beside e13651 (0.33 m apart in height), the face on the lane line - WP-11b's per-chain squeeze"),
+            ("link-2358", 159022562, -1384f, 3856f, "the link e2358 beside I-277 at the US 74 split: I-277's approach rail at its height, the face beside the lane line"),
         };
         const float KnownLaneReachM = 6f;
 
@@ -857,12 +883,51 @@ namespace PSXRacing.EditorTools
         /// its own verge from before a bend past the chord its ribbon is drawn
         /// on (+0.06 before). Both are for WP-14's grading.
         /// </summary>
-        static readonly (string id, long way, float x, float z, string why)[] KnownLaneLand = { };
+        static readonly (string id, long way, float x, float z, string why)[] KnownLaneLand =
+        {
+            // WP-10 (2026-09-29): North Kings Drive's carriageways moved apart
+            ("armory-23549", 323064832, -1069f, 3906f, "Armory Drive's connector (e23549) leaving North Kings Drive 0.5 m above it: the gap verge between them over the connector's lane (WP-19's cluster)"),
+        };
+
+        /// <summary>
+        /// JUNCTION FAN MOUTHS, NAMED (WP-10, 2026-09-29), keyed as
+        /// <see cref="KnownLaneSolids"/> are (the arm's OSM way and the probe,
+        /// within <see cref="KnownFanReachM"/>). The line clean-up moved these
+        /// fans' arms by centimetres to metres and the mouth probe reads a
+        /// few centimetres of land, or North Kings Drive's deck rail again
+        /// (node 6995, the WP-04 review's spot): WP-19's curb returns and
+        /// clusters own them. A mouth anywhere else still fails.
+        /// </summary>
+        static readonly (string id, long way, float x, float z, string why)[] KnownFanMouths =
+        {
+            ("fan-kings-6995", 648248401, -1316f, 3747f, "North Kings Drive at node 6995: its deck rail across the lane mouth (RailOverArms' spot from the WP-04 review), back with WP-10's lines"),
+            ("fan-gordon", 16721760, 392f, 3808f, "Gordon Street's mouth: 3 cm of land 1 m back, where the fan's trim stops short of the lane line"),
+            ("fan-independence-3503", 648297612, 4574f, 1229f, "the Independence Expressway's mouth (Independence Sprint): 2 cm of land 1 m back at the outer lane line"),
+        };
+        const float KnownFanReachM = 8f;
+
+        static string KnownFanMouth(long way, float x, float z)
+        {
+            foreach (var k in KnownFanMouths)
+                if (k.way == way && Vector2.Distance(new Vector2(x, z), new Vector2(k.x, k.z)) <= KnownFanReachM)
+                    return k.id;
+            return null;
+        }
 
         static string KnownLaneLandSpot(long way, float x, float z)
         {
             foreach (var k in KnownLaneLand)
                 if (k.way == way && Vector2.Distance(new Vector2(x, z), new Vector2(k.x, k.z)) <= KnownLaneReachM)
+                    return k.id;
+            return null;
+        }
+
+        /// <summary>A gore nose has no edge of its own: its named spot is
+        /// matched by position alone.</summary>
+        static string KnownNose(Vector3 at)
+        {
+            foreach (var k in KnownRoadsideSpots)
+                if (k.kind == "NOSE" && Vector2.Distance(new Vector2(at.x, at.z), new Vector2(k.x, k.z)) <= KnownSpotReachM)
                     return k.id;
             return null;
         }
@@ -1306,9 +1371,10 @@ namespace PSXRacing.EditorTools
                         if (openRun >= RoadsideRules.DeckRailGapFailM)
                         {
                             string kind = elevNose ? "gore nose on structure" : "gore nose";
-                            gapRuns++; gapMetres += openRun;
+                            string known = KnownNose(Vector3.Lerp(a, b, 0.5f));
+                            if (known == null) { gapRuns++; gapMetres += openRun; } else knownSeen.Add(known);
                             gapByKind.TryGetValue(kind, out float gm); gapByKind[kind] = gm + openRun;
-                            notes.Add((openRun, $"OPEN  {openRun:0.0} m of {kind} over a drop ({a.x:0},{a.z:0})-({b.x:0},{b.z:0}) tile {tx},{tz}"));
+                            notes.Add((openRun, $"{(known != null ? "KNOWN " : "")}OPEN  {openRun:0.0} m of {kind} over a drop ({a.x:0},{a.z:0})-({b.x:0},{b.z:0}) tile {tx},{tz}"));
                         }
                     }
 
@@ -1622,7 +1688,8 @@ namespace PSXRacing.EditorTools
         /// </summary>
         class FanMouthTally
         {
-            public int fans, probes, noRoad, offLevel, solid;
+            public int fans, probes, noRoad, offLevel, solid, known;
+            public readonly HashSet<string> knownSeen = new HashSet<string>();
             public readonly HashSet<int> nodes = new HashSet<int>();
             public readonly List<(float sev, string what)> notes = new List<(float, string)>();
         }
@@ -1677,17 +1744,21 @@ namespace PSXRacing.EditorTools
                             var w = new Vector3(w2.x, yExp + 3f, w2.y);
                             t.probes++;
                             string what; float sev;
+                            // a named mouth (KnownFanMouths) is listed KNOWN, not counted
+                            string knownFan = KnownFanMouth(e.wayId, w.x, w.z);
                             if (!RaycastPastLamps(w, Vector3.down, out var h, 6.5f, ~0, QueryTriggerInteraction.Ignore))
-                            { t.noRoad++; what = "nothing under it"; sev = 9f; }
+                            { if (knownFan == null) t.noRoad++; else { t.known++; t.knownSeen.Add(knownFan); } what = "nothing under it"; sev = 9f; }
                             else
                             {
                                 float d = h.point.y - yExp;
                                 string path = (h.collider.transform.parent != null ? h.collider.transform.parent.name + "/" : "") + h.collider.name;
-                                if (h.collider.name == "Ground") { t.noRoad++; what = $"land {d:+0.00;-0.00} m ({path})"; sev = 5f + Mathf.Abs(d); }
-                                else if (h.collider.gameObject.layer == CityWorld.SolidLayer) { t.solid++; what = $"a solid {d:+0.00;-0.00} m ({path})"; sev = 2f; }
+                                if (h.collider.name == "Ground") { if (knownFan == null) t.noRoad++; else { t.known++; t.knownSeen.Add(knownFan); } what = $"land {d:+0.00;-0.00} m ({path})"; sev = 5f + Mathf.Abs(d); }
+                                else if (h.collider.gameObject.layer == CityWorld.SolidLayer) { if (knownFan == null) t.solid++; else { t.known++; t.knownSeen.Add(knownFan); } what = $"a solid {d:+0.00;-0.00} m ({path})"; sev = 2f; }
                                 else if (Mathf.Abs(d) > FanMouthOffM) { t.offLevel++; what = $"a road {d:+0.00;-0.00} m off ({path})"; sev = Mathf.Abs(d); }
                                 else continue;
+                                if (knownFan != null && what.StartsWith("a road")) knownFan = null;
                             }
+                            if (knownFan != null) { what = "KNOWN " + knownFan + ": " + what; sev = 0.01f; }
                             t.notes.Add((sev, $"FAN   node {n} arm e{ei} '{e.name}'{(e.link ? " L" : "")} way {e.wayId}{(routeOfEdge.TryGetValue(ei, out var rt) ? " ROUTE " + rt : "")} {inset:0.0} m back from the mouth, lane line {lat:+0.0;-0.0}: {what} at ({w.x:0.0},{w.z:0.0}) tile {tx},{tz} deg{map.nodeEdges[n].Count} trim {trim:0.0}"));
                         }
                     }
@@ -1699,7 +1770,12 @@ namespace PSXRacing.EditorTools
         {
             var t = fanMouths;
             if (t == null) return;
-            Line($"fan mouth probe: {t.fans} fans on the probed tiles, {t.probes} probes; land or nothing {t.noRoad}, a road a level away {t.offLevel}, a solid {t.solid}");
+            Line($"fan mouth probe: {t.fans} fans on the probed tiles, {t.probes} probes; land or nothing {t.noRoad}, a road a level away {t.offLevel}, a solid {t.solid}; at the named mouths (KnownFanMouths) {t.known}");
+            {
+                var gone = new List<string>();
+                foreach (var k in KnownFanMouths) if (!t.knownSeen.Contains(k.id)) gone.Add(k.id);
+                Line($"    named fan mouths (KnownFanMouths): {KnownFanMouths.Length - gone.Count} of {KnownFanMouths.Length} still there" + (gone.Count > 0 ? " - prune the ones gone: " + string.Join(", ", gone) : ""));
+            }
             Check(t.noRoad == 0, "every lane mouth at a junction fan has road under it (fan mouth probe)", $"{t.noRoad} of {t.probes} probes");
             // A solid at a lane mouth is a wall where cars turn: none before
             // WP-04, two after its ground put a deck rail across North Kings

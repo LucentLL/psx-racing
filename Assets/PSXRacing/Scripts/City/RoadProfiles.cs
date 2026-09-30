@@ -93,6 +93,11 @@ namespace PSXRacing.City
                 if (cls >= 4) return 9 + Mathf.Clamp(lanes, 1, 3) - 1;
                 return 5 + Mathf.Clamp(lanes, 1, 4) - 1;   // a surface-street slip: a one-way street
             }
+            // A ONE-lane freeway carriageway - an express lane, a lane-drop
+            // stub - is drawn with a ramp's section, not as a two-lane
+            // motorway 11.5 m wide (WP-10: the I-485 express lanes are one
+            // lane each way, side by side in the median).
+            if (cls >= 4 && lanes <= 1) return 9;
             if (cls >= 5) return 15 + Mathf.Clamp(lanes, 2, 6) - 2;
             if (cls == 4) return 12 + Mathf.Clamp(lanes, 2, 4) - 2;
             return 5 + Mathf.Clamp(lanes, 1, 4) - 1;
