@@ -89,8 +89,10 @@ What the exporter makes of it:
   lists `tools/clt/fetch_clt.mjs` verified on 2026-09-07 (every id still
   present). Uptown Loop 9.20 km (loop, 1.61 km on structure), Tryon Street
   Sprint 6.02 km, Independence Sprint 7.02 km.
-- **The ground**: a 60 m grid (811 x 916) over the whole beltway, each node
-  the MEAN of the 3DEP 1/3" pixels whose centres lie in its own 60 m cell,
+- **The ground**: a 30 m grid (1621 x 1831, PDEM v3 in delta-coded 1 km
+  blocks since WP-13; see that section) over the whole beltway, each node
+  the MEAN of the 3DEP 1/3" pixels whose centres lie in its own cell; until
+  WP-13 a 60 m grid (811 x 916), each node the mean of its own 60 m cell,
   with **no filter after it** (WP-04, 2026-09-28). Until then it was the skadi
   tiles run through an opening, a closing and a blur written to take out
   "roofs", on the belief that the source was radar with uptown's towers 200 m
@@ -990,6 +992,192 @@ the end of the street, FREE ROAM CHARLOTTE loads (`[City] parsed in 108 ms,
 elevation solved in 365 ms`), no console errors and no missing-canopy or
 missing-kit warning, and the trees stand along South Tryon in their snow
 dress. The CREDITS page shows the USFS line without clipping.
+
+## WP-13 and WP-14 (2026-09-29, release R5): the 30 m ground, and the land graded to the road
+
+The owner, after R1: the hills read as a road on a flat strip. They did.
+`CityElevation.Ground` held every grounded road's land flat for 11.5 m past
+the pavement, then blended it to the DEM over 26 m more. On a hillside, that
+is a shelf 23 m wider than the road. Branch `charlotte-roadside`.
+
+**WP-13: the ground on a 30 m grid.** USGS 3DEP 1/3" is averaged over 30 m
+cells: 1621 x 1831 nodes, which are the old 60 m lattice's nodes plus the
+midpoints between them.
+- **Storage.** `charlotte_dem.bytes` is PDEM v3 (`tools/city/lib/pdem3.mjs`):
+  - the v2 header, then 1 km blocks of 32 x 32 cells (33 x 33 nodes, one
+    node shared with the next block), a block index, and per node a zigzag
+    varint residual against a planar prediction;
+  - decimetres above the 97.0 m datum, as before;
+  - 3.17 MB raw, 2.04 MB Brotli (the 60 m grid was 1.49 / 0.78, so
+    +1.26 MB against the plan's +1.9).
+- **Why no deflate.** The plan's deflated blocks would have needed an
+  inflater proven on IL2CPP WebGL. The build's own Brotli compresses the
+  residuals better (2.04 MB against 2.14 MB for raw deflate), and the
+  reader is plain C#.
+- **Reading it.** `CityElevation.LoadDem` keeps only the compressed bytes.
+  `BaseY` decodes a block the first time a query lands in it, into a
+  128-slot cache (279 KB). A cell never straddles two blocks. v1 and v2
+  files are still read. The DEM holds 3.3 MB, against 1.4 MB for the
+  60 m array.
+- **The roads still read a 60 m grid.** `BuildRoadDem` rebuilds it from the
+  30 m nodes with [1/4, 1/2, 1/4] weights each way, then applies the same
+  0.8-cell Gaussian.
+  - The transient array stays 3 MB, where a 30 m road grid would be 12 MB.
+  - A 60 m cell's own pixels cannot be recovered from 30 m cell means, so
+    the roads' ground moved 0.17 m RMS (p99 0.54 m). The spawn seats moved
+    by 0.09 m at most.
+  - `metrics.mjs` emulates this through `citydata.roadGridSteps`.
+  - The canopy map stays on the 60 m lattice: `canopy.mjs --check` is
+    still byte for byte.
+- **metrics.mjs, 60 m grid -> 30 m grid:**
+
+  | Measure | 60 m | 30 m | Plan |
+  |---|---|---|---|
+  | Core relief kept | 0.77 | 0.90 | >= 0.85 |
+  | Core slope p90 | 7.2% | 9.4% | >= 9% |
+  | Core RMSE against 3DEP 10 m | 1.01 m | 0.74 m | <= 0.6 m (**not met**) |
+
+  The core RMSE carries a 0.32 m bias that is identical on both grids, so it
+  is the truth's registration, not the grid. Without it the RMSE is 0.67 m.
+
+**WP-14: roadside sections** (`RoadsideRules`, the city block). Each side of
+a grounded road now takes its road's section:
+- **Bench.** The land stays at the road's pin (the tarmac less the 10 cm
+  sink and the sag allowance) across the bench. Freeway or expressway 8 m,
+  arterial or ramp 4.5 m, local street 2 m (`CityBenchM`).
+- **Fill.** From the bench the land falls at 1V:4H to the natural land
+  (`CityFillSlope`). This is the road's FLOOR, and the highest floor holds,
+  so an upper road's verge is never graded down onto a neighbour's ledge.
+- **Cut.** The land stays at the pin across 8.5 m, then climbs at the 1V:3H
+  back slope (`RoadsideRules.BackSlope`, which the city now uses) to the land.
+  - 8.5 m is the 8 m lattice's width, not a design width (`CityCutBandM`).
+  - A lattice triangle whose far corner is d metres out and whose near
+    corner is under the pavement crosses the edge with at most
+    (11.31 - d) / 11.31 of that corner's rise. With the rise (d - 8.5) / 3,
+    that is never more than 6 cm, inside the 10 cm sink.
+- **Cap.** No grass through a lower road's lanes: the lowest cap holds. The
+  cap is the pin across the band, the back slope out to 11.31 m, and nothing
+  past that.
+- **Fade.** Past 20 m a section lets go of the land, and by 32 m it is gone,
+  so a deep cut or fill steepens out there instead of ending in a cliff.
+- **The verge falls at 1V:4H** past its shoulder (it was 1V:6H across the
+  clear zone). That is the fill's own slope, and its search runs 12 m, so it
+  comes down onto a fill whose lattice chord sags under the section.
+- **Retaining walls** (`InCut`, freeway outside edges) stand only where the
+  graded cut cannot fit. The DEM guard must pass (2 m at 4, 8 and 12 m), and
+  then either the back slope does not reach the land by 32 m, or a road more
+  than 2 m above, or a building, stands in the slope. The audit prints wall
+  metres by cause.
+
+What the land does now, from `Editor/CityLandProbe.cs`. The same file runs
+on both codes; grounded non-ramp edges, every 10 m, both sides. "Flat" means
+the land is within 0.25 m of the road; "kept" is the share of the natural
+rise or fall left after grading.
+
+| Where | Measure | City-r1 (3f27ead) | R5 |
+|---|---|---|---|
+| 8 named streets, 124 km | flat at 10 m past the edge | 88% | 42% |
+| 8 named streets, 124 km | kept at 10 m | 0 | 0.28 |
+| 8 named streets, 124 km | kept at 15 m | 0.20 | 1.00 |
+| 8 named streets, 124 km | kept at 20 m | 0.50 | 1.00 |
+| The three routes, 17 km | flat at 10 m | 80% | 41% |
+| The three routes, 17 km | kept at 15 m | 0.23 | 0.39 |
+| The three routes, 17 km | kept at 20 m | 0.49 | 0.70 |
+
+Within 5 m of the edge nothing moved. That is the bench, and on the uphill
+side the lattice's band.
+
+**The city audit** (PSXShip, `city-cycle`): CITY AUDIT OK, the DRIVE AUDIT
+zeros held.
+- Roadside audit green: 198.6 km of verge, 43.2 km of rail (43.5 before),
+  pits 8360 -> 4132, every one with a rule.
+- Cut walls on the 118 roadside tiles: 1.07 -> 0.41 km (the plan: at least
+  50% less). By cause: 210 m where the back slope cannot reach the land,
+  188 m where a road above stands in the slope, 10 m for a building.
+- The land beside the routes, |land - road| p90: 3.81 m at 30 m and 5.57 m
+  at 60 m, with 40% of points more than 2 m off the road at 60 m. That meets
+  the plan's table with critic C22's 30 m target, now a check.
+- The known roadside spots went from 6 to 3:
+  - four are graded away (the ramp e1489's face in its cut, the lip at e9314,
+    the ledges on North Caldwell Street and on ramp e2858);
+  - two are deck-rail gaps;
+  - one is new: `ledge-i77-ramp-5219`, 0.49 m. It came with WP-13's
+    road-grid shift and was already in WP-13's own audit. The ramp e5219's
+    connector is clipped against the parallel ramp e2422 and ends
+    mid-wedge. It is left for R4, which rebuilds the clips.
+- Two WP-13 leftovers were fixed in the builder:
+  - Bryant Street's rail on a retaining face over a graded creek bank: the
+    verge now falls at 1V:4H.
+  - e5252's 0.29 m step to e9986's pavement, which was a 0.32 m ledge onto
+    e9986's verge: `Ungraded` now measures to the neighbour's verge, and the
+    edge takes its rail.
+
+**Budget.** `CityBudgetProbe` was run back to back on city-r1 and on R5,
+under the same machine load:
+- Tile build p95 125.4 -> 90.4 ms, and 89.6 -> 78.8 ms without trees. Under
+  that load this is noise; in any case there is no increase.
+- Draws unchanged; worst view 209.
+- Map heap 18.8 -> 19.2 MB. This reading swings about 3 MB between runs of
+  the same code, because Unity's conservative collector keeps or drops the
+  solve's 3 MB road grid.
+- The DEM: +1.9 MB.
+
+**Play.** `city-play-check -Edition CITY -NoWatch` passes (PSXShip).
+- **New drive-off stage.** A car leaves a race route at 25 m/s and 15
+  degrees onto the graded roadside. Spots are found from the solved ground,
+  only where the road's own section grades the land, with nothing solid in
+  the run. Five spots ran: 2 fills, 1 cut and 2 level verges, on I-277 and
+  North Tryon. Across the race run-off each one came through with no speed
+  lost to a hit, stayed upright (up >= 0.82) and left no drop (at most
+  0.4 m of air).
+- **The first run found a real trap.** Beside I-277 (e1482) under South
+  Boulevard's bridge approach, the embankment's fill held the land 2.3 m up
+  12 m out, and I-277's cap ended at 11.31 m, so the car stopped dead on the
+  step. The stage now leaves out spots where another road's floor or cap sets
+  the land: two roads meeting like that is the rail warrant's business, not
+  the section's.
+- **WP-08's trunk runs, adjusted.**
+  - Their run-ups must now be level (0.25 m across a 12 x 2 m strip).
+    Graded banks rolled the car.
+  - The off-centre run is held on its line at 0.6 m (it was 0.9 m, unheld).
+    At 0.9 m, a 1.55 m car overlaps a 0.3-0.4 m trunk by only 0.13-0.23 m,
+    so the drift across the run-up decided hit or miss. With the line held,
+    such a hit glanced off at 12-16 km/h.
+  - All four trunks tried stop the car, dead on and off-centre.
+
+**Not shipped: a cut's bank from the shoulder.** On the uphill side the
+land is still level for 8.5 m, because the lattice needs that band. The fix
+is a verge that climbs from its shoulder straight to the lattice's tangent
+point, over the band. It was built (in `SolveStrip`, asked for by
+`EmitSide`), in three rounds:
+- Round 1 put land over lanes at 16 DRIVE AUDIT probes. It climbed into the
+  lanes of ramps a metre up, which `ClearRun`'s level-verge rule calls
+  decks.
+- Round 2 bounded it by the bend radius and kept it 20 m off edge ends and
+  off clipped sections. It still failed the same way.
+- Round 3 stopped it at every pavement, and the audit went green. The shots,
+  though, showed fins where a bank cross-section meets a plain one: State
+  Street's right side has a sawtooth face 30 m out.
+
+So it was reverted. It belongs with WP-21's verge strips (swales, ditches),
+which need the same five-point cross-section a bank-with-transition needs.
+The code is in the session's scratchpad for that package, not in the branch.
+
+**G-web.** The CITY player was built locally (`build-and-publish
+-SkipScenes -SkipDeploy -PagesDir city`, after a scene build). Results:
+- BUILD OK, GUID audit OK, WEBGL CONTENTS OK.
+- `WebGL.data.unityweb` is 40.04 MiB. The ALL build it compares with
+  (82.25 MiB at WP-08) grows by the DEM's +1.26 MB, well under the 95 MiB
+  ratchet.
+- Served from 127.0.0.1 and opened in the browser pane, FREE ROAM
+  CHARLOTTE loads: `[City] parsed in 151 ms, elevation solved in 599 ms`,
+  with no console errors or warnings.
+- The solve is about 0.23 s slower than WP-08's 365 ms, because the 60 m
+  road grid is rebuilt from the 30 m blocks at load.
+
+Fills are 1V:4H from the bench, so the land 3.5 m past the bench is at most
+0.9 m under the road. No fill is 2 m deep inside the clear zone, and WP-24's
+list of fills needing a rail is empty by construction.
 
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 

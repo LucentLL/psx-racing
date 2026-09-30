@@ -165,6 +165,13 @@ namespace PSXRacing.EditorTools
         /// mode editor spinning past the tool's budget with its log growing
         /// without end. The drive itself takes well under a minute.</summary>
         const float HangSeconds = 480f;
+        /// <summary>The most a trunk run's 12 m x 2 m run-up may rise or fall
+        /// across it (WP-14's graded banks beside the roads).</summary>
+        const float RunUpLevelM = 0.25f;
+        /// <summary>The off-centre trunk run's offset: the trunk's axis this
+        /// far from the car's centreline, a solid hit on the car's corner
+        /// (0.48-0.58 m of overlap for 0.30-0.40 m trunks).</summary>
+        const float TrunkOffsetM = 0.6f;
         float bornAt;
         bool finished;
         string stage = "free roam";
@@ -809,10 +816,25 @@ namespace PSXRacing.EditorTools
                     if (hitsIn.Length > 0) { why = "blocked by " + hitsIn[0].collider.name; continue; }
                     // and the run-up itself is drivable: not a slope a car cannot hold
                     if (Mathf.Abs(g0.point.y - trunk.y + cap.height * 0.5f) > 2.5f) { why = "run-up " + (g0.point.y - trunk.y + cap.height * 0.5f).ToString("0.0") + " m off the trunk's ground"; continue; }
+                    // ...and level across its width: since WP-14 the land beside a
+                    // road is a graded bank, and a car crossing one aslant rolls
+                    // and drifts - the slope's business, not the trunk's
+                    float lo = float.MaxValue, hi = float.MinValue;
+                    var sideW = Vector3.Cross(Vector3.up, d);
+                    foreach (float along in new[] { 0f, 4f, 8f, 12f })
+                        foreach (float across in new[] { -1f, 1f })
+                            if (Physics.Raycast(st + d * along + sideW * across + Vector3.up * 60f, Vector3.down, out var gq, 150f, groundMask))
+                            { lo = Mathf.Min(lo, gq.point.y); hi = Mathf.Max(hi, gq.point.y); }
+                    if (hi - lo > RunUpLevelM) { why = "run-up on a slope (" + (hi - lo).ToString("0.00") + " m across it)"; continue; }
                     dir = d; break;
                 }
                 if (dir == Vector3.zero) { if (tried <= 5) CityPlayCheck.Line("  --   trunk at (" + trunk.x.ToString("0") + "," + trunk.z.ToString("0") + "): " + why); continue; }
-                foreach (float off in new[] { 0f, 0.9f })
+                // dead on, and off-centre by TrunkOffsetM (WP-14: it was 0.9 m,
+                // a 0.13-0.23 m overlap of a 1.55 m car's corner with the
+                // trunk; whether that hit or missed was the drift across the
+                // run-up, and once graded banks moved the drift it missed by
+                // a hand, or glanced off at 12-16 km/h with the line held)
+                foreach (float off in new[] { 0f, TrunkOffsetM })
                 {
                     var side = Vector3.Cross(Vector3.up, dir);
                     var start = new Vector3(trunk.x, trunk.y, trunk.z) - dir * 16f + side * off;
@@ -831,7 +853,12 @@ namespace PSXRacing.EditorTools
                     string insideAt = "";
                     for (int k = 0; k < Mathf.RoundToInt(2.5f / Time.fixedDeltaTime); k++)
                     {
-                        player.throttleInput = 0.6f; player.steerInput = 0f; player.brakeInput = 0f;
+                        // held on its line (the drift, not the trunk, decided the
+                        // offset runs): steer at a point on it 4 m past the trunk
+                        var aim = new Vector3(trunk.x, 0f, trunk.z) + side * off + dir * 4f;
+                        var toAim = aim - new Vector3(player.Body.position.x, 0f, player.Body.position.z);
+                        float steer = Vector3.Dot(toAim, dir) > 0.5f ? Vector3.SignedAngle(Vector3.ProjectOnPlane(player.transform.forward, Vector3.up), toAim, Vector3.up) / 20f : 0f;
+                        player.throttleInput = 0.6f; player.steerInput = Mathf.Clamp(steer, -1f, 1f); player.brakeInput = 0f;
                         yield return new WaitForFixedUpdate();
                         float slack = cap.radius * 0.5f, dist = float.MaxValue;
                         for (float up = 0f; up <= 3.5f; up += 0.25f)
@@ -906,7 +933,13 @@ namespace PSXRacing.EditorTools
                                 // no other road beside it: the run is this road's roadside
                                 if (map.NearestRoadPoint(q, hw + Probe + 6f, false, out int oe, out _, out float od) && oe != ei &&
                                     od < map.edges[oe].width * 0.5f + 14f) continue;
-                                float dy = CityElevation.GroundY(map, q.x, q.y) - y;
+                                // graded by THIS road's section: where another road's fill
+                                // or cap sets the land (a bridge approach's embankment
+                                // beside a trench) two roads' grading meets, and that is
+                                // the rail warrant's business, not the section's
+                                float dy = CityElevation.Ground(map, q.x, q.y, out var gt) - y;
+                                if (gt.floorEdge >= 0 && gt.floorEdge != ei && gt.floor > gt.dem - 0.05f) continue;
+                                if (gt.protectEdge >= 0 && gt.protectEdge != ei && !float.IsNaN(gt.protect) && gt.result >= gt.protect - 1e-3f) continue;
                                 string kind = dy <= -Need ? "fill" : dy >= Need ? "cut" : Mathf.Abs(dy) < 0.3f ? "level" : null;
                                 if (kind == null) continue;
                                 if (kind == "fill" && fills >= want || kind == "cut" && cuts >= want || kind == "level" && level >= want) continue;
