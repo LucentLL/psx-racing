@@ -14,7 +14,7 @@ namespace PSXRacing
     ///     cue that tells you what it is about to do.
     ///   * THE BEAM ON THE WORLD is real: this component pushes every lit
     ///     lamp into a global table (position, axis, spread, colour) and
-    ///     PSXHeadlights.cginc lights every PSX surface from it per pixel — a
+    ///     PSXHeadlights.cginc lights every PSX surface from it per pixel â€” a
     ///     halogen low beam with a flat top, thirty degrees wide, seventy-odd
     ///     metres long, on the road, the kerb, the wall ahead and the car
     ///     ahead. It replaced a single additive disc laid on the tarmac.
@@ -29,7 +29,7 @@ namespace PSXRacing
     ///     metres out, and the table has only four slots for tail lamps.
     ///
     /// THE LAMPS ARE MEASURED OFF THE SHELL, NOT THE COLLIDER. They used to
-    /// hang three centimetres outside the car's BoxCollider — and the baker
+    /// hang three centimetres outside the car's BoxCollider â€” and the baker
     /// fits every pack car's collider to 95.5% of its mesh length, so on a
     /// 4.5 m car the lens sat seven centimetres INSIDE the bumper, where the
     /// opaque body hid it. That is the whole of "brake lights seem to be
@@ -40,7 +40,7 @@ namespace PSXRacing
     /// nose and the tail actually are.
     ///
     /// Everything hangs under the BODY root when there is one, so the lamps
-    /// dive with the nose under braking and roll with it in a corner — and
+    /// dive with the nose under braking and roll with it in a corner â€” and
     /// so the beam does too, which is the one thing about a real headlight
     /// that the follow-the-steering pool got wrong.
     ///
@@ -87,8 +87,128 @@ namespace PSXRacing
         /// <summary>Metres of useful beam. A halogen low beam lights the
         /// road to about this; the night fog closes at 190.</summary>
         public const float BeamRange = 75f;
-        /// <summary>Multiplier on the colour as it reaches the world.</summary>
-        public const float BeamIntensity = 2.0f;
+        /// <summary>
+        /// Multiplier on the LINEAR halogen colour as it reaches the world:
+        /// what one lamp puts on a road square to it, on the beam's flat
+        /// plateau (PSXHeadlights.cginc: full from 10 m to 55 m).
+        ///
+        /// THE COLOUR PASS (C5, 2026-09-29). It was 2.0, on the colour as
+        /// authored (sRGB numbers pushed as linear light: 0.87 of luminance
+        /// per unit instead of 0.75, and 5,000 K instead of the bulb's
+        /// 4,000 K), falling as t*sqrt(t) over the range: 3.2 of light on the
+        /// road at 5 m, 0.14 at 60 m. With the night presets cut fivefold on
+        /// 09-21 around it, that was the owner's "headlights so bright at
+        /// night that they completely wash out anything in front of the car":
+        /// a white blob to the car's roof that was gone by 40 m. Now the
+        /// colour goes through .linear, as the street lamps' always did, and
+        /// the beam is a flat plateau pinned by MEASUREMENT against the NFS
+        /// (2015) night the owner asked for.
+        ///
+        /// 0.42 (review, 2026-09-29), not the first cut's 0.22. That one was
+        /// pinned on ONE of the plan's numbers - the headlit road 2.3-3.6x the
+        /// unlit road on the moonlit Blue Ridge stage - and missed the rest in
+        /// both directions: a plateau of 0.33 of light where the plan asks
+        /// 0.55-0.70, old asphalt in the beam at 36 (38-60), and on the owner's
+        /// fresh #1e1e22 asphalt under street lamps (the drag strip, the
+        /// circuit, downtown) a beam a reviewer could not tell from lamps-off
+        /// (x1.24-1.49 over the lamp-lit road; the plan asks 1.5-3). Swept
+        /// 0.22-0.50 on the protocol's night spots (colour-shots -Sets beam,
+        /// PSX_BEAM_SWEEP, the cone held at 0.03): at 0.42 the plateau is 0.64
+        /// of light (the plan pinned "about 0.42 for 0.62"), Blue Ridge's old
+        /// asphalt 48-50 at 14-22 m, the Samuel Street concrete 134 at 14 m
+        /// (120-165), fresh asphalt 24-25 (20-32), the lamp-lit circuit
+        /// x1.8-3.0 and the strip x1.4-1.6 over its street lamps; 0.50 put the
+        /// plateau over 0.70. Still flat - the beam's own light is the plateau
+        /// from 10 m to 55 m (PSXHeadlights.cginc) - and nowhere near the old
+        /// blob: the deck at 14 m is 134, where the owner's frame had 235.
+        ///
+        /// 0.80 (the dark-night retune, 2026-09-29). The owner, after driving
+        /// it: "These lights seem pretty dull, and night is hardly dark at
+        /// all", with real night drives and NFS Heat beside it. Those frames
+        /// put the pool on old asphalt at Ycode 55-80 over an unlit road of
+        /// 2-11 - four to five stops, the brightest thing on the road - where
+        /// ours was 1.5-2.5x an unlit road the moon lit to 13-29 (colour_stats
+        /// beam on the night set). The night itself came down about three
+        /// stops (TimeOfDay NIGHT) and the beam came up to 0.80: old asphalt
+        /// at 14-22 m about 60, the owner's fresh #1e1e22 about 35-40 (his
+        /// colour, lit, not lightened), the Samuel Street concrete under
+        /// the tone curve's knee - and it now tails off past 30 m
+        /// (PSXHeadlights.cginc BEAM_FADE_M) instead of holding flat to 55.
+        /// AT NIGHT: by day (headlights on in rain, fog and snow) the beam
+        /// stays the reviewed <see cref="BeamIntensityDay"/>, blended by
+        /// <see cref="BeamNight"/>, so no daylight road gets lighter for it -
+        /// a low beam in daylight is barely there.
+        ///
+        /// 0.90 and the albedo floor (round two, 2026-09-29). The review of
+        /// round one measured the pool on the owner's FRESH asphalt barely
+        /// moved (drag strip 27 -> 30, Sunset City GP 28 -> 32, downtown
+        /// 32-38; the references 55-80, NFS Heat's road 48), and on the
+        /// circuit a street lamp's pool on the road (53) outshone the beam:
+        /// only the surroundings had got darker. The road is the reason, not
+        /// the beam - #1e1e22 is linear 0.013, a quarter of a real fresh
+        /// road - and the beam could not be raised to meet it without
+        /// whiting out Samuel Street's concrete. So at night the beam reads a
+        /// dark upward texel at a real road's reflectance
+        /// (PSXHeadlights.cginc BEAM_ALBEDO_FLOOR, keyed by the same
+        /// <see cref="BeamNight"/>), and the plateau comes up to 0.90.
+        /// </summary>
+        public const float BeamIntensity = 0.90f;
+        /// <summary>The beam at a daylight hour (NightFor 0): the colour
+        /// review's 0.42, unchanged.</summary>
+        public const float BeamIntensityDay = 0.42f;
+        /// <summary>
+        /// HOW MUCH OF THE NIGHT BEAM an hour gets, from its
+        /// <see cref="TimeOfDay.NightFor"/> (0..1): 0 through SUNSET (0.3) and
+        /// DAWN (0.5), which run headlights with the sun still up (1.05 and
+        /// 0.72) and must not light a road any brighter than the reviewed day
+        /// beam did; half at DUSK (0.75, the sun down, a blue twilight); all
+        /// of it at NIGHT. Round one blended by NightFor itself, which put a
+        /// sun-up Sunset at 0.53 and Dawn at 0.61 (the review, 2026-09-29).
+        /// The shader's albedo floor takes the same number (_PSXHeadNight).
+        /// </summary>
+        public static float BeamNight(float night) => SmoothStep(0.5f, 1f, Mathf.Clamp01(night));
+        /// <summary>The beam for an hour's night (0 day .. 1 night).</summary>
+        public static float BeamIntensityFor(float night) =>
+            Mathf.Lerp(BeamIntensityDay, BeamIntensity, BeamNight(night));
+        /// <summary>
+        /// What each lamp's GLINTS take instead (the streak of an oncoming
+        /// car's lamps down a wet road, the lamps of the car behind in your
+        /// paint): a glint is the LENS seen in a mirror, a light source, and
+        /// the low beam's retune made the road it lights darker, not the
+        /// lens. Pushed as the table's w, a multiplier on the beam's colour
+        /// (PSXHeadlights.cginc), so the glints keep the brightness the night
+        /// pass tuned them to (the old 2.0, now on the linear colour: 85% of
+        /// the old luminance, at the bulb's own 4,000 K) while the diffuse
+        /// beam comes down.
+        /// </summary>
+        public const float GlintIntensity = 2.0f;
+        /// <summary>For the look tools only (ColourShots' beam sweep): a
+        /// BeamIntensity to push instead of the constant, or 0 for the
+        /// constant. Nothing in the game writes it.</summary>
+        public static float BeamIntensityOverride;
+        /// <summary>The intensity pushed this frame.</summary>
+        public static float BeamIntensityNow => BeamIntensityOverride > 0f ? BeamIntensityOverride
+            : BeamIntensityFor(Shader.GetGlobalFloat("_PSXNight"));
+        /// <summary>
+        /// THE BEAM IN THE AIR (PSX/Beam's _Strength) at <see cref="BeamIntensity"/>,
+        /// and in proportion to it: the light a cone of air scatters back is
+        /// a share of the light going through it. It was 0.45 beside the old
+        /// 2.0 beam, and with the beam retuned (C5) the same cone was most of
+        /// what lit the road in front of the car (measured 2026-09-29 on the
+        /// drag strip: the road 14 m out barely moved across a fourfold beam
+        /// sweep - the cone was drawn over it). The cone is brightest at the
+        /// lens, where the beam came down fifteenfold (3.2 of light at 5 m to
+        /// 0.2), so it comes down by as much: 0.03. Measured on the strip, the
+        /// pool's own light over 22-58 m is flat to 1.20 without the cone,
+        /// 1.53 with it at 0.03, 1.93 at 0.10 - the volume the owner asked
+        /// for is kept, faint, near the lamps.
+        /// </summary>
+        public const float BeamConeStrength = 0.03f;
+        /// <summary>For the look tools only: a cone strength to use instead,
+        /// or a negative number for the rule above.</summary>
+        public static float ConeStrengthOverride = -1f;
+        static float ConeStrengthNow => ConeStrengthOverride >= 0f ? ConeStrengthOverride
+            : BeamConeStrength * BeamIntensityNow / BeamIntensity;
         /// <summary>Half-spread of the beam, outer edge and full-strength
         /// core, in degrees.</summary>
         public const float BeamOuterDeg = 34f, BeamInnerDeg = 11f;
@@ -108,8 +228,23 @@ namespace PSXRacing
         /// </summary>
         static readonly Color TailLampColour = new Color(1.00f, 0.10f, 0.05f);
         /// <summary>Metres of red pool, and its strength with the running
-        /// lights on and with the brakes on.</summary>
-        public const float TailLampRadius = 4.5f, TailLampDim = 0.45f, TailLampBrake = 1.2f;
+        /// lights on and with the brakes on.
+        ///
+        /// FIVE-WATT BULBS (the colour pass, C6, 2026-09-29). They were 0.45
+        /// and 1.2 - a third to a half of a street lamp's pool, where a 5 W
+        /// tail bulb behind red glass gives about a tenth of one - and on the
+        /// owner's night frame the road behind his car was washed pink
+        /// (display .35,.27,.24). Now the running light is about a tenth of a
+        /// street lamp and the brake three times that: a red wash you notice
+        /// on a wet road behind a braking car, not a red floor.
+        ///
+        /// 0.10 and 0.30 since the dark-night retune (2026-09-29): with the
+        /// moon and the ambient taken to about a sixth, the same red on the owner's
+        /// Samuel Street concrete stood alone on a black road and read as a
+        /// red floor again (the road 2 m behind +34 in red, the plan's cap
+        /// +25). The GLOW of the lens went up instead (TailLensDim) - NFS
+        /// Heat's running lamps halo, their road is only tinged.</summary>
+        public const float TailLampRadius = 4.5f, TailLampDim = 0.10f, TailLampBrake = 0.30f;
         /// <summary>How far behind the lenses the light sits, so the car's
         /// own tail panel is not what it lights most.</summary>
         public const float TailLampBack = 0.25f;
@@ -195,8 +330,8 @@ namespace PSXRacing
 
         /// <summary>
         /// Re-fit if the shell changed. CarBody can re-fit a car after this
-        /// component has already built itself — the LifeSim hands over a grid
-        /// during Start, and component Start order is undefined — so the fit
+        /// component has already built itself â€” the LifeSim hands over a grid
+        /// during Start, and component Start order is undefined â€” so the fit
         /// is re-checked rather than trusted once.
         /// </summary>
         void LateUpdate()
@@ -241,7 +376,7 @@ namespace PSXRacing
         }
 
         /// <summary>
-        /// Build the lamps outside play mode and force them on or off — and,
+        /// Build the lamps outside play mode and force them on or off â€” and,
         /// optionally, force the brakes on so a picture can show the brake
         /// lights, which Update would otherwise only ever show for the frames
         /// a pedal is down.
@@ -434,6 +569,7 @@ namespace PSXRacing
         static readonly int FwdId = Shader.PropertyToID("_PSXHeadFwd");
         static readonly int RightId = Shader.PropertyToID("_PSXHeadRight");
         static readonly int ColorId = Shader.PropertyToID("_PSXHeadColor");
+        static readonly int HeadNightId = Shader.PropertyToID("_PSXHeadNight");
 
         /// <summary>How many lamps the table holds right now. For tests.</summary>
         public static int PushedCount { get; private set; }
@@ -474,7 +610,13 @@ namespace PSXRacing
                 }
                 float cosOuter = Mathf.Cos(BeamOuterDeg * Mathf.Deg2Rad);
                 float cosInner = Mathf.Cos(BeamInnerDeg * Mathf.Deg2Rad);
-                var col = Halogen * BeamIntensity;
+                // LINEAR light (the colour pass, C5): the halogen is authored
+                // sRGB like every colour in the project, and a global vector
+                // is pushed exactly as written - StreetLights has always
+                // linearised its bulbs; the beams never were.
+                float bi = BeamIntensityNow;
+                var col = Halogen.linear * bi;
+                float glint = GlintIntensity / Mathf.Max(bi, 1e-4f);
                 foreach (var l in sorted)
                 {
                     for (int i = 0; i < 2 && n < MaxLights; i++)
@@ -484,7 +626,7 @@ namespace PSXRacing
                         gPos[n] = new Vector4(p.x, p.y, p.z, BeamRange);
                         gFwd[n] = new Vector4(f.x, f.y, f.z, cosOuter);
                         gRight[n] = new Vector4(r.x, r.y, r.z, cosInner);
-                        gColor[n] = new Vector4(col.r, col.g, col.b, 1f);
+                        gColor[n] = new Vector4(col.r, col.g, col.b, glint);
                         n++;
                     }
                 }
@@ -492,11 +634,66 @@ namespace PSXRacing
             for (int i = n; i < MaxLights; i++)
                 gPos[i] = gFwd[i] = gRight[i] = gColor[i] = Vector4.zero;
             PushedCount = n;
+            // The cone in the air follows the beam (BeamConeStrength). One
+            // shared material for every car, so one write.
+            if (beamMat != null) beamMat.SetFloat("_Strength", ConeStrengthNow);
             Shader.SetGlobalFloat(CountId, n);
+            // The beam's albedo floor (PSXHeadlights.cginc): the hour's
+            // BeamNight, 0 through sunset and dawn.
+            Shader.SetGlobalFloat(HeadNightId, BeamNight(Shader.GetGlobalFloat("_PSXNight")));
             Shader.SetGlobalVectorArray(PosId, gPos);
             Shader.SetGlobalVectorArray(FwdId, gFwd);
             Shader.SetGlobalVectorArray(RightId, gRight);
             Shader.SetGlobalVectorArray(ColorId, gColor);
+        }
+
+        /// <summary>
+        /// The diffuse light the pushed table puts on a surface at
+        /// <paramref name="wpos"/> facing <paramref name="n"/>: linear RGB,
+        /// the same arithmetic as PSXHeadlightsCore (Shaders/PSXHeadlights.cginc),
+        /// constant for constant. For the look tools (ColourShots writes it
+        /// into each measuring box's sidecar entry, so the beam's shape is
+        /// read apart from the road's texture, the street lamps and the fog);
+        /// the game never calls it.
+        /// </summary>
+        public static Vector3 BeamLightAt(Vector3 wpos, Vector3 n)
+        {
+            const float Near = 0.55f, NearFrom = 3f, NearTo = 10f, FadeM = 45f;   // PSXHeadlights.cginc BEAM_FADE_M (45 since the dark-night retune)
+            const float CutLo = 0.016f, CutHi = 0.032f, FaceLo = -0.05f, FaceHi = 0.02f;
+            const float Spill = 0.12f, SpillCos = 0.342f, SpillFrom = 10f, SpillTo = 25f, SpillCutLo = 0.05f, SpillCutHi = 0.25f;
+            Vector3 sum = Vector3.zero;
+            for (int j = 0; j < PushedCount && j < MaxLights; j++)
+            {
+                Vector3 d = wpos - (Vector3)gPos[j];
+                float dist = d.magnitude;
+                Vector3 F = gFwd[j], R = gRight[j];
+                Vector3 U = Vector3.Cross(F, R);
+                // HLSL's cross is the right-handed formula; Unity's
+                // Vector3.Cross is the same formula, so U is the same vector.
+                float fz = Vector3.Dot(d, F), fx = Vector3.Dot(d, R), fy = Vector3.Dot(d, U);
+                float hz = fz / Mathf.Sqrt(fx * fx + fz * fz + 1e-4f);
+                float spread = SmoothStep(gFwd[j].w, gRight[j].w, hz);
+                float slope = fy / Mathf.Max(fz, 0.25f);
+                float cut = 1f - SmoothStep(CutLo, CutHi, slope);
+                float front = Mathf.Clamp01(fz * 1.5f);
+                float range = Mathf.Max(gPos[j].w, 1f);
+                float att = Mathf.Lerp(Near, 1f, SmoothStep(NearFrom, NearTo, dist)) * (1f - SmoothStep(range - FadeM, range, dist));
+                float spill = Spill * SmoothStep(SpillCos, gFwd[j].w, hz) * (1f - SmoothStep(SpillCutLo, SpillCutHi, slope))
+                            * (1f - SmoothStep(SpillFrom, SpillTo, dist));
+                float nl = Vector3.Dot(n, -d) / Mathf.Max(dist, 0.05f);
+                float facing = SmoothStep(FaceLo, FaceHi, nl);
+                float k = (spread * cut * att + spill) * front * facing;
+                sum += new Vector3(gColor[j].x, gColor[j].y, gColor[j].z) * k;
+            }
+            return sum;
+        }
+
+        /// <summary>HLSL's smoothstep (Mathf.SmoothStep is not it: that one
+        /// interpolates between its first two arguments).</summary>
+        static float SmoothStep(float a, float b, float x)
+        {
+            float t = Mathf.Clamp01((x - a) / (b - a));
+            return t * t * (3f - 2f * t);
         }
 
         static MeshRenderer MakeQuad(string name, Transform parent, Material mat)
@@ -638,17 +835,23 @@ namespace PSXRacing
         }
 
         static Material headMat, tailDim, tailBright, beamMat;
+        /// <summary>The running tail lens's glow (PSX/Glow _Strength). 0.9
+        /// until the dark-night retune (2026-09-29): NFS Heat's running
+        /// lamps (the owner's frame 15) glow a red halo well past the lens -
+        /// cores Ycode 180-195 - where ours read as two small red dots.
+        /// The lens only: its light on the road stays the 5 W TailLampDim.</summary>
+        public const float TailLensDim = 1.35f;
         /// <summary>The lens, in halogen, a touch hotter than the beam so it
         /// reads as the source.</summary>
         static Material HeadMat => headMat != null ? headMat
             : headMat = MakeMat("PSX/Glow", "Headlight", Halogen, 1.6f, true);
         static Material TailDimMat => tailDim != null ? tailDim
-            : tailDim = MakeMat("PSX/Glow", "Taillight", new Color(1.00f, 0.16f, 0.10f), 0.9f, true);
+            : tailDim = MakeMat("PSX/Glow", "Taillight", new Color(1.00f, 0.16f, 0.10f), TailLensDim, true);
         static Material TailBrightMat => tailBright != null ? tailBright
             : tailBright = MakeMat("PSX/Glow", "Brakelight", new Color(1.00f, 0.12f, 0.06f), 2.6f, true);
         /// <summary>The beam in the air. Same halogen; PSX/Beam fades it out
         /// by daylight on its own.</summary>
         static Material BeamMat => beamMat != null ? beamMat
-            : beamMat = MakeMat("PSX/Beam", "HeadlightBeam", Halogen, 0.45f, false);
+            : beamMat = MakeMat("PSX/Beam", "HeadlightBeam", Halogen, ConeStrengthNow, false);
     }
 }

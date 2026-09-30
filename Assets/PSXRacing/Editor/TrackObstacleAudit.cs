@@ -531,7 +531,10 @@ namespace PSXRacing.EditorTools
         //   EDGE FACE   anywhere across the edge, a rise the body box meets as
         //               a wall (FaceRiseFailM within FaceRunM) — except the
         //               sinking stone of a warranted run's buried terminal,
-        //               which is reported as info;
+        //               which is reported as info, and a spot the owner has
+        //               accepted pending a fix, named one by one in
+        //               OwnerAccepted (station, side, height, position) and
+        //               listed on every run as "owner-accepted";
         //   EDGE FACE PAST THE REACH  the same rise further out than the
         //               profile's reach, on the half-section's OWN shoulder
         //               ribbon — its slope ending over the land instead of
@@ -564,7 +567,7 @@ namespace PSXRacing.EditorTools
         /// <summary>How far past the tarmac edge the profile and the barrier
         /// rays reach when nothing stops them first. Past the clear zone
         /// (kerb + 3.5 m) and the barrier warrant (kerb + 5 m).</summary>
-        const float EdgeReachM = 8f;
+        internal const float EdgeReachM = 8f;
         /// <summary>How far an OPEN half-section's profile is always carried on
         /// past <see cref="EdgeReachM"/> (MeasureFarFace): the toe of a stage
         /// shoulder's carried foreslope at its depth cap — its ribbon to the
@@ -662,6 +665,117 @@ namespace PSXRacing.EditorTools
         /// <summary>Runs listed per venue, worst first.</summary>
         const int EdgeWorstListed = 20;
 
+        /// <summary>
+        /// ONE EDGE FACE THE OWNER HAS SEEN AND ACCEPTED, pending a fix. Not a
+        /// waiver: it names ONE spot - the venue, which finding, which side,
+        /// the stations it covers, the height the owner was shown (as this
+        /// audit prints it, to the centimetre) and where across the edge it
+        /// stood - and the audit still measures it on every build. A
+        /// half-section passes on an entry only when all of those match
+        /// (<see cref="AcceptedFor"/>); a face one station further along, a
+        /// centimetre taller, more than <see cref="AcceptedAtSlackM"/> from
+        /// where it stood, on the other side or of the other kind is a FAIL
+        /// exactly as before. Accepted faces are listed on every run under
+        /// their own lower-case label (never a verify failure pattern), and an
+        /// entry the build no longer finds is reported, so it is taken out
+        /// once its fix lands.
+        /// </summary>
+        internal sealed class AcceptedFace
+        {
+            /// <summary>TrackCatalog id of the venue.</summary>
+            public string venue;
+            /// <summary>false: EDGE FACE (inside the reach); true: EDGE FACE
+            /// PAST THE REACH (the half-section's own ribbon, past EdgeReachM).
+            /// </summary>
+            public bool pastReach;
+            /// <summary>-1 left, +1 right, as the audit's run lines say.</summary>
+            public int side;
+            /// <summary>The stations it covers, inclusive.</summary>
+            public int fromWp, toWp;
+            /// <summary>The height accepted, as the audit printed it (0.00 m).
+            /// A face that prints higher is not this one.</summary>
+            public float maxRiseM;
+            /// <summary>Metres past the tarmac edge it stood at when accepted.
+            /// </summary>
+            public float atM;
+            /// <summary>Who accepted it and when, and that a fix is owed.</summary>
+            public string accepted;
+            /// <summary>What it is, from the review that found it.</summary>
+            public string what;
+
+            public string Where =>
+                (pastReach ? "edge face past the reach " : "edge face ") +
+                (side < 0 ? "left" : "right") + " wp " +
+                (fromWp == toWp ? fromWp.ToString() : fromWp + "-" + toWp) +
+                " (" + venue + ", " + maxRiseM.ToString("0.00") + " m at " + atM.ToString("0.00") + " m)";
+        }
+
+        /// <summary>How far across the edge an accepted face may stand from
+        /// where it stood when accepted. Rebuilds of one tree put Chimney Rock's
+        /// four within 0.3 m of their first reading (5.40-5.60, 7.60-7.70,
+        /// 6.95-7.25); a face further off than this is another face.</summary>
+        internal const float AcceptedAtSlackM = 0.5f;
+
+        /// <summary>The run labels an accepted face is listed under. Lower
+        /// case: tools\verify.ps1 matches its failure patterns case-sensitively
+        /// and prints these as their own "accepted" lines.</summary>
+        internal const string AcceptedFaceLabel = "owner-accepted edge face";
+        internal const string AcceptedFarLabel = "owner-accepted edge face past the reach";
+
+        /// <summary>
+        /// THE OWNER-ACCEPTED EDGE FACES. Every entry is one spot, by venue,
+        /// finding, side, stations, height and position, with the date and
+        /// the words it was accepted on. Keep it short: a new entry needs the
+        /// owner's word for THAT spot, and an entry comes out when its fix
+        /// lands (the audit says when it no longer finds one). The self-test
+        /// pins its shape (a listed venue, at most two stations, under 0.10 m,
+        /// dated).
+        ///
+        /// Chimney Rock, 2026-09-29. The owner: "Release now, fix after" - the
+        /// park road shipped with four small ledges, the only failing lines of
+        /// that day's verify, and a fix followed the same day for three:
+        /// 1040-1041 L (the land climbing into the upper leg's retaining wall)
+        /// and 668 R (a facet climbing toward the leg above) by
+        /// PSXRacingBuilder's rise holds, which tilt the lattice past a catch
+        /// down by its uphill corner; 2 L past the reach (the start row's
+        /// shoulder standing over the land along its own line) by the end pad,
+        /// which now carries the end row's shoulder as well as the road. Their
+        /// entries are out.
+        ///
+        /// The fourth, 983 R (0.08 m at 7.70 m: a 1V:4H foreslope met the land
+        /// 6.0 m out, and 7.55 m out a 12 m lattice crease fell into the
+        /// valley toward the leg below at about 1V:1.6H - no lattice that only
+        /// lowers can ease that but by digging under the catch), was the
+        /// owner's design call: a guardrail (not DOT-warranted there) or a
+        /// fill. The owner chose the fill ("build up about 15 m of earth fill
+        /// beyond the shoulder so the slope eases down into the valley"), and
+        /// PSXRacingBuilder's FILL TAILS build it (BuildStageFillTails: land
+        /// past a catch that falls like a face inside the reach is filled from
+        /// the crest at 1V:2.9H and rolled down to a toe on the hillside; the
+        /// same builder fills under 981-982 R's fan, whose crest stood 2.59 m
+        /// over the land). Its entry is out, and the list is EMPTY: every
+        /// edge face on every venue is a failure again. The self-test pins it.
+        /// </summary>
+        internal static readonly AcceptedFace[] OwnerAccepted = { };
+
+        /// <summary>The <see cref="OwnerAccepted"/> entry that covers this one
+        /// face, or -1: same venue, kind and side, the station inside its
+        /// range, a height that prints no higher than the one accepted, and
+        /// within <see cref="AcceptedAtSlackM"/> of where it stood.</summary>
+        internal static int AcceptedFor(string venue, bool pastReach, int side, int wp, float rise, float atM)
+        {
+            for (int a = 0; a < OwnerAccepted.Length; a++)
+            {
+                var e = OwnerAccepted[a];
+                if (e.venue != venue || e.pastReach != pastReach || e.side != side) continue;
+                if (wp < e.fromWp || wp > e.toWp) continue;
+                if (rise >= e.maxRiseM + 0.005f) continue;
+                if (Mathf.Abs(atM - e.atM) > AcceptedAtSlackM) continue;
+                return a;
+            }
+            return -1;
+        }
+
         /// <summary>Every query here ignores layer 2: the cars.</summary>
         const int NotCars = ~(1 << 2);
 
@@ -673,6 +787,9 @@ namespace PSXRacing.EditorTools
         class EdgeHalf
         {
             public bool measured, barrier, deck, structure, fall, pocket, faceIn, terminal;
+            /// <summary>Index into OwnerAccepted of the entry this half's face
+            /// (or own far face) passes on, else -1.</summary>
+            public int faceAccepted = -1, ownFarFaceAccepted = -1;
             public float tarmacY, barrierE = float.PositiveInfinity;
             public float drop, dropE, face, faceE, slopeFail, slopeWarn, slopeGrade, slopeE, backslope, backE;
             public float fallM, fallE, pocketDy;
@@ -688,7 +805,7 @@ namespace PSXRacing.EditorTools
         class EdgeRun
         {
             public string label, what;
-            public bool fail;
+            public bool fail, accepted;
             public int side, from, to, stations;
             public float worst, severity;
             public Vector3 where;
@@ -899,6 +1016,30 @@ namespace PSXRacing.EditorTools
                         }
                 }
 
+            // THE OWNER-ACCEPTED LEDGES (OwnerAccepted): each half-section's
+            // face is matched against the named spots one by one. Only a face
+            // an entry covers exactly - station, side, kind, height, position
+            // - leaves the EDGE FACE line for its own; every other face fails
+            // as it always has.
+            var acceptedSeen = new bool[OwnerAccepted.Length];
+            for (int si = 0; si < 2; si++)
+                for (int i = 0; i < n; i++)
+                {
+                    var h = halves[i, si];
+                    if (!h.measured) continue;
+                    int side = si == 0 ? -1 : 1;
+                    if (h.face > RoadsideRules.FaceRiseFailM && !h.terminal)
+                    {
+                        h.faceAccepted = AcceptedFor(def.id, false, side, i, h.face, h.faceE);
+                        if (h.faceAccepted >= 0) acceptedSeen[h.faceAccepted] = true;
+                    }
+                    if (h.ownFarFace > RoadsideRules.FaceRiseFailM)
+                    {
+                        h.ownFarFaceAccepted = AcceptedFor(def.id, true, side, i, h.ownFarFace, h.ownFarFaceE);
+                        if (h.ownFarFaceAccepted >= 0) acceptedSeen[h.ownFarFaceAccepted] = true;
+                    }
+                }
+
             var runs = new List<EdgeRun>();
             float sp = path.spacing;
             EdgeRuns(runs, halves, n, loop, "EDGE DROP", true,
@@ -911,19 +1052,31 @@ namespace PSXRacing.EditorTools
                 h => string.Format("{0:0.000} m drop at {1:0.00} m past the tarmac edge, onto {2}",
                                    h.drop, h.dropE, h.dropOn));
             EdgeRuns(runs, halves, n, loop, "EDGE FACE", true,
-                h => h.face > RoadsideRules.FaceRiseFailM && !h.terminal, h => h.face, RoadsideRules.FaceRiseFailM,
+                h => h.face > RoadsideRules.FaceRiseFailM && !h.terminal && h.faceAccepted < 0, h => h.face, RoadsideRules.FaceRiseFailM,
                 h => string.Format("{0:0.00} m rise within {1:0.00} m at {2:0.00} m past the tarmac edge ({3}), on {4}",
                                    h.face, RoadsideRules.FaceRunM, h.faceE,
                                    h.faceIn ? "climbing back in" : "running wide", h.faceOn));
+            EdgeRuns(runs, halves, n, loop, AcceptedFaceLabel, false,
+                h => h.faceAccepted >= 0, h => h.face, RoadsideRules.FaceRiseFailM,
+                h => string.Format("{0:0.00} m rise within {1:0.00} m at {2:0.00} m past the tarmac edge ({3}), on {4} [{5}: {6}]",
+                                   h.face, RoadsideRules.FaceRunM, h.faceE,
+                                   h.faceIn ? "climbing back in" : "running wide", h.faceOn,
+                                   OwnerAccepted[h.faceAccepted].accepted, OwnerAccepted[h.faceAccepted].what));
             EdgeRuns(runs, halves, n, loop, "info buried terminal", false,
                 h => h.terminal, h => h.face, RoadsideRules.FaceRiseFailM,
                 h => string.Format("{0:0.00} m of sinking stone at {1:0.00} m past the tarmac edge, on {2}",
                                    h.face, h.faceE, h.faceOn));
             EdgeRuns(runs, halves, n, loop, "EDGE FACE PAST THE REACH", true,
-                h => h.ownFarFace > RoadsideRules.FaceRiseFailM, h => h.ownFarFace, RoadsideRules.FaceRiseFailM,
+                h => h.ownFarFace > RoadsideRules.FaceRiseFailM && h.ownFarFaceAccepted < 0, h => h.ownFarFace, RoadsideRules.FaceRiseFailM,
                 h => string.Format("{0:0.00} m rise within {1:0.00} m at {2:0.00} m past the tarmac edge ({3}), on {4}",
                                    h.ownFarFace, RoadsideRules.FaceRunM, h.ownFarFaceE,
                                    h.ownFarFaceIn ? "climbing back in" : "running wide", h.ownFarFaceOn));
+            EdgeRuns(runs, halves, n, loop, AcceptedFarLabel, false,
+                h => h.ownFarFaceAccepted >= 0, h => h.ownFarFace, RoadsideRules.FaceRiseFailM,
+                h => string.Format("{0:0.00} m rise within {1:0.00} m at {2:0.00} m past the tarmac edge ({3}), on {4} [{5}: {6}]",
+                                   h.ownFarFace, RoadsideRules.FaceRunM, h.ownFarFaceE,
+                                   h.ownFarFaceIn ? "climbing back in" : "running wide", h.ownFarFaceOn,
+                                   OwnerAccepted[h.ownFarFaceAccepted].accepted, OwnerAccepted[h.ownFarFaceAccepted].what));
             EdgeRuns(runs, halves, n, loop, "info edge face past the reach", false,
                 h => h.farFace > RoadsideRules.FaceRiseFailM && h.ownFarFace <= RoadsideRules.FaceRiseFailM,
                 h => h.farFace, RoadsideRules.FaceRiseFailM,
@@ -981,6 +1134,9 @@ namespace PSXRacing.EditorTools
                 "a rise of more than " + RoadsideRules.FaceRiseFailM.ToString("0.00") + " m within " +
                 RoadsideRules.FaceRunM.ToString("0.00") + " m, a wall to the body box at the lowest ride height",
                 null, "edge face: nothing across the edge rises like a wall");
+            EdgeLine(log, runs, null, AcceptedFaceLabel, sp, null,
+                "named spots the owner accepted pending a fix (TrackObstacleAudit.OwnerAccepted: each by station, " +
+                "side, height and position - anything else, or any of them grown, is an EDGE FACE failure)", null);
             EdgeLine(log, runs, null, "info buried terminal", sp, null,
                 "a warranted barrier run's flared end sinking into the foreslope, lower than the barrier rays " +
                 "(RoadsideRules.EndFlareStations; not counted as an edge face)", null);
@@ -994,6 +1150,18 @@ namespace PSXRacing.EditorTools
                 "(reported with whose it is, not failed)",
                 "edge face past the reach: every open half-section's own shoulder ribbon meets the land, " +
                 "however far out it ends (walked to " + FarReachM.ToString("0.0") + " m, and on while a ribbon is underfoot)");
+            EdgeLine(log, runs, null, AcceptedFarLabel, sp, null,
+                "named spots the owner accepted pending a fix (TrackObstacleAudit.OwnerAccepted: each by station, " +
+                "side, height and position - anything else, or any of them grown, fails past the reach)", null);
+            // An entry this venue no longer shows: its fix has landed (or the
+            // stations moved under it - a rebake renumbers them). Said, so the
+            // entry is taken out rather than left to cover whatever grows
+            // there next; not a failure, since nothing is wrong with the road.
+            for (int a = 0; a < OwnerAccepted.Length; a++)
+                if (OwnerAccepted[a].venue == def.id && !acceptedSeen[a])
+                    log.AppendLine("  owner-accepted spot not found on this build (fixed? then take its entry out of " +
+                                   "TrackObstacleAudit.OwnerAccepted): " + OwnerAccepted[a].Where + " - " +
+                                   OwnerAccepted[a].accepted);
             EdgeLine(log, runs, "EDGE SLOPE", "warn edge slope", sp,
                 "a foreslope steeper than 1V:4H for more than " + RoadsideRules.SlopeSustainM.ToString("0.0") + " m inside the clear zone",
                 "steeper than 1V:6H for more than " + RoadsideRules.SlopeSustainM.ToString("0.0") + " m",
@@ -1037,6 +1205,7 @@ namespace PSXRacing.EditorTools
             runs.Sort((a, b) =>
             {
                 if (a.fail != b.fail) return a.fail ? -1 : 1;
+                if (a.accepted != b.accepted) return a.accepted ? -1 : 1;
                 int s = b.severity.CompareTo(a.severity);
                 return s != 0 ? s : b.stations.CompareTo(a.stations);
             });
@@ -1047,12 +1216,14 @@ namespace PSXRacing.EditorTools
             var perKind = new Dictionary<string, int>();
             // Every FAILING run is named, however many there are: a list that
             // stops at five of one kind leaves the rest to be found by rebuild.
+            // So is every owner-accepted one: an exception nobody reads again
+            // is a waiver.
             foreach (var run in runs)
-                if (run.fail) listed.Add(run);
+                if (run.fail || run.accepted) listed.Add(run);
             foreach (var run in runs)
             {
                 if (listed.Count >= EdgeWorstListed) break;
-                if (run.fail) continue;
+                if (run.fail || run.accepted) continue;
                 perKind.TryGetValue(run.label, out int had);
                 if (had >= EdgeWorstListed / 4) continue;
                 perKind[run.label] = had + 1;
@@ -1576,7 +1747,11 @@ namespace PSXRacing.EditorTools
                     float m = metric(h);
                     if (run == null)
                     {
-                        run = new EdgeRun { label = label, fail = fail, side = si == 0 ? -1 : 1, from = i, worst = float.MinValue };
+                        run = new EdgeRun
+                        {
+                            label = label, fail = fail, side = si == 0 ? -1 : 1, from = i, worst = float.MinValue,
+                            accepted = label == AcceptedFaceLabel || label == AcceptedFarLabel,
+                        };
                         into.Add(run);
                     }
                     run.to = i;
@@ -2204,6 +2379,18 @@ namespace PSXRacing.EditorTools
         /// chord, whatever face it is on: a quarter chord. A run's end corner
         /// seen from the chord past it is half a chord along.</summary>
         const float GhostSquareAlongM = 0.25f * TrackCatalog.Spacing;
+        /// <summary>A drawn surface this far or more in front of a wall
+        /// solid's point, on the line from the road, hides that point
+        /// (HiddenFromRoad).</summary>
+        const float GhostHiddenM = 0.3f;
+
+        static string FacesText(List<(Vector3 origin, Vector3 dir)> faces)
+        {
+            var sb = new StringBuilder();
+            foreach (var fc in faces)
+                sb.Append($" ({fc.origin.x:0.0},{fc.origin.z:0.0})->({fc.dir.x:0.00},{fc.dir.z:0.00})");
+            return sb.ToString();
+        }
 
         static void AuditGhostBarriers(TrackCatalog.TrackDef def, TrackPath path,
                                        Collider[] colliders, float trackHalf, StringBuilder log)
@@ -2224,12 +2411,30 @@ namespace PSXRacing.EditorTools
             // faces, and file a fault where what is drawn there does not stand
             // where the collider does. (Why the band is the collider's own and
             // not the road's: see the note at the call below.)
+            bool trace = !string.IsNullOrEmpty(System.Environment.GetEnvironmentVariable("PSX_GHOST_TRACE"));
+            // HIDDEN FROM THE ROAD. A wall solid's point a car could only reach
+            // through something drawn - a rock face standing in front of a
+            // stone's end where the wall hands over to the cut, a backslope
+            // rising between the road and it - is not a ghost at that height:
+            // the car meets the drawn surface first. Asked along the same
+            // horizontal line the sample's own rays fly, from the chord's
+            // road point to where the road-side ray starts, and only a drawn
+            // surface GhostHiddenM short of that start counts.
+            bool HiddenFromRoad(Vector3 road, float y, Vector3 origin)
+            {
+                Vector3 a = new Vector3(road.x, road.y + y, road.z);
+                Vector3 d = new Vector3(origin.x - road.x, 0f, origin.z - road.z);
+                float len = d.magnitude;
+                if (len < GhostHiddenM * 2f) return false;
+                return world.RayOut(a, d / len, len - GhostHiddenM, out _) >= 0f;
+            }
             void Sample(Collider col, int i, Vector3 road, List<(Vector3 origin, Vector3 dir)> faces,
-                        float lo, float hi, float top, Vector3 where)
+                        float lo, float hi, float top, Vector3 where, bool askHidden = false)
             {
                 float drawnTop = lo - GhostStep, worstGap = 0f;
                 bool anyDrawn = false;
                 string hitName = null;
+                var why = trace ? new StringBuilder() : null;
                 for (float y = lo; y <= hi + 1e-3f; y += GhostStep)
                 {
                     string who = null;
@@ -2242,6 +2447,12 @@ namespace PSXRacing.EditorTools
                         if (h2 < 0f) continue;
                         if (hit < 0f || h2 < hit) { hit = h2; who = w2; }
                     }
+                    if (askHidden && HiddenFromRoad(road, y, faces[0].origin))
+                    {
+                        if (why != null) why.Append($" y{y:0.0}:hidden");
+                        continue;
+                    }
+                    if (why != null) why.Append($" y{y:0.0}:{(hit < 0f ? "-" : hit.ToString("0.00") + "@" + who)}");
                     // The first height with nothing in front of it is the top
                     // of the drawn barrier. Everything above that is overshoot,
                     // whether or not something reappears higher up - except the
@@ -2260,7 +2471,15 @@ namespace PSXRacing.EditorTools
 
                 if (worstGap <= GhostGap && over <= GhostOver) return;
 
+                // A wall solid is one of many "Track/Walls/WallColl": keyed by its
+                // mesh too, or the worst one hides every other run's fault.
                 string key = Key(col.transform);
+                var keyMesh = col as MeshCollider;
+                if (WallGeom.IsWallSolid(col) && keyMesh != null && keyMesh.sharedMesh != null)
+                    key += " [" + keyMesh.sharedMesh.name + "]";
+                if (why != null)
+                    log.AppendLine($"    ghost trace {key} chord {i} near {where.x:0.0},{where.y:0.0},{where.z:0.0} road y {road.y:0.00} " +
+                                   $"band {lo:0.00}..{hi:0.00} faces {FacesText(faces)}:{why}");
                 GhostFault f;
                 if (!faults.TryGetValue(key, out f))
                     faults[key] = f = new GhostFault { key = key, waypoint = i };
@@ -2465,7 +2684,7 @@ namespace PSXRacing.EditorTools
                     float lo = Mathf.Max(GhostStep, wallLo - road.y + 0.05f);
                     float hi = Mathf.Min(top, GhostSampleTop);
                     if (hi < lo) continue;      // overhead, or buried under the road
-                    Sample(col, i, road, wallFaces, lo, hi, top, near);
+                    Sample(col, i, road, wallFaces, lo, hi, top, near, askHidden: true);
                 }
             }
 

@@ -50,6 +50,12 @@ namespace PSXRacing
                     hideFlags = HideFlags.DontSave,
                 };
                 shared.SetInt("unity_GUIZTestMode", (int)CompareFunction.Always);
+                // RGB ONLY (the colour pass, C4). The HUD is drawn INTO the
+                // PSX framebuffer, whose alpha is the emitter mask the
+                // halation and the lens dirt glow by (Shaders/PSXTone.cginc).
+                // A glyph is not a light source: writing its coverage there
+                // would halo every white number on the screen.
+                shared.SetInt("_ColorMask", (int)(ColorWriteMask.Red | ColorWriteMask.Green | ColorWriteMask.Blue));
                 return shared;
             }
         }
@@ -80,6 +86,51 @@ namespace PSXRacing
                 if (current == mat || !IsStockUi(current)) continue;
                 g.material = mat;
             }
+            OutlineText(root);
+        }
+
+        /// <summary>
+        /// THE HUD'S TEXT OUTLINED (the colour pass, C9, 2026-09-29). Every
+        /// HUD label had a one-sided drop Shadow (1, -1): it darkens only the
+        /// lower-right edge of each stroke, so over a bright noon road or a
+        /// pale sky the white letters had nothing under three of their sides -
+        /// the owner's street name measured 1.2:1 against its surround at
+        /// noon. <see cref="HudTextEdge"/> (black, one pixel on all eight
+        /// sides) puts a dark edge round every stroke whatever is behind it:
+        /// white 0.935 on the grade's floor is 14:1. The text stays low-res,
+        /// dithered and graded - the PS1 identity this class's header defends.
+        ///
+        /// Here, where every HUD graphic already passes: the labels baked into
+        /// the race scenes carry the old Shadow (the builder's MakeText), and a
+        /// rebake is not needed to fix them. A graphic with any other edge (an
+        /// Outline, a HudTextEdge) or none at all is left alone.
+        /// </summary>
+        public static void OutlineText(GameObject root)
+        {
+            if (root == null) return;
+            foreach (var t in root.GetComponentsInChildren<Text>(true))
+            {
+                var sh = t.GetComponent<Shadow>();
+                // Exactly a Shadow: an Outline IS a Shadow (it derives from it).
+                if (sh == null || sh.GetType() != typeof(Shadow)) continue;
+                var go = t.gameObject;
+                if (Application.isPlaying) Object.Destroy(sh); else Object.DestroyImmediate(sh);
+                // Destroy is deferred to the end of the frame in play: a second
+                // pass in the same frame still finds the Shadow - and must not
+                // add a second edge.
+                if (go.GetComponent<HudTextEdge>() == null) AddOutline(go);
+            }
+        }
+
+        /// <summary>The HUD text's edge: solid black, <paramref name="radius"/>
+        /// pixels deep on every side (<see cref="HudTextEdge"/>).</summary>
+        public static HudTextEdge AddOutline(GameObject go, float alpha = 1f, int radius = 2)
+        {
+            var o = go.AddComponent<HudTextEdge>();
+            o.effectColor = new Color(0f, 0f, 0f, alpha);
+            o.effectDistance = new Vector2(1f, 1f);
+            o.radius = radius;
+            return o;
         }
 
         /// <summary>A material this may take over: none, or one of the UI

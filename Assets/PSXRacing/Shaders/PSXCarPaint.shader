@@ -127,6 +127,18 @@
 // line wrapper and the LAND band #defines stay HERE (the self-test reads them
 // from this file).
 //
+// THE COLOUR PASS, 2026-09-29 (PSXTone.cginc). One exposure for the whole
+// picture: the paint's light (sun, ambient, lamps, beams, and the glints
+// they make) is multiplied by the hour's exposure BEFORE the knee - the knee
+// stays, it is how this paint answers light. The paint's own shoulder
+// (PAINT_TOE/PAINT_MAX) stays too, as the paint's ONE curve: the tone curve
+// the lit world ends in is not stacked on it (measured: in its place, white
+// paint glowed again - see THE SHOULDER below). The sky in the lacquer is the
+// sky, adapted and not exposed (C3); the haze is the fog as the road beside
+// the car takes it. The alpha is the emitter mask: the glints' share of the
+// pixel. With the tone off (no hour applied, or PSX_TONE=0 in a tool) it is
+// the fourth cut's paint exactly.
+//
 // _PSXPaintDebug (a global the screenshot tool sets) swaps the output for one
 // term at a time: 1 = N.L, 2 = the normal, 3 = the light before the knee,
 // 4 = the reflection alone, 5 = the sheet. When a picture disagrees with the
@@ -136,6 +148,7 @@ Shader "PSX/CarPaint"
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
+        [HideInInspector] _MainTexRaw ("16-bit texel decode (set at runtime by PSXTexDecode.cs)", Float) = 0
         _Color ("Tint", Color) = (1,1,1,1)
         _Cutoff ("Alpha Cutoff", Range(0,1)) = 0
         _Emission ("Emission", Range(0,1)) = 0
@@ -155,10 +168,15 @@ Shader "PSX/CarPaint"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            // Colour texels of the 16-bit set arrive undecoded: PSXMainTex decodes them.
+            #include "PSXTexDecode.cginc"
             #include "PSXHeadlights.cginc"
             // The street lamps and tail lamps, per pixel (the NIGHT PASS in
             // the header). Declares its own _PSXLamp* table; guarded.
             #include "PSXLamps.cginc"
+            // The hour's exposure, the one tone curve and the emitter mask
+            // (THE COLOUR PASS in the header).
+            #include "PSXTone.cginc"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
@@ -297,7 +315,7 @@ Shader "PSX/CarPaint"
 
             fixed4 frag (v2f i) : SV_Target
             {
-                fixed4 tex = tex2D(_MainTex, i.uvw.xy / i.uvw.z) * _Color;
+                fixed4 tex = PSXMainTex(_MainTex, i.uvw.xy / i.uvw.z) * _Color;
                 clip(tex.a - _Cutoff);
 
                 float3 N = normalize(i.wnrm);
@@ -357,6 +375,12 @@ Shader "PSX/CarPaint"
                 // The street lamps light the paint like the sun: before the
                 // knee, so a bonnet under a sodium lamp rolls off the same way.
                 rawLight += lampD * LAMP_PAINT;
+                // THE COLOUR PASS: every light the paint receives through the
+                // hour's exposure, BEFORE the knee - the knee is this paint's
+                // own response to light, and it is fed the light the rest of
+                // the world gets (exactly 1 with the tone off).
+                float expo = PSXExposureGain();
+                rawLight *= expo;
                 // The knee: the lit side keeps its gradient instead of
                 // clipping to one tone, and can go a little over 1 where
                 // the sun is full on it.
@@ -373,7 +397,9 @@ Shader "PSX/CarPaint"
                                GLASS_F0 + (GLASS_FMAX - GLASS_F0) * fres, glass);
                 k *= lerp(1.0, DULL_REFLECT, dull);
                 float3 R = reflect(-V, N);
-                float3 sky = SkyIn(R, lerp(2.5, GLASS_LOD, glass));
+                // The sky in the lacquer is the sky: adapted, never exposed
+                // (C3), the same as the sky above the car.
+                float3 sky = SkyIn(R, lerp(2.5, GLASS_LOD, glass)) * PSXAdaptGain();
                 // The flake under the lacquer tints its share; glass does not.
                 float3 body = saturate(tex.rgb * 1.6);
                 float3 tint = lerp(float3(1, 1, 1), body, PAINT_METALLIC * (1.0 - glass));
@@ -394,12 +420,29 @@ Shader "PSX/CarPaint"
                 // added where the sun's is, so the shoulder below rolls it
                 // off like everything else. No sheen term: a lamp is never
                 // a wash over a panel (the "white glow" in the header).
-                hi += (lampS * LAMP_GLINT + headS * HEAD_GLINT) * ((1.0 + glass * 0.8) * dullSpec);
+                float3 lampGlint = (lampS * LAMP_GLINT + headS * HEAD_GLINT) * ((1.0 + glass * 0.8) * dullSpec);
+                hi += lampGlint;
+                // A glint is the sun's or a lamp's light: exposed like it.
+                hi *= expo;
 
                 float3 col = lit * (1.0 - k) + refl + hi;
+                // THE EMITTER MASK (PSXTone.cginc): the GLINTS are light
+                // sources - the soft halation the owner signed off round
+                // "lamps and glints" - and neither the paint under them nor
+                // the flake's broad sheen is.
+                float emit = PSXEmitShare((_PSXLightColor.rgb * (glint * dullSpec * sunVis) + lampGlint) * expo, col);
 
                 // THE SHOULDER, on the brightest channel so the hue holds:
                 // a white car in full sun keeps its shape instead of clipping.
+                // THIS IS THE PAINT'S ONE CURVE, tone on or off (the colour
+                // pass): the one tone curve the lit world ends in (PSXTone)
+                // is NOT laid over it as well. Measured with the paint-glow
+                // check (2026-09-29): with PSXTone in its place a white car in
+                // full sun had 13-43% of its paint over 0.90 on the display
+                // (p99 up to 0.954) against 0-17% (p99 0.92) - the "white
+                // glow" the owner rejected in the fourth cut. So the paint
+                // keeps the roll-off it was signed off with, fed the hour's
+                // exposure like everything else.
                 float top = max(col.r, max(col.g, col.b));
                 if (top > PAINT_TOE)
                 {
@@ -418,8 +461,15 @@ Shader "PSX/CarPaint"
                     return fixed4(col, 1);
                 }
 
-                col = lerp(col, PSXFogTowardSun(_PSXFogColor.rgb * PSXFogRing(-V, _PSXSkyRotation), V), i.fog);
-                return fixed4(col, lerp(tex.a, 1.0, matte));
+                // Into the haze - the sky's colour, never exposed, rolled off
+                // as the sky's horizon is (PSXFogTone, C3) - exactly as PSX/Lit
+                // fogs the road beside the car.
+                col = lerp(col, PSXFogTone(PSXFogTowardSun(_PSXFogColor.rgb * PSXFogRing(-V, _PSXSkyRotation), V)), i.fog);
+                // The alpha: the emitter mask on the PSX camera's own frame
+                // (PSXTone.cginc); the old coverage on any other camera's
+                // render texture (the mirror, the car viewer), which a
+                // RawImage blends by.
+                return fixed4(col, _PSXEmitWrite > 0.5 ? emit * (1.0 - i.fog) : lerp(tex.a, 1.0, matte));
             }
             ENDCG
         }

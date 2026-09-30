@@ -117,6 +117,9 @@ namespace PSXRacing.EditorTools
             Vector3 r = TrackObstacleAudit.RightAt(tp, w) * side;
             float half = tp.roadWidth * 0.5f;
             string lastName = null; float lastY = float.NaN, walkY = float.NaN, lastWalk = float.NaN;
+            bool wallMet = false;
+            int lastTri = -1;
+            Collider lastTriCol = null;
             for (float e = -0.1f; e <= 20f; e += 0.05f)
             {
                 Vector3 o = c + r * (half + e) + Vector3.up * 30f;
@@ -139,11 +142,81 @@ namespace PSXRacing.EditorTools
                 bool jump = !float.IsNaN(lastY) && !float.IsNaN(y) && Mathf.Abs(y - lastY) > 0.04f;
                 bool wjump = !float.IsNaN(lastWalk) && !float.IsNaN(wy) && Mathf.Abs(wy - lastWalk) > 0.04f;
                 bool differ = !float.IsNaN(wy) && !float.IsNaN(y) && Mathf.Abs(wy - y) > 0.02f;
-                if (name != lastName || jump || wjump || Mathf.Abs(e - Mathf.Round(e)) < 0.026f)
+                // Where the audit's walk would END: a WallColl/BankColl met at
+                // body height over the land it left (TrackObstacleAudit's
+                // BarrierAlongLand), which a straight-down cast from over a
+                // taller solid never shows.
+                string wall = null;
+                if (!float.IsNaN(lastWalk) && !wallMet)
+                    foreach (float bh in RoadsideRules.BarrierRayHeights)
+                    {
+                        var bfrom = c + r * (half + e - 0.05f) + Vector3.up * (lastWalk + bh);
+                        foreach (var bhit in Physics.RaycastAll(bfrom, r, 0.06f, ~(1 << 2), QueryTriggerInteraction.Ignore))
+                        {
+                            if (Mathf.Abs(bhit.normal.y) > 0.7f) continue;
+                            string bn = bhit.collider.name;
+                            if (bn.StartsWith("WallColl") || bn.StartsWith("BankColl")) { wall = bn + " at +" + bh.ToString("0.00"); wallMet = true; break; }
+                        }
+                        if (wall != null) break;
+                    }
+                // Whose RoadEdge triangle the straight-down cast landed on:
+                // each corner as (nearest station, side, e, dy over that
+                // station's tarmac), printed when the triangle changes.
+                string tri = null;
+                if (name == "RoadEdge" && hit.collider is MeshCollider mc && mc.sharedMesh != null && hit.triangleIndex >= 0)
+                {
+                    if (!ReferenceEquals(mc, lastTriCol) || hit.triangleIndex != lastTri)
+                    {
+                        lastTriCol = mc;
+                        lastTri = hit.triangleIndex;
+                        var mv = mc.sharedMesh.vertices; var mt = mc.sharedMesh.triangles; var xf = mc.transform;
+                        var tsb = new StringBuilder("   tri");
+                        for (int q = 0; q < 3; q++)
+                        {
+                            Vector3 v = xf.TransformPoint(mv[mt[hit.triangleIndex * 3 + q]]);
+                            int vw = tp.NearestIndex(v);
+                            Vector3 vr = TrackObstacleAudit.RightAt(tp, vw);
+                            float lat = Vector3.Dot(v - tp.GetPoint(vw), vr);
+                            tsb.Append(" [wp ").Append(vw).Append(lat < 0 ? " L " : " R ")
+                               .Append((Mathf.Abs(lat) - half).ToString("0.00")).Append(" / ")
+                               .Append((v.y - tp.GetPoint(vw).y).ToString("0.00")).Append(']');
+                        }
+                        tri = tsb.ToString();
+                    }
+                }
+                if (name != lastName || jump || wjump || wall != null || tri != null || Mathf.Abs(e - Mathf.Round(e)) < 0.026f)
                     sb.AppendLine("  e " + e.ToString("0.00") + "  dy " + (float.IsNaN(y) ? "-" : y.ToString("0.000")) +
                                   "  " + name + (jump ? "   <-- step " + (y - lastY).ToString("0.000") : "") +
-                                  (differ || wjump ? "   [audit walk " + wy.ToString("0.000") + (wjump ? " step " + (wy - lastWalk).ToString("0.000") : "") + "]" : ""));
+                                  (differ || wjump ? "   [audit walk " + wy.ToString("0.000") + (wjump ? " step " + (wy - lastWalk).ToString("0.000") : "") + "]" : "") +
+                                  (wall != null ? "   AUDIT WALK ENDS: " + wall : "") + (tri ?? ""));
                 lastName = name; lastY = y; lastWalk = wy;
+            }
+            // The near lattice's vertices round the line (the 12 m grid the
+            // ground chunks are built on), each as the station it is nearest,
+            // its side and e past that station's tarmac edge, and its height
+            // over this station's tarmac: which corners a facet the line
+            // crosses hangs from.
+            sb.AppendLine("  lattice vertices within 14 m of the line out to 16 m:");
+            var seen = new System.Collections.Generic.HashSet<Vector2Int>();
+            foreach (var mf in Object.FindObjectsByType<MeshFilter>(FindObjectsSortMode.None))
+            {
+                if (!mf.gameObject.name.StartsWith("GroundN") || mf.sharedMesh == null) continue;
+                var xf = mf.transform;
+                foreach (var lv in mf.sharedMesh.vertices)
+                {
+                    Vector3 v = xf.TransformPoint(lv);
+                    var key = new Vector2Int(Mathf.RoundToInt(v.x / 12f), Mathf.RoundToInt(v.z / 12f));
+                    if (Mathf.Abs(v.x - key.x * 12f) > 0.05f || Mathf.Abs(v.z - key.y * 12f) > 0.05f) continue;
+                    Vector3 rel = v - c; rel.y = 0f;
+                    float along = Vector3.Dot(rel, Vector3.Cross(r, Vector3.up) * -1f);
+                    float across = Vector3.Dot(rel, r) - half;
+                    if (Mathf.Abs(along) > 14f || across < -8f || across > 16f || !seen.Add(key)) continue;
+                    int vw = tp.NearestIndex(v);
+                    float lat = Vector3.Dot(v - tp.GetPoint(vw), TrackObstacleAudit.RightAt(tp, vw));
+                    sb.AppendLine("    (" + (key.x * 12) + ", " + (key.y * 12) + ")  along " + along.ToString("0.0") +
+                                  "  e " + across.ToString("0.00") + "  dy " + (v.y - c.y).ToString("0.000") +
+                                  "   nearest wp " + vw + (lat < 0 ? " L " : " R ") + (Mathf.Abs(lat) - half).ToString("0.00"));
+                }
             }
             return sb.ToString();
         }
@@ -152,7 +225,8 @@ namespace PSXRacing.EditorTools
         /// "1049:80" for an 80 m square), straight down every 10 cm, written to
         /// PSXRacing_lab_plan_&lt;id&gt;_&lt;wp&gt;.png beside the project. Colour is
         /// WHAT is hit (road grey, kerb red, shoulder tan, ground green, rock top
-        /// brown, bank collider orange, wall magenta, nothing black), shaded by
+        /// brown, bank collider orange, wall magenta, fill tail pale teal, any
+        /// other surface - an apex or end pad - blue, nothing black), shaded by
         /// height with a contour every 0.5 m; YELLOW is a step of more than
         /// 0.06 m to the next cell (a face a wheel meets). The centreline is
         /// white, every tenth waypoint cyan, the named one a blue cross.</summary>
@@ -184,10 +258,12 @@ namespace PSXRacing.EditorTools
                     names[nm] = names.TryGetValue(nm, out int q) ? q + 1 : 1;
                     kind[k] = nm == "Road" ? (byte)1 : nm.StartsWith("Kerb") ? (byte)2 : nm.StartsWith("RoadEdge") ? (byte)3 :
                               nm.StartsWith("Ground") ? (byte)4 : nm.StartsWith("BankTop") ? (byte)5 :
-                              nm.StartsWith("BankColl") || nm.StartsWith("Bank") ? (byte)6 : nm.StartsWith("Wall") ? (byte)7 : (byte)8;
+                              nm.StartsWith("BankColl") || nm.StartsWith("Bank") ? (byte)6 : nm.StartsWith("Wall") ? (byte)7 :
+                              nm.StartsWith("FillTail") ? (byte)9 : (byte)8;
                 }
             var pal = new[] { new Color(0,0,0), new Color(.45f,.45f,.48f), new Color(.85f,.2f,.2f), new Color(.8f,.68f,.45f),
-                              new Color(.3f,.62f,.3f), new Color(.5f,.33f,.2f), new Color(1f,.55f,.1f), new Color(.9f,.2f,.9f), new Color(.3f,.5f,.9f) };
+                              new Color(.3f,.62f,.3f), new Color(.5f,.33f,.2f), new Color(1f,.55f,.1f), new Color(.9f,.2f,.9f), new Color(.3f,.5f,.9f),
+                              new Color(.55f,.85f,.75f) };
             var px = new Color32[N * N];
             for (int j = 0; j < N; j++)
                 for (int i = 0; i < N; i++)
@@ -245,7 +321,7 @@ namespace PSXRacing.EditorTools
             tex.SetPixels32(px);
             tex.Apply();
             string file = Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_lab_plan_" + id + "_" + w + ".png");
-            File.WriteAllBytes(file, tex.EncodeToPNG());
+            ShotSidecar.WritePng(file, tex.EncodeToPNG());
             Object.DestroyImmediate(tex);
             sb.Append("  hit:");
             foreach (var kv in names) if (kv.Value > N * N / 400) sb.Append(" " + kv.Key + " " + kv.Value);

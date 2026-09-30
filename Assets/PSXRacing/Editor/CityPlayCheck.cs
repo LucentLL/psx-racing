@@ -508,14 +508,26 @@ namespace PSXRacing.EditorTools
             // pull in where it orders and stop
             var stop = CityPropBaker.BayStop(bay, room, out var along);
             float seat = room.transform.position.y + CityProps.Defs[lot.kind].sink;
+            string title = bay.Title;
             player.TeleportTo(new Vector3(stop.x, seat + 0.6f, stop.z), Quaternion.LookRotation(along, Vector3.up));
+            // THIS lot's bay, not the last one's. DriveThru.AtBay and its
+            // prompt are statics, and a bay dropped with the car in it (the
+            // order-bay stop just before, left by a teleport) never sees the
+            // car go, so they can still name that restaurant as this stop
+            // begins. Taking that for this bay read the lot before its tiles
+            // had stood up again round the car: under ALL, 2026-09-29, "the
+            // lot's room switch is running" failed on the dropped instance
+            // and the check HUNG on it. So: a second for the tiles, then the
+            // prompt must name this restaurant. (CITY waits the whole 2.5 s:
+            // nothing claims a car there.)
+            bool Ours() => DriveThru.AtBay && DriveThru.Prompt != null && DriveThru.Prompt.Contains(title);
             float t0 = Time.time;
-            while (Time.time - t0 < 2.5f && !DriveThru.AtBay) yield return null;
+            while (Time.time - t0 < 2.5f && (Time.time - t0 < 1f || !Ours())) yield return null;
             // ORDER only where the edition has a career to pay from
             // (DriveThru.Serves); in CITY the same stop offers nothing, the
             // rule OrderBay checks with the HUD as well.
             if (DriveThru.Serves)
-                CityPlayCheck.Check(DriveThru.AtBay, what + ": ORDER is offered, stopped at the bay", DriveThru.Prompt ?? "no prompt");
+                CityPlayCheck.Check(Ours(), what + ": ORDER is offered, stopped at the bay", DriveThru.Prompt ?? "no prompt");
             else
                 CityPlayCheck.Check(!DriveThru.AtBay && DriveThru.Prompt == null,
                     what + ": CITY: no ORDER offered, stopped at the bay", DriveThru.Prompt ?? "no prompt");
@@ -525,7 +537,9 @@ namespace PSXRacing.EditorTools
             FindLot();
             CityPlayCheck.Check(room != null && room.isActiveAndEnabled, what + ": the lot's room switch is running",
                 room == null ? "no switch" : $"world {(CityWorld.Active != null ? "active" : "none")}");
-            if (room == null) { player.TeleportTo(home, player.transform.rotation); yield break; }
+            // Not on an instance that is going: a MissingReferenceException
+            // below would end the whole drive and read as a hang.
+            if (room == null || !room.isActiveAndEnabled) { player.TeleportTo(home, player.transform.rotation); yield break; }
             var sw = room;
             string Where() =>
                 $"car {sw.DistanceTo(player.transform.position):0.0} m, camera " +
@@ -641,7 +655,7 @@ namespace PSXRacing.EditorTools
                     tex.Apply();
                     RenderTexture.active = prev == rt || prev == shown ? null : prev;
                     if (shown != rt) { shown.Release(); Object.DestroyImmediate(shown); }
-                    System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+                    ShotSidecar.WritePng(path, tex.EncodeToPNG());
                     Object.DestroyImmediate(tex);
                 }
                 else why = "the pipeline takes no render request";

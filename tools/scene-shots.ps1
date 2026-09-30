@@ -14,6 +14,10 @@ foreach ($d in @("Assets", "Packages", "ProjectSettings")) {
 }
 
 function Invoke-UnityWait([string[]]$UnityArgs, [int]$MaxMinutes = 25) {
+    # Every Unity job names its build target (see Get-PSXBuildTarget in unity-wait.ps1).
+    if (-not @($UnityArgs | Where-Object { $_ -ieq "-buildTarget" }).Count) {
+        $UnityArgs = @($UnityArgs) + @("-buildTarget", $(if ($env:PSX_BUILD_TARGET) { $env:PSX_BUILD_TARGET } else { "WebGL" }))
+    }
     $before = @(Get-Process Unity -ErrorAction SilentlyContinue | ForEach-Object Id)
     Start-Process -FilePath $unity -ArgumentList $UnityArgs -WindowStyle Hidden | Out-Null
     Start-Sleep -Seconds 5

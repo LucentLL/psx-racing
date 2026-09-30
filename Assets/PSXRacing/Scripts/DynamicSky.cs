@@ -26,8 +26,11 @@ namespace PSXRacing
     public static class DynamicSky
     {
         /// <summary>Per hour (Dawn, Morning, Noon, Afternoon, Sunset, Dusk,
-        /// Night): how bright the computed sky is drawn.</summary>
-        static readonly float[] ExposureByHour = { 1.6f, 1.05f, 0.85f, 1.0f, 1.5f, 2.6f, 2.4f };
+        /// Night): how bright the computed sky is drawn. NIGHT 0.6 since the
+        /// dark-night retune (2026-09-29; it was 2.4): the computed night sky
+        /// measured Ycode 40 over the owner's town where the photograph's
+        /// measures 17 and real night skies 1-20.</summary>
+        static readonly float[] ExposureByHour = { 1.6f, 1.05f, 0.85f, 1.0f, 1.5f, 2.6f, 0.6f };
         /// <summary>Cloud cover by weather (Clear, Fog, Rain, Snow).</summary>
         static readonly float[] CoverByWeather = { 0.42f, 0.74f, 0.88f, 0.82f };
         const float RefreshSeconds = 3f;

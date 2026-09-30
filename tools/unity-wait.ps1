@@ -264,6 +264,48 @@ function Assert-EditionParkClear([string]$ProjectPath) {
     Write-Host "EDITION PARK: restored - Resources are whole again (see $log)" -ForegroundColor Green
 }
 
+# EVERY UNITY JOB NAMES ITS BUILD TARGET (the colour pass, 2026-09-29).
+#
+# A texture is imported for the editor's ACTIVE build target, and the target a
+# sandbox has is whatever its last job left it on. The release budget
+# (ReleaseBudget.SixteenBitCandidate, fc551ef) gives ~926 textures a WebGL-only
+# RGB565 override, and WebGL2 has no sRGB 565: on the WebGL target those
+# texels are read AS LINEAR (asphalt up to x9 brighter). The sandboxes build
+# with -buildTarget WebGL, and every shot tool launched with no -buildTarget,
+# so after 2026-09-27 every editor frame silently carried the WebGL import -
+# and nothing in a PNG said which import it was. So: every job launched
+# through here passes -buildTarget. WebGL, the target that ships, is the
+# default; $env:PSX_BUILD_TARGET (e.g. StandaloneWindows64, the decoded import
+# the colour BASELINE is rendered with) or a -buildTarget already in the
+# caller's arguments wins. The job's frames record it (ShotSidecar: a JSON
+# beside every PNG with activeBuildTarget and a probe texture's format).
+# Switching a sandbox's target reimports its textures once (minutes); the
+# artifact cache makes switching back cheap.
+function Get-PSXBuildTarget {
+    if ($env:PSX_BUILD_TARGET) { return $env:PSX_BUILD_TARGET }
+    return 'WebGL'
+}
+
+function Add-PSXBuildTarget([string[]]$UnityArgs, [string]$Target = "") {
+    if (@($UnityArgs | Where-Object { $_ -ieq '-buildTarget' }).Count) { return ,$UnityArgs }
+    if (-not $Target) { $Target = Get-PSXBuildTarget }
+    return ,(@($UnityArgs) + @('-buildTarget', $Target))
+}
+
+# The commit the frames are rendered from, for their sidecars: the source
+# checkout this tools\ folder belongs to (a sandbox has no .git), with
+# "+dirty" when it has uncommitted changes to the code that renders.
+function Get-PSXSourceCommit {
+    try {
+        $root = Split-Path -Parent $PSScriptRoot
+        $h = (& git -C $root rev-parse --short HEAD 2>$null)
+        if (-not $h) { return "" }
+        $d = (& git -C $root status --porcelain -- Assets/PSXRacing/Scripts Assets/PSXRacing/Editor Assets/PSXRacing/Shaders 2>$null)
+        if ($d) { return "$h+dirty" }
+        return "$h"
+    } catch { return "" }
+}
+
 # Watch the play tests unless told not to: -NoWatch on the tool, or
 # $env:PSX_WATCH = '0'.
 function Test-PSXWatch([switch]$NoWatch) {
@@ -945,6 +987,16 @@ function Invoke-UnityJob {
     }
     if ($HardMinutes -le 0) { $HardMinutes = $MaxMinutes + 60 }
     if ($HardMinutes -lt $MaxMinutes) { $HardMinutes = $MaxMinutes }
+
+    # The build target, always named (see Get-PSXBuildTarget), and printed so
+    # a tool's own output says which import its frames were drawn with.
+    $UnityArgs = Add-PSXBuildTarget $UnityArgs
+    for ($i = 0; $i -lt $UnityArgs.Count - 1; $i++) {
+        if ($UnityArgs[$i] -ieq '-buildTarget') { Write-Host "UNITY TARGET: $($UnityArgs[$i + 1])"; break }
+    }
+    # For the frames' sidecars (Editor\ShotSidecar.cs): the commit of the
+    # source the job was copied from. Inherited by the one process launched.
+    $env:PSX_COMMIT = Get-PSXSourceCommit
 
     if ($Watch) {
         $target = $Project

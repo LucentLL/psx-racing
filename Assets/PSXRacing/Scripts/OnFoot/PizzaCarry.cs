@@ -101,7 +101,7 @@ namespace PSXRacing.OnFoot
             rig = rigGO.transform;
             rig.SetParent(transform, false);
 
-            var boxPrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.Box);
+            var boxPrefab = PSXTexDecode.LoadPrefab(PizzaCargoBakerNames.Box);
             if (boxPrefab == null) return;
             float boxH = 0.075f;
             var bb = PrefabBounds(boxPrefab);
@@ -129,7 +129,7 @@ namespace PSXRacing.OnFoot
             // bottle standing on the lid reaches most of the way up the screen
             // and there are two of them; on their side they read as part of the
             // load instead of as a pair of railings in front of the camera.
-            var bottlePrefab = Resources.Load<GameObject>(PizzaCargoBakerNames.Bottle);
+            var bottlePrefab = PSXTexDecode.LoadPrefab(PizzaCargoBakerNames.Bottle);
             if (bottlePrefab == null) return;
             // Measured off the base bottle: the four looks are the same two
             // litres to within a millimetre, so one measurement serves them.

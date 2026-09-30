@@ -55,10 +55,17 @@ if (Test-Path $resultFile) { Remove-Item $resultFile -Force }
 
 # Every line that failed a stage, for the result file and the closing summary.
 $failLines = New-Object System.Collections.Generic.List[string]
+# Every owner-accepted exception the audits passed on (TrackObstacleAudit.
+# OwnerAccepted: named spots, each by station, side and height). Not failures,
+# but written down on every run, so a pass is never read as "nothing there".
+$acceptedLines = New-Object System.Collections.Generic.List[string]
 
 function Write-VerifyResult([int]$Bad) {
     $head = if ($Bad -gt 0) { "VERIFY FAILED ($Bad stage(s))" } else { "VERIFY PASS" }
-    $body = @($head, "edition $Edition", ("finished " + (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")), "source $src", "failures:")
+    $body = @($head, "edition $Edition", ("finished " + (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")), "source $src")
+    # Before "failures:" - build-and-publish lists everything after that line.
+    $body += @($acceptedLines | ForEach-Object { "accepted: " + $_ })
+    $body += "failures:"
     $body += @($failLines)
     Set-Content -Path $resultFile -Value $body -Encoding ASCII
 }
@@ -142,12 +149,19 @@ Invoke-UnityJob -Log "$proj\selftest.log" -UnityArgs @(
 # and either one teaches you to stop reading the exit code -- which is the only
 # thing an automated caller can read.
 $bad = 0
+# A failing check is a line that STARTS "  FAIL" (LifeSimSelfTest.Check, and a
+# section that threw), plus the "SELF-TEST FAILED (n)" summary. Anchored and
+# case-sensitive: a bare "FAIL" also matched PASSING lines whose label says it -
+# "  ok   control: MAIN's doors against CITY's player FAIL", "  ok   a cooling
+# failure can be booked in" - and 2026-09-29's result file listed seven of them
+# as failures beside the one that was.
+$selfTestFail = '^\s*FAIL\b|^\s*SELF-TEST FAILED'
 if (Test-Path "$proj\PSXRacing_selftest_log.txt") {
-    Select-String -Path "$proj\PSXRacing_selftest_log.txt" -Pattern "FAIL|SELF-TEST" |
+    Select-String -Path "$proj\PSXRacing_selftest_log.txt" -Pattern "$selfTestFail|^\s*SELF-TEST" -CaseSensitive |
         ForEach-Object { $_.Line }
     if (Select-String -Path "$proj\PSXRacing_selftest_log.txt" -Pattern "SELF-TEST FAILED" -Quiet) {
         $bad++
-        Select-String -Path "$proj\PSXRacing_selftest_log.txt" -Pattern "FAIL" |
+        Select-String -Path "$proj\PSXRacing_selftest_log.txt" -Pattern $selfTestFail -CaseSensitive |
             ForEach-Object { $failLines.Add("[self-test] " + $_.Line.Trim()) }
     }
 } else {
@@ -258,6 +272,21 @@ if (Test-Path "$proj\PSXRacing_obstacle_audit.txt") {
             $failLines.Add("[obstacle] " + $tagged)
             $obstacleFails++
         }
+        # The owner-accepted spots, each on its own run line (and the note
+        # when the build no longer finds one). Printed and written down every
+        # run; a face that is not exactly one of them is a FAIL line above.
+        if ($line -cmatch '^\s+owner-accepted ' -and $line -cnotmatch $obstaclePattern) {
+            $tagged = "[{0}] {1}" -f $venue, $line.Trim()
+            if ($line -cmatch '^\s{4}') {
+                Write-Host $tagged -ForegroundColor Yellow
+                $acceptedLines.Add("[obstacle] " + $tagged)
+            } elseif ($line -cmatch 'not found') {
+                Write-Host $tagged -ForegroundColor Yellow
+            }
+        }
+    }
+    if ($acceptedLines.Count -gt 0) {
+        Write-Host ("OBSTACLE AUDIT: {0} owner-accepted spot run(s), fix pending (TrackObstacleAudit.OwnerAccepted)" -f $acceptedLines.Count) -ForegroundColor Yellow
     }
     if ($obstacleFails -gt 0) {
         Write-Host "OBSTACLE AUDIT: $obstacleFails failing line(s)" -ForegroundColor Red
@@ -279,7 +308,11 @@ if (Test-Path "$proj\PSXRacing_obstacle_audit.txt") {
 # LaneAudit cuts every ribbon every 2 m against its own triangles and fails a
 # venue whose lanes differ by more than 2.5 cm, whose centre line stands off
 # the ribbon's centre, whose paint zigzags off its smooth line, or whose
-# texture is not centred. Held-back venues are reported, never failed.
+# texture is not centred - and (2026-09-29, "nor should any sharp angles of
+# road or road lines") any painted line, tarmac edge or kerb strip edge whose
+# chord misses the curve through its own rings by more than 2.5 cm: the V
+# corner every 4 m ring made on a bend before the ribbon was laid on a curve.
+# Held-back venues are reported, never failed.
 Invoke-UnityJob -Log "$proj\laneaudit.log" -UnityArgs @(
     "-quit","-batchmode","-nographics","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.LaneAudit.Run",

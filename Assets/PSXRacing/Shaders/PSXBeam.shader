@@ -36,6 +36,11 @@ Shader "PSX/Beam"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            // THE COLOUR PASS (PSXTone.cginc): lit air is not a light source.
+            // It takes the eye's adaptation like every emitter, and adds
+            // NOTHING to the framebuffer's alpha on the PSX camera's frame -
+            // the emitter mask - or a cone across the frame would halo.
+            #include "PSXTone.cginc"
 
             fixed4 _Color;
             float _Strength;
@@ -96,7 +101,7 @@ Shader "PSX/Beam"
                 float bright = dot(_PSXAmbient.rgb + _PSXLightColor.rgb, float3(0.30, 0.59, 0.11));
                 float dark = saturate(1.15 - bright * 1.2);
                 float a = along * thick * _Strength * dark * i.fade * near;
-                return fixed4(_Color.rgb * a, a);
+                return fixed4(_Color.rgb * (a * PSXAdaptGain()), _PSXEmitWrite > 0.5 ? 0.0 : a);
             }
             ENDCG
         }

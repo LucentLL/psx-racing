@@ -112,6 +112,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestSenseOfSpeed), TestSenseOfSpeed);
             Guard(nameof(TestNightLook), TestNightLook);
             Guard(nameof(TestDayLook), TestDayLook);
+            Guard(nameof(TestTexDecode), TestTexDecode);
 
             Line(failures == 0 ? "SELF-TEST OK" : "SELF-TEST FAILED (" + failures + ")");
             Debug.Log(log.ToString());
@@ -2390,6 +2391,7 @@ namespace PSXRacing.EditorTools
             TestTreesStopCars();
             TestForestIsThickAndHasBrush();
             TestPaintAndFilmGrade();
+            TestOneToneCurve();
             TestReversedStageDistance();
             TestDeliverySprint();
             TestNoDeletedMeshes();
@@ -5160,6 +5162,219 @@ namespace PSXRacing.EditorTools
             Check(FilmGradePrefs.Enabled == was, "and the switch is left where it was found");
         }
 
+        /// <summary>
+        /// THE COLOUR PASS (C2-C4, 2026-09-29): one exposure and one tone
+        /// curve, and the glow keyed on light sources. The pixels are
+        /// tools\colour\colour-shots.ps1's to judge; what is held here is the
+        /// arithmetic and the switches that make an interior bit-identical and
+        /// the HUD no light source.
+        /// </summary>
+        static void TestOneToneCurve()
+        {
+            Line("one tone curve (colour pass):");
+            // The exposure: only the hours the old shoulder compressed.
+            float noon = TimeOfDay.ExposureFor(TimeOfDay.Noon, Weather.Clear);
+            float snow = TimeOfDay.ExposureFor(TimeOfDay.Noon, Weather.Snow);
+            Check(noon > 0.55f && noon < 1f, "a clear noon is exposed down (the old shoulder's own gain on a sunlit road)", noon.ToString("0.000"));
+            Check(snow > noon && snow < 1f, "a snowy noon less so", snow.ToString("0.000"));
+            foreach (int h in new[] { TimeOfDay.Dawn, TimeOfDay.Sunset, TimeOfDay.Dusk, TimeOfDay.Night })
+                Check(Mathf.Approximately(TimeOfDay.ExposureFor(h, Weather.Clear), 1f) && TimeOfDay.DayFillFor(h, Weather.Clear) == 1f,
+                      TimeOfDay.At(h).name + " is exposed at exactly 1, its sky fill whole", TimeOfDay.ExposureFor(h, Weather.Clear));
+            // The real path, a city's skyglow included (the review's gate caught
+            // a first cut that anchored before it: city nights 8 codes dark).
+            foreach (int h in new[] { TimeOfDay.Dusk, TimeOfDay.Night })
+                foreach (float urban in new[] { 0f, 0.6f, 1f })
+                    Check(Mathf.Abs(TimeOfDay.ExposureFor(h, Weather.Clear, urban) - 1f) < 1e-5f,
+                          TimeOfDay.At(h).name + " in a city (urban " + urban + ") is exposed at exactly 1",
+                          TimeOfDay.ExposureFor(h, Weather.Clear, urban));
+            float rain = TimeOfDay.ExposureFor(TimeOfDay.Noon, Weather.Rain);
+            Check(rain > snow && rain <= 1.1f, "a rainy noon, under cloud, is exposed least of the three", rain.ToString("0.000"));
+            // HARSH SUN (review): the sky's fill cut under a high hard sun,
+            // the exposure re-anchored so the sunlit road keeps its light.
+            foreach (int h in new[] { TimeOfDay.Morning, TimeOfDay.Noon, TimeOfDay.Afternoon })
+                foreach (var w in new[] { Weather.Clear, Weather.Snow, Weather.Rain })
+                {
+                    TimeOfDay.HarshSunCheck(h, w, out float sunNow, out float sunOld, out float shNow, out float shOld);
+                    Check(sunNow <= sunOld * 1.01f && sunNow >= sunOld * 0.97f,
+                          TimeOfDay.At(h).name + " " + w + ": a sunlit road keeps its light (the owner's colours: never lighter, at most 3% darker)",
+                          sunNow.ToString("0.000") + " vs " + sunOld.ToString("0.000"));
+                    Check(shNow <= shOld + 1e-4f, TimeOfDay.At(h).name + " " + w + ": the shade is never lighter",
+                          shNow.ToString("0.000") + " vs " + shOld.ToString("0.000"));
+                }
+            TimeOfDay.HarshSunCheck(TimeOfDay.Noon, Weather.Clear, out float nSun, out _, out float nSh, out float nShOld);
+            Check(nSh < 0.8f * nShOld, "a clear noon's shade is darker than it was (harsh sun)", nSh.ToString("0.000") + " vs " + nShOld.ToString("0.000"));
+            Check(nSun / Mathf.Max(nSh, 1e-4f) >= 5f, "a clear noon's raw sun:shade on a road is at least 5 (the plan's harsh sun)",
+                  (nSun / Mathf.Max(nSh, 1e-4f)).ToString("0.00"));
+            // C13: a snowy day's road is slush, not a mirror.
+            Check(TimeOfDay.WetnessFor(TimeOfDay.Noon, Weather.Snow) <= 0.15f + 1e-5f
+                  && TimeOfDay.WetnessFor(TimeOfDay.Night, Weather.Snow) >= 0.35f - 1e-5f,
+                  "a snowy noon's road is damp (0.15), a snowy night's wet (0.35) (C13)",
+                  TimeOfDay.WetnessFor(TimeOfDay.Noon, Weather.Snow) + " / " + TimeOfDay.WetnessFor(TimeOfDay.Night, Weather.Snow));
+            // Every shader that ends in the curve has it, and compiles.
+            foreach (var sh in new[] { "PSX/Lit", "PSX/LitTransparent", "PSX/CarPaint", "PSX/Water", "PSX/Sky", "PSX/Decal",
+                                       "PSX/Glow", "PSX/Halo", "PSX/Beam", "PSX/Rain", "PSX/Blit", "PSX/Lens", "PSX/Shadow", "PSX/ZoneLine" })
+            {
+                var s = Shader.Find(sh);
+                Check(s != null && !ShaderUtil.ShaderHasError(s), sh + " compiles with the colour pass");
+            }
+            string tone = System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXTone.cginc")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXTone.cginc") : "";
+            Check(tone.Contains("if (_PSXToneOn < 0.5) return c;"), "the curve is an exact no-op with the tone off (every interior)");
+            // The HUD writes no emitter mask.
+            var hud = HudOnTop.Material;
+            Check(hud != null && hud.HasProperty("_ColorMask") && hud.GetInt("_ColorMask") == 14,
+                  "the HUD draws RGB only (a glyph is not a light source)", hud != null ? hud.GetInt("_ColorMask") : -1);
+            // An interior (no hour applied) keeps the old picture: the switches
+            // are never serialized, so no scene can carry them on.
+            foreach (var f in new[] { "tone", "exposure", "adapt", "emitKey", "gradeSun", "dayFill" })
+            {
+                var fi = typeof(PSXGlobals).GetField(f);
+                Check(fi != null && fi.IsNotSerialized, "PSXGlobals." + f + " is never serialized (TimeOfDay.Apply's alone)");
+            }
+            TestColourPassLightsAndEye();
+        }
+
+        /// <summary>
+        /// THE COLOUR PASS, STEP 4 (C5-C12): the low beam, the tail lamps, the
+        /// lit particles, the HUD's edge, the eye's adaptation and the owner's
+        /// two open choices. The pictures are tools\colour\colour-shots.ps1's
+        /// (-Sets beam,fx,look) and colour_stats.py's (beam, fx, hud); what is
+        /// held here is the arithmetic and the switches.
+        /// </summary>
+        static void TestColourPassLightsAndEye()
+        {
+            Line("colour pass - lights, particles, HUD edge, eye:");
+            // C5/C6: a beam dimmer than the old 2.0 raw push, glints kept, a
+            // 5 W tail lamp under a street lamp's pool and the brake above it.
+            Check(CarLights.BeamIntensity > 0.1f && CarLights.BeamIntensity <= 1.0f,
+                  "the low beam's plateau is measured, not the old 2.0 (C5; 0.90 at night since the dark-night retune)", CarLights.BeamIntensity);
+            // The night beam and its albedo floor are NIGHT only: every hour
+            // that runs headlights with the sun still up (sunset, dawn) keeps
+            // the reviewed day beam exactly, and the floor's gate is 0 there.
+            for (int h = 0; h < TimeOfDay.Count; h++)
+            {
+                if (h == TimeOfDay.Dusk || h == TimeOfDay.Night) continue;
+                float nf = TimeOfDay.NightFor(h);
+                Check(Mathf.Approximately(CarLights.BeamIntensityFor(nf), CarLights.BeamIntensityDay) && CarLights.BeamNight(nf) == 0f,
+                      "a sun-up hour (" + TimeOfDay.At(h).name + ") keeps the day beam and no albedo floor",
+                      CarLights.BeamIntensityFor(nf) + " / " + CarLights.BeamNight(nf));
+            }
+            Check(Mathf.Approximately(CarLights.BeamIntensityFor(TimeOfDay.NightFor(TimeOfDay.Night)), CarLights.BeamIntensity)
+                  && CarLights.BeamNight(TimeOfDay.NightFor(TimeOfDay.Night)) == 1f,
+                  "the night hour takes the whole night beam and the whole albedo floor");
+            Check(CarLights.GlintIntensity > CarLights.BeamIntensity, "the lamps' glints stay a light source's brightness");
+            Check(CarLights.TailLampDim < CarLights.TailLampBrake && CarLights.TailLampBrake <= 0.6f,
+                  "5 W tail lamps: dim under brake, brake at most 0.6 (C6)",
+                  CarLights.TailLampDim + " / " + CarLights.TailLampBrake);
+            string head = System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXHeadlights.cginc")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXHeadlights.cginc") : "";
+            Check(head.Contains("#define BEAM_NEAR_TO") && head.Contains("#define BEAM_SPILL") && !head.Contains("t * sqrt(t);"),
+                  "the headlight include is the flat plateau with a spill lobe, not t*sqrt(t)");
+            string litBeam = System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXLit.shader")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXLit.shader") : "";
+            Check(head.Contains("_PSXHeadNight;") && head.Contains("float PSXBeamAlbedoGain(")
+                  && litBeam.Contains("headD * PSXBeamAlbedoGain(tex.rgb, N)"),
+                  "PSX/Lit's beam reads a dark road at the night albedo floor, gated by _PSXHeadNight");
+            string lights = System.IO.File.Exists("Assets/PSXRacing/Scripts/CarLights.cs")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Scripts/CarLights.cs") : "";
+            Check(lights.Contains("Halogen.linear * bi"), "the beams are pushed as LINEAR light, as the street lamps are");
+            // C7: the smoke and the snow are lit; the marks are not.
+            var decal = Shader.Find("PSX/Decal");
+            Check(decal != null && decal.FindPropertyIndex("_Lit") >= 0, "PSX/Decal has the lit-particle switch");
+            var smoke = AssetDatabase.LoadAssetAtPath<Material>("Assets/PSXRacing/Materials/TireSmoke.mat");
+            var marks = AssetDatabase.LoadAssetAtPath<Material>("Assets/PSXRacing/Materials/SkidMark.mat");
+            if (smoke != null) Check(smoke.GetFloat("_Lit") > 0.5f, "the tyre smoke is lit by the scene (C7)");
+            if (marks != null) Check(marks.GetFloat("_Lit") < 0.5f, "the tyre marks are not (a dark mark stays dark)");
+            // C9: a HUD label's one-sided Shadow becomes the all-round edge.
+            var go = new GameObject("SelfTestHudText", typeof(RectTransform));
+            try
+            {
+                go.AddComponent<UnityEngine.UI.Text>();
+                go.AddComponent<UnityEngine.UI.Shadow>();
+                HudOnTop.OutlineText(go);
+                var sh = go.GetComponent<UnityEngine.UI.Shadow>();
+                Check(sh is HudTextEdge, "a HUD label's drop shadow becomes the all-round edge (C9)", sh != null ? sh.GetType().Name : "none");
+                // The edge must not allocate per rebuild (the race clock is
+                // rebuilt every frame): one warm-up, then zero bytes.
+                if (sh is HudTextEdge edge)
+                {
+                    var t = go.GetComponent<UnityEngine.UI.Text>();
+                    t.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+                    t.text = "1'23\"456";
+                    var vh = new UnityEngine.UI.VertexHelper();
+                    for (int k = 0; k < 24; k++) { vh.AddVert(new Vector3(k, 0f, 0f), Color.white, Vector2.zero); }
+                    for (int k = 0; k + 2 < 24; k += 3) vh.AddTriangle(k, k + 1, k + 2);
+                    var probe = new UnityEngine.UI.VertexHelper();
+                    edge.ModifyMesh(vh);
+                    void Rebuild()
+                    {
+                        probe.Clear();
+                        for (int v = 0; v < 24; v++) probe.AddVert(new Vector3(v, 0f, 0f), Color.white, Vector2.zero);
+                        for (int v = 0; v + 2 < 24; v += 3) probe.AddTriangle(v, v + 1, v + 2);
+                        edge.ModifyMesh(probe);
+                    }
+                    Rebuild();   // the probe's own lists warm up too
+                    try
+                    {
+                        long before = System.GC.GetAllocatedBytesForCurrentThread();
+                        for (int k = 0; k < 20; k++) Rebuild();
+                        long grew = System.GC.GetAllocatedBytesForCurrentThread() - before;
+                        // The old edge threw away a 600-vertex list a rebuild:
+                        // about 60 KB each, 1.2 MB over these twenty.
+                        Check(grew < 65536, "the HUD edge allocates nothing per rebuild once warm (the race clock rebuilds every frame)",
+                              grew + " bytes over 20 rebuilds");
+                    }
+                    catch (System.Exception e) { Line("  (allocation probe unavailable: " + e.GetType().Name + ")"); }
+                    vh.Dispose(); probe.Dispose();
+                }
+            }
+            finally { Object.DestroyImmediate(go); }
+            // Review (2026-09-29): the always-visible MENU button is a smoked
+            // box with the HUD's edge (it lives on its own overlay canvas that
+            // HudOnTop never sees), and every WebGL build brings the snow
+            // grounds to the snow turf (a -SkipScenes publish ships C8 too).
+            string pause = System.IO.File.Exists("Assets/PSXRacing/Scripts/PauseMenu.cs")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Scripts/PauseMenu.cs") : "";
+            Check(pause.Contains("DarkenMenuButton(menuBtn)") && pause.Contains("HudOnTop.AddOutline"),
+                  "the MENU button is a dark box with the HUD's text edge (legible at noon)");
+            string build = System.IO.File.Exists("Assets/PSXRacing/Editor/PSXBuildWebGL.cs")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Editor/PSXBuildWebGL.cs") : "";
+            Check(build.Contains("PSXRacingBuilder.RedressSnowGrounds()"), "every WebGL build redresses the snow grounds (C8 ships on any publish)");
+            var snowTint = PSXRacingBuilder.SnowGroundTint;
+            Check(snowTint.r > 0.75f && snowTint.r < 0.95f && snowTint.b >= snowTint.r,
+                  "the snow turf is worn a little under white, a breath of blue (its texture off the tone curve's shoulder)", snowTint.ToString());
+            string lens = System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXLens.shader")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXLens.shader") : "";
+            string litSrc = System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXLit.shader")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXLit.shader") : "";
+            Check(lens.Contains("#define DIRT_SRC_MIN      0.25") && litSrc.Contains("#define WIN_EMIT           0.25"),
+                  "lit windows stay under the lens dirt's emitter band (no grime rings over a lit tower)");
+            // C10: the eye.
+            Check(Mathf.Approximately(ExposureAdapt.TargetFor(1f, 1f), 1f), "an open sky by day: the eye at 1");
+            Check(Mathf.Approximately(ExposureAdapt.TargetFor(0f, 0f), 1f), "a roof at night: the eye at 1 (a tunnel at night is its lamps)");
+            float roofed = ExposureAdapt.TargetFor(0f, 1f);
+            Check(roofed > 2f && roofed <= ExposureAdapt.MaxGain + 1e-4f, "a roof by day opens the eye, at most +1.26 stops", roofed);
+            float fillNoon = TimeOfDay.DayFillFor(TimeOfDay.Noon, Weather.Clear);
+            float roofedCut = ExposureAdapt.TargetFor(0f, 1f, fillNoon), openCut = ExposureAdapt.TargetFor(1f, 1f, fillNoon);
+            Check(Mathf.Abs(roofedCut * fillNoon - roofed) < 1e-3f && Mathf.Approximately(openCut, 1f)
+                  && Mathf.Approximately(ExposureAdapt.TargetFor(0f, 1f, 1f), roofed),
+                  "under a roof the eye also opens by the harsh sun's fill (a tunnel keeps its light), in the open it does not",
+                  roofedCut.ToString("0.00") + " at fill " + fillNoon.ToString("0.00"));
+            float in2 = ExposureAdapt.Step(1f, roofed, 2f), out1 = ExposureAdapt.Step(roofed, 1f, 1f);
+            Check(in2 > 2f, "two seconds into a tunnel the eye has opened (readable)", in2.ToString("0.00"));
+            Check(out1 < 1.1f, "a second after the exit it has closed again (the bloom settles)", out1.ToString("0.00"));
+            // C11 / C12: both ship off.
+            Check(!LookChoices.SunLiftDefault && !LookChoices.CoolNightDefault,
+                  "the owner's two open choices (G1, cool darks) ship OFF until he says yes");
+            Check(TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Clear) == 1f && TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Snow) == 1f
+                  && TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Rain) == 0f && TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Fog) == 0f
+                  && TimeOfDay.GradeSunFor(TimeOfDay.Dusk, Weather.Clear) == 0f,
+                  "G1's lift fade is keyed on a clear or snowy sunlit hour only");
+            string blit = System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXBlit.shader")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXBlit.shader") : "";
+            Check(blit.Contains("if (_PSXGradeSun > 0.0)"), "and at 0 it is a branch not taken: the signed-off grade bit for bit");
+        }
+
         static void TestPizzaCargo()
         {
             Line("pizza cargo:");
@@ -6290,7 +6505,7 @@ namespace PSXRacing.EditorTools
 
             int maxRowsPerChunk = 2 * (Mathf.FloorToInt(240f / TrackCatalog.Spacing) + 1);
             int badCollider = 0, down = 0, triCount = 0, rows = 0, widest = 0;
-            int unparsed = 0, backwards = 0, offStrip = 0, foreslopes = 0, faces = 0;
+            int unparsed = 0, backwards = 0, offStrip = 0, foreslopes = 0, faces = 0, sliceVerts = 0;
             float worstFall = 0f, worstRise = 0f, worstStrip = 0f;
             string whereFall = "", whereRise = "", whereStrip = "", whereOrder = "";
             foreach (var mf in chunks)
@@ -6314,10 +6529,32 @@ namespace PSXRacing.EditorTools
                 }
 
                 int rowStart = -1, rowPacked = -1, chunkRows = 0;
+                // A row is one run from the strip's edge outward ON its
+                // station's line. The vertices of a bend's slices (the ribbon
+                // follows a curve between stations, SlicedShoulderZip) come
+                // after every row in the chunk and lie between stations: the
+                // first one off the open row's line ends it, and they are
+                // counted, not parsed.
+                bool OnLine(Vector3 v, int packedRow)
+                {
+                    int st = packedRow >> 1;
+                    Vector3 d = v - wp[st];
+                    Vector3 r = right[st];
+                    float across = d.x * r.x + d.z * r.z;
+                    float offX = d.x - r.x * across, offZ = d.z - r.z * across;
+                    return offX * offX + offZ * offZ < 0.005f * 0.005f;
+                }
+                int sliceFrom = -1;
                 for (int k = 0; k <= vs.Length; k++)
                 {
                     int packed = k < vs.Length ? MatchStart(vs[k]) : -1;
-                    if (k < vs.Length && packed < 0) continue;
+                    if (k < vs.Length && packed < 0)
+                    {
+                        if (sliceFrom < 0 && rowStart >= 0 && !OnLine(vs[k], rowPacked)) sliceFrom = k;
+                        continue;
+                    }
+                    int rowEnd = sliceFrom >= 0 ? sliceFrom : k;
+                    if (sliceFrom >= 0) { sliceVerts += k - sliceFrom; sliceFrom = -1; }
                     if (rowStart < 0) unparsed += k;   // vertices before the first row this chunk
                     else
                     {
@@ -6326,7 +6563,7 @@ namespace PSXRacing.EditorTools
                         int i = rowPacked >> 1;
                         float side = (rowPacked & 1) == 0 ? -1f : 1f;
                         string where = "wp " + i + (side < 0f ? " left" : " right");
-                        int count = k - rowStart;
+                        int count = rowEnd - rowStart;
                         if (count < 3) { unparsed += count; }
                         else
                         {
@@ -6394,7 +6631,7 @@ namespace PSXRacing.EditorTools
             Check(down == 0, t.id + " no shoulder triangle faces down", down + " of " + triCount);
             Check(rows > 0 && unparsed == 0 && backwards == 0,
                   t.id + " every shoulder row starts on the kerb strip's outer edge and runs strictly outward",
-                  rows + " rows, " + unparsed + " vertices outside a row, " + backwards + " rows folding back" +
+                  rows + " rows (+" + sliceVerts + " vertices on a bend's slices), " + unparsed + " vertices outside a row, " + backwards + " rows folding back" +
                   (whereOrder != "" ? " (first " + whereOrder + ")" : ""));
             Check(widest <= maxRowsPerChunk, t.id + " no shoulder chunk carries more than 240 m of road",
                   widest / 2 + " stations in the widest");
@@ -7013,6 +7250,65 @@ namespace PSXRacing.EditorTools
                     foreach (var a in TrackCatalog.All)
                         if (a.id == h.id) both = true;
                 Check(!both, "no venue is both held back and in the list");
+
+                // The car meets look venues up BY ID, and IndexOf answers 0 -
+                // CITY CIRCUIT - for an id it does not know: every touge id
+                // must be a listed venue, and the park road is one of them.
+                var meetField = typeof(PSXRacing.LifeSim.CarMeets).GetField("TougeVenues",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                var touge = meetField != null ? meetField.GetValue(null) as string[] : null;
+                string unknown = null;
+                if (touge != null)
+                    foreach (var id in touge)
+                        if (TrackCatalog.At(TrackCatalog.IndexOf(id)).id != id) unknown = id;
+                Check(touge != null && unknown == null, "every car meet venue is in the list", unknown ?? "all");
+                Check(touge != null && System.Array.IndexOf(touge, "ChimneyRock") >= 0,
+                      "and the touge meets race up the park road");
+
+                // IT SHIPPED ON FOUR NAMED LEDGES, NOT A WAIVER. The owner,
+                // 2026-09-29: "Release now, fix after". All four are fixed and
+                // their entries are out: the rise holds took 1040-1041 L and
+                // 668 R, the end pad 2 L past the reach, and the fill tail -
+                // the owner's pick over a guardrail - 983 R. Pinned: the list
+                // is EMPTY, so every edge face on every venue fails again, and
+                // the matcher passes none of the four spots it once named; any
+                // entry ever added back must be one small, short, dated spot.
+                var acc = TrackObstacleAudit.OwnerAccepted;
+                Check(acc.Length == 0, "the obstacle audit's owner-accepted list is empty: all four Chimney Rock ledges are fixed", acc.Length);
+                string badEntry = null;
+                foreach (var e in acc)
+                {
+                    bool listedVenue = false;
+                    foreach (var d in TrackCatalog.Scened) if (d.id == e.venue) listedVenue = true;
+                    bool ok = listedVenue && e.venue == "ChimneyRock" && (e.side == -1 || e.side == 1) &&
+                              e.fromWp >= 0 && e.toWp >= e.fromWp && e.toWp - e.fromWp <= 1 &&
+                              // printed to the centimetre (668 R, since fixed, printed 0.06, just over the 0.06 line)
+                              e.maxRiseM >= RoadsideRules.FaceRiseFailM && e.maxRiseM < 0.10f &&
+                              e.atM > 0f && e.atM < 12f &&
+                              e.accepted == "owner accepted 2026-09-29, fix pending" &&
+                              !string.IsNullOrEmpty(e.what);
+                    if (!ok && badEntry == null) badEntry = e.Where;
+                }
+                Check(badEntry == null,
+                      "each is one listed spot: a side, at most two stations, under 0.10 m, dated and marked fix pending",
+                      badEntry ?? "all");
+                Check(TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.08f, 7.70f) < 0,
+                      "983 R, filled, is a failure again if it ever comes back");
+                Check(TrackObstacleAudit.AcceptedFor("ChimneyRock", false, -1, 1041, 0.08f, 5.40f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, -1, 1040, 0.09f, 5.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 668, 0.062f, 6.95f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", true, -1, 2, 0.08f, 8.85f) < 0,
+                      "and so are the three fixed before it: 1040-1041 L, 668 R, 2 L past the reach");
+                Check(TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 984, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 982, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.09f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, -1, 983, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", true, 1, 983, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.08f, 8.30f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRockRev", false, 1, 983, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("GillespieGap", false, 1, 983, 0.08f, 7.60f) < 0,
+                      "and on nothing else: a station on, a centimetre taller, the other side or kind, half a metre off, another venue");
             }
 
             // THE BLOWING ROCK SPRINT RACES ON THE LOOP (owner: "just leave
@@ -11850,6 +12146,18 @@ namespace PSXRacing.EditorTools
         // ==================================================================
         //  THE DAY LOOK (2026-09-21, the Forza daylight pass)
         // ==================================================================
+
+        /// <summary>THE 16-BIT DECODE (the colour pass, C1b): the set is
+        /// imported as linear data and decoded in the shaders, the release
+        /// budget and the labels agree, no .mat stores the flag, every prefab
+        /// leaves Resources through PSXTexDecode.LoadPrefab, and (with a GPU)
+        /// the grey card matches. The play-mode half is
+        /// tools\colour\texdecode-audit.ps1 (TexDecodeAudit.Run).</summary>
+        static void TestTexDecode()
+        {
+            Line("16-bit texture decode:");
+            foreach (var r in TexDecodeAudit.EditChecks(gpu: true)) Check(r.ok, r.what, r.got);
+        }
 
         /// <summary>
         /// The owner, with five daylight frames of Forza Horizon: improved

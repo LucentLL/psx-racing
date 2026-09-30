@@ -32,6 +32,11 @@ Shader "PSX/Glow"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            // THE COLOUR PASS (PSXTone.cginc): a lens is a light source - the
+            // eye's adaptation and no exposure, no curve - and its coverage,
+            // added into the framebuffer's alpha by the One One blend, is the
+            // EMITTER MASK the halation and the lens dirt glow by.
+            #include "PSXTone.cginc"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
@@ -66,7 +71,7 @@ Shader "PSX/Glow"
             fixed4 frag (v2f i) : SV_Target
             {
                 fixed a = tex2D(_MainTex, i.uv).a * _Strength * i.fade;
-                return fixed4(_Color.rgb * a, a);
+                return fixed4(_Color.rgb * (a * PSXAdaptGain()), a);
             }
             ENDCG
         }

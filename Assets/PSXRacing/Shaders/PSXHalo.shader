@@ -68,6 +68,10 @@ Shader "PSX/Halo"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            // THE COLOUR PASS (PSXTone.cginc): a lamp head is a light source -
+            // the eye's adaptation and no exposure, no curve - and the alpha
+            // it adds is the EMITTER MASK the halation and lens dirt glow by.
+            #include "PSXTone.cginc"
 
             // THE SHAPE. A tight core (the bulb and its refractor) and a wide
             // soft halo (the lit mist), both gaussians in the quad's own
@@ -154,7 +158,7 @@ Shader "PSX/Halo"
                 float win = saturate(1.0 - r2);
                 win *= win;
                 float a = exp(-r2 * HALO_CORE_K) + exp(-r2 * HALO_SOFT_K) * _HaloAmt * win;
-                return fixed4(i.col.rgb * a, saturate(a * i.col.a));
+                return fixed4(i.col.rgb * (a * PSXAdaptGain()), saturate(a * i.col.a));
             }
             ENDCG
         }
