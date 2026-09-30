@@ -191,6 +191,31 @@ namespace PSXRacing.City
         }
 
         const float ApproachGrade = 0.045f;
+
+        /// <summary>
+        /// How far an approach has fallen below its apex at distance d, on a
+        /// road whose crests need radius r (<see cref="CrestRadius"/>). It was
+        /// d x ApproachGrade, a TENT: a crossing's hump, a raised node's cone
+        /// and a water span's plateau met their 4.5% approaches at an apex, a
+        /// 9% crest a car at speed leaves the road over (the launch audit's
+        /// commonest cause). Now the apex is a vertical curve: a parabola from
+        /// level to the approach grade over ApproachGrade x r, then the same
+        /// 4.5%. Never lower than the tent (d^2/2r &lt;= d g for d &lt;= g r, and
+        /// the line beyond runs g^2 r/2 above it), so every clearance the tent
+        /// held still holds.
+        /// </summary>
+        static float ApproachDrop(float d, float r)
+        {
+            if (!VerticalCurvesOn) return Mathf.Max(0f, d) * ApproachGrade;   // the tent, as it was (PSX_CITY_VCURVES=0)
+            if (d <= 0f) return 0f;
+            float d1 = ApproachGrade * r;
+            return d <= d1 ? d * d / (2f * r) : ApproachGrade * d - 0.5f * ApproachGrade * d1;
+        }
+
+        /// <summary>The race routes' edges (their crests are judged at race
+        /// speed), for the solve that is running.</summary>
+        static bool[] routeEdge;
+        static float CrestR(CityMap.Edge e) => CrestRadius(e, routeEdge != null && e.index < routeEdge.Length && routeEdge[e.index]);
         /// <summary>A crossing closer than this to the end of the freeway
         /// edge is AT the junction, not near it; the hump rule keeps it.</summary>
         const float TrenchEndM = 20f;
@@ -720,6 +745,14 @@ namespace PSXRacing.City
         /// the budget probe.</summary>
         public static string LastSolvePhases { get; private set; } = "";
 
+        /// <summary>For the launch audit (Editor/CityLaunchAudit): keep each
+        /// edge's station profile as the terrain gave it (step 1, before any
+        /// trench, seat, raise or cone), so a crest can be traced to the pass
+        /// that made it and the solve's distance from the survey measured.
+        /// Off in the game.</summary>
+        public static bool KeepTerrainProfiles;
+        public static float[][] TerrainProfiles { get; private set; }
+
         public static void Solve(CityMap map)
         {
             var phaseClock = System.Diagnostics.Stopwatch.StartNew();
@@ -727,6 +760,8 @@ namespace PSXRacing.City
             void Phase(string name) { phases.Append(name).Append(' ').Append(phaseClock.ElapsedMilliseconds).Append(", "); phaseClock.Restart(); }
             crossingOn = null;
             crossingTarget = null;
+            routeEdge = new bool[map.edges.Length];
+            if (map.routes != null) foreach (var rt in map.routes) foreach (int ei in rt.edges) routeEdge[ei] = true;
             EnsureDem();
             BuildRoadDem();
             Phase("road grid");
@@ -770,6 +805,12 @@ namespace PSXRacing.City
                 // OSM's bridges are decks end to end, whatever the terrain
                 // under them does.
                 if (e.bridge) for (int i = 0; i < n; i++) e.stElev[i] = true;
+            }
+            TerrainProfiles = null;
+            if (KeepTerrainProfiles)
+            {
+                TerrainProfiles = new float[map.edges.Length][];
+                foreach (var e in map.edges) TerrainProfiles[e.index] = (float[])e.stY.Clone();
             }
             Phase("profiles");
 
@@ -882,6 +923,30 @@ namespace PSXRacing.City
             }
             SnapNodesToEnds(map);
             SeatBranches(map);
+            Phase("raises");
+
+            // 8b. VERTICAL CURVES: every crest the passes above left sharp
+            // (a hump's apex, a cone's tent, a seat's climb-out, two arms
+            // meeting at a node) is rounded to what a car at the road's speed
+            // can take without leaving it. See VerticalCurves.
+            if (VerticalCurvesOn)
+            {
+                for (int round = 0; round < 2; round++)
+                {
+                    VerticalCurves(map, round);
+                    RaiseAllCrossings(map, fresh: true);
+                    SnapNodesToEnds(map);
+                    SeatBranches(map);
+                }
+                // and once more with nothing after it: the snap and the seats
+                // leave a node above an arm's end (the fan's centre stands at
+                // the node, the arm's corner at its own end: a ramp inside the
+                // fan). The pass starts by lifting every end to its node, and
+                // it can neither raise a road under a crossing nor lower the
+                // deck over it, so the clearances the raise just set hold.
+                VerticalCurves(map, 2);
+            }
+            Phase("vcurves");
 
             // 9. mark structure LAST, from the facts: decks over crossings,
             // embankments everywhere else.
@@ -890,7 +955,7 @@ namespace PSXRacing.City
             MeasureSags(map);
 
             // (10. the water was prepared first: PrepareWater)
-            Phase("raises+structure");
+            Phase("structure");
             LastSolvePhases = phases.ToString().TrimEnd(' ', ',') + " ms";
             roadDem = null;
             pairCands = null;
@@ -1209,6 +1274,10 @@ namespace PSXRacing.City
         /// ramp starts to separate vertically: after it has separated in plan.
         /// </summary>
         static readonly List<(int edge, int st, int host, float hostS)> seated = new List<(int, int, int, float)>(4096);
+        /// <summary>Stations of a street BRANCH (not a ramp) inside its host's
+        /// gore zone: the vertical curves pull them onto the host's height
+        /// (see VerticalCurves), softly - never the host onto them.</summary>
+        static readonly List<(int edge, int st, int host, float hostS)> streetSeats = new List<(int, int, int, float)>(2048);
         /// <summary>Each seated run's last station and which way leads away
         /// from the host (+1 toward the edge's b end).</summary>
         static readonly List<(int edge, int boundary, int dir)> climbs = new List<(int, int, int)>(1024);
@@ -1250,7 +1319,22 @@ namespace PSXRacing.City
             seatPairs.Clear();
             SeatStepsSplit = 0;
             foreach (var e in map.edges) e.stSeat = null;
-            var seats = CityMeshes.BranchSeats(map, CityMeshes.ComputeTrims(map));
+            var seatTrims = CityMeshes.ComputeTrims(map);
+            var seats = CityMeshes.BranchSeats(map, seatTrims);
+            // the other branches' zones, for the vertical curves' SOFT seats
+            streetSeats.Clear();
+            if (VerticalCurvesOn)
+                foreach (var seat in CityMeshes.BranchSeats(map, seatTrims, streetsOnly: true))
+                    foreach (var (ei, s0, s1, dir) in seat.pieces)
+                    {
+                        var e = map.edges[ei];
+                        for (int i = 1; i < e.stS.Length - 1; i++)
+                        {
+                            if (e.stS[i] < s0 - 0.01f || e.stS[i] > s1 + 0.01f) continue;
+                            int h = seat.HostAt(e.PointAt(e.stS[i]), out float hs);
+                            if (h >= 0 && h != ei) streetSeats.Add((ei, i, h, hs));
+                        }
+                    }
             // Each run's stations inside the gore, first, per edge, so the
             // runs of one edge can be judged against each other.
             var runs = new List<(CityMeshes.Seat seat, int ei, int first, int last, int dir)>();
@@ -1653,7 +1737,7 @@ namespace PSXRacing.City
                         {
                             var (ei, st, h, hs) = seated[k];
                             if (h < 0) continue;
-                            float want = crossingTarget[ci] - Mathf.Abs(over.stS[st] - sOver) * ApproachGrade;
+                            float want = crossingTarget[ci] - ApproachDrop(Mathf.Abs(over.stS[st] - sOver), CrestR(over));
                             if (map.edges[h].YAt(hs) >= want) continue;
                             seated[k] = (ei, st, -1, hs);
                             over.stSeat[st] = false;
@@ -1777,11 +1861,12 @@ namespace PSXRacing.City
         /// (seated stations are their hosts').</summary>
         static void RaiseSpan(CityMap.Edge e, float s0, float s1, float targetY)
         {
+            float r = CrestR(e);
             for (int i = 0; i < e.stS.Length; i++)
             {
                 if (e.SeatedAt(i)) continue;
                 float off = Mathf.Max(0f, Mathf.Max(s0 - e.stS[i], e.stS[i] - s1));
-                float want = targetY - off * ApproachGrade;
+                float want = targetY - ApproachDrop(off, r);
                 if (e.stY[i] < want) e.stY[i] = want;
             }
         }
@@ -1865,16 +1950,19 @@ namespace PSXRacing.City
         /// across junctions. Raises only. A one-metre sliver between a raised
         /// bridge and a low junction is simply passed through.
         /// </summary>
-        static readonly List<(int node, float y)> coneQueue = new List<(int, float)>(64);
+        /// (Each queued node carries the cone's apex and how far along the
+        /// graph it already is from it, so the rounded top (ApproachDrop)
+        /// runs on through a node instead of starting a new crest there.)
+        static readonly List<(int node, float apex, float d0, float y)> coneQueue = new List<(int, float, float, float)>(64);
         static bool RaiseCone(CityMap map, int node, float y)
         {
             coneQueue.Clear();
-            coneQueue.Add((node, y));
+            coneQueue.Add((node, y, 0f, y));
             int head = 0;
             bool any = false;
             while (head < coneQueue.Count && head < 4000)
             {
-                var (n, ny) = coneQueue[head++];
+                var (n, apex, d0, ny) = coneQueue[head++];
                 if (map.nodeY[n] < ny) map.nodeY[n] = ny;
                 foreach (var ei in map.nodeEdges[n])
                 {
@@ -1882,6 +1970,7 @@ namespace PSXRacing.City
                     bool fromA = e.a == n;
                     bool moved = false, seatedOn = false;
                     int count = e.stS.Length;
+                    float r = CrestR(e);
                     // Walked AWAY from the node, and stopped by the first
                     // seated station: an embankment does not run through a
                     // ramp that is lying on its mainline, and it must not
@@ -1891,14 +1980,14 @@ namespace PSXRacing.City
                         int i = fromA ? k : count - 1 - k;
                         if (e.SeatedAt(i)) { seatedOn = true; break; }
                         float dist = fromA ? e.stS[i] : e.length - e.stS[i];
-                        float want = ny - dist * ApproachGrade;
+                        float want = apex - ApproachDrop(d0 + dist, r);
                         if (e.stY[i] < want - 0.02f) { e.stY[i] = want; moved = true; }
                     }
                     if (moved) any = true;
                     if (!moved || seatedOn) continue;
                     int far = fromA ? e.b : e.a;
-                    float farWant = ny - e.length * ApproachGrade;
-                    if (farWant > map.nodeY[far] + 0.02f) coneQueue.Add((far, farWant));
+                    float farWant = apex - ApproachDrop(d0 + e.length, r);
+                    if (farWant > map.nodeY[far] + 0.02f) coneQueue.Add((far, apex, d0 + e.length, farWant));
                 }
             }
             return any;
@@ -2014,6 +2103,410 @@ namespace PSXRacing.City
             return Mathf.Max(Mathf.Abs(dA), Mathf.Abs(dB));
         }
 
+        // ------------------------------------------------------------------
+        //  Vertical curves (2026-09-30)
+        // ------------------------------------------------------------------
+        /// <summary>The speed a road is judged at for its crests (km/h):
+        /// what a driver in a hurry carries there, not the posted limit. The
+        /// launch audit (Editor/CityLaunchAudit) judges by the same table.</summary>
+        public static float JudgedKmh(CityMap.Edge e) =>
+            e.link ? (e.cls >= 5 ? 90f : e.cls >= 3 ? 80f : 70f)
+                   : e.cls >= 5 ? 150f : e.cls == 4 ? 130f : e.cls == 3 ? 110f : e.cls == 2 ? 100f : e.cls == 1 ? 90f : 70f;
+        /// <summary>A race route's roads are judged at least this fast.</summary>
+        public const float RouteKmh = 140f;
+        /// <summary>The vertical-velocity kick (m/s) one station's grade break
+        /// may give a car at the road's judged speed: dg &lt;= kick / v. A break
+        /// of dg separates a free-flying car from the road by (v dg)^2 / 2G, so
+        /// 1 m/s is 5 cm - the springs' static compression, the wheels just
+        /// keep their load.</summary>
+        public const float VcurveKickMs = 1.0f;
+        /// <summary>PSX_CITY_VCURVES=0 switches the pass off (a measuring
+        /// override: the launch audit's BEFORE; nothing sets it in a build).</summary>
+        public static bool VerticalCurvesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_VCURVES") != "0";
+        /// <summary>What the last solve's vertical curves did, for the audits.</summary>
+        public static string VcurveReport { get; private set; } = "";
+        static string debugUnsettled = "";
+        /// <summary>The most the pass may raise or lower any station: a crest
+        /// held between pins is left as it is (and counted), not chased.</summary>
+        public const float VcurveMaxRaiseM = 1.5f, VcurveMaxLowerM = 0.8f;
+        /// <summary>How far a soft-seated street branch may stand off its
+        /// host's height (see VerticalCurves).</summary>
+        public const float SoftSeatTol = 0.03f;
+        /// <summary>PSX_CITY_VPLANES=0: junctions keep their arms' own grades
+        /// (a measuring override).</summary>
+        static readonly bool FanPlanesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_VPLANES") != "0";
+
+        /// <summary>The crest radius a road needs at its judged speed: the
+        /// larger of 1.5 v^2/G (the curve takes two thirds of the wheels'
+        /// load) and StationStep v / kick (each station's break within
+        /// <see cref="VcurveKickMs"/>) - the second binds at every speed.</summary>
+        public static float CrestRadius(CityMap.Edge e, bool route)
+        {
+            float v = Mathf.Max(JudgedKmh(e), route ? RouteKmh : 0f) / 3.6f;
+            return Mathf.Max(1.5f * v * v / 9.81f, StationStep * v / VcurveKickMs);
+        }
+
+        /// <summary>
+        /// VERTICAL CURVES. The owner, 2026-09-30: "many sections of road that
+        /// meet at sharp angles that result in launching the car at high
+        /// speed. All roads should meet at smooth junctions and transitions."
+        /// Every pass above shapes a road with straight lines - a crossing's
+        /// hump is a 4.5% TENT with its apex over the road below, a cone
+        /// another tent at every raised node, a seat's climb-out an 8% line
+        /// off the host, a node the meeting of two arms solved apart - and a
+        /// car at speed leaves the road at every such apex (the launch audit
+        /// measured it: Editor/CityLaunchAudit).
+        ///
+        /// So the profile is given a CREST LIMIT: along every edge, and
+        /// through every node from each arm to the arm it continues into
+        /// (the node's through pairs; a two-arm node always), no grade may
+        /// fall faster than the spacing over <see cref="CrestRadius"/>. Each
+        /// violated break is projected out with the smallest change (the
+        /// middle station down, its neighbours up, in proportion to what the
+        /// break owes each), Gauss-Seidel over the stations still moving, so
+        /// a sharp apex becomes a curve spread over as many stations as its
+        /// angle needs. Sags are left alone: a sag presses the car into the
+        /// road.
+        ///
+        /// What may not move, and which way: a SEATED station is its host's
+        /// (fixed; SeatBranches re-seats after); an over road within the deck
+        /// reach of its crossing, a tagged bridge and a water span may only
+        /// rise (their clearance is a floor, and a hump's cone would come
+        /// straight back if lowered); an under road within its crossing's
+        /// footprint, and a trench's pinned node, may only fall. A crest held
+        /// on both sides by such pins is rounded by raising what can rise.
+        /// The crossings are re-raised fresh after each round.
+        /// </summary>
+        static void VerticalCurves(CityMap map, int round)
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            int E = map.edges.Length, N = map.nodes.Length;
+            debugUnsettled = "";
+            var R = new float[E];
+            for (int i = 0; i < E; i++) R[i] = CrestR(map.edges[i]);
+
+            // mobility: bit 1 may fall, bit 2 may rise
+            const byte Down = 1, Up = 2, Free = 3;
+            var mob = new byte[E][];
+            var nodeMob = new byte[N];
+            for (int n = 0; n < N; n++) nodeMob[n] = Free;
+            foreach (var e in map.edges)
+            {
+                int n = e.stY.Length;
+                var m = mob[e.index] = new byte[n];
+                for (int i = 0; i < n; i++) m[i] = e.SeatedAt(i) ? (byte)0 : Free;
+                // the ends ARE the node (raised to it first: the ribbon's end
+                // and the fan's centre must agree before anything is judged)
+                if (e.a != e.b)
+                {
+                    if (e.stY[0] < map.nodeY[e.a]) e.stY[0] = map.nodeY[e.a];
+                    if (e.stY[n - 1] < map.nodeY[e.b]) e.stY[n - 1] = map.nodeY[e.b];
+                }
+            }
+            foreach (var ws in map.wspans)
+            {
+                var e = map.edges[ws.edge];
+                for (int i = 0; i < e.stS.Length; i++)
+                    if (e.stS[i] >= ws.s0 - StationStep && e.stS[i] <= ws.s1 + StationStep) mob[e.index][i] &= Up;
+            }
+            var on = crossingOn;
+            for (int ci = 0; ci < map.crossings.Length; ci++)
+            {
+                if (on != null && ci < on.Length && !on[ci]) continue;
+                var c = map.crossings[ci];
+                var over = map.edges[c.over]; var under = map.edges[c.under];
+                ProjectOn(over, c.at, out float sO);
+                ProjectOn(under, c.at, out float sU);
+                float cos = Vector2.Dot(over.TangentAt(sO), under.TangentAt(sU));
+                float sin = Mathf.Max(0.4f, Mathf.Sqrt(Mathf.Max(0f, 1f - cos * cos)));
+                // the deck over the road below may only rise (the hump itself
+                // is already a vertical curve, ApproachDrop; lowering its
+                // approach would only be lifted back by the fresh raise)
+                float over1 = (under.width * 0.5f + 3f) / sin + StationStep;
+                for (int i = 0; i < over.stS.Length; i++)
+                    if (Mathf.Abs(over.stS[i] - sO) <= over1) mob[over.index][i] &= Up;
+                float foot = (over.width * 0.5f + 6f) / sin + StationStep;
+                for (int i = 0; i < under.stS.Length; i++)
+                    if (Mathf.Abs(under.stS[i] - sU) <= foot) mob[under.index][i] &= Down;
+            }
+            if (pinnedNodeY != null)
+                for (int n = 0; n < N; n++) if (!float.IsNaN(pinnedNodeY[n])) nodeMob[n] &= Down;
+            // a node moves only as every arm's end may
+            foreach (var e in map.edges)
+            {
+                if (e.a == e.b) continue;
+                nodeMob[e.a] &= mob[e.index][0];
+                nodeMob[e.b] &= mob[e.index][e.stY.Length - 1];
+            }
+
+            // the through pairs: (arm i's first station, node, arm j's first station)
+            var pairs = new List<(int n, int ei, int ej)>(N * 2);
+            var armDir = new List<(int ei, Vector2 d)>(8);
+            for (int n = 0; n < N; n++)
+            {
+                armDir.Clear();
+                foreach (int ei in map.nodeEdges[n])
+                {
+                    var e = map.edges[ei];
+                    if (e.a == e.b || e.length < 0.5f) continue;
+                    armDir.Add((ei, e.a == n ? e.TangentAt(0f) : -e.TangentAt(e.length)));
+                }
+                for (int p = 0; p < armDir.Count; p++)
+                    for (int q = p + 1; q < armDir.Count; q++)
+                        if (armDir.Count == 2 ? Vector2.Dot(armDir[p].d, armDir[q].d) < 0.3f : Vector2.Dot(armDir[p].d, armDir[q].d) < -0.7f)
+                            pairs.Add((n, armDir[p].ei, armDir[q].ei));
+            }
+            var nodePairs = new List<int>[N];
+            for (int k = 0; k < pairs.Count; k++)
+            {
+                int n = pairs[k].n;
+                (nodePairs[n] ??= new List<int>(2)).Add(k);
+            }
+
+            // THE MINOR ROAD MEETS THE MAJOR ROAD'S CROSS-SECTION. A junction
+            // of three or more arms is drawn as one fan of triangles from the
+            // node to each arm's two corners, and the ribbons are level across,
+            // so where two graded roads cross the corners cannot lie on one
+            // plane: the fan folds, and the lanes that pass beside the centre
+            // cross the folds (the launch audit's junction-fan spots, lift-off
+            // from 40 km/h). As a road designer does it: the node's MAJOR
+            // through pair keeps its grade, level across; every other arm
+            // leaves the node on that plane over its first station, held there
+            // (with the node) while the crest limit curves it back to its own
+            // grade further out.
+            int planeHeld = 0;
+            float planeMove = 0f;
+            for (int n = 0; n < N && FanPlanesOn; n++)
+            {
+                if (map.nodeEdges[n].Count < 3 || nodePairs[n] == null || (nodeMob[n] & Free) != Free) continue;
+                int best = -1; float bestKey = float.MinValue;
+                foreach (int k in nodePairs[n])
+                {
+                    var P = map.edges[pairs[k].ei]; var Q = map.edges[pairs[k].ej];
+                    float key = Mathf.Min(P.link ? P.cls - 0.5f : P.cls, Q.link ? Q.cls - 0.5f : Q.cls) * 100f + P.width + Q.width;
+                    if (key > bestKey) { bestKey = key; best = k; }
+                }
+                var MP = map.edges[pairs[best].ei]; var MQ = map.edges[pairs[best].ej];
+                Vector2 uP = MP.a == n ? MP.TangentAt(0f) : -MP.TangentAt(MP.length);
+                Vector2 uQ = MQ.a == n ? MQ.TangentAt(0f) : -MQ.TangentAt(MQ.length);
+                int p1 = MP.a == n ? 1 : MP.stY.Length - 2, q1 = MQ.a == n ? 1 : MQ.stY.Length - 2;
+                float hP = Mathf.Abs(MP.stS[p1] - MP.stS[MP.a == n ? 0 : MP.stY.Length - 1]);
+                float hQ = Mathf.Abs(MQ.stS[q1] - MQ.stS[MQ.a == n ? 0 : MQ.stY.Length - 1]);
+                if (hP < 0.5f || hQ < 0.5f) continue;
+                var axis = (uQ - uP).normalized;
+                float gAlong = ((Get(MQ, q1) - map.nodeY[n]) / hQ - (Get(MP, p1) - map.nodeY[n]) / hP) * 0.5f;
+                bool held = false;
+                foreach (int ei in map.nodeEdges[n])
+                {
+                    if (ei == MP.index || ei == MQ.index) continue;
+                    var e = map.edges[ei];
+                    if (e.a == e.b || e.stY.Length < 3) continue;   // its first station is the far node
+                    int i1 = e.a == n ? 1 : e.stY.Length - 2, i0 = e.a == n ? 0 : e.stY.Length - 1;
+                    float h = Mathf.Abs(e.stS[i1] - e.stS[i0]);
+                    if (h < 0.5f || mob[ei][i1] != Free) continue;
+                    var u = e.a == n ? e.TangentAt(0f) : -e.TangentAt(e.length);
+                    float want = map.nodeY[n] + gAlong * Vector2.Dot(axis, u) * h;
+                    float y1 = e.stY[i1];
+                    float to = Mathf.Clamp(want, y1 - VcurveMaxLowerM, y1 + VcurveMaxRaiseM);
+                    planeMove = Mathf.Max(planeMove, Mathf.Abs(to - y1));
+                    e.stY[i1] = to;
+                    mob[ei][i1] = 0;
+                    held = true; planeHeld++;
+                }
+                if (held) nodeMob[n] = 0;
+            }
+
+            // the variables: interior stations in e.stY, nodes in map.nodeY
+            float Get(CityMap.Edge e, int i) => e.a != e.b && i == 0 ? map.nodeY[e.a] : e.a != e.b && i == e.stY.Length - 1 ? map.nodeY[e.b] : e.stY[i];
+            byte Mob(CityMap.Edge e, int i) => e.a != e.b && i == 0 ? nodeMob[e.a] : e.a != e.b && i == e.stY.Length - 1 ? nodeMob[e.b] : mob[e.index][i];
+            var activeE = new bool[E]; var nextE = new bool[E];
+            var activeN = new bool[N]; var nextN = new bool[N];
+            for (int i = 0; i < E; i++) activeE[i] = true;
+            for (int n = 0; n < N; n++) activeN[n] = nodePairs[n] != null;
+            float maxRaise = 0f, maxLower = 0f;
+            var before = new float[E][];
+            foreach (var e in map.edges) before[e.index] = (float[])e.stY.Clone();
+            var nodeBefore = (float[])map.nodeY.Clone();
+            // no station moves further than this from where the pass found it:
+            // a crest held between pins is left, not chased up the hill
+            float Lo(CityMap.Edge e, int i) => (e.a != e.b && i == 0 ? nodeBefore[e.a] : e.a != e.b && i == e.stY.Length - 1 ? nodeBefore[e.b] : before[e.index][i]) - VcurveMaxLowerM;
+            float Hi(CityMap.Edge e, int i) => (e.a != e.b && i == 0 ? nodeBefore[e.a] : e.a != e.b && i == e.stY.Length - 1 ? nodeBefore[e.b] : before[e.index][i]) + VcurveMaxRaiseM;
+
+            void Touch(CityMap.Edge e, int i)
+            {
+                nextE[e.index] = true;
+                if (e.a == e.b) return;
+                int last = e.stY.Length - 1;
+                if (i <= 1) { nextN[e.a] = true; if (last <= 1) nextN[e.b] = true; }
+                if (i >= last - 1) { nextN[e.b] = true; if (last <= 1) nextN[e.a] = true; }
+                if (i == 0) foreach (int oi in map.nodeEdges[e.a]) nextE[oi] = true;
+                if (i == last) foreach (int oi in map.nodeEdges[e.b]) nextE[oi] = true;
+            }
+            void Put(CityMap.Edge e, int i, float y)
+            {
+                if (e.a != e.b && i == 0) map.nodeY[e.a] = y;
+                else if (e.a != e.b && i == e.stY.Length - 1) map.nodeY[e.b] = y;
+                else e.stY[i] = y;
+                Touch(e, i);
+            }
+            // one break (a, b, c): h1 = b - a, h2 = c - b along the path
+            // the break raises the grade by g2 - g1; the crest limit is
+            // g2 - g1 >= -(h1 + h2) / 2R. Returns true when it moved anything.
+            int stuck = 0;
+            // A crest held between pins with no feasible curve cycles its
+            // neighbours; a constraint projected this often is left as it is.
+            const int FreezeAfter = 40;
+            var hits = new byte[E][];
+            var pairHits = new byte[pairs.Count];
+            var seatHits = new byte[streetSeats.Count];
+            bool Project(CityMap.Edge ea, int ia, CityMap.Edge eb, int ib, CityMap.Edge ec, int ic, float h1, float h2, float r)
+            {
+                if (h1 < 0.5f || h2 < 0.5f) return false;
+                float ya = Get(ea, ia), yb = Get(eb, ib), yc = Get(ec, ic);
+                float brk = (yc - yb) / h2 - (yb - ya) / h1;
+                float excess = -(h1 + h2) / (2f * r) - brk;
+                if (!(excess >= 2e-4f)) return false;   // (and never on a NaN)
+                float ca = 1f / h1, cb = -(1f / h1 + 1f / h2), cc = 1f / h2;
+                bool ma = (Mob(ea, ia) & Up) != 0 && ya < Hi(ea, ia) - 1e-4f;
+                bool mb = (Mob(eb, ib) & Down) != 0 && yb > Lo(eb, ib) + 1e-4f;
+                bool mc = (Mob(ec, ic) & Up) != 0 && yc < Hi(ec, ic) - 1e-4f;
+                float norm = (ma ? ca * ca : 0f) + (mb ? cb * cb : 0f) + (mc ? cc * cc : 0f);
+                if (norm < 1e-9f) { stuck++; return false; }
+                float lam = excess / norm;
+                if (ma) Put(ea, ia, Mathf.Min(Hi(ea, ia), ya + lam * ca));
+                if (mb) Put(eb, ib, Mathf.Max(Lo(eb, ib), yb + lam * cb));
+                if (mc) Put(ec, ic, Mathf.Min(Hi(ec, ic), yc + lam * cc));
+                return true;
+            }
+
+            // every crest past its limit (0.2% of grade slack), without moving anything
+            int Residual()
+            {
+                int bad = 0;
+                float Brk(CityMap.Edge ea, int ia, CityMap.Edge eb, int ib, CityMap.Edge ec, int ic, float h1, float h2, float r)
+                {
+                    if (h1 < 0.5f || h2 < 0.5f) return 0f;
+                    float ya = Get(ea, ia), yb = Get(eb, ib), yc = Get(ec, ic);
+                    return -(h1 + h2) / (2f * r) - ((yc - yb) / h2 - (yb - ya) / h1);
+                }
+                foreach (var e in map.edges)
+                    for (int i = 1; i < e.stY.Length - 1; i++)
+                        if (Brk(e, i - 1, e, i, e, i + 1, e.stS[i] - e.stS[i - 1], e.stS[i + 1] - e.stS[i], R[e.index]) > 0.002f) bad++;
+                foreach (var (nd, pi, pj) in pairs)
+                {
+                    var A = map.edges[pi]; var B = map.edges[pj];
+                    int ia = A.a == nd ? 1 : A.stY.Length - 2, ja = A.a == nd ? 0 : A.stY.Length - 1;
+                    int ib = B.a == nd ? 1 : B.stY.Length - 2, jb = B.a == nd ? 0 : B.stY.Length - 1;
+                    if (Brk(A, ia, A, ja, B, ib, Mathf.Abs(A.stS[ia] - A.stS[ja]), Mathf.Abs(B.stS[ib] - B.stS[jb]), Mathf.Max(R[pi], R[pj])) > 0.002f) bad++;
+                }
+                return bad;
+            }
+            int violBefore = Residual();
+
+            int sweeps = 0, moves = 0;
+            var late = new int[E];   // projections per edge in the last 50 sweeps (a debug trail for a pass that does not settle)
+            var lateNode = new int[N];
+            for (; sweeps < 800; sweeps++)
+            {
+                bool any = false;
+                stuck = 0;
+                System.Array.Clear(nextE, 0, E); System.Array.Clear(nextN, 0, N);
+                for (int ei = 0; ei < E; ei++)
+                {
+                    if (!activeE[ei]) continue;
+                    var e = map.edges[ei];
+                    int n = e.stY.Length;
+                    var hc = hits[ei] ??= new byte[n];
+                    for (int k = 1; k < n - 1; k++)
+                    {
+                        int i = (sweeps & 1) == 0 ? k : n - 1 - k;
+                        if (hc[i] >= FreezeAfter) continue;
+                        if (Project(e, i - 1, e, i, e, i + 1, e.stS[i] - e.stS[i - 1], e.stS[i + 1] - e.stS[i], R[ei])) { any = true; moves++; hc[i]++; if (sweeps >= 750) late[ei]++; }
+                    }
+                }
+                for (int nd = 0; nd < N; nd++)
+                {
+                    if (!activeN[nd] || nodePairs[nd] == null) continue;
+                    foreach (int k in nodePairs[nd])
+                    {
+                        if (pairHits[k] >= FreezeAfter) continue;
+                        var (_, pi, pj) = pairs[k];
+                        var A = map.edges[pi]; var B = map.edges[pj];
+                        int ia = A.a == nd ? 1 : A.stY.Length - 2, ja = A.a == nd ? 0 : A.stY.Length - 1;
+                        int ib = B.a == nd ? 1 : B.stY.Length - 2, jb = B.a == nd ? 0 : B.stY.Length - 1;
+                        float hA = Mathf.Abs(A.stS[ia] - A.stS[ja]), hB = Mathf.Abs(B.stS[ib] - B.stS[jb]);
+                        if (Project(A, ia, A, ja, B, ib, hA, hB, Mathf.Max(R[pi], R[pj]))) { any = true; moves++; pairHits[k]++; if (sweeps >= 750) lateNode[nd]++; }
+                    }
+                }
+                // SOFT SEATS: a street branch inside its host's gore zone is
+                // drawn clipped to the host's edge, its inner edge at the host's
+                // height; standing apart from the host there (up to the clip's
+                // 0.6 m), the lane beside the seam tilted and dropped back to
+                // the branch's own height where the clip let go - a 0.24 m step
+                // in a metre on the Independence route. The branch comes onto
+                // the host (never the host onto it), within SoftSeatTol.
+                for (int k = 0; k < streetSeats.Count; k++)
+                {
+                    var (ei, i, h, hs) = streetSeats[k];
+                    if (!activeE[ei] || seatHits[k] >= FreezeAfter) continue;
+                    var e = map.edges[ei];
+                    float target = map.edges[h].YAt(hs), y = Get(e, i), off = y - target;
+                    if (!(Mathf.Abs(off) > SoftSeatTol)) continue;
+                    byte m = Mob(e, i);
+                    float to = off > 0f ? target + SoftSeatTol : target - SoftSeatTol;
+                    if (off > 0f && (m & Down) != 0) to = Mathf.Max(to, Lo(e, i));
+                    else if (off < 0f && (m & Up) != 0) to = Mathf.Min(to, Hi(e, i));
+                    else continue;
+                    if (Mathf.Abs(to - y) < 1e-3f) continue;
+                    Put(e, i, to);
+                    seatHits[k]++; any = true; moves++;
+                }
+                if (!any) break;
+                var t1 = activeE; activeE = nextE; nextE = t1;
+                var t2 = activeN; activeN = nextN; nextN = t2;
+            }
+            // the ends take their nodes again
+            int moved = 0;
+            foreach (var e in map.edges)
+            {
+                int n = e.stY.Length;
+                if (e.a != e.b) { e.stY[0] = map.nodeY[e.a]; e.stY[n - 1] = map.nodeY[e.b]; }
+                var b0 = before[e.index];
+                for (int i = 0; i < n; i++)
+                {
+                    float d = e.stY[i] - b0[i];
+                    if (Mathf.Abs(d) > 0.01f) moved++;
+                    if (d > maxRaise) maxRaise = d;
+                    if (-d > maxLower) maxLower = -d;
+                }
+            }
+            int violAfter = Residual();
+            int frozen = 0;
+            foreach (var hc in hits) if (hc != null) foreach (var c in hc) if (c >= FreezeAfter) frozen++;
+            foreach (var c in pairHits) if (c >= FreezeAfter) frozen++;
+            int softOff = 0;
+            foreach (var (ei, i, h, hs) in streetSeats) if (Mathf.Abs(map.edges[ei].stY[i] - map.edges[h].YAt(hs)) > SoftSeatTol + 0.02f) softOff++;
+            if (sweeps >= 800)
+            {
+                var worstE = new List<int>(); for (int i = 0; i < E; i++) if (late[i] > 0) worstE.Add(i);
+                worstE.Sort((x, y) => late[y].CompareTo(late[x]));
+                var sbd = new System.Text.StringBuilder(" UNSETTLED:");
+                for (int k = 0; k < Mathf.Min(6, worstE.Count); k++)
+                {
+                    var e = map.edges[worstE[k]];
+                    sbd.Append($" e{e.index} '{e.name}'{(e.link ? " L" : "")} cls{e.cls} len{e.length:0} n{e.stY.Length} x{late[e.index]} mob[");
+                    for (int i = 0; i < e.stY.Length && i < 14; i++) sbd.Append(Mob(e, i));
+                    sbd.Append("] y[");
+                    for (int i = 0; i < e.stY.Length && i < 14; i++) sbd.Append(Get(e, i).ToString("0.00")).Append(' ');
+                    sbd.Append($"] a{e.a}(deg{map.nodeEdges[e.a].Count}) b{e.b}(deg{map.nodeEdges[e.b].Count});");
+                }
+                for (int nd = 0; nd < N; nd++) if (lateNode[nd] > 20) { sbd.Append($" node{nd} x{lateNode[nd]} mob{nodeMob[nd]} pairs{nodePairs[nd]?.Count};"); if (sbd.Length > 3000) break; }
+                debugUnsettled = sbd.ToString();
+            }
+            string r0 = round == 0 ? "" : VcurveReport + "; ";
+            VcurveReport = r0 + debugUnsettled + $" round {round}: {violBefore} crests past their limit -> {violAfter} ({frozen} frozen cycling, {stuck} held by pins), {planeHeld} junction arms set on their major road's plane (up to {planeMove:0.00} m), {streetSeats.Count} street-branch stations soft-seated ({softOff} still off their host), {sweeps} sweeps, {moves} projections, {moved} stations moved > 1 cm (up to +{maxRaise:0.00} / -{maxLower:0.00} m), {clock.ElapsedMilliseconds} ms";
+        }
+
         static void RaiseHump(CityMap.Edge e, float sAt, float targetY)
         {
             // No reach cap, deliberately. A capped hump under a four-level
@@ -2021,11 +2514,13 @@ namespace PSXRacing.City
             // grade-relax pass then "fixed" by hauling the whole deck down
             // through the road it was built to clear. The cone fades below
             // terrain on its own; distant stations are a comparison and a no-op.
+            // The top is a vertical curve (ApproachDrop), not a tent's apex.
+            float r = CrestR(e);
             for (int i = 0; i < e.stS.Length; i++)
             {
                 // A seated station is its host's; the host takes its own hump.
                 if (e.SeatedAt(i)) continue;
-                float want = targetY - Mathf.Abs(e.stS[i] - sAt) * ApproachGrade;
+                float want = targetY - ApproachDrop(Mathf.Abs(e.stS[i] - sAt), r);
                 if (e.stY[i] < want) e.stY[i] = want;
             }
         }

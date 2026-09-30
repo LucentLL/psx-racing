@@ -1750,7 +1750,7 @@ namespace PSXRacing.City
 
         /// <summary>Every branch end's <see cref="Seat"/>, from the trims'
         /// branch table. Plan geometry only; deterministic.</summary>
-        public static List<Seat> BranchSeats(CityMap map, Trims trims)
+        public static List<Seat> BranchSeats(CityMap map, Trims trims, bool streetsOnly = false)
         {
             var result = new List<Seat>();
             for (int ei = 0; ei < map.edges.Length; ei++)
@@ -1763,7 +1763,9 @@ namespace PSXRacing.City
                     // too, but seating one on the other copied the other's
                     // short-sliver cliffs onto a hundred metres of Parkwood
                     // Avenue; the staircase that was reported is a ramp.
-                    if (!L.link) continue;
+                    // (streetsOnly: the other branches, for the vertical
+                    // curves' SOFT seats - CityElevation.VerticalCurves)
+                    if (L.link == streetsOnly) continue;
                     var seat = SeatOf(map, trims, L, map.edges[hostIdx], end == 0 ? L.a : L.b);
                     if (seat != null) result.Add(seat);
                 }
