@@ -348,13 +348,15 @@ namespace PSXRacing.City
                 foreach (var h in tm.houseBoxes) o.MarkBox(h.c, h.u, h.hu, h.hv, BuildingMarginM + CellPadM, Building);
                 foreach (var l in tm.lamps)
                     o.MarkDisc(new Vector2(l.foot.x + tm.origin.x, l.foot.z + tm.origin.z), LampFootR + CellPadM, Other);
-                // WP-25: a culvert's headwall, its backfill and the channel's
-                // apron in front: no tree grows through the wall
+                // WP-25: a culvert's headwall and its backfill (or its pipe's
+                // barrel), the apron in front and the clay ditch down the
+                // ravine: no tree grows through the wall or in the ditch
                 foreach (var c in tm.culvertEnds)
                 {
                     const float Apron = 3f;
                     float back = CityCulverts.WallThickM + c.backfillM;
                     o.MarkBox(c.at + c.outward * ((Apron - back) * 0.5f), c.outward, (Apron + back) * 0.5f, c.wallW * 0.5f + 0.5f, CellPadM, Water);
+                    MarkDitch(o, c.at, c.downstream, c.pipeD);
                 }
             }
             return o;
@@ -502,10 +504,10 @@ namespace PSXRacing.City
                         }
                 }
 
-            // ---- WP-25: every culvert end on the tile - the wall, the apron
-            // in front of it and a berm's depth behind - so no sign post or
-            // tree is decided onto a headwall (the tile's own build marks the
-            // backfill it actually drew)
+            // ---- WP-25: every culvert end on the tile - the wall and its
+            // backfill (or the pipe's barrel), the apron in front of it and
+            // the clay ditch down the ravine - so no sign post or tree is
+            // decided onto a headwall or into its ditch
             if (!CityMeshes.HydroOff)
                 foreach (var c in CityCulverts.ForTile(map, trims, tx, tz))
                 {
@@ -514,8 +516,10 @@ namespace PSXRacing.City
                     {
                         if (!(k == 0 ? c.hasLo : c.hasHi)) continue;
                         var end = k == 0 ? c.lo : c.hi;
-                        const float Apron = 3f, Back = 6f;
-                        o.MarkBox(end.at + end.outward * ((Apron - Back) * 0.5f), end.outward, (Apron + Back) * 0.5f, end.wallW * 0.5f + 0.5f, CellPadM, Water);
+                        const float Apron = 3f;
+                        float back = end.headwall ? CityCulverts.WallThickM + end.backfillM + 1f : CityCulverts.PipeBarrelM;
+                        o.MarkBox(end.at + end.outward * ((Apron - back) * 0.5f), end.outward, (Apron + back) * 0.5f, end.wallW * 0.5f + 0.5f, CellPadM, Water);
+                        MarkDitch(o, end.at, end.downstream, end.pipeD);
                     }
                 }
 
@@ -626,6 +630,12 @@ namespace PSXRacing.City
 
         /// <summary>An oriented box (centre, unit long axis, half extents),
         /// widened by <paramref name="pad"/>.</summary>
+        /// <summary>WP-25: a culvert end's clay ditch (CityMeshes.EmitDitch),
+        /// <see cref="CityCulverts.DitchM"/> down the ravine from the end.</summary>
+        static void MarkDitch(RoadsideOccupancy o, Vector2 at, Vector2 downstream, float pipeD) =>
+            o.MarkBox(at + downstream * (CityCulverts.DitchM * 0.5f), downstream, CityCulverts.DitchM * 0.5f,
+                      (pipeD + CityCulverts.DitchOverPipeM) * 0.5f + 0.5f, CellPadM, Water);
+
         public void MarkBox(Vector2 c, Vector2 u, float hu, float hv, float pad, byte bit)
         {
             var v = new Vector2(-u.y, u.x);

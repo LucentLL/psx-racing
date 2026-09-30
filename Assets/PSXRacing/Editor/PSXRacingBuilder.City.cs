@@ -119,8 +119,7 @@ namespace PSXRacing.EditorTools
             var world = worldGO.AddComponent<CityWorld>();
             world.player = player.transform;
             var kit = EnsureCityKit();
-            RegisterSeasonalGround("CityGround", CityPackDir + "/grass_7_city.png",
-                                   kit.MaterialFor(CityMeshes.Slot.Ground), Color.white, "grass");
+            RegisterCitySeasonal(kit);
 
             // RaceManager + applier when there is a path, the free-roam
             // session GO otherwise — BuildCameraAndHUD makes that call.
@@ -192,7 +191,33 @@ namespace PSXRacing.EditorTools
         /// texel averages half the city grass's brightness (52 against 97):
         /// the tint lifts it to a sunlit bank's, a little warmer.</summary>
         internal static Material CityBankMat() =>
-            MakeMat("CityBank", CityPackDir + "/dirt_pt_7_city.png", tint: new Color(1.75f, 1.6f, 1.5f), affine: 0f);
+            MakeMat("CityBank", CityBankTexPath, tint: CityBankTint, affine: 0f);
+        const string CityBankTexPath = CityPackDir + "/dirt_pt_7_city.png";
+        static readonly Color CityBankTint = new Color(1.75f, 1.6f, 1.5f);
+
+        /// <summary>The city's season wardrobe: the ground's grass, and (WP-25)
+        /// the creeks' and culvert ditches' clay, which dresses with it - the
+        /// dirt tints through the year and the snow turf on a snowy day (red
+        /// clay on a white city, every creek, otherwise; CityWorld asks
+        /// SeasonDress.Substitute for it as a tile is built).</summary>
+        static void RegisterCitySeasonal(CityKit kit)
+        {
+            RegisterSeasonalGround("CityGround", CityPackDir + "/grass_7_city.png",
+                                   kit.MaterialFor(CityMeshes.Slot.Ground), Color.white, "grass");
+            RegisterSeasonalGround("CityBank", CityBankTexPath, kit.bank, CityBankTint, "bank");
+        }
+
+        /// <summary><see cref="RegisterCitySeasonal"/>'s entries, as a city
+        /// scene's SeasonDress carries them, for a tool with no scene
+        /// (CityHydroShots' snow shots).</summary>
+        internal static SeasonDress.Entry[] CitySeasonEntries()
+        {
+            ClearSeasonEntries();
+            RegisterCitySeasonal(EnsureCityKit());
+            var entries = seasonEntries.ToArray();
+            ClearSeasonEntries();
+            return entries;
+        }
 
         internal static Material CityLampPostMat() =>
             MakeMat("CityLampPost", LifeSimArtDir + "/House/Textures/Metal.jpg",

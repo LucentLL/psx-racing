@@ -7,47 +7,56 @@ namespace PSXRacing.City
     {
         // ------------------------------------------------------------------
         //  CULVERTS (WP-25). Where a ravine goes under a road on its
-        //  embankment (CityCulverts finds where, and each end's wall), the
-        //  end is a concrete HEADWALL across the channel at the toe of the
-        //  fill, the pipe's mouth in it, WING WALLS back along both sides
-        //  and grass BACKFILL between them up to the wall's coping: the
-        //  embankment the road already stands on ends in a wall instead of
-        //  running on into the channel. Nothing here touches the road, its
+        //  embankment (CityCulverts finds where, each end, and its form),
+        //  the end is one of two things:
+        //    * a concrete HEADWALL across the channel, the pipe's mouth in
+        //      it, WING WALLS back along both sides and grass BACKFILL
+        //      between them level with the coping until the rising fill
+        //      swallows it - only where the fill does rise to it within
+        //      CityCulverts.BackfillFlatM and the channel runs on out in
+        //      front (review, 2026-09-30: 47 of 55 walls stood free on the
+        //      lawn, a concrete-walled berm behind them sloping down to the
+        //      road); a concrete apron at its foot;
+        //    * elsewhere the PIPE PROJECTING from the toe of the fill, its
+        //      bore a quarter silted under the drawn ground, its barrel
+        //      running back into the fill.
+        //  Both drain into a short clay DITCH down the ravine, draped on the
+        //  lattice like the creeks' banks. Nothing here touches the road, its
         //  verge or the ground function: every piece stands past the clear
-        //  zone (CityCulverts.ClearOfRoads), the lattice is left as it is,
-        //  and the backfill lies over it until the rising fill swallows it.
+        //  zone (CityCulverts.ClearOfRoads) and the lattice is left as it is.
         //
-        //  Draws: the wall and wings are the barriers mesh (concrete, the
-        //  Solid layer: a car that leaves the road down the fill meets
-        //  them); the backfill is ground (it collides as ground); the pipe's
-        //  inside is the lamp posts' dark pack metal (a corrugated pipe, and
-        //  the dark a mouth needs), render-only. No new material, so a tile
-        //  that already has barriers and lamps draws nothing more.
+        //  Draws: the wall, wings and pipe barrel are the barriers mesh
+        //  (concrete, the Solid layer: a car that leaves the road down the
+        //  fill meets them); the backfill is ground (it collides as ground);
+        //  the apron is the kerbs' render-only concrete; the pipe's inside is
+        //  the lamp posts' dark pack metal (a corrugated pipe, and the dark a
+        //  mouth needs), render-only; the ditch is the banks' clay. No new
+        //  material.
         // ------------------------------------------------------------------
         public struct CulvertEnd
         {
-            public Vector2 at, outward;
+            public Vector2 at, outward, downstream;
             public float groundY, wallW, wallH, pipeD, backfillM, pastPave;
             public int edge;
-            /// <summary>The rising fill met the backfill (false: it fell
-            /// back to the ground behind a free-standing wall).</summary>
+            /// <summary>A headwall (false: a projecting pipe).</summary>
+            public bool headwall;
+            /// <summary>A headwall's rising fill met its backfill, across
+            /// the width between the wing walls, where the solve said.</summary>
             public bool backfillMet;
         }
 
-        /// <summary>The backfill is flat at the coping until the fill behind
-        /// rises through it; if that has not happened this far back, it is a
-        /// berm instead, falling at 1V:2H (<see cref="BackfillFall"/>) from
-        /// 1 m back until it meets the ground (a wall on a gentle run-out
-        /// stood at the end of a 10 m concrete trough), and never runs past
-        /// <see cref="BackfillMaxM"/>.</summary>
-        const float BackfillFlatM = 6f, BackfillFall = 0.5f, BackfillMaxM = 14f, BackfillStepM = 1f;
-        /// <summary>The wall's coping stands this far over the backfill; the
-        /// wing walls are this thick.</summary>
-        const float CopingM = 0.12f, WingThickM = 0.3f;
         /// <summary>How far the pipe runs back into the fill before its dark
         /// end cap.</summary>
         const float PipeDepthM = 1.4f;
-        static readonly List<float> backfillScratch = new List<float>(32);
+        /// <summary>A headwall's concrete apron: this long in front of its
+        /// face.</summary>
+        const float ApronM = 1.5f;
+        const float DitchLiftM = 0.05f, ApronLiftM = 0.04f;
+        /// <summary>A headwall's berm: its sides fall at the steepest graded
+        /// bank (RoadsideRules.CityBankSlope), sampled every BermStepM out to
+        /// at most BermSideMaxM, and end BermTuckM under the lattice; its
+        /// concrete wings run WingM back.</summary>
+        const float BermSlope = RoadsideRules.CityBankSlope, BermStepM = 0.25f, BermSideMaxM = 8f, BermTuckM = 0.05f, WingM = 1.5f;
 
         /// <summary>WP-25 off: no culvert ends and no creek banks (the A/B
         /// instruments set it: CityHydroShots' "before", CityBudgetProbe's
@@ -69,6 +78,13 @@ namespace PSXRacing.City
 
         static void EmitCulvertEnd(CityMap map, TileMeshes tm, CityCulverts.End end)
         {
+            if (end.headwall) EmitHeadwall(map, tm, end);
+            else EmitPipeEnd(map, tm, end);
+            EmitDitch(map, tm, end);
+        }
+
+        static void EmitHeadwall(CityMap map, TileMeshes tm, CityCulverts.End end)
+        {
             Vector2 o = end.outward, r = new Vector2(o.y, -o.x);
             float W = end.wallW, H = end.wallH, D = end.pipeD, T = CityCulverts.WallThickM;
             float hw = W * 0.5f;
@@ -76,10 +92,11 @@ namespace PSXRacing.City
             var org = tm.origin;
             Vector3 P(Vector2 plan, float y) => new Vector3(plan.x - org.x, y, plan.y - org.z);
             float G(Vector2 p) => LatticeY(map, p.x, p.y);
+            const float CopingM = CityCulverts.CopingM, WingThickM = CityCulverts.WingThickM, BackfillStepM = CityCulverts.BackfillStepM;
 
             // the pipe's invert on the drawn ground at the face; the wall's
             // foot under the lowest ground beneath any corner of it
-            float inv = G(at) + 0.03f;
+            float inv = G(at) + CityCulverts.InvertLiftM;
             float foot = inv;
             foreach (var q in new[] { at + r * hw, at - r * hw, at + r * hw - o * T, at - r * hw - o * T })
                 foot = Mathf.Min(foot, G(q));
@@ -87,33 +104,13 @@ namespace PSXRacing.City
             float top = inv + H;
             float fill = top - CopingM;
 
-            // ---- the backfill's profile, back from the wall's back face
-            backfillScratch.Clear();
+            // ---- the backfill: level with the coping back to where the
+            // solve found the fill rising through it (CityCulverts
+            // .HeadwallFits), which is where the wing walls end
             float wingIn = hw - WingThickM;
-            bool met = false, fell = false;
-            for (float x = 0f; x <= BackfillMaxM + 1e-3f; x += BackfillStepM)
-            {
-                float h = x <= BackfillFlatM ? fill : fill - (x - 1f) * BackfillFall;
-                if (x > BackfillFlatM && backfillScratch.Count > 0)
-                {
-                    // past the flat reach without meeting the fill: re-profile
-                    // as a fall from 1 m back (the ground behind is low)
-                    fell = true;
-                    backfillScratch.Clear();
-                    for (float x2 = 0f; x2 <= BackfillMaxM + 1e-3f; x2 += BackfillStepM)
-                    {
-                        float h2 = x2 <= 1f ? fill : fill - (x2 - 1f) * BackfillFall;
-                        backfillScratch.Add(h2);
-                        if (x2 > 0f && LowestAcross(map, at - o * (T + x2), r, wingIn) >= h2) { met = true; break; }
-                    }
-                    break;
-                }
-                backfillScratch.Add(h);
-                if (x > 0f && LowestAcross(map, at - o * (T + x), r, wingIn) >= h) { met = true; break; }
-            }
-            int n = backfillScratch.Count;
-            if (!met) backfillScratch[n - 1] = Mathf.Min(backfillScratch[n - 1], LowestAcross(map, at - o * (T + (n - 1) * BackfillStepM), r, wingIn) + 0.02f);
+            int n = Mathf.Max(2, Mathf.RoundToInt(end.backfillM / BackfillStepM) + 1);
             float depth = (n - 1) * BackfillStepM;
+            bool met = CityCulverts.LowestAcross(map, at - o * (T + depth), r, wingIn) >= fill - 1e-3f;
 
             var con = barrierBucket;
             Vector3 o3 = new Vector3(o.x, 0f, o.y), r3 = new Vector3(r.x, 0f, r.y);
@@ -166,59 +163,202 @@ namespace PSXRacing.City
                 TriFacing(pipe, octBack[k], octBack[k1], axisBack, o3, new Vector2(0f, 0f), new Vector2(0.25f, 0f), new Vector2(0.12f, 0.25f));
             }
 
-            // ---- wing walls and the backfill between them
+            // ---- THE EMBANKMENT BEHIND IT (review 2026-09-30: wing walls
+            // 6 m long with the lawn low beside them read as a concrete box):
+            // a grass berm level with the backfill from the wall's back face
+            // to where the fill rises through it, its sides falling at the
+            // steepest graded bank (1V:2H) until they pass under the
+            // lattice; short concrete wings at the wall, their coping a
+            // lip over the berm.
             var gb = GroundBucket(false);
+            Vector2 GUv(Vector2 p) => GroundUV(false, p.x, p.y);
+            // the berm's side run at a station: out from its top edge until
+            // the 1V:2H face is a hand under the lattice
+            float SideRun(Vector2 edge, Vector2 outN)
+            {
+                for (float s = BermStepM; s <= BermSideMaxM + 1e-3f; s += BermStepM)
+                    if (fill - s * BermSlope <= G(edge + outN * s) - BermTuckM) return s;
+                return BermSideMaxM;
+            }
             for (int i = 0; i + 1 < n; i++)
             {
                 float x0 = i * BackfillStepM, x1 = (i + 1) * BackfillStepM;
-                float h0 = backfillScratch[i], h1 = backfillScratch[i + 1];
                 Vector2 c0 = back - o * x0, c1 = back - o * x1;
-                // the backfill, flat across between the wings' inner faces
-                Vector2 l0 = c0 - r * wingIn, l1 = c1 - r * wingIn, q0 = c0 + r * wingIn, q1 = c1 + r * wingIn;
-                gb.Up(P(l0, h0), P(l1, h1), P(q1, h1), P(q0, h0),
-                      GroundUV(false, l0.x, l0.y), GroundUV(false, l1.x, l1.y), GroundUV(false, q1.x, q1.y), GroundUV(false, q0.x, q0.y));
+                // the berm's level top, the wall's full width
+                Vector2 l0 = c0 - r * hw, l1 = c1 - r * hw, q0 = c0 + r * hw, q1 = c1 + r * hw;
+                gb.Up(P(l0, fill), P(l1, fill), P(q1, fill), P(q0, fill), GUv(l0), GUv(l1), GUv(q1), GUv(q0));
                 for (int side = -1; side <= 1; side += 2)
                 {
                     Vector2 outN = r * side;
-                    Vector2 in0 = c0 + outN * wingIn, in1 = c1 + outN * wingIn;
-                    Vector2 ou0 = c0 + outN * hw, ou1 = c1 + outN * hw;
-                    float f0 = Mathf.Min(G(ou0), h0) - 0.5f, f1 = Mathf.Min(G(ou1), h1) - 0.5f;
-                    float t0 = h0 + CopingM, t1 = h1 + CopingM;
-                    // outer face, inner face (its strip over the backfill), top
-                    con.WallSloped(new Vector3(ou0.x - org.x, 0f, ou0.y - org.z), new Vector3(ou1.x - org.x, 0f, ou1.y - org.z),
-                                   f0, t0, f1, t1, outN, x0 / UvM, x1 / UvM, f0 / UvM, t0 / UvM);
-                    con.WallSloped(new Vector3(in0.x - org.x, 0f, in0.y - org.z), new Vector3(in1.x - org.x, 0f, in1.y - org.z),
-                                   h0 - 0.3f, t0, h1 - 0.3f, t1, -outN, x0 / UvM, x1 / UvM, (h0 - 0.3f) / UvM, t0 / UvM);
-                    con.Up(P(in0, t0), P(in1, t1), P(ou1, t1), P(ou0, t0),
-                           new Vector2(x0 / UvM, 0f), new Vector2(x1 / UvM, 0f), new Vector2(x1 / UvM, WingThickM / UvM), new Vector2(x0 / UvM, WingThickM / UvM));
+                    Vector2 e0 = c0 + outN * hw, e1 = c1 + outN * hw;
+                    float s0 = SideRun(e0, outN), s1 = SideRun(e1, outN);
+                    Vector2 f0 = e0 + outN * s0, f1 = e1 + outN * s1;
+                    gb.Up(P(e0, fill), P(e1, fill), P(f1, fill - s1 * BermSlope), P(f0, fill - s0 * BermSlope), GUv(e0), GUv(e1), GUv(f1), GUv(f0));
                 }
             }
-            // each wing's far end
-            if (n >= 1)
+            // beside the wall its sides wrap round its ends as a quarter cone
+            // at the same 1V:2H, down past the wall's face to the lattice
+            for (int side = -1; side <= 1; side += 2)
             {
-                float hEnd = backfillScratch[n - 1];
-                Vector2 cEnd = back - o * depth;
+                Vector2 outN = r * side;
+                Vector2 e = back + outN * hw, dm = (outN + o).normalized;
+                float sF = SideRun(e, outN), sM = SideRun(e, dm), sK = SideRun(e, o);
+                Vector2 f = e + outN * sF, m = e + dm * sM, k = e + o * sK;
+                Vector3 pe = P(e, fill), pf = P(f, fill - sF * BermSlope), pm = P(m, fill - sM * BermSlope), pk = P(k, fill - sK * BermSlope);
+                TriFacing(gb, pe, pf, pm, Vector3.up, GUv(e), GUv(f), GUv(m));
+                TriFacing(gb, pe, pm, pk, Vector3.up, GUv(e), GUv(m), GUv(k));
+            }
+            // its far end, where the fill has risen through it: closed down
+            // under the lattice (the ground hides most of it)
+            {
+                Vector2 c = back - o * depth;
                 for (int side = -1; side <= 1; side += 2)
                 {
                     Vector2 outN = r * side;
-                    Vector2 inE = cEnd + outN * wingIn, ouE = cEnd + outN * hw;
-                    float fE = Mathf.Min(G(ouE), G(inE)) - 0.5f, tE = hEnd + CopingM;
-                    con.Face(P(inE, tE), P(ouE, tE), P(ouE, fE), P(inE, fE), -o3,
-                             new Vector2(0f, tE / UvM), new Vector2(WingThickM / UvM, tE / UvM), new Vector2(WingThickM / UvM, fE / UvM), new Vector2(0f, fE / UvM));
+                    Vector2 e = c + outN * hw;
+                    float s = SideRun(e, outN);
+                    Vector2 f = e + outN * s;
+                    float yF = fill - s * BermSlope;
+                    float bottom = Mathf.Min(Mathf.Min(G(e), G(f)), yF) - BermTuckM;
+                    gb.Face(P(e, fill), P(f, yF), P(f, bottom), P(e, bottom), -o3,
+                            GUv(e), GUv(f), GUv(f + o * (yF - bottom)), GUv(e + o * (fill - bottom)));
                 }
+                Vector2 a = c - r * hw, b = c + r * hw;
+                float bot = Mathf.Min(fill, Mathf.Min(G(a), G(b))) - BermTuckM;
+                gb.Face(P(a, fill), P(b, fill), P(b, bot), P(a, bot), -o3,
+                        GUv(a), GUv(b), GUv(b + o * (fill - bot)), GUv(a + o * (fill - bot)));
+            }
+            // the wings: WingM back along both sides, a coping over the berm
+            {
+                float wl = Mathf.Min(WingM, depth), t0 = fill + CopingM;
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    Vector2 outN = r * side;
+                    Vector2 in0 = back + outN * wingIn, in1 = back - o * wl + outN * wingIn;
+                    Vector2 ou0 = back + outN * hw, ou1 = back - o * wl + outN * hw;
+                    float lip = fill - 0.2f;
+                    con.WallSloped(new Vector3(ou0.x - org.x, 0f, ou0.y - org.z), new Vector3(ou1.x - org.x, 0f, ou1.y - org.z),
+                                   lip, t0, lip, t0, outN, 0f, wl / UvM, lip / UvM, t0 / UvM);
+                    con.WallSloped(new Vector3(in0.x - org.x, 0f, in0.y - org.z), new Vector3(in1.x - org.x, 0f, in1.y - org.z),
+                                   lip, t0, lip, t0, -outN, 0f, wl / UvM, lip / UvM, t0 / UvM);
+                    con.Up(P(in0, t0), P(in1, t0), P(ou1, t0), P(ou0, t0),
+                           new Vector2(0f, 0f), new Vector2(wl / UvM, 0f), new Vector2(wl / UvM, WingThickM / UvM), new Vector2(0f, WingThickM / UvM));
+                    con.Face(P(in1, t0), P(ou1, t0), P(ou1, lip), P(in1, lip), -o3,
+                             new Vector2(0f, t0 / UvM), new Vector2(WingThickM / UvM, t0 / UvM), new Vector2(WingThickM / UvM, lip / UvM), new Vector2(0f, lip / UvM));
+                }
+            }
+
+            // ---- the apron: a concrete slab at the wall's foot, where the
+            // pipe spills (render-only: the kerbs' concrete, a hand proud)
+            Drape(map, kerbBucket, org, at + r * hw, at + r * hw + o * ApronM, at - r * hw + o * ApronM, at - r * hw, ApronLiftM, UvM);
+
+            tm.culvertEnds.Add(new CulvertEnd
+            {
+                at = at, outward = o, downstream = end.downstream, groundY = end.groundY, wallW = W, wallH = H, pipeD = D,
+                backfillM = depth, pastPave = end.pastPave, edge = end.edge, headwall = true, backfillMet = met,
+            });
+        }
+
+        /// <summary>
+        /// A PIPE PROJECTING FROM THE TOE OF THE FILL, where a headwall would
+        /// stand free (CityCulverts.HeadwallFits): a concrete barrel, eight
+        /// sided, its bore a quarter under the drawn ground at the mouth
+        /// (silted), running back <see cref="CityCulverts.PipeBarrelM"/>
+        /// into the embankment, rising at half the ground's own rise there but
+        /// never with its back end out of the ground (on a flat toe it dips
+        /// in), so the fill swallows it; the mouth's ring and the dark inside
+        /// as a headwall's. Solid, like the wall: it stands past the clear
+        /// zone.
+        /// </summary>
+        static void EmitPipeEnd(CityMap map, TileMeshes tm, CityCulverts.End end)
+        {
+            Vector2 o = end.outward, r = new Vector2(o.y, -o.x);
+            float D = end.pipeD, R = D * 0.5f, Ro = R + CityCulverts.PipeWallM, L = CityCulverts.PipeBarrelM;
+            Vector2 at = end.at;
+            var org = tm.origin;
+            Vector3 P(Vector2 plan, float y) => new Vector3(plan.x - org.x, y, plan.y - org.z);
+            float G(Vector2 p) => LatticeY(map, p.x, p.y);
+            const float UvM = 3f;
+
+            float g = G(at);
+            float cy0 = g - D * CityCulverts.PipeBuryFrac + R;
+            // back into the fill at half the ground's rise - and never with
+            // its back end out of the ground: where the land behind does not
+            // rise (review 2026-09-30: a 4 m tube lying on the lawn) the
+            // barrel dips into it instead, a pipe coming up out of the toe
+            float gBack = G(at - o * L);
+            float rise = Mathf.Clamp((gBack - g) * 0.5f, 0f, L * 0.25f);
+            float cy1 = Mathf.Min(cy0 + rise, gBack - Ro - 0.05f);
+            Vector3 o3 = new Vector3(o.x, 0f, o.y), up = Vector3.up;
+            // the barrel's axis leans up into the fill: its sections are
+            // square to the axis, not plumb
+            Vector3 axis0 = P(at, cy0), axis1 = P(at - o * L, cy1);
+            Vector3 fwd = (axis0 - axis1).normalized;
+            Vector3 r3 = new Vector3(r.x, 0f, r.y), u3 = Vector3.Cross(fwd, r3).normalized;
+            if (u3.y < 0f) u3 = -u3;
+            var outer0 = new Vector3[8]; var outer1 = new Vector3[8]; var inner0 = new Vector3[8]; var innerB = new Vector3[8];
+            for (int k = 0; k < 8; k++)
+            {
+                float a = (22.5f + 45f * k) * Mathf.Deg2Rad;
+                Vector3 dir = r3 * Mathf.Cos(a) + u3 * Mathf.Sin(a);
+                outer0[k] = axis0 + dir * Ro;
+                outer1[k] = axis1 + dir * Ro;
+                inner0[k] = axis0 + dir * R;
+                innerB[k] = axis0 - fwd * PipeDepthM + dir * R;
+            }
+            var con = barrierBucket;
+            var dark = lampBucket;
+            Vector3 axisB = axis0 - fwd * PipeDepthM;
+            for (int k = 0; k < 8; k++)
+            {
+                int k1 = (k + 1) & 7;
+                // the barrel's outside, facing away from its axis
+                Vector3 mid0 = (outer0[k] + outer0[k1]) * 0.5f;
+                float u0 = k * Ro * 0.78f / UvM, u1 = (k + 1) * Ro * 0.78f / UvM;
+                con.Face(outer0[k], outer0[k1], outer1[k1], outer1[k], mid0 - axis0,
+                         new Vector2(u0, 0f), new Vector2(u1, 0f), new Vector2(u1, L / UvM), new Vector2(u0, L / UvM));
+                // the mouth's ring
+                con.Face(outer0[k], outer0[k1], inner0[k1], inner0[k], fwd,
+                         new Vector2(u0, 0f), new Vector2(u1, 0f), new Vector2(u1, (Ro - R) / UvM), new Vector2(u0, (Ro - R) / UvM));
+                // the back end, buried in the fill (or closed where it is not)
+                TriFacing(con, outer1[k], outer1[k1], axis1, -fwd, new Vector2(u0, 0f), new Vector2(u1, 0f), new Vector2((u0 + u1) * 0.5f, Ro / UvM));
+                // the dark bore and its end
+                Vector3 midI = (inner0[k] + inner0[k1]) * 0.5f;
+                dark.Face(inner0[k], inner0[k1], innerB[k1], innerB[k], axis0 - midI,
+                          new Vector2(k / 8f, 0f), new Vector2((k + 1) / 8f, 0f), new Vector2((k + 1) / 8f, PipeDepthM / 2f), new Vector2(k / 8f, PipeDepthM / 2f));
+                TriFacing(dark, innerB[k], innerB[k1], axisB, fwd, new Vector2(0f, 0f), new Vector2(0.25f, 0f), new Vector2(0.12f, 0.25f));
             }
 
             tm.culvertEnds.Add(new CulvertEnd
             {
-                at = at, outward = o, groundY = end.groundY, wallW = W, wallH = H, pipeD = D,
-                backfillM = depth, pastPave = end.pastPave, edge = end.edge, backfillMet = met && !fell,
+                at = at, outward = o, downstream = end.downstream, groundY = end.groundY, wallW = 2f * Ro, wallH = cy0 + Ro - g, pipeD = D,
+                backfillM = L, pastPave = end.pastPave, edge = end.edge, headwall = false, backfillMet = false,
             });
         }
 
-        /// <summary>The lowest drawn ground across the backfill at a station
-        /// (its middle and both wings' inner faces).</summary>
-        static float LowestAcross(CityMap map, Vector2 c, Vector2 r, float half) =>
-            Mathf.Min(LatticeY(map, c.x, c.y), Mathf.Min(LatticeY(map, c.x + r.x * half, c.y + r.y * half), LatticeY(map, c.x - r.x * half, c.y - r.y * half)));
+        /// <summary>
+        /// THE DITCH every culvert end drains into: a strip of the banks'
+        /// pack clay down the ravine from the end's face, the pipe plus
+        /// <see cref="CityCulverts.DitchOverPipeM"/> wide, narrowing over its
+        /// last third, <see cref="CityCulverts.DitchM"/> long, draped on the
+        /// lattice (review, 2026-09-30: nothing in front of a pipe said a
+        /// stream ran out of it). Never on or beside a grounded road's
+        /// pavement.
+        /// </summary>
+        static void EmitDitch(CityMap map, TileMeshes tm, CityCulverts.End end)
+        {
+            Vector2 d = end.downstream, r = new Vector2(d.y, -d.x);
+            float w = (end.pipeD + CityCulverts.DitchOverPipeM) * 0.5f, L = CityCulverts.DitchM;
+            // from the front of a headwall's apron, or from under a pipe's
+            // mouth
+            Vector2 a = end.headwall ? end.at + end.outward * ApronM : end.at - end.outward * 0.1f;
+            Vector2 b = end.at + d * (L * 0.66f), c = end.at + d * L;
+            float wc = w * 0.25f;
+            if (!NearGroundedPavement(map, (a + b) * 0.5f, BankRoadClearM + L * 0.33f + w))
+                Drape(map, bankBucket, tm.origin, a + r * w, b + r * w, b - r * w, a - r * w, DitchLiftM, BankTexM);
+            if (!NearGroundedPavement(map, (b + c) * 0.5f, BankRoadClearM + L * 0.17f + w))
+                Drape(map, bankBucket, tm.origin, b + r * w, c + r * wc, c - r * wc, b - r * w, DitchLiftM, BankTexM);
+        }
 
         // ------------------------------------------------------------------
         //  CREEK BANKS (WP-25). R1's creeks are a water sheet in a carved
@@ -240,21 +380,33 @@ namespace PSXRacing.City
         const float BankRoadClearM = 3f;
         static readonly HashSet<int> bankRoadScratch = new HashSet<int>();
 
-        static void EmitCreekBanks(CityMap map, TileMeshes tm, Vector2 p0, Vector2 p1, Vector2 right0, Vector2 right1, float flat)
+        static void EmitCreekBanks(CityMap map, TileMeshes tm, Vector2 p0, Vector2 p1, Vector2 right0, Vector2 right1, float flat, float surfaceY)
         {
             if (HydroOff) return;
+            // ONLY WHERE THE WATER SHOWS (the hydro audit's own test, at the
+            // piece's middle): where the lattice buries the sheet - a road's
+            // fill over the creek, the 8 m cells over a narrow one - two clay
+            // strips 5.5 m wide with lawn between them read as a dirt track,
+            // beside I-77 and on the last 30-40 m to State St and Archdale Dr
+            var mid = (p0 + p1) * 0.5f;
+            if (!WaterShows(map, mid, surfaceY)) return;
             var o = tm.origin;
             for (int side = -1; side <= 1; side += 2)
                 for (int c = 0; c + 1 < BankCols.Length; c++)
                 {
                     float d0 = (flat + BankCols[c]) * side, d1 = (flat + BankCols[c + 1]) * side;
                     Vector2 a0 = p0 + right0 * d0, a1 = p1 + right1 * d0, b0 = p0 + right0 * d1, b1 = p1 + right1 * d1;
-                    Vector2 mid = (a0 + a1 + b0 + b1) * 0.25f;
+                    Vector2 qm = (a0 + a1 + b0 + b1) * 0.25f;
                     float half = 0.5f * Mathf.Max(Vector2.Distance(a0, b1), Vector2.Distance(a1, b0));
-                    if (NearGroundedPavement(map, mid, BankRoadClearM + half)) continue;
+                    if (NearGroundedPavement(map, qm, BankRoadClearM + half)) continue;
                     Drape(map, bankBucket, o, a0, a1, b1, b0, BankLiftM, BankTexM);
                 }
         }
+
+        /// <summary>Does a creek's water show at plan point
+        /// <paramref name="p"/> - its surface over the drawn ground? The
+        /// hydro audit's test, and the banks'.</summary>
+        public static bool WaterShows(CityMap map, Vector2 p, float surfaceY) => LatticeY(map, p.x, p.y) < surfaceY - 0.02f;
 
         static readonly List<Vector2> drapeA = new List<Vector2>(16), drapeB = new List<Vector2>(16);
         static readonly Vector2[] drapeTri = new Vector2[3];

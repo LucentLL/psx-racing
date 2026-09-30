@@ -1637,19 +1637,48 @@ line's own arc length until the drawn ground (the 8 m lattice) is:
 A divided road's two carriageways, or two roads over one ravine, walk to the
 same grid point and find the same end: ends are keyed by (ravine, grid index)
 and kept once, and every tile that can own an end sees every crossing that can
-make it. Nothing here changes the ground function or a road's height: the
-embankment the road already stands on is the culvert's.
+make it. The culvert solve never changes the ground function or a road's
+height: the embankment the road already stands on is the culvert's.
 
-**Headwalls** (`CityMeshes.Hydro.cs`). At each end: a concrete headwall
-(the city concrete, the barriers mesh on the Solid layer) faced square off the
-nearest road, the pipe's mouth in it (an octagon of 0.9, 1.2 or 1.5 m by the
-fill over it, its inside the lamp posts' dark pack metal: a corrugated pipe,
-and the dark a mouth needs, render-only), wing walls back along both sides and
-grass backfill between them. The backfill is flat at the coping until the fill
-behind rises through it; if that has not happened 6 m back it is a berm
-falling at 1V:2H. No new material and no new slot: a tile that already has
-barriers and lamps draws nothing more. The occupancy mask (static half and the
-tile's own) marks each end, so no tree or sign post stands in a headwall.
+**Each end's form** (review, 2026-09-30: of 55 sampled ends 47 were a
+concrete box standing free on the lawn, with no channel in front and a
+concrete-walled berm behind sloping down to the road). The walk decides it
+(`CityCulverts.HeadwallFits`):
+
+- a **HEADWALL** only where it reads as one: the drawn ground in front of the
+  face is no more than 0.3 m over the pipe's invert at 1.5, 3 and 4.5 m (a
+  channel or the toe runs on out of the pipe, not a bank), and the fill behind
+  rises through the backfill's level, across the whole width between the
+  wings, within 6.5 m. The pipe is the largest of 0.9 / 1.2 / 1.5 m (up to
+  what the fill over it takes) whose wall fits, one size for both ends;
+- elsewhere the **PIPE PROJECTING** from the toe of the fill.
+
+**Headwalls** (`CityMeshes.Hydro.cs`). A concrete headwall (the city
+concrete, the barriers mesh on the Solid layer) faced square off the nearest
+road, the pipe's mouth in it (an octagon, its inside the lamp posts' dark pack
+metal: a corrugated pipe, and the dark a mouth needs, render-only). Behind it
+the embankment: a grass berm level with the backfill from the wall's back face
+to where the fill rises through it, its sides falling at the steepest graded
+bank (1V:2H) until they pass a hand under the lattice, wrapping round the
+wall's ends as a quarter cone; short concrete wings (1.5 m) with their coping
+a lip over the berm. A concrete apron 1.5 m deep at its foot (the kerbs'
+render-only concrete, draped on the lattice). The long wing walls and the
+falling berm are gone.
+
+**Projecting pipes.** A concrete barrel, eight-sided, its bore a quarter
+under the drawn ground at the mouth (silted), running 4 m back into the fill
+at half the ground's rise there and never with its back end out of the ground
+(on a flat toe it dips in, a pipe coming up out of the toe); the mouth's ring
+and the dark inside as a headwall's; Solid, like the wall.
+
+**Ditches.** Every end drains into a strip of the banks' clay 10 m down the
+ravine from its face, the pipe plus 0.6 m wide, narrowing over its last third,
+draped on the lattice like the banks (never within 3 m of a grounded road's
+pavement). No new material and no new slot: the walls and barrels are the
+barriers mesh, the apron the kerbs', the bore the lamps', the berm ground and
+the ditch the banks'. The occupancy mask (static half and the tile's own)
+marks each end, its berm or barrel and its ditch, so no tree or sign post
+stands in a headwall or grows in its ditch.
 
 **Creek banks.** A band of the owner's pack clay (PSX Textures II
 `dirt_pt_7`, the red-brown of Piedmont clay, copied as
@@ -1659,9 +1688,42 @@ lattice meets the water between its vertices, so the edge wanders) to 4.5 m
 past it, draped exactly on the lattice: each quad is cut against every
 lattice triangle it covers and each piece set on that triangle's plane, 6 cm
 proud (corners merely set on the lattice bridged its folds, and the grass came
-through in patches). Never within 3 m of a grounded road's pavement.
-Render-only, the city kit's new `bank` material (`CityKit.bank`, no Slot
-change), one draw on a tile with a creek.
+through in patches). Never within 3 m of a grounded road's pavement, and
+**only where the water shows** (`CityMeshes.WaterShows`, the hydro audit's own
+test, at each 8 m piece's middle): where a fill buried the sheet, two clay
+strips 5.5 m wide with lawn between them read as a dirt track (review,
+2026-09-30: at all three named bridges, and beside I-77 along Irwin Creek).
+Render-only, the city kit's `bank` material (`CityKit.bank`, no Slot change),
+one draw on a tile with a creek or a culvert end.
+
+**The clay dresses with the ground** (review, 2026-09-30: on a snow day every
+creek was edged in red clay on white). The city scene's season wardrobe
+registers `CityBank` beside `CityGround` (`PSXRacingBuilder
+.RegisterCitySeasonal`; `GroundKindOf` knows `dirt_pt_7_city.png` as dirt):
+the dirt tints through the year and the snow turf, at the snow ground's tint,
+on a snowy day; `CityWorld.BankMaterial` asks `SeasonDress.Substitute` for it
+as a tile is built. Four generated materials (`CityBank_Winter/Spring/Summer
+/Snow.mat`), no new texture. The city scenes carry the wardrobe, so it ships
+with their next build.
+
+**The channel at a bridge** (`CityElevation.Ground`, review 2026-09-30: at W
+Trade St, State St and Archdale Dr the water started 20-50 m downstream; the
+ground beside and under every deck stood at the road). Two rules, by a creek
+only (a ravine is not a channel: a road over one keeps its embankment), and
+off with WP-25 (`CityMeshes.HydroOff`, the A/B instruments' "before"):
+
+- the disc round a bridge approach's vertex (a station on structure within
+  40 m of it along its road, or at its node on another arm:
+  `SpillsAtStructure`) spilled its 1V:4H fill down the creek beside the deck.
+  By a creek it falls at the steepest graded bank (1V:2H, a bridge's
+  spill-through slope) and no lower than the creek's carved channel;
+- under a deck's footprint no disc holds the land over the channel at all:
+  the pavement there is the deck, and the land was held 4 m over Irwin
+  Creek's water under W Trade St, dug only to the soffit's air.
+
+Beside a road (a true perpendicular foot) the section is as WP-14 made it: its
+verge still grades onto a 1V:4H fill, so no roadside, rail or verge changed.
+The pit census names the new cause ("a creek's channel at a bridge").
 
 **Mitred water.** The creek sheet's sides are mitred at every bend of the
 line, so one 8 m piece meets the next (square per segment, the outside of each
@@ -1690,54 +1752,69 @@ the use.
 | Measure | Value |
 |---|---|
 | Ravine crossings of a road | 824: 706 culverts, 48 decks, 70 too shallow for a pipe |
-| Headwalls | 767 (243 culverts with both ends); pipes 0.9 m x241, 1.2 m x120, 1.5 m x406 |
+| Culvert ends | 767 (243 culverts with both ends): 298 headwalls set into the fill, 469 pipes projecting from the toe; pipes 0.9 m x483, 1.2 m x98, 1.5 m x186 |
 | Ends not stood | never clear of a road 148, no channel on the lattice 202, shallow at the toe 132, shared 121, a creek 24, a building 9, a lake 9 |
-| Nearest headwall to a pavement | 4.7 m, every one past its road's clear zone |
+| Nearest end to a pavement | 4.7 m, every one past its road's clear zone |
 | Every culvert keeps its embankment | 0 of 706 fail: the road on the ground over every pipe, the ground under its line within 1.1 m of it (deepest 1.01 m, the corridor sink and sag) |
-| Ends drawn (26 sampled tiles) | 55 of 55, each once, in the tile it stands in; 0 walls facing the wrong way |
-| Water shown along the creeks (every 8 m) | 689 of 710 km, 97.1% (Irwin 71%, Stewart 95%, Little Sugar 92%, Briar 96%, McAlpine 99%, Sugar 96%) |
+| Ends drawn (25 sampled tiles) | 55 of 55 (16 headwalls, 39 pipes), each once, in the tile it stands in; 0 walls facing the wrong way; the fill met the backfill behind 16 of the 16 headwalls; every one of the 25 tiles drew its ditches |
+| Water shown along the creeks (every 8 m) | 694 of 710 km, 97.7% (Irwin 73%, Stewart 97%, Little Sugar 94%, Briar 98%, McAlpine 100%, Sugar 98%); before the channel at a bridge 689 km, 97.1% |
+| At the named bridges (every 4 m within 60 m, off the deck) | State St over Stewart Creek 27 of 28 (within 24 m of the deck 9 of 10); Archdale Dr over Little Sugar Creek 26 of 28 (8 of 10); W Trade St over Irwin Creek 10 of 24 (0 of 6) |
+| Pits beside grounded ribbons | 4,313: the lower-road conflicts 3,502 and decks 556 + 7 as before, the water under the opened channels 245, the channel at a bridge 3; none unexplained |
 | Ponds | 1,233 water bodies under 2 ha as drawn (739 ha), water shown at the middle of 1,203; none within 3.5 m of a road, none over a grounded road within 16 m |
 | Creek beds (7 transects) | 7 of 7 within 1 m of 3DEP, as R1 |
 | Decks over water | 560 spans, none with water over the soffit |
 
-Checks: CITY AUDIT OK (DRIVE AUDIT 0/0/0/0/0, roadside audit green, the tree
-and sign audits green, the hydro audit's four new checks);
-`city-play-check -Edition CITY` CITY SPAWNS OK; TEXDECODE AUDIT OK (933
-textures in the 16-bit set, the clay among them); `export_osm.mjs --check`
-byte-identical; SIZE LEDGER OK.
+Checks: CITY AUDIT OK (DRIVE AUDIT 0/0/0/0/0, roadside audit green and its
+verge, ledge, face and rail counts as before, the tree and sign audits green,
+the hydro audit's six checks); `city-play-check -Edition CITY` CITY SPAWNS
+OK; TEXDECODE AUDIT OK (933 textures in the 16-bit set, the clay among them);
+`credits.mjs --check` OK; SIZE LEDGER OK (the data did not change in the
+review pass).
 
-**Budget** (`CityBudgetProbe`, the A/B is now WP-25: the same tiles without
-culverts and banks, `CityMeshes.HydroOff`): the worst view 209 draws both
-ways (trade_tryon); at most +4 draws in one view (i77_north 65 -> 69; the
-extra site W Trade St at Irwin Creek +4 on 180-227); tile build p95 70.5 ms
-without, 73.4 with, on the same 225 tiles (+4%; a first run read 72.3 / 72.5);
-parse 178 ms + solve 1119 ms, map heap 19.6 MB. Data: `charlotte_city.bytes` +156 KB raw, +95 KB Brotli (WATR
-+141 KB raw for the ponds' points); the clay texture 256 x 256 in the 16-bit
-set.
+**Budget** (`CityBudgetProbe`, the A/B is WP-25: the same tiles without
+culverts, ditches, banks and the channel at a bridge, `CityMeshes.HydroOff`):
+the worst view 209 draws both ways (trade_tryon); at most +4 draws in one view
+(i77_north, plaza_midwood, south_blvd, W Trade St at Irwin Creek, Archdale
+Dr); tile build p95 74.8 ms without, 74.5 with, on the same 225 tiles; parse
+189 ms + solve 1184 ms, map heap 20.1 MB (the first pass read 178 / 1119 /
+19.6: run to run). Data: `charlotte_city.bytes` +156 KB raw, +95 KB Brotli
+(WATR +141 KB raw for the ponds' points); the clay texture 256 x 256 in the
+16-bit set.
 
 **Shots:** `tools\city-hydro-shots.ps1 -Label before|after`
 (`CityHydroShots`): per creek (W Trade St over Irwin Creek, State St over
 Stewart Creek, Archdale Dr over Little Sugar Creek) from the bridge's
-downstream edge, 2.5 m over the water 40 m downstream and 35 m up 120 m
-downstream; a culvert (McDonald Avenue) from its channel, three-quarter and
-from the road, and four more three-quarter (South McDowell Street, Baxter
-Street twice, Hartford Avenue); a 0.56 ha pond off Tyvola Road from 25 m up.
-The cameras depend only on the data and the ground; "before" runs with the
-tiles' WP-25 work off and HEAD's data.
+downstream edge, 2.5 m over the water 40 m downstream, 35 m up 120 m
+downstream, and the deck's view again in the SNOW dress; culverts near Queens
+Road: the best headwall (McDonald Avenue) from 12 m down its ditch,
+three-quarter and from the road, then two more headwalls (Colville Road,
+Hartford Avenue) and two projecting pipes (South McDowell Street, Baxter
+Street) three-quarter; a 0.56 ha pond off Tyvola Road from 25 m up. The
+cameras depend only on the data and the ground before WP-25
+(`GroundBefore`); "before" runs with WP-25 off.
 
 **Not done:**
 
-- Irwin Creek shows water on 71% of its length: north of uptown it runs 14 m
-  off I-77, whose fill holds the ground over the channel (R1's note; WP-14's
-  grading keeps it). Near some bridges the approach fills' 8 m lattice
-  triangles lap over the channel for 20-40 m; the sheet is there, under grass.
-  Carving a creek through a fill beside a road is a grading change (WP-24's
-  or a later WP-14 pass), not this one.
+- W Trade St over Irwin Creek still shows no water within 24 m of its deck
+  (10 of 24 samples within 60 m). The channel under the deck is open now, but
+  just downstream W Trade St's other carriageway (e6605, 18.9 m wide) leaves
+  the bridge's end diagonally with its paved edge 3.5 m from the creek's
+  line, inside the creek's own 6 m flat floor, and upstream W Trade St's own
+  approach runs beside the channel: that land is a road's pavement and bench,
+  which the channel may not take. Only moving the road (or a longer deck)
+  opens it.
+- Irwin Creek shows water on 73% of its length: north of uptown it runs 14 m
+  off I-77, whose bench and 1V:4H fill hold the ground over the channel (R1's
+  note; WP-14's grading keeps it). The channel rule takes only a bridge
+  approach's spill, never the section beside a road, so no verge or rail
+  changed; carving a creek through a fill beside a road is a grading change
+  (a later WP-14 pass), not this one.
 - The ravines carry no water: their channels are narrower than the lattice
   can hold a sheet in.
 - 182 of the 706 culverts have no drawn end (the ravine never clears a road
   within 60 m, or the lattice shows no channel): the road simply crosses the
-  swale there.
+  swale there. An end where the lattice shows no channel would be the same
+  object on a lawn the review took out.
 
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 

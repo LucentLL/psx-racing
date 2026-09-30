@@ -805,12 +805,14 @@ namespace PSXRacing.City
             return lampPostMat;
         }
 
-        /// <summary>WP-25: the creeks' banks, the kit's pack clay; null
-        /// without a kit (the banks' renderer is then off).</summary>
+        /// <summary>WP-25: the creeks' banks, the kit's pack clay in the day's
+        /// dress (the builder registers it with the ground's wardrobe: the
+        /// dirt tints, and the snow turf on a snowy day); null without a kit
+        /// (the banks' renderer is then off).</summary>
         public static Material BankMaterial()
         {
             var kit = CityKit.Get();
-            return kit != null ? kit.bank : null;
+            return kit != null ? SeasonDress.Substitute(kit.bank) : null;
         }
 
         static GameObject Child(GameObject parent, string name, int layer)

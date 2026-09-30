@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text;
 using UnityEngine;
 using PSXRacing.City;
 
@@ -50,6 +51,15 @@ namespace PSXRacing.EditorTools
         /// <summary>How many tiles the audit builds to see the ends drawn.</summary>
         const int HydroTileSample = 24;
 
+        /// <summary>The creek crossings WP-25 was asked to show (road, creek,
+        /// a hint near the crossing): CityHydroShots' three.</summary>
+        static readonly (string road, string water, double lat, double lon)[] NamedBridges =
+        {
+            ("Trade", "Irwin", 35.2345, -80.8560),
+            ("State Street", "Stewart", 35.2395, -80.8665),
+            ("Archdale", "Little Sugar", 35.1500, -80.8500),
+        };
+
         static void HydroAudit(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings)
         {
             var inv = System.Globalization.CultureInfo.InvariantCulture;
@@ -62,7 +72,7 @@ namespace PSXRacing.EditorTools
             double solveMs = clock.Elapsed.TotalMilliseconds;
             var skips = new SortedDictionary<string, int>();
             var misses = new SortedDictionary<string, int>();
-            int culverts = 0, ends = 0, both = 0, holes = 0, inClear = 0;
+            int culverts = 0, ends = 0, both = 0, holes = 0, inClear = 0, headwalls = 0;
             float maxUnder = 0f;
             var pipes = new SortedDictionary<float, int>();
             var holeNotes = new List<string>();
@@ -88,6 +98,7 @@ namespace PSXRacing.EditorTools
                 {
                     if (!has) { misses.TryGetValue(miss ?? "?", out int m); misses[miss ?? "?"] = m + 1; continue; }
                     got++; ends++;
+                    if (end.headwall) headwalls++;
                     pipes.TryGetValue(end.pipeD, out int pn); pipes[end.pipeD] = pn + 1;
                     minPast = Mathf.Min(minPast, end.pastPave);
                     // past its nearest road's pavement AND clear zone
@@ -110,11 +121,11 @@ namespace PSXRacing.EditorTools
             var ps = new System.Text.StringBuilder();
             foreach (var kv in pipes) ps.Append($"{kv.Key:0.0} m x{kv.Value}, ");
             Line($"hydro audit (WP-25): {all.Count} ravine crossings of a road: {culverts} culverts ({sk.ToString().TrimEnd(',', ' ')} take none), solved in {solveMs:0} ms");
-            Line($"    culvert ends: {ends} headwalls ({both} culverts with both), pipes {ps.ToString().TrimEnd(',', ' ')}; ends not stood: {ms.ToString().TrimEnd(',', ' ')}; nearest headwall {(minPast < float.MaxValue ? minPast.ToString("0.0", inv) : "-")} m past a pavement");
+            Line($"    culvert ends: {ends} ({headwalls} headwalls set into the fill, {ends - headwalls} pipes projecting from the toe; {both} culverts with both ends), pipes {ps.ToString().TrimEnd(',', ' ')}; ends not stood: {ms.ToString().TrimEnd(',', ' ')}; nearest end {(minPast < float.MaxValue ? minPast.ToString("0.0", inv) : "-")} m past a pavement");
             foreach (var l in holeNotes) Line("    " + l);
             foreach (var l in clearNotes) Line("    " + l);
             Check(holes == 0, $"every culvert keeps its embankment: the road on the ground over the pipe, the ground under its line held within {HeldUnderRoadM} m of it, over the smallest pipe's crown: the ravine's carve never cuts the road (hydro audit)", $"{holes} of {culverts}; deepest {maxUnder:0.00} m");
-            Check(inClear == 0, "every headwall stands past its road's pavement and clear zone (hydro audit)", $"{inClear} of {ends}");
+            Check(inClear == 0, "every culvert end stands past its road's pavement and clear zone (hydro audit)", $"{inClear} of {ends}");
 
             // ---- the ends as the tiles draw them: a sample of tiles, each end
             // in the tile that owns it, once
@@ -129,7 +140,7 @@ namespace PSXRacing.EditorTools
                         endTiles.TryGetValue(k, out int n); endTiles[k] = n + 1;
                     }
             }
-            int tilesBuilt = 0, drawn = 0, expected = 0, wrongTile = 0, facing = 0, metFill = 0;
+            int tilesBuilt = 0, drawn = 0, expected = 0, wrongTile = 0, facing = 0, metFill = 0, walls = 0, pipesDrawn = 0, ditched = 0;
             var backfills = new List<float>();
             var stride = Mathf.Max(1, endTiles.Count / HydroTileSample);
             int idx = 0;
@@ -145,15 +156,19 @@ namespace PSXRacing.EditorTools
                 foreach (var ce in tm.culvertEnds)
                 {
                     if (Mathf.FloorToInt(ce.at.x / CityMeshes.TileSize) != tx || Mathf.FloorToInt(ce.at.y / CityMeshes.TileSize) != tz) wrongTile++;
+                    if (!ce.headwall) { pipesDrawn++; continue; }
+                    walls++;
                     backfills.Add(ce.backfillM);
                     if (ce.backfillMet) metFill++;
                 }
+                if (tm.culvertEnds.Count > 0 && tm.banks != null) ditched++;
                 DestroyTileMeshes(tm);
             }
             backfills.Sort();
-            Line($"    {tilesBuilt} tiles with ends built: {drawn} headwalls drawn of the {expected} the solve puts there, {wrongTile} outside their tile, {facing} walls facing the wrong way; " +
-                 $"the fill behind met the backfill at {metFill} (backfill p50 {(backfills.Count > 0 ? backfills[backfills.Count / 2] : 0f):0} m, max {(backfills.Count > 0 ? backfills[backfills.Count - 1] : 0f):0} m)");
+            Line($"    {tilesBuilt} tiles with ends built: {drawn} ends drawn of the {expected} the solve puts there ({walls} headwalls, {pipesDrawn} projecting pipes), {wrongTile} outside their tile, {facing} walls facing the wrong way; " +
+                 $"the fill behind met the backfill at {metFill} of the {walls} headwalls (backfill p50 {(backfills.Count > 0 ? backfills[backfills.Count / 2] : 0f):0} m, max {(backfills.Count > 0 ? backfills[backfills.Count - 1] : 0f):0} m); {ditched} of the {tilesBuilt} tiles drew their ends' clay ditches");
             Check(drawn == expected && wrongTile == 0, "every culvert end is drawn once, by the tile it stands in (hydro audit)", $"{drawn} of {expected}, {wrongTile} outside");
+            Check(metFill == walls, $"no headwall stands free on the lawn: the fill behind every one rises through its backfill within {CityCulverts.BackfillFlatM} m (hydro audit, review 2026-09-30)", $"{walls - metFill} of {walls}");
 
             // ---- the water the player can see
             float shownM = 0f, hiddenM = 0f, deckM = 0f;
@@ -168,7 +183,7 @@ namespace PSXRacing.EditorTools
                     var p = CityCulverts.PointAt(w, s);
                     if (UnderDeck(map, p)) { deckM += Step; continue; }
                     float surf = CityElevation.CreekSurfaceY(w, s, p);
-                    bool shown = CityMeshes.LatticeAt(map, p.x, p.y) < surf - 0.02f;
+                    bool shown = CityMeshes.WaterShows(map, p, surf);
                     if (shown) shownM += Step; else hiddenM += Step;
                     if (!string.IsNullOrEmpty(w.name))
                     {
@@ -185,6 +200,35 @@ namespace PSXRacing.EditorTools
             foreach (var n in new[] { "Irwin Creek", "Stewart Creek", "Little Sugar Creek", "Briar Creek", "McAlpine Creek", "Sugar Creek" })
                 if (byName.TryGetValue(n, out var t) && t.total > 0f) named.Append($"{n} {100f * t.shown / t.total:0}%, ");
             Line($"    shown by creek: {named.ToString().TrimEnd(',', ' ')}");
+            // the three bridges the owner named (WP-25's shots): the creek
+            // every 4 m within 60 m of the crossing, both ways, off the deck
+            var bridges = new StringBuilder();
+            foreach (var (road, water, lat, lon) in NamedBridges)
+            {
+                var hint = CityCreekShots.LL(lat, lon);
+                CityCreekShots.Hit hit = default; bool found = false; float best = 2500f;
+                foreach (var h in CityCreekShots.Crossings(map, road, water))
+                {
+                    if (h.water == null || h.water.ravine) continue;
+                    float d = Vector2.Distance(h.at, hint);
+                    if (d < best) { best = d; hit = h; found = true; }
+                }
+                if (!found) { bridges.Append($"{road} x {water}: no crossing, "); continue; }
+                int n = 0, shownN = 0, near = 0, nearShown = 0;
+                for (float a = -60f; a <= 60.01f; a += 4f)
+                {
+                    float s = hit.ws + a;
+                    if (s < 0f || s > hit.water.length) continue;
+                    var p = CityCulverts.PointAt(hit.water, s);
+                    if (UnderDeck(map, p)) continue;
+                    bool sh = CityMeshes.WaterShows(map, p, CityElevation.CreekSurfaceY(hit.water, s, p));
+                    n++; if (sh) shownN++;
+                    if (Mathf.Abs(a) <= 24f) { near++; if (sh) nearShown++; }
+                }
+                bridges.Append($"{hit.edge.name} over {hit.water.name} {shownN} of {n} (within 24 m of the deck {nearShown} of {near}), ");
+            }
+            CityMeshes.TakeLattice();
+            Line($"    at the named bridges, water shown every 4 m within 60 m off the deck: {bridges.ToString().TrimEnd(',', ' ')}");
 
             // ---- ponds
             int ponds = 0, pondNearRoad = 0, pondOverRoad = 0, pondShown = 0;

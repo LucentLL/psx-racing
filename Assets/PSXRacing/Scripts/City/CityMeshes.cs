@@ -6618,8 +6618,8 @@ namespace PSXRacing.City
                                 new Vector3(l1.x - o.x, y1, l1.y - o.z), new Vector3(l0.x - o.x, y0, l0.y - o.z),
                                 new Vector2(uR, v0), new Vector2(uR, v1), new Vector2(uL, v1), new Vector2(uL, v0));
                     }
-                    // the clay banks either side (WP-25)
-                    EmitCreekBanks(map, tm, p0, p1, q0, q1, flat);
+                    // the clay banks either side, where the water shows (WP-25)
+                    EmitCreekBanks(map, tm, p0, p1, q0, q1, flat, (y0 + y1) * 0.5f);
                 }
             }
         }

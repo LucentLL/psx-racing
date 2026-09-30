@@ -377,6 +377,8 @@ namespace PSXRacing.EditorTools
             string f = Path.GetFileName(texPath);
             if (f.Contains("Grass") || f.Contains("grass") || f.Contains("Scrub")) return GroundKind.Grass;
             if (f == "Ground.jpg" || f == "T (5).jpg") return GroundKind.Dirt;
+            // WP-25: Charlotte's creek-bank clay (PSX Textures II dirt_pt_7)
+            if (f == "dirt_pt_7_city.png") return GroundKind.Dirt;
             return GroundKind.None;
         }
 

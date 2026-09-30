@@ -7,9 +7,12 @@ namespace PSXRacing.City
     /// WHERE A SMALL STREAM GOES UNDER A ROAD (plan WP-25). R1 (WP-04b) carved
     /// Charlotte's small streams, the ravines, into the ground and gave them no
     /// span: a road over one keeps its embankment, as a road over a culvert
-    /// does. This finds those culverts and says where each END is, so the
-    /// tile builder can stand a concrete headwall there with the pipe's mouth
-    /// in it (CityMeshes.BuildCulverts).
+    /// does. This finds those culverts and says where each END is and what
+    /// it is, so the tile builder can draw it (CityMeshes.BuildCulverts): a
+    /// concrete headwall with the pipe's mouth in it where the fill behind
+    /// rises to meet its backfill, else the pipe projecting from the toe of
+    /// the fill (<see cref="BackfillFlatM"/>); either drains into a short
+    /// clay ditch.
     ///
     /// A culvert is a ravine's line crossing a road's line where the road is
     /// on the GROUND (a deck over a ravine is a bridge, not a culvert) and
@@ -56,7 +59,33 @@ namespace PSXRacing.City
         /// (0.9 / 1.2 / 1.5 m), the wall a pipe plus 0.45 m high and a pipe
         /// plus 2.4 m wide.</summary>
         public static float PipeFor(float fill) => fill >= 3.4f ? 1.5f : fill >= 2.6f ? 1.2f : 0.9f;
+        /// <summary>The pipes, largest first.</summary>
+        static readonly float[] PipeSizes = { 1.5f, 1.2f, 0.9f };
         public const float WallOverPipeM = 0.45f, WallBesidePipeM = 1.2f, WallThickM = 0.35f;
+        /// <summary>
+        /// A HEADWALL ONLY WHERE IT READS (review, 2026-09-30: 47 of 55
+        /// sampled walls stood free on the lawn, a berm behind them sloping
+        /// down to the road): the fill behind rises to the wall's coping
+        /// within <see cref="BackfillFlatM"/> (the grass berm behind it meets
+        /// it: the wall is set INTO the embankment), and the
+        /// drawn ground in front is no more than <see cref="FrontRiseM"/>
+        /// over the pipe's invert at 1.5, 3 and 4.5 m (the channel or the
+        /// toe runs on out of the pipe, not a bank). The pipe is the largest
+        /// of 0.9 / 1.2 / 1.5 m, up to what the fill takes, whose wall fits.
+        /// Elsewhere the end is a PIPE projecting from the toe of the fill
+        /// (<see cref="End.headwall"/> false), which reads on a gentle slope.
+        /// </summary>
+        public const float BackfillFlatM = 6.5f, BackfillStepM = 1f, FrontRiseM = 0.3f;
+        /// <summary>The coping over the backfill; the wing walls' thickness;
+        /// the pipe's invert over the drawn ground at a headwall's face.</summary>
+        public const float CopingM = 0.12f, WingThickM = 0.3f, InvertLiftM = 0.03f;
+        /// <summary>A projecting pipe end: how far back into the fill its
+        /// barrel runs (rising at half the ground's own rise), and the share
+        /// of its bore under the drawn ground at the mouth (silted).</summary>
+        public const float PipeBarrelM = 4f, PipeBuryFrac = 0.25f, PipeWallM = 0.1f;
+        /// <summary>The clay ditch every end drains into (CityMeshes): this
+        /// long down the ravine from the face, the pipe plus this wide.</summary>
+        public const float DitchM = 10f, DitchOverPipeM = 0.6f;
         /// <summary>Nothing within this of a creek (the ravine has joined it)
         /// or of a building's footprint.</summary>
         const float CreekClearM = 8f;
@@ -84,6 +113,11 @@ namespace PSXRacing.City
             public float pastPave;
             /// <summary>(ravine, grid index): one wall per key.</summary>
             public long key;
+            /// <summary>A headwall set into the fill (the backfill meets it
+            /// <see cref="backfillM"/> behind the wall's back face); false: a
+            /// pipe projecting from the toe (see <see cref="BackfillFlatM"/>).</summary>
+            public bool headwall;
+            public float backfillM;
         }
 
         public struct Culvert
@@ -193,8 +227,62 @@ namespace PSXRacing.City
             if (c.roadY - c.floorY < MinFillM) { c.skip = "shallow"; return c; }
             c.hasLo = Walk(map, trims, w, wi, ws, -1, c.roadY, out c.lo, out c.missLo);
             c.hasHi = Walk(map, trims, w, wi, ws, +1, c.roadY, out c.hi, out c.missHi);
+            // one pipe the whole way under the road: the smaller end's (a
+            // headwall's pipe is the largest whose wall fits its fill, and a
+            // smaller one fits it too)
+            if (c.hasLo && c.hasHi && c.lo.pipeD != c.hi.pipeD)
+            {
+                float d = Mathf.Min(c.lo.pipeD, c.hi.pipeD);
+                Resize(map, ref c.lo, d);
+                Resize(map, ref c.hi, d);
+            }
             return c;
         }
+
+        static void Resize(CityMap map, ref End end, float pipe)
+        {
+            if (end.pipeD == pipe) return;
+            end.pipeD = pipe;
+            end.wallH = pipe + WallOverPipeM;
+            end.wallW = pipe + 2f * WallBesidePipeM;
+            if (end.headwall)
+            {
+                end.headwall = HeadwallFits(map, end.at, end.outward, pipe, out float bf);
+                end.backfillM = end.headwall ? bf : 0f;
+            }
+        }
+
+        /// <summary>Does a headwall with a <paramref name="pipe"/> pipe, its
+        /// face at <paramref name="at"/> facing <paramref name="o"/>, read as
+        /// one (<see cref="BackfillFlatM"/>)? <paramref name="backfill"/>:
+        /// how far behind its back face the fill rises through the coping,
+        /// across the whole width between the wing walls.</summary>
+        public static bool HeadwallFits(CityMap map, Vector2 at, Vector2 o, float pipe, out float backfill)
+        {
+            backfill = 0f;
+            float inv = CityMeshes.LatticeAt(map, at.x, at.y) + InvertLiftM;
+            for (float k = 1.5f; k <= 4.51f; k += 1.5f)
+            {
+                var f = at + o * k;
+                if (CityMeshes.LatticeAt(map, f.x, f.y) > inv + FrontRiseM) return false;
+            }
+            float coping = inv + pipe + WallOverPipeM - CopingM;
+            var r = new Vector2(o.y, -o.x);
+            float wingIn = (pipe + 2f * WallBesidePipeM) * 0.5f - WingThickM;
+            for (float x = BackfillStepM; x <= BackfillFlatM + 1e-3f; x += BackfillStepM)
+            {
+                var c = at - o * (WallThickM + x);
+                if (LowestAcross(map, c, r, wingIn) >= coping) { backfill = x; return true; }
+            }
+            return false;
+        }
+
+        /// <summary>The lowest drawn ground across a backfill at a station:
+        /// its middle and both wing walls' inner faces.</summary>
+        public static float LowestAcross(CityMap map, Vector2 c, Vector2 r, float half) =>
+            Mathf.Min(CityMeshes.LatticeAt(map, c.x, c.y),
+                      Mathf.Min(CityMeshes.LatticeAt(map, c.x + r.x * half, c.y + r.y * half),
+                                CityMeshes.LatticeAt(map, c.x - r.x * half, c.y - r.y * half)));
 
         struct Sample { public float s, off, g; public Vector2 p, foot; public bool clear; public int edge; public float past; }
         static readonly List<Sample> walk = new List<Sample>(64);
@@ -257,12 +345,18 @@ namespace PSXRacing.City
                 // a face turned more than 60 degrees off the ravine would
                 // stand along it: keep it square to the water there
                 if (Vector2.Dot(away, tan) < 0.5f) away = tan;
+                // the form: the largest pipe up to the fill's whose headwall
+                // reads, else the fill's pipe projecting from the toe
+                bool headwall = false; float backfill = 0f, d = pipe;
+                foreach (float D in PipeSizes)
+                    if (D <= pipe + 1e-3f && HeadwallFits(map, sm.p, away, D, out backfill)) { headwall = true; d = D; break; }
                 end = new End
                 {
                     at = sm.p, groundY = sm.g, outward = away, downstream = tan,
-                    pipeD = pipe, wallH = pipe + WallOverPipeM, wallW = wallW,
+                    pipeD = d, wallH = d + WallOverPipeM, wallW = d + 2f * WallBesidePipeM,
                     edge = sm.edge, pastPave = sm.past,
                     key = ((long)wi << 24) | (uint)Mathf.RoundToInt(sm.s / WalkStepM),
+                    headwall = headwall, backfillM = headwall ? backfill : 0f,
                 };
                 return true;
             }
