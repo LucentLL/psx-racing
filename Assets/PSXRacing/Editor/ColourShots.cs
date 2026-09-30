@@ -371,10 +371,18 @@ namespace PSXRacing.EditorTools
             {
                 Frame(cam, player, b1, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.Off });
                 Frame(cam, player, b1, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.On });
+                // The two hours that run headlights with the sun up (round
+                // two's review): their sidecars must say the day beam (0.42)
+                // and no albedo floor (beamNight 0).
+                Frame(cam, player, b1, pos, rot, new Variant { hour = TimeOfDay.Sunset, lights = Lights.On });
+                Frame(cam, player, b1, pos, rot, new Variant { hour = TimeOfDay.Dawn, lights = Lights.On });
             }
             var cd = ColourSpots.Find("CD");
             if (OpenAt(cd, out cam, out player, out pos, out rot))
             {
+                // Lamps off too (round two): downtown's fresh asphalt is
+                // judged like every other night spot.
+                Frame(cam, player, cd, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.Off });
                 Frame(cam, player, cd, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.On });
                 Frame(cam, player, cd, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.On, lens = true, rig = "close", hud = true });
             }
@@ -895,6 +903,7 @@ namespace PSXRacing.EditorTools
                         ["lights"] = v.lights.ToString(), ["lit"] = lit, ["brake"] = v.brake, ["lensDirt"] = dirt, ["shadowMap"] = !v.flat,
                         ["field"] = v.keepField,
                         ["beamIntensity"] = CarLights.BeamIntensityNow,
+                        ["beamNight"] = Shader.GetGlobalFloat("_PSXHeadNight"),
                         ["coneStrength"] = CarLights.ConeStrengthOverride >= 0f ? CarLights.ConeStrengthOverride
                             : CarLights.BeamConeStrength * CarLights.BeamIntensityNow / CarLights.BeamIntensity,
                         ["tailLamp"] = v.brake ? CarLights.TailLampBrake : CarLights.TailLampDim,

@@ -90,11 +90,45 @@
 #define BEAM_SPILL_CUT_LO  0.05    // its own soft top: whole below 3 deg over the axis...
 #define BEAM_SPILL_CUT_HI  0.25    // ...gone by 14
 
+// THE BEAM READS A ROAD AT A REAL ROAD'S REFLECTANCE, AT NIGHT (the dark-night
+// retune, round two, 2026-09-29). The owner's roads are painted dark by day -
+// fresh asphalt #1e1e22 is linear 0.013, the old asphalt 0.052, where a real
+// fresh road reflects about 0.05 and an aged one about 0.10 - and under a
+// linear beam that left the pool on fresh asphalt at Ycode 30 (drag strip,
+// Sunset City GP, downtown) against the references' 55-80, and dimmer than a
+// street lamp's pool on the same road. Raising the beam cannot fix it: the
+// concrete of Samuel Street (0.25-0.48) whites out first. So at night the
+// beam's diffuse on an UPWARD texel darker than BEAM_ALBEDO_FLOOR is taken as
+// if the texel were sqrt(floor x albedo): fresh asphalt 0.013 -> 0.046, old
+// asphalt 0.052 -> 0.091 (real roads), concrete and snow untouched. The
+// square root keeps each texture's grain (its log contrast halves, and the
+// code spread the eye reads holds: the strip's pool p10-p90 was 29-39 and
+// is 60-70), and the gain is capped so nothing black is made grey. Measured
+// (colour_stats.py night, round two): the pool at 14-22 m on fresh asphalt
+// 30-33 -> 60-65, over Sunset City GP's street-lamp pool (53); Blue Ridge's
+// old asphalt 65 -> 92; Samuel Street's concrete 188 -> 193. By day the gain is 1
+// exactly (_PSXHeadNight is 0 through sunset and dawn - CarLights.BeamNight),
+// so no daylight road gets lighter. The street lamps and the sun never take it.
+#define BEAM_ALBEDO_FLOOR     0.16    // linear luminance the beam reads a darker upward texel toward
+#define BEAM_ALBEDO_GAIN_MAX  4.0     // most it multiplies the beam's light on any texel by
+
 float  _PSXHeadCount;
+float  _PSXHeadNight;                      // 0 by day (sunset and dawn included) .. 1 at night: CarLights.BeamNight
 float4 _PSXHeadPos[PSX_MAX_HEADLIGHTS];    // xyz lamp (world), w = range in metres
 float4 _PSXHeadFwd[PSX_MAX_HEADLIGHTS];    // xyz beam axis (unit), w = cos of the outer half-spread
 float4 _PSXHeadRight[PSX_MAX_HEADLIGHTS];  // xyz lamp right (unit), w = cos of the inner half-spread
 float4 _PSXHeadColor[PSX_MAX_HEADLIGHTS];  // rgb = LINEAR colour x intensity (the plateau), w = the glints' multiplier on it
+
+/// What the beam's diffuse is multiplied by on a texel of LINEAR colour
+/// `albedo` whose normal is `N` (see BEAM_ALBEDO_FLOOR above): 1 by day, on
+/// anything facing sideways or down, and on anything as bright as the floor.
+float PSXBeamAlbedoGain(float3 albedo, float3 N)
+{
+    float a = dot(albedo, float3(0.2126, 0.7152, 0.0722));
+    float g = min(sqrt(BEAM_ALBEDO_FLOOR / max(a, 1e-4)), BEAM_ALBEDO_GAIN_MAX);
+    float up = saturate(N.y * 3.0 - 1.5);
+    return 1.0 + max(g - 1.0, 0.0) * up * _PSXHeadNight;
+}
 
 // ---------------------------------------------------------------------------
 //  THE SAME BEAMS SEEN IN A WET ROAD, AND IN THE RAIN (2026-09-21, the NFS

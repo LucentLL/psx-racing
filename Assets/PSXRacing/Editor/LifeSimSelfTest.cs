@@ -5160,7 +5160,21 @@ namespace PSXRacing.EditorTools
             // C5/C6: a beam dimmer than the old 2.0 raw push, glints kept, a
             // 5 W tail lamp under a street lamp's pool and the brake above it.
             Check(CarLights.BeamIntensity > 0.1f && CarLights.BeamIntensity <= 1.0f,
-                  "the low beam's plateau is measured, not the old 2.0 (C5; 0.80 since the dark-night retune)", CarLights.BeamIntensity);
+                  "the low beam's plateau is measured, not the old 2.0 (C5; 0.90 at night since the dark-night retune)", CarLights.BeamIntensity);
+            // The night beam and its albedo floor are NIGHT only: every hour
+            // that runs headlights with the sun still up (sunset, dawn) keeps
+            // the reviewed day beam exactly, and the floor's gate is 0 there.
+            for (int h = 0; h < TimeOfDay.Count; h++)
+            {
+                if (h == TimeOfDay.Dusk || h == TimeOfDay.Night) continue;
+                float nf = TimeOfDay.NightFor(h);
+                Check(Mathf.Approximately(CarLights.BeamIntensityFor(nf), CarLights.BeamIntensityDay) && CarLights.BeamNight(nf) == 0f,
+                      "a sun-up hour (" + TimeOfDay.At(h).name + ") keeps the day beam and no albedo floor",
+                      CarLights.BeamIntensityFor(nf) + " / " + CarLights.BeamNight(nf));
+            }
+            Check(Mathf.Approximately(CarLights.BeamIntensityFor(TimeOfDay.NightFor(TimeOfDay.Night)), CarLights.BeamIntensity)
+                  && CarLights.BeamNight(TimeOfDay.NightFor(TimeOfDay.Night)) == 1f,
+                  "the night hour takes the whole night beam and the whole albedo floor");
             Check(CarLights.GlintIntensity > CarLights.BeamIntensity, "the lamps' glints stay a light source's brightness");
             Check(CarLights.TailLampDim < CarLights.TailLampBrake && CarLights.TailLampBrake <= 0.6f,
                   "5 W tail lamps: dim under brake, brake at most 0.6 (C6)",
@@ -5169,6 +5183,11 @@ namespace PSXRacing.EditorTools
                 ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXHeadlights.cginc") : "";
             Check(head.Contains("#define BEAM_NEAR_TO") && head.Contains("#define BEAM_SPILL") && !head.Contains("t * sqrt(t);"),
                   "the headlight include is the flat plateau with a spill lobe, not t*sqrt(t)");
+            string litBeam = System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXLit.shader")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXLit.shader") : "";
+            Check(head.Contains("_PSXHeadNight;") && head.Contains("float PSXBeamAlbedoGain(")
+                  && litBeam.Contains("headD * PSXBeamAlbedoGain(tex.rgb, N)"),
+                  "PSX/Lit's beam reads a dark road at the night albedo floor, gated by _PSXHeadNight");
             string lights = System.IO.File.Exists("Assets/PSXRacing/Scripts/CarLights.cs")
                 ? System.IO.File.ReadAllText("Assets/PSXRacing/Scripts/CarLights.cs") : "";
             Check(lights.Contains("Halogen.linear * bi"), "the beams are pushed as LINEAR light, as the street lamps are");

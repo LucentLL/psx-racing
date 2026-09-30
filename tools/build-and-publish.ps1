@@ -114,6 +114,12 @@ param([switch]$SkipBuild, [switch]$SkipDeploy, [switch]$SkipScenes,
       [string]$PagesDir = "",
       [string]$PagesLabel = "",
       [string[]]$KeepDirs = @("city"),
+      # A root publish RETIRES these test folders even though they hold a
+      # psx-subpage.txt (never one in -KeepDirs): -DropDirs colour took the
+      # /colour/ preview down when its work went into the game at the root
+      # (the owner, 2026-09-29: "Why are you making a separate release of the
+      # game just for color? All changes should go directly to the main build").
+      [string[]]$DropDirs = @(),
       [string]$StageDir = "",
       # For offline tests against a local bare repo (file:///...). The live
       # checks after a push only run against the real remote.
@@ -595,6 +601,12 @@ if (-not $SkipDeploy) {
     foreach ($k in $KeepDirs) {
         if ($k -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]*$') { Write-Host "-KeepDirs '$k' is not a plain folder name." -ForegroundColor Red; exit 1 }
     }
+    $DropDirs = @($DropDirs | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    foreach ($k in $DropDirs) {
+        if ($k -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]*$') { Write-Host "-DropDirs '$k' is not a plain folder name." -ForegroundColor Red; exit 1 }
+        if ($KeepDirs -contains $k) { Write-Host "-DropDirs '$k' is also in -KeepDirs." -ForegroundColor Red; exit 1 }
+        if ($PagesDir) { Write-Host "-DropDirs is for a root publish only (this is -PagesDir $PagesDir)." -ForegroundColor Red; exit 1 }
+    }
 
     $stage = if ($StageDir) { $StageDir } else { $pages }
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -892,6 +904,7 @@ if (-not $SkipDeploy) {
                     $keep = ($name -ne $PagesDir)
                 } elseif ($type -eq "tree") {
                     if ($KeepDirs -contains $name) { $keep = $true }
+                    elseif ($DropDirs -contains $name) { $keep = $false }
                     else {
                         $mk = Invoke-GitOut @("-C", $stage, "ls-tree", "--name-only", $base, "--", "$name/psx-subpage.txt")
                         if ($mk.Text.Trim()) { $keep = $true }

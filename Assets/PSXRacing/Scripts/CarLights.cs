@@ -135,17 +135,41 @@ namespace PSXRacing
         /// the tone curve's knee - and it now tails off past 30 m
         /// (PSXHeadlights.cginc BEAM_FADE_M) instead of holding flat to 55.
         /// AT NIGHT: by day (headlights on in rain, fog and snow) the beam
-        /// stays the reviewed <see cref="BeamIntensityDay"/>, blended by the
-        /// hour's night (_PSXNight: dusk 0.75, dawn 0.5), so no daylight road
-        /// gets lighter for it - a low beam in daylight is barely there.
+        /// stays the reviewed <see cref="BeamIntensityDay"/>, blended by
+        /// <see cref="BeamNight"/>, so no daylight road gets lighter for it -
+        /// a low beam in daylight is barely there.
+        ///
+        /// 0.90 and the albedo floor (round two, 2026-09-29). The review of
+        /// round one measured the pool on the owner's FRESH asphalt barely
+        /// moved (drag strip 27 -> 30, Sunset City GP 28 -> 32, downtown
+        /// 32-38; the references 55-80, NFS Heat's road 48), and on the
+        /// circuit a street lamp's pool on the road (53) outshone the beam:
+        /// only the surroundings had got darker. The road is the reason, not
+        /// the beam - #1e1e22 is linear 0.013, a quarter of a real fresh
+        /// road - and the beam could not be raised to meet it without
+        /// whiting out Samuel Street's concrete. So at night the beam reads a
+        /// dark upward texel at a real road's reflectance
+        /// (PSXHeadlights.cginc BEAM_ALBEDO_FLOOR, keyed by the same
+        /// <see cref="BeamNight"/>), and the plateau comes up to 0.90.
         /// </summary>
-        public const float BeamIntensity = 0.80f;
+        public const float BeamIntensity = 0.90f;
         /// <summary>The beam at a daylight hour (NightFor 0): the colour
         /// review's 0.42, unchanged.</summary>
         public const float BeamIntensityDay = 0.42f;
+        /// <summary>
+        /// HOW MUCH OF THE NIGHT BEAM an hour gets, from its
+        /// <see cref="TimeOfDay.NightFor"/> (0..1): 0 through SUNSET (0.3) and
+        /// DAWN (0.5), which run headlights with the sun still up (1.05 and
+        /// 0.72) and must not light a road any brighter than the reviewed day
+        /// beam did; half at DUSK (0.75, the sun down, a blue twilight); all
+        /// of it at NIGHT. Round one blended by NightFor itself, which put a
+        /// sun-up Sunset at 0.53 and Dawn at 0.61 (the review, 2026-09-29).
+        /// The shader's albedo floor takes the same number (_PSXHeadNight).
+        /// </summary>
+        public static float BeamNight(float night) => SmoothStep(0.5f, 1f, Mathf.Clamp01(night));
         /// <summary>The beam for an hour's night (0 day .. 1 night).</summary>
         public static float BeamIntensityFor(float night) =>
-            Mathf.Lerp(BeamIntensityDay, BeamIntensity, Mathf.Clamp01(night));
+            Mathf.Lerp(BeamIntensityDay, BeamIntensity, BeamNight(night));
         /// <summary>
         /// What each lamp's GLINTS take instead (the streak of an oncoming
         /// car's lamps down a wet road, the lamps of the car behind in your
@@ -545,6 +569,7 @@ namespace PSXRacing
         static readonly int FwdId = Shader.PropertyToID("_PSXHeadFwd");
         static readonly int RightId = Shader.PropertyToID("_PSXHeadRight");
         static readonly int ColorId = Shader.PropertyToID("_PSXHeadColor");
+        static readonly int HeadNightId = Shader.PropertyToID("_PSXHeadNight");
 
         /// <summary>How many lamps the table holds right now. For tests.</summary>
         public static int PushedCount { get; private set; }
@@ -613,6 +638,9 @@ namespace PSXRacing
             // shared material for every car, so one write.
             if (beamMat != null) beamMat.SetFloat("_Strength", ConeStrengthNow);
             Shader.SetGlobalFloat(CountId, n);
+            // The beam's albedo floor (PSXHeadlights.cginc): the hour's
+            // BeamNight, 0 through sunset and dawn.
+            Shader.SetGlobalFloat(HeadNightId, BeamNight(Shader.GetGlobalFloat("_PSXNight")));
             Shader.SetGlobalVectorArray(PosId, gPos);
             Shader.SetGlobalVectorArray(FwdId, gFwd);
             Shader.SetGlobalVectorArray(RightId, gRight);

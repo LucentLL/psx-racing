@@ -910,14 +910,21 @@ def cmd_shade(d, js):
 #   frame                 median 0-22, 49-82% under 20       -> median <= 22, >= 45% under 20
 #   headlit road          55-80 on old asphalt (12: 67; 15's road 48; a dirt road 118;
 #                         lit snow 150-210), 17-28x the unlit road in linear light
-#                                                            -> pool (14-22 m) >= 45 (the owner's fresh
-#                                                               #1e1e22 asphalt >= 28), >= 4x, <= 215
+#                                                            -> pool (14-22 m) >= 45 on EVERY road, the
+#                                                               owner's fresh #1e1e22 asphalt included
+#                                                               (round two: no softer floor for it), >= 4x,
+#                                                               <= 215
+#   the beam is what lets you drive                          -> the pool at least as bright as the brightest
+#                                                               street lamp's pool on the unlit frame's road
 #   the pool tails off    the band at 40-50 m about a third of the near pool
+# And the hours that run headlights with the sun up (SUNSET, DAWN; -Sets night
+# shoots B1 at both): the sidecar's beamIntensity must be the day beam and
+# beamNight 0 - the night beam and its albedo floor never light a day road.
 NIGHT_UNLIT_ROAD_MAX = 12.0
 NIGHT_SKY = (6.0, 24.0)
 NIGHT_MEDIAN_MAX, NIGHT_UNDER20_MIN = 22.0, 0.45
-NIGHT_POOL_MIN, NIGHT_POOL_MIN_FRESH, NIGHT_POOL_MAX, NIGHT_POOL_RATIO = 45.0, 28.0, 215.0, 4.0
-FRESH_ASPHALT_SPOTS = ("B1", "CC", "CD")
+NIGHT_POOL_MIN, NIGHT_POOL_MAX, NIGHT_POOL_RATIO = 45.0, 215.0, 4.0
+DAY_BEAM = 0.42
 
 
 def cmd_night(d, js):
@@ -968,14 +975,31 @@ def cmd_night(d, js):
             for k in ("beam_49", "beam_58"):
                 if k in L and onroad(k, L[k]):
                     far = L[k]["m"]["Ycode_med"]
-            spot = name.split("_")[1]
-            lo = NIGHT_POOL_MIN_FRESH if spot in FRESH_ASPHALT_SPOTS else NIGHT_POOL_MIN
-            okp = pool is not None and lo <= pool <= NIGHT_POOL_MAX and ratio >= NIGHT_POOL_RATIO
+            lo = NIGHT_POOL_MIN
+            # the brightest thing on the road: the pool against the street
+            # lamps' brightest pool on the unlit frame's road
+            lamps = brightest
+            okp = (pool is not None and lo <= pool <= NIGHT_POOL_MAX and ratio >= NIGHT_POOL_RATIO
+                   and (lamps is None or pool >= lamps))
             fails += not okp
             print(f"  LIT{rest or ''}  pool {fmt(pool)} ({lo:.0f}-{NIGHT_POOL_MAX:.0f}) x{fmt(ratio, 2)} the unlit road (>= {NIGHT_POOL_RATIO:.0f})"
+                  f"  over the lamps' brightest road {fmt(lamps)}: {'yes' if lamps is None or (pool or 0) >= lamps else 'NO'}"
                   f"  far (49-58 m) {fmt(far)}  {'ok' if okp else 'MISS'}")
-            rec["lit"][pn] = {"pool": pool, "ratio": ratio, "far": far, "ok": okp}
+            rec["lit"][pn] = {"pool": pool, "ratio": ratio, "far": far, "lamps": lamps, "ok": okp}
         out[name] = rec
+    # The sun-up hours with headlights on: the day beam, no albedo floor.
+    sunup = (sorted(glob.glob(os.path.join(d, "cs_*_sunset_*_lit*_g1_world.png")))
+             + sorted(glob.glob(os.path.join(d, "cs_*_dawn_*_lit*_g1_world.png"))))
+    for p in sunup:
+        v = (sidecar(p) or {}).get("variant", {})
+        bi, bn = v.get("beamIntensity"), v.get("beamNight")
+        ok = bi is not None and abs(bi - DAY_BEAM) < 1e-4 and (bn is None or bn == 0)
+        fails += not ok
+        L = Frame(p).region_table()
+        pool = L.get("road_ahead_14", {}).get("m", {}).get("Ycode_med")
+        print(f"\n{os.path.basename(p)}\n  SUN UP  beamIntensity {fmt(bi, 3)} (the day beam {DAY_BEAM}) beamNight {fmt(bn, 2)} (0)"
+              f"  road 14 m {fmt(pool)}  {'ok' if ok else 'MISS'}")
+        out[os.path.basename(p)] = {"beamIntensity": bi, "beamNight": bn, "road14": pool, "ok": ok}
     print(f"\nNIGHT: {fails} miss(es)")
     if js:
         with open(js, "w") as f:

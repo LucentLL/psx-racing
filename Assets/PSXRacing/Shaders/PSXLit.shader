@@ -489,7 +489,10 @@ Shader "PSX/Lit"
                 // exposure (exactly 1 with the tone off and at every hour
                 // but a bright noon).
                 float expo = PSXExposureGain();
-                float3 light = (sunAmb + headD + lampD) * expo;
+                // The beam reads a dark road at a real road's reflectance at
+                // night (PSXHeadlights.cginc, BEAM_ALBEDO_FLOOR) - off the dry
+                // texel, so a wet road still darkens under it.
+                float3 light = (sunAmb + headD * PSXBeamAlbedoGain(tex.rgb, N) + lampD) * expo;
 
                 // THE WET ROAD, one: how wet THIS pixel is - only if it looks
                 // up, more in the puddles - and the darker albedo of wet
