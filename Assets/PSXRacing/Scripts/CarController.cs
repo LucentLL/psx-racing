@@ -417,6 +417,59 @@ namespace PSXRacing
         const float AbsScrub = 0.06f;
         public const float RearBrakeLockShare = 0.75f;
 
+        /// <summary>
+        /// NO ABS (owner, 2026-09-30: "Brakes feel like they have ABS. No tire
+        /// screech during full braking."). This is 1999: a full pedal can LOCK
+        /// the front wheels. The pedal's force is brakeDemandG times this, so
+        /// the hardware can out-brake the tyres - about 80% pedal is the
+        /// threshold on a stock car, the last 20% locks the fronts. A locked
+        /// wheel slides at <see cref="LockedSlideMu"/> of its circle, opposite
+        /// its own travel, with no cornering force of its own (so it no longer
+        /// steers), and it marks, smokes and screeches because it is sliding.
+        /// The REAR keeps <see cref="RearBrakeLockShare"/> - the proportioning
+        /// valve every car of the era had - so a stomp understeers straight
+        /// on, never spins. AI drivers keep the old ABS (<see cref="Abs"/>):
+        /// they brake at full pedal into every corner.
+        /// </summary>
+        public const float BrakeLockHeadroom = 1.6f;
+        /// <summary>A locked tyre's sliding grip as a share of its peak circle.</summary>
+        public const float LockedSlideMu = 0.80f;
+        /// <summary>A locked wheel rolls again once the demand falls under this
+        /// share of its circle (the driver eased off the pedal).</summary>
+        const float LockReleaseFrac = 0.85f;
+        /// <summary>True for a car that has ABS: every AI car (see Abs). No
+        /// catalog car carries ABS data, so the player's cars have none.</summary>
+        [System.NonSerialized] public bool hasAbs;
+        AIDriver aiDriver;
+        int aiRecheck;
+        /// <summary>ABS fitted, or an AI at the wheel. The AI is looked up
+        /// again once a second: harnesses and the autopilot add one to a car
+        /// that has already been driving.</summary>
+        public bool Abs
+        {
+            get
+            {
+                if (aiDriver == null && --aiRecheck <= 0) { aiRecheck = 50; aiDriver = GetComponent<AIDriver>(); }
+                return hasAbs || (aiDriver != null && aiDriver.enabled);
+            }
+        }
+        readonly bool[] wheelLocked = new bool[4];
+        /// <summary>True while wheel i (FL, FR, RL, RR) is locked by the pedal.</summary>
+        public bool WheelLocked(int i) => wheelLocked[i];
+
+        /// <summary>
+        /// DRIVEN AGAINST THE TRAVEL: a car facing opposite to where it is
+        /// sliding, on the throttle. Its driven wheels are spun FORWARD against
+        /// a road running backwards under them, so they push with the whole
+        /// sliding circle whatever gear the box is in (share of the circle, at
+        /// full pedal). It used to be the gear's tractive force - and worse,
+        /// the revs were worked out from |forwardSpeed|, so a car sliding
+        /// backwards at 80 mph read as doing 80 forwards: it sat on the rev
+        /// limiter with the ECU cutting 95% of the torque. The owner's "full
+        /// gas pedal does not fight against the force".
+        /// </summary>
+        const float SpinAgainstShare = 0.90f;
+
         /// <summary>Layer holding the drivable road surface. Checked by layer
         /// rather than by collider name: reading Collider.name allocates a
         /// managed string on every wheel of every car on every physics tick.</summary>
@@ -479,7 +532,26 @@ namespace PSXRacing
         const float CountersteerDeadzone = 0.14f;
         const float CountersteerMinSpeed = 2.0f;  // source 12 gu/s
         const float CountersteerMaxAccel = 3.0f;
-        const float MaxBodySlipForSustain = 1.3f; // ~75 deg; without it, donuts never end
+        /// <summary>~40 deg. Was 1.3 (~75): the throttle kept the rear's grip
+        /// collapsed for as long as the car was anywhere short of a spin, so
+        /// a slide begun at 90 mph sat at 70 deg under full opposite lock and
+        /// only came back at 17 mph - the owner's "sliding on ice" after a
+        /// high-speed slide. Past 40 deg it is a spin to catch, not a drift to
+        /// hold. Without any cap, donuts never end.</summary>
+        const float MaxBodySlipForSustain = 0.70f;
+        /// <summary>
+        /// THE LOOSE CAR FADES WITH SPEED AND WITH THE REQUEST. The drift
+        /// layer (stabilizer, yaw tiers, sustain) is a high-speed toy: full
+        /// from <see cref="DriftFullSpeed"/> (36 mph), gone by
+        /// <see cref="DriftNoneSpeed"/> (18 mph). And it needs a REQUEST - the
+        /// throttle, the lever or a clutch-kick window. Lift off with none of
+        /// those and the grip layer comes back over DriftBlendTau, so a slide
+        /// ends as the driver lets it instead of skating on until the tyres
+        /// alone get round to it.
+        /// </summary>
+        const float DriftFullSpeed = 16f;
+        const float DriftNoneSpeed = 8f;
+        const float DriftRequestThrottle = 0.3f;
 
         // ---- yaw layer (P4) ------------------------------------------------
         // These were fifteen bare numbers inline in ApplyYawLayer and
@@ -1871,6 +1943,9 @@ namespace PSXRacing
                 float want = Drifting
                     ? Mathf.Clamp01((slip - DriftBlendStart) / DriftBlendSpan)
                     : 0f;
+                // Faded by speed and by the request - see DriftFullSpeed.
+                want *= DriftSpeedFactor();
+                if (!DriftRequested()) want = 0f;
                 // A GESTURE BUYS THE LOOSE CAR AT ONCE, without waiting for the
                 // car to be sideways first. Ramping purely on body slip is
                 // right for a slide that develops out of the tyres, and wrong
@@ -2087,6 +2162,7 @@ namespace PSXRacing
             if (!handbrakeInput && Drifting && throttleInput > 0.3f && speed > DriveGateSpeed &&
                 slipNow > DriftExitSlip && sustainBudget > 0f &&
                 Mathf.Abs(chassisSlipAngle) < MaxBodySlipForSustain &&
+                PlanarSpeed() > DriftNoneSpeed &&
                 EbrakeTimer < ThrottleSustainWindow)
                 EbrakeTimer = ThrottleSustainWindow;
         }
@@ -2212,6 +2288,16 @@ namespace PSXRacing
             return turboOffBoost + (1f - turboOffBoost) * Boost;
         }
 
+        /// <summary>1 at DriftFullSpeed and above, 0 at DriftNoneSpeed and below.</summary>
+        float DriftSpeedFactor() =>
+            Mathf.Clamp01((PlanarSpeed() - DriftNoneSpeed) / (DriftFullSpeed - DriftNoneSpeed));
+
+        /// <summary>Is the driver asking for the slide: on the throttle, on the
+        /// lever, or inside a handbrake / clutch-kick window.</summary>
+        bool DriftRequested() =>
+            throttleInput > DriftRequestThrottle || handbrakeInput ||
+            EbrakeTimer > 0f || clutchKickTimer > 0f;
+
         /// <summary>Ground speed in any direction, sideways included.</summary>
         float PlanarSpeed()
         {
@@ -2247,6 +2333,21 @@ namespace PSXRacing
             }
             else reverseHold = 0f;
 
+            // SLIDING BACKWARDS IN A FORWARD GEAR (a 180): the automatic box
+            // drops straight to first so the throttle has its full torque to
+            // spin the wheels against the slide, and it will not change up
+            // until the car is going forwards again. See SpinAgainstShare.
+            if (currentGear > 1 && !manualMode && forwardSpeed < -2f && throttleInput > 0.3f &&
+                shiftTimer <= 0f)
+                ShiftTo(1);
+
+            // The revs follow the road speed IN THE GEAR'S OWN DIRECTION. A
+            // forward gear on a car rolling backwards has its wheels spun up
+            // (or the clutch slipping), not an engine at 80 mph worth of revs:
+            // that reading put a backwards slide on the rev limiter, where the
+            // ECU cut the very torque meant to fight it.
+            speed = currentGear == -1 ? Mathf.Max(0f, -forwardSpeed) : Mathf.Max(0f, forwardSpeed);
+
             float ratio = GearRatio();
             float wheelRPM = speed / (2f * Mathf.PI * wheelRadius) * 60f;
             float kinematicRPM = wheelRPM * Mathf.Abs(ratio) * finalDrive;
@@ -2260,7 +2361,8 @@ namespace PSXRacing
             target = Mathf.Clamp(target, idleRPM, revLimitRPM);
             currentRPM = Mathf.MoveTowards(currentRPM, target, 12000f * dt);
 
-            if (currentGear >= 1 && !manualMode && shiftTimer <= 0f && gearJustChangedTimer <= 0f)
+            if (currentGear >= 1 && !manualMode && shiftTimer <= 0f && gearJustChangedTimer <= 0f &&
+                forwardSpeed > -0.5f)
             {
                 if (currentGear < gearRatios.Length && wheelSpin < 0.5f &&
                     (currentRPM > upshiftRPM || NextGearPullsHarder(currentRPM, accelPedal)))
@@ -2596,7 +2698,9 @@ namespace PSXRacing
                 driveForce -= fBrake * Mathf.Sign(forwardSpeed);
             }
 
-            float brakeForceTotal = brakePedal * brakeDemandG * massKg * 9.81f * faultBrakeMult;
+            bool abs = Abs;
+            float brakeForceTotal = brakePedal * brakeDemandG * massKg * 9.81f * faultBrakeMult *
+                                    (abs ? 1f : BrakeLockHeadroom);
 
             // Rear-mu collapse: the handbrake shrinks the rear friction circle so
             // the integrator saturates the rear first and yaw develops from the
@@ -2802,6 +2906,16 @@ namespace PSXRacing
                     driveDemand = driveForce * axleShare * DiffShare(loadShare, even, lockT);
                     fLong = Mathf.Clamp(driveDemand, -longCap, longCap);
                 }
+                // Throttle on a car going the other way - see SpinAgainstShare.
+                // The gear pushes one way (the sign of its ratio), the tyre is
+                // travelling the other. Engine braking also opposes vLong, but
+                // it pushes against the GEAR's direction, so it never counts.
+                bool spinAgainst = driveDemand != 0f && accelPedal > 0.05f && Mathf.Abs(vLong) > 0.5f &&
+                                   Mathf.Sign(driveDemand) == Mathf.Sign(ratio) &&
+                                   Mathf.Sign(vLong) != Mathf.Sign(ratio);
+                if (spinAgainst)
+                    fLong = Mathf.Sign(driveDemand) *
+                            Mathf.Max(Mathf.Abs(fLong), longCap * SpinAgainstShare * Mathf.Clamp01(accelPedal));
 
                 // Below the solver-jitter floor the brakes still hold the car:
                 // without this the car creeps off on any gradient with the
@@ -2847,8 +2961,20 @@ namespace PSXRacing
                     float share = Mathf.Lerp(fixedShare, loadShareAxle, BrakeLoadSensitivity);
                     int brakeWheels = Mathf.Max(1, front ? groundedFront : groundedRear);
                     brakeDemand = brakeForceTotal * share / brakeWheels;
+                    // NO ABS: a front wheel asked for more than its circle
+                    // (engine braking on a front-driver included) LOCKS, and
+                    // stays locked until the pedal eases - see
+                    // BrakeLockHeadroom. The force itself is set further down.
+                    if (!abs && front)
+                    {
+                        float asked = brakeDemand + Mathf.Max(0f, -Mathf.Sign(vLong) * fLong);
+                        if (asked > longCap) wheelLocked[i] = true;
+                        else if (asked < longCap * LockReleaseFrac) wheelLocked[i] = false;
+                    }
+                    else wheelLocked[i] = false;
                     fLong -= Mathf.Sign(vLong) * Mathf.Min(brakeDemand, longCap);
                 }
+                else wheelLocked[i] = false;
                 // THE BRAKES NEVER LOCK A WHEEL, and this is the whole of
                 // "every tap on the brake made the car want to go sideways"
                 // coming down Beech Gap.
@@ -2880,7 +3006,11 @@ namespace PSXRacing
                 // yaw injector's input and the burnout is the smokiest thing
                 // in the game on purpose.
                 {
-                    bool braking = Mathf.Sign(fLong) != Mathf.Sign(vLong) && Mathf.Abs(vLong) > 0.3f;
+                    // With ABS off the FRONT is the driver's to lock; the rear
+                    // keeps its cap (the proportioning valve). A wheel spun
+                    // against the travel is not braking at all.
+                    bool braking = Mathf.Sign(fLong) != Mathf.Sign(vLong) && Mathf.Abs(vLong) > 0.3f &&
+                                   !spinAgainst && (abs || !front);
                     float lockShare = front ? FrontBrakeLockShare : RearBrakeLockShare;
                     if (braking && Mathf.Abs(fLong) > longCap * lockShare)
                         fLong = -Mathf.Sign(vLong) * longCap * lockShare;
@@ -2931,6 +3061,8 @@ namespace PSXRacing
                 float rollSpeed = Mathf.Abs(vLong);
                 float longSlide = Mathf.Max(driveOver * Mathf.Max(rollSpeed, SpinScrubSpeed),
                                             brakeOver * rollSpeed);
+                // A wheel spun against the road slides at least at road speed.
+                if (spinAgainst) longSlide = Mathf.Max(longSlide, rollSpeed);
                 float latSlide = Mathf.Max(0f, Mathf.Abs(vLat) - rollSpeed * SlipPeakTan);
                 wheelContacts[i].slide = Mathf.Sqrt(latSlide * latSlide + longSlide * longSlide);
                 wheelContacts[i].forward = wheelForward;
@@ -2943,6 +3075,23 @@ namespace PSXRacing
                 // jitter. Fading it out to 2 m/s made the tires let go at parking
                 // speeds, which is most of why the car felt unbound from the road.
                 fLat *= Mathf.Clamp01(contactVel.magnitude / 0.6f);
+
+                // A LOCKED WHEEL is a block of rubber sliding over the road: one
+                // force, LockedSlideMu of its circle, straight against its own
+                // travel. Where the wheel points no longer matters - that is why
+                // a locked front does not steer - and all of that travel is
+                // rubber on tarmac, so it marks, smokes and screeches in full.
+                if (wheelLocked[i] && !parkHold)
+                {
+                    float vPlane = Mathf.Sqrt(vLong * vLong + vLat * vLat);
+                    if (vPlane > 0.3f)
+                    {
+                        float fSlide = circle * LockedSlideMu;
+                        fLong = -fSlide * vLong / vPlane;
+                        fLat = -fSlide * vLat / vPlane;
+                        wheelContacts[i].slide = vPlane;
+                    }
+                }
                 // EXCEPT WHEN PARKED, where that fade is the bug: a stationary
                 // car has no slip angle, so TireCurve gives it nothing to fade
                 // in the first place, and the multiply then takes away the last
@@ -3043,7 +3192,11 @@ namespace PSXRacing
                 // did not take locks the player out of a drift for half a
                 // second afterwards. Exactly the feature they asked for,
                 // failing quietly.
-                if (rearSlip < DriftExitSlip && bodySlip < DriftExitBodySlip &&
+                // Or it has simply slowed out of drift territory with nothing
+                // asking for it: a slide begun at 90 mph must not still be the
+                // "drift state" at walking pace - see DriftFullSpeed.
+                bool slowedOut = vel.magnitude < DriftNoneSpeed && !DriftRequested();
+                if ((rearSlip < DriftExitSlip && bodySlip < DriftExitBodySlip || slowedOut) &&
                     !ebrakeActive && clutchKickTimer <= 0f)
                 {
                     Drifting = false;
@@ -3107,7 +3260,9 @@ namespace PSXRacing
             // lights up its tires understeers instead, so the injector is gated
             // off entirely for FWD and scaled down for 4WD.
             float layoutGain = 1f - frontDriveShare;
-            if (wheelspinRatio > 0f && injectorFade > 0f && steerMag > steerGate &&
+            // Not while going backwards: wheels spun against a slide are
+            // stopping the car, not power oversteer (see SpinAgainstShare).
+            if (wheelspinRatio > 0f && injectorFade > 0f && steerMag > steerGate && forwardSpeed > 0f &&
                 postDriftTimer <= 0f && anyWheelGrounded && layoutGain > 0.05f)
             {
                 float mult = Mathf.Lerp(InjectorGrip,

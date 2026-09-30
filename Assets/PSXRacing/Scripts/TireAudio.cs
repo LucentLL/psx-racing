@@ -42,6 +42,8 @@ namespace PSXRacing
         const float EbrakeLockSpeed = 2.4f;    // m/s
         const float WheelspinGate = 0.15f;
         const float BurnoutGasThresh = 0.7f;
+        const float SlideScreechStart = 1.1f;  // m/s, = SkidMarks' mark threshold
+        const float SlideScreechFull = 5.0f;
 
         public float GripUse { get; private set; }
 
@@ -119,6 +121,25 @@ namespace PSXRacing
             {
                 target = ScrubMaxVol * 1.3f;
                 pitchTarget = 1.05f;
+            }
+
+            // RUBBER SLIDING ON THE ROAD, read straight off the contact patches
+            // (CarController.wheelContacts[].slide, m/s): a LOCKED wheel under
+            // a full pedal, or one spun against a backwards slide. Neither has
+            // a slip ANGLE, so the branches above never heard them - the
+            // owner's "no tire screech during full braking". Same 1.1 m/s the
+            // skid marks start at, full voice by 5.
+            if (grounded && speed > minSpeed)
+            {
+                float scrub = 0f;
+                var wc = car.wheelContacts;
+                for (int w = 0; w < wc.Length; w++) scrub = Mathf.Max(scrub, wc[w].slide);
+                if (scrub > SlideScreechStart)
+                {
+                    float u = Mathf.Clamp01((scrub - SlideScreechStart) / (SlideScreechFull - SlideScreechStart));
+                    target = Mathf.Max(target, Mathf.Lerp(ScrubMaxVol, DriftMaxVol, u));
+                    pitchTarget = Mathf.Max(pitchTarget, 0.95f + 0.2f * u);
+                }
             }
 
             // Wheelspin rides on top of whatever branch won: a lit-up rear axle

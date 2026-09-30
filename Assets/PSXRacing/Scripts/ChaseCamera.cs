@@ -666,6 +666,24 @@ namespace PSXRacing
 
             Vector3 wanted = target.position - fwdG * dist + upG * h + right * swing;
 
+            // ---- THE SEAT LEADS THE YAW TOO. The seat is swung round behind
+            // the car as it turns, and positionLag trails that swing by
+            // r / positionLag - about as far as the lens used to trail the
+            // heading, so from a seat left out to one side the car still
+            // turned in the frame. Rotated ahead about the car by that trail
+            // while gripping, faded out in a slide like the lens lead below.
+            float yawNow = 0f, gripT = 1f;
+            if (targetCar != null && targetCar.Body != null)
+            {
+                yawNow = targetCar.Body.angularVelocity.y * Mathf.Rad2Deg;
+                Vector3 tv = targetCar.Body.linearVelocity; tv.y = 0f;
+                if (tv.sqrMagnitude > 4f && Vector3.Dot(tv, fwd) > 0f)
+                    gripT = 1f - Mathf.Clamp01(Mathf.Abs(targetCar.chassisSlipAngle) / Mathf.Max(aimSlipFullRad, 0.01f));
+            }
+            yawRateSm = Mathf.Lerp(yawRateSm, yawNow, 1f - Mathf.Exp(-YawLeadFilter * dt));
+            float seatLeadDeg = Mathf.Clamp(yawRateSm / Mathf.Max(positionLag, 0.5f), -MaxYawLeadDeg, MaxYawLeadDeg) * gripT;
+            wanted = target.position + Quaternion.AngleAxis(seatLeadDeg, Vector3.up) * (wanted - target.position);
+
             // ---- LEAD OUT THE STEADY TRAIL. A first-order lag chasing a
             // point that moves at v settles v / positionLag behind it, and the
             // clamp below pinned that at lagClampM above 6 m/s -- so in every
@@ -751,13 +769,36 @@ namespace PSXRacing
             // pitch exactly shape.pitch — to the ROAD, so both are in its
             // frame. A point near the car rather than a bare angle keeps the
             // car framed while the lateral and vertical lag are out.
-            GradeFrame(aimFwd, gradeDeg, out Vector3 aimG, out _);
-            Vector3 lookAt = target.position + upG * shape.lookY + aimG * LookAheadM;
-            Quaternion wantedRot = Quaternion.LookRotation(lookAt - smoothPos, Vector3.up);
             // Slower while sideways, for the reason the reference gives. Reads
             // the same gated aimSlipT, so a spin or a reverse no longer slows
             // the follow to its drift rate.
             float rotRate = Mathf.Lerp(rotationLag, RotationLagDriftOf(this), aimSlipT);
+
+            // ---- LEAD OUT THE YAW TRAIL, as the position lead above does for
+            // the seat. A first-order follow chasing a car turning at r sits
+            // r / rotRate behind its heading: 13-14 deg in a 70 mph keyboard
+            // lane change (HandlingPlayCheck E), so the car swung across the
+            // frame one way and then the other while the lens caught up - the
+            // owner's "car swings side to side away from camera too much and
+            // makes it difficult to control". Aimed ahead by that trail the
+            // lens holds the car square while it GRIPS; the lag that is left is
+            // the yaw ACCELERATION, the part that reads as weight. Faded out
+            // with the slide (aimSlipT): a drift keeps its slower, looser lens
+            // and its aim toward the travel, which is the NFS picture.
+            if (targetCar != null && targetCar.Body != null)
+            {
+                yawLeadDeg = Mathf.Clamp(yawRateSm / Mathf.Max(rotRate, 0.5f), -MaxYawLeadDeg, MaxYawLeadDeg) *
+                             (1f - aimSlipT);
+            }
+            else yawLeadDeg = 0f;
+
+            GradeFrame(aimFwd, gradeDeg, out Vector3 aimG, out _);
+            Vector3 lookAt = target.position + upG * shape.lookY + aimG * LookAheadM;
+            // The lead turns the LENS, not the look point: the look point is
+            // only a few metres up the aim line, so turning it moved the lens
+            // by a third of the lead at most.
+            Quaternion wantedRot = Quaternion.AngleAxis(yawLeadDeg, Vector3.up) *
+                                   Quaternion.LookRotation(lookAt - smoothPos, Vector3.up);
             followRot = Quaternion.Slerp(followRot, wantedRot, 1f - Mathf.Exp(-rotRate * dt));
             transform.rotation = followRot;
         }
@@ -765,13 +806,19 @@ namespace PSXRacing
         Vector3 aimFwd = Vector3.forward;
         float velYawDeg;
         bool haveVelYaw;
+        float yawRateSm, yawLeadDeg;
+        /// <summary>Low-pass on the yaw rate the lens leads by, 1/s (kerbs and
+        /// solver noise out, a steering input in).</summary>
+        const float YawLeadFilter = 20f;
+        /// <summary>Most the lens may lead the heading by, degrees.</summary>
+        const float MaxYawLeadDeg = 15f;
 
         /// <summary>Drop the travel-direction filter. Called whenever the rig
         /// stops being the thing that aims the camera — a mounted view, a
         /// respawn — so returning to a chase view mid-slide re-seeds on the
         /// heading the car has NOW rather than resuming on one last filtered
         /// several seconds ago.</summary>
-        public void ForgetAim() { haveVelYaw = false; aimFwd = Vector3.forward; }
+        public void ForgetAim() { haveVelYaw = false; aimFwd = Vector3.forward; yawRateSm = 0f; }
 
         /// <summary>
         /// <see cref="rotationLagDrift"/>, with a floor.
