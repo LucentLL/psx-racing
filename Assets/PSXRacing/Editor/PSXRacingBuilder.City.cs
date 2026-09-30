@@ -283,6 +283,32 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
+        /// Charlotte's junction furniture (WP-26..28, CitySignals): STOP signs
+        /// and their posts, signal poles, mast arms, span wires, heads and
+        /// stop bars on one 256 atlas (tools/city/signals_atlas.py: the
+        /// owner's pack metal and his Roads pack's STOP sign), the same
+        /// PSX_FURNITURE variant as the poles', so a tile's junction furniture
+        /// is one draw. The lenses' one shared material is made from this at
+        /// runtime (CitySignals.LampMaterial). Null if the atlas is missing:
+        /// the furniture then does not draw (the signal poles still stand).
+        /// </summary>
+        internal static Material CitySignalsMat()
+        {
+            const string tex = Root + "/Art/City/Signals/CitySignals.png";
+            if (AssetDatabase.LoadAssetAtPath<Texture2D>(tex) == null)
+            {
+                Log("WARN: " + tex + " missing (py tools/city/signals_atlas.py) - Charlotte's stop signs and signals will not draw.");
+                return null;
+            }
+            var mat = MakeMat("CitySignals", tex, affine: 0f);
+            if (mat.HasProperty("_AtlasPx")) mat.SetFloat("_AtlasPx", 256f);
+            mat.DisableKeyword("PSX_ATLAS_RECT");
+            mat.EnableKeyword("PSX_FURNITURE");
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        /// <summary>
         /// The city's trees (WP-08), one material per season dress in
         /// <see cref="Seasons"/> order: the stage forest's five atlases
         /// (Art/BRP/Gen, the owner's CC0 retro tree pack composed with every
@@ -371,6 +397,7 @@ namespace PSXRacing.EditorTools
             kit.treeLowReach = CityTreeLowReach();
             kit.signs = CitySignsMat();
             kit.furniture = CityFurnitureMat();
+            kit.signals = CitySignalsMat();
             var shaders = new List<Shader>();
             if (kit.furniture != null && kit.furniture.shader != null && !shaders.Contains(kit.furniture.shader))
                 shaders.Add(kit.furniture.shader);
@@ -384,6 +411,8 @@ namespace PSXRacing.EditorTools
                 if (m != null && m.shader != null && !shaders.Contains(m.shader)) shaders.Add(m.shader);
             if (kit.signs != null && kit.signs.shader != null && !shaders.Contains(kit.signs.shader))
                 shaders.Add(kit.signs.shader);
+            if (kit.signals != null && kit.signals.shader != null && !shaders.Contains(kit.signals.shader))
+                shaders.Add(kit.signals.shader);
             foreach (var name in new[] { "PSX/Lit", "PSX/Water", "PSX/LitTransparent" })
             {
                 var sh = Shader.Find(name);

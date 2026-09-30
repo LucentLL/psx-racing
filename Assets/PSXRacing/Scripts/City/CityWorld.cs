@@ -156,6 +156,11 @@ namespace PSXRacing.City
         public IEnumerable<CityPoles.PoleTile> LivePoles => livePoles.Values;
         readonly Dictionary<long, CityPoles.PoleTile> livePoles = new Dictionary<long, CityPoles.PoleTile>();
 
+        /// <summary>The live tiles' junction furniture (STOP signs, signals),
+        /// for the tools.</summary>
+        public IEnumerable<CitySignals.SignalTile> LiveSignals => liveSignals.Values;
+        readonly Dictionary<long, CitySignals.SignalTile> liveSignals = new Dictionary<long, CitySignals.SignalTile>();
+
         /// <summary>The node trims and building lots this world places by
         /// (the same instances), for the tools that ask the roadside mask
         /// about what it stood (the pole shots' spot check).</summary>
@@ -307,6 +312,8 @@ namespace PSXRacing.City
 
         void Update()
         {
+            // the one clock every signal head in the city runs on
+            CitySignals.Tick(Time.timeAsDouble);
             if (player == null || Map == null) return;
             var p = player.position;
             int ptx = Mathf.FloorToInt(p.x / CityMeshes.TileSize);
@@ -419,6 +426,7 @@ namespace PSXRacing.City
             treesPending.Remove(key);
             liveSigns.Remove(key);
             livePoles.Remove(key);
+            liveSignals.Remove(key);
             if (Trunks != null) Trunks.RemoveTable(key);
             if (!live.TryGetValue(key, out var t)) return;
             live.Remove(key);
@@ -464,6 +472,21 @@ namespace PSXRacing.City
                     tile.meshes[tile.meshes.Length - 1] = pt.mesh;
                 }
                 tile.colliders += pt.poles.Count;
+            }
+            // THE JUNCTION FURNITURE: STOP signs and stop bars, traffic
+            // signals on their poles, mast arms and span wires - one static
+            // mesh, one mesh of lenses on the shared signal material, one of
+            // halos lit after dark (CitySignals)
+            var jt = tt.signals;
+            if (jt != null) liveSignals[key] = jt;
+            if (jt != null && jt.mesh != null)
+            {
+                foreach (var m in CitySignals.Attach(tile.go, jt))
+                {
+                    System.Array.Resize(ref tile.meshes, tile.meshes.Length + 1);
+                    tile.meshes[tile.meshes.Length - 1] = m;
+                }
+                tile.colliders += jt.poles.Count;
             }
             // THE SIGNS (WP-23), placed on the mask before the trees
             var st = tt.signs;
@@ -535,6 +558,11 @@ namespace PSXRacing.City
         /// ones for (one already begun runs to its end).</summary>
         public const float SignSliceMs = 3f;
 
+        /// <summary>Prop lots left empty because the drawn ground falls away
+        /// under them further than the foundation skirt reaches
+        /// (CityProps.MaxFallM), since the process started.</summary>
+        public static int PropsDropped;
+
         /// <summary>Build a tile if it is not live. True when it was built
         /// (its trees then wait for <see cref="PlantTrees"/>).</summary>
         public bool EnsureTile(int tx, int tz)
@@ -569,7 +597,11 @@ namespace PSXRacing.City
                     var prefab = CityProps.CityPrefab(b.kind);
                     if (prefab == null) continue;
                     var def = CityProps.Defs[b.kind];
-                    float gy = CityBuildings.SeatY(Map, b.pos, b.w, b.d, b.yaw);
+                    // seated on the ground this build DREW (its lattice is
+                    // still cached), and left out where the ground falls away
+                    // further than its foundation skirt reaches
+                    float gy = CityBuildings.SeatY(Map, b.pos, b.w, b.d, b.yaw, out float low);
+                    if (gy - low > CityProps.MaxFallM(def)) { PropsDropped++; continue; }
                     var go = Instantiate(prefab, root.transform);
                     go.transform.position = new Vector3(b.pos.x, gy - def.sink, b.pos.y);
                     go.transform.rotation = Quaternion.Euler(

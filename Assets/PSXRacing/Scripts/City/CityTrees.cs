@@ -224,6 +224,11 @@ namespace PSXRacing.City
             /// mesh (the poles, wires and the tile's street lamps: WP-15),
             /// placed on the mask before the signs; null when there are none.</summary>
             public CityPoles.PoleTile poles;
+            /// <summary>The tile's junction furniture (STOP signs, signals and
+            /// their stop bars), placed on the mask FIRST (the plan's priority:
+            /// junction furniture, poles, lamps, signs, trees); null when there
+            /// is none.</summary>
+            public CitySignals.SignalTile signals;
             /// <summary>What the canopy asks this tile for (density applied,
             /// before the per-tile cap), and what was planted.</summary>
             public float wanted;
@@ -279,7 +284,8 @@ namespace PSXRacing.City
             trees &= wanted >= 0.5f;
             // the furniture (WP-15): the poles, and the tile's lamps drawn with them
             bool furniture = CityPoles.Enabled || (tm != null && tm.lamps.Count > 0);
-            if (!trees && !signs && !furniture) { tt.ms = (float)clock.Elapsed.TotalMilliseconds; return tt; }
+            bool junctions = CitySignals.Enabled && CitySignals.AnyIn(map, trims, tx, tz);
+            if (!trees && !signs && !furniture && !junctions) { tt.ms = (float)clock.Elapsed.TotalMilliseconds; return tt; }
             float cap = MaxPerTile * density;
             float scale = wanted > cap ? cap / wanted : 1f;
 
@@ -288,8 +294,12 @@ namespace PSXRacing.City
             var occ = RoadsideOccupancy.Build(map, trims, buildings, tm, tx, tz);
             tt.occ = occ;
             tt.occMs = (float)clock.Elapsed.TotalMilliseconds;
-            // THE POLES FIRST (WP-15; the plan's priority: poles, lamps, signs,
-            // trees): their feet taken on the mask before the signs and trees
+            // THE JUNCTION FURNITURE FIRST (the plan's priority: junction
+            // furniture, poles, lamps, signs, trees): STOP signs and signal
+            // poles take their ground on the mask before anything else
+            if (junctions) tt.signals = CitySignals.Build(map, trims, buildings, tm, occ, tx, tz);
+            // THE POLES NEXT (WP-15): their feet taken on the mask before the
+            // signs and trees
             if (furniture) tt.poles = CityPoles.Build(map, trims, buildings, tm, occ, tx, tz);
             // THE SIGNS (WP-23; the plan's priority: signs before trees):
             // they take their ground on the mask, and the trees keep off it

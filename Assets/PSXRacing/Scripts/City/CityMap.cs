@@ -337,6 +337,13 @@ namespace PSXRacing.City
         /// <summary>Section SPLT's splits (null in older data): the line
         /// model's median tapers.</summary>
         public LineModel.Split[] splt;
+        /// <summary>A tagged control node (section TAGN): its OSM node id, the
+        /// way it was found on, its kind (4 signal, 2 stop, 1 give way) and
+        /// where it lies on the graph now (edge index, arc position).</summary>
+        public struct Tagged { public ulong nodeId; public uint wayId; public byte kind; public int edge; public float s; }
+        /// <summary>Section TAGN's control nodes (null in older data): one per
+        /// (node, way), so a junction node two ways share is listed twice.</summary>
+        public Tagged[] tagged;
         public Water[] waters;
         public Crossing[] crossings;
         public WaterSpan[] wspans;
@@ -725,6 +732,25 @@ namespace PSXRacing.City
                         if (ei >= 0 && ei < ne) taprOff[ei] = 0.5f * (o0 + o1);
                     }
                     Close("TAPR");
+                }
+                // TAGN (WP-10): the OSM control nodes (signals, stops, give
+                // ways) resolved on the RAW ways, and where they lie now:
+                // (edge, s). Read by CitySignals. Layout: export_osm.mjs, TAGN.
+                if (Has("TAGN"))
+                {
+                    Open("TAGN");
+                    int ntg = r.ReadInt32();
+                    map.tagged = new Tagged[ntg];
+                    for (int i = 0; i < ntg; i++)
+                    {
+                        uint lo = r.ReadUInt32(), hi = r.ReadUInt32();
+                        var t = new Tagged { nodeId = ((ulong)hi << 32) | lo, wayId = r.ReadUInt32(), kind = r.ReadByte() };
+                        r.ReadSingle();                   // the raw distance along the way
+                        t.edge = r.ReadInt32();
+                        t.s = r.ReadSingle() * LayoutScale;
+                        map.tagged[i] = t;
+                    }
+                    Close("TAGN");
                 }
                 if (Has("SPLT"))
                 {

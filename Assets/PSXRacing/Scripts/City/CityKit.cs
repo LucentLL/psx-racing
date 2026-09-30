@@ -47,6 +47,8 @@ namespace PSXRacing.City
         public Material paint;
         [Tooltip("WP-23 sign faces.")]
         public Material signs;
+        [Tooltip("WP-26..28 junction furniture atlas: STOP signs, signal poles, mast arms, heads, stop bars (CitySignals). The lenses' shared material is made from it at runtime.")]
+        public Material signals;
 
         [Tooltip("Every shader the city draws with, so no build strips one.")]
         public Shader[] shaders;
@@ -95,6 +97,7 @@ namespace PSXRacing.City
             PSXTexDecode.Stamp(kit.furniture);
             PSXTexDecode.Stamp(kit.paint);
             PSXTexDecode.Stamp(kit.signs);
+            PSXTexDecode.Stamp(kit.signals);
         }
 
         /// <summary>The material for a slot, or null.</summary>

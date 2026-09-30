@@ -33,7 +33,7 @@ namespace PSXRacing.EditorTools
     /// Headless: -executeMethod PSXRacing.EditorTools.CityRefSpots.Run
     /// (tools\city-refspots.ps1 runs it and builds the sheet).
     /// </summary>
-    public static class CityRefSpots
+    public static partial class CityRefSpots
     {
         enum Kind { StreetView, Kink, Crest }
 

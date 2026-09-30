@@ -101,7 +101,8 @@ Shader "PSX/Halo"
             {
                 float4 vertex : POSITION;
                 float2 uv : TEXCOORD0;     // the corner: (0,0) (1,0) (1,1) (0,1)
-                float2 uv1 : TEXCOORD1;    // x = this halo's size multiplier
+                float2 uv1 : TEXCOORD1;    // x = this halo's size multiplier; y = 0, or 10 + the yaw a
+                                           // one-way lens faces (a signal head: CitySignals)
                 float4 color : COLOR;      // white; a per-halo tint if ever wanted
             };
 
@@ -146,7 +147,18 @@ Shader "PSX/Halo"
                 float start = min(_PSXFogFar, HALO_FULL * end);
                 float fade = 1.0 - saturate((dist - start) / max(end - start, 1.0));
 
-                o.col = float4(_Color.rgb * v.color.rgb * (_Strength * fade), fade);
+                // A LENS THAT FACES ONE WAY (a traffic signal's, uv1.y > 0): lit
+                // from in front, nothing from behind or edge-on - the head and
+                // its backplate are in the way. A street lamp (uv1.y = 0) glows
+                // all round, exactly as before (x 1).
+                float facing = 1.0;
+                if (v.uv1.y > 0.5)
+                {
+                    float yaw = v.uv1.y - 10.0;
+                    float2 toEye = _WorldSpaceCameraPos.xz - wc.xz;
+                    facing = smoothstep(0.05, 0.6, dot(float2(sin(yaw), cos(yaw)), toEye) / max(length(toEye), 1e-3));
+                }
+                o.col = float4(_Color.rgb * v.color.rgb * (_Strength * fade * facing), fade * facing);
                 return o;
             }
 

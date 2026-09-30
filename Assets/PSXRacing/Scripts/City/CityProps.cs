@@ -43,6 +43,33 @@ namespace PSXRacing.City
         /// </summary>
         public const float PackScale = 0.81f;
 
+        /// <summary>
+        /// THE FOUNDATION SKIRT (the prop baker's AddSkirt): a concrete band
+        /// under every prop, from <see cref="SkirtTuckM"/> up inside the
+        /// MODEL'S OWN LOWEST COURSE down to this far below the pivot.
+        ///
+        /// It used to run from 5 cm above the pivot, whatever the model: the
+        /// house pack's house stands on a 0.6 m plinth above its pivot (0.74 m
+        /// before PackScale), so every city house showed a 0.55 m slot of
+        /// daylight between the top of its foundation and the bottom of its
+        /// walls - and with its 0.30 m sink the foundation's top was BELOW the
+        /// ground at the lot's high corner, so the house hovered 0.3 m over
+        /// the grass there ("some houses are floating above their
+        /// foundations", 2026-09-30). The trailers stood 0.19 m clear of theirs.
+        ///
+        /// A lot whose drawn ground falls further below its seat than the
+        /// skirt reaches (its sink plus this, less a hand's breadth) is left
+        /// empty (CityWorld): a house on stilts at one corner is worse than a
+        /// bare yard.
+        /// </summary>
+        public const float SkirtDepthM = 3.0f;
+        /// <summary>How far the skirt's top tucks up inside the model's lowest course.</summary>
+        public const float SkirtTuckM = 0.08f;
+
+        /// <summary>The most the drawn ground may fall below a prop's seat
+        /// across its lot before the skirt stops reaching it.</summary>
+        public static float MaxFallM(Def def) => def.sink + SkirtDepthM - 0.15f;
+
         public const byte House = 1;
         public const byte Trailer0 = 2;
         public const byte Trailer1 = 3;

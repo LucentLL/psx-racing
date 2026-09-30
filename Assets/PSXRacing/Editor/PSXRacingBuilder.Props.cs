@@ -100,6 +100,10 @@ namespace PSXRacing.EditorTools
                 ForcePackTexture(inst, fbx);
                 foreach (var t in inst.GetComponentsInChildren<Transform>(true))
                     t.gameObject.isStatic = false;   // streamed tiles move whole objects
+                // THE MODEL'S OWN BASE, measured before anything of ours is
+                // added (the apron, the solid box, the skirt): the foundation
+                // reaches up to it (CityProps.SkirtDepthM says why).
+                float modelBase = RendererBounds(inst).min.y - inst.transform.position.y;
 
                 if (kind == CityProps.Burger) DressBurger(inst, def);
                 else if (kind == CityProps.Pizzeria) DressPizzeria(inst, def);
@@ -108,7 +112,8 @@ namespace PSXRacing.EditorTools
                 // Every prop stands on ground that undulates, and the lots seat
                 // on their HIGHEST corner — the skirt is what the low corner
                 // shows instead of daylight under the floor slab.
-                AddSkirt(inst, def.w, def.d);
+                AddSkirt(inst, def.w, def.d, modelBase);
+                Log($"  prop {name}: model base {modelBase:0.00} m over its pivot, skirt {Mathf.Max(0.05f, modelBase + CityProps.SkirtTuckM):0.00} to {-CityProps.SkirtDepthM:0.00}");
 
                 string path = CityPropsDir + "/" + name + ".prefab";
                 PrefabUtility.SaveAsPrefabAsset(inst, path);
@@ -265,9 +270,13 @@ namespace PSXRacing.EditorTools
             bay.AddComponent<DriveThru>().venue = venue;
         }
 
-        /// <summary>Concrete foundation from just above the base line down two
-        /// metres. Purely visual — the ground collider is still the ground.</summary>
-        static void AddSkirt(GameObject inst, float w, float d)
+        /// <summary>Concrete foundation from <see cref="CityProps.SkirtTuckM"/>
+        /// up inside the model's own lowest course (<paramref name="modelBase"/>,
+        /// metres over the pivot; never lower than 5 cm over the pivot) down to <see cref="CityProps.SkirtDepthM"/>
+        /// below the pivot, so there is no daylight between the foundation and
+        /// the walls whatever the model's plinth. Purely visual — the ground
+        /// collider is still the ground.</summary>
+        static void AddSkirt(GameObject inst, float w, float d, float modelBase)
         {
             var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(
                 LifeSimArtDir + "/House/Textures/ConcreteBare.jpg");
@@ -275,9 +284,14 @@ namespace PSXRacing.EditorTools
             var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
             go.name = "Skirt";
             go.transform.SetParent(inst.transform, false);
-            go.transform.localPosition = new Vector3(0f, -1.05f, 0f);
+            // never lower than the 5 cm over the pivot it always had: the
+            // pizzeria pack's mid-rise shells reach 6-9 m BELOW their pivots
+            // (their lowest renderer is not their base), and a skirt tucked up
+            // under that would be buried whole
+            float top = Mathf.Max(0.05f, modelBase + CityProps.SkirtTuckM), bottom = -CityProps.SkirtDepthM;
+            go.transform.localPosition = new Vector3(0f, (top + bottom) * 0.5f, 0f);
             go.transform.localScale = new Vector3(
-                Mathf.Max(1f, w - 0.8f), 2.2f, Mathf.Max(1f, d - 0.8f));
+                Mathf.Max(1f, w - 0.8f), top - bottom, Mathf.Max(1f, d - 0.8f));
             Object.DestroyImmediate(go.GetComponent<Collider>());
             var mr = go.GetComponent<MeshRenderer>();
             mr.sharedMaterial = mat;

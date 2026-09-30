@@ -218,6 +218,7 @@ namespace PSXRacing.EditorTools
             Mat(kit.furniture, "furniture");
             Mat(kit.paint, "paint");
             Mat(kit.signs, "signs");
+            Mat(kit.signals, "signals");
             if (kit.shaders != null)
                 for (int i = 0; i < kit.shaders.Length; i++)
                 {

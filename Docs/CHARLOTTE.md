@@ -3679,12 +3679,85 @@ its own page until it is merged into the game (owner decision, 2026-09-28):
   save changed only its own database. After reloading both pages, each
   resumed its own career.
 
+## Floating houses, STOP signs and traffic signals (2026-09-30)
+
+**The floating houses.** The owner: "some houses are floating above their
+foundations". The foundation skirt the prop baker puts under every prop ran
+from 5 cm above the pivot down, whatever the model. The house pack's house
+stands on a 0.59 m plinth above its pivot, and the trailers stand 0.24 m
+above theirs. So every city house had a 0.55 m slot of daylight between the
+top of its foundation and the bottom of its walls. With the house's 0.30 m
+sink, the top of its foundation was also below the ground at the lot's high
+corner, so the house hovered about 0.3 m over the grass there. Of the 3,110
+houses and trailers probed, 3,109 showed more than 0.1 m of open gap (worst
+1.37 m). The fix:
+
+- The skirt now reaches up to 8 cm inside the model's own lowest course (and
+  never lower than the old 5 cm), and down to 3 m below the pivot
+  (`CityProps.SkirtDepthM`, `PSXRacingBuilder.AddSkirt`).
+- `CityBuildings.SeatY` now seats a lot on the DRAWN ground
+  (`CityMeshes.LatticeAt`: the corners, the edge midpoints, the centre and
+  every lattice corner inside the footprint) instead of `GroundY` at five
+  points. `GroundY` is the field the lattice samples, and it bulges between
+  lattice corners.
+- A lot whose drawn ground falls further than the skirt reaches
+  (`CityProps.MaxFallM`) is left empty. That is 38 of the 3,110.
+
+After the fix, 0 of the 3,110 show a gap. `CityRefSpots.RunSignals` prints
+the four worst lots before and after.
+
+**STOP signs and signals (the visible part of WP-26 to WP-28;
+`Scripts/City/CitySignals.cs`).**
+
+- *Where the controls come from.* The export's TAGN section (WP-10), now read
+  into `CityMap.tagged`. The meaning of a STOP at a junction node (`stop=all`,
+  `stop=minor`, `direction`) comes from `Resources/charlotte_stops.bytes`
+  (`node tools/city/stop_tags.mjs`, keyed by OSM node id), so the graph is not
+  re-exported.
+- *Which junctions are signalised.* A signal at a junction node, or up to
+  20 m before one, marks that node. Marked nodes within 40 m of each other
+  are one junction, so a divided road's crossing is one junction.
+- *Which approaches stop.* `stop=all` stops every approach. A direction tag
+  stops that way. Otherwise the node's minor road stops; where both roads
+  are the same class, both stop.
+- *Counts* (from the static mask): 994 signalised junctions (3,329
+  approaches) and 504 stop-controlled junctions (936 approaches, 103 of them
+  all-way). Placed: 897 STOP signs, 4,265 stop bars, and 5,540 signal heads
+  on 1,196 mast arms and 520 span wires (2,236 solid signal poles). 350
+  approaches found no clear spot.
+- *Where things stand.* Nothing stands in a lane, a driveway, a building or
+  lot, water, under a deck, or in a race run-off. The check is
+  `RoadsideOccupancy.RoadEdgeDistance` on the line model's edges plus the
+  mask bits. The clear zone, sight triangles and corner spots are allowed:
+  the mask reserves them for this furniture.
+  - A STOP sign stands at the stop line on the approach's right.
+  - A mast-arm pole stands at the far-right corner, found by walking just
+    outside the right edge across the junction. Its arm carries a head over
+    each inbound lane, up to three.
+  - Outside uptown, a span wire runs between the far-right corners of an
+    opposing pair, with a head hung where each inbound lane crosses it.
+    Where no span strings, mast arms are used instead.
+  - The junction's centre tile owns all of it, and the feet are marked on
+    the mask before the poles, signs and trees.
+- *Phones.* A tile's junction furniture is three draws whatever it holds:
+  - one static mesh on the kit's `signals` atlas
+    (`tools/city/signals_atlas.py`: the owner's pack metal, and the STOP
+    sign from his Roads pack, `T (11).jpg`);
+  - one mesh of lenses on ONE runtime material shared by the whole city. Its
+    4 x 2 texture is rewritten by the clock when a phase changes;
+  - one mesh of PSX/Halo halos, lit after dark and recoloured by vertex
+    colour. `uv1.y = 10 + yaw` makes a halo one-sided, so nothing glows out
+    of the back of a head.
+- *The clock.* `CitySignals.AspectOf(group, t)`: green 14 s, yellow 3.5 s,
+  all-red 1.5 s, per opposing pair. It is ticked by `CityWorld.Update`.
+  Traffic obeying it is the next package.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,
 neighbourhoods beyond the 8 km core (each 8 x 8 km box is one Overpass
 fetch), city race tracks drawn on the graph by the player, lane-level turn
-markings at junctions, signal heads, a skyline backdrop past the fog, a
+markings at junctions, a skyline backdrop past the fog, a
 one-sided (MUTCD) lane taper on one-way carriageways, the ROVAL.
 
 Street lamps are no longer on this list: they stand on the verges since the
