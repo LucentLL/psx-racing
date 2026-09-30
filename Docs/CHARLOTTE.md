@@ -1000,8 +1000,8 @@ the canopy grid, so the lines release re-exports the roads without it;
   only in a commercial or industrial area within 660 ft of the right of way,
   19A NCAC 02E .0203: OSM landuse commercial, retail or industrial within
   100 m, or a business within 150 m) and **commercial frontage** (retail or
-  commercial land at the cell). 2,263 landuse polygons; 12.9% of the box is
-  zoned, 3.6% frontage;
+  commercial land at the cell, or a business within 40 m). 2,263 landuse
+  polygons; 12.9% of the box is zoned, 4.2% frontage;
 - **the routes and their density**, a STATISTIC off NCDOT's outdoor
   advertising permits (plan Q8: NCDOT data for statistics only, never
   positions), as the plan's critic measured it per route in Mecklenburg:
@@ -1063,36 +1063,68 @@ frame (`CityTrees.Build` builds the mask, places the signs, then plants):
   foot, where the lamps are). The owner of a board keeps the trees out of its
   line of sight: the first 60 m toward its drivers is marked on the mask;
 - **business pole signs**: one at the frontage of every business in the data,
-  and along the commercial frontage 7 stations in 10 every 40 m where OSM maps
-  no shop; no two within 30 m. A 2.4-3.2 m cabinet 4.5-6.5 m up (6.9-9.7 m
-  overall; the plan's 6-10), on one post or two, square to the road and
-  turned, on a bend, to split its two drivers 80 m either way; lit from
-  inside after dark. No tree trunk within 5 m of one. Breakaway (Q15): no
-  collider.
+  and every 32 m along the commercial frontage where OSM maps no shop - the
+  landuse or a business says it is commercial, or it is an arterial the game
+  lines with stores - wherever a STORE stands behind (the nearest building
+  within 90 m back and 35 m either way is a shop, not a house, an office tower
+  or nothing: no pylon on a lawn beside houses), its front wall at least 3 m
+  back (room for the cabinet: a building at the kerb wears its sign on its
+  wall), never on a divided road's median side, and none uptown inside the
+  loop (1.3 km of Trade and Tryon: its signs are on the walls). An OSM
+  business at the kerb gets none either. No two on ONE side of the road within 30 m (across the road
+  only within 12 m), settled best first: a sign loses to a better one of the
+  next tile always, to one of its own tile only if that one stood. A 2.4-3.2
+  m cabinet 4.5-6.5 m up (6.9-9.7 m overall; the plan's 6-10), on one post or
+  two, square to the road and turned, on a bend, to split its two drivers 80
+  m either way; lit from inside after dark; stood up to 14 m back and 11 m
+  along from its place for free ground, wholly inside its own tile. No tree
+  trunk within 5 m of one, nor within 2.5 m of the first 45 m of each of its
+  drivers' lines of sight. Breakaway (Q15): no collider.
 
 Every post, leg and face footprint stands on free ground (no pavement, clear
 zone, sight triangle, corner spot, building, lot, lamp foot, water, deck or
 race run-off), and marks what it takes. Nothing overhangs a road but a
 gantry's panels. Deterministic: every choice is a hash of an edge station or a
 business index; a sign belongs to the tile its nominal post is in, and the
-spacing is settled over everything within 230 m of the tile, so no sign is
+spacing is settled over everything within 340 m of the tile, so no sign is
 placed twice across a seam.
+
+**Across the seams.** A gantry's legs stand up to 65 m off its carriageway and
+a billboard's line of sight runs 60 m, so both reach into the next tile. They
+are decided from global data only: the STATIC mask
+(`RoadsideOccupancy.Static`, every reservation but a tile build's own fill
+houses and lamp feet, cached for the 32 tiles last asked for) of whatever tile
+each leg, post or face lands in. Every tile computes every gantry and
+billboard that could reach it (once a session: `CitySigns.Pure`, its boxes
+recorded for its owner to draw) and marks their ground on its own mask before
+its trees; the owner draws it. The owner alone knows its fill houses and lamp
+feet, so it drops one standing on them (the next tile then keeps a few cells
+clear for nothing, never the reverse). A gantry's span is marked too: no tree
+under the truss. A business's cabinet stands wholly inside its own tile.
 
 **The faces** (`Art/City/Signs/CitySigns.png`, one 512 x 512 atlas, RGB565 on
 WebGL; `CitySigns_night.png`, its 128 px night mask; `tools/city/signs_atlas.py
---check` rebuilds both byte for byte). FICTIONAL brands from the owner's packs
-only: STACK BURGER (BurgerPiz `menu_burger.png`), SLICE HOUSE (a pizza from the
-All pack's `Foods_04.jpg`), the Gas_station pack's own `6twelve` and its price
-board, the Pizzeria pack's PIZZA banner, and three tin signs from its
-`Decorative_Sign.png` ("Burgers - Best in Town", two "Eat Good Food"), looked
-at one by one: its two CAMEL signs, the Harley-Davidson bar-and-shield ones and
-the contour cola bottles are left out. The cabinets' generic trades (MOTEL,
-BANK, DRUGS, CAR WASH, AUTO SALES, TIRES, PLAZA, FOOD MART, LOUNGE) are lettered
-in Aileron (CC0) over the gas station's striped sign. Not used although the
-plan listed them: the Buildings pack's `Shops_01-31`, which are photographs of
-real storefronts with real names and phone numbers. The gantry panels are the
-plan's Q7 code-drawn pattern; the structure metal is the lamp posts' pack
-`Metal.jpg`.
+--check` rebuilds both byte for byte). PACK PICTURES ONLY (plan Q6's default,
+"pack faces only"; nothing is lettered in code: the only words on a face are
+the ones its pack picture carries), every brand FICTIONAL: STACK BURGER is the
+BurgerPiz `menu_burger.png` burger on red, SLICE HOUSE the All pack's
+`Foods_04.jpg` pizza on green; the Gas_station pack's own `6twelve` and its
+price board and striped `Sign.jpg`; the Pizzeria pack's PIZZA banner and five
+pictures of its `Decorative_Sign.png` ("Burgers - Best in Town", two "Eat Good
+Food", a dancing couple, a made-up NORTH CAROLINA plate), looked at one by one:
+its two CAMEL signs, the Harley-Davidson bar-and-shield ones, the contour cola
+bottles and HOLLYWOOD GASOLINE are left out. The trades with no shop sign in
+the packs show what they sell: a motel the All pack's palm beach
+(`Paintings.jpg`), a bank the PSX Mega Pack's gold bar, a pharmacy the
+NEUROZAM-9 pill bottle's prescription label, a car lot the NC plate and two
+boggle-pack wheels, tyres two wheels, a car wash a wheel over PSX Textures
+water, a grocer the All pack's bananas and watermelon, a lounge the dancers;
+a strip mall's pylon four tenants (a shirt, an old television, a pizza, a
+burger). The grounds are the lamp posts' pack `Metal.jpg` tinted to each
+sign's colour; a tourism bulletin shows `Paintings.jpg`'s coast and desert.
+Not used although the plan listed them: the Buildings pack's `Shops_01-31`,
+photographs of real storefronts with real names and phone numbers. The gantry
+panels are the plan's Q7 code-drawn pattern, the only code-drawn faces.
 
 **Drawn** in one mesh a tile with the kit's one material (`CityKit.signs`,
 `Materials/CitySigns.mat`): one draw a tile that has signs, not a sun-map
@@ -1182,6 +1214,109 @@ draws (the shader with `_NightFace` compiles on WebGL 2); the pause menu's
 CREDITS page shows the NCDOT line, wrapped, not clipped. The spawn on Tryon
 uptown has no sign in view (the uptown frontage is building to the kerb), and
 the drive to one was not made in the browser; the editor shots are the look.
+
+### WP-23 review (2026-09-29): business signs where the stores are, pack faces only, signs across the seams
+
+The review found three things wrong with the first pass.
+
+**1. Too few business signs, some of them in the wrong place.** Two signs
+on opposite sides of an arterial knocked each other out: the 30 m spacing
+had no same-side test, and a 4-5 lane road puts the two sides 26-29 m
+apart. The frontage fill was one station in 0.7 every 40 m. A candidate also
+lost to a better one that then found no ground. Meanwhile the fills stood
+wherever OSM landuse said "commercial", which was often in grass beside
+houses, because the game's procedural suburbs do not read landuse. Now:
+
+- no two signs on ONE side within 30 m; across the road only within 12 m;
+- settled best first, and a sign loses only to a better one of its own tile
+  that actually stood (or to any of the next tile's);
+- the frontage is every collector or bigger with commercial landuse or a
+  business within 40 m, and every arterial, checked every 32 m;
+- a fill stands only where a STORE is the nearest building behind it (within
+  90 m back and 35 m either way), with its front wall at least 3 m back. There
+  is none in front of a house, an office tower or an empty field, and none in
+  a divided road's median;
+- no pole sign uptown inside the loop (1.3 km of Trade and Tryon), and none
+  for an OSM business at the kerb: those signs are on the walls;
+- a cabinet may move up to 14 m back and 11 m along the road to find ground;
+- trees are kept off the first 45 m of each of a cabinet's drivers' lines of
+  sight (2.5 m wide), as billboards already were.
+
+On the audited tiles that gives 1,680 business signs (1,054 at OSM
+businesses, 626 frontage fills), on 32.9 km of store frontage: one
+every 20 m, and the fills alone one every 52 m (the plan: every
+30-60 m). The first pass placed 2,769, of which many stood on a lawn, in a
+median, uptown, or against a wall. What does not stand is the ground the game
+gives them:
+
+- 8,753 frontage stations where OSM says commercial but the game has a
+  house or nothing behind (mostly the procedural suburbs and the Independence
+  expressway, which has no buildings along it);
+- 1,058 where the store or the business is at the kerb;
+- 542 that lost the spacing, and 104 with no free ground.
+
+The shots' streets show the same thing (`CityAudit`'s per-street lines).
+Along Statesville Avenue the fills stand every 30 m in front of stores. South
+Boulevard at Archdale is grass and houses in the game, so it gets two signs.
+
+**2. Faces lettered in code.** The OWNER DECISIONS took Q6's default, "pack
+faces only". The first atlas lettered nine trades and all the slogans in
+Aileron. The atlas now uses only pack pictures (see "The faces" above), and
+no lettering is drawn in code. `signs_atlas.py --check` rebuilds it byte for
+byte.
+
+**3. Signs that cross a tile seam were invisible to the next tile.** A
+gantry's leg, a billboard's face, its line of sight and a gantry's span were
+marked only on the owner's mask, clipped at the seam. The next tile planted
+trees on them, and nothing checked a foot there. Now both kinds are decided
+from global data (the static masks), and every tile they reach marks their
+ground before its trees (see "Across the seams" above).
+
+The decisions cost the tile that first needs them, on the masks of the tiles
+round it. `CityWorld` spends a frame of its own on each 3 ms slice of them
+(`CitySigns.Prepare`, `CityWorld.PrepareSigns`), before the tile's tree frame.
+`EnsureRing` does the same slices back to back, so the budget probe times the
+frames play would have.
+
+The sign audit now also checks:
+
+- every leg and post in a tile not its own, against that tile's own full
+  mask (its fill houses and lamps too) and against the marks of the tile that
+  planted round it;
+- no tree trunk on any sign's ground in any tile;
+- no two signs' posts in one another;
+- the business-sign density on store frontage.
+
+Results: 67 legs and posts in the next tile, all on free ground, all
+marked there; 0 trees on a sign's ground; 0 posts in one another. The owner
+dropped 4 gantries or billboards on its own fill houses or lamps.
+
+**Checked (the review's run):**
+
+- SIGN AUDIT OK: 332 billboards (271 bulletins, 61 posters, 32 of
+  them OSM's), 1,680 business signs, 182 gantries (13 cantilevers).
+- Billboard density: interstates 149/167 (-11%), US/NC 175/197 (-11%).
+- CITY AUDIT OK: DRIVE AUDIT 0/0/0/0/0, roadside 0, tree audit OK.
+- The roadside probe ran; city-play-check CITY SPAWNS OK.
+- SELF-TEST OK, GUID AUDIT OK, typecheck OK.
+- Race batch, signs on, three routes, seeds 0 and 1: 11 rivals retired (12
+  in the first pass's A/B); 0 hits on a sign post; 0 on a trunk.
+- `signs.mjs --check` OK (frontage 4.2% of the box, was 3.6%);
+  `signs_atlas.py --check` OK.
+
+**Budget** (same sites; signs on / off): the worst view is 209 draws with the signs and without (trade_tryon); at most +7 draws in one view (tryon_start, one a tile with signs in view); tile build p95 70.5 ms with the signs, 76.1 without (the signs are not in that path: noise); the tree frames, the signs' slices on frames of their own, p95 5.3 ms, max 11.0 (the first pass 5.8 / 16.8, WP-08 4.9 / 13.6). The static-mask cache holds 32 tiles (about 2 MB) and the decided gantries and billboards a few KB each.
+
+**Size:** WebGL.data 82.46 MiB (the first pass 82.40, before WP-23 82.25), under the 95 MiB ratchet; the atlas 0.50 MiB in the Build Report as before; charlotte_signs.bytes 803 KB raw, 56 KB Brotli; SIZE LEDGER OK.
+
+**Shots:** `CityRefSpots.RunSigns` adds a `<spot>_street` frame for each spot
+(the street of the nearest business sign, from its driver 80 m up the road).
+It also adds three streets the game lines with stores: Central Ave in Plaza
+Midwood, Albemarle Rd, and Wilkinson Blvd.
+
+**Not done:** on the audited tiles there are about 280 km of OSM commercial frontage where the
+game's buildings are houses or nothing, because the procedural suburbs do not
+read landuse. Signs wait for stores there. A buildings pass that puts shops on
+commercial landuse would let them stand; it is not part of this package.
 
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 

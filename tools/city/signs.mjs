@@ -15,8 +15,10 @@
 //         .0203; an "unzoned commercial area" needs a business near it). The
 //         game reads OSM landuse=commercial|retail|industrial within 100 m of
 //         the cell, or a business within 150 m, as that area.
-//       2 COMMERCIAL FRONTAGE: retail or commercial land at the cell, where
-//         the business pole signs line the road even where OSM maps no shop;
+//       2 COMMERCIAL FRONTAGE: retail or commercial land at the cell, or a
+//         business within 40 m of it, where the business pole signs line
+//         the road even where OSM maps no shop (CitySigns stands one only
+//         where a store, not a house, is behind it);
 //   * THE ROUTES and how dense their billboards are. The density is a
 //     STATISTIC off NCDOT's outdoor-advertising permits (plan Q8's default:
 //     NCDOT data for statistics and validation only, never positions),
@@ -210,7 +212,8 @@ for (const el of BIZ.elements) {
 pois.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
 
 // ---- the 60 m grid: bit 1 zoned (land within 100 m or a business within
-// 150 m of the cell's middle), bit 2 frontage (commercial/retail at the cell)
+// 150 m of the cell's middle), bit 2 frontage (commercial/retail at the cell,
+// or a business within 40 m)
 const grid = new Uint8Array(lat.nx * lat.nz);
 const R_LAND = Math.round(100 / fcell), R_BIZ = Math.round(150 / fcell);
 // separable box dilation of each bit
@@ -223,12 +226,15 @@ function dilate(mask, r) {
   return out;
 }
 const dl = dilate(land.map(v => v & 3 ? 1 : 0), R_LAND), db = dilate(land.map(v => v & 4 ? 1 : 0), R_BIZ);
+// frontage: commercial or retail land, or a mapped business within R_FRONT_BIZ (OSM maps the
+// shops of many a strip without its landuse); the runtime puts a fill only where a store stands behind
+const R_FRONT_BIZ = Math.round(40 / fcell), dbf = dilate(land.map(v => v & 4 ? 1 : 0), R_FRONT_BIZ);
 for (let iz = 0; iz < lat.nz; iz++)
   for (let ix = 0; ix < lat.nx; ix++) {
     // the fine cell at this lattice node (a coarse cell is centred on its node)
     const fi = (iz * F + 1) * fnx + ix * F + 1;
     let g = (dl[fi] || db[fi]) ? 1 : 0;
-    for (let sz = 0; sz < F && !(g & 2); sz++) for (let sx = 0; sx < F; sx++) if (land[(iz * F + sz) * fnx + ix * F + sx] & 1) { g |= 2; break; }
+    for (let sz = 0; sz < F && !(g & 2); sz++) for (let sx = 0; sx < F; sx++) { const fk = (iz * F + sz) * fnx + ix * F + sx; if ((land[fk] & 1) || dbf[fk]) { g |= 2; break; } }
     grid[iz * lat.nx + ix] = g;
   }
 const cellOf = (x, z) => { const ix = Math.round((x - lat.x0) / lat.cell), iz = Math.round((z - lat.z0) / lat.cell);

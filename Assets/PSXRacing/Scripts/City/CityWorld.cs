@@ -282,9 +282,15 @@ namespace PSXRacing.City
                 for (int dx = -r; dx <= r; dx++)
                     EnsureTile(tx + dx, tz + dz);
             // whoever asks for a ring is about to put a car (or a camera) in it
+            // (the signs decided first, in the slices streaming spends a frame
+            // each on, so the budget probe times what play does)
             for (int dz = -r; dz <= r; dz++)
                 for (int dx = -r; dx <= r; dx++)
-                    PlantTrees(Key(tx + dx, tz + dz));
+                {
+                    long k = Key(tx + dx, tz + dz);
+                    if (treesPending.ContainsKey(k)) while (PrepareSigns(k) == 2) { }
+                    PlantTrees(k);
+                }
         }
 
         void Update()
@@ -381,7 +387,13 @@ namespace PSXRacing.City
                     float d2 = cx * cx + cz * cz - (near ? 1e12f : 0f);
                     if (d2 < bestD) { bestD = d2; best = k; urgent = near; }
                 }
-                if (!built || urgent) PlantTrees(best);
+                // the gantries and billboards that reach it are decided first,
+                // a slice a frame (WP-23: they are decided on the masks of the
+                // tiles round it, which a tile's own frame should not all pay for)
+                if (!built || urgent)
+                {
+                    if (urgent || PrepareSigns(best) == 0) PlantTrees(best);
+                }
             }
         }
 
@@ -465,6 +477,28 @@ namespace PSXRacing.City
             if (recentBuilds.Count > 256) recentBuilds.RemoveAt(0);
             TileBuilt?.Invoke(timing);
         }
+
+        /// <summary>A frame's slice of the signs a waiting tile needs decided
+        /// (<see cref="CitySigns.Prepare"/>), timed as a tree frame: 0 when
+        /// there was nothing to do (the tile may plant this frame), 1 when this
+        /// slice finished them, 2 when there is more.</summary>
+        public int PrepareSigns(long key)
+        {
+            if (!CitySigns.Enabled || Map == null) return 0;
+            int tx = (int)(key >> 24), tz = (int)((key << 40) >> 40);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            int r = CitySigns.Prepare(Map, nodeTrims, buildings, tx, tz, SignSliceMs);
+            if (r == 0) return 0;
+            float ms = (float)clock.Elapsed.TotalMilliseconds;
+            var timing = new TileTiming { tx = tx, tz = tz, treeFrame = true, treesMs = ms, totalMs = ms, signsMs = ms };
+            recentBuilds.Add((Time.realtimeSinceStartup, ms));
+            if (recentBuilds.Count > 256) recentBuilds.RemoveAt(0);
+            TileBuilt?.Invoke(timing);
+            return r;
+        }
+        /// <summary>How long a frame's slice of sign decisions may start new
+        /// ones for (one already begun runs to its end).</summary>
+        public const float SignSliceMs = 3f;
 
         /// <summary>Build a tile if it is not live. True when it was built
         /// (its trees then wait for <see cref="PlantTrees"/>).</summary>

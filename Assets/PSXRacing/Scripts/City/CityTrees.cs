@@ -284,7 +284,7 @@ namespace PSXRacing.City
             tt.occMs = (float)clock.Elapsed.TotalMilliseconds;
             // THE SIGNS FIRST (WP-23; the plan's priority: signs before trees):
             // they take their ground on the mask, and the trees keep off it
-            if (signs) tt.signs = CitySigns.Build(map, trims, occ, tx, tz);
+            if (signs) tt.signs = CitySigns.Build(map, trims, buildings, tm, occ, tx, tz);
             if (!trees) { tt.ms = (float)clock.Elapsed.TotalMilliseconds; return tt; }
             System.Array.Clear(taken, 0, taken.Length);
             float distUp = Vector2.Distance(min + Vector2.one * (CityMeshes.TileSize * 0.5f), map.uptown);

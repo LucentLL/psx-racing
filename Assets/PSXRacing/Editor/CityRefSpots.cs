@@ -302,7 +302,8 @@ namespace PSXRacing.EditorTools
             Directory.CreateDirectory(dir);
             foreach (var f in Directory.GetFiles(dir, "*.png")) File.Delete(f);
             PSXRacingBuilder.EnsureCityTextures();
-            var spots = new[] { "sv_a3_i77w", "sv_a2_i277", "sv_a6_south", "sv_a5_strip", "sv_a14_i85" };
+            // the plan's shot roads, the strip, and three streets the game lines with stores
+            var spots = new[] { "sv_a3_i77w", "sv_a2_i277", "sv_a6_south", "sv_a5_strip", "sv_a14_i85", "sv_a11_central", "sv_a15_albemarle", "sv_a7_wilk1" };
             var cams = new List<(string name, Vector3 eye, Vector3 look, Vector2 at, string what)>();
             var log = new StringBuilder("shot	eye_x	eye_y	eye_z	look_x	look_y	look_z	what\n");
             var go = new GameObject("~citySignShots");
@@ -349,6 +350,18 @@ namespace PSXRacing.EditorTools
                             Shoot(dir, name + "_close", ce, Quaternion.LookRotation(best.centre - ce), 0f);
                         }
                         log.Append($"{name}\t{eye.x:0.0}\t{eye.y:0.00}\t{eye.z:0.0}\t{look.x:0.0}\t{look.y:0.00}\t{look.z:0.0}\t{sp.what}: the nearest {kind}, {bd:0} m from the spot\n");
+                        if (kind == CitySigns.Kind.PoleSign)
+                        {
+                            // and the street it stands on, from its driver 80 m up
+                            // the road: the frontage's signs, not one cabinet
+                            var se = best.viewer + Vector3.up * 1.2f;
+                            var sl = new Vector3(best.centre.x, best.viewer.y + 1.5f, best.centre.z);
+                            string sn = sp.id.Replace("sv_", "") + "_street";
+                            world.EnsureRing(se, 1);
+                            cams.Add((sn, se, sl, p, $"{sp.what}: the street of the nearest pole sign, from its driver"));
+                            Shoot(dir, sn + "_after", se, Quaternion.LookRotation(sl - se), 0f);
+                            log.Append($"{sn}\t{se.x:0.0}\t{se.y:0.00}\t{se.z:0.0}\t{sl.x:0.0}\t{sl.y:0.00}\t{sl.z:0.0}\t{sp.what}: the street of the nearest pole sign, from its driver\n");
+                        }
                     }
                     world.DropAll();
                 }

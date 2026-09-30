@@ -5,7 +5,7 @@
   "files": [
    {
     "file": "WebGL.data.unityweb",
-    "bytes": 86397621
+    "bytes": 86463042
    },
    {
     "file": "WebGL.framework.js.unityweb",
@@ -17,14 +17,14 @@
    },
    {
     "file": "WebGL.wasm.unityweb",
-    "bytes": 7627100
+    "bytes": 7646376
    },
    {
     "file": "index.html",
     "bytes": 14088
    }
   ],
-  "largest_mib": 82.4
+  "largest_mib": 82.46
  },
  "data": {
   "charlotte_city.bytes": {
@@ -49,12 +49,12 @@
   },
   "charlotte_signs.bytes": {
    "raw": 803315,
-   "brotli": 55657
+   "brotli": 56455
   }
  },
  "data_total": {
   "raw": 7844205,
-  "brotli": 3935890
+  "brotli": 3936688
  },
  "build_report": {
   "log": "C:\\Users\\mcgee\\PSXScenery\\build.log",
@@ -70,7 +70,7 @@
    "Total User Assets": 195035136,
    "Complete build size": 94266982
   },
-  "used_assets": 3429,
+  "used_assets": 5867,
   "charlotte": [
    {
     "asset": "Assets/PSXRacing/Resources/charlotte_city.bytes",
@@ -615,36 +615,219 @@
    {
     "asset": "Assets/PSXRacing/Art/City/Night/city_facade_glass_night.png",
     "bytes": 16486
+   },
+   {
+    "asset": "Assets/PSXRacing/Art/City/city_road_junction_concrete_old.png",
+    "bytes": 8294
+   },
+   {
+    "asset": "Assets/PSXRacing/Art/City/city_road_junction_concrete_new.png",
+    "bytes": 8294
+   },
+   {
+    "asset": "Assets/PSXRacing/Art/City/city_road_junction_asphalt_old.png",
+    "bytes": 8294
+   },
+   {
+    "asset": "Assets/PSXRacing/Art/City/city_road_junction_asphalt_new.png",
+    "bytes": 8294
+   },
+   {
+    "asset": "Assets/PSXRacing/Art/City/city_facade_house.png",
+    "bytes": 8294
+   },
+   {
+    "asset": "Assets/PSXRacing/Art/City/city_facade_glass.png",
+    "bytes": 8294
+   },
+   {
+    "asset": "Assets/PSXRacing/Art/LifeSim/Pizzeria/city_building_05.fbx",
+    "bytes": 8294
+   },
+   {
+    "asset": "Assets/PSXRacing/Art/LifeSim/Pizzeria/city_building_08.fbx",
+    "bytes": 5530
+   },
+   {
+    "asset": "Assets/PSXRacing/Art/LifeSim/Pizzeria/city_building_16.fbx",
+    "bytes": 5427
+   },
+   {
+    "asset": "Assets/PSXRacing/Art/LifeSim/Pizzeria/city_building_18.fbx",
+    "bytes": 5222
+   },
+   {
+    "asset": "Assets/PSXRacing/Art/LifeSim/Pizzeria/city_building_11.fbx",
+    "bytes": 5120
+   },
+   {
+    "asset": "Assets/PSXRacing/Art/LifeSim/Pizzeria/city_building_15.fbx",
+    "bytes": 4301
+   },
+   {
+    "asset": "Assets/PSXRacing/Art/LifeSim/Pizzeria/city_building_17.fbx",
+    "bytes": 3994
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/house_simple.prefab",
+    "bytes": 1126
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/trailer_05.prefab",
+    "bytes": 1126
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/trailer_02.prefab",
+    "bytes": 1126
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/trailer_00.prefab",
+    "bytes": 1024
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/city_building_18.prefab",
+    "bytes": 922
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/city_building_17.prefab",
+    "bytes": 922
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/city_building_16.prefab",
+    "bytes": 922
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/city_building_15.prefab",
+    "bytes": 922
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/city_building_11.prefab",
+    "bytes": 922
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/city_building_08.prefab",
+    "bytes": 922
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/city_building_05.prefab",
+    "bytes": 922
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/city_building_03.prefab",
+    "bytes": 922
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/city/trailer_05.prefab",
+    "bytes": 922
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/city/trailer_02.prefab",
+    "bytes": 922
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/city/trailer_00.prefab",
+    "bytes": 922
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/city/house_simple.prefab",
+    "bytes": 922
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/tower_08_2.prefab",
+    "bytes": 819
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/tower_08_1.prefab",
+    "bytes": 819
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/tower_07_2.prefab",
+    "bytes": 819
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/tower_07_1.prefab",
+    "bytes": 819
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/tower_06_2.prefab",
+    "bytes": 819
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/tower_06_1.prefab",
+    "bytes": 819
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/tower_05_2.prefab",
+    "bytes": 819
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/tower_05_1.prefab",
+    "bytes": 819
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/tower_04_2.prefab",
+    "bytes": 819
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/tower_04_1.prefab",
+    "bytes": 819
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/tower_03_2.prefab",
+    "bytes": 819
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/tower_03_1.prefab",
+    "bytes": 819
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/tower_02_2.prefab",
+    "bytes": 819
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/tower_02_1.prefab",
+    "bytes": 819
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/tower_01_4.prefab",
+    "bytes": 819
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/tower_01_3.prefab",
+    "bytes": 819
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/tower_01_2.prefab",
+    "bytes": 819
+   },
+   {
+    "asset": "Assets/PSXRacing/Resources/CityProps/tower_01_1.prefab",
+    "bytes": 819
    }
   ],
-  "charlotte_bytes": 14395753
+  "charlotte_bytes": 14513613
  },
  "git": {
   "paths": {
    "Assets/PSXRacing/Resources/charlotte_bld.bytes": {
-    "versions": 2,
-    "bytes": 3509798,
-    "disk": 1439316
-   },
-   "Assets/PSXRacing/Resources/charlotte_canopy.bytes": {
-    "versions": 1,
-    "bytes": 742908,
-    "disk": 430555
+    "versions": 3,
+    "bytes": 5252602,
+    "disk": 2878463
    },
    "Assets/PSXRacing/Resources/charlotte_city.bytes": {
-    "versions": 5,
-    "bytes": 13777996,
-    "disk": 4906018
+    "versions": 7,
+    "bytes": 20373986,
+    "disk": 7164176
    },
    "Assets/PSXRacing/Resources/charlotte_dem.bytes": {
     "versions": 5,
     "bytes": 9117805,
-    "disk": 5033089
+    "disk": 4960937
    },
    "Assets/PSXRacing/Resources/charlotte_routes.json": {
-    "versions": 4,
-    "bytes": 65597,
-    "disk": 15550
+    "versions": 6,
+    "bytes": 98778,
+    "disk": 23038
    },
    "tools/city/truth/city120.ptru.gz": {
     "versions": 1,
@@ -680,10 +863,20 @@
     "versions": 1,
     "bytes": 2350,
     "disk": 1187
+   },
+   "Assets/PSXRacing/Resources/charlotte_canopy.bytes": {
+    "versions": 1,
+    "bytes": 742908,
+    "disk": 409306
+   },
+   "Assets/PSXRacing/Resources/charlotte_signs.bytes": {
+    "versions": 1,
+    "bytes": 803315,
+    "disk": 74219
    }
   },
-  "total_disk": 12917820,
-  "size_kib": 433671,
-  "size-pack_kib": 1387554
+  "total_disk": 16603431,
+  "size_kib": 191331,
+  "size-pack_kib": 1814758
  }
 }

@@ -114,22 +114,69 @@ namespace PSXRacing.EditorTools
                 if (n == 0) badWhere[what] = $"({at.x:0.0},{at.y:0.0}) {LatLon(at.x, at.y)} {detail}";
             }
             var perRoute = new int[CitySignData.Routes.Length];
-            int bulletins = 0, posters = 0, poles = 0, gantries = 0, osm = 0, posts = 0, lamps = 0, faces = 0, cantilevers = 0;
-            int refusedB = 0, refusedP = 0, refusedG = 0, multiSub = 0, outside = 0, runOff = 0;
+            int bulletins = 0, posters = 0, poles = 0, polePoi = 0, gantries = 0, osm = 0, posts = 0, lamps = 0, faces = 0, cantilevers = 0;
+            int refusedB = 0, refusedP = 0, refusedG = 0, multiSub = 0, outside = 0, runOff = 0, vetoed = 0, foreign = 0;
             int tilesWith = 0, faceBad = 0, lampBad = 0;
             float worstDot = 1f, worstClear = float.MaxValue, msSum = 0f, msMax = 0f;
             string worstDotAt = "", worstClearAt = "";
             bool same = true;
             var all = new Dictionary<long, (CitySigns.Kind kind, Vector2 p)>();
             int twice = 0;
+            // the ground signs take in OTHER tiles than their own, and their
+            // feet there: checked against those tiles' own masks and trees
+            var awayMarks = new Dictionary<long, List<(CitySigns.Mark m, CitySigns.Kind kind)>>();
+            var awayFeet = new Dictionary<long, List<(Vector2 f, CitySigns.Kind kind)>>();
+            // every solid post, for the clash check
+            var postCells = new Dictionary<long, List<(Vector2 c, float r, int sign)>>();
+            int signId = 0, postId = 0, awayFeetN = 0, treesOn = 0, clashes = 0;
+            int pLost = 0, pNoStore = 0, pAtKerb = 0, pNoDriver = 0, pNoGround = 0, pBend = 0;
+            float storeM = 0f;
+            // the streets at the shot spots: their business signs, and their length (each side)
+            var stripSigns = new Dictionary<string, int>();
+            var stripM = new Dictionary<string, float>();
+            // why the business signs at the shot spots did or did not stand, by street
+            var poleWhy = new Dictionary<string, Dictionary<string, int>>();
+            var frontSegs = new HashSet<int>();
+            var frontEdges = new SortedSet<int>();
+            float frontM = 0f;
+            var tileSet = new HashSet<long>();
+            foreach (var t in tiles) tileSet.Add(TileKey(t.tx, t.tz));
+            long KeyOf(Vector2 p) => TileKey(Mathf.FloorToInt(p.x / ts), Mathf.FloorToInt(p.y / ts));
+            void TreesOnMarks(IEnumerable<(CitySigns.Mark m, CitySigns.Kind kind)> marks, CityTrees.TreeTile tile)
+            {
+                foreach (var (m, kind) in marks)
+                {
+                    float r = m.r - RoadsideOccupancy.CellPadM;
+                    foreach (var tr in tile.trees)
+                    {
+                        var f = new Vector2(tr.foot.x, tr.foot.z);
+                        if (RoadsideOccupancy.DistToSeg(f, m.a, m.b) < r) { treesOn++; Bad("a tree on a sign's ground", f, $"{kind} ({(m.a == m.b ? "post" : "line")} r {m.r:0.0})"); break; }
+                    }
+                }
+            }
 
             for (int ti = 0; ti < tiles.Count; ti++)
             {
                 var (tx, tz, why) = tiles[ti];
                 var tm = CityMeshes.Build(map, trims, buildings, tx, tz);
+                CityTrees.Enabled = true;
+                if (ti < spotTiles)
+                    CitySigns.PoleTrace = (ei, at, outcome) =>
+                    {
+                        string nm = map.edges[ei].name ?? "";
+                        if (!poleWhy.TryGetValue(nm, out var d)) poleWhy[nm] = d = new Dictionary<string, int>();
+                        string k2 = outcome.StartsWith("fill no ground") || outcome.StartsWith("poi no ground") ? outcome.Substring(0, outcome.IndexOf("ground") + 6) : outcome;
+                        d.TryGetValue(k2, out int n); d[k2] = n + 1;
+                    };
                 var tt = CityTrees.Build(map, trims, buildings, tm, tx, tz);
+                CitySigns.PoleTrace = null;
+                CityTrees.Enabled = false;
                 var st = tt.signs;
                 if (st == null) { DiscardMeshes(tm); continue; }
+                vetoed += st.vetoed; foreign += st.foreign;
+                storeM += st.storeFrontM;
+                pLost += st.poleLost; pNoStore += st.poleNoStore; pAtKerb += st.poleAtKerb; pNoDriver += st.poleNoDriver; pNoGround += st.poleNoGround; pBend += st.poleBend;
+                bool spot = ti < spotTiles;
                 msSum += st.ms; msMax = Mathf.Max(msMax, st.ms);
                 // the mask as it stood before the signs took their ground
                 var fresh = RoadsideOccupancy.Build(map, trims, buildings, tm, tx, tz);
@@ -145,9 +192,37 @@ namespace PSXRacing.EditorTools
                 posts += st.posts.Count; lamps += st.lamps.Count; faces += st.faces.Count;
                 refusedB += st.refusedBoards; refusedP += st.refusedPoleSigns; refusedG += st.refusedGantries;
                 var min = new Vector2(tx * ts, tz * ts);
+                var max = min + Vector2.one * ts;
+
+                // the trees keep off every bit of ground this tile's signs take
+                // here; what they take in other tiles is checked there
+                var here = new List<(CitySigns.Mark, CitySigns.Kind)>();
+                foreach (var m in st.marks)
+                {
+                    here.Add((m, CitySigns.Kind.PoleSign));
+                    if (m.local) continue;
+                    var lo = Vector2.Min(m.a, m.b) - Vector2.one * m.r;
+                    var hi = Vector2.Max(m.a, m.b) + Vector2.one * m.r;
+                    for (int bz = Mathf.FloorToInt(lo.y / ts); bz <= Mathf.FloorToInt(hi.y / ts); bz++)
+                        for (int bx = Mathf.FloorToInt(lo.x / ts); bx <= Mathf.FloorToInt(hi.x / ts); bx++)
+                        {
+                            if (bx == tx && bz == tz) continue;
+                            long k = TileKey(bx, bz);
+                            if (!awayMarks.TryGetValue(k, out var l)) awayMarks[k] = l = new List<(CitySigns.Mark, CitySigns.Kind)>();
+                            l.Add((m, CitySigns.Kind.Gantry));
+                        }
+                }
+                TreesOnMarks(here, tt);
 
                 foreach (var sg in st.signs)
                 {
+                    signId++;
+                    if (sg.kind == CitySigns.Kind.PoleSign && sg.osm) polePoi++;
+                    if (spot && sg.kind == CitySigns.Kind.PoleSign)
+                    {
+                        string nm = map.edges[sg.edge].name ?? "";
+                        stripSigns.TryGetValue(nm, out int sn); stripSigns[nm] = sn + 1;
+                    }
                     // one owner
                     if (sg.owner.x < min.x || sg.owner.y < min.y || sg.owner.x >= min.x + ts || sg.owner.y >= min.y + ts) { outside++; Bad("owned by another tile", sg.pos, sg.kind.ToString()); }
                     long key = ((long)Mathf.RoundToInt(sg.pos.x * 2f) << 32) ^ (uint)Mathf.RoundToInt(sg.pos.y * 2f);
@@ -168,6 +243,14 @@ namespace PSXRacing.EditorTools
                         {
                             byte b = fresh.At(f);
                             if (b != 0) Bad("a post on a reserved cell of the mask", f, $"{sg.kind} bits {b} ({string.Join(", ", BitList(b))})");
+                        }
+                        else
+                        {
+                            // a leg or a post in the next tile: judged on that tile's own mask
+                            long k = KeyOf(f);
+                            if (!awayFeet.TryGetValue(k, out var l)) awayFeet[k] = l = new List<(Vector2, CitySigns.Kind)>();
+                            l.Add((f, sg.kind));
+                            awayFeetN++;
                         }
                         if (!map.FootprintClear(f, 0.6f)) Bad("a post in a real building", f, sg.kind.ToString());
                         if (map.InLake(f)) Bad("a post in a lake", f, sg.kind.ToString());
@@ -209,21 +292,118 @@ namespace PSXRacing.EditorTools
                     }
                     if ((sg.kind == CitySigns.Kind.Bulletin || sg.kind == CitySigns.Kind.Poster) && !sg.lit) lampBad++;
                 }
+                // every solid post, for the clash check
+                foreach (var p in st.posts)
+                {
+                    var c = new Vector2(p.centre.x, p.centre.z);
+                    long k = ((long)Mathf.FloorToInt(c.x / 4f) << 32) ^ (uint)Mathf.FloorToInt(c.y / 4f);
+                    if (!postCells.TryGetValue(k, out var l)) postCells[k] = l = new List<(Vector2, float, int)>();
+                    l.Add((c, 0.5f * Mathf.Sqrt(p.size.x * p.size.x + p.size.z * p.size.z), ++postId));
+                }
+                // commercial frontage along the collectors and bigger in this tile (per side)
+                frontSegs.Clear(); frontEdges.Clear();
+                map.EdgeSegsInRect(min, max, frontSegs);
+                foreach (int packed in frontSegs) frontEdges.Add(packed >> 12);
+                foreach (int fei in frontEdges)
+                {
+                    var e = map.edges[fei];
+                    if (e.link || e.tunnel || e.bridge || e.cls < 1 || e.cls > 4) continue;
+                    for (float s = 4f; s < e.length; s += 8f)
+                    {
+                        var q = e.PointAt(s);
+                        if (q.x < min.x || q.y < min.y || q.x >= max.x || q.y >= max.y) continue;
+                        var n = new Vector2(e.TangentAt(s).y, -e.TangentAt(s).x);
+                        float off = e.width * 0.5f + RoadsideOccupancy.ClearZoneOf(e) + 2.2f;
+                        if (spot) { string nm = e.name ?? ""; stripM.TryGetValue(nm, out float sm); stripM[nm] = sm + 16f; }
+                        if ((CitySignData.At(q + n * off) & CitySignData.Frontage) != 0) frontM += 8f;
+                        if ((CitySignData.At(q - n * off) & CitySignData.Frontage) != 0) frontM += 8f;
+                    }
+                }
                 if (st.mesh != null) Object.DestroyImmediate(st.mesh);
                 if (tt.mesh != null) Object.DestroyImmediate(tt.mesh);
                 DiscardMeshes(tm);
             }
 
+            // THE NEXT TILES: every leg, post and bit of ground a sign takes
+            // outside the tile that owns it, on that tile's own full mask (its
+            // fill houses and lamps too) and against its own trees; and that
+            // tile marked it (it found the same sign)
+            var awayTiles = new SortedSet<long>(awayMarks.Keys);
+            foreach (var k in awayFeet.Keys) awayTiles.Add(k);
+            int awayUnmarked = 0;
+            foreach (long k in awayTiles)
+            {
+                int tx = (int)(k >> 32), tz = unchecked((int)(k & 0xFFFFFFFFL));   // TileKey's own layout
+                var tm = CityMeshes.Build(map, trims, buildings, tx, tz);
+                var fresh = RoadsideOccupancy.Build(map, trims, buildings, tm, tx, tz);
+                CityTrees.Enabled = true;
+                var tt = CityTrees.Build(map, trims, buildings, tm, tx, tz);
+                CityTrees.Enabled = false;
+                if (awayFeet.TryGetValue(k, out var feet))
+                    foreach (var (f, kind) in feet)
+                    {
+                        byte b = fresh.At(f);
+                        if (b != 0) Bad("a post on a reserved cell of the next tile's mask", f, $"{kind} bits {b} ({string.Join(", ", BitList(b))})");
+                        if (tt.occ == null || tt.occ.At(f) == 0) { awayUnmarked++; Bad("a post in the next tile that tile did not mark", f, kind.ToString()); }
+                    }
+                if (awayMarks.TryGetValue(k, out var marks)) TreesOnMarks(marks, tt);
+                if (tt.signs != null && tt.signs.mesh != null) Object.DestroyImmediate(tt.signs.mesh);
+                if (tt.mesh != null) Object.DestroyImmediate(tt.mesh);
+                DiscardMeshes(tm);
+            }
+
+            // no two signs' posts in one another
+            foreach (var kv in postCells)
+                foreach (var (c, r, id) in kv.Value)
+                {
+                    int cx = (int)(kv.Key >> 32), cz = (int)(kv.Key & 0xFFFFFFFF);
+                    for (int dz = -1; dz <= 1; dz++)
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            long nk = ((long)(cx + dx) << 32) ^ (uint)(cz + dz);
+                            if (!postCells.TryGetValue(nk, out var l)) continue;
+                            foreach (var (c2, r2, id2) in l)
+                                if (id2 != id && (c2.x > c.x || (c2.x == c.x && c2.y > c.y)) && Vector2.Distance(c, c2) < r + r2) { clashes++; Bad("two signs' posts in one another", c, $"{Vector2.Distance(c, c2):0.00} m apart"); }
+                        }
+                }
+
             // billboards counted by route: the OSM ones on their nearest route
             Line($"    {tiles.Count} tiles ({spotTiles} at the shot spots, the rest along the routes and the race routes), {tilesWith} with signs; " +
                  $"{bulletins} bulletins, {posters} posters ({osm} of them OSM's), {poles} business pole signs, {gantries} exit gantries ({cantilevers} cantilevers); " +
                  $"{posts} solid posts and legs, {lamps} floodlights, {faces} faces; place {msSum / Mathf.Max(1, tiles.Count):0.0} ms a tile (max {msMax:0.0})");
-            Line($"    candidates that won their spacing but found no free ground: billboards {refusedB}, pole signs {refusedP}, gantries {refusedG}");
+            Line($"    candidates that won their spacing but found no free ground: billboards {refusedB}, pole signs {refusedP}, gantries {refusedG}; " +
+                 $"gantries and billboards dropped by their own tile on its fill houses or lamps: {vetoed}");
+            Line($"    across the seams: {foreign} times a tile marked the ground of another tile's gantry or billboard; {awayFeetN} legs and posts in a tile not their own " +
+                 $"({awayTiles.Count} such tiles rebuilt and checked: {awayUnmarked} feet that tile did not mark); trees on a sign's ground {treesOn}; posts in one another {clashes}");
+            double frontKm = frontM / 1000.0;
+            Line($"    business pole signs: {poles} ({polePoi} at an OSM business, {poles - polePoi} along the frontage) on {frontKm:0.0} km of commercial frontage (each side counted): " +
+                 $"one every {(poles > 0 ? frontM / poles : 0f):0} m of it (the plan: every 30-60 m)");
+            float everyM = poles > 0 ? storeM / poles : float.MaxValue;
+            Check(everyM <= 60f, "a business sign every 30-60 m of store frontage (a store behind a collector or bigger, each side) (sign audit)",
+                  $"{poles} on {storeM / 1000f:0.0} km: one every {everyM:0} m ({poles - polePoi} frontage fills alone: one every {(poles > polePoi ? storeM / (poles - polePoi) : 0f):0} m)");
+            Line($"    business signs that did not stand: lost the spacing {pLost}, a frontage with no store behind {pNoStore}, a business or store at the kerb (its sign on its wall) {pAtKerb}, no drivers to turn to {pNoDriver}, no free ground {pNoGround}, a bend {pBend}");
+            var strips = new List<string>(stripM.Keys);
+            strips.Sort((a, b2) => stripM[b2].CompareTo(stripM[a]));
+            var srow = new List<string>();
+            foreach (var nm in strips)
+            {
+                if (srow.Count >= 10 || string.IsNullOrEmpty(nm)) continue;
+                stripSigns.TryGetValue(nm, out int sn);
+                srow.Add($"{nm} {sn} on {stripM[nm] / 1000f:0.0} km ({(sn > 0 ? stripM[nm] / sn : 0f):0} m)");
+            }
+            Line("    business signs along the shot spots' streets (each side counted; one every N m): " + string.Join("; ", srow));
+            foreach (var nm in strips)
+            {
+                if (!poleWhy.TryGetValue(nm, out var d) || stripM[nm] < 800f) continue;
+                var parts = new List<string>();
+                foreach (var kv in d) parts.Add($"{kv.Key} {kv.Value}");
+                Line($"      {nm}: " + string.Join("; ", parts));
+            }
             foreach (var kv in bad) Line($"    {kv.Key}: {kv.Value}  e.g. {badWhere[kv.Key]}");
             int badTotal = 0;
             foreach (var kv in bad) if (!kv.Key.StartsWith("a face not turned")) badTotal += kv.Value;
             Check(bulletins + posters > 0 && poles > 0 && gantries > 0, "the city stands billboards, business pole signs and exit gantries (sign audit)", $"{bulletins + posters}, {poles}, {gantries}");
-            Check(badTotal == 0, "no post on pavement, in a clear zone, under a deck, in a building, lake or run-off, or on a reserved cell; nothing over pavement but a gantry's panels, 5.5 m up (sign audit)", badTotal);
+            Check(badTotal == 0, "no post on pavement, in a clear zone, under a deck, in a building, lake or run-off, or on a reserved cell of its own tile's mask or the next tile's; the next tile marks it; no tree on a sign's ground; no post in another; nothing over pavement but a gantry's panels, 5.5 m up (sign audit)", badTotal);
             Check(faceBad == 0, $"every face turned to its traffic: dot {FaceDotMin} or better to a driver {CitySigns.ViewAheadM:0} m up the road ({CitySigns.PoleViewM:0} m for a business's cabinet) (sign audit)", $"{faceBad} faces below; worst {worstDot:0.000} at {worstDotAt}");
             Line($"    gantry panels: the lowest {worstClear:0.00} m over the road under it, at {worstClearAt}");
             Check(outside == 0 && twice == 0, "every sign in the tile that placed it, none placed twice across a seam (sign audit)", $"{outside} outside, {twice} twice");
