@@ -191,6 +191,38 @@ namespace PSXRacing.EditorTools
                     tint: new Color(0.42f, 0.43f, 0.46f), affine: 0f);
 
         /// <summary>
+        /// Charlotte's signs (WP-23): billboards, business cabinets and exit
+        /// gantries on one 512 atlas (tools/city/signs_atlas.py composes it
+        /// from the owner's packs; every brand fictional), so a tile's signs
+        /// are one draw. After dark the faces glow in their own colours
+        /// through the atlas's night mask (PSX/Lit _NightMask + _NightWin +
+        /// _NightFace): a billboard's floodlit from its foot, a cabinet from
+        /// inside; the gantry panels and the steel stay dark (NCDOT's panels
+        /// are retroreflective: the headlights light them). Null if the atlas
+        /// is missing, and the signs then stand with their renderer off.
+        /// </summary>
+        internal static Material CitySignsMat()
+        {
+            const string dir = Root + "/Art/City/Signs";
+            if (AssetDatabase.LoadAssetAtPath<Texture2D>(dir + "/CitySigns.png") == null)
+            {
+                Log("WARN: " + dir + "/CitySigns.png missing (py tools/city/signs_atlas.py) - Charlotte's signs will not draw.");
+                return null;
+            }
+            var mat = MakeMat("CitySigns", dir + "/CitySigns.png", affine: 0f);
+            var mask = AssetDatabase.LoadAssetAtPath<Texture2D>(dir + "/CitySigns_night.png");
+            if (mat.HasProperty("_NightMask") && mat.HasProperty("_NightWin") && mat.HasProperty("_NightFace"))
+            {
+                mat.SetTexture("_NightMask", mask);
+                mat.SetFloat("_NightWin", mask != null ? 1f : 0f);
+                mat.SetFloat("_NightFace", mask != null ? 1f : 0f);
+                EditorUtility.SetDirty(mat);
+            }
+            else Log("WARN: PSX/Lit has no _NightFace - Charlotte's sign faces stay dark at night.");
+            return mat;
+        }
+
+        /// <summary>
         /// The city's trees (WP-08), one material per season dress in
         /// <see cref="Seasons"/> order: the stage forest's five atlases
         /// (Art/BRP/Gen, the owner's CC0 retro tree pack composed with every
@@ -276,6 +308,7 @@ namespace PSXRacing.EditorTools
             kit.lampPost = CityLampPostMat();
             kit.trees = CityTreeMats();
             kit.treeLowReach = CityTreeLowReach();
+            kit.signs = CitySignsMat();
             var shaders = new List<Shader>();
             foreach (var m in kit.slots)
                 if (m != null && m.shader != null && !shaders.Contains(m.shader)) shaders.Add(m.shader);
@@ -283,6 +316,8 @@ namespace PSXRacing.EditorTools
                 shaders.Add(kit.lampPost.shader);
             foreach (var m in kit.trees)
                 if (m != null && m.shader != null && !shaders.Contains(m.shader)) shaders.Add(m.shader);
+            if (kit.signs != null && kit.signs.shader != null && !shaders.Contains(kit.signs.shader))
+                shaders.Add(kit.signs.shader);
             foreach (var name in new[] { "PSX/Lit", "PSX/Water", "PSX/LitTransparent" })
             {
                 var sh = Shader.Find(name);

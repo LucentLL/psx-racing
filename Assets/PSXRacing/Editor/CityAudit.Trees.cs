@@ -153,6 +153,7 @@ namespace PSXRacing.EditorTools
                 else for (int i = 0; i < tt.trees.Count && same; i++)
                         if ((again.trees[i].foot - tt.trees[i].foot).sqrMagnitude > 1e-6f || again.trees[i].h != tt.trees[i].h) same = false;
                 if (again.mesh != null) Object.DestroyImmediate(again.mesh);
+                if (again.signs != null && again.signs.mesh != null) Object.DestroyImmediate(again.signs.mesh);
 
                 var min = new Vector2(tx * ts, tz * ts);
                 foreach (var t in tt.trees)
@@ -257,6 +258,7 @@ namespace PSXRacing.EditorTools
                 // whose edges run through this tile (samples inside it only)
                 if (ti < bandTiles) CanopyBands(map, tt, tx, tz, byClass);
                 if (tt.mesh != null) Object.DestroyImmediate(tt.mesh);
+                if (tt.signs != null && tt.signs.mesh != null) Object.DestroyImmediate(tt.signs.mesh);
                 DiscardMeshes(tm);
             }
 

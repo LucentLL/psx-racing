@@ -118,6 +118,34 @@
       "pinned": "2026-09-12T02:44:33Z",
       "not_fetched": "2026-09-28: HTTP 504",
       "retry": "node tools/city/fetch/fetch_layers.mjs --only trees"
+    },
+    "landuse": {
+      "for": "commercial, retail and industrial land (WP-23 billboard zoning, pole-sign frontage)",
+      "query": "[out:json][timeout:300][date:\"2026-09-12T02:44:33Z\"];(way[\"landuse\"~\"^(commercial|retail|industrial)$\"](35.03,-81.03,35.42,-80.62);relation[\"landuse\"~\"^(commercial|retail|industrial)$\"](35.03,-81.03,35.42,-80.62););out geom;",
+      "tiles": 1,
+      "pinned": "2026-09-12T02:44:33Z",
+      "server_base": "2026-09-29T20:30:52Z",
+      "elements": {
+        "way": 2164,
+        "relation": 67
+      },
+      "bytes": 2557841,
+      "sha256": "26d16dec9890b6bc9a93e24c6b0a833a5fb74d5485aa8d741046a087075ddcc5",
+      "fetched": "2026-09-29"
+    },
+    "business": {
+      "for": "shops, restaurants, fuel, banks, motels (WP-23 business pole signs)",
+      "query": "[out:json][timeout:300][date:\"2026-09-12T02:44:33Z\"];(node[\"shop\"](35.03,-81.03,35.42,-80.62);node[\"amenity\"~\"^(fast_food|restaurant|fuel|bank|pharmacy|car_wash|cafe|car_rental|ice_cream|bar|pub)$\"](35.03,-81.03,35.42,-80.62);node[\"tourism\"~\"^(motel|hotel)$\"](35.03,-81.03,35.42,-80.62);way[\"shop\"](35.03,-81.03,35.42,-80.62);way[\"amenity\"~\"^(fast_food|restaurant|fuel|bank|pharmacy|car_wash|cafe|car_rental|ice_cream|bar|pub)$\"](35.03,-81.03,35.42,-80.62);way[\"tourism\"~\"^(motel|hotel)$\"](35.03,-81.03,35.42,-80.62););out center;",
+      "tiles": 1,
+      "pinned": "2026-09-12T02:44:33Z",
+      "server_base": "2026-09-29T20:31:55Z",
+      "elements": {
+        "node": 3569,
+        "way": 2975
+      },
+      "bytes": 2366585,
+      "sha256": "18b84341522ca33b61a89a99a66c6e9f283c56b00c0d466a6adaccefd37ee562",
+      "fetched": "2026-09-29"
     }
   }
 }

@@ -1275,6 +1275,343 @@ list of fills needing a rail is empty by construction.
   so the one extra DEM sample per binding section costs nothing measurable.
   No asset changed, so the size ledger is WP-13's (+1.26 MB).
 
+## WP-23 (2026-09-29, release R9): billboards, business signs, exit gantries
+
+The owner, after driving it: "its all so barren and flat ... hills, ditches,
+trees, billboards". There was not one sign in the city. Now the interstates
+and US/NC routes carry billboards at the density NCDOT's permits say each
+route has, every business on a collector or bigger has its pole sign at the
+road, and every motorway exit has its overhead sign. Branch
+`charlotte-scenery`.
+
+**The data** (`Resources/charlotte_signs.bytes`, PSGN v1, its own file like
+the canopy grid, so the lines release re-exports the roads without it;
+`tools/city/signs.mjs`, `--check` rebuilds it byte for byte; 803 KB raw,
+**56 KB Brotli**; `CitySignData` reads it):
+
+- a 60 m grid on the DEM's lattice of two bits: **billboard zoning** (North
+  Carolina lets a billboard stand along an interstate or a federal-aid primary
+  only in a commercial or industrial area within 660 ft of the right of way,
+  19A NCAC 02E .0203: OSM landuse commercial, retail or industrial within
+  100 m, or a business within 150 m) and **commercial frontage** (retail or
+  commercial land at the cell, or a business within 40 m). 2,263 landuse
+  polygons; 12.9% of the box is zoned, 4.2% frontage;
+- **the routes and their density**, a STATISTIC off NCDOT's outdoor
+  advertising permits (plan Q8: NCDOT data for statistics only, never
+  positions), as the plan's critic measured it per route in Mecklenburg:
+  I-77 1.20, I-85 1.49, I-277 1.97, I-485 0.29, US 74 1.25, US 29 0.70, NC 16
+  0.56, NC 24 0.54, NC 49 0.29, NC 27 0.16, US 21 0 boards per km of route;
+  the class figure (interstate 0.87, US/NC 0.60) for a route it did not
+  measure. Each route's OSM billboards count toward its figure; the rest are
+  drawn at random on its ZONED stretches, the rate raised by what the spacing
+  rule takes back (a Poisson process thinned by "a board loses to any better
+  one on its side within the rule's distance": r (1 - e^-L) / L stand, solved
+  for r);
+- the 43 OSM billboards (`advertising=billboard`), where they are;
+- 3,960 businesses (OSM shops, fast food, restaurants, fuel, banks,
+  pharmacies, car washes, dealers, tyres, supermarkets, bars, motels) within
+  70 m of a collector or bigger, each with the kind of sign it puts up;
+- per motorway way that ends at an exit, the lanes of each destination group
+  from its OSM `destination:lanes` (187 of the 195 exits are tagged).
+
+Two new OSM layers, fetched with the rest by `fetch/fetch_layers.mjs`, pinned
+to the road snapshot's moment: `landuse` (2,231 elements) and `business`
+(6,544).
+
+**The placement** (`Scripts/City/CitySigns.cs`), per tile on its
+`RoadsideOccupancy` mask, BEFORE the trees (the plan's priority), on the tree
+frame (`CityTrees.Build` builds the mask, places the signs, then plants):
+
+- **exit gantries** first (official signs): a sign bridge 30 m before every
+  motorway_link diverge, its legs on the first ground clear of every
+  carriageway's clear zone on each side (across both carriageways when the
+  median has no room; a cantilever from the right leg when the whole span
+  would pass 85 m), a panel over each destination group of lanes (the exit's
+  panel, with its up-right arrow, over the exit lanes), the panels 5.8 m over
+  the highest road under the span (the plan's 5.5; NCDOT's 17.5 ft). Green
+  panels with a white border and abstract white bars (plan Q7: code-drawn, no
+  text); the truss and legs in the lamp posts' pack metal, lighter. Unlit:
+  NCDOT's panels are retroreflective today, and the headlights and street
+  lamps light them;
+- **billboards**: stations every 25 m along each route, a board where the
+  hash falls under the rate and the zoning allows (on the outer side of a
+  freeway carriageway, either side of a two-way road), no two on one side of a
+  freeway within 500 ft (152.4 m) or of another route within 100 ft
+  (.0203(2)), none within 80 m of a ramp's gore (not to hide an official sign;
+  the rule's 500 ft interchange setback applies only outside a town's limits,
+  and the belt is nearly all Charlotte and its towns). Sizes from NCDOT's
+  Mecklenburg permits: a freeway's **14 x 48 ft bulletin** (the p90), elsewhere
+  the **median 12 x 36 ft**, or a third of the time a 12 x 24 ft poster; faces
+  9.5 m or more over the ground on a freeway (total height about 14-16 m;
+  NCDOT's median 13.4 m), 6.5 m elsewhere. A monopole, and a **V with its
+  point toward the road** where traffic comes both ways (the far carriageway
+  across the median), back to back beside a two-way road where one plane faces
+  both ways well enough. Each face is turned to the drivers 150 m up the road
+  (the walk up the road follows it through junctions and round bends, and a
+  one-way carriageway is only ever walked against its traffic). Set back past
+  the clear zone as far as needed to stand on free ground (10-40 m on a
+  freeway). **Lit** the way the game's lamps are: two floodlights under a
+  bulletin's face, one under a poster's, each a lamp head handed to the tile's
+  own NightGlow (its halo, and a StreetLights pool), and the face glows in its
+  own colours after dark through the atlas's night mask (brightest at the
+  foot, where the lamps are). The owner of a board keeps the trees out of its
+  line of sight: the first 60 m toward its drivers is marked on the mask;
+- **business pole signs**: one at the frontage of every business in the data,
+  and every 32 m along the commercial frontage where OSM maps no shop - the
+  landuse or a business says it is commercial, or it is an arterial the game
+  lines with stores - wherever a STORE stands behind (the nearest building
+  within 90 m back and 35 m either way is a shop, not a house, an office tower
+  or nothing: no pylon on a lawn beside houses), its front wall at least 3 m
+  back (room for the cabinet: a building at the kerb wears its sign on its
+  wall), never on a divided road's median side, and none uptown inside the
+  loop (1.3 km of Trade and Tryon: its signs are on the walls). An OSM
+  business at the kerb gets none either. No two on ONE side of the road within 30 m (across the road
+  only within 12 m), settled best first: a sign loses to a better one of the
+  next tile always, to one of its own tile only if that one stood. A 2.4-3.2
+  m cabinet 4.5-6.5 m up (6.9-9.7 m overall; the plan's 6-10), on one post or
+  two, square to the road and turned, on a bend, to split its two drivers 80
+  m either way; lit from inside after dark; stood up to 14 m back and 11 m
+  along from its place for free ground, wholly inside its own tile. No tree
+  trunk within 5 m of one, nor within 2.5 m of the first 45 m of each of its
+  drivers' lines of sight. Breakaway (Q15): no collider.
+
+Every post, leg and face footprint stands on free ground (no pavement, clear
+zone, sight triangle, corner spot, building, lot, lamp foot, water, deck or
+race run-off), and marks what it takes. Nothing overhangs a road but a
+gantry's panels. Deterministic: every choice is a hash of an edge station or a
+business index; a sign belongs to the tile its nominal post is in, and the
+spacing is settled over everything within 340 m of the tile, so no sign is
+placed twice across a seam.
+
+**Across the seams.** A gantry's legs stand up to 65 m off its carriageway and
+a billboard's line of sight runs 60 m, so both reach into the next tile. They
+are decided from global data only: the STATIC mask
+(`RoadsideOccupancy.Static`, every reservation but a tile build's own fill
+houses and lamp feet, cached for the 32 tiles last asked for) of whatever tile
+each leg, post or face lands in. Every tile computes every gantry and
+billboard that could reach it (once a session: `CitySigns.Pure`, its boxes
+recorded for its owner to draw) and marks their ground on its own mask before
+its trees; the owner draws it. The owner alone knows its fill houses and lamp
+feet, so it drops one standing on them (the next tile then keeps a few cells
+clear for nothing, never the reverse). A gantry's span is marked too: no tree
+under the truss. A business's cabinet stands wholly inside its own tile.
+
+**The faces** (`Art/City/Signs/CitySigns.png`, one 512 x 512 atlas, RGB565 on
+WebGL; `CitySigns_night.png`, its 128 px night mask; `tools/city/signs_atlas.py
+--check` rebuilds both byte for byte). PACK PICTURES ONLY (plan Q6's default,
+"pack faces only"; nothing is lettered in code: the only words on a face are
+the ones its pack picture carries), every brand FICTIONAL: STACK BURGER is the
+BurgerPiz `menu_burger.png` burger on red, SLICE HOUSE the All pack's
+`Foods_04.jpg` pizza on green; the Gas_station pack's own `6twelve` and its
+price board and striped `Sign.jpg`; the Pizzeria pack's PIZZA banner and five
+pictures of its `Decorative_Sign.png` ("Burgers - Best in Town", two "Eat Good
+Food", a dancing couple, a made-up NORTH CAROLINA plate), looked at one by one:
+its two CAMEL signs, the Harley-Davidson bar-and-shield ones, the contour cola
+bottles and HOLLYWOOD GASOLINE are left out. The trades with no shop sign in
+the packs show what they sell: a motel the All pack's palm beach
+(`Paintings.jpg`), a bank the PSX Mega Pack's gold bar, a pharmacy the
+NEUROZAM-9 pill bottle's prescription label, a car lot the NC plate and two
+boggle-pack wheels, tyres two wheels, a car wash a wheel over PSX Textures
+water, a grocer the All pack's bananas and watermelon, a lounge the dancers;
+a strip mall's pylon four tenants (a shirt, an old television, a pizza, a
+burger). The grounds are the lamp posts' pack `Metal.jpg` tinted to each
+sign's colour; a tourism bulletin shows `Paintings.jpg`'s coast and desert.
+Not used although the plan listed them: the Buildings pack's `Shops_01-31`,
+photographs of real storefronts with real names and phone numbers. The gantry
+panels are the plan's Q7 code-drawn pattern, the only code-drawn faces.
+
+**Drawn** in one mesh a tile with the kit's one material (`CityKit.signs`,
+`Materials/CitySigns.mat`): one draw a tile that has signs, not a sun-map
+caster. The billboards' floodlights join the tile's street lamps in its one
+NightGlow (no extra halo draw). SOLID: billboard monopoles and gantry legs, box
+colliders on a Solid-layer object a tile named `CityPost`.
+
+**PSX/Lit** gained `_NightFace` (default 0): with the night-window switch on,
+a sign material's mask makes the texel glow in its own colours
+(`SIGN_GAIN` 0.85) instead of a window's flat warm or cool. A uniform branch:
+every facade draws as before.
+
+**Checked:**
+
+- **SignAudit** (in `CityAudit`, and alone as `CityAudit.RunSigns`, about 3
+  minutes): 3,539 tiles - the shot spots with their neighbours, every tile an
+  interstate or US/NC route runs through (45 m either side of it) and the
+  three race routes'. 329 billboards (268 bulletins and 36 ft boards, 61
+  posters; 33 of them OSM's), 2,769 business pole signs, 182 exit gantries (14
+  cantilevers), 4,737 faces. Measured again against the geometry: 0 posts or
+  legs on pavement, in a clear zone, under a deck, in a building, a lake or
+  race run-off, or on a cell the mask (built afresh, without the signs)
+  reserves; 0 faces over pavement; every gantry panel 5.5 m or more over the
+  road under it (the lowest 5.74 m); every face turned to its traffic (dot
+  0.9 or better to its driver 150 m up the road, 80 m for a cabinet; worst
+  0.918), that driver on a road and coming toward it; every sign in the tile
+  that placed it, none twice across a seam, the same signs on a second build;
+  one mesh with one material a tile; every billboard lit; the monopoles and
+  legs solid (679 posts), the cabinets breakaway. **Density**: interstates
+  149 placed for NCDOT's 167 (0.73 per km of route against 0.82: -11%), US/NC
+  routes 172 for 197 (0.48 against 0.55: -13%), both inside the plan's +-20%
+  (per route: I-77 53/57, I-85 56/66, I-485 31/30, I-277 9/14, US 74 32/39,
+  NC 16 31/28 ...). What falls short is the ground: 44 boards won their
+  spacing and found no free ground within 40 m of the road. Exit gantries 182
+  over 223 km of motorway, one an exit (NCDOT counts 1.01 per km: advance
+  signs are not built); 13 exits found no ground for a leg.
+- **CITY AUDIT OK**: the DRIVE AUDIT's five zeros 0, the roadside audit's
+  zeros 0, the tree audit OK (136,170 trees on its tiles; planted/asked median
+  1.00, the four canopy bands within 5 points: the signs take a little ground
+  from them), the lamp and terrain audits as before.
+- **city-play-check** CITY SPAWNS OK (the Myers Park trunks still stop the
+  car, 8 of 8). **SELF-TEST OK**, **GUID AUDIT OK**, typecheck OK.
+- `export_osm.mjs --check` OK (charlotte_city.bytes changes only in its
+  attribution: the NCDOT credit line), `signs.mjs --check`,
+  `signs_atlas.py --check`, `canopy.mjs --check` and `credits.mjs` OK.
+- Shots (`CityRefSpots.RunSigns`, `Screenshots/City/signs`): at I-277, I-77
+  west of uptown, I-85, South Blvd and the Independence strip, the nearest
+  bulletin, gantry, poster and cabinet from their own drivers' line, before
+  (the city built with no signs), after and at night, and each face close up.
+
+**Measured** (`city_budget.txt`; its A/B pass is now the same sites with no
+signs, trees both ways):
+
+| | with signs | without (same run) |
+|---|---|---|
+| tile build (EnsureTile), all 225 tiles | p50 25.2, p95 86.1 ms | p50 24.9, p95 80.7 ms (the signs are not in this path: machine noise, with six other Unity jobs on it) |
+| the tree frame, signs placed first on it | p50 2.4, p95 5.8, max 16.8 ms (WP-08: 2.1 / 4.9 / 13.6) | - |
+| placing a tile's signs | p95 0.1-1.6 ms by site | - |
+| draws in a view | +0 to +5 (one a tile with signs in view; no shadow caster) | - |
+| worst view | 212 draws (uptown; WP-08 209) | 207 |
+
+Heap: the sign data holds its 743 KB grid and 3,960 businesses (under 1 MB).
+
+**The races** (`race-play-check -Venues UptownLoop,TryonSprint,IndependenceSprint
+-Seeds 0,1 -Signs ab`, a new switch: every race with the signs and then
+without, and the report now counts hits on the `CityPost` colliders): 12
+rivals retired with the signs and 12 without, over the same six races; 0 hits
+on a billboard post or a gantry leg in any of them. The retirements are the
+routes' own (traffic, the Tryon lamp posts, the player's car), and where the
+two runs of a race part it is after the first retirement, the chaos every run
+of these races has (the same race run twice with the signs on retired 2 and
+then 1).
+
+**Size.** `charlotte_signs.bytes` +56 KB Brotli; the atlas ships as RGB565
+(512 KB in the player, 0.50 MiB in the Build Report) and its night mask is
+128 px. WebGL.data 82.25 -> 82.40 MiB (+0.15, under the plan's +0.25-0.35:
+the atlas compresses well), the largest file 82.40 MiB, under the 95 MiB
+ratchet. `charlotte_city.bytes` changes only in its attribution.
+`size-ledger.py` counts the sign file with the rest of Charlotte's data.
+
+**G-web.** A local WebGL build of the branch (`build-and-publish -SkipScenes
+-SkipDeploy -PagesDir city`, BUILD OK, GUID audit OK) served from 127.0.0.1: a
+new career (1 January, the SNOW dress), down the street to the line, FREE ROAM
+CHARLOTTE loads (`[City] parsed in 136 ms, elevation solved in 597 ms`) with no
+console error and no missing sign data or kit warning; every PSX/Lit surface
+draws (the shader with `_NightFace` compiles on WebGL 2); the pause menu's
+CREDITS page shows the NCDOT line, wrapped, not clipped. The spawn on Tryon
+uptown has no sign in view (the uptown frontage is building to the kerb), and
+the drive to one was not made in the browser; the editor shots are the look.
+
+### WP-23 review (2026-09-29): business signs where the stores are, pack faces only, signs across the seams
+
+The review found three things wrong with the first pass.
+
+**1. Too few business signs, some of them in the wrong place.** Two signs
+on opposite sides of an arterial knocked each other out: the 30 m spacing
+had no same-side test, and a 4-5 lane road puts the two sides 26-29 m
+apart. The frontage fill was one station in 0.7 every 40 m. A candidate also
+lost to a better one that then found no ground. Meanwhile the fills stood
+wherever OSM landuse said "commercial", which was often in grass beside
+houses, because the game's procedural suburbs do not read landuse. Now:
+
+- no two signs on ONE side within 30 m; across the road only within 12 m;
+- settled best first, and a sign loses only to a better one of its own tile
+  that actually stood (or to any of the next tile's);
+- the frontage is every collector or bigger with commercial landuse or a
+  business within 40 m, and every arterial, checked every 32 m;
+- a fill stands only where a STORE is the nearest building behind it (within
+  90 m back and 35 m either way), with its front wall at least 3 m back. There
+  is none in front of a house, an office tower or an empty field, and none in
+  a divided road's median;
+- no pole sign uptown inside the loop (1.3 km of Trade and Tryon), and none
+  for an OSM business at the kerb: those signs are on the walls;
+- a cabinet may move up to 14 m back and 11 m along the road to find ground;
+- trees are kept off the first 45 m of each of a cabinet's drivers' lines of
+  sight (2.5 m wide), as billboards already were.
+
+On the audited tiles that gives 1,680 business signs (1,054 at OSM
+businesses, 626 frontage fills), on 32.9 km of store frontage: one
+every 20 m, and the fills alone one every 52 m (the plan: every
+30-60 m). The first pass placed 2,769, of which many stood on a lawn, in a
+median, uptown, or against a wall. What does not stand is the ground the game
+gives them:
+
+- 8,753 frontage stations where OSM says commercial but the game has a
+  house or nothing behind (mostly the procedural suburbs and the Independence
+  expressway, which has no buildings along it);
+- 1,058 where the store or the business is at the kerb;
+- 542 that lost the spacing, and 104 with no free ground.
+
+The shots' streets show the same thing (`CityAudit`'s per-street lines).
+Along Statesville Avenue the fills stand every 30 m in front of stores. South
+Boulevard at Archdale is grass and houses in the game, so it gets two signs.
+
+**2. Faces lettered in code.** The OWNER DECISIONS took Q6's default, "pack
+faces only". The first atlas lettered nine trades and all the slogans in
+Aileron. The atlas now uses only pack pictures (see "The faces" above), and
+no lettering is drawn in code. `signs_atlas.py --check` rebuilds it byte for
+byte.
+
+**3. Signs that cross a tile seam were invisible to the next tile.** A
+gantry's leg, a billboard's face, its line of sight and a gantry's span were
+marked only on the owner's mask, clipped at the seam. The next tile planted
+trees on them, and nothing checked a foot there. Now both kinds are decided
+from global data (the static masks), and every tile they reach marks their
+ground before its trees (see "Across the seams" above).
+
+The decisions cost the tile that first needs them, on the masks of the tiles
+round it. `CityWorld` spends a frame of its own on each 3 ms slice of them
+(`CitySigns.Prepare`, `CityWorld.PrepareSigns`), before the tile's tree frame.
+`EnsureRing` does the same slices back to back, so the budget probe times the
+frames play would have.
+
+The sign audit now also checks:
+
+- every leg and post in a tile not its own, against that tile's own full
+  mask (its fill houses and lamps too) and against the marks of the tile that
+  planted round it;
+- no tree trunk on any sign's ground in any tile;
+- no two signs' posts in one another;
+- the business-sign density on store frontage.
+
+Results: 67 legs and posts in the next tile, all on free ground, all
+marked there; 0 trees on a sign's ground; 0 posts in one another. The owner
+dropped 4 gantries or billboards on its own fill houses or lamps.
+
+**Checked (the review's run):**
+
+- SIGN AUDIT OK: 332 billboards (271 bulletins, 61 posters, 32 of
+  them OSM's), 1,680 business signs, 182 gantries (13 cantilevers).
+- Billboard density: interstates 149/167 (-11%), US/NC 175/197 (-11%).
+- CITY AUDIT OK: DRIVE AUDIT 0/0/0/0/0, roadside 0, tree audit OK.
+- The roadside probe ran; city-play-check CITY SPAWNS OK.
+- SELF-TEST OK, GUID AUDIT OK, typecheck OK.
+- Race batch, signs on, three routes, seeds 0 and 1: 11 rivals retired (12
+  in the first pass's A/B); 0 hits on a sign post; 0 on a trunk.
+- `signs.mjs --check` OK (frontage 4.2% of the box, was 3.6%);
+  `signs_atlas.py --check` OK.
+
+**Budget** (same sites; signs on / off): the worst view is 209 draws with the signs and without (trade_tryon); at most +7 draws in one view (tryon_start, one a tile with signs in view); tile build p95 70.5 ms with the signs, 76.1 without (the signs are not in that path: noise); the tree frames, the signs' slices on frames of their own, p95 5.3 ms, max 11.0 (the first pass 5.8 / 16.8, WP-08 4.9 / 13.6). The static-mask cache holds 32 tiles (about 2 MB) and the decided gantries and billboards a few KB each.
+
+**Size:** WebGL.data 82.46 MiB (the first pass 82.40, before WP-23 82.25), under the 95 MiB ratchet; the atlas 0.50 MiB in the Build Report as before; charlotte_signs.bytes 803 KB raw, 56 KB Brotli; SIZE LEDGER OK.
+
+**Shots:** `CityRefSpots.RunSigns` adds a `<spot>_street` frame for each spot
+(the street of the nearest business sign, from its driver 80 m up the road).
+It also adds three streets the game lines with stores: Central Ave in Plaza
+Midwood, Albemarle Rd, and Wilkinson Blvd.
+
+**Not done:** on the audited tiles there are about 280 km of OSM commercial frontage where the
+game's buildings are houses or nothing, because the procedural suburbs do not
+read landuse. Signs wait for stores there. A buildings pass that puts shops on
+commercial landuse would let them stand; it is not part of this package.
+
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 
 Reported after the rebuild: "a lot of roads still floating in air, not

@@ -207,7 +207,7 @@ namespace PSXRacing.City
         public const int RejectOverhang = 8, RejectSpacing = 9, RejectCount = 10;
         public static readonly string[] RejectNames =
         {
-            "pavement", "clear zone", "sight triangle", "corner spot", "building", "water", "under a deck", "lot or lamp",
+            "pavement", "clear zone", "sight triangle", "corner spot", "building", "water", "under a deck", "lot, lamp or sign",
             "card over the road too low", "too close to another tree",
         };
 
@@ -217,6 +217,9 @@ namespace PSXRacing.City
             public readonly List<Tree> trees = new List<Tree>();
             public Mesh mesh;
             public RoadsideOccupancy occ;
+            /// <summary>The tile's signs (WP-23), placed on the mask before the
+            /// trees; null when the signs are off or have no data.</summary>
+            public CitySigns.SignTile signs;
             /// <summary>What the canopy asks this tile for (density applied,
             /// before the per-tile cap), and what was planted.</summary>
             public float wanted;
@@ -253,21 +256,24 @@ namespace PSXRacing.City
         {
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var tt = new TreeTile { tx = tx, tz = tz };
-            if (!CityCanopy.Loaded) return tt;
             var min = new Vector2(tx * CityMeshes.TileSize, tz * CityMeshes.TileSize);
             float density = Density;
+            bool signs = CitySigns.Enabled && CitySignData.Loaded;
+            bool trees = Enabled && CityCanopy.Loaded;
 
             // what the canopy asks for, square by square, and the tile's cap
             float wanted = 0f;
-            for (int z = 0; z < Squares; z++)
-                for (int x = 0; x < Squares; x++)
-                {
-                    float c = CityCanopy.CellFraction(min.x + (x + 0.5f) * SquareM, min.y + (z + 0.5f) * SquareM);
-                    squareCanopy[z * Squares + x] = c;
-                    wanted += c * SquareM * SquareM / CrownM2 * density;
-                }
+            if (trees)
+                for (int z = 0; z < Squares; z++)
+                    for (int x = 0; x < Squares; x++)
+                    {
+                        float c = CityCanopy.CellFraction(min.x + (x + 0.5f) * SquareM, min.y + (z + 0.5f) * SquareM);
+                        squareCanopy[z * Squares + x] = c;
+                        wanted += c * SquareM * SquareM / CrownM2 * density;
+                    }
             tt.wanted = wanted;
-            if (wanted < 0.5f) { tt.ms = (float)clock.Elapsed.TotalMilliseconds; return tt; }
+            trees &= wanted >= 0.5f;
+            if (!trees && !signs) { tt.ms = (float)clock.Elapsed.TotalMilliseconds; return tt; }
             float cap = MaxPerTile * density;
             float scale = wanted > cap ? cap / wanted : 1f;
 
@@ -276,6 +282,10 @@ namespace PSXRacing.City
             var occ = RoadsideOccupancy.Build(map, trims, buildings, tm, tx, tz);
             tt.occ = occ;
             tt.occMs = (float)clock.Elapsed.TotalMilliseconds;
+            // THE SIGNS FIRST (WP-23; the plan's priority: signs before trees):
+            // they take their ground on the mask, and the trees keep off it
+            if (signs) tt.signs = CitySigns.Build(map, trims, buildings, tm, occ, tx, tz);
+            if (!trees) { tt.ms = (float)clock.Elapsed.TotalMilliseconds; return tt; }
             System.Array.Clear(taken, 0, taken.Length);
             float distUp = Vector2.Distance(min + Vector2.one * (CityMeshes.TileSize * 0.5f), map.uptown);
 

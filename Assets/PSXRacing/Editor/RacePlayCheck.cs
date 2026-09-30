@@ -29,7 +29,7 @@ namespace PSXRacing.EditorTools
         // "0" (off), "1" (on, the default) or "ab" (every race twice, trees on
         // then off). Each race enters play mode, races, leaves, and the next
         // opens its scene; one report at the end with a line per race.
-        struct Job { public string venue; public int seed; public bool trees; }
+        struct Job { public string venue; public int seed; public bool trees, signs; }
         static readonly List<Job> jobs = new List<Job>();
         static int jobAt;
         internal static int SeedNow => jobAt < jobs.Count ? jobs[jobAt].seed : 0;
@@ -48,16 +48,16 @@ namespace PSXRacing.EditorTools
             string seeds = System.Environment.GetEnvironmentVariable("PSX_RACE_SEEDS");
             if (string.IsNullOrEmpty(seeds)) seeds = System.Environment.GetEnvironmentVariable("PSX_RACE_SEED") ?? "0";
             string treesMode = System.Environment.GetEnvironmentVariable("PSX_CITY_TREES") ?? "1";
+            // WP-23: the city's signs the same way (PSX_CITY_SIGNS 1, 0 or ab)
+            string signsMode = System.Environment.GetEnvironmentVariable("PSX_CITY_SIGNS") ?? "1";
+            if (string.IsNullOrEmpty(signsMode)) signsMode = "1";
             foreach (var v in venues.Split(','))
                 foreach (var sd in seeds.Split(','))
                 {
                     if (string.IsNullOrWhiteSpace(v) || !int.TryParse(sd.Trim(), out int seed)) continue;
-                    if (treesMode == "ab")
-                    {
-                        jobs.Add(new Job { venue = v.Trim(), seed = seed, trees = true });
-                        jobs.Add(new Job { venue = v.Trim(), seed = seed, trees = false });
-                    }
-                    else jobs.Add(new Job { venue = v.Trim(), seed = seed, trees = treesMode != "0" });
+                    foreach (bool tr in treesMode == "ab" ? new[] { true, false } : new[] { treesMode != "0" })
+                        foreach (bool sg in signsMode == "ab" ? new[] { true, false } : new[] { signsMode != "0" })
+                            jobs.Add(new Job { venue = v.Trim(), seed = seed, trees = tr, signs = sg });
                 }
             StartJob();
         }
@@ -80,6 +80,7 @@ namespace PSXRacing.EditorTools
             }
             var job = jobs[jobAt];
             PSXRacing.City.CityTrees.Enabled = job.trees;
+            PSXRacing.City.CitySigns.Enabled = job.signs;
             string id = job.venue;
             System.Environment.SetEnvironmentVariable("PSX_RACE_SEED", job.seed.ToString());
             int index = -1;
@@ -94,7 +95,7 @@ namespace PSXRacing.EditorTools
                 StartJob();
                 return;
             }
-            log.AppendLine("race on " + id + (jobs.Count > 1 ? $" (seed {job.seed}, city trees {(job.trees ? "on" : "off")})" : "") + ":");
+            log.AppendLine("race on " + id + (jobs.Count > 1 ? $" (seed {job.seed}, city trees {(job.trees ? "on" : "off")}, signs {(job.signs ? "on" : "off")})" : "") + ":");
             // The edition it plays AS (PSX_EDITION / -psxEdition; ALL by
             // default): a MAIN run races under MAIN's runtime rules.
             log.AppendLine("  edition " + Edition.Name(Edition.Current));
@@ -373,7 +374,7 @@ namespace PSXRacing.EditorTools
                 if (p != null && p.finished) done.Add(c.name);
             }
             RacePlayCheck.Note($"race state at the end: {rm.State}; finished: {(done.Count > 0 ? string.Join(", ", done) : "none")}");
-            RacePlayCheck.Note($"city tree trunks hit: {trunkHits} (hard {trunkHard})");
+            RacePlayCheck.Note($"city tree trunks hit: {trunkHits} (hard {trunkHard}); billboard and gantry posts hit: {postHits} (hard {postHard})");
             RacePlayCheck.Check(retiredAt.Count <= 1, "at most one rival retires in the run", retiredAt.Count);
             if (toFinish)
             {
@@ -405,14 +406,14 @@ namespace PSXRacing.EditorTools
                 why.Add($"{(kv.Key != null ? kv.Key.name : "?")} at {kv.Value:0}s into {(r != null ? r.WorstHitWhat : "?")}");
             }
             string venue = RacePlayCheck.VenueNow;
-            summary = $"{venue,-18} seed {RacePlayCheck.SeedNow,2} trees {(PSXRacing.City.CityTrees.Enabled ? "on " : "off")}: {retiredAt.Count} of {rivals} retired" +
+            summary = $"{venue,-18} seed {RacePlayCheck.SeedNow,2} trees {(PSXRacing.City.CityTrees.Enabled ? "on " : "off")} signs {(PSXRacing.City.CitySigns.Enabled ? "on " : "off")}: {retiredAt.Count} of {rivals} retired" +
                       (why.Count > 0 ? " (" + string.Join("; ", why) + ")" : "") +
-                      $"; trunk hits {trunkHits} ({trunkHard} hard); raced {raced:0} s, {rm.State}, finished {done.Count}";
+                      $"; trunk hits {trunkHits} ({trunkHard} hard); sign posts {postHits} ({postHard} hard); raced {raced:0} s, {rm.State}, finished {done.Count}";
             Done();
         }
 
         string summary = "";
-        int trunkHits, trunkHard;
+        int trunkHits, trunkHard, postHits, postHard;
 
         /// <summary>A -nographics editor has no GPU, and every camera still
         /// asked for a frame: each failed with a logged error and a stack
@@ -506,6 +507,7 @@ namespace PSXRacing.EditorTools
         {
             if (speed < 6f || rm == null) return;
             if (what == PSXRacing.City.CityTrees.TrunkName) { trunkHits++; if (hard) trunkHard++; }
+            if (what == PSXRacing.City.CitySigns.PostName) { postHits++; if (hard) postHard++; }
             string kind = what.StartsWith("WallColl") ? "wall" : what.StartsWith("Bank") ? "rock" :
                           what.StartsWith("Traffic") || what.Contains("traffic") ? "traffic" :
                           who.GetComponentInParent<CarController>() != null && what.Length > 0 && IsCarName(what) ? "car" : what;

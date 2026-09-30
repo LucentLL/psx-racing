@@ -1,0 +1,34 @@
+sign audit (WP-23): data 19 routes, 43 OSM billboards, 3960 businesses
+  ok  the sign data (charlotte_signs.bytes) loads
+  ok  the city kit's sign material wears the atlas and lights its faces at night (_NightMask, _NightWin, _NightFace)
+    3539 tiles (45 at the shot spots, the rest along the routes and the race routes), 951 with signs; 271 bulletins, 61 posters (32 of them OSM's), 1680 business pole signs, 182 exit gantries (13 cantilevers); 683 solid posts and legs, 1037 floodlights, 3357 faces; place 0.5 ms a tile (max 23.9)
+    candidates that won their spacing but found no free ground: billboards 37, pole signs 104, gantries 13; gantries and billboards dropped by their own tile on its fill houses or lamps: 4
+    across the seams: 304 times a tile marked the ground of another tile's gantry or billboard; 67 legs and posts in a tile not their own (269 such tiles rebuilt and checked: 0 feet that tile did not mark); trees on a sign's ground 0; posts in one another 0
+    business pole signs: 1680 (1054 at an OSM business, 626 along the frontage) on 565.4 km of commercial frontage (each side counted): one every 337 m of it (the plan: every 30-60 m)
+  ok  a business sign every 30-60 m of store frontage (a store behind a collector or bigger, each side) (sign audit) — 1680 on 32.9 km: one every 20 m (626 frontage fills alone: one every 52 m)
+    business signs that did not stand: lost the spacing 542, a frontage with no store behind 8753, a business or store at the kerb (its sign on its wall) 1058, no drivers to turn to 51, no free ground 104, a bend 2
+    business signs along the shot spots' streets (each side counted; one every N m): East Independence Boulevard 4 on 3.5 km (868 m); Statesville Avenue 9 on 2.7 km (295 m); Atando Avenue 0 on 2.1 km (0 m); South Boulevard 2 on 2.1 km (1032 m); Carson Boulevard 0 on 1.7 km (0 m); South Tryon Street 0 on 1.5 km (0 m); East W T Harris Boulevard 1 on 1.5 km (1456 m); North Tryon Street 0 on 1.4 km (0 m); South College Street 0 on 0.9 km (0 m); East Morehead Street 0 on 0.9 km (0 m)
+      East Independence Boulevard: no store behind 52; poi placed 4; poi lost the spacing 1
+      Statesville Avenue: store at the kerb 1; fill placed 9; fill lost the spacing 1
+      Atando Avenue: store at the kerb 1
+      South Boulevard: store at the kerb 8; fill placed 2
+      Carson Boulevard: poi at the kerb 1; no store behind 5; store at the kerb 1
+      South Tryon Street: store at the kerb 11; poi no ground 1; fill no ground 2; no store behind 8
+      East W T Harris Boulevard: no store behind 21; poi placed 1
+      North Tryon Street: no store behind 23
+      East Morehead Street: poi at the kerb 1; no store behind 2; store at the kerb 5
+      West Morehead Street: store at the kerb 1
+  ok  the city stands billboards, business pole signs and exit gantries (sign audit) — 332, 1680, 182
+  ok  no post on pavement, in a clear zone, under a deck, in a building, lake or run-off, or on a reserved cell of its own tile's mask or the next tile's; the next tile marks it; no tree on a sign's ground; no post in another; nothing over pavement but a gantry's panels, 5.5 m up (sign audit) — 0
+  ok  every face turned to its traffic: dot 0.9 or better to a driver 150 m up the road (80 m for a business's cabinet) (sign audit) — 0 faces below; worst 0.918 at Bulletin (-3123,23288) 35.394112,-80.852028
+    gantry panels: the lowest 5.74 m over the road under it, at (-9123,-6616) 35.125026,-80.917968
+  ok  every sign in the tile that placed it, none placed twice across a seam (sign audit) — 0 outside, 0 twice
+  ok  a tile places the same signs every build (sign audit)
+  ok  a tile's signs are one mesh with one material: at most +1 draw (sign audit) — 0
+  ok  every billboard lit: two floodlights under a bulletin face, one under a poster (sign audit) — 1037 lamps for 271 bulletins, 61 posters
+  ok  billboard monopoles and gantry legs are solid; pole-sign cabinets break away (Q15) (sign audit) — 683 posts
+    billboards per route (placed / NCDOT's figure): US 21 0/0 (0.00 per km of 21 km, NCDOT 0.00); US 29 26/33 (0.55 per km of 47 km, NCDOT 0.70); NC 49 5/11 (0.13 per km of 37 km, NCDOT 0.29); I 85 57/66 (1.28 per km of 44 km, NCDOT 1.49); NC 273 12/14 (0.51 per km of 24 km, NCDOT 0.60); NC 27 5/4 (0.19 per km of 27 km, NCDOT 0.16); NC 16 31/28 (0.63 per km of 50 km, NCDOT 0.56); NC 115 6/8 (0.45 per km of 13 km, NCDOT 0.60); NC 51 20/21 (0.56 per km of 36 km, NCDOT 0.60); NC 160 12/14 (0.50 per km of 24 km, NCDOT 0.60); US 74 32/39 (1.03 per km of 31 km, NCDOT 1.25); I 485 29/30 (0.27 per km of 106 km, NCDOT 0.29); I 277 9/14 (1.27 per km of 7 km, NCDOT 1.97); I 77 54/57 (1.14 per km of 47 km, NCDOT 1.20); NC 24 22/20 (0.59 per km of 37 km, NCDOT 0.54); NC 218 2/2 (0.61 per km of 3 km, NCDOT 0.60); US 521 2/3 (0.40 per km of 5 km, NCDOT 0.60)
+  ok  billboard density on interstates within +-20% of NCDOT's (sign audit) — 149 placed for 167 (0.73 per km against 0.82; 204 km)
+  ok  billboard density on US and NC routes within +-20% of NCDOT's (sign audit) — 175 placed for 197 (0.49 per km against 0.55; 356 km)
+    exit gantries 182 over 223 km of motorway in the audited tiles' reach (NCDOT counts 1.01 per km; one per exit here; 13 exits found no legs)
+SIGN AUDIT OK

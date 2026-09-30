@@ -41,7 +41,7 @@ namespace PSXRacing.City
         public const float CellPadM = 1.4143f;
 
         public const byte Pavement = 1, Clear = 2, Sight = 4, Corner = 8, Building = 16, Water = 32, Deck = 64, Other = 128;
-        public static readonly string[] BitNames = { "pavement", "clear zone", "sight triangle", "corner spot", "building", "water", "under a deck", "lot or lamp" };
+        public static readonly string[] BitNames = { "pavement", "clear zone", "sight triangle", "corner spot", "building", "water", "under a deck", "lot, lamp or sign" };
 
         /// <summary>Sight triangle legs along each kerb line, metres.</summary>
         public const float SightLegM = 10f;
@@ -66,14 +66,14 @@ namespace PSXRacing.City
 
         public readonly int tx, tz;
         public readonly Vector2 min;
-        public readonly byte[] bits = new byte[Res * Res];
+        public readonly byte[] bits;
 
         /// <summary>A stretch of carriageway: plan ends, drawn half width,
         /// clear zone, and whether it is on structure (a deck).</summary>
         public struct Piece { public Vector2 a, b; public float sa, sb, hw, clear, y; public bool deck; public int edge; }
-        public readonly List<Piece> pieces = new List<Piece>(256);
+        public readonly List<Piece> pieces;
         /// <summary>The creeks round the tile (plan ends, half the drawn width).</summary>
-        public readonly List<(Vector2 a, Vector2 b, float hw)> creeks = new List<(Vector2, Vector2, float)>();
+        public readonly List<(Vector2 a, Vector2 b, float hw)> creeks;
         // pieces bucketed on a 16 m grid over the tile and its GatherM margin
         readonly List<int>[] buckets;
         readonly int bn;
@@ -89,7 +89,71 @@ namespace PSXRacing.City
             bmin = min - Vector2.one * GatherM;
             bn = Mathf.CeilToInt((CityMeshes.TileSize + 2f * GatherM) / BucketM);
             buckets = new List<int>[bn * bn];
+            bits = new byte[Res * Res];
+            pieces = new List<Piece>(256);
+            creeks = new List<(Vector2, Vector2, float)>();
         }
+
+        /// <summary>A tile's own mask on the static one: the bits copied, the
+        /// road pieces, creeks and buckets shared (nothing changes them after
+        /// the build).</summary>
+        RoadsideOccupancy(RoadsideOccupancy src)
+        {
+            map = src.map;
+            tx = src.tx; tz = src.tz;
+            min = src.min; bmin = src.bmin; bn = src.bn;
+            buckets = src.buckets;
+            pieces = src.pieces;
+            creeks = src.creeks;
+            bits = (byte[])src.bits.Clone();
+        }
+
+        // ------------------------------------------------------------------
+        //  THE STATIC MASK: everything but the tile build's own fill houses
+        //  and lamp feet, from global data only (the graph, the trims, the
+        //  footprints and lots, the water, the race routes). The signs that
+        //  cross a tile seam (gantries, billboards: CitySigns) are decided on
+        //  it, so every tile they reach finds the same ones; a tile's full
+        //  mask is its static mask plus its fill houses and lamps. Cached for
+        //  the few tiles round the one building (the neighbours' are asked
+        //  for, then built themselves).
+        // ------------------------------------------------------------------
+
+        public const int StaticCacheSize = 32;
+        static readonly Dictionary<long, RoadsideOccupancy> staticCache = new Dictionary<long, RoadsideOccupancy>();
+        static readonly Queue<long> staticOrder = new Queue<long>();
+        static CityMap staticMap;
+        static CityMeshes.Trims staticTrims;
+        static Dictionary<long, List<CityBuildings.B>> staticBuildings;
+
+        /// <summary>The static mask of a tile (shared: never mark it).</summary>
+        public static RoadsideOccupancy Static(CityMap map, CityMeshes.Trims trims,
+            Dictionary<long, List<CityBuildings.B>> buildings, int tx, int tz)
+        {
+            if (staticMap != map || staticTrims != trims || staticBuildings != buildings)
+            {
+                staticCache.Clear(); staticOrder.Clear(); lastStatic = null;
+                staticMap = map; staticTrims = trims; staticBuildings = buildings;
+            }
+            long key = ((long)tx << 24) ^ (tz & 0xFFFFFF);
+            if (staticCache.TryGetValue(key, out var o)) return o;
+            o = BuildStatic(map, trims, buildings, tx, tz);
+            staticCache[key] = o;
+            staticOrder.Enqueue(key);
+            while (staticOrder.Count > StaticCacheSize) staticCache.Remove(staticOrder.Dequeue());
+            return o;
+        }
+
+        /// <summary>The static mask's bits at a world point, whatever tile it is in.</summary>
+        public static byte StaticAt(CityMap map, CityMeshes.Trims trims,
+            Dictionary<long, List<CityBuildings.B>> buildings, Vector2 p)
+        {
+            int tx = Mathf.FloorToInt(p.x / CityMeshes.TileSize), tz = Mathf.FloorToInt(p.y / CityMeshes.TileSize);
+            if (lastStatic == null || lastStatic.tx != tx || lastStatic.tz != tz || staticMap != map || staticTrims != trims || staticBuildings != buildings)
+                lastStatic = Static(map, trims, buildings, tx, tz);
+            return lastStatic.At(p);
+        }
+        static RoadsideOccupancy lastStatic;
 
         // ------------------------------------------------------------------
         //  Queries
@@ -176,7 +240,7 @@ namespace PSXRacing.City
                         // the road's height where the point is square to it, not the piece's middle
                         float y = map.edges[pc.edge].YAt(pc.sa + (pc.sb - pc.sa) * t);
                         // every piece, not one per edge: a bend's pieces face different ways
-                        outList.Add(new NearRoad { a = pc.a, b = pc.b, hw = pc.hw, y = y, off = off, away = away });
+                        outList.Add(new NearRoad { a = pc.a, b = pc.b, hw = pc.hw, y = y, off = off, away = away, clear = pc.clear, deck = pc.deck, edge = pc.edge });
                     }
                 }
         }
@@ -197,8 +261,9 @@ namespace PSXRacing.City
 
         /// <summary>A stretch of road near a point: its centreline chord and
         /// half width, the road's height square to the point, how far off its
-        /// edge the point is and the unit direction from it to the point.</summary>
-        public struct NearRoad { public Vector2 a, b, away; public float hw, y, off; }
+        /// edge the point is and the unit direction from it to the point; its
+        /// clear zone, whether it is a deck, and its edge.</summary>
+        public struct NearRoad { public Vector2 a, b, away; public float hw, y, off, clear; public bool deck; public int edge; }
 
         /// <summary>The distance between two segments in plan.</summary>
         public static float SegSegDistance(Vector2 p0, Vector2 p1, Vector2 q0, Vector2 q1)
@@ -271,10 +336,24 @@ namespace PSXRacing.City
         static readonly HashSet<int> nodeScratch = new HashSet<int>();
         static readonly List<(float ang, Vector2 p, Vector2 d, float hw, float clear)> arms = new List<(float, Vector2, Vector2, float, float)>(8);
 
-        /// <summary>Build the mask of one tile. <paramref name="tm"/> is the
-        /// tile's own build (its fill houses and lamps); null leaves them out.</summary>
+        /// <summary>Build the mask of one tile: its static mask (<see cref="Static"/>)
+        /// and <paramref name="tm"/>, the tile's own build (its fill houses and
+        /// lamps); null leaves them out.</summary>
         public static RoadsideOccupancy Build(CityMap map, CityMeshes.Trims trims,
             Dictionary<long, List<CityBuildings.B>> buildings, CityMeshes.TileMeshes tm, int tx, int tz)
+        {
+            var o = new RoadsideOccupancy(Static(map, trims, buildings, tx, tz));
+            if (tm != null)
+            {
+                foreach (var h in tm.houseBoxes) o.MarkBox(h.c, h.u, h.hu, h.hv, BuildingMarginM + CellPadM, Building);
+                foreach (var l in tm.lamps)
+                    o.MarkDisc(new Vector2(l.foot.x + tm.origin.x, l.foot.z + tm.origin.z), LampFootR + CellPadM, Other);
+            }
+            return o;
+        }
+
+        static RoadsideOccupancy BuildStatic(CityMap map, CityMeshes.Trims trims,
+            Dictionary<long, List<CityBuildings.B>> buildings, int tx, int tz)
         {
             var o = new RoadsideOccupancy(map, tx, tz);
             var lo = o.min - Vector2.one * GatherM;
@@ -414,12 +493,6 @@ namespace PSXRacing.City
                                       b.kind == 0 ? Building : Other);
                         }
                 }
-            if (tm != null)
-            {
-                foreach (var h in tm.houseBoxes) o.MarkBox(h.c, h.u, h.hu, h.hv, BuildingMarginM + CellPadM, Building);
-                foreach (var l in tm.lamps)
-                    o.MarkDisc(new Vector2(l.foot.x + tm.origin.x, l.foot.z + tm.origin.z), LampFootR + CellPadM, Other);
-            }
 
             // ---- water: creeks by their drawn width, lakes by their shore
             segScratch.Clear();

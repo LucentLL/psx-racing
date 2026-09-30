@@ -15,6 +15,9 @@ Licence: public domain - www.usgs.gov/3d-hydrography-program
 Tree canopy: USDA Forest Service, NLCD Tree Canopy Cover (2024)
 Licence: public domain - data.fs.usda.gov/geodata/rastergateway/treecanopycover
 
+Billboard density: NCDOT GIS Unit (statistics only)
+Licence: public record, no licence stated - connect.ncdot.gov/resources/gis/pages/gis-data-layers.aspx
+
 Mountain stage terrain: AWS Terrain Tiles (Mapzen/Tilezen); 3DEP and SRTM data courtesy of the U.S. Geological Survey
 Licence: public domain; attribution requested - github.com/tilezen/joerd/blob/master/docs/attribution.md
 

@@ -26,7 +26,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 MIB = 1024 * 1024
 LIMIT = 95 * MIB
-DATA = ['charlotte_city.bytes', 'charlotte_dem.bytes', 'charlotte_bld.bytes', 'charlotte_routes.json', 'charlotte_canopy.bytes']
+DATA = ['charlotte_city.bytes', 'charlotte_dem.bytes', 'charlotte_bld.bytes', 'charlotte_routes.json', 'charlotte_canopy.bytes', 'charlotte_signs.bytes']
 
 
 def git(*args):
