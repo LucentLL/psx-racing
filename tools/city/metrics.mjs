@@ -35,7 +35,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { gunzipSync, brotliCompressSync, constants as Z } from 'node:zlib';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseCity, parseDem, parseBld, fingerprint, freeVertices, kmByClass, classOf, CLASSES, DEG, STATION_STEP, signedTurn } from './lib/citydata.mjs';
+import { parseCity, parseDem, parseBld, roadGridSteps, fingerprint, freeVertices, kmByClass, classOf, CLASSES, DEG, STATION_STEP, signedTurn } from './lib/citydata.mjs';
 import { smoothSection } from './smooth.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -75,19 +75,22 @@ const ROAD_SIGMA = (() => {
 })();
 const roadDem = (() => {
   if (!(ROAD_SIGMA > 0.05)) return dem;
-  const { nx, nz } = dem, r = Math.ceil(ROAD_SIGMA * 3), k = [];
+  // the 60 m grid the game rebuilds from the 30 m nodes (WP-13), in metres
+  const g = roadGridSteps(dem), mul = dem.scale === Math.fround(0.1) ? 0.1 : dem.scale;
+  const { nx, nz } = g, r = Math.ceil(ROAD_SIGMA * 3), k = [];
+  const src = Float64Array.from(g.steps, v => v * mul);
   let ks = 0; for (let i = -r; i <= r; i++) { const v = Math.exp(-0.5 * i * i / (ROAD_SIGMA * ROAD_SIGMA)); k.push(v); ks += v; }
   const tmp = new Float64Array(nx * nz), h = new Float32Array(nx * nz);
-  for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) { let a = 0; for (let i = -r; i <= r; i++) a += k[i + r] * dem.h[z * nx + Math.min(nx - 1, Math.max(0, x + i))]; tmp[z * nx + x] = a / ks; }
+  for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) { let a = 0; for (let i = -r; i <= r; i++) a += k[i + r] * src[z * nx + Math.min(nx - 1, Math.max(0, x + i))]; tmp[z * nx + x] = a / ks; }
   for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) { let a = 0; for (let i = -r; i <= r; i++) a += k[i + r] * tmp[Math.min(nz - 1, Math.max(0, z + i)) * nx + x]; h[z * nx + x] = a / ks; }
   const at = (x, z) => {
-    const fx = (x - dem.x0) / dem.cell, fz = (z - dem.z0) / dem.cell;
+    const fx = (x - dem.x0) / g.cell, fz = (z - dem.z0) / g.cell;
     const ix = Math.min(nx - 2, Math.max(0, Math.floor(fx))), iz = Math.min(nz - 2, Math.max(0, Math.floor(fz)));
     const tx = Math.min(1, Math.max(0, fx - ix)), tz = Math.min(1, Math.max(0, fz - iz));
     const a = h[iz * nx + ix], b = h[iz * nx + ix + 1], c = h[(iz + 1) * nx + ix], d = h[(iz + 1) * nx + ix + 1];
     return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + d * tx) * tz;
   };
-  return { ...dem, h, at, asl: (x, z) => at(x, z) + dem.base };
+  return { ...dem, nx, nz, cell: g.cell, h, at, asl: (x, z) => at(x, z) + dem.base };
 })();
 const R = { schema: 1, data: DATA.replace(/\\/g, '/').replace(UNITY.replace(/\\/g, '/') + '/', ''), node: process.version };
 const out = [];
@@ -441,16 +444,16 @@ P(`  PSXC v${fp.city.version}, graph hash ${fp.city.graph_hash}; PDEM v${fp.dem.
   // forward differences over one cell, the 1.5 km margin (25 cells) dropped.
   // 3DEP block means at 60 m give p90 9.02% and 28.6% over 6% (the survey).
   {
-    const m = 25, sl = [];
+    const m = Math.round(1500 / dem.cell), sl = [];
     for (let iz = m; iz < dem.nz - m - 1; iz++) for (let ix = m; ix < dem.nx - m - 1; ix++) {
       const i = iz * dem.nx + ix;
       sl.push(Math.hypot(dem.h[i + 1] - dem.h[i], dem.h[i + dem.nx] - dem.h[i]) / dem.cell * 100);
     }
-    R.height.grid60 = { method: 'survey_flatness: forward differences over one 60 m cell, 25-cell margin dropped',
+    R.height.grid60 = { method: `survey_flatness: forward differences over one ${dem.cell} m cell (the shipped grid's), the 1.5 km margin dropped`, cell_m: dem.cell,
                         slope_p50_pct: r2(percentile(sl, 50)), slope_p90_pct: r2(percentile(sl, 90)), slope_p99_pct: r2(percentile(sl, 99)),
                         share_over_6pct: r3(sl.filter(v => v > 6).length / sl.length), real_3dep_60m: { slope_p90_pct: 9.02, share_over_6pct: 0.286 } };
     const g = R.height.grid60;
-    P(`  game grid slope at 60 m: p50 ${g.slope_p50_pct}%, p90 ${g.slope_p90_pct}%, p99 ${g.slope_p99_pct}%; cells over 6%: ${(g.share_over_6pct * 100).toFixed(1)}% (3DEP at 60 m: p90 9.02%, 28.6%)`);
+    P(`  game grid slope at ${dem.cell} m: p50 ${g.slope_p50_pct}%, p90 ${g.slope_p90_pct}%, p99 ${g.slope_p99_pct}%; cells over 6%: ${(g.share_over_6pct * 100).toFixed(1)}% (3DEP at 60 m: p90 9.02%, 28.6%)`);
   }
   // --- the core's relief, against 3DEP 10 m
   {

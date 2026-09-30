@@ -13,6 +13,12 @@
 $ErrorActionPreference = "Stop"
 $src  = Split-Path -Parent $PSScriptRoot
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
+# Not from a sandbox whose Resources an unfinished edition build has parked:
+# what is parked would be missing here (unity-wait.ps1, Assert-EditionParkClear).
+if (Test-Path "$proj\PSXEditionParked.json") {
+    Write-Host "REFUSING: $proj has Resources parked by an edition build that did not finish ($proj\PSXEditionParked.json). Run any sandbox tool first (it puts them back), then sync." -ForegroundColor Red
+    exit 1
+}
 
 $paths = @(
     "Assets\PSXRacing\Art\City",
@@ -37,7 +43,14 @@ $paths = @(
     "Assets\PSXRacing\Scripts\DriveSession.cs.meta",
     "Assets\PSXRacing\Editor\PSXRacingBuilder.City.cs.meta",
     "Assets\PSXRacing\Editor\CityAudit.cs.meta",
-    "Assets\PSXRacing\Editor\CityPreview.cs.meta"
+    "Assets\PSXRacing\Editor\CityPreview.cs.meta",
+    # WP-07: the city kit, its scripts, the prop baker
+    "Assets\PSXRacing\Resources\CityKit.asset",
+    "Assets\PSXRacing\Resources\CityKit.asset.meta",
+    "Assets\PSXRacing\Resources\CityProps\City.meta",
+    "Assets\PSXRacing\Scripts\City\CityKit.cs.meta",
+    "Assets\PSXRacing\Scripts\City\CityPropInterior.cs.meta",
+    "Assets\PSXRacing\Editor\CityPropBaker.cs.meta"
 )
 
 $copied = 0
@@ -61,6 +74,18 @@ $matDirTo   = Join-Path $src  "Assets\PSXRacing\Materials"
 Get-ChildItem $matDirFrom -Filter "City*" | ForEach-Object {
     Copy-Item $_.FullName (Join-Path $matDirTo $_.Name) -Force
     $copied++
+}
+
+# The city prop variants (WP-07) are bake output like the full CityProps
+# prefabs: only their .meta files are source, so a mirror keeps their GUIDs.
+$varFrom = Join-Path $proj "Assets\PSXRacing\Resources\CityProps\City"
+$varTo   = Join-Path $src  "Assets\PSXRacing\Resources\CityProps\City"
+if (Test-Path $varFrom) {
+    New-Item -ItemType Directory -Force $varTo | Out-Null
+    Get-ChildItem $varFrom -Filter "*.meta" | ForEach-Object {
+        Copy-Item $_.FullName (Join-Path $varTo $_.Name) -Force
+        $copied++
+    }
 }
 
 Write-Host "city sync-back: $copied paths copied."

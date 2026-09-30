@@ -1,5 +1,7 @@
 fileFormatVersion: 2
 guid: 6088c139d2c3d124182435eeaf6e8d65
+labels:
+- psx16
 TextureImporter:
   internalIDToNameTable: []
   externalObjects: {}
@@ -7,7 +9,7 @@ TextureImporter:
   mipmaps:
     mipMapMode: 0
     enableMipMap: 0
-    sRGBTexture: 1
+    sRGBTexture: 0
     linearTexture: 0
     fadeOut: 0
     borderMipMap: 0

@@ -68,6 +68,14 @@ const LAYERS = {
     'fences, walls, guard rails, gates (WP-24)', 4],
   culverts: [`way["tunnel"="culvert"]({B});out geom;`,
     'culverts (WP-25)', 1],
+  // WP-23: where billboards may stand (NC 19A NCAC 02E .0203: commercial or
+  // industrial land within 660 ft of the right of way) and where the business
+  // pole signs are (a business on the frontage)
+  landuse: [`(way["landuse"~"^(commercial|retail|industrial)$"]({B});relation["landuse"~"^(commercial|retail|industrial)$"]({B}););out geom;`,
+    'commercial, retail and industrial land (WP-23 billboard zoning, pole-sign frontage)', 1],
+  business: [`(node["shop"]({B});node["amenity"~"^(fast_food|restaurant|fuel|bank|pharmacy|car_wash|cafe|car_rental|ice_cream|bar|pub)$"]({B});node["tourism"~"^(motel|hotel)$"]({B});` +
+    `way["shop"]({B});way["amenity"~"^(fast_food|restaurant|fuel|bank|pharmacy|car_wash|cafe|car_rental|ice_cream|bar|pub)$"]({B});way["tourism"~"^(motel|hotel)$"]({B}););out center;`,
+    'shops, restaurants, fuel, banks, motels (WP-23 business pole signs)', 1],
 };
 
 const ARGS = process.argv.slice(2);

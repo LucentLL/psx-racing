@@ -74,6 +74,10 @@ namespace PSXRacing
                 foreach (var v in e.variants)
                     if (v != null) known[v] = e;
             }
+            // The whole wardrobe, worn or not: a dress put on later (the
+            // bench, the city's tiles through Substitute) is then already
+            // set to decode its 16-bit texels (PSXTexDecode).
+            foreach (var m in known.Keys) PSXTexDecode.Stamp(m);
         }
 
         /// <summary>Put dress <paramref name="dress"/> on every renderer in

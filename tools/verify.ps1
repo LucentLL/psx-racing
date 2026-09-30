@@ -29,21 +29,43 @@
 # tools\build-and-publish.ps1 can print what a deploy is shipping past. It is
 # deleted first thing, so a run that dies leaves no result rather than the last
 # one's.
-param([switch]$NoMirror)
+#
+# PER EDITION (see Scripts/Edition.cs): -Edition MAIN|CITY|ALL, ALL by
+# default. The scene build and the self-test are always the whole game (the
+# build settings are ALL; TestEditions checks both editions as editions).
+# What the edition changes is WHAT IS MEASURED: every audit walks that
+# edition's venues (PSX_EDITION for the Unity jobs -> EditionTarget), MAIN
+# skips the city audit (it ships no city), and CITY skips the town probe (it
+# ships no town). The result file records the edition on its second line and
+# tools\build-and-publish.ps1 holds a publish to it.
+param([switch]$NoMirror, [string]$Edition = "ALL")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
 . "$PSScriptRoot\unity-wait.ps1"
+$Edition = $Edition.ToUpperInvariant()
+if (@("MAIN", "CITY", "ALL") -notcontains $Edition) { Write-Host "-Edition must be MAIN, CITY or ALL" -ForegroundColor Red; exit 1 }
+# Every Unity job below inherits it; the scene builder and the self-test force
+# ALL for themselves, the audits and the screenshots measure this edition.
+$env:PSX_EDITION = $Edition
+Write-Host "Verifying edition $Edition" -ForegroundColor Cyan
 
 $resultFile = "$proj\PSXRacing_verify_result.txt"
 if (Test-Path $resultFile) { Remove-Item $resultFile -Force }
 
 # Every line that failed a stage, for the result file and the closing summary.
 $failLines = New-Object System.Collections.Generic.List[string]
+# Every owner-accepted exception the audits passed on (TrackObstacleAudit.
+# OwnerAccepted: named spots, each by station, side and height). Not failures,
+# but written down on every run, so a pass is never read as "nothing there".
+$acceptedLines = New-Object System.Collections.Generic.List[string]
 
 function Write-VerifyResult([int]$Bad) {
     $head = if ($Bad -gt 0) { "VERIFY FAILED ($Bad stage(s))" } else { "VERIFY PASS" }
-    $body = @($head, ("finished " + (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")), "source $src", "failures:")
+    $body = @($head, "edition $Edition", ("finished " + (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")), "source $src")
+    # Before "failures:" - build-and-publish lists everything after that line.
+    $body += @($acceptedLines | ForEach-Object { "accepted: " + $_ })
+    $body += "failures:"
     $body += @($failLines)
     Set-Content -Path $resultFile -Value $body -Encoding ASCII
 }
@@ -67,6 +89,17 @@ if ($NoMirror) {
     # pass is a renderer FEATURE, and a sandbox without it renders a game with no blur
     # while every assertion about SpeedBlur.cs passes.
     robocopy "$src\Assets\Settings" "$proj\Assets\Settings" /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+    # The WebGL template ships BESIDE the player (index.html, and LICENSES.txt,
+    # which PSXBuildWebGL.PickLicenses picks per edition from LICENSES-MAIN /
+    # LICENSES-CITY.txt), and link.xml is what keeps IL2CPP's stripper off
+    # OSSpecificSynchronizationContext. Neither is under Scripts/Editor/Shaders,
+    # so a -NoMirror pass followed by build-and-publish -SkipScenes built with
+    # whatever the sandbox last had: 2026-09-29, the per-edition LICENSES files
+    # were in the source and not in the sandbox, and the CITY player would have
+    # carried ALL's credits (the SRTM line the CITY door no longer has).
+    # Mirrored like code: a stale extra LICENSES-*.txt must not linger.
+    robocopy "$src\Assets\WebGLTemplates" "$proj\Assets\WebGLTemplates" /MIR /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+    robocopy "$src\Assets\PSXRacing" "$proj\Assets\PSXRacing" link.xml link.xml.meta /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
 } else {
     foreach ($d in @("Assets", "Packages", "ProjectSettings")) {
         robocopy "$src\$d" "$proj\$d" /MIR /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
@@ -116,12 +149,19 @@ Invoke-UnityJob -Log "$proj\selftest.log" -UnityArgs @(
 # and either one teaches you to stop reading the exit code -- which is the only
 # thing an automated caller can read.
 $bad = 0
+# A failing check is a line that STARTS "  FAIL" (LifeSimSelfTest.Check, and a
+# section that threw), plus the "SELF-TEST FAILED (n)" summary. Anchored and
+# case-sensitive: a bare "FAIL" also matched PASSING lines whose label says it -
+# "  ok   control: MAIN's doors against CITY's player FAIL", "  ok   a cooling
+# failure can be booked in" - and 2026-09-29's result file listed seven of them
+# as failures beside the one that was.
+$selfTestFail = '^\s*FAIL\b|^\s*SELF-TEST FAILED'
 if (Test-Path "$proj\PSXRacing_selftest_log.txt") {
-    Select-String -Path "$proj\PSXRacing_selftest_log.txt" -Pattern "FAIL|SELF-TEST" |
+    Select-String -Path "$proj\PSXRacing_selftest_log.txt" -Pattern "$selfTestFail|^\s*SELF-TEST" -CaseSensitive |
         ForEach-Object { $_.Line }
     if (Select-String -Path "$proj\PSXRacing_selftest_log.txt" -Pattern "SELF-TEST FAILED" -Quiet) {
         $bad++
-        Select-String -Path "$proj\PSXRacing_selftest_log.txt" -Pattern "FAIL" |
+        Select-String -Path "$proj\PSXRacing_selftest_log.txt" -Pattern $selfTestFail -CaseSensitive |
             ForEach-Object { $failLines.Add("[self-test] " + $_.Line.Trim()) }
     }
 } else {
@@ -149,6 +189,9 @@ if (Test-Path "$proj\PSXRacing_selftest_log.txt") {
 # NbGroundY's drive side grades (2026-09-14), so any critical station on
 # either map is a regression.
 Write-Host "[4/7] Town probe..." -ForegroundColor Cyan
+if ($Edition -eq "CITY") {
+    Write-Host "  skipped: the CITY edition ships no town and no street" -ForegroundColor DarkGray
+} else {
 Invoke-UnityJob -Log "$proj\townprobe.log" -UnityArgs @(
     "-quit","-batchmode","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.TownProbe.Run",
@@ -176,6 +219,7 @@ if (Test-Path "$proj\PSXRacing_townprobe.txt") {
         Select-Object -First 6 | ForEach-Object { $_.Line }
     $failLines.Add("[town] wrote nothing - it threw")
     $bad++
+}
 }
 
 Write-Host "[5/7] Terrain + obstacle + lane audits..." -ForegroundColor Cyan
@@ -228,6 +272,21 @@ if (Test-Path "$proj\PSXRacing_obstacle_audit.txt") {
             $failLines.Add("[obstacle] " + $tagged)
             $obstacleFails++
         }
+        # The owner-accepted spots, each on its own run line (and the note
+        # when the build no longer finds one). Printed and written down every
+        # run; a face that is not exactly one of them is a FAIL line above.
+        if ($line -cmatch '^\s+owner-accepted ' -and $line -cnotmatch $obstaclePattern) {
+            $tagged = "[{0}] {1}" -f $venue, $line.Trim()
+            if ($line -cmatch '^\s{4}') {
+                Write-Host $tagged -ForegroundColor Yellow
+                $acceptedLines.Add("[obstacle] " + $tagged)
+            } elseif ($line -cmatch 'not found') {
+                Write-Host $tagged -ForegroundColor Yellow
+            }
+        }
+    }
+    if ($acceptedLines.Count -gt 0) {
+        Write-Host ("OBSTACLE AUDIT: {0} owner-accepted spot run(s), fix pending (TrackObstacleAudit.OwnerAccepted)" -f $acceptedLines.Count) -ForegroundColor Yellow
     }
     if ($obstacleFails -gt 0) {
         Write-Host "OBSTACLE AUDIT: $obstacleFails failing line(s)" -ForegroundColor Red
@@ -295,6 +354,9 @@ if ($LASTEXITCODE -ne 0) {
 # audit ran only from the city scripts, which exited 0 on "N FAILURES".
 # Graphics on, as the city scripts run it.
 Write-Host "[6/7] City audit..." -ForegroundColor Cyan
+if ($Edition -eq "MAIN") {
+    Write-Host "  skipped: the MAIN edition ships no Charlotte (city-verify.ps1 / -Edition CITY is its gate)" -ForegroundColor DarkGray
+} else {
 $cityOk = Invoke-UnityJob -Log "$proj\cityaudit.log" -MaxMinutes 25 -UnityArgs @(
     "-quit","-batchmode","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.CityAudit.Run",
@@ -313,6 +375,7 @@ if (Test-Path "$proj\city_audit.txt") {
         Select-Object -First 6 | ForEach-Object { $_.Line }
     $failLines.Add("[city] wrote nothing - it threw or did not finish")
     $bad++
+}
 }
 
 # Graphics on: these render through the pipeline, and a headless editor has no

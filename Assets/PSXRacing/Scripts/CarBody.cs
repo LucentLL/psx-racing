@@ -116,6 +116,7 @@ namespace PSXRacing
             skinIndex = def.SkinCount > 0 ? Mathf.Clamp(skin, 0, def.SkinCount - 1) : -1;
 
             if (bodyFilter != null) bodyFilter.sharedMesh = def.bodyMesh;
+            PSXTexDecode.Stamp(mat);   // a livery's 16-bit sheet is decoded in the shader
             if (bodyRenderer != null && mat != null) bodyRenderer.sharedMaterial = mat;
             if (bodyRoot != null)
             {
@@ -134,6 +135,7 @@ namespace PSXRacing
             // patch of the same sheet, so they stay grey while the paint changes.
             // The FD is the exception and carries its own wheel material.
             var wheelMat = def.wheelMaterial != null ? def.wheelMaterial : mat;
+            PSXTexDecode.Stamp(wheelMat);
             for (int i = 0; i < 4; i++)
             {
                 if (wheelFilters[i] != null) wheelFilters[i].sharedMesh = def.wheelMesh;

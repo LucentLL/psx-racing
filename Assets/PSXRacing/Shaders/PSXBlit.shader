@@ -63,6 +63,31 @@
 // The lens (rain drops, bokeh) is NOT here: the race HUD is already inside
 // this framebuffer, and a drop would refract the lap counter. It is its own
 // URP pass, PSX/Lens, drawn before the HUD (see SpeedBlurFeature).
+//
+// THE HALATION GLOWS ROUND LIGHTS (the colour pass, C4, 2026-09-29). It used
+// to key on anything brighter than 0.57 linear - which the owner's noon deck,
+// the snow, the noon sky and his own headlight pool all were, so the "soft
+// halation round lamps and glints" he signed off became a cream bloom over
+// half the picture. The framebuffer's ALPHA is now the EMITTER MASK
+// (PSXTone.cginc): how much of each pixel is a light source - a lamp head, a
+// lens, a lit window, a glint, a lamp's streak on a wet road, the sun's core
+// - and every tap's excess over the knee counts only by that much. A lamp
+// glows exactly as it did (its alpha is 1); a lit surface, however bright,
+// does not glow at all. Keyed by the global _PSXEmitKey, which TimeOfDay sets
+// outdoors: 0 - every interior, and PSX_EMITKEY=0 in a tool - is the old
+// rule, bit for bit. The grade itself is untouched.
+//
+// THE OWNER'S C11 CHOICE, "G1" (the colour pass, 2026-09-29; SHIPS OFF). The
+// matte lift is veiling glare, and the night end already takes most of it
+// away where there is little light to veil with. G1 is the other end: under a
+// hard clear sun a lens's veil is thin against the shadows it would lift,
+// so the lift fades by GRADE_SUN_LIFT_CUT (half) there - a floor of Ycode 16
+// instead of 28 through the dither, about 6.5 stops at noon instead of 6.2.
+// Keyed by the global _PSXGradeSun, which TimeOfDay writes only when
+// LookChoices.SunLift is on (1 at a clear morning, noon or afternoon); at 0 the
+// branch that applies it is not taken and the grade is the signed-off one bit
+// for bit. It also lowers how the owner's sunlit fresh asphalt DISPLAYS (about
+// 53 to 40), which is why it is his call.
 Shader "PSX/Blit"
 {
     Properties
@@ -71,6 +96,10 @@ Shader "PSX/Blit"
         _ColorDepth ("Bits per channel", Range(3,8)) = 5
         _DitherStrength ("Dither", Range(0,1)) = 1
         _Grade ("Film grade", Range(0,1)) = 0
+        // 1 = the grade without its halation: a measuring switch for the
+        // colour protocol's bloom on/off frames (PSX_HALATION=0 in a tool).
+        // 0 in every saved material and in the game.
+        [HideInInspector] _GlowOff ("Halation off (measuring)", Float) = 0
     }
     SubShader
     {
@@ -88,10 +117,13 @@ Shader "PSX/Blit"
             float _ColorDepth;
             float _DitherStrength;
             float _Grade;
+            float _GlowOff;
             // Globals (PSXGlobals pushes them every frame from the hour;
             // see the header). NOT in Properties, on purpose.
             float _PSXGradeNight;   // 0 day .. 1 night
             float4 _PSXMood;        // rgb = shadow hue at any brightness, a = amount
+            float _PSXEmitKey;      // 1 = the halation glows by the emitter mask (alpha)
+            float _PSXGradeSun;     // the owner's C11 choice: 0 (ships) .. 1 at a clear sunlit hour
 
             // THE GRADE. Display-space numbers (the grade is done on gamma
             // values, like every grade); tools/grade/grade_proto.py is the
@@ -109,6 +141,9 @@ Shader "PSX/Blit"
             #define GRADE_NIGHT_LIFT_CUT  0.80  // how much of the matte lift a full night takes away
             #define GRADE_VIGNETTE_NIGHT  0.34  // the corners at night
             #define GRADE_SAT_COOL_NIGHT  1.00  // what blues and greens keep at night
+            // The owner's C11 choice (G1, ships off): how much of the lift a
+            // clear sunlit hour takes away, at _PSXGradeSun 1.
+            #define GRADE_SUN_LIFT_CUT    0.50
             // ...and the whole night picture is pushed a little PAST its own
             // colour. The day grade's faded print is 0.12-0.16 mean saturation;
             // the NFS night frames MEASURE 0.50-0.58, because at night almost
@@ -169,17 +204,22 @@ Shader "PSX/Blit"
                 // the second ring sits half a sector round from the first
                 float cb = cos(a + UNITY_PI * 0.125), sb = sin(a + UNITY_PI * 0.125);
                 float3 sum = 0;
+                // Each tap counts by how much of it is a light source (its
+                // alpha, the emitter mask - see the header), or wholly with
+                // the key off: lerp(1, a, 0) is exactly 1, the old sum.
+                float key = saturate(_PSXEmitKey);
                 for (int k = 0; k < 8; k++)
                 {
                     float2 d = ring[k];
                     float2 o1 = float2(d.x * ca - d.y * sa, d.x * sa + d.y * ca) * (lines * GLOW_R1);
                     float2 o2 = float2(d.x * cb - d.y * sb, d.x * sb + d.y * cb) * (lines * GLOW_R2);
-                    float3 s1 = tex2D(_MainTex, centre + o1 * px).rgb;
-                    float3 s2 = tex2D(_MainTex, centre + o2 * px).rgb;
+                    float4 s1 = tex2D(_MainTex, centre + o1 * px);
+                    float4 s2 = tex2D(_MainTex, centre + o2 * px);
+                    float w1 = lerp(1.0, s1.a, key), w2 = lerp(1.0, s2.a, key);
                     #ifndef UNITY_COLORSPACE_GAMMA
-                    sum += max(s1 - GLOW_KNEE_LINEAR, 0.0) + max(s2 - GLOW_KNEE_LINEAR, 0.0) * 0.6;
+                    sum += max(s1.rgb - GLOW_KNEE_LINEAR, 0.0) * w1 + max(s2.rgb - GLOW_KNEE_LINEAR, 0.0) * (0.6 * w2);
                     #else
-                    sum += max(s1 - GLOW_KNEE_GAMMA, 0.0) + max(s2 - GLOW_KNEE_GAMMA, 0.0) * 0.6;
+                    sum += max(s1.rgb - GLOW_KNEE_GAMMA, 0.0) * w1 + max(s2.rgb - GLOW_KNEE_GAMMA, 0.0) * (0.6 * w2);
                     #endif
                 }
                 // 12.8 = the taps' total weight. A linear excess is worth
@@ -256,6 +296,14 @@ Shader "PSX/Blit"
                 // it IS lift + (GRADE_CEIL - lift) * s.
                 float3 lift = GRADE_LIFT * (1.0 - GRADE_NIGHT_LIFT_CUT * night);
                 float3 given = GRADE_LIFT - lift;
+                // G1, the owner's C11 choice (see the header): a uniform
+                // branch, not taken at _PSXGradeSun 0 - which is every frame
+                // until he says yes - so the grade above is untouched.
+                if (_PSXGradeSun > 0.0)
+                {
+                    lift -= GRADE_LIFT * (GRADE_SUN_LIFT_CUT * saturate(_PSXGradeSun));
+                    given = GRADE_LIFT - lift;
+                }
                 float3 s = saturate(c);
                 c = GRADE_LIFT + (GRADE_CEIL - GRADE_LIFT) * s - given * (1.0 - s);
 
@@ -299,7 +347,7 @@ Shader "PSX/Blit"
                 // The grade goes in BEFORE the quantizer, so its gradients
                 // are dithered like everything else's.
                 if (_Grade > 0.001)
-                    col = lerp(col, Grade(col, i.uv, Halation(srcPixel, bayer[idx])), _Grade);
+                    col = lerp(col, Grade(col, i.uv, _GlowOff > 0.5 ? float3(0, 0, 0) : Halation(srcPixel, bayer[idx])), _Grade);
 
                 float levels = pow(2.0, _ColorDepth) - 1.0;
                 col += threshold * (_DitherStrength / levels);

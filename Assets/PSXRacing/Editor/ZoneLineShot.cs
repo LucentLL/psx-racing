@@ -258,8 +258,8 @@ namespace PSXRacing.EditorTools
 
             string stem = "zoneline_" + tag + (variant.Length > 0 ? "_" + variant : "") +
                           "_" + Mathf.RoundToInt(d) + "m_" + lines;
-            File.WriteAllBytes(Path.Combine(dir, stem + ".png"), on.EncodeToPNG());
-            File.WriteAllBytes(Path.Combine(dir, stem + "_diff.png"), mask.EncodeToPNG());
+            ShotSidecar.WritePng(Path.Combine(dir, stem + ".png"), on.EncodeToPNG());
+            ShotSidecar.WritePng(Path.Combine(dir, stem + "_diff.png"), mask.EncodeToPNG());
             Object.DestroyImmediate(on);
             Object.DestroyImmediate(off);
             Object.DestroyImmediate(mask);

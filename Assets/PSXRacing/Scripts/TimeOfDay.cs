@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 namespace PSXRacing
 {
@@ -246,17 +246,36 @@ namespace PSXRacing
                 // photograph's cloud stops glowing like a lit ceiling. Most
                 // of what a player sees at this hour is now what a LAMP lights,
                 // which is the NFS picture the owner pointed at.
+                //
+                // 2026-09-29: DARKER STILL - the owner, after driving the
+                // colour build: "night is hardly dark at all, even without
+                // street lights", beside real night drives and NFS Heat. On
+                // those frames (tools/colour/colour_stats.py, "night") the
+                // unlit road is Ycode 2-11, a treeline 0-2, the sky 1-20 - and here the
+                // unlit town road measured 24-46, its snow 59-62, the Blue
+                // Ridge trees read like dusk. The light census (colour-shots
+                // -Sets census) split that between the ambient (road +17 of
+                // 27 linear, snow +38 of 48) and the moon (about +10 on
+                // both): both cut together, to about a sixth of their light -
+                // the census showed these two scale the picture in step with
+                // the numbers written here (a first cut to 0.44 only took the
+                // unlit town snow from 59 to 37 and its white warehouse from
+                // 74 to 49) - with the sky, the fog and the horizon taken down
+                // alongside, a pair as always (the photograph's exposure 0.55
+                // to 0.22). What lights a night road now is the car's own beam
+                // and the lamps; the moon keeps a side that faces it, just
+                // barely. colour_stats.py night holds the targets.
                 name = "NIGHT", clock = "23:15",
                 sunEuler = new Vector3(16f, 148f, 0f),
-                sunColor = new Color(0.42f, 0.48f, 0.78f), sunIntensity = 0.22f,
-                ambient = new Color(0.075f, 0.080f, 0.125f),
-                fogColor = new Color(0.045f, 0.050f, 0.090f), fogNear = 45f, fogFar = 190f,
-                skyTop = new Color(0.015f, 0.018f, 0.05f),
-                skyHorizon = new Color(0.07f, 0.075f, 0.14f),
-                skyBottom = new Color(0.04f, 0.04f, 0.08f),
+                sunColor = new Color(0.42f, 0.48f, 0.78f), sunIntensity = 0.036f,
+                ambient = new Color(0.012f, 0.013f, 0.020f),
+                fogColor = new Color(0.019f, 0.022f, 0.040f), fogNear = 45f, fogFar = 190f,
+                skyTop = new Color(0.008f, 0.010f, 0.028f),
+                skyHorizon = new Color(0.032f, 0.034f, 0.064f),
+                skyBottom = new Color(0.016f, 0.016f, 0.032f),
                 skySharpness = 3f, lightsOn = true,
                 skyTex = "sky_night", skyTexAzimuth = 270f,
-                skyTint = 0.55f, skyExposure = 0.55f, skyStars = 1.00f,
+                skyTint = 0.55f, skyExposure = 0.22f, skyStars = 1.00f,
             },
         };
 
@@ -364,27 +383,10 @@ namespace PSXRacing
         {
             index = Mathf.Clamp(index, 0, All.Length - 1);
             Current = index;
-            var p = All[index];
-
-            // THE WEATHER RIDES ON TOP OF THE HOUR. The preset is a struct,
-            // so this is a copy being adjusted and the table stays the table:
-            // overcast darkens the sky and the ambient, everything but clear
-            // air closes the fog in and runs the lights. See Seasons.
             var weather = Seasons.CurrentWeather;
-            p.skyExposure *= Seasons.SkyMul(weather);
-            p.ambient *= Seasons.AmbientMul(weather);
-            // And the SUN: a rainy noon used to keep the full hard sun of a
-            // clear one — crisp shadow sides under a sky that had just been
-            // darkened to 60% — which is the one tell that a weather layer
-            // is a filter over a sunny scene. See SunMul.
-            p.sunIntensity *= SunMul(weather);
-            bool lights = p.lightsOn || Seasons.LightsOn(weather);
-
-            // THE CITY LIGHTS ITS OWN SKY. After the weather, so an overcast
-            // city night is a murk the cloud holds down rather than a clear
-            // sky the weather then greys. See ApplySkyglow.
             float urban = UrbanGlow();
-            ApplySkyglow(ref p, SkyglowFor(index) * urban);
+            var p = Lit(index, weather, urban, out var anchor, out float fill);
+            bool lights = p.lightsOn || Seasons.LightsOn(weather);
 
             if (sun != null)
             {
@@ -425,6 +427,17 @@ namespace PSXRacing
                 globals.sunShadow = ShadowFor(index, weather);
                 globals.skyShade = SkyShadeFor(index);
                 globals.fogSun = FogSunFor(index, weather);
+                // And the COLOUR PASS (Shaders/PSXTone.cginc): one exposure
+                // for the hour as the weather left it, the one tone curve, and
+                // the halation keyed on light sources. The adaptation (C10) is
+                // not the hour's to set.
+                globals.tone = ToneEnabled ? 1f : 0f;
+                globals.exposure = ExposureFor(p, anchor);
+                globals.dayFill = fill;
+                globals.emitKey = EmitKeyEnabled ? 1f : 0f;
+                // The owner's C11 choice (LookChoices.SunLift, off): the
+                // grade's lift fade under a clear sun.
+                globals.gradeSun = LookChoices.SunLift ? GradeSunFor(index, weather) : 0f;
             }
 
             lastSkyPreset = p; lastSkySun = sun; lastSkyIndex = index; lastSkyWeather = weather; skyApplied = true;
@@ -462,6 +475,279 @@ namespace PSXRacing
         /// (0 = plain ambient, 1 = the sky's colour at the ambient's
         /// brightness). See <see cref="SkyAmbientFor"/>.</summary>
         public const float SkyAmbientPull = 0.75f;
+
+        // ================================================================
+        //  THE EXPOSURE (the colour pass, C2, 2026-09-29)
+        // ================================================================
+
+        /// <summary>
+        /// THE ANCHOR OF THE EXPOSURE: PSX/Lit's retired light shoulder (toe
+        /// 0.80, span 0.50, 2026-09-21), kept here as a NUMBER instead of a
+        /// curve. It used to take every light over 0.8 toward 1.3 - a clear
+        /// noon's 1.7-1.8 on a sunlit road to 1.21-1.23 - and then nothing
+        /// rolled off the RADIANCE, so the owner's sunlit concrete deck sat at
+        /// code 198, a snowfield on the clip, and the halation bloomed over
+        /// both.
+        ///
+        /// The exposure is now the shoulder's own gain AT THE HOUR'S SUNLIT
+        /// ROAD, applied to every light alike: S(L) / L, in the red and the
+        /// green, the smaller of the two. So a sunlit road - the owner's road
+        /// colours, which are never to get lighter - takes at most the light
+        /// it took before at every hour and weather (the road-colour gate),
+        /// while everything the shoulder used to lift or flatten is honest: a
+        /// shaded face is darker by the same gain (harsh sun), and a face lit
+        /// harder than the road is rolled off by the one tone curve on its
+        /// radiance instead of by a flattened light. Measured (sidecars,
+        /// 2026-09-29): a clear noon 0.68, a snowy one 0.76, a foggy one 0.82,
+        /// a rainy one 0.93; an afternoon 0.86 (0.92 in snow, 0.96 in fog); a
+        /// morning 0.98; dawn, sunset, dusk and night exactly 1.
+        ///
+        /// THE LIGHT IS THE LIGHT AS PUSHED. Shader.SetGlobalColor does NOT
+        /// linearise in this project (read back off the GPU, 2026-09-29: the
+        /// noon sun arrives as 1.340, 1.313, 1.233 and the noon ambient as
+        /// 0.52, 0.53, 0.58 - the table's numbers exactly). The hour table's
+        /// light colours are linear multipliers written as colours; the first
+        /// cut of this function linearised them (a noon sun of 1.9) and got
+        /// every exposure wrong - the deck 10 codes too dark at noon, 5 too
+        /// light in snow.
+        ///
+        /// Two more things the numbers taught:
+        ///   * THE ANCHOR ROAD LEANS <see cref="ExposureRoadTiltDeg"/> TOWARD
+        ///     THE SUN. The owner's Samuel Street deck does (it climbs toward
+        ///     both the noon and the afternoon sun: measured N.L 0.97 at noon
+        ///     against a level road's 0.93, 0.72 in the afternoon against
+        ///     0.62), and anchored on a level road it came out lighter than
+        ///     its baseline.
+        ///   * CHANNEL BY CHANNEL (see ExposureFor): on luminance, a snowy
+        ///     noon's sunlit deck came out 4.5 codes lighter in its green.
+        /// </summary>
+        public const float ExposureToe = 0.80f, ExposureSpan = 0.50f;
+
+        /// <summary>How far toward the sun the exposure's anchor road leans
+        /// (see <see cref="ExposureToe"/>): the owner's Samuel Street deck's
+        /// own lean, the steepest sunlit road the protocol measures. A level
+        /// sunlit road then keeps 97-100% of its old light.</summary>
+        public const float ExposureRoadTiltDeg = 8f;
+
+        /// <summary>The tone curve's switch for tools: PSX_TONE=0 in the
+        /// environment is the picture from before the colour pass (the A/B
+        /// the protocol measures). Always on in a build.</summary>
+        public static bool ToneEnabled => System.Environment.GetEnvironmentVariable("PSX_TONE") != "0";
+
+        /// <summary>The emitter-keyed halation's switch for tools:
+        /// PSX_EMITKEY=0 is the old brightness-keyed glow.</summary>
+        public static bool EmitKeyEnabled => System.Environment.GetEnvironmentVariable("PSX_EMITKEY") != "0";
+
+        /// <summary>
+        /// The hour's exposure, as the weather and the city's skyglow left its
+        /// light: S(L) / L, where L is the light on a sunlit road leaning
+        /// <see cref="ExposureRoadTiltDeg"/> toward the sun and S the retired
+        /// shoulder (see <see cref="ExposureToe"/>) - 1 whenever L is under
+        /// the toe - taken in the red and in the green and the smaller kept.
+        /// L is what the shaders receive: the sun's colour x intensity (as
+        /// PSXGlobals pushes it, unconverted) times the sine of its elevation
+        /// plus the tilt, plus the sky ambient an up-face takes.
+        /// </summary>
+        public static float ExposureFor(Preset p) => ExposureFor(p, p);
+
+        /// <summary>
+        /// The exposure for a preset <paramref name="lit"/> whose sky fill has
+        /// been cut (<see cref="DayFillFor(Preset, int, Weather)"/>), anchored
+        /// on the SAME preset before the cut (<paramref name="anchor"/>): the
+        /// retired shoulder's output for the anchor's sunlit road, over the cut
+        /// preset's light on that road. So the sunlit road comes out at the
+        /// light it always had - never lighter, never darker - and everything
+        /// the sky alone lights is darker by the cut. With no cut it is exactly
+        /// S(L) / L, as before. It may pass 1 (a morning, whose low sun sits
+        /// under the toe): the eye opening for the darker fill, the sunlit road
+        /// still where it was.
+        ///
+        /// CHANNEL BY CHANNEL: the shoulder rolled each channel off on its
+        /// own, so a luminance anchor lets the channel the light is richest in
+        /// (the green of a snowy noon, the red of an afternoon sun) come out
+        /// lighter than it was. The smaller of the red and green gains keeps
+        /// both at or under their old light. NOT the blue: a road's blue is
+        /// mostly the sky ambient's (0.75 of a noon's 1.9), and ruling on it
+        /// takes 5% off every noon light to hold back a blue the old shoulder
+        /// flattened - the sky's own fill on a sunlit road, which a real
+        /// camera sees.
+        /// </summary>
+        public static float ExposureFor(Preset lit, Preset anchor)
+        {
+            RoadLight(anchor, out float ar, out float ag);
+            RoadLight(lit, out float lr, out float lg);
+            return Mathf.Min(Shoulder(ar) / Mathf.Max(lr, 1e-4f), Shoulder(ag) / Mathf.Max(lg, 1e-4f));
+        }
+
+        /// <summary>The red and green light on the exposure's anchor road: the
+        /// sun's colour x intensity (as PSXGlobals pushes it, unconverted) on a
+        /// road leaning <see cref="ExposureRoadTiltDeg"/> toward it, plus the
+        /// sky ambient an up-face takes.</summary>
+        static void RoadLight(Preset p, out float r, out float g)
+        {
+            Color sun = p.sunColor * p.sunIntensity;
+            float el = p.sunEuler.x;
+            float sinEl = el <= 0f ? 0f : Mathf.Sin(Mathf.Min(90f, el + ExposureRoadTiltDeg) * Mathf.Deg2Rad);
+            Color sky = SkyAmbientFor(p);
+            r = sun.r * sinEl + sky.r;
+            g = sun.g * sinEl + sky.g;
+        }
+
+        /// <summary>The retired shoulder itself: S(x); x under the toe.</summary>
+        static float Shoulder(float x) =>
+            x <= ExposureToe ? x : ExposureToe + ExposureSpan * (1f - Mathf.Exp(-(x - ExposureToe) / ExposureSpan));
+
+        /// <summary>
+        /// HARSH SUN: the share of the sky's fill a clear noon keeps (the
+        /// colour pass, review 2026-09-29). The owner: "gritty realism ...
+        /// dark nights and HARSH SUNLIGHT", after a noon he called "washed
+        /// out". The hour table's noon ambient (0.52, 0.53, 0.58) reaches the
+        /// shaders as written (Shader.SetGlobalColor does not linearise here -
+        /// see <see cref="ExposureToe"/>), where the plan's model had taken it
+        /// for sRGB (0.25 of light): a car's shadow on the owner's sunlit deck
+        /// measured 2.96:1 against the sun beside it (graded, linear) where
+        /// the plan asks at least 5, and his photographed noon (reference 8)
+        /// gives 7-9. Real clear-sky fill is 10-20% of a high sun's light.
+        ///
+        /// The cut is on the sky's fill ONLY, and the exposure is re-anchored
+        /// on the uncut hour (<see cref="ExposureFor(Preset, Preset)"/>), so
+        /// every sunlit road keeps its code - the owner's colours - and what
+        /// changes is the shade: under and beside the car, the shaded sides of
+        /// walls, buildings and parapets, under the trees. It fades with the
+        /// sun's height (a morning keeps more of its fill than a noon) and with
+        /// how hard the weather leaves the sun (<see cref="ShadowFor"/>: clear
+        /// 1, snow 0.45, fog 0.2, rain 0.15 - an overcast sky IS the light).
+        /// Dawn, sunset, dusk and night are not touched.
+        /// Swept 1.0-0.3 on the colour protocol (tools\colour\colour-shots.ps1
+        /// -Sets tune, PSX_DAYFILL_SWEEP), the car's whole shadow on the
+        /// owner's Samuel Street deck at a clear noon found by pixels against
+        /// the frame's no-shadow twin (colour_stats.py shade): fill 1.0 put it
+        /// at 122 (2.75:1 against the same deck in the sun), 0.6 105 (3.75),
+        /// 0.5 99 (4.27), 0.4 92 (5.01), 0.3 83 (6.11) - the sunlit deck
+        /// 193-194 throughout, the owner's colour held. 0.35 sits where the
+        /// plan's model put it (the shadow about 85-88, 5.5-5.7:1) with a
+        /// margin on both of the plan's numbers (70-95, at least 5).
+        /// </summary>
+        public const float HarshSunFill = 0.35f;
+
+        /// <summary>For the look tools only: PSX_DAYFILL=x in the environment
+        /// is the fill a clear noon keeps for that run (the sweep); unset, the
+        /// constant. A build has no such variable.</summary>
+        public static float HarshSunFillNow
+        {
+            get
+            {
+                string v = System.Environment.GetEnvironmentVariable("PSX_DAYFILL");
+                return !string.IsNullOrEmpty(v) && float.TryParse(v, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out float f) && f > 0f ? Mathf.Min(f, 1f) : HarshSunFill;
+            }
+        }
+
+        /// <summary>
+        /// What of its sky fill an hour keeps (<see cref="HarshSunFill"/>): 1
+        /// but at a morning, noon or afternoon, where it falls toward the
+        /// constant with the sun's height against noon's and with the weather's
+        /// hardness of shadow (<see cref="ShadowFor"/>).
+        /// </summary>
+        public static float DayFillFor(Preset p, int hour, Weather w)
+        {
+            if (!IsSunUp(hour)) return 1f;
+            float el = p.sunEuler.x;
+            if (el <= 0f) return 1f;
+            float up = Mathf.Clamp01(Mathf.Sin(el * Mathf.Deg2Rad) / Mathf.Sin(All[Noon].sunEuler.x * Mathf.Deg2Rad));
+            return Mathf.Lerp(1f, HarshSunFillNow, up * ShadowFor(hour, w));
+        }
+
+        /// <summary><see cref="DayFillFor(Preset, int, Weather)"/> for an hour
+        /// and a weather straight off the table (tools and the self-test).</summary>
+        public static float DayFillFor(int hour, Weather w) => DayFillFor(At(hour), hour, w);
+
+        /// <summary>Morning, noon or afternoon: the sun is up and high.</summary>
+        static bool IsSunUp(int hour)
+        {
+            switch (Mathf.Clamp(hour, 0, All.Length - 1))
+            {
+                case Morning: case Noon: case Afternoon: return true;
+                default: return false;
+            }
+        }
+
+        /// <summary>
+        /// THE HOUR AS APPLY LIGHTS IT - the one place it is built, for Apply,
+        /// the tools and the self-test alike: the table's preset, then the
+        /// weather on top, then the city's skyglow, then the harsh sun's fill
+        /// cut. <paramref name="anchor"/> is the preset just before the cut -
+        /// after the weather and the skyglow, exactly what the exposure was
+        /// always taken from - so a sunlit road takes the light it took
+        /// before and only the shade gets darker (see HarshSunFill). (The
+        /// first cut took its anchor BEFORE the skyglow: the murk's hue shift
+        /// then read as a cut, and every lamps-off city night came out up to 8
+        /// codes dark - the road gate caught it.)
+        /// </summary>
+        public static Preset Lit(int index, Weather weather, float urban, out Preset anchor, out float fill)
+        {
+            index = Mathf.Clamp(index, 0, All.Length - 1);
+            var p = All[index];
+
+            // THE WEATHER RIDES ON TOP OF THE HOUR. The preset is a struct,
+            // so this is a copy being adjusted and the table stays the table:
+            // overcast darkens the sky and the ambient, everything but clear
+            // air closes the fog in and runs the lights. See Seasons.
+            p.skyExposure *= Seasons.SkyMul(weather);
+            p.ambient *= Seasons.AmbientMul(weather);
+            // And the SUN: a rainy noon used to keep the full hard sun of a
+            // clear one — crisp shadow sides under a sky that had just been
+            // darkened to 60% — which is the one tell that a weather layer
+            // is a filter over a sunny scene. See SunMul.
+            p.sunIntensity *= SunMul(weather);
+
+            // THE CITY LIGHTS ITS OWN SKY. After the weather, so an overcast
+            // city night is a murk the cloud holds down rather than a clear
+            // sky the weather then greys. See ApplySkyglow.
+            ApplySkyglow(ref p, SkyglowFor(index) * urban, index == Night ? NightMurk : 1f);
+
+            // HARSH SUN (the colour pass, review 2026-09-29): see HarshSunFill.
+            anchor = p;
+            fill = DayFillFor(p, index, weather);
+            p.ambient = new Color(p.ambient.r * fill, p.ambient.g * fill, p.ambient.b * fill, p.ambient.a);
+            return p;
+        }
+
+        /// <summary><see cref="ExposureFor(Preset, Preset)"/> for an hour, a
+        /// weather and how much of a city the scene is, built exactly as Apply
+        /// builds it (<see cref="Lit"/>).</summary>
+        public static float ExposureFor(int hour, Weather w, float urban = 0f)
+        {
+            var p = Lit(hour, w, urban, out var anchor, out _);
+            return ExposureFor(p, anchor);
+        }
+
+        /// <summary>The harsh sun, for the self-test (see
+        /// <see cref="HarshSunFill"/>): the LUMINANCE (Rec.709) of the light a
+        /// sunlit anchor road and a shaded up-face RECEIVE after the exposure,
+        /// with the fill cut (now) and without it (old). The exposure is one
+        /// number, held on the red or the green (whichever binds, as it always
+        /// was), so the sunlit road keeps its luminance to within a couple of
+        /// percent and turns a shade warmer - less of its light is the blue sky
+        /// fill (noon: red +4%, green 0, blue -6%, luminance +0.4%) - while the
+        /// shade falls wherever the fill was cut.</summary>
+        public static void HarshSunCheck(int hour, Weather w, out float sunNow, out float sunOld, out float shadeNow, out float shadeOld)
+        {
+            var p = Lit(hour, w, 0f, out var anchor, out _);
+            float eNow = ExposureFor(p, anchor), eOld = ExposureFor(anchor, anchor);
+            sunNow = Lum709(RoadLightRGB(p)) * eNow; sunOld = Lum709(RoadLightRGB(anchor)) * eOld;
+            shadeNow = Lum709(SkyAmbientFor(p)) * eNow; shadeOld = Lum709(SkyAmbientFor(anchor)) * eOld;
+        }
+
+        static Color RoadLightRGB(Preset p)
+        {
+            Color sun = p.sunColor * p.sunIntensity;
+            float el = p.sunEuler.x;
+            float sinEl = el <= 0f ? 0f : Mathf.Sin(Mathf.Min(90f, el + ExposureRoadTiltDeg) * Mathf.Deg2Rad);
+            return sun * sinEl + SkyAmbientFor(p);
+        }
+
+        static float Lum709(Color c) => 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
 
         /// <summary>The luminance weights every colour sum in this file uses.
         /// (The same Rec.601 weights, rounded, that SkyAmbientFor always
@@ -510,10 +796,23 @@ namespace PSXRacing
             {
                 case Weather.Rain: return 1f;
                 case Weather.Fog:  return Mathf.Max(0.55f, damp);
-                case Weather.Snow: return Mathf.Max(0.35f, damp);
+                case Weather.Snow: return IsSunUp(hour) ? SnowDayWetness : Mathf.Max(0.35f, damp);
                 default: return damp;
             }
         }
+
+        /// <summary>
+        /// A SNOWY DAY'S ROAD (the colour pass, C13, measured 2026-09-29). The
+        /// plan's trigger was "the road mirror brighter than the sky above it",
+        /// and on the owner's Samuel Street deck at a snowy noon it was: the
+        /// deck 14 m ahead read Ycode 205 under a sky of 176 - brighter than
+        /// the same deck at a clear noon (193) - a 0.35-wet concrete mirroring
+        /// the pale snow sky toward the horizon, one more white in a view that
+        /// was all 176-216. With the sun up the road is slush and damp patches,
+        /// not a sheet: 0.15. A snowy night keeps its 0.35 (the NFS night's
+        /// streaks of sodium down a wet road).
+        /// </summary>
+        public const float SnowDayWetness = 0.15f;
 
         /// <summary>The clear-sky dampness of an hour (see WetnessFor).</summary>
         static float DampFor(int hour)
@@ -657,6 +956,25 @@ namespace PSXRacing
         }
 
         /// <summary>
+        /// THE OWNER'S C11 CHOICE, "G1" (LookChoices.SunLift; ships off):
+        /// how far PSX/Blit takes its sun-keyed lift fade - 1 at a CLEAR or a
+        /// SNOWY morning, noon or afternoon, 0 at every other hour and in rain
+        /// and fog (a grey noon has no hard light to cut the veil). Snow joined
+        /// on review (2026-09-29): the owner singled out "noon, especially with
+        /// snow", and a snowfield with the sun up is the brightest light the
+        /// game has - where a matte veil over the darks shows most.
+        /// </summary>
+        public static float GradeSunFor(int hour, Weather w)
+        {
+            if (w != Weather.Clear && w != Weather.Snow) return 0f;
+            switch (Mathf.Clamp(hour, 0, All.Length - 1))
+            {
+                case Morning: case Noon: case Afternoon: return 1f;
+                default: return 0f;
+            }
+        }
+
+        /// <summary>
         /// How much of a city the loaded scene is, for the skyglow and the
         /// night mood: 1 in the streamed Charlotte (a CityWorld is there), 0.6
         /// on a venue with street lamps (a NightGlow is there — the circuits'
@@ -690,7 +1008,10 @@ namespace PSXRacing
             {
                 case Night:
                 {
-                    var c = Color.Lerp(RuralNightMood, UrbanNightMood, Mathf.Clamp01(urban));
+                    // The owner's C12 choice (LookChoices.CoolNight, off): a
+                    // city's darks blue-teal instead of sodium brown.
+                    var urbanMood = LookChoices.CoolNight ? CoolUrbanNightMood : UrbanNightMood;
+                    var c = Color.Lerp(RuralNightMood, urbanMood, Mathf.Clamp01(urban));
                     // A city's darks are its sodium murk, and harder than a
                     // mountain's blue: the NFS city frames' darkest 5% measure
                     // SATURATED brown-orange (.037,.026,.002), the mountain
@@ -709,6 +1030,10 @@ namespace PSXRacing
 
         static readonly Color RuralNightMood = new Color(0.55f, 0.62f, 1.00f, 1f);
         static readonly Color UrbanNightMood = new Color(1.00f, 0.72f, 0.42f, 1f);
+        /// <summary>C12's city night (LookChoices.CoolNight, off): the NFS
+        /// frames' blue-teal darks - a little greener than the mountain's
+        /// blue, the colour of a city's mixed light in wet haze.</summary>
+        static readonly Color CoolUrbanNightMood = new Color(0.70f, 0.86f, 1.00f, 1f);
 
         /// <summary>
         /// What weather leaves of the SUN: rain 0.50, fog 0.70, snow 0.80.
@@ -748,6 +1073,20 @@ namespace PSXRacing
         /// sRGB, authored like every colour in the table (PSXGlobals and the
         /// sky material convert to linear on the way in).</summary>
         static readonly Color SodiumMurk = new Color(0.20f, 0.12f, 0.055f, 1f);
+        /// <summary>C12's murk (LookChoices.CoolNight, off): the city's haze
+        /// lit by mixed light - a cool slate at about the sodium murk's own
+        /// brightness, so the night gets no lighter or darker, only cooler.</summary>
+        static readonly Color CoolMurk = new Color(0.125f, 0.137f, 0.15f, 1f);
+        static Color Murk => LookChoices.CoolNight ? CoolMurk : SodiumMurk;
+
+        /// <summary>How bright the city's murk is at NIGHT against the colour
+        /// above (dusk and dawn keep it whole): the dark-night retune
+        /// (2026-09-29) took the night's ambient and horizon to about a
+        /// sixth of their light, and a city glowing as brightly as before
+        /// over that would be the old grey night back in every town. NFS
+        /// Heat's skyline sky measures (19,35,48) at its brightest band; the
+        /// murk at 0.45 puts the town's horizon band under it.</summary>
+        const float NightMurk = 0.45f;
 
         /// <summary>
         /// SKYGLOW. A city at night lights the underside of its own haze:
@@ -767,14 +1106,18 @@ namespace PSXRacing
         /// city gets warmer and not brighter. <paramref name="g"/> 0 is a
         /// no-op, which is every daylight hour and every stage.
         /// </summary>
-        static void ApplySkyglow(ref Preset p, float g)
+        static void ApplySkyglow(ref Preset p, float g, float murkScale = 1f)
         {
             if (g <= 0f) return;
-            p.fogColor = Opaque(Color.Lerp(p.fogColor, SodiumMurk, 0.65f * g));
-            p.skyHorizon = Opaque(Color.Lerp(p.skyHorizon, SodiumMurk * 1.35f, 0.70f * g));
-            p.skyTop = Opaque(Color.Lerp(p.skyTop, SodiumMurk * 0.40f, 0.30f * g));
+            // The sodium murk as signed off, or the owner's C12 choice (off),
+            // at the hour's own strength (NightMurk).
+            Color murk = Murk * murkScale;
+            murk.a = 1f;
+            p.fogColor = Opaque(Color.Lerp(p.fogColor, murk, 0.65f * g));
+            p.skyHorizon = Opaque(Color.Lerp(p.skyHorizon, murk * 1.35f, 0.70f * g));
+            p.skyTop = Opaque(Color.Lerp(p.skyTop, murk * 0.40f, 0.30f * g));
             float lumA = Lum(p.ambient);
-            Color murkAtAmbient = SodiumMurk * (lumA / Lum(SodiumMurk));
+            Color murkAtAmbient = murk * (lumA / Lum(murk));
             // The ambient keeps its own alpha (the weather multiply above
             // already scaled it along with the colour, as it always has).
             float a = p.ambient.a;

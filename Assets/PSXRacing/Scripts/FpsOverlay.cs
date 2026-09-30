@@ -58,7 +58,7 @@ namespace PSXRacing
 
             var go = new GameObject("Line", typeof(RectTransform));
             go.transform.SetParent(transform, false);
-            text = go.AddComponent<Text>();
+            text = go.AddComponent<SafeText>();
             text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             text.fontSize = 16;
             text.alignment = TextAnchor.LowerCenter;

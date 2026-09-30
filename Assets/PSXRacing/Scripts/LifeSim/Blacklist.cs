@@ -456,24 +456,51 @@ namespace PSXRacing.LifeSim
         /// </summary>
         static int PickVenue(BlacklistRival rival, int seed)
         {
-            string[] ids =
-                rival == null ? CityVenues :
-                rival.venue == "drag" ? DragVenues :
-                rival.venue == "oval" ? OvalVenues : CityVenues;
+            var ids = PoolFor(rival != null ? rival.venue : null);
             // Seeded off the NAME, by a sum this codebase controls: the
             // framework's own string hash is not promised to be the same number
             // twice, and a venue that moves between runs is a series that ran
             // somewhere else when you reloaded.
             int nameSeed = 0;
-            foreach (char c in rival.alias) nameSeed = nameSeed * 31 + c;
+            if (rival != null) foreach (char c in rival.alias) nameSeed = nameSeed * 31 + c;
             var rng = new System.Random(seed * 7919 + nameSeed);
-            int start = rng.Next(ids.Length);
-            for (int k = 0; k < ids.Length; k++)
+            int start = rng.Next(ids.Count);
+            for (int k = 0; k < ids.Count; k++)
             {
-                int idx = TrackCatalog.IndexOf(ids[(start + k) % ids.Length]);
-                if (idx >= 0) return idx;
+                // TryIndexOf, not IndexOf: IndexOf answers 0 (Sunset City GP)
+                // for a missing id, so this loop could never skip one.
+                if (TrackCatalog.TryIndexOfShipped(ids[(start + k) % ids.Count], out int idx) &&
+                    TrackCatalog.Offered(idx))
+                    return idx;
             }
             return -1;
+        }
+
+        /// <summary>
+        /// The roads a rival of this style races on, IN THIS BUILD, in their
+        /// list order.
+        ///
+        /// In ALL (and CITY, which has no ladder) this is the list as written,
+        /// so a series rolls exactly the venue it always rolled. MAIN ships no
+        /// Charlotte, and five of the ten names are "city" rivals whose turf
+        /// was Tryon, the 277 and Independence: filtered, every one of their
+        /// series would land on Sunset City GP. So a pool left with fewer than
+        /// two roads takes the oval circuits in beside it — the closest thing
+        /// MAIN has to a street race. (The owner decides whether city rivals
+        /// should have a turf of their own in MAIN; this keeps them racing.)
+        /// </summary>
+        public static System.Collections.Generic.List<string> PoolFor(string style)
+        {
+            string[] written = style == "drag" ? DragVenues : style == "oval" ? OvalVenues : CityVenues;
+            var pool = new System.Collections.Generic.List<string>();
+            foreach (var id in written)
+                if (TrackCatalog.TryIndexOfShipped(id, out int i) && TrackCatalog.Offered(i)) pool.Add(id);
+            if (pool.Count < 2)
+                foreach (var id in OvalVenues)
+                    if (!pool.Contains(id) && TrackCatalog.TryIndexOfShipped(id, out int i) &&
+                        TrackCatalog.Offered(i))
+                        pool.Add(id);
+            return pool;
         }
 
         static readonly string[] DragVenues = { "DragQuarter", "DragEighth", "LangstonBridge" };
@@ -490,9 +517,32 @@ namespace PSXRacing.LifeSim
         public static int SeriesTrack(LifeState s)
         {
             var ch = s != null ? s.blChallenge : null;
-            if (ch == null || ch.trackIndex < 0 || ch.trackIndex >= TrackCatalog.Count)
-                return Mathf.Clamp(s != null ? s.trackIndex : 0, 0, TrackCatalog.Count - 1);
+            // A series road this build does not carry (a MAIN save whose series
+            // was opened on Tryon before the editions) is a lost road too. The
+            // load's sanitize re-points it; this is the belt to that brace.
+            if (ch == null || !TrackCatalog.Offered(ch.trackIndex))
+            {
+                int own = s != null ? s.trackIndex : 0;
+                return TrackCatalog.Offered(own) ? own : TrackCatalog.FirstOffered();
+            }
             return ch.trackIndex;
+        }
+
+        /// <summary>
+        /// A live series whose road this build does not carry gets a new one,
+        /// from the same rival's pool as it would be rolled today (MAIN, a save
+        /// from before the editions). Returns the old road's name when it moved
+        /// anything, so the load can say so; null when nothing needed moving.
+        /// </summary>
+        public static string RepointSeries(LifeState s)
+        {
+            var ch = s != null ? s.blChallenge : null;
+            if (ch == null || !ch.Live || ch.trackIndex < 0) return null;
+            if (TrackCatalog.Offered(ch.trackIndex)) return null;
+            string was = VenueName(ch.trackIndex);
+            int now = PickVenue(ByAlias(ch.alias), ch.openedDay);
+            ch.trackIndex = now >= 0 ? now : TrackCatalog.FirstOffered();
+            return was;
         }
 
         /// <summary>Stamp a leg as GONE TO THE START LINE. From here on it can

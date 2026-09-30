@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using UnityEditor;
 using UnityEngine;
@@ -27,8 +28,24 @@ namespace PSXRacing.EditorTools
         [MenuItem("PSX Racing/Run LifeSim Self-Test")]
         public static void Run()
         {
+            // Resources first: a killed edition build may have left some of
+            // them parked, and every test below reads Resources.
+            EditionParking.RecoverIfNeeded();
             log = new StringBuilder();
             failures = 0;
+            // THE SELF-TEST IS ALWAYS THE WHOLE GAME, whatever edition the job
+            // around it targets (verify.ps1 -Edition MAIN sets PSX_EDITION for
+            // its audits): every test below was written against ALL, and the
+            // editions are tested as editions by TestEditions, which simulates
+            // each and puts this back.
+            var editionWas = Edition.Simulated;
+            Edition.Simulate(EditionKind.All);
+            try { RunAll(); }
+            finally { Edition.Simulate(editionWas); }
+        }
+
+        static void RunAll()
+        {
 
             // EACH ONE IN ITS OWN NET.
             //
@@ -81,6 +98,12 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestCarWhere), TestCarWhere);
             Guard(nameof(TestCarMeets), TestCarMeets);
             Guard(nameof(TestDepartDoors), TestDepartDoors);
+            Guard(nameof(TestEditions), TestEditions);
+            Guard(nameof(TestEditionPark), TestEditionPark);
+            Guard(nameof(TestRuntimeShaders), TestRuntimeShaders);
+            Guard(nameof(TestGlyphs), TestGlyphs);
+            Guard(nameof(TestCredits), TestCredits);
+            Guard(nameof(TestDoorAudit), TestDoorAudit);
             Guard(nameof(TestCityProps), TestCityProps);
             Guard(nameof(TestGridStaging), TestGridStaging);
             Guard(nameof(TestHomeLot), TestHomeLot);
@@ -89,6 +112,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestSenseOfSpeed), TestSenseOfSpeed);
             Guard(nameof(TestNightLook), TestNightLook);
             Guard(nameof(TestDayLook), TestDayLook);
+            Guard(nameof(TestTexDecode), TestTexDecode);
 
             Line(failures == 0 ? "SELF-TEST OK" : "SELF-TEST FAILED (" + failures + ")");
             Debug.Log(log.ToString());
@@ -581,6 +605,572 @@ namespace PSXRacing.EditorTools
                   "and a desktop is never squeezed");
         }
 
+        /// <summary>
+        /// THE TWO EDITIONS (see Edition). The editor is ALL, so every other
+        /// test here is the united game; this one SIMULATES each edition in
+        /// turn and holds the build to what the owner asked for — MAIN with
+        /// no Charlotte anywhere (not offered, not rolled, not shipped), CITY
+        /// with the city and nothing else — and a MAIN load of an old save
+        /// that points at Charlotte cancelling rather than crashing. Always
+        /// puts the simulation back, because every test after it is ALL.
+        /// </summary>
+        static void TestEditions()
+        {
+            Line("the editions (MAIN / CITY / ALL):");
+            var was = Edition.Simulated;
+            try { EditionChecks(); }
+            finally { Edition.Simulate(was); RaceHandoff.ClearAll(); }
+        }
+
+        static void EditionChecks()
+        {
+            Check(Edition.Baked == EditionKind.All,
+                  "the editor compiles as ALL (no PSX_EDITION_* define)", Edition.Baked);
+            Check(EditionTarget.DefineFor(EditionKind.Main) == "PSX_EDITION_MAIN" &&
+                  EditionTarget.DefineFor(EditionKind.City) == "PSX_EDITION_CITY" &&
+                  EditionTarget.DefineFor(EditionKind.All) == null,
+                  "the build passes one define per edition and none for ALL");
+
+            // ---- the rule: city => CITY, everything else => MAIN ----
+            string[] cityIds = { "Charlotte", "UptownLoop", "TryonSprint", "IndependenceSprint", "TryonSprintRev" };
+            foreach (var id in cityIds)
+                Check(TrackCatalog.TryIndexOf(id, out int ci) &&
+                      Edition.Of(TrackCatalog.At(ci)) == EditionKind.City,
+                      id + " is CITY's");
+            foreach (var id in new[] { "CityCircuit", "CityCircuitRev", "BlueRidge", "DragQuarter",
+                                       "BlowingRockSprint", "SwissNC226AUpper", "GillespieGap" })
+                Check(TrackCatalog.TryIndexOf(id, out int mi) &&
+                      Edition.Of(TrackCatalog.At(mi)) == EditionKind.Main,
+                      id + " is MAIN's (SUNSET CITY GP is a fictional circuit, not Charlotte)");
+            foreach (var h in TrackCatalog.HeldBack)
+                Check(Edition.Of(h) == EditionKind.Main, "held-back " + h.id + " is MAIN's");
+            int twinsOff = 0;
+            for (int i = 0; i < TrackCatalog.Count; i++)
+            {
+                var t = TrackCatalog.At(i);
+                string baseId = t.Reversed ? t.reverseOf : t.IsSprintVariant ? t.sprintOf : null;
+                if (baseId == null) continue;
+                if (Edition.Of(t) != Edition.Of(TrackCatalog.At(TrackCatalog.IndexOf(baseId)))) twinsOff++;
+            }
+            Check(twinsOff == 0, "every twin and sprint is in its road's edition", twinsOff);
+            Check(!TrackCatalog.TryIndexOf("NoSuchVenue", out int none) && none == -1 &&
+                  TrackCatalog.IndexOf("NoSuchVenue") == 0,
+                  "TryIndexOf says MISSING where IndexOf says 0 (the bug the pickers had)");
+
+            // ---- the scene lists the players ship ----
+            var all = PSXRacingBuilder.SceneOrder(EditionKind.All);
+            var main = PSXRacingBuilder.SceneOrder(EditionKind.Main);
+            var city = PSXRacingBuilder.SceneOrder(EditionKind.City);
+            Check(all.SequenceEqual(PSXRacingBuilder.SceneOrder()),
+                  "SceneOrder() is ALL - what the build settings hold");
+            Check(main[0] == LifeHomeSceneBuilder.ScenePath && city[0] == LifeHomeSceneBuilder.ScenePath,
+                  "LifeHome is scene 0 in both editions (the boot scene)");
+            var cityScenes = new HashSet<string>(cityIds.Where(id => !id.EndsWith("Rev"))
+                                                        .Select(TrackCatalog.ScenePathOf));
+            Check(!main.Any(cityScenes.Contains),
+                  "MAIN's player ships no Charlotte scene",
+                  string.Join(",", main.Where(cityScenes.Contains).Select(System.IO.Path.GetFileNameWithoutExtension)));
+            Check(main.Contains(TrackCatalog.ScenePathOf("CityCircuit")) &&
+                  main.Contains(TrackCatalog.ScenePathOf("BlueRidge")) &&
+                  main.Contains(GarageSceneBuilder.ScenePath) && main.Contains(PSXRacingBuilder.TownScenePath) &&
+                  main.Contains(PSXRacingBuilder.NeighborhoodScenePath),
+                  "MAIN keeps Sunset City GP, the stages and the career's scenes");
+            Check(city.Length == 1 + 4 && city.Skip(1).All(cityScenes.Contains),
+                  "CITY's player is LifeHome + Charlotte, Uptown, Tryon, Independence and nothing else",
+                  string.Join(",", city.Select(System.IO.Path.GetFileNameWithoutExtension)));
+            Check(main.Length + city.Length - 1 == all.Length &&
+                  new HashSet<string>(main.Concat(city)).SetEquals(all),
+                  "and MAIN + CITY is exactly ALL - united again, nothing lost",
+                  main.Length + "+" + city.Length + " vs " + all.Length);
+
+            // ---- what each build parks out of Resources ----
+            var parkMain = EditionParking.ParkListFor(EditionKind.Main);
+            var parkCity = EditionParking.ParkListFor(EditionKind.City);
+            Check(EditionParking.ParkListFor(EditionKind.All).Count == 0, "ALL parks nothing");
+            foreach (var want in new[] { "charlotte_city.bytes", "charlotte_bld.bytes", "charlotte_dem.bytes",
+                                         "charlotte_routes.json", "charlotte_thumb.png", "CityProps" })
+                Check(parkMain.Contains(want), "MAIN parks " + want, string.Join(",", parkMain));
+            Check(parkMain.All(n => n.StartsWith("charlotte_") || n == "CityProps"),
+                  "MAIN parks nothing but Charlotte's", string.Join(",", parkMain));
+            Check(parkCity.Contains("PizzaCargo") && parkCity.Contains("brp_stage.json") &&
+                  parkCity.Contains("chimney_stage.json") && parkCity.Contains("bogue_emerald.json"),
+                  "CITY parks the pizza cargo and the stage bakes (held back included)",
+                  string.Join(",", parkCity));
+            Check(parkCity.Count == 12, "CITY parks the cargo + all eleven stage bakes", parkCity.Count);
+            Check(!parkCity.Any(n => n.StartsWith("charlotte_") || n == "CityProps" || n == "Engines" ||
+                                     n == "CarModels" || n == "Sky" || n == "Sfx" || n.StartsWith("rg2_")),
+                  "CITY keeps Charlotte's data, the engines, the cars, the sky and the catalogs");
+            Check(!System.IO.File.Exists(EditionParking.ManifestPath),
+                  "nothing is parked right now (no manifest left by a killed build)");
+
+            // ================= MAIN =================
+            Edition.Simulate(EditionKind.Main);
+            Check(Edition.HasCareer && !Edition.HasCharlotte, "MAIN has the career and no Charlotte");
+            Check(PSXRacing.DriveThru.Serves && LifeSimManager.Persists,
+                  "MAIN's drive-thrus serve and its career saves");
+            int offeredCity = 0, offered = 0;
+            for (int i = 0; i < TrackCatalog.Count; i++)
+                if (TrackCatalog.Offered(i)) { offered++; if (TrackCatalog.At(i).city) offeredCity++; }
+            Check(offeredCity == 0 && offered > 20, "MAIN offers no Charlotte venue", offered + " offered, " + offeredCity + " city");
+            Check(TrackCatalog.FirstOffered() == TrackCatalog.IndexOf("CityCircuit"),
+                  "MAIN's fallback venue is Sunset City GP");
+            // The steppers every picker uses, walked all the way round.
+            int at = 0, stepsCity = 0;
+            for (int k = 0; k < TrackCatalog.Count; k++)
+            {
+                at = TrackCatalog.StepOffered(at, 1);
+                if (TrackCatalog.At(at).city) stepsCity++;
+            }
+            Check(stepsCity == 0, "the venue steppers (diary, pre-race) never land on Charlotte in MAIN");
+            Check(!TrackCatalog.TryIndexOfShipped("Charlotte", out _), "MAIN has no free roam to load");
+            var uptown = TrackCatalog.At(TrackCatalog.IndexOf("UptownLoop"));
+            Check(uptown.LengthM == 0f && uptown.RaceMeters == 0f,
+                  "a Charlotte race in MAIN reads zero, and loads no route data (not shipped)");
+            Check(TrackCatalog.Thumbnail(TrackCatalog.At(TrackCatalog.IndexOf("Charlotte"))) == null,
+                  "and no charlotte_thumb");
+            Check(PSXRacing.Town.DepartScreen.DoorCount(false, false, Edition.HasCharlotte) == 3,
+                  "MAIN's line at the end of your street has one door fewer (no FREE ROAM - CHARLOTTE)");
+
+            var ms = LifeRules.SeedNewGame("MAINTEST", 25, LifeRules.DefaultJobIndex);
+            LifeRules.SeedFallbackCar(ms);
+            ms.ActiveCar.fuel = 100f;
+            int badRoll = 0;
+            for (int k = 0; k < 300; k++)
+                if (!TrackCatalog.Offered(LifeRules.DeliveryTrackIndex(ms))) badRoll++;
+            Check(badRoll == 0, "300 delivery / test-drive rolls in MAIN never name Charlotte", badRoll);
+            var cityPool = Blacklist.PoolFor("city");
+            Check(cityPool.Count >= 2 && cityPool.All(id => TrackCatalog.TryIndexOfShipped(id, out _)),
+                  "a 'city' blacklist rival still has a real series pool in MAIN (the ovals merged in)",
+                  string.Join(",", cityPool));
+            Check(!Blacklist.PoolFor("drag").Contains("TryonSprint") && Blacklist.PoolFor("oval").Count >= 2,
+                  "and the drag and oval pools are untouched");
+            int meetBad = 0, meetRacers = 0;
+            for (int d = 1; d <= 21; d++)
+                foreach (var r in CarMeets.Roster(ms, d))
+                {
+                    meetRacers++;
+                    if (!TrackCatalog.Offered(r.trackIndex)) meetBad++;
+                }
+            Check(meetRacers > 0 && meetBad == 0,
+                  "three weeks of car meets in MAIN: every racer names a MAIN venue", meetBad + " of " + meetRacers);
+
+            // An old save that points at Charlotte, loaded by MAIN.
+            int tryon = TrackCatalog.IndexOf("TryonSprint"), circuit = TrackCatalog.IndexOf("CityCircuit");
+            ms.bookings.Clear();
+            ms.bookings.Add(new RaceBooking { day = ms.day + 2, slot = LifeRules.NightSlot, trackIndex = tryon });
+            ms.bookings.Add(new RaceBooking { day = ms.day + 3, slot = LifeRules.NightSlot, trackIndex = circuit });
+            ms.trackIndex = TrackCatalog.IndexOf("UptownLoop");
+            Blacklist.SeedBoard(ms);
+            ms.blChallenge = new RankChallenge
+            {
+                alias = "DEACON", openedDay = ms.day, deadlineDay = ms.day + 5, trackIndex = tryon, youLegs = 1,
+            };
+            int logBefore = ms.calendarLog.Count;
+            string note = LifeSimManager.EditionSanitize(ms);
+            LifeSimManager.TakeEditionNote();
+            Check(ms.bookings.Count == 1 && ms.bookings[0].trackIndex == circuit,
+                  "MAIN cancels the booked Tryon race and keeps the Sunset City GP one", ms.bookings.Count);
+            Check(ms.calendarLog.Count > logBefore &&
+                  ms.calendarLog.Skip(logBefore).Any(l => l.Contains("cancelled") && l.Contains("TRYON")),
+                  "and says so in the log");
+            Check(TrackCatalog.Offered(ms.trackIndex), "the pre-race default leaves Charlotte",
+                  TrackCatalog.At(ms.trackIndex).id);
+            Check(ms.blChallenge.Live && TrackCatalog.Offered(ms.blChallenge.trackIndex) &&
+                  ms.blChallenge.youLegs == 1,
+                  "a live series on Tryon moves to a MAIN road, with its legs kept",
+                  TrackCatalog.At(ms.blChallenge.trackIndex).id);
+            Check(TrackCatalog.Offered(Blacklist.SeriesTrack(ms)), "SeriesTrack names a road MAIN has");
+            Check(note != null && note.Length <= LifeSimManager.NoteMax && note.StartsWith("CHARLOTTE"),
+                  "and the first screen gets one short toast about it (clear of the WEEK button on a phone)", note);
+            Check(LifeSimManager.EditionSanitize(ms) == null, "a second load has nothing left to do (idempotent)");
+
+            var mainOpts = LifeHomeScreen.OptionSpecs();
+            Check(mainOpts.Any(o => o.name == "LOOK Y") && mainOpts.Any(o => o.name == "PICTURE"),
+                  "MAIN's OPTIONS keep every row");
+
+            // ================= CITY =================
+            Edition.Simulate(EditionKind.City);
+            Check(!Edition.HasCareer && Edition.HasCharlotte, "CITY has Charlotte and no career");
+            var cityOffered = new List<string>();
+            for (int i = 0; i < TrackCatalog.Count; i++)
+                if (TrackCatalog.Offered(i)) cityOffered.Add(TrackCatalog.At(i).id);
+            Check(cityOffered.Count == 4 && cityOffered.All(id => cityIds.Contains(id)),
+                  "CITY offers the four Charlotte races and nothing else", string.Join(",", cityOffered));
+            var blue = TrackCatalog.At(TrackCatalog.IndexOf("BlueRidge"));
+            Check(blue.LengthM == 0f, "a mountain stage in CITY reads zero (its bake is not shipped)");
+            Check(DebugCarOps.Available == false || !RaceHandoff.FromLifeSim,
+                  "the debug bench (a career thing) is off in CITY");
+            int roamIdx = TrackCatalog.IndexOf("Charlotte");
+            Check(CityFrontEnd.FillFreeRoam(CityFrontEnd.DefaultCarId(), TimeOfDay.Night, 2, out int roamScene) &&
+                  RaceHandoff.FreeRoam && RaceHandoff.FromLifeSim && RaceHandoff.TrackIndex == roamIdx &&
+                  roamScene == TrackCatalog.SceneIndex(roamIdx) && RaceHandoff.WeatherOverride == 2 &&
+                  RaceHandoff.TimeOfDayIndex == TimeOfDay.Night,
+                  "CITY's FREE ROAM hands the scene the picked car, hour and weather", RaceHandoff.CarSpecId);
+            Check(!DebugCarOps.Available, "and a CITY drive has no debug bench (no career to bench)");
+            foreach (var id in cityOffered)
+            {
+                int vi = TrackCatalog.IndexOf(id);
+                bool ok = CityFrontEnd.FillRace(vi, CityFrontEnd.DefaultCarId(), TimeOfDay.Sunset, 0, out int sc);
+                Check(ok && !RaceHandoff.FreeRoam && RaceHandoff.TrackIndex == vi && sc > 0 &&
+                      !string.IsNullOrEmpty(RaceHandoff.OpponentSpecIds) &&
+                      RaceHandoff.OpponentSpecIds.Split(';').Length == 3 && TrackCatalog.At(vi).RaceMeters > 0f,
+                      "CITY's race door for " + id + " fills a three-car field", RaceHandoff.OpponentSpecIds);
+            }
+            Check(!CityFrontEnd.FillRace(TrackCatalog.IndexOf("BlueRidge"), CityFrontEnd.DefaultCarId(), 0, 0, out _),
+                  "and refuses a venue CITY does not carry");
+            var cityOpts = LifeHomeScreen.OptionSpecs();
+            Check(!cityOpts.Any(o => o.name == "LOOK Y") && cityOpts.Any(o => o.name == "PICTURE") &&
+                  cityOpts.Any(o => o.name == "SPEED"),
+                  "CITY's OPTIONS are MAIN's list less the on-foot row");
+            Check(PSXRacing.Town.DepartScreen.DoorCount(false, false, true) == 4,
+                  "and a build with Charlotte keeps the four doors");
+
+            // NO CAREER COMES BACK THROUGH A RESTAURANT. The Charlotte tiles
+            // still place the drive-thrus (CityProps); in CITY their windows
+            // do not serve and the HUD does not signpost them, because an
+            // order is paid from, and saved to, a career.
+            Check(!PSXRacing.DriveThru.Serves, "CITY's drive-thrus take no orders and the HUD points at none");
+            Check(!LifeSimManager.Persists && !LifeSimManager.HasSave,
+                  "CITY keeps no career on disk (LifeSimManager.Persists)");
+            const string saveKey = "psxRacingLifeSave";
+            string savedBefore = PlayerPrefs.GetString(saveKey, "<none>");
+            var scratch = LifeSimManager.State;
+            scratch.money = 424242;
+            LifeSimManager.Save();
+            Check(PlayerPrefs.GetString(saveKey, "<none>") == savedBefore,
+                  "and a leak that asks for the State anyway gets a throwaway that Save() never writes");
+
+            // ================= back to ALL: nothing was cached under a simulation =================
+            Edition.Simulate(EditionKind.All);
+            Check(PSXRacing.DriveThru.Serves && LifeSimManager.Persists,
+                  "back in ALL the windows serve and the career saves");
+            Check(LifeSimManager.State != scratch, "and the career is not the CITY throwaway");
+            Check(uptown.LengthM > 1000f && blue.LengthM > 1000f,
+                  "back in ALL, Uptown and Blue Ridge measure their real length (no token cached)",
+                  uptown.LengthM.ToString("0") + " / " + blue.LengthM.ToString("0"));
+            Check(TrackCatalog.Offered(TrackCatalog.IndexOf("TryonSprint")) && Edition.Ships(uptown),
+                  "and ALL offers everything again");
+        }
+
+        /// <summary>
+        /// A STUCK PARK IS LOUD AND FINAL (EditionParking). The chain the
+        /// review found: a killed MAIN build left a park; a tool's additive
+        /// copy re-occupied Resources; the next CITY build parked its own list
+        /// OVER the stuck manifest and its restore then deleted the park folder
+        /// with MAIN's items in it. Played here with a throwaway folder asset
+        /// (zz_selftest_park) and nothing else: a park whose Resources path is
+        /// occupied again stays parked with its manifest; Park refuses to start
+        /// over it and moves nothing; the parked copy survives; once the path
+        /// is free the restore puts it back and clears; and a park folder that
+        /// holds something with no manifest blocks a park too. Skipped (and
+        /// said so) when a real park is on disk - that is not the self-test's
+        /// to touch.
+        /// </summary>
+        static void TestEditionPark()
+        {
+            Line("the edition park (a stuck park blocks the next build):");
+            string manifest = EditionParking.ManifestPath;
+            if (System.IO.File.Exists(manifest) || System.IO.Directory.Exists(EditionParking.ParkRoot))
+            {
+                Check(false, "a real park is on disk (" + manifest + " or " + EditionParking.ParkRoot +
+                             ") - not testing over it");
+                return;
+            }
+            const string dummy = "zz_selftest_park";
+            string parent = System.IO.Path.GetDirectoryName(EditionParking.ParkRoot).Replace('\\', '/');
+            string parked = EditionParking.ParkRoot + "/" + dummy;
+            string inRes = EditionParking.ResourcesRoot + "/" + dummy;
+            try
+            {
+                AssetDatabase.CreateFolder(parent, System.IO.Path.GetFileName(EditionParking.ParkRoot));
+                AssetDatabase.CreateFolder(EditionParking.ParkRoot, dummy);
+                AssetDatabase.CreateFolder(EditionParking.ResourcesRoot, dummy);
+                System.IO.File.WriteAllText(manifest, "edition MAIN\npid 0\n" + dummy + "\n");
+
+                EditionParking.RecoverIfNeeded();
+                Check(System.IO.File.Exists(manifest) && AssetDatabase.IsValidFolder(parked),
+                      "a park whose Resources path is occupied again stays parked, manifest kept (STUCK)");
+                Check(EditionParking.BlockedReason() != null && EditionParking.BlockedReason().Contains(dummy),
+                      "and the reason names the stuck item");
+
+                bool threw = false;
+                try { EditionParking.Park(EditionKind.Main); }
+                catch (System.Exception) { threw = true; }
+                finally { if (!threw) EditionParking.Restore(); }
+                Check(threw, "Park refuses to start over a stuck park");
+                Check(System.IO.File.Exists(manifest) && System.IO.File.ReadAllText(manifest).Contains(dummy) &&
+                      !System.IO.File.ReadAllText(manifest).Contains("charlotte_"),
+                      "and leaves the stuck manifest's list as it was (not overwritten)");
+                Check(AssetDatabase.IsValidFolder(parked), "and the parked copy is not deleted");
+                Check(System.IO.File.Exists(EditionParking.ResourcesRoot + "/charlotte_city.bytes") ||
+                      !System.IO.File.Exists(EditionParking.ParkRoot + "/charlotte_city.bytes"),
+                      "and nothing of the refused build's own list moved");
+
+                AssetDatabase.DeleteAsset(inRes);
+                EditionParking.RecoverIfNeeded();
+                Check(!System.IO.File.Exists(manifest) && AssetDatabase.IsValidFolder(inRes) &&
+                      !AssetDatabase.IsValidFolder(EditionParking.ParkRoot),
+                      "once the path is free the restore puts it back, clears the manifest and the empty park");
+
+                AssetDatabase.CreateFolder(parent, System.IO.Path.GetFileName(EditionParking.ParkRoot));
+                AssetDatabase.CreateFolder(EditionParking.ParkRoot, dummy);
+                Check(EditionParking.BlockedReason() != null,
+                      "a park folder holding something with no manifest blocks a park too");
+            }
+            finally
+            {
+                System.IO.File.Delete(manifest);
+                if (AssetDatabase.IsValidFolder(inRes)) AssetDatabase.DeleteAsset(inRes);
+                if (AssetDatabase.IsValidFolder(EditionParking.ParkRoot)) AssetDatabase.DeleteAsset(EditionParking.ParkRoot);
+                Check(!System.IO.File.Exists(manifest) && !System.IO.Directory.Exists(EditionParking.ParkRoot) &&
+                      !System.IO.Directory.Exists(inRes), "the test leaves no park behind");
+            }
+        }
+
+        /// <summary>
+        /// EVERY SHADER THE RUNTIME NAMES IS IN EVERY EDITION'S PLAYER
+        /// (RuntimeShaders). CITY went live without PSX/Glow - CarLights makes
+        /// its lens materials by Shader.Find and only MAIN's scenes happened
+        /// to keep the shader - and the editor, which finds every shader in the
+        /// project, never showed it. The WebGL build refuses a gap before it
+        /// starts; this runs the same scan in every self-test, and checks the
+        /// lexer that decides what is a string and what is a comment.
+        /// </summary>
+        static void TestRuntimeShaders()
+        {
+            Line("shaders the runtime names (RuntimeShaders; every edition must carry them):");
+            const string Q = "\"";
+            string src = "// " + Q + "PSX/Glow" + Q + " in a line comment\n" +
+                         "var a = " + Q + "http://x" + Q + "; /* " + Q + "PSX/Lit" + Q + " */\n" +
+                         "var b = @" + Q + "q" + Q + Q + "r" + Q + ";\n" +
+                         "var c = $" + Q + "n={Shader.Find(" + Q + "UI/Default" + Q + ")}" + Q + ";\n" +
+                         "char d = '" + Q + "'; var e = " + Q + "PSX/Beam" + Q + ";\n";
+            string code = RuntimeShaders.Lex(src, out var lits);
+            var texts = lits.Select(l => l.text).ToList();
+            string got = string.Join(" | ", texts);
+            Check(!texts.Contains("PSX/Glow") && !texts.Contains("PSX/Lit"), "a shader name inside a comment is not a lookup", got);
+            Check(texts.Contains("http://x") && texts.Contains("q" + Q + "r"),
+                  "a string is read whole: a // inside one, a verbatim \"\"", got);
+            Check(texts.Contains("UI/Default") && code.Contains("Shader.Find(" + Q + "UI/Default" + Q + ")"),
+                  "an interpolation hole is code, and the string inside it is a literal", got);
+            Check(texts.Contains("PSX/Beam") && lits.First(l => l.text == "PSX/Beam").line == 5,
+                  "a '\"' char literal opens no string, and lines are counted through comments", got);
+            Check(!RuntimeShaders.IsRuntimePath("PSXRacing/Editor/X.cs") && !RuntimeShaders.IsRuntimePath("A/Editor/B/X.cs") &&
+                  RuntimeShaders.IsRuntimePath("PSXRacing/Scripts/EditorLike.cs"), "an Editor folder at any depth is not runtime code");
+
+            var r = RuntimeShaders.Scan();
+            Check(r.RuntimeFiles > 100 && r.ShaderFiles >= 17, "the scan reads the runtime code and every .shader",
+                  r.RuntimeFiles + " .cs, " + r.ShaderFiles + " .shader");
+            Check(r.Needs.Count >= 12, "the runtime names at least twelve shaders", r.Needs.Count);
+            var glow = r.Needs.FirstOrDefault(n => n.Name == "PSX/Glow");
+            Check(glow != null && glow.Sites.Any(x => x.Contains("/CarLights.cs:")),
+                  "PSX/Glow is found through CarLights' helper (a literal handed on to Shader.Find(shaderName))",
+                  glow == null ? "not found" : string.Join(" ", glow.Sites));
+            Check(r.Indirect.Any(x => x.Contains("CarLights.cs")), "and that indirect Shader.Find is listed as one",
+                  string.Join("; ", r.Indirect));
+            Check(r.Needs.Any(n => n.Name == "UI/Default" && n.Shader != null &&
+                                   !n.AssetPath.StartsWith("Assets/", System.StringComparison.Ordinal)),
+                  "an engine shader passed straight to Shader.Find (UI/Default) is counted too");
+            foreach (var n in r.Needs)
+            {
+                Check(n.Shader != null && !ShaderUtil.ShaderHasError(n.Shader), n.Name + " exists and compiles",
+                      n.Shader == null ? "no shader has that name: " + string.Join(" ", n.Sites) : null);
+                Check(n.AlwaysIncluded, n.Name + " is in GraphicsSettings' always-included shaders", string.Join(" ", n.Sites));
+            }
+            // THE CITY KIT (Resources): the streamed city, its canopy trees and
+            // its lamp posts draw with the kit's materials, so their shaders
+            // ship wherever the kit does - listed, and checked in the player
+            // by the build report and webgl-contents.mjs.
+            Check(r.KitNote == null && r.Kit.Count > 0, "the city kit's shaders are listed (" + RuntimeShaders.KitPath + ")",
+                  r.KitNote ?? string.Join(", ", r.Kit.Select(n => n.Name)));
+            var kitLit = r.Kit.FirstOrDefault(n => n.Name == "PSX/Lit");
+            Check(kitLit != null && kitLit.Sites.Any(s => s.StartsWith("CityKit.trees", System.StringComparison.Ordinal)) &&
+                  kitLit.Sites.Any(s => s.StartsWith("CityKit.slots", System.StringComparison.Ordinal)),
+                  "the city's roads, buildings and canopy trees draw with PSX/Lit, a kit shader",
+                  kitLit == null ? "PSX/Lit is not among the kit's" : string.Join(" ", kitLit.Sites));
+            Check(kitLit != null && kitLit.AlwaysIncluded, "and PSX/Lit is always included as well (CityWorld names it for the lamp posts)");
+            foreach (var n in r.Kit)
+                Check(n.Shader != null && !ShaderUtil.ShaderHasError(n.Shader), "kit shader " + n.Name + " exists and compiles",
+                      string.Join(" ", n.Sites));
+            Check(r.KitErrors.Count == 0, "no kit material without a shader, no kit shader gone", string.Join("; ", r.KitErrors));
+            var kitLines = RuntimeShaders.ReportLines(r, null, new[] { System.IO.Path.GetFileName(RuntimeShaders.KitPath) }, out _);
+            Check(kitLines.Any(l => l.StartsWith("kit-shaders none (the city kit was parked", System.StringComparison.Ordinal)) &&
+                  !kitLines.Any(l => l.TrimStart().StartsWith("kit-shader ", System.StringComparison.Ordinal)),
+                  "a build that parks the kit asks for none of its shaders");
+
+            var gaps = RuntimeShaders.Gaps(r);
+            Check(gaps.Count == 0, "the WebGL build's pre-flight finds no runtime shader gap", string.Join("; ", gaps));
+        }
+
+        /// <summary>
+        /// THE PLAYER'S FONT HAS NO EM DASH (Glyphs). What the game draws goes
+        /// through Glyphs.Safe - SafeText for the labels it builds, RaceHUD's
+        /// setter for the baked HUD - and comes out in characters the font has.
+        /// </summary>
+        static void TestGlyphs()
+        {
+            Line("glyphs the WebGL font can draw:");
+            string em = ((char)0x2014).ToString(), ell = ((char)0x2026).ToString();
+            Check(Glyphs.Safe("UPTOWN LOOP " + em + " I-277") == "UPTOWN LOOP - I-277",
+                  "an em dash becomes a hyphen", Glyphs.Safe("UPTOWN LOOP " + em + " I-277"));
+            Check(Glyphs.Safe("WAIT" + ell) == "WAIT..." && Glyphs.Safe("A " + (char)0x2192 + " B") == "A -> B",
+                  "an ellipsis three dots, an arrow ->");
+            string plain = "FREE ROAM  " + (char)0x00b7 + "  CHARLOTTE  (c) 1999";
+            Check(ReferenceEquals(Glyphs.Safe(plain), plain),
+                  "ASCII and the middle dot pass through untouched, with no allocation");
+            int bad = 0;
+            string first = null;
+            for (int i = 0; i < TrackCatalog.Count; i++)
+            {
+                var t = TrackCatalog.At(i);
+                foreach (var s in new[] { t.name, t.blurb })
+                    if (!Glyphs.IsSafe(Glyphs.Safe(s))) { bad++; first = first ?? s; }
+            }
+            Check(bad == 0, "every venue name and blurb comes out drawable", first);
+            var go = new GameObject("SafeTextProbe");
+            try
+            {
+                var label = go.AddComponent<SafeText>();
+                label.text = "E " + em + " ORDER AT STACK BURGER";
+                Check(label.text == "E - ORDER AT STACK BURGER", "a SafeText label stores the drawable string", label.text);
+                Check(label is UnityEngine.UI.Text, "and is still a Text to everything that looks for one");
+            }
+            finally { Object.DestroyImmediate(go); }
+        }
+
+        /// <summary>
+        /// THE DATA CREDITS, PER EDITION. The CITY door once said "Elevation:
+        /// NASA SRTM" in a hard-coded string while the city stood on USGS 3DEP.
+        /// Every credit now comes from tools/city/SOURCES.md through
+        /// tools/city/credits.mjs (which checks the files match the table);
+        /// this checks the game LOADS them: each edition's own page and door
+        /// line (not the fallback, not ALL's), OpenStreetMap on every one
+        /// (ODbL), drawable in the player's font, the CITY door printing
+        /// CITY's line, and each edition's page a subset of ALL's.
+        /// </summary>
+        static void TestCredits()
+        {
+            Line("data credits per edition (tools/city/SOURCES.md):");
+            string allPage = CreditsPanel.Text(EditionKind.All), allLine = CreditsPanel.Line(EditionKind.All);
+            foreach (var e in new[] { EditionKind.All, EditionKind.Main, EditionKind.City })
+            {
+                string n = Edition.Name(e), page = CreditsPanel.Text(e), line = CreditsPanel.Line(e);
+                Check(page != CreditsPanel.Fallback && page.Contains("OpenStreetMap"),
+                      n + "'s CREDITS page is the generated one and carries the OpenStreetMap line", page);
+                Check(line != CreditsPanel.LineFallback && line.Contains("OpenStreetMap"),
+                      n + "'s one-line credit is the generated one and carries OpenStreetMap", line);
+                Check(Glyphs.IsSafe(page) && Glyphs.IsSafe(line), n + "'s credits are drawable in the player's font");
+                if (e == EditionKind.All) continue;
+                Check(page != allPage && line != allLine,
+                      n + " loads its OWN page and line, not ALL's (psx_credits_" + n.ToLowerInvariant() + ", its row of psx_credits_line)");
+                string missing = null;
+                foreach (var l in page.Split('\n'))
+                    if (l.Trim().Length > 0 && !allPage.Contains(l.Trim())) { missing = l; break; }
+                Check(missing == null, n + "'s page is a subset of ALL's (one registry)", missing);
+            }
+            Check(LifeSim.CityFrontEnd.Credits == CreditsPanel.Line(EditionKind.City),
+                  "the CITY front page prints CITY's generated line", LifeSim.CityFrontEnd.Credits);
+        }
+
+        /// <summary>
+        /// EVERY DOOR AGAINST EACH EDITION'S OWN PLAYER LIST (DoorAudit). The
+        /// player resolves scenes through SceneUtility, a branch the editor
+        /// cannot run; the audit is the same code the player runs at boot, walked
+        /// here through PSXRacingBuilder.SceneOrder(edition) - the exact list
+        /// PSXBuildWebGL hands the player - via TrackCatalog's editor override.
+        /// And the controls that prove it can fail: MAIN's doors against CITY's
+        /// list, an ALL list under MAIN's rules, and one scene path spelled
+        /// differently (the failure the review asked about). Then the door
+        /// tour's own rules: local players only, and the doors it walks.
+        /// </summary>
+        static void TestDoorAudit()
+        {
+            Line("every door against each edition's player scene list (DoorAudit, DoorTour):");
+            try
+            {
+                foreach (var e in new[] { EditionKind.All, EditionKind.Main, EditionKind.City })
+                {
+                    TrackCatalog.EditorSceneListOverride = PSXRacingBuilder.SceneOrder(e);
+                    var r = DoorAudit.Run(e);
+                    Check(r.Ok && r.venueOk == r.venueDoors && r.absentOk == r.absentDoors && r.careerOk == r.careerDoors,
+                          Edition.Name(e) + ": " + r.venueOk + "/" + r.venueDoors + " venue doors, " + r.absentOk + "/" +
+                          r.absentDoors + " absent, " + r.careerOk + "/" + r.careerDoors + " career, " + r.scenes + " scenes",
+                          r.Ok ? null : string.Join(" | ", r.problems.Take(4)));
+                    if (e == EditionKind.Main)
+                        Check(r.absentDoors > 0 && r.venueDoors > 30, "MAIN has Charlotte's doors ABSENT and 30+ of its own");
+                    if (e == EditionKind.City)
+                        Check(r.venueDoors == TrackCatalog.All.Count(t => t.city) && r.venueDoors >= 4,
+                              "CITY's venue doors are exactly Charlotte's", r.venueDoors.ToString());
+                }
+
+                var main = PSXRacingBuilder.SceneOrder(EditionKind.Main);
+                TrackCatalog.EditorSceneListOverride = PSXRacingBuilder.SceneOrder(EditionKind.City);
+                var cross = DoorAudit.Run(EditionKind.Main);
+                Check(!cross.Ok && cross.venueOk == 0 && cross.problems.Any(p => p.StartsWith("UptownLoop ")),
+                      "control: MAIN's doors against CITY's player FAIL (none reach, Charlotte's resolve)",
+                      cross.problems.Count + " problems");
+                TrackCatalog.EditorSceneListOverride = PSXRacingBuilder.SceneOrder(EditionKind.All);
+                var leak = DoorAudit.Run(EditionKind.Main);
+                Check(!leak.Ok && leak.problems.Any(p => p.StartsWith("TryonSprint ")),
+                      "control: an ALL player under MAIN's rules FAILS (Charlotte slipped in)");
+                var bent = (string[])main.Clone();
+                int ci = System.Array.IndexOf(bent, TrackCatalog.ScenePathOf("ChimneyRock"));
+                Check(ci > 0, "MAIN ships Chimney Rock's scene");
+                if (ci > 0)
+                {
+                    bent[ci] = bent[ci].Replace("ChimneyRock", "chimneyrock");
+                    TrackCatalog.EditorSceneListOverride = bent;
+                    var spelt = DoorAudit.Run(EditionKind.Main);
+                    Check(!spelt.Ok && spelt.problems.Any(p => p.StartsWith("ChimneyRock ")) &&
+                          spelt.problems.Any(p => p.StartsWith("ChimneyRockRev ")) &&
+                          spelt.problems.Any(p => p.Contains("is no door's")),
+                          "control: one scene path spelled differently in the player fails its road, its twin, and the orphan",
+                          string.Join(" | ", spelt.problems.Take(3)));
+                }
+            }
+            finally
+            {
+                TrackCatalog.EditorSceneListOverride = null;
+            }
+            Check(TrackCatalog.ScenesInBuild == EditorBuildSettings.scenes.Count(s => s.enabled),
+                  "and the override is off again (the editor resolves through its build settings)");
+
+            Check(!DoorTour.RequestedBy("https://lucentll.github.io/psx-racing/?doortour=1") &&
+                  !DoorTour.RequestedBy("https://lucentll.github.io/psx-racing/city/?doortour"),
+                  "the door tour never wakes on the site, even when asked");
+            Check(DoorTour.RequestedBy("http://127.0.0.1:8123/index.html?doortour=1") &&
+                  DoorTour.RequestedBy("http://localhost:9000/?x=1&doortour"),
+                  "a player served from this machine tours when asked");
+            Check(!DoorTour.RequestedBy("http://127.0.0.1:8123/index.html") &&
+                  !DoorTour.RequestedBy("http://127.0.0.1/?notdoortour=1") && !DoorTour.RequestedBy(null),
+                  "and only when asked");
+            Check(!DoorTour.Active, "no tour runs in the editor");
+
+            var mainDoors = DoorTour.MainDoors(EditionKind.Main);
+            var labels = mainDoors.Select(d => d.label).ToList();
+            foreach (var want in new[] { "race CityCircuit", "race BlueRidge", "race BlueRidgeRev", "race BlowingRockSprint",
+                                         "race ChimneyRock", "IN TOWN", "walk-in garage", "seller viewing",
+                                         "test drive", "pizza delivery" })
+                Check(labels.Contains(want), "MAIN's tour walks '" + want + "'",
+                      labels.Contains(want) ? null : string.Join(", ", labels));
+            var roamDoor = mainDoors.Find(d => d.label.StartsWith("free roam"));
+            Check(roamDoor != null && roamDoor.refuse, "and MAIN's tour expects free roam REFUSED");
+            var staleDoor = mainDoors.Find(d => d.label.StartsWith("stale save"));
+            Check(staleDoor != null && staleDoor.expectScene == "CityCircuit",
+                  "and a stale save's Charlotte race to START Sunset City GP");
+            Check(mainDoors.Where(d => d.label.StartsWith("race ")).All(d =>
+                      TrackCatalog.TryIndexOf(d.label.Substring(5), out int v) && Edition.ShipsIn(TrackCatalog.At(v), EditionKind.Main)),
+                  "every race MAIN's tour starts is MAIN's");
+            var cityDoors = DoorTour.CityDoors();
+            int cityRaces = 0;
+            for (int i = 0; i < TrackCatalog.Count; i++)
+                if (TrackCatalog.At(i).IsCityRace) cityRaces++;
+            Check(cityDoors.Count == 1 + cityRaces && cityDoors[0].press == "Btn_roam" &&
+                  cityDoors.Skip(1).All(d => d.press.StartsWith("Btn_race_") && !d.refuse),
+                  "CITY's tour walks FREE ROAM and every city race's own button",
+                  string.Join(", ", cityDoors.Select(d => d.label)));
+        }
+
         static void TestCarMeets()
         {
             Line("car meets:");
@@ -925,6 +1515,37 @@ namespace PSXRacing.EditorTools
                 }
             }
             Check(missing == 0, "every CityProps row baked a prefab", missing + " missing");
+
+            // The streamed city's cheap copies (WP-07): baked, as cheap as
+            // they claim, and the restaurants still places - bay, room, doors.
+            foreach (var kv in PSXRacing.City.CityProps.Defs)
+            {
+                if (!PSXRacing.City.CityProps.HasCityVariant(kv.Key)) continue;
+                string name = System.IO.Path.GetFileName(kv.Value.res);
+                var v = AssetDatabase.LoadAssetAtPath<GameObject>(CityPropBaker.OutDir + "/" + name + ".prefab");
+                Check(v != null, "the city variant of " + name + " is baked");
+                if (v == null) continue;
+                int draws = CityPropBaker.DrawsOf(v);
+                if (PSXRacing.City.CityProps.IsFood(kv.Key))
+                {
+                    Check(v.GetComponentInChildren<DriveThru>(true) != null, name + " (city) keeps its order bay");
+                    var room = v.GetComponent<PSXRacing.City.CityPropInterior>();
+                    Check(room != null && room.interior != null && room.interior.Length > 50,
+                          name + " (city) keeps its room behind the switch", room != null && room.interior != null ? room.interior.Length + " renderers" : "none");
+                    // the switch draws the room only from inside its hull, so
+                    // a hull left unbaked (zero size) would hide it for good
+                    Check(room != null && room.hull.size.x > 3f && room.hull.size.z > 3f && room.hull.size.y > 1.5f,
+                          name + " (city) has its room's hull baked (the switch's inside test)",
+                          room != null ? room.hull.size.ToString("0.0") : "none");
+                    Check(v.GetComponentsInChildren<SwingDoor>(true).Length > 0, name + " (city) keeps its doors on hinges");
+                    Check(draws <= 40, name + " (city) costs a few dozen draws at most from the street", draws);
+                }
+                else
+                {
+                    Check(v.GetComponentInChildren<Collider>(true) != null, name + " (city) is solid to a car");
+                    Check(draws <= 2, name + " (city) is one or two draws", draws);
+                }
+            }
 
             // The restaurants are the only props the player goes LOOKING for,
             // and the placement gates (four lanes, 1.2-9.5 km from uptown,
@@ -1654,33 +2275,42 @@ namespace PSXRacing.EditorTools
                       "and re-points its bookings the same way", v10.bookings[0].trackIndex);
             }
 
-            // Every SCENED venue is at its own index; a reverse twin resolves
-            // to the venue it names. Walking Count rather than SceneCount is
-            // what caught the reverses being appended in the wrong place.
+            // EVERY VENUE RESOLVES TO ITS OWN SCENE, BY PATH. Since the editions
+            // (2026-09-28) a scene is found by path in the build that is running
+            // — a player of one edition carries fewer scenes, so a position is
+            // no longer a property of a scene. So: the build index SceneIndex
+            // answers must be the entry whose PATH is the venue's scene (its
+            // twin's for a reverse, its loop's for a sprint). Walking Count
+            // rather than SceneCount is what caught the reverses being appended
+            // in the wrong place.
+            var scenes = EditorBuildSettings.scenes;
             for (int i = 0; i < TrackCatalog.Count; i++)
             {
                 var t = TrackCatalog.At(i);
-                int want = t.Reversed ? TrackCatalog.IndexOf(t.reverseOf) + 1
-                         : t.IsSprintVariant ? TrackCatalog.IndexOf(t.sprintOf) + 1 : i + 1;
-                Check(TrackCatalog.SceneIndex(i) == want,
-                      "scene index " + i + " (" + t.id + ") is " + want,
-                      TrackCatalog.SceneIndex(i));
+                string wantId = t.Reversed ? t.reverseOf : t.IsSprintVariant ? t.sprintOf : t.id;
+                int got = TrackCatalog.SceneIndex(i);
+                Check(got > 0 && got < scenes.Length &&
+                      scenes[got].path == TrackCatalog.ScenePathOf(wantId),
+                      "scene index " + i + " (" + t.id + ") is the scene " + wantId + ".unity",
+                      got > 0 && got < scenes.Length ? scenes[got].path : got.ToString());
             }
-            // Build settings ARE the contract SceneIndex assumes. A track added
-            // to the catalog and not to the scene list sends the player to the
-            // wrong circuit, or to no scene at all.
-            var scenes = EditorBuildSettings.scenes;
+            // Build settings hold every scene the game has — ALL, whatever
+            // edition a tool is working for: the play checks, the audits and
+            // this test all read them, and they are a superset of both.
             Check(scenes.Length == TrackCatalog.SceneCount + 6,
                   "build settings hold home + every built circuit + garage + pizzeria + town + "
                   + "seller lot + neighbourhood", scenes.Length);
+            Check(scenes.Length > 0 && scenes[0].path == LifeHomeSceneBuilder.ScenePath,
+                  "build index 0 is LifeHome, the boot scene", scenes.Length > 0 ? scenes[0].path : "none");
             for (int i = 0; i < TrackCatalog.SceneCount && i + 1 < scenes.Length; i++)
                 Check(scenes[i + 1].path.EndsWith("/" + TrackCatalog.Scened[i].id + ".unity"),
                       "build index " + (i + 1) + " is " + TrackCatalog.Scened[i].id, scenes[i + 1].path);
-            // The garage is addressed by a formula off the catalog length, so
-            // the one way to get it wrong is to insert a scene before the
-            // circuits — which would also silently re-point every race.
-            Check(TrackCatalog.GarageSceneIndex == TrackCatalog.SceneCount + 1,
-                  "garage scene index sits after every built circuit",
+            // The walk-in scenes are found BY PATH as well now, and a wrong
+            // index is a black screen with no error: check each resolves to
+            // its own file.
+            Check(TrackCatalog.GarageSceneIndex > 0 &&
+                  TrackCatalog.GarageSceneIndex == TrackCatalog.BuildIndexOfScene("Garage"),
+                  "the garage is found by its path",
                   TrackCatalog.GarageSceneIndex);
             Check(TrackCatalog.GarageSceneIndex < scenes.Length &&
                   scenes[TrackCatalog.GarageSceneIndex].path.EndsWith("/Garage.unity"),
@@ -1692,8 +2322,8 @@ namespace PSXRacing.EditorTools
             // is addressed by position, and DoWork sends the player there by
             // that number alone — a wrong one drops them onto a race track
             // holding nothing, with no way to tell what went wrong.
-            Check(TrackCatalog.PizzeriaSceneIndex == TrackCatalog.GarageSceneIndex + 1,
-                  "pizzeria scene index sits after the garage", TrackCatalog.PizzeriaSceneIndex);
+            Check(TrackCatalog.PizzeriaSceneIndex > 0,
+                  "the pizzeria is found by its path", TrackCatalog.PizzeriaSceneIndex);
             Check(TrackCatalog.PizzeriaSceneIndex < scenes.Length &&
                   scenes[TrackCatalog.PizzeriaSceneIndex].path.EndsWith("/Pizzeria.unity"),
                   "build index " + TrackCatalog.PizzeriaSceneIndex + " is the pizzeria",
@@ -1704,22 +2334,22 @@ namespace PSXRacing.EditorTools
             // formula, same failure mode — and the town's is the worse of the
             // two, because it is what the walk-in garage's GET IN AND DRIVE
             // loads and a wrong index there is a black screen with no error.
-            Check(TrackCatalog.TownSceneIndex == TrackCatalog.PizzeriaSceneIndex + 1,
-                  "town scene index sits after the pizzeria", TrackCatalog.TownSceneIndex);
+            Check(TrackCatalog.TownSceneIndex > 0,
+                  "the town is found by its path", TrackCatalog.TownSceneIndex);
             Check(TrackCatalog.TownSceneIndex < scenes.Length &&
                   scenes[TrackCatalog.TownSceneIndex].path.EndsWith("/Town.unity"),
                   "build index " + TrackCatalog.TownSceneIndex + " is the town",
                   TrackCatalog.TownSceneIndex < scenes.Length
                       ? scenes[TrackCatalog.TownSceneIndex].path : "missing");
-            Check(TrackCatalog.SellerLotSceneIndex == TrackCatalog.TownSceneIndex + 1,
-                  "the seller's street sits after the town", TrackCatalog.SellerLotSceneIndex);
+            Check(TrackCatalog.SellerLotSceneIndex > 0,
+                  "the seller's street is found by its path", TrackCatalog.SellerLotSceneIndex);
             Check(TrackCatalog.SellerLotSceneIndex < scenes.Length &&
                   scenes[TrackCatalog.SellerLotSceneIndex].path.EndsWith("/SellerLot.unity"),
                   "build index " + TrackCatalog.SellerLotSceneIndex + " is the seller's street",
                   TrackCatalog.SellerLotSceneIndex < scenes.Length
                       ? scenes[TrackCatalog.SellerLotSceneIndex].path : "missing");
-            Check(TrackCatalog.NeighborhoodSceneIndex == TrackCatalog.SellerLotSceneIndex + 1,
-                  "your street sits after the seller s",
+            Check(TrackCatalog.NeighborhoodSceneIndex > 0,
+                  "your street is found by its path",
                   TrackCatalog.NeighborhoodSceneIndex);
             Check(TrackCatalog.NeighborhoodSceneIndex < scenes.Length &&
                   scenes[TrackCatalog.NeighborhoodSceneIndex].path.EndsWith("/Neighborhood.unity"),
@@ -1761,6 +2391,7 @@ namespace PSXRacing.EditorTools
             TestTreesStopCars();
             TestForestIsThickAndHasBrush();
             TestPaintAndFilmGrade();
+            TestOneToneCurve();
             TestReversedStageDistance();
             TestDeliverySprint();
             TestNoDeletedMeshes();
@@ -4531,6 +5162,219 @@ namespace PSXRacing.EditorTools
             Check(FilmGradePrefs.Enabled == was, "and the switch is left where it was found");
         }
 
+        /// <summary>
+        /// THE COLOUR PASS (C2-C4, 2026-09-29): one exposure and one tone
+        /// curve, and the glow keyed on light sources. The pixels are
+        /// tools\colour\colour-shots.ps1's to judge; what is held here is the
+        /// arithmetic and the switches that make an interior bit-identical and
+        /// the HUD no light source.
+        /// </summary>
+        static void TestOneToneCurve()
+        {
+            Line("one tone curve (colour pass):");
+            // The exposure: only the hours the old shoulder compressed.
+            float noon = TimeOfDay.ExposureFor(TimeOfDay.Noon, Weather.Clear);
+            float snow = TimeOfDay.ExposureFor(TimeOfDay.Noon, Weather.Snow);
+            Check(noon > 0.55f && noon < 1f, "a clear noon is exposed down (the old shoulder's own gain on a sunlit road)", noon.ToString("0.000"));
+            Check(snow > noon && snow < 1f, "a snowy noon less so", snow.ToString("0.000"));
+            foreach (int h in new[] { TimeOfDay.Dawn, TimeOfDay.Sunset, TimeOfDay.Dusk, TimeOfDay.Night })
+                Check(Mathf.Approximately(TimeOfDay.ExposureFor(h, Weather.Clear), 1f) && TimeOfDay.DayFillFor(h, Weather.Clear) == 1f,
+                      TimeOfDay.At(h).name + " is exposed at exactly 1, its sky fill whole", TimeOfDay.ExposureFor(h, Weather.Clear));
+            // The real path, a city's skyglow included (the review's gate caught
+            // a first cut that anchored before it: city nights 8 codes dark).
+            foreach (int h in new[] { TimeOfDay.Dusk, TimeOfDay.Night })
+                foreach (float urban in new[] { 0f, 0.6f, 1f })
+                    Check(Mathf.Abs(TimeOfDay.ExposureFor(h, Weather.Clear, urban) - 1f) < 1e-5f,
+                          TimeOfDay.At(h).name + " in a city (urban " + urban + ") is exposed at exactly 1",
+                          TimeOfDay.ExposureFor(h, Weather.Clear, urban));
+            float rain = TimeOfDay.ExposureFor(TimeOfDay.Noon, Weather.Rain);
+            Check(rain > snow && rain <= 1.1f, "a rainy noon, under cloud, is exposed least of the three", rain.ToString("0.000"));
+            // HARSH SUN (review): the sky's fill cut under a high hard sun,
+            // the exposure re-anchored so the sunlit road keeps its light.
+            foreach (int h in new[] { TimeOfDay.Morning, TimeOfDay.Noon, TimeOfDay.Afternoon })
+                foreach (var w in new[] { Weather.Clear, Weather.Snow, Weather.Rain })
+                {
+                    TimeOfDay.HarshSunCheck(h, w, out float sunNow, out float sunOld, out float shNow, out float shOld);
+                    Check(sunNow <= sunOld * 1.01f && sunNow >= sunOld * 0.97f,
+                          TimeOfDay.At(h).name + " " + w + ": a sunlit road keeps its light (the owner's colours: never lighter, at most 3% darker)",
+                          sunNow.ToString("0.000") + " vs " + sunOld.ToString("0.000"));
+                    Check(shNow <= shOld + 1e-4f, TimeOfDay.At(h).name + " " + w + ": the shade is never lighter",
+                          shNow.ToString("0.000") + " vs " + shOld.ToString("0.000"));
+                }
+            TimeOfDay.HarshSunCheck(TimeOfDay.Noon, Weather.Clear, out float nSun, out _, out float nSh, out float nShOld);
+            Check(nSh < 0.8f * nShOld, "a clear noon's shade is darker than it was (harsh sun)", nSh.ToString("0.000") + " vs " + nShOld.ToString("0.000"));
+            Check(nSun / Mathf.Max(nSh, 1e-4f) >= 5f, "a clear noon's raw sun:shade on a road is at least 5 (the plan's harsh sun)",
+                  (nSun / Mathf.Max(nSh, 1e-4f)).ToString("0.00"));
+            // C13: a snowy day's road is slush, not a mirror.
+            Check(TimeOfDay.WetnessFor(TimeOfDay.Noon, Weather.Snow) <= 0.15f + 1e-5f
+                  && TimeOfDay.WetnessFor(TimeOfDay.Night, Weather.Snow) >= 0.35f - 1e-5f,
+                  "a snowy noon's road is damp (0.15), a snowy night's wet (0.35) (C13)",
+                  TimeOfDay.WetnessFor(TimeOfDay.Noon, Weather.Snow) + " / " + TimeOfDay.WetnessFor(TimeOfDay.Night, Weather.Snow));
+            // Every shader that ends in the curve has it, and compiles.
+            foreach (var sh in new[] { "PSX/Lit", "PSX/LitTransparent", "PSX/CarPaint", "PSX/Water", "PSX/Sky", "PSX/Decal",
+                                       "PSX/Glow", "PSX/Halo", "PSX/Beam", "PSX/Rain", "PSX/Blit", "PSX/Lens", "PSX/Shadow", "PSX/ZoneLine" })
+            {
+                var s = Shader.Find(sh);
+                Check(s != null && !ShaderUtil.ShaderHasError(s), sh + " compiles with the colour pass");
+            }
+            string tone = System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXTone.cginc")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXTone.cginc") : "";
+            Check(tone.Contains("if (_PSXToneOn < 0.5) return c;"), "the curve is an exact no-op with the tone off (every interior)");
+            // The HUD writes no emitter mask.
+            var hud = HudOnTop.Material;
+            Check(hud != null && hud.HasProperty("_ColorMask") && hud.GetInt("_ColorMask") == 14,
+                  "the HUD draws RGB only (a glyph is not a light source)", hud != null ? hud.GetInt("_ColorMask") : -1);
+            // An interior (no hour applied) keeps the old picture: the switches
+            // are never serialized, so no scene can carry them on.
+            foreach (var f in new[] { "tone", "exposure", "adapt", "emitKey", "gradeSun", "dayFill" })
+            {
+                var fi = typeof(PSXGlobals).GetField(f);
+                Check(fi != null && fi.IsNotSerialized, "PSXGlobals." + f + " is never serialized (TimeOfDay.Apply's alone)");
+            }
+            TestColourPassLightsAndEye();
+        }
+
+        /// <summary>
+        /// THE COLOUR PASS, STEP 4 (C5-C12): the low beam, the tail lamps, the
+        /// lit particles, the HUD's edge, the eye's adaptation and the owner's
+        /// two open choices. The pictures are tools\colour\colour-shots.ps1's
+        /// (-Sets beam,fx,look) and colour_stats.py's (beam, fx, hud); what is
+        /// held here is the arithmetic and the switches.
+        /// </summary>
+        static void TestColourPassLightsAndEye()
+        {
+            Line("colour pass - lights, particles, HUD edge, eye:");
+            // C5/C6: a beam dimmer than the old 2.0 raw push, glints kept, a
+            // 5 W tail lamp under a street lamp's pool and the brake above it.
+            Check(CarLights.BeamIntensity > 0.1f && CarLights.BeamIntensity <= 1.0f,
+                  "the low beam's plateau is measured, not the old 2.0 (C5; 0.90 at night since the dark-night retune)", CarLights.BeamIntensity);
+            // The night beam and its albedo floor are NIGHT only: every hour
+            // that runs headlights with the sun still up (sunset, dawn) keeps
+            // the reviewed day beam exactly, and the floor's gate is 0 there.
+            for (int h = 0; h < TimeOfDay.Count; h++)
+            {
+                if (h == TimeOfDay.Dusk || h == TimeOfDay.Night) continue;
+                float nf = TimeOfDay.NightFor(h);
+                Check(Mathf.Approximately(CarLights.BeamIntensityFor(nf), CarLights.BeamIntensityDay) && CarLights.BeamNight(nf) == 0f,
+                      "a sun-up hour (" + TimeOfDay.At(h).name + ") keeps the day beam and no albedo floor",
+                      CarLights.BeamIntensityFor(nf) + " / " + CarLights.BeamNight(nf));
+            }
+            Check(Mathf.Approximately(CarLights.BeamIntensityFor(TimeOfDay.NightFor(TimeOfDay.Night)), CarLights.BeamIntensity)
+                  && CarLights.BeamNight(TimeOfDay.NightFor(TimeOfDay.Night)) == 1f,
+                  "the night hour takes the whole night beam and the whole albedo floor");
+            Check(CarLights.GlintIntensity > CarLights.BeamIntensity, "the lamps' glints stay a light source's brightness");
+            Check(CarLights.TailLampDim < CarLights.TailLampBrake && CarLights.TailLampBrake <= 0.6f,
+                  "5 W tail lamps: dim under brake, brake at most 0.6 (C6)",
+                  CarLights.TailLampDim + " / " + CarLights.TailLampBrake);
+            string head = System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXHeadlights.cginc")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXHeadlights.cginc") : "";
+            Check(head.Contains("#define BEAM_NEAR_TO") && head.Contains("#define BEAM_SPILL") && !head.Contains("t * sqrt(t);"),
+                  "the headlight include is the flat plateau with a spill lobe, not t*sqrt(t)");
+            string litBeam = System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXLit.shader")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXLit.shader") : "";
+            Check(head.Contains("_PSXHeadNight;") && head.Contains("float PSXBeamAlbedoGain(")
+                  && litBeam.Contains("headD * PSXBeamAlbedoGain(tex.rgb, N)"),
+                  "PSX/Lit's beam reads a dark road at the night albedo floor, gated by _PSXHeadNight");
+            string lights = System.IO.File.Exists("Assets/PSXRacing/Scripts/CarLights.cs")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Scripts/CarLights.cs") : "";
+            Check(lights.Contains("Halogen.linear * bi"), "the beams are pushed as LINEAR light, as the street lamps are");
+            // C7: the smoke and the snow are lit; the marks are not.
+            var decal = Shader.Find("PSX/Decal");
+            Check(decal != null && decal.FindPropertyIndex("_Lit") >= 0, "PSX/Decal has the lit-particle switch");
+            var smoke = AssetDatabase.LoadAssetAtPath<Material>("Assets/PSXRacing/Materials/TireSmoke.mat");
+            var marks = AssetDatabase.LoadAssetAtPath<Material>("Assets/PSXRacing/Materials/SkidMark.mat");
+            if (smoke != null) Check(smoke.GetFloat("_Lit") > 0.5f, "the tyre smoke is lit by the scene (C7)");
+            if (marks != null) Check(marks.GetFloat("_Lit") < 0.5f, "the tyre marks are not (a dark mark stays dark)");
+            // C9: a HUD label's one-sided Shadow becomes the all-round edge.
+            var go = new GameObject("SelfTestHudText", typeof(RectTransform));
+            try
+            {
+                go.AddComponent<UnityEngine.UI.Text>();
+                go.AddComponent<UnityEngine.UI.Shadow>();
+                HudOnTop.OutlineText(go);
+                var sh = go.GetComponent<UnityEngine.UI.Shadow>();
+                Check(sh is HudTextEdge, "a HUD label's drop shadow becomes the all-round edge (C9)", sh != null ? sh.GetType().Name : "none");
+                // The edge must not allocate per rebuild (the race clock is
+                // rebuilt every frame): one warm-up, then zero bytes.
+                if (sh is HudTextEdge edge)
+                {
+                    var t = go.GetComponent<UnityEngine.UI.Text>();
+                    t.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+                    t.text = "1'23\"456";
+                    var vh = new UnityEngine.UI.VertexHelper();
+                    for (int k = 0; k < 24; k++) { vh.AddVert(new Vector3(k, 0f, 0f), Color.white, Vector2.zero); }
+                    for (int k = 0; k + 2 < 24; k += 3) vh.AddTriangle(k, k + 1, k + 2);
+                    var probe = new UnityEngine.UI.VertexHelper();
+                    edge.ModifyMesh(vh);
+                    void Rebuild()
+                    {
+                        probe.Clear();
+                        for (int v = 0; v < 24; v++) probe.AddVert(new Vector3(v, 0f, 0f), Color.white, Vector2.zero);
+                        for (int v = 0; v + 2 < 24; v += 3) probe.AddTriangle(v, v + 1, v + 2);
+                        edge.ModifyMesh(probe);
+                    }
+                    Rebuild();   // the probe's own lists warm up too
+                    try
+                    {
+                        long before = System.GC.GetAllocatedBytesForCurrentThread();
+                        for (int k = 0; k < 20; k++) Rebuild();
+                        long grew = System.GC.GetAllocatedBytesForCurrentThread() - before;
+                        // The old edge threw away a 600-vertex list a rebuild:
+                        // about 60 KB each, 1.2 MB over these twenty.
+                        Check(grew < 65536, "the HUD edge allocates nothing per rebuild once warm (the race clock rebuilds every frame)",
+                              grew + " bytes over 20 rebuilds");
+                    }
+                    catch (System.Exception e) { Line("  (allocation probe unavailable: " + e.GetType().Name + ")"); }
+                    vh.Dispose(); probe.Dispose();
+                }
+            }
+            finally { Object.DestroyImmediate(go); }
+            // Review (2026-09-29): the always-visible MENU button is a smoked
+            // box with the HUD's edge (it lives on its own overlay canvas that
+            // HudOnTop never sees), and every WebGL build brings the snow
+            // grounds to the snow turf (a -SkipScenes publish ships C8 too).
+            string pause = System.IO.File.Exists("Assets/PSXRacing/Scripts/PauseMenu.cs")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Scripts/PauseMenu.cs") : "";
+            Check(pause.Contains("DarkenMenuButton(menuBtn)") && pause.Contains("HudOnTop.AddOutline"),
+                  "the MENU button is a dark box with the HUD's text edge (legible at noon)");
+            string build = System.IO.File.Exists("Assets/PSXRacing/Editor/PSXBuildWebGL.cs")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Editor/PSXBuildWebGL.cs") : "";
+            Check(build.Contains("PSXRacingBuilder.RedressSnowGrounds()"), "every WebGL build redresses the snow grounds (C8 ships on any publish)");
+            var snowTint = PSXRacingBuilder.SnowGroundTint;
+            Check(snowTint.r > 0.75f && snowTint.r < 0.95f && snowTint.b >= snowTint.r,
+                  "the snow turf is worn a little under white, a breath of blue (its texture off the tone curve's shoulder)", snowTint.ToString());
+            string lens = System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXLens.shader")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXLens.shader") : "";
+            string litSrc = System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXLit.shader")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXLit.shader") : "";
+            Check(lens.Contains("#define DIRT_SRC_MIN      0.25") && litSrc.Contains("#define WIN_EMIT           0.25"),
+                  "lit windows stay under the lens dirt's emitter band (no grime rings over a lit tower)");
+            // C10: the eye.
+            Check(Mathf.Approximately(ExposureAdapt.TargetFor(1f, 1f), 1f), "an open sky by day: the eye at 1");
+            Check(Mathf.Approximately(ExposureAdapt.TargetFor(0f, 0f), 1f), "a roof at night: the eye at 1 (a tunnel at night is its lamps)");
+            float roofed = ExposureAdapt.TargetFor(0f, 1f);
+            Check(roofed > 2f && roofed <= ExposureAdapt.MaxGain + 1e-4f, "a roof by day opens the eye, at most +1.26 stops", roofed);
+            float fillNoon = TimeOfDay.DayFillFor(TimeOfDay.Noon, Weather.Clear);
+            float roofedCut = ExposureAdapt.TargetFor(0f, 1f, fillNoon), openCut = ExposureAdapt.TargetFor(1f, 1f, fillNoon);
+            Check(Mathf.Abs(roofedCut * fillNoon - roofed) < 1e-3f && Mathf.Approximately(openCut, 1f)
+                  && Mathf.Approximately(ExposureAdapt.TargetFor(0f, 1f, 1f), roofed),
+                  "under a roof the eye also opens by the harsh sun's fill (a tunnel keeps its light), in the open it does not",
+                  roofedCut.ToString("0.00") + " at fill " + fillNoon.ToString("0.00"));
+            float in2 = ExposureAdapt.Step(1f, roofed, 2f), out1 = ExposureAdapt.Step(roofed, 1f, 1f);
+            Check(in2 > 2f, "two seconds into a tunnel the eye has opened (readable)", in2.ToString("0.00"));
+            Check(out1 < 1.1f, "a second after the exit it has closed again (the bloom settles)", out1.ToString("0.00"));
+            // C11 / C12: both ship off.
+            Check(!LookChoices.SunLiftDefault && !LookChoices.CoolNightDefault,
+                  "the owner's two open choices (G1, cool darks) ship OFF until he says yes");
+            Check(TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Clear) == 1f && TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Snow) == 1f
+                  && TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Rain) == 0f && TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Fog) == 0f
+                  && TimeOfDay.GradeSunFor(TimeOfDay.Dusk, Weather.Clear) == 0f,
+                  "G1's lift fade is keyed on a clear or snowy sunlit hour only");
+            string blit = System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXBlit.shader")
+                ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXBlit.shader") : "";
+            Check(blit.Contains("if (_PSXGradeSun > 0.0)"), "and at 0 it is a branch not taken: the signed-off grade bit for bit");
+        }
+
         static void TestPizzaCargo()
         {
             Line("pizza cargo:");
@@ -6298,62 +7142,118 @@ namespace PSXRacing.EditorTools
                       TrackCatalog.At(g).FinishIndex > 0,
                       "Gillespie Gap is an authored sprint with a finish", g);
                 // Everything appended since v18 that sits before the section
-                // moved it along: Gillespie and its twin (v19).
+                // moved it along: Gillespie and its twin (v19), Chimney Rock
+                // and its twin (v20).
                 int now = TrackCatalog.IndexOf("SwissNC226ALowerRev");
                 int shift = 0;
-                foreach (var id in new[] { "GillespieGap", "GillespieGapRev" })
+                foreach (var id in new[] { "GillespieGap", "GillespieGapRev", "ChimneyRock", "ChimneyRockRev" })
                 {
                     int k = TrackCatalog.IndexOf(id);
                     if (TrackCatalog.At(k).id == id && k < now) shift++;
                 }
-                Check(shift == 2, "two venues went in before a v18 save's NC 226A LOWER II", shift);
+                Check(shift == 4, "four venues went in before a v18 save's NC 226A LOWER II", shift);
                 var mig18 = new LifeState { saveVersion = 18 };
                 mig18.trackIndex = now - shift;
                 mig18.bookings.Add(new RaceBooking { day = 3, trackIndex = now - shift });
                 LifeSimManager.Migrate(mig18);
                 Check(mig18.trackIndex == now && mig18.bookings[0].trackIndex == now &&
                       mig18.saveVersion == new LifeState().saveVersion,
-                      "a v18 save's NC 226A LOWER II is still that section after the v19 migration",
+                      "a v18 save's NC 226A LOWER II is still that section after the v19 and v20 migrations",
                       TrackCatalog.At(mig18.trackIndex).id);
                 Check(TrackCatalog.RemapV18Index(3) == 3, "and v18 authored indices stand");
             }
 
-            // CHIMNEY ROCK IS HELD BACK. It was appended once (4e02b49, save
-            // v20) and taken out again before anything was pushed: the
-            // obstacle audit still fails four edge-face lines on its roadside
-            // (TrackCatalog.HeldBack says which). Pinned: it is not in the list
-            // and nothing listed is held back; the save stays at v19, where
-            // new careers start and a v19 save stays as it is; no car meet
-            // names it (CarMeets looks venues up BY ID, and IndexOf answers 0
-            // - CITY CIRCUIT - for an id it does not know); and the held
-            // definition keeps what its release will need - a stage sprint
-            // with a finish, out of the delivery roll either way up.
+            // CHIMNEY ROCK (v20): the park road's switchbacks, appended after
+            // Gillespie Gap. In the list as the last scened venue, a sprint
+            // with a finish and a twin in the same scene; a v19 save's twins
+            // and sprint sections come out on the same road; and the trap the
+            // v18 remap had to be fixed for is pinned: no old index, from a
+            // v18 or a v19 save, may land on either Chimney Rock entry.
             {
-                bool listed = false;
-                foreach (var a in TrackCatalog.All)
-                    if (a.id == "ChimneyRock" || a.id == "ChimneyRockRev") listed = true;
-                TrackCatalog.TrackDef held = null;
-                foreach (var h in TrackCatalog.HeldBack)
-                    if (h.id == "ChimneyRock") held = h;
-                Check(!listed && held != null, "Chimney Rock is held back, not in the list");
+                int c = TrackCatalog.IndexOf("ChimneyRock");
+                var cd = TrackCatalog.At(c);
+                Check(cd.id == "ChimneyRock" && c == TrackCatalog.SceneCount - 1,
+                      "Chimney Rock is the last scened venue", c + " of " + TrackCatalog.SceneCount);
+                Check(cd.stage && !cd.loop && cd.FinishIndex > 0, "Chimney Rock is a stage sprint with a finish",
+                      cd.FinishIndex);
+                int cr = TrackCatalog.IndexOf("ChimneyRockRev");
+                Check(TrackCatalog.At(cr).id == "ChimneyRockRev" &&
+                      TrackCatalog.SceneIndex(cr) == TrackCatalog.SceneIndex(c),
+                      "and has its twin, raced in the same scene", cr);
+                // Never a pizza drop, either way up: the par pace (22 m/s)
+                // cannot be driven round its hairpins. The owner's call
+                // whether it gets a par of its own instead.
+                Check(cd.noDelivery && TrackCatalog.At(cr).noDelivery,
+                      "Chimney Rock and its twin are out of the delivery roll");
+                {
+                    // The rolls draw on UnityEngine.Random; hand its state back
+                    // afterwards, or every later check that reads a random tip
+                    // (the missed-shift dock, TestShiftRoster) sees another day.
+                    var keepRandom = Random.state;
+                    var ds = new LifeState { day = 1 };
+                    bool sentUp = false;
+                    for (int i = 0; i < 400 && !sentUp; i++)
+                    {
+                        int t = LifeRules.DeliveryTrackIndex(ds);
+                        if (t == c || t == cr) sentUp = true;
+                    }
+                    Random.state = keepRandom;
+                    Check(!sentUp, "and 400 rolls never send a drop up the park road");
+                }
+
+                var mig19 = new LifeState { saveVersion = 19 };
+                string[] probe = { "SwissNC226ALowerRev", "GillespieGapRev", "BlowingRockSprint" };
+                int[] moved = { 2, 1, 2 };
+                bool allSame = true;
+                string firstWrong = null;
+                for (int p = 0; p < probe.Length; p++)
+                {
+                    int nowIdx = TrackCatalog.IndexOf(probe[p]);
+                    int oldIdx = nowIdx - moved[p];
+                    var m = new LifeState { saveVersion = 19, trackIndex = oldIdx };
+                    m.bookings.Add(new RaceBooking { day = 3, trackIndex = oldIdx });
+                    m.blChallenge = new RankChallenge { trackIndex = oldIdx };
+                    LifeSimManager.Migrate(m);
+                    bool same = TrackCatalog.At(nowIdx).id == probe[p] && m.trackIndex == nowIdx &&
+                                m.bookings[0].trackIndex == nowIdx && m.blChallenge.trackIndex == nowIdx &&
+                                m.saveVersion == 20;
+                    if (!same) { allSame = false; if (firstWrong == null) firstWrong = probe[p] + " -> " + TrackCatalog.At(m.trackIndex).id; }
+                }
+                Check(allSame, "a v19 save's NC 226A LOWER II, GILLESPIE GAP II and PARKWAY SPRINT are still those roads after the v20 migration",
+                      firstWrong ?? "all three");
+                LifeSimManager.Migrate(mig19);
+                Check(mig19.saveVersion == 20 && new LifeState().saveVersion == 20, "a v19 save migrates to v20, where new careers start");
+                Check(TrackCatalog.RemapV19Index(3) == 3, "and v19 authored indices stand");
+                Check(TrackCatalog.RemapV19Index(19) == TrackCatalog.IndexOf("GillespieGap"),
+                      "and v19's last authored venue is still Gillespie Gap", TrackCatalog.RemapV19Index(19));
+
+                // The trap: the v18 and v19 lists are today's without what was
+                // appended since. Leave an append in and every later index
+                // lands one place off - a v18 CITY CIRCUIT II would come back
+                // as CHIMNEY ROCK.
+                int oldLen18 = TrackCatalog.Count - 4, oldLen19 = TrackCatalog.Count - 2;
+                string leak = null;
+                for (int k = 0; k < oldLen18 && leak == null; k++)
+                {
+                    string id = TrackCatalog.At(TrackCatalog.RemapV18Index(k)).id;
+                    if (id == "ChimneyRock" || id == "ChimneyRockRev") leak = "v18 " + k + " -> " + id;
+                }
+                for (int k = 0; k < oldLen19 && leak == null; k++)
+                {
+                    string id = TrackCatalog.At(TrackCatalog.RemapV19Index(k)).id;
+                    if (id == "ChimneyRock" || id == "ChimneyRockRev") leak = "v19 " + k + " -> " + id;
+                }
+                Check(leak == null, "no v18 or v19 index lands on Chimney Rock", leak ?? "none of " + oldLen18 + " / " + oldLen19);
+
                 bool both = false;
                 foreach (var h in TrackCatalog.HeldBack)
                     foreach (var a in TrackCatalog.All)
                         if (a.id == h.id) both = true;
                 Check(!both, "no venue is both held back and in the list");
-                Check(held != null && held.stage && !held.loop && held.noDelivery && held.FinishIndex > 0,
-                      "the held Chimney Rock is a stage sprint with a finish, out of the delivery roll",
-                      held != null ? held.FinishIndex.ToString() : "missing");
-                var twinOf = typeof(TrackCatalog).GetMethod("ReverseTwin",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-                var twin = held != null && twinOf != null ? twinOf.Invoke(null, new object[] { held }) as TrackCatalog.TrackDef : null;
-                Check(twin != null && twin.noDelivery, "and so is its twin, when it has one");
-                var mig19 = new LifeState { saveVersion = 19, trackIndex = TrackCatalog.Count - 1 };
-                LifeSimManager.Migrate(mig19);
-                Check(new LifeState().saveVersion == 19 && mig19.saveVersion == 19 &&
-                      mig19.trackIndex == TrackCatalog.Count - 1,
-                      "the save stays at v19: new careers start there, and a v19 save's last venue is still the last",
-                      new LifeState().saveVersion + " / " + mig19.saveVersion + " / " + mig19.trackIndex);
+
+                // The car meets look venues up BY ID, and IndexOf answers 0 -
+                // CITY CIRCUIT - for an id it does not know: every touge id
+                // must be a listed venue, and the park road is one of them.
                 var meetField = typeof(PSXRacing.LifeSim.CarMeets).GetField("TougeVenues",
                     System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
                 var touge = meetField != null ? meetField.GetValue(null) as string[] : null;
@@ -6362,6 +7262,53 @@ namespace PSXRacing.EditorTools
                     foreach (var id in touge)
                         if (TrackCatalog.At(TrackCatalog.IndexOf(id)).id != id) unknown = id;
                 Check(touge != null && unknown == null, "every car meet venue is in the list", unknown ?? "all");
+                Check(touge != null && System.Array.IndexOf(touge, "ChimneyRock") >= 0,
+                      "and the touge meets race up the park road");
+
+                // IT SHIPPED ON FOUR NAMED LEDGES, NOT A WAIVER. The owner,
+                // 2026-09-29: "Release now, fix after". All four are fixed and
+                // their entries are out: the rise holds took 1040-1041 L and
+                // 668 R, the end pad 2 L past the reach, and the fill tail -
+                // the owner's pick over a guardrail - 983 R. Pinned: the list
+                // is EMPTY, so every edge face on every venue fails again, and
+                // the matcher passes none of the four spots it once named; any
+                // entry ever added back must be one small, short, dated spot.
+                var acc = TrackObstacleAudit.OwnerAccepted;
+                Check(acc.Length == 0, "the obstacle audit's owner-accepted list is empty: all four Chimney Rock ledges are fixed", acc.Length);
+                string badEntry = null;
+                foreach (var e in acc)
+                {
+                    bool listedVenue = false;
+                    foreach (var d in TrackCatalog.Scened) if (d.id == e.venue) listedVenue = true;
+                    bool ok = listedVenue && e.venue == "ChimneyRock" && (e.side == -1 || e.side == 1) &&
+                              e.fromWp >= 0 && e.toWp >= e.fromWp && e.toWp - e.fromWp <= 1 &&
+                              // printed to the centimetre (668 R, since fixed, printed 0.06, just over the 0.06 line)
+                              e.maxRiseM >= RoadsideRules.FaceRiseFailM && e.maxRiseM < 0.10f &&
+                              e.atM > 0f && e.atM < 12f &&
+                              e.accepted == "owner accepted 2026-09-29, fix pending" &&
+                              !string.IsNullOrEmpty(e.what);
+                    if (!ok && badEntry == null) badEntry = e.Where;
+                }
+                Check(badEntry == null,
+                      "each is one listed spot: a side, at most two stations, under 0.10 m, dated and marked fix pending",
+                      badEntry ?? "all");
+                Check(TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.08f, 7.70f) < 0,
+                      "983 R, filled, is a failure again if it ever comes back");
+                Check(TrackObstacleAudit.AcceptedFor("ChimneyRock", false, -1, 1041, 0.08f, 5.40f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, -1, 1040, 0.09f, 5.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 668, 0.062f, 6.95f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", true, -1, 2, 0.08f, 8.85f) < 0,
+                      "and so are the three fixed before it: 1040-1041 L, 668 R, 2 L past the reach");
+                Check(TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 984, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 982, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.09f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, -1, 983, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", true, 1, 983, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRock", false, 1, 983, 0.08f, 8.30f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("ChimneyRockRev", false, 1, 983, 0.08f, 7.60f) < 0 &&
+                      TrackObstacleAudit.AcceptedFor("GillespieGap", false, 1, 983, 0.08f, 7.60f) < 0,
+                      "and on nothing else: a station on, a centimetre taller, the other side or kind, half a metre off, another venue");
             }
 
             // THE BLOWING ROCK SPRINT RACES ON THE LOOP (owner: "just leave
@@ -11199,6 +12146,18 @@ namespace PSXRacing.EditorTools
         // ==================================================================
         //  THE DAY LOOK (2026-09-21, the Forza daylight pass)
         // ==================================================================
+
+        /// <summary>THE 16-BIT DECODE (the colour pass, C1b): the set is
+        /// imported as linear data and decoded in the shaders, the release
+        /// budget and the labels agree, no .mat stores the flag, every prefab
+        /// leaves Resources through PSXTexDecode.LoadPrefab, and (with a GPU)
+        /// the grey card matches. The play-mode half is
+        /// tools\colour\texdecode-audit.ps1 (TexDecodeAudit.Run).</summary>
+        static void TestTexDecode()
+        {
+            Line("16-bit texture decode:");
+            foreach (var r in TexDecodeAudit.EditChecks(gpu: true)) Check(r.ok, r.what, r.got);
+        }
 
         /// <summary>
         /// The owner, with five daylight frames of Forza Horizon: improved

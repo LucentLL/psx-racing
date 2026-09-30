@@ -39,10 +39,12 @@ namespace PSXRacing.EditorTools
         /// Same shape of bug as CityPreview's private material table earlier the
         /// same day. Two lists that must agree will not.
         /// </summary>
-        static string[] ScenePaths() => PSXRacingBuilder.SceneOrder();
+        static string[] ScenePaths(EditionKind edition) => PSXRacingBuilder.SceneOrder(edition);
 
+        /// <summary>The editor menu builds ALL — the whole game, parking
+        /// nothing. The editions are built by the tools (-psxEdition).</summary>
         [MenuItem("PSX Racing/Build WebGL")]
-        public static void BuildMenu() => Run(DefaultOutput());
+        public static void BuildMenu() => Run(DefaultOutput(), EditionKind.All);
 
         static string DefaultOutput() =>
             Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Build", "WebGL");
@@ -53,31 +55,72 @@ namespace PSXRacing.EditorTools
             var args = Environment.GetCommandLineArgs();
             for (int i = 0; i < args.Length - 1; i++)
                 if (args[i] == "-psxOutput") outDir = args[i + 1];
+            // -psxDevelopment: a DEVELOPMENT player (the colour harness,
+            // Scripts\Dev\ShotLink.cs, wakes only in one), uncompressed so it
+            // builds faster and any static server serves it. Never published:
+            // build-and-publish.ps1 does not pass it.
+            development = Array.IndexOf(args, "-psxDevelopment") >= 0;
 
-            int code = Run(outDir) ? 0 : 1;
+            // THE EDITION: -psxEdition MAIN|CITY|ALL (tools\build-and-publish.ps1
+            // passes it; a root publish is MAIN, a -PagesDir city publish CITY).
+            int code = Run(outDir, EditionTarget.Current) ? 0 : 1;
             EditorApplication.Exit(code);
         }
 
-        static bool Run(string outDir)
+        static bool development;
+
+        static bool Run(string outDir, EditionKind edition)
         {
+            // A previous edition build killed mid-flight left Resources parked.
+            EditionParking.RecoverIfNeeded();
+            string ed = Edition.Name(edition);
             try
             {
                 // The scene builder normally produces every scene, but a fresh
-                // sandbox copy may not have run it yet — and one MISSING
-                // circuit is as fatal as none, since the build index of every
-                // track after it would shift.
-                var scenePaths = ScenePaths();
+                // sandbox copy may not have run it yet — and a MISSING scene is
+                // a venue whose door loads nothing.
+                var scenePaths = ScenePaths(edition);
                 foreach (var p in scenePaths)
                 {
                     if (File.Exists(p)) continue;
                     Debug.LogError("[PSXBuildWebGL] Scene missing (" + p +
                                    "), running scene builder first.");
                     PSXRacingBuilder.Build();
-                    scenePaths = ScenePaths();
+                    scenePaths = ScenePaths(edition);
                     break;
                 }
+                Debug.Log("[PSXBuildWebGL] Edition " + ed + ": " + scenePaths.Length + " scenes - " +
+                          string.Join(", ", scenePaths.Select(Path.GetFileNameWithoutExtension)));
                 if (!File.Exists(LifeHomeSceneBuilder.ScenePath))
                     LifeHomeSceneBuilder.Build();
+
+                // THE SNOW DRESS SHIPS WITH EVERY BUILD (the colour pass, C8
+                // review, 2026-09-29). A snowy ground is the snow turf now
+                // (PSXRacingBuilder.RegisterSeasonalGround), but a sandbox whose
+                // scenes were baked before that still holds the old generated
+                // *_Snow materials - grass or dirt x(1.8, 1.8, 1.9), a lime field
+                // once decoded - and a -SkipScenes publish, the usual one, builds
+                // the sandbox exactly as it stands. So every build brings them to
+                // the current rule first: same assets, same GUIDs, idempotent
+                // (nothing to do on a fresh bake).
+                int redressed = PSXRacingBuilder.RedressSnowGrounds();
+                Debug.Log("[PSXBuildWebGL] snow grounds brought to the snow turf: " + redressed);
+
+                // EVERY SHADER THE RUNTIME NAMES SHIPS IN EVERY EDITION: each
+                // must be in GraphicsSettings' Always Included Shaders, checked
+                // here in a second rather than found missing on the live page
+                // (2026-09-29: CITY stripped PSX/Glow and every car lost its
+                // lamps). See RuntimeShaders.
+                var shaders = RuntimeShaders.Scan();
+                var gaps = RuntimeShaders.Gaps(shaders);
+                if (gaps.Count > 0)
+                {
+                    foreach (var g in gaps) Debug.LogError("[PSXBuildWebGL] RUNTIME SHADER MISSING: " + g);
+                    return false;
+                }
+                Debug.Log("[PSXBuildWebGL] Runtime shaders: " + shaders.Needs.Count + " named, every one always included - " +
+                          string.Join(", ", shaders.Needs.Select(n => n.Name)) + "; city kit shaders: " +
+                          (shaders.KitNote ?? string.Join(", ", shaders.Kit.Select(n => n.Name))));
 
                 PlayerSettings.companyName = "PSX Racing";
                 PlayerSettings.productName = "PSX Racing";
@@ -101,8 +144,8 @@ namespace PSXRacing.EditorTools
                 // after a successful forty-minute build. Uncompressed was never
                 // really free either — Pages was gzipping the whole 48 MB on
                 // every single request before this.
-                PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Brotli;
-                PlayerSettings.WebGL.decompressionFallback = true;
+                PlayerSettings.WebGL.compressionFormat = development ? WebGLCompressionFormat.Disabled : WebGLCompressionFormat.Brotli;
+                PlayerSettings.WebGL.decompressionFallback = !development;
                 PlayerSettings.WebGL.dataCaching = true;
                 PlayerSettings.WebGL.linkerTarget = WebGLLinkerTarget.Wasm;
                 PlayerSettings.WebGL.exceptionSupport = WebGLExceptionSupport.None;
@@ -127,17 +170,39 @@ namespace PSXRacing.EditorTools
 
                 var options = new BuildPlayerOptions
                 {
-                    // LifeHome first: it is scene index 0, the boot scene.
+                    // LifeHome first: it is scene index 0, the boot scene, in
+                    // every edition. Nothing else depends on the order any
+                    // more: the runtime finds each scene by path.
                     scenes = scenePaths,
                     locationPathName = outDir,
                     target = BuildTarget.WebGL,
                     targetGroup = BuildTargetGroup.WebGL,
-                    options = BuildOptions.None,
+                    options = development ? BuildOptions.Development : BuildOptions.None,
                 };
+                if (development) Debug.Log("[PSXBuildWebGL] DEVELOPMENT build (uncompressed) - never published");
+                // THE SWITCH. The player's scripts compile with the edition's
+                // define (Edition.Baked); nothing is written to the project, so
+                // nothing needs restoring and nothing leaks into the editor.
+                string define = EditionTarget.DefineFor(edition);
+                if (define != null) options.extraScriptingDefines = new[] { define };
 
-                Debug.Log("[PSXBuildWebGL] Building to " + outDir);
-                BuildReport report = BuildPipeline.BuildPlayer(options);
+                // Resources ship whole, so the other edition's are moved out
+                // of Resources for exactly this one call — see EditionParking.
+                Debug.Log("[PSXBuildWebGL] Building " + ed + " to " + outDir);
+                BuildReport report;
+                List<string> parked = new List<string>();
+                try
+                {
+                    parked = EditionParking.Park(edition);
+                    report = BuildPipeline.BuildPlayer(options);
+                }
+                finally
+                {
+                    EditionParking.Restore();
+                }
                 var s = report.summary;
+                var shaderLines = RuntimeShaders.ReportLines(shaders, report, parked, out var unpacked);
+                WriteReport(report, outDir, edition, scenePaths, parked, shaderLines);
                 Debug.Log($"[PSXBuildWebGL] Result={s.result} size={s.totalSize / (1024 * 1024)}MB " +
                           $"errors={s.totalErrors} time={s.totalTime}");
 
@@ -149,9 +214,19 @@ namespace PSXRacing.EditorTools
                                 Debug.LogError($"[PSXBuildWebGL] {step.name}: {msg.content}");
                     return false;
                 }
+                // The player exists, but not as a success: no build_ok.txt, so
+                // build-and-publish refuses it.
+                if (unpacked.Count > 0)
+                {
+                    foreach (var u in unpacked) Debug.LogError("[PSXBuildWebGL] RUNTIME SHADER MISSING: " + u);
+                    return false;
+                }
 
+                PickLicenses(outDir, edition);
+                SplashLine(outDir, edition);
+                File.WriteAllText(Path.Combine(outDir, "psx-edition.txt"), ed + "\n");
                 File.WriteAllText(Path.Combine(outDir, "build_ok.txt"),
-                    $"WebGL build succeeded {s.totalSize / (1024 * 1024)} MB");
+                    $"WebGL build succeeded {s.totalSize / (1024 * 1024)} MB edition {ed}" + (development ? " DEVELOPMENT" : ""));
                 return true;
             }
             catch (Exception e)
@@ -159,6 +234,119 @@ namespace PSXRacing.EditorTools
                 Debug.LogError("[PSXBuildWebGL] FAILED: " + e);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// WHAT THE BUILD WAS ASKED TO CARRY, written down: the edition, its
+        /// scenes, what was parked, the shaders the runtime names
+        /// (RuntimeShaders), and every source asset the build report
+        /// says was packed, largest first (none after an incremental reuse).
+        /// The proof of what
+        /// SHIPPED ("MAIN has no charlotte_*", "CITY has no stage scene") is
+        /// tools\webgl-contents.mjs, which reads WebGL.data itself and checks
+        /// it against the scene and parked lines here — asserting the request
+        /// says nothing about what shipped (the pizzeria lesson).
+        /// Written to the project root as PSXRacing_webgl_report_EDITION.txt
+        /// and beside the build as psx-build-report.txt (not published: the
+        /// deploy copies index.html, Build/, StreamingAssets/, LICENSES.txt).
+        /// </summary>
+        static void WriteReport(BuildReport report, string outDir, EditionKind edition,
+                                string[] scenes, List<string> parked, List<string> shaderLines)
+        {
+            try
+            {
+                var sb = new System.Text.StringBuilder();
+                var sum = report.summary;
+                sb.AppendLine("edition " + Edition.Name(edition));
+                sb.AppendLine("result " + sum.result + "  total " + (sum.totalSize / (1024.0 * 1024.0)).ToString("0.00") +
+                              " MiB  errors " + sum.totalErrors + "  time " + sum.totalTime);
+                sb.AppendLine("define " + (EditionTarget.DefineFor(edition) ?? "(none)"));
+                sb.AppendLine("scenes " + scenes.Length);
+                foreach (var p in scenes) sb.AppendLine("  scene " + p);
+                sb.AppendLine("parked " + parked.Count);
+                foreach (var p in parked) sb.AppendLine("  parked " + p);
+                // "runtime-shader" lines: RuntimeShaders' list, which
+                // webgl-contents.mjs compares with its own scan of the source.
+                foreach (var l in shaderLines) sb.AppendLine(l);
+
+                var sizes = new Dictionary<string, ulong>(StringComparer.Ordinal);
+                foreach (var pa in report.packedAssets)
+                    foreach (var info in pa.contents)
+                    {
+                        string src = string.IsNullOrEmpty(info.sourceAssetPath) ? "(built-in)" : info.sourceAssetPath;
+                        sizes.TryGetValue(src, out ulong have);
+                        sizes[src] = have + info.packedSize;
+                    }
+                // Not always there: an incremental build that reuses its packed
+                // content reports NONE (2026-09-29: the MAIN rebuild after a
+                // killed first attempt said 0; the CITY build 3640). So this
+                // list is a size breakdown, never the proof - that is
+                // tools\webgl-contents.mjs, which unpacks WebGL.data itself and
+                // checks it against the scene and parked lists above.
+                sb.AppendLine(sizes.Count > 0 ? "packed sources " + sizes.Count
+                    : "packed sources: none reported for this target - run node tools/webgl-contents.mjs <build dir>");
+                foreach (var kv in sizes.OrderByDescending(k => k.Value))
+                    sb.AppendLine("  packed " + (kv.Value / 1024.0).ToString("0.0").PadLeft(10) + " KiB  " + kv.Key);
+                foreach (var f in report.GetFiles())
+                    sb.AppendLine("  file " + f.role + "  " + (f.size / 1024.0).ToString("0.0") + " KiB  " + f.path);
+
+                string text = sb.ToString();
+                File.WriteAllText(Path.Combine(Directory.GetParent(Application.dataPath).FullName,
+                                  "PSXRacing_webgl_report_" + Edition.Name(edition) + ".txt"), text);
+                if (Directory.Exists(outDir)) File.WriteAllText(Path.Combine(outDir, "psx-build-report.txt"), text);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("[PSXBuildWebGL] could not write the build report: " + e.Message);
+            }
+        }
+
+        /// <summary>
+        /// The loading screen's second line. The PSXMobile template prints
+        /// SUNSET CITY GP under the title — the circuit the game began as, and
+        /// a venue the CITY edition does not carry, so the Charlotte page
+        /// would open on the name of a race it cannot run. CITY says
+        /// CHARLOTTE instead; MAIN and ALL keep the template's line. (The
+        /// -PagesDir deploy adds its own CHARLOTTE TEST tag beside it.)
+        /// </summary>
+        static void SplashLine(string outDir, EditionKind edition)
+        {
+            if (edition != EditionKind.City) return;
+            string idx = Path.Combine(outDir, "index.html");
+            if (!File.Exists(idx)) return;
+            string html = File.ReadAllText(idx);
+            const string from = "<h2>SUNSET CITY GP</h2>";
+            if (!html.Contains(from))
+            {
+                Debug.LogWarning("[PSXBuildWebGL] the template's splash line changed - CITY keeps it as written");
+                return;
+            }
+            File.WriteAllText(idx, html.Replace(from, "<h2>CHARLOTTE</h2>"));
+        }
+
+        /// <summary>
+        /// Credits PER EDITION. The WebGL template copies every file beside
+        /// its index.html into the build, and tools/city/credits.mjs writes
+        /// three there from tools/city/SOURCES.md: LICENSES.txt (ALL's: every
+        /// credit, so a build that picks nothing - Unity's own Build dialog -
+        /// still owes nobody), LICENSES-MAIN.txt (OpenStreetMap for the stage
+        /// roads, the stages' terrain) and LICENSES-CITY.txt (OpenStreetMap
+        /// for Charlotte, USGS 3DEP ground, the county and USGS water). The
+        /// edition's own is published as LICENSES.txt and every LICENSES-*.txt
+        /// is dropped; ALL keeps the template's LICENSES.txt.
+        /// `credits.mjs --build` checks the result before a deploy.
+        /// </summary>
+        static void PickLicenses(string outDir, EditionKind edition)
+        {
+            if (!Directory.Exists(outDir)) return;
+            var perEdition = Directory.GetFiles(outDir, "LICENSES-*.txt");
+            if (perEdition.Length == 0) return;
+            string mine = Path.Combine(outDir, "LICENSES-" + Edition.Name(edition) + ".txt");
+            if (File.Exists(mine)) File.Copy(mine, Path.Combine(outDir, "LICENSES.txt"), true);
+            else if (edition != EditionKind.All)
+                Debug.LogWarning("[PSXBuildWebGL] the template has no LICENSES-" + Edition.Name(edition) +
+                                 ".txt - this build keeps ALL's LICENSES.txt (node tools/city/credits.mjs --write)");
+            foreach (var f in perEdition) File.Delete(f);
         }
     }
 }

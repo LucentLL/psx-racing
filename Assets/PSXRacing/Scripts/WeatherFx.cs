@@ -244,6 +244,12 @@ namespace PSXRacing
             // A picture, not weather: nothing downstream reads a preview as rain.
             instance.rainSince = -1f;
             if (cam != null) instance.transform.position = instance.SlabOver(cam.transform);
+            // The SAME drops and flakes every picture (the colour pass's A/B
+            // pairs compare one run's particles with another's, pixel for
+            // pixel): a fixed seed, which a stopped system takes.
+            instance.ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            instance.ps.useAutoRandomSeed = false;
+            instance.ps.randomSeed = 20260929u;
             instance.ps.Simulate(Mathf.Max(0.1f, seconds), true, true);
         }
 
@@ -392,6 +398,11 @@ namespace PSXRacing
             mat = new Material(shader != null ? shader : Shader.Find("Sprites/Default")) { name = "WeatherFx (runtime)" };
             mat.mainTexture = tex;
             if (mat.HasProperty("_Tint")) mat.SetColor("_Tint", Color.white);
+            // SNOW IS LIT TOO (the colour pass, C7, 2026-09-29): on PSX/Decal's
+            // _Lit a flake takes the light it falls through - white by day, a
+            // dot of halogen in a beam, next to nothing in the dark - where it
+            // used to be a white dot that glowed at midnight.
+            if (snow && mat.HasProperty("_Lit")) mat.SetFloat("_Lit", 1f);
             r.sharedMaterial = mat;
 
             ps.Play();

@@ -47,8 +47,8 @@ namespace PSXRacing.EditorTools
                 for (int dx = 0; dx <= 1; dx++)
                 {
                     float vx = (cx + dx) * cell, vz = (cz + dz) * cell;
-                    float g = CityElevation.GroundY(map, vx, vz);
-                    sb.AppendLine($"vertex ({vx:0},{vz:0}): ground {g:0.00}  base {CityElevation.BaseY(vx, vz):0.00}");
+                    float g = CityElevation.Ground(map, vx, vz, out var gt);
+                    sb.AppendLine($"vertex ({vx:0},{vz:0}): ground {g:0.00}  base {CityElevation.BaseY(vx, vz):0.00}  (terms: dem {gt.dem:0.00}, graded {gt.blended:0.00}, floor {gt.floor:0.00} e{gt.floorEdge}, cap {gt.protect:0.00} e{gt.protectEdge})");
                     float reach = CityElevation.MaxCorridorHalf + CityElevation.CorridorBlend;
                     segs.Clear();
                     map.EdgeSegsInRect(new Vector2(vx - reach, vz - reach), new Vector2(vx + reach, vz + reach), segs);
@@ -62,15 +62,18 @@ namespace PSXRacing.EditorTools
                         float L2 = d.sqrMagnitude;
                         float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(new Vector2(vx, vz) - a, d) / L2) : 0f;
                         float dist = Vector2.Distance(new Vector2(vx, vz), a + d * t);
-                        float ch = Mathf.Min(e.CorridorHalf, CityElevation.MaxCorridorHalf);
-                        if (dist > ch + CityElevation.CorridorBlend) continue;
+                        // the WP-14 section: metres past the pavement, the bench,
+                        // the reach (CityElevation.SectionReachM)
                         float s = e.s[si] + Mathf.Sqrt(L2) * t;
-                        float w = dist <= ch ? 1f : 1f - (dist - ch) / CityElevation.CorridorBlend;
-                        w = w * w * (3f - 2f * w);
+                        float edgeM = e.PaveEdgeM(s, e.SideOf(si, new Vector2(vx, vz)));
+                        float past = dist - edgeM;
+                        float w = CityElevation.SectionReachM(edgeM);
+                        if (past > w) continue;
+                        float ch = RoadsideRules.CityBenchM(e.cls, e.link);
                         bool el = e.ElevatedAt(s);
                         string key = ei + ":" + Mathf.RoundToInt(s);
                         if (!seen.Add(key)) continue;
-                        rows.Add((dist, $"    e{ei} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} cls{e.cls} s={s:0.0}/{e.length:0} dist {dist:0.0} ch {ch:0.0} w {w:0.00} y {e.YAt(s):0.00} {(el ? "STRUCTURE cap " + (e.YAt(s) - CityElevation.DeckThick - CityElevation.UnderDeckAir).ToString("0.00") : "pin " + (e.YAt(s) - CityElevation.CorridorSink - e.SagAt(s)).ToString("0.00") + " sag " + e.SagAt(s).ToString("0.00"))}"));
+                        rows.Add((dist, $"    e{ei} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} cls{e.cls} s={s:0.0}/{e.length:0} dist {dist:0.0} past {past:0.0} bench {ch:0.0} reach {w:0.0} y {e.YAt(s):0.00} {(el ? "STRUCTURE cap " + (e.YAt(s) - CityElevation.DeckThick - CityElevation.UnderDeckAir).ToString("0.00") : "pin " + (e.YAt(s) - CityElevation.CorridorSink - e.SagAt(s)).ToString("0.00") + " sag " + e.SagAt(s).ToString("0.00"))}"));
                     }
                     rows.Sort((p, q) => p.dist.CompareTo(q.dist));
                     foreach (var r in rows) sb.AppendLine(r.line);

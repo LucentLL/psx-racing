@@ -349,7 +349,7 @@ namespace PSXRacing.EditorTools
                         foreach (var b in lots)
                         {
                             if (b.kind == 0) continue;
-                            var prefab = CityProps.Prefab(b.kind);
+                            var prefab = CityProps.CityPrefab(b.kind);
                             if (prefab == null) continue;
                             var def = CityProps.Defs[b.kind];
                             var inst = (GameObject)Object.Instantiate(prefab, root.transform);
@@ -378,9 +378,13 @@ namespace PSXRacing.EditorTools
             mr.sharedMaterials = use;
         }
 
-        /// <summary>The materials the GAME uses, not a copy of them.</summary>
-        static Material[] CityMaterialsForPreview() =>
-            PSXRacingBuilder.CityMaterials();
+        /// <summary>The materials the GAME uses, not a copy of them: the city
+        /// kit (WP-07), which EnsureCityTextures has just rewritten.</summary>
+        static Material[] CityMaterialsForPreview()
+        {
+            var kit = PSXRacingBuilder.EnsureCityKit();
+            return kit != null ? kit.slots : PSXRacingBuilder.CityMaterials();
+        }
 
         static string Tag(string s)
         {
@@ -413,7 +417,7 @@ namespace PSXRacing.EditorTools
             RenderTexture.active = null;
             cam.targetTexture = null;
 
-            File.WriteAllBytes(Path.Combine(dir, name + ".png"), tex.EncodeToPNG());
+            ShotSidecar.WritePng(Path.Combine(dir, name + ".png"), tex.EncodeToPNG());
             Object.DestroyImmediate(tex);
             Object.DestroyImmediate(rt);
             Object.DestroyImmediate(camGO);

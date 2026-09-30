@@ -115,7 +115,9 @@ namespace PSXRacing.EditorTools
         {
             var log = new StringBuilder();
             int failures = 0;
-            foreach (var def in TrackCatalog.Scened) failures += AuditOne(def, log);
+            // The venues the targeted edition ships (-psxEdition / PSX_EDITION,
+            // ALL by default): a MAIN verify measures exactly what MAIN carries.
+            foreach (var def in TrackCatalog.ScenedFor(EditionTarget.Current)) failures += AuditOne(def, log);
             log.AppendLine(failures == 0 ? "TERRAIN AUDIT OK" : "TERRAIN AUDIT: " + failures + " PROBLEM(S)");
             Debug.Log(log.ToString());
             System.IO.File.WriteAllText(

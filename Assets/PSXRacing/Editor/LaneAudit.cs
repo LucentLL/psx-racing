@@ -498,10 +498,14 @@ namespace PSXRacing.EditorTools
             sb.AppendLine();
             var summary = new StringBuilder(SummaryHeader() + "\n");
             int problems = 0;
-            var venues = new List<TrackCatalog.TrackDef>(TrackCatalog.Scened);
+            // The targeted edition's venues (EditionTarget; ALL by default) -
+            // a MAIN run must not FAIL 'MISSING SCENE' for Charlotte's, which
+            // MAIN never ships - and the held-back ones that edition would get.
+            var target = EditionTarget.Current;
+            var venues = new List<TrackCatalog.TrackDef>(TrackCatalog.ScenedFor(target));
             var held = new HashSet<string>();
             foreach (var h in TrackCatalog.HeldBack)
-                if (!venues.Any(v => v.id == h.id)) { venues.Add(h); held.Add(h.id); }
+                if (Edition.ShipsIn(h, target) && !venues.Any(v => v.id == h.id)) { venues.Add(h); held.Add(h.id); }
             string only = Environment.GetEnvironmentVariable("PSX_LANES_ONLY");
             foreach (var def in venues)
             {
@@ -1096,7 +1100,7 @@ namespace PSXRacing.EditorTools
             { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Repeat };
             tex.SetPixels32(px);
             tex.Apply();
-            File.WriteAllBytes(Path.Combine(OutDir, "centred_" + Path.GetFileName(tl.path)), tex.EncodeToPNG());
+            ShotSidecar.WritePng(Path.Combine(OutDir, "centred_" + Path.GetFileName(tl.path)), tex.EncodeToPNG());
             return tex;
         }
 
@@ -1142,10 +1146,10 @@ namespace PSXRacing.EditorTools
                         for (int x = 0; x < PhoneW; x++)
                             dst[y * PhoneW + x] = src[Mathf.Min(h - 1, y * h / PhoneH) * w + Mathf.Min(w - 1, x * w / PhoneW)];
                     big.SetPixels32(dst); big.Apply();
-                    File.WriteAllBytes(file, big.EncodeToPNG());
+                    ShotSidecar.WritePng(file, big.EncodeToPNG());
                     Object.DestroyImmediate(big);
                 }
-                else File.WriteAllBytes(file, tex.EncodeToPNG());
+                else ShotSidecar.WritePng(file, tex.EncodeToPNG());
             }
             else Debug.LogWarning("[Lanes] RenderRequest unsupported");
             cam.targetTexture = keepTarget;

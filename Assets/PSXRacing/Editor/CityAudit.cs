@@ -23,7 +23,7 @@ namespace PSXRacing.EditorTools
     /// Menu: PSX Racing/Audit City. Headless: -executeMethod
     /// PSXRacing.EditorTools.CityAudit.Run (writes city_audit.txt at root).
     /// </summary>
-    public static class CityAudit
+    public static partial class CityAudit
     {
         static StringBuilder outLog;
         static int failures;
@@ -372,6 +372,8 @@ namespace PSXRacing.EditorTools
             fanMouths = null;
             LampAudit(map, trims, buildings);
             TerrainFidelity(map);
+            TreeAudit(map, trims, buildings);
+            SignAudit(map, trims, buildings);
 
             // ---- the budget (WP-01): nine sites through CityWorld's own
             // path; city_budget.txt holds the table, the audit its summary.
@@ -750,6 +752,7 @@ namespace PSXRacing.EditorTools
         /// <summary>Metres of cut (retaining) wall on the roadside audit's
         /// tiles, for <see cref="TerrainFidelity"/>.</summary>
         static float roadsideCutWallM;
+        static readonly float[] roadsideCutWhy = new float[4];
         static int roadsideTiles;
 
         /// <summary>
@@ -766,12 +769,25 @@ namespace PSXRacing.EditorTools
         /// on its OSM way, is printed KNOWN and not counted; a failure
         /// anywhere else still fails the check, and a spot that no longer
         /// fails is reported so the list shrinks.
+        ///
+        /// WP-14 (2026-09-29) graded four of the six away - the ramp e1489's
+        /// face in its cut, the lip at e9314, the ledges on North Caldwell
+        /// Street and ramp e2858 - and they are pruned. Two left are gaps in
+        /// deck rails over a host a hand lower, not grading. The ledge WP-13
+        /// brought (I-77 e2739 beside the ramp e5219, 0.49 m: the ramp a
+        /// hair over 1.0 m above I-77 at one section and under it at the next,
+        /// so a rail on a retaining face handed over to a graded connector and
+        /// the connector's end stood proud beside the wall) is FIXED in the
+        /// builder, not listed: a connector no steeper than 1V:3H is graded
+        /// ground however far down it goes (CityMeshes.Ungraded).
         /// </summary>
         static readonly (string id, string kind, long way, float x, float z, string why)[] KnownRoadsideSpots =
         {
             // (pruned 2026-09-29 with WP-10's second round, gone under its lines: open-tyvola-2735, lip-9314)
             ("open-i277-1237", "OPEN", 40153244, -2741f, 6602f,
              "I-277 deck (e1237) where a ramp's approach joins it: the gap in the rail stands over a host surface 12 cm lower, so the audit's flush walk stops at the edge (1 m)"),
+            ("open-tyvola-2735", "OPEN", 172466507, -6547f, -2380f,
+             "Tyvola Road ramp deck (e2735) clipped into the bridge: the host's pavement 12-14 cm under the ramp's, rails of two Tyvola pieces with a slot between them over I-77 (1 m)"),
             ("face-ramp-1489", "FACE", 55204692, -2067f, 3342f,
              "ramp e1489 off I-277 in a 2.3 m cut: its verge climbs to the hill in under a metre (no cut section for a ramp until WP-14)"),
             ("ledge-caldwell-11145", "LEDGE", 1039294229, -1151f, 5048f,
@@ -846,7 +862,6 @@ namespace PSXRacing.EditorTools
             // in the pre-WP-04 audit (2565d60)
             ("davidson-14102", 1181521356, -1091f, 4922f, "North Davidson Street: the next piece's deck rail 0.4 m above stands over its right lane at node 13275"),
             ("i277-us74-2321", 159022517, -1362f, 3924f, "I-277 (Uptown Loop): US 74's approach rail on its retaining face 1.1 m above, the two drawn into each other"),
-            ("link-7753", 750025978, -2564f, 3908f, "the link e7753 beside South Boulevard: its own rail where the squeeze split varies"),
             ("albemarle-2004-west", 116677926, 4270f, 1647f, "Albemarle Road under the Independence Expressway's retaining face (host and branch at two heights)"),
             ("albemarle-2004-east", 116677926, 4246f, 1665f, "Albemarle Road under the Independence Expressway's retaining face (host and branch at two heights)"),
             // Tyvola Road over I-77: probed since WP-04 (an elevated tile)
@@ -953,6 +968,7 @@ namespace PSXRacing.EditorTools
         static void RoadsideAudit(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings)
         {
             roadsideCutWallM = 0f;
+            System.Array.Clear(roadsideCutWhy, 0, roadsideCutWhy.Length);
             var probeTiles = RoadsideTiles(map, RoadsideTopElevatedTiles);
             roadsideTiles = probeTiles.Count;
             var root = new GameObject("~roadsideAudit");
@@ -1073,6 +1089,7 @@ namespace PSXRacing.EditorTools
                     CitySmooth.Collect(tx, tz, tmC);
                     vergeBuilt += tmC.vergeMetres; railBuilt += tmC.railMetres; nosesBuilt += tmC.goreNoses.Count; lampsBuilt += tmC.lamps.Count;
                     roadsideCutWallM += tmC.cutWallM;
+                    for (int w = 0; w < 4; w++) roadsideCutWhy[w] += tmC.cutWallByWhy[w];
                     footprintsCut += tmC.footprintsCut; footprintsLeftOut += tmC.footprintsLeftOut;
                     long ck = TileKey(tx, tz);
                     if (live.TryGetValue(ck, out var ct)) { live[ck] = (ct.go, ++clock); Discard(tmC); }
@@ -2445,6 +2462,13 @@ namespace PSXRacing.EditorTools
         // crest off structure R 487 m (uptown), on structure R 481 m.
         const int TfMarginBefore = 1874;
         const float TfCutWallBefore = 1340f;
+        /// <summary>Cut-wall metres on the roadside tiles after WP-04, the
+        /// figure WP-14's graded cuts must at least halve (city-r1 3f27ead,
+        /// 2026-09-29).</summary>
+        const float CutWallWp04M = 1071f;
+        /// <summary>WP-14's land-beside-the-road targets (plan table; critic
+        /// C22 lowered the 30 m one to what a 30 m grid can hold).</summary>
+        const float LandP90At30 = 2.2f, LandP90At60 = 4.0f, LandShare60 = 0.30f;
 
         static void TerrainFidelity(CityMap map)
         {
@@ -2517,7 +2541,7 @@ namespace PSXRacing.EditorTools
                 if (ok) bedsOk++;
                 string held = holdEdge >= 0 ? $", held up there by e{holdEdge} '{map.edges[holdEdge].name}''s corridor (WP-14)" : "";
                 Line($"    creek {t.id,-14} 3DEP 1 m bed {t.bedASL:0.00} m: carved terrain {tMin + datum:0.00} ({err:+0.00;-0.00}); graded ground {gMin + datum:0.00} ({gErr:+0.00;-0.00}{held}); " +
-                     $"60 m grid alone {dMin + datum:0.00} ({dMin + datum - t.bedASL:+0.00;-0.00}); {water}; relief {gHi - gLo:0.0} m (3DEP {t.relief:0.0})");
+                     $"{CityElevation.DemCellM:0} m grid alone {dMin + datum:0.00} ({dMin + datum - t.bedASL:+0.00;-0.00}); {water}; relief {gHi - gLo:0.0} m (3DEP {t.relief:0.0})");
             }
             Check(bedsOk == CreekTransects.Length, $"every creek transect's bed is within {CreekBedTolM:0.0} m of 3DEP on the carved terrain (terrain fidelity, critic C2)",
                   $"{bedsOk} of {CreekTransects.Length}");
@@ -2592,18 +2616,29 @@ namespace PSXRacing.EditorTools
             Check(worstOff >= CrestMinR, $"no crest on a route sharper than R {CrestMinR:0} m off structure (terrain fidelity, critic C23)",
                   $"sharpest R {worstOff:0} m ({worstOffWhere}); on structure R {worstOn:0} m ({worstOnWhere}), not judged: the humps are WP-06's");
             string P90(List<float> v) { if (v.Count == 0) return "-"; v.Sort(); return v[Mathf.Min(v.Count - 1, (int)(v.Count * 0.9f))].ToString("0.00"); }
-            Line($"    land beside the three routes, |land - road| p90: at 30 m {P90(land[0])} m, at 60 m {P90(land[1])} m, at 100 m {P90(land[2])} m (the corridor blend holds it until WP-14)");
+            float Share(List<float> v, float over) { if (v.Count == 0) return 0f; int k = 0; foreach (var d in v) if (d > over) k++; return (float)k / v.Count; }
+            float PF(List<float> v) { if (v.Count == 0) return 0f; v.Sort(); return v[Mathf.Min(v.Count - 1, (int)(v.Count * 0.9f))]; }
+            Line($"    land beside the three routes, |land - road| p90: at 30 m {P90(land[0])} m, at 60 m {P90(land[1])} m, at 100 m {P90(land[2])} m; more than 2 m off the road at 60 m: {Share(land[1], 2f) * 100f:0}% (WP-14 roadside sections)");
+            // plan WP-14's accept table, with critic C22's 30 m target (a 30 m
+            // grid cannot hold more than 2.39 m there)
+            Check(PF(land[0]) >= LandP90At30 && PF(land[1]) >= LandP90At60 && Share(land[1], 2f) >= LandShare60,
+                  $"the land leaves the road: |land - road| p90 >= {LandP90At30} m at 30 m and >= {LandP90At60} m at 60 m, >= {LandShare60 * 100f:0}% over 2 m at 60 m (terrain fidelity, WP-14)",
+                  $"{PF(land[0]):0.00} m, {PF(land[1]):0.00} m, {Share(land[1], 2f) * 100f:0}%");
 
             // ---- structure and walls
             int margin = CityElevation.MarginStructureStations;
             Line($"    stations made structure by the {CityElevation.ElevMarginM} m last resort: {margin} (before WP-04 {MarginStationsBefore}); trenches {CityElevation.TrenchCount}; " +
-                 $"cut walls on the {roadsideTiles} roadside tiles {roadsideCutWallM / 1000f:0.00} km (before WP-04 {CutWallBeforeM / 1000f:0.00} km)");
+                 $"cut walls on the {roadsideTiles} roadside tiles {roadsideCutWallM / 1000f:0.00} km (before WP-04 {CutWallBeforeM / 1000f:0.00} km; " +
+                 $"why: the back slope cannot reach the land {roadsideCutWhy[1]:0} m, a road above in the slope {roadsideCutWhy[2]:0} m, a building {roadsideCutWhy[3]:0} m, runs closed over a gap {roadsideCutWhy[0]:0} m)");
             if (MarginStationsBefore > 0)
                 Check(margin <= MarginStationsBefore * 1.25f, "stations made structure by the 3.5 m margin: at most +25% on WP-04's baseline (terrain fidelity)",
                       $"{margin} vs {MarginStationsBefore}");
             if (CutWallBeforeM > 0f)
                 Check(roadsideCutWallM <= CutWallBeforeM * 1.2f, "cut (retaining) walls: at most +20% on WP-04's baseline (terrain fidelity)",
                       $"{roadsideCutWallM:0} m vs {CutWallBeforeM:0} m on the roadside tiles");
+            // WP-14: a wall only where the graded cut cannot fit
+            Check(roadsideCutWallM <= CutWallWp04M * 0.5f, "cut (retaining) walls: at least 50% below WP-04's (graded cuts, WP-14)",
+                  $"{roadsideCutWallM:0} m vs {CutWallWp04M:0} m after WP-04 on the roadside tiles");
 
             // ---- decks over water: the soffit against the water under it
             int under1 = 0, under0 = 0, judged = 0; float worst = float.MaxValue; string worstWhere = "";

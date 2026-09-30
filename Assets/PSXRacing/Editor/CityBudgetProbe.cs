@@ -37,7 +37,7 @@ namespace PSXRacing.EditorTools
     {
         const float EyeM = 1.2f, FarM = 500f, FovDeg = 58f, Aspect = 16f / 9f;
 
-        struct Site { public string name; public Vector2 at; public string how; }
+        struct Site { public string name; public Vector2 at; public string how; public bool extra, bay; }
 
         static Vector2 LL(double lat, double lon)
         {
@@ -102,10 +102,11 @@ namespace PSXRacing.EditorTools
             L($"eye {EyeM} m over the nearest road, fov {FovDeg}, aspect 16:9, far {FarM} m, four headings from the road's own; ring 5x5 tiles of {CityMeshes.TileSize} m via CityWorld.EnsureTile");
             L($"unity {Application.unityVersion}, {SystemInfo.processorType}, {SystemInfo.systemMemorySize} MB");
 
+            // EnsureCityTextures rewrites the city kit; the world reads it, as
+            // the game does (WP-07) - no table is handed in.
             PSXRacingBuilder.EnsureCityTextures();
             var go = new GameObject("~cityBudget");
             var world = go.AddComponent<CityWorld>();
-            world.materials = PSXRacingBuilder.CityMaterials();
             world.ring = 2;
             var timings = new List<CityWorld.TileTiming>();
             System.Action<CityWorld.TileTiming> onBuilt = t => timings.Add(t);
@@ -121,6 +122,40 @@ namespace PSXRacing.EditorTools
             var rows = new List<string>();
             var seats = new List<string>();
             var seatSummary = new StringBuilder();
+            // The package's A/B: the same sites again as the city was before
+            // it, so what it costs is measured on identical tiles in one run
+            // (the machine is shared; only an A/B inside one run means
+            // anything). WP-07's pass was the FULL prop prefabs; WP-08's the
+            // city with NO TREES; WP-23's is the city with NO SIGNS (trees on
+            // both ways). Pass 0 is the game as it ships and is the only one in
+            // ALL; pass 1 is reported beside it.
+            var fullRows = new List<string>();
+            var fullAll = new List<CityWorld.TileTiming>();
+            var treeAll = new List<CityWorld.TileTiming>();
+            var treeP95BySite = new Dictionary<string, float>();
+            var drawsByPass = new Dictionary<string, int[]>[] { new Dictionary<string, int[]>(), new Dictionary<string, int[]>() };
+            var tilesByPass = new Dictionary<string, List<float>>[] { new Dictionary<string, List<float>>(), new Dictionary<string, List<float>>() };
+            bool variantsWere = CityProps.UseCityVariants, treesWere = CityTrees.Enabled, signsWere = CitySigns.Enabled;
+            var treesDensityWas = CityTrees.DensityOverride;
+            CityTrees.DensityOverride = 1f;
+            var sites = Sites(map);
+            // and the two restaurant lots (plan WP-07: a restaurant site
+            // loses 300 or more): the first drive-thru and the first pizzeria
+            // the placement table holds, seen from the road that fronts them
+            // and from the chase camera of a car stopped in the order bay.
+            // Not in ALL, so ALL stays the nine.
+            foreach (byte kind in new[] { CityProps.Burger, CityProps.Pizzeria })
+                foreach (var lot in world.FoodLots)
+                    if (lot.kind == kind)
+                    {
+                        string n = kind == CityProps.Burger ? "burger" : "pizza";
+                        sites.Add(new Site { name = n + "_lot", at = lot.pos, how = CityProps.FoodName(kind) + " lot from its road (restaurant prop, WP-07)", extra = true });
+                        sites.Add(new Site { name = n + "_bay", at = lot.pos, how = CityProps.FoodName(kind) + ": the chase camera of a car stopped in the order bay", extra = true, bay = true });
+                        break;
+                    }
+            // and the sign shots' two other roads (WP-23; I-77 north is one of the nine)
+            sites.Add(new Site { name = "i277_uptown", at = LL(35.2195, -80.8500), how = "I-277, the uptown loop's north side (WP-23 sign shots)", extra = true });
+            sites.Add(new Site { name = "south_blvd", at = LL(35.1930, -80.8680), how = "South Blvd, the commercial strip (WP-23 sign shots)", extra = true });
             try
             {
                 // warm-up: the first tile pays the JIT and the static caches
@@ -128,9 +163,26 @@ namespace PSXRacing.EditorTools
                 world.EnsureTile(Mathf.FloorToInt(map.uptown.x / CityMeshes.TileSize), Mathf.FloorToInt(map.uptown.y / CityMeshes.TileSize));
                 if (timings.Count > 0) L($"warm-up tile (not counted): {timings[0].totalMs:0.0} ms");
                 world.DropAll();
+                // and every prop both ways once, so neither pass of the A/B
+                // below pays a first load, or the first cook of a piece's
+                // MeshCollider, that the other then finds warm (a variant
+                // carries the full prefab's own meshes and colliders)
+                foreach (var kv in CityProps.Defs)
+                    foreach (var pf in new[] { CityProps.Prefab(kv.Key), CityProps.CityPrefab(kv.Key) })
+                        if (pf != null) Object.DestroyImmediate(Object.Instantiate(pf));
 
-                foreach (var site in Sites(map))
+                // site by site, each built with trees and then without, back to
+                // back, so machine load drifts across the pair as little as it
+                // can (the WP-08 review: two passes a site list apart read one
+                // site's p95 as 72 ms one way and 31 ms the other)
+                foreach (var site in sites)
+                for (int pass = 0; pass < 2; pass++)
                 {
+                    CityProps.UseCityVariants = true;
+                    CityTrees.Enabled = true;
+                    CitySigns.Enabled = pass == 0;
+                    if (pass == 0 && !site.extra)
+                    {
                     // THE SPAWN SEAT here, by CityMode.SeatOnStreet's rule:
                     // the nearest non-link road within 120 m, else any road
                     // within 600 m, at its solved height. A format or datum
@@ -146,10 +198,17 @@ namespace PSXRacing.EditorTools
                         seatSummary.Append(seatSummary.Length == 0 ? "" : ", ").Append($"{site.name} {se.YAt(sat):0.000}");
                     }
                     else { seats.Add($"spawn {site.name,-14} no road within 600 m"); seatSummary.Append(seatSummary.Length == 0 ? "" : ", ").Append($"{site.name} none"); }
+                    }
 
                     timings.Clear();
                     world.EnsureRing(new Vector3(site.at.x, 0f, site.at.y), 2);
-                    all.AddRange(timings);
+                    // the tile builds, and (WP-08) the tree frames: a tile's
+                    // trees plant on a frame of their own after its build
+                    var treeFrames = timings.FindAll(t => t.treeFrame);
+                    timings.RemoveAll(t => t.treeFrame);
+                    if (!site.extra) (pass == 0 ? all : fullAll).AddRange(timings);
+                    if (!site.extra && pass == 0) treeAll.AddRange(treeFrames);
+                    int tableTrunks = world.Trunks != null ? world.Trunks.TableTrunks : 0;
 
                     // the eye: on the nearest road, looking along it
                     Vector3 eye; Vector2 fwd;
@@ -161,6 +220,40 @@ namespace PSXRacing.EditorTools
                         fwd = e.TangentAt(s);
                     }
                     else { eye = new Vector3(site.at.x, CityElevation.BaseY(site.at.x, site.at.y) + EyeM, site.at.y); fwd = Vector2.up; }
+                    string bayNote = "";
+                    // the player's car: under a road eye; in the bay, stopped
+                    // where it orders (CityPropBaker.BayStop), the chase rig's
+                    // default 5.4 m back and 1.8 m up, facing along the building
+                    Vector3 car = eye - Vector3.up * EyeM;
+                    if (site.bay)
+                    {
+                        DriveThru bay = null; float bayD = float.MaxValue;
+                        foreach (var d in go.GetComponentsInChildren<DriveThru>(false))
+                        {
+                            float dd = Vector2.Distance(new Vector2(d.transform.position.x, d.transform.position.z), site.at);
+                            if (dd < bayD) { bayD = dd; bay = d; }
+                        }
+                        if (bay != null && bayD < 60f)
+                        {
+                            car = CityPropBaker.BayStop(bay, bay.GetComponentInParent<CityPropInterior>(), out var along);
+                            eye = car - along * 5.4f + Vector3.up * 1.8f;
+                            fwd = new Vector2(along.x, along.z);
+                        }
+                        else bayNote = " (NO ORDER BAY FOUND - the lot's own road eye)";
+                    }
+
+                    // THE ROOM SWITCH at this eye and car, as the game runs it
+                    // (CityPropInterior: drawn from inside the hull, or through
+                    // a door that swings open for the car)
+                    int roomsOn = 0; float roomNear = float.MaxValue;
+                    foreach (var sw in go.GetComponentsInChildren<CityPropInterior>(false))
+                    {
+                        if (sw.Apply(eye, car)) roomsOn++;
+                        roomNear = Mathf.Min(roomNear, Mathf.Min(sw.DistanceTo(eye), sw.DistanceTo(car + Vector3.up * 0.7f)));
+                    }
+                    string roomNote = roomNear < float.MaxValue
+                        ? $"; nearest restaurant room {roomNear:0.0} m from the eye or car, {roomsOn} drawn by the switch"
+                        : "";
 
                     var rends = go.GetComponentsInChildren<MeshRenderer>(false);
                     int[] draws = new int[4];
@@ -194,18 +287,30 @@ namespace PSXRacing.EditorTools
                     }
                     int colliders = go.GetComponentsInChildren<Collider>(false).Length;
                     var tot = new List<float>(); var bld = new List<float>(); var cook = new List<float>();
-                    int props = 0;
-                    foreach (var t in timings) { tot.Add(t.totalMs); bld.Add(t.buildMs); cook.Add(t.cookMs); props += t.props; }
+                    int props = 0, treeN = 0, signN = 0; float propsMs = 0f; var treeMs = new List<float>(); var plantMs = new List<float>(); var signMs = new List<float>();
+                    foreach (var t in timings) { tot.Add(t.totalMs); bld.Add(t.buildMs); cook.Add(t.cookMs); props += t.props; propsMs += t.propsMs; }
+                    foreach (var t in treeFrames) { treeN += t.trees; signN += t.signs; treeMs.Add(t.treesMs); plantMs.Add(t.treePlantMs); signMs.Add(t.signsMs); }
+                    int treeViews = 0, signViews = 0;
+                    foreach (var r in rends) { if (r.enabled && r.gameObject.name == "Trees") treeViews++; if (r.enabled && r.gameObject.name == "Signs") signViews++; }
                     int dmax = Mathf.Max(Mathf.Max(draws[0], draws[1]), Mathf.Max(draws[2], draws[3]));
-                    if (dmax > worstDraw) { worstDraw = dmax; worstDrawAt = site.name; }
-                    rows.Add($"{site.name,-14} {timings.Count,3} tiles  total p50 {P(tot, 50),5:0.0} p95 {P(tot, 95),5:0.0} max {P(tot, 100),5:0.0} ms  build p95 {P(bld, 95),5:0.0}  cook p95 {P(cook, 95),5:0.0}  " +
-                             $"draws {draws[0],4}/{draws[1],4}/{draws[2],4}/{draws[3],4}  casters {casters,4} ({castersNear} in the 90 m box)  verts {verts / 1000,5}k  tris {tris / 1000,5}k  colliders {colliders,4}  props {props,3}");
-                    L($"{site.name}: {site.how}; eye ({eye.x:0},{eye.y:0.0},{eye.z:0}){(dist > 30f ? $", {dist:0} m from the site" : "")}");
+                    if (pass == 0 && !site.extra && dmax > worstDraw) { worstDraw = dmax; worstDrawAt = site.name; }
+                    drawsByPass[pass][site.name] = draws;
+                    if (pass == 0) treeP95BySite[site.name] = P(treeMs, 95);
+                    tilesByPass[pass][site.name] = tot;
+                    (pass == 0 ? rows : fullRows).Add($"{site.name,-14} {timings.Count,3} tiles  total p50 {P(tot, 50),5:0.0} p95 {P(tot, 95),5:0.0} max {P(tot, 100),5:0.0} ms  build p95 {P(bld, 95),5:0.0}  cook p95 {P(cook, 95),5:0.0}  " +
+                             $"draws {draws[0],4}/{draws[1],4}/{draws[2],4}/{draws[3],4}  casters {casters,4} ({castersNear} in the 90 m box)  verts {verts / 1000,5}k  tris {tris / 1000,5}k  colliders {colliders,4}  props {props,3} ({propsMs:0.0} ms to stand up)  " +
+                             $"trees {treeN,5} on {treeViews} tiles, TREE FRAME p50 {P(treeMs, 50):0.0} p95 {P(treeMs, 95):0.0} max {P(treeMs, 100):0.0} ms (planting p95 {P(plantMs, 95):0.0}), {tableTrunks} solid trunks in the table; " +
+                             $"signs {signN,3} on {signViews} tiles (placing p95 {P(signMs, 95):0.0} ms of the tree frame)");
+                    if (pass == 0) L($"{site.name}: {site.how}; eye ({eye.x:0},{eye.y:0.0},{eye.z:0}){(!site.bay && (dist > 30f || site.extra) ? $", {dist:0} m from the site" : "")}{bayNote}{roomNote}");
                     world.DropAll();
                 }
             }
             finally
             {
+                CityProps.UseCityVariants = variantsWere;
+                CityTrees.Enabled = treesWere;
+                CitySigns.Enabled = signsWere;
+                CityTrees.DensityOverride = treesDensityWas;
                 CityWorld.TileBuilt -= onBuilt;
                 if (world != null) world.DropAll();
                 Object.DestroyImmediate(camGo);
@@ -222,6 +327,34 @@ namespace PSXRacing.EditorTools
             // plan: this package decides WP-09's place (in the editor; the phone reading is C29's trigger)
             L($"WP-09 trigger (editor): tile p95 {(P(totAll, 95) > 8f ? "OVER" : "under")} 8 ms, worst view {(worstDraw > 300 ? "OVER" : "under")} 300 draws");
 
+            // ---- WP-23: the same sites with no signs ------------------------
+            L("");
+            L("WP-23 A/B - the same sites and tiles with NO SIGNS (the city before WP-23; trees both ways), each site built both ways back to back:");
+            foreach (var r in fullRows) L("nosigns " + r);
+            var fullTot = new List<float>();
+            foreach (var t in fullAll) fullTot.Add(t.totalMs);
+            L($"nosigns ALL {fullAll.Count} tiles: total p50 {P(fullTot, 50):0.0} p95 {P(fullTot, 95):0.0} max {P(fullTot, 100):0.0} ms");
+            // the trees' own cost, timed directly: a frame of their own per tile
+            var treeTot = new List<float>(); var treePlant = new List<float>();
+            foreach (var t in treeAll) { treeTot.Add(t.totalMs); treePlant.Add(t.treePlantMs); }
+            L($"TREE FRAMES ALL {treeAll.Count} tiles: p50 {P(treeTot, 50):0.0} p95 {P(treeTot, 95):0.0} max {P(treeTot, 100):0.0} ms (planting p95 {P(treePlant, 95):0.0}); " +
+              $"a tile's trees never share a frame with a tile build (CityWorld.PlantTrees), and stand no collider there (the trunk table stands them round the cars)");
+            L("draws the SIGNS add, per heading (ahead/right/back/left), and the most in one view (one draw a tile with signs in view; no sun-map caster):");
+            int mostAdded = 0; string mostAt = "";
+            foreach (var site in sites)
+            {
+                if (!drawsByPass[0].TryGetValue(site.name, out var dv) || !drawsByPass[1].TryGetValue(site.name, out var df)) continue;
+                int best = 0;
+                var parts = new string[4];
+                for (int h = 0; h < 4; h++) { parts[h] = (dv[h] - df[h]).ToString(); best = Mathf.Max(best, dv[h] - df[h]); }
+                float p95v = P(tilesByPass[0][site.name], 95), p95f = P(tilesByPass[1][site.name], 95);
+                treeP95BySite.TryGetValue(site.name, out float tf95);
+                L($"  {site.name,-14} added {string.Join("/", parts)}  most {best}  (tile build p95 {p95f:0.0} no signs, {p95v:0.0} signs; the tree frame, signs included, p95 {tf95:0.0} ms)");
+                if (!site.extra && best > mostAdded) { mostAdded = best; mostAt = site.name; }
+            }
+            summary.Add($"budget: WP-23 signs - at most +{mostAdded} draws in one view ({mostAt}; one per tile with signs in view); tile build p95 {P(fullTot, 95):0.0} (no signs) / {P(totAll, 95):0.0} (signs) ms on the same tiles; " +
+                        $"tree frames (signs placed first on them) p95 {P(treeTot, 95):0.0} / max {P(treeTot, 100):0.0} ms");
+
             L("");
             L($"spawn seats (CityMode.SeatOnStreet's rule; datum {CityElevation.DatumASL:0.000} m ASL, graph hash {map.graphHash:x8})");
             foreach (var s in seats) L(s);
@@ -234,7 +367,9 @@ namespace PSXRacing.EditorTools
             if (cityTa != null)
             {
                 byte[] a = cityTa.bytes, b = bldTa != null ? bldTa.bytes : null;
-                long demBytes = demTa != null ? demTa.bytes.Length : 0;
+                // what the grid holds resident (WP-13: the v3 blob and its block
+                // cache; before, the whole ushort[]), not the file's length
+                long demBytes = demTa != null ? CityElevation.DemResidentBytes : 0;
                 System.GC.Collect(); System.GC.WaitForPendingFinalizers(); System.GC.Collect();
                 long before = System.GC.GetTotalMemory(true);
                 var again = CityMap.Parse(a, b);
@@ -243,7 +378,7 @@ namespace PSXRacing.EditorTools
                 L("");
                 L($"solve phases: {CityElevation.LastSolvePhases}");
                 L($"parse {CityMap.LastParseMs:0} ms, solve {CityMap.LastSolveMs:0} ms (editor); the parsed + solved map holds {heldMb:0.0} MB of managed heap " +
-                  $"({again.edges.Length} edges, {again.footprints.Length} footprints); the DEM array is {demBytes / (1024f * 1024f):0.0} MB more (ushort[], loaded once); " +
+                  $"({again.edges.Length} edges, {again.footprints.Length} footprints); the DEM holds {demBytes / (1024f * 1024f):0.0} MB more (PDEM v{CityElevation.DemVersion}: {(CityElevation.DemVersion >= 3 ? "the compressed blocks and " + CityElevation.BlockCacheSlots + " decoded" : "the whole ushort[]")}, {CityElevation.BlockDecodes} block decodes so far); " +
                   $"data bytes: city {a.Length / 1024} KB, bld {(b != null ? b.Length / 1024 : 0)} KB, dem {demBytes / 1024} KB");
                 summary.Add($"budget: parse {CityMap.LastParseMs:0} ms + solve {CityMap.LastSolveMs:0} ms, map heap {heldMb:0.0} MB (+{demBytes / (1024f * 1024f):0.0} MB DEM)");
                 System.GC.KeepAlive(again);

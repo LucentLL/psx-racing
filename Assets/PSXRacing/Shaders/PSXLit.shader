@@ -62,11 +62,36 @@
 // before, and draws the picture it always drew. At night the sun and ambient
 // together are under 0.1, far below the toe, and the shadows are off: the
 // night the owner signed off is untouched.
+//
+// THE COLOUR PASS, 2026-09-29 (C2-C4; PSXTone.cginc says it in full). The
+// owner: noon "blinding and washed out", headlights that "completely wash out
+// anything in front of the car". The shoulder above rolled off the LIGHT and
+// nothing rolled off the radiance, so a light surface in a bright light - the
+// concrete deck at noon, snow, the deck in the beam - clipped at 1.0 and the
+// grade laid it on its cream ceiling as one flat code. Now, once an hour is
+// applied (_PSXToneOn):
+//   * every light this surface receives is multiplied by the hour's EXPOSURE
+//     (0.68 at a clear noon, 1 at every hour that never passed the old
+//     shoulder), and the shoulder is skipped;
+//   * the lit radiance - the wet road's reflection included - goes through
+//     THE ONE CURVE (Khronos PBR Neutral, its shoulder only: identity under
+//     0.76) before the fog;
+//   * the fog and the sky in the wet road are the sky's, never exposed (C3),
+//     and the fog is rolled off exactly as the sky's horizon band is (the
+//     shoulder per channel, PSXFogTone), so land and sky still meet in one
+//     paint; the lit windows, which are light sources, go on top of it all;
+//   * the ALPHA is the emitter mask: 0 for a lit surface, the share of the
+//     pixel that is a lamp's streak on a wet road, a lit window, or an
+//     emissive sign at night - so PSX/Blit's halation and PSX/Lens's dirt
+//     glow round lamps and never round a lit deck.
+// With no hour applied - every interior - _PSXToneOn is 0 and all of it is an
+// exact no-op: the picture the interiors always had.
 Shader "PSX/Lit"
 {
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
+        [HideInInspector] _MainTexRaw ("16-bit texel decode (set at runtime by PSXTexDecode.cs)", Float) = 0
         _Color ("Tint", Color) = (1,1,1,1)
         _Cutoff ("Alpha Cutoff", Range(0,1)) = 0
         _Emission ("Emission", Range(0,1)) = 0
@@ -111,11 +136,25 @@ Shader "PSX/Lit"
         // no windows and never samples the mask.
         _NightMask ("Night windows", 2D) = "black" {}
         _NightWin ("Night windows on", Float) = 0
+        // LIT SIGN FACES (WP-23, Charlotte's billboards and pole signs): with
+        // _NightWin on, the mask's cover makes the texel glow in ITS OWN
+        // colours after dark (a floodlit or lit-from-inside face), not in a
+        // window's flat warm or cool. 0 everywhere else: a facade is unchanged.
+        _NightFace ("Night: lit sign faces", Float) = 0
         // THE SWASH (2026-09-26, the Tidewater pass): 1 on a beach's sand,
         // whose _ShoreY is the sea's height. 0 everywhere else, and then
         // nothing below is read.
         _Shore ("Shore swash", Float) = 0
         _ShoreY ("Sea level", Float) = 0
+        // THE PROP ATLAS (Charlotte WP-07, PSX_ATLAS_RECT): one texture for a
+        // whole city house, whose pack materials TILE (UVs well past 0..1).
+        // Each vertex carries the texel rect of its own texture's cell in the
+        // vertex COLOUR (r, g = the cell's corner, b = its side - 1, in texels
+        // of a _AtlasPx sheet) and the pixel wraps its UV inside that cell
+        // with frac(). Point-sampled with no mips, so a wrap is exact. Only
+        // the city prop variants set the keyword; every other material is
+        // the variant it always was.
+        _AtlasPx ("Atlas side (px)", Float) = 256
     }
     SubShader
     {
@@ -126,12 +165,18 @@ Shader "PSX/Lit"
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            #pragma shader_feature_local __ PSX_ATLAS_RECT
             #include "UnityCG.cginc"
+            // Colour texels of the 16-bit set arrive undecoded: PSXMainTex decodes them.
+            #include "PSXTexDecode.cginc"
             // The per-pixel lights: the cars' headlights...
             #include "PSXHeadlights.cginc"
             // ...and the street lamps and tail lamps (the NIGHT PASS in the
             // header). Each declares its own table; both are guarded.
             #include "PSXLamps.cginc"
+            // The hour's exposure, the one tone curve and the emitter mask
+            // (the COLOUR PASS in the header).
+            #include "PSXTone.cginc"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
@@ -143,8 +188,10 @@ Shader "PSX/Lit"
             float _Wet;
             sampler2D _NightMask;
             float _NightWin;
+            float _NightFace;
             float _Shore;
             float _ShoreY;
+            float _AtlasPx;
 
             float4 _PSXLightDir;    // xyz = direction TO light (world)
             fixed4 _PSXLightColor;
@@ -237,6 +284,7 @@ Shader "PSX/Lit"
             #define WIN_SHOP           float3(1.00, 0.86, 0.62)   // shopfront glass: always lit at night
             #define WIN_DIM            0.55   // the dimmest lit window, as a share of the brightest
             #define WIN_GAIN           1.1
+            #define SIGN_GAIN          0.85   // a lit sign face after dark, as a share of its texel (WP-23)
             #define WIN_FOG_CUT        0.6    // a lit window is fogged only 40% as hard as the wall: it
                                               //   punches through the night haze the way a lamp does
             // THE ROOM BEHIND THE GLASS. A flat emission made every lit window
@@ -256,6 +304,15 @@ Shader "PSX/Lit"
             // Shopfronts take it too: a lit shop window is the goods in it.
             #define WIN_DETAIL_LO      0.50   // glow over a black texel, as a share of the flat glow
             #define WIN_DETAIL_HI      1.50   // glow over a white texel
+            // A LIT WINDOW IS A DIM LIGHT SOURCE (review, 2026-09-29): its
+            // share of the emitter mask is scaled into the LOW band of the
+            // alpha (0..WIN_EMIT). PSX/Lens's dirt only takes the band above
+            // it (DIRT_SRC_MIN, the same number) - lamp heads, lenses, glints,
+            // a lamp's streak in the water - so a tower of lit windows no longer
+            // throws the orange rings of grime the owner's night frame had over
+            // the Samuel Street block. The halation still reads the whole
+            // alpha: windows keep a soft glow, a quarter of a lamp's.
+            #define WIN_EMIT           0.25
 
             // A sine-free hash (Dave Hoskins' hash12): sin() of a large world
             // coordinate loses its fraction on a mobile GPU, this does not.
@@ -315,6 +372,9 @@ Shader "PSX/Lit"
                 float4 vertex : POSITION;
                 float3 normal : NORMAL;
                 float2 uv : TEXCOORD0;
+            #ifdef PSX_ATLAS_RECT
+                fixed4 color : COLOR;       // the cell: see _AtlasPx
+            #endif
             };
 
             struct v2f
@@ -340,6 +400,11 @@ Shader "PSX/Lit"
                 // The horizon ring's ratio for this vertex's bearing: exactly
                 // 1 in a scene that never applied an hour.
                 half3 ring : TEXCOORD6;
+            #ifdef PSX_ATLAS_RECT
+                // the cell as a UV rect: xy its first texel's centre, zw the
+                // span from there to its last texel's centre
+                float4 atlas : TEXCOORD7;
+            #endif
             };
 
             v2f vert (appdata v)
@@ -396,12 +461,20 @@ Shader "PSX/Lit"
                 float fogT = saturate((dist - _PSXFogNear) / max(_PSXFogFar - _PSXFogNear, 1.0));
                 o.fog = pow(fogT, max(_PSXFogCurve, 1.0));
                 o.ring = PSXFogRing(wpos - _WorldSpaceCameraPos, _PSXSkyRotation);
+            #ifdef PSX_ATLAS_RECT
+                float4 cell = floor(v.color * 255.0 + 0.5);
+                float px = max(_AtlasPx, 1.0);
+                o.atlas = float4((cell.xy + 0.5) / px, cell.zz / px);
+            #endif
                 return o;
             }
 
             fixed4 frag (v2f i) : SV_Target
             {
                 float2 uv = i.uvw.xy / i.uvw.z;
+            #ifdef PSX_ATLAS_RECT
+                uv = i.atlas.xy + frac(uv) * i.atlas.zw;
+            #endif
                 // Where the facade texture repeats, for the lit windows below.
                 // Taken HERE, before the clip and outside every branch: a
                 // derivative after a discard or inside flow control is
@@ -409,7 +482,7 @@ Shader "PSX/Lit"
                 float3 gx = ddx(float3(i.wpos.xz, uv.x));
                 float3 gy = ddy(float3(i.wpos.xz, uv.x));
 
-                fixed4 tex = tex2D(_MainTex, uv) * _Color;
+                fixed4 tex = PSXMainTex(_MainTex, uv) * _Color;
                 clip(tex.a - _Cutoff);
 
                 // The pixel's normal, guarded like the vertex's: two
@@ -441,9 +514,19 @@ Shader "PSX/Lit"
                 // PSXSunShadow says why. _Cutoff is a uniform.
                 float leaf = _Cutoff > 0.001 ? 1.0 : 0.0;
                 float3 sunAmb = i.amb * PSXSkyOpen(i.wpos, N, leaf) + i.sun * PSXSunShadow(i.wpos, N, eyeDist, leaf);
-                float3 over = max(sunAmb - WORLD_TOE, 0.0) * _PSXSunModel;
+                // The shoulder is the old tone curve, on the LIGHT: with the
+                // colour pass's one curve on (_PSXToneOn) the light goes
+                // through unrolled and the curve acts on the radiance below.
+                float3 over = max(sunAmb - WORLD_TOE, 0.0) * (_PSXSunModel * (1.0 - _PSXToneOn));
                 sunAmb = sunAmb - over + WORLD_SPAN * (1.0 - exp(-over / WORLD_SPAN));
-                float3 light = sunAmb + headD + lampD;
+                // Every light this surface receives, times the hour's
+                // exposure (exactly 1 with the tone off and at every hour
+                // but a bright noon).
+                float expo = PSXExposureGain();
+                // The beam reads a dark road at a real road's reflectance at
+                // night (PSXHeadlights.cginc, BEAM_ALBEDO_FLOOR) - off the dry
+                // texel, so a wet road still darkens under it.
+                float3 light = (sunAmb + headD * PSXBeamAlbedoGain(tex.rgb, N) + lampD) * expo;
 
                 // THE WET ROAD, one: how wet THIS pixel is - only if it looks
                 // up, more in the puddles - and the darker albedo of wet
@@ -480,8 +563,20 @@ Shader "PSX/Lit"
                 float3 lit = tex.rgb * lerp(light, float3(1,1,1), _Emission);
                 // The haze is brighter toward the sun (zero extra with no
                 // _PSXFogSun set, which is every interior and every night).
-                float3 fogCol = PSXFogTowardSun(_PSXFogColor.rgb * i.ring, V);
-                float3 col = lerp(lit, fogCol, i.fog);
+                // THE FOG IS THE SKY'S COLOUR (C3): never exposed, and rolled
+                // off exactly as the sky's horizon band is (PSXFogTone, the
+                // shoulder per channel) - the band is the same paint, so a
+                // hill fading into the haze still meets the sky with no seam.
+                // THE ONE CURVE (PSXTone.cginc) goes on the LIT radiance,
+                // before the fog (and before the lit windows, which are light
+                // sources).
+                float adapt = PSXAdaptGain();
+                float3 fogCol = PSXFogTone(PSXFogTowardSun(_PSXFogColor.rgb * i.ring, V));
+                float3 col = lerp(PSXTone(lit), fogCol, i.fog);
+                // The emitter mask (PSXTone.cginc): a lit surface is no light
+                // source. Its streaks on a wet road are (below), and so are
+                // its lit windows and an emissive sign at night.
+                float emit = 0.0;
 
                 // THE WET ROAD, two: the mirror. Water reflects what the car
                 // paint reflects - the hour's own sky, through the same lookup
@@ -501,17 +596,38 @@ Shader "PSX/Lit"
                 {
                     float3 R = reflect(-V, N);
                     float fres = WET_F0 + (1.0 - WET_F0) * pow(1.0 - saturate(dot(N, V)), 5.0);
-                    float3 refl = PSXSkyIn(R, WET_SKY_LOD) * WET_SKY;
-                    float3 spec = lampS * WET_LAMP_GAIN + headS * WET_HEAD_GAIN;
+                    // The sky in the water is the sky (adapted, not exposed);
+                    // the lamps' and beams' streaks are their light (exposed).
+                    float3 refl = PSXSkyIn(R, WET_SKY_LOD) * (WET_SKY * adapt);
+                    float3 spec = (lampS * WET_LAMP_GAIN + headS * WET_HEAD_GAIN) * expo;
                     float3 wetLit = lit * (1.0 - fres * w) + (refl * fres + spec * (WET_SPEC_BASE + fres)) * w;
-                    col = lerp(wetLit, fogCol, i.fog);
+                    col = lerp(PSXTone(wetLit), fogCol, i.fog);
+                    // A street lamp's streak is that lamp seen in the water: a
+                    // light source. The beams' is not - it is our own low beam
+                    // spread over the tarmac ahead (measured 2026-09-29: it
+                    // is most of a damp road's light in the beam), and that
+                    // is the pool that must never bloom.
+                    emit = PSXEmitShare(lampS * (WET_LAMP_GAIN * expo * (WET_SPEC_BASE + fres) * w * (1.0 - i.fog)), col);
                 }
+
+                // An emissive surface (a zone post, a lit sign) is a light
+                // source at night.
+                emit = max(emit, _Emission * _PSXNight);
 
                 // THE LIT WINDOWS. Both switches are uniforms, so the mask is
                 // read only by a facade material, only at night; tex2Dlod
                 // because the mask has no mips (LOD 0 is what tex2D would
                 // pick) and needs no derivative inside this branch.
-                if (_NightWin > 0.5 && _PSXNight > 0.01)
+                if (_NightWin > 0.5 && _PSXNight > 0.01 && _NightFace > 0.5)
+                {
+                    // A lit sign: the face in its own colours, as bright as
+                    // the mask says (brightest at a billboard's foot, where
+                    // its floodlights are), fogged like a window.
+                    float4 m = tex2Dlod(_NightMask, float4(uv, 0.0, 0.0));
+                    float3 glow = tex.rgb * (m.r * m.a * SIGN_GAIN * _PSXNight);
+                    col += glow * (1.0 - WIN_FOG_CUT * i.fog);
+                }
+                else if (_NightWin > 0.5 && _PSXNight > 0.01)
                 {
                     float4 m = tex2Dlod(_NightMask, float4(uv, 0.0, 0.0));
                     // R = A = the window. Both, multiplied: right whether or
@@ -545,9 +661,17 @@ Shader "PSX/Lit"
                     float detail = lerp(WIN_DETAIL_LO, WIN_DETAIL_HI, sqrt(max(lumT, 0.0)));
                     float3 glow = hue * (bright * on * cover * detail * _PSXNight);
                     // Added after the fog, and fogged only 40% as hard.
-                    col += glow * (1.0 - WIN_FOG_CUT * i.fog);
+                    float3 win = glow * ((1.0 - WIN_FOG_CUT * i.fog) * adapt);
+                    col += win;
+                    emit = max(emit, PSXEmitShare(win, col) * WIN_EMIT);
                 }
-                return fixed4(col, tex.a);
+                // The alpha is the emitter mask (PSXTone.cginc) on the PSX
+                // camera's own frame: this pass blends nothing, the clip above
+                // has already used tex.a, and that frame's alpha is what
+                // PSX/Blit's halation and PSX/Lens's dirt glow by. Any other
+                // camera's render texture (the mirror, the pizza cam) is shown
+                // by a RawImage that blends by alpha: the texel's, as ever.
+                return fixed4(col, _PSXEmitWrite > 0.5 ? emit : tex.a);
             }
             ENDCG
         }

@@ -22,12 +22,67 @@ namespace PSXRacing.EditorTools
         internal static StringBuilder log;
         internal static int failures;
 
+        // SEVERAL RACES IN ONE LAUNCH (WP-08 review: G-play wants the three
+        // city routes with fixed seeds, ten runs a route, trees on and off -
+        // sixty launches of the editor): PSX_RACE_VENUES is a comma list of
+        // venue ids, PSX_RACE_SEEDS a comma list of seeds, and PSX_CITY_TREES
+        // "0" (off), "1" (on, the default) or "ab" (every race twice, trees on
+        // then off). Each race enters play mode, races, leaves, and the next
+        // opens its scene; one report at the end with a line per race.
+        struct Job { public string venue; public int seed; public bool trees, signs; }
+        static readonly List<Job> jobs = new List<Job>();
+        static int jobAt;
+        internal static int SeedNow => jobAt < jobs.Count ? jobs[jobAt].seed : 0;
+        internal static string VenueNow => jobAt < jobs.Count ? jobs[jobAt].venue : "?";
+        internal static readonly List<string> summaries = new List<string>();
+
         public static void Run()
         {
+            EditionParking.RecoverIfNeeded();   // a killed edition build's park, back first
             log = new StringBuilder();
             failures = 0;
-            string id = System.Environment.GetEnvironmentVariable("PSX_RACE_VENUE");
-            if (string.IsNullOrEmpty(id)) id = "GillespieGap";
+            jobs.Clear(); summaries.Clear(); jobAt = 0;
+            string venues = System.Environment.GetEnvironmentVariable("PSX_RACE_VENUES");
+            if (string.IsNullOrEmpty(venues)) venues = System.Environment.GetEnvironmentVariable("PSX_RACE_VENUE");
+            if (string.IsNullOrEmpty(venues)) venues = "GillespieGap";
+            string seeds = System.Environment.GetEnvironmentVariable("PSX_RACE_SEEDS");
+            if (string.IsNullOrEmpty(seeds)) seeds = System.Environment.GetEnvironmentVariable("PSX_RACE_SEED") ?? "0";
+            string treesMode = System.Environment.GetEnvironmentVariable("PSX_CITY_TREES") ?? "1";
+            // WP-23: the city's signs the same way (PSX_CITY_SIGNS 1, 0 or ab)
+            string signsMode = System.Environment.GetEnvironmentVariable("PSX_CITY_SIGNS") ?? "1";
+            if (string.IsNullOrEmpty(signsMode)) signsMode = "1";
+            foreach (var v in venues.Split(','))
+                foreach (var sd in seeds.Split(','))
+                {
+                    if (string.IsNullOrWhiteSpace(v) || !int.TryParse(sd.Trim(), out int seed)) continue;
+                    foreach (bool tr in treesMode == "ab" ? new[] { true, false } : new[] { treesMode != "0" })
+                        foreach (bool sg in signsMode == "ab" ? new[] { true, false } : new[] { signsMode != "0" })
+                            jobs.Add(new Job { venue = v.Trim(), seed = seed, trees = tr, signs = sg });
+                }
+            StartJob();
+        }
+
+        /// <summary>The race the current job asks for, or the report and the
+        /// exit when there are no more.</summary>
+        static void StartJob()
+        {
+            if (jobAt >= jobs.Count)
+            {
+                if (jobs.Count > 1)
+                {
+                    log.AppendLine();
+                    log.AppendLine("ALL RACES (venue, seed, trees; rivals retired; what the retired hit; city tree trunks hit):");
+                    foreach (var line in summaries) log.AppendLine("  " + line);
+                }
+                Finish();
+                EditorApplication.Exit(failures == 0 ? 0 : 1);
+                return;
+            }
+            var job = jobs[jobAt];
+            PSXRacing.City.CityTrees.Enabled = job.trees;
+            PSXRacing.City.CitySigns.Enabled = job.signs;
+            string id = job.venue;
+            System.Environment.SetEnvironmentVariable("PSX_RACE_SEED", job.seed.ToString());
             int index = -1;
             for (int i = 0; i < TrackCatalog.Count; i++)
                 if (TrackCatalog.At(i).id == id) index = i;
@@ -36,17 +91,27 @@ namespace PSXRacing.EditorTools
             if (s < 0 || s >= scenes.Length || !File.Exists(scenes[s].path))
             {
                 Check(false, "the venue " + id + " is built");
-                Finish();
-                EditorApplication.Exit(1);
+                jobAt++;
+                StartJob();
                 return;
             }
-            log.AppendLine("race on " + id + ":");
+            log.AppendLine("race on " + id + (jobs.Count > 1 ? $" (seed {job.seed}, city trees {(job.trees ? "on" : "off")}, signs {(job.signs ? "on" : "off")})" : "") + ":");
+            // The edition it plays AS (PSX_EDITION / -psxEdition; ALL by
+            // default): a MAIN run races under MAIN's runtime rules.
+            log.AppendLine("  edition " + Edition.Name(Edition.Current));
+            Check(Edition.Ships(TrackCatalog.At(index)), id + " is a venue this edition ships");
             EditorSceneManager.OpenScene(scenes[s].path);
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;
             RaceHandoff.TrackIndex = index;
             string hour = System.Environment.GetEnvironmentVariable("PSX_RACE_HOUR");
-            RaceHandoff.TimeOfDayIndex = hour == "night" ? TimeOfDay.Night : TimeOfDay.Morning;
+            // Any hour by its name (night, noon, dusk ...); morning by default.
+            int hourIdx = TimeOfDay.Morning;
+            for (int h = 0; h < TimeOfDay.All.Length; h++)
+                if (!string.IsNullOrEmpty(hour) && string.Equals(TimeOfDay.All[h].name, hour, System.StringComparison.OrdinalIgnoreCase))
+                    hourIdx = h;
+            RaceHandoff.TimeOfDayIndex = hourIdx;
+            log.AppendLine("  hour " + TimeOfDay.All[hourIdx].name);
             var cars = CarCatalog.All;
             // Four cars of a price, like a booked race: the player's and the
             // next three in the catalog.
@@ -67,6 +132,29 @@ namespace PSXRacing.EditorTools
             if (st != PlayModeStateChange.EnteredPlayMode) return;
             EditorApplication.playModeStateChanged -= OnState;
             new GameObject("RacePlayCheckRunner").AddComponent<RacePlayCheckRunner>();
+        }
+
+        /// <summary>A race is done: its summary line kept, then out of play
+        /// mode and on to the next job (or the report).</summary>
+        internal static void RaceDone(string summary)
+        {
+            summaries.Add(summary);
+            jobAt++;
+            // the report so far, after every race: a long batch cut short
+            // still says what it raced
+            if (jobs.Count > 1)
+                File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_race_play_check.txt"),
+                    log + "\n(" + summaries.Count + " of " + jobs.Count + " races so far)\n  " + string.Join("\n  ", summaries) + "\n");
+            if (jobAt >= jobs.Count && jobs.Count <= 1) { Finish(); EditorApplication.Exit(failures == 0 ? 0 : 1); return; }
+            EditorApplication.playModeStateChanged += OnLeft;
+            EditorApplication.ExitPlaymode();
+        }
+
+        static void OnLeft(PlayModeStateChange st)
+        {
+            if (st != PlayModeStateChange.EnteredEditMode) return;
+            EditorApplication.playModeStateChanged -= OnLeft;
+            EditorApplication.delayCall += StartJob;
         }
 
         internal static void Check(bool ok, string what, object got = null)
@@ -109,6 +197,7 @@ namespace PSXRacing.EditorTools
             int seedN = 0;
             int.TryParse(System.Environment.GetEnvironmentVariable("PSX_RACE_SEED") ?? "0", out seedN);
             Random.InitState(9173 + seedN * 101);
+            NoRendering();
             float until = Time.realtimeSinceStartup + 15f;
             while (rm.State == RaceManager.RaceState.Countdown && Time.realtimeSinceStartup < until) yield return null;
             RacePlayCheck.Check(rm.State == RaceManager.RaceState.Racing, "the race goes live", rm.State);
@@ -168,6 +257,7 @@ namespace PSXRacing.EditorTools
                    (rm.State == RaceManager.RaceState.Racing || (toFinish && RivalsRunning())))
             {
                 yield return new WaitForSeconds(0.5f);
+                NoRendering();
                 foreach (var c in rm.allCars)
                 {
                     var p = c != null ? rm.GetProgress(c) : null;
@@ -221,6 +311,7 @@ namespace PSXRacing.EditorTools
             CollisionResponder.HitReported -= OnHit;
             CollisionResponder.HitReportedOn -= OnHitOn;
             RaceManager.Respawned -= OnRespawn;
+            ReportEye();
             float raced = Time.time - t0;
             int rivals = 0;
             foreach (var c in rm.allCars)
@@ -275,16 +366,15 @@ namespace PSXRacing.EditorTools
             }
             RacePlayCheck.Note($"hits by kind: {string.Join(", ", kinds)}");
             RacePlayCheck.Note($"raced {raced:0} s; {retiredAt.Count} of {rivals} rivals retired");
+            // did it FINISH (a run long enough for the route), and who crossed the line
+            var done = new List<string>();
+            foreach (var c in rm.allCars)
             {
-                // did it FINISH (a run long enough for the route), and who crossed the line
-                var done = new List<string>();
-                foreach (var c in rm.allCars)
-                {
-                    var p = c != null ? rm.GetProgress(c) : null;
-                    if (p != null && p.finished) done.Add(c.name);
-                }
-                RacePlayCheck.Note($"race state at the end: {rm.State}; finished: {(done.Count > 0 ? string.Join(", ", done) : "none")}");
+                var p = c != null ? rm.GetProgress(c) : null;
+                if (p != null && p.finished) done.Add(c.name);
             }
+            RacePlayCheck.Note($"race state at the end: {rm.State}; finished: {(done.Count > 0 ? string.Join(", ", done) : "none")}");
+            RacePlayCheck.Note($"city tree trunks hit: {trunkHits} (hard {trunkHard}); billboard and gantry posts hit: {postHits} (hard {postHard})");
             RacePlayCheck.Check(retiredAt.Count <= 1, "at most one rival retires in the run", retiredAt.Count);
             if (toFinish)
             {
@@ -309,7 +399,33 @@ namespace PSXRacing.EditorTools
                 RacePlayCheck.Check(worstWrong <= 2f, "no car drives the wrong way for more than 2 s",
                                     worstWrong > 0f ? wrongWho + " " + worstWrong.ToString("0.0") + " s" : "none");
             }
+            var why = new List<string>();
+            foreach (var kv in retiredAt)
+            {
+                var r = kv.Key != null ? kv.Key.GetComponent<CollisionResponder>() : null;
+                why.Add($"{(kv.Key != null ? kv.Key.name : "?")} at {kv.Value:0}s into {(r != null ? r.WorstHitWhat : "?")}");
+            }
+            string venue = RacePlayCheck.VenueNow;
+            summary = $"{venue,-18} seed {RacePlayCheck.SeedNow,2} trees {(PSXRacing.City.CityTrees.Enabled ? "on " : "off")} signs {(PSXRacing.City.CitySigns.Enabled ? "on " : "off")}: {retiredAt.Count} of {rivals} retired" +
+                      (why.Count > 0 ? " (" + string.Join("; ", why) + ")" : "") +
+                      $"; trunk hits {trunkHits} ({trunkHard} hard); sign posts {postHits} ({postHard} hard); raced {raced:0} s, {rm.State}, finished {done.Count}";
             Done();
+        }
+
+        string summary = "";
+        int trunkHits, trunkHard, postHits, postHard;
+
+        /// <summary>A -nographics editor has no GPU, and every camera still
+        /// asked for a frame: each failed with a logged error and a stack
+        /// trace, 1.4 GB of log for two races (WP-08 review), and the frames
+        /// slow enough to race slower than real time. Nothing the race does
+        /// reads a rendered frame, so the cameras are switched off (new ones,
+        /// the mirror and the pizza cam, are caught on the next pass).</summary>
+        static void NoRendering()
+        {
+            if (SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Null) return;
+            foreach (var cam in Object.FindObjectsByType<Camera>(FindObjectsSortMode.None))
+                if (cam.enabled) cam.enabled = false;
         }
 
         /// <summary>Per car, the last 3 s: time, lateral (m right of the
@@ -390,6 +506,8 @@ namespace PSXRacing.EditorTools
         void OnHit(CollisionResponder who, float speed, bool hard, string what)
         {
             if (speed < 6f || rm == null) return;
+            if (what == PSXRacing.City.CityTrees.TrunkName) { trunkHits++; if (hard) trunkHard++; }
+            if (what == PSXRacing.City.CitySigns.PostName) { postHits++; if (hard) postHard++; }
             string kind = what.StartsWith("WallColl") ? "wall" : what.StartsWith("Bank") ? "rock" :
                           what.StartsWith("Traffic") || what.Contains("traffic") ? "traffic" :
                           who.GetComponentInParent<CarController>() != null && what.Length > 0 && IsCarName(what) ? "car" : what;
@@ -441,10 +559,97 @@ namespace PSXRacing.EditorTools
             return false;
         }
 
+        // ------------------------------------------------------------------
+        //  THE EYE'S ADAPTATION, traced (the colour pass, C10)
+        // ------------------------------------------------------------------
+
+        struct EyeSample { public float t, m, a, target, open; public bool tunnel; }
+        readonly List<EyeSample> eye = new List<EyeSample>();
+        float lastEye;
+        int eyeHint = -1;
+
+        /// <summary>Ten times a second: where the player is and what the eye
+        /// is doing (ExposureAdapt, stepped by PSXGlobals this frame).</summary>
+        void Update()
+        {
+            if (rm == null || rm.path == null || t0 <= 0f || rm.playerCar == null) return;
+            if (Time.time - lastEye < 0.1f) return;
+            lastEye = Time.time;
+            eyeHint = rm.path.NearestIndex(rm.playerCar.transform.position, eyeHint, 40);
+            eye.Add(new EyeSample
+            {
+                t = Time.time - t0, m = eyeHint * rm.path.spacing, a = ExposureAdapt.Current,
+                target = ExposureAdapt.Target, open = ExposureAdapt.Openness, tunnel = ExposureAdapt.Tunnel,
+            });
+        }
+
+        /// <summary>
+        /// The eye's trace, judged: through every tunnel, the gain it reached
+        /// 1 and 2 s after the portal (readable in about 2 s: the settled
+        /// tunnel gain is 2.4, and 1 + 1.4 x (1 - e^-2/1.2) = 2.13 at 2 s),
+        /// the time it took to settle after the exit; and on the open road -
+        /// open sky over the car, more than 3 s from any tunnel - the most it
+        /// ever rose (no pumping under trees: at most 1.10).
+        /// </summary>
+        void ReportEye()
+        {
+            if (eye.Count == 0) { RacePlayCheck.Note("THE EYE (C10): no samples"); return; }
+            float lo = float.MaxValue, hi = float.MinValue;
+            foreach (var s in eye) { lo = Mathf.Min(lo, s.a); hi = Mathf.Max(hi, s.a); }
+            RacePlayCheck.Note($"THE EYE (C10): {eye.Count} samples at 10 Hz, gain {lo:0.00}-{hi:0.00}");
+            int tunnels = 0;
+            for (int i = 0; i < eye.Count; i++)
+            {
+                if (!eye[i].tunnel || (i > 0 && eye[i - 1].tunnel)) continue;
+                int j = i;
+                while (j + 1 < eye.Count && eye[j + 1].tunnel) j++;
+                tunnels++;
+                float te = eye[i].t, tx = eye[j].t;
+                float At(float t) { foreach (var s in eye) if (s.t >= t) return s.a; return eye[eye.Count - 1].a; }
+                float a1 = At(te + 1f), a2 = At(te + 2f);
+                // Settled after the exit: back within 5% of its target.
+                float settle = -1f;
+                for (int k = j + 1; k < eye.Count; k++)
+                    if (Mathf.Abs(eye[k].a - eye[k].target) <= 0.05f * eye[k].target) { settle = eye[k].t - tx; break; }
+                var trace = new System.Text.StringBuilder();
+                for (float t = te - 1f; t <= tx + 3f + 1e-3f; t += 0.5f) trace.Append($" {At(t):0.00}");
+                RacePlayCheck.Note($"  tunnel {tunnels}: in at {te:0.0}s ({eye[i].m:0} m), out at {tx:0.0}s ({eye[j].m:0} m); " +
+                                   $"gain +1 s {a1:0.00}, +2 s {a2:0.00}; after the exit settled in {(settle >= 0f ? settle.ToString("0.0") + " s" : "never")}");
+                RacePlayCheck.Note("    gain every 0.5 s from 1 s before the portal to 3 s after the exit:" + trace);
+                if (tx - te >= 2f)
+                    RacePlayCheck.Check(a2 >= 1.9f, $"tunnel {tunnels}: the eye has opened up 2 s in (gain >= 1.9)", a2.ToString("0.00"));
+                RacePlayCheck.Check(settle >= 0f && settle <= 2.5f, $"tunnel {tunnels}: the exit's bloom settles within 2.5 s",
+                                    settle >= 0f ? settle.ToString("0.0") + " s" : "never");
+            }
+            // The open road, away from the tunnels.
+            float openMax = 1f; int openN = 0, crossings = 0; bool above = false;
+            float shadeMax = 1f; int shadeN = 0;
+            for (int i = 0; i < eye.Count; i++)
+            {
+                bool nearTunnel = false;
+                for (int k = Mathf.Max(0, i - 30); k <= i && !nearTunnel; k++) nearTunnel |= eye[k].tunnel;
+                if (nearTunnel || eye[i].tunnel) { above = false; continue; }
+                if (eye[i].open >= 0.99f)
+                {
+                    openN++;
+                    openMax = Mathf.Max(openMax, eye[i].a);
+                    bool now = eye[i].a > 1.10f;
+                    if (now && !above) crossings++;
+                    above = now;
+                }
+                else { shadeN++; shadeMax = Mathf.Max(shadeMax, eye[i].a); }
+            }
+            RacePlayCheck.Note($"  open road: {openN} samples, gain at most {openMax:0.00}, {crossings} rise(s) over 1.10; " +
+                               $"under something (a bridge, a building's shadow): {shadeN} samples, gain at most {shadeMax:0.00}");
+            RacePlayCheck.Check(openMax <= 1.10f, "no pumping on the open road (gain <= 1.10 under an open sky)", openMax.ToString("0.00"));
+        }
+
         void Done()
         {
-            RacePlayCheck.Finish();
-            EditorApplication.Exit(RacePlayCheck.failures == 0 ? 0 : 1);
+            CollisionResponder.HitReported -= OnHit;
+            CollisionResponder.HitReportedOn -= OnHitOn;
+            RaceManager.Respawned -= OnRespawn;
+            RacePlayCheck.RaceDone(summary.Length > 0 ? summary : "(no race)");
         }
     }
 }

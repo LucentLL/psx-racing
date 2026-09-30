@@ -17,8 +17,14 @@
 $ErrorActionPreference = "Stop"
 $src  = Split-Path -Parent $PSScriptRoot
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
+# Not from a sandbox whose Resources an unfinished edition build has parked:
+# what is parked would be missing here (unity-wait.ps1, Assert-EditionParkClear).
+if (Test-Path "$proj\PSXEditionParked.json") {
+    Write-Host "REFUSING: $proj has Resources parked by an edition build that did not finish ($proj\PSXEditionParked.json). Run any sandbox tool first (it puts them back), then sync." -ForegroundColor Red
+    exit 1
+}
 
-$cargoRel = "Assets\PSXRacing\Resources\PizzaCargo"
+$cargoRel ="Assets\PSXRacing\Resources\PizzaCargo"
 $from = Join-Path $proj $cargoRel
 $to   = Join-Path $src  $cargoRel
 if (-not (Test-Path $from)) { Write-Host "no cargo bake in the sandbox - run the scene build first" -ForegroundColor Red; exit 1 }

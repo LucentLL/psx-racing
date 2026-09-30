@@ -80,13 +80,46 @@
 # charlotte branch: -PagesDir city). -AllowRootFromBranch overrides the
 # refusal. Pass it only when the owner has asked for that branch's build at
 # the root.
+#
+# THE EDITIONS (2026-09-28, the owner: "Charlotte map and Charlotte tracks
+# should be in their own version until being united"). One codebase, two
+# player builds, chosen by -Edition MAIN|CITY|ALL and baked in by
+# PSXBuildWebGL (-psxEdition: a scripting define, the edition's scene list,
+# and the other edition's Resources parked for the build):
+#   MAIN - every venue except Charlotte, and none of Charlotte's data.
+#   CITY - Charlotte's free roam and races, a car picker, the options.
+#   ALL  - the whole game, as one (what the editor always is).
+# THE PAIRING IS THE DEFAULT AND IS ENFORCED: the root is $RootEdition (MAIN
+# until the two are united - then that ONE line below becomes "ALL"), and
+# -PagesDir city is CITY. A root publish that would ship Charlotte, or a
+# /city/ publish that would ship the whole game, is refused before the build
+# and again before the deploy (the build's psx-edition.txt is read, so a
+# -SkipBuild of an old or mismatched build is refused too). Any other
+# -PagesDir is a preview of whichever -Edition is named (ALL by default):
+# -PagesDir colour -Edition MAIN -PagesLabel "COLOUR PREVIEW" is the MAIN game
+# with a branch's changes, beside the real one. -AllowEditionMismatch
+# overrides - only when the owner asks for exactly that.
+#
+# EVERY DOOR IS OPENED IN THE PLAYER BEFORE IT GOES LIVE (tools\door-tour.mjs,
+# see Test-DoorTour below): since the editions a door finds its scene through
+# a branch only a player runs. -SkipDoorTour deploys without it, loudly.
 param([switch]$SkipBuild, [switch]$SkipDeploy, [switch]$SkipScenes,
       [switch]$DryRun,
       [switch]$AllowRootFromBranch,
+      [string]$Edition = "",
+      [switch]$AllowEditionMismatch,
+      [switch]$AllowOlderCity,
+      [switch]$SkipDoorTour,
       [string]$BuildDir = "",
       [string]$PagesDir = "",
       [string]$PagesLabel = "",
       [string[]]$KeepDirs = @("city"),
+      # A root publish RETIRES these test folders even though they hold a
+      # psx-subpage.txt (never one in -KeepDirs): -DropDirs colour took the
+      # /colour/ preview down when its work went into the game at the root
+      # (the owner, 2026-09-29: "Why are you making a separate release of the
+      # game just for color? All changes should go directly to the main build").
+      [string[]]$DropDirs = @(),
       [string]$StageDir = "",
       # For offline tests against a local bare repo (file:///...). The live
       # checks after a push only run against the real remote.
@@ -117,6 +150,32 @@ if ($PagesDir) {
     }
     $pages = "$pages-$PagesDir"
 }
+
+# THE EDITION. Resolved and checked BEFORE a forty-minute build.
+$RootEdition = "MAIN"    # the site root's edition; "ALL" once MAIN and CITY are united
+# The root and /city/ have fixed editions. Any other -PagesDir is a preview
+# folder with no edition of its own: it ships the -Edition it is given (ALL
+# when none is named), and every check below holds the build to that edition
+# (2026-09-29: /colour/ = the MAIN game with the colour fix).
+$expectEdition = if ($PagesDir -eq "city") { "CITY" }
+                 elseif ($PagesDir) { if ($Edition) { $Edition.ToUpperInvariant() } else { "ALL" } }
+                 else { $RootEdition }
+if (-not $Edition) { $Edition = $expectEdition }
+$Edition = $Edition.ToUpperInvariant()
+if (@("MAIN", "CITY", "ALL") -notcontains $Edition) {
+    Write-Host "-Edition '$Edition' must be MAIN, CITY or ALL." -ForegroundColor Red
+    exit 1
+}
+$where0 = if ($PagesDir) { "/$PagesDir/" } else { "the site root" }
+if (-not $SkipDeploy -and $Edition -ne $expectEdition) {
+    if ($AllowEditionMismatch) {
+        Write-Host "EDITION $Edition TO $where0, which is $expectEdition's, under -AllowEditionMismatch." -ForegroundColor Yellow
+    } else {
+        Write-Host "REFUSING: $where0 is the $expectEdition edition and this is -Edition $Edition. A root publish must not ship Charlotte and /city/ must not ship the whole game. -AllowEditionMismatch overrides (only when the owner asks)." -ForegroundColor Red
+        exit 1
+    }
+}
+Write-Host "Edition: $Edition" -ForegroundColor Cyan
 
 # Unity.exe is a launcher: it spawns the real editor and returns immediately, so
 # waiting on the call itself reads stale logs. Wait on the actual child PIDs.
@@ -157,10 +216,69 @@ function Invoke-GitOut([string[]]$GitArgs, [switch]$AllowFail) {
     return [pscustomobject]@{ Code = $code; Out = $out; Text = ($out -join "`n") }
 }
 
+# THE EDITION'S CONTENTS, PROVED FROM THE PLAYER ITSELF: tools\webgl-contents.mjs
+# unpacks WebGL.data and checks its scene list against psx-build-report.txt,
+# that nothing the build PARKED is in it, and the edition's rules (MAIN: no
+# charlotte_* and no CityProps; CITY: no pizza cargo). node only, no Unity,
+# ~20 s. A build from before the editions has no report and fails the scene
+# check - that is the point: it cannot be told apart from the whole game.
+# It also finds, among the player's Shader objects, every shader the runtime
+# code names (Shader.Find in a player finds nothing else: 2026-09-29, CITY
+# shipped without PSX/Glow and no car had lamps) - see RuntimeShaders.cs,
+# which fails the WebGL build itself on the same gap before it starts.
+function Test-WebglContents([string]$Dir, [string]$Ed) {
+    $node = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $node) {
+        Write-Host "CONTENTS NOT CHECKED - node is not on PATH (tools\webgl-contents.mjs needs it). Refusing." -ForegroundColor Red
+        return $false
+    }
+    $out = @(& $node.Source "$PSScriptRoot\webgl-contents.mjs" $Dir --edition $Ed --quiet 2>&1)
+    $code = $LASTEXITCODE
+    $out | ForEach-Object { Write-Host "  $_" }
+    if ($code -ne 0) {
+        Write-Host "WEBGL CONTENTS CHECK FAILED - $Dir does not hold what the $Ed edition may ship (see above)." -ForegroundColor Red
+        return $false
+    }
+    return $true
+}
+
+# THE DOORS, OPENED IN THE PLAYER ITSELF: tools\door-tour.mjs serves the build
+# on 127.0.0.1, opens it in headless Chrome with ?doortour and reads the
+# console - DoorAudit's boot line (every door of the edition resolved against
+# the PLAYER's scene list; the editor resolves through EditorBuildSettings and
+# cannot see a player-only mismatch) and one PASS/FAIL per door as DoorTour
+# presses the front end's own buttons (races at the line, a twin, a sprint,
+# Chimney Rock, IN TOWN, your street, the walk-in, a seller, a test drive, a
+# delivery; CITY: free roam and every city race). node + Chrome, no Unity,
+# ~10 min. Pictures of every arrival go to $proj\Screenshots\doortour_<ED>.
+# -SkipDoorTour publishes without it, loudly.
+function Test-DoorTour([string]$Dir, [string]$Ed) {
+    $node = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $node) {
+        Write-Host "DOORS NOT TOURED - node is not on PATH (tools\door-tour.mjs needs it). Refusing; -SkipDoorTour overrides." -ForegroundColor Red
+        return $false
+    }
+    $shotDir = "$proj\Screenshots\doortour_$Ed"
+    if (Test-Path $shotDir) { Remove-Item $shotDir -Recurse -Force }
+    Write-Host "  door tour    : opening every door of the $Ed player in headless Chrome..." -ForegroundColor Cyan
+    $out = @(& $node.Source "$PSScriptRoot\door-tour.mjs" $Dir --shots $shotDir 2>&1)
+    $code = $LASTEXITCODE
+    $out | ForEach-Object { Write-Host "  $_" }
+    if ($code -ne 0) {
+        Write-Host "DOOR TOUR FAILED - a door of the $Ed player does not open (see above; pictures in $shotDir). -SkipDoorTour overrides." -ForegroundColor Red
+        return $false
+    }
+    return $true
+}
+
 # THIS PUBLISH ONLY WAITS ON ITS OWN SANDBOX. Get-UnityPids (unity-wait.ps1)
 # filters by command line, so the owner opening their editor mid-build no
 # longer holds the deploy hostage -- see the note on that function.
 function Invoke-UnityWait([string[]]$UnityArgs, [int]$MaxMinutes = 40) {
+    # Every Unity job names its build target (see Get-PSXBuildTarget in unity-wait.ps1).
+    if (-not @($UnityArgs | Where-Object { $_ -ieq "-buildTarget" }).Count) {
+        $UnityArgs = @($UnityArgs) + @("-buildTarget", $(if ($env:PSX_BUILD_TARGET) { $env:PSX_BUILD_TARGET } else { "WebGL" }))
+    }
     $before = @(Get-UnityPids $proj)
     Start-Process -FilePath $unity -ArgumentList $UnityArgs -WindowStyle Hidden | Out-Null
     Start-Sleep -Seconds 5
@@ -191,6 +309,64 @@ if (-not $SkipDeploy -and -not $PagesDir -and $isLive) {
             Write-Host "REFUSING A ROOT PUBLISH FROM $what. $liveUrl is the game, and only main publishes it. Publish this branch's test page with -PagesDir instead (the charlotte branch: -PagesDir city -> ${liveUrl}city/). -AllowRootFromBranch overrides this, and is only for when the owner has asked for this branch's build at the root." -ForegroundColor Red
             exit 1
         }
+    }
+}
+
+# /city/ SHIPS THE CHARLOTTE BRANCH'S CITY. The test page exists to show the
+# newest Charlotte, and that lives on the charlotte branch. A CITY build from
+# any other checkout (main, editions) carries whatever city data that branch
+# last merged (2026-09-29: charlotte_city.bytes 2.55 MB on main, 3.05 MB on
+# charlotte, and a different DEM) - a publish that would quietly put an OLDER
+# city on the page is refused. From the charlotte branch itself nothing is
+# compared: its working tree IS the newest city. Elsewhere, every
+# Resources\charlotte_* file here must be byte-identical to the tip of the
+# local 'charlotte' branch. -AllowOlderCity overrides (only when the owner asks).
+#
+# THE MERGE ORDER that makes this pass without the override - and makes the
+# charlotte branch's own /city/ publishes CITY-only at all (its copy of this
+# script predates -Edition and publishes the whole game): editions -> main
+# (after main's own release), then main -> charlotte, THEN the next /city/
+# publish, from charlotte. In the main -> charlotte merge this file conflicts
+# (both sides changed it from an older base); charlotte's copy is byte-for-byte
+# main's from before the editions, so the resolution is main's copy - which
+# keeps the -Edition block, both Test-WebglContents calls, the door tour and
+# the deploy-time psx-edition check.
+if (-not $SkipDeploy -and $Edition -eq "CITY" -and $isLive -and -not $AllowOlderCity) {
+    $b = Invoke-GitOut @("-C", $src, "rev-parse", "--abbrev-ref", "HEAD") -AllowFail
+    $srcBranch = if ($b.Code -eq 0 -and $b.Out.Count) { ("" + $b.Out[0]).Trim() } else { "" }
+    if ($srcBranch -cne "charlotte") {
+        $tip = Invoke-GitOut @("-C", $src, "ls-tree", "charlotte", "Assets/PSXRacing/Resources/") -AllowFail
+        if ($tip.Code -ne 0) {
+            Write-Host "REFUSING: a /city/ publish from '$srcBranch' needs the local 'charlotte' branch to compare the city data against, and git cannot read it ($($tip.Text)). -AllowOlderCity overrides." -ForegroundColor Red
+            exit 1
+        }
+        $theirs = @{}
+        foreach ($ln in $tip.Out) {
+            # "<mode> blob <sha><TAB><path>"
+            if (("" + $ln) -match '^\d+ blob ([0-9a-f]{40})\s+(.+)$') {
+                $leaf = Split-Path -Leaf $Matches[2]
+                if ($leaf -like 'charlotte_*' -and $leaf -notlike '*.meta') { $theirs[$leaf] = $Matches[1] }
+            }
+        }
+        $mine = @(Get-ChildItem "$src\Assets\PSXRacing\Resources" -File -Filter 'charlotte_*' | Where-Object { $_.Name -notlike '*.meta' })
+        $stale = New-Object System.Collections.Generic.List[string]
+        foreach ($f in $mine) {
+            $h = Invoke-GitOut @("-C", $src, "hash-object", "--", $f.FullName) -AllowFail
+            $sha = if ($h.Code -eq 0 -and $h.Out.Count) { ("" + $h.Out[0]).Trim() } else { "" }
+            if (-not $theirs.ContainsKey($f.Name)) { $stale.Add("$($f.Name) (not on charlotte)") }
+            elseif ($theirs[$f.Name] -ne $sha) { $stale.Add($f.Name) }
+        }
+        foreach ($n in $theirs.Keys) {
+            if (-not @($mine | Where-Object { $_.Name -eq $n }).Count) { $stale.Add("$n (only on charlotte)") }
+        }
+        if ($stale.Count) {
+            Write-Host ("REFUSING A /city/ PUBLISH FROM '$srcBranch': its Charlotte data is not the charlotte branch's (" +
+                        ($stale -join ', ') + "). /city/ is the Charlotte test page and shows the newest city: merge " +
+                        "main -> charlotte and publish /city/ from the charlotte branch (see the note above this check). " +
+                        "-AllowOlderCity overrides (only when the owner asks).") -ForegroundColor Red
+            exit 1
+        }
+        Write-Host "  city data    : identical to the charlotte branch ($($mine.Count) charlotte_* files)" -ForegroundColor Cyan
     }
 }
 
@@ -258,15 +434,29 @@ if (-not $SkipBuild) {
         "-quit","-batchmode","-nographics","-projectPath",$proj,
         "-buildTarget","WebGL",
         "-executeMethod","PSXRacing.EditorTools.PSXBuildWebGL.BuildFromCommandLine",
+        "-psxEdition",$Edition,
         "-logFile","$proj\build.log","-accept-apiupdate") | Out-Null
 
     if (-not (Test-Path "$proj\Build\WebGL\build_ok.txt")) {
         Write-Host "BUILD FAILED - see $proj\build.log" -ForegroundColor Red
-        Select-String -Path "$proj\build.log" -Pattern "IL2CPP error|Error building Player|error CS" |
+        Select-String -Path "$proj\build.log" -Pattern "IL2CPP error|Error building Player|error CS|RUNTIME SHADER MISSING" |
             Select-Object -First 6 | ForEach-Object { $_.Line.Substring(0, [Math]::Min(200, $_.Line.Length)) }
         exit 1
     }
     Get-Content "$proj\Build\WebGL\build_ok.txt"
+    $builtAs = if (Test-Path "$proj\Build\WebGL\psx-edition.txt") { (Get-Content "$proj\Build\WebGL\psx-edition.txt" -TotalCount 1).Trim() } else { "" }
+    if ($builtAs -ne $Edition) {
+        Write-Host "EDITION CHECK FAILED - asked for $Edition, the build says '$builtAs' (psx-edition.txt)." -ForegroundColor Red
+        exit 1
+    }
+    if (Test-Path "$proj\PSXRacing_webgl_report_$Edition.txt") {
+        Select-String -Path "$proj\PSXRacing_webgl_report_$Edition.txt" -Pattern '^(edition|result|scenes|parked) ' |
+            ForEach-Object { "  report: " + $_.Line }
+    }
+    # WHAT SHIPPED, read out of WebGL.data itself (scenes, parked Resources,
+    # the edition's rules). The label says what was asked for; this says
+    # what the player carries.
+    if (-not (Test-WebglContents "$proj\Build\WebGL" $Edition)) { exit 1 }
 
     # Belt and braces: a marker can be fresh while the player output is not, so
     # check the player itself.
@@ -316,18 +506,29 @@ function Show-AuditWaiver {
     } else {
         $lines = @(Get-Content $result)
         $verdict = if ($lines.Count -gt 0) { $lines[0] } else { "" }
+        # verify.ps1 writes "edition X" as its second line. A verify of one
+        # edition says nothing about another's scene list.
+        $verifiedAs = ($lines | Where-Object { $_ -cmatch '^edition ' } | Select-Object -First 1)
+        $verifiedAs = if ($verifiedAs) { $verifiedAs.Substring(8).Trim() } else { "ALL (before the editions)" }
         $newest = Get-ChildItem "$src\Assets\PSXRacing\Scripts", "$src\Assets\PSXRacing\Editor", "$src\Assets\PSXRacing\Shaders" `
                       -Recurse -File -ErrorAction SilentlyContinue |
                   Sort-Object LastWriteTime -Descending | Select-Object -First 1
         $stamp = (Get-Item $result).LastWriteTime
         if ($verdict -cnotmatch '^VERIFY PASS') {
             $problem = "THE LAST VERIFY FAILED ($verdict, $stamp)."
+        } elseif ($verifiedAs -ne $Edition -and $verifiedAs -ne "ALL") {
+            $problem = "THE LAST VERIFY WAS FOR EDITION $verifiedAs; THIS PUBLISH IS $Edition."
         } elseif ($newest -and $newest.LastWriteTime -gt $stamp) {
             $problem = "THE LAST VERIFY PASSED, BUT BEFORE THE SOURCE CHANGED: $($newest.Name) was written $($newest.LastWriteTime), the verify finished $stamp."
         }
     }
     if ($null -eq $problem) {
         Write-Host "Audits: the last tools\verify.ps1 passed on this source." -ForegroundColor Green
+        # ...on the owner-accepted spots too (TrackObstacleAudit.OwnerAccepted),
+        # which ship named, never silently.
+        foreach ($l in $lines) {
+            if ($l -clike "accepted: *") { Write-Host "   $l" -ForegroundColor Yellow }
+        }
         return
     }
     Write-Host $bar -ForegroundColor Yellow
@@ -355,11 +556,56 @@ if (-not $SkipDeploy) {
     $where = if ($PagesDir) { "gh-pages/$PagesDir/ (test page; the rest of gh-pages is kept)" } else { "gh-pages/ (root)" }
     Write-Host "[3/3] $how to $where from $build" -ForegroundColor Cyan
     if (-not (Test-Path "$build\index.html")) { Write-Host "No build to deploy." -ForegroundColor Red; exit 1 }
+    # WHAT IS IN THE BUILD, read from the build: a -SkipBuild of an older or
+    # other-edition output is checked the same as a fresh one. A build from
+    # before the editions has no psx-edition.txt and is the whole game (ALL).
+    $buildEdition = if (Test-Path "$build\psx-edition.txt") { (Get-Content "$build\psx-edition.txt" -TotalCount 1).Trim() } else { "ALL" }
+    if ($buildEdition -ne $Edition) {
+        if ($AllowEditionMismatch) {
+            Write-Host "DEPLOYING A $buildEdition BUILD AS $Edition under -AllowEditionMismatch." -ForegroundColor Yellow
+        } else {
+            Write-Host "REFUSING TO DEPLOY: $build is the $buildEdition edition and this publish is $Edition (psx-edition.txt). Rebuild with -Edition $Edition." -ForegroundColor Red
+            exit 1
+        }
+    }
+    Write-Host "  edition      : $buildEdition" -ForegroundColor Cyan
+    # A fresh build was checked straight after it was made; an older output
+    # (-SkipBuild, -BuildDir) is checked here, against the edition it claims.
+    if (($SkipBuild -or $BuildDir) -and -not $AllowEditionMismatch) {
+        if (-not (Test-WebglContents $build $buildEdition)) { exit 1 }
+    }
+    # THE CREDITS IT CARRIES, every publish: LICENSES.txt beside index.html
+    # must be this edition's as tools\city\SOURCES.md has it now (CITY: the
+    # OpenStreetMap, USGS 3DEP, county and USGS water lines; MAIN: the stage
+    # roads and terrain), and no other edition's LICENSES-*.txt may be left
+    # beside it. tools\city\credits.mjs --build, node only, instant. Skipped
+    # on a checkout that has no credits.mjs (main before the Charlotte merge).
+    if (-not $AllowEditionMismatch -and (Test-Path "$PSScriptRoot\city\credits.mjs")) {
+        $node = Get-Command node -ErrorAction SilentlyContinue
+        if (-not $node) { Write-Host "CREDITS NOT CHECKED - node is not on PATH (tools\city\credits.mjs needs it). Refusing." -ForegroundColor Red; exit 1 }
+        $cOut = @(& $node.Source "$PSScriptRoot\city\credits.mjs" --build $build --edition $buildEdition 2>&1)
+        $cCode = $LASTEXITCODE
+        $cOut | ForEach-Object { Write-Host "  $_" }
+        if ($cCode -ne 0) {
+            Write-Host "CREDITS CHECK FAILED - $build does not carry the $buildEdition edition's LICENSES.txt (see above). node tools\city\credits.mjs --write, then rebuild." -ForegroundColor Red
+            exit 1
+        }
+    }
+    # Every publish, fresh build or not: this is the player about to go live.
+    if ($SkipDoorTour) {
+        Write-Host "DOOR TOUR SKIPPED (-SkipDoorTour): no door of this player has been opened in a browser." -ForegroundColor Yellow
+    } elseif (-not (Test-DoorTour $build $buildEdition)) { exit 1 }
 
     # -File hands "-KeepDirs city,lab" over as ONE string; split it here.
     $KeepDirs = @($KeepDirs | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     foreach ($k in $KeepDirs) {
         if ($k -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]*$') { Write-Host "-KeepDirs '$k' is not a plain folder name." -ForegroundColor Red; exit 1 }
+    }
+    $DropDirs = @($DropDirs | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    foreach ($k in $DropDirs) {
+        if ($k -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]*$') { Write-Host "-DropDirs '$k' is not a plain folder name." -ForegroundColor Red; exit 1 }
+        if ($KeepDirs -contains $k) { Write-Host "-DropDirs '$k' is also in -KeepDirs." -ForegroundColor Red; exit 1 }
+        if ($PagesDir) { Write-Host "-DropDirs is for a root publish only (this is -PagesDir $PagesDir)." -ForegroundColor Red; exit 1 }
     }
 
     $stage = if ($StageDir) { $StageDir } else { $pages }
@@ -396,8 +642,10 @@ if (-not $SkipDeploy) {
         if (Test-Path "$build\StreamingAssets") { Copy-Item "$build\StreamingAssets" $target -Recurse; $names += "StreamingAssets" }
         # LICENSES.txt beside index.html: the data credits and licences, which
         # the WebGL template carries into every build (tools/city/credits.mjs
-        # writes it from tools/city/SOURCES.md; plan critic C17). Published with
-        # the build it came with, so a root publish replaces it like the rest.
+        # writes one per edition from tools/city/SOURCES.md and
+        # PSXBuildWebGL.PickLicenses keeps the build's own; plan critic C17).
+        # Published with the build it came with, so a root publish replaces it
+        # like the rest.
         if (Test-Path "$build\LICENSES.txt") { Copy-Item "$build\LICENSES.txt" $target; $names += "LICENSES.txt" }
 
         # CACHE BUSTING. Every deploy writes the same four payloads — the data, the
@@ -656,6 +904,7 @@ if (-not $SkipDeploy) {
                     $keep = ($name -ne $PagesDir)
                 } elseif ($type -eq "tree") {
                     if ($KeepDirs -contains $name) { $keep = $true }
+                    elseif ($DropDirs -contains $name) { $keep = $false }
                     else {
                         $mk = Invoke-GitOut @("-C", $stage, "ls-tree", "--name-only", $base, "--", "$name/psx-subpage.txt")
                         if ($mk.Text.Trim()) { $keep = $true }
@@ -688,6 +937,7 @@ if (-not $SkipDeploy) {
                 "PSX Racing test build: tools\build-and-publish.ps1 -PagesDir $PagesDir",
                 "A root publish (no -PagesDir) keeps every gh-pages folder holding this file.",
                 "label: $PagesLabel",
+                "edition: $buildEdition",
                 "save: IndexedDB $saveDb (the game at the site root keeps /idbfs)",
                 "source at publish: $srcNote",
                 "build stamp: $($st.Stamp) (the ?v= on this folder's index.html)",

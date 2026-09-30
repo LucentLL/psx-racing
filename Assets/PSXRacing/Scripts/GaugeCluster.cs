@@ -252,6 +252,22 @@ namespace PSXRacing
         /// clearest in the middle, where there is only the hub and the road.
         /// </summary>
         const float HudFaceRimAlpha = 0.62f;
+        /// <summary>
+        /// THE SMOKED FACE BY DAY (the colour pass, C9, 2026-09-29): 0.70 at
+        /// the centre and 0.85 at the rim while the sun is up (the bulbs
+        /// unlit, <see cref="ClusterBulbs.Backlit"/> false), where the night
+        /// keeps 0.38 / 0.62. At a clear noon the road behind a dial is the
+        /// brightest thing in the lower half of the frame, and through a 0.38
+        /// face the white numerals measured 2.05-2.23:1 against it (WCAG asks
+        /// 4.5). The face blends in LINEAR light, so a sunlit deck (0.75 on
+        /// the display) shows through a 0.55 face at 0.52 - it takes 0.70 to
+        /// bring the face to the 0.45 the numerals need behind them. Darker
+        /// glass by day is how a real smoked lens reads anyway: against the
+        /// sun it is a dark disc, at night it is nearly clear.
+        /// The bulb state is already in the rebuild token, so the dials
+        /// re-bake at the hour that switches them.
+        /// </summary>
+        const float HudFaceAlphaDay = 0.70f, HudFaceRimAlphaDay = 0.85f;
         /// <summary>Where the smoked fill reaches <see cref="HudFaceRimAlpha"/>,
         /// as a fraction of the dial radius: just inside the tick band. It
         /// rises with the SQUARE of the radius, so the middle of the face stays
@@ -280,13 +296,15 @@ namespace PSXRacing
         /// and has never needed an edge, and a Shadow alone (what RaceHUD
         /// uses) darkens only one side of each stroke. Once the face behind
         /// the text is smoked glass, the other sides need an edge as well.
+        ///
+        /// ON ALL EIGHT SIDES since the colour pass (C9, 2026-09-29): Unity's
+        /// Outline draws its copies on the diagonals, and at these sizes the
+        /// pixels straight beside a one-pixel stroke were the noon road, not
+        /// the edge - the numerals measured 2.4:1 against the ring round them
+        /// at a clear noon. <see cref="HudTextEdge"/>, two pixels deep - the
+        /// edge HudOnTop's labels wear.
         /// </summary>
-        static void AddLegibilityOutline(Graphic g)
-        {
-            var o = g.gameObject.AddComponent<Outline>();
-            o.effectColor = new Color(0f, 0f, 0f, 0.75f);
-            o.effectDistance = new Vector2(1.2f, -1.2f);
-        }
+        static void AddLegibilityOutline(Graphic g) => HudOnTop.AddOutline(g.gameObject);
 
         /// <summary>Set by RaceHandoffApplier from the car faults. A dead
         /// cluster parks both needles and blanks the digits — the player should
@@ -939,7 +957,7 @@ namespace PSXRacing
         {
             var go = new GameObject("T");
             go.transform.SetParent(parent, false);
-            var t = go.AddComponent<Text>();
+            var t = go.AddComponent<SafeText>();
             t.font = font;
             t.fontSize = size;
             t.fontStyle = FontStyle.Bold;
@@ -1746,7 +1764,7 @@ namespace PSXRacing
             {
                 var go = new GameObject("T");
                 go.transform.SetParent(root.transform, false);
-                var t = go.AddComponent<Text>();
+                var t = go.AddComponent<SafeText>();
                 t.font = font;
                 t.fontSize = size;
                 t.fontStyle = FontStyle.Bold;
@@ -1879,6 +1897,11 @@ namespace PSXRacing
                 if (translucent) bezel.a = (byte)Mathf.RoundToInt(SmokedBezelAlpha * 255f);
                 var hairline = new Color32(0, 0, 0, (byte)Mathf.RoundToInt(HairlineAlpha * 255f));
                 byte[] kind = translucent ? new byte[size * size] : null;
+                // The smoked face's alphas for the hour: darker glass while the
+                // sun is up (HudFaceAlphaDay), the signed-off night glass after.
+                bool dayGlass = translucent && !ClusterBulbs.Backlit;
+                float faceMid = dayGlass ? HudFaceAlphaDay : HudFaceAlpha;
+                float faceRim = dayGlass ? HudFaceRimAlphaDay : HudFaceRimAlpha;
 
                 float tickCount = max / Mathf.Max(tickStep, 1f);
                 float tickSpanDeg = SweepDeg / Mathf.Max(tickCount, 1f);
@@ -2033,11 +2056,12 @@ namespace PSXRacing
                         // SMOKED GLASS: the palette's face colour, with an
                         // alpha that climbs with the square of the radius from
                         // HudFaceAlpha in the middle to HudFaceRimAlpha at the
-                        // tick band, and holds there out to the bezel.
+                        // tick band (their day values while the sun is up),
+                        // and holds there out to the bezel.
                         float ramp = Mathf.Clamp01(r / FaceRampR);
                         var smoked = face;
                         smoked.a = (byte)Mathf.RoundToInt(255f *
-                            Mathf.Lerp(HudFaceAlpha, HudFaceRimAlpha, ramp * ramp));
+                            Mathf.Lerp(faceMid, faceRim, ramp * ramp));
                         px[i] = smoked;
                         kind[i] = KindFace;
                     }

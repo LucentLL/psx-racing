@@ -160,6 +160,10 @@ namespace PSXRacing
 
         static void Set(Text field, string value)
         {
+            // The HUD labels baked into the race scenes are plain Text, not
+            // SafeText: make the string drawable here (Glyphs - the player's
+            // font has no em dash, and "E - ORDER AT ..." came out holed).
+            value = Glyphs.Safe(value);
             if (field != null && field.text != value) field.text = value;
         }
 
@@ -282,7 +286,9 @@ namespace PSXRacing
 
         string FoodCue()
         {
-            if (world == null || car == null) return "";
+            // No signpost to a counter that does not serve (the CITY edition:
+            // DriveThru.Serves). The slot stays empty after the attribution.
+            if (!DriveThru.Serves || world == null || car == null) return "";
             if (Time.unscaledTime < foodNext) return foodLine;
             foodNext = Time.unscaledTime + 0.4f;
 
@@ -566,7 +572,7 @@ namespace PSXRacing
         {
             var go = new GameObject(name);
             go.transform.SetParent(transform, false);
-            var t = go.AddComponent<Text>();
+            var t = go.AddComponent<SafeText>();
             t.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             t.fontSize = size;
             t.color = Color.white;
@@ -574,9 +580,8 @@ namespace PSXRacing
             t.horizontalOverflow = HorizontalWrapMode.Overflow;
             t.verticalOverflow = VerticalWrapMode.Overflow;
             t.raycastTarget = false;
-            var sh = go.AddComponent<Shadow>();
-            sh.effectColor = new Color(0f, 0f, 0f, 0.9f);
-            sh.effectDistance = new Vector2(1f, -1f);
+            // An edge on every side (the colour pass, C9; HudOnTop.OutlineText).
+            HudOnTop.AddOutline(go);
             var rt = t.rectTransform;
             rt.anchorMin = anchor; rt.anchorMax = anchor;
             rt.pivot = new Vector2(anchor.x, 0.5f);
@@ -902,7 +907,8 @@ namespace PSXRacing
                                                  (rm.RetiredCount > 1 ? "S" : "") + " OUT (DNF)" : "");
                     center = head +
                              "\n\n" + how +
-                             (RaceHandoff.FromLifeSim ? " TO GO HOME" : " TO RESTART") +
+                             (!RaceHandoff.FromLifeSim ? " TO RESTART"
+                              : Edition.HasCareer ? " TO GO HOME" : " TO CONTINUE") +
                              ReplayOffer(touch);
                     break;
             }

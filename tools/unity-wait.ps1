@@ -198,6 +198,114 @@ function Wait-ProjectIdle([string]$ProjectPath, [int]$MaxMinutes = 60) {
     return $false
 }
 
+# A KILLED EDITION BUILD'S PARK, PUT BACK BEFORE ANYTHING TOUCHES THE SANDBOX.
+#
+# An edition WebGL build (build-and-publish -Edition MAIN|CITY) moves the other
+# edition's Resources out to Assets\PSXRacing\_EditionParked for the length of
+# one BuildPlayer call, listing them first in <sandbox>\PSXEditionParked.json
+# (EditionParking in Assets\PSXRacing\Editor\EditionBuild.cs). A build that is
+# killed leaves them there. The editor's own start-up restore is a delayCall,
+# which a batch -executeMethod job runs its method before (2026-09-29: it
+# never fired; the park was put back by hand) - and every tool here copies
+# into the sandbox BEFORE it starts Unity. A full /MIR is harmless (it deletes
+# the park folder and Resources come back from the source), but the additive
+# /E /XO copies of Resources (verify -NoMirror, city-play-check, city-cycle,
+# city-ground-probe, wall-scrape-play) put the source's charlotte_* files and
+# CityProps metas back BESIDE the parked copies with the same GUIDs: Unity
+# re-GUIDs one side, the restore finds every path occupied and leaves every
+# item stuck, and the check that follows runs against half of Resources.
+#
+# So this runs FIRST: when a tool dot-sources this file (before its first
+# robocopy - see the end of the file) and again before every Unity job. A
+# manifest found with no Unity running on the sandbox is restored by a short
+# batch job (EditionParking.RecoverIfNeeded, which every parking version of
+# the code has); one found WITH a job running is that job's own live park,
+# waited for, never touched. A park that cannot be put back is STUCK and the
+# tool stops here, naming the items: a person has to look, because the park
+# folder may hold the only copy of something.
+function Assert-EditionParkClear([string]$ProjectPath) {
+    if ([string]::IsNullOrEmpty($ProjectPath)) { return }
+    $m = Join-Path $ProjectPath 'PSXEditionParked.json'
+    if (-not (Test-Path -LiteralPath $m)) { return }
+    if (@(Get-UnityPids $ProjectPath).Count) {
+        Write-Host "EDITION PARK: $m exists and a Unity job is running on $ProjectPath - waiting for it (a running edition build restores its own park)" -ForegroundColor Yellow
+        if (-not (Wait-ProjectIdle $ProjectPath 120)) {
+            throw "EDITION PARK: a Unity job has held $ProjectPath for two hours with Resources parked - not touching the sandbox"
+        }
+        if (-not (Test-Path -LiteralPath $m)) { return }
+    }
+    $items = @(Get-Content -LiteralPath $m | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -notmatch '^(edition|pid) ' })
+    if (-not (Test-SandboxPath $ProjectPath)) {
+        throw "EDITION PARK: $m exists in $ProjectPath, which is not a sandbox - not starting a job there. Put $($items -join ', ') back from Assets\PSXRacing\_EditionParked by hand."
+    }
+    $parkDir = Join-Path $ProjectPath 'Assets\PSXRacing\_EditionParked'
+    $held = @($items | Where-Object { Test-Path -LiteralPath (Join-Path $parkDir $_) })
+    Write-Host ("EDITION PARK: an edition build on $ProjectPath did not finish (manifest: " + ($items -join ', ') +
+                "; still in the park: " + $(if ($held.Count) { $held -join ', ' } else { "nothing" }) +
+                "). Putting Resources back BEFORE anything is copied into the sandbox...") -ForegroundColor Yellow
+    $log = Join-Path $ProjectPath 'parkrecover.log'
+    Invoke-UnityJob -NoParkCheck -MaxMinutes 45 -Project $ProjectPath -Log $log -UnityArgs @(
+        "-quit","-batchmode","-nographics","-projectPath",$ProjectPath,
+        "-executeMethod","PSXRacing.EditorTools.EditionParking.RecoverIfNeeded",
+        "-logFile",$log,"-accept-apiupdate") | Out-Null
+    if (Test-Path -LiteralPath $m) {
+        Select-String -LiteralPath $log -Pattern '\[EditionParking\]|error CS' -ErrorAction SilentlyContinue |
+            Select-Object -Last 12 | ForEach-Object { Write-Host "  $($_.Line.Trim())" }
+        $still = @($items | Where-Object { Test-Path -LiteralPath (Join-Path $parkDir $_) })
+        $back = @($items | Where-Object { $still -notcontains $_ })
+        $what = if ($still.Count) { "still parked: " + ($still -join ', ') } else { "the park folder is not empty" }
+        if ($back.Count) { $what += " (put back: " + ($back -join ', ') + ")" }
+        throw ("EDITION PARK STUCK on ${ProjectPath}: $what - see $log. " +
+               "Nothing was copied and no job was started. Compare Assets\PSXRacing\_EditionParked with " +
+               "Assets\PSXRacing\Resources in the sandbox and put each item back by hand - or, when the source " +
+               "has everything, delete the park folder (with its .meta) and PSXEditionParked.json, then run " +
+               "tools\verify.ps1 without -NoMirror (a full mirror and a scene build).")
+    }
+    Write-Host "EDITION PARK: restored - Resources are whole again (see $log)" -ForegroundColor Green
+}
+
+# EVERY UNITY JOB NAMES ITS BUILD TARGET (the colour pass, 2026-09-29).
+#
+# A texture is imported for the editor's ACTIVE build target, and the target a
+# sandbox has is whatever its last job left it on. The release budget
+# (ReleaseBudget.SixteenBitCandidate, fc551ef) gives ~926 textures a WebGL-only
+# RGB565 override, and WebGL2 has no sRGB 565: on the WebGL target those
+# texels are read AS LINEAR (asphalt up to x9 brighter). The sandboxes build
+# with -buildTarget WebGL, and every shot tool launched with no -buildTarget,
+# so after 2026-09-27 every editor frame silently carried the WebGL import -
+# and nothing in a PNG said which import it was. So: every job launched
+# through here passes -buildTarget. WebGL, the target that ships, is the
+# default; $env:PSX_BUILD_TARGET (e.g. StandaloneWindows64, the decoded import
+# the colour BASELINE is rendered with) or a -buildTarget already in the
+# caller's arguments wins. The job's frames record it (ShotSidecar: a JSON
+# beside every PNG with activeBuildTarget and a probe texture's format).
+# Switching a sandbox's target reimports its textures once (minutes); the
+# artifact cache makes switching back cheap.
+function Get-PSXBuildTarget {
+    if ($env:PSX_BUILD_TARGET) { return $env:PSX_BUILD_TARGET }
+    return 'WebGL'
+}
+
+function Add-PSXBuildTarget([string[]]$UnityArgs, [string]$Target = "") {
+    if (@($UnityArgs | Where-Object { $_ -ieq '-buildTarget' }).Count) { return ,$UnityArgs }
+    if (-not $Target) { $Target = Get-PSXBuildTarget }
+    return ,(@($UnityArgs) + @('-buildTarget', $Target))
+}
+
+# The commit the frames are rendered from, for their sidecars: the source
+# checkout this tools\ folder belongs to (a sandbox has no .git), with
+# "+dirty" when it has uncommitted changes to the code that renders.
+function Get-PSXSourceCommit {
+    try {
+        $root = Split-Path -Parent $PSScriptRoot
+        $h = (& git -C $root rev-parse --short HEAD 2>$null)
+        if (-not $h) { return "" }
+        $d = (& git -C $root status --porcelain -- Assets/PSXRacing/Scripts Assets/PSXRacing/Editor Assets/PSXRacing/Shaders 2>$null)
+        if ($d) { return "$h+dirty" }
+        return "$h"
+    } catch { return "" }
+}
+
 # Watch the play tests unless told not to: -NoWatch on the tool, or
 # $env:PSX_WATCH = '0'.
 function Test-PSXWatch([switch]$NoWatch) {
@@ -862,12 +970,33 @@ function Invoke-UnityJob {
         [int]$DialogSeconds = $(if ($env:PSX_WATCH_DIALOG_SECONDS) { [int]$env:PSX_WATCH_DIALOG_SECONDS } else { 90 }),
         # The most a watched editor may run, whatever it is doing. 0 = the
         # default, -MaxMinutes + 60.
-        [int]$HardMinutes = $(if ($env:PSX_WATCH_HARD_MINUTES) { [int]$env:PSX_WATCH_HARD_MINUTES } else { 0 })
+        [int]$HardMinutes = $(if ($env:PSX_WATCH_HARD_MINUTES) { [int]$env:PSX_WATCH_HARD_MINUTES } else { 0 }),
+        # The park recovery's own job (Assert-EditionParkClear). Nothing else passes it.
+        [switch]$NoParkCheck
     )
 
     $script:UnityJobExitCode = $null
+    if (-not $NoParkCheck) {
+        # A killed edition build's park goes back before any job runs on the
+        # sandbox (see Assert-EditionParkClear). Throws when it is stuck.
+        $parkTarget = $Project
+        for ($i = 0; $i -lt $UnityArgs.Count - 1; $i++) {
+            if ($UnityArgs[$i] -ieq '-projectPath') { $parkTarget = $UnityArgs[$i + 1] }
+        }
+        Assert-EditionParkClear $parkTarget
+    }
     if ($HardMinutes -le 0) { $HardMinutes = $MaxMinutes + 60 }
     if ($HardMinutes -lt $MaxMinutes) { $HardMinutes = $MaxMinutes }
+
+    # The build target, always named (see Get-PSXBuildTarget), and printed so
+    # a tool's own output says which import its frames were drawn with.
+    $UnityArgs = Add-PSXBuildTarget $UnityArgs
+    for ($i = 0; $i -lt $UnityArgs.Count - 1; $i++) {
+        if ($UnityArgs[$i] -ieq '-buildTarget') { Write-Host "UNITY TARGET: $($UnityArgs[$i + 1])"; break }
+    }
+    # For the frames' sidecars (Editor\ShotSidecar.cs): the commit of the
+    # source the job was copied from. Inherited by the one process launched.
+    $env:PSX_COMMIT = Get-PSXSourceCommit
 
     if ($Watch) {
         $target = $Project
@@ -1109,3 +1238,10 @@ function Invoke-SceneBuild {
     }
     return $false
 }
+
+# DOT-SOURCED: check the sandbox this tool is about to copy into, now - before
+# its first robocopy. Every sandbox tool sets $proj (or PSX_SANDBOX) first; the
+# fallback is the same default the tools use.
+$psxParkSandbox = if ((Test-Path variable:proj) -and $proj) { "$proj" }
+                  elseif ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
+Assert-EditionParkClear $psxParkSandbox

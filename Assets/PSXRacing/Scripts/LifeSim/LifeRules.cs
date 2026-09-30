@@ -454,8 +454,14 @@ namespace PSXRacing.LifeSim
                 int idx = (start + i) % n;
                 var t = all[idx];
                 // A sprint on a loop is the loop's road a second time; the
-                // loop is in the pool already.
-                if (t.IsRoam || t.drag || t.IsSprintVariant || t.noDelivery) continue;
+                // loop is in the pool already. And the other edition's venue
+                // is not an address at all — asked FIRST, before
+                // RequiredFuelPct reads a distance this build has no data for
+                // (Offered also turns away free roam, which is no address
+                // either). A noDelivery road (Chimney Rock's park road) is
+                // offered and still no drop.
+                if (!TrackCatalog.Offered(t)) continue;
+                if (t.drag || t.IsSprintVariant || t.noDelivery) continue;
                 if (car != null && car.fuel < RequiredFuelPct(t, car)) continue;
                 return idx;
             }
@@ -473,11 +479,11 @@ namespace PSXRacing.LifeSim
                 // cheapest run in the catalog by a mile — and the venue the
                 // roll refuses on principle would be the one a dry tank
                 // always gets.
-                if (all[i].IsRoam || all[i].drag || all[i].IsSprintVariant || all[i].noDelivery) continue;
+                if (!TrackCatalog.Offered(all[i]) || all[i].drag || all[i].IsSprintVariant || all[i].noDelivery) continue;
                 float need = car != null ? RequiredFuelPct(all[i], car) : all[i].RaceMeters;
                 if (need < least) { least = need; cheapest = i; }
             }
-            return cheapest >= 0 ? cheapest : 0;
+            return cheapest >= 0 ? cheapest : TrackCatalog.FirstOffered();
         }
 
         // ---- what a drop is actually worth when it arrives ----------------
@@ -1030,6 +1036,19 @@ namespace PSXRacing.LifeSim
             int reference = car.catalogPrice > 0 ? car.catalogPrice : Mathf.Max(1, car.paidPrice);
             int tier = StreetTier(s.streetRep).idx;
             var playerSpec = CarCatalog.Get(car.specId);
+            return FillOpponentFieldFor(playerSpec, reference, tier);
+        }
+
+        /// <summary>
+        /// The field around a car that is not a SAVE's: a catalog spec, the
+        /// price it is judged at and a street tier. The career's field above is
+        /// this with the owned car's numbers; the CITY edition, which has no
+        /// career and no tier, races the same draw off the car on its picker.
+        /// </summary>
+        public static bool FillOpponentFieldFor(CarSpec playerSpec, int reference, int tier)
+        {
+            if (!CarCatalog.Ready) return false;
+            reference = Mathf.Max(1, reference);
             float playerVmax = playerSpec != null ? playerSpec.topSpeedMps : 0f;
 
             var pool = OpponentPool(reference, playerVmax, tier, out _);
@@ -1477,6 +1496,9 @@ namespace PSXRacing.LifeSim
             // problem, and the one thing it must not do is blow up the
             // player's own car by resolving to it.
             if (!RaceHandoff.FromLifeSim || RaceHandoff.TestDrive) return;
+            // The CITY edition drives a loaner off its car picker and has no
+            // career: touching LifeSimManager.State here would grow one.
+            if (!Edition.HasCareer) return;
             var s = LifeSimManager.State;
             if (s == null) return;
             var car = s.FindCar(RaceHandoff.CarId) ?? s.ActiveCar;

@@ -42,11 +42,24 @@ namespace PSXRacing
 
         public string Title => venue == Venue.Burger ? "STACK BURGER" : "SLICE HOUSE";
 
+        /// <summary>
+        /// Do the windows serve in this build? Not in the CITY edition: an
+        /// order is paid from the career's pocket and eaten against its health
+        /// (StoreScreen reads LifeSimManager.State, which is the career), and
+        /// the Charlotte test page has no career - CityFrontEnd's promise is
+        /// that none is ever created. The restaurants still stand in the city
+        /// (they are the CityProps the tiles place); they simply do not take
+        /// orders, and nothing prompts for one. The HUD's food signpost asks
+        /// the same question (RaceHUD.FoodCue).
+        /// </summary>
+        public static bool Serves => Edition.HasCareer;
+
         void OnTriggerEnter(Collider other) => TryClaim(other);
         void OnTriggerStay(Collider other) => TryClaim(other);
 
         void TryClaim(Collider other)
         {
+            if (!Serves) return;                     // CITY: a building, not a counter
             // The tank is the identity the pump looks for, so it is the
             // identity everything car-shaped looks for.
             var tank = other.GetComponentInParent<FuelTank>();
@@ -81,6 +94,7 @@ namespace PSXRacing
         void Update()
         {
             if (active != this) return;
+            if (!Serves) { Release(); return; }
 
             // A destroyed car (scene exit) or a stale claim lets go on its own.
             if (car == null || Time.frameCount - lastSeenFrame > 6)

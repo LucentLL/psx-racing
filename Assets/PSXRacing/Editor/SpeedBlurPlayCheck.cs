@@ -336,7 +336,7 @@ namespace PSXRacing.EditorTools
             string dir = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Screenshots");
             Directory.CreateDirectory(dir);
             var tex = SpeedBlurPreview.Doubled(px, rt.width, rt.height, rt.height < 400 ? 2 : 1);
-            File.WriteAllBytes(Path.Combine(dir, "speedblur_play_" + name + ".png"), tex.EncodeToPNG());
+            ShotSidecar.WritePng(Path.Combine(dir, "speedblur_play_" + name + ".png"), tex.EncodeToPNG());
             Destroy(tex);
         }
 

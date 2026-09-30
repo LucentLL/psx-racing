@@ -16,8 +16,13 @@ namespace PSXRacing
     /// actually drives rather than a hand-typed number that drifts.
     ///
     /// The scene list in Build Settings is [0] LifeHome then one scene per
-    /// entry here, IN THIS ORDER. <see cref="SceneIndex"/> is the only place
-    /// that contract is written down.
+    /// entry here. Since the editions (2026-09-28, see <see cref="Edition"/>)
+    /// a player build carries only its own edition's scenes, so a scene is
+    /// found by PATH (<see cref="SceneIndex"/>, <see cref="BuildIndexOfScene"/>)
+    /// rather than by its position. The CATALOG order is still a contract:
+    /// saves store venues by index, so entries are only ever appended, and a
+    /// venue another edition does not ship stays in the list and is filtered
+    /// (<see cref="Offered"/>), never removed.
     /// </summary>
     public static class TrackCatalog
     {
@@ -249,6 +254,9 @@ namespace PSXRacing
                 get
                 {
                     if (IsRoam) return 0f;   // an open city has no lap to measure
+                    // The other edition's stage or city race: its data is not
+                    // in this build. Zero, and NOT cached (see EnsureStage).
+                    if ((stage || city) && !Edition.Ships(this)) return 0f;
                     if (IsCityRace) { EnsureRoute(this); return routeLengthM; }
                     if (length < 0f) length = Sample(this, Spacing).Count * Spacing;
                     return length;
@@ -273,6 +281,10 @@ namespace PSXRacing
                     // a race the player will time at 402.
                     // A loop stage has no finish line to measure to: it is
                     // a lap, raced <see cref="laps"/> times like a circuit.
+                    // The other edition's stage or city race: no data in this
+                    // build, and a route cached before an editor simulation
+                    // must not answer for it either. Zero.
+                    if ((stage || city) && !Edition.Ships(this)) return 0f;
                     if (IsCityRace)
                     {
                         // Same shape as a stage: a loop is a lap times laps, a
@@ -300,6 +312,7 @@ namespace PSXRacing
             {
                 get
                 {
+                    if ((stage || city) && !Edition.Ships(this)) return -1;   // not in this build
                     if (IsCityRace)
                     {
                         EnsureRoute(this);
@@ -843,9 +856,9 @@ namespace PSXRacing
             //  descent could be a good sprint race", and "not every race needs
             //  to be a full circuit - you could take half of the Blowing Rock
             //  circuit and make it a sprint." SPRINTS, each with its twin (the
-            //  other direction), appended as ever. Two more waited in HeldBack
-            //  for the stage builder: NC 226 up to Gillespie Gap (appended,
-            //  v19) and Chimney Rock (still there: see HeldBack).
+            //  other direction), appended as ever. Two more - NC 226 up to
+            //  Gillespie Gap (v19) and Chimney Rock (v20) - waited in HeldBack
+            //  for the stage builder and were appended after these when ready.
             //
             //  The accurate Little Switzerland loop - the Parkway from
             //  Gillespie Gap to the village, NC 226A down the south face, NC
@@ -889,36 +902,27 @@ namespace PSXRacing
                 dragLabel = "THE GAP",
                 minCornerR = 8f,        // the turn onto the ramp at the gap, past the finish
             },
-        };
 
-        /// <summary>
-        /// BAKED AND HELD BACK: a venue whose bake and art exist but whose
-        /// stage the builder does not yet handle well enough to ship. The
-        /// stage lab (tools\stage-lab.ps1), the rail shots, the lane audit and
-        /// the self-test's roadside sweep build and measure what is in here.
-        ///
-        /// Chimney Rock. Size no longer holds it (the release budget took the
-        /// data to ~81 MiB; with it built in, 88.3 MiB). What holds it is its
-        /// ROADSIDE: the obstacle audit still fails four edge-face lines on it
-        /// (2026-09-29 verify: 1040-1041 L, 0.09 m at 5.6 m on the embankment
-        /// between the top switchback's legs; 983 R, 0.08 m at 7.7 m on a
-        /// natural 0.65 hillside past the foreslope's catch; 668 R, 0.06 m at
-        /// 7.25 m on a lattice facet between legs; 2 L past the reach, 0.08 m
-        /// at 8.85 m where its own ribbon ends over the land) - the owner's
-        /// rule is that roads meet the ground by DOT standards, and shipping
-        /// on those is his call, not the builder's. It was appended once
-        /// (4e02b49, save v20) and taken out again before anything was pushed,
-        /// so no v20 save exists anywhere.
-        ///
-        /// Not in <see cref="Authored"/> - a venue appended and then taken away
-        /// again would move every twin twice - until it passes; then appended
-        /// after Gillespie Gap, with a v20 remap like v19's (RemapV19Index by
-        /// identity, and RemapV18Index must leave it out of the v18 list as
-        /// well, or v18's index 19 reads CHIMNEY ROCK), and back into CarMeets'
-        /// touge venues.
-        /// </summary>
-        public static readonly TrackDef[] HeldBack =
-        {
+            // Chimney Rock's park road, out of HeldBack (2026-09-29): held
+            // for build SIZE (the release budget took the data to ~81 MiB,
+            // room for it), its hairpins built at the park road's real 6.1 m
+            // with the stage builder's end pads, square hairpin wall ends,
+            // rock tops carried to another leg's seam, the inside of a
+            // hairpin's carried slope eased down to the land where the fold
+            // stops it (ShoulderTuckCapSlope), a pad under the toe that
+            // crosses the apex over its pit (BuildApexPads), guardrails laid
+            // on the road's curve and dry-stone retaining walls under the
+            // top switchback's upper rail (08d044d). Appended - save v20
+            // (RemapV19Index). Appended once (4e02b49), held back again
+            // (cd63392) over four small edge-face ledges, and released on the
+            // owner's word ("Release now, fix after", 2026-09-29): those four
+            // ledges were a NAMED exception in the obstacle audit
+            // (TrackObstacleAudit.OwnerAccepted), each by station, side and
+            // height. Three were fixed the same day (the builder's rise holds
+            // and the end pad carrying the end row's shoulder); the fourth,
+            // 983 R, a hillside falling past the catch, by the fill the owner
+            // chose over a guardrail (the builder's fill tails, which also
+            // fill under 981-982 R's fan). The list is empty.
             new TrackDef
             {
                 id = "ChimneyRock",
@@ -948,6 +952,22 @@ namespace PSXRacing
                 minCornerR = 5.5f,
             },
         };
+
+        /// <summary>
+        /// BAKED AND HELD BACK: a venue whose bake and art exist but whose
+        /// stage the builder does not yet handle well enough to ship. Empty
+        /// since Chimney Rock went into <see cref="Authored"/> (2026-09-29,
+        /// save v20); kept as the place the next one waits, because the stage
+        /// lab (tools\stage-lab.ps1), the rail shots, the lane audit and the
+        /// self-test's roadside sweep all build and measure what is in here
+        /// as well. A venue is NOT appended to Authored and then taken away
+        /// again - that would move every twin twice - so a road waits here
+        /// until it is ready; then it is appended, with a save remap like
+        /// v20's (see <see cref="RemapV19Index"/>). (Chimney Rock did go back
+        /// in here once, cd63392, before anything was pushed; the owner
+        /// released it on 2026-09-29.)
+        /// </summary>
+        public static readonly TrackDef[] HeldBack = { };
 
         /// <summary>
         /// A reverse twin: the same venue driven backwards, named the way Gran
@@ -1160,10 +1180,80 @@ namespace PSXRacing
 
         public static TrackDef At(int index) => All[Mathf.Clamp(index, 0, All.Length - 1)];
 
+        /// <summary>
+        /// The index of a venue by id — or ZERO when there is no such id,
+        /// which is Sunset City GP. Kept for the callers that want exactly
+        /// that; anything that has to SKIP a missing or non-shipped venue asks
+        /// <see cref="TryIndexOf"/>, because "missing" and "the first circuit"
+        /// are the same number here (the blacklist and the meets both wrote
+        /// "a missing id is skipped" over a loop that could never skip one).
+        /// </summary>
         public static int IndexOf(string id)
         {
             for (int i = 0; i < All.Length; i++) if (All[i].id == id) return i;
             return 0;
+        }
+
+        /// <summary>The index of a venue by id, or false when the catalog has
+        /// no such id. Says nothing about the edition — see
+        /// <see cref="TryIndexOfShipped"/>.</summary>
+        public static bool TryIndexOf(string id, out int index)
+        {
+            for (int i = 0; i < All.Length; i++)
+                if (All[i].id == id) { index = i; return true; }
+            index = -1;
+            return false;
+        }
+
+        /// <summary>The index of a venue by id, when it exists AND this build
+        /// carries it.</summary>
+        public static bool TryIndexOfShipped(string id, out int index) =>
+            TryIndexOf(id, out index) && Edition.Ships(All[index]);
+
+        /// <summary>
+        /// A RACE VENUE THIS BUILD OFFERS: shipped in this edition, and not the
+        /// open city (FREE ROAM's door, never a race). What every picker, the
+        /// diary and the pre-race page step through. In the editor and in a
+        /// united build (ALL) this is exactly the old "not IsRoam" rule.
+        /// </summary>
+        public static bool Offered(TrackDef def) => def != null && !def.IsRoam && Edition.Ships(def);
+
+        public static bool Offered(int index) => index >= 0 && index < All.Length && Offered(All[index]);
+
+        /// <summary>The first venue this build offers — the fallback for a
+        /// save that points somewhere this edition does not go. Sunset City
+        /// GP (0) in MAIN and ALL.</summary>
+        public static int FirstOffered()
+        {
+            for (int i = 0; i < All.Length; i++) if (Offered(All[i])) return i;
+            return 0;
+        }
+
+        /// <summary>Step from <paramref name="from"/> by <paramref name="step"/>
+        /// (+1 / -1) to the next venue this build offers, wrapping. Returns
+        /// <paramref name="from"/> itself only when nothing else is offered.</summary>
+        public static int StepOffered(int from, int step)
+        {
+            int n = All.Length;
+            int idx = ((from % n) + n) % n;
+            int dir = step >= 0 ? 1 : -1;
+            for (int k = 0; k < n; k++)
+            {
+                idx = ((idx + dir) % n + n) % n;
+                if (Offered(All[idx])) return idx;
+            }
+            return from;
+        }
+
+        /// <summary>The scened venues <paramref name="edition"/> carries, in
+        /// catalog order: what that edition's player build ships and what an
+        /// audit run for that edition walks. ALL is <see cref="Scened"/>.</summary>
+        public static TrackDef[] ScenedFor(EditionKind edition)
+        {
+            if (edition == EditionKind.All) return Authored;
+            var list = new List<TrackDef>();
+            foreach (var d in Authored) if (Edition.ShipsIn(d, edition)) list.Add(d);
+            return list.ToArray();
         }
 
         /// <summary>
@@ -1221,8 +1311,12 @@ namespace PSXRacing
         /// A venue index from a v18 save, in today's list. v19 appended
         /// Gillespie Gap to the authored list, which moved its twins one place
         /// and the sprint sections after them two - so the shift is not one
-        /// number. Mapped by IDENTITY: the v18 list is today's without the
-        /// venues v19 added, and an old index is that list's id, found again.
+        /// number. Mapped by IDENTITY: the v18 list is today's list without
+        /// the venues v19 AND v20 added (every later append has to come off
+        /// it too, or the v18 list gains a venue it never had - with Chimney
+        /// Rock left in, v18's index 19 would read CHIMNEY ROCK and every v18
+        /// twin and sprint would land one place off), and an old index is
+        /// that list's id, found again.
         /// </summary>
         public static int RemapV18Index(int oldIndex)
         {
@@ -1230,7 +1324,8 @@ namespace PSXRacing
             {
                 var ids = new System.Collections.Generic.List<string>();
                 foreach (var d in All)
-                    if (System.Array.IndexOf(V19Added, d.id) < 0) ids.Add(d.id);
+                    if (System.Array.IndexOf(V19Added, d.id) < 0 &&
+                        System.Array.IndexOf(V20Added, d.id) < 0) ids.Add(d.id);
                 v18Ids = ids.ToArray();
             }
             if (oldIndex < 0) return oldIndex;
@@ -1242,6 +1337,34 @@ namespace PSXRacing
         static readonly string[] V19Added = { "GillespieGap", "GillespieGapRev" };
         static string[] v18Ids;
 
+        /// <summary>
+        /// A venue index from a v19 save, in today's list. v20 appended
+        /// Chimney Rock after Gillespie Gap: its twin went in after the other
+        /// twins (every twin but the new one stands, Gillespie's moved one
+        /// place) and every sprint section moved two. Same identity shape as
+        /// <see cref="RemapV18Index"/>: the v19 list is today's without the
+        /// venues v20 added. The id lists are read when this is CALLED, so
+        /// the order the static initialisers are written in does not matter.
+        /// </summary>
+        public static int RemapV19Index(int oldIndex)
+        {
+            if (v19Ids == null)
+            {
+                var ids = new System.Collections.Generic.List<string>();
+                foreach (var d in All)
+                    if (System.Array.IndexOf(V20Added, d.id) < 0) ids.Add(d.id);
+                v19Ids = ids.ToArray();
+            }
+            if (oldIndex < 0) return oldIndex;
+            if (oldIndex >= v19Ids.Length) return Mathf.Clamp(oldIndex, 0, All.Length - 1);
+            int now = IndexOf(v19Ids[oldIndex]);
+            return now >= 0 ? now : 0;
+        }
+        /// <summary>The venues v20 added. A Chimney Rock sprint section added
+        /// in the same release would join this list.</summary>
+        static readonly string[] V20Added = { "ChimneyRock", "ChimneyRockRev" };
+        static string[] v19Ids;
+
         /// <summary>A venue index from a v12..v17 save, in today's list. Same
         /// shape as <see cref="RemapV10Index"/>.</summary>
         public static int RemapV17Index(int oldIndex)
@@ -1251,36 +1374,149 @@ namespace PSXRacing
             return Mathf.Clamp(SceneCount + twin, 0, All.Length - 1);
         }
 
-        /// <summary>Build-settings index of a track's scene. Scene 0 is
-        /// LifeHome, so the tracks start at 1.</summary>
-        public static int SceneIndex(int trackIndex)
-        {
-            int i = Mathf.Clamp(trackIndex, 0, All.Length - 1);
-            // A reverse races in its twin's scene. Resolved by id rather than
-            // by arithmetic on the index, so the two lists can never drift.
-            var def = All[i];
-            if (def.Reversed) i = IndexOf(def.reverseOf);
-            // A sprint on a loop races in the loop's scene.
-            else if (def.IsSprintVariant) i = IndexOf(def.sprintOf);
-            return 1 + Mathf.Clamp(i, 0, SceneCount - 1);
-        }
+        // ------------------------------------------------------------------
+        //  Scenes, BY PATH
+        // ------------------------------------------------------------------
+        //
+        // Every scene index below used to be a FORMULA on its position in the
+        // build list (1 + authored index; SceneCount + 1 for the garage...).
+        // That held while every build shipped every scene. The editions do
+        // not (see Edition): MAIN leaves Charlotte's four scenes out and CITY
+        // leaves out everything but them, so a position is no longer a
+        // property of a scene — and LoadScene on a wrong index is a black
+        // screen with no error. So each scene is found by its PATH in the
+        // build that is running, and a scene this build does not carry
+        // answers -1, which every loader treats as "not in this build".
+        // Scene 0 is still LifeHome in every edition: it is the boot scene.
+
+        /// <summary>Where every scene lives.</summary>
+        public const string SceneDir = "Assets/PSXRacing/Scenes/";
+
+        /// <summary>The asset path of a scene, from its file name.</summary>
+        public static string ScenePathOf(string sceneName) => SceneDir + sceneName + ".unity";
 
         /// <summary>
-        /// Build-settings index of the walk-in garage.
-        ///
-        /// LAST, after every circuit, and that is the whole reason it is
-        /// expressed as a formula rather than as a number: the track scenes are
-        /// addressed by their position in this list, so a scene inserted
-        /// anywhere before them would send every race to the wrong circuit.
-        /// Adding one at the end costs nothing.
+        /// The build index of a scene in THIS build, or -1 when this build
+        /// does not carry it. In a player that is the player's own list
+        /// (SceneUtility); in the editor it is the enabled entries of
+        /// EditorBuildSettings, which is exactly the list LoadScene(int) reads
+        /// in play mode — walked by hand so an editor tool indexing
+        /// <c>EditorBuildSettings.scenes</c> and a play test loading by number
+        /// agree by construction.
         /// </summary>
-        public static int GarageSceneIndex => 1 + SceneCount;
+        public static int BuildIndexOfScene(string sceneName)
+        {
+            if (string.IsNullOrEmpty(sceneName)) return -1;
+            string path = ScenePathOf(sceneName);
+#if UNITY_EDITOR
+            if (EditorSceneListOverride != null)
+                return System.Array.IndexOf(EditorSceneListOverride, path);
+            int idx = 0;
+            foreach (var s in UnityEditor.EditorBuildSettings.scenes)
+            {
+                if (s == null || !s.enabled) continue;
+                if (s.path == path) return idx;
+                idx++;
+            }
+            return -1;
+#else
+            return UnityEngine.SceneManagement.SceneUtility.GetBuildIndexByScenePath(path);
+#endif
+        }
 
-        /// <summary>The pizza shop the delivery shift starts in. Appended after
-        /// the garage for the same reason the garage went after the circuits:
-        /// every index below it is addressed by position, so a new scene can
-        /// only ever go on the END.</summary>
-        public static int PizzeriaSceneIndex => 2 + SceneCount;
+#if UNITY_EDITOR
+        /// <summary>
+        /// Editor tooling only: resolve every scene against THIS list (one
+        /// edition's player list, PSXRacingBuilder.SceneOrder(edition))
+        /// instead of EditorBuildSettings, which is always ALL. The self-test
+        /// walks <see cref="DoorAudit"/> through each edition's list this way
+        /// - the nearest the editor can get to a player's own list. The
+        /// player's branch above (SceneUtility) is proved in the player itself:
+        /// DoorAudit runs at boot there, and tools\door-tour.mjs loads the
+        /// doors. null = EditorBuildSettings. Never left set: the caller
+        /// restores it in a finally.
+        /// </summary>
+        public static string[] EditorSceneListOverride;
+#endif
+
+        /// <summary>How many scenes THIS build carries (the player's list; in
+        /// the editor, <see cref="EditorSceneListOverride"/> when set).</summary>
+        public static int ScenesInBuild
+        {
+            get
+            {
+#if UNITY_EDITOR
+                if (EditorSceneListOverride != null) return EditorSceneListOverride.Length;
+#endif
+                return UnityEngine.SceneManagement.SceneManager.sceneCountInBuildSettings;
+            }
+        }
+
+        /// <summary>The asset path of build index <paramref name="buildIndex"/>
+        /// in THIS build, or "" past the end. The reverse of
+        /// <see cref="BuildIndexOfScene"/>, asked of the same list.</summary>
+        public static string ScenePathAt(int buildIndex)
+        {
+            if (buildIndex < 0 || buildIndex >= ScenesInBuild) return "";
+#if UNITY_EDITOR
+            if (EditorSceneListOverride != null) return EditorSceneListOverride[buildIndex] ?? "";
+#endif
+            return UnityEngine.SceneManagement.SceneUtility.GetScenePathByBuildIndex(buildIndex) ?? "";
+        }
+
+        /// <summary>Can this build index be loaded here? False for -1 and for
+        /// anything past the end — both of which LoadScene turns into a black
+        /// screen with no error.</summary>
+        public static bool SceneShipped(int buildIndex) =>
+            buildIndex > 0 && buildIndex < ScenesInBuild;
+
+        /// <summary>
+        /// Load a scene by build index if this build has it, and say so if it
+        /// does not. THE ONE GUARDED LOADER for anything that reaches a scene
+        /// through this catalog: a false return means nothing happened and the
+        /// caller must tell the player (the front end toasts).
+        /// </summary>
+        public static bool TryLoadScene(int buildIndex, string what = null)
+        {
+            if (!SceneShipped(buildIndex))
+            {
+                Debug.LogWarning("[TrackCatalog] " + (what ?? "scene") + " is not in this build (" +
+                                 Edition.Name(Edition.Current) + ", index " + buildIndex + ")");
+                return false;
+            }
+            UnityEngine.SceneManagement.SceneManager.LoadScene(buildIndex);
+            return true;
+        }
+
+        /// <summary>The id of the venue whose SCENE a track races in: its own
+        /// for a forward venue, its twin's for a reverse, the loop's for a
+        /// sprint cut from one. Resolved by id, so the lists cannot drift.</summary>
+        public static string SceneIdOf(int trackIndex)
+        {
+            var def = All[Mathf.Clamp(trackIndex, 0, All.Length - 1)];
+            if (def.Reversed) return def.reverseOf;
+            if (def.IsSprintVariant) return def.sprintOf;
+            return def.id;
+        }
+
+        /// <summary>Build index of a track's scene in this build, or -1 when
+        /// this build does not carry it (the other edition's venue). Scene 0 is
+        /// LifeHome, so a shipped track is always 1 or more.</summary>
+        public static int SceneIndex(int trackIndex) => BuildIndexOfScene(SceneIdOf(trackIndex));
+
+        /// <summary>
+        /// Build index of the walk-in garage, or -1 in a build without it
+        /// (CITY has no career and so no garage).
+        ///
+        /// It was a formula — LAST, after every circuit — for as long as a
+        /// scene was addressed by its position; it is found by path now, like
+        /// every scene here, and the order of the list no longer matters to
+        /// anything but LifeHome being 0.
+        /// </summary>
+        public static int GarageSceneIndex => BuildIndexOfScene("Garage");
+
+        /// <summary>The pizza shop the delivery shift starts in (MAIN).</summary>
+        public static int PizzeriaSceneIndex => BuildIndexOfScene("Pizzeria");
 
         /// <summary>
         /// The drivable town: your street, the forecourt, the shop, the
@@ -1295,12 +1531,12 @@ namespace PSXRacing
         /// map in the town's venue block. A scene on the end of the list needs
         /// none of that, and the town is never a race venue.
         /// </summary>
-        public static int TownSceneIndex => 3 + SceneCount;
+        public static int TownSceneIndex => BuildIndexOfScene("Town");
 
         /// <summary>The seller's driveway: a stranger's house with a car for
         /// sale on it. One baked scene, dressed at runtime per listing — see
         /// SellerLotWorld.</summary>
-        public static int SellerLotSceneIndex => 4 + SceneCount;
+        public static int SellerLotSceneIndex => BuildIndexOfScene("SellerLot");
 
         /// <summary>
         /// YOUR STREET: the player's house, its garage and its neighbours.
@@ -1311,11 +1547,10 @@ namespace PSXRacing
         /// corner of the town, which meant the game had one house you walked
         /// around in the front end and a different one you drove past.
         ///
-        /// On the END of the list, like every scene added since the circuits,
-        /// because everything below is addressed by position and a save stores
-        /// its venue by index.
+        /// Found by path like every scene now (see <see cref="BuildIndexOfScene"/>);
+        /// -1 in a build without it.
         /// </summary>
-        public static int NeighborhoodSceneIndex => 5 + SceneCount;
+        public static int NeighborhoodSceneIndex => BuildIndexOfScene("Neighborhood");
 
         // ------------------------------------------------------------------
         //  Stage bake loading
@@ -1383,6 +1618,14 @@ namespace PSXRacing
         public static void EnsureStage(TrackDef def)
         {
             if (!def.stage || def.stagePts != null) return;
+            // THE OTHER EDITION'S VENUE HAS NO BAKE HERE, by design: CITY does
+            // not ship the mountain stages' JSON. That is not a fault to log,
+            // and nothing is CACHED either — the editor simulates an edition
+            // and then goes back to ALL in the same session, and a token road
+            // cached here would outlive the simulation. Every metric of an
+            // unshipped stage reads zero (see LengthM, Sample), and no picker
+            // offers it.
+            if (!Edition.Ships(def)) return;
             var ta = Resources.Load<TextAsset>(def.stageData);
             if (ta == null)
             {
@@ -1454,6 +1697,10 @@ namespace PSXRacing
         public static void EnsureRoute(TrackDef def)
         {
             if (!def.IsCityRace || def.routeLoaded) return;
+            // MAIN does not ship charlotte_routes.json (see Edition). A city
+            // race there is a venue nothing offers: no error, nothing cached
+            // (the editor simulates editions and comes back), every metric 0.
+            if (!Edition.Ships(def)) return;
             def.routeLoaded = true;
             if (routesJson == null)
             {
@@ -1536,6 +1783,9 @@ namespace PSXRacing
             if (def.IsCityRace)
             {
                 EnsureRoute(def);
+                // Not in this edition: a token, as for the open city.
+                if (def.routePts == null)
+                    return new List<Vector3> { Vector3.zero, new Vector3(spacing, 0f, 0f) };
                 return new List<Vector3>(def.routePts);
             }
 
@@ -1544,6 +1794,8 @@ namespace PSXRacing
             if (def.stage)
             {
                 EnsureStage(def);
+                if (def.stagePts == null)   // the other edition's stage: no bake here
+                    return new List<Vector3> { Vector3.zero, new Vector3(spacing, 0f, 0f) };
                 if (Mathf.Abs(spacing - Spacing) < 0.01f)
                     return new List<Vector3>(def.stagePts);
                 // Nothing asks for a different spacing today; if something
@@ -1728,6 +1980,9 @@ namespace PSXRacing
         {
             f = default;
             if (def == null || def.IsRoam) return false;
+            // The other edition's venue has no data to frame, and a frame
+            // cached from a token road would outlive an editor simulation.
+            if (!Edition.Ships(def)) return false;
             string key = def.id + "|" + size;
             if (mapFrames.TryGetValue(key, out f)) return true;
 
@@ -1762,6 +2017,11 @@ namespace PSXRacing
             // whatever a third of the framebuffer is, and the self-test for
             // 96 — one cache slot per id handed the second caller the first
             // caller's picture at the wrong size.
+            // The other edition's venue: no map, nothing drawn, nothing cached.
+            // MAIN ships no charlotte_thumb and CITY no stage bakes, and a
+            // picture of a token road cached here would outlive an editor
+            // simulation of the edition.
+            if (def == null || !Edition.Ships(def)) return null;
             string cacheKey = def.id + "|" + size + (hud ? "|hud" : "");
             if (thumbs.TryGetValue(cacheKey, out var hit) && hit != null) return hit;
 

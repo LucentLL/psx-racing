@@ -89,8 +89,10 @@ What the exporter makes of it:
   lists `tools/clt/fetch_clt.mjs` verified on 2026-09-07 (every id still
   present). Uptown Loop 9.20 km (loop, 1.61 km on structure), Tryon Street
   Sprint 6.02 km, Independence Sprint 7.02 km.
-- **The ground**: a 60 m grid (811 x 916) over the whole beltway, each node
-  the MEAN of the 3DEP 1/3" pixels whose centres lie in its own 60 m cell,
+- **The ground**: a 30 m grid (1621 x 1831, PDEM v3 in delta-coded 1 km
+  blocks since WP-13; see that section) over the whole beltway, each node
+  the MEAN of the 3DEP 1/3" pixels whose centres lie in its own cell; until
+  WP-13 a 60 m grid (811 x 916), each node the mean of its own 60 m cell,
   with **no filter after it** (WP-04, 2026-09-28). Until then it was the skadi
   tiles run through an opening, a closing and a blur written to take out
   "roofs", on the belief that the source was radar with uptown's towers 200 m
@@ -177,15 +179,25 @@ The exporter writes nothing unless told where (2026-09-28):
   file's sha256 (about 10 s). `--check` says the shipped files are the
   export's output; this says the export is a function of its inputs.
 
-**Credits (WP-02, critic C17).** `tools/city/SOURCES.md`'s Credits table is
-also the source of the pause menu's **CREDITS** page (a row beside the column,
-under TOGGLE DEBUG INFO; `CreditsPanel` shows
-`Resources/psx_credits.txt`, wrapped to the column) and of **`LICENSES.txt`**,
-which the WebGL template carries into every build beside `index.html` and
-`build-and-publish.ps1` publishes with it (live: `/city/LICENSES.txt`).
-`node tools/city/credits.mjs --write` regenerates both; without `--write` it
-checks them. `tools/bench-preview.ps1` photographs the page at the three
-aspects and logs any clipped text.
+**Credits (WP-02, critic C17), per edition.** `tools/city/SOURCES.md`'s
+Credits table is also the source of the pause menu's **CREDITS** page (a row
+beside the column, under TOGGLE DEBUG INFO; `CreditsPanel` shows the build's
+own edition's page - `Resources/psx_credits.txt` for ALL,
+`psx_credits_main.txt`, `psx_credits_city.txt` - wrapped to the column), of
+the one-line credit on the CITY front page (`CityFrontEnd.Credits`, CITY's row
+of `Resources/psx_credits_line.txt`, made from the table's `short` column) and
+of **`LICENSES.txt`**, which the WebGL template carries into every build beside
+`index.html` (`LICENSES-MAIN.txt` / `LICENSES-CITY.txt` beside it;
+`PSXBuildWebGL.PickLicenses` keeps the build's own edition's) and
+`build-and-publish.ps1` publishes with it (live: `/city/LICENSES.txt`). A row's
+`shipped in` names the editions whose build carries its data (`CITY: ...;
+MAIN: ...`), so the CITY page credits OpenStreetMap, USGS 3DEP, Mecklenburg
+County GIS and USGS 3DHP and not the stages' terrain, and MAIN the reverse.
+`node tools/city/credits.mjs --write` regenerates them all; without `--write`
+it checks them; `--build <Build/WebGL>` checks a finished build carries its own
+edition's `LICENSES.txt` (the publish runs it before a deploy).
+`tools/bench-preview.ps1` photographs the page at the three aspects and logs
+any clipped text.
 
 **The other OpenStreetMap layers (WP-02, critic C19).**
 `tools/city/fetch/fetch_layers.mjs` fetches, in one step, the layers later
@@ -1599,6 +1611,982 @@ lines.
   (150 s): Uptown 2 retired at wp 249 into Roads as on WP-10 and f1e139e,
   Tryon 3 (lamp posts at lat +5.4 to +8.3, then traffic; WP-10 3),
   Independence 0.
+## WP-07 (2026-09-29): the draw-call prepay, the city kit, the lamp metal
+
+Nothing new to see: this package pays for the trees, poles and signs that
+come next. Branch `charlotte-scenery`.
+
+**The city prop variants** (`Editor/CityPropBaker.cs`, run by every
+`BakeCityProps`). The streamed city stands up a cheaper copy of the four
+props that cost it the most draw calls; everything else (the Emerald Isle
+beach town, the house, town and seller scenes) keeps the full prefabs. The
+copies live in `Resources/CityProps/City`, and `CityProps.CityPrefab` hands
+them to `CityWorld` (and to `CityPreview`).
+
+| Prop | Draws before | City variant |
+|---|---|---|
+| `house_simple` | 13 | 1 |
+| `trailer_00` / `_02` / `_05` | 9 / 10 / 10 | 1 each |
+| `burger_drive` | 355 | 37 from anywhere outside it |
+| `pizzeria` | 396 | 24 from anywhere outside it |
+
+- **Houses and trailers: one atlas each family.** The pack materials TILE
+  (a wall's UVs run to 8), so a plain atlas cannot hold them. Every vertex
+  carries its texture's cell in its COLOUR (texel corner and side in a
+  256 px sheet), and PSX/Lit's `PSX_ATLAS_RECT` variant wraps the UV inside
+  the cell with `frac()`. Point-sampled with no mips, the wrap is exact. The
+  cells are the pack textures themselves, resampled from their source files
+  (64 px, the busiest one 128 px); nothing is drawn. The foundation skirt
+  is folded in. `Art/City/Props/city_house_atlas.png`,
+  `city_trailer_atlas.png`.
+- **Two traps, both caught by the first render.** Medium mesh compression
+  quantises vertex colours to SIX bits, which moved every cell off its
+  texels (black seams down every repeat): meshes that carry cells are never
+  compressed, and the bake reads the cells back off the saved asset. And
+  the pack textures ship to WebGL as RGB565 (`ReleaseBudget`), which samples
+  without the sRGB decode; an atlas left at 24-bit sRGB drew every house a
+  fifth darker. The atlas takes the same WebGL override. After both, the
+  comparison sheet (`CityPropBaker.CompareShots`,
+  `Screenshots/City/props_compare.png`, full prefab beside variant from two
+  corners) measures a brightness ratio of 1.000-1.001 on every prop, and a
+  mean per-pixel difference of 2-3 levels in 255 (the 64 px cells).
+- **The restaurants keep being places** (plan critic C1). The shell is merged
+  by material (21 and 20 materials); the door leaves keep their own
+  renderers because they swing; every piece keeps its collider (248 and 71,
+  the same count as the full prefab); the order bay is untouched. What is
+  ROOM is decided by looking: rays from 24 bearings at 1.2, 3 and 7 m and
+  from above, to each piece's bounds; a piece no ray reaches without passing
+  another piece's collider goes behind `CityPropInterior`. The city props
+  wear opaque windows, the pickup window too, so the room can be seen only
+  from inside the building or through a door standing open, and those are
+  the only two things that switch it on: the camera or the player within
+  1 m of the room's box (the room pieces' own bounds, baked as `hull`; off
+  again past 2 m), or any of the building's hinged doors off its stop
+  (checked every frame, so the room is there the frame a leaf moves; a
+  door opens for the car within 3.4 m of it).
+- **The first cut switched on by distance, and the review caught it.** It
+  drew the room whenever the car or camera was within 40 m of the lot, and
+  the probe measured in edit mode with the room baked off. Its restaurant
+  eyes were 19-32 m from the lots, so the 342 and 429 saved draws described
+  a state the game never showed there: driving past on the fronting road
+  the burger cost 307 draws against 355 and the pizzeria 392 against 396,
+  and up to 280 room pieces went back into the sun map. The probe now
+  applies the runtime rule at its eye (`CityPropInterior.Apply(eye, car)`,
+  doors included), and adds a second eye per restaurant: the chase camera
+  of a car stopped where it orders (`CityPropBaker.BayStop`: the
+  drive-thru's lane beside the menu board, the pizzeria's kerb; the
+  pizzeria's bay box is centred INSIDE the shop).
+- **Proved by rendering, not by argument.** `CompareShots` now also writes
+  `Screenshots/City/room_check.png` and renders each restaurant with the
+  room off and on, counting the pixels that change. From 32 street eyes
+  round each lot (1.2 and 3 m up, 23-27 m out) at most 4 pixels in 144,000
+  change (the burger; 0 for the pizzeria). From the bay's chase camera and
+  the driver's seat looking at the building, 0 change for both. From inside
+  the building, 18% and 83% change, so the test can see a room when there is
+  one. The rule lights none of those outside eyes.
+- `city-play-check` runs both restaurants: stopped at the bay ORDER is
+  offered and the room stays off (door shut); the camera put inside the
+  building draws it and taking it back out behind the car removes it; a car
+  pulled up to a door swings it open and the room is drawn through it; 70 m
+  off the door shuts and the room goes, with the lot still standing.
+  (Charlotte has no getting out of the car; the walk-in rooms keep their
+  colliders and doors for when it does.)
+
+**The city kit** (`Scripts/City/CityKit.cs`, `Resources/CityKit.asset`).
+Every city runtime material in one Resources asset: the 96 slot materials,
+the lamp posts, the shaders they use (so WebGL keeps them), and empty
+places for WP-08's trees (one per season dress), WP-15's furniture atlas,
+WP-17's markings and WP-23's sign faces. `CityWorld` reads it; the scenes
+no longer serialize a materials array (`CityWorld.materials` is
+`[NonSerialized]`, for tools only). `PSXRacingBuilder.EnsureCityKit`
+rewrites it from `CityMaterials()` at every city scene build and every
+city tool run. **From here a new city material is a kit change, never a
+rebake of the four city scenes.** The four were rebuilt once here with
+`tools/city-rebake.ps1` (the city scenes and the prop variants only, about
+two minutes warm; it leaves the full build's log alone).
+
+**The lamp posts** wear pack metal: the house pack's `Metal.jpg` (already
+shipped with the house), UVs a metre a repeat, tinted so the posts land on
+the dark weathered tone they had as a flat tint (worked in linear light:
+the texture is RGB565, sampled without the decode).
+
+**Measured** (`city_budget.txt`, which now runs every site twice, with the
+variants and with the full prefabs, and adds the first drive-thru and the
+first pizzeria, each from its fronting road and from its order bay; the
+room switch applied at every eye, and it draws no room at any of the four):
+
+| Site | Most draws saved in one view |
+|---|---|
+| suburb 6 km (Randolph Rd) | 88 (target 20+) |
+| Providence Rd | 93 |
+| Dilworth | 24 |
+| burger lot, from its road (22.8 m from the room) | 342 |
+| burger, stopped in the order bay (2.8 m) | 328 |
+| pizza lot, from its road (19.3 m) | 429 (target 300+) |
+| pizza, stopped at the kerb (5.2 m) | 408 |
+
+Sun-map casters at the burger lot fell from 346 to 57 (the room's pieces
+cast only while it is drawn). The busiest view in the city is unchanged
+(200 draws, uptown). Tile build p95 over the nine sites: 69.0 ms against
+WP-04's 68.4 (+1%, inside the +15% ratchet), and 68.9 ms for the same
+tiles in the same run with the full prefabs (the first measurement, taken
+with 3-4 other Unity jobs on the machine, read 75.8 against 72.9: only the
+A/B inside one run means anything while the machine is shared). The probe now
+also prints each site's prop stand-up time, with every prop instantiated once
+both ways before it starts (the variants carry the full prefabs' own
+meshes and colliders, so whichever pass ran first paid their first load and
+MeshCollider cook): a restaurant lot 10.5 / 12.7 ms with the variants
+against 9.2 / 13.7 ms (burger / pizza lot, within the run's noise); 25
+suburb houses 5.4 against 2.0 ms (about 0.1 ms a house, left for now). Map heap 18.3 MB (18.2 at WP-04). WebGL.data 81.40 -> 81.67 MiB
+(+0.27, the package's budget 0.3).
+
+**G-web.** A local WebGL build of the branch (`build-and-publish -SkipScenes
+-SkipDeploy -PagesDir city` after a full scene build, GUID audit OK, served
+from 127.0.0.1): FREE ROAM CHARLOTTE loads (`[City] parsed in 116 ms,
+elevation solved in 470 ms`, `buildings placed: 5625 (+10 restaurants ...)`),
+no console errors, no missing-kit or missing-variant warning; the build log
+shows PSX/Lit compiled for gles3 with both variants (plain and
+`PSX_ATLAS_RECT`).
+
+**A sandbox trap met on the way.** 221 of the committed `.mat.meta` files in
+`Materials` have no `.mat` beside them (the scene build makes those), so every
+sandbox mints its own GUIDs for them. Copying `Materials` from a fresh
+worktree (every mtime new, so `/XO` lets it all through) put the source's
+GUIDs back over 219 of them and broke every prefab and scene that used them;
+`city-rebake.ps1` does not copy `Materials`, and a full scene build puts a
+sandbox right.
+
+## WP-08 (2026-09-29, release R3): the trees
+
+The owner, after driving it: "its all so barren and flat". The city had not
+one tree; now each 256 m tile plants the trees the present-day canopy map
+says it has, a typical tile 150-300 and a wooded one 400. Branch
+`charlotte-scenery`.
+
+**The canopy map** (`Resources/charlotte_canopy.bytes`, PCAN v1, its own file
+so the lines release can re-export the road data without touching it). The
+USDA Forest Service's NLCD Tree Canopy Cover, v2025.6, the 2024 layer (the
+owner's PRESENT DAY; public domain, credited on the CREDITS page and in
+`LICENSES.txt`). `tools/city/fetch/fetch_canopy.mjs` asks the USFS image
+service on the Interagency Imagery Portal for exactly that raster over the DEM
+box, in its own Albers projection and pixel lattice, uncompressed, and caches
+it (4.4 MB, gitignored). `tools/city/canopy.mjs` averages it onto the DEM's
+own 60 m lattice (4 x 4 samples a cell, `lib/canopygrid.mjs` projects each to
+Albers, checked against the ArcGIS geometry service to 0.9 m) and stores it in
+4-point steps: 743 KB raw, **393 KB Brotli** (536 KB in whole percent).
+`--check` rebuilds it byte for byte. The box averages 39.8% canopy, the 8 km
+core 23.8%, the square kilometre round uptown 5.1%. `CityCanopy` reads it.
+
+**What is already beside the road** (`Scripts/City/RoadsideOccupancy.cs`): a
+2 m mask per tile, built once, that every roadside object asks before it
+stands (the plan's one occupancy mask; poles and signs take their places from
+it in later packages). It reserves the pavement and the clear zone past it
+(freeway 9 m, trunk 6, arterial 3.5, collector 2.5, local 2, a ramp 4.5), each
+junction's fan, at every corner of a real junction a sight triangle with 10 m
+legs along the two kerb lines and a furniture spot behind the corner, the
+real footprints, the procedural and prop lots (a restaurant's with 10 m of
+lane, bay and parking round it: the first plant put a trunk in the
+pizzeria's order bay, which the budget probe's bay camera found), the fill
+houses, the lamp feet, creeks and lakes, and the ground under every deck.
+Every mark is widened by half a cell's diagonal, so any point of a free cell
+is clear. **The road's edges are read in one place**, `RoadEdgeAt` (the
+centreline and drawn half width at an arc position): the lines release
+replaces that one body, and everything placed from the mask re-seats with
+the lines. 1.0 ms a tile in the editor.
+
+**The trees** (`Scripts/City/CityTrees.cs`). Each 16 m square of a tile
+plants canopy x 256 m2 / 95 m2 (the plan's crown) trees on the free cells of
+the mask, never two trunks within 6 m; what the road squares cannot plant is
+planted in a second pass on free ground within 14 m of a carriageway (the
+canopy the map shows over a street is the crowns of the trees beside it);
+along every grounded freeway two rows of hardwoods stand just past the clear
+zone where the canopy map has woods, a tree every 7 m, out of the share of
+the square they stand in (the tree walls). Every choice is a hash of the
+square's (or the freeway station's) global index, and a square belongs to one
+tile: the same trees on every build, none twice across a seam, and nothing
+depends on which tile was built first. Species by place: willow-oak rows in
+the old city (inside 4.5 km of uptown), 45% pine in the suburbs past it,
+crape myrtles along the commercial arterials, sycamores by the creeks, now
+and then a bare one. They wear the stage forest's five season atlases (the
+owner's CC0 retro tree pack, already shipped: 0 MB), one material per dress
+in the city kit, chosen by the calendar. Broadleaf 11.5-16 m (a crown of
+about 118 m2: at 95 m2 the crowns, which overlap where they are planted at
+random, drew 5-7 points less canopy along the roads than the map has), pines
+15-22 m. Two crossed cards a tree, one mesh a tile on the Foliage layer: one
+draw and one sun-map caster a tile. Phones plant 60% (the owner's lower
+tier, `Application.isMobilePlatform`).
+
+**No leaves in a lane.** A third of the billboards paint foliage to the
+ground. The kit measures each atlas cell off the five PNGs (how far the
+painted tree reaches out from its trunk below each twentieth of its height,
+the widest of the dresses), and a tree whose card could reach a road is
+turned to 45 degrees to it and grown, shrunk or given another billboard of
+its species until what it paints below 4.2 m over EVERY road near it stays
+0.4 m off the pavement; failing that it is stood back by as much. The first
+version trusted the stage forest's "foliage starts at 28% of the height" and
+the first shot of Dilworth Road put an orange maple across the lane at eye
+height.
+
+**Big trunks stop cars; small trees break away** (Q15: the plan's default,
+which the owner kept - trunks of 30 cm and up solid, small trees breakaway).
+A tree's trunk diameter comes from its height (an open-grown hardwood about
+4 cm a metre less 15, a pine grown in a stand 2.5 cm a metre less 12: a 12 m
+willow oak 33 cm, a 15 m pine 26 cm); crape myrtles (a clump of thin stems),
+dead snags and the young understory trees break away whatever their height.
+A trunk of 30 cm or more within 25 m of a carriageway is solid, and goes to
+the city's trunk table, `CityWorld.Trunks` (the plan's
+`TreeTrunks.AddTable/RemoveTable`): each tile hands its trunks over when its
+trees are planted and takes them back when it is dropped, and the table
+stands a capsule (4 m tall, radius off the card, on objects named
+`TreeTrunk`) only in the 40 m cells round each car, one cell a physics step,
+exactly as a stage forest's. A tile build stands no trunk collider at all.
+
+**Not in race run-off** (`Scripts/City/RaceRunOff.cs`, plan section 5).
+Along the Uptown Loop, Tryon and Independence routes the mask keeps 8 m
+past the drawn edge clear on both sides, and 16 m on the outside of every
+bend (the heading turning 12 degrees or more over 32 m), worked out once
+from the routes' edge chains with the half width read through `RoadEdgeAt`,
+and marked as clear zone. An arterial's own clear zone (3.5 m) is sized for
+a driver at the limit, not a racing car running wide.
+
+**On a frame of their own** (WP-09's third stage, for the trees only). A
+tile's trees are not planted in its build: `EnsureTile` queues them with the
+lattice its build cached (`CityMeshes.TakeLattice/PutLattice`, so they stand
+on the same triangles without GroundY at every corner again, which doubled
+the planting), and `CityWorld.Update` plants the nearest waiting tile on a
+frame that built no tile. A tile a car is in plants at once, and
+`EnsureRing` (spawns, race grids, the tools) plants its ring before it
+returns. The FPS overlay's CITY line counts a tree frame like a tile build.
+
+**Checked:**
+
+- **TreeAudit** (in `CityAudit`, and alone as `CityAudit.RunTrees`, about a
+  minute): 514 tiles (the plan's shot spots with their neighbours and every
+  9th tile of the network), 126,257 trees. Against the geometry measured
+  again, not the mask: 0 trunks on pavement, in a clear zone, in a fan, in a
+  building, lot or fill house, in water, under a deck or on a reserved cell;
+  0 cards painting leaves over a road below 4.2 m; 0 outside the tile that
+  planted them; the same trees on a second build. Planted against what the
+  canopy asks: median 1.00, 483 of 490 tiles within +-20% (the lowest, 0.46,
+  a tile that is mostly water). Canopy within 25 m of the centreline by
+  class, the crowns against the 30 m map over exactly the audit's sample
+  points (`canopy.mjs` prints the truth table): secondary 9.8% against 13.0,
+  motorway 11.4 / 14.9, core arterials 6.2 / 8.1, core residential 28.8 /
+  31.0, every one within the plan's 5 points. (The shipped 60 m grid reads
+  15.2 / 23.9 / 8.9 / 31.4 at the same points: its cells smear the woods
+  beside a freeway over the freeway.)
+  After the review: 614 tiles (the 514 and the 100 tiles the three race
+  routes run through), 136,186 trees; 0 in a route's run-off (measured
+  against the route marks); Q15 holds for every tree (11,239 solid: oak
+  5,093, hardwood 3,946, pine 1,945, sycamore 255; no crape myrtle or snag;
+  3,783 within reach of a road break away); the canopy bands unchanged
+  (9.9 / 11.4 / 6.2 / 28.9 against 13.0 / 14.9 / 8.1 / 31.0).
+- **city-play-check** drives the real car at the trunks nearest Queens Road
+  West in Myers Park, dead on and 0.9 m to the side at 50 km/h: all eight
+  runs stop the car (it arrives at 52-53 km/h and leaves at 0-10), none
+  with the trunk inside its body. "Inside" is judged against the car's own
+  collider (a 1.45 x 1.02 x 3.20 m box), which the check now reads off the
+  car: the stage harness's generic 4.1 m box put the two thinnest trunks
+  "inside" a nose the car does not have. The first runs found a trunk in
+  the pizzeria's order bay (hence the lot margin) and the run-up raycast
+  starting under the city's ground (world y is 97 m ASL down). Since the
+  review it takes its trunks from the table and checks each was stood once
+  the car was beside it: 8 of 8 stopped (52-53 km/h in, 0-10 out), 52
+  capsules standing round the car where 123 solid trunks are within 150 m.
+- **race-play-check on the three city routes** (review; G-play): 5 seeds a
+  route, each raced with the trees and without (`-Venues ... -Seeds 0,1,2,3,4
+  -Trees ab`, 30 races of 150 s in one launch, about 75 minutes). **No car
+  hit a tree trunk in any of the 30** (hits into `TreeTrunk` counted from
+  6 m/s). Rivals retired, trees on against off: Uptown Loop 7 / 8, Tryon
+  13 / 11, Independence 5 / 5, all 25 / 24 of 45 starts. The two runs of a
+  seed are identical until something differs in frame timing (a tree frame
+  shifts what the traffic draws), then diverge: Tryon's two extra were a
+  rival into traffic at 77 s and, in seed 4, a different chain after a car
+  contact at 18 s - neither near a tree. What does retire them is older than
+  the trees: 62 hard hits into other racers, 57 into traffic (most in the
+  first 30 s: C18's grid clearance), 33 into lamp posts on Tryon (poles in
+  race run-off: plan section 5, the lamps' own package), 5 into barriers.
+  19 of the 30 races fail the check's own "at most one rival retires",
+  with trees and without alike.
+- The DRIVE AUDIT's five zeros and the roadside audit's zeros are unchanged
+  (the trees are not in the tiles the drive audit stands up; they stand on
+  their own in EnsureTile).
+- Reference spots against WP-07 (`Screenshots/City/ref_wp08`), and the
+  trees in all five dresses at three spots (`Screenshots/City/trees`,
+  `CityRefSpots.RunTreeDresses`).
+
+**Measured** (`city_budget.txt`; its A/B builds each site with trees and
+then without, back to back).
+
+The first version planted the trees and stood their capsules inside the tile
+build: the trees' own share of a tile was 2.6-4.9 ms at p95 by site, and
+8.0-11.2 ms in the old city (Tryon, Dilworth, Plaza Midwood), about 3 ms of
+it `AddComponent<CapsuleCollider>`, against the plan's +1.5 ms. Its headline
+"tile p95 81.8 -> 82.1 ms" was one of three noisy A/B runs (the others read
++14% and +24%), and the baseline was moved from WP-07's 69.0 ms to 82.1 on
+it. The review's answer:
+
+| | with trees | without (same run) |
+|---|---|---|
+| tile build, all 225 tiles | p50 23.3, p95 73.2 ms | p50 23.8, p95 78.8 ms |
+| the trees' own frame, all tiles | p50 2.1, p95 4.9, max 13.6 ms | - |
+| the trees' own frame, p95 by site | 2.3-3.3 ms (freeways, suburbs, the restaurant lots); 4.6-4.8 (uptown, Tryon); 5.5-6.5 (Dilworth, Plaza Midwood) | - |
+| draws in a view | +7 to +12 (one a tile in view; the most at Plaza Midwood) | - |
+| sun-map casters in the ring | +25 (one a tile) | - |
+| colliders on the tiles | +0 (the table stands the trunks round the cars: 52 capsules at Myers Park, where 123 solid trunks are within 150 m) | - |
+| worst view | 209 draws (uptown) | 200 |
+
+The tile build no longer carries the trees at all (same code with and
+without: the 5.6 ms between the columns is the machine, shared with other
+Unity jobs), so the plan's "tile p95 +1.5 ms at most" holds by construction,
+and the tile-build ratchet stays WP-07's 69.0 ms. The trees cost a frame of
+their own, never the same frame as a tile build, at 5.5-6.5 ms at p95 in the
+old city: the planting was also cut (the fit test stops at the first road a
+card would hang over and skips a road the leaves cannot reach, the kit's
+table is read once a tile, the second pass looks only 14 m for a road, the
+normals are handed over): at Dilworth planting went from 7.2 to 5.3 ms at
+p95, and the trees' whole cost from 10.3 to 5.5. The in-view
+draws are past the plan's +10% ratchet at the sparser sites (Beatties Ford
+27 -> 36), which WP-07's prepay was for (88 draws saved in a suburb view,
+300+ at a restaurant). The phone reading (FPS overlay CITY line at Queens
+Road West, critic C30) is the owner's to take; the line now counts tree
+frames too.
+
+**Size.** `charlotte_canopy.bytes` +393 KB Brotli (the plan's 0.3-0.5 MB);
+the tree materials are 5 small .mat files over atlases the stages already
+ship (the Build Report lists each `TreeAtlas*.png` once: not stored twice,
+critic C34). `charlotte_city.bytes` changes only in its attribution (the
+USFS credit line; every other section byte-identical). WebGL.data 81.67 ->
+82.25 MiB (+0.58: the canopy grid as Unity compresses it, and the code),
+the largest file 82.25 MiB, under the 95 MiB ratchet (`size-ledger.py` now
+counts the canopy file with the rest of Charlotte's data).
+
+**G-web.** A local WebGL build of the branch (`build-and-publish -SkipScenes
+-SkipDeploy -PagesDir city`, BUILD OK, GUID audit OK), served from
+127.0.0.1: a new career on 1 January (the SNOW dress), out of the drive to
+the end of the street, FREE ROAM CHARLOTTE loads (`[City] parsed in 108 ms,
+elevation solved in 365 ms`), no console errors and no missing-canopy or
+missing-kit warning, and the trees stand along South Tryon in their snow
+dress. The CREDITS page shows the USFS line without clipping.
+
+## WP-13 and WP-14 (2026-09-29, release R5): the 30 m ground, and the land graded to the road
+
+The owner, after R1: the hills read as a road on a flat strip. They did.
+`CityElevation.Ground` held every grounded road's land flat for 11.5 m past
+the pavement, then blended it to the DEM over 26 m more. On a hillside, that
+is a shelf 23 m wider than the road. Branch `charlotte-roadside`.
+
+**WP-13: the ground on a 30 m grid.** USGS 3DEP 1/3" is averaged over 30 m
+cells: 1621 x 1831 nodes, which are the old 60 m lattice's nodes plus the
+midpoints between them.
+- **Storage.** `charlotte_dem.bytes` is PDEM v3 (`tools/city/lib/pdem3.mjs`):
+  - the v2 header, then 1 km blocks of 32 x 32 cells (33 x 33 nodes, one
+    node shared with the next block), a block index, and per node a zigzag
+    varint residual against a planar prediction;
+  - decimetres above the 97.0 m datum, as before;
+  - 3.17 MB raw, 2.04 MB Brotli (the 60 m grid was 1.49 / 0.78, so
+    +1.26 MB against the plan's +1.9).
+- **Why no deflate.** The plan's deflated blocks would have needed an
+  inflater proven on IL2CPP WebGL. The build's own Brotli compresses the
+  residuals better (2.04 MB against 2.14 MB for raw deflate), and the
+  reader is plain C#.
+- **Reading it.** `CityElevation.LoadDem` keeps only the compressed bytes.
+  `BaseY` decodes a block the first time a query lands in it, into a
+  128-slot cache (279 KB). A cell never straddles two blocks. v1 and v2
+  files are still read. The DEM holds 3.3 MB, against 1.4 MB for the
+  60 m array.
+- **The roads still read a 60 m grid.** `BuildRoadDem` rebuilds it from the
+  30 m nodes with [1/4, 1/2, 1/4] weights each way, then applies the same
+  0.8-cell Gaussian.
+  - The transient array stays 3 MB, where a 30 m road grid would be 12 MB.
+  - A 60 m cell's own pixels cannot be recovered from 30 m cell means, so
+    the roads' ground moved 0.17 m RMS (p99 0.54 m). The spawn seats moved
+    by 0.09 m at most.
+  - `metrics.mjs` emulates this through `citydata.roadGridSteps`.
+  - The canopy map stays on the 60 m lattice: `canopy.mjs --check` is
+    still byte for byte.
+- **metrics.mjs, 60 m grid -> 30 m grid:**
+
+  | Measure | 60 m | 30 m | Plan |
+  |---|---|---|---|
+  | Core relief kept | 0.77 | 0.90 | >= 0.85 |
+  | Core slope p90 | 7.2% | 9.4% | >= 9% |
+  | Core RMSE against 3DEP 10 m | 1.01 m | 0.74 m | <= 0.6 m (**not met**) |
+
+  The core RMSE carries a 0.32 m bias that is identical on both grids, so it
+  is the truth's registration, not the grid. Without it the RMSE is 0.67 m.
+
+**WP-14: roadside sections** (`RoadsideRules`, the city block). Each side of
+a grounded road now takes its road's section:
+- **Bench.** The land stays at the road's pin (the tarmac less the 10 cm
+  sink and the sag allowance) across the bench. Freeway or expressway 8 m,
+  arterial or ramp 4.5 m, local street 2 m (`CityBenchM`).
+- **Fill.** From the bench the land falls at 1V:4H to the natural land
+  (`CityFillSlope`). This is the road's FLOOR, and the highest floor holds,
+  so an upper road's verge is never graded down onto a neighbour's ledge.
+- **Cut.** The land stays at the pin across 8.5 m, then climbs at the 1V:3H
+  back slope (`RoadsideRules.BackSlope`, which the city now uses) to the land.
+  - 8.5 m is the 8 m lattice's width, not a design width (`CityCutBandM`).
+  - A lattice triangle whose far corner is d metres out and whose near
+    corner is under the pavement crosses the edge with at most
+    (11.31 - d) / 11.31 of that corner's rise. With the rise (d - 8.5) / 3,
+    that is never more than 6 cm, inside the 10 cm sink.
+- **Cap.** No grass through a lower road's lanes: the lowest cap holds. The
+  cap is the pin across the band, the back slope out to 11.31 m, and nothing
+  past that.
+- **Bank (fix round).** A section runs at its own slope until it meets the
+  land. One too deep to meet it by its REACH (`CityElevation.SectionReachM`:
+  where the ground query stops seeing the road, 50 m less the road's edge,
+  at most 44 m) steepens to a 1V:2H bank (`RoadsideRules.CityBankSlope`)
+  for its last stretch, anchored on the land at the reach, and ends exactly
+  there. `SectionFill` / `SectionCut` are the one definition; Ground, `InCut`
+  and the probes read them.
+  - It replaced a smoothstep fade over 20-32 m, which the review worked out
+    at 1V:1.2H for a 10 m fill and 1V:1.3H for a 10 m cut, steeper than the
+    old 26 m blend.
+- **The pavement edge** is read through one accessor,
+  `CityMap.Edge.PaveEdgeM(at, side)` (with `SideOf` / `SideAt`): the
+  section, `InCut`, the land and ground probes and the play check's
+  run-off. Today it is half the width either side; R4 (plan A8, a lane
+  added on one side) replaces its body.
+- **The verge falls at 1V:4H** past its shoulder (it was 1V:6H across the
+  clear zone). That is the fill's own slope, and its search runs 12 m, so it
+  comes down onto a fill whose lattice chord sags under the section.
+- **Retaining walls** (`InCut`, freeway outside edges) stand only where the
+  graded cut cannot fit. The DEM guard must pass (2 m at 4, 8 and 12 m), and
+  then either even the 1V:2H bank would have to start inside the band (over
+  the road's own level), or a road more than 2 m above, or a building,
+  stands in the slope before it meets the land. The audit prints wall
+  metres by cause.
+
+What the land does now, from `Editor/CityLandProbe.cs`. The same file runs
+on both codes; grounded non-ramp edges, every 10 m, both sides. "Flat" means
+the land is within 0.25 m of the road; "kept" is the share of the natural
+rise or fall left after grading.
+
+| Where | Measure | City-r1 (3f27ead) | R5 |
+|---|---|---|---|
+| 8 named streets, 124 km | flat at 10 m past the edge | 88% | 42% |
+| 8 named streets, 124 km | kept at 10 m | 0 | 0.28 |
+| 8 named streets, 124 km | kept at 15 m | 0.20 | 1.00 |
+| 8 named streets, 124 km | kept at 20 m | 0.50 | 1.00 |
+| The three routes, 17 km | flat at 10 m | 80% | 41% |
+| The three routes, 17 km | kept at 15 m | 0.23 | 0.39 |
+| The three routes, 17 km | kept at 20 m | 0.49 | 0.70 |
+
+Within 5 m of the edge nothing moved. That is the bench, and on the uphill
+side the lattice's band.
+
+**The city audit** (PSXShip, `city-cycle`): CITY AUDIT OK, the DRIVE AUDIT
+zeros held.
+- Roadside audit green: 198.6 km of verge, 43.2 km of rail (43.5 before),
+  pits 8360 -> 4132, every one with a rule.
+- Cut walls on the 118 roadside tiles: 1.07 -> 0.41 km (the plan: at least
+  50% less). By cause: 210 m where the back slope cannot reach the land,
+  188 m where a road above stands in the slope, 10 m for a building.
+  - Fix round (the 1V:2H bank): 0.32 km, all of it a road above in the
+    slope; no cut on the audited tiles is too deep for the bank.
+- The land beside the routes, |land - road| p90: 3.81 m at 30 m and 5.57 m
+  at 60 m, with 40% of points more than 2 m off the road at 60 m. That meets
+  the plan's table with critic C22's 30 m target, now a check.
+- The known roadside spots went from 6 to 2 (3 before the fix round):
+  - four are graded away (the ramp e1489's face in its cut, the lip at e9314,
+    the ledges on North Caldwell Street and on ramp e2858);
+  - two are deck-rail gaps;
+  - one was new with WP-13: a 0.49 m ledge off I-77 (e2739) beside the ramp
+    e5219. It was first listed for R4; the review refused that, and the fix
+    round FIXED it in the builder. The ramp runs 3.7 m off I-77 and
+    0.98-1.00 m above it. `Ungraded` railed a verge stopped by a road more
+    than `OpenDropM` (1.0 m) below, so the ramp's side flickered between a
+    rail on a retaining face (1.00 m up) and a graded connector (0.98 m up),
+    and the connector's end stood proud beside the wall. A connector that
+    reaches the road below at no more than the traversable 1V:3H is now
+    graded ground whatever its depth (`TraversableConnector`): the ramp's
+    side is one graded slope. The list is down to 2 (the deck-rail gaps);
+    rail on the audited tiles 43.2 -> 42.9 km, verge 198.7 -> 199.0 km.
+- Two WP-13 leftovers were fixed in the builder:
+  - Bryant Street's rail on a retaining face over a graded creek bank: the
+    verge now falls at 1V:4H.
+  - e5252's 0.29 m step to e9986's pavement, which was a 0.32 m ledge onto
+    e9986's verge: `Ungraded` now measures to the neighbour's verge, and the
+    edge takes its rail.
+
+**Budget.** `CityBudgetProbe` was run back to back on city-r1 and on R5,
+under the same machine load:
+- Tile build p95 125.4 -> 90.4 ms, and 89.6 -> 78.8 ms without trees. Under
+  that load this is noise; in any case there is no increase.
+- Draws unchanged; worst view 209.
+- Map heap 18.8 -> 19.2 MB. This reading swings about 3 MB between runs of
+  the same code, because Unity's conservative collector keeps or drops the
+  solve's 3 MB road grid.
+- The DEM: +1.9 MB.
+
+**Play.** `city-play-check -Edition CITY -NoWatch` passes (PSXShip).
+- **New drive-off stage.** A car leaves a race route at 25 m/s and 15
+  degrees onto the graded roadside. Spots are found from the solved ground,
+  only where the road's own section grades the land, with nothing solid in
+  the run. Five spots ran: 2 fills, 1 cut and 2 level verges, on I-277 and
+  North Tryon. Across the race run-off each one came through with no speed
+  lost to a hit, stayed upright (up >= 0.82) and left no drop (at most
+  0.4 m of air).
+- **The first run found a real trap.** Beside I-277 (e1482) under South
+  Boulevard's bridge approach, the embankment's fill held the land 2.3 m up
+  12 m out, and I-277's cap ended at 11.31 m, so the car stopped dead on the
+  step. The stage now leaves out spots where another road's floor or cap sets
+  the land: two roads meeting like that is the rail warrant's business, not
+  the section's.
+- **WP-08's trunk runs, adjusted.**
+  - Their run-ups must now be level (0.25 m across a 12 x 2 m strip).
+    Graded banks rolled the car.
+  - The off-centre run is held on its line at 0.6 m (it was 0.9 m, unheld).
+    At 0.9 m, a 1.55 m car overlaps a 0.3-0.4 m trunk by only 0.13-0.23 m,
+    so the drift across the run-up decided hit or miss. With the line held,
+    such a hit glanced off at 12-16 km/h.
+  - All four trunks tried stop the car, dead on and off-centre.
+
+**Not shipped: a cut's bank from the shoulder.** On the uphill side the
+land is still level for 8.5 m, because the lattice needs that band. The fix
+is a verge that climbs from its shoulder straight to the lattice's tangent
+point, over the band. It was built (in `SolveStrip`, asked for by
+`EmitSide`), in three rounds:
+- Round 1 put land over lanes at 16 DRIVE AUDIT probes. It climbed into the
+  lanes of ramps a metre up, which `ClearRun`'s level-verge rule calls
+  decks.
+- Round 2 bounded it by the bend radius and kept it 20 m off edge ends and
+  off clipped sections. It still failed the same way.
+- Round 3 stopped it at every pavement, and the audit went green. The shots,
+  though, showed fins where a bank cross-section meets a plain one: State
+  Street's right side has a sawtooth face 30 m out.
+
+So it was reverted. It belongs with WP-21's verge strips (swales, ditches),
+which need the same five-point cross-section a bank-with-transition needs.
+The code is in the session's scratchpad for that package, not in the branch.
+
+**G-web.** The CITY player was built locally (`build-and-publish
+-SkipScenes -SkipDeploy -PagesDir city`, after a scene build). Results:
+- BUILD OK, GUID audit OK, WEBGL CONTENTS OK.
+- `WebGL.data.unityweb` is 40.04 MiB. The ALL build it compares with
+  (82.25 MiB at WP-08) grows by the DEM's +1.26 MB, well under the 95 MiB
+  ratchet.
+- Served from 127.0.0.1 and opened in the browser pane, FREE ROAM
+  CHARLOTTE loads: `[City] parsed in 151 ms, elevation solved in 599 ms`,
+  with no console errors or warnings.
+- The solve is about 0.23 s slower than WP-08's 365 ms, because the 60 m
+  road grid is rebuilt from the 30 m blocks at load.
+
+Fills are 1V:4H from the bench, so the land 3.5 m past the bench is at most
+0.9 m under the road. No fill is 2 m deep inside the clear zone, and WP-24's
+list of fills needing a rail is empty by construction.
+
+**The review's fix round (2026-09-29).**
+- **Faces are measured now.** `CityLandProbe` walks the ground every metre
+  to 48 m past the edge and counts 4 m stretches steeper than 1V:2H and
+  steeper than the DEM there: "section" where this road's own fill or cut
+  sets the ground, "two roads" where another road's floor, cap or deck does.
+  Same file on both codes (city-r1 given only the accessor):
+
+  | Where | Section faces, city-r1 | Now | Two-road faces, city-r1 | Now |
+  |---|---|---|---|---|
+  | Three routes, 3472 station-sides | 38 (1.09%) | 8 (0.23%) | 235 (6.75%) | 144 (4.15%) |
+  | 8 named streets, 24718 | 24 (0.10%) | 1 (0.004%) | 11 (0.04%) | 7 (0.03%) |
+  | Freeways, 84008 | 1129 (1.34%) | 529 (0.63%) | 3697 (4.40%) | 2448 (2.91%) |
+
+  The section faces left are one kind: a cut too deep to grade by its reach,
+  where the bank from the land meets the cap's 11.3 m limit (the lattice
+  may not rise within a triangle of the pavement) - I-85, I-77 and I-485
+  cuts 6-7 m deep with the hill still climbing past 36 m. `InCut` walls such
+  a cut at the edge; the step at 11.3 m behind the wall stays grass until a
+  retaining wall can stand there (not in this package). The two-road faces
+  are floor/cap conflicts between roads a level apart, which the rail
+  warrant guards.
+- **The plan's shots, before/after** (`Editor/CityRoadsideShots.cs`, spots
+  found in the data and written to a file the before run re-reads): the
+  deepest I-485 cut south of the city, the deepest I-77 fill, the deepest
+  I-277 fill north of uptown (Brookshire), Providence Road at its creek, and
+  three streets across a hillside (Andrill Terrace, West Tremont Avenue,
+  Runnymede Lane). Seat, over-the-bank, and over-the-bank with trees off.
+  **The visible payoff is small.** From the driver's seat the pairs differ
+  by 10-20% of pixels; the one change a driver sees at once is the I-485
+  cut's retaining wall gone (a graded bank now). From over the bank the
+  fills fall away sooner and deeper (I-77: -0.6/-1.8/-3.1 m at 10/15/20 m
+  against -0.2/-1.0/-2.4 m), but the land's shape reads much the same. The
+  cut side is still level for 8.5 m - the lattice's band - and that is where
+  the owner's "road on a flat strip" still shows. It needs the verge-strip
+  bank (WP-21), not more grading.
+- **Drive-off judged the whole way.** Upright and air are now judged
+  until the car stops, not only across the 8 m run-off, and the steepest
+  ground under the car is logged. All 5 spots pass; the steepest ground
+  crossed is 1V:3.0H (the I-277 cut) and 1V:3.8-4.0H elsewhere. The two runs
+  that still do 75-82 km/h after 7 s run along the road on 1V:3.8-3.9H
+  ground, not down a bank.
+- **race-play-check** (PSXShip, the three city routes, seeds 0-4, trees on,
+  150 s, `-NoWatch`), against WP-08's trees-on batch on the same seeds:
+
+  | Route | Rivals retired, WP-08 | Now |
+  |---|---|---|
+  | UptownLoop | 7 of 15 | 5 of 15 |
+  | TryonSprint | 13 of 15 | 13 of 15 |
+  | IndependenceSprint | 5 of 15 | 7 of 15 |
+  | All three | 25 of 45 | 25 of 45 |
+
+  None retired into the ground. The causes are the same kinds as WP-08's:
+  traffic (12), lamp posts on Tryon (7), each other or the player (4),
+  Barriers (2: a grid scramble on the Uptown Loop at 9 s, a car running
+  7 m left of the line on Independence at 139 s). Six of Independence's
+  seven are hits on other cars or traffic at 64-144 s. The terrain moved every
+  road a little (WP-13), so a seed does not replay the same race and a
+  per-seed pairing means nothing; 5 runs a route carry +/-2 of noise. The
+  total is at the baseline and no retirement is the roadside's.
+- **G-full** (`verify.ps1 -NoMirror`, edition ALL, PSXShip): scene build
+  OK (21 venues), SELF-TEST OK, town probe OK, every terrain audit OK, LANE
+  AUDIT OK, CITY AUDIT OK, screenshots written. It FAILS on 8 obstacle-audit
+  lines, all Chimney Rock (edge faces at wp 668/983, a face past the reach
+  at wp 2, a pocket behind a wall at wp 914, one ghost collider). They are
+  the same 8 lines, to the centimetre, as the `-city` tree's verify at
+  07:06 on 2026-09-29, before WP-13 or WP-14 existed; this branch touches
+  no stage code. They are Chimney Rock's (held for size), not Charlotte's.
+- **G-budget** (`CityBudgetProbe`): all 225 tiles p95 79.2 ms with trees,
+  75.4 ms without; worst view 209 draws, unchanged. The pre-fix branch read
+  90.4 / 78.8 ms and city-r1 125.4 / 89.6 ms, under heavier machine load,
+  so the one extra DEM sample per binding section costs nothing measurable.
+  No asset changed, so the size ledger is WP-13's (+1.26 MB).
+
+## WP-23 (2026-09-29, release R9): billboards, business signs, exit gantries
+
+The owner, after driving it: "its all so barren and flat ... hills, ditches,
+trees, billboards". There was not one sign in the city. Now the interstates
+and US/NC routes carry billboards at the density NCDOT's permits say each
+route has, every business on a collector or bigger has its pole sign at the
+road, and every motorway exit has its overhead sign. Branch
+`charlotte-scenery`.
+
+**The data** (`Resources/charlotte_signs.bytes`, PSGN v1, its own file like
+the canopy grid, so the lines release re-exports the roads without it;
+`tools/city/signs.mjs`, `--check` rebuilds it byte for byte; 803 KB raw,
+**56 KB Brotli**; `CitySignData` reads it):
+
+- a 60 m grid on the DEM's lattice of two bits: **billboard zoning** (North
+  Carolina lets a billboard stand along an interstate or a federal-aid primary
+  only in a commercial or industrial area within 660 ft of the right of way,
+  19A NCAC 02E .0203: OSM landuse commercial, retail or industrial within
+  100 m, or a business within 150 m) and **commercial frontage** (retail or
+  commercial land at the cell, or a business within 40 m). 2,263 landuse
+  polygons; 12.9% of the box is zoned, 4.2% frontage;
+- **the routes and their density**, a STATISTIC off NCDOT's outdoor
+  advertising permits (plan Q8: NCDOT data for statistics only, never
+  positions), as the plan's critic measured it per route in Mecklenburg:
+  I-77 1.20, I-85 1.49, I-277 1.97, I-485 0.29, US 74 1.25, US 29 0.70, NC 16
+  0.56, NC 24 0.54, NC 49 0.29, NC 27 0.16, US 21 0 boards per km of route;
+  the class figure (interstate 0.87, US/NC 0.60) for a route it did not
+  measure. Each route's OSM billboards count toward its figure; the rest are
+  drawn at random on its ZONED stretches, the rate raised by what the spacing
+  rule takes back (a Poisson process thinned by "a board loses to any better
+  one on its side within the rule's distance": r (1 - e^-L) / L stand, solved
+  for r);
+- the 43 OSM billboards (`advertising=billboard`), where they are;
+- 3,960 businesses (OSM shops, fast food, restaurants, fuel, banks,
+  pharmacies, car washes, dealers, tyres, supermarkets, bars, motels) within
+  70 m of a collector or bigger, each with the kind of sign it puts up;
+- per motorway way that ends at an exit, the lanes of each destination group
+  from its OSM `destination:lanes` (187 of the 195 exits are tagged).
+
+Two new OSM layers, fetched with the rest by `fetch/fetch_layers.mjs`, pinned
+to the road snapshot's moment: `landuse` (2,231 elements) and `business`
+(6,544).
+
+**The placement** (`Scripts/City/CitySigns.cs`), per tile on its
+`RoadsideOccupancy` mask, BEFORE the trees (the plan's priority), on the tree
+frame (`CityTrees.Build` builds the mask, places the signs, then plants):
+
+- **exit gantries** first (official signs): a sign bridge 30 m before every
+  motorway_link diverge, its legs on the first ground clear of every
+  carriageway's clear zone on each side (across both carriageways when the
+  median has no room; a cantilever from the right leg when the whole span
+  would pass 85 m), a panel over each destination group of lanes (the exit's
+  panel, with its up-right arrow, over the exit lanes), the panels 5.8 m over
+  the highest road under the span (the plan's 5.5; NCDOT's 17.5 ft). Green
+  panels with a white border and abstract white bars (plan Q7: code-drawn, no
+  text); the truss and legs in the lamp posts' pack metal, lighter. Unlit:
+  NCDOT's panels are retroreflective today, and the headlights and street
+  lamps light them;
+- **billboards**: stations every 25 m along each route, a board where the
+  hash falls under the rate and the zoning allows (on the outer side of a
+  freeway carriageway, either side of a two-way road), no two on one side of a
+  freeway within 500 ft (152.4 m) or of another route within 100 ft
+  (.0203(2)), none within 80 m of a ramp's gore (not to hide an official sign;
+  the rule's 500 ft interchange setback applies only outside a town's limits,
+  and the belt is nearly all Charlotte and its towns). Sizes from NCDOT's
+  Mecklenburg permits: a freeway's **14 x 48 ft bulletin** (the p90), elsewhere
+  the **median 12 x 36 ft**, or a third of the time a 12 x 24 ft poster; faces
+  9.5 m or more over the ground on a freeway (total height about 14-16 m;
+  NCDOT's median 13.4 m), 6.5 m elsewhere. A monopole, and a **V with its
+  point toward the road** where traffic comes both ways (the far carriageway
+  across the median), back to back beside a two-way road where one plane faces
+  both ways well enough. Each face is turned to the drivers 150 m up the road
+  (the walk up the road follows it through junctions and round bends, and a
+  one-way carriageway is only ever walked against its traffic). Set back past
+  the clear zone as far as needed to stand on free ground (10-40 m on a
+  freeway). **Lit** the way the game's lamps are: two floodlights under a
+  bulletin's face, one under a poster's, each a lamp head handed to the tile's
+  own NightGlow (its halo, and a StreetLights pool), and the face glows in its
+  own colours after dark through the atlas's night mask (brightest at the
+  foot, where the lamps are). The owner of a board keeps the trees out of its
+  line of sight: the first 60 m toward its drivers is marked on the mask;
+- **business pole signs**: one at the frontage of every business in the data,
+  and every 32 m along the commercial frontage where OSM maps no shop - the
+  landuse or a business says it is commercial, or it is an arterial the game
+  lines with stores - wherever a STORE stands behind (the nearest building
+  within 90 m back and 35 m either way is a shop, not a house, an office tower
+  or nothing: no pylon on a lawn beside houses), its front wall at least 3 m
+  back (room for the cabinet: a building at the kerb wears its sign on its
+  wall), never on a divided road's median side, and none uptown inside the
+  loop (1.3 km of Trade and Tryon: its signs are on the walls). An OSM
+  business at the kerb gets none either. No two on ONE side of the road within 30 m (across the road
+  only within 12 m), settled best first: a sign loses to a better one of the
+  next tile always, to one of its own tile only if that one stood. A 2.4-3.2
+  m cabinet 4.5-6.5 m up (6.9-9.7 m overall; the plan's 6-10), on one post or
+  two, square to the road and turned, on a bend, to split its two drivers 80
+  m either way; lit from inside after dark; stood up to 14 m back and 11 m
+  along from its place for free ground, wholly inside its own tile. No tree
+  trunk within 5 m of one, nor within 2.5 m of the first 45 m of each of its
+  drivers' lines of sight. Breakaway (Q15): no collider.
+
+Every post, leg and face footprint stands on free ground (no pavement, clear
+zone, sight triangle, corner spot, building, lot, lamp foot, water, deck or
+race run-off), and marks what it takes. Nothing overhangs a road but a
+gantry's panels. Deterministic: every choice is a hash of an edge station or a
+business index; a sign belongs to the tile its nominal post is in, and the
+spacing is settled over everything within 340 m of the tile, so no sign is
+placed twice across a seam.
+
+**Across the seams.** A gantry's legs stand up to 65 m off its carriageway and
+a billboard's line of sight runs 60 m, so both reach into the next tile. They
+are decided from global data only: the STATIC mask
+(`RoadsideOccupancy.Static`, every reservation but a tile build's own fill
+houses and lamp feet, cached for the 32 tiles last asked for) of whatever tile
+each leg, post or face lands in. Every tile computes every gantry and
+billboard that could reach it (once a session: `CitySigns.Pure`, its boxes
+recorded for its owner to draw) and marks their ground on its own mask before
+its trees; the owner draws it. The owner alone knows its fill houses and lamp
+feet, so it drops one standing on them (the next tile then keeps a few cells
+clear for nothing, never the reverse). A gantry's span is marked too: no tree
+under the truss. A business's cabinet stands wholly inside its own tile.
+
+**The faces** (`Art/City/Signs/CitySigns.png`, one 512 x 512 atlas, RGB565 on
+WebGL; `CitySigns_night.png`, its 128 px night mask; `tools/city/signs_atlas.py
+--check` rebuilds both byte for byte). PACK PICTURES ONLY (plan Q6's default,
+"pack faces only"; nothing is lettered in code: the only words on a face are
+the ones its pack picture carries), every brand FICTIONAL: STACK BURGER is the
+BurgerPiz `menu_burger.png` burger on red, SLICE HOUSE the All pack's
+`Foods_04.jpg` pizza on green; the Gas_station pack's own `6twelve` and its
+price board and striped `Sign.jpg`; the Pizzeria pack's PIZZA banner and five
+pictures of its `Decorative_Sign.png` ("Burgers - Best in Town", two "Eat Good
+Food", a dancing couple, a made-up NORTH CAROLINA plate), looked at one by one:
+its two CAMEL signs, the Harley-Davidson bar-and-shield ones, the contour cola
+bottles and HOLLYWOOD GASOLINE are left out. The trades with no shop sign in
+the packs show what they sell: a motel the All pack's palm beach
+(`Paintings.jpg`), a bank the PSX Mega Pack's gold bar, a pharmacy the
+NEUROZAM-9 pill bottle's prescription label, a car lot the NC plate and two
+boggle-pack wheels, tyres two wheels, a car wash a wheel over PSX Textures
+water, a grocer the All pack's bananas and watermelon, a lounge the dancers;
+a strip mall's pylon four tenants (a shirt, an old television, a pizza, a
+burger). The grounds are the lamp posts' pack `Metal.jpg` tinted to each
+sign's colour; a tourism bulletin shows `Paintings.jpg`'s coast and desert.
+Not used although the plan listed them: the Buildings pack's `Shops_01-31`,
+photographs of real storefronts with real names and phone numbers. The gantry
+panels are the plan's Q7 code-drawn pattern, the only code-drawn faces.
+
+**Drawn** in one mesh a tile with the kit's one material (`CityKit.signs`,
+`Materials/CitySigns.mat`): one draw a tile that has signs, not a sun-map
+caster. The billboards' floodlights join the tile's street lamps in its one
+NightGlow (no extra halo draw). SOLID: billboard monopoles and gantry legs, box
+colliders on a Solid-layer object a tile named `CityPost`.
+
+**PSX/Lit** gained `_NightFace` (default 0): with the night-window switch on,
+a sign material's mask makes the texel glow in its own colours
+(`SIGN_GAIN` 0.85) instead of a window's flat warm or cool. A uniform branch:
+every facade draws as before.
+
+**Checked:**
+
+- **SignAudit** (in `CityAudit`, and alone as `CityAudit.RunSigns`, about 3
+  minutes): 3,539 tiles - the shot spots with their neighbours, every tile an
+  interstate or US/NC route runs through (45 m either side of it) and the
+  three race routes'. 329 billboards (268 bulletins and 36 ft boards, 61
+  posters; 33 of them OSM's), 2,769 business pole signs, 182 exit gantries (14
+  cantilevers), 4,737 faces. Measured again against the geometry: 0 posts or
+  legs on pavement, in a clear zone, under a deck, in a building, a lake or
+  race run-off, or on a cell the mask (built afresh, without the signs)
+  reserves; 0 faces over pavement; every gantry panel 5.5 m or more over the
+  road under it (the lowest 5.74 m); every face turned to its traffic (dot
+  0.9 or better to its driver 150 m up the road, 80 m for a cabinet; worst
+  0.918), that driver on a road and coming toward it; every sign in the tile
+  that placed it, none twice across a seam, the same signs on a second build;
+  one mesh with one material a tile; every billboard lit; the monopoles and
+  legs solid (679 posts), the cabinets breakaway. **Density**: interstates
+  149 placed for NCDOT's 167 (0.73 per km of route against 0.82: -11%), US/NC
+  routes 172 for 197 (0.48 against 0.55: -13%), both inside the plan's +-20%
+  (per route: I-77 53/57, I-85 56/66, I-485 31/30, I-277 9/14, US 74 32/39,
+  NC 16 31/28 ...). What falls short is the ground: 44 boards won their
+  spacing and found no free ground within 40 m of the road. Exit gantries 182
+  over 223 km of motorway, one an exit (NCDOT counts 1.01 per km: advance
+  signs are not built); 13 exits found no ground for a leg.
+- **CITY AUDIT OK**: the DRIVE AUDIT's five zeros 0, the roadside audit's
+  zeros 0, the tree audit OK (136,170 trees on its tiles; planted/asked median
+  1.00, the four canopy bands within 5 points: the signs take a little ground
+  from them), the lamp and terrain audits as before.
+- **city-play-check** CITY SPAWNS OK (the Myers Park trunks still stop the
+  car, 8 of 8). **SELF-TEST OK**, **GUID AUDIT OK**, typecheck OK.
+- `export_osm.mjs --check` OK (charlotte_city.bytes changes only in its
+  attribution: the NCDOT credit line), `signs.mjs --check`,
+  `signs_atlas.py --check`, `canopy.mjs --check` and `credits.mjs` OK.
+- Shots (`CityRefSpots.RunSigns`, `Screenshots/City/signs`): at I-277, I-77
+  west of uptown, I-85, South Blvd and the Independence strip, the nearest
+  bulletin, gantry, poster and cabinet from their own drivers' line, before
+  (the city built with no signs), after and at night, and each face close up.
+
+**Measured** (`city_budget.txt`; its A/B pass is now the same sites with no
+signs, trees both ways):
+
+| | with signs | without (same run) |
+|---|---|---|
+| tile build (EnsureTile), all 225 tiles | p50 25.2, p95 86.1 ms | p50 24.9, p95 80.7 ms (the signs are not in this path: machine noise, with six other Unity jobs on it) |
+| the tree frame, signs placed first on it | p50 2.4, p95 5.8, max 16.8 ms (WP-08: 2.1 / 4.9 / 13.6) | - |
+| placing a tile's signs | p95 0.1-1.6 ms by site | - |
+| draws in a view | +0 to +5 (one a tile with signs in view; no shadow caster) | - |
+| worst view | 212 draws (uptown; WP-08 209) | 207 |
+
+Heap: the sign data holds its 743 KB grid and 3,960 businesses (under 1 MB).
+
+**The races** (`race-play-check -Venues UptownLoop,TryonSprint,IndependenceSprint
+-Seeds 0,1 -Signs ab`, a new switch: every race with the signs and then
+without, and the report now counts hits on the `CityPost` colliders): 12
+rivals retired with the signs and 12 without, over the same six races; 0 hits
+on a billboard post or a gantry leg in any of them. The retirements are the
+routes' own (traffic, the Tryon lamp posts, the player's car), and where the
+two runs of a race part it is after the first retirement, the chaos every run
+of these races has (the same race run twice with the signs on retired 2 and
+then 1).
+
+**Size.** `charlotte_signs.bytes` +56 KB Brotli; the atlas ships as RGB565
+(512 KB in the player, 0.50 MiB in the Build Report) and its night mask is
+128 px. WebGL.data 82.25 -> 82.40 MiB (+0.15, under the plan's +0.25-0.35:
+the atlas compresses well), the largest file 82.40 MiB, under the 95 MiB
+ratchet. `charlotte_city.bytes` changes only in its attribution.
+`size-ledger.py` counts the sign file with the rest of Charlotte's data.
+
+**G-web.** A local WebGL build of the branch (`build-and-publish -SkipScenes
+-SkipDeploy -PagesDir city`, BUILD OK, GUID audit OK) served from 127.0.0.1: a
+new career (1 January, the SNOW dress), down the street to the line, FREE ROAM
+CHARLOTTE loads (`[City] parsed in 136 ms, elevation solved in 597 ms`) with no
+console error and no missing sign data or kit warning; every PSX/Lit surface
+draws (the shader with `_NightFace` compiles on WebGL 2); the pause menu's
+CREDITS page shows the NCDOT line, wrapped, not clipped. The spawn on Tryon
+uptown has no sign in view (the uptown frontage is building to the kerb), and
+the drive to one was not made in the browser; the editor shots are the look.
+
+### WP-23 review (2026-09-29): business signs where the stores are, pack faces only, signs across the seams
+
+The review found three things wrong with the first pass.
+
+**1. Too few business signs, some of them in the wrong place.** Two signs
+on opposite sides of an arterial knocked each other out: the 30 m spacing
+had no same-side test, and a 4-5 lane road puts the two sides 26-29 m
+apart. The frontage fill was one station in 0.7 every 40 m. A candidate also
+lost to a better one that then found no ground. Meanwhile the fills stood
+wherever OSM landuse said "commercial", which was often in grass beside
+houses, because the game's procedural suburbs do not read landuse. Now:
+
+- no two signs on ONE side within 30 m; across the road only within 12 m;
+- settled best first, and a sign loses only to a better one of its own tile
+  that actually stood (or to any of the next tile's);
+- the frontage is every collector or bigger with commercial landuse or a
+  business within 40 m, and every arterial, checked every 32 m;
+- a fill stands only where a STORE is the nearest building behind it (within
+  90 m back and 35 m either way), with its front wall at least 3 m back. There
+  is none in front of a house, an office tower or an empty field, and none in
+  a divided road's median;
+- no pole sign uptown inside the loop (1.3 km of Trade and Tryon), and none
+  for an OSM business at the kerb: those signs are on the walls;
+- a cabinet may move up to 14 m back and 11 m along the road to find ground;
+- trees are kept off the first 45 m of each of a cabinet's drivers' lines of
+  sight (2.5 m wide), as billboards already were.
+
+On the audited tiles that gives 1,680 business signs (1,054 at OSM
+businesses, 626 frontage fills), on 32.9 km of store frontage: one
+every 20 m, and the fills alone one every 52 m (the plan: every
+30-60 m). The first pass placed 2,769, of which many stood on a lawn, in a
+median, uptown, or against a wall. What does not stand is the ground the game
+gives them:
+
+- 8,753 frontage stations where OSM says commercial but the game has a
+  house or nothing behind (mostly the procedural suburbs and the Independence
+  expressway, which has no buildings along it);
+- 1,058 where the store or the business is at the kerb;
+- 542 that lost the spacing, and 104 with no free ground.
+
+The shots' streets show the same thing (`CityAudit`'s per-street lines).
+Along Statesville Avenue the fills stand every 30 m in front of stores. South
+Boulevard at Archdale is grass and houses in the game, so it gets two signs.
+
+**2. Faces lettered in code.** The OWNER DECISIONS took Q6's default, "pack
+faces only". The first atlas lettered nine trades and all the slogans in
+Aileron. The atlas now uses only pack pictures (see "The faces" above), and
+no lettering is drawn in code. `signs_atlas.py --check` rebuilds it byte for
+byte.
+
+**3. Signs that cross a tile seam were invisible to the next tile.** A
+gantry's leg, a billboard's face, its line of sight and a gantry's span were
+marked only on the owner's mask, clipped at the seam. The next tile planted
+trees on them, and nothing checked a foot there. Now both kinds are decided
+from global data (the static masks), and every tile they reach marks their
+ground before its trees (see "Across the seams" above).
+
+The decisions cost the tile that first needs them, on the masks of the tiles
+round it. `CityWorld` spends a frame of its own on each 3 ms slice of them
+(`CitySigns.Prepare`, `CityWorld.PrepareSigns`), before the tile's tree frame.
+`EnsureRing` does the same slices back to back, so the budget probe times the
+frames play would have.
+
+The sign audit now also checks:
+
+- every leg and post in a tile not its own, against that tile's own full
+  mask (its fill houses and lamps too) and against the marks of the tile that
+  planted round it;
+- no tree trunk on any sign's ground in any tile;
+- no two signs' posts in one another;
+- the business-sign density on store frontage.
+
+Results: 67 legs and posts in the next tile, all on free ground, all
+marked there; 0 trees on a sign's ground; 0 posts in one another. The owner
+dropped 4 gantries or billboards on its own fill houses or lamps.
+
+**Checked (the review's run):**
+
+- SIGN AUDIT OK: 332 billboards (271 bulletins, 61 posters, 32 of
+  them OSM's), 1,680 business signs, 182 gantries (13 cantilevers).
+- Billboard density: interstates 149/167 (-11%), US/NC 175/197 (-11%).
+- CITY AUDIT OK: DRIVE AUDIT 0/0/0/0/0, roadside 0, tree audit OK.
+- The roadside probe ran; city-play-check CITY SPAWNS OK.
+- SELF-TEST OK, GUID AUDIT OK, typecheck OK.
+- Race batch, signs on, three routes, seeds 0 and 1: 11 rivals retired (12
+  in the first pass's A/B); 0 hits on a sign post; 0 on a trunk.
+- `signs.mjs --check` OK (frontage 4.2% of the box, was 3.6%);
+  `signs_atlas.py --check` OK.
+
+**Budget** (same sites; signs on / off): the worst view is 209 draws with the signs and without (trade_tryon); at most +7 draws in one view (tryon_start, one a tile with signs in view); tile build p95 70.5 ms with the signs, 76.1 without (the signs are not in that path: noise); the tree frames, the signs' slices on frames of their own, p95 5.3 ms, max 11.0 (the first pass 5.8 / 16.8, WP-08 4.9 / 13.6). The static-mask cache holds 32 tiles (about 2 MB) and the decided gantries and billboards a few KB each.
+
+**Size:** WebGL.data 82.46 MiB (the first pass 82.40, before WP-23 82.25), under the 95 MiB ratchet; the atlas 0.50 MiB in the Build Report as before; charlotte_signs.bytes 803 KB raw, 56 KB Brotli; SIZE LEDGER OK.
+
+**Shots:** `CityRefSpots.RunSigns` adds a `<spot>_street` frame for each spot
+(the street of the nearest business sign, from its driver 80 m up the road).
+It also adds three streets the game lines with stores: Central Ave in Plaza
+Midwood, Albemarle Rd, and Wilkinson Blvd.
+
+**Not done:** on the audited tiles there are about 280 km of OSM commercial frontage where the
+game's buildings are houses or nothing, because the procedural suburbs do not
+read landuse. Signs wait for stores there. A buildings pass that puts shops on
+commercial landuse would let them stand; it is not part of this package.
 
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 

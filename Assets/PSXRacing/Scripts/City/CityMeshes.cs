@@ -47,7 +47,7 @@ namespace PSXRacing.City
     ///
     /// EDGES (2026-09-13). What a car meets past a drawn edge follows
     /// RoadsideRules: a grounded edge meets the ground through an exact VERGE
-    /// in the ground mesh (an inch down, a shoulder, 1V:6H, its toe tucked
+    /// in the ground mesh (an inch down, a shoulder, 1V:4H, its toe tucked
     /// under the lattice) with a render-only face over the inch; a barrier
     /// stands only where one is warranted — structure, the approach past it,
     /// a drop that grading could not remove, a freeway median, a retaining
@@ -132,10 +132,14 @@ namespace PSXRacing.City
         /// a verge toe straight across 10 m of them could float up to a tenth
         /// of a metre over it, and the toe tuck is exactly that deep.</summary>
         const float VergeStepM = 2.5f;
-        /// <summary>The widest a verge ever runs looking for the ground:
-        /// 1V:6H across the clear zone, then 1V:4H. A drop it cannot catch in
-        /// this is a warranted barrier, not a longer ramp.</summary>
-        const float VergeMaxRunM = 8f;
+        /// <summary>The widest a verge ever runs looking for the ground, at
+        /// 1V:4H past its shoulder. A drop it cannot catch in
+        /// this is a warranted barrier, not a longer ramp. 12 m since WP-14:
+        /// a fill now falls from the bench at 1V:4H (RoadsideRules
+        /// .CityFillSlope) and the lattice's chord across the bench's edge
+        /// lies under it, so the verge meets it up to a cell past the bench
+        /// rather than on an 11.5 m flat.</summary>
+        const float VergeMaxRunM = 12f;
         /// <summary>Resolution of the verge's search for the lattice.</summary>
         const float VergeSearchStepM = 0.25f;
         /// <summary>Plan clearance a verge keeps from another road's pavement
@@ -349,6 +353,8 @@ namespace PSXRacing.City
             /// outside edge (<see cref="InCut"/>), for the audit's
             /// TerrainFidelity: real hills must not wall every hillside.</summary>
             public float cutWallM;
+            /// <summary><see cref="cutWallM"/> by SideFlags.cutWhy (WP-14).</summary>
+            public readonly float[] cutWallByWhy = new float[4];
             /// <summary>Footprints this tile cut back off the drawn pavement,
             /// and those it left out (<see cref="FitFootprint"/>).</summary>
             public int footprintsCut, footprintsLeftOut;
@@ -361,6 +367,10 @@ namespace PSXRacing.City
             public float vergeMetres, railMetres;
             /// <summary>The smoothness gate's tap; null unless <see cref="RecordTap"/>.</summary>
             public RoadTap tap;
+            /// <summary>The fill houses BuildHouses stood (world plan: centre,
+            /// unit long axis, half extents), for the roadside occupancy mask
+            /// (WP-08): a tree must not grow through one.</summary>
+            public readonly List<(Vector2 c, Vector2 u, float hu, float hv)> houseBoxes = new List<(Vector2, Vector2, float, float)>();
         }
 
         // ---- the smoothness gate's tap (Editor/CitySmooth.cs, gate spec 5.1) ----
@@ -1023,7 +1033,13 @@ namespace PSXRacing.City
         //  the surface a verge has to cross.
         // ------------------------------------------------------------------
         const float LatticeCell = TileSize / GroundRes;
-        static readonly Dictionary<long, float> latticeCache = new Dictionary<long, float>(4096);
+        static Dictionary<long, float> latticeCache = new Dictionary<long, float>(4096);
+        /// <summary>WP-08: hand over the lattice the last tile build cached (a
+        /// fresh one takes its place), and put one back - so the trees, planted
+        /// on a later frame, stand on their tile's lattice without recomputing
+        /// GroundY at every corner.</summary>
+        public static Dictionary<long, float> TakeLattice() { var d = latticeCache; latticeCache = new Dictionary<long, float>(4096); return d; }
+        public static void PutLattice(Dictionary<long, float> d) { if (d != null) latticeCache = d; }
         static readonly Dictionary<long, bool> pavedCache = new Dictionary<long, bool>(1024);
         static long LatticeKey(int ix, int iz) => ((long)ix << 32) ^ (uint)iz;
 
@@ -2612,10 +2628,10 @@ namespace PSXRacing.City
         /// <summary>A box from its centre and three half-axis vectors, every
         /// face facing out (Bucket.Face decides the winding), less the faces
         /// in <paramref name="skip"/>. Four vertices a face, so the normals
-        /// come out flat.</summary>
+        /// come out flat. UVs in metres (WP-07): the posts wear the owner's
+        /// pack metal now, one repeat a metre, where they were a flat tint.</summary>
         static void EmitLampBox(Vector3 c, Vector3 ax, Vector3 ay, Vector3 az, int skip)
         {
-            var uv = Vector2.zero;
             for (int f = 0; f < 6; f++)
             {
                 if ((skip & (1 << f)) != 0) continue;
@@ -2624,7 +2640,9 @@ namespace PSXRacing.City
                 Vector3 v = f < 4 ? az : ay;
                 if ((f & 1) != 0) nrm = -nrm;
                 var q = c + nrm;
-                lampBucket.Face(q + u + v, q + u - v, q - u - v, q - u + v, nrm, uv, uv, uv, uv);
+                float lu = 2f * u.magnitude, lv = 2f * v.magnitude;
+                lampBucket.Face(q + u + v, q + u - v, q - u - v, q - u + v, nrm,
+                    new Vector2(lu, lv), new Vector2(lu, 0f), Vector2.zero, new Vector2(0f, lv));
             }
         }
 
@@ -2662,6 +2680,10 @@ namespace PSXRacing.City
             /// branch's inner side, a zero-width wedge.</summary>
             public bool gap;
             public bool rail, retain, cut, median;
+            /// <summary>Why <see cref="cut"/> (WP-14, for the audit): 1 the
+            /// back slope does not reach the land, 2 a road above stands in
+            /// it, 3 a building does; 0 a run closed over a gap.</summary>
+            public byte cutWhy;
             /// <summary>This span starts / ends its side's run of one kind of
             /// barrier (rail, retaining wall, median barrier).</summary>
             public bool capStart, capEnd;
@@ -3029,7 +3051,12 @@ namespace PSXRacing.City
                         // is the median. The outside gets a wall only where
                         // the road runs in a CUT (below).
                         if (side > 0) sf.median = !nbDraws && !sf.rail;
-                        else sf.cut = !nbDraws && InCut(tm, A, B, -A.right);
+                        else
+                        {
+                            byte why = 0;
+                            sf.cut = !nbDraws && InCut(map, e, tm, A, B, -A.right, out why);
+                            if (sf.cut) sf.cutWhy = why;
+                        }
                     }
                     f[side] = sf;
                 }
@@ -3351,9 +3378,34 @@ namespace PSXRacing.City
         static bool Ungraded(bool laid, bool graded, float stoppedBy, Vector2 pW, float y, Vector3[] prof, bool ledges = true)
         {
             if (graded) return false;
-            if (float.IsNaN(stoppedBy) || y - stoppedBy > RoadsideRules.OpenDropM) return true;
-            return ledges && laid && prof[2].y - stoppedBy > RoadsideRules.LedgeStepM &&
+            if (float.IsNaN(stoppedBy)) return true;
+            // A road more than OpenDropM below is a drop - unless the verge
+            // CONNECTED down to it no steeper than the traversable 1V:3H, which
+            // is graded ground and no critical fall. A hard 1.0 m line here
+            // flickered: the ramp e5219 beside I-77 (e2739) 3.7 m off, 0.98-
+            // 1.00 m above it, stood a rail on a retaining face where WP-13's
+            // road grid put it 1.00 m up and a graded verge where 0.98 m, and
+            // the verge's end beside the wall was a 0.49 m ledge a wheel off
+            // I-77 dropped from.
+            if (y - stoppedBy > RoadsideRules.OpenDropM && !TraversableConnector(laid, stoppedBy, pW, y, prof)) return true;
+            // measured to the road beside's VERGE, where a wheel lands: an
+            // inch under its pavement (a 0.29 m step to e9986's pavement was
+            // a 0.32 m ledge onto its verge, after WP-13 moved them 3 cm)
+            return ledges && laid && prof[2].y - (stoppedBy - RoadsideRules.EdgeDropM) > RoadsideRules.LedgeStepM &&
                    Vector2.Distance(new Vector2(prof[2].x, prof[2].z), pW) > VertexSlackM;
+        }
+
+        /// <summary>Did the verge solve connect down to the road that stopped
+        /// it (its last point at that road's verge, an inch under its
+        /// pavement) at no more than RoadsideRules.TraversableSlope from the
+        /// edge?</summary>
+        static bool TraversableConnector(bool laid, float stoppedBy, Vector2 pW, float y, Vector3[] prof)
+        {
+            if (!laid) return false;
+            float run = Vector2.Distance(new Vector2(prof[2].x, prof[2].z), pW);
+            if (run < 0.5f) return false;
+            return Mathf.Abs(prof[2].y - (stoppedBy - RoadsideRules.EdgeDropM)) <= 0.1f
+                   && y - prof[2].y <= RoadsideRules.TraversableSlope * run + RoadsideRules.EdgeDropM;
         }
 
         /// <summary>The surface a given distance out from an edge: another
@@ -3538,6 +3590,7 @@ namespace PSXRacing.City
             if (sf.cut && !sf.rail)
             {
                 tm.cutWallM += Vector3.Distance(fA, fB);
+                tm.cutWallByWhy[Mathf.Min(sf.cutWhy, (byte)3)] += Vector3.Distance(fA, fB);
                 EmitBarrier(fA, fB, outA, v0, v1, sf.capStart, sf.capEnd);
                 // A flared end stands its face off the edge, and there was
                 // nothing between the two but the lattice a sink and more
@@ -4568,26 +4621,77 @@ namespace PSXRacing.City
         /// edge gets a retaining wall.</summary>
         public const float CutWallM = 2.0f;
 
-        /// <summary>Is the land beside this span's outside edge well above
-        /// the road? Sampled from the raw DEM beside the pavement, at
-        /// mid-span — the corridor grading has pulled the lattice down to the
-        /// road there, but the DEM still says what the hill was. THREE
-        /// samples, 4, 8 and 12 m out, must all stand <see cref="CutWallM"/>
-        /// above the road (plan WP-04's interim guard). One sample 4 m out was
-        /// enough while the grid was filtered flat; on the real 3DEP ground a
-        /// road along any hillside would have been walled for its length,
-        /// against the owner's DOT rule (walls only where a slope cannot fit).
-        /// WP-14 replaces this with graded cut sections.</summary>
-        static bool InCut(TileMeshes tm, Section A, Section B, Vector2 outward)
+        /// <summary>
+        /// Does this span's outside edge need a RETAINING WALL? Only where a
+        /// graded cut cannot fit (WP-14; the owner's DOT rule: walls only where
+        /// a slope cannot). The land beside must first stand well above the
+        /// road - <see cref="CutWallM"/> at 4, 8 and 12 m out on the DEM (the
+        /// WP-04 guard) - and then the cut Ground grades there
+        /// (CityElevation.SectionCut: level across the lattice band, the 1V:3H
+        /// back slope, steepened to a 1V:2H bank only where the back slope
+        /// cannot meet the land by the section's reach) must not fit: even
+        /// the 1V:2H bank would have to start inside the band, or something
+        /// stands in the slope before it meets the land - another road's
+        /// pavement well above this one (a street along the top of the
+        /// trench) or a building. So every unwalled cut is a graded bank no
+        /// steeper than 1V:2H (CityLandProbe measures it). Decided from data
+        /// alone, so every tile sees the same run. Until WP-14 every span
+        /// whose DEM passed the guard was walled: 1.07 km on the audited
+        /// tiles, the graded slope behind hidden by a 24 m shelf.
+        /// </summary>
+        static bool InCut(CityMap map, CityMap.Edge e, TileMeshes tm, Section A, Section B, Vector2 outward, out byte why)
         {
+            why = 0;
             var m = (A.L + B.L) * 0.5f;
+            var p = new Vector2(m.x + tm.origin.x, m.z + tm.origin.z);
             foreach (float o in CutProbeM)
             {
-                float wx = m.x + tm.origin.x + outward.x * o;
-                float wz = m.z + tm.origin.z + outward.y * o;
-                if (!(CityElevation.BaseY(wx, wz) - m.y > CutWallM)) return false;
+                var q = p + outward * o;
+                if (!(CityElevation.BaseY(q.x, q.y) - m.y > CutWallM)) return false;
             }
-            return true;
+            if (CutWallsEverywhere) { why = 1; return true; }
+            // THE SECTION (CityElevation.SectionCut, the one Ground grades
+            // by): level across the band, the 1V:3H back slope, steepened to
+            // the 1V:2H bank only where that cannot meet the land by the
+            // reach. A wall only where even the bank cannot fit: it would
+            // have to start inside the band, over the road's own level.
+            float band = RoadsideRules.CityCutStartM(e.cls, e.link);
+            float sMid = (A.s + B.s) * 0.5f;
+            float reach = CityElevation.SectionReachM(e.PaveEdgeM(sMid, e.SideAt(sMid, p + outward)));
+            var rq = p + outward * reach;
+            float atReach = CityElevation.BaseY(rq.x, rq.y);
+            float pin = m.y - CityElevation.CorridorSink;
+            float land0 = CityElevation.BaseY(p.x + outward.x * band, p.y + outward.y * band);
+            if (CityElevation.SectionCut(pin, band, band, reach, land0, atReach) > pin + CutBankTolM) { why = 1; return true; }
+            float day = reach;
+            for (float o = band; o <= reach + 1e-3f; o += CutDaylightStepM)
+            {
+                var q = p + outward * o;
+                float land = CityElevation.BaseY(q.x, q.y);
+                if (land <= CityElevation.SectionCut(pin, band, o, reach, land, atReach) + 1e-3f) { day = o; break; }
+            }
+            // ...and nothing in the slope before it
+            cutNear.Clear();
+            var far = p + outward * day;
+            map.EdgeSegsInRect(Vector2.Min(p, far) - Vector2.one * CityElevation.MaxCorridorHalf, Vector2.Max(p, far) + Vector2.one * CityElevation.MaxCorridorHalf, cutNear);
+            for (float o = 2f; o <= day + 1e-3f; o += CutDaylightStepM)
+            {
+                var q = p + outward * o;
+                if (map.AnyFootprintNear(q, 1f)) { why = 3; return true; }
+                foreach (int packed in cutNear)
+                {
+                    int oi = packed >> 12, si = packed & 0xFFF;
+                    if (oi == e.index) continue;
+                    var oe = map.edges[oi];
+                    Vector2 a = oe.pts[si], d = oe.pts[si + 1] - a;
+                    float L2 = d.sqrMagnitude;
+                    float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(q - a, d) / L2) : 0f;
+                    float oat = oe.s[si] + Mathf.Sqrt(L2) * t;
+                    if (Vector2.Distance(q, a + d * t) > oe.PaveEdgeM(oat, oe.SideOf(si, q)) + 1f) continue;
+                    if (oe.YAt(oat) - m.y > CutWallM) { why = 2; return true; }
+                }
+            }
+            return false;
         }
         /// <summary>Where the cut test samples the DEM. PSX_CITY_CUTWALL_ONE=1
         /// in the environment puts back the pre-WP-04 single sample, 4 m out,
@@ -4595,6 +4699,17 @@ namespace PSXRacing.City
         /// measuring switch; nothing sets it in a build).</summary>
         static readonly float[] CutProbeM =
             System.Environment.GetEnvironmentVariable("PSX_CITY_CUTWALL_ONE") == "1" ? new[] { 4f } : new[] { 4f, 8f, 12f };
+        /// <summary>PSX_CITY_CUTWALL_ALL=1 walls every span the DEM guard
+        /// passes, as before WP-14, so the audit can measure what the graded
+        /// cuts saved on the same code (a measuring switch).</summary>
+        static readonly bool CutWallsEverywhere =
+            System.Environment.GetEnvironmentVariable("PSX_CITY_CUTWALL_ALL") == "1" || System.Environment.GetEnvironmentVariable("PSX_CITY_CUTWALL_ONE") == "1";
+        const float CutDaylightStepM = 2f;
+        /// <summary>How far over the road's own level the 1V:2H bank may have
+        /// to start before the cut is walled instead (float noise and the
+        /// DEM's bilinear wobble).</summary>
+        const float CutBankTolM = 0.25f;
+        static readonly HashSet<int> cutNear = new HashSet<int>();
 
         static Vector3 Flat(Vector2 v) => new Vector3(v.x, 0f, v.y);
 
@@ -4931,9 +5046,9 @@ namespace PSXRacing.City
         /// RoadsideRules.ToeTuckM under the lattice RoadsideRules.ToeTuckRunM
         /// further out — so the strip and the lattice CROSS instead of
         /// abutting, and a car rides the higher of two continuous surfaces.
-        /// A verge falls at the shoulder's cross-fall, then 1V:6H across the
-        /// clear zone, then 1V:4H; it never runs over another road's paved
-        /// width. False where there is no room for it at all.
+        /// A verge falls at the shoulder's cross-fall, then 1V:4H (WP-14: the
+        /// fill's slope; 1V:6H across the clear zone before); it never runs
+        /// over another road's paved width. False where there is no room for it at all.
         /// </summary>
         static bool SolveStrip(CityMap map, Trims trims, Vector2 edgeW, float yEdge, Vector2 outw, StripShape sh, Vector3[] prof)
             => SolveStrip(map, trims, edgeW, yEdge, outw, sh, prof, out _, out _);
@@ -5113,10 +5228,18 @@ namespace PSXRacing.City
                 return true;
             }
             float shoulder = sh.flat ? 0f : sh.shoulder;
+            // WP-14: past the shoulder the verge falls at the FILL's slope
+            // (RoadsideRules.CityFillSlope, 1V:4H, the plan's recoverable
+            // foreslope inside the clear zone), the slope the land itself is
+            // graded to below the bench. At 1V:6H across the clear zone it
+            // stayed above a fill's lattice - whose chord across the bench's
+            // edge sags under the section - for eight metres and more, and a
+            // street along a creek valley stood a rail on a retaining face
+            // over a graded 1V:4H bank (Bryant Street). On level ground it
+            // meets the lattice 0.1 m sooner.
             float Yv(float e) => sh.flat ? y0
                 : y0 - RoadsideRules.ShoulderCrossFall * Mathf.Min(e, shoulder)
-                     - RoadsideRules.RecoverableSlope * Mathf.Clamp(e - shoulder, 0f, RoadsideRules.ClearZoneM)
-                     - RoadsideRules.SteepestRecoverableSlope * Mathf.Max(0f, e - shoulder - RoadsideRules.ClearZoneM);
+                     - RoadsideRules.CityFillSlope * Mathf.Max(0f, e - shoulder);
             float Lat(float e) { var q = s0 + outw * e; return LatticeY(map, q.x, q.y); }
 
             float ec = -1f, prevGap = Yv(0f) - Lat(0f);
@@ -7492,6 +7615,7 @@ namespace PSXRacing.City
                     float y0 = g - BuildingSink;
                     EmitGableHouse(tm, c, u, hu, hv, y0, y0 + BuildingSink + eaveH, y0 + BuildingSink + eaveH + riseH, Slot.FacadeHouse);
                     tm.houseCount++;
+                    tm.houseBoxes.Add((c, u, hu, hv));
                 }
         }
 
