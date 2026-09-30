@@ -386,6 +386,17 @@ namespace PSXRacing.City
         public const float RavineCell = 128f;
         /// <summary>The lakes' indices in <see cref="waters"/>.</summary>
         public int[] lakes = new int[0];
+        /// <summary>WP-25: the lakes (and the 1,231 ponds) whose
+        /// bounds reach each <see cref="LakeCell"/> cell, so the ground
+        /// function and <see cref="InLake"/> test the few near a point
+        /// instead of every one.</summary>
+        readonly Dictionary<long, int[]> lakeCells = new Dictionary<long, int[]>();
+        public const float LakeCell = 256f;
+        static readonly int[] NoLakes = new int[0];
+        /// <summary>The lakes whose bounds reach p's <see cref="LakeCell"/>
+        /// cell (a superset of those containing p).</summary>
+        public int[] LakesAt(Vector2 p) =>
+            lakeCells.TryGetValue(FootKey(Mathf.FloorToInt(p.x / LakeCell), Mathf.FloorToInt(p.y / LakeCell)), out var l) ? l : NoLakes;
         /// <summary>Band height of a lake's edge index.</summary>
         public const float LakeRowM = 32f;
         readonly Dictionary<long, List<int>> footCells = new Dictionary<long, List<int>>();
@@ -816,6 +827,24 @@ namespace PSXRacing.City
                 // the hash as before.
             }
             lakes = lakeList.ToArray();
+            {
+                var cells = new Dictionary<long, List<int>>();
+                foreach (int li in lakes)
+                {
+                    var wt = waters[li];
+                    int x0 = Mathf.FloorToInt(wt.bbMin.x / LakeCell), x1 = Mathf.FloorToInt(wt.bbMax.x / LakeCell);
+                    int z0 = Mathf.FloorToInt(wt.bbMin.y / LakeCell), z1 = Mathf.FloorToInt(wt.bbMax.y / LakeCell);
+                    for (int cx = x0; cx <= x1; cx++)
+                        for (int cz = z0; cz <= z1; cz++)
+                        {
+                            long k = FootKey(cx, cz);
+                            if (!cells.TryGetValue(k, out var l)) cells[k] = l = new List<int>(2);
+                            l.Add(li);
+                        }
+                }
+                lakeCells.Clear();
+                foreach (var kv in cells) lakeCells[kv.Key] = kv.Value.ToArray();
+            }
             waterCells.Freeze();
             ravineCells.Freeze();
             footReach = new float[footprints.Length];
@@ -905,7 +934,7 @@ namespace PSXRacing.City
         /// <summary>Is the point in any lake?</summary>
         public bool InLake(Vector2 p)
         {
-            foreach (int li in lakes) if (LakeContains(waters[li], p)) return true;
+            foreach (int li in LakesAt(p)) if (LakeContains(waters[li], p)) return true;
             return false;
         }
 

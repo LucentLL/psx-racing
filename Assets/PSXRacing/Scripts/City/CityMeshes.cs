@@ -57,7 +57,7 @@ namespace PSXRacing.City
     /// surface lays a flush SEAM strip under the join, because the two are
     /// never drawn from the same vertices.
     /// </summary>
-    public static class CityMeshes
+    public static partial class CityMeshes
     {
         public const float TileSize = 256f;
         public const int GroundRes = 32;          // 8 m cells
@@ -327,6 +327,9 @@ namespace PSXRacing.City
             /// and junction fans. No collider, by design.</summary>
             public Mesh kerbs;
             public Mesh water;
+            /// <summary>WP-25: the creeks' clay banks, draped on the lattice
+            /// (render-only, the kit's bank material).</summary>
+            public Mesh banks;
             /// <summary>Every facade and roof on the tile. It is its own
             /// collider now: a footprint's oriented box reached into the
             /// street wherever the footprint was not a rectangle, and an
@@ -369,6 +372,11 @@ namespace PSXRacing.City
             /// unit long axis, half extents), for the roadside occupancy mask
             /// (WP-08): a tree must not grow through one.</summary>
             public readonly List<(Vector2 c, Vector2 u, float hu, float hv)> houseBoxes = new List<(Vector2, Vector2, float, float)>();
+            /// <summary>WP-25: the culvert ends this tile stood (world plan:
+            /// the wall's face on the ravine, the outward direction, the
+            /// backfill's depth behind it), for the occupancy mask and the
+            /// audit.</summary>
+            public readonly List<CulvertEnd> culvertEnds = new List<CulvertEnd>();
         }
 
         // ---- growable buckets, one per slot, reused across tiles ----------
@@ -749,6 +757,7 @@ namespace PSXRacing.City
             barrierBucket.Clear();
             kerbBucket.Clear();
             lampBucket.Clear();
+            bankBucket.Clear();
             lampBuildings = buildings;
             goreGaps.Clear();
             goreQuads.Clear(); goreGroups.Clear();
@@ -770,6 +779,7 @@ namespace PSXRacing.City
             BuildRoadsAndDecks(map, trims, tm, min, max);
             BuildJunctions(map, trims, tm, min, max);
             BuildWater(map, tm, min, max);
+            BuildCulverts(map, trims, tm, min, max);
             BuildBuildings(map, buildings, tm, tx, tz);
             BuildFootprints(map, trims, tm, tx, tz);
             BuildHouses(map, tm, tx, tz);
@@ -781,6 +791,7 @@ namespace PSXRacing.City
             tm.barriers = MeshFromBucket("barriers", barrierBucket);
             tm.kerbs = MeshFromBucket("kerbs", kerbBucket);
             tm.lampPosts = MeshFromBucket("lamps", lampBucket);
+            tm.banks = MeshFromBucket("banks", bankBucket);
             tm.water = MeshFrom("water", new[] { Slot.Water }, out _);
             tm.buildings = MeshFrom("bld", BuildingSlots, out var bSlots);
             tm.buildingSlots = bSlots;
@@ -6567,11 +6578,18 @@ namespace PSXRacing.City
                 if (len < 0.01f) continue;
                 var dir = (b - a) / len;
                 var right = new Vector2(dir.y, -dir.x);
+                // WP-25: the sheet's sides MITRED at every bend of the line, so
+                // one piece's edge meets the next's (square per segment, the
+                // outside of each bend opened a notch the lattice showed
+                // through and the inside overlapped); off in the A/B
+                Vector2 rA = right, rB = right;
+                if (!HydroOff) { rA = CreekMitre(w, i, right); rB = CreekMitre(w, i + 1, right); }
                 int n = Mathf.Max(1, Mathf.CeilToInt(len / WaterPieceM));
                 for (int k = 0; k < n; k++)
                 {
                     float t0 = (float)k / n, t1 = (float)(k + 1) / n;
                     Vector2 p0 = Vector2.Lerp(a, b, t0), p1 = Vector2.Lerp(a, b, t1);
+                    Vector2 q0 = Vector2.Lerp(rA, rB, t0), q1 = Vector2.Lerp(rA, rB, t1);
                     var mid = (p0 + p1) * 0.5f;
                     if (mid.x < min.x || mid.x >= max.x || mid.y < min.y || mid.y >= max.y) continue;
                     float s0 = w.s[i] + len * t0, s1 = w.s[i] + len * t1;
@@ -6582,8 +6600,8 @@ namespace PSXRacing.City
                     // columns: -reach, -flat, +flat, +reach
                     for (int side = -1; side <= 1; side += 2)
                     {
-                        Vector2 i0 = p0 + right * (flat * side), i1 = p1 + right * (flat * side);
-                        Vector2 e0 = p0 + right * (reach * side), e1 = p1 + right * (reach * side);
+                        Vector2 i0 = p0 + q0 * (flat * side), i1 = p1 + q1 * (flat * side);
+                        Vector2 e0 = p0 + q0 * (reach * side), e1 = p1 + q1 * (reach * side);
                         float ye0 = Mathf.Min(y0, LatticeY(map, e0.x, e0.y) - 0.05f);
                         float ye1 = Mathf.Min(y1, LatticeY(map, e1.x, e1.y) - 0.05f);
                         if (WaterOnRoad(map, (i0 + i1 + e0 + e1) * 0.25f, Mathf.Max(y0, y1))) continue;   // an outer piece over a road beside the creek
@@ -6594,12 +6612,14 @@ namespace PSXRacing.City
                     }
                     // the floor between the two inner columns
                     {
-                        Vector2 l0 = p0 - right * flat, l1 = p1 - right * flat, r0 = p0 + right * flat, r1 = p1 + right * flat;
+                        Vector2 l0 = p0 - q0 * flat, l1 = p1 - q1 * flat, r0 = p0 + q0 * flat, r1 = p1 + q1 * flat;
                         float uL = 0.5f - 0.5f * flat / reach, uR = 0.5f + 0.5f * flat / reach;
                         bk.Up(new Vector3(r0.x - o.x, y0, r0.y - o.z), new Vector3(r1.x - o.x, y1, r1.y - o.z),
                                 new Vector3(l1.x - o.x, y1, l1.y - o.z), new Vector3(l0.x - o.x, y0, l0.y - o.z),
                                 new Vector2(uR, v0), new Vector2(uR, v1), new Vector2(uL, v1), new Vector2(uL, v0));
                     }
+                    // the clay banks either side (WP-25)
+                    EmitCreekBanks(map, tm, p0, p1, q0, q1, flat);
                 }
             }
         }

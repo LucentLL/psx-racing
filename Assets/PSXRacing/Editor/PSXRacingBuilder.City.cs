@@ -186,6 +186,14 @@ namespace PSXRacing.EditorTools
         /// mean (0.50, 0.51, 0.48) arrives as it stands; the tint that lands
         /// on the old tone is therefore (0.146, 0.154, 0.184) linear, which
         /// is written here as the colour it is authored in, (0.42, 0.43, 0.46).</summary>
+        /// <summary>WP-25: the creeks' banks - the owner's pack clay
+        /// (PSX Textures II dirt_pt_7, the red-brown of Piedmont clay), a
+        /// copy in Art/City/Pack like the grass and the concrete. The pack
+        /// texel averages half the city grass's brightness (52 against 97):
+        /// the tint lifts it to a sunlit bank's, a little warmer.</summary>
+        internal static Material CityBankMat() =>
+            MakeMat("CityBank", CityPackDir + "/dirt_pt_7_city.png", tint: new Color(1.75f, 1.6f, 1.5f), affine: 0f);
+
         internal static Material CityLampPostMat() =>
             MakeMat("CityLampPost", LifeSimArtDir + "/House/Textures/Metal.jpg",
                     tint: new Color(0.42f, 0.43f, 0.46f), affine: 0f);
@@ -306,6 +314,7 @@ namespace PSXRacing.EditorTools
             kit.slots = CityMaterials();
             kit.slotCount = kit.slots.Length;
             kit.lampPost = CityLampPostMat();
+            kit.bank = CityBankMat();
             kit.trees = CityTreeMats();
             kit.treeLowReach = CityTreeLowReach();
             kit.signs = CitySignsMat();
@@ -314,6 +323,8 @@ namespace PSXRacing.EditorTools
                 if (m != null && m.shader != null && !shaders.Contains(m.shader)) shaders.Add(m.shader);
             if (kit.lampPost != null && kit.lampPost.shader != null && !shaders.Contains(kit.lampPost.shader))
                 shaders.Add(kit.lampPost.shader);
+            if (kit.bank != null && kit.bank.shader != null && !shaders.Contains(kit.bank.shader))
+                shaders.Add(kit.bank.shader);
             foreach (var m in kit.trees)
                 if (m != null && m.shader != null && !shaders.Contains(m.shader)) shaders.Add(m.shader);
             if (kit.signs != null && kit.signs.shader != null && !shaders.Contains(kit.signs.shader))

@@ -2174,7 +2174,7 @@ namespace PSXRacing.City
 
             // THE INSIDE OF A LAKE, whatever its shore is doing (WP-04b: the
             // hash holds only a lake's shore now)
-            foreach (int li in map.lakes)
+            foreach (int li in map.LakesAt(p2))
             {
                 var w = map.waters[li];
                 if (CityMap.LakeContains(w, p2)) baseY = Mathf.Min(baseY, w.surfaceY - 2.2f);

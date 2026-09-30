@@ -348,6 +348,14 @@ namespace PSXRacing.City
                 foreach (var h in tm.houseBoxes) o.MarkBox(h.c, h.u, h.hu, h.hv, BuildingMarginM + CellPadM, Building);
                 foreach (var l in tm.lamps)
                     o.MarkDisc(new Vector2(l.foot.x + tm.origin.x, l.foot.z + tm.origin.z), LampFootR + CellPadM, Other);
+                // WP-25: a culvert's headwall, its backfill and the channel's
+                // apron in front: no tree grows through the wall
+                foreach (var c in tm.culvertEnds)
+                {
+                    const float Apron = 3f;
+                    float back = CityCulverts.WallThickM + c.backfillM;
+                    o.MarkBox(c.at + c.outward * ((Apron - back) * 0.5f), c.outward, (Apron + back) * 0.5f, c.wallW * 0.5f + 0.5f, CellPadM, Water);
+                }
             }
             return o;
         }
@@ -492,6 +500,23 @@ namespace PSXRacing.City
                             o.MarkBox(b.pos, new Vector2(cy, -sy), b.w * 0.5f + m, b.d * 0.5f + m, BuildingMarginM + CellPadM,
                                       b.kind == 0 ? Building : Other);
                         }
+                }
+
+            // ---- WP-25: every culvert end on the tile - the wall, the apron
+            // in front of it and a berm's depth behind - so no sign post or
+            // tree is decided onto a headwall (the tile's own build marks the
+            // backfill it actually drew)
+            if (!CityMeshes.HydroOff)
+                foreach (var c in CityCulverts.ForTile(map, trims, tx, tz))
+                {
+                    if (c.skip != null) continue;
+                    for (int k = 0; k < 2; k++)
+                    {
+                        if (!(k == 0 ? c.hasLo : c.hasHi)) continue;
+                        var end = k == 0 ? c.lo : c.hi;
+                        const float Apron = 3f, Back = 6f;
+                        o.MarkBox(end.at + end.outward * ((Apron - Back) * 0.5f), end.outward, (Apron + Back) * 0.5f, end.wallW * 0.5f + 0.5f, CellPadM, Water);
+                    }
                 }
 
             // ---- water: creeks by their drawn width, lakes by their shore

@@ -31,8 +31,10 @@ namespace PSXRacing.City
 
         [Tooltip("One material per CityMeshes.Slot, in enum order.")]
         public Material[] slots;
-        [Tooltip("The street-lamp posts, arms and heads: pack metal.")]
+        [Tooltip("The street-lamp posts, arms and heads: pack metal. Also the inside of a culvert's pipe (WP-25).")]
         public Material lampPost;
+        [Tooltip("WP-25: the creeks' banks, the pack's red Piedmont clay.")]
+        public Material bank;
 
         [Header("Reserved for later packages")]
         [Tooltip("WP-08 canopy trees, one per season dress (Seasons.DressCount).")]
@@ -88,6 +90,7 @@ namespace PSXRacing.City
         {
             if (kit.slots != null) foreach (var m in kit.slots) PSXTexDecode.Stamp(m);
             PSXTexDecode.Stamp(kit.lampPost);
+            PSXTexDecode.Stamp(kit.bank);
             if (kit.trees != null) foreach (var m in kit.trees) PSXTexDecode.Stamp(m);
             PSXTexDecode.Stamp(kit.furniture);
             PSXTexDecode.Stamp(kit.paint);

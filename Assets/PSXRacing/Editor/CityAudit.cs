@@ -366,6 +366,7 @@ namespace PSXRacing.EditorTools
             fanMouths = null;
             LampAudit(map, trims, buildings);
             TerrainFidelity(map);
+            HydroAudit(map, trims, buildings);
             TreeAudit(map, trims, buildings);
             SignAudit(map, trims, buildings);
 

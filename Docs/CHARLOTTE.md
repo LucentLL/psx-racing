@@ -1612,6 +1612,133 @@ game's buildings are houses or nothing, because the procedural suburbs do not
 read landuse. Signs wait for stores there. A buildings pass that puts shops on
 commercial landuse would let them stand; it is not part of this package.
 
+## WP-25 (2026-09-30, release R9): culverts, headwalls, creek banks, ponds
+
+R1 (WP-04b) put the real creeks in: the county's and 3DHP's lines, beds
+sampled from 3DEP, the ground carved to them, a water sheet on every creek and
+a bridge wherever a road crosses one. What it left: the small streams (the
+ravines) went under their roads with nothing to show where, the creeks' banks
+were the same lawn as everything else, and ponds under 2 ha were not kept.
+
+**Culverts** (`Scripts/City/CityCulverts.cs`). A culvert is a ravine's line
+crossing a road's line where the road is on the ground (a deck over a ravine is
+a bridge) and at least 1.6 m over the ravine's floor (less leaves no room for a
+pipe and its cover; the channel then meets the road as a swale). Each end is
+found by walking the ravine away from the road on a fixed 1 m grid of the
+line's own arc length until the drawn ground (the 8 m lattice) is:
+
+- clear of every road: past its pavement, its clear zone and half the wall,
+  and outside the race routes' run-off;
+- down at the toe: within 0.35 m of the lowest ground further out, or up to
+  1.2 m over it where the fill 5 m behind already stands 70% of a wall higher
+  (the foot of the embankment; at the channel's own low point the land behind
+  can be a gentle run-out and the wall stood free on it).
+
+A divided road's two carriageways, or two roads over one ravine, walk to the
+same grid point and find the same end: ends are keyed by (ravine, grid index)
+and kept once, and every tile that can own an end sees every crossing that can
+make it. Nothing here changes the ground function or a road's height: the
+embankment the road already stands on is the culvert's.
+
+**Headwalls** (`CityMeshes.Hydro.cs`). At each end: a concrete headwall
+(the city concrete, the barriers mesh on the Solid layer) faced square off the
+nearest road, the pipe's mouth in it (an octagon of 0.9, 1.2 or 1.5 m by the
+fill over it, its inside the lamp posts' dark pack metal: a corrugated pipe,
+and the dark a mouth needs, render-only), wing walls back along both sides and
+grass backfill between them. The backfill is flat at the coping until the fill
+behind rises through it; if that has not happened 6 m back it is a berm
+falling at 1V:2H. No new material and no new slot: a tile that already has
+barriers and lamps draws nothing more. The occupancy mask (static half and the
+tile's own) marks each end, so no tree or sign post stands in a headwall.
+
+**Creek banks.** A band of the owner's pack clay (PSX Textures II
+`dirt_pt_7`, the red-brown of Piedmont clay, copied as
+`Art/City/Pack/dirt_pt_7_city.png`, tinted to the grass's brightness) runs
+along both banks of every creek, from a metre under the flat floor's edge (the
+lattice meets the water between its vertices, so the edge wanders) to 4.5 m
+past it, draped exactly on the lattice: each quad is cut against every
+lattice triangle it covers and each piece set on that triangle's plane, 6 cm
+proud (corners merely set on the lattice bridged its folds, and the grass came
+through in patches). Never within 3 m of a grounded road's pavement.
+Render-only, the city kit's new `bank` material (`CityKit.bank`, no Slot
+change), one draw on a tile with a creek.
+
+**Mitred water.** The creek sheet's sides are mitred at every bend of the
+line, so one 8 m piece meets the next (square per segment, the outside of each
+bend opened a notch).
+
+**Ponds** (`tools/city/lib/water.mjs`, `export_osm.mjs`). The county's
+Lakes and Ponds and 3DHP's lakes down to 0.2 ha (R1 kept 2 ha and up), by the
+same rule (flat in the hydro-flattened 3DEP), simplified at 2.5 m. A pond
+never touches a road, so none makes a water span: one within 4 m of a road's
+pavement, with a road point inside it, or PERCHED over a road (a road within
+16 m of its shore whose 3DEP ground is under the pond's level plus 1 m: the
+solve can cut a road a hand or two under 3DEP, and the water would hang over
+the slope beside it) is left out. Of 1,458 ponds of 0.2-2 ha in the box, 210
+are not flat, 2 near a road and 15 perched: 1,231 kept. `CityMap.LakesAt` hashes the lakes on 256 m cells, so the ground
+function tests the few near a point instead of all 1,337.
+
+**Sources.** No new source: the ponds are the county's and 3DHP's layers
+already in the export; the culverts are the ravine lines (county `mt100`/`mt300`
+and 3DHP orders 2-3) crossed with the road graph. OSM's `tunnel=culvert` ways
+(3,840 in the layers cache) and FHWA NBI are not read. `SOURCES.md` records
+the use.
+
+**Measured** (PSXScenery; `CityAudit.HydroAudit`, also alone as
+`CityAudit.RunHydro` -> `city_hydro_audit.txt`):
+
+| Measure | Value |
+|---|---|
+| Ravine crossings of a road | 824: 706 culverts, 48 decks, 70 too shallow for a pipe |
+| Headwalls | 767 (243 culverts with both ends); pipes 0.9 m x241, 1.2 m x120, 1.5 m x406 |
+| Ends not stood | never clear of a road 148, no channel on the lattice 202, shallow at the toe 132, shared 121, a creek 24, a building 9, a lake 9 |
+| Nearest headwall to a pavement | 4.7 m, every one past its road's clear zone |
+| Every culvert keeps its embankment | 0 of 706 fail: the road on the ground over every pipe, the ground under its line within 1.1 m of it (deepest 1.01 m, the corridor sink and sag) |
+| Ends drawn (26 sampled tiles) | 55 of 55, each once, in the tile it stands in; 0 walls facing the wrong way |
+| Water shown along the creeks (every 8 m) | 689 of 710 km, 97.1% (Irwin 71%, Stewart 95%, Little Sugar 92%, Briar 96%, McAlpine 99%, Sugar 96%) |
+| Ponds | 1,233 water bodies under 2 ha as drawn (739 ha), water shown at the middle of 1,203; none within 3.5 m of a road, none over a grounded road within 16 m |
+| Creek beds (7 transects) | 7 of 7 within 1 m of 3DEP, as R1 |
+| Decks over water | 560 spans, none with water over the soffit |
+
+Checks: CITY AUDIT OK (DRIVE AUDIT 0/0/0/0/0, roadside audit green, the tree
+and sign audits green, the hydro audit's four new checks);
+`city-play-check -Edition CITY` CITY SPAWNS OK; TEXDECODE AUDIT OK (933
+textures in the 16-bit set, the clay among them); `export_osm.mjs --check`
+byte-identical; SIZE LEDGER OK.
+
+**Budget** (`CityBudgetProbe`, the A/B is now WP-25: the same tiles without
+culverts and banks, `CityMeshes.HydroOff`): the worst view 209 draws both
+ways (trade_tryon); at most +4 draws in one view (i77_north 65 -> 69; the
+extra site W Trade St at Irwin Creek +4 on 180-227); tile build p95 70.5 ms
+without, 73.4 with, on the same 225 tiles (+4%; a first run read 72.3 / 72.5);
+parse 178 ms + solve 1119 ms, map heap 19.6 MB. Data: `charlotte_city.bytes` +156 KB raw, +95 KB Brotli (WATR
++141 KB raw for the ponds' points); the clay texture 256 x 256 in the 16-bit
+set.
+
+**Shots:** `tools\city-hydro-shots.ps1 -Label before|after`
+(`CityHydroShots`): per creek (W Trade St over Irwin Creek, State St over
+Stewart Creek, Archdale Dr over Little Sugar Creek) from the bridge's
+downstream edge, 2.5 m over the water 40 m downstream and 35 m up 120 m
+downstream; a culvert (McDonald Avenue) from its channel, three-quarter and
+from the road, and four more three-quarter (South McDowell Street, Baxter
+Street twice, Hartford Avenue); a 0.56 ha pond off Tyvola Road from 25 m up.
+The cameras depend only on the data and the ground; "before" runs with the
+tiles' WP-25 work off and HEAD's data.
+
+**Not done:**
+
+- Irwin Creek shows water on 71% of its length: north of uptown it runs 14 m
+  off I-77, whose fill holds the ground over the channel (R1's note; WP-14's
+  grading keeps it). Near some bridges the approach fills' 8 m lattice
+  triangles lap over the channel for 20-40 m; the sheet is there, under grass.
+  Carving a creek through a fill beside a road is a grading change (WP-24's
+  or a later WP-14 pass), not this one.
+- The ravines carry no water: their channels are narrower than the lattice
+  can hold a sheet in.
+- 182 of the 706 culverts have no drawn end (the ravine never clears a road
+  within 60 m, or the lattice shows no channel): the road simply crosses the
+  swale there.
+
 ## The 2026-09-12 pass: floating roads, ledges, invisible walls
 
 Reported after the rebuild: "a lot of roads still floating in air, not
