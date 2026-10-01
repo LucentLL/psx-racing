@@ -9062,9 +9062,20 @@ namespace PSXRacing.EditorTools
                 {
                     if (!System.Text.RegularExpressions.Regex.IsMatch(c.name, @"RUF |Porsche.*911")) continue;
                     rufs++;
-                    if (CarModelLibrary.KeyFor(c) == "flatsix_coupe") flat++;
+                    // The CTR2 `96 is a 993: the owner's FlatSix Turbo 96
+                    // (2026-10-01); every other RUF and 911, the FlatSix Coupe.
+                    string want = c.name.Contains("CTR2") ? "flatsix_turbo_96" : "flatsix_coupe";
+                    if (CarModelLibrary.KeyFor(c) == want) flat++;
                 }
-                Check(rufs >= 3 && flat == rufs, "every RUF and 911 wears the FlatSix Coupe", flat + " of " + rufs);
+                Check(rufs >= 3 && flat == rufs, "every RUF and 911 wears a FlatSix shell (the CTR2 the Turbo 96, the rest the Coupe)", flat + " of " + rufs);
+                int nsx = 0, nsxOk = 0, miata = 0, miataOk = 0;
+                foreach (var c in CarCatalog.All)
+                {
+                    if (c.name.Contains("NSX")) { nsx++; if (CarModelLibrary.KeyFor(c) == "midship_coupe") nsxOk++; }
+                    if (c.name.Contains("MX-5") || c.name.Contains("Miata")) { miata++; if (CarModelLibrary.KeyFor(c) == "classic_roadster") miataOk++; }
+                }
+                Check(nsx >= 12 && nsxOk == nsx, "every NSX wears the owner's Midship Coupe", nsxOk + " of " + nsx);
+                Check(miata >= 8 && miataOk == miata, "every MX-5 Miata wears the owner's Classic Roadster", miataOk + " of " + miata);
             }
             Line($"  ..   {hand}/{CarCatalog.All.Count} hand-mapped, " +
                  $"{used.Count} of {CarModelLibrary.Models.Length} shells raced " +

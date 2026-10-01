@@ -1,0 +1,77 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &8734132431397075527
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4902278404181753076}
+  - component: {fileID: 6974160140737726958}
+  m_Layer: 0
+  m_Name: flatsix_turbo_96
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &4902278404181753076
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8734132431397075527}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &6974160140737726958
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8734132431397075527}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: flatsix_turbo_96
+  displayName: Flat-six turbo (993)
+  bodyMesh: {fileID: -2432090755550338912, guid: 3240f819d4211ed40aa9b7251f308309, type: 3}
+  wheelMesh: {fileID: 4300000, guid: 9839d597d6226c44fb32b952690b1c3e, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: 8dc2e0051b591d242b418888113ba678, type: 2}
+  skinNames:
+  - coupe_atlas_256
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.7391825, g: 0.5533684, b: 0.12182118, a: 1}
+  bodyYaw: 180
+  bodyYOffset: -0.023967473
+  bodyZOffset: 0
+  wheelbase: 2.311702
+  trackWidth: 1.4524169
+  wheelRadius: 0.31842503
+  wheelMeshScale: 0.93
+  cowlZ: 0.7863467
+  cowlY: 0.8854365
+  noseZ: 2.086753
+  roofY: 1.3286376
+  headLamp: {x: 0.65721315, y: 0.680441, z: 1.7935013}
+  headLampNormal: {x: 0.1383854, y: 0.24093504, z: 0.9606247}
+  headLampSize: {x: 0.14248452, y: 0.16781068}
+  tailLamp: {x: 0.60501766, y: 0.6517408, z: -2.140592}
+  tailLampNormal: {x: 0.20116273, y: 0.06052745, z: -0.97768605}
+  tailLampSize: {x: 0.4245339, y: 0.08780435}
+  colliderCenter: {x: 0, y: 0.732007, z: -0.05824709}
+  colliderSize: {x: 1.6150994, y: 1.11032, z: 4.09695}
+  blobSize: {x: 2.153466, y: 4.5903}

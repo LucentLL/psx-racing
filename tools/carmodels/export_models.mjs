@@ -95,6 +95,22 @@ const MODELS = [
   { key: 'flatsix_coupe', obj: `${ownerCars}/FlatSix_Coupe_PSX/flat_six_coupe.obj`,
     tex: `${ownerCars}/FlatSix_Coupe_PSX`, skins: /^coupe_atlas_256$/ },
 
+  // The owner's 2026-10-01 set ("I made more"), same spec and layout as the
+  // FlatSix Coupe (Body + Wheel_FL/FR/RL/RR, nose -Z, one 256 atlas, matte
+  // alpha 128), each sized to its GT4 sheet:
+  //   FlatSix Turbo 96 = RUF CTR2 `96 (993): 4290 mm, wb 2302.
+  //   Midship Coupe    = Honda NSX `90: 4430 mm, wb 2530.
+  //   Classic Roadster = Mazda MX-5 Miata (NA) `89: 3955 mm, wb 2265.
+  { key: 'flatsix_turbo_96', obj: `${ownerCars}/FlatSix_Turbo_96_PSX/flat_six_turbo_96.obj`,
+    tex: `${ownerCars}/FlatSix_Turbo_96_PSX`, skins: /^coupe_atlas_256$/,
+    gt4LengthM: 4.290 },
+  { key: 'midship_coupe', obj: `${ownerCars}/Midship_Coupe_PSX/midship_coupe.obj`,
+    tex: `${ownerCars}/Midship_Coupe_PSX`, skins: /^midship_atlas_256$/,
+    gt4LengthM: 4.430 },
+  { key: 'classic_roadster', obj: `${ownerCars}/Classic_Roadster_PSX/classic_roadster.obj`,
+    tex: `${ownerCars}/Classic_Roadster_PSX`, skins: /^roadster_atlas_256$/,
+    gt4LengthM: 3.955 },
+
   // Ripped PS1-era cars from the owner's Cars folder (2026-09-25: "add these
   // vehicles as traffic"), converted by convert_rip.py - aligned, sized to
   // the real car, wheels split out, every source page baked onto one 512

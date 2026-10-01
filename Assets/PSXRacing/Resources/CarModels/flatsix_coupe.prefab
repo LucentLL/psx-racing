@@ -54,7 +54,7 @@ MonoBehaviour:
   - coupe_atlas_256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.7499157, g: 0.55949825, b: 0.11870204, a: 1}
+  - {r: 0.74331355, g: 0.5536846, b: 0.11764561, a: 1}
   bodyYaw: 180
   bodyYOffset: -0.023827998
   bodyZOffset: 0
@@ -62,16 +62,16 @@ MonoBehaviour:
   trackWidth: 1.3495
   wheelRadius: 0.316572
   wheelMeshScale: 0.93
-  cowlZ: 0.7616095
-  cowlY: 0.8844605
+  cowlZ: 0.7674891
+  cowlY: 0.88324255
   noseZ: 2.031016
-  roofY: 1.3208215
-  headLamp: {x: 0.61362195, y: 0.7167634, z: 1.7450495}
+  roofY: 1.3206315
+  headLamp: {x: 0.61362195, y: 0.7167634, z: 1.7450494}
   headLampNormal: {x: 0.14204119, y: 0.40123928, z: 0.904893}
   headLampSize: {x: 0.15158227, y: 0.15381372}
-  tailLamp: {x: 0.3501938, y: 0.61774874, z: -2.056579}
-  tailLampNormal: {x: 0.03657302, y: 0.77857167, z: -0.62648916}
-  tailLampSize: {x: 0.14552794, y: 0.08947092}
-  colliderCenter: {x: 0, y: 0.7486455, z: -0.106931925}
-  colliderSize: {x: 1.5006549, y: 1.0664523, z: 4.083481}
-  blobSize: {x: 2.000873, y: 4.575209}
+  tailLamp: {x: 0.5609518, y: 0.6482943, z: -2.1283774}
+  tailLampNormal: {x: 0.214611, y: 0.060352273, z: -0.97483313}
+  tailLampSize: {x: 0.4533782, y: 0.09114805}
+  colliderCenter: {x: 0, y: 0.7486455, z: -0.09702945}
+  colliderSize: {x: 1.5006549, y: 1.0664523, z: 4.064567}
+  blobSize: {x: 2.000873, y: 4.5540175}

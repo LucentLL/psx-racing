@@ -1,0 +1,77 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &4440547981532490186
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2908072023692048655}
+  - component: {fileID: 6035119136025686891}
+  m_Layer: 0
+  m_Name: classic_roadster
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2908072023692048655
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4440547981532490186}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &6035119136025686891
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4440547981532490186}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: classic_roadster
+  displayName: Classic roadster (Miata)
+  bodyMesh: {fileID: -2432090755550338912, guid: 94e1e0eaabf2a24429aae4ed8fa2cc7e, type: 3}
+  wheelMesh: {fileID: 4300000, guid: 6708729733aae844bbbdae324e1563f4, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: 2203d4d2be9d54047aa7b4986a43b376, type: 2}
+  skinNames:
+  - roadster_atlas_256
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.54474723, g: 0.079796806, b: 0.08849369, a: 1}
+  bodyYaw: 180
+  bodyYOffset: -0.020361079
+  bodyZOffset: 0
+  wheelbase: 2.27968
+  trackWidth: 1.4191389
+  wheelRadius: 0.27051193
+  wheelMeshScale: 0.93
+  cowlZ: 0.7036846
+  cowlY: 0.76730907
+  noseZ: 1.902544
+  roofY: 1.2185633
+  headLamp: {x: 0.5384828, y: 0.74300396, z: 1.5298508}
+  headLampNormal: {x: -0, y: 0, z: 1}
+  headLampSize: {x: 0.16038859, y: 0.16291028}
+  tailLamp: {x: 0.5284686, y: 0.5299628, z: -2.026113}
+  tailLampNormal: {x: 0.04941129, y: 0.2375558, z: -0.9701164}
+  tailLampSize: {x: 0.32823768, y: 0.24573067}
+  colliderCenter: {x: 0, y: 0.6970144, z: -0.07495594}
+  colliderSize: {x: 1.6208366, y: 0.97484124, z: 3.7770247}
+  blobSize: {x: 2.1611154, y: 4.23185}

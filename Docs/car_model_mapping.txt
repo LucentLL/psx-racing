@@ -1,9 +1,9 @@
 PSX Racing — catalog car to body shell
-317 cars across 16 of 18 shells; 160 hand-mapped, 157 scored.
+317 cars across 21 of 26 shells; 180 hand-mapped, 137 scored.
   =  hand-mapped (the real car, its twin, or a deliberate call)
   ~  scored on body style, region, era and weight
 
-=== rx7_fd  (Mazda RX-7 (FD), Japan 1992 Sports)  — 76 cars
+=== rx7_fd  (Mazda RX-7 (FD), Japan 1992 Sports)  — 68 cars
     wheelbase 2.43 m, track 1.46 m, tyre 0.310 m, 10 liveries
     = 1967 jpn FR  1006kg  110hp GT       Mazda 110S (L10A) `67
     ~ 1968 jpn FR   753kg  100hp Coupe    Honda S800 RSC Race Car `68
@@ -25,19 +25,15 @@ PSX Racing — catalog car to body shell
     ~ 1988 jpn FF  1262kg  120hp Coupe    Honda ACCORD Coupe `88
     ~ 1988 jpn FR  1180kg  175hp Coupe    Nissan SILVIA K's (S13) `88
     ~ 1988 jpn FR  1128kg  135hp Coupe    Nissan SILVIA Q's (S13) `88
-    ~ 1989 jpn FR  1006kg  120hp Roadster Mazda MX-5 Miata (NA) `89
     ~ 1989 jpn 4WD 1242kg  350hp Coupe    Mitsubishi HSR-II Concept `89
     = 1990 jpn FR  1249kg  205hp Coupe    Mazda RX-7 GT-X (FC, J) `90
     = 1990 jpn FR  1242kg  215hp Coupe    Mazda RX-7 INFINI III (FC, J) `90
     ~ 1991 jpn FF  1280kg  200hp Coupe    Honda PRELUDE Si VTEC `91
-    ~ 1991 jpn FR  1006kg  120hp Roadster Mazda MX-5 Miata J-Limited (NA, J) `91
     = 1991 jpn FR  1260kg  255hp Coupe    Mazda RX-7 Type R (FD, J) `91
     ~ 1991 jpn FR  1211kg  205hp Coupe    Nissan SILVIA K's (S13) `91
     ~ 1991 jpn FR  1148kg  140hp Coupe    Nissan SILVIA Q's (S13) `91
     ~ 1991 jpn FF  1309kg  165hp Coupe    Toyota CELICA GT-R (ST183, 4WS) `91
     = 1992 jpn FR  1273kg  255hp Coupe    Mazda RX-7 Type RZ (FD, J) `92
-    ~ 1993 jpn FR  1048kg  130hp Roadster Mazda MX-5 Miata J-Limited II (NA, J) `93
-    ~ 1993 jpn FR  1014kg  130hp Roadster Mazda MX-5 Miata V-Special Type II (NA, J) `93
     = 1993 jpn FR  1260kg  255hp Coupe    Mazda RX-7 Type R (FD, J) `93
     = 1993 jpn FR  1284kg  255hp Coupe    Mazda RX-7 Type RZ (FD, J) `93
     ~ 1993 jpn FR  1262kg  220hp Coupe    Nissan SILVIA K's AERO (S14) `93
@@ -45,8 +41,6 @@ PSX Racing — catalog car to body shell
     ~ 1994 jpn FF  1211kg  200hp Coupe    Mitsubishi FTO GPX `94
     ~ 1994 jpn FF  1191kg  170hp Coupe    Mitsubishi FTO GR `94
     = 1994 eur FR  1284kg  270hp Coupe    NISMO 270R `94
-    ~ 1995 jpn FR  1071kg  130hp Roadster Mazda MX-5 Miata S-Special Type I (NA, J) `95
-    ~ 1995 jpn FR  1048kg  130hp Roadster Mazda MX-5 Miata VR-Limited (NA, J) `95
     = 1995 jpn FR  1260kg  255hp Coupe    Mazda RX-7 Type R-S (FD, J) `95
     = 1995 jpn FR  1249kg  255hp Coupe    Mazda RX-7 Type RZ (FD, J) `95
     ~ 1995 jpn FF  1329kg  230hp Coupe    Mitsubishi ECLIPSE GT `95
@@ -59,7 +53,6 @@ PSX Racing — catalog car to body shell
     ~ 1996 jpn FR  1249kg  220hp Coupe    Nissan 240SX (S14) `96
     ~ 1996 jpn FR  1232kg  160hp Coupe    Nissan SILVIA Q's AERO (S14) `96
     ~ 1997 usa FF  1252kg  140hp Coupe    EAGLE Talon Esi `97
-    ~ 1997 jpn FR  1048kg  130hp Roadster Mazda MX-5 Miata SR-Limited (NA, J) `97
     = 1997 jpn FR  1280kg  265hp Coupe    Mazda RX-7 Type RS-R (FD) `97
     ~ 1997 jpn FF  1191kg  200hp Coupe    Mitsubishi FTO GP Version R `97
     ~ 1997 jpn FF  1211kg  200hp Coupe    Mitsubishi FTO GPX `97
@@ -70,7 +63,6 @@ PSX Racing — catalog car to body shell
     ~ 1997 jpn MR  1269kg  245hp Coupe    Toyota MR2 GT-S `97
     ~ 1998 jpn FF  1269kg  220hp Coupe    Honda PRELUDE SiR S spec `98
     ~ 1998 jpn FF  1309kg  220hp Coupe    Honda PRELUDE Type S `98
-    ~ 1998 jpn FR  1066kg  145hp Roadster Mazda MX-5 Miata 1.8 RS (NB, J) `98
     = 1998 jpn FR  1280kg  280hp Coupe    Mazda RX-7 Type RS (FD) `98
     = 1998 eur FR  1211kg  205hp Coupe    SILEIGHTY `98
     ~ 1998 jpn 4WD 1389kg  255hp Coupe    Toyota CELICA GT-FOUR (ST205) `98
@@ -82,7 +74,7 @@ PSX Racing — catalog car to body shell
     ~ 1999 jpn FF  1180kg  190hp Coupe    Toyota CELICA SS-II (ZZT231) `99
     ~ 1999 jpn MR  1038kg  140hp Roadster Toyota MR2 Spyder `99
 
-=== supra_a80  (Toyota Supra (A80), Japan 1993 GT)  — 62 cars
+=== supra_a80  (Toyota Supra (A80), Japan 1993 GT)  — 50 cars
     wheelbase 2.55 m, track 1.53 m, tyre 0.326 m, 11 liveries
     ~ 1967 jpn FR  1159kg  150hp GT       Toyota 2000GT `67
     ~ 1970 jpn MR   729kg  800hp GT       Toyota 7 Race Car `70
@@ -99,29 +91,20 @@ PSX Racing — catalog car to body shell
     = 1989 jpn FR  1474kg  280hp Coupe    Nissan 300ZX 2seater (Z32) `89
     ~ 1989 jpn MR  1059kg  800hp GT       Nissan R89C Race Car `89
     ~ 1989 ger MR  1051kg  720hp GT       Sauber Mercedes C 9 Race Car `89
-    ~ 1990 jpn MR  1349kg  280hp GT       Honda NSX `90
     = 1990 jpn FR  1484kg  280hp Coupe    Toyota SUPRA 2.5GT Twin Turbo R `90
-    ~ 1991 jpn MR  1365kg  274hp GT       Acura NSX `91
     ~ 1991 jpn MR   976kg  700hp GT       Mazda 787B Race Car `91
     ~ 1991 gbr FR  1087kg  243hp GT       TVR V8S `91
-    ~ 1992 jpn MR  1273kg  280hp GT       Honda NSX Type R `92
     ~ 1992 gbr MR  1565kg  550hp GT       Jaguar XJ220 `92
     ~ 1992 jpn MR  1059kg  800hp GT       Nissan R92CP Race Car `92
     ~ 1992 fra MR   882kg  520hp GT       Peugeot 905 Race Car `92
-    ~ 1993 jpn MR  1349kg  280hp GT       Honda NSX `93
     ~ 1994 ita MR  1601kg  568hp GT       Cizeta V16T `94
     ~ 1994 gbr FR  1096kg  324hp GT       TVR Griffith 500 `94
-    ~ 1995 jpn MR  1349kg  280hp GT       Honda NSX `95
     = 1995 jpn 4WD 1640kg  280hp Coupe    Mitsubishi 3000GT MR (J) `95
     = 1995 jpn 4WD 1572kg  225hp Coupe    Mitsubishi 3000GT SL (J) `95
     = 1995 jpn 4WD 1669kg  280hp Coupe    Mitsubishi 3000GT VR-4 Turbo (J) `95
     = 1996 jpn 4WD 1572kg  225hp Coupe    Mitsubishi 3000GT SL (J) `96
     = 1996 jpn 4WD 1669kg  280hp Coupe    Mitsubishi 3000GT VR-4 Turbo (J) `96
-    ~ 1997 jpn MR  1392kg  294hp GT       Acura NSX Coupe `97
     ~ 1997 ger MR  1118kg  600hp GT       BMW McLaren F1 GTR Race Car `97
-    ~ 1997 jpn MR  1349kg  280hp GT       Honda NSX `97
-    ~ 1997 jpn MR  1320kg  280hp GT       Honda NSX Type S `97
-    ~ 1997 jpn MR  1269kg  280hp GT       Honda NSX Type S Zero `97
     = 1997 jpn FR  1522kg  280hp Coupe    Lexus SC300 `97
     = 1997 jpn FR  1474kg  280hp Coupe    Toyota SUPRA RZ `97
     = 1997 jpn FR  1449kg  225hp Coupe    Toyota SUPRA SZ-R `97
@@ -140,9 +123,6 @@ PSX Racing — catalog car to body shell
     ~ 1999 gbr FR  1924kg  558hp GT       Aston Martin V8 Vantage `99
     ~ 1999 ger MR  1059kg  580hp GT       BMW V12 LMR Race Car `99
     ~ 1999 fra MR  1016kg  167hp GT       Hommell Berlinette R/S Coupe `99
-    ~ 1999 jpn MR  1349kg  280hp GT       Honda NSX `99
-    ~ 1999 jpn MR  1320kg  280hp GT       Honda NSX Type S `99
-    ~ 1999 jpn MR  1269kg  280hp GT       Honda NSX Type S Zero `99
     ~ 1999 gbr FR  1601kg  375hp GT       Jaguar XKR Coupe `99
     ~ 1999 gbr FR  1692kg  602hp GT       Lister Storm V12 Race Car `99
     ~ 1999 jpn MR  1059kg  608hp GT       Toyota GT-ONE Race Car (TS020) `99
@@ -214,15 +194,54 @@ PSX Racing — catalog car to body shell
     (no catalog car — used as roadside scenery)
 
 === civic_eg  (Honda Civic (EG), Japan 1991 Hatch)  — 4 cars
-    wheelbase 2.57 m, track 1.45 m, tyre 0.266 m, 1 liveries
+    wheelbase 2.58 m, track 1.48 m, tyre 0.270 m, 1 liveries
     = 1991 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `91
     = 1992 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `92
     = 1993 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `93
     = 1995 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `95
 
 === nissan_180sx  (Nissan 180SX / 240SX (S13), Japan 1989 Sports)  — 1 car
-    wheelbase 2.46 m, track 1.46 m, tyre 0.292 m, 1 liveries
+    wheelbase 2.46 m, track 1.52 m, tyre 0.287 m, 1 liveries
     = 1996 jpn FR  1262kg  205hp Coupe    Nissan 240SX `96
+
+=== viper_gts  (Dodge Viper GTS, America 1996 Sports)  — 1 car
+    wheelbase 2.46 m, track 1.47 m, tyre 0.304 m, 1 liveries
+    = 1999 usa FR  1532kg  456hp Coupe    Dodge VIPER GTS `99
+
+=== flatsix_coupe  (Flat-six coupe (911), Europe 1987 Sports)  — 2 cars
+    wheelbase 2.30 m, track 1.35 m, tyre 0.317 m, 1 liveries
+    = 1986 ger RR  1221kg  374hp Coupe    RUF BTR `86
+    = 1987 ger RR  1272kg  469hp Coupe    RUF CTR "Yellow Bird" `87
+
+=== flatsix_turbo_96  (Flat-six turbo (993), Europe 1996 Sports)  — 1 car
+    wheelbase 2.31 m, track 1.45 m, tyre 0.318 m, 1 liveries
+    = 1996 ger 4WD 1380kg  520hp Coupe    RUF CTR2 `96
+
+=== midship_coupe  (Midship coupe (NSX), Japan 1990 Sports)  — 12 cars
+    wheelbase 2.53 m, track 1.51 m, tyre 0.282 m, 1 liveries
+    = 1990 jpn MR  1349kg  280hp GT       Honda NSX `90
+    = 1991 jpn MR  1365kg  274hp GT       Acura NSX `91
+    = 1992 jpn MR  1273kg  280hp GT       Honda NSX Type R `92
+    = 1993 jpn MR  1349kg  280hp GT       Honda NSX `93
+    = 1995 jpn MR  1349kg  280hp GT       Honda NSX `95
+    = 1997 jpn MR  1392kg  294hp GT       Acura NSX Coupe `97
+    = 1997 jpn MR  1349kg  280hp GT       Honda NSX `97
+    = 1997 jpn MR  1320kg  280hp GT       Honda NSX Type S `97
+    = 1997 jpn MR  1269kg  280hp GT       Honda NSX Type S Zero `97
+    = 1999 jpn MR  1349kg  280hp GT       Honda NSX `99
+    = 1999 jpn MR  1320kg  280hp GT       Honda NSX Type S `99
+    = 1999 jpn MR  1269kg  280hp GT       Honda NSX Type S Zero `99
+
+=== classic_roadster  (Classic roadster (Miata), Japan 1989 Roadster)  — 8 cars
+    wheelbase 2.28 m, track 1.42 m, tyre 0.271 m, 1 liveries
+    = 1989 jpn FR  1006kg  120hp Roadster Mazda MX-5 Miata (NA) `89
+    = 1991 jpn FR  1006kg  120hp Roadster Mazda MX-5 Miata J-Limited (NA, J) `91
+    = 1993 jpn FR  1048kg  130hp Roadster Mazda MX-5 Miata J-Limited II (NA, J) `93
+    = 1993 jpn FR  1014kg  130hp Roadster Mazda MX-5 Miata V-Special Type II (NA, J) `93
+    = 1995 jpn FR  1071kg  130hp Roadster Mazda MX-5 Miata S-Special Type I (NA, J) `95
+    = 1995 jpn FR  1048kg  130hp Roadster Mazda MX-5 Miata VR-Limited (NA, J) `95
+    = 1997 jpn FR  1048kg  130hp Roadster Mazda MX-5 Miata SR-Limited (NA, J) `97
+    = 1998 jpn FR  1066kg  145hp Roadster Mazda MX-5 Miata 1.8 RS (NB, J) `98
 
 === gto_66  (Pontiac GTO '66, America 1966 Muscle)  — 7 cars
     wheelbase 2.99 m, track 1.56 m, tyre 0.314 m, 10 liveries
@@ -234,7 +253,7 @@ PSX Racing — catalog car to body shell
     = 1988 usa FR  1467kg  233hp Coupe    Chevrolet Camaro IROC-Z Concept `88
     = 1997 usa FR  1524kg  289hp Coupe    Chevrolet Camaro Z28 Coupe `97
 
-=== mustang_67  (Ford Mustang Fastback '67, America 1967 Muscle)  — 12 cars
+=== mustang_67  (Ford Mustang Fastback '67, America 1967 Muscle)  — 11 cars
     wheelbase 2.70 m, track 1.50 m, tyre 0.324 m, 6 liveries
     = 1954 usa FR  1308kg  152hp Roadster Chevrolet Corvette Convertible (C1) `54
     = 1963 usa FR  1369kg  253hp Muscle   Chevrolet Corvette Coupe (C2) `63
@@ -247,7 +266,6 @@ PSX Racing — catalog car to body shell
     = 1970 eur MR   966kg  689hp Muscle   Chaparral 2J Race Car `70
     = 1990 usa FR  1562kg  380hp Coupe    Chevrolet Corvette ZR-1 (C4) `90
     = 1996 usa FR  1495kg  335hp Coupe    Chevrolet Corvette GRAND SPORT (C4) `96
-    = 1999 usa FR  1532kg  456hp Coupe    Dodge VIPER GTS `99
 
 === charger_69  (Dodge Charger '69, America 1969 Muscle)  — 4 cars
     wheelbase 2.99 m, track 1.76 m, tyre 0.338 m, 11 liveries
@@ -260,15 +278,12 @@ PSX Racing — catalog car to body shell
     wheelbase 2.99 m, track 1.76 m, tyre 0.338 m, 11 liveries
     = 1970 usa FR  1713kg  431hp Muscle   Plymouth Super Bird `70
 
-=== bmw_e30  (BMW 3-Series (E30), Europe 1985 Saloon)  — 8 cars
+=== bmw_e30  (BMW 3-Series (E30), Europe 1985 Saloon)  — 5 cars
     wheelbase 2.55 m, track 1.42 m, tyre 0.300 m, 8 liveries
     = 1973 ger FR  1118kg  172hp Coupe    BMW 2002 Turbo `73
     ~ 1983 jpn FR  1122kg  160hp Saloon   Mitsubishi Lancer EX 1800GSR IC Turbo `83
-    = 1986 ger RR  1221kg  374hp Coupe    RUF BTR `86
-    = 1987 ger RR  1272kg  469hp Coupe    RUF CTR "Yellow Bird" `87
     = 1991 ger FR  1340kg  235hp Coupe    Mercedes-Benz 190 E 2.5 - 16 Evolution II `91
     = 1992 ger FR  1153kg  378hp Coupe    AMG Mercedes 190 E 2.5 - 16 Evolution II Touring Car `92
-    = 1996 ger 4WD 1380kg  520hp Coupe    RUF CTR2 `96
     = 1998 ger FR  1465kg  321hp Coupe    BMW M Coupe `98
 
 === audi_saloon  (Audi 80/100, Europe 1986 Saloon)  — 7 cars
@@ -374,5 +389,17 @@ PSX Racing — catalog car to body shell
 
 === classic_van  (Classic panel van, Europe 1960 Van)  — 0 cars
     wheelbase 2.35 m, track 1.39 m, tyre 0.324 m, 7 liveries
+    (no catalog car — used as roadside scenery)
+
+=== crown_victoria  (Ford Crown Victoria, America 1998 Saloon)  — 0 cars
+    wheelbase 3.22 m, track 1.61 m, tyre 0.348 m, 1 liveries
+    (no catalog car — used as roadside scenery)
+
+=== camry_2001  (Toyota Camry (XV20), Japan 1997 Saloon)  — 0 cars
+    wheelbase 2.93 m, track 1.50 m, tyre 0.313 m, 1 liveries
+    (no catalog car — used as roadside scenery)
+
+=== ford_transit  (Ford Transit (Mk5), Europe 1994 Van)  — 0 cars
+    wheelbase 2.95 m, track 1.46 m, tyre 0.301 m, 1 liveries
     (no catalog car — used as roadside scenery)
 

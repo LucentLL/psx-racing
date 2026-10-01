@@ -73,6 +73,12 @@ namespace PSXRacing
             // The owner's FlatSix Coupe (2026-09-26): the 911 shape, for every
             // RUF (all three are 911s underneath) and any Porsche 911.
             new Model { key = "flatsix_coupe", name = "Flat-six coupe (911)",     region = Region.Europe,  year = 1987, body = Body.Sports,   kg = 1272, handOnly = true, widthMm = 1652 },
+            // The owner's 2026-10-01 set, each sized to its GT4 sheet: the
+            // 993-era FlatSix Turbo (RUF CTR2 `96), the Midship Coupe (every
+            // NSX) and the Classic Roadster (every MX-5 Miata).
+            new Model { key = "flatsix_turbo_96", name = "Flat-six turbo (993)", region = Region.Europe, year = 1996, body = Body.Sports,   kg = 1380, handOnly = true, widthMm = 1735 },
+            new Model { key = "midship_coupe", name = "Midship coupe (NSX)",      region = Region.Japan,   year = 1990, body = Body.Sports,   kg = 1349, handOnly = true, widthMm = 1810 },
+            new Model { key = "classic_roadster", name = "Classic roadster (Miata)", region = Region.Japan, year = 1989, body = Body.Roadster, kg = 1006, handOnly = true, widthMm = 1675 },
 
             new Model { key = "gto_66",       name = "Pontiac GTO '66",           region = Region.America, year = 1966, body = Body.Muscle,   kg = 1650, widthMm = 1880 },
             new Model { key = "mustang_67",   name = "Ford Mustang Fastback '67", region = Region.America, year = 1967, body = Body.Muscle,   kg = 1400, widthMm = 1811 },
@@ -189,6 +195,11 @@ namespace PSXRacing
             // The S13 hatch. GT4 files it as "240SX `96"; the S14 has its own
             // row, "240SX (S14)", and its own body, so the backtick keeps it out.
             ("Nissan 240SX `",                                   "nissan_180sx"),
+            // The owner's Midship Coupe and Classic Roadster (2026-10-01):
+            // every NSX, Honda or Acura, and every MX-5 Miata (the one NB too -
+            // it is far nearer this than any other shell the game has).
+            ("Honda NSX|Acura NSX",                              "midship_coupe"),
+            ("Mazda MX-5|Miata|Eunos Roadster",                  "classic_roadster"),
             ("Spoon INTEGRA",                                    "euro_hatch"),
             // The Cosmo Sport rides along with the rotary it started.
             ("Mazda RX-7|Mazda 110S",                            "rx7_fd"),
@@ -226,6 +237,9 @@ namespace PSXRacing
             // the CTR2 - and wears the owner's FlatSix Coupe (2026-09-26); so
             // does any Porsche 911 the catalog ever carries. (They borrowed
             // the E30 while the pack had no rear-engined shell.)
+            // The CTR2 `96 is a 993 and wears the owner's FlatSix Turbo 96
+            // (2026-10-01); first, so the rule below cannot take it.
+            ("RUF CTR2",                                         "flatsix_turbo_96"),
             (@"RUF |Porsche 911|Porsche.*911|\b911\b",       "flatsix_coupe"),
             // E30-class German compact saloons: the 2002 is its ancestor, the
             // 190 E its period rival, and the DTM cars are those two.
