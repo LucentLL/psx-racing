@@ -102,6 +102,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestEditionPark), TestEditionPark);
             Guard(nameof(TestRuntimeShaders), TestRuntimeShaders);
             Guard(nameof(TestGlyphs), TestGlyphs);
+            Guard(nameof(TestCredits), TestCredits);
             Guard(nameof(TestDoorAudit), TestDoorAudit);
             Guard(nameof(TestCityProps), TestCityProps);
             Guard(nameof(TestGridStaging), TestGridStaging);
@@ -976,6 +977,27 @@ namespace PSXRacing.EditorTools
                       n.Shader == null ? "no shader has that name: " + string.Join(" ", n.Sites) : null);
                 Check(n.AlwaysIncluded, n.Name + " is in GraphicsSettings' always-included shaders", string.Join(" ", n.Sites));
             }
+            // THE CITY KIT (Resources): the streamed city, its canopy trees and
+            // its lamp posts draw with the kit's materials, so their shaders
+            // ship wherever the kit does - listed, and checked in the player
+            // by the build report and webgl-contents.mjs.
+            Check(r.KitNote == null && r.Kit.Count > 0, "the city kit's shaders are listed (" + RuntimeShaders.KitPath + ")",
+                  r.KitNote ?? string.Join(", ", r.Kit.Select(n => n.Name)));
+            var kitLit = r.Kit.FirstOrDefault(n => n.Name == "PSX/Lit");
+            Check(kitLit != null && kitLit.Sites.Any(s => s.StartsWith("CityKit.trees", System.StringComparison.Ordinal)) &&
+                  kitLit.Sites.Any(s => s.StartsWith("CityKit.slots", System.StringComparison.Ordinal)),
+                  "the city's roads, buildings and canopy trees draw with PSX/Lit, a kit shader",
+                  kitLit == null ? "PSX/Lit is not among the kit's" : string.Join(" ", kitLit.Sites));
+            Check(kitLit != null && kitLit.AlwaysIncluded, "and PSX/Lit is always included as well (CityWorld names it for the lamp posts)");
+            foreach (var n in r.Kit)
+                Check(n.Shader != null && !ShaderUtil.ShaderHasError(n.Shader), "kit shader " + n.Name + " exists and compiles",
+                      string.Join(" ", n.Sites));
+            Check(r.KitErrors.Count == 0, "no kit material without a shader, no kit shader gone", string.Join("; ", r.KitErrors));
+            var kitLines = RuntimeShaders.ReportLines(r, null, new[] { System.IO.Path.GetFileName(RuntimeShaders.KitPath) }, out _);
+            Check(kitLines.Any(l => l.StartsWith("kit-shaders none (the city kit was parked", System.StringComparison.Ordinal)) &&
+                  !kitLines.Any(l => l.TrimStart().StartsWith("kit-shader ", System.StringComparison.Ordinal)),
+                  "a build that parks the kit asks for none of its shaders");
+
             var gaps = RuntimeShaders.Gaps(r);
             Check(gaps.Count == 0, "the WebGL build's pre-flight finds no runtime shader gap", string.Join("; ", gaps));
         }
@@ -1014,6 +1036,40 @@ namespace PSXRacing.EditorTools
                 Check(label is UnityEngine.UI.Text, "and is still a Text to everything that looks for one");
             }
             finally { Object.DestroyImmediate(go); }
+        }
+
+        /// <summary>
+        /// THE DATA CREDITS, PER EDITION. The CITY door once said "Elevation:
+        /// NASA SRTM" in a hard-coded string while the city stood on USGS 3DEP.
+        /// Every credit now comes from tools/city/SOURCES.md through
+        /// tools/city/credits.mjs (which checks the files match the table);
+        /// this checks the game LOADS them: each edition's own page and door
+        /// line (not the fallback, not ALL's), OpenStreetMap on every one
+        /// (ODbL), drawable in the player's font, the CITY door printing
+        /// CITY's line, and each edition's page a subset of ALL's.
+        /// </summary>
+        static void TestCredits()
+        {
+            Line("data credits per edition (tools/city/SOURCES.md):");
+            string allPage = CreditsPanel.Text(EditionKind.All), allLine = CreditsPanel.Line(EditionKind.All);
+            foreach (var e in new[] { EditionKind.All, EditionKind.Main, EditionKind.City })
+            {
+                string n = Edition.Name(e), page = CreditsPanel.Text(e), line = CreditsPanel.Line(e);
+                Check(page != CreditsPanel.Fallback && page.Contains("OpenStreetMap"),
+                      n + "'s CREDITS page is the generated one and carries the OpenStreetMap line", page);
+                Check(line != CreditsPanel.LineFallback && line.Contains("OpenStreetMap"),
+                      n + "'s one-line credit is the generated one and carries OpenStreetMap", line);
+                Check(Glyphs.IsSafe(page) && Glyphs.IsSafe(line), n + "'s credits are drawable in the player's font");
+                if (e == EditionKind.All) continue;
+                Check(page != allPage && line != allLine,
+                      n + " loads its OWN page and line, not ALL's (psx_credits_" + n.ToLowerInvariant() + ", its row of psx_credits_line)");
+                string missing = null;
+                foreach (var l in page.Split('\n'))
+                    if (l.Trim().Length > 0 && !allPage.Contains(l.Trim())) { missing = l; break; }
+                Check(missing == null, n + "'s page is a subset of ALL's (one registry)", missing);
+            }
+            Check(LifeSim.CityFrontEnd.Credits == CreditsPanel.Line(EditionKind.City),
+                  "the CITY front page prints CITY's generated line", LifeSim.CityFrontEnd.Credits);
         }
 
         /// <summary>
@@ -1459,6 +1515,37 @@ namespace PSXRacing.EditorTools
                 }
             }
             Check(missing == 0, "every CityProps row baked a prefab", missing + " missing");
+
+            // The streamed city's cheap copies (WP-07): baked, as cheap as
+            // they claim, and the restaurants still places - bay, room, doors.
+            foreach (var kv in PSXRacing.City.CityProps.Defs)
+            {
+                if (!PSXRacing.City.CityProps.HasCityVariant(kv.Key)) continue;
+                string name = System.IO.Path.GetFileName(kv.Value.res);
+                var v = AssetDatabase.LoadAssetAtPath<GameObject>(CityPropBaker.OutDir + "/" + name + ".prefab");
+                Check(v != null, "the city variant of " + name + " is baked");
+                if (v == null) continue;
+                int draws = CityPropBaker.DrawsOf(v);
+                if (PSXRacing.City.CityProps.IsFood(kv.Key))
+                {
+                    Check(v.GetComponentInChildren<DriveThru>(true) != null, name + " (city) keeps its order bay");
+                    var room = v.GetComponent<PSXRacing.City.CityPropInterior>();
+                    Check(room != null && room.interior != null && room.interior.Length > 50,
+                          name + " (city) keeps its room behind the switch", room != null && room.interior != null ? room.interior.Length + " renderers" : "none");
+                    // the switch draws the room only from inside its hull, so
+                    // a hull left unbaked (zero size) would hide it for good
+                    Check(room != null && room.hull.size.x > 3f && room.hull.size.z > 3f && room.hull.size.y > 1.5f,
+                          name + " (city) has its room's hull baked (the switch's inside test)",
+                          room != null ? room.hull.size.ToString("0.0") : "none");
+                    Check(v.GetComponentsInChildren<SwingDoor>(true).Length > 0, name + " (city) keeps its doors on hinges");
+                    Check(draws <= 40, name + " (city) costs a few dozen draws at most from the street", draws);
+                }
+                else
+                {
+                    Check(v.GetComponentInChildren<Collider>(true) != null, name + " (city) is solid to a car");
+                    Check(draws <= 2, name + " (city) is one or two draws", draws);
+                }
+            }
 
             // The restaurants are the only props the player goes LOOKING for,
             // and the placement gates (four lanes, 1.2-9.5 km from uptown,
@@ -13179,7 +13266,7 @@ namespace PSXRacing.EditorTools
                 float len2 = d.sqrMagnitude;
                 float t = len2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, d) / len2) : 0f;
                 float at = e.s[si] + Mathf.Sqrt(len2) * t;
-                float c = Vector2.Distance(p, a + d * t) - trims.HalfWidthAt(e, at);
+                float c = Vector2.Distance(p, a + d * t) - trims.ReachAt(e, at);
                 float dy = e.YAt(at) - ground;
                 if (dy <= -LampBelowM) continue;
                 string name = "e" + e.index + " '" + e.name + "' cls " + e.cls;

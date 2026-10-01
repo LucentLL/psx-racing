@@ -89,6 +89,15 @@ To rebuild and publish the WebGL build:
 powershell -ExecutionPolicy Bypass -File tools\build-and-publish.ps1
 ```
 
+A branch's test build goes beside the game with `-PagesDir <folder>` (the
+Charlotte branch publishes to https://lucentll.github.io/psx-racing/city/).
+Each publish replaces only its own part of gh-pages and keeps the rest. A
+test page keeps its own save (IndexedDB `/idbfs-<folder>`), so it cannot
+overwrite the career of the game at the root.
+`-DryRun` shows what would change without pushing anything. Only `main`
+publishes the game at the site root. From any other branch, a publish without
+`-PagesDir` is refused.
+
 `Assets/PSXRacing/Scenes/CityCircuit.unity` is generated output — edit
 `Editor/PSXRacingBuilder.cs`, not the scene.
 

@@ -355,6 +355,27 @@ namespace PSXRacing
             if (r != null) excluded.Add(r);
         }
 
+        /// <summary>
+        /// Would this renderer be a caster if it were registered? The test
+        /// Consider applies (not UI, not excluded, a PSX/Lit or PSX/CarPaint
+        /// material, and not a sliver unless it moves), asked without
+        /// registering anything or making a caster material: for
+        /// CityBudgetProbe's count of what a tile adds to the sun's map,
+        /// which is one draw per caster there.
+        /// </summary>
+        public static bool WouldCast(MeshRenderer r)
+        {
+            if (r == null || r.gameObject.layer == 5 || excluded.Contains(r)) return false;
+            bool any = false;
+            foreach (var m in r.sharedMaterials)
+            {
+                string n = m != null && m.shader != null ? m.shader.name : null;
+                if (n == "PSX/Lit" || n == "PSX/CarPaint") { any = true; break; }
+            }
+            if (!any) return false;
+            return r.GetComponentInParent<Rigidbody>() != null || r.bounds.extents.magnitude * 2f >= MinCasterM;
+        }
+
         static void OnBeginCamera(ScriptableRenderContext ctx, Camera cam)
         {
             if (cam == null || Off) return;

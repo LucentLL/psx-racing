@@ -119,7 +119,8 @@ namespace PSXRacing.EditorTools
                     return false;
                 }
                 Debug.Log("[PSXBuildWebGL] Runtime shaders: " + shaders.Needs.Count + " named, every one always included - " +
-                          string.Join(", ", shaders.Needs.Select(n => n.Name)));
+                          string.Join(", ", shaders.Needs.Select(n => n.Name)) + "; city kit shaders: " +
+                          (shaders.KitNote ?? string.Join(", ", shaders.Kit.Select(n => n.Name))));
 
                 PlayerSettings.companyName = "PSX Racing";
                 PlayerSettings.productName = "PSX Racing";
@@ -200,7 +201,7 @@ namespace PSXRacing.EditorTools
                     EditionParking.Restore();
                 }
                 var s = report.summary;
-                var shaderLines = RuntimeShaders.ReportLines(shaders, report, out var unpacked);
+                var shaderLines = RuntimeShaders.ReportLines(shaders, report, parked, out var unpacked);
                 WriteReport(report, outDir, edition, scenePaths, parked, shaderLines);
                 Debug.Log($"[PSXBuildWebGL] Result={s.result} size={s.totalSize / (1024 * 1024)}MB " +
                           $"errors={s.totalErrors} time={s.totalTime}");
@@ -325,14 +326,15 @@ namespace PSXRacing.EditorTools
 
         /// <summary>
         /// Credits PER EDITION. The WebGL template copies every file beside
-        /// its index.html into the build; a template carrying
-        /// LICENSES-MAIN.txt / LICENSES-CITY.txt / LICENSES-ALL.txt gets the
-        /// one for this edition published as LICENSES.txt and the others
-        /// dropped. (The Charlotte branch's credits.mjs writes one
-        /// LICENSES.txt today; on the merge it should write one per edition —
-        /// MAIN: OpenStreetMap for the stages + SRTM terrain; CITY:
-        /// OpenStreetMap Charlotte + its elevation sources. ODbL's attribution
-        /// belongs in both.) A template with neither is left as it was.
+        /// its index.html into the build, and tools/city/credits.mjs writes
+        /// three there from tools/city/SOURCES.md: LICENSES.txt (ALL's: every
+        /// credit, so a build that picks nothing - Unity's own Build dialog -
+        /// still owes nobody), LICENSES-MAIN.txt (OpenStreetMap for the stage
+        /// roads, the stages' terrain) and LICENSES-CITY.txt (OpenStreetMap
+        /// for Charlotte, USGS 3DEP ground, the county and USGS water). The
+        /// edition's own is published as LICENSES.txt and every LICENSES-*.txt
+        /// is dropped; ALL keeps the template's LICENSES.txt.
+        /// `credits.mjs --build` checks the result before a deploy.
         /// </summary>
         static void PickLicenses(string outDir, EditionKind edition)
         {
@@ -341,6 +343,9 @@ namespace PSXRacing.EditorTools
             if (perEdition.Length == 0) return;
             string mine = Path.Combine(outDir, "LICENSES-" + Edition.Name(edition) + ".txt");
             if (File.Exists(mine)) File.Copy(mine, Path.Combine(outDir, "LICENSES.txt"), true);
+            else if (edition != EditionKind.All)
+                Debug.LogWarning("[PSXBuildWebGL] the template has no LICENSES-" + Edition.Name(edition) +
+                                 ".txt - this build keeps ALL's LICENSES.txt (node tools/city/credits.mjs --write)");
             foreach (var f in perEdition) File.Delete(f);
         }
     }

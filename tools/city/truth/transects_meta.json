@@ -1,0 +1,17 @@
+{
+  "note": "The 8 height transects of the 2026-09-27 flatness survey (survey_flatness.md section 3). transects.csv holds each one at 2 m stations: s (m along), x, z (game frame), truth_m = the median of 5 samples across +-3 m of the centreline on the USGS 3DEP 1 m bare-earth DEM (public domain), and mask: 0 measured, 1 on or beside a bridge (lidar removes decks), 2 wall/spike or a grade-separated crossing within 30 m (or a >7% jump on the freeway), 3 no data. roadside.csv: every 5th station, the unit normal the offsets were taken along and the 3DEP land height at -60, -30, +30, +60 m. core10.ptru.gz: 3DEP at 10 m (2x2 mean of the survey's 5 m grid) over the 8 x 8 km core. city120.ptru.gz: 3DEP 30 m area-averaged to the game DEM's 60 m nodes, every 2nd node (120 m). Source: USGS 3DEP ImageServer exportImage (F32 GeoTIFF, bilinear), georeferenced from the returned tags (the service grows the requested box); check: Trade & Tryon 232.59 m against EPQS 232.59 m. Frozen from the survey's cache by WP-01 so every later package measures against the same reference offline.",
+  "grade_note": "grade = CityElevation.MaxGrade for the transect's class, used by the metrics' emulation of solver step 1 (sigma 2.5 stations + grade clamp).",
+  "transects": [
+    { "id": "uptown", "label": "Uptown Loop race route (I-277 / Stonewall / uptown streets)", "grade": 0.065 },
+    { "id": "tryon", "label": "Tryon Street Sprint race route (South End -> uptown -> N Tryon)", "grade": 0.065 },
+    { "id": "independence", "label": "Independence Sprint race route (US 74 east of uptown)", "grade": 0.05 },
+    { "id": "dilworth", "label": "East Boulevard, Dilworth (South Blvd -> Little Sugar Ck -> Queens Rd)", "grade": 0.065 },
+    { "id": "freedom", "label": "Freedom Drive, west side (Morehead -> NW, 6.5 km)", "grade": 0.065 },
+    { "id": "tyvola", "label": "Tyvola Rd / W Tyvola Rd (Sugar Creek valley crossing, 6.5 km)", "grade": 0.065 },
+    { "id": "providence", "label": "Providence Road (suburban arterial, 3rd St -> south, 7 km)", "grade": 0.065 },
+    { "id": "i485", "label": "I-485 south: I-77 -> Johnston Rd (Sugar / Little Sugar / McMullen Ck)", "grade": 0.04 }
+  ],
+  "spot_checks": [
+    { "name": "Trade & Tryon", "lat": 35.22709, "lon": -80.84313, "truth_m": 232.59, "source": "USGS EPQS, 1 m DEM (rasterId 110887), 2026-09-28" }
+  ]
+}

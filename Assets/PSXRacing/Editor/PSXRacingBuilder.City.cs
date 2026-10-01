@@ -111,12 +111,15 @@ namespace PSXRacing.EditorTools
             }
 
             // ---- the streamed world --------------------------------------
+            // No materials on the component (WP-07): CityWorld reads them
+            // from the CityKit in Resources, written here for all four
+            // scenes, so the next city material is a kit change and not a
+            // rebake of every city scene.
             var worldGO = new GameObject("CityWorld");
             var world = worldGO.AddComponent<CityWorld>();
             world.player = player.transform;
-            world.materials = CityMaterials();
-            RegisterSeasonalGround("CityGround", CityPackDir + "/grass_7_city.png",
-                                   world.materials[(int)CityMeshes.Slot.Ground], Color.white, "grass");
+            var kit = EnsureCityKit();
+            RegisterCitySeasonal(kit);
 
             // RaceManager + applier when there is a path, the free-roam
             // session GO otherwise — BuildCameraAndHUD makes that call.
@@ -164,6 +167,305 @@ namespace PSXRacing.EditorTools
             EnsureCityArt();
             AssetDatabase.Refresh();
             ConfigureTextureImporters();
+            EnsureCityKit();
+        }
+
+        // ------------------------------------------------------------------
+        //  THE CITY KIT (WP-07): every city material in one Resources asset.
+        // ------------------------------------------------------------------
+        const string CityKitPath = Root + "/Resources/" + CityKit.ResourcePath + ".asset";
+
+        /// <summary>The street-lamp posts' pack metal: the house pack's
+        /// Metal.jpg (a weathered galvanised grey that already ships with
+        /// the house props, so it costs no download), tinted down to the
+        /// dark weathered steel the untextured posts were. The sums, in the
+        /// linear light the shader works in: the old tint (0.30, 0.31, 0.33)
+        /// is (0.073, 0.078, 0.089); the texture ships as RGB565
+        /// (ReleaseBudget), which is sampled WITHOUT the sRGB decode, so its
+        /// mean (0.50, 0.51, 0.48) arrives as it stands; the tint that lands
+        /// on the old tone is therefore (0.146, 0.154, 0.184) linear, which
+        /// is written here as the colour it is authored in, (0.42, 0.43, 0.46).</summary>
+        /// <summary>WP-25: the creeks' banks - the owner's pack clay
+        /// (PSX Textures II dirt_pt_7, the red-brown of Piedmont clay), a
+        /// copy in Art/City/Pack like the grass and the concrete. The pack
+        /// texel averages half the city grass's brightness (52 against 97):
+        /// the tint lifts it to a sunlit bank's, a little warmer.</summary>
+        internal static Material CityBankMat() =>
+            MakeMat("CityBank", CityBankTexPath, tint: CityBankTint, affine: 0f);
+        const string CityBankTexPath = CityPackDir + "/dirt_pt_7_city.png";
+        static readonly Color CityBankTint = new Color(1.75f, 1.6f, 1.5f);
+
+        /// <summary>The city's season wardrobe: the ground's grass, and (WP-25)
+        /// the creeks' and culvert ditches' clay, which dresses with it - the
+        /// dirt tints through the year and the snow turf on a snowy day (red
+        /// clay on a white city, every creek, otherwise; CityWorld asks
+        /// SeasonDress.Substitute for it as a tile is built).</summary>
+        static void RegisterCitySeasonal(CityKit kit)
+        {
+            RegisterSeasonalGround("CityGround", CityPackDir + "/grass_7_city.png",
+                                   kit.MaterialFor(CityMeshes.Slot.Ground), Color.white, "grass");
+            RegisterSeasonalGround("CityBank", CityBankTexPath, kit.bank, CityBankTint, "bank");
+        }
+
+        /// <summary><see cref="RegisterCitySeasonal"/>'s entries, as a city
+        /// scene's SeasonDress carries them, for a tool with no scene
+        /// (CityHydroShots' snow shots).</summary>
+        internal static SeasonDress.Entry[] CitySeasonEntries()
+        {
+            ClearSeasonEntries();
+            RegisterCitySeasonal(EnsureCityKit());
+            var entries = seasonEntries.ToArray();
+            ClearSeasonEntries();
+            return entries;
+        }
+
+        internal static Material CityLampPostMat() =>
+            MakeMat("CityLampPost", LifeSimArtDir + "/House/Textures/Metal.jpg",
+                    tint: new Color(0.42f, 0.43f, 0.46f), affine: 0f);
+
+        /// <summary>
+        /// Charlotte's signs (WP-23): billboards, business cabinets and exit
+        /// gantries on one 512 atlas (tools/city/signs_atlas.py composes it
+        /// from the owner's packs; every brand fictional), so a tile's signs
+        /// are one draw. After dark the faces glow in their own colours
+        /// through the atlas's night mask (PSX/Lit _NightMask + _NightWin +
+        /// _NightFace): a billboard's floodlit from its foot, a cabinet from
+        /// inside; the gantry panels and the steel stay dark (NCDOT's panels
+        /// are retroreflective: the headlights light them). Null if the atlas
+        /// is missing, and the signs then stand with their renderer off.
+        /// </summary>
+        internal static Material CitySignsMat()
+        {
+            const string dir = Root + "/Art/City/Signs";
+            if (AssetDatabase.LoadAssetAtPath<Texture2D>(dir + "/CitySigns.png") == null)
+            {
+                Log("WARN: " + dir + "/CitySigns.png missing (py tools/city/signs_atlas.py) - Charlotte's signs will not draw.");
+                return null;
+            }
+            var mat = MakeMat("CitySigns", dir + "/CitySigns.png", affine: 0f);
+            var mask = AssetDatabase.LoadAssetAtPath<Texture2D>(dir + "/CitySigns_night.png");
+            if (mat.HasProperty("_NightMask") && mat.HasProperty("_NightWin") && mat.HasProperty("_NightFace"))
+            {
+                mat.SetTexture("_NightMask", mask);
+                mat.SetFloat("_NightWin", mask != null ? 1f : 0f);
+                mat.SetFloat("_NightFace", mask != null ? 1f : 0f);
+                EditorUtility.SetDirty(mat);
+            }
+            else Log("WARN: PSX/Lit has no _NightFace - Charlotte's sign faces stay dark at night.");
+            return mat;
+        }
+
+        /// <summary>
+        /// Charlotte's roadside furniture (WP-15): the utility poles, their
+        /// wires and cobra-heads, the street lamps and uptown's acorn posts on
+        /// one 256 atlas of the owner's pack wood and metal
+        /// (tools/city/furniture_atlas.py), so a tile's furniture is one draw.
+        /// PSX/Lit's PSX_FURNITURE variant: the prop atlas's cell-in-the-vertex-
+        /// colour wrap (PSX_ATLAS_RECT's), plus the wires stood up square to the
+        /// eye a pixel wide at least and faded out past 100 m (CityPoles).
+        /// Null if the atlas is missing: the furniture then does not draw and
+        /// the lamp posts keep their own mesh.
+        /// </summary>
+        internal static Material CityFurnitureMat()
+        {
+            const string tex = Root + "/Art/City/Furniture/CityFurniture.png";
+            if (AssetDatabase.LoadAssetAtPath<Texture2D>(tex) == null)
+            {
+                Log("WARN: " + tex + " missing (py tools/city/furniture_atlas.py) - Charlotte's poles and wires will not draw.");
+                return null;
+            }
+            var mat = MakeMat("CityFurniture", tex, affine: 0f);
+            if (mat.HasProperty("_AtlasPx")) mat.SetFloat("_AtlasPx", CityPoles.AtlasPx);
+            mat.DisableKeyword("PSX_ATLAS_RECT");
+            mat.EnableKeyword("PSX_FURNITURE");
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        /// <summary>
+        /// Charlotte's junction furniture (WP-26..28, CitySignals): STOP signs
+        /// and their posts, signal poles, mast arms, span wires, heads and
+        /// stop bars on one 256 atlas (tools/city/signals_atlas.py: the
+        /// owner's pack metal and his Roads pack's STOP sign), the same
+        /// PSX_FURNITURE variant as the poles', so a tile's junction furniture
+        /// is one draw. The lenses' one shared material is made from this at
+        /// runtime (CitySignals.LampMaterial). Null if the atlas is missing:
+        /// the furniture then does not draw (the signal poles still stand).
+        /// </summary>
+        internal static Material CitySignalsMat()
+        {
+            const string tex = Root + "/Art/City/Signals/CitySignals.png";
+            if (AssetDatabase.LoadAssetAtPath<Texture2D>(tex) == null)
+            {
+                Log("WARN: " + tex + " missing (py tools/city/signals_atlas.py) - Charlotte's stop signs and signals will not draw.");
+                return null;
+            }
+            var mat = MakeMat("CitySignals", tex, affine: 0f);
+            if (mat.HasProperty("_AtlasPx")) mat.SetFloat("_AtlasPx", 256f);
+            mat.DisableKeyword("PSX_ATLAS_RECT");
+            mat.EnableKeyword("PSX_FURNITURE");
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        /// <summary>
+        /// The city's trees (WP-08), one material per season dress in
+        /// <see cref="Seasons"/> order: the stage forest's five atlases
+        /// (Art/BRP/Gen, the owner's CC0 retro tree pack composed with every
+        /// billboard's painted trunk under the crossing of its cards), so they
+        /// cost the city no new texture. Cut out at 0.5 and drawn both sides,
+        /// like the forest (one winding per card; PSX/Lit's _Cull 0 flips the
+        /// normal to the eye). CityTrees.MaterialFor picks the day's.
+        /// </summary>
+        internal static Material[] CityTreeMats()
+        {
+            var mats = new Material[Seasons.DressCount];
+            for (int d = 0; d < Seasons.DressCount; d++)
+            {
+                bool fall = d == (int)Season.Fall;
+                string tex = Root + "/Art/BRP/Gen/TreeAtlas" + (fall ? "" : "_" + DressSuffix[d]) + ".png";
+                mats[d] = MakeMat("CityTrees" + (fall ? "" : "_" + DressSuffix[d]), tex, cutoff: 0.5f, twoSided: true);
+            }
+            return mats;
+        }
+
+        /// <summary>
+        /// How far each atlas cell's painted tree reaches out from its trunk
+        /// below each twentieth of its height, as a fraction of the card's
+        /// width, the widest of the five dresses (a tree is planted once and
+        /// wears all five): [cell * 21 + level], level L covering the rows
+        /// under L/20 of the height. CityTrees keeps a card's low foliage off
+        /// the pavement with it. The composer slides every billboard's painted
+        /// trunk to the cell's middle column (TreeKit.CentreOnTrunk), so the
+        /// middle is where the trunk is. Read off the atlas PNGs; nothing drawn.
+        /// </summary>
+        internal static float[] CityTreeLowReach()
+        {
+            const int cell = 128, levels = CityTrees.ReachLevels;
+            var reach = new float[16 * levels];
+            for (int d = 0; d < Seasons.DressCount; d++)
+            {
+                bool fall = d == (int)Season.Fall;
+                string path = ProjectRootPath(Root + "/Art/BRP/Gen/TreeAtlas" + (fall ? "" : "_" + DressSuffix[d]) + ".png");
+                if (!File.Exists(path)) { Log("WARN: tree atlas missing " + path); continue; }
+                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                tex.LoadImage(File.ReadAllBytes(path));
+                var px = tex.GetPixels32();   // bottom-up rows, as the UVs read it
+                int W = tex.width;
+                UnityEngine.Object.DestroyImmediate(tex);
+                var cum = new float[cell];
+                for (int c = 0; c < 16; c++)
+                {
+                    int x0 = (c % 4) * cell, y0 = (c / 4) * cell;
+                    float run = 0f;
+                    for (int y = 0; y < cell; y++)
+                    {
+                        for (int x = 0; x < cell; x++)
+                            if (px[(y0 + y) * W + x0 + x].a > 127) run = Mathf.Max(run, Mathf.Abs(x + 0.5f - cell * 0.5f) / cell);
+                        cum[y] = run;   // the widest of the rows 0..y
+                    }
+                    // level L: the rows under L/20 of the height
+                    for (int L = 1; L < levels; L++)
+                    {
+                        int top = Mathf.Clamp(Mathf.CeilToInt(L * cell / (float)(levels - 1)) - 1, 0, cell - 1);
+                        reach[c * levels + L] = Mathf.Max(reach[c * levels + L], cum[top]);
+                    }
+                }
+            }
+            return reach;
+        }
+
+        /// <summary>
+        /// Write (or rewrite) Resources/CityKit.asset from the one material
+        /// table, CityMaterials(), plus the lamp posts, and hand it back.
+        /// Every city scene build and every city tool (EnsureCityTextures)
+        /// runs it, so what a tool photographs and what the game draws are
+        /// the same asset.
+        /// </summary>
+        internal static CityKit EnsureCityKit()
+        {
+            if (!AssetDatabase.IsValidFolder(Root + "/Resources"))
+                AssetDatabase.CreateFolder(Root, "Resources");
+            var kit = AssetDatabase.LoadAssetAtPath<CityKit>(CityKitPath);
+            bool made = kit == null;
+            if (made) kit = ScriptableObject.CreateInstance<CityKit>();
+            kit.slots = CityMaterials();
+            kit.slotCount = kit.slots.Length;
+            kit.lampPost = CityLampPostMat();
+            kit.bank = CityBankMat();
+            kit.trees = CityTreeMats();
+            kit.treeLowReach = CityTreeLowReach();
+            kit.signs = CitySignsMat();
+            kit.furniture = CityFurnitureMat();
+            kit.signals = CitySignalsMat();
+            var shaders = new List<Shader>();
+            if (kit.furniture != null && kit.furniture.shader != null && !shaders.Contains(kit.furniture.shader))
+                shaders.Add(kit.furniture.shader);
+            foreach (var m in kit.slots)
+                if (m != null && m.shader != null && !shaders.Contains(m.shader)) shaders.Add(m.shader);
+            if (kit.lampPost != null && kit.lampPost.shader != null && !shaders.Contains(kit.lampPost.shader))
+                shaders.Add(kit.lampPost.shader);
+            if (kit.bank != null && kit.bank.shader != null && !shaders.Contains(kit.bank.shader))
+                shaders.Add(kit.bank.shader);
+            foreach (var m in kit.trees)
+                if (m != null && m.shader != null && !shaders.Contains(m.shader)) shaders.Add(m.shader);
+            if (kit.signs != null && kit.signs.shader != null && !shaders.Contains(kit.signs.shader))
+                shaders.Add(kit.signs.shader);
+            if (kit.signals != null && kit.signals.shader != null && !shaders.Contains(kit.signals.shader))
+                shaders.Add(kit.signals.shader);
+            foreach (var name in new[] { "PSX/Lit", "PSX/Water", "PSX/LitTransparent" })
+            {
+                var sh = Shader.Find(name);
+                if (sh != null && !shaders.Contains(sh)) shaders.Add(sh);
+            }
+            kit.shaders = shaders.ToArray();
+            int missing = 0;
+            foreach (var m in kit.slots) if (m == null) missing++;
+            if (missing > 0) Log("WARN: city kit: " + missing + " of " + kit.slots.Length + " slots have no material");
+            if (made) AssetDatabase.CreateAsset(kit, CityKitPath);
+            else EditorUtility.SetDirty(kit);
+            AssetDatabase.SaveAssets();
+            CityKit.Forget();
+            return kit;
+        }
+
+        /// <summary>
+        /// The four city scenes and nothing else (WP-07's one rebake, and the
+        /// fast loop for any city change that touches the scenes): the city
+        /// prop variants are baked from the full prefabs the last full build
+        /// left, then Charlotte and its three race scenes are rebuilt.
+        /// Leaves the build settings and every other scene alone, and writes
+        /// PSXRacing_city_build_log.txt, never the full build's log (which the
+        /// publish gate reads).
+        /// </summary>
+        [MenuItem("PSX Racing/Build City Scenes Only")]
+        public static void BuildCityScenesOnly()
+        {
+            log = new System.Text.StringBuilder();
+            try
+            {
+                Log("City scenes build started " + DateTime.Now);
+                EnsureFolders();
+                ConfigureTextureImporters();
+                EnsureRoadLayer();
+                psxLit = Shader.Find("PSX/Lit");
+                if (psxLit == null) throw new Exception("PSX/Lit shader not found - did shaders compile?");
+                foreach (var line in CityPropBaker.BakeVariants()) Log("  props " + line);
+                int n = 0;
+                foreach (var def in TrackCatalog.Scened)
+                    if (def.city) { BuildCityScene(def); n++; }
+                Log("CITY BUILD OK - " + n + " city scenes");
+            }
+            catch (Exception e)
+            {
+                Log("CITY BUILD FAILED: " + e.Message + " | " + e.StackTrace);
+                Debug.LogException(e);
+            }
+            finally
+            {
+                File.WriteAllText(ProjectRootPath("PSXRacing_city_build_log.txt"), log.ToString());
+                AssetDatabase.SaveAssets();
+            }
         }
 
         static void EnsureCityFolders()
@@ -458,42 +760,28 @@ namespace PSXRacing.EditorTools
         static void DrawProfileTex(RoadProfiles.Profile pr, CityMeshes.Surface surf)
         {
             float total = pr.Width;
-            int width = total > 18f ? 512 : 256, h = 64;
+            int width = RoadProfiles.TexWidthOf(pr), h = 64;
+            // the ONE layout (RoadProfiles.PaintLines), which the line model
+            // draws its paint columns from (WP-11b)
+            var ms = new List<float>(); var ks = new List<byte>();
+            RoadProfiles.PaintLines(pr, ms, ks);
             var whiteDash = new List<float>();
             var yellowSolid = new List<float>();
             var yellowDash = new List<float>();
-            float leftEdge = pr.shl + PaintHalf, rightEdge = total - pr.shr - PaintHalf;
+            float leftEdge = 0f, rightEdge = 0f;
+            for (int i = 0; i < ms.Count; i++)
+                switch (ks[i])
+                {
+                    case LineModel.KEdgeP: leftEdge = ms[i]; break;
+                    case LineModel.KEdgeM: rightEdge = ms[i]; break;
+                    case LineModel.KYellow: yellowSolid.Add(ms[i]); break;
+                    case LineModel.KYellowDash: yellowDash.Add(ms[i]); break;
+                    default: whiteDash.Add(ms[i]); break;
+                }
             // The MUTCD's rule, not the freeway's: the left edge line of ANY
             // one-way roadway is yellow — a divided arterial's carriageways
             // and a one-way downtown street included.
             bool carriageway = pr.oneway;
-
-            if (pr.oneway)
-            {
-                for (int i = 1; i < pr.lanes; i++) whiteDash.Add(pr.shl + LaneM * i);
-            }
-            else
-            {
-                int perSide = (pr.lanes - (pr.turnLane ? 1 : 0)) / 2;
-                float medStart = pr.shl + perSide * LaneM;
-                for (int i = 1; i < perSide; i++) whiteDash.Add(pr.shl + LaneM * i);
-                if (pr.turnLane)
-                {
-                    // two lines with a normal gap at each boundary of the turn lane
-                    yellowSolid.Add(medStart - PaintHalf * 2f);
-                    yellowDash.Add(medStart + PaintHalf * 2f);
-                    yellowDash.Add(medStart + LaneM - PaintHalf * 2f);
-                    yellowSolid.Add(medStart + LaneM + PaintHalf * 2f);
-                    for (int i = 1; i < perSide; i++) whiteDash.Add(medStart + LaneM + LaneM * i);
-                }
-                else
-                {
-                    // the double yellow: two normal lines, one normal gap
-                    yellowSolid.Add(medStart - PaintHalf * 2f);
-                    yellowSolid.Add(medStart + PaintHalf * 2f);
-                    for (int i = 1; i < perSide; i++) whiteDash.Add(medStart + LaneM * i);
-                }
-            }
 
             WriteTexture(CityTexDir + "/" + RoadTexFile(pr.key, surf), width, h, (x, y) =>
             {
@@ -751,7 +1039,10 @@ namespace PSXRacing.EditorTools
             var art = new Color32(150, 140, 90, 255);
             var fwy = new Color32(255, 190, 70, 255);
             foreach (var w in map.waters)
+            {
+                if (w.ravine) continue;   // a dry ravine is not water (WP-04b)
                 for (int i = 0; i + 1 < w.pts.Length; i++) Line(w.pts[i], w.pts[i + 1], water);
+            }
             foreach (var e in map.edges)
             {
                 if (e.link || e.cls == 0) continue;   // ramps and local streets are noise at 128 px

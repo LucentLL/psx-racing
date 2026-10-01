@@ -13,6 +13,11 @@ namespace PSXRacing.EditorTools
             // 256 would halve every tree to 64 px - chunkier than the circuit
             // trees it replaces.
             if (assetPath.Contains("/BRP/Gen/TreeAtlas")) return 512;
+            // Charlotte's sign faces (WP-23): six 48 ft bulletins, four
+            // posters, sixteen business cabinets, the gantry panels and the
+            // structure metal on one sheet, so every sign of a tile is one
+            // draw. At 256 a bulletin's lettering would be 3 px tall.
+            if (assetPath.EndsWith("/Art/City/Signs/CitySigns.png")) return 512;
             // The converted traffic cars (owner, 2026-09-25: "can we increase
             // the texture size cap?"). A GT2 car was four 256 PS1 pages; its
             // baked 512 atlas holds the same texels. Opted in by NAME, by

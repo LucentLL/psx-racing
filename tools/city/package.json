@@ -1,0 +1,8 @@
+{
+  "name": "psx-racing-charlotte-tools",
+  "private": true,
+  "description": "Charlotte data tools (export_osm.mjs, metrics.mjs). No dependencies. Node is pinned because V8's Math.sin/cos/atan2 are not bit-stable across releases and --check compares bytes: after a Node change, compare fingerprint.json instead.",
+  "engines": {
+    "node": "24.15.0"
+  }
+}

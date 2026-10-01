@@ -1,0 +1,83 @@
+{
+  "schema": 1,
+  "note": "Inputs of tools/city/export_osm.mjs. The Overpass cache is gitignored and exists only on the machine that fetched it (tools/city/fetch/ holds the queries); this records exactly what the shipped data was made from.",
+  "recorded_with": "v24.15.0",
+  "inputs": [
+    {
+      "file": "tools/city/cache/ways_all.json",
+      "kind": "overpass",
+      "bytes": 20071961,
+      "sha256": "7f1fceb08b8aee4697f1cfdf376bb5807b595dd217ec3ca078696bd5040d881a",
+      "timestamp_osm_base": "2026-09-12T02:44:33Z"
+    },
+    {
+      "file": "tools/city/cache/nodes_all.json",
+      "kind": "overpass",
+      "bytes": 1010738,
+      "sha256": "c6e5d49e6286b14b483a0c4d93f08a07f42dff7a4563475c13e4dd56bde68e08",
+      "timestamp_osm_base": "2026-09-12T02:44:33Z"
+    },
+    {
+      "file": "tools/city/cache/streets_core.json",
+      "kind": "overpass",
+      "bytes": 5467561,
+      "sha256": "b37ea5bb65821d85a93de7594a9e7193df48563c75f0a0a54bf7a1ae72a9f9c3",
+      "timestamp_osm_base": "2026-09-12T02:39:51Z"
+    },
+    {
+      "file": "tools/city/cache/buildings_core.json",
+      "kind": "overpass",
+      "bytes": 27750200,
+      "sha256": "80fe043969bbf2487e7fb8ca22e0e63cb62c662b204ceb58b62d61d8e1fd871b",
+      "timestamp_osm_base": "2026-09-12T02:39:51Z"
+    },
+    {
+      "file": "tools/city/cache/3dep/box13.f32",
+      "kind": "3dep",
+      "bytes": 137075328,
+      "sha256": "87822424ec850e4bb8e0e3a6fe59a1643168632b6baeed714a14644f62dc62c8"
+    },
+    {
+      "file": "tools/city/cache/3dep/box13.json",
+      "kind": "3dep",
+      "bytes": 2095,
+      "sha256": "86871a6520f549ea5840a49c18e46bb938c2e4d93eb473784b79ae99d106c33a"
+    },
+    {
+      "file": "tools/city/cache/water/meck_creeks.geojson",
+      "kind": "water",
+      "bytes": 16292794,
+      "sha256": "2a75c9b3f5e19d631ceb8beef1266c49230cb1c8bc4022a425bfc35d1c26fe80"
+    },
+    {
+      "file": "tools/city/cache/water/meck_lakes.geojson",
+      "kind": "water",
+      "bytes": 28749078,
+      "sha256": "760235e051f1ad88964dc2c3dfb75ab06555c138603d36fc33d5d80470b039ad"
+    },
+    {
+      "file": "tools/city/cache/water/usgs_flowlines.geojson",
+      "kind": "water",
+      "bytes": 18730218,
+      "sha256": "53df1b23a70fa69ae3aa834341d14cbf0ab8a4ea93d77d110c3264895748b651"
+    },
+    {
+      "file": "tools/city/cache/water/usgs_waterbodies.geojson",
+      "kind": "water",
+      "bytes": 12331360,
+      "sha256": "c5669d52d04978f479848072170d8fe2b96f5a8ff501304463907fde1804088d"
+    },
+    {
+      "file": "tools/city/cache/water/county.geojson",
+      "kind": "water",
+      "bytes": 160114,
+      "sha256": "1c525747581233fb61494ac36dadcb52d3c2000227a316470c0901bdf13baa07"
+    },
+    {
+      "file": "tools/city/SOURCES.md#credits",
+      "kind": "registry",
+      "bytes": 532,
+      "sha256": "5f6f6e7454ee4f6d969088ea74f91450126e855fcbcabc85c1011746e13a9067"
+    }
+  ]
+}

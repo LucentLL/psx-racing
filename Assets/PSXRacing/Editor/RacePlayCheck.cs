@@ -23,7 +23,9 @@ namespace PSXRacing.EditorTools
         internal static int failures;
 
         /// <summary>One race of a run: where, at what traffic, which seed.</summary>
-        internal struct Job { public string venue; public string traffic; public int seed; }
+        internal struct Job { public string venue; public string traffic; public int seed; public bool trees, signs, poles; }
+        internal static int SeedNow => current.seed;
+        internal static string VenueNow => current.venue;
         static readonly Queue<Job> queue = new Queue<Job>();
         internal static Job current;
         /// <summary>More than one race in this Unity session
@@ -53,23 +55,39 @@ namespace PSXRacing.EditorTools
                     if (f.Length == 0 || f[0].Length == 0) continue;
                     int sd = 0;
                     if (f.Length > 2) int.TryParse(f[2], out sd);
-                    queue.Enqueue(new Job { venue = f[0], traffic = f.Length > 1 ? f[1] : "", seed = sd });
+                    queue.Enqueue(new Job { venue = f[0], traffic = f.Length > 1 ? f[1] : "", seed = sd, trees = true, signs = true, poles = true });
                 }
                 matrix = true;
                 File.WriteAllText(Path.Combine(ProjectDir, "PSXRacing_race_play_check.txt"), "");
             }
             else
             {
-                string id = System.Environment.GetEnvironmentVariable("PSX_RACE_VENUE");
-                int seed = 0;
-                int.TryParse(System.Environment.GetEnvironmentVariable("PSX_RACE_SEED") ?? "0", out seed);
-                queue.Enqueue(new Job
-                {
-                    venue = string.IsNullOrEmpty(id) ? "GillespieGap" : id,
-                    traffic = System.Environment.GetEnvironmentVariable("PSX_RACE_TRAFFIC") ?? "",
-                    seed = seed,
-                });
-                matrix = false;
+                // SEVERAL RACES IN ONE LAUNCH, the city's way (WP-08 review):
+                // PSX_RACE_VENUES a comma list of venue ids, PSX_RACE_SEEDS a
+                // comma list of seeds, and PSX_CITY_TREES / _SIGNS / _POLES
+                // "1" (on, the default), "0" (off) or "ab" (every race twice,
+                // on then off). One venue and one seed is the single race.
+                string venues = System.Environment.GetEnvironmentVariable("PSX_RACE_VENUES");
+                if (string.IsNullOrEmpty(venues)) venues = System.Environment.GetEnvironmentVariable("PSX_RACE_VENUE");
+                if (string.IsNullOrEmpty(venues)) venues = "GillespieGap";
+                string seeds = System.Environment.GetEnvironmentVariable("PSX_RACE_SEEDS");
+                if (string.IsNullOrEmpty(seeds)) seeds = System.Environment.GetEnvironmentVariable("PSX_RACE_SEED");
+                if (string.IsNullOrEmpty(seeds)) seeds = "0";
+                string traffic = System.Environment.GetEnvironmentVariable("PSX_RACE_TRAFFIC") ?? "";
+                string Mode(string key) { string v = System.Environment.GetEnvironmentVariable(key); return string.IsNullOrEmpty(v) ? "1" : v; }
+                bool[] Ways(string mode) => mode == "ab" ? new[] { true, false } : new[] { mode != "0" };
+                string treesMode = Mode("PSX_CITY_TREES"), signsMode = Mode("PSX_CITY_SIGNS"), polesMode = Mode("PSX_CITY_POLES");
+                foreach (var v in venues.Split(','))
+                    foreach (var sd in seeds.Split(','))
+                    {
+                        if (string.IsNullOrWhiteSpace(v) || !int.TryParse(sd.Trim(), out int seed)) continue;
+                        foreach (bool tr in Ways(treesMode))
+                            foreach (bool sg in Ways(signsMode))
+                                foreach (bool pl in Ways(polesMode))
+                                    queue.Enqueue(new Job { venue = v.Trim(), traffic = traffic, seed = seed, trees = tr, signs = sg, poles = pl });
+                    }
+                matrix = queue.Count > 1;
+                if (matrix) File.WriteAllText(Path.Combine(ProjectDir, "PSXRacing_race_play_check.txt"), "");
             }
             StartNext();
         }
@@ -98,6 +116,9 @@ namespace PSXRacing.EditorTools
             log = new StringBuilder();
             failures = 0;
             string id = current.venue;
+            PSXRacing.City.CityTrees.Enabled = current.trees;
+            PSXRacing.City.CitySigns.Enabled = current.signs;
+            PSXRacing.City.CityPoles.Enabled = current.poles;
             int index = -1;
             for (int i = 0; i < TrackCatalog.Count; i++)
                 if (TrackCatalog.At(i).id == id) index = i;
@@ -115,6 +136,7 @@ namespace PSXRacing.EditorTools
             // The edition it plays AS (PSX_EDITION / -psxEdition; ALL by
             // default): a MAIN run races under MAIN's runtime rules.
             log.AppendLine("  edition " + Edition.Name(Edition.Current));
+            if (matrix) log.AppendLine($"  seed {current.seed}, city trees {(current.trees ? "on" : "off")}, signs {(current.signs ? "on" : "off")}, poles {(current.poles ? "on" : "off")}");
             Check(Edition.Ships(TrackCatalog.At(index)), id + " is a venue this edition ships");
             EditorSceneManager.OpenScene(scenes[s].path);
             RaceHandoff.ClearAll();
@@ -433,6 +455,7 @@ namespace PSXRacing.EditorTools
             }
             RacePlayCheck.Note($"hits by kind: {string.Join(", ", kinds)}");
             RacePlayCheck.Note($"raced {raced:0} s; {retiredAt.Count} of {rivals} rivals retired");
+            RacePlayCheck.Note($"city tree trunks hit: {trunkHits} (hard {trunkHard}); posts hit (billboards, gantries, utility poles: CityPost): {postHits} (hard {postHard})");
             RacePlayCheck.Check(retiredAt.Count <= 1, "at most one rival retires in the run", retiredAt.Count);
             if (toFinish)
             {
@@ -479,6 +502,7 @@ namespace PSXRacing.EditorTools
                                          passR = new Dictionary<string, int>();
         readonly Dictionary<string, float> stuckS = new Dictionary<string, float>();
         int maxTraffic, trafficHitsRivals, trafficHitsPlayer, headOns, hardTrafficHitsRivals;
+        int trunkHits, trunkHard, postHits, postHard;
         float lastPassSample;
         readonly List<string> headOnLines = new List<string>();
 
@@ -700,6 +724,8 @@ namespace PSXRacing.EditorTools
         void OnHit(CollisionResponder who, float speed, bool hard, string what)
         {
             if (speed < 6f || rm == null) return;
+            if (what == PSXRacing.City.CityTrees.TrunkName) { trunkHits++; if (hard) trunkHard++; }
+            if (what == PSXRacing.City.CitySigns.PostName) { postHits++; if (hard) postHard++; }
             string kind = what.StartsWith("WallColl") ? "wall" : what.StartsWith("Bank") ? "rock" :
                           what.StartsWith("Traffic") || what.Contains("traffic") ? "traffic" :
                           who.GetComponentInParent<CarController>() != null && what.Length > 0 && IsCarName(what) ? "car" : what;

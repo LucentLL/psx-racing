@@ -26,9 +26,13 @@ namespace PSXRacing
         static FpsOverlay instance;
 
         Canvas canvas;
-        Text text;
+        Text text, cityText;
         float acc, worst;
         int frames;
+        // Draw and SetPass counts, where the player exposes them (release
+        // players report some render counters and not others; a recorder
+        // that is not Valid, or reads 0, is left off the line).
+        Unity.Profiling.ProfilerRecorder drawRec, setPassRec;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Boot()
@@ -71,7 +75,59 @@ namespace PSXRacing
             rt.pivot = new Vector2(0.5f, 0f);
             rt.anchoredPosition = new Vector2(0f, 2f);
             rt.sizeDelta = new Vector2(600f, 22f);
+
+            // THE CITY LINE (Charlotte refinement WP-01), just above: live
+            // tiles and colliders, the slowest tile build of the last ten
+            // seconds (a tile builds in one frame, so that is the worst hitch
+            // streaming caused), and the draw / SetPass counts. Only while a
+            // CityWorld is streaming; blank everywhere else.
+            var cgo = new GameObject("CityLine", typeof(RectTransform));
+            cgo.transform.SetParent(transform, false);
+            cityText = cgo.AddComponent<Text>();
+            cityText.font = text.font;
+            cityText.fontSize = 16;
+            cityText.alignment = TextAnchor.LowerCenter;
+            // Wraps inside its box rather than running off it (owner rule: no
+            // clipped text); it grows upward, away from the FPS line.
+            cityText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            cityText.verticalOverflow = VerticalWrapMode.Overflow;
+            cityText.raycastTarget = false;
+            cityText.color = new Color(0.85f, 0.95f, 1f);
+            var csh = cgo.AddComponent<Shadow>();
+            csh.effectColor = new Color(0f, 0f, 0f, 0.9f);
+            csh.effectDistance = new Vector2(1f, -1f);
+            var crt = cityText.rectTransform;
+            crt.anchorMin = crt.anchorMax = new Vector2(0.5f, 0f);
+            crt.pivot = new Vector2(0.5f, 0f);
+            crt.anchoredPosition = new Vector2(0f, 22f);
+            crt.sizeDelta = new Vector2(600f, 22f);
+
             canvas.enabled = FpsOverlayPrefs.Enabled;
+        }
+
+        void OnEnable()
+        {
+            drawRec = Unity.Profiling.ProfilerRecorder.StartNew(Unity.Profiling.ProfilerCategory.Render, "Draw Calls Count");
+            setPassRec = Unity.Profiling.ProfilerRecorder.StartNew(Unity.Profiling.ProfilerCategory.Render, "SetPass Calls Count");
+        }
+
+        void OnDisable()
+        {
+            drawRec.Dispose();
+            setPassRec.Dispose();
+        }
+
+        /// <summary>The CITY line: blank unless a CityWorld is streaming.</summary>
+        string CityLine()
+        {
+            var w = City.CityWorld.Active;
+            if (w == null) return "";
+            var sb = new System.Text.StringBuilder("CITY ");
+            sb.Append(w.LiveTiles).Append(" tiles  ").Append(w.LiveColliders).Append(" colliders  build max ")
+              .Append(City.CityWorld.RecentMaxBuildMs(10f).ToString("0.0")).Append(" ms/10 s");
+            if (drawRec.Valid && drawRec.LastValue > 0) sb.Append("  ").Append(drawRec.LastValue).Append(" draws");
+            if (setPassRec.Valid && setPassRec.LastValue > 0) sb.Append("  ").Append(setPassRec.LastValue).Append(" SetPass");
+            return sb.ToString();
         }
 
         void Update()
@@ -95,6 +151,7 @@ namespace PSXRacing
             text.color = worst <= 1f / 58f ? new Color(0.55f, 1f, 0.55f)
                        : fps >= 58f ? new Color(1f, 0.8f, 0.3f)
                        : new Color(1f, 0.4f, 0.35f);
+            cityText.text = CityLine();
             acc = 0f; frames = 0; worst = 0f;
         }
     }

@@ -93,6 +93,8 @@ namespace PSXRacing
             // drop the pause menu and resume the race, on whichever frame the
             // bench's Update happened to run first.
             if (bench != null && (bench.IsOpen || bench.ClosedFrame == Time.frameCount)) return;
+            // The credits page likewise.
+            if (credits != null && (credits.IsOpen || credits.ClosedFrame == Time.frameCount)) return;
 
             var kb = Keyboard.current;
             var pad = Gamepad.current;
@@ -139,6 +141,7 @@ namespace PSXRacing
             if (v && RaceReplay.Playing) return;
             open = v;
             IsOpen = v;
+            if (!v && credits != null && credits.IsOpen) credits.Close();
             if (panel != null) panel.SetActive(v);
             Time.timeScale = v ? 0f : 1f;
             AudioListener.pause = v;
@@ -242,6 +245,30 @@ namespace PSXRacing
                 };
             }
             bench.Open();
+        }
+
+        // ---- the credits page -----------------------------------------------
+        CreditsPanel credits;
+        Button creditsBtn;
+
+        /// <summary>
+        /// Open the CREDITS page over the pause menu: the credit and licence
+        /// lines the map and terrain data owe (plan critic C17), in full,
+        /// where the HUD's seven-second line has no room for them. Like the
+        /// bench, it closes back onto this menu, on the row that opened it.
+        /// </summary>
+        void OpenCredits()
+        {
+            if (!open) return;
+            if (credits == null)
+            {
+                credits = gameObject.AddComponent<CreditsPanel>();
+                credits.onClosed = () =>
+                {
+                    if (this != null && open && creditsBtn != null) MenuNav.Select(creditsBtn);
+                };
+            }
+            credits.Open();
         }
 
         Text camLabel;
@@ -724,6 +751,15 @@ namespace PSXRacing
             menuItems.Add(MakeButton(panel.transform, "TOGGLE DEBUG INFO", font,
                        new Vector2(0.5f, 1f), new Vector2(344f, -108f - RowStep),
                        new Vector2(300f, RowH), 19, ToggleDebug));
+
+            // CREDITS, under the physics readout on the right, on PIXELS's
+            // line: the full credit and licence lines of the map and terrain
+            // data (plan critic C17). Beside the column for the same reason as
+            // the two above it - the column is full.
+            creditsBtn = MakeButton(panel.transform, "CREDITS", font,
+                       new Vector2(0.5f, 1f), new Vector2(344f, -108f - 2f * RowStep),
+                       new Vector2(300f, RowH), 19, OpenCredits);
+            menuItems.Add(creditsBtn);
 
             // LENS FX, directly ABOVE FILM GRADE on the left, on LOOK Y's
             // line: the three picture-on-the-glass switches (lens, grade,

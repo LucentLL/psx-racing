@@ -10,7 +10,8 @@ namespace PSXRacing.City
     /// (baked by tools/city/export_osm.mjs straight out of OpenStreetMap).
     ///
     /// This is DATA, not scene: ~25,000 edges between ~20,000 real junction
-    /// nodes, the traced creeks and lakes, every grade separation with OSM's
+    /// nodes, the creeks, ravines and lakes (county and USGS lines with their
+    /// beds from 3DEP since WP-04b), every grade separation with OSM's
     /// word on which road is on top, the water spans, the three race routes
     /// and (from charlotte_bld.bytes) 32,000 building footprints — all in
     /// real metres around the I-485 centroid (x east, z north). CityWorld
@@ -23,6 +24,16 @@ namespace PSXRacing.City
     /// the magic + version at the top is what turns a mismatch into an error
     /// message instead of a graph of garbage.
     ///
+    /// Version 2 (Charlotte refinement WP-02) is a SECTION TABLE: {tag,
+    /// offset, length} per section, then META NODE NAME EDGE PNTS WATR WBED
+    /// XING SPAN ROUT GHSH (WBED, the water's beds, is optional: WP-04b).
+    /// The reader takes the sections it knows by tag and
+    /// skips any other, so a later export can add one (lanes, controls,
+    /// station heights) without breaking this build. GHSH is the GRAPH HASH
+    /// (<see cref="GraphHashOf"/>): derived data keyed by (edge, s) carries
+    /// it, and data made for another graph is refused. The layout is written
+    /// down once, in tools/city/lib/citydata.mjs.
+    ///
     /// The one scale knob is <see cref="LayoutScale"/>: it multiplies graph
     /// GEOMETRY only, at parse time. Road widths, lane widths and building
     /// sizes are section-currency (the car is real-size at any layout scale)
@@ -33,6 +44,11 @@ namespace PSXRacing.City
         public const float LayoutScale = 1.0f;
         const uint MagicCity = 0x43585350;   // "PSXC"
         const uint MagicBld = 0x444C4250;    // "PBLD"
+        /// <summary>The PSXC version this reader expects.</summary>
+        public const int CityVersion = 2;
+        /// <summary>A section tag as the u32 the table stores (its four ASCII
+        /// bytes, little-endian).</summary>
+        static uint Tag(string t) => (uint)(t[0] | t[1] << 8 | t[2] << 16 | t[3] << 24);
 
         // ---- runtime graph ------------------------------------------------
         public class Edge
@@ -60,6 +76,16 @@ namespace PSXRacing.City
             public float[] s;        // cumulative arc length per pt
             public float length;
 
+            /// <summary>CHAIN CONTINUITY (WP-11): the road's texture V at arc
+            /// position s is (vOff + vDir * s) / RoadVTile, running on along the
+            /// chain of mitred through joints, so the dash phase carries across
+            /// way splits, decks and tile seams; and the surface age is chosen
+            /// once per chain from ageSeed (the chain head's first point). Set by
+            /// CityMeshes.ComputeTrims; until then V restarts per edge.</summary>
+            public float vOff, vDir = 1f;
+            public Vector2 ageSeed;
+            public bool hasAgeSeed;
+
             // Elevation stations, every ~StationStep metres along the edge
             // (solved once at load by CityElevation).
             public float[] stS;      // arc position of each station
@@ -82,7 +108,47 @@ namespace PSXRacing.City
             /// <summary>How far either side of the centreline the land is
             /// graded to the road. Wider than the pavement so the verge and
             /// the median between two carriageways come out level.</summary>
-            public float CorridorHalf => width * 0.5f + 6.5f;
+            public float CorridorHalf => HalfMax + 6.5f;   // off the OSM line on the further side (the line model)
+
+            /// <summary>
+            /// THE PAVEMENT EDGE, the one accessor every roadside reader goes
+            /// through (WP-14): metres from the OSM centreline out to the drawn
+            /// ribbon's edge on <paramref name="side"/> (+1 right of the points'
+            /// direction, -1 left; <see cref="SideOf"/>) at arc position
+            /// <paramref name="at"/>, from the LINE MODEL (WP-11b, plan A8): a
+            /// lane added on ONE side moves the ribbon off its OSM line on that
+            /// side, and a taper eases only that side. The roadside section
+            /// (CityElevation.Ground and its section), InCut, the land and ground
+            /// probes and the play check's run-off all follow it.
+            /// </summary>
+            public float PaveEdgeM(float at, int side)
+            {
+                LineModel.Extents(this, at, out float eMinus, out float ePlus);
+                return side > 0 ? eMinus : ePlus;
+            }
+
+            /// <summary>THE LINE MODEL (WP-11b, <see cref="LineModel"/>): the
+            /// lanes' centre off the OSM line (+ = left of a->b: TAPR's offset),
+            /// the ribbon's full extents either side of the OSM line (plus =
+            /// left of a->b, minus = right; the lanes centred on lmOff, each
+            /// side with its own shoulder), and the eased one-sided tapers at
+            /// its ends (null: none; set by CityMeshes.ComputeTrims).</summary>
+            public float lmOff, lmPlus, lmMinus;
+            public LineModel.Ease[] lmEase;
+            /// <summary>The furthest the ribbon reaches off its OSM line on
+            /// either side: the clearance bound for placement that does not
+            /// care which side.</summary>
+            public float HalfMax => lmPlus == 0f && lmMinus == 0f ? width * 0.5f : Mathf.Max(lmPlus, lmMinus);
+
+            /// <summary>Which side of segment <paramref name="seg"/> a plan
+            /// point is on: +1 right of the points' direction, -1 left.</summary>
+            public int SideOf(int seg, Vector2 p)
+            {
+                Vector2 d = pts[seg + 1] - pts[seg], r = p - pts[seg];
+                return d.x * r.y - d.y * r.x > 0f ? -1 : 1;
+            }
+            /// <summary><see cref="SideOf"/> at an arc position.</summary>
+            public int SideAt(float at, Vector2 p) => SideOf(SegmentAt(Mathf.Clamp(at, 0f, length), out _), p);
 
             public Vector2 PointAt(float at)
             {
@@ -187,10 +253,32 @@ namespace PSXRacing.City
         {
             public string name;
             public float width;
-            public bool lake;
+            /// <summary>WATR's kind: 0 a creek (a water sheet, and every road
+            /// over it is a water span), 1 a lake (a closed ring), 2 a RAVINE
+            /// (WP-04b: a small stream the ground is carved for, with no water
+            /// and no span; a road over one keeps its embankment). Ravines
+            /// live in their own spatial hash (<see cref="RavineSegsInRect"/>),
+            /// so everything that avoids water still sees only creeks and
+            /// lakes.</summary>
+            public int kind;
+            public bool lake, ravine;
             public Vector2[] pts;
+            /// <summary>Arc length at each point (for the bed).</summary>
+            public float[] s;
+            public float length;
             public float surfaceY; // solved by CityElevation (flat per lake)
+            /// <summary>Section WBED (WP-04b; null in older data): the bed,
+            /// metres ASL, every <see cref="bedStep"/> m along
+            /// <see cref="pts"/> from its first point (the last sample at its
+            /// end); a lake's single value is its level. CityElevation turns
+            /// it into <see cref="bedY"/>, metres above the datum.</summary>
+            public float[] bedASL;
+            public float bedStep;
+            public float[] bedY;
             public Vector2 bbMin, bbMax;
+            /// <summary>A lake's edges by band of <see cref="LakeRowM"/> of z,
+            /// for <see cref="LakeContains"/>.</summary>
+            public int[][] rowEdges;
         }
 
         /// <summary>A grade separation: <c>over</c> crosses above
@@ -230,12 +318,32 @@ namespace PSXRacing.City
         }
 
         public string attribution;
+        /// <summary>The graph hash the file carries (section GHSH), checked
+        /// against <see cref="GraphHashOf"/> at parse; see
+        /// <see cref="GraphHashMatches"/>.</summary>
+        public uint graphHash;
+        /// <summary>False when the recomputed hash disagreed with GHSH (logged
+        /// as an error at parse; CityAudit fails on it).</summary>
+        public bool GraphHashMatches { get; private set; }
         public Vector2 uptown;
         public Vector2[] nodes;
         public float[] nodeY;
         public int[] nodeControl;         // 0 none, 1 yield, 2 stop, 4 signal
         public Edge[] edges;
         public List<int>[] nodeEdges;     // edges touching each node
+        /// <summary>Section TAPR's lane-count changes (null in older data):
+        /// the line model's taper lengths.</summary>
+        public LineModel.Tapr[] tapr;
+        /// <summary>Section SPLT's splits (null in older data): the line
+        /// model's median tapers.</summary>
+        public LineModel.Split[] splt;
+        /// <summary>A tagged control node (section TAGN): its OSM node id, the
+        /// way it was found on, its kind (4 signal, 2 stop, 1 give way) and
+        /// where it lies on the graph now (edge index, arc position).</summary>
+        public struct Tagged { public ulong nodeId; public uint wayId; public byte kind; public int edge; public float s; }
+        /// <summary>Section TAGN's control nodes (null in older data): one per
+        /// (node, way), so a junction node two ways share is listed twice.</summary>
+        public Tagged[] tagged;
         public Water[] waters;
         public Crossing[] crossings;
         public WaterSpan[] wspans;
@@ -247,12 +355,101 @@ namespace PSXRacing.City
 
         // ---- spatial hash over edge SEGMENTS ------------------------------
         public const float Cell = 64f;
-        readonly Dictionary<long, List<int>> segCells = new Dictionary<long, List<int>>();
+        /// <summary>The roads' (edge, segment) pairs by 64 m cell. A
+        /// <see cref="CellIndex"/> since WP-04: as a List per cell (about
+        /// 100,000 of them) it held several MB of the heap, which paid for the
+        /// water's own index.</summary>
+        readonly CellIndex segCells = new CellIndex(Cell);
         // Entries pack (edge << 12 | segment) — supports 4096 segments per edge.
         static long CellKey(int cx, int cz) => ((long)cx << 24) ^ (cz & 0xFFFFFF);
         public static int PackSeg(int edge, int seg) => (edge << 12) | seg;
 
-        readonly Dictionary<long, List<int>> waterCells = new Dictionary<long, List<int>>();
+        /// <summary>The water's (water, segment) pairs by cell: creeks and
+        /// lake shores on <see cref="Cell"/>, ravines on
+        /// <see cref="RavineCell"/> (WP-04b).</summary>
+        readonly CellIndex waterCells = new CellIndex(Cell);
+        readonly CellIndex ravineCells = new CellIndex(RavineCell);
+
+        /// <summary>
+        /// A frozen cell -> entries index, built once from (cell, entry) pairs:
+        /// one exact-size dictionary from a cell to its slot, and each slot's
+        /// entries as a range of one flat array. STABLE: a cell's entries come
+        /// back in the order they were added, as they did from the List per
+        /// cell this replaced (the ground sums what it finds in that order).
+        /// </summary>
+        sealed class CellIndex
+        {
+            readonly float cell;
+            List<long> keys = new List<long>(1024);
+            List<int> vals = new List<int>(1024);
+            Dictionary<long, int> slots = new Dictionary<long, int>();
+            int[] starts = { 0 };
+            int[] entries = System.Array.Empty<int>();
+            public CellIndex(float cell) { this.cell = cell; }
+            public int CellCount => starts.Length - 1;
+            public int EntryCount => entries.Length;
+            public void Add(long key, int val) { keys.Add(key); vals.Add(val); }
+            public void Freeze()
+            {
+                int n = keys.Count;
+                var slotOf = new int[n];
+                var counts = new List<int>(n / 2 + 1);
+                slots = new Dictionary<long, int>();
+                for (int i = 0; i < n; i++)
+                {
+                    if (!slots.TryGetValue(keys[i], out int s)) { s = counts.Count; slots[keys[i]] = s; counts.Add(0); }
+                    slotOf[i] = s;
+                    counts[s]++;
+                }
+                starts = new int[counts.Count + 1];
+                for (int s = 0; s < counts.Count; s++) starts[s + 1] = starts[s] + counts[s];
+                var cursor = (int[])starts.Clone();
+                entries = new int[n];
+                for (int i = 0; i < n; i++) entries[cursor[slotOf[i]]++] = vals[i];
+                slots.TrimExcess();
+                keys = null; vals = null;
+            }
+            public void Query(Vector2 min, Vector2 max, HashSet<int> outSegs)
+            {
+                int x0 = Mathf.FloorToInt(min.x / cell), x1 = Mathf.FloorToInt(max.x / cell);
+                int z0 = Mathf.FloorToInt(min.y / cell), z1 = Mathf.FloorToInt(max.y / cell);
+                for (int cx = x0; cx <= x1; cx++)
+                    for (int cz = z0; cz <= z1; cz++)
+                        if (slots.TryGetValue(CellKey(cx, cz), out int s))
+                            for (int i = starts[s], end = starts[s + 1]; i < end; i++) outSegs.Add(entries[i]);
+            }
+            /// <summary>The same, keeping only road segments whose box meets
+            /// the rectangle (<see cref="CityMap.EdgeSegsNear"/>).</summary>
+            public void Query(Vector2 min, Vector2 max, HashSet<int> outSegs, CityMap map)
+            {
+                int x0 = Mathf.FloorToInt(min.x / cell), x1 = Mathf.FloorToInt(max.x / cell);
+                int z0 = Mathf.FloorToInt(min.y / cell), z1 = Mathf.FloorToInt(max.y / cell);
+                for (int cx = x0; cx <= x1; cx++)
+                    for (int cz = z0; cz <= z1; cz++)
+                        if (slots.TryGetValue(CellKey(cx, cz), out int s))
+                            for (int i = starts[s], end = starts[s + 1]; i < end; i++)
+                                if (map.SegMeets(entries[i], min, max)) outSegs.Add(entries[i]);
+            }
+        }
+        /// <summary>Ravines hash on coarser cells: 1,545 small streams on
+        /// 64 m cells were 29,000 lists; only the ground carve and
+        /// <see cref="NearRavine"/> ask.</summary>
+        public const float RavineCell = 128f;
+        /// <summary>The lakes' indices in <see cref="waters"/>.</summary>
+        public int[] lakes = new int[0];
+        /// <summary>WP-25: the lakes (and the 1,231 ponds) whose
+        /// bounds reach each <see cref="LakeCell"/> cell, so the ground
+        /// function and <see cref="InLake"/> test the few near a point
+        /// instead of every one.</summary>
+        readonly Dictionary<long, int[]> lakeCells = new Dictionary<long, int[]>();
+        public const float LakeCell = 256f;
+        static readonly int[] NoLakes = new int[0];
+        /// <summary>The lakes whose bounds reach p's <see cref="LakeCell"/>
+        /// cell (a superset of those containing p).</summary>
+        public int[] LakesAt(Vector2 p) =>
+            lakeCells.TryGetValue(FootKey(Mathf.FloorToInt(p.x / LakeCell), Mathf.FloorToInt(p.y / LakeCell)), out var l) ? l : NoLakes;
+        /// <summary>Band height of a lake's edge index.</summary>
+        public const float LakeRowM = 32f;
         readonly Dictionary<long, List<int>> footCells = new Dictionary<long, List<int>>();
         public const float FootCell = 256f;   // one bucket per tile
         static long FootKey(int tx, int tz) => ((long)tx << 24) ^ (tz & 0xFFFFFF);
@@ -284,17 +481,51 @@ namespace PSXRacing.City
             return loaded;
         }
 
+        /// <summary>What the last <see cref="Parse"/> cost, milliseconds: the
+        /// bytes into the graph, footprints and hashes; and the elevation
+        /// solve after it. For the FPS overlay's budget and CityBudgetProbe.</summary>
+        public static float LastParseMs { get; private set; }
+        public static float LastSolveMs { get; private set; }
+
         public static CityMap Parse(byte[] city, byte[] bld)
         {
+            var parseClock = System.Diagnostics.Stopwatch.StartNew();
             var map = new CityMap();
             using (var r = new BinaryReader(new MemoryStream(city)))
             {
                 if (r.ReadUInt32() != MagicCity) throw new Exception("charlotte_city.bytes: bad magic");
                 int version = r.ReadInt32();
-                if (version != 1) throw new Exception("charlotte_city.bytes: version " + version + " (reader expects 1)");
+                if (version != CityVersion) throw new Exception("charlotte_city.bytes: version " + version + " (reader expects " + CityVersion + ": re-export with tools/city/export_osm.mjs)");
+                // The section table. Unknown tags are skipped; a missing one
+                // is an error, as is a section read short or long.
+                int nsec = r.ReadInt32();
+                var table = new Dictionary<uint, (int offset, int length)>(nsec);
+                for (int i = 0; i < nsec; i++)
+                {
+                    uint tag = r.ReadUInt32();
+                    int off = r.ReadInt32(), len = r.ReadInt32();
+                    if (off < 0 || len < 0 || (long)off + len > city.Length) throw new Exception("charlotte_city.bytes: a section runs past the end");
+                    table[tag] = (off, len);
+                }
+                bool Has(string t) => table.ContainsKey(Tag(t));
+                void Open(string t)
+                {
+                    if (!table.TryGetValue(Tag(t), out var sec)) throw new Exception("charlotte_city.bytes: no " + t + " section");
+                    r.BaseStream.Position = sec.offset;
+                }
+                void Close(string t)
+                {
+                    var sec = table[Tag(t)];
+                    if (r.BaseStream.Position != sec.offset + sec.length)
+                        throw new Exception("charlotte_city.bytes: section " + t + " read " + (r.BaseStream.Position - sec.offset) + " of " + sec.length + " bytes");
+                }
+
+                Open("META");
                 map.attribution = r.ReadString();
                 map.uptown = new Vector2(r.ReadSingle(), r.ReadSingle()) * LayoutScale;
+                Close("META");
 
+                Open("NODE");
                 int nn = r.ReadInt32();
                 map.nodes = new Vector2[nn];
                 map.nodeControl = new int[nn];
@@ -303,12 +534,19 @@ namespace PSXRacing.City
                     map.nodes[i] = new Vector2(r.ReadSingle(), r.ReadSingle()) * LayoutScale;
                     map.nodeControl[i] = r.ReadByte();
                 }
+                Close("NODE");
 
+                Open("NAME");
                 int ns = r.ReadInt32();
                 var names = new string[ns];
                 for (int i = 0; i < ns; i++) names[i] = r.ReadString();
+                Close("NAME");
 
+                // EDGE holds each edge's record and its point COUNT; the
+                // points themselves are in PNTS, every edge's in edge order.
+                Open("EDGE");
                 int ne = r.ReadInt32();
+                var pointCount = new int[ne];
                 map.edges = new Edge[ne];
                 map.nodeEdges = new List<int>[nn];
                 for (int i = 0; i < nn; i++) map.nodeEdges[i] = new List<int>(3);
@@ -335,7 +573,22 @@ namespace PSXRacing.City
                     var prof = RoadProfiles.All[e.profile];
                     e.width = prof.Width;
                     e.shl = prof.shl; e.shr = prof.shr;
-                    int np = r.ReadUInt16();
+                    pointCount[i] = r.ReadUInt16();
+                    map.edges[i] = e;
+                    if (e.a >= 0 && e.a < nn) map.nodeEdges[e.a].Add(i);
+                    if (e.b >= 0 && e.b < nn) map.nodeEdges[e.b].Add(i);
+                }
+                Close("EDGE");
+
+                Open("PNTS");
+                int totalPts = r.ReadInt32();
+                long sumPts = 0;
+                for (int i = 0; i < ne; i++) sumPts += pointCount[i];
+                if (sumPts != totalPts) throw new Exception("charlotte_city.bytes: PNTS holds " + totalPts + " points, the edges " + sumPts);
+                for (int i = 0; i < ne; i++)
+                {
+                    var e = map.edges[i];
+                    int np = pointCount[i];
                     e.pts = new Vector2[np];
                     e.s = new float[np];
                     for (int p = 0; p < np; p++)
@@ -347,19 +600,22 @@ namespace PSXRacing.City
                         e.s[p] = acc;
                     }
                     e.length = acc;
-                    map.edges[i] = e;
-                    if (e.a >= 0 && e.a < nn) map.nodeEdges[e.a].Add(i);
-                    if (e.b >= 0 && e.b < nn) map.nodeEdges[e.b].Add(i);
                 }
+                Close("PNTS");
 
+                Open("WATR");
                 int nw = r.ReadInt32();
                 map.waters = new Water[nw];
                 for (int i = 0; i < nw; i++)
                 {
                     var w = new Water();
                     w.name = names[r.ReadInt32()];
-                    w.width = Mathf.Max(4f, r.ReadSingle());
-                    w.lake = r.ReadByte() != 0;
+                    float wid = r.ReadSingle();
+                    w.kind = r.ReadByte();
+                    w.lake = w.kind == 1; w.ravine = w.kind == 2;
+                    // a ravine is a channel a metre or two wide; a creek at
+                    // least four, as before
+                    w.width = w.ravine ? Mathf.Max(1f, wid) : Mathf.Max(4f, wid);
                     int np = r.ReadInt32();
                     w.pts = new Vector2[np];
                     var mn = new Vector2(float.MaxValue, float.MaxValue);
@@ -370,9 +626,40 @@ namespace PSXRacing.City
                         mn = Vector2.Min(mn, w.pts[p]); mx = Vector2.Max(mx, w.pts[p]);
                     }
                     w.bbMin = mn; w.bbMax = mx;
+                    w.s = new float[np];
+                    for (int p = 1; p < np; p++) w.s[p] = w.s[p - 1] + Vector2.Distance(w.pts[p - 1], w.pts[p]);
+                    w.length = np > 0 ? w.s[np - 1] : 0f;
                     map.waters[i] = w;
                 }
+                Close("WATR");
 
+                // WBED (WP-04b): the beds, if this export has them. Layout in
+                // tools/city/lib/citydata.mjs: u32 n | f32 base | f32 scale |
+                // per water { u32 m; f32 step; u16 first; (m-1) x i16 step }.
+                if (Has("WBED"))
+                {
+                    Open("WBED");
+                    int nb = r.ReadInt32();
+                    if (nb != nw) throw new Exception("charlotte_city.bytes: WBED has " + nb + " beds for " + nw + " waters");
+                    float bedBase = r.ReadSingle(), bedScale = r.ReadSingle();
+                    for (int i = 0; i < nw; i++)
+                    {
+                        int m = r.ReadInt32();
+                        float step = r.ReadSingle() * LayoutScale;
+                        var bed = new float[m];
+                        int u = 0;
+                        for (int k = 0; k < m; k++)
+                        {
+                            u = k == 0 ? r.ReadUInt16() : u + r.ReadInt16();
+                            bed[k] = bedBase + u * bedScale;
+                        }
+                        map.waters[i].bedASL = m > 0 ? bed : null;
+                        map.waters[i].bedStep = step;
+                    }
+                    Close("WBED");
+                }
+
+                Open("XING");
                 int nc = r.ReadInt32();
                 map.crossings = new Crossing[nc];
                 for (int i = 0; i < nc; i++)
@@ -382,7 +669,9 @@ namespace PSXRacing.City
                         at = new Vector2(r.ReadSingle(), r.ReadSingle()) * LayoutScale,
                         forced = r.ReadByte() != 0,
                     };
+                Close("XING");
 
+                Open("SPAN");
                 int nws = r.ReadInt32();
                 map.wspans = new WaterSpan[nws];
                 for (int i = 0; i < nws; i++)
@@ -392,7 +681,9 @@ namespace PSXRacing.City
                         s0 = r.ReadSingle() * LayoutScale,
                         s1 = r.ReadSingle() * LayoutScale,
                     };
+                Close("SPAN");
 
+                Open("ROUT");
                 int nr = r.ReadInt32();
                 map.routes = new Route[nr];
                 for (int i = 0; i < nr; i++)
@@ -409,14 +700,139 @@ namespace PSXRacing.City
                     for (int k = 0; k < n; k++) { rt.edges[k] = r.ReadInt32(); rt.dirs[k] = r.ReadSByte(); }
                     map.routes[i] = rt;
                 }
+                Close("ROUT");
+
+                Open("GHSH");
+                map.graphHash = r.ReadUInt32();
+                Close("GHSH");
+
+                // TAPR (WP-10; read by the line model, WP-11b): every lane-count
+                // change, then every edge's ribbon offset off its OSM line.
+                // Layout: tools/city/export_osm.mjs, section TAPR.
+                float[] taprOff = null;
+                if (Has("TAPR"))
+                {
+                    Open("TAPR");
+                    int nt = r.ReadInt32();
+                    map.tapr = new LineModel.Tapr[nt];
+                    for (int i = 0; i < nt; i++)
+                        map.tapr[i] = new LineModel.Tapr
+                        {
+                            edge = r.ReadInt32(), end = r.ReadByte(), side = r.ReadByte(), src = r.ReadByte(), flags = r.ReadByte(),
+                            dw = r.ReadSingle(), len = r.ReadSingle() * LayoutScale,
+                            room = r.ReadSingle() * LayoutScale, off = r.ReadSingle(),
+                        };
+                    int no = r.ReadInt32();
+                    taprOff = new float[ne];
+                    for (int i = 0; i < no; i++)
+                    {
+                        int ei = r.ReadInt32();
+                        float o0 = r.ReadSingle(), o1 = r.ReadSingle();
+                        r.ReadSingle(); r.ReadSingle();   // t0, t1: since the WP-10 review the offset holds along the edge
+                        if (ei >= 0 && ei < ne) taprOff[ei] = 0.5f * (o0 + o1);
+                    }
+                    Close("TAPR");
+                }
+                // TAGN (WP-10): the OSM control nodes (signals, stops, give
+                // ways) resolved on the RAW ways, and where they lie now:
+                // (edge, s). Read by CitySignals. Layout: export_osm.mjs, TAGN.
+                if (Has("TAGN"))
+                {
+                    Open("TAGN");
+                    int ntg = r.ReadInt32();
+                    map.tagged = new Tagged[ntg];
+                    for (int i = 0; i < ntg; i++)
+                    {
+                        uint lo = r.ReadUInt32(), hi = r.ReadUInt32();
+                        var t = new Tagged { nodeId = ((ulong)hi << 32) | lo, wayId = r.ReadUInt32(), kind = r.ReadByte() };
+                        r.ReadSingle();                   // the raw distance along the way
+                        t.edge = r.ReadInt32();
+                        t.s = r.ReadSingle() * LayoutScale;
+                        map.tagged[i] = t;
+                    }
+                    Close("TAGN");
+                }
+                if (Has("SPLT"))
+                {
+                    Open("SPLT");
+                    int nsp = r.ReadInt32();
+                    map.splt = new LineModel.Split[nsp];
+                    for (int i = 0; i < nsp; i++)
+                        map.splt[i] = new LineModel.Split
+                        {
+                            node = r.ReadInt32(), u = r.ReadInt32(), a = r.ReadInt32(), b = r.ReadInt32(),
+                            offA = r.ReadSingle() * LayoutScale, offB = r.ReadSingle() * LayoutScale, rate = r.ReadSingle(),
+                        };
+                    Close("SPLT");
+                }
+                LineModel.Init(map, taprOff);
             }
+            uint computed = GraphHashOf(map.edges);
+            map.GraphHashMatches = computed == map.graphHash;
+            if (!map.GraphHashMatches)
+                Debug.LogError($"[City] charlotte_city.bytes: GHSH says {map.graphHash:x8}, the graph hashes to {computed:x8} - the file is damaged or was written by a different exporter");
 
             if (bld != null) map.ParseFootprints(bld);
             map.BuildHashes();
+            LastParseMs = (float)parseClock.Elapsed.TotalMilliseconds;
             var clock = System.Diagnostics.Stopwatch.StartNew();
             CityElevation.Solve(map);
-            Debug.Log($"[City] elevation solved in {clock.ElapsedMilliseconds} ms ({CityElevation.SeatedStationCount} ramp stations seated on their mainlines, found in {CityElevation.SeatPrepMs} ms)");
+            LastSolveMs = (float)clock.Elapsed.TotalMilliseconds;
+            Debug.Log($"[City] parsed in {LastParseMs:0} ms, elevation solved in {clock.ElapsedMilliseconds} ms ({CityElevation.SeatedStationCount} ramp stations seated on their mainlines, found in {CityElevation.SeatPrepMs} ms)");
             return map;
+        }
+
+        // ---- the graph hash --------------------------------------------
+        static uint[] crcTable;
+        static uint Crc(uint c, uint v)
+        {
+            for (int k = 0; k < 4; k++, v >>= 8) c = crcTable[(c ^ v) & 0xFF] ^ (c >> 8);
+            return c;
+        }
+
+        /// <summary>
+        /// THE GRAPH HASH: CRC-32 (zlib's, the IEEE polynomial) of the
+        /// little-endian stream  u32 edge count | per edge u32 a, u32 b,
+        /// u32 length in cm  - the length summed in DOUBLE precision from the
+        /// edge's stored float points, sqrt(dx*dx + dz*dz) per segment, and
+        /// rounded half up. The exporter (tools/city/lib/citydata.mjs
+        /// graphHash) writes the same number into section GHSH; derived data
+        /// keyed by (edge, s) is stamped with it, so a graph whose edges,
+        /// ends or lengths moved refuses data made for the old one.
+        /// </summary>
+        public static uint GraphHashOf(Edge[] edges)
+        {
+            if (crcTable == null)
+            {
+                var t = new uint[256];
+                for (uint n = 0; n < 256; n++)
+                {
+                    uint c = n;
+                    for (int k = 0; k < 8; k++) c = (c & 1) != 0 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+                    t[n] = c;
+                }
+                crcTable = t;
+            }
+            uint h = 0xFFFFFFFFu;
+            h = Crc(h, (uint)edges.Length);
+            foreach (var e in edges)
+            {
+                double len = 0.0;
+                var P = e.pts;
+                for (int k = 1; k < P.Length; k++)
+                {
+                    // the file's floats (LayoutScale multiplies geometry at parse)
+                    double dx = (double)(P[k].x / LayoutScale) - (double)(P[k - 1].x / LayoutScale);
+                    double dz = (double)(P[k].y / LayoutScale) - (double)(P[k - 1].y / LayoutScale);
+                    double sq = dx * dx;
+                    sq += dz * dz;
+                    len += Math.Sqrt(sq);
+                }
+                h = Crc(h, (uint)e.a);
+                h = Crc(h, (uint)e.b);
+                h = Crc(h, (uint)Math.Floor(len * 100.0 + 0.5));
+            }
+            return ~h;
         }
 
         void ParseFootprints(byte[] bytes)
@@ -494,43 +910,55 @@ namespace PSXRacing.City
             {
                 for (int i = 0; i + 1 < e.pts.Length; i++)
                 {
-                    ForCellsOnSeg(e.pts[i], e.pts[i + 1], (cx, cz) =>
-                    {
-                        long k = CellKey(cx, cz);
-                        if (!segCells.TryGetValue(k, out var list)) segCells[k] = list = new List<int>(4);
-                        list.Add(PackSeg(e.index, i));
-                    });
+                    int packed = PackSeg(e.index, i);
+                    ForCellsOnSeg(e.pts[i], e.pts[i + 1], Cell, (cx, cz) => segCells.Add(CellKey(cx, cz), packed));
                 }
             }
+            segCells.Freeze();
+            var lakeList = new List<int>();
             for (int w = 0; w < waters.Length; w++)
             {
                 var wt = waters[w];
+                var cells = wt.ravine ? ravineCells : waterCells;
+                float cell = wt.ravine ? RavineCell : Cell;
                 for (int i = 0; i + 1 < wt.pts.Length; i++)
                 {
-                    ForCellsOnSeg(wt.pts[i], wt.pts[i + 1], (cx, cz) =>
-                    {
-                        long k = CellKey(cx, cz);
-                        if (!waterCells.TryGetValue(k, out var list)) waterCells[k] = list = new List<int>(4);
-                        list.Add(PackSeg(w, i));
-                    });
+                    int packed = PackSeg(w, i);
+                    ForCellsOnSeg(wt.pts[i], wt.pts[i + 1], cell, (cx, cz) => cells.Add(CellKey(cx, cz), packed));
                 }
-                // a lake polygon also needs its INTERIOR cells registered, so a
-                // ground vertex in the middle of the lake finds it
                 if (wt.lake)
                 {
-                    int x0 = Mathf.FloorToInt(wt.bbMin.x / Cell), x1 = Mathf.FloorToInt(wt.bbMax.x / Cell);
-                    int z0 = Mathf.FloorToInt(wt.bbMin.y / Cell), z1 = Mathf.FloorToInt(wt.bbMax.y / Cell);
+                    lakeList.Add(w);
+                    BuildLakeRows(wt);
+                }
+                // A lake's INSIDE is no longer registered cell by cell: with
+                // Lake Wylie at 2,800 shoreline points that was a point-in-
+                // polygon test on each of 39,000 cells at load (0.9 s) and
+                // 25,000 lists (WP-04b). LakeContains answers from the
+                // lake's own edge bands instead; the shore segments are in
+                // the hash as before.
+            }
+            lakes = lakeList.ToArray();
+            {
+                var cells = new Dictionary<long, List<int>>();
+                foreach (int li in lakes)
+                {
+                    var wt = waters[li];
+                    int x0 = Mathf.FloorToInt(wt.bbMin.x / LakeCell), x1 = Mathf.FloorToInt(wt.bbMax.x / LakeCell);
+                    int z0 = Mathf.FloorToInt(wt.bbMin.y / LakeCell), z1 = Mathf.FloorToInt(wt.bbMax.y / LakeCell);
                     for (int cx = x0; cx <= x1; cx++)
                         for (int cz = z0; cz <= z1; cz++)
                         {
-                            var centre = new Vector2((cx + 0.5f) * Cell, (cz + 0.5f) * Cell);
-                            if (!PointInPoly(wt.pts, centre)) continue;
-                            long k = CellKey(cx, cz);
-                            if (!waterCells.TryGetValue(k, out var list)) waterCells[k] = list = new List<int>(4);
-                            list.Add(PackSeg(w, 0));
+                            long k = FootKey(cx, cz);
+                            if (!cells.TryGetValue(k, out var l)) cells[k] = l = new List<int>(2);
+                            l.Add(li);
                         }
                 }
+                lakeCells.Clear();
+                foreach (var kv in cells) lakeCells[kv.Key] = kv.Value.ToArray();
             }
+            waterCells.Freeze();
+            ravineCells.Freeze();
             footReach = new float[footprints.Length];
             footMaxReach = 0f;
             for (int i = 0; i < footprints.Length; i++)
@@ -553,10 +981,12 @@ namespace PSXRacing.City
             }
         }
 
-        static void ForCellsOnSeg(Vector2 a, Vector2 b, Action<int, int> visit)
+        static void ForCellsOnSeg(Vector2 a, Vector2 b, Action<int, int> visit) => ForCellsOnSeg(a, b, Cell, visit);
+
+        static void ForCellsOnSeg(Vector2 a, Vector2 b, float cell, Action<int, int> visit)
         {
-            int x0 = Mathf.FloorToInt(Mathf.Min(a.x, b.x) / Cell), x1 = Mathf.FloorToInt(Mathf.Max(a.x, b.x) / Cell);
-            int z0 = Mathf.FloorToInt(Mathf.Min(a.y, b.y) / Cell), z1 = Mathf.FloorToInt(Mathf.Max(a.y, b.y) / Cell);
+            int x0 = Mathf.FloorToInt(Mathf.Min(a.x, b.x) / cell), x1 = Mathf.FloorToInt(Mathf.Max(a.x, b.x) / cell);
+            int z0 = Mathf.FloorToInt(Mathf.Min(a.y, b.y) / cell), z1 = Mathf.FloorToInt(Mathf.Max(a.y, b.y) / cell);
             for (int cx = x0; cx <= x1; cx++)
                 for (int cz = z0; cz <= z1; cz++)
                     visit(cx, cz);
@@ -564,24 +994,101 @@ namespace PSXRacing.City
 
         /// <summary>Visit every (edge, segment) whose segment's cells overlap
         /// the world-space rectangle, deduplicated per edge-segment.</summary>
-        public void EdgeSegsInRect(Vector2 min, Vector2 max, HashSet<int> outSegs)
+        public void EdgeSegsInRect(Vector2 min, Vector2 max, HashSet<int> outSegs) => segCells.Query(min, max, outSegs);
+
+        /// <summary><see cref="EdgeSegsInRect"/> less every segment whose own
+        /// box misses the rectangle (a segment wholly beyond it in x or z),
+        /// in the same order. For point queries that ignore a segment further
+        /// than the rectangle's half size (the ground's corridors, the
+        /// squeeze): the same answer from a fraction of the candidates. A
+        /// 64 m cell hands a 100 m ground query up to 192 m square of
+        /// segments, and WP-11's arcs put twice the segments in each
+        /// (review 2026-09-30: tile p95 +50%).</summary>
+        public void EdgeSegsNear(Vector2 min, Vector2 max, HashSet<int> outSegs) => segCells.Query(min, max, outSegs, this);
+
+        /// <summary>Does segment (edge, seg) of <paramref name="packed"/> have
+        /// its plan box within the rectangle?</summary>
+        internal bool SegMeets(int packed, Vector2 min, Vector2 max)
         {
-            int x0 = Mathf.FloorToInt(min.x / Cell), x1 = Mathf.FloorToInt(max.x / Cell);
-            int z0 = Mathf.FloorToInt(min.y / Cell), z1 = Mathf.FloorToInt(max.y / Cell);
-            for (int cx = x0; cx <= x1; cx++)
-                for (int cz = z0; cz <= z1; cz++)
-                    if (segCells.TryGetValue(CellKey(cx, cz), out var list))
-                        foreach (var p in list) outSegs.Add(p);
+            var P = edges[packed >> 12].pts;
+            int si = packed & 0xFFF;
+            Vector2 a = P[si], b = P[si + 1];
+            return !(Mathf.Max(a.x, b.x) < min.x || Mathf.Min(a.x, b.x) > max.x || Mathf.Max(a.y, b.y) < min.y || Mathf.Min(a.y, b.y) > max.y);
         }
 
-        public void WaterSegsInRect(Vector2 min, Vector2 max, HashSet<int> outSegs)
+        public void WaterSegsInRect(Vector2 min, Vector2 max, HashSet<int> outSegs) => waterCells.Query(min, max, outSegs);
+
+        /// <summary>The (ravine, segment) pairs whose cells overlap the
+        /// rectangle (WP-04b). Ravines are kept out of
+        /// <see cref="WaterSegsInRect"/>: they carve the ground, but nothing
+        /// that avoids water (lamps, lots, houses, the map) should treat a
+        /// dry ravine as a creek.</summary>
+        public void RavineSegsInRect(Vector2 min, Vector2 max, HashSet<int> outSegs) => ravineCells.Query(min, max, outSegs);
+
+        static void BuildLakeRows(Water w)
         {
-            int x0 = Mathf.FloorToInt(min.x / Cell), x1 = Mathf.FloorToInt(max.x / Cell);
-            int z0 = Mathf.FloorToInt(min.y / Cell), z1 = Mathf.FloorToInt(max.y / Cell);
-            for (int cx = x0; cx <= x1; cx++)
-                for (int cz = z0; cz <= z1; cz++)
-                    if (waterCells.TryGetValue(CellKey(cx, cz), out var list))
-                        foreach (var p in list) outSegs.Add(p);
+            int n = w.pts.Length;
+            int rows = Mathf.Max(1, Mathf.FloorToInt((w.bbMax.y - w.bbMin.y) / LakeRowM) + 1);
+            var lists = new List<int>[rows];
+            for (int i = 0; i < n; i++)
+            {
+                int j = (i + 1) % n;
+                float y0 = Mathf.Min(w.pts[i].y, w.pts[j].y), y1 = Mathf.Max(w.pts[i].y, w.pts[j].y);
+                int r0 = Mathf.Clamp(Mathf.FloorToInt((y0 - w.bbMin.y) / LakeRowM), 0, rows - 1);
+                int r1 = Mathf.Clamp(Mathf.FloorToInt((y1 - w.bbMin.y) / LakeRowM), 0, rows - 1);
+                for (int r = r0; r <= r1; r++) (lists[r] ??= new List<int>(4)).Add(i);
+            }
+            w.rowEdges = new int[rows][];
+            for (int r = 0; r < rows; r++) w.rowEdges[r] = lists[r] != null ? lists[r].ToArray() : System.Array.Empty<int>();
+        }
+
+        /// <summary>Is the point inside the lake's ring? The even-odd rule,
+        /// over only the edges of the point's band (<see cref="LakeRowM"/>):
+        /// the same answer as <see cref="PointInPoly"/> without walking the
+        /// whole shore.</summary>
+        public static bool LakeContains(Water w, Vector2 p)
+        {
+            if (!w.lake || p.x < w.bbMin.x || p.x > w.bbMax.x || p.y < w.bbMin.y || p.y > w.bbMax.y) return false;
+            var rows = w.rowEdges;
+            if (rows == null) return PointInPoly(w.pts, p);
+            int r = Mathf.Clamp(Mathf.FloorToInt((p.y - w.bbMin.y) / LakeRowM), 0, rows.Length - 1);
+            bool inside = false;
+            var pts = w.pts;
+            int n = pts.Length;
+            foreach (int i in rows[r])
+            {
+                var a = pts[i]; var b = pts[(i + 1) % n];
+                if ((a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+            }
+            return inside;
+        }
+
+        /// <summary>Is the point in any lake?</summary>
+        public bool InLake(Vector2 p)
+        {
+            foreach (int li in LakesAt(p)) if (LakeContains(waters[li], p)) return true;
+            return false;
+        }
+
+        static readonly HashSet<int> ravineScratch = new HashSet<int>();
+        /// <summary>Is a ravine's line within <paramref name="r"/> metres of
+        /// the point? For the procedural lots and houses, which should not
+        /// stand in a carved channel.</summary>
+        public bool NearRavine(Vector2 p, float r)
+        {
+            ravineScratch.Clear();
+            RavineSegsInRect(p - Vector2.one * r, p + Vector2.one * r, ravineScratch);
+            foreach (int packed in ravineScratch)
+            {
+                var w = waters[packed >> 12];
+                int si = packed & 0xFFF;
+                if (si + 1 >= w.pts.Length) continue;
+                Vector2 a = w.pts[si], d = w.pts[si + 1] - a;
+                float L2 = d.sqrMagnitude;
+                float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, d) / L2) : 0f;
+                if (Vector2.Distance(p, a + d * t) < r) return true;
+            }
+            return false;
         }
 
         /// <summary>The footprints whose centre lies in a 256 m tile, or

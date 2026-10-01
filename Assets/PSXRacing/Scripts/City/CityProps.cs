@@ -43,6 +43,33 @@ namespace PSXRacing.City
         /// </summary>
         public const float PackScale = 0.81f;
 
+        /// <summary>
+        /// THE FOUNDATION SKIRT (the prop baker's AddSkirt): a concrete band
+        /// under every prop, from <see cref="SkirtTuckM"/> up inside the
+        /// MODEL'S OWN LOWEST COURSE down to this far below the pivot.
+        ///
+        /// It used to run from 5 cm above the pivot, whatever the model: the
+        /// house pack's house stands on a 0.6 m plinth above its pivot (0.74 m
+        /// before PackScale), so every city house showed a 0.55 m slot of
+        /// daylight between the top of its foundation and the bottom of its
+        /// walls - and with its 0.30 m sink the foundation's top was BELOW the
+        /// ground at the lot's high corner, so the house hovered 0.3 m over
+        /// the grass there ("some houses are floating above their
+        /// foundations", 2026-09-30). The trailers stood 0.19 m clear of theirs.
+        ///
+        /// A lot whose drawn ground falls further below its seat than the
+        /// skirt reaches (its sink plus this, less a hand's breadth) is left
+        /// empty (CityWorld): a house on stilts at one corner is worse than a
+        /// bare yard.
+        /// </summary>
+        public const float SkirtDepthM = 3.0f;
+        /// <summary>How far the skirt's top tucks up inside the model's lowest course.</summary>
+        public const float SkirtTuckM = 0.08f;
+
+        /// <summary>The most the drawn ground may fall below a prop's seat
+        /// across its lot before the skirt stops reaching it.</summary>
+        public static float MaxFallM(Def def) => def.sink + SkirtDepthM - 0.15f;
+
         public const byte House = 1;
         public const byte Trailer0 = 2;
         public const byte Trailer1 = 3;
@@ -131,6 +158,51 @@ namespace PSXRacing.City
                                  " — run the scene build to bake CityProps.");
             cache[kind] = go;
             return go;
+        }
+
+        // ---- the city variants (Charlotte WP-07) ------------------------
+        //
+        // The streamed city stands up a CHEAPER copy of the props that cost
+        // it the most draw calls: the house (13 draws) and the trailers (9)
+        // as one atlased mesh each, the two restaurants (about 350 and 400)
+        // as a merged shell with the room drawn only from inside the building
+        // or through an open door (CityPropInterior). Baked by CityPropBaker
+        // beside the full prefabs.
+        // Everywhere else - the Emerald Isle beach town, the house and town
+        // scenes, which build from the FBXs or the full prefabs - is as it was.
+
+        /// <summary>Resources folder of the city variants.</summary>
+        public const string CityVariantDir = "CityProps/City/";
+
+        /// <summary>The kinds that have a city variant.</summary>
+        public static bool HasCityVariant(byte kind) =>
+            kind == House || (kind >= Trailer0 && kind <= Trailer2) || IsFood(kind);
+
+        /// <summary>The budget probe's A/B switch: false stands the full
+        /// prefabs up in the city, as before WP-07.</summary>
+        public static bool UseCityVariants = true;
+
+        static readonly Dictionary<byte, GameObject> cityCache = new Dictionary<byte, GameObject>();
+
+        /// <summary>What a streamed city tile instantiates for a lot: the
+        /// city variant where one exists, else (or when it is missing, said
+        /// once) the full prefab.</summary>
+        public static GameObject CityPrefab(byte kind)
+        {
+            if (!UseCityVariants || !HasCityVariant(kind)) return Prefab(kind);
+            if (!cityCache.TryGetValue(kind, out var go))
+            {
+                if (!Defs.TryGetValue(kind, out var def)) return null;
+                // Through the one door (PSXTexDecode.LoadPrefab), like Prefab:
+                // the variant's atlas and pack textures are 16-bit set
+                // textures the shader decodes only on a stamped material.
+                go = PSXTexDecode.LoadPrefab(CityVariantDir + System.IO.Path.GetFileName(def.res));
+                if (go == null && warned.Add((byte)(kind | 0x80)))
+                    Debug.LogWarning("[City] city prop variant missing: " + CityVariantDir + System.IO.Path.GetFileName(def.res) +
+                                     " - the full prefab stands in (run the scene build to bake the variants).");
+                cityCache[kind] = go;
+            }
+            return go != null ? go : Prefab(kind);
         }
     }
 }

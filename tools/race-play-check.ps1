@@ -11,7 +11,17 @@
 #   ...  -TimeScale 3    the race at 3x game speed (physics keeps its fixed step).
 #   ...  -Matrix "BlueRidge:HEAVY:0;CityCircuit:RUSH:1"  several races in ONE editor
 #                        session; one SUMMARY line each in PSXRacing_race_matrix.txt.
-param([string]$Venue = "GillespieGap", [int]$Seconds = 150, [int]$Seed = 0, [string]$Hour = "morning", [string]$Mistake = "", [switch]$NoWatch, [int]$MaxMinutes = 20, [switch]$Finish, [string]$Edition = "ALL", [string]$Traffic = "", [double]$TimeScale = 1, [string]$Matrix = "")
+# Several races in ONE launch (a line per race at the end of the report):
+#   ... -Venues UptownLoop,TryonSprint,IndependenceSprint -Seeds 0,1,2,3,4 -Trees ab
+# -Trees: 1 city trees on (default), 0 off, ab every race twice (on, then off).
+# -Signs: the city's billboards, pole signs and gantries (WP-23), the same way.
+# -Poles: the city's utility poles and wires (WP-15), the same way (off: the
+#   lamp posts stand on their roads as before).
+# -MaxMinutes: 0 (default) budgets the batch: 20 minutes, or more for many races.
+param([string]$Venue = "GillespieGap", [int]$Seconds = 150, [int]$Seed = 0, [string]$Hour = "morning", [string]$Mistake = "",
+      [switch]$NoWatch, [int]$MaxMinutes = 0, [switch]$Finish, [string]$Edition = "ALL",
+      [string]$Traffic = "", [double]$TimeScale = 1, [string]$Matrix = "",
+      [string]$Venues = "", [string]$Seeds = "", [string]$Trees = "1", [string]$Signs = "1", [string]$Poles = "1")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
@@ -34,6 +44,15 @@ $env:PSX_EDITION = $Edition.ToUpperInvariant()
 # -Finish: the whole distance, on past the player's flag until every rival is
 # home, failing a rival that never gets there or drives the wrong way.
 $env:PSX_RACE_FINISH = if ($Finish) { "1" } else { "" }
+$env:PSX_RACE_VENUES = $Venues
+$env:PSX_RACE_SEEDS = $Seeds
+$env:PSX_CITY_TREES = $Trees
+$env:PSX_CITY_SIGNS = $Signs
+$env:PSX_CITY_POLES = $Poles
+# a race is at most $Seconds plus about a minute of loading; one launch runs them all
+$races = [Math]::Max(1, ($(if ($Venues) { $Venues } else { $Venue }).Split(",").Count) * ($(if ($Seeds) { $Seeds } else { "$Seed" }).Split(",").Count) * $(if ($Trees -eq "ab") { 2 } else { 1 }) * $(if ($Signs -eq "ab") { 2 } else { 1 }) * $(if ($Poles -eq "ab") { 2 } else { 1 }))
+if ($Matrix) { $races = [Math]::Max($races, $Matrix.Split(';').Count) }
+if ($MaxMinutes -le 0) { $MaxMinutes = [Math]::Max(20, [int]($races * ($Seconds + 60) / 60) + 10) }
 # Watched by default: a visible editor plays the test in front of you.
 # -NoWatch (or $env:PSX_WATCH='0') runs it hidden; -MaxMinutes raises the
 # budget (a cold sandbox imports for an hour). See tools\unity-wait.ps1.

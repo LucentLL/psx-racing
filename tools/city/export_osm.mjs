@@ -17,61 +17,179 @@
 //     Unity solver holds those stations on structure and lifts them clear.
 //   * REAL RAMPS. Every *_link way, joined to its mainline at the node OSM
 //     joins it at, with the merge gore drawn by the tile builder.
-//   * REAL GROUND. A 60 m SRTM height grid over the whole beltway (min-filtered
-//     so uptown's roofs do not read as hills), instead of value noise.
+//   * REAL GROUND. A 60 m height grid over the whole beltway: every node the
+//     mean of the USGS 3DEP 1/3 arc-second bare earth over its 60 m cell
+//     (WP-04), with no filter after it. Until WP-04 it was the AWS "skadi"
+//     1" tiles run through an opening, a closing and a blur written to take
+//     out radar "roofs" that were never there; that took out 66% of the
+//     core's relief instead.
+//   * REAL WATER. The creeks are the county's surveyed centrelines
+//     (Mecklenburg Creeks_Streams) inside Mecklenburg and USGS 3DHP flowlines
+//     outside it, the lakes the county's and 3DHP's water bodies, each creek
+//     with its BED sampled from 3DEP every 20 m (lib/water.mjs, WP-04b). They
+//     replace RG2's hand-traced water.
 //   * REAL BUILDINGS in the core: 35k footprints with heights, so the skyline
 //     is Charlotte's and the neighbourhoods are the neighbourhoods.
 //   * THE THREE RACE ROUTES (Uptown Loop, Tryon Sprint, Independence Sprint)
 //     as edge sequences through this same graph, so a race and free roam are
 //     the same streets — the CLT stage bakes are retired.
 //
-// Sources (read-only; all © OpenStreetMap contributors, ODbL — the
-// attribution string below is shown in-game):
-//   tools/city/cache/ways_all.json      arterials + ramps, beltway bbox
-//   tools/city/cache/nodes_all.json     signal / stop / yield nodes
-//   tools/city/cache/streets_core.json  residential/unclassified in the core
-//   tools/city/cache/buildings_core.json footprints in the core
-//   tools/roads/cache/N35W081.hgt.gz    SRTM 1-arcsecond (via lib.mjs)
-//   RG2/src/config/world/baselineWater.ts  the traced creeks + Lake Wylie
-//   RG2/src/config/world/baselineRoads.ts  legacy I-485, ONLY to register water
+// Sources (read-only). Every one, with its licence, is in the registry
+// tools/city/SOURCES.md, whose Credits table this reads for the attribution
+// it writes into the data (and refuses to run without):
+//   tools/city/cache/ways_all.json      arterials + ramps, beltway bbox (OSM)
+//   tools/city/cache/nodes_all.json     signal / stop / yield nodes (OSM)
+//   tools/city/cache/streets_core.json  residential/unclassified in the core (OSM)
+//   tools/city/cache/buildings_core.json footprints in the core (OSM)
+//   tools/city/cache/3dep/box13.f32     USGS 3DEP 1/3" over the DEM box (public
+//                                       domain; fetch/fetch_3dep.mjs; or
+//                                       %PSX_GIS_DIR%\3dep)
+//   tools/city/cache/water/*.geojson    creeks, lakes and the county line
+//                                       (fetch/fetch_water.mjs; CC0 and
+//                                       public domain, see SOURCES.md)
+// Every input's size, sha256 and Overpass snapshot time is recorded in
+// tools/city/cache_manifest.json; --check verifies them. (RG2's traced water,
+// vendored in tools/city/vendor/rg2/ by WP-02, is no longer read: WP-04b.)
 //
-// Outputs:
-//   Assets/PSXRacing/Resources/charlotte_city.bytes    graph + water + routes
-//   Assets/PSXRacing/Resources/charlotte_dem.bytes     height grid
-//   Assets/PSXRacing/Resources/charlotte_bld.bytes     footprints
-//   Assets/PSXRacing/Resources/charlotte_routes.json   the menu's copy of the routes
-//   tools/city/charlotte_*.png                          debug plots
+// Outputs (the four files the game loads from Resources; the layouts are in
+// tools/city/lib/citydata.mjs, which reads them the way the game does):
+//   charlotte_city.bytes    PSXC v2: a section table, then META NODE NAME EDGE
+//                           PNTS WATR WBED XING SPAN ROUT and GHSH, the graph
+//                           hash (WBED, the creek beds, since WP-04b), then
+//                           LANW TAPR PARA TAGN (WP-10) and SPLT (WP-11)
+//   charlotte_dem.bytes     PDEM v3: the 30 m height grid in delta-coded
+//                           blocks (lib/pdem3.mjs), datum pinned at 97.0 m
+//   charlotte_bld.bytes     PBLD v1: footprints
+//   charlotte_routes.json   the menu's copy of the routes
+//   tools/city/charlotte_*.png   debug plots (with --out only; gitignored)
 //
-// Run:  node tools/city/export_osm.mjs
+// Run (it never writes into Resources unless told to):
+//   node tools/city/export_osm.mjs --check
+//       export in memory and compare byte for byte with the shipped files
+//       in Assets/PSXRacing/Resources (or --against <dir>); also checks the
+//       inputs against cache_manifest.json and the result against
+//       tools/city/fingerprint.json. Exit 0 only when all of it matches.
+//   node tools/city/export_osm.mjs --out Assets/PSXRacing/Resources --fingerprint tools/city/fingerprint.json
+//       write the four files (to any directory), and the fingerprint.
+//       --no-plots skips the debug PNGs (tools/city/determinism.mjs uses it).
+//   node tools/city/export_osm.mjs --manifest
+//       record the current inputs in cache_manifest.json (after a re-fetch).
+//   node tools/city/determinism.mjs
+//       export twice, in two processes, and compare every file's sha256.
+// Node is pinned in tools/city/package.json (engines): V8's trig is not
+// bit-stable across releases, so after a Node change compare the
+// fingerprint, not the bytes.
 //
 // Frame: plain equirectangular about RG2's fixture centre (the I-485 centroid),
 // x east, z north, metres — the same frame every previous bake registered
 // into, so nothing that stored a city coordinate moves.
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
-import { dirname, join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { dirname, join, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { srtmSampler } from '../roads/lib.mjs';
+import { load3dep } from './lib/dem3dep.mjs';
+import { buildWaters, waterInputPaths } from './lib/water.mjs';
+import { parseCity, parseDem, parseBld, fingerprint, graphHash, hashHex, CITY_SECTIONS } from './lib/citydata.mjs';
+import { readCredits } from './lib/sources.mjs';
+import { lineClean, LANE_W, LANE_W_LINK } from './lib/lineclean.mjs';
+import { readSmoothRules } from './lib/smoothrules.mjs';
+import { findSplits } from './lib/splits.mjs';
+import { encodePdem3 } from './lib/pdem3.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UNITY = join(HERE, '..', '..');
 const CACHE = join(HERE, 'cache');
-const RG2 = 'C:/Users/mcgee/code/Racing-Game-2';
+const SOURCES = join(HERE, 'SOURCES.md');
 const RES = join(UNITY, 'Assets', 'PSXRacing', 'Resources');
-const SRTM_CACHE = join(HERE, '..', 'roads', 'cache');
+const MANIFEST = join(HERE, 'cache_manifest.json');
+const FINGERPRINT = join(HERE, 'fingerprint.json');
+
+// ------------------------------------------------------------------ mode
+const ARGS = process.argv.slice(2);
+function argVal(name) {
+  const i = ARGS.indexOf(name);
+  if (i < 0) return null;
+  const v = ARGS[i + 1];
+  if (!v || v.startsWith('--')) throw new Error(`${name} needs a value`);
+  return v;
+}
+const MODE = {
+  check: ARGS.includes('--check'),
+  out: argVal('--out'),
+  against: argVal('--against') || RES,
+  fingerprint: argVal('--fingerprint'),
+  manifest: ARGS.includes('--manifest'),
+  plots: !ARGS.includes('--no-plots'),
+};
+if (!MODE.check && !MODE.out && !MODE.manifest) {
+  console.error('export_osm.mjs writes nothing unless told where. Use one of:\n' +
+    '  --check                     export in memory, compare with the shipped files (exit 1 on any difference)\n' +
+    '  --out <dir> [--fingerprint <file>]   write the four data files into <dir>\n' +
+    '  --manifest                  record the current inputs in tools/city/cache_manifest.json\n' +
+    'e.g. node tools/city/export_osm.mjs --out Assets/PSXRacing/Resources --fingerprint tools/city/fingerprint.json');
+  process.exit(2);
+}
+{
+  // Node is pinned for byte-identical output (see the header).
+  try {
+    const want = JSON.parse(readFileSync(join(HERE, 'package.json'), 'utf8')).engines?.node;
+    if (want && process.version.replace(/^v/, '') !== want.replace(/^v/, ''))
+      console.log(`NOTE: Node ${process.version}, but tools/city/package.json pins ${want}: bytes may differ; compare the fingerprint.`);
+  } catch { /* no package.json: nothing pinned */ }
+}
+/// The finished files, by name, written or compared at the end.
+const OUTPUTS = new Map();
+const emit = (name, bytes) => OUTPUTS.set(name, Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes));
 
 // --------------------------------------------------------------- constants
 const LANE_M = 3.6576;                 // 12 ft, the section currency (never scaled)
 const LAT0 = 35.18456015184093, LON0 = -80.81770185962013;   // RG2 fixture centre
 const M_LAT = 111132, M_LON = 111320 * Math.cos(LAT0 * Math.PI / 180);
-const MPT = 17.212235294117647;        // RG2 tile size, for the water fit only
-const CENTER = 1250;
 const XDEDUP_M = 8;                    // two crossings of one pair closer than this are one
 const BANK_M = 6;                      // dry bank either side of water under a deck
-const DEM_CELL = 60;                   // metres per height sample
+/// The creek beds (WBED) are stored as u16 centimetres above the datum.
+const BED_UNITS = 100;
+/// Metres per height sample: 30 since WP-13 (60 from WP-04). The roads still
+/// read a 60 m grid (CityElevation.BuildRoadDem rebuilds it from these nodes),
+/// so the 30 m nodes are the 60 m lattice's nodes and the midpoints between.
+const DEM_CELL = 30;
+const ROAD_GRID_CELL = 60;
 const DEM_MARGIN = 1500;
-const ATTRIBUTION = 'Road network data (c) OpenStreetMap contributors, ODbL 1.0';
+/// THE DATUM, metres above sea level: world y = 0. PINNED (WP-02). It was
+/// floor(lowest grid height) - 2, which is 97 on today's grid (lowest 99.2 m,
+/// the Pineville Quarry) but would move with any new ground - and every world
+/// y, every solved road height and anything stored against one with it. A
+/// new ground source must fit ABOVE it: see DEM_CLAMP.
+const DEM_BASE = 97.0;
+/// The grid stores u16 steps of DEM_SCALE metres above the datum: decimetres,
+/// 0..6553.5 m. Written by multiplying by DEM_UNITS (never dividing by the
+/// scale: x / 0.1 and x * 10 round differently at the half-steps).
+const DEM_UNITS = 10;
+const DEM_SCALE = 1 / DEM_UNITS;
+/// THE PIT CLAMP (plan critic C9). The lowest the ground may go is
+/// DEM_FLOOR; a cell below it is clamped up to it only inside one of these
+/// named boxes, and the export FAILS anywhere else - a u16 below the datum
+/// would otherwise wrap to a 6.5 km spike, or be silently flattened. The two
+/// boxes are the quarry pits USGS 3DEP puts below 97.5 m: the Pineville
+/// Quarry floor (69.1 m in the 1/3" DEM) and the Arrowood Quarry (89.5 m on
+/// the 30 m grid), so a pit loses up to ~28 m of depth on the 30 m grid
+/// (WP-04; the skadi grid before it never went below 99.2 m).
+/// Keyed by the OpenStreetMap way that outlines each pit (ODbL); boxes are
+/// [south, west, north, east] in degrees, ~100 m beyond the cells.
+const DEM_FLOOR = DEM_BASE + 0.5;
+const DEM_CLAMP = [
+  { name: 'Pineville Quarry', osmWay: 246229422, box: [35.1178, -80.9004, 35.1250, -80.8943] },
+  { name: 'Arrowood Quarry', osmWay: 246229420, box: [35.1030, -80.9248, 35.1106, -80.9190] },
+];
+
+/// The credit lines of tools/city/SOURCES.md's Credits table, in order: the
+/// attribution this export writes into the data (lib/sources.mjs reads it; a
+/// missing table or row is an error, not a silent fallback).
+const CREDITS = readCredits(SOURCES);
+const ATTRIBUTION = CREDITS.map(r => r.credit).join('\n');
+console.log(`credits (tools/city/SOURCES.md): ${CREDITS.map(r => r.id).join(', ')}`);
 
 const toX = lon => (lon - LON0) * M_LON;
 const toZ = lat => (lat - LAT0) * M_LAT;
@@ -124,10 +242,13 @@ function onewayOf(t) {
 
 // ------------------------------------------------------------------ load
 function loadJson(p) { return JSON.parse(readFileSync(p, 'utf8')); }
-const wayFile = existsSync(join(CACHE, 'ways_all.json')) ? join(CACHE, 'ways_all.json')
-  : `${RG2}/fixtures/osm/raw/charlotte_ways.json`;
-const nodeFile = existsSync(join(CACHE, 'nodes_all.json')) ? join(CACHE, 'nodes_all.json')
-  : `${RG2}/fixtures/osm/raw/charlotte_nodes.json`;
+// The Overpass cache is on the machine that fetched it only (gitignored).
+// There is no fallback: until WP-02 a missing cache silently read RG2's
+// older snapshot instead, which is a different graph.
+const wayFile = join(CACHE, 'ways_all.json');
+const nodeFile = join(CACHE, 'nodes_all.json');
+for (const f of [wayFile, nodeFile])
+  if (!existsSync(f)) throw new Error(`${relative(UNITY, f)} is missing: fetch it with tools/city/fetch/fetch_ways.mjs (its snapshot is recorded in cache_manifest.json)`);
 console.log('ways from', wayFile);
 const rawWays = loadJson(wayFile).elements.filter(e => e.type === 'way' && e.tags && e.geometry);
 const rawNodes = loadJson(nodeFile).elements.filter(e => e.type === 'node');
@@ -141,7 +262,18 @@ console.log(`raw: ${rawWays.length} arterial ways, ${rawMinor.length} minor ways
 // ------------------------------------------------------------- ways -> edges
 const ways = [];
 const seenWay = new Set();
-let tollDropped = 0;
+let tollKept = 0, tollDropped = 0;
+/// The toll roads (the I-77 and I-485 Express Lanes, the Monroe Expressway,
+/// their ramps: 177 ways). The owner wants them (Q3, present day) and WP-10's
+/// PARA pass moves the express lanes clear of the general lanes (93 -> 1 km
+/// of pair short of its gap). HELD BACK for now: kept, the first city audit
+/// failed on them alone - their layer=1 connector flyovers over I-485 clear
+/// the general lanes by -0.55 m, an I-77 connector climbs 39% into a 26 m
+/// bridge (35.3759,-80.8470) and a Monroe Expressway ramp crosses
+/// Independence Boulevard at grade - elevation-solver work, not lines. Flip
+/// this with that fix (tools/city/lib/lineclean.mjs already handles them):
+/// the plan's WP-10t, right after WP-11b ships.
+const KEEP_TOLL = false;
 const tollNodes = new Set();   // every node a dropped toll way touched
 function keepWay(w, minor) {
   if (seenWay.has(w.id)) return;
@@ -151,14 +283,14 @@ function keepWay(w, minor) {
   const link = hw.endsWith('_link');
   const base = link ? hw.slice(0, -5) : hw;
   if (!(base in CLS_RANK)) return;
-  // NO TOLL ROADS. Every toll=yes way in this snapshot is post-2015: the
-  // I-77 Express Lanes (2019), the I-485 Express Lanes (2019) and the Monroe
-  // Expressway (2018), plus their slip ramps. The game is set in 1999, and
-  // the express lanes were also the "zigzag" on I-77: OSM maps them as a
-  // second carriageway 5.5 m from the general lanes, so both ribbons were
-  // squeezed against each other and the paint slalomed wherever the two
-  // mapped lines drifted apart or together.
-  if (t.toll === 'yes') { tollDropped++; for (const id of w.nodes) tollNodes.add(id); return; }
+  // TOLL ROADS (owner Q3, 2026-09-28: present day; KEEP_TOLL above). OSM
+  // maps the express lanes about 5.5 m from the general lanes, so the two
+  // ribbons overlapped and were squeezed into one slalom; WP-10's PARA pass
+  // (lib/lineclean.mjs) moves them apart to a real gap when they are kept.
+  if (t.toll === 'yes') {
+    if (!KEEP_TOLL) { tollDropped++; for (const id of w.nodes) tollNodes.add(id); return; }
+    tollKept++;
+  }
   if (minor) {
     // Named service roads are streets (a shopping-centre ring road); the
     // unnamed ones are car-park aisles and loading bays and would clutter
@@ -200,22 +332,31 @@ function keepWay(w, minor) {
   const refFirst = t.ref ? t.ref.split(';')[0].trim().replace(/^I (\d)/, 'I-$1') : '';
   if (!name || (base === 'motorway' && !link && /^I-\d/.test(refFirst))) name = refFirst || name;
   if (link) name = '';
+  // What WP-10's lane rules read (lib/lineclean.mjs): whether the count was
+  // TAGGED, the per-direction counts, and turn:lanes (which side a lane
+  // opens on). A reversed one-way (oneway=-1) reads its backward tags.
+  const tagged = Number.isFinite(parseInt(t.lanes, 10)) || (Number.isFinite(lf) && Number.isFinite(lb));
+  const rev = onewayOf(t) === -1;
   ways.push({
     id: w.id, base, link, rank: CLS_RANK[base], oneway, lanes, turn, shl, shr,
     bridge, tunnel, level, name, speed: parseSpeedKmh(t),
     roundabout: t.junction === 'roundabout' || t.junction === 'circular',
+    toll: t.toll === 'yes', tagged,
+    lf: Number.isFinite(lf) ? lf : NaN, lb: Number.isFinite(lb) ? lb : NaN,
+    tl: rev ? (t['turn:lanes:backward'] || t['turn:lanes']) : t['turn:lanes'],
+    tlf: t['turn:lanes:forward'], tlb: t['turn:lanes:backward'],
     nodes, geom,
   });
 }
 for (const w of rawWays) keepWay(w, false);
 for (const w of rawMinor) keepWay(w, true);
-console.log(`kept ${ways.length} ways (dropped ${tollDropped} toll ways: the 2018-19 express lanes)`);
-
+console.log(KEEP_TOLL ? `kept ${ways.length} ways (${tollKept} of them toll: the express lanes and the Monroe Expressway, kept - owner Q3)`
+                      : `kept ${ways.length} ways (dropped ${tollDropped} toll ways: held back, see KEEP_TOLL)`);
 // A slip ramp that only ever led to a dropped toll lane now ends in mid-air:
 // an untolled link whose free end is a node only the toll lanes shared. Drop
 // those too, and keep dropping until no ramp leads nowhere (a two-piece ramp
 // loses its far piece first, then its near one).
-{
+if (!KEEP_TOLL) {
   let stubs = 0;
   for (;;) {
     const use = new Map();
@@ -395,6 +536,57 @@ function nearestOnEdge(e, x, z) {
   hashSegs();
 }
 
+// ------------------------------------------------- WP-10: the line clean-up
+// Tagged nodes, lane-count data, simplify, doglegs, TAPR, PARA: the rules and
+// their reasons are in lib/lineclean.mjs. Everything after this (crossings,
+// water spans, routes, the plots) reads the cleaned lines.
+const uptownXY = [toX(-80.8431), toZ(35.2271)];
+// WP-11's fillet numbers are the smoothness gate's (Editor/SmoothRules.cs):
+// R_min by class (B3), the inner-edge floor, the 2 cm sagitta and the chord cap
+const SR = readSmoothRules(join(UNITY, 'Assets', 'PSXRacing', 'Editor', 'SmoothRules.cs'));
+const LC = lineClean({ ways, edges, nodes, rawWays: [...rawWays, ...rawMinor],
+                       rawNodes, toX, toZ, uptown: uptownXY,
+                       fillet: { rMinFor: SR.rMinFor, innerEdgeMinR: SR.InnerEdgeMinRM, eps: SR.DensifyEpsM,
+                                 chordCap: SR.ChordCapM, collinearDeg: SR.CollinearDeg } });
+hashSegs();
+const SPLITS = findSplits(edges, nodes);
+{
+  const st = LC.stats;
+  console.log(`WP-10 lines: ${st.points.before} -> ${st.points.after_simplify} points after collapse + Douglas-Peucker 0.5 m (${st.pinned_vertices} shared raw vertices pinned; first piece held at ${st.simplify_held.taper_ends} lane-change edges, ${st.simplify_held.structure} decks/tunnels left alone); ` +
+              `doglegs ${st.doglegs_raw.all} (${st.doglegs_raw.jog_ge_1m} jog >= 1 m) -> ${st.doglegs_after.all} (fixed ${st.doglegs_fixed.all}, worst jog ${st.doglegs_fixed.worst_jog_m} m)`);
+  console.log(`WP-10 lanes: flickers ${st.lane_fixes.flicker} (${st.lane_fix_km.flicker} km), short pieces ${st.lane_fixes.short} (${st.lane_fix_km.short} km), inferred ${st.lane_fixes.inferred} (${st.lane_fix_km.inferred} km)`);
+  console.log(`WP-10 lanes: ${st.lane_kept_tagged} short tagged pieces kept (turn bays, drawn one-sided); edges drawn below their own lanes= tag: ${st.lane_below_tag}`);
+  console.log(`WP-10 TAPR: ${st.tapr.transitions} lane-count changes, ${st.tapr.oneSided} one-sided (0 symmetric), ${st.tapr.tagged} side from tags, ${st.tapr.bays} turn bays, ${st.tapr.atJunction} full width at a junction mouth, ${st.tapr.shortened} fitted to the chain, ${st.tapr.absorbed} absorbed (no room), ${st.tapr.reanchored} re-anchored at a junction (> 1 lane off), ${st.tapr.recentred} untagged junction-mouth lanes opened on the re-centring side`);
+  console.log(`WP-10 PARA: before ${JSON.stringify(st.para_before)}; after ${JSON.stringify(st.para_after)}; moved ${st.para_moved.chains} chains (max ${st.para_moved.max_offset_m} m)`);
+  {
+    const rv = LC.review.filter(r => r.kind === 'para');
+    const core = rv.filter(r => Math.abs(r.x - uptownXY[0]) <= 4000 && Math.abs(r.z - uptownXY[1]) <= 4000);
+    console.log(`WP-10 PARA review list: ${rv.length} pairs city-wide, ${core.length} in the 8 x 8 km core (${core.reduce((a, r) => a + r.metres, 0).toFixed(0)} m); untagged bridges kept at the default: ${LC.review.filter(r => r.kind === 'untagged-bridge').length}`);
+  }
+  if (process.env.PSX_LC_DIAG) {
+    const kindOf = (E, F) => E.way.link || F.way.link ? 'ramp' : !!E.way.toll !== !!F.way.toll ? 'express' : E.way.oneway && F.way.oneway && E.way.name && E.way.name === F.way.name ? 'divided' : 'other';
+    const rows = (defs, tag) => {
+      const agg = {};
+      for (const d of defs) { const k = (d.exempt ? 'exempt-' : '') + kindOf(d.E, d.F); agg[k] = (agg[k] || 0) + 2.5; }
+      console.log(tag, JSON.stringify(Object.fromEntries(Object.entries(agg).map(([k, v]) => [k, +(v / 1000).toFixed(1)]))));
+    };
+    rows(LC.para.defs0, 'PARA km before by kind');
+    rows(LC.para.defs, 'PARA km after by kind');
+    const top = [...LC.para.moved].sort((a, b) => b.umax - a.umax).slice(0, 12);
+    for (const m of top) { const e = edges[m.edges[0]]; const P = e.pts[e.pts.length >> 1]; console.log('moved', m.umax.toFixed(1), 'm', e.way.name || 'ramp', e.way.id, toLat(P[1]).toFixed(5), toLon(P[0]).toFixed(5), m.edges.length, 'edges'); }
+    writeFileSync(process.env.PSX_LC_DIAG, JSON.stringify(LC.para.pairs.map(p => ({ ...p, kind: kindOf(edges[p.e1], edges[p.e2]), n1: edges[p.e1].way.name, n2: edges[p.e2].way.name, w1: edges[p.e1].way.id, w2: edges[p.e2].way.id, lat: toLat(p.z), lon: toLon(p.x) })).sort((a, b) => b.n - a.n)));
+  }
+  if (st.fillet) {
+    const f = st.fillet;
+    console.log(`WP-11 fillets: ${f.strands} strands (${f.closed} closed loops held at one node), ${f.vertices} vertices, ${f.filleted} filleted, ${f.merged} short-tangent pairs fitted as one curve; ${f.junctionsFilleted} mitred junctions filleted across (${f.armsFollowed} arms followed their node); ` +
+                `${f.tight} under their class floor (listed), ${f.overEmax} past their class Emax (listed); 2-arm nodes moved ${f.nodesMoved} (median ${f.nodeMoveMedian} m, max ${f.nodeMoveMax} m); ` +
+                `points ${f.pointsBefore} -> ${f.pointsAfter}; edge ends off their node before: ${st.fillet_end_gap_m} m`);
+    console.log(`WP-11 fillets (review 2026-09-30): ${f.lone} lone vertices left as vertices (net turn within 10 m under 8 eps / 10 m), ${f.held} near-U-turn nodes held (bend slab, not a fold), ${f.oneWayClash} one-way pairs meeting nose to nose not run across; free vertices still under half width + ${SR.InnerEdgeMinRM} m: ${f.foldFree} (listed)`);
+  }
+  console.log(`WP-11 C11 split nodes (an undivided road opening into its two carriageways; section SPLT for the line model): ${SPLITS.length}`);
+  console.log(`WP-10 tagged nodes: ${st.tagged_nodes} recorded on the raw ways, ${st.tagged_projected.nodes} projected (max move ${st.tagged_projected.moved_max_m} m)`);
+}
+
 // -------------------------------------------------------------- crossings
 function segX(ax, ay, bx, by, cx, cy, dx, dy) {
   const r1x = bx - ax, r1y = by - ay, r2x = dx - cx, r2y = dy - cy;
@@ -406,6 +598,10 @@ function segX(ax, ay, bx, by, cx, cy, dx, dy) {
   return [ax + r1x * t, ay + r1y * t];
 }
 const crossings = [];   // { over, under, x, z, forced }
+/// Two nodes joined by one edge under 50 m.
+const shortLinks = new Set();
+for (const e of edges) if (e.len < 50) { shortLinks.add(e.a + ':' + e.b); shortLinks.add(e.b + ':' + e.a); }
+const shortLink = (a, b) => shortLinks.has(a + ':' + b);
 {
   const pairSeen = new Map();
   let same = 0, guessed = 0;
@@ -420,6 +616,20 @@ const crossings = [];   // { over, under, x, z, forced }
       // a crossing at a node both edges share is the junction itself
       const shared = [ea.a, ea.b].filter(x => x === eb.a || x === eb.b);
       if (shared.some(nn => Math.hypot(nodes[nn][0] - hit[0], nodes[nn][1] - hit[1]) < 3)) continue;
+      // Two edges at the SAME level that share a node and cross within 150 m
+      // of it (150 m: a long ramp taper) are one merging into the other:
+      // their ribbons meet in a gore or a clip, never on a bridge. The mapped
+      // lines touch there, and WP-10's simplify and PARA can leave them
+      // crossing a few metres off the node - a "grade separation" the solver
+      // then lifted (a 70 m I-485 node, 22 of them on the first run).
+      // (or a node one short edge away: a ramp leaving just before the
+      // carriageway it runs beside was split by a junction)
+      if (ea.way.level === eb.way.level) {
+        const near = [...shared];
+        for (const na of [ea.a, ea.b]) for (const nb of [eb.a, eb.b])
+          if (na !== nb && shortLink(na, nb)) near.push(na, nb);
+        if (near.some(nn => Math.hypot(nodes[nn][0] - hit[0], nodes[nn][1] - hit[1]) < 150)) continue;
+      }
       const key = ea.id < eb.id ? `${ea.id}:${eb.id}` : `${eb.id}:${ea.id}`;
       const prior = pairSeen.get(key) || [];
       if (prior.some(q => Math.hypot(q[0] - hit[0], q[1] - hit[1]) < XDEDUP_M)) continue;
@@ -440,114 +650,88 @@ const crossings = [];   // { over, under, x, z, forced }
 }
 
 // --------------------------------------------------------------- water
-function tsArray(file, exportName) {
-  const src = readFileSync(file, 'utf8');
-  const at = src.indexOf(exportName);
-  if (at < 0) throw new Error(`${exportName} not in ${file}`);
-  const eq = src.indexOf('=', at);
-  const open = src.indexOf('[', eq);
-  let depth = 0, i = open;
-  for (; i < src.length; i++) {
-    if (src[i] === '[') depth++;
-    else if (src[i] === ']') { depth--; if (depth === 0) break; }
-  }
-  return new Function(`return ${src.slice(open, i + 1)};`)();
+// The box the ground grid covers (every road point plus DEM_MARGIN): the
+// DEM below and the water both use it.
+let bbox = { x0: 1e18, x1: -1e18, z0: 1e18, z1: -1e18 };
+for (const e of edges) for (const p of e.pts) {
+  bbox.x0 = Math.min(bbox.x0, p[0]); bbox.x1 = Math.max(bbox.x1, p[0]);
+  bbox.z0 = Math.min(bbox.z0, p[1]); bbox.z1 = Math.max(bbox.z1, p[1]);
 }
-const RIVERS = tsArray(`${RG2}/src/config/world/baselineWater.ts`, 'BASELINE_RIVERS');
-const LAKES = tsArray(`${RG2}/src/config/world/baselineWater.ts`, 'BASELINE_LAKES');
-const LEGACY = tsArray(`${RG2}/src/config/world/baselineRoads.ts`, 'BASELINE_ROADS');
+bbox = { x0: bbox.x0 - DEM_MARGIN, x1: bbox.x1 + DEM_MARGIN, z0: bbox.z0 - DEM_MARGIN, z1: bbox.z1 + DEM_MARGIN };
+/// USGS 3DEP 1/3" over the box (lib/dem3dep.mjs): the ground and the beds.
+const dem3 = load3dep();
+console.log(`3DEP: ${relative(UNITY, dem3.f32Path)} (${dem3.meta.cols} x ${dem3.meta.rows} px, sha256 ${dem3.meta.sha256.slice(0, 12)})`);
 
-function rowPts(r, header) { const p = []; for (let i = header; i < r.length; i += 2) p.push([r[i], r[i + 1]]); return p; }
-function polyResample(pts, step) {
-  const out = [pts[0].slice()];
-  let carry = 0;
-  for (let i = 1; i < pts.length; i++) {
-    const [ax, ay] = pts[i - 1], [bx, by] = pts[i];
-    const seg = Math.hypot(bx - ax, by - ay);
-    let t = step - carry;
-    while (t < seg) { out.push([ax + (bx - ax) * t / seg, ay + (by - ay) * t / seg]); t += step; }
-    carry = (seg - (t - step)) % step;
-  }
-  return out;
-}
-function nearestOnPoly(pts, x, y) {
-  let best = Infinity, bx = 0, by = 0;
-  for (let i = 1; i < pts.length; i++) {
-    const [ax, ay] = pts[i - 1], [cx, cy] = pts[i];
-    const dx = cx - ax, dy = cy - ay, L2 = dx * dx + dy * dy;
-    let t = L2 > 0 ? ((x - ax) * dx + (y - ay) * dy) / L2 : 0;
-    t = Math.max(0, Math.min(1, t));
-    const px = ax + dx * t, py = ay + dy * t;
-    const d = (x - px) ** 2 + (y - py) ** 2;
-    if (d < best) { best = d; bx = px; by = py; }
-  }
-  return { d: Math.sqrt(best), x: bx, y: by };
-}
-function umeyama(src, dst) {
-  const n = src.length;
-  let mx = 0, my = 0, ux = 0, uy = 0;
-  for (let i = 0; i < n; i++) { mx += src[i][0]; my += src[i][1]; ux += dst[i][0]; uy += dst[i][1]; }
-  mx /= n; my /= n; ux /= n; uy /= n;
-  let sxx = 0, sxy = 0, syx = 0, syy = 0, varS = 0;
-  for (let i = 0; i < n; i++) {
-    const ax = src[i][0] - mx, ay = src[i][1] - my, bx = dst[i][0] - ux, by = dst[i][1] - uy;
-    sxx += ax * bx; sxy += ax * by; syx += ay * bx; syy += ay * by;
-    varS += ax * ax + ay * ay;
-  }
-  const dot = sxx + syy, cross = sxy - syx;
-  const th = Math.atan2(cross, dot);
-  const c = Math.cos(th), s = Math.sin(th);
-  const scale = (dot * c + cross * s) / varS;
-  return { s: scale, c, sn: s, tx: ux - scale * (c * mx - s * my), ty: uy - scale * (s * mx + c * my) };
-}
-const applySim = (T, x, y) => [T.s * (T.c * x - T.sn * y) + T.tx, T.s * (T.sn * x + T.c * y) + T.ty];
-
-// The fit runs in RG2's TILE frame (both legacy sets live there). The OSM
-// side of it is RG2's own baked I-485 row — ONE merged centreline of the
-// loop — rather than this snapshot's two carriageways: a ring assembled from
-// both carriageways plus the ramps that share the ref is not a curve
-// nearestOnPoly can walk, and the ICP collapsed its scale to 0.22 against it.
-// The frames agree (RG2's tile = this metre frame / MPT about the same
-// centre), so the fit carries over exactly.
-const rg2Rows = loadJson(`${RG2}/fixtures/osm/charlotte_rows.json`).rows;
-const osm485 = rowPts(rg2Rows.find(r => r[2] === 'I-485'), 4);
-const leg485row = LEGACY.find(r => r[2] === 'I-485');
-const leg485 = polyResample(rowPts(leg485row, 4), 8);
-let T;
+// Creeks and lakes from open data with their beds from 3DEP (WP-04b; the
+// rules are in lib/water.mjs). Each water is { name, widthM, lake, pts, bed }.
+const waters = buildWaters({ cacheDir: CACHE, dem3, toX, toZ, toLat, toLon, box: bbox }).waters;
+// WP-25: a POND never touches a road, so no pond makes a water span (the
+// owner's rule gives every road over water a bridge; a retention pond is
+// not what a road crosses): one within POND_ROAD_CLEAR_M of any road's
+// pavement, or with a road's point inside it, is left out. So is one PERCHED
+// over a road: a road within POND_PERCH_M of its shore whose ground (3DEP at
+// the road's line) is under the pond's level plus POND_PERCH_DY - the road's
+// cut would drain it, and the water would hang over the slope beside the road.
+// The solve can cut a road below 3DEP's ground by a hand or two, so the
+// margin is a metre (the runtime audit judges the solved road at +0.3 m).
 {
-  const cen = pts => pts.reduce((a, p) => [a[0] + p[0] / pts.length, a[1] + p[1] / pts.length], [0, 0]);
-  const rms = (pts, c) => Math.sqrt(pts.reduce((a, p) => a + (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2, 0) / pts.length);
-  const cl = cen(leg485), co = cen(osm485);
-  const s0 = rms(osm485, co) / rms(leg485, cl);
-  T = { s: s0, c: 1, sn: 0, tx: co[0] - s0 * cl[0], ty: co[1] - s0 * cl[1] };
-}
-let fitResid = Infinity;
-for (let it = 0; it < 14; it++) {
-  const src = [], dst = [];
-  let sum = 0;
-  for (const p of leg485) {
-    const [x, y] = applySim(T, p[0], p[1]);
-    const nb = nearestOnPoly(osm485, x, y);
-    src.push(p); dst.push([nb.x, nb.y]); sum += nb.d;
+  const POND_ROAD_CLEAR_M = 4, POND_PERCH_M = 16, POND_PERCH_DY = 1.0, C = 64;
+  const cells = new Map();
+  let maxHw = 0;
+  for (const e of edges) {
+    // the piece's own lane count after WP-10's clean-up (e.lanes), at the
+    // 3.6576 m lanes the game still draws
+    const hw = (e.lanes * LANE_M + e.way.shl + e.way.shr) / 2;
+    maxHw = Math.max(maxHw, hw);
+    for (let i = 1; i < e.pts.length; i++) {
+      const [ax, az] = e.pts[i - 1], [bx, bz] = e.pts[i];
+      for (let cx = Math.floor(Math.min(ax, bx) / C); cx <= Math.floor(Math.max(ax, bx) / C); cx++)
+        for (let cz = Math.floor(Math.min(az, bz) / C); cz <= Math.floor(Math.max(az, bz) / C); cz++) {
+          const k = cx * 100003 + cz;
+          let l = cells.get(k); if (!l) cells.set(k, l = []);
+          l.push([ax, az, bx, bz, hw]);
+        }
+    }
   }
-  fitResid = sum / leg485.length;
-  T = umeyama(src, dst);
-}
-console.log(`water fit: scale ${T.s.toFixed(4)} rot ${(Math.atan2(T.sn, T.c) * 180 / Math.PI).toFixed(3)}deg resid ${(fitResid * MPT).toFixed(0)} m`);
-if (fitResid * MPT > 120) throw new Error('water co-registration failed');
-const tileToM = ([tx, ty]) => [(tx - CENTER) * MPT, (CENTER - ty) * MPT];
-
-const waters = [];
-for (const rv of RIVERS) {
-  const w = rv[0], name = rv[1];
-  const pts = [];
-  for (let i = 2; i < rv.length; i += 2) pts.push(tileToM(applySim(T, rv[i], rv[i + 1])));
-  waters.push({ name, widthM: Math.max(5, w * LANE_M / 1.275), lake: false, pts });
-}
-for (const lk of LAKES) {
-  const pts = [];
-  for (let i = 1; i < lk.length; i += 2) pts.push(tileToM(applySim(T, lk[i], lk[i + 1])));
-  waters.push({ name: lk[0], widthM: 0, lake: true, pts });
+  const ptSeg = (px, pz, ax, az, bx, bz) => {
+    const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
+    const t = L2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / L2)) : 0;
+    return Math.hypot(px - ax - dx * t, pz - az - dz * t);
+  };
+  const segSeg = (a, b, c, d) => segX(a[0], a[1], b[0], b[1], c[0], c[1], d[0], d[1]) ? 0 :
+    Math.min(ptSeg(a[0], a[1], c[0], c[1], d[0], d[1]), ptSeg(b[0], b[1], c[0], c[1], d[0], d[1]),
+             ptSeg(c[0], c[1], a[0], a[1], b[0], b[1]), ptSeg(d[0], d[1], a[0], a[1], b[0], b[1]));
+  const groundASL = (x, z) => dem3.sample(toLat(z), toLon(x));
+  // 'near' (within the clearance), 'perched' (over a road nearby), or null
+  const nearRoad = w => {
+    const pts = w.pts, reach = maxHw + POND_PERCH_M;
+    let perched = false;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      for (let cx = Math.floor((Math.min(a[0], b[0]) - reach) / C); cx <= Math.floor((Math.max(a[0], b[0]) + reach) / C); cx++)
+        for (let cz = Math.floor((Math.min(a[1], b[1]) - reach) / C); cz <= Math.floor((Math.max(a[1], b[1]) + reach) / C); cz++)
+          for (const [ax, az, bx, bz, hw] of cells.get(cx * 100003 + cz) || []) {
+            const d = segSeg(a, b, [ax, az], [bx, bz]);
+            if (d < hw + POND_ROAD_CLEAR_M) return 'near';
+            if (pointInPoly(pts, ax, az) || pointInPoly(pts, bx, bz)) return 'near';
+            if (!perched && d < hw + POND_PERCH_M) {
+              // the road's line at the foot of this shore point
+              const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
+              const t = L2 > 0 ? Math.max(0, Math.min(1, ((a[0] - ax) * dx + (a[1] - az) * dz) / L2)) : 0;
+              const x = ax + dx * t, z = az + dz * t;
+              if (Math.hypot(a[0] - x, a[1] - z) < hw + POND_PERCH_M && groundASL(x, z) < w.level + POND_PERCH_DY) perched = true;
+            }
+          }
+    }
+    return perched ? 'perched' : null;
+  };
+  let kept = 0, near = 0, perched = 0;
+  for (let i = waters.length - 1; i >= 0; i--) {
+    if (!waters[i].pond) continue;
+    const why = nearRoad(waters[i]);
+    if (why) { waters.splice(i, 1); if (why === 'near') near++; else perched++; } else kept++;
+  }
+  console.log(`ponds: ${kept} kept; left out ${near} within ${POND_ROAD_CLEAR_M} m of a road's pavement, ${perched} perched over a road within ${POND_PERCH_M} m`);
 }
 function pointInPoly(pts, x, y) {
   let inside = false;
@@ -562,7 +746,9 @@ const wspans = [];
   // water segments hashed so 40k edges do not each walk 30 creeks
   const wHash = new Map();
   waters.forEach((w, wi) => {
-    if (w.lake) return;
+    // a ravine carries no water sheet and a road over it keeps its
+    // embankment (a culvert, WP-25): only creeks and lakes make spans
+    if (w.lake || w.ravine) return;
     for (let i = 1; i < w.pts.length; i++) {
       const [ax, az] = w.pts[i - 1], [bx, bz] = w.pts[i];
       const x0 = Math.floor(Math.min(ax, bx) / SEGCELL), x1 = Math.floor(Math.max(ax, bx) / SEGCELL);
@@ -656,81 +842,51 @@ const nodeCtl = new Uint8Array(nodes.length);
 }
 
 // ------------------------------------------------------------------- DEM
-let bbox = { x0: 1e18, x1: -1e18, z0: 1e18, z1: -1e18 };
-for (const e of edges) for (const p of e.pts) {
-  bbox.x0 = Math.min(bbox.x0, p[0]); bbox.x1 = Math.max(bbox.x1, p[0]);
-  bbox.z0 = Math.min(bbox.z0, p[1]); bbox.z1 = Math.max(bbox.z1, p[1]);
-}
-bbox = { x0: bbox.x0 - DEM_MARGIN, x1: bbox.x1 + DEM_MARGIN, z0: bbox.z0 - DEM_MARGIN, z1: bbox.z1 + DEM_MARGIN };
-const demNX = Math.ceil((bbox.x1 - bbox.x0) / DEM_CELL) + 1;
-const demNZ = Math.ceil((bbox.z1 - bbox.z0) / DEM_CELL) + 1;
+const demK = ROAD_GRID_CELL / DEM_CELL;
+const demNX = demK * Math.ceil((bbox.x1 - bbox.x0) / ROAD_GRID_CELL) + 1;
+const demNZ = demK * Math.ceil((bbox.z1 - bbox.z0) / ROAD_GRID_CELL) + 1;
 console.log(`DEM grid ${demNX} x ${demNZ} at ${DEM_CELL} m over ${((bbox.x1 - bbox.x0) / 1000).toFixed(1)} x ${((bbox.z1 - bbox.z0) / 1000).toFixed(1)} km`);
-const srtm = await srtmSampler({ s: toLat(bbox.z0), n: toLat(bbox.z1), w: toLon(bbox.x0), e: toLon(bbox.x1) }, SRTM_CACHE);
+// Every node is the MEAN of the 3DEP 1/3" pixels (about 8.4 x 10.3 m) whose
+// centres lie in its own 30 m cell: an area average, so the grid neither
+// aliases the 10 m detail nor loses the ridges and valleys a 30 m grid can
+// hold. NOTHING FILTERS IT AFTERWARDS. The opening (erode, dilate), closing
+// and Gaussian that stood here until WP-04 were written against radar
+// "roofs": the source was taken to be SRTM with uptown's towers 200 m proud.
+// It never was (the skadi tiles were bare earth, and so is 3DEP), so all they
+// removed was the real terrain - 66% of the core's relief, every creek valley
+// and ridge line (survey_flatness, 2026-09-27).
 let dem = new Float32Array(demNX * demNZ);
 for (let iz = 0; iz < demNZ; iz++)
-  for (let ix = 0; ix < demNX; ix++)
-    dem[iz * demNX + ix] = srtm(toLat(bbox.z0 + iz * DEM_CELL), toLon(bbox.x0 + ix * DEM_CELL));
-// Roofs: SRTM is a radar return and uptown's towers stand 200 m proud of
-// the street. A 5x5 MIN over 60 m cells (a 120 m reach) finds street level
-// between blocks; then a Gaussian settles the erosion's flat tops.
-function minFilter(src, r) {
-  const out = new Float32Array(src.length);
-  for (let iz = 0; iz < demNZ; iz++) for (let ix = 0; ix < demNX; ix++) {
-    let m = Infinity;
-    for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
-      const x = Math.min(demNX - 1, Math.max(0, ix + dx)), z = Math.min(demNZ - 1, Math.max(0, iz + dz));
-      m = Math.min(m, src[z * demNX + x]);
-    }
-    out[iz * demNX + ix] = m;
+  for (let ix = 0; ix < demNX; ix++) {
+    const x = bbox.x0 + ix * DEM_CELL, z = bbox.z0 + iz * DEM_CELL, h = DEM_CELL / 2;
+    dem[iz * demNX + ix] = dem3.blockMean(toLat(z - h), toLat(z + h), toLon(x - h), toLon(x + h));
   }
-  return out;
-}
-function gauss(src, sigma) {
-  const r = Math.ceil(sigma * 2.5);
-  const k = [];
-  let ks = 0;
-  for (let i = -r; i <= r; i++) { const v = Math.exp(-i * i / (2 * sigma * sigma)); k.push(v); ks += v; }
-  const tmp = new Float32Array(src.length), out = new Float32Array(src.length);
-  for (let iz = 0; iz < demNZ; iz++) for (let ix = 0; ix < demNX; ix++) {
-    let s = 0;
-    for (let i = -r; i <= r; i++) s += k[i + r] * src[iz * demNX + Math.min(demNX - 1, Math.max(0, ix + i))];
-    tmp[iz * demNX + ix] = s / ks;
-  }
-  for (let iz = 0; iz < demNZ; iz++) for (let ix = 0; ix < demNX; ix++) {
-    let s = 0;
-    for (let i = -r; i <= r; i++) s += k[i + r] * tmp[Math.min(demNZ - 1, Math.max(0, iz + i)) * demNX + ix];
-    out[iz * demNX + ix] = s / ks;
-  }
-  return out;
-}
-function maxFilter(src, r) {
-  const out = new Float32Array(src.length);
-  for (let iz = 0; iz < demNZ; iz++) for (let ix = 0; ix < demNX; ix++) {
-    let m = -Infinity;
-    for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
-      const x = Math.min(demNX - 1, Math.max(0, ix + dx)), z = Math.min(demNZ - 1, Math.max(0, iz + dz));
-      m = Math.max(m, src[z * demNX + x]);
-    }
-    out[iz * demNX + ix] = m;
-  }
-  return out;
-}
-// A bare MIN filter (the first cut) took the roofs out and the hills with
-// them: 6.6 m low on average, 20 m low beside every valley, so every road
-// on a hillside stood proud of the "ground" and was built as a deck. A
-// morphological OPENING (erode, then dilate back) removes only what is
-// narrower than the kernel — the towers — and returns the surface
-// everywhere else (2 m mean, and Trade & Tryon lands at 227 m ASL, which
-// is right); the CLOSING after it fills the one-pixel pits the radar left.
+// The pit clamp (DEM_CLAMP): below DEM_FLOOR only inside a named box, and
+// there the ground is lifted to it; anywhere else the export stops.
 {
-  const opened = maxFilter(minFilter(dem, 2), 2);
-  const closed = minFilter(maxFilter(opened, 1), 1);
-  dem = gauss(closed, 1.1);
+  const clamped = new Map(), outside = [];
+  for (let iz = 0; iz < demNZ; iz++) for (let ix = 0; ix < demNX; ix++) {
+    const i = iz * demNX + ix;
+    if (!(dem[i] < DEM_FLOOR)) continue;
+    const lat = toLat(bbox.z0 + iz * DEM_CELL), lon = toLon(bbox.x0 + ix * DEM_CELL);
+    const pit = DEM_CLAMP.find(c => lat >= c.box[0] && lat <= c.box[2] && lon >= c.box[1] && lon <= c.box[3]);
+    if (!pit) { outside.push(`${lat.toFixed(5)},${lon.toFixed(5)} ${dem[i].toFixed(1)} m`); continue; }
+    const c = clamped.get(pit.name) || { n: 0, deepest: Infinity };
+    c.n++; c.deepest = Math.min(c.deepest, dem[i]);
+    clamped.set(pit.name, c);
+    dem[i] = DEM_FLOOR;
+  }
+  if (outside.length)
+    throw new Error(`${outside.length} DEM cells below ${DEM_FLOOR} m outside every DEM_CLAMP box (the datum is pinned at ${DEM_BASE} m): ` +
+                    outside.slice(0, 8).join('; ') + (outside.length > 8 ? '; ...' : ''));
+  console.log(clamped.size ? 'DEM clamped to ' + DEM_FLOOR + ' m: ' + [...clamped].map(([k, v]) => `${k} ${v.n} cells (deepest ${v.deepest.toFixed(1)} m)`).join(', ')
+                           : `DEM clamp: nothing below ${DEM_FLOOR} m`);
 }
 let demMin = Infinity, demMax = -Infinity;
 for (const v of dem) { demMin = Math.min(demMin, v); demMax = Math.max(demMax, v); }
-const demBase = Math.floor(demMin) - 2;
-console.log(`DEM range ${demMin.toFixed(0)}..${demMax.toFixed(0)} m ASL; base ${demBase}`);
+const demBase = DEM_BASE;
+if ((demMax - demBase) * DEM_UNITS > 65535) throw new Error(`DEM max ${demMax.toFixed(1)} m does not fit u16 ${DEM_SCALE} m steps above ${demBase} m`);
+console.log(`DEM range ${demMin.toFixed(0)}..${demMax.toFixed(0)} m ASL; base ${demBase} (pinned)`);
 function demAt(x, z) {
   const fx = (x - bbox.x0) / DEM_CELL, fz = (z - bbox.z0) / DEM_CELL;
   const ix = Math.min(demNX - 2, Math.max(0, Math.floor(fx))), iz = Math.min(demNZ - 2, Math.max(0, Math.floor(fz)));
@@ -1055,73 +1211,190 @@ class Writer {
   }
   bytes() { this.chunks.push(this.buf.subarray(0, this.pos)); return Buffer.concat(this.chunks); }
 }
-mkdirSync(RES, { recursive: true });
-
 // uptown (Trade & Tryon)
 const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
 
-// ---- graph
+// ---- graph: PSXC v2, a section table and then the sections (the layout is
+// documented in tools/city/lib/citydata.mjs). The content of every section
+// is what version 1 wrote in one run, with the edges' points moved out of
+// EDGE into PNTS; GHSH is new.
 {
-  const w = new Writer();
-  w.u32(0x43585350); // "PSXC"
-  w.u32(1);
-  w.str(ATTRIBUTION);
-  w.f32(uptownX); w.f32(uptownZ);
-  w.u32(nodes.length);
-  for (let i = 0; i < nodes.length; i++) { w.f32(nodes[i][0]); w.f32(nodes[i][1]); w.u8(nodeCtl[i]); }
+  const sec = new Map();
+  const section = (tag, fill) => { const w = new Writer(); fill(w); sec.set(tag, w.bytes()); };
+  const f32r = v => Math.fround(v);
+  section('META', w => { w.str(ATTRIBUTION); w.f32(uptownX); w.f32(uptownZ); });
+  section('NODE', w => {
+    w.u32(nodes.length);
+    for (let i = 0; i < nodes.length; i++) { w.f32(nodes[i][0]); w.f32(nodes[i][1]); w.u8(nodeCtl[i]); }
+  });
   const names = new Map([['', 0]]);
   const nameList = [''];
   const nameIdx = s => { let i = names.get(s); if (i === undefined) { i = nameList.length; nameList.push(s); names.set(s, i); } return i; };
   for (const e of edges) nameIdx(e.way.name);
   for (const wt of waters) nameIdx(wt.name);
-  w.u32(nameList.length);
-  for (const s of nameList) w.str(s);
-  w.u32(edges.length);
-  for (const e of edges) {
-    const wy = e.way;
-    w.u32(e.a); w.u32(e.b); w.u32(nameIdx(wy.name));
-    w.u8(wy.rank);
-    w.u8((wy.link ? 1 : 0) | (wy.oneway ? 2 : 0) | (wy.bridge ? 4 : 0) | (wy.tunnel ? 8 : 0) | (wy.turn ? 16 : 0) | (wy.roundabout ? 32 : 0));
-    w.u8(wy.lanes); w.i8(wy.level);
-    w.f32(wy.lanes * LANE_M + wy.shl + wy.shr); w.f32(wy.shl); w.f32(wy.shr);
-    w.u8(Math.min(255, wy.speed)); w.u32(wy.id);
-    w.u16(e.pts.length);
-    for (const p of e.pts) { w.f32(p[0]); w.f32(p[1]); }
+  section('NAME', w => { w.u32(nameList.length); for (const s of nameList) w.str(s); });
+  let pointCount = 0;
+  section('EDGE', w => {
+    w.u32(edges.length);
+    for (const e of edges) {
+      const wy = e.way;
+      w.u32(e.a); w.u32(e.b); w.u32(nameIdx(wy.name));
+      w.u8(wy.rank);
+      w.u8((wy.link ? 1 : 0) | (wy.oneway ? 2 : 0) | (wy.bridge ? 4 : 0) | (wy.tunnel ? 8 : 0) | (e.turn ? 16 : 0) | (wy.roundabout ? 32 : 0));
+      w.u8(e.lanes); w.i8(wy.level);
+      // the exporter's width at the REAL lane width of its class (LANW; the
+      // game still draws the profile's 3.6576 m lanes until WP-11b)
+      w.f32(e.lanes * (wy.link ? LANE_W_LINK : LANE_W)[wy.rank] + wy.shl + wy.shr); w.f32(wy.shl); w.f32(wy.shr);
+      w.u8(Math.min(255, wy.speed)); w.u32(wy.id);
+      if (e.pts.length > 65535) throw new Error(`edge ${e.id} has ${e.pts.length} points (u16)`);
+      w.u16(e.pts.length);
+      pointCount += e.pts.length;
+    }
+  });
+  section('PNTS', w => {
+    w.u32(pointCount);
+    for (const e of edges) for (const p of e.pts) { w.f32(p[0]); w.f32(p[1]); }
+  });
+  section('WATR', w => {
+    w.u32(waters.length);
+    for (const wt of waters) {
+      w.u32(nameIdx(wt.name)); w.f32(wt.widthM); w.u8(wt.kind);   // 0 creek, 1 lake, 2 ravine
+      w.u32(wt.pts.length);
+      for (const p of wt.pts) { w.f32(p[0]); w.f32(p[1]); }
+    }
+  });
+  // WBED (WP-04b): each water's bed in WATR's order (lib/citydata.mjs has
+  // the layout): the first sample as u16 cm above the datum, then i16 cm
+  // steps. A bed below the datum would wrap: the export stops instead, as the
+  // DEM clamp does.
+  section('WBED', w => {
+    w.u32(waters.length); w.f32(DEM_BASE); w.f32(1 / BED_UNITS);
+    for (const wt of waters) {
+      const bed = wt.bed || [];
+      w.u32(bed.length); w.f32(wt.bedStep || 0);
+      let prev = 0;
+      bed.forEach((v, k) => {
+        const u = Math.round((v - DEM_BASE) * BED_UNITS);
+        if (!(u >= 0 && u <= 65535)) throw new Error(`water "${wt.name}": bed ${v.toFixed(2)} m does not fit u16 cm above the ${DEM_BASE} m datum`);
+        if (k === 0) w.u16(u);
+        else { const d = u - prev; if (d < -32768 || d > 32767) throw new Error(`water "${wt.name}": a bed step of ${d} cm`); w.u16(d & 0xffff); }
+        prev = u;
+      });
+    }
+  });
+  section('XING', w => {
+    w.u32(crossings.length);
+    for (const c of crossings) { w.u32(c.over); w.u32(c.under); w.f32(c.x); w.f32(c.z); w.u8(c.forced ? 1 : 0); }
+  });
+  section('SPAN', w => { w.u32(wspans.length); for (const s of wspans) { w.u32(s.e); w.f32(s.s0); w.f32(s.s1); } });
+  section('ROUT', w => {
+    w.u32(routes.length);
+    for (const r of routes) {
+      w.str(r.id); w.str(r.name); w.u8(r.loop ? 1 : 0); w.u8(r.oneway ? 1 : 0);
+      w.f32(r.roadWidth); w.u8(r.speed);
+      w.f32(r.lengthM); w.f32(r.startM); w.f32(r.finishM);
+      w.u32(r.chain.length);
+      for (const c of r.chain) { w.u32(c.e.id); w.i8(c.dir); }
+    }
+  });
+  // the graph hash, over the points as the file stores them (float32)
+  const ghash = graphHash(edges.map(e => ({ a: e.a, b: e.b, pts: e.pts.map(p => [f32r(p[0]), f32r(p[1])]) })));
+  section('GHSH', w => w.u32(ghash));
+  // ---- WP-10 (plan A4 + A8; lib/lineclean.mjs has the rules)
+  // LANW: real lane widths by class, rank 0..5, then the links'
+  section('LANW', w => { w.u8(LANE_W.length); for (const v of LANE_W) w.f32(v); for (const v of LANE_W_LINK) w.f32(v); });
+  // TAPR: every lane-count change along a chain - the wide run's edge and
+  // end at the node, the ribbon side that moves (0 left, 1 right of a->b),
+  // where the side came from (0 rule, 1 bay rule, 2 turn:lanes, 3 lanes:
+  // forward/backward), flags (1 turn bay, 2 full width at the node - a
+  // junction mouth, or no room for a taper - with len 0 at a junction, 4 a
+  // drop in chain order, 8 untagged), the width change, the MUTCD length,
+  // the room the chain has, and the wide run's offset at the node; then
+  // every edge's ribbon offset off its OSM line (+ = left of a->b), where
+  // not zero, as o0 + (o1 - o0) * smoothstep((s - t0) / (t1 - t0)): u32
+  // edge, f32 o0, o1, t0, t1. Since the WP-10 review the offset HOLDS along
+  // an edge (o0 = o1, t0 0, t1 1): no mid-block shift; the fields stay for
+  // WP-11b's eases.
+  section('TAPR', w => {
+    w.u32(LC.tapr.length);
+    for (const t of LC.tapr) { w.u32(t.edge); w.u8(t.end); w.u8(t.side); w.u8(t.src); w.u8(t.flags); w.f32(t.dw); w.f32(t.len); w.f32(t.room); w.f32(t.off); }
+    const offs = [];
+    for (let i = 0; i < edges.length; i++) { const r = LC.edgeOffset[i]; if (r && (Math.abs(r.o0) > 1e-4 || Math.abs(r.o1) > 1e-4)) offs.push(i); }
+    w.u32(offs.length);
+    for (const i of offs) { const r = LC.edgeOffset[i]; w.u32(i); w.f32(r.o0); w.f32(r.o1); w.f32(r.t0); w.f32(r.t1); }
+  });
+  // PARA: the carriageway pairs still short of their gap outside an attach
+  // zone (the review list: e1, e2, where, the deficit, metres, in the core,
+  // on a race route), then every edge PARA moved with its largest shift.
+  section('PARA', w => {
+    const onRoute = new Set(routes.flatMap(r => r.chain.map(c => c.e.id)));
+    const items = LC.review.filter(r => r.kind === 'para');
+    {
+      const inC = r => Math.abs(r.x - uptownX) <= 4000 && Math.abs(r.z - uptownZ) <= 4000;
+      const onR = r => onRoute.has(r.edge) || onRoute.has(r.edge2);
+      console.log(`WP-10 PARA review: ${items.length} pairs; core ${items.filter(inC).length}, routes ${items.filter(onR).length}`);
+      if (process.env.PSX_LC_DIAG) for (const r of items.filter(r => inC(r) || onR(r))) console.log(`  PARA ${inC(r) ? 'core' : ''}${onR(r) ? ' route' : ''} e${r.edge}/e${r.edge2} ${r.note} short ${r.deficit.toFixed(2)} m for ${r.metres.toFixed(0)} m at (${r.x.toFixed(0)}, ${r.z.toFixed(0)}) ${toLat(r.z).toFixed(5)},${toLon(r.x).toFixed(5)}`);
+    }
+    w.u32(items.length);
+    for (const r of items) {
+      w.u32(r.edge); w.u32(r.edge2); w.f32(r.x); w.f32(r.z); w.f32(r.deficit); w.f32(r.metres);
+      w.u8(Math.abs(r.x - uptownX) <= 4000 && Math.abs(r.z - uptownZ) <= 4000 ? 1 : 0);
+      w.u8(onRoute.has(r.edge) || onRoute.has(r.edge2) ? 1 : 0);
+    }
+    const movedE = new Map();
+    for (const m of LC.para.moved) for (const id of m.edges) movedE.set(id, Math.max(movedE.get(id) || 0, m.umax));
+    w.u32(movedE.size);
+    for (const [id, u] of movedE) { w.u32(id); w.f32(u); }
+  });
+  // TAGN: control nodes resolved on the RAW ways before any vertex moved
+  // (critic C3): OSM node id (lo, hi), way id, kind (4 signal, 2 stop, 1 give
+  // way), raw distance along the way, and where they are now (edge, s).
+  section('TAGN', w => {
+    w.u32(LC.tagged.length);
+    for (const t of LC.tagged) { w.u32(t.nodeId % 4294967296); w.u32(Math.floor(t.nodeId / 4294967296)); w.u32(t.wayId); w.u8(t.kind); w.f32(t.rawS); w.u32(t.edge); w.f32(t.s); }
+  });
+  // SPLT (WP-11, critic C11; lib/splits.mjs): where an undivided road splits
+  // into its two carriageways - not a junction but a median taper, drawn by
+  // the line model (WP-11b): u32 node, u32 undivided edge, u32 carriageway
+  // leaving, u32 carriageway arriving, f32 their centre offsets at the node
+  // in the undivided edge's frame (+ = left of its direction into the node),
+  // f32 the MUTCD shifting-taper rate (m along per m across).
+  section('SPLT', w => {
+    w.u32(SPLITS.length);
+    for (const t of SPLITS) { w.u32(t.node); w.u32(t.u); w.u32(t.a); w.u32(t.b); w.f32(t.offA); w.f32(t.offB); w.f32(t.rate); }
+  });
+  if ([...sec.keys()].join() !== CITY_SECTIONS.join()) throw new Error('PSXC sections out of step with citydata.mjs CITY_SECTIONS');
+
+  const align = n => (n + 3) & ~3;
+  const headLen = 12 + 12 * sec.size;
+  const head = Buffer.alloc(headLen);
+  head.writeUInt32LE(0x43585350, 0); // "PSXC"
+  head.writeInt32LE(2, 4);
+  head.writeUInt32LE(sec.size, 8);
+  const parts = [head];
+  let at = headLen, k = 0;
+  for (const [tag, body] of sec) {
+    const off = align(at);
+    if (off > at) parts.push(Buffer.alloc(off - at));
+    head.write(tag, 12 + 12 * k, 4, 'latin1');
+    head.writeUInt32LE(off, 16 + 12 * k);
+    head.writeUInt32LE(body.length, 20 + 12 * k);
+    parts.push(body);
+    at = off + body.length; k++;
   }
-  w.u32(waters.length);
-  for (const wt of waters) {
-    w.u32(nameIdx(wt.name)); w.f32(wt.widthM); w.u8(wt.lake ? 1 : 0);
-    w.u32(wt.pts.length);
-    for (const p of wt.pts) { w.f32(p[0]); w.f32(p[1]); }
-  }
-  w.u32(crossings.length);
-  for (const c of crossings) { w.u32(c.over); w.u32(c.under); w.f32(c.x); w.f32(c.z); w.u8(c.forced ? 1 : 0); }
-  w.u32(wspans.length);
-  for (const s of wspans) { w.u32(s.e); w.f32(s.s0); w.f32(s.s1); }
-  w.u32(routes.length);
-  for (const r of routes) {
-    w.str(r.id); w.str(r.name); w.u8(r.loop ? 1 : 0); w.u8(r.oneway ? 1 : 0);
-    w.f32(r.roadWidth); w.u8(r.speed);
-    w.f32(r.lengthM); w.f32(r.startM); w.f32(r.finishM);
-    w.u32(r.chain.length);
-    for (const c of r.chain) { w.u32(c.e.id); w.i8(c.dir); }
-  }
-  const bytes = w.bytes();
-  writeFileSync(join(RES, 'charlotte_city.bytes'), bytes);
-  console.log(`wrote charlotte_city.bytes ${(bytes.length / 1024).toFixed(0)} KB`);
+  const bytes = Buffer.concat(parts);
+  emit('charlotte_city.bytes', bytes);
+  console.log(`charlotte_city.bytes ${(bytes.length / 1024).toFixed(0)} KB (PSXC v2: ${[...sec].map(([t, b]) => `${t} ${(b.length / 1024).toFixed(0)}`).join(', ')} KB); graph hash ${hashHex(ghash)}`);
 }
 
-// ---- DEM
+// ---- DEM: PDEM v3 (WP-13): the v2 header, then the grid in delta-coded
+// blocks the game decodes one at a time (lib/pdem3.mjs has the layout)
 {
-  const w = new Writer();
-  w.u32(0x4D454450); // "PDEM"
-  w.u32(1);
-  w.u32(demNX); w.u32(demNZ);
-  w.f32(bbox.x0); w.f32(bbox.z0); w.f32(DEM_CELL); w.f32(demBase);
-  for (let i = 0; i < dem.length; i++) w.u16(Math.round(Math.max(0, dem[i] - demBase) * 10));
-  const bytes = w.bytes();
-  writeFileSync(join(RES, 'charlotte_dem.bytes'), bytes);
-  console.log(`wrote charlotte_dem.bytes ${(bytes.length / 1024).toFixed(0)} KB`);
+  const q = new Uint16Array(dem.length);
+  for (let i = 0; i < dem.length; i++) q[i] = Math.round(Math.max(0, dem[i] - demBase) * DEM_UNITS);
+  const bytes = encodePdem3({ nx: demNX, nz: demNZ, x0: bbox.x0, z0: bbox.z0, cell: DEM_CELL, base: demBase, scale: DEM_SCALE, q });
+  emit('charlotte_dem.bytes', bytes);
+  console.log(`charlotte_dem.bytes ${(bytes.length / 1024).toFixed(0)} KB (PDEM v3, ${demNX} x ${demNZ} at ${DEM_CELL} m in ${Math.ceil((demNX - 1) / 32) * Math.ceil((demNZ - 1) / 32)} blocks)`);
 }
 
 // ---- buildings
@@ -1138,8 +1411,8 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
     for (const p of b.pts) { w.f32(p[0]); w.f32(p[1]); }
   }
   const bytes = w.bytes();
-  writeFileSync(join(RES, 'charlotte_bld.bytes'), bytes);
-  console.log(`wrote charlotte_bld.bytes ${(bytes.length / 1024).toFixed(0)} KB`);
+  emit('charlotte_bld.bytes', bytes);
+  console.log(`charlotte_bld.bytes ${(bytes.length / 1024).toFixed(0)} KB`);
 }
 
 // ---- the menu's routes (small JSON: lengths and a coarse line per venue)
@@ -1154,8 +1427,8 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
       pts: r.coarse.flatMap(p => [r1(p[0]), r1(p[1])]),
     })),
   };
-  writeFileSync(join(RES, 'charlotte_routes.json'), JSON.stringify(out));
-  console.log('wrote charlotte_routes.json');
+  emit('charlotte_routes.json', JSON.stringify(out));
+  console.log('charlotte_routes.json');
 }
 
 // ------------------------------------------------------------- stats
@@ -1232,13 +1505,14 @@ function plot(name, cx, cz, halfM, S) {
     if (!inView(e.pts[0]) && !inView(e.pts[e.pts.length - 1])) continue;
     const wy = e.way;
     const col = wy.bridge ? [120, 40, 160] : wy.link ? [80, 170, 90] : CLS_COLOR[wy.rank];
-    const wpx = Math.max(1, (wy.lanes * LANE_M + wy.shl + wy.shr) * scale);
+    const wpx = Math.max(1, (e.lanes * LANE_M + wy.shl + wy.shr) * scale);
     for (let i = 1; i < e.pts.length; i++) line(px(e.pts[i - 1][0]), py(e.pts[i - 1][1]), px(e.pts[i][0]), py(e.pts[i][1]), wpx, ...col);
   }
   for (const c of crossings) if (inView([c.x, c.z])) line(px(c.x) - 2, py(c.z), px(c.x) + 2, py(c.z), 3, 200, 0, 200);
   for (const r of routes) for (let i = 1; i < r.coarse.length; i++) if (inView(r.coarse[i])) line(px(r.coarse[i - 1][0]), py(r.coarse[i - 1][1]), px(r.coarse[i][0]), py(r.coarse[i][1]), 2, 0, 200, 255);
   png(S, S, rgb, join(HERE, `charlotte_${name}.png`));
 }
+if (MODE.out && MODE.plots) {
 plot('city', 0, 0, 18000, 1800);
 plot('uptown', uptownX, uptownZ, 1500, 1500);
 plot('core', uptownX, uptownZ, 4500, 1800);
@@ -1254,3 +1528,124 @@ plot('core', uptownX, uptownZ, 4500, 1800);
   if (best) plot('interchange', best.x, best.z, 500, 1200);
 }
 console.log('wrote debug PNGs');
+}
+
+// ------------------------------------------------- write, or check, the result
+// The inputs this export read: the Overpass cache (with its snapshot time),
+// the 3DEP box the ground and the beds come from, the water layers, and
+// SOURCES.md (the credits are part of the output). --manifest records them;
+// --check verifies them, so a failed check says whether the INPUTS moved or
+// the CODE did.
+function inputFiles() {
+  const files = [];
+  const add = (label, path, kind) => { if (existsSync(path)) files.push({ label, path, kind }); };
+  add('tools/city/cache/ways_all.json', join(CACHE, 'ways_all.json'), 'overpass');
+  add('tools/city/cache/nodes_all.json', join(CACHE, 'nodes_all.json'), 'overpass');
+  add('tools/city/cache/streets_core.json', join(CACHE, 'streets_core.json'), 'overpass');
+  add('tools/city/cache/buildings_core.json', join(CACHE, 'buildings_core.json'), 'overpass');
+  // the 3DEP box (%PSX_GIS_DIR%\3dep when that is set) and its georeference
+  add('tools/city/cache/3dep/box13.f32', dem3.f32Path, '3dep');
+  add('tools/city/cache/3dep/box13.json', dem3.jsonPath, '3dep');
+  for (const f of waterInputPaths(CACHE)) add(f.label, f.path, 'water');
+  // SOURCES.md by its Credits only: the rest of the registry is prose that
+  // later packages edit without changing a byte of the output
+  files.push({ label: 'tools/city/SOURCES.md#credits', content: Buffer.from(ATTRIBUTION, 'utf8'), kind: 'registry' });
+  return files;
+}
+const sha256 = buf => createHash('sha256').update(buf).digest('hex');
+function describeInputs() {
+  return inputFiles().map(f => {
+    const buf = f.content || readFileSync(f.path);
+    const d = { file: f.label, kind: f.kind, bytes: buf.length, sha256: sha256(buf) };
+    if (f.kind === 'overpass') {
+      // the snapshot line sits in the first few hundred bytes of an Overpass body
+      const m = /"timestamp_osm_base"\s*:\s*"([^"]+)"/.exec(buf.subarray(0, 2048).toString('utf8'));
+      d.timestamp_osm_base = m ? m[1] : null;
+    }
+    return d;
+  });
+}
+const withoutVolatile = fp => { const c = JSON.parse(JSON.stringify(fp)); delete c.outputs; delete c.generated; return c; };
+function diffJson(a, b, path = '', out = []) {
+  if (typeof a !== 'object' || a === null || typeof b !== 'object' || b === null) {
+    if (JSON.stringify(a) !== JSON.stringify(b)) out.push(`${path || '.'}: ${JSON.stringify(b)} -> ${JSON.stringify(a)}`);
+    return out;
+  }
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) diffJson(a[k], b[k], path ? `${path}.${k}` : k, out);
+  return out;
+}
+function makeFingerprint() {
+  const fp = fingerprint(parseCity(OUTPUTS.get('charlotte_city.bytes')),
+                         parseDem(OUTPUTS.get('charlotte_dem.bytes')),
+                         parseBld(OUTPUTS.get('charlotte_bld.bytes')));
+  const outputs = {};
+  for (const [name, buf] of OUTPUTS) outputs[name] = { bytes: buf.length, sha256: sha256(buf) };
+  return { schema: 1, ...fp, outputs, generated: { by: 'tools/city/export_osm.mjs', node: process.version } };
+}
+
+let failed = false;
+if (MODE.manifest) {
+  const m = { schema: 1, note: 'Inputs of tools/city/export_osm.mjs. The Overpass cache is gitignored and exists only on the machine that fetched it (tools/city/fetch/ holds the queries); this records exactly what the shipped data was made from.',
+              recorded_with: process.version, inputs: describeInputs() };
+  writeFileSync(MANIFEST, JSON.stringify(m, null, 2) + '\n');
+  console.log(`wrote ${relative(UNITY, MANIFEST)} (${m.inputs.length} inputs)`);
+}
+if (MODE.out) {
+  const dir = resolve(UNITY, MODE.out);
+  mkdirSync(dir, { recursive: true });
+  for (const [name, buf] of OUTPUTS) {
+    writeFileSync(join(dir, name), buf);
+    console.log(`wrote ${relative(UNITY, join(dir, name))}  ${buf.length} B  sha256 ${sha256(buf).slice(0, 16)}`);
+  }
+}
+if (MODE.fingerprint) {
+  const path = resolve(UNITY, MODE.fingerprint);
+  writeFileSync(path, JSON.stringify(makeFingerprint(), null, 2) + '\n');
+  console.log(`wrote ${relative(UNITY, path)}`);
+}
+if (MODE.check) {
+  console.log('\n==== CHECK ====');
+  // 1. inputs against the manifest
+  if (!existsSync(MANIFEST)) { console.log('inputs: no cache_manifest.json to check against'); failed = true; }
+  else {
+    const want = new Map(JSON.parse(readFileSync(MANIFEST, 'utf8')).inputs.map(d => [d.file, d]));
+    const have = describeInputs();
+    let bad = 0;
+    for (const d of have) {
+      const w = want.get(d.file);
+      if (!w) { console.log(`  input NEW       ${d.file}`); bad++; continue; }
+      want.delete(d.file);
+      if (w.sha256 !== d.sha256) {
+        console.log(`  input CHANGED   ${d.file}  ${w.sha256.slice(0, 12)} -> ${d.sha256.slice(0, 12)}` +
+                    (d.timestamp_osm_base ? `  snapshot ${w.timestamp_osm_base} -> ${d.timestamp_osm_base}` : ''));
+        bad++;
+      }
+    }
+    for (const w of want.values()) { console.log(`  input MISSING   ${w.file}`); bad++; }
+    console.log(bad ? `inputs: ${bad} differ from cache_manifest.json` : `inputs: all ${have.length} match cache_manifest.json`);
+    if (bad) failed = true;
+  }
+  // 2. the four files, byte for byte
+  const dir = resolve(UNITY, MODE.against);
+  for (const [name, buf] of OUTPUTS) {
+    const p = join(dir, name);
+    if (!existsSync(p)) { console.log(`  MISSING  ${name} (not in ${relative(UNITY, dir)})`); failed = true; continue; }
+    const old = readFileSync(p);
+    if (old.equals(buf)) { console.log(`  IDENTICAL  ${name}  ${buf.length} B  sha256 ${sha256(buf).slice(0, 16)}`); continue; }
+    let at = 0;
+    while (at < Math.min(old.length, buf.length) && old[at] === buf[at]) at++;
+    console.log(`  DIFFERENT  ${name}  shipped ${old.length} B, export ${buf.length} B, first difference at byte ${at}`);
+    failed = true;
+  }
+  // 3. the fingerprint (what survives a Node change that moves low bits)
+  if (existsSync(FINGERPRINT)) {
+    const d = diffJson(withoutVolatile(makeFingerprint()), withoutVolatile(JSON.parse(readFileSync(FINGERPRINT, 'utf8'))));
+    if (d.length) {
+      console.log(`fingerprint: ${d.length} differences from tools/city/fingerprint.json (was -> now)`);
+      for (const l of d.slice(0, 40)) console.log('  ' + l);
+      failed = true;
+    } else console.log('fingerprint: identical to tools/city/fingerprint.json');
+  } else { console.log('fingerprint: no tools/city/fingerprint.json yet'); failed = true; }
+  console.log(failed ? 'EXPORT CHECK: FAILED' : 'EXPORT CHECK OK: the cache reproduces the shipped data byte for byte');
+}
+if (failed) process.exitCode = 1;

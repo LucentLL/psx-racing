@@ -498,7 +498,7 @@ namespace PSXRacing
                 return false;
             var edge = map.edges[ei];
             if (edge.stS == null || edge.stS.Length == 0) return false;
-            return dist < edge.width * 0.5f + FellLateralMarginM &&
+            return dist < edge.HalfMax + FellLateralMarginM &&
                    pos.y < edge.YAt(at) - FellBelowRoadM;
         }
 

@@ -88,7 +88,7 @@ namespace PSXRacing.City
 
                         var tan = e.TangentAt(at);
                         var nrm = new Vector2(-tan.y, tan.x) * side;
-                        float setback = e.width * 0.5f + 4f + bd * 0.5f
+                        float setback = e.HalfMax + 4f + bd * 0.5f
                                       + Hash01(e.index, slot, 5) * 5f;
                         var c = p + nrm * setback;
 
@@ -108,7 +108,7 @@ namespace PSXRacing.City
                             float L2 = dseg.sqrMagnitude;
                             float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(c - a, dseg) / L2) : 0f;
                             float dd = Vector2.Distance(c, a + dseg * t);
-                            float need = o.width * 0.5f + 3.5f + Mathf.Max(bw, bd) * 0.55f;
+                            float need = o.HalfMax + 3.5f + Mathf.Max(bw, bd) * 0.55f;
                             if (dd < need) { blocked = true; break; }
                         }
                         if (blocked) { at += step; continue; }
@@ -117,6 +117,8 @@ namespace PSXRacing.City
                         scratch.Clear();
                         map.WaterSegsInRect(new Vector2(c.x - 18f, c.y - 18f), new Vector2(c.x + 18f, c.y + 18f), scratch);
                         if (scratch.Count > 0) { at += step; continue; }
+                        // nor in a ravine's carved channel, nor out in a lake (WP-04b)
+                        if (map.NearRavine(c, CityMeshes.RavineClearM) || map.InLake(c)) { at += step; continue; }
 
                         // one building per 18 m occupancy cell; a real model
                         // claims every cell under its lot
@@ -281,7 +283,7 @@ namespace PSXRacing.City
                 int side = Hash01(e.index, 2, 23) < 0.5f ? -1 : 1;
                 var tan = e.TangentAt(at);
                 var nrm = new Vector2(-tan.y, tan.x) * side;
-                float setback = e.width * 0.5f + 6f + def.d * 0.5f;
+                float setback = e.HalfMax + 6f + def.d * 0.5f;
                 var c = p + nrm * setback;
 
                 // a real building already on the lot wins
@@ -300,16 +302,17 @@ namespace PSXRacing.City
                     float L2 = dseg.sqrMagnitude;
                     float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(c - a2, dseg) / L2) : 0f;
                     float dd = Vector2.Distance(c, a2 + dseg * t);
-                    float need = o.width * 0.5f + 3.5f + Mathf.Max(def.w, def.d) * 0.55f;
+                    float need = o.HalfMax + 3.5f + Mathf.Max(def.w, def.d) * 0.55f;
                     if (dd < need && o != e) { blocked = true; break; }
                     // its own street only has to clear the lot's near edge
-                    if (o == e && dd < o.width * 0.5f + 2f + def.d * 0.45f) { blocked = true; break; }
+                    if (o == e && dd < o.HalfMax + 2f + def.d * 0.45f) { blocked = true; break; }
                 }
                 if (blocked) continue;
 
                 scratch.Clear();
                 map.WaterSegsInRect(new Vector2(c.x - 24f, c.y - 24f), new Vector2(c.x + 24f, c.y + 24f), scratch);
                 if (scratch.Count > 0) continue;
+                if (map.NearRavine(c, CityMeshes.RavineClearM + Mathf.Max(def.w, def.d) * 0.5f) || map.InLake(c)) continue;
 
                 if (!ClaimCells(occupied, c, def.w, def.d)) continue;
 
@@ -366,19 +369,68 @@ namespace PSXRacing.City
         }
 
         /// <summary>
-        /// Ground height a prefab lot should SEAT at: the highest GroundY under
-        /// its footprint (centre + four corners). A model cannot stretch its
-        /// walls into a bank the way the procedural boxes do; the high corner
-        /// wins and the baked foundation skirt covers whatever the low corner
-        /// exposes.
+        /// Ground height a prefab lot should SEAT at: the highest point of the
+        /// DRAWN ground under its footprint. A model cannot stretch its walls
+        /// into a bank the way the procedural boxes do; the high point wins and
+        /// the baked foundation skirt covers whatever the low side exposes.
         /// </summary>
-        public static float SeatY(CityMap map, Vector2 pos, float w, float d, float yaw)
+        public static float SeatY(CityMap map, Vector2 pos, float w, float d, float yaw) => SeatY(map, pos, w, d, yaw, out _);
+
+        /// <summary>
+        /// <see cref="SeatY(CityMap, Vector2, float, float, float)"/>, and the
+        /// LOWEST point of the drawn ground under the lot in
+        /// <paramref name="low"/> (how far the skirt must reach).
+        ///
+        /// Read off the ground LATTICE (CityMeshes.LatticeAt: the triangles the
+        /// tile draws, 8 m cells), not off GroundY at five points. GroundY is
+        /// the continuous field the lattice samples at its corners, so between
+        /// corners it bulges above and dips below the drawn ground (R1's 3DEP
+        /// terrain, WP-14's grading beside a road corridor), and a house
+        /// seated on a bulge the lattice never drew stood on air. The drawn surface is
+        /// piecewise planar, so its extremes over the lot are at the lot's
+        /// corners and edge crossings or at a lattice corner inside it: the
+        /// corners, the edge midpoints, the centre, and every lattice corner
+        /// inside the footprint are sampled.
+        /// </summary>
+        public static float SeatY(CityMap map, Vector2 pos, float w, float d, float yaw, out float low)
         {
             float cy = Mathf.Cos(yaw), sy = Mathf.Sin(yaw);
             Vector2 fwd = new Vector2(sy, cy);
             Vector2 rgt = new Vector2(cy, -sy);
-            Vector2 hw = rgt * (w * 0.5f);
-            Vector2 hd = fwd * (d * 0.5f);
+            float hi = float.MinValue; low = float.MaxValue;
+            for (int iz = -1; iz <= 1; iz++)
+                for (int ix = -1; ix <= 1; ix++)
+                {
+                    var c = pos + rgt * (w * 0.5f * ix) + fwd * (d * 0.5f * iz);
+                    float g = CityMeshes.LatticeAt(map, c.x, c.y);
+                    if (g > hi) hi = g;
+                    if (g < low) low = g;
+                }
+            // every lattice corner inside the lot
+            float cell = CityMeshes.TileSize / CityMeshes.GroundRes;
+            float r = 0.5f * Mathf.Sqrt(w * w + d * d);
+            int x0 = Mathf.CeilToInt((pos.x - r) / cell), x1 = Mathf.FloorToInt((pos.x + r) / cell);
+            int z0 = Mathf.CeilToInt((pos.y - r) / cell), z1 = Mathf.FloorToInt((pos.y + r) / cell);
+            for (int z = z0; z <= z1; z++)
+                for (int x = x0; x <= x1; x++)
+                {
+                    var q = new Vector2(x * cell, z * cell) - pos;
+                    if (Mathf.Abs(Vector2.Dot(q, rgt)) > w * 0.5f || Mathf.Abs(Vector2.Dot(q, fwd)) > d * 0.5f) continue;
+                    float g = CityMeshes.LatticeAt(map, x * cell, z * cell);
+                    if (g > hi) hi = g;
+                    if (g < low) low = g;
+                }
+            return hi;
+        }
+
+        /// <summary>The seat the city used before 2026-09-30 (the highest
+        /// GroundY of the centre and four corners), for the before/after
+        /// probe (CitySignalShots) only.</summary>
+        public static float SeatYGroundField(CityMap map, Vector2 pos, float w, float d, float yaw)
+        {
+            float cy = Mathf.Cos(yaw), sy = Mathf.Sin(yaw);
+            Vector2 hw = new Vector2(cy, -sy) * (w * 0.5f);
+            Vector2 hd = new Vector2(sy, cy) * (d * 0.5f);
             float g = CityElevation.GroundY(map, pos.x, pos.y);
             foreach (var c in new[] { pos + hw + hd, pos - hw + hd, pos - hw - hd, pos + hw - hd })
                 g = Mathf.Max(g, CityElevation.GroundY(map, c.x, c.y));

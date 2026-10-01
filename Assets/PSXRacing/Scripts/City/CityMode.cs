@@ -173,7 +173,8 @@ namespace PSXRacing.City
                     out ei, out at, out _))
                 return false;
             var e = map.edges[ei];
-            var q = e.PointAt(at);
+            // on the lanes (the line model), not the OSM line under them
+            var q = LineModel.LanePoint(e, at);
             var t2 = e.TangentAt(at);
             var fwd = new Vector3(t2.x, 0f, t2.y);
             // the way the scene pointed it, unless the street only goes one way
@@ -221,7 +222,7 @@ namespace PSXRacing.City
             // layout, measured back from the start line.
             var field = new List<CarController>(aiCars);
             if (player != null) field.Add(player);
-            int lineIdx = route.loop ? 0 : Mathf.RoundToInt(route.startM / TrackCatalog.Spacing);
+            int lineIdx = route.loop ? 0 : Mathf.RoundToInt(route.startM * LastArcScale / TrackCatalog.Spacing);
             for (int row = 0; row < field.Count; row++)
             {
                 var car = field[row];
@@ -248,6 +249,10 @@ namespace PSXRacing.City
 
         /// <summary>Resample the chain and fill the TrackPath. Public and
         /// static so the self-test can build a route's path without a scene.</summary>
+        /// <summary>The last path's length along its lanes over its length
+        /// along the OSM line (route arcs are OSM arcs: the grid scales its
+        /// start line by it).</summary>
+        public static float LastArcScale = 1f;
         public static void BuildPath(CityMap map, CityMap.Route route, TrackPath path)
         {
             float spacing = TrackCatalog.Spacing;
@@ -271,6 +276,8 @@ namespace PSXRacing.City
                 marks.Clear();
                 for (int i = 0; i < e.s.Length; i++) marks.Add(e.s[i]);
                 if (e.stS != null) for (int i = 0; i < e.stS.Length; i++) marks.Add(e.stS[i]);
+                // and through its tapers, where the lanes' centre eases over
+                LineModel.TaperSamples(e, 0f, e.length, marks);
                 marks.Sort();
                 int m = 0;
                 for (int i = 1; i < marks.Count; i++)
@@ -281,7 +288,11 @@ namespace PSXRacing.City
                 {
                     float sAt = fwd ? marks[i] : marks[n - 1 - i];
                     if (k > 0 && i == 0) continue;   // shared node with the previous edge
-                    var p = e.PointAt(sAt);
+                    // THE LANES' CENTRE (WP-11b line model): the race line,
+                    // the grid, traffic's lanes and the AI's all measure from
+                    // the path, so they drive the lanes the paint shows, off
+                    // the OSM line where a lane was added on one side
+                    var p = LineModel.LanePoint(e, sAt);
                     if (pts.Count > 0) acc += Vector2.Distance(pts[pts.Count - 1], p);
                     pts.Add(p);
                     ys.Add(e.YAt(sAt));
@@ -289,6 +300,13 @@ namespace PSXRacing.City
                 }
             }
             float total = acc;
+            // the route's start and finish are arcs along its OSM line; the
+            // lanes' centre runs a little longer or shorter (off the line on
+            // bends, across a one-sided lane change): scale them onto it
+            float osmTotal = 0f;
+            for (int k = 0; k < route.edges.Length; k++) osmTotal += map.edges[route.edges[k]].length;
+            float arcScale = osmTotal > 1f ? total / osmTotal : 1f;
+            LastArcScale = arcScale;
             if (route.loop && pts.Count > 1)
             {
                 // close the ring so a sample past the last point wraps to the first
@@ -310,7 +328,7 @@ namespace PSXRacing.City
             int seg = 0;
             for (int i = 0; i < count; i++)
             {
-                float s = route.loop ? Mathf.Repeat(route.startM + i * step, total) : Mathf.Min(i * spacing, total);
+                float s = route.loop ? Mathf.Repeat(route.startM * arcScale + i * step, total) : Mathf.Min(i * spacing, total);
                 if (route.loop && i > 0 && s < arcs[seg]) seg = 0;   // wrapped past the seam
                 while (seg < arcs.Count - 2 && arcs[seg + 1] < s) seg++;
                 float segL = arcs[seg + 1] - arcs[seg];
@@ -346,7 +364,7 @@ namespace PSXRacing.City
             path.roadWidth = route.roadWidth;
             path.drag = false;
             path.pointToPoint = !route.loop;
-            path.finishIndex = route.loop ? -1 : Mathf.RoundToInt(route.finishM / spacing);
+            path.finishIndex = route.loop ? -1 : Mathf.RoundToInt(route.finishM * arcScale / spacing);
             path.reversed = false;
         }
 
@@ -388,7 +406,7 @@ namespace PSXRacing.City
             for (int step = 0; step <= 12; step++)
             {
                 float s = Mathf.Clamp(at + dir * step * 6f, 0f, e.length);
-                var q = e.PointAt(s);
+                var q = LineModel.LanePoint(e, s);
                 if (DriveSession.TryPlace(car, new Vector3(q.x, e.YAt(s), q.y), rot)) return;
                 if (s <= 0f || s >= e.length) break;
             }
@@ -398,7 +416,7 @@ namespace PSXRacing.City
             // tarmac is, and ResetTo's own probe from six metres up would find
             // the deck of any road crossing over this one first (a Charlotte
             // deck top is 5.55 m over the road beneath).
-            var pt = e.PointAt(at);
+            var pt = LineModel.LanePoint(e, at);
             car.ResetTo(new Vector3(pt.x, e.YAt(at), pt.y), rot, seated: true);
         }
 
