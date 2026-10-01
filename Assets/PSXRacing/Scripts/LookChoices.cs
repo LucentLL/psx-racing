@@ -8,7 +8,9 @@ namespace PSXRacing
     /// (tools\colour\colour-shots.ps1 -Sets look). Flipping a default below is
     /// the whole of shipping either one.
     ///
-    ///   C11, "G1" (<see cref="SunLift"/>): the film grade's matte lift - its
+    ///   C11, "G1" (<see cref="SunLift"/>; SHIPPED ON 2026-10-01 at 80%, the
+    ///   owner's "D" - the figures below are the original half-cut's): the
+    ///   film grade's matte lift - its
     ///   "faded print" floor, (0.112, 0.108, 0.104), about Ycode 28 through
     ///   the 6-bit dither - fades by half in clear or snowy daylight (morning,
     ///   noon, afternoon; snow joined on review, 2026-09-29 - "noon,
@@ -29,8 +31,13 @@ namespace PSXRacing
     /// </summary>
     public static class LookChoices
     {
-        /// <summary>C11's default: false = G0, the grade as signed off.</summary>
-        public const bool SunLiftDefault = false;
+        /// <summary>C11's default: ON since 2026-10-01. The owner, on the
+        /// washed-out daylight cars ("completely washed out and white... decent
+        /// at Dusk and Night"), chose "D" off real player frames: the grade's
+        /// matte lift cut by a NIGHT-SIZED share in clear or snowy daylight
+        /// (PSX/Blit GRADE_SUN_LIFT_CUT 0.80, the same as GRADE_NIGHT_LIFT_CUT),
+        /// not G1's original half.</summary>
+        public const bool SunLiftDefault = true;
         /// <summary>C12's default: false = the signed-off sodium night.</summary>
         public const bool CoolNightDefault = false;
 

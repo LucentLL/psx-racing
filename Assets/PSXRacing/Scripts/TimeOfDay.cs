@@ -427,6 +427,12 @@ namespace PSXRacing
                 globals.sunShadow = ShadowFor(index, weather);
                 globals.skyShade = SkyShadeFor(index);
                 globals.fogSun = FogSunFor(index, weather);
+                // And what the PAINT reflects below the sky (2026-10-01, "when
+                // the sun is up cars still look completely washed out and
+                // white"): a sunlit hour's world, not its pale haze colour; the
+                // ground white only under the snow dress.
+                globals.paintDay = IsSunUp(index) ? 1f : 0f;
+                globals.paintSnow = weather == Weather.Snow ? 1f : 0f;
                 // And the COLOUR PASS (Shaders/PSXTone.cginc): one exposure
                 // for the hour as the weather left it, the one tone curve, and
                 // the halation keyed on light sources. The adaptation (C10) is

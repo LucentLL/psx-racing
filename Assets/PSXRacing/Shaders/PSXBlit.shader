@@ -141,9 +141,12 @@ Shader "PSX/Blit"
             #define GRADE_NIGHT_LIFT_CUT  0.80  // how much of the matte lift a full night takes away
             #define GRADE_VIGNETTE_NIGHT  0.34  // the corners at night
             #define GRADE_SAT_COOL_NIGHT  1.00  // what blues and greens keep at night
-            // The owner's C11 choice (G1, ships off): how much of the lift a
-            // clear sunlit hour takes away, at _PSXGradeSun 1.
-            #define GRADE_SUN_LIFT_CUT    0.50
+            // The owner's C11 choice (G1): how much of the lift a clear or
+            // snowy sunlit hour takes away, at _PSXGradeSun 1. ON since
+            // 2026-10-01 at a NIGHT-SIZED 0.80 (his "D", off player frames:
+            // by day the full floor made every car pink or lavender, while
+            // night already took 80% of it away).
+            #define GRADE_SUN_LIFT_CUT    0.80
             // ...and the whole night picture is pushed a little PAST its own
             // colour. The day grade's faded print is 0.12-0.16 mean saturation;
             // the NFS night frames MEASURE 0.50-0.58, because at night almost

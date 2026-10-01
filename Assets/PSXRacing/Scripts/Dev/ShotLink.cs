@@ -58,6 +58,17 @@ namespace PSXRacing
             public string name, venue, spot, hour, weather = "Clear", season = "Fall", cam = "chase", lights = "auto";
             public int lens, grade = 1, hud;
             public float[] pose;
+            /// <summary>Optional: the player's car model key and a livery name
+            /// fragment (CarModelLibrary / CarBody.Apply, as PaintGlowCheck).</summary>
+            public string car, skin;
+            /// <summary>The paint's daylight world (PSXGlobals.paintDay): -1 =
+            /// as the hour set it; 0 = held off, the paint as it was before
+            /// 2026-10-01 - a before/after pair from ONE player.</summary>
+            public int paint = -1;
+            /// <summary>The grade's sun-keyed lift fade (PSXGlobals.gradeSun):
+            /// -1 = as the hour set it; 0 = the full matte floor (the grade
+            /// before 2026-10-01); 1 = the shipped daylight cut.</summary>
+            public float gradeSun = -1f;
         }
 
         [System.Serializable]
@@ -223,6 +234,8 @@ namespace PSXRacing
                 { Debug.Log("[ShotLink] FAIL " + s.name + ": " + info); yield break; }
             }
             Hold(player, pos, rot);
+            if (!string.IsNullOrEmpty(s.car)) Dress(player, s);
+            var globals = FindAnyObjectByType<PSXGlobals>();
 
             // Lights: auto is the hour's and the weather's (TimeOfDay.Apply ran
             // on load); on/off force it, the way the editor frames do.
@@ -236,6 +249,8 @@ namespace PSXRacing
             {
                 Hold(player, pos, rot);
                 if (lights.HasValue) CarLights.SetAll(lights.Value);
+                if (s.paint == 0 && globals != null) globals.paintDay = 0f;
+                if (s.gradeSun >= 0f && globals != null) globals.gradeSun = s.gradeSun;
                 if (s.hud == 0) HideHud(hidden);
                 yield return null;
                 if (cam != null && !RigCam(s.cam)) Aim(cam, pos, rot);
@@ -252,6 +267,17 @@ namespace PSXRacing
             PSXShotLink_Note("state", s.name + " " + state);
             foreach (var c in hidden) if (c != null) c.enabled = true;
             result(true);
+        }
+
+        /// <summary>The shot's car and livery on the player's body.</summary>
+        static void Dress(CarController player, Shot s)
+        {
+            var body = player.GetComponentInChildren<CarBody>(true);
+            var def = CarModelLibrary.Load(s.car);
+            if (body == null || def == null) { Debug.Log("[ShotLink] no car " + s.car + " for " + s.name); return; }
+            string want = (s.skin ?? "").ToLowerInvariant();
+            int skin = System.Array.FindIndex(def.skinNames, n => n != null && n.ToLowerInvariant().Replace(' ', '_').Contains(want));
+            body.Apply(def, Mathf.Max(0, skin));
         }
 
         static int HourOf(string h)

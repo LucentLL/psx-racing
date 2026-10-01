@@ -5276,9 +5276,14 @@ namespace PSXRacing.EditorTools
             float in2 = ExposureAdapt.Step(1f, roofed, 2f), out1 = ExposureAdapt.Step(roofed, 1f, 1f);
             Check(in2 > 2f, "two seconds into a tunnel the eye has opened (readable)", in2.ToString("0.00"));
             Check(out1 < 1.1f, "a second after the exit it has closed again (the bloom settles)", out1.ToString("0.00"));
-            // C11 / C12: both ship off.
-            Check(!LookChoices.SunLiftDefault && !LookChoices.CoolNightDefault,
-                  "the owner's two open choices (G1, cool darks) ship OFF until he says yes");
+            // C11 shipped ON (owner, 2026-10-01: "D", a night-sized daylight
+            // cut); C12 still waits for his yes.
+            Check(LookChoices.SunLiftDefault && !LookChoices.CoolNightDefault,
+                  "G1 ships ON (the owner's D) and cool darks ship OFF until he says yes");
+            Check(System.Text.RegularExpressions.Regex.IsMatch(
+                      System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXBlit.shader") ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXBlit.shader") : "",
+                      @"#define GRADE_SUN_LIFT_CUT\s+0\.80"),
+                  "a clear sunlit hour cuts the matte lift by the night's share (0.80), not G1's original half");
             Check(TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Clear) == 1f && TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Snow) == 1f
                   && TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Rain) == 0f && TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Fog) == 0f
                   && TimeOfDay.GradeSunFor(TimeOfDay.Dusk, Weather.Clear) == 0f,

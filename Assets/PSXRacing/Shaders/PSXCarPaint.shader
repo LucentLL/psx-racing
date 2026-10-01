@@ -222,6 +222,25 @@ Shader "PSX/CarPaint"
             #define LAND_SOFT          0.045
             #define LAND_REFLECT       0.40   // how bright the land is in the paint (x fog colour)
             #define GROUND_REFLECT     0.25   // how bright the ground is in the paint (x fog colour)
+            // THE SUNLIT WORLD IN THE PAINT (2026-10-01, _PSXPaintWorld.x = 1
+            // at a morning, noon or afternoon). Owner: "when the sun is up
+            // cars still look completely washed out and white. Cars look
+            // decent at Dusk and Night." The land and ground above are the
+            // hour's FOG colour - near white by day (0.74-0.84), dark blue at
+            // dusk, black at night - and never exposed, while the real road
+            // and trees on screen are dark albedo under the hour's light times
+            // its exposure (0.55 at a clear noon). So by day every direction a
+            // panel could mirror was pale and every car wore a milky film.
+            // Now the sunlit world is what the world is: an albedo, lit by the
+            // sky from above and the sun, exposed like everything lit.
+            #define WORLD_GROUND       0.08   // road and verge, linear albedo (lit from above)
+            #define WORLD_LAND         0.08   // treeline, hillside, walls (lit side-on)
+            #define WORLD_LAND_SUN     0.35   // how much of the sun a side-on treeline gets, on average
+            #define SNOW_GROUND        0.55   // under the snow dress the ground in the paint is white...
+            #define SNOW_LAND          0.25   // ...and the treeline snowy
+            #define DAY_SKY_EXPOSE     0.50   // by day the sky in the lacquer takes this share of the
+                                              //   hour's exposure (0 = the visible sky's brightness, 1 = fully
+                                              //   exposed like the paint under it)
             // THE SHOULDER. Below the toe the picture is untouched; above it
             // rolls off toward the ceiling and never arrives.
             #define PAINT_TOE          0.50
@@ -311,7 +330,33 @@ Shader "PSX/CarPaint"
             /// the caller (paint is a soft reflection, glass a sharper one).
             /// The body moved verbatim to PSXSkyReflect.cginc (2026-09-21) so
             /// the wet road reflects the same sky; this keeps the name.
-            float3 SkyIn(float3 R, float lod) { return PSXSkyIn(R, lod); }
+            ///
+            /// By day (_PSXPaintWorld.x) the land and ground under LAND_TOP
+            /// are the sunlit WORLD instead of the fog colour (the WORLD_*
+            /// header block): albedo x the light the world gets x the hour's
+            /// exposure. The caller's PSXAdaptGain() completes the exposure,
+            /// exactly as the world's own PSXExposureGain() is
+            /// _PSXExposure x _PSXAdapt. At 0 this is the old lookup bit for bit.
+            float4 _PSXPaintWorld;
+            float3 SkyIn(float3 R, float lod)
+            {
+                float3 col = PSXSkyIn(R, lod);
+                float day = saturate(_PSXPaintWorld.x);
+                if (day > 0.001)
+                {
+                    float snow = saturate(_PSXPaintWorld.y);
+                    float expoW = _PSXToneOn > 0.5 ? _PSXExposure : 1.0;
+                    float3 sunC = _PSXLightColor.rgb;
+                    float3 groundLight = (_PSXSkyAmbient.rgb + sunC * saturate(_PSXLightDir.y)) * expoW;
+                    float3 landLight = (_PSXAmbient.rgb + sunC * WORLD_LAND_SUN) * expoW;
+                    float3 ground = groundLight * lerp(WORLD_GROUND, SNOW_GROUND, snow);
+                    float3 land = landLight * lerp(WORLD_LAND, SNOW_LAND, snow);
+                    float3 world = lerp(land, ground, saturate(-R.y * 4.0));
+                    float under = 1.0 - smoothstep(LAND_TOP - LAND_SOFT, LAND_TOP + LAND_SOFT, R.y);
+                    col = lerp(col, world, under * day);
+                }
+                return col;
+            }
 
             fixed4 frag (v2f i) : SV_Target
             {
@@ -400,6 +445,17 @@ Shader "PSX/CarPaint"
                 // The sky in the lacquer is the sky: adapted, never exposed
                 // (C3), the same as the sky above the car.
                 float3 sky = SkyIn(R, lerp(2.5, GLASS_LOD, glass)) * PSXAdaptGain();
+                // ...except by day (2026-10-01): the paint under it is exposed
+                // (0.55 at a clear noon) and a full-brightness sky over an
+                // exposed panel is the white wash on every roof and boot.
+                // Half the exposure gap (DAY_SKY_EXPOSE); the world part of
+                // the lookup is already exposed and is not dimmed twice.
+                float dayW = saturate(_PSXPaintWorld.x);
+                if (dayW > 0.001 && _PSXToneOn > 0.5)
+                {
+                    float skyPart = smoothstep(LAND_TOP - LAND_SOFT, LAND_TOP + LAND_SOFT, R.y);
+                    sky *= lerp(1.0, lerp(1.0, _PSXExposure, DAY_SKY_EXPOSE), skyPart * dayW);
+                }
                 // The flake under the lacquer tints its share; glass does not.
                 float3 body = saturate(tex.rgb * 1.6);
                 float3 tint = lerp(float3(1, 1, 1), body, PAINT_METALLIC * (1.0 - glass));

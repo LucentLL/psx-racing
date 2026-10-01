@@ -228,6 +228,16 @@ namespace PSXRacing
         /// was while the open shade outside got darker. 0 (a scene that never
         /// applied an hour) reads as 1.</summary>
         [System.NonSerialized] public float dayFill = 1f;
+        /// <summary>THE WORLD IN THE PAINT (_PSXPaintWorld.x, PSX/CarPaint,
+        /// 2026-10-01): 1 at a morning, noon or afternoon - the paint reflects
+        /// a dark, lit, exposed road and treeline below the sky instead of the
+        /// hour's pale haze colour, and the sky in it takes half the hour's
+        /// exposure. 0 is the paint as it was (every other hour, and any
+        /// scene that never applied one). TimeOfDay.Apply writes it.</summary>
+        [System.NonSerialized] public float paintDay;
+        /// <summary>_PSXPaintWorld.y: 1 while it is snowing (the snow dress),
+        /// so the ground in the paint is white.</summary>
+        [System.NonSerialized] public float paintSnow;
 
         void OnEnable()
         {
@@ -283,6 +293,7 @@ namespace PSXRacing
             Shader.SetGlobalFloat("_PSXAdapt", Mathf.Max(0.01f, adapt));
             Shader.SetGlobalFloat("_PSXGradeSun", Mathf.Clamp01(gradeSun));
             Shader.SetGlobalFloat("_PSXEmitKey", emitKey > 0.5f ? 1f : 0f);
+            Shader.SetGlobalVector("_PSXPaintWorld", new Vector4(Mathf.Clamp01(paintDay), Mathf.Clamp01(paintSnow), 0f, 0f));
             // The map itself is drawn per camera at render time (the hook in
             // OnEnable); this only says how strong and from where.
             // Times the player's own switch (OPTIONS, SUN SHADOWS): the hour
