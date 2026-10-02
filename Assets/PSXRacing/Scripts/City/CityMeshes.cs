@@ -1823,6 +1823,8 @@ namespace PSXRacing.City
                 }
                 goreGroups.Add((quadsFrom, goreQuads.Count, gb));
             }
+            // AuditView's record of this gore's P and N (audits only)
+            if (goreLog != null) RecordGore(map, trims, node, L, M, host, side, attachedTo, lastOk, detached, last, open, openFrom);
             if (attachedTo < 0f || side == 0) yield break;
             yield return 0;   // WP-09: the stations, then the clips
             stepPart = 22;
@@ -2619,6 +2621,7 @@ namespace PSXRacing.City
                     }
                     for (int side = -1; side <= 1; side += 2)
                         EmitSide(map, trims, tm, e, i, side, v0, v1);
+                    if (spanLog != null) RecordSpan(e, A, B, f);   // AuditView's record (audits only)
                 }
 
                 // ---- street lamps ----
@@ -7006,6 +7009,7 @@ namespace PSXRacing.City
                     size = new Vector3(hw * 2f, deckY - gy + 0.6f, 1.4f),
                     yawDeg = Mathf.Atan2(fwd.x, fwd.z) * Mathf.Rad2Deg,
                 });
+                if (pierLog != null) RecordPier(e, sAt, s, p, gy - 0.6f, deckY, hw, tan);   // AuditView's record (audits only)
                 return;
             }
         }

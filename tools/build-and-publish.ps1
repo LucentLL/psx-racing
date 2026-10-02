@@ -72,14 +72,46 @@
 # (localStorage "psx.fullscreen") and Unity's data cache. The cache is keyed
 # by URL, so a phone that plays both pages keeps two copies of the data.
 #
-# ONLY main PUBLISHES THE GAME. The site root is the game the owner plays. A
-# root publish from any other branch (or a detached or unreadable checkout)
-# is refused before the build starts. The test folders beside the root would
-# survive it, but the game at the root would be replaced by that branch's
-# work in progress. A branch publishes its test page with -PagesDir (the
-# charlotte branch: -PagesDir city). -AllowRootFromBranch overrides the
-# refusal. Pass it only when the owner has asked for that branch's build at
-# the root.
+# ONLY main PUBLISHES THE GAME - BOTH EDITIONS OF IT. The site root is the game
+# the owner plays, and /city/ is the same game's CITY edition (one codebase
+# since 2026-10-01: the editions differ only in what they carry). A publish
+# to the root or to /city/ from any other branch (or a detached or unreadable
+# checkout) is refused before the build starts. The folders beside it would
+# survive, but that edition would be replaced by a branch's work in
+# progress. A branch that wants a page of its own publishes a PREVIEW folder
+# (-PagesDir <name> -Edition ...), which no rule here ties to main.
+# -AllowRootFromBranch overrides the refusal for the root and /city/. Pass it
+# only when the owner has asked for that branch's build there.
+#
+# BOTH EDITIONS FROM ONE COMMIT (-Both; the owner, 2026-10-01: every release
+# publishes the root = MAIN and /city/ = CITY from the same main commit):
+#
+#   ...            -File tools\build-and-publish.ps1 -Both [-SkipScenes]
+#
+# runs this script twice, one edition after the other in the same sandbox:
+# MAIN to the root, then CITY to /city/ with -SkipScenes (the first run's
+# scene build, or the verified sandbox, is the second run's too - the scenes
+# are the same for both editions; only the WebGL build differs). The commit
+# and the tracked working tree are read before the first and again before the
+# second, and the second is refused if either moved: the pair is one commit
+# or nothing. A MAIN publish that fails stops it (nothing goes to /city/).
+# Without -Both, the same pair is these two invocations, in this order, with
+# nothing committed in between:
+#   ...            -File tools\build-and-publish.ps1 -SkipScenes
+#   ...            -File tools\build-and-publish.ps1 -SkipScenes -PagesDir city
+#
+# THE BEE CUT-OFF (2026-10-02). The editor gives up on bee_backend about ten
+# minutes into a WebGL build - "TaskCanceledException" in build.log and
+# "interrupted","reason":"BeeDriver connection terminated" in
+# Library\Bee\tundra.log.json, typically mid-Brotli of the 90 MB WebGL.data -
+# and the build fails with nothing wrong in it. Finished nodes are cached, so
+# the same build run again gets further, and two or three runs finish it. So
+# the build step runs up to -BuildTries (default 3) times per edition: again
+# after a cut, or after a run that left no build_ok.txt and no build error a
+# retry cannot fix (a compile error, an IL2CPP error, a missing runtime shader
+# stop it at once). Every try's log is kept: build_<EDITION>_try<n>.log and
+# tundra_<EDITION>_try<n>.log.json in the sandbox. Unity is never killed: a
+# try that outruns its 45 minutes is left running and NOT retried beside.
 #
 # THE EDITIONS (2026-09-28, the owner: "Charlotte map and Charlotte tracks
 # should be in their own version until being united"). One codebase, two
@@ -108,7 +140,15 @@ param([switch]$SkipBuild, [switch]$SkipDeploy, [switch]$SkipScenes,
       [switch]$AllowRootFromBranch,
       [string]$Edition = "",
       [switch]$AllowEditionMismatch,
+      # RETIRED 2026-10-02 (plan P0): the /city/ guard it overrode compared the
+      # city data with the old 'charlotte' branch. Accepted, does nothing,
+      # and says so.
       [switch]$AllowOlderCity,
+      # MAIN to the root, then CITY to /city/, from one commit (see the header).
+      [switch]$Both,
+      # How many times the WebGL build step runs before it is called failed
+      # (the Bee cut-off; see the header).
+      [int]$BuildTries = 3,
       [switch]$SkipDoorTour,
       [string]$BuildDir = "",
       [string]$PagesDir = "",
@@ -175,7 +215,7 @@ if (-not $SkipDeploy -and $Edition -ne $expectEdition) {
         exit 1
     }
 }
-Write-Host "Edition: $Edition" -ForegroundColor Cyan
+if (-not $Both) { Write-Host "Edition: $Edition" -ForegroundColor Cyan }
 
 # Unity.exe is a launcher: it spawns the real editor and returns immediately, so
 # waiting on the call itself reads stale logs. Wait on the actual child PIDs.
@@ -291,83 +331,148 @@ function Invoke-UnityWait([string[]]$UnityArgs, [int]$MaxMinutes = 40) {
     return $false
 }
 
-# ONLY main PUBLISHES THE GAME (see the header). Asked of the source tree
-# BEFORE a forty-minute build, and only when the target is the real site:
-# -PagesRemote tests are not the site. A dry run is refused too, so that it
-# shows what the real run would do.
+# ONLY main PUBLISHES THE GAME, at the root and at /city/ (see the header).
+# Asked of the source tree BEFORE a forty-minute build, and only when the
+# target is the real site: -PagesRemote tests are not the site. A dry run is
+# refused too, so that it shows what the real run would do.
 $isLive = $PagesRemote -match '(?i)github\.com[/:]LucentLL/psx-racing(\.git)?/?$'
-if (-not $SkipDeploy -and -not $PagesDir -and $isLive) {
+$gamePage = (-not $PagesDir) -or ($PagesDir -eq "city")
+if (-not $SkipDeploy -and $gamePage -and $isLive) {
     $b = Invoke-GitOut @("-C", $src, "rev-parse", "--abbrev-ref", "HEAD") -AllowFail
     $srcBranch = if ($b.Code -eq 0 -and $b.Out.Count) { ("" + $b.Out[0]).Trim() } else { "" }
     if ($srcBranch -cne "main") {
         $what = if ($b.Code -ne 0) { "a source tree git cannot read (${src}: $($b.Text))" }
                 elseif ($srcBranch -eq "HEAD") { "a detached HEAD in $src" }
                 else { "branch '$srcBranch' ($src)" }
+        $whereTo = if ($PagesDir) { "/$PagesDir/ (the CITY edition)" } else { "the root (the game)" }
         if ($AllowRootFromBranch) {
-            Write-Host "ROOT PUBLISH FROM $what, under -AllowRootFromBranch: this REPLACES THE GAME at $liveUrl with that build." -ForegroundColor Yellow
+            Write-Host "PUBLISH TO $whereTo FROM $what, under -AllowRootFromBranch: this REPLACES that edition at $liveUrl with that build." -ForegroundColor Yellow
         } else {
-            Write-Host "REFUSING A ROOT PUBLISH FROM $what. $liveUrl is the game, and only main publishes it. Publish this branch's test page with -PagesDir instead (the charlotte branch: -PagesDir city -> ${liveUrl}city/). -AllowRootFromBranch overrides this, and is only for when the owner has asked for this branch's build at the root." -ForegroundColor Red
+            Write-Host "REFUSING A PUBLISH TO $whereTo FROM $what. The root and /city/ are the game's two editions and only main publishes them (one codebase since 2026-10-01). A branch's own page is a preview folder: -PagesDir <name> -Edition MAIN|CITY|ALL. -AllowRootFromBranch overrides this, and is only for when the owner has asked for this branch's build there." -ForegroundColor Red
             exit 1
         }
     }
 }
 
-# /city/ SHIPS THE CHARLOTTE BRANCH'S CITY. The test page exists to show the
-# newest Charlotte, and that lives on the charlotte branch. A CITY build from
-# any other checkout (main, editions) carries whatever city data that branch
-# last merged (2026-09-29: charlotte_city.bytes 2.55 MB on main, 3.05 MB on
-# charlotte, and a different DEM) - a publish that would quietly put an OLDER
-# city on the page is refused. From the charlotte branch itself nothing is
-# compared: its working tree IS the newest city. Elsewhere, every
-# Resources\charlotte_* file here must be byte-identical to the tip of the
-# local 'charlotte' branch. -AllowOlderCity overrides (only when the owner asks).
+# THE CITY DATA THAT SHIPS IS THE CITY DATA main COMMITTED (2026-10-02, plan
+# P0). Until the unification this compared every Resources\charlotte_* file
+# with the tip of the local 'charlotte' branch, where the newest city lived;
+# since 2026-10-01 there is one codebase, main carries the city, and the old
+# branch only made the first /city/ publish after any re-export refuse. Now
+# an edition that carries Charlotte (CITY, ALL) is refused only when its city
+# data is UNCOMMITTED (git status on Resources\charlotte_*: changed, staged or
+# untracked) - a page must never ship a city no commit holds. Only the city
+# lane exports those files (tools\city\export_osm.mjs), and they reach main by
+# a merge. -AllowOlderCity is retired: accepted, a no-op, and it says so.
 #
-# THE MERGE ORDER that makes this pass without the override - and makes the
-# charlotte branch's own /city/ publishes CITY-only at all (its copy of this
-# script predates -Edition and publishes the whole game): editions -> main
-# (after main's own release), then main -> charlotte, THEN the next /city/
-# publish, from charlotte. In the main -> charlotte merge this file conflicts
-# (both sides changed it from an older base); charlotte's copy is byte-for-byte
-# main's from before the editions, so the resolution is main's copy - which
-# keeps the -Edition block, both Test-WebglContents calls, the door tour and
-# the deploy-time psx-edition check.
-if (-not $SkipDeploy -and $Edition -eq "CITY" -and $isLive -and -not $AllowOlderCity) {
-    $b = Invoke-GitOut @("-C", $src, "rev-parse", "--abbrev-ref", "HEAD") -AllowFail
-    $srcBranch = if ($b.Code -eq 0 -and $b.Out.Count) { ("" + $b.Out[0]).Trim() } else { "" }
-    if ($srcBranch -cne "charlotte") {
-        $tip = Invoke-GitOut @("-C", $src, "ls-tree", "charlotte", "Assets/PSXRacing/Resources/") -AllowFail
-        if ($tip.Code -ne 0) {
-            Write-Host "REFUSING: a /city/ publish from '$srcBranch' needs the local 'charlotte' branch to compare the city data against, and git cannot read it ($($tip.Text)). -AllowOlderCity overrides." -ForegroundColor Red
-            exit 1
-        }
-        $theirs = @{}
-        foreach ($ln in $tip.Out) {
-            # "<mode> blob <sha><TAB><path>"
-            if (("" + $ln) -match '^\d+ blob ([0-9a-f]{40})\s+(.+)$') {
-                $leaf = Split-Path -Leaf $Matches[2]
-                if ($leaf -like 'charlotte_*' -and $leaf -notlike '*.meta') { $theirs[$leaf] = $Matches[1] }
+# AND THE SANDBOX MUST HOLD THAT DATA. -SkipScenes builds the sandbox exactly
+# as it stands, so a sandbox last filled from an older source would put an
+# older city on /city/ under a new commit's name. Its exported charlotte_*
+# data (.bytes, .json - the thumbnail is baked in the sandbox) is compared
+# with the source's (SHA-256) before the build; a difference is
+# refused, and tools\city-cycle.ps1 (or tools\verify.ps1) on this source
+# brings them over. (Without -SkipScenes the mirror below copies them.)
+if ($AllowOlderCity) {
+    Write-Host "-AllowOlderCity is retired (2026-10-02): the /city/ guard it overrode compared the city with the old 'charlotte' branch and is gone. It does nothing." -ForegroundColor Yellow
+}
+function Assert-CityDataCommitted {
+    $st = Invoke-GitOut @("-C", $src, "status", "--porcelain", "--untracked-files=all", "--", "Assets/PSXRacing/Resources/charlotte_*") -AllowFail
+    if ($st.Code -ne 0) {
+        Write-Host "REFUSING: git cannot read the city data's status in $src ($($st.Text))." -ForegroundColor Red
+        exit 1
+    }
+    $dirty = @($st.Out | ForEach-Object { "" + $_ } | Where-Object { $_.Trim() -and $_ -notmatch '^warning:' })
+    if ($dirty.Count) {
+        Write-Host ("REFUSING: the city data is not committed (" + (($dirty | ForEach-Object { $_.Trim() }) -join '; ') +
+                    "). An edition that carries Charlotte ships only city data a commit holds: commit it on the city lane and merge it into main first.") -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "  city data    : committed (git status clean on Resources\charlotte_*)" -ForegroundColor Cyan
+}
+function Assert-SandboxCityData {
+    # The EXPORTED data only (.bytes, .json): charlotte_thumb.png is baked by
+    # the scene build in the sandbox itself (PSXRacingBuilder.City) and
+    # differs from the source's by design.
+    $mine = @(Get-ChildItem "$src\Assets\PSXRacing\Resources" -File -Filter 'charlotte_*' | Where-Object { @('.bytes', '.json') -contains $_.Extension })
+    $diff = New-Object System.Collections.Generic.List[string]
+    foreach ($f in $mine) {
+        $there = Join-Path "$proj\Assets\PSXRacing\Resources" $f.Name
+        if (-not (Test-Path -LiteralPath $there)) { $diff.Add("$($f.Name) (missing)"); continue }
+        if ((Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $there -Algorithm SHA256).Hash) { $diff.Add($f.Name) }
+    }
+    if ($diff.Count) {
+        Write-Host ("REFUSING: -SkipScenes builds $proj as it stands, and its city data is not this source's (" + ($diff -join ', ') +
+                    "). The page would ship an older city under this commit's name. Run tools\city-cycle.ps1 -AuditOnly (or tools\verify.ps1) on this source first, or publish without -SkipScenes.") -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "  sandbox data : $($mine.Count) charlotte_* files identical to the source's" -ForegroundColor Cyan
+}
+if (-not $SkipDeploy -and $Edition -ne "MAIN" -and $isLive) { Assert-CityDataCommitted }
+if (-not $SkipBuild -and $SkipScenes -and $Edition -ne "MAIN" -and -not $Both) { Assert-SandboxCityData }
+
+# -Both: THIS SCRIPT TWICE, MAIN TO THE ROOT THEN CITY TO /city/, FROM ONE
+# COMMIT (see the header). Each run is a separate PowerShell, so each keeps
+# every check and refusal it has on its own; this block only orders them and
+# holds the commit still between them.
+if ($Both) {
+    $bad = @()
+    if ($PagesDir) { $bad += "-PagesDir (the pair is the root and /city/)" }
+    if ($PSBoundParameters.ContainsKey('Edition')) { $bad += "-Edition (the pair is MAIN and CITY)" }
+    if ($SkipBuild -or $BuildDir) { $bad += "-SkipBuild/-BuildDir (one sandbox holds one build: each edition is built in turn)" }
+    if ($SkipDeploy) { $bad += "-SkipDeploy (the second build replaces the first's output)" }
+    if ($AllowEditionMismatch) { $bad += "-AllowEditionMismatch" }
+    if ($StageDir) { $bad += "-StageDir" }
+    if ($bad.Count) {
+        Write-Host ("-Both cannot take " + ($bad -join ', ') + ".") -ForegroundColor Red
+        exit 1
+    }
+    # Asked here as well as in the CITY run, so a pair that would stop
+    # halfway on its data stops before the first build.
+    if ($isLive) { Assert-CityDataCommitted }
+    if ($SkipScenes) { Assert-SandboxCityData }
+    function Get-SourceState {
+        $h = Invoke-GitOut @("-C", $src, "rev-parse", "HEAD")
+        $s = Invoke-GitOut @("-C", $src, "status", "--porcelain", "--untracked-files=no")
+        return ($h.Out[0].Trim() + "|" + (($s.Out | Where-Object { $_ -and $_ -notmatch '^warning:' }) -join ';'))
+    }
+    $state0 = Get-SourceState
+    Write-Host "BOTH EDITIONS from $($state0.Split('|')[0]): MAIN to the root, then CITY to /city/" -ForegroundColor Cyan
+    $common = @()
+    if ($DryRun) { $common += "-DryRun" }
+    if ($SkipDoorTour) { $common += "-SkipDoorTour" }
+    if ($AllowRootFromBranch) { $common += "-AllowRootFromBranch" }
+    if ($PSBoundParameters.ContainsKey('PagesRemote')) { $common += @("-PagesRemote", $PagesRemote) }
+    if ($PSBoundParameters.ContainsKey('BuildTries')) { $common += @("-BuildTries", "$BuildTries") }
+    $mainArgs = @($common)
+    if ($SkipScenes) { $mainArgs += "-SkipScenes" }
+    if ($PSBoundParameters.ContainsKey('KeepDirs')) { $mainArgs += @("-KeepDirs", (@($KeepDirs) -join ',')) }
+    if ($DropDirs.Count) { $mainArgs += @("-DropDirs", (@($DropDirs) -join ',')) }
+    # the second run builds what the first left in the sandbox: its scenes
+    $cityArgs = @($common) + @("-SkipScenes", "-PagesDir", "city")
+    if ($PagesLabel) { $cityArgs += @("-PagesLabel", $PagesLabel) }
+    $runs = @(@{ Name = "MAIN"; Args = $mainArgs }, @{ Name = "CITY"; Args = $cityArgs })
+    foreach ($run in $runs) {
+        if ($run.Name -eq "CITY") {
+            $state1 = Get-SourceState
+            if ($state1 -ne $state0) {
+                Write-Host "REFUSING THE CITY HALF: the source moved after the MAIN publish began ($($state0.Split('|')[0]) -> $($state1.Split('|')[0]), or the tracked working tree changed). The root is live from the first commit; publish /city/ from that same commit, or both again." -ForegroundColor Red
+                exit 1
             }
         }
-        $mine = @(Get-ChildItem "$src\Assets\PSXRacing\Resources" -File -Filter 'charlotte_*' | Where-Object { $_.Name -notlike '*.meta' })
-        $stale = New-Object System.Collections.Generic.List[string]
-        foreach ($f in $mine) {
-            $h = Invoke-GitOut @("-C", $src, "hash-object", "--", $f.FullName) -AllowFail
-            $sha = if ($h.Code -eq 0 -and $h.Out.Count) { ("" + $h.Out[0]).Trim() } else { "" }
-            if (-not $theirs.ContainsKey($f.Name)) { $stale.Add("$($f.Name) (not on charlotte)") }
-            elseif ($theirs[$f.Name] -ne $sha) { $stale.Add($f.Name) }
-        }
-        foreach ($n in $theirs.Keys) {
-            if (-not @($mine | Where-Object { $_.Name -eq $n }).Count) { $stale.Add("$n (only on charlotte)") }
-        }
-        if ($stale.Count) {
-            Write-Host ("REFUSING A /city/ PUBLISH FROM '$srcBranch': its Charlotte data is not the charlotte branch's (" +
-                        ($stale -join ', ') + "). /city/ is the Charlotte test page and shows the newest city: merge " +
-                        "main -> charlotte and publish /city/ from the charlotte branch (see the note above this check). " +
-                        "-AllowOlderCity overrides (only when the owner asks).") -ForegroundColor Red
+        Write-Host ("=== -Both: " + $run.Name + " (" + ($run.Args -join ' ') + ")") -ForegroundColor Cyan
+        # A native call: its stderr must not stop this script (see Invoke-Git).
+        $eap = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath @($run.Args)
+        $code = $LASTEXITCODE
+        $ErrorActionPreference = $eap
+        if ($code -ne 0) {
+            $tail = if ($run.Name -eq "MAIN") { " Nothing was published to /city/." } else { " The root is live from this commit; /city/ is not." }
+            Write-Host ("-Both: THE " + $run.Name + " PUBLISH FAILED (exit $code)." + $tail) -ForegroundColor Red
             exit 1
         }
-        Write-Host "  city data    : identical to the charlotte branch ($($mine.Count) charlotte_* files)" -ForegroundColor Cyan
     }
+    Write-Host "-Both: MAIN at the root and CITY at /city/, both from $($state0.Split('|')[0])" -ForegroundColor Green
+    exit 0
 }
 
 if (-not $SkipBuild) {
@@ -430,16 +535,65 @@ if (-not $SkipBuild) {
     # seconds and then polls once for a new Unity PID, which is a race the child
     # editor loses under load — and losing it here means checking build_ok.txt
     # while IL2CPP is still running.
-    Invoke-UnityJob -Log "$proj\build.log" -MaxMinutes 45 -UnityArgs @(
-        "-quit","-batchmode","-nographics","-projectPath",$proj,
-        "-buildTarget","WebGL",
-        "-executeMethod","PSXRacing.EditorTools.PSXBuildWebGL.BuildFromCommandLine",
-        "-psxEdition",$Edition,
-        "-logFile","$proj\build.log","-accept-apiupdate") | Out-Null
+    #
+    # UP TO -BuildTries RUNS (the Bee cut-off; see the header). Each try starts
+    # with no build_ok.txt, so only the try that finished can certify it; each
+    # try's build.log and tundra.log.json are kept beside it. A try is run again
+    # only after Unity has gone (Invoke-UnityJob waits for every PID of the job
+    # to leave): one that outran its 45 minutes is LEFT RUNNING, never killed,
+    # and never has a second build started beside it.
+    $tundra = "$proj\Library\Bee\tundra.log.json"
+    Get-ChildItem $proj -File -Filter "build_${Edition}_try*.log" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    Get-ChildItem $proj -File -Filter "tundra_${Edition}_try*.log.json" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    $tries = [Math]::Max(1, $BuildTries)
+    $keptLogs = @()
+    for ($try = 1; $try -le $tries; $try++) {
+        Remove-Item "$proj\Build\WebGL\build_ok.txt" -Force -ErrorAction SilentlyContinue
+        $tryStart = Get-Date
+        $finished = @(Invoke-UnityJob -Log "$proj\build.log" -MaxMinutes 45 -UnityArgs @(
+            "-quit","-batchmode","-nographics","-projectPath",$proj,
+            "-buildTarget","WebGL",
+            "-executeMethod","PSXRacing.EditorTools.PSXBuildWebGL.BuildFromCommandLine",
+            "-psxEdition",$Edition,
+            "-logFile","$proj\build.log","-accept-apiupdate")) | Select-Object -Last 1
+        # this try's logs, kept whatever happened
+        if (Test-Path "$proj\build.log") {
+            Copy-Item "$proj\build.log" "$proj\build_${Edition}_try$try.log" -Force -ErrorAction SilentlyContinue
+            $keptLogs += "build_${Edition}_try$try.log"
+        }
+        $cut = $false; $nodes = -1
+        if ((Test-Path $tundra) -and (Get-Item $tundra).LastWriteTime -ge $tryStart) {
+            Copy-Item $tundra "$proj\tundra_${Edition}_try$try.log.json" -Force -ErrorAction SilentlyContinue
+            $keptLogs += "tundra_${Edition}_try$try.log.json"
+            $cut = [bool](Select-String -LiteralPath $tundra -SimpleMatch 'BeeDriver connection terminated' -Quiet)
+            $nodes = @(Select-String -LiteralPath $tundra -SimpleMatch '"msg":"noderesult"').Count
+        }
+        if (-not $cut -and (Test-Path "$proj\build.log")) {
+            $cut = [bool](Select-String -LiteralPath "$proj\build.log" -SimpleMatch 'TaskCanceledException' -Quiet)
+        }
+        if (Test-Path "$proj\Build\WebGL\build_ok.txt") {
+            if ($try -gt 1) { Write-Host "  WebGL build finished on try $try of $tries" -ForegroundColor Cyan }
+            break
+        }
+        if (-not $finished) {
+            Write-Host "  BUILD TRY $try/${tries}: the Unity job did not finish in 45 minutes (or never started) - it is left running, and no second build is started beside it." -ForegroundColor Red
+            break
+        }
+        $fatal = @(Select-String -LiteralPath "$proj\build.log" -Pattern "error CS|IL2CPP error|RUNTIME SHADER MISSING" -ErrorAction SilentlyContinue).Count -gt 0
+        if ($fatal -and -not $cut) {
+            Write-Host "  BUILD TRY $try/${tries} failed on a build error a retry will not fix." -ForegroundColor Red
+            break
+        }
+        if ($try -lt $tries) {
+            $why = if ($cut) { "Bee cut the build off (BeeDriver connection terminated / TaskCanceledException)" + $(if ($nodes -ge 0) { " after $nodes node(s) this try" } else { "" }) + "; finished nodes are cached, so the next try resumes" }
+                   else { "no build_ok.txt and no build error in the log" }
+            Write-Host "  BUILD TRY $try/${tries}: $why - running it again" -ForegroundColor Yellow
+        }
+    }
 
     if (-not (Test-Path "$proj\Build\WebGL\build_ok.txt")) {
-        Write-Host "BUILD FAILED - see $proj\build.log" -ForegroundColor Red
-        Select-String -Path "$proj\build.log" -Pattern "IL2CPP error|Error building Player|error CS|RUNTIME SHADER MISSING" |
+        Write-Host "BUILD FAILED - see $proj\build.log (every try's logs: $($keptLogs -join ', '))" -ForegroundColor Red
+        Select-String -Path "$proj\build.log" -Pattern "IL2CPP error|Error building Player|error CS|RUNTIME SHADER MISSING|TaskCanceledException" |
             Select-Object -First 6 | ForEach-Object { $_.Line.Substring(0, [Math]::Min(200, $_.Line.Length)) }
         exit 1
     }

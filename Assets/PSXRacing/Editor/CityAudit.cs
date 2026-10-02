@@ -301,6 +301,9 @@ namespace PSXRacing.EditorTools
             var trims = CityMeshes.NodeTrims(map);
             LineModelReport(map, trims);
             var buildings = CityBuildings.Precompute(map);
+            // The roads pass's reports (plan P0): one partial hook each, in
+            // CityAudit.Hooks.cs. A hook no package implements compiles away.
+            RoadsPassReports(map, trims, buildings);
             int tx = Mathf.FloorToInt(map.uptown.x / CityMeshes.TileSize);
             int tz = Mathf.FloorToInt(map.uptown.y / CityMeshes.TileSize);
             var t1 = CityMeshes.Build(map, trims, buildings, tx, tz);

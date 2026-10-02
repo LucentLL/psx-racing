@@ -3752,6 +3752,177 @@ the four worst lots before and after.
   all-red 1.5 s, per opposing pair. It is ticked by `CityWorld.Update`.
   Traffic obeying it is the next package.
 
+## P0 (roads pass, 2026-10-02): the publish loop, the audit hooks, the tiers, two lanes
+
+The owner's roads pass (merges, line meaning, no gaps, intentional
+connections, smooth laterally and vertically; highways and primary roads
+first, then minor roads, then neighbourhood roads and parking lots) runs as
+two lanes at once. P0 is the groundwork both lanes stand on. It changes no
+road: the city audit's output is the same by construction.
+
+**Two lanes, disjoint files.**
+
+| | Lane A | Lane B |
+|---|---|---|
+| Tree | `C:\Users\mcgee\PSX Racing`, branch `main` | `C:\Users\mcgee\PSX Racing-city` (a worktree), branch `city-pass`, reset from main by P0 |
+| Sandbox | `C:\Users\mcgee\PSXBuild` (the default) | `C:\Users\mcgee\PSXCity`: `$env:PSX_SANDBOX` set for every tool run, tools run from the lane-B tree |
+| Pushes | straight to main | `city-pass` only; reaches main at a merge point |
+
+`city-pass` is a work lane, not an edition: it is never published from. Only
+lane B runs `tools/city/export_osm.mjs` and commits
+`Resources/charlotte_*.bytes`; binaries are never hand-merged (a conflict is
+re-exported on the merged source and passes `export --check` and
+`determinism.mjs`). One Unity job per sandbox at a time.
+
+**Publishing: both editions, from main, from one commit.** Since the
+2026-10-01 unification there is one codebase, and every release publishes
+the root (MAIN) and `/city/` (CITY) from the same main commit.
+`tools\build-and-publish.ps1`:
+
+- `-Both` runs the script twice in the same sandbox: MAIN to the root, then
+  CITY to `/city/` with `-SkipScenes` (the scenes are the same for both
+  editions; only the WebGL build differs). It reads the commit and the
+  tracked working tree before the first and again before the second, and
+  refuses the second if either moved. A failed MAIN publish stops it, so
+  nothing goes to `/city/`. Without `-Both`, the same pair is
+  `-SkipScenes`, then `-SkipScenes -PagesDir city`, with nothing committed
+  between them.
+- **Only main publishes the root and `/city/`.** The old rule covered the
+  root only, and `/city/` was published from the `charlotte` branch.
+  `-AllowRootFromBranch` overrides both. Any other `-PagesDir` is a preview
+  folder and is not tied to main.
+- **The 'charlotte'-branch guard is retired.** It compared every
+  `Resources\charlotte_*` file with the tip of the local `charlotte` branch,
+  so the first `/city/` publish after any re-export would have been refused.
+  An edition that carries Charlotte (CITY, ALL) is now refused only when its
+  city data is uncommitted (`git status --porcelain` on
+  `Resources/charlotte_*`, untracked files included). `-AllowOlderCity` is
+  accepted, does nothing, and says so.
+- **A `-SkipScenes` CITY build checks the sandbox's city data.**
+  `-SkipScenes` builds the sandbox as it stands, so a sandbox last filled from
+  an older source would put an older city on `/city/` under the new commit's
+  name. The exported `charlotte_*.bytes` / `.json` in the sandbox must match
+  the source's (SHA-256), or the publish is refused before the build;
+  `tools\city-cycle.ps1` on that source brings them over.
+  (`charlotte_thumb.png` is skipped: the scene build bakes it in the sandbox.)
+- **The Bee cut-off retry.** About ten minutes into a WebGL build the editor
+  gives up on bee_backend: `TaskCanceledException` in build.log, and
+  `"interrupted","reason":"BeeDriver connection terminated"` in
+  `Library\Bee\tundra.log.json`. Finished nodes are cached, so a re-run gets
+  further. The build step now runs up to `-BuildTries` (default 3) times per
+  edition. It retries after a cut, or after a run that left no
+  `build_ok.txt` and no build error a retry cannot fix. A compile error, an
+  IL2CPP error or a missing runtime shader stops it at once. `build_ok.txt`
+  is deleted before every try, and every try's logs are kept in the sandbox
+  as `build_<EDITION>_try<n>.log` and `tundra_<EDITION>_try<n>.log.json`.
+  Unity is never killed: a try that outruns its 45 minutes is left running,
+  and no second build is started beside it.
+
+**`tools\city-launch.ps1` (new).** The launch audit (`CityLaunchAudit.Run`)
+on its own. It copies code and data into the sandbox the way city-cycle
+does (or `-NoMirror`), runs one Unity job through `unity-wait.ps1`, and
+prints `city_launch.txt`. `-Box x0,z0,x1,z1` (game metres) sets
+`PSX_LAUNCH_BOX` for a package's boxed launch (about 1-2 min). With no box it
+is the release gates' "city-launch full". `-Label` names the run, and
+`-OutDir` copies the reports out.
+
+**`tools\city-cycle.ps1` (lane A's).**
+
+- The Unity job's budget is 45 min. It was 25 min, and the audit alone took
+  15.1 min on 2026-10-02.
+- `-Full` sets `PSX_AUDIT_FULL=1`.
+- `-NoRatchet` runs linecheck without `--ratchet` (lane B; see below).
+- The report-scope switches are listed at the top of the script, and the
+  ones that are set are printed when it starts.
+
+**The audit hooks (`Editor/CityAudit.Hooks.cs`).** `CityAudit.Run` calls seven
+partial hooks right after the LINE MODEL block, in this order:
+`TwinReport`, `ProfileReport`, `PaintReport`, `MergeReport`,
+`CoverageReport`, `LotReport`, `BulbReport`. Each takes
+`(CityMap map, CityMeshes.Trims trims)`, and the buildings a tile build needs
+are `AuditBuildings`. A package implements its hook in its own partial file
+(`CityAudit.Twin.cs`, ...), and a hook nobody implements compiles away.
+
+Each report gets its scope from `CityAudit.ScopeFor("TWIN")` (critic C7):
+
+- **City-wide only under `PSX_AUDIT_FULL=1`.** That is for the release gates.
+- **Otherwise boxed.** The box is `PSX_<NAME>_BOX`, else `PSX_AUDIT_BOX`
+  (`x0,z0,x1,z1`, game metres), else `CityAudit.OwnerBox`: uptown inside the
+  I-277 loop plus W 5th St over I-77, 3.0 x 3.3 km.
+- **Tiers.** `PSX_<NAME>_TIER` or `PSX_AUDIT_TIER` (`1`, `1,2`, `all`).
+  The default is all tiers.
+- A bad value is named in the scope line and the default is used. A typo
+  never quietly becomes a city-wide run.
+
+NAME is one of COVER, TWIN, PROFILE, PAINT, MERGE, LOT, BULB. Each report
+starts with `AuditScope.Describe()`. An agent reads only its own block of the
+audit output.
+
+**The tiers (`Scripts/City/CityTier.cs`).**
+
+- **T1** = `cls >= 3`: motorway, trunk, primary and their links.
+- **T2** = cls 1-2: secondary, tertiary and their links.
+- **T3** = cls 0: residential, unclassified, living_street, service, plus
+  parking.
+
+`CityTier.Of(edge)`, `Short`, `Name`. The offline mirror is `citydata.mjs`
+`tierOf` (lane B, B1).
+
+**The audits' window onto the builder (`Scripts/City/CityMeshes.AuditView.cs`,
+critic C4).** The Editor scripts compile into a separate assembly and see
+only `public` members, while the roads pass's audits need the builder's own
+answers. `CityMeshes.AuditView` is read-only and FROZEN: no signature
+changes once it is on main, and anything new is an overload.
+
+- *The last tile build's tables:*
+  - `SectionAt` (a fresh cross-section) and `SectionsOf` (the sections as
+    drawn), as `SectionView`.
+  - `DrawnLines` / `DrawnLinesAt`: the builder's own trimming of the line
+    model's lines at a section.
+  - `ClipAt`, `ClipsOf`, `ClippedEdges`, `HostChainOf`, `HostEdgeAt` and
+    `ClipPair`: the clip ranges.
+
+  Ask right after building the tile that owns the place.
+- *Records, kept across builds between `BeginRecord` and `EndRecord`:*
+  - `Spans`: every span a tile draws, once city-wide, with each side's gap /
+    rail / retain / cut / median / caps.
+  - `Piers`: every pier stood, once.
+  - `Gores`: every branch end's P and N. P is where the branch's outer edge
+    leaves the host's edge. N is the last attached sample, where the gore
+    ends and the nose stands. A gore is listed once per tile within reach,
+    so de-duplicate by (node, branchEdge).
+
+  Rails stay `CityMeshes.railLog`.
+- *Sides:* -1 is the L vertex (the right of travel), +1 the R vertex (the
+  left of travel; a one-way carriageway's median side).
+
+In a build none of this records anything: the hooks in the builder are null
+checks.
+
+**The linecheck baseline from here on (critic C3).**
+
+- `tools/city/baseline/linecheck_baseline.json` fingerprints the gate's
+  inputs: the graph sections, `citydata.mjs`, `linesim.mjs`, every road PNG
+  and the gate's code. Nearly every package moves one of them, and a STALE
+  baseline fails `--ratchet`, which fails city-cycle.
+- So the baseline is re-recorded **only on main**, by the lane-A agent
+  performing a merge point, with `--write-baseline` and BEFORE -> AFTER in
+  the commit. `--allow-loosen` is never used.
+- Lane B never commits the baseline. It runs `city-cycle -NoRatchet` (the
+  gate without `--ratchet`) and compares the per-check table with its own
+  before-numbers.
+- `linesim.mjs` and `linecheck_baseline.json` move to lane A at M6. Until
+  then lane B edits `linesim.mjs` (through B6), so the "a CityMeshes change
+  updates `linesim.mjs` in the same commit" rule (Smoothness gate, above)
+  applies at the merge points instead: the lane-A agent brings the replica
+  and the baseline level there.
+- A5 and A15, which repaint the road PNGs, re-record in their own commits.
+
+**These docs.** Both lanes write here. Edits are append-only, one section per
+package, added before "Not in v1". Earlier sections are history: where one
+disagrees with a later one (the test page above still describes publishing
+`/city/` from the `charlotte` branch with `PSXCity`), the later one holds.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,
