@@ -14,6 +14,11 @@ Mountain stage terrain: AWS Terrain Tiles (Mapzen/Tilezen); 3DEP and SRTM data c
   https://github.com/tilezen/joerd/blob/master/docs/attribution.md
   In: the stages' ground, mountain roads and Bogue Banks (tools/roads, tools/brp, tools/bogue)
 
+Liftback 95 car model (the Integra Type R DC2s): adapted from "1995 Honda Integra Type R" by OUTPISTON (https://sketchfab.com/outpiston), CC BY-NC-SA 4.0; reduced, debadged and given an underbody for this game
+  Licence: CC BY-NC-SA 4.0
+  https://creativecommons.org/licenses/by-nc-sa/4.0/
+  In: Art/Car/Models/liftback_95
+
 Contains information from OpenStreetMap, which is made available here
 under the Open Database License (ODbL): https://www.openstreetmap.org/copyright
 

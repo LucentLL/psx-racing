@@ -96,7 +96,7 @@ MonoBehaviour:
   headLamp: {x: 0.7178946, y: 0.71102417, z: 2.2147784}
   headLampNormal: {x: 0.020011678, y: 0.35146144, z: 0.9359884}
   headLampSize: {x: 0.39019892, y: 0.28}
-  tailLamp: {x: 0.64138514, y: 0.67378736, z: -2.7850723}
+  tailLamp: {x: 0.6413849, y: 0.67378724, z: -2.7850723}
   tailLampNormal: {x: 0, y: 0.09591767, z: -0.9953893}
   tailLampSize: {x: 0.4368966, y: 0.27431083}
   colliderCenter: {x: 0, y: 0.79581916, z: -0.22819942}

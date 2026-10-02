@@ -49,12 +49,12 @@ MonoBehaviour:
   bodyMesh: {fileID: -2432090755550338912, guid: 9292f5257c57d17438f18646a1ae0af5, type: 3}
   wheelMesh: {fileID: 4300000, guid: 125d2dcabe8c96c45afdc881d9be71bd, type: 2}
   skinMaterials:
-  - {fileID: 2100000, guid: 22874c89837febb49b60e90cd49cf83c, type: 2}
+  - {fileID: 2100000, guid: e26918d82bddabd43bc3b9531d969b26, type: 2}
   skinNames:
-  - midship_atlas_256
+  - midship_atlas_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.49201012, g: 0.07027141, b: 0.07376813, a: 1}
+  - {r: 0.41514397, g: 0.15230274, b: 0.15127103, a: 1}
   bodyYaw: 180
   bodyYOffset: -0.021192951
   bodyZOffset: 0

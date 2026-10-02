@@ -1,0 +1,77 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &3430965333609305194
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 226253740013789375}
+  - component: {fileID: 3214772223038516912}
+  m_Layer: 0
+  m_Name: roadster_99
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &226253740013789375
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3430965333609305194}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &3214772223038516912
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3430965333609305194}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: roadster_99
+  displayName: Roadster 99 (S2000)
+  bodyMesh: {fileID: -2432090755550338912, guid: 59f2cade9c3ce854c89a73f5f482706f, type: 3}
+  wheelMesh: {fileID: 4300000, guid: 55cdaceca20f24f47a9050c2fe4698e0, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: 959aa6e22eb851143ae722420febfb9f, type: 2}
+  skinNames:
+  - roadster_256
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.64095783, g: 0.6798561, b: 0.7097214, a: 1}
+  bodyYaw: 180
+  bodyYOffset: -0.021699999
+  bodyZOffset: 0
+  wheelbase: 2.4
+  trackWidth: 1.47
+  wheelRadius: 0.2883
+  wheelMeshScale: 0.93
+  cowlZ: 0.3414748
+  cowlY: 0.85641223
+  noseZ: 2.085928
+  roofY: 1.2632052
+  headLamp: {x: 0.56352496, y: 0.5662776, z: 1.9726881}
+  headLampNormal: {x: 0.24071236, y: 0.48336688, z: 0.8416733}
+  headLampSize: {x: 0.29898667, y: 0.11745936}
+  tailLamp: {x: 0.65595686, y: 0.7079984, z: -1.902747}
+  tailLampNormal: {x: 0.39079422, y: 0.024324944, z: -0.92015666}
+  tailLampSize: {x: 0.20289725, y: 0.14226389}
+  colliderCenter: {x: 0, y: 0.7258, z: 0.018427968}
+  colliderSize: {x: 1.7513101, y: 1.0035, z: 3.9489253}
+  blobSize: {x: 2.3350801, y: 4.4244504}

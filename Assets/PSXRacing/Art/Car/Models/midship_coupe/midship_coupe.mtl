@@ -3,4 +3,4 @@ newmtl midship_coupe
 Ka 1 1 1
 Kd 1 1 1
 illum 1
-map_Kd textures/midship_atlas_256.png
+map_Kd textures/midship_atlas_512x256.png

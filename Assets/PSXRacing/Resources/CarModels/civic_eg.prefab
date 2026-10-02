@@ -49,12 +49,12 @@ MonoBehaviour:
   bodyMesh: {fileID: -2432090755550338912, guid: dad75c84de04c114ab04f948283ff8dd, type: 3}
   wheelMesh: {fileID: 4300000, guid: fcb81c314621acf42a6ab686215ba13a, type: 2}
   skinMaterials:
-  - {fileID: 2100000, guid: 04378c25cb4d1e4409427a05d6f6cbb6, type: 2}
+  - {fileID: 2100000, guid: 47e418d1f153b164ea81eed951bf45e8, type: 2}
   skinNames:
-  - civic_atlas_256
+  - civic_atlas_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.44891703, g: 0.10879567, b: 0.11119165, a: 1}
+  - {r: 0.36553377, g: 0.2216926, b: 0.21545495, a: 1}
   bodyYaw: 180
   bodyYOffset: -0.020292403
   bodyZOffset: 0
@@ -66,10 +66,10 @@ MonoBehaviour:
   cowlY: 0.8700759
   noseZ: 2.1039047
   roofY: 1.3305155
-  headLamp: {x: 0.5495903, y: 0.5823698, z: 1.8169887}
+  headLamp: {x: 0.54959023, y: 0.5823698, z: 1.8169887}
   headLampNormal: {x: 0.33256757, y: -0.6403411, z: 0.6923598}
   headLampSize: {x: 0.28359646, y: 0.10813537}
-  tailLamp: {x: 0.5984348, y: 0.7099346, z: -1.8371141}
+  tailLamp: {x: 0.5984348, y: 0.70993453, z: -1.837114}
   tailLampNormal: {x: 0.2176118, y: -0.027616333, z: -0.97564465}
   tailLampSize: {x: 0.38406783, y: 0.16175002}
   colliderCenter: {x: 0, y: 0.7712046, z: 0.068904996}

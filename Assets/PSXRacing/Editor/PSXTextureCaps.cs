@@ -23,6 +23,11 @@ namespace PSXRacing.EditorTools
             // baked 512 atlas holds the same texels. Opted in by NAME, by
             // tools/carmodels/convert_rip.py, so no other car grows by accident.
             if (assetPath.Contains("/Art/Car/Models/") && assetPath.EndsWith("_atlas_512.png")) return 512;
+            // The owner's UNDERBODY sheets (2026-10-02: NSX, EG Civic, Integra,
+            // Prelude): 512x256, the old 256 exterior pixel-for-pixel in the
+            // left half and the underside in the right. Capped at 256 the
+            // exterior would lose half its columns. Opted in by NAME.
+            if (assetPath.Contains("/Art/Car/Models/") && assetPath.EndsWith("_512x256.png")) return 512;
             return 256;
         }
     }

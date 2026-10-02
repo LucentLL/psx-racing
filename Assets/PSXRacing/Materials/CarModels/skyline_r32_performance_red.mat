@@ -31,10 +31,12 @@ Material:
     m_Floats:
     - _Affine: 0
     - _Cutoff: 0
+    - _Dull: 0
     - _Emission: 0
     - _GlassBoost: 1.8
     - _GlassLum: 0.22
     - _Gloss: 28
+    - _MainTexRaw: 0
     - _Reflect: 0.34
     - _SpecStrength: 0.55
     m_Colors:

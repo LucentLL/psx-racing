@@ -87,7 +87,7 @@ const bareLink = u => (u || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
 /// credit line of <ed>'s rows, then its licence and link. ALL's is the one
 /// Resources/psx_credits.txt has always held.
 export function creditsPage(rows, ed = 'ALL') {
-  const out = ['MAP AND TERRAIN DATA', ''];
+  const out = ['MAP, TERRAIN AND MODEL CREDITS', ''];
   for (const r of rowsFor(rows, ed)) {
     out.push(r.credit);
     const lic = [r.licence, bareLink(r['licence link'])].filter(Boolean).join(' - ');
@@ -99,9 +99,12 @@ export function creditsPage(rows, ed = 'ALL') {
   return out.join('\n') + '\n';
 }
 
-/// The one line a front page prints for <ed>: its rows' short credits.
+/// The one line a front page prints for <ed>: its rows' short credits. A
+/// short of "-" keeps a row OFF the front line (a car model's credit: the
+/// CITY front page is the map data's line, and on a phone it has no room -
+/// the CREDITS page and LICENSES.txt still carry it).
 export function frontLine(rows, ed) {
-  return rowsFor(rows, ed).map(r => r.short.replace(/[.\s]+$/, '')).join('. ') + '.';
+  return rowsFor(rows, ed).filter(r => r.short !== '-').map(r => r.short.replace(/[.\s]+$/, '')).join('. ') + '.';
 }
 
 /// Resources/psx_credits_line.txt: one "EDITION: line" row for ALL and each

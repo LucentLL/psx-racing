@@ -79,6 +79,12 @@ namespace PSXRacing
             new Model { key = "flatsix_turbo_96", name = "Flat-six turbo (993)", region = Region.Europe, year = 1996, body = Body.Sports,   kg = 1380, handOnly = true, widthMm = 1735 },
             new Model { key = "midship_coupe", name = "Midship coupe (NSX)",      region = Region.Japan,   year = 1990, body = Body.Sports,   kg = 1349, handOnly = true, widthMm = 1810 },
             new Model { key = "classic_roadster", name = "Classic roadster (Miata)", region = Region.Japan, year = 1989, body = Body.Roadster, kg = 1006, handOnly = true, widthMm = 1675 },
+            // The owner's 2026-10-02 set, each sized to its GT4 sheet: the
+            // Liftback 95 (every Integra Type R DC2, Spoon's too), the Roadster
+            // 99 (the S2000) and the Coupe 99 (the fifth-generation Preludes).
+            new Model { key = "liftback_95", name = "Liftback (Integra DC2)",   region = Region.Japan,   year = 1995, body = Body.Sports,   kg = 1096, handOnly = true, widthMm = 1695 },
+            new Model { key = "roadster_99", name = "Roadster 99 (S2000)",      region = Region.Japan,   year = 1999, body = Body.Roadster, kg = 1284, handOnly = true, widthMm = 1750 },
+            new Model { key = "coupe_99",    name = "Coupe 99 (Prelude)",       region = Region.Japan,   year = 1996, body = Body.Sports,   kg = 1260, handOnly = true, widthMm = 1750 },
 
             new Model { key = "gto_66",       name = "Pontiac GTO '66",           region = Region.America, year = 1966, body = Body.Muscle,   kg = 1650, widthMm = 1880 },
             new Model { key = "mustang_67",   name = "Ford Mustang Fastback '67", region = Region.America, year = 1967, body = Body.Muscle,   kg = 1400, widthMm = 1811 },
@@ -200,7 +206,14 @@ namespace PSXRacing
             // it is far nearer this than any other shell the game has).
             ("Honda NSX|Acura NSX",                              "midship_coupe"),
             ("Mazda MX-5|Miata|Eunos Roadster",                  "classic_roadster"),
-            ("Spoon INTEGRA",                                    "euro_hatch"),
+            // And the 2026-10-02 set: every Integra Type R DC2 (Spoon's was on
+            // the European hatch until there was an Integra to wear), the
+            // S2000, and the fifth-generation Prelude (`96-`98: SiR, Type S,
+            // SiR S spec - the `91 Si VTEC is the pop-up third generation and
+            // keeps the scorer's pick).
+            (@"INTEGRA TYPE R \(DC2\)",                        "liftback_95"),
+            ("Honda S2000",                                      "roadster_99"),
+            (@"Honda PRELUDE (SiR|Type S)",                      "coupe_99"),
             // The Cosmo Sport rides along with the rotary it started.
             ("Mazda RX-7|Mazda 110S",                            "rx7_fd"),
             // Every Skyline shares the shell family, the works cars are Skylines

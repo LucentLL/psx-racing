@@ -47,7 +47,7 @@ namespace PSXRacing
         const string LineResource = "psx_credits_line";
         /// <summary>What the page says if the generated text is missing: the
         /// one credit ODbL cannot do without.</summary>
-        public const string Fallback = "MAP AND TERRAIN DATA\n\nRoad network data (c) OpenStreetMap contributors, ODbL 1.0";
+        public const string Fallback = "MAP, TERRAIN AND MODEL CREDITS\n\nRoad network data (c) OpenStreetMap contributors, ODbL 1.0";
         /// <summary>The front-page line if the generated one is missing: the
         /// same one credit.</summary>
         public const string LineFallback = "Map data (c) OpenStreetMap contributors, ODbL.";

@@ -9129,6 +9129,17 @@ namespace PSXRacing.EditorTools
                 }
                 Check(nsx >= 12 && nsxOk == nsx, "every NSX wears the owner's Midship Coupe", nsxOk + " of " + nsx);
                 Check(miata >= 8 && miataOk == miata, "every MX-5 Miata wears the owner's Classic Roadster", miataOk + " of " + miata);
+                // The owner's 2026-10-02 set.
+                int integra = 0, integraOk = 0, s2k = 0, s2kOk = 0, prelude = 0, preludeOk = 0;
+                foreach (var c in CarCatalog.All)
+                {
+                    if (c.name.Contains("INTEGRA TYPE R (DC2)")) { integra++; if (CarModelLibrary.KeyFor(c) == "liftback_95") integraOk++; }
+                    if (c.name.Contains("S2000")) { s2k++; if (CarModelLibrary.KeyFor(c) == "roadster_99") s2kOk++; }
+                    if (System.Text.RegularExpressions.Regex.IsMatch(c.name, "PRELUDE (SiR|Type S)")) { prelude++; if (CarModelLibrary.KeyFor(c) == "coupe_99") preludeOk++; }
+                }
+                Check(integra >= 4 && integraOk == integra, "every Integra Type R DC2 (Spoon's too) wears the owner's Liftback 95", integraOk + " of " + integra);
+                Check(s2k >= 1 && s2kOk == s2k, "the S2000 wears the owner's Roadster 99", s2kOk + " of " + s2k);
+                Check(prelude >= 4 && preludeOk == prelude, "every fifth-generation Prelude wears the owner's Coupe 99", preludeOk + " of " + prelude);
             }
             Line($"  ..   {hand}/{CarCatalog.All.Count} hand-mapped, " +
                  $"{used.Count} of {CarModelLibrary.Models.Length} shells raced " +

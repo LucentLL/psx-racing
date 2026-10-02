@@ -66,8 +66,12 @@ const MODELS = [
   // tris, 92 per wheel, sealed, matte alpha 128, red/amber/clear tail lamps,
   // stock-size rims. Replaced the repaired shell whose bumper looked "run
   // over by a train" (and the spec_rebuild / uv_corrected tries between).
-  { key: 'civic_eg',     obj: `${ownerCars}/EG_Civic_Source_PSX/faithful/eg_civic.obj`,
-    tex: `${ownerCars}/EG_Civic_Source_PSX/faithful`, skins: /^civic_atlas_256$/,
+  // 2026-10-02: the same body with an FF UNDERBODY - one 512x256 atlas, the
+  // old 256 sheet untouched in its left half, the underside in the right
+  // (the folder root's eg_civic.obj; "older cleaned/source_psx variants are
+  // not this update"). PSXTextureCaps keeps a *_512x256 sheet at 512.
+  { key: 'civic_eg',     obj: `${ownerCars}/EG_Civic_Source_PSX/eg_civic.obj`,
+    tex: `${ownerCars}/EG_Civic_Source_PSX`, skins: /^civic_atlas_512x256$/,
     gt4LengthM: 4.070 },
   // The owner's S13 hatch (the 180SX that America sold as the 240SX) — GT4's
   // "Nissan 240SX `96": 4520 mm, 2475 mm wheelbase. The S14 is its own row.
@@ -104,12 +108,34 @@ const MODELS = [
   { key: 'flatsix_turbo_96', obj: `${ownerCars}/FlatSix_Turbo_96_PSX/flat_six_turbo_96.obj`,
     tex: `${ownerCars}/FlatSix_Turbo_96_PSX`, skins: /^coupe_atlas_256$/,
     gt4LengthM: 4.290 },
+  // 2026-10-02: the NSX's UNDERBODY (MR: the engine behind the seats) on a
+  // 512x256 atlas, the 256 exterior unchanged in its left half.
   { key: 'midship_coupe', obj: `${ownerCars}/Midship_Coupe_PSX/midship_coupe.obj`,
-    tex: `${ownerCars}/Midship_Coupe_PSX`, skins: /^midship_atlas_256$/,
+    tex: `${ownerCars}/Midship_Coupe_PSX`, skins: /^midship_atlas_512x256$/,
     gt4LengthM: 4.430 },
   { key: 'classic_roadster', obj: `${ownerCars}/Classic_Roadster_PSX/classic_roadster.obj`,
     tex: `${ownerCars}/Classic_Roadster_PSX`, skins: /^roadster_atlas_256$/,
     gt4LengthM: 3.955 },
+
+  // The owner's 2026-10-02 set ("Integra, S2000, and Prelude have been
+  // added"), same layout (Body + Wheel_FL/FR/RL/RR, nose -Z, matte alpha 128),
+  // each sized to its GT4 sheet:
+  //   Liftback 95 = Honda INTEGRA TYPE R (DC2): 4380 mm, wb 2570 (FF underbody,
+  //                 512x256). Reference-derived from OUTPISTON's Sketchfab
+  //                 Integra, CC BY-NC-SA 4.0 (Cars/Liftback_95_PSX/READ_ME_FIRST).
+  //   Roadster 99 = Honda S2000 `99: 4135 mm, wb 2400 (Revision_02, the
+  //                 folder's CURRENT_VERSION; one 256 atlas).
+  //   Coupe 99    = Honda PRELUDE (5th gen) `96-`98: 4520 mm, wb 2585
+  //                 (Revision_04, FF underbody, 512x256).
+  { key: 'liftback_95', obj: `${ownerCars}/Liftback_95_PSX/liftback95.obj`,
+    tex: `${ownerCars}/Liftback_95_PSX`, skins: /^liftback95_atlas_512x256$/,
+    gt4LengthM: 4.380 },
+  { key: 'roadster_99', obj: `${ownerCars}/Roadster_99_Original/Revision_02/roadster_99.obj`,
+    tex: `${ownerCars}/Roadster_99_Original/Revision_02`, skins: /^roadster_256$/,
+    gt4LengthM: 4.135 },
+  { key: 'coupe_99', obj: `${ownerCars}/Coupe_99_Original/Revision_04/coupe_99.obj`,
+    tex: `${ownerCars}/Coupe_99_Original/Revision_04`, skins: /^coupe_512x256$/,
+    gt4LengthM: 4.520 },
 
   // Ripped PS1-era cars from the owner's Cars folder (2026-09-25: "add these
   // vehicles as traffic"), converted by convert_rip.py - aligned, sized to

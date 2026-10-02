@@ -59,6 +59,7 @@ these lines.
 | usfstcc | Tree canopy: USDA Forest Service, NLCD Tree Canopy Cover (2024) | Tree canopy: USDA Forest Service | public domain | https://data.fs.usda.gov/geodata/rastergateway/treecanopycover/ | CITY: charlotte_canopy.bytes |
 | ncdot | Billboard density: NCDOT GIS Unit (statistics only) | Billboard density: NCDOT GIS | public record, no licence stated | https://connect.ncdot.gov/resources/gis/pages/gis-data-layers.aspx | CITY: charlotte_signs.bytes |
 | terrain | Mountain stage terrain: AWS Terrain Tiles (Mapzen/Tilezen); 3DEP and SRTM data courtesy of the U.S. Geological Survey | Stage terrain: AWS Terrain Tiles, USGS | public domain; attribution requested | https://github.com/tilezen/joerd/blob/master/docs/attribution.md | MAIN: the stages' ground, mountain roads and Bogue Banks (tools/roads, tools/brp, tools/bogue) |
+| integra | Liftback 95 car model (the Integra Type R DC2s): adapted from "1995 Honda Integra Type R" by OUTPISTON (https://sketchfab.com/outpiston), CC BY-NC-SA 4.0; reduced, debadged and given an underbody for this game | - | CC BY-NC-SA 4.0 | https://creativecommons.org/licenses/by-nc-sa/4.0/ | MAIN: Art/Car/Models/liftback_95; CITY: Art/Car/Models/liftback_95 |
 
 ## Registry
 

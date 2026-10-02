@@ -7,7 +7,7 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: civic_eg_civic_atlas_256
+  m_Name: liftback_95_liftback95_atlas_512x256
   m_Shader: {fileID: 4800000, guid: f6c0dfc7e80b0564dacbd7b9dfb6db5d, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
@@ -24,7 +24,7 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _MainTex:
-        m_Texture: {fileID: 2800000, guid: 97901f193926d5649868f0fde6d68e55, type: 3}
+        m_Texture: {fileID: 2800000, guid: e2e87f946224bfe40b0bbcf10121f666, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
@@ -33,6 +33,7 @@ Material:
     - _Cutoff: 0
     - _Dull: 0
     - _Emission: 0
+    - _MainTexRaw: 0
     m_Colors:
     - _Color: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []

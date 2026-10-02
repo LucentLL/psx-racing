@@ -1,4 +1,4 @@
-MAP AND TERRAIN DATA
+MAP, TERRAIN AND MODEL CREDITS
 
 Road network data (c) OpenStreetMap contributors, ODbL 1.0
 Licence: ODbL 1.0 - opendatacommons.org/licenses/odbl/1-0
@@ -17,5 +17,8 @@ Licence: public domain - data.fs.usda.gov/geodata/rastergateway/treecanopycover
 
 Billboard density: NCDOT GIS Unit (statistics only)
 Licence: public record, no licence stated - connect.ncdot.gov/resources/gis/pages/gis-data-layers.aspx
+
+Liftback 95 car model (the Integra Type R DC2s): adapted from "1995 Honda Integra Type R" by OUTPISTON (https://sketchfab.com/outpiston), CC BY-NC-SA 4.0; reduced, debadged and given an underbody for this game
+Licence: CC BY-NC-SA 4.0 - creativecommons.org/licenses/by-nc-sa/4.0
 
 The data was adapted for the game: simplified, re-projected and baked into its own formats. Every source and its licence is listed in LICENSES.txt beside the game.
