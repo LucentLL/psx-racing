@@ -211,6 +211,36 @@ namespace PSXRacing
         /// rolling back down a hill at walking pace keeps the lens behind its
         /// nose. Reverse GEAR always keeps it on the nose.</summary>
         public const float TravelBackFromMps = 10f;
+        /// <summary>
+        /// The travel takes the rig over only as the BODY SLIDES, between
+        /// these slip angles (degrees). The owner the same day, in the Viper:
+        /// "over 100MPH, making adjustments side to side, the car still swings
+        /// wildly away from the camera and it feels like I'm completely
+        /// separated from the car." The first cut followed the travel at any
+        /// slip, and gripping, the travel LAGS the nose by the slip angle plus
+        /// its own filter - the nose swung up to 14 deg off the lens on 0.1 s
+        /// keyboard taps at 110 mph (HandlingPlayCheck H), against the 6 deg
+        /// the heading rig and its leads held (2026-09-30's fix for the same
+        /// complaint). Gripping, the lens follows the NOSE again; a slide
+        /// (Carbon's picture) and a spin hand it to the travel.
+        /// </summary>
+        public const float RigSlideFromDeg = 10f, RigSlideFullDeg = 25f;
+        /// <summary>
+        /// How fast the rig's yaw follows the car, 1/s: RigYawRateSlow at
+        /// rest to RigYawRateFast at <see cref="speedFullMps"/> (the speed
+        /// rig's own smoothstep), toward RigYawRateSlide as the car slides.
+        /// A first-order follow trails a turn at r by r / rate and never gets
+        /// ahead of it: the Viper's 69 deg/s flicks at 110 mph trailed the
+        /// nose by 8.5 deg at 12/s (HandlingPlayCheck H; 13.9 with the old
+        /// leads), so 16. Gripping at speed is where the owner felt
+        /// "completely separated from the car" - the stiff end; a slide's
+        /// rig is the travel, already smooth - the soft end.
+        /// </summary>
+        public const float RigYawRateSlow = 6f, RigYawRateFast = 16f, RigYawRateSlide = 4.5f;
+        /// <summary>How fast the seat comes back onto the line behind the
+        /// car SIDEWAYS, 1/s (the along-road and vertical lag stay at
+        /// <see cref="positionLag"/>).</summary>
+        public const float SeatSideRate = 20f;
         /// <summary>How far off the middle the car may sit, degrees of bearing
         /// from the lens (soft: tanh, so it never kinks). 6 deg is 0.05 of the
         /// frame's width at the chase rig's 16:9 field - inside Carbon's
@@ -694,6 +724,10 @@ namespace PSXRacing
                 if (targetCar.currentGear != -1 && sp > TravelFromMps)
                 {
                     travelW = Smooth01((sp - (backwards ? TravelBackFromMps : TravelFromMps)) / TravelSpanMps);
+                    // ...and only as far as the car is SLIDING (see
+                    // RigSlideFromDeg). Unfolded: a spin is all slide.
+                    travelW *= Smooth01((Mathf.Abs(targetCar.chassisSlipAngle) * Mathf.Rad2Deg - RigSlideFromDeg) /
+                                        (RigSlideFullDeg - RigSlideFromDeg));
                     // How sideways, folded about 90 deg (a spin's pi is not
                     // "more sideways" than 90): the follow's drift rates.
                     float slipAbs = Mathf.Abs(targetCar.chassisSlipAngle);
@@ -716,26 +750,26 @@ namespace PSXRacing
                 rigDelta += 360f * Mathf.Sign(rigDeltaPrev);
             rigDeltaPrev = rigDelta;
             float rigYaw = headYaw + travelW * rigDelta;
-            Vector3 rigFwd = Quaternion.Euler(0f, rigYaw, 0f) * Vector3.forward;
+
+            // ---- THE LENS'S YAW IS THE RIG'S, LOW-PASSED ONCE (2026-10-02,
+            // see RigYawRateFast). It used to be a seat chasing the rig at
+            // positionLag, a lens chasing the seat's view at rotRate, and two
+            // LEADS (yaw rate / lag) put on top to cancel the trails - which
+            // swung the lens AHEAD of the nose the instant a turn began and
+            // the wrong way on every quick reversal: the owner's Viper at 110
+            // mph, flicking side to side, had the nose 12-14 deg off the lens
+            // 11-13 times in five flicks. Now one angle filter, stiffer with
+            // speed, never ahead of the car; the seat sits on the line behind
+            // it and the lens looks down that line.
+            float yawRate = Mathf.Lerp(Mathf.Lerp(RigYawRateSlow, RigYawRateFast, SpeedT(speed, speedFullMps)),
+                                       RigYawRateSlide, aimSlipT);
+            if (!haveRigYaw) { rigYawSm = rigYaw; haveRigYaw = true; }
+            else rigYawSm += Mathf.DeltaAngle(rigYawSm, rigYaw) * (1f - Mathf.Exp(-yawRate * dt));
+            Vector3 rigFwd = Quaternion.Euler(0f, rigYawSm, 0f) * Vector3.forward;
             GradeFrame(rigFwd, gradeDeg, out fwdG, out upG);
+            Vector3 sideG = Vector3.Cross(upG, fwdG);
 
             Vector3 wanted = target.position - fwdG * dist + upG * h;
-
-            // ---- THE SEAT LEADS THE RIG'S TURN. The seat is swung round
-            // behind the car as the rig turns, and positionLag trails that
-            // swing by rate / positionLag; rotated ahead about the car by that
-            // trail. The rate is the RIG's (the travel's, from a crawl up),
-            // which a slide does not spike - so no fade with the slip.
-            float rigRate = 0f;
-            if (haveRigYaw && dt > 0f)
-            {
-                float d = Mathf.DeltaAngle(rigYawPrev, rigYaw);
-                if (Mathf.Abs(d) < 45f) rigRate = d / dt;
-            }
-            rigYawPrev = rigYaw; haveRigYaw = true;
-            yawRateSm = Mathf.Lerp(yawRateSm, rigRate, 1f - Mathf.Exp(-YawLeadFilter * dt));
-            float seatLeadDeg = Mathf.Clamp(yawRateSm / Mathf.Max(positionLag, 0.5f), -MaxYawLeadDeg, MaxYawLeadDeg);
-            wanted = target.position + Quaternion.AngleAxis(seatLeadDeg, Vector3.up) * (wanted - target.position);
 
             // ---- LEAD OUT THE STEADY TRAIL. A first-order lag chasing a
             // point that moves at v settles v / positionLag behind it, and the
@@ -758,7 +792,16 @@ namespace PSXRacing
                 fwdV = Mathf.Lerp(fwdV, Vector3.Dot(targetCar.Body.linearVelocity, rigFwd), travelW);
             float lead = Mathf.Clamp(fwdV / Mathf.Max(positionLag, 0.01f), -lagClampM, lagClampM);
             Vector3 chased = wanted + fwdG * lead;
-            smoothPos = Vector3.Lerp(smoothPos, chased, 1f - Mathf.Exp(-positionLag * dt));
+            // Along the road and across its plane the seat keeps its rubber
+            // (positionLag: the surge of a launch, the dip of a stop, a bump);
+            // SIDEWAYS it is held on the line behind the car (SeatSideRate),
+            // or a turn swings it out and the car turns away in the frame.
+            {
+                Vector3 e = chased - smoothPos;
+                float kPos = 1f - Mathf.Exp(-positionLag * dt), kSide = 1f - Mathf.Exp(-SeatSideRate * dt);
+                float ef = Vector3.Dot(e, fwdG), eu = Vector3.Dot(e, upG), es = Vector3.Dot(e, sideG);
+                smoothPos += fwdG * (ef * kPos) + upG * (eu * kPos) + sideG * (es * kSide);
+            }
 
             // ---- the lag clamp: a launch never leaves the car behind the lens
             // (nor a braking stop in front of it). Only the part along the
@@ -785,27 +828,12 @@ namespace PSXRacing
             // the follow to its drift rate.
             float rotRate = Mathf.Lerp(rotationLag, RotationLagDriftOf(this), aimSlipT);
 
-            // ---- LEAD OUT THE YAW TRAIL, as the position lead above does for
-            // the seat. A first-order follow chasing a rig turning at r sits
-            // r / rotRate behind it: 13-14 deg in a 70 mph keyboard lane
-            // change (HandlingPlayCheck E), so the car swung across the frame
-            // one way and then the other while the lens caught up - the
-            // owner's "car swings side to side away from camera too much and
-            // makes it difficult to control". Aimed ahead by that trail the
-            // lens holds the car square; the lag that is left is the turn's
-            // ACCELERATION, the part that reads as weight. The rate is the
-            // rig's (the travel's), so a slide needs no fade any more.
-            yawLeadDeg = targetCar != null && targetCar.Body != null
-                ? Mathf.Clamp(yawRateSm / Mathf.Max(rotRate, 0.5f), -MaxYawLeadDeg, MaxYawLeadDeg)
-                : 0f;
-
             Vector3 lookAt = target.position + upG * shape.lookY + fwdG * LookAheadM;
-            // The lead turns the LENS, not the look point: the look point is
-            // only a few metres up the aim line, so turning it moved the lens
-            // by a third of the lead at most.
-            Quaternion wantedRot = Quaternion.AngleAxis(yawLeadDeg, Vector3.up) *
-                                   Quaternion.LookRotation(lookAt - smoothPos, Vector3.up);
+            Quaternion wantedRot = Quaternion.LookRotation(lookAt - smoothPos, Vector3.up);
+            // The PITCH keeps its follow (a bump, a crest); the YAW is the
+            // look line's own - the rig's filter above is its only lag.
             followRot = Quaternion.Slerp(followRot, wantedRot, 1f - Mathf.Exp(-rotRate * dt));
+            followRot = Quaternion.AngleAxis(Mathf.DeltaAngle(followRot.eulerAngles.y, wantedRot.eulerAngles.y), Vector3.up) * followRot;
             // ...and whatever the follow's lag left, the car is never more
             // than CarCentreHoldDeg off the middle (see TravelFromMps). Kept
             // in followRot, so the lag does not wind up against the hold.
@@ -833,21 +861,15 @@ namespace PSXRacing
         Vector3 aimFwd = Vector3.forward;
         float velYawDeg;
         bool haveVelYaw;
-        float yawRateSm, yawLeadDeg;
-        float rigYawPrev, rigDeltaPrev;
+        float rigYawSm, rigDeltaPrev;
         bool haveRigYaw;
-        /// <summary>Low-pass on the yaw rate the lens leads by, 1/s (kerbs and
-        /// solver noise out, a steering input in).</summary>
-        const float YawLeadFilter = 20f;
-        /// <summary>Most the lens may lead the heading by, degrees.</summary>
-        const float MaxYawLeadDeg = 15f;
 
         /// <summary>Drop the travel-direction filter. Called whenever the rig
         /// stops being the thing that aims the camera — a mounted view, a
         /// respawn — so returning to a chase view mid-slide re-seeds on the
         /// heading the car has NOW rather than resuming on one last filtered
         /// several seconds ago.</summary>
-        public void ForgetAim() { haveVelYaw = false; aimFwd = Vector3.forward; yawRateSm = 0f; haveRigYaw = false; rigDeltaPrev = 0f; }
+        public void ForgetAim() { haveVelYaw = false; aimFwd = Vector3.forward; haveRigYaw = false; rigDeltaPrev = 0f; }
 
         /// <summary>
         /// <see cref="rotationLagDrift"/>, with a floor.

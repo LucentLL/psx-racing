@@ -41,7 +41,15 @@ namespace PSXRacing.EditorTools
     ///      control because sense of center is lost"): a kick at 70 mph with
     ///      the KEY held into it, then full opposite lock, then back - the
     ///      keyboard pendulum - and where the car sits on screen through it.
-    /// PSX_HANDLING_ONLY="D,E,F,G" runs just those (the first car only).
+    ///   H  the Viper over 100 mph (2026-10-02, the owner: "When I drive the
+    ///      Viper, over 100MPH, making adjustments side to side, the car still
+    ///      swings wildly away from the camera and it feels like I'm
+    ///      completely separated from the car"): keyboard taps, then an
+    ///      analog weave, at 110 mph - how far the NOSE turns from the lens,
+    ///      where the car sits on screen, whether the drift layer joins in,
+    ///      and whether the car itself settles.
+    /// PSX_HANDLING_ONLY="D,E,F,G,H" runs just those (the first car only; H
+    /// in the Viper).
     /// </summary>
     public static class HandlingPlayCheck
     {
@@ -128,7 +136,7 @@ namespace PSXRacing.EditorTools
 
         // ---- where the car sits on screen (F, and noted in D and E) --------
         bool camTrack;
-        float camOffMax, camOffTime, camLastX = 0.5f;
+        float camOffMax, camOffTime, camLastX = 0.5f, camNoseLens;
         void CamReset() { camOffMax = 0f; camOffTime = 0f; camTrack = true; }
         void LateUpdate()
         {
@@ -138,6 +146,10 @@ namespace PSXRacing.EditorTools
             Vector3 vp = c.WorldToViewportPoint(car.transform.TransformPoint(car.Body.centerOfMass));
             if (vp.z <= 0f) { camOffMax = 0.5f; return; }
             camLastX = vp.x;
+            // The nose against the lens, read HERE - after the lens moved,
+            // on the same interpolated pose it framed (a FixedUpdate read is
+            // a render frame stale: 2-3 deg at 69 deg/s).
+            camNoseLens = Mathf.DeltaAngle(cam.transform.eulerAngles.y, car.transform.eulerAngles.y);
             float off = Mathf.Abs(vp.x - 0.5f);
             camOffMax = Mathf.Max(camOffMax, off);
             if (off > 0.15f) camOffTime += Time.deltaTime;
@@ -246,6 +258,25 @@ namespace PSXRacing.EditorTools
                 }
                 first = false;
                 if (!Want("A") && !Want("B") && !Want("C")) break;
+            }
+            if (Want("H"))
+            {
+                var viper = Pick("VIPER GTS");
+                HandlingPlayCheck.Check(viper != null, "the Viper GTS is in the catalog with a model");
+                if (viper != null)
+                {
+                    RaceHandoff.CarSpecId = viper.id;
+                    RaceHandoff.CarPaintSkin = null;
+                    RaceHandoff.UpPower = RaceHandoff.UpWeight = RaceHandoff.UpBrakes = RaceHandoff.UpSuspension = RaceHandoff.UpTires = 0;
+                    RaceHandoff.Supercharged = false; RaceHandoff.Welded = false; RaceHandoff.Setup = null;
+                    RaceHandoff.StartFuelPct = 100f;
+                    applier.SwapCar();
+                    for (int f = 0; f < 5; f++) yield return null;
+                    car.manualMode = false;
+                    cam = Object.FindFirstObjectByType<ChaseCamera>();
+                    xLane += 400f;
+                    yield return TestH(viper.name);
+                }
             }
             Done();
         }
@@ -595,6 +626,71 @@ namespace PSXRacing.EditorTools
                 h2[0].ToString("0.0") + " deg, full lock " + (100f * h2[1]).ToString("0") + "%, peak yaw " + h2[3].ToString("0") +
                 " deg/s, peak slip " + h2[2].ToString("0") + " deg");
             drive = false;
+        }
+
+        // ---- H: the Viper over 100 mph, small corrections ------------------
+        /// <summary>One phase of H, steering by <paramref name="steerAt"/>(t).
+        /// o: [max nose-vs-lens deg, lens lobes, peak body slip deg, peak |yaw|
+        /// deg/s, max DriftBlend, steps Drifting].</summary>
+        IEnumerator HPhase(float seconds, System.Func<float, float> steerAt, float[] o, string tag)
+        {
+            float tr = 0f, camSign = 0f;
+            for (float t = 0f; t < seconds; t += step)
+            {
+                steer = steerAt(t);
+                yield return new WaitForFixedUpdate();
+                float d = camNoseLens;
+                o[0] = Mathf.Max(o[0], Mathf.Abs(d));
+                float cs = Mathf.Abs(d) > 1.5f ? Mathf.Sign(d) : 0f;
+                if (cs != 0f && cs != camSign) { o[1] += 1f; camSign = cs; }
+                o[2] = Mathf.Max(o[2], BodySlipDeg());
+                o[3] = Mathf.Max(o[3], Mathf.Abs(car.Body.angularVelocity.y * Mathf.Rad2Deg));
+                o[4] = Mathf.Max(o[4], car.DriftBlend);
+                if (car.Drifting) o[5] += 1f;
+                tr += step;
+                if (tr >= 0.1f) { tr = 0f; HandlingPlayCheck.Note("  H " + tag + " " + Trace(t) + " nose-lens " + d.ToString("0.0") + " cam x " + camLastX.ToString("0.00")); }
+            }
+        }
+
+        IEnumerator TestH(string who)
+        {
+            yield return Place(12000f, 0f, 110f * Mph);
+            drive = true; throttle = 0.75f; steer = 0f; hand = false;
+            for (float t = 0f; t < 1.0f; t += step) yield return new WaitForFixedUpdate();
+            float v0 = Planar();
+            // Keyboard: the owner's side-to-side - full lock HELD a third to
+            // half a second each way, flicked straight across (he watched the
+            // first cut of this, 0.1 s taps, and said it barely turned the wheel).
+            CamReset();
+            var k = new float[6];
+            float[] taps = { 0.35f, 0.45f, 0.40f, 0.50f, 0.35f };
+            for (int i = 0; i < taps.Length; i++)
+            {
+                float sgn = i % 2 == 0 ? 1f : -1f, len = taps[i];
+                yield return HPhase(len, _ => sgn, k, "key" + (sgn > 0 ? "+" : "-"));
+                yield return HPhase(0.05f, _ => 0f, k, "key0");
+            }
+            yield return HPhase(2.0f, _ => 0f, k, "after");
+            camTrack = false;
+            float keysOff = camOffMax;
+            float v1 = Planar();
+            // A pad: a hard weave, 80% of the stick once a second.
+            CamReset();
+            var w = new float[6];
+            yield return HPhase(3.0f, t => 0.8f * Mathf.Sin(2f * Mathf.PI * 1.0f * t), w, "weave");
+            yield return HPhase(1.5f, _ => 0f, w, "after");
+            camTrack = false;
+            float weaveOff = camOffMax;
+            HandlingPlayCheck.Note(who + ": H speed " + (v0 / Mph).ToString("0") + " -> " + (v1 / Mph).ToString("0") + " -> " + (Planar() / Mph).ToString("0") + " mph");
+            string Line(float[] o, float off) =>
+                "nose vs lens max " + o[0].ToString("0.0") + " deg (" + o[1].ToString("0") + " lobes), car off centre " + off.ToString("0.000") +
+                ", peak slip " + o[2].ToString("0.0") + " deg, peak yaw " + o[3].ToString("0") + " deg/s, drift blend max " + o[4].ToString("0.00") +
+                ", Drifting " + (o[5] * step).ToString("0.00") + " s";
+            HandlingPlayCheck.Check(k[0] <= 7f && keysOff <= 0.05f && k[4] < 0.1f,
+                who + ": H 110 mph keyboard corrections: the car stays square to the lens and the drift layer stays out", Line(k, keysOff));
+            HandlingPlayCheck.Check(w[0] <= 6f && weaveOff <= 0.05f && w[4] < 0.1f,
+                who + ": H 110 mph pad weave: the car stays square to the lens and the drift layer stays out", Line(w, weaveOff));
+            drive = false; throttle = 0f; steer = 0f;
         }
 
         // ---- G: the slide that gets away - the keyboard pendulum -----------
