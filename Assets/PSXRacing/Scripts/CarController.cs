@@ -950,8 +950,55 @@ namespace PSXRacing
             float slabPitch = massKg * (lng * lng + hgt * hgt) / 12f;
             float slabRoll = massKg * (wid * wid + hgt * hgt) / 12f;
             Body.automaticInertiaTensor = false;
-            Body.inertiaTensor = new Vector3(slabPitch, slabYaw * yawInertiaScale, slabRoll);
+            baseInertia = new Vector3(slabPitch, slabYaw * yawInertiaScale, slabRoll);
+            Body.inertiaTensor = baseInertia;
             Body.inertiaTensorRotation = Quaternion.identity;
+            slideInertiaApplied = 1f;
+        }
+
+        // ---- WEIGHT IN A SLIDE (2026-10-02) ---------------------------------
+        // The owner, over NFS Carbon drift videos: "The cars also feel more
+        // planted to the ground. More weight, even when sliding." Measured in
+        // HandlingPlayCheck F (RX-7 FD, a lever kick at 60 mph held at 35 deg
+        // on 85% throttle): the kick spun the car at 136 deg/s, and the slide
+        // shed 60 -> 26 mph in two seconds - half of that taken by the lateral
+        // stabilizer, which DELETED the sideways velocity instead of turning
+        // it along the nose. A heavy car in a slide turns slowly and carries
+        // its speed; both terms below are scaled by DriftBlend, so a gripping
+        // car (the turn-in and the lane change the owner tuned) is untouched.
+        /// <summary>How much heavier the car is to THROW further sideways
+        /// once it is fully sliding (yaw inertia x this at DriftBlend 1, while
+        /// the yaw is GROWING the slip). Catching it - yaw that takes the slip
+        /// away - keeps the car's own inertia: a first cut at 1.6 both ways
+        /// slowed the kick (136 -> 116 deg/s) and also the catch, and the
+        /// runaway slide in HandlingPlayCheck G hung at 85 deg under full
+        /// opposite lock instead of coming back to 41. Heavy to throw, light to
+        /// catch is the NFS slide.</summary>
+        public const float SlideYawInertiaMul = 2.0f;
+        /// <summary>Share of the speed the stabilizer would scrub in a slide
+        /// that is handed back along the nose: the sideways momentum is
+        /// TURNED toward where the car points, not deleted.</summary>
+        public const float SlideMomentumKeep = 0.8f;
+        Vector3 baseInertia;
+        float slideInertiaApplied = 1f;
+
+        void ApplySlideInertia()
+        {
+            if (baseInertia == Vector3.zero) return;
+            // Is the yaw THROWING the slip further (yaw and slip the same
+            // sign: + is the nose right of the travel, + yaw turns it right)?
+            // From straight, any turn is a throw. Over +-0.3 rad/s (17 deg/s)
+            // it fades smoothly, so at the turn of a catch - where the yaw
+            // and its angular momentum are near zero - the change is unfelt.
+            float slip = chassisSlipAngle;
+            float yaw = Vector3.Dot(Body.angularVelocity, transform.up);
+            float throwT = Mathf.Abs(slip) < 0.05f || Mathf.Abs(slip) > Mathf.PI * 0.5f
+                ? 1f
+                : Mathf.Clamp01(0.5f + yaw * Mathf.Sign(slip) / 0.6f);
+            float mul = 1f + (SlideYawInertiaMul - 1f) * DriftBlend * throwT;
+            if (Mathf.Abs(mul - slideInertiaApplied) < 0.02f) return;
+            Body.inertiaTensor = new Vector3(baseInertia.x, baseInertia.y * mul, baseInertia.z);
+            slideInertiaApplied = mul;
         }
 
         public float GetTorqueAtRPM(float rpm) =>
@@ -1962,6 +2009,7 @@ namespace PSXRacing
                 want = Mathf.Max(want, Mathf.Clamp01(gesture) * DriftBlendGestureFloor);
                 DriftBlend = Mathf.MoveTowards(DriftBlend, want, dt / DriftBlendTau);
             }
+            ApplySlideInertia();
             UpdateDriftGestures(dt);      // runs early, so the frame sees the kick
             UpdateSteering(dt);
             UpdateGearbox(dt);
@@ -3238,6 +3286,17 @@ namespace PSXRacing
             float cap = lateralDampMaxG * 9.81f;
             float accel = Mathf.Clamp(-vLat * k * speedFade, -cap, cap);
             Body.AddForce(transform.right * (accel * massKg), ForceMode.Force);
+            // IN A SLIDE THE MOMENTUM IS TURNED, NOT DELETED (see
+            // SlideMomentumKeep): the speed the lateral pull takes,
+            // d|v|/dt = vLat * accel / |v|, handed back along the nose -
+            // vFwd * aFwd + vLat * accel = 0 keeps |v|. Never more than the
+            // stabilizer's own cap, never going backwards.
+            float vFwd = Vector3.Dot(Body.linearVelocity, transform.forward);
+            if (DriftBlend > 0f && vFwd > 2f)
+            {
+                float give = Mathf.Min(-(vLat * accel) / vFwd, cap) * SlideMomentumKeep * DriftBlend;
+                if (give > 0f) Body.AddForce(transform.forward * (give * massKg), ForceMode.Force);
+            }
         }
 
         void ApplyYawLayer(float dt)

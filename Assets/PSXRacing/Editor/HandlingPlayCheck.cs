@@ -29,6 +29,19 @@ namespace PSXRacing.EditorTools
     ///      drift state, the loose blend and the body slip are back to grip.
     ///   E  a keyboard lane change at 70 mph: yaw-rate lobes after the input,
     ///      settle time, and how far the lens trails the car's heading.
+    ///   F  a Carbon drift (2026-10-02, the owner over two NFS Carbon drift
+    ///      videos: "the car is always centered on the screen while drifting
+    ///      ... the current build sends the car to the far sides of the
+    ///      screen", and "more weight, even when sliding"): a lever kick at
+    ///      60 mph, 35 deg held round an arc, a switch to the other side, held
+    ///      again - where the car sits on SCREEN all the way (the chase lens's
+    ///      own projection, read after it moved), how hard the kick spins it,
+    ///      how far past the angle it swings and how much lock holding it takes.
+    ///   G  a slide that gets away (the owner's "impossible to handle or regain
+    ///      control because sense of center is lost"): a kick at 70 mph with
+    ///      the KEY held into it, then full opposite lock, then back - the
+    ///      keyboard pendulum - and where the car sits on screen through it.
+    /// PSX_HANDLING_ONLY="D,E,F,G" runs just those (the first car only).
     /// </summary>
     public static class HandlingPlayCheck
     {
@@ -81,13 +94,15 @@ namespace PSXRacing.EditorTools
 
         internal static void Finish()
         {
-            log.AppendLine(failures == 0 ? "HANDLING CHECK: ALL FIVE BEHAVE." : failures + " FAILURE(S).");
+            log.AppendLine(failures == 0 ? "HANDLING CHECK: ALL BEHAVE." : failures + " FAILURE(S).");
             File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath),
                                            "PSXRacing_handling_play_check.txt"), log.ToString());
             Debug.Log(log.ToString());
         }
     }
 
+    // Late, so LateUpdate reads the chase lens AFTER it moved this frame.
+    [DefaultExecutionOrder(10000)]
     public class HandlingPlayCheckRunner : MonoBehaviour
     {
         const float Mph = 0.44704f;
@@ -110,6 +125,28 @@ namespace PSXRacing.EditorTools
             var tank = car.GetComponent<FuelTank>();
             if (tank != null) tank.percent = 100f;
         }
+
+        // ---- where the car sits on screen (F, and noted in D and E) --------
+        bool camTrack;
+        float camOffMax, camOffTime, camLastX = 0.5f;
+        void CamReset() { camOffMax = 0f; camOffTime = 0f; camTrack = true; }
+        void LateUpdate()
+        {
+            if (!camTrack || cam == null || car == null) return;
+            var c = cam.GetComponent<Camera>();
+            if (c == null) return;
+            Vector3 vp = c.WorldToViewportPoint(car.transform.TransformPoint(car.Body.centerOfMass));
+            if (vp.z <= 0f) { camOffMax = 0.5f; return; }
+            camLastX = vp.x;
+            float off = Mathf.Abs(vp.x - 0.5f);
+            camOffMax = Mathf.Max(camOffMax, off);
+            if (off > 0.15f) camOffTime += Time.deltaTime;
+        }
+        string CamLine() => "car on screen: x off centre max " + camOffMax.ToString("0.000") +
+                            " of the width, " + camOffTime.ToString("0.00") + " s beyond 0.15";
+
+        static string Only => System.Environment.GetEnvironmentVariable("PSX_HANDLING_ONLY");
+        static bool Want(string t) => string.IsNullOrEmpty(Only) || Only.ToUpperInvariant().Contains(t);
 
         float CamLag() => cam == null ? 0f : Mathf.Abs(Mathf.DeltaAngle(car.transform.eulerAngles.y, cam.transform.eulerAngles.y));
         float Skid() => skid != null ? skid.volume : -1f;
@@ -197,15 +234,18 @@ namespace PSXRacing.EditorTools
                 HandlingPlayCheck.Note(who + ": skid source " + (skid != null ? "found" : "MISSING") +
                                        ", chase camera " + (cam != null ? "found" : "MISSING"));
 
-                yield return TestA(who);
-                yield return TestBC(who, true);
-                yield return TestBC(who, false);
+                if (Want("A")) yield return TestA(who);
+                if (Want("B")) yield return TestBC(who, true);
+                if (Want("C")) yield return TestBC(who, false);
                 if (first)
                 {
-                    yield return TestD(who);
-                    yield return TestE(who);
+                    if (Want("D")) yield return TestD(who);
+                    if (Want("E")) yield return TestE(who);
+                    if (Want("F")) yield return TestF(who);
+                    if (Want("G")) yield return TestG(who);
                 }
                 first = false;
+                if (!Want("A") && !Want("B") && !Want("C")) break;
             }
             Done();
         }
@@ -358,6 +398,7 @@ namespace PSXRacing.EditorTools
             yield return Place(-6000f, 0f, 90f * Mph);
             drive = true;
             throttle = 0.6f; steer = 0f;
+            CamReset();
             for (float t = 0f; t < 0.3f; t += step) yield return new WaitForFixedUpdate();
             // The kick: lever with lock on.
             hand = true; throttle = 0f; steer = 1f;
@@ -398,6 +439,8 @@ namespace PSXRacing.EditorTools
                 if (recovered < 0f && calm >= 0.2f) recovered = tRel - 0.2f;
                 if (tAt30 >= 0f && recovered >= 0f && tRel > tAt30 + 0.3f) break;
             }
+            camTrack = false;
+            HandlingPlayCheck.Note(who + ": D " + CamLine());
             var after = new float[2];
             yield return Step30(after);
             float afterSlow = recovered < 0f ? -1f : Mathf.Max(0f, recovered - tAt30);
@@ -421,6 +464,7 @@ namespace PSXRacing.EditorTools
             for (float t = 0f; t < 1.0f; t += step) yield return new WaitForFixedUpdate();
             float h0 = car.transform.eulerAngles.y;
             float inLag = 0f;
+            CamReset();
             steer = 1f;
             for (float t = 0f; t < 0.35f; t += step) { yield return new WaitForFixedUpdate(); inLag = Mathf.Max(inLag, CamLag()); if (Mathf.Repeat(t, 0.1f) < step * 0.99f) HandlingPlayCheck.Note("  E in +   " + Trace(t) + " lens " + CamLag().ToString("0.0")); }
             steer = -1f;
@@ -457,6 +501,8 @@ namespace PSXRacing.EditorTools
                     if (cs != 0f && cs != camSign) { camLobes++; camSign = cs; }
                 }
             }
+            camTrack = false;
+            HandlingPlayCheck.Note(who + ": E " + CamLine());
             HandlingPlayCheck.Check(lobes <= 2 && settle >= 0f && settle < 1.5f,
                 who + ": E lane change at 70 mph settles without swinging",
                 "yaw lobes >3 deg/s after the input " + lobes + ", peak " + peakYawAfter.ToString("0") +
@@ -464,6 +510,130 @@ namespace PSXRacing.EditorTools
                 ", peak body slip " + peakSlip.ToString("0.0") + " deg, heading swung " + headMin.ToString("0.0") + ".." + headMax.ToString("0.0") +
                 " deg; lens vs heading max " + inLag.ToString("0.0") + " deg in the input, " + camLagMax.ToString("0.0") + " after, " + camLobes + " lobes");
             drive = false;
+        }
+
+        // ---- F: a Carbon drift - kick, hold, switch sides, hold -------------
+        const float FTarget = 35f;
+        /// <summary>Body slip in degrees, positive in direction <paramref name="dir"/>
+        /// (+1 = nose right of the travel, a right-hand drift).</summary>
+        float SlipIn(float dir) => car.chassisSlipAngle * Mathf.Rad2Deg * dir;
+
+        /// <summary>One held phase: a PD driver on the slip toward FTarget in
+        /// <paramref name="dir"/>. o: [rms error after settleS, share of that
+        /// time at full lock, peak slip, peak |yaw| deg/s, spun 0/1].</summary>
+        IEnumerator HoldF(float dir, float seconds, float settleS, float[] o, string tag)
+        {
+            float prev = SlipIn(dir), sq = 0f, n = 0f, sat = 0f, peak = -999f, peakYaw = 0f, tr = 0f;
+            for (float t = 0f; t < seconds; t += step)
+            {
+                yield return new WaitForFixedUpdate();
+                float sd = SlipIn(dir);
+                float rate = (sd - prev) / step; prev = sd;
+                steer = Mathf.Clamp(((FTarget - sd) - 0.12f * rate) / 20f, -1f, 1f) * dir;
+                peak = Mathf.Max(peak, sd);
+                peakYaw = Mathf.Max(peakYaw, Mathf.Abs(car.Body.angularVelocity.y * Mathf.Rad2Deg));
+                if (Mathf.Abs(car.chassisSlipAngle) > 1.75f) { o[4] = 1f; break; }
+                if (t >= settleS) { sq += (sd - FTarget) * (sd - FTarget); n += 1f; if (Mathf.Abs(steer) > 0.98f) sat += 1f; }
+                tr += step;
+                if (tr >= 0.25f) { tr = 0f; HandlingPlayCheck.Note("  F " + tag + " " + Trace(t) + " cam x " + camLastX.ToString("0.00")); }
+            }
+            o[0] = n > 0f ? Mathf.Sqrt(sq / n) : -1f;
+            o[1] = n > 0f ? sat / n : -1f;
+            o[2] = peak; o[3] = peakYaw;
+        }
+
+        IEnumerator TestF(string who)
+        {
+            yield return Place(4000f, 0f, 60f * Mph);
+            drive = true; throttle = 0.6f; steer = 0f; hand = false;
+            for (float t = 0f; t < 0.3f; t += step) yield return new WaitForFixedUpdate();
+            CamReset();
+            float v0 = Planar();
+            // The kick: lever with lock on, into a right-hand drift.
+            float dir = 1f;
+            hand = true; throttle = 0f; steer = dir;
+            for (float t = 0f; t < 0.2f; t += step) yield return new WaitForFixedUpdate();
+            hand = false; throttle = 0.85f;
+            var h1 = new float[5];
+            yield return HoldF(dir, 3.0f, 1.2f, h1, "hold R");
+            float v1 = Planar();
+            // The switch: off the gas, the wheel the other way, then the gas
+            // and the driver holding the new side.
+            var h2 = new float[5];
+            if (h1[4] < 0.5f)
+            {
+                dir = -1f;
+                throttle = 0.3f; steer = dir;
+                for (float t = 0f; t < 0.35f; t += step) yield return new WaitForFixedUpdate();
+                throttle = 0.85f;
+                yield return HoldF(dir, 2.6f, 1.2f, h2, "hold L");
+            }
+            float v2 = Planar();
+            // Let go.
+            throttle = 0f; steer = 0f;
+            for (float t = 0f; t < 1.5f; t += step) yield return new WaitForFixedUpdate();
+            camTrack = false;
+            bool spun = h1[4] > 0.5f || h2[4] > 0.5f;
+            HandlingPlayCheck.Note(who + ": F " + CamLine());
+            HandlingPlayCheck.Note(who + ": F speed " + (v0 / Mph).ToString("0") + " -> " + (v1 / Mph).ToString("0") +
+                                   " after the first hold -> " + (v2 / Mph).ToString("0") + " mph after the second");
+            HandlingPlayCheck.Check(camOffMax <= 0.12f,
+                who + ": F the car stays centred on screen through the drift and the switch (Carbon: within ~0.1)", CamLine());
+            // Measured 2026-10-02: 136 deg/s / 51 deg before the slide's
+            // weight (CarController.SlideYawInertiaMul), 107 / 48 after. The
+            // bound is the regression line: back toward the weightless kick
+            // fails.
+            HandlingPlayCheck.Check(!spun && h1[3] <= 115f && h1[2] <= 50f,
+                who + ": F the kick turns the car with weight (peak yaw <= 115 deg/s - it was 136 - slip <= 50 for a 35 target)",
+                (spun ? "SPUN; " : "") + "peak yaw " + h1[3].ToString("0") + " deg/s, peak slip " + h1[2].ToString("0") + " deg");
+            // A measurement, not a verdict: the scripted driver loses the slide
+            // as the speed falls under the drift layer's 36 mph (it did before
+            // and after the 2026-10-02 pass alike), so what it can hold says as
+            // much about the driver as about the car.
+            HandlingPlayCheck.Note(who + ": F holding 35 deg - " +
+                "right: rms " + h1[0].ToString("0.0") + " deg, full lock " + (100f * h1[1]).ToString("0") + "%; left after the switch: rms " +
+                h2[0].ToString("0.0") + " deg, full lock " + (100f * h2[1]).ToString("0") + "%, peak yaw " + h2[3].ToString("0") +
+                " deg/s, peak slip " + h2[2].ToString("0") + " deg");
+            drive = false;
+        }
+
+        // ---- G: the slide that gets away - the keyboard pendulum -----------
+        IEnumerator GPhase(float seconds, string tag, float[] o)
+        {
+            float tr = 0f;
+            for (float t = 0f; t < seconds; t += step)
+            {
+                yield return new WaitForFixedUpdate();
+                o[0] = Mathf.Max(o[0], Mathf.Abs(car.Body.angularVelocity.y * Mathf.Rad2Deg));
+                o[1] = Mathf.Max(o[1], Mathf.Abs(car.chassisSlipAngle) * Mathf.Rad2Deg);
+                tr += step;
+                if (tr >= 0.2f) { tr = 0f; HandlingPlayCheck.Note("  G " + tag + " " + Trace(t) + " cam x " + camLastX.ToString("0.00")); }
+            }
+        }
+
+        IEnumerator TestG(string who)
+        {
+            yield return Place(8000f, 0f, 70f * Mph);
+            drive = true; throttle = 0.6f; steer = 0f; hand = false;
+            for (float t = 0f; t < 0.3f; t += step) yield return new WaitForFixedUpdate();
+            CamReset();
+            var o = new float[2];
+            hand = true; throttle = 0f; steer = 1f;
+            yield return GPhase(0.25f, "kick ", o);
+            hand = false; throttle = 1f; steer = 1f;
+            yield return GPhase(0.7f, "into ", o);
+            steer = -1f;
+            yield return GPhase(0.8f, "catch", o);
+            steer = 1f;
+            yield return GPhase(0.6f, "back ", o);
+            steer = 0f; throttle = 0.5f;
+            yield return GPhase(1.5f, "let  ", o);
+            camTrack = false;
+            HandlingPlayCheck.Note(who + ": G peak yaw " + o[0].ToString("0") + " deg/s, peak body slip " + o[1].ToString("0") +
+                                   " deg (over 90 = it went round), end speed " + (Planar() / Mph).ToString("0") + " mph");
+            HandlingPlayCheck.Check(camOffMax <= 0.12f,
+                who + ": G a slide that gets away still keeps the car in the middle of the screen", CamLine());
+            drive = false; throttle = 0f; steer = 0f;
         }
 
         void Done()

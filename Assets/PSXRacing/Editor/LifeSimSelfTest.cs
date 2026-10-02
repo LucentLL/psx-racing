@@ -10799,8 +10799,24 @@ namespace PSXRacing.EditorTools
                   ChaseCamera.SpeedShakeDeg(80f, false));
             Check(3.4f >= 10f * ChaseCamera.DefaultSpeedShakeDeg,
                   "an impact shake (3.4 deg) stays an order of magnitude over road noise");
-            Check(ChaseCamera.DriftSwingClampRad <= 0.7f, "the drift swing is clamped under 40 deg of slip",
-                  ChaseCamera.DriftSwingClampRad);
+            // THE CAR STAYS IN THE MIDDLE (2026-10-02, the owner over NFS Carbon
+            // drift videos): whatever the follow's lag, the car's bearing from
+            // the lens ends inside the hold, softly - and a lens already
+            // square on the car is left alone.
+            {
+                Vector3 lens = Vector3.zero, carAt = new Vector3(0f, 0f, 6f);
+                float Bearing(Quaternion r)
+                {
+                    Vector3 f = r * Vector3.forward; f.y = 0f;
+                    return Vector3.SignedAngle(f, carAt - lens, Vector3.up);
+                }
+                var off = ChaseCamera.HoldCentre(Quaternion.Euler(8f, 40f, 0f), lens, carAt, ChaseCamera.CarCentreHoldDeg);
+                var square = ChaseCamera.HoldCentre(Quaternion.Euler(8f, 0f, 0f), lens, carAt, ChaseCamera.CarCentreHoldDeg);
+                Check(Mathf.Abs(Bearing(off)) <= ChaseCamera.CarCentreHoldDeg + 0.01f && Mathf.Abs(Bearing(square)) < 0.01f
+                      && Mathf.Abs(off.eulerAngles.x - 8f) < 0.01f && ChaseCamera.CarCentreHoldDeg <= 8f,
+                      "a lens 40 deg off the car is brought inside the centre hold (pitch kept); a square one is untouched",
+                      Bearing(off).ToString("0.00") + " deg");
+            }
 
             // ---- the speed blur: the owner's four speeds ---------------------
             // "30mph+ initiates very subtle blur, 60mph+ noticeable blur,
