@@ -894,6 +894,29 @@ namespace PSXRacing.City
         /// material switches the cards off. The trunks are not the tile's:
         /// PlantTrees hands them to <see cref="Trunks"/>.
         /// </summary>
+        /// <summary>
+        /// The trees already standing, re-dressed for the day the calendar now
+        /// says (the debug bench's date, 2026-10-02). A tile plants in the
+        /// dress of its day and keeps it; the dresses differ only in the kit's
+        /// material - the cards are sized for the widest - so the live tiles
+        /// swap materials and nothing is planted again. Tiles built later
+        /// plant in the new dress on their own.
+        /// </summary>
+        public void Redress()
+        {
+            var mat = CityTrees.MaterialFor(CityTrees.DressNow());
+            foreach (var kv in live)
+            {
+                var go = kv.Value.go;
+                if (go == null) continue;
+                var t = go.transform.Find("Trees");
+                var mr = t != null ? t.GetComponent<MeshRenderer>() : null;
+                if (mr == null) continue;
+                mr.sharedMaterial = mat;
+                mr.enabled = mat != null;
+            }
+        }
+
         public static GameObject AttachTrees(GameObject root, CityTrees.TreeTile tt, Material mat)
         {
             if (tt == null || tt.mesh == null) return null;

@@ -231,7 +231,7 @@ namespace PSXRacing
         /// </summary>
         void OpenBench()
         {
-            if (!open || !LifeSim.DebugCarOps.Available) return;
+            if (!open || !LifeSim.DebugCarOps.BenchAvailable) return;
             if (bench == null)
             {
                 bench = gameObject.AddComponent<DebugCarPanel>();
@@ -731,8 +731,9 @@ namespace PSXRacing
             // bottom. Each sits on the line of the row it belongs with, which
             // is what the geometric graph needs to reach it with LEFT or RIGHT.
 
-            // THE DEBUG BENCH, in a debug career only, on RESUME's line.
-            if (LifeSim.DebugCarOps.Available)
+            // THE DEBUG BENCH, in a debug career - or a Charlotte-edition
+            // drive with its own debug switch on - on RESUME's line.
+            if (LifeSim.DebugCarOps.BenchAvailable)
             {
                 // (Was "DEBUG: FAULTS + PARTS" until the bench grew a WORLD
                 // page and a CAR page — hour, weather, a different car.)

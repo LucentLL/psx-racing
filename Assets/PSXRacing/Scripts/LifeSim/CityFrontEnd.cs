@@ -345,6 +345,17 @@ namespace PSXRacing.LifeSim
                 MenuKit.FitOneLine(l, ColW);
                 y -= 34f;
             }
+            // This edition has no career to keep a debug flag in, so it has a
+            // switch of its own (2026-10-02): the pause menu then carries the
+            // DEBUG BENCH's WORLD (hour, weather, date) and MAP (jump anywhere).
+            Named(MenuKit.Button(body, "DEBUG MODE:  " + (DebugCarOps.CityDebug ? "ON" : "OFF"), new Vector2(0.5f, 1f),
+                new Vector2(0f, y), new Vector2(w, 48f), () => { DebugCarOps.CityDebug = !DebugCarOps.CityDebug; Rebuild(); }, 18),
+                "opt_debug");
+            y -= 46f;
+            var dl = MenuKit.Label(body, "Pause menu: DEBUG BENCH - hour, weather, date, and a map to jump anywhere in the city.",
+                17, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW, height: 24f);
+            MenuKit.FitOneLine(dl, ColW);
+            y -= 34f;
             MenuKit.Para(body, "The pause menu inside a drive carries most of these, plus the camera and RESET CAR.",
                 17, new Vector2(0.5f, 1f), new Vector2(ColL, y - 8f), out float h,
                 TextAnchor.UpperLeft, MenuKit.Dim, ColW);

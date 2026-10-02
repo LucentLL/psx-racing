@@ -808,6 +808,74 @@ namespace PSXRacing.EditorTools
         int framesN, frames33, frames50, frames100;
         float worstFrameMs;
 
+        // THE CITY BENCH (2026-10-02), PSX_RACE_BENCHCHECK=1 in a Charlotte
+        // race: the date to winter (the planted trees must wear winter), then
+        // three debug teleports - the I-277 loop, rural Beatties Ford 30 km
+        // out, Uptown - each judged two seconds later: on a road, at its
+        // height, not falling.
+        int benchStep;
+        float benchNext = 8f;
+        void BenchCheck()
+        {
+            if (System.Environment.GetEnvironmentVariable("PSX_RACE_BENCHCHECK") != "1") return;
+            var mode = FindAnyObjectByType<PSXRacing.City.CityMode>();
+            var world = PSXRacing.City.CityWorld.Active;
+            if (mode == null || world == null || world.Map == null) return;
+            float t = Time.time - t0;
+            if (t < benchNext || benchStep > 6) return;
+            var car = rm.playerCar;
+            switch (benchStep)
+            {
+                case 0:
+                {
+                    PSXRacing.LifeSim.DebugWorldOps.SetDay(PSXRacing.LifeSim.DebugWorldOps.DayIn(Season.Winter));
+                    var want = PSXRacing.City.CityTrees.MaterialFor(PSXRacing.City.CityTrees.DressNow());
+                    int trees = 0, dressed = 0;
+                    foreach (var mr in world.GetComponentsInChildren<MeshRenderer>(false))
+                    {
+                        if (mr.gameObject.name != "Trees") continue;
+                        trees++;
+                        if (mr.sharedMaterial == want) dressed++;
+                    }
+                    RacePlayCheck.Note($"BENCH date -> {PSXRacing.LifeSim.DebugWorldOps.DateLine()}, dress {Seasons.DressNames[Seasons.CurrentDress]}: {dressed}/{trees} tiles' trees re-dressed");
+                    RacePlayCheck.Check(trees > 0 && dressed == trees && Seasons.Current == Season.Winter,
+                                        "the bench's date puts the planted trees in the day's dress", dressed + "/" + trees);
+                    break;
+                }
+                case 1: case 3: case 5:
+                {
+                    Vector2[] spots = { LLPlan(35.2195, -80.8500), new Vector2(-8938f, 26444f), new Vector2(-2314f, 4726f) };
+                    string[] names = { "I-277", "Beatties Ford", "Uptown" };
+                    int k = benchStep / 2;
+                    bool ok = mode.DebugTeleport(spots[k], out string where);
+                    RacePlayCheck.Note($"BENCH teleport {names[k]} -> {(ok ? where : "REFUSED")}");
+                    RacePlayCheck.Check(ok, "the bench can teleport to " + names[k]);
+                    benchNext = t + 2f;
+                    benchStep++;
+                    return;
+                }
+                case 2: case 4: case 6:
+                {
+                    var p = car.transform.position;
+                    bool onRoad = world.Map.NearestRoadPoint(new Vector2(p.x, p.z), 12f, false, out int ei, out float at, out float d);
+                    float dy = onRoad ? p.y - world.Map.edges[ei].YAt(at) : float.NaN;
+                    float vy = car.GetComponent<Rigidbody>().linearVelocity.y;
+                    RacePlayCheck.Note($"  2 s later: {d:0.0} m off the road's line, {dy:+0.00;-0.00} m over its height, falling {-vy:0.0} m/s");
+                    RacePlayCheck.Check(onRoad && Mathf.Abs(dy) < 1.5f && vy > -3f, "the car landed on the road and stayed there");
+                    break;
+                }
+            }
+            benchStep++;
+            benchNext = t + 1f;
+        }
+
+        static Vector2 LLPlan(double lat, double lon)
+        {
+            const double Lat0 = 35.18456015184093, Lon0 = -80.81770185962013;
+            double mLon = 111320.0 * System.Math.Cos(Lat0 * System.Math.PI / 180.0);
+            return new Vector2((float)((lon - Lon0) * mLon), (float)((lat - Lat0) * 111132.0)) * PSXRacing.City.CityMap.LayoutScale;
+        }
+
         void Update()
         {
             if (rm == null || rm.path == null || t0 <= 0f || rm.playerCar == null) return;
@@ -817,6 +885,7 @@ namespace PSXRacing.EditorTools
             if (fms > 50f) frames50++;
             if (fms > 100f) frames100++;
             if (fms > worstFrameMs) worstFrameMs = fms;
+            BenchCheck();
             if (Time.time - lastEye < 0.1f) return;
             lastEye = Time.time;
             eyeHint = rm.path.NearestIndex(rm.playerCar.transform.position, eyeHint, 40);

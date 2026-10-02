@@ -162,6 +162,38 @@ namespace PSXRacing.City
         /// interpolated body takes it.
         /// </summary>
         /// <returns>True if the car now stands on a street's solved height.</returns>
+        /// <summary>
+        /// The debug bench's MAP (owner, 2026-10-02: "select a part of the city
+        /// from the map and teleport there"): the player onto the nearest
+        /// through street to a plan point (metres) - any road at all within
+        /// 2 km when no through street is within 400 m - on its lanes, at its
+        /// solved height, pointing along it, the 3x3 of tiles round it built
+        /// first so it lands on ground. In a race the lap count does not
+        /// follow the car; it is a debug jump, not a shortcut.
+        /// </summary>
+        /// <param name="where">The road's name, for the page's note.</param>
+        public bool DebugTeleport(Vector2 at, out string where)
+        {
+            where = null;
+            if (world == null || world.Map == null || player == null) return false;
+            var map = world.Map;
+            if (!map.NearestRoadPoint(at, 400f, skipLinks: true, out int ei, out float s, out _) &&
+                !map.NearestRoadPoint(at, 2000f, skipLinks: false, out ei, out s, out _))
+                return false;
+            var e = map.edges[ei];
+            var q = LineModel.LanePoint(e, s);
+            var t2 = e.TangentAt(s);
+            var rot = Quaternion.LookRotation(new Vector3(t2.x, 0f, t2.y), Vector3.up);
+            var pos = new Vector3(q.x, e.YAt(s), q.y);
+            world.EnsureRing(pos, 1);
+            player.ResetTo(pos, rot, seated: true);
+            where = string.IsNullOrEmpty(e.name) ? "an unnamed road" : e.name;
+            return true;
+        }
+
+        /// <summary>Where the player is, in plan metres (the MAP's car mark).</summary>
+        public Vector2 PlayerPlan => player != null ? new Vector2(player.transform.position.x, player.transform.position.z) : Vector2.zero;
+
         bool SeatOnStreet()
         {
             if (world == null || world.Map == null) return false;   // the town: a baked map, its own spawn

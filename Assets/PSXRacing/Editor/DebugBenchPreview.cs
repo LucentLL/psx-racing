@@ -88,7 +88,19 @@ namespace PSXRacing.EditorTools
             RaceHandoff.TimeOfDayIndex = TimeOfDay.Night;
             RaceHandoff.WeatherOverride = (int)Weather.Rain;
             Shoot(outDir, "bench_world", car, DebugCarPanel.Page.World);
+            // the date rows (2026-10-02), on a winter day, at the page's foot
+            RaceHandoff.CalendarDay = DebugWorldOps.DayIn(Season.Winter);
+            Shoot(outDir, "bench_world_end", car, DebugCarPanel.Page.World, scrollTo: 0f);
+            RaceHandoff.CalendarDay = 0;
             RaceHandoff.WeatherOverride = -1;
+            // THE MAP (2026-10-02): a debug career's drive in Charlotte, and the
+            // Charlotte edition's own bench - no career, WORLD and MAP only.
+            Shoot(outDir, "bench_map", car, DebugCarPanel.Page.Map, map: true);
+            Edition.Simulate(EditionKind.City);
+            RaceHandoff.CarSpecId = car != null ? car.specId : "";
+            Shoot(outDir, "bench_city_world", null, DebugCarPanel.Page.World, map: true);
+            Shoot(outDir, "bench_city_map", null, DebugCarPanel.Page.Map, map: true);
+            Edition.Simulate(null);
             Shoot(outDir, "bench_car", car, DebugCarPanel.Page.Car);
             Shoot(outDir, "bench_car_end", car, DebugCarPanel.Page.Car, scrollTo: 0f);
             string longest = null; int longestLen = 0;
@@ -106,7 +118,7 @@ namespace PSXRacing.EditorTools
         }
 
         static void Shoot(string outDir, string label, OwnedCar car, DebugCarPanel.Page page,
-                          float scrollTo = 1f, string make = null)
+                          float scrollTo = 1f, string make = null, bool map = false)
         {
             foreach (var size in Sizes)
             {
@@ -119,6 +131,7 @@ namespace PSXRacing.EditorTools
                 // No drive under an edit-mode page, so the two drive-only
                 // pages are asked for outright.
                 panel.forceDrivePages = true;
+                panel.forceMapPage = map;
                 panel.PreviewMake(make);
                 // Chosen BEFORE Open, not by turning the page after it: the
                 // page is only ever built once that way, so nothing depends on

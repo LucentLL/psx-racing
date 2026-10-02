@@ -59,6 +59,27 @@ namespace PSXRacing.LifeSim
             RaceHandoff.FromLifeSim && Edition.HasCareer && LifeSimManager.State != null &&
             LifeSimManager.State.debugMode;
 
+        // ---- the CITY edition's bench (owner, 2026-10-02: "In Charlotte/City
+        // fork the debug menu is not available when driving") ---------------
+        const string PrefCityDebug = "psx.city.debug";
+
+        /// <summary>The Charlotte edition's debug switch (its OPTIONS page):
+        /// that edition has no career to keep a debug flag in.</summary>
+        public static bool CityDebug
+        {
+            get => PlayerPrefs.GetInt(PrefCityDebug, 0) == 1;
+            set { PlayerPrefs.SetInt(PrefCityDebug, value ? 1 : 0); PlayerPrefs.Save(); }
+        }
+
+        /// <summary>A Charlotte-edition drive with its debug switch on: the
+        /// bench opens on WORLD and MAP only (FAULTS, PARTS and CAR are a
+        /// career's car, which this edition does not have).</summary>
+        public static bool CityBenchAvailable =>
+            RaceHandoff.FromLifeSim && !Edition.HasCareer && CityDebug;
+
+        /// <summary>Whether the pause menu offers DEBUG BENCH at all.</summary>
+        public static bool BenchAvailable => Available || CityBenchAvailable;
+
         /// <summary>
         /// The car under the player, as the SAVE knows it.
         ///
@@ -603,6 +624,40 @@ namespace PSXRacing.LifeSim
         public static int ForcedWeather => RaceHandoff.WeatherOverride;
 
         public static readonly string[] WeatherNames = { "CLEAR", "FOG", "RAIN", "SNOW" };
+
+        // ---- the date (owner, 2026-10-02: "change Season/Date in Debug
+        // options while driving") ------------------------------------------
+        /// <summary>The calendar day the drive reads: the season's dress and
+        /// the day's weather roll come off it. 0 = no calendar (the city
+        /// edition, a standalone race): the fall every scene was baked as.</summary>
+        public static int Day => RaceHandoff.CalendarDay;
+
+        public static readonly string[] SeasonNames = { "WINTER", "SPRING", "SUMMER", "FALL" };
+
+        /// <summary>The 15th of a season's middle month, 1999 (the career's
+        /// year): mid-January, -April, -July, -October.</summary>
+        public static int DayIn(Season season)
+        {
+            int month = season == Season.Winter ? 1 : season == Season.Spring ? 4 : season == Season.Summer ? 7 : 10;
+            return (int)(new System.DateTime(1999, month, 15) - LifeRules.DateOf(1)).TotalDays + 1;
+        }
+
+        /// <summary>Put the drive on another day: the scene's dress, the
+        /// weather the day rolls (unless the bench has forced one), the
+        /// engine's ambient - and Charlotte's trees, which keep the dress
+        /// they were planted in otherwise. 0 goes back to no calendar.</summary>
+        public static void SetDay(int day)
+        {
+            RaceHandoff.CalendarDay = Mathf.Max(0, day);
+            Reapply();
+            var city = PSXRacing.City.CityWorld.Active;
+            if (city != null) city.Redress();
+        }
+
+        /// <summary>"FRI 15 JAN 1999  ·  WINTER", or the baked fall.</summary>
+        public static string DateLine() =>
+            Day <= 0 ? "NO CALENDAR  ·  FALL (as baked)"
+                     : LifeRules.DateLabel(Day) + "  ·  " + SeasonNames[(int)Seasons.Current];
 
         public static void SetHour(int hour)
         {

@@ -53,7 +53,7 @@ namespace PSXRacing
         /// this component happens to run first.</summary>
         public int ClosedFrame { get; private set; } = -1;
 
-        public enum Page { Faults, Parts, World, Car }
+        public enum Page { Faults, Parts, World, Car, Map }
         Page page = Page.Faults;
 
         /// <summary>
@@ -76,7 +76,30 @@ namespace PSXRacing
         /// index). For the preview tool, which cannot press the make's button.</summary>
         public void PreviewMake(string make) => carMake = make;
 
-        static readonly string[] TabKeys = { "tab_faults", "tab_parts", "tab_world", "tab_car" };
+        static readonly string[] TabKeys = { "tab_faults", "tab_parts", "tab_world", "tab_car", "tab_map" };
+
+        /// <summary>Draw the MAP page with no city drive under it (the
+        /// preview tool, like <see cref="forceDrivePages"/>).</summary>
+        public bool forceMapPage;
+
+        /// <summary>
+        /// The pages this bench shows, in tab order. A debug career's drive:
+        /// FAULTS, PARTS, WORLD, CAR, and MAP in Charlotte; its garage: FAULTS
+        /// and PARTS. The Charlotte edition, which has no career (2026-10-02):
+        /// WORLD and MAP - the other three are a career's car.
+        /// </summary>
+        List<Page> Pages()
+        {
+            var list = new List<Page>(5);
+            bool career = S != null;
+            bool drive = DrivePages;
+            if (career) { list.Add(Page.Faults); list.Add(Page.Parts); }
+            if (drive || !career) list.Add(Page.World);
+            if (career && drive) list.Add(Page.Car);
+            if (forceMapPage || (drive && City.CityWorld.Active != null && FindAnyObjectByType<City.CityMode>() != null))
+                list.Add(Page.Map);
+            return list;
+        }
 
         /// <summary>
         /// Where the tester was when the page last closed: which page (kept in
@@ -125,7 +148,9 @@ namespace PSXRacing
         static readonly Color DebugPurple = new Color(0.26f, 0.14f, 0.34f, 1f);
         const string DimTag = "<color=#adadad>";
 
-        static LifeState S => LifeSimManager.State;
+        /// <summary>The career, or null in the Charlotte edition, which has
+        /// none (LifeSimManager.State would make one on first touch).</summary>
+        static LifeState S => Edition.HasCareer ? LifeSimManager.State : null;
 
         OwnedCar Car => target ?? DebugCarOps.TargetCar(S);
         static CarSpec SpecOf(OwnedCar car) => car != null ? CarCatalog.Get(car.specId) : null;
@@ -184,9 +209,10 @@ namespace PSXRacing
             if (pad != null && (pad.leftShoulder.wasPressedThisFrame ||
                                 pad.rightShoulder.wasPressedThisFrame))
             {
-                int pages = DrivePages ? 4 : 2;
-                int step = pad.rightShoulder.wasPressedThisFrame ? 1 : pages - 1;
-                Show((Page)(((int)page + step) % pages));
+                var pages = Pages();
+                int at = Mathf.Max(0, pages.IndexOf(page));
+                int step = pad.rightShoulder.wasPressedThisFrame ? 1 : pages.Count - 1;
+                Show(pages[(at + step) % pages.Count]);
             }
         }
 
@@ -273,9 +299,10 @@ namespace PSXRacing
                                    Margin, Margin, 14f, -14f, MenuKit.PanelBg);
 
             // ---- header: what this is, the way out, the two pages --------
+            string carName = car != null ? car.displayName
+                : !Edition.HasCareer ? (CarCatalog.Get(RaceHandoff.CarSpecId)?.name ?? "CHARLOTTE") : null;
             MenuKit.Label(root,
-                "DEBUG BENCH   ·   " + (car != null ? Clip(car.displayName, 40).ToUpperInvariant()
-                                                    : "NO CAR"),
+                "DEBUG BENCH   ·   " + (carName != null ? Clip(carName, 40).ToUpperInvariant() : "NO CAR"),
                 MenuKit.Small, new Vector2(0.5f, 1f), new Vector2(ColL, -10f),
                 TextAnchor.MiddleLeft, MenuKit.Accent, ColW - 200f, height: 36f, bold: true);
             Named(MenuKit.Button(root, "BACK", new Vector2(0.5f, 1f),
@@ -286,9 +313,10 @@ namespace PSXRacing
             // and the car under the player are things only a drive has. A page
             // left on WORLD by the last drive opens on FAULTS in the garage.
             bool drive = DrivePages;
-            if (!drive && page > Page.Parts) page = Page.Faults;
+            var pages = Pages();
+            if (!pages.Contains(page)) page = pages[0];
             int faults = car != null ? car.faults.Count : 0;
-            int tabs = drive ? 4 : 2;
+            int tabs = pages.Count;
             float tabW = (ColW - Gap * (tabs - 1)) / tabs;
             // The counts ride in the caption only while there is room for
             // them: a quarter of a 4:3 canvas holds fifteen capitals.
@@ -297,20 +325,23 @@ namespace PSXRacing
                 "FAULTS" + (faults > 0 ? "  (" + faults + (drive ? ")" : " ON)") : ""),
                 (drive ? "PARTS" : "PARTS + STAGES") +
                     (car != null && spec != null ? "  (" + Upgrades.TotalStages(car) + ")" : ""),
-                "WORLD", "CAR",
+                "WORLD", "CAR", "MAP",
             };
             for (int i = 0; i < tabs; i++)
             {
-                var p = (Page)i;
-                var tab = Named(MenuKit.Button(root, Clip(captions[i], CapsFit(tabW - 16f)),
+                var p = pages[i];
+                var tab = Named(MenuKit.Button(root, Clip(captions[(int)p], CapsFit(tabW - 16f)),
                     new Vector2(0.5f, 1f),
                     new Vector2(MenuKit.ColLeft(ColL + i * (tabW + Gap), tabW), -56f),
-                    new Vector2(tabW, 40f), () => Show(p), 20), TabKeys[i]);
+                    new Vector2(tabW, 40f), () => Show(p), 20), TabKeys[(int)p]);
                 MenuKit.MarkTab(tab, page == p);
             }
 
             // ---- footer: what the car is driving under, right now --------
-            var agg = car != null ? DebugCarOps.HandicapLine(car) : "";
+            var agg = car != null ? DebugCarOps.HandicapLine(car)
+                : S == null ? TimeOfDay.Label(DebugWorldOps.Hour) + "  ·  " +
+                              DebugWorldOps.WeatherNames[(int)Seasons.CurrentWeather] + "  ·  " + DebugWorldOps.DateLine()
+                : "";
             bool clean = car == null || car.faults.Count == 0 || agg == DebugCarOps.NoHandicap;
             var foot = MenuKit.Stretch(root, "Foot", new Vector2(0f, 0f), new Vector2(1f, 0f),
                                        0f, 0f, 0f, FooterH);
@@ -334,7 +365,7 @@ namespace PSXRacing
                 MenuKit.Label(foot, Clip(foot2, footFit), MenuKit.Tiny,
                     new Vector2(0.5f, 1f), new Vector2(ColL, -34f), TextAnchor.MiddleLeft,
                     MenuKit.Bad, ColW, height: 26f, bold: true);
-            else
+            else if (car != null || S != null)
                 MenuKit.Label(foot, Clip(DebugCarOps.BuildLine(car, spec), LowerFit(ColW)), MenuKit.Tiny,
                     new Vector2(0.5f, 1f), new Vector2(ColL, -34f), TextAnchor.MiddleLeft,
                     MenuKit.Dim, ColW, height: 26f);
@@ -347,7 +378,8 @@ namespace PSXRacing
             // The two drive pages first: neither needs a car on the bench (the
             // sky has no owner, and the CAR page is how a bench with no car
             // gets one).
-            if (s != null && page == Page.World) BuildWorld();
+            if (page == Page.World) BuildWorld();
+            else if (page == Page.Map) BuildMap();
             else if (s != null && page == Page.Car) BuildCar(s, car);
             else if (s == null || car == null)
                 MenuKit.Label(content, "There is no car to work on.", MenuKit.Body,
@@ -721,7 +753,8 @@ namespace PSXRacing
         {
             float y = -8f;
             MenuKit.Label(content,
-                Clip(note ?? "Changes land at once. RESTART RACE keeps them; the house takes them back.",
+                Clip(note ?? ("Changes land at once. RESTART RACE keeps them; the " +
+                              (Edition.HasCareer ? "house" : "menu") + " takes them back."),
                      LowerFit(ColW)),
                 MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 note != null ? MenuKit.Accent : MenuKit.Dim, ColW, height: 28f);
@@ -790,7 +823,266 @@ namespace PSXRacing
             MenuKit.Label(content, Clip(DebugWorldOps.WeatherLine(now), LowerFit(ColW)), MenuKit.Tiny,
                 new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 MenuKit.Dim, ColW, height: 26f);
+            y -= 38f;
+
+            // ---- the date: the season's dress and the day's own weather ----
+            // The owner, 2026-10-02: "the option to change Season/Date in Debug
+            // options while driving". Four seasons (the 15th of their middle
+            // month) and steps either way; NO CALENDAR is the baked fall.
+            int day = DebugWorldOps.Day;
+            MenuKit.Label(content, "DATE   ·   " + DebugWorldOps.DateLine(), MenuKit.Tiny,
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Accent, ColW, height: 26f, bold: true);
+            y -= 32f;
+            for (int i = 0; i < DebugWorldOps.SeasonNames.Length; i++)
+            {
+                var season = (Season)i;
+                int col = i % cols;
+                if (i > 0 && col == 0) y -= CellH + Gap;
+                var b = Named(MenuKit.Button(content, DebugWorldOps.SeasonNames[i], new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL + col * (cellW + Gap), cellW), y),
+                    new Vector2(cellW, CellH), () =>
+                    {
+                        DebugWorldOps.SetDay(DebugWorldOps.DayIn(season));
+                        note = "it is " + DebugWorldOps.DateLine() + " - the trees and the day's weather follow";
+                        Rebuild();
+                    }, 20), "season_" + i);
+                if (day > 0 && Seasons.Current == season) MenuKit.MarkTab(b, true);
+            }
+            y -= CellH + Gap;
+            int[] steps = { -30, -7, -1, 1, 7, 30 };
+            string[] stepCaps = { "-30 DAYS", "-7 DAYS", "-1 DAY", "+1 DAY", "+7 DAYS", "+30 DAYS", "NO CALENDAR" };
+            for (int i = 0; i <= steps.Length; i++)
+            {
+                bool baked = i == steps.Length;
+                int delta = baked ? 0 : steps[i];
+                int col = i % cols;
+                if (i > 0 && col == 0) y -= CellH + Gap;
+                var b = Named(MenuKit.Button(content, Clip(stepCaps[i], CapsFit(cellW - 16f)), new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL + col * (cellW + Gap), cellW), y),
+                    new Vector2(cellW, CellH), () =>
+                    {
+                        // from no calendar, a step starts at mid-fall: the
+                        // dress the city already wears
+                        int from = DebugWorldOps.Day > 0 ? DebugWorldOps.Day : DebugWorldOps.DayIn(Season.Fall);
+                        DebugWorldOps.SetDay(baked ? 0 : Mathf.Max(1, from + delta));
+                        note = "it is " + DebugWorldOps.DateLine();
+                        Rebuild();
+                    }, 20), "day_" + i);
+                if (baked && day <= 0) MenuKit.MarkTab(b, true);
+            }
+            y -= CellH + 12f;
+            MenuKit.Label(content, Clip("The date picks the season's dress, and the day's weather when the sky is the calendar's.",
+                                        LowerFit(ColW)), MenuKit.Tiny,
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Dim, ColW, height: 26f);
             y -= 30f;
+        }
+
+        // ---- MAP -----------------------------------------------------------
+        //
+        // The owner, 2026-10-02: "an option to select a part of the city from
+        // the map and teleport there in Debug mode, so I can test areas more
+        // quickly." The whole city drawn from the road graph (CityDebugMap), a
+        // cursor put down by a tap on the map or moved by the arrows (the
+        // pad's way to it), zoom about the cursor, TELEPORT HERE, and named
+        // spots that jump at once. Cursor and zoom are kept across rebuilds
+        // and reopenings: testing an area is a loop of jump, drive, pause.
+
+        /// <summary>The cursor, as a fraction of the map (x east, y north);
+        /// negative until first drawn, when it starts on the car.</summary>
+        static Vector2 mapCursor = new Vector2(-1f, -1f);
+        static int mapZoom = 1;
+
+        /// <summary>Where to jump in one press: the places the city's audits
+        /// and reference shots already measure (CityBudgetProbe's sites, in
+        /// its own terms: map metres, or latitude and longitude).</summary>
+        static readonly (string name, double a, double b, bool latLon)[] QuickSpots =
+        {
+            ("UPTOWN  TRADE + TRYON", -2314, 4726, false),
+            ("I-277  UPTOWN LOOP", 35.2195, -80.8500, true),
+            ("W TRADE  IRWIN CREEK", 35.2345, -80.8560, true),
+            ("SOUTH BLVD", 35.1930, -80.8680, true),
+            ("DILWORTH  QUEENS RD W", 35.19280, -80.83678, true),
+            ("PLAZA MIDWOOD", 35.22019, -80.80899, true),
+            ("PROVIDENCE RD", 1184, -1795, false),
+            ("I-77 NORTH", -2825, 16870, false),
+            ("I-485 SOUTH-EAST", 35.06068, -80.76398, true),
+            ("BEATTIES FORD  RURAL", -8938, 26444, false),
+        };
+
+        /// <summary>Plan metres from latitude and longitude: export_osm.mjs's
+        /// frame (CityBudgetProbe.LL, the same arithmetic).</summary>
+        static Vector2 PlanOf(double lat, double lon)
+        {
+            const double Lat0 = 35.18456015184093, Lon0 = -80.81770185962013;
+            double mLon = 111320.0 * System.Math.Cos(Lat0 * System.Math.PI / 180.0);
+            return new Vector2((float)((lon - Lon0) * mLon), (float)((lat - Lat0) * 111132.0)) * City.CityMap.LayoutScale;
+        }
+
+        void Teleport(City.CityMode mode, Vector2 plan, string label)
+        {
+            if (mode == null) { note = "no city drive to jump in"; Rebuild(); return; }
+            if (mode.DebugTeleport(plan, out string where))
+            {
+                note = "on " + where + (label != null ? " (" + label + ")" : "") + " - RESUME to drive";
+                mapCursor = new Vector2(-1f, -1f);   // the next draw centres on the car again
+            }
+            else note = "no road within 2 km of that point";
+            Rebuild();
+        }
+
+        void BuildMap()
+        {
+            float y = -8f;
+            var city = City.CityWorld.Active;
+            var map = city != null && city.Map != null ? city.Map : City.CityMap.Get();
+            var mode = FindAnyObjectByType<City.CityMode>();
+            if (map == null)
+            {
+                MenuKit.Label(content, "There is no city here.", MenuKit.Body, new Vector2(0.5f, 1f),
+                    new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
+                return;
+            }
+            MenuKit.Label(content,
+                Clip(note ?? "Tap the map or use the arrows, then TELEPORT HERE: the car lands on the nearest street.",
+                     LowerFit(ColW)),
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                note != null ? MenuKit.Accent : MenuKit.Dim, ColW, height: 28f);
+            y -= 36f;
+
+            var tex = CityDebugMap.Texture(map);
+            Vector2 carUV = CityDebugMap.ToUV(map, mode != null ? mode.PlayerPlan : map.uptown);
+            if (mapCursor.x < 0f) mapCursor = carUV;
+            float vs = 1f / mapZoom;
+            var vmin = new Vector2(Mathf.Clamp(mapCursor.x - vs * 0.5f, 0f, 1f - vs),
+                                   Mathf.Clamp(mapCursor.y - vs * 0.5f, 0f, 1f - vs));
+
+            // Side by side where the page is wide, stacked where it is not.
+            bool wide = ColW >= 860f;
+            float m = wide ? Mathf.Min(ColW * 0.46f, 470f) : Mathf.Min(ColW, 400f);
+            float mapLeft = wide ? ColL : -m * 0.5f;
+
+            var go = new GameObject("CityMap", typeof(RectTransform), typeof(RawImage));
+            var rt = (RectTransform)go.transform;
+            rt.SetParent(content, false);
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 1f);
+            rt.pivot = new Vector2(0f, 1f);
+            rt.anchoredPosition = new Vector2(mapLeft, y);
+            rt.sizeDelta = new Vector2(m, m);
+            var raw = go.GetComponent<RawImage>();
+            raw.texture = tex;
+            raw.uvRect = new Rect(vmin, new Vector2(vs, vs));
+            var click = go.AddComponent<DebugMapClick>();
+            click.onClick = uv =>
+            {
+                mapCursor = vmin + uv * vs;
+                note = null;
+                Rebuild();
+            };
+            Mark(rt, (carUV - vmin) / vs * m, 12f, new Color(1f, 0.25f, 0.2f, 1f));          // the car
+            Mark(rt, (mapCursor - vmin) / vs * m, 4f, Color.white, cross: true);             // the cursor
+
+            // ---- what is under the cursor --------------------------------
+            var target = CityDebugMap.ToPlan(map, mapCursor);
+            string near = map.NearestRoadPoint(target, 400f, true, out int nei, out _, out _)
+                ? (string.IsNullOrEmpty(map.edges[nei].name) ? "an unnamed road" : map.edges[nei].name)
+                : "no through street within 400 m";
+            float km = mode != null ? Vector2.Distance(target, mode.PlayerPlan) / 1000f : 0f;
+
+            float cx = wide ? mapLeft + m + Gap * 3f : ColL;
+            float cw = wide ? ColR - cx : ColW;
+            float cy = wide ? y : y - m - 16f;
+            int fit = LowerFit(cw);
+            MenuKit.Label(content, Clip("CURSOR  " + near, fit), MenuKit.Tiny, new Vector2(0.5f, 1f),
+                new Vector2(cx, cy), TextAnchor.MiddleLeft, MenuKit.Accent, cw, height: 26f, bold: true);
+            cy -= 28f;
+            MenuKit.Label(content, Clip(km.ToString("0.0") + " km from the car  ·  zoom x" + mapZoom, fit), MenuKit.Tiny,
+                new Vector2(0.5f, 1f), new Vector2(cx, cy), TextAnchor.MiddleLeft, MenuKit.Dim, cw, height: 26f);
+            cy -= 34f;
+
+            const float H = 50f;
+            var tp = Named(MenuKit.Button(content, "TELEPORT HERE", new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(cx, cw), cy), new Vector2(cw, H),
+                () => Teleport(mode, CityDebugMap.ToPlan(map, mapCursor), null), 20), "map_go");
+            if (mode == null) tp.interactable = false;
+            cy -= H + Gap;
+
+            // the arrows: an eighth of the view a press
+            float step = vs / 8f;
+            (string cap, Vector2 d)[] arrows = { ("WEST", new Vector2(-1, 0)), ("NORTH", new Vector2(0, 1)),
+                                                 ("SOUTH", new Vector2(0, -1)), ("EAST", new Vector2(1, 0)) };
+            float aw = (cw - Gap * 3f) / 4f;
+            for (int i = 0; i < arrows.Length; i++)
+            {
+                var d = arrows[i].d;
+                Named(MenuKit.Button(content, Clip(arrows[i].cap, CapsFit(aw - 12f)), new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(cx + i * (aw + Gap), aw), cy), new Vector2(aw, H), () =>
+                    {
+                        mapCursor = new Vector2(Mathf.Clamp01(mapCursor.x + d.x * step), Mathf.Clamp01(mapCursor.y + d.y * step));
+                        note = null;
+                        Rebuild();
+                    }, 20), "map_" + arrows[i].cap.ToLowerInvariant());
+            }
+            cy -= H + Gap;
+            float zw = (cw - Gap * 2f) / 3f;
+            string[] zc = { "ZOOM IN", "ZOOM OUT", "TO THE CAR" };
+            for (int i = 0; i < 3; i++)
+            {
+                int k = i;
+                Named(MenuKit.Button(content, Clip(zc[i], CapsFit(zw - 12f)), new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(cx + i * (zw + Gap), zw), cy), new Vector2(zw, H), () =>
+                    {
+                        if (k == 0) mapZoom = Mathf.Min(16, mapZoom * 2);
+                        else if (k == 1) mapZoom = Mathf.Max(1, mapZoom / 2);
+                        else mapCursor = new Vector2(-1f, -1f);
+                        note = null;
+                        Rebuild();
+                    }, 20), "map_zoom" + i);
+            }
+            cy -= H + 16f;
+
+            // ---- the named spots, one press each -------------------------
+            float below = Mathf.Min(wide ? y - m - 16f : cy, cy);
+            MenuKit.Label(content, "JUMP TO", MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, below),
+                TextAnchor.MiddleLeft, MenuKit.Accent, ColW, height: 26f, bold: true);
+            below -= 32f;
+            int cols = GridCols(300f, 4);
+            float cellW = (ColW - Gap * (cols - 1)) / cols;
+            for (int i = 0; i < QuickSpots.Length; i++)
+            {
+                var spot = QuickSpots[i];
+                int col = i % cols;
+                if (i > 0 && col == 0) below -= H + Gap;
+                var b = Named(MenuKit.Button(content, Clip(spot.name, CapsFit(cellW - 16f)), new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColL + col * (cellW + Gap), cellW), below), new Vector2(cellW, H),
+                    () => Teleport(mode, spot.latLon ? PlanOf(spot.a, spot.b) : new Vector2((float)spot.a, (float)spot.b), spot.name), 20), "spot_" + i);
+                if (mode == null) b.interactable = false;
+            }
+        }
+
+        /// <summary>A mark on the map: a dot, or a cross for the cursor.
+        /// <paramref name="at"/> is in the map's own units from its lower
+        /// left; off the view, nothing is drawn.</summary>
+        static void Mark(RectTransform map, Vector2 at, float size, Color col, bool cross = false)
+        {
+            float m = map.sizeDelta.x;
+            if (at.x < 0f || at.y < 0f || at.x > m || at.y > m) return;
+            void Bar(float w, float h)
+            {
+                var g = new GameObject("Mark", typeof(RectTransform), typeof(Image));
+                var r = (RectTransform)g.transform;
+                r.SetParent(map, false);
+                r.anchorMin = r.anchorMax = Vector2.zero;
+                r.pivot = new Vector2(0.5f, 0.5f);
+                r.anchoredPosition = at;
+                r.sizeDelta = new Vector2(w, h);
+                var img = g.GetComponent<Image>();
+                img.color = col;
+                img.raycastTarget = false;
+            }
+            if (cross) { Bar(28f, size); Bar(size, 28f); }
+            else Bar(size, size);
         }
 
         // ---- CAR -----------------------------------------------------------
@@ -958,5 +1250,121 @@ namespace PSXRacing
         static string Clip(string s, int max) =>
             string.IsNullOrEmpty(s) || s.Length <= max || max < 2 ? s
                 : s.Substring(0, max - 1).TrimEnd() + "…";
+    }
+
+    /// <summary>A tap on the bench's map, as a fraction of the image (0-1
+    /// from its lower left).</summary>
+    public class DebugMapClick : MonoBehaviour, UnityEngine.EventSystems.IPointerClickHandler
+    {
+        public System.Action<Vector2> onClick;
+
+        public void OnPointerClick(UnityEngine.EventSystems.PointerEventData e)
+        {
+            var rt = (RectTransform)transform;
+            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(rt, e.position, e.pressEventCamera, out var local)) return;
+            var r = rt.rect;
+            onClick?.Invoke(new Vector2(Mathf.Clamp01((local.x - r.xMin) / r.width), Mathf.Clamp01((local.y - r.yMin) / r.height)));
+        }
+    }
+
+    /// <summary>
+    /// The whole of Charlotte for the debug bench's MAP: every road and the
+    /// water, rasterised from the road graph once per session into a
+    /// 1024-pixel square (about 30 m a pixel). The menu thumbnail's frame and
+    /// palette (PSXRacingBuilder.BakeCityThumbnail), with the local streets
+    /// drawn dim instead of dropped: at a city-wide 128 px they were noise,
+    /// at 1024 and zoomed they are how a tester finds a neighbourhood.
+    /// </summary>
+    public static class CityDebugMap
+    {
+        public const int Size = 1024;
+        static Texture2D tex;
+        static City.CityMap texFor;
+        static Vector2 centre;
+        static float scale;   // pixels a metre
+
+        public static Texture2D Texture(City.CityMap map)
+        {
+            if (tex == null || texFor != map) Build(map);
+            return tex;
+        }
+
+        /// <summary>A plan point (metres) as a fraction of the map.</summary>
+        public static Vector2 ToUV(City.CityMap map, Vector2 plan)
+        {
+            Texture(map);
+            return new Vector2(((plan.x - centre.x) * scale + Size * 0.5f) / Size,
+                               ((plan.y - centre.y) * scale + Size * 0.5f) / Size);
+        }
+
+        /// <summary>A fraction of the map as a plan point (metres).</summary>
+        public static Vector2 ToPlan(City.CityMap map, Vector2 uv)
+        {
+            Texture(map);
+            return new Vector2((uv.x * Size - Size * 0.5f) / scale + centre.x,
+                               (uv.y * Size - Size * 0.5f) / scale + centre.y);
+        }
+
+        static void Build(City.CityMap map)
+        {
+            var mn = new Vector2(float.MaxValue, float.MaxValue);
+            var mx = new Vector2(float.MinValue, float.MinValue);
+            foreach (var e in map.edges)
+                foreach (var p in e.pts) { mn = Vector2.Min(mn, p); mx = Vector2.Max(mx, p); }
+            float span = Mathf.Max(mx.x - mn.x, mx.y - mn.y);
+            scale = (Size - 16) / Mathf.Max(span, 1f);
+            centre = (mn + mx) * 0.5f;
+
+            var px = new Color32[Size * Size];
+            var bg = new Color32(18, 20, 24, 255);
+            for (int i = 0; i < px.Length; i++) px[i] = bg;
+
+            void Dot(int x, int y, Color32 col)
+            {
+                if (x < 0 || y < 0 || x >= Size || y >= Size) return;
+                px[y * Size + x] = col;
+            }
+            void Line(Vector2 a, Vector2 b, Color32 col, bool thick)
+            {
+                float ax = (a.x - centre.x) * scale + Size * 0.5f, ay = (a.y - centre.y) * scale + Size * 0.5f;
+                float bx = (b.x - centre.x) * scale + Size * 0.5f, by = (b.y - centre.y) * scale + Size * 0.5f;
+                int steps = Mathf.Max(1, Mathf.CeilToInt(Mathf.Max(Mathf.Abs(bx - ax), Mathf.Abs(by - ay))));
+                for (int i = 0; i <= steps; i++)
+                {
+                    float t = (float)i / steps;
+                    int x = Mathf.RoundToInt(Mathf.Lerp(ax, bx, t)), y = Mathf.RoundToInt(Mathf.Lerp(ay, by, t));
+                    Dot(x, y, col);
+                    if (thick) { Dot(x + 1, y, col); Dot(x, y + 1, col); }
+                }
+            }
+
+            var water = new Color32(70, 130, 190, 255);
+            var local = new Color32(58, 60, 66, 255);
+            var street = new Color32(110, 110, 118, 255);
+            var art = new Color32(170, 160, 100, 255);
+            var fwy = new Color32(255, 190, 70, 255);
+            if (map.waters != null)
+                foreach (var w in map.waters)
+                {
+                    if (w.ravine || w.pts == null) continue;
+                    for (int i = 0; i + 1 < w.pts.Length; i++) Line(w.pts[i], w.pts[i + 1], water, false);
+                }
+            // dimmest first, so a freeway is never painted over by a street
+            for (int pass = 0; pass < 4; pass++)
+                foreach (var e in map.edges)
+                {
+                    int rank = e.cls >= 5 ? 3 : e.cls >= 3 ? 2 : e.cls >= 1 ? 1 : 0;
+                    if (rank != pass) continue;
+                    var col = rank == 3 ? fwy : rank == 2 ? art : rank == 1 ? street : local;
+                    for (int i = 0; i + 1 < e.pts.Length; i++) Line(e.pts[i], e.pts[i + 1], col, rank == 3);
+                }
+
+            if (tex == null) tex = new Texture2D(Size, Size, TextureFormat.RGBA32, false) { name = "CityDebugMap" };
+            tex.filterMode = FilterMode.Bilinear;
+            tex.wrapMode = TextureWrapMode.Clamp;
+            tex.SetPixels32(px);
+            tex.Apply(false);
+            texFor = map;
+        }
     }
 }
