@@ -95,6 +95,8 @@ namespace PSXRacing.EditorTools
             public bool coolNight;     // the owner's C12 choice ON for this frame (cool night darks)
             public string rig = "";    // "chase" / "close": the game's chase rig at rest instead of the protocol eye
             public float dayFill;      // the tune set: a TimeOfDay.HarshSunFill for this frame (0 = the constant)
+            public bool lowSunOff;     // the lowsun set: dawn/sunset as before 2026-10-02 (PSX_LOWSUN=0)
+            public float lowSunFill;   // the lowsun set: a TimeOfDay.LowSunFill for this frame (0 = the constant)
             public float snowTint;     // the tune set: the snow grounds' colour x this (0 = as dressed)
             public bool dynSky;        // the pause menu's SKY switch on DYNAMIC for this frame (the computed sky)
             public string diag = "";   // the night set's light census: "noamb", "nosun", "nofog", "nowet" (any mix) switch that light off for this frame
@@ -116,6 +118,8 @@ namespace PSXRacing.EditorTools
                 if (coolNight) s += "_cool";
                 if (!string.IsNullOrEmpty(rig)) s += "_rig" + rig;
                 if (dayFill > 0f) s += "_df" + Mathf.RoundToInt(dayFill * 100f).ToString("000");
+                if (lowSunOff) s += "_old";
+                if (lowSunFill > 0f) s += "_lf" + Mathf.RoundToInt(lowSunFill * 100f).ToString("000");
                 if (snowTint > 0f) s += "_st" + Mathf.RoundToInt(snowTint * 100f).ToString("000");
                 if (!string.IsNullOrEmpty(diag)) s += "_x" + diag.Replace(",", "");
                 if (dynSky) s += "_dyn";
@@ -158,6 +162,7 @@ namespace PSXRacing.EditorTools
                 if (sets.Contains("fx")) Guard("fx", FxSet);
                 if (sets.Contains("look")) Guard("look", LookSet);
                 if (sets.Contains("tune")) Guard("tune", TuneSet);
+                if (sets.Contains("lowsun")) Guard("lowsun", LowSunSet);
                 if (sets.Contains("explore")) Guard("explore", Explore);
                 if (sets.Contains("interior")) Guard("interior", Interiors);
                 if (sets.Contains("night")) Guard("night", NightSet);
@@ -480,6 +485,33 @@ namespace PSXRacing.EditorTools
             }
         }
 
+        /// <summary>
+        /// THE LOW SUN (set "lowsun", 2026-10-02: "Dawn and Sunset still
+        /// struggle with that very strong white, washed out filter
+        /// lighting"): downtown Charlotte (the owner's frames were West Trade
+        /// Street) and the circuit at the approved MORNING, then at dawn and
+        /// sunset as before (_old) and at every low-sun fill in
+        /// PSX_LOWSUNFILL_SWEEP (default 1,0.65,0.5; 1 = the grade's floor cut
+        /// alone). With the HUD on the Charlotte frames, so he sees the game.
+        /// </summary>
+        static void LowSunSet()
+        {
+            var fills = Floats("PSX_LOWSUNFILL_SWEEP", "1,0.65,0.5");
+            foreach (var id in new[] { "CD", "CC" })
+            {
+                var spot = ColourSpots.Find(id);
+                if (!OpenAt(spot, out var cam, out var player, out var pos, out var rot)) continue;
+                bool hud = id == "CD";
+                Frame(cam, player, spot, pos, rot, new Variant { hour = TimeOfDay.Morning, hud = hud });
+                foreach (int h in new[] { TimeOfDay.Dawn, TimeOfDay.Sunset })
+                {
+                    Frame(cam, player, spot, pos, rot, new Variant { hour = h, hud = hud, lowSunOff = true });
+                    foreach (float f in fills)
+                        Frame(cam, player, spot, pos, rot, new Variant { hour = h, hud = hud, lowSunFill = f });
+                }
+            }
+        }
+
         static List<float> Floats(string env, string dflt)
         {
             var list = new List<float>();
@@ -764,6 +796,10 @@ namespace PSXRacing.EditorTools
             if (v.sunLift) System.Environment.SetEnvironmentVariable("PSX_G1", "1");
             if (v.coolNight) System.Environment.SetEnvironmentVariable("PSX_COOLDARKS", "1");
             if (v.dayFill > 0f) System.Environment.SetEnvironmentVariable("PSX_DAYFILL", v.dayFill.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            string keepLow = System.Environment.GetEnvironmentVariable("PSX_LOWSUN");
+            string keepLowFill = System.Environment.GetEnvironmentVariable("PSX_LOWSUNFILL");
+            if (v.lowSunOff) System.Environment.SetEnvironmentVariable("PSX_LOWSUN", "0");
+            if (v.lowSunFill > 0f) System.Environment.SetEnvironmentVariable("PSX_LOWSUNFILL", v.lowSunFill.ToString(System.Globalization.CultureInfo.InvariantCulture));
             bool keepDyn = SkyModePrefs.Dynamic;
             if (v.dynSky != keepDyn) SkyModePrefs.Dynamic = v.dynSky;
             try
@@ -954,6 +990,8 @@ namespace PSXRacing.EditorTools
                 System.Environment.SetEnvironmentVariable("PSX_G1", keepG1);
                 System.Environment.SetEnvironmentVariable("PSX_COOLDARKS", keepCool);
                 System.Environment.SetEnvironmentVariable("PSX_DAYFILL", keepFill);
+                System.Environment.SetEnvironmentVariable("PSX_LOWSUN", keepLow);
+                System.Environment.SetEnvironmentVariable("PSX_LOWSUNFILL", keepLowFill);
                 if (keepNear > 0f) { cam.nearClipPlane = keepNear; keepNear = 0f; }
                 if (SkyModePrefs.Dynamic != keepDyn) SkyModePrefs.Dynamic = keepDyn;
                 cam.ResetProjectionMatrix();

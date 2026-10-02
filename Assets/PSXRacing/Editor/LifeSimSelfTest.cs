@@ -5177,9 +5177,26 @@ namespace PSXRacing.EditorTools
             float snow = TimeOfDay.ExposureFor(TimeOfDay.Noon, Weather.Snow);
             Check(noon > 0.55f && noon < 1f, "a clear noon is exposed down (the old shoulder's own gain on a sunlit road)", noon.ToString("0.000"));
             Check(snow > noon && snow < 1f, "a snowy noon less so", snow.ToString("0.000"));
-            foreach (int h in new[] { TimeOfDay.Dawn, TimeOfDay.Sunset, TimeOfDay.Dusk, TimeOfDay.Night })
+            foreach (int h in new[] { TimeOfDay.Dusk, TimeOfDay.Night })
                 Check(Mathf.Approximately(TimeOfDay.ExposureFor(h, Weather.Clear), 1f) && TimeOfDay.DayFillFor(h, Weather.Clear) == 1f,
                       TimeOfDay.At(h).name + " is exposed at exactly 1, its sky fill whole", TimeOfDay.ExposureFor(h, Weather.Clear));
+            // THE LOW SUN (2026-10-02, "Dawn and Sunset still struggle with that
+            // very strong white, washed out filter lighting"): the fill cut,
+            // NOT re-anchored - still exposed at exactly 1, so nothing at
+            // either hour gets lighter.
+            foreach (int h in new[] { TimeOfDay.Dawn, TimeOfDay.Sunset })
+            {
+                Check(Mathf.Approximately(TimeOfDay.ExposureFor(h, Weather.Clear), 1f)
+                      && Mathf.Abs(TimeOfDay.DayFillFor(h, Weather.Clear) - TimeOfDay.LowSunFill) < 1e-5f
+                      && TimeOfDay.DayFillFor(h, Weather.Rain) > 0.9f,
+                      TimeOfDay.At(h).name + " is exposed at exactly 1 with the low sun's fill cut (rain keeps nearly all of it)",
+                      TimeOfDay.DayFillFor(h, Weather.Clear).ToString("0.00") + " / rain " + TimeOfDay.DayFillFor(h, Weather.Rain).ToString("0.00"));
+                var lsLit = TimeOfDay.Lit(h, Weather.Clear, 0f, out _, out _);
+                Color lsNow = TimeOfDay.SkyAmbientFor(lsLit), lsOld = TimeOfDay.SkyAmbientFor(TimeOfDay.At(h));
+                Check(lsNow.r < lsOld.r && lsNow.g < lsOld.g && lsNow.b < lsOld.b && lsLit.sunIntensity <= TimeOfDay.At(h).sunIntensity,
+                      TimeOfDay.At(h).name + ": the shade darker, the sun no stronger (nothing lighter)",
+                      lsNow.g.ToString("0.000") + " vs " + lsOld.g.ToString("0.000"));
+            }
             // The real path, a city's skyglow included (the review's gate caught
             // a first cut that anchored before it: city nights 8 codes dark).
             foreach (int h in new[] { TimeOfDay.Dusk, TimeOfDay.Night })
@@ -5375,6 +5392,13 @@ namespace PSXRacing.EditorTools
                   && TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Rain) == 0f && TimeOfDay.GradeSunFor(TimeOfDay.Noon, Weather.Fog) == 0f
                   && TimeOfDay.GradeSunFor(TimeOfDay.Dusk, Weather.Clear) == 0f,
                   "G1's lift fade is keyed on a clear or snowy sunlit hour only");
+            // The low sun (2026-10-02): dawn and sunset topped up to the same
+            // 80% the day and the night take (night end + sun end = 1).
+            foreach (int h in new[] { TimeOfDay.Dawn, TimeOfDay.Sunset })
+                Check(Mathf.Abs(TimeOfDay.GradeSunFor(h, Weather.Clear) + TimeOfDay.GradeNightFor(h) - 1f) < 1e-5f
+                      && TimeOfDay.GradeSunFor(h, Weather.Rain) == 0f,
+                      TimeOfDay.At(h).name + " clear: the matte floor cut 80% like noon and night (rain keeps its veil)",
+                      TimeOfDay.GradeSunFor(h, Weather.Clear));
             string blit = System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXBlit.shader")
                 ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXBlit.shader") : "";
             Check(blit.Contains("if (_PSXGradeSun > 0.0)"), "and at 0 it is a branch not taken: the signed-off grade bit for bit");

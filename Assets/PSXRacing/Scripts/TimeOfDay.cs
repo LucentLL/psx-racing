@@ -431,7 +431,7 @@ namespace PSXRacing
                 // the sun is up cars still look completely washed out and
                 // white"): a sunlit hour's world, not its pale haze colour; the
                 // ground white only under the snow dress.
-                globals.paintDay = IsSunUp(index) ? 1f : 0f;
+                globals.paintDay = IsSunUp(index) || IsLowSun(index) ? 1f : 0f;
                 globals.paintSnow = weather == Weather.Snow ? 1f : 0f;
                 // And the COLOUR PASS (Shaders/PSXTone.cginc): one exposure
                 // for the hour as the weather left it, the one tone curve, and
@@ -623,7 +623,8 @@ namespace PSXRacing
         /// sun's height (a morning keeps more of its fill than a noon) and with
         /// how hard the weather leaves the sun (<see cref="ShadowFor"/>: clear
         /// 1, snow 0.45, fog 0.2, rain 0.15 - an overcast sky IS the light).
-        /// Dawn, sunset, dusk and night are not touched.
+        /// Dusk and night are not touched; dawn and sunset have their own cut
+        /// (<see cref="LowSunFill"/>, not re-anchored).
         /// Swept 1.0-0.3 on the colour protocol (tools\colour\colour-shots.ps1
         /// -Sets tune, PSX_DAYFILL_SWEEP), the car's whole shadow on the
         /// owner's Samuel Street deck at a clear noon found by pixels against
@@ -657,6 +658,11 @@ namespace PSXRacing
         /// </summary>
         public static float DayFillFor(Preset p, int hour, Weather w)
         {
+            // The low sun's own fill (see LowSunFill): a share of it, by how
+            // hard the weather leaves the sun - clear the whole cut, rain
+            // and fog next to none.
+            if (IsLowSun(hour))
+                return Mathf.Lerp(1f, LowSunFillNow, ShadowFor(hour, w) / ShadowFor(hour, Weather.Clear));
             if (!IsSunUp(hour)) return 1f;
             float el = p.sunEuler.x;
             if (el <= 0f) return 1f;
@@ -675,6 +681,66 @@ namespace PSXRacing
             {
                 case Morning: case Noon: case Afternoon: return true;
                 default: return false;
+            }
+        }
+
+        /// <summary>
+        /// THE LOW SUN (2026-10-02). The owner, after the daylight pass:
+        /// "lighting for Morning and Noon were greatly improved recently, but
+        /// Dawn and Sunset still struggle with that very strong white, washed
+        /// out filter lighting" - over two frames of West Trade Street at a
+        /// low sun whose every pixel sat between display 0.08 and 0.80
+        /// (median 0.36-0.40, the shaded towers 0.34-0.40). The daylight pass
+        /// had skipped these two hours on all three of its terms:
+        ///   * THE GRADE'S MATTE FLOOR. Morning to afternoon cut 80% of it (G1)
+        ///     and the night end cuts 80% at night - but dawn kept 60% and
+        ///     sunset 80% (only the night end's share), so SUNSET was the most
+        ///     veiled hour the game had. <see cref="GradeSunFor"/> now tops
+        ///     both up to the same 80% in clear air and snow.
+        ///   * THE SKY'S FILL. At 6-7 degrees the sun hardly lights a road, so
+        ///     everything the camera sees with the sun ahead - the road, both
+        ///     rows of towers - was the sky's fill alone, at a brightness
+        ///     (0.37-0.40) above the morning's cut fill. A low sun's shade is
+        ///     the deepest of the day in a photograph, and blue.
+        ///     <see cref="LowSunFill"/> cuts it; NOT re-anchored on the road as
+        ///     the harsh sun is (<see cref="Lit"/>), because at this height the
+        ///     "sunlit road" IS mostly fill - re-anchoring would give the cut
+        ///     straight back. Roads only get darker for it, never lighter.
+        ///   * THE PAINT'S WORLD. The cars mirrored the hour's pale peach fog
+        ///     colour where the morning's mirror the lit world
+        ///     (PSXGlobals.paintDay) - the same milky film the owner saw on
+        ///     daytime cars.
+        ///   * And DAWN'S DEW (<see cref="DampFor"/>): 0.18, a dusk's, mirrored
+        ///     the pink-white horizon over the whole road; now sunset's 0.07.
+        /// Measured (colour-shots -Sets lowsun, downtown Charlotte and the
+        /// circuit): before, both hours floored at Ycode 27 with 5.2-6.1 stops
+        /// p1-p99 where the approved morning has 7-8 and 8.25; the fill swept
+        /// 1 / 0.65 / 0.5 - 0.65 puts sunset on the morning's own numbers
+        /// (downtown median 37 vs 35, the shaded wall 33 vs 34).
+        /// Dusk is not touched: its "sun" is an afterglow, the night end
+        /// already takes 56% of the floor, and the owner calls it decent.
+        /// PSX_LOWSUN=0 in a tool is the picture from before (the A/B).
+        /// </summary>
+        static bool IsLowSun(int hour) =>
+            LowSunEnabled && (hour == Dawn || hour == Sunset);
+
+        public static bool LowSunEnabled => System.Environment.GetEnvironmentVariable("PSX_LOWSUN") != "0";
+
+        /// <summary>The share of its sky fill a clear dawn or sunset keeps
+        /// (see <see cref="IsLowSun"/>). Chosen off a sweep on the colour
+        /// protocol (PSX_LOWSUNFILL, -Sets lowsun) at downtown Charlotte and
+        /// the circuit against the owner's approved morning.</summary>
+        public const float LowSunFill = 0.65f;
+
+        /// <summary>For the look tools only: PSX_LOWSUNFILL=x is the fill a
+        /// clear dawn and sunset keep for that run (the sweep).</summary>
+        public static float LowSunFillNow
+        {
+            get
+            {
+                string v = System.Environment.GetEnvironmentVariable("PSX_LOWSUNFILL");
+                return !string.IsNullOrEmpty(v) && float.TryParse(v, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out float f) && f > 0f ? Mathf.Min(f, 1f) : LowSunFill;
             }
         }
 
@@ -716,6 +782,10 @@ namespace PSXRacing
             anchor = p;
             fill = DayFillFor(p, index, weather);
             p.ambient = new Color(p.ambient.r * fill, p.ambient.g * fill, p.ambient.b * fill, p.ambient.a);
+            // THE LOW SUN's cut is not re-anchored (see IsLowSun): a 6-degree
+            // sun's "sunlit road" is mostly the fill, so holding its light
+            // would give the cut straight back. The road only gets darker.
+            if (IsLowSun(index)) anchor = p;
             return p;
         }
 
@@ -827,7 +897,11 @@ namespace PSXRacing
             {
                 case Night:  return 0.24f;
                 case Dusk:   return 0.18f;
-                case Dawn:   return 0.18f;
+                // THE LOW SUN (2026-10-02, see IsLowSun): dawn's 0.18 dew
+                // mirrored the pink-white horizon over the whole road - its
+                // road measured 66-75 against the morning's 22 with the sun
+                // ahead, the biggest white in a dawn frame. Sunset's breath.
+                case Dawn:   return LowSunEnabled ? 0.07f : 0.18f;
                 case Sunset: return 0.07f;
                 default:     return 0f;
             }
@@ -976,6 +1050,11 @@ namespace PSXRacing
             switch (Mathf.Clamp(hour, 0, All.Length - 1))
             {
                 case Morning: case Noon: case Afternoon: return 1f;
+                // THE LOW SUN (see IsLowSun): what tops the night end's share
+                // up to the day's whole cut. PSX/Blit takes 0.80 x night plus
+                // 0.80 x this, so 1 - GradeNightFor is 80% at dawn and sunset
+                // exactly as at noon and at night.
+                case Dawn: case Sunset: return IsLowSun(hour) ? 1f - GradeNightFor(hour) : 0f;
                 default: return 0f;
             }
         }
