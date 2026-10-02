@@ -71,6 +71,8 @@ namespace PSXRacing.LifeSim
         /// drop against the WORSE of this and its own leg, so a box thrown on
         /// the floor on Main Street stays thrown.</summary>
         public static float CarryCondition = 1f;
+        /// <summary>The share of the order still edible across town (2026-10-02).</summary>
+        public static float CarryConsumable = 1f;
         /// <summary>Whether the car hit anything on that drive. Latched by
         /// TownWorld beside <see cref="CarryCondition"/> and handed to the
         /// race with it, because an order can only be REFUSED if something was
@@ -90,6 +92,7 @@ namespace PSXRacing.LifeSim
             DropFraction = 1f;
             TodIndex = 0;
             CarryCondition = 1f;
+            CarryConsumable = 1f;
             CarryHit = false;
         }
 
@@ -108,6 +111,7 @@ namespace PSXRacing.LifeSim
             DropFraction = dropFraction;
             TodIndex = todIndex;
             CarryCondition = 1f;
+            CarryConsumable = 1f;
             CarryHit = false;
             Carrying = true;
             SpawnAtShop = true;
@@ -176,6 +180,7 @@ namespace PSXRacing.LifeSim
             RaceHandoff.TimeOfDayIndex = TodIndex;
             RaceHandoff.StartFuelPct = car.fuel;
             RaceHandoff.CarryCondition = Mathf.Clamp01(CarryCondition);
+            RaceHandoff.CarryConsumable = Mathf.Clamp01(CarryConsumable);
             RaceHandoff.CarryHit = CarryHit;
             // The shape of the run. The fraction was rolled with the venue at
             // the counter and the par quoted there was sized to it, so the

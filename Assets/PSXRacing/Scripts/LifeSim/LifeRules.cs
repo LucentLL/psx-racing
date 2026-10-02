@@ -655,6 +655,10 @@ namespace PSXRacing.LifeSim
         /// and paying $0 for anything short of perfect would turn the job into a
         /// coin flip.</summary>
         public const float PizzaWorstMult = 0.25f;
+        /// <summary>What a pizza still in its box is worth at worst: half its
+        /// share (2026-10-02). It is still dinner; a wall or a slide across the
+        /// seat costs it looks, not the whole tip.</summary>
+        public const float EdibleWorstMult = 0.5f;
         /// <summary>Best and worst the clock alone can do to a tip. A quarter
         /// over for beating par is worth chasing; the floor is not zero, because
         /// a cold pizza is still a delivered pizza.</summary>
@@ -707,6 +711,9 @@ namespace PSXRacing.LifeSim
             public float conditionMult;
             /// <summary>The customer would not take it.</summary>
             public bool refused;
+            /// <summary>0-1: the share of the order still edible (boxes whose
+            /// pizza is still in them). The tip is paid on this share.</summary>
+            public float consumable;
             /// <summary>True while the run is still going — the HUD asks for a
             /// running total before there is a finish time.</summary>
             public bool inProgress;
@@ -734,7 +741,9 @@ namespace PSXRacing.LifeSim
                                                     float? cargoCondition = null,
                                                     float carryCondition = 1f,
                                                     float dropFraction = 1f,
-                                                    bool hitSomething = true)
+                                                    bool hitSomething = true,
+                                                    float consumable = -1f,
+                                                    float carryConsumable = 1f)
         {
             var o = new DeliveryOutcome
             {
@@ -756,6 +765,20 @@ namespace PSXRacing.LifeSim
             // the worse of the two legs, never magically the better.
             o.condition = Mathf.Min(o.condition, Mathf.Clamp01(carryCondition));
 
+            // WHAT IS STILL EDIBLE (the owner, 2026-10-02: "tip should be
+            // proportional to how much of the order is still consumable" - over
+            // a $0 RUINED tip with the order's one pizza in its box on the
+            // seat). With the cargo rig, that is the share of boxes whose pizza
+            // is still inside (PizzaCargo.Consumable), and the condition is the
+            // EDIBLE boxes' own: the tip is paid on the edible share, and how
+            // knocked about those pizzas are costs at most half of it. With no
+            // rig (consumable < 0) the damage tally's estimate decides it all
+            // or nothing, as it always did.
+            bool sim = consumable >= 0f;
+            o.consumable = sim ? Mathf.Clamp01(consumable)
+                               : (o.condition > PizzaRuinedCondition ? 1f : 0f);
+            o.consumable = Mathf.Min(o.consumable, Mathf.Clamp01(carryConsumable));
+
             // The clock. Under par pays a premium that keeps climbing to a
             // quarter over at 0.6x par; over par it slides to the floor by the
             // time the run has taken more than twice as long as it should.
@@ -766,7 +789,7 @@ namespace PSXRacing.LifeSim
 
             // The box. Untouched pays in full; anything the customer will still
             // accept pays at least a quarter.
-            o.conditionMult = Mathf.Lerp(PizzaWorstMult, 1f,
+            o.conditionMult = Mathf.Lerp(sim && o.consumable > 0f ? EdibleWorstMult : PizzaWorstMult, 1f,
                 Mathf.InverseLerp(PizzaRuinedCondition, PizzaPerfectCondition, o.condition));
 
             // "ZERO TIP SHOULD BE RESERVED FOR A LATE DELIVERY OR DAMAGED
@@ -793,22 +816,45 @@ namespace PSXRacing.LifeSim
             // (A LATE run is never zero either, and was not before: the clock's
             // floor is DeliverySlowMult. The rule says zero is ALLOWED there,
             // not that it is owed.)
-            o.refused = hitSomething && o.condition <= PizzaRuinedCondition;
+            //
+            // (2026-10-02) Refused now means NOTHING is edible: no pizza left in
+            // its box, and the car hit something. Anything less is paid on the
+            // share that is - and a driver who hit nothing and lost the lot is
+            // still paid the quarter above, on the whole order.
+            o.refused = hitSomething && o.consumable <= 0f;
+            float share = o.consumable > 0f ? o.consumable : 1f;
             o.tip = o.refused ? 0
-                  : Mathf.Max(0, Mathf.RoundToInt(o.quoted * o.timeMult * o.conditionMult));
+                  : Mathf.Max(0, Mathf.RoundToInt(o.quoted * o.timeMult * o.conditionMult * share));
             return o;
         }
 
         /// <summary>The box, in words, for the HUD and the result line. Same
         /// bands the multiplier uses, so what the player reads and what they are
         /// paid cannot tell different stories.</summary>
-        public static string PizzaConditionLabel(float condition)
+        public static string PizzaConditionLabel(float condition) => PizzaConditionLabel(condition, -1f);
+
+        /// <summary>The same, knowing the edible share (2026-10-02): RUINED
+        /// only when nothing is edible; a pizza still in its box is at worst
+        /// WRECKED. A negative share is the no-rig estimate's all-or-nothing.</summary>
+        public static string PizzaConditionLabel(float condition, float edible)
         {
-            if (condition <= PizzaRuinedCondition) return "RUINED";
+            if (edible >= 0f ? edible <= 0f : condition <= PizzaRuinedCondition) return "RUINED";
             if (condition < 0.5f) return "WRECKED";
             if (condition < 0.75f) return "SHAKEN";
             if (condition < PizzaPerfectCondition) return "KNOCKED ABOUT";
             return "INTACT";
+        }
+
+        /// <summary>The order in words for the HUD and the result: the edible
+        /// boxes' state, and how many pizzas were lost ("WRECKED · 1 PIZZA
+        /// LOST"); empty when the lot arrived intact.</summary>
+        public static string OrderLabel(DeliveryOutcome o, int boxes)
+        {
+            if (o.consumable <= 0f) return "RUINED";
+            string q = o.condition >= PizzaPerfectCondition ? null : PizzaConditionLabel(o.condition, o.consumable);
+            int lost = boxes > 0 ? Mathf.RoundToInt((1f - o.consumable) * boxes) : 0;
+            string l = lost > 0 ? lost + (lost == 1 ? " PIZZA LOST" : " PIZZAS LOST") : null;
+            return q != null && l != null ? q + " · " + l : q ?? l ?? "";
         }
 
         /// <summary>mm:ss for a delivery clock. The race HUD has its own
@@ -1267,7 +1313,9 @@ namespace PSXRacing.LifeSim
                                          // impacts, so the question answers itself.
                                          hitSomething: !RaceHandoff.CargoReported ||
                                                        RaceHandoff.CargoImpacts > 0 ||
-                                                       RaceHandoff.CarryHit);
+                                                       RaceHandoff.CarryHit,
+                                         consumable: RaceHandoff.CargoReported ? RaceHandoff.CargoConsumable : -1f,
+                                         carryConsumable: RaceHandoff.CarryConsumable);
                 s.money += drop.tip;
                 // Attendance was banked at the counter (ClockOnShift, from
                 // PizzaShift) — turning up is what the shop counts, and a night
@@ -1290,10 +1338,11 @@ namespace PSXRacing.LifeSim
                 // already carries a "RACE RESULT: " prefix. The venue is left
                 // out on purpose: the player has just driven it.
                 summary = drop.refused
-                    ? "REFUSED — the box was a write-off. No tip; you ate it."
+                    ? "REFUSED — nothing edible was left. No tip; you ate it."
                     : "delivered — " + DeliveryClock(drop.seconds) +
-                      " (par " + DeliveryClock(drop.parSeconds) + "), box " +
-                      PizzaConditionLabel(drop.condition).ToLower() + ", +" +
+                      " (par " + DeliveryClock(drop.parSeconds) + "), " +
+                      (OrderLabel(drop, RaceHandoff.CargoBoxes).Length > 0
+                          ? OrderLabel(drop, RaceHandoff.CargoBoxes).ToLower() : "intact") + ", +" +
                       MenuKit.Money(drop.tip);
             }
             else if (RaceHandoff.IsPractice)

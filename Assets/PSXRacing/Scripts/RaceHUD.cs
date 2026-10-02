@@ -1006,9 +1006,10 @@ namespace PSXRacing
             // deliver". What the driver CAN see is the state of the box, so
             // that is what this says. The tip beside it already falls to zero,
             // which is the honest half of the same news.
-            string line = "TIP $" + drop.tip +
-                (drop.condition >= LifeSim.LifeRules.PizzaPerfectCondition ? ""
-                 : "  " + LifeSim.LifeRules.PizzaConditionLabel(drop.condition));
+            // What is still edible decides it (2026-10-02): RUINED only when
+            // no pizza is left in its box, a lost pizza is named.
+            string order = LifeSim.LifeRules.OrderLabel(drop, LiveBoxes());
+            string line = "TIP $" + drop.tip + (order.Length > 0 ? "  " + order : "");
             if (line != lastTipLine) { lastTipLine = line; Set(posText, line); }
 
         }
@@ -1025,6 +1026,11 @@ namespace PSXRacing
         /// screen worse than the one the wallet is about to pay from, which is
         /// the one direction this readout must never drift.
         /// </summary>
+        /// <summary>How many boxes the order is: the live rig's while the run
+        /// is going, the stamped count after.</summary>
+        static int LiveBoxes() => RaceHandoff.ResultReady ? RaceHandoff.CargoBoxes
+            : PizzaCargo.Instance != null ? PizzaCargo.Instance.BoxCount : 0;
+
         LifeSim.LifeRules.DeliveryOutcome LiveDrop(float seconds)
         {
             bool stamped = RaceHandoff.ResultReady;
@@ -1033,10 +1039,13 @@ namespace PSXRacing
             // input dies at the line but the car keeps rolling, and a box that
             // slid off on the slowing-down lap must not make the results screen
             // read worse than the wallet.
+            bool live = PizzaCargo.Instance != null && PizzaCargo.Instance.BoxCount > 0;
             float? cargo = stamped
                 ? (RaceHandoff.CargoReported ? RaceHandoff.CargoCondition : (float?)null)
-                : (PizzaCargo.Instance != null && PizzaCargo.Instance.BoxCount > 0
-                       ? PizzaCargo.Instance.Condition : (float?)null);
+                : (live ? PizzaCargo.Instance.EdibleCondition : (float?)null);
+            float edible = stamped
+                ? (RaceHandoff.CargoReported ? RaceHandoff.CargoConsumable : -1f)
+                : (live ? PizzaCargo.Instance.Consumable : -1f);
             // Whether anything was HIT with the order aboard, either leg — a
             // refusal needs it (LifeRules.ScoreDelivery). With no simulation
             // the damage tally is the only model, and it only ever falls
@@ -1064,7 +1073,9 @@ namespace PSXRacing
                 // par" over a payout that had used a different clock.
                 // Point-to-point stages were unaffected; their run is baked.
                 dropFraction: RaceHandoff.DeliveryDropFraction,
-                hitSomething: hit);
+                hitSomething: hit,
+                consumable: edible,
+                carryConsumable: RaceHandoff.CarryConsumable);
         }
 
         string DeliverySheet(float finishTime)
@@ -1080,7 +1091,7 @@ namespace PSXRacing
             if (drop.refused)
                 return "REFUSED\nthe box was a write-off\n" + clock + "\nNO TIP";
             return "DELIVERED\n" + clock +
-                   "\nBOX " + LifeSim.LifeRules.PizzaConditionLabel(drop.condition) +
+                   "\nBOX " + (LifeSim.LifeRules.OrderLabel(drop, LiveBoxes()) is string ol && ol.Length > 0 ? ol : "INTACT") +
                    "\nTIP  " + LifeSim.MenuKit.Money(drop.tip);
         }
 

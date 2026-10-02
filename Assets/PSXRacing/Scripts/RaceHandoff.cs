@@ -110,6 +110,9 @@
         /// arrive graded as fresh out of the oven: the drop is scored against
         /// the WORSE of this and the race's own leg.</summary>
         public static float CarryCondition = 1f;
+        /// <summary>The share of the order still edible after the drive across
+        /// town (the run's own share is taken against it, the worse wins).</summary>
+        public static float CarryConsumable = 1f;
         /// <summary>Whether the car HIT anything on the way across town with
         /// the order aboard. The other half of <see cref="CarryCondition"/>,
         /// and carried for the same reason: a refusal needs an impact (see
@@ -364,6 +367,11 @@
         /// stand-in for this.
         /// </summary>
         public static float CargoCondition = 1f;
+        /// <summary>The share of the order still edible at the flag, and how
+        /// many boxes it was (PizzaCargo.Consumable / BoxCount; 2026-10-02).
+        /// CargoCondition is then the EDIBLE boxes' condition.</summary>
+        public static float CargoConsumable = 1f;
+        public static int CargoBoxes;
         /// <summary>Whether a PizzaCargo actually ran. False on an old scene,
         /// on a race that is not a delivery, and if the cargo prefabs are
         /// missing — where the DamageScore model is still the only answer
@@ -396,6 +404,8 @@
             DamageScore = 0f;
             HardHits = 0;
             CargoCondition = 1f;
+            CargoConsumable = 1f;
+            CargoBoxes = 0;
             CargoReported = false;
             CargoImpacts = 0;
             // Rides with the RESULT rather than the request: it is stamped on
@@ -418,6 +428,7 @@
             ArriveOnFoot = false; NoCar = false;
             Delivery = false; DeliveryPay = 0; Solo = false;
             CarryCondition = 1f;
+            CarryConsumable = 1f;
             CarryHit = false;
             // Both survive a scene load by design, so a delivery that left
             // either behind would hand the NEXT ordinary race a rolling start

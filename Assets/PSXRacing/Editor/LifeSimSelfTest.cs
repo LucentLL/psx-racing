@@ -5644,6 +5644,35 @@ namespace PSXRacing.EditorTools
                                                     cargoCondition: 1f, hitSomething: false);
             Check(!lateClean.refused && lateClean.tip > 0 && lateClean.tip < 50,
                   "a late box in perfect condition is tipped small, not refused", lateClean.tip);
+            // THE EDIBLE SHARE (owner, 2026-10-02: "tip should be proportional
+            // to how much of the order is still consumable", over a $0 RUINED
+            // tip with the order's one pizza in its box on the seat).
+            var inBox = LifeRules.ScoreDelivery(100, venue, par, 0f, 0, cargoCondition: 0.05f,
+                                                hitSomething: true, consumable: 1f);
+            var whole = LifeRules.ScoreDelivery(100, venue, par, 0f, 0, cargoCondition: 1f,
+                                                hitSomething: true, consumable: 1f);
+            Check(!inBox.refused && inBox.tip >= Mathf.RoundToInt(whole.tip * LifeRules.EdibleWorstMult) - 1,
+                  "a pizza still in its box is never refused and keeps at least half its share, however knocked about",
+                  "tip " + inBox.tip + " vs " + whole.tip + " intact");
+            Check(LifeRules.OrderLabel(inBox, 1) != "RUINED",
+                  "and the HUD does not call a pizza in its box RUINED", LifeRules.OrderLabel(inBox, 1));
+            var twoOfThree = LifeRules.ScoreDelivery(100, venue, par, 0f, 0, cargoCondition: 1f,
+                                                     hitSomething: true, consumable: 2f / 3f);
+            Check(!twoOfThree.refused && Mathf.Abs(twoOfThree.tip - whole.tip * 2f / 3f) <= 1f &&
+                  LifeRules.OrderLabel(twoOfThree, 3) == "1 PIZZA LOST",
+                  "two pizzas of three still in their boxes are paid two thirds, and one is named lost",
+                  twoOfThree.tip + " of " + whole.tip + ", '" + LifeRules.OrderLabel(twoOfThree, 3) + "'");
+            var noneHit = LifeRules.ScoreDelivery(100, venue, par, 0f, 0, cargoCondition: 0f,
+                                                  hitSomething: true, consumable: 0f);
+            var noneUnhit = LifeRules.ScoreDelivery(100, venue, par, 0f, 0, cargoCondition: 0f,
+                                                    hitSomething: false, consumable: 0f);
+            Check(noneHit.refused && noneHit.tip == 0 && !noneUnhit.refused && noneUnhit.tip > 0,
+                  "nothing edible after a hit is refused; with nothing hit it is still paid the quarter",
+                  "hit " + noneHit.tip + ", unhit " + noneUnhit.tip);
+            var lostInTown = LifeRules.ScoreDelivery(100, venue, par, 0f, 0, cargoCondition: 1f,
+                                                     hitSomething: true, consumable: 1f, carryConsumable: 0.5f);
+            Check(Mathf.Abs(lostInTown.consumable - 0.5f) < 0.001f,
+                  "a pizza lost on the drive across town counts against the run", lostInTown.consumable);
             if (sim.extended)
             {
                 Check(sim.runImpacts == 0, "the forty-corner run hits nothing", sim.runImpacts);

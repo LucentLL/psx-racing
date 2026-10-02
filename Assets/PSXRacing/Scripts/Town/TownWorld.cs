@@ -264,14 +264,20 @@ namespace PSXRacing.Town
                 label = "DELIVERY" + where;
                 if (PizzaCargo.Instance != null && PizzaCargo.Instance.BoxCount > 0)
                 {
-                    PizzaRun.CarryCondition = Mathf.Min(PizzaRun.CarryCondition,
-                                                        PizzaCargo.Instance.Condition);
+                    // The edible share and the edible boxes' condition
+                    // (2026-10-02): a box whose pizza is out is a lost pizza,
+                    // not a low grade dragging the rest down.
+                    PizzaRun.CarryConsumable = Mathf.Min(PizzaRun.CarryConsumable,
+                                                         PizzaCargo.Instance.Consumable);
+                    if (PizzaCargo.Instance.Consumable > 0f)
+                        PizzaRun.CarryCondition = Mathf.Min(PizzaRun.CarryCondition,
+                                                            PizzaCargo.Instance.EdibleCondition);
                     // Latched, never cleared here: the rig is rebuilt every
                     // time the driver gets back in, and its count starts again.
                     if (PizzaCargo.Instance.Impacts > 0) PizzaRun.CarryHit = true;
-                    if (PizzaRun.CarryCondition < LifeRules.PizzaPerfectCondition)
+                    if (PizzaRun.CarryCondition < LifeRules.PizzaPerfectCondition || PizzaRun.CarryConsumable < 1f)
                         label = "DELIVERY (" +
-                                LifeRules.PizzaConditionLabel(PizzaRun.CarryCondition) +
+                                LifeRules.PizzaConditionLabel(PizzaRun.CarryCondition, PizzaRun.CarryConsumable) +
                                 ")" + where;
                 }
             }

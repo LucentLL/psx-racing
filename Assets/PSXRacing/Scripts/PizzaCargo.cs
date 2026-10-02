@@ -1060,6 +1060,39 @@ namespace PSXRacing
         public int BoxCount => slots.Count;
 
         /// <summary>
+        /// The share of the order still EDIBLE: boxes whose pizza is still
+        /// inside them. The owner, 2026-10-02, over a $0 "RUINED" tip with the
+        /// one pizza of the order sitting in its box on the seat: "tip should be
+        /// proportional to how much of the order is still consumable." A box
+        /// that took a wall, popped its lid or slid into the footwell still
+        /// holds a pizza; one whose pizza is out of it does not. The bottles are
+        /// not part of it - "bottles don't impact tip" (2026-09-05).
+        /// </summary>
+        public float Consumable
+        {
+            get
+            {
+                if (slots.Count == 0) return 1f;
+                int n = 0;
+                foreach (var s in slots) if (!s.escaped) n++;
+                return (float)n / slots.Count;
+            }
+        }
+
+        /// <summary>What the EDIBLE boxes look like: the mean condition of the
+        /// boxes whose pizza is still in them (0 when none is). What a knock
+        /// costs a pizza the customer still gets.</summary>
+        public float EdibleCondition
+        {
+            get
+            {
+                float sum = 0f; int n = 0;
+                foreach (var s in slots) if (!s.escaped) { sum += s.Condition; n++; }
+                return n > 0 ? Mathf.Clamp01(sum / n) : 0f;
+            }
+        }
+
+        /// <summary>
         /// HOW MANY TIMES THE CAR HIT SOMETHING WITH THIS ORDER ABOARD: every
         /// jolt that actually reached the load, by either channel.
         ///

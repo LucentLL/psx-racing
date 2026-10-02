@@ -399,7 +399,10 @@ namespace PSXRacing
                 // delivery in a broken build pay full whack.
                 if (PizzaCargo.Instance != null && PizzaCargo.Instance.BoxCount > 0)
                 {
-                    RaceHandoff.CargoCondition = PizzaCargo.Instance.Condition;
+                    // What is still edible, and what THAT looks like (2026-10-02).
+                    RaceHandoff.CargoConsumable = PizzaCargo.Instance.Consumable;
+                    RaceHandoff.CargoBoxes = PizzaCargo.Instance.BoxCount;
+                    RaceHandoff.CargoCondition = PizzaCargo.Instance.EdibleCondition;
                     RaceHandoff.CargoImpacts = PizzaCargo.Instance.Impacts;
                     RaceHandoff.CargoReported = true;
                 }
