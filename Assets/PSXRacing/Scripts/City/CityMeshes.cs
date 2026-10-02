@@ -899,20 +899,146 @@ namespace PSXRacing.City
         }
 
         // ==================================================================
+        /// <summary>Build a tile in one go: every step of <see cref="Begin"/>'s
+        /// job, run to the end (the audits, the probes, the grid before a
+        /// race's countdown, and the tile under a car that cannot wait).</summary>
         public static TileMeshes Build(CityMap map, Trims trims,
             Dictionary<long, List<CityBuildings.B>> buildings, int tx, int tz)
         {
-            inBuild = true;
-            try { return BuildTile(map, trims, buildings, tx, tz); }
-            finally { inBuild = false; }
+            var job = Begin(map, trims, buildings, tx, tz);
+            job.Finish();
+            return job.Result;
         }
         /// <summary>Inside a tile build: LaneExtents computes (the section cache is being filled).</summary>
         static bool inBuild;
 
-        static TileMeshes BuildTile(CityMap map, Trims trims,
+        // ------------------------------------------------------------------
+        //  THE TIME-SLICED TILE BUILD (WP-09, owner 2026-10-01: "It regularly
+        //  bogs down about every two blocks" in Uptown). A tile was built in
+        //  one frame: 47-117 ms typical and up to 230-350 ms for one Uptown
+        //  tile in the editor, ~70% of it laying roads and decks, and five of
+        //  them in a row every time the car crossed a tile line. A TileJob is
+        //  the same build as a sequence of small steps - a road segment, a
+        //  gore, a junction, a footprint, four rows of ground, one mesh -
+        //  that CityWorld runs a few milliseconds a frame.
+        //
+        //  The steps are the one-go build's own code in its own order, so a
+        //  sliced tile is the same tile bit for bit (CityBudgetProbe checks).
+        //  The builder's scratch (buckets, caches, the lattice) is static and
+        //  belongs to ONE build: Begin finishes any job still running before
+        //  it starts another, and CityWorld runs no tree or sign frame - which
+        //  swap the lattice in and out - while a job is open.
+        // ------------------------------------------------------------------
+        static TileJob activeJob;
+        /// <summary>WP-09: section every road the tile will lay, and each
+        /// one's squeezed neighbours, a step each BEFORE they are needed, so a
+        /// span or a gore never pays for a long neighbour's first sectioning
+        /// inside its own step. The sections are the same either way (each
+        /// edge's are its own, cached by edge; CityBudgetProbe compares the
+        /// tiles against the build with this off).</summary>
+        public static bool WarmSections = true;
+        /// <summary>What the step under way is building (the probe's labels):
+        /// the phase (<see cref="PhaseNames"/>), the item and a part of it.</summary>
+        static int stepPhase, stepItem, stepPart;
+        /// <summary>The job whose steps own the builder's scratch, or null.</summary>
+        public static TileJob ActiveJob => activeJob;
+        static readonly System.Diagnostics.Stopwatch phaseClock = new System.Diagnostics.Stopwatch();
+
+        /// <summary>Start building a tile in steps (<see cref="TileJob.Step"/>).
+        /// A job still running is finished first.</summary>
+        public static TileJob Begin(CityMap map, Trims trims,
             Dictionary<long, List<CityBuildings.B>> buildings, int tx, int tz)
         {
+            if (activeJob != null) activeJob.Finish();
             var tm = new TileMeshes { origin = new Vector3(tx * TileSize, 0f, tz * TileSize), tap = RecordTap ? new RoadTap() : null };
+            var job = new TileJob(tx, tz, tm, TileSteps(map, trims, buildings, tx, tz, tm).GetEnumerator());
+            activeJob = job;
+            return job;
+        }
+
+        public sealed class TileJob
+        {
+            public readonly int tx, tz;
+            public readonly TileMeshes Result;
+            IEnumerator<int> steps;
+            /// <summary>Every step has run; <see cref="Result"/> is complete.</summary>
+            public bool Done { get; private set; }
+            /// <summary>Work done so far, ms (no idle time between frames).</summary>
+            public double WorkMs { get; private set; }
+            /// <summary>The longest single step, and the longest one call to
+            /// <see cref="Step"/> (a frame's share), ms.</summary>
+            public double MaxStepMs { get; private set; }
+            public double MaxSliceMs { get; private set; }
+            public int Steps { get; private set; }
+            public int Slices { get; private set; }
+            /// <summary>Set it to a list to record every step's ms (the probe).</summary>
+            public List<float> StepLog;
+            /// <summary>Set it to a list to record every step over
+            /// <see cref="BigStepMs"/>: its phase, item (an edge, a node, a
+            /// footprint) and part, and how long it took (the probe).</summary>
+            public List<(int phase, int item, int part, float ms, float missMs)> BigSteps;
+            public float BigStepMs = 8f;
+
+            internal TileJob(int tx, int tz, TileMeshes tm, IEnumerator<int> steps)
+            { this.tx = tx; this.tz = tz; Result = tm; this.steps = steps; }
+
+            /// <summary>Run steps until <paramref name="budgetMs"/> is spent
+            /// (at least one). True when the tile is done.</summary>
+            public bool Step(double budgetMs)
+            {
+                if (Done) return true;
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                double last = 0.0;
+                inBuild = true;
+                phaseClock.Start();
+                try
+                {
+                    while (true)
+                    {
+                        long miss0 = sectionMissTicks;
+                        bool more = steps.MoveNext();
+                        double now = clock.Elapsed.TotalMilliseconds;
+                        Steps++;
+                        StepLog?.Add((float)(now - last));
+                        if (BigSteps != null && now - last > BigStepMs)
+                            BigSteps.Add((stepPhase, stepItem, stepPart, (float)(now - last),
+                                          (float)((sectionMissTicks - miss0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency)));
+                        if (now - last > MaxStepMs) MaxStepMs = now - last;
+                        last = now;
+                        if (!more) { Close(); break; }
+                        if (now >= budgetMs) break;
+                    }
+                }
+                catch { Close(); throw; }
+                finally
+                {
+                    inBuild = false;
+                    phaseClock.Stop();
+                    double ms = clock.Elapsed.TotalMilliseconds;
+                    WorkMs += ms; Slices++;
+                    if (ms > MaxSliceMs) MaxSliceMs = ms;
+                }
+                return Done;
+            }
+
+            /// <summary>Run every step left, now.</summary>
+            public void Finish() { while (!Step(double.MaxValue)) { } }
+
+            /// <summary>Give the job up (the next build clears its scratch).</summary>
+            public void Abandon() { Close(); }
+
+            void Close()
+            {
+                Done = true;
+                steps?.Dispose();
+                steps = null;
+                if (activeJob == this) activeJob = null;
+            }
+        }
+
+        static IEnumerable<int> TileSteps(CityMap map, Trims trims,
+            Dictionary<long, List<CityBuildings.B>> buildings, int tx, int tz, TileMeshes tm)
+        {
             var min = new Vector2(tx * TileSize, tz * TileSize);
             var max = min + new Vector2(TileSize, TileSize);
 
@@ -931,35 +1057,89 @@ namespace PSXRacing.City
             fanPolys.Clear(); outlines.Clear(); ClearSectionCaches(); pavementVersion = -1;
             tileOrigin = tm.origin;
 
-            BuildGround(map, tm, min);
+            phaseClock.Restart();
+            foreach (var _ in BuildGround(map, tm, min)) yield return 0;
+            Phase(0);
             clipPairs.Clear(); goreEdges.Clear();
-            BuildGores(map, trims, tm, min, max);
+            foreach (var _ in BuildGores(map, trims, tm, min, max)) yield return 0;
+            Phase(1);
             // A gore's nose solves its verge before every branch's clip is in
             // the table: the outlines it sectioned are sectioned again with all
             // of them, and the fans it read are cornered again too (an arm's
             // clip and squeeze decide whether it has a mouth at all).
             outlines.Clear(); ClearSectionCaches(); fanPolys.Clear(); pavementVersion = -1;
-            BuildRoadsAndDecks(map, trims, tm, min, max);
-            BuildJunctions(map, trims, tm, min, max);
+            foreach (var _ in BuildRoadsAndDecks(map, trims, tm, min, max)) yield return 0;
+            Phase(2);
+            foreach (var _ in BuildJunctions(map, trims, tm, min, max)) yield return 0;
+            Phase(3);
+            stepPhase = 4; stepItem = -1; stepPart = 0;
             BuildWater(map, tm, min, max);
+            Phase(4);
+            yield return 0;
+            stepPhase = 5; stepItem = -1; stepPart = 0;
             BuildCulverts(map, trims, tm, min, max);
+            Phase(5);
+            yield return 0;
+            stepPhase = 6; stepItem = -1; stepPart = 0;
             BuildBuildings(map, buildings, tm, tx, tz);
-            BuildFootprints(map, trims, tm, tx, tz);
+            Phase(6);
+            yield return 0;
+            foreach (var _ in BuildFootprints(map, trims, tm, tx, tz)) yield return 0;
+            Phase(7);
+            stepPhase = 8; stepItem = -1; stepPart = 0;
             BuildHouses(map, tm, tx, tz);
+            Phase(8);
+            yield return 0;
 
-            tm.ground = MeshFrom("ground", new[] { Slot.Ground, Slot.Pavement }, out var gSlots);
+            stepPhase = 9; stepItem = 0; stepPart = 0;
+            tm.ground = MeshFrom("ground", new[] { Slot.Ground, Slot.Pavement }, out var gSlots, false);
             tm.groundSlots = gSlots;
-            tm.roads = MeshFrom("roads", RoadAndStructureSlots, out var roadSlots);
+            yield return 0;
+            FinishMesh(tm.ground);
+            yield return 0;
+            stepItem = 1;
+            tm.roads = MeshFrom("roads", RoadAndStructureSlots, out var roadSlots, false);
             tm.roadSlots = roadSlots;
             if (tm.tap != null) tm.tap.slotBase = tapSlotBase;
+            yield return 0;
+            FinishMesh(tm.roads);
+            yield return 0;
             tm.barriers = MeshFromBucket("barriers", barrierBucket);
             tm.kerbs = MeshFromBucket("kerbs", kerbBucket);
             tm.lampPosts = MeshFromBucket("lamps", lampBucket);
             tm.banks = MeshFromBucket("banks", bankBucket);
             tm.water = MeshFrom("water", new[] { Slot.Water }, out _);
-            tm.buildings = MeshFrom("bld", BuildingSlots, out var bSlots);
+            yield return 0;
+            stepItem = 3;
+            tm.buildings = MeshFrom("bld", BuildingSlots, out var bSlots, false);
             tm.buildingSlots = bSlots;
-            return tm;
+            yield return 0;
+            stepItem = 4;
+            FinishMesh(tm.buildings);
+            Phase(9);
+        }
+
+        // ---- where a tile build's time goes (WP-09 instrument) -------------
+        /// <summary>The build phases, in order: what CityBudgetProbe reports
+        /// per site, so the time-sliced build pauses where the time is.</summary>
+        public static readonly string[] PhaseNames =
+            { "ground", "gores", "roads", "junctions", "water", "culverts", "buildings", "footprints", "houses", "meshes" };
+        /// <summary>Milliseconds per phase, summed over every build since
+        /// <see cref="ResetPhaseClock"/>.</summary>
+        public static readonly double[] PhaseMs = new double[10];
+        /// <summary>The longest one phase took in any one tile since the reset.</summary>
+        public static readonly double[] PhaseMaxMs = new double[10];
+        public static void ResetPhaseClock()
+        {
+            System.Array.Clear(PhaseMs, 0, PhaseMs.Length);
+            System.Array.Clear(PhaseMaxMs, 0, PhaseMaxMs.Length);
+        }
+        static void Phase(int i)
+        {
+            double ms = phaseClock.Elapsed.TotalMilliseconds;
+            PhaseMs[i] += ms;
+            if (ms > PhaseMaxMs[i]) PhaseMaxMs[i] = ms;
+            phaseClock.Restart();
         }
 
         static readonly Slot[] BuildingSlots =
@@ -980,7 +1160,19 @@ namespace PSXRacing.City
             return list;
         }
 
-        static Mesh MeshFrom(string name, Slot[] wanted, out Slot[] usedSlots)
+        static Mesh MeshFrom(string name, Slot[] wanted, out Slot[] usedSlots) =>
+            MeshFrom(name, wanted, out usedSlots, true);
+
+        /// <summary>WP-09: <paramref name="finish"/> false leaves the normals
+        /// and bounds to <see cref="FinishMesh"/>, a step of their own.</summary>
+        static void FinishMesh(Mesh m)
+        {
+            if (m == null) return;
+            m.RecalculateNormals();
+            m.RecalculateBounds();
+        }
+
+        static Mesh MeshFrom(string name, Slot[] wanted, out Slot[] usedSlots, bool finish)
         {
             int totalV = 0;
             var used = new List<Slot>();
@@ -1008,8 +1200,7 @@ namespace PSXRacing.City
                 mesh.SetTriangles(tris, i, false);
                 baseV += bk.Count;
             }
-            mesh.RecalculateNormals();
-            mesh.RecalculateBounds();
+            if (finish) FinishMesh(mesh);
             return mesh;
         }
 
@@ -1035,7 +1226,7 @@ namespace PSXRacing.City
         /// rather than a shared lattice so a cell can change bucket; four
         /// times the ground vertices of a tile, which is still nothing.
         /// </summary>
-        static void BuildGround(CityMap map, TileMeshes tm, Vector2 min)
+        static IEnumerable<int> BuildGround(CityMap map, TileMeshes tm, Vector2 min)
         {
             int res = GroundRes;
             float cell = TileSize / res;
@@ -1047,6 +1238,8 @@ namespace PSXRacing.City
                     heights[z * stride + x] = LatticeVertex(map, ix0 + x, iz0 + z);
 
             for (int z = 0; z < res; z++)
+            {
+                if ((z & 3) == 0) { yield return 0; stepPhase = 0; stepItem = z; stepPart = 0; }   // WP-09: four rows a step
                 for (int x = 0; x < res; x++)
                 {
                     bool paved = PavedCell(map, ix0 + x, iz0 + z);
@@ -1055,6 +1248,7 @@ namespace PSXRacing.City
                     Vector2 U(int dx, int dz) => GroundUV(paved, min.x + (x + dx) * cell, min.y + (z + dz) * cell);
                     bk.Up(P(0, 0), P(0, 1), P(1, 1), P(1, 0), U(0, 0), U(0, 1), U(1, 1), U(1, 0));
                 }
+            }
         }
 
         static Bucket GroundBucket(bool paved) => buckets[(int)(paved ? Slot.Pavement : Slot.Ground)];
@@ -1355,7 +1549,7 @@ namespace PSXRacing.City
             return null;
         }
 
-        static void BuildGores(CityMap map, Trims trims, TileMeshes tm, Vector2 min, Vector2 max)
+        static IEnumerable<int> BuildGores(CityMap map, Trims trims, TileMeshes tm, Vector2 min, Vector2 max)
         {
             // Branch ends within reach of the tile: a clip starting outside
             // can run inside, and a barrier gap inside can come from a node outside.
@@ -1365,6 +1559,8 @@ namespace PSXRacing.City
             foreach (var packed in segScratch) edgeScratch.Add(packed >> 12);
             foreach (var ei in edgeScratch)
             {
+                yield return 0;   // WP-09: a branch edge a step
+                stepPhase = 1; stepItem = ei; stepPart = 0;
                 var L = map.edges[ei];
                 for (int end = 0; end < 2; end++)
                 {
@@ -1374,7 +1570,8 @@ namespace PSXRacing.City
                     var np = map.nodes[n];
                     if (np.x < min.x - GoreReach - 20f || np.x > max.x + GoreReach + 20f ||
                         np.y < min.y - GoreReach - 20f || np.y > max.y + GoreReach + 20f) continue;
-                    EmitBranch(map, trims, tm, min, max, L, map.edges[hostIdx], n);
+                    stepPart = 20;
+                    foreach (var _ in EmitBranch(map, trims, tm, min, max, L, map.edges[hostIdx], n)) yield return 0;
                 }
             }
         }
@@ -1508,7 +1705,7 @@ namespace PSXRacing.City
         /// of reach (false: the gap carries a metre on to the nose).</summary>
         static readonly List<(float a0, float a1, bool reclosed)> hostOpen = new List<(float, float, bool)>(4);
 
-        static void EmitBranch(CityMap map, Trims trims, TileMeshes tm, Vector2 min, Vector2 max,
+        static IEnumerable<int> EmitBranch(CityMap map, Trims trims, TileMeshes tm, Vector2 min, Vector2 max,
                                CityMap.Edge L, CityMap.Edge M, int node)
         {
             var host = BuildChain(map, M, node, linkChain: false, GoreReach + 60f, null);
@@ -1537,8 +1734,11 @@ namespace PSXRacing.City
             float openFrom = 0f, openTo = 0f, prevTravelled = 0f;
             BranchSample last = default;
             bool lastOk = false, detached = false;
+            yield return 0;
+            stepPart = 21;
             for (int k = 0; k <= 70; k++)
             {
+                if (k > 0 && k % 10 == 0) yield return 0;   // WP-09: ten stations a step
                 float travelled = k * GoreStep;
                 if (travelled > GoreReach) break;
                 if (!SampleBranch(map, trims, host, br, travelled, ref side, out var smp)) break;
@@ -1623,7 +1823,9 @@ namespace PSXRacing.City
                 }
                 goreGroups.Add((quadsFrom, goreQuads.Count, gb));
             }
-            if (attachedTo < 0f || side == 0) return;
+            if (attachedTo < 0f || side == 0) yield break;
+            yield return 0;   // WP-09: the stations, then the clips
+            stepPart = 22;
             if (open) hostOpen.Add((openFrom, openTo, false));
 
             // Every branch piece touched is clipped over its attached range,
@@ -2321,7 +2523,7 @@ namespace PSXRacing.City
             return m;
         }
 
-        static void BuildRoadsAndDecks(CityMap map, Trims trims, TileMeshes tm,
+        static IEnumerable<int> BuildRoadsAndDecks(CityMap map, Trims trims, TileMeshes tm,
                                        Vector2 min, Vector2 max)
         {
             segScratch.Clear();
@@ -2329,8 +2531,23 @@ namespace PSXRacing.City
             map.EdgeSegsInRect(min - Vector2.one * 40f, max + Vector2.one * 40f, segScratch);
             foreach (var packed in segScratch) edgeScratch.Add(packed >> 12);
 
+            if (WarmSections)
+                foreach (var wi in edgeScratch)
+                {
+                    if (rawSectionCache.ContainsKey(wi)) continue;
+                    var we = map.edges[wi];
+                    if (we.a == we.b && we.length < 1f) continue;
+                    float w0s = trims.atA[wi], w1s = we.length - trims.atB[wi];
+                    if (w1s - w0s < 0.6f) continue;
+                    yield return 0;   // WP-09: an edge's sections a step, ahead of its spans
+                    stepPhase = 2; stepItem = wi; stepPart = 4;
+                    RawSectionsOf(map, trims, we, w0s, w1s);
+                }
+
             foreach (var ei in edgeScratch)
             {
+                yield return 0;   // WP-09: a road segment a step
+                stepPhase = 2; stepItem = ei; stepPart = 0;
                 var e = map.edges[ei];
                 if (e.a == e.b && e.length < 1f) continue;
                 float sMin = trims.atA[ei], sMax = e.length - trims.atB[ei];
@@ -2340,17 +2557,37 @@ namespace PSXRacing.City
                 BuildSections(map, trims, tm, e, sMin, sMax);
                 int n = sections.Count;
                 if (n < 2) continue;
+                yield return 0;   // WP-09: the sections, then the side flags, a step each
+                if (WarmSections)
+                    for (int k = 0; k < n; k++)
+                        for (int sd = -1; sd <= 1; sd += 2)
+                        {
+                            int nb = sections[k].Nb(sd);
+                            if (nb < 0 || rawSectionCache.ContainsKey(nb)) continue;
+                            var ne = map.edges[nb];
+                            if (ne.a == ne.b && ne.length < 1f) continue;
+                            float n0s = trims.atA[nb], n1s = ne.length - trims.atB[nb];
+                            if (n1s - n0s < 0.6f) continue;
+                            stepPart = 5; stepItem = nb;
+                            RawSectionsOf(map, trims, ne, n0s, n1s);
+                            yield return 0;   // WP-09: a neighbour's sections a step
+                        }
+                stepItem = ei;
+                stepPart = 1;
 
                 // ---- what stands on each side of each span ----
                 // Decided for every span within FlagReachM of the tile, so a
                 // run that ends just beyond the tile flares and caps the same
                 // way whichever tile draws the span beside it.
-                DecideSideFlags(map, trims, tm, e, min, max);
+                foreach (var _ in DecideSideFlagsSteps(map, trims, tm, e, min, max)) yield return 0;
+                yield return 0;
+                stepPart = 2;
 
                 // ---- spans ----
                 float sincePier = PierEvery * 0.6f;
                 for (int i = 1; i < n; i++)
                 {
+                    if ((i & 15) == 0) yield return 0;   // WP-09: sixteen spans a step
                     var A = sections[i - 1]; var B = sections[i];
                     var f = spanFlags[i];
                     if (f.skip) continue;
@@ -2388,6 +2625,8 @@ namespace PSXRacing.City
                 // Here, while this edge's sections and side flags are still
                 // the ones the tile just drew from: a lamp stands only on a
                 // side the tile laid as a plain verge.
+                yield return 0;
+                stepPart = 3;
                 PlaceLamps(map, trims, tm, e, min, max);
             }
         }
@@ -3375,6 +3614,13 @@ namespace PSXRacing.City
 
         static void DecideSideFlags(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, Vector2 min, Vector2 max)
         {
+            foreach (var _ in DecideSideFlagsSteps(map, trims, tm, e, min, max)) { }
+        }
+
+        /// <summary><see cref="DecideSideFlags"/> in steps (WP-09): eight spans
+        /// of ground probes a step - a kilometre of I-277 was 72 ms in one.</summary>
+        static IEnumerable<int> DecideSideFlagsSteps(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, Vector2 min, Vector2 max)
+        {
             int n = sections.Count;
             spanFlags.Clear(); flareL.Clear(); flareR.Clear(); shiftL.Clear(); shiftR.Clear();
             for (int k = 0; k < n; k++) { spanFlags.Add(default); flareL.Add(0f); flareR.Add(0f); shiftL.Add(0f); shiftR.Add(0f); }
@@ -3389,13 +3635,17 @@ namespace PSXRacing.City
                 if (p.x < lo.x || p.x > hi.x || p.y < lo.y || p.y > hi.y) continue;
                 w0 = Mathf.Min(w0, k); w1 = Mathf.Max(w1, k);
             }
-            if (w1 < 0) return;
+            if (w1 < 0) yield break;
             w0 = Mathf.Max(0, w0 - 1); w1 = Mathf.Min(n - 1, w1 + 1);
 
+            stepPart = 10;
             StructureEnds(map, trims, e, endScratch);
             bool barriered = Barriered(e);
+            yield return 0;
+            stepPart = 11;
             for (int i = 1; i < n; i++)
             {
+                if ((i & 7) == 0) yield return 0;   // WP-09: eight spans a step
                 var A = sections[i - 1]; var B = sections[i];
                 var f = new SpanFlags
                 {
@@ -3478,6 +3728,8 @@ namespace PSXRacing.City
                 spanFlags[i] = f;
             }
 
+            yield return 0;
+            stepPart = 12;
             // THE RETAINING WALLS ARE RUNS. Per span, one DEM sample against a
             // 2 m threshold flickered the wall on and off; a gap of up to
             // CutRunEndSpans spans is closed, and a run shorter than
@@ -4713,7 +4965,19 @@ namespace PSXRacing.City
         /// outline was half of all the sectioning a tile did. Cleared with the
         /// outlines, since BuildGores fills the clip table.
         /// </summary>
+        /// <summary>Time spent sectioning edges the cache did not hold (WP-09's
+        /// probe: which big steps are first sight of a long neighbour).</summary>
+        static long sectionMissTicks;
         static List<Section> RawSectionsOf(CityMap map, Trims trims, CityMap.Edge e, float sMin, float sMax)
+        {
+            if (rawSectionCache.TryGetValue(e.index, out var hit)) return hit;
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            var r = RawSectionsOfMiss(map, trims, e, sMin, sMax);
+            sectionMissTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+            return r;
+        }
+
+        static List<Section> RawSectionsOfMiss(CityMap map, Trims trims, CityMap.Edge e, float sMin, float sMax)
         {
             if (rawSectionCache.TryGetValue(e.index, out var list)) return list;
             list = rawSectionPool.Count > 0 ? rawSectionPool.Pop() : new List<Section>(32);
@@ -6840,7 +7104,7 @@ namespace PSXRacing.City
         /// stood on decks with 42 open chords a car's width or more (21 m at
         /// West Boulevard and Fordham Road).
         /// </summary>
-        static void BuildJunctions(CityMap map, Trims trims, TileMeshes tm,
+        static IEnumerable<int> BuildJunctions(CityMap map, Trims trims, TileMeshes tm,
                                    Vector2 min, Vector2 max)
         {
             var con = buckets[(int)Slot.Concrete];
@@ -6858,6 +7122,8 @@ namespace PSXRacing.City
 
             foreach (var n in nodesHere)
             {
+                yield return 0;   // WP-09: a junction a step
+                stepPhase = 3; stepItem = n; stepPart = 0;
                 if (!trims.patch[n]) continue;
                 var np = map.nodes[n];
                 if (np.x < min.x || np.x >= max.x || np.y < min.y || np.y >= max.y) continue;
@@ -7866,12 +8132,14 @@ namespace PSXRacing.City
         // ------------------------------------------------------------------
         static readonly List<Vector2> roofScratch = new List<Vector2>(32);
 
-        static void BuildFootprints(CityMap map, Trims trims, TileMeshes tm, int tx, int tz)
+        static IEnumerable<int> BuildFootprints(CityMap map, Trims trims, TileMeshes tm, int tx, int tz)
         {
             var list = map.FootprintsInTile(tx, tz);
-            if (list == null) return;
+            if (list == null) yield break;
             foreach (var fi in list)
             {
+                yield return 0;   // WP-09: a footprint a step
+                stepPhase = 7; stepItem = fi; stepPart = 0;
                 var f = map.footprints[fi];
                 if (f.propKind != 0) continue;   // a model stands here; CityWorld places it
                 float g = float.MaxValue;

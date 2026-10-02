@@ -480,6 +480,8 @@ namespace PSXRacing.EditorTools
                 RacePlayCheck.Check(worstWrong <= 2f, "no car drives the wrong way for more than 2 s",
                                     worstWrong > 0f ? wrongWho + " " + worstWrong.ToString("0.0") + " s" : "none");
             }
+            RacePlayCheck.Note($"FRAMES (WP-09; city streaming {(PSXRacing.City.CityWorld.SliceBuilds ? "SLICED" : "ONE TILE A FRAME")}): {framesN} frames, " +
+                               $"over 33 ms {frames33}, over 50 ms {frames50}, over 100 ms {frames100}, worst {worstFrameMs:0} ms");
             ReportTraffic(retiredAt, finishedAt, raced);
             Done();
         }
@@ -801,9 +803,20 @@ namespace PSXRacing.EditorTools
 
         /// <summary>Ten times a second: where the player is and what the eye
         /// is doing (ExposureAdapt, stepped by PSXGlobals this frame).</summary>
+        // WP-09: how the race's frames went (the city's tile builds are the
+        // spikes): frames over 33 / 50 / 100 ms and the worst, real time.
+        int framesN, frames33, frames50, frames100;
+        float worstFrameMs;
+
         void Update()
         {
             if (rm == null || rm.path == null || t0 <= 0f || rm.playerCar == null) return;
+            float fms = Time.unscaledDeltaTime * 1000f;
+            framesN++;
+            if (fms > 33f) frames33++;
+            if (fms > 50f) frames50++;
+            if (fms > 100f) frames100++;
+            if (fms > worstFrameMs) worstFrameMs = fms;
             if (Time.time - lastEye < 0.1f) return;
             lastEye = Time.time;
             eyeHint = rm.path.NearestIndex(rm.playerCar.transform.position, eyeHint, 40);

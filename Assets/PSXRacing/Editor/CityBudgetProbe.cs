@@ -180,9 +180,13 @@ namespace PSXRacing.EditorTools
                 // back, so machine load drifts across the pair as little as it
                 // can (the WP-08 review: two passes a site list apart read one
                 // site's p95 as 72 ms one way and 31 ms the other)
+                // PSX_BUDGET_SITES=a,b (WP-09): only those sites, the shipping
+                // pass only - a quick read of where one area's time goes.
+                string onlySites = System.Environment.GetEnvironmentVariable("PSX_BUDGET_SITES");
                 foreach (var site in sites)
                 for (int pass = 0; pass < 2; pass++)
                 {
+                    if (!string.IsNullOrEmpty(onlySites) && (pass != 0 || System.Array.IndexOf(onlySites.Split(','), site.name) < 0)) continue;
                     CityProps.UseCityVariants = true;
                     CityTrees.Enabled = true;
                     CitySigns.Enabled = true;
@@ -207,7 +211,15 @@ namespace PSXRacing.EditorTools
                     }
 
                     timings.Clear();
+                    CityMeshes.ResetPhaseClock();
                     world.EnsureRing(new Vector3(site.at.x, 0f, site.at.y), 2);
+                    if (pass == 0)
+                    {
+                        var ph = new StringBuilder($"phases {site.name,-14} (sum over the ring / longest in one tile, ms):");
+                        for (int i = 0; i < CityMeshes.PhaseNames.Length; i++)
+                            ph.Append($"  {CityMeshes.PhaseNames[i]} {CityMeshes.PhaseMs[i]:0}/{CityMeshes.PhaseMaxMs[i]:0}");
+                        L(ph.ToString());
+                    }
                     // the tile builds, and (WP-08) the tree frames: a tile's
                     // trees plant on a frame of their own after its build
                     var treeFrames = timings.FindAll(t => t.treeFrame);
@@ -394,8 +406,108 @@ namespace PSXRacing.EditorTools
                 if (demTa != null) Resources.UnloadAsset(demTa);
             }
 
+            // ---- WP-09: the time-sliced build ------------------------------
+            // Every tile of the Uptown rings built twice - in one go, and as a
+            // TileJob one step a call - and the two compared mesh by mesh; and
+            // the steps timed, since the longest step is the floor of the
+            // worst frame a sliced build can cost.
+            if (CityWorld.SharedTrims != null)
+            {
+                L("");
+                L($"WP-09 time-sliced build: each tile built as before WP-09 (one go, no sectioning ahead) and as streaming builds it (sliced, one step a call), compared; budget {CityWorld.SliceBudgetMs} ms a frame ({CityWorld.UrgentSliceBudgetMs} ms next to a car)");
+                var stepsAll = new List<float>();
+                int tilesCmp = 0, mismatches = 0;
+                string onlySites2 = System.Environment.GetEnvironmentVariable("PSX_BUDGET_SITES");
+                foreach (var site in sites)
+                {
+                    bool uptown = site.name == "trade_tryon" || site.name == "i277_uptown" || site.name == "irwin_trade";
+                    if (!string.IsNullOrEmpty(onlySites2) ? System.Array.IndexOf(onlySites2.Split(','), site.name) < 0 : !uptown) continue;
+                    int stx = Mathf.FloorToInt(site.at.x / CityMeshes.TileSize), stz = Mathf.FloorToInt(site.at.y / CityMeshes.TileSize);
+                    var steps = new List<float>();
+                    var bigSteps = new List<(int phase, int item, int part, float ms, float missMs)>();
+                    float worstSlice = 0f; int framesMax = 0, framesSum = 0, n = 0;
+                    for (int dz = -2; dz <= 2; dz++)
+                        for (int dx = -2; dx <= 2; dx++)
+                        {
+                            // the baseline is the build as it was before WP-09: no
+                            // sectioning ahead (the steps alone change nothing)
+                            CityMeshes.WarmSections = false;
+                            var one = CityMeshes.Build(map, CityWorld.SharedTrims, CityWorld.SharedBuildings, stx + dx, stz + dz);
+                            CityMeshes.WarmSections = true;
+                            string a = TileSig(one);
+                            KillTile(one);
+                            // one step a call: every step's own time
+                            var job = CityMeshes.Begin(map, CityWorld.SharedTrims, CityWorld.SharedBuildings, stx + dx, stz + dz);
+                            job.StepLog = steps;
+                            job.BigSteps = bigSteps;
+                            while (!job.Step(0.0)) { }
+                            string b = TileSig(job.Result);
+                            KillTile(job.Result);
+                            tilesCmp++;
+                            if (a != b) { mismatches++; L($"  MISMATCH tile {stx + dx},{stz + dz}: one go {a} / sliced {b}"); }
+                            // and as streaming runs it: the ordinary budget a frame
+                            var job2 = CityMeshes.Begin(map, CityWorld.SharedTrims, CityWorld.SharedBuildings, stx + dx, stz + dz);
+                            while (!job2.Step(CityWorld.SliceBudgetMs)) { }
+                            KillTile(job2.Result);
+                            worstSlice = Mathf.Max(worstSlice, (float)job2.MaxSliceMs);
+                            framesMax = Mathf.Max(framesMax, job2.Slices); framesSum += job2.Slices; n++;
+                        }
+                    stepsAll.AddRange(steps);
+                    steps.Sort();
+                    bigSteps.Sort((x, y) => y.ms.CompareTo(x.ms));
+                    string[] roadParts = { "sections", "side flags", "spans", "lamps" };
+                    for (int i = 0; i < Mathf.Min(12, bigSteps.Count); i++)
+                    {
+                        var bs = bigSteps[i];
+                        string what = bs.part == 4 ? "sectioning ahead" : bs.part == 5 ? "a neighbour's sections" : bs.part == 10 ? "side flags: setup + structure ends" : bs.part == 11 ? "side flags: spans"
+                                    : bs.part == 12 ? "side flags: runs + flares" : bs.part == 20 ? "branch: chains" : bs.part == 21 ? "branch: stations"
+                                    : bs.part == 22 ? "branch: clips" : bs.phase == 2 ? roadParts[Mathf.Clamp(bs.part, 0, 3)] : "";
+                        string edge = (bs.phase == 1 || bs.phase == 2) && bs.item >= 0 && bs.item < map.edges.Length
+                            ? $" (edge {bs.item}, way {map.edges[bs.item].wayId}, {map.edges[bs.item].length:0} m)" : $" (item {bs.item})";
+                        L($"    big step {bs.ms,6:0.0} ms (sectioning unseen edges {bs.missMs:0.0})  {CityMeshes.PhaseNames[bs.phase]} {what}{edge}");
+                    }
+                    L($"  {site.name,-14} {n} tiles, {steps.Count} steps: step p50 {SP(steps, 50):0.00} p95 {SP(steps, 95):0.00} p99 {SP(steps, 99):0.00} max {SP(steps, 100):0.0} ms; " +
+                      $"at {CityWorld.SliceBudgetMs} ms a frame a tile takes {framesSum / Mathf.Max(1, n)} frames (most {framesMax}), its worst frame {worstSlice:0.0} ms");
+                }
+                stepsAll.Sort();
+                string verdict = mismatches == 0 ? "identical" : mismatches + " MISMATCH(ES)";
+                L($"WP-09: {tilesCmp} tiles {verdict}; step max {SP(stepsAll, 100):0.0} ms, p99 {SP(stepsAll, 99):0.00} ms");
+                summary.Add($"budget: WP-09 sliced build - {tilesCmp} tiles {verdict} to the one-go build; longest step {SP(stepsAll, 100):0.0} ms (p99 {SP(stepsAll, 99):0.00})");
+            }
+
             File.WriteAllText(Path.Combine(Directory.GetParent(Application.dataPath).FullName, "city_budget.txt"), sb.ToString());
             return summary;
+        }
+
+        static float SP(List<float> sorted, float pct)
+        {
+            if (sorted.Count == 0) return 0f;
+            int i = Mathf.Clamp(Mathf.CeilToInt(pct / 100f * sorted.Count) - 1, 0, sorted.Count - 1);
+            return sorted[i];
+        }
+
+        /// <summary>A tile's meshes, bit for bit: vertex and index counts and a
+        /// hash of every position, mesh by mesh, plus its lamps.</summary>
+        static string TileSig(CityMeshes.TileMeshes tm)
+        {
+            var sb = new StringBuilder();
+            foreach (var m in new[] { tm.ground, tm.roads, tm.barriers, tm.kerbs, tm.lampPosts, tm.banks, tm.water, tm.buildings })
+            {
+                if (m == null) { sb.Append("-;"); continue; }
+                var v = m.vertices;
+                long h = 17;
+                foreach (var p in v)
+                    h = ((h * 31 + System.BitConverter.SingleToInt32Bits(p.x)) * 31 + System.BitConverter.SingleToInt32Bits(p.y)) * 31 + System.BitConverter.SingleToInt32Bits(p.z);
+                sb.Append(v.Length).Append(':').Append(m.triangles.Length).Append(':').Append(h).Append(';');
+            }
+            sb.Append(tm.lamps.Count);
+            return sb.ToString();
+        }
+
+        static void KillTile(CityMeshes.TileMeshes tm)
+        {
+            foreach (var m in new[] { tm.ground, tm.roads, tm.barriers, tm.kerbs, tm.lampPosts, tm.banks, tm.water, tm.buildings })
+                if (m != null) Object.DestroyImmediate(m);
         }
 
         /// <summary>Draw calls one renderer costs before batching: one per

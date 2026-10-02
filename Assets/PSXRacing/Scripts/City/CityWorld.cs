@@ -17,10 +17,14 @@ namespace PSXRacing.City
     /// world in the worst case, so the fog has to be at full strength by 500 m
     /// or the edge of it would show (see CircuitFarClip in the builder).
     ///
-    /// Budget: at most one tile build per frame — a car crossing a tile row at
-    /// 280 km/h leaves ~3 s to build 5 tiles, and the budget builds 60 in that
-    /// time. The tile under the car is force-built synchronously as a last
-    /// resort so the ground can never lose the race. An AI car that pulls
+    /// Budget: a few milliseconds of tile building a frame (WP-09, 2026-10-01:
+    /// a whole Uptown tile in one frame was a 50-350 ms freeze, five in a row at
+    /// every tile line - "it bogs down about every two blocks"). The nearest
+    /// missing tile is built as a CityMeshes.TileJob, SliceBudgetMs a frame
+    /// (UrgentSliceBudgetMs while a tile next to a car is missing); a car
+    /// crossing a tile row at 280 km/h still leaves ~3 s, and the five tiles
+    /// take about two in the editor. The tile under the car is force-built
+    /// synchronously as a last resort so the ground can never lose the race. An AI car that pulls
     /// away from the player keeps a 3x3 of its own under it for the same
     /// reason: a rigidbody over an unbuilt tile falls through the world.
     /// </summary>
@@ -92,6 +96,15 @@ namespace PSXRacing.City
             public int colliders, props, trees, signs;
             /// <summary>This is a tile's trees being planted, not its build.</summary>
             public bool treeFrame;
+            /// <summary>WP-09: the frames a sliced build took (0 = built in
+            /// one go), its longest frame's share, and standing it up
+            /// (renderers, colliders, props, lamps - a frame of its own).</summary>
+            public int slices;
+            public float maxSliceMs, standUpMs;
+            /// <summary>What the worst FRAME of this build cost: the whole
+            /// build when it ran in one go, else its longest slice or its
+            /// stand-up. The FPS overlay's CITY line shows the worst of these.</summary>
+            public float FrameMs => slices > 0 ? Mathf.Max(maxSliceMs, standUpMs) : totalMs;
         }
 
         /// <summary>The most recent tile build, anywhere.</summary>
@@ -199,6 +212,17 @@ namespace PSXRacing.City
         readonly List<long> toDrop = new List<long>();
         readonly List<(int tx, int tz, float d2)> wanted = new List<(int, int, float)>();
 
+        // ---- WP-09: the time-sliced build ----------------------------------
+        /// <summary>Build streamed tiles a few milliseconds a frame
+        /// (CityMeshes.TileJob) instead of a whole tile in one frame.
+        /// PSX_CITY_SLICE=0 in a tool's environment turns it off (the A/B).</summary>
+        public static bool SliceBuilds = System.Environment.GetEnvironmentVariable("PSX_CITY_SLICE") != "0";
+        /// <summary>A frame's share of tile work, ms, and the share while a
+        /// tile next to a car (one tile away) is still missing.</summary>
+        public static float SliceBudgetMs = 4f, UrgentSliceBudgetMs = 10f;
+        CityMeshes.TileJob job;
+        long jobKey;
+
         static long Key(int tx, int tz) => ((long)tx << 24) ^ (tz & 0xFFFFFF);
 
         // Derived once per process, like the map itself: leaving for the menu
@@ -206,6 +230,10 @@ namespace PSXRacing.City
         static CityMap cachedFor;
         static Dictionary<long, List<CityBuildings.B>> cachedBuildings;
         static CityMeshes.Trims cachedTrims;
+        /// <summary>The trims and building table every tile build reads (set
+        /// once a world has initialised) - for tools that call CityMeshes.</summary>
+        public static CityMeshes.Trims SharedTrims => cachedTrims;
+        public static Dictionary<long, List<CityBuildings.B>> SharedBuildings => cachedBuildings;
 
         /// <summary>The tile counts the last build produced, for the HUD's
         /// debug line and the preview's log.</summary>
@@ -351,13 +379,15 @@ namespace PSXRacing.City
             }
             foreach (var k in toDrop) DropTile(k);
 
-            // build the nearest missing tile, one per frame
+            // build the nearest missing tile (WP-09: a slice a frame)
             wanted.Clear();
+            bool hurry = false;
             for (int dz = -ring; dz <= ring; dz++)
                 for (int dx = -ring; dx <= ring; dx++)
                 {
                     int tx = ptx + dx, tz = ptz + dz;
                     if (live.ContainsKey(Key(tx, tz))) continue;
+                    if (Mathf.Abs(dx) <= 1 && Mathf.Abs(dz) <= 1) hurry = true;
                     float cx = (tx + 0.5f) * CityMeshes.TileSize - p.x;
                     float cz = (tz + 0.5f) * CityMeshes.TileSize - p.z;
                     wanted.Add((tx, tz, cx * cx + cz * cz));
@@ -372,12 +402,31 @@ namespace PSXRacing.City
                     {
                         int tx = ax + dx, tz = az + dz;
                         if (live.ContainsKey(Key(tx, tz))) continue;
+                        hurry = true;   // an anchor's ring is the tiles next to it
                         float cx = (tx + 0.5f) * CityMeshes.TileSize - a.position.x;
                         float cz = (tz + 0.5f) * CityMeshes.TileSize - a.position.z;
                         wanted.Add((tx, tz, cx * cx + cz * cz));
                     }
             }
-            if (wanted.Count > 0)
+            if (SliceBuilds && (job != null || wanted.Count > 0))
+            {
+                // A few ms of the nearest missing tile's build every frame
+                // until it stands; its stand-up (renderers, colliders, props)
+                // takes a frame of its own. The tile is finished even if the
+                // car turned away from it: a drop takes it back if need be.
+                if (job == null)
+                {
+                    wanted.Sort((a, b) => a.d2.CompareTo(b.d2));
+                    StartJob(wanted[0].tx, wanted[0].tz);
+                }
+                if (job != null)
+                {
+                    if (job.Done) CompleteJob();
+                    else job.Step(hurry ? UrgentSliceBudgetMs : SliceBudgetMs);
+                    built = true;
+                }
+            }
+            else if (wanted.Count > 0)
             {
                 wanted.Sort((a, b) => a.d2.CompareTo(b.d2));
                 built |= EnsureTile(wanted[0].tx, wanted[0].tz);
@@ -411,6 +460,9 @@ namespace PSXRacing.City
                 // tiles round it, which a tile's own frame should not all pay for)
                 if (!built || urgent)
                 {
+                    // the trees put their own lattice in the builder's cache:
+                    // no job may be open across them (WP-09)
+                    if (job != null) CompleteJob();
                     if (urgent || PrepareSigns(best) == 0) PlantTrees(best);
                 }
             }
@@ -418,6 +470,7 @@ namespace PSXRacing.City
 
         void OnDestroy()
         {
+            if (job != null) { job.Abandon(); job = null; }
             foreach (var k in new List<long>(live.Keys)) DropTile(k);
         }
 
@@ -571,10 +624,50 @@ namespace PSXRacing.City
             if (Map == null) return false;
             long key = Key(tx, tz);
             if (live.ContainsKey(key)) return false;
+            // A tile still being built a slice a frame is finished first: the
+            // builder's scratch belongs to one build at a time (WP-09).
+            if (job != null)
+            {
+                bool same = jobKey == key;
+                CompleteJob();
+                if (same) return true;
+            }
 
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var tm = CityMeshes.Build(Map, nodeTrims, buildings, tx, tz);
-            double tBuild = clock.Elapsed.TotalMilliseconds;
+            StandUp(key, tx, tz, tm, clock.Elapsed.TotalMilliseconds, 0, 0f);
+            return true;
+        }
+
+        /// <summary>Start building a tile a slice a frame (WP-09).</summary>
+        void StartJob(int tx, int tz)
+        {
+            EnsureInit();
+            if (Map == null) return;
+            jobKey = Key(tx, tz);
+            job = CityMeshes.Begin(Map, nodeTrims, buildings, tx, tz);
+        }
+
+        /// <summary>Finish the open job now if it is not done, and stand its
+        /// tile up.</summary>
+        void CompleteJob()
+        {
+            var j = job;
+            long k = jobKey;
+            job = null;
+            if (j == null) return;
+            j.Finish();
+            if (live.ContainsKey(k)) return;
+            StandUp(k, j.tx, j.tz, j.Result, j.WorkMs, j.Slices, (float)j.MaxSliceMs);
+        }
+
+        /// <summary>A built tile's meshes stood up under a root: renderers and
+        /// colliders, the prop models, its trees queued, its lamps lit.
+        /// <paramref name="buildMs"/> is the build's own work.</summary>
+        void StandUp(long key, int tx, int tz, CityMeshes.TileMeshes tm, double buildMs, int slices, float maxSliceMs)
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            double tBuild = 0.0;
             var root = new GameObject($"Tile_{tx}_{tz}");
             root.transform.SetParent(transform, false);
             root.transform.position = tm.origin;
@@ -645,15 +738,16 @@ namespace PSXRacing.City
             var timing = new TileTiming
             {
                 tx = tx, tz = tz,
-                buildMs = (float)tBuild, attachMs = (float)(tAttach - tBuild), cookMs = cookMs,
-                propsMs = (float)(tProps - tAttach), treesMs = (float)(tTrees - tProps), totalMs = (float)clock.Elapsed.TotalMilliseconds,
+                buildMs = (float)buildMs, attachMs = (float)(tAttach - tBuild), cookMs = cookMs,
+                propsMs = (float)(tProps - tAttach), treesMs = (float)(tTrees - tProps),
+                totalMs = (float)(buildMs + clock.Elapsed.TotalMilliseconds),
                 colliders = colliders, props = props,
+                slices = slices, maxSliceMs = maxSliceMs, standUpMs = (float)clock.Elapsed.TotalMilliseconds,
             };
             LastTiming = timing;
-            recentBuilds.Add((Time.realtimeSinceStartup, timing.totalMs));
+            recentBuilds.Add((Time.realtimeSinceStartup, timing.FrameMs));
             if (recentBuilds.Count > 256) recentBuilds.RemoveAt(0);
             TileBuilt?.Invoke(timing);
-            return true;
         }
 
         /// <summary>
