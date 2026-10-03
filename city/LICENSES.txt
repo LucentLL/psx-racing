@@ -1,0 +1,49 @@
+PSX Racing, CITY edition - map and terrain data: credits and licences
+=====================================================================
+
+The CITY edition's map and terrain data are adapted from the sources below:
+simplified, re-projected and baked into the game's own formats.
+
+Road network data (c) OpenStreetMap contributors, ODbL 1.0
+  Licence: ODbL 1.0
+  https://opendatacommons.org/licenses/odbl/1-0/
+  In: charlotte_city.bytes, charlotte_bld.bytes, charlotte_routes.json
+
+Terrain and creek beds: U.S. Geological Survey, 3D Elevation Program (3DEP)
+  Licence: public domain
+  https://www.usgs.gov/3d-elevation-program
+  In: charlotte_dem.bytes, charlotte_city.bytes
+
+Creeks, lakes and ponds in Mecklenburg: Mecklenburg County GIS, CC0 1.0
+  Licence: CC0 1.0
+  https://creativecommons.org/publicdomain/zero/1.0/
+  In: charlotte_city.bytes
+
+Creeks and lakes outside Mecklenburg: U.S. Geological Survey, 3D Hydrography Program (3DHP)
+  Licence: public domain
+  https://www.usgs.gov/3d-hydrography-program
+  In: charlotte_city.bytes
+
+Tree canopy: USDA Forest Service, NLCD Tree Canopy Cover (2024)
+  Licence: public domain
+  https://data.fs.usda.gov/geodata/rastergateway/treecanopycover/
+  In: charlotte_canopy.bytes
+
+Billboard density: NCDOT GIS Unit (statistics only)
+  Licence: public record, no licence stated
+  https://connect.ncdot.gov/resources/gis/pages/gis-data-layers.aspx
+  In: charlotte_signs.bytes
+
+Liftback 95 car model (the Integra Type R DC2s): adapted from "1995 Honda Integra Type R" by OUTPISTON (https://sketchfab.com/outpiston), CC BY-NC-SA 4.0; reduced, debadged and given an underbody for this game
+  Licence: CC BY-NC-SA 4.0
+  https://creativecommons.org/licenses/by-nc-sa/4.0/
+  In: Art/Car/Models/liftback_95
+
+Contains information from OpenStreetMap, which is made available here
+under the Open Database License (ODbL): https://www.openstreetmap.org/copyright
+
+The full registry of sources (including those used only to check the
+data, never shipped) is tools/city/SOURCES.md in the game's source
+repository, https://github.com/LucentLL/psx-racing
+
+Generated from tools/city/SOURCES.md by tools/city/credits.mjs.
