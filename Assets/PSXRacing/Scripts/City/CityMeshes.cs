@@ -2429,6 +2429,9 @@ namespace PSXRacing.City
                     sampleS[w - 1] = sampleS[i];
             }
             sampleS.RemoveRange(w, sampleS.Count - w);
+            // roads pass L6: where a lane-use mark starts and ends (before the
+            // zones', whose clear ranges keep the step at N clean)
+            MarkForcedSamples(map, trims, e, sMin, sMax);
             // roads pass L5: the merge zones' exact sections (the host's step
             // at N, the ramp's end section)
             ZoneForcedSamples(e, sMin, sMax);
@@ -2545,7 +2548,9 @@ namespace PSXRacing.City
             var lay = LineModel.LayoutOf(e);
             var tex = lay.tex ?? lay;
             float tw = tex.texW;
-            if (full && lay.isDefault)
+            // roads pass L6: a span carrying lane-use paint is drawn as columns
+            bool marks = lay.m.Length > 0 && tex.m.Length > 0 && SpanMarks(e, A.s, B.s);
+            if (full && lay.isDefault && !marks)
             {
                 // U = 0 on the left of travel (the R vertex), so a one-way
                 // carriageway's narrow inside shoulder and wide outside
@@ -2584,6 +2589,7 @@ namespace PSXRacing.City
                 else if (linesA[i].k > linesB[j].k) i++; else j++;
             }
             float PH = lay.half;
+            if (marks) return EmitMarked(bk, e, A, B, v0, v1, lay, tex, latLA, latRA, latLB, latRB);
             int strips = 0;
             // IDENTITY RUNS (L2): a full-width span of an edge whose lines are
             // not its texture's draws every stretch where the texture already

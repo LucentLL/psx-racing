@@ -5166,6 +5166,118 @@ Q2) gives every tier-1 merge and diverge one pavement.
 - linesim.mjs (linecheck's replica) does not model aux lanes.
 - The full city audit was not run after the last fixes.
 
+## L6 (roads pass, 2026-10-03): lane-use paint - merges, gores, mouths, turn lanes, arrows, ONLY, yields - R3
+
+L5 gave every tier-1 merge one pavement, but no paint said what the added
+lane was: the through lanes' edge line had moved out with the aux lane and
+nothing was left between them, a gore was one white line and a yellow one
+that met nowhere, and a host's edge line ran straight across every side
+mouth. L6 (plan A8, owner Q5 (b)/(c)) paints what MUTCD paints there.
+
+- **Every mark is a column of the ribbon (critic C5), `CityMeshes.Marks.cs`.**
+  A span that carries a mark is drawn as columns (`EmitMarked`): the
+  model's lines, the marks' own lines, the pavement between. A glyph
+  (arrow, letter, shark tooth) is cut out of its lane's pavement column:
+  the column is split at the glyph's vertices along the span and across at
+  its pieces. Every vertex lies on the span's own surface, so nothing is
+  lifted and nothing is laid twice. Paint comes from the profile texture's
+  solid-white texels, in the road's own slot: **draws +0, no new texture,
+  no decal, no lift**. A section is forced where each line mark starts and
+  ends (`MarkForcedSamples`, before the zones' own), so a line changes
+  style exactly there. `PSX_CITY_MARKS=0` draws L5's paint.
+- **The aux lane (DW).** In every merge zone the wide dotted white line
+  (0.20 m, 3 ft line / 9 ft gap, phase on the chain distance) runs at the
+  through lanes' edge from the nose N to where the taper starts, on the
+  host's side of the zone only. There is none through the taper (MUTCD
+  3B.04). Style G's lane gets it from N to the node, and OSM's own lane past
+  the node keeps its lane line.
+- **The gore (CH).** From N to the physical nose P, both sides of the gore are
+  0.20 m solid white channelizing lines that meet at N.
+  - P is where the two pavements stand 4.5 m apart and the painted gore ends,
+    found once per zone by walking the ramp from N.
+  - The host's side is its own edge line on that side, drawn as CH. It is
+    white even on a left exit, where it was yellow.
+  - The ramp's side is its inner lane edge. While that edge lies over the
+    host's shoulder, it is drawn on the HOST's ribbon. Once it is over the
+    ramp's own pavement, it is the ramp's inner edge line, white, and no
+    longer stood down by the clip.
+  - The ramp-side line is never drawn inside the through lanes, and it eases
+    onto the host's line over the first metres past N. The two roads'
+    lane-edge offsets differ by a shoulder's rounding at a few gores.
+  - The ramp's yellow left edge starts at P.
+- **Exit-only drops (V8).** A style G diverge is one where OSM drops the lane
+  at the exit node. There, the line between the exit-only lane and the
+  through lanes is wide dotted for min(OSM's run, 805 m) back from the node.
+  On a two-way host it is the k-th white line on the exit side.
+- **Mouths (V5).** A branch clipped onto a mitred host at over 35 degrees
+  stops the host's edge line across its mouth. The mouth is where the
+  branch's two pavement edges cross the host's, plus 0.6 m each side.
+- **Turn-only lanes (V7, LS).** A lane line between a turn-only lane and a
+  through lane is solid white, on every marked road. The turn-only lanes come
+  from turn:lanes (LSET), or from a TAPR left-turn bay where the tags say
+  nothing (its leftmost lane).
+- **Arrows and ONLY (Q5 b, tier 1).** Each turn-only lane gets a turn arrow
+  (3.66 m) and the word ONLY (2.44 m letters), ending 3 m before its drawn end
+  at a junction, so the driver reads the arrow first. The arrow points left
+  for the left lanes and right for the right ones. Freeway mainlines are
+  left out: an exit-only lane gets its group from the zone 30 m before the
+  node, elongated x2 on a freeway-like road (MUTCD 3B.20). A group is laid
+  only where its lane runs at full width: no taper, aux lane, relay or
+  median-shift change.
+- **Yield lines (Q5 c, tier 1).** A row of shark teeth (0.45 m bases, 0.6 m
+  high, 0.15 m apart, points toward the driver) goes across a link's lanes
+  0.5 m before it meets the street. It is laid where OSM tags give_way at
+  that end. It is also laid where a one-way link enters a street with no
+  signal or stop at, or within 40 m of, the node, at more than 35 degrees.
+  A link clipped onto a mitred road ends where it meets that road's pavement.
+- **The MARKS report (`Editor/CityAudit.Marks.cs`, inside PAINT).** It reads
+  the marks the way the builder draws them (`OverrideAt`, `GoreLatAt`): DW
+  over each zone's full-width run, a solid line at the through edge there,
+  V6 (both gore lines white and their clear gap at the V's point at most
+  0.10 m), V8, V5 (sampled where the branch's centre line crosses the host's
+  edge), V7, the glyphs, and E1 (lift 0). It also runs in `LineModelOnly`.
+
+**Numbers.** BEFORE is L5, where none of these marks existed. It is read off L5's drawing rules, not re-measured.
+
+| MARKS check | OwnerBox before | OwnerBox after | T1 city-wide after |
+|---|---|---|---|
+| DW from N to the taper start | 0 of 1,323 m | 1,323 of 1,323 m | 63,076 of 63,076 m |
+| Solid line at the through edge there | n/a (no line) | 0 m | 0 m |
+| V6 gores white on both sides, closed at N | 0 of 35 (the ramp's side yellow, starting only where the pavements part) | 35 of 35 (worst 0.00 m) | 869 of 872 |
+| V8 exit-only drops dotted | 0 of 16 | 16 of 16 | 228 of 229 |
+| V5 host edge line across a mouth over 35 deg | 19 of 19 | 0 of 19 | 0 of 283 |
+| V7 turn-only boundaries solid | 0 of 130 | 130 of 130 | 2,305 of 2,305 |
+
+- **City-wide (all tiers):**
+  - 786 aux lanes dotted (63,484 m);
+  - 869 gores;
+  - 228 exit-only drops (65,887 m);
+  - 938 mouths stopped (113 skipped: an unmarked host, or no mouth on the host);
+  - 6,557 turn-only lines solid on 5,718 edges (51 TAPR bays);
+  - 929 arrow + ONLY groups (541 left, 388 right; 1,456 not laid: a taper, too short, or no junction);
+  - 186 yield lines (6 on a tagged give_way).
+
+  The marks build once per trims, in 345 ms (zones 315 ms), at the first tile's sections. It does not run in the elevation's ComputeTrims.
+- **CITY AUDIT (OwnerBox):** 16 failures, against L5 run 2's 17. They are the known set: grade, TWIN a-f, PROFILE x2, lane survey, margin stations and culverts.
+  - L5's after-run fixes are now confirmed by a full audit: verge steps 79 -> 26, FACE 4 -> 1, rail census 7 -> 6 runs, ledges 14 -> 1, sign posts 1 -> 0.
+  - The one FACE left (e20511, East Independence Expwy) is already in L5's run 2. L6's marks on that edge start and end nowhere near it.
+  - DRIVE AUDIT: zeros. linecheck --ratchet: PASS (231 probes).
+  - Draws: worst view 211, unchanged.
+  - Verts: trade_tryon 603k, i277_uptown 629k, plaza_midwood 451k. L2's were 583k / 577k / 452k, so L3-L6 together stay within +10 %.
+  - The Unity smoothness gate (FAST) still throws as it did in L4 and L5 (not L6's).
+- **Shots** (`shots\r3\`):
+  - `marks_mint_top`: South Mint St from above. A left-turn lane with ↰ ONLY behind a solid white line, a right lane dotted off as it drops into the slip lane with ↱ ONLY, and the slip lane's gore lines meeting at N.
+  - `zone_us74_e439`: US 74 at the exit e439, driver's eye. The exit's dotted line reads at range, but the elongated group is too far to read in this frame.
+  - `merge_i85_e3031_far`: the I-85 merge from 400 m, 30 deg lens. The dotted lines at range show no speckle or pop-in.
+
+**Known, left.**
+- City-wide: 3 gores open (the worst is zone n10965, where the ramp's polyline is 4.1 m off the host line 6 m past N). 1 exit drop is not dotted (e4700: 1 lane line for k = 2).
+- Arrows, ONLY and yields on tier 2 belong to R5 (A13). Crosswalks belong to L7 (A18).
+- Not done:
+  - the optional gore chevrons;
+  - "turns DW again into a downstream drop" along OSM's own aux lanes;
+  - lifting D1 CROSS out of report-only. CitySmooth is not in L6's test budget.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

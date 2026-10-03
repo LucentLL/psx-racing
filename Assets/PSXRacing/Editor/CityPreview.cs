@@ -326,6 +326,8 @@ namespace PSXRacing.EditorTools
             Along("zone_i77_e180", "zones", -2661f, 6547f, "I-77", 110f, 0f, 60f, 1, "I-77 at the loop entrance e180 (node 315): style T, the aux lane run on 137 m past the node (AASHTO), then the 90 m taper"),
             Along("zone_i277_e172", "zones", -2424f, 3649f, "I-277", 120f, 0f, 60f, 1, "I-277 at the entrance e172 (node 299): style G, OSM's added lane carried from the nose N, 70 m before the node"),
             Along("zone_us74_e439", "zones", -1085f, 4134f, "US 74", 100f, 0f, 60f, 1, "US 74 at the exit e439 (node 794): style G, the exit lane carried to the nose 60 m past the node"),
+            // lane-use paint (roads pass L6): turn-only lanes, arrows, ONLY
+            Top("marks_mint_top", "marks", -3025.0f, 4548.0f, "Mint", 26f, "South Mint St (e14138/e13319, two-way, cls 3) from above: turn-only lanes with a solid white line to the through lanes, an arrow and ONLY in each, ending 3 m before the junction"),
             // junctions (A3/A4/A10/A11)
             Top("fork_n9862", "junctions", -9391f, -7086f, "", 110f, "ramp fork n9862 e8180/e8181: 196 m drawn inside each other"),
             Top("cluster_ntryon_harris", "junctions", 6189.1f, 13447.0f, "Tryon", 60f, "N Tryon St x W T Harris Blvd: four fans, the median grass through the box"),

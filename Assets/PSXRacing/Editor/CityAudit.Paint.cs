@@ -89,6 +89,8 @@ namespace PSXRacing.EditorTools
             Check(c1.v1 + c1.v2 + c1.v3 + c1.v4 < 1e-6, "PAINT T1 city-wide: V1 = V2 = V3 = V4 = 0",
                   string.Format(CultureInfo.InvariantCulture, "V1 {0:0.00} V2 {1:0.00} V3 {2:0.00} V4 {3:0.00} km", c1.v1, c1.v2, c1.v3, c1.v4));
             Check(v9 == 0, "PAINT V9: every line at least two texels (Q3)", $"{v9} lines under");
+            // roads pass L6: the lane-use marks (merges, gores, mouths, turn-only lanes, arrows, yields)
+            MarksReport(map, trims, sc);
         }
 
         sealed class PaintTally
