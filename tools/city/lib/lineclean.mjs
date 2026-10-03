@@ -36,6 +36,11 @@
 //      position: A8 rules 1 and 3; no mid-block shift), the MUTCD length
 //      (WS^2/60 to 40 mph, WS from 45, turn bays 30-55 m, floors 15/30/90 m)
 //      and the room the chain has for it - never clamped to one OSM piece.
+//      Roads pass L4: a two-way road's lanes each way come from the line
+//      set's split (lib/lineset.mjs makeSplitOf) and each direction changes
+//      on its own outside (owner Q4); a one-way lane opens on the side of a
+//      merging or diverging branch (plan B6 FD1); a re-anchor writes a SHIFT
+//      record (flag 16) instead of a jump.
 //      At a junction node the lane opens or ends full width at the mouth (no
 //      taper where cars turn). -> section TAPR.
 //   6. PARA: carriageways whose pavements (at game widths, with the TAPR
@@ -53,6 +58,7 @@
 // as section LANW; the game keeps 3.6576 m until WP-11b draws paint by line
 // (plan A3, "Lane widths").
 import { profileFor } from './citydata.mjs';
+import { makeSplitOf, CENTRE_TWLTL } from './lineset.mjs';
 import { filletGraph, emaxOf, mitredThrough } from './fillet.mjs';
 import { writeFileSync } from 'node:fs';
 
@@ -130,7 +136,11 @@ function nodeEdgesOf(edges, nn) {
 /// road), turning less than 45 degrees, and the same name unless it is a
 /// plain 2-arm node - straightest pair first. A chain is a list of
 /// { e, fwd } (fwd = drawn a->b); a one-way chain runs in travel order.
-export function buildChains(edges, nodes) {
+/// acrossNames (roads pass L4, plan B6 FX2b; TAPR and PARA only): at a node
+/// of 3+ arms the straightest pair (dot < -0.94) of one class also chains
+/// across a name change - a road that changes its name at a junction keeps
+/// its lanes' position through it.
+export function buildChains(edges, nodes, acrossNames = false) {
   const nodeEdges = nodeEdgesOf(edges, nodes.length);
   const contA = new Array(edges.length).fill(null), contB = new Array(edges.length).fill(null);
   for (let n = 0; n < nodes.length; n++) {
@@ -141,8 +151,9 @@ export function buildChains(edges, nodes) {
       const p = arms[i], q = arms[j], wp = p.e.way, wq = q.e.way;
       if (wp.oneway !== wq.oneway) continue;
       if (wp.oneway && p.atA === q.atA) continue;          // one must arrive, one leave
-      if (arms.length > 2 && !(wp.name && wp.name === wq.name) && !(wp.link && wq.link)) continue;
       const d = p.dir[0] * q.dir[0] + p.dir[1] * q.dir[1];
+      if (arms.length > 2 && !(wp.name && wp.name === wq.name) && !(wp.link && wq.link)
+          && !(acrossNames && d < -0.94 && wp.rank === wq.rank && wp.link === wq.link)) continue;
       if (d > -0.7) continue;
       pairs.push([d, p, q]);
     }
@@ -194,15 +205,6 @@ function tagSide(wideTl, narrowTl) {
   if (left && !right) return 'L';
   if (right && !left) return 'R';
   return null;
-}
-
-/// Lanes per direction of a two-way edge, in the edge's a->b frame:
-/// [forward, backward, centre].
-function splitTwoWay(e) {
-  const w = e.way, n = profOf(e).lanes;
-  const t = n % 2;
-  if (e.lanes === w.lanes && Number.isFinite(w.lf) && Number.isFinite(w.lb) && w.lf + w.lb + t === n) return [w.lf, w.lb, t];
-  return [(n - t) / 2, (n - t) / 2, t];
 }
 
 // ================================================================== main
@@ -464,24 +466,62 @@ export function lineClean(ctx) {
   }
 
   // ---------------------------------------------------- 5. TAPR
-  ({ chains, chainOf } = buildChains(edges, nodes));
+  ({ chains, chainOf } = buildChains(edges, nodes, true));
   const tapr = [];
+  // Roads pass L4: the lanes each way come from THE split the paint uses
+  // (lib/lineset.mjs makeSplitOf), and on a two-way road EACH DIRECTION
+  // gains or loses its lanes on its own outside (owner Q4): the centre line
+  // and every through lane stay put (mid-block, the drift a same-width
+  // split change leaves - the relay moves the centre, not the edges - is
+  // bounded below). L2 drew the split, but TAPR
+  // still guessed it from the count: a 1+1 road meeting a 1+2 one moved the
+  // WRONG edge - 3.7 m of through-lane jump across 51 junctions.
+  const LANE = 3.6576;
+  const splitOf = makeSplitOf(profileFor);
+  const splitEvidence = e => /fb|tag|implied|fitted/.test(splitOf(e)[3]);
+  const armsAt = nodeEdgesOf(edges, nodes.length);
+  /// FD1 (plan B6): where a link - or a one-way fork of 35 degrees or less -
+  /// joins a one-way chain at the node of a lane-count change, the lane opens
+  /// (a merge) or ends (a diverge) on the branch's side of travel; null when
+  /// there is no such branch or two disagree. travel: the chain's direction
+  /// of travel at the node; merge: the branch arrives (else it leaves).
+  const branchSide = (node, travel, merge, inChain) => {
+    let side = null;
+    for (const b of armsAt[node]) {
+      if (inChain.has(b) || b.a === b.b || !b.way.oneway) continue;
+      if (merge ? b.b !== node : b.a !== node) continue;
+      const bo = outDir(b, node);
+      const bt = merge ? [-bo[0], -bo[1]] : bo;          // the branch's own travel at the node
+      if (!b.way.link && bt[0] * travel[0] + bt[1] * travel[1] < Math.cos(35 / DEG)) continue;
+      const s = bo[0] * -travel[1] + bo[1] * travel[0] > 0 ? 'L' : 'R';
+      if (side && side !== s) return null;
+      side = s;
+    }
+    return side;
+  };
   /// Each edge's ribbon centre off its OSM line (+ = left of a->b) as
   /// o0 + (o1 - o0) * smoothstep((s - t0) / (t1 - t0)), s the edge's own arc
   /// position (t0, t1 may lie beyond it: one shifting taper over several
   /// edges); null = on its line.
   const edgeOffset = new Array(edges.length).fill(null);
-  const tStats = { transitions: 0, tagged: 0, bays: 0, atJunction: 0, absorbed: 0, shortened: 0, oneSided: 0, symmetric: 0, reanchored: 0, recentred: 0 };
+  const tStats = { transitions: 0, tagged: 0, bays: 0, atJunction: 0, absorbed: 0, shortened: 0, oneSided: 0, twoSided: 0, symmetric: 0, reanchored: 0, recentred: 0,
+                   perDirection: 0, mergeSide: 0, mergeSideLeft: 0, shifts: 0 };
   for (const chain of chains) {
     const runs = runsOf(chain);
     if (runs.length < 2) continue;
+    const inChain = new Set(chain.map(c => c.e));
     // per transition: which ribbon edge of the WIDER run moves, in CHAIN frame
+    // ('L', 'R'; 'D' per direction: dLc / dRc, how far the left and right
+    // edges move going from run i to run i + 1, signed, summing to the
+    // width change)
     const W = runs.map(r => profOf(r.rep).width);
     const sides = new Array(runs.length - 1).fill(null), srcs = new Array(runs.length - 1).fill(0), bayF = new Array(runs.length - 1).fill(false);
+    const dLc = new Array(runs.length - 1).fill(0), dRc = new Array(runs.length - 1).fill(0);
+    const addOnR = new Array(runs.length - 1).fill(true);   // 'D': the chain-right record is the add (else the drop)
+    const mergeNodes = new Set();
     for (let i = 0; i + 1 < runs.length; i++) {
       const X = runs[i], Y = runs[i + 1];
       const gain = W[i + 1] > W[i];
-      const wideRun = gain ? Y : X, narrowRun = gain ? X : Y;
       const wideCI = gain ? Y.items[0] : X.items[X.items.length - 1];
       const narrowCI = gain ? X.items[X.items.length - 1] : Y.items[0];
       const we = chain[wideCI].e, weF = chain[wideCI].fwd, nEdge = chain[narrowCI].e;
@@ -491,14 +531,24 @@ export function lineClean(ctx) {
       if (we.way.oneway) {
         // travel is chain order; a drop seen against travel is still judged in travel
         const ts = tagSide(we.way.tl, nEdge.way.tl);
-        if (ts) { side = ts; src = 2; } else { side = 'R'; src = 0; }
+        if (ts) { side = ts; src = 2; }
+        else {
+          const node = gain ? (weF ? we.a : we.b) : (weF ? we.b : we.a);
+          const od = outDir(we, node);
+          const travel = gain ? od : [-od[0], -od[1]];
+          const bs = nodeDeg[node] >= 3 ? branchSide(node, travel, gain, inChain) : null;
+          if (bs) { side = bs; src = 4; tStats.mergeSide++; if (bs === 'L') tStats.mergeSideLeft++; mergeNodes.add(node); }
+          else { side = 'R'; src = 0; }
+        }
         bay = !!ts && ts === 'L';
       } else {
-        // two-way: lanes per direction in the CHAIN frame
-        // lanes per direction in the INTO frame ("forward" = the direction
-        // travelling from the narrow run into the wide one; its lanes are on
-        // the right)
-        const toInto = (e, fwd) => { const [f, b, t] = splitTwoWay(e); return (fwd === (into === 1)) ? [f, b, t] : [b, f, t]; };
+        // two-way: lanes per direction from THE split, in the INTO frame
+        // ("forward" = the direction travelling from the narrow run into the
+        // wide one; its lanes are on the right)
+        const toInto = (e, fwd) => {
+          const [f, b, c] = splitOf(e), t = c === CENTRE_TWLTL ? 1 : 0;
+          return (fwd === (into === 1)) ? [f, b, t] : [b, f, t];
+        };
         const [fN, bN, tN] = toInto(nEdge, chain[narrowCI].fwd), [fW, bW, tW] = toInto(we, weF);
         const gf = fW - fN, gb = bW - bN, gt = tW - tN;
         // tags of the wide way, in the into-frame
@@ -516,56 +566,87 @@ export function lineClean(ctx) {
           side = owner === 'F' ? 'L' : 'R';
           const other = side === 'L' ? 'R' : 'L';
           if (movesIf[other] < movesIf[side]) side = other;    // fewest through lanes move
-        } else if (gf > 0 && gb <= 0) { side = 'R'; src = Number.isFinite(we.way.lf) ? 3 : 0; }
-        else if (gb > 0 && gf <= 0) { side = 'L'; src = Number.isFinite(we.way.lf) ? 3 : 0; }
-        else { side = 'R'; src = 0; }       // both gain: one side only, the right of the direction into it
-        if (into === -1) side = side === 'L' ? 'R' : 'L';   // into-frame -> chain frame
+          if (into === -1) side = side === 'L' ? 'R' : 'L';   // into-frame -> chain frame
+        } else {
+          // PER DIRECTION (Q4; L4): the into-forward lanes change on the
+          // right, the other direction's on the left, a centre lane's half on each
+          side = 'D'; src = splitEvidence(we) || splitEvidence(nEdge) ? 3 : 1;
+          // a centre turn lane opening or closing with them goes to ONE side,
+          // the turn bay's (the owner: never widened as if centre aligned)
+          let tOnL = !(bayBwd && !bayFwd);
+          if ((tOnL ? bN : fN) > (tOnL ? fN : bN)) tOnL = !tOnL;      // fewest through lanes move
+          const iL = (gb + (tOnL ? gt : 0)) * LANE, iR = (gf + (tOnL ? 0 : gt)) * LANE;   // narrow -> wide, into frame
+          if (into === 1) { dLc[i] = iL; dRc[i] = iR; addOnR[i] = true; }
+          else { dLc[i] = -iR; dRc[i] = -iL; addOnR[i] = false; }     // the chain runs wide -> narrow
+          tStats.perDirection++;
+        }
       }
       sides[i] = side; srcs[i] = src; bayF[i] = bay;
       tStats.transitions++; if (src >= 2) tStats.tagged++; if (bay) tStats.bays++;
     }
     // A run wider than BOTH neighbours opens and closes on ONE side (a bay
-    // or a widening): the entry decides unless only the exit is tagged.
+    // or a widening): the entry decides unless only the exit is tagged. A
+    // per-direction change needs no lock: it follows the split both ways.
     const peak = i => i > 0 && i + 1 < runs.length && W[i] > W[i - 1] && W[i] > W[i + 1];
     const locked = new Array(runs.length - 1).fill(false);   // set by a bay's other, tagged end
     for (let i = 1; i + 1 < runs.length; i++) {
       if (!peak(i)) continue;
       const a = i - 1, b = i;
+      if (sides[a] === 'D' || sides[b] === 'D') continue;
       if (srcs[b] >= 2 && srcs[a] < 2) { sides[a] = sides[b]; locked[a] = true; } else { sides[b] = sides[a]; locked[b] = true; }
     }
     // OFFSETS (the ribbon centre off the OSM line, chain-left +). Across a
     // transition the FIXED edge is continuous, so the run after it starts at
-    // the run before's offset -+ dw/2, and the offset HOLDS along the run:
-    // the through lanes keep their position (A8 rule 1). No mid-block
-    // shifting taper (review 3: it moved every lane 1.8-3.7 m sideways in
-    // the middle of 1,478 blocks - a swerve, not a lane). A bay closes on the
-    // side it opened, so it comes back to where it started; only a road that
-    // keeps widening one way carries more than one lane off its OSM line, and
-    // that is re-anchored at the next junction mouth (inside the junction
-    // box, where no lane line runs), never mid-block.
+    // the run before's offset -+ dw/2 (per direction: (dL - dR) / 2), and the
+    // offset HOLDS along the run: the through lanes keep their position (A8
+    // rule 1). No mid-block shifting taper where nothing drifts (review 3: it
+    // moved every lane 1.8-3.7 m sideways in the middle of 1,478 blocks - a
+    // swerve, not a lane). A bay closes on the side it opened, so it comes
+    // back to where it started; a run carried more than one lane off its OSM
+    // line is re-anchored at the next junction mouth - never by a jump
+    // across it (plan B6 FX3, L4): the run past the junction starts where
+    // the lanes are and shifts back onto its line over the MUTCD shifting
+    // taper (L/2, at least the class floor), a SHIFT record (flag 16) the
+    // line model draws; nor where a branch merges (FD1: that lane belongs to
+    // the branch's side).
     // At a JUNCTION MOUTH a lane the tags do not place opens on the side that
     // brings the ribbon back toward its OSM line (A8 rule 2: the side chosen
     // per spot): the lane appears inside the junction, no taper, and every
-    // through lane still lines up across it. So a carried offset only lives
-    // from a mid-block change to the next junction.
+    // through lane still lines up across it.
     const offItem = new Array(chain.length).fill(0);
+    const reShift = [];
+    const startNode = k => chain[k].fwd ? chain[k].e.a : chain[k].e.b;
     {
       let cur = 0;
-      const startNode = k => chain[k].fwd ? chain[k].e.a : chain[k].e.b;
       for (let i = 0; i < runs.length; i++) {
         if (i > 0) {
           const t = i - 1, dw = W[i] - W[i - 1];
-          if (srcs[t] < 2 && !locked[t] && nodeDeg[startNode(runs[i].items[0])] >= 3) {
+          if (sides[t] !== 'D' && srcs[t] < 2 && !locked[t] && nodeDeg[startNode(runs[i].items[0])] >= 3) {
             const cR = cur - dw / 2, cL = cur + dw / 2;
             const pick = Math.abs(cR) < Math.abs(cL) - 0.01 ? 'R' : Math.abs(cL) < Math.abs(cR) - 0.01 ? 'L' : sides[t];
             if (pick !== sides[t]) { sides[t] = pick; tStats.recentred++; }
             if (peak(i) && locked[i]) sides[i] = pick;   // the bay closes on the side it opened
           }
+          if (sides[t] !== 'D') { dLc[t] = sides[t] === 'L' ? dw : 0; dRc[t] = sides[t] === 'R' ? dw : 0; }
+          else if (nodeDeg[startNode(runs[i].items[0])] < 3 && Math.abs(cur + (dLc[t] - dRc[t]) / 2) > LANE / 2 + 0.05) {
+            // MID-BLOCK, a per-direction change that would carry the ribbon
+            // more than half a lane off its line (a 2+1 swapped to 1+2 inside
+            // a run moves the centre, not the edges: the relay draws it): the
+            // side that keeps it nearest its line - the taper draws it, and
+            // the offset never drifts (Steele Creek Rd ran 38 m off it)
+            const opts = [[dLc[t], dRc[t]], [dw, 0], [0, dw]];
+            let best = opts[0];
+            for (const o of opts) if (Math.abs(cur + (o[0] - o[1]) / 2) < Math.abs(cur + (best[0] - best[1]) / 2) - 0.01) best = o;
+            if (best !== opts[0]) { sides[t] = best[0] !== 0 ? 'L' : 'R'; dLc[t] = best[0]; dRc[t] = best[1]; tStats.recentred++; }
+          }
           // the moving edge belongs to the wider run; the other edge is fixed
-          cur = sides[t] === 'R' ? cur - dw / 2 : cur + dw / 2;
+          cur += (dLc[t] - dRc[t]) / 2;
         }
         for (const k of runs[i].items) {
-          if (Math.abs(cur) > LANE_REANCHOR && nodeDeg[startNode(k)] >= 3) { cur = 0; tStats.reanchored++; }
+          if (Math.abs(cur) > LANE_REANCHOR && nodeDeg[startNode(k)] >= 3 && !mergeNodes.has(startNode(k))) {
+            reShift.push({ k, cur });
+            cur = 0; tStats.reanchored++;
+          }
           offItem[k] = cur;
         }
       }
@@ -575,37 +656,54 @@ export function lineClean(ctx) {
       const o = fwd ? offItem[k] : -offItem[k];     // to the edge's own a->b frame (left +)
       edgeOffset[e.id] = { o0: o, o1: o, t0: 0, t1: 1 };
     }
-    // the records, one per transition, on the wide run's edge at the node
+    for (const { k, cur: c0 } of reShift) {
+      const { e, fwd } = chain[k], node = startNode(k);
+      const len = Math.max(floorOf(e.way), Math.abs(c0) * shiftRate(mphOf(e.way)) / 2);
+      tapr.push({ edge: e.id, end: e.a === node ? 0 : 1, node, side: 0, src: 0, flags: 16, dw: Math.abs(c0), len, room: 0, off: fwd ? c0 : -c0 });
+      tStats.shifts++;
+    }
+    // the records, one per side the wide run sticks out on, on the wide
+    // run's edge at the node
     for (let i = 0; i + 1 < runs.length; i++) {
       const gain = W[i + 1] > W[i];
       const wide = gain ? runs[i + 1] : runs[i];
       const ci = gain ? wide.items[0] : wide.items[wide.items.length - 1];
       const { e, fwd } = chain[ci];
-      const dw = Math.abs(W[i + 1] - W[i]);
-      if (dw < 0.05) continue;
+      if (Math.abs(W[i + 1] - W[i]) < 0.05) continue;
       const node = gain ? (fwd ? e.a : e.b) : (fwd ? e.b : e.a);
       const end = e.a === node ? 0 : 1;
       const wideWider = (i + 2 < runs.length && gain && W[i + 2] < W[i + 1]) || (i > 0 && !gain && W[i - 1] < W[i]);
-      let len = mutcdLen(dw, mphOf(e.way));
-      if (bayF[i]) len = Math.min(55, Math.max(30, len));
       const floor = floorOf(e.way);
-      len = Math.max(len, floor);
       const room = wideWider ? wide.len / 2 : wide.len;
-      let flags = (bayF[i] ? 1 : 0) | (gain ? 0 : 4) | (srcs[i] < 2 ? 8 : 0);
-      if (nodeDeg[node] >= 3) {
-        // at a JUNCTION the lane opens or ends full width at the mouth - a
-        // turn bay runs full width to the stop line (review 2: 1,010 changes
-        // on a junction node carried a taper that pinched the bay to nothing
-        // where cars turn). Tapers only at 2-arm nodes.
-        flags |= 2; len = 0; tStats.atJunction++;
-      } else if (len > room) {
-        if (room >= floor) { len = room; tStats.shortened++; }
-        else { flags |= 2; len = Math.max(0, room); tStats.absorbed++; }
+      // how far the wide run sticks out on each side (chain frame)
+      const outL = gain ? dLc[i] : -dLc[i], outR = gain ? dRc[i] : -dRc[i];
+      const parts = [['L', outL], ['R', outR]].filter(([, d]) => d >= 0.05);
+      if (parts.length > 1) tStats.twoSided++; else tStats.oneSided++;
+      for (const [sd, dw] of parts) {
+        // STANDARD LENGTHS (plan B6 FX4): a turn bay 12:1 within 30-55 m, an
+        // added lane 15:1, a dropped lane the MUTCD merging taper (3B.09:
+        // WS^2/60 below 45 mph, WS from 45); never under the class floor. Per
+        // direction, the right of the direction into the wide run is its add,
+        // the other side the other direction's drop.
+        const isAdd = sides[i] === 'D' ? (sd === 'R') === addOnR[i] : gain;
+        let len = bayF[i] ? Math.min(55, Math.max(30, 12 * dw))
+                : isAdd ? Math.max(floor, 15 * dw)
+                : Math.max(floor, mutcdLen(dw, mphOf(e.way)));
+        let flags = (bayF[i] ? 1 : 0) | (gain ? 0 : 4) | (srcs[i] < 2 ? 8 : 0);
+        if (nodeDeg[node] >= 3) {
+          // at a JUNCTION the lane opens or ends full width at the mouth - a
+          // turn bay runs full width to the stop line (review 2: 1,010 changes
+          // on a junction node carried a taper that pinched the bay to nothing
+          // where cars turn). Tapers only at 2-arm nodes.
+          flags |= 2; len = 0; tStats.atJunction++;
+        } else if (len > room) {
+          if (room >= floor) { len = room; tStats.shortened++; }
+          else { flags |= 2; len = Math.max(0, room); tStats.absorbed++; }
+        }
+        // side in the wide EDGE's a->b frame
+        const sideE = fwd ? sd : (sd === 'L' ? 'R' : 'L');
+        tapr.push({ edge: e.id, end, node, side: sideE === 'L' ? 0 : 1, src: srcs[i], flags, dw, len, room, off: offsetAt(edgeOffset[e.id], end ? e.len : 0) });
       }
-      // side in the wide EDGE's a->b frame
-      const sideE = fwd ? sides[i] : (sides[i] === 'L' ? 'R' : 'L');
-      tStats.oneSided++;
-      tapr.push({ edge: e.id, end, node, side: sideE === 'L' ? 0 : 1, src: srcs[i], flags, dw, len, room, off: offsetAt(edgeOffset[e.id], end ? e.len : 0) });
     }
   }
   stats.tapr = tStats;

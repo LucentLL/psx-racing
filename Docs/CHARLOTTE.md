@@ -4939,6 +4939,110 @@ crest radii, the adaptive station step (it would double the stations on
 local streets), the C1 blends (BlendEndsToNodes, ClimbOut, HoldBridges),
 and the clearance inequality.
 
+## L4 (roads pass, 2026-10-03): lanes line up - the split decides the side, each direction on its own outside, the relay
+
+L4 makes the through lanes keep their place across joins and junctions. The
+data now takes the side a lane opens on from the same split the paint uses
+(L2's line set), and the line model draws the three cases the old rules
+could not.
+
+- **The side comes from the split (`lib/lineclean.mjs` TAPR,
+  `lib/lineset.mjs` `makeSplitOf`).** TAPR used to guess each direction's
+  lanes from the count; L2's line set read them from the tags. Where they
+  disagreed, the wrong edge moved. A 1+1 road meeting a 1+2 one put the
+  extra lane on the forward side, so the through lane jumped 3.7 m across
+  51 junctions. Both now read one function.
+- **Each direction on its own outside (owner Q4).** On a two-way road, a
+  change of lane count is split by direction: the forward lanes change on
+  the right, the other direction's on the left. The centre line and the
+  through lanes stay put. A centre turn lane that opens with them goes to
+  ONE side, as a turn bay does. Mid-block, where that would carry the
+  ribbon more than half a lane off its line, the side that keeps it nearest
+  wins, so the offset never drifts (Steele Creek Rd had run 38 m off it in
+  the first try). TAPR writes a record for each moving side. The line
+  model eases both edges over ONE length (`TwoSided`), and the lines
+  between the edges pair from the centre outward (`PairFromCentre`): the
+  lanes a direction adds are its outer ones.
+- **Merge side (plan B6 FD1).** A lane that opens or ends where a link (or
+  a one-way fork of 35 degrees or less) joins a one-way chain is on the
+  branch's side: 249 changes, 80 of them on the left. Such a node is never
+  re-anchored.
+- **Chains across a name change (FX2b).** At a node of three or more arms,
+  the straightest pair of one class (dot < -0.94) now chains across a name
+  change, for TAPR and PARA only. A road that changes its name at a
+  junction keeps its lanes' position through it.
+- **No jump at a re-anchor (FX3, SHIFT records, TAPR flag 16).** A run more
+  than a lane off its line is still re-anchored at the next junction, but
+  the run past it now starts where the lanes are. It shifts back over the
+  MUTCD shifting taper (L/2, at least the class floor). At a MITRED node
+  the join's own eases already draw the step, so the shift is skipped
+  there. There are 118 records, and 82 are drawn.
+- **Splits at junctions (FX2a, `lib/splits.mjs`).** A two-way road that
+  becomes its two carriageways AT a junction (a cross street at the node:
+  4+ arms) is a split node too, with its median taper: SPLT went from 891
+  to 961.
+- **Standard lengths (FX4).** A turn bay is 12:1 within 30-55 m. An added
+  lane is 15:1. A dropped lane uses the MUTCD merging taper (WS^2/60 below
+  45 mph, WS from 45). None is ever under the class floor.
+- **The relay (`LineModel.Relay`).** This is a join of two arms of one
+  width whose line sets differ: 2+1 against 1+2, a double yellow against a
+  TWLTL. L2 drew each edge's own split, and at 681 such joins the centre
+  line jumped a lane. Now each arm's lines ease to where the two layouts
+  meet. The length is the MUTCD merging taper where a lane line ends, or
+  the shifting taper where lines only move. It is centred on the node, and
+  an arm with no room gives its share to the other. A line with no partner
+  ends where its arm reaches full width. A width taper on the same spot
+  moves the line on from the relay's place. The builder draws a relayed
+  span line by line (`Relayed`), and PAINT counts it as a taper.
+- **The LINE MODEL report (`Editor/CityAudit.LineModel.cs`)** gains OwnerBox
+  and T1 counts, and three new lines: LANE ALIGN (fan junctions, the travel
+  lanes in against the travel lanes out), TAPER (one-sided eases steeper
+  than 10.6 degrees at their middle) and OFFSET (edges more than a lane off
+  their line). The symmetric-widening check now accepts a per-direction
+  widening (Q4). `CityAudit.LineModelOnly` runs this report and PAINT
+  alone, in about a minute (`-executeMethod
+  PSXRacing.EditorTools.CityAudit.LineModelOnly`, writes `line_model.txt`).
+
+**Numbers (city-wide unless boxed).**
+- Through-lane continuity at joins: 1,921 -> 647 lines (pre-L2 636).
+  The OwnerBox has 8 (T1 1); T1 city-wide 113.
+- Relays: 682, with 1 jump left at one. 369 are shorter than the MUTCD length
+  for want of room.
+- LANE ALIGN at fan junctions: 128 (T1 30) through lanes off. In the OwnerBox:
+  14 (T1 1). The offline replica measured 752 before
+  (T1 203; OwnerBox 81, T1 27).
+- Symmetric widenings: 0, plus 175 per-direction widenings (Q4).
+- OFFSET: TAPR offsets more than a lane off the line went 597 -> 316 edges.
+  The worst was 12.80 m and is still 12.80 m. The Unity count after the
+  mirrored fixes is 324 (T1 162, OwnerBox 6).
+- Twin decks: 144 -> 145 unions, with 5 joined and 4 parted (re-recorded).
+  The carriageways moved with their lanes: an I-277 pair that had
+  overlapped by 1.78 m now stands 1.68 m apart.
+- linecheck (re-recorded; a data move): A1 76,875 -> 76,957 runs, B2
+  KINK 96,879 -> 97,073, D1 818 -> 829; every worst value unchanged.
+- Boxed launch (OwnerBox): LAUNCH 16 -> 18 (T1 3 -> 4, T2 10 -> 11),
+  UNLOAD 86 -> 92, uptown route 0 -> 1 UNLOAD. Solve 2.65 -> 3.04 s. New
+  spots include Elizabeth Ave x N Kings Dr (-1311, 3745), 0.50 m, where
+  the tw2 arm now sits a lane over to line up, and South Blvd (-2573,
+  3880), 0.45 m, beside a merge-side change.
+- CITY AUDIT: 17 failures. Against L2's 13: TWIN f 3, the lane survey
+  (4 runs not named) and the verge steps (29) were already failing in
+  both L3 audits (19 / 20 verge points there). The 2 PAINT failures were
+  relays; the relay-as-taper exclusion was checked by `LineModelOnly`:
+  PAINT T1 0 / 0. DRIVE AUDIT zeros.
+
+**Known, left.**
+- TAPER: 2,490 of 6,701 (T1 811, OwnerBox 71) eases are steeper than 10.6 degrees. These are short
+  OSM pieces that leave no room. The plan's narrow-side taper (FX4 flag 32)
+  is not written; L5's merge zones extend the aux lanes.
+- 0.06 m: a one-way's single yellow edge line meeting a double yellow pair
+  is 6 cm off the pair's line.
+- One-way <-> two-way continuations that are not splits, and centre turn
+  lanes that open AT a junction mouth. One direction there still jumps a
+  lane across the junction. That belongs to the junctions package (L7).
+- OFFSET: one-way chains that add lanes on one side up to a junction
+  (Pineville-Matthews Rd ow4, 14.6 m).
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

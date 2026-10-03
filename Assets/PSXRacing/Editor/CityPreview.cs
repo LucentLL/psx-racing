@@ -338,6 +338,9 @@ namespace PSXRacing.EditorTools
             Top("lat_steele_14505", "lateral", -14568.5f, -5350.2f, "Steele Creek", 40f, "Steele Creek Rd node 14505 (signal): tw3t/tw4 jog"),
             Top("lat_ntryon_11669", "lateral", -640.0f, 6268.3f, "Tryon", 40f, "N Tryon St node 11669: a lane drop of 7 m"),
             Top("lat_gleneagles_20141", "lateral", -1822.6f, -7350.8f, "Gleneagles", 30f, "Gleneagles Rd e20141: a 25 m tw5t piece that bulges"),
+            // lanes line up (roads pass L4)
+            Top("relay_mcdowell_12098", "lateral", -1212.0f, 4296.0f, "McDowell", 35f, "N McDowell St node 12098: a 2+1 split meeting a 1+2 one - the centre line moves across over the MUTCD length (the relay) instead of jumping a lane"),
+            Top("lat_elizabeth_6995", "lateral", -1315.8f, 3738.4f, "Elizabeth", 40f, "Elizabeth Ave x N Kings Dr node 6995: tw2 into a tw4 that adds its lanes for the other direction - the through lanes line up across the junction"),
         };
 
         /// <summary>The nearest point on an edge whose name contains

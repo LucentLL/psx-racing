@@ -99,17 +99,12 @@ export function twoWaySplit(w, count, n) {
   return [n / 2, n / 2, CENTRE_DY, 'even'];
 }
 
-/// Every edge's line set (the LSET rows), plus the list of TWLTLs painted
-/// without tag evidence. profileFor: citydata's; tapr: lineClean's records.
-export function buildLineSets(edges, profileFor, tapr) {
-  const bay = new Uint8Array(edges.length);
-  for (const t of tapr) if (t.flags & 1) {
-    const e = edges[t.edge];
-    if (!e) continue;
-    bay[t.edge] |= e.way.oneway || t.end === 0 ? LS_BAY_F : LS_BAY_B;
-  }
+/// The split of an edge in its own a->b frame, [nF, nB, centre, why] (a lent
+/// count takes its donor's split): THE one rule, read by the line set below
+/// and by lineClean's TAPR (roads pass L4: the side a lane opens on is the
+/// side of the direction that gains it, so the paint and the ribbon agree).
+export function makeSplitOf(profileFor) {
   const memo = new Map();
-  /// the split of edge e in its own a->b frame (a lent count takes its donor's)
   const splitOf = (e, depth = 0) => {
     if (memo.has(e)) return memo.get(e);
     const w = e.way;
@@ -126,6 +121,19 @@ export function buildLineSets(edges, profileFor, tapr) {
     memo.set(e, r);
     return r;
   };
+  return splitOf;
+}
+
+/// Every edge's line set (the LSET rows), plus the list of TWLTLs painted
+/// without tag evidence. profileFor: citydata's; tapr: lineClean's records.
+export function buildLineSets(edges, profileFor, tapr) {
+  const bay = new Uint8Array(edges.length);
+  for (const t of tapr) if (t.flags & 1) {
+    const e = edges[t.edge];
+    if (!e) continue;
+    bay[t.edge] |= e.way.oneway || t.end === 0 ? LS_BAY_F : LS_BAY_B;
+  }
+  const splitOf = makeSplitOf(profileFor);
   const rows = new Array(edges.length), noEvidence = [];
   for (let i = 0; i < edges.length; i++) {
     const e = edges[i], w = e.way, lt = w.lt;

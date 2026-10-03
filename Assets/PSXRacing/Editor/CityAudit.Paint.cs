@@ -138,7 +138,10 @@ namespace PSXRacing.EditorTools
                     if (!e.oneway && marked && (bKind || bOff)) T.bWrongTw += KmStep;
                     LineModel.Extents(e, s, out float eM, out float eP);
                     float shift = LineModel.ShiftAt(e, s);
-                    bool taper = Mathf.Abs(eM - e.lmMinus) > 1e-3f || Mathf.Abs(eP - e.lmPlus) > 1e-3f || Mathf.Abs(shift) > 1e-3f;
+                    // a relay (L4: the lines of two layouts of one width moving to
+                    // meet) is a taper too: there the centre moves by design
+                    bool taper = Mathf.Abs(eM - e.lmMinus) > 1e-3f || Mathf.Abs(eP - e.lmPlus) > 1e-3f || Mathf.Abs(shift) > 1e-3f
+                                 || LineModel.Relayed(e, s);
                     var view = new CityMeshes.AuditView.SectionView
                     {
                         s = s, L = new Vector3(-eM, 0f, 0f), R = new Vector3(eP, 0f, 0f), P = Vector2.zero, right = Vector2.right,

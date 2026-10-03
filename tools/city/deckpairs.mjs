@@ -91,7 +91,7 @@ let mirroredFixed = 0;
     const n = e.pts.length; const [dx, dz] = [e.pts[n - 2][0] - e.pts[n - 1][0], e.pts[n - 2][1] - e.pts[n - 1][1]]; const m = Math.hypot(dx, dz) || 1; return [dx / m, dz / m];
   };
   for (const t of city.tapr || []) {
-    if (t.edge < 0 || t.edge >= E.length) continue;
+    if (t.edge < 0 || t.edge >= E.length || (t.flags & 16)) continue;   // a SHIFT record (L4) is no lane change
     const W = E[t.edge], n = t.end === 0 ? W.a : W.b, dW = tangentEnd(W, n);
     let N = null, bd = -0.85;
     for (const oi of city.nodeEdges[n]) {

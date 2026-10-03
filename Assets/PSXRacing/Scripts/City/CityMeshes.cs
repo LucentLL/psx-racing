@@ -2509,7 +2509,9 @@ namespace PSXRacing.City
             // by w (1 - cos theta) / 2 at most (w the half width): within V/2
             float w = 0.5f * Mathf.Max(latRA - latLA, latRB - latLB);
             bool bendOk = w * (1f - Vector2.Dot(A.right, B.right)) * 0.5f <= 0.0125f;
-            bool full = Full(A, eMA, ePA, latLA, latRA) && Full(B, eMB, ePB, latLB, latRB) && bendOk;
+            bool full = Full(A, eMA, ePA, latLA, latRA) && Full(B, eMB, ePB, latLB, latRB) && bendOk
+                        // a relay (roads pass L4) moves the lines off the texture's columns
+                        && !LineModel.Relayed(e, A.s) && !LineModel.Relayed(e, B.s);
             // THE EDGE'S OWN LINES (roads pass L2): its line set on its
             // profile; the texture's own layout when they are the same
             var lay = LineModel.LayoutOf(e);

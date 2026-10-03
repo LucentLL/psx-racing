@@ -40,15 +40,25 @@ namespace PSXRacing.City
         /// <summary>One TAPR record: a lane-count change on the wide run's
         /// edge at one of its ends (0 a, 1 b). side 0 = the left of a->b moves,
         /// 1 the right; flags 1 turn bay, 2 full width at the node, 4 a drop,
-        /// 8 untagged; dw the width change, len the MUTCD length (0: none).</summary>
+        /// 8 untagged, 16 a SHIFT (roads pass L4: a run re-anchored at a
+        /// junction eases back onto its line past it; off = the shift at the
+        /// node, edge frame, len the shifting taper); dw the width change, len
+        /// the MUTCD length (0: none). A change that widens both directions
+        /// (Q4) has a record for each side.</summary>
         public struct Tapr { public int edge; public byte end, side, src, flags; public float dw, len, room, off; }
 
         /// <summary>One eased one-sided taper on an edge: the side (+1 left of
         /// a->b, the ribbon's plus side; -1 right), the reduction dw at the
         /// join, easing to 0 over len; d0 = the chain distance from the join
         /// to this edge's near end (fromA: the a end). narrow: the profile of
-        /// the narrow arm at the join (the line matching).</summary>
-        public struct Ease { public sbyte side; public bool fromA, narrowFlip, shift; public float dw, len, d0; public int narrow; public float[] partner; public Layout narrowLay; }
+        /// the narrow arm at the join (the line matching). relay (roads pass
+        /// L4): no width change - the lines move from this edge's layout to
+        /// partner[k] at the join (dw = 1: the blend; span the largest move).
+        /// twoRole (L4, owner Q4): one of a pair easing BOTH edges at once
+        /// (each direction on its own outside) over one length, dwOther the
+        /// other side's; the lead (1) carries the lines between the edges, the
+        /// other (2) only its own edge line.</summary>
+        public struct Ease { public sbyte side; public bool fromA, narrowFlip, shift, relay; public float dw, len, d0, span, dwOther; public byte twoRole; public int narrow; public float[] partner; public Layout narrowLay; }
 
         /// <summary>One SPLT record (WP-11, critic C11): where an undivided
         /// road opens into its two carriageways - the node, the undivided edge,
@@ -61,6 +71,9 @@ namespace PSXRacing.City
 
         static Dictionary<long, int> taprAt;
         static CityMap taprMap;
+        /// <summary>A lane-count record's key: (edge, end, side) - a change that
+        /// widens both directions (Q4, roads pass L4) has one per side.</summary>
+        static long TaprKey(int edge, int end, int side) => ((long)edge << 2) | ((long)end << 1) | (long)side;
 
         /// <summary>At parse, before the elevation solve: each edge's lane
         /// centre offset and full extents. Eases come later
@@ -80,9 +93,9 @@ namespace PSXRacing.City
             taprMap = map;
             if (map.tapr != null)
                 for (int i = 0; i < map.tapr.Length; i++)
-                    taprAt[((long)map.tapr[i].edge << 1) | map.tapr[i].end] = i;
+                    if ((map.tapr[i].flags & 16) == 0) taprAt[TaprKey(map.tapr[i].edge, map.tapr[i].end, map.tapr[i].side)] = i;
             MirroredFixed = 0; MirroredLeft = 0;
-            if (map.tapr != null) foreach (var t in map.tapr) FixMirrored(map, t);
+            if (map.tapr != null) foreach (var t in map.tapr) if ((t.flags & 16) == 0) FixMirrored(map, t);
         }
 
         /// <summary>WP-10's data: 14 of its 7,652 lane-count changes (all two
@@ -159,6 +172,7 @@ namespace PSXRacing.City
             float rp = 0f, rm = 0f, sh = 0f;
             for (int i = 0; i < ez.Length; i++)
             {
+                if (ez[i].relay) continue;
                 float r = Reduction(e, ez[i], s);
                 if (ez[i].shift) { sh += r; continue; }
                 if (ez[i].side > 0) { if (r > rp) rp = r; } else if (r > rm) rm = r;
@@ -221,10 +235,22 @@ namespace PSXRacing.City
             var add = new List<Ease>[map.edges.Length];
             foreach (var e in map.edges) e.lmEase = null;
             EasedJoins = 0; EasedDefault = 0; EaseSteps = 0; SplitTapers = 0; HeldJoins = 0; CrossedJoins = 0;
+            TwoSidedJoins = 0; RelayJoins = 0; RelayShort = 0; ReShifts = 0;
             var splitAt = new Dictionary<int, Split>();
             if (map.splt != null) foreach (var sp in map.splt) splitAt[sp.node] = sp;
-            foreach (var (n, ei, oi) in joins)
+            // the joins whose two arms agree in width but not in their lines
+            // (roads pass L4): found first, so a relay at one end of an edge
+            // knows whether the other end needs its room too
+            var relayJoin = new HashSet<int>(); var relayNode = new HashSet<int>();
+            for (int j = 0; j < joins.Count; j++)
             {
+                var (n, ei, oi) = joins[j];
+                if (ei == oi || (splitAt.TryGetValue(n, out var sj) && (ei == sj.u || oi == sj.u))) continue;
+                if (NeedsRelay(map.edges[ei], map.edges[oi], n)) { relayJoin.Add(j); relayNode.Add(n); }
+            }
+            for (int jn = 0; jn < joins.Count; jn++)
+            {
+                var (n, ei, oi) = joins[jn];
                 var E = map.edges[ei]; var O = map.edges[oi];
                 if (E == O) continue;
                 // where an undivided road opens into its carriageways, the one
@@ -261,12 +287,43 @@ namespace PSXRacing.City
                             bool owForward = ow == E ? eIn : oOut;
                             fixT = owForward ? -1 : 1;
                         }
-                        else if (taprAt != null && taprAt.TryGetValue(((long)W.index << 1) | (W.a == n ? 0L : 1L), out int tiW))
+                        else if (TwoSided(W, n)) fixT = 0;   // Q4: each direction widens on its own outside
+                        else if (taprAt != null && (taprAt.TryGetValue(TaprKey(W.index, W.a == n ? 0 : 1, 0), out int tiW)
+                                                    || taprAt.TryGetValue(TaprKey(W.index, W.a == n ? 0 : 1, 1), out tiW)))
                         {
                             int mW = taprMap.tapr[tiW].side == 0 ? 1 : -1;       // the moving side, W's frame
                             fixT = -(wForward ? mW : -mW);
                         }
                         else fixT = Mathf.Abs(dRt) <= Mathf.Abs(dLt) ? -1 : 1;   // the smaller step is held: the fewest lanes move
+                        if (fixT == 0)
+                        {
+                            // TWO-SIDED (owner Q4): both edges ease on the wide
+                            // arm - the centre line and the through lanes stay put
+                            TwoSidedJoins++;
+                            // one length for both (the longer record's, within
+                            // the room both sides share): the lines between the
+                            // edges then move once, to where the narrow arm has them
+                            float dl2 = eWide ? dLt : -dLt, dr2 = eWide ? dRt : -dRt, len2 = 0f; bool fromT2 = true;
+                            for (int sideT = -1; sideT <= 1; sideT += 2)
+                            {
+                                float d = sideT > 0 ? dl2 : dr2;
+                                if (d <= 0.005f) continue;
+                                len2 = Mathf.Max(len2, LengthFor(W, n, sideT * (wForward ? 1 : -1), d, out bool ft));
+                                fromT2 &= ft;
+                            }
+                            len2 = Mathf.Max(0.5f, Mathf.Min(len2, RoomAlong(map, partner, W, n, 1, true)));
+                            bool lead = true;
+                            for (int sideT = 1; sideT >= -1; sideT -= 2)
+                            {
+                                float d = sideT > 0 ? dl2 : dr2, dO = sideT > 0 ? dr2 : dl2;
+                                if (d <= 0.005f) continue;
+                                int wSd = sideT * (wForward ? 1 : -1);
+                                EasedJoins++; if (!fromT2) EasedDefault++;
+                                Propagate(map, add, partner, W, n, wSd, d, len2, 0f, N, (W.a == n) == (N.a == n), 0, Mathf.Max(0f, dO), (byte)(lead ? 1 : 2));
+                                lead = false;
+                            }
+                            continue;
+                        }
                         float dFix = Mathf.Abs(fixT > 0 ? dLt : dRt), dMove = Mathf.Abs(dLt) + Mathf.Abs(dRt);
                         // N shifts toward the held side (in its own frame)
                         float shiftN = fixT * dFix * (nForward ? 1f : -1f);
@@ -309,6 +366,7 @@ namespace PSXRacing.City
                         continue;
                     }
                 }
+                if (relayJoin.Contains(jn)) { Relay(map, add, E, O, n, relayNode); continue; }
                 for (int sideT = -1; sideT <= 1; sideT += 2)
                 {
                     int eSide = eIn ? sideT : -sideT, oSide = oOut ? sideT : -sideT;
@@ -362,9 +420,170 @@ namespace PSXRacing.City
                     SplitTapers++;
                 }
             }
+            // SHIFT records (roads pass L4, plan B6 FX3): a run re-anchored at
+            // a junction starts where the lanes were and eases back onto its
+            // line past it - never a jump across the junction
+            if (map.tapr != null)
+                foreach (var t in map.tapr)
+                {
+                    if ((t.flags & 16) == 0 || t.edge < 0 || t.edge >= map.edges.Length) continue;
+                    var e = map.edges[t.edge];
+                    if (e.a == e.b) continue;
+                    // at a MITRED node the join's own eases already draw the
+                    // step smoothly (held / crossed above): no second shift
+                    if (partner(e, t.end == 0 ? e.a : e.b) >= 0) continue;
+                    PropagateShift(map, add, partner, e, t.end == 0 ? e.a : e.b, t.off, Mathf.Max(0.5f, t.len), 0f, 0);
+                    ReShifts++;
+                }
             for (int i = 0; i < add.Length; i++) if (add[i] != null) map.edges[i].lmEase = add[i].ToArray();
         }
         public static int SplitTapers, HeldJoins, CrossedJoins;
+        /// <summary>Roads pass L4, for the audit: joins widened on both sides
+        /// by two records (Q4), relays (lines moved between two layouts of one
+        /// width), of them shorter than the MUTCD length (no room), and SHIFT
+        /// records drawn.</summary>
+        public static int TwoSidedJoins, RelayJoins, RelayShort, ReShifts;
+
+        /// <summary>Does the wide arm carry a record on each side at this node (Q4)?</summary>
+        static bool TwoSided(CityMap.Edge w, int node)
+        {
+            if (taprAt == null) return false;
+            int end = w.a == node ? 0 : 1;
+            return taprAt.ContainsKey(TaprKey(w.index, end, 0)) && taprAt.ContainsKey(TaprKey(w.index, end, 1));
+        }
+
+        // ================================================================
+        //  The relay (roads pass L4): one width, two line sets
+        // ================================================================
+
+        /// <summary>Two two-way arms of one width meeting mitred whose lines
+        /// do not meet: a 2+1 split against a 1+2, a double yellow against a
+        /// TWLTL. L2 drew each edge's own split, and at 681 such joins the
+        /// centre line jumped a lane.</summary>
+        static bool NeedsRelay(CityMap.Edge E, CityMap.Edge O, int n)
+        {
+            if (E.oneway || O.oneway || E.a == E.b || O.a == O.b) return false;
+            bool eIn = E.b == n, oOut = O.a == n;
+            float eP = eIn ? E.lmPlus : E.lmMinus, eM = eIn ? E.lmMinus : E.lmPlus;
+            float oP = oOut ? O.lmPlus : O.lmMinus, oM = oOut ? O.lmMinus : O.lmPlus;
+            if (Mathf.Abs(eP - oP) > 0.02f || Mathf.Abs(eM - oM) > 0.02f) return false;
+            var lE = LayoutOf(E); var lO = LayoutOf(O);
+            if (lE.m.Length == 0 || lO.m.Length == 0 || Mathf.Abs(lE.W - lO.W) > 0.02f) return false;
+            // O's lines in E's frame (E's a->b): flipped when the two run opposite ways
+            var oL = (E.a == n) == (O.a == n) ? Flipped(lO) : lO;
+            if (lE.m.Length != oL.m.Length) return true;
+            for (int k = 0; k < lE.m.Length; k++)
+                if (Mathf.Abs(lE.m[k] - oL.m[k]) > 0.02f) return true;
+            return false;
+        }
+
+        /// <summary>The relay at one join: each arm's lines ease to the middle
+        /// of the two layouts (weighted by the two shares) over its share of
+        /// the MUTCD length - the merging taper where a lane line ends (a
+        /// direction loses a lane), the shifting taper (half) where lines only
+        /// move - centred on the node, the share an arm has no room for given
+        /// to the other. A line with no partner on the other side ends where
+        /// its arm's share reaches full width.</summary>
+        static void Relay(CityMap map, List<Ease>[] add, CityMap.Edge E, CityMap.Edge O, int n, HashSet<int> relayNode)
+        {
+            var lE = LayoutOf(E); var lO = LayoutOf(O);
+            bool same = (E.a == n) != (O.a == n);              // one arrives, one leaves: one a->b frame
+            var oInE = same ? lO : Flipped(lO);
+            var pE = RelayPairs(lE, oInE);                      // E line k -> O's m (E frame), or NaN
+            var eInO = same ? lE : Flipped(lE);
+            var pO = RelayPairs(lO, eInO);
+            float move = 0f; bool ends = false;
+            for (int k = 0; k < pE.Length; k++) { if (float.IsNaN(pE[k])) ends |= lE.kind[k] == KWhiteDash; else move = Mathf.Max(move, Mathf.Abs(pE[k] - lE.m[k])); }
+            for (int k = 0; k < pO.Length; k++) if (float.IsNaN(pO[k])) ends |= lO.kind[k] == KWhiteDash;
+            if (move < 0.005f && !ends) return;
+            float mph = Mathf.Max(SpeedMph(E), SpeedMph(O));
+            float rate = Mathf.Max(10f, mph <= 40f ? mph * mph / 60f : mph);
+            float L = Mathf.Max(Mathf.Max(FloorOf(E), FloorOf(O)), Mathf.Max(move, ends ? RoadProfiles.LaneM : 0f) * rate * (ends ? 1f : 0.5f));
+            float Room(CityMap.Edge x) => x.length * (relayNode.Contains(x.a == n ? x.b : x.a) ? 0.45f : 0.9f);
+            float rE = Room(E), rO = Room(O);
+            float lenE = Mathf.Min(rE, Mathf.Max(0.5f * L, L - rO)), lenO = Mathf.Min(rO, L - lenE);
+            // a share under half a metre is no taper: the other arm takes it all
+            if (lenE < 0.5f) lenE = 0f;
+            if (lenO < 0.5f) lenO = 0f;
+            if (lenE + lenO < 0.5f) return;
+            if (lenE + lenO < L - 0.5f) RelayShort++;
+            RelayJoins++;
+            float fE = lenE + lenO > 1e-3f ? lenE / (lenE + lenO) : 0.5f;
+            AddRelay(add, E, n, lE, pE, fE, lenE);
+            AddRelay(add, O, n, lO, pO, 1f - fE, lenO);
+        }
+
+        static void AddRelay(List<Ease>[] add, CityMap.Edge x, int n, Layout lay, float[] partnerM, float f, float len)
+        {
+            if (len < 0.5f || f <= 1e-4f) return;
+            float plus = x.lmPlus != 0f || x.lmMinus != 0f ? x.lmPlus : x.width * 0.5f;
+            var z = new Ease { relay = true, fromA = x.a == n, dw = 1f, len = len, d0 = 0f, partner = new float[lay.m.Length] };
+            for (int k = 0; k < lay.m.Length; k++)
+            {
+                if (float.IsNaN(partnerM[k])) { z.partner[k] = float.NaN; continue; }
+                float m = lay.m[k] + f * (partnerM[k] - lay.m[k]);    // the meeting place: the middle, by shares
+                z.partner[k] = plus - m;
+                z.span = Mathf.Max(z.span, Mathf.Abs(m - lay.m[k]));
+            }
+            (add[x.index] ??= new List<Ease>(2)).Add(z);
+        }
+
+        /// <summary>Each line of <paramref name="a"/> against <paramref name="b"/>
+        /// (one frame, one width): its partner's m, or NaN. Edge lines pair
+        /// with edge lines; solid yellows with solid yellows and broken
+        /// yellows with broken yellows, in order, when both have as many;
+        /// white lines on each side of the centre in order from that side's
+        /// edge, so the outer lanes keep their place and a lane that ends or
+        /// begins is the one beside the centre.</summary>
+        static float[] RelayPairs(Layout a, Layout b)
+        {
+            var r = new float[a.m.Length];
+            for (int k = 0; k < r.Length; k++) r[k] = float.NaN;
+            float ca = YellowMid(a), cb = YellowMid(b);
+            for (byte kind = 0; kind <= KWhiteDash; kind++)
+            {
+                if (kind == KWhiteDash)
+                {
+                    for (int sideG = 0; sideG < 2; sideG++)
+                    {
+                        var la = new List<int>(); var lb = new List<int>();
+                        for (int i = 0; i < a.m.Length; i++) if (a.kind[i] == kind && ((a.m[i] < ca) == (sideG == 0))) la.Add(i);
+                        for (int i = 0; i < b.m.Length; i++) if (b.kind[i] == kind && ((b.m[i] < cb) == (sideG == 0))) lb.Add(i);
+                        // from that side's edge: the plus side (small m) ascending, the minus side descending
+                        if (sideG == 1) { la.Reverse(); lb.Reverse(); }
+                        for (int q = 0; q < la.Count && q < lb.Count; q++) r[la[q]] = b.m[lb[q]];
+                    }
+                    continue;
+                }
+                var xa = new List<int>(); var xb = new List<int>();
+                for (int i = 0; i < a.m.Length; i++) if (a.kind[i] == kind) xa.Add(i);
+                for (int i = 0; i < b.m.Length; i++) if (b.kind[i] == kind) xb.Add(i);
+                if (xa.Count != xb.Count) continue;
+                for (int q = 0; q < xa.Count; q++) r[xa[q]] = b.m[xb[q]];
+            }
+            return r;
+        }
+
+        /// <summary>The middle of a layout's yellow lines (m), or its middle.</summary>
+        static float YellowMid(Layout l)
+        {
+            float lo = float.MaxValue, hi = float.MinValue;
+            for (int i = 0; i < l.m.Length; i++)
+                if (l.kind[i] == KYellow || l.kind[i] == KYellowDash) { lo = Mathf.Min(lo, l.m[i]); hi = Mathf.Max(hi, l.m[i]); }
+            return lo <= hi ? 0.5f * (lo + hi) : 0.5f * l.W;
+        }
+
+        static float SpeedMph(CityMap.Edge e) => e.speedKmh > 0 ? e.speedKmh / 1.609344f : e.link ? 35f : ClassMph[Mathf.Clamp(e.cls, 0, 5)];
+
+        /// <summary>Is a relay moving this edge's lines at s? (The builder
+        /// draws such a span line by line, never as the texture's one quad.)</summary>
+        public static bool Relayed(CityMap.Edge e, float s)
+        {
+            var ez = e.lmEase;
+            if (ez == null) return false;
+            for (int i = 0; i < ez.Length; i++) if (ez[i].relay && Reduction(e, ez[i], s) > 1e-4f) return true;
+            return false;
+        }
 
         /// <summary>How far a run goes from a join: this edge, and on through
         /// mitred joints while the next edge is as wide on that side (both
@@ -423,13 +642,14 @@ namespace PSXRacing.City
         public static int EasedJoins, EasedDefault, EaseSteps;
 
         static void Propagate(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner,
-                              CityMap.Edge e, int fromNode, int side, float dw, float len, float d0, CityMap.Edge narrow, bool flip, int depth)
+                              CityMap.Edge e, int fromNode, int side, float dw, float len, float d0, CityMap.Edge narrow, bool flip, int depth,
+                              float dwOther = 0f, byte twoRole = 0)
         {
             // never longer than the run it eases: the next change along owns the
             // ribbon from there (a default length ran past a 35 m piece into the
             // next join, whose own step it then did not see)
             if (depth == 0) len = Mathf.Max(0.5f, Mathf.Min(len, RoomAlong(map, partner, e, fromNode, side, false)));
-            var z = new Ease { side = (sbyte)side, fromA = e.a == fromNode, dw = dw, len = len, d0 = d0, narrow = narrow.profile, narrowLay = LayoutOf(narrow), narrowFlip = flip };
+            var z = new Ease { side = (sbyte)side, fromA = e.a == fromNode, dw = dw, len = len, d0 = d0, narrow = narrow.profile, narrowLay = LayoutOf(narrow), narrowFlip = flip, dwOther = dwOther, twoRole = twoRole };
             var lay = LayoutOf(e);
             z.partner = new float[lay.m.Length];
             for (int k = 0; k < lay.m.Length; k++) z.partner[k] = PartnerLat(e, lay, k, z);
@@ -447,7 +667,7 @@ namespace PSXRacing.City
             float extE = side > 0 ? e.lmPlus : e.lmMinus, extP = pSide > 0 ? p.lmPlus : p.lmMinus;
             if (Mathf.Abs(extE - extP) > 0.05f) return;
             bool pFlip = flip ^ ((e.a == fromNode) != (p.a == far));
-            Propagate(map, add, partner, p, far, pSide, dw, len, d0 + e.length, narrow, pFlip, depth + 1);
+            Propagate(map, add, partner, p, far, pSide, dw, len, d0 + e.length, narrow, pFlip, depth + 1, dwOther, twoRole);
         }
 
         /// <summary>A taper's length: TAPR's MUTCD length where the exporter
@@ -459,7 +679,7 @@ namespace PSXRacing.City
         static float LengthFor(CityMap.Edge w, int node, int side, float dw, out bool fromTapr)
         {
             fromTapr = false;
-            if (taprAt != null && taprAt.TryGetValue(((long)w.index << 1) | (w.a == node ? 0L : 1L), out int ti))
+            if (taprAt != null && taprAt.TryGetValue(TaprKey(w.index, w.a == node ? 0 : 1, side > 0 ? 0 : 1), out int ti))
             {
                 var t = taprMap.tapr[ti];
                 int tSide = t.side == 0 ? 1 : -1;
@@ -494,7 +714,7 @@ namespace PSXRacing.City
                 if (sEnd > sMin + 0.3f && sEnd < sMax - 0.3f) into.Add(sEnd);
                 // sagitta of the eased edge: max curvature 6 dw / L^2, chord c
                 // gives c^2 k / 8 <= 2 cm
-                float k = 6f * Mathf.Abs(z.dw) / (z.len * z.len);
+                float k = 6f * (z.relay ? z.span : Mathf.Abs(z.dw)) / (z.len * z.len);
                 float step = k > 1e-6f ? Mathf.Sqrt(8f * 0.02f / k) : z.len;
                 int n = Mathf.Max(1, Mathf.CeilToInt(z.len / Mathf.Max(0.5f, step)));
                 for (int i = 1; i < n; i++)
@@ -725,32 +945,46 @@ namespace PSXRacing.City
             if (ez != null)
                 for (int i = 0; i < ez.Length; i++)
                 {
-                    if (ez[i].shift) continue;
+                    if (ez[i].shift || ez[i].relay) continue;
                     float r = Reduction(e, ez[i], s);
                     if (r <= 1e-4f) continue;
                     if (ez[i].side > 0) { if (r > rp) { rp = r; zp = i; } } else if (r > rm) { rm = r; zm = i; }
                 }
-            // the whole layout rides the median taper's shift
-            float plus = (e.lmPlus != 0f || e.lmMinus != 0f ? e.lmPlus : e.width * 0.5f) + ShiftAt(e, s);
+            float plus0 = e.lmPlus != 0f || e.lmMinus != 0f ? e.lmPlus : e.width * 0.5f;
+            float sh = ShiftAt(e, s);
             for (int k = n - 1; k >= 0; k--)   // m descending = lateral ascending
             {
-                float lat = plus - lay.m[k];
+                float full = plus0 - lay.m[k];
+                float lat = full;
                 bool ok = true;
-                if (zp >= 0) ok &= Shift(e, lay, k, ez[zp], rp, ref lat);
-                if (ok && zm >= 0) ok &= Shift(e, lay, k, ez[zm], rm, ref lat);
-                if (ok) into.Add(new LineAt { k = k, lat = lat });
+                // a relay (L4) first: the line where the two layouts meet ...
+                if (ez != null)
+                    for (int i = 0; i < ez.Length && ok; i++)
+                    {
+                        if (!ez[i].relay) continue;
+                        float r = Reduction(e, ez[i], s);
+                        if (r > 1e-4f) ok &= Shift(e, k, ez[i], r, full, ref lat);
+                    }
+                // ... then a width taper moves it from THERE toward its partner
+                // (from the line's own place where no relay runs: as before)
+                float from = lat;
+                // of a two-sided pair (Q4) only the lead moves the lines between the edges
+                bool interior = lay.kind[k] != KEdgeP && lay.kind[k] != KEdgeM;
+                if (ok && zp >= 0 && !(interior && ez[zp].twoRole == 2)) ok &= Shift(e, k, ez[zp], rp, from, ref lat);
+                if (ok && zm >= 0 && !(interior && ez[zm].twoRole == 2)) ok &= Shift(e, k, ez[zm], rm, from, ref lat);
+                if (ok) into.Add(new LineAt { k = k, lat = lat + sh });   // the whole layout rides the median taper's shift
             }
         }
 
-        /// <summary>Move line k by the taper z at reduction r toward its partner
-        /// in the narrow layout; false when it has none (it ends where the
-        /// taper reaches full width).</summary>
-        static bool Shift(CityMap.Edge e, Layout lay, int k, in Ease z, float r, ref float lat)
+        /// <summary>Move line k by the taper z at reduction r from
+        /// <paramref name="from"/> toward its partner in the narrow layout (or,
+        /// a relay, the meeting place); false when it has none (it ends where
+        /// the taper reaches full width).</summary>
+        static bool Shift(CityMap.Edge e, int k, in Ease z, float r, float from, ref float lat)
         {
             float target = z.partner != null && k < z.partner.Length ? z.partner[k] : float.NaN;
             if (float.IsNaN(target)) return false;
-            float full = (e.lmPlus != 0f || e.lmMinus != 0f ? e.lmPlus : e.width * 0.5f) - lay.m[k];
-            lat += (target - full) * (r / z.dw);
+            lat += (target - from) * (r / z.dw);
             return true;
         }
 
@@ -780,6 +1014,16 @@ namespace PSXRacing.City
             if (kind == KEdgeM && z.side < 0) { int j = Find(nar, KEdgeM, 0); return j < 0 ? float.NaN : -(minus - z.dw) + (nar.W - nar.m[j]); }
             if (kind == KEdgeP) { int j = Find(nar, KEdgeP, 0); return j < 0 ? float.NaN : nLat(nar.m[j]); }
             if (kind == KEdgeM) { int j = Find(nar, KEdgeM, 0); return j < 0 ? float.NaN : nLat(nar.m[j]); }
+            if (z.twoRole != 0)
+            {
+                // BOTH EDGES (Q4): the narrow layout sits in by each side's dw,
+                // its centre on the wide one's; lines pair by kind from the
+                // centre outward (the lanes each direction adds are its OUTER
+                // ones). The second ease of the pair moves nothing between the edges.
+                float dwPlus = z.side > 0 ? z.dw : z.dwOther;
+                float t2 = PairFromCentre(lay, k, nar, plus - dwPlus);
+                return z.twoRole == 2 && !float.IsNaN(t2) ? plus - lay.m[k] : t2;
+            }
             // distance from the FIXED edge, for the wide line and the narrow ones
             bool fixedPlus = z.side < 0;
             float WideD(int i) => fixedPlus ? lay.m[i] : lay.W - lay.m[i];
@@ -799,6 +1043,33 @@ namespace PSXRacing.City
             int rank = wl.IndexOf(k);
             if (rank < 0 || rank >= nl.Count) return float.NaN;
             return nLat(nar.m[nl[rank]]);
+        }
+
+        /// <summary>Line k of <paramref name="lay"/> against the narrow layout
+        /// whose left edge is at <paramref name="nLeft"/> (the wide frame): its
+        /// partner's lateral, or NaN. Yellows of a kind pair in order when both
+        /// have as many; white lines on each side of the centre pair by their
+        /// order from it.</summary>
+        static float PairFromCentre(Layout lay, int k, Layout nar, float nLeft)
+        {
+            byte kind = lay.kind[k];
+            if (kind == KYellow || kind == KYellowDash)
+            {
+                var a = new List<int>(); var b = new List<int>();
+                for (int i = 0; i < lay.m.Length; i++) if (lay.kind[i] == kind) a.Add(i);
+                for (int i = 0; i < nar.m.Length; i++) if (nar.kind[i] == kind) b.Add(i);
+                int r = a.IndexOf(k);
+                return a.Count != b.Count || r < 0 ? float.NaN : nLeft - nar.m[b[r]];
+            }
+            float cw = YellowMid(lay), cn = YellowMid(nar);
+            bool plusSide = lay.m[k] < cw;
+            var wl = new List<int>(); var nl = new List<int>();
+            for (int i = 0; i < lay.m.Length; i++) if (lay.kind[i] == kind && (lay.m[i] < cw) == plusSide) wl.Add(i);
+            for (int i = 0; i < nar.m.Length; i++) if (nar.kind[i] == kind && (nar.m[i] < cn) == plusSide) nl.Add(i);
+            wl.Sort((x, y) => Mathf.Abs(lay.m[x] - cw).CompareTo(Mathf.Abs(lay.m[y] - cw)));
+            nl.Sort((x, y) => Mathf.Abs(nar.m[x] - cn).CompareTo(Mathf.Abs(nar.m[y] - cn)));
+            int rank = wl.IndexOf(k);
+            return rank < 0 || rank >= nl.Count ? float.NaN : nLeft - nar.m[nl[rank]];
         }
 
         static int Find(Layout l, byte kind, int nth)
