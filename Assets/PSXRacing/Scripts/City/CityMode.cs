@@ -310,6 +310,8 @@ namespace PSXRacing.City
                 if (e.stS != null) for (int i = 0; i < e.stS.Length; i++) marks.Add(e.stS[i]);
                 // and through its tapers, where the lanes' centre eases over
                 LineModel.TaperSamples(e, 0f, e.length, marks);
+                // and through a ramp's merge zone, where it drives the host's aux lane (L5)
+                CityMeshes.ZoneSamples(e, 0f, e.length, marks);
                 marks.Sort();
                 int m = 0;
                 for (int i = 1; i < marks.Count; i++)

@@ -842,6 +842,8 @@ namespace PSXRacing.City
                 int o = t.throughA[node] == e.index ? t.throughB[node] : t.throughB[node] == e.index ? t.throughA[node] : -1;
                 return o == e.index ? -1 : o;
             });
+            // roads pass L5: the merge zones (aux lanes on the hosts, the ramps cut at N)
+            BuildMergeZones(map, t);
             // plan A2: which parallel decks are drawn as one structure, where
             BuildDeckUnions(map, t);
             return t;
@@ -1860,6 +1862,7 @@ namespace PSXRacing.City
             // an open drop with no ramp outside it. The gap is now the host-
             // chain arc over which the branch is NOT collapsed.
             hostOpen.Clear();
+            var zoneHere = ZoneAt(L.index, node);
             bool open = false, prevCollapsed = true;
             float openFrom = 0f, openTo = 0f, prevTravelled = 0f;
             BranchSample last = default;
@@ -1902,7 +1905,11 @@ namespace PSXRacing.City
                 // on the piece's own arc it skipped two quads wherever a sample
                 // fell within half a metre of a host node (up to 12 m by 4.5 m
                 // with no floor at all).
-                bool ok = smp.gap > GoreMinGapM && smp.hostArc > 0.5f && smp.hostArc < host.Length - 0.5f;
+                // roads pass L5: no gore inside a merge zone (the host carries
+                // the lane there), nor one quad reaching back into it
+                var cutBy = ZoneCutOwner(smp.E, smp.sE);
+                bool inCut = cutBy != null;
+                bool ok = !inCut && smp.gap > GoreMinGapM && smp.hostArc > 0.5f && smp.hostArc < host.Length - 0.5f;
                 // The gore's long sides are chords between samples six metres
                 // apart, on each road's offset line; the roads draw their edges
                 // mitred at every polyline vertex. On the outside of any bend
@@ -1938,7 +1945,16 @@ namespace PSXRacing.City
                         quads++;
                     }
                 }
-                prevOk = ok; prevIn = vIn; prevOut = vOut; prevArc = smp.hostArc; havePrev = true;
+                prevOk = ok; prevIn = vIn; prevOut = vOut; prevArc = smp.hostArc; havePrev = !inCut;
+                if (inCut && cutBy == zoneHere)
+                {
+                    // the gore opens AT the nose: its first quad starts from the
+                    // ramp's end section's inner vertex (the host's edge at N)
+                    var zi = zoneHere.endInner;
+                    float zy = map.edges[zoneHere.endHost].YAt(zoneHere.endHostS) - RoadsideRules.EdgeDropM;
+                    prevIn = prevOut = new Vector3(zi.x - tm.origin.x, zy, zi.y - tm.origin.z);
+                    prevArc = zoneHere.D; prevOk = false; havePrev = true;
+                }
                 last = smp; lastOk = ok;
             }
             // the plan box round the quads this branch painted, for MeetPavement
@@ -1998,9 +2014,15 @@ namespace PSXRacing.City
             // the last attached sample (where the nose block below picks up on
             // a deck) — or, where the branch folds back into the host, to the
             // crossing itself, where the branch's wedge rail ends.
+            // roads pass L5: a merge zone's host stands down exactly from its
+            // nose N on - its widened edge keeps its verge (or rail) right up
+            // to the ramp's end section, which lies on that cross-line
+            var zone = zoneHere;
             foreach (var (a0, a1, reclosed) in hostOpen)
             {
                 float c0 = a0, c1 = reclosed ? a1 : a1 + 1f;
+                if (zone != null && a0 < zone.D + 6f) c0 = zone.D;
+                if (c1 <= c0) continue;
                 foreach (var H in host.edges)
                 {
                     if (!host.PieceRange(H, out float p0, out float p1) || p1 <= c0 || p0 >= c1) continue;
@@ -2255,6 +2277,9 @@ namespace PSXRacing.City
             public float centre;
             public bool elev;
             public bool clippedIn;    // the inner edge was moved onto the host: no kerb there
+            /// <summary>Roads pass L5: a ramp's last section, laid on its host's
+            /// cross-line at the nose N (MeetPavement leaves it alone).</summary>
+            public bool zoneEnd;
             public bool collapsed;    // zero width: the whole ribbon is inside the host
             public int innerSide;     // -1 / +1 which vertex is the inner one while clipped, 0 otherwise
             /// <summary>A parallel neighbour this section was squeezed against
@@ -2404,6 +2429,9 @@ namespace PSXRacing.City
                     sampleS[w - 1] = sampleS[i];
             }
             sampleS.RemoveRange(w, sampleS.Count - w);
+            // roads pass L5: the merge zones' exact sections (the host's step
+            // at N, the ramp's end section)
+            ZoneForcedSamples(e, sMin, sMax);
         }
 
         /// <summary>Is an arc position one SamplePositions adds so a run
@@ -2650,8 +2678,11 @@ namespace PSXRacing.City
             float aS = A.s;
             Vector3 At(in Section c, float lL, float lR, float lat)
             {
-                var q = c.P + c.right * lat + (c.s <= aS ? -along : along);
                 float t = lR - lL > 1e-4f ? Mathf.Clamp01((lat - lL) / (lR - lL)) : 0.5f;
+                // roads pass L5: a ramp's end section lies on its HOST's
+                // cross-line, not its own - its columns end on that line
+                if (c.zoneEnd) return Vector3.Lerp(c.L, c.R, t);
+                var q = c.P + c.right * lat + (c.s <= aS ? -along : along);
                 float y = Mathf.Lerp(c.L.y, c.R.y, t);
                 return new Vector3(q.x - tileOrigin.x, y, q.y - tileOrigin.z);
             }
@@ -2718,8 +2749,11 @@ namespace PSXRacing.City
             float aS = A.s;
             Vector3 At(in Section c, float lL, float lR, float lat)
             {
-                var q = c.P + c.right * lat + (c.s <= aS ? -along : along);
                 float t = lR - lL > 1e-4f ? Mathf.Clamp01((lat - lL) / (lR - lL)) : 0.5f;
+                // roads pass L5: a ramp's end section lies on its HOST's
+                // cross-line, not its own - its columns end on that line
+                if (c.zoneEnd) return Vector3.Lerp(c.L, c.R, t);
+                var q = c.P + c.right * lat + (c.s <= aS ? -along : along);
                 float y = Mathf.Lerp(c.L.y, c.R.y, t);
                 return new Vector3(q.x - tileOrigin.x, y, q.y - tileOrigin.z);
             }
@@ -3932,7 +3966,10 @@ namespace PSXRacing.City
                     // that far out of step
                     elev = e.ElevatedAt(0.5f * (A.s + B.s)),
                     wedge = A.collapsed || B.collapsed,
-                    skip = A.collapsed && B.collapsed,
+                    // roads pass L5: the 2 cm span from a ramp's end section to
+                    // its first collapsed one is nothing - its sides would lie
+                    // ACROSS the lane at the nose (a deck rail stood there)
+                    skip = (A.collapsed && B.collapsed) || (A.zoneEnd && B.collapsed) || (B.zoneEnd && A.collapsed),
                     decided = i > w0 && i <= w1,
                 };
                 bool approach = false;
@@ -5086,7 +5123,7 @@ namespace PSXRacing.City
         static bool ArmsApart(CityMap map, Trims trims, CityMap.Edge e, Vector2 p, CityMap.Edge o, float atO, float y)
         {
             if (Mathf.Abs(o.YAt(atO) - y) <= ArmSplitDyM) return false;
-            if (clipPairs.Contains(PairKey(e.index, o.index))) return false;
+            if (clipPairs.Contains(PairKey(e.index, o.index)) || zonePairs.Contains(PairKey(e.index, o.index))) return false;
             // the node they share nearer this station (two carriageways can share both)
             int n = -1;
             float nearest = float.MaxValue;
@@ -5179,7 +5216,7 @@ namespace PSXRacing.City
                 int oi = side > 0 ? eR : eL;
                 if (oi < 0) continue;
                 // a host or branch of ours on this side: the clip owns it
-                if (clipPairs.Contains(PairKey(e.index, oi))) continue;
+                if (clipPairs.Contains(PairKey(e.index, oi)) || zonePairs.Contains(PairKey(e.index, oi))) continue;
                 var o = map.edges[oi];
                 float at = side > 0 ? atR : atL, dist = side > 0 ? dR : dL;
                 float hwO = trims.HalfWidthAt(o, at);
@@ -5251,7 +5288,7 @@ namespace PSXRacing.City
             for (int k = 0; k < raw.Count; k++)
             {
                 var sec = raw[k];
-                if (!sec.elev && !sec.collapsed && sec.s > sMin + 1e-3f && sec.s < sMax - 1e-3f)
+                if (!sec.elev && !sec.collapsed && !sec.zoneEnd && sec.s > sMin + 1e-3f && sec.s < sMax - 1e-3f)
                     MeetPavement(map, trims, e, ref sec);
                 sec.L -= o; sec.R -= o;
                 sections.Add(sec);
@@ -5330,6 +5367,8 @@ namespace PSXRacing.City
                 var clip = ClipAt(e, s);
                 if (clip != null) ClipSection(map, trims, tm, e, s, pc, right, hw, y, clip, ref sec);
                 if (squeeze) SqueezeSection(map, trims, tm, e, pc, right, hw, y, ref sec);
+                // roads pass L5: a ramp between its nose and its node
+                if (zoneCuts.Count > 0) ApplyZoneCut(map, e, s, ref sec);
                 // U at the two edges for a span drawn as ONE quad (both
                 // sections full width, EmitRibbon): 1 at the painter's right
                 // (the L vertex), 0 at its left. Anything narrower is drawn in

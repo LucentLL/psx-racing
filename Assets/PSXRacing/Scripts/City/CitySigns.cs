@@ -526,6 +526,21 @@ namespace PSXRacing.City
         /// </summary>
         static Vector3 Driver(CityMap map, CityMap.Edge e, float s, float dist, float lane) => Driver(map, e, s, dist, lane, out _);
 
+        /// <summary>The arc of the nearest point of an edge's line to p.</summary>
+        static float ProjectS(CityMap.Edge e, Vector2 p)
+        {
+            float best = float.MaxValue, bs = 0f;
+            for (int i = 0; i + 1 < e.pts.Length; i++)
+            {
+                Vector2 a = e.pts[i], d = e.pts[i + 1] - a;
+                float L2 = d.sqrMagnitude;
+                float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, d) / L2) : 0f;
+                float dd = (p - (a + d * t)).sqrMagnitude;
+                if (dd < best) { best = dd; bs = Mathf.Lerp(e.s[i], e.s[i + 1], t); }
+            }
+            return bs;
+        }
+
         public const float AutoLane = float.NaN;
 
         static Vector3 Driver(CityMap map, CityMap.Edge e, float s, float dist, float lane, out bool ok)
@@ -572,6 +587,20 @@ namespace PSXRacing.City
             // the traffic comes toward the sign: against the walk
             var toward = -walk;
             if (float.IsNaN(lane)) lane = e.oneway ? 0f : e.width * 0.25f;
+            else if (remaining == 0f && ok)
+            {
+                // on the pavement there (roads pass L5: a panel over an aux
+                // lane is read 150 m back, where that lane may not be yet)
+                float sAt = Mathf.Clamp(e.length > 0f ? ProjectS(e, p) : 0f, 0f, e.length);
+                LineModel.Extents(e, sAt, out float eM, out float eP);
+                var tq = e.TangentAt(sAt);
+                float k = Vector2.Dot(RightOf(toward), new Vector2(-tq.y, tq.x));   // lateral (+ left of a->b) per unit of lane
+                if (Mathf.Abs(k) > 0.5f)
+                {
+                    float lat = Mathf.Clamp(lane * k, -(eM - 0.6f), eP - 0.6f);
+                    lane = lat / k;
+                }
+            }
             return new Vector3(p.x, y + EyeM, p.y) + V3(RightOf(toward) * lane, 0f);
         }
 
@@ -831,7 +860,12 @@ namespace PSXRacing.City
             float roadTop = e.YAt(s);
             float span = Vector2.Distance(armEnd, legR);
             for (float d = 0f; d <= span; d += 2f)
+            {
                 roadTop = Mathf.Max(roadTop, RoadTopAt(map, trims, Vector2.Lerp(armEnd, legR, d / span), 0.5f));
+                // and under the panels, hung 0.72 m toward the traffic (roads
+                // pass L5: an aux lane's pavement can rise under them)
+                roadTop = Mathf.Max(roadTop, RoadTopAt(map, trims, Vector2.Lerp(armEnd, legR, d / span) - t * 0.72f, 0.5f));
+            }
             float bottom = roadTop + GantryClearM;
 
             // panels: one per destination group, over its lanes (left to right)
@@ -844,8 +878,11 @@ namespace PSXRacing.City
                 groups = new[] { (byte)(nl - 1), (byte)1 };
                 total = nl;
             }
-            float laneW = Mathf.Clamp((hwL + hwR - e.shl - e.shr) / total, 2.8f, 4.2f);
-            var leftEdge = c - right * hwL;
+            // the panels over the road's own lanes: a merge zone's aux lane
+            // (roads pass L5) widens the pavement, not the destinations
+            LineModel.ExtentsNoAux(e, s, out float pL, out float pR);
+            float laneW = Mathf.Clamp((pL + pR - e.shl - e.shr) / total, 2.8f, 4.2f);
+            var leftEdge = c - right * pL;
             float tallest = 0f;
             int lane = 0;
             var n3 = new Vector3(-t.x, 0f, -t.y);   // the panels face the traffic coming up to them
@@ -862,7 +899,7 @@ namespace PSXRacing.City
                 pu.faces.Add(new Face
                 {
                     centre = V3(pc, bottom + h * 0.5f) + n3 * 0.72f, normal = n3, w = w, h = h, kind = Kind.Gantry,
-                    viewer = Driver(map, e, s, -ViewAheadM, mid - hwL),
+                    viewer = Driver(map, e, s, -ViewAheadM, mid - pL),
                 });
             }
             // truss: a box beam behind the panels' upper half, leg to leg

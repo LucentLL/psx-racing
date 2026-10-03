@@ -5043,6 +5043,129 @@ could not.
 - OFFSET: one-way chains that add lanes on one side up to a junction
   (Pineville-Matthews Rd ow4, 14.6 m).
 
+## L5 (roads pass, 2026-10-03): merge zones - the ramp ends at its nose, the host carries the lane, AASHTO lengths
+
+Before L5 a ramp and its mainline were never one pavement. The ramp was
+clipped to the mainline's edge and narrowed to a zero-width sliver tens of
+metres before OSM's merge node, and the mainline did not widen at all: the
+merging lane rode the shoulder, and where OSM adds the lane at the node it
+faded in from nothing over 90 m (diag/merges M1-M3). L5 (plan A7 + A9, owner
+Q2) gives every tier-1 merge and diverge one pavement.
+
+- **The nose N (`CityMeshes.Merge.cs`, `BuildMergeZones`, run once per
+  map at the end of `ComputeTrims`, after `BuildEases`).** For every one-way
+  branch of a tier-1 host at a mitred node (a ramp, or a one-way fork at 35
+  degrees or less), the ramp is walked away from its node until its inner
+  LANE edge meets the host's through-lane edge (gap + both shoulders = 0,
+  bisection to a few cm). Over 35 degrees there it is a junction mouth and
+  is left alone. Plan geometry only, no heights, so the elevation's own
+  `ComputeTrims` and the tiles see the same zones.
+- **The ramp ends at N with shared vertices.** Its last section is laid on
+  the HOST's cross-line at N: the inner vertex on the host's own edge, the
+  outer vertex on the widened edge, both at the host's height - the same
+  points the host's section at N has (`ApplyZoneCut`; the host gets a
+  section at N and one 2 cm past it, `ZoneForcedSamples`). Nothing of the
+  ramp is drawn between N and its node: no narrowing strip, no collapsed
+  sliver, no seam strip. The end section sits where the ramp's OUTER vertex
+  crosses that line, and no other ramp section lies within its skew, so it
+  never folds over the one before.
+- **The host carries the lane (`LineModel.Ease.aux`).** An aux ease widens
+  the host on the ramp's side from N: k lanes (style G: the lanes OSM adds
+  or drops at the node - that join's 90 m mouth ease no longer narrows the
+  pavement (`centreOnly`), though the lanes' centre still eases over it so
+  traffic drives as before; style T: the ramp's own lanes), full width
+  through the node, the shoulder eased from the ramp's at N to the host's
+  at 20:1. Extents (pavement, roadside, decks, verge) include it; the lanes'
+  centre does not. The edge line on that side rides the aux lane's outer
+  edge, so the ramp's edge line runs on into it; the dotted line between
+  the aux lane and the through lanes is L6's (A8).
+- **Owner Q2: extended to DOT length.** Where OSM leaves less than
+  AASHTO's full-width length from N - acceleration (Green Book exhibit
+  10-70) for a merge, deceleration (10-73) for a diverge, by the host's
+  design speed (owner_decisions: motorway 65, trunk/primary 50 mph; a
+  posted speed above wins) and the ramp's (40 mph, a loop 30) - the lane
+  runs on at full width past the node, then the taper: merge 90 m on a
+  freeway or ramp host, else the MUTCD W S; exit 75 m / 30 m. New pavement
+  only on the ramp's side. Clamped at a fan junction, a tunnel, a twin-deck
+  union, a lane change on that side, and short of the next entrance's zone;
+  run on at full width into the next exit on the same side (an auxiliary
+  lane). Style G keeps OSM's lane length (reported).
+- **Not zones.** These are drawn as before: a ramp whose run beside its
+  host lies under another zone's aux lane, a zone on a twin-deck union or
+  whose ramp is one, ramps whose lanes are apart at the node, and nodes
+  where OSM adds more lanes than the ramp brings. The clip now meets the
+  widened edge, so nothing is drawn twice.
+- **The builder's side.** The host stands its verge or rail down from N
+  exactly. The gore opens AT N (its first quad starts from the end
+  section's inner vertex). The 2 cm span from the end section to the
+  ramp's first collapsed one is skipped (its sides lay across the lane).
+  A gantry lays its panels over the road's own lanes (`ExtentsNoAux`) and
+  reads its clearance under them; a driver point 150 m back is kept on
+  that road's pavement.
+- **Lanes, the AI and traffic follow (plan A9, `ZoneLanePoint`).**
+  `LineModel.LanePoint` on a ramp between N and its node is the host's aux
+  lane, moving over to the host's lanes by the node; the race line samples
+  it every 3 m (`ZoneSamples`). Traffic, the grid and the AI read only it.
+- **The MERGE report (`Editor/CityAudit.Merge.cs`, the hook; also in
+  `LineModelOnly`).** Zones, ROOM (lane room before/after), CUT, NOSE
+  (shared vertices: GATE), Q2, SIDE, SEAT, LANE PATH, the routes that use a
+  zone, and why the other branch ends are not zones.
+- `PSX_CITY_MERGEZONES=0` draws L4's merges; `PSX_CITY_ZONELANES=0` keeps
+  L5's drawing with L4's lane paths (the A/B the race check used). The
+  preview group `zones` (CityPreview) shoots three of them from the driver's
+  seat.
+
+**Numbers.**
+- MERGE, OwnerBox: 35 zones (14 merges, 21 diverges; style G 23, T 12).
+  Host lane room short of k lanes over N..node: BEFORE (L4's pavement)
+  1,389 m in 35 zones (p50 37, p90 70 m) -> AFTER, drawn, from N to the
+  taper start: 0 m. NOSE: the ramp's end section on the host's vertices,
+  worst 0.000 m (gate). 1,445 m of ramp no longer drawn between N and
+  its node. Q2: all 12 style-T zones run on past the node (p50 57, max
+  227 m of new pavement); 7 clamped (twin deck 3, lane change 3,
+  junction 1).
+- MERGE, city-wide: 876 zones (331 merges, 545 diverges). BEFORE 39,163 m
+  short in 876 zones (p50 35, p90 93 m) -> AFTER 1,194 m in 24 zones (the
+  squeeze against a neighbouring road). 460 style-T zones run on (p50 86,
+  max 481 m); 79 clamped. Lane path: at N 0.00 m, at the node p50 0.00 /
+  max 0.75 m. 62 style G whose OSM lane is shorter than AASHTO (left as
+  OSM); 32 with the data's change on the far side.
+- LINE MODEL: continuity 647 -> 664 city-wide (OwnerBox 8 -> 8, T1 113 ->
+  124). TAPER 2,490 of 6,701 -> 2,469 of 6,293 (the eases that now only
+  steer the lanes' centre are not counted).
+- COVERAGE, OwnerBox T1: gore/road coplanar 1,553 -> 1,466 m2, branch over
+  host 141 -> 140 m2, underlap under road pieces 1,821 -> 1,751 m2, holes
+  in a ribbon 0.9 -> 1.2 m2.
+- Boxed launch: LAUNCH 18 -> 18, UNLOAD 92 -> 91, routes 0/0/0, path
+  misses identical. Solve 3,041 -> 3,624 ms (the zones are built in both
+  ComputeTrims calls, ~0.5 s each).
+- City audit (run 2 of 2): 17 failures against L4's 15. Same as L4: grade,
+  TWIN a-f, PROFILE x2, lane survey, margin stations, culverts. Worse:
+  verge steps 29 -> 79, a new FACE check 0 -> 4, rail census 6 -> 7 runs,
+  unguarded ledges 1 -> 14, sign posts 0 -> 1 (a gantry's driver point
+  off the road). All five came from the zone ends. They were fixed after
+  run 2 and checked by targeted roadside probes (city-roadside-probe, 4
+  runs; every new spot listed now ends in verge, rail or road). The full
+  audit was not run a third time (lean budget).
+- Race (watched, Uptown, 240 s, seed 0): the first run retired 2 rivals at
+  the I-277 exit e4595's nose. The ramp's 2 cm end span had laid a deck
+  rail ACROSS the lane; an A/B with PSX_CITY_ZONELANES=0 showed it was the
+  geometry, not the lane path. Fixed (that span is skipped). The watched
+  rerun had 0 retirements and 0 hits. Its one failure, auto-exposure
+  pumping (gain 1.72), is in both watched runs and is not a road check.
+
+**Known, left.**
+- Paint is L6's: the dotted line between the aux lane and the through
+  lanes, the channelizing gore lines and DW. The outer edge line already
+  rides the aux lane.
+- Not zones: 206 mouths over 35 degrees, 208 branches at fans, 51 on
+  twin-deck unions (+ ramps that are union decks), 80 with no clean place
+  for the nose, 135 ramp-to-ramp ends clipped to another ramp.
+- 24 zones city-wide are squeezed short by a neighbouring road (1,194 m).
+- Style G keeps OSM's lane length (62 shorter than AASHTO).
+- linesim.mjs (linecheck's replica) does not model aux lanes.
+- The full city audit was not run after the last fixes.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

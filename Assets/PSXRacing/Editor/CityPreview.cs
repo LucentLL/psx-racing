@@ -322,6 +322,10 @@ namespace PSXRacing.EditorTools
             Along("merge_i85_e3031_far", "merges", 9723.9f, 20811.8f, "I-85", 570f, 120f, 30f, 2, "the same merge from 400 m back, 30 deg lens: z-fight / pop-in at range"),
             Along("merge_i77_e8", "merges", -10797.4f, -10724.0f, "I-77", 150f, 0f, 60f, 1, "the style-T merge of e8 into I-77 at node 14"),
             Along("merge_i77_node0", "merges", -10817.4f, -10791.7f, "I-77", 150f, 0f, 60f, 1, "the I-77 southbound diverge at node 0 (e0 off e11212)"),
+            // merge zones (roads pass L5): the ramp ends at its nose, the host carries the lane
+            Along("zone_i77_e180", "zones", -2661f, 6547f, "I-77", 110f, 0f, 60f, 1, "I-77 at the loop entrance e180 (node 315): style T, the aux lane run on 137 m past the node (AASHTO), then the 90 m taper"),
+            Along("zone_i277_e172", "zones", -2424f, 3649f, "I-277", 120f, 0f, 60f, 1, "I-277 at the entrance e172 (node 299): style G, OSM's added lane carried from the nose N, 70 m before the node"),
+            Along("zone_us74_e439", "zones", -1085f, 4134f, "US 74", 100f, 0f, 60f, 1, "US 74 at the exit e439 (node 794): style G, the exit lane carried to the nose 60 m past the node"),
             // junctions (A3/A4/A10/A11)
             Top("fork_n9862", "junctions", -9391f, -7086f, "", 110f, "ramp fork n9862 e8180/e8181: 196 m drawn inside each other"),
             Top("cluster_ntryon_harris", "junctions", 6189.1f, 13447.0f, "Tryon", 60f, "N Tryon St x W T Harris Blvd: four fans, the median grass through the box"),

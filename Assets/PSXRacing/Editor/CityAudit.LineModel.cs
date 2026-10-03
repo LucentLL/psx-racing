@@ -203,6 +203,7 @@ namespace PSXRacing.EditorTools
                 var trims = CityMeshes.NodeTrims(map);
                 LineModelReport(map, trims);
                 PaintReport(map, trims);    // seconds: no tile builds
+                MergeReport(map, trims);    // roads pass L5: plan geometry, seconds
             }
             System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Directory.GetParent(Application.dataPath).FullName, "line_model.txt"), outLog.ToString());
         }
@@ -278,7 +279,7 @@ namespace PSXRacing.EditorTools
                 if (e.lmEase == null) continue;
                 foreach (var z in e.lmEase)
                 {
-                    if (z.shift || z.relay || z.d0 > 0f) continue;
+                    if (z.shift || z.relay || z.aux || z.centreOnly || z.d0 > 0f) continue;
                     eases++;
                     float slope = 1.5f * Mathf.Abs(z.dw) / Mathf.Max(0.01f, z.len);
                     if (slope <= tan106) continue;

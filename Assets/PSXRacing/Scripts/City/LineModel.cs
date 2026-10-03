@@ -58,7 +58,88 @@ namespace PSXRacing.City
         /// (each direction on its own outside) over one length, dwOther the
         /// other side's; the lead (1) carries the lines between the edges, the
         /// other (2) only its own edge line.</summary>
-        public struct Ease { public sbyte side; public bool fromA, narrowFlip, shift, relay; public float dw, len, d0, span, dwOther; public byte twoRole; public int narrow; public float[] partner; public Layout narrowLay; }
+        public struct Ease
+        {
+            public sbyte side; public bool fromA, narrowFlip, shift, relay; public float dw, len, d0, span, dwOther; public byte twoRole; public int narrow; public float[] partner; public Layout narrowLay;
+            /// <summary>Roads pass L5: the join this ease was made for
+            /// (<see cref="EaseTag"/>; every edge it runs on through carries
+            /// the same tag), and CENTRE ONLY - a merge zone's host now carries
+            /// the lane at full width (<see cref="CityMeshes.MergeZone"/>), so
+            /// the pavement ignores this ease while the lanes' centre (traffic,
+            /// the AI, the race line) still eases over it as before.</summary>
+            public long tag; public bool centreOnly;
+            /// <summary>Roads pass L5, THE AUX LANE: a merge zone WIDENS the
+            /// host on <see cref="side"/> (never a reduction). x = the host-chain
+            /// distance from the zone's node, + into the zone arm (auxArm +1),
+            /// - into the other arm (auxArm -1): full width auxW over
+            /// [auxXF, auxD] (auxD = the nose N; the last auxLs before N eases
+            /// from auxWN, the ramp's own outer edge there), a smoothstep taper
+            /// to 0 over the auxLt before auxXF, nothing past N.</summary>
+            public bool aux; public sbyte auxArm; public float auxD, auxWN, auxW, auxLs, auxXF, auxLt; public int auxZone;
+        }
+
+        /// <summary>The tag of the eases one mitred join makes on its wide
+        /// arm W on a side (W's frame).</summary>
+        public static long EaseTag(int node, int wide, int side) => ((long)(node + 1) << 33) | ((long)wide << 1) | (side > 0 ? 1L : 0L);
+        static Dictionary<long, List<int>> taggedEdges;
+
+        /// <summary>Roads pass L5: make every ease of a join's wide-arm side
+        /// CENTRE ONLY (the pavement no longer narrows there; the lanes'
+        /// centre still eases). Returns how many eases it touched.</summary>
+        public static int CentreOnly(CityMap map, long tag, bool on = true)
+        {
+            if (taggedEdges == null || !taggedEdges.TryGetValue(tag, out var list)) return 0;
+            int n = 0;
+            foreach (int ei in list)
+            {
+                var ez = map.edges[ei].lmEase;
+                if (ez == null) continue;
+                for (int i = 0; i < ez.Length; i++) if (ez[i].tag == tag && !ez[i].aux) { ez[i].centreOnly = on; n++; }
+            }
+            return n;
+        }
+
+        /// <summary>The edges a join's tag runs on (null: none).</summary>
+        public static List<int> EdgesOfTag(long tag) => taggedEdges != null && taggedEdges.TryGetValue(tag, out var l) ? l : null;
+
+        /// <summary>Roads pass L5: one aux-lane ease added to an edge.</summary>
+        public static void AddAux(CityMap.Edge e, Ease z)
+        {
+            z.aux = true;
+            var ez = e.lmEase;
+            if (ez == null) { e.lmEase = new[] { z }; return; }
+            var n = new Ease[ez.Length + 1];
+            System.Array.Copy(ez, n, ez.Length);
+            n[ez.Length] = z;
+            e.lmEase = n;
+        }
+
+        /// <summary>The aux widening of one aux ease at arc s.</summary>
+        public static float AuxAt(CityMap.Edge e, in Ease z, float s)
+        {
+            float d = z.d0 + (z.fromA ? s : e.length - s);
+            return AuxProfile(z, z.auxArm * d);
+        }
+
+        /// <summary>The aux widening at host-chain distance x (see
+        /// <see cref="Ease.aux"/>).</summary>
+        public static float AuxProfile(in Ease z, float x)
+        {
+            if (x > z.auxD + 1e-3f) return 0f;
+            // at N itself always the ramp's own outer edge (the shared vertex)
+            if (x >= z.auxD - 1e-3f) return z.auxWN;
+            if (x >= z.auxXF) return AuxFull(z, x);
+            if (z.auxLt > 1e-3f && x > z.auxXF - z.auxLt)
+            {
+                // the taper starts from whatever the full width is where it
+                // starts (the ramp's own edge when it starts at N)
+                float w0 = z.auxXF >= z.auxD - 1e-3f ? z.auxWN : AuxFull(z, z.auxXF);
+                return w0 * Smooth((x - (z.auxXF - z.auxLt)) / z.auxLt);
+            }
+            return 0f;
+        }
+        static float AuxFull(in Ease z, float x) =>
+            z.auxLs > 1e-3f && x > z.auxD - z.auxLs ? z.auxW + (z.auxWN - z.auxW) * Smooth((x - (z.auxD - z.auxLs)) / z.auxLs) : z.auxW;
 
         /// <summary>One SPLT record (WP-11, critic C11): where an undivided
         /// road opens into its two carriageways - the node, the undivided edge,
@@ -163,21 +244,91 @@ namespace PSXRacing.City
         /// ePlus to the left of a->b (CityMeshes' R vertex, p + right * ePlus),
         /// eMinus to the right (its L vertex, p - right * eMinus), tapers
         /// applied. An edge the model never saw is centred at half its width.</summary>
-        public static void Extents(CityMap.Edge e, float s, out float eMinus, out float ePlus)
+        public static void Extents(CityMap.Edge e, float s, out float eMinus, out float ePlus) => Ext(e, s, true, out eMinus, out ePlus);
+
+        /// <summary>pave: the PAVEMENT (aux lanes in, centre-only eases out);
+        /// otherwise the LANES' frame the centre is read from (aux lanes out,
+        /// centre-only eases in: traffic drives the through lanes as before).</summary>
+        static void Ext(CityMap.Edge e, float s, bool pave, out float eMinus, out float ePlus)
         {
             ePlus = e.lmPlus; eMinus = e.lmMinus;
             if (ePlus == 0f && eMinus == 0f) { ePlus = eMinus = e.width * 0.5f; return; }
             var ez = e.lmEase;
             if (ez == null) return;
-            float rp = 0f, rm = 0f, sh = 0f;
+            float rp = 0f, rm = 0f, sh = 0f, ap = 0f, am = 0f;
             for (int i = 0; i < ez.Length; i++)
             {
                 if (ez[i].relay) continue;
+                if (ez[i].aux)
+                {
+                    if (!pave) continue;
+                    float w = AuxAt(e, ez[i], s);
+                    if (ez[i].side > 0) { if (w > ap) ap = w; } else if (w > am) am = w;
+                    continue;
+                }
+                if (pave && ez[i].centreOnly) continue;
                 float r = Reduction(e, ez[i], s);
                 if (ez[i].shift) { sh += r; continue; }
                 if (ez[i].side > 0) { if (r > rp) rp = r; } else if (r > rm) rm = r;
             }
             ePlus -= rp - sh; eMinus -= rm + sh;
+            ePlus += ap; eMinus += am;
+        }
+
+        /// <summary>The pavement's extents with no aux lane (roads pass L5):
+        /// the host's own edge, where a merge zone's lane is added.</summary>
+        public static void ExtentsNoAux(CityMap.Edge e, float s, out float eMinus, out float ePlus)
+        {
+            Ext(e, s, true, out eMinus, out ePlus);
+            var ez = e.lmEase;
+            if (ez == null) return;
+            float ap = 0f, am = 0f;
+            for (int i = 0; i < ez.Length; i++)
+            {
+                if (!ez[i].aux) continue;
+                float w = AuxAt(e, ez[i], s);
+                if (ez[i].side > 0) { if (w > ap) ap = w; } else if (w > am) am = w;
+            }
+            ePlus -= ap; eMinus -= am;
+        }
+
+        /// <summary>The pavement as L4 drew it (roads pass L5's BEFORE, for the
+        /// MERGE report): no aux lane, every mouth ease narrowing it.</summary>
+        public static void ExtentsBefore(CityMap.Edge e, float s, out float eMinus, out float ePlus)
+        {
+            Ext(e, s, false, out eMinus, out ePlus);
+        }
+
+        /// <summary>How far the edge line on a side (+1 plus, -1 minus) moves
+        /// out with an aux lane at s: the lane's own width over the full-width
+        /// run (the shoulder beside it is the ramp's at N, the host's past
+        /// its ease), the eased edge through the taper. The outer edge line
+        /// rides the aux lane; the line between it and the through lanes is
+        /// A8's (L6).</summary>
+        public static float AuxLineShift(CityMap.Edge e, float s, int side)
+        {
+            var ez = e.lmEase;
+            if (ez == null) return 0f;
+            float a = 0f;
+            for (int i = 0; i < ez.Length; i++)
+            {
+                if (!ez[i].aux || (ez[i].side > 0) != (side > 0)) continue;
+                float x = ez[i].auxArm * (ez[i].d0 + (ez[i].fromA ? s : e.length - s));
+                float w = x > ez[i].auxD + 1e-3f ? 0f : x >= ez[i].auxXF ? ez[i].auxW : AuxProfile(ez[i], x);
+                if (w > a) a = w;
+            }
+            return a;
+        }
+
+        /// <summary>The aux widening on a side (+1 plus, -1 minus) at s.</summary>
+        public static float AuxWidth(CityMap.Edge e, float s, int side)
+        {
+            var ez = e.lmEase;
+            if (ez == null) return 0f;
+            float a = 0f;
+            for (int i = 0; i < ez.Length; i++)
+                if (ez[i].aux && (ez[i].side > 0) == (side > 0)) a = Mathf.Max(a, AuxAt(e, ez[i], s));
+            return a;
         }
 
         /// <summary>The median tapers' lateral shift at s (+ left of a->b).</summary>
@@ -210,12 +361,22 @@ namespace PSXRacing.City
         /// Traffic, the AI and the race path drive about this line.</summary>
         public static float LaneCentre(CityMap.Edge e, float s)
         {
-            Extents(e, s, out float eM, out float eP);
+            Ext(e, s, false, out float eM, out float eP);
             return 0.5f * ((eP - e.shl) - (eM - e.shr));
         }
 
         /// <summary>The point on the lanes' centre at s (world plan).</summary>
         public static Vector2 LanePoint(CityMap.Edge e, float s)
+        {
+            // roads pass L5 (plan A9): a ramp between its nose and its node
+            // drives the host's aux lane (the ramp's own ribbon ends at N)
+            if (CityMeshes.ZoneLanePoint(e, s, out var zp)) return zp;
+            return OwnLanePoint(e, s);
+        }
+
+        /// <summary>The point on the lanes' centre at s, the edge's own (no
+        /// merge zone mapping).</summary>
+        public static Vector2 OwnLanePoint(CityMap.Edge e, float s)
         {
             // at a polyline vertex, the bisector (the ribbon's own section)
             var t = e.TangentAt(Mathf.Max(0f, s - 0.01f)) + e.TangentAt(Mathf.Min(e.length, s + 0.01f));
@@ -234,6 +395,7 @@ namespace PSXRacing.City
         {
             var add = new List<Ease>[map.edges.Length];
             foreach (var e in map.edges) e.lmEase = null;
+            taggedEdges = new Dictionary<long, List<int>>();
             EasedJoins = 0; EasedDefault = 0; EaseSteps = 0; SplitTapers = 0; HeldJoins = 0; CrossedJoins = 0;
             TwoSidedJoins = 0; RelayJoins = 0; RelayShort = 0; ReShifts = 0;
             var splitAt = new Dictionary<int, Split>();
@@ -643,13 +805,16 @@ namespace PSXRacing.City
 
         static void Propagate(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner,
                               CityMap.Edge e, int fromNode, int side, float dw, float len, float d0, CityMap.Edge narrow, bool flip, int depth,
-                              float dwOther = 0f, byte twoRole = 0)
+                              float dwOther = 0f, byte twoRole = 0, long tag = 0)
         {
+            // the join's tag (roads pass L5): set at the join, carried on through
+            if (depth == 0) tag = EaseTag(fromNode, e.index, side);
             // never longer than the run it eases: the next change along owns the
             // ribbon from there (a default length ran past a 35 m piece into the
             // next join, whose own step it then did not see)
             if (depth == 0) len = Mathf.Max(0.5f, Mathf.Min(len, RoomAlong(map, partner, e, fromNode, side, false)));
-            var z = new Ease { side = (sbyte)side, fromA = e.a == fromNode, dw = dw, len = len, d0 = d0, narrow = narrow.profile, narrowLay = LayoutOf(narrow), narrowFlip = flip, dwOther = dwOther, twoRole = twoRole };
+            var z = new Ease { side = (sbyte)side, fromA = e.a == fromNode, dw = dw, len = len, d0 = d0, narrow = narrow.profile, narrowLay = LayoutOf(narrow), narrowFlip = flip, dwOther = dwOther, twoRole = twoRole, tag = tag };
+            if (taggedEdges != null) { if (!taggedEdges.TryGetValue(tag, out var tl)) taggedEdges[tag] = tl = new List<int>(2); tl.Add(e.index); }
             var lay = LayoutOf(e);
             z.partner = new float[lay.m.Length];
             for (int k = 0; k < lay.m.Length; k++) z.partner[k] = PartnerLat(e, lay, k, z);
@@ -667,7 +832,7 @@ namespace PSXRacing.City
             float extE = side > 0 ? e.lmPlus : e.lmMinus, extP = pSide > 0 ? p.lmPlus : p.lmMinus;
             if (Mathf.Abs(extE - extP) > 0.05f) return;
             bool pFlip = flip ^ ((e.a == fromNode) != (p.a == far));
-            Propagate(map, add, partner, p, far, pSide, dw, len, d0 + e.length, narrow, pFlip, depth + 1, dwOther, twoRole);
+            Propagate(map, add, partner, p, far, pSide, dw, len, d0 + e.length, narrow, pFlip, depth + 1, dwOther, twoRole, tag);
         }
 
         /// <summary>A taper's length: TAPR's MUTCD length where the exporter
@@ -708,6 +873,7 @@ namespace PSXRacing.City
             if (ez == null) return;
             foreach (var z in ez)
             {
+                if (z.aux) { AuxSamples(e, z, sMin, sMax, into); continue; }
                 // the full-width end, in edge s
                 float sEnd = z.fromA ? z.len - z.d0 : e.length - (z.len - z.d0);
                 float sJoin = z.fromA ? -z.d0 : e.length + z.d0;
@@ -724,6 +890,37 @@ namespace PSXRacing.City
                     if (sv > sMin + 0.3f && sv < sMax - 0.3f) into.Add(sv);
                 }
                 if (sJoin > sMin + 0.3f && sJoin < sMax - 0.3f) into.Add(sJoin);
+            }
+        }
+
+        /// <summary>An aux ease's section positions (roads pass L5): the nose
+        /// N, the shoulder ease, the full-width end and the taper (faceted
+        /// within 2 cm). The step at N itself is forced by the builder.</summary>
+        static void AuxSamples(CityMap.Edge e, in Ease z, float sMin, float sMax, List<float> into)
+        {
+            float d0 = z.d0, len = e.length; bool fromA = z.fromA; int arm = z.auxArm;
+            void At(float x)
+            {
+                float d = x * arm;
+                if (d < d0 - 1e-3f || d > d0 + len + 1e-3f) return;
+                float sv = fromA ? d - d0 : len - (d - d0);
+                if (sv > sMin + 0.3f && sv < sMax - 0.3f) into.Add(sv);
+            }
+            At(z.auxD);
+            if (z.auxLs > 1e-3f)
+            {
+                float k = 6f * Mathf.Abs(z.auxWN - z.auxW) / (z.auxLs * z.auxLs);
+                float step = k > 1e-6f ? Mathf.Sqrt(8f * 0.02f / k) : z.auxLs;
+                int n = Mathf.Max(1, Mathf.CeilToInt(z.auxLs / Mathf.Max(0.5f, step)));
+                for (int i = 0; i <= n; i++) At(z.auxD - z.auxLs * i / n);
+            }
+            At(z.auxXF);
+            if (z.auxLt > 1e-3f)
+            {
+                float k = 6f * Mathf.Abs(z.auxW) / (z.auxLt * z.auxLt);
+                float step = k > 1e-6f ? Mathf.Sqrt(8f * 0.02f / k) : z.auxLt;
+                int n = Mathf.Max(1, Mathf.CeilToInt(z.auxLt / Mathf.Max(0.5f, step)));
+                for (int i = 1; i <= n; i++) At(z.auxXF - z.auxLt * i / n);
             }
         }
 
@@ -945,13 +1142,14 @@ namespace PSXRacing.City
             if (ez != null)
                 for (int i = 0; i < ez.Length; i++)
                 {
-                    if (ez[i].shift || ez[i].relay) continue;
+                    if (ez[i].shift || ez[i].relay || ez[i].aux || ez[i].centreOnly) continue;
                     float r = Reduction(e, ez[i], s);
                     if (r <= 1e-4f) continue;
                     if (ez[i].side > 0) { if (r > rp) { rp = r; zp = i; } } else if (r > rm) { rm = r; zm = i; }
                 }
             float plus0 = e.lmPlus != 0f || e.lmMinus != 0f ? e.lmPlus : e.width * 0.5f;
             float sh = ShiftAt(e, s);
+            float auxP = AuxLineShift(e, s, 1), auxM = AuxLineShift(e, s, -1);
             for (int k = n - 1; k >= 0; k--)   // m descending = lateral ascending
             {
                 float full = plus0 - lay.m[k];
@@ -972,6 +1170,9 @@ namespace PSXRacing.City
                 bool interior = lay.kind[k] != KEdgeP && lay.kind[k] != KEdgeM;
                 if (ok && zp >= 0 && !(interior && ez[zp].twoRole == 2)) ok &= Shift(e, k, ez[zp], rp, from, ref lat);
                 if (ok && zm >= 0 && !(interior && ez[zm].twoRole == 2)) ok &= Shift(e, k, ez[zm], rm, from, ref lat);
+                // roads pass L5: the edge line on an aux lane's side rides it
+                if (auxP > 0f && lay.kind[k] == KEdgeP) lat += auxP;
+                if (auxM > 0f && lay.kind[k] == KEdgeM) lat -= auxM;
                 if (ok) into.Add(new LineAt { k = k, lat = lat + sh });   // the whole layout rides the median taper's shift
             }
         }
