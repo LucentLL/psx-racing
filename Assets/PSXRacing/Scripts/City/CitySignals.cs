@@ -262,6 +262,28 @@ namespace PSXRacing.City
 
         /// <summary>The stop bar's distance from the patch on an arm with a
         /// crosswalk (0: none).</summary>
+        /// <summary>Roads pass L8 (plan A13): how node n is controlled - 4 a
+        /// signalised junction's member, 3 an all-way stop, 2 a stop on some
+        /// approach, 0 nothing - and whether the approach of
+        /// <paramref name="edgeA"/> or <paramref name="edgeB"/> into it stops.</summary>
+        public static int ControlAt(CityMap map, CityMeshes.Trims trims, int n, int edgeA, int edgeB, out bool throughStops)
+        {
+            throughStops = false;
+            Ensure(map, trims);
+            if (junctions == null) return 0;
+            if (nodeJunction == null)
+            {
+                nodeJunction = new Dictionary<int, Junction>(junctions.Count * 2);
+                foreach (var jj in junctions) foreach (int m in jj.nodes) nodeJunction[m] = jj;
+            }
+            if (!nodeJunction.TryGetValue(n, out var j)) return 0;
+            if (j.signal) return 4;
+            if (j.allWay) return 3;
+            foreach (var a in j.approaches) if (a.node == n && (a.edge == edgeA || a.edge == edgeB)) throughStops = true;
+            return 2;
+        }
+        static Dictionary<int, Junction> nodeJunction;
+
         public static float CrosswalkStopBack(CityMap map, CityMeshes.Trims trims, CityMap.Edge e, int node)
         {
             Ensure(map, trims);
@@ -373,6 +395,7 @@ namespace PSXRacing.City
         {
             if (mapFor == map && trimsFor == trims && junctions != null) return;
             mapFor = map; trimsFor = trims;
+            nodeJunction = null;
             junctions = new List<Junction>();
             byTile = new Dictionary<long, List<Junction>>();
             crosswalks = new List<Crosswalk>();

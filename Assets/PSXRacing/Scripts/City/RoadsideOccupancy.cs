@@ -552,6 +552,15 @@ namespace PSXRacing.City
                         }
                 }
 
+            // ---- roads pass L8: the parking lots (nothing is planted or stood in one)
+            for (int bz = tz - 1; bz <= tz + 1; bz++)
+                for (int bx = tx - 1; bx <= tx + 1; bx++)
+                {
+                    var lotList = CityMeshes.LotsInTile(map, bx, bz);
+                    if (lotList == null) continue;
+                    foreach (int li in lotList) o.MarkPolygon(map.lots[li].ring, CellPadM, Other);
+                }
+
             // ---- WP-25: every culvert end on the tile - the wall and its
             // backfill (or the pipe's barrel), the apron in front of it and
             // the clay ditch down the ravine - so no sign post or tree is

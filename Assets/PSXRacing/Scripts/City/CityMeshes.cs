@@ -593,6 +593,11 @@ namespace PSXRacing.City
             public bool[] mitre;
             /// <summary>For a mitred node: the two edges that meet through it.</summary>
             public int[] throughA, throughB;
+            /// <summary>Roads pass L8 (plan A17): a dead end OSM tags as a
+            /// turning circle draws a BULB - a one-arm fan round a circle of
+            /// <see cref="bulbRad"/> about the node.</summary>
+            public bool[] bulb;
+            public float[] bulbRad;
             /// <summary>Plan A2: each edge's twin-deck union runs (null where it
             /// has none), from <see cref="BuildDeckUnions"/>.</summary>
             public List<UnionRun>[] unions;
@@ -834,6 +839,8 @@ namespace PSXRacing.City
 
             // roads pass L7 (plan A10): the curb returns' trims
             var medianX = JunctionTrims(map, t);
+            // roads pass L8 (plan A17): the cul-de-sac bulbs
+            BulbTrims(map, t);
 
             // An edge shorter than its two trims has no ribbon: the two fans
             // meet in the middle, exactly, instead of leaving a sliver.
@@ -1195,6 +1202,7 @@ namespace PSXRacing.City
             goreQuads.Clear(); goreGroups.Clear();
             clips.Clear();
             latticeCache.Clear();
+            LatticeWindow(min);
             pavedCache.Clear();
             fanStructure.Clear();
             fanPolys.Clear(); outlines.Clear(); ClearSectionCaches(); pavementVersion = -1;
@@ -1380,6 +1388,8 @@ namespace PSXRacing.City
             for (int z = 0; z <= res; z++)
                 for (int x = 0; x <= res; x++)
                     heights[z * stride + x] = LatticeVertex(map, ix0 + x, iz0 + z);
+            // roads pass L8: the parking lots laid into the lattice
+            PrepareTileLots(map, min, min + new Vector2(TileSize, TileSize));
 
             for (int z = 0; z < res; z++)
             {
@@ -1390,6 +1400,7 @@ namespace PSXRacing.City
                     var bk = GroundBucket(paved);
                     Vector3 P(int dx, int dz) => new Vector3((x + dx) * cell, heights[(z + dz) * stride + x + dx], (z + dz) * cell);
                     Vector2 U(int dx, int dz) => GroundUV(paved, min.x + (x + dx) * cell, min.y + (z + dz) * cell);
+                    if (LotCell(map, tm, P(0, 0), P(0, 1), P(1, 1), P(1, 0), paved)) continue;
                     bk.Up(P(0, 0), P(0, 1), P(1, 1), P(1, 0), U(0, 0), U(0, 1), U(1, 1), U(1, 0));
                 }
             }
@@ -1416,8 +1427,8 @@ namespace PSXRacing.City
         /// fresh one takes its place), and put one back - so the trees, planted
         /// on a later frame, stand on their tile's lattice without recomputing
         /// GroundY at every corner.</summary>
-        public static Dictionary<long, float> TakeLattice() { var d = latticeCache; latticeCache = new Dictionary<long, float>(4096); return d; }
-        public static void PutLattice(Dictionary<long, float> d) { if (d != null) latticeCache = d; }
+        public static Dictionary<long, float> TakeLattice() { var d = latticeCache; latticeCache = new Dictionary<long, float>(4096); latGen++; return d; }
+        public static void PutLattice(Dictionary<long, float> d) { if (d != null) latticeCache = d; latGen++; }
         static readonly Dictionary<long, bool> pavedCache = new Dictionary<long, bool>(1024);
         static long LatticeKey(int ix, int iz) => ((long)ix << 32) ^ (uint)iz;
 
@@ -1426,12 +1437,33 @@ namespace PSXRacing.City
         /// neighbouring tile's corner is the same number.</summary>
         static float LatticeVertex(CityMap map, int ix, int iz)
         {
+            // roads pass L8: an array in front of the dictionary for the tile
+            // being built and 128 m round it (half a million reads a ring;
+            // the dictionary stays the record, the trees borrow it)
+            int wx = ix - latWinX0, wz = iz - latWinZ0;
+            int wi = (uint)wx < LatWinN && (uint)wz < LatWinN ? wz * LatWinN + wx : -1;
+            if (wi >= 0 && latWinGen[wi] == latGen) return latWinVal[wi];
             long k = LatticeKey(ix, iz);
-            if (latticeCache.TryGetValue(k, out float y)) return y;
-            y = CityElevation.GroundY(map, ix * LatticeCell, iz * LatticeCell);
-            if (fanFloors.Count > 0) y = FanFloor(ix * LatticeCell, iz * LatticeCell, y);
-            latticeCache[k] = y;
+            if (!latticeCache.TryGetValue(k, out float y))
+            {
+                y = CityElevation.GroundY(map, ix * LatticeCell, iz * LatticeCell);
+                if (fanFloors.Count > 0) y = FanFloor(ix * LatticeCell, iz * LatticeCell, y);
+                latticeCache[k] = y;
+            }
+            if (wi >= 0) { latWinVal[wi] = y; latWinGen[wi] = latGen; }
             return y;
+        }
+        const int LatWinMargin = 16, LatWinN = GroundRes + 1 + 2 * LatWinMargin;
+        static readonly float[] latWinVal = new float[LatWinN * LatWinN];
+        static readonly int[] latWinGen = new int[LatWinN * LatWinN];
+        static int latGen = 1, latWinX0 = int.MinValue / 2, latWinZ0 = int.MinValue / 2;
+        /// <summary>The array window follows the dictionary: any change of
+        /// dictionary (a new tile, the trees' swap) empties it.</summary>
+        static void LatticeWindow(Vector2 min)
+        {
+            latGen++;
+            latWinX0 = Mathf.RoundToInt(min.x / LatticeCell) - LatWinMargin;
+            latWinZ0 = Mathf.RoundToInt(min.y / LatticeCell) - LatWinMargin;
         }
 
         /// <summary>For the roadside probe: <see cref="LatticeY"/>, to tell the
@@ -1473,7 +1505,7 @@ namespace PSXRacing.City
         }
 
         static bool PavedAt(CityMap map, float x, float z) =>
-            PavedCell(map, Mathf.FloorToInt(x / LatticeCell), Mathf.FloorToInt(z / LatticeCell));
+            PavedCell(map, Mathf.FloorToInt(x / LatticeCell), Mathf.FloorToInt(z / LatticeCell)) || ApronAt(map, x, z);
 
         // ------------------------------------------------------------------
         //  Branches: a ramp beside its mainline, the minor arm of a fork.
@@ -7552,8 +7584,13 @@ namespace PSXRacing.City
             {
                 yield return 0;   // WP-09: a junction a step
                 stepPhase = 3; stepItem = n; stepPart = 0;
-                if (!trims.patch[n]) continue;
                 var np = map.nodes[n];
+                if (!trims.patch[n])
+                {
+                    // roads pass L8 (A17): a plain dead end's verge across its end
+                    if (BulbsOn && !(np.x < min.x || np.x >= max.x || np.y < min.y || np.y >= max.y)) EmitDeadEnd(map, trims, tm, n);
+                    continue;
+                }
                 if (np.x < min.x || np.x >= max.x || np.y < min.y || np.y >= max.y) continue;
                 // a junction cluster is drawn once, by its lowest member (plan A11)
                 if (FanKey(trims, n) != n) continue;
@@ -7575,10 +7612,14 @@ namespace PSXRacing.City
                 FanSteiner(map, trims, n, tm.origin, fanSteinerScratch);
                 RefineFan(corners, new Vector2(centre.x, centre.z), fanSteinerScratch, fanTris);
                 int centerI = bk.v.Count;
+                // roads pass L8 (plan A13): the through road's lines across the mouth
+                bool through = ThroughLines(map, trims, n, tm.origin, false);
+                int fanTapAt = -1;
                 if (tm.tap != null)
                 {
                     ulong mouths = 0;
                     for (int i = 0; i < corners.Count && i < 64; i++) if (corners[i].mouthNext) mouths |= 1UL << i;
+                    fanTapAt = tm.tap.fans.Count;
                     tm.tap.fans.Add(new RoadTap.Fan { slot = (int)SlotOf(JunctionProfile, IsFresh(np) ? Surface.AsphaltNew : Surface.AsphaltOld),
                                                       bucketV = centerI, count = corners.Count + 1 + fanSteinerScratch.Count, node = n, mouths = mouths, triStart = bk.t.Count, triCount = fanTris.Count / 3 });
                 }
@@ -7596,10 +7637,22 @@ namespace PSXRacing.City
                     bk.uv.Add(new Vector2((sp.x + tm.origin.x) / 12f, (sp.z + tm.origin.z) / 12f));
                 }
                 // anticlockwise in map view is clockwise seen from above: up
-                for (int i = 0; i + 2 < fanTris.Count; i += 3)
+                if (through)
                 {
-                    bk.t.Add(centerI + fanTris[i]); bk.t.Add(centerI + fanTris[i + 2]); bk.t.Add(centerI + fanTris[i + 1]);
+                    EmitCutFan(tm, n, bk, corners, centre, fanSteinerScratch, fanTris, out int cutT0, out int cutTN);
+                    if (fanTapAt >= 0)
+                    {
+                        var f = tm.tap.fans[fanTapAt];
+                        f.count = bk.v.Count - centerI; f.triStart = cutT0; f.triCount = cutTN;
+                        tm.tap.fans[fanTapAt] = f;
+                    }
+                    ReleaseStrips();
                 }
+                else
+                    for (int i = 0; i + 2 < fanTris.Count; i += 3)
+                    {
+                        bk.t.Add(centerI + fanTris[i]); bk.t.Add(centerI + fanTris[i + 2]); bk.t.Add(centerI + fanTris[i + 1]);
+                    }
                 tm.patchCount++;
 
                 bool onStructure = FanOnStructure(map, trims, n);
@@ -7765,6 +7818,7 @@ namespace PSXRacing.City
         static void FanCorners(CityMap map, Trims trims, int n, Vector3 origin, List<FanCorner> corners)
         {
             corners.Clear();
+            if (trims.bulb != null && trims.bulb[n]) { BulbCorners(map, trims, n, origin, corners); return; }
             // a junction cluster (roads pass L7, plan A11): one ring round all
             // its members' outside arms, about their centroid
             var cluster = trims.ClusterOfNode(n);

@@ -105,6 +105,7 @@ import { buildLineSets, lineTagsOf, CENTRE_TWLTL } from './lib/lineset.mjs';
 import { readSmoothRules } from './lib/smoothrules.mjs';
 import { findSplits } from './lib/splits.mjs';
 import { encodePdem3 } from './lib/pdem3.mjs';
+import { buildLots } from './lib/lots.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UNITY = join(HERE, '..', '..');
@@ -1425,6 +1426,14 @@ const buildings = [];
   console.log(`  footprint coverage x ${x0.toFixed(0)}..${x1.toFixed(0)} z ${z0.toFixed(0)}..${z1.toFixed(0)}`);
 }
 
+// ---- roads pass L8 (lib/lots.mjs): the parking lots, their stall lines and
+// entrances, and the turning circles, from fetch/fetch_lots.mjs's one fetch
+const lotsFile = join(CACHE, 'lots_core.json');
+const LOTS = existsSync(lotsFile)
+  ? buildLots({ raw: loadJson(lotsFile).elements, edges, buildings, nodeIndex, nodeCount: nodes.length, toX, toZ, laneM: LANE_M })
+  : { lots: [], entrances: [], turns: [], stats: { missing: lotsFile } };
+console.log('lots (L8):', JSON.stringify(LOTS.stats));
+
 // ------------------------------------------------------------------ emit
 class Writer {
   constructor() { this.chunks = []; this.buf = Buffer.alloc(1 << 20); this.pos = 0; }
@@ -1432,6 +1441,7 @@ class Writer {
   u8(v) { this.ensure(1); this.buf.writeUInt8(v & 255, this.pos); this.pos += 1; }
   i8(v) { this.ensure(1); this.buf.writeInt8(Math.max(-128, Math.min(127, v)), this.pos); this.pos += 1; }
   u16(v) { this.ensure(2); this.buf.writeUInt16LE(v & 65535, this.pos); this.pos += 2; }
+  i16(v) { this.ensure(2); this.buf.writeInt16LE(v, this.pos); this.pos += 2; }
   i32(v) { this.ensure(4); this.buf.writeInt32LE(v | 0, this.pos); this.pos += 4; }
   u32(v) { this.ensure(4); this.buf.writeUInt32LE(v >>> 0, this.pos); this.pos += 4; }
   f32(v) { this.ensure(4); this.buf.writeFloatLE(v, this.pos); this.pos += 4; }
@@ -1620,6 +1630,37 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
     w.u32(edges.length);
     for (const r of LSET.rows) { w.u8(r.nF); w.u8(r.nB); w.u8(r.centre); w.u8(r.flags); w.u16(r.turnOnly); w.u8(r.sub); w.u8(r.bike); }
   });
+  // TURN (roads pass L8, lib/lots.mjs): the turning circles at dead ends -
+  // u32 node, u8 kind (0 circle, 1 loop), f32 radius.
+  section('TURN', w => {
+    w.u32(LOTS.turns.length);
+    for (const t of LOTS.turns) { w.u32(t.node); w.u8(t.kind); w.f32(t.r); }
+  });
+  // LOTS (roads pass L8): the surface parking lots - per lot f32 origin x, z
+  // (its first point), u16 points, then i16 dx, dz per point in 5 cm from the
+  // origin (anticlockwise); the stall rows' direction u (i16 x, z / 32767;
+  // the stalls stand along v, its left); u16 runs, each i16 x, z of its first
+  // separator's foot in 5 cm from the origin and u8 stalls (separators
+  // 2.74 m apart along u, 5.49 m long along v, one more than the stalls).
+  section('LOTS', w => {
+    w.u32(LOTS.lots.length);
+    const q = v => { const k = Math.round(v / 0.05); if (k < -32768 || k > 32767) throw new Error('LOTS offset out of i16 range'); return k; };
+    for (const L of LOTS.lots) {
+      const [ox, oz] = L.ring[0];
+      w.f32(ox); w.f32(oz);
+      w.u16(L.ring.length);
+      for (const p of L.ring) { w.i16(q(p[0] - ox)); w.i16(q(p[1] - oz)); }
+      w.i16(Math.round(L.ux * 32767)); w.i16(Math.round(L.uz * 32767));
+      w.u16(L.runs.length);
+      for (const r of L.runs) { w.i16(q(r.x - ox)); w.i16(q(r.z - oz)); w.u8(r.n); }
+    }
+  });
+  // LENT (roads pass L8): the lots' entrances - u32 edge, f32 arc position,
+  // i8 side (+1 left of a->b), f32 half width. The game pours a concrete apron.
+  section('LENT', w => {
+    w.u32(LOTS.entrances.length);
+    for (const t of LOTS.entrances) { w.u32(t.edge); w.f32(t.s); w.i8(t.side); w.f32(t.half); }
+  });
   if ([...sec.keys()].join() !== CITY_SECTIONS.join()) throw new Error('PSXC sections out of step with citydata.mjs CITY_SECTIONS');
 
   const align = n => (n + 3) & ~3;
@@ -1799,6 +1840,7 @@ function inputFiles() {
   add('tools/city/cache/ways_all.json', join(CACHE, 'ways_all.json'), 'overpass');
   add('tools/city/cache/nodes_all.json', join(CACHE, 'nodes_all.json'), 'overpass');
   add('tools/city/cache/streets_core.json', join(CACHE, 'streets_core.json'), 'overpass');
+  if (existsSync(join(CACHE, 'lots_core.json'))) add('tools/city/cache/lots_core.json', join(CACHE, 'lots_core.json'), 'overpass');
   add('tools/city/cache/buildings_core.json', join(CACHE, 'buildings_core.json'), 'overpass');
   // the 3DEP box (%PSX_GIS_DIR%\3dep when that is set) and its georeference
   add('tools/city/cache/3dep/box13.f32', dem3.f32Path, '3dep');

@@ -5445,6 +5445,143 @@ and owner Q5 (a). The code is in `Scripts/City/CityMeshes.Junctions.cs`,
 others' footprints) and its 1.2 m median-nose geometry at a cluster's
 median opening are not done either: the ring runs straight across.
 
+## L8 (roads pass, 2026-10-03): minor mouths, cul-de-sacs, dead ends, parking lots - R5
+
+L8 covers plan A13 (through lines across minor mouths), A17 (bulbs and
+clean dead ends) and a lean B9/B10 (parking lots), plus two L7 regressions:
+the tile build time and the lattice shimmer under the fans. The code is in
+`Scripts/City/CityMeshes.Minor.cs` (A13, A17), `Scripts/City/CityMeshes.Lots.cs`
+(lots), `tools/city/lib/lots.mjs` and `tools/city/fetch/fetch_lots.mjs` (the
+data), and `Editor/CityAudit.Minor.cs` (the MINOR report, after MARKS).
+
+- **Through lines across minor mouths (A13).**
+  - A lone fan qualifies when two non-link arms go straight through it
+    (cos below -0.85), every other arm meets them at 60 deg or more and is
+    of no higher class than the lower of the two, no arm is a roundabout's,
+    the node is not a signal's (CitySignals), not an all-way stop, and no
+    stop is tagged on either through arm. Clusters and fans on structure
+    are left as they were.
+  - A line is drawn where both through arms paint one of the same kind
+    (edge, yellow, yellow broken, white broken) within 0.3 m of each other
+    in the frame of travel. The edge line on a side a street opens on is
+    broken there; the far one runs on.
+  - The strip is the line's own column of the arm's texture
+    (srcM +- half, the ribbon's own U), V carried on from the arm it leaves
+    (the dash phase), straight from mouth to mouth or a cubic where the
+    arms turn more than 5 deg. A broken line its texture has no broken
+    column for is cut into its 10 ft dashes.
+  - It is CUT INTO the fan (critic C5): every fan triangle loses the strip
+    where the strip crosses it and the strip is drawn on that triangle's
+    plane, in the arm's own slot. Lift 0, no second surface. A straight
+    line is one quad (a curve one every 2 m), so a triangle splits into a
+    handful of pieces.
+  - `PSX_CITY_THROUGHPAINT=0` turns it off.
+  - Arrows + ONLY in turn-only lanes and the yield lines at link ends now
+    run on tier 2 as well (owner Q5 b/c, placed in A13 for T2).
+- **Cul-de-sac bulbs (A17).**
+  - The one Overpass fetch (`fetch_lots.mjs`, core box, 'out count' first:
+    94 nodes, 6,775 ways, 113 relations) brings the turning circles.
+    Section TURN: a turning_circle / turning_loop node that is a graph dead
+    end, its radius OSM's diameter / 2 or 12.2 m (AASHTO 40 ft).
+  - A bulb is a one-arm FAN: the street trimmed to sqrt(R^2 - hw^2), its two
+    edge corners, then the circle anticlockwise (6 cm sagitta), on a plane
+    that carries the street's end grade on (at most 5 %). Being a fan it
+    gets the fans' verges round its rim, the lattice held under it and the
+    audits' fan tests. A street too short for its bulb, a link's end and an
+    end on structure keep their square end (listed).
+  - `PSX_CITY_BULBS=0` turns bulbs and dead-end verges off.
+- **Clean dead ends (A17).** Every other dead end on the ground lays the
+  fan chords' verge (EmitVergeLine) across its end, so the land meets the
+  tarmac there as it does along the sides. Type III barricades at the data's
+  edge are not done.
+- **Parking lots (B9/B10 lean).**
+  - Data (`lib/lots.mjs`, sections LOTS and LENT): amenity=parking ways and
+    multipolygons' closed outer rings, surface lots only (not multi-storey,
+    underground, rooftop, street-side or lane). Each is rasterised at
+    0.25 m, the road bands taken out (the OSM line, the ribbon's half width
+    and 1.0 m, the verge's shoulder and toe), traced by marching squares and
+    simplified (RDP 0.2 m). Under 40 m2, or under 30 % left: dropped.
+  - Stalls: 90 deg, 2.74 x 5.49 m, double-loaded about a 7.32 m aisle, laid
+    along the lot's longest side, kept only wholly inside the lot inset
+    0.3 m and 0.6 m clear of every building; a row needs two. Stored as runs
+    (first separator and count), not lines.
+  - Entrances: one per ring on the nearest street of tertiary class or
+    below within 25 m, 15 m or more from the edge's ends.
+  - In the game the lots are cut INTO the lattice: every lattice triangle a
+    ring crosses is cut along the ring's edges (only where each edge really
+    crosses a piece) and each piece is lot or ground by its middle. The lot
+    pieces go to the ROADS mesh in the junction slab's asphalt (road layer,
+    road grip, the fans' slot), on the lattice's own plane: flush with the
+    land and the verge's foot. The stall separators (0.10 m) are cut out of
+    the lot again, run by run (parallel cuts, linear), in the solid white
+    column of tw2's texture.
+  - A restaurant's own lot (a prop lot) that covers a fifth of an OSM lot's
+    box keeps it. Nothing is planted or stood in a lot (RoadsideOccupancy
+    Other).
+  - Entrances: the street's verge across the entrance (7.3 m, 4.3 m off a
+    one-way, 1.5 m wings) is poured concrete (the Pavement slot) where it
+    was grass.
+  - `PSX_CITY_LOTS=0` turns the lots off.
+- **Tile build time (L7's +34 %).** Profiled once (a temporary stopwatch
+  per function under CityBudgetProbe, removed): `RefineFan` (L7's Lawson
+  flips) was 801 ms of the Trade & Tryon ring's ~3,100 ms - 1,127
+  refinements of the same fans, 0.7 ms each. It now keeps its result by its
+  inputs, bit for bit (a miss is refined again): 801 -> 134 ms. The lattice
+  corners have an array in front of their dictionary for the tile and 128 m
+  round it.
+- **The lattice under the fans (L7's shimmer).** A lattice corner held under
+  a fan is held deeper the further in it lies: 14 cm at the 0.75 m inset as
+  L7 left it, grading to 28 cm (lowered at most 30 cm) at 2 m in.
+  A bulb benches the land instead: it holds every lattice corner within its radius and 12 m
+  past it under its plane, however deep (12 m: every lattice triangle that
+  reaches the disc has all three corners in it). The street's corridor is
+  narrower than a bulb, and the first shot showed the land poking through
+  the disc's rim in the corridor's steps.
+
+**BEFORE (L7 audit 4) -> AFTER (L8 audit 1), OwnerBox unless city-wide**
+
+| | before | after |
+|---|---|---|
+| junctions carrying through lines across the mouth, in scope (T1/T2/T3) | 0 | 86 (24/60/2), 256 lines, 6.4 km |
+| the same city-wide | 0 | 882 (220/655/7), 2,470 lines, 65.0 km; 1,036 near edge lines broken |
+| arrow + ONLY groups / yield lines, city-wide (T2 added) | 856 / 184 | 1,855 / 298 |
+| turning circles drawn as bulbs | 0 of 74 | 73 of 74 (1 street too short) |
+| plain dead ends with a verge across the end | 0 | 852 city-wide (76 in scope) |
+| surface lots / stall lines / entrances (aprons), core box | 0 | 2,601 (4.25 km2) / 90,925 (84,820 stalls) / 1,646 |
+| charlotte_city.bytes | 5.93 MB | 6.31 MB (+379 KB: TURN, LOTS, LENT) |
+| lattice 0.5-8 cm under a road (shimmer), T1 / T2 / T3, m2 | 674 / 1,045 / 294 | 303 / 547 / 381 |
+| tile build p95 (editor, 225 tiles) | 144.5 ms | 123.1 ms (L6 107.5; cap +15 % = 123.6) |
+| Trade & Tryon ring: RefineFan / roads phase | 801 / 1,876 ms | 134 / 1,319 ms (2-site probe) |
+| worst view draws (Trade x Tryon) | 206 | 210 |
+| sliced build: longest step / p99 | 47.9 / 3.70 ms | 51.2 / 3.24 ms (75 tiles identical) |
+
+- The A13 decisions city-wide (first reason wins): signal 383, all-way stop
+  97, a stop on the through road 62, a side road of higher rank 188, no
+  straight-through pair or a side road under 60 deg 367, no line on both
+  sides 1,438 (unmarked local streets, owner Q1), a cluster 1,485, on
+  structure 13, roundabout 10.
+- T3 lattice shimmer is up 294 -> 381: the bulbs' rims (each a few tens of
+  m2) before the 12 m bench; the bench came after the audit.
+- The CITY AUDIT fails the same 16 checks as L7, every value the same or
+  better (verge 28 -> 27). DRIVE AUDIT zeros, the fan mouth probe 0, PAINT
+  T1 V1-V4 0, MARKS all ok, COVERAGE coplanar and holes unchanged.
+- linecheck: the baseline was re-recorded on main (its inputs moved:
+  citydata.mjs); every check BEFORE = AFTER.
+- `export --check` passes; the fetch is recorded in cache_manifest.json
+  (today's OSM: the attic query at the cache's moment ran Overpass out of
+  memory).
+
+**Not in L8 (lean), for later.**
+- A13's T2 bays (already solid since L6), the T2 host edge-line breaks at
+  mitred mouths (L6's are T1), the 0.05 m minor-mouth continuity audit (the
+  MINOR census counts what is drawn), and junctions inside clusters.
+- A17's reverse curves (R 7.6 m) between a street's edge and its bulb, Type
+  III barricades at the data's edge, and B9's welds/overshoots.
+- B9/B10: aisles from OSM's parking_aisle ways (fetched, not used), a lot's
+  holes (islands, buildings inside it are paved under), apron wings sealed
+  to the lattice (the apron is the verge's own geometry re-poured), the
+  lots' own audit raster (LOT audit), and lots in CityElevation's ground.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

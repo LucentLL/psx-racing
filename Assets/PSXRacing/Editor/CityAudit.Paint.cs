@@ -91,6 +91,8 @@ namespace PSXRacing.EditorTools
             Check(v9 == 0, "PAINT V9: every line at least two texels (Q3)", $"{v9} lines under");
             // roads pass L6: the lane-use marks (merges, gores, mouths, turn-only lanes, arrows, yields)
             MarksReport(map, trims, sc);
+            // roads pass L8: minor mouths, bulbs, dead ends, lots
+            MinorReport(map, trims, sc);
         }
 
         sealed class PaintTally

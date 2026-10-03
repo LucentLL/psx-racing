@@ -370,6 +370,22 @@ namespace PSXRacing.City
         /// the road (owner Q8). Empty from plan B2 on: such a creek has no
         /// span any more (<see cref="creekCulverts"/>), and a span left is a
         /// bridge. The culvert's way.</summary>
+        /// <summary>Roads pass L8 (section TURN; null in older data): a
+        /// turning circle or loop OSM tags at a dead end - the node, the kind
+        /// (0 circle, 1 loop) and the bulb's radius.</summary>
+        public struct Turn { public int node; public byte kind; public float r; }
+        public Turn[] turns;
+        /// <summary>Roads pass L8 (section LOTS; null in older data): a surface
+        /// parking lot - its ring (anticlockwise, the road bands taken out),
+        /// its plan box (x0, z0, x1, z1), the stall rows' direction u, and its
+        /// stall runs (each run's first separator foot and stall count; the
+        /// separators stand 2.74 m apart along u and run 5.49 m along u's left).</summary>
+        public sealed class Lot { public Vector2[] ring; public Vector4 box; public Vector2 u; public Vector2[] runFoot; public byte[] runN; }
+        public Lot[] lots;
+        /// <summary>Roads pass L8 (section LENT): a lot's entrance - the street
+        /// edge, the arc position, the side (+1 left of a->b) and half width.</summary>
+        public struct LotEntrance { public int edge; public float s; public sbyte side; public float half; }
+        public LotEntrance[] lotEntrances;
         public bool[] culvertSpan;
         public uint[] culvertWay;
         /// <summary>Section CULV (plan B2, owner Q8; null in older data): the
@@ -891,6 +907,64 @@ namespace PSXRacing.City
                     if (bad > 0) Debug.LogWarning($"[City] LSET: {bad} rows do not fit their profile's lanes - drawn with the profile's own split");
                 }
                 LineModel.Init(map, taprOff);
+                // roads pass L8: the turning circles, the parking lots, their entrances
+                if (Has("TURN"))
+                {
+                    Open("TURN");
+                    int nt = r.ReadInt32();
+                    var tl = new List<Turn>(nt);
+                    for (int i = 0; i < nt; i++)
+                    {
+                        int node = r.ReadInt32(); byte kind = r.ReadByte(); float rad = r.ReadSingle();
+                        if (node >= 0 && node < map.nodes.Length) tl.Add(new Turn { node = node, kind = kind, r = rad * LayoutScale });
+                    }
+                    map.turns = tl.ToArray();
+                    Close("TURN");
+                }
+                if (Has("LOTS"))
+                {
+                    Open("LOTS");
+                    int nl = r.ReadInt32();
+                    map.lots = new Lot[nl];
+                    for (int i = 0; i < nl; i++)
+                    {
+                        var o = new Vector2(r.ReadSingle(), r.ReadSingle());
+                        int np = r.ReadUInt16();
+                        var lot = new Lot { ring = new Vector2[np] };
+                        float x0 = float.MaxValue, z0 = float.MaxValue, x1 = float.MinValue, z1 = float.MinValue;
+                        for (int k = 0; k < np; k++)
+                        {
+                            var q = (o + new Vector2(r.ReadInt16() * 0.05f, r.ReadInt16() * 0.05f)) * LayoutScale;
+                            lot.ring[k] = q;
+                            x0 = Mathf.Min(x0, q.x); z0 = Mathf.Min(z0, q.y); x1 = Mathf.Max(x1, q.x); z1 = Mathf.Max(z1, q.y);
+                        }
+                        lot.box = new Vector4(x0, z0, x1, z1);
+                        var u = new Vector2(r.ReadInt16() / 32767f, r.ReadInt16() / 32767f);
+                        lot.u = u.sqrMagnitude > 1e-6f ? u.normalized : Vector2.right;
+                        int nRuns = r.ReadUInt16();
+                        lot.runFoot = new Vector2[nRuns]; lot.runN = new byte[nRuns];
+                        for (int k = 0; k < nRuns; k++)
+                        {
+                            lot.runFoot[k] = (o + new Vector2(r.ReadInt16() * 0.05f, r.ReadInt16() * 0.05f)) * LayoutScale;
+                            lot.runN[k] = r.ReadByte();
+                        }
+                        map.lots[i] = lot;
+                    }
+                    Close("LOTS");
+                }
+                if (Has("LENT"))
+                {
+                    Open("LENT");
+                    int nn2 = r.ReadInt32();
+                    var el = new List<LotEntrance>(nn2);
+                    for (int i = 0; i < nn2; i++)
+                    {
+                        int edge = r.ReadInt32(); float s = r.ReadSingle(); sbyte side = r.ReadSByte(); float half = r.ReadSingle();
+                        if (edge >= 0 && edge < ne) el.Add(new LotEntrance { edge = edge, s = s * LayoutScale, side = side, half = half });
+                    }
+                    map.lotEntrances = el.ToArray();
+                    Close("LENT");
+                }
             }
             uint computed = GraphHashOf(map.edges);
             map.GraphHashMatches = computed == map.graphHash;

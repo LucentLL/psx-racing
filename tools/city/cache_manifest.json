@@ -25,6 +25,13 @@
       "timestamp_osm_base": "2026-09-12T02:39:51Z"
     },
     {
+      "file": "tools/city/cache/lots_core.json",
+      "kind": "overpass",
+      "bytes": 6432097,
+      "sha256": "ae5a7c37c5bf335b3199fba01b5e660f45af9ad2e39958b4b9e34fa06ae9391d",
+      "timestamp_osm_base": "2026-10-03T15:29:51Z"
+    },
+    {
       "file": "tools/city/cache/buildings_core.json",
       "kind": "overpass",
       "bytes": 27750200,

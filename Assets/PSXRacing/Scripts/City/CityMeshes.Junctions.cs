@@ -421,6 +421,59 @@ namespace PSXRacing.City
         static void RefineFan(List<FanCorner> corners, Vector2 centre, List<Vector3> steiner, List<int> tris)
         {
             if (steiner == null || steiner.Count == 0 || tris.Count < 3) return;
+            // roads pass L8: the same fan is refined by every reader of it in
+            // every tile build (BuildJunctions, FanPolyOf after each clear,
+            // FanRing, the fan floor): 1,127 refinements for the 25 tiles of
+            // Trade & Tryon, 0.7 ms each, a quarter of the ring's build. The
+            // result is a function of its inputs alone, so it is kept by them,
+            // bit for bit (a near miss is a miss, and refined again).
+            ulong key = RefineKey(corners, centre, steiner, tris);
+            if (refineCache.TryGetValue(key, out var hit) && hit.Same(rfKeyScratch, tris))
+            {
+                tris.Clear();
+                tris.AddRange(hit.tout);
+                return;
+            }
+            var keyIn = rfKeyScratch.ToArray();
+            var trisIn = tris.ToArray();
+            RefineFanUncached(corners, centre, steiner, tris);
+            if (refineCache.Count >= RefineCacheMax) refineCache.Clear();
+            refineCache[key] = new RefineRec { key = keyIn, tin = trisIn, tout = tris.ToArray() };
+        }
+
+        sealed class RefineRec
+        {
+            public int[] key, tin, tout;
+            public bool Same(List<int> k, List<int> t)
+            {
+                if (k.Count != key.Length || t.Count != tin.Length) return false;
+                for (int i = 0; i < key.Length; i++) if (key[i] != k[i]) return false;
+                for (int i = 0; i < tin.Length; i++) if (tin[i] != t[i]) return false;
+                return true;
+            }
+        }
+        const int RefineCacheMax = 8192;
+        static readonly Dictionary<ulong, RefineRec> refineCache = new Dictionary<ulong, RefineRec>(1024);
+        static readonly List<int> rfKeyScratch = new List<int>(128);
+
+        /// <summary>RefineFan's inputs as bits (the corners' and Steiner
+        /// points' plan positions, the centre, the counts) and their hash.</summary>
+        static ulong RefineKey(List<FanCorner> corners, Vector2 centre, List<Vector3> steiner, List<int> tris)
+        {
+            var k = rfKeyScratch;
+            k.Clear();
+            k.Add(corners.Count); k.Add(steiner.Count);
+            k.Add(System.BitConverter.SingleToInt32Bits(centre.x)); k.Add(System.BitConverter.SingleToInt32Bits(centre.y));
+            foreach (var c in corners) { k.Add(System.BitConverter.SingleToInt32Bits(c.pos.x)); k.Add(System.BitConverter.SingleToInt32Bits(c.pos.z)); }
+            foreach (var s in steiner) { k.Add(System.BitConverter.SingleToInt32Bits(s.x)); k.Add(System.BitConverter.SingleToInt32Bits(s.z)); }
+            ulong h = 14695981039346656037UL;
+            foreach (int v in k) { h ^= (uint)v; h *= 1099511628211UL; }
+            foreach (int v in tris) { h ^= (uint)v; h *= 1099511628211UL; }
+            return h;
+        }
+
+        static void RefineFanUncached(List<FanCorner> corners, Vector2 centre, List<Vector3> steiner, List<int> tris)
+        {
             int N = corners.Count;
             rfP.Clear();
             rfP.Add(Vector2.zero);
@@ -580,7 +633,11 @@ namespace PSXRacing.City
         /// verge's and the ledge audit's, and a deeper dip there showed as a
         /// ledge beside a clipped arm (East 13th Street at North College).</summary>
         const float FanFloorMaxDropM = 0.12f, FanFloorInsetM = 0.75f;
-        sealed class FanFloorRec { public Vector3[] tris; public Vector2[] ring; public float x0, z0, x1, z1; }
+        /// <summary>Roads pass L8: a corner this far inside (or more) is held
+        /// FanFloorDeepM under, lowered at most FanFloorDeepDropM; between the
+        /// inset and here the two grade from the edge band's values.</summary>
+        const float FanFloorDeepAtM = 2f, FanFloorDeepM = 0.28f, FanFloorDeepDropM = 0.30f, BulbBenchM = 12f;
+        sealed class FanFloorRec { public Vector3[] tris; public Vector2[] ring; public float x0, z0, x1, z1; public bool bulb; public Vector2 bc, bdir; public float by, bg, bR; }
         static readonly List<FanFloorRec> fanFloors = new List<FanFloorRec>(32);
         static readonly Dictionary<int, FanFloorRec> fanFloorCache = new Dictionary<int, FanFloorRec>(1024);
         static Trims fanFloorTrims;
@@ -634,7 +691,7 @@ namespace PSXRacing.City
                             if (tris.Count >= 3)
                             {
                                 var centre = new Vector3(c.x, cy + FanProudM, c.y);
-                                rec = new FanFloorRec { tris = new Vector3[tris.Count], ring = new Vector2[ring.Count],
+                                rec = new FanFloorRec { tris = new Vector3[tris.Count], ring = new Vector2[ring.Count], bulb = trims.bulb != null && trims.bulb[fk],
                                                         x0 = float.MaxValue, z0 = float.MaxValue, x1 = float.MinValue, z1 = float.MinValue };
                                 for (int i = 0; i < tris.Count; i++)
                                 {
@@ -644,6 +701,13 @@ namespace PSXRacing.City
                                     rec.z0 = Mathf.Min(rec.z0, v.z); rec.z1 = Mathf.Max(rec.z1, v.z);
                                 }
                                 for (int i = 0; i < ring.Count; i++) rec.ring[i] = new Vector2(ring[i].pos.x, ring[i].pos.z);
+                                // a bulb (L8) benches the land round it down to its plane
+                                if (rec.bulb && BulbPlane(map, trims, fk, out rec.bc, out rec.by, out rec.bg, out rec.bdir, out rec.bR))
+                                {
+                                    rec.x0 = Mathf.Min(rec.x0, rec.bc.x - rec.bR - BulbBenchM); rec.x1 = Mathf.Max(rec.x1, rec.bc.x + rec.bR + BulbBenchM);
+                                    rec.z0 = Mathf.Min(rec.z0, rec.bc.y - rec.bR - BulbBenchM); rec.z1 = Mathf.Max(rec.z1, rec.bc.y + rec.bR + BulbBenchM);
+                                }
+                                else rec.bulb = false;
                             }
                         }
                         fanFloorCache[fk] = rec;
@@ -664,7 +728,22 @@ namespace PSXRacing.City
             var q = new Vector2(x, z);
             foreach (var f in fanFloors)
             {
-                if (x < f.x0 + FanFloorInsetM || x > f.x1 - FanFloorInsetM || z < f.z0 + FanFloorInsetM || z > f.z1 - FanFloorInsetM) continue;
+                // a bulb (L8): every corner within its radius and BulbBenchM (12 m:
+                // every lattice triangle that reaches the disc has all three corners
+                // in it) past
+                // it held under its plane, however deep - the land round a
+                // cul-de-sac is graded to it (the street's corridor is not as wide)
+                if (f.bulb)
+                {
+                    if ((q - f.bc).sqrMagnitude < (f.bR + BulbBenchM) * (f.bR + BulbBenchM))
+                    {
+                        float py = f.by + f.bg * Vector2.Dot(q - f.bc, f.bdir) + FanProudM - FanFloorM;
+                        if (py < y) y = py;
+                    }
+                    continue;
+                }
+                float inset = FanFloorInsetM;
+                if (x < f.x0 + inset || x > f.x1 - inset || z < f.z0 + inset || z > f.z1 - inset) continue;
                 var T = f.tris;
                 for (int i = 0; i + 2 < T.Length; i += 3)
                 {
@@ -676,18 +755,23 @@ namespace PSXRacing.City
                     float w3 = 1f - w1 - w2;
                     if (w1 < -1e-4f || w2 < -1e-4f || w3 < -1e-4f) continue;
                     // well inside the ring, not at its edge
-                    bool deep = true;
+                    float dmin2 = float.MaxValue;
                     var R = f.ring;
-                    for (int k = 0; k < R.Length && deep; k++)
+                    for (int k = 0; k < R.Length; k++)
                     {
                         Vector2 p0 = R[k], p1 = R[(k + 1) % R.Length], dd = p1 - p0;
                         float L2 = dd.sqrMagnitude;
                         float u = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(q - p0, dd) / L2) : 0f;
-                        if ((q - (p0 + dd * u)).sqrMagnitude < FanFloorInsetM * FanFloorInsetM) deep = false;
+                        dmin2 = Mathf.Min(dmin2, (q - (p0 + dd * u)).sqrMagnitude);
                     }
-                    if (!deep) break;
-                    float fy = w1 * a.y + w2 * b.y + w3 * c.y - FanFloorM;
-                    if (fy < y) y = Mathf.Max(fy, y0 - FanFloorMaxDropM);
+                    if (dmin2 < inset * inset) break;
+                    // roads pass L8: deeper the further in (the lattice's 8 m
+                    // triangles and the fan's own part furthest there; 549-674
+                    // m2 of T1 lattice still lay 0.5-8 cm under after L7), the
+                    // edge band as L7 left it
+                    float deepT = Mathf.InverseLerp(inset, FanFloorDeepAtM, Mathf.Sqrt(dmin2));
+                    float fy = w1 * a.y + w2 * b.y + w3 * c.y - Mathf.Lerp(FanFloorM, FanFloorDeepM, deepT);
+                    if (fy < y) y = Mathf.Max(fy, y0 - Mathf.Lerp(FanFloorMaxDropM, FanFloorDeepDropM, deepT));
                     break;
                 }
             }

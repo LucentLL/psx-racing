@@ -349,6 +349,10 @@ namespace PSXRacing.EditorTools
             // lanes line up (roads pass L4)
             Top("relay_mcdowell_12098", "lateral", -1212.0f, 4296.0f, "McDowell", 35f, "N McDowell St node 12098: a 2+1 split meeting a 1+2 one - the centre line moves across over the MUTCD length (the relay) instead of jumping a lane"),
             Top("lat_elizabeth_6995", "lateral", -1315.8f, 3738.4f, "Elizabeth", 40f, "Elizabeth Ave x N Kings Dr node 6995: tw2 into a tw4 that adds its lanes for the other direction - the through lanes line up across the junction"),
+            // minor streets, cul-de-sacs, parking lots (roads pass L8)
+            Top("minor_rozzelles_1178", "minor", -3915.3f, 6467.5f, "Rozzelles", 22f, "Rozzelles Ferry Rd at Whitehaven Ave (node 1178, unsignalised) from above: the centre and far edge lines run on across the side street's mouth, the near edge line breaks for it (plan A13)"),
+            Top("minor_bulb_victorian", "minor", -3517.0f, 2391.9f, "Victorian", 26f, "Victorian Place's turning circle (node 17457): the street ends in a 12.2 m bulb (plan A17)"),
+            Top("minor_lot_139", "minor", -1562.8f, 5101.9f, "", 45f, "a surface lot off N Davidson St (lot 139): the lot laid into the ground at the street's level, its stall lines, the concrete apron at its entrance (plan B9/B10)"),
         };
 
         /// <summary>The nearest point on an edge whose name contains

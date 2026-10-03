@@ -544,9 +544,9 @@ namespace PSXRacing.City
                 Solid(wf, fwd, nF);
                 Solid(wb, bwd, nB);
                 if (lsAny) MarkStats.lsEdges++;
-                // tier 1 (Q5 b): an arrow and ONLY in each turn-only lane before its
+                // tiers 1 and 2 (Q5 b; tier 2 from roads pass L8, plan A13): an arrow and ONLY in each turn-only lane before its
                 // junction (a freeway's exit-only lane has the zone's elongated group)
-                if (CityTier.Of(e) != 1 || (!e.link && (e.cls >= 5 || (e.cls == 4 && e.oneway)))) continue;
+                if (CityTier.Of(e) > 2 || (!e.link && (e.cls >= 5 || (e.cls == 4 && e.oneway)))) continue;
                 for (int dir = 0; dir < 2; dir++)
                 {
                     int bits = dir == 0 ? fwd : bwd, n = dir == 0 ? nF : nB;
@@ -762,7 +762,7 @@ namespace PSXRacing.City
             float cos35 = Mathf.Cos(35f * Mathf.Deg2Rad);
             foreach (var e in map.edges)
             {
-                if (e.a == e.b || !e.link || !e.oneway || CityTier.Of(e) != 1) continue;
+                if (e.a == e.b || !e.link || !e.oneway || CityTier.Of(e) > 2) continue;   // tiers 1 and 2 (L8: A13 for T2)
                 int n = e.b;
                 if (map.nodeEdges[n].Count < 3) continue;
                 if (ZoneAt(e.index, n) != null) continue;

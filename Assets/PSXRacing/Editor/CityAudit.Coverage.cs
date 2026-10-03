@@ -1356,6 +1356,11 @@ namespace PSXRacing.EditorTools
             for (int u = 0; u < 3; u++)
                 Line($"    {UnderName[u],-18} T1 {M2(a.underlap[1, u]),8}  T2 {M2(a.underlap[2, u]),8}  T3 {M2(a.underlap[3, u]),8}");
             Worst(Line, res.underObj, acc => $"{KindName[KindOf(acc.a)]} {Who(map, acc.a)} over {KindName[KindOf(acc.b)]}{(IsRoad(KindOf(acc.b)) ? " " + Who(map, acc.b) : "")}");
+            // roads pass L8: the lattice's own worst (the shimmer the owner sees at range)
+            var latUnder = new Dictionary<long, Acc>();
+            foreach (var kv in res.underObj) if ((kv.Key >> 40) == 2) latUnder[kv.Key] = kv.Value;
+            Line("    over the lattice:");
+            Worst(Line, latUnder, acc => $"{KindName[KindOf(acc.a)]} {Who(map, acc.a)} over the lattice");
 
             if (res.full)
                 foreach (var kv in res.boxes)
