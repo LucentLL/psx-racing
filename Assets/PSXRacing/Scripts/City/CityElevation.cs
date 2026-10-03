@@ -801,6 +801,7 @@ namespace PSXRacing.City
             // them), and the unmeasured streets there blend to it below
             MeasuredStations = 0; MeasuredCutCount = 0;
             measuredNodeY = null;
+            heightTouched = null;
             MeasuredEasedNodes = 0;
             if (RprfOn && map.measuredEdges > 0)
             {
@@ -813,6 +814,8 @@ namespace PSXRacing.City
                     if (float.IsNaN(measuredNodeY[e.a])) { measuredNodeY[e.a] = e.mY[0]; map.nodeY[e.a] = e.mY[0]; }
                     if (float.IsNaN(measuredNodeY[e.b])) { measuredNodeY[e.b] = e.mY[e.mY.Length - 1]; map.nodeY[e.b] = e.mY[e.mY.Length - 1]; }
                 }
+                heightTouched = new bool[map.nodes.Length];
+                for (int i = 0; i < measuredNodeY.Length; i++) heightTouched[i] = !float.IsNaN(measuredNodeY[i]);
                 EaseUnmeasuredNodes(map, landNodeY);
             }
 
@@ -845,7 +848,7 @@ namespace PSXRacing.City
                 // a clamped profile can take it past its class's grade (a node
                 // eased toward a measured junction, 1.4 m in 17 m): clamped
                 // again where the ends themselves allow it
-                if (RprfOn && !measured && e.length >= 2f && Mathf.Abs(e.stY[n - 1] - e.stY[0]) / e.length < MaxGrade(e))
+                if (RprfOn && !measured && Touched(e) && e.length >= 2f && Mathf.Abs(e.stY[n - 1] - e.stY[0]) / e.length < MaxGrade(e))
                 {
                     float g = MaxGrade(e);
                     for (int i = 1; i < n - 1; i++)
@@ -856,6 +859,15 @@ namespace PSXRacing.City
                 // OSM's bridges are decks end to end, whatever the terrain
                 // under them does.
                 if (e.bridge) for (int i = 0; i < n; i++) e.stElev[i] = true;
+            }
+            // (freeways only) an unmeasured ramp at a measured freeway node keeps
+            // its profile as step 1 left it, for its climb-out (ClimbOut)
+            rampBase = null;
+            if (RprfOn && heightTouched != null)
+            {
+                rampBase = new Dictionary<int, (float[] s, float[] y)>();
+                foreach (var e in map.edges)
+                    if (e.link && !Measured(e) && Touched(e)) rampBase[e.index] = ((float[])e.stS.Clone(), (float[])e.stY.Clone());
             }
             TerrainProfiles = null;
             if (KeepTerrainProfiles)
@@ -1194,7 +1206,10 @@ namespace PSXRacing.City
         /// attempt (same day) it was 178, still over the gate of 115. The
         /// shipped data carries no RPRF (export with --rprf), and
         /// PSX_CITY_RPRF=1 turns this on - and every rule of the finish
-        /// attempt with it - for a data file that does.
+        /// attempt with it - for a data file that does. FREEWAYS ONLY (the
+        /// owner, same day): --rprf now writes the motorway and trunk
+        /// mainlines' profiles only; boxed LAUNCH 15 (gate 12), the uptown
+        /// route 1, grades past 16% 4 (gate 3): still OFF.
         /// </summary>
         public static bool RprfOn = System.Environment.GetEnvironmentVariable("PSX_CITY_RPRF") == "1";
         /// <summary>Does this edge stand on its measured profile?</summary>
@@ -1251,9 +1266,14 @@ namespace PSXRacing.City
                 foreach (int ei in map.nodeEdges[n])
                 {
                     var e = map.edges[ei];
-                    if (Measured(e) || e.a == e.b) continue;
+                    // freeways only: the offset eases out along the RAMPS, and
+                    // never moves a node a street reaches (streets solve as shipped)
+                    if (Measured(e) || e.a == e.b || !e.link) continue;
                     int o = e.a == n ? e.b : e.a;
                     if (!float.IsNaN(measuredNodeY[o])) continue;
+                    bool street = false;
+                    foreach (int oi in map.nodeEdges[o]) { var oe = map.edges[oi]; if (!oe.link && !Measured(oe)) { street = true; break; } }
+                    if (street) continue;
                     float nd = d + e.length;
                     if (nd > MeasuredEaseM || nd >= dist[o]) continue;
                     if (!float.IsPositiveInfinity(dist[o])) pq.Remove((dist[o], o));
@@ -1268,6 +1288,7 @@ namespace PSXRacing.City
                 if (Mathf.Abs(off) < 0.01f) continue;
                 map.nodeY[n] += off;
                 MeasuredEasedNodes++;
+                heightTouched[n] = true;
             }
         }
         /// <summary>Is this node lifted above where the lidar puts it (or,
@@ -2359,8 +2380,15 @@ namespace PSXRacing.City
             while (far > 0 && far < n - 1 && !e.SeatedAt(far)) far += dir;
             far = Mathf.Clamp(far, 0, n - 1);
             if (far == from) return 0;
-            if (Measured(e))
+            (float[] s, float[] y) rb = default;
+            bool baseRamp = !Measured(e) && rampBase != null && rampBase.TryGetValue(e.index, out rb);
+            float OwnAt(float at) => baseRamp ? BaseAt(rb, at) : e.MeasuredYAt(at);
+            if (Measured(e) || baseRamp)
             {
+                // (freeways only, 2026-10-03) and so does an unmeasured ramp at
+                // a measured freeway, on the profile step 1 gave it: the seat
+                // down in the freeway's real cut eases out on the same cosine
+                // (an 8% line from the seat was a 38% step where it met a cone)
                 // (leftover item 1) a measured ramp already leaves its host
                 // on its real grade: the seat's offset from the measured
                 // profile fades out over it on a cosine (C1, within the
@@ -2369,7 +2397,7 @@ namespace PSXRacing.City
                 // left (five climb-out launches in the first boxed run)
                 float spanM = Mathf.Abs(e.stS[far] - e.stS[from]);
                 if (spanM < 0.5f) return 0;
-                float dFrom = e.stY[from] - e.MeasuredYAt(e.stS[from]);
+                float dFrom = e.stY[from] - OwnAt(e.stS[from]);
                 bool farSeated = e.SeatedAt(far);
                 int movesM = 0;
                 // a far END the span cannot ease the seat's offset out to (at
@@ -2381,19 +2409,19 @@ namespace PSXRacing.City
                     if (carry > 0.02f)
                     {
                         int farNode = far == 0 ? e.a : e.b;
-                        float want = e.MeasuredYAt(e.stS[far]) + Mathf.Sign(dFrom) * carry;
+                        float want = OwnAt(e.stS[far]) + Mathf.Sign(dFrom) * carry;
                         if (dFrom > 0f && e.stY[far] < want - 0.02f) { e.stY[far] = want; movesM++; }
                         else if (dFrom < 0f && e.stY[far] > want + 0.02f && LowerFarNode(map, farNode, e, want)) movesM++;
                     }
                 }
-                float dFar = e.stY[far] - e.MeasuredYAt(e.stS[far]);
+                float dFar = e.stY[far] - OwnAt(e.stS[far]);
                 float lFrom = Mathf.Min(spanM, Mathf.Max(30f, Mathf.Abs(dFrom) / 0.015f)), lFar = Mathf.Min(spanM, Mathf.Max(30f, Mathf.Abs(dFar) / 0.015f));
                 for (int i = from + dir; i != far; i += dir)
                 {
                     float a = Mathf.Abs(e.stS[i] - e.stS[from]), b = Mathf.Abs(e.stS[far] - e.stS[i]);
                     float wa = a >= lFrom ? 0f : 0.5f * (1f + Mathf.Cos(Mathf.PI * a / lFrom));
                     float wb = b >= lFar ? 0f : 0.5f * (1f + Mathf.Cos(Mathf.PI * b / lFar));
-                    e.stY[i] = e.MeasuredYAt(e.stS[i]) + dFrom * wa + dFar * wb;
+                    e.stY[i] = OwnAt(e.stS[i]) + dFrom * wa + dFar * wb;
                 }
                 return movesM;
             }
@@ -3060,7 +3088,7 @@ namespace PSXRacing.City
             }
             float dA = map.nodeY[e.a] - e.stY[0];
             float dB = map.nodeY[e.b] - e.stY[e.stY.Length - 1];
-            if (!RprfOn)
+            if (!RprfOn || !Touched(e))
             {
                 // as shipped (heights OFF): linear over half the edge, at most 90 m
                 float Lh = Mathf.Min(e.length * 0.5f, 90f);
@@ -3090,6 +3118,25 @@ namespace PSXRacing.City
 
         static float Smooth01(float t) { t = Mathf.Clamp01(t); return t * t * (3f - 2f * t); }
 
+        /// <summary>FREEWAYS ONLY (the owner, 2026-10-03): the measured
+        /// profiles are the motorway and trunk mainlines' (export_osm.mjs
+        /// writes RPRF for those edges only), and the rules of the finish
+        /// attempt (C1 end blends, junction landings, the grade guard) run
+        /// only where a road meets a measured node or one eased toward it:
+        /// a ramp or street at a freeway junction. Every other road solves as
+        /// shipped. Per node: measured, or moved by EaseUnmeasuredNodes.</summary>
+        static bool[] heightTouched;
+        static Dictionary<int, (float[] s, float[] y)> rampBase;
+        static float BaseAt((float[] s, float[] y) b, float at)
+        {
+            int n = b.s.Length;
+            if (at <= b.s[0]) return b.y[0];
+            for (int i = 1; i < n; i++) if (at <= b.s[i]) return Mathf.Lerp(b.y[i - 1], b.y[i], (at - b.s[i - 1]) / Mathf.Max(1e-4f, b.s[i] - b.s[i - 1]));
+            return b.y[n - 1];
+        }
+        static bool Touched(CityMap.Edge e) => heightTouched != null && (heightTouched[e.a] || heightTouched[e.b]);
+        static bool MeasuredNode(int n) => measuredNodeY != null && !float.IsNaN(measuredNodeY[n]);
+
         /// <summary>Edges the last solve's grade guard eased (report).</summary>
         public static int GradeGuarded { get; private set; }
         const float GuardGrade = 0.155f;
@@ -3114,7 +3161,7 @@ namespace PSXRacing.City
             if (map.creekCulverts != null) foreach (var x in map.creekCulverts) held.Add(x.edge);
             foreach (var e in map.edges)
             {
-                if (e.bridge || e.a == e.b || e.length < 30f || held.Contains(e.index)) continue;
+                if (e.bridge || e.a == e.b || e.length < 30f || held.Contains(e.index) || !Touched(e)) continue;
                 int n = e.stY.Length;
                 bool steep = false;
                 for (int i = 1; i < n && !steep; i++)
@@ -3573,7 +3620,7 @@ namespace PSXRacing.City
                     float Lc = -1f, d0 = 0f;
                     bool landShortNow = false;
                     // (heights OFF: the plane at the first station only, as shipped)
-                    if (!branch && RprfOn)
+                    if (!branch && RprfOn && MeasuredNode(n))
                     {
                         float sin = Mathf.Abs(axis.x * u.y - axis.y * u.x);
                         // ...and at least to the arm's trim: the fan (or the

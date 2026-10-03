@@ -5688,6 +5688,45 @@ over the path); the remaining walls checked against the real roads.
 Logs: scratchpad `jgrade\` (box1-5, all1, audit1); BEFORE shots of the two
 junctions in `ba\jgrade\before\` (no AFTER: nothing shipped changed).
 
+### HEIGHTS: freeways only (2026-10-03, the owner's decision) - one short attempt, still OFF
+
+The owner: the lidar heights for the motorway and trunk MAINLINES only (where
+the dips under bridges are); ramps and every street keep the shipped solver,
+ramps seated onto the freeway as before and climbing off on a smooth curve.
+Built (all with `PSX_CITY_RPRF=1` and an `--rprf` export only):
+
+- `export_osm.mjs --rprf` designs the whole tier 1+2 network as before and
+  writes RPRF for the 1,860 motorway/trunk mainline edges only (78 KB).
+- The rules of the finish attempt above (C1 end blends, junction landings,
+  the grade guard) run only on roads that meet a measured node or one eased
+  toward it (`Touched`, `MeasuredNode`); everything else solves as shipped.
+- The measured offset eases out along RAMPS only (`EaseUnmeasuredNodes`),
+  never moving a node a street reaches.
+- An unmeasured ramp at a measured freeway climbs off its seat on the same
+  cosine ease a measured ramp uses, on the profile step 1 gave it
+  (`rampBase`): the 8% line from a seat deep in the real cut met a cone in a
+  38% step (e521 by I-277).
+
+**Boxed LAUNCH (gate 12; shipped 12):** first try 18 (grades past 16% 11,
+all ramps climbing out of the real cuts, up to 38%); with the ramp-only ease
+and the ramp climb-out 15, uptown route 1 (I-277 e2308's clearance hump over
+N Brevard St, a crest of 4.3% in one station at 150 km/h that the curves pass
+leaves beside frozen measured stations), grades past 16% 4 (gate 3: ramps
+e4675 28%, e1245 16.3%, link e12408 16.2%, and Bethel Road 17.5%), and a new
+1.05 m ramp deck-end launch at node 708 (e13779, the I-277/I-77 ramps). Most
+of the other boxed spots are the shipped streets' (S Mint St at W 4th St
+0.42 m as shipped). Stopped there (budget: 3 boxed, 1 city-wide, 1 AuditOnly,
+1 preview; used 2 boxed, nothing else).
+
+**Next, if freeways-only is tried again:** the ramps are the problem - a ramp
+on the smoothed land meeting a freeway in its real cut has metres to climb
+in a few stations where it also crosses streets (I-277/I-77 uptown). Either
+the ramps whose seats lie on a measured mainline take their own measured
+profile too (an owner call: it widens the scope), or each such ramp gets one
+designed vertical profile from its seat to its terminal (grade-capped, K-sized)
+before the cones; and I-277 e2308's hump needs its crest rounded by lifting its
+measured neighbours within the twin pair.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,
