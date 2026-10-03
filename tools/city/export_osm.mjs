@@ -47,6 +47,10 @@
 //   tools/city/cache/water/*.geojson    creeks, lakes and the county line
 //                                       (fetch/fetch_water.mjs; CC0 and
 //                                       public domain, see SOURCES.md)
+//   tools/city/cache/bridges_mm.json    man_made=bridge outlines (OSM; B1)
+//   tools/city/cache/layers/culverts.json  tunnel=culvert waterways (OSM;
+//                                       fetch/fetch_layers.mjs; B1, owner Q8)
+//   tools/city/deckpairs_overrides.json twin-deck FORCE / NEVER by way pair (B1)
 // Every input's size, sha256 and Overpass snapshot time is recorded in
 // tools/city/cache_manifest.json; --check verifies them. (RG2's traced water,
 // vendored in tools/city/vendor/rg2/ by WP-02, is no longer read: WP-04b.)
@@ -56,7 +60,8 @@
 //   charlotte_city.bytes    PSXC v2: a section table, then META NODE NAME EDGE
 //                           PNTS WATR WBED XING SPAN ROUT and GHSH, the graph
 //                           hash (WBED, the creek beds, since WP-04b), then
-//                           LANW TAPR PARA TAGN (WP-10) and SPLT (WP-11)
+//                           LANW TAPR PARA TAGN (WP-10), SPLT (WP-11) and BRST
+//                           (the roads pass's B1: bridge outlines, culvert creeks)
 //   charlotte_dem.bytes     PDEM v3: the 30 m height grid in delta-coded
 //                           blocks (lib/pdem3.mjs), datum pinned at 97.0 m
 //   charlotte_bld.bytes     PBLD v1: footprints
@@ -91,7 +96,8 @@ import { dirname, join, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { load3dep } from './lib/dem3dep.mjs';
 import { buildWaters, waterInputPaths } from './lib/water.mjs';
-import { parseCity, parseDem, parseBld, fingerprint, graphHash, hashHex, CITY_SECTIONS } from './lib/citydata.mjs';
+import { parseCity, parseDem, parseBld, fingerprint, graphHash, hashHex, CITY_SECTIONS, profileFor, tierOf } from './lib/citydata.mjs';
+import { loadOutlines, outlineIndex, structIdOf, loadCulverts, culvertSpans, outlineName } from './lib/bridges.mjs';
 import { readCredits } from './lib/sources.mjs';
 import { lineClean, LANE_W, LANE_W_LINK } from './lib/lineclean.mjs';
 import { readSmoothRules } from './lib/smoothrules.mjs';
@@ -827,6 +833,111 @@ const wspans = [];
   console.log(`water bridge spans: ${wspans.length}`);
 }
 
+// ------------------------------------------ B1: bridge outlines, culvert creeks
+// (plan B1, owner Q8, 2026-10-02; the rules are in lib/bridges.mjs). An OSM
+// man_made=bridge outline round two carriageways makes them ONE structure:
+// each bridge=yes edge takes the outline holding >= 60% of its 4 m samples
+// (its structId; section BRST), and the game's twin-deck table
+// (Scripts/City/DeckPairs.cs) joins two decks in one outline, keeps two in
+// different outlines apart, and falls back to the class rule without one.
+// A water span whose middle is within 15 m of an OSM culvert line is a creek
+// OSM says is PIPED under the road (owner Q8: follow OSM, build culverts -
+// package B2 converts them): listed here so no twin-deck union joins one
+// before then (critic C2/D3). Twin-deck overrides by way pair (FORCE one
+// structure / NEVER) come from tools/city/deckpairs_overrides.json.
+const OUTLINES_FILE = join(CACHE, 'bridges_mm.json');
+const CULVERTS_FILE = join(CACHE, 'layers', 'culverts.json');
+const OVERRIDES_FILE = join(HERE, 'deckpairs_overrides.json');
+const BRST = (() => {
+  if (!existsSync(OUTLINES_FILE)) throw new Error(`${relative(UNITY, OUTLINES_FILE)} is missing: fetch it with tools/city/fetch/fetch_ways.mjs (its snapshot is recorded in cache_manifest.json)`);
+  if (!existsSync(CULVERTS_FILE)) throw new Error(`${relative(UNITY, CULVERTS_FILE)} is missing: fetch it with tools/city/fetch/fetch_layers.mjs`);
+  const outl = loadOutlines(OUTLINES_FILE, toX, toZ), ix = outlineIndex(outl);
+  const struct = [];
+  let touched = 0;
+  for (const e of edges) {
+    if (!e.way.bridge) continue;
+    const r = structIdOf(e.pts, ix);
+    if (r.id) struct.push([e.id, r.id]); else if (r.touched) touched++;
+  }
+  const cul = loadCulverts(CULVERTS_FILE, toX, toZ);
+  const culvert = culvertSpans(wspans, i => edges[i].pts, cul);
+  const overrides = existsSync(OVERRIDES_FILE) ? JSON.parse(readFileSync(OVERRIDES_FILE, 'utf8')).pairs || [] : [];
+  for (const o of overrides)
+    if (!(o.decision === 'FORCE' || o.decision === 'NEVER') || !(o.wayA > 0) || !(o.wayB > 0))
+      throw new Error(`deckpairs_overrides.json: ${JSON.stringify(o)} is not { wayA, wayB, decision: FORCE | NEVER, why }`);
+  const byTier = [0, 0, 0, 0];
+  for (const c of culvert) byTier[tierOf(edges[wspans[c.span].e].way.rank)]++;
+  const bridgeEdges = edges.filter(e => e.way.bridge).length;
+  console.log(`B1 outlines: ${outl.length} man_made=bridge outlines; ${struct.length} of ${bridgeEdges} bridge edges in one (${new Set(struct.map(q => q[1])).size} outlines used), ${touched} more only partly inside one (structId 0: the class rule)`);
+  console.log(`B1 culvert creeks (owner Q8): ${culvert.length} of ${wspans.length} water spans within 15 m of one of ${cul.count} OSM culvert segments (T1 ${byTier[1]}, T2 ${byTier[2]}, T3 ${byTier[3]}); kept as decks until B2, never joined into a twin deck`);
+  return { struct, culvert, overrides };
+})();
+
+// ------------------------------- C9: dead ends short of a road (plan critic C9)
+// A road that stops a few metres short of another at the same level, sharing
+// no node, is a GAP in the data that no mesh audit can see (their outline is
+// built from the same edges). The exporter gate: every interior dead end
+// whose nearest same-level road's pavement is within DEAD_END_REACH_M -
+// short of it, or inside it - is welded or explained, T1 gating (T2 and T3
+// reported for B8 / B9). Weld only same-name ends or a link onto a road; a
+// true non-connection (West 11th Street beside a motorway_link) never.
+// EXPLAINED: each with the OSM evidence that the end is a REAL connection to
+// a road this snapshot does not carry - welding it onto the road beside
+// would invent a connection that is not there.
+const DEAD_END_REACH_M = 6;
+const DEAD_END_EXPLAINED = new Map([
+  // I-85 east of the Catawba (35.258,-81.006): both carriageways leave by a
+  // motorway_link that ends in mid-air (ways 754768127 east, 754768136
+  // west) and come back 320 m on by another that starts in mid-air beside
+  // the freeway (these two). The four free ends are a roadside facility's
+  // service roads, which the arterial query does not fetch (and unnamed
+  // service ways are dropped); a weld would make a slip road from I-85
+  // back onto I-85 that does not exist.
+  [7050788926, "I-85 eastbound entrance (way 754768134) from a roadside facility west of it, not from I-85: the facility's service road is not in the snapshot"],
+  [7050791386, "I-85 westbound entrance (way 785500728) from a roadside facility east of it, not from I-85: the facility's service road is not in the snapshot"],
+  // Johnston Road at Ballantyne (35.0400,-80.8462): OSM's turn restriction
+  // 16858537 (only_right_turn, from this way via its end node to way
+  // 1233246204) says this slip lane turns RIGHT onto way 1233246204 - a
+  // street outside the residential coverage (Q6: core + 1 km ring, B9) - and
+  // not back onto Johnston Road beside it.
+  [11443025075, 'Johnston Road right-turn slip (way 1233246203) onto way 1233246204 (restriction 16858537 only_right_turn), a street outside the residential coverage (Q6, B9)'],
+]);
+{
+  const osmIdOf = new Map();
+  for (const [id, n] of nodeIndex) osmIdOf.set(n, id);
+  const deg = new Array(nodes.length).fill(0), own = new Array(nodes.length).fill(null);
+  for (const e of edges) { deg[e.a]++; deg[e.b]++; own[e.a] = e; own[e.b] = e; }
+  const hwOf = e => profileFor(e.way.rank, e.way.link, e.way.oneway, e.lanes, e.turn).width / 2;
+  const WORLD = [35.03, -81.03, 35.42, -80.62], MARG = 0.004;
+  const ptSeg = (px, pz, a, b) => { const dx = b[0] - a[0], dz = b[1] - a[1], L = dx * dx + dz * dz; const t = L > 0 ? Math.max(0, Math.min(1, ((px - a[0]) * dx + (pz - a[1]) * dz) / L)) : 0; return Math.hypot(px - a[0] - dx * t, pz - a[1] - dz * t); };
+  const rows = { 1: [], 2: [], 3: [] }, ends = [0, 0, 0, 0];
+  for (let n = 0; n < nodes.length; n++) {
+    if (deg[n] !== 1) continue;
+    const e = own[n], [x, z] = nodes[n], lat = toLat(z), lon = toLon(x);
+    if (lat < WORLD[0] + MARG || lat > WORLD[2] - MARG || lon < WORLD[1] + MARG || lon > WORLD[3] - MARG) continue;   // the world's edge
+    const t = tierOf(e.way.rank);
+    ends[t]++;
+    let best = Infinity, bo = null;
+    const cx = Math.floor(x / SEGCELL), cz = Math.floor(z / SEGCELL);
+    for (let ix = cx - 1; ix <= cx + 1; ix++) for (let iz = cz - 1; iz <= cz + 1; iz++)
+      for (const packed of segHash.get(cellKey(ix, iz)) || []) {
+        const o = edges[packed >> 12], k = packed & 4095;
+        if (o === e || o.a === n || o.b === n || o.way.level !== e.way.level) continue;
+        const d = ptSeg(x, z, o.pts[k - 1], o.pts[k]) - hwOf(o);
+        if (d < best) { best = d; bo = o; }
+      }
+    if (!bo || best > DEAD_END_REACH_M) continue;
+    const osm = osmIdOf.get(n);
+    rows[t].push({ n, osm, e, o: bo, d: best, why: DEAD_END_EXPLAINED.get(osm) || null, at: `${lat.toFixed(5)},${lon.toFixed(5)}` });
+  }
+  const line = r => `${r.d <= 0.3 ? 'inside' : 'short'} ${r.d.toFixed(2)} m: e${r.e.id} way ${r.e.way.id} ${r.e.way.base}${r.e.way.link ? '_link' : ''} '${r.e.way.name}' end node ${r.osm} -> e${r.o.id} way ${r.o.way.id} '${r.o.way.name}' @ ${r.at}`;
+  const unexplained = rows[1].filter(r => !r.why);
+  console.log(`C9 dead ends within ${DEAD_END_REACH_M} m of a same-level road (interior ends T1 ${ends[1]} / T2 ${ends[2]} / T3 ${ends[3]}): T1 ${rows[1].length} (${rows[1].length - unexplained.length} explained, 0 welded), T2 ${rows[2].length}, T3 ${rows[3].length} (reported: B8 / B9)`);
+  for (const r of rows[1]) console.log(`  T1 ${line(r)}${r.why ? '\n       EXPLAINED: ' + r.why : '  UNEXPLAINED'}`);
+  if (unexplained.length)
+    throw new Error(`C9 gate: ${unexplained.length} T1 dead end(s) within ${DEAD_END_REACH_M} m of a same-level road with no weld and no explanation (weld a same-name end or a link onto its road; explain a real connection in DEAD_END_EXPLAINED):\n  ` + unexplained.map(line).join('\n  '));
+}
+
 // ---------------------------------------------------------------- controls
 const nodeCtl = new Uint8Array(nodes.length);
 {
@@ -1363,6 +1474,17 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
     w.u32(SPLITS.length);
     for (const t of SPLITS) { w.u32(t.node); w.u32(t.u); w.u32(t.a); w.u32(t.b); w.f32(t.offA); w.f32(t.offB); w.f32(t.rate); }
   });
+  // BRST (plan B1; lib/citydata.mjs has the layout, lib/bridges.mjs the
+  // rules): each bridge edge's OSM outline, the water spans a culvert
+  // claims (owner Q8), the twin-deck overrides by way pair.
+  section('BRST', w => {
+    w.u32(BRST.struct.length);
+    for (const [ei, id] of BRST.struct) { w.u32(ei); w.u32(id); }
+    w.u32(BRST.culvert.length);
+    for (const c of BRST.culvert) { w.u32(c.span); w.u32(c.way); w.f32(c.d); }
+    w.u32(BRST.overrides.length);
+    for (const o of BRST.overrides) { w.u32(o.wayA); w.u32(o.wayB); w.u8(o.decision === 'FORCE' ? 1 : 0); }
+  });
   if ([...sec.keys()].join() !== CITY_SECTIONS.join()) throw new Error('PSXC sections out of step with citydata.mjs CITY_SECTIONS');
 
   const align = n => (n + 3) & ~3;
@@ -1547,6 +1669,11 @@ function inputFiles() {
   add('tools/city/cache/3dep/box13.f32', dem3.f32Path, '3dep');
   add('tools/city/cache/3dep/box13.json', dem3.jsonPath, '3dep');
   for (const f of waterInputPaths(CACHE)) add(f.label, f.path, 'water');
+  // B1: the bridge outlines, the culvert lines, the twin-deck overrides
+  add('tools/city/cache/bridges_mm.json', OUTLINES_FILE, 'overpass');
+  add('tools/city/cache/layers/culverts.json', CULVERTS_FILE, 'overpass');
+  // by its pairs only (the note is prose; a checkout's line endings are not data)
+  files.push({ label: 'tools/city/deckpairs_overrides.json#pairs', content: Buffer.from(JSON.stringify(BRST.overrides), 'utf8'), kind: 'registry' });
   // SOURCES.md by its Credits only: the rest of the registry is prose that
   // later packages edit without changing a byte of the output
   files.push({ label: 'tools/city/SOURCES.md#credits', content: Buffer.from(ATTRIBUTION, 'utf8'), kind: 'registry' });

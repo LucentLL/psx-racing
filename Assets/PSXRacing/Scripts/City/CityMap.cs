@@ -71,6 +71,11 @@ namespace PSXRacing.City
             public float shl, shr;   // paved shoulders, left / right of travel
             public int speedKmh;
             public uint wayId;
+            /// <summary>Section BRST (plan B1; 0 in older data, and on every
+            /// edge not tagged bridge=yes): the OSM man_made=bridge outline
+            /// holding this bridge (the way id, or a relation's | 0x80000000).
+            /// Two edges with one structId are ONE structure (<see cref="DeckPairs"/>).</summary>
+            public uint structId;
 
             public Vector2[] pts;    // plan polyline, metres
             public float[] s;        // cumulative arc length per pt
@@ -347,6 +352,23 @@ namespace PSXRacing.City
         public Water[] waters;
         public Crossing[] crossings;
         public WaterSpan[] wspans;
+        /// <summary>Section BRST (plan B1; null in older data): the water
+        /// spans (by index into <see cref="wspans"/>) whose middle is within
+        /// 15 m of an OSM tunnel=culvert line - a creek OSM says is PIPED under
+        /// the road (owner Q8: B2 builds them as culverts). Until then they
+        /// stay decks, and no twin-deck union joins one. The culvert's way.</summary>
+        public bool[] culvertSpan;
+        public uint[] culvertWay;
+        /// <summary>Section BRST's twin-deck overrides by way pair
+        /// (<see cref="DeckPairs.WayKey"/>): true FORCE one structure, false
+        /// NEVER. Null when none.</summary>
+        public Dictionary<long, bool> deckOverrides;
+        /// <summary>THE TWIN-DECK TABLE (plan B1, <see cref="DeckPairs.Build"/>
+        /// at load): every pair of parallel decks and whether they are one
+        /// structure; each edge's pairs and its unions (indices into
+        /// <see cref="deckPairs"/>; null for an edge in none).</summary>
+        public DeckPairs.Pair[] deckPairs;
+        public int[][] deckPairsOf, deckUnionsOf;
         public Route[] routes;
         public Footprint[] footprints = new Footprint[0];
         /// <summary>Where footprint data exists. Inside it the procedural
@@ -765,6 +787,34 @@ namespace PSXRacing.City
                         };
                     Close("SPLT");
                 }
+                // BRST (plan B1): the bridges' OSM outlines, the water spans a
+                // culvert claims (owner Q8), the twin-deck overrides. Layout:
+                // tools/city/lib/citydata.mjs.
+                if (Has("BRST"))
+                {
+                    Open("BRST");
+                    int nb = r.ReadInt32();
+                    for (int i = 0; i < nb; i++)
+                    {
+                        int ei = r.ReadInt32(); uint id = r.ReadUInt32();
+                        if (ei >= 0 && ei < ne) map.edges[ei].structId = id;
+                    }
+                    int nc2 = r.ReadInt32();
+                    map.culvertSpan = new bool[map.wspans.Length];
+                    map.culvertWay = new uint[map.wspans.Length];
+                    for (int i = 0; i < nc2; i++)
+                    {
+                        int si = r.ReadInt32(); uint way = r.ReadUInt32(); r.ReadSingle();
+                        if (si >= 0 && si < map.wspans.Length) { map.culvertSpan[si] = true; map.culvertWay[si] = way; }
+                    }
+                    int no2 = r.ReadInt32();
+                    for (int i = 0; i < no2; i++)
+                    {
+                        uint wa = r.ReadUInt32(), wb = r.ReadUInt32(); bool force = r.ReadByte() != 0;
+                        (map.deckOverrides ??= new Dictionary<long, bool>())[DeckPairs.WayKey(wa, wb)] = force;
+                    }
+                    Close("BRST");
+                }
                 LineModel.Init(map, taprOff);
             }
             uint computed = GraphHashOf(map.edges);
@@ -774,11 +824,14 @@ namespace PSXRacing.City
 
             if (bld != null) map.ParseFootprints(bld);
             map.BuildHashes();
+            // the twin-deck table (plan B1): from the graph, before the solve
+            // that holds each pair to one height
+            DeckPairs.Build(map);
             LastParseMs = (float)parseClock.Elapsed.TotalMilliseconds;
             var clock = System.Diagnostics.Stopwatch.StartNew();
             CityElevation.Solve(map);
             LastSolveMs = (float)clock.Elapsed.TotalMilliseconds;
-            Debug.Log($"[City] parsed in {LastParseMs:0} ms, elevation solved in {clock.ElapsedMilliseconds} ms ({CityElevation.SeatedStationCount} ramp stations seated on their mainlines, found in {CityElevation.SeatPrepMs} ms)");
+            Debug.Log($"[City] parsed in {LastParseMs:0} ms, elevation solved in {clock.ElapsedMilliseconds} ms ({CityElevation.SeatedStationCount} ramp stations seated on their mainlines, found in {CityElevation.SeatPrepMs} ms); twin decks: {DeckPairs.LastReport}; {CityElevation.TwinHoldReport}");
             return map;
         }
 

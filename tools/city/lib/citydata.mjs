@@ -37,6 +37,17 @@
 //     ROUT  u32 routes { str id, name; u8 loop, oneway; f32 roadWidth; u8 speed;
 //                        f32 lengthM, startM, finishM; u32 n; n x (u32 edge; i8 dir) }
 //     GHSH  u32 graph hash (graphHash below)
+//     (LANW TAPR PARA TAGN SPLT: export_osm.mjs documents them where it writes them)
+//     BRST  u32 n | n x { u32 edge; u32 outline }                      (plan B1, 2026-10-02)
+//           every bridge=yes edge an OSM man_made=bridge outline holds (>= 60%
+//           of its 4 m samples): the way id, or a relation's id | 0x80000000
+//           (lib/bridges.mjs). Two edges in one outline are ONE structure.
+//           | u32 m | m x { u32 span; u32 way; f32 dist }   the water spans
+//           (SPAN's index) whose middle is within 15 m of an OSM culvert line
+//           (tunnel=culvert): owner Q8, a pipe and not a bridge (B2 builds it)
+//           | u32 k | k x { u32 wayA, wayB; u8 force }       twin-deck
+//           overrides by way pair (tools/city/deckpairs_overrides.json): 1 FORCE
+//           one structure, 0 NEVER
 //   A reader takes the sections it knows by tag and skips the rest.
 //
 //   PSXC v1  u32 magic | i32 ver 1 | META's fields | NODE | NAME
@@ -77,11 +88,18 @@ class Reader {
 }
 
 /// The section tags of PSXC v2, in file order (a reader skips any other).
-export const CITY_SECTIONS = ['META', 'NODE', 'NAME', 'EDGE', 'PNTS', 'WATR', 'WBED', 'XING', 'SPAN', 'ROUT', 'GHSH', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT'];
+export const CITY_SECTIONS = ['META', 'NODE', 'NAME', 'EDGE', 'PNTS', 'WATR', 'WBED', 'XING', 'SPAN', 'ROUT', 'GHSH', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST'];
 /// Sections a file may lack: added after the version-2 layout first shipped,
 /// so a file exported before them still parses (WBED: WP-04b; LANW, TAPR,
-/// PARA and TAGN: WP-10, lib/lineclean.mjs; SPLT: WP-11, lib/splits.mjs).
-export const CITY_OPTIONAL = new Set(['WBED', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT']);
+/// PARA and TAGN: WP-10, lib/lineclean.mjs; SPLT: WP-11, lib/splits.mjs;
+/// BRST: the roads pass's B1, lib/bridges.mjs).
+export const CITY_OPTIONAL = new Set(['WBED', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST']);
+
+/// THE ROADS PASS'S TIERS (plan P0/B1), by the shipped rank (0 local ..
+/// 5 motorway; a link keeps its base): 1 motorway/trunk/primary and links,
+/// 2 secondary/tertiary and links, 3 local, service, parking. The mirror of
+/// Scripts/City/CityTier.cs OfClass - the two must agree.
+export const tierOf = rank => rank >= 3 ? 1 : rank >= 1 ? 2 : 3;
 
 /// THE GRAPH HASH (WP-02): what derived data keyed by (edge, s) is stamped
 /// with, so data made for one graph is refused by another. CRC-32 (zlib's,
@@ -258,11 +276,35 @@ export function parseCity(buf) {
     }
     if (buf.length - at > 3) throw new Error(`charlotte_city.bytes: ${buf.length - at} trailing bytes`);
   } else if (r.p !== buf.length) throw new Error(`charlotte_city.bytes: ${buf.length - r.p} trailing bytes`);
+  // TAPR's per-edge ribbon offsets (LineModel.Init's taprOff: the mean of
+  // o0 and o1) and BRST (plan B1), when the file has them
+  let taprOff = null, brst = null, tapr = null;
+  if (table && table.has('TAPR')) {
+    r.p = table.get('TAPR').offset;
+    const nt = r.u32();
+    tapr = new Array(nt);
+    for (let i = 0; i < nt; i++) tapr[i] = { edge: r.u32(), end: r.u8(), side: r.u8(), src: r.u8(), flags: r.u8(), dw: r.f32(), len: r.f32(), room: r.f32(), off: r.f32() };
+    const no = r.u32();
+    taprOff = new Float64Array(ne);
+    for (let i = 0; i < no; i++) { const ei = r.u32(), o0 = r.f32(), o1 = r.f32(); r.f32(); r.f32(); if (ei < ne) taprOff[ei] = 0.5 * (o0 + o1); }
+  }
+  if (table && table.has('BRST')) {
+    open('BRST');
+    const structId = new Uint32Array(ne);
+    const n = r.u32();
+    for (let i = 0; i < n; i++) { const ei = r.u32(), id = r.u32(); if (ei < ne) structId[ei] = id; }
+    const m = r.u32(), culvert = new Array(m);
+    for (let i = 0; i < m; i++) culvert[i] = { span: r.u32(), way: r.u32(), d: r.f32() };
+    const k = r.u32(), overrides = new Array(k);
+    for (let i = 0; i < k; i++) overrides[i] = { wayA: r.u32(), wayB: r.u32(), force: r.u8() !== 0 };
+    close('BRST');
+    brst = { structId, culvert, overrides };
+  }
   // node -> incident edge ends
   const nodeEdges = Array.from({ length: nn }, () => []);
   for (const e of edges) { nodeEdges[e.a].push(e.index); nodeEdges[e.b].push(e.index); }
   return { version, attribution, uptown, nodes, names, edges, waters, crossings, wspans, routes, nodeEdges, sections, pointBytes,
-           graphHash: hash, storedHash, bedSamples };
+           graphHash: hash, storedHash, bedSamples, taprOff, tapr, brst };
 }
 
 export function parseDem(buf) {
@@ -512,6 +554,8 @@ export function fingerprint(city, dem, bld) {
       waters: city.waters.length,
       water_points: waterPts,
       ...(city.bedSamples ? { water_bed_samples: city.bedSamples, lakes: city.waters.filter(w => w.lake).length, ravines: city.waters.filter(w => w.ravine).length } : {}),
+      ...(city.brst ? { bridge_outline_edges: city.brst.structId.filter(v => v).length, bridge_outlines: new Set(city.brst.structId.filter(v => v)).size,
+                        culvert_water_spans: city.brst.culvert.length, deck_overrides: city.brst.overrides.length } : {}),
       crossings: city.crossings.length,
       crossings_forced: city.crossings.filter(c => c.forced).length,
       water_spans: city.wspans.length,
