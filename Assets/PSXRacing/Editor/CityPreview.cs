@@ -333,6 +333,8 @@ namespace PSXRacing.EditorTools
             Top("cluster_ntryon_harris", "junctions", 6189.1f, 13447.0f, "Tryon", 60f, "N Tryon St x W T Harris Blvd: four fans, the median grass through the box"),
             Top("cluster_mallard_harris", "junctions", 3545.7f, 14893.7f, "Mallard", 60f, "Mallard Creek Rd x W T Harris Blvd: a grass diamond in the box"),
             Top("cluster_pineville_carmel", "junctions", -2497.6f, -10765.0f, "Pineville", 60f, "Pineville-Matthews Rd x Carmel Rd: four fans overlapping in the middle"),
+            // roads pass L7: curb returns, one paved area, crosswalks at a tier-1 signal
+            Top("jn_trade_tryon", "junctions", -2316f, 4733f, "Tryon", 55f, "Trade St x Tryon St (the Square, 35.2271,-80.8431): curb returns, crosswalks on every arm, stop bars behind them"),
             // paint (B3/A5/A8)
             Top("paint_morehead_e1427", "paint", -4552.9f, 4905.2f, "Morehead", 25f, "W Morehead St e1427: lanes=3 f/b=2/1 drawn as a TWLTL"),
             Top("paint_mtholly_e1967", "paint", -15328.2f, 12916.9f, "Mount Holly", 25f, "Mount Holly Rd e1967: lanes=4 f/b=1/3 drawn 2|2"),

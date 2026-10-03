@@ -5278,6 +5278,173 @@ mouth. L6 (plan A8, owner Q5 (b)/(c)) paints what MUTCD paints there.
   - "turns DW again into a downstream drop" along OSM's own aux lanes;
   - lifting D1 CROSS out of report-only. CitySmooth is not in L6's test budget.
 
+## L7 (roads pass, 2026-10-03): junctions - curb returns, one paved area per cluster, crosswalks - R4
+
+Before L7 every junction was a fan trimmed just clear of its arms (0.6 m
+past the crossing road's edge), so its corners were square and a right turn
+swept over the corner lot. A divided road crossing a street was one fan per
+carriageway, with the median crossing drawn as a ribbon between them, and a
+left turn across the median ran over grass. In the OwnerBox that was 893 m2
+of grass inside the tier-1 junction boxes. L7 covers plan A10, A11 (core)
+and owner Q5 (a). The code is in `Scripts/City/CityMeshes.Junctions.cs`,
+`FanCorners` / `BuildJunctions` in `CityMeshes.cs`, `CitySignals.cs` and
+`CityMeshes.Marks.cs`.
+
+- **Curb returns (A10).**
+  - Every corner between two arms gets a circular arc tangent to both
+    arms' edge lines. This applies when the arms are neither going
+    straight through (170 deg or more) nor clipped against each other.
+  - R comes from WP-19's table by class pair: local x local 7.5 m,
+    arterial x local 10, arterial x arterial 12, ramp terminal 15.
+  - Where two carriageways of one road part (same name, one way in and
+    one out), the corner is a median nose of 1.2 m. There is no curb
+    return where one road goes on through a split or a widening (same
+    name, over 120 deg), nor between two ramps: there the corner is a
+    gore's. The first audit had a 10 m arc at link-only node 597 that
+    trimmed its ramps back 28-33 m and stood a fan chord over Tyvola
+    Road's drop.
+  - `ComputeTrims` grows each arm to the arc's tangent point:
+    trim = s + R / tan(phi / 2) + 0.15, where s is where the two edge
+    lines meet.
+  - The tangent R / tan(phi / 2) is capped at 18 m. At an acute corner it
+    runs away: a ramp terminal at 34 deg on Tyvola Road wanted 49 m and
+    trimmed the road back 53-64 m. There the radius gives instead.
+  - An edge keeps at least 40% of its length as ribbon (or what it had
+    before). Two junctions close together share the room, and their arcs
+    are capped by it: R_eff = tan(phi / 2) x room. Corners with less
+    than 0.5 m of room stay square and are listed.
+  - `FanCorners` draws the arc where the edge lines meet behind both
+    mouths, on the node's side of the chord. It keeps 0.1 m of each edge
+    line straight, uses a 6 cm sagitta and at most 10 pieces a corner.
+    That is 11-15 deg a piece, the phone's budget for the verges each
+    piece lays.
+  - Each piece's verge meets the next one's on their shared bisector
+    (`RingOut`), so there is no sliver and no wedge, and no corner fill
+    at the arc's points.
+- **One paved area per junction cluster (A11 core).**
+  - Fan nodes join one cluster when an edge between them is swallowed by
+    the two fans (a ribbon under 0.6 m), or when they are joined by a
+    median crossing of 30 m or less. This is A1's `CityJunctionClusters`
+    rule, now at run time.
+  - A cluster is drawn as ONE ring round all its members' outside arms,
+    sorted about the members' centroid, and drawn once, by the lowest
+    member.
+  - It is triangulated from the centroid at the members' mean height,
+    and then each member node goes in as a Steiner point at its own
+    height (split the triangle, Lawson flips to Delaunay; `RefineFan`).
+    The centroid alone flattened clusters that rise across their median.
+    The first audit found South Boulevard at node 466 0.6 m under the land
+    graded to its high carriageway (fan mouth probe, 55 misses).
+  - Where an inside edge is wider than the chords between its neighbours,
+    the ring is carried out round that edge's sides (`RingTakeIn`).
+    Briar Creek Road's 11.8 m piece with turn lanes needed this.
+  - The ring runs straight across a median opening. Its curb returns
+    follow the rule above.
+  - The crossing edge draws no ribbon (trims half its length each,
+    `Trims.internalEdge`). It also gets no stop bar or approach.
+  - A group stays as separate fans and is listed when any of these hold:
+    more than 8 nodes, over 80 m across, rising over 2.5 m, or a road of
+    its own between two members.
+  - Every reader of a fan goes through `FanCorners` / `FanCentre`:
+    verges, rails, kerbs, `FanOnStructure`, `FanY`, lamps' reach and the
+    audits' `FanPerimeter`. `FanPerimeter` returns a cluster's ring for
+    its owner only.
+  - `PSX_CITY_CLUSTERS=0` and `PSX_CITY_ARCS=0` measure without these.
+- **Crosswalks (Q5 a).**
+  - Every arm of a tier-1 signalised junction (`CitySignals`' signal
+    clusters whose best arm is tier 1) gets a crosswalk. Excluded are
+    freeways, ramps, tunnels, clipped arms and arms with no room.
+  - The crosswalk is continental: 0.6 m bars 0.6 m apart, along the
+    travel, curb to curb less 0.3 m. It is 3 m wide and starts 0.3 m
+    out from the patch.
+  - It is cut into the ribbon as an L6 glyph: draws +0, no lift.
+  - Every layout line on that arm is OFF from the patch to the stop bar.
+  - The stop bar moves to 1.2 m behind the crosswalk (MUTCD 3B.16),
+    `CitySignals.CrossStopBackM`. The approach's `sStop` moves with it,
+    so traffic stops behind the crosswalk.
+  - Arrow + ONLY groups end 1.75 m behind that bar.
+  - `PSX_CITY_CROSSWALKS=0` turns them off.
+- **Every fan follows its arms' profiles.** Two points on each arm's line
+  under the fan (0.35 and 0.7 of its trim, at the profile's height; for
+  trims of 5 m or more) go in with the Steiner points. A cone from the
+  node to mouths 10-20 m out cut under a crest's profile.
+- **The lattice under the fans** (`PrepareFanFloor` / `FanFloor`).
+  - The lattice is pinned 10 cm under the nearest road's PROFILE, but a fan
+    is its own surface. Since the bigger fans, the lattice came within
+    0.5-8 cm of the fan (UNDERLAP T1 lattice 332 -> 2,955 m2, Trade x Tryon
+    269 m2: flicker at range) or over it (the turning movements' arcs met
+    land first: 0 -> 160 T1 samples).
+  - Before the ground is laid, every fan within 50 m of the tile is
+    triangulated as the builder draws it. This is done once per trims and
+    always with the tile's clip table empty, so the result never depends on
+    build order.
+  - A lattice corner at least 0.75 m inside a fan is held 14 cm under its
+    surface, lowered by at most 0.12 m. The lattice is only ever lowered.
+    Deeper dips next to a fan's edge showed up as ledges beside clipped arms
+    in audit 3.
+- **The COVERAGE cluster box.** A1's cluster box was the convex hull of
+  the fans' chords, a stand-in "until A11". A cluster drawn as one is now
+  judged against its own ring, fanned from its centroid. The hull would
+  count the corner lots between each curb-return arc and the chord that
+  used to cut it as holes: audit 1 found T1 893 -> 5,777 m2, all of it
+  corner lots. A group left as separate fans keeps the hull.
+- **The JUNCTIONS report** (`Editor/CityAudit.Junctions.cs`, at the end of
+  COVERAGE; `CityAudit.JunctionsOnly` runs it alone in about 2 minutes)
+  covers:
+  - the trims, the clusters (the run-time set against A1's), and the curb
+    returns per tier (full arc R_eff >= 0.9 R / room-capped / square,
+    with the class pairs);
+  - the split nodes (A4, measured only) and the crosswalks.
+
+**BEFORE (L6 audit, L5 launch) -> AFTER (L7 audit 4, launch 2), OwnerBox**
+
+| | before | after |
+|---|---|---|
+| grass in T1 / T2 / T3 junction (cluster) boxes, m2 (A1's hull -> the cluster's ring) | 893 / 712 / 109 | 26 / 20 / 0.1 |
+| clusters with a hole over 2 m2, T1 | 24 | 2 |
+| fan/fan coplanar in one cluster, T1 / T2, m2 | 119 / 94 | 0 / 0 |
+| fan over its own arm / a cluster arm, T1, m2 | 53 / 23 | 34 / 7.5 |
+| turning movements off the pavement (lane-correct), all tiers | 45 | 23 |
+| of them T1 lone fans / T1 clusters | 1 / 11 | 4 / 4 |
+| T2 lone fans / T2 clusters | 6 / 18 | 4 / 5 |
+| T3 lone fans / T3 clusters | 3 / 6 | 6 / 0 |
+| LAUNCH / UNLOAD (boxed), race routes | 18 / 91, 0 LAUNCH | 12 / 69, 0 LAUNCH |
+| lattice 0.5-8 cm under a road (flicker), T1, m2 | 332 | 549 |
+| tile build p95 (editor, 225 tiles) | 107.5 ms | 144.5 ms |
+| worst view draws (Trade x Tryon) | 211 | 206 |
+
+- CURB RETURNS, T1 fans in scope: 303 corners. 233 have a full arc
+  (R_eff >= 0.9 R), 65 are room-capped (R_eff p50 6.9 m) and 5 are square
+  (listed).
+- CLUSTERS city-wide: 614 of 641 are drawn as one, 27 are left as fans
+  (listed). In scope that is every one of A1's (T1 26, T2 33, T3 6). Their
+  triangles cover their rings exactly, none is folded, and the surface
+  stands at every member node's own height.
+- CROSSWALKS: 1,931 on 445 tier-1 signalised junctions (16,469 bars). In
+  scope there are 268 on 67 of 70.
+- Arrow + ONLY groups: 929 -> 856, because the ribbons are shorter by the
+  curb returns and the crosswalks.
+- The CITY AUDIT still fails the same 16 checks as L6. DRIVE AUDIT zeros,
+  the fan mouth probe 0, PAINT and MARKS all ok, linecheck PASS.
+- Values that moved, all inside checks that were already failing:
+  - verge 26 -> 28;
+  - lane survey 4 -> 5 (e9373's rail in e5251's lane at (4799,1005));
+  - ledges 1 -> 5 points (North Tryon e10902 at a 0.6 m median, 0.56 m;
+    E 13th e10973 0.33 m; e13344 0.31 m);
+  - TWIN b 134 -> 139 m, TWIN c 71 -> 78 (union ranges stop shorter of the
+    bigger fans).
+- The elevation solve is unchanged (the same 15,535 seats): no rebake.
+
+**Not in L7 (lean), for L8 or later.**
+- A4 split mitres: the split nodes are measured, not changed (city-wide
+  226 of 961 are fans).
+- The turning movements' cubic (trim to trim) still cuts the curb return
+  at obtuse corners where a junction's common trim is long (Davidson x
+  Trade, n4069).
+- Per-arm trims (A3 FIX-3) would shorten those. A11's exact trims (each outside arm trimmed only to clear the
+others' footprints) and its 1.2 m median-nose geometry at a cluster's
+median opening are not done either: the ring runs straight across.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

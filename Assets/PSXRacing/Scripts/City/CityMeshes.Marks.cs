@@ -67,7 +67,8 @@ namespace PSXRacing.City
         public sealed class MarkTally
         {
             public int auxZones, auxMarks, goreZones, goreHostPieces, goreRampPieces, noGore, exitDrops, exitDropPieces, mouths, mouthsSkipped,
-                       lsLines, lsEdges, bays, groups, groupsSkipped, arrowsL, arrowsR, yields, yieldsSkipped, yieldsTagged;
+                       lsLines, lsEdges, bays, groups, groupsSkipped, arrowsL, arrowsR, yields, yieldsSkipped, yieldsTagged,
+                       crosswalks, crosswalkBars, crosswalksSkipped;
             public float auxM, exitDropM, lsM, buildMs; public string partsMs = "";
             /// <summary>Per zone (by id): the gore's P on the host chain and
             /// the ramp travel at N and P (0: no gore).</summary>
@@ -89,6 +90,7 @@ namespace PSXRacing.City
             foreach (var z in Zones) ZoneMarks(map, t, z);
             float t0 = (float)sw.Elapsed.TotalMilliseconds;
             MouthMarks(map, t);
+            CrosswalkMarks(map, t);
             float t1 = (float)sw.Elapsed.TotalMilliseconds;
             TurnMarks(map, t);
             float t2 = (float)sw.Elapsed.TotalMilliseconds;
@@ -97,7 +99,7 @@ namespace PSXRacing.City
             MarkStats.partsMs = $"zones {t0:0} / mouths {t1 - t0:0} / turn-only {t2 - t1:0} / yields {MarkStats.buildMs - t2:0} ms";
             Debug.Log($"[City] lane-use paint (L6): {MarkStats.auxZones} aux lanes dotted ({MarkStats.auxM:0} m), {MarkStats.goreZones} gores white to their nose, " +
                       $"{MarkStats.exitDrops} exit-only drops ({MarkStats.exitDropM:0} m), {MarkStats.mouths} mouths, {MarkStats.lsLines} turn-only lines solid, " +
-                      $"{MarkStats.groups} arrow+ONLY groups, {MarkStats.yields} yield lines; {MarkStats.buildMs:0} ms");
+                      $"{MarkStats.groups} arrow+ONLY groups, {MarkStats.yields} yield lines, {MarkStats.crosswalks} crosswalks; {MarkStats.buildMs:0} ms");
         }
 
         public static List<PaintMark> MarksOf(int edge) => Marks.TryGetValue(edge, out var l) ? l : null;
@@ -553,7 +555,10 @@ namespace PSXRacing.City
                     int nd = forward ? e.b : e.a;
                     if (map.nodeEdges[nd].Count < 3) { MarkStats.groupsSkipped++; continue; }
                     float sEnd = forward ? e.length - t.TrimAt(e, e.b) : t.TrimAt(e, e.a);
-                    float sRef = forward ? sEnd - 3.0f : sEnd + 3.0f;
+                    // behind a crosswalk's stop bar (roads pass L7), else 3 m back
+                    float cwBack = CitySignals.CrosswalkStopBack(map, t, e, nd);
+                    float back = cwBack > 0f ? cwBack + 1.75f : 3.0f;
+                    float sRef = forward ? sEnd - back : sEnd + back;
                     for (int i = 0; i < n; i++)
                     {
                         if (((bits >> i) & 1) == 0) continue;
@@ -686,6 +691,47 @@ namespace PSXRacing.City
         // ================================================================
         //  Yield lines (shark teeth) where a tier-1 link ends at a yield
         // ================================================================
+
+        // ================================================================
+        //  Crosswalks (roads pass L7, owner Q5 a)
+        // ================================================================
+
+        /// <summary>Continental crosswalk bars (0.6 m, 0.6 m apart, along the
+        /// travel) across each crosswalk arm's whole pavement, CrossInsetM
+        /// out from the junction's patch and CrossWideM wide; the lines stop
+        /// short of it at the stop bar (MUTCD 3B.18 / 3B.16).</summary>
+        static void CrosswalkMarks(CityMap map, Trims t)
+        {
+            if (!CitySignals.CrosswalksOn) return;
+            const float bar = 0.6f, gap = 0.6f, edgeIn = 0.3f;
+            foreach (var cw in CitySignals.Crosswalks(map, t))
+            {
+                var e = map.edges[cw.edge];
+                float sLo = Mathf.Min(cw.sNear, cw.sFar), sHi = Mathf.Max(cw.sNear, cw.sFar);
+                LineModel.Extents(e, 0.5f * (sLo + sHi), out float eM, out float eP);
+                float lo = -eM + edgeIn, hi = eP - edgeIn;
+                int nB = Mathf.FloorToInt((hi - lo + gap) / (bar + gap));
+                if (nB < 2) { MarkStats.crosswalksSkipped++; continue; }
+                float start = 0.5f * (lo + hi) - 0.5f * (nB * bar + (nB - 1) * gap);
+                var pieces = new List<Vector2[]>(nB);
+                for (int i = 0; i < nB; i++)
+                {
+                    float x0 = start + i * (bar + gap);
+                    pieces.Add(new[] { new Vector2(x0, sLo), new Vector2(x0 + bar, sLo), new Vector2(x0 + bar, sHi), new Vector2(x0, sHi) });
+                }
+                var tg = e.TangentAt(0.5f * (sLo + sHi));
+                AddMark(new PaintMark { style = MkGlyph, edge = e.index, s0 = sLo, s1 = sHi, pieces = pieces, bps = new[] { sLo, sHi }, what = "crosswalk",
+                                        hdg = Mathf.Repeat(Mathf.Atan2(tg.x, tg.y) * Mathf.Rad2Deg, 360f) });
+                // every line stops at the stop bar (the patch side of it is the crosswalk's)
+                bool atA = e.a == cw.node;
+                float mouth = atA ? t.atA[e.index] : e.length - t.atB[e.index];
+                float oLo = Mathf.Min(mouth, cw.sStop), oHi = Mathf.Max(mouth, cw.sStop);
+                var lay = LineModel.LayoutOf(e);
+                for (int k = 0; lay != null && k < lay.kind.Length; k++)
+                    AddMark(new PaintMark { style = MkOff, edge = e.index, s0 = oLo, s1 = oHi, k = k, what = "crosswalk" });
+                MarkStats.crosswalks++; MarkStats.crosswalkBars += nB;
+            }
+        }
 
         static void YieldMarks(CityMap map, Trims t)
         {

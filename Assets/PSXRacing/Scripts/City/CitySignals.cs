@@ -242,6 +242,47 @@ namespace PSXRacing.City
         /// patch starts.</summary>
         public const float StopBackM = 1.2f;
 
+        // ---- crosswalks (roads pass L7, owner Q5 a) -------------------------
+        /// <summary>A crosswalk starts this far out from the junction's patch,
+        /// is this wide (10 ft), and its stop bar stands StopBackM (4 ft,
+        /// MUTCD 3B.16) behind it: the bar's centre this far from the patch.</summary>
+        public const float CrossInsetM = 0.3f, CrossWideM = 3.0f;
+        public const float CrossStopBackM = CrossInsetM + CrossWideM + StopBackM + 0.5f * BarM;
+        public static bool CrosswalksOn = System.Environment.GetEnvironmentVariable("PSX_CITY_CROSSWALKS") != "0";
+
+        /// <summary>One crosswalk: the arm and the node it meets the junction
+        /// at; the arc positions of its near and far edges and of the stop bar.</summary>
+        public struct Crosswalk { public int edge, node, junction; public float sNear, sFar, sStop; }
+        static List<Crosswalk> crosswalks;
+        static Dictionary<long, int> crosswalkAt;
+        public static int CrosswalkJunctions, CrosswalkArmsSkipped;
+
+        /// <summary>Every crosswalk (tier-1 signalised junctions' arms).</summary>
+        public static IReadOnlyList<Crosswalk> Crosswalks(CityMap map, CityMeshes.Trims trims) { Ensure(map, trims); return crosswalks; }
+
+        /// <summary>The stop bar's distance from the patch on an arm with a
+        /// crosswalk (0: none).</summary>
+        public static float CrosswalkStopBack(CityMap map, CityMeshes.Trims trims, CityMap.Edge e, int node)
+        {
+            Ensure(map, trims);
+            return crosswalkAt != null && crosswalkAt.ContainsKey(((long)e.index << 1) | (e.b == node ? 1L : 0L)) ? CrossStopBackM : 0f;
+        }
+
+        /// <summary>Does this arm take a crosswalk: a street (not a freeway
+        /// or a ramp, not in a tunnel), its own end at the junction (not
+        /// clipped, not inside a cluster), with ribbon for the crosswalk and
+        /// its stop bar?</summary>
+        static bool CrosswalkFits(CityMap map, CityMeshes.Trims trims, CityMap.Edge e, int n)
+        {
+            if (e.a == e.b || e.tunnel || e.link || e.cls >= 5 || e.length < 6f) return false;
+            if (trims.Internal(e.index) || trims.BranchAt(e, n) >= 0) return false;
+            // only where the arm meets a junction's patch (a road mitred on
+            // through a signal cluster's node has no mouth there)
+            if (!trims.patch[n] || trims.TrimAt(e, n) < 0.5f) return false;
+            float rib = e.length - trims.atA[e.index] - trims.atB[e.index];
+            return rib >= CrossStopBackM + 2f;
+        }
+
         /// <summary>One way into a junction: the edge, the node it arrives at,
         /// the stop line's arc position and plan point on the OSM line, the
         /// direction of travel, the inbound lanes' span right of that line
@@ -334,6 +375,9 @@ namespace PSXRacing.City
             mapFor = map; trimsFor = trims;
             junctions = new List<Junction>();
             byTile = new Dictionary<long, List<Junction>>();
+            crosswalks = new List<Crosswalk>();
+            crosswalkAt = new Dictionary<long, int>();
+            CrosswalkJunctions = 0; CrosswalkArmsSkipped = 0;
             if (map == null || map.tagged == null) return;
             int nn = map.nodes.Length;
 
@@ -389,6 +433,19 @@ namespace PSXRacing.City
                 var ns = clusters[root];
                 var j = new Junction { signal = true, nodes = ns.ToArray() };
                 int arms = 0;
+                // roads pass L7 (Q5 a): a tier-1 signalised junction (its best
+                // arm tier 1) has a crosswalk on every arm that takes one
+                int tier = 3;
+                foreach (int n in ns)
+                    foreach (int ei in map.nodeEdges[n])
+                    {
+                        var e = map.edges[ei];
+                        if (e.a == e.b || inCluster[e.a == n ? e.b : e.a] == root) continue;
+                        tier = Mathf.Min(tier, CityTier.Of(e));
+                    }
+                bool walks = CrosswalksOn && tier == CityTier.T1;
+                cwPending.Clear();
+                int skipped = 0;
                 foreach (int n in ns)
                     foreach (int ei in map.nodeEdges[n])
                     {
@@ -397,10 +454,28 @@ namespace PSXRacing.City
                         int o = e.a == n ? e.b : e.a;
                         if (inCluster[o] == root) continue;
                         arms++;
-                        if (MakeApproach(map, trims, e, n, out var a)) j.approaches.Add(a);
+                        bool cw = walks && CrosswalkFits(map, trims, e, n);
+                        if (walks && !cw && !e.link && e.cls < 5) skipped++;
+                        if (cw)
+                        {
+                            bool atA = e.a == n;
+                            float mouth = atA ? trims.atA[e.index] : e.length - trims.atB[e.index], dir = atA ? 1f : -1f;
+                            cwPending.Add(new Crosswalk { edge = e.index, node = n, sNear = mouth + dir * CrossInsetM,
+                                                         sFar = mouth + dir * (CrossInsetM + CrossWideM), sStop = mouth + dir * CrossStopBackM });
+                        }
+                        if (MakeApproach(map, trims, e, n, out var a, cw ? CrossStopBackM : StopBackM)) j.approaches.Add(a);
                     }
                 if (arms < 3 || j.approaches.Count < 2) continue;
                 Finish(map, j, root);
+                if (cwPending.Count > 0) CrosswalkJunctions++;
+                CrosswalkArmsSkipped += skipped;
+                foreach (var c in cwPending)
+                {
+                    var cc = c; cc.junction = j.id;
+                    var ce = map.edges[c.edge];
+                    crosswalkAt[((long)c.edge << 1) | (ce.b == c.node ? 1L : 0L)] = crosswalks.Count;
+                    crosswalks.Add(cc);
+                }
             }
 
             // ---- stops
@@ -479,17 +554,20 @@ namespace PSXRacing.City
         }
 
         /// <summary>The approach an edge makes into node n, if it makes one.</summary>
-        static bool MakeApproach(CityMap map, CityMeshes.Trims trims, CityMap.Edge e, int n, out Approach a)
+        static readonly List<Crosswalk> cwPending = new List<Crosswalk>(8);
+
+        static bool MakeApproach(CityMap map, CityMeshes.Trims trims, CityMap.Edge e, int n, out Approach a, float stopBack = StopBackM)
         {
             a = default;
             if (e.a == e.b || e.tunnel || e.roundabout) return false;
+            if (trims.Internal(e.index)) return false;                // inside a junction cluster (roads pass L7)
             if (e.cls >= 5 && !e.link) return false;                  // no freeway mainline
             if (e.oneway && e.a == n) return false;                   // it leaves the junction
             if (e.length < 6f) return false;
             bool atB = e.b == n;
             float trim = trims.TrimAt(e, n);
             float sMouth = atB ? e.length - trim : trim;
-            float sStop = atB ? sMouth - StopBackM : sMouth + StopBackM;
+            float sStop = atB ? sMouth - stopBack : sMouth + stopBack;
             if (sStop < 1f || sStop > e.length - 1f) return false;
             if (e.ElevatedAt(sStop)) return false;
             var tan = e.TangentAt(sStop);

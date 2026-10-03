@@ -596,6 +596,16 @@ namespace PSXRacing.City
             /// <summary>Plan A2: each edge's twin-deck union runs (null where it
             /// has none), from <see cref="BuildDeckUnions"/>.</summary>
             public List<UnionRun>[] unions;
+            /// <summary>Plan L7 / A11: each node's junction cluster (index into
+            /// <see cref="clusters"/>, or -1), the clusters, and the edges
+            /// inside one (no ribbon: the cluster's ring paves them).</summary>
+            public int[] clusterOf;
+            public List<JunctionCluster> clusters;
+            public bool[] internalEdge;
+
+            public JunctionCluster ClusterOfNode(int n) =>
+                clusterOf != null && n >= 0 && n < clusterOf.Length && clusterOf[n] >= 0 ? clusters[clusterOf[n]] : null;
+            public bool Internal(int edge) => internalEdge != null && edge >= 0 && edge < internalEdge.Length && internalEdge[edge];
 
             public float TrimAt(CityMap.Edge e, int node) => e.a == node ? atA[e.index] : atB[e.index];
             public int BranchAt(CityMap.Edge e, int node) => e.a == node ? branchA[e.index] : branchB[e.index];
@@ -822,6 +832,9 @@ namespace PSXRacing.City
                 }
             }
 
+            // roads pass L7 (plan A10): the curb returns' trims
+            var medianX = JunctionTrims(map, t);
+
             // An edge shorter than its two trims has no ribbon: the two fans
             // meet in the middle, exactly, instead of leaving a sliver.
             for (int i = 0; i < ne; i++)
@@ -834,6 +847,8 @@ namespace PSXRacing.City
                     t.atA[i] *= k; t.atB[i] *= k;
                 }
             }
+            // roads pass L7 (plan A11): one paved area per junction cluster
+            BuildJunctionClusters(map, t, medianX);
             ChainContinuity(map, t);
             // the line model's one-sided tapers, run on through mitred joints
             LineModel.BuildEases(map, joins, (e, node) =>
@@ -1186,6 +1201,7 @@ namespace PSXRacing.City
             tileOrigin = tm.origin;
 
             phaseClock.Restart();
+            PrepareFanFloor(map, trims, min, max);   // roads pass L7: the lattice under the fans
             foreach (var _ in BuildGround(map, tm, min)) yield return 0;
             Phase(0);
             clipPairs.Clear(); goreEdges.Clear();
@@ -1413,6 +1429,7 @@ namespace PSXRacing.City
             long k = LatticeKey(ix, iz);
             if (latticeCache.TryGetValue(k, out float y)) return y;
             y = CityElevation.GroundY(map, ix * LatticeCell, iz * LatticeCell);
+            if (fanFloors.Count > 0) y = FanFloor(ix * LatticeCell, iz * LatticeCell, y);
             latticeCache[k] = y;
             return y;
         }
@@ -3356,12 +3373,25 @@ namespace PSXRacing.City
             float r = lampFanReach[node];
             if (r >= 0f) return r;
             r = 0f;
-            foreach (int oi in map.nodeEdges[node])
-            {
-                var o = map.edges[oi];
-                float tr = trims.TrimAt(o, node), hw = o.HalfMax;
-                r = Mathf.Max(r, Mathf.Sqrt(tr * tr + hw * hw));
-            }
+            var cl = trims.ClusterOfNode(node);
+            if (cl == null)
+                foreach (int oi in map.nodeEdges[node])
+                {
+                    var o = map.edges[oi];
+                    float tr = trims.TrimAt(o, node), hw = o.HalfMax;
+                    r = Mathf.Max(r, Mathf.Sqrt(tr * tr + hw * hw));
+                }
+            else
+                // a junction cluster (plan A11): to every member's outside arms' corners
+                foreach (int m in cl.nodes)
+                    foreach (int oi in map.nodeEdges[m])
+                    {
+                        var o = map.edges[oi];
+                        if (o.a == o.b || trims.Internal(oi)) continue;
+                        float tr = trims.TrimAt(o, m);
+                        var p = o.PointAt(o.a == m ? Mathf.Min(tr, o.length) : Mathf.Max(0f, o.length - tr));
+                        r = Mathf.Max(r, Vector2.Distance(map.nodes[node], p) + o.HalfMax);
+                    }
             lampFanReach[node] = r;
             return r;
         }
@@ -3622,14 +3652,22 @@ namespace PSXRacing.City
         static bool FanOnStructure(CityMap map, Trims trims, int node)
         {
             if (fanStructure.TryGetValue(node, out bool on)) return on;
-            foreach (var ei in map.nodeEdges[node])
+            // a junction cluster (plan A11): any member's arm, or any member
+            var cl = trims.ClusterOfNode(node);
+            var members = cl != null ? cl.nodes : null;
+            int count = members != null ? members.Length : 1;
+            for (int k = 0; k < count && !on; k++)
             {
-                var e = map.edges[ei];
-                if (e.a == e.b) continue;
-                if (ArmElevatedAtTrim(map, trims, e, node)) { on = true; break; }
+                int m = members != null ? members[k] : node;
+                foreach (var ei in map.nodeEdges[m])
+                {
+                    var e = map.edges[ei];
+                    if (e.a == e.b || trims.Internal(ei)) continue;
+                    if (ArmElevatedAtTrim(map, trims, e, m)) { on = true; break; }
+                }
+                var np = map.nodes[m];
+                if (!on) on = map.nodeY[m] - CityElevation.GroundY(map, np.x, np.y) > 1f;
             }
-            var np = map.nodes[node];
-            if (!on) on = map.nodeY[node] - CityElevation.GroundY(map, np.x, np.y) > 1f;
             fanStructure[node] = on;
             return on;
         }
@@ -3653,7 +3691,7 @@ namespace PSXRacing.City
         /// </summary>
         static bool ChordRailed(CityMap map, Trims trims, int node, FanCorner k0, FanCorner k1, Vector3 origin)
         {
-            bool onDeck = ArmElevatedAtTrim(map, trims, map.edges[k0.edge], node) || ArmElevatedAtTrim(map, trims, map.edges[k1.edge], node);
+            bool onDeck = ArmElevatedAtTrim(map, trims, map.edges[k0.edge], k0.node) || ArmElevatedAtTrim(map, trims, map.edges[k1.edge], k1.node);
             var a = new Vector2(k0.pos.x + origin.x, k0.pos.z + origin.z);
             var b = new Vector2(k1.pos.x + origin.x, k1.pos.z + origin.z);
             var chord = b - a;
@@ -3768,9 +3806,10 @@ namespace PSXRacing.City
                         Mathf.Abs(TriHeight(ol.L[i - 1], ol.R[i], ol.R[i - 1], q) - y) <= PavedOnwardDyM) return true;
                 }
             }
+            int skipFan = skipNode >= 0 ? FanKey(trims, skipNode) : -1;
             foreach (int n in nearFans)
             {
-                if (n == skipNode) continue;
+                if (n == skipFan) continue;
                 var fan = fanPolys[n];
                 if ((q - fan.centre).sqrMagnitude > fan.reach * fan.reach) continue;
                 var T = fan.tris;
@@ -3843,9 +3882,10 @@ namespace PSXRacing.City
                 if (ol.L == null || q.x < ol.minX || q.x > ol.maxX || q.y < ol.minZ || q.y > ol.maxZ) continue;
                 if (OnOutline(ol, q, out float yl) && RailStandsIn(y, yl)) return true;
             }
+            int skipFan = skipNode >= 0 ? FanKey(trims, skipNode) : -1;
             foreach (int nf in nearFans)
             {
-                if (nf == skipNode) continue;
+                if (nf == skipFan) continue;
                 var fan = fanPolys[nf];
                 if ((q - fan.centre).sqrMagnitude > fan.reach * fan.reach) continue;
                 if (OnFan(fan, q, out float yf) && RailStandsIn(y, yf)) return true;
@@ -5567,8 +5607,8 @@ namespace PSXRacing.City
             var (ring, tris) = FanRing(map, trims, node);
             if (ring.Count < 3 || tris.Count < 3) return false;
             foreach (var k in ring) if (k.edge == e.index) return false;   // it has a mouth: not buried
-            if (!FanY(map, node, ring, tris, new Vector2(sec.L.x, sec.L.z), out float yL) ||
-                !FanY(map, node, ring, tris, new Vector2(sec.R.x, sec.R.z), out float yR)) return false;
+            if (!FanY(map, trims, node, ring, tris, new Vector2(sec.L.x, sec.L.z), out float yL) ||
+                !FanY(map, trims, node, ring, tris, new Vector2(sec.R.x, sec.R.z), out float yR)) return false;
             dL = yL - FanProudM - sec.L.y;
             dR = yR - FanProudM - sec.R.y;
             return Mathf.Abs(dL) >= 0.01f || Mathf.Abs(dR) >= 0.01f;
@@ -5577,30 +5617,40 @@ namespace PSXRacing.City
         /// <summary>Each patch node's ring and triangles (world space), per
         /// tile build: <see cref="FanCorners"/> reads the tile's clip table.</summary>
         static readonly Dictionary<int, (List<FanCorner> ring, List<int> tris)> fanRings = new Dictionary<int, (List<FanCorner>, List<int>)>();
+        static readonly Dictionary<int, List<Vector3>> fanRingSteiner = new Dictionary<int, List<Vector3>>();
         static (List<FanCorner> ring, List<int> tris) FanRing(CityMap map, Trims trims, int node)
         {
             if (fanRings.TryGetValue(node, out var r)) return r;
             var ring = new List<FanCorner>(12);
             var tris = new List<int>(36);
+            var st = new List<Vector3>(4);
             FanCorners(map, trims, node, Vector3.zero, ring);
-            if (ring.Count >= 3) FanTriangles(ring, map.nodes[node], tris);
+            FanCentre(map, trims, node, out var fc, out _);
+            if (ring.Count >= 3)
+            {
+                FanTriangles(ring, fc, tris);
+                FanSteiner(map, trims, node, Vector3.zero, st);
+                RefineFan(ring, fc, st, tris);
+            }
             r = (ring, tris);
             fanRings[node] = r;
+            fanRingSteiner[node] = st;
             return r;
         }
 
         /// <summary>The fan's surface over a plan point: the triangle that holds
         /// it (or, a hand's width outside them all, the nearest, carried on
         /// flat), interpolated.</summary>
-        static bool FanY(CityMap map, int node, List<FanCorner> ring, List<int> tris, Vector2 q, out float y)
+        static bool FanY(CityMap map, Trims trims, int node, List<FanCorner> ring, List<int> tris, Vector2 q, out float y)
         {
             y = 0f;
-            var np = map.nodes[node];
-            float cy = map.nodeY[node] + FanProudM;
+            FanCentre(map, trims, node, out var np, out float cy);
+            cy += FanProudM;
+            fanRingSteiner.TryGetValue(node, out var st);
             float best = float.NegativeInfinity;
             for (int t = 0; t + 2 < tris.Count; t += 3)
             {
-                Vector3 P(int i) => i == 0 ? new Vector3(np.x, cy, np.y) : ring[i - 1].pos;
+                Vector3 P(int i) => FanVertex(i, new Vector3(np.x, cy, np.y), ring, st);
                 Vector3 a = P(tris[t]), b = P(tris[t + 1]), c = P(tris[t + 2]);
                 float d = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
                 if (Mathf.Abs(d) < 1e-6f) continue;
@@ -5625,6 +5675,7 @@ namespace PSXRacing.City
             sqLatL.Clear(); sqLatR.Clear();
             rawOutlines.Clear();
             fanRings.Clear();
+            fanRingSteiner.Clear();
         }
 
         /// <summary>
@@ -6992,7 +7043,9 @@ namespace PSXRacing.City
                 for (int end = 0; end < 2; end++)
                 {
                     int n = end == 0 ? o.a : o.b;
-                    if (!trims.patch[n] || !nearFanSet.Add(n)) continue;
+                    if (!trims.patch[n]) continue;
+                    n = FanKey(trims, n);   // a cluster's one paved area, once (plan A11)
+                    if (!nearFanSet.Add(n)) continue;
                     var fan = FanPolyOf(map, trims, n);
                     if (fan.tris != null && fan.tris.Length >= 3) nearFans.Add(n);
                 }
@@ -7007,17 +7060,19 @@ namespace PSXRacing.City
             if (fanPolys.TryGetValue(n, out var fan)) return fan;
             // scratch lists of its own: BuildJunctions is walking its own
             FanCorners(map, trims, n, Vector3.zero, fanCornerScratch);
-            var np = map.nodes[n];
+            FanCentre(map, trims, n, out var np, out float npY);
             fan = new FanPoly { centre = np };
             if (fanCornerScratch.Count >= 3)
             {
                 FanTriangles(fanCornerScratch, np, fanTriIndex);
-                var centre = new Vector3(np.x, map.nodeY[n] + FanProudM, np.y);
+                FanSteiner(map, trims, n, Vector3.zero, fanPolySteiner);
+                RefineFan(fanCornerScratch, np, fanPolySteiner, fanTriIndex);
+                var centre = new Vector3(np.x, npY + FanProudM, np.y);
                 fan.tris = new Vector3[fanTriIndex.Count];
                 for (int i = 0; i < fanTriIndex.Count; i++)
                 {
                     int c = fanTriIndex[i];
-                    fan.tris[i] = c == 0 ? centre : fanCornerScratch[c - 1].pos;
+                    fan.tris[i] = FanVertex(c, centre, fanCornerScratch, fanPolySteiner);
                     fan.reach = Mathf.Max(fan.reach, Vector2.Distance(np, new Vector2(fan.tris[i].x, fan.tris[i].z)));
                 }
             }
@@ -7500,6 +7555,8 @@ namespace PSXRacing.City
                 if (!trims.patch[n]) continue;
                 var np = map.nodes[n];
                 if (np.x < min.x || np.x >= max.x || np.y < min.y || np.y >= max.y) continue;
+                // a junction cluster is drawn once, by its lowest member (plan A11)
+                if (FanKey(trims, n) != n) continue;
 
                 // Intersections are resurfaced on their own schedule, so a
                 // junction takes its age from the NODE rather than inheriting
@@ -7511,23 +7568,32 @@ namespace PSXRacing.City
                 FanCorners(map, trims, n, tm.origin, corners);
                 if (corners.Count < 3) continue;
 
-                var centre = new Vector3(np.x - tm.origin.x, map.nodeY[n] + proud, np.y - tm.origin.z);
+                FanCentre(map, trims, n, out var fc, out float fcY);
+                var centre = new Vector3(fc.x - tm.origin.x, fcY + proud, fc.y - tm.origin.z);
                 FanTriangles(corners, new Vector2(centre.x, centre.z), fanTris);
+                // a cluster's members at their own heights (plan A11)
+                FanSteiner(map, trims, n, tm.origin, fanSteinerScratch);
+                RefineFan(corners, new Vector2(centre.x, centre.z), fanSteinerScratch, fanTris);
                 int centerI = bk.v.Count;
                 if (tm.tap != null)
                 {
                     ulong mouths = 0;
                     for (int i = 0; i < corners.Count && i < 64; i++) if (corners[i].mouthNext) mouths |= 1UL << i;
                     tm.tap.fans.Add(new RoadTap.Fan { slot = (int)SlotOf(JunctionProfile, IsFresh(np) ? Surface.AsphaltNew : Surface.AsphaltOld),
-                                                      bucketV = centerI, count = corners.Count + 1, node = n, mouths = mouths, triStart = bk.t.Count, triCount = fanTris.Count / 3 });
+                                                      bucketV = centerI, count = corners.Count + 1 + fanSteinerScratch.Count, node = n, mouths = mouths, triStart = bk.t.Count, triCount = fanTris.Count / 3 });
                 }
                 bk.v.Add(centre);
-                bk.uv.Add(new Vector2(np.x / 12f, np.y / 12f));
+                bk.uv.Add(new Vector2(fc.x / 12f, fc.y / 12f));
                 for (int i = 0; i < corners.Count; i++)
                 {
                     bk.v.Add(corners[i].pos);
                     bk.uv.Add(new Vector2((corners[i].pos.x + tm.origin.x) / 12f,
                                           (corners[i].pos.z + tm.origin.z) / 12f));
+                }
+                foreach (var sp in fanSteinerScratch)
+                {
+                    bk.v.Add(sp);
+                    bk.uv.Add(new Vector2((sp.x + tm.origin.x) / 12f, (sp.z + tm.origin.z) / 12f));
                 }
                 // anticlockwise in map view is clockwise seen from above: up
                 for (int i = 0; i + 2 < fanTris.Count; i += 3)
@@ -7542,7 +7608,7 @@ namespace PSXRacing.City
                 {
                     // the soffit: the fan again, a deck's thickness down, facing down
                     var uvS = new Vector2(0.5f, 0.5f);
-                    Vector3 At(int k) => (k == 0 ? centre : corners[k - 1].pos) + Vector3.down * dk;
+                    Vector3 At(int k) => FanVertex(k, centre, corners, fanSteinerScratch) + Vector3.down * dk;
                     for (int i = 0; i + 2 < fanTris.Count; i += 3)   // Tri emits (a, c, b): anticlockwise from above, down
                         con.Tri(At(fanTris[i]), At(fanTris[i + 2]), At(fanTris[i + 1]), uvS, uvS, uvS);
                 }
@@ -7581,11 +7647,12 @@ namespace PSXRacing.City
                     kerbBucket.WallSloped(k0.pos, k1.pos, k0.pos.y - KerbFaceM, k0.pos.y, k1.pos.y - KerbFaceM, k1.pos.y,
                                           nrm, 0f, 0.6f, 0f, 0.05f);
                     if (groundLog != null) groundTag = $"fan chord verge node {n} e{k0.edge}-e{k1.edge}";
-                    EmitVergeLine(map, trims, tm, k0.pos, k1.pos, nrm, nrm, VergeShoulderM);
+                    // a curb return's pieces share their cross-sections (plan A10)
+                    EmitVergeLine(map, trims, tm, k0.pos, k1.pos, RingOut(corners, i, nrm, true), RingOut(corners, (i + 1) % corners.Count, nrm, false), VergeShoulderM);
                     if (groundLog != null) groundTag = $"corner fill node {n} arm e{k0.edge}";
-                    CornerFill(map, trims, tm, n, k0.pos, k0.yArm, map.edges[k0.edge], k0.side, nrm);
+                    if (!k0.arc) CornerFill(map, trims, tm, k0.node, k0.pos, k0.yArm, map.edges[k0.edge], k0.side, nrm);
                     if (groundLog != null) groundTag = $"corner fill node {n} arm e{k1.edge}";
-                    CornerFill(map, trims, tm, n, k1.pos, k1.yArm, map.edges[k1.edge], k1.side, nrm);
+                    if (!k1.arc) CornerFill(map, trims, tm, k1.node, k1.pos, k1.yArm, map.edges[k1.edge], k1.side, nrm);
                 }
             }
         }
@@ -7606,13 +7673,19 @@ namespace PSXRacing.City
             /// <see cref="edge"/> and <see cref="side"/> name the arm whose
             /// edge line it lies on, so a verge corner there reads that arm.</summary>
             public bool extra;
+            /// <summary>The node the arm <see cref="edge"/> meets this ring at
+            /// (a cluster's ring holds several members' arms).</summary>
+            public int node;
+            /// <summary>A curb return's point (its two tangent points and the
+            /// arc between): its verge meets the next piece's on their bisector.</summary>
+            public bool arc;
         }
         static readonly List<FanCorner> cornerScratch = new List<FanCorner>(12);
 
         struct FanArm
         {
-            public int edge, lateSide;
-            public float ang, trim, hw, yArm;
+            public int edge, lateSide, node;
+            public float ang, trim, hw, yArm, yNode;
             public Vector2 outDir, early, late;
             /// <summary>A buried arm was dropped between the previous arm and
             /// this one: its ribbon (or the next fan along it) lies beyond
@@ -7692,18 +7765,26 @@ namespace PSXRacing.City
         static void FanCorners(CityMap map, Trims trims, int n, Vector3 origin, List<FanCorner> corners)
         {
             corners.Clear();
-            var np = map.nodes[n];
-            float yNode = map.nodeY[n];
+            // a junction cluster (roads pass L7, plan A11): one ring round all
+            // its members' outside arms, about their centroid
+            var cluster = trims.ClusterOfNode(n);
+            fanArmIn.Clear();
+            if (cluster == null) foreach (var ei in map.nodeEdges[n]) fanArmIn.Add((ei, n));
+            else
+                foreach (int m in cluster.nodes)
+                    foreach (var ei in map.nodeEdges[m])
+                        if (!trims.Internal(ei)) fanArmIn.Add((ei, m));
+            FanCentre(map, trims, n, out var np, out _);
             var arms = fanArmScratch;
             arms.Clear();
             int drawn = 0;
-            foreach (var ei in map.nodeEdges[n])
+            foreach (var (ei, an) in fanArmIn)
             {
                 var e = map.edges[ei];
                 if (e.a == e.b) continue;
-                if (!ArmCollapsedAtTrim(map, trims, e, n)) drawn++;
+                if (!ArmCollapsedAtTrim(map, trims, e, an)) drawn++;
             }
-            foreach (var ei in map.nodeEdges[n])
+            foreach (var (ei, an) in fanArmIn)
             {
                 var e = map.edges[ei];
                 if (e.a == e.b) continue;
@@ -7712,9 +7793,9 @@ namespace PSXRacing.City
                 // mouth, and its nominal corners stood in the host's stub:
                 // the link e14103 inside East 11th Street poked both its
                 // neighbours and left a notch in the host's lanes.
-                if (drawn >= 2 && ArmCollapsedAtTrim(map, trims, e, n)) continue;
-                float trim = trims.TrimAt(e, n);
-                float at = e.a == n ? trim : e.length - trim;
+                if (drawn >= 2 && ArmCollapsedAtTrim(map, trims, e, an)) continue;
+                float trim = trims.TrimAt(e, an);
+                float at = e.a == an ? trim : e.length - trim;
                 var p = e.PointAt(at);
                 var right = RightAt(map, trims, e, at, out float widen);
                 // the line model's corners: p - right * eMinus, p + right * ePlus
@@ -7722,14 +7803,14 @@ namespace PSXRacing.City
                 eMinus *= widen; ePlus *= widen;
                 float hw = Mathf.Max(eMinus, ePlus);
                 var tan = e.TangentAt(at);
-                var outDir = e.a == n ? tan : -tan;
+                var outDir = e.a == an ? tan : -tan;
                 // leaving the node, the corner on outDir's anticlockwise side is the later one round it
                 int lateSide = Vector2.Dot(right, new Vector2(-outDir.y, outDir.x)) >= 0f ? 1 : -1;
                 var toP = p - np;
                 Vector2 cPlus = p + right * ePlus, cMinus = p - right * eMinus;
                 arms.Add(new FanArm
                 {
-                    edge = ei, lateSide = lateSide, trim = trim, hw = hw, yArm = e.YAt(at), outDir = outDir,
+                    edge = ei, node = an, yNode = map.nodeY[an], lateSide = lateSide, trim = trim, hw = hw, yArm = e.YAt(at), outDir = outDir,
                     ang = toP.sqrMagnitude > 0.25f ? Mathf.Atan2(toP.y, toP.x) : Mathf.Atan2(outDir.y, outDir.x),
                     early = lateSide > 0 ? cMinus : cPlus, late = lateSide > 0 ? cPlus : cMinus,
                 });
@@ -7762,15 +7843,60 @@ namespace PSXRacing.City
                 i = -1;
             }
 
-            void Add(Vector2 c, float yArm, int edge, int side, bool mouthNext, bool extra) =>
+            int NodeOf(int edge)
+            {
+                foreach (var q in arms) if (q.edge == edge) return q.node;
+                return n;
+            }
+            void Add(Vector2 c, float yArm, int edge, int side, bool mouthNext, bool extra, bool arc = false) =>
                 corners.Add(new FanCorner
                 {
                     ang = Mathf.Atan2(c.y - np.y, c.x - np.x),
                     pos = new Vector3(c.x - origin.x, yArm + FanProudM, c.y - origin.z),
-                    edge = edge, side = side, yArm = yArm, mouthNext = mouthNext, extra = extra,
+                    edge = edge, side = side, yArm = yArm, mouthNext = mouthNext, extra = extra, node = NodeOf(edge), arc = arc,
                 });
             // the height of the arm's surface carried back d metres from its trim toward the node
-            float Back(FanArm A, float d) => Mathf.Lerp(A.yArm, yNode, d / Mathf.Max(A.trim, 0.01f));
+            float Back(FanArm A, float d) => Mathf.Lerp(A.yArm, A.yNode, d / Mathf.Max(A.trim, 0.01f));
+            // THE CURB RETURN (roads pass L7, plan A10): the corner between
+            // A's edge line and B's, meeting at X (dA back from A's corner along
+            // A, dB from B's), rounded by an arc tangent to both, its radius the
+            // class pair's or what the room from X to the nearer corner allows
+            bool CurbArc(FanArm A, FanArm B, Vector2 X, float dA, float dB, int earlyB)
+            {
+                var eA = map.edges[A.edge]; var eB = map.edges[B.edge];
+                if (trims.BranchAt(eA, A.node) >= 0 || trims.BranchAt(eB, B.node) >= 0) return false;
+                float phi = Mathf.Acos(Mathf.Clamp(Vector2.Dot(A.outDir, B.outDir), -1f, 1f));
+                if (phi < CurbMinPhiDeg * Mathf.Deg2Rad || phi > CurbMaxPhiDeg * Mathf.Deg2Rad) return false;
+                float tanH = Mathf.Tan(phi * 0.5f);
+                // a tenth of a metre of each edge line kept straight before the
+                // arc, so the arc's first piece has a straight one to meet
+                float R = CurbRadiusAt(eA, A.node, eB, B.node, phi), room = Mathf.Min(dA, dB) - 0.1f;
+                if (R <= 0f) return false;   // one road going on: no curb there
+                float rEff = Mathf.Min(R, tanH * Mathf.Min(room, CurbMaxTangentM));
+                // the edge lines meet past a mouth (the trims never grew): square
+                bool ok = rEff >= CurbMinR && dA > 0.05f && dB > 0.05f;
+                CurbLog?.Add(new CurbRec { node = n, edgeA = A.edge, edgeB = B.edge, phiDeg = phi * Mathf.Rad2Deg, r = R, rEff = ok ? rEff : 0f, room = room, arc = ok });
+                if (!ok) return false;
+                float L = rEff / tanH;
+                Vector2 TA = X + A.outDir * L, TB = X + B.outDir * L;
+                var bis = (A.outDir + B.outDir).normalized;
+                var C = X + bis * (rEff / Mathf.Sin(phi * 0.5f));
+                float yA = Back(A, dA - L), yB = Back(B, dB - L);
+                float a0 = Mathf.Atan2(TA.y - C.y, TA.x - C.x), a1 = Mathf.Atan2(TB.y - C.y, TB.x - C.x);
+                float sweep = Mathf.DeltaAngle(a0 * Mathf.Rad2Deg, a1 * Mathf.Rad2Deg) * Mathf.Deg2Rad;
+                float step = 2f * Mathf.Acos(Mathf.Clamp01(1f - CurbSagM / rEff));
+                int pieces = Mathf.Clamp(Mathf.CeilToInt(Mathf.Abs(sweep) / Mathf.Max(step, 1e-3f)), 1, CurbMaxPieces);
+                Add(TA, yA, A.edge, A.lateSide, false, true, true);
+                for (int k = 1; k < pieces; k++)
+                {
+                    float f = (float)k / pieces, ang = a0 + sweep * f;
+                    var q = C + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * rEff;
+                    if (f < 0.5f) Add(q, Mathf.Lerp(yA, yB, f), A.edge, A.lateSide, false, true, true);
+                    else Add(q, Mathf.Lerp(yA, yB, f), B.edge, earlyB, false, true, true);
+                }
+                Add(TB, yB, B.edge, earlyB, false, true, true);
+                return true;
+            }
 
             // The ring is built pair by pair, from each arm's late corner to the
             // next arm's early corner (or what stands in for them), so the
@@ -7814,7 +7940,12 @@ namespace PSXRacing.City
                     // a + A.outDir * ta = b + B.outDir * tb: both negative is behind both mouths
                     float ta = Cross2(ab, B.outDir) / den;
                     float tb = Cross2(ab, A.outDir) / den;
-                    if (ta < -0.05f && tb < -0.05f && Cross2(ab, A.outDir * ta) < -1e-3f)
+                    // the inside of a corner (anything but the outside of a bend):
+                    // a curb return, where neither arm is clipped (plan A10)
+                    bool outsideBend = ta < -0.05f && tb < -0.05f && Cross2(ab, A.outDir * ta) < -1e-3f;
+                    if (ArcsOn && !outsideBend && CurbArc(A, B, a + A.outDir * ta, -ta, -tb, earlyB))
+                        carried = true;
+                    else if (outsideBend)
                     {
                         if (-ta <= A.trim + A.hw && -tb <= B.trim + B.hw)
                         {
@@ -7864,6 +7995,57 @@ namespace PSXRacing.City
                 Add(b, B.yArm, B.edge, earlyB, true, false);
             }
             // pair 0 began on arm 0's late corner; the ring now ends on its early one
+
+            // A cluster's inside edges (plan A11) draw no ribbon: where one is
+            // wider than the chords between its neighbours (Briar Creek Road's
+            // 11.8 m piece between nodes 10702 and 11156, its turn lanes past
+            // the arms either side) the ring is carried out round its edges.
+            if (cluster != null && corners.Count >= 3)
+                foreach (int ei in cluster.inner)
+                {
+                    var e = map.edges[ei];
+                    for (int q = 0; q <= 4; q++)
+                    {
+                        float s = e.length * q * 0.25f;
+                        var p = e.PointAt(s);
+                        var tn = e.TangentAt(s);
+                        var rgt = new Vector2(-tn.y, tn.x);
+                        LineModel.Extents(e, s, out float eM, out float eP);
+                        RingTakeIn(corners, np, origin, p - rgt * eM, e.YAt(s), ei, -1, e.a);
+                        RingTakeIn(corners, np, origin, p + rgt * eP, e.YAt(s), ei, 1, e.a);
+                    }
+                }
+        }
+
+        /// <summary>Carries a ring out to a point beyond one of its free
+        /// chords (seen from the centre): the point goes in between that
+        /// chord's corners, a curb-return-like vertex (its verge on the
+        /// bisector, no corner fill). Not past a road mouth (that arm's
+        /// ribbon is there).</summary>
+        static void RingTakeIn(List<FanCorner> ring, Vector2 c, Vector3 origin, Vector2 q, float y, int edge, int side, int node)
+        {
+            var d = q - c;
+            if (d.sqrMagnitude < 1e-4f) return;
+            for (int i = 0; i < ring.Count; i++)
+            {
+                var k0 = ring[i]; var k1 = ring[(i + 1) % ring.Count];
+                Vector2 a = new Vector2(k0.pos.x + origin.x, k0.pos.z + origin.z), b = new Vector2(k1.pos.x + origin.x, k1.pos.z + origin.z);
+                var ab = b - a;
+                float den = Cross2(d, ab);
+                if (Mathf.Abs(den) < 1e-6f) continue;
+                // c + d t = a + ab u
+                float t = Cross2(a - c, ab) / den, u = Cross2(a - c, d) / den;
+                if (u < 0f || u > 1f || t <= 0f || t >= 1f) continue;
+                if ((1f - t) * d.magnitude < 0.05f) return;   // on the chord already
+                if (k0.mouthNext) return;                      // past an arm's mouth: its ribbon
+                ring.Insert(i + 1, new FanCorner
+                {
+                    ang = Mathf.Atan2(d.y, d.x),
+                    pos = new Vector3(q.x - origin.x, y + FanProudM, q.y - origin.z),
+                    edge = edge, side = side, yArm = y, mouthNext = false, extra = true, node = node, arc = true,
+                });
+                return;
+            }
         }
 
         /// <summary>
@@ -7913,7 +8095,7 @@ namespace PSXRacing.City
                 {
                     ang = Mathf.Atan2(p.y - c.y, p.x - c.x),
                     pos = new Vector3(p.x - origin.x, y + FanProudM, p.y - origin.z),
-                    edge = edge, side = side, yArm = y, mouthNext = true, extra = extra,
+                    edge = edge, side = side, yArm = y, mouthNext = true, extra = extra, node = edge == A.edge ? A.node : B.node,
                 });
             if (aOut0 && aOut1)
             {
@@ -7950,6 +8132,7 @@ namespace PSXRacing.City
         }
 
         static readonly List<int> fanTriScratch = new List<int>(48);
+        static readonly List<Vector3> fanSteinerScratch = new List<Vector3>(8), fanPolySteiner = new List<Vector3>(8);
         static readonly List<int> earScratch = new List<int>(16);
         static readonly List<Vector2> earPlan = new List<Vector2>(16);
 
@@ -8049,6 +8232,8 @@ namespace PSXRacing.City
         {
             chords.Clear();
             if (!trims.patch[n]) return false;
+            // a junction cluster's ring is its lowest member's (plan A11)
+            if (FanKey(trims, n) != n) return false;
             var corners = new List<FanCorner>(12);
             FanCorners(map, trims, n, Vector3.zero, corners);
             if (corners.Count < 3) return false;

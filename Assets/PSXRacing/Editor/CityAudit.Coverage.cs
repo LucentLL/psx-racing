@@ -34,6 +34,7 @@ namespace PSXRacing.EditorTools
             var res = CityCoverage.Run(map, trims, AuditBuildings, sc, Line);
             CityCoverage.DeadEnds(map, trims, Line, res);
             CityCoverage.WriteOutputs(res, null);
+            JunctionsReport(map, trims, sc);   // roads pass L7
         }
     }
 
@@ -515,6 +516,7 @@ namespace PSXRacing.EditorTools
             var map = ctx.map; var cl = ctx.cl;
             float T = CityMeshes.TileSize;
             var pts = new List<Vector2>();
+            var ringPts = new List<Vector3>();
             for (int c = 0; c < cl.members.Length; c++)
             {
                 pts.Clear();
@@ -526,6 +528,48 @@ namespace PSXRacing.EditorTools
                     foreach (var (a, b, _) in chordScratch) { pts.Add(new Vector2(a.x, a.z)); pts.Add(new Vector2(b.x, b.z)); }
                 }
                 if (pts.Count < 3) continue;
+                // Roads pass L7 (A11): a cluster drawn as ONE paved area is
+                // judged against its own ring - the outside arms' mouths in
+                // order, straight across the median opening, round its curb
+                // returns - not the convex hull, which since the curb returns
+                // (A10) takes in the corner lots between the arcs and the
+                // chords that cut them.
+                var rc = ctx.trims.ClusterOfNode(cl.members[c][0]);
+                bool one = rc != null;
+                foreach (int n in cl.members[c]) if (ctx.trims.ClusterOfNode(n) != rc) one = false;
+                if (one)
+                {
+                    CityMeshes.FanRingPoints(map, ctx.trims, rc.owner, ringPts);
+                    if (ringPts.Count >= 3)
+                    {
+                        CityMeshes.FanCentre(map, ctx.trims, rc.owner, out var cc, out float ccY);
+                        pts.Clear();
+                        foreach (var q in ringPts) pts.Add(new Vector2(q.x, q.z));
+                        Vector2 rmn = pts[0], rmx = pts[0];
+                        foreach (var q in pts) { rmn = Vector2.Min(rmn, q); rmx = Vector2.Max(rmx, q); }
+                        if (rmx.x - rmn.x > 200f || rmx.y - rmn.y > 200f) continue;
+                        int rkey = Key(KCluster, cl.tier[c], c);
+                        for (int i = 0; i < pts.Count; i++)
+                        {
+                            var a = pts[i]; var b = pts[(i + 1) % pts.Count];
+                            if (Cross2(a - cc, b - cc) <= 1e-4f) continue;   // a piece turning back: no area of its own
+                            // each wedge at the heights it spans (the members' and the arms' at their trims)
+                            float ya = ringPts[i].y, yb = ringPts[(i + 1) % pts.Count].y;
+                            float wLo = Mathf.Min(Mathf.Min(ya, yb), Mathf.Min(ccY, yLo)), wHi = Mathf.Max(Mathf.Max(ya, yb), Mathf.Max(ccY, yHi));
+                            float ry = 0.5f * (wLo + wHi), rslack = 0.5f * (wHi - wLo) + 0.3f;
+                            int hi = ctx.hulls.Count;
+                            ctx.hulls.Add((new[] { cc, a, b }, ry, rslack, rkey));
+                            for (int tz = Mathf.FloorToInt(rmn.y / T); tz <= Mathf.FloorToInt(rmx.y / T); tz++)
+                                for (int tx = Mathf.FloorToInt(rmn.x / T); tx <= Mathf.FloorToInt(rmx.x / T); tx++)
+                                {
+                                    long k = TK(tx, tz);
+                                    if (!ctx.hullByTile.TryGetValue(k, out var l)) ctx.hullByTile[k] = l = new List<int>();
+                                    l.Add(hi);
+                                }
+                        }
+                        continue;
+                    }
+                }
                 var hull = Hull(pts);
                 if (hull.Count < 3) continue;
                 Vector2 mn = hull[0], mx = hull[0];
@@ -547,6 +591,8 @@ namespace PSXRacing.EditorTools
                 }
             }
         }
+
+        static float Cross2(Vector2 u, Vector2 v) => u.x * v.y - u.y * v.x;
 
         static List<Vector2> Hull(List<Vector2> pts)
         {
