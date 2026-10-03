@@ -286,7 +286,10 @@ namespace PSXRacing.EditorTools
         struct NamedView
         {
             public string name, group, road, what; public ViewKind kind; public Vector2 at;
-            public float hdg, size, back, look, fov; public int ring;
+            public float hdg, size, back, look, fov, rise; public int ring;
+            /// <summary>Along: look at this plan point (0.4 m over the road)
+            /// instead of down the lanes, when set.</summary>
+            public Vector2 lookAt;
         }
 
         static NamedView Eye(string name, string group, float x, float z, string road, float hdg, string what) =>
@@ -356,6 +359,23 @@ namespace PSXRacing.EditorTools
             // lanes line up (roads pass L4)
             Top("relay_mcdowell_12098", "lateral", -1212.0f, 4296.0f, "McDowell", 35f, "N McDowell St node 12098: a 2+1 split meeting a 1+2 one - the centre line moves across over the MUTCD length (the relay) instead of jumping a lane"),
             Top("lat_elizabeth_6995", "lateral", -1315.8f, 3738.4f, "Elizabeth", 40f, "Elizabeth Ave x N Kings Dr node 6995: tw2 into a tw4 that adds its lanes for the other direction - the through lanes line up across the junction"),
+            // the owner's I-277 race (hotfix 2026-10-03, "90 degree concrete formations on 277 ... they
+            // ended my race"): the Uptown Loop's first two kilometres, at the chase camera's height
+            // (2.6 m), 35 m before each spot looking 10 m past it
+            new NamedView { name = "i277_a_gore", group = "i277", kind = ViewKind.Along, at = new Vector2(-1561.6f, 5368.8f), road = "I-277", back = 10f, look = 0f, fov = 60f, ring = 1, rise = 1.4f,
+                            lookAt = new Vector2(-1564.6f, 5361.8f),
+                            what = "I-277 (e2311, Uptown Loop ~650 m, the owner's 0:15): the gore nose of the exit deck e2382 on the right - a rail block square across the nose, facing the flush gore" },
+            new NamedView { name = "i277_b_union_end", group = "i277", kind = ViewKind.Along, at = new Vector2(-1234.1f, 5021.3f), road = "I-277", back = 22f, look = 0f, fov = 60f, ring = 1, rise = 1.4f,
+                            lookAt = new Vector2(-1226.7f, 5026.5f),
+                            what = "I-277 (e6403, Uptown Loop ~1,130 m, the owner's 0:45): the twin decks' union median ending on the left - the centre Jersey's square cap, then two edge Jerseys round a 2.6 m grass median" },
+            new NamedView { name = "i277_c_median", group = "i277", kind = ViewKind.Along, at = new Vector2(-1051.7f, 4345.2f), road = "I-277", back = 22f, look = 0f, fov = 60f, ring = 1, rise = 1.4f,
+                            lookAt = new Vector2(-1047.8f, 4340.4f),
+                            what = "I-277 (e2144, Uptown Loop ~1,920 m, the owner's 1:02): the left exit's gore - a median Jersey starting square beside the yellow line, grass behind it at its top" },
+            // stray barrier pieces (hotfix 2026-10-03, "concrete median blocks between roads where they
+            // shouldn't exist"): the short barrier census's shortest freeway piece, 25 m before it
+            new NamedView { name = "short_i485_e14173", group = "short", kind = ViewKind.Along, at = new Vector2(-13766f, -1400f), road = "I-485", back = 25f, look = 0f, fov = 60f, ring = 1, rise = 1.4f,
+                            lookAt = new Vector2(-13766f, -1400f),
+                            what = "I-485 (e14173, s 4-12) at its ramp: a 7.8 m cut wall standing alone on the right (the short barrier census's shortest freeway piece)" },
             // minor streets, cul-de-sacs, parking lots (roads pass L8)
             Top("minor_rozzelles_1178", "minor", -3915.3f, 6467.5f, "Rozzelles", 22f, "Rozzelles Ferry Rd at Whitehaven Ave (node 1178, unsignalised) from above: the centre and far edge lines run on across the side street's mouth, the near edge line breaks for it (plan A13)"),
             Top("minor_bulb_victorian", "minor", -3517.0f, 2391.9f, "Victorian", 26f, "Victorian Place's turning circle (node 17457): the street ends in a 12.2 m bulb (plan A17)"),
@@ -449,8 +469,9 @@ namespace PSXRacing.EditorTools
                 {
                     WalkBack(map, e, s, v.back, out var pe, out var de, out var ee, out float se);
                     WalkBack(map, e, s, v.look, out var pl, out _, out var el, out float sl);
-                    eye = new Vector3(pe.x, ee.YAt(se) + 1.2f, pe.y);
-                    look = new Vector3(pl.x, el.YAt(sl) + 1.0f, pl.y);
+                    eye = new Vector3(pe.x, ee.YAt(se) + 1.2f + v.rise, pe.y);
+                    look = v.lookAt != Vector2.zero ? new Vector3(v.lookAt.x, el.YAt(sl) + 0.4f, v.lookAt.y)
+                                                     : new Vector3(pl.x, el.YAt(sl) + 1.0f, pl.y);
                     if ((look - eye).sqrMagnitude < 1f) look = eye + new Vector3(de.x, 0f, de.y) * 50f;
                     ringAt = new Vector2(0.5f * (eye.x + look.x), 0.5f * (eye.z + look.z));
                     near = 0.2f;

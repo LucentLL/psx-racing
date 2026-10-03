@@ -172,6 +172,22 @@ namespace PSXRacing.City
         /// from the road at RoadsideRules.EndFlareRatio: the stages' three
         /// four-metre stations, 0.8 m out at the tip.</summary>
         const float FlareLenM = RoadsideRules.EndFlareStations * 4f;
+        /// <summary>
+        /// THE SLOPED END (hotfix 2026-10-03, the owner's I-277 race: "90
+        /// degree concrete formations ... they ended my race"). A barrier end
+        /// that faces traffic - a median Jersey's, a union median's on the
+        /// ground, a gore nose's V legs - is turned down: its top falls from
+        /// full height to <see cref="TaperFootM"/> (a curb a wheel rides over)
+        /// over <see cref="TaperLenM"/> (1:10 for a Jersey, the sloped concrete
+        /// end of the Roadside Design Guide), so a car meets a ramp and never a
+        /// square face. A rail stays full height (it guards a drop); one
+        /// running out into NOTHING still flares away from the road
+        /// (<see cref="FlareLenM"/>).
+        /// </summary>
+        public const float TaperLenM = 8f, TaperFootM = 0.12f;
+        /// <summary>The painted gore's width a sloped nose's apex needs (the two
+        /// legs' feet meeting there).</summary>
+        const float NoseApexRoomM = 0.6f;
         /// <summary>How far below a grounded rail's surface its outer face is
         /// buried (plus half its flare), so the verge never shows under it.</summary>
         const float RailBuryM = 0.35f;
@@ -2086,7 +2102,7 @@ namespace PSXRacing.City
                 }
             }
             // a nose only where the two actually part (not where a chain ran out)
-            if (lastOk && detached) EmitNose(map, trims, tm, min, max, host, br, last, side, attachedTo);
+            if (lastOk && detached) EmitNose(map, trims, tm, min, max, host, br, last, side, attachedTo, quadsFrom);
             if (quads > 0) tm.goreCount++;
             tm.branchCount++;
         }
@@ -2116,7 +2132,7 @@ namespace PSXRacing.City
         /// does, so the three meet. On the ground the nose gets a verge.
         /// </summary>
         static void EmitNose(CityMap map, Trims trims, TileMeshes tm, Vector2 min, Vector2 max,
-                             Chain host, Chain br, BranchSample n, int side, float travelled)
+                             Chain host, Chain br, BranchSample n, int side, float travelled, int quadsFrom)
         {
             var mid = (n.inner + n.outer) * 0.5f;
             if (mid.x < min.x || mid.x >= max.x || mid.y < min.y || mid.y >= max.y) return;
@@ -2156,6 +2172,61 @@ namespace PSXRacing.City
             // across the nose, its traffic face toward the gore; each of the
             // three pieces only where it stands in no lane (RailRunsOffLanes)
             EmitRailOffLanes(map, trims, o3, vOut, vIn, -fwd, -fwd, drop, v0, v0 + 0.5f, -1, new RailRecord { edge = -1, node = -2 });
+            // ...AND A SLOPED V IN FRONT OF IT (hotfix 2026-10-03: the block's
+            // face stood square to the gore's traffic - the owner's "concrete
+            // wall ... steps at 90 degrees into the carriageway area" on
+            // I-277). Two rails from an apex on the painted gore's middle line
+            // to the nose's two ends, each rising from a curb at the apex to
+            // full height at the block: every face the traffic can reach
+            // glances off. Their traffic faces end on the two pavements' edges
+            // (the legs stand in the gore), and each only where it stands in no
+            // lane (RailRunsOffLanes).
+            {
+                float halfW = 0.5f * Vector2.Distance(new Vector2(vOut.x, vOut.z), new Vector2(vIn.x, vIn.z));
+                // The apex on the painted gore's middle, walked back over this
+                // branch's gore quads (each a cross-line from the host's edge to
+                // the branch's) as far as 1:3 legs want, and no further than the
+                // gore is NoseApexRoomM wide: the legs then stand inside the
+                // gore's wedge, out of both roads' lanes. A nose with no such
+                // room keeps its block alone.
+                var mid3 = 0.5f * (vOut + vIn);
+                float want = Mathf.Max(TaperLenM, 3f * halfW), acc = 0f, noseLen = 0f;
+                var apex = mid3;
+                var prevMid = mid3 + o3;
+                float prevW = 2f * halfW;
+                for (int q = goreQuads.Count - 1; q >= quadsFrom && 2f * halfW >= NoseApexRoomM; q--)
+                {
+                    var (qOut, _, _, qIn) = goreQuads[q];
+                    var m = 0.5f * (qOut + qIn);
+                    float seg = Vector2.Distance(new Vector2(m.x, m.z), new Vector2(prevMid.x, prevMid.z));
+                    // (a gore quad reaches GoreSeamM under each road's pavement)
+                    float w = Vector2.Distance(new Vector2(qOut.x, qOut.z), new Vector2(qIn.x, qIn.z)) - 2f * GoreSeamM;
+                    // narrower than the apex needs here: the apex goes where
+                    // the gore narrows to it, between this cross-line and the last
+                    float f = w >= NoseApexRoomM ? 1f : Mathf.Clamp01((prevW - NoseApexRoomM) / Mathf.Max(1e-3f, prevW - w));
+                    var mm = Vector3.Lerp(prevMid, m, f);
+                    if (acc + seg * f >= want) { mm = Vector3.Lerp(prevMid, m, (want - acc) / Mathf.Max(1e-3f, seg)); f = 0f; }
+                    acc += Vector2.Distance(new Vector2(mm.x, mm.z), new Vector2(prevMid.x, prevMid.z));
+                    apex = new Vector3(mm.x - o3.x, mid3.y, mm.z - o3.z); noseLen = acc;
+                    if (w < NoseApexRoomM || f == 0f) break;
+                    prevMid = m; prevW = w;
+                }
+                var acrossOI = new Vector2(vOut.x - vIn.x, vOut.z - vIn.z);
+                var inward = new Vector3(-acrossOI.x, 0f, -acrossOI.y) / Mathf.Max(1e-3f, acrossOI.magnitude);
+                for (int leg = 0; leg < 2 && noseLen >= 1f; leg++)
+                {
+                    // the leg's line ends a rail's width into the gore, so its
+                    // traffic face ends on that pavement's edge
+                    var end = leg == 0 ? vOut + inward * Mathf.Min(RailW, 0.45f * halfW) : vIn - inward * Mathf.Min(RailW, 0.45f * halfW);
+                    var dl = new Vector2(end.x - apex.x, end.z - apex.z);
+                    if (dl.sqrMagnitude < 1e-4f) continue;
+                    var perp = new Vector2(-dl.y, dl.x).normalized;
+                    // the traffic face toward the lanes this leg's end sits beside
+                    if (Vector2.Dot(perp, leg == 0 ? acrossOI : -acrossOI) < 0f) perp = -perp;
+                    EmitRailOffLanes(map, trims, o3, apex, end, perp, perp, drop, v0 - noseLen / RoadVTile, v0, -1,
+                                     new RailRecord { edge = -1, node = -2 }, TaperFootM, RailH);
+                }
+            }
             // along the host's edge to its rail's restart (the gap ends one
             // metre past the last attached sample)
             if (host.Walk(Mathf.Min(n.hostArc + 1f, host.Length), out var Hn, out float sHn, out var pHn, out var dHn))
@@ -3619,6 +3690,9 @@ namespace PSXRacing.City
         /// barrier standing at the edge (see the run-end loop); the barrier
         /// beside it keeps its line.</summary>
         static readonly List<float> shiftL = new List<float>(64), shiftR = new List<float>(64);
+        /// <summary>A barrier's height at each section, 0..1 of full (the
+        /// sloped ends, <see cref="TaperLenM"/>); 1 everywhere else.</summary>
+        static readonly List<float> taperL = new List<float>(64), taperR = new List<float>(64);
         static readonly List<float> endScratch = new List<float>(8);
 
         /// <summary>The arc positions on an edge where it goes onto or off
@@ -3956,15 +4030,21 @@ namespace PSXRacing.City
         /// <see cref="RailRunsOffLanes"/> leaves it, each piece capped and
         /// logged like <paramref name="rec"/>; the metres laid.</summary>
         static float EmitRailOffLanes(CityMap map, Trims trims, Vector3 origin, Vector3 a, Vector3 b, Vector2 inA, Vector2 inB, float drop,
-                                      float v0, float v1, int skipNode, RailRecord rec)
+                                      float v0, float v1, int skipNode, RailRecord rec, float hA = RailH, float hB = RailH)
         {
             RailRunsOffLanes(map, trims, a + origin, b + origin, skipNode);
             float laid = 0f;
+            // a sloped rail (hA != hB, a nose's leg) rises from where its first
+            // kept piece starts: a leg whose low end stood in a lane starts at
+            // curb height where it leaves the lane, not square at mid height
+            float tFirst = railRuns.Count > 0 && hA != hB ? railRuns[0].t0 : 0f;
             foreach (var (t0, t1) in railRuns)
             {
                 var pa = Vector3.Lerp(a, b, t0); var pb = Vector3.Lerp(a, b, t1);
                 var ia = Vector2.Lerp(inA, inB, t0).normalized; var ib = Vector2.Lerp(inA, inB, t1).normalized;
-                EmitRail(pa, pb, ia, ib, drop, true, true, Mathf.Lerp(v0, v1, t0), Mathf.Lerp(v0, v1, t1));
+                float u0 = tFirst < 1f ? Mathf.Clamp01((t0 - tFirst) / (1f - tFirst)) : 1f, u1 = tFirst < 1f ? Mathf.Clamp01((t1 - tFirst) / (1f - tFirst)) : 1f;
+                EmitRail(pa, pb, ia, ib, drop, true, true, Mathf.Lerp(v0, v1, t0), Mathf.Lerp(v0, v1, t1),
+                         0f, 0f, RailOverhangM, RailOverhangM, Mathf.Lerp(hA, hB, u0), Mathf.Lerp(hA, hB, u1));
                 laid += Vector3.Distance(pa, pb);
                 if (railLog == null) continue;
                 rec.a = pa + origin; rec.b = pb + origin; rec.inA = ia; rec.inB = ib; rec.overhang = RailOverhangM;
@@ -4012,8 +4092,8 @@ namespace PSXRacing.City
         static IEnumerable<int> DecideSideFlagsSteps(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, Vector2 min, Vector2 max)
         {
             int n = sections.Count;
-            spanFlags.Clear(); flareL.Clear(); flareR.Clear(); shiftL.Clear(); shiftR.Clear();
-            for (int k = 0; k < n; k++) { spanFlags.Add(default); flareL.Add(0f); flareR.Add(0f); shiftL.Add(0f); shiftR.Add(0f); }
+            spanFlags.Clear(); flareL.Clear(); flareR.Clear(); shiftL.Clear(); shiftR.Clear(); taperL.Clear(); taperR.Clear();
+            for (int k = 0; k < n; k++) { spanFlags.Add(default); flareL.Add(0f); flareR.Add(0f); shiftL.Add(0f); shiftR.Add(0f); taperL.Add(1f); taperR.Add(1f); }
             dropCache.Clear();
 
             // the window of sections within FlagReachM of the tile
@@ -4167,6 +4247,36 @@ namespace PSXRacing.City
                 i = j;
             }
 
+            // NO ISOLATED SHORT PIECES (hotfix 2026-10-03, the owner's "stray
+            // concrete median blocks between roads where they shouldn't
+            // exist"): a median Jersey or a cut wall shorter than
+            // MinMedianRunM that ends inside the edge at both ends, with no
+            // barrier of any kind carrying on beside either end (a rail, a
+            // wall, a union's median: that is one barrier changing kind, not
+            // a block), is not drawn. A run reaching a node carries on into
+            // the next road.
+            // Decided from the spans' data alone, as the runs are, so every
+            // tile drops the same piece.
+            if (!KeepShortBarriers)
+                for (int side = -1; side <= 1; side += 2)
+                    for (int i = 1; i < n;)
+                    {
+                        var si = spanFlags[i][side];
+                        bool med = si.median, cut = si.cut && !si.rail;
+                        if (!med && !cut) { i++; continue; }
+                        int j = i;
+                        while (j < n && (med ? spanFlags[j][side].median : spanFlags[j][side].cut && !spanFlags[j][side].rail)) j++;
+                        bool Bare(int k) { var b = spanFlags[k][side]; return !(b.rail || b.cut || b.median || b.union || b.retain); }
+                        if (i > 1 && j < n && Bare(i - 1) && Bare(j) && sections[j - 1].s - sections[i - 1].s < MinMedianRunM)
+                            for (int k = i; k < j; k++)
+                            {
+                                var fk = spanFlags[k]; var sk = fk[side];
+                                if (med) sk.median = false; else sk.cut = false;
+                                fk[side] = sk; spanFlags[k] = fk;
+                            }
+                        i = j;
+                    }
+
             // Run ends, caps and flares, by KIND of barrier: a rail, a
             // retaining wall, a median Jersey barrier. Where one kind hands
             // over to another (a median barrier to the approach rail twenty
@@ -4240,9 +4350,26 @@ namespace PSXRacing.City
                     // a deck, and not at a node the road carries on through
                     // (every node of a long run would zig-zag).
                     int ending = kindL != KindNone ? kindL : kindR;
-                    if (ending == KindMedian) continue;
                     bool lineL = kindL != KindNone;
                     int otherSpan = lineL ? k + 1 : k;
+                    // THE SLOPED END (hotfix 2026-10-03): a median Jersey's end
+                    // faces the traffic beside it: turned down over TaperLenM
+                    // instead of capped square. (A rail stays full height: it
+                    // guards a drop. Where one runs out into a gore on a deck,
+                    // the nose's V stands in front of its end - EmitNose.)
+                    if (ending == KindMedian)
+                    {
+                        var taper = side < 0 ? taperL : taperR;
+                        int dirT = lineL ? -1 : 1;
+                        for (int j = k; j >= 0 && j < n; j += dirT)
+                        {
+                            float d = Mathf.Abs(sections[j].s - sections[k].s);
+                            if (d >= TaperLenM) break;
+                            taper[j] = Mathf.Min(taper[j], d / TaperLenM);
+                            if (Kind(dirT > 0 ? j + 1 : j) != ending) break;
+                        }
+                    }
+                    if (ending == KindMedian) continue;
                     bool otherGap = otherSpan >= 1 && otherSpan < n && (spanFlags[otherSpan][side].gap || spanFlags[otherSpan][side].union || spanFlags[otherSpan].skip);
                     bool atNode = (k == 0 && !lineL) || (k == n - 1 && lineL);
                     if (otherGap || Fixed(k) || sections[k].Strip(side) >= 0f || (atNode && trims.mitre[k == 0 ? e.a : e.b])) continue;
@@ -4557,6 +4684,7 @@ namespace PSXRacing.City
             var sf = f[side];
             var flare = side < 0 ? flareL : flareR;
             var shift = side < 0 ? shiftL : shiftR;
+            var taper = side < 0 ? taperL : taperR;
             var outA = A.Out(side); var outB = B.Out(side);
             var eA = A.Edge(side); var eB = B.Edge(side);
             var fA = eA + new Vector3(outA.x, 0f, outA.y) * flare[i - 1];
@@ -4605,9 +4733,11 @@ namespace PSXRacing.City
                     float ovA = pieces == 1 ? RailOverhangM : OverhangAtT(t0), ovB = pieces == 1 ? RailOverhangM : OverhangAtT(t1);
                     bool capA = q == 0 ? sf.capStart : overArm && railOverArm[q - 1];
                     bool capB = q == pieces - 1 ? sf.capEnd : overArm && railOverArm[q + 1];
+                    float tpA = Mathf.Lerp(taper[i - 1], taper[i], t0), tpB = Mathf.Lerp(taper[i - 1], taper[i], t1);
                     EmitRail(a, b, ia, ib, drop, capA, capB,
                              Mathf.Lerp(v0, v1, t0), Mathf.Lerp(v0, v1, t1),
-                             Mathf.Lerp(sinkA, sinkB, t0), Mathf.Lerp(sinkA, sinkB, t1), ovA, ovB);
+                             Mathf.Lerp(sinkA, sinkB, t0), Mathf.Lerp(sinkA, sinkB, t1), ovA, ovB,
+                             Mathf.Lerp(TaperFootM, RailH, tpA), Mathf.Lerp(TaperFootM, RailH, tpB));
                     railLog?.Add(new RailRecord
                     {
                         edge = e.index, side = side, node = -1, s0 = Mathf.Lerp(A.s, B.s, t0), s1 = Mathf.Lerp(A.s, B.s, t1),
@@ -4659,7 +4789,8 @@ namespace PSXRacing.City
                 kerbBucket.WallSloped(eA, eB, eA.y - KerbFaceM, eA.y, eB.y - KerbFaceM, eB.y,
                                       outA, v0, v1, 0f, 0.05f);
 
-            if (sf.median) EmitBarrier(eA, eB, outA, v0, v1, sf.capStart, sf.capEnd);
+            if (sf.median) EmitBarrier(eA, eB, outA, v0, v1, sf.capStart, sf.capEnd,
+                                       Mathf.Lerp(TaperFootM, BarrierH, taper[i - 1]), Mathf.Lerp(TaperFootM, BarrierH, taper[i]));
 
             if (sf.rail && sf.retain)
             {
@@ -6171,19 +6302,20 @@ namespace PSXRacing.City
         /// span: inner face, top and outer face, standing on the pavement
         /// edge and reaching outward, its foot below the verge's first inch so
         /// no slot shows under it; capped where its run ends.</summary>
-        static void EmitBarrier(Vector3 a, Vector3 b, Vector2 outward, float v0, float v1, bool capA, bool capB)
+        static void EmitBarrier(Vector3 a, Vector3 b, Vector2 outward, float v0, float v1, bool capA, bool capB,
+                                float hA = BarrierH, float hB = BarrierH)
         {
             var bk = barrierBucket;
             var o = Flat(outward) * BarrierW;
-            var up = Vector3.up * BarrierH;
+            var upA = Vector3.up * hA; var upB = Vector3.up * hB;
             var foot = Vector3.down * KerbFaceM;
-            bk.WallSloped(a, b, a.y + foot.y, a.y + BarrierH, b.y + foot.y, b.y + BarrierH, -outward, v0, v1, 0.3f, 0.45f);          // inner face
-            bk.WallSloped(a + o, b + o, a.y + foot.y, a.y + BarrierH, b.y + foot.y, b.y + BarrierH, outward, v0, v1, 0.3f, 0.45f);  // outer face
-            bk.Up(a + up, b + up, b + o + up, a + o + up,
+            bk.WallSloped(a, b, a.y + foot.y, a.y + hA, b.y + foot.y, b.y + hB, -outward, v0, v1, 0.3f, 0.45f);          // inner face
+            bk.WallSloped(a + o, b + o, a.y + foot.y, a.y + hA, b.y + foot.y, b.y + hB, outward, v0, v1, 0.3f, 0.45f);  // outer face
+            bk.Up(a + upA, b + upB, b + o + upB, a + o + upA,
                   new Vector2(0.45f, v0), new Vector2(0.45f, v1), new Vector2(0.5f, v1), new Vector2(0.5f, v0));
             var uv = new Vector2(0.3f, v0);
-            if (capA) bk.Face(a + foot, a + up, a + o + up, a + o + foot, a - b, uv, uv, uv, uv);
-            if (capB) bk.Face(b + foot, b + up, b + o + up, b + o + foot, b - a, uv, uv, uv, uv);
+            if (capA) bk.Face(a + foot, a + upA, a + o + upA, a + o + foot, a - b, uv, uv, uv, uv);
+            if (capB) bk.Face(b + foot, b + upB, b + o + upB, b + o + foot, b - a, uv, uv, uv, uv);
         }
 
         /// <summary>
@@ -6203,26 +6335,27 @@ namespace PSXRacing.City
         /// height it showed a slit of daylight a hand deep under the tip.
         /// </summary>
         static void EmitRail(Vector3 a, Vector3 b, Vector2 inA, Vector2 inB, float drop, bool capA, bool capB, float v0, float v1,
-                             float sinkA = 0f, float sinkB = 0f, float overhangA = RailOverhangM, float overhangB = RailOverhangM)
+                             float sinkA = 0f, float sinkB = 0f, float overhangA = RailOverhangM, float overhangB = RailOverhangM,
+                             float hA = RailH, float hB = RailH)
         {
             var bk = barrierBucket;
-            var up = Vector3.up * RailH;
+            var upA = Vector3.up * hA; var upB = Vector3.up * hB;
             var down = Vector3.down * drop;
             Vector3 iA = a + Flat(inA) * RailW, iB = b + Flat(inB) * RailW;
             Vector3 fA = iA + Vector3.down * sinkA, fB = iB + Vector3.down * sinkB;   // the traffic face's feet
             Vector3 oA = a - Flat(inA) * overhangA, oB = b - Flat(inB) * overhangB;
             var inAvg = Flat(inA + inB);
-            bk.Face(fA, iA + up, iB + up, fB, inAvg,
+            bk.Face(fA, iA + upA, iB + upB, fB, inAvg,
                     new Vector2(v0, 0.3f), new Vector2(v0, 0.45f), new Vector2(v1, 0.45f), new Vector2(v1, 0.3f));
-            bk.Up(iA + up, oA + up, oB + up, iB + up,
+            bk.Up(iA + upA, oA + upA, oB + upB, iB + upB,
                   new Vector2(0.45f, v0), new Vector2(0.5f, v0), new Vector2(0.5f, v1), new Vector2(0.45f, v1));
-            bk.Face(oA + down, oA + up, oB + up, oB + down, -inAvg,
+            bk.Face(oA + down, oA + upA, oB + upB, oB + down, -inAvg,
                     new Vector2(v0, 0.2f), new Vector2(v0, 0.45f), new Vector2(v1, 0.45f), new Vector2(v1, 0.2f));
             bk.Face(fA, oA + down, oB + down, fB, Vector3.down,
                     new Vector2(0.45f, v0), new Vector2(0.5f, v0), new Vector2(0.5f, v1), new Vector2(0.45f, v1));
             var uv = new Vector2(0.3f, v0);
-            if (capA) bk.Face(fA, iA + up, oA + up, oA + down, a - b, uv, uv, uv, uv);
-            if (capB) bk.Face(fB, iB + up, oB + up, oB + down, b - a, uv, uv, uv, uv);
+            if (capA) bk.Face(fA, iA + upA, oA + upA, oA + down, a - b, uv, uv, uv, uv);
+            if (capB) bk.Face(fB, iB + upB, oB + upB, oB + down, b - a, uv, uv, uv, uv);
         }
 
         /// <summary>A deck span's box: both fascias facing out, the soffit

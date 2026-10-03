@@ -368,7 +368,7 @@ namespace PSXRacing.EditorTools
                         tilesBuilt++;
                     }
                     Physics.SyncTransforms();
-                    var r = ProbeTwin(map, pr);
+                    var r = ProbeTwin(map, trims, pr);
                     int t = pr.tier;
                     tally[t, 0]++; tally[t, 1] += r.innerRail; tally[t, 2] += r.holeM; tally[t, 3] += r.walls; tally[t, 4] += r.piers;
                     var mid = A.PointAt((pr.a0 + pr.a1) * 0.5f);
@@ -409,7 +409,7 @@ namespace PSXRacing.EditorTools
         struct TwinProbe { public float innerRail, holeM; public int walls, wallMax, piers; }
 
         /// <summary>(a)-(d) for one pair, its tiles standing.</summary>
-        static TwinProbe ProbeTwin(CityMap map, DeckPairs.Pair pr)
+        static TwinProbe ProbeTwin(CityMap map, CityMeshes.Trims trims, DeckPairs.Pair pr)
         {
             var r = new TwinProbe();
             var A = map.edges[pr.a]; var B = map.edges[pr.b];
@@ -438,6 +438,10 @@ namespace PSXRacing.EditorTools
                 if (!A.ElevatedAt(s)) continue;
                 float at = pr.ArcOnOther(pr.a, s);
                 if (at < 0f || !B.ElevatedAt(at)) continue;
+                // (hotfix 2026-10-03) within a closed end's V the median's two
+                // legs are its design: two walls, each a Jersey on the slab
+                bool inV = CityMeshes.InUnionEndV(map, trims, A, s) || CityMeshes.InUnionEndV(map, trims, B, at);
+                int designedHere = inV ? 2 : designed;
                 var ia = InnerEdge(A, s, pr.sideA, 0f); var ib = InnerEdge(B, at, pr.sideB, 0f);
                 if (Vector2.Distance(new Vector2(ia.x, ia.z), new Vector2(ib.x, ib.z)) > 0.3f)
                 {
@@ -448,7 +452,7 @@ namespace PSXRacing.EditorTools
                         // (plan A2) a Barrier median's own Jersey stands on the slab
                         // at the gap's centre: its top, 0.81 m up, is cover too
                         if (!RaycastPastLamps(p + Vector3.up * 2f, Vector3.down, out var hit, 4f) || !IsSlab(hit.collider) ||
-                            (Mathf.Abs(hit.point.y - p.y) > 0.15f && !(designed > 0 && hit.collider.name == "Barriers"))) { hole = true; break; }
+                            (Mathf.Abs(hit.point.y - p.y) > 0.15f && !(designedHere > 0 && hit.collider.name == "Barriers"))) { hole = true; break; }
                     }
                     if (hole) r.holeM += 0.5f;
                 }
@@ -457,7 +461,7 @@ namespace PSXRacing.EditorTools
                 var la = InnerEdge(A, s, pr.sideA, 1.8f) + Vector3.up * 0.5f;
                 var lb = InnerEdge(B, at, pr.sideB, 1.8f) + Vector3.up * 0.5f;
                 int n = WallsCrossed(la, lb);
-                if (n > designed) r.walls++;
+                if (n > designedHere) r.walls++;
                 r.wallMax = Mathf.Max(r.wallMax, n);
             }
             return r;

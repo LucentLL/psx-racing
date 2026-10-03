@@ -11,6 +11,10 @@
 #                                      (PSX_AUDIT_FULL=1; the release gates)
 #   ...            -NoRatchet          linecheck without --ratchet (the city
 #                                      lane: see below)
+#   ...            -DriveOnly          the drive audit ALONG THE RACE ROUTES
+#                                      alone (CityAudit.RunDrive, city_drive.txt;
+#                                      PSX_DRIVE_ROUTES=uptown,tryon picks
+#                                      routes, default all three; ~5 min)
 #
 # Code folders are MIRRORED (a deleted script must not linger); Art and
 # Resources are copied over the top, and the files this pass retired are
@@ -51,7 +55,7 @@
 # 15.1 min that day, and the roads pass adds reports). A job past it is
 # reported as not finished and LEFT RUNNING (never killed); the next job on
 # that sandbox waits for it.
-param([switch]$AuditOnly, [switch]$PreviewOnly, [switch]$Full, [switch]$NoRatchet)
+param([switch]$AuditOnly, [switch]$PreviewOnly, [switch]$Full, [switch]$NoRatchet, [switch]$DriveOnly)
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
@@ -102,7 +106,7 @@ $failed = $false
 # in nearly every package, so its ratchet would read STALE every time. It runs
 # the gate WITHOUT --ratchet instead - the per-check table is printed, nothing
 # is compared or failed - and compares that table with its own before-numbers.
-if (-not $PreviewOnly) {
+if (-not $PreviewOnly -and -not $DriveOnly) {
     if ($NoRatchet) {
         $lcOut = Join-Path $proj "linecheck_noratchet"
         Write-Host "--- smoothness gate, offline (linecheck, NO ratchet: compare with your own before-numbers) ---" -ForegroundColor Cyan
@@ -116,8 +120,11 @@ if (-not $PreviewOnly) {
     }
 }
 $jobs = @()
+if ($DriveOnly) { $jobs += @{ Name = "drive audit along the routes"; Method = "PSXRacing.EditorTools.CityAudit.RunDrive"; Out = "city_drive.txt" } }
+else {
 if (-not $PreviewOnly) { $jobs += @{ Name = "city audit";   Method = "PSXRacing.EditorTools.CityAudit.Run";   Out = "city_audit.txt" } }
 if (-not $AuditOnly)   { $jobs += @{ Name = "city preview"; Method = "PSXRacing.EditorTools.CityPreview.Run"; Out = $null } }
+}
 foreach ($job in $jobs) {
     Write-Host ("--- {0} ---" -f $job.Name) -ForegroundColor Cyan
     if ($job.Out) {

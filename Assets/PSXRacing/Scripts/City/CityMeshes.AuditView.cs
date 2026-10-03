@@ -47,6 +47,23 @@ namespace PSXRacing.City
         /// (on a one-way carriageway, the median side). <see cref="SectionView.right"/>
         /// points from L to R. World space throughout (metres; x east, z north).
         /// </summary>
+        /// <summary>
+        /// NO ISOLATED BARRIER PIECES (hotfix 2026-10-03, the owner's "stray
+        /// concrete median blocks between roads where they shouldn't exist"):
+        /// a median Jersey, a cut wall or a union's standing median shorter
+        /// than this, ending inside its road at both ends, is not drawn.
+        /// PSX_CITY_KEEP_SHORT=1 keeps them (the audit's before-count).
+        /// </summary>
+        public const float MinMedianRunM = 30f;
+        public static readonly bool KeepShortBarriers = System.Environment.GetEnvironmentVariable("PSX_CITY_KEEP_SHORT") == "1";
+
+        /// <summary>Does a union run stand its median up - a Jersey (Barrier)
+        /// or mountable curbs (Raised)? Not a flush strip, and not on a run
+        /// shorter than <see cref="MinMedianRunM"/> closed at both ends.</summary>
+        public static bool UnionDrawsSolid(UnionRun r) =>
+            r.median != DeckPairs.Median.Flush && r.median != DeckPairs.Median.None &&
+            (KeepShortBarriers || !(r.open0 && r.open1 && r.s1 - r.s0 < MinMedianRunM));
+
         public static class AuditView
         {
             // ================================================================
@@ -340,6 +357,10 @@ namespace PSXRacing.City
                 /// <summary>This edge draws the median; the run lies over an
                 /// approach (on the ground); nothing carries it on past s0 / s1.</summary>
                 public bool owner, approach, open0, open1;
+                /// <summary>The median is drawn standing up (a Jersey or
+                /// mountable curbs): not a flush strip, and not a run too short
+                /// to stand one (<see cref="UnionDrawsSolid"/>).</summary>
+                public bool solid;
             }
 
             /// <summary>Every union run of an edge (both sides), in side then
@@ -355,6 +376,7 @@ namespace PSXRacing.City
                         edge = r.edge, nb = r.nb, side = r.side, pair = r.pair, s0 = r.s0, s1 = r.s1,
                         nb0 = r.mirror.s0, nb1 = r.mirror.s1, median = r.median,
                         owner = r.owner, approach = r.approach, open0 = r.open0, open1 = r.open1,
+                        solid = UnionDrawsSolid(r),
                     });
                 return into.Count;
             }

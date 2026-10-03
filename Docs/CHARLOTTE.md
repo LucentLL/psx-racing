@@ -5727,6 +5727,120 @@ designed vertical profile from its seat to its terminal (grade-capped, K-sized)
 before the cones; and I-277 e2308's hump needs its crest rounded by lifting its
 measured neighbours within the twin pair.
 
+## Hotfix (2026-10-03): no square concrete in the race's way, no stray blocks
+
+The owner, racing the Uptown Loop at night: "90 degree concrete formations
+on 277 ... they ended my race" (frames at 0:15, 0:45 and 1:02). Then:
+stray concrete median blocks "between roads where they shouldn't exist" (a
+5 m Jersey on the grass between a merge ramp and its freeway). The three
+I-277 spots, on the route's first two kilometres:
+
+- **(a) 0:15, e2311 (~650 m), right.** The gore nose of the exit deck
+  e2382: `EmitNose` closes the open V between two diverging decks with a
+  rail block square across the nose, its face to the painted gore's traffic.
+- **(b) 0:45, e6403 (~1,130 m), left.** The twin decks' union median (A2)
+  ended at the structure: its Jersey capped square, then each carriageway's
+  own median Jersey started capped round a 2.6 m grass median at their top -
+  a 1 m concrete box with grass on top. A2's Jersey approach covered only
+  the 20 m approach band (the rest was A12's).
+- **(c) 1:02, e2144 (~1,920 m), left.** The left exit's gore: the median
+  Jersey started square beside the yellow line, the land behind at its top.
+
+**The rules (general).**
+
+- **A sloped end** (CityMeshes.cs, `TaperLenM` 8 m, `TaperFootM` 0.12 m): a
+  median Jersey's run end is turned down from 0.81 m to a curb over 8 m
+  (1:10, the sloped concrete end) instead of capped square. Per-section
+  heights (`taperL/taperR`) are decided with the flares in the run-end loop;
+  a hand-over to another barrier kind is left as it was. Rails stay full
+  height: a rail is there for a drop.
+- **The gore nose keeps its block and gets a sloped V in front** (`EmitNose`):
+  two rails from an apex on the painted gore's middle line to the nose's
+  ends, rising from a curb at the apex to full height at the block, their
+  traffic faces ending on the two pavements' edges. The apex stands 3x the
+  nose's half width back (1:3 legs), no further than the gore leaves 1.2 m
+  for it, never closer than 2.5x. Each leg only where it stands in no lane;
+  a leg whose low end was in a lane starts at curb height where it leaves
+  it (`EmitRailOffLanes` heights).
+- **Union medians** (`CityMeshes.Unions.cs`):
+  - Only opposing traffic stands a median (`MedianOfUnion`): a ramp beside
+    its mainline or another ramp, or two roads the same way, share the deck
+    with a flush strip and NO median (they merge and diverge across a gore).
+  - Approach medians only between the twin carriageways of one road (pair
+    kind Dual; every sample: no ramp, the same name, running the other way).
+    A Jersey approach now carries on for as long as the twins stay beside
+    each other in the band (gap within 6.6 m, one height within
+    `SharedGuardDyM`, short of a fan), over structure the solve made but
+    never onto an OSM bridge kept apart, up to 2.5 km
+    (`UnionApproachBarrierM`). A walk stopped by the next run meets it
+    exactly (one line, no ends turned down at each other).
+  - Closed ends: on the ground the Jersey is turned down over 8 m (a
+    curb-high cap); on a deck the median splits into a V over max(8 m, 1.5x
+    the gap) - two legs as wide as a parapet, meeting each carriageway's own
+    parapet on its edge - instead of a rail square across the slab's end.
+  - A standing median (Jersey, curbs, legs) only where the road across is
+    drawn beyond this one's edge; the flush strip as before.
+- **No isolated piece under 30 m** (`MinMedianRunM`): a median Jersey or a
+  cut wall run ending inside its edge at both ends is dropped in the
+  side-flag pass (from the spans' data, so every tile drops the same piece);
+  a union median that short, closed at both ends, is a flush strip
+  (`UnionDrawsSolid`). PSX_CITY_KEEP_SHORT=1 keeps them (the before-count).
+- **The audits.**
+  - `CityAudit.RunDrive` (`tools\city-cycle.ps1 -DriveOnly`,
+    `city_drive.txt`, PSX_DRIVE_ROUTES): the DRIVE AUDIT on every tile the
+    three race routes cross (111 tiles), checked on the routes' 184 edges,
+    other roads reported; then the union runs along each route and the
+    short barrier census.
+  - **BLUNT** (every drive audit): a ray at bumper height (0.45 m) along the
+    travel from points across the lanes, and out past either edge over
+    pavement that carries on flush and is reached without crossing a
+    barrier, must meet no face within 60 deg of square to it.
+  - **The short barrier census** (`CityAudit.Barriers.cs`, in the city audit
+    and RunDrive): every tile a barriered road crosses (1,540) built with
+    the span record on; isolated Jersey-height pieces under 30 m counted
+    city-wide, the ten shortest listed. A check: 0.
+  - TWIN (b)/(c) count a closed deck end's V legs as its designed median
+    (`InUnionEndV`).
+- **Named views** (`CityPreview`): `i277_a_gore`, `i277_b_union_end`,
+  `i277_c_median` (group `i277`), `short_i485_e14173` (group `short`).
+
+**BEFORE -> AFTER**
+
+| | BEFORE (main e2a80f1c) | AFTER |
+|---|---|---|
+| DRIVE AUDIT, the three race routes' 184 edges (111 tiles): walls / steps / holes / off / grass | 0 / 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 / 0 |
+| BLUNT on those edges (uptown 27, independence 2) | 29 | 0 |
+| BLUNT on the other roads of those tiles (reported) | 75 | 12 |
+| DRIVE AUDIT, the nine default tiles, BLUNT | (no check) | 0, every other probe 0 |
+| short barrier census, city-wide (1,540 tiles) | 29 pieces: 25 median Jerseys / cut walls (558 m), 4 union medians | 0 |
+| union approach runs | 232, 4,165 m | 246, 14,394 m |
+| `BuildDeckUnions` (editor) | 76 ms | 165-187 ms |
+| city audit (OwnerBox) failures | 16 (L8) | 16, the same set |
+| TWIN (b) open slot / (c) walls | 139.0 m / 78 | 138.0 m / 75 |
+| rail census | 6 runs, 6 m | 5 runs, 5 m |
+| unguarded ledges | 5 | 4 |
+| lane survey, runs not named (already failing) | 5 | 8 (V legs' faces beside three ramps' lane lines) |
+| tile build p95 (9 budget sites) | 123.1 ms | 112.4 ms |
+
+- The ten shortest pieces BEFORE: a 6.0 m union Raised median on Tuckaseegee
+  Road (e8945), a 7.6 m median Jersey on Independence Boulevard (e16243), a
+  7.8 m cut wall on I-485 at its ramp (e14173, the BEFORE/AFTER pair
+  `short_i485_e14173`), a 9.2 m union Raised median on University City
+  Boulevard (e10094), an 11.4 m union Jersey between the ramps e11144/e11147
+  at East 12th Street, then 17.8-19.0 m cut walls on I-485 (e2606, e14168),
+  I-85 (e9930, e11457) and I-77 (e8470). A piece another barrier carries on
+  from (a median Jersey between two rails) is one barrier changing kind, not
+  a block, and is neither counted nor dropped.
+- **Not done (lean):** the lane survey's three new runs are V legs' traffic
+  faces at three ramps' edges (e14103, e327, e2735; no probe of the drive
+  audit or BLUNT meets them); a nose whose gore never opens 0.6 m keeps its
+  block alone. Rails are not tapered (a rail guards a drop).
+- **The race:** `tools\race-play-check.ps1 -Venue UptownLoop -Hour night
+  -Finish` (rebaked, -NoWatch: the watched editor stopped on the window
+  layout prompt): all four cars home in 259 s, 0 hard hits, 0 retirements,
+  0 traffic wrecks, no hits by kind.
+- **No rebake** for the geometry (tiles build at runtime); no height moved.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

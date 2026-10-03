@@ -386,6 +386,7 @@ namespace PSXRacing.EditorTools
             HydroAudit(map, trims, buildings);
             TreeAudit(map, trims, buildings);
             SignAudit(map, trims, buildings);
+            ShortBarrierCensus(map, trims, buildings);
 
             // ---- the budget (WP-01): nine sites through CityWorld's own
             // path; city_budget.txt holds the table, the audit its summary.
@@ -553,22 +554,100 @@ namespace PSXRacing.EditorTools
                   $"{over} of {samples} rays cross more than {designed}");
         }
 
-        static void DriveAudit(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings)
+        /// <summary>
+        /// THE DRIVE AUDIT ALONG THE RACE ROUTES (hotfix 2026-10-03, the
+        /// owner's I-277 race: "90 degree concrete formations ... they ended my
+        /// race"). The nine default tiles never saw the Uptown Loop's I-277:
+        /// this stands up every tile a route's edges cross (with its eight
+        /// neighbours) and runs the same probes there, plus BLUNT. The checks
+        /// count the ROUTES' own edges; every other road on those tiles is
+        /// reported, not checked. PSX_DRIVE_ROUTES picks routes ("uptown,tryon",
+        /// default all three). tools\city-cycle.ps1 -DriveOnly runs this alone
+        /// (city_drive.txt), without the city audit's quarter hour.
+        /// </summary>
+        [MenuItem("PSX Racing/Audit City Drive (race routes)")]
+        public static void RunDrive()
+        {
+            outLog = new StringBuilder();
+            failures = 0;
+            var map = CityMap.Get();
+            if (map == null) { Fail("charlotte_city.bytes missing from Resources"); FinishTo("city_drive.txt"); return; }
+            var trims = CityMeshes.NodeTrims(map);
+            var buildings = CityBuildings.Precompute(map);
+            routeOfEdge = RouteEdges(map);
+            string want = System.Environment.GetEnvironmentVariable("PSX_DRIVE_ROUTES");
+            var ids = new HashSet<string>();
+            if (!string.IsNullOrWhiteSpace(want)) foreach (var t in want.Split(',', ';', ' ')) if (t.Trim().Length > 0) ids.Add(t.Trim());
+            var tiles = new List<(int tx, int tz, string why)>();
+            var seen = new HashSet<long>();
+            var routeEdges = new HashSet<int>();
+            foreach (var r in map.routes)
+            {
+                if (ids.Count > 0 && !ids.Contains(r.id)) continue;
+                foreach (var ei in r.edges)
+                {
+                    routeEdges.Add(ei);
+                    var e = map.edges[ei];
+                    for (float s = 0f; s <= e.length + 15.99f; s += 16f)
+                    {
+                        var p = e.PointAt(Mathf.Min(s, e.length));
+                        int tx = Mathf.FloorToInt(p.x / CityMeshes.TileSize), tz = Mathf.FloorToInt(p.y / CityMeshes.TileSize);
+                        if (seen.Add(TileKey(tx, tz))) tiles.Add((tx, tz, "route_" + r.id));
+                    }
+                }
+            }
+            Line($"drive audit along the race routes ({(ids.Count > 0 ? string.Join(",", ids) : "all")}): {routeEdges.Count} route edges on {tiles.Count} tiles");
+            DriveAudit(map, trims, buildings, tiles, routeEdges);
+            // ...and the nine tiles the city audit's own drive audit stands up
+            Line("drive audit on the city audit's nine default tiles:");
+            DriveAudit(map, trims, buildings);
+            // the union runs (plan A2's medians) along each route, in route order
+            var runs = new List<CityMeshes.AuditView.UnionRunView>();
+            foreach (var r in map.routes)
+            {
+                if (ids.Count > 0 && !ids.Contains(r.id)) continue;
+                float acc = 0f;
+                for (int k = 0; k < r.edges.Length; k++)
+                {
+                    var e = map.edges[r.edges[k]];
+                    CityMeshes.AuditView.UnionRunsOf(trims, e.index, runs);
+                    foreach (var u in runs)
+                        Line($"    union on route {r.id} at {acc:0} m: e{e.index} '{e.name}'{(e.bridge ? " B" : "")} side {(u.side > 0 ? "R(left of travel)" : "L(right of travel)")} {(u.owner ? "owner" : "partner")} of e{u.nb} {u.median}{(u.approach ? " approach" : "")} s {u.s0:0.0}..{u.s1:0.0}/{e.length:0}{(u.open0 ? " open0" : "")}{(u.open1 ? " open1" : "")}");
+                    acc += e.length;
+                }
+            }
+            // the short barrier pieces, city-wide (CityAudit.Barriers.cs; PSX_DRIVE_BARRIERS=0 skips it)
+            if (System.Environment.GetEnvironmentVariable("PSX_DRIVE_BARRIERS") != "0") ShortBarrierCensus(map, trims, buildings);
+            FinishTo("city_drive.txt");
+        }
+
+        static void DriveAudit(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings,
+                               List<(int tx, int tz, string why)> routeTiles = null, HashSet<int> routeEdges = null)
         {
             Line("deck unions (plan A2): " + CityMeshes.LastUnionReport);
-            var spots = new List<(string name, Vector2 at)> { ("uptown", map.uptown) };
-            foreach (var e in map.edges)
-                if (e.bridge && e.name == "West 5th Street") { spots.Add(("w5th", e.PointAt(e.length * 0.5f))); break; }
-            foreach (var ic in Interchanges(map, "I-277", "I-77")) spots.Add(("i277_i77", ic.at));
-            foreach (var ic in Interchanges(map, "I-77", "I-485")) { spots.Add(("i77_i485", ic.at)); break; }
-            foreach (var e in map.edges)
-                if (e.link && e.cls >= 5 && Vector2.Distance(map.nodes[e.b], map.uptown) > 3000f) { spots.Add(("gore", map.nodes[e.b])); break; }
-            foreach (var e in map.edges)
-                if (e.name == "I-485" && !e.link && e.length > 300f) { spots.Add(("i485", e.PointAt(e.length * 0.5f))); break; }
-            if (FindCreekBridge(map, out var creek)) spots.Add(("creek", creek.PointAt(creek.length * 0.5f)));
-            if (FindI77North(map, out var i77n)) spots.Add(("i77n", i77n.PointAt(i77n.length * 0.5f)));
+            bool routeMode = routeTiles != null;
+            var spots = new List<(string name, Vector2 at)>();
+            if (routeMode)
+                foreach (var (rtx, rtz, why) in routeTiles)
+                    spots.Add((why, new Vector2((rtx + 0.5f) * CityMeshes.TileSize, (rtz + 0.5f) * CityMeshes.TileSize)));
+            else
+            {
+                spots.Add(("uptown", map.uptown));
+                foreach (var e in map.edges)
+                    if (e.bridge && e.name == "West 5th Street") { spots.Add(("w5th", e.PointAt(e.length * 0.5f))); break; }
+                foreach (var ic in Interchanges(map, "I-277", "I-77")) spots.Add(("i277_i77", ic.at));
+                foreach (var ic in Interchanges(map, "I-77", "I-485")) { spots.Add(("i77_i485", ic.at)); break; }
+                foreach (var e in map.edges)
+                    if (e.link && e.cls >= 5 && Vector2.Distance(map.nodes[e.b], map.uptown) > 3000f) { spots.Add(("gore", map.nodes[e.b])); break; }
+                foreach (var e in map.edges)
+                    if (e.name == "I-485" && !e.link && e.length > 300f) { spots.Add(("i485", e.PointAt(e.length * 0.5f))); break; }
+                if (FindCreekBridge(map, out var creek)) spots.Add(("creek", creek.PointAt(creek.length * 0.5f)));
+                if (FindI77North(map, out var i77n)) spots.Add(("i77n", i77n.PointAt(i77n.length * 0.5f)));
+            }
 
-            int walls = 0, steps = 0, holes = 0, off = 0, grass = 0, probes = 0;
+            int walls = 0, steps = 0, holes = 0, off = 0, grass = 0, probes = 0, blunt = 0;
+            // the route mode's other roads on the route tiles: reported, not checked
+            int oWalls = 0, oSteps = 0, oHoles = 0, oOff = 0, oGrass = 0, oBlunt = 0;
             var notes = new List<(float sev, string what)>();
             void Note(float sev, string what) { notes.Add((sev, what)); }
             string Path(Collider c)
@@ -602,6 +681,19 @@ namespace PSXRacing.EditorTools
 
             var sectionDumps = new List<string>();
             var root = new GameObject("~driveAudit");
+            // the route mode keeps a tile's neighbours standing for the next
+            // tile along the route (they are contiguous)
+            var live = new Dictionary<long, GameObject>();
+            GameObject BuildTile(int x, int z)
+            {
+                var tm = CityMeshes.Build(map, trims, buildings, x, z);
+                CitySmooth.Collect(x, z, tm);
+                var go = new GameObject($"tile_{x}_{z}");
+                go.transform.SetParent(root.transform, false);
+                go.transform.position = tm.origin;
+                CityWorld.Attach(go, tm, null);
+                return go;
+            }
             try
             {
                 var segs = new HashSet<int>();
@@ -610,19 +702,33 @@ namespace PSXRacing.EditorTools
                     int ptx = Mathf.FloorToInt(at.x / CityMeshes.TileSize);
                     int ptz = Mathf.FloorToInt(at.y / CityMeshes.TileSize);
                     var tiles = new List<GameObject>();
+                    if (routeMode)
+                    {
+                        var gone = new List<long>();
+                        foreach (var kv in live)
+                        {
+                            int lx = (int)(kv.Key >> 32), lz = (int)(uint)kv.Key;
+                            if (Mathf.Abs(lx - ptx) > 1 || Mathf.Abs(lz - ptz) > 1 || (lx == ptx && lz == ptz)) gone.Add(kv.Key);
+                        }
+                        foreach (var k in gone) { Object.DestroyImmediate(live[k]); live.Remove(k); }
+                        for (int dz = -1; dz <= 1; dz++)
+                            for (int dx = -1; dx <= 1; dx++)
+                            {
+                                if (dx == 0 && dz == 0) continue;
+                                long key = TileKey(ptx + dx, ptz + dz);
+                                if (!live.ContainsKey(key)) live[key] = BuildTile(ptx + dx, ptz + dz);
+                            }
+                        // the centre LAST (the clip table describes it), rebuilt every time
+                        live[TileKey(ptx, ptz)] = BuildTile(ptx, ptz);
+                    }
+                    else
                     // the centre tile LAST, so CityMeshes' per-tile clip table
                     // describes the tile the probes run on
                     for (int k = 0; k < 9; k++)
                         {
                             int dx = k < 8 ? (k % 3) - 1 : 0, dz = k < 8 ? (k / 3) - 1 : 0;
                             if (k < 8 && dx == 0 && dz == 0) continue;
-                            var tm = CityMeshes.Build(map, trims, buildings, ptx + dx, ptz + dz);
-                            CitySmooth.Collect(ptx + dx, ptz + dz, tm);
-                            var go = new GameObject($"tile_{ptx + dx}_{ptz + dz}");
-                            go.transform.SetParent(root.transform, false);
-                            go.transform.position = tm.origin;
-                            CityWorld.Attach(go, tm, null);
-                            tiles.Add(go);
+                            tiles.Add(BuildTile(ptx + dx, ptz + dz));
                         }
                     Physics.SyncTransforms();
                     FanMouths(map, trims, ptx, ptz);
@@ -634,10 +740,12 @@ namespace PSXRacing.EditorTools
                     map.EdgeSegsInRect(min, max, segs);
                     var edges = new HashSet<int>();
                     foreach (var p in segs) edges.Add(p >> 12);
-                    int wallsHere = 0, stepsHere = 0, holesHere = 0, offHere = 0, grassHere = 0;
+                    int wallsHere = 0, stepsHere = 0, holesHere = 0, offHere = 0, grassHere = 0, bluntHere = 0;
                     foreach (var ei in edges)
                     {
                         var e = map.edges[ei];
+                        // the route mode checks the routes' own edges; the rest is reported
+                        bool counted = !routeMode || routeEdges.Contains(ei);
                         float sMin = trims.atA[ei], sMax = e.length - trims.atB[ei];
                         if (sMax - sMin < 1f) continue;
                         var prevY = new[] { float.NaN, float.NaN, float.NaN };
@@ -666,8 +774,8 @@ namespace PSXRacing.EditorTools
                                 probes++;
                                 if (!RaycastPastLamps(w, Vector3.down, out var hit, 6.5f))
                                 {
-                                    holes++; holesHere++;
-                                    Note(3f, $"HOLE  {spot} e{ei} '{e.name}'{(e.link ? " L" : "")} s={s:0} lane{k} at ({w.x:0},{w.z:0}) roadY {y:0.00}{CityMeshes.DescribeClip(map, trims, e, s)}");
+                                    if (counted) { holes++; holesHere++; } else oHoles++;
+                                    if (counted) Note(3f, $"HOLE  {spot} e{ei} '{e.name}'{(e.link ? " L" : "")} s={s:0} lane{k} at ({w.x:0},{w.z:0}) roadY {y:0.00}{CityMeshes.DescribeClip(map, trims, e, s)}");
                                     prevY[k] = float.NaN;
                                     continue;
                                 }
@@ -681,22 +789,28 @@ namespace PSXRacing.EditorTools
                                 string hp = Path(hit.collider);
                                 if (hp.EndsWith("/Ground") || hp.EndsWith("/Water"))
                                 {
-                                    grass++; grassHere++;
-                                    Note(1.5f + Mathf.Abs(d), $"GRASS {spot} e{ei} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} s={s:0}/{e.length:0} lane{k} land {d:+0.00;-0.00} m from the solve and ON TOP of the tarmac: {hp} at ({w.x:0},{w.z:0}){(e.ElevatedAt(s) ? " deck" : "")} sag {e.SagAt(s):0.00}{Owner(hit.point, ei)}");
+                                    if (counted) { grass++; grassHere++; } else oGrass++;
+                                    if (counted) Note(1.5f + Mathf.Abs(d), $"GRASS {spot} e{ei} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} s={s:0}/{e.length:0} lane{k} land {d:+0.00;-0.00} m from the solve and ON TOP of the tarmac: {hp} at ({w.x:0},{w.z:0}){(e.ElevatedAt(s) ? " deck" : "")} sag {e.SagAt(s):0.00}{Owner(hit.point, ei)}");
                                 }
                                 if (Mathf.Abs(d) > 0.35f)
                                 {
-                                    off++; offHere++;
-                                    Note(Mathf.Abs(d), $"OFF   {spot} e{ei} '{e.name}'{(e.link ? " L" : "")} s={s:0} lane{k} surface {d:+0.00;-0.00} m from the solve, hit {Path(hit.collider)} at ({w.x:0},{w.z:0}){CityMeshes.DescribeClip(map, trims, e, s)}{Owner(hit.point, ei)}");
+                                    if (counted) { off++; offHere++; } else oOff++;
+                                    if (counted) Note(Mathf.Abs(d), $"OFF   {spot} e{ei} '{e.name}'{(e.link ? " L" : "")} s={s:0} lane{k} surface {d:+0.00;-0.00} m from the solve, hit {Path(hit.collider)} at ({w.x:0},{w.z:0}){CityMeshes.DescribeClip(map, trims, e, s)}{Owner(hit.point, ei)}");
                                 }
                                 if (!float.IsNaN(prevY[k]) && Mathf.Abs(hit.point.y - prevY[k]) > LaneStepM)
                                 {
-                                    steps++; stepsHere++;
-                                    Note(Mathf.Abs(hit.point.y - prevY[k]) + 1f, $"STEP  {spot} e{ei} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} s={s:0}/{e.length:0} lane{k} {hit.point.y - prevY[k]:+0.00;-0.00} m over 0.5 m, on {Path(hit.collider)} at ({w.x:0},{w.z:0}) deg{map.nodeEdges[e.a].Count}/{map.nodeEdges[e.b].Count} trims {trims.atA[ei]:0.0}/{trims.atB[ei]:0.0}{CityMeshes.DescribeClip(map, trims, e, s)}{Owner(hit.point, ei)}");
+                                    if (counted) { steps++; stepsHere++; } else oSteps++;
+                                    if (counted) Note(Mathf.Abs(hit.point.y - prevY[k]) + 1f, $"STEP  {spot} e{ei} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} s={s:0}/{e.length:0} lane{k} {hit.point.y - prevY[k]:+0.00;-0.00} m over 0.5 m, on {Path(hit.collider)} at ({w.x:0},{w.z:0}) deg{map.nodeEdges[e.a].Count}/{map.nodeEdges[e.b].Count} trims {trims.atA[ei]:0.0}/{trims.atB[ei]:0.0}{CityMeshes.DescribeClip(map, trims, e, s)}{Owner(hit.point, ei)}");
                                 }
                                 prevY[k] = hit.point.y;
                             }
                             if (stepN % 4 != 0) continue;
+                            // BLUNT (hotfix 2026-10-03): a face square to the
+                            // travel, at bumper height, on the lanes or on the
+                            // pavement that carries on flush past either edge
+                            // (a union's median strip, a gore, the next ribbon)
+                            if (hwL + hwR >= 2.0f && BluntAhead(map, trims, e, s, p, tan, right, y, hwL, hwR, counted, spot, ref bluntHere, Note, Path, Owner))
+                            { if (counted) blunt++; else oBlunt++; }
                             // not on the end lines: a mitred rail end lies exactly there
                             if (s < sMin + 1.5f || s > sMax - 1.5f) continue;
                             // a deck's rail stands 0.3 m INSIDE the deck edge
@@ -708,12 +822,13 @@ namespace PSXRacing.EditorTools
                             dir /= len;
                             if (RaycastPastLamps(a, dir, out var h1, len) || RaycastPastLamps(b, -dir, out h1, len))
                             {
-                                walls++; wallsHere++;
-                                Note(2f, $"WALL  {spot} e{ei} '{e.name}'{(e.link ? " L" : "")} s={s:0}/{e.length:0} hw {hwL:0.0}/{hwR:0.0} across the lane: {Path(h1.collider)} at ({h1.point.x:0},{h1.point.z:0}) y {h1.point.y:0.00} (road {y:0.00}) lateral {Vector2.Dot(new Vector2(h1.point.x, h1.point.z) - p, right):+0.0;-0.0}{Owner(h1.point, ei)}");
+                                if (counted) { walls++; wallsHere++; } else oWalls++;
+                                if (counted) Note(2f, $"WALL  {spot} e{ei} '{e.name}'{(e.link ? " L" : "")} s={s:0}/{e.length:0} hw {hwL:0.0}/{hwR:0.0} across the lane: {Path(h1.collider)} at ({h1.point.x:0},{h1.point.z:0}) y {h1.point.y:0.00} (road {y:0.00}) lateral {Vector2.Dot(new Vector2(h1.point.x, h1.point.z) - p, right):+0.0;-0.0}{Owner(h1.point, ei)}");
                             }
                         }
                     }
-                    Line($"drive {spot} at ({at.x:0},{at.y:0}): {edges.Count} edges, walls {wallsHere}, steps {stepsHere}, holes {holesHere}, off-surface {offHere}, grass {grassHere}");
+                    if (!routeMode || wallsHere + stepsHere + holesHere + offHere + grassHere + bluntHere > 0)
+                        Line($"drive {spot} at ({at.x:0},{at.y:0}){(routeMode ? $" tile {ptx},{ptz}" : "")}: {edges.Count} edges, walls {wallsHere}, steps {stepsHere}, holes {holesHere}, off-surface {offHere}, grass {grassHere}, blunt {bluntHere}");
                     // the sections of the worst two edges on this tile, as drawn
                     var worst = new List<(float sev, int ei)>();
                     foreach (var (sev, what) in notes)
@@ -725,7 +840,7 @@ namespace PSXRacing.EditorTools
                             worst.Add((sev, wei));
                     }
                     worst.Sort((x, z) => z.sev.CompareTo(x.sev));
-                    for (int wi = 0; wi < Mathf.Min(2, worst.Count); wi++)
+                    for (int wi = 0; wi < Mathf.Min(2, worst.Count) && (!routeMode || sectionDumps.Count < 6); wi++)
                     {
                         var we = map.edges[worst[wi].ei];
                         sectionDumps.Add(CityMeshes.DescribeSections(map, trims, we));
@@ -738,24 +853,116 @@ namespace PSXRacing.EditorTools
             }
             finally { Object.DestroyImmediate(root); }
 
-            Line($"drive audit: {probes} probes on {spots.Count} tiles");
-            Check(walls == 0, "nothing solid stands across any lane (drive audit)", walls);
-            Check(steps == 0, "no lane surface steps more than 12 cm in half a metre (drive audit)", steps);
-            Check(holes == 0, "every lane has a surface under it (drive audit)", holes);
-            Check(off == 0, "every lane surface is where the solve put it (drive audit)", off);
-            Check(grass == 0, "no land stands on top of any lane (drive audit)", grass);
+            string where = routeMode ? " on the race routes' edges" : "";
+            Line($"drive audit: {probes} probes on {spots.Count} tiles{(routeMode ? $"; the other roads on those tiles (reported, not checked): walls {oWalls}, steps {oSteps}, holes {oHoles}, off-surface {oOff}, grass {oGrass}, blunt {oBlunt}" : "")}");
+            Check(walls == 0, $"nothing solid stands across any lane{where} (drive audit)", walls);
+            Check(blunt == 0, $"no face square to the travel stands on a lane or the pavement flush beside it{where} (drive audit BLUNT)", blunt);
+            Check(steps == 0, $"no lane surface steps more than 12 cm in half a metre{where} (drive audit)", steps);
+            Check(holes == 0, $"every lane has a surface under it{where} (drive audit)", holes);
+            Check(off == 0, $"every lane surface is where the solve put it{where} (drive audit)", off);
+            Check(grass == 0, $"no land stands on top of any lane{where} (drive audit)", grass);
             notes.Sort((p, q) => q.sev.CompareTo(p.sev));
             var seen = new HashSet<string>();
-            int shown = 0;
+            int shown = 0, showMax = routeMode ? 60 : 24;
             foreach (var (sev, what) in notes)
             {
                 // one line per edge and kind, worst first
                 string key = what.Substring(0, Mathf.Min(what.Length, what.IndexOf(" s=") > 0 ? what.IndexOf(" s=") : what.Length));
                 if (!seen.Add(key)) continue;
                 Line("    " + what);
-                if (++shown >= 24) break;
+                if (++shown >= showMax) break;
             }
             foreach (var dump in sectionDumps) Line(dump.TrimEnd());
+        }
+
+        /// <summary>BLUNT's ray: this high over the surface (a bumper), this
+        /// long (just over the 2 m between samples), across the lanes at most
+        /// this far apart, and out past each edge in 1 m steps while flush
+        /// pavement carries on, at most this far.</summary>
+        const float BluntRayH = 0.45f, BluntRayM = 2.2f, BluntLatStepM = 2.5f, BluntOutM = 4f;
+        /// <summary>A face is square to the travel when its normal is within
+        /// 60 degrees of straight back at the car (a tapered nose's is not),
+        /// and it is a face, not a surface the wheels climb.</summary>
+        const float BluntFacing = 0.5f, BluntNormalUpMax = 0.6f;
+        static readonly List<float> bluntLats = new List<float>(16);
+
+        /// <summary>
+        /// BLUNT (hotfix 2026-10-03, the owner's I-277 race): from points
+        /// across the lanes of e at s, and out past either edge over pavement
+        /// that carries on flush (within 0.25 m of the road: a union's median
+        /// strip, a gore, a ribbon beside), a ray at bumper height along the
+        /// travel (both ways on a two-way road) must meet no face square to
+        /// it - a median's or parapet's end, an abutment face, a rail across.
+        /// A tapered nose turns its faces aside and passes. True when one is
+        /// hit (noted when <paramref name="counted"/>).
+        /// </summary>
+        static bool BluntAhead(CityMap map, CityMeshes.Trims trims, CityMap.Edge e, float s, Vector2 p, Vector2 tan, Vector2 right, float y,
+                               float hwL, float hwR, bool counted, string spot, ref int bluntHere,
+                               System.Action<float, string> note, System.Func<Collider, string> path, System.Func<Vector3, int, string> owner)
+        {
+            float sa = Mathf.Max(0f, s - 1f), sb = Mathf.Min(e.length, s + 1f);
+            float slope = sb - sa > 0.1f ? (e.YAt(sb) - e.YAt(sa)) / (sb - sa) : 0f;
+            float latL = -(hwL - 0.55f), latR = hwR - 0.55f;
+            bluntLats.Clear();
+            int nIn = Mathf.Max(2, Mathf.CeilToInt((latR - latL) / BluntLatStepM) + 1);
+            for (int j = 0; j < nIn; j++) bluntLats.Add(Mathf.Lerp(latL, latR, (float)j / (nIn - 1)));
+            for (int sd = -1; sd <= 1; sd += 2)
+                for (float o = 1f; o <= BluntOutM + 1e-3f; o += 1f)
+                {
+                    float lat = sd < 0 ? latL - o : latR + o;
+                    var top = new Vector3(p.x + right.x * lat, y + 3f, p.y + right.y * lat);
+                    if (!RaycastPastLamps(top, Vector3.down, out var g, 6.5f) || !g.collider.name.Equals("Roads") || Mathf.Abs(g.point.y - y) > 0.25f) break;
+                    // ...reached from the lanes without crossing a barrier (the
+                    // inside of a V nose is pavement no car can get onto)
+                    float latPrev = sd < 0 ? latL - (o - 1f) : latR + (o - 1f);
+                    var from = new Vector3(p.x + right.x * latPrev, g.point.y + BluntRayH, p.y + right.y * latPrev);
+                    var to = new Vector3(top.x, g.point.y + BluntRayH, top.z);
+                    if (RaycastPastLamps(from, (to - from).normalized, out _, (to - from).magnitude)) break;
+                    bluntLats.Add(lat);
+                }
+            foreach (float lat in bluntLats)
+            {
+                var top = new Vector3(p.x + right.x * lat, y + 3f, p.y + right.y * lat);
+                float baseY = y;
+                if (RaycastPastLamps(top, Vector3.down, out var g, 6.5f) && Mathf.Abs(g.point.y - y) < 0.6f) baseY = g.point.y;
+                for (int dsg = 1; dsg >= (e.oneway ? 1 : -1); dsg -= 2)
+                {
+                    var d3 = new Vector3(tan.x * dsg, slope * dsg, tan.y * dsg).normalized;
+                    var o3 = new Vector3(top.x, baseY + BluntRayH, top.z);
+                    if (!RaycastPastLamps(o3, d3, out var hb, BluntRayM)) continue;
+                    float facing = Vector3.Dot(hb.normal, -d3);
+                    if (facing < BluntFacing || hb.normal.y > BluntNormalUpMax) continue;
+                    if (counted)
+                    {
+                        bluntHere++;
+                        int side = lat < 0f ? -1 : 1;   // L is the right of travel, R the left (BuildSections)
+                        bool inLanes = lat >= latL - 0.01f && lat <= latR + 0.01f;
+                        note(2.5f, $"BLUNT {spot} e{e.index} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} s={s:0}/{e.length:0} lateral {lat:+0.0;-0.0} ({(inLanes ? "on the lanes" : "on flush pavement past the " + (side < 0 ? "right" : "left") + " edge")}) {(dsg > 0 ? "ahead" : "behind")}: {path(hb.collider)} face at ({hb.point.x:0.0},{hb.point.z:0.0}) {hb.distance:0.0} m on, {hb.point.y - baseY:+0.00} over the surface, facing {facing:0.00}{TriOf(hb)}{CityMeshes.DescribeSide(map, trims, e, s, side)}{owner(hb.point, e.index)}");
+                    }
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>The hit triangle's corners (world), for a BLUNT note.</summary>
+        static string TriOf(RaycastHit h)
+        {
+            var mc = h.collider as MeshCollider;
+            if (mc == null || mc.sharedMesh == null || h.triangleIndex < 0) return "";
+            var m = mc.sharedMesh; var t = m.triangles; var v = m.vertices;
+            int i = h.triangleIndex * 3;
+            if (i + 2 >= t.Length) return "";
+            var tr = mc.transform;
+            Vector3 a = tr.TransformPoint(v[t[i]]), b = tr.TransformPoint(v[t[i + 1]]), c = tr.TransformPoint(v[t[i + 2]]);
+            return $" tri ({a.x:0.0},{a.y:0.00},{a.z:0.0}) ({b.x:0.0},{b.y:0.00},{b.z:0.0}) ({c.x:0.0},{c.y:0.00},{c.z:0.0})";
+        }
+
+        /// <summary>Finish to another file (the drive-only run).</summary>
+        static void FinishTo(string file)
+        {
+            outLog.AppendLine(failures == 0 ? "CITY AUDIT OK" : $"CITY AUDIT: {failures} FAILURES");
+            File.WriteAllText(Path.Combine(Directory.GetParent(Application.dataPath).FullName, file), outLog.ToString());
         }
 
         // ==================================================================
