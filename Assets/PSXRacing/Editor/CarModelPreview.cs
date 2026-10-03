@@ -94,6 +94,18 @@ namespace PSXRacing.EditorTools
                      new Vector3(0f, def.colliderSize.y * 0.55f, 0f));
                 shots += 2;
 
+                // Pop-up lamps: the same two views with the lamps-up body on
+                // (what CarLights shows while the running lights are on).
+                if (def.lampsUpMesh != null)
+                {
+                    go.transform.Find("Body").GetComponent<MeshFilter>().sharedMesh = def.lampsUpMesh;
+                    Shot(cam, m.key + "_34_up", new Vector3(len * 0.95f, len * 0.52f, len * 1.15f),
+                         new Vector3(0f, def.colliderSize.y * 0.5f, 0f));
+                    Shot(cam, m.key + "_side_up", new Vector3(len * 2.1f, len * 0.22f, 0f),
+                         new Vector3(0f, def.colliderSize.y * 0.55f, 0f));
+                    shots += 2;
+                }
+
                 Object.DestroyImmediate(go);
             }
 

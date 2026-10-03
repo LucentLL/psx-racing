@@ -113,10 +113,14 @@ const MODELS = [
   // the 1.55 m swept rear lens band, shallow painted side intakes, MR
   // underbody kept; 2,922 body tris + 4 x 124, one 512x256 atlas (yellow).
   // Delivered as GLB only: tools/carmodels/glb2obj.py turned the HEADLIGHTS-
-  // DOWN variant (pop-ups closed) into converted/midship_coupe_v04. The same
-  // folder's coupe_v04_headlights_up.glb (lamps raised, same atlas) is kept
-  // for a possible night pop-up feature - not built.
+  // DOWN variant (pop-ups closed) into converted/midship_coupe_v04, and
+  // (owner 2026-10-03: "two models for NSX. One with headlights down and one
+  // with headlights flipped-up") the same folder's coupe_v04_headlights_up.glb
+  // into midship_coupe_v04_up - same atlas, same frame, lamps raised. It
+  // becomes the shell's second BODY (`lampsUp`): no wheels of its own, and the
+  // DOWN body's scale, so the two coincide everywhere but the lamps.
   { key: 'midship_coupe', obj: `${here}/converted/midship_coupe_v04/midship_coupe_v04.obj`,
+    lampsUp: `${here}/converted/midship_coupe_v04/midship_coupe_v04_up.obj`,
     tex: `${ownerCars}/NSX_Independent_Textured_v04`, skins: /^midship_coupe_yellow_512x256$/,
     gt4LengthM: 4.430 },
   { key: 'classic_roadster', obj: `${ownerCars}/Classic_Roadster_PSX/classic_roadster.obj`,
@@ -242,6 +246,7 @@ for (const m of MODELS) {
   // with a GT4 length is scaled, uniformly, to it. A car's length is its
   // longest extent whichever way the file is turned, so this needs no axis
   // convention — which is the reason the rule above exists.
+  let s = 1;
   if (m.gt4LengthM) {
     let len = 0;
     for (let k = 0; k < 3; k++) {
@@ -249,7 +254,7 @@ for (const m of MODELS) {
       for (const p of src.v) { lo = Math.min(lo, p[k]); hi = Math.max(hi, p[k]); }
       len = Math.max(len, hi - lo);
     }
-    const s = m.gt4LengthM / len;
+    s = m.gt4LengthM / len;
     for (const p of src.v) { p[0] *= s; p[1] *= s; p[2] *= s; }
     report.push(`${m.key.padEnd(14)} scaled x${s.toFixed(4)}: ${len.toFixed(3)} m -> GT4 ${m.gt4LengthM.toFixed(3)} m long`);
   }
@@ -290,6 +295,30 @@ for (const m of MODELS) {
     stats[mtl] = writeObj(path.join(dir, file), src, [{ name: mtl, faces }], mtl);
     fs.writeFileSync(path.join(dir, file.replace('.obj', '.mtl')),
       `# PSX Racing car model\nnewmtl ${mtl}\nKa 1 1 1\nKd 1 1 1\nillum 1\nmap_Kd textures/${first}.png\n`);
+  }
+
+  // POP-UP LAMPS: the lamps-raised body, `${key}_lampsup.obj`. Scaled by the
+  // DOWN body's factor, never its own: a raised lamp could stand proud of the
+  // nose and change the longest extent, and then the two bodies would no
+  // longer coincide. The baker hangs it on the same yaw and offsets.
+  if (m.lampsUp) {
+    const up = parseObj(m.lampsUp);
+    for (const p of up.v) { p[0] *= s; p[1] *= s; p[2] *= s; }
+    const upFaces = [];
+    for (const o of up.objects)
+      if (!wheelSlot(o.name) && (!m.parts || m.parts.includes(o.name))) upFaces.push(...o.faces);
+    if (upFaces.length === 0) throw new Error(`${m.key}: no lamps-up body faces`);
+    const mtl = m.key + '_lampsup';
+    stats[mtl] = writeObj(path.join(dir, mtl + '.obj'), up, [{ name: mtl, faces: upFaces }], mtl);
+    fs.writeFileSync(path.join(dir, mtl + '.mtl'),
+      `# PSX Racing car model
+newmtl ${mtl}
+Ka 1 1 1
+Kd 1 1 1
+illum 1
+map_Kd textures/${first}.png
+`);
+    report.push(`${m.key.padEnd(14)} lamps-up body=${stats[mtl].faces}f (x${s.toFixed(4)}, the body's scale)`);
   }
 
   for (const f of skins)

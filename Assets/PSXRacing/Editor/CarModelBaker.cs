@@ -122,6 +122,13 @@ namespace PSXRacing.EditorTools
             Mesh bodyMesh = src.GetComponentInChildren<MeshFilter>()?.sharedMesh;
             if (bodyMesh == null) throw new Exception("body mesh missing");
 
+            // POP-UP LAMPS, where the shell has them: the same body with its
+            // lamps raised (export_models.mjs `lampsUp`), exported in the
+            // body's own frame and scale, so it takes every offset below as
+            // it is. Optional; nothing else is measured off it but its lamps.
+            var upSrc = AssetDatabase.LoadAssetAtPath<GameObject>(dir + "/" + model.key + "_lampsup.obj");
+            Mesh lampsUpMesh = upSrc != null ? upSrc.GetComponentInChildren<MeshFilter>()?.sharedMesh : null;
+
             Mesh frontAxle = null, rearAxle = null, wheelSrc = null;
             if (builtIn)
             {
@@ -201,6 +208,15 @@ namespace PSXRacing.EditorTools
             d.key = model.key;
             d.displayName = model.name;
             d.bodyMesh = bodyMesh;
+            d.lampsUpMesh = lampsUpMesh;
+            if (lampsUpMesh != null)
+            {
+                // The two bodies must coincide: same box to the millimetre
+                // (raised pods stay inside the body's length and height).
+                var ub = lampsUpMesh.bounds;
+                float off = Mathf.Max((ub.min - bodyMesh.bounds.min).magnitude, (ub.max - bodyMesh.bounds.max).magnitude);
+                log.Add($"{model.key,-13} lamps-up body: {lampsUpMesh.triangles.Length / 3} tris, bounds off the body by {off * 1000f:0.0} mm");
+            }
             d.wheelMesh = wheel;
             d.bodyYaw = bodyYaw;
             d.bodyYOffset = bodyY;

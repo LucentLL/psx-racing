@@ -126,6 +126,32 @@ namespace PSXRacing
         public Vector2 tailLampSize;
         public bool LampsMeasured => headLampSize.x > 0f && tailLampSize.x > 0f;
 
+        /// <summary>
+        /// POP-UP LAMPS (owner, 2026-10-03: "There should be two models for
+        /// NSX. One with headlights down and one with headlights flipped-up").
+        /// The same body with its lamps raised, in <see cref="bodyMesh"/>'s
+        /// own frame and scale, so it wears the same yaw and offsets and the
+        /// two coincide everywhere but the lamps; the wheels are shared. Null
+        /// for a car with fixed lamps. CarLights puts it on the body's
+        /// MeshFilter while the running lights are on and puts
+        /// <see cref="bodyMesh"/> back when they go off - one mesh either
+        /// way, so no extra draw. Everything else (collider, cowl, the chase
+        /// silhouette) is measured off the DOWN body.
+        /// </summary>
+        public Mesh lampsUpMesh;
+        /// <summary>The head lamp on the RAISED pods, measured off
+        /// <see cref="lampsUpMesh"/> as <see cref="headLamp"/> is off the
+        /// body. The head lenses and beams are only ever lit with the pods
+        /// up, so CarLights seats them here whenever this was measured.</summary>
+        public Vector3 headLampUp;
+        public Vector3 headLampUpNormal = Vector3.forward;
+        public Vector2 headLampUpSize;
+        public bool HasPopUps => lampsUpMesh != null;
+        public bool PopUpLampsMeasured => lampsUpMesh != null && headLampUpSize.x > 0f;
+
+        /// <summary>The body to show with the running lights on or off.</summary>
+        public Mesh BodyMeshFor(bool lightsOn) => lightsOn && lampsUpMesh != null ? lampsUpMesh : bodyMesh;
+
         public Vector3 colliderCenter = new Vector3(0f, 0.72f, 0.05f);
         public Vector3 colliderSize = new Vector3(1.72f, 1.0f, 4.1f);
         /// <summary>Width/length of the blob shadow quad.</summary>

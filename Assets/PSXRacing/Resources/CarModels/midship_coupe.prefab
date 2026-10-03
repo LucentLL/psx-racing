@@ -72,6 +72,10 @@ MonoBehaviour:
   tailLamp: {x: 0.5692944, y: 0.7540767, z: -2.11335}
   tailLampNormal: {x: 0.07746492, y: 0, z: -0.9969951}
   tailLampSize: {x: 0.3703514, y: 0.18994498}
+  lampsUpMesh: {fileID: -2432090755550338912, guid: 30b80f0c298d4b47922edfcab32f8254, type: 3}
+  headLampUp: {x: 0.57364726, y: 0.62577057, z: 1.8751916}
+  headLampUpNormal: {x: 0.000002249405, y: 0.06167864, z: 0.99809605}
+  headLampUpSize: {x: 0.23809882, y: 0.10029003}
   colliderCenter: {x: 0, y: 0.6449856, z: -0.022524953}
   colliderSize: {x: 1.7899303, y: 0.94066197, z: 4.2306504}
   blobSize: {x: 2.3865738, y: 4.7401004}

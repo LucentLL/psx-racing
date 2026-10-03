@@ -37,6 +37,18 @@ namespace PSXRacing.EditorTools
             globals.fogNear = 400f;
             globals.fogFar = 900f;
             globals.SendMessage("Apply", SendMessageOptions.DontRequireReceiver);
+            // Night, for the beam's numbers (BeamIntensityFor / BeamNight), and
+            // a floor for it to land on: the pool on the ground says which
+            // lamps it came from (the raised pods, on a pop-up shell).
+            Shader.SetGlobalFloat("_PSXNight", 1f);
+            var floorShader = Shader.Find("PSX/Lit");
+            if (floorShader != null)
+            {
+                var floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
+                floor.transform.localScale = new Vector3(4f, 1f, 4f);
+                floor.GetComponent<MeshRenderer>().sharedMaterial =
+                    new Material(floorShader) { color = new Color(0.32f, 0.32f, 0.33f) };
+            }
 
             var cam = new GameObject("LampCam").AddComponent<Camera>();
             cam.clearFlags = CameraClearFlags.SolidColor;
@@ -66,8 +78,10 @@ namespace PSXRacing.EditorTools
                 lights.PreviewBuild(lit: true, brake: true);
 
                 float zc = -def.colliderCenter.z;
-                float nose = def.headLamp.z + zc, tail = def.tailLamp.z + zc;
-                float hy = def.headLamp.y, ty = def.tailLamp.y;
+                // A pop-up shell is lit with its pods raised: frame those.
+                var head = def.PopUpLampsMeasured ? def.headLampUp : def.headLamp;
+                float nose = head.z + zc, tail = def.tailLamp.z + zc;
+                float hy = head.y, ty = def.tailLamp.y;
                 Shot(cam, m.key + "_a_front", new Vector3(1.2f, hy + 0.9f, nose + 5.5f), new Vector3(0f, hy, nose));
                 Shot(cam, m.key + "_b_rear", new Vector3(-1.2f, ty + 0.9f, tail - 5.5f), new Vector3(0f, ty, tail));
                 // Along the lamp line from the side: a lens in the air or in the

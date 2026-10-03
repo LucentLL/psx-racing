@@ -420,6 +420,7 @@ namespace PSXRacing
                 if (beams[i] != null) beams[i].enabled = lightsOn;
                 if (tailLens[i] != null) tailLens[i].enabled = lightsOn || braking;
             }
+            PopUps();
             // SetAll lands here for every car: the tail lamp switches with
             // the hour now, not a frame later.
             UpdateTailLamp();
@@ -467,6 +468,47 @@ namespace PSXRacing
             return true;
         }
 
+        /// <summary>
+        /// POP-UP LAMPS (owner, 2026-10-03: "two models for NSX. One with
+        /// headlights down and one with headlights flipped-up"). A shell with a
+        /// <see cref="CarModelDef.lampsUpMesh"/> wears it while the running
+        /// lights are on and its plain body while they are off: the mesh on
+        /// the body's own MeshFilter is swapped, at once (PSX: no animation),
+        /// so it is the same one draw either way. Any car - the player, a
+        /// rival (CarBody) or traffic/CarShell (shellDef) - goes through here
+        /// from Refresh, i.e. on SetAll (the hour and the weather) and on
+        /// enable, and from Fit, after CarBody re-fits a shell.
+        /// </summary>
+        void PopUps()
+        {
+            var def = Def;
+            if (def == null || def.lampsUpMesh == null) return;
+            var f = ShellFilter(def);
+            if (f == null) return;
+            var want = def.BodyMeshFor(lightsOn);
+            // Only ever trade one of this shell's two bodies for the other.
+            if (f.sharedMesh == want || (f.sharedMesh != def.bodyMesh && f.sharedMesh != def.lampsUpMesh)) return;
+            f.sharedMesh = want;
+            // The swap is not a new shell: ShellChanged must not re-fit on it.
+            if (body != null) fittedMesh = want;
+        }
+
+        MeshFilter shellFilter;
+
+        /// <summary>The MeshFilter that draws this car's body: CarBody's, or
+        /// (traffic, CarShell) the child wearing either of the def's bodies.</summary>
+        MeshFilter ShellFilter(CarModelDef def)
+        {
+            if (body == null) body = GetComponent<CarBody>();
+            if (body != null) return body.bodyFilter;
+            if (shellFilter != null && (shellFilter.sharedMesh == def.bodyMesh || shellFilter.sharedMesh == def.lampsUpMesh))
+                return shellFilter;
+            shellFilter = null;
+            foreach (var mf in GetComponentsInChildren<MeshFilter>(true))
+                if (mf.sharedMesh == def.bodyMesh || mf.sharedMesh == def.lampsUpMesh) { shellFilter = mf; break; }
+            return shellFilter;
+        }
+
         void Fit()
         {
             Bounds b;
@@ -487,22 +529,29 @@ namespace PSXRacing
             var def = Def;
             if (def != null && def.LampsMeasured)
             {
+                // Pop-ups: the head lenses and beams are only lit with the
+                // pods raised (PopUps), so they live on the RAISED glass.
+                bool pop = def.PopUpLampsMeasured;
+                Vector3 headPos = pop ? def.headLampUp : def.headLamp;
+                Vector3 headNrm = pop ? def.headLampUpNormal : def.headLampNormal;
+                Vector2 headSize = pop ? def.headLampUpSize : def.headLampSize;
                 for (int i = 0; i < 2; i++)
                 {
                     float side = i == 0 ? -1f : 1f;
                     Vector3 M(Vector3 v) => new Vector3(v.x * side, v.y, v.z);
-                    Vector3 hn = M(Vector3.Slerp(Vector3.forward, def.headLampNormal.normalized, 0.5f));
+                    Vector3 hn = M(Vector3.Slerp(Vector3.forward, headNrm.normalized, 0.5f));
                     Vector3 tn = M(Vector3.Slerp(Vector3.back, def.tailLampNormal.normalized, 0.5f));
-                    Vector3 hp = M(def.headLamp), tp = M(def.tailLamp);
+                    Vector3 hp = M(headPos), tp = M(def.tailLamp);
                     Place(headLens[i].transform, hp + hn * LensProud,
                           Quaternion.LookRotation(hn, Vector3.up),
-                          new Vector3(def.headLampSize.x, def.headLampSize.y, 1f));
+                          new Vector3(headSize.x, headSize.y, 1f));
                     Place(tailLens[i].transform, tp + tn * LensProud,
                           Quaternion.LookRotation(tn, Vector3.up),
                           new Vector3(def.tailLampSize.x, def.tailLampSize.y, 1f));
                     Place(beams[i].transform, hp - Vector3.forward * 0.05f,
                           Quaternion.Euler(BeamDipDeg, side * BeamToeDeg, 0f), Vector3.one);
                 }
+                PopUps();
                 return;
             }
 
@@ -532,6 +581,7 @@ namespace PSXRacing
                       Quaternion.Euler(BeamDipDeg, side * BeamToeDeg, 0f),
                       Vector3.one);
             }
+            PopUps();
         }
 
         /// <summary>Put a lamp at a pose given in the CAR's frame, whichever

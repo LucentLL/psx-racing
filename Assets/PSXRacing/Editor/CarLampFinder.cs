@@ -77,13 +77,81 @@ namespace PSXRacing.EditorTools
                      $"({tail.pos.x:0.00}, {tail.pos.y:0.00}, {tail.pos.z:0.00}) {tail.size.x:0.00}x{tail.size.y:0.00} {tailWhy}");
         }
 
-        /// <summary>Write the lamps into the def.</summary>
+        /// <summary>Write the lamps into the def (and the raised pods' head
+        /// lamp, for a shell with pop-ups).</summary>
         public static void Apply(CarModelDef d, List<string> log = null)
         {
             Find(d, out var head, out var tail, log);
             d.headLamp = head.pos; d.headLampNormal = head.normal; d.headLampSize = head.size;
             d.tailLamp = tail.pos; d.tailLampNormal = tail.normal; d.tailLampSize = tail.size;
+            if (d.lampsUpMesh != null)
+            {
+                var up = FindPopUp(d, log);
+                d.headLampUp = up.pos; d.headLampUpNormal = up.normal; d.headLampUpSize = up.size;
+            }
+            else { d.headLampUp = Vector3.zero; d.headLampUpSize = Vector2.zero; }
         }
+
+        /// <summary>
+        /// The head lamp on the RAISED pods of <see cref="CarModelDef.lampsUpMesh"/>.
+        /// The pods are the triangles the lamps-up body has and the body does
+        /// not (a vertex on both is the same text through the same importer,
+        /// so the match is exact); the glass is looked for on THEM only, with
+        /// no height window - a pod stands above the usual lamp line, and the
+        /// rest of the nose (indicators, a pale bumper) is the down body's
+        /// business. Seated by a ray onto the pods. No pale glass on them: the
+        /// pods' forward face is the lamp.
+        /// </summary>
+        public static Lamp FindPopUp(CarModelDef d, List<string> log = null)
+        {
+            var shared = new HashSet<Vector3Int>();
+            foreach (var v in d.bodyMesh.vertices) shared.Add(Quant(v));
+            var all = RigTris(d, d.lampsUpMesh, null);
+            var pods = RigTris(d, d.lampsUpMesh, shared);
+            var sheets = LoadSheets(d);
+            Bounds b = new Bounds(all.Count > 0 ? all[0].a : Vector3.zero, Vector3.zero);
+            foreach (var t in all) { b.Encapsulate(t.a); b.Encapsulate(t.b); b.Encapsulate(t.c); }
+            paint = sheets.Count == 1 ? PaintOf(all, sheets[0]) : (Color?)null;
+            float xMin = Mathf.Max(0.12f, b.extents.x * 0.35f);
+
+            var found = Detect(pods, sheets, -1, +1, b.max.z, b.size.z, float.MinValue, float.MaxValue, xMin, out string why);
+            Lamp lamp = default;
+            lamp.how = "popup";
+            if (found.Count == 0)
+            {
+                acceptAll = true;
+                try { found = Detect(pods, sheets, -1, +1, b.max.z, b.size.z, float.MinValue, float.MaxValue, xMin, out why); }
+                finally { acceptAll = false; }
+                lamp.how = "podface";
+            }
+            if (found.Count == 0)
+            {
+                log?.Add($"{d.key,-15} pop-up head NOT FOUND ({pods.Count} pod tris) {why}");
+                return lamp;
+            }
+            float x = 0f, y = 0f; Vector2 size = Vector2.zero;
+            foreach (var f in found) { x += Mathf.Abs(f.c.x); y += f.c.y; size += f.size; }
+            x /= found.Count; y /= found.Count; size /= found.Count;
+            size = new Vector2(Mathf.Clamp(size.x, 0.12f, 0.5f), Mathf.Clamp(size.y, 0.07f, 0.28f));
+
+            Vector3 from = new Vector3(x, y, b.max.z + 1f), ray = Vector3.back;
+            if (Raycast(pods, from, ray, out Vector3 hit, out Vector3 n) || Raycast(all, from, ray, out hit, out n))
+            {
+                if (Vector3.Dot(n, ray) > 0f) n = -n;
+                lamp.pos = hit; lamp.normal = n;
+            }
+            else { lamp.pos = new Vector3(x, y, b.max.z); lamp.normal = Vector3.forward; lamp.how += "?"; }
+            lamp.size = size;
+            log?.Add($"{d.key,-15} pop-up head {lamp.how} ({lamp.pos.x:0.00}, {lamp.pos.y:0.00}, {lamp.pos.z:0.00}) " +
+                     $"{size.x:0.00}x{size.y:0.00} {why} on {pods.Count} pod tris");
+            return lamp;
+        }
+
+        /// <summary>FindPopUp's fallback: every pod sample counts as glass.</summary>
+        static bool acceptAll;
+
+        static Vector3Int Quant(Vector3 v) =>
+            new Vector3Int(Mathf.RoundToInt(v.x * 2000f), Mathf.RoundToInt(v.y * 2000f), Mathf.RoundToInt(v.z * 2000f));
 
         // ------------------------------------------------------------------
         static Lamp FindEnd(List<Tri> tris, List<Sheet> sheets, Bounds b, CarModelDef d, int dir, out string why)
@@ -258,6 +326,7 @@ namespace PSXRacing.EditorTools
         /// grey), tail glass red on livery <paramref name="only"/>.</summary>
         static bool IsLamp(List<Sheet> sheets, Vector2 uv, int dir, int only)
         {
+            if (acceptAll) return true;
             if (sheets.Count == 0) return false;
             if (only >= 0) return LampColour(Texel(sheets[only], uv), dir, sheets.Count == 1);
             for (int k = 0; k < sheets.Count; k++)
@@ -338,10 +407,14 @@ namespace PSXRacing.EditorTools
 
         /// <summary>The body's triangles in the car's frame (+Z out of the
         /// nose, tyre contact at y 0), exactly as CarBody poses the mesh.</summary>
-        static List<Tri> RigTris(CarModelDef d)
+        static List<Tri> RigTris(CarModelDef d) => RigTris(d, d.bodyMesh, null);
+
+        /// <summary>As above for any mesh in the body's frame (the lamps-up
+        /// body), leaving out every triangle whose three corners are all in
+        /// <paramref name="skip"/> (mesh space, Quant).</summary>
+        static List<Tri> RigTris(CarModelDef d, Mesh mesh, HashSet<Vector3Int> skip)
         {
             var list = new List<Tri>();
-            var mesh = d.bodyMesh;
             if (mesh == null) return list;
             var m = Matrix4x4.TRS(new Vector3(0f, d.bodyYOffset, d.bodyZOffset),
                                   Quaternion.Euler(0f, d.bodyYaw, 0f), Vector3.one);
@@ -355,6 +428,8 @@ namespace PSXRacing.EditorTools
                 var t = mesh.GetTriangles(sub);
                 for (int i = 0; i + 2 < t.Length; i += 3)
                 {
+                    if (skip != null && skip.Contains(Quant(v[t[i]])) && skip.Contains(Quant(v[t[i + 1]])) &&
+                        skip.Contains(Quant(v[t[i + 2]]))) continue;
                     Vector3 a = m.MultiplyPoint3x4(v[t[i]]), b = m.MultiplyPoint3x4(v[t[i + 1]]), c = m.MultiplyPoint3x4(v[t[i + 2]]);
                     Vector3 cross = Vector3.Cross(b - a, c - a);
                     float area = cross.magnitude * 0.5f;
