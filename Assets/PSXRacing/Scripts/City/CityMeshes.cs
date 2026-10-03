@@ -364,6 +364,9 @@ namespace PSXRacing.City
             public float cutWallM;
             /// <summary><see cref="cutWallM"/> by SideFlags.cutWhy (WP-14).</summary>
             public readonly float[] cutWallByWhy = new float[4];
+            /// <summary><see cref="cutWallM"/> by edge, with the wall's
+            /// reason and a point on it (the audit lists the runs).</summary>
+            public readonly Dictionary<int, (float m, byte why, Vector2 at)> cutWallByEdge = new Dictionary<int, (float, byte, Vector2)>();
             /// <summary>Footprints this tile cut back off the drawn pavement,
             /// and those it left out (<see cref="FitFootprint"/>).</summary>
             public int footprintsCut, footprintsLeftOut;
@@ -4675,6 +4678,11 @@ namespace PSXRacing.City
             {
                 tm.cutWallM += Vector3.Distance(fA, fB);
                 tm.cutWallByWhy[Mathf.Min(sf.cutWhy, (byte)3)] += Vector3.Distance(fA, fB);
+                {
+                    float cwm = Vector3.Distance(fA, fB);
+                    if (tm.cutWallByEdge.TryGetValue(e.index, out var cw)) cwm += cw.m;
+                    tm.cutWallByEdge[e.index] = (cwm, sf.cutWhy, new Vector2(fA.x + tm.origin.x, fA.z + tm.origin.z));
+                }
                 EmitBarrier(fA, fB, outA, v0, v1, sf.capStart, sf.capEnd);
                 // A flared end stands its face off the edge, and there was
                 // nothing between the two but the lattice a sink and more
@@ -6112,7 +6120,29 @@ namespace PSXRacing.City
                     float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(q - a, d) / L2) : 0f;
                     float oat = oe.s[si] + Mathf.Sqrt(L2) * t;
                     if (Vector2.Distance(q, a + d * t) > oe.PaveEdgeM(oat, oe.SideOf(si, q)) + 1f) continue;
-                    if (oe.YAt(oat) - m.y > CutWallM) { why = 2; return true; }
+                    // a deck holds no land (CityElevation.Ground): the slope
+                    // runs on under it to the abutment (leftover item 1 finish)
+                    if (CityElevation.RprfOn && oe.ElevatedAt(oat)) continue;
+                    if (oe.YAt(oat) - m.y > CutWallM)
+                    {
+                        // THE DOT RULE (the owner, 2026-09-13; leftover item 1
+                        // finish): a graded slope wherever there is room. The
+                        // road above stands in the slope only where Ground cannot
+                        // grade between the two: its 1V:4H fill, from its bench,
+                        // still stands over this road's back slope where this
+                        // road's lattice cap stops (CityLatticeReachM out) - the
+                        // drop the cap would leave is what the wall retains.
+                        // Further out the two meet on a graded bank (the lidar's
+                        // real cuts put streets 20-40 m back along the top: walled
+                        // 214 -> 1,035 m on the roadside tiles, mostly there).
+                        float lr = RoadsideRules.CityLatticeReachM;
+                        float oEdge = o + 1f;
+                        float capF = pin + Mathf.Max(0f, lr - RoadsideRules.CityCutBandM) * RoadsideRules.BackSlope;
+                        float floorU = oe.YAt(oat) - CityElevation.CorridorSink
+                                       - Mathf.Max(0f, oEdge - lr - RoadsideRules.CityBenchM(oe.cls, oe.link)) * RoadsideRules.CityFillSlope;
+                        if (CityElevation.RprfOn && oEdge > lr && floorU <= capF + CutBankTolM) continue;
+                        why = 2; return true;
+                    }
                 }
             }
             return false;

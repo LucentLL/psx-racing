@@ -133,9 +133,9 @@ const MODE = {
   manifest: ARGS.includes('--manifest'),
   plots: !ARGS.includes('--no-plots'),
   // --rprf (leftover item 1, 2026-10-03): write section RPRF, the measured
-  // road profiles. OFF by default: the item failed its launch gate (Docs/
-  // CHARLOTTE.md "HEIGHTS"), so the shipped data carries no RPRF and the game
-  // solves from the smoothed land as before.
+  // road profiles. OFF by default: the item failed its launch gate twice
+  // (Docs/CHARLOTTE.md "HEIGHTS"), so the shipped data carries no RPRF and the
+  // game solves from the smoothed land as before.
   rprf: ARGS.includes('--rprf'),
 };
 if (!MODE.check && !MODE.out && !MODE.manifest) {

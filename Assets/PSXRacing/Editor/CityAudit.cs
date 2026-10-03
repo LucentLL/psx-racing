@@ -837,6 +837,9 @@ namespace PSXRacing.EditorTools
         /// tiles, for <see cref="TerrainFidelity"/>.</summary>
         static float roadsideCutWallM;
         static readonly float[] roadsideCutWhy = new float[4];
+        /// <summary>The roadside tiles' cut walls by edge (leftover item 1
+        /// finish: the runs are listed, so a real walled cut can be named).</summary>
+        static readonly Dictionary<int, (float m, byte why, Vector2 at)> roadsideCutByEdge = new Dictionary<int, (float, byte, Vector2)>();
         static int roadsideTiles;
 
         /// <summary>
@@ -1044,6 +1047,7 @@ namespace PSXRacing.EditorTools
         {
             roadsideCutWallM = 0f;
             System.Array.Clear(roadsideCutWhy, 0, roadsideCutWhy.Length);
+            roadsideCutByEdge.Clear();
             var probeTiles = RoadsideTiles(map, RoadsideTopElevatedTiles);
             roadsideTiles = probeTiles.Count;
             var root = new GameObject("~roadsideAudit");
@@ -1165,6 +1169,8 @@ namespace PSXRacing.EditorTools
                     vergeBuilt += tmC.vergeMetres; railBuilt += tmC.railMetres; nosesBuilt += tmC.goreNoses.Count; lampsBuilt += tmC.lamps.Count;
                     roadsideCutWallM += tmC.cutWallM;
                     for (int w = 0; w < 4; w++) roadsideCutWhy[w] += tmC.cutWallByWhy[w];
+                    foreach (var kv in tmC.cutWallByEdge)
+                        roadsideCutByEdge[kv.Key] = roadsideCutByEdge.TryGetValue(kv.Key, out var cwe) ? (cwe.m + kv.Value.m, cwe.why, cwe.at) : kv.Value;
                     footprintsCut += tmC.footprintsCut; footprintsLeftOut += tmC.footprintsLeftOut;
                     long ck = TileKey(tx, tz);
                     if (live.TryGetValue(ck, out var ct)) { live[ck] = (ct.go, ++clock); Discard(tmC); }
@@ -2728,6 +2734,23 @@ namespace PSXRacing.EditorTools
             Line($"    stations made structure by the {CityElevation.ElevMarginM} m last resort: {margin} (before WP-04 {MarginStationsBefore}); trenches {CityElevation.TrenchCount}; " +
                  $"cut walls on the {roadsideTiles} roadside tiles {roadsideCutWallM / 1000f:0.00} km (before WP-04 {CutWallBeforeM / 1000f:0.00} km; " +
                  $"why: the back slope cannot reach the land {roadsideCutWhy[1]:0} m, a road above in the slope {roadsideCutWhy[2]:0} m, a building {roadsideCutWhy[3]:0} m, runs closed over a gap {roadsideCutWhy[0]:0} m)");
+            {
+                // the walls by road, longest first (leftover item 1 finish)
+                var byRoad = new Dictionary<string, (float m, int edges, Vector2 at, float why2)>();
+                foreach (var kv in roadsideCutByEdge)
+                {
+                    var we = map.edges[kv.Key];
+                    string key = (string.IsNullOrEmpty(we.name) ? (we.link ? "(ramp)" : "(unnamed)") : we.name);
+                    byRoad.TryGetValue(key, out var r0);
+                    byRoad[key] = (r0.m + kv.Value.m, r0.edges + 1, r0.edges == 0 ? kv.Value.at : r0.at, r0.why2 + (kv.Value.why == 2 ? kv.Value.m : 0f));
+                }
+                var rows = new List<KeyValuePair<string, (float m, int edges, Vector2 at, float why2)>>(byRoad);
+                rows.Sort((x, y) => y.Value.m.CompareTo(x.Value.m));
+                var wsb = new StringBuilder("    cut walls by road:");
+                for (int k = 0; k < Mathf.Min(14, rows.Count); k++)
+                    wsb.Append($" {rows[k].Key} {rows[k].Value.m:0} m ({rows[k].Value.edges} edges, {rows[k].Value.why2:0} m a road above) at {LatLon(rows[k].Value.at.x, rows[k].Value.at.y)};");
+                Line(wsb.ToString());
+            }
             if (MarginStationsBefore > 0)
                 Check(margin <= MarginStationsBefore * 1.25f, "stations made structure by the 3.5 m margin: at most +25% on WP-04's baseline (terrain fidelity)",
                       $"{margin} vs {MarginStationsBefore}");

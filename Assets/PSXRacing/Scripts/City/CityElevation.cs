@@ -841,6 +841,18 @@ namespace PSXRacing.City
                     ClampGrade(e, MaxGrade(e));
                 }
                 BlendEndsToNodes(map, e);
+                // (leftover item 1 finish) the ends' offsets added on top of
+                // a clamped profile can take it past its class's grade (a node
+                // eased toward a measured junction, 1.4 m in 17 m): clamped
+                // again where the ends themselves allow it
+                if (RprfOn && !measured && e.length >= 2f && Mathf.Abs(e.stY[n - 1] - e.stY[0]) / e.length < MaxGrade(e))
+                {
+                    float g = MaxGrade(e);
+                    for (int i = 1; i < n - 1; i++)
+                        e.stY[i] = Mathf.Clamp(e.stY[i], e.stY[i - 1] - g * (e.stS[i] - e.stS[i - 1]), e.stY[i - 1] + g * (e.stS[i] - e.stS[i - 1]));
+                    for (int i = n - 2; i >= 1; i--)
+                        e.stY[i] = Mathf.Clamp(e.stY[i], e.stY[i + 1] - g * (e.stS[i + 1] - e.stS[i]), e.stY[i + 1] + g * (e.stS[i + 1] - e.stS[i]));
+                }
                 // OSM's bridges are decks end to end, whatever the terrain
                 // under them does.
                 if (e.bridge) for (int i = 0; i < n; i++) e.stElev[i] = true;
@@ -1047,6 +1059,7 @@ namespace PSXRacing.City
             TwinDyBeforeFinal = TwinDy(map, out _);
             FinalTwinHold(map);
             TwinDyAfterCurves = TwinDy(map, out TwinDyWorstPair);
+            GradeGuard(map);
             Phase("vcurves");
 
             // 9. mark structure LAST, from the facts: decks over crossings,
@@ -1177,8 +1190,11 @@ namespace PSXRacing.City
         /// measured road. OFF (2026-10-03): it failed its launch gate - the
         /// city-wide LAUNCH audit went 115 -> 206 spots, mostly junction fans
         /// and mitred joints on measured T2 streets (Docs/CHARLOTTE.md
-        /// "HEIGHTS"). The shipped data carries no RPRF (export with --rprf),
-        /// and PSX_CITY_RPRF=1 turns this on for a data file that does.
+        /// "HEIGHTS"); with the junction landings and the rest of the finish
+        /// attempt (same day) it was 178, still over the gate of 115. The
+        /// shipped data carries no RPRF (export with --rprf), and
+        /// PSX_CITY_RPRF=1 turns this on - and every rule of the finish
+        /// attempt with it - for a data file that does.
         /// </summary>
         public static bool RprfOn = System.Environment.GetEnvironmentVariable("PSX_CITY_RPRF") == "1";
         /// <summary>Does this edge stand on its measured profile?</summary>
@@ -2092,6 +2108,9 @@ namespace PSXRacing.City
         /// <summary>Stations given up by runs meeting on two hosts, last solve.</summary>
         public static int SeatStepsSplit { get; private set; }
 
+        /// <summary>The node trims the seats were found with (plan only): the
+        /// junction landings run each arm's plane out to its fan's corner.</summary>
+        static CityMeshes.Trims solveTrims;
         static void PrepareSeats(CityMap map)
         {
             seated.Clear();
@@ -2102,6 +2121,7 @@ namespace PSXRacing.City
             SeatStepsSplit = 0;
             foreach (var e in map.edges) e.stSeat = null;
             var seatTrims = CityMeshes.ComputeTrims(map);
+            solveTrims = seatTrims;
             var seats = CityMeshes.BranchSeats(map, seatTrims);
             // the other branches' zones, for the vertical curves' SOFT seats
             streetSeats.Clear();
@@ -3015,11 +3035,21 @@ namespace PSXRacing.City
         }
 
         /// <summary>Returns how far either end moved, for the final
-        /// convergence loop.</summary>
+        /// convergence loop.
+        ///
+        /// C1 (leftover item 1 finish, 2026-10-03; the owner: "a lot of sharp
+        /// angles at transitions between grades instead of smooth splines").
+        /// Each end's offset to its node faded LINEARLY over half the edge
+        /// (at most 90 m): a grade break of offset/L at the node AND another
+        /// where the fade stopped. Now it fades on a smoothstep, which adds no
+        /// grade at either end of the fade - and an edge up to 180 m long
+        /// carries both offsets on ONE smoothstep over its whole length (the
+        /// two halves met in a kink; on a 34 m street between an eased node
+        /// and a measured one that was a 22% step, Armory Drive). With the
+        /// measured heights only (RprfOn): OFF keeps the shipped linear fade.</summary>
         static float BlendEndsToNodes(CityMap map, CityMap.Edge e)
         {
-            float L = Mathf.Min(e.length * 0.5f, 90f);
-            if (L < 1f)
+            if (e.length < 2f)   // (L = length/2 under 1 m: the same test as shipped)
             {
                 // a stub too short to blend just takes its nodes' line
                 float ya = map.nodeY[e.a], yb = map.nodeY[e.b];
@@ -3030,13 +3060,86 @@ namespace PSXRacing.City
             }
             float dA = map.nodeY[e.a] - e.stY[0];
             float dB = map.nodeY[e.b] - e.stY[e.stY.Length - 1];
+            if (!RprfOn)
+            {
+                // as shipped (heights OFF): linear over half the edge, at most 90 m
+                float Lh = Mathf.Min(e.length * 0.5f, 90f);
+                for (int i = 0; i < e.stY.Length; i++)
+                {
+                    float fromA = e.stS[i], fromB = e.length - e.stS[i];
+                    if (fromA < Lh) e.stY[i] += dA * (1f - fromA / Lh);
+                    if (fromB < Lh) e.stY[i] += dB * (1f - fromB / Lh);
+                }
+                return Mathf.Max(Mathf.Abs(dA), Mathf.Abs(dB));
+            }
+            const float L = 90f;
             for (int i = 0; i < e.stY.Length; i++)
             {
+                if (e.length <= 2f * L)
+                {
+                    float w = Smooth01(e.stS[i] / e.length);
+                    e.stY[i] += dA * (1f - w) + dB * w;
+                    continue;
+                }
                 float fromA = e.stS[i], fromB = e.length - e.stS[i];
-                if (fromA < L) e.stY[i] += dA * (1f - fromA / L);
-                if (fromB < L) e.stY[i] += dB * (1f - fromB / L);
+                if (fromA < L) e.stY[i] += dA * (1f - Smooth01(fromA / L));
+                if (fromB < L) e.stY[i] += dB * (1f - Smooth01(fromB / L));
             }
             return Mathf.Max(Mathf.Abs(dA), Mathf.Abs(dB));
+        }
+
+        static float Smooth01(float t) { t = Mathf.Clamp01(t); return t * t * (3f - 2f * t); }
+
+        /// <summary>Edges the last solve's grade guard eased (report).</summary>
+        public static int GradeGuarded { get; private set; }
+        const float GuardGrade = 0.155f;
+        /// <summary>
+        /// THE GRADE GUARD (leftover item 1 finish, 2026-10-03). The audit
+        /// fails a station-to-station grade past 16% on any edge of 30 m or
+        /// more. The passes above can leave one where they meet - a node
+        /// lowered by the curves beside a station a cone lifted, a measured
+        /// junction's offset eased onto a short street (Armory Drive 22%,
+        /// Bethel Road 18%). Last, on every such edge whose own ends allow
+        /// it, the interior is eased to GuardGrade, ends and seats held. Not
+        /// on a bridge, nor on an edge with a crossing, a water span or a
+        /// culvert on it: their heights are clearances.
+        /// </summary>
+        static void GradeGuard(CityMap map)
+        {
+            GradeGuarded = 0;
+            if (!RprfOn) return;   // heights OFF: as shipped
+            var held = new HashSet<int>();
+            foreach (var c in map.crossings) { held.Add(c.over); held.Add(c.under); }
+            foreach (var ws in map.wspans) held.Add(ws.edge);
+            if (map.creekCulverts != null) foreach (var x in map.creekCulverts) held.Add(x.edge);
+            foreach (var e in map.edges)
+            {
+                if (e.bridge || e.a == e.b || e.length < 30f || held.Contains(e.index)) continue;
+                int n = e.stY.Length;
+                bool steep = false;
+                for (int i = 1; i < n && !steep; i++)
+                {
+                    float ds = e.stS[i] - e.stS[i - 1];
+                    if (ds >= 0.5f && Mathf.Abs(e.stY[i] - e.stY[i - 1]) / ds > GuardGrade) steep = true;
+                }
+                if (!steep || Mathf.Abs(e.stY[n - 1] - e.stY[0]) / e.length > GuardGrade * 0.9f) continue;
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    for (int i = 1; i < n - 1; i++)
+                    {
+                        if (e.SeatedAt(i)) continue;
+                        float ds = e.stS[i] - e.stS[i - 1];
+                        e.stY[i] = Mathf.Clamp(e.stY[i], e.stY[i - 1] - GuardGrade * ds, e.stY[i - 1] + GuardGrade * ds);
+                    }
+                    for (int i = n - 2; i >= 1; i--)
+                    {
+                        if (e.SeatedAt(i)) continue;
+                        float ds = e.stS[i + 1] - e.stS[i];
+                        e.stY[i] = Mathf.Clamp(e.stY[i], e.stY[i + 1] - GuardGrade * ds, e.stY[i + 1] + GuardGrade * ds);
+                    }
+                }
+                GradeGuarded++;
+            }
         }
 
         // ------------------------------------------------------------------
@@ -3088,6 +3191,25 @@ namespace PSXRacing.City
         /// 50, 1,049 at 40, 590 at 30, 410 at 25.</summary>
         public static float SagComfortR(float mph) => mph * mph / 46.5f * 100f * 0.3048f;
 
+        /// <summary>AASHTO's crest K (ft per % of grade change) for stopping
+        /// sight distance (Green Book table 3-34), and the sag K for headlight
+        /// sight distance (table 3-36), by design speed (mph), interpolated.
+        /// R = 100 K ft.</summary>
+        static readonly float[] KMph = { 15f, 20f, 25f, 30f, 35f, 40f, 45f, 50f, 55f, 60f, 65f, 70f };
+        static readonly float[] KCrest = { 3f, 7f, 12f, 19f, 29f, 44f, 61f, 84f, 114f, 151f, 193f, 247f };
+        static readonly float[] KSagHeadlight = { 10f, 17f, 26f, 37f, 49f, 64f, 79f, 96f, 115f, 136f, 157f, 181f };
+        static float KAt(float[] k, float mph)
+        {
+            if (mph <= KMph[0]) return k[0];
+            for (int i = 1; i < KMph.Length; i++)
+                if (mph <= KMph[i]) return Mathf.Lerp(k[i - 1], k[i], (mph - KMph[i - 1]) / (KMph[i] - KMph[i - 1]));
+            return k[k.Length - 1];
+        }
+        /// <summary>AASHTO crest radius (m) for stopping sight at <paramref name="mph"/>.</summary>
+        public static float CrestStopR(float mph) => KAt(KCrest, mph) * 30.48f;
+        /// <summary>AASHTO sag radius (m) for headlight sight at <paramref name="mph"/>.</summary>
+        public static float SagHeadlightR(float mph) => KAt(KSagHeadlight, mph) * 30.48f;
+
         /// <summary>PSX_CITY_VSAG=1: the sag side of the limiter (plan L3/B4).
         /// OFF: L3's two audits (2026-10-03) both broke the profiles. A sag
         /// lowered its free neighbours, a crest beside a pin raised them, and
@@ -3124,6 +3246,17 @@ namespace PSXRacing.City
         /// <summary>PSX_CITY_VPLANES=0: junctions keep their arms' own grades
         /// (a measuring override).</summary>
         static readonly bool FanPlanesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_VPLANES") != "0";
+        /// <summary>The junction landings (leftover item 1 finish): a
+        /// measured road is free this far from a junction node; an ease is at
+        /// least / at most this long.</summary>
+        const float LandingFreeM = 60f, LandingMinM = 4f, LandingMaxM = 120f;
+        /// <summary>A node where streets meet: three arms or more.</summary>
+        static bool LandingNode(CityMap map, int n)
+        {
+            int arms = 0;
+            foreach (int ei in map.nodeEdges[n]) { var e = map.edges[ei]; if (e.a != e.b && e.length >= 0.5f) arms++; }
+            return arms >= 3;
+        }
         /// <summary>PSX_CITY_SEATPIN=0: street branches only soft-seated, as
         /// before the pins (a measuring override; see VerticalCurves).</summary>
         static readonly bool SeatPinsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SEATPIN") != "0";
@@ -3208,6 +3341,11 @@ namespace PSXRacing.City
             var mFrozen = new bool[E][];
             var nodeMob = new byte[N];
             for (int n = 0; n < N; n++) nodeMob[n] = Free;
+            // (leftover item 1 finish) the street-branch stations, which the
+            // seat pins below move onto their hosts
+            var seatStation = new HashSet<long>();
+            foreach (var (sei, si, _, _) in streetSeats) seatStation.Add(((long)sei << 20) | (uint)si);
+            int landingFreed = 0;
             foreach (var e in map.edges)
             {
                 int n = e.stY.Length;
@@ -3218,11 +3356,30 @@ namespace PSXRacing.City
                 // point here (lifting its neighbours round a crest it could
                 // not lower ratcheted N Tryon St 3.5 m in 8 m). What the
                 // solve raised off it (humps, cones) is rounded as before.
+                //
+                // EXCEPT AT A JUNCTION (leftover item 1 finish, 2026-10-03).
+                // The offline design limits each chain on its own; where
+                // streets meet, every arm's end was pinned to one node height
+                // and nothing curved the arms into each other. Frozen, a
+                // measured station could only fall, so the node could not be
+                // held on its major road's plane (the plane needs every arm
+                // free), no arm landed on it and no street branch was pinned
+                // onto its host: the launch audit's junction fans 21 -> 35 and
+                // mitred joints 11 -> 33 (half of them the mesh standing off
+                // the data, a branch's ribbon under its host's). Within
+                // LandingFreeM of a node of three arms or more, and on every
+                // street-branch station, a measured road is as free as any
+                // other: the junction landings below shape it.
                 if (Measured(e))
                 {
                     var fz = mFrozen[e.index] = new bool[n];
+                    float freeA = e.a != e.b && LandingNode(map, e.a) ? LandingFreeM : -1f;
+                    float freeB = e.a != e.b && LandingNode(map, e.b) ? LandingFreeM : -1f;
                     for (int i = 0; i < n; i++)
+                    {
+                        if (e.stS[i] <= freeA || e.length - e.stS[i] <= freeB || seatStation.Contains(((long)e.index << 20) | (uint)i)) { landingFreed++; continue; }
                         if (Mathf.Abs(e.stY[i] - e.MeasuredYAt(e.stS[i])) < 0.1f) { m[i] = e.SeatedAt(i) ? (byte)0 : Down; fz[i] = true; }
+                    }
                 }
                 // the ends ARE the node (raised to it first: the ribbon's end
                 // and the fan's centre must agree before anything is judged)
@@ -3286,8 +3443,23 @@ namespace PSXRacing.City
                 // is already a vertical curve, ApproachDrop; lowering its
                 // approach would only be lifted back by the fresh raise)
                 float over1 = (under.width * 0.5f + 3f) / sin + StationStep;
+                var fzO = mFrozen[over.index];
                 for (int i = 0; i < over.stS.Length; i++)
-                    if (Mathf.Abs(over.stS[i] - sO) <= over1) mob[over.index][i] &= Up;
+                    if (Mathf.Abs(over.stS[i] - sO) <= over1)
+                    {
+                        // (leftover item 1 finish) a MEASURED deck is free in
+                        // the first two rounds: its height there is the lidar's
+                        // plus what the holds added (a twin's hold lifted I-277
+                        // e2308 over N Brevard St 0.4 m to its partner, a crest
+                        // of 4.8% in one station on the uptown route at 150
+                        // km/h, which a deck that may only rise could not lose).
+                        // The fresh raise after each round puts back any
+                        // clearance it gives up; the last round, with no raise
+                        // after it, holds it as before (frozen: it may rise).
+                        if (Measured(over) && round < 2) { if (fzO != null) fzO[i] = false; if (!over.SeatedAt(i)) mob[over.index][i] = Free; }
+                        else if (fzO != null && fzO[i]) { fzO[i] = false; if (!over.SeatedAt(i)) mob[over.index][i] = Up; }
+                        else mob[over.index][i] &= Up;
+                    }
                 float foot = (over.width * 0.5f + 6f) / sin + StationStep;
                 for (int i = 0; i < under.stS.Length; i++)
                     if (Mathf.Abs(under.stS[i] - sU) <= foot) mob[under.index][i] &= Down;
@@ -3337,8 +3509,28 @@ namespace PSXRacing.City
             // leaves the node on that plane over its first station, held there
             // (with the node) while the crest limit curves it back to its own
             // grade further out.
-            int planeHeld = 0;
+            //
+            // THE JUNCTION LANDINGS (leftover item 1 finish, 2026-10-03; the
+            // owner: "a lot of sharp angles at transitions between grades
+            // instead of smooth splines"). Holding only an arm's first station
+            // on the plane left a straight line from the node to it and a
+            // grade break at the station and at the node. Now every other arm
+            // runs ON the plane across the major road's pavement (d0: its half
+            // width over the sine of the angle the arm meets it at, plus a
+            // metre) and then eases from the plane's grade into its own
+            // profile on a C1 curve (a cubic Hermite: the plane's height and
+            // grade at d0, the arm's own at d0 + L) as long as AASHTO asks at
+            // the arm's design speed - 25 mph on a STOP/signal approach and on
+            // a minor arm into a bigger road, whose traffic stops or yields
+            // there: crest K for stopping sight, sag K for headlight sight
+            // (the target), else the comfort K (the fail line), else the
+            // gentlest that fits before the arm's next landing or anything
+            // the pass may not move. The landing is held; the crest limit
+            // rounds what lies beyond it. With the measured heights only
+            // (RprfOn); OFF keeps the plane at the first station, as shipped.
+            int planeHeld = 0, landedArms = 0, landTarget = 0, landComfort = 0, landShort = 0;
             float planeMove = 0f;
+            var landLs = new List<float>(1024);
             for (int n = 0; n < N && FanPlanesOn; n++)
             {
                 if (map.nodeEdges[n].Count < 3 || nodePairs[n] == null || (nodeMob[n] & Free) != Free) continue;
@@ -3358,26 +3550,139 @@ namespace PSXRacing.City
                 if (hP < 0.5f || hQ < 0.5f) continue;
                 var axis = (uQ - uP).normalized;
                 float gAlong = ((Get(MQ, q1) - map.nodeY[n]) / hQ - (Get(MP, p1) - map.nodeY[n]) / hP) * 0.5f;
+                float hwMaj = Mathf.Max(MP.HalfMax, MQ.HalfMax);
+                float majKey = Mathf.Min(MP.link ? MP.cls - 0.5f : MP.cls, MQ.link ? MQ.cls - 0.5f : MQ.cls);
                 bool held = false;
                 foreach (int ei in map.nodeEdges[n])
                 {
                     if (ei == MP.index || ei == MQ.index) continue;
                     var e = map.edges[ei];
                     if (e.a == e.b || e.stY.Length < 3) continue;   // its first station is the far node
-                    int i1 = e.a == n ? 1 : e.stY.Length - 2, i0 = e.a == n ? 0 : e.stY.Length - 1;
+                    int last = e.stY.Length - 1;
+                    bool atA = e.a == n;
+                    int i1 = atA ? 1 : last - 1, i0 = atA ? 0 : last;
                     float h = Mathf.Abs(e.stS[i1] - e.stS[i0]);
                     if (h < 0.5f || mob[ei][i1] != Free) continue;
-                    var u = e.a == n ? e.TangentAt(0f) : -e.TangentAt(e.length);
-                    float want = map.nodeY[n] + gAlong * Vector2.Dot(axis, u) * h;
-                    float y1 = e.stY[i1];
-                    float to = Mathf.Clamp(want, y1 - VcurveMaxLowerM, y1 + VcurveMaxRaiseM);
-                    planeMove = Mathf.Max(planeMove, Mathf.Abs(to - y1));
-                    e.stY[i1] = to;
-                    mob[ei][i1] = 0;
-                    held = true; planeHeld++;
+                    var u = atA ? e.TangentAt(0f) : -e.TangentAt(e.length);
+                    float gp = gAlong * Vector2.Dot(axis, u);
+                    float y0 = map.nodeY[n];
+                    // a street branch running into its host is pinned onto it
+                    // (below): the plane only holds its first station, as before
+                    bool branch = false;
+                    for (int k = 1; k < last && !branch; k++) if (seatStation.Contains(((long)ei << 20) | (uint)k)) branch = true;
+                    float Lc = -1f, d0 = 0f;
+                    bool landShortNow = false;
+                    // (heights OFF: the plane at the first station only, as shipped)
+                    if (!branch && RprfOn)
+                    {
+                        float sin = Mathf.Abs(axis.x * u.y - axis.y * u.x);
+                        // ...and at least to the arm's trim: the fan (or the
+                        // cluster's paving) is drawn straight from the node to
+                        // the arm's corners there, so the corners must be ON
+                        // the plane, and the ease starts past them
+                        float trim = solveTrims != null ? solveTrims.TrimAt(e, n) : 0f;
+                        d0 = Mathf.Min(Mathf.Max(hwMaj / Mathf.Max(0.4f, sin) + 1f, trim + 0.5f), 0.5f * e.length);
+                        float mph = VerticalMph(e);
+                        if (Ctl(n) || (e.link ? e.cls - 0.5f : e.cls) < majKey) mph = Mathf.Min(mph, CtlMph);
+                        float rCrest = Mathf.Max(CrestStopR(mph), R[ei]);
+                        float rSagT = SagHeadlightR(mph), rSagF = SagComfortR(mph);
+                        float dMax = LandingNode(map, atA ? e.b : e.a) ? 0.5f * e.length : e.length - 0.5f * StationStep;
+                        for (int k = 1; k < last; k++)
+                        {
+                            int i = atA ? k : last - k;
+                            if (mob[ei][i] != Free) { dMax = Mathf.Min(dMax, Mathf.Abs(e.stS[i] - e.stS[i0]) - 1f); break; }
+                        }
+                        float firstT = -1f, firstF = -1f, bestF = -1f, bestFScore = float.MaxValue;
+                        const float gCap = 0.15f;
+                        for (float L = LandingMinM; d0 + L <= dMax + 1e-3f && L <= LandingMaxM; L += Mathf.Max(2f, 0.15f * L))
+                        {
+                            Ease(e, atA, y0, gp, d0, L, out float ep0, out float eY1, out float eg1, out float c0, out float c1);
+                            // never a ramp past 15% (the audit fails 16%) unless the
+                            // plane or the arm itself is that steep (a short ease
+                            // between two heights far apart: 18% on Tilley Morris Rd)
+                            if (HermiteMaxGrade(ep0, gp * L, eY1, eg1 * L, L) > Mathf.Max(gCap, Mathf.Max(Mathf.Abs(gp), Mathf.Abs(eg1)) + 0.005f)) continue;
+                            float sT = Mathf.Max(Need(c0, rSagT, rCrest), Need(c1, rSagT, rCrest));
+                            float sF = Mathf.Max(Need(c0, rSagF, rCrest), Need(c1, rSagF, rCrest));
+                            if (sT <= 1f) { firstT = L; break; }
+                            if (sF <= 1f && firstF < 0f) firstF = L;
+                            if (sF < bestFScore) { bestFScore = sF; bestF = L; }
+                        }
+                        Lc = firstT > 0f ? firstT : firstF > 0f ? firstF : bestF;
+                        landShortNow = firstT <= 0f && firstF <= 0f;
+                        if (Lc > 0f) { if (firstT > 0f) landTarget++; else if (firstF > 0f) landComfort++; else landShort++; }
+                    }
+                    if (Lc <= 0f)
+                    {
+                        // no room for a landing (or a branch): the plane at the first station, as before
+                        float want = y0 + gp * h;
+                        float y1 = e.stY[i1];
+                        float to = Mathf.Clamp(want, y1 - VcurveMaxLowerM, y1 + VcurveMaxRaiseM);
+                        planeMove = Mathf.Max(planeMove, Mathf.Abs(to - y1));
+                        e.stY[i1] = to;
+                        mob[ei][i1] = 0;
+                        held = true; planeHeld++;
+                        continue;
+                    }
+                    Ease(e, atA, y0, gp, d0, Lc, out float hp0, out float hY1, out float hg1, out _, out _);
+                    // an AASHTO ease is held whole (the launch radius is far
+                    // tighter, the crest limit has nothing to do there); one
+                    // short of room only on the plane, so the limit may round on
+                    bool holding = true, shortOfRoom = landShortNow;
+                    for (int k = 1; k < last; k++)
+                    {
+                        int i = atA ? k : last - k;
+                        float d = Mathf.Abs(e.stS[i] - e.stS[i0]);
+                        if (d > d0 + Lc + 1e-3f) break;
+                        float want = d <= d0 ? y0 + gp * d : Hermite(hp0, gp * Lc, hY1, hg1 * Lc, (d - d0) / Lc);
+                        float yv = e.stY[i];
+                        float to = Mathf.Clamp(want, yv - VcurveMaxLowerM, yv + VcurveMaxRaiseM);
+                        planeMove = Mathf.Max(planeMove, Mathf.Abs(to - yv));
+                        e.stY[i] = to;
+                        // held on the plane (to the first station past the
+                        // major road's pavement); the ease beyond stays free,
+                        // for the crest limit to round further if it must
+                        if (holding) { mob[ei][i] = 0; planeHeld++; }
+                        if (d >= d0 && shortOfRoom) holding = false;
+                    }
+                    held = true; landedArms++; landLs.Add(Lc);
                 }
                 if (held) nodeMob[n] = 0;
             }
+            // the ease's shape: the plane (height y0 + gp d0, grade gp) at d0,
+            // the arm's own height and grade at d0 + L, a cubic Hermite between;
+            // c0/c1 its curvature (1/m, + a sag) at either end
+            static void Ease(CityMap.Edge e, bool atA, float y0, float gp, float d0, float L, out float p0, out float Y1, out float g1, out float c0, out float c1)
+            {
+                float d1 = d0 + L;
+                float lo = Mathf.Max(0f, d1 - 2f), hi = Mathf.Min(e.length, d1 + 2f);
+                float yLo = e.YAt(atA ? lo : e.length - lo), yHi = e.YAt(atA ? hi : e.length - hi);
+                g1 = hi - lo > 0.1f ? (yHi - yLo) / (hi - lo) : gp;
+                p0 = y0 + gp * d0;
+                Y1 = e.YAt(atA ? d1 : e.length - d1);
+                float delta = Y1 - (p0 + 0.5f * (gp + g1) * L);
+                c0 = (g1 - gp) / L + 6f * delta / (L * L);
+                c1 = (g1 - gp) / L - 6f * delta / (L * L);
+            }
+            static float HermiteMaxGrade(float p0, float m0, float p1, float m1, float L)
+            {
+                float g = 0f;
+                for (int k = 0; k <= 8; k++)
+                {
+                    float t = k / 8f, t2 = t * t;
+                    float dy = (6f * t2 - 6f * t) * p0 + (3f * t2 - 4f * t + 1f) * m0 + (-6f * t2 + 6f * t) * p1 + (3f * t2 - 2f * t) * m1;
+                    g = Mathf.Max(g, Mathf.Abs(dy) / L);
+                }
+                return g;
+            }
+            static float Hermite(float p0, float m0, float p1, float m1, float t)
+            {
+                float t2 = t * t, t3 = t2 * t;
+                return (2f * t3 - 3f * t2 + 1f) * p0 + (t3 - 2f * t2 + t) * m0 + (-2f * t3 + 3f * t2) * p1 + (t3 - t2) * m1;
+            }
+            // how far past its radius a curvature is (<= 1 passes)
+            static float Need(float c, float rSag, float rCrest) => c >= 0f ? c * rSag : -c * rCrest;
+            landLs.Sort();
+            string landReport = $"junction landings: {landedArms} arms eased onto their junction's plane (AASHTO headlight/stopping K {landTarget}, comfort K {landComfort}, short of room {landShort}; L p50 {(landLs.Count > 0 ? landLs[landLs.Count / 2] : 0f):0} / max {(landLs.Count > 0 ? landLs[landLs.Count - 1] : 0f):0} m), {landingFreed} measured stations freed at junctions";
 
             // STREET BRANCHES ONTO THEIR HOSTS, PINNED. The soft seats (in the
             // sweeps below) pulled each station to within SoftSeatTol of its
@@ -3647,7 +3952,7 @@ namespace PSXRacing.City
                 debugUnsettled = sbd.ToString();
             }
             string r0 = round == 0 ? "" : VcurveReport + "; ";
-            VcurveReport = r0 + debugUnsettled + $" round {round}: {violBefore} crests past their limit -> {violAfter} ({frozen} frozen cycling, {stuck} held by pins), {(SagLimitOn ? $"{sagBefore} sags past the comfort radius -> {sagAfter} ({sagStuck} held by pins, {sagMoves} projections), " : "sags OFF, ")}{planeHeld} junction arms set on their major road's plane (up to {planeMove:0.00} m), {streetSeats.Count} street-branch stations seated ({pinnedSeats} pinned, {softOff} still off their host), {sweeps} sweeps, {moves} projections, {moved} stations moved > 1 cm (up to +{maxRaise:0.00} / -{maxLower:0.00} m), {clock.ElapsedMilliseconds} ms";
+            VcurveReport = r0 + debugUnsettled + $" round {round}: {violBefore} crests past their limit -> {violAfter} ({frozen} frozen cycling, {stuck} held by pins), {(SagLimitOn ? $"{sagBefore} sags past the comfort radius -> {sagAfter} ({sagStuck} held by pins, {sagMoves} projections), " : "sags OFF, ")}{planeHeld} junction-arm stations held on their junction's plane (up to {planeMove:0.00} m; {landReport}), {streetSeats.Count} street-branch stations seated ({pinnedSeats} pinned, {softOff} still off their host), {sweeps} sweeps, {moves} projections, {moved} stations moved > 1 cm (up to +{maxRaise:0.00} / -{maxLower:0.00} m), {clock.ElapsedMilliseconds} ms";
         }
 
         // ------------------------------------------------------------------

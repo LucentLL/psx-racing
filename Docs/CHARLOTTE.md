@@ -5629,6 +5629,65 @@ freeway was made by digging a 4.5% V under it (SinkTrenches).
 
 Logs and photos: scratchpad `heights\` (probes 1-12, checks, checks_r2, checks_r3) and `ba\heights\`.
 
+### HEIGHTS finish attempt (2026-10-03): junction landings, C1 blends, walls where a slope has no room - still OFF
+
+The junction regression had one cause in the curves pass: a measured station
+on its profile could only fall (the anti-ratchet freeze), so wherever a
+measured road reached a junction the node could not be held on its major
+road's plane (the plane needs every arm free), no arm landed on it, and no
+street branch was pinned onto its host (the branch's ribbon ran under the
+host's: the `@mesh-off-data` half). Built, all of it only with the measured
+heights (`RprfOn`; OFF solves and draws exactly as shipped):
+
+- **Measured roads free at junctions**: within 60 m of a node of three arms
+  or more, and on every street-branch station (`LandingFreeM`).
+- **Junction landings (C1)**: every arm but the major through pair runs ON
+  the plane across the major road's pavement and out to its fan corner
+  (`d0` = half width over the sine of the meeting angle + 1 m, at least the
+  arm's trim), then eases from the plane's height and grade into its own
+  profile on a cubic Hermite as long as AASHTO asks at the arm's design speed
+  (25 mph on a STOP/signal approach and on a minor arm into a bigger road):
+  crest K for stopping sight, sag K for headlight sight, else the comfort K,
+  else the gentlest that fits (then only the plane is held). Never a ramp
+  past 15% unless the plane or the arm is. `CrestStopR`, `SagHeadlightR`.
+- **C1 end blends**: `BlendEndsToNodes` fades on a smoothstep (one over the
+  whole edge up to 180 m) instead of a linear ramp over each half; unmeasured
+  profiles re-clamped to their class grade where their ends allow.
+- **Measured decks free in the first two curves rounds** (the fresh raise
+  puts back any clearance they give): a twin hold had lifted I-277 e2308 over
+  N Brevard St into a 4.8% one-station crest on the uptown route.
+- **Grade guard**: last, an edge of 30 m+ with a station grade past 15.5% is
+  eased to it where its ends allow (not bridges, crossings, water, culverts).
+- **Walls where a slope has no room** (`CityMeshes.InCut`, the owner's DOT
+  rule): a road above in the slope walls the cut only where its 1V:4H fill
+  still stands over this road's back slope where the lattice cap stops
+  (`CityLatticeReachM`), i.e. where `Ground` would leave a drop; a deck above
+  never walls it (decks hold no land). The audit lists the walls by road.
+- Instruments: the launch report's GRADES line (the audit's 16% check on the
+  same solve), the vertical-curves line's `junction landings`, CityPreview
+  group `jgrade` (S Mint St at W 4th St, West Blvd node 5192).
+
+**Shipped (OFF) / heights ON before / heights ON after:**
+- LAUNCH city-wide 115 / 206 / **178** (T1 42/67/69, T2 65/125/99, T3 8/14/10; UNLOAD 590/854/707); uptown route 0/2/1 (e2422 at node 3640, a raised-cone mitred joint outside the box). Boxed 12 / 15 / **11**, routes 0. By cause, ON before -> after: mitred joints off the data 48 -> 22, mitred joints 34 -> 27, terrain profile off the data 43 -> 31, junction fans 36 -> 34, **junction nodes 2 -> 16** (nodes are now held on their plane, so a crest AT the node can no longer be lowered away).
+- Grades past 16%: 3 / 5 / **0** (+8 slivers, worst 15.5%; the guard eased 9 edges).
+- Cut walls on the roadside tiles: 214 / 1,035 / **597 m** (I-277 216 m north of uptown at 35.2294,-80.8311; I-85 209 m at 35.2479,-80.8960; East Independence Expressway 90 m and Blvd 30 m near Elizabeth; I-77 43 m; Albemarle Rd 10 m; all but 15 m "a road above"; which of them are really walled is still to check against the real roads); the 50%-below-WP-04 check still FAILS (597 vs 535 m).
+- DOUBLE 2 / 0 / 0; PAIRS T1 13 / 4 / 4 (worst 0.65 m); lowest clearance 4.75 / 4.89 / 4.89 m; DRIVE AUDIT zeros; tile build p95 112.5 / 118.9 ms (cap 123.6); solve 3.3-3.8 s; audit failures 16 / 16 / 14 (faces 3 -> 1, rail runs 7 -> 6, lane survey 6 -> 5, ledges 4 -> 1, culverts 2 -> 1; verge 26 -> 30).
+
+**Why still OFF:** LAUNCH city-wide 178 against the gate of 115, spread over
+junction fans (34 vs 22 shipped), mitred joints (27 + 22 off the data vs
+11 + 9), junction nodes (16 + 9 vs 3 + 6) and terrain profiles off the data
+(31 vs 19) - no one rule closes 63 spots, and the budget was one more
+city-wide run.
+
+**Next:** ease the major through pair through the node on its own vertical
+curve first (so the held node sits ON a curve, not at a crest), then land the
+minor arms on that; fan corners of the major arms are still on their own
+grade (the fan folds where an arm climbs into the junction); the
+terrain-profile `@mesh-off-data` spots along edges (a neighbouring ribbon
+over the path); the remaining walls checked against the real roads.
+Logs: scratchpad `jgrade\` (box1-5, all1, audit1); BEFORE shots of the two
+junctions in `ba\jgrade\before\` (no AFTER: nothing shipped changed).
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

@@ -321,6 +321,9 @@ namespace PSXRacing.EditorTools
             Eye("ht_i277_college", "heights", -2969.7f, 4155.2f, "I-277", 133f, "I-277 eastbound (e2027) 110 m before the S College St bridge, heading 133, 1.2 m eye: the road down under the bridge and up again"),
             Eye("ht_i77_w5th", "heights", -3386.1f, 5811.5f, "I-77", 35f, "I-77 northbound (e6608) 110 m before the W 5th St bridges, heading 35, 1.2 m eye"),
             Eye("ht_trade_i77", "heights", -3586.5f, 5738.2f, "Trade", 105f, "W Trade St eastbound (e9613) 100 m before the I-77 bridges, heading 105, 1.2 m eye: the real street dips ~2.6 m under them"),
+            // junction grade transitions (leftover item 1 finish, 2026-10-03): two of the worst LAUNCH junctions before the landings
+            Eye("jg_mint_w4th", "jgrade", -2615.6f, 4925.1f, "Mint", 229f, "S Mint St southwest-bound 45 m before W 4th St (node 7288, signal), heading 229, 1.2 m eye: +9% into the junction, +3% out of it"),
+            Eye("jg_westblvd_5192", "jgrade", -9764.4f, 2272.2f, "West Boulevard", 56f, "West Blvd eastbound (e6687) 80 m before node 5192 where the carriageways join, heading 56, 1.2 m eye: level into the junction, -6% out of it"),
             // merges (B5/A7/A8)
             Along("merge_i85_e3031_near", "merges", 9723.9f, 20811.8f, "I-85", 200f, 120f, 60f, 1, "the I-85 entrance e3031 (node 3268) from 30 m before its merge zone"),
             Along("merge_i85_e3031_far", "merges", 9723.9f, 20811.8f, "I-85", 570f, 120f, 30f, 2, "the same merge from 400 m back, 30 deg lens: z-fight / pop-in at range"),

@@ -225,6 +225,7 @@ namespace PSXRacing.EditorTools
                 Line($"judged at: motorway 150, trunk 130, primary 110, secondary 100, tertiary 90, local 70, ramps 70-90 km/h (turns capped by their plan radius, sqrt(G R)); race routes at least {RouteKmh:0} km/h. LAUNCH = the road falls {LaunchSepM:0.00} m below a free-flying car within {FlyM:0} m; UNLOAD = {UnloadSepM:0.00} m");
                 Line(SurveyFit(map));
                 Line("vertical curves: " + (CityElevation.VerticalCurvesOn ? CityElevation.VcurveReport : "OFF (PSX_CITY_VCURVES=0)"));
+                Line(GradeLine(map));
 
                 X = new float[1 << 22]; Z = new float[1 << 22]; YE = new float[1 << 22]; YL = new float[1 << 22]; nS = 0;
                 var bx = Environment.GetEnvironmentVariable("PSX_LAUNCH_BOX");
@@ -1401,6 +1402,39 @@ namespace PSXRacing.EditorTools
         /// <summary>The solve's distance from the survey (the terrain profile
         /// the solve started from, before any structure): RMS and the share of
         /// stations moved more than a metre.</summary>
+        /// <summary>The city audit's grade check (CityAudit.GradeAudit: no
+        /// station-to-station grade past 16% outside a sub-30 m sliver), read
+        /// off the same solve, so a launch run reports it too.</summary>
+        static string GradeLine(CityMap map)
+        {
+            int fails = 0, stubs = 0;
+            var bad = new List<(float g, CityMap.Edge e, float at)>();
+            foreach (var e in map.edges)
+            {
+                bool stub = e.length < 30f;
+                for (int i = 1; i < e.stS.Length; i++)
+                {
+                    float ds = e.stS[i] - e.stS[i - 1];
+                    if (ds < 0.5f) continue;
+                    float g = Mathf.Abs(e.stY[i] - e.stY[i - 1]) / ds;
+                    if (g <= 0.16f) continue;
+                    if (stub) { stubs++; continue; }
+                    fails++;
+                    bad.Add((g, e, e.stS[i]));
+                }
+            }
+            bad.Sort((a, b) => b.g.CompareTo(a.g));
+            var sb = new StringBuilder($"GRADES past 16% (the city audit's check, sub-30 m slivers exempt): {fails} (+{stubs} on slivers); the grade guard eased {CityElevation.GradeGuarded} edges");
+            for (int k = 0; k < Mathf.Min(6, bad.Count); k++)
+            {
+                var (g, e, at) = bad[k];
+                var p = e.PointAt(at);
+                sb.Append(string.Format(CultureInfo.InvariantCulture, "; {0:0.0}% e{1} '{2}' cls{3}{4} len{5:0} at s={6:0} ({7:0},{8:0})",
+                    g * 100f, e.index, e.name, e.cls, e.link ? " L" : "", e.length, at, p.x, p.y));
+            }
+            return sb.ToString();
+        }
+
         static string SurveyFit(CityMap map)
         {
             var prof = CityElevation.TerrainProfiles;
