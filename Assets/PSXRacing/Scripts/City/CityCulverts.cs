@@ -135,6 +135,10 @@ namespace PSXRacing.City
             public bool hasLo, hasHi;
             public End lo, hi;
             public string missLo, missHi;
+            /// <summary>A creek OSM pipes under the road (plan B2, owner Q8;
+            /// section CULV), not a ravine: its ends stand where the fill meets
+            /// the water.</summary>
+            public bool creek;
         }
 
         // the culverts of the last tiles asked for (the tile build and the
@@ -199,9 +203,23 @@ namespace PSXRacing.City
                     if (at.x < min.x - m || at.x > max.x + m || at.y < min.y - m || at.y > max.y + m) continue;
                     float ws = w.s[j] + (w.s[j + 1] - w.s[j]) * u;
                     float es = e.s[i] + (e.s[i + 1] - e.s[i]) * t;
-                    found.Add(Solve(map, trims, wi, ei, ws, es, at));
+                    found.Add(Solve(map, trims, wi, ei, ws, es, at, false));
                 }
             }
+            // THE CREEKS OSM PIPES UNDER A ROAD (plan B2, owner Q8; section
+            // CULV): the creek runs on under the road's fill like a ravine,
+            // and each end stands where the fill meets its WATER
+            if (map.creekCulverts != null)
+                foreach (var x in map.creekCulverts)
+                {
+                    if (x.water < 0 || x.water >= map.waters.Length || x.edge < 0 || x.edge >= map.edges.Length) continue;
+                    var e = map.edges[x.edge];
+                    var at = e.PointAt(x.s);
+                    if (at.x < min.x - m || at.x > max.x + m || at.y < min.y - m || at.y > max.y + m) continue;
+                    var w = map.waters[x.water];
+                    if (w.lake || w.ravine || w.pts == null || w.pts.Length < 2) continue;
+                    found.Add(Solve(map, trims, x.water, x.edge, Mathf.Clamp(x.ws, 0f, w.length), x.s, at, true));
+                }
             found.Sort((p, q) => p.water != q.water ? p.water.CompareTo(q.water) : p.ws != q.ws ? p.ws.CompareTo(q.ws) : p.edge.CompareTo(q.edge));
             // one wall per (ravine, grid index): the first culvert in the
             // fixed order keeps it
@@ -215,18 +233,22 @@ namespace PSXRacing.City
             }
         }
 
-        static Culvert Solve(CityMap map, CityMeshes.Trims trims, int wi, int ei, float ws, float es, Vector2 at)
+        /// <summary>How far under its bed a culvert's channel floor lies: a
+        /// ravine's carve, or a creek's (its water and the carve under it).</summary>
+        public static float FloorBelowBed(bool creek) => creek ? CityElevation.WaterBelowBed + CityElevation.CarveBelowWater : CityElevation.RavineBelowBed;
+
+        static Culvert Solve(CityMap map, CityMeshes.Trims trims, int wi, int ei, float ws, float es, Vector2 at, bool creek)
         {
             var w = map.waters[wi];
             var e = map.edges[ei];
-            var c = new Culvert { water = wi, edge = ei, ws = ws, es = es, at = at, roadY = e.YAt(es), floorY = float.NaN };
+            var c = new Culvert { water = wi, edge = ei, ws = ws, es = es, at = at, roadY = e.YAt(es), floorY = float.NaN, creek = creek };
             if (e.ElevatedAt(es)) { c.skip = "deck"; return c; }
             float bed = CityElevation.BedYAt(w, ws);
             if (float.IsNaN(bed)) { c.skip = "no bed"; return c; }
-            c.floorY = bed - CityElevation.RavineBelowBed;
+            c.floorY = bed - FloorBelowBed(creek);
             if (c.roadY - c.floorY < MinFillM) { c.skip = "shallow"; return c; }
-            c.hasLo = Walk(map, trims, w, wi, ws, -1, c.roadY, out c.lo, out c.missLo);
-            c.hasHi = Walk(map, trims, w, wi, ws, +1, c.roadY, out c.hi, out c.missHi);
+            c.hasLo = Walk(map, trims, w, wi, ws, -1, c.roadY, creek, out c.lo, out c.missLo);
+            c.hasHi = Walk(map, trims, w, wi, ws, +1, c.roadY, creek, out c.hi, out c.missHi);
             // one pipe the whole way under the road: the smaller end's (a
             // headwall's pipe is the largest whose wall fits its fill, and a
             // smaller one fits it too)
@@ -288,19 +310,20 @@ namespace PSXRacing.City
         static readonly List<Sample> walk = new List<Sample>(64);
 
         static bool Walk(CityMap map, CityMeshes.Trims trims, CityMap.Water w, int wi, float ws, int dir,
-                         float roadY, out End end, out string miss)
+                         float roadY, bool creek, out End end, out string miss)
         {
             end = default; miss = null;
             walk.Clear();
             int k0 = dir > 0 ? Mathf.FloorToInt(ws / WalkStepM) + 1 : Mathf.CeilToInt(ws / WalkStepM) - 1;
+            float below = FloorBelowBed(creek);
             // the widest wall this crossing could take, for the clearance
-            float wallWMax = PipeFor(roadY - (CityElevation.BedYAt(w, ws) - CityElevation.RavineBelowBed)) + 2f * WallBesidePipeM;
+            float wallWMax = PipeFor(roadY - (CityElevation.BedYAt(w, ws) - below)) + 2f * WallBesidePipeM;
             for (int k = k0; Mathf.Abs(k * WalkStepM - ws) <= WalkMaxM; k += dir)
             {
                 float s = k * WalkStepM;
                 if (s < 0f || s > w.length) break;
                 var p = PointAt(w, s);
-                float floor = CityElevation.BedYAt(w, s) - CityElevation.RavineBelowBed;
+                float floor = CityElevation.BedYAt(w, s) - below;
                 bool clear = ClearOfRoads(map, p, wallWMax * 0.5f, out int edge, out float past, out Vector2 foot);
                 if (clear && trims != null && RaceRunOff.Inside(map, trims, p)) clear = false;
                 float g = CityMeshes.LatticeAt(map, p.x, p.y);
@@ -324,8 +347,14 @@ namespace PSXRacing.City
                 // be a gentle run-out, and the wall stood free on it)
                 float ahead = float.MaxValue;
                 for (int j = i; j < walk.Count; j++) if (walk[j].clear) ahead = Mathf.Min(ahead, walk[j].off);
-                bool atToe = sm.off <= ahead + ToeTolM;
-                if (!atToe && sm.off <= ahead + FootOverToeM)
+                bool atToe;
+                if (creek)
+                    // a creek: where the fill comes down to its WATER - the
+                    // water runs out of the pipe at the wall's foot, and the
+                    // fill behind the wall hides the sheet under the road
+                    atToe = sm.g <= CityElevation.CreekSurfaceY(w, sm.s, sm.p) + ToeTolM;
+                else atToe = sm.off <= ahead + ToeTolM;
+                if (!creek && !atToe && sm.off <= ahead + FootOverToeM)
                 {
                     float wallH = PipeFor(roadY - sm.g) + WallOverPipeM;
                     var backP = sm.p - TangentAt(w, sm.s) * dir * FillBackM;
@@ -335,7 +364,7 @@ namespace PSXRacing.City
                 float fill = roadY - sm.g;
                 if (fill < MinFillM) { miss = "shallow at the toe"; return false; }
                 if (map.InLake(sm.p)) { miss = "a lake"; return false; }
-                if (NearCreek(map, sm.p, CreekClearM)) { miss = "a creek"; return false; }
+                if (!creek && NearCreek(map, sm.p, CreekClearM)) { miss = "a creek"; return false; }
                 float pipe = PipeFor(fill);
                 float wallW = pipe + 2f * WallBesidePipeM;
                 if (map.AnyFootprintNear(sm.p, wallW * 0.5f + 2f)) { miss = "a building"; return false; }

@@ -97,7 +97,8 @@ import { fileURLToPath } from 'node:url';
 import { load3dep } from './lib/dem3dep.mjs';
 import { buildWaters, waterInputPaths } from './lib/water.mjs';
 import { parseCity, parseDem, parseBld, fingerprint, graphHash, hashHex, CITY_SECTIONS, profileFor, tierOf } from './lib/citydata.mjs';
-import { loadOutlines, outlineIndex, structIdOf, loadCulverts, culvertSpans, outlineName } from './lib/bridges.mjs';
+import { loadOutlines, outlineIndex, structIdOf, outlineName } from './lib/bridges.mjs';
+import { loadCulvertLines, ribbonMeet, arcOf, bedAt, creekFlatHalf, CULVERT_NEAR_M, CULVERT_RIBBON_M, CULVERT_ALONG_M } from './lib/culverts.mjs';
 import { readCredits } from './lib/sources.mjs';
 import { lineClean, LANE_W, LANE_W_LINK } from './lib/lineclean.mjs';
 import { readSmoothRules } from './lib/smoothrules.mjs';
@@ -748,6 +749,14 @@ function pointInPoly(pts, x, y) {
   return inside;
 }
 const wspans = [];
+/// Every road crossing of a creek line (plan B2): { e, s, half, wi, ws, x, z, sin }
+/// - the edge and arc, the deck's half length, the water and its arc, the
+/// point, the sine of the crossing angle. Section CULV and the culvert
+/// decisions below read it.
+const creekX = [];
+/// The culverts (owner Q8; lib/culverts.mjs): the pipes for section CULV, and
+/// every candidate's decision for tools/city/baseline/culverts_q8.csv.
+let CULV = { xs: [], rows: [] };
 {
   // water segments hashed so 40k edges do not each walk 30 creeks
   const wHash = new Map();
@@ -773,6 +782,8 @@ const wspans = [];
     for (const p of w.pts) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }
     return [x0, z0, x1, z1];
   });
+  const waterAcc = waters.map(w => w.lake ? null : arcOf(w.pts));
+  const perEdge = [];
   for (const e of edges) {
     const acc = [0];
     for (let i = 1; i < e.pts.length; i++) acc.push(acc[i - 1] + Math.hypot(e.pts[i][0] - e.pts[i - 1][0], e.pts[i][1] - e.pts[i - 1][1]));
@@ -792,10 +803,14 @@ const wspans = [];
           const w = waters[wi];
           const p = segX(ax, az, bx, bz, w.pts[j - 1][0], w.pts[j - 1][1], w.pts[j][0], w.pts[j][1]);
           if (!p) continue;
-          const segL = acc[i] - acc[i - 1];
           const s = acc[i - 1] + Math.hypot(p[0] - ax, p[1] - az);
           const half = w.widthM / 2 + BANK_M;
-          spans.push([s - half, s + half]);
+          // the crossing, for the culvert decisions (plan B2)
+          const cdx = w.pts[j][0] - w.pts[j - 1][0], cdz = w.pts[j][1] - w.pts[j - 1][1], rdx = bx - ax, rdz = bz - az;
+          const sin = Math.abs(rdx * cdz - rdz * cdx) / Math.max(1e-9, Math.hypot(rdx, rdz) * Math.hypot(cdx, cdz));
+          const ws = waterAcc[wi][j - 1] + Math.hypot(p[0] - w.pts[j - 1][0], p[1] - w.pts[j - 1][1]);
+          creekX.push({ e: e.id, s, half, wi, ws, x: p[0], z: p[1], sin, acc });
+          spans.push([s - half, s + half, creekX.length - 1]);
         }
       }
     }
@@ -821,16 +836,112 @@ const wspans = [];
       if (openAt >= 0) spans.push([openAt - BANK_M, acc[acc.length - 1]]);
     });
     if (!spans.length) continue;
+    perEdge.push({ e, acc, spans });
+  }
+
+  // ---- THE CULVERTS (owner Q8, plan B2; the rules: lib/culverts.mjs) ----
+  const culLines = loadCulvertLines(join(CACHE, 'layers', 'culverts.json'), toX, toZ);
+  if (!culLines) throw new Error('tools/city/cache/layers/culverts.json is missing: fetch it with tools/city/fetch/fetch_layers.mjs');
+  const hwOf = e => (e.lanes * LANE_M + e.way.shl + e.way.shr) / 2 + 1;
+  const conv = new Map();          // creekX index -> { way, dRib, dP, at }
+  const rowOf = new Map();         // creekX index -> its candidate row
+  const why = (xi, w) => { conv.delete(xi); rowOf.get(xi).why = w; };
+  creekX.forEach((X, xi) => {
+    const near = culLines.near(X.x, X.z, CULVERT_NEAR_M);
+    if (!near.length) return;
+    const e = edges[X.e], wy = e.way;
+    const row = { xi, edge: X.e, way: wy.id, rank: wy.rank, link: wy.link, name: wy.name, water: waters[X.wi].name, culvertWay: near[0].w.id, culvertName: near[0].w.name,
+                  dP: near[0].d, dRib: NaN, alongOff: NaN, x: X.x, z: X.z, why: '' };
+    rowOf.set(xi, row); CULV.rows.push(row);
+    if (wy.bridge) { row.why = 'the road is tagged bridge=yes (OSM says a bridge)'; return; }
+    if (wy.tunnel) { row.why = 'the road is a tunnel'; return; }
+    let best = null, closest = null;
+    for (const { w, d } of near) {
+      const m = ribbonMeet(w.pts, e.pts, X.acc, X.s, hwOf(e), CULVERT_ALONG_M);
+      if (!closest || m.dRib < closest.m.dRib) closest = { w, d, m };
+      if (m.dRib <= CULVERT_RIBBON_M && (!best || m.dRib < best.m.dRib - 1e-6)) best = { w, d, m };
+    }
+    if (!best) {
+      row.dRib = closest.m.dRib;
+      row.why = Number.isFinite(closest.m.dRib)
+        ? `the culvert line (way ${closest.w.id}) passes ${closest.m.dRib.toFixed(1)} m outside the road's ribbon within ${CULVERT_ALONG_M} m of the creek (needs ${CULVERT_RIBBON_M} m)`
+        : `the culvert line (way ${closest.w.id}) does not reach the road within ${CULVERT_ALONG_M} m of the creek`;
+      return;
+    }
+    Object.assign(row, { culvertWay: best.w.id, culvertName: best.w.name, dP: best.d, dRib: best.m.dRib, alongOff: best.m.at - X.s });
+    conv.set(xi, true);
+  });
+  // THE SAME FILL: a crossing of the same creek within CULVERT_SHARED_M of a
+  // piped one is on that pipe's embankment too (a ramp seated on its
+  // mainline, a divided road's other carriageway: I-85's ramp e9018 kept a
+  // deck beside the piped mainline it rides on, and the deck stood on the
+  // ground) - unless OSM tags it a bridge, or it is a tunnel
+  const CULVERT_SHARED_M = 25;
+  for (let pass = 0; pass < 10; pass++) {
+    let added = 0;
+    creekX.forEach((Y, yi) => {
+      if (conv.has(yi)) return;
+      const e = edges[Y.e], wy = e.way;
+      if (wy.bridge || wy.tunnel) return;
+      for (const xi of conv.keys()) {
+        const X = creekX[xi];
+        if (X.wi !== Y.wi || Math.hypot(X.x - Y.x, X.z - Y.z) > CULVERT_SHARED_M) continue;
+        let row = rowOf.get(yi);
+        if (!row) {
+          row = { xi: yi, edge: Y.e, way: wy.id, rank: wy.rank, link: wy.link, name: wy.name, water: waters[Y.wi].name, culvertWay: 0, culvertName: '',
+                  dP: NaN, dRib: NaN, alongOff: NaN, x: Y.x, z: Y.z, why: '' };
+          rowOf.set(yi, row); CULV.rows.push(row);
+        }
+        Object.assign(row, { culvertWay: rowOf.get(xi).culvertWay, culvertName: rowOf.get(xi).culvertName, why: '', shared: X.e });
+        conv.set(yi, true); added++;
+        return;
+      }
+    });
+    if (!added) break;
+  }
+  // (a) the deck would hold other water too: it stays a deck
+  for (let pass = 0; pass < 20; pass++) {
+    let changed = false;
+    for (const pe of perEdge)
+      for (const sp of pe.spans) {
+        if (sp[2] === undefined || !conv.has(sp[2])) continue;
+        const other = pe.spans.find(q => q !== sp && !(q[2] !== undefined && conv.has(q[2])) && q[0] <= sp[1] + 2 && sp[0] <= q[1] + 2);
+        if (other) { why(sp[2], other[2] === undefined ? 'its deck also spans a lake' : `its deck also spans another creek crossing (${waters[creekX[other[2]].wi].name || 'unnamed'}) that is not piped`); changed = true; }
+      }
+    if (!changed) break;
+  }
+  // every piped crossing: no span; the rest as they were
+  for (const pe of perEdge) {
+    const spans = pe.spans.filter(sp => !(sp[2] !== undefined && conv.has(sp[2])));
+    if (!spans.length) continue;
     spans.sort((p, q) => p[0] - q[0]);
-    const merged = [spans[0]];
+    const merged = [spans[0].slice(0, 2)];
     for (const s of spans.slice(1)) {
       const last = merged[merged.length - 1];
-      if (s[0] <= last[1] + 2) last[1] = Math.max(last[1], s[1]); else merged.push(s);
+      if (s[0] <= last[1] + 2) last[1] = Math.max(last[1], s[1]); else merged.push(s.slice(0, 2));
     }
-    const total = acc[acc.length - 1];
-    for (const [s0, s1] of merged) wspans.push({ e: e.id, s0: Math.max(0, s0), s1: Math.min(total, s1) });
+    const total = pe.acc[pe.acc.length - 1];
+    for (const [s0, s1] of merged) wspans.push({ e: pe.e.id, s0: Math.max(0, s0), s1: Math.min(total, s1) });
   }
-  console.log(`water bridge spans: ${wspans.length}`);
+  // the creek runs on under the road, as a ravine does: the road's fill
+  // covers it (CityElevation.HoldCulverts keeps the pipe's cover) and the
+  // game finds each end where the fill meets the channel (CityCulverts)
+  const xs = [...conv.keys()].sort((a, b) => a - b);
+  const byTier = [0, 0, 0, 0], km = [0, 0, 0, 0];
+  for (const xi of xs) {
+    rowOf.get(xi).why = 'CULVERT';
+    const e = edges[creekX[xi].e]; byTier[tierOf(e.way.rank)]++; km[tierOf(e.way.rank)] += 2 * creekX[xi].half;
+  }
+  CULV.xs = xs.map(xi => {
+    const X = creekX[xi], w = waters[X.wi];
+    // the road's hold over the pipe: across the creek's flat floor and two
+    // metres, along the road
+    const halfAlong = Math.min(30, (creekFlatHalf(w.widthM) + 2) / Math.max(0.35, X.sin));
+    return { way: rowOf.get(xi).culvertWay, water: X.wi, ws: X.ws, e: X.e, s: X.s, half: halfAlong, bed: bedAt(w, X.ws) };
+  });
+  const rejected = CULV.rows.filter(r => r.why !== 'CULVERT').length;
+  console.log(`water bridge spans: ${wspans.length}; B2 culverts (owner Q8): ${CULV.rows.length} creek crossings with an OSM culvert line within ${CULVERT_NEAR_M} m: ` +
+              `${xs.length} piped (T1 ${byTier[1]}, T2 ${byTier[2]}, T3 ${byTier[3]}; ${(km[1] / 1000).toFixed(2)}/${(km[2] / 1000).toFixed(2)}/${(km[3] / 1000).toFixed(2)} km of deck gone), ${rejected} left as bridges`);
 }
 
 // ------------------------------------------ B1: bridge outlines, culvert creeks
@@ -840,11 +951,13 @@ const wspans = [];
 // (its structId; section BRST), and the game's twin-deck table
 // (Scripts/City/DeckPairs.cs) joins two decks in one outline, keeps two in
 // different outlines apart, and falls back to the class rule without one.
-// A water span whose middle is within 15 m of an OSM culvert line is a creek
-// OSM says is PIPED under the road (owner Q8: follow OSM, build culverts -
-// package B2 converts them): listed here so no twin-deck union joins one
-// before then (critic C2/D3). Twin-deck overrides by way pair (FORCE one
-// structure / NEVER) come from tools/city/deckpairs_overrides.json.
+// B1 listed here the water spans within 15 m of an OSM culvert line, so no
+// twin-deck union joined one before B2 decided them (critic C2/D3). B2
+// (owner Q8) has: a creek OSM pipes under the road has no span any more (the
+// culverts above, section CULV), and a span left is a bridge by the rule, so
+// BRST's culvert table is empty from B2 on (the layout keeps it). Twin-deck
+// overrides by way pair (FORCE one structure / NEVER) come from
+// tools/city/deckpairs_overrides.json.
 const OUTLINES_FILE = join(CACHE, 'bridges_mm.json');
 const CULVERTS_FILE = join(CACHE, 'layers', 'culverts.json');
 const OVERRIDES_FILE = join(HERE, 'deckpairs_overrides.json');
@@ -859,18 +972,13 @@ const BRST = (() => {
     const r = structIdOf(e.pts, ix);
     if (r.id) struct.push([e.id, r.id]); else if (r.touched) touched++;
   }
-  const cul = loadCulverts(CULVERTS_FILE, toX, toZ);
-  const culvert = culvertSpans(wspans, i => edges[i].pts, cul);
   const overrides = existsSync(OVERRIDES_FILE) ? JSON.parse(readFileSync(OVERRIDES_FILE, 'utf8')).pairs || [] : [];
   for (const o of overrides)
     if (!(o.decision === 'FORCE' || o.decision === 'NEVER') || !(o.wayA > 0) || !(o.wayB > 0))
       throw new Error(`deckpairs_overrides.json: ${JSON.stringify(o)} is not { wayA, wayB, decision: FORCE | NEVER, why }`);
-  const byTier = [0, 0, 0, 0];
-  for (const c of culvert) byTier[tierOf(edges[wspans[c.span].e].way.rank)]++;
   const bridgeEdges = edges.filter(e => e.way.bridge).length;
   console.log(`B1 outlines: ${outl.length} man_made=bridge outlines; ${struct.length} of ${bridgeEdges} bridge edges in one (${new Set(struct.map(q => q[1])).size} outlines used), ${touched} more only partly inside one (structId 0: the class rule)`);
-  console.log(`B1 culvert creeks (owner Q8): ${culvert.length} of ${wspans.length} water spans within 15 m of one of ${cul.count} OSM culvert segments (T1 ${byTier[1]}, T2 ${byTier[2]}, T3 ${byTier[3]}); kept as decks until B2, never joined into a twin deck`);
-  return { struct, culvert, overrides };
+  return { struct, culvert: [], overrides };
 })();
 
 // ------------------------------- C9: dead ends short of a road (plan critic C9)
@@ -1485,6 +1593,12 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
     w.u32(BRST.overrides.length);
     for (const o of BRST.overrides) { w.u32(o.wayA); w.u32(o.wayB); w.u8(o.decision === 'FORCE' ? 1 : 0); }
   });
+  // CULV (plan B2, owner Q8): the road crossings of a creek OSM pipes under
+  // the road - no span; the game's culvert. Layout: lib/citydata.mjs.
+  section('CULV', w => {
+    w.u32(CULV.xs.length);
+    for (const x of CULV.xs) { w.u32(x.way); w.u32(x.water); w.f32(x.ws); w.u32(x.e); w.f32(x.s); w.f32(x.half); w.f32(x.bed); }
+  });
   if ([...sec.keys()].join() !== CITY_SECTIONS.join()) throw new Error('PSXC sections out of step with citydata.mjs CITY_SECTIONS');
 
   const align = n => (n + 3) & ~3;
@@ -1724,6 +1838,17 @@ if (MODE.out) {
     writeFileSync(join(dir, name), buf);
     console.log(`wrote ${relative(UNITY, join(dir, name))}  ${buf.length} B  sha256 ${sha256(buf).slice(0, 16)}`);
   }
+  // owner Q8: every candidate creek crossing, piped or left a bridge, and why
+  // (into the baseline beside the shipped files; beside the export otherwise)
+  const csvDir = resolve(dir) === resolve(RES) ? join(HERE, 'baseline') : dir;
+  const llOf = (x, z) => `${(LAT0 + z / M_LAT).toFixed(5)} ${(LON0 + x / M_LON).toFixed(5)}`;
+  const clsName = (rank, link) => ['local', 'tertiary', 'secondary', 'primary', 'trunk', 'motorway'][rank] + (link ? '_link' : '');
+  const q = v => `"${String(v ?? '').replace(/"/g, "'")}"`;
+  const rows = [...CULV.rows].sort((a, b) => (a.why === 'CULVERT' ? 0 : 1) - (b.why === 'CULVERT' ? 0 : 1) || tierOf(a.rank) - tierOf(b.rank) || a.edge - b.edge || a.xi - b.xi);
+  writeFileSync(join(csvDir, 'culverts_q8.csv'), 'decision,tier,edge,way,class,name,creek,culvertWay,culvertName,culvertFromCrossingM,culvertFromRibbonM,culvertAlongRoadM,latlon,reason\n' +
+    rows.map(r => [r.why === 'CULVERT' ? 'CULVERT' : 'BRIDGE', 'T' + tierOf(r.rank), r.edge, r.way, clsName(r.rank, r.link), q(r.name), q(r.water), r.culvertWay, q(r.culvertName),
+                   Number.isFinite(r.dP) ? r.dP.toFixed(1) : '', Number.isFinite(r.dRib) ? r.dRib.toFixed(1) : '', Number.isFinite(r.alongOff) ? r.alongOff.toFixed(1) : '', llOf(r.x, r.z), q(r.why === 'CULVERT' ? (r.shared !== undefined ? `on the same fill as the piped crossing of e${r.shared} (within 25 m on the creek)` : '') : r.why)].join(',')).join('\n') + '\n');
+  console.log(`wrote ${relative(UNITY, join(csvDir, 'culverts_q8.csv'))} (${rows.length} candidate creek crossings)`);
 }
 if (MODE.fingerprint) {
   const path = resolve(UNITY, MODE.fingerprint);

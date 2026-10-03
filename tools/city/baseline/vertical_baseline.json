@@ -1,0 +1,353 @@
+{
+ "schema": 1,
+ "note": "tools/city/metrics.mjs VERTICAL (plan B2): the elevation solve emulated offline (lib/vertical.mjs) - no water spans, culvert holds, seats, twin holds or vertical curves, so these are the emulation's numbers; Editor/CityAudit.Profile.cs measures the game's own. before = the B1 data (main@8ea140b6) under the trench rule before B2; after = the B2 data under the B2 rule; after_data_old_rule = the B2 data under the old rule (what the culverts alone changed).",
+ "before": {
+  "curves": {
+   "total": 39323,
+   "sags": {
+    "T1": 6934,
+    "T2": 9660,
+    "T3": 2920
+   },
+   "sags_short_of_comfort": {
+    "T1": 4590,
+    "T2": 5214,
+    "T3": 739
+   },
+   "sags_short_of_headlight": {
+    "T1": 5101,
+    "T2": 5642,
+    "T3": 803
+   },
+   "sag_corners": {
+    "T1": 1197,
+    "T2": 1333,
+    "T3": 146
+   },
+   "crests": {
+    "T1": 6987,
+    "T2": 9772,
+    "T3": 3050
+   },
+   "crests_short": {
+    "T1": 4792,
+    "T2": 4640,
+    "T3": 586
+   }
+  },
+  "grades_over_class_max": {
+   "T1": 113,
+   "T2": 54,
+   "T3": 0
+  },
+  "crossings": {
+   "enforced": 783,
+   "trenched": 213,
+   "separations_over_max": {
+    "T1": 98,
+    "T2": 0,
+    "T3": 0
+   },
+   "double_separations": {
+    "T1": 69,
+    "T2": 0,
+    "T3": 0
+   },
+   "t1_over_max_real_too": 19
+  },
+  "decisions": {
+   "candidates": 279,
+   "groups": 0,
+   "dug_groups": 0,
+   "humped_for_water": 0,
+   "humped_at_junction": 0,
+   "ramps_in_cut": 0,
+   "mixed_groups": 39,
+   "mixed_crossings": 173,
+   "ramps_outside_cut": 57,
+   "redecided_dug": 0,
+   "redecided_humped": 0
+  },
+  "pairs": {
+   "T1": 327,
+   "T1_over": 153,
+   "T1_worst": 6.41,
+   "T2": 38,
+   "T2_over": 1,
+   "T1_points_over": 139
+  },
+  "w5th": {
+   "carriageway_dy": 4.93,
+   "separation_over_northbound": 10.75,
+   "crossings": [
+    {
+     "ci": 167,
+     "over": 1253,
+     "under": 2132,
+     "sep": 10.75,
+     "dug": true
+    },
+    {
+     "ci": 168,
+     "over": 1253,
+     "under": 6608,
+     "sep": 5.51,
+     "dug": false
+    },
+    {
+     "ci": 169,
+     "over": 5445,
+     "under": 2132,
+     "sep": 10.57,
+     "dug": true
+    },
+    {
+     "ci": 170,
+     "over": 5445,
+     "under": 6608,
+     "sep": 5.51,
+     "dug": false
+    }
+   ]
+  },
+  "at_grade_why": {
+   "over road a freeway or ramp": 113,
+   "a water span somewhere on the under edge (whole edge)": 25,
+   "within 20 m of the under edge's end": 41,
+   "under road a tunnel": 8
+  }
+ },
+ "after": {
+  "curves": {
+   "total": 39232,
+   "sags": {
+    "T1": 7001,
+    "T2": 9583,
+    "T3": 2915
+   },
+   "sags_short_of_comfort": {
+    "T1": 4648,
+    "T2": 5119,
+    "T3": 734
+   },
+   "sags_short_of_headlight": {
+    "T1": 5162,
+    "T2": 5554,
+    "T3": 797
+   },
+   "sag_corners": {
+    "T1": 1149,
+    "T2": 1279,
+    "T3": 144
+   },
+   "crests": {
+    "T1": 6983,
+    "T2": 9705,
+    "T3": 3045
+   },
+   "crests_short": {
+    "T1": 4817,
+    "T2": 4563,
+    "T3": 579
+   }
+  },
+  "grades_over_class_max": {
+   "T1": 116,
+   "T2": 54,
+   "T3": 0
+  },
+  "crossings": {
+   "enforced": 783,
+   "trenched": 327,
+   "separations_over_max": {
+    "T1": 23,
+    "T2": 0,
+    "T3": 0
+   },
+   "double_separations": {
+    "T1": 4,
+    "T2": 0,
+    "T3": 0
+   },
+   "t1_over_max_real_too": 8
+  },
+  "decisions": {
+   "candidates": 279,
+   "groups": 103,
+   "dug_groups": 97,
+   "humped_for_water": 1,
+   "humped_at_junction": 5,
+   "ramps_in_cut": 63,
+   "mixed_groups": 0,
+   "mixed_crossings": 0,
+   "ramps_outside_cut": 0,
+   "redecided_dug": 32,
+   "redecided_humped": 0
+  },
+  "pairs": {
+   "T1": 327,
+   "T1_over": 84,
+   "T1_worst": 1.51,
+   "T2": 38,
+   "T2_over": 1,
+   "T1_points_over": 72
+  },
+  "w5th": {
+   "carriageway_dy": 0.31,
+   "separation_over_northbound": 7.08,
+   "crossings": [
+    {
+     "ci": 167,
+     "over": 1253,
+     "under": 2132,
+     "sep": 7.08,
+     "dug": true
+    },
+    {
+     "ci": 168,
+     "over": 1253,
+     "under": 6608,
+     "sep": 6.51,
+     "dug": true
+    },
+    {
+     "ci": 169,
+     "over": 5445,
+     "under": 2132,
+     "sep": 5.63,
+     "dug": true
+    },
+    {
+     "ci": 170,
+     "over": 5445,
+     "under": 6608,
+     "sep": 5.58,
+     "dug": true
+    }
+   ]
+  },
+  "at_grade_why": {
+   "over road a freeway or ramp": 113,
+   "group: every crossing of the group within 20 m of a junction": 10,
+   "group: a water span within the cut's reach (...)": 4,
+   "every crossing of the group within 20 m of a junction": 1,
+   "under road a tunnel": 8
+  }
+ },
+ "after_data_old_rule": {
+  "curves": {
+   "total": 39290,
+   "sags": {
+    "T1": 6936,
+    "T2": 9647,
+    "T3": 2919
+   },
+   "sags_short_of_comfort": {
+    "T1": 4589,
+    "T2": 5199,
+    "T3": 738
+   },
+   "sags_short_of_headlight": {
+    "T1": 5101,
+    "T2": 5629,
+    "T3": 802
+   },
+   "sag_corners": {
+    "T1": 1185,
+    "T2": 1324,
+    "T3": 146
+   },
+   "crests": {
+    "T1": 6978,
+    "T2": 9761,
+    "T3": 3049
+   },
+   "crests_short": {
+    "T1": 4787,
+    "T2": 4627,
+    "T3": 586
+   }
+  },
+  "grades_over_class_max": {
+   "T1": 113,
+   "T2": 54,
+   "T3": 0
+  },
+  "crossings": {
+   "enforced": 783,
+   "trenched": 232,
+   "separations_over_max": {
+    "T1": 104,
+    "T2": 0,
+    "T3": 0
+   },
+   "double_separations": {
+    "T1": 74,
+    "T2": 0,
+    "T3": 0
+   },
+   "t1_over_max_real_too": 19
+  },
+  "decisions": {
+   "candidates": 279,
+   "groups": 0,
+   "dug_groups": 0,
+   "humped_for_water": 0,
+   "humped_at_junction": 0,
+   "ramps_in_cut": 0,
+   "mixed_groups": 37,
+   "mixed_crossings": 169,
+   "ramps_outside_cut": 59,
+   "redecided_dug": 0,
+   "redecided_humped": 0
+  },
+  "pairs": {
+   "T1": 327,
+   "T1_over": 139,
+   "T1_worst": 6.41,
+   "T2": 38,
+   "T2_over": 1,
+   "T1_points_over": 121
+  },
+  "w5th": {
+   "carriageway_dy": 0.21,
+   "separation_over_northbound": 10.75,
+   "crossings": [
+    {
+     "ci": 167,
+     "over": 1253,
+     "under": 2132,
+     "sep": 10.75,
+     "dug": true
+    },
+    {
+     "ci": 168,
+     "over": 1253,
+     "under": 6608,
+     "sep": 10.07,
+     "dug": true
+    },
+    {
+     "ci": 169,
+     "over": 5445,
+     "under": 2132,
+     "sep": 10.57,
+     "dug": true
+    },
+    {
+     "ci": 170,
+     "over": 5445,
+     "under": 6608,
+     "sep": 10.04,
+     "dug": true
+    }
+   ]
+  },
+  "at_grade_why": {
+   "over road a freeway or ramp": 113,
+   "within 20 m of the under edge's end": 42,
+   "a water span somewhere on the under edge (whole edge)": 5,
+   "under road a tunnel": 8
+  }
+ }
+}

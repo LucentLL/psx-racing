@@ -19,6 +19,12 @@
 //   HEIGHT    the ground and the road line against USGS 3DEP (tools/city/truth):
 //             city-wide DEM, the core's relief, 8 transects (RMSE, crests and
 //             dips kept, climb, crest radius), the land beside the road
+//   VERTICAL  the elevation solve emulated offline (lib/vertical.mjs; plan
+//             B2): trench decisions, double separations, mixed decisions,
+//             carriageway pairs at crossings, the AASHTO vertical-curve census
+//             (the PROFILE audit's numbers on the emulation), and 3DEP's real
+//             separation at the tall ones when the 1/3" cache is there.
+//             --vertical-old adds the trench rule before B2, for a BEFORE
 //   SMOOTH    the smoothness gate's B2 KINK / B3 CURVE on the exported
 //             centreline and its offset curves (smooth.mjs; plan A4 WP-G)
 //   CONTROL   signal / stop / give-way nodes by junction class
@@ -37,6 +43,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseCity, parseDem, parseBld, roadGridSteps, fingerprint, freeVertices, kmByClass, classOf, CLASSES, DEG, STATION_STEP, signedTurn } from './lib/citydata.mjs';
 import { smoothSection } from './smooth.mjs';
+import { emulateSolve, profileNumbers, realSeparations, SEPARATION_MAX } from './lib/vertical.mjs';
+import { load3dep } from './lib/dem3dep.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UNITY = join(HERE, '..', '..');
@@ -592,6 +600,33 @@ P(`  PSXC v${fp.city.version}, graph hash ${fp.city.graph_hash}; PDEM v${fp.dem.
       (lines.length ? '' : ' (NO WBED in this data: nothing carved)'));
     P('    ' + Object.entries(per).map(([id, v]) => `${id} ${v.carved_error >= 0 ? '+' : ''}${v.carved_error} (grid ${v.grid60_error >= 0 ? '+' : ''}${v.grid60_error})`).join(', '));
   }
+}
+
+// ================================================================ VERTICAL
+{
+  const t1 = Date.now();
+  const routeEdges = new Set(); for (const rt of city.routes) for (const ei of rt.edges) routeEdges.add(ei);
+  let dep = null;
+  try { dep = load3dep(); } catch { dep = null; }
+  P(`
+VERTICAL (plan B2: CityElevation.Solve emulated offline - no water spans, seats, twin holds or vertical curves; the PROFILE audit measures the game's own)`);
+  const rules = ARGS.includes('--vertical-old') ? ['old', 'b2'] : ['b2'];
+  for (const rule of rules) {
+    const em = emulateSolve(city, roadDem.at, { rule, routeEdges });
+    const pn = profileNumbers(city, em);
+    P(`  [${rule === 'b2' ? "the B2 trench rule (the game's)" : 'the trench rule before B2'}]`);
+    for (const l of pn.lines) P(l);
+    if (dep) {
+      const real = realSeparations(city, (x, z) => dep.sample(toLat(z), toLon(x)));
+      const t1Tall = pn.tallList.filter(ci => pn.tierX(ci) === 1);
+      const realTall = t1Tall.filter(ci => real[ci] > SEPARATION_MAX).length;
+      const med = a => { const v = a.filter(Number.isFinite).sort((p, q) => p - q); return v.length ? v[v.length >> 1] : NaN; };
+      P(`  3DEP at the T1 separations over ${SEPARATION_MAX.toFixed(2)} m: ${realTall} of ${t1Tall.length} are that tall in reality too; real separation median ${med([...real]).toFixed(2)} m over all crossings`);
+      pn.json.crossings.t1_over_max_real_too = realTall;
+    }
+    if (rule === 'b2') R.vertical = pn.json; else R.vertical_old_rule = pn.json;
+  }
+  P(`  (${((Date.now() - t1) / 1000).toFixed(1)} s)`);
 }
 
 // ================================================================ CONTROL

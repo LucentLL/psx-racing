@@ -1,7 +1,11 @@
 {
  "schema": 1,
  "note": "The Charlotte roads pass's data-size ledger (plan critic C17): every package that grows Resources/charlotte_city.bytes adds one entry, with the growth stated in its commit. The running cap through R6 is +2.5 MB (2,500,000 B) over the R1 base. Only the CITY edition carries the file (EditionBuild.cs). Bytes are the raw file; Brotli is what the browser downloads.",
- "base": { "commit": "main@9a3e54ee", "file": "Assets/PSXRacing/Resources/charlotte_city.bytes", "bytes": 5685880 },
+ "base": {
+  "commit": "main@9a3e54ee",
+  "file": "Assets/PSXRacing/Resources/charlotte_city.bytes",
+  "bytes": 5685880
+ },
  "cap_bytes": 2500000,
  "entries": [
   {
@@ -11,6 +15,14 @@
    "delta": 7084,
    "cumulative": 7084,
    "what": "section BRST 6,864 B (381 bridge edges' outline ids, 317 culvert-claimed water spans, 0 overrides) + 12 B of section table + 208 B of META attribution (the car-model credit row main@9a3e54ee added to tools/city/SOURCES.md, which the shipped file predated)"
+  },
+  {
+   "package": "B2",
+   "date": "2026-10-02",
+   "bytes": 5694168,
+   "delta": 1204,
+   "cumulative": 8288,
+   "what": "section CULV +8,740 B (312 culverted creek crossings x 28 B + 4: owner Q8) + 12 B of section table; SPAN -3,744 B (564 -> 252 water spans) and BRST -3,804 B (its culvert table empty: a piped creek has no span)"
   }
  ]
 }

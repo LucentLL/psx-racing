@@ -4278,6 +4278,187 @@ preview tools.
   verify) in PSXBuild before any `-SkipScenes` publish. Otherwise the CITY
   half refuses (P0).
 
+## B2 (roads pass, 2026-10-02): creeks piped under the road, the PROFILE audit, one trench decision per crossing
+
+Three things, in the order the owner's answers put them: the creeks OSM says
+run through a pipe stop being bridges (owner Q8), the road's vertical design
+is measured (the PROFILE audit and the offline VERTICAL section), and a
+street over a freeway is either dug under or humped over - never both, and
+never one carriageway each way (the owner's West 5th Street over I-77).
+
+**Culverts (owner Q8, section CULV).** Every road crossing a county/USGS
+creek line used to get a railed deck. A crossing is now a CULVERT when, by
+geometry (`tools/city/lib/culverts.mjs`): an OSM `tunnel=culvert` /
+`culvert=yes` waterway passes within 15 m of the crossing point AND crosses
+the road's ribbon or passes within 3 m of it (its paved half width plus a
+metre for the line model's offsets) within 15 m along the road; the road is
+not tagged `bridge=yes` (OSM's word wins) nor a tunnel; and its deck would
+hold no other water. A crossing of the same creek within 25 m of a piped one
+is on the same fill (a ramp seated on its mainline, the other carriageway)
+unless it is tagged a bridge. 320 candidates: 312 piped (T1 193, T2 116, T3
+3; 3.21 / 1.88 / 0.05 km of deck gone, 564 -> 252 water spans), 8 left as
+bridges - 7 tagged `bridge=yes` (Eastway Drive's two carriageways over
+Edwards Branch, East 7th Street over Little Sugar Creek, ...) and East
+Independence Expressway over Edwards Branch, whose culvert line passes 4.8 m
+outside its ribbon. Every candidate, its decision and its reason is in
+`tools/city/baseline/culverts_q8.csv`. In the owner's spot: West 5th
+Street's e5446 / e5449 over Irwin Creek east of the signal and I-77
+southbound's e6608 (the water span that exempted it from the cut) are
+piped.
+
+- **What a culvert is in the game.** No span: no deck, no parapets - the
+  road keeps its embankment. The creek line runs on under the road, as a
+  WP-25 ravine does: `CityElevation.HoldCulverts` holds the road at least
+  `CityCulverts.MinFillM` (1.6 m) over the creek's carved floor across the
+  creek's flat floor (raises only, before the vertical curves; the stations
+  stay grounded, the 3.5 m margin never makes a deck of it or of a road
+  within 30 m of it), so the road's fill always stands over the water and
+  the sheet under it is hidden; the water shows again where the fill comes
+  down to it. `CityCulverts` walks the creek from each crossing (section
+  CULV's list, not a segment search) both ways to the first place clear of
+  every road's pavement and clear zone where the drawn ground comes down to
+  the WATER, and stands the WP-25 end there - a headwall with its backfill
+  where the fill meets it, else a projecting pipe - with its clay ditch. The
+  tile builder draws them with the ravines' code, unchanged.
+- **Data.** Section CULV (optional; layout in `lib/citydata.mjs`): per
+  crossing the culvert way, the creek (WATR index) and its arc, the road and
+  its arc, the hold's half length along the road, the creek's bed there.
+  BRST's culvert table is empty from B2 on (a piped creek has no span; a
+  span left is a bridge), so no twin-deck pair is kept apart as a culvert
+  creek any more (`deckpairs.mjs`: pairs 310 -> 255, culvert pairs kept
+  apart 26 -> 0, unions 155 -> 155, the same set). `charlotte_city.bytes`
+  5,692,964 -> 5,694,168 B (+1,204: CULV +8,740, SPAN -3,744, BRST -3,804,
+  table +12; size ledger). Graph hash unchanged (089d7141); `export --check`
+  and `determinism.mjs` pass.
+
+**The PROFILE audit (`Editor/CityAudit.Profile.cs`, the `ProfileReport`
+hook).** Station-only, so it covers every chain and crossing city-wide in
+the scope's tiers (the box limits only the listed lines); about 0.3 s.
+
+- CURVES (REPORT, plan B4's): chains through the nodes' through pairs (the
+  VerticalCurves rule), consecutive same-sign breaks of 0.1% or more as one
+  curve, judged L >= max(K A, 3V ft) at the owner's design speeds (motorway
+  65 mph, trunk/primary 50, secondary/tertiary 40, local 30, ramps 40, loop
+  ramps 30 - a link turning 120 degrees at a mean radius under 120 m, 164
+  edges - and 25 in the last 30 m before a stop or a signal); sags fail
+  under AASHTO's comfort K (V^2/46.5), target the headlight K; crests by
+  stopping sight distance. (A1's COMPRESSION judges links at 35 mph below
+  trunk class; this report follows owner_decisions' 40.)
+- GRADES (REPORT): station grades over the class maximum (5/7/9/12%, ramps 8%).
+- CROSSINGS: clearance under the deck (REPORT: 4.9 m over a freeway, 4.4 m
+  over a street), separations over ClearanceM + DeckThick + 1.5 = 7.05 m
+  (REPORT), and the CHECK: no T1 DOUBLE separation (a dug freeway whose
+  street still stands over 7.05 m).
+- DECISIONS: the trench rule's crossings grouped by (over road, under road,
+  within 60 m); CHECK: no group mixed (dug and humped), and no ramp beside a
+  dug mainline left out of the cut. Every crossing the B2 rule decided
+  differently is in `trench_redecided.txt` beside city_audit.txt.
+- PAIRS: a divided road's two carriageways under one street, across the
+  median at each crossing's section; CHECK T1 |dy| <= 0.5 m.
+- W 5TH: the four crossings line by line; CHECK the two I-77 carriageways
+  within 0.5 m and the separation over the northbound at most 7.05 m.
+- Every crossing to `profile_crossings.csv` beside city_audit.txt.
+
+**One trench decision per crossing (`CityElevation.SinkTrenches`).** The
+decision layer only (critic D1): the cut is still the 4.5% V the solver
+always made; B4 rounds it, B7 replaces it with 3DEP profiles.
+
+- A crossing's cut is blocked by water only where the cut REACHES it
+  (depth / 4.5% + 10 m along the freeway, through its nodes) - not by a
+  water span anywhere on the edge.
+- `TrenchEndM` (20 m) is measured along the freeway to its nearest real
+  junction (a node of three arms or more, or a dead end), through way splits.
+- Crossings of one street over one freeway within 60 m are ONE decision: all
+  dug to one bottom (the lowest any member needs), flat across every
+  member's section on each carriageway (a skewed street crosses the two
+  carriageways metres apart along the freeway) - or, where any member's cut
+  would reach water or every member stands at a junction, none.
+- A ramp passing under the same street within 60 m of a dug mainline's
+  crossing, within 25 degrees of parallel, is dug too, for its own street
+  (no deeper), climbing out at 8% - through nodes where only ramps meet (West
+  5th's ramp e338 meets e8463 40 m past the street).
+- A dug crossing's deck runs on through the street's node into the street
+  beyond when the crossing is that close to it.
+- `RelaxTrenches`: the raise loop can still lift a street over its cut (a
+  junction cone, a twin hold, a crest the curves round); the cut then gives
+  the excess back - each carriageway by its own spare clearance, at most
+  0.4 m more than the group's other carriageway, a ramp by no more than its
+  carriageways, never above the profile before the cut and never past
+  another cut there - inside the cone loop and after the curves' first two
+  rounds (critic C12: the last round rounds it).
+- `PSX_CITY_TRENCHRULE=0` gives the rule before B2 (a measuring override).
+
+**The offline VERTICAL section (`metrics.mjs`, `lib/vertical.mjs`).** The
+solve emulated in about two seconds (step 1, the trench rule - either -, the
+raises, cones, relax; no water spans, seats, twin holds or curves) and the
+PROFILE numbers on it, plus 3DEP's real separation at the tall ones when the
+1/3" cache is there (`--vertical-old` adds the old rule for a BEFORE).
+`tools/city/baseline/vertical_baseline.json` records BEFORE and AFTER.
+
+**What it reached (2026-10-02, PSXCity; BEFORE = B1 at main@8ea140b6, AFTER =
+the B2 run of the committed rules, before the three corrections below).**
+
+| | BEFORE | AFTER |
+|---|---|---|
+| W 5th: I-77 northbound vs southbound under the street | 5.09 m apart | 0.24 m (real 0.4) |
+| W 5th: separation over the northbound | 10.99 m | 5.70 m (real 4.9-5.5) |
+| DOUBLE separations, T1 | 54 | 1 (East 7th Street over the I-277 ramp e521, 7.30 m) |
+| MIXED decisions | 31 groups, 119 crossings | 0 |
+| T1 carriageway pairs over 0.5 m apart, crossing points | 98 of 327 | 56 |
+| ... across the median (the check) | (not measured in game; emulated 153) | 51, worst 1.38 m (emulated after the slack correction: 84) |
+| crossings dug | 213 | 327 (63 of them ramps), 97 of 103 groups dug, 6 at grade |
+| separations over 7.05 m, T1 | 93 | 22 |
+| clearance under 4.9 m over a freeway (REPORT) | 0 | 1 (4.88 m, a ramp over I-85; the worst, 4.70 m, unchanged) |
+| T1 sags short of the comfort K / corners | 5,627 / 1,268 | 5,581 / 1,171 |
+| water spans | 564 | 252 (312 culverts) |
+| 3.5 m margin stations | 3,078 | 2,803 |
+| creek culverts: ends / headwalls / both ends | - | 330 / 288 / 125 of 312 |
+| "every culvert keeps its embankment" | 1 (e1979, known) | 2 (+ Highland Creek Parkway) |
+| grade past 16% | 3, worst 17.5% | 6, worst 17.6% (I-277's ramp e329) |
+
+Of the old rule's skips (`tools/city/baseline/trench_decisions_b2.csv`): the
+46 "water span somewhere on the edge" are 21 over roads that are freeways or
+ramps (no trench candidates; the instrumented old rule named the water
+first), 21 now dug and 4 at grade for water within the cut's reach; the 41
+"within 20 m of the edge's end" are 30 dug and 11 at grade (every crossing of
+the group at a real junction).
+
+**Corrected after that run (typecheck and the emulation only; the R1
+gate's city audit and full launch audit are their first full check):**
+
+1. The vertical curves' Up-only window round a creek pipe (the water span's
+   rule, kept) is dropped on a road that also carries a trench's cut and
+   stands more than 2.4 m over the pipe's cover: I-277's ramp e329 runs 5 m
+   over Little Sugar Creek's pipe right before its cut under East 7th Street,
+   and the window made the curves round the cut's lip by lifting the road
+   4.2 m (17.6%).
+2. `RelaxTrenches` bounds what a carriageway gives back by its group's least
+   TOTAL plus 0.4 m; bounding each round let the slack add up (Lakeview Road's
+   two carriageways of I-77 1.38 m apart). Emulated pairs over 0.5 m 118 -> 84.
+3. HoldCulverts holds two carriageways of one road below secondary (the
+   classes PairedRoadBaseY does not read at one midline) over one pipe within
+   a metre of each other, raising the lower: Highland Creek Parkway's stood
+   3.3 m apart, the land graded to the lower, the higher on nothing. Five
+   pairs city-wide, among them West 5th Street's over Irwin Creek.
+
+**The boxed launch (uptown + W 5th + I-277, -4000,3300 .. -1000,6600; run on
+the corrected code with correction 1 applied to every pipe and correction 3
+to every class - both narrowed afterwards):** 17 LAUNCH spots against 15 in
+the 2026-10-02 baseline and 16 after B1: the same 15, B1's East 11th Street
+fan (0.240 m now), and one new, Elizabeth Avenue at its signal with North
+Kings Drive (node 6995, e5917, 0.542 m, T2) - the junction where Elizabeth
+Avenue's e9267 crosses Little Sugar Creek's pipe 2 m from the node. Its
+cause is not established; the broad form of correction 1 freed that pipe's
+window, which the narrowed form does not. Routes in the box: 0 LAUNCH.
+Solve 2.81 s (trenches 30 ms).
+
+**Not reached (open for B4/B7 or the gate):** DOUBLE 1 and the carriageway
+pairs (the check reads 51 before the slack correction) are not at 0; the
+creek culverts stand both ends at 125 of 312 (the WP-25 walk misses an end
+where no channel shows on the lattice within 60 m - 134 - or the walk never
+clears every road's clear zone - 54); the three corrections are unmeasured
+in a city audit; the Elizabeth Avenue launch spot is open.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,
