@@ -93,7 +93,10 @@ namespace PSXRacing.EditorTools
             Check(map.wspans.Length > 200, "water bridge spans present", map.wspans.Length);
             Check(map.footprints.Length > 20000, "building footprints loaded", map.footprints.Length);
             Check(CityElevation.HasDem, "the SRTM height grid loaded");
-            Check(CityElevation.TrenchCount > 20, "the inner freeways run in trenches under the streets", CityElevation.TrenchCount);
+            // leftover item 1: a measured freeway's cut is its real one (RPRF),
+            // not a dug trench - both count
+            Check(CityElevation.TrenchCount + CityElevation.MeasuredCutCount > 20, "the inner freeways run in trenches under the streets (dug, or their measured cuts)",
+                  $"{CityElevation.TrenchCount} dug + {CityElevation.MeasuredCutCount} measured cuts; {map.measuredEdges} measured edges, {CityElevation.MeasuredStations} stations (RPRF {(CityElevation.RprfOn ? "on" : "OFF")}), {CityElevation.MeasuredMarginExempt} margin stations kept on their measured embankment");
             Check(map.routes.Length == 3, "three race routes baked", map.routes.Length);
             // WP-02: the container's graph hash, and the pinned datum. Derived
             // data keyed by (edge, s) is stamped with the hash; world y is

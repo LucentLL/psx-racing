@@ -108,7 +108,45 @@ namespace PSXRacing.EditorTools
             (e.cls >= 5 ? "motorway" : e.cls == 4 ? "trunk" : e.cls == 3 ? "primary" : e.cls == 2 ? "secondary" : e.cls == 1 ? "tertiary" : "local") + (e.link ? "_link" : "");
 
         struct PSt { public float d, y; public int e, i; public float mph; }
-        sealed class VCurve { public bool sag; public float A, L, maxDg, mph; public int tier, e, i; public string cls; }
+        sealed class VCurve { public bool sag; public float A, L, maxDg, mph; public int tier, e, i, k0, k1; public string cls; }
+
+        /// <summary>
+        /// THE HEIGHTS PROBE (leftover item 1, 2026-10-03): the solve and the
+        /// PROFILE report alone, no tiles - a minute or two, not the audit's
+        /// fifteen - plus every tier-1/2 station (edge, station, arc, height,
+        /// on structure, measured ground) for tools/city heights_check.mjs,
+        /// which reads 3DEP at the same points (HEIGHT: game minus lidar on
+        /// grounded stations). PSX_CITY_RPRF=0 gives the BEFORE (the smoothed
+        /// land) from the same data. Writes heights_&lt;on|off&gt;.txt and
+        /// heights_&lt;on|off&gt;.tsv beside the project. Headless:
+        /// -executeMethod PSXRacing.EditorTools.CityAudit.HeightsOnly
+        /// </summary>
+        public static void HeightsOnly()
+        {
+            outLog = new StringBuilder();
+            failures = 0;
+            string tag = CityElevation.RprfOn ? "on" : "off";
+            string dir = Directory.GetParent(Application.dataPath).FullName;
+            var map = CityMap.Get();
+            if (map == null) { Line("charlotte_city.bytes missing from Resources"); File.WriteAllText(Path.Combine(dir, $"heights_{tag}.txt"), outLog.ToString()); return; }
+            Line($"HEIGHTS PROBE (RPRF {(CityElevation.RprfOn ? "ON" : "OFF")}): {map.measuredEdges} measured edges, {CityElevation.MeasuredStations} stations; solve {CityMap.LastSolveMs:0} ms ({CityElevation.LastSolvePhases}); " +
+                 $"trenches dug {CityElevation.TrenchCount}, measured cuts {CityElevation.MeasuredCutCount}; 3.5 m margin stations {CityElevation.MarginStructureStations} (+{CityElevation.MeasuredMarginExempt} kept on their measured embankment)");
+            Line("  " + CityElevation.TwinHoldReport);
+            ProfileReport(map, null);
+            Line($"HEIGHTS PROBE: {failures} PROFILE checks failed");
+            var inv = CultureInfo.InvariantCulture;
+            const char Tab = (char)9, Nl = (char)10;
+            var sb = new StringBuilder("edge,i,s,y,elev,ground".Replace(',', Tab) + Nl);
+            foreach (var e in map.edges)
+            {
+                if (CityTier.Of(e) > 2) continue;
+                for (int i = 0; i < e.stS.Length; i++)
+                    sb.Append(e.index).Append(Tab).Append(i).Append(Tab).Append(e.stS[i].ToString("0.00", inv)).Append(Tab).Append(e.stY[i].ToString("0.000", inv)).Append(Tab)
+                      .Append(e.stElev[i] ? '1' : '0').Append(Tab).Append(e.mGround != null ? (e.MeasuredGroundAt(e.stS[i]) ? '1' : '0') : '-').Append(Nl);
+            }
+            File.WriteAllText(Path.Combine(dir, $"heights_{tag}.tsv"), sb.ToString());
+            File.WriteAllText(Path.Combine(dir, $"heights_{tag}.txt"), outLog.ToString());
+        }
 
         static partial void ProfileReport(CityMap map, CityMeshes.Trims trims)
         {
@@ -129,6 +167,20 @@ namespace PSXRacing.EditorTools
             var gradeOver = new int[4]; var gradeEdges = new HashSet<int>[4];
             for (int t = 0; t < 4; t++) gradeEdges[t] = new HashSet<int>();
             var S = new List<PSt>(512);
+            // (leftover item 1) THE DIPS UNDER BRIDGES: every enforced crossing
+            // by the road under it, so a sag short of the comfort K within 30 m
+            // of one, on the road under it, is a dip at an angle
+            var underOf = new Dictionary<int, List<(int ci, float s)>>();
+            var onX = CityElevation.EnforcedCrossings;
+            for (int ci = 0; ci < map.crossings.Length; ci++)
+            {
+                if (onX != null && ci < onX.Length && !onX[ci]) continue;
+                var c = map.crossings[ci];
+                CityElevation.ProjectOn(E[c.under], c.at, out float su);
+                if (!underOf.TryGetValue(c.under, out var ul)) underOf[c.under] = ul = new List<(int, float)>();
+                ul.Add((ci, su));
+            }
+            var dipAt = new Dictionary<int, VCurve>();
             foreach (var chain in chains)
             {
                 S.Clear();
@@ -165,7 +217,22 @@ namespace PSXRacing.EditorTools
                 }
                 // breaks -> curves
                 VCurve cur = null;
-                void Flush() { if (cur != null && Mathf.Abs(cur.A) >= 0.005f) curves.Add(cur); cur = null; }
+                void Flush()
+                {
+                    if (cur != null && Mathf.Abs(cur.A) >= 0.005f)
+                    {
+                        curves.Add(cur);
+                        if (cur.sag && cur.L < NeedL(KSagComfort(cur.mph), Mathf.Abs(cur.A), cur.mph) * 0.999f)
+                            for (int q = cur.k0; q <= cur.k1 && q < S.Count; q++)
+                            {
+                                if (!underOf.TryGetValue(S[q].e, out var ul)) continue;
+                                float sq = E[S[q].e].stS[S[q].i];
+                                foreach (var (dci, dsu) in ul)
+                                    if (Mathf.Abs(sq - dsu) <= 30f && (!dipAt.TryGetValue(dci, out var was) || Mathf.Abs(was.A) < Mathf.Abs(cur.A))) dipAt[dci] = cur;
+                            }
+                    }
+                    cur = null;
+                }
                 for (int k = 1; k + 1 < S.Count; k++)
                 {
                     float h1 = S[k].d - S[k - 1].d, h2 = S[k + 1].d - S[k].d;
@@ -173,8 +240,8 @@ namespace PSXRacing.EditorTools
                     float dg = (S[k + 1].y - S[k].y) / h2 - (S[k].y - S[k - 1].y) / h1;
                     if (Mathf.Abs(dg) < 0.001f) { Flush(); continue; }
                     bool sag = dg > 0f;
-                    if (cur == null || cur.sag != sag) { Flush(); cur = new VCurve { sag = sag, e = S[k].e, i = S[k].i, mph = S[k].mph, cls = ClassKey(E[S[k].e]), tier = CityTier.Of(E[S[k].e]) }; }
-                    cur.A += dg; cur.L += (h1 + h2) * 0.5f;
+                    if (cur == null || cur.sag != sag) { Flush(); cur = new VCurve { sag = sag, e = S[k].e, i = S[k].i, mph = S[k].mph, cls = ClassKey(E[S[k].e]), tier = CityTier.Of(E[S[k].e]), k0 = k }; }
+                    cur.A += dg; cur.L += (h1 + h2) * 0.5f; cur.k1 = k;
                     if (Mathf.Abs(dg) > Mathf.Abs(cur.maxDg)) { cur.maxDg = dg; cur.e = S[k].e; cur.i = S[k].i; cur.mph = S[k].mph; cur.cls = ClassKey(E[S[k].e]); cur.tier = CityTier.Of(E[S[k].e]); }
                 }
                 Flush();
@@ -219,6 +286,26 @@ namespace PSXRacing.EditorTools
             foreach (var kv in byCls) Line($"      {kv.Key,-15} sags {kv.Value[0],6} short {kv.Value[1],6} | crests {kv.Value[2],6} short {kv.Value[3],6}");
             worstSag.Sort((a, b) => b.A.CompareTo(a.A));
             for (int i = 0; i < Mathf.Min(6, worstSag.Count); i++) Line("      T1 sag " + worstSag[i].what);
+            // (leftover item 1) the dips under bridges, by the tier of the road under
+            {
+                int[] xT = new int[4], dipT = new int[4], dugDipT = new int[4];
+                var trX = CityElevation.TrenchedCrossings;
+                foreach (var kv in underOf) foreach (var (dci, _) in kv.Value) xT[CityTier.Of(E[kv.Key])]++;
+                var dipList = new List<(float A, string what)>();
+                foreach (var kv in dipAt)
+                {
+                    var c = map.crossings[kv.Key]; var U = E[c.under]; var cv = kv.Value;
+                    int t = CityTier.Of(U); dipT[t]++;
+                    bool dug = trX != null && kv.Key < trX.Length && trX[kv.Key];
+                    if (dug) dugDipT[t]++;
+                    if (t == 1 && sc.Contains(c.at))
+                        dipList.Add((Mathf.Abs(cv.A), $"x{kv.Key} '{E[c.over].name}' over e{U.index} '{U.name}'{(U.link ? " (ramp)" : "")}{(dug ? " dug" : "")}: sag A {Mathf.Abs(cv.A) * 100f:0.0}% over {cv.L:0} m (comfort needs {NeedL(KSagComfort(cv.mph), Mathf.Abs(cv.A), cv.mph):0} m at {cv.mph:0} mph) {LatLon(c.at.x, c.at.y)}"));
+                }
+                Line($"  DIPS UNDER BRIDGES (leftover item 1; REPORT): enforced crossings with a sag short of the comfort K within 30 m on the road under them - T1 {dipT[1]} of {xT[1]} ({dugDipT[1]} at a dug trench), T2 {dipT[2]} of {xT[2]}, T3 {dipT[3]} of {xT[3]}; " +
+                     $"measured profiles (RPRF) {(CityElevation.RprfOn ? "ON" : "OFF")}: {map.measuredEdges} edges, {CityElevation.MeasuredStations} stations; trenches dug {CityElevation.TrenchCount}, measured cuts {CityElevation.MeasuredCutCount}");
+                dipList.Sort((a, b) => b.A.CompareTo(a.A));
+                for (int i = 0; i < Mathf.Min(10, dipList.Count); i++) Line("      T1 dip (in the box) " + dipList[i].what);
+            }
 
             var gl = new StringBuilder();
             foreach (var kv in gradeWorst) gl.Append($"{kv.Key} {kv.Value.g * 100f:0.0}% (e{kv.Value.e} s {kv.Value.s:0}), ");

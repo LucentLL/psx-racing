@@ -5582,6 +5582,53 @@ data), and `Editor/CityAudit.Minor.cs` (the MINOR report, after MARKS).
   to the lattice (the apron is the verge's own geometry re-poured), the
   lots' own audit raster (LOT audit), and lots in CityElevation's ground.
 
+## HEIGHTS (leftover item 1, 2026-10-03): road heights from lidar - built, measured, left OFF
+
+The owner: "a lot of roads dip down and go up under bridges, but they do so at
+angles, not smooth transitions like DOT requires." The cause (diagnosis V2/V4,
+plan B7): every road read its height off the smoothed land (60 m grid, 48 m
+Gaussian), which cannot see a freeway's cut, so every street bridge over a
+freeway was made by digging a 4.5% V under it (SinkTrenches).
+
+**What was built (all OFF in the shipped game):**
+- `tools/city/lib/roadprofile.mjs`: the tier 1+2 road profiles (20,809 edges,
+  363,765 stations) sampled from 3DEP 1/3" at the solver's own stations
+  (median of 5 across the road); bridges, tunnels, water spans, 15 m of every
+  bridge approach (on to 100 m while the ground falls steeper than the class)
+  and anything 5% steeper than its class masked and drawn across; carriageway
+  pairs pulled within 0.3 m; node heights from the ground within 40 m, then
+  kept within 1.6x the class grade of each other; chains (straightest pairs,
+  highest class first, a pinned "ghost" of the road on through a fixed
+  junction) smoothed, grade-capped and limited to AASHTO curvature (crest =
+  stopping sight, sag = headlight). Section RPRF, +527 KB. Written only with
+  `node tools/city/export_osm.mjs --rprf`.
+- Runtime (`CityElevation`, `PSX_CITY_RPRF=1` with an RPRF file): measured
+  roads start from their profile; no trench under a measured road; humps and
+  cones on a measured road are ADDITIVE (the lift fades on top of the real
+  grade, capped by the plain envelope, crest radius 1.6x the launch radius);
+  the curves pass may lower but not lift a measured station round a crest;
+  measured stubs keep their real rise; a ramp seat's offset eases out on a
+  cosine; unmeasured junctions within 150 m take a measured junction's offset;
+  a station the lidar saw on the ground is never a deck by the 3.5 m margin.
+- Instruments: `CityAudit.HeightsOnly` (solve + PROFILE report + a station
+  dump, ~2 min, no tiles), `tools/city/heights_check.mjs` (HEIGHT: game minus
+  3DEP on grounded stations), the PROFILE report's DIPS UNDER BRIDGES line,
+  `PSX_CITY_HTRACE` (named stations after every solve step), CityPreview
+  group `heights` (three driver-eye spots).
+
+**BEFORE (main) -> AFTER (RPRF on)**
+- HEIGHT vs 3DEP, T1: p50 0.83 / p95 3.51 m -> 0.02 / 0.41 m (T2 0.64 / 2.28 -> 0.03 / 0.35). PASS.
+- Dips under bridges (a sag short of comfort K within 30 m on the road under), T1: 390 of 663 (313 at dug trenches) -> 81 (0 dug). Trenches dug 327 -> 0; measured cuts 228.
+- PROFILE T1 sags short of comfort K 5,600 -> 2,346; corners 1,171 -> 197. Boxed COMPRESSION trench T1 85 -> 0.
+- DOUBLE 2 -> 0; PAIRS T1 13 -> 4 (worst 1.05 -> 0.65 m); lowest clearance 4.75 -> 4.89 m; 3.5 m margin stations 2,814 -> 1,769; W 5th separation 5.70 -> 6.68 m, carriageways 0.34 -> 0.27 m.
+- Solve 3.3-3.6 s -> 3.0-4.0 s.
+
+**Why OFF (FAILED):** LAUNCH. Boxed 12 -> 15 (T1 3 -> 4, uptown route 0 -> 1: the I-277 e2308 hump), city-wide 115 -> 206 (UNLOAD 590 -> 854): junction fans 21 -> 35 and mitred joints 11 -> 33, mostly measured T2 streets meeting junctions at 3-6% breaks (real crowns the smoothed land never had), half of them @mesh-off-data. The one AuditOnly (an earlier build) also had grades past 16% 3 -> 5 (Armory Dr, Morehead Ridge Dr; the junction ease added after it targets them, not re-audited), cut walls 214 -> 1,035 m on the roadside tiles (a new FAIL: a continuous real cut with a street along its top needs a retaining wall), faces 1 -> 3, rail census 6 -> 7 runs, lane survey 5 -> 6, TWIN e max 0.29 -> 1.0 m. PAIRS, DOUBLE, margin, TWIN a-d, ledges and verge got better.
+
+**Next:** fan planes and mitred joints that follow measured arms (or a junction landing in the offline limiter using the runtime's own through pairs); the cut-wall gate needs the owner's word on real retaining walls; then one city-wide launch.
+
+Logs and photos: scratchpad `heights\` (probes 1-12, checks, checks_r2, checks_r3) and `ba\heights\`.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

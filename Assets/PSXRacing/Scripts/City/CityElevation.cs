@@ -768,7 +768,7 @@ namespace PSXRacing.City
         {
             var phaseClock = System.Diagnostics.Stopwatch.StartNew();
             var phases = new System.Text.StringBuilder();
-            void Phase(string name) { phases.Append(name).Append(' ').Append(phaseClock.ElapsedMilliseconds).Append(", "); phaseClock.Restart(); }
+            void Phase(string name) { HTrace(map, name); phases.Append(name).Append(' ').Append(phaseClock.ElapsedMilliseconds).Append(", "); phaseClock.Restart(); }
             crossingOn = null;
             crossingTarget = null;
             routeEdge = new bool[map.edges.Length];
@@ -795,23 +795,51 @@ namespace PSXRacing.City
                     break;
                 }
             }
+            // THE MEASURED PROFILES (section RPRF, leftover item 1): a node a
+            // measured road reaches stands where the lidar puts that road's
+            // end (every measured arm ends on one height: the exporter pins
+            // them), and the unmeasured streets there blend to it below
+            MeasuredStations = 0; MeasuredCutCount = 0;
+            measuredNodeY = null;
+            MeasuredEasedNodes = 0;
+            if (RprfOn && map.measuredEdges > 0)
+            {
+                var landNodeY = (float[])map.nodeY.Clone();
+                measuredNodeY = new float[map.nodes.Length];
+                for (int i = 0; i < measuredNodeY.Length; i++) measuredNodeY[i] = float.NaN;
+                foreach (var e in map.edges)
+                {
+                    if (!Measured(e)) continue;
+                    if (float.IsNaN(measuredNodeY[e.a])) { measuredNodeY[e.a] = e.mY[0]; map.nodeY[e.a] = e.mY[0]; }
+                    if (float.IsNaN(measuredNodeY[e.b])) { measuredNodeY[e.b] = e.mY[e.mY.Length - 1]; map.nodeY[e.b] = e.mY[e.mY.Length - 1]; }
+                }
+                EaseUnmeasuredNodes(map, landNodeY);
+            }
 
-            // 1. per-edge profile from the terrain
+            // 1. per-edge profile from the terrain - or, for a measured road,
+            // from its own lidar profile (already smoothed and limited to
+            // AASHTO curvature offline: no Smooth, no ClampGrade here)
             foreach (var e in map.edges)
             {
                 int n = Mathf.Max(2, Mathf.CeilToInt(e.length / StationStep) + 1);
                 e.stS = new float[n];
                 e.stY = new float[n];
                 e.stElev = new bool[n];
+                bool measured = Measured(e);
                 for (int i = 0; i < n; i++)
                 {
                     float at = i == n - 1 ? e.length : i * e.length / (n - 1);
                     e.stS[i] = at;
+                    if (measured) { e.stY[i] = e.MeasuredYAt(at); continue; }
                     var p = e.PointAt(at);
                     e.stY[i] = PairedRoadBaseY(map, e, p, e.TangentAt(at));
                 }
-                Smooth(e.stY, 2.5f);
-                ClampGrade(e, MaxGrade(e));
+                if (measured) MeasuredStations += n;
+                else
+                {
+                    Smooth(e.stY, 2.5f);
+                    ClampGrade(e, MaxGrade(e));
+                }
                 BlendEndsToNodes(map, e);
                 // OSM's bridges are decks end to end, whatever the terrain
                 // under them does.
@@ -830,6 +858,7 @@ namespace PSXRacing.City
             SinkTrenches(map);
             Phase("trenches");
 
+            HTrace(map, "after trenches");
             // 2b. every ramp beside its mainline IS the mainline there. Seated
             // now, so no junction below reads a ramp end that disagrees with
             // the road it joins; locked, so no raise lifts it off again; and
@@ -855,8 +884,11 @@ namespace PSXRacing.City
                 HoldWaterSpans(map);
                 HoldCulverts(map);
                 HoldBridges(map);
+                HTrace(map, $"loop{it} raise+holds");
                 float moved = ReconcileNodes(map);
+                HTrace(map, $"loop{it} reconcile");
                 SeatBranches(map);
+                HTrace(map, $"loop{it} seats");
                 if (moved < 0.05f) break;
             }
 
@@ -877,6 +909,10 @@ namespace PSXRacing.City
                 int last = e.stY.Length - 1;
                 float ends = Mathf.Abs(e.stY[last] - e.stY[0]) / Mathf.Max(e.length, 1f);
                 float g = Mathf.Max(MaxGrade(e) * 1.6f, ends * 1.05f);
+                // (leftover item 1) a measured road keeps its real grades
+                if (Measured(e))
+                    for (int i = 1; i < e.mY.Length; i++)
+                        g = Mathf.Max(g, Mathf.Abs(e.mY[i] - e.mY[i - 1]) / Mathf.Max(0.5f, e.length / (e.mY.Length - 1)) * 1.05f);
                 for (int pass = 0; pass < 2; pass++)
                 {
                     // A seated station is a fixed point the sweep eases
@@ -938,14 +974,20 @@ namespace PSXRacing.City
             for (int k = 0; k < 12; k++)
             {
                 RaiseAllCrossings(map, fresh: true);
+                HTrace(map, $"k{k} raise");
                 SnapNodesToEnds(map);
+                HTrace(map, $"k{k} snap");
                 int seatMoves = SeatBranches(map);
+                HTrace(map, $"k{k} seats");
                 int twinMoves = HoldTwinDecks(map);
+                HTrace(map, $"k{k} twins");
                 TwinHoldMoves += twinMoves;
                 // a street the loop still lifted over its cut: the cut gives
                 // the excess back (plan B2)
                 int relaxMoves = RelaxTrenches(map);
-                if (RaiseConesFromNodes(map) == 0 && seatMoves == 0 && twinMoves == 0 && relaxMoves == 0) break;
+                int coneMoves = RaiseConesFromNodes(map);
+                HTrace(map, $"k{k} cones");
+                if (coneMoves == 0 && seatMoves == 0 && twinMoves == 0 && relaxMoves == 0) break;
             }
             SnapNodesToEnds(map);
             SeatBranches(map);
@@ -960,8 +1002,13 @@ namespace PSXRacing.City
                 for (int round = 0; round < 2; round++)
                 {
                     VerticalCurves(map, round);
+                    HTrace(map, $"vc{round}");
                     RaiseAllCrossings(map, fresh: true);
                     SnapNodesToEnds(map);
+                    // (leftover item 1) a hump the fresh raise carried to an
+                    // edge's end goes on into the next edge as a cone: the
+                    // curves may not lift a measured road round it any more
+                    if (measuredNodeY != null) { RaiseConesFromNodes(map); SnapNodesToEnds(map); }
                     SeatBranches(map);
                     // a crest the curves rounded by lifting a street over its
                     // cut: the cut gives that back too (plan B2), before the
@@ -1113,6 +1160,133 @@ namespace PSXRacing.City
         /// before plan B2 - per crossing, a whole edge exempt for a water span
         /// anywhere on it, <see cref="TrenchEndM"/> to the EDGE's end, ramps
         /// never dug (a measuring override; nothing sets it in a build).</summary>
+        /// <summary>
+        /// MEASURED ROAD PROFILES (leftover item 1, 2026-10-03; plan B7 /
+        /// FD-E). The owner: "a lot of roads dip down and go up under
+        /// bridges, but they do so at angles, not smooth transitions like DOT
+        /// requires." Every road read its height off the smoothed land, which
+        /// cannot see a freeway's cut, so every street bridge over a freeway
+        /// was made by digging a 4.5% V under it (<see cref="SinkTrenches"/>).
+        /// Tier 1 and 2 roads now carry their real profile from USGS 3DEP
+        /// lidar (section RPRF; tools/city/lib/roadprofile.mjs: sampled at
+        /// these stations, decks drawn abutment to abutment, smoothed and
+        /// limited to AASHTO curvature offline), so the freeway sits in its
+        /// own continuous cut, a street dips under a freeway where it really
+        /// does, and this solve only tops up (clearance, seats, twins, the
+        /// junctions with unmeasured streets). No trench is dug under a
+        /// measured road. OFF (2026-10-03): it failed its launch gate - the
+        /// city-wide LAUNCH audit went 115 -> 206 spots, mostly junction fans
+        /// and mitred joints on measured T2 streets (Docs/CHARLOTTE.md
+        /// "HEIGHTS"). The shipped data carries no RPRF (export with --rprf),
+        /// and PSX_CITY_RPRF=1 turns this on for a data file that does.
+        /// </summary>
+        public static bool RprfOn = System.Environment.GetEnvironmentVariable("PSX_CITY_RPRF") == "1";
+        /// <summary>Does this edge stand on its measured profile?</summary>
+        public static bool Measured(CityMap.Edge e) => RprfOn && e.mY != null;
+        /// <summary>Stations solved from a measured profile, last solve.</summary>
+        public static int MeasuredStations { get; private set; }
+        /// <summary>Street-over-freeway crossings whose measured freeway runs
+        /// at least 2 m under the land there: the real cuts, which replace the
+        /// dug trenches (the audit's "freeways in trenches" count).</summary>
+        public static int MeasuredCutCount { get; private set; }
+        /// <summary>A top-up on a measured road (a hump, a cone) is added to a
+        /// profile that already curves (offline, to the stopping-sight
+        /// radius): its own crest radius is this much over the launch radius
+        /// (<see cref="CrestRadius"/>), so the sum stays inside it and the
+        /// curves pass has nothing to ratchet.</summary>
+        const float MeasuredTopUpRadius = 1.6f;
+        /// <summary>Crest projections the curves pass left at a station still
+        /// on its measured profile (the offline design's), last round.</summary>
+        static int measuredCrestsLeft;
+        /// <summary>Per node: the measured height of the measured roads that
+        /// reach it (NaN where none does), for the cone seeds; null when the
+        /// solve has no measured profiles.</summary>
+        static float[] measuredNodeY;
+        /// <summary>How far (along the graph) a measured junction's offset
+        /// from the smoothed land eases out into the unmeasured streets
+        /// around it.</summary>
+        const float MeasuredEaseM = 150f;
+        /// <summary>Unmeasured nodes eased toward a measured junction, last solve.</summary>
+        public static int MeasuredEasedNodes { get; private set; }
+        /// <summary>
+        /// A neighbourhood street still reads the smoothed land, which can
+        /// stand 1-2 m off the lidar where it meets a measured road; blended
+        /// within one short edge that was a 19-22% ramp (Armory Drive,
+        /// Morehead Ridge Drive). So every unmeasured node within
+        /// <see cref="MeasuredEaseM"/> of a measured one (nearest by the
+        /// graph, over unmeasured edges) takes that junction's offset,
+        /// fading linearly with the distance.
+        /// </summary>
+        static void EaseUnmeasuredNodes(CityMap map, float[] landNodeY)
+        {
+            int N = map.nodes.Length;
+            var dist = new float[N]; var src = new int[N];
+            var pq = new SortedSet<(float d, int n)>();
+            for (int n = 0; n < N; n++)
+            {
+                dist[n] = float.PositiveInfinity; src[n] = -1;
+                if (!float.IsNaN(measuredNodeY[n])) { dist[n] = 0f; src[n] = n; pq.Add((0f, n)); }
+            }
+            while (pq.Count > 0)
+            {
+                var top = pq.Min; pq.Remove(top);
+                int n = top.n; float d = top.d;
+                if (d > dist[n]) continue;
+                foreach (int ei in map.nodeEdges[n])
+                {
+                    var e = map.edges[ei];
+                    if (Measured(e) || e.a == e.b) continue;
+                    int o = e.a == n ? e.b : e.a;
+                    if (!float.IsNaN(measuredNodeY[o])) continue;
+                    float nd = d + e.length;
+                    if (nd > MeasuredEaseM || nd >= dist[o]) continue;
+                    if (!float.IsPositiveInfinity(dist[o])) pq.Remove((dist[o], o));
+                    dist[o] = nd; src[o] = src[n]; pq.Add((nd, o));
+                }
+            }
+            for (int n = 0; n < N; n++)
+            {
+                if (!float.IsNaN(measuredNodeY[n]) || src[n] < 0) continue;
+                int m = src[n];
+                float off = (measuredNodeY[m] - landNodeY[m]) * (1f - dist[n] / MeasuredEaseM);
+                if (Mathf.Abs(off) < 0.01f) continue;
+                map.nodeY[n] += off;
+                MeasuredEasedNodes++;
+            }
+        }
+        /// <summary>Is this node lifted above where the lidar puts it (or,
+        /// with no measured road there, above the smoothed land)?</summary>
+        static bool NodeLifted(CityMap map, int n, float y)
+        {
+            if (measuredNodeY != null && !float.IsNaN(measuredNodeY[n])) return y > measuredNodeY[n] + 0.5f;
+            return y > RoadBaseY(map.nodes[n].x, map.nodes[n].y) + 0.5f;
+        }
+        /// <summary>Margin stations NOT made structure because the lidar
+        /// measured the road on the ground there (an embankment), last solve.</summary>
+        public static int MeasuredMarginExempt { get; private set; }
+
+        /// <summary>PSX_CITY_HTRACE (leftover item 1, debugging): "e1252@0,e230@157,n4116" -
+        /// the listed stations' (edge@arc) and nodes' heights after each step of the solve, to the log.</summary>
+        static readonly string htraceSpec = System.Environment.GetEnvironmentVariable("PSX_CITY_HTRACE");
+        static void HTrace(CityMap map, string where)
+        {
+            if (string.IsNullOrEmpty(htraceSpec) || map.edges[0].stY == null) return;
+            var sb = new System.Text.StringBuilder("[HTRACE] ").Append(where).Append(':');
+            foreach (var tok in htraceSpec.Split(','))
+            {
+                var t = tok.Trim();
+                if (t.StartsWith("n") && int.TryParse(t.Substring(1), out int nd) && nd < map.nodes.Length && map.nodeY != null) { sb.Append(' ').Append(t).Append('=').Append(map.nodeY[nd].ToString("0.00")); continue; }
+                int at = t.IndexOf('@');
+                if (t.StartsWith("e") && at > 1 && int.TryParse(t.Substring(1, at - 1), out int ei) && ei < map.edges.Length
+                    && float.TryParse(t.Substring(at + 1), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float sv))
+                {
+                    var e = map.edges[ei];
+                    if (e.stY != null) sb.Append(' ').Append(t).Append('=').Append(e.YAt(sv).ToString("0.00"));
+                }
+            }
+            Debug.Log(sb.ToString());
+        }
+
         public static bool TrenchGroupsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TRENCHRULE") != "0";
         /// <summary>Crossings of one street over one freeway within this of
         /// each other are ONE decision (plan B2): West 5th Street's two
@@ -1218,6 +1392,15 @@ namespace PSXRacing.City
                 if (!c.forced) { TrenchWhy[ci] = oldWhy[ci] = "not forced (layers guessed)"; continue; }
                 if (under.tunnel) { TrenchWhy[ci] = oldWhy[ci] = "under road a tunnel"; continue; }
                 if (over.cls >= 5 || over.link) { TrenchWhy[ci] = oldWhy[ci] = "over road a freeway or ramp"; continue; }
+                // leftover item 1: a measured freeway is already in its real
+                // cut (or on its real grade); nothing is dug under the bridge
+                if (Measured(under))
+                {
+                    TrenchWhy[ci] = oldWhy[ci] = "measured (RPRF): the real profile, no V";
+                    var pu = under.PointAt(sUs[ci]);
+                    if (under.YAt(sUs[ci]) <= RoadBaseY(pu.x, pu.y) - 2f) MeasuredCutCount++;
+                    continue;
+                }
                 if (wet[c.under]) oldWhy[ci] = "a water span somewhere on the under edge (whole edge)";
                 else if (sUs[ci] < TrenchEndM || under.length - sUs[ci] < TrenchEndM) oldWhy[ci] = $"within {TrenchEndM:0} m of the under edge's end";
                 cand.Add(ci);
@@ -1697,7 +1880,7 @@ namespace PSXRacing.City
                 for (int i = 0; i < over.stS.Length; i++)
                     if (Mathf.Abs(over.stS[i] - sO) <= reach) over.stElev[i] = true;
             }
-            int margin = 0, marginTwin = 0;
+            int margin = 0, marginTwin = 0, marginMeasured = 0;
             // (plan B1) which edges are a twin deck's or meet one at a node:
             // the margin stations there are counted apart, for the TWIN report
             bool[] nearTwin = null;
@@ -1757,6 +1940,11 @@ namespace PSXRacing.City
                     var p = e.PointAt(e.stS[i]);
                     if (e.stY[i] > RoadBaseY(p.x, p.y) + ElevMarginM)
                     {
+                        // leftover item 1: the lidar SAW this road on the
+                        // ground here (an embankment, not a deck), and the
+                        // solve kept it there
+                        if (Measured(e) && e.MeasuredGroundAt(e.stS[i]) && Mathf.Abs(e.stY[i] - e.MeasuredYAt(e.stS[i])) < 0.5f)
+                        { marginMeasured++; continue; }
                         e.stElev[i] = true; margin++;
                         if (nearTwin != null && nearTwin[e.index]) marginTwin++;
                     }
@@ -1764,6 +1952,7 @@ namespace PSXRacing.City
             }
             MarginStructureStations = margin;
             MarginStationsNearTwins = marginTwin;
+            MeasuredMarginExempt = marginMeasured;
         }
 
         /// <summary>
@@ -2150,6 +2339,44 @@ namespace PSXRacing.City
             while (far > 0 && far < n - 1 && !e.SeatedAt(far)) far += dir;
             far = Mathf.Clamp(far, 0, n - 1);
             if (far == from) return 0;
+            if (Measured(e))
+            {
+                // (leftover item 1) a measured ramp already leaves its host
+                // on its real grade: the seat's offset from the measured
+                // profile fades out over it on a cosine (C1, within the
+                // launch radius), from each seated end - not an 8% line
+                // from the seat, whose far end was a crest a car at speed
+                // left (five climb-out launches in the first boxed run)
+                float spanM = Mathf.Abs(e.stS[far] - e.stS[from]);
+                if (spanM < 0.5f) return 0;
+                float dFrom = e.stY[from] - e.MeasuredYAt(e.stS[from]);
+                bool farSeated = e.SeatedAt(far);
+                int movesM = 0;
+                // a far END the span cannot ease the seat's offset out to (at
+                // three quarters of the class grade, on the cosine) carries
+                // the rest: raised, or lowered where only ground put it there
+                if (farEnds && !farSeated && (far == 0 || far == n - 1) && e.link)
+                {
+                    float carry = Mathf.Abs(dFrom) - MaxGrade(e) * 0.75f * spanM / (Mathf.PI * 0.5f);
+                    if (carry > 0.02f)
+                    {
+                        int farNode = far == 0 ? e.a : e.b;
+                        float want = e.MeasuredYAt(e.stS[far]) + Mathf.Sign(dFrom) * carry;
+                        if (dFrom > 0f && e.stY[far] < want - 0.02f) { e.stY[far] = want; movesM++; }
+                        else if (dFrom < 0f && e.stY[far] > want + 0.02f && LowerFarNode(map, farNode, e, want)) movesM++;
+                    }
+                }
+                float dFar = e.stY[far] - e.MeasuredYAt(e.stS[far]);
+                float lFrom = Mathf.Min(spanM, Mathf.Max(30f, Mathf.Abs(dFrom) / 0.015f)), lFar = Mathf.Min(spanM, Mathf.Max(30f, Mathf.Abs(dFar) / 0.015f));
+                for (int i = from + dir; i != far; i += dir)
+                {
+                    float a = Mathf.Abs(e.stS[i] - e.stS[from]), b = Mathf.Abs(e.stS[far] - e.stS[i]);
+                    float wa = a >= lFrom ? 0f : 0.5f * (1f + Mathf.Cos(Mathf.PI * a / lFrom));
+                    float wb = b >= lFar ? 0f : 0.5f * (1f + Mathf.Cos(Mathf.PI * b / lFar));
+                    e.stY[i] = e.MeasuredYAt(e.stS[i]) + dFrom * wa + dFar * wb;
+                }
+                return movesM;
+            }
             float yZ = e.stY[from];
             float span = Mathf.Abs(e.stS[far] - e.stS[from]);
             if (span < 0.5f) return 0;
@@ -2576,7 +2803,9 @@ namespace PSXRacing.City
                 // ...and one seated on a host has the host's heights, whatever
                 // they disagree by; levelling it lifts a node off the host.
                 if (e.stSeat != null) continue;
-                if (e.length < RigidStubM)
+                bool atMeasured = Measured(e) && measuredNodeY != null
+                    && Mathf.Abs(map.nodeY[e.a] - e.mY[0]) < 0.3f && Mathf.Abs(map.nodeY[e.b] - e.mY[e.mY.Length - 1]) < 0.3f;
+                if (e.length < RigidStubM && !atMeasured)
                 {
                     float d = Mathf.Abs(map.nodeY[e.a] - map.nodeY[e.b]);
                     if (d > 0.01f && d < RigidStubMaxDelta)
@@ -2587,7 +2816,7 @@ namespace PSXRacing.City
                         moved = Mathf.Max(moved, d);
                     }
                 }
-                else if (e.length < 90f)
+                else if (e.length < 90f && e.length >= RigidStubM && !atMeasured)
                 {
                     // A short viaduct fragment whose nodes disagree by more
                     // than it can climb gets its LOW node raised to what the
@@ -2638,6 +2867,42 @@ namespace PSXRacing.City
                     bool moved = false, seatedOn = false;
                     int count = e.stS.Length;
                     float r = CrestR(e);
+                    if (Measured(e))
+                    {
+                        r *= MeasuredTopUpRadius;
+                        // (leftover item 1) ADDITIVE over the measured road:
+                        // the node's lift above the road's own measured end,
+                        // fading as the cone falls, on top of the real grade
+                        // (an envelope at 4.5% from the apex would flatten a
+                        // real 6% road and lift everything down it)
+                        float mEnd = e.MeasuredYAt(fromA ? 0f : e.length);
+                        float lift0 = ny - mEnd, drop0 = ApproachDrop(d0, r);
+                        if (lift0 <= 0.02f) continue;
+                        for (int k = 0; k < count; k++)
+                        {
+                            int i = fromA ? k : count - 1 - k;
+                            if (e.SeatedAt(i)) { seatedOn = true; break; }
+                            float dist = fromA ? e.stS[i] : e.length - e.stS[i];
+                            float fall = ApproachDrop(d0 + dist, r) - drop0;
+                            float lift = lift0 - fall;
+                            if (lift <= 0f) break;
+                            // ...and never over the cone's own envelope from the
+                            // node: a road climbing away from it is not lifted
+                            // above the node (twin holds and additive cones fed
+                            // each other 1.2 m a round on Tuckaseegee Road)
+                            float want = Mathf.Min(e.MeasuredYAt(e.stS[i]) + lift, ny - fall);
+                            if (e.stY[i] < want - 0.02f) { e.stY[i] = want; moved = true; }
+                        }
+                        if (moved) any = true;
+                        if (!moved || seatedOn) continue;
+                        int farM = fromA ? e.b : e.a;
+                        float fallFar = ApproachDrop(d0 + e.length, r) - drop0;
+                        float liftFar = lift0 - fallFar;
+                        float farWantM = Mathf.Min(e.MeasuredYAt(fromA ? e.length : 0f) + liftFar, ny - fallFar);
+                        if (liftFar > 0.02f && farWantM > map.nodeY[farM] + 0.02f)
+                            coneQueue.Add((farM, farWantM + ApproachDrop(d0 + e.length, r), d0 + e.length, farWantM));
+                        continue;
+                    }
                     // Walked AWAY from the node, and stopped by the first
                     // seated station: an embankment does not run through a
                     // ramp that is lying on its mainline, and it must not
@@ -2674,7 +2939,11 @@ namespace PSXRacing.City
             for (int n = 0; n < map.nodes.Length; n++)
             {
                 float y = map.nodeY[n];
-                bool seed = y > RoadBaseY(map.nodes[n].x, map.nodes[n].y) + 0.5f;
+                // (leftover item 1) a measured node stands where the lidar
+                // puts it: a real road leaving a junction on a fill is no
+                // embankment to cone (it flattened every real 5-8% ramp down
+                // from W 5th St to I-77 and lifted the street 5 m)
+                bool seed = NodeLifted(map, n, y);
                 if (!seed)
                     foreach (var ei in map.nodeEdges[n])
                     {
@@ -2845,6 +3114,10 @@ namespace PSXRacing.City
         /// Freeway ramp 3-9 m up beside their seats, grades to 41%, unions split
         /// 8.8 m apart. Kept at 1.5 / 0.8.</summary>
         public const float VcurveMaxRaiseM = 1.5f, VcurveMaxLowerM = 0.8f;
+        /// <summary>(leftover item 1) A measured road's station rises at most
+        /// this in one curves round: its top-ups are already rounded
+        /// (MeasuredTopUpRadius), so a bigger lift is a ratchet, not a curve.</summary>
+        public const float VcurveMeasuredRaiseM = 0.15f;
         /// <summary>How far a soft-seated street branch may stand off its
         /// host's height (see VerticalCurves).</summary>
         public const float SoftSeatTol = 0.03f;
@@ -2923,10 +3196,16 @@ namespace PSXRacing.City
                 return r;
             }
             int sagStuck = 0, sagMoves = 0;
+            measuredCrestsLeft = 0;
 
             // mobility: bit 1 may fall, bit 2 may rise
             const byte Down = 1, Up = 2, Free = 3;
             var mob = new byte[E][];
+            // (leftover item 1) stations still on their measured profile: the
+            // offline design's, so a crest AT one is not chased (its neighbours
+            // lifted round it, a round's cap at a time: W Morehead St's node
+            // went up 4.8 m in three rounds)
+            var mFrozen = new bool[E][];
             var nodeMob = new byte[N];
             for (int n = 0; n < N; n++) nodeMob[n] = Free;
             foreach (var e in map.edges)
@@ -2934,6 +3213,17 @@ namespace PSXRacing.City
                 int n = e.stY.Length;
                 var m = mob[e.index] = new byte[n];
                 for (int i = 0; i < n; i++) m[i] = e.SeatedAt(i) ? (byte)0 : Free;
+                // (leftover item 1) a measured road still on its measured
+                // profile is already curved to AASHTO offline: it is a fixed
+                // point here (lifting its neighbours round a crest it could
+                // not lower ratcheted N Tryon St 3.5 m in 8 m). What the
+                // solve raised off it (humps, cones) is rounded as before.
+                if (Measured(e))
+                {
+                    var fz = mFrozen[e.index] = new bool[n];
+                    for (int i = 0; i < n; i++)
+                        if (Mathf.Abs(e.stY[i] - e.MeasuredYAt(e.stS[i])) < 0.1f) { m[i] = e.SeatedAt(i) ? (byte)0 : Down; fz[i] = true; }
+                }
                 // the ends ARE the node (raised to it first: the ribbon's end
                 // and the fan's centre must agree before anything is judged)
                 if (e.a != e.b)
@@ -3137,7 +3427,7 @@ namespace PSXRacing.City
             // a crest held between pins is left, not chased up the hill
             float Lo(CityMap.Edge e, int i) => Mathf.Max((e.a != e.b && i == 0 ? nodeBefore[e.a] : e.a != e.b && i == e.stY.Length - 1 ? nodeBefore[e.b] : before[e.index][i]) - VcurveMaxLowerM,
                                                        floorY[e.index] != null ? floorY[e.index][i] : float.NegativeInfinity);
-            float Hi(CityMap.Edge e, int i) => (e.a != e.b && i == 0 ? nodeBefore[e.a] : e.a != e.b && i == e.stY.Length - 1 ? nodeBefore[e.b] : before[e.index][i]) + VcurveMaxRaiseM;
+            float Hi(CityMap.Edge e, int i) => (e.a != e.b && i == 0 ? nodeBefore[e.a] : e.a != e.b && i == e.stY.Length - 1 ? nodeBefore[e.b] : before[e.index][i]) + (Measured(e) ? VcurveMeasuredRaiseM : VcurveMaxRaiseM);
 
             void Touch(CityMap.Edge e, int i)
             {
@@ -3173,6 +3463,18 @@ namespace PSXRacing.City
                 float brk = (yc - yb) / h2 - (yb - ya) / h1;
                 float excess = -(h1 + h2) / (2f * r) - brk;
                 float ca = 1f / h1, cb = -(1f / h1 + 1f / h2), cc = 1f / h2;
+                if (excess >= 2e-4f)
+                {
+                    // (leftover item 1) a crest AT a station still on its
+                    // measured design, or one that may not fall beside one,
+                    // is the offline design's: projecting it only lifts what
+                    // can rise round it, a round's cap at a time (W Morehead
+                    // St's node 4.8 m, East Independence Expressway's deck)
+                    bool fb = mFrozen[eb.index] != null && mFrozen[eb.index][ib];
+                    bool fa = mFrozen[ea.index] != null && mFrozen[ea.index][ia];
+                    bool fc = mFrozen[ec.index] != null && mFrozen[ec.index][ic];
+                    if ((fa || fb || fc) && (Mob(eb, ib) & Down) == 0) { measuredCrestsLeft++; return false; }
+                }
                 if (!(excess >= 2e-4f))   // (and never on a NaN)
                 {
                     // THE SAG SIDE (plan L3/B4): brk <= (h1 + h2) / 2 R_sag, the
@@ -3895,12 +4197,21 @@ namespace PSXRacing.City
             // through the road it was built to clear. The cone fades below
             // terrain on its own; distant stations are a comparison and a no-op.
             // The top is a vertical curve (ApproachDrop), not a tent's apex.
-            float r = CrestR(e);
+            float r = CrestR(e) * (Measured(e) ? MeasuredTopUpRadius : 1f);
+            // (leftover item 1) over a measured road the hump is ADDITIVE:
+            // the lift the crossing needs above the road's measured height
+            // there, fading on top of the real grade, not a 4.5% envelope
+            // that flattens the real approach
+            float lift0 = Measured(e) ? targetY - e.MeasuredYAt(sAt) : 0f;
             for (int i = 0; i < e.stS.Length; i++)
             {
                 // A seated station is its host's; the host takes its own hump.
                 if (e.SeatedAt(i)) continue;
-                float want = targetY - ApproachDrop(Mathf.Abs(e.stS[i] - sAt), r);
+                float drop = ApproachDrop(Mathf.Abs(e.stS[i] - sAt), r);
+                // (never over the plain hump's envelope: where the measured
+                // road climbs away from sAt the lift is not added on top of
+                // the climb - the twin holds fed on that, 1.2 m a round)
+                float want = Measured(e) ? (lift0 - drop > 0f ? Mathf.Min(e.MeasuredYAt(e.stS[i]) + lift0 - drop, targetY - drop) : float.MinValue) : targetY - drop;
                 if (e.stY[i] < want) e.stY[i] = want;
             }
         }

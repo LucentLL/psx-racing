@@ -104,13 +104,14 @@ class Reader {
 }
 
 /// The section tags of PSXC v2, in file order (a reader skips any other).
-export const CITY_SECTIONS = ['META', 'NODE', 'NAME', 'EDGE', 'PNTS', 'WATR', 'WBED', 'XING', 'SPAN', 'ROUT', 'GHSH', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST', 'CULV', 'LSET', 'TURN', 'LOTS', 'LENT'];
+export const CITY_SECTIONS = ['META', 'NODE', 'NAME', 'EDGE', 'PNTS', 'WATR', 'WBED', 'XING', 'SPAN', 'ROUT', 'GHSH', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST', 'CULV', 'LSET', 'TURN', 'LOTS', 'LENT', 'RPRF'];
 /// Sections a file may lack: added after the version-2 layout first shipped,
 /// so a file exported before them still parses (WBED: WP-04b; LANW, TAPR,
 /// PARA and TAGN: WP-10, lib/lineclean.mjs; SPLT: WP-11, lib/splits.mjs;
 /// BRST: the roads pass's B1, lib/bridges.mjs; CULV: B2, lib/culverts.mjs;
-/// LSET: L2, lib/lineset.mjs; TURN, LOTS, LENT: L8, lib/lots.mjs).
-export const CITY_OPTIONAL = new Set(['WBED', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST', 'CULV', 'LSET', 'TURN', 'LOTS', 'LENT']);
+/// LSET: L2, lib/lineset.mjs; TURN, LOTS, LENT: L8, lib/lots.mjs; RPRF: the
+/// measured road profiles, leftover item 1, lib/roadprofile.mjs).
+export const CITY_OPTIONAL = new Set(['WBED', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST', 'CULV', 'LSET', 'TURN', 'LOTS', 'LENT', 'RPRF']);
 
 /// THE ROADS PASS'S TIERS (plan P0/B1), by the shipped rank (0 local ..
 /// 5 motorway; a link keeps its base): 1 motorway/trunk/primary and links,
@@ -332,11 +333,29 @@ export function parseCity(buf) {
     for (let i = 0; i < n; i++) edges[i].lset = { nF: r.u8(), nB: r.u8(), centre: r.u8(), flags: r.u8(), turnOnly: r.u16(), sub: r.u8(), bike: r.u8() };
     close('LSET');
   }
+  // RPRF (leftover item 1, lib/roadprofile.mjs): per measured edge u32 edge,
+  // u16 n, i16 first height in cm above the datum, n-1 i8 steps in cm (-128
+  // escapes to an i16), u8 runs the lidar could not see, each u16 first, u16
+  // last station. e.rprf = { y: Float64Array (world y), ground: Uint8Array }.
+  let rprfEdges = 0;
+  if (table && table.has('RPRF')) {
+    open('RPRF');
+    const n = r.u32();
+    for (let k = 0; k < n; k++) {
+      const ei = r.u32(), m = r.u16(), y = new Float64Array(m), ground = new Uint8Array(m).fill(1);
+      let q = r.i16(); y[0] = q / 100;
+      for (let i = 1; i < m; i++) { let d = r.i8(); if (d === -128) d = r.i16(); q += d; y[i] = q / 100; }
+      const runs = r.u8();
+      for (let j = 0; j < runs; j++) { const a = r.u16(), b = r.u16(); for (let i = a; i <= b && i < m; i++) ground[i] = 0; }
+      if (ei < ne) { edges[ei].rprf = { y, ground }; rprfEdges++; }
+    }
+    close('RPRF');
+  }
   // node -> incident edge ends
   const nodeEdges = Array.from({ length: nn }, () => []);
   for (const e of edges) { nodeEdges[e.a].push(e.index); nodeEdges[e.b].push(e.index); }
   return { version, attribution, uptown, nodes, names, edges, waters, crossings, wspans, routes, nodeEdges, sections, pointBytes,
-           graphHash: hash, storedHash, bedSamples, taprOff, tapr, brst, culv };
+           graphHash: hash, storedHash, bedSamples, taprOff, tapr, brst, culv, rprfEdges };
 }
 
 export function parseDem(buf) {

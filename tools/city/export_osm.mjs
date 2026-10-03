@@ -106,6 +106,7 @@ import { readSmoothRules } from './lib/smoothrules.mjs';
 import { findSplits } from './lib/splits.mjs';
 import { encodePdem3 } from './lib/pdem3.mjs';
 import { buildLots } from './lib/lots.mjs';
+import { buildRoadProfiles, writeRprf } from './lib/roadprofile.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UNITY = join(HERE, '..', '..');
@@ -131,6 +132,11 @@ const MODE = {
   fingerprint: argVal('--fingerprint'),
   manifest: ARGS.includes('--manifest'),
   plots: !ARGS.includes('--no-plots'),
+  // --rprf (leftover item 1, 2026-10-03): write section RPRF, the measured
+  // road profiles. OFF by default: the item failed its launch gate (Docs/
+  // CHARLOTTE.md "HEIGHTS"), so the shipped data carries no RPRF and the game
+  // solves from the smoothed land as before.
+  rprf: ARGS.includes('--rprf'),
 };
 if (!MODE.check && !MODE.out && !MODE.manifest) {
   console.error('export_osm.mjs writes nothing unless told where. Use one of:\n' +
@@ -1661,26 +1667,38 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
     w.u32(LOTS.entrances.length);
     for (const t of LOTS.entrances) { w.u32(t.edge); w.f32(t.s); w.i8(t.side); w.f32(t.half); }
   });
-  if ([...sec.keys()].join() !== CITY_SECTIONS.join()) throw new Error('PSXC sections out of step with citydata.mjs CITY_SECTIONS');
-
   const align = n => (n + 3) & ~3;
-  const headLen = 12 + 12 * sec.size;
-  const head = Buffer.alloc(headLen);
-  head.writeUInt32LE(0x43585350, 0); // "PSXC"
-  head.writeInt32LE(2, 4);
-  head.writeUInt32LE(sec.size, 8);
-  const parts = [head];
-  let at = headLen, k = 0;
-  for (const [tag, body] of sec) {
-    const off = align(at);
-    if (off > at) parts.push(Buffer.alloc(off - at));
-    head.write(tag, 12 + 12 * k, 4, 'latin1');
-    head.writeUInt32LE(off, 16 + 12 * k);
-    head.writeUInt32LE(body.length, 20 + 12 * k);
-    parts.push(body);
-    at = off + body.length; k++;
+  const assemble = () => {
+    const headLen = 12 + 12 * sec.size;
+    const head = Buffer.alloc(headLen);
+    head.writeUInt32LE(0x43585350, 0); // "PSXC"
+    head.writeInt32LE(2, 4);
+    head.writeUInt32LE(sec.size, 8);
+    const parts = [head];
+    let at = headLen, k = 0;
+    for (const [tag, body] of sec) {
+      const off = align(at);
+      if (off > at) parts.push(Buffer.alloc(off - at));
+      head.write(tag, 12 + 12 * k, 4, 'latin1');
+      head.writeUInt32LE(off, 16 + 12 * k);
+      head.writeUInt32LE(body.length, 20 + 12 * k);
+      parts.push(body);
+      at = off + body.length; k++;
+    }
+    return Buffer.concat(parts);
+  };
+  // RPRF (leftover item 1, plan B7): the measured road profiles, designed on
+  // the graph exactly as the game reads it (the file so far, parsed back), in
+  // world y (3DEP bare earth minus the pinned datum). lib/roadprofile.mjs.
+  // Only with --rprf (OFF: see MODE.rprf).
+  if (MODE.rprf) {
+    const graph = parseCity(assemble());
+    const rp = buildRoadProfiles(graph, (x, z) => dem3.sample(toLat(z), toLon(x)) - DEM_BASE);
+    for (const l of rp.lines) console.log(l);
+    section('RPRF', w => writeRprf(w, rp.prof));
   }
-  const bytes = Buffer.concat(parts);
+  if ([...sec.keys()].join() !== CITY_SECTIONS.filter(t => t !== 'RPRF' || MODE.rprf).join()) throw new Error('PSXC sections out of step with citydata.mjs CITY_SECTIONS');
+  const bytes = assemble();
   emit('charlotte_city.bytes', bytes);
   console.log(`charlotte_city.bytes ${(bytes.length / 1024).toFixed(0)} KB (PSXC v2: ${[...sec].map(([t, b]) => `${t} ${(b.length / 1024).toFixed(0)}`).join(', ')} KB); graph hash ${hashHex(ghash)}`);
 }

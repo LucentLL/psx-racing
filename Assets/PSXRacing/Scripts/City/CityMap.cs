@@ -122,6 +122,34 @@ namespace PSXRacing.City
             public bool[] stSeat;
             public bool SeatedAt(int station) => stSeat != null && stSeat[station];
 
+            /// <summary>THE MEASURED PROFILE (section RPRF, leftover item 1,
+            /// 2026-10-03; tools/city/lib/roadprofile.mjs): the road's height
+            /// at its own stations from USGS 3DEP lidar, designed offline to
+            /// AASHTO curvature (world y). Null on an edge without one (tier 3,
+            /// an older file). <see cref="mGround"/>: false where bare earth
+            /// could not see the road (a deck, a tunnel, a water span, an
+            /// abutment) and the profile was drawn across.</summary>
+            public float[] mY;
+            public bool[] mGround;
+            /// <summary>The measured profile at arc position s (linear between
+            /// its own stations, laid evenly over the edge's length).</summary>
+            public float MeasuredYAt(float at)
+            {
+                int n = mY.Length;
+                float f = length > 1e-4f ? Mathf.Clamp01(at / length) * (n - 1) : 0f;
+                int k = Mathf.Min(n - 2, Mathf.FloorToInt(f));
+                if (k < 0) return mY[0];
+                return Mathf.LerpUnclamped(mY[k], mY[k + 1], f - k);
+            }
+            /// <summary>Was the measured profile ON THE GROUND at arc s (the
+            /// nearest of its stations)?</summary>
+            public bool MeasuredGroundAt(float at)
+            {
+                int n = mGround.Length;
+                int k = length > 1e-4f ? Mathf.Clamp(Mathf.RoundToInt(Mathf.Clamp01(at / length) * (n - 1)), 0, n - 1) : 0;
+                return mGround[k];
+            }
+
             /// <summary>How far either side of the centreline the land is
             /// graded to the road. Wider than the pavement so the verge and
             /// the median between two carriageways come out level.</summary>
@@ -386,6 +414,9 @@ namespace PSXRacing.City
         /// edge, the arc position, the side (+1 left of a->b) and half width.</summary>
         public struct LotEntrance { public int edge; public float s; public sbyte side; public float half; }
         public LotEntrance[] lotEntrances;
+        /// <summary>Edges carrying a measured profile (section RPRF; 0 in
+        /// older data). See <see cref="Edge.mY"/>.</summary>
+        public int measuredEdges;
         public bool[] culvertSpan;
         public uint[] culvertWay;
         /// <summary>Section CULV (plan B2, owner Q8; null in older data): the
@@ -964,6 +995,34 @@ namespace PSXRacing.City
                     }
                     map.lotEntrances = el.ToArray();
                     Close("LENT");
+                }
+                // RPRF (leftover item 1): the measured road profiles, tiers 1-2
+                if (Has("RPRF"))
+                {
+                    Open("RPRF");
+                    int np = r.ReadInt32();
+                    for (int k = 0; k < np; k++)
+                    {
+                        int ei = r.ReadInt32(); int n = r.ReadUInt16();
+                        var y = new float[n]; var g = new bool[n];
+                        int q = r.ReadInt16();
+                        y[0] = q * 0.01f;
+                        for (int i = 1; i < n; i++)
+                        {
+                            int d = r.ReadSByte();
+                            if (d == -128) d = r.ReadInt16();
+                            q += d; y[i] = q * 0.01f;
+                        }
+                        for (int i = 0; i < n; i++) g[i] = true;
+                        int runs = r.ReadByte();
+                        for (int j = 0; j < runs; j++)
+                        {
+                            int i0 = r.ReadUInt16(), i1 = r.ReadUInt16();
+                            for (int i = i0; i <= i1 && i < n; i++) g[i] = false;
+                        }
+                        if (ei >= 0 && ei < ne && n >= 2) { map.edges[ei].mY = y; map.edges[ei].mGround = g; map.measuredEdges++; }
+                    }
+                    Close("RPRF");
                 }
             }
             uint computed = GraphHashOf(map.edges);

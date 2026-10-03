@@ -317,6 +317,10 @@ namespace PSXRacing.EditorTools
             Prof("prof_johnston_i485", "profiles", -2545.1f, -13268.7f, "I-485", "I-485 under Johnston Rd"),
             // sags (plan L3): a driver's view down into a trench under a street
             Eye("sag_i77_w5th", "sags", -3392.6f, 5795.0f, "I-77", 40f, "I-77 (e6608) 150 m before W 5th St, heading 40, 1.2 m eye: down into the trench and up out of it (plan L3: comfort sags)"),
+            // road heights from lidar (leftover item 1, 2026-10-03): the dips under bridges, BEFORE and AFTER at one pose
+            Eye("ht_i277_college", "heights", -2969.7f, 4155.2f, "I-277", 133f, "I-277 eastbound (e2027) 110 m before the S College St bridge, heading 133, 1.2 m eye: the road down under the bridge and up again"),
+            Eye("ht_i77_w5th", "heights", -3386.1f, 5811.5f, "I-77", 35f, "I-77 northbound (e6608) 110 m before the W 5th St bridges, heading 35, 1.2 m eye"),
+            Eye("ht_trade_i77", "heights", -3586.5f, 5738.2f, "Trade", 105f, "W Trade St eastbound (e9613) 100 m before the I-77 bridges, heading 105, 1.2 m eye: the real street dips ~2.6 m under them"),
             // merges (B5/A7/A8)
             Along("merge_i85_e3031_near", "merges", 9723.9f, 20811.8f, "I-85", 200f, 120f, 60f, 1, "the I-85 entrance e3031 (node 3268) from 30 m before its merge zone"),
             Along("merge_i85_e3031_far", "merges", 9723.9f, 20811.8f, "I-85", 570f, 120f, 30f, 2, "the same merge from 400 m back, 30 deg lens: z-fight / pop-in at range"),
