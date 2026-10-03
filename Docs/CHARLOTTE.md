@@ -4642,6 +4642,175 @@ left equal to main, and `PSX Racing-city` / `PSXCity` are not used again.
   - **The E 11th St fan launch** (L7 junctions).
   - **The rail census and FACE** at staggered union ends (A2 item 3/4).
 
+## L2 (roads pass, 2026-10-03): lines mean what MUTCD says - the line set, unmarked local streets, two texels a line
+
+Every edge now carries its own **line set** (section LSET), and the ribbon
+paints that set rather than its profile's symmetric default. Yellow is drawn
+between the two directions wherever they meet, including on an uneven split.
+A centre turn lane is drawn only where the tags say so. Local streets carry
+no paint (owner Q1). Every line is at least two texels wide on a 256 px
+texture (Q3). Lane counts and profile rows are unchanged, so every width is
+identical.
+
+- **The data (`tools/city/lib/lineset.mjs`, read by `citydata.mjs` and by
+  `CityMap`).** Section LSET holds 8 B per edge:
+  - u8 nF, u8 nB (lanes along a->b and against it);
+  - u8 centre (0 none, 1 double yellow, 2 TWLTL);
+  - u8 flags (1 marked, 2/4 a turn bay for forward/backward traffic from
+    TAPR's turn-bay records, 8/16 lane_markings yes/no, 32 unpaved);
+  - u16 turn-only lanes (bits 0-7 forward, 8-15 backward; from turn:lanes);
+  - u8 sub-class (residential, unclassified, living_street, service,
+    parking_aisle, driveway, alley, drive-through, track);
+  - u8 bike lanes and shoulders, left and right.
+
+  A count lent by lineclean's flicker/short/inferred fixes now lends the
+  donor's split too, in the receiving piece's own frame.
+- **The TWLTL rule.** A TWLTL needs `lanes:both_ways >= 1`,
+  `turn:lanes:both_ways` or `centre_turn_lane=yes`. It is never drawn where
+  `lanes:forward + lanes:backward = lanes`: that road is an uneven split
+  with a double yellow. Three cases stay TWLTL without tag evidence, and the
+  exporter lists them with `PSX_LSET_DIAG=1`. In total that is 25.4 km on
+  167 edges:
+  - an odd count with no forward/backward tags (22.9 km);
+  - `forward + backward + 1 = lanes`, which is the tags' own remainder
+    (1.5 km, 'implied');
+  - a lent count from such a donor (1.0 km).
+
+  Where the profile cannot hold the tagged lanes, they are shared in
+  proportion without evening the split. That covers a 7-lane street drawn as
+  six, and a tagged TWLTL on an even count padded to the next odd profile.
+- **Q1 marked.** An edge is marked if it is tertiary and up, or if its
+  tags say lane_markings=yes, lanes >= 3, or forward/backward. lane_markings=no
+  unmarks any road.
+- **metrics LANES (BEFORE -> AFTER):**
+  - TWLTL painted on contradicted tags: 108.4 -> **0 km**;
+  - uneven splits drawn symmetric: 131.5 -> **0 km**;
+  - TWLTL painted: 223.5 -> 48.3 km. Of that, 25.7 km has no evidence on the
+    edge's OWN tags, because metrics does not follow a lent count;
+  - unmarked: 0 -> 515.9 km (T1 0.4, T2 0.1, T3 515.3; the T1/T2 part is
+    lane_markings=no).
+
+  `charlotte_city.bytes` grows by 200,352 B (5,694,168 -> 5,894,520), under
+  the +250 KB cap. `export --check` reads IDENTICAL.
+- **The paint rule (`RoadProfiles.LinesFor`), one table for the painter and
+  the line model.** Across from the plus edge:
+  1. the edge line;
+  2. the nB lanes, with broken white between them;
+  3. the centre: a double yellow, a TWLTL (solid outside, broken inside), or
+     nothing on a two-way road one lane wide;
+  4. the nF lanes;
+  5. the edge line.
+
+  An unmarked edge has no lines. `PaintLines(profile)` is
+  `LinesFor(profile, its default split)`, so the 84 textures paint as
+  before. Line centres stay on their 12 cm grid: 6 cm in from the shoulder,
+  and a pair 24 cm apart. The smoothness gate's plan (`linegate.mjs`) mirrors
+  that grid and did not move.
+- **Q3 (`RoadProfiles.TexWidthOf` = 256 for all, `PaintHalfOf`).** A line's
+  half width is 6 cm, or 1.01 texels where a texel is wider than that.
+  - The five 512 px textures (mw4/5/6, tw5t, tw6) are now 256. The importer
+    had capped them to 256 anyway, which left their lines 1.2 texels wide.
+  - Their lines, and xw4's, widen to two texels. Only the width grows: line
+    centres keep their grid, so the gate's plan does not re-key.
+  - **One exception (`YellowHalfOf`).** tw6's double yellow pair (22.5 m at
+    256 px, 8.8 cm a texel) keeps its 12 cm lines, 1 texel each with 2 texels
+    between them. Two 2-texel lines and a gap texel do not fit the pair's
+    24 cm. Widened, they merged into one 4-texel band: the smoothness gate
+    failed A0 TEXTURE (8 runs) and two S1 probes. Moving the pair to 27 cm
+    re-keys the gate's centre lines (an `--allow-loosen` re-record), so that
+    is offered to the owner, not done.
+  - The tw6 PNGs were patched for that rule offline. The painter is replicated
+    exactly: every other texel matches Unity's own output.
+- **linecheck (C3).** The baseline was re-recorded on main for the road PNGs
+  and the replica (`citydata.mjs`), with no `--allow-loosen`. The ratchet
+  passes and so do all 231 probes. BEFORE -> AFTER (texel quantisation of the
+  wider lines; the geometry did not move):
+
+  | Check | Runs | Metres |
+  |---|---|---|
+  | A0 | 0 -> 0 | |
+  | A1 | 76,835 -> 76,875 | 935,157 -> 935,421 |
+  | A3 | 12,897 -> 12,891 | |
+  | A5 | 15,227 -> 15,274 | |
+  | A5b | 25,117 -> 25,146 | |
+  | B1 | 170,658 -> 170,626 | |
+  | B2 KINK | 96,842 -> 96,879 | 747,970 -> 748,819 |
+  | C2 | 14,606 -> 14,607 | |
+  | D1 | 818 -> 818 | |
+
+  Every worst value is unchanged (B1 19.3 -> 19.2).
+- **The line model (`LineModel.LayoutOf(edge)`).** It returns the profile's
+  texture layout when the line set is the default, and then the ribbon is
+  drawn exactly as before (one quad where the sections allow). Otherwise it
+  builds an edge layout, cached by (profile, nF, nB, centre, marked). Each
+  line is drawn from a texture column that carries its paint (`srcM`):
+  - the same line where the texture has it there;
+  - otherwise a solid white, solid yellow, or broken column of the same
+    colour;
+  - a broken line whose texture has no broken column of that colour (a 2+1
+    split's white on tw3t) is cut from the solid column into 10 ft dashes at
+    the V phase (`StripDashed`).
+
+  Pavement comes from the texture's widest paint-free run. An unmarked span
+  is one quad of it.
+  - **On a full-width span, identity runs** draw every stretch where the
+    texture already shows the right thing as one strip at the quad's own U.
+    Only the differences get strips of their own.
+  - `LinesAt`, `DrawnLines`, the tapers' partner lines (the narrow EDGE's
+    layout now), `AuditView`, `CitySmooth`, `LineModelProbe` and the LINE
+    MODEL report all read the edge layout. `CitySignals.MakeApproach` takes
+    the inbound lanes and the divider from the line set (`DividerLat`).
+- **The PAINT report (`Editor/CityAudit.Paint.cs`, the B3 hook).** It reads
+  the lines as drawn every 10 m between the junction trims, with no tile
+  build, against the line set's expectation:
+  - V1 centre kind; V2 centre more than 5 cm off the boundary (outside
+    tapers); V3 colour; V4 any line on an unmarked edge;
+  - V9 lines under two texels;
+  - BEFORE: the profiles' own lines.
+
+  **OwnerBox:**
+
+  | Tier | V1-V4 after | Two-way km wrong before (V4 km before) |
+  |---|---|---|
+  | T1 | 0 | 1.7 of 7.9 |
+  | T2 | 0 | 2.2 of 15.3 |
+  | T3 | 0 | 0.1 of 1.0 (V4 44.6 km) |
+
+  **T1 city-wide:** 23.0 of 135.7 two-way km wrong before, 0 after.
+  **V9:** 0 of 160 lines in 33 layouts. tw6's pair rule came after that run;
+  V9 now lists the pair as kept, not as a fault. Gates: V1-V4 = 0 on T1 (box
+  and city), and V9 = 0.
+- **The CITY AUDIT (OwnerBox, PSXBuild)** has the same 13 known failures as
+  L1. The DRIVE AUDIT reads zeros. Draws are identical at every budget site.
+  - Verts: trade_tryon 574k -> 583k (+1.6 %), i277_uptown 572k -> 577k,
+    plaza_midwood 452k -> 452k, and the others within 1k.
+  - Tile p95: 98.2 -> 102.1 ms.
+- **Shots** (3, `PSX_PREVIEW_SPOTS`, before the tw6 pair rule; none of them
+  is tw6):
+  - `paint_morehead_e1427`: W Morehead's 2+1 split has its double yellow at
+    the boundary. The 2-lane side's broken white is cut from the solid column
+    in 10 ft dashes.
+  - `paint_mtholly_e1967`: Mount Holly Rd 1+3. The double yellow is on the
+    1|3 boundary. The edge is one 152 m TAPR taper (4 -> 2 lanes), and its
+    whites end inside the taper, as they did before.
+  - `paint_i85_mw6_e2121`: I-85 mw6 with two-texel lines.
+- **Known, for L4.** The LINE MODEL through-lane continuity count rose
+  636 -> 1,921 lines (core 62 -> 118). The cause is 681 two-arm joins of one
+  profile where OSM's split changes at the node, which the symmetric paint hid:
+  - 360 are the 3-lane 2+1 / 1+2 swap;
+  - 198 are a TWLTL meeting a double yellow;
+  - 119 are other split changes (tw4, tw5t);
+  - 4 are marked meeting unmarked.
+
+  The double yellow steps across a lane there. The MUTCD answer is a
+  centre-line shift taper, which is L4's job (B6/A6: through lanes keep
+  position, standard taper lengths). AI and race paths still drive the
+  lanes' centre (`LanePoint`), so they do not cross a moved yellow.
+  Per-direction lane paths are L5's job.
+- **Not done (lean, offer later):** the offline paintcheck mirror and its
+  baseline (B3), the PAINT HASH parity (A5), V5-V8 (A8 merge paint, L6),
+  and the 8 px palette margin (A5).
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

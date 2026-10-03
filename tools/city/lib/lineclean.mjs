@@ -261,7 +261,7 @@ export function lineClean(ctx) {
       // own: the count is this piece's OWN lanes= tag (not a neighbour's, lent by a fix)
       const own = e.way.tagged && !e.laneFix;
       if (last && last.key === key) { last.items.push(i); last.len += e.len; last.tagged = last.tagged && e.way.tagged; last.own = last.own || own; last.bridge = last.bridge || e.way.bridge; }
-      else runs.push({ key, items: [i], len: e.len, tagged: e.way.tagged, own, bridge: e.way.bridge, rep: e });
+      else runs.push({ key, items: [i], len: e.len, tagged: e.way.tagged, own, bridge: e.way.bridge, rep: e, repFwd: chain[i].fwd });
     }
     return runs;
   };
@@ -282,8 +282,10 @@ export function lineClean(ctx) {
         else if (B.len < 2 * floorOf(B.rep.way)) why = 'short';
         else if (!B.tagged && !B.bridge && A.tagged && C.tagged) why = 'inferred';
         if (!why) continue;
-        const src = A.len >= C.len ? A.rep : C.rep;
-        for (const k of B.items) { chain[k].e.lanes = src.lanes; chain[k].e.turn = src.turn; chain[k].e.laneFix = why; }
+        const srcRun = A.len >= C.len ? A : C, src = srcRun.rep;
+        // the donor's line set goes with its count (roads pass L2, lib/lineset.mjs):
+        // its lanes each way, in this piece's own a->b frame
+        for (const k of B.items) { chain[k].e.lanes = src.lanes; chain[k].e.turn = src.turn; chain[k].e.laneFix = why; chain[k].e.lsetFrom = { e: src, flip: chain[k].fwd !== srcRun.repFwd }; }
         laneFix[why]++; laneFixM[why] += B.len;
         fixed = true;
       }

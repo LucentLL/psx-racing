@@ -665,7 +665,7 @@ namespace PSXRacing.EditorTools
         /// layout), or -1.</summary>
         static int ModelK(CityMap.Edge e, PlanLine L)
         {
-            var lay = LineModel.LayoutOf(e.profile);
+            var lay = LineModel.LayoutOf(e);
             if (L.anchor == 'L' || L.anchor == 'R')
             {
                 byte want = L.anchor == 'L' ? LineModel.KEdgeP : LineModel.KEdgeM;
@@ -683,7 +683,7 @@ namespace PSXRacing.EditorTools
             if (k < 0) return L.off;
             DesignAt(e, s);
             foreach (var d in designLines) if (d.k == k) return d.lat;
-            return e.lmPlus - LineModel.LayoutOf(e.profile).m[k];
+            return e.lmPlus - LineModel.LayoutOf(e).m[k];
         }
         static bool PlanExists(PlanLine L, CityMap.Edge e, double s)
         {

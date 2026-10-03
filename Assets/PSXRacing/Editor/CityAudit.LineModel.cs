@@ -66,7 +66,7 @@ namespace PSXRacing.EditorTools
                 }
                 // through lines where the two meet
                 LineModel.LinesAt(E, sE, la); LineModel.LinesAt(O, sO, lb);
-                var layE = LineModel.LayoutOf(E.profile); var layO = LineModel.LayoutOf(O.profile);
+                var layE = LineModel.LayoutOf(E); var layO = LineModel.LayoutOf(O);
                 bool fewE = la.Count <= lb.Count;
                 var few = fewE ? la : lb; var many = fewE ? lb : la;
                 var layF = fewE ? layE : layO; var layM = fewE ? layO : layE;

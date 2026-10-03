@@ -133,7 +133,7 @@ namespace PSXRacing.City
             /// side moved in with the edge, none on a clipped inner side, and
             /// nothing past an edge line or within 2 cm of a drawn edge - the
             /// builder's own rule, called as the builder calls it. Each line's
-            /// kind is <c>LineModel.LayoutOf(e.profile).kind[line.k]</c>
+            /// kind is <c>LineModel.LayoutOf(e).kind[line.k]</c> (the edge's own lines, L2)
             /// (<see cref="LineModel.KEdgeP"/> ...), its lateral off the OSM line
             /// along <see cref="SectionView.right"/>. (A span whose two sections
             /// are both full width is drawn as one plain quad of the profile's
@@ -141,7 +141,7 @@ namespace PSXRacing.City
             /// </summary>
             public static void DrawnLines(CityMap.Edge e, in SectionView c, List<LineModel.LineAt> into)
             {
-                var lay = LineModel.LayoutOf(e.profile);
+                var lay = LineModel.LayoutOf(e);
                 LineModel.Extents(e, c.s, out float eM, out float eP);
                 var sec = new Section { s = c.s, clippedIn = c.clippedIn, innerSide = c.innerSide, collapsed = c.collapsed };
                 CityMeshes.DrawnLines(e, lay, sec, eM, eP, c.LatL, c.LatR, into);

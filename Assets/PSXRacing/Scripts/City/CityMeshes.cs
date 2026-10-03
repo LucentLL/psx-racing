@@ -2384,7 +2384,13 @@ namespace PSXRacing.City
             // by w (1 - cos theta) / 2 at most (w the half width): within V/2
             float w = 0.5f * Mathf.Max(latRA - latLA, latRB - latLB);
             bool bendOk = w * (1f - Vector2.Dot(A.right, B.right)) * 0.5f <= 0.0125f;
-            if (Full(A, eMA, ePA, latLA, latRA) && Full(B, eMB, ePB, latLB, latRB) && bendOk)
+            bool full = Full(A, eMA, ePA, latLA, latRA) && Full(B, eMB, ePB, latLB, latRB) && bendOk;
+            // THE EDGE'S OWN LINES (roads pass L2): its line set on its
+            // profile; the texture's own layout when they are the same
+            var lay = LineModel.LayoutOf(e);
+            var tex = lay.tex ?? lay;
+            float tw = tex.texW;
+            if (full && lay.isDefault)
             {
                 // U = 0 on the left of travel (the R vertex), so a one-way
                 // carriageway's narrow inside shoulder and wide outside
@@ -2396,12 +2402,19 @@ namespace PSXRacing.City
                 RibbonQuads++;
                 return 0;
             }
-            var lay = LineModel.LayoutOf(e.profile);
-            float tw = lay.texW;
             if (A.collapsed || B.collapsed || latRA - latLA < 0.05f || latRB - latLB < 0.05f)
             {
                 // nothing of its own to paint: the shoulder's paint-free texels
-                float g0 = 0.25f / tw, g1 = (lay.x0[0] - 0.25f) / tw;
+                float g0 = 0.25f / tw, g1 = (tex.x0[0] - 0.25f) / tw;
+                bk.Quad(A.L, B.L, B.R, A.R, new Vector2(g1, v0), new Vector2(g1, v1), new Vector2(g0, v1), new Vector2(g0, v0));
+                RibbonQuads++;
+                return 0;
+            }
+            if (lay.m.Length == 0)
+            {
+                // an UNMARKED street (owner Q1): one quad of plain pavement,
+                // the texture's widest paint-free texels
+                float g0 = (tex.bandLo + 0.25f) / tw, g1 = (tex.bandHi + 0.75f) / tw;
                 bk.Quad(A.L, B.L, B.R, A.R, new Vector2(g1, v0), new Vector2(g1, v1), new Vector2(g0, v1), new Vector2(g0, v0));
                 RibbonQuads++;
                 return 0;
@@ -2415,8 +2428,18 @@ namespace PSXRacing.City
                 if (linesA[i].k == linesB[j].k) { spanLines.Add((linesA[i].k, linesA[i].lat, linesB[j].lat)); i++; j++; }
                 else if (linesA[i].k > linesB[j].k) i++; else j++;
             }
-            const float PH = LineModel.PaintHalf;
+            float PH = lay.half;
             int strips = 0;
+            // IDENTITY RUNS (L2): a full-width span of an edge whose lines are
+            // not its texture's draws every stretch where the texture already
+            // shows the right thing - the same line at the same place, or
+            // pavement with no paint under it - as ONE strip at the texture's
+            // own U (u = (plus - lat) / W: exactly the quad's mapping), and
+            // only the differences as strips of their own
+            bool ident = full && !lay.isDefault;
+            float fullPl = e.lmPlus != 0f || e.lmMinus != 0f ? e.lmPlus : e.width * 0.5f;
+            float runA = latLA, runB = latLB;           // where the pending identity strip starts
+            bool runOpen = false;
             // walk from the L edge to the R edge
             float cA = latLA, cB = latLB;               // the left column of the next strip
             int prevK = -1;                              // the line just L-ward, or -1 (the L edge)
@@ -2425,23 +2448,115 @@ namespace PSXRacing.City
                 bool edge = i == spanLines.Count;
                 float nA = edge ? latRA : spanLines[i].latA - PH, nB = edge ? latRB : spanLines[i].latB - PH;
                 int kn = edge ? -1 : spanLines[i].k;
-                // the pavement strip: the paint-free texels on kn's L side (its
-                // larger-m neighbour gap), or beside the last line at the R edge
-                GapOf(lay, kn, prevK, out float uL, out float uR);
                 if (nA - cA > 1e-3f || nB - cB > 1e-3f)
-                { Strip(bk, A, B, latLA, latRA, latLB, latRB, cA, cB, nA, nB, uL, uR, v0, v1); strips++; }
+                {
+                    // the pavement strip: the paint-free texels on kn's L side (its
+                    // larger-m neighbour gap), or beside the last line at the R edge;
+                    // on an edge's own layout, the texture's widest paint-free run
+                    if (ident && PaintFree(tex, fullPl - nA, fullPl - cA))
+                    { if (!runOpen) { runOpen = true; runA = cA; runB = cB; } }
+                    else
+                    {
+                        if (runOpen) { strips += IdentStrip(bk, A, B, latLA, latRA, latLB, latRB, runA, runB, cA, cB, fullPl, lay.W, v0, v1); runOpen = false; }
+                        float uL, uR;
+                        if (lay.isDefault) GapOf(lay, kn, prevK, out uL, out uR);
+                        else { uL = (tex.bandHi + 0.75f) / tw; uR = (tex.bandLo + 0.25f) / tw; }
+                        Strip(bk, A, B, latLA, latRA, latLB, latRB, cA, cB, nA, nB, uL, uR, v0, v1); strips++;
+                    }
+                }
                 if (edge) break;
                 // the line's own strip, U at the texture's own scale (the
-                // painter's m +- PaintHalf): exactly the texels the old full-width
-                // quad showed there, never stretched
+                // painter's m +- half): exactly the texels the old full-width
+                // quad showed there, never stretched - from the texture column
+                // that carries this paint (an edge's own layout: srcM)
                 float lA = spanLines[i].latA, lB = spanLines[i].latB;
-                float uHi = (lay.m[kn] + PH) / lay.W, uLo = (lay.m[kn] - PH) / lay.W;
-                Strip(bk, A, B, latLA, latRA, latLB, latRB, lA - PH, lB - PH, lA + PH, lB + PH, uHi, uLo, v0, v1); strips++;
+                if (ident && !lay.synth[kn] && Mathf.Abs(lay.srcM[kn] - lay.m[kn]) < 1e-3f)
+                { if (!runOpen) { runOpen = true; runA = lA - PH; runB = lB - PH; } }
+                else
+                {
+                    if (runOpen) { strips += IdentStrip(bk, A, B, latLA, latRA, latLB, latRB, runA, runB, lA - PH, lB - PH, fullPl, lay.W, v0, v1); runOpen = false; }
+                    float uHi = (lay.srcM[kn] + PH) / lay.W, uLo = (lay.srcM[kn] - PH) / lay.W;
+                    if (lay.synth[kn])
+                    {
+                        // a broken line its texture has no broken column for:
+                        // the solid column's paint in 10 ft dashes, pavement between
+                        float pL = (tex.bandHi + 0.75f) / tw, pR = (tex.bandLo + 0.25f) / tw;
+                        strips += StripDashed(bk, A, B, latLA, latRA, latLB, latRB, lA - PH, lB - PH, lA + PH, lB + PH, uHi, uLo, pL, pR, v0, v1);
+                    }
+                    else { Strip(bk, A, B, latLA, latRA, latLB, latRB, lA - PH, lB - PH, lA + PH, lB + PH, uHi, uLo, v0, v1); strips++; }
+                }
                 cA = lA + PH; cB = lB + PH; prevK = kn;
             }
+            if (runOpen) strips += IdentStrip(bk, A, B, latLA, latRA, latLB, latRB, runA, runB, latRA, latRB, fullPl, lay.W, v0, v1);
             RibbonColumnSpans++; RibbonStrips += strips;
             return strips;
         }
+
+        /// <summary>An identity run's one strip, from (fromA, fromB) to (toA,
+        /// toB), at the texture's own U: u = (plus - lat) / W.</summary>
+        static int IdentStrip(Bucket bk, in Section A, in Section B, float lLA, float lRA, float lLB, float lRB,
+                              float fromA, float fromB, float toA, float toB, float plus, float W, float v0, float v1)
+        {
+            if (!(toA - fromA > 1e-3f || toB - fromB > 1e-3f)) return 0;
+            Strip(bk, A, B, lLA, lRA, lLB, lRB, fromA, fromB, toA, toB, (plus - fromA) / W, (plus - toA) / W, v0, v1);
+            return 1;
+        }
+
+        /// <summary>Is the texture's m-range (lo, hi) free of paint?</summary>
+        static bool PaintFree(LineModel.Layout tex, float lo, float hi)
+        {
+            if (hi < lo) { float t = lo; lo = hi; hi = t; }
+            for (int j = 0; j < tex.m.Length; j++)
+                if (tex.m[j] + tex.half > lo + 1e-3f && tex.m[j] - tex.half < hi - 1e-3f) return false;
+            return true;
+        }
+
+        /// <summary>A broken line cut from a solid column (roads pass L2): the
+        /// strip split where the dash phase turns - paint on the first quarter
+        /// of each 40 ft repeat (V), as the painter's broken lines are, and the
+        /// pavement band between. Returns the quads drawn.</summary>
+        static int StripDashed(Bucket bk, in Section A, in Section B, float lLA, float lRA, float lLB, float lRB,
+                               float aL, float bL, float aR, float bR, float uLineL, float uLineR, float uPaveL, float uPaveR, float v0, float v1)
+        {
+            var along = B.P - A.P;
+            along = along.sqrMagnitude > 1e-8f ? along.normalized * ColumnOverlapM : Vector2.zero;
+            float aS = A.s;
+            Vector3 At(in Section c, float lL, float lR, float lat)
+            {
+                var q = c.P + c.right * lat + (c.s <= aS ? -along : along);
+                float t = lR - lL > 1e-4f ? Mathf.Clamp01((lat - lL) / (lR - lL)) : 0.5f;
+                float y = Mathf.Lerp(c.L.y, c.R.y, t);
+                return new Vector3(q.x - tileOrigin.x, y, q.y - tileOrigin.z);
+            }
+            Vector3 qAL = At(A, lLA, lRA, aL), qBL = At(B, lLB, lRB, bL), qBR = At(B, lLB, lRB, bR), qAR = At(A, lLA, lRA, aR);
+            // the phase breaks between v0 and v1 (either way along)
+            float vLo = Mathf.Min(v0, v1), vHi = Mathf.Max(v0, v1);
+            breaks.Clear(); breaks.Add(0f);
+            if (vHi - vLo > 1e-5f)
+                for (float k = Mathf.Floor(vLo); k <= vHi; k += 1f)
+                    for (int q = 0; q < 2; q++)
+                    {
+                        float vb = k + (q == 0 ? 0f : 0.25f);
+                        if (vb > vLo + 1e-5f && vb < vHi - 1e-5f) breaks.Add((vb - v0) / (v1 - v0));
+                    }
+            breaks.Add(1f);
+            breaks.Sort();
+            int quads = 0;
+            for (int i = 0; i + 1 < breaks.Count; i++)
+            {
+                float ta = breaks[i], tb = breaks[i + 1];
+                if (tb - ta < 1e-5f) continue;
+                float va = Mathf.Lerp(v0, v1, ta), vb = Mathf.Lerp(v0, v1, tb);
+                float vm = 0.5f * (va + vb);
+                bool dash = vm - Mathf.Floor(vm) < 0.25f;
+                float uL = dash ? uLineL : uPaveL, uR = dash ? uLineR : uPaveR;
+                bk.Quad(Vector3.Lerp(qAL, qBL, ta), Vector3.Lerp(qAL, qBL, tb), Vector3.Lerp(qAR, qBR, tb), Vector3.Lerp(qAR, qBR, ta),
+                    new Vector2(uL, va), new Vector2(uL, vb), new Vector2(uR, vb), new Vector2(uR, va));
+                quads++;
+            }
+            return quads;
+        }
+        static readonly List<float> breaks = new List<float>(8);
 
         /// <summary>The paint-free U band a pavement strip maps to: the texels
         /// between line kn (the line R-ward of the strip; -1 = the R edge) and
@@ -2492,7 +2607,7 @@ namespace PSXRacing.City
         static void DrawnLines(CityMap.Edge e, LineModel.Layout lay, in Section c, float eM, float eP, float latL, float latR, List<LineModel.LineAt> into)
         {
             LineModel.LinesAt(e, c.s, into);
-            const float PH = LineModel.PaintHalf;
+            float PH = lay.half;
             bool movedL = latL > -eM + 0.01f, movedR = latR < eP - 0.01f;
             bool clipL = c.clippedIn && c.innerSide < 0, clipR = c.clippedIn && c.innerSide > 0;
             float lo = latL + 0.02f, hi = latR - 0.02f;
@@ -2501,8 +2616,8 @@ namespace PSXRacing.City
             {
                 var ln = into[i];
                 byte kind = lay.kind[ln.k];
-                if (kind == LineModel.KEdgeM && movedL) { if (clipL) continue; ln.lat = latL + e.shr + PH; }
-                if (kind == LineModel.KEdgeP && movedR) { if (clipR) continue; ln.lat = latR - e.shl - PH; }
+                if (kind == LineModel.KEdgeM && movedL) { if (clipL) continue; ln.lat = latL + e.shr + RoadProfiles.PaintHalfM; }
+                if (kind == LineModel.KEdgeP && movedR) { if (clipR) continue; ln.lat = latR - e.shl - RoadProfiles.PaintHalfM; }
                 into[w++] = ln;
             }
             into.RemoveRange(w, into.Count - w);

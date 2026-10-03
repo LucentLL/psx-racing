@@ -45,7 +45,7 @@ namespace PSXRacing.EditorTools
                 sb.AppendLine($"e{ei} '{e.name}' {RoadProfiles.All[e.profile].key} len {e.length:0.0} off {e.lmOff:+0.00;-0.00} plus {e.lmPlus:0.00} minus {e.lmMinus:0.00} trims {trims.atA[ei]:0.0}/{trims.atB[ei]:0.0}");
                 if (e.lmEase != null)
                     foreach (var z in e.lmEase) sb.AppendLine($"  ease side {z.side} from {(z.fromA ? "a" : "b")} dw {z.dw:0.00} len {z.len:0.0} d0 {z.d0:0.0} narrow {RoadProfiles.All[z.narrow].key}");
-                var lay = LineModel.LayoutOf(e.profile);
+                var lay = LineModel.LayoutOf(e);
                 for (int k = 0; k <= 8; k++)
                 {
                     float s = e.length * k / 8f;

@@ -501,10 +501,14 @@ namespace PSXRacing.City
             if (e.oneway) { inL = -edgeL + 0.3f; lanesIn = e.lanes; }
             else
             {
-                // the lanes' centre (lmOff: + = left of a->b), in travel-right metres
-                float divider = atB ? -e.lmOff : e.lmOff;
-                inL = divider + (e.turnLane ? 1.7f : 0.15f);
-                lanesIn = Mathf.Max(1, (e.lanes - (e.turnLane ? 1 : 0)) / 2);
+                // the middle between the two directions (roads pass L2: the line
+                // set's double yellow or TWLTL centre, which on an uneven split
+                // is not the lanes' centre; + = left of a->b), in travel-right
+                // metres, and the lanes that come IN: nF arriving at b, nB at a
+                float divider = atB ? -LineModel.DividerLat(e) : LineModel.DividerLat(e);
+                bool twltl = e.hasLset ? e.lsCentre == 2 : e.turnLane;
+                inL = divider + (twltl ? 1.7f : 0.15f);
+                lanesIn = e.hasLset ? (atB ? e.lsNF : e.lsNB) : Mathf.Max(1, (e.lanes - (e.turnLane ? 1 : 0)) / 2);
             }
             if (inR - inL < 2.4f) inL = inR - 2.4f;
             a = new Approach

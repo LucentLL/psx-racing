@@ -41,7 +41,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { gunzipSync, brotliCompressSync, constants as Z } from 'node:zlib';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseCity, parseDem, parseBld, roadGridSteps, fingerprint, freeVertices, kmByClass, classOf, CLASSES, DEG, STATION_STEP, signedTurn } from './lib/citydata.mjs';
+import { parseCity, parseDem, parseBld, roadGridSteps, fingerprint, freeVertices, kmByClass, classOf, CLASSES, DEG, STATION_STEP, signedTurn, lineSetOf, tierOf } from './lib/citydata.mjs';
 import { smoothSection } from './smooth.mjs';
 import { emulateSolve, profileNumbers, realSeparations, SEPARATION_MAX } from './lib/vertical.mjs';
 import { load3dep } from './lib/dem3dep.mjs';
@@ -371,7 +371,9 @@ P(`  PSXC v${fp.city.version}, graph hash ${fp.city.graph_hash}; PDEM v${fp.dem.
 // ================================================================ LANES
 {
   const tw = city.edges.filter(e => !e.oneway);
-  const painted = tw.filter(e => e.profile.key.endsWith('t'));
+  // what is PAINTED: the line set (section LSET, roads pass L2), or the
+  // profile's own lines in a file without one
+  const painted = tw.filter(e => lineSetOf(e).centre === 2);
   const kmOf = l => r1(l.reduce((a, e) => a + e.length / 1000, 0));
   R.lanes = { painted_twltl_km: kmOf(painted), painted_twltl_edges: painted.length, width_basis: '12 ft (3.6576 m) every lane, RoadProfiles' };
   const byProf = {}; for (const e of city.edges) byProf[e.profile.key] = (byProf[e.profile.key] || 0) + e.length / 1000;
@@ -387,18 +389,26 @@ P(`  PSXC v${fp.city.version}, graph hash ${fp.city.graph_hash}; PDEM v${fp.dem.
     const withEv = painted.filter(evidence);
     const contradicted = painted.filter(e => { if (evidence(e)) return false; const [lf, lb] = fb(e); const L = parseInt(tg(e).lanes, 10); return Number.isFinite(lf) && Number.isFinite(lb) && lf + lb === L; });
     const uneven = tw.filter(e => { const [lf, lb] = fb(e); return Number.isFinite(lf) && Number.isFinite(lb) && lf !== lb; });
+    const unevenSym = uneven.filter(e => { const ls = lineSetOf(e); return ls.nF === ls.nB; });
+    const noEv = painted.filter(e => !evidence(e));
+    const unmarked = city.edges.filter(e => !(lineSetOf(e).flags & 1));
+    const unmarkedT = [1, 2, 3].map(t => kmOf(unmarked.filter(e => tierOf(e.rank) === t)));
     const tagged = city.edges.filter(e => has(tg(e), 'lanes'));
     const turnLanes = city.edges.filter(e => { const t = tg(e); return has(t, 'turn:lanes') || has(t, 'turn:lanes:forward') || has(t, 'turn:lanes:backward'); });
     Object.assign(R.lanes, {
       twltl_tagged_km: kmOf(tw.filter(evidence)), painted_twltl_with_tag_km: kmOf(withEv),
       painted_twltl_contradicted_km: kmOf(contradicted), painted_twltl_contradicted_edges: contradicted.length,
       uneven_split_km: kmOf(uneven), uneven_split_edges: uneven.length,
+      uneven_drawn_symmetric_km: kmOf(unevenSym), uneven_drawn_symmetric_edges: unevenSym.length,
+      painted_twltl_no_evidence_km: kmOf(noEv), painted_twltl_no_evidence_edges: noEv.length,
+      unmarked_km: kmOf(unmarked), unmarked_km_t1_t2_t3: unmarkedT, has_lset: city.edges.length > 0 && !!city.edges[0].lset,
       lanes_tagged_share_km: r3(kmOf(tagged) / kmOf(city.edges)), turn_lanes_tagged_km: kmOf(turnLanes),
     });
   } else R.lanes.note = 'tools/city/cache is absent: tag-based lane numbers not measured';
   P('\nLANES');
   P(`  centre turn lane painted on ${R.lanes.painted_twltl_km} km (${R.lanes.painted_twltl_edges} edges); tagged as one (lanes:both_ways / turn:lanes:both_ways) on ${R.lanes.twltl_tagged_km} km; painted with no tag and forward+backward = lanes (a turn pocket painted as a TWLTL) ${R.lanes.painted_twltl_contradicted_km} km`);
-  P(`  uneven splits (lanes:forward != lanes:backward) ${R.lanes.uneven_split_km} km on ${R.lanes.uneven_split_edges} edges, drawn symmetric; lanes tagged on ${(R.lanes.lanes_tagged_share_km * 100).toFixed(0)}% of km; turn:lanes on ${R.lanes.turn_lanes_tagged_km} km (ignored)`);
+  P(`  uneven splits (lanes:forward != lanes:backward) ${R.lanes.uneven_split_km} km on ${R.lanes.uneven_split_edges} edges, ${R.lanes.uneven_drawn_symmetric_km} km of them drawn symmetric (${R.lanes.uneven_drawn_symmetric_edges} edges); lanes tagged on ${(R.lanes.lanes_tagged_share_km * 100).toFixed(0)}% of km; turn:lanes on ${R.lanes.turn_lanes_tagged_km} km`);
+  P(`  line set ${R.lanes.has_lset ? '(LSET)' : '(none in this file: the profile lines)'}: TWLTL painted without tag evidence ${R.lanes.painted_twltl_no_evidence_km} km (${R.lanes.painted_twltl_no_evidence_edges} edges; export_osm.mjs lists them with PSX_LSET_DIAG); unmarked ${R.lanes.unmarked_km} km (T1 ${R.lanes.unmarked_km_t1_t2_t3[0]} / T2 ${R.lanes.unmarked_km_t1_t2_t3[1]} / T3 ${R.lanes.unmarked_km_t1_t2_t3[2]})`);
   P(`  width basis: ${R.lanes.width_basis}`);
 }
 

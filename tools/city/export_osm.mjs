@@ -101,6 +101,7 @@ import { loadOutlines, outlineIndex, structIdOf, outlineName } from './lib/bridg
 import { loadCulvertLines, ribbonMeet, arcOf, bedAt, creekFlatHalf, CULVERT_NEAR_M, CULVERT_RIBBON_M, CULVERT_ALONG_M } from './lib/culverts.mjs';
 import { readCredits } from './lib/sources.mjs';
 import { lineClean, LANE_W, LANE_W_LINK } from './lib/lineclean.mjs';
+import { buildLineSets, lineTagsOf, CENTRE_TWLTL } from './lib/lineset.mjs';
 import { readSmoothRules } from './lib/smoothrules.mjs';
 import { findSplits } from './lib/splits.mjs';
 import { encodePdem3 } from './lib/pdem3.mjs';
@@ -352,6 +353,8 @@ function keepWay(w, minor) {
     lf: Number.isFinite(lf) ? lf : NaN, lb: Number.isFinite(lb) ? lb : NaN,
     tl: rev ? (t['turn:lanes:backward'] || t['turn:lanes']) : t['turn:lanes'],
     tlf: t['turn:lanes:forward'], tlb: t['turn:lanes:backward'],
+    // the line set's tag facts (roads pass L2, lib/lineset.mjs)
+    lt: lineTagsOf(t, base, rev),
     nodes, geom,
   });
 }
@@ -557,6 +560,17 @@ const LC = lineClean({ ways, edges, nodes, rawWays: [...rawWays, ...rawMinor],
                                  chordCap: SR.ChordCapM, collinearDeg: SR.CollinearDeg } });
 hashSegs();
 const SPLITS = findSplits(edges, nodes);
+// THE LINE SET (roads pass L2): what MUTCD paints on every edge
+const LSET = buildLineSets(edges, profileFor, LC.tapr);
+{
+  const km = l => (l.reduce((a, x) => a + x.len, 0) / 1000).toFixed(1);
+  const tw = LSET.rows.filter((r, i) => !edges[i].way.oneway);
+  const unevenE = edges.filter((e, i) => !e.way.oneway && LSET.rows[i].nF !== LSET.rows[i].nB);
+  const twltlE = edges.filter((e, i) => LSET.rows[i].centre === CENTRE_TWLTL);
+  const unmarkedE = edges.filter((e, i) => !(LSET.rows[i].flags & 1));
+  console.log(`L2 line set: ${tw.length} two-way edges; TWLTL on ${km(twltlE)} km (${km(LSET.noEvidence)} km without tag evidence: ${LSET.noEvidence.length} edges, listed with PSX_LSET_DIAG); uneven splits ${km(unevenE)} km on ${unevenE.length} edges; unmarked ${km(unmarkedE)} km (${unmarkedE.length} edges)`);
+  if (process.env.PSX_LSET_DIAG) for (const r of LSET.noEvidence) console.log(`  TWLTL no evidence: e${r.edge} way ${r.way} ${r.why} ${r.len.toFixed(0)} m`);
+}
 {
   const st = LC.stats;
   console.log(`WP-10 lines: ${st.points.before} -> ${st.points.after_simplify} points after collapse + Douglas-Peucker 0.5 m (${st.pinned_vertices} shared raw vertices pinned; first piece held at ${st.simplify_held.taper_ends} lane-change edges, ${st.simplify_held.structure} decks/tunnels left alone); ` +
@@ -1598,6 +1612,13 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
   section('CULV', w => {
     w.u32(CULV.xs.length);
     for (const x of CULV.xs) { w.u32(x.way); w.u32(x.water); w.f32(x.ws); w.u32(x.e); w.f32(x.s); w.f32(x.half); w.f32(x.bed); }
+  });
+  // LSET (roads pass L2, lib/lineset.mjs has the layout and the rules): per
+  // edge, the lanes each way, the centre (none / double yellow / TWLTL),
+  // marked or not (owner Q1), bays, turn-only lanes, sub-class, bike lanes.
+  section('LSET', w => {
+    w.u32(edges.length);
+    for (const r of LSET.rows) { w.u8(r.nF); w.u8(r.nB); w.u8(r.centre); w.u8(r.flags); w.u16(r.turnOnly); w.u8(r.sub); w.u8(r.bike); }
   });
   if ([...sec.keys()].join() !== CITY_SECTIONS.join()) throw new Error('PSXC sections out of step with citydata.mjs CITY_SECTIONS');
 

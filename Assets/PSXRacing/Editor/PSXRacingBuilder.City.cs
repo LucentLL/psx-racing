@@ -753,14 +753,17 @@ namespace PSXRacing.EditorTools
         /// edge line is yellow, as it is on every US freeway.
         ///
         /// 256 px across is the PS1 texture-page ceiling and the reason the
-        /// game looks like it does; the widest carriageways go to 512 so a
-        /// 12 cm line keeps its two pixels there too (a one-pixel line does
-        /// not thin, it flickers).
+        /// game looks like it does - for every profile (owner Q3, roads pass
+        /// L2: the 512 exception is gone; the importer capped it anyway). A
+        /// line keeps its two pixels by being as wide as two texels where a
+        /// texel is wider than 6 cm (RoadProfiles.PaintHalfOf): a one-pixel
+        /// line does not thin, it flickers.
         /// </summary>
         static void DrawProfileTex(RoadProfiles.Profile pr, CityMeshes.Surface surf)
         {
             float total = pr.Width;
             int width = RoadProfiles.TexWidthOf(pr), h = 64;
+            float ph = RoadProfiles.PaintHalfOf(pr), yh = RoadProfiles.YellowHalfOf(pr);
             // the ONE layout (RoadProfiles.PaintLines), which the line model
             // draws its paint columns from (WP-11b)
             var ms = new List<float>(); var ks = new List<byte>();
@@ -787,15 +790,15 @@ namespace PSXRacing.EditorTools
             {
                 float m = (x + 0.5f) / width * total;
                 var px = Grain(x, y, surf);
-                if (Mathf.Abs(m - leftEdge) < PaintHalf) return carriageway ? Yellow : White;
-                if (Mathf.Abs(m - rightEdge) < PaintHalf) return White;
-                foreach (var ys in yellowSolid) if (Mathf.Abs(m - ys) < PaintHalf) return Yellow;
+                if (Mathf.Abs(m - leftEdge) < ph) return carriageway ? Yellow : White;
+                if (Mathf.Abs(m - rightEdge) < ph) return White;
+                foreach (var ys in yellowSolid) if (Mathf.Abs(m - ys) < yh) return Yellow;
                 // Broken lines: the first quarter of the repeat, which
                 // RoadVTile makes 10 feet of a 40 foot cycle.
                 if ((y % h) < h / 4)
                 {
-                    foreach (var yd in yellowDash) if (Mathf.Abs(m - yd) < PaintHalf) return Yellow;
-                    foreach (var wd in whiteDash) if (Mathf.Abs(m - wd) < PaintHalf) return White;
+                    foreach (var yd in yellowDash) if (Mathf.Abs(m - yd) < yh) return Yellow;
+                    foreach (var wd in whiteDash) if (Mathf.Abs(m - wd) < ph) return White;
                 }
                 return px;
             });

@@ -73,12 +73,44 @@ namespace PSXRacing.City
                 Debug.LogError("RoadProfiles.All has " + All.Length + " rows but ProfileCount says " + ProfileCount);
         }
 
-        /// <summary>Half a painted line's width (a 12 cm line).</summary>
+        /// <summary>Half a painted line's width (a 12 cm line) - the least;
+        /// <see cref="PaintHalfOf"/> is what a profile paints.</summary>
         public const float PaintHalfM = 0.06f;
 
         /// <summary>The road texture's width in texels: 256, the PS1 page,
-        /// and 512 for the widest carriageways so a 12 cm line keeps two.</summary>
-        public static int TexWidthOf(Profile pr) => pr.Width > 18f ? 512 : 256;
+        /// for every profile (owner Q3, roads pass L2: no 512 exception - the
+        /// importer capped the five wide ones to 256 anyway, which left their
+        /// 12 cm lines 1.2 texels wide and flickering).</summary>
+        public static int TexWidthOf(Profile pr) => 256;
+
+        /// <summary>Half a painted line's width on profile <paramref name="pr"/>:
+        /// 6 cm, or just over one texel where a texel is wider (a 22 m road at
+        /// 256 px), so every line covers at least TWO texels (Q3) - a line one
+        /// texel wide does not thin with distance, it flickers.</summary>
+        public static float PaintHalfOf(Profile pr) => Mathf.Max(PaintHalfM, 1.01f * pr.Width / TexWidthOf(pr));
+
+        /// <summary>Half a YELLOW centre line's width: a double yellow (and a
+        /// TWLTL boundary pair) is two lines 24 cm apart, and a pair needs a
+        /// texel of pavement between its lines or it reads as ONE line. Where
+        /// two lines of two texels and a gap do not fit in 24 cm (a texel over
+        /// 8 cm: tw6, 22.5 m at 256 px) the pair keeps its 12 cm lines - the
+        /// smoothness gate's plan (linegate.mjs) holds the pair 24 cm apart -
+        /// and is the one exception to two texels a line (PAINT V9 lists it).</summary>
+        public static float YellowHalfOf(Profile pr)
+        {
+            float texel = pr.Width / TexWidthOf(pr);
+            return !pr.oneway && 4f * PaintHalfM < 3f * texel ? PaintHalfM : PaintHalfOf(pr);
+        }
+
+        /// <summary>The profile's own split: lanes each way and the centre
+        /// (0 none, 1 double yellow, 2 TWLTL) its texture is painted with.</summary>
+        public static void DefaultSplit(Profile pr, out int nF, out int nB, out int centre)
+        {
+            if (pr.oneway) { nF = pr.lanes; nB = 0; centre = 0; return; }
+            int t = pr.turnLane ? 1 : 0;
+            nF = nB = (pr.lanes - t) / 2;
+            centre = pr.turnLane ? 2 : 1;
+        }
 
         /// <summary>
         /// Every line the painter draws on a profile, as m (metres from the
@@ -90,35 +122,61 @@ namespace PSXRacing.City
         /// </summary>
         public static void PaintLines(Profile pr, System.Collections.Generic.List<float> m, System.Collections.Generic.List<byte> kind)
         {
+            DefaultSplit(pr, out int nF, out int nB, out int centre);
+            LinesFor(pr, nF, nB, centre, true, m, kind);
+        }
+
+        /// <summary>
+        /// THE PAINT RULE (MUTCD part 3; roads pass L2): the lines a profile's
+        /// width carries for one line set, m from the LEFT (plus) edge. Across
+        /// from the plus edge: the white edge line (yellow on a one-way roadway,
+        /// its left edge), the nB lanes that travel b->a with broken white
+        /// between them, the centre - the DOUBLE YELLOW between the two
+        /// directions wherever they meet (an uneven 2+1 split included), or a
+        /// TWLTL (solid yellow outside, broken yellow inside, each boundary),
+        /// or nothing (a two-way road one lane wide) - then the nF lanes the
+        /// other way and the right edge line. An UNMARKED road (owner Q1: a
+        /// residential, unclassified, living or service street) has no lines
+        /// at all. nF + nB (+1 for a TWLTL) is the profile's lane count; the
+        /// caller has checked it.
+        /// </summary>
+        public static void LinesFor(Profile pr, int nF, int nB, int centre, bool marked,
+                                    System.Collections.Generic.List<float> m, System.Collections.Generic.List<byte> kind)
+        {
             m.Clear(); kind.Clear();
-            float total = pr.Width;
+            if (!marked) return;
+            // positions on the 12 cm grid they have always had (the edge line
+            // 6 cm in from the shoulder, a pair 24 cm apart: the smoothness
+            // gate's plan, tools/city/lib/linegate.mjs, mirrors them); only a
+            // line's WIDTH grows with the texel (PaintHalfOf)
+            float total = pr.Width, h = PaintHalfM;
             void Add(float at, byte k) { m.Add(at); kind.Add(k); }
-            Add(pr.shl + PaintHalfM, LineModel.KEdgeP);
-            Add(total - pr.shr - PaintHalfM, LineModel.KEdgeM);
+            Add(pr.shl + h, LineModel.KEdgeP);
+            Add(total - pr.shr - h, LineModel.KEdgeM);
             if (pr.oneway)
             {
                 for (int i = 1; i < pr.lanes; i++) Add(pr.shl + LaneM * i, LineModel.KWhiteDash);
                 return;
             }
-            int perSide = (pr.lanes - (pr.turnLane ? 1 : 0)) / 2;
-            float medStart = pr.shl + perSide * LaneM;
-            for (int i = 1; i < perSide; i++) Add(pr.shl + LaneM * i, LineModel.KWhiteDash);
-            if (pr.turnLane)
+            float medStart = pr.shl + nB * LaneM;
+            for (int i = 1; i < nB; i++) Add(pr.shl + LaneM * i, LineModel.KWhiteDash);
+            float farStart = medStart;
+            if (centre == 2)
             {
                 // two lines with a normal gap at each boundary of the turn lane
-                Add(medStart - PaintHalfM * 2f, LineModel.KYellow);
-                Add(medStart + PaintHalfM * 2f, LineModel.KYellowDash);
-                Add(medStart + LaneM - PaintHalfM * 2f, LineModel.KYellowDash);
-                Add(medStart + LaneM + PaintHalfM * 2f, LineModel.KYellow);
-                for (int i = 1; i < perSide; i++) Add(medStart + LaneM + LaneM * i, LineModel.KWhiteDash);
+                Add(medStart - h * 2f, LineModel.KYellow);
+                Add(medStart + h * 2f, LineModel.KYellowDash);
+                Add(medStart + LaneM - h * 2f, LineModel.KYellowDash);
+                Add(medStart + LaneM + h * 2f, LineModel.KYellow);
+                farStart = medStart + LaneM;
             }
-            else
+            else if (centre == 1)
             {
                 // the double yellow: two normal lines, one normal gap
-                Add(medStart - PaintHalfM * 2f, LineModel.KYellow);
-                Add(medStart + PaintHalfM * 2f, LineModel.KYellow);
-                for (int i = 1; i < perSide; i++) Add(medStart + LaneM * i, LineModel.KWhiteDash);
+                Add(medStart - h * 2f, LineModel.KYellow);
+                Add(medStart + h * 2f, LineModel.KYellow);
             }
+            for (int i = 1; i < nF; i++) Add(farStart + LaneM * i, LineModel.KWhiteDash);
         }
 
         /// <summary>The row an edge is drawn from. Lane counts clamp into the

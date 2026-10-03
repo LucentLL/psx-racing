@@ -58,6 +58,12 @@
 //           where the fill meets the channel (CityCulverts) and holds the road
 //           (the arc, the half length along it) over the pipe's cover (the
 //           creek's bed there, metres ASL).
+//     LSET  u32 n (= edges) | n x { u8 nF, nB, centre, flags; u16 turnOnly;   (roads pass L2)
+//                                   u8 subCls, bike }
+//           what MUTCD paints on each edge (lib/lineset.mjs has the fields and
+//           the rules): lanes each way, the centre (0 none, 1 double yellow,
+//           2 TWLTL), flags (1 marked ...). Read into edge.lset; lineSetOf
+//           gives a file without it the profile's own lines.
 //   A reader takes the sections it knows by tag and skips the rest.
 //
 //   PSXC v1  u32 magic | i32 ver 1 | META's fields | NODE | NAME
@@ -98,12 +104,13 @@ class Reader {
 }
 
 /// The section tags of PSXC v2, in file order (a reader skips any other).
-export const CITY_SECTIONS = ['META', 'NODE', 'NAME', 'EDGE', 'PNTS', 'WATR', 'WBED', 'XING', 'SPAN', 'ROUT', 'GHSH', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST', 'CULV'];
+export const CITY_SECTIONS = ['META', 'NODE', 'NAME', 'EDGE', 'PNTS', 'WATR', 'WBED', 'XING', 'SPAN', 'ROUT', 'GHSH', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST', 'CULV', 'LSET'];
 /// Sections a file may lack: added after the version-2 layout first shipped,
 /// so a file exported before them still parses (WBED: WP-04b; LANW, TAPR,
 /// PARA and TAGN: WP-10, lib/lineclean.mjs; SPLT: WP-11, lib/splits.mjs;
-/// BRST: the roads pass's B1, lib/bridges.mjs; CULV: B2, lib/culverts.mjs).
-export const CITY_OPTIONAL = new Set(['WBED', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST', 'CULV']);
+/// BRST: the roads pass's B1, lib/bridges.mjs; CULV: B2, lib/culverts.mjs;
+/// LSET: L2, lib/lineset.mjs).
+export const CITY_OPTIONAL = new Set(['WBED', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST', 'CULV', 'LSET']);
 
 /// THE ROADS PASS'S TIERS (plan P0/B1), by the shipped rank (0 local ..
 /// 5 motorway; a link keeps its base): 1 motorway/trunk/primary and links,
@@ -318,6 +325,13 @@ export function parseCity(buf) {
     for (let i = 0; i < n; i++) culv[i] = { way: r.u32(), water: r.u32(), ws: r.f32(), edge: r.u32(), s: r.f32(), half: r.f32(), bed: r.f32() };
     close('CULV');
   }
+  if (table && table.has('LSET')) {
+    open('LSET');
+    const n = r.u32();
+    if (n !== ne) throw new Error(`charlotte_city.bytes: LSET has ${n} rows for ${ne} edges`);
+    for (let i = 0; i < n; i++) edges[i].lset = { nF: r.u8(), nB: r.u8(), centre: r.u8(), flags: r.u8(), turnOnly: r.u16(), sub: r.u8(), bike: r.u8() };
+    close('LSET');
+  }
   // node -> incident edge ends
   const nodeEdges = Array.from({ length: nn }, () => []);
   for (const e of edges) { nodeEdges[e.a].push(e.index); nodeEdges[e.b].push(e.index); }
@@ -436,6 +450,17 @@ export function profileFor(cls, link, oneway, lanes, turn) {
   if (cls >= 5) return row('mw' + clamp(lanes, 2, 6), clamp(lanes, 2, 6), 1.2, 3.0);
   if (cls === 4) return row('xw' + clamp(lanes, 2, 4), clamp(lanes, 2, 4), 0.9, 2.4);
   return row('ow' + clamp(lanes, 1, 4), clamp(lanes, 1, 4), 0.3, 0.3);
+}
+
+/// THE LINE SET an edge is painted with (roads pass L2; the game's
+/// LineModel.LayoutOf(edge) reads the same): section LSET's row, or for a file
+/// without one the profile's own (symmetric, marked; a TWLTL on an odd profile).
+export function lineSetOf(e) {
+  if (e.lset) return e.lset;
+  const p = e.profile, n = p.lanes;
+  if (e.oneway) return { nF: n, nB: 0, centre: 0, flags: 1, turnOnly: 0, sub: 0, bike: 0 };
+  const t = n % 2;
+  return { nF: (n - t) / 2, nB: (n - t) / 2, centre: t ? 2 : 1, flags: 1, turnOnly: 0, sub: 0, bike: 0 };
 }
 
 const RANK_NAME = ['local', 'tertiary', 'secondary', 'primary', 'trunk', 'motorway'];

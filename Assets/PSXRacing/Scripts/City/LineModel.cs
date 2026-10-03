@@ -48,7 +48,7 @@ namespace PSXRacing.City
         /// join, easing to 0 over len; d0 = the chain distance from the join
         /// to this edge's near end (fromA: the a end). narrow: the profile of
         /// the narrow arm at the join (the line matching).</summary>
-        public struct Ease { public sbyte side; public bool fromA, narrowFlip, shift; public float dw, len, d0; public int narrow; public float[] partner; }
+        public struct Ease { public sbyte side; public bool fromA, narrowFlip, shift; public float dw, len, d0; public int narrow; public float[] partner; public Layout narrowLay; }
 
         /// <summary>One SPLT record (WP-11, critic C11): where an undivided
         /// road opens into its two carriageways - the node, the undivided edge,
@@ -275,7 +275,7 @@ namespace PSXRacing.City
                         int wSide = -fixT * (wForward ? 1 : -1);
                         float len = LengthFor(W, n, wSide, dMove, out bool fromTapr);
                         EasedJoins++; HeldJoins++; if (!fromTapr) EasedDefault++;
-                        Propagate(map, add, partner, W, n, wSide, dMove, len, 0f, N.profile, (W.a == n) == (N.a == n), 0);
+                        Propagate(map, add, partner, W, n, wSide, dMove, len, 0f, N, (W.a == n) == (N.a == n), 0);
                         continue;
                     }
                     // CROSSED: each arm sticks out on a different side - the two
@@ -304,7 +304,7 @@ namespace PSXRacing.City
                             int wSide = openT * (wForward ? 1 : -1);
                             float len = LengthFor(W, n, wSide, rest, out bool fromTapr);
                             EasedJoins++; if (!fromTapr) EasedDefault++;
-                            Propagate(map, add, partner, W, n, wSide, rest, len, 0f, N.profile, (W.a == n) == (N.a == n), 0);
+                            Propagate(map, add, partner, W, n, wSide, rest, len, 0f, N, (W.a == n) == (N.a == n), 0);
                         }
                         continue;
                     }
@@ -324,7 +324,7 @@ namespace PSXRacing.City
                     // when the two run opposite ways through the node (a one-way
                     // layout's yellow left edge is then on the wide one's right)
                     bool flip = (W.a == n) == (N.a == n);
-                    Propagate(map, add, partner, W, n, wSide, Mathf.Abs(d), len, 0f, N.profile, flip, 0);
+                    Propagate(map, add, partner, W, n, wSide, Mathf.Abs(d), len, 0f, N, flip, 0);
                 }
             }
             // THE MEDIAN TAPERS (critic C11, section SPLT): each carriageway
@@ -423,14 +423,14 @@ namespace PSXRacing.City
         public static int EasedJoins, EasedDefault, EaseSteps;
 
         static void Propagate(CityMap map, List<Ease>[] add, System.Func<CityMap.Edge, int, int> partner,
-                              CityMap.Edge e, int fromNode, int side, float dw, float len, float d0, int narrow, bool flip, int depth)
+                              CityMap.Edge e, int fromNode, int side, float dw, float len, float d0, CityMap.Edge narrow, bool flip, int depth)
         {
             // never longer than the run it eases: the next change along owns the
             // ribbon from there (a default length ran past a 35 m piece into the
             // next join, whose own step it then did not see)
             if (depth == 0) len = Mathf.Max(0.5f, Mathf.Min(len, RoomAlong(map, partner, e, fromNode, side, false)));
-            var z = new Ease { side = (sbyte)side, fromA = e.a == fromNode, dw = dw, len = len, d0 = d0, narrow = narrow, narrowFlip = flip };
-            var lay = LayoutOf(e.profile);
+            var z = new Ease { side = (sbyte)side, fromA = e.a == fromNode, dw = dw, len = len, d0 = d0, narrow = narrow.profile, narrowLay = LayoutOf(narrow), narrowFlip = flip };
+            var lay = LayoutOf(e);
             z.partner = new float[lay.m.Length];
             for (int k = 0; k < lay.m.Length; k++) z.partner[k] = PartnerLat(e, lay, k, z);
             (add[e.index] ??= new List<Ease>(2)).Add(z);
@@ -512,17 +512,39 @@ namespace PSXRacing.City
         // ================================================================
 
         public const byte KEdgeP = 0, KEdgeM = 1, KYellow = 2, KYellowDash = 3, KWhiteDash = 4;
+        /// <summary>The narrowest half line (12 cm lines); a layout's own is
+        /// <see cref="Layout.half"/> (Q3: at least two texels).</summary>
         public const float PaintHalf = 0.06f;
 
-        /// <summary>One profile's painted lines as its texture carries them:
-        /// m from the painter's LEFT edge (u = m / W; the left of travel, the
-        /// ribbon's plus side), kind, and the texels each one covers (x0..x1
-        /// of texW).</summary>
+        /// <summary>One profile's painted lines as its texture carries them -
+        /// or, for an EDGE (<see cref="LayoutOf(CityMap.Edge)"/>, roads pass
+        /// L2), the lines its line set paints on that profile: m from the
+        /// painter's LEFT edge (u = m / W; the left of travel, the ribbon's
+        /// plus side), kind, and the texels each one is drawn from (x0..x1 of
+        /// texW). An edge line is drawn from a column of its profile's texture
+        /// that carries the same paint: <see cref="srcM"/> (= m where the
+        /// texture has that very line), or - a broken line whose texture has no
+        /// broken line of that colour - from the solid column, cut into 10 ft
+        /// dashes by the builder (<see cref="synth"/>).</summary>
         public sealed class Layout
         {
             public float W; public int texW;
             public float[] m; public byte[] kind; public int[] x0, x1;
             public bool twoWay;
+            /// <summary>Half a line's width on this profile (Q3), and a
+            /// two-way centre yellow's (<see cref="RoadProfiles.YellowHalfOf"/>).</summary>
+            public float half, yHalf;
+            /// <summary>Where each line's paint is in the texture (m), and
+            /// whether it is a broken line cut from a solid column.</summary>
+            public float[] srcM; public bool[] synth;
+            /// <summary>The profile texture's own layout (this one for a
+            /// texture layout), and true when this IS it: the texture's lines,
+            /// drawn as one quad where the sections allow.</summary>
+            public Layout tex; public bool isDefault;
+            /// <summary>Texture layouts: the widest paint-free texel run
+            /// (pavement for an edge layout's strips).</summary>
+            public int bandLo, bandHi;
+            internal Layout flippedCache;
         }
         static Layout[] layouts;
 
@@ -534,49 +556,154 @@ namespace PSXRacing.City
             var pr = RoadProfiles.All[profile];
             var ms = new List<float>(); var ks = new List<byte>();
             RoadProfiles.PaintLines(pr, ms, ks);
-            // left to right across the texture (m ascending)
-            var idx = new List<int>(); for (int i = 0; i < ms.Count; i++) idx.Add(i);
-            idx.Sort((a, b) => ms[a].CompareTo(ms[b]));
-            l = new Layout { W = pr.Width, texW = RoadProfiles.TexWidthOf(pr), twoWay = !pr.oneway };
-            int n = idx.Count;
-            l.m = new float[n]; l.kind = new byte[n]; l.x0 = new int[n]; l.x1 = new int[n];
-            for (int j = 0; j < n; j++)
+            l = Build(pr, ms, ks, null);
+            l.tex = l; l.isDefault = true;
+            // the widest paint-free run of texels: an edge layout's pavement
+            int bestLo = 0, bestHi = -1, from = 0;
+            for (int j = 0; j <= l.m.Length; j++)
             {
-                float m = ms[idx[j]];
-                l.m[j] = m; l.kind[j] = ks[idx[j]];
-                int lo = int.MaxValue, hi = int.MinValue;
-                int c = Mathf.FloorToInt(m / l.W * l.texW);
-                for (int x = c - 4; x <= c + 4; x++)
-                {
-                    if (x < 0 || x >= l.texW) continue;
-                    float mx = (x + 0.5f) / l.texW * l.W;
-                    if (Mathf.Abs(mx - m) < RoadProfiles.PaintHalfM) { lo = Mathf.Min(lo, x); hi = Mathf.Max(hi, x); }
-                }
-                if (lo > hi) { lo = hi = Mathf.Clamp(c, 0, l.texW - 1); }
-                l.x0[j] = lo; l.x1[j] = hi;
+                int to = j < l.m.Length ? l.x0[j] - 1 : l.texW - 1;
+                if (to - from > bestHi - bestLo) { bestLo = from; bestHi = to; }
+                if (j < l.m.Length) from = l.x1[j] + 1;
             }
+            l.bandLo = bestLo; l.bandHi = Mathf.Max(bestLo, bestHi);
             layouts[profile] = l;
             return l;
         }
 
-        static Layout[] flipped;
+        /// <summary>A layout from (m, kind) lines, sorted left to right, with
+        /// each line's texels; tex null: the texture's own (src = m).</summary>
+        static Layout Build(RoadProfiles.Profile pr, List<float> ms, List<byte> ks, Layout tex)
+        {
+            var idx = new List<int>(); for (int i = 0; i < ms.Count; i++) idx.Add(i);
+            idx.Sort((a, b) => ms[a].CompareTo(ms[b]));
+            var l = new Layout { W = pr.Width, texW = RoadProfiles.TexWidthOf(pr), twoWay = !pr.oneway, half = RoadProfiles.PaintHalfOf(pr), yHalf = RoadProfiles.YellowHalfOf(pr), tex = tex };
+            int n = idx.Count;
+            l.m = new float[n]; l.kind = new byte[n]; l.x0 = new int[n]; l.x1 = new int[n];
+            l.srcM = new float[n]; l.synth = new bool[n];
+            for (int j = 0; j < n; j++)
+            {
+                float m = ms[idx[j]];
+                l.m[j] = m; l.kind[j] = ks[idx[j]];
+                l.srcM[j] = m;
+                if (tex != null) SourceOf(tex, m, l.kind[j], out l.srcM[j], out l.synth[j]);
+                TexelsOf(l, l.srcM[j], SourceKind(tex ?? l, l.srcM[j], l.kind[j]), out l.x0[j], out l.x1[j]);
+            }
+            return l;
+        }
+
+        /// <summary>The texels a line at m covers in its texture (the
+        /// painter's test: the texel centre within half of m; a two-way
+        /// centre yellow's half is <see cref="Layout.yHalf"/>).</summary>
+        public static void TexelsOf(Layout l, float m, byte kind, out int lo, out int hi)
+        {
+            float half = l.twoWay && (kind == KYellow || kind == KYellowDash) ? l.yHalf : l.half;
+            lo = int.MaxValue; hi = int.MinValue;
+            int c = Mathf.FloorToInt(m / l.W * l.texW);
+            for (int x = c - 4; x <= c + 4; x++)
+            {
+                if (x < 0 || x >= l.texW) continue;
+                float mx = (x + 0.5f) / l.texW * l.W;
+                if (Mathf.Abs(mx - m) < half) { lo = Mathf.Min(lo, x); hi = Mathf.Max(hi, x); }
+            }
+            if (lo > hi) { lo = hi = Mathf.Clamp(c, 0, l.texW - 1); }
+        }
+
+        /// <summary>Where the texture carries the paint of a line of this
+        /// kind at m: that very line if the texture has it there; else a
+        /// column of the same paint (a solid white is the right edge line's,
+        /// a solid yellow the double yellow's or a one-way's left edge); a
+        /// broken line with no broken column of its colour is cut from the
+        /// solid one (synth).</summary>
+        static void SourceOf(Layout tex, float m, byte kind, out float src, out bool synth)
+        {
+            synth = false;
+            for (int i = 0; i < tex.m.Length; i++)
+                if (tex.kind[i] == kind && Mathf.Abs(tex.m[i] - m) < 1e-3f) { src = tex.m[i]; return; }
+            byte want = kind;
+            if (kind == KEdgeP && tex.twoWay) want = KEdgeM;                 // white solid
+            if (kind == KEdgeM) want = KEdgeM;
+            int j = FindKind(tex, want);
+            if (j < 0 && kind == KYellowDash) { j = FindKind(tex, KYellow); synth = j >= 0; }
+            if (j < 0 && kind == KWhiteDash) { j = FindKind(tex, KEdgeM); synth = j >= 0; }
+            if (j < 0 && kind == KYellow && !tex.twoWay) j = FindKind(tex, KEdgeP); // a one-way's left edge is yellow
+            src = j >= 0 ? tex.m[j] : m;
+        }
+        static int FindKind(Layout l, byte kind) { for (int i = 0; i < l.kind.Length; i++) if (l.kind[i] == kind) return i; return -1; }
+        /// <summary>The kind of the texture line at m (the paint a source
+        /// column carries), or the drawn kind where the texture has none.</summary>
+        static byte SourceKind(Layout tex, float m, byte kind)
+        {
+            for (int i = 0; i < tex.m.Length; i++) if (Mathf.Abs(tex.m[i] - m) < 1e-3f) return tex.kind[i];
+            return kind;
+        }
+
+        /// <summary>
+        /// THE EDGE'S OWN LINES (roads pass L2): its line set (section LSET:
+        /// lanes each way, the centre, marked or not) laid out on its profile
+        /// by <see cref="RoadProfiles.LinesFor"/>, cached by (profile, nF, nB,
+        /// centre, marked). The profile's texture layout itself when the set is
+        /// the profile's default - drawn exactly as before.
+        /// </summary>
+        public static Layout LayoutOf(CityMap.Edge e)
+        {
+            var tex = LayoutOf(e.profile);
+            if (!e.hasLset) return tex;
+            var pr = RoadProfiles.All[e.profile];
+            RoadProfiles.DefaultSplit(pr, out int dF, out int dB, out int dC);
+            bool marked = (e.lsFlags & 1) != 0;
+            if (marked && e.lsNF == dF && e.lsNB == dB && e.lsCentre == dC) return tex;
+            int key = (e.profile << 24) | (e.lsNF << 16) | (e.lsNB << 8) | (e.lsCentre << 1) | (marked ? 1 : 0);
+            edgeLayouts ??= new Dictionary<int, Layout>();
+            if (edgeLayouts.TryGetValue(key, out var l)) return l;
+            var ms = new List<float>(); var ks = new List<byte>();
+            RoadProfiles.LinesFor(pr, e.lsNF, e.lsNB, e.lsCentre, marked, ms, ks);
+            l = Build(pr, ms, ks, tex);
+            // the same lines as the texture after all (a one-way's split is its own)
+            l.isDefault = SameLines(l, tex);
+            if (l.isDefault) l = tex;
+            edgeLayouts[key] = l;
+            return l;
+        }
+        static Dictionary<int, Layout> edgeLayouts;
+        static bool SameLines(Layout a, Layout b)
+        {
+            if (a.m.Length != b.m.Length) return false;
+            for (int i = 0; i < a.m.Length; i++) if (a.kind[i] != b.kind[i] || Mathf.Abs(a.m[i] - b.m[i]) > 1e-4f) return false;
+            return true;
+        }
+
+        /// <summary>The lateral (+ left of a->b, full extents: no taper) of
+        /// the middle between the two directions' lanes on a two-way edge -
+        /// the double yellow, or the centre of the TWLTL - from its line set
+        /// (the lanes' centre, lmOff, on a symmetric one).</summary>
+        public static float DividerLat(CityMap.Edge e)
+        {
+            float plus = e.lmPlus != 0f || e.lmMinus != 0f ? e.lmPlus : e.width * 0.5f;
+            int nB; int centre;
+            if (e.hasLset) { nB = e.lsNB; centre = e.lsCentre; }
+            else { RoadProfiles.DefaultSplit(RoadProfiles.All[e.profile], out _, out nB, out centre); }
+            return plus - e.shl - (nB + (centre == 2 ? 0.5f : 0f)) * RoadProfiles.LaneM;
+        }
+
         /// <summary>A layout seen from the other direction of travel: m from
         /// the other edge, the left and right edge lines swapped.</summary>
-        static Layout FlippedLayoutOf(int profile)
+        static Layout Flipped(Layout l)
         {
-            if (flipped == null) flipped = new Layout[RoadProfiles.Count];
-            if (flipped[profile] != null) return flipped[profile];
-            var l = LayoutOf(profile);
+            if (l.flippedCache != null) return l.flippedCache;
             int n = l.m.Length;
-            var f = new Layout { W = l.W, texW = l.texW, twoWay = l.twoWay, m = new float[n], kind = new byte[n], x0 = new int[n], x1 = new int[n] };
+            var f = new Layout { W = l.W, texW = l.texW, twoWay = l.twoWay, half = l.half, yHalf = l.yHalf, tex = l.tex, isDefault = l.isDefault,
+                                 bandLo = l.bandLo, bandHi = l.bandHi,
+                                 m = new float[n], kind = new byte[n], x0 = new int[n], x1 = new int[n], srcM = new float[n], synth = new bool[n] };
             for (int j = 0; j < n; j++)
             {
                 int i = n - 1 - j;
                 f.m[j] = l.W - l.m[i];
                 f.kind[j] = l.kind[i] == KEdgeP ? KEdgeM : l.kind[i] == KEdgeM ? KEdgeP : l.kind[i];
                 f.x0[j] = l.texW - 1 - l.x1[i]; f.x1[j] = l.texW - 1 - l.x0[i];
+                f.srcM[j] = l.W - l.srcM[i]; f.synth[j] = l.synth[i];
             }
-            return flipped[profile] = f;
+            return l.flippedCache = f;
         }
 
         /// <summary>A painted line where the model draws it: its index in the
@@ -590,7 +717,7 @@ namespace PSXRacing.City
         public static void LinesAt(CityMap.Edge e, float s, List<LineAt> into)
         {
             into.Clear();
-            var lay = LayoutOf(e.profile);
+            var lay = LayoutOf(e);
             int n = lay.m.Length;
             // the active taper each side: the largest reduction there
             int zp = -1, zm = -1; float rp = 0f, rm = 0f;
@@ -635,7 +762,8 @@ namespace PSXRacing.City
         /// those beyond it in order from the moving edge.</summary>
         static float PartnerLat(CityMap.Edge e, Layout lay, int k, in Ease z)
         {
-            var nar = z.narrowFlip ? FlippedLayoutOf(Mathf.Clamp(z.narrow, 0, RoadProfiles.Count - 1)) : LayoutOf(Mathf.Clamp(z.narrow, 0, RoadProfiles.Count - 1));
+            var narL = z.narrowLay ?? LayoutOf(Mathf.Clamp(z.narrow, 0, RoadProfiles.Count - 1));
+            var nar = z.narrowFlip ? Flipped(narL) : narL;
             float plus = e.lmPlus != 0f || e.lmMinus != 0f ? e.lmPlus : e.width * 0.5f;
             float minus = e.lmPlus != 0f || e.lmMinus != 0f ? e.lmMinus : e.width * 0.5f;
             // the narrow ribbon at the join, laterals in the wide frame

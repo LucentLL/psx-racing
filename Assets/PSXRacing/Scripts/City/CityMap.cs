@@ -76,6 +76,18 @@ namespace PSXRacing.City
             /// holding this bridge (the way id, or a relation's | 0x80000000).
             /// Two edges with one structId are ONE structure (<see cref="DeckPairs"/>).</summary>
             public uint structId;
+            /// <summary>THE LINE SET (section LSET, roads pass L2;
+            /// tools/city/lib/lineset.mjs): lanes in the a->b direction and
+            /// against it, the centre (0 none, 1 double yellow, 2 TWLTL), flags
+            /// (1 marked - owner Q1: local streets are not -, 2 / 4 a turn bay
+            /// for forward / backward traffic, 8 lane_markings=yes, 16 =no, 32
+            /// unpaved), turn-only lanes (bits 0-7 forward, 8-15 backward; bit
+            /// 0 the leftmost), the sub-class and bike lanes. hasLset false: an
+            /// older file, or a row that does not fit the profile - the profile's
+            /// own lines are drawn (<see cref="LineModel.LayoutOf(Edge)"/>).</summary>
+            public bool hasLset;
+            public byte lsNF, lsNB, lsCentre, lsFlags, lsSub, lsBike;
+            public ushort lsTurnOnly;
 
             public Vector2[] pts;    // plan polyline, metres
             public float[] s;        // cumulative arc length per pt
@@ -849,6 +861,34 @@ namespace PSXRacing.City
                             edge = r.ReadInt32(), s = r.ReadSingle() * LayoutScale, halfAlong = r.ReadSingle() * LayoutScale, bedASL = r.ReadSingle(),
                         };
                     Close("CULV");
+                }
+                // LSET (roads pass L2): what MUTCD paints on each edge. A row
+                // whose lanes do not add up to the profile's is not used.
+                if (Has("LSET"))
+                {
+                    Open("LSET");
+                    int nls = r.ReadInt32();
+                    int bad = 0;
+                    for (int i = 0; i < nls; i++)
+                    {
+                        byte nF = r.ReadByte(), nB = r.ReadByte(), centre = r.ReadByte(), fl = r.ReadByte();
+                        ushort to = r.ReadUInt16(); byte sub = r.ReadByte(), bike = r.ReadByte();
+                        if (i >= ne) continue;
+                        var le = map.edges[i];
+                        var pr = RoadProfiles.All[le.profile];
+                        bool fits = pr.oneway ? (nB == 0 && centre == 0 && nF == pr.lanes)
+                                              : (nF >= 1 && nB >= 1 && centre <= 2 && nF + nB + (centre == 2 ? 1 : 0) == pr.lanes);
+                        le.lsFlags = fl; le.lsTurnOnly = to; le.lsSub = sub; le.lsBike = bike;
+                        if (fits) { le.hasLset = true; le.lsNF = nF; le.lsNB = nB; le.lsCentre = centre; }
+                        else
+                        {
+                            bad++;
+                            RoadProfiles.DefaultSplit(pr, out int dF, out int dB, out int dC);
+                            le.hasLset = true; le.lsNF = (byte)dF; le.lsNB = (byte)dB; le.lsCentre = (byte)dC;
+                        }
+                    }
+                    Close("LSET");
+                    if (bad > 0) Debug.LogWarning($"[City] LSET: {bad} rows do not fit their profile's lanes - drawn with the profile's own split");
                 }
                 LineModel.Init(map, taprOff);
             }
