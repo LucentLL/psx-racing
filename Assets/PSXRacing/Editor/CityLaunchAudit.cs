@@ -62,7 +62,7 @@ namespace PSXRacing.EditorTools
         // ---- the paths ---------------------------------------------------
         sealed class PathRec
         {
-            public byte kind;              // 0 along an edge, 1 through a node, 2 a turn
+            public byte kind;              // 0 along an edge, 1 through a node, 2 a turn; 3 a TURNING MOVEMENT (A1: never flown)
             public int start, count;
             public float v;                 // judged speed, m/s
             public int routeMask;
@@ -71,7 +71,23 @@ namespace PSXRacing.EditorTools
             public int dirA, dirB;          // +1 = increasing arc position
             public float sA0, sB0;          // arc position of the first sample on each
             public int nA, nF;              // samples on arm A, then in the fan
+            // kind 3 (TURNING MOVEMENTS): the junction cluster (-1: a single fan), the turn (0 through, 1 right, 2 left), the tier
+            public int cluster = -1, turn, tier;
         }
+
+        /// <summary>Why a sample has no surface (255: it has one): 0 nothing
+        /// within 3 m, 1 land first, 2 a road more than 0.6 m under the path's own.</summary>
+        static byte[] Miss;
+        /// <summary>Samples [0, nFlown) belong to the flown paths (kinds 0-2,
+        /// 1 m apart, the launch counter's); the TURNING MOVEMENTS' samples
+        /// (kind 3, 0.5 m apart) follow them and are never flown.</summary>
+        static int nFlown;
+        /// <summary>The turning movements' sample step (plan A1).</summary>
+        public const float TurnStepM = 0.5f;
+        /// <summary>Each turning movement runs this far out along both arms past their trims.</summary>
+        public const float TurnArmM = 10f;
+        /// <summary>A height step a wheel feels within one turn sample (12 cm in half a metre, the drive audit's).</summary>
+        public const float TurnStepDy = 0.12f;
 
         static float[] X, Z, YE, YL, Y;
         /// <summary>PSX_LAUNCH_BOX=x0,z0,x1,z1: only the paths that start inside (a debug run).</summary>
@@ -196,6 +212,7 @@ namespace PSXRacing.EditorTools
             if (string.IsNullOrEmpty(label)) label = "run";
             int status = 1;
             humpsOn = trenchesOn = spansOn = null;
+            var metrics = new Metrics();
             try
             {
                 CityElevation.KeepTerrainProfiles = true;
@@ -353,9 +370,13 @@ namespace PSXRacing.EditorTools
                         }
                 }
                 Line($"paths: {edgePaths} along edges, {moves} movements through {map.nodes.Length} nodes; {nS} samples ({nS * StepM / 1000f:0} km) - built {clock.Elapsed.TotalSeconds:0} s");
+                nFlown = nS;
+                int turnPaths = BuildTurningMovements(map, trims);
+                Line($"TURNING MOVEMENTS (A1): {turnPaths} lane-correct movements through single fans and junction clusters, {nS - nFlown} samples every {TurnStepM:0.0} m (sampled on the same meshes, never flown: the launch counter keeps its paths)");
 
                 // ---- sample the BUILT meshes, tile row by tile row ----------
                 Y = new float[nS];
+                Miss = new byte[nS];
                 var isRoad = OnRoad = new bool[nS];
                 var keys = new long[nS]; var idx = new int[nS];
                 float T = CityMeshes.TileSize;
@@ -416,6 +437,13 @@ namespace PSXRacing.EditorTools
                             // surface is; anything else is not this path's pavement (the
                             // line left the ribbon, a lower road under a deck, a hole)
                             int why = float.IsNegativeInfinity(best) || best < YL[i] - 3f ? 0 : !road ? 1 : best < YL[i] - 0.6f ? 2 : -1;
+                            Miss[i] = why >= 0 ? (byte)why : (byte)255;
+                            if (why >= 0 && i >= nFlown)
+                            {
+                                // a turning movement's sample: its own tally (TurningReport), the launch counter's untouched
+                                if (!float.IsNegativeInfinity(best)) { Y[i] = best; isRoad[i] = road; }
+                                continue;
+                            }
                             if (why >= 0)
                             {
                                 missed[why]++;
@@ -437,9 +465,11 @@ namespace PSXRacing.EditorTools
                 }
                 surfs.Clear();
                 keys = null; idx = null;
-                Line($"sampled on the built meshes: {tilesBuilt} tiles; {nS - missed[0] - missed[1] - missed[2]} samples on their own pavement; not: nothing within 3 m {missed[0]}, land first {missed[1]}, a road more than 0.6 m under the path's own {missed[2]} (all left out of the flight) - {clock.Elapsed.TotalSeconds:0} s");
+                Line($"sampled on the built meshes: {tilesBuilt} tiles; {nFlown - missed[0] - missed[1] - missed[2]} samples on their own pavement; not: nothing within 3 m {missed[0]}, land first {missed[1]}, a road more than 0.6 m under the path's own {missed[2]} (all left out of the flight) - {clock.Elapsed.TotalSeconds:0} s");
                 string[] missName = { "nothing", "land", "lower road" };
                 for (int w = 0; w < 3; w++) foreach (var ex in missEx[w]) Line($"    miss ({missName[w]}): {ex}");
+                MissReport(map, Line, metrics);
+                TurningReport(map, Line, metrics);
 
                 // ---- fly a car off every sample ------------------------------
                 var spots = new List<Spot>(20000);
@@ -447,6 +477,7 @@ namespace PSXRacing.EditorTools
                 for (int pi = 0; pi < paths.Count; pi++)
                 {
                     var pr = paths[pi];
+                    if (pr.kind == 3) continue;   // a turning movement: sampled, never flown (the launch counter keeps its paths)
                     if (pr.count < 6) continue;
                     if (sep.Length < pr.count) sep = new float[pr.count * 2];
                     for (int k = 0; k < pr.count; k++) sep[k] = Separation(pr.start, pr.count, k, pr.v, out _);
@@ -477,12 +508,28 @@ namespace PSXRacing.EditorTools
                 foreach (var s in city) { if (s.sep >= LaunchSepM) cityLaunch++; else cityUnload++; }
                 Line("");
                 Line($"CITY-WIDE: {cityLaunch} LAUNCH spots, {cityUnload} UNLOAD spots (distinct places, 6 m)");
+                metrics.launch[0] = cityLaunch; metrics.unload[0] = cityUnload;
                 for (int r = 0; r < map.routes.Length; r++)
                 {
                     int l = 0, u = 0;
                     foreach (var s in routeSpots[r]) { if (s.sep >= LaunchSepM) l++; else u++; }
                     Line($"ROUTE {map.routes[r].id} ({map.routes[r].lengthM / 1000f:0.0} km): {l} LAUNCH, {u} UNLOAD");
+                    metrics.routes.Add((map.routes[r].id, l, u));
                 }
+                // A1: the same counter by tier (the 2026-10-02 baseline: T1 46 / T2 63 / T3 12), and the
+                // flown turns whose break lies on land - counted APART from LAUNCH (critic C7), as fails by tier
+                foreach (var s in city) { int t = CityTier.OfClass(s.cls); if (s.sep >= LaunchSepM) metrics.launch[t]++; else metrics.unload[t]++; }
+                Line($"LAUNCH BY TIER (A1; the counter above, split): LAUNCH T1 {metrics.launch[1]} / T2 {metrics.launch[2]} / T3 {metrics.launch[3]}; UNLOAD T1 {metrics.unload[1]} / T2 {metrics.unload[2]} / T3 {metrics.unload[3]}");
+                {
+                    var offRaw = new int[4];
+                    var offSpots = new List<Spot>();
+                    foreach (var s in spots) if (s.offRoad && s.kind == 2) { offRaw[CityTier.OfClass(s.cls)]++; offSpots.Add(s); }
+                    var offPlaces = DedupePlaces(offSpots);
+                    var offT = new int[4]; foreach (var s in offPlaces) offT[CityTier.OfClass(s.cls)]++;
+                    for (int t = 1; t <= 3; t++) { metrics.flownOffRoad[t] = offT[t]; }
+                    Line($"FLOWN TURNS OFF THE PAVEMENT (A1; FAILS, counted apart from LAUNCH; report state): {offPlaces.Count} places (6 m) - T1 {offT[1]} / T2 {offT[2]} / T3 {offT[3]}; separations {offRoadSpots} - T1 {offRaw[1]} / T2 {offRaw[2]} / T3 {offRaw[3]}");
+                }
+                CompressionReport(map, trims, Line, metrics);
                 // by cause
                 var byCause = new SortedDictionary<string, int[]>();
                 foreach (var s in city)
@@ -538,8 +585,10 @@ namespace PSXRacing.EditorTools
                 status = 0;
             }
             catch (Exception ex) { Line("THREW " + ex); Debug.LogException(ex); }
-            finally { X = Z = YE = YL = Y = null; OnRoad = null; paths.Clear(); }
+            finally { X = Z = YE = YL = Y = null; OnRoad = null; Miss = null; paths.Clear(); }
             Line($"done in {clock.Elapsed.TotalSeconds:0} s");
+            metrics.seconds = clock.Elapsed.TotalSeconds; metrics.label = label; metrics.box = string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PSX_LAUNCH_BOX")) ? "" : Environment.GetEnvironmentVariable("PSX_LAUNCH_BOX");
+            File.WriteAllText(Path.Combine(root, "city_launch.json"), metrics.Json());
             File.WriteAllText(Path.Combine(root, "city_launch.txt"), log.ToString());
             if (Application.isBatchMode) EditorApplication.Exit(status);
         }
@@ -657,6 +706,446 @@ namespace PSXRacing.EditorTools
 
         static long MoveKey(int node, int ein, int eout) => ((long)node << 40) ^ ((long)ein << 20) ^ eout;
 
+        // =====================================================================
+        //  A1 (roads pass, 2026-10-02): turning movements, the misses split,
+        //  vertical compression - each its own named block, report state.
+        // =====================================================================
+
+        /// <summary>Every number the A1 blocks print, for city_launch.json.</summary>
+        sealed class Metrics
+        {
+            public string label = "", box = ""; public double seconds;
+            public readonly int[] launch = new int[4], unload = new int[4], flownOffRoad = new int[4];
+            public readonly List<(string id, int launch, int unload)> routes = new List<(string, int, int)>();
+            // misses [why 0..2][path part 0 edge, 1 movement arm, 2 movement arc][tier]
+            public readonly int[,,] miss = new int[3, 3, 4];
+            // turning [single 0 / cluster 1][tier]
+            public readonly int[,] turnMoves = new int[2, 4], turnOff = new int[2, 4], turnStep = new int[2, 4];
+            public readonly int[,] turnOffByTurn = new int[3, 4];
+            public readonly int[] sag = new int[4];
+            public readonly Dictionary<string, int[]> sagByCause = new Dictionary<string, int[]>();
+            public string Json()
+            {
+                var inv = CultureInfo.InvariantCulture;
+                var sb = new StringBuilder("{\n");
+                string T(int[] a) => $"{{ \"T1\": {a[1]}, \"T2\": {a[2]}, \"T3\": {a[3]} }}";
+                sb.Append($"  \"label\": \"{label}\", \"box\": \"{box}\", \"seconds\": {seconds.ToString("0", inv)},\n");
+                sb.Append($"  \"launch\": {{ \"total\": {launch[0]}, \"T1\": {launch[1]}, \"T2\": {launch[2]}, \"T3\": {launch[3]} }},\n");
+                sb.Append($"  \"unload\": {{ \"total\": {unload[0]}, \"T1\": {unload[1]}, \"T2\": {unload[2]}, \"T3\": {unload[3]} }},\n");
+                sb.Append("  \"routes\": {");
+                for (int i = 0; i < routes.Count; i++) sb.Append($"{(i > 0 ? ", " : " ")}\"{routes[i].id}\": {{ \"launch\": {routes[i].launch}, \"unload\": {routes[i].unload} }}");
+                sb.Append(" },\n");
+                sb.Append($"  \"flownTurnsOffPavement\": {T(flownOffRoad)},\n");
+                string[] why = { "nothing", "land", "lowerRoad" }, part = { "edgePaths", "movementArms", "movementArcs" };
+                sb.Append("  \"misses\": {");
+                for (int w = 0; w < 3; w++)
+                {
+                    sb.Append($"{(w > 0 ? "," : "")}\n    \"{why[w]}\": {{");
+                    for (int p = 0; p < 3; p++) sb.Append($"{(p > 0 ? ", " : " ")}\"{part[p]}\": {{ \"T1\": {miss[w, p, 1]}, \"T2\": {miss[w, p, 2]}, \"T3\": {miss[w, p, 3]} }}");
+                    sb.Append(" }");
+                }
+                sb.Append("\n  },\n");
+                sb.Append("  \"turning\": {");
+                string[] kind = { "singleFans", "clusters" };
+                for (int k = 0; k < 2; k++)
+                {
+                    sb.Append($"{(k > 0 ? "," : "")}\n    \"{kind[k]}\": {{");
+                    for (int t = 1; t <= 3; t++) sb.Append($"{(t > 1 ? ", " : " ")}\"T{t}\": {{ \"moves\": {turnMoves[k, t]}, \"offPavement\": {turnOff[k, t]}, \"steps\": {turnStep[k, t]} }}");
+                    sb.Append(" }");
+                }
+                string[] tn = { "through", "right", "left" };
+                sb.Append(",\n    \"offByTurn\": {");
+                for (int k = 0; k < 3; k++) sb.Append($"{(k > 0 ? ", " : " ")}\"{tn[k]}\": {{ \"T1\": {turnOffByTurn[k, 1]}, \"T2\": {turnOffByTurn[k, 2]}, \"T3\": {turnOffByTurn[k, 3]} }}");
+                sb.Append(" }\n  },\n");
+                sb.Append($"  \"compression\": {{ \"sagSpots\": {T(sag)}, \"byCause\": {{");
+                int c = 0;
+                foreach (var kv in sagByCause) sb.Append($"{(c++ > 0 ? ", " : " ")}\"{kv.Key}\": {T(kv.Value)}");
+                sb.Append(" } }\n}\n");
+                return sb.ToString();
+            }
+        }
+
+        static List<Spot> DedupePlaces(List<Spot> list)
+        {
+            var o = new List<Spot>();
+            var seen = new HashSet<long>();
+            list.Sort((a, b) => b.sep.CompareTo(a.sep));
+            foreach (var s in list)
+            {
+                int cx = Mathf.FloorToInt(s.x / 6f), cz = Mathf.FloorToInt(s.z / 6f);
+                bool dup = false;
+                for (int dz = -1; dz <= 1 && !dup; dz++) for (int dx = -1; dx <= 1 && !dup; dx++)
+                        if (seen.Contains(((long)(cx + dx) << 32) ^ (uint)(cz + dz))) dup = true;
+                if (dup) continue;
+                seen.Add(((long)cx << 32) ^ (uint)cz);
+                o.Add(s);
+            }
+            return o;
+        }
+
+        static int TierOfPathSample(CityMap map, PathRec pr, int k, out int part)
+        {
+            if (pr.kind == 0) { part = 0; return CityTier.Of(map.edges[pr.eA]); }
+            if (k < pr.nA) { part = 1; return CityTier.Of(map.edges[pr.eA]); }
+            if (k < pr.nA + pr.nF) { part = 2; return Mathf.Min(CityTier.Of(map.edges[pr.eA]), CityTier.Of(map.edges[pr.eB])); }
+            part = 1; return CityTier.Of(map.edges[pr.eB]);
+        }
+
+        /// <summary>
+        /// PATH MISSES BY TIER (A1): the flown paths' samples with no surface of
+        /// their own (the line above), split into EDGE paths (along a ribbon:
+        /// a gap in the pavement itself, mostly on decks), MOVEMENT ARMS and
+        /// MOVEMENT ARCS (a turn's drawn line across a fan: where it leaves the
+        /// fan the corner has no curb return, F7). By the edge's tier; an arc
+        /// takes the better of its two arms'.
+        /// </summary>
+        static void MissReport(CityMap map, Action<string> Line, Metrics m)
+        {
+            foreach (var pr in paths)
+            {
+                if (pr.kind == 3) continue;
+                for (int k = 0; k < pr.count; k++)
+                {
+                    int i = pr.start + k;
+                    if (Miss[i] == 255) continue;
+                    int t = TierOfPathSample(map, pr, k, out int part);
+                    m.miss[Miss[i], part, t]++;
+                }
+            }
+            string[] why = { "nothing within 3 m", "land first", "a lower road" };
+            Line("PATH MISSES BY TIER (A1; the flown paths' samples off their own pavement, report only): edge paths / movement arms / movement arcs");
+            for (int w = 0; w < 3; w++)
+                Line($"  {why[w],-20} T1 {m.miss[w, 0, 1]}/{m.miss[w, 1, 1]}/{m.miss[w, 2, 1]}   T2 {m.miss[w, 0, 2]}/{m.miss[w, 1, 2]}/{m.miss[w, 2, 2]}   T3 {m.miss[w, 0, 3]}/{m.miss[w, 1, 3]}/{m.miss[w, 2, 3]}");
+        }
+
+        /// <summary>The lateral (+ = left of a->b) of the rightmost (or the
+        /// innermost) lane's centre for travel in <paramref name="dir"/>: the
+        /// line model's extents less the shoulder, lanes of the profile's
+        /// width counted in from the right of travel.</summary>
+        static float LaneLat(CityMap.Edge e, float s, int dir, bool inner)
+        {
+            LineModel.Extents(e, s, out float eM, out float eP);
+            var pr = RoadProfiles.All[Mathf.Clamp(e.profile, 0, RoadProfiles.Count - 1)];
+            int per = e.oneway ? Mathf.Max(1, pr.lanes) : Mathf.Max(1, (pr.lanes - (pr.turnLane ? 1 : 0)) / 2);
+            float idx = inner ? per - 0.5f : 0.5f;
+            float lat = dir > 0 ? -eM + e.shr + idx * RoadProfiles.LaneM : eP - e.shl - idx * RoadProfiles.LaneM;
+            if (eM + eP > 0.8f) lat = Mathf.Clamp(lat, -eM + 0.4f, eP - 0.4f);
+            return lat;
+        }
+
+        static Vector2 LanePointOf(CityMap.Edge e, float s, float lat)
+        {
+            var t = e.TangentAt(s);
+            return e.PointAt(s) + new Vector2(-t.y, t.x) * lat;
+        }
+
+        /// <summary>
+        /// THE TURNING MOVEMENTS (plan A1, junctions FIX-8): every legal
+        /// movement through every junction FAN that stands alone and through
+        /// every junction CLUSTER (CityJunctionClusters: one intersection drawn
+        /// as several fans), from each arm entering it to each arm leaving it -
+        /// one-way respected, turns over 135 degrees left out - on LANE-CORRECT
+        /// lines: a right turn from the rightmost lane to the rightmost, a left
+        /// from the innermost to the innermost, through on the rightmost. From
+        /// <see cref="TurnArmM"/> past the approach arm's trim to as far past the
+        /// exit's, a cubic between the two trims (handles 0.45 of the chord),
+        /// a sample every <see cref="TurnStepM"/> m. Appended to the flown
+        /// paths' samples, read off the same built meshes, never flown.
+        /// </summary>
+        static int BuildTurningMovements(CityMap map, CityMeshes.Trims trims)
+        {
+            var cl = CityJunctionClusters.Of(map, trims);
+            int made = 0;
+            var ext = new List<(CityMap.Edge e, int n)>();
+            var members = new List<int>();
+            void Junction(int cluster)
+            {
+                float yHi = float.MinValue, yLo = float.MaxValue;
+                foreach (int n in members) { yHi = Mathf.Max(yHi, map.nodeY[n]); yLo = Mathf.Min(yLo, map.nodeY[n]); }
+                foreach (var I in ext)
+                    foreach (var O in ext)
+                    {
+                        if (I.e == O.e) continue;
+                        int dIn = I.e.b == I.n ? 1 : -1, dOut = O.e.a == O.n ? 1 : -1;
+                        if (I.e.oneway && dIn < 0) continue;
+                        if (O.e.oneway && dOut < 0) continue;
+                        float tI = Mathf.Min(trims.TrimAt(I.e, I.n), I.e.length), tO = Mathf.Min(trims.TrimAt(O.e, O.n), O.e.length);
+                        float sIt = dIn > 0 ? I.e.length - tI : tI, sOt = dOut > 0 ? tO : O.e.length - tO;
+                        var inDir = I.e.TangentAt(sIt) * dIn; var outDir = O.e.TangentAt(sOt) * dOut;
+                        float cos = Vector2.Dot(inDir, outDir);
+                        if (cos < -0.7071f) continue;                     // a turn over 135 degrees
+                        float cross = inDir.x * outDir.y - inDir.y * outDir.x;
+                        int turn = cos > 0.866f ? 0 : cross > 0f ? 2 : 1;    // within 30 degrees: through
+                        bool inner = turn == 2;
+                        float latI = LaneLat(I.e, sIt, dIn, inner), latO = LaneLat(O.e, sOt, dOut, inner);
+                        var pr = new PathRec { kind = 3, start = nS, node = I.n, eA = I.e.index, eB = O.e.index, dirA = dIn, dirB = dOut, cluster = cluster, turn = turn,
+                                               tier = Mathf.Min(CityTier.Of(I.e), CityTier.Of(O.e)) };
+                        // the approach: from trim + TurnArmM back to the trim
+                        float from = Mathf.Min(I.e.length, tI + TurnArmM);
+                        int na = Mathf.Max(1, Mathf.FloorToInt((from - tI) / TurnStepM) + 1);
+                        for (int k = 0; k < na; k++)
+                        {
+                            float dist = Mathf.Max(tI, from - k * TurnStepM);
+                            float s = dIn > 0 ? I.e.length - dist : dist;
+                            Add(LanePointOf(I.e, s, LaneLat(I.e, s, dIn, inner)), I.e.YAt(s));
+                        }
+                        pr.nA = nS - pr.start;
+                        // through the junction
+                        var p0 = LanePointOf(I.e, sIt, latI); var p3 = LanePointOf(O.e, sOt, latO);
+                        float chord = Vector2.Distance(p0, p3);
+                        float yE = Mathf.Max(yHi, Mathf.Max(I.e.YAt(sIt), O.e.YAt(sOt))), yL = Mathf.Min(yLo, Mathf.Min(I.e.YAt(sIt), O.e.YAt(sOt)));
+                        if (chord > 150f) { nS = pr.start; continue; }
+                        if (chord > TurnStepM)
+                        {
+                            float kk = chord * 0.45f;
+                            Vector2 p1 = p0 + inDir * kk, p2 = p3 - outDir * kk;
+                            int nf = Mathf.Max(2, Mathf.CeilToInt(chord * 1.2f / TurnStepM));
+                            for (int k = 1; k < nf; k++)
+                            {
+                                float u = k / (float)nf, w = 1f - u;
+                                Add(w * w * w * p0 + 3f * w * w * u * p1 + 3f * w * u * u * p2 + u * u * u * p3, yE, yL);
+                            }
+                        }
+                        pr.nF = nS - pr.start - pr.nA;
+                        // the exit: from the trim out
+                        float to = Mathf.Min(O.e.length, tO + TurnArmM);
+                        int nb = Mathf.Max(1, Mathf.FloorToInt((to - tO) / TurnStepM) + 1);
+                        for (int k = 0; k < nb; k++)
+                        {
+                            float dist = Mathf.Min(to, tO + k * TurnStepM);
+                            float s = dOut > 0 ? dist : O.e.length - dist;
+                            Add(LanePointOf(O.e, s, LaneLat(O.e, s, dOut, inner)), O.e.YAt(s));
+                        }
+                        pr.count = nS - pr.start;
+                        if (!box.Contains(new Vector2(X[pr.start], Z[pr.start]))) { nS = pr.start; continue; }
+                        paths.Add(pr);
+                        made++;
+                    }
+            }
+            for (int n = 0; n < map.nodes.Length; n++)
+            {
+                if (!trims.patch[n] || cl.clusterOf[n] >= 0) continue;
+                ext.Clear(); members.Clear(); members.Add(n);
+                foreach (int ei in map.nodeEdges[n]) { var e = map.edges[ei]; if (e.a != e.b && e.length >= 1f) ext.Add((e, n)); }
+                if (ext.Count >= 2) Junction(-1);
+            }
+            for (int c = 0; c < cl.members.Length; c++)
+            {
+                ext.Clear(); members.Clear(); members.AddRange(cl.members[c]);
+                foreach (int n in cl.members[c])
+                    foreach (int ei in map.nodeEdges[n])
+                    {
+                        var e = map.edges[ei];
+                        if (e.a == e.b || e.length < 1f) continue;
+                        int other = e.a == n ? e.b : e.a;
+                        if (cl.clusterOf[other] == c) continue;   // inside the cluster: no arm of its own
+                        ext.Add((e, n));
+                    }
+                if (ext.Count >= 2) Junction(c);
+            }
+            return made;
+        }
+
+        /// <summary>
+        /// TURNING MOVEMENTS, judged (plan A1; report state, gated per tier by
+        /// A3/A10/A11): a movement FAILS when any sample has no road surface of
+        /// its own (nothing within 3 m, land first, or a road 0.6 m and more
+        /// under it), and STEPS when two neighbouring road samples (0.5 m) differ
+        /// by more than <see cref="TurnStepDy"/>. Single fans and junction
+        /// clusters apart, by tier (a movement takes the better of its arms'
+        /// tiers). The replica's 2026-10-02 counts (diag/junctions raster.mjs,
+        /// cluster.mjs): single fans T1 219 of 6,324, clusters T1 474 of 2,786.
+        /// </summary>
+        static void TurningReport(CityMap map, Action<string> Line, Metrics m)
+        {
+            var worst = new List<(int tier, float run, string what)>();
+            string[] turnName = { "through", "right", "left" };
+            foreach (var pr in paths)
+            {
+                if (pr.kind != 3) continue;
+                int t = pr.tier, kk = pr.cluster >= 0 ? 1 : 0;
+                m.turnMoves[kk, t]++;
+                int off = 0, run = 0, best = 0, bestAt = -1; bool step = false;
+                for (int k = 0; k < pr.count; k++)
+                {
+                    int i = pr.start + k;
+                    if (Miss[i] != 255) { off++; run++; if (run > best) { best = run; bestAt = i; } continue; }
+                    run = 0;
+                    if (k > 0 && Miss[i - 1] == 255 && !float.IsNaN(Y[i]) && !float.IsNaN(Y[i - 1]) && Mathf.Abs(Y[i] - Y[i - 1]) > TurnStepDy) step = true;
+                }
+                if (off > 0) { m.turnOff[kk, t]++; m.turnOffByTurn[pr.turn, t]++; }
+                if (step) m.turnStep[kk, t]++;
+                if (off > 0 && bestAt >= 0)
+                {
+                    var A = map.edges[pr.eA]; var B = map.edges[pr.eB];
+                    worst.Add((t, best * TurnStepM, string.Format(CultureInfo.InvariantCulture, "{0} {1}: e{2} '{3}' -> e{4} '{5}' ({6}) off {7:0.0} m at ({8:0},{9:0}) {10}{11}",
+                        pr.cluster >= 0 ? "cluster c" + pr.cluster : "fan", pr.cluster >= 0 ? "at n" + pr.node : "n" + pr.node,
+                        A.index, A.name, B.index, B.name, turnName[pr.turn], best * TurnStepM, X[bestAt], Z[bestAt], CityAudit.LatLon(X[bestAt], Z[bestAt]), step ? " +STEP" : "")));
+                }
+            }
+            Line("TURNING MOVEMENTS (A1; lane-correct, trim+10 m to trim+10 m; report state): movements / off the pavement / with a step over 12 cm in 0.5 m");
+            for (int t = 1; t <= 3; t++)
+                Line($"  {CityTier.Short(t)}: single fans {m.turnMoves[0, t]} / {m.turnOff[0, t]} ({Pct(m.turnOff[0, t], m.turnMoves[0, t])}) / {m.turnStep[0, t]};  junction clusters {m.turnMoves[1, t]} / {m.turnOff[1, t]} ({Pct(m.turnOff[1, t], m.turnMoves[1, t])}) / {m.turnStep[1, t]};  off by turn: through {m.turnOffByTurn[0, t]}, right {m.turnOffByTurn[1, t]}, left {m.turnOffByTurn[2, t]}");
+            worst.Sort((a, b) => a.tier != b.tier ? a.tier.CompareTo(b.tier) : b.run.CompareTo(a.run));
+            var shown = new int[4];
+            foreach (var w in worst) if (shown[w.tier]++ < (w.tier == 1 ? 12 : 5)) Line($"    {CityTier.Short(w.tier)} {w.what}");
+        }
+
+        static string Pct(int a, int b) => b > 0 ? (100.0 * a / b).ToString("0.0", CultureInfo.InvariantCulture) + "%" : "-";
+
+        // ---- COMPRESSION ---------------------------------------------------
+        /// <summary>The design speed (mph) a class's vertical curves are judged
+        /// at (owner_decisions / plan B2): motorway 65, trunk and primary 50,
+        /// secondary and tertiary 40, freeway ramps 40, other links 35, local
+        /// 30; the last 30 m before a STOP or a signal 25.</summary>
+        public static float DesignMph(CityMap.Edge e) =>
+            e.link ? (e.cls >= 4 ? 40f : 35f) : e.cls >= 5 ? 65f : e.cls >= 3 ? 50f : e.cls >= 1 ? 40f : 30f;
+
+        /// <summary>AASHTO's comfort sag radius (m) at a design speed: K =
+        /// V^2/46.5 ft/% - plan B2's table (65 2,774; 50 1,640; 40 1,049;
+        /// 35 803; 30 590; 25 410), linear between its rows.</summary>
+        public static float SagComfortR(float mph)
+        {
+            float[] v = { 25f, 30f, 35f, 40f, 50f, 65f }, r = { 410f, 590f, 803f, 1049f, 1640f, 2774f };
+            if (mph <= v[0]) return r[0];
+            for (int i = 1; i < v.Length; i++) if (mph <= v[i]) return Mathf.Lerp(r[i - 1], r[i], (mph - v[i - 1]) / (v[i] - v[i - 1]));
+            return r[r.Length - 1];
+        }
+
+        static bool Controlled(CityMap map, int node) => map.nodeControl != null && node >= 0 && node < map.nodeControl.Length && (map.nodeControl[node] & 6) != 0;
+
+        /// <summary>The design speed at sample k of a flown path.</summary>
+        static float MphAt(CityMap map, CityMeshes.Trims trims, PathRec pr, int k)
+        {
+            if (pr.kind == 0)
+            {
+                var e = map.edges[pr.eA];
+                float s = pr.sA0 + pr.dirA * k * StepM;
+                int ahead = pr.dirA > 0 ? e.b : e.a;
+                float toNode = pr.dirA > 0 ? e.length - s : s;
+                return Controlled(map, ahead) && toNode <= 30f ? 25f : DesignMph(e);
+            }
+            var A = map.edges[pr.eA]; var B = map.edges[pr.eB];
+            if (k < pr.nA)
+            {
+                float from = pr.dirA > 0 ? A.length - pr.sA0 : pr.sA0;
+                float dist = Mathf.Max(trims.TrimAt(A, pr.node), from - k * StepM);
+                return Controlled(map, pr.node) && dist <= 30f ? 25f : DesignMph(A);
+            }
+            if (k < pr.nA + pr.nF) return Controlled(map, pr.node) ? 25f : Mathf.Min(DesignMph(A), DesignMph(B));
+            return DesignMph(B);
+        }
+
+        /// <summary>
+        /// COMPRESSION (plan A1, critic C6): the SAGS the mesh puts under a
+        /// wheel. On the flown paths' 1 m samples every grade BREAK is found
+        /// (consecutive samples whose grade change has one sign, more than
+        /// 0.03 %, are one break: a station corner between two samples), and a
+        /// SAG break (the grade rising) of A is judged against what a vertical
+        /// curve sampled at the solver's own stations would break there:
+        /// A &lt;= (h1 + h2) / (2 R_sag) + 0.1 %, h1 and h2 the distances to the
+        /// neighbouring breaks (each capped at 10 m, the longest station step),
+        /// R_sag AASHTO's comfort radius at the design speed (v^2/R = 0.3 m/s^2;
+        /// <see cref="SagComfortR"/>). So plan B4's curves pass and a corner does
+        /// not: a 9 % trench V on a motorway allows 0.46 %. One spot per place
+        /// (6 m), by tier and by cause (the launch audit's own, e.g. trench,
+        /// raised approach cone, junction fan, deck/structure end, node blends).
+        /// </summary>
+        static void CompressionReport(CityMap map, CityMeshes.Trims trims, Action<string> Line, Metrics m)
+        {
+            const float Thr = 3e-4f, Tol = 1e-3f, Cap = 10f;
+            var sags = new List<Spot>(4096);
+            var g = new float[4096];
+            var grp = new List<(float pos, float A, int kAt)>(64);
+            foreach (var pr in paths)
+            {
+                if (pr.kind == 3 || pr.count < 4) continue;
+                if (g.Length < pr.count) g = new float[pr.count * 2];
+                // grade of each 1 m segment k (between samples k and k+1); NaN across a miss or a height step
+                for (int k = 0; k + 1 < pr.count; k++)
+                {
+                    int i = pr.start + k;
+                    float a = Y[i], b = Y[i + 1];
+                    g[k] = float.IsNaN(a) || float.IsNaN(b) || Mathf.Abs(b - a) > 0.25f * StepM + 0.05f ? float.NaN : (b - a) / StepM;
+                }
+                grp.Clear();
+                // breaks: the change of grade at sample k (between segments k-1 and k)
+                int curSign = 0; float curA = 0f, curW = 0f; int curAt = -1; float curMax = 0f;
+                void Close()
+                {
+                    if (curSign != 0) grp.Add((curW / curA, curA, curAt));
+                    curSign = 0; curA = 0f; curW = 0f; curAt = -1; curMax = 0f;
+                }
+                for (int k = 1; k + 1 < pr.count; k++)
+                {
+                    float g0 = g[k - 1], g1 = g[k];
+                    if (float.IsNaN(g0) || float.IsNaN(g1)) { Close(); grp.Add((k, float.NaN, k)); continue; }
+                    float dg = g1 - g0;
+                    int sg = dg > Thr ? 1 : dg < -Thr ? -1 : 0;
+                    if (sg == 0 || (curSign != 0 && sg != curSign)) Close();
+                    if (sg == 0) continue;
+                    curSign = sg; curA += dg; curW += dg * k;
+                    if (Mathf.Abs(dg) > curMax) { curMax = Mathf.Abs(dg); curAt = k; }
+                }
+                Close();
+                for (int q = 0; q < grp.Count; q++)
+                {
+                    var (pos, A, kAt) = grp[q];
+                    if (float.IsNaN(A) || A <= 0f) continue;   // a crest, or a gap
+                    // the neighbouring breaks either side (a gap in the samples: unknown, the cap)
+                    float h1 = q > 0 && !float.IsNaN(grp[q - 1].A) ? Mathf.Min(Cap, pos - grp[q - 1].pos) : Cap;
+                    float h2 = q + 1 < grp.Count && !float.IsNaN(grp[q + 1].A) ? Mathf.Min(Cap, grp[q + 1].pos - pos) : Cap;
+                    float mph = MphAt(map, trims, pr, kAt);
+                    float R = SagComfortR(mph);
+                    float allow = (h1 + h2) / (2f * R) + Tol;
+                    if (A <= allow) continue;
+                    int i = pr.start + kAt;
+                    var sp = new Spot { sep = A - allow, v = mph * 0.44704f, kind = pr.kind, node = pr.node, pathIdx = -1, k = kAt, x = X[i], z = Z[i], y = Y[i],
+                                        gIn = g[kAt - 1], gOut = g[kAt], brk = A, allow = allow, h = (h1 + h2) * 0.5f, mph = mph };
+                    PlaceOf(map, trims, pr, kAt, sp);
+                    sp.cause = Cause(map, trims, sp);
+                    sags.Add(sp);
+                }
+            }
+            var places = DedupePlaces(sags);
+            var worst = new List<Spot>();
+            foreach (var s in places)
+            {
+                m.sag[s.tier]++;
+                string cause = s.cause;
+                int at = cause.IndexOf(" @", StringComparison.Ordinal);
+                if (at > 0) cause = cause.Substring(0, at);
+                if (!m.sagByCause.TryGetValue(cause, out var c)) m.sagByCause[cause] = c = new int[4];
+                c[s.tier]++;
+            }
+            Line("COMPRESSION (A1, critic C6; report state): sag breaks on the mesh past (h1+h2)/(2 R_sag) + 0.1 % (AASHTO comfort radius at the design speed: motorway 65, trunk/primary 50, secondary/tertiary/freeway ramps 40, other links 35, local 30, 25 mph in the last 30 m before a STOP or signal) - distinct places (6 m)");
+            Line($"  SAG spots: T1 {m.sag[1]} / T2 {m.sag[2]} / T3 {m.sag[3]} (breaks before the place merge: {sags.Count})");
+            var causes = new List<KeyValuePair<string, int[]>>(m.sagByCause);
+            causes.Sort((a, b) => (b.Value[1] + b.Value[2] + b.Value[3]).CompareTo(a.Value[1] + a.Value[2] + a.Value[3]));
+            foreach (var kv in causes) Line($"    {kv.Key,-30} T1 {kv.Value[1],5}  T2 {kv.Value[2],5}  T3 {kv.Value[3],5}");
+            places.Sort((a, b) => a.tier != b.tier ? a.tier.CompareTo(b.tier) : b.sep.CompareTo(a.sep));
+            var shown = new int[4];
+            foreach (var s in places)
+            {
+                if (shown[s.tier]++ >= (s.tier == 1 ? 15 : 5)) continue;
+                var e = map.edges[s.edge];
+                Line(string.Format(CultureInfo.InvariantCulture, "    {0} break {1:0.00}% vs allowed {2:0.00}% (h {3:0.0} m, {4:0} mph, R {5:0} m) {6} e{7} '{8}'{9} s={10:0}/{11:0} at ({12:0},{13:0}) {14}; grade {15:+0.0;-0.0}% -> {16:+0.0;-0.0}%; {17}",
+                    CityTier.Short(s.tier), s.brk * 100f, s.allow * 100f, s.h, s.mph, SagComfortR(s.mph), KindName(s.kind), s.edge, e.name, e.link ? " L" : "", s.s, e.length, s.x, s.z, CityAudit.LatLon(s.x, s.z), s.gIn * 100f, s.gOut * 100f, s.cause));
+            }
+        }
+
+        /// <summary>Where on the graph sample bk of a flown path lies (MakeSpot's
+        /// rule), and its tier (a fan sample takes the better of its arms').</summary>
+        static void PlaceOf(CityMap map, CityMeshes.Trims trims, PathRec pr, int bk, Spot sp)
+        {
+            if (pr.kind == 0) { sp.edge = pr.eA; sp.s = pr.sA0 + pr.dirA * bk * StepM; }
+            else if (bk < pr.nA) { sp.edge = pr.eA; var A = map.edges[pr.eA]; float from = pr.dirA > 0 ? A.length - pr.sA0 : pr.sA0; float dist = Mathf.Max(trims.TrimAt(A, pr.node), from - bk * StepM); sp.s = A.b == pr.node ? A.length - dist : dist; }
+            else if (bk < pr.nA + pr.nF) { sp.edge = pr.eA; sp.inFan = true; sp.s = pr.dirA > 0 ? map.edges[pr.eA].length : 0f; }
+            else { sp.edge = pr.eB; var B = map.edges[pr.eB]; float dist = Mathf.Min(B.length, trims.TrimAt(B, pr.node) + (bk - pr.nA - pr.nF) * StepM); sp.s = B.a == pr.node ? dist : B.length - dist; }
+            sp.cls = map.edges[sp.edge].cls;
+            sp.tier = sp.inFan ? Mathf.Min(CityTier.Of(map.edges[pr.eA]), CityTier.Of(map.edges[pr.eB])) : CityTier.Of(map.edges[sp.edge]);
+        }
+
         static string KindName(int k) => k == 0 ? "edge" : k == 1 ? "through" : "turn";
 
         // ---- the flight ---------------------------------------------------
@@ -693,6 +1182,8 @@ namespace PSXRacing.EditorTools
             public string cause; public int cls;
             /// <summary>The break sample hit land, not road: the movement's drawn line left the pavement (a turn cut across a kerb corner). Listed, not counted.</summary>
             public bool offRoad;
+            /// <summary>COMPRESSION (A1): the sag break, what was allowed there, the station spacing it was judged at, the design speed, the tier.</summary>
+            public float brk, allow, h, mph; public int tier;
         }
 
         static Spot MakeSpot(CityMap map, CityMeshes.Trims trims, PathRec pr, int pathIdx, int k, float sep)

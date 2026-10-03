@@ -24,7 +24,10 @@
 # budget is left running, never killed.
 #
 # Writes (sandbox root, then -OutDir): city_launch.txt (counts city-wide and
-# per route, by cause, the worst spots), city_launch.csv (every launch spot),
+# per route, by cause, the worst spots; and the roads pass's A1 blocks: LAUNCH
+# BY TIER, FLOWN TURNS OFF THE PAVEMENT, PATH MISSES BY TIER, TURNING
+# MOVEMENTS, COMPRESSION), city_launch.csv (every launch spot), city_launch.json
+# (every A1 number, for tools\city\baseline\mesh_audit_baseline.json),
 # launch_top_<label>.txt (the worst spots' paths, for a drive). Exit 1 when
 # the job did not finish, the audit threw, or it wrote no report.
 param([string]$Box = "", [string]$Label = "", [string]$OutDir = "", [int]$MaxMinutes = 45, [switch]$NoMirror)
@@ -70,7 +73,7 @@ if (-not $NoMirror) {
 }
 
 # A report from an earlier run must not read as this one's.
-$outs = @("city_launch.txt", "city_launch.csv", "launch_top_$Label.txt")
+$outs = @("city_launch.txt", "city_launch.csv", "city_launch.json", "launch_top_$Label.txt")
 foreach ($f in $outs) { Remove-Item (Join-Path $proj $f) -Force -ErrorAction SilentlyContinue }
 $log = "$proj\citylaunch.log"
 $t0 = Get-Date

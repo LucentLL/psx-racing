@@ -1,0 +1,907 @@
+{
+ "what": "Roads pass A1 BEFORE baseline: the mesh instruments on main as it stood before any roads-pass geometry change (CityAudit CoverageReport / tools/city-coverage.ps1, CityLaunchAudit A1 blocks / tools/city-launch.ps1). Every count by tier (CityTier: T1 cls>=3, T2 cls 1-2, T3 cls 0). Report state: nothing here gates yet; each package flips its own checks for its tier and compares against this file.",
+ "recorded": "2026-10-02",
+ "commit": "main@4924a98d (P0) + the A1 instruments, which change no geometry",
+ "graphHash": "089d7141",
+ "coverage": {
+  "scope": "COVER scope: CITY-WIDE (PSX_AUDIT_FULL=1), tiers T1+T2+T3",
+  "tiles": 13938,
+  "seconds": 728,
+  "untapped": 0,
+  "clusters": {
+   "T1": 339,
+   "T2": 275,
+   "T3": 26
+  },
+  "cityWide": {
+   "T1": {
+    "roadM2": 16032423.62,
+    "outlineM2": 16086601.4,
+    "coplanarM2": {
+     "fanFanCluster": 1256.67,
+     "fanFan": 124.58,
+     "fanOwnArm": 425.1,
+     "fanClusterArm": 204.26,
+     "fanForeign": 403.31,
+     "armArm": 3486.32,
+     "branchHost": 1117.16,
+     "ribbonRibbon": 410.15,
+     "goreRoad": 30223.38,
+     "mitreSeam": 118.87,
+     "deck": 1286.26
+    },
+    "holesM2": {
+     "ribbon": 10.67,
+     "deck": 2.5,
+     "fan": 0.0,
+     "gore": 0.0,
+     "cluster": 20742.36
+    },
+    "outsideM2": {
+     "ribbon": 1.15,
+     "deck": 0.01,
+     "fan": 0.0,
+     "gore": 0.0
+    },
+    "overshootM2": 1661.54,
+    "overshootFarM2": 0.18,
+    "underlapM2": {
+     "road": 35557.78,
+     "strip": 80070.75,
+     "lattice": 5165.8
+    },
+    "objects": {
+     "coplanarPairsOver2m2": 3253,
+     "holesOver2m2": 322,
+     "clusterHolesOver2m2": 322,
+     "branchesOver1m2": 94
+    }
+   },
+   "T2": {
+    "roadM2": 16375244.62,
+    "outlineM2": 16352497.41,
+    "coplanarM2": {
+     "fanFanCluster": 453.53,
+     "fanFan": 2.09,
+     "fanOwnArm": 398.89,
+     "fanClusterArm": 41.8,
+     "fanForeign": 133.0,
+     "armArm": 4958.23,
+     "branchHost": 1631.04,
+     "ribbonRibbon": 150.42,
+     "goreRoad": 27330.59,
+     "mitreSeam": 143.33,
+     "deck": 348.14
+    },
+    "holesM2": {
+     "ribbon": 8.98,
+     "deck": 1.12,
+     "fan": 0.0,
+     "gore": 0.0,
+     "cluster": 9218.67
+    },
+    "outsideM2": {
+     "ribbon": 2.06,
+     "deck": 0.0,
+     "fan": 0.0,
+     "gore": 0.0
+    },
+    "overshootM2": 1863.39,
+    "overshootFarM2": 0.31,
+    "underlapM2": {
+     "road": 32270.06,
+     "strip": 48552.98,
+     "lattice": 6297.01
+    },
+    "objects": {
+     "coplanarPairsOver2m2": 2890,
+     "holesOver2m2": 251,
+     "clusterHolesOver2m2": 251,
+     "branchesOver1m2": 112
+    }
+   },
+   "T3": {
+    "roadM2": 3964729.14,
+    "outlineM2": 3964211.21,
+    "coplanarM2": {
+     "fanFanCluster": 13.96,
+     "fanFan": 0.0,
+     "fanOwnArm": 70.23,
+     "fanClusterArm": 0.0,
+     "fanForeign": 6.91,
+     "armArm": 150.98,
+     "branchHost": 49.45,
+     "ribbonRibbon": 0.0,
+     "goreRoad": 1097.69,
+     "mitreSeam": 2.21,
+     "deck": 0.06
+    },
+    "holesM2": {
+     "ribbon": 29.19,
+     "deck": 0.0,
+     "fan": 0.0,
+     "gore": 0.0,
+     "cluster": 315.29
+    },
+    "outsideM2": {
+     "ribbon": 0.49,
+     "deck": 0.0,
+     "fan": 0.0,
+     "gore": 0.0
+    },
+    "overshootM2": 55.4,
+    "overshootFarM2": 0.0,
+    "underlapM2": {
+     "road": 1562.54,
+     "strip": 2174.15,
+     "lattice": 2174.07
+    },
+    "objects": {
+     "coplanarPairsOver2m2": 168,
+     "holesOver2m2": 22,
+     "clusterHolesOver2m2": 19,
+     "branchesOver1m2": 6
+    }
+   }
+  },
+  "boxes": {
+   "OwnerBox": {
+    "T1": {
+     "roadM2": 602192.37,
+     "outlineM2": 607229.25,
+     "coplanarM2": {
+      "fanFanCluster": 76.99,
+      "fanFan": 0.0,
+      "fanOwnArm": 25.46,
+      "fanClusterArm": 29.97,
+      "fanForeign": 11.39,
+      "armArm": 123.97,
+      "branchHost": 127.3,
+      "ribbonRibbon": 0.0,
+      "goreRoad": 1649.9,
+      "mitreSeam": 6.86,
+      "deck": 313.91
+     },
+     "holesM2": {
+      "ribbon": 0.59,
+      "deck": 0.33,
+      "fan": 0.0,
+      "gore": 0.0,
+      "cluster": 871.65
+     },
+     "outsideM2": {
+      "ribbon": 0.0,
+      "deck": 0.0,
+      "fan": 0.0,
+      "gore": 0.0
+     },
+     "overshootM2": 127.68,
+     "overshootFarM2": 0.0,
+     "underlapM2": {
+      "road": 1825.09,
+      "strip": 4750.59,
+      "lattice": 331.18
+     }
+    },
+    "T2": {
+     "roadM2": 491881.58,
+     "outlineM2": 488327.0,
+     "coplanarM2": {
+      "fanFanCluster": 48.09,
+      "fanFan": 0.0,
+      "fanOwnArm": 7.37,
+      "fanClusterArm": 1.41,
+      "fanForeign": 9.07,
+      "armArm": 28.44,
+      "branchHost": 39.07,
+      "ribbonRibbon": 0.0,
+      "goreRoad": 736.14,
+      "mitreSeam": 3.27,
+      "deck": 140.53
+     },
+     "holesM2": {
+      "ribbon": 0.5,
+      "deck": 0.03,
+      "fan": 0.0,
+      "gore": 0.0,
+      "cluster": 619.11
+     },
+     "outsideM2": {
+      "ribbon": 0.0,
+      "deck": 0.0,
+      "fan": 0.0,
+      "gore": 0.0
+     },
+     "overshootM2": 48.75,
+     "overshootFarM2": 0.0,
+     "underlapM2": {
+      "road": 986.67,
+      "strip": 1938.67,
+      "lattice": 384.44
+     }
+    },
+    "T3": {
+     "roadM2": 379424.37,
+     "outlineM2": 379622.26,
+     "coplanarM2": {
+      "fanFanCluster": 5.81,
+      "fanFan": 0.0,
+      "fanOwnArm": 27.6,
+      "fanClusterArm": 0.0,
+      "fanForeign": 0.0,
+      "armArm": 50.5,
+      "branchHost": 0.26,
+      "ribbonRibbon": 0.0,
+      "goreRoad": 90.08,
+      "mitreSeam": 0.24,
+      "deck": 0.0
+     },
+     "holesM2": {
+      "ribbon": 8.94,
+      "deck": 0.0,
+      "fan": 0.0,
+      "gore": 0.0,
+      "cluster": 109.13
+     },
+     "outsideM2": {
+      "ribbon": 0.19,
+      "deck": 0.0,
+      "fan": 0.0,
+      "gore": 0.0
+     },
+     "overshootM2": 0.27,
+     "overshootFarM2": 0.0,
+     "underlapM2": {
+      "road": 243.16,
+      "strip": 339.35,
+      "lattice": 230.24
+     }
+    }
+   },
+   "W5th": {
+    "T1": {
+     "roadM2": 26396.57,
+     "outlineM2": 27296.99,
+     "coplanarM2": {
+      "fanFanCluster": 0.0,
+      "fanFan": 0.0,
+      "fanOwnArm": 0.05,
+      "fanClusterArm": 0.0,
+      "fanForeign": 0.0,
+      "armArm": 0.0,
+      "branchHost": 0.02,
+      "ribbonRibbon": 0.0,
+      "goreRoad": 32.03,
+      "mitreSeam": 0.0,
+      "deck": 3.01
+     },
+     "holesM2": {
+      "ribbon": 0.02,
+      "deck": 0.01,
+      "fan": 0.0,
+      "gore": 0.0,
+      "cluster": 74.0
+     },
+     "outsideM2": {
+      "ribbon": 0.0,
+      "deck": 0.0,
+      "fan": 0.0,
+      "gore": 0.0
+     },
+     "overshootM2": 0.02,
+     "overshootFarM2": 0.0,
+     "underlapM2": {
+      "road": 31.95,
+      "strip": 171.01,
+      "lattice": 0.0
+     }
+    },
+    "T2": {
+     "roadM2": 7403.44,
+     "outlineM2": 6585.73,
+     "coplanarM2": {
+      "fanFanCluster": 0.01,
+      "fanFan": 0.0,
+      "fanOwnArm": 0.01,
+      "fanClusterArm": 0.0,
+      "fanForeign": 0.0,
+      "armArm": 0.0,
+      "branchHost": 0.01,
+      "ribbonRibbon": 0.0,
+      "goreRoad": 36.91,
+      "mitreSeam": 0.06,
+      "deck": 0.06
+     },
+     "holesM2": {
+      "ribbon": 0.0,
+      "deck": 0.0,
+      "fan": 0.0,
+      "gore": 0.0,
+      "cluster": 6.63
+     },
+     "outsideM2": {
+      "ribbon": 0.0,
+      "deck": 0.0,
+      "fan": 0.0,
+      "gore": 0.0
+     },
+     "overshootM2": 0.01,
+     "overshootFarM2": 0.0,
+     "underlapM2": {
+      "road": 36.96,
+      "strip": 103.61,
+      "lattice": 0.0
+     }
+    },
+    "T3": {
+     "roadM2": 3140.39,
+     "outlineM2": 3140.43,
+     "coplanarM2": {
+      "fanFanCluster": 0.0,
+      "fanFan": 0.0,
+      "fanOwnArm": 0.0,
+      "fanClusterArm": 0.0,
+      "fanForeign": 0.0,
+      "armArm": 0.0,
+      "branchHost": 0.0,
+      "ribbonRibbon": 0.0,
+      "goreRoad": 0.0,
+      "mitreSeam": 0.0,
+      "deck": 0.0
+     },
+     "holesM2": {
+      "ribbon": 0.0,
+      "deck": 0.0,
+      "fan": 0.0,
+      "gore": 0.0,
+      "cluster": 0.0
+     },
+     "outsideM2": {
+      "ribbon": 0.0,
+      "deck": 0.0,
+      "fan": 0.0,
+      "gore": 0.0
+     },
+     "overshootM2": 0.0,
+     "overshootFarM2": 0.0,
+     "underlapM2": {
+      "road": 0.0,
+      "strip": 0.2,
+      "lattice": 0.0
+     }
+    }
+   }
+  },
+  "deadEnds": {
+   "T1": {
+    "ends": 25,
+    "short": 3,
+    "inside": 0
+   },
+   "T2": {
+    "ends": 92,
+    "short": 3,
+    "inside": 1
+   },
+   "T3": {
+    "ends": 704,
+    "short": 18,
+    "inside": 3
+   }
+  }
+ },
+ "launch": {
+  "label": "full",
+  "box": "",
+  "seconds": 470,
+  "launch": {
+   "total": 121,
+   "T1": 46,
+   "T2": 63,
+   "T3": 12
+  },
+  "unload": {
+   "total": 711,
+   "T1": 240,
+   "T2": 333,
+   "T3": 138
+  },
+  "routes": {
+   "uptown": {
+    "launch": 1,
+    "unload": 0
+   },
+   "tryon": {
+    "launch": 0,
+    "unload": 0
+   },
+   "independence": {
+    "launch": 2,
+    "unload": 1
+   }
+  },
+  "flownTurnsOffPavement": {
+   "T1": 0,
+   "T2": 0,
+   "T3": 0
+  },
+  "misses": {
+   "nothing": {
+    "edgePaths": {
+     "T1": 155,
+     "T2": 1238,
+     "T3": 178
+    },
+    "movementArms": {
+     "T1": 268,
+     "T2": 864,
+     "T3": 85
+    },
+    "movementArcs": {
+     "T1": 7,
+     "T2": 0,
+     "T3": 0
+    }
+   },
+   "land": {
+    "edgePaths": {
+     "T1": 24820,
+     "T2": 125681,
+     "T3": 663
+    },
+    "movementArms": {
+     "T1": 11954,
+     "T2": 60636,
+     "T3": 645
+    },
+    "movementArcs": {
+     "T1": 194,
+     "T2": 1274,
+     "T3": 78
+    }
+   },
+   "lowerRoad": {
+    "edgePaths": {
+     "T1": 1,
+     "T2": 0,
+     "T3": 0
+    },
+    "movementArms": {
+     "T1": 1,
+     "T2": 0,
+     "T3": 0
+    },
+    "movementArcs": {
+     "T1": 0,
+     "T2": 0,
+     "T3": 0
+    }
+   }
+  },
+  "turning": {
+   "singleFans": {
+    "T1": {
+     "moves": 2211,
+     "offPavement": 12,
+     "steps": 13
+    },
+    "T2": {
+     "moves": 7666,
+     "offPavement": 28,
+     "steps": 14
+    },
+    "T3": {
+     "moves": 12691,
+     "offPavement": 7,
+     "steps": 9
+    }
+   },
+   "clusters": {
+    "T1": {
+     "moves": 2395,
+     "offPavement": 327,
+     "steps": 28
+    },
+    "T2": {
+     "moves": 2545,
+     "offPavement": 243,
+     "steps": 21
+    },
+    "T3": {
+     "moves": 337,
+     "offPavement": 8,
+     "steps": 0
+    }
+   },
+   "offByTurn": {
+    "through": {
+     "T1": 52,
+     "T2": 82,
+     "T3": 10
+    },
+    "right": {
+     "T1": 19,
+     "T2": 23,
+     "T3": 2
+    },
+    "left": {
+     "T1": 268,
+     "T2": 166,
+     "T3": 3
+    }
+   }
+  },
+  "compression": {
+   "sagSpots": {
+    "T1": 11846,
+    "T2": 17859,
+    "T3": 6853
+   },
+   "byCause": {
+    "terrain profile": {
+     "T1": 2835,
+     "T2": 6354,
+     "T3": 2467
+    },
+    "junction fan": {
+     "T1": 590,
+     "T2": 1248,
+     "T3": 1345
+    },
+    "junction node": {
+     "T1": 1771,
+     "T2": 3545,
+     "T3": 2591
+    },
+    "deck/structure end": {
+     "T1": 280,
+     "T2": 163,
+     "T3": 1
+    },
+    "raised (approach cone)": {
+     "T1": 353,
+     "T2": 293,
+     "T3": 64
+    },
+    "crossing hump at a node": {
+     "T1": 400,
+     "T2": 108,
+     "T3": 2
+    },
+    "ramp seat (climb-out)": {
+     "T1": 1090,
+     "T2": 143,
+     "T3": 0
+    },
+    "junction node (raised: cone)": {
+     "T1": 78,
+     "T2": 161,
+     "T3": 41
+    },
+    "mitred joint (raised: cone)": {
+     "T1": 165,
+     "T2": 258,
+     "T3": 20
+    },
+    "mitred joint": {
+     "T1": 3255,
+     "T2": 5205,
+     "T3": 273
+    },
+    "lowered (trench/seat cut)": {
+     "T1": 90,
+     "T2": 9,
+     "T3": 0
+    },
+    "crossing hump": {
+     "T1": 138,
+     "T2": 53,
+     "T3": 2
+    },
+    "water span": {
+     "T1": 210,
+     "T2": 221,
+     "T3": 6
+    },
+    "trench": {
+     "T1": 514,
+     "T2": 0,
+     "T3": 0
+    },
+    "bridge deck": {
+     "T1": 76,
+     "T2": 97,
+     "T3": 0
+    },
+    "node": {
+     "T1": 1,
+     "T2": 1,
+     "T3": 40
+    },
+    "node (raised: cone)": {
+     "T1": 0,
+     "T2": 0,
+     "T3": 1
+    }
+   }
+  }
+ },
+ "boxedRuns": {
+  "launchBoxW5th": {
+   "label": "w5th",
+   "box": "-3550,5750,-3150,6150",
+   "seconds": 9,
+   "launch": {
+    "total": 2,
+    "T1": 0,
+    "T2": 0,
+    "T3": 2
+   },
+   "unload": {
+    "total": 1,
+    "T1": 0,
+    "T2": 0,
+    "T3": 1
+   },
+   "routes": {
+    "uptown": {
+     "launch": 0,
+     "unload": 0
+    },
+    "tryon": {
+     "launch": 0,
+     "unload": 0
+    },
+    "independence": {
+     "launch": 0,
+     "unload": 0
+    }
+   },
+   "flownTurnsOffPavement": {
+    "T1": 0,
+    "T2": 0,
+    "T3": 0
+   },
+   "misses": {
+    "nothing": {
+     "edgePaths": {
+      "T1": 0,
+      "T2": 0,
+      "T3": 0
+     },
+     "movementArms": {
+      "T1": 0,
+      "T2": 0,
+      "T3": 0
+     },
+     "movementArcs": {
+      "T1": 0,
+      "T2": 0,
+      "T3": 0
+     }
+    },
+    "land": {
+     "edgePaths": {
+      "T1": 0,
+      "T2": 0,
+      "T3": 0
+     },
+     "movementArms": {
+      "T1": 0,
+      "T2": 0,
+      "T3": 0
+     },
+     "movementArcs": {
+      "T1": 0,
+      "T2": 0,
+      "T3": 0
+     }
+    },
+    "lowerRoad": {
+     "edgePaths": {
+      "T1": 0,
+      "T2": 0,
+      "T3": 0
+     },
+     "movementArms": {
+      "T1": 0,
+      "T2": 0,
+      "T3": 0
+     },
+     "movementArcs": {
+      "T1": 0,
+      "T2": 0,
+      "T3": 0
+     }
+    }
+   },
+   "turning": {
+    "singleFans": {
+     "T1": {
+      "moves": 0,
+      "offPavement": 0,
+      "steps": 0
+     },
+     "T2": {
+      "moves": 10,
+      "offPavement": 0,
+      "steps": 0
+     },
+     "T3": {
+      "moves": 6,
+      "offPavement": 0,
+      "steps": 0
+     }
+    },
+    "clusters": {
+     "T1": {
+      "moves": 8,
+      "offPavement": 0,
+      "steps": 0
+     },
+     "T2": {
+      "moves": 22,
+      "offPavement": 1,
+      "steps": 3
+     },
+     "T3": {
+      "moves": 2,
+      "offPavement": 0,
+      "steps": 0
+     }
+    },
+    "offByTurn": {
+     "through": {
+      "T1": 0,
+      "T2": 0,
+      "T3": 0
+     },
+     "right": {
+      "T1": 0,
+      "T2": 0,
+      "T3": 0
+     },
+     "left": {
+      "T1": 0,
+      "T2": 1,
+      "T3": 0
+     }
+    }
+   },
+   "compression": {
+    "sagSpots": {
+     "T1": 26,
+     "T2": 24,
+     "T3": 9
+    },
+    "byCause": {
+     "terrain profile": {
+      "T1": 9,
+      "T2": 0,
+      "T3": 3
+     },
+     "junction fan": {
+      "T1": 0,
+      "T2": 2,
+      "T3": 2
+     },
+     "junction node": {
+      "T1": 1,
+      "T2": 7,
+      "T3": 3
+     },
+     "deck/structure end": {
+      "T1": 0,
+      "T2": 4,
+      "T3": 0
+     },
+     "trench": {
+      "T1": 5,
+      "T2": 0,
+      "T3": 0
+     },
+     "raised (approach cone)": {
+      "T1": 2,
+      "T2": 2,
+      "T3": 1
+     },
+     "crossing hump at a node": {
+      "T1": 1,
+      "T2": 4,
+      "T3": 0
+     },
+     "ramp seat (climb-out)": {
+      "T1": 2,
+      "T2": 0,
+      "T3": 0
+     },
+     "water span": {
+      "T1": 1,
+      "T2": 2,
+      "T3": 0
+     },
+     "junction node (raised: cone)": {
+      "T1": 3,
+      "T2": 1,
+      "T3": 0
+     },
+     "mitred joint (raised: cone)": {
+      "T1": 0,
+      "T2": 2,
+      "T3": 0
+     },
+     "mitred joint": {
+      "T1": 2,
+      "T2": 0,
+      "T3": 0
+     }
+    }
+   }
+  }
+ },
+ "replicaComparison": {
+  "note": "The offline replicas the plan quoted (diag/junctions cluster.mjs + raster.mjs, diag/vertical) against this run. Differences over 30% are explained.",
+  "clusterHolesM2": {
+   "T1": [
+    20742,
+    24060,
+    "-14%"
+   ],
+   "T2": [
+    9219,
+    10115,
+    "-9%"
+   ],
+   "T3": [
+    315,
+    363,
+    "-13%"
+   ],
+   "why": "a 30 m median-crossing bound (the plan's) where cluster.mjs used 40 m; built fans, not the plan port"
+  },
+  "fanFanM2_T1": [
+   1382,
+   "1523-1775",
+   "-9% to -22%"
+  ],
+  "armArmM2_T1": [
+   3486,
+   2532,
+   "+38%: every two ribbons sharing a node and within 5 cm on the built mesh (mitred nodes with an unclipped branch too), where raster.mjs counted only fan arms side by side past both trims"
+  ],
+  "fanOverOwnArmM2_T1": [
+   425,
+   618,
+   "-31%: the 1.2 cm FanProudM stack counts only where the arm is drawn under the fan; JoinBuriedEnds buries some arms deeper than 5 cm"
+  ],
+  "fanOverForeignRoadM2_T1": [
+   607,
+   1557,
+   "-61% (403 foreign + 204 cluster arm): COPLANAR needs 5 cm; the replica counted plan overlap at any height of one level (a fan 10-30 cm over a crossing ribbon is a step, not a z-fight)"
+  ],
+  "turningSingleFans_T1": [
+   "12 of 2211",
+   "219 of 6324",
+   "the replica counted every fan, cluster members included; here cluster members are only in the cluster movements, a movement's tier is its better arm's (not the node's), lanes are lane-correct and the paths start at trim+10 m"
+  ],
+  "turningClusters_T1": [
+   "327 of 2395",
+   "474 of 2786",
+   "-31%: 30 m vs 40 m cluster rule, lane-correct laterals (the innermost lane for a left), built fans"
+  ],
+  "trenchSagPlaces_T1": [
+   514,
+   "~213 trenches",
+   "every sag break past the C6 allowance within 160 m of a trenched crossing on the under edge, 6 m places: the W-shaped double V (W 5th: +5.0/-2.4/+6.4) and the toes the V meets count apart"
+  ]
+ },
+ "caveats": [
+  "COVERAGE city-wide took 728 s (12.1 min; the plan asked <= 10): 13,938 tiles built with the tap and 146k 8 m blocks rasterised at 0.10 m. It runs only under PSX_AUDIT_FULL=1 (release gates); the default box takes about a minute.",
+  "OUTSIDE is near zero by construction: fans and gores are their own outline, ribbons are LaneExtents. It catches a ribbon drawn beyond its own footprint, not a fan that is too big (A3/A11 judge fan size against the geometric need).",
+  "UNDERLAP 'verge/seam strip' and 'lattice' include the deliberate 2.5 cm underlays (seam and half strips): A3 sets which of them stay.",
+  "COPLANAR gore/road is the gore quads under their host and branch (a 2.5 cm underlay counts as coplanar at 5 cm): the merge zones' (A7/A8) to remove.",
+  "Turning movements judge a sample on road within 0.6 m of the path's own level (the launch audit's rule), steps 12 cm in 0.5 m; through movements on the rightmost lane only.",
+  "COMPRESSION: design speeds owner_decisions/B2 (loops judged as ramps, 40 mph); no pinned-station list until B4, so every spot is 'unpinned'.",
+  "PATH MISSES 'land first' are mostly T2 edge paths (125,681 samples): the flown paths keep their old lateral (a quarter width off the OSM line, not the line model's lanes) so the LAUNCH counter stays comparable; read them as gap evidence only after re-walking on the lanes."
+ ]
+}

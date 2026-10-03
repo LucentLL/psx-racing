@@ -17,6 +17,15 @@ namespace PSXRacing.EditorTools
     ///
     /// Menu: PSX Racing/Preview Charlotte. Headless: -executeMethod
     /// PSXRacing.EditorTools.CityPreview.Run — PNGs land in Screenshots/City.
+    ///
+    /// PSX_PREVIEW_SPOTS (roads pass A1, 2026-10-02): a comma list of shot
+    /// names or GROUPS ("w5th_owner,merge_i85_e3031_far", "merges", "all";
+    /// a trailing * matches a prefix). Unset: the probes and views as before
+    /// plus the W 5th group. The roads pass's NAMED VIEWS
+    /// (<see cref="NamedViews"/>: w5th, twin, profiles, merges, junctions,
+    /// paint, lateral) are shot only when named, so a package shoots its two
+    /// to four views without the whole set; preview_spots.txt says where
+    /// each camera stood.
     /// </summary>
     public static class CityPreview
     {
@@ -29,6 +38,7 @@ namespace PSXRacing.EditorTools
             string dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName,
                 "Screenshots", "City");
             Directory.CreateDirectory(dir);
+            var want = SpotFilter.FromEnv();
 
             var probes = new List<(string name, Vector2 at, int ring)>
             {
@@ -145,11 +155,15 @@ namespace PSXRacing.EditorTools
 
             var world = new GameObject("~CityPreviewWorld");
             var roots = new List<GameObject> { world };
+            var spotLog = new System.Text.StringBuilder("shot\tgroup\teye_x\teye_y\teye_z\tlook_x\tlook_y\tlook_z\tortho\tfov\twhat\n");
+            int named = 0, shotProbes = 0, shotViews = 0;
 
             try
             {
                 foreach (var (name, at, ring) in probes)
                 {
+                    if (!want.Takes(name, "probes", true)) continue;
+                    shotProbes++;
                     var tiles = BuildRing(map, trims, buildings, world, at, ring, out var stats);
                     roots.AddRange(tiles);
                     Debug.Log($"[CityPreview] {name}: {stats}");
@@ -178,6 +192,8 @@ namespace PSXRacing.EditorTools
 
                 foreach (var (name, at, ring, along, s) in views)
                 {
+                    if (!want.Takes(name, "views", true)) continue;
+                    shotViews++;
                     var tiles = BuildRing(map, trims, buildings, world, at, ring, out var stats);
                     roots.AddRange(tiles);
                     Debug.Log($"[CityPreview] {name}: {stats}");
@@ -202,12 +218,244 @@ namespace PSXRacing.EditorTools
                     foreach (var t in tiles) Object.DestroyImmediate(t);
                     roots.RemoveAll(r => r == null);
                 }
-                Debug.Log($"[CityPreview] wrote shots for {probes.Count} probes and {views.Count} views to {dir}");
+
+                // the roads pass's named views (A1): shot only when asked for (W 5th by default)
+                foreach (var v in NamedViews)
+                {
+                    if (!want.Takes(v.name, v.group, v.group == "w5th")) continue;
+                    if (!ShootNamed(map, trims, buildings, world, roots, dir, v, spotLog)) Debug.LogWarning($"[CityPreview] {v.name}: no road to stand on near ({v.at.x:0},{v.at.y:0})");
+                    else named++;
+                }
+                File.WriteAllText(Path.Combine(dir, "preview_spots.txt"), spotLog.ToString());
+                Debug.Log($"[CityPreview] wrote shots for {shotProbes} of {probes.Count} probes, {shotViews} of {views.Count} views and {named} named views to {dir}{(want.All ? "" : " (PSX_PREVIEW_SPOTS=" + want.Raw + ")")}");
             }
             finally
             {
                 foreach (var r in roots) if (r != null) Object.DestroyImmediate(r);
             }
+        }
+
+        // =====================================================================
+        //  The roads pass's named views (plan A1, 2026-10-02)
+        // =====================================================================
+
+        /// <summary>PSX_PREVIEW_SPOTS: which shots to take.</summary>
+        sealed class SpotFilter
+        {
+            public string Raw = ""; public bool All = true; readonly List<string> tokens = new List<string>();
+            public static SpotFilter FromEnv()
+            {
+                var f = new SpotFilter();
+                string s = System.Environment.GetEnvironmentVariable("PSX_PREVIEW_SPOTS");
+                if (string.IsNullOrWhiteSpace(s)) return f;
+                f.Raw = s.Trim();
+                foreach (var t in s.Split(',', ';', ' ')) if (t.Trim().Length > 0) f.tokens.Add(t.Trim().ToLowerInvariant());
+                f.All = f.tokens.Count == 0;
+                return f;
+            }
+            /// <summary>Unset: the default set (<paramref name="byDefault"/>);
+            /// "all": everything; else a name, a group, or a prefix*.</summary>
+            public bool Takes(string name, string group, bool byDefault)
+            {
+                if (All) return byDefault;
+                string n = name.ToLowerInvariant(), g = (group ?? "").ToLowerInvariant();
+                foreach (var t in tokens)
+                {
+                    if (t == "all" || t == n || t == g) return true;
+                    if (t.EndsWith("*") && n.StartsWith(t.Substring(0, t.Length - 1), System.StringComparison.Ordinal)) return true;
+                }
+                return false;
+            }
+        }
+
+        enum ViewKind { Eye, Top, Profile, Along }
+
+        /// <summary>
+        /// One named view. <see cref="at"/> is a plan point (game metres, x
+        /// east, z north) taken from the 2026-10-02 graph; the camera stands on
+        /// the nearest edge whose name contains <see cref="road"/> (any road
+        /// when empty), so an export that renumbers edges moves nothing.
+        ///   Eye      windscreen at <see cref="at"/>, compass heading <see cref="hdg"/>
+        ///   Top      straight down over <see cref="at"/>, ortho half-height <see cref="size"/>
+        ///   Profile  side elevation of the road through <see cref="at"/>: the
+        ///            roads only, heights x5, ortho half-height <see cref="size"/>
+        ///   Along    on the road's lanes <see cref="back"/> m before <see cref="at"/>
+        ///            (against its travel), looking at the road <see cref="look"/> m
+        ///            before it - a merge seen from the mainline, near or far
+        /// </summary>
+        struct NamedView
+        {
+            public string name, group, road, what; public ViewKind kind; public Vector2 at;
+            public float hdg, size, back, look, fov; public int ring;
+        }
+
+        static NamedView Eye(string name, string group, float x, float z, string road, float hdg, string what) =>
+            new NamedView { name = name, group = group, kind = ViewKind.Eye, at = new Vector2(x, z), road = road, hdg = hdg, fov = 60f, ring = 1, what = what };
+        static NamedView Top(string name, string group, float x, float z, string road, float size, string what, int ring = 1) =>
+            new NamedView { name = name, group = group, kind = ViewKind.Top, at = new Vector2(x, z), road = road, size = size, ring = ring, what = what };
+        static NamedView Prof(string name, string group, float x, float z, string road, string what) =>
+            new NamedView { name = name, group = group, kind = ViewKind.Profile, at = new Vector2(x, z), road = road, size = 112f, ring = 1, what = what };
+        static NamedView Along(string name, string group, float x, float z, string road, float back, float look, float fov, int ring, string what) =>
+            new NamedView { name = name, group = group, kind = ViewKind.Along, at = new Vector2(x, z), road = road, back = back, look = look, fov = fov, ring = ring, what = what };
+
+        /// <summary>The plan's A1 view list: later packages shoot these by
+        /// name (PSX_PREVIEW_SPOTS) without editing this file.</summary>
+        static readonly NamedView[] NamedViews =
+        {
+            // W 5th St over I-77, the owner's example: node 2069 at the west end of the bridge, heading 134 (the frame he sent)
+            Eye("w5th_owner", "w5th", -3363.2f, 5939.6f, "West 5th", 134f, "W 5th St at node 2069 (35.23801,-80.85467), heading 134, 1.2 m eye: the owner's frame, eastbound over I-77"),
+            Eye("w5th_wb", "w5th", -3280.7f, 5880.9f, "West 5th", 314f, "W 5th St westbound from the east signal (n4121/n4122) across the bridge, heading 314"),
+            Top("w5th_west_junction", "w5th", -3408.5f, 5993.0f, "West 5th", 45f, "the west signalised junction n4116/n4117: two fans and the grass between"),
+            // twin decks (B1/A2)
+            Top("twin_i277", "twin", -2132.9f, 5956.5f, "I-277", 110f, "I-277 twin viaduct e1910/e1921: the longest union candidate"),
+            Top("twin_e2437", "twin", -983.5f, 4472.1f, "I-277", 60f, "I-277 e2437/e2438: must stay two structures (the negative case)"),
+            // vertical profiles (B2/B4/B7): side elevations, heights x5
+            Prof("prof_w5th_i77", "profiles", -3327.4f, 5915.5f, "I-77", "I-77 under W 5th (e2132/e6608): the trench V and the 5 m carriageway step"),
+            Prof("prof_i277_belk", "profiles", -2880.5f, 4085.9f, "I-277", "I-277 Belk Fwy under S College St"),
+            Prof("prof_sunset_i77", "profiles", -2779.0f, 13646.4f, "I-77", "I-77 under Sunset Rd"),
+            Prof("prof_johnston_i485", "profiles", -2545.1f, -13268.7f, "I-485", "I-485 under Johnston Rd"),
+            // merges (B5/A7/A8)
+            Along("merge_i85_e3031_near", "merges", 9723.9f, 20811.8f, "I-85", 200f, 120f, 60f, 1, "the I-85 entrance e3031 (node 3268) from 30 m before its merge zone"),
+            Along("merge_i85_e3031_far", "merges", 9723.9f, 20811.8f, "I-85", 570f, 120f, 30f, 2, "the same merge from 400 m back, 30 deg lens: z-fight / pop-in at range"),
+            Along("merge_i77_e8", "merges", -10797.4f, -10724.0f, "I-77", 150f, 0f, 60f, 1, "the style-T merge of e8 into I-77 at node 14"),
+            Along("merge_i77_node0", "merges", -10817.4f, -10791.7f, "I-77", 150f, 0f, 60f, 1, "the I-77 southbound diverge at node 0 (e0 off e11212)"),
+            // junctions (A3/A4/A10/A11)
+            Top("fork_n9862", "junctions", -9391f, -7086f, "", 110f, "ramp fork n9862 e8180/e8181: 196 m drawn inside each other"),
+            Top("cluster_ntryon_harris", "junctions", 6189.1f, 13447.0f, "Tryon", 60f, "N Tryon St x W T Harris Blvd: four fans, the median grass through the box"),
+            Top("cluster_mallard_harris", "junctions", 3545.7f, 14893.7f, "Mallard", 60f, "Mallard Creek Rd x W T Harris Blvd: a grass diamond in the box"),
+            Top("cluster_pineville_carmel", "junctions", -2497.6f, -10765.0f, "Pineville", 60f, "Pineville-Matthews Rd x Carmel Rd: four fans overlapping in the middle"),
+            // paint (B3/A5/A8)
+            Top("paint_morehead_e1427", "paint", -4552.9f, 4905.2f, "Morehead", 25f, "W Morehead St e1427: lanes=3 f/b=2/1 drawn as a TWLTL"),
+            Top("paint_mtholly_e1967", "paint", -15328.2f, 12916.9f, "Mount Holly", 25f, "Mount Holly Rd e1967: lanes=4 f/b=1/3 drawn 2|2"),
+            Top("paint_i85_mw6_e2121", "paint", 8632.2f, 19445.4f, "I-85", 32f, "I-85 mw6 e2121: the widest freeway lines"),
+            Top("paint_stryon_e11444", "paint", -2462.3f, 4609.9f, "Tryon", 25f, "S Tryon St e11444"),
+            Top("paint_westblvd_e10174", "paint", -10258.6f, 1588.6f, "West Boulevard", 25f, "West Blvd e10174"),
+            // lateral (B5/B6/A6)
+            Top("lat_pineville_10874", "lateral", 2629.0f, -9877.9f, "Pineville", 40f, "Pineville-Matthews Rd node 10874: lanes jump 9 m across the junction"),
+            Top("lat_steele_14505", "lateral", -14568.5f, -5350.2f, "Steele Creek", 40f, "Steele Creek Rd node 14505 (signal): tw3t/tw4 jog"),
+            Top("lat_ntryon_11669", "lateral", -640.0f, 6268.3f, "Tryon", 40f, "N Tryon St node 11669: a lane drop of 7 m"),
+            Top("lat_gleneagles_20141", "lateral", -1822.6f, -7350.8f, "Gleneagles", 30f, "Gleneagles Rd e20141: a 25 m tw5t piece that bulges"),
+        };
+
+        /// <summary>The nearest point on an edge whose name contains
+        /// <paramref name="road"/> (any road when empty) within 120 m.</summary>
+        static bool SnapNamed(CityMap map, Vector2 p, string road, out CityMap.Edge edge, out float s)
+        {
+            edge = null; s = 0f;
+            var segs = new HashSet<int>();
+            map.EdgeSegsInRect(p - Vector2.one * 120f, p + Vector2.one * 120f, segs);
+            float best = float.MaxValue;
+            foreach (int packed in segs)
+            {
+                int ei = packed >> 12, si = packed & 0xFFF;
+                var e = map.edges[ei];
+                if (si + 1 >= e.pts.Length) continue;
+                if (!string.IsNullOrEmpty(road) && (e.name == null || e.name.IndexOf(road, System.StringComparison.OrdinalIgnoreCase) < 0)) continue;
+                Vector2 q0 = e.pts[si], d = e.pts[si + 1] - q0;
+                float L2 = d.sqrMagnitude;
+                float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - q0, d) / L2) : 0f;
+                float dd = Vector2.Distance(p, q0 + d * t);
+                if (dd < best) { best = dd; edge = e; s = e.s[si] + Mathf.Sqrt(L2) * t; }
+            }
+            return edge != null;
+        }
+
+        /// <summary>Walk back along the road's direction of travel from arc s of
+        /// e by <paramref name="dist"/>, through the node at each edge's start
+        /// onto the edge that runs into it (same name first). Point, travel
+        /// direction, edge and arc where it stopped.</summary>
+        static void WalkBack(CityMap map, CityMap.Edge e, float s, float dist, out Vector2 p, out Vector2 dir, out CityMap.Edge at, out float sAt)
+        {
+            int guard = 0;
+            while (dist > s && guard++ < 40)
+            {
+                dist -= s;
+                int n = e.a;
+                CityMap.Edge prev = null;
+                foreach (int ei in map.nodeEdges[n])
+                {
+                    var o = map.edges[ei];
+                    if (o == e || o.b != n || o.a == o.b) continue;
+                    if (prev == null || (o.name == e.name && prev.name != e.name) || (!o.link && prev.link)) prev = o;
+                }
+                if (prev == null) { dist = s; break; }
+                e = prev; s = e.length;
+            }
+            sAt = Mathf.Max(0f, s - dist);
+            at = e;
+            p = LineModel.LanePoint(e, sAt);
+            dir = e.TangentAt(sAt);
+        }
+
+        static bool ShootNamed(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings,
+                               GameObject world, List<GameObject> roots, string dir, NamedView v, System.Text.StringBuilder log)
+        {
+            if (!SnapNamed(map, v.at, v.road, out var e, out float s)) return false;
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            Vector3 eye, look; float ortho = 0f, fov = v.fov > 0f ? v.fov : 60f, near = 0.3f;
+            Vector2 ringAt = v.at; int ring = v.ring;
+            float y = e.YAt(s);
+            var vex = (GameObject)null;
+            switch (v.kind)
+            {
+                case ViewKind.Eye:
+                {
+                    // the owner's camera: on the point itself, at the road's height there
+                    float h = v.hdg * Mathf.Deg2Rad;
+                    var d = new Vector3(Mathf.Sin(h), 0f, Mathf.Cos(h));
+                    eye = new Vector3(v.at.x, y + 1.2f, v.at.y);
+                    look = eye + d * 60f + Vector3.down * 1.0f;
+                    near = 0.2f;   // the chase camera's (ChaseCamera.cs), so depth precision matches the game
+                    break;
+                }
+                case ViewKind.Top:
+                    eye = new Vector3(v.at.x, y + 300f, v.at.y); look = eye + Vector3.down; ortho = v.size;
+                    break;
+                case ViewKind.Profile:
+                {
+                    var t = e.TangentAt(s);
+                    var side = new Vector2(t.y, -t.x);   // the right of the road's travel
+                    eye = new Vector3(v.at.x + side.x * 400f, y, v.at.y + side.y * 400f);
+                    look = new Vector3(v.at.x, y, v.at.y);
+                    ortho = v.size;
+                    break;
+                }
+                default:   // Along
+                {
+                    WalkBack(map, e, s, v.back, out var pe, out var de, out var ee, out float se);
+                    WalkBack(map, e, s, v.look, out var pl, out _, out var el, out float sl);
+                    eye = new Vector3(pe.x, ee.YAt(se) + 1.2f, pe.y);
+                    look = new Vector3(pl.x, el.YAt(sl) + 1.0f, pl.y);
+                    if ((look - eye).sqrMagnitude < 1f) look = eye + new Vector3(de.x, 0f, de.y) * 50f;
+                    ringAt = new Vector2(0.5f * (eye.x + look.x), 0.5f * (eye.z + look.z));
+                    near = 0.2f;
+                    break;
+                }
+            }
+            var tiles = BuildRing(map, trims, buildings, world, ringAt, ring, out var stats);
+            roots.AddRange(tiles);
+            if (v.kind == ViewKind.Profile)
+            {
+                // the roads alone, heights x5 about the road's own height there
+                const float Ve = 5f;
+                vex = new GameObject("~vex");
+                vex.transform.position = new Vector3(0f, -(Ve - 1f) * y, 0f);
+                vex.transform.localScale = new Vector3(1f, Ve, 1f);
+                foreach (var t in tiles)
+                {
+                    t.transform.SetParent(vex.transform, false);   // keep the LOCAL pose, so the parent's scale applies
+                    foreach (Transform c in t.transform) if (c.name != "roads" && c.name != "barriers") c.gameObject.SetActive(false);
+                }
+                roots.Add(vex);
+            }
+            Debug.Log($"[CityPreview] {v.name}: {stats}");
+            Shoot(dir, v.name, eye, Quaternion.LookRotation(look - eye, v.kind == ViewKind.Top ? Vector3.forward : Vector3.up), ortho, 3000f, 1280, 720, fov, near);
+            log.Append(string.Format(inv, "{0}\t{1}\t{2:0.0}\t{3:0.00}\t{4:0.0}\t{5:0.0}\t{6:0.00}\t{7:0.0}\t{8:0}\t{9:0}\t{10} (e{11} '{12}' s={13:0}) {14}\n",
+                v.name, v.group, eye.x, eye.y, eye.z, look.x, look.y, look.z, ortho, fov, v.what, e.index, e.name, s, CityAudit.LatLon(v.at.x, v.at.y)));
+            foreach (var t in tiles) if (t != null) Object.DestroyImmediate(t);
+            if (vex != null) Object.DestroyImmediate(vex);
+            roots.RemoveAll(r => r == null);
+            return true;
         }
 
         /// <summary>
@@ -395,16 +643,16 @@ namespace PSXRacing.EditorTools
         }
 
         static void Shoot(string dir, string name, Vector3 pos, Quaternion rot, float ortho, float far = 3000f,
-                          int w = 960, int h = 540)
+                          int w = 960, int h = 540, float fov = 60f, float near = 0.3f)
         {
             var camGO = new GameObject("~previewCam");
             var cam = camGO.AddComponent<Camera>();
             cam.transform.SetPositionAndRotation(pos, rot);
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = new Color(0.72f, 0.78f, 0.86f);
-            cam.nearClipPlane = 0.3f;
+            cam.nearClipPlane = near;
             cam.farClipPlane = far;
-            cam.fieldOfView = 60f;
+            cam.fieldOfView = fov;
             if (ortho > 0f) { cam.orthographic = true; cam.orthographicSize = ortho; }
 
             var rt = new RenderTexture(w, h, 24);

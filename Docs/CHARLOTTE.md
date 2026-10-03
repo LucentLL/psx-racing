@@ -3923,6 +3923,146 @@ package, added before "Not in v1". Earlier sections are history: where one
 disagrees with a later one (the test page above still describes publishing
 `/city/` from the `charlotte` branch with `PSXCity`), the later one holds.
 
+## A1 (roads pass, 2026-10-02): the mesh instruments - coverage, turning movements, compression, the owner's views
+
+Before A1 no audit could see what the owner described: "no gaps", "not
+short of merging, not going too far where texture pop-up happens later",
+"dip down and go up under bridges ... at angles". The overlap census ignores
+anything within 25 cm in height, the drive audit probes lanes along edges on
+nine tiles, and the launch audit only sees crests. A1 adds the instruments.
+It changes no road: the CITY AUDIT reads the same 4 failures, the launch
+counter the same 121 / 711, the tiles are byte-identical with the tap on.
+
+**COVERAGE** (`Editor/CityAudit.Coverage.cs`, the `CoverageReport` hook;
+headless `CityCoverage.RunHeadless`, runner `tools\city-coverage.ps1`).
+
+- Every tile in scope is built with `CityMeshes.RecordTap`, so each road
+  triangle has an OWNER: the edge whose ribbon or deck it is (one owner for
+  both, and for every paint column and span of the edge), the node whose fan,
+  the host whose gore quad. The ground mesh is split into the 8 m LATTICE (all
+  three corners on the grid) and the STRIPS laid off it (verges, seams, half
+  strips, corner fills).
+- Up-facing triangles are rasterised in plan in 8 m blocks: 0.25 m cells, and
+  0.10 m in junction and gore NEIGHBOURHOODS (a fan node's trim + the arm's
+  reach + 5 m; a gore quad + 5 m). Each cell keeps its top six surfaces.
+- The INTENDED OUTLINE (up to four levels a cell): each edge's
+  `LaneExtents` between its trims (squeeze, ease and clip applied; sections
+  on the polyline vertex bisectors and on the mitre at a mitred node, as the
+  builder cuts them; loop edges included), every fan's triangles, every gore
+  quad, and each JUNCTION CLUSTER's convex hull (`CityJunctionClusters`: fan
+  nodes joined by an edge the two fans swallow, or by a median crossing of
+  30 m or less - one intersection drawn as several fans, until A11).
+- The blocks, each m2 by tier (a pair takes the better tier):
+  - `COVERAGE COPLANAR`: two owners within 5 cm. Relations: fan/fan (same
+    cluster, other), fan over its own arm / a cluster mate's arm / a foreign
+    road, arm/arm (two ribbons of one node), branch/host (a clip pair),
+    ribbon/ribbon, gore/road, and the mitre seam of a through pair (noise
+    level: 119 m2 T1 city-wide). The deck share is printed apart.
+  - `COVERAGE HOLES`: outline cells (eroded one cell) with no road surface
+    within 0.6 m of the outline's height, by outline kind (ribbon, deck,
+    fan, gore, cluster box).
+  - `COVERAGE OUTSIDE`: road surface 0.25 m beyond every outline at its
+    height. Near zero by construction (fans and gores are their own
+    outline): it catches a ribbon drawn past its own footprint.
+  - `COVERAGE OVERSHOOT`: a clipped branch's surface over its host's
+    (within 0.6 m), and of it past the host's far lane edge.
+  - `COVERAGE UNDERLAP`: a surface 0.5-8 cm under a road surface, by what is
+    under it (a road piece, a strip, the lattice): flicker at range.
+  - `COVERAGE TAP IDENTITY` (the one Check): four tiles of the owner's box
+    built with the tap off and on are the same numbers.
+  - `COVERAGE DATA GAPS` (critic C9, report only, city-wide always: graph
+    only): interior dead ends 0.3-6 m SHORT of another road at the same
+    layer, or INSIDE its pavement, by tier, with the list. HOLES cannot see
+    these (the outline is built from the same edges); B1/B8/B9's welds are
+    measured here.
+- Scope (critic C7): boxed to `CityAudit.OwnerBox` unless
+  `PSX_AUDIT_FULL=1` or `PSX_COVER_BOX`; tiers `PSX_COVER_TIER`. A city-wide
+  run also prints the OwnerBox and W5th sub-boxes, so a boxed package run has
+  a number to compare with. City-wide: 728 s (13,938 tiles); the default box
+  about a minute. Writes `city_coverage.txt` / `.json` at the project root.
+
+**The launch audit's A1 blocks** (`Editor/CityLaunchAudit.cs`;
+`tools\city-launch.ps1` now also copies `city_launch.json`). The LAUNCH
+counter keeps its paths, so it stays comparable with 2026-10-02.
+
+- `LAUNCH BY TIER`: the counter split (T1 46 / T2 63 / T3 12).
+- `FLOWN TURNS OFF THE PAVEMENT`: flown turns whose break lies on land,
+  counted APART from LAUNCH, as fails by tier (0 today: such samples have no
+  height to fly from).
+- `PATH MISSES BY TIER`: the flown paths' samples off their own pavement
+  (nothing within 3 m / land first / a lower road), split into edge paths,
+  movement arms and movement arcs.
+- `TURNING MOVEMENTS`: every legal movement through every lone fan and every
+  junction cluster, from each arm entering it to each arm leaving it (one-way
+  respected, turns over 135 deg left out), on LANE-CORRECT lines (a right
+  turn from the rightmost lane to the rightmost, a left from the innermost to
+  the innermost, through on the rightmost; lanes counted in from the right of
+  travel off the line model's extents), trim + 10 m to trim + 10 m, a sample
+  every 0.5 m. Appended to the flown samples, read off the same meshes, never
+  flown. A movement FAILS when a sample has no road of its own (the launch
+  audit's 0.6 m level rule) and STEPS at 12 cm in 0.5 m. Lone fans and
+  clusters apart, by tier (a movement takes its better arm's tier), with the
+  turn type.
+- `COMPRESSION` (critic C6): on the flown paths' 1 m samples every grade
+  break is found (one sign, past 0.03 %, consecutive samples = one break) and
+  a SAG break A is judged against what a vertical curve sampled at the
+  solver's own stations breaks there: `A <= (h1 + h2) / (2 R_sag) + 0.1 %`,
+  h1 and h2 the distances to the neighbouring breaks (each capped at 10 m),
+  R_sag AASHTO's comfort radius at the design speed (owner_decisions / B2:
+  motorway 65, trunk and primary 50, secondary, tertiary and freeway ramps
+  40, other links 35, local 30, 25 mph in the last 30 m before a STOP or a
+  signal; radii 2,774 / 1,640 / 1,049 / 803 / 590 / 410 m). B4's curves pass
+  and a corner does not: I-77's trench V under W 5th breaks 6.74 % where
+  0.44 % is allowed. One spot per 6 m, by tier and by the launch audit's
+  causes.
+
+**The views** (`Editor/CityPreview.cs`). `PSX_PREVIEW_SPOTS` takes shot
+names or groups (`w5th_owner,merge_i85_e3031_far`, `merges`, `all`, a
+prefix*). Unset, the preview shoots what it always did plus the W 5th group.
+The NAMED VIEWS, each standing on the nearest edge with the given name to a
+2026-10-02 plan point (so a re-export that renumbers edges moves nothing),
+and `preview_spots.txt` says where each camera stood:
+
+| Group | Views |
+|---|---|
+| w5th | `w5th_owner` (node 2069, heading 134, 1.2 m eye, near plane 0.2: the owner's frame, eastbound onto the bridge), `w5th_wb` (westbound from the east signal, heading 314), `w5th_west_junction` (top, n4116/n4117) |
+| twin | `twin_i277` (e1910/e1921), `twin_e2437` (the negative case) |
+| profiles | `prof_w5th_i77`, `prof_i277_belk`, `prof_sunset_i77`, `prof_johnston_i485`: side elevations, the roads alone, heights x5 |
+| merges | `merge_i85_e3031_near` / `_far` (the I-85 entrance from 200 m and 570 m back, the far one through a 30 deg lens: pop-in at range), `merge_i77_e8`, `merge_i77_node0` |
+| junctions | `fork_n9862`, `cluster_ntryon_harris`, `cluster_mallard_harris`, `cluster_pineville_carmel` |
+| paint | `paint_morehead_e1427`, `paint_mtholly_e1967`, `paint_i85_mw6_e2121`, `paint_stryon_e11444`, `paint_westblvd_e10174` |
+| lateral | `lat_pineville_10874`, `lat_steele_14505`, `lat_ntryon_11669`, `lat_gleneagles_20141` |
+
+The reference spots gain `sv_w5th_west` (35.23801,-80.85467, heading 134):
+`city-refspots -Before` shows the owner's frame before and after.
+
+**The BEFORE baseline**: `tools/city/baseline/mesh_audit_baseline.json`
+(main@4924a98d plus these instruments, graph 089d7141), city-wide with the
+OwnerBox and W5th sub-boxes, the city-wide launch numbers, a boxed launch
+over W 5th, the replica comparison and the caveats. The headline:
+
+| Metric | T1 | T2 | T3 |
+|---|---|---|---|
+| COPLANAR m2 (fan/fan, arm/arm, branch/host, gore/road) | 1,382 / 3,486 / 1,117 / 30,223 | 456 / 4,958 / 1,631 / 27,331 | 14 / 151 / 49 / 1,098 |
+| HOLES in cluster boxes m2 (clusters over 2 m2) | 20,742 (322) | 9,219 (251) | 315 (19) |
+| OVERSHOOT branch over host m2 | 1,662 | 1,863 | 55 |
+| UNDERLAP m2 (road / strip / lattice) | 35,558 / 80,071 / 5,166 | 32,270 / 48,553 / 6,297 | 1,563 / 2,174 / 2,174 |
+| DATA GAPS short / inside | 3 / 0 | 3 / 1 | 18 / 3 |
+| TURNING off pavement: lone fans, clusters | 12 of 2,211, 327 of 2,395 | 28 of 7,666, 243 of 2,545 | 7 of 12,691, 8 of 337 |
+| COMPRESSION sag places (of them trench) | 11,846 (514) | 17,859 | 6,853 |
+
+W 5th itself (the W5th sub-box): the west junction n4116/n4117 has 55 m2 of
+grass inside its box and the WB left e5448 -> e2909 leaves the pavement for
+1.5 m; the east junction 19 m2; the I-77 trench V breaks 6.74 % and 4.58 %.
+
+**For the packages after this one.** Every check is REPORT state. A package
+flips its own checks to `Check()` for its tier (A3: arm/arm, branch/host,
+underlaps; A11: cluster holes and cluster movements; B4: COMPRESSION), runs
+boxed (`tools\city-coverage.ps1`, about a minute, or its AuditOnly with the
+default box), and compares with the OwnerBox sub-box of the baseline. The
+release gates run `city-cycle -Full` (coverage city-wide, 12 min) and
+`city-launch` (8 min).
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

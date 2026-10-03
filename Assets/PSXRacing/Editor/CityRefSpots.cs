@@ -68,6 +68,9 @@ namespace PSXRacing.EditorTools
             new Spot("sv_a13_brentwood", Kind.StreetView, 35.21548, -80.87690, "Brentwood", 328f, "A13 Brentwood Pl, west side"),
             new Spot("sv_a14_i85", Kind.StreetView, 35.26123, -80.87953, "I-85", 45f, "A14 I-85 in the suburbs"),
             new Spot("sv_a15_albemarle", Kind.StreetView, 35.20239, -80.72967, "Albemarle", 95f, "A15 Albemarle Rd"),
+            // the roads pass (A1, 2026-10-02): the owner's own frame - W 5th St at node 2069, the west end of
+            // the bridge over I-77, heading 134 (two decks, four parapets, where Street View shows one bridge)
+            new Spot("sv_w5th_west", Kind.StreetView, 35.23801, -80.85467, "West 5th", 134f, "W 5th St over I-77 from node 2069, the owner's frame"),
 
             // ---- kinks: census worst 20 (kinks/worst20.json) + the verdict-only spots
             new Spot("kink01_beatties_gilead", Kind.Kink, 35.422512, -80.915943, "Beatties Ford", 0f, "#1 77 deg, genuine skewed junction"),
