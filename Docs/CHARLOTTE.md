@@ -4590,6 +4590,58 @@ where no channel shows on the lattice within 60 m - 134 - or the walk never
 clears every road's clear zone - 54); the three corrections are unmeasured
 in a city audit; the Elizabeth Avenue launch spot is open.
 
+## L1 (roads pass, 2026-10-02): B2 merged, R1 published, one lane from here
+
+`city-pass@113bebaa` (B2) is merged into main on top of A2 (`6a1cf396`), and
+release R1 ("West 5th": twin decks as one structure, creeks piped under the
+road, one trench decision per crossing) is published to both editions from
+that main commit. The lean plan replaces the two lanes: every later step works
+in this tree, with the Unity sandbox `C:\Users\mcgee\PSXBuild`. `city-pass` is
+left equal to main, and `PSX Racing-city` / `PSXCity` are not used again.
+
+- **The merge.** It had one conflict, in this file (the A2 and B2 sections),
+  and both are kept in commit order. `export_osm.mjs --check` passes in this
+  tree, where the caches now live: 15 of 15 inputs, the four files IDENTICAL,
+  and `charlotte_city.bytes` at 5,694,168 B.
+- **linecheck (C3).** It was STALE on SPAN and the replica, as B2 left it, and
+  was re-recorded on main without `--allow-loosen`. The worst values are
+  unchanged. B2 KINK went from 96,864 runs and 747,802 m to 96,842 runs and
+  747,970 m, and D1 from 817 to 818. The numbers are in the merge commit.
+- **The CITY AUDIT on main (OwnerBox scope, PSXBuild) has 13 failures.**
+  - **The 4 known ones:** 3 grades over 16 %, worst 17.5 % (B2's culvert-window
+    correction brought it back from 6); 1 ledge; 2,803 margin stations
+    (3,078 after B1, 2,831 before it); and culvert embankments, now 2.
+  - **TWIN e:** p95 0.080 m and max 0.291 m, at the deck ends.
+  - **TWIN a/b/c/d:** 249 m, 132 m, 74 and 2.
+  - **Rail census:** 8 runs, 8 m.
+  - **FACE:** 1.
+  - **PROFILE DOUBLE:** 1.
+  - **PROFILE PAIRS:** 15 of 327, worst 1.05 m. It was 51 in B2's last run,
+    before its relax-slack correction.
+
+  The DRIVE AUDIT reads zeros, and W 5th passes both of its checks: the lateral
+  check, and the I-77 carriageways 0.24 m apart with a 5.67 m separation.
+- **Boxed launch** (-4000,3300,-1000,6600): 16 LAUNCH (T1 3 / T2 10 / T3 3)
+  and 86 UNLOAD. The race routes have 0 LAUNCH. B2's new Elizabeth Ave spot
+  (node 6995) is gone. Only the East 11th St fan (node 675, 0.24 m) is new
+  against the 15 baseline spots.
+- **Before the publish.** `city-rebake` passed: CITY BUILD OK, 4 scenes.
+  The watched `city-play-check` has 1 failure, the known one. The drive-off
+  finds no cut spot on the routes (2 fill, 0 cut, 2 level), the same as in
+  PSXCity and PSXRec since 2026-09-30. Every car is on its street, at street
+  height.
+- **Known, carried forward:**
+  - **TWIN a-d residue.** Three I-77 pairs south of W 5th (e1876/e1880,
+    e1877/e1891, e1255/e6672) stand 1.05-1.15 m apart. That is past A2's
+    1.0 m split-level line, so they get no union run. The fix is the vertical
+    pass (L3/B4) holding them within 1 m, with no A2 change.
+  - **TWIN e** at the deck ends (L3).
+  - **The Highland Creek Parkway culvert HOLE.** e19428 stands at 110.40 and
+    e13028 at 107.07 over one pipe, 10.5 m apart. B2's culvert twin hold does
+    not hold it in the final solve.
+  - **The E 11th St fan launch** (L7 junctions).
+  - **The rail census and FACE** at staggered union ends (A2 item 3/4).
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,
