@@ -213,7 +213,7 @@ PSX Racing — catalog car to body shell
     = 1996 ger 4WD 1380kg  520hp Coupe    RUF CTR2 `96
 
 === midship_coupe  (Midship coupe (NSX), Japan 1990 Sports)  — 12 cars
-    wheelbase 2.53 m, track 1.51 m, tyre 0.282 m, 1 liveries
+    wheelbase 2.53 m, track 1.54 m, tyre 0.276 m, 1 liveries
     = 1990 jpn MR  1349kg  280hp GT       Honda NSX `90
     = 1991 jpn MR  1365kg  274hp GT       Acura NSX `91
     = 1992 jpn MR  1273kg  280hp GT       Honda NSX Type R `92
@@ -246,7 +246,7 @@ PSX Racing — catalog car to body shell
     = 1999 eur FF  1271kg  230hp Coupe    Spoon INTEGRA TYPE R (DC2) `99
 
 === roadster_99  (Roadster 99 (S2000), Japan 1999 Roadster)  — 1 car
-    wheelbase 2.40 m, track 1.47 m, tyre 0.288 m, 1 liveries
+    wheelbase 2.41 m, track 1.42 m, tyre 0.301 m, 1 liveries
     = 1999 jpn FR  1284kg  250hp Roadster Honda S2000 `99
 
 === coupe_99  (Coupe 99 (Prelude), Japan 1996 Sports)  — 4 cars

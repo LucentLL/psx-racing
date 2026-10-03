@@ -7,7 +7,7 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: roadster_99_roadster_256
+  m_Name: roadster_99_s2000_red_512x256
   m_Shader: {fileID: 4800000, guid: f6c0dfc7e80b0564dacbd7b9dfb6db5d, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
@@ -24,7 +24,7 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _MainTex:
-        m_Texture: {fileID: 2800000, guid: ca13f75d877391b42a9be867034685d4, type: 3}
+        m_Texture: {fileID: 2800000, guid: 766d3630de0550c4eb6e2e7d1866fdec, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []

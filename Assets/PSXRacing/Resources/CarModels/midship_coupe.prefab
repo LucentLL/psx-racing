@@ -49,29 +49,29 @@ MonoBehaviour:
   bodyMesh: {fileID: -2432090755550338912, guid: 9292f5257c57d17438f18646a1ae0af5, type: 3}
   wheelMesh: {fileID: 4300000, guid: 125d2dcabe8c96c45afdc881d9be71bd, type: 2}
   skinMaterials:
-  - {fileID: 2100000, guid: e26918d82bddabd43bc3b9531d969b26, type: 2}
+  - {fileID: 2100000, guid: 15c22b62aed401949a1198a1ce864257, type: 2}
   skinNames:
-  - midship_atlas_512x256
+  - midship_coupe_yellow_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.41514397, g: 0.15230274, b: 0.15127103, a: 1}
+  - {r: 0.6389415, g: 0.5526768, b: 0.15061548, a: 1}
   bodyYaw: 180
-  bodyYOffset: -0.021192951
+  bodyYOffset: -0.020743385
   bodyZOffset: 0
-  wheelbase: 2.532143
-  trackWidth: 1.5112791
-  wheelRadius: 0.28156355
+  wheelbase: 2.534861
+  trackWidth: 1.5377359
+  wheelRadius: 0.2755911
   wheelMeshScale: 0.93
-  cowlZ: 1.0518256
-  cowlY: 0.7375038
-  noseZ: 2.311607
-  roofY: 1.1496172
-  headLamp: {x: 0.6237123, y: 0.44108778, z: 2.296352}
-  headLampNormal: {x: 0.057674468, y: 0.16329329, z: 0.98489034}
-  headLampSize: {x: 0.22937948, y: 0.07}
-  tailLamp: {x: 0.5546875, y: 0.5448556, z: -2.0968513}
-  tailLampNormal: {x: 0.027833132, y: 0.15690733, z: -0.98722106}
-  tailLampSize: {x: 0.43676305, y: 0.13853577}
-  colliderCenter: {x: 0, y: 0.66186804, z: 0.09660697}
-  colliderSize: {x: 1.6905211, y: 0.9142739, z: 4.23065}
-  blobSize: {x: 2.254028, y: 4.7401}
+  cowlZ: 1.098819
+  cowlY: 0.74406666
+  noseZ: 2.1924753
+  roofY: 1.147529
+  headLamp: {x: 0.5203234, y: 0.4281764, z: 2.0885153}
+  headLampNormal: {x: 0.31099093, y: 0, z: 0.9504129}
+  headLampSize: {x: 0.1848402, y: 0.07}
+  tailLamp: {x: 0.5692944, y: 0.7540767, z: -2.11335}
+  tailLampNormal: {x: 0.07746492, y: 0, z: -0.9969951}
+  tailLampSize: {x: 0.3703514, y: 0.18994498}
+  colliderCenter: {x: 0, y: 0.6449856, z: -0.022524953}
+  colliderSize: {x: 1.7899303, y: 0.94066197, z: 4.2306504}
+  blobSize: {x: 2.3865738, y: 4.7401004}

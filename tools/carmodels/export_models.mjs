@@ -108,10 +108,16 @@ const MODELS = [
   { key: 'flatsix_turbo_96', obj: `${ownerCars}/FlatSix_Turbo_96_PSX/flat_six_turbo_96.obj`,
     tex: `${ownerCars}/FlatSix_Turbo_96_PSX`, skins: /^coupe_atlas_256$/,
     gt4LengthM: 4.290 },
-  // 2026-10-02: the NSX's UNDERBODY (MR: the engine behind the seats) on a
-  // 512x256 atlas, the 256 exterior unchanged in its left half.
-  { key: 'midship_coupe', obj: `${ownerCars}/Midship_Coupe_PSX/midship_coupe.obj`,
-    tex: `${ownerCars}/Midship_Coupe_PSX`, skins: /^midship_atlas_512x256$/,
+  // 2026-10-03 ("I updated NSX and S2000 models"): v04 of the independent
+  // NSX (Cars/NSX_Independent_Textured_v04) - lower wedge headlight lids,
+  // the 1.55 m swept rear lens band, shallow painted side intakes, MR
+  // underbody kept; 2,922 body tris + 4 x 124, one 512x256 atlas (yellow).
+  // Delivered as GLB only: tools/carmodels/glb2obj.py turned the HEADLIGHTS-
+  // DOWN variant (pop-ups closed) into converted/midship_coupe_v04. The same
+  // folder's coupe_v04_headlights_up.glb (lamps raised, same atlas) is kept
+  // for a possible night pop-up feature - not built.
+  { key: 'midship_coupe', obj: `${here}/converted/midship_coupe_v04/midship_coupe_v04.obj`,
+    tex: `${ownerCars}/NSX_Independent_Textured_v04`, skins: /^midship_coupe_yellow_512x256$/,
     gt4LengthM: 4.430 },
   { key: 'classic_roadster', obj: `${ownerCars}/Classic_Roadster_PSX/classic_roadster.obj`,
     tex: `${ownerCars}/Classic_Roadster_PSX`, skins: /^roadster_atlas_256$/,
@@ -123,15 +129,19 @@ const MODELS = [
   //   Liftback 95 = Honda INTEGRA TYPE R (DC2): 4380 mm, wb 2570 (FF underbody,
   //                 512x256). Reference-derived from OUTPISTON's Sketchfab
   //                 Integra, CC BY-NC-SA 4.0 (Cars/Liftback_95_PSX/READ_ME_FIRST).
-  //   Roadster 99 = Honda S2000 `99: 4135 mm, wb 2400 (Revision_02, the
-  //                 folder's CURRENT_VERSION; one 256 atlas).
+  //   Roadster 99 = Honda S2000 `99: 4135 mm, wb 2400. 2026-10-03: v02 of
+  //                 the independent rebuild (Cars/S2000_Independent_Textured_
+  //                 v02: reworked rear bumper, rounder soft top, painted
+  //                 shut lines; 2,700 body tris + 4 x 200, red 512x256 with
+  //                 an underbody), GLB -> converted/roadster_99_v02 by
+  //                 glb2obj.py. Replaced Roadster_99_Original/Revision_02.
   //   Coupe 99    = Honda PRELUDE (5th gen) `96-`98: 4520 mm, wb 2585
   //                 (Revision_04, FF underbody, 512x256).
   { key: 'liftback_95', obj: `${ownerCars}/Liftback_95_PSX/liftback95.obj`,
     tex: `${ownerCars}/Liftback_95_PSX`, skins: /^liftback95_atlas_512x256$/,
     gt4LengthM: 4.380 },
-  { key: 'roadster_99', obj: `${ownerCars}/Roadster_99_Original/Revision_02/roadster_99.obj`,
-    tex: `${ownerCars}/Roadster_99_Original/Revision_02`, skins: /^roadster_256$/,
+  { key: 'roadster_99', obj: `${here}/converted/roadster_99_v02/roadster_99_v02.obj`,
+    tex: `${ownerCars}/S2000_Independent_Textured_v02`, skins: /^s2000_red_512x256$/,
     gt4LengthM: 4.135 },
   { key: 'coupe_99', obj: `${ownerCars}/Coupe_99_Original/Revision_04/coupe_99.obj`,
     tex: `${ownerCars}/Coupe_99_Original/Revision_04`, skins: /^coupe_512x256$/,
