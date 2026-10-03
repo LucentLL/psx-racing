@@ -1010,6 +1010,8 @@ namespace PSXRacing.City
             // the twin-deck table on what is on structure NOW (critic C1):
             // decks only the solve made, side by side, are pairs too
             DeckPairs.Complete(map);
+            // plan L3: a union's two decks end on ONE abutment line
+            UnionAbutments(map);
             MeasureTwinDy(map);
             MeasureSags(map);
 
@@ -1019,7 +1021,7 @@ namespace PSXRacing.City
             TwinHoldReport = !TwinHoldsOn ? "twin holds OFF (PSX_CITY_TWINHOLD=0)"
                 : $"twin holds: {TwinHoldMoves} raises in the cone loop ({TwinHoldSkipped} station checks left apart, more than {TwinHoldMaxDyM} m off their partner); after the curves {TwinDyBeforeFinal:0.000} m apart at worst, the pointwise hold raised {TwinFinalRaised} stations (up to {TwinFinalRaiseMax:0.000} m; {TwinFinalClamped} taken back by the crest guard; sag added up to {TwinFinalSagAdded * 100f:0.00}%, crest added up to {TwinFinalCrestAdded * 100f:0.000}%), worst station dy now {TwinDyAfterCurves:0.000} m; TWIN (e) p50 {TwinDyP50:0.000} / p95 {TwinDyP95:0.000} / max {TwinDyMax:0.000} m over {TwinDySamples} samples" +
                   (TwinDyWorstPair >= 0 ? $" (e{map.deckPairs[TwinDyWorstPair].a}/e{map.deckPairs[TwinDyWorstPair].b})" : "") +
-                  $"; deck ends aligned on {TwinAlignedPairs} pairs (+{TwinAlignedStations} stations on structure); 3.5 m margin stations {MarginStructureStations} ({MarginStationsNearTwins} on or beside a twin deck's edge)";
+                  $"; deck ends aligned on {TwinAlignedPairs} pairs (+{TwinAlignedStations} stations on structure); one abutment line (L3): {AbutmentEnds} deck ends carried on to their twin's on {AbutmentPairs} pairs (up to {AbutmentMaxM:0.0} m; {AbutmentStations} stations inserted; {AbutmentSkipped} left: a junction or more than {TwinAlignMaxM:0} m); 3.5 m margin stations {MarginStructureStations} ({MarginStationsNearTwins} on or beside a twin deck's edge)";
             roadDem = null;
             pairCands = null;
             pairBlocks = null;
@@ -2785,6 +2787,50 @@ namespace PSXRacing.City
         /// 1 m/s is 5 cm - the springs' static compression, the wheels just
         /// keep their load.</summary>
         public const float VcurveKickMs = 1.0f;
+
+        /// <summary>The vertical DESIGN speed (mph) of a road (owner_decisions,
+        /// 2026-10-02): motorway 65, trunk and primary 50, secondary and
+        /// tertiary 40, local 30, ramps 40, loop ramps 30. The PROFILE audit
+        /// judges by the same table (Editor/CityAudit.Profile.cs).</summary>
+        public static float VerticalMph(CityMap.Edge e)
+        {
+            if (e.link) return IsLoopRamp(e) ? 30f : 40f;
+            return e.cls >= 5 ? 65f : e.cls >= 3 ? 50f : e.cls >= 1 ? 40f : 30f;
+        }
+
+        /// <summary>A loop ramp: a link turning 120 degrees or more at a mean
+        /// radius under 120 m (a cloverleaf's loop; a diamond's ramp turns
+        /// less, or wider).</summary>
+        public static bool IsLoopRamp(CityMap.Edge e)
+        {
+            if (!e.link || e.pts == null || e.pts.Length < 3) return false;
+            float turn = 0f;
+            for (int i = 1; i + 1 < e.pts.Length; i++)
+            {
+                Vector2 d0 = e.pts[i] - e.pts[i - 1], d1 = e.pts[i + 1] - e.pts[i];
+                if (d0.sqrMagnitude < 1e-6f || d1.sqrMagnitude < 1e-6f) continue;
+                turn += Mathf.Abs(Vector2.SignedAngle(d0, d1));
+            }
+            return turn >= 120f && e.length / (turn * Mathf.Deg2Rad) < 120f;
+        }
+
+        /// <summary>AASHTO's comfort sag radius (m) at <paramref name="mph"/>:
+        /// K = V^2 / 46.5 ft per %, R = 100 K ft. 2,769 m at 65 mph, 1,639 at
+        /// 50, 1,049 at 40, 590 at 30, 410 at 25.</summary>
+        public static float SagComfortR(float mph) => mph * mph / 46.5f * 100f * 0.3048f;
+
+        /// <summary>PSX_CITY_VSAG=1: the sag side of the limiter (plan L3/B4).
+        /// OFF: L3's two audits (2026-10-03) both broke the profiles. A sag
+        /// lowered its free neighbours, a crest beside a pin raised them, and
+        /// the pair pumped: a deck that may only rise (or the node beside it)
+        /// ended 3-5 m off its approach - I-485 over I-77 52%, I-277 and
+        /// Brookshire Freeway bridges 20-41%, unions split 4-9 m, 55-174 lane
+        /// steps. Sag rounding needs a raise-only rule tried offline first.</summary>
+        public static bool SagLimitOn = System.Environment.GetEnvironmentVariable("PSX_CITY_VSAG") == "1";
+        /// <summary>The last 30 m before a STOP or a signal is judged at 25 mph
+        /// (plan B4): a car stopping there takes a tighter sag.</summary>
+        const float CtlApproachM = 30f, CtlMph = 25f;
+
         /// <summary>PSX_CITY_VCURVES=0 switches the pass off (a measuring
         /// override: the launch audit's BEFORE; nothing sets it in a build).</summary>
         public static bool VerticalCurvesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_VCURVES") != "0";
@@ -2793,6 +2839,11 @@ namespace PSXRacing.City
         static string debugUnsettled = "";
         /// <summary>The most the pass may raise or lower any station: a crest
         /// held between pins is left as it is (and counted), not chased.</summary>
+        /// <summary>Plan B4 asked for 3.0 / 3.0. Tried in L3's first audit
+        /// (2026-10-03): decks that may only rise, rounded on both sides,
+        /// ratcheted up to the cap every round - I-485 and a Brookshire
+        /// Freeway ramp 3-9 m up beside their seats, grades to 41%, unions split
+        /// 8.8 m apart. Kept at 1.5 / 0.8.</summary>
         public const float VcurveMaxRaiseM = 1.5f, VcurveMaxLowerM = 0.8f;
         /// <summary>How far a soft-seated street branch may stand off its
         /// host's height (see VerticalCurves).</summary>
@@ -2856,6 +2907,22 @@ namespace PSXRacing.City
             debugUnsettled = "";
             var R = new float[E];
             for (int i = 0; i < E; i++) R[i] = CrestR(map.edges[i]);
+            // plan L3/B4: THE SAG SIDE of the limiter - AASHTO's comfort radius
+            // at the road's design speed (owner_decisions), 25 mph over the
+            // last 30 m before a STOP or a signal
+            var RS = new float[E];
+            for (int i = 0; i < E; i++) RS[i] = SagLimitOn ? SagComfortR(VerticalMph(map.edges[i])) : 0f;
+            float rsCtl = SagComfortR(CtlMph);
+            bool Ctl(int node) => map.nodeControl != null && node >= 0 && node < map.nodeControl.Length && (map.nodeControl[node] & 6) != 0;
+            float RsAt(CityMap.Edge e, int i)
+            {
+                float r = RS[e.index];
+                if (r <= 0f || e.a == e.b) return r;
+                float s = e.stS[i];
+                if ((s <= CtlApproachM && Ctl(e.a)) || (e.length - s <= CtlApproachM && Ctl(e.b))) r = Mathf.Min(r, rsCtl);
+                return r;
+            }
+            int sagStuck = 0, sagMoves = 0;
 
             // mobility: bit 1 may fall, bit 2 may rise
             const byte Down = 1, Up = 2, Free = 3;
@@ -2888,6 +2955,8 @@ namespace PSXRacing.City
             // cut's lip made the curves round the lip by lifting the window
             // 4.2 m (I-277's ramp e329 under East 7th Street, 17.6% grade,
             // the B2 run)
+            var floorY = new float[E][];
+            float[] NewFloor(int n) { var f = new float[n]; for (int k = 0; k < n; k++) f[k] = float.NegativeInfinity; return f; }
             HashSet<int> cutEdges = null;
             if (trenchWant != null && trenchWant.Count > 0)
             {
@@ -2900,7 +2969,16 @@ namespace PSXRacing.City
                     if (x.edge < 0 || x.edge >= E) continue;
                     var e = map.edges[x.edge];
                     if (cutEdges != null && cutEdges.Contains(x.edge) &&
-                        e.YAt(x.s) > CulvertFloorY(x) + CityCulverts.MinFillM + 3f * VcurveMaxLowerM + 0.1f) continue;
+                        e.YAt(x.s) > CulvertFloorY(x) + CityCulverts.MinFillM + 3f * VcurveMaxLowerM + 0.1f)
+                    {
+                        // no Up-only window, but never under the pipe's cover:
+                        // the curves may lower 3 m a round since plan L3
+                        float fl = CulvertFloorY(x) + CityCulverts.MinFillM;
+                        var fe = floorY[e.index] ??= NewFloor(e.stS.Length);
+                        for (int i = 0; i < e.stS.Length; i++)
+                            if (e.stS[i] >= x.s - x.halfAlong - StationStep && e.stS[i] <= x.s + x.halfAlong + StationStep) fe[i] = Mathf.Max(fe[i], fl);
+                        continue;
+                    }
                     for (int i = 0; i < e.stS.Length; i++)
                         if (e.stS[i] >= x.s - x.halfAlong - StationStep && e.stS[i] <= x.s + x.halfAlong + StationStep) mob[e.index][i] &= Up;
                 }
@@ -3057,7 +3135,8 @@ namespace PSXRacing.City
             var nodeBefore = (float[])map.nodeY.Clone();
             // no station moves further than this from where the pass found it:
             // a crest held between pins is left, not chased up the hill
-            float Lo(CityMap.Edge e, int i) => (e.a != e.b && i == 0 ? nodeBefore[e.a] : e.a != e.b && i == e.stY.Length - 1 ? nodeBefore[e.b] : before[e.index][i]) - VcurveMaxLowerM;
+            float Lo(CityMap.Edge e, int i) => Mathf.Max((e.a != e.b && i == 0 ? nodeBefore[e.a] : e.a != e.b && i == e.stY.Length - 1 ? nodeBefore[e.b] : before[e.index][i]) - VcurveMaxLowerM,
+                                                       floorY[e.index] != null ? floorY[e.index][i] : float.NegativeInfinity);
             float Hi(CityMap.Edge e, int i) => (e.a != e.b && i == 0 ? nodeBefore[e.a] : e.a != e.b && i == e.stY.Length - 1 ? nodeBefore[e.b] : before[e.index][i]) + VcurveMaxRaiseM;
 
             void Touch(CityMap.Edge e, int i)
@@ -3087,14 +3166,37 @@ namespace PSXRacing.City
             var hits = new byte[E][];
             var pairHits = new byte[pairs.Count];
             var seatHits = new byte[streetSeats.Count];
-            bool Project(CityMap.Edge ea, int ia, CityMap.Edge eb, int ib, CityMap.Edge ec, int ic, float h1, float h2, float r)
+            bool Project(CityMap.Edge ea, int ia, CityMap.Edge eb, int ib, CityMap.Edge ec, int ic, float h1, float h2, float r, float rs)
             {
                 if (h1 < 0.5f || h2 < 0.5f) return false;
                 float ya = Get(ea, ia), yb = Get(eb, ib), yc = Get(ec, ic);
                 float brk = (yc - yb) / h2 - (yb - ya) / h1;
                 float excess = -(h1 + h2) / (2f * r) - brk;
-                if (!(excess >= 2e-4f)) return false;   // (and never on a NaN)
                 float ca = 1f / h1, cb = -(1f / h1 + 1f / h2), cc = 1f / h2;
+                if (!(excess >= 2e-4f))   // (and never on a NaN)
+                {
+                    // THE SAG SIDE (plan L3/B4): brk <= (h1 + h2) / 2 R_sag, the
+                    // middle up and the neighbours down - FREE stations only. A
+                    // station that may move one way only is the crest pass's
+                    // pin: a deck that may only rise, rounded on both sides,
+                    // ratcheted up every round (L3's first audit), and an under
+                    // road's footprint (a trench's bottom) sank station by
+                    // station. The sag is rounded outside them.
+                    if (!(rs > 0f)) return false;
+                    float over = brk - (h1 + h2) / (2f * rs);
+                    if (!(over >= 2e-4f)) return false;
+                    bool sa = Mob(ea, ia) == Free && ya > Lo(ea, ia) + 1e-4f;
+                    bool sb = Mob(eb, ib) == Free && yb < Hi(eb, ib) - 1e-4f;
+                    bool sc = Mob(ec, ic) == Free && yc > Lo(ec, ic) + 1e-4f;
+                    float nrm = (sa ? ca * ca : 0f) + (sb ? cb * cb : 0f) + (sc ? cc * cc : 0f);
+                    if (nrm < 1e-9f) { sagStuck++; return false; }
+                    float mu = over / nrm;
+                    if (sa) Put(ea, ia, Mathf.Max(Lo(ea, ia), ya - mu * ca));
+                    if (sb) Put(eb, ib, Mathf.Min(Hi(eb, ib), yb - mu * cb));
+                    if (sc) Put(ec, ic, Mathf.Max(Lo(ec, ic), yc - mu * cc));
+                    sagMoves++;
+                    return true;
+                }
                 bool ma = (Mob(ea, ia) & Up) != 0 && ya < Hi(ea, ia) - 1e-4f;
                 bool mb = (Mob(eb, ib) & Down) != 0 && yb > Lo(eb, ib) + 1e-4f;
                 bool mc = (Mob(ec, ic) & Up) != 0 && yc < Hi(ec, ic) - 1e-4f;
@@ -3107,29 +3209,33 @@ namespace PSXRacing.City
                 return true;
             }
 
-            // every crest past its limit (0.2% of grade slack), without moving anything
-            int Residual()
+            // every crest past its limit (0.2% of grade slack), and every sag
+            // past the comfort radius (0.1%), without moving anything
+            int Residual(out int sagBad)
             {
-                int bad = 0;
-                float Brk(CityMap.Edge ea, int ia, CityMap.Edge eb, int ib, CityMap.Edge ec, int ic, float h1, float h2, float r)
+                int bad = 0, sbad = 0;
+                void Brk(CityMap.Edge ea, int ia, CityMap.Edge eb, int ib, CityMap.Edge ec, int ic, float h1, float h2, float r, float rs)
                 {
-                    if (h1 < 0.5f || h2 < 0.5f) return 0f;
+                    if (h1 < 0.5f || h2 < 0.5f) return;
                     float ya = Get(ea, ia), yb = Get(eb, ib), yc = Get(ec, ic);
-                    return -(h1 + h2) / (2f * r) - ((yc - yb) / h2 - (yb - ya) / h1);
+                    float brk = (yc - yb) / h2 - (yb - ya) / h1;
+                    if (-(h1 + h2) / (2f * r) - brk > 0.002f) bad++;
+                    if (rs > 0f && brk - (h1 + h2) / (2f * rs) > 0.001f) sbad++;
                 }
                 foreach (var e in map.edges)
                     for (int i = 1; i < e.stY.Length - 1; i++)
-                        if (Brk(e, i - 1, e, i, e, i + 1, e.stS[i] - e.stS[i - 1], e.stS[i + 1] - e.stS[i], R[e.index]) > 0.002f) bad++;
+                        Brk(e, i - 1, e, i, e, i + 1, e.stS[i] - e.stS[i - 1], e.stS[i + 1] - e.stS[i], R[e.index], RsAt(e, i));
                 foreach (var (nd, pi, pj) in pairs)
                 {
                     var A = map.edges[pi]; var B = map.edges[pj];
                     int ia = A.a == nd ? 1 : A.stY.Length - 2, ja = A.a == nd ? 0 : A.stY.Length - 1;
                     int ib = B.a == nd ? 1 : B.stY.Length - 2, jb = B.a == nd ? 0 : B.stY.Length - 1;
-                    if (Brk(A, ia, A, ja, B, ib, Mathf.Abs(A.stS[ia] - A.stS[ja]), Mathf.Abs(B.stS[ib] - B.stS[jb]), Mathf.Max(R[pi], R[pj])) > 0.002f) bad++;
+                    Brk(A, ia, A, ja, B, ib, Mathf.Abs(A.stS[ia] - A.stS[ja]), Mathf.Abs(B.stS[ib] - B.stS[jb]), Mathf.Max(R[pi], R[pj]), Mathf.Max(RsAt(A, ja), RsAt(B, jb)));
                 }
+                sagBad = sbad;
                 return bad;
             }
-            int violBefore = Residual();
+            int violBefore = Residual(out int sagBefore);
 
             int sweeps = 0, moves = 0;
             var late = new int[E];   // projections per edge in the last 50 sweeps (a debug trail for a pass that does not settle)
@@ -3149,7 +3255,7 @@ namespace PSXRacing.City
                     {
                         int i = (sweeps & 1) == 0 ? k : n - 1 - k;
                         if (hc[i] >= FreezeAfter) continue;
-                        if (Project(e, i - 1, e, i, e, i + 1, e.stS[i] - e.stS[i - 1], e.stS[i + 1] - e.stS[i], R[ei])) { any = true; moves++; hc[i]++; if (sweeps >= 750) late[ei]++; }
+                        if (Project(e, i - 1, e, i, e, i + 1, e.stS[i] - e.stS[i - 1], e.stS[i + 1] - e.stS[i], R[ei], RsAt(e, i))) { any = true; moves++; hc[i]++; if (sweeps >= 750) late[ei]++; }
                     }
                 }
                 for (int nd = 0; nd < N; nd++)
@@ -3163,7 +3269,7 @@ namespace PSXRacing.City
                         int ia = A.a == nd ? 1 : A.stY.Length - 2, ja = A.a == nd ? 0 : A.stY.Length - 1;
                         int ib = B.a == nd ? 1 : B.stY.Length - 2, jb = B.a == nd ? 0 : B.stY.Length - 1;
                         float hA = Mathf.Abs(A.stS[ia] - A.stS[ja]), hB = Mathf.Abs(B.stS[ib] - B.stS[jb]);
-                        if (Project(A, ia, A, ja, B, ib, hA, hB, Mathf.Max(R[pi], R[pj]))) { any = true; moves++; pairHits[k]++; if (sweeps >= 750) lateNode[nd]++; }
+                        if (Project(A, ia, A, ja, B, ib, hA, hB, Mathf.Max(R[pi], R[pj]), Mathf.Max(RsAt(A, ja), RsAt(B, jb)))) { any = true; moves++; pairHits[k]++; if (sweeps >= 750) lateNode[nd]++; }
                     }
                 }
                 // SOFT SEATS: a street branch inside its host's gore zone is
@@ -3215,7 +3321,7 @@ namespace PSXRacing.City
                     if (-d > maxLower) maxLower = -d;
                 }
             }
-            int violAfter = Residual();
+            int violAfter = Residual(out int sagAfter);
             int frozen = 0;
             foreach (var hc in hits) if (hc != null) foreach (var c in hc) if (c >= FreezeAfter) frozen++;
             foreach (var c in pairHits) if (c >= FreezeAfter) frozen++;
@@ -3239,7 +3345,7 @@ namespace PSXRacing.City
                 debugUnsettled = sbd.ToString();
             }
             string r0 = round == 0 ? "" : VcurveReport + "; ";
-            VcurveReport = r0 + debugUnsettled + $" round {round}: {violBefore} crests past their limit -> {violAfter} ({frozen} frozen cycling, {stuck} held by pins), {planeHeld} junction arms set on their major road's plane (up to {planeMove:0.00} m), {streetSeats.Count} street-branch stations seated ({pinnedSeats} pinned, {softOff} still off their host), {sweeps} sweeps, {moves} projections, {moved} stations moved > 1 cm (up to +{maxRaise:0.00} / -{maxLower:0.00} m), {clock.ElapsedMilliseconds} ms";
+            VcurveReport = r0 + debugUnsettled + $" round {round}: {violBefore} crests past their limit -> {violAfter} ({frozen} frozen cycling, {stuck} held by pins), {(SagLimitOn ? $"{sagBefore} sags past the comfort radius -> {sagAfter} ({sagStuck} held by pins, {sagMoves} projections), " : "sags OFF, ")}{planeHeld} junction arms set on their major road's plane (up to {planeMove:0.00} m), {streetSeats.Count} street-branch stations seated ({pinnedSeats} pinned, {softOff} still off their host), {sweeps} sweeps, {moves} projections, {moved} stations moved > 1 cm (up to +{maxRaise:0.00} / -{maxLower:0.00} m), {clock.ElapsedMilliseconds} ms";
         }
 
         // ------------------------------------------------------------------
@@ -3544,6 +3650,241 @@ namespace PSXRacing.City
                 if (add.Count > before) TwinAlignedPairs++;
             }
             foreach (var (e, i) in add) if (!e.stElev[i]) { e.stElev[i] = true; TwinAlignedStations++; }
+        }
+
+        // ------------------------------------------------------------------
+        //  ONE ABUTMENT LINE (plan L3, the owner on the R1 top view,
+        //  2026-10-02 23:40: "these don't make any sense")
+        // ------------------------------------------------------------------
+
+        public static int AbutmentPairs { get; private set; }
+        public static int AbutmentEnds { get; private set; }
+        public static int AbutmentStations { get; private set; }
+        public static int AbutmentSkipped { get; private set; }
+        public static float AbutmentMaxM { get; private set; }
+
+        /// <summary>
+        /// A union's two decks still ended up to a station step apart, each
+        /// on its own station: from above, two bridges with staggered ends.
+        /// Each END of a union (a structure end on one carriageway and the
+        /// matching end on the other, walked out from the pair's middle,
+        /// through two-arm nodes) is put on one line square to the pair: the
+        /// deck that stops short is carried on to the line through its twin's
+        /// end (at most <see cref="TwinAlignMaxM"/>, never through a junction),
+        /// with a station inserted exactly there, so its structure ends where
+        /// its twin's does. Structure only, no height moves, and only ever
+        /// longer. After <see cref="DeckPairs.Complete"/>, so the decks only
+        /// the solve made are lined up too.
+        /// </summary>
+        static void UnionAbutments(CityMap map)
+        {
+            AbutmentPairs = AbutmentEnds = AbutmentStations = AbutmentSkipped = 0; AbutmentMaxM = 0f;
+            if (!TwinHoldsOn || map.deckPairs == null) return;
+            for (int pass = 0; pass < 2; pass++)
+                foreach (var pr in map.deckPairs)
+                {
+                    if (!pr.union) continue;
+                    var A = map.edges[pr.a]; var B = map.edges[pr.b];
+                    float ma = 0.5f * (pr.a0 + pr.a1), mb = 0.5f * (pr.b0 + pr.b1);
+                    if (!A.ElevatedAt(ma) || !B.ElevatedAt(mb)) continue;
+                    var u = A.PointAt(pr.a1) - A.PointAt(pr.a0);
+                    if (u.sqrMagnitude < 1f) continue;
+                    u.Normalize();
+                    // B runs the same way along u as its own arcs, or the other way
+                    var ub = B.PointAt(pr.b1) - B.PointAt(pr.b0);
+                    int bDir = Vector2.Dot(ub, u) >= 0f ? 1 : -1;
+                    bool moved = false;
+                    for (int end = -1; end <= 1; end += 2)
+                    {
+                        // the end of each deck on this side of the pair (u * end)
+                        var ea = WalkToDeckEnd(map, A, ma, end);
+                        var eb = WalkToDeckEnd(map, B, mb, end * bDir);
+                        if (ea.edge < 0 || eb.edge < 0) continue;
+                        float ta = Vector2.Dot(ea.p, u) * end, tb = Vector2.Dot(eb.p, u) * end;
+                        if (Mathf.Abs(ta - tb) < 0.05f) continue;
+                        var shortEnd = ta < tb ? ea : eb;
+                        float target = Mathf.Max(ta, tb);
+                        int r = CarryDeckTo(map, shortEnd, u * end, target);
+                        if (r > 0) { AbutmentEnds++; moved = true; AbutmentMaxM = Mathf.Max(AbutmentMaxM, Mathf.Abs(ta - tb)); }
+                        else if (r < 0 && pass == 0) AbutmentSkipped++;
+                    }
+                    if (moved && pass == 0) AbutmentPairs++;
+                }
+        }
+
+        struct DeckEnd { public int edge; public float s; public int dir; public Vector2 p; }
+
+        /// <summary>From arc <paramref name="s"/> of <paramref name="e"/> (on
+        /// structure), walking <paramref name="dir"/> (+1 toward b) to where the
+        /// structure ends: the first station off it (InternalStructureEnds'
+        /// end), through two-arm nodes onto the edge the road continues as.
+        /// edge -1 when the walk runs out (300 m, four edges).</summary>
+        static DeckEnd WalkToDeckEnd(CityMap map, CityMap.Edge e, float s, int dir)
+        {
+            float walked = 0f;
+            for (int hop = 0; hop < 4; hop++)
+            {
+                int n = e.stS.Length;
+                if (n < 2) break;
+                int i = 0;
+                while (i < n - 2 && e.stS[i + 1] <= s) i++;
+                // ElevatedAt's rule: [stS[k], stS[k+1]) is on structure when
+                // either station is, so a structure ends at the first of two
+                // stations off it
+                if (dir > 0)
+                {
+                    for (int k = i + 1; k + 1 < n; k++)
+                        if (!e.stElev[k] && !e.stElev[k + 1]) return new DeckEnd { edge = e.index, s = e.stS[k], dir = 1, p = e.PointAt(e.stS[k]) };
+                    walked += e.length - s;
+                }
+                else
+                {
+                    for (int k = i; k >= 1; k--)
+                        if (!e.stElev[k] && !e.stElev[k - 1]) return new DeckEnd { edge = e.index, s = e.stS[k], dir = -1, p = e.PointAt(e.stS[k]) };
+                    walked += s;
+                }
+                // on structure to the node
+                int node = dir > 0 ? e.b : e.a;
+                float at = dir > 0 ? e.length : 0f;
+                var o = walked <= 300f ? TwoArmPartner(map, e, node) : null;
+                if (o == null || !o.ElevatedAt(o.a == node ? 0f : o.length))
+                {
+                    if (walked > 300f) break;
+                    // a junction, or the ground from the node on: the end is the node
+                    return new DeckEnd { edge = e.index, s = at, dir = dir, p = e.PointAt(at) };
+                }
+                dir = o.a == node ? 1 : -1;
+                s = o.a == node ? 0f : o.length;
+                e = o;
+            }
+            return new DeckEnd { edge = -1 };
+        }
+
+        /// <summary>The other arm of a two-arm node (a way split, a bend),
+        /// or null at a junction or a dead end.</summary>
+        static CityMap.Edge TwoArmPartner(CityMap map, CityMap.Edge e, int node)
+        {
+            var list = map.nodeEdges[node];
+            if (list.Count != 2) return null;
+            var o = map.edges[list[0] == e.index ? list[1] : list[0]];
+            return o == e || o.a == o.b ? null : o;
+        }
+
+        /// <summary>Carry a deck end on along its road (through two-arm nodes)
+        /// to the line where dot(p, <paramref name="axis"/>) reaches
+        /// <paramref name="target"/>: every station passed goes on structure,
+        /// and a station is inserted on the line itself, off structure, so the
+        /// structure ends there. 1 = carried; 0 = nothing to do; -1 = left
+        /// (a junction, a deck beyond, or further than TwinAlignMaxM).</summary>
+        static int CarryDeckTo(CityMap map, DeckEnd d, Vector2 axis, float target)
+        {
+            var e = map.edges[d.edge];
+            float s = d.s; int dir = d.dir;
+            float t0 = Vector2.Dot(e.PointAt(s), axis);
+            if (target - t0 < 0.05f) return 0;
+            if (target - t0 > TwinAlignMaxM) return -1;
+            // march out in half metres, through two-arm nodes
+            var path = new List<(CityMap.Edge e, float from, float to)>(2);
+            float cur = s, tPrev = t0, walked = 0f;
+            bool reached = false;
+            for (int guard = 0; guard < 120 && !reached; guard++)
+            {
+                float next = cur + dir * 0.5f;
+                if (dir > 0 ? next > e.length : next < 0f)
+                {
+                    path.Add((e, s, dir > 0 ? e.length : 0f));
+                    int node = dir > 0 ? e.b : e.a;
+                    var o = TwoArmPartner(map, e, node);
+                    if (o == null) return -1;   // never through a junction
+                    dir = o.a == node ? 1 : -1;
+                    e = o; s = cur = o.a == node ? 0f : o.length;
+                    tPrev = Vector2.Dot(e.PointAt(cur), axis);
+                    if (tPrev >= target) { path.Add((e, s, s)); reached = true; }
+                    continue;
+                }
+                float tn = Vector2.Dot(e.PointAt(next), axis);
+                walked += 0.5f;
+                if (walked > TwinAlignMaxM * 2f) return -1;
+                if (tn >= target)
+                {
+                    float f = tn > tPrev ? Mathf.Clamp01((target - tPrev) / (tn - tPrev)) : 1f;
+                    path.Add((e, s, Mathf.Lerp(cur, next, f)));
+                    reached = true;
+                    break;
+                }
+                tPrev = tn; cur = next;
+            }
+            if (!reached || path.Count == 0) return -1;
+            // another structure starting right past the line: two structures
+            // meeting are not this rule's business
+            var last = path[path.Count - 1];
+            if (dir > 0)
+            for (int k = 0; k < last.e.stS.Length; k++)
+            {
+                float sk = last.e.stS[k];
+                bool past = dir > 0 ? sk > last.to + 0.05f : sk < last.to - 0.05f;
+                if (!past) continue;
+                if (last.e.stElev[k]) return -1;
+                if (dir > 0) break;   // the first station past the line (ascending)
+            }
+            if (dir < 0)
+                for (int k = last.e.stS.Length - 1; k >= 0; k--)
+                {
+                    if (last.e.stS[k] >= last.to - 0.05f) continue;
+                    if (last.e.stElev[k]) return -1;
+                    break;
+                }
+            for (int pi = 0; pi < path.Count; pi++)
+            {
+                var (pe, from, to) = path[pi];
+                int kEnd = -1;
+                if (pi == path.Count - 1)
+                {
+                    kEnd = InsertStation(pe, to);
+                    pe.stElev[kEnd] = false;
+                }
+                float lo = Mathf.Min(from, to), hi = Mathf.Max(from, to);
+                for (int k = 0; k < pe.stS.Length; k++)
+                {
+                    if (k == kEnd) continue;
+                    float sk = pe.stS[k];
+                    if (sk >= lo - 1e-3f && sk <= hi + 1e-3f) pe.stElev[k] = true;
+                }
+            }
+            return 1;
+        }
+
+        /// <summary>A station at arc <paramref name="s"/> (an existing one
+        /// within 5 cm, or a new one on the profile as it stands: the height is
+        /// read off the straight line between its neighbours, so nothing
+        /// moves). Every per-station array is kept in step. Its index.</summary>
+        static int InsertStation(CityMap.Edge e, float s)
+        {
+            int n = e.stS.Length;
+            for (int i = 0; i < n; i++) if (Mathf.Abs(e.stS[i] - s) < 0.05f) return i;
+            int k = 1;
+            while (k < n - 1 && e.stS[k] < s) k++;
+            if (s >= e.stS[n - 1] || s <= e.stS[0]) return s >= e.stS[n - 1] ? n - 1 : 0;
+            float y = e.YAt(s);
+            T[] Ins<T>(T[] a, T v)
+            {
+                var b = new T[a.Length + 1];
+                System.Array.Copy(a, 0, b, 0, k);
+                b[k] = v;
+                System.Array.Copy(a, k, b, k + 1, a.Length - k);
+                return b;
+            }
+            float tY = TerrainProfiles != null && e.index < TerrainProfiles.Length && TerrainProfiles[e.index] != null && TerrainProfiles[e.index].Length == n
+                ? Mathf.Lerp(TerrainProfiles[e.index][k - 1], TerrainProfiles[e.index][k], (s - e.stS[k - 1]) / Mathf.Max(1e-4f, e.stS[k] - e.stS[k - 1])) : 0f;
+            e.stS = Ins(e.stS, s);
+            e.stY = Ins(e.stY, y);
+            e.stElev = Ins(e.stElev, false);
+            if (e.stSeat != null) e.stSeat = Ins(e.stSeat, false);
+            if (e.stSag != null && e.stSag.Length == n) e.stSag = Ins(e.stSag, 0f);
+            if (TerrainProfiles != null && e.index < TerrainProfiles.Length && TerrainProfiles[e.index] != null && TerrainProfiles[e.index].Length == n)
+                TerrainProfiles[e.index] = Ins(TerrainProfiles[e.index], tY);
+            AbutmentStations++;
+            return k;
         }
 
         static void RaiseHump(CityMap.Edge e, float sAt, float targetY)

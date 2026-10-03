@@ -4811,6 +4811,134 @@ identical.
   baseline (B3), the PAINT HASH parity (A5), V5-V8 (A8 merge paint, L6),
   and the 8 px palette margin (A5).
 
+## L3 (roads pass, 2026-10-03): one bridge reads as one bridge, sags rounded, seams under the surface - R2
+
+L3 has four parts. The owner's two notes on the R1 top view of West 5th
+Street over I-77 come first. The vertical-curve limiter now works on sags
+too. The seam strips drop under the surface beside them. The per-arm fan
+trims are written, but they are switched off.
+
+- **The join rule (DeckPairs.cs, `tools/city/deckpairs.mjs`).** The owner
+  said: "There are plenty of split bridges. This one should not have been."
+  Without an OSM `man_made=bridge` outline, two carriageways now join only
+  when the gap is 6.1 m or less, for every class. The 9.1 m arterial band
+  is gone. The same rule covers pairs on decks the solve made. The 101 ONE /
+  25 TWO outline decisions are unchanged. Unions went from 155 to 144 (T1
+  89 -> 84, T2 66 -> 60), and 11 rule unions are two structures again.
+  `deckpairs_baseline.json` has been re-recorded.
+- **One surface per structure (`CityMeshes.ShareSurfaceAges`).** A road's
+  age decides whether it is drawn new or old: light or brown concrete on a
+  deck, black or grey asphalt on the ground. The age was chosen once per
+  chain, and the two carriageways of a divided road are two chains. Every
+  chain is now joined to the chain across its median. That means a union
+  deck's partner, and the opposite carriageway of any divided road: one-way,
+  not a ramp, the same name, running the other way within 40 m. Each joined
+  group takes one seed, its lowest. Both halves of a bridge are now one
+  concrete, and both approach carriageways are one asphalt.
+- **One abutment line (`CityElevation.UnionAbutments`, after
+  `DeckPairs.Complete`).** Each end of a union is walked out from the pair's
+  middle, through two-arm nodes. The deck that stops short is carried on to
+  the line square to the pair through its twin's end. This is capped at
+  `TwinAlignMaxM` (15 m) and never passes a junction. A station is inserted
+  exactly on that line, and every per-station array (stS, stY, stElev,
+  stSeat, stSag, TerrainProfiles) is kept in step. This changes structure
+  only; no height moves.
+
+  The mesh now treats a span as deck by its MIDDLE (`ElevatedAt`), which is
+  the rule the land under it already used. The deck surface used to run on
+  over the span before the structure end, as far as the previous section
+  (a station or a vertex), so two twins ended that far out of step. The
+  outlines' `deck[]` uses the same rule.
+
+  The line is square to the pair, not skewed parallel to the road below:
+  the ribbons' cross-sections are square, and a skewed end would need
+  skewed sections through the rails, medians and verges.
+- **Sags (`VerticalCurves`, plan B4).** The limiter is two-sided. A sag's
+  break must satisfy brk <= (h1 + h2) / 2 R_sag. R_sag is AASHTO's comfort
+  radius at the owner's design speeds: 65 mph motorway, 50 trunk and
+  primary, 40 secondary, tertiary and ramps, 30 local and loop ramps, and
+  25 mph over the last 30 m before a stop or signal. Those give 2,769,
+  1,639, 1,049, 590 and 410 m. The speed table (`CityElevation.VerticalMph`
+  and `IsLoopRamp`) is now shared with the PROFILE audit.
+
+  **It ships OFF (`PSX_CITY_VSAG=1` turns it on), because both audits broke
+  the profiles:**
+  - Run 1 used B4's 3.0 / 3.0 m caps and let the stations that may only
+    rise (decks) round sags. Decks ratcheted up every round: I-485 over
+    I-77 and a Brookshire Freeway ramp (e1251) ended 3-9 m off their seats
+    and nodes. Grades went over 16 % at 32 spots (worst 41 %), with 55 lane
+    steps, 2 under-height crossings, and union pairs split up to 8.8 m.
+  - Run 2 went back to 1.5 / 0.8 and moved FREE stations only. It still
+    pumped. A sag lowers its free neighbours, and a crest beside a pin
+    raises them, so the node or deck station beside a pin walked 2-5 m:
+    I-485 52 %, I-77 / I-277 bridges 20 %, 174 lane steps, unions split
+    4.6 m.
+
+  The rounding itself works: corners (A >= 2 % over <= 10 m) went from
+  1,171 / 1,504 / 1,177 to 131 / 234 / 58 (T1 / T2 / T3). The next attempt
+  is RAISE-ONLY sags (a sag lifts its free middle and lowers nothing), tried
+  offline first. The crest radius is unchanged (the launch audit's).
+
+  A road over a culvert that has lost its Up-only window now has a floor
+  instead: the pipe's cover.
+- **Seam strips (plan A3 FD8).** The inch-down seam under a stood-down side
+  now drops 8 cm under the surface above it within 6 cm of the crack, and
+  stays there.
+- **Per-arm trims (plan A3 FIX-3, `PSX_CITY_ARMTRIM=1`, OFF).** Each arm is
+  trimmed by its own need, using the facing sides' extents, and never by
+  more than the old common trim. The first audit measured it in the
+  OwnerBox and found it worse:
+  - coplanar arm/arm T1: 127 -> 183 m2;
+  - fan over its own arm T1: 27 -> 74 m2;
+  - two lane mouths at node 13336 sat on another arm 0.4 m off.
+
+  A curving arm needs A3's chord directions (FIX-2). This is left for L7.
+- **The PROFILE audit** adds a count per tier of sags whose mean radius
+  L / A is under the comfort radius. This is the B4 measure; the comfort-K
+  count also applies AASHTO's 3V minimum length.
+
+**BEFORE -> AFTER**
+- **deckpairs:** unions 155 -> 144 (T1 89 -> 84, T2 66 -> 60), 9,330 ->
+  8,804 m. 11 parted: ways 1079342990/1079342992, 172473104/172473106,
+  184071819/215490404, 240074350/791634480, 272969923/272969924,
+  297810913/326565808, 326220607/326220611, 493245238/597403827,
+  49589368/545164014, 65996427/65996466 and 66224167/1068112998.
+  `--compare` with the game's table: 255 decisions agree, 0 differ.
+- **One abutment line (the solve):** 321 deck ends carried on to their
+  twin's line on 154 pairs, up to 15 m, with 320 stations inserted. 135
+  ends were left: a junction, or more than 15 m.
+- **W 5th St over I-77** (`shots/r2/w5th_top.png`, `w5th_owner.png`): one
+  concrete across both halves. Both ends sit on one straight line, square
+  to the road, where R1 had them staggered and a dark wedge at the
+  north-west end. The two approach carriageways are one asphalt. TWIN for
+  W 5th: inner rail 0, slot 0, walls 0, piers 0, lateral rays 0.
+- **The I-277 viaduct** (`twin_i277.png`): one concrete.
+- **Seam underlaps (OwnerBox, coverage), verge/seam strip:**
+  - T1: 4,863 -> 1,782 m2
+  - T2: 1,883 -> 1,042 m2
+  - T3: 340 -> 208 m2
+  - Road-piece underlaps are unchanged (gores: A7/A8).
+- **FACE** (body box back onto a grounded edge): 1 -> 0 in both runs.
+- **Heights as shipped (the boxed launch, OwnerBox):**
+  - The vertical-curve rounds match R1 to the digit (2,621 -> 220
+    crests, 22,951 projections).
+  - LAUNCH T1 3 / T2 10 / T3 3, UNLOAD 86, routes 0 / 0 / 0 (R1: the
+    same).
+  - Solve 2,649 ms.
+
+  No height moved, so there was no rebake.
+- **Not measured as shipped:** the city audit. Both runs carried the sag
+  limiter. Their height failures (grades, TWIN a-d split levels, drive
+  steps, the overlap census, the margin stations) went with the limiter,
+  and the heights now match R1's. The mesh-only checks those runs did
+  measure are listed above.
+
+**Not done (lean):** A3 FIX-2 (chord arm directions), the geometric branch
+test, FD7 re-entries, and JoinBuriedEnds. Also not done from B4: the SSD
+crest radii, the adaptive station step (it would double the stations on
+local streets), the C1 blends (BlendEndsToNodes, ClimbOut, HoldBridges),
+and the clearance inequality.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

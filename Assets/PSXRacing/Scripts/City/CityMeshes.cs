@@ -632,6 +632,26 @@ namespace PSXRacing.City
         static Vector2 OutDir(CityMap.Edge e, int node) =>
             e.a == node ? e.TangentAt(0f) : -e.TangentAt(e.length);
 
+        /// <summary>PSX_CITY_ARMTRIM=1: each arm of a fan trimmed only as far as
+        /// its own ribbon needs (plan A3 FIX-3). OFF: L3's first audit
+        /// (2026-10-03) measured it in the OwnerBox - coplanar arm/arm T1
+        /// 127 -> 183 m2 and fan over its own arm 27 -> 74 m2, and two lane
+        /// mouths at node 13336 (South Caldwell / East Morehead) on another
+        /// arm 0.4 m off. Without A3's chord arm directions (FIX-2) a curving
+        /// arm needs more than the straight-arm formula gives. For L7.</summary>
+        public static bool PerArmTrims = System.Environment.GetEnvironmentVariable("PSX_CITY_ARMTRIM") == "1";
+        static readonly List<float> armTrim = new List<float>(8);
+        /// <summary>How far an arm's ribbon reaches off its OSM line on the
+        /// left (<paramref name="left"/>) or right of its direction OUT of
+        /// <paramref name="node"/>: the line model's extents (lmPlus is the
+        /// left of a to b).</summary>
+        static float ArmExt(CityMap.Edge e, int node, bool left)
+        {
+            if (e.lmPlus == 0f && e.lmMinus == 0f) return e.width * 0.5f;
+            bool fromA = e.a == node;
+            return left == fromA ? e.lmPlus : e.lmMinus;
+        }
+
         const float ThroughCos = -0.85f;    // arms this opposite are one road going through
         /// <summary>Arms closer than this in direction are CLIPPED against
         /// each other rather than trimmed: a ramp beside its mainline, the
@@ -767,6 +787,8 @@ namespace PSXRacing.City
                 // shallower than BranchCos is clipped instead.
                 t.patch[n] = true;
                 float trimN = 0f;
+                armTrim.Clear();
+                for (int i = 0; i < arms.Count; i++) armTrim.Add(0f);
                 for (int i = 0; i < arms.Count; i++)
                     for (int j = 0; j < arms.Count; j++)
                     {
@@ -778,11 +800,19 @@ namespace PSXRacing.City
                         // the reach off the OSM line on the further side: an
                         // arm offset by the line model overlaps by that much more
                         trimN = Mathf.Max(trimN, (arms[j].e.HalfMax + arms[i].e.HalfMax * Mathf.Abs(d) + 0.6f) / sin);
+                        // PER ARM (plan L3 / A3 FIX-3): arm i is trimmed only as
+                        // far as ITS ribbon needs to clear arm j's, by the two
+                        // sides that face each other: j's half towards i, i's
+                        // half towards j. Never more than the old common trim.
+                        float cr = arms[i].dir.x * arms[j].dir.y - arms[i].dir.y * arms[j].dir.x;   // > 0: j lies left of i
+                        float exI = ArmExt(arms[i].e, n, cr > 0f), exJ = ArmExt(arms[j].e, n, cr < 0f);
+                        float need = d >= 0f ? (exJ + exI * d + 0.6f) / sin : Mathf.Max(0.6f, (exJ + exI * d) / sin);
+                        armTrim[i] = Mathf.Max(armTrim[i], need);
                     }
                 for (int i = 0; i < arms.Count; i++)
                 {
                     var e = arms[i].e;
-                    float trim = Mathf.Min(trimN, e.length * 0.49f);
+                    float trim = Mathf.Min(PerArmTrims ? Mathf.Min(armTrim[i], trimN) : trimN, e.length * 0.49f);
                     if (e.a == n) t.atA[e.index] = trim; else t.atB[e.index] = trim;
                     if (clipped[i] >= 0)
                     {
@@ -901,7 +931,98 @@ namespace PSXRacing.City
                     acc = Mathf.Repeat(acc + e.length, RoadVTile);
                 }
             }
+            ShareSurfaceAges(map);
         }
+
+        /// <summary>
+        /// ONE SURFACE PER STRUCTURE (plan L3; the owner on the R1 top view of
+        /// West 5th Street over I-77, 2026-10-02: "these don't make any
+        /// sense"). The age (new or old, so light or brown concrete on a deck,
+        /// black or grey asphalt on the ground) was chosen per CHAIN, and the
+        /// two carriageways of one divided road are two chains: one bridge
+        /// read as two, half light and half brown, and its approaches black
+        /// beside grey. Every chain is now joined with the chain across the
+        /// median - a union deck's partner (<see cref="CityMap.deckPairs"/>),
+        /// and the opposite carriageway of any divided road (one-way, not a
+        /// ramp, the same name, running the other way within
+        /// <see cref="DividedReachM"/>) - and each joined group takes one seed
+        /// (its lowest), so both halves are resurfaced together, as a real
+        /// contract does both directions.
+        /// </summary>
+        static void ShareSurfaceAges(CityMap map)
+        {
+            int ne = map.edges.Length;
+            var parent = new int[ne];
+            for (int i = 0; i < ne; i++) parent[i] = i;
+            int Find(int x) { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
+            void Join(int a, int b) { a = Find(a); b = Find(b); if (a != b) { if (a < b) parent[b] = a; else parent[a] = b; } }
+            // a chain is one group already: its edges share the head's seed
+            var bySeed = new Dictionary<Vector2, int>(ne);
+            for (int i = 0; i < ne; i++)
+            {
+                var e = map.edges[i];
+                if (!e.hasAgeSeed) continue;
+                if (bySeed.TryGetValue(e.ageSeed, out int f)) Join(f, i); else bySeed[e.ageSeed] = i;
+            }
+            if (map.deckPairs != null)
+                foreach (var pr in map.deckPairs) if (pr.union) Join(pr.a, pr.b);
+            // the divided roads: by name, then by distance
+            var byName = new Dictionary<string, List<int>>();
+            var box = new Rect[ne];
+            for (int i = 0; i < ne; i++)
+            {
+                var e = map.edges[i];
+                if (!e.oneway || e.link || e.cls < 2 || string.IsNullOrEmpty(e.name) || e.pts == null || e.pts.Length < 2 || e.a == e.b) continue;
+                Vector2 mn = e.pts[0], mx = e.pts[0];
+                foreach (var q in e.pts) { mn = Vector2.Min(mn, q); mx = Vector2.Max(mx, q); }
+                box[i] = Rect.MinMaxRect(mn.x - DividedReachM, mn.y - DividedReachM, mx.x + DividedReachM, mx.y + DividedReachM);
+                if (!byName.TryGetValue(e.name, out var l)) byName[e.name] = l = new List<int>();
+                l.Add(i);
+            }
+            foreach (var l in byName.Values)
+            {
+                if (l.Count < 2) continue;
+                foreach (int i in l)
+                {
+                    var e = map.edges[i];
+                    var mid = e.PointAt(e.length * 0.5f);
+                    var t = e.TangentAt(e.length * 0.5f);
+                    foreach (int j in l)
+                    {
+                        if (j == i || Find(j) == Find(i) || !box[j].Contains(mid)) continue;
+                        var o = map.edges[j];
+                        CityElevation.ProjectOn(o, mid, out float at);
+                        if (Vector2.Distance(o.PointAt(at), mid) > DividedReachM) continue;
+                        if (Vector2.Dot(o.TangentAt(at), t) > -0.85f) continue;   // not running the other way
+                        Join(i, j);
+                    }
+                }
+            }
+            // each group's seed: the lowest (x, then z) of its members'
+            var seedOf = new Dictionary<int, Vector2>();
+            for (int i = 0; i < ne; i++)
+            {
+                var e = map.edges[i];
+                if (!e.hasAgeSeed) continue;
+                int r = Find(i);
+                if (!seedOf.TryGetValue(r, out var sd) || e.ageSeed.x < sd.x || (e.ageSeed.x == sd.x && e.ageSeed.y < sd.y)) seedOf[r] = e.ageSeed;
+            }
+            int shared = 0;
+            for (int i = 0; i < ne; i++)
+            {
+                var e = map.edges[i];
+                if (!e.hasAgeSeed) continue;
+                var sd = seedOf[Find(i)];
+                if (sd != e.ageSeed) { e.ageSeed = sd; shared++; }
+            }
+            SharedAgeEdges = shared;
+        }
+
+        /// <summary>How far apart a divided road's two carriageways may be and
+        /// still share one surface age (the elevation solve's PairReachM).</summary>
+        const float DividedReachM = 40f;
+        /// <summary>Edges whose surface age the last ShareSurfaceAges moved.</summary>
+        public static int SharedAgeEdges { get; private set; }
 
         // ==================================================================
         /// <summary>Build a tile in one go: every step of <see cref="Begin"/>'s
@@ -1381,6 +1502,10 @@ namespace PSXRacing.City
         const float DeckSeamM = 0.3f;
         /// <summary>How far that strip falls across its width.</summary>
         const float SeamFallM = 0.08f;
+        /// <summary>How far under the surface above it a seam strip runs once
+        /// past the crack (plan L3 / A3 FD8: an underlay at least 8 cm down
+        /// does not flicker), and how soon it gets there.</summary>
+        const float SeamUnderM = 0.08f, SeamDropRunM = 0.06f;
         /// <summary>How far a squeeze half strip looks for the pavement beside
         /// it (twice the widest strip a squeeze leaves at a section), and how
         /// far past the middle of the gap it reaches, under the other half.</summary>
@@ -3797,7 +3922,13 @@ namespace PSXRacing.City
                 var A = sections[i - 1]; var B = sections[i];
                 var f = new SpanFlags
                 {
-                    elev = A.elev || B.elev,
+                    // plan L3: a span is on structure by its MIDDLE, as the
+                    // land under it is (ElevatedAt), so a deck's surface ends
+                    // exactly at its structure end (StructureEnds): it used to
+                    // run on over the span before it, to whatever section came
+                    // first - a station, a vertex - and two twin decks ended
+                    // that far out of step
+                    elev = e.ElevatedAt(0.5f * (A.s + B.s)),
                     wedge = A.collapsed || B.collapsed,
                     skip = A.collapsed && B.collapsed,
                     decided = i > w0 && i <= w1,
@@ -5502,7 +5633,7 @@ namespace PSXRacing.City
                     for (int i = 1; i < ol.L.Length && !flush; i++)
                     {
                         if (ol.BlockMisses(i, vw.x - MeetReachM, vw.y - MeetReachM, vw.x + MeetReachM, vw.y + MeetReachM)) { i += Outline.Block - 1; continue; }
-                        if (ol.elev[i - 1] || ol.elev[i]) continue;
+                        if (ol.deck[i]) continue;
                         Vector3 aL = ol.L[i - 1], bL = ol.L[i], bR = ol.R[i], aR = ol.R[i - 1];
                         if (vw.x < Mathf.Min(Mathf.Min(aL.x, bL.x), Mathf.Min(bR.x, aR.x)) - MeetReachM || vw.x > Mathf.Max(Mathf.Max(aL.x, bL.x), Mathf.Max(bR.x, aR.x)) + MeetReachM ||
                             vw.y < Mathf.Min(Mathf.Min(aL.z, bL.z), Mathf.Min(bR.z, aR.z)) - MeetReachM || vw.y > Mathf.Max(Mathf.Max(aL.z, bL.z), Mathf.Max(bR.z, aR.z)) + MeetReachM) continue;
@@ -6301,7 +6432,20 @@ namespace PSXRacing.City
                 // (North Tryon Street's e18531 beside e10905).
                 var b0 = sh.halfGap ? s0 - outw * PavedInsetM : s0;
                 prof[0] = new Vector3(b0.x, y0, b0.y);
-                prof[1] = prof[2] = prof[3] = new Vector3(e1.x, yFar, e1.y);
+                if (sh.seam && width > 2f * SeamDropRunM)
+                {
+                    // UNDERLAPS (plan L3 / A3 FD8): the inch-down seam showed
+                    // in the crack, and then ran on 2.5-8 cm under the other
+                    // surface for its whole width - two surfaces that close
+                    // flicker at range. It drops SeamUnderM under that surface
+                    // within SeamDropRunM of the crack and stays there.
+                    float yNear = Mathf.Min(y0 + RoadsideRules.EdgeDropM, seamCeil[0]) - SeamUnderM;
+                    float yEnd = Mathf.Min(Mathf.Min(yNear, Mathf.Min(yFar, seamCeil[2] - SeamUnderM)), 2f * (seamCeil[1] - SeamUnderM) - yNear);
+                    var en = s0 + outw * SeamDropRunM;
+                    prof[1] = new Vector3(en.x, yNear, en.y);
+                    prof[2] = prof[3] = new Vector3(e1.x, yEnd, e1.y);
+                }
+                else prof[1] = prof[2] = prof[3] = new Vector3(e1.x, yFar, e1.y);
                 return true;
             }
             // measured from the strip's own first point: a road "more than half
@@ -6501,7 +6645,7 @@ namespace PSXRacing.City
                     for (int i = 1; i < ol.L.Length; i++)
                     {
                         if (ol.BlockMisses(i, pt.x - pad, pt.y - pad, pt.x + pad, pt.y + pad)) { i += Outline.Block - 1; continue; }
-                        bool deck = ol.elev[i - 1] || ol.elev[i];
+                        bool deck = ol.deck[i];
                         Vector3 aL = ol.L[i - 1], bL = ol.L[i], bR = ol.R[i], aR = ol.R[i - 1];
                         if (pt.x < Mathf.Min(Mathf.Min(aL.x, bL.x), Mathf.Min(bR.x, aR.x)) - pad || pt.x > Mathf.Max(Mathf.Max(aL.x, bL.x), Mathf.Max(bR.x, aR.x)) + pad ||
                             pt.y < Mathf.Min(Mathf.Min(aL.z, bL.z), Mathf.Min(bR.z, aR.z)) - pad || pt.y > Mathf.Max(Mathf.Max(aL.z, bL.z), Mathf.Max(bR.z, aR.z)) + pad) continue;
@@ -6842,6 +6986,9 @@ namespace PSXRacing.City
         {
             public Vector3[] L, R;
             public bool[] elev;
+            /// <summary>Span i (from section i - 1 to i) on structure by its
+            /// middle: the tile's own rule for a deck span (plan L3).</summary>
+            public bool[] deck;
             public float minX = float.MaxValue, minZ = float.MaxValue, maxX = float.MinValue, maxZ = float.MinValue;
             /// <summary>A plan box per block of <see cref="Block"/> spans (4
             /// floats: min x, min z, max x, max z, padded by BlockPadM), so a
@@ -6911,10 +7058,11 @@ namespace PSXRacing.City
             int n = sections.Count;
             if (n >= 2)
             {
-                ol.L = new Vector3[n]; ol.R = new Vector3[n]; ol.elev = new bool[n];
+                ol.L = new Vector3[n]; ol.R = new Vector3[n]; ol.elev = new bool[n]; ol.deck = new bool[n];
                 for (int i = 0; i < n; i++)
                 {
                     ol.L[i] = sections[i].L; ol.R[i] = sections[i].R; ol.elev[i] = sections[i].elev;
+                    if (i > 0) ol.deck[i] = e.ElevatedAt(0.5f * (sections[i - 1].s + sections[i].s));
                     ol.minX = Mathf.Min(ol.minX, Mathf.Min(ol.L[i].x, ol.R[i].x)); ol.maxX = Mathf.Max(ol.maxX, Mathf.Max(ol.L[i].x, ol.R[i].x));
                     ol.minZ = Mathf.Min(ol.minZ, Mathf.Min(ol.L[i].z, ol.R[i].z)); ol.maxZ = Mathf.Max(ol.maxZ, Mathf.Max(ol.L[i].z, ol.R[i].z));
                 }
@@ -6940,10 +7088,11 @@ namespace PSXRacing.City
             int n = raw.Count;
             if (n >= 2)
             {
-                ol.L = new Vector3[n]; ol.R = new Vector3[n]; ol.elev = new bool[n];
+                ol.L = new Vector3[n]; ol.R = new Vector3[n]; ol.elev = new bool[n]; ol.deck = new bool[n];
                 for (int i = 0; i < n; i++)
                 {
                     ol.L[i] = raw[i].L; ol.R[i] = raw[i].R; ol.elev[i] = raw[i].elev;
+                    if (i > 0) ol.deck[i] = e.ElevatedAt(0.5f * (raw[i - 1].s + raw[i].s));
                     ol.minX = Mathf.Min(ol.minX, Mathf.Min(ol.L[i].x, ol.R[i].x)); ol.maxX = Mathf.Max(ol.maxX, Mathf.Max(ol.L[i].x, ol.R[i].x));
                     ol.minZ = Mathf.Min(ol.minZ, Mathf.Min(ol.L[i].z, ol.R[i].z)); ol.maxZ = Mathf.Max(ol.maxZ, Mathf.Max(ol.L[i].z, ol.R[i].z));
                 }

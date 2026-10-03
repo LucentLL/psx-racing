@@ -93,27 +93,11 @@ namespace PSXRacing.EditorTools
         /// <summary>The vertical design speed (mph) of a road (owner_decisions,
         /// 2026-10-02): motorway 65, trunk and primary 50, secondary and
         /// tertiary 40, local 30, ramps 40, loop ramps 30.</summary>
-        public static float VerticalMph(CityMap.Edge e)
-        {
-            if (e.link) return IsLoopRamp(e) ? 30f : 40f;
-            return e.cls >= 5 ? 65f : e.cls >= 3 ? 50f : e.cls >= 1 ? 40f : 30f;
-        }
+        public static float VerticalMph(CityMap.Edge e) => CityElevation.VerticalMph(e);
 
-        /// <summary>A loop ramp: a link turning 120 degrees or more at a mean
-        /// radius under 120 m (a cloverleaf's loop; a diamond's ramp turns
-        /// less, or wider).</summary>
-        public static bool IsLoopRamp(CityMap.Edge e)
-        {
-            if (!e.link || e.pts == null || e.pts.Length < 3) return false;
-            float turn = 0f;
-            for (int i = 1; i + 1 < e.pts.Length; i++)
-            {
-                Vector2 d0 = e.pts[i] - e.pts[i - 1], d1 = e.pts[i + 1] - e.pts[i];
-                if (d0.sqrMagnitude < 1e-6f || d1.sqrMagnitude < 1e-6f) continue;
-                turn += Mathf.Abs(Vector2.SignedAngle(d0, d1));
-            }
-            return turn >= 120f && e.length / (turn * Mathf.Deg2Rad) < 120f;
-        }
+        /// <summary>A loop ramp (CityElevation.IsLoopRamp: the solve's sag
+        /// limiter reads the same table since plan L3).</summary>
+        public static bool IsLoopRamp(CityMap.Edge e) => CityElevation.IsLoopRamp(e);
 
         /// <summary>The class's steepest grade (plan B2): motorway 5%,
         /// trunk/primary 7%, secondary/tertiary 9%, local 12%, ramps 8%.</summary>
@@ -195,7 +179,7 @@ namespace PSXRacing.EditorTools
                 }
                 Flush();
             }
-            int[] sagN = new int[4], sagComfort = new int[4], sagHead = new int[4], crestN = new int[4], crestShort = new int[4], corners = new int[4];
+            int[] sagN = new int[4], sagComfort = new int[4], sagHead = new int[4], crestN = new int[4], crestShort = new int[4], corners = new int[4], sagRadius = new int[4];
             var worstSag = new List<(float A, string what)>();
             var byCls = new SortedDictionary<string, int[]>();   // sags, short comfort, crests, short crest
             foreach (var c in curves)
@@ -210,6 +194,9 @@ namespace PSXRacing.EditorTools
                     bool shortC = c.L < NeedL(KSagComfort(c.mph), A, c.mph) * 0.999f;
                     if (shortC) { sagComfort[t]++; row[1]++; }
                     if (c.L < NeedL(KAt(KSagHeadlight, c.mph), A, c.mph) * 0.999f) sagHead[t]++;
+                    // plan L3/B4's own measure: the curve's mean radius L / A under
+                    // the comfort radius (K's 3V minimum length left out)
+                    if (c.L < RadiusOfK(KSagComfort(c.mph)) * A * 0.999f) sagRadius[t]++;
                     if (A >= 0.02f && c.L <= 10.5f) corners[t]++;
                     if (t == 1 && shortC)
                     {
@@ -227,7 +214,7 @@ namespace PSXRacing.EditorTools
             for (int t = 1; t <= 3; t++)
             {
                 if (!sc.HasTier(t)) continue;
-                Line($"    {CityTier.Short(t)}: sags {sagN[t]} - short of the comfort K {sagComfort[t]}, of the headlight K {sagHead[t]}; corners (A >= 2% over <= 10 m) {corners[t]}; crests {crestN[t]} - short of stopping sight {crestShort[t]}");
+                Line($"    {CityTier.Short(t)}: sags {sagN[t]} - short of the comfort K {sagComfort[t]} (of its RADIUS, no 3V minimum: {sagRadius[t]}), of the headlight K {sagHead[t]}; corners (A >= 2% over <= 10 m) {corners[t]}; crests {crestN[t]} - short of stopping sight {crestShort[t]}");
             }
             foreach (var kv in byCls) Line($"      {kv.Key,-15} sags {kv.Value[0],6} short {kv.Value[1],6} | crests {kv.Value[2],6} short {kv.Value[3],6}");
             worstSag.Sort((a, b) => b.A.CompareTo(a.A));

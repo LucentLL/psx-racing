@@ -315,6 +315,8 @@ namespace PSXRacing.EditorTools
             Prof("prof_i277_belk", "profiles", -2880.5f, 4085.9f, "I-277", "I-277 Belk Fwy under S College St"),
             Prof("prof_sunset_i77", "profiles", -2779.0f, 13646.4f, "I-77", "I-77 under Sunset Rd"),
             Prof("prof_johnston_i485", "profiles", -2545.1f, -13268.7f, "I-485", "I-485 under Johnston Rd"),
+            // sags (plan L3): a driver's view down into a trench under a street
+            Eye("sag_i77_w5th", "sags", -3392.6f, 5795.0f, "I-77", 40f, "I-77 (e6608) 150 m before W 5th St, heading 40, 1.2 m eye: down into the trench and up out of it (plan L3: comfort sags)"),
             // merges (B5/A7/A8)
             Along("merge_i85_e3031_near", "merges", 9723.9f, 20811.8f, "I-85", 200f, 120f, 60f, 1, "the I-85 entrance e3031 (node 3268) from 30 m before its merge zone"),
             Along("merge_i85_e3031_far", "merges", 9723.9f, 20811.8f, "I-85", 570f, 120f, 30f, 2, "the same merge from 400 m back, 30 deg lens: z-fight / pop-in at range"),

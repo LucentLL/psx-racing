@@ -27,8 +27,8 @@
 //                           bridge; B2 converts it; until then it stays as it is)
 //     outlines (BRST)       the same man_made=bridge outline: yes up to 20 m;
 //                           two different outlines: never
-//     otherwise G           opposite carriageways of one road: 6.1 m motorway/
-//                           trunk, 9.1 m arterial; a ramp beside its road (or
+//     otherwise G           opposite carriageways of one road: 6.1 m for EVERY
+//                           class (owner L3: no 9.1 m arterial band); a ramp beside its road (or
 //                           two ramps): 3.05 m; any other pair 1.2 m
 //
 //   node tools/city/deckpairs.mjs                      the report (Resources' charlotte_city.bytes)
@@ -61,7 +61,7 @@ const ll = (x, z) => `${toLat(z).toFixed(5)},${toLon(x).toFixed(5)}`;
 
 // ---- the rule's numbers (DeckPairs.cs carries the same) -------------------
 export const STEP = 2, GAP_MAX = 20, OVERLAP_MIN = 10, COS_MIN = Math.cos(15 * Math.PI / 180), CELL = 32;
-export const SQUEEZE_M = 0.3, G_OUTLINE = 20, G_DUAL_FWY = 6.1, G_DUAL_ART = 9.1, G_RAMP = 3.05, G_OTHER = 1.2;
+export const SQUEEZE_M = 0.3, G_OUTLINE = 20, G_DUAL_FWY = 6.1, G_DUAL_ART = 6.1 /* owner 2026-10-02 (L3): was 9.1 */, G_RAMP = 3.05, G_OTHER = 1.2;
 const CORRIDOR_BLEND = 26;   // CityElevation.CorridorBlend
 
 const buf = readFileSync(join(DATA, 'charlotte_city.bytes'));

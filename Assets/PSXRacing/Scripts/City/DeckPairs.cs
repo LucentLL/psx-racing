@@ -37,14 +37,14 @@ namespace PSXRacing.City
     ///                          (B2 builds a culvert); left exactly as it is
     ///     outlines (BRST)      the same man_made=bridge outline: yes to 20 m;
     ///                          two different outlines: never
-    ///     else G               one road's two carriageways: 6.1 m motorway or
-    ///                          trunk, 9.1 m arterial; a ramp beside its road
+    ///     else G               one road's two carriageways: 6.1 m for EVERY class
+    ///                          (owner L3, 2026-10-02: the 9.1 m arterial band is gone); a ramp beside its road
     ///                          or two ramps: 3.05 m; any other pair 1.2 m
     /// </summary>
     public static class DeckPairs
     {
         public const float Step = 2f, GapMax = 20f, OverlapMin = 10f, SqueezeM = 0.3f;
-        public const float GOutline = 20f, GDualFreeway = 6.1f, GDualArterial = 9.1f, GRamp = 3.05f, GOther = 1.2f;
+        public const float GOutline = 20f, GDualFreeway = 6.1f, GDualArterial = 6.1f /* owner 2026-10-02 (L3): was 9.1 */, GRamp = 3.05f, GOther = 1.2f;
         const float Cell = 32f;
         static readonly float CosMin = Mathf.Cos(15f * Mathf.Deg2Rad);
 
