@@ -1,0 +1,151 @@
+ci,over,overEdge,under,underEdge,underIsRamp,before,after,sepBefore,sepAfter,latlon
+18,North Graham Street,7484,e139,139,1,at grade: ,dug,10.201,5.522,35.276601 -80.808915
+19,North Graham Street,1204,e139,139,1,at grade: ,dug,10.303,5.662,35.276573 -80.808766
+21,North Graham Street,10745,I-85,3051,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.533,5.585,35.276846 -80.808722
+23,North Graham Street,1204,I-85,3051,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.538,5.550,35.276828 -80.808567
+37,Johnston Road,1787,e159,159,1,at grade: ,dug,5.516,5.516,35.065385 -80.845453
+38,Johnston Road,1786,e159,159,1,at grade: ,dug,5.523,5.582,35.065386 -80.845661
+39,Billy Graham Parkway,1176,I-85,3537,0,at grade: within 20 m of the under edge's end,dug,5.528,5.611,35.238559 -80.919763
+43,Oaklawn Avenue,1469,e173,173,1,at grade: ,dug,6.178,5.554,35.248077 -80.846143
+44,Oaklawn Avenue,1469,I-77,2136,0,at grade: within 20 m of the under edge's end,dug,5.508,5.579,35.248078 -80.845968
+54,Pressley Road,1113,e183,183,1,at grade: ,dug,5.540,5.545,35.184888 -80.888160
+57,West Woodlawn Road,2075,I-77,14754,0,at grade: within 20 m of the under edge's end,dug,5.545,5.578,35.179930 -80.886837
+58,West Woodlawn Road,2076,I-77,9895,0,at grade: within 20 m of the under edge's end,dug,5.524,5.563,35.180076 -80.886884
+60,Rozzelles Ferry Road,1182,e185,185,1,at grade: ,dug,5.538,5.550,35.261190 -80.880301
+68,South Tryon Street,1357,e197,197,1,at grade: ,dug,6.574,5.723,35.141515 -80.931901
+69,South Tryon Street,2588,e197,197,1,at grade: ,dug,6.491,5.706,35.141437 -80.931764
+76,e7322,7322,I-485,11527,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,5.510,5.510,35.065292 -80.846981
+78,e7322,7322,I-485,11706,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,6.058,5.823,35.065051 -80.846677
+91,West W T Harris Boulevard,1216,e209,209,1,at grade: ,dug,5.549,5.579,35.311909 -80.758812
+92,West W T Harris Boulevard,1216,I-85,3081,0,at grade: within 20 m of the under edge's end,dug,5.536,5.601,35.311902 -80.758799
+98,South Tryon Street,2050,e251,251,1,at grade: ,dug,5.514,5.520,35.182829 -80.887515
+99,South Tryon Street,2050,I-77,9914,0,at grade: within 20 m of the under edge's end,dug,5.608,5.582,35.182810 -80.887530
+100,South Tryon Street,2049,e218,218,1,at grade: ,dug,5.517,5.667,35.182411 -80.887642
+101,South Tryon Street,2050,e218,218,1,at grade: ,dug,6.143,5.629,35.182573 -80.887712
+102,South Tryon Street,2049,e251,251,1,at grade: ,dug,6.166,5.793,35.182664 -80.887447
+103,South Tryon Street,2049,I-77,9896,0,at grade: within 20 m of the under edge's end,dug,5.596,5.664,35.182427 -80.887630
+125,I-277,1258,I-77,2739,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,5.841,5.841,35.225318 -80.864370
+131,North Caldwell Street,2363,e273,273,1,at grade: ,dug,5.545,5.545,35.229462 -80.830975
+132,North Caldwell Street,2363,I-277,6403,0,at grade: within 20 m of the under edge's end,dug,5.557,5.557,35.229475 -80.830956
+140,Rea Road,4623,I-485,1991,0,at grade: within 20 m of the under edge's end,at grade: group: every crossing of the group within 20 m of a junction,5.613,5.613,35.063874 -80.815533
+141,Rea Road,1828,I-485,1991,0,at grade: within 20 m of the under edge's end,at grade: group: every crossing of the group within 20 m of a junction,5.518,5.518,35.063870 -80.815676
+142,Rea Road,1828,I-485,20062,0,at grade: within 20 m of the under edge's end,at grade: group: every crossing of the group within 20 m of a junction,5.537,5.537,35.064129 -80.815868
+143,Rea Road,4623,I-485,20062,0,at grade: within 20 m of the under edge's end,at grade: group: every crossing of the group within 20 m of a junction,5.511,5.511,35.064134 -80.815726
+153,East 7th Street,2336,e329,329,1,at grade: ,dug,5.512,6.944,35.220883 -80.829527
+154,East 7th Street,2336,e521,521,1,at grade: ,dug,5.520,7.296,35.220981 -80.829643
+155,East 7th Street,2336,I-277,953,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.510,5.510,35.221179 -80.829877
+159,North Tryon Street,1644,I-485,3903,0,at grade: a water span somewhere on the under edge (whole edge),at grade: group: a water span within the cut's reach (x159's cut would reach the water span on e3903 at s 441-457),5.543,5.543,35.333357 -80.721434
+160,North Tryon Street,4872,I-485,3903,0,at grade: a water span somewhere on the under edge (whole edge),at grade: group: a water span within the cut's reach (x159's cut would reach the water span on e3903 at s 441-457),5.533,5.533,35.333229 -80.721329
+165,West 5th Street,5445,e338,338,1,at grade: ,dug,5.529,5.967,35.238012 -80.854438
+166,West 5th Street,1253,e338,338,1,at grade: ,dug,5.513,6.251,35.237906 -80.854539
+168,West 5th Street,1253,I-77,6608,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.563,5.592,35.237675 -80.854245
+170,West 5th Street,5445,I-77,6608,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.644,5.608,35.237782 -80.854144
+171,South Church Street,1106,e340,340,1,at grade: ,dug,8.706,5.520,35.222812 -80.851795
+173,South Church Street,1106,e9808,9808,1,at grade: ,dug,8.716,5.543,35.222833 -80.851764
+175,West W T Harris Boulevard,3136,I-85,9923,0,at grade: within 20 m of the under edge's end,dug,9.495,5.630,35.311930 -80.758470
+176,West Woodlawn Road,2075,e347,347,1,at grade: ,dug,9.699,5.678,35.179854 -80.886582
+177,West Woodlawn Road,2076,e347,347,1,at grade: ,dug,10.418,5.711,35.179986 -80.886586
+178,West Woodlawn Road,2075,I-77,9914,0,at grade: within 20 m of the under edge's end,dug,9.769,5.671,35.179860 -80.886600
+187,Statesville Road,1201,I-85,2805,0,at grade: within 20 m of the under edge's end,at grade: group: every crossing of the group within 20 m of a junction,5.793,5.793,35.272938 -80.836460
+188,Statesville Road,1201,I-85,2807,0,at grade: within 20 m of the under edge's end,at grade: group: every crossing of the group within 20 m of a junction,5.556,5.556,35.272727 -80.836543
+189,Statesville Avenue,2825,I-85,1822,0,at grade: within 20 m of the under edge's end,at grade: group: every crossing of the group within 20 m of a junction,5.893,5.893,35.272948 -80.836640
+190,Statesville Avenue,2825,I-85,2808,0,at grade: within 20 m of the under edge's end,at grade: group: every crossing of the group within 20 m of a junction,5.652,5.652,35.272738 -80.836722
+201,Central Avenue,2323,e379,379,1,at grade: ,dug,8.036,5.605,35.220854 -80.826415
+203,Central Avenue,2323,e2385,2385,1,at grade: ,dug,5.582,6.828,35.220721 -80.827051
+212,Bartlett Road,1768,e2924,2924,1,at grade: ,dug,5.513,5.548,35.182605 -80.629616
+227,Caldwell Road,1680,I-485,625,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.537,5.557,35.296487 -80.682624
+228,Caldwell Road,1680,I-485,1665,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.523,5.550,35.296232 -80.682846
+246,John Belk Freeway,954,I-77,2739,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,5.526,5.526,35.224383 -80.865523
+250,Freedom Drive,1884,e5222,5222,1,at grade: ,dug,5.551,5.576,35.223037 -80.866796
+251,Freedom Drive,1884,I-77,2739,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.544,5.644,35.223073 -80.866964
+252,Freedom Drive,3498,I-77,2739,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.516,5.586,35.223008 -80.867034
+253,Freedom Drive,1884,e5221,5221,1,at grade: ,dug,5.563,5.925,35.223190 -80.867319
+254,Freedom Drive,3498,e5221,5221,1,at grade: ,dug,5.545,5.961,35.223131 -80.867380
+259,US 74,2369,I-277,953,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,9.932,9.957,35.221829 -80.828863
+260,e2380,2380,I-277,953,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,5.514,5.514,35.221998 -80.828723
+266,Providence Road,1064,I-485,20108,0,at grade: within 20 m of the under edge's end,dug,5.515,5.743,35.059871 -80.769909
+268,Providence Road,3619,I-485,20108,0,at grade: within 20 m of the under edge's end,dug,5.514,5.636,35.059872 -80.769765
+269,Providence Road,3619,I-485,13288,0,at grade: within 20 m of the under edge's end,dug,9.151,5.572,35.060133 -80.769775
+286,South College Street,1105,e2037,2037,1,at grade: ,dug,5.512,5.721,35.221191 -80.849594
+289,South College Street,1105,e3766,3766,1,at grade: ,dug,9.717,5.543,35.221447 -80.849132
+293,South Tryon Street,1108,e2037,2037,1,at grade: ,dug,5.524,5.710,35.221778 -80.850367
+294,South Tryon Street,1108,e3766,3766,1,at grade: ,dug,9.750,5.533,35.222115 -80.850031
+309,e1148,1148,I-485,14757,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,5.533,5.533,35.251409 -80.968393
+310,e1148,1148,I-485,2518,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,5.534,5.534,35.251553 -80.968649
+327,Tuckaseegee Road,1178,e2893,2893,1,at grade: ,dug,8.076,5.537,35.245834 -80.897527
+329,Tuckaseegee Road,1178,e10363,10363,1,at grade: ,dug,5.546,5.546,35.245484 -80.896860
+331,Glenwood Drive,1180,I-85,11457,0,at grade: within 20 m of the under edge's end,dug,5.524,5.551,35.254415 -80.889004
+332,Rozzelles Ferry Road,1182,e17480,17480,1,at grade: ,dug,5.527,5.621,35.260615 -80.879778
+333,I-77,1193,I-85,2804,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,5.521,5.521,35.272567 -80.846750
+334,e1195,1195,I-85,2804,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,5.517,5.517,35.272502 -80.847089
+335,e1195,1195,I-85,8542,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,5.516,5.516,35.272708 -80.847041
+336,I-77,1193,I-85,8542,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,5.547,5.547,35.272767 -80.846730
+344,West W T Harris Boulevard,3136,I-85,9745,0,at grade: within 20 m of the under edge's end,dug,5.648,5.586,35.312062 -80.758711
+353,Hamilton Street,23291,Brookshire Freeway,1398,0,at grade: within 20 m of the under edge's end,at grade: every crossing of the group within 20 m of a junction,5.540,5.540,35.242809 -80.844735
+355,Hamilton Street,23291,e8501,8501,1,at grade: ,dug,5.550,5.550,35.242666 -80.844801
+376,Walkers Ferry Road,1340,I-485,14159,0,at grade: within 20 m of the under edge's end,dug,5.537,5.552,35.219577 -80.969472
+377,Walkers Ferry Road,1340,I-485,14157,0,at grade: within 20 m of the under edge's end,dug,5.518,5.550,35.219503 -80.969727
+378,Dixie River Road,1345,I-485,14153,0,at grade: within 20 m of the under edge's end,dug,5.536,5.606,35.203418 -80.968545
+379,Dixie River Road,1345,I-485,14155,0,at grade: within 20 m of the under edge's end,dug,5.505,5.585,35.203424 -80.968276
+380,Shopton Road,1347,I-485,14168,0,at grade: within 20 m of the under edge's end,dug,5.518,5.550,35.172001 -80.969280
+381,Shopton Road,1347,e14172,14172,1,at grade: ,dug,5.534,5.507,35.171994 -80.968934
+382,Shopton Road,1347,I-485,14173,0,at grade: within 20 m of the under edge's end,dug,5.527,5.553,35.171995 -80.969010
+383,Steele Creek Road,1351,e1352,1352,1,at grade: ,dug,5.754,5.578,35.167002 -80.965488
+385,Steele Creek Road,5084,e1352,1352,1,at grade: ,dug,5.848,5.636,35.166918 -80.965365
+387,Steele Creek Road,1351,I-485,9866,0,at grade: within 20 m of the under edge's end,dug,5.549,5.647,35.166788 -80.965699
+396,Hawthorne Lane,9624,e1409,1409,1,at grade: ,dug,5.507,5.506,35.218169 -80.819375
+397,Hawthorne Lane,9623,e1409,1409,1,at grade: ,dug,5.614,5.678,35.218155 -80.819280
+399,South Boulevard,3602,e9784,9784,1,at grade: ,dug,8.690,5.652,35.219328 -80.847104
+402,South Boulevard,1492,e9784,9784,1,at grade: ,dug,8.828,5.851,35.219203 -80.846939
+417,Ridge Road,1516,I-85,8063,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.542,5.550,35.353636 -80.728533
+418,Ridge Road,1516,e8095,8095,1,at grade: ,dug,9.194,5.515,35.353410 -80.728259
+419,Ridge Road,1516,e8062,8062,1,at grade: ,dug,5.519,5.550,35.353810 -80.728743
+441,Alexandriana Road,1534,e2483,2483,1,at grade: ,dug,5.677,5.556,35.367679 -80.843569
+445,Alexandriana Road,1534,e2461,2461,1,at grade: ,dug,5.538,5.550,35.368478 -80.842220
+452,Old Statesville Road,1545,e1544,1544,1,at grade: ,dug,5.511,5.546,35.365279 -80.827015
+453,Old Statesville Road,2457,e1544,1544,1,at grade: ,dug,5.792,5.867,35.365259 -80.827171
+455,Old Statesville Road,1545,e2479,2479,1,at grade: ,dug,5.521,5.690,35.365908 -80.827569
+458,Old Statesville Road,2457,e2479,2479,1,at grade: ,dug,5.706,5.607,35.365889 -80.827726
+463,Northlake Centre Parkway,5436,e8671,8671,1,at grade: ,dug,5.831,5.824,35.361878 -80.853515
+474,North Tryon Street,1644,I-485,2149,0,at grade: a water span somewhere on the under edge (whole edge),at grade: group: a water span within the cut's reach (x159's cut would reach the water span on e3903 at s 441-457),5.579,5.579,35.333548 -80.721138
+475,North Tryon Street,1645,I-485,2149,0,at grade: a water span somewhere on the under edge (whole edge),at grade: group: a water span within the cut's reach (x159's cut would reach the water span on e3903 at s 441-457),5.656,5.656,35.333415 -80.721026
+476,University City Boulevard,1670,e2881,2881,1,at grade: ,dug,5.523,5.576,35.312072 -80.708058
+478,University City Boulevard,1673,e2881,2881,1,at grade: ,dug,5.534,5.591,35.312271 -80.708259
+491,Plaza Road Extension,1720,I-485,10053,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.537,5.550,35.263636 -80.668003
+506,Elm Lane,1763,I-485,10685,0,at grade: within 20 m of the under edge's end,dug,5.535,5.609,35.063607 -80.820999
+510,Bartlett Road,1768,e3759,3759,1,at grade: ,dug,5.506,5.506,35.182887 -80.629174
+512,Blair Road,1770,I-485,3642,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.572,5.562,35.202405 -80.633323
+513,Blair Road,7200,I-485,3642,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.523,5.730,35.202329 -80.633244
+514,Blair Road,1770,I-485,10126,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.542,5.579,35.202107 -80.633417
+515,Blair Road,7200,I-485,10126,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.539,5.601,35.202023 -80.633330
+516,Johnston Road,1786,I-485,11527,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.548,5.576,35.065282 -80.845716
+519,Johnston Road,1787,I-485,11527,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.539,5.569,35.065281 -80.845507
+533,Weddington Road,1844,I-485,1850,0,at grade: within 20 m of the under edge's end,dug,5.575,5.593,35.087880 -80.731964
+534,Weddington Road,1844,e8414,8414,1,at grade: ,dug,5.513,5.591,35.087853 -80.731952
+536,Weddington Road,1844,e8416,8416,1,at grade: ,dug,5.749,5.714,35.088195 -80.732106
+538,Weddington Road,18844,e8414,8414,1,at grade: ,dug,6.004,5.667,35.087911 -80.731844
+539,Weddington Road,18844,e8416,8416,1,at grade: ,dug,5.651,5.549,35.088277 -80.732005
+556,South Boulevard,1857,I-485,6643,0,at grade: within 20 m of the under edge's end,at grade: group: every crossing of the group within 20 m of a junction,5.595,5.595,35.101670 -80.880813
+557,South Boulevard,7513,I-485,6643,0,at grade: within 20 m of the under edge's end,at grade: group: every crossing of the group within 20 m of a junction,5.525,5.525,35.101747 -80.880942
+599,Beatties Ford Road,2095,Brookshire Freeway,13465,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.545,5.550,35.249531 -80.856483
+600,e8067,8067,I-85,8063,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,5.504,5.504,35.346548 -80.735384
+602,e8093,8093,I-85,8063,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,5.508,5.508,35.347063 -80.734879
+606,I-485,8085,I-85,8063,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,5.544,5.544,35.348510 -80.733455
+607,I-485,8100,I-85,8063,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,5.540,5.540,35.348275 -80.733678
+609,e8076,8076,I-85,8063,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,5.509,5.509,35.350391 -80.731664
+611,e8059,8059,I-85,8063,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,5.849,5.849,35.350903 -80.731170
+613,Concord Mills Boulevard / Bruton Smith Boulevard,4644,I-85,2122,0,at grade: within 20 m of the under edge's end,dug,5.537,5.680,35.368833 -80.713844
+617,Hamilton Street,23291,e8481,8481,1,at grade: ,dug,5.507,6.580,35.241913 -80.845154
+618,North Davidson Street,14101,I-277,2145,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.817,5.826,35.228706 -80.829824
+619,e2354,2354,I-277,2145,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,5.558,5.565,35.228743 -80.829867
+620,North Davidson Street,14100,I-277,2145,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.559,5.559,35.228777 -80.829906
+623,North Caldwell Street,2363,I-277,2145,0,at grade: a water span somewhere on the under edge (whole edge),dug,5.535,5.535,35.229572 -80.830818
+633,Northlake Centre Parkway,5436,e8677,8677,1,at grade: ,dug,5.536,5.536,35.361494 -80.853274
+655,I-85,2526,I-485,2518,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,7.821,7.821,35.249265 -80.968881
+656,I-85,2526,I-485,14757,0,at grade: a water span somewhere on the under edge (whole edge),at grade: over road a freeway or ramp,8.880,8.880,35.249162 -80.968617
+685,Freedom Drive,3498,e5222,5222,1,at grade: ,dug,5.522,5.822,35.222970 -80.866867
+699,West Boulevard,2934,I-485,14164,0,at grade: within 20 m of the under edge's end,dug,5.513,5.607,35.190947 -80.969016
+700,West Boulevard,2934,I-485,14166,0,at grade: within 20 m of the under edge's end,dug,5.512,5.550,35.190953 -80.968746
+705,Browne Road,3861,I-485,8672,0,at grade: within 20 m of the under edge's end,dug,5.510,5.626,35.367652 -80.806185
+729,North Community House Road,4169,I-485,10685,0,at grade: within 20 m of the under edge's end,dug,6.077,5.560,35.064994 -80.838191
+745,West Mallard Creek Church Road,4681,I-85,10003,0,at grade: within 20 m of the under edge's end,dug,5.514,5.654,35.332154 -80.744086

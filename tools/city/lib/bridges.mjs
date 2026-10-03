@@ -11,9 +11,12 @@
 //             (cache/layers/culverts.json, fetch/fetch_layers.mjs). A water
 //             span (section SPAN: a creek line under a road) whose middle is
 //             within 15 m of one is a creek OSM says is PIPED under the road
-//             (owner Q8, 2026-10-02: follow OSM, build culverts - package B2
-//             converts them). Until B2 they stay decks exactly as they are,
-//             and no twin-deck union may join one (critic C2/D3).
+//             (owner Q8, 2026-10-02: follow OSM, build culverts). B1 kept them
+//             decks and out of every twin-deck union (critic C2/D3); B2 builds
+//             them as culverts by its own geometric test (lib/culverts.mjs,
+//             section CULV) and writes BRST's culvert table empty.
+//             culvertSpans() stays for deckpairs.mjs measuring a file without
+//             BRST.
 //
 // Used by export_osm.mjs (writes BRST) and deckpairs.mjs (reads BRST, or
 // computes it here when it measures an older file). Pure geometry, no I/O

@@ -66,6 +66,10 @@ namespace PSXRacing.EditorTools
             // ---- culverts, everywhere
             Vector2 lo = new Vector2(float.MaxValue, float.MaxValue), hi = new Vector2(float.MinValue, float.MinValue);
             foreach (var w in map.waters) if (w.ravine) { lo = Vector2.Min(lo, w.bbMin); hi = Vector2.Max(hi, w.bbMax); }
+            // (plan B2, owner Q8) and the creeks OSM pipes under a road
+            if (map.creekCulverts != null)
+                foreach (var x in map.creekCulverts)
+                    if (x.edge >= 0 && x.edge < map.edges.Length) { var q = map.edges[x.edge].PointAt(x.s); lo = Vector2.Min(lo, q); hi = Vector2.Max(hi, q); }
             var all = new List<CityCulverts.Culvert>();
             var clock = System.Diagnostics.Stopwatch.StartNew();
             if (lo.x < hi.x) CityCulverts.Near(map, trims, lo, hi, all);
@@ -91,7 +95,12 @@ namespace PSXRacing.EditorTools
                 if (e.ElevatedAt(c.es) || g < c.roadY - HeldUnderRoadM)
                 {
                     holes++;
-                    if (holeNotes.Count < 12) holeNotes.Add($"HOLE  e{c.edge} '{e.name}' at ({c.at.x:0},{c.at.y:0}): road {c.roadY:0.00}, ground under it {g:0.00}{(e.ElevatedAt(c.es) ? " (elevated)" : "")}");
+                    if (holeNotes.Count < 12)
+                    {
+                        CityElevation.Ground(map, c.at.x, c.at.y, out var gt);
+                        holeNotes.Add($"HOLE  e{c.edge} '{e.name}'{(c.creek ? " (creek)" : "")} at ({c.at.x:0},{c.at.y:0}): road {c.roadY:0.00}, ground under it {g:0.00}{(e.ElevatedAt(c.es) ? " (elevated)" : "")}" +
+                                      $" [floor {gt.floor:0.00} e{gt.floorEdge}, protect {gt.protect:0.00} e{gt.protectEdge}, deck cap {gt.deckCap:0.00} / protect {gt.deckProtect:0.00} e{gt.deckEdge}, carve {gt.carve:0.00}]");
+                    }
                 }
                 int got = 0;
                 foreach (var (has, end, miss) in new[] { (c.hasLo, c.lo, c.missLo), (c.hasHi, c.hi, c.missHi) })
@@ -121,6 +130,25 @@ namespace PSXRacing.EditorTools
             var ps = new System.Text.StringBuilder();
             foreach (var kv in pipes) ps.Append($"{kv.Key:0.0} m x{kv.Value}, ");
             Line($"hydro audit (WP-25): {all.Count} ravine crossings of a road: {culverts} culverts ({sk.ToString().TrimEnd(',', ' ')} take none), solved in {solveMs:0} ms");
+            {
+                // (plan B2, owner Q8) of them, the creeks OSM pipes under a road
+                int cx = 0, cc = 0, cEnds = 0, cWalls = 0, cBoth = 0;
+                var cSkip = new SortedDictionary<string, int>(); var cMiss = new SortedDictionary<string, int>();
+                foreach (var c in all)
+                {
+                    if (!c.creek) continue;
+                    cx++;
+                    if (c.skip != null) { cSkip.TryGetValue(c.skip, out int n); cSkip[c.skip] = n + 1; continue; }
+                    cc++;
+                    if (c.hasLo) { cEnds++; if (c.lo.headwall) cWalls++; } else { cMiss.TryGetValue(c.missLo ?? "?", out int n); cMiss[c.missLo ?? "?"] = n + 1; }
+                    if (c.hasHi) { cEnds++; if (c.hi.headwall) cWalls++; } else { cMiss.TryGetValue(c.missHi ?? "?", out int n); cMiss[c.missHi ?? "?"] = n + 1; }
+                    if (c.hasLo && c.hasHi) cBoth++;
+                }
+                var cs = new StringBuilder(); foreach (var kv in cSkip) cs.Append($"{kv.Key} {kv.Value}, ");
+                var cm = new StringBuilder(); foreach (var kv in cMiss) cm.Append($"{kv.Key} {kv.Value}, ");
+                Line($"    of them CREEKS OSM pipes under the road (plan B2, owner Q8; {map.creekCulverts?.Length ?? 0} in section CULV, no span): {cx} found, {cc} culverts ({cs.ToString().TrimEnd(',', ' ')} take none); " +
+                     $"{cEnds} ends ({cWalls} headwalls), {cBoth} with both; ends not stood: {cm.ToString().TrimEnd(',', ' ')}; roads held over the pipe's cover {CityElevation.CulvertCrossingsHeld} (up to {CityElevation.CulvertHoldMaxM:0.00} m)");
+            }
             Line($"    culvert ends: {ends} ({headwalls} headwalls set into the fill, {ends - headwalls} pipes projecting from the toe; {both} culverts with both ends), pipes {ps.ToString().TrimEnd(',', ' ')}; ends not stood: {ms.ToString().TrimEnd(',', ' ')}; nearest end {(minPast < float.MaxValue ? minPast.ToString("0.0", inv) : "-")} m past a pavement");
             foreach (var l in holeNotes) Line("    " + l);
             foreach (var l in clearNotes) Line("    " + l);

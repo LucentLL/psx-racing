@@ -2,8 +2,8 @@
  "schema": 1,
  "note": "tools/city/deckpairs.mjs --write-baseline (plan B1): the twin-deck pairs the graph holds and which are one structure. --check fails when the union set moves; re-record with BEFORE -> AFTER in the commit.",
  "graph": "089d7141",
- "pairs": 310,
- "over_0_3m": 272,
+ "pairs": 255,
+ "over_0_3m": 225,
  "union": {
   "pairs": 155,
   "metres": 9330,
@@ -12,8 +12,8 @@
   "t3": 0
  },
  "culvert_kept_apart": {
-  "pairs": 26,
-  "metres": 380
+  "pairs": 0,
+  "metres": 0
  },
  "unexplained": 0,
  "unionWays": [

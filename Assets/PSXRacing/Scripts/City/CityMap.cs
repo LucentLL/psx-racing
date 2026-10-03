@@ -355,10 +355,31 @@ namespace PSXRacing.City
         /// <summary>Section BRST (plan B1; null in older data): the water
         /// spans (by index into <see cref="wspans"/>) whose middle is within
         /// 15 m of an OSM tunnel=culvert line - a creek OSM says is PIPED under
-        /// the road (owner Q8: B2 builds them as culverts). Until then they
-        /// stay decks, and no twin-deck union joins one. The culvert's way.</summary>
+        /// the road (owner Q8). Empty from plan B2 on: such a creek has no
+        /// span any more (<see cref="creekCulverts"/>), and a span left is a
+        /// bridge. The culvert's way.</summary>
         public bool[] culvertSpan;
         public uint[] culvertWay;
+        /// <summary>Section CULV (plan B2, owner Q8; null in older data): the
+        /// road crossings of a creek OSM pipes under the road. Such a crossing
+        /// has no span (no deck, no parapets: the road keeps its embankment);
+        /// the creek line runs on under the road's fill, as a ravine's does,
+        /// <see cref="CityElevation"/> holds the road over the pipe's cover and
+        /// <see cref="CityCulverts"/> stands each end where the fill meets the
+        /// channel. Layout: tools/city/lib/citydata.mjs.</summary>
+        public CulvertCrossing[] creekCulverts;
+        public struct CulvertCrossing
+        {
+            /// <summary>The OSM culvert line's way id.</summary>
+            public uint way;
+            /// <summary>The creek (index into <see cref="waters"/>) and its
+            /// arc at the crossing; the road and its arc there.</summary>
+            public int water, edge;
+            public float ws, s;
+            /// <summary>The half length along the road it is held over the
+            /// pipe's cover; the creek's bed at the crossing (metres ASL).</summary>
+            public float halfAlong, bedASL;
+        }
         /// <summary>Section BRST's twin-deck overrides by way pair
         /// (<see cref="DeckPairs.WayKey"/>): true FORCE one structure, false
         /// NEVER. Null when none.</summary>
@@ -814,6 +835,20 @@ namespace PSXRacing.City
                         (map.deckOverrides ??= new Dictionary<long, bool>())[DeckPairs.WayKey(wa, wb)] = force;
                     }
                     Close("BRST");
+                }
+                // CULV (plan B2, owner Q8): the creeks piped under a road
+                if (Has("CULV"))
+                {
+                    Open("CULV");
+                    int nbc = r.ReadInt32();
+                    map.creekCulverts = new CulvertCrossing[nbc];
+                    for (int i = 0; i < nbc; i++)
+                        map.creekCulverts[i] = new CulvertCrossing
+                        {
+                            way = r.ReadUInt32(), water = r.ReadInt32(), ws = r.ReadSingle() * LayoutScale,
+                            edge = r.ReadInt32(), s = r.ReadSingle() * LayoutScale, halfAlong = r.ReadSingle() * LayoutScale, bedASL = r.ReadSingle(),
+                        };
+                    Close("CULV");
                 }
                 LineModel.Init(map, taprOff);
             }

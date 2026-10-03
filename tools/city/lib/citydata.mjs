@@ -47,7 +47,17 @@
 //           (tunnel=culvert): owner Q8, a pipe and not a bridge (B2 builds it)
 //           | u32 k | k x { u32 wayA, wayB; u8 force }       twin-deck
 //           overrides by way pair (tools/city/deckpairs_overrides.json): 1 FORCE
-//           one structure, 0 NEVER
+//           one structure, 0 NEVER. From B2 on the culvert table is empty: a
+//           creek OSM pipes under the road has no span (CULV), and a span left
+//           is a bridge.
+//     CULV  u32 n | n x { u32 culvertWay; u32 water; f32 ws;              (plan B2, owner Q8)
+//                         u32 edge; f32 s; f32 halfAlong; f32 bedASL }
+//           the road crossings of a creek OSM pipes under the road
+//           (lib/culverts.mjs): no span - the creek line (WATR's index, its arc
+//           there) runs on under the road's fill, the game finds the pipe's ends
+//           where the fill meets the channel (CityCulverts) and holds the road
+//           (the arc, the half length along it) over the pipe's cover (the
+//           creek's bed there, metres ASL).
 //   A reader takes the sections it knows by tag and skips the rest.
 //
 //   PSXC v1  u32 magic | i32 ver 1 | META's fields | NODE | NAME
@@ -88,12 +98,12 @@ class Reader {
 }
 
 /// The section tags of PSXC v2, in file order (a reader skips any other).
-export const CITY_SECTIONS = ['META', 'NODE', 'NAME', 'EDGE', 'PNTS', 'WATR', 'WBED', 'XING', 'SPAN', 'ROUT', 'GHSH', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST'];
+export const CITY_SECTIONS = ['META', 'NODE', 'NAME', 'EDGE', 'PNTS', 'WATR', 'WBED', 'XING', 'SPAN', 'ROUT', 'GHSH', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST', 'CULV'];
 /// Sections a file may lack: added after the version-2 layout first shipped,
 /// so a file exported before them still parses (WBED: WP-04b; LANW, TAPR,
 /// PARA and TAGN: WP-10, lib/lineclean.mjs; SPLT: WP-11, lib/splits.mjs;
-/// BRST: the roads pass's B1, lib/bridges.mjs).
-export const CITY_OPTIONAL = new Set(['WBED', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST']);
+/// BRST: the roads pass's B1, lib/bridges.mjs; CULV: B2, lib/culverts.mjs).
+export const CITY_OPTIONAL = new Set(['WBED', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST', 'CULV']);
 
 /// THE ROADS PASS'S TIERS (plan P0/B1), by the shipped rank (0 local ..
 /// 5 motorway; a link keeps its base): 1 motorway/trunk/primary and links,
@@ -300,11 +310,19 @@ export function parseCity(buf) {
     close('BRST');
     brst = { structId, culvert, overrides };
   }
+  let culv = null;
+  if (table && table.has('CULV')) {
+    open('CULV');
+    const n = r.u32();
+    culv = new Array(n);
+    for (let i = 0; i < n; i++) culv[i] = { way: r.u32(), water: r.u32(), ws: r.f32(), edge: r.u32(), s: r.f32(), half: r.f32(), bed: r.f32() };
+    close('CULV');
+  }
   // node -> incident edge ends
   const nodeEdges = Array.from({ length: nn }, () => []);
   for (const e of edges) { nodeEdges[e.a].push(e.index); nodeEdges[e.b].push(e.index); }
   return { version, attribution, uptown, nodes, names, edges, waters, crossings, wspans, routes, nodeEdges, sections, pointBytes,
-           graphHash: hash, storedHash, bedSamples, taprOff, tapr, brst };
+           graphHash: hash, storedHash, bedSamples, taprOff, tapr, brst, culv };
 }
 
 export function parseDem(buf) {
@@ -556,6 +574,7 @@ export function fingerprint(city, dem, bld) {
       ...(city.bedSamples ? { water_bed_samples: city.bedSamples, lakes: city.waters.filter(w => w.lake).length, ravines: city.waters.filter(w => w.ravine).length } : {}),
       ...(city.brst ? { bridge_outline_edges: city.brst.structId.filter(v => v).length, bridge_outlines: new Set(city.brst.structId.filter(v => v)).size,
                         culvert_water_spans: city.brst.culvert.length, deck_overrides: city.brst.overrides.length } : {}),
+      ...(city.culv ? { culvert_crossings: city.culv.length } : {}),
       crossings: city.crossings.length,
       crossings_forced: city.crossings.filter(c => c.forced).length,
       water_spans: city.wspans.length,

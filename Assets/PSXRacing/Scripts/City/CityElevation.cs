@@ -743,6 +743,14 @@ namespace PSXRacing.City
         /// than a hump over the under road. For the audit and the preview.</summary>
         public static bool[] TrenchedCrossings { get; private set; }
         public static int TrenchCount { get; private set; }
+        /// <summary>Per crossing (plan B2, the PROFILE report): why a
+        /// crossing whose under road is a freeway mainline was NOT dug into a
+        /// trench; null where it was, and where the rule never applied (the
+        /// under road is no freeway mainline).</summary>
+        public static string[] TrenchWhy { get; private set; }
+        /// <summary>One line on the last solve's trench decisions (plan B2),
+        /// for the PROFILE report; null before B2's group rule.</summary>
+        public static string TrenchDecisionReport { get; private set; }
 
         /// <summary>Where the last solve spent its time (ms per phase), for
         /// the budget probe.</summary>
@@ -845,6 +853,7 @@ namespace PSXRacing.City
             {
                 RaiseAllCrossings(map);
                 HoldWaterSpans(map);
+                HoldCulverts(map);
                 HoldBridges(map);
                 float moved = ReconcileNodes(map);
                 SeatBranches(map);
@@ -892,6 +901,7 @@ namespace PSXRacing.City
             // under-road that is itself OVER something later in the same
             // layer group can rise after being measured.
             HoldWaterSpans(map);
+            HoldCulverts(map);
             HoldBridges(map);
             RaiseAllCrossings(map, fresh: true);
             RaiseAllCrossings(map, fresh: true);
@@ -932,7 +942,10 @@ namespace PSXRacing.City
                 int seatMoves = SeatBranches(map);
                 int twinMoves = HoldTwinDecks(map);
                 TwinHoldMoves += twinMoves;
-                if (RaiseConesFromNodes(map) == 0 && seatMoves == 0 && twinMoves == 0) break;
+                // a street the loop still lifted over its cut: the cut gives
+                // the excess back (plan B2)
+                int relaxMoves = RelaxTrenches(map);
+                if (RaiseConesFromNodes(map) == 0 && seatMoves == 0 && twinMoves == 0 && relaxMoves == 0) break;
             }
             SnapNodesToEnds(map);
             SeatBranches(map);
@@ -950,6 +963,17 @@ namespace PSXRacing.City
                     RaiseAllCrossings(map, fresh: true);
                     SnapNodesToEnds(map);
                     SeatBranches(map);
+                    // a crest the curves rounded by lifting a street over its
+                    // cut: the cut gives that back too (plan B2), before the
+                    // last round, which rounds what this moves (critic C12)
+                    if (RelaxTrenches(map) > 0)
+                    {
+                        RaiseAllCrossings(map, fresh: true);
+                        SnapNodesToEnds(map);
+                        RaiseConesFromNodes(map);
+                        SnapNodesToEnds(map);
+                        SeatBranches(map);
+                    }
                 }
                 // and once more with nothing after it: the snap and the seats
                 // leave a node above an arm's end (the fan's centre stands at
@@ -1028,6 +1052,7 @@ namespace PSXRacing.City
             spanWaterY = new float[map.wspans.Length];
             spanLifted = new bool[map.wspans.Length];
             SpansLiftedForWater = 0; SpanWaterLiftMax = 0f;
+            CulvertCrossingsHeld = 0; CulvertHoldMaxM = 0f; culvertHeld.Clear();
             var near = new HashSet<int>();
             for (int k = 0; k < map.wspans.Length; k++)
             {
@@ -1082,69 +1107,329 @@ namespace PSXRacing.City
         /// </summary>
         static float[] pinnedNodeY;
 
+        /// <summary>PSX_CITY_TRENCHRULE=0: the trench decisions as they were
+        /// before plan B2 - per crossing, a whole edge exempt for a water span
+        /// anywhere on it, <see cref="TrenchEndM"/> to the EDGE's end, ramps
+        /// never dug (a measuring override; nothing sets it in a build).</summary>
+        public static bool TrenchGroupsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TRENCHRULE") != "0";
+        /// <summary>Crossings of one street over one freeway within this of
+        /// each other are ONE decision (plan B2): West 5th Street's two
+        /// carriageways over I-77's two are four crossings and one cut.</summary>
+        public const float TrenchGroupReachM = 60f;
+        /// <summary>A ramp under the street within this of a dug mainline's
+        /// crossing, running within acos(<see cref="RampEnvelopeCos"/>) of it,
+        /// is in the same cut (plan B2 rule (d)).</summary>
+        public const float RampEnvelopeM = 60f, RampEnvelopeCos = 0.9f;
+        /// <summary>A ramp in the cut climbs back out at its own grade.</summary>
+        const float RampCutGrade = 0.08f;
+        /// <summary>A trench's cut stays this far clear of a water span.</summary>
+        public const float TrenchWaterPadM = 10f;
+        /// <summary>The crossings the B2 rule decided differently from the
+        /// old one, one line each, for the PROFILE report.</summary>
+        public static List<string> TrenchRedecided { get; private set; } = new List<string>();
+
+        /// <summary>
+        /// THE TRENCH DECISIONS (plan B2, 2026-10-02). Before, each crossing
+        /// decided alone: a water span ANYWHERE on the freeway's edge exempted
+        /// the whole edge (I-77 southbound under West 5th St, for a creek
+        /// 240 m away), a crossing within 20 m of the EDGE's end was skipped
+        /// (an OSM way split is no junction: Rea Rd over I-485 at 15 m and
+        /// 2 m), and ramps were never dug - so one carriageway sat in a cut
+        /// and the street humped over the other, 10.8 m over the dug one
+        /// where the real separation is 4.9-5.5 m, the two carriageways 5.0 m
+        /// apart in height (real 0.4). Now:
+        ///   * a crossing's cut is blocked by water only where the cut reaches
+        ///     it: depth / 4.5% + 10 m along the freeway, through its nodes;
+        ///   * <see cref="TrenchEndM"/> is the distance along the freeway to
+        ///     its nearest REAL junction (a node of three arms or more),
+        ///     through way splits;
+        ///   * crossings of one street over one freeway within
+        ///     <see cref="TrenchGroupReachM"/> are ONE decision: all dug, to
+        ///     one bottom (the lowest any of them needs), flat on each
+        ///     carriageway across every member's section - or, where any
+        ///     member's cut would reach water, or every member stands at a
+        ///     junction, none;
+        ///   * a ramp passing under the same street beside a dug mainline
+        ///     (<see cref="RampEnvelopeM"/>, parallel) is dug with it, as deep
+        ///     as its own street needs, climbing out at a ramp's grade through
+        ///     the nodes where only ramps meet, so it no longer humps the
+        ///     street;
+        ///   * where the solve still lifts a street over its cut, the cut
+        ///     gives the excess back (<see cref="RelaxTrenches"/>).
+        /// The DECISION layer only (critic D1): the cut's shape is still the
+        /// 4.5% V the solver always made; plan B4 rounds it, B7 replaces it.
+        /// </summary>
         static void SinkTrenches(CityMap map)
         {
-            TrenchedCrossings = new bool[map.crossings.Length];
+            int NC = map.crossings.Length;
+            TrenchedCrossings = new bool[NC];
             TrenchCount = 0;
+            TrenchWhy = new string[NC];
+            TrenchRedecided = new List<string>();
+            TrenchDecisionReport = null;
+            trenchGroups = null; TrenchRelaxRaised = 0; TrenchRelaxGroups = 0;
+            trenchUnits = new List<(int group, List<int> crossings)>(); trenchPost = null; trenchGiven = null;
+            trenchPre = new Dictionary<long, float>(); trenchWant = new Dictionary<long, List<(int g, float want)>>();
             pinnedNodeY = new float[map.nodes.Length];
             for (int i = 0; i < pinnedNodeY.Length; i++) pinnedNodeY[i] = float.NaN;
 
-            // which edges carry water: not dug, the cut would drown
+            // which edges carry water, and where
             var wet = new bool[map.edges.Length];
-            foreach (var ws in map.wspans) wet[ws.edge] = true;
+            var spansOf = new List<Vector2>[map.edges.Length];
+            foreach (var ws in map.wspans) { wet[ws.edge] = true; (spansOf[ws.edge] ??= new List<Vector2>(2)).Add(new Vector2(ws.s0, ws.s1)); }
 
-            var pending = new List<(int edge, float sAt, float target)>();
-            for (int ci = 0; ci < map.crossings.Length; ci++)
+            // (edge, flat bottom from sLo to sHi, target, climb grade, carried
+            // through nodes: 1 into the freeway mainline, 2 a ramp's into the
+            // ramps it continues as, 0 not)
+            var pending = new List<(int edge, float sLo, float sHi, float target, float grade, int carry, int group)>();
+            void Dig(int ci, CityMap.Edge over, float sO, CityMap.Edge under)
             {
-                var c = map.crossings[ci];
-                if (!c.forced) continue;
-                var over = map.edges[c.over];
-                var under = map.edges[c.under];
-                if (under.cls < 5 || under.link || under.tunnel || wet[c.under]) continue;
-                if (over.cls >= 5 || over.link) continue;
-                ProjectOn(under, c.at, out float sU);
-                if (sU < TrenchEndM || under.length - sU < TrenchEndM) continue;
-                ProjectOn(over, c.at, out float sO);
-                float target = over.YAt(sO) - ClearanceM - DeckThick;
-                pending.Add((c.under, sU, target));
                 float half = under.width * 0.5f + 7f;
                 for (int i = 0; i < over.stS.Length; i++)
                     if (Mathf.Abs(over.stS[i] - sO) <= half) over.stElev[i] = true;
+                // (plan B2) a crossing near the street's node: its deck runs on
+                // into the street beyond, or that street's first metres stand
+                // grounded over the cut (East 7th Street's e9180 put a
+                // retaining face beside the lane of the ramp dug under it)
+                if (TrenchGroupsOn)
+                {
+                    if (sO - half < 0f) DeckThrough(map, over, over.a, half - sO, 0);
+                    if (sO + half > over.length) DeckThrough(map, over, over.b, sO + half - over.length, 0);
+                }
                 TrenchedCrossings[ci] = true;
                 TrenchCount++;
             }
 
+            // the old rule, per crossing (also the B2 report's "before")
+            var oldWhy = new string[NC];
+            var sUs = new float[NC]; var sOs = new float[NC];
+            var cand = new List<int>();
+            for (int ci = 0; ci < NC; ci++)
+            {
+                var c = map.crossings[ci];
+                var over = map.edges[c.over];
+                var under = map.edges[c.under];
+                bool mainline = under.cls >= 5 && !under.link;
+                if (!mainline) continue;
+                ProjectOn(under, c.at, out sUs[ci]);
+                ProjectOn(over, c.at, out sOs[ci]);
+                if (!c.forced) { TrenchWhy[ci] = oldWhy[ci] = "not forced (layers guessed)"; continue; }
+                if (under.tunnel) { TrenchWhy[ci] = oldWhy[ci] = "under road a tunnel"; continue; }
+                if (over.cls >= 5 || over.link) { TrenchWhy[ci] = oldWhy[ci] = "over road a freeway or ramp"; continue; }
+                if (wet[c.under]) oldWhy[ci] = "a water span somewhere on the under edge (whole edge)";
+                else if (sUs[ci] < TrenchEndM || under.length - sUs[ci] < TrenchEndM) oldWhy[ci] = $"within {TrenchEndM:0} m of the under edge's end";
+                cand.Add(ci);
+            }
+
+            if (!TrenchGroupsOn)
+            {
+                foreach (int ci in cand)
+                {
+                    var c = map.crossings[ci];
+                    if (oldWhy[ci] != null) { TrenchWhy[ci] = oldWhy[ci]; continue; }
+                    var over = map.edges[c.over];
+                    pending.Add((c.under, sUs[ci], sUs[ci], over.YAt(sOs[ci]) - ClearanceM - DeckThick, ApproachGrade, 1, -1));
+                    Dig(ci, over, sOs[ci], map.edges[c.under]);
+                }
+                TrenchDecisionReport = "the trench rule before plan B2 (PSX_CITY_TRENCHRULE=0)";
+            }
+            else
+            {
+                // ---- one decision per group of crossings
+                var parent = new Dictionary<int, int>(cand.Count);
+                int Find(int x) { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
+                foreach (int ci in cand) parent[ci] = ci;
+                for (int p = 0; p < cand.Count; p++)
+                    for (int q = p + 1; q < cand.Count; q++)
+                    {
+                        var cp = map.crossings[cand[p]]; var cq = map.crossings[cand[q]];
+                        if ((cp.at - cq.at).sqrMagnitude > TrenchGroupReachM * TrenchGroupReachM) continue;
+                        if (RoadKey(map.edges[cp.over]) != RoadKey(map.edges[cq.over])) continue;
+                        if (RoadKey(map.edges[cp.under]) != RoadKey(map.edges[cq.under])) continue;
+                        parent[Find(cand[p])] = Find(cand[q]);
+                    }
+                var groups = new SortedDictionary<int, List<int>>();
+                foreach (int ci in cand) { int r = Find(ci); if (!groups.TryGetValue(r, out var l)) groups[r] = l = new List<int>(); l.Add(ci); }
+
+                int dugGroups = 0, dugX = 0, humpWater = 0, humpJunction = 0, rampX = 0, nowDug = 0, nowHumped = 0;
+                var groupOfDug = new List<(List<int> members, float target)>();
+                trenchGroups = new List<List<int>>();
+                foreach (var kv in groups)
+                {
+                    var members = kv.Value;
+                    string hard = null; int soft = 0;
+                    float target = float.MaxValue;
+                    foreach (int ci in members)
+                    {
+                        var c = map.crossings[ci];
+                        var over = map.edges[c.over]; var under = map.edges[c.under];
+                        float t = over.YAt(sOs[ci]) - ClearanceM - DeckThick;
+                        target = Mathf.Min(target, t);
+                        string w = CutReachesWater(map, spansOf, c.under, sUs[ci], under.YAt(sUs[ci]) - t, ApproachGrade, true);
+                        if (w != null && hard == null) hard = $"x{ci}'s cut would reach {w}";
+                        if (JunctionDistance(map, c.under, sUs[ci]) < TrenchEndM) soft++;
+                    }
+                    if (hard != null || soft == members.Count)
+                    {
+                        string why = hard != null ? "a water span within the cut's reach (" + hard + ")"
+                                                  : $"every crossing of the group within {TrenchEndM:0} m of a junction";
+                        if (hard != null) humpWater++; else humpJunction++;
+                        foreach (int ci in members)
+                        {
+                            TrenchWhy[ci] = (members.Count > 1 ? "group: " : "") + why;
+                            if (oldWhy[ci] == null) { nowHumped++; TrenchRedecided.Add($"x{ci} '{map.edges[map.crossings[ci].over].name}' over '{map.edges[map.crossings[ci].under].name}' e{map.crossings[ci].under}: dug before, now at grade - {TrenchWhy[ci]}"); }
+                        }
+                        continue;
+                    }
+                    dugGroups++;
+                    groupOfDug.Add((members, target));
+                    int gid = trenchGroups.Count;
+                    trenchGroups.Add(new List<int>(members));
+                    var unitOf = new Dictionary<int, int>();
+                    // one flat bottom per carriageway, between the group's crossings on it
+                    var span = new Dictionary<int, Vector2>();
+                    foreach (int ci in members)
+                    {
+                        var c = map.crossings[ci];
+                        span[c.under] = span.TryGetValue(c.under, out var v) ? new Vector2(Mathf.Min(v.x, sUs[ci]), Mathf.Max(v.y, sUs[ci])) : new Vector2(sUs[ci], sUs[ci]);
+                        if (!unitOf.TryGetValue(c.under, out int u)) { unitOf[c.under] = u = trenchUnits.Count; trenchUnits.Add((gid, new List<int>())); }
+                        trenchUnits[u].crossings.Add(ci);
+                        Dig(ci, map.edges[c.over], sOs[ci], map.edges[c.under]);
+                        dugX++;
+                        if (oldWhy[ci] != null) { nowDug++; TrenchRedecided.Add($"x{ci} '{map.edges[c.over].name}' over '{map.edges[c.under].name}' e{c.under}: at grade before ({oldWhy[ci]}), now dug with its group of {members.Count}"); }
+                    }
+                    // ...across the whole group: every member's crossing point
+                    // projected onto each carriageway, so the two carriageways'
+                    // bottoms span the same sections (a skewed street crosses
+                    // them metres apart along the freeway, and two V's centred
+                    // there stood 1-2 m apart across the median)
+                    var keys = new List<int>(span.Keys);
+                    foreach (int ue in keys)
+                    {
+                        var v = span[ue];
+                        foreach (int ci in members)
+                        {
+                            ProjectOn(map.edges[ue], map.crossings[ci].at, out float sp);
+                            v = new Vector2(Mathf.Min(v.x, sp), Mathf.Max(v.y, sp));
+                        }
+                        span[ue] = v;
+                    }
+                    foreach (var sv in span) pending.Add((sv.Key, sv.Value.x, sv.Value.y, target, ApproachGrade, 1, unitOf[sv.Key]));
+                }
+
+                // ---- (d) ramps beside a dug mainline under the same street
+                for (int ri = 0; ri < NC; ri++)
+                {
+                    var rc = map.crossings[ri];
+                    var ramp = map.edges[rc.under];
+                    if (!rc.forced || !ramp.link || ramp.tunnel || TrenchedCrossings[ri]) continue;
+                    var rover = map.edges[rc.over];
+                    if (rover.cls >= 5 || rover.link) continue;
+                    string rkey = RoadKey(rover);
+                    ProjectOn(ramp, rc.at, out float sR);
+                    ProjectOn(rover, rc.at, out float sRo);
+                    for (int gi = 0; gi < groupOfDug.Count; gi++)
+                    {
+                        var (members, target) = groupOfDug[gi];
+                        bool inside = false;
+                        foreach (int ci in members)
+                        {
+                            var mc = map.crossings[ci];
+                            if (RoadKey(map.edges[mc.over]) != rkey) break;
+                            if ((mc.at - rc.at).sqrMagnitude > RampEnvelopeM * RampEnvelopeM) continue;
+                            if (Mathf.Abs(Vector2.Dot(ramp.TangentAt(sR), map.edges[mc.under].TangentAt(sUs[ci]))) < RampEnvelopeCos) continue;
+                            inside = true; break;
+                        }
+                        if (!inside) continue;
+                        // dug for its own street (no deeper: the street over it
+                        // can stand higher than over the mainline)
+                        float rTarget = rover.YAt(sRo) - ClearanceM - DeckThick;
+                        string w = CutReachesWater(map, spansOf, rc.under, sR, ramp.YAt(sR) - rTarget, RampCutGrade, false);
+                        if (w != null) { TrenchWhy[ri] = "ramp beside a dug mainline, but its cut would reach " + w; break; }
+                        pending.Add((rc.under, sR, sR, rTarget, RampCutGrade, 2, trenchUnits.Count));
+                        trenchUnits.Add((gi, new List<int> { ri }));
+                        trenchGroups[gi].Add(ri);
+                        Dig(ri, rover, sRo, ramp);
+                        rampX++;
+                        TrenchRedecided.Add($"x{ri} '{rover.name}' over ramp e{rc.under}: humped the street before, now in the cut beside its mainline");
+                        break;
+                    }
+                }
+                TrenchDecisionReport = $"{cand.Count} street-over-freeway crossings in {groups.Count} groups: {dugGroups} groups dug ({dugX} crossings, one bottom each) and {rampX} ramps beside them in the cut; " +
+                                       $"{groups.Count - dugGroups} groups at grade ({humpWater} for a water span within the cut's reach, {humpJunction} at a junction); " +
+                                       $"redecided: {nowDug} dug that were at grade, {nowHumped} at grade that were dug, {rampX} ramps";
+            }
+
             // Sink, and carry the trough through the mainline's nodes into
             // its neighbours until it has climbed back to their own profiles.
-            var queue = new Queue<(int edge, float sAt, float target)>(pending);
+            // A ramp in the cut climbs out the same way along its own ramps,
+            // through nodes where only ramps meet (a ramp's way split, its
+            // own forks): West 5th Street's ramp e338 meets e8463 40 m past
+            // the street, and stopped at that node it climbed 6 m in 40 m.
+            var queue = new Queue<(int edge, float sLo, float sHi, float target, float grade, int carry, int group)>(pending);
             int guard = 0;
             while (queue.Count > 0 && guard++ < 200000)
             {
-                var (ei, sAt, target) = queue.Dequeue();
+                var (ei, sLo, sHi, target, grade, carry, group) = queue.Dequeue();
                 var e = map.edges[ei];
                 bool moved = false;
                 for (int i = 0; i < e.stS.Length; i++)
                 {
-                    float want = target + Mathf.Abs(e.stS[i] - sAt) * ApproachGrade;
+                    float want = target + Mathf.Max(0f, Mathf.Max(sLo - e.stS[i], e.stS[i] - sHi)) * grade;
+                    long key = ((long)ei << 20) | (uint)i;
+                    // what each group's cut wants here, against the profile
+                    // before any cut (RelaxTrenches gives it back)
+                    if (group >= 0 && trenchPre != null)
+                    {
+                        if (!trenchPre.TryGetValue(key, out float pre)) pre = e.stY[i];
+                        if (want < pre - 0.01f)
+                        {
+                            trenchPre[key] = pre;
+                            if (!trenchWant.TryGetValue(key, out var wl)) trenchWant[key] = wl = new List<(int, float)>(1);
+                            wl.Add((group, want));
+                        }
+                    }
                     if (e.stY[i] > want + 0.01f) { e.stY[i] = want; moved = true; }
                 }
-                if (!moved) continue;
+                if (!moved || carry == 0) continue;
                 // the ends: pin the node and continue into every other mainline
-                // edge there (not ramps — they climb out at their own grade)
+                // edge there (a ramp's cut: every other ramp)
                 foreach (var (node, endS) in new[] { (e.a, 0f), (e.b, e.length) })
                 {
-                    float wantEnd = target + Mathf.Abs(endS - sAt) * ApproachGrade;
+                    float wantEnd = target + Mathf.Max(0f, Mathf.Max(sLo - endS, endS - sHi)) * grade;
                     float endY = e.a == node ? e.stY[0] : e.stY[e.stY.Length - 1];
                     if (endY > wantEnd + 0.01f) continue;      // the trough faded before this end
+                    if (carry == 2)
+                    {
+                        // a ramp's: only where nothing but ramps meet
+                        bool rampsOnly = true;
+                        foreach (var oi in map.nodeEdges[node]) { var o = map.edges[oi]; if (!o.link || o.tunnel) { rampsOnly = false; break; } }
+                        if (!rampsOnly) continue;
+                    }
                     if (!float.IsNaN(pinnedNodeY[node]) && pinnedNodeY[node] <= endY + 0.01f) continue;
                     pinnedNodeY[node] = endY;
                     foreach (var oi in map.nodeEdges[node])
                     {
                         if (oi == ei) continue;
                         var o = map.edges[oi];
-                        if (o.cls < 5 || o.link || o.tunnel || wet[oi]) continue;
+                        if (carry == 1 ? (o.cls < 5 || o.link || o.tunnel) : (!o.link || o.tunnel || o.a == o.b)) continue;
                         float oAt = o.a == node ? 0f : o.length;
-                        queue.Enqueue((oi, oAt, endY));
+                        float g = carry == 1 ? ApproachGrade : RampCutGrade;
+                        if (!TrenchGroupsOn) { if (wet[oi]) continue; }
+                        else if (spansOf[oi] != null)
+                        {
+                            // not into water: the cut on o reaches as far as
+                            // o stands above the node's pinned height allows
+                            float reach = Mathf.Max(0f, o.YAt(oAt) - endY) / g + TrenchWaterPadM;
+                            bool hit = false;
+                            foreach (var sp in spansOf[oi])
+                            {
+                                float from = oAt == 0f ? sp.x : o.length - sp.y;
+                                if (from - TrenchWaterPadM < reach) { hit = true; break; }
+                            }
+                            if (hit) continue;
+                        }
+                        queue.Enqueue((oi, oAt, oAt, endY, g, carry, group));
                     }
                 }
             }
@@ -1176,6 +1461,213 @@ namespace PSXRacing.City
                 }
                 else BlendEndsToNodes(map, e);
             }
+            // the cut as SinkTrenches leaves it, where a group's cut wants it
+            // (RelaxTrenches gives back from here)
+            if (trenchWant != null)
+            {
+                trenchPost = new Dictionary<long, float>(trenchWant.Count);
+                foreach (var key in trenchWant.Keys) trenchPost[key] = map.edges[(int)(key >> 20)].stY[(int)(key & 0xFFFFF)];
+                trenchGiven = new float[trenchUnits.Count];
+            }
+        }
+
+        /// <summary>The dug groups (their crossings, ramps in the cut
+        /// included), each lowered station's height before any cut, and what
+        /// each group's cut wants there (plan B2; <see cref="RelaxTrenches"/>).</summary>
+        static List<List<int>> trenchGroups;
+        /// <summary>The cut's units: one per carriageway of a dug group, one
+        /// per ramp in its cut (the group, the unit's crossings).</summary>
+        static List<(int group, List<int> crossings)> trenchUnits;
+        static Dictionary<long, float> trenchPre, trenchPost;
+        static Dictionary<long, List<(int g, float want)>> trenchWant;
+        /// <summary>What each unit has given back so far this solve.</summary>
+        static float[] trenchGiven;
+        /// <summary>A dug group whose street stands more than this over the
+        /// clearance its cut was dug for gives the excess back.</summary>
+        public const float TrenchRelaxMinM = 0.1f;
+        /// <summary>How much more one carriageway of a group may give back
+        /// than the one with the least spare (PROFILE judges the two at
+        /// 0.5 m).</summary>
+        public const float TrenchPairSlackM = 0.4f;
+        /// <summary>Stations the last solve raised giving cuts back, and the
+        /// groups that gave.</summary>
+        public static int TrenchRelaxRaised { get; private set; }
+        public static int TrenchRelaxGroups { get; private set; }
+
+        /// <summary>
+        /// ONE MOVE, NOT TWO (plan B2). A cut is dug for its street's height
+        /// when the solve begins; the raise loop can still lift that street
+        /// (a cone from a junction that met a raised ramp, a twin's hold) -
+        /// West 5th Street rose 3 m on its ramp to I-77's southbound exit,
+        /// and stood 7.6 m over a freeway dug 5.55 m under where it began.
+        /// Then the freeway gives the excess back: every station a dug group
+        /// lowered rises from where the cut left it by the spare clearance over
+        /// the crossings of its own carriageway - at most
+        /// <see cref="TrenchPairSlackM"/> more than the group's other
+        /// carriageway gives, so the two stay together; a ramp in the cut by
+        /// no more than its carriageways - never above where it was before the
+        /// cut, and by no more than the least any other cut there has given.
+        /// The cones carry the rise along the freeway. Raises only, so the
+        /// loop it runs in still settles. Returns the stations raised.
+        /// </summary>
+        static int RelaxTrenches(CityMap map)
+        {
+            if (!TrenchGroupsOn || trenchGroups == null || trenchWant == null || trenchWant.Count == 0 || trenchPost == null) return 0;
+            // each unit's spare clearance over its own crossings
+            int U = trenchUnits.Count;
+            var spare = new float[U];
+            for (int u = 0; u < U; u++)
+            {
+                float E = float.MaxValue;
+                foreach (int ci in trenchUnits[u].crossings)
+                {
+                    var c = map.crossings[ci];
+                    var over = map.edges[c.over]; var under = map.edges[c.under];
+                    ProjectOn(over, c.at, out float sO);
+                    ProjectOn(under, c.at, out float sU);
+                    E = Mathf.Min(E, over.YAt(sO) - DeckThick - ClearanceM - under.YAt(sU));
+                }
+                spare[u] = E;
+            }
+            // what each unit has given in all, after this round: what it has
+            // given plus its spare now, but a carriageway no more than
+            // TrenchPairSlackM over its group's least such total (PROFILE
+            // judges the two carriageways at 0.5 m; bounding each round
+            // instead let the slack add up round on round: Lakeview Road's
+            // two carriageways of I-77 1.38 m apart in the B2 audit run), and a
+            // ramp in the cut no more than its group's carriageways have (it
+            // meets them at their gores: more, and its stub to the gore
+            // climbs - 20% on I-485's at Shopton Road, emulated)
+            var total = new float[U];
+            var cwMin = new float[trenchGroups.Count];
+            for (int g = 0; g < cwMin.Length; g++) cwMin[g] = float.MaxValue;
+            bool IsRamp(int u) => map.edges[map.crossings[trenchUnits[u].crossings[0]].under].link;
+            for (int u = 0; u < U; u++)
+            {
+                total[u] = trenchGiven[u] + (spare[u] < float.MaxValue ? Mathf.Max(0f, spare[u]) : 0f);
+                if (!IsRamp(u)) cwMin[trenchUnits[u].group] = Mathf.Min(cwMin[trenchUnits[u].group], total[u]);
+            }
+            bool any = false;
+            for (int u = 0; u < U; u++)
+            {
+                float cap = cwMin[trenchUnits[u].group];
+                if (cap == float.MaxValue) cap = 0f;
+                float want = IsRamp(u) ? Mathf.Min(total[u], cap) : Mathf.Min(total[u], cap + TrenchPairSlackM);
+                if (want > trenchGiven[u] + TrenchRelaxMinM) { trenchGiven[u] = want; any = true; }
+            }
+            if (!any) return 0;
+            int raised = 0;
+            var gave = new HashSet<int>();
+            foreach (var kv in trenchWant)
+            {
+                int ei = (int)(kv.Key >> 20), i = (int)(kv.Key & 0xFFFFF);
+                var e = map.edges[ei];
+                if (i >= e.stY.Length || e.SeatedAt(i)) continue;
+                // the cut rises by the least any unit cutting here has given
+                float G = float.MaxValue; int by = -1;
+                foreach (var (u, _) in kv.Value) if (trenchGiven[u] < G) { G = trenchGiven[u]; by = u; }
+                float floor = Mathf.Min(trenchPre[kv.Key], trenchPost[kv.Key] + G);
+                if (e.stY[i] >= floor - 0.02f) continue;
+                e.stY[i] = floor;
+                raised++;
+                if (by >= 0) gave.Add(trenchUnits[by].group);
+            }
+            TrenchRelaxRaised += raised;
+            TrenchRelaxGroups = Mathf.Max(TrenchRelaxGroups, gave.Count);
+            return raised;
+        }
+
+        /// <summary>A deck's reach past the end of its edge (a crossing near
+        /// the over road's node): the stations of the road's continuation
+        /// there (its best-aligned arm, within 60 degrees) within
+        /// <paramref name="left"/> of the node are structure too.</summary>
+        static void DeckThrough(CityMap map, CityMap.Edge from, int node, float left, int hops)
+        {
+            if (left <= 0f || hops > 3) return;
+            Vector2 dirIn = from.b == node ? from.TangentAt(from.length) : -from.TangentAt(0f);
+            CityMap.Edge best = null; float bestDot = 0.5f;
+            foreach (int oi in map.nodeEdges[node])
+            {
+                var o = map.edges[oi];
+                if (o == from || o.a == o.b || o.stS == null) continue;
+                Vector2 d = o.a == node ? o.TangentAt(0f) : -o.TangentAt(o.length);
+                float dot = Vector2.Dot(d, dirIn) + (RoadKey(o) == RoadKey(from) ? 0.5f : 0f);
+                if (dot > bestDot) { bestDot = dot; best = o; }
+            }
+            if (best == null) return;
+            bool fromA = best.a == node;
+            for (int i = 0; i < best.stS.Length; i++)
+                if ((fromA ? best.stS[i] : best.length - best.stS[i]) <= left) best.stElev[i] = true;
+            if (left > best.length) DeckThrough(map, best, fromA ? best.b : best.a, left - best.length, hops + 1);
+        }
+
+        /// <summary>A road's identity for the trench groups: its name, or the
+        /// edge itself when it has none.</summary>
+        static string RoadKey(CityMap.Edge e) => string.IsNullOrEmpty(e.name) ? "#" + e.index : e.name;
+
+        /// <summary>Would a cut <paramref name="depth"/> deep at arc
+        /// <paramref name="sAt"/> of edge <paramref name="ei"/>, climbing out at
+        /// <paramref name="grade"/>, reach a water span (plus
+        /// <see cref="TrenchWaterPadM"/>)? Along the edge, and with
+        /// <paramref name="through"/> on into the freeway mainline beyond its
+        /// nodes, as the trough is carried. The span found, or null.</summary>
+        static string CutReachesWater(CityMap map, List<Vector2>[] spansOf, int ei, float sAt, float depth, float grade, bool through)
+        {
+            float reach = Mathf.Max(0f, depth) / grade + TrenchWaterPadM;
+            var e = map.edges[ei];
+            string hit = SpanIn(spansOf, ei, sAt - reach, sAt + reach);
+            if (hit != null || !through) return hit;
+            hit = WaterBeyond(map, spansOf, ei, e.b, reach - (e.length - sAt), 0);
+            return hit ?? WaterBeyond(map, spansOf, ei, e.a, reach - sAt, 0);
+        }
+
+        static string SpanIn(List<Vector2>[] spansOf, int ei, float lo, float hi)
+        {
+            var l = spansOf[ei];
+            if (l == null) return null;
+            foreach (var sp in l)
+                if (sp.y + TrenchWaterPadM >= lo && sp.x - TrenchWaterPadM <= hi)
+                    return $"the water span on e{ei} at s {sp.x:0}-{sp.y:0}";
+            return null;
+        }
+
+        static string WaterBeyond(CityMap map, List<Vector2>[] spansOf, int from, int node, float left, int hops)
+        {
+            if (left <= 0f || hops > 8) return null;
+            foreach (int oi in map.nodeEdges[node])
+            {
+                if (oi == from) continue;
+                var o = map.edges[oi];
+                if (o.cls < 5 || o.link || o.tunnel || o.a == o.b) continue;
+                bool fromA = o.a == node;
+                string hit = fromA ? SpanIn(spansOf, oi, 0f, left) : SpanIn(spansOf, oi, o.length - left, o.length);
+                if (hit != null) return hit;
+                hit = WaterBeyond(map, spansOf, oi, fromA ? o.b : o.a, left - o.length, hops + 1);
+                if (hit != null) return hit;
+            }
+            return null;
+        }
+
+        /// <summary>How far along the road from arc <paramref name="s"/> of
+        /// edge <paramref name="ei"/> its nearest JUNCTION is: a node of three
+        /// arms or more, or a dead end; a node of two (an OSM way split) is
+        /// walked through. Searched to <see cref="TrenchEndM"/> (beyond that
+        /// the exact distance does not matter).</summary>
+        static float JunctionDistance(CityMap map, int ei, float s)
+        {
+            var e = map.edges[ei];
+            return Mathf.Min(JunctionAlong(map, ei, e.b, e.length - s, 0), JunctionAlong(map, ei, e.a, s, 0));
+        }
+
+        static float JunctionAlong(CityMap map, int from, int node, float d, int hops)
+        {
+            if (d >= TrenchEndM || hops > 8) return d;
+            var arms = map.nodeEdges[node];
+            if (arms.Count != 2) return d;
+            int oi = arms[0] == from ? arms[1] : arms[0];
+            var o = map.edges[oi];
+            if (o.a == o.b) return d;
+            return JunctionAlong(map, oi, o.a == node ? o.b : o.a, d + o.length, hops + 1);
         }
 
         /// <summary>
@@ -1215,11 +1707,51 @@ namespace PSXRacing.City
                     if (map.deckUnionsOf[e.index] != null) { nodeTwin[e.a] = true; nodeTwin[e.b] = true; }
                 foreach (var e in map.edges) nearTwin[e.index] = nodeTwin[e.a] || nodeTwin[e.b];
             }
+            // a road over a creek pipe is an EMBANKMENT whatever it stands
+            // over the grid (plan B2, owner Q8): never a deck by the margin -
+            // nor is any road beside the pipe (a divided road's other
+            // carriageway: its margin deck's cap dug 3.3 m under Highland
+            // Creek Parkway's culvert, the first B2 run)
+            var culvertWin = new Dictionary<int, List<Vector2>>();
+            void Exempt(int ei, float a, float b)
+            {
+                if (!culvertWin.TryGetValue(ei, out var l)) culvertWin[ei] = l = new List<Vector2>(1);
+                l.Add(new Vector2(a, b));
+            }
+            if (map.creekCulverts != null)
+            {
+                var near = new HashSet<int>();
+                foreach (var x in map.creekCulverts)
+                {
+                    if (x.edge < 0 || x.edge >= map.edges.Length) continue;
+                    Exempt(x.edge, x.s - x.halfAlong - StationStep, x.s + x.halfAlong + StationStep);
+                    var at = map.edges[x.edge].PointAt(x.s);
+                    near.Clear();
+                    map.EdgeSegsInRect(at - Vector2.one * CulvertBesideM, at + Vector2.one * CulvertBesideM, near);
+                    foreach (int packed in near)
+                    {
+                        int ei = packed >> 12, si = packed & 0xFFF;
+                        if (ei == x.edge) continue;
+                        var o = map.edges[ei];
+                        if (si + 1 >= o.pts.Length) continue;
+                        ProjectOn(o, at, out float so);
+                        if (Vector2.Distance(o.PointAt(so), at) > CulvertBesideM) continue;
+                        Exempt(ei, so - x.halfAlong - StationStep, so + x.halfAlong + StationStep);
+                    }
+                }
+            }
             foreach (var e in map.edges)
             {
+                culvertWin.TryGetValue(e.index, out var win);
                 for (int i = 0; i < e.stS.Length; i++)
                 {
                     if (e.stElev[i]) continue;
+                    if (win != null)
+                    {
+                        bool inWin = false;
+                        foreach (var w in win) if (e.stS[i] >= w.x && e.stS[i] <= w.y) { inWin = true; break; }
+                        if (inWin) continue;
+                    }
                     var p = e.PointAt(e.stS[i]);
                     if (e.stY[i] > RoadBaseY(p.x, p.y) + ElevMarginM)
                     {
@@ -1923,6 +2455,72 @@ namespace PSXRacing.City
             }
         }
 
+        /// <summary>Road crossings over a creek pipe the last solve raised to
+        /// the pipe's cover, and the most any rose (plan B2, owner Q8).</summary>
+        /// <summary>Two carriageways of one road over one creek pipe, their
+        /// crossings within <see cref="CulvertTwinM"/>, stand within
+        /// <see cref="CulvertTwinDyM"/> of each other there (the lower is
+        /// raised: HoldCulverts).</summary>
+        public const float CulvertTwinM = 60f, CulvertTwinDyM = 1f;
+        /// <summary>Roads within this of a creek pipe's crossing (a divided
+        /// road's other carriageway) are embankments there too.</summary>
+        public const float CulvertBesideM = 30f;
+        public static int CulvertCrossingsHeld { get; private set; }
+        public static float CulvertHoldMaxM { get; private set; }
+        static readonly HashSet<int> culvertHeld = new HashSet<int>();
+
+        /// <summary>
+        /// A ROAD OVER A CREEK OSM PIPES UNDER IT (plan B2, owner Q8;
+        /// <see cref="CityMap.creekCulverts"/>) keeps the pipe's cover: at
+        /// least <see cref="CityCulverts.MinFillM"/> over the creek's carved
+        /// floor across the creek's flat floor (the crossing's halfAlong),
+        /// falling away like a crossing's hump. Raises only, and the stations
+        /// stay on the GROUND: an embankment over a pipe, not a deck. It
+        /// replaces the water span's hold (the deck's soffit a metre over the
+        /// water, 0.75 m higher than this).
+        /// </summary>
+        static void HoldCulverts(CityMap map)
+        {
+            if (map.creekCulverts == null || !HasDem) return;
+            for (int ci = 0; ci < map.creekCulverts.Length; ci++)
+            {
+                var x = map.creekCulverts[ci];
+                if (x.edge < 0 || x.edge >= map.edges.Length) continue;
+                var e = map.edges[x.edge];
+                float want = CulvertFloorY(x) + CityCulverts.MinFillM;
+                // ONE FILL: the other carriageway of the same road over the
+                // same pipe stands within a metre of this one (the land between
+                // is graded to the lower; three metres apart, Highland Creek
+                // Parkway's higher carriageway stood on nothing - the B2 run).
+                // Only below secondary: a secondary or bigger road's two
+                // carriageways already read one ground line (PairedRoadBaseY);
+                // five pairs city-wide, West 5th Street's over Irwin Creek one
+                var at = e.PointAt(x.s);
+                for (int cj = 0; cj < map.creekCulverts.Length && e.cls < 2; cj++)
+                {
+                    var o = map.creekCulverts[cj];
+                    if (cj == ci || o.water != x.water || o.edge == x.edge || o.edge < 0 || o.edge >= map.edges.Length) continue;
+                    var oe = map.edges[o.edge];
+                    if (string.IsNullOrEmpty(e.name) || oe.name != e.name) continue;
+                    if ((oe.PointAt(o.s) - at).sqrMagnitude > CulvertTwinM * CulvertTwinM) continue;
+                    want = Mathf.Max(want, oe.YAt(o.s) - CulvertTwinDyM);
+                }
+                float s0 = Mathf.Clamp(x.s - x.halfAlong, 0f, e.length), s1 = Mathf.Clamp(x.s + x.halfAlong, 0f, e.length);
+                float low = Mathf.Min(e.YAt(s0), e.YAt(s1), e.YAt(x.s));
+                for (int i = 0; i < e.stS.Length; i++)
+                    if (e.stS[i] >= s0 && e.stS[i] <= s1 && !e.SeatedAt(i)) low = Mathf.Min(low, e.stY[i]);
+                if (low >= want - 1e-3f) continue;
+                RaiseSpan(e, s0, s1, want);
+                CulvertHoldMaxM = Mathf.Max(CulvertHoldMaxM, want - low);
+                if (culvertHeld.Add(ci)) CulvertCrossingsHeld++;
+            }
+        }
+
+        /// <summary>A creek pipe's invert under a road crossing: the creek's
+        /// carved floor there (its bed less the water's and the carve's
+        /// depth, as <see cref="Ground"/> carves an open creek).</summary>
+        public static float CulvertFloorY(CityMap.CulvertCrossing x) => x.bedASL - DatumASL - WaterBelowBed - CarveBelowWater;
+
         /// <summary>A flat-topped hump: at least <paramref name="targetY"/>
         /// from s0 to s1, falling away at the approach grade either side
         /// (seated stations are their hosts').</summary>
@@ -2283,6 +2881,29 @@ namespace PSXRacing.City
                 for (int i = 0; i < e.stS.Length; i++)
                     if (e.stS[i] >= ws.s0 - StationStep && e.stS[i] <= ws.s1 + StationStep) mob[e.index][i] &= Up;
             }
+            // a road over a creek pipe keeps the pipe's cover (HoldCulverts),
+            // as a water span's deck did - except on a road that also carries
+            // a trench's cut (plan B2) and stands well over the cover (three
+            // rounds lower at most 2.4 m): there an Up-only window beside the
+            // cut's lip made the curves round the lip by lifting the window
+            // 4.2 m (I-277's ramp e329 under East 7th Street, 17.6% grade,
+            // the B2 run)
+            HashSet<int> cutEdges = null;
+            if (trenchWant != null && trenchWant.Count > 0)
+            {
+                cutEdges = new HashSet<int>();
+                foreach (var key in trenchWant.Keys) cutEdges.Add((int)(key >> 20));
+            }
+            if (map.creekCulverts != null && HasDem)
+                foreach (var x in map.creekCulverts)
+                {
+                    if (x.edge < 0 || x.edge >= E) continue;
+                    var e = map.edges[x.edge];
+                    if (cutEdges != null && cutEdges.Contains(x.edge) &&
+                        e.YAt(x.s) > CulvertFloorY(x) + CityCulverts.MinFillM + 3f * VcurveMaxLowerM + 0.1f) continue;
+                    for (int i = 0; i < e.stS.Length; i++)
+                        if (e.stS[i] >= x.s - x.halfAlong - StationStep && e.stS[i] <= x.s + x.halfAlong + StationStep) mob[e.index][i] &= Up;
+                }
             var on = crossingOn;
             for (int ci = 0; ci < map.crossings.Length; ci++)
             {
