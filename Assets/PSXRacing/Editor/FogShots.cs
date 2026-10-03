@@ -2,6 +2,7 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 using PSXRacing;
+using PSXRacing.City;
 
 namespace PSXRacing.EditorTools
 {
@@ -100,6 +101,111 @@ namespace PSXRacing.EditorTools
                 if (id.Length > 0) CaptureOne(id, hourName, outDir);
             }
             Debug.Log("[FogShots] written to " + outDir);
+        }
+
+        // ==================================================================
+        //  NO FOG UNLESS IT IS FOGGY (owner rule, 2026-10-03): the same frames
+        //  with the old band (TimeOfDay.FogOnlyWhenFoggy false) and with the
+        //  rule, at the chase camera's pose; plus the circuit on a foggy day
+        //  (the band must still be there). Writes Screenshots\fe_<view>_<old|new>.png.
+        //  tools\fog-shots.ps1 -BeforeAfter.
+        // ==================================================================
+
+        [MenuItem("PSX Racing/Capture Fog Before-After")]
+        public static void CaptureBeforeAfter()
+        {
+            string outDir = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Screenshots");
+            Directory.CreateDirectory(outDir);
+            int keepDay = RaceHandoff.CalendarDay;
+            var keepView = ChaseCamera.Current;
+            int fogDay = 0;
+            for (int d = 1; d <= 800 && fogDay == 0; d++)
+                if (Seasons.WeatherFor(d) == Weather.Fog && Seasons.Of(d) == Season.Fall) fogDay = d;
+            try
+            {
+                ChaseCamera.PreviewView(ChaseCamera.View.Chase);
+                // Charlotte: I-277 on the Uptown Loop, its kilometre-long
+                // straight (the first I-277 edge over a kilometre), night and noon
+                var clt = TrackCatalog.At(TrackCatalog.IndexOf("Charlotte"));
+                if (clt.id == "Charlotte" && PSXScreenshotTool.Open(clt, out var cam, out var player))
+                {
+                    var map = CityMap.Get();
+                    var world = Object.FindAnyObjectByType<CityWorld>();
+                    CityMap.Edge e = null;
+                    if (map != null) foreach (var x in map.edges) if (x.name == "I-277" && !x.link && x.length > 1000f) { e = x; break; }
+                    if (e != null && world != null)
+                    {
+                        NightLookShots.Stand(e, Mathf.Min(150f, e.length * 0.2f), out var pos, out var rot);
+                        world.EnsureRing(pos, 2);
+                        var car = player.GetComponent<CarController>();
+                        if (car != null) car.TeleportTo(pos, rot); else player.transform.SetPositionAndRotation(pos, rot);
+                        Debug.Log($"[FogShots] Charlotte on e{e.index} '{e.name}' at ({pos.x:0},{pos.z:0})");
+                        PairBA(cam, player.transform, "clt_i277_night", TimeOfDay.Night, 0);
+                        PairBA(cam, player.transform, "clt_i277_noon", TimeOfDay.Noon, 0);
+                    }
+                    else Debug.LogError("[FogShots] no I-277 straight or no CityWorld in Charlotte");
+                }
+                // a mountain stage, at stations along its road (a ridge with
+                // distance in it), and a circuit from the player's grid
+                foreach (var (id, view) in new[] { ("MtMitchell", "stage_mtmitchell"), ("CityCircuit", "circuit_noon") })
+                {
+                    var def = TrackCatalog.At(TrackCatalog.IndexOf(id));
+                    if (def.id != id || !PSXScreenshotTool.Open(def, out var cam2, out var pl2)) { Debug.LogError("[FogShots] no scene " + id); continue; }
+                    if (def.stage)
+                    {
+                        var path = Object.FindFirstObjectByType<TrackPath>();
+                        var car = pl2.GetComponent<CarController>();
+                        if (path == null || path.Count < 50) { Debug.LogError("[FogShots] no path in " + id); continue; }
+                        foreach (float f in new[] { 0.3f, 0.55f, 0.8f })
+                        {
+                            int i = Mathf.Clamp(Mathf.RoundToInt(f * path.Count), 2, path.Count - 12);
+                            var fwd = path.GetTangent(i).normalized;
+                            var pos = path.GetPoint(i) + Vector3.up * 0.35f;
+                            var rot = Quaternion.LookRotation(new Vector3(fwd.x, 0f, fwd.z), Vector3.up);
+                            if (car != null) car.TeleportTo(pos, rot); else pl2.transform.SetPositionAndRotation(pos, rot);
+                            PairBA(cam2, pl2.transform, view + "_" + Mathf.RoundToInt(f * 100f) + "_noon", TimeOfDay.Noon, 0);
+                        }
+                        continue;
+                    }
+                    PairBA(cam2, pl2.transform, view, TimeOfDay.Noon, 0);
+                    if (id == "CityCircuit" && fogDay > 0) PairBA(cam2, pl2.transform, "circuit_noon_fogday", TimeOfDay.Noon, fogDay);
+                }
+            }
+            finally
+            {
+                TimeOfDay.FogOnlyWhenFoggy = true;
+                RaceHandoff.CalendarDay = keepDay;
+                ChaseCamera.PreviewView(keepView);
+            }
+            Debug.Log("[FogShots] before/after written to " + outDir + (fogDay > 0 ? " (fog day " + fogDay + ")" : " (no fog day found)"));
+        }
+
+        /// <summary>One view at the chase camera's pose behind the car, with
+        /// the old band (_old) and the rule (_new), on day
+        /// <paramref name="day"/> (0: clear).</summary>
+        static void PairBA(Camera cam, Transform car, string view, int hour, int day)
+        {
+            var sun = NightLookShots.FindSun();
+            Vector3 eye = car.position - car.forward * 8f + Vector3.up * 2.6f;
+            var rot = Quaternion.LookRotation(car.position + Vector3.up * 0.8f + car.forward * 20f - eye);
+            for (int mode = 0; mode < 2; mode++)
+            {
+                TimeOfDay.FogOnlyWhenFoggy = mode == 1;
+                RaceHandoff.CalendarDay = day;
+                if (sun != null) TimeOfDay.Apply(hour, sun);
+                var globals = Object.FindAnyObjectByType<PSXGlobals>();
+                if (globals != null) globals.Apply();
+                var preset = TimeOfDay.At(hour);
+                NightGlow.PreviewAll(preset.lightsOn);
+                bool carsLit = preset.lightsOn || Seasons.LightsOn(Seasons.CurrentWeather);
+                foreach (var lights in Object.FindObjectsByType<CarLights>(FindObjectsInactive.Exclude)) lights.PreviewBuild(carsLit);
+                CarLights.PushGlobals();
+                StreetLights.Push(eye, rot * Vector3.forward);
+                SunShadows.RenderFor(cam);
+                string tag = mode == 0 ? "old" : "new";
+                PSXScreenshotTool.ShotAs(cam, "fe_" + view + "_" + tag, eye, rot);
+                Debug.Log($"[FogShots] fe_{view}_{tag}: weather {Seasons.CurrentWeather}, band {(globals != null ? globals.fogNear : 0f):0}..{(globals != null ? globals.fogFar : 0f):0} m, colour {(globals != null ? globals.fogColor : default)}, far plane {cam.farClipPlane:0} m");
+            }
         }
 
         static void CaptureOne(string id, string hourName, string outDir)

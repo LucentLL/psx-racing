@@ -37,6 +37,19 @@ namespace PSXRacing
         /// </summary>
         public const float FogCurve = 2.2f;
 
+        /// <summary>
+        /// NO FOG UNLESS IT IS FOGGY (owner rule, 2026-10-03). On a clear,
+        /// rainy or snowy day <see cref="Apply"/> lays no distance fog: only
+        /// the drawn world's last stretch, from this share of the draw
+        /// distance out, fades into the sky's horizon colour (with
+        /// <see cref="FogCurve"/> most of that in its last tenth), so the
+        /// world never ends in a hard line. A Weather.Fog day keeps the
+        /// hour's own band exactly as it was. False puts the old band back on
+        /// every day (the before-pictures; nothing in the game sets it).
+        /// </summary>
+        public const float EdgeFadeStart = 0.80f;
+        public static bool FogOnlyWhenFoggy = true;
+
         public struct Preset
         {
             public string name;
@@ -400,14 +413,40 @@ namespace PSXRacing
             if (globals != null)
             {
                 globals.ambient = p.ambient;
-                globals.fogColor = p.fogColor;
-                // Through the scene's own fog scale: the hour table stays one
-                // table, and a venue that wants to see further (the mountain
-                // stage) bakes the multiplier into its PSXGlobals instead of
-                // into seven copied presets.
-                float s = Mathf.Max(0.01f, globals.fogScale) * Seasons.FogMul(weather);
-                globals.fogNear = p.fogNear * s;
-                globals.fogFar = p.fogFar * s;
+                float scale = Mathf.Max(0.01f, globals.fogScale);
+                if (weather == Weather.Fog || !FogOnlyWhenFoggy)
+                {
+                    // A FOGGY DAY: the hour's band as signed off. Through the
+                    // scene's own fog scale: the hour table stays one table,
+                    // and a venue that wants to see further (the mountain
+                    // stage) bakes the multiplier into its PSXGlobals instead
+                    // of into seven copied presets.
+                    globals.fogColor = p.fogColor;
+                    float s = scale * Seasons.FogMul(weather);
+                    globals.fogNear = p.fogNear * s;
+                    globals.fogFar = p.fogFar * s;
+                }
+                else
+                {
+                    // EVERY OTHER DAY - clear, rain, snow - HAS NO FOG (the
+                    // owner, 2026-10-03: "remove fog from the game unless the
+                    // weather is foggy. I'm tired of everything in the
+                    // distance being white"). Only the last stretch of the
+                    // drawn world fades, so it never ends in a hard line: from
+                    // EdgeFadeStart of the draw distance to the draw distance
+                    // itself, into the sky's own HORIZON colour for the hour
+                    // (what PSX/Sky paints the band at the horizon with, dark
+                    // at night, blue by day - never whiter than the sky behind
+                    // it). The draw distance is noon's band end times the
+                    // scene's fogScale: the camera's far plane, which
+                    // LifeSimSelfTest holds within 20% inside it (500 m on a
+                    // circuit and in Charlotte, inside the city's two-tile
+                    // ring; 1,500 m on a stage), so nothing pops in.
+                    float edge = All[Noon].fogFar * scale;
+                    globals.fogColor = p.skyHorizon;
+                    globals.fogNear = edge * EdgeFadeStart;
+                    globals.fogFar = edge;
+                }
                 globals.fogCurve = FogCurve;
                 globals.skyAmbient = SkyAmbientFor(p);
                 // What the hour means beyond its light (2026-09-21, the NFS

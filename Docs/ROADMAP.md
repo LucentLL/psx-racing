@@ -5,6 +5,42 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## NO FOG UNLESS IT IS FOGGY (2026-10-03)
+
+"I'd also like to remove fog from the game unless the weather is foggy. I'm
+tired of everything in the distance being white."
+
+- **The rule lives in `TimeOfDay.Apply`, the one place the band is set.** On
+  a `Weather.Fog` day the hour's band is exactly what it was (the preset x
+  the scene's `fogScale` x `Seasons.FogMul`). On every other day - clear,
+  rain, snow - there is no distance fog: only the last stretch of the drawn
+  world fades, from `EdgeFadeStart` (0.80) of the draw distance to the draw
+  distance itself, so the world never ends in a hard line. Both editions,
+  every venue: Charlotte, the circuits and the stages all take their band
+  from here.
+- **The draw distance is noon's band end times the scene's `fogScale`**:
+  497 m on a circuit and in Charlotte (inside the city's two-tile ring and
+  the 500 m far plane), 1,420 m on a stage (1,500 m plane). The self-test
+  already holds that number inside the camera's far plane and within 20% of
+  it, so nothing new can pop in.
+- **The fade's colour is the sky's own horizon colour for the hour**
+  (`skyHorizon`, what PSX/Sky paints the band at the horizon with; the
+  dynamic sky's band follows `_PSXFogColor`, so it is the same either way):
+  dark at night, blue by day, never whiter than the sky behind it. With
+  `FogCurve` 2.2 most of the fade is in its last tenth.
+- **`tools\fog-shots.ps1 -BeforeAfter`** (`FogShots.CaptureBeforeAfter`)
+  shoots Charlotte's I-277 by night and noon, Mt Mitchell (three stations
+  along its road) and the circuit at noon from the chase camera, each with the old band
+  (`TimeOfDay.FogOnlyWhenFoggy = false`) and the rule, and the circuit on a
+  fog day: `Screenshots\fe_<view>_<old|new>.png`.
+- **BEFORE -> AFTER (the band the game sets, `fogshots` log):** Charlotte
+  night 63..266 m -> 398..497 m (colour the sodium-murk fog -> the night
+  horizon); Charlotte and the circuit at noon 210..497 -> 398..497 m; Mt
+  Mitchell at noon 600..1,420 -> 1,136..1,420 m; a fog day 95..224 m ->
+  95..224 m (unchanged).
+- **No rebake.** The band is written at every race start; nothing baked
+  changed.
+
 ## TOP SPEEDS FROM GT4, A BUILD IS A PERCENTAGE, AND RACE CARS COME BUILT (2026-09-21)
 
 The brief: "Something is very wrong with top speeds. One car has over 300MPH.
