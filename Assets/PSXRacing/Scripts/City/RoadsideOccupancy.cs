@@ -433,6 +433,36 @@ namespace PSXRacing.City
                 }
             }
 
+            // ---- plan A2: a twin-deck union's slab spans the gap between its
+            // two decks (CityMeshes.EmitUnionMedian), so the ground under the
+            // gap is under a deck too: nothing grows up through the slab
+            if (trims.unions != null)
+                foreach (int ei in edgeScratch)
+                {
+                    var ulist = trims.unions[ei];
+                    if (ulist == null) continue;
+                    var e = map.edges[ei];
+                    foreach (var r in ulist)
+                    {
+                        if (!r.owner || r.approach) continue;
+                        var nbE = map.edges[r.nb];
+                        Vector2 prev = default; float prevR = 0f; bool have = false;
+                        for (float s = r.s0; ; s += PieceM)
+                        {
+                            bool last = s >= r.s1 - 1e-3f;
+                            if (last) s = r.s1;
+                            var p = e.PointAt(s);
+                            CityElevation.ProjectOn(nbE, p, out float tn);
+                            var q = nbE.PointAt(tn);
+                            var c = 0.5f * (p + q);
+                            float rad = 0.5f * Vector2.Distance(p, q);
+                            if (have && e.ElevatedAt(s)) o.MarkCapsule(prev, c, Mathf.Max(rad, prevR) + DeckMarginM + CellPadM, Deck);
+                            prev = c; prevR = rad; have = true;
+                            if (last) break;
+                        }
+                    }
+                }
+
             // ---- race run-off along the city routes (RaceRunOff): clear zone
             var runOff = RaceRunOff.For(map, trims, tx, tz);
             if (runOff != null) foreach (var m in runOff) o.MarkCapsule(m.a, m.b, m.r + CellPadM, Clear);

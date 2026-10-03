@@ -306,6 +306,7 @@ namespace PSXRacing.EditorTools
             Eye("w5th_owner", "w5th", -3363.2f, 5939.6f, "West 5th", 134f, "W 5th St at node 2069 (35.23801,-80.85467), heading 134, 1.2 m eye: the owner's frame, eastbound over I-77"),
             Eye("w5th_wb", "w5th", -3280.7f, 5880.9f, "West 5th", 314f, "W 5th St westbound from the east signal (n4121/n4122) across the bridge, heading 314"),
             Top("w5th_west_junction", "w5th", -3408.5f, 5993.0f, "West 5th", 45f, "the west signalised junction n4116/n4117: two fans and the grass between"),
+            Top("w5th_top", "w5th", -3330.0f, 5918.0f, "West 5th", 70f, "W 5th St over I-77 from above (plan A2): one deck, two outer parapets, the raised median on to both signals"),
             // twin decks (B1/A2)
             Top("twin_i277", "twin", -2132.9f, 5956.5f, "I-277", 110f, "I-277 twin viaduct e1910/e1921: the longest union candidate"),
             Top("twin_e2437", "twin", -983.5f, 4472.1f, "I-277", 60f, "I-277 e2437/e2438: must stay two structures (the negative case)"),

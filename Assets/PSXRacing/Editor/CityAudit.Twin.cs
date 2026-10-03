@@ -46,7 +46,7 @@ namespace PSXRacing.EditorTools
     public static partial class CityAudit
     {
         /// <summary>Plan A2 sets this true in its commit: (a)-(d) become checks.</summary>
-        const bool TwinMeshGated = false;
+        const bool TwinMeshGated = true;
 
         static partial void TwinReport(CityMap map, CityMeshes.Trims trims)
         {
@@ -445,7 +445,10 @@ namespace PSXRacing.EditorTools
                     foreach (float f in fr)
                     {
                         var p = Vector3.Lerp(ia, ib, f);
-                        if (!RaycastPastLamps(p + Vector3.up * 2f, Vector3.down, out var hit, 4f) || !IsSlab(hit.collider) || Mathf.Abs(hit.point.y - p.y) > 0.15f) { hole = true; break; }
+                        // (plan A2) a Barrier median's own Jersey stands on the slab
+                        // at the gap's centre: its top, 0.81 m up, is cover too
+                        if (!RaycastPastLamps(p + Vector3.up * 2f, Vector3.down, out var hit, 4f) || !IsSlab(hit.collider) ||
+                            (Mathf.Abs(hit.point.y - p.y) > 0.15f && !(designed > 0 && hit.collider.name == "Barriers"))) { hole = true; break; }
                     }
                     if (hole) r.holeM += 0.5f;
                 }

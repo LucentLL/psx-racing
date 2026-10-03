@@ -480,8 +480,79 @@ namespace PSXRacing.EditorTools
             return false;
         }
 
+        /// <summary>
+        /// THE W 5TH LATERAL (plan A2, 2026-10-02): the owner's example is one
+        /// bridge with a median. A ray half a metre over the deck from the
+        /// eastbound carriageway's inner lane (1.8 m in from its inner edge) to
+        /// the westbound's, every 2 m along the union run, counts the solids it
+        /// crosses: the designed median's only (a raised median 0, a Jersey 1).
+        /// Before A2: 2 (the two inner parapets) over a 0.92 m slot.
+        /// </summary>
+        static void W5thLateral(CityMap map, CityMeshes.Trims trims)
+        {
+            var runs = new List<CityMeshes.AuditView.UnionRunView>();
+            int samples = 0, worst = 0, over = 0, designed = 0; string kind = "none";
+            var hitNames = new SortedDictionary<string, int>();
+            var overNotes = new List<string>();
+            Vector3 LaneIn(CityMap.Edge e, float s, int side, float inward)
+            {
+                CityMeshes.LaneExtents(map, trims, e, s, out float hwL, out float hwR);
+                var p = e.PointAt(s); var tan = e.TangentAt(s);
+                var right = new Vector2(-tan.y, tan.x);
+                float lat = side > 0 ? hwR - inward : -(hwL - inward);
+                var q = p + right * lat;
+                return new Vector3(q.x, e.YAt(s) + 0.5f, q.y);
+            }
+            foreach (var e in map.edges)
+            {
+                if (!e.bridge || e.name != "West 5th Street") continue;
+                CityMeshes.AuditView.UnionRunsOf(trims, e.index, runs);
+                foreach (var r in runs)
+                {
+                    if (!r.owner || r.approach) continue;
+                    var o = map.edges[r.nb];
+                    designed = r.median == DeckPairs.Median.Barrier ? 1 : 0; kind = r.median.ToString();
+                    for (float s = r.s0 + 1f; s <= r.s1 - 1f; s += 2f)
+                    {
+                        CityElevation.ProjectOn(o, e.PointAt(s), out float t);
+                        var po = o.PointAt(t); var to = o.TangentAt(t); var pe = e.PointAt(s);
+                        int sideO = ((pe.x - po.x) * -to.y + (pe.y - po.y) * to.x) >= 0f ? 1 : -1;
+                        Vector3 a = LaneIn(e, s, r.side, 1.8f), b = LaneIn(o, t, sideO, 1.8f);
+                        var dir = b - a; float len = dir.magnitude;
+                        if (len < 0.5f) continue;
+                        dir /= len;
+                        int n = 0; float done = 0f; var from = a;
+                        string firstHit = "";
+                        while (n < 8 && RaycastPastLamps(from, dir, out var hit, len - done))
+                        {
+                            n++;
+                            string nm = (hit.collider.transform.parent != null ? hit.collider.transform.parent.name + "/" : "") + hit.collider.name;
+                            hitNames[nm] = hitNames.TryGetValue(nm, out int c) ? c + 1 : 1;
+                            if (firstHit.Length == 0) firstHit = $"{nm} at ({hit.point.x:0.0},{hit.point.z:0.0}) y {hit.point.y - e.YAt(s):+0.00;-0.00}";
+                            float step = hit.distance + 0.05f; done += step;
+                            if (done >= len) break;
+                            from += dir * step;
+                        }
+                        samples++; worst = Mathf.Max(worst, n);
+                        if (n > designed)
+                        {
+                            over++;
+                            if (over <= 4) overNotes.Add($"      over: e{e.index} s={s:0.0} -> e{o.index} t={t:0.0}: {n} crossed, first {firstHit}{CityMeshes.DescribeSide(map, trims, e, s, r.side)}{CityMeshes.DescribeSide(map, trims, o, t, sideO)}");
+                        }
+                    }
+                }
+            }
+            var names = new StringBuilder();
+            foreach (var kv in hitNames) names.Append($" {kv.Key} x{kv.Value}");
+            Line($"drive w5th lateral (plan A2): {samples} rays from the eastbound inner lane to the westbound's, 0.5 m over the deck: most solids crossed {worst} (designed {designed}, {kind} median), {over} rays over it;{(names.Length > 0 ? names.ToString() : " nothing hit")}");
+            foreach (var note in overNotes) Line(note);
+            Check(samples > 0 && over == 0, "W 5th St over I-77 is one structure: nothing stands between its carriageways but the designed median (drive audit lateral, plan A2)",
+                  $"{over} of {samples} rays cross more than {designed}");
+        }
+
         static void DriveAudit(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings)
         {
+            Line("deck unions (plan A2): " + CityMeshes.LastUnionReport);
             var spots = new List<(string name, Vector2 at)> { ("uptown", map.uptown) };
             foreach (var e in map.edges)
                 if (e.bridge && e.name == "West 5th Street") { spots.Add(("w5th", e.PointAt(e.length * 0.5f))); break; }
@@ -552,6 +623,7 @@ namespace PSXRacing.EditorTools
                         }
                     Physics.SyncTransforms();
                     FanMouths(map, trims, ptx, ptz);
+                    if (spot == "w5th") W5thLateral(map, trims);
 
                     var min = new Vector2(ptx * CityMeshes.TileSize, ptz * CityMeshes.TileSize);
                     var max = min + Vector2.one * CityMeshes.TileSize;

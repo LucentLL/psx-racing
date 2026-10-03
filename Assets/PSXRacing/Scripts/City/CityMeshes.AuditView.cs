@@ -249,6 +249,9 @@ namespace PSXRacing.City
                 public byte cutWhy;
                 /// <summary>This span starts / ends its side's run of one kind.</summary>
                 public bool capStart, capEnd;
+                /// <summary>Plan A2: a twin-deck union's inner side (one
+                /// structure with the road beside it; the owner draws the median).</summary>
+                public bool union;
                 /// <summary>Anything that stands up on this side.</summary>
                 public bool Walled => rail || cut || median;
             }
@@ -321,6 +324,41 @@ namespace PSXRacing.City
                 public int reclosures;
             }
 
+            // ================================================================
+            //  Twin-deck unions (plan A2): from the trims, not a tile build
+            // ================================================================
+
+            /// <summary>One union run on one side of one edge (plan A2,
+            /// <see cref="UnionRun"/>): the partner lies on <see cref="side"/>
+            /// (+1 the left of travel) over arcs s0..s1; the partner's own run
+            /// is nb0..nb1 on <see cref="nb"/>.</summary>
+            public struct UnionRunView
+            {
+                public int edge, nb, side, pair;
+                public float s0, s1, nb0, nb1;
+                public DeckPairs.Median median;
+                /// <summary>This edge draws the median; the run lies over an
+                /// approach (on the ground); nothing carries it on past s0 / s1.</summary>
+                public bool owner, approach, open0, open1;
+            }
+
+            /// <summary>Every union run of an edge (both sides), in side then
+            /// arc order; 0 when it has none.</summary>
+            public static int UnionRunsOf(Trims trims, int edge, List<UnionRunView> into)
+            {
+                into.Clear();
+                var list = trims?.unions != null && edge >= 0 && edge < trims.unions.Length ? trims.unions[edge] : null;
+                if (list == null) return 0;
+                foreach (var r in list)
+                    into.Add(new UnionRunView
+                    {
+                        edge = r.edge, nb = r.nb, side = r.side, pair = r.pair, s0 = r.s0, s1 = r.s1,
+                        nb0 = r.mirror.s0, nb1 = r.mirror.s1, median = r.median,
+                        owner = r.owner, approach = r.approach, open0 = r.open0, open1 = r.open1,
+                    });
+                return into.Count;
+            }
+
             static readonly List<SpanRecord> noSpans = new List<SpanRecord>();
             static readonly List<PierRecord> noPiers = new List<PierRecord>();
             static readonly List<GoreRecord> noGores = new List<GoreRecord>();
@@ -351,7 +389,7 @@ namespace PSXRacing.City
             AuditView.SideView Side(in SideFlags sf) => new AuditView.SideView
             {
                 gap = sf.gap, rail = sf.rail, retain = sf.retain, cut = sf.cut, median = sf.median,
-                cutWhy = sf.cutWhy, capStart = sf.capStart, capEnd = sf.capEnd,
+                cutWhy = sf.cutWhy, capStart = sf.capStart, capEnd = sf.capEnd, union = sf.union,
             };
             spanLog.Add(new AuditView.SpanRecord
             {

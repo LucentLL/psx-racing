@@ -593,6 +593,9 @@ namespace PSXRacing.City
             public bool[] mitre;
             /// <summary>For a mitred node: the two edges that meet through it.</summary>
             public int[] throughA, throughB;
+            /// <summary>Plan A2: each edge's twin-deck union runs (null where it
+            /// has none), from <see cref="BuildDeckUnions"/>.</summary>
+            public List<UnionRun>[] unions;
 
             public float TrimAt(CityMap.Edge e, int node) => e.a == node ? atA[e.index] : atB[e.index];
             public int BranchAt(CityMap.Edge e, int node) => e.a == node ? branchA[e.index] : branchB[e.index];
@@ -809,6 +812,8 @@ namespace PSXRacing.City
                 int o = t.throughA[node] == e.index ? t.throughB[node] : t.throughB[node] == e.index ? t.throughA[node] : -1;
                 return o == e.index ? -1 : o;
             });
+            // plan A2: which parallel decks are drawn as one structure, where
+            BuildDeckUnions(map, t);
             return t;
         }
 
@@ -2243,6 +2248,19 @@ namespace PSXRacing.City
                     float sr = se + k * ApproachRailM;
                     if (sr > sMin + 0.6f && sr < sMax - 0.6f) sampleS.Add(sr);
                 }
+            // plan A2: where a union run starts and ends, so its side flags
+            // (no rail, the median) switch exactly there
+            unionEndScratch.Clear();
+            var uruns = trims.unions != null ? trims.unions[e.index] : null;
+            if (uruns != null)
+                foreach (var ur in uruns)
+                    for (int k = 0; k < 2; k++)
+                    {
+                        float su = k == 0 ? ur.s0 : ur.s1;
+                        // not inside a clip: the clip's inner side is a gap there, and a
+                        // section added inside a clipped ramp moved its rail (e14947)
+                        if (su > sMin + 0.6f && su < sMax - 0.6f && ClipAt(e, su) == null) { sampleS.Add(su); unionEndScratch.Add(su); }
+                    }
             sampleS.Add(sMax);
             sampleS.Sort();
             // Drop near-duplicates (a station on a vertex) — and where one of a
@@ -2278,8 +2296,11 @@ namespace PSXRacing.City
                 if (g.edge == e.index && (Mathf.Abs(g.s0 - s) < 1e-4f || Mathf.Abs(g.s1 - s) < 1e-4f)) return true;
             foreach (var se in endScratch)
                 if (Mathf.Abs(se - s) < 1e-4f || Mathf.Abs(Mathf.Abs(se - s) - ApproachRailM) < 1e-4f) return true;
+            foreach (var su in unionEndScratch)
+                if (Mathf.Abs(su - s) < 1e-4f) return true;
             return false;
         }
+        static readonly List<float> unionEndScratch = new List<float>(8);
 
         /// <summary>Is an arc position exactly one of the edge's interior
         /// polyline vertices, as SamplePositions adds them?</summary>
@@ -2611,12 +2632,17 @@ namespace PSXRacing.City
 
                     if (f.elev)
                     {
-                        EmitDeckBox(buckets[(int)Slot.Concrete], A, B, v0, v1);
+                        // plan A2: no fascia on a union side (the slab carries on
+                        // across the gap); the partner of a union stands no pier,
+                        // its owner a bent under both
+                        EmitDeckBox(buckets[(int)Slot.Concrete], A, B, v0, v1, f.l.union, f.r.union);
                         sincePier += B.s - A.s;
                         if (sincePier >= PierEvery)
                         {
                             sincePier = 0f;
-                            EmitPier(map, e, tm, (A.s + B.s) * 0.5f);
+                            float sp = (A.s + B.s) * 0.5f;
+                            if (UnionOwnerAt(trims, e.index, sp) && !UnionPartnerAt(trims, e.index, sp)) EmitBent(map, trims, e, tm, sp);
+                            else if (!UnionPartnerAt(trims, e.index, sp)) EmitPier(map, trims, e, tm, sp);
                         }
                     }
                     for (int side = -1; side <= 1; side += 2)
@@ -2968,7 +2994,7 @@ namespace PSXRacing.City
                 if (A.s >= s1) break;
                 var f = spanFlags[i]; var sf = f[side];
                 if (f.skip || f.elev || f.wedge || f.approach || !f.decided) return false;
-                if (sf.gap || sf.rail || sf.retain || sf.cut || sf.median) return false;
+                if (sf.gap || sf.rail || sf.retain || sf.cut || sf.median || sf.union) return false;
                 if (A.collapsed || B.collapsed || A.Strip(side) >= 0f || B.Strip(side) >= 0f) return false;
             }
             return true;
@@ -3227,6 +3253,10 @@ namespace PSXRacing.City
             /// <summary>This span starts / ends its side's run of one kind of
             /// barrier (rail, retaining wall, median barrier).</summary>
             public bool capStart, capEnd;
+            /// <summary>Plan A2: a twin-deck union's inner side - one structure
+            /// with the road beside it (<see cref="UnionRun"/>). No rail, Jersey,
+            /// cut wall, verge or fascia: its owner draws the median.</summary>
+            public bool union;
         }
         struct SpanFlags
         {
@@ -3669,6 +3699,17 @@ namespace PSXRacing.City
                               || (A.innerSide == side && (A.clippedIn || A.collapsed))
                               || (B.innerSide == side && (B.clippedIn || B.collapsed)),
                     };
+                    // PLAN A2: one structure with the road beside it - a twin
+                    // deck's inner side, or the approach its median carries
+                    // on over. Nothing stands on it (no parapet, approach
+                    // rail, Jersey or cut wall); the run's owner draws the
+                    // median (EmitSide).
+                    if (!sf.gap && !f.skip && UnionSideHere(map, trims, e, side, A, B, tm.origin) != null)
+                    {
+                        sf.union = true;
+                        f[side] = sf;
+                        continue;
+                    }
                     // Two roads squeezed together share ONE barrier or rail
                     // between them: the lower-numbered edge draws it, and the
                     // other stands down only where it can SEE that it does.
@@ -3836,7 +3877,7 @@ namespace PSXRacing.City
                     if (ending == KindMedian) continue;
                     bool lineL = kindL != KindNone;
                     int otherSpan = lineL ? k + 1 : k;
-                    bool otherGap = otherSpan >= 1 && otherSpan < n && (spanFlags[otherSpan][side].gap || spanFlags[otherSpan].skip);
+                    bool otherGap = otherSpan >= 1 && otherSpan < n && (spanFlags[otherSpan][side].gap || spanFlags[otherSpan][side].union || spanFlags[otherSpan].skip);
                     bool atNode = (k == 0 && !lineL) || (k == n - 1 && lineL);
                     if (otherGap || Fixed(k) || sections[k].Strip(side) >= 0f || (atNode && trims.mitre[k == 0 ? e.a : e.b])) continue;
                     // the flare, along the run away from this end, over the
@@ -4156,6 +4197,16 @@ namespace PSXRacing.City
             var fB = eB + new Vector3(outB.x, 0f, outB.y) * flare[i];
             float len = Vector2.Distance(new Vector2(eA.x, eA.z), new Vector2(eB.x, eB.z));
             if (groundLog != null) groundTag = $"e{e.index} '{e.name}' side {(side < 0 ? "L" : "R")} span {A.s:0.0}..{B.s:0.0}";
+
+            // PLAN A2: a union side. Its owner draws the median from this edge
+            // to the partner's (the slab, its soffit, curbs or a Jersey, and
+            // the run's closed ends); the partner draws nothing here.
+            if (sf.union)
+            {
+                var ur = UnionOn(trims, e.index, side, A.s, B.s);
+                if (ur != null && ur.owner) EmitUnionMedian(map, trims, tm, e, i, side, v0, v1, f.elev, ur);
+                return;
+            }
 
             if (sf.rail)
             {
@@ -5507,10 +5558,15 @@ namespace PSXRacing.City
                 if (sf.retain) sb.Append(" retaining-face");
                 if (sf.cut) sb.Append(" cut-wall");
                 if (sf.median) sb.Append(" median");
+                if (sf.union)
+                {
+                    var ur = UnionOn(trims, e.index, side, A.s, B.s);
+                    if (ur != null) sb.Append($" union({(ur.owner ? "owner" : "partner")} of e{ur.nb} {ur.median}{(ur.approach ? " approach" : "")} {ur.s0:0.0}..{ur.s1:0.0})");
+                }
                 float strip = Mathf.Max(A.Strip(side), B.Strip(side));
                 if (strip >= 0f) sb.Append($" squeezed(strip {strip:0.00} nb e{(A.Nb(side) >= 0 ? A.Nb(side) : B.Nb(side))})");
                 if (A.clippedIn || B.clippedIn) sb.Append(" clipped");
-                if (!f.elev && !sf.rail && !sf.cut && !sf.gap && strip < 0f) sb.Append(" verge");
+                if (!f.elev && !sf.rail && !sf.cut && !sf.gap && !sf.union && strip < 0f) sb.Append(" verge");
                 return sb.ToString();
             }
             return " | span ?";
@@ -5765,13 +5821,13 @@ namespace PSXRacing.City
 
         /// <summary>A deck span's box: both fascias facing out, the soffit
         /// facing down. Its rails are the side's business (EmitSide).</summary>
-        static void EmitDeckBox(Bucket con, Section A, Section B, float v0, float v1)
+        static void EmitDeckBox(Bucket con, Section A, Section B, float v0, float v1, bool noFasciaL = false, bool noFasciaR = false)
         {
             float dk = CityElevation.DeckThick;
             var dAL = A.L + Vector3.down * dk; var dAR = A.R + Vector3.down * dk;
             var dBL = B.L + Vector3.down * dk; var dBR = B.R + Vector3.down * dk;
-            con.WallSloped(A.L, B.L, dAL.y, A.L.y, dBL.y, B.L.y, -A.right, v0, v1, 0f, 0.15f);
-            con.WallSloped(A.R, B.R, dAR.y, A.R.y, dBR.y, B.R.y, A.right, v0, v1, 0f, 0.15f);
+            if (!noFasciaL) con.WallSloped(A.L, B.L, dAL.y, A.L.y, dBL.y, B.L.y, -A.right, v0, v1, 0f, 0.15f);
+            if (!noFasciaR) con.WallSloped(A.R, B.R, dAR.y, A.R.y, dBR.y, B.R.y, A.right, v0, v1, 0f, 0.15f);
             con.Down(dAR, dAL, dBL, dBR, new Vector2(0, v0), new Vector2(1, v0), new Vector2(1, v1), new Vector2(0, v1));
         }
 
@@ -6981,12 +7037,14 @@ namespace PSXRacing.City
         /// clear spot, or left out.
         /// </summary>
         static readonly float[] PierNudges = { 0f, -5f, 5f, -10f, 10f, -14f, 14f };
-        static void EmitPier(CityMap map, CityMap.Edge e, TileMeshes tm, float sAt)
+        static void EmitPier(CityMap map, Trims trims, CityMap.Edge e, TileMeshes tm, float sAt)
         {
             foreach (var dS in PierNudges)
             {
                 float s = sAt + dS;
                 if (s < 2f || s > e.length - 2f) continue;
+                // plan A2: never nudged in under a union (its owner's bents carry it)
+                if (InUnionDeckRun(trims, e.index, s)) continue;
                 var p = e.PointAt(s);
                 float deckY = e.YAt(s) - CityElevation.DeckThick;
                 var tan = e.TangentAt(s);

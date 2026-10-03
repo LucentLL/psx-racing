@@ -4278,6 +4278,137 @@ preview tools.
   verify) in PSXBuild before any `-SkipScenes` publish. Otherwise the CITY
   half refuses (P0).
 
+## A2 (roads pass, 2026-10-02): twin decks drawn as one structure
+
+The owner's example, West 5th Street over I-77, was drawn as two decks 1.5 m
+apart: four parapets, a 0.92 m slot down to the freeway, and two pier lines
+out of step. B1's table (`DeckPairs`, `map.deckPairs`) says which parallel
+decks are one structure. A2 draws them that way. The code is in
+`Scripts/City/CityMeshes.Unions.cs` (new), with small hooks in `CityMeshes.cs`.
+
+- **Runs (`BuildDeckUnions`, once per map, at the end of `ComputeTrims`).**
+  - Every union pair gets one run over its whole range on both decks. B1's
+    TWIN probes measure that range.
+  - The owner is the pair's lower edge index. It draws the median to the
+    nearest of `across`: the partner edge, plus the edges a mitred node
+    carries the partner on into. Twin decks rarely end square: W 5th's
+    westbound deck starts 1.66 m past the eastbound one's end, so the slab
+    sweeps across onto the approach there.
+  - A run ends only where nothing stands beside it (a 1 m foot slack) or
+    the two carriageways are more than `UnionSplitDyM` = 1.0 m apart in
+    height. That is a split level, matching B1's TwinHoldMaxDyM.
+  - Two drawing runs on one side of one edge share their overlap at its
+    middle. The cut is carried along the primary owner and partner link only.
+- **Approaches (critic C21).** From a run end where both carriageways come
+  down to the ground, the owner's road is walked on through mitred nodes.
+  The median carries on while the road across stays beside it, on the
+  ground, at one height (`SharedGuardDyM` for curbs and Jerseys, 0.10 m for
+  flush), and short of a junction fan's trim (1 m set back).
+  - Raised medians: up to 80 m, gap 0.6-6.1 m (A16's grass line).
+  - Jerseys and flush strips: the 20 m approach-rail band only. The rest of
+    the freeway median is A12's.
+  - The inner approach rails stand down wherever this median is laid.
+- **Sides (`SideFlags.union`, `UnionSideHere`).** A union side carries no
+  rail, Jersey, cut wall, verge, kerb face or fascia. It counts as union only
+  as drawn:
+  - An owner's road across must stand at least 5 cm apart. A branch clipped
+    onto it does not.
+  - A partner must lie beside an owner run that covers it, with that owner's
+    drawn edge at least 10 cm away. Otherwise it keeps its own rail or verge.
+  - Run ends are section positions. They are not added inside a clip.
+- **The median (`EmitUnionMedian`, one emitter for A16 too: critic D4).**
+  The owner draws it span by span, in pieces of 2 m or less. Each piece runs
+  from its own drawn edge to the partner's drawn edge (`DrawnEdgeAt`: the
+  partner's sections as this tile cut them).
+  - **Flush:** a strip one inch down, tucked 0.10 m under both roads.
+  - **Raised:** the same, plus two battered 0.10 m mountable curbs (top set
+    back 8 cm) and a top that runs from one carriageway's height to the
+    other's.
+  - **Barrier:** a 0.81 m Jersey on the gap's centre line, its top over the
+    higher side, so a split level up to 0.46 m stands as a taller face on
+    the low side.
+  - On a deck: the soffit continues across the gap at DeckThick.
+  - At a closed run end: on a deck, an end face down to the soffit and a
+    rail across the slab's end; on the ground, a battered end curb or a
+    Jersey cap.
+- **Piers (`EmitBent`).** The partner stands none inside a run, and a lone
+  pier is never nudged into one. The owner stands a bent: a column under
+  each carriageway (the owner, its partners, and theirs; up to 4) and a
+  0.9 m cap beam from fascia to fascia. The bent is nudged as one unit off
+  the roads below. Where no nudge clears the whole bent, the columns that
+  clear on their own stand without a beam.
+- **No new draw calls.** The strip and curbs use the owner span's own road
+  slot (its paint-free shoulder texels). The soffit, end faces and bents use
+  the Concrete slot that every deck span already uses. Jerseys and end rails
+  go in the barrier mesh. All 17 budget sites have identical draws against
+  lane B's latest run, which has no unions.
+- **Elsewhere.**
+  - `RoadsideOccupancy` marks the ground under a union's gap as under a
+    deck, so no tree grows through the slab.
+  - `LampSideClear` keeps lamps off union sides.
+  - `AuditView.UnionRunsOf` and `SideView.union` expose the runs to audits.
+  - `DescribeSide` prints `union(owner|partner of eN ...)`.
+  - `CityPreview` adds `w5th_top`.
+- **The audits.**
+  - `CityAudit.Twin.cs`: `TwinMeshGated` is now true, so (a)-(d) are checks.
+    One correction to (b): a Barrier median's own Jersey stands on the slab
+    at the gap's centre, and its top (0.81 m up) counts as cover.
+    Otherwise every Barrier union read as a hole at the centre ray. These
+    are the only two edits to that (lane B) file.
+  - `DriveAudit` adds the W 5th lateral: rays 0.5 m over the deck from one
+    carriageway's inner lane to the other's must cross only the designed
+    median.
+  - The audit prints `CityMeshes.LastUnionReport`.
+
+**BEFORE -> AFTER** (B1's run on the OwnerBox for BEFORE, PSXBuild after A2):
+
+| | Before | After |
+|---|---|---|
+| TWIN (a) inner rail, T1 / T2 | 5,268 / 767 m | 249 / 0 m |
+| TWIN (b) open slot, T1 / T2 | 2,625 / 390 m | 129 / 3.0 m |
+| TWIN (c) walls, T1 / T2 | 1,338 / 201 samples | 70 / 3 |
+| TWIN (d) partner piers, T1 / T2 | 65 / 11 | 2 / 0 |
+| W 5th (a)/(b)/(c)/(d) | 150 m / 75 m / 38 (2 walls) / 2 | 0 / 0 / 0 / 0 |
+| W 5th lateral, walls crossed | 2 | 0 (Raised, designed 0) |
+| rail on the 117 roadside tiles | 51.2 km | 43.4 km |
+| city-wide | - | 238 of 243 union pairs drawn, 12.8 km of run; 235 approach runs, 4.9 km |
+
+- **The T1 residue is three I-77 pairs** by W 5th: e1255/e6672, e1876/e1880
+  and e1877/e1891. Today's solve has them 1.05-1.15 m apart: B1's split
+  levels, the 5 m carriageway step in the trench V. They get no run, which
+  accounts for 249 m, 128 m, 65 samples and both piers. B2 (I-77 NB/SB
+  within 0.5 m) joins them with no change here.
+- **Left after that:** 1.0 m slot + 5 wall samples (T1) and 3.0 m + 3
+  samples (T2), at run ends of I-277 ramp/mainline pairs and West 4th
+  Street Extension.
+- **Roadside.**
+  - LIP and the lane survey are back to their baseline.
+  - The rail census reads 8 runs of 1 m (baseline 0). Six are at the start
+    of a partner edge at staggered I-277 nodes (e2305, e2312, e2313, e2349,
+    e2351, e6403); one is the e2141/e8481 approach; one is Shopping Center
+    Drive e13174.
+  - FACE reads 1: North Sharon Amity Road e6162, a raised median's end curb
+    0.4 m off a verge.
+  - These are open, listed in the release log.
+- **Unchanged:** DRIVE AUDIT zeros; "dug under a deck" pits 648 -> 648;
+  boxed launch (-4000,3300,-1000,6600) 16 LAUNCH / 81 UNLOAD (B1's run,
+  same spots, routes 0/0/0).
+- **Budget.** Tile build p95 is 101.4 ms (B1 runs 104.8-108.0; lane B 106.4).
+  `BuildDeckUnions` takes 91 ms in the editor, against the plan's 50 ms.
+  The solve's own mid-solve `ComputeTrims` (ramp seats) skips it.
+- **Smoothness (report-only) runs:** A1 +3, A5 +1, B1 +4, B2 +16, B3 +3,
+  C2 +2. The worst values are unchanged. The extra runs come from the new
+  sections at run ends.
+
+**For the next packages.**
+- **A12** carries the freeway median Jersey on from the 20 m approach band
+  (`ApproachRailM`) where these runs stop. Today the centre Jersey is
+  capped there and each carriageway's own median Jersey starts capped.
+- **A16** reuses `Profile` / `EmitUnionMedian` (Raised, on the ground) for
+  arterial medians.
+- **B6 (TAPR offsets) widens W 5th's median.** The slab follows the drawn
+  edges, so it widens by itself.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,
