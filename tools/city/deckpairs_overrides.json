@@ -1,0 +1,5 @@
+{
+  "schema": 1,
+  "note": "Twin-deck overrides by OSM way pair (plan B1; read by tools/city/export_osm.mjs into section BRST, used by Scripts/City/DeckPairs.cs and tools/city/deckpairs.mjs). Each pair: { \"wayA\": <way id>, \"wayB\": <way id>, \"decision\": \"FORCE\" (one structure) | \"NEVER\" (two structures), \"why\": \"the Street View check that decided it\" }. Empty: owner Q7 (2026-10-02) DEFAULT - trust OSM's bridge outlines (I-85 and Wilkinson Blvd over the Catawba read as ONE structure each). After an edit: re-export (node tools/city/export_osm.mjs --out Assets/PSXRacing/Resources --fingerprint tools/city/fingerprint.json), then deckpairs.mjs --write-baseline with BEFORE -> AFTER in the commit.",
+  "pairs": []
+}

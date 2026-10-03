@@ -4063,6 +4063,221 @@ default box), and compares with the OwnerBox sub-box of the baseline. The
 release gates run `city-cycle -Full` (coverage city-wide, 12 min) and
 `city-launch` (8 min).
 
+## B1 (roads pass, 2026-10-02): twin decks are one structure - the table, one height, the TWIN report
+
+The owner's example: West 5th Street over I-77 is ONE bridge with a median,
+and Charlotte drew it as two decks 1.5 m apart - four parapets, a 0.92 m slot
+down to the freeway, two pier lines out of step. OSM maps each carriageway as
+its own way, so nothing in the data said the two decks were one structure. B1
+says it, holds each such pair to one height, and measures all of it. It draws
+nothing new: the mesh is plan A2's (lane A), which reads this table.
+
+**OSM's bridge outlines (section BRST).** `fetch/fetch_ways.mjs` now also
+asks for every `man_made=bridge` area (`cache/bridges_mm.json`; the shipped
+copy is the bridges diagnosis's read-only fetch of 2026-10-02: 336 ways and
+one multipolygon, today's outlines rather than the 2026-09-12 road snapshot).
+`lib/bridges.mjs` gives each `bridge=yes` edge the outline holding at least
+60% of its 4 m samples - its structId (way id, or relation id | 0x80000000) -
+and the exporter writes them to the optional section BRST with two more
+tables: the water spans a culvert claims (below) and the twin-deck overrides
+(`tools/city/deckpairs_overrides.json`, FORCE / NEVER by way pair; empty:
+owner Q7's default, trust OSM). 381 of 791 bridge edges sit in one of 215
+outlines. CityMap reads BRST into `Edge.structId`, `map.culvertSpan` and
+`map.deckOverrides`. The graph hash is unchanged (089d7141).
+
+**The culvert creeks (owner Q8, critic C2).** A water span whose middle is
+within 15 m of an OSM `tunnel=culvert` line is a creek OSM says is piped
+under the road: 317 of 564 spans (T1 194, T2 120, T3 3), the critic's list
+exactly. Package B2 converts them into culverts; until then they stay decks
+exactly as they are, and no twin-deck union joins one: 26 pairs (380 m) that
+would otherwise have been one structure are kept apart, among them W 5th
+Street's own Irwin Creek pair e5446/e5449 east of the signal.
+
+**The twin-deck table (`Scripts/City/DeckPairs.cs`, `map.deckPairs`).** Built
+at load from the graph alone, before the solve; the same rule step for step
+as `tools/city/deckpairs.mjs`:
+
+- DECKS (critic C1): a `bridge=yes` edge end to end, an over-edge within
+  `CityElevation.DeckReach` of its crossing, a water span.
+- PAIRS: every 2 m of deck, the nearest deck on each side running within 15
+  degrees, its foot inside that edge's deck, the gap between the two
+  ribbons' facing edges (`lmPlus` / `lmMinus`) under 20 m; kept when one edge
+  sees the other for 10 m. The gap is the median sample.
+- ONE STRUCTURE (owner_decisions.md): gap <= 0.3 m no (the squeeze or the
+  clip already joins them); another OSM layer no; an override; a culvert's
+  creek no; the same outline yes up to 20 m, two outlines never; else G =
+  6.1 m for one motorway's or trunk's two carriageways, 9.1 m for an
+  arterial's, 3.05 m for a ramp beside its road (or two ramps), 1.2 m for any
+  other pair.
+- Each pair carries its kind, tier, median (Barrier: motorway, trunk, ramps,
+  arterials over 80 km/h; Raised: other arterials; Flush under 1.2 m;
+  `DeckPairs.DyLimit` 0.46 / 0.15 / 0.05 m), each edge's range beside the
+  other and the arc maps between them (`Pair.ArcOnOther`). `map.deckPairsOf`
+  / `map.deckUnionsOf` index them by edge.
+- **Completed on the solved structure** (`DeckPairs.Complete`, at the end of
+  the solve): the solve also puts decks where the facts named none - the
+  3.5 m margin's untagged viaducts, a seated ramp on its host's deck, a deck
+  end carried to its twin's, the station either side of every deck - and two
+  of those side by side draw four parapets like any other. The census runs
+  again on `ElevatedAt`: a facts pair keeps its decision and grows its range,
+  a new pair is decided by the same rule and marked `Pair.solved` (it took
+  no height hold).
+
+**One height (CityElevation, critic C12).** `HoldTwinDecks` raises each
+union deck's stations inside the pair's range to its twin's height there
+(RaiseHump: flat top, 4.5% cones), raises only, INSIDE the cone loop - which
+now ends only when the holds move nothing either - so the cones carry each
+hold into the approaches and the vertical curves round its crests. A station
+more than 1.0 m off its twin is left (a split level: the union ends there,
+A2). The curves round each carriageway on its own chain (its own junction
+planes, pins, crossing windows) and part the twins again; re-running the
+curves after a second hold parted them again (0.198 m left) and lifted the
+stations round every crest they could not settle. So the last word is a
+POINTWISE hold of the interior stations beside the deck (no cones), then a
+CREST GUARD: a raised station whose break is now past the curves' own crest
+limit (and worse than before) comes back down to it, never below where the
+curves left it. (Raising a station sharpens the crest only at that station;
+where the raise stops short of a crossing - an edge end, a seat, a deck end -
+the plateau's corners are crests, and the guard takes them back: 26 on
+2026-10-02.) Then, after MarkStructure, `AlignTwinStructure` carries a deck
+end on to its twin's when it stops at most 15 m short (one abutment line for
+A2: 2 pairs, +4 stations - the deck ends mostly coincide at the 10 m station
+spacing already), and the land under a union's gap is capped under the
+soffit out to the middle of the gap (`DeckPairs.UnionCapReach` in `Ground`),
+where the twin's own cap takes over. `PSX_CITY_TWINHOLD=0` turns the holds,
+the alignment and the cap off (the TWIN report's before-numbers).
+
+**What the holds reached (2026-10-02, PSXCity).** TWIN (e), the twins'
+height difference every 2 m on the union decks: p50 0.090 -> 0.002 m, p95
+0.603 -> 0.086 m, max 0.998 -> 0.291 m (4,580 / 4,601 samples; 59 more
+samples over 1 m apart are split levels, e.g. Tuckaseegee Road 9.5 m, I-77
+e1876/e1880 1.15 m). The interior of every deck is level; what is left is at
+the DECK ENDS: an edge's end station is its node's, shared with the
+approaches, and is held only from inside the pair's range. Holding the end
+stations too (tried: `TwinArc`'s window a station past the range in the cone
+loop) took (e) to p95 0.013 / max 0.150 m but its cones ran through the
+nodes into the approaches and lifted 146 more stations over the 3.5 m margin
+(3,224 against 3,078). The B1 gate (p95 2 cm, max 5 cm) therefore still
+FAILS; closing it needs the end stations held without lifting the approaches
+over the margin - a twin-aware vertical-curve pass (plan B4's limiter) or
+3DEP approach profiles (B7). Side effects of the holds: the 3.5 m margin
+stations 2,831 -> 3,078 (+8.7%, over the plan's +5% allowance for this
+pre-existing failure: the lower twin's approaches are lifted to the higher
+one's abutment; 1,010 of the 3,078 are on or beside a twin deck's edge);
+the grade check improves (8 stations over 16%, worst 29.4% on the Blair Road
+bridge twins -> 3, worst 17.5%); clearance worst 4.70 m unchanged; DRIVE
+AUDIT zeros; rail census 0 runs / 0 m; pits dug under a deck 653 -> 635-648;
+overlap census 636 -> 616-628 m; one more LAUNCH spot in the boxed launch
+over uptown, I-277 and I-77 (16 against the baseline's 15 there: 0.152 m at
+the East 11th Street fan, node 675, -1153,4853), all 15 earlier spots
+unchanged. Load: the facts table ~120-170 ms at parse, the completion
+~230 ms in the solve (editor).
+
+**The TWIN report (`Editor/CityAudit.Twin.cs`, the `TwinReport` hook).** The
+table by tier, then: (a) inner rail metres, (b) open slot (down-rays across
+the gap), (c) walls crossed lane to lane beyond the designed median, (d) the
+partner's piers - these four build tiles and run in the report's scope
+(`ScopeFor("TWIN")`, boxed by default) and REPORT until A2 flips
+`TwinMeshGated`; (e) the twins' height difference every 2 m (gate: p95 2 cm,
+max 5 cm, on what the holds govern) and (f) an independent finder on the
+solved structure (gate: 0 T1 pairs within their G kept apart without a
+reason) read the solved map only and cover every pair. The table goes to
+`twin_pairs.csv` beside city_audit.txt: `node tools/city/deckpairs.mjs
+--compare <it>` checks the facts table against the offline census
+(2026-10-02: 310 of 310 decisions agree once the tool replays
+`LineModel.FixMirrored`'s nine re-offset edges).
+
+**The table's numbers (2026-10-02).** 310 parallel deck pairs, 272 more than
+0.3 m apart. The facts table makes 155 of them one structure (T1 89, T2 66;
+9,330 m of carriageway pair, 18,660 m of inner parapet for A2 to take
+away) and keeps 26 culvert pairs apart. Against the bridges diagnosis's 183:
+183 = 155 + 26 culvert pairs + e1518/e1550 (an I-485 ramp 12 m from its
+mainline whose samples fall mostly in two different outlines: the 60% rule
+reads TWO where "any shared outline" read ONE) + e2316/e2352 (I-277 at US 74,
+one of `LineModel.FixMirrored`'s re-offset edges: drawn overlapping, so the
+squeeze joins it). Completed on the solved structure: 599 pairs, 243 one
+structure (T1 153, T2 90; 12,790 m), 88 of them on decks only the solve made
+(I-277's untagged viaduct pieces, West 5th Street's own west approaches
+e1252/e5448). TWIN (f) is 0 against that table. In the default box, the
+mesh today (A2's before-numbers): T1 51 union pairs with 5,268 m of inner
+rail, 2,625 m of open slot, 1,338 samples crossing a wall beyond the designed
+median, 65 partner piers; T2 12 pairs, 767 m, 390 m, 201, 11. West 5th Street
+(e1253/e5445, outline w984482059, Raised median): 150 m of inner rail (2 x
+76), a 75 m open slot, 2 walls crossed lane to lane, 2 partner piers; its
+two decks stand at most 0.079 m apart after the holds (0.030 m with the end
+stations held too), the I-277 viaduct e1910/e1921 0.163 m (0.034 m).
+
+**`tools/city/deckpairs.mjs`.** The census and decisions offline (BRST, or
+the cache when the file predates it), the W 5th / I-277 lines,
+`--csv`, `--review` (the owner's Street View list:
+`tools/city/baseline/deckpairs_review.csv`), `--write-baseline` /
+`--check` (`baseline/deckpairs_baseline.json`, the union set by way pair),
+`--compare`. citydata.mjs gains `tierOf` (CityTier's mirror), TAPR's records
+and offsets, and BRST.
+
+**Dead ends short of a road (critic C9).** The exporter now gates every
+interior dead end within 6 m of a same-level road's pavement: T1 must be
+welded or explained (T2 4 and T3 21 reported for B8 / B9). Weld only a
+same-name end or a link onto its road, never a true non-connection. The
+three T1 ends are all REAL connections to roads the snapshot does not carry,
+so none is welded and each is explained in `DEAD_END_EXPLAINED` with its
+evidence: the two I-85 entrances near 35.258,-81.006 start at a roadside
+facility (both carriageways leave by a link that dead-ends 320 m upstream:
+its service roads are not fetched), and the Johnston Road slip
+(way 1233246203) turns right onto way 1233246204 (OSM restriction 16858537),
+a street outside the residential coverage (Q6, B9). Welding any of them onto
+the road beside would invent a connection.
+
+**Size (critic C17).** `tools/city/baseline/roads_pass_size_ledger.json`:
+charlotte_city.bytes 5,685,880 -> 5,692,964 B (+7,084: BRST 6,864 + 12 of
+table + 208 B of attribution - main@9a3e54ee added a car-model credit row to
+SOURCES.md without re-exporting, so `export --check` failed on main before
+this). Running cap +2.5 MB through R6.
+
+## M1 (roads pass, 2026-10-02): B1 merged into main
+
+`city-pass@dc932b51` (B1) is merged into main on top of A1 (`7aad17a4`), and
+`city-pass` is fast-forwarded to the merge. From here, main carries the
+facts in B1's section (BRST, `map.deckPairs`, the twin height holds, the TWIN
+report) and A1's instruments together. Lane B has A1's coverage, launch and
+preview tools.
+
+- **Conflicts.** There was one, in this file: A1 and B1 each appended a
+  section before "Not in v1", and both are kept in commit order. The rest of
+  the merge was disjoint. A1 touched only Editor audits, tools and
+  `mesh_audit_baseline.json`. B1 touched `tools/city`, the City scripts and
+  the data. No binary needed merging.
+- **Data.** `export_osm.mjs --check` passes: 15 of 15 inputs match the
+  manifest, and the four shipped files are IDENTICAL, with
+  `charlotte_city.bytes` at 5,692,964 B, sha 5338fd9c. The fingerprint is
+  identical. `determinism.mjs` passes: two processes wrote the same bytes.
+  The check ran in the lane-B tree, because the gitignored caches live there.
+  Its `tools/city` and `Resources` match the merge exactly: the merge is
+  city-pass plus A1's 9 files, none of which the exporter reads.
+- **linecheck (critic C3).** The baseline went STALE on one input: the
+  builder replica's digest, because B1 changed `citydata.mjs` (611baa93 ->
+  fc463ee9). Every reading was identical. It was re-recorded on main with
+  `--write-baseline`, without `--allow-loosen`, and the ratchet passes again.
+  The before and after numbers are in the merge commit.
+- **What main now carries from B1's open items** (B1's section has the
+  details):
+  - **TWIN (e) fails.** p95 0.086 m and max 0.291 m against the 0.02 / 0.05
+    gate, at the deck ends. This is a fifth CITY AUDIT failure beside the 4
+    known ones.
+  - **3.5 m margin stations: 2,831 -> 3,078 (+8.7 %).** The release gate
+    allows +5 %.
+  - **One new marginal LAUNCH:** 0.152 m at the East 11th St fan, node 675.
+
+  The R1 gate cannot pass until B2 or B4, or an owner/orchestrator decision,
+  settles these.
+- **Baselines measured before B1's heights.** A1's
+  `mesh_audit_baseline.json` (COMPRESSION, LAUNCH, coverage) predates B1, and
+  B1 moves heights. A boxed comparison after M1 must allow for that, and the
+  R1 gate re-records.
+- **PSXBuild's city data is now older than main's.** Run a city-cycle (or a
+  verify) in PSXBuild before any `-SkipScenes` publish. Otherwise the CITY
+  half refuses (P0).
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

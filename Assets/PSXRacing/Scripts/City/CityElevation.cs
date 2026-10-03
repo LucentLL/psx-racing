@@ -99,6 +99,9 @@ namespace PSXRacing.City
         /// structure in the last solve (the audit's TerrainFidelity reports
         /// it: real hills put more roads above the 60 m grid).</summary>
         public static int MarginStructureStations { get; private set; }
+        /// <summary>Of those, on a twin deck's edge or one meeting it at a
+        /// node (plan B1: what the twin holds can have lifted).</summary>
+        public static int MarginStationsNearTwins { get; private set; }
 
         // ------------------------------------------------------------------
         //  Water (WP-04b). The exporter samples each creek's BED from USGS
@@ -914,12 +917,22 @@ namespace PSXRacing.City
             // A seat can move a ramp's FAR end (see ClimbOut), and that end's
             // node and neighbours are this loop's business: iterate until
             // neither the cones nor the seats move anything.
+            //
+            // TWIN DECKS (plan B1, critic C12): the two decks of one structure
+            // (DeckPairs: West 5th Street's two carriageways over I-77) take
+            // ONE height - raises only, inside this loop, so the cones carry
+            // each hold into the approaches and the vertical curves below
+            // round every crest it makes. The loop ends only when the holds
+            // move nothing either.
+            TwinHoldMoves = 0; TwinHoldSkipped = 0; TwinHoldRounds = 0;
             for (int k = 0; k < 12; k++)
             {
                 RaiseAllCrossings(map, fresh: true);
                 SnapNodesToEnds(map);
                 int seatMoves = SeatBranches(map);
-                if (RaiseConesFromNodes(map) == 0 && seatMoves == 0) break;
+                int twinMoves = HoldTwinDecks(map);
+                TwinHoldMoves += twinMoves;
+                if (RaiseConesFromNodes(map) == 0 && seatMoves == 0 && twinMoves == 0) break;
             }
             SnapNodesToEnds(map);
             SeatBranches(map);
@@ -946,17 +959,43 @@ namespace PSXRacing.City
                 // deck over it, so the clearances the raise just set hold.
                 VerticalCurves(map, 2);
             }
+            // THE TWINS AFTER THE CURVES (critic C12). The curves round each
+            // carriageway on its own chain - its own junction planes, pins and
+            // crossing windows - so twins held to one height come out of them
+            // up to ~0.2 m apart. A RaiseHump now would put back unrounded
+            // humps, and re-running the curves broke the twins again (two
+            // rounds left 0.198 m) while lifting the stations round every
+            // crest they could not settle (3.5 m margin decks +8.8%: the
+            // 2026-10-02 run). So the last word is a POINTWISE hold: each
+            // interior deck station beside its twin rises to the twin's height
+            // there, nothing else moves. The higher of two crest-limited
+            // profiles is crest-limited (the larger of two functions only bends
+            // UP where they cross), so this adds no crest the curves did not
+            // allow; it may add a gentle sag where the two cross, which is
+            // measured (TwinFinalSagAdded) for the TWIN report and package B4.
+            TwinDyBeforeFinal = TwinDy(map, out _);
+            FinalTwinHold(map);
+            TwinDyAfterCurves = TwinDy(map, out TwinDyWorstPair);
             Phase("vcurves");
 
             // 9. mark structure LAST, from the facts: decks over crossings,
             // embankments everywhere else.
             MarkStructure(map);
             InheritSeatStructure(map);
+            AlignTwinStructure(map);
+            // the twin-deck table on what is on structure NOW (critic C1):
+            // decks only the solve made, side by side, are pairs too
+            DeckPairs.Complete(map);
+            MeasureTwinDy(map);
             MeasureSags(map);
 
             // (10. the water was prepared first: PrepareWater)
             Phase("structure");
             LastSolvePhases = phases.ToString().TrimEnd(' ', ',') + " ms";
+            TwinHoldReport = !TwinHoldsOn ? "twin holds OFF (PSX_CITY_TWINHOLD=0)"
+                : $"twin holds: {TwinHoldMoves} raises in the cone loop ({TwinHoldSkipped} station checks left apart, more than {TwinHoldMaxDyM} m off their partner); after the curves {TwinDyBeforeFinal:0.000} m apart at worst, the pointwise hold raised {TwinFinalRaised} stations (up to {TwinFinalRaiseMax:0.000} m; {TwinFinalClamped} taken back by the crest guard; sag added up to {TwinFinalSagAdded * 100f:0.00}%, crest added up to {TwinFinalCrestAdded * 100f:0.000}%), worst station dy now {TwinDyAfterCurves:0.000} m; TWIN (e) p50 {TwinDyP50:0.000} / p95 {TwinDyP95:0.000} / max {TwinDyMax:0.000} m over {TwinDySamples} samples" +
+                  (TwinDyWorstPair >= 0 ? $" (e{map.deckPairs[TwinDyWorstPair].a}/e{map.deckPairs[TwinDyWorstPair].b})" : "") +
+                  $"; deck ends aligned on {TwinAlignedPairs} pairs (+{TwinAlignedStations} stations on structure); 3.5 m margin stations {MarginStructureStations} ({MarginStationsNearTwins} on or beside a twin deck's edge)";
             roadDem = null;
             pairCands = null;
             pairBlocks = null;
@@ -1164,17 +1203,33 @@ namespace PSXRacing.City
                 for (int i = 0; i < over.stS.Length; i++)
                     if (Mathf.Abs(over.stS[i] - sO) <= reach) over.stElev[i] = true;
             }
-            int margin = 0;
+            int margin = 0, marginTwin = 0;
+            // (plan B1) which edges are a twin deck's or meet one at a node:
+            // the margin stations there are counted apart, for the TWIN report
+            bool[] nearTwin = null;
+            if (map.deckUnionsOf != null)
+            {
+                nearTwin = new bool[map.edges.Length];
+                var nodeTwin = new bool[map.nodes.Length];
+                foreach (var e in map.edges)
+                    if (map.deckUnionsOf[e.index] != null) { nodeTwin[e.a] = true; nodeTwin[e.b] = true; }
+                foreach (var e in map.edges) nearTwin[e.index] = nodeTwin[e.a] || nodeTwin[e.b];
+            }
             foreach (var e in map.edges)
             {
                 for (int i = 0; i < e.stS.Length; i++)
                 {
                     if (e.stElev[i]) continue;
                     var p = e.PointAt(e.stS[i]);
-                    if (e.stY[i] > RoadBaseY(p.x, p.y) + ElevMarginM) { e.stElev[i] = true; margin++; }
+                    if (e.stY[i] > RoadBaseY(p.x, p.y) + ElevMarginM)
+                    {
+                        e.stElev[i] = true; margin++;
+                        if (nearTwin != null && nearTwin[e.index]) marginTwin++;
+                    }
                 }
             }
             MarginStructureStations = margin;
+            MarginStationsNearTwins = marginTwin;
         }
 
         /// <summary>
@@ -2566,6 +2621,310 @@ namespace PSXRacing.City
             VcurveReport = r0 + debugUnsettled + $" round {round}: {violBefore} crests past their limit -> {violAfter} ({frozen} frozen cycling, {stuck} held by pins), {planeHeld} junction arms set on their major road's plane (up to {planeMove:0.00} m), {streetSeats.Count} street-branch stations seated ({pinnedSeats} pinned, {softOff} still off their host), {sweeps} sweeps, {moves} projections, {moved} stations moved > 1 cm (up to +{maxRaise:0.00} / -{maxLower:0.00} m), {clock.ElapsedMilliseconds} ms";
         }
 
+        // ------------------------------------------------------------------
+        //  TWIN DECKS (plan B1; DeckPairs): one structure, one height, one
+        //  abutment line.
+        // ------------------------------------------------------------------
+
+        /// <summary>PSX_CITY_TWINHOLD=0 turns the twin-deck holds, the deck-end
+        /// alignment and the land under a union's gap off (the TWIN report's
+        /// before-numbers; never in a build).</summary>
+        public static bool TwinHoldsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWINHOLD") != "0";
+        /// <summary>A twin station further than this off its partner is left
+        /// alone: two decks that far apart in height are a split level or a
+        /// ramp climbing away, not one deck's two halves (a union ends there,
+        /// plan A2). The humps of a skewed crossing put one carriageway's
+        /// peak up to ~0.8 m over the other's (I-277 e2026/e2029).</summary>
+        public const float TwinHoldMaxDyM = 1.0f;
+        /// <summary>What the holds leave between twins after the curves (C12).</summary>
+        public const float TwinHoldTolM = 0.02f;
+        public static int TwinHoldMoves { get; private set; }
+        public static int TwinHoldSkipped { get; private set; }
+        public static int TwinHoldRounds { get; private set; }
+        public static float TwinDyBeforeFinal { get; private set; }
+        public static int TwinFinalRaised { get; private set; }
+        public static float TwinFinalRaiseMax { get; private set; }
+        /// <summary>The largest grade break the pointwise hold after the
+        /// curves added at any station it touched or beside one: as a sag
+        /// (grade out minus grade in, up) and as a crest (down; the higher of
+        /// two crest-limited profiles adds none, bar the resampling of the
+        /// twin at this edge's stations).</summary>
+        public static float TwinFinalSagAdded { get; private set; }
+        public static float TwinFinalCrestAdded { get; private set; }
+        /// <summary>Raises the crest guard took back (some or all of).</summary>
+        public static int TwinFinalClamped { get; private set; }
+        /// <summary>The TWIN report's (e), measured at the end of the solve:
+        /// the union twins' height difference every 2 m where both are decks
+        /// by the facts and on structure (up to <see cref="TwinHoldMaxDyM"/>).</summary>
+        public static float TwinDyP50 { get; private set; }
+        public static float TwinDyP95 { get; private set; }
+        public static float TwinDyMax { get; private set; }
+        public static int TwinDySamples { get; private set; }
+
+        /// <summary>The (e) numbers over the table as it stands (the TWIN
+        /// report computes its own; this is the solve's copy, so a launch or
+        /// budget log carries them too).</summary>
+        static void MeasureTwinDy(CityMap map)
+        {
+            TwinDyP50 = TwinDyP95 = TwinDyMax = 0f; TwinDySamples = 0;
+            if (map.deckPairs == null) return;
+            var d = new List<float>(4096);
+            foreach (var pr in map.deckPairs)
+            {
+                if (!pr.union || pr.solved) continue;
+                var A = map.edges[pr.a]; var B = map.edges[pr.b];
+                for (float s = pr.a0; s <= pr.a1 + 0.01f; s += 2f)
+                {
+                    if (!A.ElevatedAt(s)) continue;
+                    float at = pr.ArcOnOther(pr.a, s);
+                    if (at < 0f || !B.ElevatedAt(at) || !DeckPairs.DeckAt(pr.a, s) || !DeckPairs.DeckAt(pr.b, at)) continue;
+                    float dy = Mathf.Abs(A.YAt(s) - B.YAt(at));
+                    if (dy <= TwinHoldMaxDyM) d.Add(dy);
+                }
+            }
+            if (d.Count == 0) return;
+            d.Sort();
+            float P(float q) => d[Mathf.Clamp(Mathf.CeilToInt(q * d.Count) - 1, 0, d.Count - 1)];
+            TwinDyP50 = P(0.5f); TwinDyP95 = P(0.95f); TwinDyMax = d[d.Count - 1]; TwinDySamples = d.Count;
+        }
+        public static float TwinDyAfterCurves { get; private set; }
+        static int TwinDyWorstPair = -1;
+        public static int TwinAlignedPairs { get; private set; }
+        public static int TwinAlignedStations { get; private set; }
+        public static string TwinHoldReport { get; private set; } = "";
+
+        /// <summary>
+        /// Every union pair (DeckPairs) to one height: each station of one
+        /// deck beside the other's deck rises to the other's height there,
+        /// with RaiseHump's flat top and cones. Raises only, so it converges
+        /// with every other raise; a seated station is its host's; a station
+        /// more than <see cref="TwinHoldMaxDyM"/> off is left (a real split
+        /// level). The number of stations raised more than a centimetre.
+        /// </summary>
+        static int HoldTwinDecks(CityMap map)
+        {
+            if (!TwinHoldsOn || map.deckPairs == null) return 0;
+            int moves = 0;
+            foreach (var pr in map.deckPairs)
+            {
+                if (!pr.union || pr.solved) continue;
+                moves += HoldTwin(map, pr, pr.a, true) + HoldTwin(map, pr, pr.b, true);
+            }
+            return moves;
+        }
+
+        /// <summary>
+        /// The twin's arc beside station arc <paramref name="s"/> of edge
+        /// <paramref name="ei"/>: the pair's map inside its range, a
+        /// projection a station beyond it (the range is where the census's 2 m
+        /// samples saw both decks, from 1 m in; the station at the edge's end
+        /// governs its first 10 m), -1 when the twin is not beside it.
+        /// </summary>
+        static float TwinArc(CityMap map, DeckPairs.Pair pr, int ei, float s)
+        {
+            if (s < pr.From(ei) - StationStep - 0.01f || s > pr.To(ei) + StationStep + 0.01f) return -1f;
+            float at = pr.ArcOnOther(ei, s);
+            if (at >= 0f) return at;
+            var e = map.edges[ei]; var o = map.edges[pr.Other(ei)];
+            var p = e.PointAt(s);
+            ProjectOn(o, p, out at);
+            return Vector2.Distance(o.PointAt(at), p) <= e.HalfMax + o.HalfMax + Mathf.Max(0f, pr.gap) + 6f ? at : -1f;
+        }
+
+        /// <summary>One deck's stations beside its twin, raised to the twin.
+        /// In the cone loop (<paramref name="cones"/>): the stations inside
+        /// the pair's range, with RaiseHump's cones. (A station past the range
+        /// - the edge's end, a node - was tried on 2026-10-02: its cones ran
+        /// through the node into the approaches and lifted 145 more stations
+        /// over the 3.5 m margin.) After the curves, pointwise: the interior
+        /// stations a step either side of the range and of the deck too (the
+        /// station that ends a deck shapes its last 10 m), no cones, then the
+        /// crest guard (FinalTwinHold).</summary>
+        static int HoldTwin(CityMap map, DeckPairs.Pair pr, int ei, bool cones)
+        {
+            var e = map.edges[ei]; var o = map.edges[pr.Other(ei)];
+            int moves = 0, n = e.stS.Length;
+            for (int i = 0; i < n; i++)
+            {
+                float s = e.stS[i];
+                if (e.SeatedAt(i)) continue;
+                float at;
+                if (cones)
+                {
+                    if (s < pr.From(ei) - 0.01f || s > pr.To(ei) + 0.01f || !DeckPairs.DeckAt(ei, s)) continue;
+                    at = pr.ArcOnOther(ei, s);
+                }
+                else
+                {
+                    if (i == 0 || i == n - 1) continue;
+                    if (!DeckPairs.DeckAt(ei, s) && !DeckPairs.DeckAt(ei, s - StationStep) && !DeckPairs.DeckAt(ei, s + StationStep)) continue;
+                    at = TwinArc(map, pr, ei, s);
+                }
+                if (at < 0f || !DeckPairs.DeckAt(o.index, at)) continue;
+                float target = o.YAt(at);
+                if (e.stY[i] >= target - (cones ? 0.01f : 0.001f)) continue;
+                if (target - e.stY[i] > TwinHoldMaxDyM) { if (cones) TwinHoldSkipped++; continue; }
+                if (cones) RaiseHump(e, s, target);
+                else
+                {
+                    TwinFinalRaiseMax = Mathf.Max(TwinFinalRaiseMax, target - e.stY[i]);
+                    e.stY[i] = target;
+                    TwinFinalRaised++;
+                }
+                moves++;
+            }
+            return moves;
+        }
+
+        /// <summary>The pointwise hold after the curves (see Solve), both ways
+        /// round, until it settles (three passes at most), with the grade
+        /// breaks it added measured.</summary>
+        static void FinalTwinHold(CityMap map)
+        {
+            TwinFinalRaised = 0; TwinFinalRaiseMax = 0f; TwinFinalSagAdded = 0f; TwinFinalCrestAdded = 0f;
+            if (!TwinHoldsOn || map.deckPairs == null) return;
+            var before = new Dictionary<int, float[]>();
+            foreach (var pr in map.deckPairs)
+            {
+                if (!pr.union || pr.solved) continue;
+                foreach (int ei in new[] { pr.a, pr.b })
+                    if (!before.ContainsKey(ei)) before[ei] = (float[])map.edges[ei].stY.Clone();
+            }
+            for (int pass = 0; pass < 4; pass++)
+            {
+                int moved = 0;
+                foreach (var pr in map.deckPairs)
+                {
+                    if (!pr.union || pr.solved) continue;
+                    moved += HoldTwin(map, pr, pr.a, false) + HoldTwin(map, pr, pr.b, false);
+                }
+                if (moved == 0) break;
+            }
+            // THE CREST GUARD. Raising a station can only sharpen the crest AT
+            // that station (its neighbours' breaks turn toward a sag), and the
+            // higher of two crest-limited profiles adds none - but where the
+            // raise stops short of a crossing (an edge's end, a seated station,
+            // the deck's end) it does: a plateau has corners. Every raised
+            // station whose break is now past the curves' own limit (and worse
+            // than before) comes back down to the limit, never below where the
+            // curves left it, until none is: the curves' crest rule holds over
+            // every twin, and what the guard keeps apart is the TWIN report's
+            // residual.
+            TwinFinalClamped = 0;
+            for (int it = 0; it < 12; it++)
+            {
+                bool any = false;
+                foreach (var kv in before)
+                {
+                    var e = map.edges[kv.Key]; var y0 = kv.Value; var y = e.stY;
+                    float r = CrestR(e);
+                    for (int i = 1; i + 1 < y.Length; i++)
+                    {
+                        if (y[i] <= y0[i] + 1e-5f) continue;
+                        float h0 = Mathf.Max(0.01f, e.stS[i] - e.stS[i - 1]), h1 = Mathf.Max(0.01f, e.stS[i + 1] - e.stS[i]);
+                        float lim = -0.5f * (h0 + h1) / r;
+                        float b = (y[i + 1] - y[i]) / h1 - (y[i] - y[i - 1]) / h0;
+                        float b0 = (y0[i + 1] - y0[i]) / h1 - (y0[i] - y0[i - 1]) / h0;
+                        float want = Mathf.Min(lim, b0);
+                        if (b >= want - 1e-5f) continue;
+                        float yi = (y[i + 1] / h1 + y[i - 1] / h0 - want) / (1f / h1 + 1f / h0);
+                        float ny = Mathf.Max(y0[i], Mathf.Min(y[i], yi));
+                        if (ny < y[i] - 1e-6f) { y[i] = ny; any = true; TwinFinalClamped++; }
+                    }
+                }
+                if (!any) break;
+            }
+            foreach (var kv in before)
+            {
+                var e = map.edges[kv.Key]; var y0 = kv.Value; var y = e.stY;
+                for (int i = 1; i + 1 < y.Length; i++)
+                {
+                    if (y[i - 1] == y0[i - 1] && y[i] == y0[i] && y[i + 1] == y0[i + 1]) continue;
+                    float h0 = Mathf.Max(0.01f, e.stS[i] - e.stS[i - 1]), h1 = Mathf.Max(0.01f, e.stS[i + 1] - e.stS[i]);
+                    float b = (y[i + 1] - y[i]) / h1 - (y[i] - y[i - 1]) / h0;
+                    float b0 = (y0[i + 1] - y0[i]) / h1 - (y0[i] - y0[i - 1]) / h0;
+                    TwinFinalSagAdded = Mathf.Max(TwinFinalSagAdded, b - b0);
+                    TwinFinalCrestAdded = Mathf.Max(TwinFinalCrestAdded, b0 - b);
+                }
+            }
+        }
+
+        /// <summary>The largest height difference left between union twins
+        /// (station against the partner beside it, within
+        /// <see cref="TwinHoldMaxDyM"/>), and the pair it is on.</summary>
+        static float TwinDy(CityMap map, out int worstPair)
+        {
+            worstPair = -1;
+            if (!TwinHoldsOn || map.deckPairs == null) return 0f;
+            float worst = 0f;
+            for (int pi = 0; pi < map.deckPairs.Length; pi++)
+            {
+                var pr = map.deckPairs[pi];
+                if (!pr.union || pr.solved) continue;
+                foreach (int ei in new[] { pr.a, pr.b })
+                {
+                    var e = map.edges[ei]; var o = map.edges[pr.Other(ei)];
+                    for (int i = 0; i < e.stS.Length; i++)
+                    {
+                        float s = e.stS[i];
+                        if (e.SeatedAt(i) || !DeckPairs.DeckAt(ei, s)) continue;
+                        float at = TwinArc(map, pr, ei, s);
+                        if (at < 0f || !DeckPairs.DeckAt(o.index, at)) continue;
+                        float dy = Mathf.Abs(o.YAt(at) - e.stY[i]);
+                        if (dy > TwinHoldMaxDyM) continue;
+                        if (dy > worst) { worst = dy; worstPair = pi; }
+                    }
+                }
+            }
+            return worst;
+        }
+
+        /// <summary>The longest a deck is carried on to meet its twin's end.</summary>
+        public const float TwinAlignMaxM = 15f;
+
+        /// <summary>
+        /// ONE ABUTMENT LINE (plan B1): where a union deck's end stops at most
+        /// <see cref="TwinAlignMaxM"/> short of its twin's (projected), the
+        /// shorter deck is carried on to it, so both end on one line and the
+        /// mesh can close them with one face (plan A2). After
+        /// <see cref="MarkStructure"/>; structure only, no height moves.
+        /// </summary>
+        static void AlignTwinStructure(CityMap map)
+        {
+            TwinAlignedPairs = 0; TwinAlignedStations = 0;
+            if (!TwinHoldsOn || map.deckPairs == null) return;
+            var add = new List<(CityMap.Edge e, int i)>();
+            foreach (var pr in map.deckPairs)
+            {
+                if (!pr.union) continue;
+                int before = add.Count;
+                foreach (int ei in new[] { pr.a, pr.b })
+                {
+                    var e = map.edges[ei]; var o = map.edges[pr.Other(ei)];
+                    float s0 = pr.From(ei), s1 = pr.To(ei);
+                    for (int i = 0; i < e.stS.Length; i++)
+                    {
+                        if (e.stElev[i]) continue;
+                        float s = e.stS[i];
+                        if (s < s0 - TwinAlignMaxM || s > s1 + TwinAlignMaxM) continue;
+                        // within reach of THIS pair's deck run on e
+                        float nearest = float.MaxValue;
+                        for (int j = 0; j < e.stS.Length; j++)
+                            if (e.stElev[j] && e.stS[j] >= s0 - 0.01f && e.stS[j] <= s1 + 0.01f)
+                                nearest = Mathf.Min(nearest, Mathf.Abs(e.stS[j] - s));
+                        if (nearest > TwinAlignMaxM) continue;
+                        var p = e.PointAt(s);
+                        ProjectOn(o, p, out float at);
+                        if (Vector2.Distance(o.PointAt(at), p) > e.HalfMax + o.HalfMax + Mathf.Max(0f, pr.gap) + 2f) continue;
+                        if (!o.ElevatedAt(at)) continue;
+                        add.Add((e, i));
+                    }
+                }
+                if (add.Count > before) TwinAlignedPairs++;
+            }
+            foreach (var (e, i) in add) if (!e.stElev[i]) { e.stElev[i] = true; TwinAlignedStations++; }
+        }
+
         static void RaiseHump(CityMap.Edge e, float sAt, float targetY)
         {
             // No reach cap, deliberately. A capped hump under a four-level
@@ -2860,9 +3219,15 @@ namespace PSXRacing.City
                     // A deck is over SOMETHING; where the DEM shows nothing to
                     // cross, its footprint is dug to leave UnderDeckAir under
                     // the soffit. A cap, never a raise: under a real viaduct
-                    // the valley is already deeper.
-                    if (dist <= hw + CapPadM) underDeck = true;
-                    if (dist <= hw + CapPadM && deckY - DeckThick - UnderDeckAir < deckCap)
+                    // the valley is already deeper. Beside a twin it is one
+                    // structure with (plan B1/A2: DeckPairs), the cap runs on
+                    // to the middle of the gap the median slab spans, where
+                    // the twin's own cap takes over.
+                    float capR = hw + CapPadM;
+                    if (TwinHoldsOn && map.deckUnionsOf != null && map.deckUnionsOf[ei] != null)
+                        capR = Mathf.Max(capR, DeckPairs.UnionCapReach(map, e, at, -e.SideOf(si, p2), hw));
+                    if (dist <= capR) underDeck = true;
+                    if (dist <= capR && deckY - DeckThick - UnderDeckAir < deckCap)
                     { deckCap = deckY - DeckThick - UnderDeckAir; terms.deckEdge = ei; }
                     // ...and its pavement is protected like any road's: the
                     // lattice cells it touches never stand above it.

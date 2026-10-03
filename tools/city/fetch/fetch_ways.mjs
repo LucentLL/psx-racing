@@ -31,4 +31,13 @@ async function q(name, query) {
 }
 await q('ways_all.json', `[out:json][timeout:600];(way["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"](${BBOX}););out geom;`);
 await q('nodes_all.json', `[out:json][timeout:300];(node["highway"~"^(traffic_signals|stop|give_way)$"](${BBOX}););out;`);
+// Plan B1 (2026-10-02): OSM's bridge OUTLINES - one man_made=bridge area round
+// two carriageways is one structure (West 5th Street over I-77 is
+// w984482059). Read by export_osm.mjs into section BRST (lib/bridges.mjs).
+// The shipped bridges_mm.json is the bridges diagnosis's read-only fetch of
+// 2026-10-02 (timestamp_osm_base 2026-10-02T21:13:19Z: TODAY's outlines, not
+// the 2026-09-12 road snapshot; 336 ways + 1 multipolygon); a re-fetch should
+// pin [date:"2026-09-12T02:44:33Z"] like the layers do, and record it with
+// export_osm.mjs --manifest.
+await q('bridges_mm.json', `[out:json][timeout:300];(way["man_made"="bridge"](${BBOX});relation["man_made"="bridge"](${BBOX}););out geom;`);
 console.log('done');

@@ -28,6 +28,10 @@
     "water_bed_samples": 71221,
     "lakes": 1337,
     "ravines": 1545,
+    "bridge_outline_edges": 381,
+    "bridge_outlines": 215,
+    "culvert_water_spans": 317,
+    "deck_overrides": 0,
     "crossings": 783,
     "crossings_forced": 783,
     "water_spans": 564,
@@ -92,8 +96,8 @@
   },
   "outputs": {
     "charlotte_city.bytes": {
-      "bytes": 5685880,
-      "sha256": "e95a3459a4e8918055d1860e72f8b81c0b67566417b9dc6e14a8effc9b1ea278"
+      "bytes": 5692964,
+      "sha256": "5338fd9c03cfbb0b4e293610622c9110627b3ea27460f8d925c1ad1f8d741b27"
     },
     "charlotte_dem.bytes": {
       "bytes": 3174661,
@@ -104,8 +108,8 @@
       "sha256": "21a9e261ed1f807a4559bad111708c22529b2634d00976926aa45cad4a1995f5"
     },
     "charlotte_routes.json": {
-      "bytes": 16629,
-      "sha256": "f9fa94ff4c700f31be7aa4a49fa52afa92358a4bcf2364b86a742ca0627181a5"
+      "bytes": 16842,
+      "sha256": "540085f7ae4c6cd12d6b00fc5e410bdf81496d3ebb74d1615d8b836025fc8bc6"
     }
   },
   "generated": {

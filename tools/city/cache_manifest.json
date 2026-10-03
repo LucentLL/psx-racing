@@ -74,10 +74,30 @@
       "sha256": "1c525747581233fb61494ac36dadcb52d3c2000227a316470c0901bdf13baa07"
     },
     {
+      "file": "tools/city/cache/bridges_mm.json",
+      "kind": "overpass",
+      "bytes": 340787,
+      "sha256": "f7b19836738ba4cee9b99a3bf49df807e7f4d3b2395c3453090b7d9ed2e1860d",
+      "timestamp_osm_base": "2026-10-02T21:13:19Z"
+    },
+    {
+      "file": "tools/city/cache/layers/culverts.json",
+      "kind": "overpass",
+      "bytes": 1694090,
+      "sha256": "966a76faab89b12eea99e1556dc3fee12bb71adb66a289fff2370150bd914628",
+      "timestamp_osm_base": "2026-09-28T20:18:06Z"
+    },
+    {
+      "file": "tools/city/deckpairs_overrides.json#pairs",
+      "kind": "registry",
+      "bytes": 2,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
       "file": "tools/city/SOURCES.md#credits",
       "kind": "registry",
-      "bytes": 532,
-      "sha256": "5f6f6e7454ee4f6d969088ea74f91450126e855fcbcabc85c1011746e13a9067"
+      "bytes": 742,
+      "sha256": "1764c37134ec72aff126cfc273aad44833904f61664257297a207d7d046da2b6"
     }
   ]
 }
