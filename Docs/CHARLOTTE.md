@@ -6682,6 +6682,63 @@ all are skipped. Part `roof:colour` is not read. The trade_tryon back +4 draws
 are not explained yet; the suspected cause is occupancy moved by the rescued
 block south of Trade. The stadium is a 58 m dark box until C5.
 
+## Uptown facade materials (Uptown B1b, 2026-10-04): glass mirrors the sky, metal catches the sun
+
+Owner after B1: "Buildings seem to have that white coating washed out faded
+look that cars used to have. Can they be textured and lit properly as
+metal/stone/glass?"
+
+- **The cause** (measured on the five uptown views, `CityPreview.RunUptownRef`,
+  boxes inside named towers; Ycode = Rec.709 Y re-encoded 0-255, sat = HSV
+  saturation): B1's facade lit every texel of the atlas as MATTE PAINT
+  (PSX/Lit's ambient + sun on the painted texel), and the atlas is mostly
+  glass: the three curtain walls are 60-90% panes, stone and brick carry
+  windows. Matte-lit glass is the cars' old "flour" look - its colour is
+  whatever the hour's light makes of a grey texel, never the sky it mirrors.
+  Noon: glass towers Ycode 30-36 at sat 0.13-0.17, silver towers 49-53 at
+  0.04-0.06 (neutral grey), under a 222 sky. Sunset: towers 109-129, pale
+  beige (sat 0.21-0.24), brighter than the sky behind them (83). Dusk: 104-126
+  against an 86-88 sky. NOT the cause: the grade's floor (G1 already takes 80%
+  of it by day, and these editor shots carry G1), the tints (silver palette
+  0.80-1.15), the fog (pushed to 1.7-4 km in these views).
+- **The fix, in PSX/Lit's PSX_FACADE variant** (no new variant, material or
+  draw). Per pixel, from the column and the texel: on a curtain wall the dark
+  texels are panes and the bright ones frames; on stone and brick the dark AND
+  colourless texels are windows (brick is dark too, but red).
+  - GLASS: Schlick (F0 0.12 curtain wall, 0.06 punched window) over
+    `FacadeEnv` - the hour's sky above R.y 0.12 (adapted, by day half the
+    exposure gap, as PSX/CarPaint), below it the CITY round the tower (walls
+    of albedo 0.16 lit by the hour, brighter where the ray meets their sunny
+    side, under 35% haze; the night ground's fog colour at dusk and night),
+    then the ground. Tinted by the glass's own hue (0.85), following the
+    painted pane (0.5 + 6 x its luminance) so the texture stays, a sun glint,
+    and 0.55 of the old matte light (the pane as painted). The first cut
+    mirrored the pale horizon band below 0.22 and made every noon tower a flat
+    pale cyan; the city band is what keeps glass darker than the sky.
+  - METAL (frames and mullions; crowns, roof shapes and OSM metal by the
+    vertex alpha's half step, column x 32 + 16, `CityMeshes.FacadeMetal`):
+    0.55 of the matte light, 0.45 albedo-tinted reflection, a broad sun
+    highlight (pow 24, 0.40).
+  - STONE / BRICK: matte as before; their windows are glass up close (the far
+    mips average the windows into the wall, so a distant one stays matte).
+- **After** (before -> after): noon glass 30-36 -> 54-75 (0.24-0.34 of the
+  sky's Ycode), sat 0.13-0.17 -> 0.21-0.36, blue (R-B -3 -> -4..-25); silver
+  49-67 -> 69-84, sat 0.04-0.07 -> 0.07-0.14. Sunset: glass and silver towers
+  3-20 darker (frame_over_stadium 101 vs 121) and warmer (sat 0.18-0.25 ->
+  0.29-0.38 on most). Dusk: 1-10 darker. Night: unlit glass p5 4-8 (dark), the lit
+  windows as before. Stone and brick unchanged.
+- **Targets** (the owner's three references: a clear-sky noon skyline, sunset
+  glass reflections, blue-hour dusk): glass darker than the sky and coloured
+  (0.3-0.5 of its Ycode, sat >= 0.2, blue at noon, warm at sunset) - met at
+  noon and sunset. NOT met: at dusk the towers' mean stays at or above the
+  sky (lit windows and the dusk sun on masonry; unlit glass p5 47-70 vs the
+  sky's 74); a sunlit silver tower at sunset is still above the sky (101 vs
+  83 with the sun behind the camera).
+- Budget: CityBudgetProbe 68 views 7,389 -> 7,389 draws, none worse.
+- Runner: `PSX_UPTOWN_HOURS=noon,sunset,dusk,night` (default noon,dusk).
+- Not done: reflections are a sky + city model, not the real geometry; the
+  dusk balance; stone and brick albedo untouched.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

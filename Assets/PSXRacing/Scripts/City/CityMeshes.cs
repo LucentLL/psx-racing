@@ -426,10 +426,23 @@ namespace PSXRacing.City
                 var pal = LookPalette[look];
                 k = pal[(int)((h >> 8) % (uint)pal.Length)];
             }
-            Bucket.Tint = new Color32(TintByte(k.x), TintByte(k.y), TintByte(k.z), (byte)(look * 32));
+            // OSM metal cladding wears the silver grid AS metal (B1b)
+            Bucket.Tint = new Color32(TintByte(k.x), TintByte(k.y), TintByte(k.z), (byte)(look * 32 + (mat == 4 ? FacadeMetalBit : 0)));
         }
 
         static void EndFacade() => Bucket.Tint = new Color32(128, 128, 128, 0);
+
+        /// <summary>Uptown B1b: the vertex alpha's half step (column x 32
+        /// + 16) tells PSX/Lit's facade that this surface is METAL - the
+        /// matte light under an albedo-tinted reflection and a sun highlight
+        /// - whatever its column: crowns, roof shapes, OSM metal. Set round
+        /// the emit, then cleared.</summary>
+        const int FacadeMetalBit = 16;
+        static void FacadeMetal(bool on)
+        {
+            var t = Bucket.Tint;
+            Bucket.Tint = new Color32(t.r, t.g, t.b, (byte)((t.a & 0xE0) | (on ? FacadeMetalBit : 0)));
+        }
 
         static float SrgbToLin(byte c)
         {
@@ -9872,7 +9885,7 @@ namespace PSXRacing.City
                 roofScratch.Clear();
                 roofScratch.AddRange(fitPoly);
                 if (f.roof == 0) EarcutInto(buckets[(int)Slot.RoofFlat], roofScratch, top, tm.origin, RoofFlatM);
-                else EmitRoofShape(tm, f, roofScratch, eaveY, top, wallSlot);
+                else { FacadeMetal(true); EmitRoofShape(tm, f, roofScratch, eaveY, top, wallSlot); FacadeMetal(f.mat == 4); }
                 if (floating && f.minH > 0.5f) EmitSoffit(tm, roofScratch, wallY0);
 
                 // A tall tower gets a crown: a smaller prism on top, then a
@@ -9883,7 +9896,7 @@ namespace PSXRacing.City
                 // (B2: not on a part, a shaped roof, or an outline its parts
                 // rise from - their own tiers are the silhouette)
                 if (f.h > 120f && cut == 0 && !f.part && f.roof == 0 && (f.landmark != 0 || !f.noSwap))
-                    EmitCrown(map, tm, f, top, wallSlot);
+                { FacadeMetal(true); EmitCrown(map, tm, f, top, wallSlot); }
                 EndFacade();
                 if (f.style == 3) tm.houseSeats.Add(new HouseSeat { kind = 2, c = f.centre, u = f.u, hu = f.hu, hv = f.hv, y0 = y0, floor = floorP });
 

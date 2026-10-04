@@ -692,7 +692,8 @@ namespace PSXRacing.EditorTools
         /// edge, so from these eyes the real game would show sky; the shots
         /// build the tiles along the line of sight and push the fade out to
         /// PSX_UPTOWN_FOGM metres (default 4000; 0 keeps the game's own) so the
-        /// buildings can be judged. PSX_UPTOWN_REF=a,b shoots a subset.
+        /// buildings can be judged. PSX_UPTOWN_REF=a,b shoots a subset,
+        /// PSX_UPTOWN_HOURS=noon,sunset,dusk,night the hours (default noon,dusk).
         /// Headless: -executeMethod PSXRacing.EditorTools.CityPreview.RunUptownRef
         /// (after a scene build: it opens Charlotte.unity). PNGs land in
         /// Screenshots\uptownref_&lt;view&gt;_&lt;hour&gt;.png, cameras in
@@ -736,6 +737,15 @@ namespace PSXRacing.EditorTools
             if (float.TryParse(System.Environment.GetEnvironmentVariable("PSX_UPTOWN_FOGM"), System.Globalization.NumberStyles.Float,
                                System.Globalization.CultureInfo.InvariantCulture, out float fe)) fogM = fe;
 
+            // PSX_UPTOWN_HOURS=noon,sunset,dusk,night (the hour names; default noon,dusk)
+            var hours = new List<int>();
+            string hoursEnv = System.Environment.GetEnvironmentVariable("PSX_UPTOWN_HOURS");
+            foreach (var hn in (string.IsNullOrEmpty(hoursEnv) ? "noon,dusk" : hoursEnv).Split(','))
+            {
+                int hi = System.Array.FindIndex(TimeOfDay.All, t => t.name.Equals(hn.Trim(), System.StringComparison.OrdinalIgnoreCase));
+                if (hi >= 0) hours.Add(hi);
+            }
+
             var sun = GameObject.Find("Sun")?.GetComponent<Light>();
             var globals = Object.FindFirstObjectByType<PSXGlobals>();
             if (globals != null && fogM > 0f) globals.fogScale = fogM / Mathf.Max(1f, TimeOfDay.All[TimeOfDay.Noon].fogFar);
@@ -777,7 +787,7 @@ namespace PSXRacing.EditorTools
                     }
                     world.EnsureRing(new Vector3(map.uptown.x, 0f, map.uptown.y), 3);
 
-                    foreach (int hour in new[] { TimeOfDay.Noon, TimeOfDay.Dusk })
+                    foreach (int hour in hours)
                     {
                         TimeOfDay.Apply(hour, sun);
                         NightGlow.PreviewAll(hour >= TimeOfDay.Dusk);

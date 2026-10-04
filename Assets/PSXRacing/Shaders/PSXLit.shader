@@ -298,6 +298,74 @@ Shader "PSX/Lit"
             // The horizon ring (PSXFogRing.cginc): the fog's colour by bearing.
             // After SkyReflect, whose _PSXSkyRotation it is turned by.
             #include "PSXFogRing.cginc"
+        #ifdef PSX_FACADE
+            // THE FACADE'S MATERIALS (Uptown B1b, 2026-10-04). The owner on the
+            // B1 facades: "that white coating washed out faded look that cars
+            // used to have". The cars' old cause exactly: every texel of the
+            // atlas - three curtain walls that are mostly glass, stone and
+            // brick with glass windows - was lit as MATTE PAINT, so glass wore
+            // whatever the hour's ambient made of a grey texel (silver towers
+            // at 0.04-0.07 saturation under a noon sky, brighter than the sky
+            // behind them at sunset and dusk) and never the sky it mirrors.
+            // Now each pixel answers as its material:
+            //   GLASS  the hour's sky (low down the city round it, then the
+            //          city) by Schlick, tinted by the glass's own hue, plus
+            //          the sun's glint, keeping only FAC_GLASS_DIFF of the
+            //          matte light (the room and the frit behind the pane);
+            //   METAL  a curtain wall's frames and mullions, and whatever the
+            //          vertex alpha's half step marks (crowns, roof shapes,
+            //          OSM metal): the matte light under a reflection tinted
+            //          by its albedo, and a broad sun highlight;
+            //   STONE / BRICK  the matte light as before; their windows glass.
+            // Which is which: the column (vertex alpha) and the texel. On a
+            // curtain wall the dark texels are panes and the bright ones
+            // frames; on stone and brick the dark AND colourless texels are
+            // windows (brick is dark too, but red). The far mips average a
+            // column toward its own material, so a distant tower keeps it.
+            #define FAC_GLASS_F0        0.12   // a curtain wall's coated glass, face-on
+            #define FAC_WIN_F0          0.06   // a punched window in stone or brick
+            #define FAC_GLASS_DIFF      0.55   // what a pane keeps of the matte light (the pane as painted)
+            #define FAC_GLASS_TINT      0.85   // how much the glass's own hue colours what it mirrors
+            #define FAC_GLINT           1.50   // the sun in the glass...
+            #define FAC_GLINT_POW       400.0  // ...a few degrees across
+            #define FAC_METAL_REFL      0.45   // a frame's or crown's reflection share (in its albedo's colour)
+            #define FAC_METAL_SPEC      0.40   // the sun's highlight on metal...
+            #define FAC_METAL_POW       24.0   // ...a broad one
+            #define FAC_SKY_LOD         1.5
+            #define FAC_PANE_PATTERN    6.0    // no two panes sit quite flat: the reflection follows the painted pane (0.5 + this x its luminance)
+            #define FAC_CITY_TOP        0.12   // R.y: below this a tower mirrors the city round it, above it the sky
+            #define FAC_CITY_HAZE       0.35   // how much of the sky's haze lies over that city
+            #define FAC_WORLD_CITY      0.16   // the city's walls, linear albedo, lit by the hour...
+            #define FAC_CITY_SUN        0.70   // ...and by the sun where the ray meets their sunny side
+            #define FAC_GROUND_K        2.5    // how fast a downward reflection reaches the ground
+            #define FAC_WORLD_GROUND    0.10   // the ground below, linear albedo (roofs, streets, trees)
+            #define FAC_DAY_SKY_EXPOSE  0.50   // by day the sky in the glass takes this share of the exposure gap (PSX/CarPaint)
+            float4 _PSXPaintWorld;  // x: 1 at a sunlit or low-sun hour (TimeOfDay.Apply), else 0
+            // What a facade pixel mirrors along R. Above FAC_CITY_TOP the
+            // hour's sky, adapted and never exposed (C3) - by day with half
+            // the exposure gap, as the paint does. Below it THE CITY round the
+            // tower, not the pale horizon band (the first cut mirrored that:
+            // every noon tower a flat pale cyan): by a sunlit hour walls lit
+            // by the hour and exposed - brighter where the ray meets their
+            // sunny side, so a tower's faces differ - under some of the haze;
+            // at any other hour the night ground's dark fog colour. Further
+            // down, the ground.
+            float3 FacadeEnv(float3 R, float adapt)
+            {
+                float3 sky = PSXSkyIn(float3(R.x, max(R.y, FAC_CITY_TOP), R.z), FAC_SKY_LOD) * adapt;
+                float day = saturate(_PSXPaintWorld.x);
+                if (_PSXToneOn > 0.5) sky *= lerp(1.0, lerp(1.0, _PSXExposure, FAC_DAY_SKY_EXPOSE), day);
+                float expoW = PSXExposureGain();
+                float2 lh = _PSXLightDir.xz;
+                float sunSide = saturate(-dot(R.xz, lh) * rsqrt(max(dot(R.xz, R.xz) * dot(lh, lh), 1e-6)));
+                float3 cityLit = (_PSXAmbient.rgb + _PSXLightColor.rgb * (sunSide * FAC_CITY_SUN)) * (expoW * FAC_WORLD_CITY);
+                float3 groundLit = (_PSXSkyAmbient.rgb + _PSXLightColor.rgb * saturate(_PSXLightDir.y)) * (expoW * FAC_WORLD_GROUND);
+                float3 dark = _PSXFogColor.rgb * (GROUND_REFLECT * adapt);
+                float3 city = lerp(dark, lerp(cityLit, sky, FAC_CITY_HAZE), day);
+                float3 env = lerp(city, sky, smoothstep(0.0, FAC_CITY_TOP, R.y));
+                return lerp(env, lerp(dark, groundLit, day), saturate(-R.y * FAC_GROUND_K));
+            }
+        #endif
 
             // THE LIT WINDOWS (the NIGHT PASS in the header). The facade's
             // mask says where the windows are; which of them are lit is a
@@ -436,7 +504,7 @@ Shader "PSX/Lit"
                 float4 atlas : TEXCOORD7;
             #endif
             #ifdef PSX_FACADE
-                // rgb the building's tint (x2), w its atlas column
+                // rgb the building's tint (x2), w its atlas column (+0.5: metal)
                 half4 facade : TEXCOORD7;
             #endif
             };
@@ -529,7 +597,12 @@ Shader "PSX/Lit"
                 o.atlas = float4((cell.xy + 0.5) / px, cell.zz / px);
             #endif
             #ifdef PSX_FACADE
-                o.facade = half4(v.color.rgb * 2.0, floor(v.color.a * (255.0 / 32.0) + 0.5));
+                // alpha = column x 32, + 16 for METAL (a crown, a roof shape,
+                // OSM metal): w = column + 0.5 for metal, read back by floor
+                // with a quarter's margin either way
+                float fa = v.color.a * (255.0 / 32.0);
+                float fcol = floor(fa + 0.25);
+                o.facade = half4(v.color.rgb * 2.0, fcol + 0.5 * step(0.25, fa - fcol));
             #endif
                 return o;
             }
@@ -551,7 +624,9 @@ Shader "PSX/Lit"
             #ifdef PSX_FACADE
                 float2 fdx = ddx(uv) * float2(1.0 / FACADE_COLS, 1.0);
                 float2 fdy = ddy(uv) * float2(1.0 / FACADE_COLS, 1.0);
-                uv = float2((i.facade.w + frac(uv.x)) * (1.0 / FACADE_COLS), uv.y);
+                float facCol = floor(i.facade.w + 0.25);
+                float facMetal = step(0.25, i.facade.w - facCol);
+                uv = float2((facCol + frac(uv.x)) * (1.0 / FACADE_COLS), uv.y);
                 float4 texF = tex2Dgrad(_MainTex, uv, fdx, fdy);
                 texF.rgb = PSXTexDecode(texF.rgb, _MainTexRaw);
                 fixed4 tex = texF * _Color;
@@ -591,7 +666,8 @@ Shader "PSX/Lit"
                 // A cutout (a tree card, a fence) takes no shade from leaves -
                 // PSXSunShadow says why. _Cutoff is a uniform.
                 float leaf = _Cutoff > 0.001 ? 1.0 : 0.0;
-                float3 sunAmb = i.amb * PSXSkyOpen(i.wpos, N, leaf) + i.sun * PSXSunShadow(i.wpos, N, eyeDist, leaf);
+                float sunVis = PSXSunShadow(i.wpos, N, eyeDist, leaf);
+                float3 sunAmb = i.amb * PSXSkyOpen(i.wpos, N, leaf) + i.sun * sunVis;
                 // The shoulder is the old tone curve, on the LIGHT: with the
                 // colour pass's one curve on (_PSXToneOn) the light goes
                 // through unrolled and the curve acts on the radiance below.
@@ -639,6 +715,43 @@ Shader "PSX/Lit"
                 }
 
                 float3 lit = tex.rgb * lerp(light, float3(1,1,1), _Emission);
+            #ifdef PSX_FACADE
+                // THE FACADE'S MATERIALS (the header above FacadeEnv).
+                {
+                    float lumT = dot(texF.rgb, float3(0.2126, 0.7152, 0.0722));
+                    float mxT = max(texF.r, max(texF.g, texF.b));
+                    float chromaT = (mxT - min(texF.r, min(texF.g, texF.b))) / max(mxT, 0.08);
+                    float curtain = step(facCol, 2.5);      // 0 silver grid, 1 blue, 2 teal
+                    float silver = step(facCol, 0.5);
+                    // panes: on the silver grid everything darker than its
+                    // white frames; on blue and teal nearly all of it
+                    float paneCW = 1.0 - smoothstep(lerp(0.14, 0.16, silver), lerp(0.30, 0.42, silver), lumT) * lerp(0.85, 1.0, silver);
+                    float paneM = (1.0 - smoothstep(0.045, 0.11, lumT)) * (1.0 - smoothstep(0.20, 0.45, chromaT));
+                    float glass = lerp(paneM, paneCW, curtain);
+                    float metal = (1.0 - glass) * curtain;
+                    glass *= 1.0 - 0.7 * facMetal;
+                    metal = lerp(metal, 1.0 - glass, facMetal);
+
+                    float ndv = saturate(dot(N, V));
+                    float fres = pow(1.0 - ndv, 5.0);
+                    float3 env = FacadeEnv(reflect(-V, N), PSXAdaptGain());
+                    float3 L = normalize(_PSXLightDir.xyz);
+                    float ndh = saturate(dot(N, normalize(L + V)));
+                    // the sun as it lands here: shadowed, exposed, on the lit side only
+                    float3 sunE = _PSXLightColor.rgb * (sunVis * PSXExposureGain() * step(0.0, dot(N, L)) * _PSXSunModel);
+
+                    float F = lerp(FAC_WIN_F0, FAC_GLASS_F0, curtain);
+                    F += (1.0 - F) * fres;
+                    float3 hue = saturate(tex.rgb / max(max(tex.r, max(tex.g, tex.b)), 0.02));
+                    float3 glassCol = lit * (FAC_GLASS_DIFF * (1.0 - F))
+                                    + env * lerp(float3(1, 1, 1), hue, FAC_GLASS_TINT) * (F * clamp(0.5 + FAC_PANE_PATTERN * lumT, 0.6, 1.4))
+                                    + sunE * (pow(ndh, FAC_GLINT_POW) * FAC_GLINT * F);
+                    float3 alb = saturate(tex.rgb * 1.5);
+                    float3 metalCol = lit * (1.0 - FAC_METAL_REFL) + env * alb * FAC_METAL_REFL
+                                    + sunE * alb * (pow(ndh, FAC_METAL_POW) * FAC_METAL_SPEC);
+                    lit = lerp(lerp(lit, metalCol, metal), glassCol, glass);
+                }
+            #endif
                 // The haze is brighter toward the sun (zero extra with no
                 // _PSXFogSun set, which is every interior and every night).
                 // THE FOG IS THE SKY'S COLOUR (C3): never exposed, and rolled
