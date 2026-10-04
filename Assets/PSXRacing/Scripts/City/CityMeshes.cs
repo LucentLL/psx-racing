@@ -683,6 +683,8 @@ namespace PSXRacing.City
             /// stamp <see cref="Tint"/> on every vertex they add.</summary>
             public List<Color32> col;
             public static Color32 Tint = new Color32(128, 128, 128, 0);
+            /// <summary>CloseOpenGround: the counts when the pass began (it never welds its own faces).</summary>
+            public int passV, passT;
             public void Clear() { v.Clear(); uv.Clear(); t.Clear(); col?.Clear(); }
             public int Count => v.Count;
 
@@ -1542,6 +1544,7 @@ namespace PSXRacing.City
             barrierBucket.Clear();
             guardBucket.Clear();
             kerbBucket.Clear();
+            stripInner.Clear(); stripInnerSegs.Clear();
             lampBucket.Clear();
             bankBucket.Clear();
             lampBuildings = buildings;
@@ -1559,6 +1562,10 @@ namespace PSXRacing.City
             phaseClock.Restart();
             PrepareFanFloor(map, trims, min, max);   // roads pass L7: the lattice under the fans
             foreach (var _ in BuildGround(map, tm, min)) yield return 0;
+            // the lattice, the lots and the driveways end here: what the closing
+            // pass welds starts after them (they lie on the lattice, flush)
+            groundBaseV[0] = buckets[(int)Slot.Ground].v.Count; groundBaseT[0] = buckets[(int)Slot.Ground].t.Count;
+            groundBaseV[1] = buckets[(int)Slot.Pavement].v.Count; groundBaseT[1] = buckets[(int)Slot.Pavement].t.Count;
             Phase(0);
             clipPairs.Clear(); goreEdges.Clear();
             foreach (var _ in BuildGores(map, trims, tm, min, max)) yield return 0;
@@ -1592,6 +1599,7 @@ namespace PSXRacing.City
             yield return 0;
 
             stepPhase = 9; stepItem = 0; stepPart = 0;
+            CloseOpenGround(map, trims, tm); // 2026-10-04: no ground or road sheet ends in the air
             FlushLotIslands(map, tm, min);   // leftover item 4: the lots' islands, tops and curbs
             tm.ground = MeshFrom("ground", new[] { Slot.Ground, Slot.Pavement }, out var gSlots, false);
             tm.groundSlots = gSlots;
@@ -7461,6 +7469,7 @@ namespace PSXRacing.City
         /// tile build.</summary>
         static void LayStripQuad(CityMap map, Vector3 o, Vector3[] prof, bool noFins, ref Bucket prevBk, ref int prevBase)
         {
+            stripInnerSegs.Add((profPrev[0] - o, prof[0] - o));   // its inner edge (CloseOpenGround: a road edge a verge starts from)
             var cen = (profPrev[1] + profPrev[2] + prof[1] + prof[2]) * 0.25f;
             bool paved = PavedAt(map, cen.x, cen.z);
             var bk = GroundBucket(paved);
@@ -7492,6 +7501,7 @@ namespace PSXRacing.City
         static int AddProfile(Bucket bk, Vector3[] prof, Vector3 origin, bool paved)
         {
             int start = bk.v.Count;
+            stripInner.Add(KeyXZ(prof[0] - origin));   // its inner edge, under its own road's edge (CloseOpenGround)
             for (int q = 0; q < 4; q++)
             {
                 bk.v.Add(prof[q] - origin);
@@ -8756,7 +8766,13 @@ namespace PSXRacing.City
                 {
                     var k0 = corners[i];
                     var k1 = corners[(i + 1) % corners.Count];
-                    if (k0.mouthNext) continue;                 // road mouth
+                    // road mouth - but an envelope stretch between two
+                    // DIFFERENT arms that faces open ground is a free edge
+                    // (owner 2026-10-04, W Trade St at Graham St: the
+                    // envelope from e5932's median corner to e5784's stood
+                    // 0.53 m over the lattice with no verge, a slot to the
+                    // ground between the junction and the median)
+                    if (k0.mouthNext && (onStructure || !EnvelopeOverGround(map, trims, n, k0, k1, tm.origin))) continue;
                     var chord = new Vector2(k1.pos.x - k0.pos.x, k1.pos.z - k0.pos.z);
                     float len = chord.magnitude;
                     if (len < 0.05f) continue;

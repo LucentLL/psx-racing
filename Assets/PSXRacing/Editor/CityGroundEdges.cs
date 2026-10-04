@@ -50,6 +50,8 @@ namespace PSXRacing.EditorTools
             }
             bool routes = System.Environment.GetEnvironmentVariable("PSX_GEDGE_ROUTES") == "1";
             var trims = CityMeshes.ComputeTrims(map);
+            foreach (var fs in (System.Environment.GetEnvironmentVariable("PSX_GEDGE_FANS") ?? "").Split(','))
+                if (int.TryParse(fs.Trim(), out int fnode)) foreach (var l in CityMeshes.DebugFanRing(map, trims, fnode)) sb.AppendLine("FAN " + l);
             var buildings = CityBuildings.Precompute(map);
             float T = CityMeshes.TileSize;
 
@@ -83,7 +85,8 @@ namespace PSXRacing.EditorTools
 
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var all = new List<Hit>();
-            int tilesDone = 0, edgesSeen = 0;
+            int tilesDone = 0, edgesSeen = 0, skirtN = 0; float skirtM = 0f, fasciaM = 0f;
+            var passMs = new List<double>(); var buildMs = new List<double>();
             // a tile and its 8 neighbours stood up at a time, the scanned tile
             // in the middle; tiles kept while a neighbour still needs them
             var live = new Dictionary<long, GameObject>();
@@ -106,7 +109,9 @@ namespace PSXRacing.EditorTools
                         if (live.ContainsKey(k)) continue;
                         int kx = (int)(k >> 32), kz = (int)(uint)(k & 0xFFFFFFFF);
                         CityMeshes.groundLog = new List<(string, Vector3, Vector3, Vector3)>();
+                        var bclock = System.Diagnostics.Stopwatch.StartNew();
                         var tm = CityMeshes.Build(map, trims, buildings, kx, kz);
+                        if (scan.Contains(k)) { skirtM += CityMeshes.skirtMetres; fasciaM += CityMeshes.fasciaMetres; skirtN += CityMeshes.skirtCount; passMs.Add(CityMeshes.skirtMs); buildMs.Add(bclock.Elapsed.TotalMilliseconds); }
                         logs[k] = CityMeshes.groundLog; CityMeshes.groundLog = null;
                         var go = new GameObject($"tile_{kx}_{kz}");
                         go.transform.SetParent(root.transform, false);
@@ -173,6 +178,10 @@ namespace PSXRacing.EditorTools
                 if (routes && NearRoute(h.p)) routeHits.Add(h);
             }
             sb.AppendLine($"  {tilesDone} tiles, {edgesSeen} open sheet edge samples walked in {clock.Elapsed.TotalSeconds:0} s");
+            sb.AppendLine($"  closing faces the scanned tiles laid: {skirtN} skirt pieces, {skirtM:0} m; deck fascias {fasciaM:0} m");
+            { var ph = CityMeshes.skirtPhase; sb.AppendLine($"  closing pass phases, ms summed over every build: sets {ph[0]:0} ground weld {ph[1]:0} ground faces {ph[2]:0} roads weld {ph[3]:0} grid {ph[4]:0} roads faces {ph[5]:0}; road open edges {CityMeshes.skirtRoadCounts[0]}, unverged {CityMeshes.skirtRoadCounts[1]}, over the lattice {CityMeshes.skirtRoadCounts[2]}, not paved past {CityMeshes.skirtRoadCounts[3]}"); }
+            passMs.Sort(); buildMs.Sort();
+            if (passMs.Count > 0) sb.AppendLine($"  closing pass per tile build: p50 {passMs[passMs.Count / 2]:0.0} p95 {passMs[(int)(passMs.Count * 0.95f)]:0.0} max {passMs[passMs.Count - 1]:0.0} ms; whole build p50 {buildMs[buildMs.Count / 2]:0.0} p95 {buildMs[(int)(buildMs.Count * 0.95f)]:0.0} ms ({passMs.Count} builds)");
             sb.AppendLine($"-- short barrier runs the side-flag pass dropped on the tiles built (MinMedianRunM): {dropped.Count}");
             foreach (var d in dropped) sb.AppendLine("  DROPPED " + d);
             Report(sb, map, "box", boxHits);
@@ -328,6 +337,28 @@ namespace PSXRacing.EditorTools
                 places.Add(pl);
             }
             places.Sort((x, y) => Score(y).CompareTo(Score(x)));
+            // the classes: what laid the sheet, and whether its open edge runs
+            // along the nearest road (a strip's far edge) or across it (an end)
+            var cls = new SortedDictionary<string, (int m, float drop)>();
+            foreach (var h in hits)
+            {
+                string kind = h.under;
+                int by = kind.IndexOf(" by ", System.StringComparison.Ordinal);
+                kind = by >= 0 ? kind.Substring(by + 4) : "?";
+                kind = System.Text.RegularExpressions.Regex.Replace(kind, @"e\d+ '[^']*' side ([LR]) span [\d.]+\.\.[\d.]+ ", "edge side $1 ");
+                kind = System.Text.RegularExpressions.Regex.Replace(kind, @"node \d+ (arm )?e\d+(-e\d+)?", "");
+                kind = System.Text.RegularExpressions.Regex.Replace(kind, @"band\d", "").Trim();
+                string along = "?";
+                if (map.NearestRoadPoint(new Vector2(h.p.x, h.p.z), 40f, false, out int ei, out float at, out _))
+                {
+                    var t = map.edges[ei].TangentAt(at);
+                    along = Mathf.Abs(Vector2.Dot(t, h.n)) > 0.7f ? "across" : "along";
+                }
+                string key = $"{kind} | {along}";
+                cls.TryGetValue(key, out var v);
+                cls[key] = (v.m + 1, Mathf.Max(v.drop, h.drop));
+            }
+            foreach (var kv in cls) sb.AppendLine($"   CLASS {label}: {kv.Value.m,5} m  max drop {kv.Value.drop:0.00}  {kv.Key}");
             int bump = 0; foreach (var h in hits) if (h.drop > 0.3f && h.drop < 1.5f) bump++;
             sb.AppendLine($"-- {label}: {hits.Count} open metres over a drop past {DropM:0.00} m ({bump} with a 0.3-1.5 m drop: a car's bumper meets the edge), {places.Count} places; the worst 40:");
             int shown = 0;

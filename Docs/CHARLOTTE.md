@@ -6806,7 +6806,8 @@ metal/stone/glass?"
 - Not done: pack towers among the tallest would be left out (none are);
   the far windows twinkle as the camera moves (sub-pixel windows); the swap
   at 398 m is low-poly to full detail at equal colour.
-## Ground that ends in the air (2026-10-04): the W Trade St report, an audit, short cut walls that hold land
+
+## No sheet ends in the air (2026-10-04): the W Trade St report at Graham St, the open-edge audit, closing faces, short cut walls that hold land
 
 The owner, free roam at night, HUD "West Trade Street", clock 2:04: "I just
 hit a barrier between these roads. There is a thin layer of dirt and I can
@@ -6832,28 +6833,127 @@ Each place names the strip that laid the sheet (`CityMeshes.groundLog`) and
 the short barrier runs the side-flag pass dropped (`CityMeshes.shortDropLog`,
 probe only).
 
-**What it found.**
-- OwnerBox: 1,217 open metres in 353 places (712 m with a 0.3-1.5 m drop).
-  Race routes' tiles: 1,135 m in 286 places. Mostly freeway and ramp verge
-  ends 7-11 m off I-277 / I-77 (by strip: I-277 verges 64 places, unnamed
-  ramps 71, I-77 21, fan chord verges 11, corner fills 12, the lattice 8).
-  Not fixed here: a class of its own.
-- On West Trade Street, uptown (the paved cells within 1 km of Trade &
-  Tryon), there is ONE place: the median nose at **Graham Street**
-  (-2648,5096). The Graham junction's paving ends along e5932's widened
-  median edge (drawn 5.52 m out) 0.53 m over the lattice. e5932's median
-  verge starts 0.45 m further in at the trim (span 24.7..29.0), and toward
-  the junction the slot widens to about 2 m. The lattice there is
-  0.42-0.53 m under both surfaces. That is 12 m of open road edge and 2 m
-  of open verge: the "thin layer of dirt" with the road's edge beside it,
-  both seen from below, and an edge at bumper height. The minimap matches:
-  W Trade x Graham, with the carriageways' 160 m oval (e5785/e5932) beside
-  it. It is the best match for the owner's frame, not a certain one.
-- It is OLD. With every recent switch off (PSX_CITY_LOTROADCUT=0,
-  HOUSEPADS=0, DRIVEWAYS=0, KEEP_SHORT=1, BULBNECK=0) it is the same 14 m.
-  The likely mechanism: the fan perimeter between e5932's widened corner
-  and the next arm is a mouth or envelope stretch (`mouthNext`), so no
-  chord verge is laid. **Not fixed (HARD STOP).**
+**What it found (BEFORE, main a3b5feab; Ground and Roads meshes).**
+- OwnerBox: 1,441 open metres in 390 places (804 m with a 0.3-1.5 m drop:
+  a bumper meets the edge). Race routes' tiles: 1,302 m in 320 places.
+- By what laid the sheet (OwnerBox / routes, metres):
+  - verge ENDS (a verge's cross-section where the next span lays no verge:
+    deck abutments, squeezed spans, junction trims): 998 / 1,027;
+  - road surface edges: 224 / 167 (deck corners past their approach, fans'
+    envelope stretches);
+  - corner fills 88 / 34, the lattice 49 / 24, verges' far edges 36 / 23,
+    fan chord verges 25 / 19, seams and half strips 21 / 6.
+- On West Trade Street uptown (the paved cells within 1 km of Trade &
+  Tryon) there is one place: **the median nose at Graham Street**
+  (-2648,5096). This is the owner's frame. The minimap shows W Trade x
+  Graham with the carriageways' 160 m oval (e5785/e5932) beside it.
+  - The Graham fan's ring (`DebugFanRing`, nodes 7662/7498, 41 corners) runs
+    from e5932's widened median corner (-2647.86,5095.78) to e5784's
+    (-2658.93,5107.62). That stretch is flagged `mouthNext`: the envelope of
+    two overlapping mouths.
+  - So no kerb and no chord verge were laid along it. The fan's paving
+    ended 0.53 m over a lattice the fan floor had sunk under it (0.42-0.53 m
+    under both surfaces), a slot 0.45-2 m wide before e5932's median verge.
+  - That is 12 m of open road edge and 2 m of open verge: the "thin layer of
+    dirt" and "the road to the right", both seen from below, and an edge at
+    bumper height.
+  - It predates every recent change. With PSX_CITY_LOTROADCUT=0,
+    HOUSEPADS=0, DRIVEWAYS=0, KEEP_SHORT=1 and BULBNECK=0 all switched off,
+    it is the same 14 m.
+
+**The fix (the owner's decision: close the whole class).**
+- **The Graham nose: a fan's envelope that faces open ground is a free edge**
+  (`EnvelopeOverGround`, in the fan perimeter loop).
+  - It applies to a grounded fan's `mouthNext` stretch between two
+    DIFFERENT arms' corners with no pavement beyond it at its height
+    (`PavedOnward`) and no road under it.
+  - Such a stretch gets its kerb, its chord verge and its corner fills like
+    any free chord. The verge covers the slot.
+  - An arm's own mouth, an envelope over another road's pavement, and any
+    stretch on structure stay as before.
+  - `PSX_CITY_ENVELOPE_VERGE=0` restores the old behaviour.
+- **No sheet ends in the air: the closing pass** (`CityMeshes.Skirts.cs`,
+  `CloseOpenGround`). It runs once per tile build, after every sheet is laid
+  and before the lots' islands. `PSX_CITY_SKIRTS=0` turns it off (the
+  before-count).
+  - **Finding open edges.** The sheets laid after the lattice (verges,
+    seams, strips, fills; the lattice, lots and driveways lie flush on it)
+    are welded by position (2 mm, open-addressing tables). Every edge that
+    one triangle uses, off the tile border, is open.
+  - **Ground edges.** An open edge that is not a strip's inner edge (under
+    its own road) and stands more than `SkirtMinM` (0.10 m) over the lattice
+    gets a face straight down to the lattice, tucked 0.10 m under, turned
+    away from its sheet. Up to `RetainFaceM` (0.5 m) the face is the sheet's
+    own cut edge (grass or paving). Taller faces are a retaining wall in
+    concrete.
+  - **Road edges.** The roads' sheets (ribbons, fans, decks, their concrete)
+    are welded the same way and tested in pieces of 2 m at most. A piece is
+    skipped as no step when either:
+    - a strip's inner edge runs along it (within 8 cm, from 15 cm under to
+      2 cm over); or
+    - pavement carries on past it at its height (a lying road triangle
+      0.6 m out at its quarter points, within 0.15 m, from a 4 m grid of the
+      tile's road triangles).
+  - **Deck edges.** A road piece more than `StructureDropM` (2.5 m) over the
+    ground, or with a road passing under it, is a deck's edge. It gets a
+    fascia a deck deep (`DeckThick`), unless a standing concrete or parapet
+    face already hangs below it along that edge. Any other road piece is a
+    step in the ground and gets the ground face, starting from a kerb's foot
+    where a kerb is drawn.
+  - **Never in another road's lanes** (`OverRoad`). Where the tile's drawn
+    pavement lies under an open edge, and it is a lower road's designed lane
+    (`LineModel.CentreAt`), no face goes down through it. The map's roads
+    are read within 3 m of the tile border, where that pavement may be the
+    next tile's (North Tryon St under the ramp e2382). The edge gets a
+    fascia a deck deep at most, never closer than `CarClearM` (1.6 m) to the
+    lane, or nothing under a lower clearance. Over a shoulder, fan or gore
+    the face stands as a retaining face would.
+  - **Colliders.** Every face is in the ground or road mesh, so its
+    collider is exactly what is drawn: no see-through edge, no invisible
+    blocker. The pass never welds its own faces (each bucket's counts are
+    taken when it starts).
+- **Cost** (CityGroundEdges, 685 builds of the OwnerBox and route tiles):
+  the pass takes p50 9.6 ms, p95 28.2 ms, max 46.5 ms per tile build. The
+  whole build (with the probe's ground log on) is p50 102 ms, p95 309 ms.
+  First cuts of the pass cost 63-230 ms (Dictionary welding, the outlines'
+  PavedOnward per edge). CityBudgetProbe, back to back with the pass off and
+  on, read the "meshes" phase +5 to +12 ms a tile on average. Tile build p95
+  moved by less than this machine's run-to-run noise (+/-30% within the
+  hour, phases this pass does not touch included).
+
+**BEFORE -> AFTER** (CityGroundEdges, `PSX_GEDGE_MESHES=Ground,Roads`,
+`PSX_GEDGE_ROUTES=1`; drop past 0.15 m, no face closing it, not under another
+surface)
+
+| | BEFORE | AFTER |
+|---|---|---|
+| open metres, OwnerBox | 1,441 (390 places; 804 m at 0.3-1.5 m) | **120** (59 places; 50 m at 0.3-1.5 m) |
+| open metres, race routes' tiles | 1,302 (320 places; 807 m at 0.3-1.5 m) | **104** (53 places; 46 m at 0.3-1.5 m) |
+| the Graham St nose (W Trade St) | 14 m (12 road edge + 2 verge), 0.53 m | **0** |
+| verge ends, OwnerBox / routes | 998 / 1,027 m | 59 / 59 m |
+| road edges, OwnerBox / routes | 224 / 167 m | 50 / 35 m |
+| the lattice, OwnerBox / routes | 49 / 24 m | 8 / 9 m |
+| closing faces laid (685 builds) | - | 198,815 pieces, 212 km (most under their own surfaces); fascias 27.7 km |
+
+**The residue (120 m OwnerBox / 104 m routes), explained.**
+- **Verge ends over a lower road's lanes**, 59 / 59 m. Examples: the ramps
+  e371, e2422, e9809, e2037 by I-277; I-277 e4596, e2413, e2315; I-77 e1255,
+  e1877; E 11th St e6020.
+  - The upper verge overhangs a road below. A face down to the ground would
+    stand in that road's lanes, so by the rule above there is none. Where
+    the clearance allows it there is a fascia; otherwise nothing.
+  - This is a conflict between the two roads' geometry (the abutment
+    belongs beside the lower road's clear zone), not something a face can
+    close.
+- **Deck corners and ramp ends**, 50 / 35 m, 1-7 m drops: I-277 e2349,
+  e2321, e2305, e2315; ramps e2359, e7753, e439. A 2 m piece reads as paved
+  past, verged, or over a lane where only part of it is.
+- **The lattice's own edges under decks**, 8 / 9 m at 0.15-1.6 m: e1916,
+  I-277 e8474, e2353 and e2139, S Tryon e1108. Plus 2 m of half strip.
+- None is on West Trade Street.
+- Next, if the owner wants them: pull those verges back to the lower road's
+  clear zone (an abutment, not an overhang), and test deck ends in 0.5 m
+  pieces.
 
 **Short cut walls that hold land** (the hotfix's suspected part). The
 hotfix (2026-10-03) drops every cut wall run under `MinMedianRunM` closed
@@ -6874,16 +6974,24 @@ them (it reports them). `PSX_CITY_CUTHOLD=0` drops them as before.
 - City-wide (the short barrier census, 1,540 tiles): 0 isolated pieces,
   0 short cut walls kept for holding land. The rule is a guard; it changes
   no geometry today.
-- `city-cycle -DriveOnly`: the same three known failures as main (box BLUNT
-  rail ends 12, INVISIBLE lanes 50, SOLIDS 81). Every route probe reads 0,
-  and WALLS IN LANES reads 0.
-- `city-cycle -AuditOnly` (OwnerBox): 18 failures, the known set (TWIN c
-  75, roadside 27 / 1 / 5 runs / 4, terrain margin 2,816, driveways
-  1,012 / 714).
-- Named views (`CityPreview`, group `tradedirt`): `tradedirt_nose_nw` /
-  `_sw` / `_top` (the Graham nose), `tradedirt_i77_eb`, `_syc_wb`,
-  `_graham_wb`, `_4115_nb`, `_13384_*`, `_pit_*` (candidates ruled out).
-  Group `cutkeep`: I-77 under W 5th St, the two short cut walls.
+- `city-cycle -DriveOnly`, with the closing pass: every route probe reads 0
+  (walls, steps, holes, off, grass, BLUNT), and WALLS IN LANES reads 0. The
+  known failures remain: box BLUNT rail ends 12 and SOLIDS 81. INVISIBLE
+  lanes is 51 against main's 50; the extra one is a Roads sweep on E 11th
+  St e10610 (box, not a route), 0.23 m over a lane, its drawn face turned
+  away.
+- Earlier variants of the pass were rejected by this audit:
+  - faces hung down through lower roads' lanes (N Tryon St under e2382);
+  - fascias stacked under soffits.
+  The lane rule (`OverRoad`) is the fix for those.
+- `city-cycle -AuditOnly` was NOT run on the final code (HARD STOP). The
+  last one, on the cut-wall commit, had the known 18.
+- Named views (`CityPreview`):
+  - group `tradedirt_photo`: `tradedirt_nose_low` and `tradedirt_verge_i277`,
+    0.7 m eyes (`rise`, `lookAt`), the BEFORE/AFTER photographs;
+  - group `fascia_check`: two deck edges given fascias;
+  - group `tradedirt`: the Graham nose and the candidates ruled out;
+  - group `cutkeep`: I-77 under W 5th St.
 
 ## Not in v1 (in order of likely next)
 

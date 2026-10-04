@@ -437,6 +437,10 @@ namespace PSXRacing.EditorTools
             Eye("tradedirt_13384_nw", "tradedirt", -3655f, 5769f, "Trade", 318f, "W Trade St (e13384, two-way) north-west from node 4115, heading 318: land standing up to 0.57 m over the pavement on its left (5.4 m out)"),
             Eye("tradedirt_13384_se", "tradedirt", -3715f, 5823f, "Trade", 138f, "W Trade St (e13384) south-east toward node 4115, heading 138: the same land on the right"),
             Top("tradedirt_13384_top", "tradedirt", -3688f, 5795f, "Trade", 30f, "W Trade St (e13384) from above: the land over its south-west edge"),
+            new NamedView { name = "fascia_check_1", group = "fascia_check", kind = ViewKind.Eye, at = new Vector2(-1903.5f, 3416f), road = "", hdg = 180f, fov = 60f, ring = 1, lookAt = new Vector2(-1904.5f, 3401.4f), what = "a deck edge the closing pass gave a fascia (-1904,3401), from 15 m north" },
+            new NamedView { name = "fascia_check_2", group = "fascia_check", kind = ViewKind.Eye, at = new Vector2(-1222f, 3970f), road = "", hdg = 330f, fov = 60f, ring = 1, lookAt = new Vector2(-1237f, 3994.2f), what = "a deck edge the closing pass gave a fascia (-1237,3994), from 28 m south-east" },
+            new NamedView { name = "tradedirt_nose_low", group = "tradedirt_photo", kind = ViewKind.Eye, at = new Vector2(-2643.8f, 5100.1f), road = "Trade", hdg = 230f, fov = 60f, ring = 1, rise = -0.5f, lookAt = new Vector2(-2651f, 5099f), what = "W Trade St outbound (e5785) at Graham St, 0.7 m eye, looking straight at the median nose (-2649,5097.5): the junction paving edge over the slot (BEFORE) or its chord verge (AFTER)" },
+            new NamedView { name = "tradedirt_verge_i277", group = "tradedirt_photo", kind = ViewKind.Eye, at = new Vector2(-2921.9f, 4100.7f), road = "I-277", hdg = 312f, fov = 60f, ring = 1, rise = -0.5f, lookAt = new Vector2(-2927.8f, 4106.1f), what = "I-277 (e2027, Belk Fwy by S College St), 0.7 m eye, looking at a verge end 7.8 m off the carriageway that stood 2.25 m over the ground (BEFORE) or its closing face (AFTER)" },
             Top("tradedirt_pit_top", "tradedirt", -3322f, 5712f, "Trade", 22f, "north of W Trade St at Sycamore St: the ground 5 m under the street at (-3322,5716) from above"),
             Eye("tradedirt_pit_nb", "tradedirt", -3318f, 5680f, "Trade", 0f, "W Trade St at Sycamore St, heading 0 (north) toward the low ground at (-3322,5716)"),
             Eye("cutkeep_i77_nb", "cutkeep", -3334f, 5864f, "I-77", 40f, "I-77 northbound (e6608) 40 m before W 5th St, heading 40: the 24 m cut wall at s 198..222 on the right (hotfix 2026-10-03 dropped it; the land above stood open)"),
@@ -510,8 +514,8 @@ namespace PSXRacing.EditorTools
                     // the owner's camera: on the point itself, at the road's height there
                     float h = v.hdg * Mathf.Deg2Rad;
                     var d = new Vector3(Mathf.Sin(h), 0f, Mathf.Cos(h));
-                    eye = new Vector3(v.at.x, y + 1.2f, v.at.y);
-                    look = eye + d * 60f + Vector3.down * 1.0f;
+                    eye = new Vector3(v.at.x, y + 1.2f + v.rise, v.at.y);   // rise: a lower eye (2026-10-04 photos)
+                    look = v.lookAt != Vector2.zero ? new Vector3(v.lookAt.x, y + 0.2f, v.lookAt.y) : eye + d * 60f + Vector3.down * 1.0f;
                     near = 0.2f;   // the chase camera's (ChaseCamera.cs), so depth precision matches the game
                     break;
                 }

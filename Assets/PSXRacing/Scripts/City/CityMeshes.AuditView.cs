@@ -5,6 +5,22 @@ namespace PSXRacing.City
 {
     public static partial class CityMeshes
     {
+        /// <summary>Probe only (CityGroundEdges, PSX_GEDGE_FANS): a fan's ring
+        /// as the tile builds lay it, corner by corner.</summary>
+        public static List<string> DebugFanRing(CityMap map, Trims trims, int node)
+        {
+            var o = new List<string>();
+            if (!trims.patch[node]) { o.Add($"node {node}: no fan"); return o; }
+            int fk = FanKey(trims, node);
+            var ring = new List<FanCorner>(32);
+            FanCorners(map, trims, fk, Vector3.zero, ring);
+            o.Add($"node {node}: fan key {fk}, {ring.Count} corners");
+            foreach (var k in ring)
+                o.Add($"  ({k.pos.x:0.00},{k.pos.z:0.00}) y {k.pos.y:0.00} e{k.edge} side {k.side} node {k.node}{(k.mouthNext ? " MOUTH->" : "")}{(k.extra ? " extra" : "")}{(k.arc ? " arc" : "")}");
+            ClearSectionCaches(); fanPolys.Clear(); fanStructure.Clear();
+            return o;
+        }
+
         // ---- what the audit records ask the tile builds to keep -------------
         // Null in a build: nothing is recorded and nothing changes. Set only
         // between AuditView.BeginRecord and EndRecord.
