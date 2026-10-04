@@ -692,6 +692,12 @@ namespace PSXRacing.City
             /// <see cref="bulbRad"/> about the node.</summary>
             public bool[] bulb;
             public float[] bulbRad;
+            /// <summary>Leftover item 4: the curb-return radius of a bulb's
+            /// neck (where the street meets its circle), 0 where it has none.</summary>
+            public float[] bulbNeckR;
+            /// <summary>Leftover item 4: a bulb's centre - the node, or its foot
+            /// on the mouth's line where the street bends into the bulb.</summary>
+            public Vector2[] bulbC;
             /// <summary>Plan A2: each edge's twin-deck union runs (null where it
             /// has none), from <see cref="BuildDeckUnions"/>.</summary>
             public List<UnionRun>[] unions;
@@ -1026,6 +1032,8 @@ namespace PSXRacing.City
             });
             // roads pass L5: the merge zones (aux lanes on the hosts, the ramps cut at N)
             BuildMergeZones(map, t);
+            // leftover item 4: the bulbs' necks, on the street's final extents
+            BulbNecks(map, t);
             // plan A2: which parallel decks are drawn as one structure, where
             BuildDeckUnions(map, t);
             return t;
@@ -1430,6 +1438,7 @@ namespace PSXRacing.City
             yield return 0;
 
             stepPhase = 9; stepItem = 0; stepPart = 0;
+            FlushLotIslands(map, tm, min);   // leftover item 4: the lots' islands, tops and curbs
             tm.ground = MeshFrom("ground", new[] { Slot.Ground, Slot.Pavement }, out var gSlots, false);
             tm.groundSlots = gSlots;
             yield return 0;

@@ -1,4 +1,5 @@
 using System.Globalization;
+using UnityEditor;
 using UnityEngine;
 using PSXRacing.City;
 
@@ -16,6 +17,15 @@ namespace PSXRacing.EditorTools
     ///        structure, a link); plain dead ends given a verge across the end
     ///   LOTS lots, their area, stall lines, entrances (aprons); rings that
     ///        will not triangulate (gate: 0)
+    ///   NECK (leftover item 4) every bulb's two necks: the tightest turn from
+    ///        the street edge round to the circle (gate: none under the class
+    ///        curb radius)
+    ///   LOT AUDIT (leftover item 4) the lots in scope sampled every 0.5 m:
+    ///        pavement on a fan, a ribbon, a building or another lot (gate: 0
+    ///        drawn), islands, holes, aisle-only lots
+    /// Headless on its own (no tiles but nine round lot 139 and the Victorian
+    /// Place bulb): -executeMethod PSXRacing.EditorTools.CityAudit.LotsOnly,
+    /// writes lots_audit.txt beside the project.
     /// </summary>
     public static partial class CityAudit
     {
@@ -70,6 +80,7 @@ namespace PSXRacing.EditorTools
                 "plain dead ends {6} city-wide, {7} in scope - each laid a verge across its end where on the ground (tiles built this run: {8})",
                 CityMeshes.BulbsOn ? "ON" : "OFF (PSX_CITY_BULBS=0)", bsT, bsD, bsS, bsR, bsL, deadEnds, deadInScope, CityMeshes.DeadEndVerges));
             Check(bsD + bsS + bsR + bsL >= bsT, "MINOR A17: every tagged turning circle drawn as a bulb or listed", $"{bsD} of {bsT}");
+            NeckReport(map, trims);
             if (trims.bulb != null)
             {
                 int shown = 0;
@@ -110,6 +121,104 @@ namespace PSXRacing.EditorTools
                 }
             }
             Line("  E1 FLOAT: lots and stall lines are cut into the lattice (each piece on its lattice triangle's plane): lift 0 m; draws: the junction slab's slot (+ a two-lane street's for the stall paint)");
+            LotAuditReport(map, trims, ScopeFor("LOT"), null);
+        }
+
+        /// <summary>NECK (leftover item 4): the bulbs' necks as drawn.</summary>
+        static void NeckReport(CityMap map, CityMeshes.Trims trims)
+        {
+            var I = CultureInfo.InvariantCulture;
+            var rows = new System.Collections.Generic.List<string>();
+            CityMeshes.BulbNeckCensus(map, trims, rows, out int bulbs, out int sharp, out float minR, out float kinkMax);
+            Line(string.Format(I, "MINOR NECK ({0}): {1} bulbs, {2} necks; curb returns at the class radius {3}, reduced to fit the street {4}, none {5}; " +
+                "necks sharper than their class curb radius {6}; tightest turn {7:0.00} m; worst kink at a mouth corner {8:0} deg; bulbs made smaller to keep the class radius on a short street {9}",
+                CityMeshes.BulbNeckOn ? "ON" : "OFF (PSX_CITY_BULBNECK=0)", bulbs, 2 * bulbs, CityMeshes.BulbStats.neckFull, CityMeshes.BulbStats.neckReduced,
+                CityMeshes.BulbStats.neckNone, sharp, minR, kinkMax, CityMeshes.BulbStats.neckShrunk));
+            int shownN = 0;
+            foreach (var r in rows) if (r.EndsWith(" SHARP") && shownN++ < 12) Line("    " + r);
+            if (shownN == 0) for (int i = 0; i < Mathf.Min(6, rows.Count); i++) Line("    " + rows[i]);
+            Check(sharp == 0, "MINOR NECK: no bulb neck sharper than its class curb radius (leftover item 4)", $"{sharp} of {2 * bulbs} necks");
+        }
+
+        /// <summary>LOT AUDIT (leftover item 4).</summary>
+        static void LotAuditReport(CityMap map, CityMeshes.Trims trims, AuditScope sc, System.Collections.Generic.Dictionary<long, System.Collections.Generic.List<CityBuildings.B>> proc)
+        {
+            var I = CultureInfo.InvariantCulture;
+            if (proc == null) proc = CityBuildings.Precompute(map);
+            var box = sc.Full ? Rect.MinMaxRect(-1e6f, -1e6f, 1e6f, 1e6f) : sc.Box;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var A = CityMeshes.LotOverlapAudit(map, trims, box, proc);
+            double over = A.OverlapM2(CityMeshes.LotRoadCutOn);
+            Line(string.Format(I, "LOT AUDIT ({0}; road cut {1}): {2} lots ({3} aisle-only), {4} stall rows, {5} stalls, {6} islands ({7:0} m2 of island top), {8} holes (buildings, OSM inner rings); " +
+                "pavement sampled every 0.5 m {9:0} m2; under a junction fan {10:0.0} m2{11}; cut out on a ribbon's band {19:0.0} m2; DRAWN over a road's ribbon {12:0.0} m2, a footprint {13:0.0} m2, a placed building {14:0.0} m2, another lot {15:0.0} m2; " +
+                "{16} lots overlap something ({17:0.0} m2) - {18} ms",
+                sc.Full ? "CITY-WIDE" : sc.Describe(), CityMeshes.LotRoadCutOn ? "ON" : "OFF", A.lots, A.aisleLots, A.runs, A.stalls, A.islands, A.islandM2, A.holes,
+                A.lotM2, A.fanM2, CityMeshes.LotRoadCutOn ? " (cut out: the fan's)" : " (drawn under it)", A.ribbonM2, A.bldM2, A.procM2, A.lotLotM2,
+                A.lotsWithOverlap, over, sw.ElapsedMilliseconds, A.bandCutM2));
+            foreach (var w in A.worst) Line("    " + w);
+            Check(over < 0.5, "LOT AUDIT: no lot pavement drawn over a road, a fan, a building or another lot (leftover item 4)",
+                  string.Format(I, "{0:0.0} m2 in {1} lots", over, A.lotsWithOverlap));
+        }
+
+        /// <summary>
+        /// THE LOTS REPORT ALONE (leftover item 4): the map, the trims, the
+        /// bulbs' necks, the LOT AUDIT on its scope (PSX_LOT_BOX, else the
+        /// default box), and nine tiles built round lot 139 and the Victorian
+        /// Place bulb, timed, with what they laid (lots, stall lines, islands,
+        /// the fans' cut) and their ground + roads submeshes. lots_audit.txt.
+        /// </summary>
+        public static void LotsOnly()
+        {
+            outLog = new System.Text.StringBuilder();
+            var map = CityMap.Get();
+            if (map == null) Line("charlotte_city.bytes missing from Resources");
+            else
+            {
+                var I = CultureInfo.InvariantCulture;
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var trims = CityMeshes.NodeTrims(map);
+                var proc = CityBuildings.Precompute(map);
+                Line($"trims + buildings in {sw.ElapsedMilliseconds} ms; lots {(map.lots != null ? map.lots.Length : 0)}");
+                NeckReport(map, trims);
+                if (System.Environment.GetEnvironmentVariable("PSX_LOTS_NECKONLY") == "1") goto write;
+                LotAuditReport(map, trims, ScopeFor("LOT"), proc);
+                CityMeshes.LotCensus(map, trims, out int lots, out int noTris, out int stallLines, out float ringM2);
+                Line(string.Format(I, "LOTS census: {0} lots, {1:0.00} km2, {2} stall lines, {3} rings that will not triangulate", lots, ringM2 / 1e6f, stallLines, noTris));
+                // the same tiles twice: the lots without the road cut (L8's laying), then as drawn
+                bool cutWas = CityMeshes.LotRoadCutOn;
+                for (int pass = 0; pass < 2; pass++)
+                {
+                CityMeshes.LotRoadCutOn = pass == 1 && cutWas;
+                CityMeshes.LotStats.Reset();
+                var ms = new System.Collections.Generic.List<double>();
+                int draws = 0, tiles = 0;
+                foreach (var at in new[] { new Vector2(-1562.8f, 5101.9f), new Vector2(-3517.0f, 2391.9f) })
+                {
+                    int tx0 = Mathf.FloorToInt(at.x / CityMeshes.TileSize), tz0 = Mathf.FloorToInt(at.y / CityMeshes.TileSize);
+                    for (int dz = -1; dz <= 1; dz++)
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            var t0 = System.Diagnostics.Stopwatch.StartNew();
+                            var tm = CityMeshes.Build(map, trims, proc, tx0 + dx, tz0 + dz);
+                            ms.Add(t0.Elapsed.TotalMilliseconds);
+                            tiles++;
+                            draws += (tm.groundSlots != null ? tm.groundSlots.Length : 0) + (tm.roadSlots != null ? tm.roadSlots.Length : 0);
+                            foreach (var m in new[] { tm.ground, tm.roads, tm.barriers, tm.guardrails, tm.kerbs, tm.lampPosts, tm.banks, tm.water, tm.buildings })
+                                if (m != null) Object.DestroyImmediate(m);
+                        }
+                }
+                ms.Sort();
+                Line(string.Format(I, "LOTS tiles (road cut {11}): {0} built (lot 139 + Victorian Place rings), build p50 {1:0.0} / max {2:0.0} ms (the lots' own {12:0.0} ms in all), ground + roads submeshes {3}; laid {4} lot pieces ({5:0} m2), {6} stall-line pieces ({7:0} m2), " +
+                    "{8} islands ({9:0} m2 of top), {10} road-cut classifications",
+                    tiles, ms[ms.Count / 2], ms[ms.Count - 1], draws, CityMeshes.LotStats.pieces, CityMeshes.LotStats.lotM2, CityMeshes.LotStats.stallPieces, CityMeshes.LotStats.stallM2,
+                    CityMeshes.LotStats.islands, CityMeshes.LotStats.islandM2, CityMeshes.LotStats.fanCutPieces, CityMeshes.LotRoadCutOn ? "ON" : "OFF",
+                    CityMeshes.LotStats.ticks * 1000.0 / System.Diagnostics.Stopwatch.Frequency));
+                }
+                CityMeshes.LotRoadCutOn = cutWas;
+            }
+            write:
+            System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Directory.GetParent(Application.dataPath).FullName, "lots_audit.txt"), outLog.ToString());
+            if (Application.isBatchMode) EditorApplication.Exit(0);
         }
     }
 }

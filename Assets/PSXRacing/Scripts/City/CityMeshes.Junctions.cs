@@ -478,6 +478,9 @@ namespace PSXRacing.City
         /// or a cluster's members' centroid at their mean height.</summary>
         public static void FanCentre(CityMap map, Trims t, int n, out Vector2 c, out float y)
         {
+            // leftover item 4: a bulb is laid round its circle's centre (on the
+            // mouth's line, at the node's height)
+            if (t != null && t.bulb != null && t.bulbC != null && t.bulb[n]) { c = t.bulbC[n]; y = map.nodeY[n]; return; }
             var cl = t?.ClusterOfNode(n);
             if (cl == null) { c = map.nodes[n]; y = map.nodeY[n]; return; }
             c = Vector2.zero; y = 0f;

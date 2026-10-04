@@ -1644,14 +1644,18 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
     w.u32(LOTS.turns.length);
     for (const t of LOTS.turns) { w.u32(t.node); w.u8(t.kind); w.f32(t.r); }
   });
-  // LOTS (roads pass L8): the surface parking lots - per lot f32 origin x, z
-  // (its first point), u16 points, then i16 dx, dz per point in 5 cm from the
-  // origin (anticlockwise); the stall rows' direction u (i16 x, z / 32767;
-  // the stalls stand along v, its left); u16 runs, each i16 x, z of its first
-  // separator's foot in 5 cm from the origin and u8 stalls (separators
-  // 2.74 m apart along u, 5.49 m long along v, one more than the stalls).
+  // LOTS (roads pass L8; v2 leftover item 4, the count's top bit set): the
+  // surface parking lots - per lot f32 origin x, z (its first point), u16
+  // points, then i16 dx, dz per point in 5 cm from the origin (anticlockwise);
+  // the lot's main row direction u (i16 x, z / 32767); u16 runs, each i16 x, z
+  // of its first separator's foot in 5 cm from the origin, u8 stalls
+  // (separators 2.74 m apart along the run's u, 5.49 m long along its left,
+  // one more than the stalls) and the run's own u (i16 x, z / 32767: the rows
+  // stand along their OSM aisle); u8 aisle-only; u16 holes, each u8 kind
+  // (0 ground: a building, an inner ring; 1 a raised island), u16 points and
+  // i16 dx, dz per point from the lot's origin.
   section('LOTS', w => {
-    w.u32(LOTS.lots.length);
+    w.u32((LOTS.lots.length | 0x80000000) >>> 0);
     const q = v => { const k = Math.round(v / 0.05); if (k < -32768 || k > 32767) throw new Error('LOTS offset out of i16 range'); return k; };
     for (const L of LOTS.lots) {
       const [ox, oz] = L.ring[0];
@@ -1660,7 +1664,13 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
       for (const p of L.ring) { w.i16(q(p[0] - ox)); w.i16(q(p[1] - oz)); }
       w.i16(Math.round(L.ux * 32767)); w.i16(Math.round(L.uz * 32767));
       w.u16(L.runs.length);
-      for (const r of L.runs) { w.i16(q(r.x - ox)); w.i16(q(r.z - oz)); w.u8(r.n); }
+      for (const r of L.runs) { w.i16(q(r.x - ox)); w.i16(q(r.z - oz)); w.u8(r.n); w.i16(Math.round(r.ux * 32767)); w.i16(Math.round(r.uz * 32767)); }
+      w.u8(L.aisleOnly ? 1 : 0);
+      w.u16(L.holes.length);
+      for (const h of L.holes) {
+        w.u8(h.kind); w.u16(h.ring.length);
+        for (const p of h.ring) { w.i16(q(p[0] - ox)); w.i16(q(p[1] - oz)); }
+      }
     }
   });
   // LENT (roads pass L8): the lots' entrances - u32 edge, f32 arc position,

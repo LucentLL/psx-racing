@@ -287,6 +287,9 @@ namespace PSXRacing.EditorTools
         {
             public string name, group, road, what; public ViewKind kind; public Vector2 at;
             public float hdg, size, back, look, fov, rise; public int ring;
+            /// <summary>Eye: stand on the ground lattice at <see cref="at"/>
+            /// (a parking lot), not on the nearest road's height.</summary>
+            public bool ground;
             /// <summary>Along: look at this plan point (0.4 m over the road)
             /// instead of down the lanes, when set.</summary>
             public Vector2 lookAt;
@@ -385,6 +388,9 @@ namespace PSXRacing.EditorTools
             Top("minor_rozzelles_1178", "minor", -3915.3f, 6467.5f, "Rozzelles", 22f, "Rozzelles Ferry Rd at Whitehaven Ave (node 1178, unsignalised) from above: the centre and far edge lines run on across the side street's mouth, the near edge line breaks for it (plan A13)"),
             Top("minor_bulb_victorian", "minor", -3517.0f, 2391.9f, "Victorian", 26f, "Victorian Place's turning circle (node 17457): the street ends in a 12.2 m bulb (plan A17)"),
             Top("minor_lot_139", "minor", -1562.8f, 5101.9f, "", 45f, "a surface lot off N Davidson St (lot 139): the lot laid into the ground at the street's level, its stall lines, the concrete apron at its entrance (plan B9/B10)"),
+            // parking aisles and islands (leftover item 4, 2026-10-03): inside lot 139 on OSM aisle 914753376
+            new NamedView { name = "lot_eye_139", group = "lots", kind = ViewKind.Eye, at = new Vector2(-1581.0f, 5098.2f), road = "", hdg = 49f, fov = 60f, ring = 1, ground = true,
+                            what = "inside the lot off N Davidson St (lot 139) on OSM parking aisle 914753376, heading 49, 1.2 m over the lot: the aisle and the stall rows along it" },
             // junction boxes (leftover item 3, 2026-10-03): the paved junction in its main road's
             // surface (with jn_trade_tryon), and Little Rock Road under I-85 from the driver's seat
             Eye("jb_tryon_eye", "jbox", -2338.2f, 4710.4f, "Tryon", 50f, "South Tryon St northeast-bound, inner lane, 38 m before Trade St (the Square, node 1026), heading 50, 1.2 m eye"),
@@ -502,6 +508,12 @@ namespace PSXRacing.EditorTools
             }
             var tiles = BuildRing(map, trims, buildings, world, ringAt, ring, out var stats);
             roots.AddRange(tiles);
+            if (v.ground && v.kind == ViewKind.Eye)
+            {
+                // on the lot's own surface (the lattice the tiles just built)
+                float gy = CityMeshes.LatticeAt(map, v.at.x, v.at.y) + 1.2f;
+                look.y += gy - eye.y; eye.y = gy;
+            }
             if (v.kind == ViewKind.Profile)
             {
                 // the roads alone, heights x5 about the road's own height there

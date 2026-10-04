@@ -407,8 +407,23 @@ namespace PSXRacing.City
         /// parking lot - its ring (anticlockwise, the road bands taken out),
         /// its plan box (x0, z0, x1, z1), the stall rows' direction u, and its
         /// stall runs (each run's first separator foot and stall count; the
-        /// separators stand 2.74 m apart along u and run 5.49 m along u's left).</summary>
-        public sealed class Lot { public Vector2[] ring; public Vector4 box; public Vector2 u; public Vector2[] runFoot; public byte[] runN; }
+        /// separators stand 2.74 m apart along u and run 5.49 m along u's left).
+        /// Leftover item 4 (LOTS v2): each run has its own direction
+        /// <see cref="runU"/> (the stall rows stand along their OSM aisle,
+        /// so one lot holds several), and a lot has HOLES - its OSM inner
+        /// rings and the buildings inside it (kind 0: the ground shows) and
+        /// its islands (kind 1: raised curbed grass, at a row's end against
+        /// the lot's edge or where OSM maps one).</summary>
+        public sealed class Lot
+        {
+            public Vector2[] ring; public Vector4 box; public Vector2 u; public Vector2[] runFoot; public byte[] runN;
+            public Vector2[] runU;
+            public Vector2[][] holes = System.Array.Empty<Vector2[]>();
+            public byte[] holeKind = System.Array.Empty<byte>();
+            /// <summary>A lot made of an OSM parking aisle alone (no lot polygon
+            /// within reach): paved, no stalls.</summary>
+            public bool aisleOnly;
+        }
         public Lot[] lots;
         /// <summary>Roads pass L8 (section LENT): a lot's entrance - the street
         /// edge, the arc position, the side (+1 left of a->b) and half width.</summary>
@@ -955,7 +970,11 @@ namespace PSXRacing.City
                 if (Has("LOTS"))
                 {
                     Open("LOTS");
-                    int nl = r.ReadInt32();
+                    // leftover item 4: LOTS v2 sets the count's top bit (per-run
+                    // directions, holes and islands, aisle-only lots)
+                    uint nlRaw = r.ReadUInt32();
+                    bool v2 = (nlRaw & 0x80000000u) != 0;
+                    int nl = (int)(nlRaw & 0x7FFFFFFFu);
                     map.lots = new Lot[nl];
                     for (int i = 0; i < nl; i++)
                     {
@@ -973,11 +992,31 @@ namespace PSXRacing.City
                         var u = new Vector2(r.ReadInt16() / 32767f, r.ReadInt16() / 32767f);
                         lot.u = u.sqrMagnitude > 1e-6f ? u.normalized : Vector2.right;
                         int nRuns = r.ReadUInt16();
-                        lot.runFoot = new Vector2[nRuns]; lot.runN = new byte[nRuns];
+                        lot.runFoot = new Vector2[nRuns]; lot.runN = new byte[nRuns]; lot.runU = new Vector2[nRuns];
                         for (int k = 0; k < nRuns; k++)
                         {
                             lot.runFoot[k] = (o + new Vector2(r.ReadInt16() * 0.05f, r.ReadInt16() * 0.05f)) * LayoutScale;
                             lot.runN[k] = r.ReadByte();
+                            lot.runU[k] = lot.u;
+                            if (v2)
+                            {
+                                var ru = new Vector2(r.ReadInt16() / 32767f, r.ReadInt16() / 32767f);
+                                if (ru.sqrMagnitude > 1e-6f) lot.runU[k] = ru.normalized;
+                            }
+                        }
+                        if (v2)
+                        {
+                            lot.aisleOnly = r.ReadByte() != 0;
+                            int nh = r.ReadUInt16();
+                            lot.holes = new Vector2[nh][]; lot.holeKind = new byte[nh];
+                            for (int h = 0; h < nh; h++)
+                            {
+                                lot.holeKind[h] = r.ReadByte();
+                                int hp = r.ReadUInt16();
+                                var hr = new Vector2[hp];
+                                for (int k = 0; k < hp; k++) hr[k] = (o + new Vector2(r.ReadInt16() * 0.05f, r.ReadInt16() * 0.05f)) * LayoutScale;
+                                lot.holes[h] = hr;
+                            }
                         }
                         map.lots[i] = lot;
                     }

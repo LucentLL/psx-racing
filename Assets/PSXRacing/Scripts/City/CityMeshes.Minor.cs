@@ -401,13 +401,20 @@ namespace PSXRacing.City
         //  it does along the sides.
         // ==================================================================
         public static bool BulbsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BULBS") != "0";
-        public static class BulbStats { public static int tagged, drawn, skipShort, skipStructure, skipLink; }
+        /// <summary>Leftover item 4: the bulb's NECK - a curb return (the class
+        /// curb radius, <see cref="CurbRadius"/>) where each street edge meets
+        /// the circle, tangent to both (a reverse curve), where the edge ran
+        /// straight into the circle at a 60-75 degree kink. PSX_CITY_BULBNECK=0
+        /// draws the L8 bulb.</summary>
+        public static bool BulbNeckOn = System.Environment.GetEnvironmentVariable("PSX_CITY_BULBNECK") != "0";
+        public static class BulbStats { public static int tagged, drawn, skipShort, skipStructure, skipLink, neckFull, neckShrunk, neckReduced, neckNone; }
 
         static void BulbTrims(CityMap map, Trims t)
         {
             int nn = map.nodes.Length;
-            t.bulb = new bool[nn]; t.bulbRad = new float[nn];
+            t.bulb = new bool[nn]; t.bulbRad = new float[nn]; t.bulbNeckR = new float[nn]; t.bulbC = new Vector2[nn];
             BulbStats.tagged = BulbStats.drawn = BulbStats.skipShort = BulbStats.skipStructure = BulbStats.skipLink = 0;
+            BulbStats.neckFull = BulbStats.neckShrunk = BulbStats.neckReduced = BulbStats.neckNone = 0;
             if (!BulbsOn || map.turns == null) return;
             foreach (var tu in map.turns)
             {
@@ -424,9 +431,102 @@ namespace PSXRacing.City
                 float trim = Mathf.Sqrt(R * R - hw * hw);
                 float other = e.a == n ? t.atB[e.index] : t.atA[e.index];
                 if (e.length < trim + other + 5f) { BulbStats.skipShort++; continue; }
-                t.patch[n] = true; t.bulb[n] = true; t.bulbRad[n] = R;
+                t.patch[n] = true; t.bulb[n] = true; t.bulbRad[n] = R; t.bulbC[n] = map.nodes[n];
                 if (e.a == n) t.atA[e.index] = trim; else t.atB[e.index] = trim;
                 BulbStats.drawn++;
+            }
+        }
+
+        /// <summary>
+        /// The bulbs' NECKS (leftover item 4), once the line model's eases and
+        /// the merge zones are in (ComputeTrims' end), so the street's drawn
+        /// extents and normal at the mouth are the ones BulbCorners draws.
+        /// The street is trimmed back until a curb return of the class radius
+        /// (<see cref="CurbRadius"/>, solved 5 % over), tangent to each edge at
+        /// the mouth, meets the circle from outside (straight street:
+        /// t^2 = (R + r)^2 - (h + r)^2). The circle stands on the mouth's own
+        /// line - the node's foot on it, within 0.6 R of the node - so a street
+        /// that bends into its bulb meets it as a straight one would, and the
+        /// fan is laid round that centre. A street too short for it keeps 2 m
+        /// of ribbon and takes a smaller bulb (0.5 m steps, down to hw + 1.5 m)
+        /// at the class radius, else the largest radius it holds.
+        /// </summary>
+        static void BulbNecks(CityMap map, Trims t)
+        {
+            if (!BulbsOn || !BulbNeckOn || t.bulb == null) return;
+            for (int n = 0; n < map.nodes.Length; n++)
+            {
+                if (!t.bulb[n]) continue;
+                var e = map.edges[map.nodeEdges[n][0]];
+                float hw = e.HalfMax;
+                float R = t.bulbRad[n];
+                float trim = t.TrimAt(e, n);
+                float other = e.a == n ? t.atB[e.index] : t.atA[e.index];
+                float rc = CurbRadius(e, e);
+                float avail = e.length - other - 2f;
+                var node = map.nodes[n];
+                // the narrower neck at a mouth tt back from the node, and the
+                // circle's centre there (-1 where the centre would stray)
+                float NeckAt(float tt, float Rr, out Vector2 cc)
+                {
+                    float at = e.a == n ? tt : e.length - tt;
+                    var p = e.PointAt(at);
+                    var nr = RightAt(map, t, e, at, out float w);
+                    var d = new Vector2(nr.y, -nr.x);
+                    if (e.a != n) d = -d;
+                    LineModel.Extents(e, at, out float eM, out float eP);
+                    eM *= w; eP *= w;
+                    cc = p + d * Vector2.Dot(node - p, d);
+                    if ((cc - node).magnitude > 0.6f * Rr) return -1f;
+                    float best = float.MaxValue;
+                    for (int k = 0; k < 2; k++)
+                    {
+                        var nn = k == 0 ? nr : -nr; float h = k == 0 ? eP : eM;
+                        var q = p + nn * h - cc;
+                        float den = 2f * (Rr - Vector2.Dot(q, nn));
+                        best = Mathf.Min(best, den > 1e-3f ? (q.sqrMagnitude - Rr * Rr) / den : -1f);
+                    }
+                    return best;
+                }
+                // the least trim that holds r: a 0.5 m scan out from the circle
+                // (a vertex of the street makes the answer jump), then halving
+                float TrimFor(float Rr, float r)
+                {
+                    float lo = Mathf.Sqrt(Mathf.Max(0f, Rr * Rr - hw * hw)), hi = Mathf.Min(avail, Rr + r + 12f);
+                    float prev = lo;
+                    for (float tt = lo + 0.5f; tt <= hi + 1e-3f; tt += 0.5f)
+                    {
+                        if (NeckAt(tt, Rr, out _) >= r)
+                        {
+                            float a = prev, b = tt;
+                            for (int it = 0; it < 16; it++) { float m = 0.5f * (a + b); if (NeckAt(m, Rr, out _) >= r) b = m; else a = m; }
+                            return b;
+                        }
+                        prev = tt;
+                    }
+                    return -1f;
+                }
+                float rs = rc * 1.05f, neckR = 0f;
+                float tN = TrimFor(R, rs);
+                if (tN > 0f) { trim = tN; neckR = rc; BulbStats.neckFull++; }
+                else
+                {
+                    float rShrunk = 0f;
+                    for (float Rt = R - 0.5f; Rt >= hw + 1.5f; Rt -= 0.5f)
+                        if (TrimFor(Rt, rs) > 0f) { rShrunk = Rt; break; }
+                    if (rShrunk > 0f) { R = rShrunk; trim = TrimFor(R, rs); neckR = rc; BulbStats.neckShrunk++; }
+                    else
+                    {
+                        float a0 = 0f, a1 = rs;
+                        for (int it = 0; it < 16; it++) { float m = 0.5f * (a0 + a1); if (TrimFor(R, m) > 0f) a0 = m; else a1 = m; }
+                        if (a0 >= 1f) { trim = TrimFor(R, a0); neckR = a0; BulbStats.neckReduced++; }
+                        else BulbStats.neckNone++;
+                    }
+                }
+                var bc = node;
+                if (neckR > 0f && NeckAt(trim, R, out var cFinal) > 0f) bc = cFinal;
+                t.bulbRad[n] = R; t.bulbNeckR[n] = neckR; t.bulbC[n] = bc;
+                if (e.a == n) t.atA[e.index] = trim; else t.atB[e.index] = trim;
             }
         }
 
@@ -462,7 +562,19 @@ namespace PSXRacing.City
                 });
             Add(early, yArm, -lateSide, true, false);
             Add(late, yArm, lateSide, false, false);
-            float a0 = Mathf.Atan2(late.y - np.y, late.x - np.x), a1 = Mathf.Atan2(early.y - np.y, early.x - np.x);
+            // the necks (leftover item 4): each corner's curb return, from the
+            // street edge (its tangent point) round to the circle
+            bool neck = trims.bulbNeckR != null && trims.bulbNeckR[n] > 0f;
+            var nLate = (late - p).normalized; var nEarly = (early - p).normalized;
+            neckLate.Clear(); neckEarly.Clear();
+            Vector2 t2Late = late, t2Early = early;
+            if (neck)
+            {
+                if (NeckArc(np, R, late, nLate, neckLate)) t2Late = neckLate[neckLate.Count - 1];
+                if (NeckArc(np, R, early, nEarly, neckEarly)) t2Early = neckEarly[neckEarly.Count - 1];
+            }
+            foreach (var q in neckLate) Add(q, Y(q), lateSide, false, true);
+            float a0 = Mathf.Atan2(t2Late.y - np.y, t2Late.x - np.x), a1 = Mathf.Atan2(t2Early.y - np.y, t2Early.x - np.x);
             if (a1 <= a0) a1 += 2f * Mathf.PI;
             float step = 2f * Mathf.Acos(1f - 0.06f / Mathf.Max(R, 1f));
             int k = Mathf.Max(3, Mathf.CeilToInt((a1 - a0) / step));
@@ -472,6 +584,103 @@ namespace PSXRacing.City
                 var q = np + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * R;
                 Add(q, Y(q), lateSide, false, true);
             }
+            for (int i = neckEarly.Count - 1; i >= 0; i--) { var q = neckEarly[i]; Add(q, Y(q), -lateSide, false, true); }
+        }
+        static readonly List<Vector2> neckLate = new List<Vector2>(32), neckEarly = new List<Vector2>(32);
+
+
+        /// <summary>A bulb neck's curb return: tangent to the street edge at
+        /// <paramref name="t1"/> (its outward normal <paramref name="nOut"/>)
+        /// and to the circle (centre <paramref name="c"/>, radius
+        /// <paramref name="R"/>) from outside - the radius that does both,
+        /// r = (|q|^2 - R^2) / 2(R - q.n), q = t1 - c - into
+        /// <paramref name="pts"/> from just past t1 to the circle's tangent
+        /// point (6 cm sagitta). False (nothing added) where the corner is not
+        /// outside the circle.</summary>
+        static bool NeckArc(Vector2 c, float R, Vector2 t1, Vector2 nOut, List<Vector2> pts)
+        {
+            var q = t1 - c;
+            float qn = Vector2.Dot(q, nOut), den = 2f * (R - qn);
+            if (den <= 1e-3f) return false;
+            float r = (q.sqrMagnitude - R * R) / den;
+            if (r < 0.25f) return false;
+            var F = t1 + nOut * r;
+            var t2 = c + (F - c).normalized * R;
+            float b0 = Mathf.Atan2(t1.y - F.y, t1.x - F.x), b1 = Mathf.Atan2(t2.y - F.y, t2.x - F.x);
+            float d = Mathf.DeltaAngle(b0 * Mathf.Rad2Deg, b1 * Mathf.Rad2Deg) * Mathf.Deg2Rad;
+            float step = 2f * Mathf.Acos(1f - 0.06f / Mathf.Max(r, 0.5f));
+            int k = Mathf.Max(2, Mathf.CeilToInt(Mathf.Abs(d) / step));
+            for (int i = 1; i <= k; i++)
+            {
+                float b = b0 + d * i / k;
+                pts.Add(i == k ? t2 : F + new Vector2(Mathf.Cos(b), Mathf.Sin(b)) * r);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// THE NECK CENSUS (leftover item 4): every drawn bulb's two necks as
+        /// drawn - the street edge (3 m of it, a virtual point) into the mouth
+        /// corner, then the ring on to the circle and one point past - and the
+        /// tightest turn along each: the radius of the circle through each
+        /// three neighbouring points (a kink reads near 0). A neck is SHARP
+        /// when that is under its class curb radius (5 cm slack). Rows: the
+        /// bulb, both necks' tightest turns, the kink at each mouth corner.
+        /// </summary>
+        public static void BulbNeckCensus(CityMap map, Trims trims, List<string> rows, out int bulbs, out int sharp, out float minR, out float kinkMax)
+        {
+            bulbs = sharp = 0; minR = float.MaxValue; kinkMax = 0f;
+            if (trims.bulb == null) { minR = 0f; return; }
+            var ring = new List<FanCorner>(128);
+            var line = new List<Vector2>(32);
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            for (int n = 0; n < map.nodes.Length; n++)
+            {
+                if (!trims.bulb[n]) continue;
+                if (!BulbPlane(map, trims, n, out var c, out _, out _, out var outDir, out float R)) continue;
+                FanCorners(map, trims, n, Vector3.zero, ring);
+                if (ring.Count < 4) continue;
+                var e = map.edges[ring[0].edge];
+                float rc = CurbRadius(e, e);
+                bulbs++;
+                float rr0 = 0f, kk0 = 0f;
+                for (int side = 0; side < 2; side++)
+                {
+                    // late: ring[1], ring[2], ...; early: ring[0], ring[count-1], ...
+                    line.Clear();
+                    Vector2 corner = side == 0 ? P2(ring[1]) : P2(ring[0]);
+                    line.Add(corner + outDir * 3f);
+                    line.Add(corner);
+                    int idx = side == 0 ? 2 : ring.Count - 1, stepI = side == 0 ? 1 : -1;
+                    bool onCircle = false;
+                    for (int g = 0; g < ring.Count - 2; g++, idx += stepI)
+                    {
+                        var q = P2(ring[idx]);
+                        line.Add(q);
+                        if (onCircle) break;
+                        if ((q - c).magnitude <= R + 0.02f) onCircle = true;
+                    }
+                    float rMin = float.MaxValue;
+                    for (int i = 1; i + 1 < line.Count; i++) rMin = Mathf.Min(rMin, Circumradius(line[i - 1], line[i], line[i + 1]));
+                    float kink = line.Count >= 3 ? Vector2.Angle(line[1] - line[0], line[2] - line[1]) : 0f;
+                    minR = Mathf.Min(minR, rMin); kinkMax = Mathf.Max(kinkMax, kink);
+                    if (rMin < rc - 0.05f) sharp++;
+                    if (side == 0) { rr0 = rMin; kk0 = kink; }
+                    else if (rows != null)
+                        rows.Add(string.Format(inv, "n{0} ({1:0.0}, {2:0.0}) e{3} '{4}' R {5:0.0} m, curb radius {6:0.0} m (neck drawn {7:0.0}): tightest turn {8:0.00} / {9:0.00} m, kink at the mouth corners {10:0} / {11:0} deg{12}",
+                            n, c.x, c.y, e.index, e.name, R, rc, trims.bulbNeckR != null ? trims.bulbNeckR[n] : 0f, rr0, rMin, kk0, kink,
+                            (rr0 < rc - 0.05f || rMin < rc - 0.05f) ? " SHARP" : ""));
+                }
+            }
+            if (bulbs == 0) minR = 0f;
+        }
+        static Vector2 P2(FanCorner f) => new Vector2(f.pos.x, f.pos.z);
+        static float Circumradius(Vector2 a, Vector2 b, Vector2 c)
+        {
+            float ab = (b - a).magnitude, bc = (c - b).magnitude, ca = (a - c).magnitude;
+            float cr = Mathf.Abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
+            if (cr < 1e-9f) return float.MaxValue;
+            return ab * bc * ca / (2f * cr);
         }
 
         /// <summary>A bulb's plane: the node, its height, the street's end
@@ -481,13 +690,17 @@ namespace PSXRacing.City
         {
             c = map.nodes[n]; y0 = map.nodeY[n]; g = 0f; dir = Vector2.right; R = 0f;
             if (trims.bulb == null || !trims.bulb[n]) return false;
+            if (trims.bulbC != null) c = trims.bulbC[n];   // leftover item 4: on the mouth's line
             int ei = -1;
             foreach (int x in map.nodeEdges[n]) if (map.edges[x].a != map.edges[x].b) { ei = x; break; }
             if (ei < 0) return false;
             var e = map.edges[ei];
             float trim = trims.TrimAt(e, n);
             float at = e.a == n ? trim : e.length - trim;
-            var tan = e.TangentAt(at);
+            // the ribbon's own normal there (RightAt: a vertex's bisector), as
+            // BulbCorners lays the mouth
+            var nrm = RightAt(map, trims, e, at, out _);
+            var tan = new Vector2(nrm.y, -nrm.x);
             dir = e.a == n ? tan : -tan;
             g = Mathf.Clamp((e.YAt(at) - y0) / Mathf.Max(trim, 0.5f), -0.05f, 0.05f);
             R = trims.bulbRad[n];

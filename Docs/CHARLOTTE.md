@@ -6083,6 +6083,110 @@ too when it is set). The code is in `CityMeshes.Junctions.cs`
   Routes stayed at 0. Both of those nodes are street skews, which now keep
   the clip.
 
+## Parking aisles, islands and cul-de-sac necks (leftover item 4, 2026-10-03)
+
+L8 laid 2,601 lots flush with stall lines and curb cuts, but on its own grid:
+no driving aisles from OSM, no islands, buildings paved under, and the
+street ran into each cul-de-sac bulb at a 60-120 degree kink. The data is
+in `tools/city/lib/lots.mjs` (LOTS v2), the drawing in
+`Scripts/City/CityMeshes.Lots.cs` and `CityMeshes.Minor.cs` (`BulbNecks`,
+`NeckArc`), the checks in `Editor/CityAudit.Minor.cs` (MINOR NECK, LOT AUDIT,
+and `CityAudit.LotsOnly` on its own).
+
+- **Aisles from OSM.** The L8 fetch already held 4,045
+  `service=parking_aisle` ways, so nothing new was fetched.
+  - 3,960 are on the surface; the rest are tunnels, covered, indoor, or on
+    another layer or level.
+  - An aisle is 7.32 m two-way or 4.9 m one-way. One with any length inside a
+    lot polygon belongs to that lot: its corridor is paved with the lot, out
+    to 30 m past the lot's box.
+  - An aisle no lot reaches (or runs on past its lot) is paved on its own, as
+    an "aisle-only" lot with no stalls.
+  - Where an aisle ends within 6 m of a street (tertiary or below), the
+    lot's entrance and concrete apron go there. Otherwise L8's
+    nearest-point rule applies.
+- **Stall rows along the aisles.**
+  - Each run of stalls has its own direction (LOTS v2). The stalls stand
+    square to their aisle on both sides, from the aisle's edge (the line
+    RDP-simplified at 0.5 m, longest segment first).
+  - A stall is kept only wholly inside the lot (inset 0.3 m, 0.6 m off
+    buildings), clear of every aisle corridor and of the rows already laid.
+  - The rest of the lot gets L8's double-loaded module on the main aisle's
+    own lines, in phase with its stalls. There, a stall is kept only where
+    the aisle it faces is paved and free of stalls.
+  - A lot with no OSM aisle keeps L8's grid.
+- **Holes and islands.**
+  - A lot is cut clear of every building (grown 0.45 m; a gabled house by
+    its drawn box), of OSM's inner rings, and of the lots laid before it
+    (grown 0.4 m).
+  - An inner ring that is not a building and is at most 400 m2 is an
+    ISLAND. So is the end stall of a row of 4 or more whose next slot would
+    leave the lot (set back 0.6 m from the aisle, 0.15 m off the last line).
+  - An island is raised curbed grass. Its top is the lattice's own pieces
+    lifted 0.15 m, in the ground mesh's grass (or its paving where the tile
+    has no grass). Its curb is a vertical face from 5 cm under the lot to
+    1 cm over the top, in the pavement concrete (or the structural concrete
+    where the tile has no pavement). That is at most +1 draw a tile.
+- **The road keeps its own pavement.**
+  - At run time a lot is cut along every junction fan's ring and every
+    grounded ribbon's drawn edge (`LineModel.Extents` + 15 cm, between the
+    trims, 2 m steps). Pieces under them are left to the road.
+  - The export's road band does not know the aux lanes and turn bays, and
+    a fan's curb returns reach past it.
+  - `PSX_CITY_LOTROADCUT=0` turns the cut off and lays the lots as L8 did.
+- **Cul-de-sac necks.**
+  - Where each street edge meets its bulb there is now a curb return of the
+    class curb radius (`CurbRadius`: 7.5 m local, 12 m arterial), tangent to
+    the edge at the mouth and to the circle from outside (a reverse curve).
+  - It is solved after the line model's eases and the merge zones, on the
+    ribbon's own normal, 5 % over the radius. On a straight street the
+    radius is t^2 = (R + r)^2 - (h + r)^2.
+  - The circle stands on the mouth's own line, at the node's foot on it
+    (within 0.6 R), and the fan is laid round that centre. So a street that
+    bends into its bulb meets it as a straight one would.
+  - A street too short keeps 2 m of ribbon and gets a smaller bulb, else a
+    smaller radius. None of the 73 needed either.
+  - `PSX_CITY_BULBNECK=0` draws the L8 bulb.
+- **Tools.**
+  - `CityPreview` view `lot_eye_139` is a driver's eye 1.2 m over the lot's
+    own surface (`NamedView.ground`).
+  - `CityAudit.LotsOnly` (`lots_audit.txt`) runs the neck census, the LOT
+    AUDIT and 18 tiles timed twice, with the road cut off and on.
+    `PSX_LOTS_NECKONLY=1` runs the census alone.
+
+**BEFORE -> AFTER**
+
+| | before | after |
+|---|---|---|
+| OSM parking aisles drawn (core box) | 0 of 4,045 | **3,894** (96.3 %; 98.3 % of the 3,960 on the surface), 277.4 of 278.7 km |
+| lots / area | 2,601 / 4.25 km2 | 3,695 (1,021 aisle-only) / 4.84 km2 |
+| stall rows (aisle / fill / L8 grid) / stalls | 6,105 / 84,820 | 6,262 (3,542 / 1,171 / 1,549) / 57,873 |
+| islands (row ends / OSM) | 0 | 3,250 (3,139 / 111) |
+| holes (buildings / other inner rings) | 0 (paved under) | 73 / 103 |
+| entrances (where an aisle meets a street) | 1,646 | 2,422 (1,594) |
+| bulb necks sharper than the class curb radius | 145 of 146 (tightest 1.65 m, kink up to 122 deg) | **0** of 146 (tightest 7.86 m, kink 7 deg: the arc's chords) |
+| LOT AUDIT, OwnerBox: lot pavement over a building / ribbon / fan / another lot | 11,554 / 565.5 / 243 / 28.3 m2 (134 lots) | **0 / 0 / 0 / 0** (fans 382 m2 and ribbon bands 1,383 m2 cut out) |
+| charlotte_city.bytes | 6.31 MB | 6.64 MB |
+| CITY AUDIT failures | 17 (item 3's run: the 16 known + the fan mouth probe) | 16 (the 16 known; fan mouth probe 0) |
+| DRIVE AUDIT | zeros | zeros |
+| tile build p95, 9 budget sites (cap +10 % = 131.6 ms) | 119.6 ms | 124.5 ms |
+| worst view draws (trade_tryon) | 205 | 206 |
+| lattice 0.5-8 cm under a road, T1 / T2 / T3 m2 (L8's audit before) | 303 / 547 / 381 | 292 / 504 / 187 |
+
+- The one AuditOnly failed only the 16 known checks. Each value is the
+  same as before except the terrain-fidelity margin stations, 2,804 ->
+  2,816. That was not traced: item 3's last fixes were never audited.
+- The MINOR NECK and LOT AUDIT checks are new and pass. MINOR LOTS still
+  triangulates every ring. linecheck --ratchet PASS (LOTS is not one of
+  its inputs) and `export --check` IDENTICAL.
+- Fewer stalls is expected. L8's grid laid stall lines straight across the
+  real aisles (lot 139, now lot 143: 348 stalls on its grid, now 230 in 28
+  rows beside its 13 OSM aisles, 7 islands, 3 buildings out). OwnerBox
+  stalls 22,301 -> 14,253.
+- Not done (lean): islands planted with trees, directional arrows on
+  one-way aisles, end-of-row islands at cross aisles, lots in
+  CityElevation's ground.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

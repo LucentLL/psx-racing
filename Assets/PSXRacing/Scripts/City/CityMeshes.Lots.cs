@@ -20,18 +20,41 @@ namespace PSXRacing.City
     //  ENTRANCES (section LENT): the street's verge across a lot's entrance is
     //  poured concrete - a curb-cut apron 7.3 m wide (4.3 m off a one-way)
     //  with 1.5 m wings at 45 degrees - where it was grass.
+    //
+    //  LEFTOVER ITEM 4 (LOTS v2, 2026-10-03): the aisles are OSM's own
+    //  (service=parking_aisle, paved even where no lot polygon reaches) and
+    //  each stall row stands along its aisle (a run's own direction); a lot
+    //  has HOLES - the buildings inside it and OSM's inner rings (the ground
+    //  shows) - and ISLANDS: raised curbed grass (0.15 m) where OSM maps one
+    //  and at a row's end against the lot's edge. An island's top is the
+    //  lattice's own pieces lifted, in the ground mesh's grass (its paving
+    //  where the tile has no grass); its curb is a vertical face round it in
+    //  the pavement concrete (or the structural concrete where the tile has
+    //  no pavement): at most +1 draw a tile. A lot piece under a junction's
+    //  fan or on a road's drawn pavement is left to the road (cut along the
+    //  fan's ring and the ribbon's edge, LotRoadCutOn).
     // ======================================================================
     public static partial class CityMeshes
     {
         public static bool LotsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_LOTS") != "0";
+        /// <summary>Leftover item 4: a lot piece under a junction fan or on a
+        /// road's drawn pavement (its aux lanes and turn bays too, which the
+        /// export's road band does not know) is the road's: the lot is cut
+        /// along the fan's ring and the ribbon's edge (PSX_CITY_LOTROADCUT=0:
+        /// laid as L8 did, under them).</summary>
+        public static bool LotRoadCutOn = System.Environment.GetEnvironmentVariable("PSX_CITY_LOTROADCUT") != "0";
         public const float StallW = 2.74f, StallD = 5.49f, StallLineW = 0.10f;
+        /// <summary>An island's top over the lot (a 6 in curb).</summary>
+        public const float IslandH = 0.15f;
 
         public static class LotStats
         {
-            public static int lots, earcutFailed, skippedProp, aprons;
-            public static long pieces, stallPieces;
-            public static float lotM2, stallM2;
-            public static void Reset() { lots = earcutFailed = skippedProp = aprons = 0; pieces = stallPieces = 0; lotM2 = stallM2 = 0f; }
+            public static int lots, earcutFailed, skippedProp, aprons, islands;
+            public static long pieces, stallPieces, fanCutPieces;
+            public static float lotM2, stallM2, islandM2, fanCutM2;
+            /// <summary>Stopwatch ticks in the lots' own work (cells, bands, islands).</summary>
+            public static long ticks;
+            public static void Reset() { lots = earcutFailed = skippedProp = aprons = islands = 0; pieces = stallPieces = fanCutPieces = ticks = 0; lotM2 = stallM2 = islandM2 = fanCutM2 = 0f; }
         }
 
         static CityMap lotMapFor;
@@ -39,6 +62,7 @@ namespace PSXRacing.City
         static int[][] lotTris;
         static Vector2[][] lotStalls;     // 4 corners per separator, anticlockwise
         static Vector2[][] apronQuads;    // per entrance: the apron's trapezoid (4 corners)
+        static Vector4[][] lotHoleBox;    // per lot, per hole: x0, z0, x1, z1
         static int stallSlot = -1;
         static float stallU0, stallU1;
 
@@ -55,6 +79,19 @@ namespace PSXRacing.City
             int nl = map.lots != null ? map.lots.Length : 0;
             lotTris = new int[nl][];
             lotStalls = new Vector2[nl][];
+            lotHoleBox = new Vector4[nl][];
+            for (int i = 0; i < nl; i++)
+            {
+                var hs = map.lots[i].holes;
+                var hb = new Vector4[hs.Length];
+                for (int h = 0; h < hs.Length; h++)
+                {
+                    float x0 = float.MaxValue, z0 = float.MaxValue, x1 = float.MinValue, z1 = float.MinValue;
+                    foreach (var q in hs[h]) { x0 = Mathf.Min(x0, q.x); z0 = Mathf.Min(z0, q.y); x1 = Mathf.Max(x1, q.x); z1 = Mathf.Max(z1, q.y); }
+                    hb[h] = new Vector4(x0, z0, x1, z1);
+                }
+                lotHoleBox[i] = hb;
+            }
             for (int i = 0; i < nl; i++)
             {
                 var b = map.lots[i].box;
@@ -195,11 +232,11 @@ namespace PSXRacing.City
             var q = lotStalls[li];
             if (q != null) return q;
             var lot = map.lots[li];
-            var u = lot.u; var v = new Vector2(-u.y, u.x);
             var list = new List<Vector2>();
             for (int r = 0; r < lot.runFoot.Length; r++)
                 for (int k = 0; k <= lot.runN[r]; k++)
                 {
+                    var u = lot.runU != null ? lot.runU[r] : lot.u; var v = new Vector2(-u.y, u.x);
                     var f = lot.runFoot[r] + u * (k * StallW);
                     var h = u * (0.5f * StallLineW);
                     // anticlockwise: u then v is anticlockwise (v = u's left)
@@ -217,6 +254,9 @@ namespace PSXRacing.City
         static void PrepareTileLots(CityMap map, Vector2 min, Vector2 max)
         {
             tileLots.Clear();
+            foreach (var pp in islandTops) FreePoly(pp);
+            islandTops.Clear();
+            tileBands.Clear(); lotFans.Clear();
             if (!LotsOn || map.lots == null || map.lots.Length == 0) return;
             EnsureLots(map);
             int tx = Mathf.FloorToInt((min.x + 1f) / TileSize), tz = Mathf.FloorToInt((min.y + 1f) / TileSize);
@@ -228,6 +268,106 @@ namespace PSXRacing.City
                 if (OverPropLot(map.lots[i])) { continue; }
                 tileLots.Add(i);
             }
+            if (tileLots.Count > 0 && LotRoadCutOn && fanFloorTrims != null)
+            {
+                long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+                BuildLotBands(map, fanFloorTrims, min, max);
+                // only the bands and fans that meet one of this tile's lots
+                tileBands.RemoveAll(bd => !MeetsTileLot(map, bd.x0, bd.z0, bd.x1, bd.z1));
+                lotFans.Clear();
+                foreach (var rec in fanFloors) if (MeetsTileLot(map, rec.x0, rec.z0, rec.x1, rec.z1)) lotFans.Add(rec);
+                LotStats.ticks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+            }
+        }
+        static readonly List<FanFloorRec> lotFans = new List<FanFloorRec>(32);
+        static bool MeetsTileLot(CityMap map, float x0, float z0, float x1, float z1)
+        {
+            foreach (int li in tileLots)
+            {
+                var b = map.lots[li].box;
+                if (b.z >= x0 && b.x <= x1 && b.w >= z0 && b.y <= z1) return true;
+            }
+            return false;
+        }
+
+        // ---- the roads' drawn pavement, for cutting the lots (leftover item 4)
+        struct LotBand { public Vector2[] poly; public float x0, z0, x1, z1; }
+        static readonly List<LotBand> tileBands = new List<LotBand>(256);
+        static readonly HashSet<int> bandSegs = new HashSet<int>();
+        static readonly SortedDictionary<int, List<Vector2>> bandRanges = new SortedDictionary<int, List<Vector2>>();
+        const float BandStepM = 2f, BandPadM = 0.15f; const int BandChunk = 10;
+
+        /// <summary>Every grounded ribbon near the box as chunks of its drawn
+        /// pavement (<see cref="LineModel.Extents"/> either side + 15 cm,
+        /// between the edge's trims, every 2 m, ten steps a chunk) into
+        /// <see cref="tileBands"/>.</summary>
+        static void BuildLotBands(CityMap map, Trims trims, Vector2 min, Vector2 max)
+        {
+            tileBands.Clear();
+            bandSegs.Clear(); bandRanges.Clear();
+            map.EdgeSegsInRect(min - Vector2.one * 24f, max + Vector2.one * 24f, bandSegs);
+            foreach (int packed in bandSegs)
+            {
+                int ei = packed >> 12, si = packed & 0xFFF;
+                var e = map.edges[ei];
+                if (e.tunnel || si + 1 >= e.pts.Length || trims.Internal(ei)) continue;
+                if (!bandRanges.TryGetValue(ei, out var rl)) bandRanges[ei] = rl = new List<Vector2>(4);
+                rl.Add(new Vector2(e.s[si], e.s[si + 1]));
+            }
+            var L = new List<Vector2>(BandChunk + 1); var R = new List<Vector2>(BandChunk + 1);
+            foreach (var kv in bandRanges)
+            {
+                var e = map.edges[kv.Key];
+                float sA = trims.atA[kv.Key], sB = e.length - trims.atB[kv.Key];
+                var rl = kv.Value;
+                rl.Sort((a, b) => a.x.CompareTo(b.x));
+                // merge the touching ranges, then sample each
+                int i = 0;
+                while (i < rl.Count)
+                {
+                    float r0 = rl[i].x, r1 = rl[i].y;
+                    int j = i + 1;
+                    while (j < rl.Count && rl[j].x <= r1 + 1e-3f) { r1 = Mathf.Max(r1, rl[j].y); j++; }
+                    i = j;
+                    r0 = Mathf.Max(r0, sA); r1 = Mathf.Min(r1, sB);
+                    if (r1 - r0 < 0.25f) continue;
+                    int n = Mathf.Max(1, Mathf.CeilToInt((r1 - r0) / BandStepM));
+                    L.Clear(); R.Clear();
+                    for (int k = 0; k <= n; k++)
+                    {
+                        float sk = r0 + (r1 - r0) * k / n;
+                        bool up = e.ElevatedAt(sk);
+                        if (!up)
+                        {
+                            var pk = e.PointAt(sk); var tk = e.TangentAt(sk); var left = new Vector2(-tk.y, tk.x);
+                            LineModel.Extents(e, sk, out float eM, out float eP);
+                            L.Add(pk + left * (eP + BandPadM)); R.Add(pk - left * (eM + BandPadM));
+                        }
+                        if ((up || L.Count > BandChunk || k == n) && L.Count >= 2)
+                        {
+                            var poly = new Vector2[2 * L.Count];
+                            float x0 = float.MaxValue, z0 = float.MaxValue, x1 = float.MinValue, z1 = float.MinValue;
+                            for (int q = 0; q < L.Count; q++) { poly[q] = L[q]; poly[2 * L.Count - 1 - q] = R[q]; }
+                            foreach (var v in poly) { x0 = Mathf.Min(x0, v.x); z0 = Mathf.Min(z0, v.y); x1 = Mathf.Max(x1, v.x); z1 = Mathf.Max(z1, v.y); }
+                            tileBands.Add(new LotBand { poly = poly, x0 = x0, z0 = z0, x1 = x1, z1 = z1 });
+                            var lastL = L[L.Count - 1]; var lastR = R[R.Count - 1];
+                            L.Clear(); R.Clear();
+                            if (!up) { L.Add(lastL); R.Add(lastR); }
+                        }
+                        else if (up) { L.Clear(); R.Clear(); }
+                    }
+                }
+            }
+        }
+
+        static bool OnBand(Vector2 q)
+        {
+            foreach (var b in tileBands)
+            {
+                if (q.x < b.x0 || q.x > b.x1 || q.y < b.z0 || q.y > b.z1) continue;
+                if (InRing(b.poly, q)) return true;
+            }
+            return false;
         }
 
         /// <summary>A restaurant's own lot (a prop lot) covers a fifth or more
@@ -264,6 +404,13 @@ namespace PSXRacing.City
         static bool LotCell(CityMap map, TileMeshes tm, Vector3 p00, Vector3 p01, Vector3 p11, Vector3 p10, bool paved)
         {
             if (tileLots.Count == 0) return false;
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            bool r = LotCellBody(map, tm, p00, p01, p11, p10, paved);
+            LotStats.ticks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+            return r;
+        }
+        static bool LotCellBody(CityMap map, TileMeshes tm, Vector3 p00, Vector3 p01, Vector3 p11, Vector3 p10, bool paved)
+        {
             var o = tm.origin;
             float cx0 = p00.x + o.x, cz0 = p00.z + o.z, cx1 = p11.x + o.x, cz1 = p11.z + o.z;
             bool any = false;
@@ -284,6 +431,24 @@ namespace PSXRacing.City
                 if (tri == 0) { first.Add(p00); first.Add(p10); first.Add(p11); }
                 else { first.Add(p00); first.Add(p11); first.Add(p01); }
                 lotOut.Add(first);
+                var o2 = new Vector2(o.x, o.z);
+                // a junction's fan and a road's pavement take what lies under
+                // them: the pieces cut along every fan ring and ribbon band
+                // through the cell (classified per lot)
+                bool fanCut = false;
+                if (LotRoadCutOn)
+                {
+                    foreach (var rec in lotFans)
+                    {
+                        if (rec.x1 < cx0 || rec.x0 > cx1 || rec.z1 < cz0 || rec.z0 > cz1) continue;
+                        if (CutPiecesAlong(rec.ring, cx0, cz0, cx1, cz1, o2)) fanCut = true;
+                    }
+                    foreach (var bd in tileBands)
+                    {
+                        if (bd.x1 < cx0 || bd.x0 > cx1 || bd.z1 < cz0 || bd.z0 > cz1) continue;
+                        if (CutPiecesAlong(bd.poly, cx0, cz0, cx1, cz1, o2)) fanCut = true;
+                    }
+                }
                 foreach (int li in tileLots)
                 {
                     var lot = map.lots[li];
@@ -294,40 +459,31 @@ namespace PSXRacing.City
                     // the ring's edges through the cell cut its pieces along
                     // their lines (only the pieces each edge really crosses), so
                     // no ring edge runs through any piece; each piece is then
-                    // all lot or none of it, by its middle
-                    var o2 = new Vector2(o.x, o.z);
-                    bool crosses = false;
-                    for (int k = 0; k < ring.Length; k++)
+                    // all lot or none of it, by its middle - and so are its
+                    // holes' and islands' edges
+                    bool crosses = CutPiecesAlong(ring, cx0, cz0, cx1, cz1, o2) | fanCut;
+                    var hbs = lotHoleBox[li];
+                    for (int h = 0; h < hbs.Length; h++)
                     {
-                        Vector2 a = ring[k], c2 = ring[(k + 1) % ring.Length];
-                        if (!SegHitsBox(a, c2, cx0, cz0, cx1, cz1)) continue;
-                        crosses = true;
-                        Vector2 la = a - o2, lb = c2 - o2;
-                        lotTmp.Clear();
-                        foreach (var piece in lotOut)
-                        {
-                            if (!SegCrossesConvex(la, lb, piece)) { lotTmp.Add(piece); continue; }
-                            var d = lb - la; var nrm = new Vector2(-d.y, d.x);
-                            float c = Vector2.Dot(la, nrm);
-                            SplitByLine(piece, nrm, c, cutLo, cutHi);
-                            if (cutLo.Count >= 3 && PolyArea(cutLo) > 1e-6f) { var q = NewPoly(); q.AddRange(cutLo); lotTmp.Add(q); }
-                            if (cutHi.Count >= 3 && PolyArea(cutHi) > 1e-6f) { var q = NewPoly(); q.AddRange(cutHi); lotTmp.Add(q); }
-                            FreePoly(piece);
-                        }
-                        lotOut.Clear(); lotOut.AddRange(lotTmp);
+                        var hb = hbs[h];
+                        if (hb.z < cx0 || hb.x > cx1 || hb.w < cz0 || hb.y > cz1) continue;
+                        if (CutPiecesAlong(lot.holes[h], cx0, cz0, cx1, cz1, o2)) crosses = true;
                     }
+                    lotTmp.Clear();
                     if (!crosses)
                     {
-                        if (!InRing(ring, new Vector2(0.5f * (cx0 + cx1), 0.5f * (cz0 + cz1)))) continue;
-                        lotAcc.AddRange(lotOut); lotOut.Clear();
+                        int cls = LotClass(map, li, new Vector2(0.5f * (cx0 + cx1), 0.5f * (cz0 + cz1)), LotRoadCutOn);
+                        if (cls == 0) continue;
+                        foreach (var piece in lotOut) TakeLotPiece(piece, cls, o);
+                        lotOut.Clear();
                     }
                     else
                     {
-                        lotTmp.Clear();
                         foreach (var piece in lotOut)
                         {
                             var m = Vector3.zero; foreach (var q in piece) m += q; m /= piece.Count;
-                            if (InRing(ring, new Vector2(m.x, m.z) + o2)) lotAcc.Add(piece); else lotTmp.Add(piece);
+                            int cls = LotClass(map, li, new Vector2(m.x, m.z) + o2, fanCut);
+                            if (cls == 0) lotTmp.Add(piece); else TakeLotPiece(piece, cls, o);
                         }
                         lotOut.Clear(); lotOut.AddRange(lotTmp);
                     }
@@ -338,13 +494,14 @@ namespace PSXRacing.City
                     if (sb != null)
                         for (int r = 0; r < lot.runFoot.Length; r++)
                         {
+                            var ru = lot.runU != null ? lot.runU[r] : lot.u;
                             var foot = lot.runFoot[r] - new Vector2(o.x, o.z);
                             float len = lot.runN[r] * StallW;
-                            var far = foot + lot.u * len + new Vector2(-lot.u.y, lot.u.x) * StallD;
+                            var far = foot + ru * len + new Vector2(-ru.y, ru.x) * StallD;
                             if (Mathf.Max(foot.x, far.x) + StallD < p00.x || Mathf.Min(foot.x, far.x) - StallD > p11.x ||
                                 Mathf.Max(foot.y, far.y) + StallD < p00.z || Mathf.Min(foot.y, far.y) - StallD > p11.z) continue;
                             lotStallIn.Clear(); lotStallRest.Clear();
-                            CutRun(lotAcc, foot, lot.u, lot.runN[r], lotStallIn, lotStallRest);
+                            CutRun(lotAcc, foot, ru, lot.runN[r], lotStallIn, lotStallRest);
                             lotAcc.Clear(); lotAcc.AddRange(lotStallRest);
                             foreach (var piece in lotStallIn)
                             {
@@ -375,6 +532,147 @@ namespace PSXRacing.City
             return true;
         }
         static readonly List<List<Vector3>> lotStallIn = new List<List<Vector3>>(8), lotStallRest = new List<List<Vector3>>(8), lotAcc = new List<List<Vector3>>(16);
+        /// <summary>The islands' tops cut this tile (tile frame, lifted),
+        /// drawn with their curbs at the end of the build (<see cref="FlushLotIslands"/>).</summary>
+        static readonly List<List<Vector3>> islandTops = new List<List<Vector3>>(64);
+
+        /// <summary>The pieces of <see cref="lotOut"/> cut along every edge of
+        /// <paramref name="ring"/> that meets the cell (world plan; the pieces
+        /// in the tile frame, <paramref name="o2"/> its origin). True when one did.</summary>
+        static bool CutPiecesAlong(Vector2[] ring, float cx0, float cz0, float cx1, float cz1, Vector2 o2)
+        {
+            bool crosses = false;
+            for (int k = 0; k < ring.Length; k++)
+            {
+                Vector2 a = ring[k], c2 = ring[(k + 1) % ring.Length];
+                if (!SegHitsBox(a, c2, cx0, cz0, cx1, cz1)) continue;
+                crosses = true;
+                Vector2 la = a - o2, lb = c2 - o2;
+                lotTmp.Clear();
+                foreach (var piece in lotOut)
+                {
+                    if (!SegCrossesConvex(la, lb, piece)) { lotTmp.Add(piece); continue; }
+                    var d = lb - la; var nrm = new Vector2(-d.y, d.x);
+                    float c = Vector2.Dot(la, nrm);
+                    SplitByLine(piece, nrm, c, cutLo, cutHi);
+                    if (cutLo.Count >= 3 && PolyArea(cutLo) > 1e-6f) { var q = NewPoly(); q.AddRange(cutLo); lotTmp.Add(q); }
+                    if (cutHi.Count >= 3 && PolyArea(cutHi) > 1e-6f) { var q = NewPoly(); q.AddRange(cutHi); lotTmp.Add(q); }
+                    FreePoly(piece);
+                }
+                lotOut.Clear(); lotOut.AddRange(lotTmp);
+            }
+            return crosses;
+        }
+
+        /// <summary>What a plan point of lot <paramref name="li"/> is: 0 not
+        /// the lot's (outside its ring, in a hole, or - <paramref name="fans"/> -
+        /// under a junction fan), 1 the lot's pavement, 2 an island's top.</summary>
+        static int LotClass(CityMap map, int li, Vector2 q, bool fans)
+        {
+            var lot = map.lots[li];
+            if (!InRing(lot.ring, q)) return 0;
+            var hbs = lotHoleBox[li];
+            for (int h = 0; h < hbs.Length; h++)
+            {
+                var hb = hbs[h];
+                if (q.x < hb.x || q.x > hb.z || q.y < hb.y || q.y > hb.w) continue;
+                if (InRing(lot.holes[h], q)) return lot.holeKind[h] == 1 ? 2 : 0;
+            }
+            if (fans && (OnFan(q) || OnBand(q))) { LotStats.fanCutPieces++; return 0; }
+            return 1;
+        }
+
+        /// <summary>Is the plan point on a junction fan near this tile
+        /// (<see cref="fanFloors"/>, PrepareFanFloor's)?</summary>
+        static bool OnFan(Vector2 q)
+        {
+            foreach (var rec in fanFloors)
+            {
+                if (q.x < rec.x0 || q.x > rec.x1 || q.y < rec.z0 || q.y > rec.z1) continue;
+                if (InRing(rec.ring, q)) return true;
+            }
+            return false;
+        }
+
+        static void TakeLotPiece(List<Vector3> piece, int cls, Vector3 o)
+        {
+            if (cls == 1) { lotAcc.Add(piece); return; }
+            // an island's top: the lattice's own piece, lifted
+            for (int k = 0; k < piece.Count; k++) piece[k] += new Vector3(0f, IslandH, 0f);
+            LotStats.islandM2 += PolyArea(piece);
+            islandTops.Add(piece);
+        }
+
+        /// <summary>
+        /// The islands, once the tile's other surfaces are in (leftover item
+        /// 4): their tops into the ground's grass (its paving where this tile
+        /// has no grass), and the curbs - a face from 5 cm under the lattice
+        /// to 1 cm over the top, every 0.5 m along the island's ring - into
+        /// the pavement concrete (the structural concrete where the tile has
+        /// no pavement, the pavement where it has neither). An island's curb
+        /// is drawn by the tile that holds its middle.
+        /// </summary>
+        static void FlushLotIslands(CityMap map, TileMeshes tm, Vector2 min)
+        {
+            if (!LotsOn || map.lots == null) return;
+            var o = tm.origin;
+            bool grass = buckets[(int)Slot.Ground].Count > 0 || buckets[(int)Slot.Pavement].Count == 0;
+            var top = buckets[(int)(grass ? Slot.Ground : Slot.Pavement)];
+            foreach (var piece in islandTops)
+            {
+                int v0 = top.v.Count;
+                foreach (var p in piece) { top.v.Add(p); top.uv.Add(GroundUV(!grass, p.x + o.x, p.z + o.z)); }
+                for (int k = 1; k + 1 < piece.Count; k++) { top.t.Add(v0); top.t.Add(v0 + k + 1); top.t.Add(v0 + k); }
+                FreePoly(piece);
+            }
+            islandTops.Clear();
+            var curbSlot = buckets[(int)Slot.Pavement].Count > 0 ? Slot.Pavement : buckets[(int)Slot.Concrete].Count > 0 ? Slot.Concrete : Slot.Pavement;
+            var curb = buckets[(int)curbSlot];
+            foreach (int li in tileLots)
+            {
+                var lot = map.lots[li];
+                for (int h = 0; h < lot.holes.Length; h++)
+                {
+                    if (lot.holeKind[h] != 1) continue;
+                    var hb = lotHoleBox[li][h];
+                    float mx = 0.5f * (hb.x + hb.z), mz = 0.5f * (hb.y + hb.w);
+                    if (mx < min.x || mx >= min.x + TileSize || mz < min.y || mz >= min.y + TileSize) continue;
+                    EmitIslandCurb(map, curb, lot.holes[h], o);
+                    LotStats.islands++;
+                }
+            }
+        }
+
+        static void EmitIslandCurb(CityMap map, Bucket bk, Vector2[] ring, Vector3 o)
+        {
+            int n = ring.Length;
+            float area = 0f;
+            for (int i = 0; i < n; i++) { var p = ring[i]; var q = ring[(i + 1) % n]; area += p.x * q.y - q.x * p.y; }
+            bool ccw = area > 0f;
+            float sAcc = 0f;
+            for (int i = 0; i < n; i++)
+            {
+                // anticlockwise: the island on the left, the face looking out (right)
+                Vector2 a = ccw ? ring[i] : ring[(n - i) % n], b = ccw ? ring[(i + 1) % n] : ring[(2 * n - i - 1) % n];
+                float len = (b - a).magnitude;
+                if (len < 1e-3f) continue;
+                int k = Mathf.Max(1, Mathf.CeilToInt(len / 0.5f));
+                for (int j = 0; j < k; j++)
+                {
+                    var p = Vector2.Lerp(a, b, j / (float)k); var q = Vector2.Lerp(a, b, (j + 1) / (float)k);
+                    float yp = LatticeY(map, p.x, p.y), yq = LatticeY(map, q.x, q.y);
+                    float s0 = sAcc + len * j / k, s1 = sAcc + len * (j + 1) / k;
+                    int v0 = bk.v.Count;
+                    bk.v.Add(new Vector3(p.x - o.x, yp - 0.05f, p.y - o.z)); bk.uv.Add(new Vector2(s0 / 6f, 0f));
+                    bk.v.Add(new Vector3(p.x - o.x, yp + IslandH + 0.01f, p.y - o.z)); bk.uv.Add(new Vector2(s0 / 6f, 0.035f));
+                    bk.v.Add(new Vector3(q.x - o.x, yq + IslandH + 0.01f, q.y - o.z)); bk.uv.Add(new Vector2(s1 / 6f, 0.035f));
+                    bk.v.Add(new Vector3(q.x - o.x, yq - 0.05f, q.y - o.z)); bk.uv.Add(new Vector2(s1 / 6f, 0f));
+                    bk.t.Add(v0); bk.t.Add(v0 + 1); bk.t.Add(v0 + 2);
+                    bk.t.Add(v0); bk.t.Add(v0 + 2); bk.t.Add(v0 + 3);
+                }
+                sAcc += len;
+            }
+        }
         static readonly List<Vector3> cutLo = new List<Vector3>(16), cutHi = new List<Vector3>(16);
 
         /// <summary>Does segment a-b meet the box (Liang-Barsky)?</summary>
@@ -554,6 +852,159 @@ namespace PSXRacing.City
                 FreePoly(piece);
             }
             pieces.Clear();
+        }
+
+        // ---- THE LOT AUDIT (leftover item 4) ----------------------------------
+        public sealed class LotAuditResult
+        {
+            public int lots, aisleLots, islands, holes, runs, stalls, lotsWithOverlap;
+            /// <summary>m2: lot pavement as drawn; under a fan (cut out when
+            /// <see cref="LotRoadCutOn"/>, else drawn under it); on a road's
+            /// ribbon; inside a real footprint; inside a placed (procedural or
+            /// prop) building; on another lot's pavement; island tops.</summary>
+            public double lotM2, fanM2, ribbonM2, bldM2, procM2, lotLotM2, islandM2, bandCutM2;
+            public readonly List<string> worst = new List<string>();
+            /// <summary>Drawn lot pavement over a road, a fan, a building or another lot.</summary>
+            public double OverlapM2(bool fanCut) => (fanCut ? 0.0 : fanM2) + ribbonM2 + bldM2 + procM2 + lotLotM2;
+        }
+
+        /// <summary>
+        /// THE LOT AUDIT: every lot meeting <paramref name="box"/> (not one under
+        /// a restaurant's own lot: not drawn) sampled every 0.5 m inside the box
+        /// as the tile builder classifies it - its ring less its holes, islands
+        /// apart - and each pavement sample tested against what else is there:
+        /// a junction fan (PrepareFanFloor's rings), a road's drawn ribbon (the
+        /// edge's centreline, its trims and LineModel.Extents either side; not
+        /// a tunnel, not over a deck), a real footprint (its polygon; a gabled
+        /// house's box too), a placed building (CityBuildings' oriented box)
+        /// and an earlier lot's pavement. Gate: drawn overlaps 0.
+        /// </summary>
+        public static LotAuditResult LotOverlapAudit(CityMap map, Trims trims, Rect box, Dictionary<long, List<CityBuildings.B>> proc)
+        {
+            var A = new LotAuditResult();
+            if (!LotsOn || map.lots == null || map.lots.Length == 0) return A;
+            EnsureLots(map);
+            var prevLamp = lampBuildings;
+            if (proc != null) lampBuildings = proc;
+            var segs = new HashSet<int>(); var segList = new List<int>();
+            var foots = new List<int>(); var procs = new List<CityBuildings.B>(); var others = new List<int>();
+            var rows = new List<KeyValuePair<double, string>>();
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            const float G = 0.5f; const double CellA = G * G;
+            for (int li = 0; li < map.lots.Length; li++)
+            {
+                var L = map.lots[li]; var b = L.box;
+                if (b.z < box.xMin || b.x > box.xMax || b.w < box.yMin || b.y > box.yMax) continue;
+                if (OverPropLot(L)) continue;
+                A.lots++; if (L.aisleOnly) A.aisleLots++;
+                foreach (var k in L.holeKind) { if (k == 1) A.islands++; else A.holes++; }
+                A.runs += L.runN.Length; foreach (var c in L.runN) A.stalls += c;
+                var min = new Vector2(Mathf.Max(b.x, box.xMin), Mathf.Max(b.y, box.yMin));
+                var max = new Vector2(Mathf.Min(b.z, box.xMax), Mathf.Min(b.w, box.yMax));
+                PrepareFanFloor(map, trims, min, max);
+                if (LotRoadCutOn) BuildLotBands(map, trims, min, max); else tileBands.Clear();
+                segs.Clear(); map.EdgeSegsInRect(min - Vector2.one * 40f, max + Vector2.one * 40f, segs);
+                segList.Clear(); segList.AddRange(segs);
+                foots.Clear(); procs.Clear();
+                for (int tx = Mathf.FloorToInt((min.x - 80f) / TileSize); tx <= Mathf.FloorToInt((max.x + 80f) / TileSize); tx++)
+                    for (int tz = Mathf.FloorToInt((min.y - 80f) / TileSize); tz <= Mathf.FloorToInt((max.y + 80f) / TileSize); tz++)
+                    {
+                        var fl = map.FootprintsInTile(tx, tz);
+                        if (fl != null)
+                            foreach (int fi in fl)
+                            {
+                                var f = map.footprints[fi];
+                                float r = Mathf.Max(f.hu, f.hv) * 1.5f + 1f;
+                                if (f.centre.x + r < min.x || f.centre.x - r > max.x || f.centre.y + r < min.y || f.centre.y - r > max.y) continue;
+                                foots.Add(fi);
+                            }
+                        if (proc != null && proc.TryGetValue(((long)tx << 24) ^ (tz & 0xFFFFFF), out var pl))
+                            foreach (var pb in pl)
+                            {
+                                float r = 0.5f * (pb.w + pb.d) + 1f;
+                                if (pb.pos.x + r < min.x || pb.pos.x - r > max.x || pb.pos.y + r < min.y || pb.pos.y - r > max.y) continue;
+                                procs.Add(pb);
+                            }
+                    }
+                others.Clear();
+                for (int lj = 0; lj < li; lj++)
+                {
+                    var ob = map.lots[lj].box;
+                    if (ob.z < min.x || ob.x > max.x || ob.w < min.y || ob.y > max.y) continue;
+                    if (OverPropLot(map.lots[lj])) continue;
+                    others.Add(lj);
+                }
+                double lm = 0, fm = 0, rm = 0, bm = 0, pm = 0, llm = 0;
+                for (float z = (Mathf.Floor(min.y / G) + 0.5f) * G; z < max.y; z += G)
+                    for (float x = (Mathf.Floor(min.x / G) + 0.5f) * G; x < max.x; x += G)
+                    {
+                        var q = new Vector2(x, z);
+                        int cls = LotClass(map, li, q, false);
+                        if (cls == 2) { A.islandM2 += CellA; continue; }
+                        if (cls != 1) continue;
+                        if (OnFan(q)) { fm += CellA; if (LotRoadCutOn) continue; }
+                        if (LotRoadCutOn && OnBand(q)) { A.bandCutM2 += CellA; continue; }
+                        lm += CellA;
+                        if (OnRibbon(map, trims, segList, q)) rm += CellA;
+                        foreach (int fi in foots)
+                        {
+                            var f = map.footprints[fi];
+                            if (InRing(f.pts, q)) { bm += CellA; break; }
+                            if (f.gable)
+                            {
+                                var d = q - f.centre; var v = new Vector2(-f.u.y, f.u.x);
+                                if (Mathf.Abs(Vector2.Dot(d, f.u)) < f.hu && Mathf.Abs(Vector2.Dot(d, v)) < f.hv) { bm += CellA; break; }
+                            }
+                        }
+                        foreach (var pb in procs)
+                        {
+                            float cy = Mathf.Cos(pb.yaw), sy = Mathf.Sin(pb.yaw);
+                            var d = q - pb.pos;
+                            if (Mathf.Abs(d.x * cy - d.y * sy) < 0.5f * pb.w && Mathf.Abs(d.x * sy + d.y * cy) < 0.5f * pb.d) { pm += CellA; break; }
+                        }
+                        foreach (int lj in others)
+                            if (LotClass(map, lj, q, LotRoadCutOn) == 1) { llm += CellA; break; }
+                    }
+                A.lotM2 += lm; A.fanM2 += fm; A.ribbonM2 += rm; A.bldM2 += bm; A.procM2 += pm; A.lotLotM2 += llm;
+                double over = (LotRoadCutOn ? 0 : fm) + rm + bm + pm + llm;
+                if (over > 0)
+                {
+                    A.lotsWithOverlap++;
+                    rows.Add(new KeyValuePair<double, string>(over, string.Format(inv,
+                        "lot {0} ({1:0.0}, {2:0.0}){3}: {4:0.0} m2 over - fan {5:0.0}{6}, ribbon {7:0.0}, footprint {8:0.0}, placed building {9:0.0}, another lot {10:0.0}",
+                        li, 0.5f * (b.x + b.z), 0.5f * (b.y + b.w), L.aisleOnly ? " (aisle only)" : "", over, fm, LotRoadCutOn ? " (cut: the fan's)" : "", rm, bm, pm, llm)));
+                }
+            }
+            rows.Sort((p, q) => q.Key.CompareTo(p.Key));
+            for (int i = 0; i < Mathf.Min(8, rows.Count); i++) A.worst.Add(rows[i].Value);
+            lampBuildings = prevLamp;
+            fanFloors.Clear(); tileBands.Clear();
+            return A;
+        }
+
+        /// <summary>On a road's drawn ribbon (the lot audit): within the
+        /// edge's extents either side, between its trims, on the ground.</summary>
+        static bool OnRibbon(CityMap map, Trims trims, List<int> segList, Vector2 q)
+        {
+            foreach (int packed in segList)
+            {
+                int ei = packed >> 12, si = packed & 0xFFF;
+                var e = map.edges[ei];
+                if (e.tunnel || si + 1 >= e.pts.Length) continue;
+                Vector2 a = e.pts[si], d = e.pts[si + 1] - a;
+                float L2 = d.sqrMagnitude;
+                if (L2 < 1e-8f) continue;
+                float t = Mathf.Clamp01(Vector2.Dot(q - a, d) / L2);
+                float dist = (q - (a + d * t)).magnitude;
+                if (dist > e.HalfMax + 3f) continue;
+                float s = e.s[si] + Mathf.Sqrt(L2) * t;
+                if (s < trims.atA[ei] || s > e.length - trims.atB[ei]) continue;
+                if (trims.Internal(ei) || e.ElevatedAt(s)) continue;
+                LineModel.Extents(e, s, out float eM, out float eP);
+                float side = d.x * (q.y - a.y) - d.y * (q.x - a.x);
+                if (dist < (side >= 0f ? eP : eM)) return true;
+            }
+            return false;
         }
 
         /// <summary>For the LOTS report: every lot in the box laid as the tile

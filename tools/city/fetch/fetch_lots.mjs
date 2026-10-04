@@ -5,8 +5,8 @@
 //   node tools/city/fetch/fetch_lots.mjs count   -> 'out count' only (run first)
 //   node tools/city/fetch/fetch_lots.mjs          -> tools/city/cache/lots_core.json
 // amenity=parking ways and multipolygons (the lots), service=parking_aisle ways
-// (kept for reference; the lean pass lays its own aisles) and highway=turning_circle /
-// turning_loop nodes (the cul-de-sac bulbs).
+// (the aisles: leftover item 4 paves them and lays the stall rows along them) and
+// highway=turning_circle / turning_loop nodes (the cul-de-sac bulbs).
 import { writeFileSync, existsSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
