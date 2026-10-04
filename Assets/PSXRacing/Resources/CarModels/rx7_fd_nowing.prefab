@@ -1,0 +1,81 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &7466184331044857050
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2300712193364390882}
+  - component: {fileID: 6471465434895027857}
+  m_Layer: 0
+  m_Name: rx7_fd_nowing
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2300712193364390882
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7466184331044857050}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &6471465434895027857
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7466184331044857050}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: rx7_fd_nowing
+  displayName: Mazda RX-7 (FD), no spoiler
+  bodyMesh: {fileID: -2432090755550338912, guid: ed8c53db31816c140b5541f7a937e73c, type: 3}
+  wheelMesh: {fileID: 4300000, guid: cf04085b9e9c89d4d982f0599d52df1a, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: 9eba3bab45d479f4cadd529591f0526a, type: 2}
+  skinNames:
+  - fd_shared_512x256
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.47847918, g: 0.4038301, b: 0.21588619, a: 1}
+  bodyYaw: 180
+  bodyYOffset: -0.02268235
+  bodyZOffset: 0
+  wheelbase: 2.408228
+  trackWidth: 1.468432
+  wheelRadius: 0.30135167
+  wheelMeshScale: 0.93
+  cowlZ: 0.6367561
+  cowlY: 0.81328154
+  noseZ: 2.041131
+  roofY: 1.1829038
+  headLamp: {x: 0.612219, y: 0.49809295, z: 1.826399}
+  headLampNormal: {x: 0.42783698, y: 0.471845, z: 0.77092016}
+  headLampSize: {x: 0.15520254, y: 0.084894985}
+  tailLamp: {x: 0.51860267, y: 0.69720805, z: -2.067143}
+  tailLampNormal: {x: 0.35073942, y: -0.24091548, z: -0.9049539}
+  tailLampSize: {x: 0.28678727, y: 0.093729585}
+  lampsUpMesh: {fileID: -2432090755550338912, guid: dd7fba4009b07d54e9c08d936f5d3008, type: 3}
+  headLampUp: {x: 0.6124774, y: 0.6428268, z: 1.783196}
+  headLampUpNormal: {x: 0.00000079344295, y: 0, z: 1}
+  headLampUpSize: {x: 0.15520254, y: 0.093387455}
+  colliderCenter: {x: 0, y: 0.6567837, z: -0.098868966}
+  colliderSize: {x: 1.7153963, y: 0.9843947, z: 4.0873995}
+  blobSize: {x: 2.287195, y: 4.5796}

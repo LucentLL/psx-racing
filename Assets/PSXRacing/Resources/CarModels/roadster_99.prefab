@@ -54,12 +54,12 @@ MonoBehaviour:
   - s2000_red_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.44328952, g: 0.11956649, b: 0.13754742, a: 1}
+  - {r: 0.4612023, g: 0.16403632, b: 0.17947689, a: 1}
   bodyYaw: 180
   bodyYOffset: -0.022660714
   bodyZOffset: -0.00002503395
   wheelbase: 2.409591
-  trackWidth: 1.424367
+  trackWidth: 1.4203529
   wheelRadius: 0.3010638
   wheelMeshScale: 0.93
   cowlZ: 0.4343756
@@ -72,6 +72,10 @@ MonoBehaviour:
   tailLamp: {x: 0.65784055, y: 0.68149436, z: -1.875959}
   tailLampNormal: {x: 0.58708334, y: 0.09604208, z: -0.80380905}
   tailLampSize: {x: 0.32078618, y: 0.25371546}
-  colliderCenter: {x: 0, y: 0.7345133, z: -0.043733954}
-  colliderSize: {x: 1.6713628, y: 1.0107665, z: 3.9489253}
+  lampsUpMesh: {fileID: 0}
+  headLampUp: {x: 0, y: 0, z: 0}
+  headLampUpNormal: {x: 0, y: 0, z: 1}
+  headLampUpSize: {x: 0, y: 0}
+  colliderCenter: {x: 0, y: 0.72447675, z: -0.043733954}
+  colliderSize: {x: 1.6713628, y: 1.0288323, z: 3.9489253}
   blobSize: {x: 2.2284837, y: 4.4244504}

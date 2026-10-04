@@ -1,9 +1,9 @@
 PSX Racing — catalog car to body shell
-317 cars across 24 of 29 shells; 188 hand-mapped, 129 scored.
+317 cars across 26 of 32 shells; 188 hand-mapped, 129 scored.
   =  hand-mapped (the real car, its twin, or a deliberate call)
   ~  scored on body style, region, era and weight
 
-=== rx7_fd  (Mazda RX-7 (FD), Japan 1992 Sports)  — 63 cars
+=== rx7_fd  (Mazda RX-7 (FD), Japan 1992 Sports)  — 53 cars
     wheelbase 2.43 m, track 1.46 m, tyre 0.310 m, 10 liveries
     = 1967 jpn FR  1006kg  110hp GT       Mazda 110S (L10A) `67
     ~ 1968 jpn FR   753kg  100hp Coupe    Honda S800 RSC Race Car `68
@@ -29,29 +29,20 @@ PSX Racing — catalog car to body shell
     = 1990 jpn FR  1249kg  205hp Coupe    Mazda RX-7 GT-X (FC, J) `90
     = 1990 jpn FR  1242kg  215hp Coupe    Mazda RX-7 INFINI III (FC, J) `90
     ~ 1991 jpn FF  1280kg  200hp Coupe    Honda PRELUDE Si VTEC `91
-    = 1991 jpn FR  1260kg  255hp Coupe    Mazda RX-7 Type R (FD, J) `91
     ~ 1991 jpn FR  1211kg  205hp Coupe    Nissan SILVIA K's (S13) `91
     ~ 1991 jpn FR  1148kg  140hp Coupe    Nissan SILVIA Q's (S13) `91
     ~ 1991 jpn FF  1309kg  165hp Coupe    Toyota CELICA GT-R (ST183, 4WS) `91
-    = 1992 jpn FR  1273kg  255hp Coupe    Mazda RX-7 Type RZ (FD, J) `92
-    = 1993 jpn FR  1260kg  255hp Coupe    Mazda RX-7 Type R (FD, J) `93
-    = 1993 jpn FR  1284kg  255hp Coupe    Mazda RX-7 Type RZ (FD, J) `93
     ~ 1993 jpn FR  1262kg  220hp Coupe    Nissan SILVIA K's AERO (S14) `93
     ~ 1993 jpn FR  1200kg  160hp Coupe    Nissan SILVIA Q's AERO (S14) `93
     ~ 1994 jpn FF  1211kg  200hp Coupe    Mitsubishi FTO GPX `94
     ~ 1994 jpn FF  1191kg  170hp Coupe    Mitsubishi FTO GR `94
     = 1994 eur FR  1284kg  270hp Coupe    NISMO 270R `94
-    = 1995 jpn FR  1260kg  255hp Coupe    Mazda RX-7 Type R-S (FD, J) `95
-    = 1995 jpn FR  1249kg  255hp Coupe    Mazda RX-7 Type RZ (FD, J) `95
     ~ 1995 jpn FF  1329kg  230hp Coupe    Mitsubishi ECLIPSE GT `95
     ~ 1995 jpn 4WD 1412kg  299hp Coupe    Toyota CELICA GT-FOUR Rally Car (ST185) `95
     ~ 1995 jpn 4WD 1412kg  300hp Coupe    Toyota CELICA GT-FOUR Rally Car (ST205) `95
-    = 1996 jpn FR  1280kg  265hp Coupe    Mazda RX-7 Type RS (FD, J) `96
-    = 1996 jpn FR  1249kg  265hp Coupe    Mazda RX-7 Type RZ (FD, J) `96
     ~ 1996 jpn FR  1249kg  220hp Coupe    Nissan 240SX (S14) `96
     ~ 1996 jpn FR  1232kg  160hp Coupe    Nissan SILVIA Q's AERO (S14) `96
     ~ 1997 usa FF  1252kg  140hp Coupe    EAGLE Talon Esi `97
-    = 1997 jpn FR  1280kg  265hp Coupe    Mazda RX-7 Type RS-R (FD) `97
     ~ 1997 jpn FF  1191kg  200hp Coupe    Mitsubishi FTO GP Version R `97
     ~ 1997 jpn FF  1211kg  200hp Coupe    Mitsubishi FTO GPX `97
     ~ 1997 jpn FF  1191kg  180hp Coupe    Mitsubishi FTO GR `97
@@ -59,7 +50,6 @@ PSX Racing — catalog car to body shell
     ~ 1997 jpn FF  1242kg  200hp Coupe    Toyota CELICA SS-II (ST202) `97
     ~ 1997 jpn MR  1262kg  200hp Coupe    Toyota MR2 G-Limited `97
     ~ 1997 jpn MR  1269kg  245hp Coupe    Toyota MR2 GT-S `97
-    = 1998 jpn FR  1280kg  280hp Coupe    Mazda RX-7 Type RS (FD) `98
     = 1998 eur FR  1211kg  205hp Coupe    SILEIGHTY `98
     ~ 1998 jpn 4WD 1389kg  255hp Coupe    Toyota CELICA GT-FOUR (ST205) `98
     ~ 1999 jpn FF  1191kg  200hp Coupe    Mitsubishi FTO GP Version R `99
@@ -196,8 +186,28 @@ PSX Racing — catalog car to body shell
     = 1995 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `95
 
 === nissan_180sx  (Nissan 180SX / 240SX (S13), Japan 1989 Sports)  — 1 car
-    wheelbase 2.46 m, track 1.52 m, tyre 0.287 m, 1 liveries
+    wheelbase 2.48 m, track 1.47 m, tyre 0.286 m, 1 liveries
     = 1996 jpn FR  1262kg  205hp Coupe    Nissan 240SX `96
+
+=== rx7_fd_93  (Mazda RX-7 (FD), 1993 spoiler, Japan 1993 Sports)  — 9 cars
+    wheelbase 2.41 m, track 1.47 m, tyre 0.301 m, 1 liveries
+    = 1991 jpn FR  1260kg  255hp Coupe    Mazda RX-7 Type R (FD, J) `91
+    = 1992 jpn FR  1273kg  255hp Coupe    Mazda RX-7 Type RZ (FD, J) `92
+    = 1993 jpn FR  1260kg  255hp Coupe    Mazda RX-7 Type R (FD, J) `93
+    = 1993 jpn FR  1284kg  255hp Coupe    Mazda RX-7 Type RZ (FD, J) `93
+    = 1995 jpn FR  1260kg  255hp Coupe    Mazda RX-7 Type R-S (FD, J) `95
+    = 1995 jpn FR  1249kg  255hp Coupe    Mazda RX-7 Type RZ (FD, J) `95
+    = 1996 jpn FR  1280kg  265hp Coupe    Mazda RX-7 Type RS (FD, J) `96
+    = 1996 jpn FR  1249kg  265hp Coupe    Mazda RX-7 Type RZ (FD, J) `96
+    = 1997 jpn FR  1280kg  265hp Coupe    Mazda RX-7 Type RS-R (FD) `97
+
+=== rx7_fd_99  (Mazda RX-7 (FD), 1999 wing, Japan 1999 Sports)  — 1 car
+    wheelbase 2.41 m, track 1.47 m, tyre 0.301 m, 1 liveries
+    = 1998 jpn FR  1280kg  280hp Coupe    Mazda RX-7 Type RS (FD) `98
+
+=== rx7_fd_nowing  (Mazda RX-7 (FD), no spoiler, Japan 1993 Sports)  — 0 cars
+    wheelbase 2.41 m, track 1.47 m, tyre 0.301 m, 1 liveries
+    (no catalog car — used as roadside scenery)
 
 === viper_gts  (Dodge Viper GTS, America 1996 Sports)  — 1 car
     wheelbase 2.46 m, track 1.47 m, tyre 0.304 m, 1 liveries

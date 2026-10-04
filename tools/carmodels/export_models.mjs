@@ -75,13 +75,38 @@ const MODELS = [
     gt4LengthM: 4.070 },
   // The owner's S13 hatch (the 180SX that America sold as the 240SX) — GT4's
   // "Nissan 240SX `96": 4520 mm, 2475 mm wheelbase. The S14 is its own row.
-  // reference_v2 (2026-09-25, the newest): the source's own body, glass, rear
-  // lamp cluster and spoiler reduced and sealed (2,990 body tris, 92 per
-  // wheel), source UVs baked to one atlas, matte alpha 128. Replaced the
-  // "rebuilt" re-loft, which had in turn replaced the 733-open-edge first cut.
-  { key: 'nissan_180sx', obj: `${ownerCars}/Nissan_240SX_PSX/reference_v2/sport_coupe.obj`,
-    tex: `${ownerCars}/Nissan_240SX_PSX/reference_v2`, skins: /^car_atlas_256$/,
+  // 2026-10-04 ("NSX, 240SX, and RX7 were updated"): the independent 1989
+  // S13 rebuild, Cars/S13_180SX_Independent_v07 - pop-up lamps with level
+  // lenses in closed casings, stepped early tail lamps, 3,937 tris with the
+  // wheels, one 512x256 atlas (underside in the right half). GLB only, so
+  // glb2obj.py made converted/nissan_180sx_v07 from s13_1989_down.glb and
+  // its _up twin from s13_1989_up.glb (same atlas, same frame), which
+  // becomes the `lampsUp` body. Replaced Nissan_240SX_PSX/reference_v2.
+  { key: 'nissan_180sx', obj: `${here}/converted/nissan_180sx_v07/nissan_180sx_v07.obj`,
+    lampsUp: `${here}/converted/nissan_180sx_v07/nissan_180sx_v07_up.obj`,
+    tex: `${ownerCars}/S13_180SX_Independent_v07`, skins: /^s13_512x256$/,
     gt4LengthM: 4.520 },
+
+  // The owner's FD RX-7 (2026-10-04), Cars/FD_Shared_Independent_v01/
+  // Textured_08: one body in three spoilers, each with its lamps closed and
+  // raised, on one shared 512x256 atlas. GT4's FD sheets: 4280 mm (4285-4295
+  // on a few early rows), wb 2425. The spoilers are years, as the README
+  // names them: the 1993 hoop spoiler on every FD up to `97, the 1999
+  // adjustable wing on the `98 Type RS (the 280 PS series-5 car), and no
+  // spoiler at all (no catalog FD is wingless - the shell is there for the
+  // car that is). The built-in FD (rx7_fd, the scene's own) is unchanged.
+  { key: 'rx7_fd_93', obj: `${here}/converted/rx7_fd_93/rx7_fd_93.obj`,
+    lampsUp: `${here}/converted/rx7_fd_93/rx7_fd_93_up.obj`,
+    tex: `${ownerCars}/FD_Shared_Independent_v01/Textured_08`, skins: /^fd_shared_512x256$/,
+    gt4LengthM: 4.280 },
+  { key: 'rx7_fd_99', obj: `${here}/converted/rx7_fd_99/rx7_fd_99.obj`,
+    lampsUp: `${here}/converted/rx7_fd_99/rx7_fd_99_up.obj`,
+    tex: `${ownerCars}/FD_Shared_Independent_v01/Textured_08`, skins: /^fd_shared_512x256$/,
+    gt4LengthM: 4.280 },
+  { key: 'rx7_fd_nowing', obj: `${here}/converted/rx7_fd_nowing/rx7_fd_nowing.obj`,
+    lampsUp: `${here}/converted/rx7_fd_nowing/rx7_fd_nowing_up.obj`,
+    tex: `${ownerCars}/FD_Shared_Independent_v01/Textured_08`, skins: /^fd_shared_512x256$/,
+    gt4LengthM: 4.280 },
 
   // The owner's Viper GTS (2026-09-25, "I added Dodge Viper model"): the GT1
   // rip rebuilt as a game asset - reflection shell gone, levelled on its
@@ -133,19 +158,19 @@ const MODELS = [
   //   Liftback 95 = Honda INTEGRA TYPE R (DC2): 4380 mm, wb 2570 (FF underbody,
   //                 512x256). Reference-derived from OUTPISTON's Sketchfab
   //                 Integra, CC BY-NC-SA 4.0 (Cars/Liftback_95_PSX/READ_ME_FIRST).
-  //   Roadster 99 = Honda S2000 `99: 4135 mm, wb 2400. 2026-10-03: v02 of
-  //                 the independent rebuild (Cars/S2000_Independent_Textured_
-  //                 v02: reworked rear bumper, rounder soft top, painted
-  //                 shut lines; 2,700 body tris + 4 x 200, red 512x256 with
-  //                 an underbody), GLB -> converted/roadster_99_v02 by
-  //                 glb2obj.py. Replaced Roadster_99_Original/Revision_02.
+  //   Roadster 99 = Honda S2000 `99: 4135 mm, wb 2400. 2026-10-04: v06,
+  //                 the final independent rebuild (Cars/S2000_Independent_
+  //                 Textured_v06: 3,466 tris with the wheels, red 512x256
+  //                 with an underbody), GLB -> converted/roadster_99_v06 by
+  //                 glb2obj.py. Replaced v02 (2026-10-03), which had replaced
+  //                 Roadster_99_Original/Revision_02.
   //   Coupe 99    = Honda PRELUDE (5th gen) `96-`98: 4520 mm, wb 2585
   //                 (Revision_04, FF underbody, 512x256).
   { key: 'liftback_95', obj: `${ownerCars}/Liftback_95_PSX/liftback95.obj`,
     tex: `${ownerCars}/Liftback_95_PSX`, skins: /^liftback95_atlas_512x256$/,
     gt4LengthM: 4.380 },
-  { key: 'roadster_99', obj: `${here}/converted/roadster_99_v02/roadster_99_v02.obj`,
-    tex: `${ownerCars}/S2000_Independent_Textured_v02`, skins: /^s2000_red_512x256$/,
+  { key: 'roadster_99', obj: `${here}/converted/roadster_99_v06/roadster_99_v06.obj`,
+    tex: `${ownerCars}/S2000_Independent_Textured_v06`, skins: /^s2000_red_512x256$/,
     gt4LengthM: 4.135 },
   { key: 'coupe_99', obj: `${ownerCars}/Coupe_99_Original/Revision_04/coupe_99.obj`,
     tex: `${ownerCars}/Coupe_99_Original/Revision_04`, skins: /^coupe_512x256$/,

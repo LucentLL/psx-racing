@@ -69,6 +69,13 @@ namespace PSXRacing
             // The owner's own model (2026-09-25), sized to GT4's SiR-II sheet.
             new Model { key = "civic_eg",     name = "Honda Civic (EG)",          region = Region.Japan,   year = 1991, body = Body.Hatch,    kg = 1076, handOnly = true, widthMm = 1695 },
             new Model { key = "nissan_180sx", name = "Nissan 180SX / 240SX (S13)", region = Region.Japan,  year = 1989, body = Body.Sports,   kg = 1262, handOnly = true, widthMm = 1690 },
+            // The owner's FD (2026-10-04): one body in its three spoilers,
+            // pop-ups on all three, sized to GT4's FD sheet. The catalog's
+            // FDs wear them by year (HandRules); the built-in rx7_fd above
+            // stays the scene's own car and every other car's fallback.
+            new Model { key = "rx7_fd_93",     name = "Mazda RX-7 (FD), 1993 spoiler", region = Region.Japan, year = 1993, body = Body.Sports, kg = 1260, handOnly = true, widthMm = 1760 },
+            new Model { key = "rx7_fd_99",     name = "Mazda RX-7 (FD), 1999 wing",    region = Region.Japan, year = 1999, body = Body.Sports, kg = 1280, handOnly = true, widthMm = 1760 },
+            new Model { key = "rx7_fd_nowing", name = "Mazda RX-7 (FD), no spoiler",   region = Region.Japan, year = 1993, body = Body.Sports, kg = 1260, handOnly = true, widthMm = 1760 },
             new Model { key = "viper_gts",    name = "Dodge Viper GTS",           region = Region.America, year = 1996, body = Body.Sports,   kg = 1532, handOnly = true, widthMm = 1923 },
             // The owner's FlatSix Coupe (2026-09-26): the 911 shape, for every
             // RUF (all three are 911s underneath) and any Porsche 911.
@@ -214,6 +221,12 @@ namespace PSXRacing
             (@"INTEGRA TYPE R \(DC2\)",                        "liftback_95"),
             ("Honda S2000",                                      "roadster_99"),
             (@"Honda PRELUDE (SiR|Type S)",                      "coupe_99"),
+            // The owner's FD (2026-10-04), by spoiler year: the `98 Type RS is
+            // the 280 PS series-5 car with the 1999 adjustable wing; every FD
+            // before it has the 1993 hoop spoiler. (No catalog FD is wingless;
+            // rx7_fd_nowing waits for one.)
+            (@"Mazda RX-7 .*\(FD.*`9[89]",                     "rx7_fd_99"),
+            (@"Mazda RX-7 .*\(FD",                              "rx7_fd_93"),
             // The Cosmo Sport rides along with the rotary it started.
             ("Mazda RX-7|Mazda 110S",                            "rx7_fd"),
             // Every Skyline shares the shell family, the works cars are Skylines
