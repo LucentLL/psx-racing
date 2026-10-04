@@ -425,6 +425,23 @@ namespace PSXRacing.EditorTools
             Eye("i277b_3170", "i277b", -1828.9f, 3414.2f, "I-277", 246f, "I-277 (e2341, Uptown Loop 3,170 m) heading 246: the entrance e196 and the deck e1500 ahead"),
             Eye("i277b_3490", "i277b", -2136.9f, 3429.1f, "I-277", 299f, "I-277 (e1499, Uptown Loop 3,490 m) heading 299: the deck e1490 ahead"),
             Eye("i277b_3600", "i277b", -2224.2f, 3495.4f, "I-277", 315f, "I-277 (e9905, Uptown Loop 3,600 m) heading 315: the exit e9767 leaving on the right"),
+            // the owner's W Trade St frame (2026-10-04, free roam, night): "a thin layer of dirt and I can see under the dirt and the road to the right"
+            Eye("tradedirt_i77_eb", "tradedirt", -3470f, 5710f, "Trade", 100f, "W Trade St eastbound (e8966) east of the I-77 bridges, heading 100: the off-ramp e227 closing in on the right"),
+            Eye("tradedirt_syc_wb", "tradedirt", -3300f, 5667f, "Trade", 285f, "W Trade St westbound (e15298) past Sycamore St, heading 285: the I-77 ramps' triangle ahead on the right"),
+            Eye("tradedirt_graham_wb", "tradedirt", -2600f, 5045f, "Trade", 318f, "W Trade St outbound (e5785) 60 m before Graham St, heading 318: the median's end at the junction"),
+            Eye("tradedirt_4115_nb", "tradedirt", -3600f, 5748f, "Trade", 290f, "W Trade St westbound (e9613) toward the I-77 ramps at node 4115, heading 290"),
+            Top("tradedirt_syc_top", "tradedirt", -3360f, 5680f, "Trade", 45f, "W Trade St from Sycamore St to the I-77 off-ramp e227 from above"),
+            Eye("tradedirt_nose_nw", "tradedirt", -2632f, 5078f, "Trade", 318f, "W Trade St at Graham St: in the median 25 m before its nose, heading 318 - the slot between the junction paving and the inbound verge (-2648,5096)"),
+            Eye("tradedirt_nose_sw", "tradedirt", -2662f, 5114f, "Graham", 140f, "Graham St at W Trade St, heading 140 down the median: the slot at the nose from the junction"),
+            Top("tradedirt_nose_top", "tradedirt", -2650f, 5100f, "Trade", 14f, "the W Trade St median nose at Graham St from above (the slot at -2648,5096)"),
+            Eye("tradedirt_13384_nw", "tradedirt", -3655f, 5769f, "Trade", 318f, "W Trade St (e13384, two-way) north-west from node 4115, heading 318: land standing up to 0.57 m over the pavement on its left (5.4 m out)"),
+            Eye("tradedirt_13384_se", "tradedirt", -3715f, 5823f, "Trade", 138f, "W Trade St (e13384) south-east toward node 4115, heading 138: the same land on the right"),
+            Top("tradedirt_13384_top", "tradedirt", -3688f, 5795f, "Trade", 30f, "W Trade St (e13384) from above: the land over its south-west edge"),
+            Top("tradedirt_pit_top", "tradedirt", -3322f, 5712f, "Trade", 22f, "north of W Trade St at Sycamore St: the ground 5 m under the street at (-3322,5716) from above"),
+            Eye("tradedirt_pit_nb", "tradedirt", -3318f, 5680f, "Trade", 0f, "W Trade St at Sycamore St, heading 0 (north) toward the low ground at (-3322,5716)"),
+            Eye("cutkeep_i77_nb", "cutkeep", -3334f, 5864f, "I-77", 40f, "I-77 northbound (e6608) 40 m before W 5th St, heading 40: the 24 m cut wall at s 198..222 on the right (hotfix 2026-10-03 dropped it; the land above stood open)"),
+            Eye("cutkeep_i77_sb", "cutkeep", -3306f, 5952f, "I-77", 217f, "I-77 southbound (e2132) under W 5th St, heading 217: the 20 m cut wall at s 89..109 on the right"),
+            Top("cutkeep_i77_top", "cutkeep", -3326f, 5915f, "I-77", 28f, "I-77 in its trench under W 5th St from above: the two short cut walls"),
         };
 
         /// <summary>The nearest point on an edge whose name contains

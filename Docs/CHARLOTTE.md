@@ -6806,6 +6806,84 @@ metal/stone/glass?"
 - Not done: pack towers among the tallest would be left out (none are);
   the far windows twinkle as the camera moves (sub-pixel windows); the swap
   at 398 m is low-poly to full detail at equal colour.
+## Ground that ends in the air (2026-10-04): the W Trade St report, an audit, short cut walls that hold land
+
+The owner, free roam at night, HUD "West Trade Street", clock 2:04: "I just
+hit a barrier between these roads. There is a thin layer of dirt and I can
+see under the dirt and the road to the right."
+
+**The audit: GROUND OPEN EDGES** (`Editor/CityGroundEdges.cs`, menu "Audit
+City Ground Open Edges", `city_ground_edges.txt`). It stands the tiles up
+(3x3 at a time, the kerbs and creek banks given probe colliders so a drawn
+face counts). Every sheet edge that no other triangle shares (welded to
+2 mm) is walked a metre at a time. A ray goes down 10 cm past the edge. If
+the first surface is more than 0.15 m lower and a ray across from outside
+meets no face turned toward it, the sheet ENDS IN THE AIR: from below the
+driver sees under it, and its collider edge stops the car. Switches:
+- `PSX_GEDGE_BOX=x0,z0,x1,z1` (default the OwnerBox), `PSX_GEDGE_ROUTES=1`
+  (the routes' tiles; edges within 30 m of a route edge counted apart);
+- `PSX_GEDGE_MESHES=Ground,Roads` (the Roads mesh too);
+- `PSX_GEDGE_COVERED=1` keeps edges under another surface (a verge tucked
+  under its road's edge, normal), tagged;
+- `PSX_GEDGE_LAND=1` adds land standing over a Roads triangle (noisy: a
+  ribbon's tucked edge reads as land over it);
+- `PSX_GEDGE_SHOW=n` places listed.
+Each place names the strip that laid the sheet (`CityMeshes.groundLog`) and
+the short barrier runs the side-flag pass dropped (`CityMeshes.shortDropLog`,
+probe only).
+
+**What it found.**
+- OwnerBox: 1,217 open metres in 353 places (712 m with a 0.3-1.5 m drop).
+  Race routes' tiles: 1,135 m in 286 places. Mostly freeway and ramp verge
+  ends 7-11 m off I-277 / I-77 (by strip: I-277 verges 64 places, unnamed
+  ramps 71, I-77 21, fan chord verges 11, corner fills 12, the lattice 8).
+  Not fixed here: a class of its own.
+- On West Trade Street, uptown (the paved cells within 1 km of Trade &
+  Tryon), there is ONE place: the median nose at **Graham Street**
+  (-2648,5096). The Graham junction's paving ends along e5932's widened
+  median edge (drawn 5.52 m out) 0.53 m over the lattice. e5932's median
+  verge starts 0.45 m further in at the trim (span 24.7..29.0), and toward
+  the junction the slot widens to about 2 m. The lattice there is
+  0.42-0.53 m under both surfaces. That is 12 m of open road edge and 2 m
+  of open verge: the "thin layer of dirt" with the road's edge beside it,
+  both seen from below, and an edge at bumper height. The minimap matches:
+  W Trade x Graham, with the carriageways' 160 m oval (e5785/e5932) beside
+  it. It is the best match for the owner's frame, not a certain one.
+- It is OLD. With every recent switch off (PSX_CITY_LOTROADCUT=0,
+  HOUSEPADS=0, DRIVEWAYS=0, KEEP_SHORT=1, BULBNECK=0) it is the same 14 m.
+  The likely mechanism: the fan perimeter between e5932's widened corner
+  and the next arm is a mouth or envelope stretch (`mouthNext`), so no
+  chord verge is laid. **Not fixed (HARD STOP).**
+
+**Short cut walls that hold land** (the hotfix's suspected part). The
+hotfix (2026-10-03) drops every cut wall run under `MinMedianRunM` closed
+at both ends. A cut wall that retains land is not a stray block: dropped,
+the land behind would end in an open edge over the verge. The rule now
+(`CityMeshes.CutRunHolds`, `CutHoldM` 0.3 m): a short cut wall run is kept
+when the graded ground (`CityElevation.GroundY`, global data) 1-3 m behind
+its line stands more than 0.3 m over the road's edge. Kept runs carry
+`cutWhy = CutWhyHolds` (4), and the short barrier census does not count
+them (it reports them). `PSX_CITY_CUTHOLD=0` drops them as before.
+- Measured: the four short cut walls the hotfix drops on the OwnerBox and
+  route tiles (I-277 e1483 s 10-31; I-77 e2132 s 89-109 and e6608 s 198-222
+  under W 5th St; I-77 e2739 s 129-159) hold 0.00 m. The ground behind them
+  is graded to the road, so they were free-standing stubs, and the drop
+  left no open edge. The rule keeps 0 of them. The open-edge census is
+  identical before and after (OwnerBox 1,217 m / 353, routes 1,135 m / 286).
+  The hotfix is NOT the cause of the W Trade report.
+- City-wide (the short barrier census, 1,540 tiles): 0 isolated pieces,
+  0 short cut walls kept for holding land. The rule is a guard; it changes
+  no geometry today.
+- `city-cycle -DriveOnly`: the same three known failures as main (box BLUNT
+  rail ends 12, INVISIBLE lanes 50, SOLIDS 81). Every route probe reads 0,
+  and WALLS IN LANES reads 0.
+- `city-cycle -AuditOnly` (OwnerBox): 18 failures, the known set (TWIN c
+  75, roadside 27 / 1 / 5 runs / 4, terrain margin 2,816, driveways
+  1,012 / 714).
+- Named views (`CityPreview`, group `tradedirt`): `tradedirt_nose_nw` /
+  `_sw` / `_top` (the Graham nose), `tradedirt_i77_eb`, `_syc_wb`,
+  `_graham_wb`, `_4115_nb`, `_13384_*`, `_pit_*` (candidates ruled out).
+  Group `cutkeep`: I-77 under W 5th St, the two short cut walls.
 
 ## Not in v1 (in order of likely next)
 

@@ -96,6 +96,9 @@ namespace PSXRacing.City
         /// tiles it builds emit (<see cref="RailRecord"/>), so a solid met in
         /// a lane can be named by the rail that stands there.</summary>
         public static List<RailRecord> railLog;
+        /// <summary>Probe only (CityGroundEdges): the short median / cut wall
+        /// runs the side-flag pass dropped (MinMedianRunM), when non-null.</summary>
+        public static List<string> shortDropLog;
         /// <summary>Null in a build. A probe that sets it gets every ground
         /// triangle the tiles lay off the lattice — verges, seams, half
         /// strips, shelves, fan chord verges and corner fills — in world
@@ -4681,12 +4684,43 @@ namespace PSXRacing.City
                         while (j < n && (med ? spanFlags[j][side].median : spanFlags[j][side].cut && !spanFlags[j][side].rail)) j++;
                         bool Bare(int k) { var b = spanFlags[k][side]; return !(b.rail || b.cut || b.median || b.union || b.retain); }
                         if (i > 1 && j < n && Bare(i - 1) && Bare(j) && sections[j - 1].s - sections[i - 1].s < MinMedianRunM)
+                        {
+                            // ...but a CUT WALL that holds land is a retaining
+                            // wall, not a stray block (owner 2026-10-04, West
+                            // Trade / I-77 under W 5th: "a thin layer of dirt
+                            // and I can see under the dirt"). Dropped, the land
+                            // it held stood on unretained over the verge: the
+                            // ground ended in an open sheet edge a metre or two
+                            // over the road's shoulder, its underside showing
+                            // and its collider edge stopping the car. Only a
+                            // free-standing stub - nothing behind it higher
+                            // than CutHoldM - goes.
+                            float hold = cut ? CutRunHolds(map, e, tm, i, j) : 0f;
+                            if (CutHoldOff) { if (shortDropLog != null && hold > CutHoldM) shortDropLog.Add($"HOLDING e{e.index} '{e.name}' cut wall s {sections[i - 1].s:0.0}..{sections[j - 1].s:0.0} holds {hold:0.00}"); hold = 0f; }
+                            if (hold > CutHoldM)
+                            {
+                                for (int k = i; k < j; k++)
+                                {
+                                    var fk = spanFlags[k]; var sk = fk[side];
+                                    sk.cutWhy = CutWhyHolds;
+                                    fk[side] = sk; spanFlags[k] = fk;
+                                }
+                                i = j;
+                                continue;
+                            }
+                            if (shortDropLog != null)
+                            {
+                                var sm = sections[(i + j) / 2 - 1];
+                                var pm = (side < 0 ? sm.L : sm.R) + tm.origin;
+                                shortDropLog.Add($"e{e.index} '{e.name}' cls{e.cls} {(med ? "median" : "cut wall")} side {side} s {sections[i - 1].s:0.0}..{sections[j - 1].s:0.0} at ({pm.x:0.0},{pm.z:0.0}) y {pm.y:0.00} holds {hold:0.00}");
+                            }
                             for (int k = i; k < j; k++)
                             {
                                 var fk = spanFlags[k]; var sk = fk[side];
                                 if (med) sk.median = false; else sk.cut = false;
                                 fk[side] = sk; spanFlags[k] = fk;
                             }
+                        }
                         i = j;
                     }
 
@@ -6964,6 +6998,41 @@ namespace PSXRacing.City
                 }
             }
             return false;
+        }
+
+        /// <summary>A short cut wall run (under <see cref="MinMedianRunM"/>,
+        /// closed at both ends) is kept when the graded ground behind it
+        /// stands more than this over the road's edge: it retains land, and
+        /// without it that land ends in an open sheet edge over the verge.</summary>
+        public const float CutHoldM = 0.3f;
+        /// <summary><see cref="SideFlags.cutWhy"/> of a short cut wall kept
+        /// because it holds land (the short barrier census does not count it
+        /// as a stray piece).</summary>
+        public const byte CutWhyHolds = 4;
+        static readonly float[] CutHoldProbeM = { 1f, 2f, 3f };
+        /// <summary>PSX_CITY_CUTHOLD=0 drops them as the 2026-10-03 hotfix did (the before-count).</summary>
+        static readonly bool CutHoldOff = System.Environment.GetEnvironmentVariable("PSX_CITY_CUTHOLD") == "0";
+
+        /// <summary>How much land the cut wall run over spans [i, j) holds:
+        /// the most the graded ground (<see cref="CityElevation.GroundY"/>, global
+        /// data, so every tile reads the same) stands over the road's edge
+        /// 1-3 m behind the wall's line, along the run.</summary>
+        static float CutRunHolds(CityMap map, CityMap.Edge e, TileMeshes tm, int i, int j)
+        {
+            float hold = 0f;
+            for (int k = i; k < j; k++)
+            {
+                var A = sections[k - 1]; var B = sections[k];
+                var m = (A.L + B.L) * 0.5f;
+                var p = new Vector2(m.x + tm.origin.x, m.z + tm.origin.z);
+                var outward = -A.right;
+                foreach (float o in CutHoldProbeM)
+                {
+                    var q = p + outward * o;
+                    hold = Mathf.Max(hold, CityElevation.GroundY(map, q.x, q.y) - m.y);
+                }
+            }
+            return hold;
         }
         /// <summary>Where the cut test samples the DEM. PSX_CITY_CUTWALL_ONE=1
         /// in the environment puts back the pre-WP-04 single sample, 4 m out,

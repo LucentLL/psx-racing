@@ -62,7 +62,9 @@ namespace PSXRacing.EditorTools
                 for (int side = -1; side <= 1; side += 2)
                 {
                     var sv = sp.Side(side);
-                    int kind = sv.median ? 1 : sv.cut && !sv.rail ? 2 : 0;
+                    // a short cut wall kept because it holds land (CityMeshes.CutWhyHolds,
+                    // 2026-10-04) is a retaining wall, not a stray piece: kind 3
+                    int kind = sv.median ? 1 : sv.cut && !sv.rail ? (sv.cutWhy == CityMeshes.CutWhyHolds ? 3 : 2) : 0;
                     if (kind == 0)
                     {
                         if (!(sv.rail || sv.union || sv.retain)) continue;
@@ -80,6 +82,7 @@ namespace PSXRacing.EditorTools
                 return false;
             }
             var pieces = new List<(float len, string what)>();
+            int holding = 0; float holdingM = 0f;
             float metres = 0f; int total = 0;
             foreach (var kv in runs)
             {
@@ -98,6 +101,7 @@ namespace PSXRacing.EditorTools
                     float len = r1 - r0;
                     bool isolated = r0 > sMin + 0.5f && r1 < sMax - 0.5f && !Touches(kv.Key, r0) && !Touches(kv.Key, r1);
                     if (!isolated || len >= ShortBarrierM) continue;
+                    if (kind == 3) { holding++; holdingM += len; continue; }
                     metres += len;
                     var p = e.PointAt(0.5f * (r0 + r1));
                     pieces.Add((len, $"{(kind == 1 ? "median Jersey" : "cut wall")} {len:0.0} m on e{e.index} '{e.name}'{(e.link ? " L" : "")} side {(kv.Key.side < 0 ? "L (right of travel)" : "R (left of travel)")} s {r0:0.0}..{r1:0.0}/{e.length:0} at ({p.x:0},{p.y:0}) {LatLon(p.x, p.y)}"));
@@ -122,6 +126,7 @@ namespace PSXRacing.EditorTools
             bool kept = System.Environment.GetEnvironmentVariable("PSX_CITY_KEEP_SHORT") == "1";
             Line($"short barrier pieces (hotfix 2026-10-03; city-wide, {tiles.Count} tiles of barriered roads built in {clock.Elapsed.TotalSeconds:0} s{(kept ? "; PSX_CITY_KEEP_SHORT=1: the pieces KEPT, the before-count" : "")}): " +
                  $"{pieces.Count} isolated Jersey-height pieces under {ShortBarrierM:0} m ({pieces.Count - unionShort} median Jerseys / cut walls, {metres:0} m, of {total} runs; {unionShort} union medians)");
+            Line($"    short cut walls KEPT because they hold land (the graded ground over {CityMeshes.CutHoldM:0.0} m above the road behind them; 2026-10-04): {holding}, {holdingM:0} m");
             for (int k = 0; k < Mathf.Min(10, pieces.Count); k++) Line("    SHORT " + pieces[k].what);
             Check(pieces.Count == 0, $"no isolated barrier or median piece shorter than {ShortBarrierM:0} m, city-wide (short barrier census)", pieces.Count);
         }
