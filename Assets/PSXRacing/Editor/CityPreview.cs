@@ -385,6 +385,21 @@ namespace PSXRacing.EditorTools
             Top("minor_rozzelles_1178", "minor", -3915.3f, 6467.5f, "Rozzelles", 22f, "Rozzelles Ferry Rd at Whitehaven Ave (node 1178, unsignalised) from above: the centre and far edge lines run on across the side street's mouth, the near edge line breaks for it (plan A13)"),
             Top("minor_bulb_victorian", "minor", -3517.0f, 2391.9f, "Victorian", 26f, "Victorian Place's turning circle (node 17457): the street ends in a 12.2 m bulb (plan A17)"),
             Top("minor_lot_139", "minor", -1562.8f, 5101.9f, "", 45f, "a surface lot off N Davidson St (lot 139): the lot laid into the ground at the street's level, its stall lines, the concrete apron at its entrance (plan B9/B10)"),
+            // junction boxes (leftover item 3, 2026-10-03): the paved junction in its main road's
+            // surface (with jn_trade_tryon), and Little Rock Road under I-85 from the driver's seat
+            Eye("jb_tryon_eye", "jbox", -2338.2f, 4710.4f, "Tryon", 50f, "South Tryon St northeast-bound, inner lane, 38 m before Trade St (the Square, node 1026), heading 50, 1.2 m eye"),
+            Eye("lr_nb_eye", "jbox", -11039.7f, 6228.0f, "Josh Birmingham", 21f, "N Josh Birmingham Pkwy northbound (e9838) 30 m before the signal at node 518, heading 21, 1.2 m eye: on into Little Rock Rd under the I-85 decks"),
+            Eye("lr_nb_under", "jbox", -11022.0f, 6275.0f, "Josh Birmingham", 20f, "N Josh Birmingham Pkwy northbound (e9839) 20 m before node 429, heading 20, 1.2 m eye: under the I-85 decks, the ramp crossovers ahead"),
+            Eye("lr_sb_eye", "jbox", -11005.7f, 6372.8f, "Little Rock", 201f, "Little Rock Rd southbound (e3717) 35 m before the signal at node 426, heading 201, 1.2 m eye: towards I-85"),
+            Eye("lr_sb_under", "jbox", -11023.5f, 6324.0f, "Little Rock", 199f, "Little Rock Rd southbound (e10076) between nodes 426 and 521, heading 199, 1.2 m eye: under the I-85 decks"),
+            Eye("lr_ramp_e", "jbox", -10985.0f, 6338.0f, "", 222f, "the I-85 off-ramp terminal (e9799) just past its signal at node 11067, heading 222, 1.2 m eye: across Little Rock Rd under the decks"),
+            Eye("lr_ramp_w", "jbox", -11070.1f, 6263.6f, "", 56f, "the I-85 off-ramp (e269) 40 m before node 485 on Little Rock Rd, heading 56, 1.2 m eye"),
+            Top("lr_top", "jboxdbg", -11020f, 6300f, "Little Rock", 70f, "Little Rock Rd under I-85 from above (the decks hide the junction)"),
+            new NamedView { name = "lr_under_top", group = "jboxdbg", kind = ViewKind.Top, at = new Vector2(-11020f, 6300f), road = "Little Rock", size = 70f, ring = 1, rise = 3.2f,
+                            what = "INTERNAL: the junction under the I-85 decks seen from 3.2 m over Little Rock Rd (the decks above the camera)" },
+            new NamedView { name = "ar_under_top", group = "jboxdbg", kind = ViewKind.Top, at = new Vector2(-8165f, -5195f), road = "Arrowood", size = 70f, ring = 1, rise = 3.2f,
+                            what = "INTERNAL: W Arrowood Rd under I-77 (ramp terminals n702/n703/n3899/n3900) seen from 3.2 m over the road" },
+            Eye("ar_eye", "jboxdbg", -8238.8f, -5161.8f, "Arrowood", 119f, "W Arrowood Rd eastbound (e2693) 25 m before node 3899, heading 119, 1.2 m eye: under I-77"),
         };
 
         /// <summary>The nearest point on an edge whose name contains
@@ -459,7 +474,9 @@ namespace PSXRacing.EditorTools
                     break;
                 }
                 case ViewKind.Top:
-                    eye = new Vector3(v.at.x, y + 300f, v.at.y); look = eye + Vector3.down; ortho = v.size;
+                    // rise > 0 (internal, leftover item 3): from that far over the road, under any deck
+                    eye = new Vector3(v.at.x, y + (v.rise > 0f ? v.rise : 300f), v.at.y); look = eye + Vector3.down; ortho = v.size;
+                    if (v.rise > 0f) near = 0.05f;
                     break;
                 case ViewKind.Profile:
                 {

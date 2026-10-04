@@ -5950,6 +5950,139 @@ what the tiles decided (W-beam / sloped / inside / closed / kept).
   not move). The pack metal reads dark grey (the lamp posts' tint).
 - No rebake (tiles build at runtime); no height moved.
 
+## Junction boxes (leftover item 3, 2026-10-03): the main road's surface, ramps crossing at a skew, Little Rock Road under I-85
+
+Two owner faults. A paved junction was drawn in another asphalt than the
+roads round it (Trade and Tryon, top view). And Little Rock Road under I-85
+was "a mess": lines at odd angles, white lines across the road, a grass
+patch in the paved area, road pieces lying over each other. Top views
+cannot see under a deck, so the junction was read from the driver's seat
+(`CityPreview` group `jbox`; `jboxdbg` holds internal views from 3.2 m over
+the road, under the deck) and from a plan of the built meshes
+(`CityAudit.DumpRoads`, `PSX_DUMP_BOX`, internal; the coverage run dumps
+too when it is set). The code is in `CityMeshes.Junctions.cs`
+(`FanMainArms`, `FanSurface`, `CurbRadiusAt`), `CityMeshes.Minor.cs`
+(`CrossingLines`, `ThroughPair`) and `ComputeTrims` / `ShareSurfaceAges` /
+`PierBlocked` in `CityMeshes.cs`.
+
+- **A junction takes its main road's surface** (`FanSurface`).
+  - Before, a junction was aged from its own node (the 40% position hash).
+    In the OwnerBox 107 of 292 T1/T2 junctions were in another age than
+    their main road: a grey patch between black roads, or black between
+    grey (West Arrowood Road at I-77 was one).
+  - The main arm is the through pair of the highest class and widest arms
+    (a road going through beats one that ends there; a street beats a ramp;
+    a pair under one name beats two names; then speed), or the best single
+    arm where nothing goes through. A cluster reads all its members'
+    outside arms.
+  - Material too: concrete where the main arm is on structure at its trim.
+    No new slot: the junction slab's four surfaces were in the kit already.
+  - The main road's two arms share one age through the junction, and so do
+    the two arms of a road crossing it under one name (North and South
+    Tryon are one street: `RoadKey` drops the compass word). Side arms meet
+    the junction at their mouths, the straight cut across the arm at its
+    trim (0.3 m inside a crosswalk).
+  - The joins are bounded: a group of roads grows to 2 km at most
+    (`FanJoinMaxM`), main pairs first. Unbounded, they ran one age over
+    most of the city and new asphalt fell from 38% of the road length to
+    11% (this item's first audit). Bounded it is 38.3% (38.1% before).
+  - Trade and Tryon did not change on main: Tryon is its main road, already
+    new asphalt like the junction; West Trade is old asphalt and meets it
+    at the crosswalk.
+  - `PSX_CITY_FANSURF=0` ages junctions from their node again.
+- **A ramp crossing a carriageway at a skew is a junction** (`ComputeTrims`).
+  - Arms within 60 degrees of each other are clipped, not trimmed. Where a
+    ramp or turning roadway crossed a carriageway under 60 degrees, each of
+    its halves was clipped against the carriageway: a merge on one side, a
+    diverge on the other. Its edge lines ran on across the carriageway's
+    lanes, and wedges of one ribbon lay over the other.
+  - Now, where one link is clipped beside the arm coming in and another
+    beside the arm going out, on the two sides of the through road, going on
+    through each other (within 45 degrees of straight), the node is a
+    junction: no arm clipped, every arm trimmed clear of the others. Acute
+    pairs are trimmed by their true overlap down to 15 degrees
+    (`CrossingMinSin`; 30 degrees elsewhere).
+  - A crossing's corners under 60 degrees are a gore's point, not a curb
+    return (`CurbRadiusAt`): a 15 m return at 36 degrees trimmed Little
+    Rock Road's ramps back 32 m.
+  - Not on a bridge: Tyvola Road's links cross it on its deck over I-77,
+    and there the fan's chords are deck edges (the first audit found
+    parapet faces at three lane mouths). Those keep the clip.
+  - Not street over street: the first audit drew every skewed crossing this
+    way (102 nodes). At Dalton Avenue x North Graham a cluster's grass hole
+    doubled (20.9 -> 41.7 m2), and at East 12th x North Caldwell a rail end
+    stood in a lane mouth (the fan mouth probe). Those, and the other
+    street skews (Gold Hill Road over Highway 21, Beatties Ford Road over
+    West 5th), keep the clip for now. About two dozen ramp crossings
+    city-wide qualify. `PSX_CITY_CROSSINGS=0` draws none.
+- **The main road keeps its lines across a crossing** (`CrossingLines`).
+  - A ramp crossing at 19-21 degrees lies over the carriageway for about
+    30 m, and all of it is the junction's. A bare slab there read as an
+    unpainted plaza (the first AFTER photo of Little Rock Road).
+  - The main road's straight-through pairs of arms (not ramps: the first
+    pair, and any carriageway parallel to it, a divided road's two halves)
+    carry their lane lines across the fan, cut in as A13's through lines
+    are. Their edge lines go across too, broken where a crossing road's
+    pavement lies.
+  - The crossing roads' own lines stop at the junction.
+- **Little Rock Road under I-85.** OSM draws four motorway_link ways
+  crossing between Little Rock Road's two carriageways under the deck (the
+  left turns to and from the ramps), crossing each other at nodes 428 and
+  520 and the carriageways at 19-46 degrees: eight nodes in 40 m, seven of
+  them merge-and-diverge clips. Now they are crossings and join one cluster
+  (nodes 427, 428, 429, 485, 519, 520, 521, 11028; 10 inside edges): one
+  paved area, no grass, no ramp lines across it, Little Rock Road's lanes
+  and edge lines carried through.
+- **No pier in a junction.** A pier or bent no longer stands inside (or
+  within its clearance of) a junction's paved area below its deck
+  (`PierBlocked` reads the tile's fan floors).
+- **The I-85 decks there stay one structure.** e1167/e1170 (ways 38572136
+  and 38572139) have no `man_made=bridge` outline, so the owner's rule
+  decides: opposite carriageways with a 4.6 m gap (under 6.1 m) are one
+  union. The soffit over the junction is that deck, 42 m wide and 100-117 m
+  long as OSM draws the bridges. A NEVER override in
+  `tools/city/deckpairs_overrides.json` would open the 4.6 m slot of sky if
+  the owner's Street View shows two structures.
+- **The other interchange: West Arrowood Road under I-77** (box -8320,-5320
+  to -8000,-5060). It has no ramp crossing. Its west junction was the grey
+  patch; it now takes West Arrowood's surface. Its other faults are still
+  there: the two carriageways between the ramp signals overlap
+  (ribbon/ribbon T2 110 m2, four lanes each way on lines OSM puts close
+  together), a 6.7 m2 grass hole in the west cluster, and a fan over a
+  foreign road (56 m2).
+- **Known:** a fan stands 1.2 cm proud of its arms (`FanProudM`). From a
+  driver's eye 3-4 m before a mouth the step shows as a thin line (the
+  AFTER photo southbound). Every fan has it; it is not new.
+- No rebake (tiles build at runtime). Node heights at the converted
+  crossings move by up to 0.26 m, because the solve treats a fan's node as
+  a junction. No height rule changed.
+
+**BEFORE -> AFTER**
+
+| | before | after |
+|---|---|---|
+| T1/T2 junctions in another surface than their main arm, OwnerBox | 107 of 292 | **0** of 298 |
+| the main road's other arm in another surface, T1 / T2 | 27 / 40 | 14 / 12 |
+| new asphalt share of road length, city-wide | 38.1% | 38.3% |
+| Little Rock box, coplanar T1 m2 (arm/arm, clip, ribbon, gore, fan over road) | 437 | 224 (cluster over its own arms 114 of it) |
+| Little Rock box, branch overshoot T1 m2 / underlap road piece T1 / T2 | 163 / 267 / 164 | 44 / 190 / 45 |
+| Little Rock box, grass in the cluster box | 0 (no cluster) | 5.4 m2 |
+| West Arrowood box | (identical before and after; faults listed above) | |
+| worst view draws (trade_tryon) | 210 | 205 |
+| tile build p95 (9 budget sites) | 120.4 ms | 119.6 ms |
+
+- The one AuditOnly ran on the first rule (every skewed crossing; no lines
+  across). It failed the 16 known checks plus the fan mouth probe (4 probes:
+  Tyvola Road's deck x3, East 12th x North Caldwell). The bridge rule and
+  the ramps-only rule then return those nodes to their earlier drawing, so
+  the probe is expected back at 0, but it has not been re-run. The lane
+  survey stayed at 8 runs; the PAINT, MARKS and DRIVE AUDIT results were
+  clean.
+- Boxed launch in the OwnerBox on the first rule: 12 -> 13 spots (one at
+  North Caldwell split into two smaller ones, 0.493 -> 0.173 + 0.169 m).
+  Routes stayed at 0. Both of those nodes are street skews, which now keep
+  the clip.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

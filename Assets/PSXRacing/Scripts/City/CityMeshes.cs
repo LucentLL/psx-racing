@@ -701,6 +701,11 @@ namespace PSXRacing.City
             public int[] clusterOf;
             public List<JunctionCluster> clusters;
             public bool[] internalEdge;
+            /// <summary>Leftover item 3: each junction's MAIN ARM, by its
+            /// <see cref="FanKey"/> node - the edge whose surface (material
+            /// and age) the paved junction takes - the member node it leaves,
+            /// and its through partner (-1: none). <see cref="FanMainArms"/>.</summary>
+            public int[] fanMain, fanMainNode, fanPartner;
 
             public JunctionCluster ClusterOfNode(int n) =>
                 clusterOf != null && n >= 0 && n < clusterOf.Length && clusterOf[n] >= 0 ? clusters[clusterOf[n]] : null;
@@ -762,6 +767,17 @@ namespace PSXRacing.City
         }
 
         const float ThroughCos = -0.85f;    // arms this opposite are one road going through
+        /// <summary>Leftover item 3: PSX_CITY_CROSSINGS=0 draws a road crossing
+        /// another at a skew as before (a merge and a diverge, clipped).</summary>
+        public static bool CrossingsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_CROSSINGS") != "0";
+        /// <summary>The two halves of a crossing road go on through each other
+        /// (within 45 degrees of straight).</summary>
+        const float CrossingPairCos = -0.7f;
+        /// <summary>A crossing's acute pairs are trimmed by their true overlap
+        /// down to 15 degrees (0.5 = 30 degrees elsewhere).</summary>
+        const float CrossingMinSin = 0.26f;
+        /// <summary>Nodes the last ComputeTrims drew as crossings.</summary>
+        public static int CrossingNodes { get; private set; }
         /// <summary>Arms closer than this in direction are CLIPPED against
         /// each other rather than trimmed: a ramp beside its mainline, the
         /// minor arm of a fork, a side street meeting a road at 50 degrees.
@@ -795,6 +811,8 @@ namespace PSXRacing.City
 
             var arms = new List<(CityMap.Edge e, Vector2 dir, float hw)>(8);
             var clipped = new List<int>(8);     // arm index -> arm it clips against, or -1
+            int crossingCount = 0;
+            var crossFlags = new bool[nn];
             var joins = new List<(int node, int e, int o)>(1024);
             for (int n = 0; n < nn; n++)
             {
@@ -864,6 +882,52 @@ namespace PSXRacing.City
                         if (clipped[c] < 0) clipped[c] = h;
                     }
 
+                // A ROAD CROSSING AT GRADE (leftover item 3; the owner, Little
+                // Rock Road under I-85: "a mess"): a branch clipped beside the
+                // arm coming in and another beside the arm going out, on the
+                // two SIDES of the through road and going on through each
+                // other, are one road crossing this one at a skew - the left
+                // turns and ramp traffic across Little Rock Road's carriageways -
+                // and not a merge and a diverge. Clipped, each half hugged the
+                // through road: its edge lines ran on across the other road's
+                // lanes and wedges of one ribbon lay over the other. A crossing
+                // is a junction: no arm clipped, every arm trimmed clear of the
+                // others (the acute pairs by their true overlap).
+                // Only a RAMP OR TURNING ROADWAY crossing (both halves links): the
+                // first audit also drew street-over-street skews this way (Dalton
+                // Avenue x North Graham, East 12th x North Caldwell) and doubled
+                // a cluster's grass hole there and stood a rail end in a lane
+                // mouth; those keep the clip for now.
+                bool crossing = false;
+                // not on a bridge: Tyvola Road's links cross it ON its deck over
+                // I-77, where the fan's chords are deck edges (the first audit:
+                // parapet faces at the lane mouths); there the clip stays
+                bool onBridge = false;
+                foreach (var a in arms) if (a.e.bridge) { onBridge = true; break; }
+                if (through && CrossingsOn && !onBridge)
+                {
+                    var fwd = -arms[tA].dir;
+                    for (int i = 0; i < arms.Count && !crossing; i++)
+                    {
+                        if (i == tA || i == tB || clipped[i] != tA) continue;
+                        for (int j = 0; j < arms.Count; j++)
+                        {
+                            if (j == tA || j == tB || j == i || clipped[j] != tB) continue;
+                            if (!arms[i].e.link || !arms[j].e.link) continue;   // a ramp or turning roadway crossing (see above)
+                            if (Vector2.Dot(arms[i].dir, arms[j].dir) > CrossingPairCos) continue;
+                            float si = fwd.x * arms[i].dir.y - fwd.y * arms[i].dir.x;
+                            float sj = fwd.x * arms[j].dir.y - fwd.y * arms[j].dir.x;
+                            if (si * sj >= 0f) continue;
+                            crossing = true;
+                            break;
+                        }
+                    }
+                    // every arm a junction arm: Little Rock Road's ramps cross its
+                    // carriageways at 19-21 deg, and their two pavements overlap for
+                    // 30 m before the crossing point - all of it the junction's
+                    if (crossing) { for (int i = 0; i < arms.Count; i++) clipped[i] = -1; crossingCount++; crossFlags[n] = true; }
+                }
+
                 // A through road with nothing but branches beside it draws
                 // no patch: the through ribbons meet mitred, the branches
                 // clip. Anything else is a fan.
@@ -905,7 +969,7 @@ namespace PSXRacing.City
                         float d = Vector2.Dot(arms[i].dir, arms[j].dir);
                         if (d < ThroughCos) continue;                       // straight through: no overlap
                         if (clipped[i] == j || clipped[j] == i) continue;   // handled by clipping
-                        float sin = Mathf.Max(0.5f, Mathf.Sqrt(Mathf.Max(0f, 1f - d * d)));
+                        float sin = Mathf.Max(crossing ? CrossingMinSin : 0.5f, Mathf.Sqrt(Mathf.Max(0f, 1f - d * d)));
                         // the reach off the OSM line on the further side: an
                         // arm offset by the line model overlaps by that much more
                         trimN = Mathf.Max(trimN, (arms[j].e.HalfMax + arms[i].e.HalfMax * Mathf.Abs(d) + 0.6f) / sin);
@@ -931,6 +995,8 @@ namespace PSXRacing.City
                 }
             }
 
+            CrossingNodes = crossingCount;
+            CrossingNodeFlags = crossFlags;
             // roads pass L7 (plan A10): the curb returns' trims
             var medianX = JunctionTrims(map, t);
             // roads pass L8 (plan A17): the cul-de-sac bulbs
@@ -1049,7 +1115,7 @@ namespace PSXRacing.City
                     acc = Mathf.Repeat(acc + e.length, RoadVTile);
                 }
             }
-            ShareSurfaceAges(map);
+            ShareSurfaceAges(map, t);
         }
 
         /// <summary>
@@ -1067,7 +1133,7 @@ namespace PSXRacing.City
         /// (its lowest), so both halves are resurfaced together, as a real
         /// contract does both directions.
         /// </summary>
-        static void ShareSurfaceAges(CityMap map)
+        static void ShareSurfaceAges(CityMap map, Trims t)
         {
             int ne = map.edges.Length;
             var parent = new int[ne];
@@ -1104,17 +1170,42 @@ namespace PSXRacing.City
                 {
                     var e = map.edges[i];
                     var mid = e.PointAt(e.length * 0.5f);
-                    var t = e.TangentAt(e.length * 0.5f);
+                    var tg = e.TangentAt(e.length * 0.5f);
                     foreach (int j in l)
                     {
                         if (j == i || Find(j) == Find(i) || !box[j].Contains(mid)) continue;
                         var o = map.edges[j];
                         CityElevation.ProjectOn(o, mid, out float at);
                         if (Vector2.Distance(o.PointAt(at), mid) > DividedReachM) continue;
-                        if (Vector2.Dot(o.TangentAt(at), t) > -0.85f) continue;   // not running the other way
+                        if (Vector2.Dot(o.TangentAt(at), tg) > -0.85f) continue;   // not running the other way
                         Join(i, j);
                     }
                 }
+            }
+            // leftover item 3: a road goes on in one surface through its junctions -
+            // the main road's two arms first, then the two arms of a road crossing
+            // it under one name - as one resurfacing contract does, a stretch at a
+            // time: a join that would make a group longer than FanJoinMaxM is left
+            // (that junction's main road changes age at its mouth). Unbounded, the
+            // joins ran one surface over most of the city and new asphalt fell from
+            // 38% of the road length to 11% (the first audit of this item).
+            FanJoins.Clear(); FanJoinsMade = 0;
+            if (t != null) FanMainArms(map, t, FanJoins);
+            if (FanSurfaceOn)
+            {
+                var len = new float[ne];
+                for (int i = 0; i < ne; i++) len[Find(i)] += map.edges[i].length;
+                for (int pass = 0; pass < 2; pass++)
+                    foreach (var (ja, jb, main) in FanJoins)
+                    {
+                        if (main != (pass == 0)) continue;
+                        int ra = Find(ja), rb = Find(jb);
+                        if (ra == rb || len[ra] + len[rb] > FanJoinMaxM) continue;
+                        float sum = len[ra] + len[rb];
+                        Join(ra, rb);
+                        len[Find(ra)] = sum;
+                        FanJoinsMade++;
+                    }
             }
             // each group's seed: the lowest (x, then z) of its members'
             var seedOf = new Dictionary<int, Vector2>();
@@ -8094,6 +8185,23 @@ namespace PSXRacing.City
                 float dist = SegRectDistance(a - p, o.pts[si + 1] - p, right, tan, hw, 0.7f);
                 if (dist <= o.HalfMax + PierClearM) return true;
             }
+            // nor in a junction's paved area below the deck (leftover item 3: a
+            // crossing's cluster paves the ground between the roads under I-85)
+            float rr = hw + PierClearM;
+            foreach (var f in fanFloors)
+            {
+                if (f.ring == null || f.ring.Length < 3 || f.tris == null || f.tris.Length == 0) continue;
+                if (p.x < f.x0 - rr || p.x > f.x1 + rr || p.y < f.z0 - rr || p.y > f.z1 + rr) continue;
+                if (f.tris[0].y >= deckY - 1.2f) continue;   // a junction on the deck itself
+                if (CityMap.PointInPoly(f.ring, p)) return true;
+                for (int i = 0; i < f.ring.Length; i++)
+                {
+                    Vector2 q0 = f.ring[i], dq = f.ring[(i + 1) % f.ring.Length] - q0;
+                    float L2 = dq.sqrMagnitude;
+                    float u = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - q0, dq) / L2) : 0f;
+                    if (Vector2.Distance(p, q0 + dq * u) < rr) return true;
+                }
+            }
             return false;
         }
 
@@ -8184,11 +8292,11 @@ namespace PSXRacing.City
                 // a junction cluster is drawn once, by its lowest member (plan A11)
                 if (FanKey(trims, n) != n) continue;
 
-                // Intersections are resurfaced on their own schedule, so a
-                // junction takes its age from the NODE rather than inheriting
-                // one of its arms'.
-                var bk = buckets[(int)SlotOf(JunctionProfile,
-                    IsFresh(np) ? Surface.AsphaltNew : Surface.AsphaltOld)];
+                // A junction is paved with its MAIN road (leftover item 3: a
+                // junction aged from its own node read as a patch at Trade x
+                // Tryon); PSX_CITY_FANSURF=0 ages it from the node as before.
+                int fanSlot = (int)SlotOf(JunctionProfile, FanSurface(map, trims, n));
+                var bk = buckets[fanSlot];
 
                 const float proud = FanProudM;
                 FanCorners(map, trims, n, tm.origin, corners);
@@ -8209,7 +8317,7 @@ namespace PSXRacing.City
                     ulong mouths = 0;
                     for (int i = 0; i < corners.Count && i < 64; i++) if (corners[i].mouthNext) mouths |= 1UL << i;
                     fanTapAt = tm.tap.fans.Count;
-                    tm.tap.fans.Add(new RoadTap.Fan { slot = (int)SlotOf(JunctionProfile, IsFresh(np) ? Surface.AsphaltNew : Surface.AsphaltOld),
+                    tm.tap.fans.Add(new RoadTap.Fan { slot = fanSlot,
                                                       bucketV = centerI, count = corners.Count + 1 + fanSteinerScratch.Count, node = n, mouths = mouths, triStart = bk.t.Count, triCount = fanTris.Count / 3 });
                 }
                 bk.v.Add(centre);

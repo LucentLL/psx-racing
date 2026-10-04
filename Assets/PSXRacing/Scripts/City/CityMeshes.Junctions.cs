@@ -112,6 +112,12 @@ namespace PSXRacing.City
             // gore's, not a curb's - a 10 m arc there trimmed node 597's links
             // back 28-33 m and stood the fan's chord over Tyvola Road's drop
             if (a.link && b.link) return 0f;
+            // a road crossing at a skew (leftover item 3): its acute corners are
+            // where the two roads run side by side into the junction - a gore's
+            // point, as it was when one was clipped against the other, not a curb
+            // (a 15 m return at 36 deg trimmed Little Rock Road's ramps back 32 m)
+            if (phi < CrossingGoreDeg * Mathf.Deg2Rad && CrossingNodeFlags != null &&
+                ((na >= 0 && na < CrossingNodeFlags.Length && CrossingNodeFlags[na]) || (nb >= 0 && nb < CrossingNodeFlags.Length && CrossingNodeFlags[nb]))) return 0f;
             if (SameRoad(a, b))
             {
                 if (a.oneway && b.oneway && ((a.b == na) != (b.b == nb))) return MedianNoseR;
@@ -119,6 +125,12 @@ namespace PSXRacing.City
             }
             return CurbRadius(a, b);
         }
+
+        /// <summary>The nodes the last ComputeTrims drew as a road crossing
+        /// another at a skew (leftover item 3).</summary>
+        public static bool[] CrossingNodeFlags;
+        /// <summary>A crossing's corners sharper than this are gores (BranchCos's 60 deg).</summary>
+        const float CrossingGoreDeg = 60f;
 
         public static string CurbPair(CityMap.Edge a, CityMap.Edge b)
         {
@@ -340,6 +352,127 @@ namespace PSXRacing.City
             var c = t.ClusterOfNode(n);
             return c != null ? c.owner : n;
         }
+
+        // ------------------------------------------------------------------
+        //  JUNCTION SURFACE (leftover item 3, 2026-10-03; the owner: the paved
+        //  junction at Trade x Tryon "reads as a patch" from above). A
+        //  junction was aged from its own node (40% fresh by the position
+        //  hash), so one in four or so stood in black new asphalt between grey
+        //  roads, or grey between black. It now takes its MAIN road's surface,
+        //  material and age: the through pair of the highest class, widest
+        //  arms (a through road beats a road that ends there; a street beats
+        //  a ramp), or the best single arm where nothing goes through. The
+        //  main road's two arms share one age through the junction, and so do
+        //  the two arms of a road crossing it under one name, so the side
+        //  arms meet the junction at their mouths - the straight cut across
+        //  the arm at its trim, 0.3 m inside a crosswalk - as a resurfacing
+        //  contract leaves a main road's junctions. No new slot: the junction
+        //  slab's own four surfaces.
+        // ------------------------------------------------------------------
+
+        /// <summary>PSX_CITY_FANSURF=0: junctions aged from their node and no
+        /// road joined through them (the BEFORE of leftover item 3).</summary>
+        public static bool FanSurfaceOn = System.Environment.GetEnvironmentVariable("PSX_CITY_FANSURF") != "0";
+        /// <summary>The edge pairs the last ComputeTrims joined through a
+        /// junction (one surface age), whether or not FanSurfaceOn used them.</summary>
+        public static readonly List<(int a, int b, bool main)> FanJoins = new List<(int, int, bool)>(4096);
+        /// <summary>Of <see cref="FanJoins"/>, the joins the last ShareSurfaceAges made.</summary>
+        public static int FanJoinsMade { get; private set; }
+        /// <summary>The longest a road group joined through junctions may grow
+        /// (metres of road, both carriageways of a divided road counted): one
+        /// resurfacing contract's stretch.</summary>
+        const float FanJoinMaxM = 2000f;
+        static readonly List<(CityMap.Edge e, int node, Vector2 dir)> fanArms = new List<(CityMap.Edge, int, Vector2)>(16);
+
+        /// <summary>A road's name without its compass word: North and South
+        /// Tryon Street are one street through the Square.</summary>
+        public static string RoadKey(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "";
+            foreach (var p in new[] { "North ", "South ", "East ", "West ", "N ", "S ", "E ", "W " })
+                if (name.StartsWith(p, System.StringComparison.OrdinalIgnoreCase)) return name.Substring(p.Length);
+            return name;
+        }
+
+        /// <summary>How much of a main road an arm is: a street before a
+        /// ramp, then class, then width.</summary>
+        static float ArmRank(CityMap.Edge e) => (e.link ? 0f : 1000f) + e.cls * 50f + Mathf.Min(e.width, 49f);
+
+        /// <summary>Each junction's main arm and through partner into
+        /// <see cref="Trims.fanMain"/> / <see cref="Trims.fanPartner"/>, and the
+        /// edge pairs that go on through it in one surface into
+        /// <paramref name="joins"/>: the main pair (any names), and every other
+        /// pair going straight through under one road name.</summary>
+        static void FanMainArms(CityMap map, Trims t, List<(int a, int b, bool main)> joins)
+        {
+            int nn = map.nodes.Length;
+            t.fanMain = new int[nn]; t.fanMainNode = new int[nn]; t.fanPartner = new int[nn];
+            for (int i = 0; i < nn; i++) t.fanMain[i] = t.fanMainNode[i] = t.fanPartner[i] = -1;
+            for (int n = 0; n < nn; n++)
+            {
+                if (!t.patch[n] || FanKey(t, n) != n) continue;
+                fanArms.Clear();
+                var cl = t.ClusterOfNode(n);
+                int count = cl != null ? cl.nodes.Length : 1;
+                for (int k = 0; k < count; k++)
+                {
+                    int m = cl != null ? cl.nodes[k] : n;
+                    foreach (int ei in map.nodeEdges[m])
+                    {
+                        var e = map.edges[ei];
+                        if (e.a == e.b || t.Internal(ei) || e.length < 0.01f) continue;
+                        fanArms.Add((e, m, OutDir(e, m)));
+                    }
+                }
+                if (fanArms.Count == 0) continue;
+                int bi = -1, bj = -1; float best = float.MinValue;
+                for (int i = 0; i < fanArms.Count; i++)
+                {
+                    float r = ArmRank(fanArms[i].e);
+                    if (r > best || (r == best && fanArms[i].e.index < fanArms[bi].e.index)) { best = r; bi = i; }
+                }
+                for (int i = 0; i < fanArms.Count; i++)
+                    for (int j = i + 1; j < fanArms.Count; j++)
+                    {
+                        var ei = fanArms[i].e; var ej = fanArms[j].e;
+                        if (ei.link != ej.link || ei.index == ej.index) continue;
+                        if (Vector2.Dot(fanArms[i].dir, fanArms[j].dir) >= ThroughCos) continue;
+                        bool same = RoadKey(ei.name).Length > 0 && RoadKey(ei.name) == RoadKey(ej.name);
+                        if (same && !ei.link) joins.Add((ei.index, ej.index, false));
+                        // a through pair beats any single arm; then the pair's weaker arm; one name; speed
+                        float r = 10000f + Mathf.Min(ArmRank(ei), ArmRank(ej)) + (same ? 0.5f : 0f) + 0.001f * Mathf.Min(ei.speedKmh, ej.speedKmh);
+                        if (r > best) { best = r; bi = i; bj = j; }
+                    }
+                int main = bi, partner = bj;
+                if (bj >= 0)
+                {
+                    float ri = ArmRank(fanArms[bi].e), rj = ArmRank(fanArms[bj].e);
+                    if (rj > ri || (rj == ri && fanArms[bj].e.index < fanArms[bi].e.index)) { main = bj; partner = bi; }
+                    joins.Add((fanArms[bi].e.index, fanArms[bj].e.index, true));
+                }
+                t.fanMain[n] = fanArms[main].e.index;
+                t.fanMainNode[n] = fanArms[main].node;
+                if (partner >= 0) t.fanPartner[n] = fanArms[partner].e.index;
+            }
+        }
+
+        /// <summary>The surface a junction is paved in: its main arm's
+        /// (concrete where that arm is on structure at its trim), or, with
+        /// PSX_CITY_FANSURF=0 or no arm, the node's own age.</summary>
+        public static Surface FanSurface(CityMap map, Trims t, int n)
+        {
+            int k = FanKey(t, n);
+            if (FanSurfaceOn && t.fanMain != null && t.fanMain[k] >= 0)
+            {
+                var e = map.edges[t.fanMain[k]];
+                return SurfaceOf(e, ArmElevatedAtTrim(map, t, e, t.fanMainNode[k]));
+            }
+            return IsFresh(map.nodes[n]) ? Surface.AsphaltNew : Surface.AsphaltOld;
+        }
+
+        /// <summary>For the audit: an arm's own surface at a junction.</summary>
+        public static Surface ArmSurface(CityMap map, Trims t, CityMap.Edge e, int node) =>
+            SurfaceOf(e, ArmElevatedAtTrim(map, t, e, node));
 
         /// <summary>Where a fan's triangles meet and at what height: the node,
         /// or a cluster's members' centroid at their mean height.</summary>

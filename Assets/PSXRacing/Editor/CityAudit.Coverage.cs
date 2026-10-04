@@ -342,6 +342,8 @@ namespace PSXRacing.EditorTools
             string root = Directory.GetParent(Application.dataPath).FullName;
             File.WriteAllText(Path.Combine(root, "city_coverage.txt"), log.ToString());
             if (res != null) WriteOutputs(res, null);
+            // leftover item 3 (internal): the built meshes under PSX_DUMP_BOX, in the same run
+            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PSX_DUMP_BOX"))) CityAudit.DumpRoads();
             if (Application.isBatchMode) EditorApplication.Exit(status);
         }
 

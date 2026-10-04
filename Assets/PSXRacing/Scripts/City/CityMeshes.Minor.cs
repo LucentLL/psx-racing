@@ -86,6 +86,9 @@ namespace PSXRacing.City
         {
             ReleaseStrips();
             if (!ThroughPaintOn || !trims.patch[n]) return false;
+            // leftover item 3: a junction where a road crosses another at a skew
+            // carries its main road's lines across (CrossingLines)
+            if (!count && CrossingsOn && CrossingFan(trims, n)) return CrossingLines(map, trims, n, origin);
             if (trims.ClusterOfNode(n) != null) { if (count) ThroughStats.skipCluster++; return false; }
             var list = map.nodeEdges[n];
             if (list.Count < 3 || list.Count > 4) return false;
@@ -123,14 +126,29 @@ namespace PSXRacing.City
             if (throughStops) { if (count) ThroughStats.skipStop++; return false; }
             if (FanOnStructure(map, trims, n)) { if (count) ThroughStats.skipStructure++; return false; }
 
-            float sA = A.a == n ? trims.atA[A.index] : A.length - trims.atB[A.index];
-            float sB = B.a == n ? trims.atA[B.index] : B.length - trims.atB[B.index];
+            int drawnN = ThroughPair(map, trims, A, n, B, n, sideLeft, sideRight, origin, count, null);
+            if (drawnN > 0 && count) ThroughStats.junctions++;
+            return drawnN > 0;
+        }
+
+        /// <summary>The through lines of one pair of arms across a fan: in
+        /// along A (meeting the fan at node nA), out along B (at nB; a
+        /// cluster's arms meet it at different members), into
+        /// <see cref="throughStrips"/>. <paramref name="gaps"/> (a crossing,
+        /// leftover item 3): the roads crossing this one inside the junction -
+        /// its edge lines are broken over their pavement, and no edge line is
+        /// dropped for a side street.</summary>
+        static int ThroughPair(CityMap map, Trims trims, CityMap.Edge A, int nA, CityMap.Edge B, int nB, bool sideLeft, bool sideRight,
+                               Vector3 origin, bool count, List<CityMap.Edge> gaps)
+        {
+            float sA = A.a == nA ? trims.atA[A.index] : A.length - trims.atB[A.index];
+            float sB = B.a == nB ? trims.atA[B.index] : B.length - trims.atB[B.index];
             LineModel.LinesAt(A, sA, tpLinesA);
             LineModel.LinesAt(B, sB, tpLinesB);
-            if (tpLinesA.Count == 0 || tpLinesB.Count == 0) { if (count) ThroughStats.skipNoLines++; return false; }
+            if (tpLinesA.Count == 0 || tpLinesB.Count == 0) { if (count) ThroughStats.skipNoLines++; return 0; }
             var layA = LineModel.LayoutOf(A); var layB = LineModel.LayoutOf(B);
-            float sgnA = A.b == n ? 1f : -1f;    // A's s along the travel
-            float sgnB = B.a == n ? 1f : -1f;    // B's s along the travel (out of the node)
+            float sgnA = A.b == nA ? 1f : -1f;    // A's s along the travel
+            float sgnB = B.a == nB ? 1f : -1f;    // B's s along the travel (out of the node)
             var pA = A.PointAt(sA); var rA = RightAt(map, trims, A, sA, out _);
             var pB = B.PointAt(sB); var rB = RightAt(map, trims, B, sB, out _);
             var tA = A.TangentAt(sA) * sgnA; var tB = B.TangentAt(sB) * sgnB;
@@ -144,7 +162,7 @@ namespace PSXRacing.City
                 bool edgeA = ka == LineModel.KEdgeP || ka == LineModel.KEdgeM;
                 float leftA = sgnA > 0f ? la.lat : -la.lat;
                 // an edge line on the side a street opens on is broken there
-                if (edgeA && ((leftA > 0f && sideLeft) || (leftA < 0f && sideRight))) { if (count) ThroughStats.nearEdgesDropped++; continue; }
+                if (gaps == null && edgeA && ((leftA > 0f && sideLeft) || (leftA < 0f && sideRight))) { if (count) ThroughStats.nearEdgesDropped++; continue; }
                 int match = -1; float bestD = 0.3f;
                 for (int j = 0; j < tpLinesB.Count; j++)
                 {
@@ -172,7 +190,7 @@ namespace PSXRacing.City
                 bool bend = Vector2.Dot(tA.normalized, tB.normalized) < Mathf.Cos(5f * Mathf.Deg2Rad);
                 // the samples, plus a synth line's dash ends
                 // a straight line is one quad (cut into the fan once); a bend every 2 m
-                int segs = bend ? Mathf.Max(2, Mathf.CeilToInt(chord / 2f)) : 1;
+                int segs = gaps != null ? Mathf.Max(2, Mathf.CeilToInt(chord / 1.5f)) : bend ? Mathf.Max(2, Mathf.CeilToInt(chord / 2f)) : 1;
                 float v0 = (A.vOff + A.vDir * sA) / RoadVTile, dv = A.vDir * sgnA / RoadVTile;
                 Vector2 Pt(float u)
                 {
@@ -235,6 +253,16 @@ namespace PSXRacing.City
                 {
                     bool paint = true;
                     if (synth) paint = Mathf.Repeat(0.5f * (st.v[i] + st.v[i + 1]), 1f) < 0.25f;
+                    // a crossing: the edge line is broken where a crossing road's pavement lies
+                    if (paint && gaps != null && edgeA)
+                    {
+                        var mid = 0.5f * (st.c[i] + st.c[i + 1]) + new Vector2(origin.x, origin.z);
+                        foreach (var g in gaps)
+                        {
+                            CityElevation.ProjectOn(g, mid, out float gs);
+                            if (Vector2.Distance(g.PointAt(gs), mid) < g.HalfMax) { paint = false; break; }
+                        }
+                    }
                     st.paint.Add(paint);
                 }
                 // the line's normals point to ITS left; laterals in LinesAt are
@@ -245,10 +273,96 @@ namespace PSXRacing.City
                 drawn++;
                 if (count) { ThroughStats.lines++; ThroughStats.metres += arcAcc; }
             }
-            if (drawn > 0 && count) ThroughStats.junctions++;
-            return drawn > 0;
+            return drawn;
         }
         static readonly List<float> tpU = new List<float>(48), tpArc = new List<float>(48);
+
+        /// <summary>Does this fan (or its cluster) hold a node where a road
+        /// crosses another at a skew (leftover item 3)?</summary>
+        static bool CrossingFan(Trims t, int n)
+        {
+            var f = CrossingNodeFlags;
+            if (f == null) return false;
+            var cl = t.ClusterOfNode(n);
+            if (cl == null) return n < f.Length && f[n];
+            foreach (int m in cl.nodes) if (m < f.Length && f[m]) return true;
+            return false;
+        }
+
+        static readonly List<(CityMap.Edge e, int node, Vector2 dir)> clArms = new List<(CityMap.Edge, int, Vector2)>(16);
+        static readonly List<CityMap.Edge> clEdges = new List<CityMap.Edge>(24), clGaps = new List<CityMap.Edge>(24);
+        static readonly List<(int i, int j, float d, int cls)> clPairs = new List<(int, int, float, int)>(16);
+
+        /// <summary>
+        /// THE MAIN ROAD'S LINES ACROSS A CROSSING (leftover item 3; review of
+        /// the first AFTER photo of Little Rock Road: an unpainted plaza under
+        /// the deck). Where a road crosses another at a skew the two pavements
+        /// overlap for 15-30 m, all of it the junction's - and a road keeps its
+        /// lanes across that. The main road's straight-through pairs of arms
+        /// (not ramps: the first pair and any carriageway running parallel to
+        /// it - a divided road's two halves; never a road crossing it) carry
+        /// their lane lines across the fan, and their edge lines too, broken
+        /// where a crossing road's pavement lies. The crossing roads' own lines
+        /// stop at the junction.
+        /// </summary>
+        static bool CrossingLines(CityMap map, Trims trims, int n, Vector3 origin)
+        {
+            int key = FanKey(trims, n);
+            if (FanOnStructure(map, trims, key)) return false;
+            clArms.Clear(); clEdges.Clear(); clPairs.Clear();
+            var cl = trims.ClusterOfNode(key);
+            int members = cl != null ? cl.nodes.Length : 1;
+            for (int k = 0; k < members; k++)
+            {
+                int m = cl != null ? cl.nodes[k] : key;
+                foreach (int ei in map.nodeEdges[m])
+                {
+                    var e = map.edges[ei];
+                    if (e.a == e.b || e.length < 0.01f) continue;
+                    if (!clEdges.Contains(e)) clEdges.Add(e);
+                    if (!trims.Internal(ei)) clArms.Add((e, m, OutDir(e, m)));
+                }
+            }
+            for (int i = 0; i < clArms.Count; i++)
+                for (int j = i + 1; j < clArms.Count; j++)
+                {
+                    var ei = clArms[i].e; var ej = clArms[j].e;
+                    if (ei.link || ej.link || ei == ej || ei.roundabout || ej.roundabout) continue;
+                    float d = Vector2.Dot(clArms[i].dir, clArms[j].dir);
+                    if (d >= ThroughCos) continue;
+                    clPairs.Add((i, j, d, Mathf.Min(ei.cls, ej.cls)));
+                }
+            if (clPairs.Count == 0) return false;
+            clPairs.Sort((x, y) => x.cls != y.cls ? y.cls.CompareTo(x.cls) : x.d.CompareTo(y.d));
+            int drawn = 0; Vector2 first = Vector2.zero;
+            ulong used = 0;
+            foreach (var (i, j, _, _) in clPairs)
+            {
+                if (i >= 64 || j >= 64 || (used & (1UL << i)) != 0 || (used & (1UL << j)) != 0) continue;
+                // in along the arm whose travel runs into the fan
+                var a = clArms[i]; var b = clArms[j];
+                if (a.e.oneway && a.e.a == a.node) { var sw = a; a = b; b = sw; }
+                var travel = -a.dir;
+                if (first != Vector2.zero && Mathf.Abs(Vector2.Dot(travel, first)) < 0.97f) continue;
+                clGaps.Clear();
+                foreach (var e in clEdges)
+                {
+                    if (e == a.e || e == b.e) continue;
+                    var dir = e.pts[e.pts.Length - 1] - e.pts[0];
+                    if (!e.link && dir.sqrMagnitude > 1e-4f && Mathf.Abs(Vector2.Dot(dir.normalized, travel)) > 0.985f) continue;   // its own carriageway, or a parallel one
+                    clGaps.Add(e);
+                }
+                int k2 = ThroughPair(map, trims, a.e, a.node, b.e, b.node, false, false, origin, false, clGaps);
+                if (k2 == 0) continue;
+                drawn += k2;
+                used |= (1UL << i) | (1UL << j);
+                if (first == Vector2.zero) first = travel;
+            }
+            if (drawn > 0) CrossingLinesDrawn++;
+            return drawn > 0;
+        }
+        /// <summary>Fans the tile builds have carried a main road's lines across (leftover item 3).</summary>
+        public static int CrossingLinesDrawn;
 
         /// <summary>For the audit: every lone fan's A13 decision, counted into
         /// <see cref="ThroughStats"/> (inside the box when one is given: x0, z0,

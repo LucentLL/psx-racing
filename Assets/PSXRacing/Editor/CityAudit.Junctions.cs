@@ -50,6 +50,54 @@ namespace PSXRacing.EditorTools
                         }
             }
             System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Directory.GetParent(Application.dataPath).FullName, "junctions.txt"), outLog.ToString());
+            if (!string.IsNullOrEmpty(System.Environment.GetEnvironmentVariable("PSX_DUMP_BOX"))) DumpRoads();
+        }
+
+        /// <summary>INTERNAL (leftover item 3): the built road meshes of the
+        /// tiles under PSX_DUMP_BOX=x0,z0,x1,z1, triangle by triangle with
+        /// their slot, to roads_dump.txt beside the project - a plan of what
+        /// is drawn under a deck that no camera over it can see. Headless:
+        /// -executeMethod PSXRacing.EditorTools.CityAudit.DumpRoads</summary>
+        public static void DumpRoads()
+        {
+            var map = CityMap.Get();
+            var inv = CultureInfo.InvariantCulture;
+            var boxes = (System.Environment.GetEnvironmentVariable("PSX_DUMP_BOX") ?? "").Split(';');
+            if (map == null) { Debug.LogError("[CityAudit] DumpRoads: no map"); return; }
+            var trims = CityMeshes.NodeTrims(map);
+            var buildings = CityBuildings.Precompute(map);
+            var sb = new StringBuilder();
+            sb.AppendLine($"# crossings {CityMeshes.CrossingNodes}");
+            foreach (var boxStr in boxes)
+            {
+            var box = boxStr.Split(',');
+            if (box.Length != 4) continue;
+            float x0 = float.Parse(box[0], inv), z0 = float.Parse(box[1], inv), x1 = float.Parse(box[2], inv), z1 = float.Parse(box[3], inv);
+            sb.AppendLine($"# box {boxStr}");
+            for (int tz = Mathf.FloorToInt(z0 / CityMeshes.TileSize); tz <= Mathf.FloorToInt(z1 / CityMeshes.TileSize); tz++)
+                for (int tx = Mathf.FloorToInt(x0 / CityMeshes.TileSize); tx <= Mathf.FloorToInt(x1 / CityMeshes.TileSize); tx++)
+                {
+                    var tm = CityMeshes.Build(map, trims, buildings, tx, tz);
+                    foreach (var (mesh, slots, kind) in new[] { (tm.roads, tm.roadSlots, "R"), (tm.barriers, new[] { CityMeshes.Slot.Concrete }, "B") })
+                    {
+                        if (mesh == null) continue;
+                        var v = mesh.vertices;
+                        for (int sm = 0; sm < mesh.subMeshCount && sm < slots.Length; sm++)
+                        {
+                            var tri = mesh.GetTriangles(sm);
+                            sb.Append(kind).Append(' ').Append((int)slots[sm]).Append('\n');
+                            for (int i = 0; i + 2 < tri.Length; i += 3)
+                            {
+                                var a = v[tri[i]] + tm.origin; var b = v[tri[i + 1]] + tm.origin; var c = v[tri[i + 2]] + tm.origin;
+                                if (Mathf.Max(a.x, b.x, c.x) < x0 || Mathf.Min(a.x, b.x, c.x) > x1 || Mathf.Max(a.z, b.z, c.z) < z0 || Mathf.Min(a.z, b.z, c.z) > z1) continue;
+                                sb.Append(string.Format(inv, "T {0:0.00} {1:0.00} {2:0.00} {3:0.00} {4:0.00} {5:0.00} {6:0.00} {7:0.00} {8:0.00}\n", a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z));
+                            }
+                        }
+                    }
+                }
+            }
+            System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Directory.GetParent(Application.dataPath).FullName, "roads_dump.txt"), sb.ToString());
+            Debug.Log("[CityAudit] DumpRoads wrote roads_dump.txt");
         }
 
         static void JunctionsReport(CityMap map, CityMeshes.Trims trims, AuditScope sc)
@@ -208,6 +256,63 @@ namespace PSXRacing.EditorTools
             var ms = CityMeshes.MarkStats;
             Line(string.Format(I, "  CROSSWALKS (Q5 a; continental, cut into the ribbon - lift 0, no new draw): city-wide {0} on {1} tier-1 signalised junctions ({2} bars; {3} arms with no room or clipped, {4} too narrow); in scope {5} on {6} of {7} tier-1 signalised junctions",
                 cws.Count, CitySignals.CrosswalkJunctions, ms.crosswalkBars, CitySignals.CrosswalkArmsSkipped, ms.crosswalksSkipped, cwIn, jIn.Count, sigT1In));
+
+            // ---- JUNCTION SURFACE (leftover item 3): every junction in its main road's surface
+            {
+                int[] js3 = new int[4], diff = new int[4], partnerDiff = new int[4], sideArms = new int[4], sideDiff = new int[4], hashDiff = new int[4], concrete = new int[4];
+                var worst = new List<string>();
+                for (int n = 0; n < nn; n++)
+                {
+                    if (!trims.patch[n] || CityMeshes.FanKey(trims, n) != n || trims.fanMain == null || trims.fanMain[n] < 0) continue;
+                    CityMeshes.FanCentre(map, trims, n, out var cpos, out _);
+                    if (!sc.Contains(cpos)) continue;
+                    int t = FanTier(n);
+                    js3[t]++;
+                    var drawn = CityMeshes.FanSurface(map, trims, n);
+                    var me = map.edges[trims.fanMain[n]];
+                    var mainS = CityMeshes.ArmSurface(map, trims, me, trims.fanMainNode[n]);
+                    var hash = CityMeshes.IsFresh(map.nodes[n]) ? CityMeshes.Surface.AsphaltNew : CityMeshes.Surface.AsphaltOld;
+                    if (drawn == CityMeshes.Surface.ConcreteNew || drawn == CityMeshes.Surface.ConcreteOld) concrete[t]++;
+                    if (hash != mainS) hashDiff[t]++;
+                    if (drawn != mainS)
+                    {
+                        diff[t]++;
+                        if (t <= 2 && worst.Count < 6) worst.Add(string.Format(I, "T{0} n{1} ({2:0},{3:0}) drawn {4}, main e{5} '{6}' {7}", t, n, cpos.x, cpos.y, drawn, me.index, me.name, mainS));
+                    }
+                    var cl = trims.ClusterOfNode(n);
+                    int count = cl != null ? cl.nodes.Length : 1;
+                    for (int k = 0; k < count; k++)
+                    {
+                        int m = cl != null ? cl.nodes[k] : n;
+                        foreach (int ei in map.nodeEdges[m])
+                        {
+                            var e = map.edges[ei];
+                            if (e.a == e.b || trims.Internal(ei) || ei == me.index) continue;
+                            var s = CityMeshes.ArmSurface(map, trims, e, m);
+                            if (ei == trims.fanPartner[n]) { if (s != drawn) partnerDiff[t]++; continue; }
+                            sideArms[t]++;
+                            if (s != drawn) sideDiff[t]++;
+                        }
+                    }
+                }
+                double kmNew = 0, kmAll = 0;
+                foreach (var e in map.edges)
+                {
+                    if (e.a == e.b || !e.hasAgeSeed) continue;
+                    kmAll += e.length;
+                    if (CityMeshes.IsFresh(e.ageSeed)) kmNew += e.length;
+                }
+                Line(string.Format(I, "  CROSSINGS (leftover item 3: {0}): {1} nodes city-wide where a road crosses another at a skew are drawn as junctions (they were a merge and a diverge, each half clipped against the through road)",
+                    CityMeshes.CrossingsOn ? "ON" : "OFF (PSX_CITY_CROSSINGS=0)", CityMeshes.CrossingNodes));
+                Line(string.Format(I, "  JUNCTION SURFACE (leftover item 3: {0}): junctions in scope T1 / T2 / T3 {1} / {2} / {3}; drawn in another surface than their main arm {4} / {5} / {6} (aged from the node, the old rule: {7} / {8} / {9}); the main road's other arm in another surface {10} / {11} / {12}; side arms meeting at a seam (another surface) {13} of {14} / {15} of {16} / {17} of {18}; junctions in concrete (main arm on structure) {19} / {20} / {21}; road pairs joined through junctions (city-wide) {22} of {24} candidates (a group at most 2 km); new asphalt/concrete share of road length {23:0.0}%",
+                    CityMeshes.FanSurfaceOn ? "ON, the main road's surface" : "OFF (PSX_CITY_FANSURF=0), aged from the node",
+                    js3[1], js3[2], js3[3], diff[1], diff[2], diff[3], hashDiff[1], hashDiff[2], hashDiff[3],
+                    partnerDiff[1], partnerDiff[2], partnerDiff[3], sideDiff[1], sideArms[1], sideDiff[2], sideArms[2], sideDiff[3], sideArms[3],
+                    concrete[1], concrete[2], concrete[3], CityMeshes.FanJoinsMade, kmAll > 0 ? 100.0 * kmNew / kmAll : 0.0, CityMeshes.FanJoins.Count));
+                foreach (var w in worst) Line("      off its main arm: " + w);
+                Check(diff[1] + diff[2] == 0, "every T1/T2 junction in scope is paved in its main road's surface, material and age (leftover item 3)",
+                    string.Format(I, "{0} of {1} differ", diff[1] + diff[2], js3[1] + js3[2]));
+            }
         }
     }
 }
