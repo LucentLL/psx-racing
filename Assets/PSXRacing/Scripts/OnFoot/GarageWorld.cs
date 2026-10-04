@@ -865,12 +865,11 @@ namespace PSXRacing.OnFoot
             {
                 var h = bedHooks[i];
                 if (h == null) continue;
-                bool overnight = S.slotIndex >= LifeRules.SlotNames.Length - 1;
                 h.title = "BED";
+                // The same words as the menu's SLEEP caption (LifeRules owns
+                // them): a night's sleep or a nap, and the block it wakes in.
                 h.detail = "It is " + LifeRules.SlotNames[Mathf.Clamp(S.slotIndex, 0,
-                               LifeRules.SlotNames.Length - 1)] +
-                           (overnight ? ". Eight hours turns the day over."
-                                      : ". Eight hours takes you to " + NextSlotName() + ".") +
+                               LifeRules.SlotCount - 1)] + ".  " + LifeRules.SleepCaption(S) + "." +
                            (S.daysSinceSleep > 0
                                ? "  ·  " + S.daysSinceSleep + " night" +
                                  (S.daysSinceSleep == 1 ? "" : "s") + " without one."
@@ -904,13 +903,6 @@ namespace PSXRacing.OnFoot
                           S.foodStock + " LEFT");
         }
 
-        /// <summary>Where the next slot's name comes from, and the one place it
-        /// is worked out: the menu's own caption uses the same wrap, so a night
-        /// slot reads as MORNING in both.</summary>
-        string NextSlotName() =>
-            LifeRules.SlotNames[(Mathf.Clamp(S.slotIndex, 0, LifeRules.SlotNames.Length - 1) + 1)
-                                % LifeRules.SlotNames.Length];
-
         /// <summary>
         /// Eight hours, in the bed rather than on the menu page.
         ///
@@ -936,13 +928,13 @@ namespace PSXRacing.OnFoot
         void SleepInBed()
         {
             Town.TownReturn.Clear();
-            bool overnight = S.slotIndex >= LifeRules.SlotNames.Length - 1;
+            bool overnight = LifeRules.SleepIsTheNight(S);
+            bool late = LifeRules.LateNightOwed(S);
             LifeRules.Sleep(S);
             LifeSimManager.Save();
             RefreshLabels();
-            Scr?.Toast(overnight
-                ? "SLEPT THE NIGHT — " + LifeRules.SlotNames[S.slotIndex]
-                : "EIGHT HOURS ON — " + LifeRules.SlotNames[S.slotIndex]);
+            Scr?.Toast((late ? "SLEPT IT OFF — " : overnight ? "SLEPT THE NIGHT — " : "A NAP — ") +
+                       LifeRules.SlotNames[S.slotIndex]);
         }
 
         /// <summary>

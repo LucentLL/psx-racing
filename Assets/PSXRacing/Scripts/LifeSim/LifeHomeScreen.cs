@@ -988,7 +988,7 @@ namespace PSXRacing.LifeSim
             moneyText.text = MenuKit.Money(S.money);
             string weather = Seasons.WeatherLabel(Seasons.WeatherFor(S.day));
             dateText.text = LifeRules.DateLabel(S.day) + "  ·  " +
-                            LifeRules.SlotNames[Mathf.Clamp(S.slotIndex, 0, 2)] +
+                            LifeRules.SlotNames[Mathf.Clamp(S.slotIndex, 0, LifeRules.SlotCount - 1)] +
                             (weather != null ? "  ·  " + weather : "") +
                             (S.debugMode ? "  ·  DEBUG" : "");
             healthText.text = "HEALTH " + Mathf.RoundToInt(S.health) + " (" + LifeRules.HealthLabel(S.health) + ")" +
@@ -1648,12 +1648,18 @@ namespace PSXRacing.LifeSim
         /// </summary>
         float BlockRowH(bool backRow)
         {
-            // date + rule (38), WEEK (50), BACK TO NOW (50), the gaps between
-            // the rows (12) and the gap under the last one (6).
-            float fixedH = 38f + 50f + (backRow ? 50f : 0f) + 12f + 6f;
+            // date + rule (38), the WEEK row (50; BACK TO NOW shares it since
+            // the day became six blocks), the gaps between the rows and the
+            // gap under the last one (6).
+            int n = LifeRules.SlotCount;
+            float fixedH = 38f + 50f + (n - 1) * BlockGap + 6f;
             float avail = (BodyH - MenuKit.ScrollPad) - 14f - fixedH;
-            return Mathf.Clamp(avail / 3f, 68f, 104f);
+            return Mathf.Clamp(avail / n, 46f, 104f);
         }
+
+        /// <summary>Gap between two block rows: six of them on a phone's
+        /// column leave no room for the six units three could afford.</summary>
+        const float BlockGap = 4f;
 
         /// <summary>
         /// Left column: the day the cursor is on, as its three blocks.
@@ -1686,24 +1692,31 @@ namespace PSXRacing.LifeSim
                 new Vector2(x, y), new Vector2(w, 2f), MenuKit.Line);
             y -= 8f;
 
-            for (int slot = 0; slot < LifeRules.SlotNames.Length; slot++)
+            for (int slot = 0; slot < LifeRules.SlotCount; slot++)
             {
                 DrawBlockRow(calSelDay, slot, cx, y, w, rowH);
-                y -= rowH + 6f;
+                y -= rowH + BlockGap;
             }
+            y -= 6f - BlockGap;
 
             // The way UP: the week, and from the week the month. One button, as
             // asked — "under that day should be a button that says Week".
-            MenuKit.Button(body, "WEEK", new Vector2(0.5f, 1f), new Vector2(cx, y),
-                new Vector2(w, 44f), () => { calView = CalView.Week; Rebuild(); }, 18);
-            y -= 50f;
-
+            // BACK TO NOW sits beside it rather than under it: six blocks take
+            // the height a second row had.
             if (backRow)
             {
-                MenuKit.Button(body, "<  BACK TO NOW", new Vector2(0.5f, 1f), new Vector2(cx, y),
-                    new Vector2(w, 44f), () => { LookAtNow(); Rebuild(); }, 17);
-                y -= 50f;
+                float half = (w - 6f) * 0.5f;
+                MenuKit.Button(body, "<  BACK TO NOW", new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(x, half), y), new Vector2(half, 44f),
+                    () => { LookAtNow(); Rebuild(); }, 17);
+                MenuKit.Button(body, "WEEK", new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(x + half + 6f, half), y), new Vector2(half, 44f),
+                    () => { calView = CalView.Week; Rebuild(); }, 18);
             }
+            else
+                MenuKit.Button(body, "WEEK", new Vector2(0.5f, 1f), new Vector2(cx, y),
+                    new Vector2(w, 44f), () => { calView = CalView.Week; Rebuild(); }, 18);
+            y -= 50f;
         }
 
         /// <summary>"TODAY", "TOMORROW", "IN 3 DAYS", "YESTERDAY", "3 DAYS AGO".</summary>
@@ -1749,10 +1762,8 @@ namespace PSXRacing.LifeSim
                 Color dc = act == LifeRules.ActRace ? MenuKit.Good : Color.white;
                 if (act == LifeRules.ActRace && venue != null) return (did, dc, venue, MenuKit.Dim);
                 if (booking != null) return (did, dc, "RACE MISSED", MenuKit.Bad);
-                if (shift)
-                    return act == LifeRules.ActWork
-                        ? (did, dc, S.playerJob, MenuKit.Dim)
-                        : (did, dc, "SHIFT SKIPPED", MenuKit.Bad);
+                if (shift && act == LifeRules.ActWork) return (did, dc, S.playerJob, MenuKit.Dim);
+                if (LifeRules.ShiftSkipped(S, day, slot)) return (did, dc, "SHIFT SKIPPED", MenuKit.Bad);
                 return (did, dc, "", MenuKit.Dim);
             }
 
@@ -1768,11 +1779,17 @@ namespace PSXRacing.LifeSim
                 : back.Count == 1 ? "CAR READY · " + LifeRules.ShortName(back[0].car)
                                   : back.Count + " CARS READY";
 
+            // (A race in a shift block no longer says SKIPS THE SHIFT here:
+            // since the day became six blocks a shift is two of the shop's
+            // four, so a race at night beside a worked afternoon skips
+            // nothing. What is SKIPPED is read back afterwards, per day -
+            // LifeRules.ShiftSkipped - and the planner's button says
+            // IN SHIFT HOURS at the moment of booking.)
             if (booking != null)
                 return ("RACE · " + venue, MenuKit.Good,
-                        shift ? "SKIPS THE SHIFT" : meet ? MeetLine2
-                              : backLine ?? "AT " + TimeOfDay.Label(LifeRules.BookingHour(booking)),
-                        shift ? MenuKit.Bad : meet ? MeetInk : MenuKit.Good);
+                        meet ? MeetLine2
+                             : backLine ?? "AT " + TimeOfDay.Label(LifeRules.BookingHour(booking)),
+                        meet ? MeetInk : MenuKit.Good);
             if (shift)
                 return ("SHIFT · " + S.playerJob, MenuKit.Accent,
                         meet ? MeetLine2 : backLine ?? "", meet ? MeetInk : MenuKit.Good);
@@ -2052,18 +2069,20 @@ namespace PSXRacing.LifeSim
             y -= 48f;
 
             // ---- sleep ----
-            // Eight hours, one block — see LifeRules.Sleep. Where those hours
-            // land goes in the caption, and so does the thing the owner asked
-            // the calendar to make plain: sleeping through a shift block skips
-            // the shift.
+            // A night's sleep (two blocks) or a nap (one) — see LifeRules.Sleep.
+            // Which, and where it wakes, goes in the caption, and so does the
+            // thing the owner asked the calendar to make plain: sleeping
+            // through a shift block skips the shift.
             MenuKit.Button(body, "SLEEP", new Vector2(0.5f, 1f), new Vector2(cx, y),
                 new Vector2(w, 46f), DoSleep, 17);
             y -= 52f;
-            MenuKit.Label(body, "EIGHT HOURS  ·  NEXT: " + NextSlotName(), MenuKit.Tiny,
+            MenuKit.Label(body, LifeRules.SleepCaption(S), MenuKit.Tiny,
                 new Vector2(0.5f, 1f), new Vector2(cx, y), TextAnchor.MiddleCenter,
                 MenuKit.Dim, w, height: 22f);
             y -= 22f;
-            if (shiftNow)
+            // Only while today has no shift in it: a driver who worked the
+            // afternoon skips nothing by sleeping the night (ShiftSkipped).
+            if (shiftNow && !S.workedToday)
             {
                 MenuKit.Label(body, "SLEEPING NOW SKIPS THE SHIFT", MenuKit.Tiny,
                     new Vector2(0.5f, 1f), new Vector2(cx, y), TextAnchor.MiddleCenter,
@@ -2177,7 +2196,7 @@ namespace PSXRacing.LifeSim
             if (S.pendingParts != null)
                 foreach (var p in S.pendingParts)
                     if (p != null && p.venue <= CarWhere.VenueDiy && p.readyDay == day &&
-                        Mathf.Clamp(p.readySlot, 0, 2) == slot)
+                        Mathf.Clamp(p.readySlot, 0, LifeRules.SlotCount - 1) == slot)
                         Note("GARAGE — " + Clip(p.label, 22) + " fitted", MenuKit.Good);
             if (S.mail != null)
                 foreach (var m in S.mail)
@@ -2263,7 +2282,7 @@ namespace PSXRacing.LifeSim
             // (shift + meet + payday) put the warning 15 units off the bottom
             // of a column that must not scroll. It is also the better place
             // for it — it is read at the moment of pressing, not after.
-            MenuKit.Button(body, shift ? "WRITE IT IN  ·  SKIPS THE SHIFT" : "WRITE IT IN",
+            MenuKit.Button(body, shift ? "WRITE IT IN  ·  IN SHIFT HOURS" : "WRITE IT IN",
                 new Vector2(0.5f, 1f), new Vector2(cx, y),
                 new Vector2(w, 50f), () =>
                 {
@@ -2289,13 +2308,6 @@ namespace PSXRacing.LifeSim
                 TextAnchor.MiddleLeft, c ?? MenuKit.Dim, w, height: 24f);
             y -= 28f;
         }
-
-        /// <summary>The band SLEEP will hand the player next, for the caption on
-        /// the button. Wraps to MORNING off the night, which is the one sleep
-        /// that also turns the calendar over.</summary>
-        string NextSlotName() =>
-            LifeRules.SlotNames[(Mathf.Clamp(S.slotIndex, 0, LifeRules.SlotNames.Length - 1) + 1)
-                                % LifeRules.SlotNames.Length];
 
         /// <summary>
         /// Start over. <see cref="LifeSimManager.DeleteSave"/> had existed since
@@ -4617,11 +4629,11 @@ namespace PSXRacing.LifeSim
                 bool usable = q.available && afford && !booked;
 
                 // The dealership quotes no days: it has the car for one block
-                // of the day — eight hours, the unit SLEEP is sold in — and
-                // "8h" is what fits a 258-unit button beside a price.
+                // of the day — about four hours since the day became six
+                // blocks — and "4h" is what fits a 258-unit button beside a price.
                 string label = q.available
                     ? name + " " + MenuKit.Money(q.price) +
-                      (q.days > 0 ? " · " + q.days + "d" : " · 8h")
+                      (q.days > 0 ? " · " + q.days + "d" : " · 4h")
                     : name + " sk" + q.difficulty;
                 // A car already at one shop can only be given more work THERE.
                 if (usable && CarWhere.RefuseWork(S, car, (int)v) != null) usable = false;
@@ -4744,6 +4756,11 @@ namespace PSXRacing.LifeSim
             if (line.StartsWith("SHIFT · ")) return "SHIFT";
             if (line == "SHIFT SKIPPED") return "SKIPPED";
             if (line == "SKIPS THE SHIFT") return "NO SHIFT";
+            if (line == "VIEWED A CAR") return "VIEWING";
+            // A booked race's hour, "AT NIGHT 23:15": the row already names
+            // the block, so the cell keeps the clock.
+            if (line.StartsWith("AT ") && line.LastIndexOf(' ') > 2)
+                return line.Substring(line.LastIndexOf(' ') + 1);
             if (line == "RACE MISSED") return "MISSED";
             if (line == "NOTHING PLANNED") return "—";
             if (line == "INSPECTED") return "INSPECT";   // nine bold capitals fill a 4:3 cell edge to edge
@@ -4781,13 +4798,17 @@ namespace PSXRacing.LifeSim
             const int Cols = 7;
             int rows = LifeRules.SlotNames.Length;
             // 108, not 96: MORNING in bold at the type floor is ~100 units,
-            // and at 96 it touched the Sunday cell on a 4:3 canvas.
-            const float Gutter = 108f, HeadH = 28f;
+            // and at 96 it touched the Sunday cell on a 4:3 canvas. 136 since
+            // the six blocks: AFTERNOON is ~125 and ran under Sunday at 108.
+            const float Gutter = 136f, HeadH = 28f;
             // Rows share what the column has left after the header, the grid's
-            // own header and the button row under it: 86 on a phone, capped
-            // at 100 on a monitor.
+            // own header and the button row under it, capped at 100 on a
+            // monitor. Six blocks on a phone is ~43 a row: room for ONE line
+            // per cell (the word) and one in the gutter (the block's name),
+            // so the second lines are drawn only where a row has the height.
             float rowH = Mathf.Clamp(((BodyH - MenuKit.ScrollPad) + top - 46f - HeadH - 10f - 52f) / rows,
-                                     56f, 100f);
+                                     40f, 100f);
+            bool twoLines = rowH >= 50f;
             float gridW = Mathf.Min(ColW, 1100f);
             float gridH = HeadH + rows * rowH;
             var grid = MenuKit.Rect(body, "WeekGrid", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
@@ -4800,11 +4821,12 @@ namespace PSXRacing.LifeSim
                 float mid = -(HeadH + r * rowH + rowH * 0.5f);
                 bool nowRow = r == S.slotIndex;
                 MenuKit.Label(grid, LifeRules.SlotNames[r], MenuKit.Tiny, new Vector2(0f, 1f),
-                    new Vector2(6f, mid + 22f), TextAnchor.MiddleLeft,
+                    new Vector2(6f, mid + (twoLines ? 22f : 11f)), TextAnchor.MiddleLeft,
                     nowRow ? MenuKit.Accent : Color.white, Gutter - 8f, height: 22f, bold: true);
-                MenuKit.Label(grid, LifeRules.SlotHours[r].Replace(":00", ""), MenuKit.Tiny,
-                    new Vector2(0f, 1f), new Vector2(6f, mid), TextAnchor.MiddleLeft,
-                    MenuKit.Dim, Gutter - 8f, height: 22f);
+                if (twoLines)
+                    MenuKit.Label(grid, LifeRules.SlotHours[r].Replace(":00", ""), MenuKit.Tiny,
+                        new Vector2(0f, 1f), new Vector2(6f, mid), TextAnchor.MiddleLeft,
+                        MenuKit.Dim, Gutter - 8f, height: 22f);
             }
 
             // Column headers: the day, with payday and the bills marked.
@@ -4853,11 +4875,14 @@ namespace PSXRacing.LifeSim
                     rt.offsetMin = new Vector2(2f, 2f);
                     rt.offsetMax = new Vector2(-2f, -2f);
                     if (now) NowBar(rt);
+                    // One line a cell on a phone: a skipped shift has no second
+                    // line to say so, so the word itself goes red.
+                    Color w1 = !twoLines && l2 == "SHIFT SKIPPED" ? MenuKit.Bad : c1;
                     MenuKit.Label(btn.transform, Clip(CellWord(l1), 10), MenuKit.Tiny,
-                        new Vector2(0.5f, 0.5f), new Vector2(now ? 3f : 0f, 11f),
-                        TextAnchor.MiddleCenter, c1, cellW - 10f, height: 22f, bold: true);
+                        new Vector2(0.5f, 0.5f), new Vector2(now ? 3f : 0f, twoLines ? 11f : 0f),
+                        TextAnchor.MiddleCenter, w1, cellW - 10f, height: 22f, bold: true);
                     string second = now ? "NOW" : CellWord(l2);
-                    if (second.Length > 0)
+                    if (twoLines && second.Length > 0)
                         MenuKit.Label(btn.transform, Clip(second, 10), MenuKit.Tiny,
                             new Vector2(0.5f, 0.5f), new Vector2(now ? 3f : 0f, -11f),
                             TextAnchor.MiddleCenter, now ? MenuKit.Active : c2, cellW - 10f, height: 22f);
@@ -4966,7 +4991,7 @@ namespace PSXRacing.LifeSim
                 Color bg = today ? MenuKit.TabOnBg : sel ? SelectedBg : past ? PastBg : MenuKit.BtnBg;
                 int cd = day;
                 int cslot = bk != null ? bk.slot : today ? S.slotIndex
-                          : CarMeets.MeetOn(day) ? CarMeets.MeetSlot : LifeRules.DaySlot;
+                          : CarMeets.MeetOn(day) ? CarMeets.MeetSlot : LifeRules.NoonSlot;
                 var btn = MenuKit.Button(grid, "", new Vector2(0f, 1f), Vector2.zero, Vector2.zero,
                     () => { LookAt(cd, cslot); calView = CalView.Day; Rebuild(); }, MenuKit.Tiny, bg);
                 btn.gameObject.name = "Btn_MONTH_" + day;
@@ -6881,7 +6906,7 @@ namespace PSXRacing.LifeSim
             if (!string.IsNullOrEmpty(S.playerJob))
             {
                 Row("CURRENT JOB", S.playerJob, ref y, MenuKit.Accent);
-                Row("ROSTER", "AFTERNOON + NIGHT", ref y,
+                Row("ROSTER", "NOON TO 4AM", ref y,
                     LifeRules.ShopOpen(S) ? MenuKit.Good : MenuKit.Dim);
                 Row("OPEN", "SEVEN DAYS", ref y);
                 Row("TYPICAL DAY", MenuKit.Money(Mathf.RoundToInt(S.basePay * S.payMultiplier)), ref y);
@@ -7788,7 +7813,9 @@ namespace PSXRacing.LifeSim
             // "employed, shift block, spent on anything but WORK", so a walked
             // shift recorded as BUSY wrote SHIFT SKIPPED across the block the
             // player had just worked.
-            LifeRules.SpendActivitySlot(S, LifeRules.ActWork);
+            // A whole shift: two blocks, or to closing (LifeRules.SpendShift).
+            LifeRules.ClockOnShift(S);
+            LifeRules.SpendShift(S);
             LifeSimManager.Save();
             Rebuild();
             Toast(msg);
@@ -7799,7 +7826,8 @@ namespace PSXRacing.LifeSim
             // Sleeping ends the day, and a car parked outside a body shop is
             // not somewhere you wake up. Whatever errand was open is over.
             Town.TownReturn.Clear();
-            bool overnight = S.slotIndex >= LifeRules.SlotNames.Length - 1;
+            bool overnight = LifeRules.SleepIsTheNight(S);
+            bool late = LifeRules.LateNightOwed(S);
             LifeRules.Sleep(S);
             LifeSimManager.Save();
             tab = "main";
@@ -7809,8 +7837,8 @@ namespace PSXRacing.LifeSim
             // black bar across the foot of the page put a second, louder copy
             // of it on top of the menu - which is what made the menu hard to
             // read. This says what CHANGED instead.
-            Toast(overnight ? "SLEPT THE NIGHT \u2014 " + LifeRules.SlotNames[S.slotIndex]
-                            : "EIGHT HOURS ON \u2014 " + LifeRules.SlotNames[S.slotIndex]);
+            Toast((late ? "SLEPT IT OFF \u2014 " : overnight ? "SLEPT THE NIGHT \u2014 " : "A NAP \u2014 ") +
+                  LifeRules.SlotNames[S.slotIndex]);
         }
 
         // =================== toast ===================

@@ -52,17 +52,24 @@ namespace PSXRacing.LifeSim
         ///     player in it — see <see cref="blBoard"/>. blDefeated/blPaged are
         ///     retired to legacy; the migration reads them once to work out
         ///     where an existing career already stands and writes the order.
+        /// v21: SIX BLOCKS A DAY (DAWN, MORNING, NOON, AFTERNOON, EVENING,
+        ///     NIGHT) where there were three. Every stored block index moves:
+        ///     the clock and today's record (an old block is two new ones),
+        ///     the day log, each booking (onto the block that holds the hour
+        ///     it was going to run at, the hour written in so the race runs
+        ///     under the same sky), and each job's ready block. See
+        ///     LifeSimManager.Migrate.
         /// </summary>
-        public int saveVersion = 20;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
+        public int saveVersion = 21;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
 
         // === Core economy / clock ===
         public int money;
         public int day = 1;              // absolute day counter; day 1 is a FRIDAY
-        public int slotIndex;            // 0 morning / 1 day / 2 night
+        public int slotIndex;            // LifeRules.SlotNames: 0 dawn .. 5 night (v21; three blocks before)
         public int slotsActiveToday;     // non-rest slots burned since last sleep
         public bool workedToday;
         /// <summary>
-        /// What each of TODAY's three blocks was spent on, by slot index —
+        /// What each of TODAY's six blocks was spent on, by slot index —
         /// one of <see cref="LifeRules.ActWork"/> and friends, or empty for a
         /// block not yet reached. Written by SpendActivitySlot and Sleep,
         /// cleared by the rollover, which first copies it into
@@ -70,7 +77,14 @@ namespace PSXRacing.LifeSim
         /// over the morning you slept through and SHIFT SKIPPED over the
         /// afternoon you raced instead of working.
         /// </summary>
-        public List<string> slotActs = new List<string> { "", "", "" };
+        public List<string> slotActs = new List<string> { "", "", "", "", "", "" };
+        /// <summary>The all-nighter the last rollover docked, while the DAWN
+        /// block after it can still turn it into a late night (sleeping it
+        /// off hands it back — see LifeRules.Sleep). Zero once DAWN is spent
+        /// or the night was slept.</summary>
+        public float lateNightDock;
+        /// <summary>daysSinceSleep as it stood before that dock.</summary>
+        public int lateNightDays;
         /// <summary>
         /// The last few weeks of <see cref="slotActs"/>, one record per closed
         /// day, newest last. Pruned to <see cref="LifeRules.DayLogKeep"/>
@@ -502,8 +516,8 @@ namespace PSXRacing.LifeSim
         /// not at home, and cannot be driven until the job is done.</summary>
         public int venue;        // 0 diy / 1 mechanic / 2 dealer / 3 paint shop
         /// <summary>
-        /// Which BLOCK of <see cref="readyDay"/> the job is done by — 0 morning,
-        /// 1 day, 2 night. A mechanic hands the car back first thing in the
+        /// Which BLOCK of <see cref="readyDay"/> the job is done by — a
+        /// LifeRules.SlotNames index (six blocks since v21). A mechanic hands the car back first thing in the
         /// morning, which is what every job in a save written before this
         /// field reads back as (an ADDED int is zero). The dealership is the
         /// one that uses it: "same day" there means the NEXT block, so a car
@@ -693,12 +707,13 @@ namespace PSXRacing.LifeSim
     public class RaceBooking
     {
         public int day;
-        /// <summary>Which block of the day — 0 morning, 1 day, 2 night. A
+        /// <summary>Which block of the day — LifeRules.SlotNames, 0 dawn ..
+        /// 5 night since v21 (0 morning / 1 day / 2 night before). A
         /// race is an appointment for an evening, not for a date, and the
         /// calendar has to know which block to draw it in and which block
         /// to offer the RACE button on. v13; older bookings are migrated
         /// onto the night.</summary>
-        public int slot = 2;
+        public int slot = LifeRules.NightSlot;
         public int trackIndex;
         public bool practice;
         /// <summary>
@@ -801,10 +816,20 @@ namespace PSXRacing.LifeSim
     public class DayRecord
     {
         public int day;
+        /// <summary>One word per block, LifeRules.SlotNames order (v21).</summary>
+        public List<string> acts = new List<string>();
+        // The three-block day (v13..v20). Read once by the v21 migration,
+        // which spreads each over the two blocks it became; empty after.
         public string morning = "";
         public string afternoon = "";
         public string night = "";
 
-        public string Act(int slot) => slot <= 0 ? morning : slot == 1 ? afternoon : night;
+        public string Act(int slot)
+        {
+            if (acts != null && slot >= 0 && slot < acts.Count) return acts[slot];
+            // A record the migration has not reached: each old block is two.
+            int old = slot / 2;
+            return old <= 0 ? morning : old == 1 ? afternoon : night;
+        }
     }
 }

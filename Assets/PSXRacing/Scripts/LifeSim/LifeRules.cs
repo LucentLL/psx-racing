@@ -32,18 +32,51 @@ namespace PSXRacing.LifeSim
         // has: payday is a column, and January 1999 happens to fill the top-left
         // cell exactly.
         public static readonly string[] DowNames = { "FRI", "SAT", "SUN", "MON", "TUE", "WED", "THU" };
-        /// <summary>The three blocks of a day, in the owner's words: MORNING,
-        /// DAY, NIGHT (2026-09-17: "broken into three chunks (morning 4:00-
-        /// 12:00, day 12:00-20:00, night 20:00-4:00)"). The middle one was
-        /// AFTERNOON; renamed here rather than given a second name for the
-        /// calendar, because a header that says AFTERNOON over a day view
-        /// that says DAY is two clocks.</summary>
-        public static readonly string[] SlotNames = { "MORNING", "DAY", "NIGHT" };
+        /// <summary>The blocks of a day. They were three, in the owner's words
+        /// (2026-09-17: "broken into three chunks (morning 4:00-12:00, day
+        /// 12:00-20:00, night 20:00-4:00)"), and one name per block across
+        /// every screen, because two names for one block is two clocks.
+        ///
+        /// SIX BLOCKS since save v21 (owner, 2026-10-04: "there are six [times
+        /// of day] built into the game, but scheduling work and races only
+        /// allows three (which ironically makes it impossible to choose a race
+        /// at night for a street racing game). Calendar should be opened to 6
+        /// slots"). Each block is named for the sky hour the player sees in
+        /// it, and its edges are drawn so that every <see cref="TimeOfDay"/>
+        /// clock falls inside the block of its own name: DAWN 05:40, MORNING
+        /// 08:30, NOON 12:30, AFTERNOON 16:10, EVENING = SUNSET 19:10 or DUSK
+        /// 20:25, NIGHT 23:15. Seven skies, six blocks: sunset and dusk are
+        /// the one pair, because both are "the evening" to anybody planning
+        /// one. The day still turns over at 4:00, as it always has.
+        ///
+        /// What the finer grain changes is what things COST in real hours,
+        /// not how much there is to do: a race, an inspection, a viewing, a
+        /// drive into town is one block (three to six hours); a shift is the
+        /// eight hours it always was, two blocks (<see cref="SpendShift"/>);
+        /// a night's sleep is two blocks (<see cref="Sleep"/>). So a working
+        /// day is sleep 2 + shift 2 + two blocks of the player's own, where
+        /// the three-block day was sleep 1 + shift 1 + one.
+        /// </summary>
+        public static readonly string[] SlotNames = { "DAWN", "MORNING", "NOON", "AFTERNOON", "EVENING", "NIGHT" };
         /// <summary>The hours each block covers, for the day and week views.
-        /// Display only — the clock itself is the three slots, and
+        /// Display only — the clock itself is the six slots, and
         /// <see cref="TimeOfDay.ForSlot"/> picks an hour inside each band.</summary>
-        public static readonly string[] SlotHours = { "4:00 – 12:00", "12:00 – 20:00", "20:00 – 4:00" };
-        public const int MorningSlot = 0, DaySlot = 1, NightSlot = 2;
+        public static readonly string[] SlotHours =
+            { "4:00 – 8:00", "8:00 – 12:00", "12:00 – 16:00", "16:00 – 19:00", "19:00 – 22:00", "22:00 – 4:00" };
+        public const int DawnSlot = 0, MorningSlot = 1, NoonSlot = 2, AfternoonSlot = 3,
+                         EveningSlot = 4, NightSlot = 5;
+        public static int SlotCount => SlotNames.Length;
+
+        /// <summary>The block a <see cref="TimeOfDay"/> hour belongs to — the
+        /// inverse of <see cref="TimeOfDay.HoursIn"/>, and what the v21
+        /// migration moves an old booking by: a race booked for a SUNSET in
+        /// the old DAY block is an EVENING race now.</summary>
+        public static int SlotOfHour(int hour)
+        {
+            for (int slot = 0; slot < SlotCount; slot++)
+                if (TimeOfDay.InSlot(hour, slot)) return slot;
+            return NightSlot;
+        }
 
         // ---- the week, as a calendar draws it ----
         // The game's own week is FRI-first (Dow, above): day 1 is a Friday
@@ -289,13 +322,40 @@ namespace PSXRacing.LifeSim
         /// it costs them the whole day. That is the trade the game is made of:
         /// those same two slots are the inspection, the repair and the sleep,
         /// and nothing hands them back.
+        ///
+        /// SIX BLOCKS (v21): the shop's hours did not move — noon until four
+        /// in the morning — they are simply four blocks now, NOON, AFTERNOON,
+        /// EVENING and NIGHT. A shift is still eight hours, so it costs TWO of
+        /// them (<see cref="SpendShift"/>): the day shift is NOON + AFTERNOON,
+        /// the night shift EVENING + NIGHT, and a driver who clocks on late
+        /// works until closing. Two runs a day is still the most a day holds.
         /// </summary>
-        public const int FirstShiftSlot = 1;
-        public static bool ShiftSlot(int slot) => slot >= FirstShiftSlot;
+        public const int FirstShiftSlot = NoonSlot;
+        public static bool ShiftSlot(int slot) => slot >= FirstShiftSlot && slot <= NightSlot;
         public static bool ShopOpen(LifeState s) => s != null && ShiftSlot(s.slotIndex);
+        /// <summary>Blocks one shift takes: eight hours, the shift it always
+        /// was when a block was eight hours long.</summary>
+        public const int ShiftBlocks = 2;
+
+        /// <summary>
+        /// Work one shift: the block the player clocked on in and the next,
+        /// stopping at closing time (the end of NIGHT, which is also where the
+        /// day turns over). Every path that WORKS goes through here — the
+        /// delivery at the counter, the run from the town, the walked shift —
+        /// so a shift cannot cost two blocks at one door and one at another.
+        /// The caller clocks on first (<see cref="ClockOnShift"/>): spending
+        /// NIGHT rolls the day, and the rollover reads the latch.
+        /// </summary>
+        public static void SpendShift(LifeState s)
+        {
+            if (s == null) return;
+            int day = s.day;
+            for (int i = 0; i < ShiftBlocks && s.day == day && ShiftSlot(s.slotIndex); i++)
+                SpendActivitySlot(s, ActWork);
+        }
         /// <summary>The roster in words, for every screen that has to say it.
         /// One string so the home screen and the jobs tab cannot drift.</summary>
-        public const string ShiftHours = "DAY 12PM-8PM  ·  NIGHT 8PM-4AM, SEVEN DAYS";
+        public const string ShiftHours = "DAY 12PM-7PM  ·  NIGHT 7PM-4AM, SEVEN DAYS";
         /// <summary>The same roster in half the characters, for the columns
         /// that are half a screen wide. The long form is 46 characters and runs
         /// clean off a 445-unit column into whatever is beside it.</summary>
@@ -378,12 +438,23 @@ namespace PSXRacing.LifeSim
         /// <summary>A shift block that went on something other than the
         /// shift. Only ever true of a block that HAS been spent — the block
         /// the clock is standing in is not skipped yet, it is being decided —
-        /// and only while there is a job to skip.</summary>
+        /// and only while there is a job to skip.
+        ///
+        /// SIX BLOCKS (v21): the shop is open four blocks and a shift is two
+        /// of them, so a block of its hours spent elsewhere is only SKIPPED
+        /// when the day holds no shift at all — the same question the absence
+        /// ladder asks at the rollover (a missed DAY, not a missed block). A
+        /// driver who works noon to seven and races the evening has not
+        /// skipped anything.
+        /// </summary>
         public static bool ShiftSkipped(LifeState s, int day, int slot)
         {
             if (s == null || string.IsNullOrEmpty(s.playerJob) || !ShiftSlot(slot)) return false;
             string act = SlotAct(s, day, slot);
-            return act.Length > 0 && act != ActWork;
+            if (act.Length == 0 || act == ActWork) return false;
+            for (int k = 0; k < SlotCount; k++)
+                if (SlotAct(s, day, k) == ActWork) return false;
+            return true;
         }
 
         /// <summary>
@@ -2282,13 +2353,19 @@ namespace PSXRacing.LifeSim
             float agePenalty = 1f + Mathf.Max(0f, (s.age - 25) * 0.02f);
             if (!sleptTonight)
             {
+                // Remembered for the DAWN block after: a night spent racing or
+                // working may yet be slept, late (see Sleep).
+                s.lateNightDays = s.daysSinceSleep;
                 s.daysSinceSleep++;
-                h -= Mathf.Round((s.daysSinceSleep switch { 1 => 3f, 2 => 7f, _ => 12f }) * agePenalty);
+                float dock = Mathf.Round((s.daysSinceSleep switch { 1 => 3f, 2 => 7f, _ => 12f }) * agePenalty);
+                h -= dock;
+                s.lateNightDock = dock;
             }
             else
             {
                 if (s.daysSinceSleep > 0) h += s.age <= 25 ? 3f : 2f;
                 s.daysSinceSleep = 0;
+                s.lateNightDock = 0f;
             }
 
             if (h < 75f && s.ateToday && s.daysSinceSleep == 0)
@@ -2415,8 +2492,12 @@ namespace PSXRacing.LifeSim
         {
             RecordAct(s, s.slotIndex, what);
             s.slotsActiveToday++;
+            // Up at dawn after a night spent awake, and not going to bed:
+            // the night was missed, not late. The dock the rollover took
+            // stands (see LateNightOwed).
+            if (s.slotIndex == DawnSlot) s.lateNightDock = 0f;
             s.slotIndex++;
-            if (s.slotIndex > 2) Rollover(s, sleptTonight: false);
+            if (s.slotIndex >= SlotCount) Rollover(s, sleptTonight: false);
             // The rollover ticks the job queue itself; a block that merely
             // moved on has to as well, or a car promised for this afternoon
             // stays at the dealership until tomorrow.
@@ -2438,6 +2519,16 @@ namespace PSXRacing.LifeSim
         /// the dark hours; a nap in the afternoon is not an answer to it. A nap
         /// likewise does NOT count towards slotsActiveToday, because rest is
         /// not activity - it costs the slot and nothing else.
+        ///
+        /// SIX BLOCKS (v21): a NIGHT'S SLEEP is two blocks — eight hours does
+        /// not fit in one any more — and it can start in three places:
+        /// EVENING (an early night: EVENING + NIGHT, up at DAWN for a dawn
+        /// race), NIGHT (NIGHT + DAWN, up at MORNING, the ordinary night), or
+        /// DAWN after a night spent awake (DAWN + MORNING, up at NOON: the
+        /// player who raced, worked or sat at the meet until four sleeps
+        /// LATER, and the all-nighter the rollover docked is handed back —
+        /// the night was late, not missed). Anywhere else, and at DAWN after a
+        /// night already slept, it is a nap: one block, nothing restored.
         /// </summary>
         public static void Sleep(LifeState s)
         {
@@ -2447,13 +2538,43 @@ namespace PSXRacing.LifeSim
             // the block it was made in. There is no such intent any more: the
             // town's cue asks the clock whether Tony's would take a shift now,
             // so waking to a morning the shop is shut answers itself.)
-            RecordAct(s, s.slotIndex, ActSleep);
-            if (s.slotIndex >= SlotNames.Length - 1)
+            int start = s.slotIndex;
+            if (start == EveningSlot || start == NightSlot)
             {
+                // The night's sleep: this block, then on through NIGHT (an
+                // early night) and the rollover, then DAWN as well when the
+                // player went down at NIGHT.
+                RecordAct(s, s.slotIndex, ActSleep);
+                if (start == EveningSlot)
+                {
+                    s.slotIndex = NightSlot;
+                    RecordAct(s, s.slotIndex, ActSleep);
+                }
                 s.health = Mathf.Min(100f, s.health + 5f);
                 Rollover(s, sleptTonight: true);
+                if (start == NightSlot)
+                {
+                    RecordAct(s, s.slotIndex, ActSleep);
+                    s.slotIndex = MorningSlot;
+                    TickPendingParts(s);
+                }
                 return;
             }
+            if (start == DawnSlot && LateNightOwed(s))
+            {
+                // Sleeping it off: DAWN + MORNING, up at NOON, and the night
+                // the rollover counted as missed was only late.
+                s.health = Mathf.Clamp(s.health + s.lateNightDock + 5f, 0f, 100f);
+                s.daysSinceSleep = s.lateNightDays;
+                s.lateNightDock = 0f;
+                RecordAct(s, DawnSlot, ActSleep);
+                RecordAct(s, MorningSlot, ActSleep);
+                s.slotIndex = NoonSlot;
+                TickPendingParts(s);
+                return;
+            }
+            if (start == DawnSlot) s.lateNightDock = 0f;
+            RecordAct(s, s.slotIndex, ActSleep);
             // A nap restores NOTHING. It was a token point per nap for about
             // an hour, until the self-test caught what that is: two free points
             // a day, every day, against a starvation ladder that takes twelve -
@@ -2479,8 +2600,46 @@ namespace PSXRacing.LifeSim
         public static void SleepUntilMorning(LifeState s)
         {
             if (s == null) return;
-            int guard = 0;
-            do { Sleep(s); } while (s.slotIndex != 0 && ++guard < SlotNames.Length);
+            // Through to tomorrow, and on to MORNING — where a night's sleep
+            // from NIGHT wakes, and so where "the next morning" always is.
+            int day = s.day, guard = 0;
+            while (s.day == day && ++guard <= SlotCount) Sleep(s);
+            guard = 0;
+            while (s.slotIndex < MorningSlot && ++guard <= SlotCount) Sleep(s);
+        }
+
+        /// <summary>A night spent awake that can still be slept, late: the
+        /// clock stands at DAWN and the rollover docked the all-nighter.
+        /// SLEEP here is the night's sleep, not a nap.</summary>
+        public static bool LateNightOwed(LifeState s) =>
+            s != null && s.slotIndex == DawnSlot && s.lateNightDock > 0f;
+
+        /// <summary>How many blocks SLEEP takes from where the clock stands:
+        /// two for a night's sleep (EVENING, NIGHT, or DAWN after a night
+        /// awake), one for a nap.</summary>
+        public static int SleepBlocks(LifeState s) =>
+            s == null ? 1 : s.slotIndex == EveningSlot || s.slotIndex == NightSlot || LateNightOwed(s) ? 2 : 1;
+
+        /// <summary>Whether SLEEP from here is a night's sleep — the one the
+        /// health ladder counts — rather than a nap.</summary>
+        public static bool SleepIsTheNight(LifeState s) => SleepBlocks(s) == 2;
+
+        /// <summary>The block SLEEP from here wakes the player in.</summary>
+        public static int WakeSlot(LifeState s)
+        {
+            if (s == null) return MorningSlot;
+            return (Mathf.Clamp(s.slotIndex, 0, SlotCount - 1) + SleepBlocks(s)) % SlotCount;
+        }
+
+        /// <summary>SLEEP in words, for the hub, the bed and the toast:
+        /// "THE NIGHT · UP AT MORNING", "SLEEP IT OFF · UP AT NOON",
+        /// "A NAP · UP AT EVENING". One function so the bed and the menu
+        /// cannot promise different mornings.</summary>
+        public static string SleepCaption(LifeState s)
+        {
+            string up = "UP AT " + SlotNames[WakeSlot(s)];
+            if (LateNightOwed(s)) return "SLEEP IT OFF  ·  " + up;
+            return (SleepIsTheNight(s) ? "THE NIGHT  ·  " : "A NAP  ·  ") + up;
         }
 
         /// <summary>The single day-rollover pipeline, in the gameLoop's order:
@@ -2494,10 +2653,9 @@ namespace PSXRacing.LifeSim
             var acts = SlotActs(s);
             if (s.dayLog == null) s.dayLog = new System.Collections.Generic.List<DayRecord>();
             s.dayLog.RemoveAll(r => r == null || r.day == s.day);
-            s.dayLog.Add(new DayRecord
-            {
-                day = s.day, morning = acts[0] ?? "", afternoon = acts[1] ?? "", night = acts[2] ?? "",
-            });
+            var rec = new DayRecord { day = s.day };
+            for (int k = 0; k < SlotCount; k++) rec.acts.Add(k < acts.Count ? acts[k] ?? "" : "");
+            s.dayLog.Add(rec);
             while (s.dayLog.Count > DayLogKeep) s.dayLog.RemoveAt(0);
 
             // 1. no-show: employed, the shop was open, no run taken

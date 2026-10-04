@@ -484,12 +484,16 @@ namespace PSXRacing.LifeSim
                 // night is what the old booking meant in practice: it is
                 // when the street runs, and it is the block a race made from
                 // the old launch screen usually landed in.
+                // (Index 2: the night of the THREE-block day this save was
+                // written in. v21 below moves it onto the six.)
                 if (s.bookings != null)
                     foreach (var b in s.bookings)
-                        if (b != null) b.slot = LifeRules.NightSlot;
+                        if (b != null) b.slot = 2;
                 // The day's record starts empty rather than absent, so the
-                // first sleep can stamp it without growing a list.
-                LifeRules.SlotActs(s);
+                // first sleep can stamp it without growing a list. Three
+                // words, for the same reason.
+                if (s.slotActs == null) s.slotActs = new System.Collections.Generic.List<string>();
+                while (s.slotActs.Count < 3) s.slotActs.Add("");
                 if (s.dayLog == null) s.dayLog = new System.Collections.Generic.List<DayRecord>();
                 s.saveVersion = 13;
             }
@@ -681,6 +685,99 @@ namespace PSXRacing.LifeSim
                 }
                 s.saveVersion = 20;
             }
+
+            if (s.saveVersion < 21)
+            {
+                MigrateToSixBlocks(s);
+                s.saveVersion = 21;
+            }
+        }
+
+        /// <summary>
+        /// v21: the three-block day (MORNING 4-12, DAY 12-20, NIGHT 20-4)
+        /// becomes six (DAWN, MORNING, NOON, AFTERNOON, EVENING, NIGHT).
+        /// Each old block is two new ones, in order, so:
+        ///  - the clock moves to the FIRST of its two (old k -> new 2k): a
+        ///    career standing in the old NIGHT is at EVENING, with the whole
+        ///    of the night still ahead of it — nothing it had is lost;
+        ///  - today's record and the day log spread each old word over both
+        ///    of its blocks, so a worked DAY reads as a worked NOON and
+        ///    AFTERNOON and nothing turns into SHIFT SKIPPED;
+        ///  - a booking moves to the block that holds the HOUR it was going
+        ///    to run at (its chosen hour, or the old block's own pick for its
+        ///    day) and the hour is written in, so the race runs under the sky
+        ///    it was booked for. Still one race a day: each moves within its
+        ///    own day, so nothing can be double-booked;
+        ///  - a job's ready block: the old MORNING (what every shop promises,
+        ///    "first thing") is MORNING, when the shops open; DAY is NOON;
+        ///    NIGHT is EVENING, its first block.
+        /// Public for the self-test, which pins it.
+        /// </summary>
+        public static void MigrateToSixBlocks(LifeState s)
+        {
+            if (s == null) return;
+            int oldSlot = Mathf.Clamp(s.slotIndex, 0, 2);
+            var oldActs = s.slotActs ?? new System.Collections.Generic.List<string>();
+            s.slotIndex = oldSlot * 2;
+            s.slotActs = new System.Collections.Generic.List<string>();
+            for (int k = 0; k < LifeRules.SlotCount; k++)
+            {
+                int ok = k / 2;
+                s.slotActs.Add(k < s.slotIndex && ok < oldActs.Count ? oldActs[ok] ?? "" : "");
+            }
+
+            if (s.dayLog != null)
+                foreach (var r in s.dayLog)
+                {
+                    if (r == null) continue;
+                    r.acts = new System.Collections.Generic.List<string>
+                        { r.morning ?? "", r.morning ?? "", r.afternoon ?? "", r.afternoon ?? "",
+                          r.night ?? "", r.night ?? "" };
+                    r.morning = r.afternoon = r.night = "";
+                }
+
+            if (s.bookings != null)
+                foreach (var b in s.bookings)
+                {
+                    if (b == null) continue;
+                    int hour = OldBookingHour(b);
+                    b.slot = LifeRules.SlotOfHour(hour);
+                    b.hourPick = hour + 1;
+                }
+
+            if (s.pendingParts != null)
+                foreach (var p in s.pendingParts)
+                    if (p != null)
+                    {
+                        int r = Mathf.Clamp(p.readySlot, 0, 2);
+                        p.readySlot = r == 0 ? LifeRules.MorningSlot : r == 1 ? LifeRules.NoonSlot
+                                                                      : LifeRules.EveningSlot;
+                    }
+        }
+
+        /// <summary>The hour a booking ran at under the three-block rules
+        /// (TimeOfDay as it stood at v20): its chosen hour when that sat in
+        /// its block, else the block's own pick for the day. Frozen here
+        /// because TimeOfDay itself now answers for six blocks.</summary>
+        static int OldBookingHour(RaceBooking b)
+        {
+            int slot = Mathf.Clamp(b.slot, 0, 2);
+            int[][] hoursIn =
+            {
+                new[] { TimeOfDay.Dawn, TimeOfDay.Morning },
+                new[] { TimeOfDay.Noon, TimeOfDay.Afternoon, TimeOfDay.Sunset },
+                new[] { TimeOfDay.Dusk, TimeOfDay.Night },
+            };
+            int[][] bands =
+            {
+                new[] { TimeOfDay.Morning, TimeOfDay.Dawn, TimeOfDay.Morning },
+                new[] { TimeOfDay.Noon, TimeOfDay.Afternoon, TimeOfDay.Sunset },
+                new[] { TimeOfDay.Night },
+            };
+            int picked = b.hourPick - 1;
+            if (System.Array.IndexOf(hoursIn[slot], picked) >= 0) return picked;
+            var band = bands[slot];
+            return band[Mathf.Abs(b.day * 7 + slot * 3) % band.Length];
         }
 
         public static void DeleteSave()

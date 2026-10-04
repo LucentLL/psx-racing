@@ -56,17 +56,25 @@ namespace PSXRacing.EditorTools
             // a race, a morning slept through, a day out in the city, an
             // inspection. A fresh save's week is seven columns of "—" and
             // proves nothing about the words the cells are supposed to carry.
-            LifeRules.Sleep(st);                                                             // FRI morning
-            LifeRules.ClockOnShift(st); LifeRules.SpendActivitySlot(st, LifeRules.ActWork);  // FRI day
-            LifeRules.SpendActivitySlot(st, LifeRules.ActRace);                              // FRI night: shift skipped
-            LifeRules.SpendActivitySlot(st, LifeRules.ActDrive);                             // SAT morning
-            LifeRules.ClockOnShift(st); LifeRules.SpendActivitySlot(st, LifeRules.ActWork);  // SAT day
-            LifeRules.Sleep(st);                                                             // SAT night
-            LifeRules.SpendActivitySlot(st, LifeRules.ActInspect);                           // SUN morning
-            LifeRules.Sleep(st); LifeRules.Sleep(st);                                        // SUN day, night
-            LifeRules.Sleep(st);                                                             // MON morning
-            LifeRules.ClockOnShift(st); LifeRules.SpendActivitySlot(st, LifeRules.ActWork);  // MON day
-            LifeRules.Sleep(st);                                                             // MON night -> TUE 5 JAN
+            // SIX BLOCKS A DAY (v21): DAWN MORNING NOON AFTERNOON EVENING NIGHT.
+            LifeRules.Sleep(st);                                                             // FRI dawn: a nap
+            LifeRules.SpendActivitySlot(st, LifeRules.ActDrive);                             // FRI morning
+            LifeRules.ClockOnShift(st); LifeRules.SpendShift(st);                            // FRI noon + afternoon
+            LifeRules.SpendActivitySlot(st, LifeRules.ActRace);                              // FRI evening
+            LifeRules.SpendActivitySlot(st, LifeRules.ActMeet);                              // FRI night: up all night
+            LifeRules.Sleep(st);                                                             // SAT dawn + morning: slept it off
+            LifeRules.ClockOnShift(st); LifeRules.SpendShift(st);                            // SAT noon + afternoon
+            LifeRules.Sleep(st);                                                             // SAT evening + night: early night
+            LifeRules.SpendActivitySlot(st, LifeRules.ActInspect);                           // SUN dawn
+            LifeRules.Sleep(st);                                                             // SUN morning: a nap
+            LifeRules.SpendActivitySlot(st, LifeRules.ActRace);                              // SUN noon: shift skipped
+            LifeRules.SpendActivitySlot(st, LifeRules.ActDrive);                             // SUN afternoon
+            LifeRules.Sleep(st);                                                             // SUN evening + night
+            LifeRules.Sleep(st);                                                             // MON dawn: a nap
+            LifeRules.SpendActivitySlot(st, LifeRules.ActViewing);                           // MON morning
+            LifeRules.ClockOnShift(st); LifeRules.SpendShift(st);                            // MON noon + afternoon
+            LifeRules.SpendActivitySlot(st, LifeRules.ActInspect);                           // MON evening
+            LifeRules.Sleep(st);                                                             // MON night + TUE dawn -> TUE 5 JAN MORNING
             // Four days without a meal would have the header reading CRITICAL;
             // the shots are about layout, not the hunger ladder.
             st.health = 100f; st.daysSinceEat = 0; st.foodStock = 4;
@@ -76,7 +84,7 @@ namespace PSXRacing.EditorTools
             // pre-race page), one in a DAY block two days out (the planner's
             // CANCEL state, and a race that skips a shift), one nine days out.
             LifeRules.Book(st, st.day, LifeRules.NightSlot, 1, false);
-            LifeRules.Book(st, st.day + 2, LifeRules.DaySlot, 3, false);
+            LifeRules.Book(st, st.day + 2, LifeRules.NoonSlot, 3, false);
             LifeRules.Book(st, st.day + 9, LifeRules.NightSlot, 4, false);
             // PSX_PREVIEW_VENUE=ChimneyRockRev: the default venue and every
             // booking on that road, so a new venue's name is measured for
@@ -118,9 +126,14 @@ namespace PSXRacing.EditorTools
             // a block already spent (the record's words). All three are the DAY
             // view with the cursor moved, so they have to fit as well.
             Shoot(outDir, "home_plan_booked", "main", mustFit: true,
-                  calDay: st.day + 2, calSlot: LifeRules.DaySlot);
+                  calDay: st.day + 2, calSlot: LifeRules.NoonSlot);
             Shoot(outDir, "home_plan_open", "main", mustFit: true,
-                  calDay: st.day + 4, calSlot: LifeRules.DaySlot);
+                  calDay: st.day + 4, calSlot: LifeRules.NoonSlot);
+            // THE OWNER'S ASK (2026-10-04): a race booked at NIGHT. The
+            // planner on next Saturday's NIGHT block, open, its TIME button on
+            // NIGHT 23:15.
+            Shoot(outDir, "home_plan_night", "main", mustFit: true,
+                  calDay: st.day + 4, calSlot: LifeRules.NightSlot);
             Shoot(outDir, "home_plan_past", "main", mustFit: true,
                   calDay: st.day - 4, calSlot: LifeRules.NightSlot);
 
@@ -528,7 +541,7 @@ namespace PSXRacing.EditorTools
                 // The planner on an open block: its VENUE < > steps through
                 // MAIN's venues only (TrackCatalog.StepOffered).
                 Shoot(outDir, "main_plan_open", "main", mustFit: true, sizes: EditionSizes,
-                      calDay: st.day + 4, calSlot: LifeRules.DaySlot);
+                      calDay: st.day + 4, calSlot: LifeRules.NoonSlot);
 
                 // THE TRAFFIC SETTING (owner, 2026-09-30: "a toggle to
                 // determine traffic amount for each race (none, light, medium,
@@ -539,7 +552,7 @@ namespace PSXRacing.EditorTools
                 // with HEAVY, from the zone line (GO RACING, the launcher), and
                 // on a drag strip (ROAD CLOSED, dead).
                 Shoot(outDir, "main_plan_traffic", "main", mustFit: true, sizes: EditionSizes,
-                      calDay: st.day + 4, calSlot: LifeRules.DaySlot,
+                      calDay: st.day + 4, calSlot: LifeRules.NoonSlot,
                       fields: new (string, object)[] { ("calTraffic", TrafficLevels.RushHour) });
                 st.slotIndex = LifeRules.NightSlot;
                 LifeRules.SetBookingTraffic(LifeRules.BookingAt(st, st.day, LifeRules.NightSlot), TrafficLevels.RushHour);
@@ -557,7 +570,7 @@ namespace PSXRacing.EditorTools
                 LifeSimManager.Save();
                 Shoot(outDir, "main_prerace_traffic_strip", "prerace", sizes: EditionSizes);
                 Shoot(outDir, "main_plan_traffic_strip", "main", mustFit: true, sizes: EditionSizes,
-                      calDay: st.day + 4, calSlot: LifeRules.DaySlot,
+                      calDay: st.day + 4, calSlot: LifeRules.NoonSlot,
                       fields: new (string, object)[] { ("calVenue", stripVenue) });
                 st.trackIndex = keepVenue;
                 LifeSimManager.Save();

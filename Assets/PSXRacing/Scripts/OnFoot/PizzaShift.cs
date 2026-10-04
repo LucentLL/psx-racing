@@ -329,7 +329,8 @@ namespace PSXRacing.OnFoot
             int tod = TimeOfDay.ForSlot(S.slotIndex, S.day);
 
             LifeRules.ClockOnShift(S);
-            LifeRules.SpendActivitySlot(S, LifeRules.ActWork);
+            // The whole shift, two blocks or to closing (six-block day, v21).
+            LifeRules.SpendShift(S);
             PizzaRun.StartRun(toppings, bottles, pay, trackIndex, parSeconds, tod, dropFraction);
             LifeSimManager.Save();
 

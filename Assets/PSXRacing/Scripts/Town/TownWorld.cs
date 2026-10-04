@@ -709,7 +709,8 @@ namespace PSXRacing.Town
             // the day rolls it, and the rollover decides whether the player
             // skived by reading the very latch this sets.
             LifeRules.ClockOnShift(s);
-            LifeRules.SpendActivitySlot(s, LifeRules.ActWork);
+            // The whole shift, two blocks or to closing (six-block day, v21).
+            LifeRules.SpendShift(s);
             PizzaRun.StartRun(toppings, bottles, pay, trackIndex, par, tod, drop);
             // Already standing at the shop. SpawnAtShop is for a scene load
             // that is no longer happening, and leaving it set would teleport

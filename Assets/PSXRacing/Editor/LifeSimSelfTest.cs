@@ -95,6 +95,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestCalendar), TestCalendar);
             Guard(nameof(TestDiary), TestDiary);
             Guard(nameof(TestDayRecord), TestDayRecord);
+            Guard(nameof(TestSixBlocks), TestSixBlocks);
             Guard(nameof(TestCarWhere), TestCarWhere);
             Guard(nameof(TestCarMeets), TestCarMeets);
             Guard(nameof(TestDepartDoors), TestDepartDoors);
@@ -314,13 +315,13 @@ namespace PSXRacing.EditorTools
             // the RACE button only when the clock is standing in it.
             var b = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
             b.slotIndex = LifeRules.NightSlot;
-            Check(!LifeRules.CanBookAt(b, b.day, LifeRules.DaySlot),
+            Check(!LifeRules.CanBookAt(b, b.day, LifeRules.NoonSlot),
                   "a block already behind the clock cannot be booked");
             Check(LifeRules.CanBookAt(b, b.day, LifeRules.NightSlot),
                   "but the block the clock is in can");
-            Check(LifeRules.Book(b, b.day + 3, LifeRules.DaySlot, 1, false),
+            Check(LifeRules.Book(b, b.day + 3, LifeRules.NoonSlot, 1, false),
                   "a race goes into a block");
-            Check(LifeRules.BookingAt(b, b.day + 3, LifeRules.DaySlot) != null &&
+            Check(LifeRules.BookingAt(b, b.day + 3, LifeRules.NoonSlot) != null &&
                   LifeRules.BookingAt(b, b.day + 3, LifeRules.NightSlot) == null,
                   "and is found in that block and no other");
             Check(!LifeRules.CanBookAt(b, b.day + 3, LifeRules.NightSlot),
@@ -329,7 +330,7 @@ namespace PSXRacing.EditorTools
                   LifeRules.BookingOn(b, b.day + 5).slot == LifeRules.NightSlot,
                   "a booking made without a block lands on the night",
                   LifeRules.BookingOn(b, b.day + 5).slot);
-            Check(!LifeRules.CanBookAt(b, b.day + LifeRules.BookingHorizonDays + 1, LifeRules.DaySlot),
+            Check(!LifeRules.CanBookAt(b, b.day + LifeRules.BookingHorizonDays + 1, LifeRules.NoonSlot),
                   "and nothing past the horizon");
 
             // A v12 save's bookings have no block in their JSON, and JsonUtility
@@ -355,30 +356,40 @@ namespace PSXRacing.EditorTools
         {
             Line("the day's record:");
             var s = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
-            s.slotIndex = 0;
+            s.slotIndex = LifeRules.DawnSlot;
             int d = s.day;
+            int N = LifeRules.NoonSlot, A = LifeRules.AfternoonSlot, E = LifeRules.EveningSlot,
+                Ni = LifeRules.NightSlot, M = LifeRules.MorningSlot;
 
-            LifeRules.Sleep(s);
-            LifeRules.SpendActivitySlot(s, LifeRules.ActRace);
-            Check(LifeRules.SlotAct(s, d, 0) == LifeRules.ActSleep,
-                  "a morning slept through says SLEEP", LifeRules.SlotAct(s, d, 0));
-            Check(LifeRules.SlotAct(s, d, 1) == LifeRules.ActRace,
-                  "a day block raced says RACE", LifeRules.SlotAct(s, d, 1));
-            Check(LifeRules.SlotAct(s, d, 2) == "", "and the block not reached yet says nothing");
-            Check(LifeRules.ShiftSkipped(s, d, 1), "racing through the DAY shift skips it");
-            Check(!LifeRules.ShiftSkipped(s, d, 0), "the morning is not a shift");
-            Check(!LifeRules.ShiftSkipped(s, d, 2), "and a block not yet spent is not skipped yet");
+            LifeRules.Sleep(s);                                   // DAWN: a nap
+            LifeRules.SpendActivitySlot(s, LifeRules.ActDrive);   // MORNING
+            LifeRules.SpendActivitySlot(s, LifeRules.ActRace);    // NOON
+            Check(LifeRules.SlotAct(s, d, LifeRules.DawnSlot) == LifeRules.ActSleep,
+                  "a dawn slept through says SLEEP", LifeRules.SlotAct(s, d, 0));
+            Check(LifeRules.SlotAct(s, d, N) == LifeRules.ActRace,
+                  "a noon block raced says RACE", LifeRules.SlotAct(s, d, N));
+            Check(LifeRules.SlotAct(s, d, A) == "", "and the block not reached yet says nothing");
+            Check(LifeRules.ShiftSkipped(s, d, N), "racing through NOON with no shift worked skips it");
+            Check(!LifeRules.ShiftSkipped(s, d, M), "the morning is not a shift");
+            Check(!LifeRules.ShiftSkipped(s, d, A), "and a block not yet spent is not skipped yet");
 
             LifeRules.ClockOnShift(s);
-            LifeRules.SpendActivitySlot(s, LifeRules.ActWork);   // the night, worked: rolls the day
-            Check(s.day == d + 1 && s.slotIndex == 0, "working the night rolls the day", s.day);
+            LifeRules.SpendShift(s);                              // AFTERNOON + EVENING
+            Check(s.slotIndex == Ni && LifeRules.SlotAct(s, d, A) == LifeRules.ActWork &&
+                  LifeRules.SlotAct(s, d, E) == LifeRules.ActWork,
+                  "a shift is two blocks: clocked on in the afternoon, worked through the evening",
+                  LifeRules.SlotNames[s.slotIndex]);
+            Check(!LifeRules.ShiftSkipped(s, d, N),
+                  "and a day with a shift in it skipped nothing (the race at noon was the player's own)");
+            LifeRules.ClockOnShift(s);
+            LifeRules.SpendShift(s);                              // NIGHT, to closing: rolls the day
+            Check(s.day == d + 1 && s.slotIndex == 0, "a shift taken at NIGHT ends at closing and rolls the day", s.day);
             Check(LifeRules.SlotAct(s, s.day, 0) == "", "the new day's record starts empty");
-            Check(LifeRules.SlotAct(s, d, 2) == LifeRules.ActWork,
-                  "yesterday's night is read back from the log", LifeRules.SlotAct(s, d, 2));
-            Check(!LifeRules.ShiftSkipped(s, d, 2), "a worked shift is not skipped");
-            Check(LifeRules.ShiftSkipped(s, d, 1), "and yesterday's skipped shift is still skipped");
-            Check(s.dayLog.Count == 1 && s.dayLog[0].day == d, "one closed day, one record",
-                  s.dayLog.Count);
+            Check(LifeRules.SlotAct(s, d, Ni) == LifeRules.ActWork,
+                  "yesterday's night is read back from the log", LifeRules.SlotAct(s, d, Ni));
+            Check(!LifeRules.ShiftSkipped(s, d, Ni), "a worked shift is not skipped");
+            Check(s.dayLog.Count == 1 && s.dayLog[0].day == d && s.dayLog[0].acts.Count == 6,
+                  "one closed day, one record of six blocks", s.dayLog.Count);
             Check(LifeRules.SlotAct(s, d + 5, 1) == "", "the future has no record");
 
             // A spend that does not say what it was for still leaves a word,
@@ -389,13 +400,14 @@ namespace PSXRacing.EditorTools
             Check(LifeRules.ActLabel(LifeRules.ActErrand).Length > 0 &&
                   LifeRules.ActLabel("").Length == 0, "every word has a label and blank has none");
 
-            // Nobody unemployed skips a shift.
-            s.playerJob = "";
-            Check(!LifeRules.ShiftSkipped(s, d, 1), "no job, no shift to skip");
-            s.playerJob = LifeRules.DeliveryJobName;
-
             // The log is pruned, oldest first.
             for (int i = 0; i < LifeRules.DayLogKeep + 10; i++) LifeRules.SleepUntilMorning(s);
+            Check(LifeRules.ShiftSkipped(s, s.day - 1, Ni),
+                  "a day slept away with no shift in it reads SHIFT SKIPPED", LifeRules.SlotAct(s, s.day - 1, Ni));
+            // Nobody unemployed skips a shift.
+            s.playerJob = "";
+            Check(!LifeRules.ShiftSkipped(s, s.day - 1, Ni), "no job, no shift to skip");
+            s.playerJob = LifeRules.DeliveryJobName;
             Check(s.dayLog.Count == LifeRules.DayLogKeep, "the log keeps six weeks", s.dayLog.Count);
             Check(s.dayLog[s.dayLog.Count - 1].day == s.day - 1,
                   "and its newest entry is yesterday", s.dayLog[s.dayLog.Count - 1].day);
@@ -405,9 +417,9 @@ namespace PSXRacing.EditorTools
             var old = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
             old.slotActs = null;
             old.dayLog = null;
-            old.slotIndex = 2;
+            old.slotIndex = LifeRules.NightSlot;
             LifeRules.Sleep(old);
-            Check(old.slotActs != null && old.slotActs.Count == 3 && old.dayLog != null &&
+            Check(old.slotActs != null && old.slotActs.Count == 6 && old.dayLog != null &&
                   old.dayLog.Count == 1, "a save with no record grows one on its first sleep",
                   old.slotActs?.Count);
 
@@ -425,6 +437,154 @@ namespace PSXRacing.EditorTools
                     LifeRules.DowNames[LifeRules.Dow(day)]) sundays = false;
             }
             Check(sundays, "every week starts on the Sunday at or before the day, and the names agree");
+        }
+
+
+        /// <summary>
+        /// SIX BLOCKS A DAY (save v21; owner, 2026-10-04: "Calendar should be
+        /// opened to 6 slots" - three made a race at night impossible to
+        /// plan for, because the night was also the only place the night's
+        /// sleep could go). Pins what each rule costs at the finer grain:
+        /// the night's sleep is two blocks and can be taken LATE after a
+        /// night race; a shift is two blocks or to closing; a race, a nap and
+        /// an errand are one; meets stay on Friday and Saturday NIGHT; and an
+        /// old three-block career moves onto the six with nothing lost and
+        /// nothing double-booked.
+        /// </summary>
+        static void TestSixBlocks()
+        {
+            Line("six blocks:");
+            int Dw = LifeRules.DawnSlot, M = LifeRules.MorningSlot, N = LifeRules.NoonSlot,
+                E = LifeRules.EveningSlot, Ni = LifeRules.NightSlot;
+
+            // ---- a night race, and the late night after it ----
+            var s = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            int d = s.day;
+            Check(LifeRules.Book(s, d, Ni, 1, false, TimeOfDay.Night),
+                  "a race can be written into tonight's NIGHT block");
+            Check(LifeRules.BookingHour(LifeRules.BookingAt(s, d, Ni)) == TimeOfDay.Night,
+                  "and it runs at NIGHT");
+            s.slotIndex = Ni;
+            s.health = 80f; s.ateToday = true; s.daysSinceSleep = 0;
+            LifeRules.SpendActivitySlot(s, LifeRules.ActRace);    // the night race: rolls the day
+            Check(s.day == d + 1 && s.slotIndex == Dw, "racing the NIGHT block rolls the day to DAWN");
+            Check(s.daysSinceSleep == 1 && LifeRules.LateNightOwed(s),
+                  "the rollover counted the night as missed, for now", s.daysSinceSleep);
+            Check(LifeRules.SleepBlocks(s) == 2 && LifeRules.WakeSlot(s) == N,
+                  "so SLEEP at DAWN is the night's sleep, late: DAWN + MORNING, up at NOON",
+                  LifeRules.SleepCaption(s));
+            float hBefore = s.health;
+            LifeRules.Sleep(s);
+            Check(s.slotIndex == N && s.daysSinceSleep == 0 && s.health > hBefore,
+                  "a player who races at night sleeps later and is rested", s.health + " / " + s.daysSinceSleep);
+            Check(LifeRules.SlotAct(s, s.day, Dw) == LifeRules.ActSleep &&
+                  LifeRules.SlotAct(s, s.day, M) == LifeRules.ActSleep,
+                  "and the calendar shows both blocks slept");
+
+            // Up all night AND all morning: the night stays missed.
+            var t = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            t.slotIndex = Ni;
+            LifeRules.SpendActivitySlot(t, LifeRules.ActRace);
+            LifeRules.SpendActivitySlot(t, LifeRules.ActDrive);   // DAWN spent awake
+            Check(!LifeRules.LateNightOwed(t) && t.daysSinceSleep == 1 && LifeRules.SleepBlocks(t) == 1,
+                  "a dawn spent awake is an all-nighter, and a morning sleep is a nap", t.daysSinceSleep);
+
+            // ---- the ordinary night, and the early one ----
+            var u = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            int ud = u.day;
+            u.slotIndex = Ni;
+            Check(LifeRules.SleepCaption(u).Contains("THE NIGHT") && LifeRules.WakeSlot(u) == M,
+                  "SLEEP at NIGHT says THE NIGHT, up at MORNING", LifeRules.SleepCaption(u));
+            LifeRules.Sleep(u);
+            Check(u.day == ud + 1 && u.slotIndex == M && u.daysSinceSleep == 0,
+                  "a night's sleep from NIGHT is NIGHT + DAWN, up at MORNING", LifeRules.SlotNames[u.slotIndex]);
+            u.slotIndex = E;
+            LifeRules.Sleep(u);
+            Check(u.day == ud + 2 && u.slotIndex == Dw, "an early night from EVENING is up at DAWN, for a dawn race");
+            u.slotIndex = N;
+            LifeRules.Sleep(u);
+            Check(u.slotIndex == LifeRules.AfternoonSlot && u.day == ud + 2, "a nap is one block");
+            u.slotIndex = M;
+            Check(LifeRules.SleepCaption(u).StartsWith("A NAP"), "and says so", LifeRules.SleepCaption(u));
+            LifeRules.SleepUntilMorning(u);
+            Check(u.day == ud + 3 && u.slotIndex == M, "SleepUntilMorning lands on tomorrow's MORNING",
+                  u.day + " " + LifeRules.SlotNames[u.slotIndex]);
+
+            // ---- the shop's hours and the shift ----
+            Check(!LifeRules.ShiftSlot(Dw) && !LifeRules.ShiftSlot(M) && LifeRules.ShiftSlot(N) &&
+                  LifeRules.ShiftSlot(E) && LifeRules.ShiftSlot(Ni),
+                  "Tony's takes drivers NOON to NIGHT (12:00 - 4:00), as it always did");
+            var w = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            w.slotIndex = N;
+            LifeRules.ClockOnShift(w);
+            LifeRules.SpendShift(w);
+            Check(w.slotIndex == E, "a shift clocked on at NOON is NOON + AFTERNOON", LifeRules.SlotNames[w.slotIndex]);
+            LifeRules.SpendShift(w);
+            Check(w.slotIndex == Dw && w.day == 2,
+                  "and one at EVENING is EVENING + NIGHT, to closing: two runs is still a full day");
+            w.slotIndex = M;
+            LifeRules.SpendShift(w);
+            Check(w.slotIndex == M, "and the shop takes nobody in the MORNING");
+
+            // ---- one race a day holds across six blocks ----
+            var b = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            Check(LifeRules.Book(b, b.day + 1, E, 1, false, TimeOfDay.Dusk) &&
+                  !LifeRules.CanBookAt(b, b.day + 1, Ni),
+                  "an EVENING race and a NIGHT race on one day is still two races");
+
+            // ---- a v20 career moves onto the six (MigrateToSixBlocks) ----
+            var old = new LifeState { saveVersion = 20, day = 10, slotIndex = 1 };   // old DAY block
+            old.slotActs = new List<string> { LifeRules.ActSleep, "", "" };
+            old.dayLog = new List<DayRecord>
+                { new DayRecord { day = 9, morning = LifeRules.ActInspect, afternoon = LifeRules.ActWork,
+                                  night = LifeRules.ActRace } };
+            old.bookings.Add(new RaceBooking { day = 10, slot = 2, trackIndex = 1, hourPick = 0 });                       // tonight, NIGHT
+            old.bookings.Add(new RaceBooking { day = 11, slot = 2, trackIndex = 2, hourPick = TimeOfDay.Dusk + 1 });      // tomorrow at DUSK
+            old.bookings.Add(new RaceBooking { day = 12, slot = 1, trackIndex = 3, hourPick = TimeOfDay.Sunset + 1 });    // a DAY race at SUNSET
+            old.bookings.Add(new RaceBooking { day = 13, slot = 0, trackIndex = 4, hourPick = TimeOfDay.Dawn + 1 });      // a MORNING race at DAWN
+            old.pendingParts.Add(new PendingPart { carId = "x", faultId = "y", readyDay = 12, readySlot = 0 });
+            old.pendingParts.Add(new PendingPart { carId = "x", faultId = "z", readyDay = 11, readySlot = 1 });
+            LifeSimManager.Migrate(old);
+            Check(old.saveVersion == 21, "a v20 save is migrated to v21", old.saveVersion);
+            Check(old.slotIndex == N, "the clock in the old DAY block is at NOON, the start of it",
+                  LifeRules.SlotNames[old.slotIndex]);
+            Check(old.slotActs.Count == 6 && old.slotActs[Dw] == LifeRules.ActSleep &&
+                  old.slotActs[M] == LifeRules.ActSleep && old.slotActs[N] == "",
+                  "today's slept MORNING is a slept DAWN and MORNING", string.Join(",", old.slotActs));
+            var r9 = old.dayLog[0];
+            Check(r9.Act(Dw) == LifeRules.ActInspect && r9.Act(N) == LifeRules.ActWork &&
+                  r9.Act(LifeRules.AfternoonSlot) == LifeRules.ActWork && r9.Act(Ni) == LifeRules.ActRace,
+                  "the day log spreads each old block over its two");
+            var b10 = LifeRules.BookingOn(old, 10); var b11 = LifeRules.BookingOn(old, 11);
+            var b12 = LifeRules.BookingOn(old, 12); var b13 = LifeRules.BookingOn(old, 13);
+            Check(b10 != null && b10.slot == Ni && LifeRules.BookingHour(b10) == TimeOfDay.Night,
+                  "an old NIGHT booking is a NIGHT race", b10 != null ? b10.slot : -1);
+            Check(b11 != null && b11.slot == E && LifeRules.BookingHour(b11) == TimeOfDay.Dusk,
+                  "one at DUSK is an EVENING race at dusk", b11 != null ? b11.slot : -1);
+            Check(b12 != null && b12.slot == E && LifeRules.BookingHour(b12) == TimeOfDay.Sunset,
+                  "a DAY race at SUNSET is an EVENING race at sunset", b12 != null ? b12.slot : -1);
+            Check(b13 != null && b13.slot == Dw && LifeRules.BookingHour(b13) == TimeOfDay.Dawn,
+                  "a MORNING race at DAWN is a DAWN race", b13 != null ? b13.slot : -1);
+            Check(old.bookings.Count == 4 && b10.trackIndex == 1 && b13.trackIndex == 4,
+                  "nothing lost, venues kept, one race a day");
+            Check(old.pendingParts[0].readySlot == M && old.pendingParts[1].readySlot == N,
+                  "a job promised for the old MORNING is ready at MORNING, the old DAY at NOON",
+                  old.pendingParts[0].readySlot + "," + old.pendingParts[1].readySlot);
+            // Through the JSON, the way a real save comes back: the v13 record
+            // fields still read, and a fresh save is born at 21.
+            var json = JsonUtility.FromJson<LifeState>(JsonUtility.ToJson(old));
+            Check(json.slotActs.Count == 6 && json.dayLog[0].Act(Ni) == LifeRules.ActRace &&
+                  json.bookings[0].slot == Ni, "and the migrated career saves and loads");
+            Check(new LifeState().saveVersion == 21 && new LifeState().slotActs.Count == 6,
+                  "a new career is born on six blocks");
+            // An old NIGHT clock: the whole of the night is still ahead of it.
+            var night = new LifeState { saveVersion = 20, day = 5, slotIndex = 2 };
+            night.slotActs = new List<string> { LifeRules.ActWork, LifeRules.ActRace, "" };
+            LifeSimManager.Migrate(night);
+            Check(night.slotIndex == E && night.slotActs[LifeRules.AfternoonSlot] == LifeRules.ActRace &&
+                  night.slotActs[E] == "",
+                  "a career standing in the old NIGHT is at EVENING, nothing of the night spent",
+                  LifeRules.SlotNames[night.slotIndex]);
         }
 
         // ---------------------------------------------------------------
@@ -506,7 +666,7 @@ namespace PSXRacing.EditorTools
             Check(CarWhere.ReturnsAt(s, day0 + 2, LifeRules.MorningSlot).Count == 1,
                   "the calendar has it coming back that morning");
             Check(CarWhere.ReturnsAt(s, day0 + 1, LifeRules.MorningSlot).Count == 0 &&
-                  CarWhere.ReturnsAt(s, day0 + 2, LifeRules.DaySlot).Count == 0,
+                  CarWhere.ReturnsAt(s, day0 + 2, LifeRules.NoonSlot).Count == 0,
                   "and in no other block");
 
             // It comes HOME when the day comes, says so, and the keys stay put.
@@ -1212,7 +1372,8 @@ namespace PSXRacing.EditorTools
             int meets = 0;
             for (int d = 1; d <= 28; d++) if (CarMeets.MeetOn(d)) meets++;
             Check(meets == 8, "two a week, every week", meets + " in four weeks");
-            Check(CarMeets.MeetAt(1, LifeRules.NightSlot) && !CarMeets.MeetAt(1, LifeRules.DaySlot),
+            Check(CarMeets.MeetAt(1, LifeRules.NightSlot) && !CarMeets.MeetAt(1, LifeRules.NoonSlot) &&
+                  !CarMeets.MeetAt(1, LifeRules.EveningSlot),
                   "at NIGHT, and only at night");
 
             var s = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
@@ -1348,7 +1509,7 @@ namespace PSXRacing.EditorTools
             RaceHandoff.CarId = s.activeCar;
             RaceHandoff.MetersDriven = 900f;
             LifeRules.ApplyRaceResult(s);
-            Check(s.day == day + 1 && s.slotIndex == LifeRules.MorningSlot,
+            Check(s.day == day + 1 && s.slotIndex == LifeRules.DawnSlot,
                   "driving home is what spends the night");
             Check(LifeRules.SlotAct(s, day, LifeRules.NightSlot) == LifeRules.ActMeet,
                   "and the calendar has that night down as AT THE MEET",
@@ -1380,13 +1541,17 @@ namespace PSXRacing.EditorTools
             // Every slot of a weekday and of a weekend day. Day 2 is a Saturday
             // and day 3 a Sunday (day 1 is Friday), so this covers the exact
             // days the old rule refused.
+            // Six blocks (v21): DAWN and MORNING shut, NOON .. NIGHT open.
             bool morningShut = true, afternoonOpen = true, nightOpen = true;
             for (int day = 1; day <= 7; day++)
             {
                 s.day = day;
-                s.slotIndex = 0; if (LifeRules.ShopOpen(s)) morningShut = false;
-                s.slotIndex = 1; if (!LifeRules.ShopOpen(s)) afternoonOpen = false;
-                s.slotIndex = 2; if (!LifeRules.ShopOpen(s)) nightOpen = false;
+                s.slotIndex = LifeRules.DawnSlot; if (LifeRules.ShopOpen(s)) morningShut = false;
+                s.slotIndex = LifeRules.MorningSlot; if (LifeRules.ShopOpen(s)) morningShut = false;
+                s.slotIndex = LifeRules.NoonSlot; if (!LifeRules.ShopOpen(s)) afternoonOpen = false;
+                s.slotIndex = LifeRules.AfternoonSlot; if (!LifeRules.ShopOpen(s)) afternoonOpen = false;
+                s.slotIndex = LifeRules.EveningSlot; if (!LifeRules.ShopOpen(s)) nightOpen = false;
+                s.slotIndex = LifeRules.NightSlot; if (!LifeRules.ShopOpen(s)) nightOpen = false;
             }
             Check(morningShut, "the shop is shut every morning");
             Check(afternoonOpen, "and open every afternoon, weekends included");
@@ -1417,8 +1582,8 @@ namespace PSXRacing.EditorTools
             // or the button is open at an hour the sky disagrees with.
             Check(TimeOfDay.At(TimeOfDay.ForSlot(1, 1)).name != "NIGHT",
                   "slot 1 reads as daylight", TimeOfDay.At(TimeOfDay.ForSlot(1, 1)).name);
-            Check(TimeOfDay.At(TimeOfDay.ForSlot(2, 1)).lightsOn,
-                  "slot 2 is dark enough for headlights");
+            Check(TimeOfDay.At(TimeOfDay.ForSlot(LifeRules.NightSlot, 1)).lightsOn,
+                  "the NIGHT block is dark enough for headlights");
 
             // ---- the absence ladder ----
             // Two days off cost nothing; the third starts the ladder and the
@@ -4837,7 +5002,7 @@ namespace PSXRacing.EditorTools
             // so everything the rollover reads has to already be true.
             var n = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
             LifeRules.SeedFallbackCar(n);
-            n.slotIndex = 2;
+            n.slotIndex = LifeRules.NightSlot;
             int nightDay = n.day;
             float repBefore = n.workRep;
 
@@ -4875,30 +5040,31 @@ namespace PSXRacing.EditorTools
         {
             Line("sleep by the block:");
 
+            // Six blocks (v21): a nap is one block, a night's sleep is two.
             var s = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
-            s.slotIndex = 0;
+            s.slotIndex = LifeRules.MorningSlot;
             int day = s.day;
 
             LifeRules.Sleep(s);
-            Check(s.day == day && s.slotIndex == 1,
-                  "sleeping the morning off lands in the afternoon, same day",
+            Check(s.day == day && s.slotIndex == LifeRules.NoonSlot,
+                  "sleeping the morning off lands at noon, same day",
+                  LifeRules.SlotNames[s.slotIndex] + " day " + s.day);
+
+            LifeRules.Sleep(s); LifeRules.Sleep(s);
+            Check(s.day == day && s.slotIndex == LifeRules.EveningSlot,
+                  "and naps on through the afternoon land in the evening, still the same day",
                   LifeRules.SlotNames[s.slotIndex] + " day " + s.day);
 
             LifeRules.Sleep(s);
-            Check(s.day == day && s.slotIndex == 2,
-                  "and again lands at night, still the same day",
-                  LifeRules.SlotNames[s.slotIndex] + " day " + s.day);
-
-            LifeRules.Sleep(s);
-            Check(s.day == day + 1 && s.slotIndex == 0,
-                  "only the night sleep rolls into tomorrow morning",
+            Check(s.day == day + 1 && s.slotIndex == LifeRules.DawnSlot,
+                  "only a night's sleep rolls into tomorrow: an early night is up at DAWN",
                   LifeRules.SlotNames[s.slotIndex] + " day " + s.day);
 
             // A nap is rest, not an errand: it must not read as a slot the
             // player spent DOING something, or the health model would count a
             // lie-in as a day at work.
             var n = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
-            n.slotIndex = 0;
+            n.slotIndex = LifeRules.MorningSlot;
             int active = n.slotsActiveToday;
             float napHealth = n.health;
             LifeRules.Sleep(n);
@@ -4916,34 +5082,36 @@ namespace PSXRacing.EditorTools
             // there - which is what every caller that means "a day passes" is
             // relying on.
             var w = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
-            w.slotIndex = 0;
+            w.slotIndex = LifeRules.MorningSlot;
             int wday = w.day;
             LifeRules.SleepUntilMorning(w);
-            Check(w.day == wday + 1 && w.slotIndex == 0,
+            Check(w.day == wday + 1 && w.slotIndex == LifeRules.MorningSlot,
                   "SleepUntilMorning from the morning costs exactly one day",
                   "day " + w.day + " " + LifeRules.SlotNames[w.slotIndex]);
 
             // ...and from the night it is still one day, not two.
-            w.slotIndex = 2;
+            w.slotIndex = LifeRules.NightSlot;
             wday = w.day;
             LifeRules.SleepUntilMorning(w);
-            Check(w.day == wday + 1 && w.slotIndex == 0,
+            Check(w.day == wday + 1 && w.slotIndex == LifeRules.MorningSlot,
                   "and from the night it is still one day", "day " + w.day);
 
             // The health ladder's rested/all-nighter split has to survive the
             // change: napping through a whole day and never sleeping at night
             // is an all-nighter, because it is.
             var a = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
-            a.slotIndex = 0;
+            a.slotIndex = LifeRules.MorningSlot;
             a.daysSinceSleep = 0;
-            LifeRules.Sleep(a); LifeRules.Sleep(a);   // morning + afternoon naps
+            LifeRules.Sleep(a); LifeRules.Sleep(a);   // morning + noon naps
+            LifeRules.SpendActivitySlot(a);           // afternoon
+            LifeRules.SpendActivitySlot(a);           // evening
             LifeRules.SpendActivitySlot(a);           // worked the night away
             Check(a.daysSinceSleep == 1,
                   "napping through the day is still an all-nighter", a.daysSinceSleep);
 
             // Sleeping at night clears it, which is the other half of the pair.
             var r = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
-            r.slotIndex = 2;
+            r.slotIndex = LifeRules.NightSlot;
             r.daysSinceSleep = 2;
             LifeRules.Sleep(r);
             Check(r.daysSinceSleep == 0, "a night in bed clears it", r.daysSinceSleep);
@@ -7085,25 +7253,32 @@ namespace PSXRacing.EditorTools
 
             // A morning slot must never hand back a night, or the LifeSim's
             // clock and the sky stop agreeing with each other.
-            bool bandsHold = true, nightIsNight = true;
+            // SIX BLOCKS (v21): each block is named for its sky, and EVENING
+            // is the one holding two (SUNSET, DUSK).
+            bool bandsHold = true, nightIsNight = true, eveningBoth = false, eveningSunset = false;
+            int[] own = { TimeOfDay.Dawn, TimeOfDay.Morning, TimeOfDay.Noon, TimeOfDay.Afternoon, -1, TimeOfDay.Night };
             for (int day = 1; day <= 40; day++)
             {
-                int m = TimeOfDay.ForSlot(0, day);
-                int a = TimeOfDay.ForSlot(1, day);
-                int n = TimeOfDay.ForSlot(2, day);
-                if (m > TimeOfDay.Noon) bandsHold = false;
-                if (a < TimeOfDay.Morning || a > TimeOfDay.Sunset) bandsHold = false;
-                if (n < TimeOfDay.Sunset) bandsHold = false;
-                // Whatever a block hands out unasked must be one of the hours
-                // the booking's picker offers for it, or the picker and the
-                // default are two clocks.
-                if (!TimeOfDay.InSlot(m, 0) || !TimeOfDay.InSlot(a, 1) || !TimeOfDay.InSlot(n, 2))
-                    bandsHold = false;
+                for (int slot = 0; slot < LifeRules.SlotCount; slot++)
+                {
+                    int h = TimeOfDay.ForSlot(slot, day);
+                    // Whatever a block hands out unasked must be one of the hours
+                    // the booking's picker offers for it, or the picker and the
+                    // default are two clocks.
+                    if (!TimeOfDay.InSlot(h, slot)) bandsHold = false;
+                    if (own[slot] >= 0 && h != own[slot]) bandsHold = false;
+                }
+                int e = TimeOfDay.ForSlot(LifeRules.EveningSlot, day);
+                if (e == TimeOfDay.Sunset) eveningSunset = true; else if (e == TimeOfDay.Dusk) eveningBoth = true;
                 // THE NIGHT BLOCK IS NIGHT. It used to deal a sunset or a blue
                 // hour on half the nights of a career, and the owner's report
                 // of that was "I am unable to race at night".
-                if (n != TimeOfDay.Night) nightIsNight = false;
+                if (TimeOfDay.ForSlot(LifeRules.NightSlot, day) != TimeOfDay.Night) nightIsNight = false;
             }
+            Check(LifeRules.SlotCount == 6 && LifeRules.SlotNames[LifeRules.NightSlot] == "NIGHT" &&
+                  LifeRules.SlotNames[LifeRules.DawnSlot] == "DAWN",
+                  "six blocks a day, DAWN to NIGHT", string.Join(",", LifeRules.SlotNames));
+            Check(eveningBoth && eveningSunset, "the EVENING block deals both its skies, sunset and dusk");
             Check(bandsHold, "every slot stays inside its own band over 40 days");
             Check(nightIsNight, "and the night block is NIGHT, every night — dusk is a choice, not a roll");
             Check(TimeOfDay.ForSlot(0, 7) == TimeOfDay.ForSlot(0, 7), "the same day picks the same hour");
@@ -7113,17 +7288,22 @@ namespace PSXRacing.EditorTools
             for (int h = 0; h < TimeOfDay.Count; h++)
             {
                 int homes = 0;
-                for (int slot = 0; slot < 3; slot++) if (TimeOfDay.InSlot(h, slot)) homes++;
+                for (int slot = 0; slot < LifeRules.SlotCount; slot++) if (TimeOfDay.InSlot(h, slot)) homes++;
                 if (homes != 1) everyHourOnce = false;
             }
             Check(everyHourOnce, "every one of the seven hours can be booked, in exactly one block");
-            Check(TimeOfDay.StepHour(2, TimeOfDay.Dusk) == TimeOfDay.Night &&
-                  TimeOfDay.StepHour(2, TimeOfDay.Night) == TimeOfDay.Dusk &&
-                  TimeOfDay.StepHour(2, -1) == TimeOfDay.Dusk,
+            Check(TimeOfDay.StepHour(LifeRules.EveningSlot, TimeOfDay.Sunset) == TimeOfDay.Dusk &&
+                  TimeOfDay.StepHour(LifeRules.EveningSlot, TimeOfDay.Dusk) == TimeOfDay.Sunset &&
+                  TimeOfDay.StepHour(LifeRules.EveningSlot, -1) == TimeOfDay.Sunset &&
+                  TimeOfDay.StepHour(LifeRules.NightSlot, TimeOfDay.Night) == TimeOfDay.Night,
                   "the TIME button walks a block's hours round and round");
+            Check(LifeRules.SlotOfHour(TimeOfDay.Night) == LifeRules.NightSlot &&
+                  LifeRules.SlotOfHour(TimeOfDay.Dusk) == LifeRules.EveningSlot &&
+                  LifeRules.SlotOfHour(TimeOfDay.Dawn) == LifeRules.DawnSlot,
+                  "every hour knows its block");
 
             var diary = new LifeState { day = 10, slotIndex = 0 };
-            Check(LifeRules.Book(diary, 12, LifeRules.NightSlot, 0, false, TimeOfDay.Dusk) &&
+            Check(LifeRules.Book(diary, 12, LifeRules.EveningSlot, 0, false, TimeOfDay.Dusk) &&
                   LifeRules.BookingHour(LifeRules.BookingOn(diary, 12)) == TimeOfDay.Dusk,
                   "a race written in at DUSK runs at dusk");
             Check(LifeRules.Book(diary, 13, LifeRules.NightSlot, 0, false, TimeOfDay.Noon) &&
@@ -7134,7 +7314,7 @@ namespace PSXRacing.EditorTools
             Check(LifeRules.BookingHour(old) == TimeOfDay.ForSlot(LifeRules.NightSlot, 14),
                   "a booking made before the picker existed runs at its block's own hour, not at DAWN");
             var round = JsonUtility.FromJson<RaceBooking>(JsonUtility.ToJson(
-                new RaceBooking { day = 15, slot = LifeRules.DaySlot, hourPick = TimeOfDay.Sunset + 1 }));
+                new RaceBooking { day = 15, slot = LifeRules.EveningSlot, hourPick = TimeOfDay.Sunset + 1 }));
             Check(LifeRules.BookingHour(round) == TimeOfDay.Sunset, "and the chosen hour survives the save");
 
             // ---- the TRAFFIC a race is booked with (2026-09-30) ----------
@@ -7165,13 +7345,13 @@ namespace PSXRacing.EditorTools
                   "a race with no level set runs its hour's nearest: night LIGHT, the day MEDIUM",
                   TrafficLevels.Name(TrafficLevels.ForHour(TimeOfDay.Night)));
             var tdiary = new LifeState { day = 10, slotIndex = 0 };
-            Check(LifeRules.Book(tdiary, 12, LifeRules.NightSlot, 0, false, TimeOfDay.Dusk, TrafficLevels.RushHour) &&
+            Check(LifeRules.Book(tdiary, 12, LifeRules.EveningSlot, 0, false, TimeOfDay.Dusk, TrafficLevels.RushHour) &&
                   LifeRules.BookingTraffic(LifeRules.BookingOn(tdiary, 12)) == TrafficLevels.RushHour,
                   "a race written in with RUSH HOUR traffic runs in rush hour");
-            Check(LifeRules.Book(tdiary, 13, LifeRules.NightSlot, 0, false, TimeOfDay.Dusk, TrafficLevels.None) &&
+            Check(LifeRules.Book(tdiary, 13, LifeRules.EveningSlot, 0, false, TimeOfDay.Dusk, TrafficLevels.None) &&
                   LifeRules.BookingTraffic(LifeRules.BookingOn(tdiary, 13)) == TrafficLevels.None,
                   "and one written in with NONE has none (NONE is not 'unset')");
-            var oldT = new RaceBooking { day = 14, slot = LifeRules.DaySlot, hourPick = TimeOfDay.Noon + 1 };
+            var oldT = new RaceBooking { day = 14, slot = LifeRules.NoonSlot, hourPick = TimeOfDay.Noon + 1 };
             Check(LifeRules.BookingTraffic(oldT) == TrafficLevels.ForHour(TimeOfDay.Noon),
                   "a booking from before the setting runs the traffic its hour always had");
             var roundT = JsonUtility.FromJson<RaceBooking>(JsonUtility.ToJson(oldT));
@@ -7355,13 +7535,13 @@ namespace PSXRacing.EditorTools
                     LifeSimManager.Migrate(m);
                     bool same = TrackCatalog.At(nowIdx).id == probe[p] && m.trackIndex == nowIdx &&
                                 m.bookings[0].trackIndex == nowIdx && m.blChallenge.trackIndex == nowIdx &&
-                                m.saveVersion == 20;
+                                m.saveVersion >= 20;
                     if (!same) { allSame = false; if (firstWrong == null) firstWrong = probe[p] + " -> " + TrackCatalog.At(m.trackIndex).id; }
                 }
                 Check(allSame, "a v19 save's NC 226A LOWER II, GILLESPIE GAP II and PARKWAY SPRINT are still those roads after the v20 migration",
                       firstWrong ?? "all three");
                 LifeSimManager.Migrate(mig19);
-                Check(mig19.saveVersion == 20 && new LifeState().saveVersion == 20, "a v19 save migrates to v20, where new careers start");
+                Check(mig19.saveVersion == 21 && new LifeState().saveVersion == 21, "a v19 save migrates through v20 to v21, where new careers start");
                 Check(TrackCatalog.RemapV19Index(3) == 3, "and v19 authored indices stand");
                 Check(TrackCatalog.RemapV19Index(19) == TrackCatalog.IndexOf("GillespieGap"),
                       "and v19's last authored venue is still Gillespie Gap", TrackCatalog.RemapV19Index(19));

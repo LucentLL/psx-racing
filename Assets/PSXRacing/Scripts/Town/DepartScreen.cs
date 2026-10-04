@@ -141,7 +141,7 @@ namespace PSXRacing.Town
             MenuKit.Label(panel,
                 (car != null ? car.displayName.ToUpperInvariant() : "NO CAR") +
                 "   ·   FUEL " + Mathf.RoundToInt(car != null ? car.fuel : 0f) + "%" +
-                "   ·   " + LifeRules.SlotNames[Mathf.Clamp(S.slotIndex, 0, 2)],
+                "   ·   " + LifeRules.SlotNames[Mathf.Clamp(S.slotIndex, 0, LifeRules.SlotCount - 1)],
                 16, new Vector2(0.5f, 1f), new Vector2(0f, y), TextAnchor.MiddleCenter,
                 MenuKit.Dim, 760f);
             y -= 48f;

@@ -309,21 +309,15 @@ namespace PSXRacing
         /// <summary>
         /// Which hour a LifeSim activity slot races at.
         ///
-        /// The life sim has three slots and always will — the whole economy is
-        /// built on three actions a day — so the seven hours fold into three
-        /// bands, and the day number picks within the band. That way racing the
-        /// morning slot on Tuesday and on Wednesday are not the same picture,
-        /// without adding a fourth slot nobody asked for.
+        /// SIX SLOTS since save v21 (the owner asked for them, 2026-10-04): one
+        /// per hour of the sky, except EVENING, which holds both SUNSET and
+        /// DUSK — and the day number picks between those two, so the evening
+        /// on Tuesday and on Wednesday are not the same picture. (It was three
+        /// slots, the seven hours folded into three bands.)
         /// </summary>
         public static int ForSlot(int slot, int day)
         {
-            int[] band;
-            switch (Mathf.Clamp(slot, 0, 2))
-            {
-                case 0: band = MorningBand; break;
-                case 1: band = AfternoonBand; break;
-                default: band = NightBand; break;
-            }
+            int[] band = HoursIn(slot);
             // Deterministic, not random: the same day and slot must give the
             // same hour whether the player is looking at the pre-race quote or
             // already in the car.
@@ -341,9 +335,6 @@ namespace PSXRacing
         // day block where it belongs, and what the night block hands out
         // unasked is always NIGHT. DUSK is still a night-block hour, but a
         // CHOSEN one: see HoursIn, which the race booking's hour picker reads.
-        static readonly int[] MorningBand = { Morning, Dawn, Morning };
-        static readonly int[] AfternoonBand = { Noon, Afternoon, Sunset };
-        static readonly int[] NightBand = { Night };
 
         /// <summary>
         /// Every hour whose clock time falls inside a block, in clock order —
@@ -351,19 +342,16 @@ namespace PSXRacing
         /// hour picker steps through these; <see cref="ForSlot"/> is what a
         /// booking with no hour chosen gets.
         /// </summary>
-        public static int[] HoursIn(int slot)
-        {
-            switch (Mathf.Clamp(slot, 0, 2))
-            {
-                case 0: return MorningHours;
-                case 1: return DayHours;
-                default: return NightHours;
-            }
-        }
+        public static int[] HoursIn(int slot) => SlotHourTable[Mathf.Clamp(slot, 0, SlotHourTable.Length - 1)];
 
-        static readonly int[] MorningHours = { Dawn, Morning };
-        static readonly int[] DayHours = { Noon, Afternoon, Sunset };
-        static readonly int[] NightHours = { Dusk, Night };
+        /// <summary>LifeRules.SlotNames order: DAWN 4-8, MORNING 8-12, NOON
+        /// 12-16, AFTERNOON 16-19, EVENING 19-22, NIGHT 22-4. Every clock
+        /// below sits inside the block of its own name.</summary>
+        static readonly int[][] SlotHourTable =
+        {
+            new[] { Dawn }, new[] { Morning }, new[] { Noon }, new[] { Afternoon },
+            new[] { Sunset, Dusk }, new[] { Night },
+        };
 
         /// <summary>Whether an hour belongs to a block. A booking's chosen hour
         /// is only honoured when it does, so a save edited by hand (or a block
