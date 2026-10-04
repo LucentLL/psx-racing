@@ -64,7 +64,7 @@
 //                           (the roads pass's B1: bridge outlines, culvert creeks)
 //   charlotte_dem.bytes     PDEM v3: the 30 m height grid in delta-coded
 //                           blocks (lib/pdem3.mjs), datum pinned at 97.0 m
-//   charlotte_bld.bytes     PBLD v2: footprints (v2: + the facade look byte
+//   charlotte_bld.bytes     PBLD v3: footprints (v3: + parts, roofs, landmarks; v2: + the facade look byte
 //                           - use, material, colour - Uptown B1)
 //   charlotte_routes.json   the menu's copy of the routes
 //   tools/city/charlotte_*.png   debug plots (with --out only; gitignored)
@@ -108,6 +108,7 @@ import { findSplits } from './lib/splits.mjs';
 import { encodePdem3 } from './lib/pdem3.mjs';
 import { buildLots } from './lib/lots.mjs';
 import { buildRoadProfiles, writeRprf } from './lib/roadprofile.mjs';
+import { applyParts } from './lib/parts.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UNITY = join(HERE, '..', '..');
@@ -1372,15 +1373,21 @@ function parseHeight(h) {
   return m[2] === 'ft' || m[2] === "'" ? v * 0.3048 : v;
 }
 const buildings = [];
+const layerHeld = [];   // B2: layer > 0 outlines, for lib/parts.mjs
 {
   let dropped = 0;
-  const addPoly = (geom, t) => {
+  const addPoly = (geom, t, key) => {
     if (SKIP_TYPES.has(t.building)) { dropped++; return; }
     // An ELEVATED structure — a skywalk over the street (uptown's
     // Overstreet Mall), a building on stilts, anything with a floor above
     // the ground — extruded from the pavement is a wall across the road.
     if (t.building === 'bridge' || parseInt(t['building:min_level'], 10) > 0 ||
-        parseHeight(t.min_height) > 1.5 || parseInt(t.layer, 10) > 0) { dropped++; return; }
+        parseHeight(t.min_height) > 1.5) { dropped++; return; }
+    // layer > 0 alone is no proof of a floor in the air (most are towers
+    // over their own garage). Still dropped as before; B2 (lib/parts.mjs)
+    // brings one back when its building:parts give it heights and no road
+    // runs through it.
+    const layerOnly = parseInt(t.layer, 10) > 0;
     let pts = geom.map(g => [toX(g.lon), toZ(g.lat)]);
     if (pts.length > 1 && Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]) < 0.05) pts.pop();
     pts = rdp(pts, 0.35);
@@ -1410,12 +1417,16 @@ const buildings = [];
     else if (t.building === 'retail' || t.building === 'commercial' || t.shop || t.amenity) style = 4;
     else style = area > 900 ? 1 : (t.building === 'yes' ? 4 : 2);
     const gable = house && area < 480 && pts.length <= 10;
-    buildings.push({ pts, h, style, gable, area, look: facadeLook(t) });
+    const b = { pts, h, style, gable, area, look: facadeLook(t), key };
+    // B2: an outline's own roof (lib/parts.mjs reads it; houses keep their gables)
+    if (t['roof:shape']) b.rt = { 'roof:shape': t['roof:shape'], 'roof:height': t['roof:height'], 'roof:levels': t['roof:levels'], 'roof:direction': t['roof:direction'] };
+    if (layerOnly) { layerHeld.push(b); dropped++; return; }
+    buildings.push(b);
   };
   for (const el of rawBld) {
-    if (el.type === 'way' && el.tags && el.geometry) addPoly(el.geometry, el.tags);
+    if (el.type === 'way' && el.tags && el.geometry) addPoly(el.geometry, el.tags, 'w' + el.id);
     else if (el.type === 'relation' && el.tags && el.members) {
-      for (const m of el.members) if (m.role === 'outer' && m.geometry) addPoly(m.geometry, el.tags);
+      for (const m of el.members) if (m.role === 'outer' && m.geometry) addPoly(m.geometry, el.tags, 'r' + el.id);
     }
   }
   // A footprint a road runs THROUGH (in one side and out the other) is a
@@ -1424,7 +1435,7 @@ const buildings = [];
   {
     let through = 0;
     const keep = [];
-    for (const b of buildings) {
+    const straddles = b => {
       let x0 = 1e18, x1 = -1e18, z0 = 1e18, z1 = -1e18;
       for (const p of b.pts) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }
       let straddled = false;
@@ -1447,8 +1458,13 @@ const buildings = [];
             if (hits >= 2) { straddled = true; break outer; }
           }
         }
-      if (straddled) through++; else keep.push(b);
-    }
+      return straddled;
+    };
+    for (const b of buildings) { if (straddles(b)) through++; else keep.push(b); }
+    // B2: the layer > 0 outlines get the same test before parts may raise them
+    const held = layerHeld.filter(b => !straddles(b));
+    layerHeld.length = 0;
+    for (const b of held) layerHeld.push(b);
     buildings.length = 0;
     for (const b of keep) buildings.push(b);
     dropped += through;
@@ -1761,18 +1777,38 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
 
 // ---- buildings
 {
+  // B2 (Uptown, 2026-10-04): building:part from fetch/fetch_parts.mjs's one
+  // fetch. Outlines keep their index (hidden where their parts draw them);
+  // the parts follow every outline (lib/parts.mjs).
+  const partsFile = join(CACHE, 'parts_core.json');
+  const PARTS = applyParts({ raw: existsSync(partsFile) ? loadJson(partsFile).elements : [], buildings, held: layerHeld,
+                             toX, toZ, rdp, polyArea, parseHeight, facadeLook });
+  const { raised, ...ps } = PARTS.stats;
+  console.log('parts (B2):', JSON.stringify(ps));
+  if (raised.length) console.log('  raised by their parts:', raised.slice(0, 12).join('; '));
+  const all = buildings.concat(PARTS.rescued, PARTS.parts);
   const w = new Writer();
   w.u32(0x444C4250); // "PBLD"
-  w.u32(2);
+  w.u32(3);
   const bb = buildings.bbox || [0, 0, 0, 0];
   w.f32(bb[0]); w.f32(bb[1]); w.f32(bb[2]); w.f32(bb[3]);
-  w.u32(buildings.length);
-  for (const b of buildings) {
+  w.u32(all.length);
+  for (const b of all) {
     w.u8(b.style | (b.gable ? 0x80 : 0)); w.f32(b.h);
     // v2 (Uptown B1, 2026-10-04): what the facade is made of, as OSM says
     const lk = b.look || { use: 0, mat: 0, rgb: null };
     w.u8(lk.use | (lk.mat << 2) | (lk.rgb ? 0x80 : 0));
     if (lk.rgb) { w.u8(lk.rgb[0]); w.u8(lk.rgb[1]); w.u8(lk.rgb[2]); }
+    // v3 (Uptown B2): bit0 hidden (drawn by its parts), bit1 a part, bit2 never
+    // swapped for a pack tower, bits3-5 roof shape; bit7: the extra block
+    // (u16 floor dm, u16 roof height dm, i16 roof:direction deg or -1, u8
+    // landmark, i32 the part's outline or -1)
+    const roof = b.roof || 0, extra = !!(b.part || roof || b.landmark);
+    w.u8((b.hidden ? 1 : 0) | (b.part ? 2 : 0) | (b.noSwap ? 4 : 0) | (roof << 3) | (extra ? 0x80 : 0));
+    if (extra) {
+      w.u16(Math.round((b.minH || 0) * 10)); w.u16(Math.round((b.roofH || 0) * 10));
+      w.i16(b.roofDir ?? -1); w.u8(b.landmark || 0); w.i32(b.part ? b.outline : -1);
+    }
     w.u8(b.pts.length);
     for (const p of b.pts) { w.f32(p[0]); w.f32(p[1]); }
   }
@@ -1910,6 +1946,7 @@ function inputFiles() {
   add('tools/city/cache/streets_core.json', join(CACHE, 'streets_core.json'), 'overpass');
   if (existsSync(join(CACHE, 'lots_core.json'))) add('tools/city/cache/lots_core.json', join(CACHE, 'lots_core.json'), 'overpass');
   add('tools/city/cache/buildings_core.json', join(CACHE, 'buildings_core.json'), 'overpass');
+  add('tools/city/cache/parts_core.json', join(CACHE, 'parts_core.json'), 'overpass');   // B2
   // the 3DEP box (%PSX_GIS_DIR%\3dep when that is set) and its georeference
   add('tools/city/cache/3dep/box13.f32', dem3.f32Path, '3dep');
   add('tools/city/cache/3dep/box13.json', dem3.jsonPath, '3dep');

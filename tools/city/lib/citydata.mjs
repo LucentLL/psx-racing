@@ -432,7 +432,7 @@ export function parseBld(buf) {
   const r = new Reader(buf);
   if (r.u32() !== 0x444C4250) throw new Error('charlotte_bld.bytes: bad magic');
   const version = r.i32();
-  if (version !== 1 && version !== 2) throw new Error('charlotte_bld.bytes: version ' + version);
+  if (version < 1 || version > 3) throw new Error('charlotte_bld.bytes: version ' + version);
   const bbox = [r.f32(), r.f32(), r.f32(), r.f32()];
   const n = r.u32();
   const fp = new Array(n);
@@ -442,6 +442,10 @@ export function parseBld(buf) {
     if (version >= 2) {
       const lb = r.u8(); f.use = lb & 3; f.mat = (lb >> 2) & 7;
       if (lb & 0x80) f.rgb = [r.u8(), r.u8(), r.u8()];
+    }
+    if (version >= 3) {
+      const xb = r.u8(); f.hidden = (xb & 1) !== 0; f.part = (xb & 2) !== 0; f.noSwap = (xb & 4) !== 0; f.roof = (xb >> 3) & 7;
+      if (xb & 0x80) { f.minH = r.u16() / 10; f.roofH = r.u16() / 10; f.roofDir = r.i16(); f.landmark = r.u8(); f.outline = r.i32(); }
     }
     const np = r.u8(); f.pts = new Array(np); points += np;
     for (let k = 0; k < np; k++) f.pts[k] = [r.f32(), r.f32()];
@@ -636,6 +640,8 @@ export function fingerprint(city, dem, bld) {
            scale_m: Math.round(dem.scale * 1e6) / 1e6,
            min_asl: r1(dmin + dem.base), max_asl: r1(dmax + dem.base) },
     bld: { version: bld.version, footprints: bld.footprints.length, points: bld.points,
-           bbox: bld.bbox.map(v => Math.round(v)) },
+           bbox: bld.bbox.map(v => Math.round(v)),
+           ...(bld.version >= 3 ? { parts: bld.footprints.filter(f => f.part).length, hidden: bld.footprints.filter(f => f.hidden).length,
+                                    roofs: bld.footprints.filter(f => f.roof).length, landmarks: bld.footprints.filter(f => f.landmark && !f.part).length } : {}) },
   };
 }

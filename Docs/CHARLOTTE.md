@@ -6598,6 +6598,90 @@ look (no bands - the price of no moire; a mip bias could keep a hint of
 floors); crowns are not lit; the house siding is still drawn in code; heights
 from building:part are B2.
 
+## Uptown heights from building:part (Uptown B2, 2026-10-04): tiers, setbacks, roof shapes
+
+The game read only `height` and `building:levels` off each OSM outline, so a
+building whose heights live on its `building:part`s stood as a 15-16 m slab
+(the 300 tower, a new office tower, the stadium), and every tower was one
+prism. This package reads the parts.
+
+- **One fetch.** `tools/city/fetch/fetch_parts.mjs` (count first, then
+  `out geom`) wrote `tools/city/cache/parts_core.json` (gitignored; sha256 in
+  `cache_manifest.json`): every `building:part` way and relation plus the
+  `type=building` relations in the same 8 x 8 km core box as
+  `fetch_bld.mjs`, as of `[date:"2026-09-12T02:44:33Z"]` (1,088 ways, 40
+  relations; Overpass prints the fetch day as `timestamp_osm_base` for a
+  dated query).
+- **Parts to outlines** (`tools/city/lib/parts.mjs`). Each part goes to the
+  smallest kept outline holding its centroid. A part is usable when it has
+  `height` or `building:levels` (3.4 m a level; `min_height` or
+  `building:min_level` its floor). If the usable parts carry less than half
+  the parts' area the outline stays as it was (7, e.g. the silver crown
+  tower's 61 parts with no heights). If they cover 80% of the outline
+  (sampled), the outline is HIDDEN and drawn by its parts (107); otherwise
+  (19) the outline stands, no taller than its tallest part, and the parts
+  that rise above it start at its roof.
+- **Layer > 0 outlines come back with their parts.** The exporter drops every
+  outline with `layer > 0` as "elevated", but most are towers over their own
+  garage. 29 of them come back when their parts give heights and no road runs
+  through them (the same straddle test). The rest stay dropped.
+- **Indices do not move.** Outlines keep their index and order (the pack
+  tower hash, lots, signs and houses read footprints by index or occupancy);
+  hidden outlines stay for occupancy with their height raised to the tallest
+  part. The 29 rescued outlines, then the 838 parts, are appended after them.
+- **PBLD v3** (`charlotte_bld.bytes` 1,774,560 -> 1,882,371 B): after the v2
+  look byte, one byte per footprint (bit0 hidden, bit1 part, bit2 never
+  swapped, bits3-5 roof shape, bit7 extra) and, for parts, shaped roofs and
+  landmarks, an extra block (u16 floor dm, u16 roof height dm, i16
+  `roof:direction` or -1, u8 landmark, i32 the part's outline). The part
+  inherits its outline's use, and takes its own `building:colour`/`material`
+  over the outline's.
+- **Tile builder** (`CityMeshes.BuildFootprints`). A part stands on its
+  outline's ground (the lowest under the outline's and its own corners), from
+  `minH` to `h`. A floating tier gets a soffit. The facade look is hashed off
+  the outline's centre and the floors counted over the outline's height, so
+  one tower's tiers match. Roofs (`EmitRoofShape`, in the walls' facade so a
+  glass crown reads as glass): pyramidal to an apex, dome in three rings,
+  round a barrel to the long axis, gabled a ridge with hipped ends, skillion
+  one plane along `roof:direction` over sloped wall tops. 29 outlines carry
+  their own `roof:shape` too (houses keep their gables). There is no shopfront
+  strip on a part: a part is bucketed by its own centre, and a shop slot new to
+  a tile is a draw call. There are no generic crown boxes on parts, shaped
+  roofs or outlines drawn with parts. Collider = the drawn mesh, as before.
+- **Kept out of the random pack-tower swap**: parts, their outlines, rescued
+  outlines and the landmark table (`LANDMARKS` in `lib/parts.mjs`, 18 real
+  buildings keyed by OSM id under NEUTRAL names only, with a landmark byte
+  for phase C).
+- **What it changes uptown:** the 300 tower 16 -> 141 m (on its 16 m podium),
+  the new office tower 15 -> 147 m, the stadium 16 -> 58 m (37 parts; its bowl
+  is C5), the spired crown tower's ten setback tiers to its 300 m spire,
+  the pointed tower's 160-190 m pyramid, the slanted tower's skillion, the
+  open-frame tower's parts, and the brick headquarters and glass setback
+  tower's setbacks. Unnamed buildings go 16 -> 88 m, 12 -> 85 m, 12 -> 128 m,
+  33 -> 117 m.
+
+**Checks.** `export_osm.mjs --check` before the change: only
+`charlotte_bld.bytes` and the bld fingerprint (version, footprints 31,696 ->
+32,563, points, parts 838, hidden 107, roofs 115, landmarks 18) moved;
+city/dem/routes stayed byte-identical. After the re-export it reads EXPORT CHECK
+OK. Typecheck OK. Drive audit along the uptown route (`PSX_DRIVE_ROUTES=uptown`,
+178 tiles): "nothing solid stands across any lane" 0, WALLS IN LANES 0, no
+Buildings collider among the 155 reported lane faces. Its 3 FAILs are rail ends
+(BLUNT 12), barrier/ground ceilings (5) and a pack tower's box collider (28
+samples), none of them building meshes. `CityBudgetProbe` against B1
+(24bc41dd): the sum of the 68 views 7,387 -> 7,389 draws, worst view 189 ->
+189. One view is worse: trade_tryon back, 146 -> 150. The rest are equal or
+fewer. Tile p95 over 225 tiles 122.5 -> 129.1 ms (+5%; nohydro 109.3 -> 106.5;
+sites with no building change moved +-10% between the runs). Uptown sites:
+trade_tryon 197.5 -> 209.8, tryon_start 162.0 -> 168.4, i277_uptown 333.2 ->
+332.8 ms. Uptown ring tris 437k -> 465k.
+
+**Known, not done (lean):** layer > 0 outlines without parts are still
+dropped (a city-wide census would bring more back). 31 parts with no outline at
+all are skipped. Part `roof:colour` is not read. The trade_tryon back +4 draws
+are not explained yet; the suspected cause is occupancy moved by the rescued
+block south of Trade. The stadium is a 58 m dark box until C5.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

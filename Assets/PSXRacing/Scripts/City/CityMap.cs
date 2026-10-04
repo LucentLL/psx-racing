@@ -360,6 +360,22 @@ namespace PSXRacing.City
             /// colour.a 255 only where building:colour was tagged.</summary>
             public byte use, mat;
             public Color32 colour;
+            /// <summary>PBLD v3 (Uptown B2): OSM building:part. A HIDDEN
+            /// outline is drawn by its parts (it stays for occupancy, its h
+            /// raised to the tallest part); a PART stands from
+            /// <see cref="minH"/> to h above its <see cref="outline"/>'s
+            /// ground and wears that outline's look; NOSWAP keeps parts,
+            /// their outlines and the landmarks out of the pack-tower swap.
+            /// roof 0 flat, 1 pyramidal, 2 dome, 3 round (barrel), 4 skillion,
+            /// 5 gabled (ridge along the long axis); roofH its height, roofDir
+            /// the skillion's fall (compass degrees, -1 across the short
+            /// axis). landmark: the exporter's neutral table (lib/parts.mjs),
+            /// 0 none.</summary>
+            public bool hidden, part, noSwap;
+            public byte roof, landmark;
+            public float minH, roofH;
+            public short roofDir = -1;
+            public int outline = -1;
             public Vector2 centre;     // OBB centre
             public Vector2 u;          // OBB long axis, unit
             public float hu, hv;       // OBB half extents along u and across it
@@ -1147,7 +1163,7 @@ namespace PSXRacing.City
             {
                 if (r.ReadUInt32() != MagicBld) { Debug.LogError("charlotte_bld.bytes: bad magic"); return; }
                 int version = r.ReadInt32();
-                if (version != 1 && version != 2) { Debug.LogError("charlotte_bld.bytes: version " + version); return; }
+                if (version < 1 || version > 3) { Debug.LogError("charlotte_bld.bytes: version " + version); return; }
                 float x0 = r.ReadSingle(), z0 = r.ReadSingle(), x1 = r.ReadSingle(), z1 = r.ReadSingle();
                 footprintBounds = Rect.MinMaxRect(x0 * LayoutScale, z0 * LayoutScale, x1 * LayoutScale, z1 * LayoutScale);
                 int n = r.ReadInt32();
@@ -1165,6 +1181,20 @@ namespace PSXRacing.City
                         f.use = (byte)(lb & 3);
                         f.mat = (byte)((lb >> 2) & 7);
                         if ((lb & 0x80) != 0) f.colour = new Color32(r.ReadByte(), r.ReadByte(), r.ReadByte(), 255);
+                    }
+                    if (version >= 3)
+                    {
+                        int xb = r.ReadByte();
+                        f.hidden = (xb & 1) != 0; f.part = (xb & 2) != 0; f.noSwap = (xb & 4) != 0;
+                        f.roof = (byte)((xb >> 3) & 7);
+                        if ((xb & 0x80) != 0)
+                        {
+                            f.minH = r.ReadUInt16() * 0.1f;
+                            f.roofH = r.ReadUInt16() * 0.1f;
+                            f.roofDir = r.ReadInt16();
+                            f.landmark = r.ReadByte();
+                            f.outline = r.ReadInt32();
+                        }
                     }
                     int np = r.ReadByte();
                     f.pts = new Vector2[np];

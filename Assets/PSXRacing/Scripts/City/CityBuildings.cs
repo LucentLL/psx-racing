@@ -166,6 +166,9 @@ namespace PSXRacing.City
             for (int i = 0; i < map.footprints.Length; i++)
             {
                 var f = map.footprints[i];
+                // Uptown B2: never a building drawn by its OSM parts, one of
+                // them, or a named landmark (lib/parts.mjs's table)
+                if (f.noSwap || f.hidden || f.part) continue;
                 if (f.style > 1 || f.gable) continue;
                 if (f.h < 30f || f.h > 135f) continue;
                 float wide = f.hv * 2f, deep = f.hu * 2f;

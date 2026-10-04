@@ -39,6 +39,13 @@
       "timestamp_osm_base": "2026-09-12T02:39:51Z"
     },
     {
+      "file": "tools/city/cache/parts_core.json",
+      "kind": "overpass",
+      "bytes": 1215286,
+      "sha256": "69059ce566c3c440576bb0954d63b242ecf60817d9d865fa3f3242944d903fad",
+      "timestamp_osm_base": "2026-10-04T22:10:48Z"
+    },
+    {
       "file": "tools/city/cache/3dep/box13.f32",
       "kind": "3dep",
       "bytes": 137075328,

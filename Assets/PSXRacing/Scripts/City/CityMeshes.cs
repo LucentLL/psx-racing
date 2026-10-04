@@ -9782,8 +9782,13 @@ namespace PSXRacing.City
                 stepPhase = 7; stepItem = fi; stepPart = 0;
                 var f = map.footprints[fi];
                 if (f.propKind != 0) continue;   // a model stands here; CityWorld places it
+                if (f.hidden) continue;          // Uptown B2: its building:parts draw it
+                // B2: a part stands on its outline's ground and wears its
+                // outline's look, so the tiers of one tower meet and match
+                var gf = f.part && f.outline >= 0 && f.outline < map.footprints.Length ? map.footprints[f.outline] : f;
                 float g = float.MaxValue;
                 foreach (var p in f.pts) g = Mathf.Min(g, CityElevation.GroundY(map, p.x, p.y));
+                if (gf != f) foreach (var p in gf.pts) g = Mathf.Min(g, CityElevation.GroundY(map, p.x, p.y));
                 float y0 = g - BuildingSink;
                 float top = y0 + BuildingSink + f.h;
 
@@ -9828,10 +9833,17 @@ namespace PSXRacing.City
                 // above it and round the other walls, brick or stone)
                 Slot wallSlot = f.style == 3 ? Slot.FacadeHouse : Slot.FacadeGlass;
                 if (wallSlot == Slot.FacadeGlass)
-                    PickFacade(f.centre, (byte)(f.style == 4 ? 2 : f.style), f.use, f.mat, f.colour, floorP, top - floorP);
+                    PickFacade(gf.centre, (byte)(f.style == 4 ? 2 : f.style), f.use, f.mat, f.colour, floorP,
+                               gf != f ? Mathf.Max(gf.h, 1f) : top - floorP);
+                // B2: a part's floor (a tier on its podium, a crown on its
+                // shaft) and the eave its roof shape rises from
+                bool floating = f.minH > 0.05f;
+                float wallY0 = floating ? floorP + f.minH : y0;
+                float eaveY = f.roof != 0 ? Mathf.Max(wallY0, top - f.roofH) : top;
+                bool retail = f.style == 4 && !floating;
                 // A shopfront goes on the wall that faces the nearest street.
                 int frontWall = -1;
-                if (f.style == 4 && f.h > ShopFloorH + 1.5f &&
+                if (retail && f.h > ShopFloorH + 1.5f &&
                     map.NearestRoadPoint(f.centre, 70f, skipLinks: true, out int rei, out float rs, out _))
                 {
                     var q = map.edges[rei].PointAt(rs);
@@ -9853,19 +9865,25 @@ namespace PSXRacing.City
                     var d = c - a;
                     if (d.sqrMagnitude < 0.04f) continue;
                     var outward = new Vector2(d.y, -d.x).normalized;
-                    EmitWallStyled(tm, a, c, y0, top, outward, f.style == 4, i == frontWall, wallSlot);
+                    if (eaveY > wallY0 + 0.05f)
+                        EmitWallStyled(tm, a, c, wallY0, eaveY, outward, retail, i == frontWall, wallSlot);
                 }
 
                 roofScratch.Clear();
                 roofScratch.AddRange(fitPoly);
-                EarcutInto(buckets[(int)Slot.RoofFlat], roofScratch, top, tm.origin, RoofFlatM);
+                if (f.roof == 0) EarcutInto(buckets[(int)Slot.RoofFlat], roofScratch, top, tm.origin, RoofFlatM);
+                else EmitRoofShape(tm, f, roofScratch, eaveY, top, wallSlot);
+                if (floating && f.minH > 0.5f) EmitSoffit(tm, roofScratch, wallY0);
 
                 // A tall tower gets a crown: a smaller prism on top, then a
                 // smaller one still — enough silhouette to tell the tallest
                 // towers from a box, at a distance, in fog.
                 // (Not on one cut back off a street: it is centred on the
                 // footprint's box, and would overhang the cut.)
-                if (f.h > 120f && cut == 0) EmitCrown(map, tm, f, top, wallSlot);
+                // (B2: not on a part, a shaped roof, or an outline its parts
+                // rise from - their own tiers are the silhouette)
+                if (f.h > 120f && cut == 0 && !f.part && f.roof == 0 && (f.landmark != 0 || !f.noSwap))
+                    EmitCrown(map, tm, f, top, wallSlot);
                 EndFacade();
                 if (f.style == 3) tm.houseSeats.Add(new HouseSeat { kind = 2, c = f.centre, u = f.u, hu = f.hu, hv = f.hv, y0 = y0, floor = floorP });
 
@@ -10201,6 +10219,111 @@ namespace PSXRacing.City
                     new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, 0f));
                 y += h;
             }
+        }
+
+        /// <summary>
+        /// Uptown B2: an OSM roof:shape over a footprint's walls, simply, in
+        /// the walls' own facade (a glass crown reads as glass): pyramidal to
+        /// an apex over the centroid; dome in three rings to it; round a
+        /// barrel, three rings to the long axis (its ends rounded); gabled a
+        /// ridge along the long axis (ends hipped); skillion one plane falling
+        /// along roof:direction (else across the short axis) over sloped
+        /// wall tops, in the flat-roof material.
+        /// </summary>
+        static void EmitRoofShape(TileMeshes tm, CityMap.Footprint f, List<Vector2> poly, float eave, float top, Slot wallSlot)
+        {
+            int n = poly.Count;
+            float rise = top - eave;
+            if (n < 3) return;
+            if (rise < 0.05f) { EarcutInto(buckets[(int)Slot.RoofFlat], poly, top, tm.origin, RoofFlatM); return; }
+            var bk = buckets[(int)wallSlot];
+            var lk = FacadeLooks[facLook];
+            float rep = Mathf.Max(0.5f, facFloorH * lk.floors);
+            if (f.roof == 4)
+            {
+                Vector2 dir = f.roofDir >= 0
+                    ? new Vector2(Mathf.Sin(f.roofDir * Mathf.Deg2Rad), Mathf.Cos(f.roofDir * Mathf.Deg2Rad))
+                    : new Vector2(f.u.y, -f.u.x);
+                float s0 = float.MaxValue, s1 = float.MinValue;
+                foreach (var p in poly) { float sp = Vector2.Dot(p, dir); s0 = Mathf.Min(s0, sp); s1 = Mathf.Max(s1, sp); }
+                float span = Mathf.Max(0.5f, s1 - s0);
+                float YAt(Vector2 p) => top - rise * (Vector2.Dot(p, dir) - s0) / span;
+                for (int i = 0; i < n; i++)
+                {
+                    var a = poly[i]; var c = poly[(i + 1) % n];
+                    var d = c - a;
+                    if (d.sqrMagnitude < 0.04f) continue;
+                    float ya = YAt(a), yc = YAt(c);
+                    if (ya < eave + 0.02f && yc < eave + 0.02f) continue;
+                    float ur = Mathf.Max(1f, Mathf.Round(d.magnitude / lk.uM));
+                    bk.WallSloped(L(a, 0f, tm), L(c, 0f, tm), eave, ya, eave, yc, new Vector2(d.y, -d.x).normalized,
+                                  0f, ur, (eave - facBase) / rep, (Mathf.Max(ya, yc) - facBase) / rep);
+                }
+                var rf = buckets[(int)Slot.RoofFlat];
+                int v0 = rf.v.Count;
+                EarcutInto(rf, poly, top, tm.origin, RoofFlatM);
+                for (int k = v0; k < rf.v.Count; k++)
+                {
+                    var v = rf.v[k];
+                    rf.v[k] = new Vector3(v.x, YAt(new Vector2(v.x + tm.origin.x, v.z + tm.origin.z)), v.z);
+                }
+                return;
+            }
+            // the rest: rings from the eave line to a point or a line
+            Vector2 cen = Vector2.zero;
+            {
+                float ar = 0f;
+                for (int i = 0; i < n; i++)
+                {
+                    var a = poly[i]; var b = poly[(i + 1) % n];
+                    float cr = a.x * b.y - b.x * a.y;
+                    ar += cr; cen += (a + b) * cr;
+                }
+                cen = Mathf.Abs(ar) > 1e-4f ? cen / (3f * ar) : poly[0];
+            }
+            bool toAxis = f.roof == 3 || f.roof == 5;
+            int rings = f.roof == 2 || f.roof == 3 ? 3 : 1;
+            float axisHalf = Mathf.Max(0f, f.hu - f.hv);
+            Vector2 Target(Vector2 p) => toAxis
+                ? f.centre + f.u * Mathf.Clamp(Vector2.Dot(p - f.centre, f.u), -axisHalf, axisHalf) : cen;
+            for (int i = 0; i < n; i++)
+            {
+                var a0 = poly[i]; var b0 = poly[(i + 1) % n];
+                var d = b0 - a0;
+                if (d.sqrMagnitude < 0.04f) continue;
+                var outw = new Vector2(d.y, -d.x).normalized;
+                var facing = new Vector3(outw.x, 0.7f, outw.y);
+                Vector2 ta = Target(a0), tb = Target(b0);
+                float ur = Mathf.Max(1f, Mathf.Round(d.magnitude / lk.uM));
+                for (int k = 1; k <= rings; k++)
+                {
+                    float th0 = (k - 1) * Mathf.PI * 0.5f / rings, th1 = k * Mathf.PI * 0.5f / rings;
+                    float c0 = Mathf.Cos(th0), c1 = k == rings ? 0f : Mathf.Cos(th1);
+                    float y0 = eave + rise * Mathf.Sin(th0), y1 = k == rings ? top : eave + rise * Mathf.Sin(th1);
+                    var A = L(ta + (a0 - ta) * c0, y0, tm); var B = L(tb + (b0 - tb) * c0, y0, tm);
+                    var C = L(tb + (b0 - tb) * c1, y1, tm); var D = L(ta + (a0 - ta) * c1, y1, tm);
+                    float va = (y0 - facBase) / rep, vb = (y1 - facBase) / rep;
+                    var uA = new Vector2(0f, va); var uB = new Vector2(ur, va);
+                    var uC = new Vector2(ur * c1, vb); var uD = new Vector2(0f, vb);
+                    if ((C - D).sqrMagnitude < 1e-4f)
+                    {
+                        // collapsed to a point: a triangle, facing out and up
+                        if (Vector3.Dot(Vector3.Cross(C - A, B - A), facing) >= 0f) bk.Tri(A, B, C, uA, uB, uC);
+                        else bk.Tri(A, C, B, uA, uC, uB);
+                    }
+                    else bk.Face(A, B, C, D, facing, uA, uB, uC, uD);
+                }
+            }
+        }
+
+        /// <summary>Uptown B2: the underside of a floating tier (a part with
+        /// min_height), facing down, in the flat-roof material.</summary>
+        static void EmitSoffit(TileMeshes tm, List<Vector2> poly, float y)
+        {
+            var rf = buckets[(int)Slot.RoofFlat];
+            int t0 = rf.t.Count;
+            EarcutInto(rf, poly, y, tm.origin, RoofFlatM);
+            for (int j = t0; j + 2 < rf.t.Count; j += 3) { int x = rf.t[j + 1]; rf.t[j + 1] = rf.t[j + 2]; rf.t[j + 2] = x; }
         }
 
         /// <summary>

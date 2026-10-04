@@ -85,15 +85,19 @@
     "max_asl": 294.3
   },
   "bld": {
-    "version": 2,
-    "footprints": 31696,
-    "points": 194075,
+    "version": 3,
+    "footprints": 32563,
+    "points": 201420,
     "bbox": [
       -5844,
       516,
       2605,
       8674
-    ]
+    ],
+    "parts": 838,
+    "hidden": 107,
+    "roofs": 115,
+    "landmarks": 18
   },
   "outputs": {
     "charlotte_city.bytes": {
@@ -105,8 +109,8 @@
       "sha256": "eab411f020ba9caa4c55cbd69073bf217ee4797a19cf4a16f9c7f8c7ace0e841"
     },
     "charlotte_bld.bytes": {
-      "bytes": 1774560,
-      "sha256": "91e19e82482fef66249c00abd99d27b5f159d0ffeb80cdbaf8fa5372ab7a8dd1"
+      "bytes": 1882371,
+      "sha256": "dd55d761a1985c2dfe0b31f68de83ae15214f7c3b0bdfb80d73039e0d6449014"
     },
     "charlotte_routes.json": {
       "bytes": 16881,
