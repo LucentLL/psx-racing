@@ -90,6 +90,7 @@ namespace PSXRacing.LifeSim
         {
             MenuKit.EnsureEventSystem();
             canvas = MenuKit.Canvas(transform, "CityCanvas", 10);
+            screenWatch = new MenuKit.ScreenWatch();
             MenuKit.Panel(canvas.transform, "Backdrop", MenuKit.Bg);
             MenuKit.GridBackdrop(canvas.transform);
             MenuKit.Scanlines(canvas.transform);
@@ -617,8 +618,35 @@ namespace PSXRacing.LifeSim
             toastExpires = Time.unscaledTime + 4f;
         }
 
+        // =================== the screen changing size ===================
+        // The same fix as LifeHomeScreen.TickScreenWatch: the WebGL canvas
+        // settles its size after the first frame, and this page's columns
+        // are fractions of the width it had when they were built.
+        MenuKit.ScreenWatch screenWatch;
+
+        internal bool TickScreenWatch()
+        {
+            if (screenWatch == null || canvas == null || !screenWatch.Settled()) return false;
+            MenuKit.Rescale(canvas);
+            KillNow(canvas.transform.Find("Header"));
+            KillNow(bodyViewport);
+            bodyViewport = null;
+            BuildChrome();
+            Rebuild();
+            canvas.transform.Find("Toast")?.SetAsLastSibling();
+            return true;
+        }
+
+        static void KillNow(Component c)
+        {
+            if (c == null) return;
+            if (Application.isPlaying) { c.gameObject.SetActive(false); Destroy(c.gameObject); }
+            else DestroyImmediate(c.gameObject);
+        }
+
         void Update()
         {
+            TickScreenWatch();
             // The settings menu owns the keys while it is up, and for the
             // frame it closed on (B / Escape would also walk this page back).
             if (settings != null && (settings.IsOpen || settings.ClosedFrame == Time.frameCount)) return;

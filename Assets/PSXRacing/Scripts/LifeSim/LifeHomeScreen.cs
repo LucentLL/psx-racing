@@ -182,6 +182,7 @@ namespace PSXRacing.LifeSim
 
             MenuKit.EnsureEventSystem();
             canvas = MenuKit.Canvas(transform, "HomeCanvas", 10);
+            screenWatch = new MenuKit.ScreenWatch();
             MenuKit.Panel(canvas.transform, "Backdrop", MenuKit.Bg);
             // The GT2 blueprint grid over the charcoal, then the scanlines.
             // Both go down first so every panel built after sits on top of
@@ -959,6 +960,50 @@ namespace PSXRacing.LifeSim
         /// </summary>
         static float MainFloor => -(BodyH - MenuKit.ScrollPad);
 
+        // =================== the screen changing size ===================
+        MenuKit.ScreenWatch screenWatch;
+
+        /// <summary>Re-lay the menu out once the screen has settled on a new
+        /// size (MenuKit.ScreenWatch: the WebGL canvas sizes itself after the
+        /// first frame, and a fullscreen toggle or a turned phone does it
+        /// again). True when it did. Every frame from Update; the preview
+        /// calls it to prove a resize between build and capture.</summary>
+        internal bool TickScreenWatch()
+        {
+            if (screenWatch == null || !screenWatch.Settled()) return false;
+            Relayout();
+            return true;
+        }
+
+        /// <summary>The chrome and the page again, for the screen as it is
+        /// now: the scaler's design column, the header and tab strip (their
+        /// heights are fractions of that column) and the page (its columns
+        /// are fractions of the width). The wizard and the car pick are
+        /// stretched panels, so the scaler is all they need.</summary>
+        void Relayout()
+        {
+            if (canvas == null) return;
+            MenuKit.Rescale(canvas);
+            if (wizard || tabButtons.Count == 0) return;
+            KillNow(canvas.transform.Find("Header"));
+            KillNow(canvas.transform.Find("Tabs"));
+            KillNow(bodyViewport);
+            bodyViewport = null;
+            BuildChrome();
+            Rebuild();
+            canvas.transform.Find("Toast")?.SetAsLastSibling();
+        }
+
+        /// <summary>Gone this frame: hidden at once and destroyed at its end
+        /// in play mode; destroyed outright in the editor preview, where no
+        /// frame ever ends.</summary>
+        static void KillNow(Component c)
+        {
+            if (c == null) return;
+            if (Application.isPlaying) { c.gameObject.SetActive(false); Destroy(c.gameObject); }
+            else DestroyImmediate(c.gameObject);
+        }
+
         void Rebuild()
         {
             // The world's date, for whichever scene loads next. Here rather
@@ -1248,6 +1293,7 @@ namespace PSXRacing.LifeSim
         void Update()
         {
             TickToast();
+            TickScreenWatch();
             // The setup screen's steppers do not rebuild the page, so they have
             // no natural place to save from. Flush after a short quiet spell
             // instead — a save per keypress writes PlayerPrefs thirty times

@@ -208,7 +208,77 @@ namespace PSXRacing.LifeSim
             // extra aspect ratio on width, where there is room for it.
             scaler.matchWidthOrHeight = 1f;
             go.AddComponent<GraphicRaycaster>();
+            // The design height is chosen off the screen's ASPECT, and the
+            // screen can change after the canvas is made (see ScreenWatch):
+            // keep this scaler on the column the screen has now.
+            go.AddComponent<DesignHeightKeeper>();
             return canvas;
+        }
+
+        // ---- the screen changing size under a menu ----
+        /// <summary>
+        /// Point a MenuKit canvas's scaler at the design height for the screen
+        /// as it is NOW. A canvas the preview has pinned (ConstantPixelSize) is
+        /// left alone.
+        /// </summary>
+        public static void Rescale(Canvas canvas)
+        {
+            var sc = canvas != null ? canvas.GetComponent<CanvasScaler>() : null;
+            if (sc == null || sc.uiScaleMode != CanvasScaler.ScaleMode.ScaleWithScreenSize) return;
+            float h = DesignHeight;
+            var want = new Vector2(h * 16f / 9f, h);
+            if (sc.referenceResolution != want) sc.referenceResolution = want;
+        }
+
+        /// <summary>Keeps every MenuKit canvas - the pause menu, the settings
+        /// pages, the bench - on the right design column when the screen flips
+        /// between a handheld's and a monitor's (a fullscreen toggle, a window
+        /// dragged narrower). Anchored layouts need nothing more.</summary>
+        sealed class DesignHeightKeeper : MonoBehaviour
+        {
+            Canvas c;
+            void LateUpdate()
+            {
+                if (c == null) c = GetComponent<Canvas>();
+                Rescale(c);
+            }
+        }
+
+        /// <summary>
+        /// Watches the screen's size and safe area and says - ONCE - when it has
+        /// settled on a new value (unchanged for two frames, so a window being
+        /// dragged is laid out once, at the end).
+        ///
+        /// The owner, 2026-10-04: "Whenever I restart in web browser, a lot of
+        /// the menu is off the screen. I have to start a race, then exit race,
+        /// returning to menu for it to be properly sized." A WebGL canvas
+        /// settles its size AFTER the first frame (the page's CSS, the device
+        /// pixel ratio, fullscreen), and the front end's columns are computed
+        /// from the screen's aspect (HalfWidth, DesignHeight) when a page is
+        /// built - so the first build was laid out for a screen that stopped
+        /// existing a frame later, and nothing built it again until a scene
+        /// change. The front ends ask this every frame and re-lay out on true.
+        /// </summary>
+        public sealed class ScreenWatch
+        {
+            Vector2 size;
+            Rect safe;
+            int quiet = -1;
+
+            public ScreenWatch()
+            {
+                size = new Vector2(ScreenW, ScreenH);
+                safe = Screen.safeArea;
+            }
+
+            public bool Settled()
+            {
+                var now = new Vector2(ScreenW, ScreenH);
+                var sa = Screen.safeArea;
+                if (now != size || sa != safe) { size = now; safe = sa; quiet = 2; return false; }
+                if (quiet > 0 && --quiet == 0) return true;
+                return false;
+            }
         }
 
         public static RectTransform Panel(Transform parent, string name, Color color)

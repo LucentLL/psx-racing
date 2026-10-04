@@ -143,6 +143,13 @@ namespace PSXRacing.EditorTools
             Shoot(outDir, "week", "main", mustFit: true, calView: "Week");
             Shoot(outDir, "month", "main", calView: "Month");
 
+            // THE FRESH-LOAD RESIZE: built for one screen, settled on another,
+            // both ways across the handheld/monitor column switch. MY CARS is
+            // the page the owner's screenshot showed cut off on both sides.
+            Shoot(outDir, "resize_garage", "garage", sizes: new[] { Sizes[0] }, resizeFrom: Sizes[2]);
+            Shoot(outDir, "resize_week", "main", mustFit: true, calView: "Week",
+                  sizes: new[] { Sizes[1] }, resizeFrom: Sizes[0]);
+
             // The pre-race page with the booking in this block, and without.
             // Both are the PLANNER now — reached from the house, they write the
             // race into the diary and nothing else. The launcher half of the
@@ -634,6 +641,9 @@ namespace PSXRacing.EditorTools
                 PlayerPrefs.DeleteKey("psx.city.hour");
                 PlayerPrefs.DeleteKey("psx.city.weather");
                 Shoot(outDir, "city_drive", cityPage: "drive", mustFit: true, sizes: sizes);
+                // The city's front end settles after the first build too.
+                Shoot(outDir, "city_resize_drive", cityPage: "drive", sizes: new[] { sizes[sizes.Length - 1] },
+                      resizeFrom: sizes[0]);
                 int race = TrackCatalog.IndexOf("UptownLoop");
                 Shoot(outDir, "city_drive_result", cityPage: "result", sizes: sizes, before: () =>
                 {
@@ -896,7 +906,8 @@ namespace PSXRacing.EditorTools
                           string garageCar = null,
                           (string name, int w, int h)[] sizes = null,
                           string cityPage = null, string cityMake = null,
-                          System.Action before = null, (string name, object value)[] fields = null)
+                          System.Action before = null, (string name, object value)[] fields = null,
+                          (string name, int w, int h)? resizeFrom = null)
         {
             foreach (var size in sizes ?? Sizes)
             {
@@ -918,6 +929,10 @@ namespace PSXRacing.EditorTools
                 // laid out for whatever the editor happens to be — which is how
                 // a "phone" capture came back showing the desktop column.
                 MenuKit.ScreenSizeOverride = new Vector2(size.w, size.h);
+                // resizeFrom: the page is BUILT for another screen and the
+                // screen then settles on this one - see below.
+                if (resizeFrom.HasValue)
+                    MenuKit.ScreenSizeOverride = new Vector2(resizeFrom.Value.w, resizeFrom.Value.h);
 
                 var host = new GameObject("LifeHome");
                 var screen = host.AddComponent<LifeHomeScreen>();
@@ -987,6 +1002,30 @@ namespace PSXRacing.EditorTools
                     BindingFlags.NonPublic | BindingFlags.Instance);
                 if (start == null) { Debug.LogError("[HomePreview] no Start()"); return; }
                 start.Invoke(screen, null);
+
+                // THE FRESH-LOAD RESIZE (owner, 2026-10-04: "Whenever I restart
+                // in web browser, a lot of the menu is off the screen"). The
+                // WebGL canvas settles its size after the first build; the front
+                // end must notice (MenuKit.ScreenWatch) and lay itself out
+                // again for the screen it ended up on. Built above for
+                // resizeFrom, the screen is now this shot's size, and the
+                // watch is ticked the way Update would tick it.
+                if (resizeFrom.HasValue)
+                {
+                    MenuKit.ScreenSizeOverride = new Vector2(size.w, size.h);
+                    var cityFe = host.GetComponent<CityFrontEnd>();
+                    Component target = cityFe != null ? (Component)cityFe : screen;
+                    var tick = target.GetType().GetMethod("TickScreenWatch",
+                        BindingFlags.NonPublic | BindingFlags.Instance);
+                    bool fired = false;
+                    for (int i = 0; i < 5 && !fired && tick != null; i++) fired = (bool)tick.Invoke(target, null);
+                    if (fired)
+                        Debug.Log("[HomePreview] " + label + "/" + size.name +
+                                  " re-laid out after a resize from " + resizeFrom.Value.name);
+                    else
+                        Debug.LogError("[HomePreview] no relayout after a resize from " +
+                                       resizeFrom.Value.name + " (" + label + "/" + size.name + ")");
+                }
 
                 // The UI builds a ScreenSpaceOverlay canvas, which ignores
                 // cameras and render textures. Re-point it at the preview camera
