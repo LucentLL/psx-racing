@@ -4434,6 +4434,15 @@ namespace PSXRacing.City
                         // on its own edge, over our heads: it guards nothing
                         // on ours (WP-04).
                         if (wanted && share && NeighbourDrawsRail(map, trims, e, nbSec, side) && !NeighbourAbove(map, nbSec, side)) wanted = false;
+                        // Two decks carrying traffic the SAME way, squeezed
+                        // together (a ramp on structure beside its mainline,
+                        // a collector beside its carriageway), are one deck:
+                        // the strip between them is floored flush (EmitSide's
+                        // squeeze strip) and no parapet stands in it - it
+                        // stood between lanes of one direction (owner
+                        // 2026-10-04, "stray medians on 277"). Opposing
+                        // traffic keeps its one shared barrier.
+                        if (wanted && f.elev && nb >= 0 && SameWayDeckBeside(map, e, nbSec, side)) { wanted = false; sameWayDeckSides.Add(e.index); }
                         sf.rail = wanted;
                         // on a retaining face only where the verge cannot grade
                         // the land (DropFrom); an approach rail over land a verge
@@ -5806,6 +5815,64 @@ namespace PSXRacing.City
         /// not one pavement: the overlap census's seam (CityAudit's MinDy).</summary>
         const float ArmSplitDyM = 0.25f;
 
+        /// <summary>Edges with a deck side that stood no parapet against a
+        /// same-way deck squeezed beside it (SameWayDeckBeside), for the
+        /// audit. Cleared by the caller.</summary>
+        public static readonly HashSet<int> sameWayDeckSides = new HashSet<int>();
+
+        /// <summary>The squeezed neighbour on <paramref name="side"/> of a
+        /// section carries traffic the same way as <paramref name="e"/> (both
+        /// one-way, running within 25 degrees), stands on structure there too,
+        /// and at this deck's height within a flush strip's step (0.10 m).</summary>
+        static bool SameWayDeckBeside(CityMap map, CityMap.Edge e, in Section sec, int side)
+        {
+            int nb = sec.Nb(side);
+            if (nb < 0) return false;
+            var o = map.edges[nb];
+            if (!e.oneway || !o.oneway || o.a == o.b) return false;
+            float at = Mathf.Clamp(sec.NbAt(side), 0f, o.length);
+            if (Vector2.Dot(e.TangentAt(sec.s), o.TangentAt(at)) < 0.9f) return false;
+            if (!o.ElevatedAt(at)) return false;
+            return Mathf.Abs(e.YAt(sec.s) - o.YAt(at)) <= 0.10f;
+        }
+
+        /// <summary>The longest edge that is only a connector between two
+        /// pieces of one carriageway (OSM splits a way at a bridge's end, a
+        /// lane drop, a tag change, and leaves a stub of a metre or two).</summary>
+        public const float CarryOnLinkM = 3f;
+
+        /// <summary>PSX_CITY_SQUEEZE_CARRYON=1: the squeeze as it was before
+        /// 2026-10-04 (a road squeezed against the carriageway it carries on
+        /// from through a short connector) - for a BEFORE count only.</summary>
+        public static readonly bool SqueezeCarryOn = System.Environment.GetEnvironmentVariable("PSX_CITY_SQUEEZE_CARRYON") == "1";
+
+        /// <summary>Edges whose squeeze passed over the road they carry on
+        /// from (CarriesOnThrough) - the audit's count of what the rule
+        /// changed. Cleared by the caller.</summary>
+        public static readonly HashSet<int> carryOnSkipped = new HashSet<int>();
+
+        /// <summary>Does <paramref name="o"/> carry on into <paramref name="e"/>
+        /// (or e into o) through a connector edge shorter than
+        /// <see cref="CarryOnLinkM"/>: one carriageway in three OSM pieces,
+        /// never two roads side by side. (Two edges sharing a node are the
+        /// arms' rule, ArmsApart.)</summary>
+        static bool CarriesOnThrough(CityMap map, CityMap.Edge e, CityMap.Edge o)
+        {
+            for (int k = 0; k < 2; k++)
+            {
+                int n = k == 0 ? e.a : e.b;
+                foreach (int ci in map.nodeEdges[n])
+                {
+                    if (ci == e.index || ci == o.index) continue;
+                    var c = map.edges[ci];
+                    if (c.a == c.b || c.length >= CarryOnLinkM) continue;
+                    int m = c.a == n ? c.b : c.a;
+                    if (o.a == m || o.b == m) return true;
+                }
+            }
+            return false;
+        }
+
         /// <summary>How far off a segment's end, per metre beside it, a point
         /// past the outside of a bend may be and still be squeezed against
         /// the vertex (Squeeze): tan 26.6 degrees, as sharp a bend as two
@@ -5876,6 +5943,20 @@ namespace PSXRacing.City
                 if (Mathf.Abs(o.YAt(at) - y) > RoadsideRules.CarBandM + CityElevation.DeckThick) continue;
                 float dist = Vector2.Distance(p, q);
                 if (dist >= hw + trims.HalfWidthAt(o, at) + 0.3f) continue;
+                // The road this one carries on from (or into) is never a
+                // parallel neighbour. Two arms of one node were already one
+                // pavement at one height; a carriageway OSM split twice in a
+                // few metres (a bridge's end, a lane drop) reaches the next
+                // piece through a connector of a metre or two, and its end
+                // read as a road beside us: I-277's e1393 squeezed 6.4 m off
+                // the deck e14177 it carries on from through the 1.4 m e2344
+                // (Uptown Loop 2,765 m), the union median starting in its
+                // lanes (owner 2026-10-04).
+                if (Mathf.Abs(o.YAt(at) - y) <= ArmSplitDyM && CarriesOnThrough(map, e, o))
+                {
+                    carryOnSkipped.Add(e.index);
+                    if (!SqueezeCarryOn) continue;
+                }
                 int side = Vector2.Dot(q - p, right) >= 0f ? 1 : -1;
                 if (side > 0) { if (dist < dR) { dR = dist; eR = oi; atR = at; } }
                 else { if (dist < dL) { dL = dist; eL = oi; atL = at; } }

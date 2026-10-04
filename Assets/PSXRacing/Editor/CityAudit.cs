@@ -597,7 +597,32 @@ namespace PSXRacing.EditorTools
                 }
             }
             Line($"drive audit along the race routes ({(ids.Count > 0 ? string.Join(",", ids) : "all")}): {routeEdges.Count} route edges on {tiles.Count} tiles");
+            CityMeshes.carryOnSkipped.Clear();
+            CityMeshes.sameWayDeckSides.Clear();
             DriveAudit(map, trims, buildings, tiles, routeEdges);
+            {
+                var sw = new List<int>(CityMeshes.sameWayDeckSides); sw.Sort();
+                var ssb = new StringBuilder(); int swRoute = 0;
+                foreach (int ei in sw) { if (routeEdges.Contains(ei)) swRoute++; if (ssb.Length < 1500) ssb.Append($" e{ei} '{map.edges[ei].name}'{(routeEdges.Contains(ei) ? " (route)" : "")};"); }
+                Line($"SAME-WAY DECKS (2026-10-04): {sw.Count} edges on the route tiles stand no parapet on a side squeezed against a deck carrying traffic the same way (one deck, a flush strip), {swRoute} of them route edges:{ssb}");
+            }
+            // the squeeze against the carriageway a road carries on from through a
+            // short connector (2026-10-04, I-277's e1393 at the Uptown Loop's 2,765 m)
+            {
+                var co = new List<int>(CityMeshes.carryOnSkipped); co.Sort();
+                int coRoute = 0; var csb = new StringBuilder();
+                foreach (int ei in co)
+                {
+                    if (!routeEdges.Contains(ei)) continue;
+                    coRoute++;
+                    var ce = map.edges[ei];
+                    CityMeshes.LaneExtents(map, trims, ce, Mathf.Min(0.5f, ce.length), out float l0, out float r0);
+                    CityMeshes.LaneExtents(map, trims, ce, Mathf.Max(0f, ce.length - 0.5f), out float l1, out float r1);
+                    csb.Append($" e{ei} '{ce.name}' drawn {-l0:+0.00;-0.00}..{r0:+0.00;-0.00} at s 0.5, {-l1:+0.00;-0.00}..{r1:+0.00;-0.00} at its end;");
+                }
+                Line($"CARRY-ON SQUEEZE (2026-10-04): {co.Count} edges on the route tiles meet the road they carry on from (through a connector under {CityMeshes.CarryOnLinkM:0} m) as a squeeze neighbour - " +
+                     (CityMeshes.SqueezeCarryOn ? "SQUEEZED against it (PSX_CITY_SQUEEZE_CARRYON=1: the BEFORE)" : "never squeezed against it now") + $"; on the routes {coRoute}:{csb}");
+            }
             // ...and the nine tiles the city audit's own drive audit stands up
             Line("drive audit on the city audit's nine default tiles:");
             DriveAudit(map, trims, buildings);

@@ -6434,6 +6434,110 @@ route (`DrawCityStreets`):
   UptownLoop chase view twice, BEFORE (no streets) and AFTER. It writes
   `Screenshots\racemap_uptown_{before,after}.png`.
 
+## Stray medians on I-277 (2026-10-04): no squeeze against the road it carries on from, same-way decks, walls in lanes
+
+The owner, two Uptown Loop frames on I-277 in the loop's lower-right part
+(night 1:58.9, day 1:29.1): "I found stray medians on 277." He was on a
+concrete deck with a wall starting in the middle of the road ahead, traffic
+beyond it, and a wall between lanes of the same direction ending in a flat
+grey face.
+
+**What was wrong.** This is the spot the invisible-wall fix left open: 2,765 m
+into the loop (waypoint 692, by East 4th Street). The 4-lane deck e14177
+ends at node 3557, the 1.4 m connector e2344 runs to node 2264, and mainline
+e1393 (3 lanes) starts there, the exit e7338 leaving on its right. The line
+model lays e1393 out exactly where e14177's lanes run (-10.32..+4.86 m off its
+OSM line). Then `Squeeze` cut its left half to 1.2 m.
+
+The squeeze looks for a parallel road beside every section. Past the end of
+a segment it counts the vertex "where the road runs on through it", and node
+3557 has two edges. e14177's end stood 1.4 m behind e1393's first section, so
+it read as a neighbour on the left. Its pull moved e1393's drawn left edge
+from +4.86 to -1.53 m, and the ease carried that 20 m on. The union median
+with the opposite carriageway (e2351) starts at e1393's drawn edge, so its V
+stood 6.4 m inside the deck's lanes. That is the wall in the middle of the
+road (the race line runs on e1393's OSM line), with lanes of the same
+direction on both sides of it and the V leg's end face toward the car.
+
+**The rules (general).**
+- **No squeeze against the road a carriageway carries on from**
+  (`CityMeshes.CarriesOnThrough`, in `Squeeze`). A road that reaches this one
+  through a connector edge under `CarryOnLinkM` (3 m) is one carriageway in
+  three OSM pieces, never a road beside it. Two edges sharing a node were
+  already one pavement at one height (`ArmsApart`); this adds the stub
+  between them. The same height test applies (within `ArmSplitDyM`).
+  PSX_CITY_SQUEEZE_CARRYON=1 restores the old squeeze, for a BEFORE count.
+- **Same-way decks share no parapet** (`SameWayDeckBeside`, in the side-flag
+  pass). Two one-way decks running the same way (within 25 degrees) that are
+  squeezed together and stand within 0.10 m of each other in height (a ramp
+  on structure beside its mainline, a collector beside its carriageway) are
+  one deck. The squeeze strip between them is floored flush and no rail
+  stands in it. Opposing traffic keeps its one shared barrier. Same-way
+  union pairs already had a flush strip and no median (hotfix
+  `MedianOfUnion`). This rule fires on 0 edges of the race routes' 318
+  tiles today, so it is a guard, not a change there.
+- No new end faces. BLUNT is unchanged at 0 on the routes.
+
+**The audit: WALLS IN LANES** (`CityAudit.Invisible.cs`, in
+`city-cycle -DriveOnly`, a check).
+- On every race route edge, the INVISIBLE sweep's drawn hits are measured
+  against the edge's DESIGNED edge lines: `LineModel.LinesAt`, unsqueezed
+  and unclipped, which are the lanes the driver sees painted.
+- A barrier, rail or solid met more than a rail's inset (`RailW`, 0.3 m)
+  inside those lines is a wall in a lane. A parapet's foot on a shoulder is
+  not.
+- `RunDrive` also prints two lists: **CARRY-ON SQUEEZE** (the edges the new
+  rule changed, with their drawn extents) and **SAME-WAY DECKS**.
+
+**BEFORE -> AFTER** (main 61484764; the drive audit on the three routes):
+
+| | BEFORE | AFTER |
+|---|---|---|
+| e1393 drawn extents at s 0.5 (its deck e14177: -10.32..+4.86) | -10.32..-1.53 (squeezed against e14177) | **-10.32..+4.86** |
+| CARRY-ON SQUEEZE, edges on the route tiles | 1 squeezed (e1393) | 0 squeezed |
+| WALLS IN LANES, the three routes | 2 places, both uptown 2,764-2,765 m | **0** |
+| the same at a 0.1 m allowance (first run) | 10 places, 33 hits (+8 South Tryon St) | 8 places (South Tryon St only) |
+| INVISIBLE drawn faces in the routes' 0.6 m lane band (reported) | 12 notes | 9 |
+| DRIVE AUDIT on the routes: walls / steps / holes / off / grass / BLUNT | 0 each | 0 each |
+| INVISIBLE in the routes' lanes / rail ends on approaches (routes) | 0 / 0 | 0 / 0 |
+| short barrier census, city-wide | 0 | 0 |
+| SAME-WAY DECKS, edges changed on the route tiles | - | 0 |
+| CITY AUDIT (one AuditOnly, OwnerBox) | 18 (invisible colliders) | 18, the same set; TWIN (c) walls 77 -> 75, every other value equal |
+| LINE MODEL: through-lane continuity (routes) / LANE ALIGN / OFFSET / symmetric widenings | 658 (4) / 128 / 324 / 0 | the same (the squeeze is a mesh step after the model) |
+| tile build p95, 9 budget sites (CityBudgetProbe, back to back, old squeeze by PSX_CITY_SQUEEZE_CARRYON=1) | 128.0, 124.9 ms | 131.5, 137.8 ms |
+
+- The South Tryon St places at the 0.1 m allowance are its bridge rail
+  (e1107/e1108): the rail's traffic face stands 0.3 m inside a curbless
+  edge, 0.23 m over the painted edge line. That is the rail's designed inset,
+  not a wall in a lane.
+- The 9 notes left in the 0.6 m band are parapet feet on shoulders: I-277
+  e2438 at 1,781 m, e4601/e2139/e8474 at 8,675-8,772 m, South Tryon, and
+  Independence e13562. All are outside the edge lines.
+- The race check (watched, `race-play-check -Venue UptownLoop -Hour night
+  -Finish`): RACE CHECK OK, 260 s.
+  - The autopilot player finished with 0 hard hits (damage 4). Before, it hit
+    Barriers HARD at waypoint 692.
+  - One rival, the Skyline, took its planned driver error at 36 s. It drifted
+    off its lane across the shoulder into the right edge barrier of I-277
+    e2315 at 1,484 m (wp 371) and retired. That is the roadside parapet, not
+    a stray wall, and far from this change.
+- Named views: `CityPreview` group `i277b`, the loop's south-east quarter at
+  1.2 m on the race line (1,750-3,600 m). BEFORE/AFTER pairs:
+  `i277b_2745` (the 2,765 m median start, 20 m before it) and `i277b_2725`.
+- Tile build p95: the AuditOnly read 223.1 ms against 117.6, but it ran
+  beside another project's Unity build: parse +63% and the solve +163%,
+  code this change does not touch. The back-to-back probes above differ
+  only in one edge's squeeze. On the mean the new code is +6.5% over the
+  old (134.7 against 126.4 ms), inside the +10% budget. Two runs of the
+  same code differ by up to 5%.
+- **Known, not done (lean).**
+  - The OwnerBox's 12 BLUNT rail ends (bridge approaches off the routes,
+    item 2's list).
+  - The prefab Solid boxes (towers) that INVISIBLE reports in the box.
+  - Rails standing within 0.6 m of a drawn edge on curves (the band notes
+    above).
+- No rebake (tiles build at runtime); no height moved.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

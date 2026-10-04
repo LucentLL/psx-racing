@@ -324,6 +324,27 @@ namespace PSXRacing.EditorTools
             }
 
             int stations = 0, sweeps = 0, rays = 0, invis = 0, visIn = 0, trunksIn = 0, solidsChecked = 0, solidsBare = 0;
+            // WALLS IN LANES (2026-10-04, the owner's "stray medians on 277"): a
+            // drawn face on a race route met between the route edge's DESIGNED
+            // edge lines (the line model's, unsqueezed, unclipped) - a wall in
+            // a lane the driver sees painted, not a parapet's foot on the shoulder
+            int wallsInLanes = 0; var wallNotes = new List<string>(); var wallSeen = new HashSet<string>();
+            var wallLines = new List<LineModel.LineAt>(16);
+            void WallInLane(string jl, CityMap.Edge we, float ws, Vector2 wp, Vector2 wr, Vector3 whp, string wkd, string wnote)
+            {
+                if (jl == "box" || wkd.StartsWith("Ground") || wkd.StartsWith("Roads")) return;
+                LineModel.LinesAt(we, ws, wallLines);
+                if (wallLines.Count < 2) return;
+                float lo = wallLines[0].lat, hi = wallLines[wallLines.Count - 1].lat;
+                float lh = Vector2.Dot(new Vector2(whp.x, whp.z) - wp, wr);
+                // a rail's traffic face stands RailW inside the drawn edge by
+                // design (a curbless bridge's edge line at that edge): only a
+                // face further in than that is in a lane
+                if (lh <= lo + CityMeshes.RailW || lh >= hi - CityMeshes.RailW) return;
+                wallsInLanes++;
+                if (wallSeen.Add($"{jl} e{we.index} {Mathf.FloorToInt(ws / 5f)}"))
+                    wallNotes.Add($"WALL IN LANE {wnote} | at lateral {lh:+0.00;-0.00} between the edge lines {lo:+0.00;-0.00}..{hi:+0.00;-0.00}");
+            }
             var invisNotes = new List<string>(); var visNotes = new List<string>(); var bareNotes = new List<string>();
             // one note per (where, what) run, the first station's, with the run's count
             var noteRuns = new Dictionary<string, (List<string> list, int idx, int n)>();
@@ -525,7 +546,7 @@ namespace PSXRacing.EditorTools
                                 string noteB = $"SWEEP {job.label}{(job.acc >= 0f ? $" at {job.acc + (job.dir > 0 ? s : e.length - s):0} m" : "")} e{e.index} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} s={s:0}/{e.length:0} dir {job.dir:+0;-0} lane centre {lat:+0.0;-0.0} (hw {hwL:0.0}/{hwR:0.0}): {PathOf(hc)} [{kdB}]{(inside ? " INSIDE the car box" : "")} at ({hp.x:0.00},{hp.y:0.00},{hp.z:0.00}), {hp.y - sy:+0.00;-0.00} over the lane, normal ({hn.x:0.00},{hn.y:0.00},{hn.z:0.00}){(SelfDrawn(hc) ? " drawn mesh" : " collider-only")}{Owner2(map, trims, hp, e.index)}{(hc.name == "Barriers" ? RailOf(hp) : "")}";
                                 string keyB = $"{job.label} e{e.index} {job.dir} sweep {kdB} {visB}";
                                 if (!visB) { invis++; Bump(invisByKind, "sweep " + kdB); AddNote(invisNotes, keyB, "INVISIBLE " + noteB); }
-                                else { visIn++; Bump(visByKind, "sweep " + kdB); AddNote(visNotes, keyB, "DRAWN " + noteB); }
+                                else { visIn++; Bump(visByKind, "sweep " + kdB); AddNote(visNotes, keyB, "DRAWN " + noteB); WallInLane(job.label, e, s, p, right, hp, kdB, noteB); }
                             }
                         }
                         for (float lat = -hwL + 0.5f; lat <= hwR - 0.5f + 1e-3f; lat += 0.75f)
@@ -621,6 +642,7 @@ namespace PSXRacing.EditorTools
                                     if (!fresh2) continue;
                                     visIn++; Bump(visByKind, kd);
                                     AddNote(visNotes, $"{job.label} e{e.index} ray {kd} True", $"DRAWN {at}: {what}");
+                                    WallInLane(job.label, e, s, p, right, hp, kd, $"{at}: {what}");
                                 }
                             }
                         }
@@ -637,6 +659,9 @@ namespace PSXRacing.EditorTools
             Line($"  LANES: {stations} stations, {sweeps} car-box sweeps, {rays} rays; hits with no drawn face toward the car (INVISIBLE) {invis}:{Kinds(invisByKind)}; tree trunks in a lane {trunksIn}; drawn faces standing in a lane (reported) {visIn}:{Kinds(visByKind)}");
             Line($"  SOLIDS: {solidsChecked} samples of collider-only Solid-layer colliders, {solidsBare} with no drawn face within {InvisTolM * 100f:0} cm:{Kinds(bareByKind)}; meshes not readable (skipped) {unreadable}; {clock.Elapsed.TotalSeconds:0} s");
             Check(invis + trunksIn == 0, "no collider stands in a lane without a drawn face (INVISIBLE COLLIDERS: lanes)", invis + trunksIn);
+            Line($"  WALLS IN LANES (race routes; a drawn barrier, rail or solid met more than a rail's 0.3 m inset inside the route edge's designed edge lines): {wallsInLanes} hits at {wallNotes.Count} places");
+            foreach (var wn in wallNotes) Line("    " + wn);
+            Check(wallsInLanes == 0, "no wall stands in a race route's lanes, between its designed edge lines (WALLS IN LANES)", wallsInLanes);
             Check(solidsBare == 0, "every Solid-layer collider has a drawn face within 5 cm (INVISIBLE COLLIDERS: solids)", solidsBare);
             var countOf = new Dictionary<string, int>();
             foreach (var kv in noteRuns) countOf[kv.Value.list[kv.Value.idx]] = kv.Value.n;

@@ -412,6 +412,19 @@ namespace PSXRacing.EditorTools
             Along("houses_frazier_eye", "houses", -3636.3f, 5844.2f, "Frazier", 35f, 0f, 60f, 1, "Frazier Avenue (e24215, owner box) 35 m before the real house at (-3636, 5844) standing 4.0 m into its slope"),
             Along("houses_sylvania_eye", "houses", -1170.1f, 6486.1f, "Sylvania", 40f, 0f, 60f, 1, "Sylvania Avenue (e22031, owner box, 18 houses on flat lots) 40 m before its middle"),
             Top("houses_sherwood_top", "houses", -820.0f, 470.0f, "Sherwood", 60f, "the Sherwood Avenue block from above: prefab houses, real footprints and the fill behind them"),
+            // stray walls on I-277 (owner 2026-10-04, "stray medians on 277"): the Uptown Loop's
+            // south-east quarter at 1.2 m on the route's own line, heading along it
+            Eye("i277b_1750", "i277b", -985.4f, 4500.6f, "I-277", 198f, "I-277 (e2438, Uptown Loop 1,750 m) heading 198: the deck by E 10th St, its right parapet in the outside lane at 1,781 m"),
+            Eye("i277b_2745", "i277b", -1534.5f, 3715.4f, "I-277", 219f, "I-277 (e14177, Uptown Loop 2,745 m) heading 219: the race line 20 m before the median start at 2,765 m (waypoint 692, e2344/e1393, by E 4th St)"),
+            Eye("i277b_3200", "i277b", -1857.0f, 3403.7f, "I-277", 253f, "I-277 (e2341, Uptown Loop 3,200 m) heading 253: the 2.6 m connector e2342 onto the deck e1500, the entrance e196 joining on the right"),
+            Eye("i277b_2360", "i277b", -1274.5f, 3997.5f, "I-277", 237f, "I-277 (e2144, Uptown Loop 2,360 m) heading 237: onto the deck e2316, US 74's deck e2366 on the right"),
+            Eye("i277b_2440", "i277b", -1336.5f, 3947.3f, "I-277", 221f, "I-277 (e2321, Uptown Loop 2,440 m) heading 221: US 74 e2367 closing in on the right to the merge at 2,549 m"),
+            Eye("i277b_2510", "i277b", -1383.0f, 3895.0f, "I-277", 223f, "I-277 (e2321, Uptown Loop 2,510 m) heading 223: the US 74 merge and the deck e1412 ahead"),
+            Eye("i277b_2725", "i277b", -1521.8f, 3731.0f, "I-277", 219f, "I-277 (e14177, Uptown Loop 2,725 m) heading 219: the race line 40 m before the median start at 2,765 m (waypoint 692, e2344/e1393)"),
+            Eye("i277b_2960", "i277b", -1670.3f, 3548.8f, "I-277", 220f, "I-277 (e2340, Uptown Loop 2,960 m) heading 220: the entrance e1408 closing in on the right"),
+            Eye("i277b_3170", "i277b", -1828.9f, 3414.2f, "I-277", 246f, "I-277 (e2341, Uptown Loop 3,170 m) heading 246: the entrance e196 and the deck e1500 ahead"),
+            Eye("i277b_3490", "i277b", -2136.9f, 3429.1f, "I-277", 299f, "I-277 (e1499, Uptown Loop 3,490 m) heading 299: the deck e1490 ahead"),
+            Eye("i277b_3600", "i277b", -2224.2f, 3495.4f, "I-277", 315f, "I-277 (e9905, Uptown Loop 3,600 m) heading 315: the exit e9767 leaving on the right"),
         };
 
         /// <summary>The nearest point on an edge whose name contains
