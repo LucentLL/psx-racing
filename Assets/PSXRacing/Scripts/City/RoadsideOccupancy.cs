@@ -333,6 +333,7 @@ namespace PSXRacing.City
         // ------------------------------------------------------------------
 
         static readonly HashSet<int> segScratch = new HashSet<int>();
+        static readonly List<CityHouses.Driveway> driveScratch = new List<CityHouses.Driveway>(64);
         static readonly HashSet<int> edgeScratch = new HashSet<int>();
         static readonly HashSet<int> nodeScratch = new HashSet<int>();
         static readonly List<(float ang, Vector2 p, Vector2 d, float hw, float clear)> arms = new List<(float, Vector2, Vector2, float, float)>(8);
@@ -560,6 +561,17 @@ namespace PSXRacing.City
                     if (lotList == null) continue;
                     foreach (int li in lotList) o.MarkPolygon(map.lots[li].ring, CellPadM, Other);
                 }
+
+            // ---- leftover item 6: the houses' driveways and their curb cuts
+            // (no pole, sign, signal or tree stands on one)
+            if (CityHouses.DrivewaysOn)
+            {
+                CityHouses.DrivewaysNear(map, trims, buildings, o.min - Vector2.one * CellPadM,
+                                         o.min + Vector2.one * (CityMeshes.TileSize + CellPadM), driveScratch);
+                // (half a metre more than the cell pad: a trunk or a post has
+                // a radius, and stands by its middle)
+                foreach (var d in driveScratch) { o.MarkPolygon(d.quad, CellPadM + 0.5f, Other); o.MarkPolygon(d.flare, CellPadM + 0.5f, Other); }
+            }
 
             // ---- WP-25: every culvert end on the tile - the wall and its
             // backfill (or the pipe's barrel), the apron in front of it and

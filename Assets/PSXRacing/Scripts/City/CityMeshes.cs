@@ -393,6 +393,12 @@ namespace PSXRacing.City
             public bool breakaway;
         }
 
+        /// <summary>Leftover item 6: a procedural house as a tile drew it.
+        /// kind 1 a real footprint's gabled box, 2 a real house polygon (its
+        /// box), 3 a frontage gable, 4 a fill house; y0 the bottom of its
+        /// walls, floor where its siding meets the ground it was seated on.</summary>
+        public struct HouseSeat { public byte kind; public Vector2 c, u; public float hu, hv, y0, floor; }
+
         public class TileMeshes
         {
             public Vector3 origin;
@@ -472,6 +478,11 @@ namespace PSXRacing.City
             /// unit long axis, half extents), for the roadside occupancy mask
             /// (WP-08): a tree must not grow through one.</summary>
             public readonly List<(Vector2 c, Vector2 u, float hu, float hv)> houseBoxes = new List<(Vector2, Vector2, float, float)>();
+            /// <summary>Leftover item 6: every procedural HOUSE this tile drew
+            /// (a real footprint's gabled box or house polygon, a frontage
+            /// gable, a fill house) as drawn - its oriented box and the bottom
+            /// of its walls - for the house audit (gaps, buried fronts).</summary>
+            public readonly List<HouseSeat> houseSeats = new List<HouseSeat>();
             /// <summary>WP-25: the culvert ends this tile stood (world plan:
             /// the wall's face on the ravine, the outward direction, the
             /// backfill's depth behind it), for the occupancy mask and the
@@ -1397,6 +1408,7 @@ namespace PSXRacing.City
             clips.Clear();
             latticeCache.Clear();
             LatticeWindow(min);
+            CityHouses.Bind(map, trims, buildings);   // leftover item 6: the houses' lots and driveways
             pavedCache.Clear();
             fanStructure.Clear();
             fanPolys.Clear(); outlines.Clear(); ClearSectionCaches(); pavementVersion = -1;
@@ -1586,6 +1598,8 @@ namespace PSXRacing.City
                     heights[z * stride + x] = LatticeVertex(map, ix0 + x, iz0 + z);
             // roads pass L8: the parking lots laid into the lattice
             PrepareTileLots(map, min, min + new Vector2(TileSize, TileSize));
+            // leftover item 6: and the houses' driveways
+            PrepareTileDrives(map, min, min + new Vector2(TileSize, TileSize));
 
             for (int z = 0; z < res; z++)
             {
@@ -1597,6 +1611,7 @@ namespace PSXRacing.City
                     Vector3 P(int dx, int dz) => new Vector3((x + dx) * cell, heights[(z + dz) * stride + x + dx], (z + dz) * cell);
                     Vector2 U(int dx, int dz) => GroundUV(paved, min.x + (x + dx) * cell, min.y + (z + dz) * cell);
                     if (LotCell(map, tm, P(0, 0), P(0, 1), P(1, 1), P(1, 0), paved)) continue;
+                    if (DrivewayCell(tm, P(0, 0), P(0, 1), P(1, 1), P(1, 0), paved)) continue;
                     bk.Up(P(0, 0), P(0, 1), P(1, 1), P(1, 0), U(0, 0), U(0, 1), U(1, 1), U(1, 0));
                 }
             }
@@ -1642,7 +1657,8 @@ namespace PSXRacing.City
             long k = LatticeKey(ix, iz);
             if (!latticeCache.TryGetValue(k, out float y))
             {
-                y = CityElevation.GroundY(map, ix * LatticeCell, iz * LatticeCell);
+                // GroundY - with (leftover item 6) a house's lot graded level under it
+                y = CityHouses.Lattice(map, ix, iz);
                 if (fanFloors.Count > 0) y = FanFloor(ix * LatticeCell, iz * LatticeCell, y);
                 latticeCache[k] = y;
             }
@@ -3541,7 +3557,7 @@ namespace PSXRacing.City
             // middle of long facades downtown (West 6th, West 4th, East 7th,
             // West 3rd). FootprintClear opens every bucket a building could
             // reach from and measures to the walls.
-            if (!map.FootprintClear(footP, LampBuildingClearM) || LampInLot(footP)) return LampRejectBuilding;
+            if (!map.FootprintClear(footP, LampBuildingClearM) || LampInLot(footP) || OnDriveway(footP, 0.8f)) return LampRejectBuilding;
             if (LampInWater(map, footP)) return LampRejectWater;
             int clash = LampPavementClear(map, trims, e, side, s, footP, headP, ed.y);
             if (clash != 0) return clash;
@@ -9351,8 +9367,19 @@ namespace PSXRacing.City
 
                 if (b.gable)
                 {
+                    // leftover item 6: on the DRAWN ground of its graded lot
+                    // (its lowest at the walls), so no wall stands over air
+                    float floorG = g;
+                    if (CityHouses.PadsOn)
+                    {
+                        // its storeys on its own pad, its walls down to the
+                        // lowest ground at them
+                        floorG = CityHouses.Floor(map, b.pos, b.pos, rgt, b.w * 0.5f, b.d * 0.5f, out float lo);
+                        y0 = lo - BuildingSink; y1 = floorG + b.h;
+                    }
                     // a suburban house: the long side faces the road
-                    EmitGableHouse(tm, b.pos, rgt, b.w * 0.5f, b.d * 0.5f, y0, y0 + b.h * 0.7f, y1, Slot.FacadeHouse);
+                    EmitGableHouse(tm, b.pos, rgt, b.w * 0.5f, b.d * 0.5f, y0, floorG - BuildingSink + b.h * 0.7f, y1, Slot.FacadeHouse);
+                    tm.houseSeats.Add(new HouseSeat { kind = 3, c = b.pos, u = rgt, hu = b.w * 0.5f, hv = b.d * 0.5f, y0 = y0, floor = floorG });
                     continue;
                 }
 
@@ -9472,8 +9499,17 @@ namespace PSXRacing.City
                     int fit = FitHouse(map, trims, ref centre, ref u, ref hu, ref hv, y0, top);
                     if (fit < 0) { tm.footprintsLeftOut++; continue; }
                     if (fit > 0) tm.footprintsCut++;
-                    float eave = y0 + BuildingSink + f.h * 0.68f;
+                    // leftover item 6: its storeys on its own graded pad, its
+                    // walls down to the lowest ground at them
+                    float floorG = y0 + BuildingSink;
+                    if (CityHouses.PadsOn)
+                    {
+                        floorG = CityHouses.Floor(map, f.centre, centre, u, hu, hv, out float lo);
+                        y0 = lo - BuildingSink; top = floorG + f.h;
+                    }
+                    float eave = floorG + f.h * 0.68f;
                     EmitGableHouse(tm, centre, u, hu, hv, y0, eave, top, Slot.FacadeHouse);
+                    tm.houseSeats.Add(new HouseSeat { kind = 1, c = centre, u = u, hu = hu, hv = hv, y0 = y0, floor = floorG });
                     tm.footprintCount++;
                     continue;
                 }
@@ -9482,6 +9518,14 @@ namespace PSXRacing.City
                 int cut = FitFootprint(map, trims, fitPoly, y0, top);
                 if (cut < 0) { tm.footprintsLeftOut++; continue; }
                 if (cut > 0) tm.footprintsCut++;
+                // leftover item 6: a house polygon on the drawn ground of its
+                // graded lot (its box's lowest: never a wall over air)
+                float floorP = y0 + BuildingSink;
+                if (f.style == 3 && CityHouses.PadsOn)
+                {
+                    floorP = CityHouses.Floor(map, f.centre, f.centre, f.u, f.hu, f.hv, out float lo);
+                    y0 = lo - BuildingSink; top = floorP + f.h;
+                }
 
                 Slot wallSlot = f.style == 0 ? Slot.FacadeGlass
                               : f.style == 1 ? Slot.FacadeTower
@@ -9524,6 +9568,7 @@ namespace PSXRacing.City
                 // (Not on one cut back off a street: it is centred on the
                 // footprint's box, and would overhang the cut.)
                 if (f.h > 120f && cut == 0) EmitCrown(map, tm, f, top, wallSlot);
+                if (f.style == 3) tm.houseSeats.Add(new HouseSeat { kind = 2, c = f.centre, u = f.u, hu = f.hu, hv = f.hv, y0 = y0, floor = floorP });
 
                 tm.footprintCount++;
             }
@@ -9920,60 +9965,33 @@ namespace PSXRacing.City
 
         static void BuildHouses(CityMap map, TileMeshes tm, int tx, int tz)
         {
-            var min = new Vector2(tx * TileSize, tz * TileSize);
-            int cells = Mathf.RoundToInt(TileSize / HouseCell);
-            for (int cz = 0; cz < cells; cz++)
-                for (int cx = 0; cx < cells; cx++)
+            // leftover item 6: the placement lives in CityHouses (the same
+            // choices, cell by cell), so the lots, the driveways and the
+            // occupancy mask see the fill houses before any tile draws them
+            foreach (var h in CityHouses.FillOf(map, tx, tz))
+            {
+                var c = h.c; var u = h.u; float hu = h.hu, hv = h.hv;
+                var v = new Vector2(-u.y, u.x);
+                float y0, floor;
+                if (CityHouses.PadsOn)
                 {
-                    int gx = tx * cells + cx, gz = tz * cells + cz;
-                    var c = new Vector2(min.x + (cx + 0.5f) * HouseCell + (Hash01(gx, gz, 1) - 0.5f) * 9f,
-                                        min.y + (cz + 0.5f) * HouseCell + (Hash01(gx, gz, 2) - 0.5f) * 9f);
-                    if (map.footprintBounds.Contains(c)) continue;
-
-                    // nearest street, and the corridor test against every road
-                    segScratch.Clear();
-                    map.EdgeSegsInRect(c - Vector2.one * 260f, c + Vector2.one * 260f, segScratch);
-                    float dRoad = float.MaxValue; Vector2 tanRoad = Vector2.right;
-                    bool blocked = false;
-                    foreach (var packed in segScratch)
-                    {
-                        int ei = packed >> 12, si = packed & 0xFFF;
-                        var e = map.edges[ei];
-                        Vector2 a = e.pts[si], d = e.pts[si + 1] - a;
-                        float L2 = d.sqrMagnitude;
-                        float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(c - a, d) / L2) : 0f;
-                        float dist = Vector2.Distance(c, a + d * t);
-                        if (dist < e.CorridorHalf + 24f) { blocked = true; break; }
-                        if (!e.link && e.cls < 5 && dist < dRoad) { dRoad = dist; tanRoad = d.normalized; }
-                    }
-                    if (blocked || dRoad > 250f) continue;
-
-                    float distUp = Vector2.Distance(c, map.uptown);
-                    float keep = distUp < 7000f ? 0.62f : distUp < 12000f ? 0.42f : distUp < 16000f ? 0.22f : 0.07f;
-                    keep *= Mathf.Lerp(1f, 0.3f, Mathf.Clamp01((dRoad - 110f) / 140f));
-                    if (Hash01(gx, gz, 3) > keep) continue;
-
-                    segScratch.Clear();
-                    map.WaterSegsInRect(c - Vector2.one * 30f, c + Vector2.one * 30f, segScratch);
-                    if (segScratch.Count > 0) continue;
-                    // nor in a ravine's carved channel, nor out in a lake (WP-04b:
-                    // a lake's inside is no longer in the water hash)
-                    if (map.NearRavine(c, RavineClearM) || map.InLake(c)) continue;
-
-                    float hu = 4.6f + Hash01(gx, gz, 4) * 2.2f;   // half length, along the street
-                    float hv = 3.8f + Hash01(gx, gz, 5) * 1.6f;   // half depth
-                    float eaveH = 3.0f + Hash01(gx, gz, 6) * 0.6f;
-                    float riseH = 1.7f + Hash01(gx, gz, 7) * 0.9f;
-                    var u = tanRoad;
-                    var v = new Vector2(-u.y, u.x);
+                    // its storeys on its own graded pad, its walls down to
+                    // the lowest ground at them
+                    floor = CityHouses.Floor(map, c, c, u, hu, hv, out float lo);
+                    y0 = lo - BuildingSink;
+                }
+                else
+                {
                     float g = float.MaxValue;
                     foreach (var corner in new[] { c + u * hu + v * hv, c - u * hu + v * hv, c - u * hu - v * hv, c + u * hu - v * hv })
                         g = Mathf.Min(g, CityElevation.GroundY(map, corner.x, corner.y));
-                    float y0 = g - BuildingSink;
-                    EmitGableHouse(tm, c, u, hu, hv, y0, y0 + BuildingSink + eaveH, y0 + BuildingSink + eaveH + riseH, Slot.FacadeHouse);
-                    tm.houseCount++;
-                    tm.houseBoxes.Add((c, u, hu, hv));
+                    y0 = g - BuildingSink; floor = g;
                 }
+                EmitGableHouse(tm, c, u, hu, hv, y0, floor + h.eaveH, floor + h.eaveH + h.riseH, Slot.FacadeHouse);
+                tm.houseCount++;
+                tm.houseBoxes.Add((c, u, hu, hv));
+                tm.houseSeats.Add(new HouseSeat { kind = 4, c = c, u = u, hu = hu, hv = hv, y0 = y0, floor = floor });
+            }
         }
 
         static float Hash01(int x, int y, int salt)

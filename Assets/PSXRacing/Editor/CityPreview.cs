@@ -406,6 +406,12 @@ namespace PSXRacing.EditorTools
             new NamedView { name = "ar_under_top", group = "jboxdbg", kind = ViewKind.Top, at = new Vector2(-8165f, -5195f), road = "Arrowood", size = 70f, ring = 1, rise = 3.2f,
                             what = "INTERNAL: W Arrowood Rd under I-77 (ramp terminals n702/n703/n3899/n3900) seen from 3.2 m over the road" },
             Eye("ar_eye", "jboxdbg", -8238.8f, -5161.8f, "Arrowood", 119f, "W Arrowood Rd eastbound (e2693) 25 m before node 3899, heading 119, 1.2 m eye: under I-77"),
+            // houses (leftover item 6, 2026-10-03): driveways and lots graded under the houses - the
+            // house audit's worst sloped streets and a flat one, driver's eye 1.2 m on the street
+            Along("houses_sherwood_eye", "houses", -847.3f, 453.7f, "Sherwood", 35f, 0f, 60f, 1, "Sherwood Avenue (e24832, 17 houses, mean fall 1.4 m) 35 m before the prefab house at (-847, 454) whose foundation showed 2.5 m on its downhill side"),
+            Along("houses_frazier_eye", "houses", -3636.3f, 5844.2f, "Frazier", 35f, 0f, 60f, 1, "Frazier Avenue (e24215, owner box) 35 m before the real house at (-3636, 5844) standing 4.0 m into its slope"),
+            Along("houses_sylvania_eye", "houses", -1170.1f, 6486.1f, "Sylvania", 40f, 0f, 60f, 1, "Sylvania Avenue (e22031, owner box, 18 houses on flat lots) 40 m before its middle"),
+            Top("houses_sherwood_top", "houses", -820.0f, 470.0f, "Sherwood", 60f, "the Sherwood Avenue block from above: prefab houses, real footprints and the fill behind them"),
         };
 
         /// <summary>The nearest point on an edge whose name contains
@@ -692,9 +698,10 @@ namespace PSXRacing.EditorTools
                             var prefab = CityProps.CityPrefab(b.kind);
                             if (prefab == null) continue;
                             var def = CityProps.Defs[b.kind];
+                            // the game's seat and its empty lots (leftover item 6)
+                            if (!CityBuildings.PropSeat(map, b, def, out float seat, out _)) continue;
                             var inst = (GameObject)Object.Instantiate(prefab, root.transform);
-                            inst.transform.position = new Vector3(b.pos.x,
-                                CityBuildings.SeatY(map, b.pos, b.w, b.d, b.yaw) - def.sink, b.pos.y);
+                            inst.transform.position = new Vector3(b.pos.x, seat - def.sink, b.pos.y);
                             inst.transform.rotation = Quaternion.Euler(
                                 0f, b.yaw * Mathf.Rad2Deg + def.yawOffsetDeg, 0f);
                             if (b.scale.sqrMagnitude > 0.01f) inst.transform.localScale = b.scale;

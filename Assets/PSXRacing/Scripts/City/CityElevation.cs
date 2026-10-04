@@ -4601,6 +4601,10 @@ namespace PSXRacing.City
             public float carve;
             public float floor; public int floorEdge;
             public float protect; public int protectEdge;
+            /// <summary>The lowest road back slope (CUT) line here, whether or
+            /// not it cut the land (leftover item 6: a graded house lot never
+            /// stands above it); NaN beside no grounded road.</summary>
+            public float cut;
             public float deckProtect, deckCap; public int deckEdge;
             /// <summary>The highest floor among GROUNDED roads whose pavement
             /// is within <see cref="PitReachM"/>: the design a pit is judged
@@ -4717,7 +4721,7 @@ namespace PSXRacing.City
         {
             terms = new GroundTerms
             {
-                floor = float.NaN, protect = float.NaN, deckProtect = float.NaN, deckCap = float.NaN, nearFloor = float.NaN,
+                floor = float.NaN, protect = float.NaN, deckProtect = float.NaN, deckCap = float.NaN, nearFloor = float.NaN, cut = float.NaN,
                 floorEdge = -1, protectEdge = -1, deckEdge = -1, nearEdge = -1, channel = float.NaN,
             };
             float baseY = BaseY(x, z);
@@ -4933,6 +4937,7 @@ namespace PSXRacing.City
             terms.floorEdge = floorClampMax > floorMax ? floorClampEdge : floorTrueEdge;
             floorMax = Mathf.Max(floorMax, floorClampMax);
             if (floorMax < floorDesignMax - 1e-4f && floorDesignMax > baseY) terms.channel = Mathf.Max(floorMax, baseY);
+            if (cutMin < float.MaxValue) terms.cut = cutMin;
             if (floorMax > float.MinValue || cutMin < float.MaxValue)
             {
                 // the land cut down to every road's back slope...

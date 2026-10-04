@@ -6187,6 +6187,128 @@ and `CityAudit.LotsOnly` on its own).
   one-way aisles, end-of-row islands at cross aisles, lots in
   CityElevation's ground.
 
+## Houses on their lots, and their driveways (leftover item 6, 2026-10-03)
+
+The owner: "houses lack driveways and many houses are above ground with
+their concrete foundations". A prefab home was seated on the HIGHEST drawn
+ground under it and its baked skirt covered the rest, so on a slope its
+downhill side showed up to 2.9 m of concrete; a procedural house (a real
+footprint's gable box, a frontage gable, a fill house) stood on the lowest
+of its corners' GroundY, so its uphill side ran up to 4.5 m into the hill,
+and 13 in the two audited boxes showed daylight under a wall. No house had a
+driveway. The work is in
+`Scripts/City/CityHouses.cs` (the table, the pads, the driveways),
+`CityMeshes.Houses.cs` (the driveways cut into the ground), the house seats
+in `CityMeshes.cs` / `CityBuildings.PropSeat`, and the census in
+`Editor/CityAudit.Houses.cs`.
+
+- **One table of the city's buildings** (`CityHouses`, per 256 m tile,
+  global data only, so every tile that asks gets the same answer): the
+  real footprints, CityBuildings' lots and the interior fill. The fill's
+  placement moved here from `BuildHouses` unchanged (cell by cell, the same
+  hashes). A HOUSE is a footprint's gabled box or house polygon, a frontage
+  gable, a fill house, the prefab house or a trailer; every other building
+  is a blocker.
+- **The lot is graded** (`CityHouses.Lattice`, read by
+  `CityMeshes.LatticeVertex`). A lattice corner whose NEAREST building is a
+  house within 16 m of its walls is pulled to that house's pad: fully within
+  8 m, smoothstep back to the land at 16 m. The pad is the natural ground at
+  the middle of the house's front (the face toward its nearest street),
+  within 1.5 m of the ground at its middle, then held inside the limits of
+  the corners it grades. Those limits are the road section's own
+  (`CityElevation.Ground`'s terms; `GroundTerms.cut` is new): never above a
+  road's cap, back slope or deck protection, never below a road's fill
+  floor; a creek's or lake's banks are not touched. A corner nearer a
+  building that is not a house keeps its land. Everything that stands on the
+  lattice (houses, trees, poles, signs, lots, verges) stands on the graded
+  ground.
+- **Each house sits on its own pad.**
+  - A procedural house's storeys start at its pad, never more than 0.6 m
+    under the highest ground at its walls (`CityHouses.FloorBuryM`). Its
+    walls run down to the lowest drawn ground at them, so none stands over
+    air.
+  - A prefab home is seated on its pad. It sits into its high corner by as
+    much as its own plinth allows (the house's 0.59 m course stays over the
+    grass, `SeatBuryM` 0.21 m; trailers 0) and at most 0.5 m more where a
+    neighbour's pad rises behind it (`PropSeatOn`). `CityProps.Def.baseM`
+    records the model's lowest course (house 0.59 m, trailers 0.24 m, from
+    the bake log).
+- **Driveways** (`CityHouses.DrivewayOf`). There is no OSM `service=driveway`
+  in the cache, so every driveway is synthesized.
+  - It runs 3 m wide from the street's drawn edge to the house's face, at
+    the garage end its hash picks, then the other end, then nearer the
+    middle. Every face that looks toward a street within 75 m is tried,
+    nearest street first. A frontage lot uses only its front.
+  - It must be square to its street and to the face within 32 degrees, and
+    at most 60 m long. Where a parking lot lies between the house and its
+    street, the driveway starts inside the lot's pavement. Where buildings
+    in front leave a gap, the driveway is aimed through it.
+  - It never crosses another building or its lot (box + 0.3 m, a blocker
+    + 0.6 m), a parking lot, water or a ravine, another road, or a
+    junction's mouth. For that last check, its own street is measured along
+    it from the fan's trim, other junctions by their fan's reach, each with
+    4 m clear. Two neighbours' driveways may meet.
+  - It is cut into the lattice triangles like a parking lot: drawn in the
+    ground mesh's pavement concrete, flush, in the ground collider, at most
+    +1 draw a tile.
+  - The street's verge across its mouth and 1 m flared wings is poured
+    concrete: the curb cut (`ApronAt`).
+  - The static occupancy mask marks every driveway and curb cut (+0.5 m), so
+    no pole, sign, signal or tree stands on one. No street lamp stands on
+    one (`TryLamp`).
+- **Switches.** `PSX_CITY_HOUSEPADS=0` turns the grading and the seats off;
+  `PSX_CITY_DRIVEWAYS=0` turns the driveways off.
+- **Tools.**
+  - `CityAudit.HousesOnly` (houses_audit.txt) and the full audit's HOUSES
+    block. Both measure the owner box and a suburban box (the 1.5 km round
+    the 1 km cell with the most falling prefab lots; `PSX_HOUSE_SUBURB_BOX`).
+  - They report each house kind, the fall at the walls, the EXPOSED
+    FOUNDATION of prefabs, procedural houses BURIED, GAPs and DRIVEWAYS
+    (with why not, and every tree, pole, sign post, signal pole, STOP sign
+    and lamp tested against them).
+  - `PSX_HOUSE_EXPLAIN=1` explains the lattice corners round the worst lots.
+  - `CityPreview` group `houses` holds the four photographs.
+
+**BEFORE -> AFTER** (HousesOnly, boxed)
+
+| | before | after |
+|---|---|---|
+| prefab EXPOSED FOUNDATION, suburban box (82 homes) p50 / p95 / max | 1.27 / 2.65 / 2.93 m (76 over 0.6 m) | **0.29 / 0.42 / 0.75 m** (3 over 0.6 m, 0 over 1.0) |
+| houses with daylight under them (owner box / suburban) | 12 (worst 1.35 m) / 1 | **0 / 0** |
+| procedural houses BURIED p50 / p95 / max, owner box (1,229 houses) | 0.79 / 2.10 / 4.53 m | 0.13 / 0.60 / 0.60 m |
+| procedural houses BURIED p50 / p95 / max, suburban box | 0.60 / 1.76 / 3.41 m | 0.01 / 0.50 / 0.60 m |
+| fall at the walls, prefab homes, suburban p50 / p95 | 1.02 / 2.36 m | 0.16 / 0.57 m |
+| driveways, owner box | 0 | **1,012 of 1,232 (82.1 %)** |
+| driveways, suburban box | 0 | **714 of 1,031 (69.3 %; 88.3 % of the 809 with a mapped street within 75 m)** |
+| furniture standing on a driveway | - | **0** (12,457 + 9,773 objects tested) |
+| tile build p50, owner box / suburban (HousesOnly) | 104.8 / 32.6 ms | 101.8 / 37.3 ms |
+| budget, 9 sites: tile build p50 / p95 / max (cap +10 % = 137 ms) | 31.7 / 124.5 / 252.0 ms | 37.8 / **126.5** / 243.0 ms |
+| tree frames p95 / max; worst view draws | 6.7 / 20.9 ms; 206 | 9.3 / 23.5 ms; 206 |
+| kept off the driveways (audit tiles): street lamps / utility poles / trees / billboards / business signs | 351 / 1,088 / 135,687 / 321 / 1,439 | 348 / 1,084 / 135,434 / 310 / 1,435 |
+| DRIVE AUDIT | zeros | zeros |
+| CITY AUDIT failures | 16 known | 18: the same 16 (same values) + the two driveway gates below |
+
+- The one AuditOnly also kept linecheck --ratchet PASS and the WP-09
+  sliced build identical to the one-go build (75 tiles). No data changed
+  (no export). Map heap 25.4 -> 25.7 MB.
+- **The driveway target (95 %) is not met.**
+  - Owner box (uptown's dense blocks), houses without one:
+    - 88 have other buildings between them and every street;
+    - 52 would run more than 32 degrees off square;
+    - 36 sit at a junction's mouth;
+    - 14 have their face on the street's edge;
+    - 20 have no street within reach.
+  - Suburban box: 186 of the 317 without one are fill houses with no street
+    within 75 m. The fill stands in for subdivisions whose streets are not in
+    the data (outside the core only the arterials are fetched).
+- **Not done (lean).**
+  - Shared private lanes for houses behind houses.
+  - Bending a driveway round an obstacle.
+  - Letting a driveway leave its face at up to 63 degrees again (the run
+    before the 32-degree rule had 1,058 owner-box driveways, 85.9 %).
+  - Fetching the residential streets beyond the core (Q6), which would give
+    the fill houses streets.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

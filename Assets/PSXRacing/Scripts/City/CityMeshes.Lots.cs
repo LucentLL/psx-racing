@@ -166,6 +166,7 @@ namespace PSXRacing.City
         /// there is poured concrete)?</summary>
         static bool ApronAt(CityMap map, float x, float z)
         {
+            if (DriveApronAt(x, z)) return true;   // leftover item 6: a driveway's curb cut
             if (!LotsOn || apronsByTile == null || lotMapFor != map) return false;
             if (!apronsByTile.TryGetValue(LotTileKey(Mathf.FloorToInt(x / TileSize), Mathf.FloorToInt(z / TileSize)), out var l)) return false;
             var q = new Vector2(x, z);
@@ -519,7 +520,12 @@ namespace PSXRacing.City
                     }
                     lotAcc.Clear();
                 }
-                // what no lot took: ground
+                // what no lot took: ground (leftover item 6: with any driveway cut into it)
+                if (DrivesInCell(cx0, cz0, cx1, cz1))
+                {
+                    drvCur.Clear(); drvCur.AddRange(lotOut); lotOut.Clear();
+                    EmitDrivePieces(drvCur, gb, paved, o);
+                }
                 foreach (var piece in lotOut)
                 {
                     int v0 = gb.v.Count;

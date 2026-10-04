@@ -693,8 +693,7 @@ namespace PSXRacing.City
                     // seated on the ground this build DREW (its lattice is
                     // still cached), and left out where the ground falls away
                     // further than its foundation skirt reaches
-                    float gy = CityBuildings.SeatY(Map, b.pos, b.w, b.d, b.yaw, out float low);
-                    if (gy - low > CityProps.MaxFallM(def)) { PropsDropped++; continue; }
+                    if (!CityBuildings.PropSeat(Map, b, def, out float gy, out _)) { PropsDropped++; continue; }
                     var go = Instantiate(prefab, root.transform);
                     go.transform.position = new Vector3(b.pos.x, gy - def.sink, b.pos.y);
                     go.transform.rotation = Quaternion.Euler(

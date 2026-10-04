@@ -67,6 +67,9 @@ namespace PSXRacing.EditorTools
                 CoverageReport(map, trims);
                 LotReport(map, trims);
                 BulbReport(map, trims);
+                // leftover item 6: the houses on their lots, their driveways
+                // (the default box and a suburban one; CityAudit.Houses.cs)
+                HouseCensusBoth(map, trims, buildings, true);
             }
             finally { AuditBuildings = null; }
         }

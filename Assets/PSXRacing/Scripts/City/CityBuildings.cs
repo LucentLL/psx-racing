@@ -423,6 +423,26 @@ namespace PSXRacing.City
             return hi;
         }
 
+        /// <summary>
+        /// Where a prop lot is seated, the one rule CityWorld stands it by and
+        /// the house audit measures it by: <paramref name="seat"/> the ground
+        /// height its pivot sits <see cref="CityProps.Def.sink"/> under, and
+        /// the lowest drawn ground under it. False where the ground falls
+        /// further than the foundation skirt reaches (the lot is left empty).
+        /// </summary>
+        public static bool PropSeat(CityMap map, B b, CityProps.Def def, out float seat, out float low)
+        {
+            float hi = SeatY(map, b.pos, b.w, b.d, b.yaw, out low);
+            // leftover item 6: a home stands on its own graded pad, sitting
+            // into its high corner by as much as its own plinth stands over
+            // the pivot there (the house's 0.59 m course stays over the
+            // grass) and a little more where a neighbour's pad rises behind
+            // it, so its low side shows that much less foundation
+            seat = CityHouses.PadsOn && CityProps.IsHome(b.kind)
+                 ? CityHouses.PropSeatOn(map, b.pos, low, hi, CityHouses.SeatBuryM(def)) : hi;
+            return hi - low <= CityProps.MaxFallM(def);
+        }
+
         /// <summary>The seat the city used before 2026-09-30 (the highest
         /// GroundY of the centre and four corners), for the before/after
         /// probe (CitySignalShots) only.</summary>

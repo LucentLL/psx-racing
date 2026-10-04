@@ -31,6 +31,11 @@ namespace PSXRacing.City
             /// look wrong. 0 means 1.</summary>
             public float scale;
             public float Scale => scale > 0.01f ? scale : 1f;
+            /// <summary>Leftover item 6: the model's own lowest course over its
+            /// pivot, as the prop baker measures it ("model base" in the scene
+            /// build's log): the house 0.59 m, the trailers 0.24. The visible
+            /// foundation of a seated prop runs from here down to the ground.</summary>
+            public float baseM;
         }
 
         /// <summary>
@@ -85,6 +90,8 @@ namespace PSXRacing.City
         public const int TowerCount = 18;
 
         public static bool IsFood(byte kind) => kind == Burger || kind == Pizzeria;
+        /// <summary>A house or a trailer: a home on a yard (leftover item 6).</summary>
+        public static bool IsHome(byte kind) => kind >= House && kind <= Trailer2;
 
         /// <summary>Shop sign, for the HUD's nearest-food cue and the order
         /// screen. Here rather than on DriveThru because the HUD has to name a
@@ -99,10 +106,10 @@ namespace PSXRacing.City
         // every restaurant politely showed the street its back.
         public static readonly Dictionary<byte, Def> Defs = new Dictionary<byte, Def>
         {
-            [House]    = new Def { res = "CityProps/house_simple", w = 11.7f, d = 16.4f, h = 7.4f, sink = 0.30f, yawOffsetDeg = 180f, scale = PackScale },
-            [Trailer0] = new Def { res = "CityProps/trailer_00", w = 4.9f, d = 12.2f, h = 3.2f, sink = 0.20f, yawOffsetDeg = 180f, scale = PackScale },
-            [Trailer1] = new Def { res = "CityProps/trailer_02", w = 4.8f, d = 12.2f, h = 3.3f, sink = 0.20f, yawOffsetDeg = 180f, scale = PackScale },
-            [Trailer2] = new Def { res = "CityProps/trailer_05", w = 4.8f, d = 12.3f, h = 3.2f, sink = 0.20f, yawOffsetDeg = 180f, scale = PackScale },
+            [House]    = new Def { res = "CityProps/house_simple", w = 11.7f, d = 16.4f, h = 7.4f, sink = 0.30f, yawOffsetDeg = 180f, scale = PackScale, baseM = 0.59f },
+            [Trailer0] = new Def { res = "CityProps/trailer_00", w = 4.9f, d = 12.2f, h = 3.2f, sink = 0.20f, yawOffsetDeg = 180f, scale = PackScale, baseM = 0.24f },
+            [Trailer1] = new Def { res = "CityProps/trailer_02", w = 4.8f, d = 12.2f, h = 3.3f, sink = 0.20f, yawOffsetDeg = 180f, scale = PackScale, baseM = 0.24f },
+            [Trailer2] = new Def { res = "CityProps/trailer_05", w = 4.8f, d = 12.3f, h = 3.2f, sink = 0.20f, yawOffsetDeg = 180f, scale = PackScale, baseM = 0.24f },
             [Block0 + 0] = new Def { res = "CityProps/city_building_03", w = 18.7f, d = 12.6f, h = 13.5f, sink = 0.45f, yawOffsetDeg = 180f },
             [Block0 + 1] = new Def { res = "CityProps/city_building_05", w = 16.0f, d = 12.4f, h = 13.5f, sink = 0.45f, yawOffsetDeg = 180f },
             [Block0 + 2] = new Def { res = "CityProps/city_building_08", w = 19.6f, d = 14.1f, h = 18.5f, sink = 0.45f, yawOffsetDeg = 180f },
