@@ -354,6 +354,12 @@ namespace PSXRacing.City
             public float h;
             public byte style;         // 0 glass, 1 mid, 2 brick, 3 house, 4 shops
             public bool gable;
+            /// <summary>PBLD v2 (Uptown B1): what OSM says the facade is.
+            /// use 0 unknown, 1 office, 2 residential, 3 civic; mat 0
+            /// untagged, 1 glass, 2 brick, 3 stone/concrete, 4 metal, 5 wood;
+            /// colour.a 255 only where building:colour was tagged.</summary>
+            public byte use, mat;
+            public Color32 colour;
             public Vector2 centre;     // OBB centre
             public Vector2 u;          // OBB long axis, unit
             public float hu, hv;       // OBB half extents along u and across it
@@ -1141,7 +1147,7 @@ namespace PSXRacing.City
             {
                 if (r.ReadUInt32() != MagicBld) { Debug.LogError("charlotte_bld.bytes: bad magic"); return; }
                 int version = r.ReadInt32();
-                if (version != 1) { Debug.LogError("charlotte_bld.bytes: version " + version); return; }
+                if (version != 1 && version != 2) { Debug.LogError("charlotte_bld.bytes: version " + version); return; }
                 float x0 = r.ReadSingle(), z0 = r.ReadSingle(), x1 = r.ReadSingle(), z1 = r.ReadSingle();
                 footprintBounds = Rect.MinMaxRect(x0 * LayoutScale, z0 * LayoutScale, x1 * LayoutScale, z1 * LayoutScale);
                 int n = r.ReadInt32();
@@ -1153,6 +1159,13 @@ namespace PSXRacing.City
                     f.style = (byte)(sb & 0x7F);
                     f.gable = (sb & 0x80) != 0;
                     f.h = r.ReadSingle();
+                    if (version >= 2)
+                    {
+                        int lb = r.ReadByte();
+                        f.use = (byte)(lb & 3);
+                        f.mat = (byte)((lb >> 2) & 7);
+                        if ((lb & 0x80) != 0) f.colour = new Color32(r.ReadByte(), r.ReadByte(), r.ReadByte(), 255);
+                    }
                     int np = r.ReadByte();
                     f.pts = new Vector2[np];
                     for (int p = 0; p < np; p++)

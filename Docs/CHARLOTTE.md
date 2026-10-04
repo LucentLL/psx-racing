@@ -6538,6 +6538,66 @@ direction on both sides of it and the V leg's end face toward the car.
     above).
 - No rebake (tiles build at runtime); no height moved.
 
+## Uptown facades (Uptown B1, 2026-10-04): one atlas, real floors, tints from OSM
+
+The before-shots of the five uptown views (`CityPreview.RunUptownRef`) showed
+every tower in one code-drawn 64 px blue-grey glass whose fixed 8 m repeat
+aliased into curved moire bands at a distance, and at dusk every pane lit the
+same cold white. This package replaces that look.
+
+- **One facade atlas.** `Art/City/Facade/city_facade_atlas.png` (1024 x 256,
+  made by `py tools/city/facade_atlas.py`) holds eight 128 x 256 columns: a
+  silver grid curtain wall, a blue glass and a teal glass (the owner's
+  skyscraper_pack `building_03/04/08`), precast stone and brick with punched
+  windows (the Buildings pack's `building_10`/`building_01`, the facades the
+  city already wore); 5-7 are spare copies. Every OSM tower, midrise, brick
+  block, shop's upper floors and fill box wears it through ONE material
+  (`CityFacadeGlass`, slot `FacadeGlass`). Houses and shopfront strips keep
+  their own. Sources and licences are in `tools/city/SOURCES.md` (owner's
+  licensed assets, confirmed 2026-10-04; no brands in any of them).
+- **PSX/Lit `PSX_FACADE`.** The vertex colour carries the building: rgb a tint
+  (x2, 128 = as painted), alpha the column (x32). U wraps inside the column;
+  the texture and the night mask are read with `tex2Dgrad` on the wrapped uv's
+  own derivatives, and the atlas (only it: `PSXTextureCaps.MipsFor`) keeps
+  point-filtered mip maps. That is what removes the moire.
+- **Real floors.** V counts the building's own storeys from its ground floor
+  (`CityMeshes.PickFacade`): 3.8 m an office, 3.1 m a home (OSM
+  apartments/residential/hotel, or brick with no use tagged), stretched so the
+  roof is a whole floor; crowns continue the bands. U is whole repeats per wall
+  (bays 2.2-2.85 m on the curtain walls).
+- **Looks and tints.** OSM first: `building:material` picks the family
+  (glass, brick, stone/concrete; metal = the silver grid) and
+  `building:colour` the tint (that colour over the column's mean, in linear
+  light). Otherwise by height class and a position hash: towers mostly glass in
+  three kinds (12% stone), midrises a third each of glass, stone and brick, low
+  blocks and shops mostly brick, each in a shade from the look's palette.
+- **PBLD v2.** The exporter writes one look byte per footprint (use class,
+  material class, a colour flag + RGB). The 8 x 8 km snapshot has 21
+  `building:colour` and 3 `building:material` outline tags, so today the
+  palette does nearly all the work; B2 (building:part) brings 155 colours and
+  85 materials and will bump PBLD to v3. `export_osm.mjs --check` reproduced
+  the shipped bytes before the change; after it only `charlotte_bld.bytes`
+  (1,742,804 -> 1,774,560 B) and the fingerprint moved.
+- **Night.** `WIN_LIT_FRAC` 0.42 -> 0.34: ~25% of windows lit at dusk
+  (`_PSXNight` 0.75), ~34% at night, the warm/cool mix unchanged. The curtain
+  walls light by FLOOR SEGMENTS (four bays of one floor share an id), so a
+  tower at dusk is dark glass with lit office floors, not a lit wall.
+- **Retired:** the drawn `city_facade_glass.png` and its mask
+  (`tools/night/window_masks.py` no longer lists it). Slots `FacadeTower`,
+  `FacadeBrick` and (on tiles) `FacadeMid` are now unused by the tiles but kept.
+
+**Numbers** (`CityBudgetProbe`, sandbox, same machine, before = main f103b468):
+no view at any of the 17 sites draws more; the sum of the 68 views 7,599 ->
+7,387 draws; worst view 206 -> 189 (trade_tryon); tile build p95 over all 225
+tiles 127.1 -> 122.5 ms (single sites move +-10%, the run-to-run noise with
+other Unity jobs on the machine). The five reference views were re-shot at noon
+and dusk (`scratchpad/ba/uptown_b1_*.jpg` in the planning session).
+
+**Known, not done (lean):** facades at 1 km+ fall to the mean colour of their
+look (no bands - the price of no moire; a mip bias could keep a hint of
+floors); crowns are not lit; the house siding is still drawn in code; heights
+from building:part are B2.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

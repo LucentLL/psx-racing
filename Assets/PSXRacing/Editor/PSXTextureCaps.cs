@@ -18,6 +18,7 @@ namespace PSXRacing.EditorTools
             // structure metal on one sheet, so every sign of a tile is one
             // draw. At 256 a bulletin's lettering would be 3 px tall.
             if (assetPath.EndsWith("/Art/City/Signs/CitySigns.png")) return 512;
+            if (MipsFor(assetPath)) return 1024;
             // The converted traffic cars (owner, 2026-09-25: "can we increase
             // the texture size cap?"). A GT2 car was four 256 PS1 pages; its
             // baked 512 atlas holds the same texels. Opted in by NAME, by
@@ -30,5 +31,13 @@ namespace PSXRacing.EditorTools
             if (assetPath.Contains("/Art/Car/Models/") && assetPath.EndsWith("_512x256.png")) return 512;
             return 256;
         }
+
+        /// <summary>Uptown B1 (2026-10-04): the facade atlas and its night
+        /// mask keep MIP MAPS (still point-filtered). A tower's windows are a
+        /// few texels a floor; without mips a skyline at 600 m aliases them
+        /// into curved moire bands. Written at their final size, so the 1024
+        /// cap never resamples them.</summary>
+        public static bool MipsFor(string assetPath) =>
+            assetPath.Contains("/Art/City/Facade/city_facade_atlas");
     }
 }

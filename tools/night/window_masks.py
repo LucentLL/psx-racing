@@ -50,8 +50,11 @@
 # MISSING - Unity owns it after that. The Night/ folder gets its own fixed meta
 # for the same reason.
 #
-# TRAP 3 - TWO OF THE FIVE TEXTURES ARE DRAWN, NOT PHOTOGRAPHED. city_facade_glass
-# and city_facade_house come out of PSXRacingBuilder.City.cs GenerateCityTextures
+# (Uptown B1, 2026-10-04: city_facade_glass is gone - the OSM buildings wear the
+# facade atlas, tools/city/facade_atlas.py, which writes its own mask.)
+#
+# TRAP 3 - ONE OF THE TEXTURES IS DRAWN, NOT PHOTOGRAPHED. city_facade_house
+# comes out of PSXRacingBuilder.City.cs GenerateCityTextures
 # on every build. Their masks are found from the PNGs by colour, so if that
 # drawing code changes, re-run this script (the sheet will show a mismatch).
 #
@@ -79,7 +82,6 @@ SHEET = os.path.join(HERE, "window_masks_sheet.png")
 GUIDS = {
     "city_facade_tower": "aad215abb9184a449b7120045a9c4780",
     "city_facade_mid": "0a93143a3daf41b2b0f6f04762864cdb",
-    "city_facade_glass": "325d9709e7e64b49baaf712885e8cf01",
     "city_shops": "91ec4354231c428196dc8ac00f1f2124",
     "city_facade_house": "cd8e0e01e5fe4b6f9b06826bbfb4b038",
 }
@@ -88,7 +90,6 @@ FOLDER_GUID = "70f2ab25f49d4c14b0fc58d0e35f1a0b"
 SOURCES = {
     "city_facade_tower": "city_facade_tower.jpg",
     "city_facade_mid": "city_facade_mid.jpg",
-    "city_facade_glass": "city_facade_glass.png",
     "city_shops": "city_shops.png",
     "city_facade_house": "city_facade_house.png",
 }
@@ -353,7 +354,6 @@ def find_house(rgb):
 FINDERS = {
     "city_facade_tower": find_tower,
     "city_facade_mid": find_mid,
-    "city_facade_glass": find_glass,
     "city_shops": find_shops,
     "city_facade_house": find_house,
 }

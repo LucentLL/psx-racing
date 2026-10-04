@@ -432,13 +432,17 @@ export function parseBld(buf) {
   const r = new Reader(buf);
   if (r.u32() !== 0x444C4250) throw new Error('charlotte_bld.bytes: bad magic');
   const version = r.i32();
-  if (version !== 1) throw new Error('charlotte_bld.bytes: version ' + version);
+  if (version !== 1 && version !== 2) throw new Error('charlotte_bld.bytes: version ' + version);
   const bbox = [r.f32(), r.f32(), r.f32(), r.f32()];
   const n = r.u32();
   const fp = new Array(n);
   let points = 0;
   for (let i = 0; i < n; i++) {
     const sb = r.u8(); const f = { style: sb & 0x7f, gable: (sb & 0x80) !== 0, h: r.f32() };
+    if (version >= 2) {
+      const lb = r.u8(); f.use = lb & 3; f.mat = (lb >> 2) & 7;
+      if (lb & 0x80) f.rgb = [r.u8(), r.u8(), r.u8()];
+    }
     const np = r.u8(); f.pts = new Array(np); points += np;
     for (let k = 0; k < np; k++) f.pts[k] = [r.f32(), r.f32()];
     fp[i] = f;

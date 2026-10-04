@@ -64,7 +64,8 @@
 //                           (the roads pass's B1: bridge outlines, culvert creeks)
 //   charlotte_dem.bytes     PDEM v3: the 30 m height grid in delta-coded
 //                           blocks (lib/pdem3.mjs), datum pinned at 97.0 m
-//   charlotte_bld.bytes     PBLD v1: footprints
+//   charlotte_bld.bytes     PBLD v2: footprints (v2: + the facade look byte
+//                           - use, material, colour - Uptown B1)
 //   charlotte_routes.json   the menu's copy of the routes
 //   tools/city/charlotte_*.png   debug plots (with --out only; gitignored)
 //
@@ -1334,6 +1335,35 @@ function rdp(pts, eps) {
 function polyArea(p) { let a = 0; for (let i = 0; i < p.length; i++) { const q = p[(i + 1) % p.length]; a += p[i][0] * q[1] - q[0] * p[i][1]; } return a / 2; }
 const HOUSE_TYPES = new Set(['house', 'detached', 'semidetached_house', 'terrace', 'residential', 'bungalow', 'cabin', 'garage', 'garages', 'hut']);
 const SKIP_TYPES = new Set(['roof', 'carport', 'shed', 'greenhouse', 'no', 'ruins', 'tent', 'container']);
+/// Uptown B1 (2026-10-04): what OSM says a facade is, for the tile builder's
+/// look and tint (CityMeshes.PickFacade). use: 0 unknown, 1 office or
+/// commercial, 2 residential or lodging, 3 civic. mat: 0 untagged, 1 glass,
+/// 2 brick, 3 stone or concrete, 4 metal, 5 wood. rgb only when
+/// building:colour parses (hex or a plain colour word).
+const LOOK_USE = { office: 1, commercial: 1, retail: 1, industrial: 1, warehouse: 1, bank: 1,
+  apartments: 2, residential: 2, dormitory: 2, hotel: 2, house: 2, terrace: 2, detached: 2,
+  church: 3, cathedral: 3, civic: 3, public: 3, government: 3, school: 3, university: 3,
+  college: 3, hospital: 3, museum: 3, stadium: 3, train_station: 3, library: 3 };
+const LOOK_MAT = { glass: 1, mirror: 1, brick: 2, stone: 3, concrete: 3, sandstone: 3, limestone: 3,
+  granite: 3, marble: 3, plaster: 3, cement_block: 3, metal: 4, steel: 4, aluminium: 4, aluminum: 4,
+  metal_plates: 4, wood: 5, timber_framing: 5 };
+const LOOK_WORD = { white: [240, 240, 236], grey: [128, 128, 128], gray: [128, 128, 128],
+  lightgrey: [200, 200, 200], lightgray: [200, 200, 200], darkgrey: [80, 80, 80], darkgray: [80, 80, 80],
+  black: [30, 30, 30], red: [160, 60, 50], brown: [120, 80, 55], beige: [215, 200, 170],
+  tan: [200, 170, 130], yellow: [220, 200, 110], blue: [80, 110, 160], green: [90, 130, 100],
+  silver: [190, 195, 200], cream: [235, 225, 195] };
+function facadeLook(t) {
+  const use = LOOK_USE[t['building:use']] ?? LOOK_USE[t.building] ?? 0;
+  const mat = LOOK_MAT[(t['building:material'] || '').toLowerCase()] ?? 0;
+  let rgb = null;
+  const c = (t['building:colour'] || t['building:color'] || '').trim().toLowerCase();
+  let m;
+  if ((m = /^#([0-9a-f]{6})$/.exec(c))) rgb = [0, 2, 4].map(k => parseInt(m[1].substr(k, 2), 16));
+  else if ((m = /^#([0-9a-f]{3})$/.exec(c))) rgb = [0, 1, 2].map(k => parseInt(m[1][k] + m[1][k], 16));
+  else if (LOOK_WORD[c]) rgb = LOOK_WORD[c];
+  return { use, mat, rgb };
+}
+
 function parseHeight(h) {
   if (!h) return NaN;
   const m = /([\d.]+)\s*(m|ft|')?/.exec(h);
@@ -1380,7 +1410,7 @@ const buildings = [];
     else if (t.building === 'retail' || t.building === 'commercial' || t.shop || t.amenity) style = 4;
     else style = area > 900 ? 1 : (t.building === 'yes' ? 4 : 2);
     const gable = house && area < 480 && pts.length <= 10;
-    buildings.push({ pts, h, style, gable, area });
+    buildings.push({ pts, h, style, gable, area, look: facadeLook(t) });
   };
   for (const el of rawBld) {
     if (el.type === 'way' && el.tags && el.geometry) addPoly(el.geometry, el.tags);
@@ -1733,12 +1763,16 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
 {
   const w = new Writer();
   w.u32(0x444C4250); // "PBLD"
-  w.u32(1);
+  w.u32(2);
   const bb = buildings.bbox || [0, 0, 0, 0];
   w.f32(bb[0]); w.f32(bb[1]); w.f32(bb[2]); w.f32(bb[3]);
   w.u32(buildings.length);
   for (const b of buildings) {
     w.u8(b.style | (b.gable ? 0x80 : 0)); w.f32(b.h);
+    // v2 (Uptown B1, 2026-10-04): what the facade is made of, as OSM says
+    const lk = b.look || { use: 0, mat: 0, rgb: null };
+    w.u8(lk.use | (lk.mat << 2) | (lk.rgb ? 0x80 : 0));
+    if (lk.rgb) { w.u8(lk.rgb[0]); w.u8(lk.rgb[1]); w.u8(lk.rgb[2]); }
     w.u8(b.pts.length);
     for (const p of b.pts) { w.f32(p[0]); w.f32(p[1]); }
   }

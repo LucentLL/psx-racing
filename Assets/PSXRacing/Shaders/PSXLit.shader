@@ -174,11 +174,20 @@ Shader "PSX/Lit"
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
-            #pragma shader_feature_local __ PSX_ATLAS_RECT PSX_FURNITURE
+            #pragma shader_feature_local __ PSX_ATLAS_RECT PSX_FURNITURE PSX_FACADE
             // the furniture draws from the prop atlas too
             #if defined(PSX_ATLAS_RECT) || defined(PSX_FURNITURE)
                 #define PSX_ATLAS 1
             #endif
+            // THE FACADE ATLAS (Uptown B1, 2026-10-04; tools/city/facade_atlas.py):
+            // one texture of FACADE_COLS looks side by side, each a full-height
+            // column that repeats in V by itself. The vertex colour carries the
+            // building: rgb its tint (x2, so 128 is the texel as painted), alpha
+            // its column (x32). U wraps inside the column; the texture and the
+            // night mask are read with the WRAPPED uv's own derivatives, so the
+            // mips (the atlas is the one city texture that keeps them) are
+            // chosen by distance and not by the wrap's jump.
+            #define FACADE_COLS 8.0
             #define WIRE_MIN_PX        1.0    // a wire is at least this many framebuffer pixels across
             #define WIRE_FADE_NEAR   100.0    // metres: past this a wire fades into the fog...
             #define WIRE_FADE_SPAN    80.0    //   ...wholly fogged this much further out
@@ -294,7 +303,8 @@ Shader "PSX/Lit"
             // mask says where the windows are; which of them are lit is a
             // hash, so a street is not a lit grid. Colours are linear.
             #define WIN_CELL_M         23.0   // world cell for the per-building variety, metres
-            #define WIN_LIT_FRAC       0.42   // share of office windows lit at full night (x _PSXNight)
+            #define WIN_LIT_FRAC       0.34   // share of office windows lit at full night (x _PSXNight):
+                                              //   dusk (0.75) lights ~25%, night ~34% (Uptown B1; was 0.42)
             #define WIN_WARM_SHARE     0.62   // share of the lit ones that are warm (tungsten) not cool (tube)
             #define WIN_WARM           float3(1.00, 0.74, 0.42)
             #define WIN_COOL           float3(0.70, 0.82, 1.00)
@@ -389,8 +399,8 @@ Shader "PSX/Lit"
                 float4 vertex : POSITION;
                 float3 normal : NORMAL;
                 float2 uv : TEXCOORD0;
-            #ifdef PSX_ATLAS
-                fixed4 color : COLOR;       // the cell: see _AtlasPx
+            #if defined(PSX_ATLAS) || defined(PSX_FACADE)
+                fixed4 color : COLOR;       // the cell: see _AtlasPx (PSX_FACADE: tint + column)
             #endif
             #ifdef PSX_FURNITURE
                 float2 wire : TEXCOORD1;    // (side -1/+1, half width m); (0, 0) off a wire
@@ -424,6 +434,10 @@ Shader "PSX/Lit"
                 // the cell as a UV rect: xy its first texel's centre, zw the
                 // span from there to its last texel's centre
                 float4 atlas : TEXCOORD7;
+            #endif
+            #ifdef PSX_FACADE
+                // rgb the building's tint (x2), w its atlas column
+                half4 facade : TEXCOORD7;
             #endif
             };
 
@@ -514,6 +528,9 @@ Shader "PSX/Lit"
                 float px = max(_AtlasPx, 1.0);
                 o.atlas = float4((cell.xy + 0.5) / px, cell.zz / px);
             #endif
+            #ifdef PSX_FACADE
+                o.facade = half4(v.color.rgb * 2.0, floor(v.color.a * (255.0 / 32.0) + 0.5));
+            #endif
                 return o;
             }
 
@@ -529,8 +546,21 @@ Shader "PSX/Lit"
                 // undefined on GLES/Vulkan and an error on some D3D compilers.
                 float3 gx = ddx(float3(i.wpos.xz, uv.x));
                 float3 gy = ddy(float3(i.wpos.xz, uv.x));
-
+                // the repeat the lit-window hash is anchored to: the TILED uv
+                float2 winUV = uv;
+            #ifdef PSX_FACADE
+                float2 fdx = ddx(uv) * float2(1.0 / FACADE_COLS, 1.0);
+                float2 fdy = ddy(uv) * float2(1.0 / FACADE_COLS, 1.0);
+                uv = float2((i.facade.w + frac(uv.x)) * (1.0 / FACADE_COLS), uv.y);
+                float4 texF = tex2Dgrad(_MainTex, uv, fdx, fdy);
+                texF.rgb = PSXTexDecode(texF.rgb, _MainTexRaw);
+                fixed4 tex = texF * _Color;
+                tex.rgb *= i.facade.rgb;
+                #define PSX_NIGHT_MASK(u) tex2Dgrad(_NightMask, u, fdx, fdy)
+            #else
                 fixed4 tex = PSXMainTex(_MainTex, uv) * _Color;
+                #define PSX_NIGHT_MASK(u) tex2Dlod(_NightMask, float4(u, 0.0, 0.0))
+            #endif
                 clip(tex.a - _Cutoff);
 
                 // The pixel's normal, guarded like the vertex's: two
@@ -671,13 +701,13 @@ Shader "PSX/Lit"
                     // A lit sign: the face in its own colours, as bright as
                     // the mask says (brightest at a billboard's foot, where
                     // its floodlights are), fogged like a window.
-                    float4 m = tex2Dlod(_NightMask, float4(uv, 0.0, 0.0));
+                    float4 m = PSX_NIGHT_MASK(uv);
                     float3 glow = tex.rgb * (m.r * m.a * SIGN_GAIN * _PSXNight);
                     col += glow * (1.0 - WIN_FOG_CUT * i.fog);
                 }
                 else if (_NightWin > 0.5 && _PSXNight > 0.01)
                 {
-                    float4 m = tex2Dlod(_NightMask, float4(uv, 0.0, 0.0));
+                    float4 m = PSX_NIGHT_MASK(uv);
                     // R = A = the window. Both, multiplied: right whether or
                     // not the importer kept the alpha channel (without it A
                     // reads 1 and R alone decides).
@@ -693,9 +723,9 @@ Shader "PSX/Lit"
                     // joins the hash, so the repeats of one wall differ.
                     float du2 = gx.z * gx.z + gy.z * gy.z;
                     float2 perU = (gx.xy * gx.z + gy.xy * gy.z) / max(du2, 1e-10);
-                    float2 anchor = i.wpos.xz - perU * frac(uv.x);
+                    float2 anchor = i.wpos.xz - perU * frac(winUV.x);
                     float2 cell = floor(anchor / WIN_CELL_M);
-                    float h = frac(m.g * 7.13 + PSXLitHash(cell + floor(uv) * float2(131.0, 37.0)));
+                    float h = frac(m.g * 7.13 + PSXLitHash(cell + floor(winUV) * float2(131.0, 37.0)));
                     float shop = step(0.5, m.b);
                     float on = max(shop, step(h, WIN_LIT_FRAC * _PSXNight));
                     float3 hue = frac(h * 3.7) < WIN_WARM_SHARE ? WIN_WARM : WIN_COOL;

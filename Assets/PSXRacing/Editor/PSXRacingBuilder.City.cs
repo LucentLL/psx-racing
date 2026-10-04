@@ -520,8 +520,7 @@ namespace PSXRacing.EditorTools
                 MakeMat("CityFacadeBrick", CityTexDir + "/city_facade_brick.jpg"), null);
             m[(int)CityMeshes.Slot.Shops] = WithNightWindows(
                 MakeMat("CityShops", CityTexDir + "/city_shops.png"), "city_shops_night.png");
-            m[(int)CityMeshes.Slot.FacadeGlass] = WithNightWindows(
-                MakeMat("CityFacadeGlass", CityTexDir + "/city_facade_glass.png"), "city_facade_glass_night.png");
+            m[(int)CityMeshes.Slot.FacadeGlass] = FacadeAtlasMat();
             m[(int)CityMeshes.Slot.FacadeHouse] = WithNightWindows(
                 MakeMat("CityFacadeHouse", CityTexDir + "/city_facade_house.png"), "city_facade_house_night.png");
             m[(int)CityMeshes.Slot.RoofTiles] = WithNightWindows(
@@ -583,13 +582,36 @@ namespace PSXRacing.EditorTools
         /// SOURCE size so the importer's 256 px clamp resamples the two
         /// through the same filter and their windows stay in register.
         /// </summary>
-        static Material WithNightWindows(Material mat, string maskFile)
+        /// <summary>
+        /// THE FACADE ATLAS (Uptown B1, 2026-10-04): every OSM building's
+        /// walls, one material. Three curtain walls (the skyscraper pack),
+        /// precast stone and brick (the Buildings pack) side by side in
+        /// <c>Art/City/Facade/city_facade_atlas.png</c> (made by
+        /// <c>py tools/city/facade_atlas.py</c>), with its night mask beside
+        /// it; PSX/Lit's PSX_FACADE variant takes the column and the
+        /// building's tint from the vertex colour (CityMeshes.PickFacade).
+        /// It replaces the code-drawn 64 px glass, whose fixed 8 m repeat
+        /// aliased into curved bands at a distance (the atlas keeps mips).
+        /// </summary>
+        static Material FacadeAtlasMat()
+        {
+            var mat = MakeMat("CityFacadeGlass", CityFacadeDir + "/city_facade_atlas.png");
+            if (mat == null) return null;
+            mat.DisableKeyword("PSX_ATLAS_RECT");
+            mat.DisableKeyword("PSX_FURNITURE");
+            mat.EnableKeyword("PSX_FACADE");
+            return WithNightWindows(mat, "city_facade_atlas_night.png", CityFacadeDir);
+        }
+
+        const string CityFacadeDir = CityTexDir + "/Facade";
+
+        static Material WithNightWindows(Material mat, string maskFile, string maskDir = null)
         {
             if (mat == null) return null;
             Texture2D mask = null;
             if (!string.IsNullOrEmpty(maskFile))
             {
-                string maskPath = CityNightDir + "/" + maskFile;
+                string maskPath = (maskDir ?? CityNightDir) + "/" + maskFile;
                 mask = AssetDatabase.LoadAssetAtPath<Texture2D>(maskPath);
                 if (mask == null)
                     Log("WARN: night window mask missing " + maskPath +
@@ -676,21 +698,8 @@ namespace PSXRacing.EditorTools
             // texture it replaced - a deck is road surface, and road colours
             // are not to move - and the water is PSX/Water).
 
-            // A curtain wall: 4x4 panes per 8 m repeat, dark mullions, panes
-            // that vary a little so a forty-storey slab is not one flat blue.
-            // Drawn, because the building pack has no glass in it.
-            WriteTexture(CityTexDir + "/city_facade_glass.png", 64, 64, (x, y) =>
-            {
-                int px = x % 16, py = y % 16;
-                if (px < 2 || py < 2) return new Color32(0x2c, 0x30, 0x36, 255);
-                int pane = (x / 16) * 7 + (y / 16) * 13;
-                float n = Noise(pane, 3 * pane + 1);
-                float shade = 0.82f + n * 0.36f + (py - 2) / 14f * 0.10f;
-                bool lit = Noise(pane + 5, pane * 3) > 0.9f;
-                return lit
-                    ? new Color32((byte)(200 * shade), (byte)(186 * shade), (byte)(140 * shade), 255)
-                    : new Color32((byte)(104 * shade), (byte)(134 * shade), (byte)(166 * shade), 255);
-            });
+            // The curtain wall that was drawn here (a 64 px, 8 m grid) is
+            // the facade atlas now: pack art, Art/City/Facade (Uptown B1).
 
             // Siding with one window per 6 m x 3.1 m repeat: the whole
             // suburb wears this, so it is deliberately plain.

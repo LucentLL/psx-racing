@@ -11,7 +11,8 @@ Material:
   m_Shader: {fileID: 4800000, guid: 8e5fd0c4978b3af46a27d1b2ff8b281b, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
-  m_ValidKeywords: []
+  m_ValidKeywords:
+  - PSX_FACADE
   m_InvalidKeywords: []
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 0
@@ -24,14 +25,26 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _MainTex:
-        m_Texture: {fileID: 2800000, guid: d87c7b02b0d2e8c4784dd045e076db85, type: 3}
+        m_Texture: {fileID: 2800000, guid: 482d2628cfb5463faa217ef4d42ca0f9, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _NightMask:
+        m_Texture: {fileID: 2800000, guid: bad0ce1c829248618042ac4d16e15c30, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
     - _Affine: 0
+    - _AtlasPx: 256
+    - _Cull: 2
     - _Cutoff: 0
     - _Emission: 0
+    - _MainTexRaw: 0
+    - _NightFace: 0
+    - _NightWin: 1
+    - _Shore: 0
+    - _ShoreY: 0
+    - _Wet: 0
     m_Colors:
     - _Color: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []
