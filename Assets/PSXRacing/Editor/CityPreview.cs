@@ -661,6 +661,150 @@ namespace PSXRacing.EditorTools
             Debug.Log($"[CityPreview] staircases: {spots.Count} spots shot to {dir}");
         }
 
+        // =====================================================================
+        //  The uptown reference views (2026-10-04, uptown visual pass A)
+        // =====================================================================
+
+        /// <summary>One aerial camera: an eye over the ground (metres above
+        /// the DEM there), an aim point (metres above the DEM there) and a
+        /// vertical field of view. <see cref="nearInterchange"/> stands the
+        /// eye at that offset (east, north) from the I-77 / I-277 interchange
+        /// nearest the eye's lat/lon, so the ramps are where the map has them.</summary>
+        struct SkyView
+        {
+            public string name, what;
+            public double eyeLat, eyeLon, aimLat, aimLon;
+            public float eyeAgl, aimAgl, fov;
+            public bool nearInterchange; public Vector2 offset;
+        }
+
+        /// <summary>
+        /// THE UPTOWN SKYLINE, AS THE OWNER PHOTOGRAPHED IT: five aerial
+        /// cameras matched to his five reference photographs by their
+        /// geography (where the photographer stood, what is in the middle of
+        /// the frame, the lens), shot through the GAME's camera in the
+        /// Charlotte scene - its sky, its hour, its grade and dither - at a
+        /// clear noon and at dusk. The photographs are only LOOKED at; nothing
+        /// here came from them but a place, a direction and a lens. Neutral
+        /// names only (owner rule 2026-10-04: no brands anywhere in the game).
+        ///
+        /// The game streams two tiles round the player and fades at that ring's
+        /// edge, so from these eyes the real game would show sky; the shots
+        /// build the tiles along the line of sight and push the fade out to
+        /// PSX_UPTOWN_FOGM metres (default 4000; 0 keeps the game's own) so the
+        /// buildings can be judged. PSX_UPTOWN_REF=a,b shoots a subset.
+        /// Headless: -executeMethod PSXRacing.EditorTools.CityPreview.RunUptownRef
+        /// (after a scene build: it opens Charlotte.unity). PNGs land in
+        /// Screenshots\uptownref_&lt;view&gt;_&lt;hour&gt;.png, cameras in
+        /// Screenshots\City\uptown_ref_spots.txt.
+        /// </summary>
+        static readonly SkyView[] UptownRefViews =
+        {
+            new SkyView { name = "sw_ramps", nearInterchange = true, offset = new Vector2(-200f, -200f),
+                eyeLat = 35.2195, eyeLon = -80.8585, eyeAgl = 90f, aimLat = 35.22741, aimLon = -80.84217, aimAgl = 120f, fov = 35f,
+                what = "ref 1: over the I-77 / I-277 interchange south-west of uptown, ramps in front, looking north-east at the towers" },
+            new SkyView { name = "frame_over_stadium",
+                eyeLat = 35.22620, eyeLon = -80.86000, eyeAgl = 60f, aimLat = 35.22395, aimLon = -80.84859, aimAgl = 215f, fov = 38f,
+                what = "ref 2: west of the stadium across I-77, looking east-south-east up at the open-frame tower top over the stadium" },
+            new SkyView { name = "spire_tryon",
+                eyeLat = 35.23524, eyeLon = -80.84805, eyeAgl = 170f, aimLat = 35.22741, aimLon = -80.84217, aimAgl = 150f, fov = 50f,
+                what = "ref 3: high over the north-west side of uptown, the church spire in front, the spired crown tower centre, the pointed tower right" },
+            new SkyView { name = "crowns",
+                eyeLat = 35.23253, eyeLon = -80.83540, eyeAgl = 200f, aimLat = 35.22758, aimLon = -80.84147, aimAgl = 225f, fov = 30f,
+                what = "ref 4: north-east of the core at crown height, looking south-west: the spired crown and the silver crown, the open frame behind" },
+            new SkyView { name = "sw_stadium",
+                eyeLat = 35.22032, eyeLon = -80.85904, eyeAgl = 100f, aimLat = 35.22574, aimLon = -80.84805, aimAgl = 110f, fov = 45f,
+                what = "ref 5: south-west of the stadium looking north-east over it: the brick headquarters, the open frame, the pyramid top, I-277 on the right" },
+        };
+
+        public static void RunUptownRef()
+        {
+            var def = System.Array.Find(TrackCatalog.All, d => d.id == "Charlotte");
+            if (def == null) { Debug.LogError("[UptownRef] no Charlotte venue"); return; }
+            if (!PSXScreenshotTool.Open(def, out var cam, out var player)) { Debug.LogError("[UptownRef] Charlotte.unity did not open (scene build first)"); return; }
+            var map = CityMap.Get();
+            if (map == null) { Debug.LogError("[UptownRef] no city data"); return; }
+            PSXRacingBuilder.EnsureCityTextures();
+
+            // views of the city, not of the car: no HUD, no player
+            foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None)) c.enabled = false;
+            if (player != null) player.SetActive(false);
+
+            string onlyEnv = System.Environment.GetEnvironmentVariable("PSX_UPTOWN_REF");
+            var only = string.IsNullOrEmpty(onlyEnv) ? null : new HashSet<string>(onlyEnv.Split(','));
+            float fogM = 4000f;
+            if (float.TryParse(System.Environment.GetEnvironmentVariable("PSX_UPTOWN_FOGM"), System.Globalization.NumberStyles.Float,
+                               System.Globalization.CultureInfo.InvariantCulture, out float fe)) fogM = fe;
+
+            var sun = GameObject.Find("Sun")?.GetComponent<Light>();
+            var globals = Object.FindFirstObjectByType<PSXGlobals>();
+            if (globals != null && fogM > 0f) globals.fogScale = fogM / Mathf.Max(1f, TimeOfDay.All[TimeOfDay.Noon].fogFar);
+            int oldWeather = RaceHandoff.WeatherOverride;
+            RaceHandoff.WeatherOverride = 0;   // clear
+
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            var log = new System.Text.StringBuilder("shot\teye_x\teye_y\teye_z\taim_x\taim_y\taim_z\tfov\ttiles\twhat\n");
+            var go = new GameObject("~uptownRefWorld");
+            var world = go.AddComponent<CityWorld>();
+            int shots = 0;
+            try
+            {
+                foreach (var v in UptownRefViews)
+                {
+                    if (only != null && !only.Contains(v.name)) continue;
+                    Vector2 e2 = CityRefSpots.LL(v.eyeLat, v.eyeLon), a2 = CityRefSpots.LL(v.aimLat, v.aimLon);
+                    if (v.nearInterchange)
+                    {
+                        float best = float.MaxValue; Vector2 at = e2;
+                        foreach (var ic in CityAudit.Interchanges(map, "I-277", "I-77"))
+                        {
+                            float d = Vector2.Distance(ic.at, e2);
+                            if (d < best) { best = d; at = ic.at; }
+                        }
+                        e2 = at + v.offset;
+                    }
+                    var eye = new Vector3(e2.x, CityElevation.BaseY(e2.x, e2.y) + v.eyeAgl, e2.y);
+                    var aim = new Vector3(a2.x, CityElevation.BaseY(a2.x, a2.y) + v.aimAgl, a2.y);
+
+                    // the tiles: along the sight line from the eye to 700 m past
+                    // the aim (two tiles either side), and uptown's core
+                    Vector2 sight = (a2 - e2).normalized;
+                    float len = Vector2.Distance(a2, e2) + 700f;
+                    for (float s = 0f; s <= len; s += 220f)
+                    {
+                        var p = e2 + sight * s;
+                        world.EnsureRing(new Vector3(p.x, 0f, p.y), 2);
+                    }
+                    world.EnsureRing(new Vector3(map.uptown.x, 0f, map.uptown.y), 3);
+
+                    foreach (int hour in new[] { TimeOfDay.Noon, TimeOfDay.Dusk })
+                    {
+                        TimeOfDay.Apply(hour, sun);
+                        NightGlow.PreviewAll(hour >= TimeOfDay.Dusk);
+                        if (globals != null) globals.Apply();
+                        cam.fieldOfView = v.fov;
+                        cam.farClipPlane = Mathf.Max(cam.farClipPlane, (fogM > 0f ? fogM : 3000f) + 500f);
+                        PSXScreenshotTool.ShotAs(cam, $"uptownref_{v.name}_{TimeOfDay.All[hour].name.ToLowerInvariant()}",
+                                                 eye, Quaternion.LookRotation(aim - eye));
+                        shots++;
+                    }
+                    log.Append(string.Format(inv, "{0}\t{1:0.0}\t{2:0.0}\t{3:0.0}\t{4:0.0}\t{5:0.0}\t{6:0.0}\t{7:0}\t{8}\t{9} | eye {10}\n",
+                        v.name, eye.x, eye.y, eye.z, aim.x, aim.y, aim.z, v.fov, go.transform.childCount, v.what, CityAudit.LatLon(e2.x, e2.y)));
+                    world.DropAll();
+                }
+            }
+            finally
+            {
+                RaceHandoff.WeatherOverride = oldWeather;
+                if (world != null) world.DropAll();
+                Object.DestroyImmediate(go);
+            }
+            string dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "City");
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, "uptown_ref_spots.txt"), log.ToString());
+            Debug.Log($"[UptownRef] {shots} shots (fog edge {(fogM > 0f ? fogM.ToString("0") + " m" : "the game's")}) to Screenshots\\uptownref_*.png");
+        }
+
         static List<GameObject> BuildRing(CityMap map, CityMeshes.Trims trims,
             Dictionary<long, List<CityBuildings.B>> buildings, GameObject parent, Vector2 at, int ring,
             out string stats)

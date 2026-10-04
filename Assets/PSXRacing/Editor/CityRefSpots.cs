@@ -115,7 +115,7 @@ namespace PSXRacing.EditorTools
         const float EyeM = 1.2f, FovDeg = 58f, FarM = 500f;
         const int W = 640, H = 360;
 
-        static Vector2 LL(double lat, double lon)
+        internal static Vector2 LL(double lat, double lon)
         {
             const double Lat0 = 35.18456015184093, Lon0 = -80.81770185962013;
             double mLon = 111320.0 * System.Math.Cos(Lat0 * System.Math.PI / 180.0);
