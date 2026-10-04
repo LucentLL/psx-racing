@@ -2050,6 +2050,13 @@ namespace PSXRacing
 
             var line = hud ? new Color32(255, 255, 255, 255) : new Color32(255, 204, 64, 255);
             var halo = hud ? new Color32(0, 0, 0, 170) : new Color32(92, 70, 30, 255);
+            // A CITY RACE's HUD map draws the streets round the route first,
+            // in dark grey, and the route over them in white with its halo
+            // (the owner, 2026-10-04: "show the local streets in darker gray.
+            // Race Track Map is in brighter white to stand out. This can help
+            // with navigating interchanges and side streets"). Drawn once into
+            // this texture, like the route: no per-frame cost.
+            bool streets = hud && def.IsCityRace && !HudStreetsOff && DrawCityStreets(px, size, frame);
             // A route with ENDS must not close back onto itself: on a strip the
             // phantom closing segment hides inside the strip, on a 7 km stage
             // it is a chord drawn straight across the map.
@@ -2063,9 +2070,9 @@ namespace PSXRacing
                 // so consecutive points land on the same pixel or its neighbour:
                 // a dot per waypoint plus one at each midpoint draws a
                 // continuous ribbon without needing a line rasteriser.
-                Plot(px, size, a.x * scale + ox, a.z * scale + oz, line, halo);
+                Plot(px, size, a.x * scale + ox, a.z * scale + oz, line, halo, streets);
                 Plot(px, size, (a.x + c.x) * 0.5f * scale + ox,
-                               (a.z + c.z) * 0.5f * scale + oz, line, halo);
+                               (a.z + c.z) * 0.5f * scale + oz, line, halo, streets);
             }
             // WHICH END IS THE START depends on which way round this venue is
             // driven, and the points below are always the FORWARD bake.
@@ -2117,7 +2124,10 @@ namespace PSXRacing
             return tex;
         }
 
-        static void Plot(Color32[] px, int size, float fx, float fy, Color32 c, Color32 halo)
+        /// <param name="overStreets">The halo also covers the city streets
+        /// under it (never the line itself), so the route keeps its dark edge
+        /// where it runs along or across a grey street.</param>
+        static void Plot(Color32[] px, int size, float fx, float fy, Color32 c, Color32 halo, bool overStreets = false)
         {
             int x = Mathf.RoundToInt(fx), y = Mathf.RoundToInt(fy);
             for (int dy = -1; dy <= 1; dy++)
@@ -2127,8 +2137,73 @@ namespace PSXRacing
                     if (sx < 0 || sy < 0 || sx >= size || sy >= size) continue;
                     int idx = sy * size + sx;
                     if (dx == 0 && dy == 0) px[idx] = c;
-                    else if (px[idx].a == 0) px[idx] = halo;
+                    else if (px[idx].a == 0 || (overStreets && px[idx].a == 255 && !SameColour(px[idx], c))) px[idx] = halo;
                 }
+        }
+
+        /// <summary>Tools only (RaceMapShots' BEFORE frame): the HUD map of
+        /// a city race without its streets, as it was drawn before them.</summary>
+        public static bool HudStreetsOff;
+
+        /// <summary>Tools only: forget every cached map picture.</summary>
+        public static void ForgetThumbnails() => thumbs.Clear();
+
+        static bool SameColour(Color32 a, Color32 b) => a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+
+        // The street greys of a city race's HUD map, darkest for the local
+        // streets and lightest for the freeways and ramps (so an interchange
+        // reads), all well under the route's white.
+        static readonly Color32 StreetLocal = new Color32(62, 64, 70, 255);
+        static readonly Color32 StreetMinor = new Color32(80, 82, 88, 255);
+        static readonly Color32 StreetMajor = new Color32(98, 100, 106, 255);
+        static readonly Color32 StreetFwy = new Color32(120, 122, 128, 255);
+
+        /// <summary>The Charlotte street network inside a HUD map's square,
+        /// in the map's own projection, least important first (a freeway over
+        /// the service road beside it). False with no city map.</summary>
+        static bool DrawCityStreets(Color32[] px, int size, MapFrame f)
+        {
+            var world = City.CityWorld.Active;
+            var map = world != null && world.Map != null ? world.Map : City.CityMap.Get();
+            if (map == null || f.scale <= 0f) return false;
+            var lo = new Vector2(-f.ox / f.scale, -f.oz / f.scale);
+            var hi = new Vector2((size - f.ox) / f.scale, (size - f.oz) / f.scale);
+            var segs = new HashSet<int>();
+            map.EdgeSegsInRect(lo, hi, segs);
+            for (int pass = 0; pass < 4; pass++)
+                foreach (int packed in segs)
+                {
+                    int ei = packed >> 12, si = packed & 0xFFF;
+                    var e = map.edges[ei];
+                    int rank = e.link || e.cls >= 5 ? 3 : e.cls >= 3 ? 2 : e.cls >= 1 ? 1 : 0;
+                    if (rank != pass || si + 1 >= e.pts.Length) continue;
+                    var col = rank == 3 ? StreetFwy : rank == 2 ? StreetMajor : rank == 1 ? StreetMinor : StreetLocal;
+                    Vector2 a = e.pts[si], b = e.pts[si + 1];
+                    RasterLine(px, size, a.x * f.scale + f.ox, a.y * f.scale + f.oz,
+                               b.x * f.scale + f.ox, b.y * f.scale + f.oz, col, rank == 3 && !e.link);
+                }
+            return true;
+        }
+
+        /// <summary>A one-pixel line (two with <paramref name="wide"/>, the
+        /// freeways), clipped to the texture.</summary>
+        static void RasterLine(Color32[] px, int size, float x0, float y0, float x1, float y1, Color32 c, bool wide)
+        {
+            float dx = x1 - x0, dy = y1 - y0;
+            int n = Mathf.CeilToInt(Mathf.Max(Mathf.Abs(dx), Mathf.Abs(dy)));
+            if (n > 4 * size) return;   // a segment far off the square
+            bool steep = Mathf.Abs(dy) > Mathf.Abs(dx);
+            for (int i = 0; i <= n; i++)
+            {
+                float t = n > 0 ? (float)i / n : 0f;
+                int x = Mathf.RoundToInt(x0 + dx * t), y = Mathf.RoundToInt(y0 + dy * t);
+                for (int k = 0; k <= (wide ? 1 : 0); k++)
+                {
+                    int sx = x + (steep ? k : 0), sy = y + (steep ? 0 : k);
+                    if (sx < 0 || sy < 0 || sx >= size || sy >= size) continue;
+                    px[sy * size + sx] = c;
+                }
+            }
         }
     }
 }

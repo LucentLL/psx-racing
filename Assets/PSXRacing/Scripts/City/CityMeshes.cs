@@ -4294,6 +4294,44 @@ namespace PSXRacing.City
             return e.ElevatedAt(e.a == node ? 0f : e.length) || o.ElevatedAt(o.a == node ? 0f : o.length);
         }
 
+        /// <summary>How far apart this road's drawn edge and the through
+        /// road's may stand at a node for a barrier to carry on uncapped.</summary>
+        const float EdgeContinueM = 0.75f;
+
+        /// <summary>
+        /// INVISIBLE COLLIDERS (2026-10-04, the owner's Uptown Loop at 1:18 on
+        /// I-277: "I still hit an invisible wall right here"). A rail or
+        /// median barrier carries on across an edge end uncapped only where
+        /// the through road draws its edge on the same side within
+        /// <see cref="EdgeContinueM"/> of where this one's ends. At I-277's
+        /// left exit by East 4th Street (node 2264) the deck's left edge stood
+        /// 4.9 m left of its line and the mainline beyond drew its own 1.5 m
+        /// RIGHT of its line: the mainline's rail started there with no end
+        /// face, inside the deck's left lane - nothing drawn faced the car,
+        /// the audits' rays went into the open end, and PhysX (which collides
+        /// a mesh from both sides) stopped the car. Not where the end is in a
+        /// junction fan (FanCornerRailed decides those) or not at the node.
+        /// </summary>
+        static bool EdgeLinesUp(CityMap map, Trims trims, CityMap.Edge e, int node, int side, Section sec, Vector3 origin)
+        {
+            if (trims.patch[node]) return true;
+            float sNode = e.a == node ? 0f : e.length;
+            if (Mathf.Abs(sec.s - sNode) > 0.5f) return true;
+            var o = ThroughPartner(map, e, node);
+            if (o == null) return true;
+            // the same side of the travel through the node: o leaves the node
+            // where e arrives at it (or the other way round); head to head, the other side
+            bool sameWay = (e.b == node) == (o.a == node);
+            int oSide = sameWay ? side : -side;
+            float so = o.a == node ? 0f : o.length;
+            LaneExtents(map, trims, o, so, out float hl, out float hr);
+            var t = o.TangentAt(so);
+            var r = new Vector2(-t.y, t.x);
+            var q = o.PointAt(so) + r * (oSide < 0 ? -hl : hr);
+            var pe = sec.Edge(side);
+            return Vector2.Distance(new Vector2(pe.x + origin.x, pe.z + origin.z), q) <= EdgeContinueM;
+        }
+
         static void DecideSideFlags(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, Vector2 min, Vector2 max)
         {
             foreach (var _ in DecideSideFlagsSteps(map, trims, tm, e, min, max)) { }
@@ -4711,8 +4749,15 @@ namespace PSXRacing.City
                     int kindL = Kind(k), kindR = Kind(k + 1);
                     // an edge end: a rail may carry on into the next road, and
                     // a median barrier always does (it never capped at a node)
-                    if (k == 0 && (kindR == KindMedian || kindR == KindRail && RailContinuesPast(map, trims, e, e.a, side))) kindL = kindR;
-                    if (k == n - 1 && (kindL == KindMedian || kindL == KindRail && RailContinuesPast(map, trims, e, e.b, side))) kindR = kindL;
+                    // ...but only where the road beyond draws its edge on this
+                    // side where this one ends (EdgeLinesUp): a run whose
+                    // "continuation" starts metres across the lanes was left
+                    // OPEN - no end face, so nothing drawn faces the car while
+                    // PhysX stops it dead (the owner's I-277 invisible wall)
+                    if (k == 0 && (kindR == KindMedian || kindR == KindRail && RailContinuesPast(map, trims, e, e.a, side))
+                        && EdgeLinesUp(map, trims, e, e.a, side, sections[0], tm.origin)) kindL = kindR;
+                    if (k == n - 1 && (kindL == KindMedian || kindL == KindRail && RailContinuesPast(map, trims, e, e.b, side))
+                        && EdgeLinesUp(map, trims, e, e.b, side, sections[n - 1], tm.origin)) kindR = kindL;
                     // the window's own ends are not run ends: nothing beyond is decided
                     if ((k >= 1 && !Decided(k)) || (k + 1 < n && !Decided(k + 1))) continue;
                     if (kindL == kindR) continue;
@@ -6825,15 +6870,23 @@ namespace PSXRacing.City
                     botA = ta - WBeamDepthM, topA = ta, botB = tb - WBeamDepthM, topB = tb,
                     endA = uPrev <= 0.01f, endB = uNext >= WBeamLenM - 0.01f,
                 });
-                // the collider: face, top, back, and the box's two ends
+                // the collider: the drawn beam itself (CityPoles.EmitWBeam) -
+                // its face, back, top, underside and two ends - and nothing
+                // the eye cannot see (INVISIBLE COLLIDERS, 2026-10-04: it was
+                // a 0.45 m box from half a metre under the verge to the top,
+                // a wall under the beam and behind it with no drawn face)
                 var bk = guardBucket;
                 var na3 = new Vector3(na.x, 0f, na.y); var nb3 = new Vector3(nb.x, 0f, nb.y);
-                Vector3 baA = fa + na3 * WBeamBoxM, baB = fb + nb3 * WBeamBoxM;
-                float lowA = ya - 0.5f, lowB = yb - 0.5f;
-                bk.WallSloped(fa, fb, lowA, ta, lowB, tb, -(na + nb), 0f, 1f, 0f, 1f);
+                // the face on the W's middle (its ridges 2.5 cm in front, its valleys behind)
+                Vector3 fcA = fa + na3 * WBeamFaceM, fcB = fb + nb3 * WBeamFaceM;
+                Vector3 baA = fa + na3 * WBeamBackM, baB = fb + nb3 * WBeamBackM;
+                float lowA = ta - WBeamDepthM, lowB = tb - WBeamDepthM;
+                bk.WallSloped(fcA, fcB, lowA, ta, lowB, tb, -(na + nb), 0f, 1f, 0f, 1f);
                 bk.WallSloped(baA, baB, lowA, ta, lowB, tb, na + nb, 0f, 1f, 0f, 1f);
-                bk.Up(new Vector3(fa.x, ta, fa.z), new Vector3(fb.x, tb, fb.z), new Vector3(baB.x, tb, baB.z), new Vector3(baA.x, ta, baA.z),
+                bk.Up(new Vector3(fcA.x, ta, fcA.z), new Vector3(fcB.x, tb, fcB.z), new Vector3(baB.x, tb, baB.z), new Vector3(baA.x, ta, baA.z),
                       Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+                bk.Down(new Vector3(fcA.x, lowA, fcA.z), new Vector3(fcB.x, lowB, fcB.z), new Vector3(baB.x, lowB, baB.z), new Vector3(baA.x, lowA, baA.z),
+                        Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
                 var along = new Vector3(fb.x - fa.x, 0f, fb.z - fa.z);
                 bk.Face(new Vector3(fa.x, lowA, fa.z), new Vector3(fa.x, ta, fa.z), new Vector3(baA.x, ta, baA.z), new Vector3(baA.x, lowA, baA.z),
                         -along, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
@@ -6850,9 +6903,12 @@ namespace PSXRacing.City
                 tm.wbeamPosts.Add(new WBeamPost { at = fp, outward = np, top = yp + WBeamTop(u) - 0.03f });
             }
         }
-        /// <summary>The W-beam collider's depth from the beam's face: the
-        /// beam, its blockout and its post.</summary>
-        const float WBeamBoxM = 0.45f;
+        /// <summary>The drawn W-beam's back, metres behind its face
+        /// (CityPoles.WBeamBackO): the collider's depth.</summary>
+        const float WBeamBackM = 0.08f;
+        /// <summary>The collider's face, metres behind the drawn W's front
+        /// ridges (CityPoles.WBeamProfO runs 0 to 5 cm): its middle.</summary>
+        const float WBeamFaceM = 0.025f;
         /// <summary>The W-beam's corridor, metres out from the drawn edge, that
         /// must be clear of every other road's pavement (its flare, posts and
         /// box reach 1.4 m), and the pad kept from that pavement: past the

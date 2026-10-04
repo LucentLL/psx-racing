@@ -526,6 +526,14 @@ namespace PSXRacing
             HudOnTop.Apply(mapRoot);
         }
 
+        /// <summary>Tools only: build the map again from scratch (a picture
+        /// the tool has just changed) and put the cars on it.</summary>
+        public void RebuildPreviewMap()
+        {
+            mapBuiltPx = -1;
+            PreviewMap();
+        }
+
         void UpdateMap(RaceManager rm)
         {
             EnsureMap();

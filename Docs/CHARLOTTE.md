@@ -6309,6 +6309,131 @@ in `CityMeshes.cs` / `CityBuildings.PropSeat`, and the census in
   - Fetching the residential streets beyond the core (Q6), which would give
     the fill houses streets.
 
+## Invisible colliders (2026-10-04): the I-277 wall at 1:18, closed solids, an audit
+
+The owner, Uptown Loop at night, race clock 1:18: "I still hit an invisible
+wall right here on 277". He was on a deck with a parapet on his left and a
+lower deck past it, and the car stopped on what looked like clear pavement.
+
+**What the wall was.** It is 2,765 m into the loop (route waypoint 692), at
+I-277's left exit by East 4th Street. The 15 m deck e14177 ends at node 3557.
+A 1 m connector, e2344, then reaches node 2264, where mainline e1393 starts.
+e1393 is squeezed against the deck it carries on from. The squeeze treats
+e14177 as a parallel neighbour, so e1393's drawn ribbon starts 6.4 m further
+right (left edge -1.5 m, against the deck's +4.9 m). The twin carriageways'
+union median strip (A2, a Jersey, `open0` false) started at that edge.
+
+`Continued` said a run on e2344 carried the median on, but the two medians
+are 6.4 m apart. So the Jersey's first span had no end face. Two things
+followed:
+- The eye saw nothing. The PSX shaders cull back faces, so looking into the
+  hollow end showed nothing drawn.
+- The audits saw nothing either. Ray queries skip back faces, so BLUNT and
+  RAIL ENDS rays went straight into the open end.
+
+PhysX collides a triangle mesh from both sides, so the car stopped dead.
+The DRIVE audit also skips edges shorter than 1 m, which is where it stood.
+
+**The rules (general).**
+- `EdgeLinesUp` (CityMeshes.cs). A rail or median barrier carries on uncapped
+  across an edge end only where the through road draws its edge on the same
+  side within 0.75 m (`EdgeContinueM`) of where this one's ends. Otherwise the
+  end is a run end: capped, with the run-end treatment.
+- `UnionEndAdrift` (CityMeshes.Unions.cs) applies the same test to a union
+  run's end at a node. An end that meets nothing is CLOSED: the V on a deck,
+  the turned-down Jersey on the ground. The V's legs now have an end face at
+  the closed end.
+- A collider is its drawn geometry:
+  - The W-beam collider is the drawn beam: face (on the W's middle), back
+    8 cm behind, top, underside and ends. It was a 0.45 m box from half a
+    metre under the verge.
+  - A lamp post's box is the drawn post: 0.26 m cobra-head, 0.14 m acorn.
+    It was 0.3 m for both, 8 cm of solid round every uptown acorn post.
+
+**The audit: INVISIBLE COLLIDERS** (`Editor/CityAudit.Invisible.cs`, in
+`tools\city-cycle.ps1 -DriveOnly` after the drive audit; menu "Audit City
+Invisible Colliders" writes `city_invisible.txt`; PSX_DRIVE_INVIS=0 skips it,
+PSX_INVIS_BOX=0 skips the box).
+
+It stands up the game's own tiles through CityWorld (EnsureTile and
+PlantTrees: poles, signs, signals and the trunk table), then checks two
+things.
+- **LANES.** Along every lane of the three race routes (1 m) and of every
+  road in the OwnerBox (both ways, 2 m), with back faces ON:
+  - a car-sized box (1.7 x 1.1 x 4 m, floor 0.2 m up, pitched with the road)
+    on each lane centre, kept 0.6 m inside the drawn edge (the rail line) and
+    swept 1.05 m on;
+  - rays at 0.3, 0.6, 1.0 and 1.4 m;
+  - a ceiling ray to 1.6 m;
+  - the trunk table.
+
+  A hit with no drawn face turned toward the car within 5 cm is INVISIBLE (a
+  FAIL). For a box that overlaps, rays from 18 points inside it look for a
+  front face that is drawn.
+- **SOLIDS.** For every Solid-layer collider that is not its own drawn mesh,
+  each triangle centre (or box side centre) needs a drawn face within 5 cm,
+  or must sit inside drawn geometry.
+
+**BEFORE -> AFTER**
+
+| | BEFORE | AFTER |
+|---|---|---|
+| INVISIBLE in the three routes' lanes | 2 (uptown 2,765 m, e14177/e2344, the hollow Jersey end) | **0** |
+| SOLIDS on the routes' tiles (uptown, live colliders) | 10,998 samples (460 lamp posts, 38 W-beams, 1 prop) | 21 (prop prefab boxes only) |
+| INVISIBLE in the OwnerBox lanes (reported) | - | 51 (see below) |
+| DRIVE AUDIT, routes: walls / steps / holes / off / grass / BLUNT | 0 | 0 |
+| RAIL ENDS on approaches: routes / box | 0 / 9 (item 2) | 0 / 8 |
+| short barrier census | 0 | 0 |
+| CITY AUDIT (one AuditOnly, OwnerBox) | 18 (item 6) | 18, the same set and values |
+
+**Not done (HARD STOP, said honestly).**
+- **The race line still meets the median there.** The watched race check
+  (`race-play-check -Venue UptownLoop -Hour night -Finish`) came back RACE
+  CHECK OK, but the autopilot player hit Barriers HARD at waypoint 692
+  (1:19.8, 35.8 m/s). The Skyline was pinned at waypoint 698. That spot is
+  now a drawn V leg with an end face, not a hollow end, but the route's own
+  line (e1393's OSM line) still runs 1.5 m outside e1393's squeezed ribbon
+  onto the median strip.
+- The fix is a squeeze rule, not a collider: never squeeze a road against the
+  carriageway it carries on from (here through a connector under 3 m). It
+  touches lane extents everywhere such connectors are, so it needs its own
+  audit and race check.
+- OwnerBox lanes (reported):
+  - the tower_01_4 prop's baked Solid box stands over South Boulevard and
+    link e7753 (46 hits);
+  - three fan-chord rails are 0.95 m over a lane with no underside drawn
+    (N Caldwell / E 12th / link e5331);
+  - the ground stands 0.21 m over an East Trade Street lane.
+- The prefab Solid boxes (towers, trailers, house_simple) are larger than
+  their models; that needs a prop rebake.
+
+## Race maps show the streets (2026-10-04)
+
+The owner: "on Race Maps, I'd like them to show the local streets in darker
+gray. Race Track Map is in brighter white to stand out. This can help with
+navigating interchanges and side streets."
+
+**What changed.** `TrackCatalog.Thumbnail(def, size, hud: true)` draws the
+Charlotte street network for a city race (`def.IsCityRace`) before the
+route (`DrawCityStreets`):
+- It uses every edge inside the map's square, in the map's own `MapFrame`
+  projection, least important first.
+- Local streets are the darkest grey (62), then secondary/tertiary (80), then
+  primary/trunk (98). Freeways and ramps are the lightest grey (120), 2 px
+  wide for the freeways, so an interchange reads.
+- The route is drawn on top in white. Its dark halo now also covers the grey
+  streets under it, never the line.
+- The street drawing is rasterised once into the map texture and cached per
+  size. Nothing new is drawn per frame.
+- The main game's venues are unchanged (no street network).
+
+**Tools only:**
+- `TrackCatalog.HudStreetsOff`, `TrackCatalog.ForgetThumbnails`,
+  `RaceHUD.RebuildPreviewMap`.
+- `Editor/RaceMapShots.cs` (menu "Race Map Shots (Uptown)") shoots the
+  UptownLoop chase view twice, BEFORE (no streets) and AFTER. It writes
+  `Screenshots\racemap_uptown_{before,after}.png`.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

@@ -888,9 +888,14 @@ namespace PSXRacing.City
                 foreach (var l in tm.lamps)
                 {
                     if (l.breakaway) continue;
+                    // the drawn post's own width (CityPoles.EmitLamp): an
+                    // acorn's 0.14 m post, a cobra-head's 0.26 m (turned to its
+                    // road; square to the world it stays inside the drawn post
+                    // within 4 cm) - never a box wider than what is drawn
                     var bc = c.AddComponent<BoxCollider>();
+                    float pw = l.kind == CityMeshes.LampAcorn ? AcornPostColliderM : LampColliderM;
                     bc.center = l.foot + Vector3.up * (l.height * 0.5f);
-                    bc.size = new Vector3(LampColliderM, l.height, LampColliderM);
+                    bc.size = new Vector3(pw, l.height, pw);
                 }
             }
             return meshes.ToArray();
@@ -1034,9 +1039,11 @@ namespace PSXRacing.City
         public const float AcornLightGain = 0.25f;
         static float LampGain(CityMeshes.Lamp l) => l.kind == CityMeshes.LampAcorn ? AcornLightGain : 1f;
 
-        /// <summary>A lamp post collider's square side, a hair over the drawn
-        /// post's 0.26 m so a wheel never clips into the pole it touches.</summary>
-        const float LampColliderM = 0.3f;
+        /// <summary>A lamp post collider's square side: the drawn post's own
+        /// (a cobra-head's 0.26 m, an acorn's 0.14 m). It was 0.3 m for both,
+        /// 8 cm of solid round every uptown acorn post with nothing drawn
+        /// there (INVISIBLE COLLIDERS, 2026-10-04).</summary>
+        const float LampColliderM = 0.26f, AcornPostColliderM = 0.14f;
 
         static Material lampPostMat;
 

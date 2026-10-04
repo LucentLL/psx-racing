@@ -629,6 +629,9 @@ namespace PSXRacing.EditorTools
             }
             // the short barrier pieces, city-wide (CityAudit.Barriers.cs; PSX_DRIVE_BARRIERS=0 skips it)
             if (System.Environment.GetEnvironmentVariable("PSX_DRIVE_BARRIERS") != "0") ShortBarrierCensus(map, trims, buildings);
+            // INVISIBLE COLLIDERS (CityAudit.Invisible.cs; PSX_DRIVE_INVIS=0 skips it):
+            // the routes' lanes and every road of the box, the game's own tiles
+            if (System.Environment.GetEnvironmentVariable("PSX_DRIVE_INVIS") != "0") InvisibleColliders(map, trims);
             FinishTo("city_drive.txt");
         }
 

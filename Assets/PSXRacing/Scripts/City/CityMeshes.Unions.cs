@@ -822,6 +822,14 @@ namespace PSXRacing.City
             var A = sections[i - 1]; var B = sections[i];
             int pieces = Mathf.Clamp(Mathf.CeilToInt((B.s - A.s) / UnionPieceM), 1, uA.Length - 1);
             var org = tm.origin;
+            // a run "carried on" across a node into a road whose drawn edge on
+            // this side is not where ours ends has nothing to meet: its end is
+            // CLOSED (the V on a deck, the turned-down Jersey on the ground) -
+            // left open, the Jersey's hollow end stood in the lanes of the road
+            // before it with no face drawn toward the car (INVISIBLE COLLIDERS,
+            // the owner's I-277 wall at the left exit by East 4th Street)
+            bool open0 = run.open0 || UnionEndAdrift(map, trims, e, run, 0, side, org);
+            bool open1 = run.open1 || UnionEndAdrift(map, trims, e, run, 1, side, org);
             for (int k = 0; k <= pieces; k++)
             {
                 float f = (float)k / pieces;
@@ -844,7 +852,7 @@ namespace PSXRacing.City
                 uOut[k] = Vector2.Dot(new Vector2(w.x, w.z) - pw, ow) > 0.05f;
                 // how far to the nearest closed end of the run (a sloped end,
                 // a V whose legs are never steeper than 1:3 to the traffic)
-                float d0 = run.open0 ? uS[k] - run.s0 : float.MaxValue, d1 = run.open1 ? run.s1 - uS[k] : float.MaxValue;
+                float d0 = open0 ? uS[k] - run.s0 : float.MaxValue, d1 = open1 ? run.s1 - uS[k] : float.MaxValue;
                 float endLen = Mathf.Max(TaperLenM, deck ? 1.5f * Vector2.Distance(pw, new Vector2(w.x, w.z)) : 0f);
                 uEnd[k] = Mathf.Clamp01(Mathf.Min(d0, d1) / endLen);
             }
@@ -893,7 +901,7 @@ namespace PSXRacing.City
             // the closed ends this span holds
             for (int end = 0; end < 2; end++)
             {
-                bool open = end == 0 ? run.open0 && Mathf.Abs(A.s - run.s0) < 0.3f : run.open1 && Mathf.Abs(B.s - run.s1) < 0.3f;
+                bool open = end == 0 ? open0 && Mathf.Abs(A.s - run.s0) < 0.3f : open1 && Mathf.Abs(B.s - run.s1) < 0.3f;
                 if (!open) continue;
                 int k = end == 0 ? 0 : pieces, kIn = end == 0 ? 1 : pieces - 1;
                 if (!uOk[k]) continue;
@@ -965,6 +973,18 @@ namespace PSXRacing.City
         /// Every face is at a glancing angle to the traffic; nothing stands
         /// square across the strip.
         /// </summary>
+        /// <summary>Does a union run's end at a node (s0 at a, s1 at b) meet
+        /// nothing: the through road's drawn edge on this side stands away
+        /// from where this edge's ends (CityMeshes.EdgeLinesUp)?</summary>
+        static bool UnionEndAdrift(CityMap map, Trims trims, CityMap.Edge e, UnionRun run, int end, int side, Vector3 origin)
+        {
+            float s = end == 0 ? run.s0 : run.s1;
+            bool atNode = end == 0 ? s <= 0.05f : s >= e.length - 0.05f;
+            if (!atNode || sections.Count < 2) return false;
+            var sec = end == 0 ? sections[0] : sections[sections.Count - 1];
+            return !EdgeLinesUp(map, trims, e, end == 0 ? e.a : e.b, side, sec, origin);
+        }
+
         static void EmitUnionLegs(Vector3 a0, Vector3 b0, Vector3 a1, Vector3 b1, float f0, float f1, float v0, float v1)
         {
             var g0 = new Vector3(b0.x - a0.x, 0f, b0.z - a0.z); float l0 = g0.magnitude; g0 = l0 > 1e-4f ? g0 / l0 : Vector3.right;
@@ -991,6 +1011,16 @@ namespace PSXRacing.City
                 barrierBucket.Up(new Vector3(p0.x + n3.x, top0, p0.z + n3.z), new Vector3(p1.x + n3.x, top1, p1.z + n3.z),
                                  new Vector3(p1.x - n3.x, top1, p1.z - n3.z), new Vector3(p0.x - n3.x, top0, p0.z - n3.z),
                                  new Vector2(0.45f, v0), new Vector2(0.45f, v1), new Vector2(0.5f, v1), new Vector2(0.5f, v0));
+                // the leg's end at the run's closed end: a face, never a hollow
+                // end (where a carriageway's parapet carries on it is inside it)
+                var d3 = new Vector3(dir.x, 0f, dir.y);
+                var uvC = new Vector2(0.3f, v0);
+                if (f0 <= 1e-3f)
+                    barrierBucket.Face(new Vector3(p0.x - n3.x, foot0, p0.z - n3.z), new Vector3(p0.x - n3.x, top0, p0.z - n3.z),
+                                       new Vector3(p0.x + n3.x, top0, p0.z + n3.z), new Vector3(p0.x + n3.x, foot0, p0.z + n3.z), -d3, uvC, uvC, uvC, uvC);
+                if (f1 <= 1e-3f)
+                    barrierBucket.Face(new Vector3(p1.x - n3.x, foot1, p1.z - n3.z), new Vector3(p1.x - n3.x, top1, p1.z - n3.z),
+                                       new Vector3(p1.x + n3.x, top1, p1.z + n3.z), new Vector3(p1.x + n3.x, foot1, p1.z + n3.z), d3, uvC, uvC, uvC, uvC);
             }
         }
 
