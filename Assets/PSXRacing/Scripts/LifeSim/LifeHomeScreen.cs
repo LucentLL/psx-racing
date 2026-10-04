@@ -1260,6 +1260,9 @@ namespace PSXRacing.LifeSim
             // Updates have no defined order and the press that closed the
             // bench would otherwise also back this page out to MY CARS.
             if (bench != null && (bench.IsOpen || bench.ClosedFrame == Time.frameCount)) return;
+            // The settings menu likewise: its own page over this one, with
+            // its own use for the shoulders, B and Escape.
+            if (settings != null && (settings.IsOpen || settings.ClosedFrame == Time.frameCount)) return;
 
             var pad = UnityEngine.InputSystem.Gamepad.current;
             var kb = UnityEngine.InputSystem.Keyboard.current;
@@ -5288,124 +5291,68 @@ namespace PSXRacing.LifeSim
             y -= 64f;
         }
 
-        /// <summary>One settings row: what it is called, what it says now,
-        /// the sentence under it, and what pressing it does.</summary>
-        public struct OptionSpec
-        {
-            public string name;
-            public System.Func<string> value;
-            public string blurb;
-            public System.Action apply;
-            public OptionSpec(string name, System.Func<string> value, string blurb, System.Action apply)
-            { this.name = name; this.value = value; this.blurb = blurb; this.apply = apply; }
-        }
+        // =================== the settings menu (2026-10-04) ===================
+        SettingsPanel settings;
 
         /// <summary>
-        /// THE settings, as one list both front ends draw: MAIN's OPTIONS page
-        /// here and the CITY edition's (CityFrontEnd). Two copies of a settings
-        /// page would be two pages to keep in step, and the one that fell behind
-        /// would be the test page nobody looks at every day. Every row drives a
-        /// PlayerPrefs-backed static, the same one the pause menu toggles.
+        /// The four pages of the settings menu, as one line of buttons: a
+        /// press opens <see cref="SettingsPanel"/> at that page - the same
+        /// page the pause menu opens, over the same list, so a setting lives
+        /// in one place. It used to be a list of rows here and a different
+        /// list of rows in the pause menu.
         /// </summary>
-        public static System.Collections.Generic.List<OptionSpec> OptionSpecs()
+        void SettingsDoors(ref float y)
         {
-            var list = new System.Collections.Generic.List<OptionSpec>();
-            // FIRST, and not out of tidiness. It is the only row here that is
-            // about the screen rather than about the game, the only one the
-            // browser can undo behind the player's back — a tab switch, the
-            // notification shade, Back, Escape all drop fullscreen and a page
-            // may not restore it by itself — and on a phone it is worth about a
-            // third of the picture. Skipped where the platform cannot do it at
-            // all; see FullscreenPrefs.
-            if (FullscreenPrefs.Supported)
-                list.Add(new OptionSpec("FULLSCREEN", () => FullscreenPrefs.Label,
-                    "Fills the screen and puts the browser's bars away. Say it again if they come back.",
-                    () => FullscreenPrefs.Toggle()));
-            // On foot only - and the CITY edition has no feet: nobody gets
-            // out of a car there, so the row would be a switch for nothing.
-            if (Edition.HasCareer)
-                list.Add(new OptionSpec("LOOK Y", () => LookPrefs.Label,
-                    "Which way the view pitches on foot. NORMAL unless you fly.",
-                    () => LookPrefs.Toggle()));
-            list.Add(new OptionSpec("PICTURE", () => PSXQuality.Name,
-                "How coarse the picture is. SHARP is 480 lines; RETRO is a PlayStation.",
-                () => PSXQuality.Cycle(1)));
-            list.Add(new OptionSpec("CLUSTER BULB", () => ClusterBulbs.Name,
-                "The colour behind the dials after dark.",
-                () => ClusterBulbs.Cycle(1)));
-            list.Add(new OptionSpec("SPEED", () => SpeedUnits.Label,
-                "What the speedometer counts in. MPH by default — it is 1999 in North Carolina.",
-                () => SpeedUnits.Toggle()));
-            // The one sense-of-speed cue that is a style rather than a fact:
-            // the Carbon blur, which replaced the speed streaks. The pause
-            // menu carries the same switch; this is the copy you can reach
-            // without being in a car. Ships ON.
-            list.Add(new OptionSpec("SPEED BLUR", () => SpeedBlurPrefs.Label,
-                "The picture smears into a tunnel as the car gets fast. Off if you would rather it did not.",
-                () => SpeedBlurPrefs.Toggle()));
-            // The faded-print look over the whole picture. Ships ON: it is the
-            // picture the owner asked for ("like playing this game is a dream").
-            list.Add(new OptionSpec("FILM GRADE", () => FilmGradePrefs.Label,
-                "A faded 90s print: soft blacks, cream whites, light that bleeds. Off for the plain picture.",
-                () => FilmGradePrefs.Toggle()));
-            // The sky: the photographs, or the computed sky after Tidewater
-            // (2026-09-26). A switch so the two can be compared.
-            list.Add(new OptionSpec("SKY", () => SkyModePrefs.Label,
-                "PHOTO: the photographed skies. DYNAMIC: a computed sky - real sunsets, drifting clouds.",
-                () => SkyModePrefs.Toggle()));
-            // What lands on the camera's glass: rain drops that refract the
-            // street (and glow where a lamp is behind them) and the dust a
-            // bright light shows up at night — the owner's "particle effects
-            // on screen for rain and light", after NFS (2015). Ships ON; the
-            // pause menu carries the same switch.
-            list.Add(new OptionSpec("LENS FX", () => LensFxPrefs.Label,
-                "Rain drops and light bokeh on the lens. Off for a clean lens.",
-                () => LensFxPrefs.Toggle()));
-            // The day pass's shadow maps: the sun casting shadows, tunnels
-            // and underpasses going dark. Ships ON; the one switch on this
-            // page that is about SPEED - the maps are a second pass over the
-            // scene every frame, and on a slow phone that may be worth having
-            // back. (OPTIONS only: the pause column is full.)
-            list.Add(new OptionSpec("SUN SHADOWS", () => SunShadowPrefs.Label,
-                "Daylight casts shadows; tunnels go dark. Off if the game runs slowly by day.",
-                () => SunShadowPrefs.Toggle()));
-            // Frame pacing and the meter to judge it by (2026-09-25: "60fps
-            // minimum. Preferably 120fps"). MAX is the screen's own refresh -
-            // 120 on the owner's S24+ - and 60 is there for battery.
-            list.Add(new OptionSpec("FRAME RATE", () => FrameRatePrefs.Label,
-                "MAX runs as fast as the screen refreshes (up to 120). 60 saves battery.",
-                () => FrameRatePrefs.Toggle()));
-            list.Add(new OptionSpec("SHOW FPS", () => FpsOverlayPrefs.Label,
-                "Frame rate, frame time and the worst frame, along the bottom edge.",
-                () => FpsOverlayPrefs.Toggle()));
-            return list;
+            int n = SettingsCatalog.TabNames.Length;
+            float cw = Mathf.Min(200f, (ColW - 10f * (n - 1)) / n);
+            float total = cw * n + 10f * (n - 1);
+            for (int i = 0; i < n; i++)
+            {
+                var page = (SettingsTab)i;
+                var b = MenuKit.Button(body, SettingsCatalog.TabNames[i], new Vector2(0.5f, 1f),
+                    new Vector2(-total * 0.5f + cw * 0.5f + i * (cw + 10f), y), new Vector2(cw, 52f),
+                    () => OpenSettings(page), MenuKit.Small);
+                b.name = "Btn_page_" + SettingsCatalog.TabNames[i];
+            }
+            y -= 66f;
+            MenuKit.Para(body, "Steering and the instruments, the picture, the sound, the screen. " +
+                "The pause menu in a drive opens the same four pages.",
+                MenuKit.MinLabelSize, new Vector2(0.5f, 1f), new Vector2(ColL, y), out float h,
+                TextAnchor.UpperLeft, MenuKit.Dim, ColW);
+            y -= h + 14f;
+        }
+
+        void OpenSettings(SettingsTab at)
+        {
+            if (settings == null)
+            {
+                settings = gameObject.AddComponent<SettingsPanel>();
+                // Back onto the button that opened the page, or the pad comes
+                // home to nothing selected.
+                settings.onClosed = () =>
+                {
+                    if (this == null || body == null) return;
+                    var b = body.Find("Btn_page_" + SettingsCatalog.TabNames[(int)settings.Tab]);
+                    if (b != null) MenuNav.Select(b.GetComponent<Selectable>());
+                };
+            }
+            settings.Open(at);
         }
 
         /// <summary>
         /// Settings, in the one place a player can reach without being in a car.
         ///
-        /// Every row here is also a row in the pause menu and drives the same
-        /// PlayerPrefs-backed static, so the two cannot disagree — but the pause
-        /// menu only exists inside a race, and the walk-in scenes have no menu
-        /// at all. LOOK Y in particular had been a button on the MAIN screen for
-        /// exactly that reason; it belongs here, and NORMAL is the default it
-        /// always was.
+        /// The settings themselves are the four-tab settings menu
+        /// (<see cref="SettingsPanel"/>), the same one the pause menu opens -
+        /// the pause menu only exists inside a race, and the walk-in scenes
+        /// have no menu at all, so this is the door to it outside a car.
         /// </summary>
         void BuildOptions()
         {
             float y = -14f;
             PageHeader(ref y, "OPTIONS");
 
-            foreach (var o in OptionSpecs())
-                OptionRow(o.name, o.value(), o.blurb, o.apply, ref y);
-
-            MenuKit.Label(body, "The pause menu inside a race carries most of these,",
-                17, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
-                MenuKit.Dim, ColW);
-            y -= 26f;
-            MenuKit.Label(body, "plus the camera and RESET CAR.", 17, new Vector2(0.5f, 1f),
-                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW);
-            y -= 34f;
+            SettingsDoors(ref y);
 
             // The meta: the career itself, and the test switch. Both were on the
             // launch screen and neither belonged there — one is pressed once
@@ -5416,28 +5363,6 @@ namespace PSXRacing.LifeSim
             y -= 26f;
             BuildDebugBlock(ref y);
             BuildStartOverBlock(ref y);
-        }
-
-        /// <summary>One setting: a full-width button carrying the name and the
-        /// current value, with the explanation under it. A settings row has to
-        /// say what it DOES — three of these are invisible until you are
-        /// somewhere else in the game, and a player is not going to drive to a
-        /// forecourt to find out what LOOK Y meant.</summary>
-        void OptionRow(string name, string value, string blurb,
-                       System.Action apply, ref float y)
-        {
-            MenuKit.Button(body, name + ":  " + value, new Vector2(0.5f, 1f),
-                new Vector2(0f, y), new Vector2(Mathf.Min(ColW, 460f), 48f),
-                () => { apply(); LifeSimManager.Save(); Rebuild(); }, 18);
-            y -= 46f;
-            // Height 24 and a 34-unit step, not the default 40 and 50. OPTIONS
-            // carries the meta controls now as well as the settings, and three
-            // rows paying sixteen units each for whitespace is a fifty-unit
-            // scroll bought for nothing.
-            MenuKit.Label(body, blurb, 17, new Vector2(0.5f, 1f),
-                new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW, height: 24f);
-            y -= 34f;
-
         }
 
         /// <summary>

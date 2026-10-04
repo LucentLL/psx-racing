@@ -349,6 +349,7 @@ namespace PSXRacing
         {
             EnsureVoice();
             if (startupClip == null || oneShotSrc == null) return;
+            oneShotSrc.volume = AudioPrefs.Engine;   // the ENGINE volume (settings, AUDIO)
             // The countdown fires this a fraction of a second after SetFamily,
             // which is the tightest race in the game against the browser's
             // decoder — so it goes through the waiter too.
@@ -359,6 +360,7 @@ namespace PSXRacing
         {
             EnsureVoice();
             if (engineStopClip == null || oneShotSrc == null) return;
+            oneShotSrc.volume = AudioPrefs.Engine;
             AudioLoopStarter.PlayOneShot(oneShotSrc, engineStopClip, 0.8f);
         }
 
@@ -514,7 +516,8 @@ namespace PSXRacing
                 if (src.volume != 0f) src.volume = 0f;
                 return;
             }
-            src.volume = volume;
+            // The ENGINE volume (settings, AUDIO) on every engine voice.
+            src.volume = volume * AudioPrefs.Engine;
             src.pitch = pitch;
         }
 

@@ -73,8 +73,34 @@ namespace PSXRacing
         {
             // Unscaled, because the pause menu runs at timeScale zero and a
             // fade that stops with it leaves a paused game half-silent.
-            AudioListener.volume = Mathf.MoveTowards(AudioListener.volume, target,
+            // The player's MASTER volume (settings, AUDIO) multiplies the
+            // fade, so a zone line still takes the sound to nothing and
+            // brings it back to the level the player chose, not to full.
+            AudioListener.volume = Mathf.MoveTowards(AudioListener.volume, target * AudioPrefs.Master,
                                                      speed * Time.unscaledDeltaTime);
+        }
+
+        /// <summary>
+        /// The master level from the very first frame: the fader used to come
+        /// into being on the first zone line, and until then nothing held
+        /// AudioListener.volume at all.
+        /// </summary>
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+        static void Boot()
+        {
+            Get();
+            AudioListener.volume = AudioPrefs.Master;
+        }
+
+        /// <summary>A new MASTER level, at once rather than at fade speed
+        /// (unless a fade is under way, which carries it on its way).</summary>
+        public static void ApplyMaster()
+        {
+            // Edit mode (the self-test, the preview tools): no fader to make -
+            // DontDestroyOnLoad is play-mode only - and no sound to set.
+            if (!Application.isPlaying) return;
+            var f = Get();
+            if (f.target >= 1f) AudioListener.volume = AudioPrefs.Master;
         }
     }
 }

@@ -83,7 +83,7 @@ namespace PSXRacing
             var src = oneShots[nextShot];
             nextShot = (nextShot + 1) % oneShots.Length;
             src.pitch = Random.Range(0.92f, 1.08f);   // no two panels ring alike
-            src.PlayOneShot(impactClips[tier], vol);
+            src.PlayOneShot(impactClips[tier], vol * AudioPrefs.Effects);
         }
 
         /// <summary>Continuous grind. <paramref name="intensity"/> 0..1 from the
@@ -92,7 +92,7 @@ namespace PSXRacing
         public void SetScrape(float intensity, float load)
         {
             if (scrapeSrc == null) return;
-            float target = Mathf.Clamp01(intensity) * Mathf.Clamp01(load) * 0.55f * volumeScale;
+            float target = Mathf.Clamp01(intensity) * Mathf.Clamp01(load) * 0.55f * volumeScale * AudioPrefs.Effects;
             // Attack fast so the grind starts with the contact; release slower so
             // a wall that bumps in and out does not machine-gun the voice.
             float rate = target > scrapeSrc.volume ? 22f : 7f;

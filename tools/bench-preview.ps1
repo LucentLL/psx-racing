@@ -21,6 +21,7 @@ foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor")) {
 
 # Stale pictures certify a run that never happened just as well as fresh ones.
 Get-ChildItem "$proj\Screenshots\bench_*.png" -ErrorAction SilentlyContinue | Remove-Item -Force
+Get-ChildItem "$proj\Screenshots\settings_*.png" -ErrorAction SilentlyContinue | Remove-Item -Force
 
 # The preview needs a graphics device: it renders into a RenderTexture, and
 # -nographics gives it a null one that reads back as a black PNG.

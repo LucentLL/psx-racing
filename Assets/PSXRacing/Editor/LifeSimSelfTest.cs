@@ -784,9 +784,42 @@ namespace PSXRacing.EditorTools
                   "and the first screen gets one short toast about it (clear of the WEEK button on a phone)", note);
             Check(LifeSimManager.EditionSanitize(ms) == null, "a second load has nothing left to do (idempotent)");
 
-            var mainOpts = LifeHomeScreen.OptionSpecs();
-            Check(mainOpts.Any(o => o.name == "LOOK Y") && mainOpts.Any(o => o.name == "PICTURE"),
-                  "MAIN's OPTIONS keep every row");
+            // THE SETTINGS MENU (2026-10-04): one list, four tabs, opened from
+            // the pause menu and from both front ends' OPTIONS pages.
+            var mainOpts = SettingsCatalog.Items(null);
+            Check(mainOpts.Any(o => o.name == "LOOK Y" && o.tab == SettingsTab.Gameplay) &&
+                  mainOpts.Any(o => o.name == "PICTURE" && o.tab == SettingsTab.Visuals),
+                  "MAIN's OPTIONS keep every row (LOOK Y on GAMEPLAY, PICTURE on VISUALS)");
+            var steerRow = mainOpts.FirstOrDefault(o => o.name == "STEERING");
+            Check(steerRow != null && steerRow.IsSlider && steerRow.tab == SettingsTab.Gameplay &&
+                  steerRow.show(steerRow.min) == "50%" && steerRow.show(steerRow.max) == "150%",
+                  "STEERING is a 50%-150% slider on GAMEPLAY",
+                  steerRow != null ? steerRow.show(steerRow.min) + ".." + steerRow.show(steerRow.max) : "none");
+            int steerWas = SteerPrefs.Percent;
+            SteerPrefs.Percent = SteerPrefs.DefaultPercent;
+            float s100 = SteerPrefs.Apply(0.4f);
+            SteerPrefs.Percent = 50; float s50 = SteerPrefs.Apply(0.4f);
+            SteerPrefs.Percent = 150; float s150 = SteerPrefs.Apply(0.4f), sFull = SteerPrefs.Apply(0.9f);
+            SteerPrefs.Percent = steerWas;
+            Check(SteerPrefs.DefaultPercent == 100 && Mathf.Approximately(s100, 0.4f) &&
+                  Mathf.Approximately(s50, 0.2f) && Mathf.Approximately(s150, 0.6f) && Mathf.Approximately(sFull, 1f),
+                  "STEERING scales the command (100% = as before) and clamps at full lock",
+                  s50 + " / " + s100 + " / " + s150 + " / " + sFull);
+            var audioRows = SettingsCatalog.Items(null, SettingsTab.Audio);
+            Check(audioRows.Count == 3 && audioRows.All(o => o.IsSlider) &&
+                  audioRows.Select(o => o.name).SequenceEqual(new[] { "MASTER", "ENGINE", "EFFECTS" }),
+                  "AUDIO is MASTER, ENGINE and EFFECTS - only what the sound really splits into");
+            var driveOpts = SettingsCatalog.Items(new SettingsHost { debugInfo = () => false, toggleDebugInfo = () => { },
+                                                                     openBench = () => { } }, () => { });
+            Check(driveOpts.Any(o => o.name == "CAMERA" && o.tab == SettingsTab.Gameplay) &&
+                  driveOpts.Any(o => o.name == "DEBUG BENCH" && o.tab == SettingsTab.System) &&
+                  driveOpts.Any(o => o.name == "CREDITS" && o.tab == SettingsTab.System) &&
+                  !mainOpts.Any(o => o.name == "CAMERA"),
+                  "a drive adds CAMERA, DEBUG INFO, DEBUG BENCH and CREDITS; the front end has no camera row");
+            int tallest = 0;
+            for (int ti = 0; ti < SettingsCatalog.TabNames.Length; ti++)
+                tallest = Mathf.Max(tallest, driveOpts.Count(o => (int)o.tab == ti));
+            Check(tallest <= 6, "no page holds more than six rows (the phone's 560-unit column)", tallest);
 
             // ================= CITY =================
             Edition.Simulate(EditionKind.City);
@@ -818,7 +851,7 @@ namespace PSXRacing.EditorTools
             }
             Check(!CityFrontEnd.FillRace(TrackCatalog.IndexOf("BlueRidge"), CityFrontEnd.DefaultCarId(), 0, 0, out _),
                   "and refuses a venue CITY does not carry");
-            var cityOpts = LifeHomeScreen.OptionSpecs();
+            var cityOpts = SettingsCatalog.Items(null);
             Check(!cityOpts.Any(o => o.name == "LOOK Y") && cityOpts.Any(o => o.name == "PICTURE") &&
                   cityOpts.Any(o => o.name == "SPEED"),
                   "CITY's OPTIONS are MAIN's list less the on-foot row");

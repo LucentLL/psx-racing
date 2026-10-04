@@ -48,8 +48,11 @@ namespace PSXRacing.EditorTools
     ///      analog weave, at 110 mph - how far the NOSE turns from the lens,
     ///      where the car sits on screen, whether the drift layer joins in,
     ///      and whether the car itself settles.
+    ///   S  STEERING SENSITIVITY (the settings menu, 2026-10-04): a scripted
+    ///      control at 50 / 100 / 150% read as the command and the wheel
+    ///      angle, then the settings read back after a reload.
     /// PSX_HANDLING_ONLY="D,E,F,G,H" runs just those (the first car only; H
-    /// in the Viper).
+    /// in the Viper; S last, as it reloads the scene).
     /// </summary>
     public static class HandlingPlayCheck
     {
@@ -278,7 +281,79 @@ namespace PSXRacing.EditorTools
                     yield return TestH(viper.name);
                 }
             }
+            // Last: it reloads the scene.
+            if (Want("S")) yield return TestS();
             Done();
+        }
+
+        // ---- S: STEERING SENSITIVITY + settings that persist (2026-10-04) --
+        // The settings menu's STEERING slider through the REAL input path: a
+        // scripted control position fed where a pad stick is read
+        // (PlayerCarInput.ScriptedSteer), at 50%, 100% and 150%, read back as
+        // the car's command and its actuated wheel angle at a standstill.
+        // Then the settings survive a reload: the statics dropped (what a
+        // fresh page load does) and the scene loaded again, with the MASTER
+        // volume riding on the listener after the reload's fade-in.
+        IEnumerator TestS()
+        {
+            yield return Place(0f, 0f, 0f);
+            var input = car.GetComponent<PlayerCarInput>();
+            HandlingPlayCheck.Check(input != null, "S: the player car has its input component");
+            if (input == null) yield break;
+            int steerWas = SteerPrefs.Percent;
+            int masterWas = AudioPrefs.Percent(AudioPrefs.Channel.Master);
+            int engineWas = AudioPrefs.Percent(AudioPrefs.Channel.Engine);
+            input.enabled = true;
+            input.inputEnabled = true;
+            const float Control = 0.4f;
+            PlayerCarInput.ScriptedSteer = Control;
+            int[] pct = { 50, 100, 150 };
+            float[] cmd = new float[3], deg = new float[3];
+            for (int i = 0; i < pct.Length; i++)
+            {
+                SteerPrefs.Percent = pct[i];
+                for (int f = 0; f < 40; f++) yield return new WaitForFixedUpdate();
+                cmd[i] = car.steerInput;
+                deg[i] = car.SteerAngleDeg;
+            }
+            PlayerCarInput.ScriptedSteer = null;
+            input.enabled = false;
+            HandlingPlayCheck.Note("S: control " + Control + " -> command " + cmd[0].ToString("0.000") + " / " +
+                                   cmd[1].ToString("0.000") + " / " + cmd[2].ToString("0.000") + ", wheels " +
+                                   deg[0].ToString("0.00") + " / " + deg[1].ToString("0.00") + " / " +
+                                   deg[2].ToString("0.00") + " deg at 50 / 100 / 150%");
+            HandlingPlayCheck.Check(Mathf.Abs(cmd[1] - Control) < 0.005f,
+                                    "S: at 100% the car gets the control unchanged (the feel it had)", cmd[1]);
+            HandlingPlayCheck.Check(Mathf.Abs(cmd[0] - Control * 0.5f) < 0.005f && Mathf.Abs(cmd[2] - Control * 1.5f) < 0.005f,
+                                    "S: 50% halves the steer command, 150% takes it to 1.5x",
+                                    cmd[0].ToString("0.000") + " / " + cmd[2].ToString("0.000"));
+            float r150 = deg[2] / Mathf.Max(0.01f, deg[0]), r100 = deg[1] / Mathf.Max(0.01f, deg[0]);
+            HandlingPlayCheck.Check(deg[0] > 1f && Mathf.Abs(r150 - 3f) < 0.15f && Mathf.Abs(r100 - 2f) < 0.1f,
+                                    "S: the wheels turn in proportion - 150% is 3x and 100% 2x the 50% angle",
+                                    r100.ToString("0.00") + "x / " + r150.ToString("0.00") + "x");
+
+            // Persistence: write, drop the statics, reload the scene, read.
+            SteerPrefs.Percent = 135;
+            AudioPrefs.SetPercent(AudioPrefs.Channel.Master, 80);
+            AudioPrefs.SetPercent(AudioPrefs.Channel.Engine, 70);
+            SteerPrefs.ForgetCache();
+            AudioPrefs.ForgetCache();
+            UnityEngine.SceneManagement.SceneManager.LoadScene(
+                UnityEngine.SceneManagement.SceneManager.GetActiveScene().buildIndex);
+            for (int i = 0; i < 10; i++) yield return null;
+            yield return new WaitForSecondsRealtime(2.5f);
+            HandlingPlayCheck.Check(SteerPrefs.Percent == 135 &&
+                                    AudioPrefs.Percent(AudioPrefs.Channel.Engine) == 70 &&
+                                    AudioPrefs.Percent(AudioPrefs.Channel.Master) == 80,
+                                    "S: STEERING and the volumes come back after a reload",
+                                    SteerPrefs.Percent + "% / engine " + AudioPrefs.Percent(AudioPrefs.Channel.Engine) +
+                                    "% / master " + AudioPrefs.Percent(AudioPrefs.Channel.Master) + "%");
+            HandlingPlayCheck.Check(Mathf.Abs(AudioListener.volume - 0.8f) < 0.02f,
+                                    "S: MASTER 80% is the listener's level once the reload has faded in",
+                                    AudioListener.volume.ToString("0.000"));
+            SteerPrefs.Percent = steerWas;
+            AudioPrefs.SetPercent(AudioPrefs.Channel.Master, masterWas);
+            AudioPrefs.SetPercent(AudioPrefs.Channel.Engine, engineWas);
         }
 
         // ---- A: 100 mph straight-line full brake ----------------------------

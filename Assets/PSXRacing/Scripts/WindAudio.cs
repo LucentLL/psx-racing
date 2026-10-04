@@ -109,7 +109,7 @@ namespace PSXRacing
             // is still in a 100 km/h airstream.
             float v = car != null ? car.speedKmh / 3.6f : 0f;
 
-            float mul = masterVolume;
+            float mul = masterVolume * AudioPrefs.Effects;
             if (ChaseCamera.Current == ChaseCamera.View.Cockpit) mul *= CockpitMul;
             // Muted on foot and in the menu. AudioListener.pause already holds
             // the menu case, but the gain is driven to zero as well so the bed

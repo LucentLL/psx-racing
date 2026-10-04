@@ -151,7 +151,7 @@ namespace PSXRacing
                 pitchTarget = Mathf.Max(pitchTarget, 1.05f + 0.2f * w);
             }
 
-            gain = Smooth(gain, target * masterVolume, GainTau, dt);
+            gain = Smooth(gain, target * masterVolume * AudioPrefs.Effects, GainTau, dt);
             pitch = Smooth(pitch, pitchTarget, 0.05f, dt);
             src.volume = gain;
             src.pitch = pitch;

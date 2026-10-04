@@ -213,7 +213,7 @@ namespace PSXRacing
             // Pitch rises a little with speed and the count of joints taken in
             // one tick, so a fast crossing sounds tighter than a slow one.
             src.pitch = Mathf.Clamp(0.86f + v * 0.006f + (count - 1) * 0.05f, 0.8f, 1.5f);
-            src.PlayOneShot(jointClip, volume * Mathf.Clamp01(0.35f + v / 40f));
+            src.PlayOneShot(jointClip, volume * Mathf.Clamp01(0.35f + v / 40f) * AudioPrefs.Effects);
         }
 
         static bool IsPlayer(CarController car) =>

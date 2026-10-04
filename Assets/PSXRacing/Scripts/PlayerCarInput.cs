@@ -62,6 +62,14 @@ namespace PSXRacing
         float steerAxis;
         public bool inputEnabled = true;
 
+        /// <summary>
+        /// A steer CONTROL position for the play checks, read exactly where a
+        /// pad stick or a held touch wheel is (null = none). It lets a check
+        /// drive the real input path - through STEERING SENSITIVITY
+        /// (<see cref="SteerPrefs"/>) to the car - without a device.
+        /// </summary>
+        public static float? ScriptedSteer;
+
         /// <summary>The live tank, when the scene has one. Optional: a race
         /// scene built before fuel existed simply has no tank and the throttle
         /// is never cut.</summary>
@@ -244,6 +252,8 @@ namespace PSXRacing
             if (temp != null && temp.Seized) throttle = 0f;
             if (GasPump.Fuelling) { throttle = 0f; handbrake = true; }
 
+            if (ScriptedSteer.HasValue) analogSteer = ScriptedSteer.Value;
+
             if (analogSteer.HasValue)
             {
                 // Raw. The control has travel; the car has an actuator rate.
@@ -260,7 +270,13 @@ namespace PSXRacing
                 steerAxis = SlewRelease(steerAxis, kbSteer, Time.deltaTime);
             }
 
-            car.steerInput = steerAxis;
+            // STEERING SENSITIVITY (the settings menu's GAMEPLAY page): the
+            // last thing between the control and the car, for every source
+            // alike, and nothing in the car changes - see SteerPrefs. The
+            // unwind above keeps working on the CONTROL's position, and the
+            // touch wheel's rim below still shows the control, so the setting
+            // never moves the rim out from under a thumb.
+            car.steerInput = SteerPrefs.Apply(steerAxis);
             car.throttleInput = throttle;
             car.brakeInput = brake;
             car.handbrakeInput = handbrake;

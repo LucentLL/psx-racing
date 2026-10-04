@@ -191,7 +191,7 @@ namespace PSXRacing
             // --- spool loop ---
             float loopVol = rpmNorm <= LoopVolStart ? 0f
                 : Mathf.SmoothStep(0f, LoopVolPeak, (rpmNorm - LoopVolStart) / (1f - LoopVolStart));
-            float spoolTarget = loopVol * LoopVolume * TurboMaster * masterVolume * Mathf.Max(0.25f, boost);
+            float spoolTarget = loopVol * LoopVolume * TurboMaster * masterVolume * AudioPrefs.Engine * Mathf.Max(0.25f, boost);
             spoolGain = Smooth(spoolGain, spoolTarget, GainTC, dt);
             if (spoolSrc != null)
             {
@@ -201,7 +201,7 @@ namespace PSXRacing
 
             // --- max-boost loop, gated on the physics limiter flag ---
             float maxTarget = car.RevLimiterActive
-                ? LoopVolPeak * LoopVolume * TurboMaster * masterVolume : 0f;
+                ? LoopVolPeak * LoopVolume * TurboMaster * masterVolume * AudioPrefs.Engine : 0f;
             maxGain = Smooth(maxGain, maxTarget, LimiterBlend + GainTC, dt);
             if (maxSrc != null) { maxSrc.volume = maxGain; maxSrc.pitch = 1f; }
         }
@@ -220,7 +220,7 @@ namespace PSXRacing
         void UpdateBlower(float rpmNorm, float throttle, float dt)
         {
             float target = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.05f, 0.55f, rpmNorm))
-                           * LoopVolPeak * LoopVolume * TurboMaster * masterVolume;
+                           * LoopVolPeak * LoopVolume * TurboMaster * masterVolume * AudioPrefs.Engine;
             blowerGain = Smooth(blowerGain, target, GainTC, dt);
             float pitch = Mathf.Lerp(0.72f, 1.35f, rpmNorm);
             if (blowerOnSrc != null)
@@ -247,7 +247,7 @@ namespace PSXRacing
             shotIndex = (shotIndex + 1) % pool.Length;   // cycle so it never repeats back to back
             shotSrc.pitch = Random.Range(0.94f, 1.06f);
             AudioLoopStarter.PlayOneShot(shotSrc, pool[shotIndex],
-                                         vol * TurboMaster * masterVolume * 1.6f);
+                                         vol * TurboMaster * masterVolume * AudioPrefs.Engine * 1.6f);
         }
 
         /// <summary>Upshift flutter: a partial dump at 55%, since the throttle is
@@ -263,7 +263,7 @@ namespace PSXRacing
             shotIndex = (shotIndex + 1) % pool.Length;
             shotSrc.pitch = Random.Range(0.96f, 1.08f);
             AudioLoopStarter.PlayOneShot(shotSrc, pool[shotIndex],
-                                         vol * TurboMaster * masterVolume * 1.6f);
+                                         vol * TurboMaster * masterVolume * AudioPrefs.Engine * 1.6f);
             bovCooldown = 0.22f;
         }
 

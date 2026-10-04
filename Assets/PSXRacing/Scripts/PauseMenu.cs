@@ -93,8 +93,9 @@ namespace PSXRacing
             // drop the pause menu and resume the race, on whichever frame the
             // bench's Update happened to run first.
             if (bench != null && (bench.IsOpen || bench.ClosedFrame == Time.frameCount)) return;
-            // The credits page likewise.
-            if (credits != null && (credits.IsOpen || credits.ClosedFrame == Time.frameCount)) return;
+            // The settings menu likewise (it has CREDITS over it in turn, and
+            // stands back for that page itself).
+            if (settings != null && (settings.IsOpen || settings.ClosedFrame == Time.frameCount)) return;
 
             var kb = Keyboard.current;
             var pad = Gamepad.current;
@@ -113,25 +114,6 @@ namespace PSXRacing
                 debugTimer += Time.unscaledDeltaTime;
                 if (debugTimer > 0.1f) { debugTimer = 0f; RefreshDebug(); }
             }
-
-            // THE BROWSER GETS THE LAST WORD ON FULLSCREEN, and it changes it
-            // without telling anybody: a tab switch drops out of fullscreen, so
-            // does Escape, so does the notification shade. Poll while the panel
-            // is up — four times a second, on unscaled time like everything
-            // else in a paused menu — so the row describes the screen the
-            // player is looking at rather than the one they last asked for.
-            // It is also how the label catches up when the request this menu
-            // made is granted, which happens a frame or two after the press.
-            if (open && fsLabel != null)
-            {
-                fsTimer += Time.unscaledDeltaTime;
-                if (fsTimer > 0.25f)
-                {
-                    fsTimer = 0f;
-                    bool now = FullscreenPrefs.On;
-                    if (now != fsWas) { fsWas = now; fsLabel.text = FullscreenLabel(); }
-                }
-            }
         }
 
         void SetOpen(bool v)
@@ -141,29 +123,14 @@ namespace PSXRacing
             if (v && RaceReplay.Playing) return;
             open = v;
             IsOpen = v;
-            if (!v && credits != null && credits.IsOpen) credits.Close();
+            if (!v && settings != null && settings.IsOpen) settings.Close();
             if (panel != null) panel.SetActive(v);
             Time.timeScale = v ? 0f : 1f;
             AudioListener.pause = v;
 
-            // Re-read the camera row on the way in. The view is restored from
-            // PlayerPrefs in ChaseCamera.Start, and two Starts have no defined
-            // order between them — build the label once and a player who last
-            // drove in bumper cam opens the menu to a row claiming CHASE.
-            if (v && camLabel != null) camLabel.text = CameraLabel();
-            // Same story for the fuel row, whose price is a function of how
-            // empty the tank is right now.
+            // Re-read the fuel row on the way in: its price is a function of
+            // how empty the tank is right now.
             if (v && fuelLabel != null) fuelLabel.text = FuelLabel();
-            // And for fullscreen, which the BROWSER can have taken away since
-            // the last time this menu was up — opening it is the one moment the
-            // row is guaranteed to be read, so it is worth being right there
-            // before the poll in Update gets its first turn.
-            if (v && fsLabel != null)
-            {
-                fsWas = FullscreenPrefs.On;
-                fsLabel.text = FullscreenLabel();
-                fsTimer = 0f;
-            }
 
             // Put the cursor on RESUME when the panel opens, and take it off
             // when it closes. A UGUI navigation event goes to whatever is
@@ -217,7 +184,6 @@ namespace PSXRacing
 
         // ---- the debug bench ----------------------------------------------
         DebugCarPanel bench;
-        Button benchBtn;
 
         /// <summary>
         /// Open the debug bench over the pause menu: any fault, any stage, any
@@ -225,9 +191,9 @@ namespace PSXRacing
         ///
         /// The pause menu STAYS OPEN underneath, deliberately. The bench needs
         /// exactly what this menu already holds — the clock stopped, the audio
-        /// paused, the driving input gated by <see cref="IsOpen"/> — and
-        /// closing it lands the tester back here, one press from RESUME, which
-        /// is where somebody who has just bolted a blower on wants to be.
+        /// paused, the driving input gated by <see cref="IsOpen"/>. It is a row
+        /// of the settings menu's SETTINGS page now, which also stays open
+        /// under it, and closing the bench lands the tester back on that row.
         /// </summary>
         void OpenBench()
         {
@@ -241,53 +207,58 @@ namespace PSXRacing
                     // the pad comes home to a menu with nothing selected —
                     // which is a dead pad. Guarded: this also fires from the
                     // bench's OnDisable as a scene is torn down.
-                    if (this != null && open && benchBtn != null) MenuNav.Select(benchBtn);
+                    if (this != null && open && settings != null) settings.Refocus();
                 };
             }
             bench.Open();
         }
 
-        // ---- the credits page -----------------------------------------------
-        CreditsPanel credits;
-        Button creditsBtn;
+        /// <summary>The preview tool's car-less pause screen with the fuel
+        /// row in it anyway, so the screen is checked at its tallest.</summary>
+        public static bool PreviewFuelRow;
+
+        // ---- the settings menu ----------------------------------------------
+        SettingsPanel settings;
+        readonly System.Collections.Generic.List<Button> pageBtns =
+            new System.Collections.Generic.List<Button>();
 
         /// <summary>
-        /// Open the CREDITS page over the pause menu: the credit and licence
-        /// lines the map and terrain data owe (plan critic C17), in full,
-        /// where the HUD's seven-second line has no room for them. Like the
-        /// bench, it closes back onto this menu, on the row that opened it.
+        /// Open the settings menu (owner, 2026-10-04: "a proper menu with tabs
+        /// for Gameplay, Visuals, Audio, Settings") at one of its four pages.
+        /// Everything that used to stand in this menu's columns - the camera,
+        /// the picture switches, the debug readout, CREDITS - lives there now,
+        /// with the new STEERING slider and the volumes; this screen keeps the
+        /// things that act on the drive.
+        ///
+        /// The pause panel hides while the page is up (a 94% backdrop over it
+        /// was a ghost of eleven rows behind every page) and comes back on the
+        /// button that opened it. Public for the preview tool.
         /// </summary>
-        void OpenCredits()
+        public void OpenSettings(SettingsTab at)
         {
-            if (!open) return;
-            if (credits == null)
+            if (settings == null)
             {
-                credits = gameObject.AddComponent<CreditsPanel>();
-                credits.onClosed = () =>
+                settings = gameObject.AddComponent<SettingsPanel>();
+                settings.host = new SettingsHost
                 {
-                    if (this != null && open && creditsBtn != null) MenuNav.Select(creditsBtn);
+                    debugInfo = () => debugOn,
+                    toggleDebugInfo = ToggleDebug,
+                    openBench = LifeSim.DebugCarOps.BenchAvailable ? OpenBench : (System.Action)null,
+                };
+                // The bench opens OVER the settings page and owns the keys
+                // while it is up, and for the frame it closed on.
+                settings.blocked = () => bench != null && (bench.IsOpen || bench.ClosedFrame == Time.frameCount);
+                settings.onClosed = () =>
+                {
+                    if (this == null || !open) return;
+                    if (panel != null) panel.SetActive(true);
+                    int i = (int)settings.Tab;
+                    MenuNav.Select(i < pageBtns.Count ? pageBtns[i] : (menuItems.Count > 0 ? menuItems[0] : null));
                 };
             }
-            credits.Open();
+            if (panel != null) panel.SetActive(false);
+            settings.Open(at);
         }
-
-        Text camLabel;
-
-        static string CameraLabel() =>
-            "CAMERA: " + ChaseCamera.ViewNames[(int)ChaseCamera.Current];
-
-        /// <summary>
-        /// Step to the next view without closing the menu, so the player can
-        /// read the names as they go past. The race is paused, so nothing moves
-        /// behind it until they resume — the label is the feedback here, not the
-        /// picture.
-        /// </summary>
-        void CycleCamera()
-        {
-            ChaseCamera.CycleView(1);
-            if (camLabel != null) camLabel.text = CameraLabel();
-        }
-
         Text fuelLabel;
 
         FuelTank Tank => playerCar != null ? playerCar.GetComponent<FuelTank>() : null;
@@ -345,167 +316,6 @@ namespace PSXRacing
             else tank.percent = 100f;
 
             if (fuelLabel != null) fuelLabel.text = FuelLabel();
-        }
-
-        Text bulbLabel;
-
-        static string BulbLabel() => "CLUSTER BULB: " + ClusterBulbs.Name;
-
-        /// <summary>
-        /// Step the instrument backlight. Green, amber, orange — three real
-        /// cluster bulbs rather than three arbitrary hues, and the choice is
-        /// remembered, so this row exists mainly so a player finds out there is
-        /// a choice at all.
-        ///
-        /// The cluster itself picks the change up on its next frame by
-        /// comparing a counter; nothing here has to reach into it, which
-        /// matters because the pause menu outlives any one race scene.
-        /// </summary>
-        void CycleBulb()
-        {
-            ClusterBulbs.Cycle(1);
-            if (bulbLabel != null) bulbLabel.text = BulbLabel();
-        }
-
-        Text pixelLabel;
-
-        static string PixelLabel() => "PICTURE: " + PSXQuality.Name;
-
-        /// <summary>
-        /// Step the framebuffer resolution and how hard the dither is applied.
-        /// The one setting a player is likely to want and could never guess at
-        /// otherwise: the game is rendered into a few hundred lines and blown up
-        /// to whatever the display is, and how coarse that is is taste rather
-        /// than truth. PSXCameraOutput picks the change up on its next frame.
-        /// </summary>
-        void CyclePixels()
-        {
-            PSXQuality.Cycle(1);
-            if (pixelLabel != null) pixelLabel.text = PixelLabel();
-        }
-
-        Text unitLabel;
-
-        static string UnitLabel() => "SPEED: " + SpeedUnits.Label;
-
-        /// <summary>
-        /// Swap the speedometer between miles and kilometres.
-        ///
-        /// Here as well as on the front end's OPTIONS page because this is the
-        /// one setting a player discovers while looking at the wrong number —
-        /// mid-race, at the dial. The cluster rebuilds itself on the next frame
-        /// off the same kind of counter the bulb uses, so the scale, the ticks,
-        /// the numerals and the legend all change together rather than leaving
-        /// an MPH needle on a km/h face.
-        /// </summary>
-        void CycleUnits()
-        {
-            SpeedUnits.Toggle();
-            if (unitLabel != null) unitLabel.text = UnitLabel();
-        }
-
-        Text lookLabel;
-
-        static string LookLabel() => "LOOK Y: " + LookPrefs.Label;
-
-        /// <summary>
-        /// Flip the on-foot pitch axis. Reachable from here because the
-        /// forecourt is a walking place reached from a race, and a player who
-        /// needs this needs it the moment they first look up and go down.
-        /// </summary>
-        void ToggleLook()
-        {
-            LookPrefs.Toggle();
-            if (lookLabel != null) lookLabel.text = LookLabel();
-        }
-
-        Text blurLabel;
-
-        static string BlurLabel() => "SPEED BLUR: " + SpeedBlurPrefs.Label;
-
-        /// <summary>
-        /// The one sense-of-speed cue that is a style rather than a fact: the
-        /// edges of the picture smearing with speed, the way NFS Carbon did
-        /// it (it replaced the speed streaks). It ships ON, and this row is
-        /// the way to say no without a rebuild — SpeedBlur reads the pref
-        /// every frame on unscaled time, so the frozen frame behind this menu
-        /// changes while the player is looking at it.
-        /// </summary>
-        void ToggleBlur()
-        {
-            SpeedBlurPrefs.Toggle();
-            if (blurLabel != null) blurLabel.text = BlurLabel();
-        }
-
-        Text fsLabel;
-        bool fsWas;
-        float fsTimer;
-
-        static string FullscreenLabel() => "FULLSCREEN: " + FullscreenPrefs.Label;
-
-        /// <summary>
-        /// Fill the screen, or give it back.
-        ///
-        /// The one row here that is not a setting: the browser owns this, and
-        /// the browser takes it away — a tab switch, the notification shade,
-        /// Back, Escape, sometimes a rotation — leaving the game running with
-        /// an address bar and a status bar across a phone's short side and no
-        /// way at all to get them off again. A page cannot put itself back into
-        /// fullscreen; only a press can, and this is the press.
-        ///
-        /// Which is also why it has to be pressed rather than restored: the
-        /// gesture is what the browser is granting permission against. See
-        /// <see cref="FullscreenPrefs"/>.
-        /// </summary>
-        void ToggleFullscreen()
-        {
-            FullscreenPrefs.Toggle();
-            if (fsLabel != null) fsLabel.text = FullscreenLabel();
-            fsWas = FullscreenPrefs.On;
-        }
-
-        Text gradeLabel;
-
-        static string GradeLabel() => "FILM GRADE: " + FilmGradePrefs.Label;
-
-        /// <summary>
-        /// The faded-print grade over the whole picture (PSX/Blit). Ships ON;
-        /// PSXCameraOutput follows the pref on the next frame, so the frozen
-        /// frame behind this menu changes while the player is looking at it.
-        /// </summary>
-        void ToggleGrade()
-        {
-            FilmGradePrefs.Toggle();
-            if (gradeLabel != null) gradeLabel.text = GradeLabel();
-        }
-
-        Text lensLabel;
-        Text skyLabel;
-
-        static string SkyLabel() => "SKY: " + SkyModePrefs.Label;
-
-        /// <summary>The photographed sky or the computed one (SkyModePrefs).
-        /// TimeOfDay re-applies the hour's sky at once, so the frame behind
-        /// the menu changes while the player looks.</summary>
-        void ToggleSky()
-        {
-            SkyModePrefs.Toggle();
-            if (skyLabel != null) skyLabel.text = SkyLabel();
-        }
-
-        static string LensLabel() => "LENS FX: " + LensFxPrefs.Label;
-
-        /// <summary>
-        /// Rain drops and light bokeh on the lens (PSX/Lens, in the speed
-        /// blur's render feature). Ships ON. SpeedBlur reads the pref every
-        /// frame, like the blur's own (Update still ticks at timeScale 0), so
-        /// the paused frame behind this menu gains or loses its drops while
-        /// the player looks.
-        /// </summary>
-        void ToggleLens()
-        {
-            LensFxPrefs.Toggle();
-            if (lensLabel != null) lensLabel.text = LensLabel();
         }
 
         void ToggleDebug()
@@ -630,11 +440,22 @@ namespace PSXRacing
             menuBtnRT = (RectTransform)menuBtn.transform;
             PlaceMenuButton();
 
-            // Dimmed modal panel — GT2 charcoal with the blueprint grid, the
-            // same ground every LifeSim menu stands on, so pausing mid-race
-            // and standing in the garage read as one product.
+            // THE PAUSE SCREEN (2026-10-04). The things that act on the drive
+            // - RESUME, RESET CAR, the FUEL TRUCK, RESTART, EXIT - and under
+            // them the four pages of the settings menu, one press away. It
+            // used to be eleven rows and three columns of switches, which
+            // filled a phone's height and had nowhere to put a twelfth; the
+            // switches are in the tabbed menu now (SettingsPanel).
+            //
+            // On a MenuKit canvas of its own: matched to HEIGHT (the owner's
+            // rule; the MENU button's canvas keeps the touch panel's 50/50
+            // reference so it still stands over the wheel), GT2 charcoal with
+            // the blueprint grid, and laid out in fixed steps from the top of
+            // a 500-unit block - inside a phone's 560-unit column - centred in
+            // a taller one. Nothing measures a rect.
+            var pauseCanvas = LifeSim.MenuKit.Canvas(transform, "PauseCanvas", 200);
             panel = new GameObject("Panel");
-            panel.transform.SetParent(canvasGO.transform, false);
+            panel.transform.SetParent(pauseCanvas.transform, false);
             var bg = panel.AddComponent<Image>();
             bg.color = new Color(0.10f, 0.10f, 0.10f, 0.90f);
             var bgRT = bg.rectTransform;
@@ -642,176 +463,72 @@ namespace PSXRacing
             bgRT.offsetMin = Vector2.zero; bgRT.offsetMax = Vector2.zero;
             LifeSim.MenuKit.GridBackdrop(panel.transform);
 
-            var title = MakeText(panel.transform, "PAUSED", font, 34,
-                                 new Vector2(0.5f, 1f), new Vector2(0f, -70f));
-            title.fontStyle = FontStyle.Bold;
-            title.color = LifeSim.MenuKit.Accent;
+            var top = new Vector2(0.5f, 1f);
+            const float RowW = 420f, RowH = 44f, RowStep = 52f, BlockH = 500f;
+            float off = Mathf.Max(0f, (LifeSim.MenuKit.DesignHeight - BlockH) * 0.5f);
+            var title = LifeSim.MenuKit.Label(panel.transform, "PAUSED", 34, top, new Vector2(0f, -14f - off),
+                                              TextAnchor.MiddleCenter, LifeSim.MenuKit.Accent, 420f, 44f, bold: true);
+            title.name = "Title";
 
-            // Eleven rows in the height ten used to take. The panel already
-            // reached the bottom of a 16:9 canvas at ten, and on a 20:9 phone
-            // the scaler leaves under 650 units of height to put them in — so a
-            // new row has to come out of the pitch rather than out of the
-            // screen. It was 44 in a 49 step for eleven; SPEED LINES (the row
-            // SPEED BLUR has now) made it twelve at 40 in a 45 step.
-            //
-            // AND TWELVE WAS ONE TOO MANY. At the phone aspect the scaler
-            // leaves 641 units of height, and the twelfth row ran -603 to -643
-            // with the footer under it at -657: the last row hung two units off
-            // the bottom edge and the footer line was gone entirely. Nothing
-            // said so, because the preview only ever asked whether the DEBUG
-            // button was on the canvas. It asks about every row now, which is
-            // how this surfaced.
-            //
-            // The pitch is not the thing to cut again — 40 units is already
-            // about 20 CSS pixels of thumb on a phone. The row came out
-            // instead: TOGGLE DEBUG INFO now stands beside the column with the
-            // other three that do, and it is the right one to move, being the
-            // only row here a player has no reason to press. Eleven rows put
-            // the last one at -108 - 10*45 = -558 and the footer at -608,
-            // bottom -633, inside 641 with eight units to spare.
-            const float RowH = 40f, RowStep = 45f;
-            var rowSize = new Vector2(360f, RowH);
-            float y = -108f;
+            float y = -72f - off;
             menuItems.Clear();
+            pageBtns.Clear();
             // Order matters twice over: it is the reading order AND the pad's
-            // navigation order, because the graph below is built from it.
-            menuItems.Add(MakeButton(panel.transform, "RESUME", font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), rowSize, 22, Resume)); y -= RowStep;
-            // The camera cycle lives here as well as on C / triangle / the CAM
-            // pad button, because a menu row is the only one of the four that
-            // says out loud that there are six views.
-            var camBtn = MakeButton(panel.transform, CameraLabel(), font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), rowSize, 20, CycleCamera);
-            camLabel = camBtn.GetComponentInChildren<Text>();
-            menuItems.Add(camBtn); y -= RowStep;
-            var pixelBtn = MakeButton(panel.transform, PixelLabel(), font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), rowSize, 20, CyclePixels);
-            pixelLabel = pixelBtn.GetComponentInChildren<Text>();
-            menuItems.Add(pixelBtn); y -= RowStep;
-            var bulbBtn = MakeButton(panel.transform, BulbLabel(), font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), rowSize, 20, CycleBulb);
-            bulbLabel = bulbBtn.GetComponentInChildren<Text>();
-            menuItems.Add(bulbBtn); y -= RowStep;
-            // Next to the other two things about how the picture reads, and
-            // above LOOK Y, which is about walking rather than driving.
-            var unitBtn = MakeButton(panel.transform, UnitLabel(), font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), rowSize, 20, CycleUnits);
-            unitLabel = unitBtn.GetComponentInChildren<Text>();
-            menuItems.Add(unitBtn); y -= RowStep;
-            var lookBtn = MakeButton(panel.transform, LookLabel(), font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), rowSize, 20, ToggleLook);
-            lookLabel = lookBtn.GetComponentInChildren<Text>();
-            menuItems.Add(lookBtn); y -= RowStep;
-            // With the other picture settings, under LOOK Y so the driving
-            // rows stay together above the walking one.
-            var blurBtn = MakeButton(panel.transform, BlurLabel(), font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), rowSize, 20, ToggleBlur);
-            blurLabel = blurBtn.GetComponentInChildren<Text>();
-            menuItems.Add(blurBtn); y -= RowStep;
-            menuItems.Add(MakeButton(panel.transform, "RESET CAR (UNSTICK)", font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), rowSize, 20, ResetCar)); y -= RowStep;
-            // Above RESTART rather than below it: a player opening this menu
-            // with a dead engine is here for one of these two rows, and the
-            // cheap one should be the one they reach first.
-            var fuelBtn = MakeButton(panel.transform, FuelLabel(), font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), rowSize, 20, CallFuelTruck);
-            fuelLabel = fuelBtn.GetComponentInChildren<Text>();
-            menuItems.Add(fuelBtn); y -= RowStep;
-            menuItems.Add(MakeButton(panel.transform, "RESTART RACE", font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), rowSize, 22, RestartRace)); y -= RowStep;
-            menuItems.Add(MakeButton(panel.transform, "EXIT TO MENU", font, new Vector2(0.5f, 1f),
-                       new Vector2(0f, y), rowSize, 22, ExitToMenu)); y -= 50f;
-
-            MakeText(panel.transform, "START / ESC CLOSES  ·  B / CIRCLE BACKS OUT", font, 15,
-                     new Vector2(0.5f, 1f), new Vector2(0f, y)).color = LifeSim.MenuKit.Dim;
-
-            // THE CONTROLS BESIDE THE COLUMN stand there for one reason:
-            // eleven rows already fill the height a wide phone has (see the
-            // pitch note above), so a twelfth is the one that falls off the
-            // bottom. Each sits on the line of the row it belongs with, which
-            // is what the geometric graph needs to reach it with LEFT or RIGHT.
-
-            // THE DEBUG BENCH, in a debug career - or a Charlotte-edition
-            // drive with its own debug switch on - on RESUME's line.
-            if (LifeSim.DebugCarOps.BenchAvailable)
+            // navigation order until the geometric graph takes over.
+            Button Row(string label, UnityEngine.Events.UnityAction act)
             {
-                // (Was "DEBUG: FAULTS + PARTS" until the bench grew a WORLD
-                // page and a CAR page — hour, weather, a different car.)
-                benchBtn = MakeButton(panel.transform, "DEBUG BENCH", font,
-                           new Vector2(0.5f, 1f), new Vector2(344f, -108f),
-                           new Vector2(300f, RowH), 19, OpenBench);
-                benchBtn.GetComponent<Image>().color = new Color(0.62f, 0.36f, 0.86f, 0.42f);
-                menuItems.Add(benchBtn);
+                var b = LifeSim.MenuKit.Button(panel.transform, label, top, new Vector2(0f, y),
+                                               new Vector2(RowW, RowH), act, LifeSim.MenuKit.Small);
+                menuItems.Add(b);
+                y -= RowStep;
+                return b;
             }
-
-            // THE PHYSICS READOUT, under the bench on the right. It used to be
-            // the twelfth row of the column, which is to say the row that hung
-            // off the bottom of a phone — and it is the one row in this menu
-            // that a player has no reason ever to press, so it is the one that
-            // moves. On CAMERA's line.
-            menuItems.Add(MakeButton(panel.transform, "TOGGLE DEBUG INFO", font,
-                       new Vector2(0.5f, 1f), new Vector2(344f, -108f - RowStep),
-                       new Vector2(300f, RowH), 19, ToggleDebug));
-
-            // CREDITS, under the physics readout on the right, on PIXELS's
-            // line: the full credit and licence lines of the map and terrain
-            // data (plan critic C17). Beside the column for the same reason as
-            // the two above it - the column is full.
-            creditsBtn = MakeButton(panel.transform, "CREDITS", font,
-                       new Vector2(0.5f, 1f), new Vector2(344f, -108f - 2f * RowStep),
-                       new Vector2(300f, RowH), 19, OpenCredits);
-            menuItems.Add(creditsBtn);
-
-            // LENS FX, directly ABOVE FILM GRADE on the left, on LOOK Y's
-            // line: the three picture-on-the-glass switches (lens, grade,
-            // fullscreen) stack as one little column of their own beside the
-            // big one, which is full — a twelfth row there is the row that
-            // falls off a phone (see the pitch note above). Same 280 x 40 and
-            // x -334 as FILM GRADE, so it fits a 4:3 tablet's half-width
-            // exactly as that one does. Added before FILM GRADE so the
-            // creation-order chain MenuNav.Column builds first (before the
-            // geometric graph takes over) reads top to bottom.
-            // SKY, above LENS FX on the left (on the fifth row's line): the
-            // owner's PHOTO / DYNAMIC switch, placed beside the full column
-            // like the other picture switches.
-            var skyBtn = MakeButton(panel.transform, SkyLabel(), font,
-                       new Vector2(0.5f, 1f), new Vector2(-334f, -108f - 4f * RowStep),
-                       new Vector2(280f, RowH), 19, ToggleSky);
-            skyLabel = skyBtn.GetComponentInChildren<Text>();
-            menuItems.Add(skyBtn);
-
-            var lensBtn = MakeButton(panel.transform, LensLabel(), font,
-                       new Vector2(0.5f, 1f), new Vector2(-334f, -108f - 5f * RowStep),
-                       new Vector2(280f, RowH), 19, ToggleLens);
-            lensLabel = lensBtn.GetComponentInChildren<Text>();
-            menuItems.Add(lensBtn);
-
-            // FILM GRADE, to the LEFT of the picture rows it belongs with, on
-            // SPEED BLUR's line.
-            var gradeBtn = MakeButton(panel.transform, GradeLabel(), font,
-                       new Vector2(0.5f, 1f), new Vector2(-334f, -108f - 6f * RowStep),
-                       new Vector2(280f, RowH), 19, ToggleGrade);
-            gradeLabel = gradeBtn.GetComponentInChildren<Text>();
-            menuItems.Add(gradeBtn);
-
-            // FULLSCREEN, directly under FILM GRADE on the left, on RESET CAR's
-            // line. Left out entirely where the platform cannot do it — an
-            // iPhone, or an embed with no fullscreen permission — because a row
-            // that is guaranteed to do nothing when pressed is worse than no row.
-            if (FullscreenPrefs.Supported)
+            Row("RESUME", Resume);
+            Row("RESET CAR (UNSTICK)", ResetCar);
+            // Where it applies: a car with a tank. Above RESTART, because a
+            // player opening this menu with a dead engine is here for one of
+            // these two rows, and the cheap one should be reached first.
+            if (Tank != null || PreviewFuelRow)
             {
-                var fsBtn = MakeButton(panel.transform, FullscreenLabel(), font,
-                           new Vector2(0.5f, 1f), new Vector2(-334f, -108f - 7f * RowStep),
-                           new Vector2(280f, RowH), 19, ToggleFullscreen);
-                fsLabel = fsBtn.GetComponentInChildren<Text>();
-                fsWas = FullscreenPrefs.On;
-                menuItems.Add(fsBtn);
+                var fuelBtn = Row(FuelLabel(), CallFuelTruck);
+                fuelLabel = fuelBtn.GetComponentInChildren<Text>();
             }
+            Row("RESTART RACE", RestartRace);
+            Row("EXIT TO MENU", ExitToMenu);
+
+            // The four pages, as one strip under the column: a press opens the
+            // settings menu at that page (where LB / RB walk the others).
+            y -= 6f;
+            var head = LifeSim.MenuKit.Label(panel.transform, "OPTIONS", LifeSim.MenuKit.MinLabelSize, top,
+                                             new Vector2(0f, y), TextAnchor.MiddleCenter, LifeSim.MenuKit.Dim,
+                                             300f, 26f, bold: true);
+            head.name = "OptionsHead";
+            y -= 30f;
+            int pages = SettingsCatalog.TabNames.Length;
+            float stripW = Mathf.Min(760f, LifeSim.MenuKit.HalfWidth * 2f - 80f);
+            const float Gap = 10f;
+            float cell = (stripW - (pages - 1) * Gap) / pages;
+            for (int i = 0; i < pages; i++)
+            {
+                var page = (SettingsTab)i;
+                var pb = LifeSim.MenuKit.Button(panel.transform, SettingsCatalog.TabNames[i], top,
+                                                new Vector2(-stripW * 0.5f + cell * 0.5f + i * (cell + Gap), y),
+                                                new Vector2(cell, RowH), () => OpenSettings(page),
+                                                LifeSim.MenuKit.Small);
+                pb.name = "Btn_page_" + SettingsCatalog.TabNames[i];
+                pageBtns.Add(pb);
+                menuItems.Add(pb);
+            }
+            y -= RowH + 18f;
+
+            var foot = LifeSim.MenuKit.Label(panel.transform, "START / ESC CLOSES  ·  B / CIRCLE BACKS OUT",
+                                             LifeSim.MenuKit.MinLabelSize, top, new Vector2(0f, y),
+                                             TextAnchor.MiddleCenter, LifeSim.MenuKit.Dim, stripW, 26f);
+            foot.name = "Footer";
 
             MenuNav.Column(menuItems);
             var navWatch = MenuNav.Watch(gameObject, menuItems[0]);
             MenuNav.Defer(navWatch, null, menuItems, null);
-
             // Debug readout lives outside the panel so it stays up while driving
             var dbgGO = new GameObject("DebugText");
             dbgGO.transform.SetParent(canvasGO.transform, false);

@@ -110,6 +110,10 @@ namespace PSXRacing.EditorTools
             Shoot(outDir, "bench_car_make", car, DebugCarPanel.Page.Car, make: longest);
 
             ShootPause(outDir, "bench_pause");
+            ShootPause(outDir, "settings_gameplay", SettingsTab.Gameplay);
+            ShootPause(outDir, "settings_visuals", SettingsTab.Visuals);
+            ShootPause(outDir, "settings_audio", SettingsTab.Audio);
+            ShootPause(outDir, "settings_settings", SettingsTab.System);
             ShootCredits(outDir, "bench_credits");
 
             RaceHandoff.ClearAll();
@@ -164,11 +168,25 @@ namespace PSXRacing.EditorTools
             }
         }
 
-        /// <summary>The pause menu as a debug career sees it mid-drive, with
-        /// the bench's button beside RESUME.</summary>
-        static void ShootPause(string outDir, string label)
+        /// <summary>The pause screen and the four pages of the settings menu
+        /// (2026-10-04) at the bench's three aspects plus two phones held in
+        /// landscape - every control on the canvas, every one reachable by
+        /// pad, no caption past its button, no glyph clipped or printed over
+        /// another.</summary>
+        static readonly (string name, int w, int h)[] PauseSizes =
         {
-            foreach (var size in Sizes)
+            ("phone_wide", 1998, 891),
+            ("landscape_16x9", 1280, 720),
+            ("tablet_4x3", 1024, 768),
+            ("phone_640x360", 640, 360),
+            ("phone_780x340", 780, 340),
+        };
+
+        /// <summary>A debug career mid-drive: the pause screen, or (with a
+        /// tab) the settings menu open over it at that page.</summary>
+        static void ShootPause(string outDir, string label, SettingsTab? tab = null)
+        {
+            foreach (var size in PauseSizes)
             {
                 var cam = NewStage(size.w, size.h, out var rt);
                 MenuKit.ScreenSizeOverride = new Vector2(size.w, size.h);
@@ -177,6 +195,9 @@ namespace PSXRacing.EditorTools
 
                 var host = new GameObject("GameSystems");
                 var menu = host.AddComponent<PauseMenu>();
+                // The fuel row is a car's; there is no car here, so ask for it
+                // outright - the screen is photographed at its tallest.
+                PauseMenu.PreviewFuelRow = true;
                 // BuildUI rather than Start: Start closes the panel again on
                 // its last line, and a photograph of a closed menu is a
                 // photograph of the MENU button.
@@ -184,64 +205,74 @@ namespace PSXRacing.EditorTools
                     BindingFlags.NonPublic | BindingFlags.Instance);
                 if (build == null) { Debug.LogError("[BenchPreview] no PauseMenu.BuildUI"); return; }
                 build.Invoke(menu, null);
+                PauseMenu.PreviewFuelRow = false;
+                if (tab.HasValue) menu.OpenSettings(tab.Value);
 
                 Repoint(cam, size.w, size.h);
+                string where = label + "/" + size.name;
 
-                // EVERY control, not just the bench's. The three buttons that
-                // stand BESIDE the column — the bench, FILM GRADE, FULLSCREEN —
-                // are placed by hand at a fixed offset from the centre, and
-                // whether that offset is still on the canvas is a question
-                // about the aspect, not about which button it is. Checking one
-                // of the three proved nothing about the other two.
-                bool found = false;
+                // EVERY control and every line of text on the canvas: a layout
+                // in fixed steps is a question about the aspect, and the
+                // footer and the BACK button, being lowest, are what falls off
+                // a phone first.
                 var offCanvas = new List<string>();
-                foreach (var b in host.GetComponentsInChildren<Button>(true))
-                {
-                    if (b.name.Contains("DEBUG BENCH")) found = true;
-                    var r = (RectTransform)b.transform;
-                    var corners = new Vector3[4];
-                    r.GetWorldCorners(corners);
-                    var canvasRT = (RectTransform)b.GetComponentInParent<Canvas>().transform;
-                    var cc = new Vector3[4];
-                    canvasRT.GetWorldCorners(cc);
-                    bool inside = corners[0].x >= cc[0].x - 0.01f && corners[2].x <= cc[2].x + 0.01f &&
-                                  corners[0].y >= cc[0].y - 0.01f && corners[2].y <= cc[2].y + 0.01f;
-                    if (!inside) offCanvas.Add(b.name);
-                }
-                // And the panel's own two lines of text — the title and the
-                // footer under the last row. The footer is the part of this
-                // menu that fell off a phone FIRST, being below everything
-                // else, and being unpressable it could do so without anyone
-                // noticing. Direct children of the panel: a button's caption is
-                // parented to the button and is CheckOverflow's business.
-                foreach (var t in host.GetComponentsInChildren<Text>(true))
-                {
-                    if (t.transform.parent == null || t.transform.parent.name != "Panel") continue;
-                    var tr = (RectTransform)t.transform;
-                    var tc = new Vector3[4];
-                    tr.GetWorldCorners(tc);
-                    var canvasRT = (RectTransform)t.GetComponentInParent<Canvas>().transform;
-                    var cc2 = new Vector3[4];
-                    canvasRT.GetWorldCorners(cc2);
-                    // Vertically only: these are centred lines with a generous
-                    // 420-unit box that is wider than the words in it.
-                    if (tc[0].y < cc2[0].y - 0.01f || tc[2].y > cc2[2].y + 0.01f)
+                foreach (var b in host.GetComponentsInChildren<Selectable>(false))
+                    if (!Inside((RectTransform)b.transform)) offCanvas.Add(b.name);
+                foreach (var t in host.GetComponentsInChildren<Text>(false))
+                    if (!string.IsNullOrEmpty(t.text) && !InsideY((RectTransform)t.transform))
                         offCanvas.Add("\"" + t.text + "\"");
+                if (offCanvas.Count > 0)
+                    Debug.LogError("[BenchPreview] " + where + " OFF THE CANVAS — " + string.Join(", ", offCanvas));
+                else Debug.Log("[BenchPreview] " + where + " every control and line is on the canvas");
+
+                bool Has(string name)
+                {
+                    foreach (var b in host.GetComponentsInChildren<Selectable>(false))
+                        if (b.name == name) return true;
+                    return false;
+                }
+                if (!tab.HasValue)
+                {
+                    foreach (var n in SettingsCatalog.TabNames)
+                        if (!Has("Btn_page_" + n))
+                            Debug.LogError("[BenchPreview] " + where + " NO CONTROLS - no " + n + " door on the pause screen");
+                }
+                else
+                {
+                    var sp = host.GetComponent<SettingsPanel>();
+                    if (sp == null || !sp.IsOpen)
+                        Debug.LogError("[BenchPreview] " + where + " NO CONTROLS - the settings menu did not open");
+                    if (tab.Value == SettingsTab.System && !Has("Btn_DEBUG BENCH"))
+                        Debug.LogError("[BenchPreview] " + where + " NO BENCH BUTTON in a debug career's SETTINGS page");
+                    if (tab.Value == SettingsTab.Gameplay && !Has("Slider_STEERING"))
+                        Debug.LogError("[BenchPreview] " + where + " NO CONTROLS - no STEERING slider on GAMEPLAY");
                 }
 
-                if (offCanvas.Count > 0)
-                    Debug.LogError("[BenchPreview] " + label + "/" + size.name +
-                                   " OFF THE CANVAS — " + string.Join(", ", offCanvas));
-                else Debug.Log("[BenchPreview] " + label + "/" + size.name +
-                               " every pause row is on the canvas");
-                if (!found) Debug.LogError("[BenchPreview] " + label + "/" + size.name +
-                                           " NO BENCH BUTTON in a debug career's pause menu");
-
-                CheckReach(host.transform, label + "/" + size.name);
-                CheckOverflow(host.transform, label + "/" + size.name);
-                LifeHomePreview.ReportClippedText(cam, label + "/" + size.name, size.w, size.h);
+                CheckReach(host.transform, where);
+                CheckOverflow(host.transform, where);
+                LifeHomePreview.ReportClippedText(cam, where, size.w, size.h);
                 Snap(cam, rt, size.w, size.h, Path.Combine(outDir, label + "_" + size.name + ".png"));
             }
+        }
+
+        static bool Inside(RectTransform r)
+        {
+            var corners = new Vector3[4];
+            r.GetWorldCorners(corners);
+            var cc = new Vector3[4];
+            ((RectTransform)r.GetComponentInParent<Canvas>().transform).GetWorldCorners(cc);
+            return corners[0].x >= cc[0].x - 0.01f && corners[2].x <= cc[2].x + 0.01f &&
+                   corners[0].y >= cc[0].y - 0.01f && corners[2].y <= cc[2].y + 0.01f;
+        }
+
+        /// <summary>Vertically only: a centred line's box is wider than its words.</summary>
+        static bool InsideY(RectTransform r)
+        {
+            var corners = new Vector3[4];
+            r.GetWorldCorners(corners);
+            var cc = new Vector3[4];
+            ((RectTransform)r.GetComponentInParent<Canvas>().transform).GetWorldCorners(cc);
+            return corners[0].y >= cc[0].y - 0.01f && corners[2].y <= cc[2].y + 0.01f;
         }
 
         /// <summary>The CREDITS page the pause menu opens (plan critic C17):

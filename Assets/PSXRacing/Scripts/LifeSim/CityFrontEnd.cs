@@ -15,7 +15,7 @@ namespace PSXRacing.LifeSim
     /// small one in its place, in the same GT2 amber-on-charcoal chrome
     /// (MenuKit): FREE ROAM, the Charlotte races, a car picker over the whole
     /// catalog, the hour and the weather, and the same OPTIONS rows MAIN has
-    /// (LifeHomeScreen.OptionSpecs — one list, two pages).
+    /// (the settings menu, SettingsPanel over SettingsCatalog — one list).
     ///
     /// NOTHING HERE TOUCHES A CAREER. LifeSimManager.State creates one on
     /// first touch, and the city has none: a race or a drive hands the scene a
@@ -333,18 +333,24 @@ namespace PSXRacing.LifeSim
             float y = -14f;
             PageHeader(ref y, "OPTIONS", () => Go("drive"));
             float w = Mathf.Min(ColW, 460f);
-            foreach (var o in LifeHomeScreen.OptionSpecs())
+            // The four pages of the settings menu, one line: the same page the
+            // pause menu opens (SettingsPanel over SettingsCatalog).
+            int n = SettingsCatalog.TabNames.Length;
+            float cw = Mathf.Min(200f, (ColW - 10f * (n - 1)) / n);
+            float total = cw * n + 10f * (n - 1);
+            for (int i = 0; i < n; i++)
             {
-                var apply = o.apply;
-                Named(MenuKit.Button(body, o.name + ":  " + o.value(), new Vector2(0.5f, 1f),
-                    new Vector2(0f, y), new Vector2(w, 48f), () => { apply(); Rebuild(); }, 18),
-                    "opt_" + o.name);
-                y -= 46f;
-                var l = MenuKit.Label(body, o.blurb, 17, new Vector2(0.5f, 1f), new Vector2(ColL, y),
-                    TextAnchor.MiddleLeft, MenuKit.Dim, ColW, height: 24f);
-                MenuKit.FitOneLine(l, ColW);
-                y -= 34f;
+                var page = (SettingsTab)i;
+                Named(MenuKit.Button(body, SettingsCatalog.TabNames[i], new Vector2(0.5f, 1f),
+                    new Vector2(-total * 0.5f + cw * 0.5f + i * (cw + 10f), y), new Vector2(cw, 52f),
+                    () => OpenSettings(page), MenuKit.Small), "page_" + SettingsCatalog.TabNames[i]);
             }
+            y -= 66f;
+            MenuKit.Para(body, "Steering and the instruments, the picture, the sound, the screen. " +
+                "The pause menu in a drive opens the same four pages.",
+                MenuKit.MinLabelSize, new Vector2(0.5f, 1f), new Vector2(ColL, y), out float sh,
+                TextAnchor.UpperLeft, MenuKit.Dim, ColW);
+            y -= sh + 14f;
             // This edition has no career to keep a debug flag in, so it has a
             // switch of its own (2026-10-02): the pause menu then carries the
             // DEBUG BENCH's WORLD (hour, weather, date) and MAP (jump anywhere).
@@ -352,13 +358,28 @@ namespace PSXRacing.LifeSim
                 new Vector2(0f, y), new Vector2(w, 48f), () => { DebugCarOps.CityDebug = !DebugCarOps.CityDebug; Rebuild(); }, 18),
                 "opt_debug");
             y -= 46f;
-            var dl = MenuKit.Label(body, "Pause menu: DEBUG BENCH - hour, weather, date, and a map to jump anywhere in the city.",
-                17, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, ColW, height: 24f);
-            MenuKit.FitOneLine(dl, ColW);
-            y -= 34f;
-            MenuKit.Para(body, "The pause menu inside a drive carries most of these, plus the camera and RESET CAR.",
-                17, new Vector2(0.5f, 1f), new Vector2(ColL, y - 8f), out float h,
+            MenuKit.Para(body, "In a drive, the SETTINGS page then has the DEBUG BENCH - hour, weather, date, and a map to jump anywhere in the city.",
+                MenuKit.MinLabelSize, new Vector2(0.5f, 1f), new Vector2(ColL, y), out float dh,
                 TextAnchor.UpperLeft, MenuKit.Dim, ColW);
+            y -= dh + 10f;
+        }
+
+        // The settings menu (2026-10-04): its own page over this one.
+        SettingsPanel settings;
+
+        void OpenSettings(SettingsTab at)
+        {
+            if (settings == null)
+            {
+                settings = gameObject.AddComponent<SettingsPanel>();
+                settings.onClosed = () =>
+                {
+                    if (this == null || body == null) return;
+                    var b = body.Find("Btn_page_" + SettingsCatalog.TabNames[(int)settings.Tab]);
+                    if (b != null) MenuNav.Select(b.GetComponent<Selectable>());
+                };
+            }
+            settings.Open(at);
         }
 
         // =================== the result ===================
@@ -598,6 +619,9 @@ namespace PSXRacing.LifeSim
 
         void Update()
         {
+            // The settings menu owns the keys while it is up, and for the
+            // frame it closed on (B / Escape would also walk this page back).
+            if (settings != null && (settings.IsOpen || settings.ClosedFrame == Time.frameCount)) return;
             if (statusText != null && Time.unscaledTime >= toastExpires)
             {
                 Destroy(statusText.transform.parent.gameObject);

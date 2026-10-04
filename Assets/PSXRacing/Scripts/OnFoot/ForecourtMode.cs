@@ -471,7 +471,7 @@ namespace PSXRacing.OnFoot
         void Play(AudioClip clip, float volume)
         {
             if (carAudio == null || clip == null) return;
-            carAudio.PlayOneShot(clip, volume);
+            carAudio.PlayOneShot(clip, volume * AudioPrefs.Effects);
         }
 
         // ------------------------------------------------------------------
