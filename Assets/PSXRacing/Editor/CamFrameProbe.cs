@@ -122,6 +122,9 @@ namespace PSXRacing.EditorTools
             public List<Vector3> verts = new List<Vector3>();
             public List<int> tris = new List<int>();
             public List<Vector3> localVerts = new List<Vector3>();
+            /// <summary>Per vertex in <see cref="verts"/>: false for the
+            /// exhaust (<see cref="ExhaustMask"/>), which the framing ignores.</summary>
+            public List<bool> framed = new List<bool>();
         }
 
         struct Pose
@@ -376,6 +379,8 @@ namespace PSXRacing.EditorTools
             foreach (var wf in body.wheelFilters) if (wf != null) filters.Add(wf);
             float minX = float.MaxValue, maxX = float.MinValue, minZ = float.MaxValue, maxZ = float.MinValue;
             float minY = float.MaxValue, maxY = float.MinValue;
+            int bodyFrom = -1, bodyCount = 0;
+            List<int> bodyTris = null;
             foreach (var mf in filters)
             {
                 var mesh = mf.sharedMesh;
@@ -386,6 +391,7 @@ namespace PSXRacing.EditorTools
                 int baseI = geo.verts.Count;
                 var m = mf.transform.localToWorldMatrix;
                 bool isBody = mf == body.bodyFilter;
+                if (isBody) { bodyFrom = baseI; bodyCount = vs.Length; bodyTris = new List<int>(mesh.triangles); }
                 foreach (var v in vs)
                 {
                     Vector3 wv = m.MultiplyPoint3x4(v);
@@ -401,6 +407,21 @@ namespace PSXRacing.EditorTools
                 for (int i = 0; i < tr.Length; i++) geo.tris.Add(baseI + tr[i]);
             }
             if (geo.verts.Count == 0) { Debug.LogError("[CamFrame] FAIL no mesh on " + key); return null; }
+            // The exhaust does not frame the car (ExhaustMask), measured on the
+            // body in its NATIVE width, as the silhouette table is.
+            for (int i = 0; i < geo.verts.Count; i++) geo.framed.Add(true);
+            if (bodyFrom >= 0)
+            {
+                float bsx = Mathf.Max(body.WidthScale, 0.01f);
+                var native = new List<Vector3>(bodyCount);
+                for (int i = 0; i < bodyCount; i++)
+                {
+                    var lv = geo.localVerts[bodyFrom + i];
+                    native.Add(new Vector3(lv.x / bsx, lv.y, lv.z));
+                }
+                var exhaust = ExhaustMask(native, bodyTris);
+                for (int i = 0; i < bodyCount; i++) geo.framed[bodyFrom + i] = !exhaust[i];
+            }
             var box = player.GetComponent<BoxCollider>();
             geo.boxCenter = box != null ? box.center : Vector3.zero;
             geo.boxSize = box != null ? box.size : Vector3.one;
@@ -501,7 +522,169 @@ namespace PSXRacing.EditorTools
                 Vector3 lv = player.transform.InverseTransformPoint(mx.MultiplyPoint3x4(v));
                 list.Add(new Vector3(lv.x / sx, lv.y, lv.z));
             }
-            return list;
+            // "Camera ignores exhausts" (owner, 2026-10-04): the framing is
+            // measured off the bodywork only.
+            var exhaust = ExhaustMask(list, new List<int>(mesh.triangles));
+            var framed = new List<Vector3>(list.Count);
+            for (int i = 0; i < list.Count; i++) if (!exhaust[i]) framed.Add(list[i]);
+            return framed;
+        }
+
+        // ------------------------------------------------------------------
+        //  The exhaust does not frame the car
+        // ------------------------------------------------------------------
+        /// <summary>The rear zone an exhaust is looked for in (metres forward
+        /// of the rearmost point), the rear-view profile's bin, how far under
+        /// the bumper's lower edge a dip must hang, the gap two dips may leave
+        /// and still be one part (twin outlets on one silencer), the widest a
+        /// part may be and still be an exhaust, and the margin under the
+        /// edge a vertex must sit to be dropped.</summary>
+        const float ExhaustZoneM = 0.5f, ExhaustBinM = 0.025f, ExhaustDropM = 0.04f,
+                    ExhaustGapM = 0.1f, ExhaustMaxWidthM = 0.4f, ExhaustMarginM = 0.01f;
+
+        /// <summary>
+        /// "Camera ignores exhausts" (owner, 2026-10-04). The S13 and the FD
+        /// hang their silencers to 0.13 m within half a metre of the tail, and
+        /// a rig that keeps the tail's lowest edge in frame backed off from
+        /// them until the car filled a quarter of the frame instead of a third.
+        /// So exhaust tips and silencers do not frame the car: the camera
+        /// frames the bodywork and lets them drop out of the bottom of the
+        /// picture. The shells are one merged mesh with no part names, so an
+        /// exhaust is found by shape. Seen from behind, the lower edge of
+        /// everything in the last <see cref="ExhaustZoneM"/> (true
+        /// cross-sections of the triangles, every <see cref="ExhaustBinM"/>
+        /// across) has the rear bumper's lower edge as its median. A narrow
+        /// dip under that, at most <see cref="ExhaustMaxWidthM"/> wide and at
+        /// least <see cref="ExhaustDropM"/> deep, is a small low protrusion:
+        /// an exhaust. Its vertices in the zone that sit under the edge are
+        /// masked, and so is every narrow mesh island over it that hangs under
+        /// the edge (the silencer and tips whole, where they are modelled as
+        /// parts). A floor or diffuser as wide as the car is never a dip.
+        /// Input is car-local (y up, z forward), x native; returns true per
+        /// exhaust vertex.
+        /// </summary>
+        static bool[] ExhaustMask(List<Vector3> v, List<int> tris)
+        {
+            var mask = new bool[v.Count];
+            if (v.Count == 0 || tris == null || tris.Count < 3) return mask;
+            float tail = float.MaxValue;
+            foreach (var q in v) tail = Mathf.Min(tail, q.z);
+            float zone = tail + ExhaustZoneM;
+            float x0 = float.MaxValue, x1 = float.MinValue;
+            foreach (var q in v)
+                if (q.z < zone) { x0 = Mathf.Min(x0, q.x); x1 = Mathf.Max(x1, q.x); }
+            if (x1 <= x0) return mask;
+            int nb = Mathf.Max(1, Mathf.CeilToInt((x1 - x0) / ExhaustBinM));
+            var low = new float[nb];
+            for (int i = 0; i < nb; i++) low[i] = float.PositiveInfinity;
+            for (int t = 0; t + 2 < tris.Count; t += 3)
+            {
+                Vector3 a = v[tris[t]], b = v[tris[t + 1]], c = v[tris[t + 2]];
+                if (a.z >= zone && b.z >= zone && c.z >= zone) continue;
+                float tx0 = Mathf.Min(a.x, Mathf.Min(b.x, c.x)), tx1 = Mathf.Max(a.x, Mathf.Max(b.x, c.x));
+                for (int i = Mathf.Max(0, Mathf.CeilToInt((tx0 - x0) / ExhaustBinM - 0.5f)); i < nb; i++)
+                {
+                    float xc = x0 + (i + 0.5f) * ExhaustBinM;
+                    if (xc > tx1) break;
+                    CutLow(a, b, xc, zone, ref low[i]);
+                    CutLow(b, c, xc, zone, ref low[i]);
+                    CutLow(c, a, xc, zone, ref low[i]);
+                }
+            }
+            var sorted = new List<float>();
+            foreach (float y in low) if (!float.IsInfinity(y)) sorted.Add(y);
+            if (sorted.Count == 0) return mask;
+            sorted.Sort();
+            float edge = sorted[sorted.Count / 2];
+
+            // Dips under the edge, two closer than ExhaustGapM being one part.
+            var runs = new List<Vector2Int>();
+            for (int i = 0; i < nb; i++)
+            {
+                if (float.IsInfinity(low[i]) || low[i] >= edge - ExhaustDropM) continue;
+                int last = runs.Count > 0 ? runs[runs.Count - 1].y : int.MinValue / 2;
+                if (runs.Count > 0 && (i - last - 1) * ExhaustBinM <= ExhaustGapM)
+                    runs[runs.Count - 1] = new Vector2Int(runs[runs.Count - 1].x, i);
+                else runs.Add(new Vector2Int(i, i));
+            }
+            var dips = new List<Vector2>();
+            foreach (var r in runs)
+            {
+                if ((r.y - r.x + 1) * ExhaustBinM > ExhaustMaxWidthM) continue;
+                dips.Add(new Vector2(x0 + r.x * ExhaustBinM, x0 + (r.y + 1) * ExhaustBinM));
+                float xa = x0 + (r.x - 1) * ExhaustBinM, xb = x0 + (r.y + 2) * ExhaustBinM;
+                for (int i = 0; i < v.Count; i++)
+                {
+                    var q = v[i];
+                    if (q.z < zone && q.x >= xa && q.x <= xb && q.y < edge - ExhaustMarginM) mask[i] = true;
+                }
+            }
+            if (dips.Count == 0) return mask;
+
+            // The whole part, where it is a part: a silencer or a tip modelled
+            // as its own mesh island (the S13's and the FD's are) goes out
+            // entire, up its sides to where it meets the floor, and the half of
+            // a silencer that runs forward out of the zone with it. An island is
+            // the exhaust when it is narrow, reaches into the rear zone, hangs
+            // under the bumper's edge and stands over a dip. Islands are found
+            // on positions welded to the millimetre (the importer splits
+            // vertices along UV seams).
+            var weld = new Dictionary<Vector3Int, int>();
+            var rep = new int[v.Count];
+            for (int i = 0; i < v.Count; i++)
+            {
+                var k = Vector3Int.RoundToInt(v[i] * 1000f);
+                if (!weld.TryGetValue(k, out int id)) { id = weld.Count; weld[k] = id; }
+                rep[i] = id;
+            }
+            var parent = new int[weld.Count];
+            for (int i = 0; i < parent.Length; i++) parent[i] = i;
+            int Find(int a) { while (parent[a] != a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; }
+            void Union(int a, int b) { a = Find(a); b = Find(b); if (a != b) parent[a] = b; }
+            for (int t = 0; t + 2 < tris.Count; t += 3)
+            {
+                Union(rep[tris[t]], rep[tris[t + 1]]);
+                Union(rep[tris[t + 1]], rep[tris[t + 2]]);
+            }
+            var lo = new Dictionary<int, Vector4>();   // island -> (x min, x max, y min, z min)
+            for (int i = 0; i < v.Count; i++)
+            {
+                int c = Find(rep[i]);
+                var q = v[i];
+                lo[c] = lo.TryGetValue(c, out var b)
+                    ? new Vector4(Mathf.Min(b.x, q.x), Mathf.Max(b.y, q.x), Mathf.Min(b.z, q.y), Mathf.Min(b.w, q.z))
+                    : new Vector4(q.x, q.x, q.y, q.z);
+            }
+            var exhaustIsland = new HashSet<int>();
+            foreach (var kv in lo)
+            {
+                var b = kv.Value;
+                if (b.y - b.x > ExhaustMaxWidthM || b.w >= zone || b.z >= edge) continue;
+                foreach (var d in dips)
+                    if (b.x < d.y && b.y > d.x) { exhaustIsland.Add(kv.Key); break; }
+            }
+            if (exhaustIsland.Count > 0)
+                for (int i = 0; i < v.Count; i++)
+                    if (exhaustIsland.Contains(Find(rep[i]))) mask[i] = true;
+            return mask;
+        }
+
+        /// <summary>The edge p-q cut by the plane x = <paramref name="xc"/>:
+        /// lowers <paramref name="low"/> to the cut's height if it lies inside
+        /// the rear zone.</summary>
+        static void CutLow(Vector3 p, Vector3 q, float xc, float zone, ref float low)
+        {
+            if ((p.x - xc) * (q.x - xc) > 0f) return;
+            float dx = q.x - p.x;
+            if (Mathf.Abs(dx) < 1e-6f)
+            {
+                if (p.z < zone) low = Mathf.Min(low, p.y);
+                if (q.z < zone) low = Mathf.Min(low, q.y);
+                return;
+            }
+            float u = (xc - p.x) / dx;
+            float y = p.y + u * (q.y - p.y), z = p.z + u * (q.z - p.z);
+            if (z < zone) low = Mathf.Min(low, y);
         }
 
         /// <summary>Monotone-chain hull of side-profile points (z, y), upper or
@@ -870,7 +1053,9 @@ namespace PSXRacing.EditorTools
             {
                 var q = Project(p, scr.aspect, g.verts[i]);
                 proj[i] = q;
-                if (float.IsNaN(q.x)) continue;
+                // The exhaust may drop out of the frame: it sets neither the
+                // width nor the bottom (ExhaustMask).
+                if (float.IsNaN(q.x) || !g.framed[i]) continue;
                 minX = Mathf.Min(minX, q.x); maxX = Mathf.Max(maxX, q.x);
                 minY = Mathf.Min(minY, q.y); maxY = Mathf.Max(maxY, q.y);
             }

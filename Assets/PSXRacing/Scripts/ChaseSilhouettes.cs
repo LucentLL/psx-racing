@@ -25,7 +25,10 @@ namespace PSXRacing
     /// highest thing in the picture for some chase lens: the roof's rear edge,
     /// a windscreen header, a Daytona's wing) and the TAIL'S LOWEST EDGE (the
     /// lower-hull vertices of the last 1.5 m that are the lowest thing in the
-    /// picture for some lens). The chase rig projects these through its own
+    /// picture for some lens). All of it is the BODYWORK: an exhaust tip or
+    /// silencer hanging under the rear bumper is left out ("Camera ignores
+    /// exhausts", owner 2026-10-04; CamFrameProbe.ExhaustMask), so it may
+    /// drop out of the bottom of the frame. The chase rig projects these through its own
     /// lens to solve the distance at which the car fills its share, how high
     /// the lens must stand for the road to show over the roof, and how far it
     /// may pitch before the tail leaves the frame. Measured off the MESHES,
