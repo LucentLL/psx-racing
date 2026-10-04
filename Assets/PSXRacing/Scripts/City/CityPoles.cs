@@ -691,6 +691,12 @@ namespace PSXRacing.City
             foreach (var (a, b) in pt.spans) pt.wires += EmitSpan(a, b);
             if (tm != null)
                 foreach (var l in tm.lamps) { EmitLamp(tm.origin + l.foot, tm.origin + l.head, l.kind); pt.lampsDrawn++; }
+            // leftover item 2: the W-beam lead-ins at the tile's parapet ends
+            if (tm != null)
+            {
+                foreach (var w in tm.wbeams) EmitWBeam(tm.origin, w);
+                foreach (var p in tm.wbeamPosts) EmitWBeamPost(tm.origin, p);
+            }
             pt.mesh = End(tm != null ? tm.origin : new Vector3(min.x, 0f, min.y));
             pt.ms = (float)clock.Elapsed.TotalMilliseconds;
             return pt;
@@ -1043,6 +1049,87 @@ namespace PSXRacing.City
                 tris.Add(A); tris.Add(B); tris.Add(C);
                 tris.Add(A); tris.Add(C); tris.Add(D);
             }
+        }
+
+        // ---- the W-beam lead-ins (leftover item 2, CityMeshes.EmitWBeam) ----
+
+        /// <summary>A tile's W-beam lead-ins alone, as a furniture-atlas mesh
+        /// (null if none): the city preview draws them without the poles.</summary>
+        public static Mesh WBeamMesh(CityMeshes.TileMeshes tm)
+        {
+            if (tm == null || tm.wbeams.Count == 0) return null;
+            Begin();
+            foreach (var w in tm.wbeams) EmitWBeam(tm.origin, w);
+            foreach (var p in tm.wbeamPosts) EmitWBeamPost(tm.origin, p);
+            return End(tm.origin);
+        }
+
+        /// <summary>A quad from four corners (a-b along the bottom, d-c along
+        /// the top), facing <paramref name="n"/>; UVs in metres in the cell.</summary>
+        static void Quad(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n, Color32 cell)
+        {
+            int i = vs.Count;
+            vs.Add(a); vs.Add(d); vs.Add(c); vs.Add(b);
+            for (int k = 0; k < 4; k++) { ns.Add(n); cols.Add(cell); wire.Add(Vector2.zero); }
+            float lu = Vector3.Distance(a, b), lv = Vector3.Distance(a, d);
+            uvs.Add(new Vector2(0f, 0f)); uvs.Add(new Vector2(0f, lv)); uvs.Add(new Vector2(lu, lv)); uvs.Add(new Vector2(lu, 0f));
+            if (Vector3.Dot(Vector3.Cross(vs[i + 1] - vs[i], vs[i + 2] - vs[i]), n) > 0f)
+            { tris.Add(i); tris.Add(i + 1); tris.Add(i + 2); tris.Add(i); tris.Add(i + 2); tris.Add(i + 3); }
+            else
+            { tris.Add(i); tris.Add(i + 2); tris.Add(i + 1); tris.Add(i); tris.Add(i + 3); tris.Add(i + 2); }
+        }
+
+        /// <summary>The W-beam's section, outward from its front line, at
+        /// fractions of its depth from the bottom: the two ridges toward the
+        /// traffic, the valley between them and the rolled edges set back.</summary>
+        static readonly float[] WBeamProfH = { 0f, 0.25f, 0.5f, 0.75f, 1f };
+        static readonly float[] WBeamProfO = { 0.03f, 0f, 0.05f, 0f, 0.03f };
+        const float WBeamBackO = 0.08f;
+
+        /// <summary>One piece of a W-beam (CityMeshes.WBeamPiece), pack metal:
+        /// its corrugated face, back and rolled top, and a closing face at
+        /// either end of the whole beam.</summary>
+        static void EmitWBeam(Vector3 origin, CityMeshes.WBeamPiece w)
+        {
+            Vector3 a = origin + w.a, b = origin + w.b;
+            a.y = 0f; b.y = 0f;
+            var oa = new Vector3(w.outA.x, 0f, w.outA.y); var ob = new Vector3(w.outB.x, 0f, w.outB.y);
+            float ha = w.topA - w.botA, hb = w.topB - w.botB;
+            Vector3 P(Vector3 p, Vector3 o, float bot, float h, int k, float extraOut) =>
+                p + o * (WBeamProfO[k] + extraOut) + Vector3.up * (origin.y + bot + h * WBeamProfH[k]);
+            for (int k = 0; k + 1 < WBeamProfH.Length; k++)
+            {
+                var p0 = P(a, oa, w.botA, ha, k, 0f); var p1 = P(b, ob, w.botB, hb, k, 0f);
+                var p2 = P(b, ob, w.botB, hb, k + 1, 0f); var p3 = P(a, oa, w.botA, ha, k + 1, 0f);
+                var n = Vector3.Cross(p1 - p0, p3 - p0).normalized;
+                if (Vector3.Dot(n, oa + ob) > 0f) n = -n;   // the face looks at the traffic
+                Quad(p0, p1, p2, p3, n, CellMetal);
+            }
+            // the back, flat, and the rolled top between
+            Vector3 ba0 = a + oa * WBeamBackO + Vector3.up * (origin.y + w.botA), bb0 = b + ob * WBeamBackO + Vector3.up * (origin.y + w.botB);
+            Vector3 ba1 = a + oa * WBeamBackO + Vector3.up * (origin.y + w.topA), bb1 = b + ob * WBeamBackO + Vector3.up * (origin.y + w.topB);
+            Quad(ba0, bb0, bb1, ba1, (oa + ob).normalized, CellMetal);
+            Quad(P(a, oa, w.botA, ha, 4, 0f), P(b, ob, w.botB, hb, 4, 0f), bb1, ba1, Vector3.up, CellMetal);
+            Quad(P(a, oa, w.botA, ha, 0, 0f), P(b, ob, w.botB, hb, 0, 0f), bb0, ba0, Vector3.down, CellMetal);
+            var along = (b - a).normalized;
+            if (w.endA) Quad(P(a, oa, w.botA, ha, 0, -0.03f), ba0, ba1, P(a, oa, w.botA, ha, 4, -0.03f), -along, CellMetal);
+            if (w.endB) Quad(P(b, ob, w.botB, hb, 0, -0.03f), bb0, bb1, P(b, ob, w.botB, hb, 4, -0.03f), along, CellMetal);
+        }
+
+        /// <summary>A W-beam's post (6x8 in wood, pack wood) and its blockout,
+        /// behind the beam, buried a metre.</summary>
+        static void EmitWBeamPost(Vector3 origin, CityMeshes.WBeamPost p)
+        {
+            var at = origin + p.at;
+            var o = new Vector3(p.outward.x, 0f, p.outward.y).normalized;
+            var al = new Vector3(-o.z, 0f, o.x);
+            float top = origin.y + p.top, foot = at.y - 1.0f;
+            // the post: 0.15 m along the beam, 0.20 m across, 0.33 m behind its face
+            var c = new Vector3(at.x, 0.5f * (top + foot), at.z) + o * 0.33f;
+            Box(c, al * 0.075f, Vector3.up * (0.5f * (top - foot)), o * 0.10f, CellWood, true);
+            // the blockout between: 0.15 m deep, 0.36 m tall, centred on the beam
+            float mid = top - 0.5f * CityMeshes.WBeamDepthM;
+            Box(new Vector3(at.x, mid, at.z) + o * 0.155f, al * 0.07f, Vector3.up * 0.18f, o * 0.075f, CellWood, false);
         }
 
         // ---- the street lamps, drawn on the atlas (CityMeshes.EmitLamp's shapes)

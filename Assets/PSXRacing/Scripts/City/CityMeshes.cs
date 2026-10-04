@@ -182,9 +182,45 @@ namespace PSXRacing.City
         /// end of the Roadside Design Guide), so a car meets a ramp and never a
         /// square face. A rail stays full height (it guards a drop); one
         /// running out into NOTHING still flares away from the road
-        /// (<see cref="FlareLenM"/>).
+        /// (<see cref="FlareLenM"/>). Leftover item 2 (2026-10-03): a rail's
+        /// grounded run end is sloped too - by carrying the concrete on
+        /// <see cref="TaperLenM"/> past it where the roadside has the room, so
+        /// it keeps its full height where it stood (see the rail-end pass in
+        /// DecideSideFlags, and the W-beam lead-in below).
         /// </summary>
         public const float TaperLenM = 8f, TaperFootM = 0.12f;
+        /// <summary>
+        /// THE W-BEAM LEAD-IN (leftover item 2, 2026-10-03; the owner's W 5th
+        /// frame: a parapet starting on its approach as a blunt concrete block
+        /// with a flat grey end). Where the open roadside past a rail's grounded
+        /// run end holds <see cref="WBeamLenM"/>, a W-beam guardrail on wood
+        /// posts (the furniture atlas's pack metal and wood) leads into the
+        /// parapet: bolted along its sloped end for <see cref="TaperLenM"/> (the
+        /// transition), then its <see cref="WBeamTermM"/> terminal (37.5 ft)
+        /// flared <see cref="WBeamFlareM"/> (4 ft) away from the road and turned
+        /// down into the ground over its last <see cref="WBeamDownM"/>. Its top
+        /// <see cref="WBeamTopM"/> (31 in) over the road edge, the beam
+        /// <see cref="WBeamDepthM"/> (12.25 in) deep, a post every
+        /// <see cref="WBeamPostM"/> (6 ft 3 in). Drawn by CityPoles with the
+        /// tile's furniture (no new draw); solid as the tile's "Guardrail"
+        /// collider (<see cref="TileMeshes.guardrails"/>).
+        /// </summary>
+        public const float WBeamTermM = 11.43f, WBeamFlareM = 1.22f, WBeamDownM = 2.5f,
+                           WBeamTopM = 0.79f, WBeamDepthM = 0.31f, WBeamPostM = 1.905f;
+        public const float WBeamLenM = TaperLenM + WBeamTermM;
+        /// <summary>The beam's front this far inside the concrete's traffic
+        /// face (RailW inside the edge), so the two never share a plane.</summary>
+        const float WBeamInsetM = 0.05f;
+        /// <summary>How far past a rail's end the open roadside is walked: far
+        /// enough to see the next barrier's end before two lead-ins could
+        /// meet (each takes half of a shared stretch).</summary>
+        const float RailEndWalkM = 2f * WBeamLenM + 1f;
+        /// <summary>What a lead-in or a sloped end keeps clear of a node or
+        /// whatever else ends the open roadside.</summary>
+        const float RailEndClearM = 1f;
+        /// <summary>The W-beam drawn in pieces at most this long (its flare
+        /// and turned-down tip follow them).</summary>
+        const float WBeamStepM = 2.5f;
         /// <summary>The painted gore's width a sloped nose's apex needs (the two
         /// legs' feet meeting there).</summary>
         const float NoseApexRoomM = 0.6f;
@@ -192,8 +228,12 @@ namespace PSXRacing.City
         /// buried (plus half its flare), so the verge never shows under it.</summary>
         const float RailBuryM = 0.35f;
         /// <summary>How far a warranted barrier's flags are decided beyond
-        /// the tile, so a run end just outside it is seen by the span inside.</summary>
-        const float FlagReachM = 40f;
+        /// the tile, so a run end just outside it is seen by the span inside.
+        /// 60 m since leftover item 2: a rail end's plan walks up to
+        /// <see cref="RailEndWalkM"/> past it, and its W-beam reaches
+        /// <see cref="WBeamLenM"/> - every tile that draws a piece of it must
+        /// see the same open roadside.</summary>
+        const float FlagReachM = 60f;
         /// <summary>Retaining wall runs: a run ends only after this many
         /// consecutive spans out of the cut, and a run shorter than
         /// <see cref="CutRunMinSpans"/> is not built. Decided per span it
@@ -296,6 +336,27 @@ namespace PSXRacing.City
         const float RoofTileM = 3.5f;
         const float RoofFlatM = 8f;
 
+        /// <summary>One piece of a W-beam lead-in (leftover item 2), tile-local:
+        /// the beam's FRONT line at road-edge height (<see cref="a"/>,
+        /// <see cref="b"/>), outward (away from the traffic) unit vectors, and
+        /// the beam's bottom and top at each end (absolute, tile-local y).</summary>
+        public struct WBeamPiece
+        {
+            public Vector3 a, b;
+            public Vector2 outA, outB;
+            public float botA, topA, botB, topB;
+            /// <summary>An end of the whole beam (its parapet end or its buried tip).</summary>
+            public bool endA, endB;
+        }
+        /// <summary>One post of a W-beam lead-in: the beam's front point it
+        /// carries (tile-local, road-edge height), outward, and the beam's top.</summary>
+        public struct WBeamPost
+        {
+            public Vector3 at;
+            public Vector2 outward;
+            public float top;
+        }
+
         public class SolidBox
         {
             public Vector3 center;   // tile-local
@@ -393,6 +454,18 @@ namespace PSXRacing.City
             public readonly List<(int edge, int side, float s0, float s1)> vergeSpans = new List<(int, int, float, float)>();
             public readonly List<(Vector3 a, Vector3 b, Vector3 forward, bool elevated)> goreNoses = new List<(Vector3, Vector3, Vector3, bool)>();
             public float vergeMetres, railMetres;
+            /// <summary>Leftover item 2: the W-beam lead-ins this tile owns
+            /// (tile-local), drawn with the tile's furniture by
+            /// CityPoles.Build; <see cref="guardrails"/> is their collider.</summary>
+            public readonly List<WBeamPiece> wbeams = new List<WBeamPiece>();
+            public readonly List<WBeamPost> wbeamPosts = new List<WBeamPost>();
+            /// <summary>COLLIDER ONLY (Solid layer, CityWorld.Attach names it
+            /// "Guardrail"): the W-beams, a closed box from the beam's face
+            /// back past its posts. Null where the tile has none.</summary>
+            public Mesh guardrails;
+            /// <summary>For the audit: rail run ends this tile decided, by
+            /// treatment (W-beam lead-in, sloped past the end, sloped inside).</summary>
+            public int railEndsWBeam, railEndsSloped, railEndsInside, railEndsConnected, railEndsKept, railEndsShort;
             /// <summary>The smoothness gate's tap; null unless <see cref="RecordTap"/>.</summary>
             public RoadTap tap;
             /// <summary>The fill houses BuildHouses stood (world plan: centre,
@@ -565,6 +638,8 @@ namespace PSXRacing.City
 
         static readonly Bucket[] buckets = NewBuckets();
         static readonly Bucket barrierBucket = new Bucket();
+        /// <summary>Leftover item 2: the W-beams' collider, never drawn.</summary>
+        static readonly Bucket guardBucket = new Bucket();
         static readonly Bucket kerbBucket = new Bucket();
         /// <summary>The lamp posts, arms and heads: their own mesh, drawn with
         /// CityWorld's runtime post material rather than a Slot (a new Slot
@@ -1213,6 +1288,7 @@ namespace PSXRacing.City
 
             foreach (var b in buckets) b.Clear();
             barrierBucket.Clear();
+            guardBucket.Clear();
             kerbBucket.Clear();
             lampBucket.Clear();
             bankBucket.Clear();
@@ -1276,6 +1352,7 @@ namespace PSXRacing.City
             FinishMesh(tm.roads);
             yield return 0;
             tm.barriers = MeshFromBucket("barriers", barrierBucket);
+            tm.guardrails = MeshFromBucket("guardrails", guardBucket);
             tm.kerbs = MeshFromBucket("kerbs", kerbBucket);
             tm.lampPosts = MeshFromBucket("lamps", lampBucket);
             tm.banks = MeshFromBucket("banks", bankBucket);
@@ -3401,6 +3478,7 @@ namespace PSXRacing.City
                 if (f.skip || f.elev || f.wedge || f.approach || !f.decided) return false;
                 if (sf.gap || sf.rail || sf.retain || sf.cut || sf.median || sf.union) return false;
                 if (A.collapsed || B.collapsed || A.Strip(side) >= 0f || B.Strip(side) >= 0f) return false;
+                if (SpanOnWBeam(side, i)) return false;   // leftover item 2: not on a W-beam lead-in
             }
             return true;
         }
@@ -3693,6 +3771,24 @@ namespace PSXRacing.City
         /// <summary>A barrier's height at each section, 0..1 of full (the
         /// sloped ends, <see cref="TaperLenM"/>); 1 everywhere else.</summary>
         static readonly List<float> taperL = new List<float>(64), taperR = new List<float>(64);
+        /// <summary>Leftover item 2: a W-beam lead-in's arc distance from its
+        /// parapet end at each section it reaches (NaN elsewhere) - one list
+        /// for the lead-ins running up the edge's sections (U) and one for
+        /// those running down (D), so two facing ones never share a value.</summary>
+        static readonly List<float> wbUL = new List<float>(64), wbUR = new List<float>(64),
+                                    wbDL = new List<float>(64), wbDR = new List<float>(64);
+        static List<float> WbList(int side, int dir) => side < 0 ? (dir > 0 ? wbUL : wbDL) : (dir > 0 ? wbUR : wbDR);
+        static bool OnWBeam(int side, int k) =>
+            !float.IsNaN((side < 0 ? wbUL : wbUR)[k]) || !float.IsNaN((side < 0 ? wbDL : wbDR)[k]);
+        static bool SpanOnWBeam(int side, int i) =>
+            (!float.IsNaN(WbList(side, 1)[i - 1]) && !float.IsNaN(WbList(side, 1)[i])) ||
+            (!float.IsNaN(WbList(side, -1)[i - 1]) && !float.IsNaN(WbList(side, -1)[i]));
+        static readonly List<(int k, int dir, int how, float room, int jEnd)> endPlan = new List<(int, int, int, float, int)>(8);
+        const int EndInside = 0, EndSloped = 1, EndWBeam = 2, EndConnect = 3;
+        /// <summary>The shortest open roadside a rail that guards a drop to its
+        /// very end is sloped down over (steeper than TaperLenM's 1:10, but no
+        /// square face); with less it keeps its square end.</summary>
+        const float ShortSlopeM = 1.5f;
         static readonly List<float> endScratch = new List<float>(8);
 
         /// <summary>The arc positions on an edge where it goes onto or off
@@ -4092,8 +4188,8 @@ namespace PSXRacing.City
         static IEnumerable<int> DecideSideFlagsSteps(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, Vector2 min, Vector2 max)
         {
             int n = sections.Count;
-            spanFlags.Clear(); flareL.Clear(); flareR.Clear(); shiftL.Clear(); shiftR.Clear(); taperL.Clear(); taperR.Clear();
-            for (int k = 0; k < n; k++) { spanFlags.Add(default); flareL.Add(0f); flareR.Add(0f); shiftL.Add(0f); shiftR.Add(0f); taperL.Add(1f); taperR.Add(1f); }
+            spanFlags.Clear(); flareL.Clear(); flareR.Clear(); shiftL.Clear(); shiftR.Clear(); taperL.Clear(); taperR.Clear(); wbUL.Clear(); wbUR.Clear(); wbDL.Clear(); wbDR.Clear();
+            for (int k = 0; k < n; k++) { spanFlags.Add(default); flareL.Add(0f); flareR.Add(0f); shiftL.Add(0f); shiftR.Add(0f); taperL.Add(1f); taperR.Add(1f); wbUL.Add(float.NaN); wbUR.Add(float.NaN); wbDL.Add(float.NaN); wbDR.Add(float.NaN); }
             dropCache.Clear();
 
             // the window of sections within FlagReachM of the tile
@@ -4277,6 +4373,191 @@ namespace PSXRacing.City
                         i = j;
                     }
 
+            // THE RAIL END (leftover item 2, 2026-10-03; the owner's W 5th
+            // frame: a parapet starting on its approach as a blunt concrete
+            // block, its flat grey end square to the traffic). DOT practice,
+            // for every rail run that ends ON THE GROUND into nothing (not into
+            // a gore, a union, a skipped span or another barrier: those keep
+            // their ends - the nose's V, the union's median, the hand-over):
+            //   W-BEAM  the open roadside past the end holds WBeamLenM: the
+            //           concrete carries on TaperLenM, sloped down to a curb,
+            //           and a W-beam on posts runs from the full-height
+            //           parapet along that slope (the transition) and on, its
+            //           terminal flared away from the road and turned down
+            //           into the ground (EmitWBeam, CityPoles draws it).
+            //   SLOPED  it holds half of TaperLenM: the concrete carries on
+            //           (up to TaperLenM, never past its share of the open
+            //           roadside) and is sloped down to a curb over that
+            //           length (1:10 over the full one), as a median Jersey's.
+            //   INSIDE  it does not: the run's own last TaperLenM slopes down.
+            //   CONNECT another barrier stands on within two lead-ins' length
+            //           (two bridges close together): the gap is closed with
+            //           the rail at full height (the Roadside Design Guide
+            //           closes short gaps between barrier runs) - no ends.
+            // The open roadside: decided spans of this edge with no barrier,
+            // gap, union, deck, wedge, approach, squeeze or retaining face,
+            // walked at most RailEndWalkM. Past two lead-ins' length another
+            // barrier's stretch is shared: each end gets half, so two facing
+            // lead-ins never meet. Planned from the flags alone before any is
+            // applied, and all of it within FlagReachM of the tile, so every
+            // tile plans every end the same way.
+            for (int side = -1; side <= 1; side += 2)
+            {
+                int KindAt(int i)
+                {
+                    if (i < 1 || i >= n) return KindNone;
+                    var s = spanFlags[i][side];
+                    return s.rail ? KindRail : s.cut ? KindCut : s.median ? KindMedian : KindNone;
+                }
+                bool Open(int sp)
+                {
+                    if (sp < 1 || sp >= n) return false;
+                    var f = spanFlags[sp]; var sf = f[side];
+                    return f.decided && !f.elev && !f.wedge && !f.skip && !f.approach
+                           && !sf.gap && !sf.union && !sf.rail && !sf.cut && !sf.median && !sf.retain
+                           && sections[sp - 1].Strip(side) < 0f && sections[sp].Strip(side) < 0f
+                           && !sections[sp - 1].collapsed && !sections[sp].collapsed;
+                }
+                endPlan.Clear();
+                for (int k = w0; k <= w1; k++)
+                {
+                    int kL = KindAt(k), kR = KindAt(k + 1);
+                    if ((k >= 1 && !spanFlags[k].decided) || (k + 1 < n && !spanFlags[k + 1].decided)) continue;
+                    bool lineL = kL == KindRail && kR == KindNone, lineR = kR == KindRail && kL == KindNone;
+                    if (!lineL && !lineR) continue;
+                    // a rail carrying on into the next road at the node is no end
+                    if (k == 0 && lineR && RailContinuesPast(map, trims, e, e.a, side)) continue;
+                    if (k == n - 1 && lineL && RailContinuesPast(map, trims, e, e.b, side)) continue;
+                    int dir = lineL ? 1 : -1;
+                    int railSpan = lineL ? k : k + 1, openSpan = lineL ? k + 1 : k;
+                    if (sections[k].elev || spanFlags[railSpan].elev) continue;
+                    // ...nor a rail standing at a deck's edge (the deck beside it has its own reasons)
+                    // ...nor one handing over to a union's median (its owner
+                    // draws that, and turns its own ends)
+                    if (openSpan >= 1 && openSpan < n && (spanFlags[openSpan].skip || spanFlags[openSpan].elev || spanFlags[openSpan].wedge
+                                                          || spanFlags[openSpan][side].union)) continue;
+                    // a rail running into a gore on the ground slopes down
+                    // inside its own run (nothing is laid on the gore)
+                    if (openSpan >= 1 && openSpan < n && spanFlags[openSpan][side].gap)
+                    {
+                        endPlan.Add((k, dir, EndInside, 0f, k));
+                        continue;
+                    }
+                    float room; bool shared = false;
+                    // how far the W-beam's corridor (its flare, posts and box)
+                    // keeps off every other road's pavement
+                    float wide = float.MaxValue;
+                    int j = k;
+                    while (true)
+                    {
+                        int sp = dir > 0 ? j + 1 : j;
+                        float d = Mathf.Abs(sections[j].s - sections[k].s);
+                        if (sp < 1 || sp >= n) { room = d - RailEndClearM; break; }
+                        if (!Open(sp))
+                        {
+                            shared = KindAt(sp) != KindNone;
+                            room = shared ? d : d - RailEndClearM;
+                            break;
+                        }
+                        if (wide == float.MaxValue && d < WBeamLenM + RailEndClearM && !WBeamCorridorClear(map, e, tm.origin, sections[sp - 1], sections[sp], side))
+                            wide = d;
+                        j += dir;
+                        if (Mathf.Abs(sections[j].s - sections[k].s) >= RailEndWalkM) { room = RailEndWalkM; break; }
+                    }
+                    int how;
+                    if (shared && room < 2f * WBeamLenM + RailEndClearM) how = EndConnect;
+                    else
+                    {
+                        if (shared) room = 0.5f * room - 0.5f * RailEndClearM;
+                        how = room >= WBeamLenM && wide >= WBeamLenM ? EndWBeam : room >= 0.5f * TaperLenM ? EndSloped : EndInside;
+                    }
+                    endPlan.Add((k, dir, how, room, j));
+                }
+                var taper = side < 0 ? taperL : taperR;
+                void MarkRail(int sp)
+                {
+                    var fs = spanFlags[sp]; var ss = fs[side]; ss.rail = true; ss.retain = false; fs[side] = ss; spanFlags[sp] = fs;
+                }
+                foreach (var (k, dir, how0, room, jEnd) in endPlan)
+                {
+                    int how = how0;
+                    var pk = e.PointAt(sections[k].s);
+                    bool mineEnd = pk.x >= min.x && pk.x < max.x && pk.y >= min.y && pk.y < max.y;   // counted by the tile it is in
+                    if (how == EndConnect)
+                    {
+                        // the open stretch to the next barrier, rail at full height
+                        for (int q = k; q != jEnd; q += dir) MarkRail(dir > 0 ? q + 1 : q);
+                        if (mineEnd) tm.railEndsConnected++;
+                        continue;
+                    }
+                    // how far the concrete may carry on: to the first section
+                    // TaperLenM past the end, never past this end's share
+                    int jx = k; float ext = 0f;
+                    for (int q = k; ; q += dir)
+                        {
+                            int sp = dir > 0 ? q + 1 : q, qn = q + dir;
+                            if (sp < 1 || sp >= n) break;
+                            float dn = Mathf.Abs(sections[qn].s - sections[k].s);
+                            if (dn > room + 1e-3f) break;
+                            jx = qn; ext = dn;
+                            if (dn >= TaperLenM) break;
+                        }
+                    if (how != EndInside && ext < 0.5f * TaperLenM) how = EndInside;
+                    if (how == EndInside)
+                    {
+                        // A rail standing over a drop to its very end - on a
+                        // retaining face, or on a deck - keeps its full height
+                        // (the rail census: a drop is guarded to the end).
+                        bool overDrop = false;
+                        for (int j = k; j >= 0 && j < n && !overDrop; j -= dir)
+                        {
+                            if (Mathf.Abs(sections[j].s - sections[k].s) >= TaperLenM) break;
+                            int spb = dir > 0 ? j : j + 1;
+                            if (spb < 1 || spb >= n || KindAt(spb) != KindRail) break;
+                            overDrop = spanFlags[spb].elev || spanFlags[spb][side].retain;
+                        }
+                        if (overDrop && ext < ShortSlopeM) { if (mineEnd) tm.railEndsKept++; continue; }
+                        if (!overDrop)
+                        {
+                            // the run's own last TaperLenM, back from the end
+                            for (int j = k; j >= 0 && j < n; j -= dir)
+                            {
+                                float d = Mathf.Abs(sections[j].s - sections[k].s);
+                                if (d >= TaperLenM) break;
+                                taper[j] = Mathf.Min(taper[j], d / TaperLenM);
+                                if (KindAt(dir > 0 ? j : j + 1) != KindRail) break;
+                            }
+                            if (mineEnd) tm.railEndsInside++;
+                            continue;
+                        }
+                        // over a drop to its very end, with a little open
+                        // roadside past it: sloped there, short and steep,
+                        // rather than square
+                        how = EndSloped;
+                        if (mineEnd) tm.railEndsShort++;
+                    }
+                    // the concrete carries on past its end, sloped from full
+                    // height down to a curb over that length
+                    for (int q = k; q != jx; q += dir) MarkRail(dir > 0 ? q + 1 : q);
+                    for (int q = k; ; q += dir)
+                    {
+                        float d = Mathf.Abs(sections[q].s - sections[k].s);
+                        taper[q] = Mathf.Min(taper[q], Mathf.Clamp01(1f - d / ext));
+                        if (q == jx) break;
+                    }
+                    if (how == EndSloped) { if (mineEnd) tm.railEndsSloped++; continue; }
+                    // ...and the W-beam from the parapet's full height on
+                    var wb = WbList(side, dir);
+                    for (int q = k; q >= 0 && q < n; q += dir)
+                    {
+                        float u = Mathf.Abs(sections[q].s - sections[k].s);
+                        wb[q] = u;
+                        if (u >= WBeamLenM) break;
+                    }
+                    if (mineEnd) tm.railEndsWBeam++;
+                }
+            }
+
             // Run ends, caps and flares, by KIND of barrier: a rail, a
             // retaining wall, a median Jersey barrier. Where one kind hands
             // over to another (a median barrier to the approach rail twenty
@@ -4370,6 +4651,9 @@ namespace PSXRacing.City
                         }
                     }
                     if (ending == KindMedian) continue;
+                    // a W-beam lead-in carries the line on from a sloped
+                    // parapet end (leftover item 2): it flares, not the concrete
+                    if (ending == KindRail && OnWBeam(side, k)) continue;
                     bool otherGap = otherSpan >= 1 && otherSpan < n && (spanFlags[otherSpan][side].gap || spanFlags[otherSpan][side].union || spanFlags[otherSpan].skip);
                     bool atNode = (k == 0 && !lineL) || (k == n - 1 && lineL);
                     if (otherGap || Fixed(k) || sections[k].Strip(side) >= 0f || (atNode && trims.mitre[k == 0 ? e.a : e.b])) continue;
@@ -4746,6 +5030,13 @@ namespace PSXRacing.City
                 }
                 tm.railMetres += len;
             }
+            // THE W-BEAM LEAD-IN (leftover item 2) over this span, if one reaches it
+            if (!f.elev)
+                for (int dir = -1; dir <= 1; dir += 2)
+                {
+                    var wbu = WbList(side, dir);
+                    if (!float.IsNaN(wbu[i - 1]) && !float.IsNaN(wbu[i])) EmitWBeam(tm, A, B, side, wbu[i - 1], wbu[i]);
+                }
             if (f.elev)
             {
                 // THE GROUNDED END OF A SPAN DRAWN AS DECK. A structure end is a
@@ -6353,10 +6644,145 @@ namespace PSXRacing.City
                     new Vector2(v0, 0.2f), new Vector2(v0, 0.45f), new Vector2(v1, 0.45f), new Vector2(v1, 0.2f));
             bk.Face(fA, oA + down, oB + down, fB, Vector3.down,
                     new Vector2(0.45f, v0), new Vector2(0.5f, v0), new Vector2(0.5f, v1), new Vector2(0.45f, v1));
-            var uv = new Vector2(0.3f, v0);
-            if (capA) bk.Face(fA, iA + upA, oA + upA, oA + down, a - b, uv, uv, uv, uv);
-            if (capB) bk.Face(fB, iB + upB, oB + upB, oB + down, b - a, uv, uv, uv, uv);
+            // the end caps wear the concrete as the faces do (leftover item 2:
+            // they were one texel, a flat grey square at every rail end)
+            float cw = (RailW + overhangA) / RoadVTile, cwB = (RailW + overhangB) / RoadVTile;
+            if (capA) bk.Face(fA, iA + upA, oA + upA, oA + down, a - b,
+                              new Vector2(v0, 0.3f), new Vector2(v0, 0.45f), new Vector2(v0 + cw, 0.45f), new Vector2(v0 + cw, 0.2f));
+            if (capB) bk.Face(fB, iB + upB, oB + upB, oB + down, b - a,
+                              new Vector2(v1, 0.3f), new Vector2(v1, 0.45f), new Vector2(v1 + cwB, 0.45f), new Vector2(v1 + cwB, 0.2f));
         }
+
+        /// <summary>The W-beam's front-line offset AWAY from the road at
+        /// <paramref name="u"/> metres from its parapet end: on the parapet's
+        /// line along the transition, then the terminal's straight flare.</summary>
+        static float WBeamOut(float u) => u <= TaperLenM ? 0f : WBeamFlareM * Mathf.Clamp01((u - TaperLenM) / WBeamTermM);
+        /// <summary>The beam's top over the road edge at <paramref name="u"/>:
+        /// WBeamTopM, then turned down into the ground over the last WBeamDownM.</summary>
+        static float WBeamTop(float u)
+        {
+            float t = (u - (WBeamLenM - WBeamDownM)) / WBeamDownM;
+            return t <= 0f ? WBeamTopM : Mathf.Lerp(WBeamTopM, -0.15f, Mathf.Clamp01(t));
+        }
+
+        /// <summary>
+        /// One span's share of a W-beam lead-in (leftover item 2), from arc
+        /// distance <paramref name="uA"/> at section A to <paramref name="uB"/>
+        /// at B (from its parapet end): its pieces and posts for CityPoles to
+        /// draw (<see cref="TileMeshes.wbeams"/>), and its collider - a closed
+        /// box from the beam's face back past its posts, from under the
+        /// verge to the beam's top (the turned-down tip goes into the
+        /// ground with it, so no face stands square to the traffic).
+        /// </summary>
+        static void EmitWBeam(TileMeshes tm, Section A, Section B, int side, float uA, float uB)
+        {
+            float u0 = Mathf.Max(0f, Mathf.Min(uA, uB)), u1 = Mathf.Min(WBeamLenM, Mathf.Max(uA, uB));
+            if (u1 - u0 < 0.01f || Mathf.Abs(uB - uA) < 1e-4f) return;
+            Vector3 eA = A.Edge(side), eB = B.Edge(side);
+            Vector2 oA = A.Out(side), oB = B.Out(side);
+            void At(float u, out Vector3 front, out Vector2 outw, out float yEdge)
+            {
+                float t = Mathf.Clamp01((u - uA) / (uB - uA));
+                var ed = Vector3.Lerp(eA, eB, t);
+                outw = Vector2.Lerp(oA, oB, t).normalized;
+                yEdge = ed.y;
+                float o = WBeamOut(u) - (RailW + WBeamInsetM);
+                front = ed + new Vector3(outw.x, 0f, outw.y) * o;
+            }
+            // pieces: at most WBeamStepM, split where the transition ends and
+            // where the turn-down starts
+            var us = wbStations; us.Clear(); us.Add(u0); us.Add(u1);
+            int pieces = Mathf.Max(1, Mathf.CeilToInt((u1 - u0) / WBeamStepM));
+            for (int q = 1; q < pieces; q++) us.Add(Mathf.Lerp(u0, u1, (float)q / pieces));
+            foreach (float brk in WBeamBreaks) if (brk > u0 + 0.01f && brk < u1 - 0.01f) us.Add(brk);
+            us.Sort();
+            for (int q = 1; q < us.Count; q++)
+            {
+                float uPrev = us[q - 1], uNext = us[q];
+                if (uNext - uPrev < 0.01f) continue;
+                At(uPrev, out var fa, out var na, out float ya);
+                At(uNext, out var fb, out var nb, out float yb);
+                float ta = ya + WBeamTop(uPrev), tb = yb + WBeamTop(uNext);
+                tm.wbeams.Add(new WBeamPiece
+                {
+                    a = fa, b = fb, outA = na, outB = nb,
+                    botA = ta - WBeamDepthM, topA = ta, botB = tb - WBeamDepthM, topB = tb,
+                    endA = uPrev <= 0.01f, endB = uNext >= WBeamLenM - 0.01f,
+                });
+                // the collider: face, top, back, and the box's two ends
+                var bk = guardBucket;
+                var na3 = new Vector3(na.x, 0f, na.y); var nb3 = new Vector3(nb.x, 0f, nb.y);
+                Vector3 baA = fa + na3 * WBeamBoxM, baB = fb + nb3 * WBeamBoxM;
+                float lowA = ya - 0.5f, lowB = yb - 0.5f;
+                bk.WallSloped(fa, fb, lowA, ta, lowB, tb, -(na + nb), 0f, 1f, 0f, 1f);
+                bk.WallSloped(baA, baB, lowA, ta, lowB, tb, na + nb, 0f, 1f, 0f, 1f);
+                bk.Up(new Vector3(fa.x, ta, fa.z), new Vector3(fb.x, tb, fb.z), new Vector3(baB.x, tb, baB.z), new Vector3(baA.x, ta, baA.z),
+                      Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+                var along = new Vector3(fb.x - fa.x, 0f, fb.z - fa.z);
+                bk.Face(new Vector3(fa.x, lowA, fa.z), new Vector3(fa.x, ta, fa.z), new Vector3(baA.x, ta, baA.z), new Vector3(baA.x, lowA, baA.z),
+                        -along, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+                bk.Face(new Vector3(fb.x, lowB, fb.z), new Vector3(fb.x, tb, fb.z), new Vector3(baB.x, tb, baB.z), new Vector3(baB.x, lowB, baB.z),
+                        along, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            }
+            // posts, at their stations from the parapet end (one span owns
+            // each: (u0, u1]); none inside the concrete's taller half
+            for (int m = Mathf.FloorToInt(u0 / WBeamPostM) + 1; m * WBeamPostM <= u1 + 1e-4f; m++)
+            {
+                float u = m * WBeamPostM;
+                if (u < 0.5f * TaperLenM || WBeamTop(u) < 0.35f) continue;
+                At(u, out var fp, out var np, out float yp);
+                tm.wbeamPosts.Add(new WBeamPost { at = fp, outward = np, top = yp + WBeamTop(u) - 0.03f });
+            }
+        }
+        /// <summary>The W-beam collider's depth from the beam's face: the
+        /// beam, its blockout and its post.</summary>
+        const float WBeamBoxM = 0.45f;
+        /// <summary>The W-beam's corridor, metres out from the drawn edge, that
+        /// must be clear of every other road's pavement (its flare, posts and
+        /// box reach 1.4 m), and the pad kept from that pavement: past the
+        /// other road's own verge line, so no beam crosses a car running off
+        /// it.</summary>
+        static readonly float[] WBeamCorridorM = { 0.4f, 1.0f, 1.7f };
+        const float WBeamRoadPadM = 1.3f;
+        static readonly HashSet<int> wbRoadScratch = new HashSet<int>();
+
+        /// <summary>Is the W-beam's corridor beside this span clear of every
+        /// other road (from the map alone - its centreline and width - so every
+        /// tile decides the same)? Roads more than 2.5 m above or below pass.</summary>
+        static bool WBeamCorridorClear(CityMap map, CityMap.Edge e, Vector3 origin, Section A, Section B, int side)
+        {
+            for (int q = 0; q <= 2; q++)
+            {
+                float t = q * 0.5f;
+                var ed = Vector3.Lerp(A.Edge(side), B.Edge(side), t) + origin;
+                var outw = Vector2.Lerp(A.Out(side), B.Out(side), t).normalized;
+                foreach (float d in WBeamCorridorM)
+                    if (OtherRoadAt(map, e, new Vector2(ed.x, ed.z) + outw * d, ed.y)) return false;
+            }
+            return true;
+        }
+
+        static bool OtherRoadAt(CityMap map, CityMap.Edge e, Vector2 p, float y)
+        {
+            wbRoadScratch.Clear();
+            map.EdgeSegsInRect(p - Vector2.one * 20f, p + Vector2.one * 20f, wbRoadScratch);
+            foreach (int packed in wbRoadScratch)
+            {
+                int ei = packed >> 12, si = packed & 0xFFF;
+                if (ei == e.index) continue;
+                var o = map.edges[ei];
+                if (si + 1 >= o.pts.Length) continue;
+                Vector2 a = o.pts[si], dd = o.pts[si + 1] - a;
+                float L2 = dd.sqrMagnitude;
+                float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(p - a, dd) / L2) : 0f;
+                if (Vector2.Distance(p, a + dd * t) > o.width * 0.5f + WBeamRoadPadM) continue;
+                if (Mathf.Abs(o.YAt(o.s[si] + Mathf.Sqrt(L2) * t) - y) > 2.5f) continue;
+                return true;
+            }
+            return false;
+        }
+        static readonly float[] WBeamBreaks = { TaperLenM, WBeamLenM - WBeamDownM };
+        static readonly List<float> wbStations = new List<float>(16);
 
         /// <summary>A deck span's box: both fascias facing out, the soffit
         /// facing down. Its rails are the side's business (EmitSide).</summary>

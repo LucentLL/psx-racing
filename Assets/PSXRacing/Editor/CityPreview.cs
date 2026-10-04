@@ -376,6 +376,11 @@ namespace PSXRacing.EditorTools
             new NamedView { name = "short_i485_e14173", group = "short", kind = ViewKind.Along, at = new Vector2(-13766f, -1400f), road = "I-485", back = 25f, look = 0f, fov = 60f, ring = 1, rise = 1.4f,
                             lookAt = new Vector2(-13766f, -1400f),
                             what = "I-485 (e14173, s 4-12) at its ramp: a 7.8 m cut wall standing alone on the right (the short barrier census's shortest freeway piece)" },
+            // parapet and rail ends on bridge approaches (leftover item 2, 2026-10-03): driver's eye, the
+            // right lane, ~28 m before an approach rail's start (the drive audit's RAIL ENDS list); with w5th_wb
+            Eye("parapet_i277_e10558", "parapets", -2306.4f, 3532.3f, "I-277", 133f, "I-277 (e10558, Belk Fwy) right lane 28 m before the approach rail starting at s 178 on the right, heading 133"),
+            Eye("parapet_e12th_e2325", "parapets", -1465.3f, 5353.7f, "12th", 314f, "E 12th St (e2325, one-way) right lane 32 m before the approach rails of the bridge e1329 starting at s 68 on both sides, heading 314"),
+            Eye("parapet_graham_e1941", "parapets", -1868.3f, 5815.6f, "Graham", 48f, "N Graham St (e1941) northbound inner lane between its two bridges (e1937, e1942): the approach rails end at s 20 and start again at s 38, heading 48"),
             // minor streets, cul-de-sacs, parking lots (roads pass L8)
             Top("minor_rozzelles_1178", "minor", -3915.3f, 6467.5f, "Rozzelles", 22f, "Rozzelles Ferry Rd at Whitehaven Ave (node 1178, unsignalised) from above: the centre and far edge lines run on across the side street's mouth, the near edge line breaks for it (plan A13)"),
             Top("minor_bulb_victorian", "minor", -3517.0f, 2391.9f, "Victorian", 26f, "Victorian Place's turning circle (node 17457): the street ends in a 12.2 m bulb (plan A17)"),
@@ -627,6 +632,17 @@ namespace PSXRacing.EditorTools
                     Wrap(root, tm.ground, mats, tm.groundSlots);
                     Wrap(root, tm.roads, mats, tm.roadSlots);
                     Wrap(root, tm.barriers, mats, new[] { CityMeshes.Slot.Concrete });
+                    // leftover item 2: the W-beam lead-ins at parapet ends (the
+                    // game draws them with the tile's furniture; the preview
+                    // stands no poles, lamps or trees, so it draws them alone)
+                    var wbm = CityPoles.WBeamMesh(tm);
+                    if (wbm != null)
+                    {
+                        var wg = new GameObject("WBeams");
+                        wg.transform.SetParent(root.transform, false);
+                        wg.AddComponent<MeshFilter>().sharedMesh = wbm;
+                        wg.AddComponent<MeshRenderer>().sharedMaterial = CityPoles.Material();
+                    }
                     // The kerb faces are their own render-only mesh now (no
                     // collider), exactly as CityWorld stands them up.
                     Wrap(root, tm.kerbs, mats, new[] { CityMeshes.Slot.Concrete });

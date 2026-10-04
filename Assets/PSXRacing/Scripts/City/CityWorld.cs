@@ -792,6 +792,16 @@ namespace PSXRacing.City
                 CookCollider(g, tm.barriers);
                 meshes.Add(tm.barriers);
             }
+            if (tm.guardrails != null)
+            {
+                // Leftover item 2: the W-beam lead-ins at parapet ends are
+                // solid here, on the Solid layer like every barrier; they are
+                // DRAWN with the tile's furniture (CityPoles), the one draw its
+                // poles and lamps already are. Collider only, no renderer.
+                var g = Child(root, "Guardrail", SolidLayer);
+                CookCollider(g, tm.guardrails);
+                meshes.Add(tm.guardrails);
+            }
             if (tm.kerbs != null)
             {
                 // RENDER-ONLY, deliberately: the inch of face under a grounded

@@ -601,6 +601,17 @@ namespace PSXRacing.EditorTools
             // ...and the nine tiles the city audit's own drive audit stands up
             Line("drive audit on the city audit's nine default tiles:");
             DriveAudit(map, trims, buildings);
+            // ...and RAIL ENDS alone on every tile of the owner's box (leftover
+            // item 2: uptown + W 5th over I-77; PSX_DRIVE_RAILBOX=0 skips it; PSX_DRIVE_BOX moves it)
+            if (System.Environment.GetEnvironmentVariable("PSX_DRIVE_RAILBOX") != "0")
+            {
+                var boxTiles = new List<(int tx, int tz, string why)>();
+                var bt = new List<Vector2Int>();
+                ScopeFor("DRIVE").Tiles(map, bt);
+                foreach (var t in bt) boxTiles.Add((t.x, t.y, "box"));
+                Line($"rail ends on the {boxTiles.Count} tiles of the box ({ScopeFor("DRIVE").Describe()}):");
+                DriveAudit(map, trims, buildings, boxTiles, null, true);
+            }
             // the union runs (plan A2's medians) along each route, in route order
             var runs = new List<CityMeshes.AuditView.UnionRunView>();
             foreach (var r in map.routes)
@@ -622,9 +633,10 @@ namespace PSXRacing.EditorTools
         }
 
         static void DriveAudit(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings,
-                               List<(int tx, int tz, string why)> routeTiles = null, HashSet<int> routeEdges = null)
+                               List<(int tx, int tz, string why)> routeTiles = null, HashSet<int> routeEdges = null,
+                               bool railEndsOnly = false)
         {
-            Line("deck unions (plan A2): " + CityMeshes.LastUnionReport);
+            if (!railEndsOnly) Line("deck unions (plan A2): " + CityMeshes.LastUnionReport);
             bool routeMode = routeTiles != null;
             var spots = new List<(string name, Vector2 at)>();
             if (routeMode)
@@ -648,6 +660,15 @@ namespace PSXRacing.EditorTools
             int walls = 0, steps = 0, holes = 0, off = 0, grass = 0, probes = 0, blunt = 0;
             // the route mode's other roads on the route tiles: reported, not checked
             int oWalls = 0, oSteps = 0, oHoles = 0, oOff = 0, oGrass = 0, oBlunt = 0;
+            // RAIL ENDS (leftover item 2): ends met square along the edge lines,
+            // counted once per end; on a bridge approach / anywhere; the other
+            // roads' in route mode; square faces of other solids (walls, Jersey
+            // caps, headwalls) met the same way, reported only
+            int reApproach = 0, reAll = 0, reGuard = 0, oReApproach = 0, oReAll = 0, reOther = 0, reTrail = 0, reTrailApproach = 0;
+            var reSeen = new HashSet<long>();
+            var railRecs = new List<CityMeshes.RailRecord>();
+            var railLogWas = CityMeshes.railLog;
+            CityMeshes.railLog = railRecs;
             var notes = new List<(float sev, string what)>();
             void Note(float sev, string what) { notes.Add((sev, what)); }
             string Path(Collider c)
@@ -679,14 +700,106 @@ namespace PSXRacing.EditorTools
                 return $" nearest other: e{bi} '{oe.name}'{(oe.link ? " L" : "")}{(oe.bridge ? " B" : "")} cls{oe.cls} hw {trims.HalfWidthAt(oe, bs):0.0} at {bd:0.0} m, its y {oe.YAt(bs):0.00}, elev {oe.ElevatedAt(bs)}";
             }
 
+            // A rail's RUN END near a hit: a recorded rail piece's end point
+            // within RailEndNearM (plan) that no other piece carries on from.
+            var reNotes = new List<string>();
+            int NearRailEnd(Vector3 at)
+            {
+                var p2 = new Vector2(at.x, at.z);
+                for (int i = 0; i < railRecs.Count; i++)
+                {
+                    var r = railRecs[i];
+                    for (int end = 0; end < 2; end++)
+                    {
+                        var q = end == 0 ? r.a : r.b;
+                        var q2 = new Vector2(q.x, q.z);
+                        if (Vector2.Distance(q2, p2) > RailEndNearM) continue;
+                        bool carried = false;
+                        for (int j = 0; j < railRecs.Count && !carried; j++)
+                        {
+                            if (j == i) continue;
+                            var o = railRecs[j];
+                            // the same piece again (a tile rebuilt): not a carry-on
+                            if ((o.a - r.a).sqrMagnitude < 1e-4f && (o.b - r.b).sqrMagnitude < 1e-4f) continue;
+                            if (Vector2.Distance(new Vector2(o.a.x, o.a.z), q2) < 0.2f || Vector2.Distance(new Vector2(o.b.x, o.b.z), q2) < 0.2f) carried = true;
+                        }
+                        if (!carried) return i;
+                    }
+                }
+                return -1;
+            }
+            // RAIL ENDS (leftover item 2, 2026-10-03; the owner's W 5th frame:
+            // a parapet starting on its approach as a blunt block with a flat
+            // grey end). BLUNT's lanes never reach a rail: its traffic face is
+            // RailW inside the edge. Along each drawn edge line - just inside
+            // and just outside the edge, and over the verge a car runs off onto
+            // - a ray at bumper height along the travel (both ways) must meet no
+            // RAIL's end face square to it. Columns a barrier already stands
+            // in are skipped (the ray would start inside it).
+            void RailEnds(CityMap.Edge e, float s, Vector2 p, Vector2 tan, Vector2 right, float y, float hwL, float hwR, bool counted, string spot)
+            {
+                float sa = Mathf.Max(0f, s - 1f), sb = Mathf.Min(e.length, s + 1f);
+                float slope = sb - sa > 0.1f ? (e.YAt(sb) - e.YAt(sa)) / (sb - sa) : 0f;
+                for (int sd = -1; sd <= 1; sd += 2)
+                    foreach (float off in RailEndLats)
+                    {
+                        float lat = sd < 0 ? -(hwL + off) : hwR + off;
+                        var top = new Vector3(p.x + right.x * lat, y + 3f, p.y + right.y * lat);
+                        float baseY = y;
+                        if (RaycastPastLamps(top, Vector3.down, out var g, 6.5f))
+                        {
+                            if (g.collider.gameObject.layer == CityWorld.SolidLayer && g.point.y > y + BluntRayH - 0.1f) continue;
+                            if (Mathf.Abs(g.point.y - y) < 0.8f) baseY = g.point.y;
+                        }
+                        for (int dsg = 1; dsg >= -1; dsg -= 2)
+                        {
+                            var d3 = new Vector3(tan.x * dsg, slope * dsg, tan.y * dsg).normalized;
+                            var o3 = new Vector3(top.x, baseY + BluntRayH, top.z);
+                            if (!RaycastPastLamps(o3, d3, out var hb, BluntRayM)) continue;
+                            if (hb.collider.gameObject.layer != CityWorld.SolidLayer) continue;
+                            float facing = Vector3.Dot(hb.normal, -d3);
+                            if (facing < BluntFacing || hb.normal.y > BluntNormalUpMax) continue;
+                            long key = ((long)Mathf.RoundToInt(hb.point.x * 0.5f) << 32) ^ (uint)Mathf.RoundToInt(hb.point.z * 0.5f);
+                            bool guard = hb.collider.name == "Guardrail";
+                            int rec = guard ? -1 : NearRailEnd(hb.point);
+                            if (!reSeen.Add(key)) continue;
+                            if (!guard && rec < 0) { reOther++; continue; }
+                            CityElevation.ProjectOn(e, new Vector2(hb.point.x, hb.point.z), out float sh);
+                            bool approach = false;
+                            if (!e.ElevatedAt(Mathf.Clamp(sh, 0f, e.length)))
+                                foreach (var se in CityMeshes.StructureEndsOf(map, trims, e))
+                                    if (Mathf.Abs(sh - se) <= RailEndApproachM) { approach = true; break; }
+                            // BLUNT's own rule: both ways only on a two-way road. A
+                            // one-way road's trailing end meets no traffic (DOT:
+                            // no terminal there); reported, not checked.
+                            bool trailing = e.oneway && dsg < 0;
+                            if (trailing) { if (counted) { reTrail++; if (approach) reTrailApproach++; } }
+                            else if (counted) { reAll++; if (approach) reApproach++; if (guard) reGuard++; }
+                            else { oReAll++; if (approach) oReApproach++; }
+                            var rr = rec >= 0 ? railRecs[rec] : default;
+                            if (reNotes.Count < 80)
+                                reNotes.Add($"RAILEND {spot} ({hb.point.x:0.0},{hb.point.z:0.0}){(approach ? " APPROACH" : "")}{(trailing ? " TRAILING" : "")}{(counted ? "" : " (other road)")} along e{e.index} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} s={s:0}/{e.length:0} lateral {lat:+0.00;-0.00} {(dsg > 0 ? "ahead" : "behind")}: {(guard ? "Guardrail" : $"rail e{rr.edge} side {rr.side} node {rr.node} s {rr.s0:0.0}..{rr.s1:0.0}")} face {hb.distance:0.0} m on, {hb.point.y - baseY:+0.00} over the surface, facing {facing:0.00}{CityMeshes.DescribeSide(map, trims, e, Mathf.Clamp(sh, 0f, e.length), sd)}");
+                        }
+                    }
+            }
+
             var sectionDumps = new List<string>();
             var root = new GameObject("~driveAudit");
             // the route mode keeps a tile's neighbours standing for the next
             // tile along the route (they are contiguous)
             var live = new Dictionary<long, GameObject>();
+            // what the tiles decided at their rail ends (leftover item 2), each tile once
+            int tWB = 0, tSl = 0, tIn = 0, tCo = 0, tKe = 0, tSh = 0, tWbTiles = 0, tWbNoLamp = 0, tWbPieces = 0, tWbPosts = 0;
+            var tSeen = new HashSet<long>();
             GameObject BuildTile(int x, int z)
             {
                 var tm = CityMeshes.Build(map, trims, buildings, x, z);
+                if (tSeen.Add(TileKey(x, z)))
+                {
+                    tWB += tm.railEndsWBeam; tSl += tm.railEndsSloped; tIn += tm.railEndsInside; tCo += tm.railEndsConnected; tKe += tm.railEndsKept; tSh += tm.railEndsShort;
+                    tWbPieces += tm.wbeams.Count; tWbPosts += tm.wbeamPosts.Count;
+                    if (tm.wbeams.Count > 0) { tWbTiles++; if (tm.lamps.Count == 0) tWbNoLamp++; }
+                }
                 CitySmooth.Collect(x, z, tm);
                 var go = new GameObject($"tile_{x}_{z}");
                 go.transform.SetParent(root.transform, false);
@@ -745,7 +858,7 @@ namespace PSXRacing.EditorTools
                     {
                         var e = map.edges[ei];
                         // the route mode checks the routes' own edges; the rest is reported
-                        bool counted = !routeMode || routeEdges.Contains(ei);
+                        bool counted = !routeMode || routeEdges == null || routeEdges.Contains(ei);
                         float sMin = trims.atA[ei], sMax = e.length - trims.atB[ei];
                         if (sMax - sMin < 1f) continue;
                         var prevY = new[] { float.NaN, float.NaN, float.NaN };
@@ -770,6 +883,7 @@ namespace PSXRacing.EditorTools
                                 if (k == 0) { if (hwL < 1.1f) { prevY[k] = float.NaN; continue; } lat = -(hwL - 0.55f); }
                                 else if (k == 2) { if (hwR < 1.1f) { prevY[k] = float.NaN; continue; } lat = hwR - 0.55f; }
                                 else lat = (hwR - hwL) * 0.5f;
+                                if (railEndsOnly) break;
                                 var w = new Vector3(p.x + right.x * lat, y + 3f, p.y + right.y * lat);
                                 probes++;
                                 if (!RaycastPastLamps(w, Vector3.down, out var hit, 6.5f))
@@ -805,6 +919,9 @@ namespace PSXRacing.EditorTools
                                 prevY[k] = hit.point.y;
                             }
                             if (stepN % 4 != 0) continue;
+                            // RAIL ENDS (leftover item 2): along each drawn edge line
+                            if (hwL + hwR >= 2.0f) RailEnds(e, s, p, tan, right, y, hwL, hwR, counted, spot);
+                            if (railEndsOnly) continue;
                             // BLUNT (hotfix 2026-10-03): a face square to the
                             // travel, at bumper height, on the lanes or on the
                             // pavement that carries on flush past either edge
@@ -827,6 +944,7 @@ namespace PSXRacing.EditorTools
                             }
                         }
                     }
+                    if (railEndsOnly) { foreach (var t in tiles) Object.DestroyImmediate(t); continue; }
                     if (!routeMode || wallsHere + stepsHere + holesHere + offHere + grassHere + bluntHere > 0)
                         Line($"drive {spot} at ({at.x:0},{at.y:0}){(routeMode ? $" tile {ptx},{ptz}" : "")}: {edges.Count} edges, walls {wallsHere}, steps {stepsHere}, holes {holesHere}, off-surface {offHere}, grass {grassHere}, blunt {bluntHere}");
                     // the sections of the worst two edges on this tile, as drawn
@@ -851,9 +969,14 @@ namespace PSXRacing.EditorTools
                     foreach (var t in tiles) Object.DestroyImmediate(t);
                 }
             }
-            finally { Object.DestroyImmediate(root); }
+            finally { Object.DestroyImmediate(root); CityMeshes.railLog = railLogWas; }
 
-            string where = routeMode ? " on the race routes' edges" : "";
+            string where = routeMode && routeEdges != null ? " on the race routes' edges" : railEndsOnly ? " in the box" : "";
+            Line($"  RAIL ENDS (item 2){where}: {reAll} rail/guardrail ends met square along an edge line, {reApproach} of them on a bridge approach (within {RailEndApproachM:0} m of a structure end, on the ground), {reGuard} guardrail; trailing ends of one-way roads (no traffic meets them; reported) {reTrail}, {reTrailApproach} on approaches; other roads (reported): {oReAll}, {oReApproach} on approaches; other solids' square faces met the same way (walls, Jersey caps, headwalls; reported): {reOther}");
+            Line($"  rail end treatments on the {tSeen.Count} tiles built (each end counted by the tile it is in): W-beam lead-in {tWB}, sloped past the end {tSl} ({tSh} of them short, over a drop to the end), sloped inside the run {tIn}, gap closed {tCo}, kept square over a drop (retaining face or deck to the end, no room past it) {tKe}; W-beam pieces {tWbPieces}, posts {tWbPosts} on {tWbTiles} tiles ({tWbNoLamp} of them with no street lamp of their own - a furniture draw only if no pole stands there either)");
+            Check(reApproach == 0, $"no parapet or rail end on a bridge approach stands square to a car along the edge line{where} (drive audit BLUNT rail ends)", reApproach);
+            foreach (var rn in reNotes) Line("    " + rn);
+            if (railEndsOnly) return;
             Line($"drive audit: {probes} probes on {spots.Count} tiles{(routeMode ? $"; the other roads on those tiles (reported, not checked): walls {oWalls}, steps {oSteps}, holes {oHoles}, off-surface {oOff}, grass {oGrass}, blunt {oBlunt}" : "")}");
             Check(walls == 0, $"nothing solid stands across any lane{where} (drive audit)", walls);
             Check(blunt == 0, $"no face square to the travel stands on a lane or the pavement flush beside it{where} (drive audit BLUNT)", blunt);
@@ -880,6 +1003,15 @@ namespace PSXRacing.EditorTools
         /// this far apart, and out past each edge in 1 m steps while flush
         /// pavement carries on, at most this far.</summary>
         const float BluntRayH = 0.45f, BluntRayM = 2.2f, BluntLatStepM = 2.5f, BluntOutM = 4f;
+        /// <summary>RAIL ENDS (leftover item 2): the edge lines its rays run
+        /// along, metres past each drawn edge (just inside it, where a rail's
+        /// traffic face stands RailW in; just outside; over the verge a car
+        /// runs off onto); how near a recorded rail piece's end a face must be
+        /// to be that rail's end; how far from a structure end, on the ground,
+        /// an end is on its approach (the approach rail, its sloped end and a
+        /// W-beam lead-in).</summary>
+        static readonly float[] RailEndLats = { -0.15f, 0.15f, 0.75f, 1.2f };
+        const float RailEndNearM = 1.0f, RailEndApproachM = 50f;
         /// <summary>A face is square to the travel when its normal is within
         /// 60 degrees of straight back at the car (a tapered nose's is not),
         /// and it is a face, not a surface the wheels climb.</summary>

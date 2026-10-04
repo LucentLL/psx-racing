@@ -5841,6 +5841,115 @@ I-277 spots, on the route's first two kilometres:
   0 traffic wrecks, no hits by kind.
 - **No rebake** for the geometry (tiles build at runtime); no height moved.
 
+## Parapet and rail ends (leftover item 2, 2026-10-03): W-beam lead-ins, sloped ends, closed gaps
+
+The owner's W 5th Street frame (westbound from the east signal): the bridge
+parapet starts on its approach as a blunt concrete block, its end a flat
+grey face square to the traffic. The hotfix sloped median Jersey ends and
+gave gore noses a V, but left every rail full height with a square cap. DOT
+practice: the approach guardrail (W-beam on posts) connects to the parapet
+and begins with an end terminal flared away from the traffic; where there is
+no room, the concrete end is sloped down.
+
+**The rule** (`CityMeshes.DecideSideFlagsSteps`, the rail-end pass before the
+caps; every rail run that ends ON THE GROUND into nothing). The open roadside
+past the end is walked on this edge's own spans (decided, no barrier, gap,
+union, deck, wedge, approach, squeeze, retaining face or collapsed section),
+at most `RailEndWalkM` (two lead-ins and a metre):
+
+- **W-beam lead-in** where it holds `WBeamLenM` (19.4 m) and the beam's
+  corridor (0.4-1.7 m past the edge) keeps `WBeamRoadPadM` (1.3 m) off every
+  other road's pavement (`WBeamCorridorClear`, from the map's centrelines and
+  widths, so every tile decides the same): the concrete carries on
+  `TaperLenM` (8 m), sloped down to a curb, and a W-beam (top 0.79 m, beam
+  0.31 m, a corrugated face) on 6x8 in wood posts every 1.905 m with
+  blockouts runs from the parapet's full height along that slope (the
+  transition), then its 11.43 m terminal flares 1.22 m away from the road
+  and is turned down into the ground over its last 2.5 m (`EmitWBeam`).
+- **Sloped past the end** where the room holds half of `TaperLenM`: the
+  concrete carries on (to 8 m, never past its share of the open roadside)
+  and slopes down to a curb over that length. The full-height rail keeps the
+  length it had, so the drop it guards stays guarded.
+- **Sloped inside the run** where it does not (a rail running to its node,
+  or into a gore on the ground): the run's own last 8 m slope down - except
+  a rail standing over a drop to its very end (a retaining face, a deck),
+  which keeps its full height where it stands (the rail census guards a
+  drop to its end) and is sloped past its end over what open roadside there
+  is, if 1.5 m or more (`ShortSlopeM`: steeper, but no square face).
+- **Gap closed** where another barrier stands on within two lead-ins'
+  length (two bridges close together: N Graham Street between its two
+  bridges): the rail runs on at full height to it (the Roadside Design
+  Guide closes short gaps between barrier runs) - no ends at all. Past that,
+  a stretch shared with another barrier is split, so two facing lead-ins
+  never meet.
+- Left as they were: ends on a deck (the gore nose's V stands there), a
+  hand-over to another barrier kind, a hand-over to a union's median (its
+  owner turns its own ends).
+
+`FlagReachM` 40 -> 60 m: a plan reads up to `RailEndWalkM` past an end and
+a W-beam reaches 19.4 m, and every tile that draws a piece of either must
+see the same open roadside. Street lamps keep off a lead-in
+(`LampSideClear`). The rail's end caps wear the concrete as its faces do
+(they were one texel: the flat grey).
+
+**Drawn with the furniture, solid on its own.** The W-beam is pack metal
+and its posts pack wood from the furniture atlas (`CityPoles.EmitWBeam`,
+`EmitWBeamPost`, in `CityPoles.Build`): the tile's one furniture draw with
+its poles and lamps, no new material, no new draw where a tile already has
+furniture. Its collider is collider-only (`TileMeshes.guardrails`, a box
+from the beam's face back past its posts, "Guardrail" on the Solid layer,
+`CityWorld.Attach`). The city preview draws the lead-ins alone
+(`CityPoles.WBeamMesh`; the preview stands no poles or lamps).
+
+**The probe: BLUNT rail ends** (`CityAudit.DriveAudit`, `RailEnds`). BLUNT's
+lane rays never reached a rail (its face stands 0.3 m inside the edge).
+Along each drawn edge line - 0.15 m inside it, 0.15, 0.75 and 1.2 m outside
+(the verge a car runs off onto) - a ray at bumper height (0.45 m) along the
+travel, both ways, must meet no RAIL's end face within 60 deg of square
+(a recorded rail piece's end no other piece carries on from, or the
+Guardrail collider). Columns a barrier already stands in are skipped. An end
+within 50 m of a structure end, on the ground, is on a bridge approach: the
+check. `RunDrive` (`tools\city-cycle.ps1 -DriveOnly`) runs it on the race
+routes, the nine default tiles and every tile of the OwnerBox
+(PSX_DRIVE_RAILBOX=0 skips the box; PSX_DRIVE_BOX moves it), and prints
+what the tiles decided (W-beam / sloped / inside / closed / kept).
+`CityPreview` group `parapets` (with `w5th_wb`): `parapet_i277_e10558`,
+`parapet_e12th_e2325`, `parapet_graham_e1941`.
+
+**BEFORE -> AFTER**
+
+| | BEFORE (main c073a472) | AFTER |
+|---|---|---|
+| BLUNT rail ends on bridge approaches, the race routes' 184 edges | 36 | **0** (2 trailing ends of one-way I-277, reported) |
+| the same, the nine default tiles | 27 | **0** |
+| the same, every tile of the OwnerBox (182) | 202 | **9** (16 with trailing ends of one-way roads) |
+| rail ends met square anywhere, routes / nine tiles / box | 60 / 42 / 347 | 13 (+12 trailing) / 10 (+5) / 80 (+49) |
+| treatments in the box (240 tiles built) | - | W-beam 146, sloped past the end 46 (1 short), sloped inside 83, gaps closed 14, kept square over a drop 19 |
+| W-beam in the box | - | 1,892 pieces, 1,022 posts on 51 tiles |
+| DRIVE AUDIT, routes (111 tiles) and nine tiles: walls / steps / holes / off / grass / BLUNT | 0 each | 0 each |
+| city audit (OwnerBox) failures | 16 | 17: the same 16 + the new RAIL ENDS check (1, e1252, before the short-slope rule; 0 with it) |
+| rail census | 5 runs, 5 m | 5 runs, 5 m (first try 14 runs, 17 m: fixed) |
+| unguarded ledges / verge steps / body-box face / lane survey | 4 / 27 / 1 / 8 | 4 / 27 / 1 / 8 |
+| short barrier census, city-wide | 0 | 0 |
+| tile build p95 (9 budget sites) | 112.4 ms | 120.4 ms (+7%) |
+| worst view draws (trade_tryon) / culverts and banks | 210 / +6 | 210 / +6 |
+
+- The BLUNT rail-end rays run both ways only on a two-way road, as BLUNT's
+  do: a one-way road's trailing end meets no traffic (DOT asks no terminal
+  there); those are counted and reported, not checked. The BEFORE counts
+  ran both ways on every road.
+- **Not done (lean):** the box's last 9 faces: rails standing on a
+  retaining face or a deck right to their end with under 1.5 m of open
+  roadside past it (19 kept square in the box; South Boulevard e9969/e3603),
+  and the hand-overs to a union's raised median (North Kings Drive e9676).
+  A lead-in never crosses a node: where the open roadside runs on into the
+  next OSM way (W 5th's way split 3 m before its approach rail) the end
+  slopes inside the run instead of getting a W-beam. 12 of the box's 51
+  W-beam tiles have no street lamp of their own: a furniture draw there
+  unless a utility pole stands on the tile (the budget sites' draws did
+  not move). The pack metal reads dark grey (the lamp posts' tint).
+- No rebake (tiles build at runtime); no height moved.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,
