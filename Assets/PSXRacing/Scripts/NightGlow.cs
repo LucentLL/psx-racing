@@ -219,12 +219,20 @@ namespace PSXRacing
             built = true;
         }
 
+        /// <summary>A lit city street's lamps (Charlotte's tiles set it before
+        /// <see cref="Init(IList{Vector3}, IList{float})"/>): their pools are
+        /// drawn by StreetLights' lamp field, not the slot table.</summary>
+        [System.NonSerialized] public bool cityField;
+
         void Register()
         {
             StreetLights.RemoveAll(this);
             for (int i = 0; i < heads.Count; i++)
-                StreetLights.Add(this, heads[i], StreetLights.StreetRadius, StreetLights.Bulb,
-                                 StreetLights.StreetIntensity * (i < gains.Count ? gains[i] : 1f), StreetLights.Kind.Street);
+            {
+                int h = StreetLights.Add(this, heads[i], StreetLights.StreetRadius, StreetLights.Bulb,
+                                         StreetLights.StreetIntensity * (i < gains.Count ? gains[i] : 1f), StreetLights.Kind.Street);
+                if (cityField) StreetLights.MarkField(h, true);
+            }
         }
 
         void MakeHalo()

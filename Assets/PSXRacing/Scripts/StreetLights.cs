@@ -79,7 +79,7 @@ namespace PSXRacing
     /// is lit, and the arrays are always exactly <see cref="MaxLamps"/> long
     /// (Unity locks a global array's length the first time it is set).
     /// </summary>
-    public static class StreetLights
+    public static partial class StreetLights
     {
         /// <summary>Slots in the shader table. MUST equal PSX_MAX_LAMPS in
         /// PSXLamps.cginc.</summary>
@@ -178,6 +178,7 @@ namespace PSXRacing
             public float intensity;
             public Kind kind;
             public bool on;
+            public bool field;       // a lit city street's lamp: lights through the LampField
             public bool used;
             public int gen;
         }
@@ -230,7 +231,9 @@ namespace PSXRacing
             e.intensity = intensity;
             e.kind = kind;
             e.on = true;
+            e.field = false;
             Registered++;
+            fieldVersion++;
             return (e.gen << 16) | slot;
         }
 
@@ -240,9 +243,20 @@ namespace PSXRacing
         {
             if (!Valid(handle, out int slot)) return;
             ref Entry e = ref entries[slot];
+            if (e.field && (e.on != on || e.intensity != intensity || e.pos != pos)) fieldVersion++;
             e.pos = pos;
             e.intensity = intensity;
             e.on = on;
+        }
+
+        /// <summary>Mark a registered street lamp as a LIT CITY STREET's
+        /// (Charlotte's tiles): its pool is drawn by the <see cref="LampField"/>
+        /// at any distance, not by a slot of the table.</summary>
+        public static void MarkField(int handle, bool field)
+        {
+            if (!Valid(handle, out int slot)) return;
+            entries[slot].field = field;
+            fieldVersion++;
         }
 
         public static void Remove(int handle)
@@ -286,7 +300,9 @@ namespace PSXRacing
 
         static void Free(int slot)
         {
+            if (entries[slot].field) fieldVersion++;
             entries[slot].used = false;
+            entries[slot].field = false;
             entries[slot].owner = null;
             freeSlots.Add(slot);
             Registered--;
@@ -359,7 +375,7 @@ namespace PSXRacing
             if ((cam.cullingMask & ~(1 << 5)) == 0) return;
             // An inspector preview renders a preview scene, not this one: it
             // gets no lamps rather than the lamps nearest wherever it sits.
-            if (cam.cameraType == CameraType.Preview) { PushNone(); return; }
+            if (cam.cameraType == CameraType.Preview) { PushNone(); FieldOff(); return; }
             var t = cam.transform;
             if (!Application.isPlaying) { PushInstant(cam); return; }
             // PLAY: the game's view advances the hand-over, once a frame, for
@@ -378,6 +394,7 @@ namespace PSXRacing
                 Advance(t.position, t.forward, Time.unscaledDeltaTime);
             }
             EmitHeld(t.position);
+            PushField(t.position);
         }
 
         /// <summary>
@@ -423,7 +440,7 @@ namespace PSXRacing
         {
             var cam = Camera.main;
             if (cam == null) { PushNone(); return; }
-            if (Application.isPlaying) { EmitHeld(cam.transform.position); return; }
+            if (Application.isPlaying) { EmitHeld(cam.transform.position); PushField(cam.transform.position); return; }
             PushInstant(cam);
         }
 
@@ -438,6 +455,7 @@ namespace PSXRacing
         /// </summary>
         public static void Push(Vector3 eye, Vector3 fwd)
         {
+            PushField(eye);
             if (Application.isPlaying) { EmitHeld(eye); return; }
             float m = fwd.magnitude;
             bool cone = m > 1e-4f;
@@ -461,6 +479,7 @@ namespace PSXRacing
             Rank(eye, f, cone, false);
             Advance(eye, f, dt);
             EmitHeld(eye);
+            PushField(eye);
         }
 
         static void PushInstant(Camera cam)
@@ -469,12 +488,14 @@ namespace PSXRacing
             var t = cam.transform;
             Rank(t.position, t.forward, false, true);
             EmitRanked();
+            PushField(t.position);
         }
 
         static void PushNone()
         {
             for (int i = 0; i < MaxLamps; i++) gPos[i] = gColor[i] = Vector4.zero;
             Send(0);
+            FieldOff();
         }
 
         /// <summary>

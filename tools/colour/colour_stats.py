@@ -1007,8 +1007,112 @@ def cmd_night(d, js):
     return fails == 0
 
 
+# ---- CITY NIGHT (2026-10-05): the lit uptown street, measured on ANY frame ----
+# The owner's five uptown Charlotte references are phone video grabs (no
+# sidecar, pillarboxed), so this region set is boxes in the picture, not
+# projected world boxes: a JSON {"<file stem>": {"road": [x0,y0,x1,y1], ...}}
+# normalised to the picture after the black pillarbox bars are cropped off.
+# Regions: road (asphalt, lower centre - its lane paint is pulled out of it),
+# car, sky, bld (tower faces with their windows), crown, street (the storefront
+# / lower storeys band). Game frames are measured with the same boxes laid on
+# the same parts of their picture.
+#   py tools/colour/colour_stats.py citynight <png|jpg|dir>... [--boxes boxes.json] [--json out.json]
+CITY_NIGHT_DEFAULT = {"road": [0.30, 0.82, 0.70, 0.98], "sky": [0.0, 0.0, 1.0, 0.05]}
+
+
+def _crop_bars(a):
+    yc = 255.0 * enc(lin(a) @ W709)
+    col = np.median(yc, axis=0)
+    w = len(col)
+    x0, x1 = 0, w
+    while x0 < w // 4 and col[x0] < 8: x0 += 1
+    while x1 > 3 * w // 4 and col[x1 - 1] < 8: x1 -= 1
+    # the right bar carries a channel badge low down: cut a further 1% each side
+    pad = int(0.01 * w) if (x0 > 0 or x1 < w) else 0
+    return a[:, x0 + pad:x1 - pad]
+
+
+def _sub(a, box):
+    h, w = a.shape[:2]
+    x0, y0, x1, y1 = box
+    return a[int(y0 * h):max(int(y1 * h), int(y0 * h) + 1), int(x0 * w):max(int(x1 * w), int(x0 * w) + 1)]
+
+
+def city_night_stats(path, boxes):
+    a = np.asarray(Image.open(path).convert("RGB"), dtype=np.float64) / 255.0
+    if not (boxes or {}).get("nocrop"):
+        a = _crop_bars(a)
+    L = lin(a)
+    yc = 255.0 * enc(L @ W709)
+    r = {"frame_med": float(np.median(yc)), "under20": float((yc < 20).mean()),
+         "p99": float(np.percentile(yc, 99)), "hot": float((yc >= 245).mean())}
+    B = dict(CITY_NIGHT_DEFAULT); B.update(boxes or {})
+    for k, box in B.items():
+        if not isinstance(box, list):
+            continue
+        y = _sub(yc, box).ravel()
+        c = _sub(L, box).reshape(-1, 3)
+        if y.size == 0:
+            continue
+        if k == "road":
+            asph = y[y <= np.percentile(y, 70)]
+            med = float(np.median(asph))
+            paint = y > med * 1.5 + 14
+            r["road"] = med
+            r["road_p25"] = float(np.percentile(y, 25))
+            r["road_p75"] = float(np.percentile(y, 75))
+            r["paint"] = float(np.median(y[paint])) if paint.mean() > 0.003 else None
+            r["paint_share"] = float(paint.mean())
+        elif k == "bld":
+            face = y[y <= np.percentile(y, 60)]
+            thr = max(70.0, float(np.median(face)) * 2.2)
+            lit = y >= thr
+            r["bld_face"] = float(np.median(face))
+            r["bld_lit_share"] = float(lit.mean())
+            if lit.sum() > 20:
+                cl = c[lit]
+                warmth = (cl[:, 0] - cl[:, 2]) / np.maximum(cl[:, 0] + cl[:, 2], 1e-6)
+                r["bld_lit_Y"] = float(np.median(y[lit]))
+                r["bld_lit_warm"] = float((warmth > 0.25).mean())
+                r["bld_lit_cool"] = float((warmth < 0.05).mean())
+                # banding: the lit share of each pixel row of the box - a fully
+                # lit office floor is a run of rows near 1, random cells never are
+                rows = (_sub(yc, box) >= thr).mean(axis=1)
+                r["bld_row_p90"] = float(np.percentile(rows, 90))
+        elif k == "crown":
+            hot = y >= 60
+            r["crown_Y"] = float(np.median(y[hot])) if hot.sum() > 10 else None
+            if hot.sum() > 10:
+                cl = c[hot].mean(axis=0)
+                r["crown_rgb"] = [round(float(v) / max(float(cl.max()), 1e-6), 2) for v in cl]
+        else:
+            r[k] = float(np.median(y))
+            if k == "car":
+                r["car_p90"] = float(np.percentile(y, 90))
+    return r
+
+
+def cmd_citynight(files, js, boxes_path=None):
+    boxes = json.load(open(boxes_path)) if boxes_path else {}
+    out = {}
+    keys = ["frame_med", "under20", "hot", "sky", "road", "road_p25", "road_p75", "paint", "paint_share", "car", "car_p90",
+            "street", "bld_face", "bld_lit_share", "bld_lit_Y", "bld_lit_warm", "bld_lit_cool", "bld_row_p90", "crown_Y", "crown_rgb"]
+    share = ("under20", "hot", "paint_share", "bld_lit_share", "bld_lit_warm", "bld_lit_cool", "bld_row_p90")
+    for p in files:
+        stem = os.path.splitext(os.path.basename(p))[0]
+        r = city_night_stats(p, boxes.get(stem))
+        out[stem] = r
+        print(stem + "  " + "  ".join(f"{k} {fmt(r[k], 2) if k in share else fmt(r[k])}" for k in keys if r.get(k) is not None))
+    if js:
+        with open(js, "w") as f:
+            json.dump(out, f, indent=1)
+
+
 def main(argv):
     js = None
+    boxes = None
+    if "--boxes" in argv:
+        i = argv.index("--boxes"); boxes = argv[i + 1]; argv = argv[:i] + argv[i + 2:]
     if "--json" in argv:
         i = argv.index("--json"); js = argv[i + 1]; argv = argv[:i] + argv[i + 2:]
     if len(argv) < 2:
@@ -1036,6 +1140,8 @@ def main(argv):
         cmd_shade(rest[0], js); return 0
     if cmd == "night":
         return 0 if cmd_night(rest[0], js) else 1
+    if cmd == "citynight":
+        cmd_citynight(expand(rest), js, boxes); return 0
     print(__doc__); return 2
 
 

@@ -599,6 +599,7 @@ namespace PSXRacing.City
                 }
                 var glow = lights.GetComponent<NightGlow>();
                 if (glow == null) glow = lights.AddComponent<NightGlow>();
+                glow.cityField = true;
                 glow.Init(heads, gains);
             }
             var timing = new TileTiming
@@ -753,7 +754,9 @@ namespace PSXRacing.City
                 for (int i = 0; i < heads.Length; i++) { heads[i] = tm.origin + tm.lamps[i].head; gains[i] = LampGain(tm.lamps[i]); }
                 var lights = new GameObject("LampLights");
                 lights.transform.SetParent(root.transform, false);
-                lights.AddComponent<NightGlow>().Init(heads, gains);
+                var glow = lights.AddComponent<NightGlow>();
+                glow.cityField = true;
+                glow.Init(heads, gains);
             }
 
             int colliders = root.GetComponentsInChildren<Collider>(true).Length;

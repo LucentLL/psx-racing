@@ -166,6 +166,7 @@ namespace PSXRacing.EditorTools
                 if (sets.Contains("explore")) Guard("explore", Explore);
                 if (sets.Contains("interior")) Guard("interior", Interiors);
                 if (sets.Contains("night")) Guard("night", NightSet);
+                if (sets.Contains("townnight")) Guard("townnight", TownNightSet);
                 if (sets.Contains("census")) Guard("census", CensusSet);
             }
             finally
@@ -332,6 +333,25 @@ namespace PSXRacing.EditorTools
             if (!OpenAt(tw, out var cam, out var player, out var pos, out var rot)) return;
             foreach (var d in new[] { "", "noamb", "noamb,nosun", "noamb,nosun,nofog", "noamb,nosun,nofog,nowet" })
                 Frame(cam, player, tw, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Winter, weather = Weather.Snow, lights = Lights.Off, rig = "hood", noFlakes = true, diag = d, gradeOff = d == "" });
+        }
+
+        /// <summary>The lean UNLIT check (the city-night pass, 2026-10-05):
+        /// the Town spot at night, hood rig, lamps off and on - the owner's
+        /// dark night, which the lit-street field must leave alone.</summary>
+        static void TownNightSet()
+        {
+            var tw = ColourSpots.Find("TW");
+            if (!OpenAt(tw, out var cam, out var player, out var pos, out var rot)) return;
+            // the lamp field off (the code before the pass) and on: the Town
+            // marks no lamps, so the two must be the same picture
+            foreach (bool on in new[] { false, true })
+            {
+                StreetLights.FieldEnabled = on;
+                string x = on ? "_fieldon" : "_fieldoff";
+                Frame(cam, player, tw, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Fall, lights = Lights.Off, rig = "hood", extra = x });
+                Frame(cam, player, tw, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Fall, lights = Lights.On, rig = "hood", extra = x });
+            }
+            StreetLights.FieldEnabled = true;
         }
 
         static void NightSet()

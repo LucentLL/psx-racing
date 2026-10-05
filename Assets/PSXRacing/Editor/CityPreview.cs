@@ -459,6 +459,72 @@ namespace PSXRacing.EditorTools
 
         /// <summary>The nearest point on an edge whose name contains
         /// <paramref name="road"/> (any road when empty) within 120 m.</summary>
+        /// <summary>The approach to the node roadA shares with roadB: the
+        /// roadA edge, the arc `back` m before the node, the direction of
+        /// travel toward it (a one-way edge only along its travel), the node.
+        /// `pick` chooses among the approaches (0 the first).</summary>
+        /// <summary>The Square: the node Trade Street shares with Tryon Street.</summary>
+        static Vector2 SquareXZ(CityMap map)
+        {
+            for (int n = 0; n < map.nodes.Length; n++)
+            {
+                bool tr = false, ty = false;
+                foreach (int ei in map.nodeEdges[n])
+                {
+                    string nm = map.edges[ei].name ?? "";
+                    tr |= nm.IndexOf("Trade", System.StringComparison.OrdinalIgnoreCase) >= 0;
+                    ty |= nm.IndexOf("Tryon", System.StringComparison.OrdinalIgnoreCase) >= 0;
+                }
+                if (tr && ty) return map.nodes[n];
+            }
+            return Vector2.zero;
+        }
+
+        static bool JunctionEye(CityMap map, string roadA, string roadB, float back, int pick,
+                                out CityMap.Edge e, out float s, out Vector2 dir, out int node)
+        {
+            e = null; s = 0f; dir = Vector2.zero; node = -1;
+            bool Has(CityMap.Edge x, string r) => x.name != null && x.name.IndexOf(r, System.StringComparison.OrdinalIgnoreCase) >= 0;
+            var cands = new List<(CityMap.Edge e, int n)>();
+            for (int n = 0; n < map.nodes.Length; n++)
+            {
+                bool hasB = false;
+                foreach (int ei in map.nodeEdges[n]) if (Has(map.edges[ei], roadB) && !Has(map.edges[ei], roadA)) hasB = true;
+                if (!hasB) continue;
+                foreach (int ei in map.nodeEdges[n])
+                {
+                    var x = map.edges[ei];
+                    if (!Has(x, roadA) || x.link || x.bridge || x.tunnel || x.a == x.b) continue;
+                    if (x.oneway && x.b != n) continue;
+                    if (x.length < 20f) continue;
+                    cands.Add((x, n));
+                }
+            }
+            if (cands.Count == 0) return false;
+            if (pick < 0)
+            {
+                // the approach that heads most toward the Square (Trade x Tryon)
+                Vector2 sq = SquareXZ(map);
+                float bestDot = -2f;
+                for (int k = 0; k < cands.Count; k++)
+                {
+                    var x = cands[k].e; bool inx = x.b == cands[k].n;
+                    float sx = inx ? x.length - Mathf.Min(back, x.length - 2f) : Mathf.Min(back, x.length - 2f);
+                    var dx = inx ? x.TangentAt(sx) : -x.TangentAt(sx);
+                    float d = Vector2.Dot(dx, (sq - x.PointAt(sx)).normalized);
+                    if (d > bestDot) { bestDot = d; pick = k; }
+                }
+            }
+            var c = cands[Mathf.Clamp(pick, 0, cands.Count - 1)];
+            e = c.e; node = c.n;
+            bool into = e.b == node;
+            float b = Mathf.Min(back, e.length - 2f);
+            s = into ? e.length - b : b;
+            var t = e.TangentAt(s);
+            dir = into ? t : -t;
+            return true;
+        }
+
         static bool SnapNamed(CityMap map, Vector2 p, string road, out CityMap.Edge edge, out float s)
         {
             edge = null; s = 0f;
@@ -1281,6 +1347,65 @@ namespace PSXRacing.EditorTools
                         PSXScreenshotTool.ShotAs(cam, $"eye_{v.name}_{TimeOfDay.All[hour].name.ToLowerInvariant()}", eye, rot);
                     }
                     log.Append($"{v.name}: eye ({eye.x:0.0},{eye.y:0.00},{eye.z:0.0}) on e{e.index} '{e.name}', tiles {world.LiveTiles}\n");
+                    world.DropAll();
+                }
+                // JUNCTION SPOTS (the city-night pass, 2026-10-05): PSX_EYE_JCT
+                // "name:roadA:roadB:back:pick:pitch;..." - the driver's eye in
+                // roadA's lane `back` m before the node roadA shares with roadB,
+                // looking through it (pick: which approach, pitch: degrees up).
+                // PSX_EYE_CAR=1 parks the player's car 14 m ahead in the lane.
+                bool withCar = System.Environment.GetEnvironmentVariable("PSX_EYE_CAR") == "1" && player != null;
+                foreach (var spec in (System.Environment.GetEnvironmentVariable("PSX_EYE_JCT") ?? "").Split(';'))
+                {
+                    var f = spec.Split(':');
+                    if (f.Length < 3) continue;
+                    var inv = System.Globalization.CultureInfo.InvariantCulture;
+                    float back = f.Length > 3 ? float.Parse(f[3], inv) : 30f;
+                    int pick = f.Length > 4 ? int.Parse(f[4], inv) : 0;
+                    float pitch = f.Length > 5 ? float.Parse(f[5], inv) : 0f;
+                    if (!JunctionEye(map, f[1], f[2], back, pick, out var je, out float js, out var dir, out int node))
+                    { Debug.LogError($"[EyePlay] {f[0]}: no node of '{f[1]}' x '{f[2]}'"); continue; }
+                    var right = new Vector2(dir.y, -dir.x);
+                    var lane = je.oneway ? Vector2.zero : right * (je.HalfMax * 0.5f);
+                    var p2 = je.PointAt(js) + lane;
+                    var eye = new Vector3(p2.x, je.YAt(js) + 1.2f, p2.y);
+                    var fwd3 = new Vector3(dir.x, 0f, dir.y);
+                    // a raised eye (f[6] metres) and, with f[7] "sq", the look
+                    // turned onto the Square: the skyline from outside uptown
+                    if (f.Length > 6) eye.y += float.Parse(f[6], inv);
+                    if (f.Length > 7 && f[7] == "sq")
+                    {
+                        var sq = SquareXZ(map);
+                        fwd3 = new Vector3(sq.x - eye.x, 0f, sq.y - eye.z).normalized;
+                    }
+                    var rot =Quaternion.LookRotation(fwd3 * 60f + Vector3.up * (Mathf.Tan(pitch * Mathf.Deg2Rad) * 60f - 1.0f));
+                    world.EnsureRing(eye, world.ring);
+                    if (withCar)
+                    {
+                        player.SetActive(true);
+                        float sc = Mathf.Clamp(js + (je.b == node ? 14f : -14f), 0f, je.length);
+                        var c2 = je.PointAt(sc) + lane;
+                        player.transform.SetPositionAndRotation(new Vector3(c2.x, je.YAt(sc) + 0.05f, c2.y), Quaternion.LookRotation(fwd3));
+                    }
+                    // PSX_EYE_AB=1: each frame twice, the lamp field off first
+                    // (exactly the code before the city-night pass) as _off
+                    bool ab = System.Environment.GetEnvironmentVariable("PSX_EYE_AB") == "1";
+                    foreach (int hour in hours)
+                        foreach (bool fieldOn in ab ? new[] { false, true } : new[] { true })
+                        {
+                            StreetLights.FieldEnabled = fieldOn;
+                            TimeOfDay.Apply(hour, sun);
+                            NightGlow.PreviewAll(hour >= TimeOfDay.Dusk);
+                            if (globals != null) globals.Apply();
+                            cam.transform.SetPositionAndRotation(eye, rot);
+                            world.RefreshSkyline(cam);
+                            PSXScreenshotTool.ShotAs(cam, $"eye_{f[0]}_{TimeOfDay.All[hour].name.ToLowerInvariant()}{(fieldOn ? "" : "_off")}", eye, rot);
+                        }
+                    StreetLights.FieldEnabled = true;
+                    log.Append($"{f[0]}: field lamps {StreetLights.FieldLamps}, eye ({eye.x:0.0},{eye.y:0.00},{eye.z:0.0}) on e{je.index} '{je.name}' cls{je.cls} lanes{je.lanes} oneway {je.oneway}"
+                             + $" node {node}, lamps registered {StreetLights.Registered}, within 40 m {StreetLights.CountWithin(eye, 40f, StreetLights.Kind.Street)},"
+                             + $" 80 m {StreetLights.CountWithin(eye, 80f, StreetLights.Kind.Street)}, 160 m {StreetLights.CountWithin(eye, 160f, StreetLights.Kind.Street)}, pushed {StreetLights.PushedCount}\n");
+                    if (withCar) player.SetActive(false);
                     world.DropAll();
                 }
             }

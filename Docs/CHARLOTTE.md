@@ -7242,3 +7242,43 @@ junction control, city traffic, street races).
   `CityGroundEdges` counts them (RAISED SHEET ENDS; PSX_GEDGE_EDGES names
   edges). On the two spots' tiles: 288 pieces / 425 m -> 46 / 61 m, both
   named ends gone. Not gated yet: `PSX_CITY_FORESLOPES=1` only.
+
+## Lit city streets at night (city-night, 2026-10-05)
+
+The owner: "The lighting in Charlotte feels off. The roads and cars are too dark at night on the main roads", with five uptown night photographs (N Tryon at 6th and at 4th, an uptown two-lane, a wide arterial into uptown, a one-way four-lane), then five more of the towers and the aerial grid. Only colours and light patterns are taken from them, never a name, logo or sign.
+
+Measured with `colour_stats.py citynight` (boxes in the picture, since the photographs carry no sidecar): the photographs' asphalt reads Ycode 90-141, lane paint 166-218, car bodies 36-111 and the frame median 51-110, with 0-30% of the frame under 20. Their tower faces read 12-45 under a 5-37 sky, lit windows 88-153 on 6-32% of a face, and whole lit floors show as rows. Ours read road 4-25, paint 64-89, cars 14-20, median 5-24 and faces 4-7. **The cause:** the 12-slot lamp table lit only the 8 lamps nearest the eye, while 8-13 stand within 80 m and 37-53 within 160 m of every uptown spot. An 18 m pool under a 9 m head also lights barely 10 m of road, so a lit street was a few pools with black gaps between them, under the owner's dark-night ambient.
+
+**The lamp field** (`StreetLights.Field.cs`, `PSXLamps.cginc` `PSXLampField`). The Charlotte tiles mark their lamp heads (`NightGlow.cityField` -> `StreetLights.MarkField`). Every marked lamp within 250 m of the eye (180-240 of them uptown) is splatted top-down into one 256x256 RGBAHalf texture that follows the eye in 32 m steps and is rebuilt only when it steps or a lamp changes:
+- R holds the pool, a 28 m windowed disc at 1.8x the lamp's intensity;
+- G holds a 40 m scattered glow at 0.30x, which reaches car sides and the lower storeys;
+- B and A hold the glow-weighted head height, so a deck above the heads or a road 20 m under them takes none.
+
+Every PSX surface reads the field with one fetch inside `PSXLampsCore`. While the field is on, the table's street entries give only their wet glints, and tail lamps are unchanged. `PSX/Lit` reads the lamp light on a dark road through the beam's albedo floor (`PSXBeamAlbedoGain`), so the owner's asphalt colour is unchanged and is seen the way a camera sees lit asphalt. Uptown heads are white LED (sRGB 1, .95, .86) within 700-1300 m of the Square, and the neighbourhoods' heads are warm bulbs (1, .84, .52). The field adds no draw call and no renderer; its cost is 512 KB of texture and a CPU splat when the window steps.
+
+**Unlit roads keep the dark night.** Only the city marks lamps. The Town, Blue Ridge, the sprints and every other venue never turn the field on (`_PSXLampFieldST.w` is pushed 0 on every frame), so their pictures do not change. `colour-shots.ps1 -Sets townnight` shoots the Town spot with the field off and on: the regions are identical (unlit road darkest 7.9, frame median 14, 79% under 20, sky 9.8, night gate 0 misses), and only 0.03% of pixels differ, which is the stars. `PSX_LAMPFIELD=0` (editor) turns the field off, and the picture is then exactly the code before this pass: N Tryon's field-off frame matches the pre-pass frame number for number.
+
+**Towers in the lit city** (`PSX/Lit`, only while the field is on):
+- the lit streets' bounce on a facade (`_PSXCityBounce`, 0.075/0.069/0.063 linear);
+- random lit windows at 20%, plus whole lit storeys as bands (16% of a building's storeys, counted from the street level the field knows);
+- the window glow at x0.50;
+- a warm uplight wash on the lower facade of 35% of buildings;
+- LED lines on the podium slabs of 10% of them (green or the building's accent);
+- crowns washed in a hash-picked accent (white, blue, violet, teal, pink, green) at 0.85, with LED lines on their storeys.
+
+After the pass, at the same spots (refs in brackets):
+
+| spot | road | paint | car | frame median |
+| --- | --- | --- | --- | --- |
+| N Tryon at 6th | 4 -> 51 | 64 -> 191 | 14 -> 50 | 5 -> 48 |
+| S Tryon at 4th | 14 -> 72 | - | 14 -> 26 | 14 -> 41 |
+| W 7th St | 25 -> 97 | - | 19 -> 69 | 24 -> 87 |
+| E 3rd St (one-way) | 19 -> 105 | - | 20 -> 65 | 19 -> 92 |
+| E Trade St | 23 -> 88 | 89 -> 203 | 14 -> 44 | 18 -> 60 |
+| refs | 90-141 | 166-218 | 36-111 | 51-110 |
+
+Towers, over every frame with a tower box: faces 4-7 -> 7-40 (refs 12-45), lit windows 164-193 -> 113-137 (88-153), lit share 7-34% -> 11-36% (6-32%), row banding 0.11-0.43 -> 0.24-0.59 (0.12-0.67). Composites: `scratchpad\ba\night_1..5.jpg`, `night_bld_1..3.jpg` and `night_town_unlit.jpg` (REF | BEFORE | AFTER).
+
+**Open.** The road 2-8 m ahead at the two Tryon junction spots (51, 72) is still under the refs' 90. Lamps stand back from a junction's fan (`LampEndClear`), so the mouth of a big junction is the gap; the next step is a lamp on the fan's corner, not more gain. The skyline from 2 km shows warm lit streets only within the 250 m window. The far skyline's crowns did not take the accent palette (the crown box read warm), probably because the far skyline is not the facade shader; check it before any retune.
+
+Instruments: `CityPreview.RunEyePlay` with `PSX_EYE_JCT="name:roadA:roadB:back:pick:pitch[:rise[:sq]]"` (the driver's eye before the node two named roads share; pick -1 heads toward the Square), `PSX_EYE_CAR=1` (the player's car parked 14 m ahead), and `PSX_EYE_AB=1` (each frame with the field off as `_off`, then on).

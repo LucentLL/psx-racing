@@ -101,6 +101,64 @@
 #define POINT_NEAR_M    0.9
 #define POINT_NEAR_RAMP 0.8
 
+// THE LAMP FIELD (the city-night pass, 2026-10-05; StreetLights.Field.cs
+// says why). A lit city street's lamps are not in the table above: every one
+// within 250 m of the eye is splatted top-down into one camera-centred
+// RGBAHalf texture - R the pool, G the wide scattered glow, B/A the
+// glow-weighted head height above _PSXLampFieldY.x - read here with ONE
+// fetch, at any number of lamps. _PSXLampFieldST.w is the switch: only
+// Charlotte's tiles mark lamps, so on every other venue it is 0 (pushed 0
+// every frame) and this is one uniform branch - the owner's dark night on
+// the rural, mountain and Town roads is untouched. While it is on, the
+// table's STREET entries give only their wet glints (their diffuse is the
+// field's); the tail lamps (points) are unchanged.
+sampler2D _PSXLampField;
+float4 _PSXLampFieldST;   // xy window origin (world xz), z 1/span, w on
+float4 _PSXLampFieldY;    // x base height, yz uptown centre (xz), w 1/(outer-inner)
+float4 _PSXFieldWhite;    // rgb uptown LED head (linear), w uptown outer radius (m)
+float4 _PSXFieldWarm;     // rgb neighbourhood bulb (linear)
+
+// How far under the heads the pool and the glow reach: a street is 6-12 m
+// under its heads; a road 20 m under a lit deck is not lit by it, and a
+// surface above the heads (a tower's upper storeys, the deck over a lit
+// street) takes none of the pool and only the glow's lowest fringe.
+#define FIELD_UNDER_M   22.0
+#define FIELD_GLOW_UP_M 8.0
+
+/// The lit street's light at `wpos` on a surface facing `N` (facingOn 0: no
+/// facing term - rain, decals laid on the road). Zero off the city.
+float3 PSXLampField(float3 wpos, float3 N, float facingOn)
+{
+    if (_PSXLampFieldST.w < 0.5) return float3(0.0, 0.0, 0.0);
+    float2 uv = (wpos.xz - _PSXLampFieldST.xy) * _PSXLampFieldST.z;
+    float4 f = tex2Dlod(_PSXLampField, float4(uv, 0.0, 0.0));
+    // fade out over the outer tenth of the window (beyond ~200 m the halos
+    // stand for the lamps), and never a NaN from a texel nothing reached
+    float2 b = saturate(min(uv, 1.0 - uv) * 10.0);
+    float headY = _PSXLampFieldY.x + f.b / max(f.a, 1e-3);
+    float under = headY - wpos.y;
+    float vertP = saturate((under + 1.0) * 0.5) * saturate((FIELD_UNDER_M - under) * 0.125);
+    float vertG = saturate((under + FIELD_GLOW_UP_M) / FIELD_GLOW_UP_M) * saturate((FIELD_UNDER_M - under) * 0.125);
+    // the pool falls from above: a road takes it all, a wall or a car's side
+    // 0.55, an underside none; the glow comes from every side
+    float upP = facingOn > 0.5 ? saturate(0.55 + 0.45 * N.y) : 1.0;
+    float upG = facingOn > 0.5 ? saturate(0.75 + 0.25 * N.y) : 1.0;
+    float2 dc = wpos.xz - _PSXLampFieldY.yz;
+    float uptown = saturate((_PSXFieldWhite.w - length(dc)) * _PSXLampFieldY.w);
+    float3 hue = lerp(_PSXFieldWarm.rgb, _PSXFieldWhite.rgb, uptown);
+    return hue * ((max(f.r, 0.0) * vertP * upP + max(f.g, 0.0) * vertG * upG) * (b.x * b.y));
+}
+
+/// The street level under `wpos` as the field knows it (the heads' mean
+/// height less a cobra-head's 8.5 m): the facades' storeys are counted from
+/// it. Off the field, the eye's base less the eye height.
+float PSXFieldStreetY(float3 wpos)
+{
+    float2 uv = (wpos.xz - _PSXLampFieldST.xy) * _PSXLampFieldST.z;
+    float4 f = tex2Dlod(_PSXLampField, float4(uv, 0.0, 0.0));
+    return f.a > 0.02 ? _PSXLampFieldY.x + f.b / f.a - 8.5 : _PSXLampFieldY.x - 1.2;
+}
+
 float  _PSXLampCount;
 float4 _PSXLampPos[PSX_MAX_LAMPS];    // xyz lamp head (world), w = pool radius (m)
 float4 _PSXLampColor[PSX_MAX_LAMPS];  // rgb = LINEAR colour x intensity x edge fade, w = kind (0 street: aimed down, 1 point/omni)
@@ -116,8 +174,9 @@ float4 _PSXLampColor[PSX_MAX_LAMPS];  // rgb = LINEAR colour x intensity x edge 
 void PSXLampsCore(float3 wpos, float3 N, float3 V, float power, float specOn, float facingOn,
                   out float3 diff, out float3 spec)
 {
-    diff = float3(0.0, 0.0, 0.0);
+    diff = PSXLampField(wpos, N, facingOn);
     spec = float3(0.0, 0.0, 0.0);
+    float fieldOn = step(0.5, _PSXLampFieldST.w);
     if (_PSXLampCount < 0.5) return;
     int count = (int)_PSXLampCount;
     for (int j = 0; j < PSX_MAX_LAMPS; j++)
@@ -143,7 +202,8 @@ void PSXLampsCore(float3 wpos, float3 N, float3 V, float power, float specOn, fl
         // above it. A point lamp lights every way.
         float cone = lerp(1.0, saturate(l.y * 1.5 + 0.25), street);
         float facing = facingOn > 0.5 ? saturate(dot(N, l)) : 1.0;
-        diff += C.rgb * (att * cone * facing);
+        // a street lamp's diffuse is the field's while the field is on
+        diff += C.rgb * (att * cone * facing * (1.0 - street * fieldOn));
 
         if (specOn > 0.5)
         {
