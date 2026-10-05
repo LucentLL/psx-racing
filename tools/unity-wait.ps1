@@ -976,6 +976,14 @@ function Invoke-UnityJob {
     )
 
     $script:UnityJobExitCode = $null
+    # The job's own -projectPath IS the project to watch. -Project defaults to
+    # $env:PSX_SANDBOX or PSXBuild, so a PSXCity job launched without either
+    # (2026-10-05, the decks run) looked for its editor among PSXBuild's - where
+    # another agent's Unity was already running - said UNITY NEVER STARTED,
+    # and the caller started the next job on top of the live one.
+    for ($i = 0; $i -lt $UnityArgs.Count - 1; $i++) {
+        if ($UnityArgs[$i] -ieq '-projectPath') { $Project = $UnityArgs[$i + 1] }
+    }
     if (-not $NoParkCheck) {
         # A killed edition build's park goes back before any job runs on the
         # sandbox (see Assert-EditionParkClear). Throws when it is stuck.
@@ -1018,6 +1026,12 @@ function Invoke-UnityJob {
         }
     }
 
+    # A batch job never starts beside a live one on the same project (Unity
+    # refuses the second, which then never shows up as a new process).
+    if (-not $Watch -and -not (Wait-ProjectIdle $Project $MaxMinutes)) {
+        Write-Host "a Unity job is still running on $Project after $MaxMinutes min - not starting another"
+        return $false
+    }
     if (Test-Path $Log) { Remove-Item $Log -Force }
     $before = @(Get-UnityPids $Project)
     $fgAtLaunch = [IntPtr]::Zero; $launchedAt = Get-Date
