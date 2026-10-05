@@ -219,9 +219,14 @@ namespace PSXRacing.City
         static Vector3 W3(Vector2 p, float y) => new Vector3(p.x, y, p.y);
 
         /// <summary>The facade bucket's tint for a hero surface: the atlas
-        /// column, metal or not, a linear multiplier.</summary>
-        static void HeroTint(int col, bool metal, float r, float g, float b) =>
+        /// column, metal or not, a linear multiplier. A hero's metal is its
+        /// crown (spikes, needle, frame, lantern, fins, pyramid, spire), so it
+        /// is floodlit after dark unless <paramref name="crown"/> says not.</summary>
+        static void HeroTint(int col, bool metal, float r, float g, float b, bool crown = true)
+        {
             Bucket.Tint = new Color32(TintByte(r), TintByte(g), TintByte(b), (byte)(col * 32 + (metal ? FacadeMetalBit : 0)));
+            FacadeCrown(metal && crown);
+        }
 
         /// <summary>Crown geometry is drawn, not collided (never in the
         /// skyline, whose mesh takes only the collided list).</summary>
@@ -681,7 +686,7 @@ namespace PSXRacing.City
                     HeroTri(tm, P(i, S.Length - 1), P((i + 1) % n, S.Length - 1), mid, Vector3.up, HeroMatteUV);
             }
             // the boards: blank, dark, on the rim where OSM has them
-            HeroTint(HeroMetalCol, true, 0.35f, 0.35f, 0.38f);
+            HeroTint(HeroMetalCol, true, 0.35f, 0.35f, 0.38f, crown: false);
             var fs = heroMap.footprints;
             foreach (int bi in heroDropped[hero])
             {

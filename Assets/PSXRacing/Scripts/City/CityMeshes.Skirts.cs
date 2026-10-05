@@ -50,6 +50,53 @@ namespace PSXRacing.City
         /// <summary>The tile's last build: of those faces, the steps a car
         /// rolls over, drawn render-only with the kerbs.</summary>
         public static int skirtSoftCount; public static float skirtSoftMetres;
+        /// <summary>The tile's last build: the raised sheet ends over a ledge
+        /// laid as a recoverable foreslope instead of a face (<see cref="SlopeRun"/>).</summary>
+        public static int skirtSlopeCount; public static float skirtSlopeMetres;
+        /// <summary>OFF until gated (city-cycle -AuditOnly and -DriveOnly with
+        /// it on): PSX_CITY_FORESLOPES=1 lays them; off, raised sheet ends keep
+        /// their render-only face (the before-count of the raised-end census).</summary>
+        static readonly bool ForeslopesOff = System.Environment.GetEnvironmentVariable("PSX_CITY_FORESLOPES") != "1";
+
+        /// <summary>
+        /// RAISED SHEET ENDS (leftovers 2026-10-05: West 4th Street Extension
+        /// e14607, 0.34 m; the squeezed span's end beside e343, 0.44 m). A
+        /// sheet - a verge, a verge's end where its span stops, a road's edge -
+        /// standing LedgeStepM..OpenDropM over the land beyond took a
+        /// render-only face: the drop was drawn closed, but in the collider the
+        /// sheet's own edge stood there, a ledge the car fell off and hit coming
+        /// back. By the roadside rule (a flush shoulder and a recoverable
+        /// foreslope, never a ledge) the sheet now runs on down at
+        /// RoadsideRules.CityFillSlope (1:4) until it meets the land and is
+        /// tucked RoadsideRules.ToeTuckM under it, in the ground's material and
+        /// collider. How far out from the tile-local point <paramref name="X"/>
+        /// along <paramref name="nrm"/>; -1 (keep the face) where a road lies
+        /// under the slope or within a hand of it (never a ramp over lanes), the
+        /// tile ends, or no land is met within the run of OpenDropM.
+        /// </summary>
+        static float SlopeRun(CityMap map, Vector3 o, Vector3 X, Vector2 nrm)
+        {
+            const float s = RoadsideRules.CityFillSlope;
+            const float maxRun = (RoadsideRules.OpenDropM + RoadsideRules.ToeTuckM) / s;
+            for (float r = 0.25f; r <= maxRun + 0.01f; r += 0.25f)
+            {
+                float qx = X.x + nrm.x * r, qz = X.z + nrm.y * r;
+                if (qx < 0f || qz < 0f || qx > TileSize || qz > TileSize) { slopeWhy = 1; return -1f; }
+                float y = X.y - r * s;
+                float rh = roadGrid.Between(qx, qz, float.NegativeInfinity, y + 0.3f);
+                // pavement flush with the slope (or over it) is land it meets;
+                // pavement under it is another road's lanes: never a ramp onto them
+                if (rh >= y - RoadsideRules.ToeTuckM) return r + RoadsideRules.ToeTuckM / s;
+                if (rh > float.NegativeInfinity) { slopeWhy = 2 + 10 * Mathf.Min(99, (int)(r * 4f)) + 1000 * Mathf.Clamp((int)((y - rh) * 100f), 0, 999); return -1f; }
+                float land = LatticeY(map, qx + o.x, qz + o.z);
+                land = Mathf.Max(land, groundGrid.Between(qx, qz, land, y + 0.3f));
+                if (land >= y - RoadsideRules.ToeTuckM) return r + RoadsideRules.ToeTuckM / s;
+            }
+            slopeWhy = 3;
+            return -1f;
+        }
+        /// <summary>Probe only: why the last SlopeRun refused (1 the tile ends, 2 a road, 3 no land within the run).</summary>
+        static int slopeWhy;
         /// <summary>Probe only: ms summed per phase of the pass (sets, ground weld, ground faces, roads weld, grid, roads faces).</summary>
         public static readonly double[] skirtPhase = new double[6];
         /// <summary>Probe only: road open edges seen, past the verge test, past the drop test, paved past, deck, step.</summary>
@@ -84,6 +131,7 @@ namespace PSXRacing.City
         static void CloseOpenGround(CityMap map, Trims trims, TileMeshes tm)
         {
             skirtCount = 0; skirtMetres = 0f; fasciaMetres = 0f; skirtMs = 0; skirtSoftCount = 0; skirtSoftMetres = 0f;
+            skirtSlopeCount = 0; skirtSlopeMetres = 0f;
             if (SkirtsOff) return;
             var clock = System.Diagnostics.Stopwatch.StartNew();
             try { CloseOpenGroundIn(map, trims, tm); } finally { skirtMs = clock.Elapsed.TotalMilliseconds; }
@@ -174,6 +222,7 @@ namespace PSXRacing.City
             groundGrid.Build(skirtSheets, groundBaseT);
             OpenEdges(skirtSheets, false, groundBaseV, groundBaseT);
             skirtPhase[1] += sw.Elapsed.TotalMilliseconds; sw.Restart();
+            skirtRoadPass = false;
             foreach (var (A, B, nrm, bi) in skirtOpen)
             {
                 // a strip's inner edge: under its own road's edge, never seen
@@ -192,6 +241,7 @@ namespace PSXRacing.City
             skirtPhase[3] += sw.Elapsed.TotalMilliseconds; sw.Restart();
             skirtPhase[4] += sw.Elapsed.TotalMilliseconds; sw.Restart();
             var con = cb;
+            skirtRoadPass = true;
             foreach (var (A0, B0, nrm, bi) in skirtOpen)
             {
             // in pieces of 2 m at most: a deck's end runs on past its approach's
@@ -512,6 +562,12 @@ namespace PSXRacing.City
         /// <summary>Probe only (null in the game): every closing face's
         /// decision, world plan point first.</summary>
         public static List<(Vector3 at, string what)> skirtLog;
+        /// <summary>Probe only (null in the game): every render-only step deeper
+        /// than RoadsideRules.LedgeStepM - a raised sheet end whose own edge a
+        /// car's bumper meets coming back - world mid point, step, metres, and
+        /// whether the road pass laid it.</summary>
+        public static List<(Vector3 at, float step, float len, bool road, Vector2 nrm, int why)> skirtLedges;
+        static bool skirtRoadPass;
 
         /// <summary>Does a road surface carry on past the open road edge A..B
         /// (tile-local) at its height: 0.6 m out at its quarter points, a lying
@@ -558,6 +614,26 @@ namespace PSXRacing.City
                     for (int k = 0; k < landSeen.Length; k++) landSeen[k] = float.NaN;
                     float landOut = LandOut(map, o, (P + Q) * 0.5f, nrm, top);
                     bool rolls = top - landOut <= SoftStepM;
+                    // a raised sheet end over a LEDGE (LedgeStepM..OpenDropM): a
+                    // recoverable foreslope down to the land instead of a face
+                    float rP, rQ;
+                    if (rolls && top - landOut > RoadsideRules.LedgeStepM && !ForeslopesOff &&
+                        (rP = SlopeRun(map, o, P, nrm)) > 0f && (rQ = SlopeRun(map, o, Q, nrm)) > 0f)
+                    {
+                        const float fs = RoadsideRules.CityFillSlope;
+                        var P2 = new Vector3(P.x + nrm.x * rP, P.y - rP * fs, P.z + nrm.y * rP);
+                        var Q2 = new Vector3(Q.x + nrm.x * rQ, Q.y - rQ * fs, Q.z + nrm.y * rQ);
+                        buckets[(int)Slot.Ground].Up(P, Q, Q2, P2,
+                            GroundUV(false, P.x + o.x, P.z + o.z), GroundUV(false, Q.x + o.x, Q.z + o.z),
+                            GroundUV(false, Q2.x + o.x, Q2.z + o.z), GroundUV(false, P2.x + o.x, P2.z + o.z));
+                        float ln = Vector2.Distance(new Vector2(P.x, P.z), new Vector2(Q.x, Q.z));
+                        skirtSlopeCount++; skirtSlopeMetres += ln;
+                        skirtLog?.Add(((P + Q) * 0.5f + o, $"foreslope step {top - landOut:0.00} run {rP:0.00}/{rQ:0.00}"));
+                        P = Q; lP = lQ;
+                        continue;
+                    }
+                    if (rolls && top - landOut > RoadsideRules.LedgeStepM)
+                        skirtLedges?.Add(((P + Q) * 0.5f + o, top - landOut, Vector2.Distance(new Vector2(P.x, P.z), new Vector2(Q.x, Q.z)), skirtRoadPass, nrm, ForeslopesOff ? 0 : slopeWhy));
                     skirtLog?.Add(((P + Q) * 0.5f + o, $"skirt {(rolls ? "ROLLS" : "solid")} {(bk == buckets[(int)Slot.Ground] ? "ground" : "paved")} top {top + o.y:0.00} lattice {Mathf.Min(lP, lQ) + o.y:0.00} land {landOut + o.y:0.00} [{landSeen[0] + o.y:0.00} {landSeen[1] + o.y:0.00} {landSeen[2] + o.y:0.00}] h {Mathf.Max(hP, hQ):0.00} nrm ({nrm.x:0.00},{nrm.y:0.00})"));
                     if (rolls || Mathf.Max(hP, hQ) > RetainFaceM)
                     {

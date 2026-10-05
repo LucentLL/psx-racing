@@ -433,7 +433,7 @@ namespace PSXRacing.City
             Bucket.Tint = new Color32(TintByte(k.x), TintByte(k.y), TintByte(k.z), (byte)(look * 32 + (mat == 4 ? FacadeMetalBit : 0)));
         }
 
-        static void EndFacade() => Bucket.Tint = new Color32(128, 128, 128, 0);
+        static void EndFacade() { Bucket.Tint = new Color32(128, 128, 128, 0); facCrownY = float.MaxValue; }
 
         /// <summary>Uptown B1b: the vertex alpha's half step (column x 32
         /// + 16) tells PSX/Lit's facade that this surface is METAL - the
@@ -444,7 +444,30 @@ namespace PSXRacing.City
         static void FacadeMetal(bool on)
         {
             var t = Bucket.Tint;
-            Bucket.Tint = new Color32(t.r, t.g, t.b, (byte)((t.a & 0xE0) | (on ? FacadeMetalBit : 0)));
+            Bucket.Tint = new Color32(t.r, t.g, t.b, (byte)((t.a & (0xE0 | FacadeCrownBit)) | (on ? FacadeMetalBit : 0)));
+        }
+
+        /// <summary>Leftovers 2026-10-05, FLOODLIT CROWNS: the vertex alpha's
+        /// quarter step (+8) tells PSX/Lit's facade that this surface is a
+        /// tall tower's crown - its top storeys, its crown, fins and spire
+        /// metal - washed by floodlights after dark (the CROWN_* night pass).
+        /// A tower of <see cref="CrownMinH"/> and more is lit from
+        /// <see cref="facCrownY"/> up: the walls that cross it are split
+        /// there (one more panel row, no draw call).</summary>
+        const int FacadeCrownBit = 8;
+        public const float CrownMinH = 60f;
+        static float facCrownY = float.MaxValue;
+        /// <summary>The floodlit band of a tower <paramref name="h"/> tall: a
+        /// tenth of it, two storeys to five.</summary>
+        static float CrownBandM(float h) => Mathf.Clamp(0.1f * h, 8f, 20f);
+        /// <summary>OFF until the PSX/Lit half (scratchpad crowns_shader.diff:
+        /// the +8 decode and the CROWN_* night pass) is in and seen at night -
+        /// the shader on main reads +8 as metal. PSX_CITY_CROWNS=1 turns it on.</summary>
+        static readonly bool CrownsOff = System.Environment.GetEnvironmentVariable("PSX_CITY_CROWNS") != "1";
+        static void FacadeCrown(bool on)
+        {
+            var t = Bucket.Tint;
+            Bucket.Tint = new Color32(t.r, t.g, t.b, (byte)((t.a & ~FacadeCrownBit) | (on && !CrownsOff ? FacadeCrownBit : 0)));
         }
 
         static float SrgbToLin(byte c)
@@ -9882,7 +9905,21 @@ namespace PSXRacing.City
                 float ur = Mathf.Max(1f, Mathf.Round(wallM / lk.uM));
                 float rep = facFloorH * lk.floors;
                 float va = (y0 - facBase) / rep, vb = (y1 - facBase) / rep;
-                EmitPanels(tm, style, a, c, y0, y1, outward, ur, vb - va, va);
+                // a tall tower's floodlit top storeys: the wall split where
+                // the band starts, the crown bit on above it
+                float cy = facCrownY;
+                if (y1 <= cy + 0.3f) { EmitPanels(tm, style, a, c, y0, y1, outward, ur, vb - va, va); return; }
+                var keep = Bucket.Tint;
+                if (y0 < cy - 0.3f)
+                {
+                    float vm = (cy - facBase) / rep;
+                    FacadeCrown(false);
+                    EmitPanels(tm, style, a, c, y0, cy, outward, ur, vm - va, va);
+                    FacadeCrown(true);
+                    EmitPanels(tm, style, a, c, cy, y1, outward, ur, vb - vm, vm);
+                }
+                else { FacadeCrown(true); EmitPanels(tm, style, a, c, y0, y1, outward, ur, vb - va, va); }
+                Bucket.Tint = keep;
                 return;
             }
             var fm = FacadeMeters[(int)style - (int)Slot.FacadeTower];
@@ -10020,8 +10057,13 @@ namespace PSXRacing.City
                 // above it and round the other walls, brick or stone)
                 Slot wallSlot = f.style == 3 ? Slot.FacadeHouse : Slot.FacadeGlass;
                 if (wallSlot == Slot.FacadeGlass)
+                {
                     PickFacade(gf.centre, (byte)(f.style == 4 ? 2 : f.style), f.use, f.mat, f.colour, floorP,
                                gf != f ? Mathf.Max(gf.h, 1f) : top - floorP);
+                    // the tower's floodlit crown: its top band, whichever part reaches it
+                    float towerH = Mathf.Max(top - floorP, gf.h);
+                    facCrownY = towerH >= CrownMinH && !CrownsOff ? floorP + towerH - CrownBandM(towerH) : float.MaxValue;
+                }
                 // B2: a part's floor (a tier on its podium, a crown on its
                 // shaft) and the eave its roof shape rises from
                 // (the skyline stands every tier on the ground: a tier whose
@@ -10079,7 +10121,12 @@ namespace PSXRacing.City
                 roofScratch.Clear();
                 roofScratch.AddRange(fitPoly);
                 if (f.roof == 0) EarcutInto(buckets[(int)Slot.RoofFlat], roofScratch, top, tm.origin, RoofFlatM);
-                else { FacadeMetal(true); EmitRoofShape(tm, f, roofScratch, eaveY, top, wallSlot); FacadeMetal(f.mat == 4); }
+                else
+                {
+                    FacadeMetal(true); FacadeCrown(top > facCrownY + 0.3f);
+                    EmitRoofShape(tm, f, roofScratch, eaveY, top, wallSlot);
+                    FacadeCrown(false); FacadeMetal(f.mat == 4);
+                }
                 if (floating && f.minH > 0.5f) EmitSoffit(tm, roofScratch, wallY0);
 
                 // A tall tower gets a crown: a smaller prism on top, then a

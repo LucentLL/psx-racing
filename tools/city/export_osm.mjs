@@ -1485,8 +1485,19 @@ const layerHeld = [];   // B2: layer > 0 outlines, for lib/parts.mjs
 // ---- roads pass L8 (lib/lots.mjs): the parking lots, their stall lines and
 // entrances, and the turning circles, from fetch/fetch_lots.mjs's one fetch
 const lotsFile = join(CACHE, 'lots_core.json');
+// (Leftovers, 2026-10-05: a lot is cut clear of what the tiles DRAW - B2's
+// building:parts and the layer > 0 outlines they rescue stand where no
+// outline did, and lots were paved under them. A dry run of applyParts on
+// copies gives them; the real one below runs on the outlines untouched.)
+const lotBuildings = (() => {
+  const partsFile = join(CACHE, 'parts_core.json');
+  if (!existsSync(partsFile)) return buildings;
+  const dry = applyParts({ raw: loadJson(partsFile).elements, buildings: buildings.map(b => ({ ...b })), held: layerHeld.map(b => ({ ...b })),
+                           toX, toZ, rdp, polyArea, parseHeight, facadeLook });
+  return buildings.concat(dry.rescued, dry.parts);
+})();
 const LOTS = existsSync(lotsFile)
-  ? buildLots({ raw: loadJson(lotsFile).elements, edges, buildings, nodeIndex, nodeCount: nodes.length, toX, toZ, laneM: LANE_M })
+  ? buildLots({ raw: loadJson(lotsFile).elements, edges, buildings: lotBuildings, nodeIndex, nodeCount: nodes.length, toX, toZ, laneM: LANE_M })
   : { lots: [], entrances: [], turns: [], stats: { missing: lotsFile } };
 console.log('lots (L8):', JSON.stringify(LOTS.stats));
 

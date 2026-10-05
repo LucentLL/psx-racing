@@ -7180,3 +7180,32 @@ night pass (2026-09-21, `CityMeshes.PlaceLamps`, checked by `LampAudit`).
 Everything else here, and much more, is scheduled by the refinement plan
 (2026-09-28: hills, trees, smooth lines, lanes and paint, roadside detail,
 junction control, city traffic, street races).
+
+## Leftovers A (2026-10-05): lots clear of the parts, floodlit crowns and raised sheet ends (the last two built, OFF)
+
+- **Lots over uptown buildings.** `export_osm.mjs` built the parking lots
+  before `applyParts`, so lots were cut by the outlines only and paved under
+  B2's building:parts and the layer > 0 outlines they rescue (LOT AUDIT 252.8
+  m2 in 9 lots). A dry run of `applyParts` on copies now gives the lots every
+  footprint the tiles draw. Re-exported: only `charlotte_city.bytes` moved
+  (dem, bld, routes and the graph hash 1dc91316 the same). The linecheck
+  baseline was already STALE on the builder replica (B1/B2's `citydata.mjs`);
+  re-recorded with `--write-baseline`: every check before = after.
+- **Floodlit crowns** (`CityMeshes.FacadeCrown`, vertex alpha +8): a tower of
+  `CrownMinH` 60 m and more is lit from `facCrownY` (a tenth of its height
+  under the top, 8-20 m) up - walls crossing it split there, roof shapes,
+  heroes' metal but the stadium's boards; the skyline comes through the same
+  emit. The PSX/Lit half (the +8 decode, the CROWN_* night pass: the texel x
+  warm or cool flood x 0.55 x night squared, fogged like a window) is not on
+  the branch; until it is and is seen at night, `PSX_CITY_CROWNS=1` only.
+- **Raised sheet ends** (`CityMeshes.SlopeRun`). A sheet standing
+  LedgeStepM..OpenDropM (0.3-1 m) over the land a metre out took a
+  render-only face; in the collider its own edge was the ledge (W 4th St Ext
+  e14607 0.34 m, a verge 0.6 m past the edge; e343's squeezed span end 0.44
+  m). It now runs on down at CityFillSlope 1:4 until it meets the land (or
+  pavement flush with it) and tucks ToeTuckM under, in the ground's material
+  and collider; kept as before where a road lies under the slope (two roads a
+  level apart: e343 beside Tyvola Road) or no land is met within 4.4 m.
+  `CityGroundEdges` counts them (RAISED SHEET ENDS; PSX_GEDGE_EDGES names
+  edges). On the two spots' tiles: 288 pieces / 425 m -> 46 / 61 m, both
+  named ends gone. Not gated yet: `PSX_CITY_FORESLOPES=1` only.

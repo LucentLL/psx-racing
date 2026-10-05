@@ -81,16 +81,30 @@ namespace PSXRacing.EditorTools
                                 }
                         }
                     }
+            // PSX_GEDGE_EDGES=e1,e2: the tiles those edges cross too
+            foreach (var es in (System.Environment.GetEnvironmentVariable("PSX_GEDGE_EDGES") ?? "").Split(','))
+                if (int.TryParse(es.Trim().TrimStart('e'), out int gei) && gei >= 0 && gei < map.edges.Length)
+                {
+                    var e = map.edges[gei];
+                    for (float s = 0f; s <= e.length + 5f; s += 5f)
+                    {
+                        var p = e.PointAt(Mathf.Min(s, e.length));
+                        scan.Add(Key(Mathf.FloorToInt(p.x / T), Mathf.FloorToInt(p.y / T)));
+                    }
+                    sb.AppendLine($"EDGE e{gei} '{e.name}' {e.length:0} m from ({e.PointAt(0f).x:0},{e.PointAt(0f).y:0}) to ({e.PointAt(e.length).x:0},{e.PointAt(e.length).y:0})");
+                }
             sb.AppendLine($"GROUND OPEN EDGES: box ({box.xMin:0},{box.yMin:0})-({box.xMax:0},{box.yMax:0}){(routes ? $", routes ({map.routes.Length}, {routeEdges.Count} edges, {routeTiles.Count} tiles)" : "")}; {scan.Count} tiles scanned; a sheet edge over a drop past {DropM:0.00} m with no face closing it");
 
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var all = new List<Hit>();
-            int tilesDone = 0, edgesSeen = 0, skirtN = 0; float skirtM = 0f, fasciaM = 0f, softM = 0f;
+            int tilesDone = 0, edgesSeen = 0, skirtN = 0, slopeN = 0; float skirtM = 0f, fasciaM = 0f, softM = 0f, slopeM = 0f;
             var passMs = new List<double>(); var buildMs = new List<double>();
             // a tile and its 8 neighbours stood up at a time, the scanned tile
             // in the middle; tiles kept while a neighbour still needs them
             var live = new Dictionary<long, GameObject>();
             var logs = new Dictionary<long, List<(string tag, Vector3 a, Vector3 b, Vector3 c)>>();
+            var ledgeAll = new List<(Vector3 at, float step, float len, bool road, Vector2 nrm, int why)>();
+            var ledgeBuilt = new HashSet<long>();
             var root = new GameObject("~groundEdges");
             CityMeshes.shortDropLog = new List<string>();
             var order = new List<long>(scan);
@@ -110,8 +124,11 @@ namespace PSXRacing.EditorTools
                         int kx = (int)(k >> 32), kz = (int)(uint)(k & 0xFFFFFFFF);
                         CityMeshes.groundLog = new List<(string, Vector3, Vector3, Vector3)>();
                         var bclock = System.Diagnostics.Stopwatch.StartNew();
+                        CityMeshes.skirtLedges = scan.Contains(k) && ledgeBuilt.Add(k) ? new List<(Vector3, float, float, bool, Vector2, int)>() : null;
                         var tm = CityMeshes.Build(map, trims, buildings, kx, kz);
-                        if (scan.Contains(k)) { skirtM += CityMeshes.skirtMetres; fasciaM += CityMeshes.fasciaMetres; skirtN += CityMeshes.skirtCount; softM += CityMeshes.skirtSoftMetres; passMs.Add(CityMeshes.skirtMs); buildMs.Add(bclock.Elapsed.TotalMilliseconds); }
+                        if (CityMeshes.skirtLedges != null) ledgeAll.AddRange(CityMeshes.skirtLedges);
+                        CityMeshes.skirtLedges = null;
+                        if (scan.Contains(k)) { skirtM += CityMeshes.skirtMetres; fasciaM += CityMeshes.fasciaMetres; skirtN += CityMeshes.skirtCount; softM += CityMeshes.skirtSoftMetres; slopeN += CityMeshes.skirtSlopeCount; slopeM += CityMeshes.skirtSlopeMetres; passMs.Add(CityMeshes.skirtMs); buildMs.Add(bclock.Elapsed.TotalMilliseconds); }
                         logs[k] = CityMeshes.groundLog; CityMeshes.groundLog = null;
                         var go = new GameObject($"tile_{kx}_{kz}");
                         go.transform.SetParent(root.transform, false);
@@ -178,12 +195,60 @@ namespace PSXRacing.EditorTools
                 if (routes && NearRoute(h.p)) routeHits.Add(h);
             }
             sb.AppendLine($"  {tilesDone} tiles, {edgesSeen} open sheet edge samples walked in {clock.Elapsed.TotalSeconds:0} s");
-            sb.AppendLine($"  closing faces the scanned tiles laid: {skirtN} skirt pieces, {skirtM:0} m ({softM:0} m of them steps, not drops: render-only with the kerbs); deck fascias {fasciaM:0} m");
+            sb.AppendLine($"  closing faces the scanned tiles laid: {skirtN} skirt pieces, {skirtM:0} m ({softM:0} m of them steps, not drops: render-only with the kerbs); deck fascias {fasciaM:0} m; raised sheet ends laid as 1:4 foreslopes {slopeN} pieces {slopeM:0} m");
             { var ph = CityMeshes.skirtPhase; sb.AppendLine($"  closing pass phases, ms summed over every build: sets {ph[0]:0} ground weld {ph[1]:0} ground faces {ph[2]:0} roads weld {ph[3]:0} grid {ph[4]:0} roads faces {ph[5]:0}; road open edges {CityMeshes.skirtRoadCounts[0]}, unverged {CityMeshes.skirtRoadCounts[1]}, over the lattice {CityMeshes.skirtRoadCounts[2]}, not paved past {CityMeshes.skirtRoadCounts[3]}"); }
             passMs.Sort(); buildMs.Sort();
             if (passMs.Count > 0) sb.AppendLine($"  closing pass per tile build: p50 {passMs[passMs.Count / 2]:0.0} p95 {passMs[(int)(passMs.Count * 0.95f)]:0.0} max {passMs[passMs.Count - 1]:0.0} ms; whole build p50 {buildMs[buildMs.Count / 2]:0.0} p95 {buildMs[(int)(buildMs.Count * 0.95f)]:0.0} ms ({passMs.Count} builds)");
             sb.AppendLine($"-- short barrier runs the side-flag pass dropped on the tiles built (MinMedianRunM): {dropped.Count}");
             foreach (var d in dropped) sb.AppendLine("  DROPPED " + d);
+            // RAISED SHEET ENDS (leftovers 2026-10-05): render-only steps of
+            // LedgeStepM..OpenDropM - the sheet's own edge is the ledge
+            {
+                // REACH: within 3 m of a road's paved edge (a car off the road
+                // meets it); END: the open edge runs across the road, not along
+                var named = new HashSet<int>();
+                foreach (var es in (System.Environment.GetEnvironmentVariable("PSX_GEDGE_EDGES") ?? "").Split(','))
+                    if (int.TryParse(es.Trim().TrimStart('e'), out int nei)) named.Add(nei);
+                float lm = 0f, worst = 0f, reachM = 0f; int nRoad = 0, nReach = 0, nEnd = 0; float endM = 0f;
+                var rows = new List<(float step, string line, bool reach)>();
+                foreach (var l in ledgeAll)
+                {
+                    lm += l.len; worst = Mathf.Max(worst, l.step); if (l.road) nRoad++;
+                    bool reach = false, end = false; string road = "";
+                    if (map.NearestRoadPoint(new Vector2(l.at.x, l.at.z), 40f, false, out int ei, out float at, out float dist))
+                    {
+                        var ed = map.edges[ei];
+                        float off = dist - ed.width * 0.5f;
+                        reach = off <= 3f;
+                        end = Mathf.Abs(Vector2.Dot(ed.TangentAt(at), l.nrm)) > 0.7f;
+                        road = $" nearest e{ei} '{ed.name}' s={at:0} {off:+0.0;-0.0} m past its edge";
+                        if (named.Contains(ei))
+                        {
+                            // the roads within 6 m of it, and their heights there
+                            var near = new HashSet<int>(); var seenE = new HashSet<int>();
+                            var p2 = new Vector2(l.at.x, l.at.z);
+                            map.EdgeSegsInRect(p2 - Vector2.one * 6f, p2 + Vector2.one * 6f, near);
+                            foreach (int packed in near)
+                            {
+                                int ne = packed >> 12;
+                                if (!seenE.Add(ne)) continue;
+                                var nd = map.edges[ne];
+                                float best = float.MaxValue, bs = 0f;
+                                for (float ss = 0f; ss <= nd.length; ss += 0.5f) { float dd = Vector2.Distance(nd.PointAt(ss), p2); if (dd < best) { best = dd; bs = ss; } }
+                                road += $" [e{ne} '{nd.name}' cls{nd.cls}{(nd.link ? " L" : "")} w{nd.width:0.0} {best - nd.width * 0.5f:+0.0;-0.0} m dy {nd.YAt(bs) - l.at.y:+0.00;-0.00}]";
+                            }
+                            road += " NAMED";
+                        }
+                    }
+                    if (reach) { nReach++; reachM += l.len; if (end) { nEnd++; endM += l.len; } }
+                    rows.Add((l.step, $"  RAISED {l.step:0.00} m {l.len:0.0} m at ({l.at.x:0.0},{l.at.z:0.0}) y {l.at.y:0.00} {(l.road ? "road" : "ground")} sheet {(end ? "END" : "along")}{(l.why > 0 ? new[] { "", " kept: tile edge", $" kept: road under at {(l.why / 10 % 100) * 0.25f:0.00} m out {(l.why / 1000) * 0.01f:0.00} m under the slope", " kept: no land" }[l.why % 10] : "")}{road}", reach));
+                }
+                sb.AppendLine($"-- RAISED SHEET ENDS on the scanned tiles: {ledgeAll.Count} pieces, {lm:0.0} m ({nRoad} from road sheets), worst {worst:0.00} m: render-only steps {RoadsideRules.LedgeStepM}-{RoadsideRules.OpenDropM} m deep whose sheet edge a car meets; within 3 m of a road's edge {nReach} pieces {reachM:0.0} m, of them across the road (ENDS) {nEnd} pieces {endM:0.0} m");
+                foreach (var r in rows) if (r.line.EndsWith(" NAMED")) sb.AppendLine(r.line);
+                rows.Sort((x, y) => y.step.CompareTo(x.step));
+                int shownR = 0;
+                foreach (var r in rows) if (r.reach && shownR++ < ShowMax) sb.AppendLine(r.line);
+            }
             Report(sb, map, "box", boxHits);
             if (routes) Report(sb, map, "routes", routeHits);
             Done(sb);
