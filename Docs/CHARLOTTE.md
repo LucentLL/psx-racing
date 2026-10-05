@@ -6757,14 +6757,24 @@ metal/stone/glass?"
   (phase C).
 - **B4, the far skyline** (`CitySkyline.cs`, `CityMeshes.Skyline.cs`). The
   city streams two tiles round the car and the far plane is 500 m, so from
-  I-77 uptown did not exist until ~500 m out. The 60 tallest buildings within
-  2.5 km of uptown (an outline's height is its tallest part's) are emitted
+  I-77 uptown did not exist until ~500 m out. The tallest towers (60 at most,
+  60 m and up) within 2.5 km of uptown (an outline's height is its tallest
+  part's) are emitted
   once, at load, by the tile builder's own `EmitFootprint` - parts, roof
   shapes, crowns, B3 massing, facade column and tint - with one panel a wall,
   no pavement cut, outlines simplified to 1.5 m, no parapets and no parts
-  under 20 m: one mesh, 236 buildings and parts, 5,095 triangles, two
-  submeshes (the facade atlas, the flat roofs) = 2 draws. No collider, no
-  shadow (SunShadows.Exclude), its own copies of the two kit materials.
+  under 45 m: one mesh, 55 towers (140 buildings and parts), 3,102
+  triangles, two submeshes (the facade atlas, the flat roofs) = 2 draws. No
+  collider, no shadow (SunShadows.Exclude), its own copies of the two kit
+  materials.
+- **No floating buildings** (owner on the first publish: "I see buildings
+  floating in the sky" - from I-77 the land under uptown is past the drawn
+  world, so low, wide blocks hung over the horizon with sky beneath them):
+  every skyline wall runs on 300 m below its ground, every tier stands on
+  the ground (a tier whose podium part is left out cannot float), and the
+  skyline is towers only - 60 m and up, parts 45 m and up (the first cut
+  took buildings from 45 m and parts from 20 m: 236 pieces, 5,095
+  triangles).
 - **Beyond the far plane** (PSX/Lit `_Skyline`, 0 on every other material):
   past the world's fade start A (fogNear, 398 m in play) each skyline vertex
   is moved in along its own line of sight to A + s(1 - e^-(d-A)/s), s = 0.7 of

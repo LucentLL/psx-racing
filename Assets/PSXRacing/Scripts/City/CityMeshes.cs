@@ -9851,6 +9851,10 @@ namespace PSXRacing.City
                     floorP = CityHouses.Floor(map, f.centre, f.centre, f.u, f.hu, f.hv, out float lo);
                     y0 = lo - BuildingSink; top = floorP + f.h;
                 }
+                // Uptown B4: a skyline building's walls run on far below its
+                // ground - the land between the eye and uptown is not drawn
+                // out there, and its base must never hang over the horizon
+                if (skylineBuild) y0 -= SkylineSkirtM;
 
                 // Uptown B1: towers, midrises and brick blocks all wear the
                 // facade atlas (one material), each in its own look and tint
@@ -9862,7 +9866,9 @@ namespace PSXRacing.City
                                gf != f ? Mathf.Max(gf.h, 1f) : top - floorP);
                 // B2: a part's floor (a tier on its podium, a crown on its
                 // shaft) and the eave its roof shape rises from
-                bool floating = f.minH > 0.05f;
+                // (the skyline stands every tier on the ground: a tier whose
+                // podium part is left out must not float either)
+                bool floating = f.minH > 0.05f && !skylineBuild;
                 float wallY0 = floating ? floorP + f.minH : y0;
                 float eaveY = f.roof != 0 ? Mathf.Max(wallY0, top - f.roofH) : top;
                 bool retail = f.style == 4 && !floating && !skylineBuild;

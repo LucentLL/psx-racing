@@ -33,12 +33,13 @@ namespace PSXRacing.City
         public const int Towers = 60;
         /// <summary>The core the towers are taken from, metres round uptown.</summary>
         public const float CoreRadiusM = 2500f;
-        /// <summary>Nothing shorter is a skyline tower.</summary>
-        const float MinHeightM = 45f;
-        /// <summary>A part lower than this is left to its tile: kilometres
-        /// out it is under the world's own edge, and a stadium's low rings
-        /// are a quarter of the skyline's triangles.</summary>
-        const float MinPartM = 20f;
+        /// <summary>Nothing shorter is a skyline tower: towers only - a low,
+        /// wide block kilometres out barely clears the treeline, and was
+        /// the "floating" slab over the horizon the owner saw.</summary>
+        const float MinHeightM = 60f;
+        /// <summary>A part lower than this is left to its tile: a podium or
+        /// a stadium ring kilometres out is under the world's own edge.</summary>
+        const float MinPartM = 45f;
         /// <summary>The haze's e-folding distance by clear weather, and in
         /// rain or snow (metres): 1 - exp(-d / this) of the horizon colour.</summary>
         public const float HazeClearM = 24000f, HazeWetM = 9000f;

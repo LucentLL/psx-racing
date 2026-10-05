@@ -22,6 +22,12 @@ namespace PSXRacing.City
         /// it less than this (metres): a round tower's forty points are a
         /// dozen at 400 m and more, where a metre is half a pixel.</summary>
         const float SkylineSimplifyM = 1.5f;
+        /// <summary>How far a skyline building's walls run on below its
+        /// ground (owner, 2026-10-04: "I see buildings floating in the sky"
+        /// - from I-77 the land under uptown is past the drawn world, so a
+        /// base above the visible horizon hung in the sky). 300 m is the
+        /// horizon's drop at 5 km past three degrees.</summary>
+        const float SkylineSkirtM = 300f;
 
         /// <summary>Drop, one at a time, the corner nearest the line between
         /// its neighbours while that is under <paramref name="tol"/> metres,
