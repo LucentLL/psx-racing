@@ -34,6 +34,11 @@ namespace PSXRacing.City
         /// <summary>A closing face taller than this is drawn as a retaining
         /// wall (concrete); a lower one is the cut edge of its own sheet.</summary>
         const float RetainFaceM = 0.5f;
+        /// <summary>A closing face of a step no deeper than this under the land
+        /// within a metre out (<see cref="LandOut"/>) is drawn render-only
+        /// with the kerbs: RoadsideRules.OpenDropM, where the roadside rules
+        /// stop calling it a step or a ledge and call it a drop.</summary>
+        const float SoftStepM = RoadsideRules.OpenDropM;
         /// <summary>PSX_CITY_SKIRTS=0: no closing faces (the audit's before-count).</summary>
         static readonly bool SkirtsOff = System.Environment.GetEnvironmentVariable("PSX_CITY_SKIRTS") == "0";
         /// <summary>PSX_CITY_ENVELOPE_VERGE=0: a fan's envelope stretches stay bare (the before-count).</summary>
@@ -42,6 +47,9 @@ namespace PSXRacing.City
         /// <summary>The tile's last build (for the audit): faces laid, metres,
         /// deck fascias, the pass's ms.</summary>
         public static int skirtCount; public static float skirtMetres, fasciaMetres; public static double skirtMs;
+        /// <summary>The tile's last build: of those faces, the steps a car
+        /// rolls over, drawn render-only with the kerbs.</summary>
+        public static int skirtSoftCount; public static float skirtSoftMetres;
         /// <summary>Probe only: ms summed per phase of the pass (sets, ground weld, ground faces, roads weld, grid, roads faces).</summary>
         public static readonly double[] skirtPhase = new double[6];
         /// <summary>Probe only: road open edges seen, past the verge test, past the drop test, paved past, deck, step.</summary>
@@ -75,7 +83,7 @@ namespace PSXRacing.City
 
         static void CloseOpenGround(CityMap map, Trims trims, TileMeshes tm)
         {
-            skirtCount = 0; skirtMetres = 0f; fasciaMetres = 0f; skirtMs = 0;
+            skirtCount = 0; skirtMetres = 0f; fasciaMetres = 0f; skirtMs = 0; skirtSoftCount = 0; skirtSoftMetres = 0f;
             if (SkirtsOff) return;
             var clock = System.Diagnostics.Stopwatch.StartNew();
             try { CloseOpenGroundIn(map, trims, tm); } finally { skirtMs = clock.Elapsed.TotalMilliseconds; }
@@ -100,9 +108,13 @@ namespace PSXRacing.City
         /// face is drawn along it already. Any other is a step in the ground:
         /// its face to the lattice (from a kerb's foot where a kerb is drawn).</item>
         /// </list>
-        /// Every face is in the ground or road mesh, so its collider is exactly
-        /// what is drawn: a retaining face, never a see-through edge and never
-        /// an invisible blocker.
+        /// A face over a drop is in the ground or road mesh, so
+        /// its collider is exactly what is drawn: a retaining face, never a
+        /// see-through edge and never an invisible blocker. A step, not a drop
+        /// (<see cref="SoftStepM"/> under the land <see cref="LandOut"/> finds),
+        /// is drawn render-only with the kerbs, in their concrete, as the kerb's
+        /// own inch is: closed to the eye, and no wall for the body box coming
+        /// back onto a grounded edge (the sheet's edge is what the car meets).
         /// </summary>
         static void CloseOpenGroundIn(CityMap map, Trims trims, TileMeshes tm)
         {
@@ -157,8 +169,9 @@ namespace PSXRacing.City
             // lies past or under an edge
             roadSheets.Clear();
             foreach (var s in RoadAndStructureSlots) roadSheets.Add(buckets[(int)s]);
-            GridRoads(roadSheets);
+            roadGrid.Build(roadSheets);
             skirtSheets.Clear(); skirtSheets.Add(g); skirtSheets.Add(pv);
+            groundGrid.Build(skirtSheets, groundBaseT);
             OpenEdges(skirtSheets, false, groundBaseV, groundBaseT);
             skirtPhase[1] += sw.Elapsed.TotalMilliseconds; sw.Restart();
             foreach (var (A, B, nrm, bi) in skirtOpen)
@@ -210,6 +223,7 @@ namespace PSXRacing.City
                     con.Face(new Vector3(A.x, A.y - dk, A.z), A, B, new Vector3(B.x, B.y - dk, B.z), new Vector3(nrm.x, 0f, nrm.y),
                              new Vector2(0f, 0f), new Vector2(0f, dk), new Vector2(u, dk), new Vector2(u, 0f));
                     fasciaMetres += u;
+                    skirtLog?.Add((M + o, $"deck fascia top {M.y + o.y:0.00} dk {dk:0.00} lattice {lM + o.y:0.00} nrm ({nrm.x:0.00},{nrm.y:0.00})"));
                     continue;
                 }
                 bool paved = PavedAt(map, M.x + o.x, M.z + o.z);
@@ -280,7 +294,7 @@ namespace PSXRacing.City
         /// by position (2 mm): each edge one triangle uses, off the tile's
         /// border, with its outward unit (away from its triangle) and the index
         /// of its bucket. Into <see cref="skirtOpen"/>; <paramref name="keepTris"/>
-        /// keeps the triangles (global vertex indices) for <see cref="GridRoads"/>.</summary>
+        /// keeps the triangles (global vertex indices) for <see cref="roadGrid"/>.</summary>
         static void OpenEdges(List<Bucket> sheets, bool keepTris, int[] sheetV0 = null, int[] sheetT0 = null)
         {
             skirtOpen.Clear();
@@ -364,83 +378,140 @@ namespace PSXRacing.City
         static bool OnTileBorder(Vector3 q, float T) =>
             Mathf.Abs(q.x) < 0.02f || Mathf.Abs(q.z) < 0.02f || Mathf.Abs(q.x - T) < 0.02f || Mathf.Abs(q.z - T) < 0.02f;
 
-        // ---- the roads' lying triangles in 8 m cells (counts, then a flat
-        // index): "does pavement carry on past this edge at its height" -------
+        // ---- a set of sheets' lying triangles in 4 m cells (counts, then a
+        // flat index): "does pavement carry on past this edge at its height",
+        // "what land lies a metre out from this face" --------------------------
         const float GridM = 4f, GridPadM = 8f;
         const int GridN = (int)((TileSize + 2 * GridPadM) / GridM) + 1;
-        static readonly int[] gridStart = new int[GridN * GridN + 1];
-        static int[] gridTris = new int[1 << 15];
+        static int Cell(float x) => Mathf.Clamp(Mathf.FloorToInt((x + GridPadM) / GridM), 0, GridN - 1);
 
-        static Vector3[] gridP = new Vector3[1 << 15];   // the roads' lying triangles, three corners each (tile-local)
-        static int gridTriCount;
-
-        /// <summary>The roads' lying triangles as the pass found them, into
-        /// 4 m cells (counts, then a flat index).</summary>
-        static void GridRoads(List<Bucket> sheets)
+        sealed class TriGrid
         {
-            gridTriCount = 0;
-            int nt = 0;
-            foreach (var b in sheets) nt += b.passT / 3;
-            if (gridP.Length < 3 * nt) gridP = new Vector3[3 * nt + nt];
-            foreach (var b in sheets)
-                for (int i = 0; i + 2 < b.passT; i += 3)
-                {
-                    Vector3 p0 = b.v[b.t[i]], p1 = b.v[b.t[i + 1]], p2 = b.v[b.t[i + 2]];
-                    float d = (p1.z - p2.z) * (p0.x - p2.x) + (p2.x - p1.x) * (p0.z - p2.z);
-                    if (Mathf.Abs(d) < 1e-6f) continue;               // standing faces carry nothing
-                    gridP[3 * gridTriCount] = p0; gridP[3 * gridTriCount + 1] = p1; gridP[3 * gridTriCount + 2] = p2;
-                    gridTriCount++;
-                }
-            System.Array.Clear(gridStart, 0, gridStart.Length);
-            for (int pass = 0; pass < 2; pass++)
+            readonly int[] start = new int[GridN * GridN + 1];
+            readonly int[] fillAt = new int[GridN * GridN];
+            int[] tris = new int[1 << 15];
+            Vector3[] p = new Vector3[1 << 15];   // the lying triangles, three corners each (tile-local)
+            int count;
+
+            /// <summary>The sheets' lying triangles as the pass found them
+            /// (each from <paramref name="t0"/>'s index on, when given).</summary>
+            public void Build(List<Bucket> sheets, int[] t0 = null)
             {
-                if (pass == 1)
+                count = 0;
+                int nt = 0;
+                for (int bi = 0; bi < sheets.Count; bi++) nt += Mathf.Max(0, sheets[bi].passT - (t0 != null ? t0[bi] : 0)) / 3;
+                if (p.Length < 3 * nt) p = new Vector3[3 * nt + nt];
+                for (int bi = 0; bi < sheets.Count; bi++)
                 {
-                    int sum = 0;
-                    for (int c = 0; c < GridN * GridN; c++) { int k = gridStart[c]; gridStart[c] = sum; sum += k; }
-                    gridStart[GridN * GridN] = sum;
-                    if (gridTris.Length < sum) gridTris = new int[sum + sum / 2];
-                    fillAt = fillAt != null && fillAt.Length >= GridN * GridN ? fillAt : new int[GridN * GridN];
-                    System.Array.Copy(gridStart, fillAt, GridN * GridN);
+                    var b = sheets[bi];
+                    for (int i = t0 != null ? t0[bi] - t0[bi] % 3 : 0; i + 2 < b.passT; i += 3)
+                    {
+                        Vector3 p0 = b.v[b.t[i]], p1 = b.v[b.t[i + 1]], p2 = b.v[b.t[i + 2]];
+                        float d = (p1.z - p2.z) * (p0.x - p2.x) + (p2.x - p1.x) * (p0.z - p2.z);
+                        if (Mathf.Abs(d) < 1e-6f) continue;               // standing faces carry nothing
+                        p[3 * count] = p0; p[3 * count + 1] = p1; p[3 * count + 2] = p2;
+                        count++;
+                    }
                 }
-                for (int i = 0; i < gridTriCount; i++)
+                System.Array.Clear(start, 0, start.Length);
+                for (int pass = 0; pass < 2; pass++)
                 {
-                    Vector3 p0 = gridP[3 * i], p1 = gridP[3 * i + 1], p2 = gridP[3 * i + 2];
-                    int x0 = Cell(Mathf.Min(p0.x, Mathf.Min(p1.x, p2.x))), x1 = Cell(Mathf.Max(p0.x, Mathf.Max(p1.x, p2.x)));
-                    int z0 = Cell(Mathf.Min(p0.z, Mathf.Min(p1.z, p2.z))), z1 = Cell(Mathf.Max(p0.z, Mathf.Max(p1.z, p2.z)));
-                    for (int cz = z0; cz <= z1; cz++)
-                        for (int cx = x0; cx <= x1; cx++)
-                        {
-                            int c = cz * GridN + cx;
-                            if (pass == 0) gridStart[c]++;
-                            else gridTris[fillAt[c]++] = i;
-                        }
+                    if (pass == 1)
+                    {
+                        int sum = 0;
+                        for (int c = 0; c < GridN * GridN; c++) { int k = start[c]; start[c] = sum; sum += k; }
+                        start[GridN * GridN] = sum;
+                        if (tris.Length < sum) tris = new int[sum + sum / 2];
+                        System.Array.Copy(start, fillAt, GridN * GridN);
+                    }
+                    for (int i = 0; i < count; i++)
+                    {
+                        Vector3 p0 = p[3 * i], p1 = p[3 * i + 1], p2 = p[3 * i + 2];
+                        int x0 = Cell(Mathf.Min(p0.x, Mathf.Min(p1.x, p2.x))), x1 = Cell(Mathf.Max(p0.x, Mathf.Max(p1.x, p2.x)));
+                        int z0 = Cell(Mathf.Min(p0.z, Mathf.Min(p1.z, p2.z))), z1 = Cell(Mathf.Max(p0.z, Mathf.Max(p1.z, p2.z)));
+                        for (int cz = z0; cz <= z1; cz++)
+                            for (int cx = x0; cx <= x1; cx++)
+                            {
+                                int c = cz * GridN + cx;
+                                if (pass == 0) start[c]++;
+                                else tris[fillAt[c]++] = i;
+                            }
+                    }
                 }
             }
+
+            /// <summary>The heights of the lying triangles over a plan point
+            /// (tile-local) between <paramref name="lo"/> and <paramref name="hi"/>:
+            /// with <paramref name="any"/>, true at the first (returns hi); else
+            /// the highest, or negative infinity.</summary>
+            public float Between(float qx, float qz, float lo, float hi, bool any = false)
+            {
+                float best = float.NegativeInfinity;
+                int c = Cell(qz) * GridN + Cell(qx);
+                for (int j = start[c]; j < start[c + 1]; j++)
+                {
+                    int i = tris[j];
+                    Vector3 p0 = p[3 * i], p1 = p[3 * i + 1], p2 = p[3 * i + 2];
+                    float d = (p1.z - p2.z) * (p0.x - p2.x) + (p2.x - p1.x) * (p0.z - p2.z);
+                    float w0 = ((p1.z - p2.z) * (qx - p2.x) + (p2.x - p1.x) * (qz - p2.z)) / d;
+                    float w1 = ((p2.z - p0.z) * (qx - p2.x) + (p0.x - p2.x) * (qz - p2.z)) / d;
+                    float w2 = 1f - w0 - w1;
+                    if (w0 < -1e-4f || w1 < -1e-4f || w2 < -1e-4f) continue;
+                    float h = w0 * p0.y + w1 * p1.y + w2 * p2.y;
+                    if (h < lo || h > hi || h <= best) continue;
+                    if (any) return hi;
+                    best = h;
+                }
+                return best;
+            }
         }
-        static int[] fillAt;
-        static int Cell(float x) => Mathf.Clamp(Mathf.FloorToInt((x + GridPadM) / GridM), 0, GridN - 1);
+
+        /// <summary>The roads' lying triangles (ribbons, fans, decks).</summary>
+        static readonly TriGrid roadGrid = new TriGrid();
+        /// <summary>The ground's own sheets past the lattice (verges, seams,
+        /// half strips, chord verges, corner fills).</summary>
+        static readonly TriGrid groundGrid = new TriGrid();
 
         /// <summary>The heights of the lying road triangles over a plan point
         /// (tile-local): one within 0.15 m of <paramref name="y"/>, or (with
         /// <paramref name="below"/>) one more than 0.15 m under it.</summary>
-        static bool RoadsAt(float qx, float qz, float y, bool below)
+        static bool RoadsAt(float qx, float qz, float y, bool below) =>
+            below ? roadGrid.Between(qx, qz, float.NegativeInfinity, y - 0.15f, true) > float.NegativeInfinity
+                  : roadGrid.Between(qx, qz, y - 0.15f, y + 0.15f, true) > float.NegativeInfinity;
+
+        /// <summary>
+        /// THE LAND A CAR COMES BACK FROM: the highest surface within a metre
+        /// out from a face's middle (tile-local; <see cref="LandOutM"/>) - the
+        /// lattice, the ground's sheets, the roads - up to a hand over the
+        /// face's top. The roadside audit's body box is a ray
+        /// RoadsideRules.CarClearanceFloorM over the ground a metre out from a
+        /// grounded edge, cast back at it, so a face standing anywhere in that
+        /// metre meets it: a face of a step no deeper than
+        /// <see cref="SoftStepM"/> under that land is drawn render-only. Past the tile's border the
+        /// next tile's sheets are not built yet: there the land is not known and
+        /// the face is taken as a step (the collider stays as it was before the
+        /// pass: the sheet's own edge).
+        /// </summary>
+        static float LandOut(CityMap map, Vector3 o, Vector3 M, Vector2 nrm, float top)
         {
-            int c = Cell(qz) * GridN + Cell(qx);
-            for (int j = gridStart[c]; j < gridStart[c + 1]; j++)
+            float hi = top + 0.3f, best = float.NegativeInfinity;
+            for (int k = 0; k < LandOutM.Length; k++)
             {
-                int i = gridTris[j];
-                Vector3 p0 = gridP[3 * i], p1 = gridP[3 * i + 1], p2 = gridP[3 * i + 2];
-                float d = (p1.z - p2.z) * (p0.x - p2.x) + (p2.x - p1.x) * (p0.z - p2.z);
-                float w0 = ((p1.z - p2.z) * (qx - p2.x) + (p2.x - p1.x) * (qz - p2.z)) / d;
-                float w1 = ((p2.z - p0.z) * (qx - p2.x) + (p0.x - p2.x) * (qz - p2.z)) / d;
-                float w2 = 1f - w0 - w1;
-                if (w0 < -1e-4f || w1 < -1e-4f || w2 < -1e-4f) continue;
-                float h = w0 * p0.y + w1 * p1.y + w2 * p2.y;
-                if (below ? h < y - 0.15f : Mathf.Abs(h - y) <= 0.15f) return true;
+                float qx = M.x + nrm.x * LandOutM[k], qz = M.z + nrm.y * LandOutM[k];
+                if (qx < 0f || qz < 0f || qx > TileSize || qz > TileSize) { landSeen[k] = float.PositiveInfinity; return top; }
+                float land = LatticeY(map, qx + o.x, qz + o.z);
+                land = Mathf.Max(land, roadGrid.Between(qx, qz, land, hi));
+                land = Mathf.Max(land, groundGrid.Between(qx, qz, land, hi));
+                landSeen[k] = land;
+                best = Mathf.Max(best, land);
             }
-            return false;
+            return best;
         }
+        static readonly float[] LandOutM = { 0.25f, 0.5f, 1f };
+        static readonly float[] landSeen = new float[3];
+        /// <summary>Probe only (null in the game): every closing face's
+        /// decision, world plan point first.</summary>
+        public static List<(Vector3 at, string what)> skirtLog;
 
         /// <summary>Does a road surface carry on past the open road edge A..B
         /// (tile-local) at its height: 0.6 m out at its quarter points, a lying
@@ -474,13 +545,28 @@ namespace PSXRacing.City
                 {
                     float yP = Mathf.Min(P.y, lP - RoadsideRules.ToeTuckM), yQ = Mathf.Min(Q.y, lQ - RoadsideRules.ToeTuckM);
                     float hP = P.y - yP, hQ = Q.y - yQ;
-                    if (Mathf.Max(hP, hQ) > RetainFaceM)
+                    float top = Mathf.Max(P.y, Q.y);
+                    // a step, not a drop (the land within a metre out no more than
+                    // RoadsideRules.OpenDropM under its top): drawn with the kerbs,
+                    // RENDER-ONLY, as the kerb's own inch is. The sheet's own edge
+                    // stands inside every car's body there, so the body meets it
+                    // where it would meet the face and no car slips under it; in
+                    // the collider the face was a vertical wall the body box met
+                    // coming back onto 142 grounded edges, most ~9 cm over the verge
+                    // beyond (2026-10-04). Past OpenDropM the face collides: a car
+                    // could pass under the edge it closes.
+                    for (int k = 0; k < landSeen.Length; k++) landSeen[k] = float.NaN;
+                    float landOut = LandOut(map, o, (P + Q) * 0.5f, nrm, top);
+                    bool rolls = top - landOut <= SoftStepM;
+                    skirtLog?.Add(((P + Q) * 0.5f + o, $"skirt {(rolls ? "ROLLS" : "solid")} {(bk == buckets[(int)Slot.Ground] ? "ground" : "paved")} top {top + o.y:0.00} lattice {Mathf.Min(lP, lQ) + o.y:0.00} land {landOut + o.y:0.00} [{landSeen[0] + o.y:0.00} {landSeen[1] + o.y:0.00} {landSeen[2] + o.y:0.00}] h {Mathf.Max(hP, hQ):0.00} nrm ({nrm.x:0.00},{nrm.y:0.00})"));
+                    if (rolls || Mathf.Max(hP, hQ) > RetainFaceM)
                     {
                         // a retaining face: concrete, like the walls and fascias round it
-                        var con = buckets[(int)Slot.Concrete];
+                        var con = rolls ? kerbBucket : buckets[(int)Slot.Concrete];
                         float u0 = (P.x + P.z) * 0.5f, u1 = u0 + Vector2.Distance(new Vector2(P.x, P.z), new Vector2(Q.x, Q.z));
                         con.Face(new Vector3(P.x, yP, P.z), P, Q, new Vector3(Q.x, yQ, Q.z), facing,
                                  new Vector2(u0, 0f), new Vector2(u0, hP), new Vector2(u1, hQ), new Vector2(u1, 0f));
+                        if (rolls) { skirtSoftCount++; skirtSoftMetres += Vector2.Distance(new Vector2(P.x, P.z), new Vector2(Q.x, Q.z)); }
                     }
                     else
                         bk.Face(new Vector3(P.x, yP, P.z), P, Q, new Vector3(Q.x, yQ, Q.z), facing,
@@ -540,6 +626,7 @@ namespace PSXRacing.City
                 buckets[(int)Slot.Concrete].Face(new Vector3(A.x, A.y - dk, A.z), A, B, new Vector3(B.x, B.y - dk, B.z), new Vector3(nrm.x, 0f, nrm.y),
                     new Vector2(0f, 0f), new Vector2(0f, dk), new Vector2(u, dk), new Vector2(u, 0f));
                 fasciaMetres += u;
+                skirtLog?.Add((M + o, $"lane fascia top {M.y + o.y:0.00} dk {dk:0.00} lane {lane + o.y:0.00} nrm ({nrm.x:0.00},{nrm.y:0.00})"));
             }
             return true;
         }
@@ -576,24 +663,8 @@ namespace PSXRacing.City
         /// <summary>The highest lying road triangle of this tile more than
         /// 0.15 m under <paramref name="y"/> at a plan point (tile-local), or
         /// negative infinity.</summary>
-        static float RoadTopUnder(float qx, float qz, float y)
-        {
-            float best = float.NegativeInfinity;
-            int c = Cell(qz) * GridN + Cell(qx);
-            for (int j = gridStart[c]; j < gridStart[c + 1]; j++)
-            {
-                int i = gridTris[j];
-                Vector3 p0 = gridP[3 * i], p1 = gridP[3 * i + 1], p2 = gridP[3 * i + 2];
-                float d = (p1.z - p2.z) * (p0.x - p2.x) + (p2.x - p1.x) * (p0.z - p2.z);
-                float w0 = ((p1.z - p2.z) * (qx - p2.x) + (p2.x - p1.x) * (qz - p2.z)) / d;
-                float w1 = ((p2.z - p0.z) * (qx - p2.x) + (p0.x - p2.x) * (qz - p2.z)) / d;
-                float w2 = 1f - w0 - w1;
-                if (w0 < -1e-4f || w1 < -1e-4f || w2 < -1e-4f) continue;
-                float h = w0 * p0.y + w1 * p1.y + w2 * p2.y;
-                if (h < y - 0.15f && h > best) best = h;
-            }
-            return best;
-        }
+        static float RoadTopUnder(float qx, float qz, float y) =>
+            roadGrid.Between(qx, qz, float.NegativeInfinity, y - 0.15f - 1e-6f);
 
         /// <summary>Does a road pass under this plan point, more than a
         /// metre below <paramref name="y"/>, within its paved half width?</summary>

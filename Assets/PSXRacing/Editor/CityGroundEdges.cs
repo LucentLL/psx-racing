@@ -85,7 +85,7 @@ namespace PSXRacing.EditorTools
 
             var clock = System.Diagnostics.Stopwatch.StartNew();
             var all = new List<Hit>();
-            int tilesDone = 0, edgesSeen = 0, skirtN = 0; float skirtM = 0f, fasciaM = 0f;
+            int tilesDone = 0, edgesSeen = 0, skirtN = 0; float skirtM = 0f, fasciaM = 0f, softM = 0f;
             var passMs = new List<double>(); var buildMs = new List<double>();
             // a tile and its 8 neighbours stood up at a time, the scanned tile
             // in the middle; tiles kept while a neighbour still needs them
@@ -111,7 +111,7 @@ namespace PSXRacing.EditorTools
                         CityMeshes.groundLog = new List<(string, Vector3, Vector3, Vector3)>();
                         var bclock = System.Diagnostics.Stopwatch.StartNew();
                         var tm = CityMeshes.Build(map, trims, buildings, kx, kz);
-                        if (scan.Contains(k)) { skirtM += CityMeshes.skirtMetres; fasciaM += CityMeshes.fasciaMetres; skirtN += CityMeshes.skirtCount; passMs.Add(CityMeshes.skirtMs); buildMs.Add(bclock.Elapsed.TotalMilliseconds); }
+                        if (scan.Contains(k)) { skirtM += CityMeshes.skirtMetres; fasciaM += CityMeshes.fasciaMetres; skirtN += CityMeshes.skirtCount; softM += CityMeshes.skirtSoftMetres; passMs.Add(CityMeshes.skirtMs); buildMs.Add(bclock.Elapsed.TotalMilliseconds); }
                         logs[k] = CityMeshes.groundLog; CityMeshes.groundLog = null;
                         var go = new GameObject($"tile_{kx}_{kz}");
                         go.transform.SetParent(root.transform, false);
@@ -178,7 +178,7 @@ namespace PSXRacing.EditorTools
                 if (routes && NearRoute(h.p)) routeHits.Add(h);
             }
             sb.AppendLine($"  {tilesDone} tiles, {edgesSeen} open sheet edge samples walked in {clock.Elapsed.TotalSeconds:0} s");
-            sb.AppendLine($"  closing faces the scanned tiles laid: {skirtN} skirt pieces, {skirtM:0} m; deck fascias {fasciaM:0} m");
+            sb.AppendLine($"  closing faces the scanned tiles laid: {skirtN} skirt pieces, {skirtM:0} m ({softM:0} m of them steps, not drops: render-only with the kerbs); deck fascias {fasciaM:0} m");
             { var ph = CityMeshes.skirtPhase; sb.AppendLine($"  closing pass phases, ms summed over every build: sets {ph[0]:0} ground weld {ph[1]:0} ground faces {ph[2]:0} roads weld {ph[3]:0} grid {ph[4]:0} roads faces {ph[5]:0}; road open edges {CityMeshes.skirtRoadCounts[0]}, unverged {CityMeshes.skirtRoadCounts[1]}, over the lattice {CityMeshes.skirtRoadCounts[2]}, not paved past {CityMeshes.skirtRoadCounts[3]}"); }
             passMs.Sort(); buildMs.Sort();
             if (passMs.Count > 0) sb.AppendLine($"  closing pass per tile build: p50 {passMs[passMs.Count / 2]:0.0} p95 {passMs[(int)(passMs.Count * 0.95f)]:0.0} max {passMs[passMs.Count - 1]:0.0} ms; whole build p50 {buildMs[buildMs.Count / 2]:0.0} p95 {buildMs[(int)(buildMs.Count * 0.95f)]:0.0} ms ({passMs.Count} builds)");

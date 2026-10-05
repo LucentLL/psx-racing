@@ -6908,10 +6908,12 @@ probe only).
     fascia a deck deep at most, never closer than `CarClearM` (1.6 m) to the
     lane, or nothing under a lower clearance. Over a shoulder, fan or gore
     the face stands as a retaining face would.
-  - **Colliders.** Every face is in the ground or road mesh, so its
-    collider is exactly what is drawn: no see-through edge, no invisible
-    blocker. The pass never welds its own faces (each bucket's counts are
-    taken when it starts).
+  - **Colliders.** A face over a drop (more than `SoftStepM`, 1 m, over the
+    land within a metre out) is in the ground or road mesh, so its collider
+    is exactly what is drawn. A step that is not a drop is drawn
+    render-only with the kerbs (see "Closing faces that are steps", below).
+    The pass never welds its own faces (each bucket's counts are taken when
+    it starts).
 - **Cost** (CityGroundEdges, 685 builds of the OwnerBox and route tiles):
   the pass takes p50 9.6 ms, p95 28.2 ms, max 46.5 ms per tile build. The
   whole build (with the probe's ground log on) is p50 102 ms, p95 309 ms.
@@ -6985,13 +6987,80 @@ them (it reports them). `PSX_CITY_CUTHOLD=0` drops them as before.
   - fascias stacked under soffits.
   The lane rule (`OverRoad`) is the fix for those.
 - `city-cycle -AuditOnly` was NOT run on the final code (HARD STOP). The
-  last one, on the cut-wall commit, had the known 18.
+  last one, on the cut-wall commit, had the known 18. When it was run, the
+  closing faces put the body-box check at 142: see below.
 - Named views (`CityPreview`):
   - group `tradedirt_photo`: `tradedirt_nose_low` and `tradedirt_verge_i277`,
     0.7 m eyes (`rise`, `lookAt`), the BEFORE/AFTER photographs;
   - group `fascia_check`: two deck edges given fascias;
   - group `tradedirt`: the Graham nose and the candidates ruled out;
   - group `cutkeep`: I-77 under W 5th St.
+
+### Closing faces that are steps: render-only (2026-10-04, the body-box regression)
+
+The first `city-cycle -AuditOnly` on the closing pass put the roadside check
+"no face stops the body box coming back onto a grounded edge" at **142**
+(main: 1). The check casts a ray `CarClearanceFloorM` (8 cm) + 1 cm over
+the land a metre out from a grounded edge, back toward it, for a metre. It
+fails on any vertical face in the Ground or Roads colliders (the Solid
+layer is exempt, as a designed wall), however tall. The 142 were the new
+closing faces, most standing about 9 cm over the verge a metre out: a
+verge's open end, or a road edge piece the verge test missed, closed down
+to a lattice that lay deeper than the verge beside it.
+
+**The rule** (`CityMeshes.Skirts.cs`, `LandOut`, `SoftStepM`):
+- For each closing face piece, the LAND is the highest surface within a
+  metre out from its middle: samples at 0.25, 0.5 and 1 m, each the highest
+  of the lattice, the tile's road triangles and its ground sheets past the
+  lattice (two 4 m triangle grids, `TriGrid`: the roads one the pass
+  already had, and a new one for the verges, seams, strips and fills), up
+  to 0.3 m over the face's top.
+- A face whose top stands no more than `SoftStepM` = `RoadsideRules.OpenDropM`
+  (1 m) over that land is a step, not a drop. It is drawn RENDER-ONLY with
+  the kerbs (the Kerbs mesh, concrete), as the kerb's own inch under every
+  grounded edge already is, for the same reason. The sheet's own edge
+  stands inside every car's body there, so the body meets that edge where
+  it would have met the face, and no car slips under it. The collider is
+  main's; only the view is closed.
+- Past 1 m the face is over a drop and stays in the ground or road mesh
+  (concrete retaining face), so it collides: a car could pass under the
+  edge it closes.
+- Past the tile's border the next tile's sheets are not built, so the land
+  there is unknown, and the face is taken as a step.
+- Deck and lane fascias are unchanged.
+- No draw call is added: the Kerbs mesh is already one draw on every tile
+  with a street. Every face that was dirt or paving under 0.5 m is now
+  concrete, like a kerb or an edging.
+- `CityGroundEdges` gives the Kerbs mesh a probe collider, so a
+  render-only face still counts as closing its edge.
+
+**Measured.**
+- `city-cycle -AuditOnly`: body box **142 -> 1**. The one left is main's
+  own (E Independence Expwy e20511, (1944.8,2511.5)). There are 18
+  FAILURES, the same names as before; the unguarded-ledge check is still
+  clear.
+  - The first cut (a step of up to `LedgeStepM` 0.3 m, land 1 m out only)
+    left 4. Two were faces 0.4-0.6 m out from the road edge, whose land
+    lay nearer than a metre. One was at a tile border (e2858), with the
+    land on the next tile. One was a raised sheet's end standing 0.44 m
+    over the road beside it (e343). A probe of the pass's decisions
+    (`CityMeshes.skirtLog`, probe only) showed which.
+- `city-cycle -DriveOnly`: every route probe is 0 and WALLS IN LANES is 0.
+  INVISIBLE lanes is 5 (6 with every closing face in the collider), solids
+  41 and box BLUNT rail ends 12, both as before.
+- `CityGroundEdges` (`PSX_GEDGE_MESHES=Ground,Roads`, `PSX_GEDGE_ROUTES=1`):
+  open metres are **109** in the OwnerBox (was 120) and **90** on the
+  routes (was 104).
+  - Of 211,673 m of closing faces on 685 tile builds, 195,209 m are
+    render-only steps.
+  - The pass costs p50 11.1, p95 30.9 and max 47.6 ms a tile build (was
+    9.6 / 28.3 / 50.4 ms). The ground grid accounts for the extra.
+- Photographs: `CityPreview.RunEyePlay` (new). These are named Eye views
+  through the GAME's camera in Charlotte.unity: its sky, hour, grade and
+  tile ring, a 1.2 m eye, no HUD, noon and night. `PSX_EYE_VIEWS`,
+  `PSX_EYE_HOURS`. The views are `tradedirt_graham_wb`, `tradedirt_nose_nw`
+  and the new `groundedges_i277_eye` (the I-277 verge end by S College St
+  from the driver's eye).
 
 ## Not in v1 (in order of likely next)
 

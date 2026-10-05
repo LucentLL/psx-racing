@@ -441,6 +441,8 @@ namespace PSXRacing.EditorTools
             new NamedView { name = "fascia_check_2", group = "fascia_check", kind = ViewKind.Eye, at = new Vector2(-1222f, 3970f), road = "", hdg = 330f, fov = 60f, ring = 1, lookAt = new Vector2(-1237f, 3994.2f), what = "a deck edge the closing pass gave a fascia (-1237,3994), from 28 m south-east" },
             new NamedView { name = "tradedirt_nose_low", group = "tradedirt_photo", kind = ViewKind.Eye, at = new Vector2(-2643.8f, 5100.1f), road = "Trade", hdg = 230f, fov = 60f, ring = 1, rise = -0.5f, lookAt = new Vector2(-2651f, 5099f), what = "W Trade St outbound (e5785) at Graham St, 0.7 m eye, looking straight at the median nose (-2649,5097.5): the junction paving edge over the slot (BEFORE) or its chord verge (AFTER)" },
             new NamedView { name = "tradedirt_verge_i277", group = "tradedirt_photo", kind = ViewKind.Eye, at = new Vector2(-2921.9f, 4100.7f), road = "I-277", hdg = 312f, fov = 60f, ring = 1, rise = -0.5f, lookAt = new Vector2(-2927.8f, 4106.1f), what = "I-277 (e2027, Belk Fwy by S College St), 0.7 m eye, looking at a verge end 7.8 m off the carriageway that stood 2.25 m over the ground (BEFORE) or its closing face (AFTER)" },
+            new NamedView { name = "groundedges_i277_eye", group = "groundedges", kind = ViewKind.Eye, at = new Vector2(-2921.9f, 4100.7f), road = "I-277", hdg = 312f, fov = 60f, ring = 1, back = 30f, lookAt = new Vector2(-2927.8f, 4106.1f), what = "the same verge end on I-277 (e2027) from the driver's eye in the lane 30 m before it (RunEyePlay): the open edge (BEFORE) or its closing face (AFTER)" },
+            new NamedView { name = "groundedges_nose_eye", group = "groundedges", kind = ViewKind.Eye, at = new Vector2(-2643.8f, 5100.1f), road = "Trade", hdg = 230f, fov = 60f, ring = 1, lookAt = new Vector2(-2651f, 5099f), what = "W Trade St outbound at Graham St from the driver's eye, 1.2 m, looking at the median nose (-2649,5097.5): the slot under the junction paving (BEFORE) or its chord verge (AFTER)" },
             Top("tradedirt_pit_top", "tradedirt", -3322f, 5712f, "Trade", 22f, "north of W Trade St at Sycamore St: the ground 5 m under the street at (-3322,5716) from above"),
             Eye("tradedirt_pit_nb", "tradedirt", -3318f, 5680f, "Trade", 0f, "W Trade St at Sycamore St, heading 0 (north) toward the low ground at (-3322,5716)"),
             Eye("cutkeep_i77_nb", "cutkeep", -3334f, 5864f, "I-77", 40f, "I-77 northbound (e6608) 40 m before W 5th St, heading 40: the 24 m cut wall at s 198..222 on the right (hotfix 2026-10-03 dropped it; the land above stood open)"),
@@ -926,6 +928,80 @@ namespace PSXRacing.EditorTools
                 Object.DestroyImmediate(go);
             }
             Debug.Log("[SkylinePlay] " + log.ToString().Replace("\n", " | "));
+        }
+
+        /// <summary>
+        /// NAMED EYE VIEWS THROUGH THE GAME'S CAMERA (2026-10-04, the open
+        /// ground edges' BEFORE/AFTER): the Eye views PSX_EYE_VIEWS names
+        /// (a comma list of <see cref="NamedViews"/> names), 1.2 m over the
+        /// road (plus the view's rise) toward its lookAt, in the Charlotte
+        /// scene - its sky, hour, grade, draw distance and the game's tile
+        /// ring round the eye - with no HUD and no car. PSX_EYE_HOURS (default
+        /// noon). PNGs: Screenshots\eye_&lt;view&gt;_&lt;hour&gt;.png.
+        /// Headless: -executeMethod PSXRacing.EditorTools.CityPreview.RunEyePlay
+        /// </summary>
+        public static void RunEyePlay()
+        {
+            var def = System.Array.Find(TrackCatalog.All, d => d.id == "Charlotte");
+            if (def == null || !PSXScreenshotTool.Open(def, out var cam, out var player)) { Debug.LogError("[EyePlay] Charlotte.unity did not open"); return; }
+            var map = CityMap.Get();
+            if (map == null) { Debug.LogError("[EyePlay] no city data"); return; }
+            PSXRacingBuilder.EnsureCityTextures();
+            foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None)) c.enabled = false;
+            if (player != null) player.SetActive(false);
+            var names = new HashSet<string>((System.Environment.GetEnvironmentVariable("PSX_EYE_VIEWS") ?? "").Split(','));
+            var hours = new List<int>();
+            foreach (var hn in (System.Environment.GetEnvironmentVariable("PSX_EYE_HOURS") ?? "noon").Split(','))
+            {
+                int hi = System.Array.FindIndex(TimeOfDay.All, t => t.name.Equals(hn.Trim(), System.StringComparison.OrdinalIgnoreCase));
+                if (hi >= 0) hours.Add(hi);
+            }
+            var sun = GameObject.Find("Sun")?.GetComponent<Light>();
+            var globals = Object.FindFirstObjectByType<PSXGlobals>();
+            int oldWeather = RaceHandoff.WeatherOverride;
+            RaceHandoff.WeatherOverride = 0;
+            var go = new GameObject("~eyePlayWorld");
+            var world = go.AddComponent<CityWorld>();
+            var log = new System.Text.StringBuilder();
+            try
+            {
+                foreach (var v in NamedViews)
+                {
+                    if (v.kind != ViewKind.Eye || !names.Contains(v.name)) continue;
+                    if (!SnapNamed(map, v.at, v.road, out var e, out float s)) { Debug.LogError($"[EyePlay] {v.name}: no road '{v.road}'"); continue; }
+                    float y = e.YAt(s);
+                    var eye = new Vector3(v.at.x, y + 1.2f + v.rise, v.at.y);
+                    if (v.back > 0f)
+                    {
+                        // in the lane, back along the road from the point
+                        WalkBack(map, e, s, v.back, out var lp, out _, out var le, out float ls);
+                        eye = new Vector3(lp.x, le.YAt(ls) + 1.2f + v.rise, lp.y);
+                    }
+                    float h = v.hdg * Mathf.Deg2Rad;
+                    var look = v.lookAt != Vector2.zero ? new Vector3(v.lookAt.x, y + 0.2f, v.lookAt.y)
+                                                        : eye + new Vector3(Mathf.Sin(h), 0f, Mathf.Cos(h)) * 60f + Vector3.down * 1.0f;
+                    var rot = Quaternion.LookRotation(look - eye);
+                    world.EnsureRing(eye, world.ring);
+                    foreach (int hour in hours)
+                    {
+                        TimeOfDay.Apply(hour, sun);
+                        NightGlow.PreviewAll(hour >= TimeOfDay.Dusk);
+                        if (globals != null) globals.Apply();
+                        cam.transform.SetPositionAndRotation(eye, rot);
+                        world.RefreshSkyline(cam);
+                        PSXScreenshotTool.ShotAs(cam, $"eye_{v.name}_{TimeOfDay.All[hour].name.ToLowerInvariant()}", eye, rot);
+                    }
+                    log.Append($"{v.name}: eye ({eye.x:0.0},{eye.y:0.00},{eye.z:0.0}) on e{e.index} '{e.name}', tiles {world.LiveTiles}\n");
+                    world.DropAll();
+                }
+            }
+            finally
+            {
+                RaceHandoff.WeatherOverride = oldWeather;
+                if (world != null) world.DropAll();
+                Object.DestroyImmediate(go);
+            }
+            Debug.Log("[EyePlay] " + log.ToString().Replace("\n", " | "));
         }
 
         static List<GameObject> BuildRing(CityMap map, CityMeshes.Trims trims,
