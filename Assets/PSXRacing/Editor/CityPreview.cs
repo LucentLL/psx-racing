@@ -394,6 +394,13 @@ namespace PSXRacing.EditorTools
             // junction boxes (leftover item 3, 2026-10-03): the paved junction in its main road's
             // surface (with jn_trade_tryon), and Little Rock Road under I-85 from the driver's seat
             Eye("jb_tryon_eye", "jbox", -2338.2f, 4710.4f, "Tryon", 50f, "South Tryon St northeast-bound, inner lane, 38 m before Trade St (the Square, node 1026), heading 50, 1.2 m eye"),
+            // raised sheet ends (leftovers 2026-10-05): the 0.3-1 m ledges the foreslopes replace, from 20 m back up the road
+            new NamedView { name = "ledge_w4th_14607", group = "ledge", kind = ViewKind.Eye, at = new Vector2(-3689.9f, 5439.6f), road = "West 4th Street Extension", hdg = 294f, back = 20f, fov = 60f, ring = 1,
+                lookAt = new Vector2(-3689.9f, 5439.6f),
+                what = "W 4th St Ext (e14607) 20 m before s=122: the 0.34 m raised sheet end on the right - a ledge before, a 1:4 foreslope after" },
+            new NamedView { name = "ledge_e343", group = "ledge", kind = ViewKind.Eye, at = new Vector2(-6494.4f, -2431.3f), road = "", hdg = 53f, back = 20f, fov = 60f, ring = 1,
+                lookAt = new Vector2(-6489.9f, -2428.9f),
+                what = "e343 beside Tyvola Rd 20 m before s=95: the 0.44 and 0.53 m sheet ends at s=95 and s=105 - ledges before, foreslopes after" },
             Eye("lr_nb_eye", "jbox", -11039.7f, 6228.0f, "Josh Birmingham", 21f, "N Josh Birmingham Pkwy northbound (e9838) 30 m before the signal at node 518, heading 21, 1.2 m eye: on into Little Rock Rd under the I-85 decks"),
             Eye("lr_nb_under", "jbox", -11022.0f, 6275.0f, "Josh Birmingham", 20f, "N Josh Birmingham Pkwy northbound (e9839) 20 m before node 429, heading 20, 1.2 m eye: under the I-85 decks, the ramp crossovers ahead"),
             Eye("lr_sb_eye", "jbox", -11005.7f, 6372.8f, "Little Rock", 201f, "Little Rock Rd southbound (e3717) 35 m before the signal at node 426, heading 201, 1.2 m eye: towards I-85"),

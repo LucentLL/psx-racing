@@ -460,10 +460,9 @@ namespace PSXRacing.City
         /// <summary>The floodlit band of a tower <paramref name="h"/> tall: a
         /// tenth of it, two storeys to five.</summary>
         static float CrownBandM(float h) => Mathf.Clamp(0.1f * h, 8f, 20f);
-        /// <summary>OFF until the PSX/Lit half (scratchpad crowns_shader.diff:
-        /// the +8 decode and the CROWN_* night pass) is in and seen at night -
-        /// the shader on main reads +8 as metal. PSX_CITY_CROWNS=1 turns it on.</summary>
-        static readonly bool CrownsOff = System.Environment.GetEnvironmentVariable("PSX_CITY_CROWNS") != "1";
+        /// <summary>ON: PSX/Lit decodes the +8 crown flag and washes it in the
+        /// CROWN_* night pass. PSX_CITY_CROWNS=0 turns it off (the before shot).</summary>
+        static readonly bool CrownsOff = System.Environment.GetEnvironmentVariable("PSX_CITY_CROWNS") == "0";
         static void FacadeCrown(bool on)
         {
             var t = Bucket.Tint;

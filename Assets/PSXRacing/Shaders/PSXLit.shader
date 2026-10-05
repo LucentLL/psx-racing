@@ -400,6 +400,11 @@ Shader "PSX/Lit"
             #define WIN_DIM            0.55   // the dimmest lit window, as a share of the brightest
             #define WIN_GAIN           1.1
             #define SIGN_GAIN          0.85   // a lit sign face after dark, as a share of its texel (WP-23)
+            #define CROWN_GAIN         0.42   // a floodlit crown's wash at full night, x its texel (leftovers 2026-10-05; 0.55 washed a close crown as bright as its lit windows)
+            #define CROWN_WARM_SHARE   0.55   // share of towers floodlit warm (sodium) not cool (metal halide)
+            #define CROWN_WARM         float3(1.00, 0.70, 0.40)
+            #define CROWN_COOL         float3(0.72, 0.84, 1.00)
+            #define CROWN_ROOF_CUT     0.7    // a face looking up takes 30% of the wash: the floods aim up the walls
             #define WIN_FOG_CUT        0.6    // a lit window is fogged only 40% as hard as the wall: it
                                               //   punches through the night haze the way a lamp does
             // THE ROOM BEHIND THE GLASS. A flat emission made every lit window
@@ -634,9 +639,13 @@ Shader "PSX/Lit"
                 // alpha = column x 32, + 16 for METAL (a crown, a roof shape,
                 // OSM metal): w = column + 0.5 for metal, read back by floor
                 // with a quarter's margin either way
-                float fa = v.color.a * (255.0 / 32.0);
-                float fcol = floor(fa + 0.25);
-                o.facade = half4(v.color.rgb * 2.0, fcol + 0.5 * step(0.25, fa - fcol));
+                // (+ 8 for a floodlit CROWN, leftovers 2026-10-05: w = column
+                // + 0.5 metal + 0.25 crown)
+                float fa8 = floor(v.color.a * 255.0 + 0.5);
+                float fcol = floor(fa8 / 32.0 + 0.01);
+                float frem = fa8 - fcol * 32.0;
+                float fmet = step(15.5, frem);
+                o.facade = half4(v.color.rgb * 2.0, fcol + 0.5 * fmet + 0.25 * step(7.5, frem - 16.0 * fmet));
             #endif
                 return o;
             }
@@ -658,8 +667,9 @@ Shader "PSX/Lit"
             #ifdef PSX_FACADE
                 float2 fdx = ddx(uv) * float2(1.0 / FACADE_COLS, 1.0);
                 float2 fdy = ddy(uv) * float2(1.0 / FACADE_COLS, 1.0);
-                float facCol = floor(i.facade.w + 0.25);
-                float facMetal = step(0.25, i.facade.w - facCol);
+                float facCol = floor(i.facade.w + 0.1);
+                float facMetal = step(0.375, i.facade.w - facCol);
+                float facCrown = step(0.125, i.facade.w - facCol - 0.5 * facMetal);
                 uv = float2((facCol + frac(uv.x)) * (1.0 / FACADE_COLS), uv.y);
                 float4 texF = tex2Dgrad(_MainTex, uv, fdx, fdy);
                 texF.rgb = PSXTexDecode(texF.rgb, _MainTexRaw);
@@ -890,6 +900,24 @@ Shader "PSX/Lit"
                     col += win;
                     emit = max(emit, PSXEmitShare(win, col) * WIN_EMIT);
                 }
+            #ifdef PSX_FACADE
+                // FLOODLIT CROWNS (leftovers 2026-10-05): a tall tower's top
+                // storeys and its crown metal, washed by floodlights after
+                // dark - the facade's own texel lit, warm sodium or cool
+                // white by the building (its tint), up the walls more than
+                // on a roof. An accent on the dark city, not a bright one:
+                // CROWN_GAIN under the lit windows' gain, fogged like them.
+                if (_NightWin > 0.5 && _PSXNight > 0.01 && facCrown > 0.5)
+                {
+                    float ch = frac(dot(i.facade.rgb, float3(12.9898, 78.233, 37.719)) * 43.758);
+                    float3 flood = ch < CROWN_WARM_SHARE ? CROWN_WARM : CROWN_COOL;
+                    float up = 1.0 - CROWN_ROOF_CUT * saturate(abs(N.y));
+                    float3 wash = saturate(tex.rgb) * flood * (CROWN_GAIN * up * _PSXNight * _PSXNight);
+                    wash *= (1.0 - WIN_FOG_CUT * i.fog) * adapt;
+                    col += wash;
+                    emit = max(emit, PSXEmitShare(wash, col) * WIN_EMIT * 0.5);
+                }
+            #endif
                 // The alpha is the emitter mask (PSXTone.cginc) on the PSX
                 // camera's own frame: this pass blends nothing, the clip above
                 // has already used tex.a, and that frame's alpha is what
