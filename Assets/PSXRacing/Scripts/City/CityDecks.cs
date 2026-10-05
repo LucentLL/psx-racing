@@ -42,7 +42,7 @@ namespace PSXRacing.City
         public const float DrapeM = 0.12f;
         static CityMap mapRef;
         public const float OpeningM = 8f, MaxDrivewayM = 40f, MaxDriveGrade = 0.12f;
-        public const float ColumnM = 0.5f, ColumnPitchM = 9f, LapStepM = 2.5f;
+        public const float ColumnM = 0.5f, ColumnPitchM = 3f * 2.74f, LapStepM = 2.5f;
 
         public sealed class Deck
         {

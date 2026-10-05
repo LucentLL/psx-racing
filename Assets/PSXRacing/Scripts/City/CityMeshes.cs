@@ -596,6 +596,10 @@ namespace PSXRacing.City
             /// where there are none). The post colliders are CityWorld.Attach's,
             /// from this list.</summary>
             public List<Lamp> lamps = new List<Lamp>();
+            /// <summary>A parking deck's dark parts (soffits, spandrel joints, fixtures,
+            /// roof poles), tile-local quads as a, b, c, d, facing: drawn by the
+            /// furniture mesh (CityPoles, CellBlack), which replaces the Lamps mesh.</summary>
+            public List<Vector3> deckDark = new List<Vector3>();
             public Mesh lampPosts;
             /// <summary>For the audit: lamp stations this tile owned, and why
             /// each one that stood no lamp was refused, indexed by the

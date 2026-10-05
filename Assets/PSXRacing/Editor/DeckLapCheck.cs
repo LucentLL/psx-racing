@@ -229,9 +229,32 @@ namespace PSXRacing.EditorTools
             var cam = Camera.main;
             var chase = cam != null ? cam.GetComponent<ChaseCamera>() : null;
             if (chase != null) chase.enabled = false;
-            // the car waits in the ground turning bay, out of every frame
-            yield return Arrive(d, car, rb, d.W3(-d.hu + 3f, 0f, d.hv * 0.5f), d.W3(0f, 0f, d.hv * 0.5f));
-            rb.isKinematic = true;
+            if (CityDecks.Enabled)
+            {
+                // the car waits in the ground turning bay, out of every frame -
+                // SETTLED on its wheels first: frozen one step after Arrive's
+                // drop it hung 0.4 m over the floor (the "floating car" of the
+                // first facade shot)
+                yield return Arrive(d, car, rb, d.W3(-d.hu + 3f, 0f, d.hv * 0.5f), d.W3(0f, 0f, d.hv * 0.5f));
+                for (int i = 0; i < 120; i++) yield return new WaitForFixedUpdate();
+                rb.isKinematic = true;
+                DeckLapCheck.Line("  shot car parked: " + (Physics.Raycast(car.transform.position + Vector3.up, Vector3.down, out var gh, 6f, 1 << 8)
+                                  ? "body " + (car.transform.position.y - gh.point.y).ToString("0.00") + " m over the floor it stands on" : "no floor under it"));
+            }
+            else
+            {
+                // PSX_DECKS=0 (the BEFORE photos): the deck is the solid
+                // building, so the car waits on the street behind the facade
+                // camera and the shots wait for the tile to be built
+                var behind = d.EntryP + d.EntryN * (d.driveLen + 40f);
+                rb.isKinematic = true;
+                car.TeleportTo(new Vector3(d.W(behind.x, behind.y).x, d.roadY + 0.5f, d.W(behind.x, behind.y).y), Quaternion.identity);
+                var probe = d.W3(0f, 0f, 0f);
+                float t0 = Time.realtimeSinceStartup;
+                while (Time.realtimeSinceStartup - t0 < 120f && !Physics.Raycast(new Vector3(probe.x, d.y0 + d.levels * 3.05f + 30f, probe.z), Vector3.down, 80f, 1 << 8))
+                    yield return null;
+                for (int i = 0; i < 60; i++) yield return null;
+            }
             DeckLapCheck.Line("deck " + d.way + " shots (" + tag + "): tile draws " + TileDraws(d) + ", deck drawn " + d.built + ", triangles " + d.trisDeck);
             float hz = d.hv * 0.5f, H = CityDecks.FloorM; int top = d.levels - 1;
             Vector2 E = d.EntryP, nL = d.EntryN;

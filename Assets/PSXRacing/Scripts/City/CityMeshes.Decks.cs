@@ -39,6 +39,10 @@ namespace PSXRacing.City
                 return false;
             }
             var con = buckets[(int)Slot.Concrete];
+            // the stall paint's slot is found by the lots' first use: a deck
+            // on the first tile built (the deck photos spawn there) came
+            // before it and drew no stall lines at all
+            EnsureLots(map);
             var paint = stallSlot >= 0 ? buckets[(int)SlotOf(stallSlot, Surface.AsphaltNew)] : null;
             int t0 = con.t.Count + (paint != null ? paint.t.Count : 0) + lampBucket.t.Count;
 
@@ -126,10 +130,36 @@ namespace PSXRacing.City
                         else if (x > x1) { if (k >= top - 1) break; f0 = CityDecks.TurnHi(k); f1 = CityDecks.TurnHi(k + 1); }
                         else { if (k >= top - 1) break; f0 = s < 0 ? CityDecks.BayA(d, k, x) : CityDecks.BayB(d, k, x); f1 = f0 + H; }
                         kk++;
-                        float c0 = f0 + P, c1 = f1 - CityDecks.SlabM;
+                        // never in the street opening (the columns flank it):
+                        // one standing floor to slab there pinned the AI on
+                        // 500204485's way out
+                        if (k == 0 && d.entrySide == s && Mathf.Abs(x - d.entryAt) < half + CityDecks.ColumnM) continue;
+                        // floor to slab, standing in front of the parapet: from
+                        // inside a column at the back of every third stall
+                        float c0 = f0 - 0.03f, c1 = f1 - CityDecks.SlabM;
                         if (c1 - c0 < 0.3f) continue;
                         float zo = s * (hv - W), zi = s * (hv - W - CityDecks.ColumnM), xa = x - CityDecks.ColumnM * 0.5f, xb = x + CityDecks.ColumnM * 0.5f;
                         DeckBoxSides(con, d, tm, xa, xb, Mathf.Min(zo, zi), Mathf.Max(zo, zi), c0, c1);
+                        // the precast spandrel's joint on the street face, at
+                        // the column it hangs from (dark, the lamp mesh)
+                        float jb = k == 0 ? low : f0 - CityDecks.SlabM, jt = f0 + P;
+                        var jo = s * hv + s * 0.02f;
+                        Dark(tm, DP(d, x - 0.03f, jb, jo, tm), DP(d, x - 0.03f, jt, jo, tm), DP(d, x + 0.03f, jt, jo, tm), DP(d, x + 0.03f, jb, jo, tm),
+                                        new Vector3(DirW(d, 0f, s).x, 0f, DirW(d, 0f, s).y));
+                    }
+                }
+            // ...and the column line's twin on the spine, both faces, under
+            // every covered run: the grid reads down the aisle
+            for (int s = -1; s <= 1; s += 2)
+                for (float x = -hu + 0.8f; x <= hu - 0.8f; x += CityDecks.ColumnPitchM)
+                {
+                    if (x < x0 + 0.5f || x > x1 - 0.5f) continue;
+                    for (int k = 0; k < top - 1; k++)
+                    {
+                        float f0 = s < 0 ? CityDecks.BayA(d, k, x) : CityDecks.BayB(d, k, x);
+                        float zs = s * S, zc = s * (S + CityDecks.ColumnM * 0.8f);
+                        DeckBoxSides(con, d, tm, x - CityDecks.ColumnM * 0.5f, x + CityDecks.ColumnM * 0.5f, Mathf.Min(zs, zc), Mathf.Max(zs, zc),
+                                     f0 - 0.05f, f0 + H - CityDecks.SlabM);
                     }
                 }
 
@@ -139,7 +169,7 @@ namespace PSXRacing.City
                 float u = 0.5f * (stallU0 + stallU1);
                 for (int k = 0; k < top; k++)
                     for (int s = -1; s <= 1; s += 2)
-                        for (float x = x0 + 1.5f; x <= x1 - 1.5f; x += StallW)
+                        for (float x = StallStart(-hu + 0.8f, x0 + 1.5f); x <= x1 - 1.5f; x += StallW)
                         {
                             float y = (s < 0 ? CityDecks.BayA(d, k, x) : CityDecks.BayB(d, k, x)) + 0.02f;
                             foreach (float zIn in new[] { s * (hv - W), s * (S + StallD) })
@@ -185,7 +215,7 @@ namespace PSXRacing.City
                             float x = x0 + 3f + span * (i + 0.5f) / per, z = s * d.hv * 0.5f;
                             float f = s < 0 ? CityDecks.BayA(d, k, x) : CityDecks.BayB(d, k, x);
                             float ceil = f + H - CityDecks.SlabM - 0.04f;
-                            lampBucket.Down(DP(d, x - 0.6f, ceil, z - 0.15f, tm), DP(d, x + 0.6f, ceil, z - 0.15f, tm),
+                            DarkDown(tm, DP(d, x - 0.6f, ceil, z - 0.15f, tm), DP(d, x + 0.6f, ceil, z - 0.15f, tm),
                                             DP(d, x + 0.6f, ceil, z + 0.15f, tm), DP(d, x - 0.6f, ceil, z + 0.15f, tm),
                                             new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f));
                             tm.lamps.Add(new Lamp { foot = DP(d, x, f, z, tm), head = DP(d, x, ceil - 0.05f, z, tm), height = ceil - f, kind = LampDeck, breakaway = true });
@@ -197,9 +227,9 @@ namespace PSXRacing.City
                     {
                         float f = s < 0 ? CityDecks.BayA(d, top - 1, x) : CityDecks.BayB(d, top - 1, x);
                         float z = s * (hv - W - 0.35f);
-                        DeckBoxSides(lampBucket, d, tm, x - 0.12f, x + 0.12f, z - 0.12f, z + 0.12f, f, f + PoleH);
+                        DarkBox(d, tm, x - 0.12f, x + 0.12f, z - 0.12f, z + 0.12f, f, f + PoleH);
                         float zh = z - s * 0.8f;
-                        lampBucket.Down(DP(d, x - 0.35f, f + PoleH - 0.1f, zh - 0.5f, tm), DP(d, x + 0.35f, f + PoleH - 0.1f, zh - 0.5f, tm),
+                        DarkDown(tm, DP(d, x - 0.35f, f + PoleH - 0.1f, zh - 0.5f, tm), DP(d, x + 0.35f, f + PoleH - 0.1f, zh - 0.5f, tm),
                                         DP(d, x + 0.35f, f + PoleH - 0.1f, zh + 0.5f, tm), DP(d, x - 0.35f, f + PoleH - 0.1f, zh + 0.5f, tm),
                                         new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f));
                         tm.lamps.Add(new Lamp { foot = DP(d, x, f, z, tm), head = DP(d, x, f + PoleH - 0.15f, zh, tm), height = PoleH, kind = LampDeck, breakaway = true });
@@ -253,8 +283,19 @@ namespace PSXRacing.City
                 con.Up(DP(d, a, ya, za, tm), DP(d, b, yb, za, tm), DP(d, b, yb, zb, tm), DP(d, a, ya, zb, tm),
                        DUV(d, a, za), DUV(d, b, za), DUV(d, b, zb), DUV(d, a, zb));
                 if (soffit)
-                    con.Down(DP(d, a, ya - sl, za, tm), DP(d, b, yb - sl, za, tm), DP(d, b, yb - sl, zb, tm), DP(d, a, ya - sl, zb, tm),
-                             DUV(d, a, za), DUV(d, b, za), DUV(d, b, zb), DUV(d, a, zb));
+                {
+                    // the ceiling is in the deck's shade: DRAWN dark (the lamp
+                    // mesh, already this tile's draw) so the open bands read
+                    // open from the street - a lit concrete soffit seen up
+                    // through them made the facade solid grey stripes - and
+                    // COLLIDED (the chase camera's cover ray looks up for it)
+                    // by the tile's collider-only bucket
+                    var p0 = DP(d, a, ya - sl, za, tm); var p1 = DP(d, b, yb - sl, za, tm);
+                    var p2 = DP(d, b, yb - sl, zb, tm); var p3 = DP(d, a, ya - sl, zb, tm);
+                    var m = new Vector2(0.5f, 0.5f);
+                    DarkDown(tm, p0, p1, p2, p3, m, m, m, m);
+                    guardBucket.Down(p0, p1, p2, p3, m, m, m, m);
+                }
             }
         }
 
@@ -295,6 +336,35 @@ namespace PSXRacing.City
                 con.Up(DP(d, a.x, ya + P, a.y, tm), DP(d, b.x, yb + P, b.y, tm), DP(d, bi.x, yb + P, bi.y, tm), DP(d, ai.x, ya + P, ai.y, tm),
                        DUV(d, a.x, a.y), DUV(d, b.x, b.y), DUV(d, bi.x, bi.y), DUV(d, ai.x, ai.y));
             }
+        }
+
+        /// <summary>The first stall line at or past <paramref name="from"/> on
+        /// the column grid's phase (<see cref="CityDecks.ColumnPitchM"/> is
+        /// three stalls): every column stands on a stall line.</summary>
+        static float StallStart(float phase, float from) => phase + Mathf.Ceil((from - phase) / StallW) * StallW;
+
+        /// <summary>A dark quad (a-b along the bottom, d-c along the top) facing
+        /// <paramref name="n"/>: into the Lamps mesh AND <see cref="TileMeshes.deckDark"/>,
+        /// because a tile's furniture (CityPoles) destroys the Lamps mesh and
+        /// draws the lamps itself - the deck's fixtures and roof poles were
+        /// never seen, only a street post under each.</summary>
+        static void Dark(TileMeshes tm, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n)
+        {
+            var m = new Vector2(0.5f, 0.5f);
+            lampBucket.Face(a, b, c, d, n, m, m, m, m);
+            tm.deckDark.Add(a); tm.deckDark.Add(b); tm.deckDark.Add(c); tm.deckDark.Add(d); tm.deckDark.Add(n);
+        }
+
+        static void DarkDown(TileMeshes tm, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector2 ua, Vector2 ub, Vector2 uc, Vector2 ud)
+            => Dark(tm, a, b, c, d, Vector3.down);
+
+        static void DarkBox(CityDecks.Deck d, TileMeshes tm, float xa, float xb, float za, float zb, float y0, float y1)
+        {
+            Vector3 N(float lx, float lz) { var w = DirW(d, lx, lz); return new Vector3(w.x, 0f, w.y); }
+            Dark(tm, DP(d, xa, y0, za, tm), DP(d, xb, y0, za, tm), DP(d, xb, y1, za, tm), DP(d, xa, y1, za, tm), N(0f, -1f));
+            Dark(tm, DP(d, xa, y0, zb, tm), DP(d, xb, y0, zb, tm), DP(d, xb, y1, zb, tm), DP(d, xa, y1, zb, tm), N(0f, 1f));
+            Dark(tm, DP(d, xa, y0, za, tm), DP(d, xa, y0, zb, tm), DP(d, xa, y1, zb, tm), DP(d, xa, y1, za, tm), N(-1f, 0f));
+            Dark(tm, DP(d, xb, y0, za, tm), DP(d, xb, y0, zb, tm), DP(d, xb, y1, zb, tm), DP(d, xb, y1, za, tm), N(1f, 0f));
         }
 
         /// <summary>The four sides of an upright box (a column, a pole), local x/z extents.</summary>

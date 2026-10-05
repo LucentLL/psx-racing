@@ -690,7 +690,20 @@ namespace PSXRacing.City
             foreach (var p in pt.poles) EmitPole(p);
             foreach (var (a, b) in pt.spans) pt.wires += EmitSpan(a, b);
             if (tm != null)
-                foreach (var l in tm.lamps) { EmitLamp(tm.origin + l.foot, tm.origin + l.head, l.kind); pt.lampsDrawn++; }
+                foreach (var l in tm.lamps)
+                {
+                    // a parking deck draws its own fixtures and roof poles
+                    // (CityMeshes.Decks): a street post here stood floor to
+                    // ceiling in the aisle under every one (the black pole)
+                    if (l.kind == CityMeshes.LampDeck) continue;
+                    EmitLamp(tm.origin + l.foot, tm.origin + l.head, l.kind); pt.lampsDrawn++;
+                }
+            // a deck's dark parts: the Lamps mesh that also carries them is
+            // destroyed once this furniture draws (CityWorld.AttachFurniture)
+            if (tm != null)
+                for (int q = 0; q + 4 < tm.deckDark.Count; q += 5)
+                    Quad(tm.origin + tm.deckDark[q], tm.origin + tm.deckDark[q + 1], tm.origin + tm.deckDark[q + 2], tm.origin + tm.deckDark[q + 3],
+                         tm.deckDark[q + 4], CellBlack);
             // leftover item 2: the W-beam lead-ins at the tile's parapet ends
             if (tm != null)
             {
