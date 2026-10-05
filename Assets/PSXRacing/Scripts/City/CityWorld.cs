@@ -270,7 +270,35 @@ namespace PSXRacing.City
             Trunks = tgo.AddComponent<TreeTrunks>();
             Trunks.standName = CityTrees.TrunkName;
             Trunks.trunkHeight = CityTrees.TrunkHeightM;
+            // Uptown B4: the far skyline, before any tile job holds the
+            // builder's scratch
+            Skyline = CitySkyline.Create(transform, Map, nodeTrims, MatFor);
         }
+
+        /// <summary>Uptown B4: the tallest core towers past the streamed ring
+        /// (null without a facade material).</summary>
+        public CitySkyline Skyline { get; private set; }
+        System.Func<long, bool> isLive;
+
+        /// <summary>The skyline for this camera: what the live tiles draw is
+        /// left to them, its bounds and haze set. The game calls it every
+        /// frame; a tool that moves a camera by hand calls it before a shot.</summary>
+        public void RefreshSkyline(Camera cam)
+        {
+            if (Skyline == null) return;
+            if (isLive == null) isLive = k => live.ContainsKey(k);
+            Skyline.Refresh(cam, isLive);
+        }
+
+        void LateUpdate()
+        {
+            if (Skyline != null) RefreshSkyline(Camera.main);
+        }
+
+        /// <summary>The key of the tile a plan point stands in (the tile a
+        /// footprint is built by is the one its centre is in).</summary>
+        public static long TileKeyAt(Vector2 p) =>
+            Key(Mathf.FloorToInt(p.x / CityMeshes.TileSize), Mathf.FloorToInt(p.y / CityMeshes.TileSize));
 
         /// <summary>Every restaurant in the city, flattened out of the tile
         /// buckets once, so the HUD has something to point at.</summary>

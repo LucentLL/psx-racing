@@ -6739,6 +6739,64 @@ metal/stone/glass?"
 - Not done: reflections are a sky + city model, not the real geometry; the
   dusk balance; stone and brick albedo untouched.
 
+## Uptown massing and the far skyline (Uptown B3 + B4, 2026-10-04)
+
+- **B3, towers with no parts** (`CityMeshes.Massing.cs`). Every tower of 60 m
+  and more that OpenStreetMap gives no building:parts, no roof:shape and no
+  landmark entry was a prism to its roof and, over 120 m, two generic stacked
+  boxes. Now, chosen by a hash of where it stands (the same tower every visit,
+  and never a copy of a real one): a PODIUM of 3-6 storeys over the whole
+  footprint (stone under about half the glass towers) where the footprint's
+  box is 22 m+ across and 40 m of shaft is left above it; a SHAFT inset 2-4 m
+  (mitred inset; a fold, a sharp spike or under a third of the area left keeps
+  the footprint as it is); and one roof: a metal-screened plant PENTHOUSE
+  behind a 1.2 m parapet, a SETBACK (the top 2-8 storeys stepped in 3-5 m, a
+  small plant box on it; towers of 90 m+) or a 2.2 m PARAPET band. The
+  podium's walls are the prism's, so nothing the tile collides with moved
+  out. The two-box crown is kept only for a landmark with nothing better yet
+  (phase C).
+- **B4, the far skyline** (`CitySkyline.cs`, `CityMeshes.Skyline.cs`). The
+  city streams two tiles round the car and the far plane is 500 m, so from
+  I-77 uptown did not exist until ~500 m out. The 60 tallest buildings within
+  2.5 km of uptown (an outline's height is its tallest part's) are emitted
+  once, at load, by the tile builder's own `EmitFootprint` - parts, roof
+  shapes, crowns, B3 massing, facade column and tint - with one panel a wall,
+  no pavement cut, outlines simplified to 1.5 m, no parapets and no parts
+  under 20 m: one mesh, 236 buildings and parts, 5,095 triangles, two
+  submeshes (the facade atlas, the flat roofs) = 2 draws. No collider, no
+  shadow (SunShadows.Exclude), its own copies of the two kit materials.
+- **Beyond the far plane** (PSX/Lit `_Skyline`, 0 on every other material):
+  past the world's fade start A (fogNear, 398 m in play) each skyline vertex
+  is moved in along its own line of sight to A + s(1 - e^-(d-A)/s), s = 0.7 of
+  the fade band - the same pixel, depth squeezed but in order and never deeper
+  than the real point. It ends where the world's edge fade is about half: the
+  last, mostly sky-coloured metres of the world are drawn behind the towers
+  (ending the band at the far plane cut every far tower to a sliver behind
+  faded treetops). Haze by the REAL distance, 1 - e^-(d/24 km) toward the
+  hour's horizon colour (0.12 at 3 km, 0.19 at 5 km; 9 km in rain or snow);
+  off in fog weather. The owner's no-fog rule holds: the drawn world still
+  ends in its own short edge fade and nothing turns white. At night the
+  facade's own lit windows.
+- **No doubles**: a building is left out (its triangles dropped from the
+  index list, re-set only when the set changes) while its tile is live AND it
+  is nearer than A - there the tile draws it, clear. Further out the tile's
+  copy is fading into the sky and the squeezed skyline copy stands in front of
+  it. `CitySkyline.Refresh` also sets the renderer's bounds round the squeezed
+  towers, so Unity culls it facing away; CityWorld calls it every LateUpdate
+  with Camera.main; tools call `CityWorld.RefreshSkyline(cam)`.
+- **Checks**: CityBudgetProbe 68 views: every heading +0 (32) or exactly +2
+  (36, facing uptown), worst 189 -> 191; tile build p95 140.6 -> 139.8 ms.
+  Drive audit (uptown): nothing solid in a lane 0; the same three FAILs as B2
+  (rail ends 12, invisible colliders 5 + 28). In play
+  (`CityPreview.RunSkylinePlay`, the game's own draw distance, PSX_SKYLINE=0
+  for the before): from I-77 3 km north the skyline stands over the road by
+  day and as lit windows at night; from 5 km it shows between the roadside
+  trees; from the south the line of sight to uptown is through trees inside
+  the drawn world.
+- Not done: pack towers among the tallest would be left out (none are);
+  the far windows twinkle as the camera moves (sub-pixel windows); the swap
+  at 398 m is low-poly to full detail at equal colour.
+
 ## Not in v1 (in order of likely next)
 
 Traffic, gas stations / parking lots / mechanic shops in the city,

@@ -9744,7 +9744,7 @@ namespace PSXRacing.City
             EmitPanels(tm, style, a, c, y0, y1, outward, u, v);
         }
 
-        static int PanelCount(float meters) =>
+        static int PanelCount(float meters) => skylineBuild ? 1 :
             Mathf.Clamp(Mathf.CeilToInt(meters / FacadePanelMax), 1, meters > TallWallM ? TallPanelCap : FacadePanelCap);
 
         /// <summary>
@@ -9793,9 +9793,20 @@ namespace PSXRacing.City
             {
                 yield return 0;   // WP-09: a footprint a step
                 stepPhase = 7; stepItem = fi; stepPart = 0;
+                EmitFootprint(map, trims, tm, fi);
+            }
+        }
+
+        /// <summary>One real building into the buckets: the tile's own build,
+        /// and (Uptown B4) the far skyline's, which passes
+        /// <see cref="skylineBuild"/> - one panel a wall, no cut off the
+        /// pavement, no shopfront - so the skyline is the tile's building.</summary>
+        static void EmitFootprint(CityMap map, Trims trims, TileMeshes tm, int fi)
+        {
+            {
                 var f = map.footprints[fi];
-                if (f.propKind != 0) continue;   // a model stands here; CityWorld places it
-                if (f.hidden) continue;          // Uptown B2: its building:parts draw it
+                if (f.propKind != 0) return;   // a model stands here; CityWorld places it
+                if (f.hidden) return;          // Uptown B2: its building:parts draw it
                 // B2: a part stands on its outline's ground and wears its
                 // outline's look, so the tiers of one tower meet and match
                 var gf = f.part && f.outline >= 0 && f.outline < map.footprints.Length ? map.footprints[f.outline] : f;
@@ -9810,7 +9821,7 @@ namespace PSXRacing.City
                     var centre = f.centre; var u = f.u;
                     float hu = f.hu, hv = f.hv;
                     int fit = FitHouse(map, trims, ref centre, ref u, ref hu, ref hv, y0, top);
-                    if (fit < 0) { tm.footprintsLeftOut++; continue; }
+                    if (fit < 0) { tm.footprintsLeftOut++; return; }
                     if (fit > 0) tm.footprintsCut++;
                     // leftover item 6: its storeys on its own graded pad, its
                     // walls down to the lowest ground at them
@@ -9824,12 +9835,13 @@ namespace PSXRacing.City
                     EmitGableHouse(tm, centre, u, hu, hv, y0, eave, top, Slot.FacadeHouse);
                     tm.houseSeats.Add(new HouseSeat { kind = 1, c = centre, u = u, hu = hu, hv = hv, y0 = y0, floor = floorG });
                     tm.footprintCount++;
-                    continue;
+                    return;
                 }
                 fitPoly.Clear();
                 fitPoly.AddRange(f.pts);
-                int cut = FitFootprint(map, trims, fitPoly, y0, top);
-                if (cut < 0) { tm.footprintsLeftOut++; continue; }
+                if (skylineBuild) SimplifyPoly(fitPoly, SkylineSimplifyM);
+                int cut = skylineBuild ? 0 : FitFootprint(map, trims, fitPoly, y0, top);
+                if (cut < 0) { tm.footprintsLeftOut++; return; }
                 if (cut > 0) tm.footprintsCut++;
                 // leftover item 6: a house polygon on the drawn ground of its
                 // graded lot (its box's lowest: never a wall over air)
@@ -9853,7 +9865,7 @@ namespace PSXRacing.City
                 bool floating = f.minH > 0.05f;
                 float wallY0 = floating ? floorP + f.minH : y0;
                 float eaveY = f.roof != 0 ? Mathf.Max(wallY0, top - f.roofH) : top;
-                bool retail = f.style == 4 && !floating;
+                bool retail = f.style == 4 && !floating && !skylineBuild;
                 // A shopfront goes on the wall that faces the nearest street.
                 int frontWall = -1;
                 if (retail && f.h > ShopFloorH + 1.5f &&
@@ -9870,6 +9882,16 @@ namespace PSXRacing.City
                         float dt = Vector2.Dot(n, toRoad);
                         if (dt > bestDot) { bestDot = dt; frontWall = i; }
                     }
+                }
+                // Uptown B3: a tower with no parts of its own stands as a
+                // podium, a shaft set back from it and a roof treatment
+                if (wallSlot == Slot.FacadeGlass && !retail && !floating && f.roof == 0 && !f.part &&
+                    !f.noSwap && f.landmark == 0 && f.h >= MassingMinH &&
+                    EmitMassing(tm, f, fitPoly, y0, floorP, top))
+                {
+                    EndFacade();
+                    tm.footprintCount++;
+                    return;
                 }
                 int n0 = fitPoly.Count;
                 for (int i = 0; i < n0; i++)
@@ -9895,7 +9917,9 @@ namespace PSXRacing.City
                 // footprint's box, and would overhang the cut.)
                 // (B2: not on a part, a shaped roof, or an outline its parts
                 // rise from - their own tiers are the silhouette)
-                if (f.h > 120f && cut == 0 && !f.part && f.roof == 0 && (f.landmark != 0 || !f.noSwap))
+                // (B3: only a landmark with nothing better yet - every other
+                // tower of 60 m and more has its own massing above)
+                if (f.h > 120f && cut == 0 && !f.part && f.roof == 0 && f.landmark != 0)
                 { FacadeMetal(true); EmitCrown(map, tm, f, top, wallSlot); }
                 EndFacade();
                 if (f.style == 3) tm.houseSeats.Add(new HouseSeat { kind = 2, c = f.centre, u = f.u, hu = f.hu, hv = f.hv, y0 = y0, floor = floorP });

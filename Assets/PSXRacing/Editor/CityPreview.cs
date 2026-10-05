@@ -794,6 +794,10 @@ namespace PSXRacing.EditorTools
                         if (globals != null) globals.Apply();
                         cam.fieldOfView = v.fov;
                         cam.farClipPlane = Mathf.Max(cam.farClipPlane, (fogM > 0f ? fogM : 3000f) + 500f);
+                        // B4: the far skyline for this eye (what the built
+                        // tiles draw is left to them)
+                        cam.transform.SetPositionAndRotation(eye, Quaternion.LookRotation(aim - eye));
+                        world.RefreshSkyline(cam);
                         PSXScreenshotTool.ShotAs(cam, $"uptownref_{v.name}_{TimeOfDay.All[hour].name.ToLowerInvariant()}",
                                                  eye, Quaternion.LookRotation(aim - eye));
                         shots++;
@@ -813,6 +817,94 @@ namespace PSXRacing.EditorTools
             Directory.CreateDirectory(dir);
             File.WriteAllText(Path.Combine(dir, "uptown_ref_spots.txt"), log.ToString());
             Debug.Log($"[UptownRef] {shots} shots (fog edge {(fogM > 0f ? fogM.ToString("0") + " m" : "the game's")}) to Screenshots\\uptownref_*.png");
+        }
+
+        /// <summary>
+        /// THE SKYLINE IN PLAY (Uptown B4): two eyes on I-77 about
+        /// <c>PSX_SKYLINE_KM</c> (default 4) km south and north of uptown, at
+        /// a chase camera's height over the carriageway, looking at the core
+        /// - through the game's OWN draw distance and edge fade (no fog
+        /// override, the scene's far plane) and the game's two-tile ring
+        /// round the eye, at noon, dusk and night. PSX_SKYLINE=0 leaves the
+        /// skyline off (the before). PNGs: Screenshots\skyline_&lt;view&gt;_&lt;hour&gt;[_off].png.
+        /// Headless: -executeMethod PSXRacing.EditorTools.CityPreview.RunSkylinePlay
+        /// </summary>
+        public static void RunSkylinePlay()
+        {
+            var def = System.Array.Find(TrackCatalog.All, d => d.id == "Charlotte");
+            if (def == null || !PSXScreenshotTool.Open(def, out var cam, out var player)) { Debug.LogError("[SkylinePlay] Charlotte.unity did not open"); return; }
+            var map = CityMap.Get();
+            if (map == null) { Debug.LogError("[SkylinePlay] no city data"); return; }
+            PSXRacingBuilder.EnsureCityTextures();
+            foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None)) c.enabled = false;
+            if (player != null) player.SetActive(false);
+            bool on = System.Environment.GetEnvironmentVariable("PSX_SKYLINE") != "0";
+            // PSX_SKYLINE_KM=3,4,5 (default 4), PSX_SKYLINE_HOURS=noon,dusk,night (the default)
+            var kms = new List<float>();
+            foreach (var t in (System.Environment.GetEnvironmentVariable("PSX_SKYLINE_KM") ?? "4").Split(','))
+                if (float.TryParse(t.Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float kme)) kms.Add(kme);
+            if (kms.Count == 0) kms.Add(4f);
+            var sun = GameObject.Find("Sun")?.GetComponent<Light>();
+            var globals = Object.FindFirstObjectByType<PSXGlobals>();
+            int oldWeather = RaceHandoff.WeatherOverride;
+            RaceHandoff.WeatherOverride = 0;
+            var hours = new List<int>();
+            foreach (var hn in (System.Environment.GetEnvironmentVariable("PSX_SKYLINE_HOURS") ?? "noon,dusk,night").Split(','))
+            {
+                int hi = System.Array.FindIndex(TimeOfDay.All, t => t.name.Equals(hn.Trim(), System.StringComparison.OrdinalIgnoreCase));
+                if (hi >= 0) hours.Add(hi);
+            }
+            var go = new GameObject("~skylinePlayWorld");
+            var world = go.AddComponent<CityWorld>();
+            var log = new System.Text.StringBuilder();
+            try
+            {
+                foreach (float km in kms)
+                foreach (int side in new[] { -1, 1 })
+                {
+                    string name = (side < 0 ? "i77_south_" : "i77_north_") + km.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "km";
+                    // the I-77 carriageway point nearest km from uptown on this side
+                    float best = float.MaxValue; int bei = -1; float bs = 0f;
+                    for (int ei = 0; ei < map.edges.Length; ei++)
+                    {
+                        var e = map.edges[ei];
+                        if (e.link || e.name != "I-77") continue;
+                        for (float s = 0f; s <= e.length; s += 20f)
+                        {
+                            var p = e.PointAt(s);
+                            if (Mathf.Sign(p.y - map.uptown.y) != side) continue;
+                            float d = Mathf.Abs(Vector2.Distance(p, map.uptown) - km * 1000f);
+                            if (d < best) { best = d; bei = ei; bs = s; }
+                        }
+                    }
+                    if (bei < 0) { Debug.LogError($"[SkylinePlay] no I-77 {name}"); continue; }
+                    var be = map.edges[bei];
+                    var at = be.PointAt(bs);
+                    var eye = new Vector3(at.x, be.YAt(bs) + 2.2f, at.y);
+                    var core = new Vector3(map.uptown.x, eye.y + 40f, map.uptown.y);
+                    var rot = Quaternion.LookRotation(core - eye);
+                    world.EnsureRing(eye, world.ring);
+                    foreach (int hour in hours)
+                    {
+                        TimeOfDay.Apply(hour, sun);
+                        NightGlow.PreviewAll(hour >= TimeOfDay.Dusk);
+                        if (globals != null) globals.Apply();
+                        cam.transform.SetPositionAndRotation(eye, rot);
+                        if (on) world.RefreshSkyline(cam);
+                        PSXScreenshotTool.ShotAs(cam, $"skyline_{name}_{TimeOfDay.All[hour].name.ToLowerInvariant()}{(on ? "" : "_off")}", eye, rot);
+                    }
+                    var sk = world.Skyline;
+                    log.Append($"{name}: eye ({eye.x:0},{eye.y:0.0},{eye.z:0}) {Vector2.Distance(at, map.uptown):0} m from uptown, far {cam.farClipPlane:0} m, fog {(globals != null ? globals.fogNear : 0f):0}-{(globals != null ? globals.fogFar : 0f):0} m, fov {cam.fieldOfView:0}, tiles {world.LiveTiles}, skyline {(on ? "on" : "off")} {(sk != null ? sk.Shown + "/" + sk.ElementCount + " buildings, " + sk.Triangles + " tris" : "none")}\n");
+                    world.DropAll();
+                }
+            }
+            finally
+            {
+                RaceHandoff.WeatherOverride = oldWeather;
+                if (world != null) world.DropAll();
+                Object.DestroyImmediate(go);
+            }
+            Debug.Log("[SkylinePlay] " + log.ToString().Replace("\n", " | "));
         }
 
         static List<GameObject> BuildRing(CityMap map, CityMeshes.Trims trims,

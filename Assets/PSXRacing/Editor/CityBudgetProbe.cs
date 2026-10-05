@@ -279,6 +279,7 @@ namespace PSXRacing.EditorTools
                     {
                         var d = Quaternion.Euler(0f, 90f * h, 0f) * new Vector3(fwd.x, 0f, fwd.y);
                         cam.transform.SetPositionAndRotation(eye, Quaternion.LookRotation(d, Vector3.up));
+                        world.RefreshSkyline(cam);   // Uptown B4: the far skyline, for this eye
                         var planes = GeometryUtility.CalculateFrustumPlanes(cam);
                         foreach (var r in rends)
                         {

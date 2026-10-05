@@ -146,6 +146,10 @@ Shader "PSX/Lit"
         // nothing below is read.
         _Shore ("Shore swash", Float) = 0
         _ShoreY ("Sea level", Float) = 0
+        // THE FAR SKYLINE (Uptown B4, CitySkyline): 0 on every material but
+        // the skyline's two copies, where it is the haze's e-folding distance
+        // in metres - see the switch in vert.
+        [HideInInspector] _Skyline ("Skyline haze (m)", Float) = 0
         // THE PROP ATLAS (Charlotte WP-07, PSX_ATLAS_RECT): one texture for a
         // whole city house, whose pack materials TILE (UVs well past 0..1).
         // Each vertex carries the texel rect of its own texture's cell in the
@@ -218,6 +222,22 @@ Shader "PSX/Lit"
             float _Shore;
             float _ShoreY;
             float _AtlasPx;
+            float _Skyline;
+            // THE FAR SKYLINE (Uptown B4, 2026-10-04; CitySkyline.cs). The
+            // camera's far plane stops at 500 m and the world fades just
+            // before it; the skyline's towers stand kilometres out. Past the
+            // fade start A each vertex is moved in ALONG ITS OWN LINE OF
+            // SIGHT to A + (B - A)(1 - e^-(d - A)/(B - A)), B just inside the
+            // far plane: the same pixel, the depth squeezed but still in
+            // order (and never deeper than the real point, so a tile's own
+            // copy of a fading tower stays behind it). Its haze is by the
+            // REAL distance, 1 - e^-(d / _Skyline), toward the horizon colour
+            // the world's edge fades to - not the edge fade itself.
+            #define SKYLINE_FAR        0.997  // the far plane's share the fade runs to (CitySkyline.FarShare)
+            #define SKYLINE_BAND       0.70   // B: this far into the world's edge fade, where the fade
+                                              //   is about half (CitySkyline.BandShare). The world's last
+                                              //   metres are mostly sky colour; a far tower drawn behind
+                                              //   them was cut to a sliver by faded treetops
 
             float4 _PSXLightDir;    // xyz = direction TO light (world)
             fixed4 _PSXLightColor;
@@ -537,7 +557,20 @@ Shader "PSX/Lit"
                     wireFade = saturate((wd - WIRE_FADE_NEAR) / WIRE_FADE_SPAN);
                 }
             #endif
-                float4 clipPos = UnityObjectToClipPos(v.vertex);
+                float4 clipPos;
+                if (_Skyline > 0.0)
+                {
+                    float3 sw = mul(unity_ObjectToWorld, v.vertex).xyz;
+                    float3 rel = sw - _WorldSpaceCameraPos;
+                    float sd = length(rel);
+                    float sF = _ProjectionParams.z * SKYLINE_FAR;
+                    float sA = min(_PSXFogNear, sF - 30.0);
+                    sA = sA < 50.0 ? min(50.0, sF * 0.5) : sA;
+                    float span = max((sF - sA) * SKYLINE_BAND, 1.0);
+                    float sdc = sd <= sA ? sd : sA + span * (1.0 - exp(-(sd - sA) / span));
+                    clipPos = mul(UNITY_MATRIX_VP, float4(_WorldSpaceCameraPos + rel * (sdc / max(sd, 1e-3)), 1.0));
+                }
+                else clipPos = UnityObjectToClipPos(v.vertex);
 
                 // Vertex snapping: quantize NDC xy to the render target grid.
                 if (_PSXSnap > 0.5 && clipPos.w > 0.0)
@@ -587,6 +620,7 @@ Shader "PSX/Lit"
                 float dist = length(mul(UNITY_MATRIX_MV, v.vertex).xyz);
                 float fogT = saturate((dist - _PSXFogNear) / max(_PSXFogFar - _PSXFogNear, 1.0));
                 o.fog = pow(fogT, max(_PSXFogCurve, 1.0));
+                if (_Skyline > 0.0) o.fog = 1.0 - exp(-dist / _Skyline);
             #ifdef PSX_FURNITURE
                 o.fog = max(o.fog, wireFade);
             #endif
