@@ -88,6 +88,7 @@ namespace PSXRacing.EditorTools
             var map = CityMap.Get();
             if (map == null) { Debug.LogError("[CityBudget] no city data"); return; }
             Run(map);
+            Debug.Log(CityMeshes.HeroTriReport());   // Uptown C: each landmark hero's triangles as its tiles drew it
         }
 
         /// <summary>Measure, write city_budget.txt, and return the summary

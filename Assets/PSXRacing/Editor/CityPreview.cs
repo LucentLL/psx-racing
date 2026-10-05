@@ -699,6 +699,12 @@ namespace PSXRacing.EditorTools
             public double eyeLat, eyeLon, aimLat, aimLon;
             public float eyeAgl, aimAgl, fov;
             public bool nearInterchange; public Vector2 offset;
+            /// <summary>Uptown C: a close view of a landmark (its PBLD
+            /// landmark byte): the eye stands <see cref="dist"/> metres from
+            /// the landmark's outline centre along the compass
+            /// <see cref="bearing"/>, the aim is that centre; the lat/lon
+            /// fields are unused.</summary>
+            public int landmark; public float dist, bearing;
         }
 
         /// <summary>
@@ -739,6 +745,17 @@ namespace PSXRacing.EditorTools
             new SkyView { name = "sw_stadium",
                 eyeLat = 35.22032, eyeLon = -80.85904, eyeAgl = 100f, aimLat = 35.22574, aimLon = -80.84805, aimAgl = 110f, fov = 45f,
                 what = "ref 5: south-west of the stadium looking north-east over it: the brick headquarters, the open frame, the pyramid top, I-277 on the right" },
+            // Uptown C: one closer view of each landmark hero, at its crown
+            new SkyView { name = "close_spired_crown", landmark = 1, dist = 300f, bearing = 200f, eyeAgl = 235f, aimAgl = 228f, fov = 30f,
+                what = "uptown C: the spired crown tower's crown from the south-south-west" },
+            new SkyView { name = "close_open_frame", landmark = 2, dist = 300f, bearing = 160f, eyeAgl = 215f, aimAgl = 205f, fov = 32f,
+                what = "uptown C: the open-frame tower's top from the south-south-east" },
+            new SkyView { name = "close_silver_crown", landmark = 3, dist = 280f, bearing = 120f, eyeAgl = 195f, aimAgl = 182f, fov = 30f,
+                what = "uptown C: the silver crown tower's crown from the east-south-east" },
+            new SkyView { name = "close_pyramid_top", landmark = 5, dist = 260f, bearing = 235f, eyeAgl = 140f, aimAgl = 110f, fov = 32f,
+                what = "uptown C: the pyramid-top tower's top from the south-west" },
+            new SkyView { name = "close_stadium", landmark = 14, dist = 380f, bearing = 200f, eyeAgl = 160f, aimAgl = 8f, fov = 45f,
+                what = "uptown C: the stadium from the south-south-west, above its rim" },
         };
 
         public static void RunUptownRef()
@@ -786,6 +803,13 @@ namespace PSXRacing.EditorTools
                 {
                     if (only != null && !only.Contains(v.name)) continue;
                     Vector2 e2 = CityRefSpots.LL(v.eyeLat, v.eyeLon), a2 = CityRefSpots.LL(v.aimLat, v.aimLon);
+                    if (v.landmark != 0)
+                    {
+                        var lf = System.Array.Find(map.footprints, f => f.landmark == v.landmark && !f.part);
+                        if (lf == null) { Debug.LogWarning($"[UptownRef] {v.name}: no landmark {v.landmark}"); continue; }
+                        a2 = lf.centre;
+                        e2 = a2 + new Vector2(Mathf.Sin(v.bearing * Mathf.Deg2Rad), Mathf.Cos(v.bearing * Mathf.Deg2Rad)) * v.dist;
+                    }
                     if (v.nearInterchange)
                     {
                         float best = float.MaxValue; Vector2 at = e2;

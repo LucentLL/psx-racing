@@ -7061,6 +7061,69 @@ to a lattice that lay deeper than the verge beside it.
   `PSX_EYE_HOURS`. The views are `tradedirt_graham_wb`, `tradedirt_nose_nw`
   and the new `groundedges_i277_eye` (the I-277 verge end by S College St
   from the driver's eye).
+## Uptown landmark heroes (Uptown C, 2026-10-05): five shapes of their own
+
+- **What** (`CityMeshes.Landmarks.cs`). Five landmarks are drawn as their own
+  shapes, procedural low-poly, by eye from reference photographs - shapes
+  only: no logo, name, sign, slogan, team mark or screen content anywhere
+  (owner rule 2026-10-04), neutral names in code and data. The table
+  (`Heroes`) is keyed by the OSM element the exporter's landmark table
+  (`tools/city/lib/parts.mjs`) keys the same building by; PBLD v3's landmark
+  byte is that table's index + 1. `on` false leaves one to B2/B3 (switched
+  off, still listed); `PSX_HEROES=0` (or a list of landmark bytes) is the
+  editor's A/B switch.
+  - **C1 spired crown tower** (landmark 1): OSM's stepped tiers stay; a ring
+    of upright metal spikes on the edge of every tier above 140 m (taller up
+    the crown) and a needle on the top tier to 265 m, the building's real
+    height (OSM's needle part ran to 300 m with a 7 m core column under it:
+    both left out).
+  - **C2 open-frame tower** (2): the shaft and its two sloped glass parts
+    stay; OSM's slabs standing in for the crown (180-240 m) are replaced by
+    an open steel frame over their box: corner and mid-face columns, ring
+    beams in three bays, an X of bracing across every face of every bay.
+  - **C3 silver crown tower** (3; its 61 parts carry no heights - a hand
+    table): a seven-storey stone podium over the lot, a granite-grey stone
+    shaft set in 1.5 m, two 2.5 m setbacks at 76% and 84% of the height, and
+    a silver lantern that flares back out over the last setback, ringed by
+    upright fins that stand 3-12 m proud of the roof, stepping up to the
+    middle of each face.
+  - **C4 pyramid-top tower** (5): a warm stone shaft to 30 m under the top,
+    a metal cornice, a steep copper-green pyramid and a slim four-legged
+    lattice spire, tied twice, to the outline's height. Landmarks never
+    take a pack tower.
+  - **C5 the stadium** (14): OSM's 38 parts drew solid tiers to 43 m. The
+    bowl part's outline is now the OUTER WALL (precast, one panel a wall);
+    inside it the stands step from the rim to an open turf field along the
+    bowl's long axis - a concrete rim, a steep blue upper deck, a dark fascia
+    band, a step, a blue lower deck and the field wall - as spokes from the
+    wall's own corners to a rounded field edge, the field on the highest
+    ground under it. The two board parts are BLANK dark boards on the rim.
+    The corner towers and the outer ring's parts stay OSM's.
+- **No new material or draw.** Every hero surface is the facade atlas
+  (`Slot.FacadeGlass`; metal by the vertex alpha's metal bit, B1b) or the
+  flat roofs. Solid members sample ONE atlas texel (column 0's white frame
+  for metal, column 3's plain precast for matte; both 0 in the night mask, so
+  never a lit window), tinted per hero. The far skyline draws the same
+  `EmitFootprint`, so the crowns stand on the horizon too, simplified (fewer
+  fins, no bracing): 3,102 -> 3,602 triangles, still 2 draws.
+- **Drawn, not collided.** A hero's crown (everything above 30 m) and the
+  stadium's stands, field and boards go to `Bucket.tn` while
+  `Bucket.NoCollide` is set: `MeshFrom` draws them after the collided
+  triangles, and `ColliderFrom` builds the tile's buildings collider from the
+  rest (`TileMeshes.buildingCollider`, cooked by `CityWorld` instead of the
+  drawn mesh; null - the drawn mesh collides, as before - on every tile
+  without a hero). The stadium collides on its outer wall only.
+- **Checks**: triangles per building as the tiles draw it (CityBudgetProbe
+  prints `[Landmarks]`): spired crown 1,926 (base + crown 658), open frame
+  1,675 (shaft + frame 1,193), silver crown 1,776, pyramid top 556, the
+  stadium 3,119 with OSM's outer-ring parts (the bowl 560). Budget probe,
+  heroes off -> on: the uptown sites' views +0 draws; 7 headings at three
+  sites well outside uptown +2 (the far skyline's two draws now in view
+  there); worst view 191 -> 191; tile build p95
+  138.2 -> 130.5-134.5 ms, mesh build p95 128.0 -> 125.7-128.6. Drive audit
+  (uptown): nothing solid in a lane 0; the same three FAILs as B2-B4 (rail
+  ends 12, invisible colliders 5 + 28). Preview: `CityPreview.RunUptownRef`
+  has a close view of each hero (`close_*`).
 
 ## Not in v1 (in order of likely next)
 

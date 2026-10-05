@@ -869,8 +869,11 @@ namespace PSXRacing.City
                 // street — an invisible wall across a lane, on the Solid layer.
                 var g = Child(root, "Buildings", SolidLayer);
                 Render(g, tm.buildings, tm.buildingSlots, matFor);
-                CookCollider(g, tm.buildings);
+                // (Uptown C: a landmark's crown and a stadium's stands are
+                // drawn but left out of the collider)
+                CookCollider(g, tm.buildingCollider != null ? tm.buildingCollider : tm.buildings);
                 meshes.Add(tm.buildings);
+                if (tm.buildingCollider != null) meshes.Add(tm.buildingCollider);
             }
             foreach (var box in tm.solids)
             {

@@ -558,6 +558,10 @@ namespace PSXRacing.City
             /// street wherever the footprint was not a rectangle, and an
             /// invisible wall across a lane is exactly what that felt like.</summary>
             public Mesh buildings;  public Slot[] buildingSlots;
+            /// <summary>Uptown C: the buildings' collider where it is not the
+            /// drawn mesh (a landmark hero's crown or stands are drawn, not
+            /// collided); null everywhere else - the drawn mesh collides.</summary>
+            public Mesh buildingCollider;
             /// <summary>Piers. Buildings collide as their own mesh.</summary>
             public List<SolidBox> solids = new List<SolidBox>();
             /// <summary>The street lamps this tile OWNS (<see cref="PlaceLamps"/>),
@@ -685,8 +689,15 @@ namespace PSXRacing.City
             public static Color32 Tint = new Color32(128, 128, 128, 0);
             /// <summary>CloseOpenGround: the counts when the pass began (it never welds its own faces).</summary>
             public int passV, passT;
-            public void Clear() { v.Clear(); uv.Clear(); t.Clear(); col?.Clear(); }
+            /// <summary>Uptown C: triangles DRAWN but not COLLIDED (a
+            /// landmark's crown, a stadium's stands), added by Quad and Tri
+            /// while <see cref="NoCollide"/> is set. MeshFrom draws them after
+            /// <see cref="t"/>; the tile's collider is built from t alone.</summary>
+            public List<int> tn;
+            public static bool NoCollide;
+            public void Clear() { v.Clear(); uv.Clear(); t.Clear(); col?.Clear(); tn?.Clear(); }
             public int Count => v.Count;
+            List<int> Tris => NoCollide ? (tn ??= new List<int>(256)) : t;
 
             /// <summary>Raw quad: emits (a,c,b)+(a,d,c). Shows the side from
             /// which a→b→c→d reads anticlockwise. Prefer <see cref="Up"/>,
@@ -699,8 +710,9 @@ namespace PSXRacing.City
                 v.Add(a); v.Add(b); v.Add(c); v.Add(d);
                 uv.Add(ua); uv.Add(ub); uv.Add(uc); uv.Add(ud);
                 if (col != null) { col.Add(Tint); col.Add(Tint); col.Add(Tint); col.Add(Tint); }
-                t.Add(i); t.Add(i + 2); t.Add(i + 1);
-                t.Add(i); t.Add(i + 3); t.Add(i + 2);
+                var tl = Tris;
+                tl.Add(i); tl.Add(i + 2); tl.Add(i + 1);
+                tl.Add(i); tl.Add(i + 3); tl.Add(i + 2);
             }
 
             public void Tri(Vector3 a, Vector3 b, Vector3 c, Vector2 ua, Vector2 ub, Vector2 uc)
@@ -709,7 +721,8 @@ namespace PSXRacing.City
                 v.Add(a); v.Add(b); v.Add(c);
                 uv.Add(ua); uv.Add(ub); uv.Add(uc);
                 if (col != null) { col.Add(Tint); col.Add(Tint); col.Add(Tint); }
-                t.Add(i); t.Add(i + 2); t.Add(i + 1);
+                var tl = Tris;
+                tl.Add(i); tl.Add(i + 2); tl.Add(i + 1);
             }
 
             /// <summary>A horizontal-ish quad that faces UP whatever order
@@ -783,9 +796,10 @@ namespace PSXRacing.City
             /// own facing check.</summary>
             public Vector3 LastNormal()
             {
-                int n = t.Count;
+                var tl = Tris;
+                int n = tl.Count;
                 if (n < 3) return Vector3.zero;
-                Vector3 a = v[t[n - 3]], b = v[t[n - 2]], c = v[t[n - 1]];
+                Vector3 a = v[tl[n - 3]], b = v[tl[n - 2]], c = v[tl[n - 1]];
                 return Vector3.Cross(b - a, c - a);
             }
         }
@@ -1623,6 +1637,7 @@ namespace PSXRacing.City
             stepItem = 3;
             tm.buildings = MeshFrom("bld", BuildingSlots, out var bSlots, false);
             tm.buildingSlots = bSlots;
+            tm.buildingCollider = ColliderFrom(bSlots);   // Uptown C: only where a landmark left triangles out
             yield return 0;
             stepItem = 4;
             FinishMesh(tm.buildings);
@@ -1720,8 +1735,10 @@ namespace PSXRacing.City
             {
                 var bk = buckets[(int)used[i]];
                 if (RecordTap) tapSlotBase[i] = baseV;
-                var tris = new int[bk.t.Count];
-                for (int j = 0; j < tris.Length; j++) tris[j] = bk.t[j] + baseV;
+                int nc = bk.t.Count, nn = bk.tn != null ? bk.tn.Count : 0;
+                var tris = new int[nc + nn];
+                for (int j = 0; j < nc; j++) tris[j] = bk.t[j] + baseV;
+                for (int j = 0; j < nn; j++) tris[nc + j] = bk.tn[j] + baseV;   // Uptown C: drawn, not collided
                 mesh.SetTriangles(tris, i, false);
                 baseV += bk.Count;
             }
@@ -9829,7 +9846,7 @@ namespace PSXRacing.City
             EmitPanels(tm, style, a, c, y0, y1, outward, u, v);
         }
 
-        static int PanelCount(float meters) => skylineBuild ? 1 :
+        static int PanelCount(float meters) => skylineBuild || heroOnePanel ? 1 :
             Mathf.Clamp(Mathf.CeilToInt(meters / FacadePanelMax), 1, meters > TallWallM ? TallPanelCap : FacadePanelCap);
 
         /// <summary>
@@ -9878,7 +9895,14 @@ namespace PSXRacing.City
             {
                 yield return 0;   // WP-09: a footprint a step
                 stepPhase = 7; stepItem = fi; stepPart = 0;
-                EmitFootprint(map, trims, tm, fi);
+                var lf = map.footprints[fi];
+                if (lf.landmark != 0 && HeroOf(map, lf) >= 0)
+                {
+                    int before = BuildingTris();
+                    EmitFootprint(map, trims, tm, fi);
+                    heroTrisOf[fi] = BuildingTris() - before;   // Uptown C: the heroes' triangle report
+                }
+                else EmitFootprint(map, trims, tm, fi);
             }
         }
 
@@ -9891,6 +9915,9 @@ namespace PSXRacing.City
             {
                 var f = map.footprints[fi];
                 if (f.propKind != 0) return;   // a model stands here; CityWorld places it
+                // Uptown C: a landmark hero draws some of its parts itself
+                int hero = f.landmark != 0 ? HeroOf(map, f) : -1;
+                if (hero >= 0 && heroSkip.Contains(fi)) return;
                 if (f.hidden) return;          // Uptown B2: its building:parts draw it
                 // B2: a part stands on its outline's ground and wears its
                 // outline's look, so the tiers of one tower meet and match
@@ -9984,6 +10011,14 @@ namespace PSXRacing.City
                     tm.footprintCount++;
                     return;
                 }
+                // Uptown C: a landmark hero drawn whole (its shaft, crown or bowl)
+                bool heroAnchor = hero >= 0 && heroAnchorOf[hero] == fi;
+                if (heroAnchor && EmitHeroBody(tm, hero, f, fitPoly, y0, floorP))
+                {
+                    EndFacade();
+                    tm.footprintCount++;
+                    return;
+                }
                 int n0 = fitPoly.Count;
                 for (int i = 0; i < n0; i++)
                 {
@@ -10010,7 +10045,9 @@ namespace PSXRacing.City
                 // rise from - their own tiers are the silhouette)
                 // (B3: only a landmark with nothing better yet - every other
                 // tower of 60 m and more has its own massing above)
-                if (f.h > 120f && cut == 0 && !f.part && f.roof == 0 && f.landmark != 0)
+                // (C: a landmark hero's own crown on the part it stands on)
+                if (heroAnchor) EmitHeroCrown(map, tm, hero, f, floorP);
+                else if (f.h > 120f && cut == 0 && !f.part && f.roof == 0 && f.landmark != 0)
                 { FacadeMetal(true); EmitCrown(map, tm, f, top, wallSlot); }
                 EndFacade();
                 if (f.style == 3) tm.houseSeats.Add(new HouseSeat { kind = 2, c = f.centre, u = f.u, hu = f.hu, hv = f.hv, y0 = y0, floor = floorP });
