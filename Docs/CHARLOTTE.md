@@ -7161,11 +7161,44 @@ within a few feet."
   3+2 ones: blips 2,060 -> 0, 1,626 fixed). Its re-export failed the drive
   audit: West 5th Street e8318's line offset flipped (-3462,6052) and land
   stands 0.82 m over its lane; a widened North Tryon piece left a 0.56 m
-  ledge. The rule stays in the code, OFF: PSX_LC_BLIPS=1 switches it on; the
-  shipped data is the rule-off export (byte-identical to the last).
+  ledge. The rule stayed in the code, OFF (a gated version, still OFF: the next section).
 - Tools: `CityPreview.RunRoadBattery` (PSX_ROAD_STEPS poles,mouth,spots),
   `RunRoadSpots` (PSX_ROAD_SPOTS driver-eye frames, PSX_ROAD_TAG),
   `RunMouthCensus` (PSX_MOUTH_BOX, several boxes with ';'; PSX_PROBE_NODES).
+
+## Lane blips gated, street crossings (2026-10-05, roads-b; both OFF until the gates run)
+
+- WHY THE FULL BLIP RULE FAILED. Not a stale height or corridor: Ground,
+  the verges and the fans all read the line model. A fixed piece changed
+  more than its own lanes. (1) TAPR's ribbon offsets run down a chain from
+  its head, so taking out a piece whose two eases did not cancel moved every
+  run after it - 1,232 pieces (167 km) of unchanged width moved sideways,
+  among them West 5th Street's one-way e8317-e8320, 3.66 m across its line
+  into its cluster's patch (the 0.85 m step and the land over its lane).
+  (2) A NARROWER piece taken up to its neighbours' count widened the
+  pavement: North Tryon's 3 lanes between 4s became 4, and its 2-lane drop
+  one 148 m taper beside a lower road (the 0.56 m ledge).
+- THE GATE (`lineclean.mjs`, PSX_LC_BLIPS=1; unset is off): a dry TAPR pass with the
+  blips in place; only a WIDER blip that the ribbon leaves at the offset it
+  entered is taken out; then the real pass, and a chain where a piece that
+  is not a blip still moved (a run turned into a bay and locked its sides
+  the other way) gets its blips back. Blips with no room 2,060 -> 396; 1,239
+  taken out (73 km); kept: narrower 171, ribbon shift 109, chain restored 116
+  (16 chains). City-wide 1,462 pieces narrowed, none widened, 1 piece of
+  unchanged width moved (Selwyn Avenue, was 1,232). =all is the full
+  rule. Its export: graph 1dc91316 -> 700a8c2b; linecheck most counts fall a
+  quarter (transitions gone), B3 CURVE +7 runs, C1 GAP +1 run. NOT SHIPPED:
+  the data stays the rule-off export; the city/drive audits never ran on it.
+- STREET CROSSINGS (`CityMeshes.StreetCrossOn`, PSX_CITY_STREETCROSS=1 on,
+  off by default until the audits run). The crossing rule (leftover item 3) took only links; South Kings
+  Drive and East Morehead Street, two divided roads crossing at about 30
+  degrees, met at four mitred nodes where each Kings half hugged a Morehead
+  carriageway and was drawn over by it. Streets crossing at a skew are now a
+  crossing too: nodes 7045/7046/7053 are one junction cluster. Mouth census
+  over the 24 candidate boxes 502 -> 195 m2 (Kings/Morehead 283 -> 38, all
+  of it the Morehead split at node 11891; Pleasant Road x Gold Hill 46 -> 2).
+  Left: the ramp-on-ramp triangle at node 3844 (95 m2, two branches clipped
+  onto one host overlap each other) and West Trade node 10935 (5 m2).
 
 ## Not in v1 (in order of likely next)
 

@@ -967,6 +967,15 @@ namespace PSXRacing.City
         /// <summary>Leftover item 3: PSX_CITY_CROSSINGS=0 draws a road crossing
         /// another at a skew as before (a merge and a diverge, clipped).</summary>
         public static bool CrossingsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_CROSSINGS") != "0";
+        /// <summary>2026-10-05 (the owner: "roads never overlap or clip"): a
+        /// STREET crossing another at a skew is a crossing too, not two
+        /// branches clipped beside the through road. South Kings Drive and East
+        /// Morehead Street, two divided roads crossing at about 30 degrees, met
+        /// at four mitred nodes where each Kings half hugged a Morehead
+        /// carriageway and was drawn over by it (283 m2 of the mouth census).
+        /// OFF until the city audit and drive audit have run with it:
+        /// PSX_CITY_STREETCROSS=1 switches it on.</summary>
+        public static bool StreetCrossOn = System.Environment.GetEnvironmentVariable("PSX_CITY_STREETCROSS") == "1";
         /// <summary>The two halves of a crossing road go on through each other
         /// (within 45 degrees of straight).</summary>
         const float CrossingPairCos = -0.7f;
@@ -1153,7 +1162,12 @@ namespace PSXRacing.City
                         for (int j = 0; j < arms.Count; j++)
                         {
                             if (j == tA || j == tB || j == i || clipFirst[j] != tB) continue;
-                            if (!arms[i].e.link || !arms[j].e.link) continue;   // a ramp or turning roadway crossing (see above)
+                            // a ramp or turning roadway crossing (see above), or
+                            // (2026-10-05, StreetCrossOn) a STREET crossing at a
+                            // skew: both halves streets, neither a link
+                            bool linkX = arms[i].e.link && arms[j].e.link;
+                            bool streetX = StreetCrossOn && !arms[i].e.link && !arms[j].e.link;
+                            if (!linkX && !streetX) continue;
                             if (Vector2.Dot(arms[i].dir, arms[j].dir) > CrossingPairCos) continue;
                             float si = fwd.x * arms[i].dir.y - fwd.y * arms[i].dir.x;
                             float sj = fwd.x * arms[j].dir.y - fwd.y * arms[j].dir.x;

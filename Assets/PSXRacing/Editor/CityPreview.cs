@@ -1208,6 +1208,8 @@ namespace PSXRacing.EditorTools
             if (steps.Contains("poles")) RunGuarded("poles", CityRefSpots.RunPoleCensus);
             if (steps.Contains("mouth")) RunGuarded("mouth", RunMouthCensus);
             if (steps.Contains("spots")) RunGuarded("spots", RunRoadSpots);
+            // the roadside probe (PSX_RSPROBE / PSX_LANEPROBE) in the same session
+            if (steps.Contains("rsprobe")) RunGuarded("rsprobe", CityRoadsideProbe.Run);
             Debug.Log("[RoadBattery] done: " + steps);
         }
 

@@ -281,7 +281,25 @@ export function lineClean(ctx) {
   // 3+2 ones, eased out over 19 m and back over 30). Streets only: on a
   // freeway or a ramp the merge zones (L5) own the aux lanes.
   // PSX_LC_BLIPS=1: the rule on; off (the default) is the before.
-  const BLIP_RULE = process.env.PSX_LC_BLIPS === '1';   // OFF by default (2026-10-05): its re-export failed the drive audit (see Docs/CHARLOTTE.md)
+  // 2026-10-05, roads-b: ON, NARROWED. The full rule (PSX_LC_BLIPS=all) failed
+  // the drive audit, and neither failure was a stale height: a fixed piece
+  // changes more than its own lanes. (1) A NARROWER blip taken up to its
+  // neighbours' count WIDENS the pavement (North Tryon: 3 lanes between 4s
+  // became 4, and its 2-lane drop became one 148 m taper beside a lower road,
+  // a 0.56 m ledge). (2) TAPR's ribbon offsets run down a chain from its head,
+  // so a fixed piece whose two eases did not cancel (a ONE-WAY's lane opens
+  // and closes on whichever side a junction mouth recentres to) moves every
+  // run after it: West 5th Street's one-way e8317-e8320 jumped 3.66 m across
+  // its line into its cluster's patch (a 0.85 m step at the mouth); 1,232
+  // pieces (167 km) of the same width moved so city-wide. So the rule is
+  // GATED: only a WIDER piece (the pavement only narrows) that the ribbon
+  // leaves at the offset it entered (a dry TAPR pass says), and a chain where
+  // a piece that is not a blip still moves gets its blips back (a run between
+  // two transitions can become a bay and lock its sides the other way): no
+  // lane outside a blip moves. PSX_LC_BLIPS=1 the gated rule, =all the full
+  // rule; unset is OFF (the gated rule's city audit / drive audit not yet run).
+  const BLIP_MODE = process.env.PSX_LC_BLIPS === '1' ? 'narrow' : process.env.PSX_LC_BLIPS === 'all' ? 'all' : 'off';
+  const BLIP_RULE = BLIP_MODE !== 'off';
   laneFix.blip = 0; laneFixM.blip = 0;
   const armsN = nodeEdgesOf(edges, nodes.length);
   /// Does node n draw a fan (CityMeshes.ComputeTrims' rule, replicated):
@@ -544,6 +562,21 @@ export function lineClean(ctx) {
   // THE BLIP RULE's fix (above), on the chains TAPR draws, after the
   // simplify: the geometry and the graph are the same either way, only the
   // lanes change. A fixed piece takes the layout of its longer neighbour.
+  // Run after a dry TAPR pass (below): pre[e.id] is each edge's ribbon offset
+  // with every blip still in place.
+  const blipUndo = [];
+  const blipStep = pre => {
+  // why a blip is kept under the gated rule (null: it is taken out)
+  const keepWhy = (chain, A, B, C) => {
+    if (BLIP_MODE !== 'narrow') return null;
+    // the pavement only narrows: a NARROWER piece stays (North Tryon)
+    if (profOf(B.rep).width <= profOf(A.rep).width) return 'narrower';
+    // OFFSET-NEUTRAL: the ribbon leaves the blip where it entered it, so
+    // taking it out moves no lane after it (West 5th Street)
+    const kA = A.items[A.items.length - 1], kC = C.items[0];
+    const oA = (chain[kA].fwd ? 1 : -1) * (pre[chain[kA].e.id] || 0), oC = (chain[kC].fwd ? 1 : -1) * (pre[chain[kC].e.id] || 0);
+    return Math.abs(oA - oC) > 0.05 ? 'shift' : null;
+  };
   if (BLIP_RULE)
     for (const chain of chains)
       for (let guard = 0; guard < 200; guard++) {
@@ -552,8 +585,13 @@ export function lineClean(ctx) {
         for (let i = 1; i + 1 < runs.length && !fixed; i++) {
           const A = runs[i - 1], B = runs[i], C = runs[i + 1];
           if (A.key !== C.key || B.len >= blipNeed(chain, A, B)) continue;
+          if (keepWhy(chain, A, B, C)) continue;
           const srcRun = A.len >= C.len ? A : C, src = srcRun.rep;
-          for (const k of B.items) { chain[k].e.lanes = src.lanes; chain[k].e.turn = src.turn; chain[k].e.laneFix = 'blip'; chain[k].e.lsetFrom = { e: src, flip: chain[k].fwd !== srcRun.repFwd }; }
+          for (const k of B.items) {
+            const e = chain[k].e;
+            blipUndo.push({ chain, e, lanes: e.lanes, turn: e.turn, laneFix: e.laneFix, lsetFrom: e.lsetFrom, len: B.len, first: k === B.items[0] });
+            e.lanes = src.lanes; e.turn = src.turn; e.laneFix = 'blip'; e.lsetFrom = { e: src, flip: chain[k].fwd !== srcRun.repFwd };
+          }
           laneFix.blip++; laneFixM.blip += B.len;
           fixed = true;
         }
@@ -563,7 +601,7 @@ export function lineClean(ctx) {
   // the census (the rule on or off): blips left with no room for their tapers
   {
     let left = 0, leftM = 0;
-    const where = [];
+    const where = [], kept = { narrower: 0, shift: 0 };
     for (const chain of chains) {
       const runs = runsOf(chain);
       for (let i = 1; i + 1 < runs.length; i++) {
@@ -572,11 +610,14 @@ export function lineClean(ctx) {
         const need = blipNeed(chain, A, B);
         if (B.len >= need) continue;
         left++; leftM += B.len;
-        if (where.length < 12) { const e = B.rep; where.push(`w${e.way.id} '${e.way.name || ''}' ${B.len.toFixed(0)}/${need.toFixed(0)} m at (${e.pts[0][0].toFixed(0)},${e.pts[0][1].toFixed(0)})`); }
+        const why = BLIP_RULE ? keepWhy(chain, A, B, C) : null;
+        if (why) kept[why]++;
+        if (where.length < 12) { const e = B.rep; where.push(`w${e.way.id} '${e.way.name || ''}' ${B.len.toFixed(0)}/${need.toFixed(0)} m at (${e.pts[0][0].toFixed(0)},${e.pts[0][1].toFixed(0)})${why ? ' kept: ' + why : ''}`); }
       }
     }
-    stats.blips_left = { count: left, km: +(leftM / 1000).toFixed(2), rule: BLIP_RULE, where };
+    stats.blips_left = { count: left, km: +(leftM / 1000).toFixed(2), rule: BLIP_MODE, kept, where };
   }
+  };
   const tapr = [];
   // Roads pass L4: the lanes each way come from THE split the paint uses
   // (lib/lineset.mjs makeSplitOf), and on a two-way road EACH DIRECTION
@@ -587,7 +628,7 @@ export function lineClean(ctx) {
   // still guessed it from the count: a 1+1 road meeting a 1+2 one moved the
   // WRONG edge - 3.7 m of through-lane jump across 51 junctions.
   const LANE = 3.6576;
-  const splitOf = makeSplitOf(profileFor);
+  let splitOf = makeSplitOf(profileFor);   // memoised per edge: made afresh after the blip step
   const splitEvidence = e => /fb|tag|implied|fitted/.test(splitOf(e)[3]);
   const armsAt = nodeEdgesOf(edges, nodes.length);
   /// FD1 (plan B6): where a link - or a one-way fork of 35 degrees or less -
@@ -616,6 +657,7 @@ export function lineClean(ctx) {
   const edgeOffset = new Array(edges.length).fill(null);
   const tStats = { transitions: 0, tagged: 0, bays: 0, atJunction: 0, absorbed: 0, shortened: 0, oneSided: 0, twoSided: 0, symmetric: 0, reanchored: 0, recentred: 0,
                    perDirection: 0, mergeSide: 0, mergeSideLeft: 0, shifts: 0 };
+  const taprPass = () => {
   for (const chain of chains) {
     const runs = runsOf(chain);
     if (runs.length < 2) continue;
@@ -815,6 +857,46 @@ export function lineClean(ctx) {
         tapr.push({ edge: e.id, end, node, side: sideE === 'L' ? 0 : 1, src: srcs[i], flags, dw, len, room, off: offsetAt(edgeOffset[e.id], end ? e.len : 0) });
       }
     }
+  }
+  };
+  // THE BLIP STEP between two TAPR passes: a dry pass with every blip in
+  // place gives each edge's offset (the gated rule takes out only a blip
+  // the ribbon leaves where it entered), then the real pass on the new lanes.
+  const pre = new Float64Array(edges.length);
+  if (BLIP_MODE === 'narrow') {
+    taprPass();
+    for (let i = 0; i < edges.length; i++) pre[i] = edgeOffset[i] ? edgeOffset[i].o0 : 0;
+    tapr.length = 0; edgeOffset.fill(null);
+    for (const k of Object.keys(tStats)) tStats[k] = 0;
+  }
+  blipStep(pre);
+  splitOf = makeSplitOf(profileFor);
+  taprPass();
+  // ...and a chain where taking its blips out still moved a lane of a piece
+  // that is not one of them (a run between two transitions turned into a
+  // bay, so its sides lock the other way) gets its blips back and is drawn
+  // as before
+  if (BLIP_MODE === 'narrow' && blipUndo.length) {
+    const fixedEdges = new Set(blipUndo.map(u => u.e));
+    const moved = new Set();
+    for (const chain of new Set(blipUndo.map(u => u.chain)))
+      for (const { e } of chain)
+        if (!fixedEdges.has(e) && Math.abs((edgeOffset[e.id] ? edgeOffset[e.id].o0 : 0) - pre[e.id]) > 0.05) { moved.add(chain); break; }
+    if (moved.size) {
+      for (let i = blipUndo.length - 1; i >= 0; i--) {
+        const u = blipUndo[i];
+        if (!moved.has(u.chain)) continue;
+        u.e.lanes = u.lanes; u.e.turn = u.turn; u.e.laneFix = u.laneFix; u.e.lsetFrom = u.lsetFrom;
+        if (u.first) { laneFix.blip--; laneFixM.blip -= u.len; stats.blips_left.count++; stats.blips_left.km += u.len / 1000; stats.blips_left.kept.chain = (stats.blips_left.kept.chain || 0) + 1; }
+      }
+      stats.blips_left.km = +stats.blips_left.km.toFixed(2);
+      stats.lane_fix_km.blip = +(laneFixM.blip / 1000).toFixed(2);
+      tapr.length = 0; edgeOffset.fill(null);
+      for (const k of Object.keys(tStats)) tStats[k] = 0;
+      splitOf = makeSplitOf(profileFor);
+      taprPass();
+    }
+    stats.blips_left.chains_restored = moved.size;
   }
   stats.tapr = tStats;
 
