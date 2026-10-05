@@ -41,6 +41,7 @@ namespace PSXRacing.EditorTools
                     if (seen.Add(k)) tiles.Add(k);
                 }
             }
+            CityMeshes.medianGapLog = new HashSet<string>();
             CityMeshes.AuditView.BeginRecord();
             try
             {
@@ -128,6 +129,22 @@ namespace PSXRacing.EditorTools
                  $"{pieces.Count} isolated Jersey-height pieces under {ShortBarrierM:0} m ({pieces.Count - unionShort} median Jerseys / cut walls, {metres:0} m, of {total} runs; {unionShort} union medians)");
             Line($"    short cut walls KEPT because they hold land (the graded ground over {CityMeshes.CutHoldM:0.0} m above the road behind them; 2026-10-04): {holding}, {holdingM:0} m");
             for (int k = 0; k < Mathf.Min(10, pieces.Count); k++) Line("    SHORT " + pieces[k].what);
+            {
+                // MEDIANS RUN CONTINUOUS (2026-10-05): gaps inside an edge
+                var gl = CityMeshes.medianGapLog; CityMeshes.medianGapLog = null;
+                int bridged = 0, bareLeft = 0; var open = new Dictionary<string, int>();
+                foreach (var g in gl)
+                {
+                    if (g.StartsWith("BRIDGED")) bridged++;
+                    else if (g.StartsWith("BARE")) bareLeft++;
+                    else { string w = g.Substring(5, g.IndexOf(' ', 5) - 5); open[w] = open.TryGetValue(w, out int c) ? c + 1 : 1; }
+                }
+                var ow = new List<string>(); foreach (var kv in open) ow.Add($"{kv.Key} {kv.Value}");
+                Line($"median gaps inside an edge (MEDIANS RUN CONTINUOUS, 2026-10-05): unexplained {bareLeft} (bridged {bridged}); open for a reason: {string.Join(", ", ow)}");
+                int shown = 0;
+                foreach (var g in gl) if (!g.StartsWith("OPEN") && shown++ < 6) Line("    " + g);
+                Check(bareLeft == 0, "no unexplained median gap inside an edge (median gap census)", bareLeft);
+            }
             Check(pieces.Count == 0, $"no isolated barrier or median piece shorter than {ShortBarrierM:0} m, city-wide (short barrier census)", pieces.Count);
         }
     }

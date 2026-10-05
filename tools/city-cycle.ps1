@@ -69,7 +69,10 @@ else { Write-Host "report scope: boxed to the default box (CityAudit.OwnerBox); 
 foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor", "Assets\PSXRacing\Shaders")) {
     robocopy "$src\$d" "$proj\$d" /MIR /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
 }
-foreach ($d in @("Assets\PSXRacing\Art", "Assets\PSXRacing\Resources")) {
+# PSX_CYCLE_NOART=1 skips the Art/Resources copy (a lane that changed no
+# Art and mirrors its own changed Resources files: the /XO copy put a tree's
+# .meta GUIDs over the sandbox's, 2026-10-05).
+foreach ($d in $(if ($env:PSX_CYCLE_NOART -eq "1") { @() } else { @("Assets\PSXRacing\Art", "Assets\PSXRacing\Resources") })) {
     # /XO: never copy a source file OLDER than the sandbox's. Resources holds BAKED
     # output (the pizza cargo, the city props) that the scene build rewrites in the
     # sandbox; a plain /E put the source's Aug 30 cargo prefabs back over the Sep 11

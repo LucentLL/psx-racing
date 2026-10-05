@@ -99,6 +99,11 @@ namespace PSXRacing.City
         /// <summary>Probe only (CityGroundEdges): the short median / cut wall
         /// runs the side-flag pass dropped (MinMedianRunM), when non-null.</summary>
         public static List<string> shortDropLog;
+        /// <summary>The median gaps inside an edge (MEDIANS RUN CONTINUOUS),
+        /// when non-null: BRIDGED / BARE (PSX_CITY_MEDIAN_BRIDGE=0) / OPEN and
+        /// why. A set: a tile build per tile repeats an edge.</summary>
+        public static HashSet<string> medianGapLog;
+        public static readonly bool MedianBridgeOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MEDIAN_BRIDGE") != "0";
         /// <summary>Null in a build. A probe that sets it gets every ground
         /// triangle the tiles lay off the lattice — verges, seams, half
         /// strips, shelves, fan chord verges and corner fills — in world
@@ -4769,6 +4774,45 @@ namespace PSXRacing.City
                     for (int k = i; k < j; k++) { var fk = spanFlags[k]; fk.l.cut = false; spanFlags[k] = fk; }
                 i = j;
             }
+
+            // MEDIANS RUN CONTINUOUS (exit3a-medians, 2026-10-05; the owner's
+            // "medians that taper off and start again for no apparent reason
+            // in the middle of the road"). Inside one edge there is no
+            // junction, so a stretch of bare median between two Jersey runs
+            // is no opening: nothing marks it (no junction mouth, wedge,
+            // deck, approach rail, shared barrier or union) - the flags
+            // flickered (a squeeze seen at one section, a neighbour's barrier
+            // stopping short), and each run's end was turned down to the
+            // grass. The run is carried across it. Before the short-piece
+            // rule, so a short piece between two runs joins them instead of
+            // being dropped and leaving a longer gap. PSX_CITY_MEDIAN_BRIDGE=0
+            // leaves the gaps (the census's before-count).
+            if (Barriered(e))
+                for (int i = 1; i < n;)
+                {
+                    if (!spanFlags[i].r.median) { i++; continue; }
+                    int j = i;
+                    while (j < n && spanFlags[j].r.median) j++;
+                    int k = j;
+                    bool bare = true;
+                    string why = null;
+                    while (k < n && !spanFlags[k].r.median)
+                    {
+                        var fk = spanFlags[k]; var rk = fk.r;
+                        if (bare && (fk.elev || fk.wedge || fk.skip || fk.approach || rk.gap || rk.rail || rk.cut || rk.union || rk.retain))
+                        {
+                            bare = false;
+                            why = fk.elev ? "deck" : fk.wedge ? "wedge" : fk.skip ? "skip" : fk.approach ? "approach" : rk.gap ? "opening" : rk.rail ? "rail" : rk.cut ? "cut" : rk.union ? "union" : "retain";
+                        }
+                        k++;
+                    }
+                    if (k >= n) break;                    // runs off the edge's end: a node
+                    float len = sections[k - 1].s - sections[j - 1].s;
+                    if (bare && MedianBridgeOn)
+                        for (int m = j; m < k; m++) { var fm = spanFlags[m]; var rm = fm.r; rm.median = true; fm.r = rm; spanFlags[m] = fm; }
+                    medianGapLog?.Add($"{(bare ? (MedianBridgeOn ? "BRIDGED" : "BARE") : "OPEN " + why)} e{e.index} '{e.name}' s {sections[j - 1].s:0}..{sections[k - 1].s:0} ({len:0} m)");
+                    i = k;
+                }
 
             // NO ISOLATED SHORT PIECES (hotfix 2026-10-03, the owner's "stray
             // concrete median blocks between roads where they shouldn't

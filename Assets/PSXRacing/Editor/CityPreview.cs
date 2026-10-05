@@ -1230,6 +1230,17 @@ namespace PSXRacing.EditorTools
                 foreach (var part in (System.Environment.GetEnvironmentVariable("PSX_ROAD_SPOTS") ?? "").Split(';'))
                 {
                     var f = part.Split(',');
+                    // "name,e<edge>,s": the driver's eye 25 m before arc s on
+                    // that edge, 1 m right of its centre line, looking 35 m on
+                    if (f.Length == 3 && f[1].Trim().StartsWith("e") && int.TryParse(f[1].Trim().Substring(1), out int sei) && sei >= 0 && sei < map.edges.Length
+                        && float.TryParse(f[2], System.Globalization.NumberStyles.Float, inv, out float ss))
+                    {
+                        var se = map.edges[sei];
+                        float s0 = Mathf.Clamp(ss - 25f, 0f, se.length), s1 = Mathf.Clamp(ss + 35f, 0f, se.length);
+                        var t0 = se.TangentAt(s0);
+                        var p0 = se.PointAt(s0) + new Vector2(t0.y, -t0.x) * 1f; var p1 = se.PointAt(s1);
+                        f = new[] { f[0], p0.x.ToString(inv), p0.y.ToString(inv), p1.x.ToString(inv), p1.y.ToString(inv) };
+                    }
                     if (f.Length < 5) continue;
                     var v = new float[f.Length - 1];
                     bool ok = true;

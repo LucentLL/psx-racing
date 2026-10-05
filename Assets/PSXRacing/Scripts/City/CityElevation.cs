@@ -1390,6 +1390,18 @@ namespace PSXRacing.City
             var wet = new bool[map.edges.Length];
             var spansOf = new List<Vector2>[map.edges.Length];
             foreach (var ws in map.wspans) { wet[ws.edge] = true; (spansOf[ws.edge] ??= new List<Vector2>(2)).Add(new Vector2(ws.s0, ws.s1)); }
+            // UNDERPASSES (exit 3A): each freeway-over-street crossing's
+            // freeway height before any cut, to see which ones a cut reaches
+            var preOverY = new float[NC];
+            for (int ci = 0; ci < NC; ci++)
+            {
+                preOverY[ci] = float.NaN;
+                var c = map.crossings[ci];
+                var o = map.edges[c.over]; var u = map.edges[c.under];
+                if (!c.forced || o.cls < 5 || o.link || o.tunnel || u.cls >= 5 || u.link || u.tunnel || u.bridge || wet[c.under]) continue;
+                ProjectOn(o, c.at, out float so);
+                preOverY[ci] = o.YAt(so);
+            }
 
             // (edge, flat bottom from sLo to sHi, target, climb grade, carried
             // through nodes: 1 into the freeway mainline, 2 a ramp's into the
@@ -1590,6 +1602,9 @@ namespace PSXRacing.City
             // the street, and stopped at that node it climbed 6 m in 40 m.
             var queue = new Queue<(int edge, float sLo, float sHi, float target, float grade, int carry, int group)>(pending);
             int guard = 0;
+            bool underpassesQueued = false;
+            UnderpassCrossings = 0; UnderpassDeepestM = 0f;
+        drain:
             while (queue.Count > 0 && guard++ < 200000)
             {
                 var (ei, sLo, sHi, target, grade, carry, group) = queue.Dequeue();
@@ -1634,7 +1649,9 @@ namespace PSXRacing.City
                     {
                         if (oi == ei) continue;
                         var o = map.edges[oi];
-                        if (carry == 1 ? (o.cls < 5 || o.link || o.tunnel) : (!o.link || o.tunnel || o.a == o.b)) continue;
+                        if (carry == 1 ? (o.cls < 5 || o.link || o.tunnel)
+                            : carry == 3 ? (o.cls >= 5 || o.link || o.tunnel || o.bridge || o.a == o.b)
+                            : (!o.link || o.tunnel || o.a == o.b)) continue;
                         float oAt = o.a == node ? 0f : o.length;
                         float g = carry == 1 ? ApproachGrade : RampCutGrade;
                         if (!TrenchGroupsOn) { if (wet[oi]) continue; }
@@ -1661,6 +1678,97 @@ namespace PSXRacing.City
             // down along its own cone (8%, a ramp's grade) so a short one is
             // steep rather than stepped; a surface street that shares a node
             // with the cut blends over its usual length.
+            // UNDERPASSES (exit 3A, 2026-10-05): a freeway the cuts above
+            // have lowered where it crosses OVER a street is in (the climb
+            // out of) a cut there; it does not hump out of it - the street
+            // goes under it, dug like a ramp (8%) and carried through its
+            // own junctions. Humped instead, its 4.5% approach cone lifted
+            // I-277 out of the N Davidson / N Caldwell cuts, the street
+            // bridges rose 6 m to clear it, and their cones put E 12th St
+            // and the exit 3A ramp on 6-11 m of deck.
+            if (UnderpassOn && !underpassesQueued)
+            {
+                underpassesQueued = true;
+                for (int ci = 0; ci < NC; ci++)
+                {
+                    if (float.IsNaN(preOverY[ci])) continue;
+                    var c = map.crossings[ci];
+                    var over = map.edges[c.over]; var under = map.edges[c.under];
+                    ProjectOn(over, c.at, out float sO);
+                    ProjectOn(under, c.at, out float sU);
+                    float yO = over.YAt(sO);
+                    if (yO > preOverY[ci] - UnderpassReachedM) continue;   // no cut reached it
+                    float target = yO - ClearanceM - DeckThick, depth = under.YAt(sU) - target;
+                    if (depth <= 0.01f) continue;
+                    string w = CutReachesWater(map, spansOf, c.under, sU, depth, RampCutGrade, false);
+                    if (w != null) { TrenchWhy[ci] = "underpass would reach " + w + " (humped)"; continue; }
+                    TrenchWhy[ci] = $"UNDERPASS: the freeway is in a cut here, the street dug {depth:0.0} m under it";
+                    queue.Enqueue((c.under, sU, sU, target, RampCutGrade, 3, -1));
+                    UnderpassCrossings++;
+                    UnderpassDeepestM = Mathf.Max(UnderpassDeepestM, depth);
+                }
+                // the street's other crossings (a ramp beside the freeway over
+                // the same street) take the same underpass to their own need
+                var dugStreet = new HashSet<int>();
+                foreach (var q in queue) dugStreet.Add(q.edge);
+                for (int ci = 0; ci < NC; ci++)
+                {
+                    var c = map.crossings[ci];
+                    if (!c.forced || !dugStreet.Contains(c.under) || !float.IsNaN(preOverY[ci]) && TrenchWhy[ci] != null) continue;
+                    var over = map.edges[c.over]; var under = map.edges[c.under];
+                    ProjectOn(over, c.at, out float sO);
+                    ProjectOn(under, c.at, out float sU);
+                    float target = over.YAt(sO) - ClearanceM - DeckThick, depth = under.YAt(sU) - target;
+                    if (depth <= 0.01f) continue;
+                    TrenchWhy[ci] = $"UNDERPASS: beside the freeway's underpass, the street dug {depth:0.0} m under it";
+                    queue.Enqueue((c.under, sU, sU, target, RampCutGrade, 3, -1));
+                    UnderpassCrossings++;
+                }
+                if (queue.Count > 0) goto drain;
+            }
+            // THE CUTS ARE A CEILING for the approach cones (exit 3A): each dug
+            // crossing's under road, at its bottom, climbing out at the grade
+            // it was dug with (RaiseCone)
+            cutCaps = new List<(float s, float y, float grade)>[map.edges.Length];
+            for (int ci = 0; ci < NC; ci++)
+            {
+                bool under = TrenchedCrossings[ci], street = TrenchWhy[ci] != null && TrenchWhy[ci].StartsWith("UNDERPASS");
+                if (!UnderpassOn || !under && !street) continue;
+                var c = map.crossings[ci];
+                var u = map.edges[c.under];
+                ProjectOn(u, c.at, out float sU);
+                (cutCaps[c.under] ??= new List<(float, float, float)>(2)).Add((sU, u.YAt(sU), street ? RampCutGrade : ApproachGrade));
+            }
+            // ...carried through the nodes along the road it was dug in (the
+            // freeway's mainline, the street's own blocks), so a cone that
+            // reaches the cut by another edge meets the same ceiling there
+            cutCapNode = new float[map.nodes.Length];
+            for (int i = 0; i < cutCapNode.Length; i++) cutCapNode[i] = float.PositiveInfinity;
+            cutCapGrade = new float[map.edges.Length];
+            for (int ei = 0; ei < map.edges.Length; ei++)
+            {
+                if (cutCaps[ei] == null) continue;
+                var e = map.edges[ei];
+                cutCapGrade[ei] = cutCaps[ei][0].grade;
+                cutCapNode[e.a] = Mathf.Min(cutCapNode[e.a], CutCap(e, 0f));
+                cutCapNode[e.b] = Mathf.Min(cutCapNode[e.b], CutCap(e, e.length));
+            }
+            for (int round = 0; round < 64; round++)
+            {
+                bool changed = false;
+                foreach (var e in map.edges)
+                {
+                    if (e.a == e.b || e.tunnel || e.link) continue;
+                    float g = e.cls >= 5 ? ApproachGrade : RampCutGrade;
+                    float ya = cutCapNode[e.a], yb = cutCapNode[e.b];
+                    if (float.IsInfinity(ya) && float.IsInfinity(yb)) continue;
+                    if (cutCapGrade[e.index] == 0f) cutCapGrade[e.index] = g;
+                    if (ya + e.length * g < yb - 0.01f) { cutCapNode[e.b] = ya + e.length * g; changed = true; }
+                    if (yb + e.length * g < ya - 0.01f) { cutCapNode[e.a] = yb + e.length * g; changed = true; }
+                }
+                if (!changed) break;
+            }
+
             foreach (var e in map.edges)
             {
                 bool pa = !float.IsNaN(pinnedNodeY[e.a]), pb = !float.IsNaN(pinnedNodeY[e.b]);
@@ -1696,6 +1804,28 @@ namespace PSXRacing.City
         /// <summary>The dug groups (their crossings, ramps in the cut
         /// included), each lowered station's height before any cut, and what
         /// each group's cut wants there (plan B2; <see cref="RelaxTrenches"/>).</summary>
+        /// <summary>UNDERPASSES (exit 3A, 2026-10-05; OFF: PSX_CITY_UNDERPASS=1 turns
+        /// them on - 61 freeway steps over 8% when on): a street under a freeway that a cut has lowered by more
+        /// than <see cref="UnderpassReachedM"/> at the crossing is dug under it
+        /// instead of the freeway humping out of its cut.</summary>
+        public static readonly bool UnderpassOn = System.Environment.GetEnvironmentVariable("PSX_CITY_UNDERPASS") == "1";
+        public const float UnderpassReachedM = 0.25f;
+        public static int UnderpassCrossings { get; private set; }
+        public static float UnderpassDeepestM { get; private set; }
+
+        static List<(float s, float y, float grade)>[] cutCaps;
+        static float[] cutCapNode, cutCapGrade;
+        static float CutCap(CityMap.Edge e, float s)
+        {
+            if (cutCaps == null || e.index >= cutCaps.Length) return float.PositiveInfinity;
+            float cap = float.PositiveInfinity;
+            var l = cutCaps[e.index];
+            if (l != null) foreach (var (cs, cy, g) in l) cap = Mathf.Min(cap, cy + Mathf.Abs(s - cs) * g);
+            if (cutCapNode != null && cutCapGrade[e.index] > 0f)
+                cap = Mathf.Min(cap, Mathf.Min(cutCapNode[e.a] + s * cutCapGrade[e.index], cutCapNode[e.b] + (e.length - s) * cutCapGrade[e.index]));
+            return cap;
+        }
+
         static List<List<int>> trenchGroups;
         /// <summary>The cut's units: one per carriageway of a dug group, one
         /// per ramp in its cut (the group, the unit's crossings).</summary>
@@ -2907,6 +3037,7 @@ namespace PSXRacing.City
             while (head < coneQueue.Count && head < 4000)
             {
                 var (n, apex, d0, ny) = coneQueue[head++];
+                if (cutCapNode != null && ny > cutCapNode[n]) ny = cutCapNode[n];
                 if (map.nodeY[n] < ny) map.nodeY[n] = ny;
                 foreach (var ei in map.nodeEdges[n])
                 {
@@ -2961,7 +3092,13 @@ namespace PSXRacing.City
                         if (e.SeatedAt(i)) { seatedOn = true; break; }
                         float dist = fromA ? e.stS[i] : e.length - e.stS[i];
                         float want = apex - ApproachDrop(d0 + dist, r);
+                        // ...and by a cut: an embankment does not fill the cut
+                        // a street bridge was given (exit 3A: the I-277 cut
+                        // under N Davidson St filled from N Brevard St's hump)
+                        float cap = CutCap(e, e.stS[i]);
+                        if (want > cap) { want = cap; seatedOn = true; }
                         if (e.stY[i] < want - 0.02f) { e.stY[i] = want; moved = true; }
+                        if (seatedOn) break;
                     }
                     if (moved) any = true;
                     if (!moved || seatedOn) continue;
