@@ -568,6 +568,27 @@ namespace PSXRacing
             return Mathf.Clamp(b.size.z / ReferenceLengthM, 0.9f, 1.3f);
         }
 
+        // ---- PARKING DECKS (2026-10-05): under a slab the lens never passes
+        // through a ceiling, a parapet or a column. Only under cover (a ray up
+        // from the car meets the Road or Solid layer within 8 m) and only once
+        // Charlotte has drawn a deck: everywhere else the rig is exactly as it
+        // was. A sphere from the car's roof toward the lens stops short of the
+        // first surface it meets.
+        const int CoverMask = (1 << 8) | (1 << 9);   // CityWorld.RoadLayer, SolidLayer
+        const float CoverProbeM = 0.3f;
+        void CoverClamp()
+        {
+            if (!PSXRacing.City.CityDecks.AnyBuilt || target == null) return;
+            Vector3 pivot = target.position + Vector3.up * 1.1f;
+            if (!Physics.Raycast(pivot, Vector3.up, 8f, CoverMask, QueryTriggerInteraction.Ignore)) return;
+            Vector3 to = transform.position - pivot;
+            float dist = to.magnitude;
+            if (dist < 0.05f) return;
+            to /= dist;
+            if (Physics.SphereCast(pivot, CoverProbeM, to, out var hit, dist, CoverMask, QueryTriggerInteraction.Ignore))
+                transform.position = pivot + to * Mathf.Max(0.2f, hit.distance);
+        }
+
         void LateUpdate()
         {
             if (target == null) return;
@@ -810,6 +831,7 @@ namespace PSXRacing
             float bounded = Mathf.Clamp(along, -lagClampM, lagClampM);
             if (bounded != along) smoothPos += fwdG * (bounded - along);
             transform.position = smoothPos;
+            CoverClamp();
 
             // ---- WHERE THE LENS POINTS: along the same rig, at the car. (The
             // aim used to be the heading pulled at most 0.6 x 28 deg toward
@@ -1798,6 +1820,7 @@ namespace PSXRacing
             Vector3 wanted = target.position + Vector3.up * h + fwd * (h * 0.16f);
             smoothPos = Vector3.Lerp(smoothPos, wanted, 1f - Mathf.Exp(-9f * Time.deltaTime));
             transform.position = smoothPos;
+            CoverClamp();
 
             Quaternion wantedRot = Quaternion.LookRotation(Vector3.down, fwd);
             followRot = Quaternion.Slerp(followRot, wantedRot, 1f - Mathf.Exp(-8f * Time.deltaTime));

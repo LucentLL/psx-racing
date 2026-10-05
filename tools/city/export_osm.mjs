@@ -109,6 +109,7 @@ import { encodePdem3 } from './lib/pdem3.mjs';
 import { buildLots } from './lib/lots.mjs';
 import { buildRoadProfiles, writeRprf } from './lib/roadprofile.mjs';
 import { applyParts } from './lib/parts.mjs';
+import { buildDecks, writeDecks } from './lib/decks.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UNITY = join(HERE, '..', '..');
@@ -1828,6 +1829,11 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
   const bytes = w.bytes();
   emit('charlotte_bld.bytes', bytes);
   console.log(`charlotte_bld.bytes ${(bytes.length / 1024).toFixed(0)} KB`);
+  // Parking decks (2026-10-05, part 1; lib/decks.mjs): which decks the game
+  // builds drivable, their levels, rectangle and layout. Its own file, so the
+  // bld bytes (and every footprint index) stay exactly as they were.
+  const DK = buildDecks({ rawBld, all, parseHeight, uptown: [-2259, 4782] });
+  emit('charlotte_decks.bytes', writeDecks(Writer, DK.decks));
 }
 
 // ---- the menu's routes (small JSON: lengths and a coarse line per venue)

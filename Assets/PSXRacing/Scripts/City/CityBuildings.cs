@@ -169,6 +169,7 @@ namespace PSXRacing.City
                 // Uptown B2: never a building drawn by its OSM parts, one of
                 // them, or a named landmark (lib/parts.mjs's table)
                 if (f.noSwap || f.hidden || f.part) continue;
+                if (CityDecks.ForFootprint(i) != null) continue;   // a listed parking deck is drawn as one
                 if (f.style > 1 || f.gable) continue;
                 if (f.h < 30f || f.h > 135f) continue;
                 float wide = f.hv * 2f, deep = f.hu * 2f;

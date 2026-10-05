@@ -10055,6 +10055,9 @@ namespace PSXRacing.City
             {
                 var f = map.footprints[fi];
                 if (f.propKind != 0) return;   // a model stands here; CityWorld places it
+                // Parking decks (2026-10-05): a listed deck REPLACES its solid
+                // building (CityMeshes.Decks.cs); the far skyline keeps the box
+                if (!skylineBuild && EmitDeck(map, trims, tm, fi)) { tm.footprintCount++; return; }
                 // Uptown C: a landmark hero draws some of its parts itself
                 int hero = f.landmark != 0 ? HeroOf(map, f) : -1;
                 if (hero >= 0 && heroSkip.Contains(fi)) return;

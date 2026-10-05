@@ -7302,3 +7302,88 @@ City-wide (`CityDeckFacts` CENSUS): 198 non-bridge edges (820 stations, 7,030 m)
 **Medians run continuous (ON).** Inside one edge there is no junction, so a stretch of bare median between two Jersey runs is no opening: nothing marks it (no junction mouth, wedge, deck, approach rail, cut, union) - the side flags flickered and each run's end was turned down to the grass. `CityMeshes` (before the short-piece rule, so a short piece between two runs joins them instead of being dropped) carries the run across. `PSX_CITY_MEDIAN_BRIDGE=0` is the before-count. Census in `-DriveOnly` (CityAudit.Barriers, "median gap census", a new check): unexplained gaps inside an edge 3 -> 0 (East Independence Blvd e15375 23 m, Brookshire Blvd e10079 21 m, Independence Blvd e16243 8 m - the Independence race); left open for a reason: 51 junction openings, 12 bridge approaches (an approach rail takes over), 7 rails. Not done: a gap where a divided road's run reaches a node and the next OSM piece is a single two-way carriageway (no median side to stand on) - that needs a Jersey on a two-way road's centre line.
 
 `tools\city-cycle.ps1`: `PSX_CYCLE_NOART=1` skips its Art/Resources /XO copy (it put a tree's .meta GUIDs over the sandbox's).
+## Parking decks, part 1 (2026-10-05): drive in, up to the roof, back out
+
+The owner: real decks, the right number of levels, drivable in free roam, a
+lap from the entrance to the top deck and back out; part 2 makes the lap a time
+trial or a race. Then, mid-task: "5-10 iconic decks would be good" - so the
+generator is general and only a WHITELIST (OSM way ids) is switched on.
+
+**Data** (`tools/city/lib/decks.mjs`, called from export_osm.mjs's buildings
+block): every `parking=multi-storey` / `building=parking` way (162 in the
+cache) is classified and written to `Resources/charlotte_decks.bytes` (PDCK
+v1, its own file, so `charlotte_bld.bytes` and every footprint index are
+unchanged; the export stays byte-identical for the other four files). Per
+deck: its bld index, way id, levels, layout, reason, flags, its oriented
+rectangle (rotating calipers on the hull), fill and height.
+
+- **Levels**: tagged `parking:levels` / `building:levels` (13), else from the
+  height (53): ground floor 3.4 m, 3.05 m floor to floor, 1.1 m parapet. The
+  seven decks tagged with both decide the convention: "roof deck NOT counted"
+  (L = 1 + (h - 4.5) / 3.05) misses by 10 levels in total, "roof counted" by
+  15; exact on three, one off on two, two outliers (stair towers: 30 m tagged
+  7, 49 m tagged 10). 96 decks have neither and stay solid.
+- **Shape**: drivable only when the footprint fills >= 80% of its rectangle,
+  the rectangle is >= 34 m wide (two 60 ft bays: the two-bay helix) and >= 52 m
+  long. 18-34 m is a single bay with end ramps: classified, not built in part 1.
+- **Counts** (export): qualifying + listed 7; levels unknown 96; odd shape 5;
+  single bay 4; too short 5; qualifying but not listed 34; not in the bld file
+  4; drawn by building:parts 7.
+- **Whitelist** (names in decks.mjs comments only; the game says "Parking
+  deck, N levels"): 120628264 (10 levels), 90480727 (7), 255159816 (7),
+  500204485 (9) drivable; 90480718 (7) solid - the land stands 0.43 m over its
+  entry ramp; 394430321 (9) solid - entrance grade 1.49 m over 15.5 m;
+  94405123 (7) solid - fill 0.71; 500997294 (6) taken OFF the list: the AI lap
+  stopped dead in its first far turning bay twice (something solid in the
+  rectangle; see the handoff).
+
+**The layout** (CityDecks.cs, the numbers; CityMeshes.Decks.cs, the mesh):
+a two-bay SLOPED-FLOOR HELIX. Local x is the long axis, the ground turning bay
+at -x (the end nearer the street); bay A rises +x, bay B rises -x, half a
+storey each between flat turning bays of depth T = bay/2 + 3.2 m; one turn
+round the spine wall climbs one storey. Vertical curves of 4 m at every grade
+break; bays 3.1-7.0%. Slabs 0.35 m (2.7 m clear), 1.07 m parapets with the
+open band above, 0.5 m columns every 9 m on the perimeter, a full spine wall
+between the bays (ground to a parapet over the roof runs), the fill under bay
+B's first run and the first far turn faced off. Stall lines 2.74 m x 5.49 m
+down both sides of every aisle (the lots' stall paint). Roof poles (7 m) on the
+roof runs, a fluorescent fixture under every covered aisle: `tm.lamps` with
+`LampDeck` (gain 0.6, breakaway: lit, no post collider), so the lamp field and
+the tile's one halo draw take them.
+
+**The entrance**: a way that ENDS at the footprint (a service drive) wins,
+else the nearest street. A side opening always goes in the +z wall (the deck
+is turned end for end). The ENTRY RAMP is one Hermite from the street's edge
+(leaving it at 1.6x the mean grade: a sag, never a crest) to the ground floor,
+over the driveway AND the ground turning bay, fanning out from the 8 m
+opening; max 12%. The ground floor stands on the highest land the ramp does
+not cover. Land up to 0.12 m over the ramp is draped (the floor rides it);
+more and the deck stays solid.
+
+**Draws and colliders**: everything is `Slot.Concrete` in the roads mesh (Road
+layer: the floors are what the wheels read, the walls are solid), the stall
+paint is the tw2 asphalt slot, the poles and fixtures the lamp mesh. A deck
+tile pays at most +1 draw (the concrete, where it has no bridge). Deck tiles
+measured 19-22 draws with the deck (the before count was not taken).
+Triangles: 6.2k (7 levels, 55 x 60 m), 8.4k (7, 57 x 89), 14.3k (10, 59 x 104).
+The deck REPLACES its footprint (EmitFootprint returns before the box) and is
+never swapped for a pack tower; the far skyline keeps the box. A deck whose
+rectangle meets the drawn pavement (FitFootprint) stays solid.
+
+**Camera**: ChaseCamera.CoverClamp - once a deck has been drawn, and only
+under cover (a ray up from the car meets Road or Solid within 8 m), a 0.3 m
+sphere from the car's roof to the lens stops short of the first surface.
+
+**The lap** (`Deck.lap`, world waypoints every ~2.5 m): street, driveway,
+opening, up the outer lane (left turns, 1.2 m right of the aisle centre), a
+7 m loop in the roof's turning bay, down the inner lane, out the same opening.
+`tools`: `PSX Racing/Check Parking Deck Laps` (DeckLapCheck) plays free roam
+and puts an AIDriver on the player's car (curvature read 2.5x: deck speed).
+
+| deck | levels | lap | time | judged |
+|---|---|---|---|---|
+| 90480727 | 7 | 1721 m | 194.1 s (32 km/h) | complete; no launch, fall, recovery; max 4.6 m off the line |
+| 255159816 | 7 | 2438 m | 240.7 s (36 km/h) | complete; no launch, fall, recovery; max 4.8 m off the line |
+| 500997294 | 6 | - | stuck at wp 46 | taken off the whitelist |
+
+PSX_DECKS=0 leaves every deck the solid building it was.
