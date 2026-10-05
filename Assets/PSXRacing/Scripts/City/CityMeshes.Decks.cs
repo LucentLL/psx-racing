@@ -19,6 +19,8 @@ namespace PSXRacing.City
     {
         /// <summary>A deck's ceiling fixture or roof pole (CityWorld.LampGain).</summary>
         public const byte LampDeck = 4;
+        /// <summary>A deck's stall line, wider than the lots' (see the stall lines).</summary>
+        const float DeckLineW = 0.15f;
         public static int DecksBuilt, DecksRefused;
 
         static Vector3 DP(CityDecks.Deck d, float x, float y, float z, TileMeshes tm) => L(d.W(x, z), d.y0 + y, tm);
@@ -142,12 +144,37 @@ namespace PSXRacing.City
                         DeckBoxSides(con, d, tm, xa, xb, Mathf.Min(zo, zi), Mathf.Max(zo, zi), c0, c1);
                         // the precast spandrel's joint on the street face, at
                         // the column it hangs from (dark, the lamp mesh)
+                        // 12 cm: the 6 cm reveal fell under a pixel at
+                        // street range and the band read as one stripe
                         float jb = k == 0 ? low : f0 - CityDecks.SlabM, jt = f0 + P;
                         var jo = s * hv + s * 0.02f;
-                        Dark(tm, DP(d, x - 0.03f, jb, jo, tm), DP(d, x - 0.03f, jt, jo, tm), DP(d, x + 0.03f, jt, jo, tm), DP(d, x + 0.03f, jb, jo, tm),
+                        Dark(tm, DP(d, x - 0.06f, jb, jo, tm), DP(d, x - 0.06f, jt, jo, tm), DP(d, x + 0.06f, jt, jo, tm), DP(d, x + 0.06f, jb, jo, tm),
                                         new Vector3(DirW(d, 0f, s).x, 0f, DirW(d, 0f, s).y));
                     }
                 }
+            // ...the ends' pilasters on the same pitch, parapet top to slab IN
+            // the wall's own thickness (the turning bays drive along these
+            // walls: nothing stands proud inside), 5 cm proud outside, with
+            // the spandrel's joint under each: the end face read as bare
+            // grey and dark stripes
+            foreach (var (xe, xw, lo) in new[] { (-hu, -hu + W, true), (hu, hu - W, false) })
+            {
+                float sg = lo ? -1f : 1f, xo = xe + sg * 0.05f;
+                for (float z = -hv + 0.8f; z <= hv - 0.8f; z += CityDecks.ColumnPitchM)
+                    for (int k = 0; ; k++)
+                    {
+                        float f0, f1;
+                        if (lo) { if (k >= top) break; f0 = k == 0 ? CityDecks.GroundBayLocal(d, xw, z) : CityDecks.TurnLo(k); f1 = CityDecks.TurnLo(k + 1); }
+                        else { if (k >= top - 1) break; f0 = CityDecks.TurnHi(k); f1 = CityDecks.TurnHi(k + 1); }
+                        if (lo && k == 0 && d.entrySide == 0 && Mathf.Abs(z - d.entryAt) < half + CityDecks.ColumnM) continue;
+                        float c0 = f0 + P, c1 = f1 - CityDecks.SlabM;
+                        if (c1 - c0 < 0.3f) continue;
+                        DeckBoxSides(con, d, tm, Mathf.Min(xo, xw), Mathf.Max(xo, xw), z - CityDecks.ColumnM * 0.5f, z + CityDecks.ColumnM * 0.5f, c0, c1);
+                        float jb = k == 0 ? low : f0 - CityDecks.SlabM, jx = xe + sg * 0.02f;
+                        var nn = new Vector3(DirW(d, sg, 0f).x, 0f, DirW(d, sg, 0f).y);
+                        Dark(tm, DP(d, jx, jb, z - 0.06f, tm), DP(d, jx, c0, z - 0.06f, tm), DP(d, jx, c0, z + 0.06f, tm), DP(d, jx, jb, z + 0.06f, tm), nn);
+                    }
+            }
             // ...and the column line's twin on the spine, both faces, under
             // every covered run: the grid reads down the aisle
             for (int s = -1; s <= 1; s += 2)
@@ -164,9 +191,21 @@ namespace PSXRacing.City
                 }
 
             // ---- stall lines: 90 degree stalls down both sides of each bay's aisle ----
+            // One texel of the white column at every corner (no UV slope, so
+            // mip 0 and no asphalt bled in: the 0..0.45 run along the line
+            // sampled a coarser mip at the grazing aisle view and read grey),
+            // and 15 cm, not the lots' 10: in the shade under a slab the
+            // thinner line fell under a pixel a few stalls down the aisle.
+            // YELLOW, the tw2 profile's centre-line column: the deck's pack
+            // concrete is pale (near white on the sunlit roof), and white
+            // paint on it measured no contrast - on asphalt the lots' white
+            // reads, here only a hue does.
             if (paint != null)
             {
-                float u = 0.5f * (stallU0 + stallU1);
+                var uw = new Vector2(0.5f * (stallU0 + stallU1), 0.2f);
+                var lay = LineModel.LayoutOf(stallSlot);
+                for (int q = 0; q < lay.m.Length; q++)
+                    if (lay.kind[q] == LineModel.KYellow) { uw = new Vector2(lay.m[q] / lay.W, 0.2f); break; }
                 for (int k = 0; k < top; k++)
                     for (int s = -1; s <= 1; s += 2)
                         for (float x = StallStart(-hu + 0.8f, x0 + 1.5f); x <= x1 - 1.5f; x += StallW)
@@ -175,9 +214,8 @@ namespace PSXRacing.City
                             foreach (float zIn in new[] { s * (hv - W), s * (S + StallD) })
                             {
                                 float za = zIn, zb = zIn - s * StallD;
-                                float xa = x - StallLineW * 0.5f, xb = x + StallLineW * 0.5f;
-                                paint.Up(DP(d, xa, y, za, tm), DP(d, xb, y, za, tm), DP(d, xb, y, zb, tm), DP(d, xa, y, zb, tm),
-                                         new Vector2(u, 0f), new Vector2(u, 0f), new Vector2(u, 0.45f), new Vector2(u, 0.45f));
+                                float xa = x - DeckLineW * 0.5f, xb = x + DeckLineW * 0.5f;
+                                paint.Up(DP(d, xa, y, za, tm), DP(d, xb, y, za, tm), DP(d, xb, y, zb, tm), DP(d, xa, y, zb, tm), uw, uw, uw, uw);
                             }
                         }
             }
@@ -203,23 +241,49 @@ namespace PSXRacing.City
                 _ = nW;
             }
 
-            // ---- light: fixtures under every covered aisle, poles on the roof ----
+            // ---- light: strip fixtures hung from every covered ceiling, one
+            // between each pair of columns (a column bay, ~8.2 m) over both
+            // stall rows and the aisle; poles on the roof. A fixture is a
+            // shallow concrete housing with its lens the stall paint's white
+            // (no new draw): a pale panel on the grey ceiling by day. The
+            // aisle row's lenses are lamps too (at most 24 a deck, the
+            // field's budget), lit at night - halo and the lamp field ----
             {
-                int bays = top * 2;
-                float span = x1 - x0 - 6f;
-                int per = Mathf.Clamp(Mathf.FloorToInt(36f / Mathf.Max(1, bays)), 1, Mathf.Max(1, Mathf.FloorToInt(span / 8f)));
+                const float FixL = 1.25f, FixW = 0.3f, FixDrop = 0.12f;
+                var lw = paint != null ? new Vector2(0.5f * (stallU0 + stallU1), 0.2f) : new Vector2(0.5f, 0.5f);
+                var lens = paint ?? con;
+                float pitch = CityDecks.ColumnPitchM, rowOut = hv - W - StallD * 0.5f, rowIn = S + StallD * 0.5f;
+                float aisle = 0.5f * ((hv - W - StallD) + (S + StallD));
+                var aisleLamps = new List<Lamp>();
                 for (int k = 0; k < top - 1; k++)
                     for (int s = -1; s <= 1; s += 2)
-                        for (int i = 0; i < per; i++)
+                        for (float x = -hu + 0.8f + pitch * 0.5f; x <= x1 - 1.5f; x += pitch)
                         {
-                            float x = x0 + 3f + span * (i + 0.5f) / per, z = s * d.hv * 0.5f;
+                            if (x < x0 + 1.5f) continue;
                             float f = s < 0 ? CityDecks.BayA(d, k, x) : CityDecks.BayB(d, k, x);
-                            float ceil = f + H - CityDecks.SlabM - 0.04f;
-                            DarkDown(tm, DP(d, x - 0.6f, ceil, z - 0.15f, tm), DP(d, x + 0.6f, ceil, z - 0.15f, tm),
-                                            DP(d, x + 0.6f, ceil, z + 0.15f, tm), DP(d, x - 0.6f, ceil, z + 0.15f, tm),
-                                            new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f));
-                            tm.lamps.Add(new Lamp { foot = DP(d, x, f, z, tm), head = DP(d, x, ceil - 0.05f, z, tm), height = ceil - f, kind = LampDeck, breakaway = true });
+                            float ceil = f + H - CityDecks.SlabM, yb = ceil - FixDrop;
+                            foreach (float zr in new[] { rowOut, aisle, rowIn })
+                            {
+                                float z = s * zr, xa = x - FixL * 0.5f, xb = x + FixL * 0.5f, za = z - FixW * 0.5f, zb = z + FixW * 0.5f;
+                                lens.Down(DP(d, xa, yb, za, tm), DP(d, xb, yb, za, tm), DP(d, xb, yb, zb, tm), DP(d, xa, yb, zb, tm), lw, lw, lw, lw);
+                                // the housing: a dark metal frame round the
+                                // lens (a white lens alone on pale concrete in
+                                // the shade measured +20 of 255) and its sides
+                                // up to the slab
+                                const float Rim = 0.09f; float yr = yb + 0.01f;
+                                var mm = new Vector2(0.5f, 0.5f);
+                                DarkDown(tm, DP(d, xa - Rim, yr, za - Rim, tm), DP(d, xb + Rim, yr, za - Rim, tm),
+                                         DP(d, xb + Rim, yr, zb + Rim, tm), DP(d, xa - Rim, yr, zb + Rim, tm), mm, mm, mm, mm);
+                                DarkBox(d, tm, xa - Rim, xb + Rim, za - Rim, zb + Rim, yr, ceil + 0.02f);
+                                if (zr == aisle)
+                                    aisleLamps.Add(new Lamp { foot = DP(d, x, f, z, tm), head = DP(d, x, yb - 0.05f, z, tm), height = yb - f, kind = LampDeck, breakaway = true });
+                            }
                         }
+                // 24 a deck: the lamp field is flat (x/z), so every floor's
+                // lights pile onto the same texels - 36 at gain 0.6 burnt the
+                // night interior white
+                int stride = Mathf.Max(1, Mathf.CeilToInt(aisleLamps.Count / 24f));
+                for (int i = 0; i < aisleLamps.Count; i += stride) tm.lamps.Add(aisleLamps[i]);
                 // roof poles along both long parapets (bay A's and bay B's last runs)
                 const float PoleH = 7f;
                 for (int s = -1; s <= 1; s += 2)
@@ -284,16 +348,18 @@ namespace PSXRacing.City
                        DUV(d, a, za), DUV(d, b, za), DUV(d, b, zb), DUV(d, a, zb));
                 if (soffit)
                 {
-                    // the ceiling is in the deck's shade: DRAWN dark (the lamp
-                    // mesh, already this tile's draw) so the open bands read
-                    // open from the street - a lit concrete soffit seen up
-                    // through them made the facade solid grey stripes - and
-                    // COLLIDED (the chase camera's cover ray looks up for it)
-                    // by the tile's collider-only bucket
+                    // the ceiling is the slab's underside: the same pack
+                    // concrete as its top (the owner, 2026-10-05: a deck's
+                    // ceilings are concrete). Facing down it takes no sun,
+                    // so it reads a shade under the floor - a grey ceiling
+                    // in the open bands from the street, not the black void
+                    // the dark cell made, which swallowed the columns. Also
+                    // in the collider-only bucket: the chase camera's cover
+                    // ray looks up for it
                     var p0 = DP(d, a, ya - sl, za, tm); var p1 = DP(d, b, yb - sl, za, tm);
                     var p2 = DP(d, b, yb - sl, zb, tm); var p3 = DP(d, a, ya - sl, zb, tm);
                     var m = new Vector2(0.5f, 0.5f);
-                    DarkDown(tm, p0, p1, p2, p3, m, m, m, m);
+                    con.Down(p0, p1, p2, p3, DUV(d, a, za), DUV(d, b, za), DUV(d, b, zb), DUV(d, a, zb));
                     guardBucket.Down(p0, p1, p2, p3, m, m, m, m);
                 }
             }

@@ -213,9 +213,13 @@ namespace PSXRacing.EditorTools
 
         static int TileDraws(CityDecks.Deck d)
         {
-            var c = d.W3(-d.hu + d.T * 0.5f, 1.5f, 0f);
-            if (!Physics.Raycast(c, Vector3.down, out var hit, 3f, 1 << 8)) return -1;
-            var root = hit.collider.transform.parent;
+            // from high over the deck, any layer: with decks off the cast from
+            // inside the solid building met nothing (-1); climb to the Tile_
+            var c = d.W3(0f, 300f, 0f);
+            if (!Physics.Raycast(c, Vector3.down, out var hit, 600f)) return -1;
+            var root = hit.collider.transform;
+            while (root != null && !root.name.StartsWith("Tile_")) root = root.parent;
+            if (root == null) return -2;
             int n = 0;
             foreach (var r in root.GetComponentsInChildren<MeshRenderer>(true)) if (r.enabled) n += r.sharedMaterials.Length;
             return n;

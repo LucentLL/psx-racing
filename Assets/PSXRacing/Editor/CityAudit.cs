@@ -2349,6 +2349,7 @@ namespace PSXRacing.EditorTools
             var kindM = new float[4];
             string[] kindName = { "street", "arterial", "freeway", "acorn" };
             var feet = new List<(Vector3 at, int tile)>();
+            var deckHeads = new List<(Vector3 at, int tile)>();
             var notes = new List<(float sev, string what)>();
             var segs = new HashSet<int>();
             var nodes = new HashSet<int>();
@@ -2464,6 +2465,12 @@ namespace PSXRacing.EditorTools
                     tileLamps[Mathf.Clamp(l.kind, 0, 3)]++;
                     var foot = tm.origin + l.foot;
                     var head = tm.origin + l.head;
+                    // a deck's ceiling fixture or roof light (CityMeshes.Decks)
+                    // is the deck's, not a street post: inside its own
+                    // building by rule, no post to break away. Only the double
+                    // build is asked of it, below - in 3D, since every floor
+                    // hangs its fixtures over the one beneath
+                    if (l.kind == CityMeshes.LampDeck) { deckHeads.Add((head, ti)); continue; }
                     float ground = foot.y + CityMeshes.LampSinkM;
                     var f2 = new Vector2(foot.x, foot.z);
                     var h2 = new Vector2(head.x, head.z);
@@ -2559,6 +2566,15 @@ namespace PSXRacing.EditorTools
 
             // TWICE: one station stood by two tiles lands on the same spot
             int doubled = 0, close = 0;
+            // a deck across a tile seam must hang its lights once (its owner
+            // tile, by the footprint's centre): the same head twice is a double
+            for (int i = 0; i < deckHeads.Count; i++)
+                for (int j = i + 1; j < deckHeads.Count; j++)
+                    if (Vector3.Distance(deckHeads[i].at, deckHeads[j].at) < LampDoubleM)
+                    {
+                        doubled++;
+                        notes.Add((10f, $"LAMP  deck light hung twice at ({deckHeads[i].at.x:0.0},{deckHeads[i].at.y:0.0},{deckHeads[i].at.z:0.0}), by tiles {tiles[deckHeads[i].tile].tx},{tiles[deckHeads[i].tile].tz} and {tiles[deckHeads[j].tile].tx},{tiles[deckHeads[j].tile].tz}"));
+                    }
             for (int i = 0; i < feet.Count; i++)
                 for (int j = i + 1; j < feet.Count; j++)
                 {

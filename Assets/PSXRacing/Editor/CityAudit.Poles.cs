@@ -156,7 +156,8 @@ namespace PSXRacing.EditorTools
                     var lf = tm.origin + l.foot;
                     bool inRun = RaceRunOff.Inside(map, trims, new Vector2(lf.x, lf.z));
                     if (inRun && !l.breakaway) Bad("a solid lamp post in race run-off", new Vector2(lf.x, lf.z), $"kind {l.kind}");
-                    if (!inRun && l.breakaway) Bad("a breakaway lamp post outside race run-off", new Vector2(lf.x, lf.z), $"kind {l.kind}");
+                    // (a deck's light is the deck's, no post: breakaway anywhere)
+                    if (!inRun && l.breakaway && l.kind != CityMeshes.LampDeck) Bad("a breakaway lamp post outside race run-off", new Vector2(lf.x, lf.z), $"kind {l.kind}");
                     if (l.breakaway) { lampsBreakaway++; tileBreakaway++; if (l.kind == CityMeshes.LampAcorn) acornsBreakaway++; } else lampsSolid++;
                     var lh = tm.origin + l.head;
                     AddLight(new Vector2(lh.x, lh.z));
