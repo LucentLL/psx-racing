@@ -1,0 +1,81 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &9084615059604538204
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 6455645219846485060}
+  - component: {fileID: 6546733618917289454}
+  m_Layer: 0
+  m_Name: hatch_83_popup
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &6455645219846485060
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9084615059604538204}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &6546733618917289454
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9084615059604538204}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: hatch_83_popup
+  displayName: Hatch 83 (pop-up)
+  bodyMesh: {fileID: -2432090755550338912, guid: a5eb212094b0beb479f0bd4bef9c6035, type: 3}
+  wheelMesh: {fileID: 4300000, guid: b93afcb6b1b44f54eac5f5130eed6659, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: f76de88a3128c7f44aab1ceffd1c2a53, type: 2}
+  skinNames:
+  - hatch_83_white_black_512x256
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.4347272, g: 0.42241055, b: 0.41057116, a: 1}
+  bodyYaw: 180
+  bodyYOffset: -0.021243284
+  bodyZOffset: 0
+  wheelbase: 2.413784
+  trackWidth: 1.370148
+  wheelRadius: 0.28223222
+  wheelMeshScale: 0.93
+  cowlZ: 0.8233682
+  cowlY: 0.8973983
+  noseZ: 2.019165
+  roofY: 1.3198334
+  headLamp: {x: 0.5584343, y: 0.5769427, z: 1.9576892}
+  headLampNormal: {x: 0.060619503, y: 0, z: 0.9981609}
+  headLampSize: {x: 0.3753932, y: 0.15369406}
+  tailLamp: {x: 0.59622073, y: 0.67228323, z: -2.0772557}
+  tailLampNormal: {x: 0, y: 0, z: -1}
+  tailLampSize: {x: 0.38841385, y: 0.13290253}
+  lampsUpMesh: {fileID: -2432090755550338912, guid: cab0e63f600294646a74a6740c9a8ea2, type: 3}
+  headLampUp: {x: 0.4987816, y: 0.8320118, z: 1.900263}
+  headLampUpNormal: {x: 0, y: 0, z: 1}
+  headLampUpSize: {x: 0.16688114, y: 0.24031791}
+  colliderCenter: {x: 0, y: 0.75844723, z: -0.08333492}
+  colliderSize: {x: 1.7595578, y: 1.0465406, z: 4.0157747}
+  blobSize: {x: 2.3460772, y: 4.49935}

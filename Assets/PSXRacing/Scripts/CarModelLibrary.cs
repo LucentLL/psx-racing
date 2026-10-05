@@ -86,6 +86,12 @@ namespace PSXRacing
             new Model { key = "flatsix_turbo_96", name = "Flat-six turbo (993)", region = Region.Europe, year = 1996, body = Body.Sports,   kg = 1380, handOnly = true, widthMm = 1735 },
             new Model { key = "midship_coupe", name = "Midship coupe (NSX)",      region = Region.Japan,   year = 1990, body = Body.Sports,   kg = 1349, handOnly = true, widthMm = 1810 },
             new Model { key = "classic_roadster", name = "Classic roadster (Miata)", region = Region.Japan, year = 1989, body = Body.Roadster, kg = 1006, handOnly = true, widthMm = 1675 },
+            // The owner's 2026-10-05 pop-up pair: the first-generation roadster
+            // (1989-97, the fixed-lamp second generation stays on the Classic
+            // roadster above) and the 1983 pop-up hatch. Both swap to a raised-
+            // lamp body when the lights come on (CarLights.PopUps).
+            new Model { key = "roadster_na_popup", name = "Classic roadster (pop-up)", region = Region.Japan, year = 1989, body = Body.Roadster, kg = 1006, handOnly = true, widthMm = 1675 },
+            new Model { key = "hatch_83_popup", name = "Hatch 83 (pop-up)",      region = Region.Japan,   year = 1983, body = Body.Sports,   kg = 1006, handOnly = true, widthMm = 1625 },
             // The owner's 2026-10-02 set, each sized to its GT4 sheet: the
             // Liftback 95 (every Integra Type R DC2, Spoon's too), the Roadster
             // 99 (the S2000) and the Coupe 99 (the fifth-generation Preludes).
@@ -212,7 +218,12 @@ namespace PSXRacing
             // every NSX, Honda or Acura, and every MX-5 Miata (the one NB too -
             // it is far nearer this than any other shell the game has).
             ("Honda NSX|Acura NSX",                              "midship_coupe"),
-            ("Mazda MX-5|Miata|Eunos Roadster",                  "classic_roadster"),
+            // 2026-10-05: the first generation's pop-up-lamp rows (every "(NA"
+            // row) take the owner's pop-up roadster; the rest, the NB, keep the
+            // Classic Roadster. The 1983 pop-up hatch is the catalog's one
+            // pop-up variant of that car; its fixed-lamp twin stays scored.
+            (@"Miata.*\(NA\b",                                  "roadster_na_popup"),
+            (@"SPRINTER TRUENO GT-APEX \(AE86\)",              "hatch_83_popup"),            ("Mazda MX-5|Miata|Eunos Roadster",                  "classic_roadster"),
             // And the 2026-10-02 set: every Integra Type R DC2 (Spoon's was on
             // the European hatch until there was an Integra to wear), the
             // S2000, and the fifth-generation Prelude (`96-`98: SiR, Type S,

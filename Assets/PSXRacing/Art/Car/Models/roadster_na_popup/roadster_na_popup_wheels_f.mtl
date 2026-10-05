@@ -1,0 +1,6 @@
+# PSX Racing car model
+newmtl roadster_na_popup_wheels_f
+Ka 1 1 1
+Kd 1 1 1
+illum 1
+map_Kd textures/roadster_na_red_512x256.png

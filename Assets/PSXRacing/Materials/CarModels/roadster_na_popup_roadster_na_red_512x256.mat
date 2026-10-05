@@ -7,7 +7,7 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: civic_eg_civic_atlas_512x256
+  m_Name: roadster_na_popup_roadster_na_red_512x256
   m_Shader: {fileID: 4800000, guid: f6c0dfc7e80b0564dacbd7b9dfb6db5d, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
@@ -24,7 +24,7 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _MainTex:
-        m_Texture: {fileID: 2800000, guid: 36238551e8c3e6e46812db52ef6cf1ac, type: 3}
+        m_Texture: {fileID: 2800000, guid: 338f47eab4ebe6540bbf29f41a5e0593, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []

@@ -1,9 +1,9 @@
 PSX Racing — catalog car to body shell
-317 cars across 26 of 32 shells; 188 hand-mapped, 129 scored.
+317 cars across 28 of 34 shells; 189 hand-mapped, 128 scored.
   =  hand-mapped (the real car, its twin, or a deliberate call)
   ~  scored on body style, region, era and weight
 
-=== rx7_fd  (Mazda RX-7 (FD), Japan 1992 Sports)  — 53 cars
+=== rx7_fd  (Mazda RX-7 (FD), Japan 1992 Sports)  — 52 cars
     wheelbase 2.43 m, track 1.46 m, tyre 0.310 m, 10 liveries
     = 1967 jpn FR  1006kg  110hp GT       Mazda 110S (L10A) `67
     ~ 1968 jpn FR   753kg  100hp Coupe    Honda S800 RSC Race Car `68
@@ -16,7 +16,6 @@ PSX Racing — catalog car to body shell
     ~ 1981 jpn FR  1232kg  135hp Coupe    Isuzu PIAZZA XE `81
     ~ 1983 jpn FR  1038kg  240hp Coupe    Nissan SILVIA 240RS (S100) `83
     ~ 1983 jpn FR  1006kg  130hp Coupe    Toyota COROLLA LEVIN GT-APEX (AE86) `83
-    ~ 1983 jpn FR  1006kg  130hp Coupe    Toyota SPRINTER TRUENO GT-APEX (AE86) `83
     ~ 1985 usa 4WD 1153kg  426hp Coupe    Ford RS200 Rally Car `85
     = 1985 jpn FR  1280kg  185hp Coupe    Mazda RX-7 GT-Limited (FC, J) `85
     ~ 1985 jpn FR  1141kg  240hp Coupe    Nissan 240RS Rally Car `85
@@ -179,7 +178,7 @@ PSX Racing — catalog car to body shell
     (no catalog car — used as roadside scenery)
 
 === civic_eg  (Honda Civic (EG), Japan 1991 Hatch)  — 4 cars
-    wheelbase 2.58 m, track 1.48 m, tyre 0.270 m, 1 liveries
+    wheelbase 2.58 m, track 1.48 m, tyre 0.278 m, 1 liveries
     = 1991 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `91
     = 1992 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `92
     = 1993 jpn FF  1076kg  170hp Hatch    Honda CIVIC SiR-II (EG) `93
@@ -237,8 +236,12 @@ PSX Racing — catalog car to body shell
     = 1999 jpn MR  1320kg  280hp GT       Honda NSX Type S `99
     = 1999 jpn MR  1269kg  280hp GT       Honda NSX Type S Zero `99
 
-=== classic_roadster  (Classic roadster (Miata), Japan 1989 Roadster)  — 8 cars
+=== classic_roadster  (Classic roadster (Miata), Japan 1989 Roadster)  — 1 car
     wheelbase 2.28 m, track 1.42 m, tyre 0.271 m, 1 liveries
+    = 1998 jpn FR  1066kg  145hp Roadster Mazda MX-5 Miata 1.8 RS (NB, J) `98
+
+=== roadster_na_popup  (Classic roadster (pop-up), Japan 1989 Roadster)  — 7 cars
+    wheelbase 2.26 m, track 1.41 m, tyre 0.276 m, 1 liveries
     = 1989 jpn FR  1006kg  120hp Roadster Mazda MX-5 Miata (NA) `89
     = 1991 jpn FR  1006kg  120hp Roadster Mazda MX-5 Miata J-Limited (NA, J) `91
     = 1993 jpn FR  1048kg  130hp Roadster Mazda MX-5 Miata J-Limited II (NA, J) `93
@@ -246,7 +249,10 @@ PSX Racing — catalog car to body shell
     = 1995 jpn FR  1071kg  130hp Roadster Mazda MX-5 Miata S-Special Type I (NA, J) `95
     = 1995 jpn FR  1048kg  130hp Roadster Mazda MX-5 Miata VR-Limited (NA, J) `95
     = 1997 jpn FR  1048kg  130hp Roadster Mazda MX-5 Miata SR-Limited (NA, J) `97
-    = 1998 jpn FR  1066kg  145hp Roadster Mazda MX-5 Miata 1.8 RS (NB, J) `98
+
+=== hatch_83_popup  (Hatch 83 (pop-up), Japan 1983 Sports)  — 1 car
+    wheelbase 2.41 m, track 1.37 m, tyre 0.282 m, 1 liveries
+    = 1983 jpn FR  1006kg  130hp Coupe    Toyota SPRINTER TRUENO GT-APEX (AE86) `83
 
 === liftback_95  (Liftback (Integra DC2), Japan 1995 Sports)  — 4 cars
     wheelbase 2.54 m, track 1.42 m, tyre 0.277 m, 1 liveries

@@ -120,7 +120,10 @@ namespace PSXRacing.EditorTools
             {
                 var def = CarModelLibrary.Load(m.key);
                 if (def == null) continue;
-                foreach (var mesh in new[] { def.bodyMesh, def.wheelMesh })
+                // The raised-lamp body too: a race with its lights on drives a
+                // pop-up shell on lampsUpMesh, and without its vertices the car
+                // measured as its wheels alone (roof 0.56 m, 33 false FAILs).
+                foreach (var mesh in new[] { def.bodyMesh, def.lampsUpMesh, def.wheelMesh })
                     if (mesh != null && !Verts.ContainsKey(mesh)) Verts[mesh] = mesh.vertices;
             }
 

@@ -54,7 +54,7 @@ MonoBehaviour:
   - s13_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.48632327, g: 0.38031366, b: 0.2019952, a: 1}
+  - {r: 0.4855697, g: 0.38116294, b: 0.20644224, a: 1}
   bodyYaw: 180
   bodyYOffset: -0.021530492
   bodyZOffset: 0
@@ -73,7 +73,7 @@ MonoBehaviour:
   tailLampNormal: {x: 0.5676229, y: 0.11910123, z: -0.81462824}
   tailLampSize: {x: 0.38539565, y: 0.16547927}
   lampsUpMesh: {fileID: -2432090755550338912, guid: cbb62d024f7be494dad152eb5e08eebd, type: 3}
-  headLampUp: {x: 0.48972362, y: 0.7389957, z: 1.871232}
+  headLampUp: {x: 0.48972362, y: 0.7389957, z: 1.8712319}
   headLampUpNormal: {x: 0, y: 0, z: 1}
   headLampUpSize: {x: 0.2026166, y: 0.100634366}
   colliderCenter: {x: 0, y: 0.709651, z: -0.054436922}

@@ -9334,14 +9334,18 @@ namespace PSXRacing.EditorTools
                     if (CarModelLibrary.KeyFor(c) == want) flat++;
                 }
                 Check(rufs >= 3 && flat == rufs, "every RUF and 911 wears a FlatSix shell (the CTR2 the Turbo 96, the rest the Coupe)", flat + " of " + rufs);
-                int nsx = 0, nsxOk = 0, miata = 0, miataOk = 0;
+                int nsx = 0, nsxOk = 0, miata = 0, miataOk = 0, ae86 = 0, ae86Ok = 0;
                 foreach (var c in CarCatalog.All)
                 {
                     if (c.name.Contains("NSX")) { nsx++; if (CarModelLibrary.KeyFor(c) == "midship_coupe") nsxOk++; }
-                    if (c.name.Contains("MX-5") || c.name.Contains("Miata")) { miata++; if (CarModelLibrary.KeyFor(c) == "classic_roadster") miataOk++; }
+                    // 2026-10-05: the pop-up first generation ("(NA" rows) wears the
+                    // owner's pop-up roadster, the rest the Classic Roadster.
+                    if (c.name.Contains("MX-5") || c.name.Contains("Miata")) { miata++; if (CarModelLibrary.KeyFor(c) == (System.Text.RegularExpressions.Regex.IsMatch(c.name, @"\(NA\b") ? "roadster_na_popup" : "classic_roadster")) miataOk++; }
+                    if (c.name.Contains("(AE86)")) { ae86++; if ((CarModelLibrary.KeyFor(c) == "hatch_83_popup") == c.name.Contains("TRUENO")) ae86Ok++; }
                 }
                 Check(nsx >= 12 && nsxOk == nsx, "every NSX wears the owner's Midship Coupe", nsxOk + " of " + nsx);
-                Check(miata >= 8 && miataOk == miata, "every MX-5 Miata wears the owner's Classic Roadster", miataOk + " of " + miata);
+                Check(miata >= 8 && miataOk == miata, "every first-generation roadster wears the pop-up roadster, the rest the Classic Roadster", miataOk + " of " + miata);
+                Check(ae86 >= 2 && ae86Ok == ae86, "the 1983 pop-up hatch dresses only the pop-up-lamp variant", ae86Ok + " of " + ae86);
                 // The owner's 2026-10-02 set.
                 int integra = 0, integraOk = 0, s2k = 0, s2kOk = 0, prelude = 0, preludeOk = 0;
                 foreach (var c in CarCatalog.All)

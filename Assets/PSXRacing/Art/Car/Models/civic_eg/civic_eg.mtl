@@ -3,4 +3,4 @@ newmtl civic_eg
 Ka 1 1 1
 Kd 1 1 1
 illum 1
-map_Kd textures/civic_atlas_512x256.png
+map_Kd textures/hatch_93_red_512x256.png

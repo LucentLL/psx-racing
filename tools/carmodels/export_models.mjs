@@ -70,9 +70,13 @@ const MODELS = [
   // old 256 sheet untouched in its left half, the underside in the right
   // (the folder root's eg_civic.obj; "older cleaned/source_psx variants are
   // not this update"). PSXTextureCaps keeps a *_512x256 sheet at 512.
-  { key: 'civic_eg',     obj: `${ownerCars}/EG_Civic_Source_PSX/eg_civic.obj`,
-    tex: `${ownerCars}/EG_Civic_Source_PSX`, skins: /^civic_atlas_512x256$/,
-    gt4LengthM: 4.070 },
+  // 2026-10-05: the owner's independent rebuild of the 1993 hatch
+  // (Cars/EG_Independent_Textured_v01: 3,994 tris with the wheels, one red
+  // 512x256 atlas, underside in the right half). GLB only -> glb2obj.py ->
+  // converted/hatch_93_v01. `skinAs` gives the copied atlas a neutral name.
+  { key: 'civic_eg',     obj: `${here}/converted/hatch_93_v01/hatch_93_v01.obj`,
+    tex: `${ownerCars}/EG_Independent_Textured_v01`, skins: /^eg_red_512x256$/,
+    skinAs: 'hatch_93_red_512x256', gt4LengthM: 4.070 },
   // The owner's S13 hatch (the 180SX that America sold as the 240SX) — GT4's
   // "Nissan 240SX `96": 4520 mm, 2475 mm wheelbase. The S14 is its own row.
   // 2026-10-04 ("NSX, 240SX, and RX7 were updated"): the independent 1989
@@ -82,9 +86,11 @@ const MODELS = [
   // glb2obj.py made converted/nissan_180sx_v07 from s13_1989_down.glb and
   // its _up twin from s13_1989_up.glb (same atlas, same frame), which
   // becomes the `lampsUp` body. Replaced Nissan_240SX_PSX/reference_v2.
-  { key: 'nissan_180sx', obj: `${here}/converted/nissan_180sx_v07/nissan_180sx_v07.obj`,
-    lampsUp: `${here}/converted/nissan_180sx_v07/nissan_180sx_v07_up.obj`,
-    tex: `${ownerCars}/S13_180SX_Independent_v07`, skins: /^s13_512x256$/,
+  // 2026-10-05: revision 08 (rear-panel pass: hatch perimeter, bumper joint,
+  // quarter seams; 3,997 tris), converted/fastback_89_v08, same layout as v07.
+  { key: 'nissan_180sx', obj: `${here}/converted/fastback_89_v08/fastback_89_v08.obj`,
+    lampsUp: `${here}/converted/fastback_89_v08/fastback_89_v08_up.obj`,
+    tex: `${ownerCars}/S13_180SX_Independent_v08`, skins: /^s13_512x256$/,
     gt4LengthM: 4.520 },
 
   // The owner's FD RX-7 (2026-10-04), Cars/FD_Shared_Independent_v01/
@@ -151,6 +157,26 @@ const MODELS = [
   { key: 'classic_roadster', obj: `${ownerCars}/Classic_Roadster_PSX/classic_roadster.obj`,
     tex: `${ownerCars}/Classic_Roadster_PSX`, skins: /^roadster_atlas_256$/,
     gt4LengthM: 3.955 },
+  // 2026-10-05, the owner's pop-up-lamp roadster rebuild (the first
+  // generation, 1989-97; the fixed-lamp second generation keeps
+  // classic_roadster): closed 3,837 / raised 3,987 tris, soft top up, red
+  // 512x256. GLB -> converted/roadster_na_popup_v01. Its underside is darkened
+  // by a 0.45 COLOR_0 vertex tint that neither the OBJ path nor PSX/CarPaint
+  // keeps, so the tint is BAKED into the atlas copy there (every tinted
+  // triangle samples only the right-half underside, no texel shared with an
+  // untinted one - an exact equivalent). Same GT4 sheet as classic_roadster.
+  { key: 'roadster_na_popup', obj: `${here}/converted/roadster_na_popup_v01/roadster_na_popup_v01.obj`,
+    lampsUp: `${here}/converted/roadster_na_popup_v01/roadster_na_popup_v01_up.obj`,
+    tex: `${here}/converted/roadster_na_popup_v01`, skins: /^roadster_na_red_512x256$/,
+    gt4LengthM: 3.955 },
+  // 2026-10-05, the owner's 1983 pop-up-lamp hatch (white over black, 3,992
+  // tris either way, 512x256 with the underfloor on the right): the catalog's
+  // one pop-up variant of that car; its fixed-lamp twin keeps its scored
+  // shell. GT4: 4205 mm, wb 2400. GLB -> converted/hatch_83_popup_v02.
+  { key: 'hatch_83_popup', obj: `${here}/converted/hatch_83_popup_v02/hatch_83_popup_v02.obj`,
+    lampsUp: `${here}/converted/hatch_83_popup_v02/hatch_83_popup_v02_up.obj`,
+    tex: `${ownerCars}/AE86_Independent_v02`, skins: /^ae86_white_black_512x256$/,
+    skinAs: 'hatch_83_white_black_512x256', gt4LengthM: 4.205 },
 
   // The owner's 2026-10-02 set ("Integra, S2000, and Prelude have been
   // added"), same layout (Body + Wheel_FL/FR/RL/RR, nose -Z, matte alpha 128),
@@ -303,7 +329,11 @@ for (const m of MODELS) {
     .filter(f => !NOT_A_SKIN.has(safe(path.basename(f, path.extname(f)))))
     .filter(f => !m.skins || m.skins.test(path.basename(f, '.png')))
     .sort();
-  const first = safe(path.basename(skins[0], '.png'));
+  // `skinAs` renames a model's ONE atlas on the way in (no brands in our
+  // file names, whatever the source folder calls it).
+  if (m.skinAs && skins.length !== 1) throw new Error(`${m.key}: skinAs needs exactly one skin`);
+  const skinName = f => m.skinAs || safe(path.basename(f, '.png'));
+  const first = skinName(skins[0]);
 
   // Front and rear axles go to separate files so the baker never has to GUESS
   // which end of an imported mesh is the nose. Overhang heuristics look sound
@@ -347,7 +377,7 @@ map_Kd textures/${first}.png
   }
 
   for (const f of skins)
-    fs.copyFileSync(path.join(texDir, f), path.join(dir, 'textures', safe(path.basename(f, '.png')) + '.png'));
+    fs.copyFileSync(path.join(texDir, f), path.join(dir, 'textures', skinName(f) + '.png'));
   // A dedicated wheel sheet, where the model has one. Not a livery, but the
   // baker needs it to keep the pickup's wheels from being painted body colour.
   if (fs.existsSync(path.join(texDir, 'wheel.png')))

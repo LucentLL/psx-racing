@@ -49,29 +49,33 @@ MonoBehaviour:
   bodyMesh: {fileID: -2432090755550338912, guid: dad75c84de04c114ab04f948283ff8dd, type: 3}
   wheelMesh: {fileID: 4300000, guid: fcb81c314621acf42a6ab686215ba13a, type: 2}
   skinMaterials:
-  - {fileID: 2100000, guid: 47e418d1f153b164ea81eed951bf45e8, type: 2}
+  - {fileID: 2100000, guid: 13a1a7521c0cf7549887ba1913fd1490, type: 2}
   skinNames:
-  - civic_atlas_512x256
+  - hatch_93_red_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.36553377, g: 0.2216926, b: 0.21545495, a: 1}
+  - {r: 0.39718917, g: 0.17636435, b: 0.18323718, a: 1}
   bodyYaw: 180
-  bodyYOffset: -0.020292403
+  bodyYOffset: -0.020919574
   bodyZOffset: 0
-  wheelbase: 2.579713
-  trackWidth: 1.475556
-  wheelRadius: 0.2695991
+  wheelbase: 2.579507
+  trackWidth: 1.480456
+  wheelRadius: 0.27793193
   wheelMeshScale: 0.93
-  cowlZ: 0.97193605
-  cowlY: 0.8700759
-  noseZ: 2.1039047
-  roofY: 1.3305155
-  headLamp: {x: 0.54959023, y: 0.5823698, z: 1.8169887}
-  headLampNormal: {x: 0.33256757, y: -0.6403411, z: 0.6923598}
-  headLampSize: {x: 0.28359646, y: 0.10813537}
-  tailLamp: {x: 0.5984348, y: 0.70993453, z: -1.837114}
-  tailLampNormal: {x: 0.2176118, y: -0.027616333, z: -0.97564465}
-  tailLampSize: {x: 0.38406783, y: 0.16175002}
-  colliderCenter: {x: 0, y: 0.7712046, z: 0.068904996}
-  colliderSize: {x: 1.7138426, y: 1.043017, z: 3.8868496}
-  blobSize: {x: 2.2851236, y: 4.3549}
+  cowlZ: 0.98919284
+  cowlY: 0.85927063
+  noseZ: 2.095724
+  roofY: 1.3289784
+  headLamp: {x: 0.5537065, y: 0.5826224, z: 1.9471933}
+  headLampNormal: {x: 0.32310024, y: 0.5252328, z: 0.7872336}
+  headLampSize: {x: 0.36758968, y: 0.10873446}
+  tailLamp: {x: 0.5941718, y: 0.7051645, z: -1.833047}
+  tailLampNormal: {x: 0.39038968, y: 0.11886335, z: -0.9129444}
+  tailLampSize: {x: 0.37275904, y: 0.1226747}
+  lampsUpMesh: {fileID: 0}
+  headLampUp: {x: 0, y: 0, z: 0}
+  headLampUpNormal: {x: 0, y: 0, z: 1}
+  headLampUpSize: {x: 0, y: 0}
+  colliderCenter: {x: 0, y: 0.7686259, z: 0.06072408}
+  colliderSize: {x: 1.7357477, y: 1.0447731, z: 3.88685}
+  blobSize: {x: 2.3143303, y: 4.3549004}
