@@ -2,10 +2,10 @@
   "schema": 1,
   "city": {
     "version": 2,
-    "graph_hash": "1dc91316",
+    "graph_hash": "700a8c2b",
     "nodes": 20194,
     "edges": 25042,
-    "points": 411867,
+    "points": 398284,
     "node_degrees": [
       0,
       925,
@@ -16,7 +16,7 @@
       6,
       0
     ],
-    "km": 3844,
+    "km": 3843.9,
     "bridges": 791,
     "tunnels": 8,
     "links": 2200,
@@ -58,18 +58,18 @@
         "length_m": 7014.6
       }
     ],
-    "free_vertices": 367182,
+    "free_vertices": 353592,
     "kinks_per_km": {
-      "ge5": 2.337,
-      "ge10": 0.052,
-      "ge25": 0.023
+      "ge5": 2.327,
+      "ge10": 0.05,
+      "ge25": 0.022
     },
     "kinks": {
-      "ge5": 8965,
-      "ge10": 199,
-      "ge25": 88,
+      "ge5": 8928,
+      "ge10": 191,
+      "ge25": 86,
       "max_deg": 173.1,
-      "folds_over_10cm": 448
+      "folds_over_10cm": 443
     }
   },
   "dem": {
@@ -101,8 +101,8 @@
   },
   "outputs": {
     "charlotte_city.bytes": {
-      "bytes": 6643370,
-      "sha256": "9d9285ac82d382fa4705856423187f847bc6aa5ab5446f84395d5da4c2a939b0"
+      "bytes": 6458202,
+      "sha256": "845f6dc2327bd258d19dcfa83f9ce43ae93772035a092bb32cfc8fa80227c3f7"
     },
     "charlotte_dem.bytes": {
       "bytes": 3174661,
@@ -113,8 +113,8 @@
       "sha256": "dd55d761a1985c2dfe0b31f68de83ae15214f7c3b0bdfb80d73039e0d6449014"
     },
     "charlotte_routes.json": {
-      "bytes": 16881,
-      "sha256": "8be9fa5040364cb48425a924e276c4eeefc730f5087916fb4f568d68a67cadf8"
+      "bytes": 16883,
+      "sha256": "b08b2362879b39790e1ce007efaf7ec60b2ec2e849ed43eed6d28d8c14565ef6"
     }
   },
   "generated": {

@@ -973,9 +973,9 @@ namespace PSXRacing.City
         /// Morehead Street, two divided roads crossing at about 30 degrees, met
         /// at four mitred nodes where each Kings half hugged a Morehead
         /// carriageway and was drawn over by it (283 m2 of the mouth census).
-        /// OFF until the city audit and drive audit have run with it:
-        /// PSX_CITY_STREETCROSS=1 switches it on.</summary>
-        public static bool StreetCrossOn = System.Environment.GetEnvironmentVariable("PSX_CITY_STREETCROSS") == "1";
+        /// ON since 2026-10-05 (city audit + drive audit run with it);
+        /// PSX_CITY_STREETCROSS=0 switches it off.</summary>
+        public static bool StreetCrossOn = System.Environment.GetEnvironmentVariable("PSX_CITY_STREETCROSS") != "0";
         /// <summary>The two halves of a crossing road go on through each other
         /// (within 45 degrees of straight).</summary>
         const float CrossingPairCos = -0.7f;

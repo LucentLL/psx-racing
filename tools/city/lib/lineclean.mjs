@@ -280,7 +280,7 @@ export function lineClean(ctx) {
   // that never reach full width (West Trade's 38 m 3+3 piece between two
   // 3+2 ones, eased out over 19 m and back over 30). Streets only: on a
   // freeway or a ramp the merge zones (L5) own the aux lanes.
-  // PSX_LC_BLIPS=1: the rule on; off (the default) is the before.
+  // PSX_LC_BLIPS=0: off, the before.
   // 2026-10-05, roads-b: ON, NARROWED. The full rule (PSX_LC_BLIPS=all) failed
   // the drive audit, and neither failure was a stale height: a fixed piece
   // changes more than its own lanes. (1) A NARROWER blip taken up to its
@@ -297,8 +297,8 @@ export function lineClean(ctx) {
   // a piece that is not a blip still moves gets its blips back (a run between
   // two transitions can become a bay and lock its sides the other way): no
   // lane outside a blip moves. PSX_LC_BLIPS=1 the gated rule, =all the full
-  // rule; unset is OFF (the gated rule's city audit / drive audit not yet run).
-  const BLIP_MODE = process.env.PSX_LC_BLIPS === '1' ? 'narrow' : process.env.PSX_LC_BLIPS === 'all' ? 'all' : 'off';
+  // rule; unset is the gated rule (ON since 2026-10-05), PSX_LC_BLIPS=0 the before.
+  const BLIP_MODE = process.env.PSX_LC_BLIPS === '0' ? 'off' : process.env.PSX_LC_BLIPS === 'all' ? 'all' : 'narrow';
   const BLIP_RULE = BLIP_MODE !== 'off';
   laneFix.blip = 0; laneFixM.blip = 0;
   const armsN = nodeEdgesOf(edges, nodes.length);
