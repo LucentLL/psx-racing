@@ -955,6 +955,262 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
+        /// THE MOUTH OVERLAP CENSUS (2026-10-04; the owner on West Trade
+        /// Street: "Roads should not overlap or clip"): every tile in a box
+        /// built as the game builds it, then at every node in it with three or
+        /// more arms (or a branch clipped at it) each pair of its arms read
+        /// off the DRAWN sections (CityMeshes.LaneExtents after the build): the
+        /// lesser road's surface (a link, else the lower class, else the
+        /// narrower) lying inside the greater's drawn pavement within 3 m of
+        /// its height, sampled every 1 m along and 0.5 m across over its first
+        /// 60 m from the node. m2 by pair; the worst listed. Box:
+        /// PSX_MOUTH_BOX="x0,z0,x1,z1" (default: West Trade Street, Five
+        /// Points to the I-77 bridge); PSX_PROBE_NODES="505,7501" also prints
+        /// each listed node's arms (trims, branch hosts, heights, drawn widths).
+        /// Writes mouth_census.txt at the project root.
+        /// Headless: -executeMethod PSXRacing.EditorTools.CityPreview.RunMouthCensus
+        /// </summary>
+        public static void RunMouthCensus()
+        {
+            string file = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "mouth_census.txt");
+            if (File.Exists(file)) File.Delete(file);
+            var sb = new System.Text.StringBuilder();
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            var map = CityMap.Get();
+            if (map == null) { Debug.LogError("[MouthCensus] no city data"); return; }
+            var go = new GameObject("~mouthCensus");
+            var world = go.AddComponent<CityWorld>();
+            try
+            {
+                world.EnsureRing(new Vector3(map.uptown.x, 0f, map.uptown.y), 0);
+                world.DropAll();
+                var trims = world.NodeTrims;
+                var bld = world.Buildings;
+                // one box or several ("x0,z0,x1,z1;x0,z0,x1,z1;...")
+                var boxes = new List<Vector4>();
+                foreach (var bs in (System.Environment.GetEnvironmentVariable("PSX_MOUTH_BOX") ?? "").Split(';'))
+                {
+                    var f = bs.Split(',');
+                    if (f.Length == 4) boxes.Add(new Vector4(float.Parse(f[0], inv), float.Parse(f[1], inv), float.Parse(f[2], inv), float.Parse(f[3], inv)));
+                }
+                if (boxes.Count == 0) boxes.Add(new Vector4(-3800f, 5550f, -3200f, 5950f));
+                var box = boxes[0];
+                var probe = new HashSet<int>();
+                foreach (var t in (System.Environment.GetEnvironmentVariable("PSX_PROBE_NODES") ?? "").Split(','))
+                    if (int.TryParse(t.Trim(), out int pn) && pn >= 0 && pn < map.nodes.Length) probe.Add(pn);
+                float ts = CityMeshes.TileSize;
+                var tileSet = new List<Vector2Int>();
+                foreach (var bx in boxes)
+                    for (int tz = Mathf.FloorToInt(bx.y / ts); tz <= Mathf.FloorToInt(bx.w / ts); tz++)
+                        for (int tx = Mathf.FloorToInt(bx.x / ts); tx <= Mathf.FloorToInt(bx.z / ts); tx++)
+                            if (!tileSet.Contains(new Vector2Int(tx, tz))) tileSet.Add(new Vector2Int(tx, tz));
+                bool InBoxes(Vector2 q) { foreach (var bx in boxes) if (q.x >= bx.x && q.y >= bx.y && q.x <= bx.z && q.y <= bx.w) return true; return false; }
+                var pairs = new Dictionary<long, (float m2, int e, int o, int n, Vector2 at)>();
+                int nodesSeen = 0, tiles = 0;
+                bool Minor(CityMap.Edge a, CityMap.Edge b) =>
+                    a.link != b.link ? a.link : a.cls != b.cls ? a.cls < b.cls : Mathf.Abs(a.width - b.width) > 0.05f ? a.width < b.width : a.index > b.index;
+                foreach (var tile in tileSet)
+                    {
+                        int tx = tile.x, tz = tile.y;
+                        var tm = CityMeshes.Build(map, trims, bld, tx, tz);
+                        tiles++;
+                        var min = new Vector2(tx * ts, tz * ts);
+                        for (int n = 0; n < map.nodes.Length; n++)
+                        {
+                            var np = map.nodes[n];
+                            if (np.x < min.x || np.y < min.y || np.x >= min.x + ts || np.y >= min.y + ts) continue;
+                            if (!InBoxes(np)) continue;
+                            var arms = map.nodeEdges[n];
+                            bool branch = false;
+                            foreach (int ei in arms) if (trims.BranchAt(map.edges[ei], n) >= 0) branch = true;
+                            if (arms.Count < 3 && !branch) continue;
+                            nodesSeen++;
+                            if (probe.Contains(n))
+                            {
+                                sb.AppendLine(string.Format(inv, "NODE {0} at ({1:0.0},{2:0.0}) y {3:0.00} {4}: patch {5} mitre {6} cluster {7}", n, np.x, np.y, map.nodeY[n], CityAudit.LatLon(np.x, np.y),
+                                    trims.patch[n], trims.mitre[n], trims.ClusterOfNode(n) != null ? CityMeshes.FanKey(trims, n) : -1));
+                                foreach (int ei in arms)
+                                {
+                                    var e = map.edges[ei];
+                                    bool atA = e.a == n;
+                                    var row = new System.Text.StringBuilder(string.Format(inv, "  e{0} '{1}'{2} cls{3} w{4:0.0} trim {5:0.0} branch->e{6} through {7}:",
+                                        ei, e.name, e.link ? " L" : "", e.cls, e.width, trims.TrimAt(e, n), trims.BranchAt(e, n), trims.throughA[n] + "/" + trims.throughB[n]));
+                                    foreach (float d in new[] { 0f, 5f, 10f, 15f, 20f, 30f, 40f, 60f })
+                                    {
+                                        if (d > e.length) break;
+                                        float s = atA ? d : e.length - d;
+                                        CityMeshes.LaneExtents(map, trims, e, s, out float hl, out float hr);
+                                        row.Append(string.Format(inv, " [{0:0}m y{1:0.00} L{2:0.0} R{3:0.0}]", d, e.YAt(s), hl, hr));
+                                    }
+                                    sb.AppendLine(row.ToString());
+                                }
+                                foreach (var z in CityMeshes.Zones)
+                                    if (z.node == n) sb.AppendLine(string.Format(inv, "  zone {0} e{1} host e{2} {3} style {4} k {5} side {6} D {7:0.0} xf {8:0.0} clamp {9}", z.id, z.branch, z.host, z.merge ? "merge" : "diverge", z.style, z.k, z.side, z.D, z.xf, z.clamp ?? "-"));
+                            }
+                            foreach (int ei in arms)
+                                foreach (int oi in arms)
+                                {
+                                    if (ei == oi) continue;
+                                    var e = map.edges[ei]; var o = map.edges[oi];
+                                    if (e.a == e.b || o.a == o.b || !Minor(e, o)) continue;
+                                    bool atA = e.a == n;
+                                    float trim = trims.TrimAt(e, n);
+                                    float area = 0f; Vector2 at = np;
+                                    for (float d = trim; d <= Mathf.Min(60f, e.length - 0.5f); d += 1f)
+                                    {
+                                        float s = atA ? d : e.length - d;
+                                        CityMeshes.LaneExtents(map, trims, e, s, out float hl, out float hr);
+                                        if (hl + hr < 0.3f) continue;
+                                        var p0 = e.PointAt(s); var tE = e.TangentAt(s); var rE = new Vector2(-tE.y, tE.x);
+                                        float ye = e.YAt(s);
+                                        for (float l = -hl + 0.25f; l < hr; l += 0.5f)
+                                        {
+                                            var p = p0 + rE * l;
+                                            CityElevation.ProjectOn(o, p, out float so);
+                                            if (so < trims.atA[o.index] + 0.25f || so > o.length - trims.atB[o.index] - 0.25f) continue;
+                                            var q = o.PointAt(so); var tO = o.TangentAt(so); var rO = new Vector2(-tO.y, tO.x);
+                                            float lat = Vector2.Dot(p - q, rO);
+                                            if (Mathf.Abs(Vector2.Dot(p - q, tO)) > 0.6f) continue;   // off its end
+                                            CityMeshes.LaneExtents(map, trims, o, so, out float ol, out float or);
+                                            if (lat < -ol + 0.1f || lat > or - 0.1f) continue;
+                                            if (Mathf.Abs(o.YAt(so) - ye) > 3f) continue;
+                                            area += 0.5f;
+                                            at = p;
+                                        }
+                                    }
+                                    if (area <= 0f) continue;
+                                    long key = ((long)Mathf.Min(ei, oi) << 32) | (uint)Mathf.Max(ei, oi);
+                                    pairs.TryGetValue(key, out var pr);
+                                    pairs[key] = (pr.m2 + area, ei, oi, n, at);
+                                }
+                        }
+                        foreach (var m in new[] { tm.ground, tm.roads, tm.barriers, tm.kerbs, tm.water, tm.banks, tm.buildings, tm.lampPosts, tm.guardrails })
+                            if (m != null) Object.DestroyImmediate(m);
+                    }
+                float total = 0f; int over2 = 0;
+                foreach (var v in pairs.Values) { total += v.m2; if (v.m2 >= 2f) over2++; }
+                sb.AppendLine(string.Format(inv, "MOUTH OVERLAP ({10} box(es), the first x {0:0}..{1:0}, z {2:0}..{3:0}; {4} tiles, {5} junction nodes; mouth clip {6}): {7:0} m2 of a lesser road's drawn surface inside a greater one's at the same node, {8} pairs ({9} of 2 m2 or more)",
+                    box.x, box.z, box.y, box.w, tiles, nodesSeen, CityMeshes.MouthClipOn ? "on" : "off", total, pairs.Count, over2, boxes.Count));
+                var list = new List<(float m2, int e, int o, int n, Vector2 at)>(pairs.Values);
+                list.Sort((a, b) => b.m2.CompareTo(a.m2));
+                for (int i = 0; i < Mathf.Min(15, list.Count); i++)
+                {
+                    var v = list[i]; var e = map.edges[v.e]; var o = map.edges[v.o];
+                    sb.AppendLine(string.Format(inv, "  {0:0.0} m2: e{1} '{2}'{3} over e{4} '{5}'{6} at node {7} ({8:0},{9:0}) {10}", v.m2, v.e, e.name, e.link ? " L" : "", v.o, o.name, o.link ? " L" : "", v.n, v.at.x, v.at.y, CityAudit.LatLon(v.at.x, v.at.y)));
+                }
+                sb.AppendLine("BRANCH HOSTS MOVED to a greater road (city-wide): " + CityMeshes.HostMoves.Count);
+                for (int i = 0; i < Mathf.Min(25, CityMeshes.HostMoves.Count); i++)
+                {
+                    var h = CityMeshes.HostMoves[i]; var np = map.nodes[h.node];
+                    sb.AppendLine(string.Format(inv, "  node {0} ({1:0},{2:0}): e{3} '{4}' cls{5} from e{6} '{7}' cls{8} to e{9} '{10}' cls{11}", h.node, np.x, np.y,
+                        h.edge, map.edges[h.edge].name, map.edges[h.edge].cls, h.first, map.edges[h.first].name, map.edges[h.first].cls, h.host, map.edges[h.host].name, map.edges[h.host].cls));
+                }
+            }
+            catch (System.Exception ex) { sb.AppendLine("MOUTH CENSUS FAILED: " + ex); Debug.LogException(ex); }
+            finally
+            {
+                if (world != null) world.DropAll();
+                Object.DestroyImmediate(go);
+            }
+            File.WriteAllText(file, sb.ToString());
+            Debug.Log("[MouthCensus] " + sb.ToString().Replace("\n", " | "));
+        }
+
+        /// <summary>
+        /// THE OWNER'S ROAD SPOTS (2026-10-04, West Trade Street): driver-eye
+        /// frames through the GAME's camera in the Charlotte scene - its sky,
+        /// noon, its fog and grade, the game's framebuffer - at named eyes
+        /// looking at named aim points, so a road fix is shot before and after
+        /// from exactly where the owner stood. No HUD, no car.
+        /// PSX_ROAD_SPOTS="name,eyeX,eyeZ,aimX,aimZ[,eyeH];..." (game metres;
+        /// eyeH over the road under the eye, default 1.6 m); PSX_ROAD_TAG is
+        /// appended to every file name (before / after). PNGs:
+        /// Screenshots\roadspot_&lt;name&gt;_&lt;tag&gt;.png.
+        /// Headless: -executeMethod PSXRacing.EditorTools.CityPreview.RunRoadSpots
+        /// (after a scene build: it opens Charlotte.unity).
+        /// </summary>
+        public static void RunRoadSpots()
+        {
+            var def = System.Array.Find(TrackCatalog.All, d => d.id == "Charlotte");
+            if (def == null || !PSXScreenshotTool.Open(def, out var cam, out var player)) { Debug.LogError("[RoadSpots] Charlotte.unity did not open"); return; }
+            var map = CityMap.Get();
+            if (map == null) { Debug.LogError("[RoadSpots] no city data"); return; }
+            PSXRacingBuilder.EnsureCityTextures();
+            foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None)) c.enabled = false;
+            if (player != null) player.SetActive(false);
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            string tag = System.Environment.GetEnvironmentVariable("PSX_ROAD_TAG") ?? "";
+            var sun = GameObject.Find("Sun")?.GetComponent<Light>();
+            var globals = Object.FindFirstObjectByType<PSXGlobals>();
+            int oldWeather = RaceHandoff.WeatherOverride;
+            RaceHandoff.WeatherOverride = 0;
+            var go = new GameObject("~roadSpotsWorld");
+            var world = go.AddComponent<CityWorld>();
+            var log = new System.Text.StringBuilder();
+            float RoadY(Vector2 p)
+            {
+                if (map.NearestRoadPoint(p, 30f, false, out int ei, out float s, out _)) return map.edges[ei].YAt(s);
+                return CityElevation.GroundY(map, p.x, p.y);
+            }
+            try
+            {
+                foreach (var part in (System.Environment.GetEnvironmentVariable("PSX_ROAD_SPOTS") ?? "").Split(';'))
+                {
+                    var f = part.Split(',');
+                    if (f.Length < 5) continue;
+                    var v = new float[f.Length - 1];
+                    bool ok = true;
+                    for (int i = 1; i < f.Length; i++) ok &= float.TryParse(f[i], System.Globalization.NumberStyles.Float, inv, out v[i - 1]);
+                    if (!ok) continue;
+                    Vector2 e2 = new Vector2(v[0], v[1]), a2 = new Vector2(v[2], v[3]);
+                    float eyeH = v.Length > 4 ? v[4] : 1.6f;
+                    var eye = new Vector3(e2.x, RoadY(e2) + eyeH, e2.y);
+                    var aim = new Vector3(a2.x, RoadY(a2) + 1.0f, a2.y);
+                    var rot = Quaternion.LookRotation(aim - eye);
+                    world.EnsureRing(eye, world.ring);
+                    world.EnsureRing(aim, 1);
+                    TimeOfDay.Apply(TimeOfDay.Noon, sun);
+                    NightGlow.PreviewAll(false);
+                    if (globals != null) globals.Apply();
+                    cam.transform.SetPositionAndRotation(eye, rot);
+                    world.RefreshSkyline(cam);
+                    string name = "roadspot_" + f[0].Trim() + (tag.Length > 0 ? "_" + tag : "");
+                    PSXScreenshotTool.ShotAs(cam, name, eye, rot);
+                    log.Append(string.Format(inv, "{0}: eye ({1:0.0},{2:0.00},{3:0.0}) aim ({4:0.0},{5:0.00},{6:0.0}) {7}\n", name, eye.x, eye.y, eye.z, aim.x, aim.y, aim.z, CityAudit.LatLon(e2.x, e2.y)));
+                    world.DropAll();
+                }
+            }
+            finally
+            {
+                RaceHandoff.WeatherOverride = oldWeather;
+                if (world != null) world.DropAll();
+                Object.DestroyImmediate(go);
+            }
+            Debug.Log("[RoadSpots] " + log.ToString().Replace("\n", " | "));
+        }
+
+        /// <summary>
+        /// The road-fix battery in one editor start: PSX_ROAD_STEPS lists
+        /// "poles", "mouth" and "spots" (default all three); spots last, since
+        /// it opens the Charlotte scene.
+        /// Headless: -executeMethod PSXRacing.EditorTools.CityPreview.RunRoadBattery
+        /// </summary>
+        public static void RunRoadBattery()
+        {
+            string steps = System.Environment.GetEnvironmentVariable("PSX_ROAD_STEPS") ?? "poles,mouth,spots";
+            if (steps.Contains("poles")) RunGuarded("poles", CityRefSpots.RunPoleCensus);
+            if (steps.Contains("mouth")) RunGuarded("mouth", RunMouthCensus);
+            if (steps.Contains("spots")) RunGuarded("spots", RunRoadSpots);
+            Debug.Log("[RoadBattery] done: " + steps);
+        }
+
+        static void RunGuarded(string name, System.Action step)
+        {
+            try { step(); }
+            catch (System.Exception ex) { Debug.LogError("[RoadBattery] " + name + " failed: " + ex); }
+        }
+
+        /// <summary>
         /// NAMED EYE VIEWS THROUGH THE GAME'S CAMERA (2026-10-04, the open
         /// ground edges' BEFORE/AFTER): the Eye views PSX_EYE_VIEWS names
         /// (a comma list of <see cref="NamedViews"/> names), 1.2 m over the

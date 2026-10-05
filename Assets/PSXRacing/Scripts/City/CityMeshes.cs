@@ -959,6 +959,10 @@ namespace PSXRacing.City
         /// Sixty degrees. Below that a fan's corner cones overlap and its
         /// triangles fold over the arms; a clipped mouth is exact.</summary>
         const float BranchCos = 0.5f;
+        /// <summary>The last ComputeTrims' branches whose host moved to a
+        /// greater road than the first pair's (node, branch, first, host).</summary>
+        public static readonly List<(int node, int edge, int first, int host)> HostMoves = new List<(int, int, int, int)>();
+        public static int HostMovesN;
         const float ContinueCos = -0.906f;  // a two-arm node bending less than 25 deg is a bend in the ribbon
 
         /// <summary>Kept for callers that only ever wanted a per-node
@@ -986,6 +990,8 @@ namespace PSXRacing.City
 
             var arms = new List<(CityMap.Edge e, Vector2 dir, float hw)>(8);
             var clipped = new List<int>(8);     // arm index -> arm it clips against, or -1
+            HostMoves.Clear();
+            var clipFirst = new List<int>(8);   // the first pair's host (the before): the crossing test and the fan trims read it
             int crossingCount = 0;
             var crossFlags = new bool[nn];
             var joins = new List<(int node, int e, int o)>(1024);
@@ -1038,8 +1044,8 @@ namespace PSXRacing.City
 
                 // Shallow pairs are CLIPPED, not trimmed: the arm that is a
                 // link, or narrower, or of the lower class hugs the other.
-                clipped.Clear();
-                for (int i = 0; i < arms.Count; i++) clipped.Add(-1);
+                clipped.Clear(); clipFirst.Clear();
+                for (int i = 0; i < arms.Count; i++) { clipped.Add(-1); clipFirst.Add(-1); }
                 for (int i = 0; i < arms.Count; i++)
                     for (int j = i + 1; j < arms.Count; j++)
                     {
@@ -1054,8 +1060,45 @@ namespace PSXRacing.City
                         if (through && (j == tA || j == tB)) iClips = true;
                         if (through && (i == tA || i == tB)) iClips = false;
                         int c = iClips ? i : j, h = iClips ? j : i;
+                        if (clipFirst[c] < 0) clipFirst[c] = h;
                         if (clipped[c] < 0) clipped[c] = h;
                     }
+                // A LESSER ROAD ENDS AT THE ROAD WHOSE EDGE IT MEETS (2026-10-04;
+                // the owner on West Trade Street: "Roads should not overlap or
+                // clip"). A branch shallow to two arms took the first pair's
+                // host: I-77's off-ramp e280 at node 505 hugged the on-ramp e281,
+                // which is itself clipped onto West Trade and lies wholly inside
+                // it (its merge zone's added lane), so the off-ramp was clipped
+                // against a zero-width ramp and drew its whole width over West
+                // Trade's lanes for 25 m (98 m2). A branch whose host is a LINK
+                // clipped onto a third arm, shallow to it too, now clips onto
+                // that third arm: the ramp it hugged has no edge of its own
+                // there. A host that is a road of its own (South Kings Drive
+                // between Henley Place and East Morehead Street) keeps its
+                // branch: it has a surface between the two. Only the host
+                // moves: the crossing test and a fan's trims still read the
+                // first pair's (clipFirst), so no junction changes kind or trim.
+                // PSX_CITY_MOUTHCLIP=0 is the before.
+                if (MouthClipOn)
+                    for (int c = 0; c < arms.Count; c++)
+                    {
+                        int h0 = clipped[c];
+                        if (h0 < 0 || !arms[h0].e.link) continue;
+                        int h1 = clipped[h0];
+                        if (h1 < 0 || h1 == c || Vector2.Dot(arms[c].dir, arms[h1].dir) < BranchCos) continue;
+                        if (ClipsOnto(c, h1)) clipped[c] = h1;
+                    }
+                // the pair rule above, for one ordered pair
+                bool ClipsOnto(int c, int h)
+                {
+                    if (through && (c == tA || c == tB)) return false;
+                    if (through && (h == tA || h == tB)) return true;
+                    var ec = arms[c].e; var eh = arms[h].e;
+                    if (ec.link != eh.link) return ec.link;
+                    if (ec.cls != eh.cls) return ec.cls < eh.cls;
+                    if (Mathf.Abs(arms[c].hw - arms[h].hw) > 0.05f) return arms[c].hw < arms[h].hw;
+                    return c < h;
+                }
 
                 // A ROAD CROSSING AT GRADE (leftover item 3; the owner, Little
                 // Rock Road under I-85: "a mess"): a branch clipped beside the
@@ -1084,10 +1127,10 @@ namespace PSXRacing.City
                     var fwd = -arms[tA].dir;
                     for (int i = 0; i < arms.Count && !crossing; i++)
                     {
-                        if (i == tA || i == tB || clipped[i] != tA) continue;
+                        if (i == tA || i == tB || clipFirst[i] != tA) continue;
                         for (int j = 0; j < arms.Count; j++)
                         {
-                            if (j == tA || j == tB || j == i || clipped[j] != tB) continue;
+                            if (j == tA || j == tB || j == i || clipFirst[j] != tB) continue;
                             if (!arms[i].e.link || !arms[j].e.link) continue;   // a ramp or turning roadway crossing (see above)
                             if (Vector2.Dot(arms[i].dir, arms[j].dir) > CrossingPairCos) continue;
                             float si = fwd.x * arms[i].dir.y - fwd.y * arms[i].dir.x;
@@ -1100,7 +1143,7 @@ namespace PSXRacing.City
                     // every arm a junction arm: Little Rock Road's ramps cross its
                     // carriageways at 19-21 deg, and their two pavements overlap for
                     // 30 m before the crossing point - all of it the junction's
-                    if (crossing) { for (int i = 0; i < arms.Count; i++) clipped[i] = -1; crossingCount++; crossFlags[n] = true; }
+                    if (crossing) { for (int i = 0; i < arms.Count; i++) clipped[i] = clipFirst[i] = -1; crossingCount++; crossFlags[n] = true; }
                 }
 
                 // A through road with nothing but branches beside it draws
@@ -1121,6 +1164,7 @@ namespace PSXRacing.City
                         var e = arms[i].e;
                         if (e.a == n) t.branchA[e.index] = arms[clipped[i]].e.index;
                         else t.branchB[e.index] = arms[clipped[i]].e.index;
+                        if (clipFirst[i] != clipped[i]) HostMoves.Add((n, e.index, arms[clipFirst[i]].e.index, arms[clipped[i]].e.index));
                     }
                     continue;
                 }
@@ -1143,7 +1187,7 @@ namespace PSXRacing.City
                         if (j == i) continue;
                         float d = Vector2.Dot(arms[i].dir, arms[j].dir);
                         if (d < ThroughCos) continue;                       // straight through: no overlap
-                        if (clipped[i] == j || clipped[j] == i) continue;   // handled by clipping
+                        if (clipFirst[i] == j || clipFirst[j] == i) continue;   // handled by clipping
                         float sin = Mathf.Max(crossing ? CrossingMinSin : 0.5f, Mathf.Sqrt(Mathf.Max(0f, 1f - d * d)));
                         // the reach off the OSM line on the further side: an
                         // arm offset by the line model overlaps by that much more
@@ -1166,11 +1210,13 @@ namespace PSXRacing.City
                     {
                         if (e.a == n) t.branchA[e.index] = arms[clipped[i]].e.index;
                         else t.branchB[e.index] = arms[clipped[i]].e.index;
+                        if (clipFirst[i] != clipped[i]) HostMoves.Add((n, e.index, arms[clipFirst[i]].e.index, arms[clipped[i]].e.index));
                     }
                 }
             }
 
             CrossingNodes = crossingCount;
+            HostMovesN = HostMoves.Count;
             CrossingNodeFlags = crossFlags;
             // roads pass L7 (plan A10): the curb returns' trims
             var medianX = JunctionTrims(map, t);
@@ -8881,7 +8927,7 @@ namespace PSXRacing.City
         /// the tile's, and every tile within reach of the node holds it.)</summary>
         static bool ArmCollapsedAtTrim(CityMap map, Trims trims, CityMap.Edge e, int node)
         {
-            if (trims.BranchAt(e, node) < 0) return false;
+            if (furnRingBuild || trims.BranchAt(e, node) < 0) return false;
             float trim = trims.TrimAt(e, node);
             LaneExtents(map, trims, e, e.a == node ? trim : e.length - trim, out float hwL, out float hwR);
             return hwL + hwR < 0.3f;

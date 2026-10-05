@@ -267,6 +267,79 @@ export function lineClean(ctx) {
     }
     return runs;
   };
+  // THE BLIP RULE (2026-10-04; the owner on West Trade Street: "Adding a
+  // lane is different than forcing a lane to move over and back twice at 45
+  // degree angles within a few feet"). A street piece wider (or narrower)
+  // than the same layout either side of it needs room for its tapers - the
+  // MUTCD length, L = W S^2 / 60 below 45 mph and W S from 45 (never under
+  // the class floor), at each end that is NOT a junction fan (a fan's mouth
+  // takes a lane change full width; a mitred node, a 2-arm node or a node
+  // with only branches beside the road leaves the step in the open) - plus
+  // a full-width stretch of a class floor. Shorter, it is ignored: it takes
+  // its neighbours' layout, tag or not, rather than be drawn as two eases
+  // that never reach full width (West Trade's 38 m 3+3 piece between two
+  // 3+2 ones, eased out over 19 m and back over 30). Streets only: on a
+  // freeway or a ramp the merge zones (L5) own the aux lanes.
+  // PSX_LC_BLIPS=1: the rule on; off (the default) is the before.
+  const BLIP_RULE = process.env.PSX_LC_BLIPS === '1';   // OFF by default (2026-10-05): its re-export failed the drive audit (see Docs/CHARLOTTE.md)
+  laneFix.blip = 0; laneFixM.blip = 0;
+  const armsN = nodeEdgesOf(edges, nodes.length);
+  /// Does node n draw a fan (CityMeshes.ComputeTrims' rule, replicated):
+  /// three or more arms, and not a road going through with only branches
+  /// (arms within 60 degrees of another, the lesser one clipped) beside it.
+  const fanMemo = new Map();
+  const fanNode = n => {
+    if (fanMemo.has(n)) return fanMemo.get(n);
+    const arms = armsN[n].filter(e => e.a !== e.b).map(e => ({ e, d: outDir(e, n), link: !!e.way.link, rank: e.way.rank, w: profOf(e).width }));
+    let fan = arms.length >= 3;
+    if (fan) {
+      let tA = -1, tB = -1, best = 1;
+      for (let pass = 0; pass < 2 && tA < 0; pass++)
+        for (let i = 0; i < arms.length; i++) for (let j = i + 1; j < arms.length; j++) {
+          if (pass === 0 && (arms[i].link || arms[j].link)) continue;
+          const d = arms[i].d[0] * arms[j].d[0] + arms[i].d[1] * arms[j].d[1];
+          if (d < best) { best = d; tA = i; tB = j; }
+        }
+      if (tA >= 0 && best < -0.85) {
+        const isT = k => k === tA || k === tB;
+        const clipped = new Array(arms.length).fill(false);
+        for (let i = 0; i < arms.length; i++) for (let j = i + 1; j < arms.length; j++) {
+          const ai = arms[i], aj = arms[j];
+          if (ai.d[0] * aj.d[0] + ai.d[1] * aj.d[1] < 0.5 || (isT(i) && isT(j))) continue;
+          let iClips = ai.link !== aj.link ? ai.link : ai.rank !== aj.rank ? ai.rank < aj.rank : Math.abs(ai.w - aj.w) > 0.1 ? ai.w < aj.w : true;
+          if (isT(j)) iClips = true;
+          if (isT(i)) iClips = false;
+          clipped[iClips ? i : j] = true;
+        }
+        fan = false;
+        for (let k = 0; k < arms.length; k++) if (!isT(k) && !clipped[k]) { fan = true; break; }
+      }
+    }
+    fanMemo.set(n, fan);
+    return fan;
+  };
+  /// The length a blip B between two runs like A needs (0: the rule does not
+  /// apply): at each end that is not a fan the taper TAPR would draw there
+  /// (plan B6 FX4's standard lengths: a turn bay 12:1 within 30-55 m, an
+  /// added lane 15:1, a dropped lane the MUTCD merging taper, WS^2/60 below
+  /// 45 mph and WS from 45; none under the class floor), plus a class floor
+  /// at full width.
+  const blipNeed = (chain, A, B) => {
+    const way = B.rep.way;
+    if (way.rank >= 4 || way.link || A.rep.way.link) return 0;
+    const wB = profOf(B.rep).width, wA = profOf(A.rep).width;
+    const dw = Math.min(Math.abs(wB - wA), 3.6576);
+    if (dw < 0.05) return 0;
+    const floor = floorOf(way);
+    const bay = /left|right/.test((way.tl || '') + '|' + (way.tlf || '') + '|' + (way.tlb || ''));
+    const add = Math.max(floor, 15 * dw), drop = Math.max(floor, mutcdLen(dw, mphOf(way)));
+    const tIn = bay ? Math.min(55, Math.max(30, 12 * dw)) : wB > wA ? add : drop;
+    const tOut = bay ? Math.min(55, Math.max(30, 12 * dw)) : wB > wA ? drop : add;
+    const k0 = B.items[0], k1 = B.items[B.items.length - 1];
+    const n0 = chain[k0].fwd ? chain[k0].e.a : chain[k0].e.b;
+    const n1 = chain[k1].fwd ? chain[k1].e.b : chain[k1].e.a;
+    return (fanNode(n0) ? 0 : tIn) + (fanNode(n1) ? 0 : tOut) + floor;
+  };
   for (const chain of chains) {
     for (let guard = 0; guard < 200; guard++) {
       const runs = runsOf(chain);
@@ -277,7 +350,8 @@ export function lineClean(ctx) {
         // A piece whose count is its OWN lanes= tag is data - a turn bay, an
         // auxiliary lane, a real lane drop - and TAPR draws it on ONE side;
         // it is never deleted (review 1: 2,194 tagged edges, 1,231 of them
-        // naming the lane in turn:lanes, lost it). Only untagged flickers go.
+        // naming the lane in turn:lanes, lost it). Only untagged flickers go
+        // (and, since 2026-10-04, a blip with no room for its tapers: step 5).
         if (B.own) { if (B.len < 100 || B.len < 2 * floorOf(B.rep.way)) keptTagged++; continue; }
         let why = null;
         if (B.len < 100) why = 'flicker';
@@ -467,6 +541,42 @@ export function lineClean(ctx) {
 
   // ---------------------------------------------------- 5. TAPR
   ({ chains, chainOf } = buildChains(edges, nodes, true));
+  // THE BLIP RULE's fix (above), on the chains TAPR draws, after the
+  // simplify: the geometry and the graph are the same either way, only the
+  // lanes change. A fixed piece takes the layout of its longer neighbour.
+  if (BLIP_RULE)
+    for (const chain of chains)
+      for (let guard = 0; guard < 200; guard++) {
+        const runs = runsOf(chain);
+        let fixed = false;
+        for (let i = 1; i + 1 < runs.length && !fixed; i++) {
+          const A = runs[i - 1], B = runs[i], C = runs[i + 1];
+          if (A.key !== C.key || B.len >= blipNeed(chain, A, B)) continue;
+          const srcRun = A.len >= C.len ? A : C, src = srcRun.rep;
+          for (const k of B.items) { chain[k].e.lanes = src.lanes; chain[k].e.turn = src.turn; chain[k].e.laneFix = 'blip'; chain[k].e.lsetFrom = { e: src, flip: chain[k].fwd !== srcRun.repFwd }; }
+          laneFix.blip++; laneFixM.blip += B.len;
+          fixed = true;
+        }
+        if (!fixed) break;
+      }
+  stats.lane_fix_km.blip = +(laneFixM.blip / 1000).toFixed(2);
+  // the census (the rule on or off): blips left with no room for their tapers
+  {
+    let left = 0, leftM = 0;
+    const where = [];
+    for (const chain of chains) {
+      const runs = runsOf(chain);
+      for (let i = 1; i + 1 < runs.length; i++) {
+        const A = runs[i - 1], B = runs[i], C = runs[i + 1];
+        if (A.key !== C.key) continue;
+        const need = blipNeed(chain, A, B);
+        if (B.len >= need) continue;
+        left++; leftM += B.len;
+        if (where.length < 12) { const e = B.rep; where.push(`w${e.way.id} '${e.way.name || ''}' ${B.len.toFixed(0)}/${need.toFixed(0)} m at (${e.pts[0][0].toFixed(0)},${e.pts[0][1].toFixed(0)})`); }
+      }
+    }
+    stats.blips_left = { count: left, km: +(leftM / 1000).toFixed(2), rule: BLIP_RULE, where };
+  }
   const tapr = [];
   // Roads pass L4: the lanes each way come from THE split the paint uses
   // (lib/lineset.mjs makeSplitOf), and on a two-way road EACH DIRECTION

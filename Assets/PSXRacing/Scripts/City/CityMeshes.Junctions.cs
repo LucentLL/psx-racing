@@ -354,6 +354,100 @@ namespace PSXRacing.City
         }
 
         // ------------------------------------------------------------------
+        //  FURNITURE OFF THE JUNCTION PAVEMENT (2026-10-04; the owner, West
+        //  Trade Street: "I keep finding traffic light posts in the middle of
+        //  intersections"). A signal pole's foot was tested against every
+        //  road's RIBBON (RoadsideOccupancy.RoadEdgeDistance: the line model's
+        //  extents along the OSM line) and never against the junction's own
+        //  pavement - the fan between the arms, its curb returns (15 m at a
+        //  ramp terminal) and a cluster's one ring - so the first spot clear
+        //  of the ribbons was often out on the fan, in the travelled way.
+        //  These are the fans' plan rings as FanCorners draws them, computed
+        //  from the graph and the trims alone (no tile build's clip state: a
+        //  clipped branch arm keeps its nominal mouth, which only makes the
+        //  ring larger), so a pole stands the same whichever tile asks first.
+        //  PSX_CITY_POLEFANS=0: the old placement (the before).
+        // ------------------------------------------------------------------
+        public static bool FurnitureOffFans = System.Environment.GetEnvironmentVariable("PSX_CITY_POLEFANS") != "0";
+        /// <summary>PSX_CITY_MOUTHCLIP=0: a lesser road's mouth as before (see MouthClip).</summary>
+        public static bool MouthClipOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MOUTHCLIP") != "0";
+        static readonly Dictionary<int, Vector2[]> furnRings = new Dictionary<int, Vector2[]>();
+        static Trims furnRingsFor;
+        static readonly List<FanCorner> furnCorners = new List<FanCorner>(16);
+        static readonly HashSet<int> furnSegs = new HashSet<int>();
+        static readonly HashSet<int> furnKeys = new HashSet<int>();
+        /// <summary>Set while a furniture ring is cornered: no arm counts as
+        /// collapsed (that reads a tile build's clips).</summary>
+        static bool furnRingBuild;
+
+        /// <summary>The plan ring of the fan patched node n draws into (its
+        /// cluster's one ring), anticlockwise; null where it has none.</summary>
+        public static Vector2[] FanRingOf(CityMap map, Trims trims, int n)
+        {
+            if (furnRingsFor != trims) { furnRings.Clear(); furnRingsFor = trims; }
+            if (trims == null || !trims.patch[n]) return null;
+            int k = FanKey(trims, n);
+            if (furnRings.TryGetValue(k, out var ring)) return ring;
+            var log = CurbLog;
+            CurbLog = null; furnRingBuild = true;
+            try { FanCorners(map, trims, k, Vector3.zero, furnCorners); }
+            finally { CurbLog = log; furnRingBuild = false; }
+            ring = null;
+            if (furnCorners.Count >= 3)
+            {
+                ring = new Vector2[furnCorners.Count];
+                for (int i = 0; i < ring.Length; i++) ring[i] = new Vector2(furnCorners[i].pos.x, furnCorners[i].pos.z);
+            }
+            furnRings[k] = ring;
+            return ring;
+        }
+
+        /// <summary>How far a point is from the nearest junction fan's
+        /// pavement (0 on it), looked for within <paramref name="reach"/>;
+        /// past it, reach + 1.</summary>
+        public static float JunctionPavementDistance(CityMap map, Trims trims, Vector2 q, float reach)
+        {
+            float best = reach + 1f;
+            if (map == null || trims == null) return best;
+            furnSegs.Clear(); furnKeys.Clear();
+            // a fan reaches at most a trim (curb returns: 18 m tangents) and a
+            // half width past its node; a cluster's ring 80 m across
+            float look = reach + 60f;
+            map.EdgeSegsInRect(q - Vector2.one * look, q + Vector2.one * look, furnSegs);
+            foreach (int packed in furnSegs)
+            {
+                var e = map.edges[packed >> 12];
+                for (int end = 0; end < 2; end++)
+                {
+                    int n = end == 0 ? e.a : e.b;
+                    if (!trims.patch[n] || !furnKeys.Add(FanKey(trims, n))) continue;
+                    var ring = FanRingOf(map, trims, n);
+                    if (ring == null) continue;
+                    float d = RingDistance(ring, q);
+                    if (d < best) { best = d; if (best <= 0f) return 0f; }
+                }
+            }
+            return best;
+        }
+
+        /// <summary>0 inside a ring (even-odd), else the distance to it.</summary>
+        static float RingDistance(Vector2[] ring, Vector2 q)
+        {
+            bool inside = false;
+            float best = float.MaxValue;
+            for (int i = 0, j = ring.Length - 1; i < ring.Length; j = i++)
+            {
+                Vector2 a = ring[j], b = ring[i];
+                if ((b.y > q.y) != (a.y > q.y) && q.x < (a.x - b.x) * (q.y - b.y) / (a.y - b.y) + b.x) inside = !inside;
+                var d = b - a;
+                float L2 = d.sqrMagnitude;
+                float t = L2 > 1e-8f ? Mathf.Clamp01(Vector2.Dot(q - a, d) / L2) : 0f;
+                best = Mathf.Min(best, (q - (a + d * t)).magnitude);
+            }
+            return inside ? 0f : best;
+        }
+
+        // ------------------------------------------------------------------
         //  JUNCTION SURFACE (leftover item 3, 2026-10-03; the owner: the paved
         //  junction at Trade x Tryon "reads as a patch" from above). A
         //  junction was aged from its own node (40% fresh by the position

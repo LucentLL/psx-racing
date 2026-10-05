@@ -7124,6 +7124,48 @@ to a lattice that lay deeper than the verge beside it.
   (uptown): nothing solid in a lane 0; the same three FAILs as B2-B4 (rail
   ends 12, invisible colliders 5 + 28). Preview: `CityPreview.RunUptownRef`
   has a close view of each hero (`close_*`).
+## West Trade Street road fixes (2026-10-05): poles off the fans, ramps end at the road, lane blips
+
+The owner on West Trade Street: "I keep finding traffic light posts in the
+middle of intersections. Roads should not overlap or clip. Adding a lane is
+different than forcing a lane to move over and back twice at 45 degrees
+within a few feet."
+
+- POLES. `CitySignals.FootOk` tested a signal or STOP foot against the road
+  ribbons only, never the junction fan (curb returns, cluster rings), so
+  `FarCorner` often stood the pole out on the fan. A foot now also keeps its
+  offset (1.0 m signals, 0.6 m STOP) clear of every fan ring
+  (`CityMeshes.FurnitureOffFans` / `JunctionPavementDistance`, rings built
+  from the graph and trims alone). `CityRefSpots.RunPoleCensus`, city-wide:
+  signal poles on the drivable surface 757 -> 0 (all on fans), within 0.6 m
+  133 -> 0; STOP posts 0 -> 0. Cost: 50 fewer poles, approaches with no clear
+  spot 390 -> 418. PSX_CITY_POLEFANS=0 is the before.
+- MOUTHS. At node 505 (West Trade x the I-77 ramps) the off-ramp e280 was
+  shallow to both the on-ramp e281 and West Trade, and took the first pair's
+  host, e281 - itself clipped onto West Trade and wholly inside it (merge
+  zone). Clipped against a zero-width ramp, e280 drew its full width over
+  West Trade's lanes for 25 m. (Heights agree to 5 cm: AttachDy was not it.)
+  `ComputeTrims` now moves a branch whose host is a LINK clipped onto a third
+  arm, shallow to it too, onto that third arm. A road of its own between the
+  two keeps its branch (South Kings Drive between Henley Place and Morehead:
+  the first try, "greatest candidate", put Henley over Kings). The crossing
+  test and fan trims read the first host (`clipFirst`), so no junction
+  changes kind or trim. Six branches move city-wide (`CityMeshes.HostMoves`).
+  `CityPreview.RunMouthCensus` (lesser surface inside a greater one at the
+  same node): West Trade box 107 -> 5 m2 (left: e9612 over e9611, both West
+  Trade, node 10935); around all 24 candidate nodes 871 -> 379 m2 (left: the
+  Kings/Morehead tangle and a ramp-on-ramp triangle at node 3844).
+  PSX_CITY_MOUTHCLIP=0 is the before.
+- BLIPS (OFF). lineclean's BLIP RULE gives a street piece with no room for its
+  FX4/MUTCD tapers its neighbours' layout (West Trade's 38 m 3+3 piece between
+  3+2 ones: blips 2,060 -> 0, 1,626 fixed). Its re-export failed the drive
+  audit: West 5th Street e8318's line offset flipped (-3462,6052) and land
+  stands 0.82 m over its lane; a widened North Tryon piece left a 0.56 m
+  ledge. The rule stays in the code, OFF: PSX_LC_BLIPS=1 switches it on; the
+  shipped data is the rule-off export (byte-identical to the last).
+- Tools: `CityPreview.RunRoadBattery` (PSX_ROAD_STEPS poles,mouth,spots),
+  `RunRoadSpots` (PSX_ROAD_SPOTS driver-eye frames, PSX_ROAD_TAG),
+  `RunMouthCensus` (PSX_MOUTH_BOX, several boxes with ';'; PSX_PROBE_NODES).
 
 ## Not in v1 (in order of likely next)
 

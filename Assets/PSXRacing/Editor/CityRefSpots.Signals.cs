@@ -101,6 +101,82 @@ namespace PSXRacing.EditorTools
             public CityBuildings.B b; public float oldGap, newGap, seatOld, seatNew, hiG, loG; public Vector2 lowAt; public bool dropped;
         }
 
+        /// <summary>
+        /// THE POLE CENSUS (2026-10-04; the owner on West Trade Street: "I keep
+        /// finding traffic light posts in the middle of intersections"): every
+        /// signal pole and STOP post in the city, before (PSX_CITY_POLEFANS off:
+        /// feet tested against the ribbons only) and after (and against the
+        /// junction fans), each foot tested against the drivable surface - every
+        /// ribbon (the line model's extents) and every junction fan's ring
+        /// (curb returns, clusters). Counts a foot ON it (its radius touching)
+        /// and within MUTCD's 0.6 m of it. Writes pole_census.txt at the project
+        /// root. Headless: -executeMethod PSXRacing.EditorTools.CityRefSpots.RunPoleCensus
+        /// </summary>
+        public static void RunPoleCensus()
+        {
+            string file = Path.Combine(ProjectRoot(), "pole_census.txt");
+            if (File.Exists(file)) File.Delete(file);
+            var log = new StringBuilder();
+            var map = CityMap.Get();
+            if (map == null) { Debug.LogError("[PoleCensus] no city data"); return; }
+            var go = new GameObject("~poleCensus");
+            var world = go.AddComponent<CityWorld>();
+            bool was = CityMeshes.FurnitureOffFans;
+            try
+            {
+                world.EnsureRing(new Vector3(map.uptown.x, 0f, map.uptown.y), 0);
+                world.DropAll();
+                var trims = world.NodeTrims;
+                var bld = world.Buildings;
+                var tiles = CitySignals.Tiles(map, trims);
+                foreach (bool on in new[] { false, true })
+                {
+                    CityMeshes.FurnitureOffFans = on;
+                    int poles = 0, stops = 0, onFan = 0, onRib = 0, nearAny = 0, stopOn = 0, stopNear = 0, refused = 0;
+                    var rows = new List<string>();
+                    var clock = System.Diagnostics.Stopwatch.StartNew();
+                    foreach (var t in tiles)
+                    {
+                        var st = CitySignals.Build(map, trims, bld, null, null, t.x, t.y);
+                        refused += st.refused;
+                        void Test(Vector3 foot, float r, bool stop)
+                        {
+                            var f = new Vector2(foot.x, foot.z);
+                            int tx = Mathf.FloorToInt(f.x / CityMeshes.TileSize), tz = Mathf.FloorToInt(f.y / CityMeshes.TileSize);
+                            var sm = RoadsideOccupancy.Static(map, trims, bld, tx, tz);
+                            float dRib = sm.RoadEdgeDistance(f, 3f, out _, out int edge, out _);
+                            float dFan = CityMeshes.JunctionPavementDistance(map, trims, f, 3f);
+                            float d = Mathf.Min(dRib, dFan) - r;
+                            if (stop) { stops++; if (d < 0f) stopOn++; else if (d < 0.6f) stopNear++; }
+                            else
+                            {
+                                poles++;
+                                if (d < 0f) { if (dFan - r < 0f) onFan++; else onRib++; }
+                                else if (d < 0.6f) nearAny++;
+                            }
+                            if (d < 0f && rows.Count < 15)
+                                rows.Add($"    {(stop ? "STOP post" : "signal pole")} at ({f.x:0.0}, {f.y:0.0}) {CityAudit.LatLon(f.x, f.y)}: {(dFan - r < 0f ? "on a junction fan" : $"on e{edge} '{(edge >= 0 ? map.edges[edge].name : "")}'s ribbon")} (fan {dFan:0.00} m, ribbon {dRib:0.00} m)");
+                        }
+                        foreach (var p in st.poles) Test(p.foot, CitySignals.PoleColliderW * 0.5f, false);
+                        foreach (var s in st.stops) Test(s.foot, 0.05f, true);
+                        foreach (var m in new[] { st.mesh, st.lamps, st.halos }) if (m != null) Object.DestroyImmediate(m);
+                    }
+                    log.AppendLine($"POLES {(on ? "AFTER (feet off the junction fans)" : "BEFORE (PSX_CITY_POLEFANS=0)")}: {poles} signal poles over {tiles.Count} tiles - ON the drivable surface {onFan + onRib} (on a junction fan {onFan}, on a ribbon {onRib}), within 0.6 m of it {nearAny}; " +
+                                  $"{stops} STOP posts - on it {stopOn}, within 0.6 m {stopNear}; approaches with no clear spot {refused}; {clock.ElapsedMilliseconds} ms");
+                    foreach (var r in rows) log.AppendLine(r);
+                }
+            }
+            catch (System.Exception e) { log.AppendLine("POLE CENSUS FAILED: " + e); Debug.LogException(e); }
+            finally
+            {
+                CityMeshes.FurnitureOffFans = was;
+                if (world != null) world.DropAll();
+                Object.DestroyImmediate(go);
+            }
+            File.WriteAllText(file, log.ToString());
+            Debug.Log("[PoleCensus] " + log.ToString().Replace("\n", " | "));
+        }
+
         public static void RunSignals()
         {
             var map = CityMap.Get();

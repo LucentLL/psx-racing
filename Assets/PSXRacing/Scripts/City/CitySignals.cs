@@ -770,6 +770,10 @@ namespace PSXRacing.City
             if (RaceRunOff.Inside(map, trimsNow, f)) return false;
             float d = sm.RoadEdgeDistance(f, offM + r + 2f, out _, out _, out _);
             if (d < offM + r) return false;
+            // ... and past the junction's own pavement: the fan, its curb
+            // returns, a cluster's ring (2026-10-04, West Trade Street: a span
+            // wire's pole stood out on the fan, in the travelled way)
+            if (CityMeshes.FurnitureOffFans && CityMeshes.JunctionPavementDistance(map, trimsNow, f, offM + r) < offM + r) return false;
             // the ground not too far off the road's (no pole down a bank)
             return true;
         }

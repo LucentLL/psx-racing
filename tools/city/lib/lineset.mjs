@@ -141,7 +141,18 @@ export function buildLineSets(edges, profileFor, tapr) {
     const lfb = Number.isFinite(w.lf) && Number.isFinite(w.lb);
     const marked = lt.lm !== -1 && (w.rank >= 1 || lt.lm === 1 || (w.tagged && w.lanes >= 3) || lfb);
     const flags = (marked ? LS_MARKED : 0) | bay[i] | (lt.lm === 1 ? LS_LM_YES : 0) | (lt.lm === -1 ? LS_LM_NO : 0) | (lt.unpaved ? LS_UNPAVED : 0);
-    const turnOnly = w.oneway ? turnOnlyBits(w.tl) : (turnOnlyBits(w.tlf) | (turnOnlyBits(w.tlb) << 8));
+    let turnOnly = w.oneway ? turnOnlyBits(w.tl) : (turnOnlyBits(w.tlf) | (turnOnlyBits(w.tlb) << 8));
+    // a blip given its neighbour's layout (lineclean's BLIP RULE, 2026-10-04)
+    // paints that neighbour's turn arrows, not its own tags' (they name lanes
+    // it no longer has)
+    if (e.laneFix === 'blip' && e.lsetFrom) {
+      const d = e.lsetFrom.e.way;
+      if (d.oneway) turnOnly = turnOnlyBits(d.tl);
+      else {
+        const f = turnOnlyBits(d.tlf), b = turnOnlyBits(d.tlb);
+        turnOnly = e.lsetFrom.flip ? (b | (f << 8)) : (f | (b << 8));
+      }
+    }
     rows[i] = { nF, nB, centre, flags, turnOnly, sub: lt.sub, bike: lt.bike, why };
     if (centre === CENTRE_TWLTL && !/tag(-fitted)?$/.test(why)) noEvidence.push({ edge: i, way: w.id, why, len: e.len });
   }
