@@ -417,6 +417,9 @@ Shader "PSX/Lit"
             #define POD_GAIN           0.9
             #define CROWN_GAIN_CITY    0.85   // the accent wash (ref crown Ycode ~94, blue)
             #define LED_GAIN           1.6    // the LED lines on a crown's storeys
+            #define CITY_ROAD_KEEP     0.15   // share of the asphalt texel's tint the city's lamps keep
+            #define CW_SPANDREL        0.22   // a curtain floor's dark slab, as a share of the storey
+            #define CW_MULLION         0.12   // a curtain bay's mullion, as a share of the bay
             #define SIGN_GAIN          0.85   // a lit sign face after dark, as a share of its texel (WP-23)
             #define CROWN_GAIN         0.42   // a floodlit crown's wash at full night, x its texel (leftovers 2026-10-05; 0.55 washed a close crown as bright as its lit windows)
             #define CROWN_WARM_SHARE   0.55   // share of towers floodlit warm (sodium) not cool (metal halide)
@@ -459,6 +462,17 @@ Shader "PSX/Lit"
                 float3 p3 = frac(p.xyx * 0.1031);
                 p3 += dot(p3, p3.yzx + 33.33);
                 return frac((p3.x + p3.y) * p3.z);
+            }
+
+            // The share of one pixel's footprint [x - fw/2, x + fw/2] (fw in
+            // periods) where frac(x) < w: a train of thin lines box-filtered,
+            // so a pane edge or an LED line a fraction of a pixel tall fades to
+            // its mean (w) instead of breaking into dots.
+            float PSXPulseBox(float x, float w, float fw)
+            {
+                fw = max(fw, 1e-4);
+                float a = x - 0.5 * fw, b = x + 0.5 * fw;
+                return ((floor(b) * w + min(frac(b), w)) - (floor(a) * w + min(frac(a), w))) / fw;
             }
 
             // Value noise: a hash per lattice corner, smoothly blended.
@@ -693,6 +707,26 @@ Shader "PSX/Lit"
                 texF.rgb = PSXTexDecode(texF.rgb, _MainTexRaw);
                 fixed4 tex = texF * _Color;
                 tex.rgb *= i.facade.rgb;
+                // THE FACADE'S OWN FLOORS (the city-night correction): uv.y
+                // counts repeats up from the building's ground and a repeat is
+                // FacadeLooks' floors (CityMeshes; tools/city/facade_atlas.py),
+                // so the storey and the bay are the texture's - the lit floors,
+                // windows, LED lines and uplights follow them, never a world
+                // height. Storeys and repeats per pixel feed the box filters.
+                float facRows = facCol < 0.5 ? 16.0 : facCol < 1.5 ? 20.0 : facCol < 2.5 ? 24.0
+                              : facCol < 4.5 ? 4.0 : facCol < 5.5 ? 16.0 : 4.0;
+                float facCurt = step(facCol, 2.5);
+                float facBays = facCol < 0.5 ? 14.0 : 16.0;
+                float facYF = winUV.y * facRows;
+                float facFpF = max(length(float2(fdx.y, fdy.y)) * facRows, 1e-4);
+                float facFpU = max(length(float2(fdx.x, fdy.x)) * FACADE_COLS, 1e-4);
+                // The building's key, from its 8-bit tint ROUNDED first. It was
+                // frac(dot(tint, ...) x 43.758) on the interpolated half: a
+                // one-ulp wobble across the triangle moved that dot by ~0.6, so
+                // every pixel drew its own key - the lit storeys and windows
+                // (and a crown's accent) broke into the glittering static.
+                float3 facQ = floor(i.facade.rgb * 127.5 + 0.5);
+                float facKey = PSXLitHash(float2(facQ.r + facQ.g * 256.0, facQ.b + 17.0));
                 #define PSX_NIGHT_MASK(u) tex2Dgrad(_NightMask, u, fdx, fdy)
             #else
                 fixed4 tex = PSXMainTex(_MainTex, uv) * _Color;
@@ -750,9 +784,31 @@ Shader "PSX/Lit"
                 float cityNight = step(0.5, _PSXLampFieldST.w) * step(0.01, _PSXNight);
                 // the street level here (the field's heads less a cobra-head): the
                 // facades count their storeys from it - one fetch, night in the city only
+            #ifndef PSX_FACADE
                 float streetY = cityNight > 0.5 ? PSXFieldStreetY(i.wpos) : i.wpos.y;
+            #endif
                 float beamGain = PSXBeamAlbedoGain(tex.rgb, N);
-                float3 light = (sunAmb + headD * beamGain + lampD * lerp(1.0, beamGain, cityNight)) * expo;
+                // ...and reads it GREY (the correction round). Under the lamps
+                // a pavement's own tint showed: old concrete (sRGB sat 0.24)
+                // lit to Ycode 70-110 read as sand, sat 0.22-0.52 at the
+                // reference spots where the photographs' pavement is 0.06-0.21
+                // (colour_stats citynight + roadhue). On an upward texel of low
+                // chroma - asphalt, concrete, pavement; not grass or paint -
+                // the lamps and the beam in the city see its luminance with
+                // CITY_ROAD_KEEP of its tint. The light's colour (white LED
+                // uptown, bulbs elsewhere) stays; by day nothing changes.
+                float3 roadN = float3(1.0, 1.0, 1.0);
+                if (cityNight > 0.5)
+                {
+                    float lumR = dot(tex.rgb, float3(0.2126, 0.7152, 0.0722));
+                    float3 toGrey = clamp(lumR / max(tex.rgb, 1e-4), 0.4, 2.5);
+                    float3 sq = sqrt(max(tex.rgb, 0.0));
+                    float mxS = max(sq.r, max(sq.g, sq.b));
+                    float chromaS = (mxS - min(sq.r, min(sq.g, sq.b))) / max(mxS, 0.05);
+                    float paved = saturate(N.y * 3.0 - 1.5) * (1.0 - smoothstep(0.30, 0.45, chromaS));
+                    roadN = lerp(float3(1.0, 1.0, 1.0), toGrey, (1.0 - CITY_ROAD_KEEP) * paved);
+                }
+                float3 light = (sunAmb + (headD * beamGain + lampD * lerp(1.0, beamGain, cityNight)) * roadN) * expo;
             #ifdef PSX_FACADE
                 light += _PSXCityBounce.rgb * ((1.0 - 0.6 * saturate(N.y)) * _PSXNight * expo);
             #endif
@@ -900,6 +956,53 @@ Shader "PSX/Lit"
                     // not the importer kept the alpha channel (without it A
                     // reads 1 and R alone decides).
                     float cover = m.r * m.a;
+                    float lumT = dot(tex.rgb, float3(0.2126, 0.7152, 0.0722));
+                    float detail = lerp(WIN_DETAIL_LO, WIN_DETAIL_HI, sqrt(max(lumT, 0.0)));
+                    float cityGain = lerp(1.0, WIN_CITY_GAIN, cityNight);
+                #ifdef PSX_FACADE
+                    // THE ATLAS FACADES (the city-night correction). The lit
+                    // unit was keyed by the mask's G id through the mask's MIPS:
+                    // a mip averages neighbouring ids into a new number every
+                    // pixel, so each pixel of a far facade drew its own coin -
+                    // the glittering static on the glass - and at the last mips
+                    // one averaged texel spanned whole floors - the checkerboard
+                    // blocks. Now a unit is the texture's own: on a curtain wall
+                    // a floor's four-bay segment, on a punched facade its window
+                    // (the id read at LOD 0, where it is exact), keyed by the
+                    // building and the storey. A whole lit storey is a band the
+                    // width of the building, its panes cut by a dark spandrel
+                    // and mullions. Anything under two pixels - a unit, a storey,
+                    // a mullion - shows its MEAN, never a per-pixel coin.
+                    float bk = facKey;
+                    float storey = floor(facYF);
+                    float gid = tex2Dlod(_NightMask, float4(uv, 0.0, 0.0)).g * 255.0;
+                    float unitId = facCurt > 0.5 ? floor(winUV.x * 4.0) : gid + floor(winUV.x) * 311.0;
+                    float h = PSXLitHash(float2(unitId + bk * 977.0, storey + bk * 389.0));
+                    float shop = step(0.5, m.b);
+                    float litP = lerp(WIN_LIT_FRAC, WIN_LIT_FRAC_CITY, cityNight) * _PSXNight;
+                    float bandP = cityNight * WIN_BAND_FRAC * _PSXNight * step(1.0, storey);
+                    float bh = PSXLitHash(float2(bk * 113.0 + 7.0, storey));
+                    float3 hueMean = lerp(WIN_COOL, WIN_WARM, WIN_WARM_SHARE);
+                    float brightMean = lerp(WIN_DIM, 1.0, 0.5) * WIN_GAIN * cityGain;
+                    // a storey is resolved once it is two pixels tall; a unit
+                    // once it is two pixels both ways
+                    float sharpF = saturate(2.0 - 2.0 * facFpF);
+                    float sharpU = saturate(2.0 - 2.0 * (facCurt > 0.5 ? max(facFpF, facFpU * 4.0) : max(facFpF * 2.0, facFpU * 8.0)));
+                    float bandV = lerp(bandP, step(bh, bandP), sharpF);
+                    float3 gBand = lerp(hueMean * brightMean, (frac(bh * 53.1) < WIN_WARM_SHARE ? WIN_WARM : WIN_COOL)
+                                 * (lerp(WIN_DIM, 1.0, frac(bh * 11.3)) * WIN_GAIN * cityGain), sharpF);
+                    float winV = lerp(litP, step(h, litP), sharpU);
+                    float3 gWin = lerp(hueMean * brightMean, (frac(h * 3.7) < WIN_WARM_SHARE ? WIN_WARM : WIN_COOL)
+                                * (lerp(WIN_DIM, 1.0, frac(h * 11.3)) * WIN_GAIN * cityGain), sharpU);
+                    float3 unitGlow = gBand * bandV + gWin * (winV * (1.0 - bandV));
+                    unitGlow = lerp(unitGlow, WIN_SHOP * (WIN_GAIN * cityGain), shop);
+                    // the curtain's panes, box-filtered: its own mask is all glass
+                    // (blue, teal) or a luminance cut of the photo (silver)
+                    float pane = (1.0 - PSXPulseBox(facYF, CW_SPANDREL, facFpF))
+                               * (1.0 - PSXPulseBox(winUV.x * facBays, CW_MULLION, facFpU * facBays));
+                    cover = lerp(cover, pane, facCurt);
+                    float3 glow = unitGlow * (cover * detail * _PSXNight);
+                #else
                     // WHICH windows are lit must not change inside a window.
                     // A plain world cell would cut a window in half wherever
                     // a 23 m line crosses it (half lit, half dark). So the
@@ -919,25 +1022,20 @@ Shader "PSX/Lit"
                     float3 hue = frac(h * 3.7) < WIN_WARM_SHARE ? WIN_WARM : WIN_COOL;
                     // the city's whole lit storeys: one key per building and
                     // storey, so a band runs the width of the building
-                #ifdef PSX_FACADE
-                    float bk = frac(dot(i.facade.rgb, float3(12.9898, 78.233, 37.719)) * 43.758);
-                #else
                     float bk = PSXLitHash(cell);
-                #endif
                     float storey = floor((i.wpos.y - streetY) / WIN_STOREY_M);
                     float bh = PSXLitHash(float2(bk * 113.0 + 7.0, storey));
                     float band = cityNight * step(bh, WIN_BAND_FRAC * _PSXNight) * step(1.0, storey);
                     hue = band > 0.5 ? (frac(bh * 53.1) < WIN_WARM_SHARE ? WIN_WARM : WIN_COOL) : hue;
                     on = max(on, band);
                     hue = lerp(hue, WIN_SHOP, shop);
-                    float bright = lerp(WIN_DIM, 1.0, frac(h * 11.3)) * WIN_GAIN * lerp(1.0, WIN_CITY_GAIN, cityNight);
-                    // The room behind the glass (WIN_DETAIL_*): the facade's
-                    // own texel, as sampled above. A facade never takes the
-                    // wet darkening (that needs a face looking up), so this
+                    float bright = lerp(WIN_DIM, 1.0, frac(h * 11.3)) * WIN_GAIN * cityGain;
+                    // The room behind the glass (WIN_DETAIL_*, above): the
+                    // facade's own texel, as sampled above. A facade never takes
+                    // the wet darkening (that needs a face looking up), so this
                     // is the painted texel x _Color.
-                    float lumT = dot(tex.rgb, float3(0.2126, 0.7152, 0.0722));
-                    float detail = lerp(WIN_DETAIL_LO, WIN_DETAIL_HI, sqrt(max(lumT, 0.0)));
                     float3 glow = hue * (bright * on * cover * detail * _PSXNight);
+                #endif
                     // Added after the fog, and fogged only 40% as hard.
                     float3 win = glow * ((1.0 - WIN_FOG_CUT * i.fog) * adapt);
                     col += win;
@@ -953,7 +1051,7 @@ Shader "PSX/Lit"
                 // In the lit city a crown is an ACCENT (the owner's skyline
                 // photographs): white, blue, violet, teal, pink or green by
                 // the building, washed harder, with LED lines on its storeys.
-                float ch = frac(dot(i.facade.rgb, float3(12.9898, 78.233, 37.719)) * 43.758);
+                float ch = facKey;
                 float3 accent = ch < 0.25 ? float3(0.80, 0.88, 1.00) : ch < 0.50 ? float3(0.22, 0.36, 1.00)
                               : ch < 0.68 ? float3(0.55, 0.24, 1.00) : ch < 0.83 ? float3(0.12, 0.80, 0.85)
                               : ch < 0.95 ? float3(1.00, 0.30, 0.62) : float3(0.20, 0.95, 0.38);
@@ -961,11 +1059,13 @@ Shader "PSX/Lit"
                 {
                     // the lower facade: a warm uplight wash on some buildings,
                     // LED lines along the podium slabs on a few
-                    float hs = i.wpos.y - streetY;
+                    // (heights from the facade's own storeys, the slab lines
+                    // box-filtered: see THE FACADE'S OWN FLOORS)
+                    float hs = facYF * WIN_STOREY_M;
                     float side = 1.0 - saturate(abs(N.y));
                     float upl = step(frac(ch * 7.7), UPL_SHARE) * exp2(-max(hs, 0.0) / UPL_FALL_M) * side;
-                    float pod = step(frac(ch * 13.1), POD_SHARE) * step(3.5, hs) * step(hs, 13.0)
-                              * step(frac(hs / WIN_STOREY_M), 0.07) * side;
+                    float pod = step(frac(ch * 13.1), POD_SHARE) * step(1.0, facYF) * step(facYF, 3.5)
+                              * PSXPulseBox(facYF, 0.07, facFpF) * side;
                     float3 podCol = frac(ch * 29.3) < 0.5 ? float3(0.20, 0.95, 0.38) : accent;
                     float3 low = saturate(tex.rgb) * UPL_COL * (upl * UPL_GAIN) + podCol * (pod * POD_GAIN);
                     low *= (1.0 - WIN_FOG_CUT * i.fog) * adapt * _PSXNight;
@@ -978,7 +1078,7 @@ Shader "PSX/Lit"
                     flood = lerp(flood, accent, cityNight);
                     float up = 1.0 - CROWN_ROOF_CUT * saturate(abs(N.y));
                     float3 wash = saturate(tex.rgb) * flood * (lerp(CROWN_GAIN, CROWN_GAIN_CITY, cityNight) * up * _PSXNight * _PSXNight);
-                    float led = cityNight * step(frac((i.wpos.y - streetY) / WIN_STOREY_M), 0.06) * (1.0 - saturate(abs(N.y)));
+                    float led = cityNight * PSXPulseBox(facYF, 0.06, facFpF) * (1.0 - saturate(abs(N.y)));
                     wash += accent * (led * LED_GAIN * _PSXNight);
                     wash *= (1.0 - WIN_FOG_CUT * i.fog) * adapt;
                     col += wash;

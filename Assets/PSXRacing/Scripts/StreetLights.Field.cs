@@ -52,9 +52,11 @@ namespace PSXRacing
         /// white LED, outside it warm bulbs; metres, world XZ.</summary>
         public static Vector2 UptownCentre = new Vector2(-2259f, 4782f);
         public static float UptownInnerM = 700f, UptownOuterM = 1300f;
-        /// <summary>sRGB: an uptown LED head, a neighbourhood bulb.</summary>
-        public static readonly Color FieldWhite = new Color(1.00f, 0.95f, 0.86f);
-        public static readonly Color FieldWarm = new Color(1.00f, 0.84f, 0.52f);
+        /// <summary>sRGB: an uptown LED head, a neighbourhood bulb. A bulb is
+        /// warm, not sodium: (1, 0.84, 0.52) over the asphalt read as sand
+        /// (the correction round; PSX/Lit reads the lit asphalt grey).</summary>
+        public static readonly Color FieldWhite = new Color(1.00f, 0.98f, 0.94f);
+        public static readonly Color FieldWarm = new Color(1.00f, 0.90f, 0.72f);
         /// <summary>The city's bounce on a tower face at night, linear: the
         /// lit streets' light coming back off the next tower. Ref faces read
         /// Ycode 19-45 against a near-black sky; ours read 4-7.</summary>
