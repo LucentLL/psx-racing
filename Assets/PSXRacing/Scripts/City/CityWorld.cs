@@ -1076,7 +1076,7 @@ namespace PSXRacing.City
         /// a fluorescent strip, dimmer than a cobra-head; 0.6 with the
         /// ceilings concrete burnt the night interior white (the field is flat:
         /// every floor's lights land on the same texels).</summary>
-        const float DeckLightGain = 0.25f;
+        const float DeckLightGain = 0.07f;
 
         /// <summary>A lamp post collider's square side: the drawn post's own
         /// (a cobra-head's 0.26 m, an acorn's 0.14 m). It was 0.3 m for both,
