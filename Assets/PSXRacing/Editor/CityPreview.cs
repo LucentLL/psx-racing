@@ -308,6 +308,9 @@ namespace PSXRacing.EditorTools
         /// name (PSX_PREVIEW_SPOTS) without editing this file.</summary>
         static readonly NamedView[] NamedViews =
         {
+            // leftovers-b: the owner's raised sheet end on W 4th St Ext (e14607 s=122 R), 16 m back in the lane
+            new NamedView { name = "ledge_w4th_14607", group = "ledge", kind = ViewKind.Eye, at = new Vector2(-3689.9f, 5439.6f), road = "West 4th Street Extension",
+                            back = 16f, lookAt = new Vector2(-3689.9f, 5439.6f), fov = 60f, ring = 1, what = "W 4th St Ext e14607 s=122 R: the raised sheet end (foreslope)" },
             // W 5th St over I-77, the owner's example: node 2069 at the west end of the bridge, heading 134 (the frame he sent)
             Eye("w5th_owner", "w5th", -3363.2f, 5939.6f, "West 5th", 134f, "W 5th St at node 2069 (35.23801,-80.85467), heading 134, 1.2 m eye: the owner's frame, eastbound over I-77"),
             Eye("w5th_wb", "w5th", -3280.7f, 5880.9f, "West 5th", 314f, "W 5th St westbound from the east signal (n4121/n4122) across the bridge, heading 314"),
@@ -1359,6 +1362,33 @@ namespace PSXRacing.EditorTools
                     }
                     log.Append($"{v.name}: eye ({eye.x:0.0},{eye.y:0.00},{eye.z:0.0}) on e{e.index} '{e.name}', tiles {world.LiveTiles}\n");
                     world.DropAll();
+                }
+                // MEDIAN CARRY SPOTS (leftovers-b): PSX_EYE_MEDIANS=n shoots the
+                // first n carried pieces from 30 m up the arriving carriageway
+                int nMed = int.TryParse(System.Environment.GetEnvironmentVariable("PSX_EYE_MEDIANS"), out int nm) ? nm : 0;
+                foreach (var me in map.edges)
+                {
+                    if (nMed <= 0) break;
+                    if (CityMeshes.CentreMedianWhy(map, me) != null) continue;
+                    CityMap.Edge arr = null;
+                    foreach (int ci in map.nodeEdges[me.a]) if (ci != me.index && map.edges[ci].b == me.a) arr = map.edges[ci];
+                    if (arr == null) continue;
+                    nMed--;
+                    float sa = Mathf.Max(0f, arr.length - 30f);
+                    var ap = arr.PointAt(sa); var mp = me.PointAt(me.length * 0.5f);
+                    var eyeM = new Vector3(ap.x, arr.YAt(sa) + 1.2f, ap.y);
+                    var rotM = Quaternion.LookRotation(new Vector3(mp.x, me.YAt(me.length * 0.5f) + 0.3f, mp.y) - eyeM);
+                    world.EnsureRing(eyeM, world.ring);
+                    foreach (int hour in hours)
+                    {
+                        TimeOfDay.Apply(hour, sun);
+                        NightGlow.PreviewAll(hour >= TimeOfDay.Dusk);
+                        if (globals != null) globals.Apply();
+                        cam.transform.SetPositionAndRotation(eyeM, rotM);
+                        world.RefreshSkyline(cam);
+                        PSXScreenshotTool.ShotAs(cam, $"eye_median_e{me.index}_{TimeOfDay.All[hour].name.ToLowerInvariant()}", eyeM, rotM);
+                    }
+                    log.AppendLine($"median e{me.index} '{me.name}' {me.length:0} m from e{arr.index} s={sa:0}");
                 }
                 // JUNCTION SPOTS (the city-night pass, 2026-10-05): PSX_EYE_JCT
                 // "name:roadA:roadB:back:pick:pitch;..." - the driver's eye in

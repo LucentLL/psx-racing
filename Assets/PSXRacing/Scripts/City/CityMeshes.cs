@@ -104,6 +104,130 @@ namespace PSXRacing.City
         /// why. A set: a tile build per tile repeats an edge.</summary>
         public static HashSet<string> medianGapLog;
         public static readonly bool MedianBridgeOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MEDIAN_BRIDGE") != "0";
+
+        // ------------------------------------------------------------------
+        //  THE MEDIAN CARRIED THROUGH A SHORT SINGLE CARRIAGEWAY (leftovers-b)
+        // ------------------------------------------------------------------
+        /// <summary>OFF until gated: PSX_CITY_MEDIAN_CARRY=1 carries it (off = the gap at the piece).</summary>
+        public static readonly bool MedianCarryOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MEDIAN_CARRY") == "1";
+        /// <summary>The longest two-way piece a divided road's median is carried through.</summary>
+        public const float MedianCarryMaxM = 40f;
+
+        /// <summary>Is node <paramref name="n"/> at the end of two-way piece
+        /// <paramref name="e"/> a plain SPLIT of a divided road: no other road,
+        /// no stop or signal, only the two carriageways (barriered one-way, one
+        /// arriving and one leaving) the piece becomes? Null when it is, else why not.</summary>
+        static string SplitWhy(CityMap map, CityMap.Edge e, int n)
+        {
+            var at = map.nodeEdges[n];
+            if (map.nodeControl != null && map.nodeControl[n] != 0) return "control";
+            if (at.Count != 3) return at.Count < 3 ? "undivided" : "junction";
+            int arrive = 0, leave = 0;
+            foreach (int ei in at)
+            {
+                if (ei == e.index) continue;
+                var c = map.edges[ei];
+                if (!c.oneway || c.link || !Barriered(c)) return "undivided";
+                if (c.b == n) arrive++;
+                if (c.a == n) leave++;
+            }
+            return arrive == 1 && leave == 1 ? null : "junction";
+        }
+
+        /// <summary>Does the divided road's median carry on through two-way
+        /// piece <paramref name="e"/> (no longer than MedianCarryMaxM, both its
+        /// ends a plain split)? Null when it does, else why not; "-" when the
+        /// piece meets no divided road at all.</summary>
+        public static string CentreMedianWhy(CityMap map, CityMap.Edge e)
+        {
+            if (e.oneway || e.link || e.a == e.b) return "-";
+            string wa = SplitWhy(map, e, e.a), wb = SplitWhy(map, e, e.b);
+            if (wa == "undivided" && wb == "undivided") return "-";
+            if (wa != null || wb != null) return wa ?? wb;
+            if (e.length > MedianCarryMaxM) return "long";
+            return null;
+        }
+
+        /// <summary>The carried median's path, world plan + height: a leg from
+        /// the arriving carriageway's median edge into the split, the piece's
+        /// centre line node to node, a leg out to the leaving carriageway's
+        /// median edge; the same at the far node. Each a polyline.</summary>
+        static void CentreMedianPaths(CityMap map, Trims trims, CityMap.Edge e, List<List<Vector3>> paths)
+        {
+            paths.Clear();
+            var mid = new List<Vector3>();
+            int n = Mathf.Max(2, Mathf.CeilToInt(e.length / 3f) + 1);
+            for (int i = 0; i < n; i++)
+            {
+                float s = e.length * i / (n - 1);
+                var p = e.PointAt(s);
+                mid.Add(new Vector3(p.x, e.YAt(s), p.y));
+            }
+            paths.Add(mid);
+            foreach (int node in new[] { e.a, e.b })
+            {
+                var np = node == e.a ? mid[0] : mid[mid.Count - 1];
+                foreach (int ci in map.nodeEdges[node])
+                {
+                    if (ci == e.index) continue;
+                    var c = map.edges[ci];
+                    bool fromA = c.a == node;
+                    float tr = Mathf.Clamp(fromA ? trims.atA[ci] : trims.atB[ci], 4f, Mathf.Min(30f, c.length * 0.5f));
+                    float sc = fromA ? tr : c.length - tr;
+                    var t = c.TangentAt(sc);
+                    var left = new Vector2(-t.y, t.x);
+                    LineModel.Extents(c, sc, out _, out float ePlus);
+                    var q = c.PointAt(sc) + left * ePlus;
+                    var leg = new List<Vector3>();
+                    int m = Mathf.Max(2, Mathf.CeilToInt(Vector2.Distance(new Vector2(np.x, np.z), q) / 3f) + 1);
+                    for (int i = 0; i < m; i++)
+                    {
+                        float f = i / (float)(m - 1);
+                        var p = Vector2.Lerp(new Vector2(np.x, np.z), q, f);
+                        leg.Add(new Vector3(p.x, Mathf.Lerp(np.y, c.YAt(sc), f), p.y));
+                    }
+                    paths.Add(leg);
+                }
+            }
+        }
+
+        static readonly HashSet<int> carrySegs = new HashSet<int>();
+        static readonly HashSet<int> carrySeen = new HashSet<int>();
+        static readonly List<List<Vector3>> carryPaths = new List<List<Vector3>>();
+
+        /// <summary>The tile's share of every carried median: each Jersey piece
+        /// whose middle lies in the tile, on the road (fan or ribbon) under it.</summary>
+        static void BuildCentreMedians(CityMap map, Trims trims, TileMeshes tm, Vector2 min, Vector2 max)
+        {
+            if (!MedianCarryOn) return;
+            carrySegs.Clear(); carrySeen.Clear();
+            map.EdgeSegsInRect(min - Vector2.one * 50f, max + Vector2.one * 50f, carrySegs);
+            foreach (int packed in carrySegs)
+            {
+                var e = map.edges[packed >> 12];
+                if (!carrySeen.Add(e.index) || CentreMedianWhy(map, e) != null) continue;
+                CentreMedianPaths(map, trims, e, carryPaths);
+                foreach (var path in carryPaths)
+                {
+                    float v = 0f;
+                    for (int i = 1; i < path.Count; i++)
+                    {
+                        Vector3 a = path[i - 1], b = path[i];
+                        float len = Vector2.Distance(new Vector2(a.x, a.z), new Vector2(b.x, b.z));
+                        var mw = new Vector2(a.x + b.x, a.z + b.z) * 0.5f;
+                        if (len > 1e-3f && mw.x >= min.x && mw.x < max.x && mw.y >= min.y && mw.y < max.y)
+                        {
+                            var d = new Vector2(b.x - a.x, b.z - a.z) / len;
+                            var outw = new Vector2(d.y, -d.x);
+                            var half = new Vector3(outw.x, 0f, outw.y) * (BarrierW * 0.5f);
+                            EmitBarrier(L(new Vector2(a.x, a.z), a.y, tm) - half, L(new Vector2(b.x, b.z), b.y, tm) - half, outw,
+                                        v * 0.25f, (v + len) * 0.25f, i == 1, i == path.Count - 1);
+                        }
+                        v += len;
+                    }
+                }
+            }
+        }
         /// <summary>Null in a build. A probe that sets it gets every ground
         /// triangle the tiles lay off the lattice — verges, seams, half
         /// strips, shelves, fan chord verges and corner fills — in world
@@ -1683,6 +1807,7 @@ namespace PSXRacing.City
             foreach (var _ in BuildRoadsAndDecks(map, trims, tm, min, max)) yield return 0;
             Phase(2);
             foreach (var _ in BuildJunctions(map, trims, tm, min, max)) yield return 0;
+            BuildCentreMedians(map, trims, tm, min, max);
             Phase(3);
             stepPhase = 4; stepItem = -1; stepPart = 0;
             BuildWater(map, tm, min, max);

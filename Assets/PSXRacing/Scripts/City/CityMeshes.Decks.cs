@@ -21,6 +21,17 @@ namespace PSXRacing.City
         public const byte LampDeck = 4;
         /// <summary>A deck's stall line, wider than the lots' (see the stall lines).</summary>
         const float DeckLineW = 0.15f;
+        /// <summary>The bucket the deck being built lays its floors' tops in
+        /// (the slab, see EmitDeck) - the concrete when there is none.</summary>
+        static Bucket deckSlab;
+        static readonly bool DeckSlabOff = System.Environment.GetEnvironmentVariable("PSX_DECK_SLAB") != "1";
+        /// <summary>A floor top's UV: the lots' world mapping (12 m) on the
+        /// slab, the pack concrete's 4 m otherwise.</summary>
+        static Vector2 FUV(CityDecks.Deck d, float x, float z, Bucket con)
+        {
+            if (deckSlab == con) return DUV(d, x, z);
+            var p = d.W(x, z); return new Vector2(p.x / 12f, p.y / 12f);
+        }
         public static int DecksBuilt, DecksRefused;
 
         static Vector3 DP(CityDecks.Deck d, float x, float y, float z, TileMeshes tm) => L(d.W(x, z), d.y0 + y, tm);
@@ -46,7 +57,20 @@ namespace PSXRacing.City
             // before it and drew no stall lines at all
             EnsureLots(map);
             var paint = stallSlot >= 0 ? buckets[(int)SlotOf(stallSlot, Surface.AsphaltNew)] : null;
-            int t0 = con.t.Count + (paint != null ? paint.t.Count : 0) + lampBucket.t.Count;
+            // THE SLAB (leftovers-b, 2026-10-05): the floors the cars drive on
+            // are a sealed deck, dark grey, in the lots' own pavement (the fans'
+            // slot, world UVs at the lots' 12 m): the pack concrete read near
+            // white by day and the stall lines on it hardly at all. Only a slot
+            // the tile has already drawn into, so no draw call of its own; a
+            // tile without one keeps the concrete. OFF until gated: PSX_DECK_SLAB=1 lays it.
+            deckSlab = con;
+            if (!DeckSlabOff)
+                foreach (var sf in new[] { Surface.AsphaltOld, Surface.AsphaltNew })
+                {
+                    var sb = buckets[(int)SlotOf(JunctionProfile, sf)];
+                    if (sb.Count > 0) { deckSlab = sb; break; }
+                }
+            int t0 = con.t.Count + (paint != null ? paint.t.Count : 0) + lampBucket.t.Count + (deckSlab != con ? deckSlab.t.Count : 0);
 
             int top = d.levels - 1;
             float hv = d.hv, hu = d.hu, x0 = d.x0, x1 = d.x1, W = CityDecks.WallM, S = CityDecks.SpineM * 0.5f;
@@ -200,12 +224,16 @@ namespace PSXRacing.City
             // concrete is pale (near white on the sunlit roof), and white
             // paint on it measured no contrast - on asphalt the lots' white
             // reads, here only a hue does.
+            // On the slab (leftovers-b) the lines are the lots' WHITE, as a
+            // real deck paints them on its sealed floor: the column's middle,
+            // its full width (both texels) clear of the asphalt either side.
             if (paint != null)
             {
                 var uw = new Vector2(0.5f * (stallU0 + stallU1), 0.2f);
                 var lay = LineModel.LayoutOf(stallSlot);
-                for (int q = 0; q < lay.m.Length; q++)
-                    if (lay.kind[q] == LineModel.KYellow) { uw = new Vector2(lay.m[q] / lay.W, 0.2f); break; }
+                if (deckSlab == con)
+                    for (int q = 0; q < lay.m.Length; q++)
+                        if (lay.kind[q] == LineModel.KYellow) { uw = new Vector2(lay.m[q] / lay.W, 0.2f); break; }
                 for (int k = 0; k < top; k++)
                     for (int s = -1; s <= 1; s += 2)
                         for (float x = StallStart(-hu + 0.8f, x0 + 1.5f); x <= x1 - 1.5f; x += StallW)
@@ -300,7 +328,7 @@ namespace PSXRacing.City
                     }
             }
 
-            d.trisDeck = (con.t.Count + (paint != null ? paint.t.Count : 0) + lampBucket.t.Count - t0) / 3;
+            d.trisDeck = (con.t.Count + (paint != null ? paint.t.Count : 0) + lampBucket.t.Count + (deckSlab != con ? deckSlab.t.Count : 0) - t0) / 3;
             if (!d.built) { d.built = true; DecksBuilt++; }
             CityDecks.AnyBuilt = true;
             return true;
@@ -327,9 +355,9 @@ namespace PSXRacing.City
                 {
                     float a = Mathf.Lerp(xa, xb, i / (float)nx), b = Mathf.Lerp(xa, xb, (i + 1) / (float)nx);
                     float c = Mathf.Lerp(za, zb, j / (float)nz), e = Mathf.Lerp(za, zb, (j + 1) / (float)nz);
-                    con.Up(DP(d, a, CityDecks.GroundBayLocal(d, a, c), c, tm), DP(d, b, CityDecks.GroundBayLocal(d, b, c), c, tm),
+                    deckSlab.Up(DP(d, a, CityDecks.GroundBayLocal(d, a, c), c, tm), DP(d, b, CityDecks.GroundBayLocal(d, b, c), c, tm),
                            DP(d, b, CityDecks.GroundBayLocal(d, b, e), e, tm), DP(d, a, CityDecks.GroundBayLocal(d, a, e), e, tm),
-                           DUV(d, a, c), DUV(d, b, c), DUV(d, b, e), DUV(d, a, e));
+                           FUV(d, a, c, con), FUV(d, b, c, con), FUV(d, b, e, con), FUV(d, a, e, con));
                 }
         }
 
@@ -344,8 +372,8 @@ namespace PSXRacing.City
             {
                 float a = Mathf.Lerp(xa, xb, i / (float)n), b = Mathf.Lerp(xa, xb, (i + 1) / (float)n);
                 float ya = yf(a), yb = yf(b);
-                con.Up(DP(d, a, ya, za, tm), DP(d, b, yb, za, tm), DP(d, b, yb, zb, tm), DP(d, a, ya, zb, tm),
-                       DUV(d, a, za), DUV(d, b, za), DUV(d, b, zb), DUV(d, a, zb));
+                deckSlab.Up(DP(d, a, ya, za, tm), DP(d, b, yb, za, tm), DP(d, b, yb, zb, tm), DP(d, a, ya, zb, tm),
+                       FUV(d, a, za, con), FUV(d, b, za, con), FUV(d, b, zb, con), FUV(d, a, zb, con));
                 if (soffit)
                 {
                     // the ceiling is the slab's underside: the same pack

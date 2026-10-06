@@ -145,6 +145,27 @@ namespace PSXRacing.EditorTools
                 foreach (var g in gl) if (!g.StartsWith("OPEN") && shown++ < 6) Line("    " + g);
                 Check(bareLeft == 0, "no unexplained median gap inside an edge (median gap census)", bareLeft);
             }
+            {
+                // MEDIAN CARRIED THROUGH A SHORT SINGLE CARRIAGEWAY (leftovers-b):
+                // a two-way piece between a divided road's splits
+                int carried = 0; float carriedM = 0f; var why = new Dictionary<string, int>(); var shownC = new List<string>();
+                foreach (var e in map.edges)
+                {
+                    string w = CityMeshes.CentreMedianWhy(map, e);
+                    if (w == "-") continue;
+                    if (w == null)
+                    {
+                        carried++; carriedM += e.length;
+                        if (shownC.Count < 6) { var p = e.PointAt(e.length * 0.5f); shownC.Add($"    CARRY e{e.index} '{e.name}' cls{e.cls} {e.length:0} m at ({p.x:0},{p.y:0})"); }
+                    }
+                    else why[w] = why.TryGetValue(w, out int c) ? c + 1 : 1;
+                }
+                var ww = new List<string>(); foreach (var kv in why) ww.Add($"{kv.Key} {kv.Value}");
+                Line($"median through a short single carriageway (leftovers-b, <= {CityMeshes.MedianCarryMaxM:0} m, both ends a plain split): " +
+                     $"gaps before {carried} ({carriedM:0} m), after {(CityMeshes.MedianCarryOn ? 0 : carried)} (carried {(CityMeshes.MedianCarryOn ? carried : 0)}); " +
+                     $"pieces meeting a divided road left open: {string.Join(", ", ww)}");
+                foreach (var l in shownC) Line(l);
+            }
             Check(pieces.Count == 0, $"no isolated barrier or median piece shorter than {ShortBarrierM:0} m, city-wide (short barrier census)", pieces.Count);
         }
     }
