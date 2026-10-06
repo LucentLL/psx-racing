@@ -269,6 +269,7 @@ namespace PSXRacing.City
                     map.WaterSegsInRect(c - Vector2.one * 30f, c + Vector2.one * 30f, fillSegs);
                     if (fillSegs.Count > 0) continue;
                     if (map.NearRavine(c, CityMeshes.RavineClearM) || map.InLake(c)) continue;
+                    if (OnRealSite(map, c, 10f)) continue;
 
                     float hu = 4.6f + Hash01(gx, gz, 4) * 2.2f;   // half length, along the street
                     float hv = 3.8f + Hash01(gx, gz, 5) * 1.6f;   // half depth
@@ -279,6 +280,30 @@ namespace PSXRacing.City
                     t.fill.Add(new House { kind = 4, c = c, u = u, hu = hu, hv = hv, eaveH = eaveH, riseH = riseH,
                                            front = Vector2.Dot(nearQ - c, v) >= 0f ? v : -v });
                 }
+        }
+
+        /// <summary>Coverage (2026-10-06): outside the core box the real
+        /// non-residential footprints and the parking lots stand among the
+        /// fill (a campus, a shopping centre and its lot). Is the point within
+        /// <paramref name="r"/> of one? Nothing procedural is stood there.</summary>
+        public static bool OnRealSite(CityMap map, Vector2 c, float r)
+        {
+            if (!map.FootprintClear(c, r)) return true;
+            if (map.lots == null || map.lots.Length == 0) return false;
+            for (int k = 0; k < 5; k++)
+            {
+                var p = c + (k == 0 ? Vector2.zero : k == 1 ? new Vector2(r, 0f) : k == 2 ? new Vector2(-r, 0f)
+                                    : k == 3 ? new Vector2(0f, r) : new Vector2(0f, -r));
+                var ll = CityMeshes.LotsInTile(map, Mathf.FloorToInt(p.x / TileM), Mathf.FloorToInt(p.y / TileM));
+                if (ll == null) continue;
+                foreach (int li in ll)
+                {
+                    var L = map.lots[li]; var b = L.box;
+                    if (p.x < b.x || p.x > b.z || p.y < b.y || p.y > b.w) continue;
+                    if (InRing(L.ring, p)) return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>The fill houses whose middle is in tile (tx, tz), in the

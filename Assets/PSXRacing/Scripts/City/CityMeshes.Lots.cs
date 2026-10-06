@@ -153,6 +153,40 @@ namespace PSXRacing.City
             }
         }
 
+        /// <summary>Coverage (2026-10-06): the nearest point of any lot's edge
+        /// within <paramref name="maxD"/> of <paramref name="p"/> (a shopping
+        /// centre outside the core turns its shopfront to it).</summary>
+        static bool NearestLotPoint(CityMap map, Vector2 p, float maxD, out Vector2 best)
+        {
+            best = default;
+            float bestD2 = maxD * maxD;
+            bool found = false;
+            int tx0 = Mathf.FloorToInt((p.x - maxD) / TileSize), tx1 = Mathf.FloorToInt((p.x + maxD) / TileSize);
+            int tz0 = Mathf.FloorToInt((p.y - maxD) / TileSize), tz1 = Mathf.FloorToInt((p.y + maxD) / TileSize);
+            for (int tz = tz0; tz <= tz1; tz++)
+                for (int tx = tx0; tx <= tx1; tx++)
+                {
+                    var ll = LotsInTile(map, tx, tz);
+                    if (ll == null) continue;
+                    foreach (int li in ll)
+                    {
+                        var L = map.lots[li]; var b = L.box;
+                        if (L.aisleOnly || p.x < b.x - maxD || p.x > b.z + maxD || p.y < b.y - maxD || p.y > b.w + maxD) continue;
+                        var r = L.ring;
+                        for (int a = r.Length - 1, c = 0; c < r.Length; a = c++)
+                        {
+                            Vector2 d = r[c] - r[a];
+                            float l2 = d.sqrMagnitude;
+                            float t = l2 > 1e-6f ? Mathf.Clamp01(Vector2.Dot(p - r[a], d) / l2) : 0f;
+                            var q = r[a] + d * t;
+                            float d2 = (q - p).sqrMagnitude;
+                            if (d2 < bestD2) { bestD2 = d2; best = q; found = true; }
+                        }
+                    }
+                }
+            return found;
+        }
+
         /// <summary>The lots whose box meets tile (tx, tz) (RoadsideOccupancy:
         /// nothing is planted or stood in a lot).</summary>
         public static List<int> LotsInTile(CityMap map, int tx, int tz)

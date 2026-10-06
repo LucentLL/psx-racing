@@ -308,6 +308,11 @@ namespace PSXRacing.EditorTools
         /// name (PSX_PREVIEW_SPOTS) without editing this file.</summary>
         static readonly NamedView[] NamedViews =
         {
+            // coverage (2026-10-06): the campus engineering quad, its deck, a suburban shopping centre and its lot
+            new NamedView { name = "cov_uncc_eng", group = "cov", kind = ViewKind.Eye, at = new Vector2(6919f, 13826f), road = "", back = 35f, lookAt = new Vector2(6919f, 13826f), fov = 60f, ring = 1, what = "the campus engineering quad from its nearest road" },
+            new NamedView { name = "cov_uncc_deck", group = "cov", kind = ViewKind.Eye, at = new Vector2(6856f, 13865f), road = "", back = 35f, lookAt = new Vector2(6856f, 13865f), fov = 60f, ring = 1, what = "the deck by the engineering building from the street" },
+            new NamedView { name = "cov_shops_street", group = "cov", kind = ViewKind.Eye, at = new Vector2(-2960f, -1201f), road = "", back = 5f, lookAt = new Vector2(-2760f, -1204f), fov = 60f, ring = 1, what = "a suburban shopping centre across its lot from the street" },
+            new NamedView { name = "cov_shops_lot", group = "cov", kind = ViewKind.Eye, at = new Vector2(-2840f, -1230f), road = "", ground = true, lookAt = new Vector2(-2740f, -1204f), fov = 60f, ring = 1, what = "a suburban shopping centre from inside its lot" },
             // leftovers-b: the owner's raised sheet end on W 4th St Ext (e14607 s=122 R), 16 m back in the lane
             new NamedView { name = "ledge_w4th_14607", group = "ledge", kind = ViewKind.Eye, at = new Vector2(-3689.9f, 5439.6f), road = "West 4th Street Extension",
                             back = 16f, lookAt = new Vector2(-3689.9f, 5439.6f), fov = 60f, ring = 1, what = "W 4th St Ext e14607 s=122 R: the raised sheet end (foreslope)" },
@@ -1337,10 +1342,13 @@ namespace PSXRacing.EditorTools
                 foreach (var v in NamedViews)
                 {
                     if (v.kind != ViewKind.Eye || !names.Contains(v.name)) continue;
-                    if (!SnapNamed(map, v.at, v.road, out var e, out float s)) { Debug.LogError($"[EyePlay] {v.name}: no road '{v.road}'"); continue; }
-                    float y = e.YAt(s);
+                    // a ground view (coverage, 2026-10-06: a parking lot) stands on the lattice, no road
+                    CityMap.Edge e = null; float s = 0f;
+                    if (!v.ground && !SnapNamed(map, v.at, v.road, out e, out s)) { Debug.LogError($"[EyePlay] {v.name}: no road '{v.road}'"); continue; }
+                    if (v.ground) world.EnsureRing(new Vector3(v.at.x, 0f, v.at.y), world.ring);
+                    float y = v.ground ? CityMeshes.LatticeAt(map, v.at.x, v.at.y) : e.YAt(s);
                     var eye = new Vector3(v.at.x, y + 1.2f + v.rise, v.at.y);
-                    if (v.back > 0f)
+                    if (v.back > 0f && !v.ground)
                     {
                         // in the lane, back along the road from the point
                         WalkBack(map, e, s, v.back, out var lp, out _, out var le, out float ls);
@@ -1360,7 +1368,7 @@ namespace PSXRacing.EditorTools
                         world.RefreshSkyline(cam);
                         PSXScreenshotTool.ShotAs(cam, $"eye_{v.name}_{TimeOfDay.All[hour].name.ToLowerInvariant()}", eye, rot);
                     }
-                    log.Append($"{v.name}: eye ({eye.x:0.0},{eye.y:0.00},{eye.z:0.0}) on e{e.index} '{e.name}', tiles {world.LiveTiles}\n");
+                    log.Append($"{v.name}: eye ({eye.x:0.0},{eye.y:0.00},{eye.z:0.0}) on {(e != null ? "e" + e.index + " '" + e.name + "'" : "the ground")}, tiles {world.LiveTiles}\n");
                     world.DropAll();
                 }
                 // MEDIAN CARRY SPOTS (leftovers-b): PSX_EYE_MEDIANS=n shoots the

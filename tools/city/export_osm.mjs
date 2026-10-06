@@ -277,6 +277,30 @@ const rawMinor = existsSync(minorFile)
   ? loadJson(minorFile).elements.filter(e => e.type === 'way' && e.tags && e.geometry) : [];
 const bldFile = join(CACHE, 'buildings_core.json');
 const rawBld = existsSync(bldFile) ? loadJson(bldFile).elements : [];
+// Coverage (2026-10-06, fetch/fetch_coverage.mjs): the non-residential
+// buildings and the parking lots over the roads' whole extent, so a campus or
+// a suburban shopping centre stands where it is. Only what lies wholly OUTSIDE
+// the core fetch box is taken (an id the core files hold, or any node inside
+// the box, is left to them): the core's records come out byte for byte as
+// before, and the outside ones are appended after them. PSX_COVERAGE=0 = off.
+const COV_BOX = [35.190, -80.880, 35.262, -80.790];   // fetch_bld.mjs / fetch_lots.mjs B
+const covBldFile = join(CACHE, 'buildings_city.json'), covLotsFile = join(CACHE, 'lots_city.json');
+const COVERAGE = process.env.PSX_COVERAGE !== '0' && existsSync(covBldFile);
+const covInCore = e => {
+  const g = e.geometry || (e.members || []).flatMap(m => m.geometry || []);
+  return g.some(p => p && p.lat >= COV_BOX[0] && p.lat <= COV_BOX[2] && p.lon >= COV_BOX[1] && p.lon <= COV_BOX[3]);
+};
+const rawCov = [];
+let covParts = 0;
+if (COVERAGE) {
+  const coreIds = new Set(rawBld.map(e => e.type + e.id));
+  for (const e of loadJson(covBldFile).elements) {
+    if (!e.tags || coreIds.has(e.type + e.id) || covInCore(e)) continue;
+    if (!e.tags.building) { if (e.tags['building:part']) covParts++; continue; }
+    rawCov.push(e);
+  }
+  console.log(`coverage: ${rawCov.length} building elements outside the core (${covParts} building:part ways there, not applied)`);
+}
 console.log(`raw: ${rawWays.length} arterial ways, ${rawMinor.length} minor ways, ${rawNodes.length} control nodes, ${rawBld.length} building elements`);
 
 // ------------------------------------------------------------- ways -> edges
@@ -1375,12 +1399,38 @@ function parseHeight(h) {
   const v = parseFloat(m[1]);
   return m[2] === 'ft' || m[2] === "'" ? v * 0.3048 : v;
 }
+/// Coverage: the use classes fetch_coverage.mjs asks for by building=*, and
+/// the suburban defaults for a footprint with no height or levels (a strip
+/// centre or a big box is one tall storey behind a parapet, not 16 m).
+const COV_USES = new Set(('commercial retail supermarket office industrial warehouse university college school hospital ' +
+  'hotel apartments dormitory church cathedral chapel mosque synagogue temple religious civic public government ' +
+  'parking sports_centre sports_hall stadium grandstand kindergarten train_station transportation fire_station ' +
+  'manufacture service hangar data_center museum library kiosk').split(' '));
+const COV_SHOP = new Set(['retail', 'commercial', 'supermarket', 'kiosk']);
+const COV_WORK = new Set(['industrial', 'warehouse', 'manufacture', 'service', 'hangar', 'data_center']);
+const COV_CAMPUS = new Set(['university', 'college', 'school', 'hospital', 'office', 'civic', 'public', 'government', 'library', 'museum']);
+// (size budget, 2026-10-06: a plain building=yes under 500 m2 is a house the
+// fill makes anyway - 300 m2 put bld at 3.5x the core's bytes)
+const COV_MIN_YES_M2 = +(process.env.PSX_COV_MIN_M2 || 500), COV_MIN_M2 = 60;
+const COV_CIVIC_AMENITY = /^(school|university|college|hospital|clinic|place_of_worship|library|townhall|courthouse|fire_station|police|kindergarten|community_centre|parking)$/;
+function covShop(t) { return COV_SHOP.has(t.building) || !!t.shop || (t.building === 'yes' && !!t.amenity && !COV_CIVIC_AMENITY.test(t.amenity)); }
+function covHeight(t, area) {
+  // an untagged deck: the height the core gives one (by area), not a shop's
+  if (t.parking === 'multi-storey' || t.building === 'parking') return area < 300 ? 5.5 : area < 1200 ? 8 : area < 4000 ? 12 : 16;
+  if (covShop(t)) return area < 3000 ? 6.5 : 8.5;
+  if (COV_WORK.has(t.building)) return area < 3000 ? 7.5 : 10;
+  if (COV_CAMPUS.has(t.building)) return area < 800 ? 9 : area < 3000 ? 13 : 16;
+  return area < 1200 ? 6.5 : 8.5;
+}
+const covStats = { kept: 0, house: 0, small: 0, through: 0, far: 0, shops: 0 };
 const buildings = [];
+const covBld = [];       // coverage: appended after every core record
 const layerHeld = [];   // B2: layer > 0 outlines, for lib/parts.mjs
 {
   let dropped = 0;
-  const addPoly = (geom, t, key) => {
+  const addPoly = (geom, t, key, cov) => {
     if (SKIP_TYPES.has(t.building)) { dropped++; return; }
+    if (cov && HOUSE_TYPES.has(t.building) && !t.amenity && !t.shop && !t.office) { covStats.house++; return; }
     // An ELEVATED structure — a skywalk over the street (uptown's
     // Overstreet Mall), a building on stilts, anything with a floor above
     // the ground — extruded from the pavement is a wall across the road.
@@ -1398,8 +1448,14 @@ const layerHeld = [];   // B2: layer > 0 outlines, for lib/parts.mjs
     let area = polyArea(pts);
     if (area < 0) { pts.reverse(); area = -area; }   // counter-clockwise, always
     if (area < 25) { dropped++; return; }
+    if (cov) {
+      // a plain building=yes under ~300 m2 is a house (CityHouses' fill makes those)
+      const use = COV_USES.has(t.building) || t.amenity || t.shop || t.office;
+      if (area < (use ? COV_MIN_M2 : COV_MIN_YES_M2)) { covStats.small++; return; }
+      if (layerOnly) { covStats.small++; return; }
+    }
     if (pts.length > 40) pts = rdp(pts, 1.2);
-    const house = HOUSE_TYPES.has(t.building) || (t.building === 'yes' && area < 260);
+    const house = !cov && (HOUSE_TYPES.has(t.building) || (t.building === 'yes' && area < 260));
     let h = parseHeight(t.height);
     const levels = parseInt(t['building:levels'], 10);
     if (!Number.isFinite(h) || h <= 0) {
@@ -1408,7 +1464,7 @@ const layerHeld = [];   // B2: layer > 0 outlines, for lib/parts.mjs
       else if (t.building === 'parking') h = 12;
       else if (t.building === 'church') h = 14;
       else if (t.building === 'apartments' || t.building === 'dormitory' || t.building === 'hotel') h = 13;
-      else h = area < 300 ? 5.5 : area < 1200 ? 8 : area < 4000 ? 12 : 16;
+      else h = cov ? covHeight(t, area) : area < 300 ? 5.5 : area < 1200 ? 8 : area < 4000 ? 12 : 16;
     }
     h = Math.min(h, 300);
     // style: 0 tower glass, 1 midrise, 2 brick, 3 house, 4 shops (retail
@@ -1417,12 +1473,17 @@ const layerHeld = [];   // B2: layer > 0 outlines, for lib/parts.mjs
     if (house) style = 3;
     else if (h >= 55) style = 0;
     else if (h >= 20) style = 1;
+    // coverage: a supermarket or a big plain box by a lot is a shopfront under
+    // a parapet; a works shed or a campus hall (amenity=university too) keeps
+    // the plain wall
+    else if (cov) style = covShop(t) || (t.building === 'yes' && !t.amenity && area >= 600 && area <= 12000) ? 4 : COV_CAMPUS.has(t.building) && area > 900 ? 1 : 2;
     else if (t.building === 'retail' || t.building === 'commercial' || t.shop || t.amenity) style = 4;
     else style = area > 900 ? 1 : (t.building === 'yes' ? 4 : 2);
     const gable = house && area < 480 && pts.length <= 10;
     const b = { pts, h, style, gable, area, look: facadeLook(t), key };
     // B2: an outline's own roof (lib/parts.mjs reads it; houses keep their gables)
     if (t['roof:shape']) b.rt = { 'roof:shape': t['roof:shape'], 'roof:height': t['roof:height'], 'roof:levels': t['roof:levels'], 'roof:direction': t['roof:direction'] };
+    if (cov) { if (style === 4) covStats.shops++; covBld.push(b); return; }
     if (layerOnly) { layerHeld.push(b); dropped++; return; }
     buildings.push(b);
   };
@@ -1472,6 +1533,36 @@ const layerHeld = [];   // B2: layer > 0 outlines, for lib/parts.mjs
     for (const b of keep) buildings.push(b);
     dropped += through;
     console.log(`  ${through} footprints straddling a road dropped`);
+    // coverage: the same rules, appended after the core (never in the bbox
+    // below: the procedural fill still owns everything outside the core, and
+    // stands aside where a real footprint or lot is - CityHouses.OnRealSite)
+    if (COVERAGE) {
+      const FAR = +(process.env.PSX_COV_FAR_M || 0);   // 0: every footprint, however far from a drivable road
+      const nearRoad = b => {
+        let x0 = 1e18, x1 = -1e18, z0 = 1e18, z1 = -1e18;
+        for (const p of b.pts) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }
+        for (let cx = Math.floor((x0 - FAR) / SEGCELL); cx <= Math.floor((x1 + FAR) / SEGCELL); cx++)
+          for (let cz = Math.floor((z0 - FAR) / SEGCELL); cz <= Math.floor((z1 + FAR) / SEGCELL); cz++)
+            if (segHash.has(cellKey(cx, cz))) return true;
+        return false;
+      };
+      for (const el of rawCov) {
+        if (el.type === 'way' && el.geometry) addPoly(el.geometry, el.tags, 'w' + el.id, true);
+        else if (el.type === 'relation' && el.members)
+          for (const m of el.members) if (m.role === 'outer' && m.geometry) addPoly(m.geometry, el.tags, 'r' + el.id, true);
+      }
+      const keepC = [];
+      for (const b of covBld) {
+        if (FAR > 0 && !nearRoad(b)) covStats.far++;
+        else if (straddles(b)) covStats.through++;
+        else keepC.push(b);
+      }
+      covBld.length = 0;
+      for (const b of keepC) covBld.push(b);
+      covStats.kept = covBld.length;
+      covStats.shops = covBld.filter(b => b.style === 4).length;
+      console.log('coverage buildings:', JSON.stringify(covStats));
+    }
   }
   const styles = [0, 0, 0, 0, 0];
   for (const b of buildings) styles[b.style]++;
@@ -1492,13 +1583,54 @@ const lotsFile = join(CACHE, 'lots_core.json');
 // copies gives them; the real one below runs on the outlines untouched.)
 const lotBuildings = (() => {
   const partsFile = join(CACHE, 'parts_core.json');
-  if (!existsSync(partsFile)) return buildings;
+  if (!existsSync(partsFile)) return buildings.concat(covBld);
   const dry = applyParts({ raw: loadJson(partsFile).elements, buildings: buildings.map(b => ({ ...b })), held: layerHeld.map(b => ({ ...b })),
                            toX, toZ, rdp, polyArea, parseHeight, facadeLook });
-  return buildings.concat(dry.rescued, dry.parts);
+  return buildings.concat(dry.rescued, dry.parts, covBld);
+})();
+// coverage: the lots (and their aisles) wholly outside the core box, after the core's
+const lotsRaw = (() => {
+  if (!existsSync(lotsFile)) return [];
+  const core = loadJson(lotsFile).elements;
+  if (!COVERAGE || !existsSync(covLotsFile)) return core;
+  const ids = new Set(core.map(e => e.type + e.id));
+  // size budget (2026-10-06): a lot under 2000 m2 (~60 stalls: a diner's, a
+  // bank's) is left out, and an aisle stands only inside a lot that is kept -
+  // every lot and aisle put charlotte_city.bytes at 1.8x the core's
+  const minM2 = +(process.env.PSX_COV_LOT_M2 || 2000);
+  let n = 0, small = 0, loose = 0;
+  const add = [], aisles = [], rings = [];
+  for (const e of loadJson(covLotsFile).elements) {
+    if (ids.has(e.type + e.id) || covInCore(e) || !e.tags) continue;
+    if (e.type === 'way' && e.tags.service === 'parking_aisle') { aisles.push(e); continue; }
+    if (minM2 > 0 && e.type === 'way' && e.tags.amenity === 'parking' && e.geometry) {
+      const ring = e.geometry.map(g => [toX(g.lon), toZ(g.lat)]);
+      if (Math.abs(polyArea(ring)) < minM2) { small++; continue; }
+      rings.push(ring);
+    }
+    add.push(e); n++;
+  }
+  const CELL = 256, grid = new Map();
+  for (const r of rings) {
+    let x0 = 1e18, x1 = -1e18, z0 = 1e18, z1 = -1e18;
+    for (const p of r) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }
+    for (let cx = Math.floor(x0 / CELL); cx <= Math.floor(x1 / CELL); cx++)
+      for (let cz = Math.floor(z0 / CELL); cz <= Math.floor(z1 / CELL); cz++) {
+        const k = cx + ',' + cz; if (!grid.has(k)) grid.set(k, []); grid.get(k).push(r);
+      }
+  }
+  const inRing = (r, x, z) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > z) !== (r[j][1] > z) && x < (r[j][0] - r[i][0]) * (z - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) c = !c; return c; };
+  for (const e of aisles) {
+    const g = e.geometry && e.geometry[e.geometry.length >> 1];
+    const x = g && toX(g.lon), z = g && toZ(g.lat);
+    if (g && (grid.get(Math.floor(x / CELL) + ',' + Math.floor(z / CELL)) || []).some(r => inRing(r, x, z))) { add.push(e); n++; }
+    else loose++;
+  }
+  console.log(`coverage lots: ${n} elements outside the core (${small} lots under ${minM2} m2 and ${loose} aisles outside a kept lot left out)`);
+  return core.concat(add);
 })();
 const LOTS = existsSync(lotsFile)
-  ? buildLots({ raw: loadJson(lotsFile).elements, edges, buildings: lotBuildings, nodeIndex, nodeCount: nodes.length, toX, toZ, laneM: LANE_M })
+  ? buildLots({ raw: lotsRaw, edges, buildings: lotBuildings, nodeIndex, nodeCount: nodes.length, toX, toZ, laneM: LANE_M })
   : { lots: [], entrances: [], turns: [], stats: { missing: lotsFile } };
 console.log('lots (L8):', JSON.stringify(LOTS.stats));
 
@@ -1800,7 +1932,9 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
   const { raised, ...ps } = PARTS.stats;
   console.log('parts (B2):', JSON.stringify(ps));
   if (raised.length) console.log('  raised by their parts:', raised.slice(0, 12).join('; '));
-  const all = buildings.concat(PARTS.rescued, PARTS.parts);
+  // coverage: the outside footprints after every core record (core indices unchanged)
+  const all = buildings.concat(PARTS.rescued, PARTS.parts, covBld);
+  if (covBld.length) console.log(`  coverage: ${covBld.length} footprints appended at index ${all.length - covBld.length}`);
   const w = new Writer();
   w.u32(0x444C4250); // "PBLD"
   w.u32(3);
@@ -1832,7 +1966,7 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
   // Parking decks (2026-10-05, part 1; lib/decks.mjs): which decks the game
   // builds drivable, their levels, rectangle and layout. Its own file, so the
   // bld bytes (and every footprint index) stay exactly as they were.
-  const DK = buildDecks({ rawBld, all, parseHeight, uptown: [-2259, 4782] });
+  const DK = buildDecks({ rawBld, rawCov, all, parseHeight, uptown: [-2259, 4782] });
   emit('charlotte_decks.bytes', writeDecks(Writer, DK.decks));
 }
 
@@ -1966,6 +2100,10 @@ function inputFiles() {
   if (existsSync(join(CACHE, 'lots_core.json'))) add('tools/city/cache/lots_core.json', join(CACHE, 'lots_core.json'), 'overpass');
   add('tools/city/cache/buildings_core.json', join(CACHE, 'buildings_core.json'), 'overpass');
   add('tools/city/cache/parts_core.json', join(CACHE, 'parts_core.json'), 'overpass');   // B2
+  if (COVERAGE) {   // coverage (fetch/fetch_coverage.mjs)
+    add('tools/city/cache/buildings_city.json', covBldFile, 'overpass');
+    add('tools/city/cache/lots_city.json', covLotsFile, 'overpass');
+  }
   // the 3DEP box (%PSX_GIS_DIR%\3dep when that is set) and its georeference
   add('tools/city/cache/3dep/box13.f32', dem3.f32Path, '3dep');
   add('tools/city/cache/3dep/box13.json', dem3.jsonPath, '3dep');

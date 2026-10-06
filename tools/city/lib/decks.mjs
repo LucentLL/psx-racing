@@ -42,6 +42,9 @@ export const WHITELIST = new Map([
 export const WHITELIST_EXTRA = new Map([
   [394430321, 'uptown, 9 levels, 57 x 106 m, ~240 m from the centre'],
   [500204485, 'uptown, 9 levels, 46 x 57 m, ~300 m from the centre'],
+  // coverage (2026-10-06, the owner: the campus deck by the engineering building)
+  [1053094969, 'UNC Charlotte, the permit deck beside the EPIC building'],
+  [1053094961, 'UNC Charlotte, Snyder Deck, west of the EPIC building'],
 ]);
 
 /// Levels from a height in metres. Two conventions are possible (the roof
@@ -91,18 +94,22 @@ const polyArea = pts => { let s = 0; for (let i = 0; i < pts.length; i++) { cons
 /// Every OSM deck, classified. rawBld: the buildings cache's elements; all:
 /// the bld file's entries in order (each with key 'w<id>' / 'r<id>', pts, h,
 /// hidden). parseHeight: the exporter's. uptown: [x, z] for the candidate list.
-export function buildDecks({ rawBld, all, parseHeight, uptown, log = console.log }) {
+export function buildDecks({ rawBld, rawCov = [], all, parseHeight, uptown, log = console.log }) {
   const isDeck = t => t && (t.parking === 'multi-storey' || t.building === 'parking');
   const bldOf = new Map();
   all.forEach((b, i) => { if (b.key && !b.part && !bldOf.has(b.key)) bldOf.set(b.key, i); });
   const raw = [];
   for (const el of rawBld) if (el.type === 'way' && isDeck(el.tags)) raw.push(el);
+  // coverage (2026-10-06): the decks outside the core come after the core's
+  // records, and the levels formula below stays the one the core's decks chose
+  const nCore = raw.length;
+  for (const el of rawCov) if (el.type === 'way' && isDeck(el.tags)) raw.push(el);
   // the levels formula, checked on the decks that carry both
   let errR = 0, errN = 0, nBoth = 0;
   const tagged = t => { const a = parseInt(t['building:levels'], 10), b = parseInt(t['parking:levels'], 10);
     return Number.isFinite(b) && b > 0 ? b : Number.isFinite(a) && a > 0 ? a : NaN; };
   const checks = [];
-  for (const el of raw) {
+  for (const el of raw.slice(0, nCore)) {
     const L = tagged(el.tags), h = parseHeight(el.tags.height);
     if (!Number.isFinite(L) || !Number.isFinite(h) || h <= 0) continue;
     nBoth++;

@@ -10060,13 +10060,14 @@ namespace PSXRacing.City
         /// <summary>One wall of a retail-or-not box: a shopfront on the
         /// ground floor where asked, brick above and elsewhere.</summary>
         static void EmitWallStyled(TileMeshes tm, Vector2 a, Vector2 c, float y0, float y1,
-                                   Vector2 outward, bool retail, bool shopFront, Slot wallSlot)
+                                   Vector2 outward, bool retail, bool shopFront, Slot wallSlot, int baysSeed = -1)
         {
             float wallW = Vector2.Distance(a, c);
             if (retail)
             {
                 float split = Mathf.Min(y0 + BuildingSink + ShopFloorH, y1);
-                if (shopFront)
+                if (shopFront && baysSeed >= 0) EmitBays(tm, a, c, y0 + BuildingSink, split, outward, baysSeed);
+                else if (shopFront)
                 {
                     float reps = Mathf.Max(1f, Mathf.Round(wallW / FacadeMeters[3].x));
                     EmitPanels(tm, Slot.Shops, a, c, y0 + BuildingSink, split, outward, reps, 1f);
@@ -10076,6 +10077,28 @@ namespace PSXRacing.City
                 return;
             }
             EmitFacadeQuad(tm, wallSlot, a, c, y0, y1, outward);
+        }
+
+        /// <summary>Coverage (2026-10-06): a strip centre's parapet over its flat roof (m).</summary>
+        const float CovParapetM = 1.1f, CovBayM = 7.5f;
+
+        /// <summary>Coverage (2026-10-06): a shopping centre's storefront as
+        /// plain bays, ~7.5 m each, from the two fronts of the shops atlas that
+        /// carry no lettering (Docs: NO BRANDS): the shuttered front (panel 2,
+        /// whole) and the lower part of panel 3 (a shutter and a glass door,
+        /// below its signboard). Same material as every shopfront: no draw.</summary>
+        static void EmitBays(TileMeshes tm, Vector2 a, Vector2 c, float y0, float y1, Vector2 outward, int seed)
+        {
+            var bk = buckets[(int)Slot.Shops];
+            int n = Mathf.Max(1, Mathf.RoundToInt(Vector2.Distance(a, c) / CovBayM));
+            for (int i = 0; i < n; i++)
+            {
+                Vector2 pa = Vector2.Lerp(a, c, (float)i / n), pc = Vector2.Lerp(a, c, (float)(i + 1) / n);
+                uint h = (uint)(seed * 73856093) ^ (uint)(i * 19349663);
+                h ^= h >> 13; h *= 0x5bd1e995; h ^= h >> 15;
+                if ((h & 3) != 0) bk.Wall(L(pa, 0f, tm), L(pc, 0f, tm), y0, y1, outward, 0.5f, 0.75f, 0f, 0.45f);
+                else bk.Wall(L(pa, 0f, tm), L(pc, 0f, tm), y0, y1, outward, 0.25f, 0.5f, 0f, 1f);
+            }
         }
 
         static void EmitFacadeQuad(TileMeshes tm, Slot style, Vector2 a, Vector2 c,
@@ -10261,12 +10284,23 @@ namespace PSXRacing.City
                 float wallY0 = floating ? floorP + f.minH : y0;
                 float eaveY = f.roof != 0 ? Mathf.Max(wallY0, top - f.roofH) : top;
                 bool retail = f.style == 4 && !floating && !skylineBuild;
+                // Coverage (2026-10-06): a shop outside the core is a strip
+                // centre or a big box - plain bays (no lettering) and a flat
+                // roof behind a parapet
+                bool covShop = retail && !map.footprintBounds.Contains(f.centre);
+                float parapet = covShop && f.roof == 0 ? CovParapetM : 0f;
                 // A shopfront goes on the wall that faces the nearest street.
+                // Coverage (2026-10-06): outside the core a shopping centre
+                // faces its parking lot (often 100 m back from the street).
                 int frontWall = -1;
+                Vector2 lotQ = default;
+                bool byLot = covShop && f.h > ShopFloorH + 1.5f &&
+                             NearestLotPoint(map, f.centre, 90f, out lotQ);
+                int rei = -1; float rs = 0f;
                 if (retail && f.h > ShopFloorH + 1.5f &&
-                    map.NearestRoadPoint(f.centre, 70f, skipLinks: true, out int rei, out float rs, out _))
+                    (byLot || map.NearestRoadPoint(f.centre, 70f, skipLinks: true, out rei, out rs, out _)))
                 {
-                    var q = map.edges[rei].PointAt(rs);
+                    var q = byLot ? lotQ : map.edges[rei].PointAt(rs);
                     var toRoad = (q - f.centre).normalized;
                     float bestDot = 0.5f;
                     for (int i = 0; i < fitPoly.Count; i++)
@@ -10304,7 +10338,10 @@ namespace PSXRacing.City
                     if (d.sqrMagnitude < 0.04f) continue;
                     var outward = new Vector2(d.y, -d.x).normalized;
                     if (eaveY > wallY0 + 0.05f)
-                        EmitWallStyled(tm, a, c, wallY0, eaveY, outward, retail, i == frontWall, wallSlot);
+                        EmitWallStyled(tm, a, c, wallY0, eaveY + parapet, outward, retail, i == frontWall, wallSlot,
+                                       covShop ? fi : -1);
+                    // the parapet's inner face (seen from a deck's roof)
+                    if (parapet > 0f) EmitFacadeQuad(tm, wallSlot, c, a, top, top + parapet, -outward);
                 }
 
                 roofScratch.Clear();

@@ -94,6 +94,8 @@ namespace PSXRacing.City
 
                         // The real buildings own the core.
                         if (map.footprintBounds.Contains(c)) { at += step; continue; }
+                        // ...and, outside it, their own sites (coverage: a campus, a shopping centre's lot)
+                        if (CityHouses.OnRealSite(map, c, Mathf.Max(bw, bd) * 0.6f + 4f)) { at += step; continue; }
 
                         // never inside another road's corridor
                         scratch.Clear();

@@ -46,6 +46,20 @@
       "timestamp_osm_base": "2026-10-04T22:10:48Z"
     },
     {
+      "file": "tools/city/cache/buildings_city.json",
+      "kind": "overpass",
+      "bytes": 67500464,
+      "sha256": "0c0feac68a16123e8688e2c4cdf9559362c7a2bd210af621477084c709a5b50e",
+      "timestamp_osm_base": null
+    },
+    {
+      "file": "tools/city/cache/lots_city.json",
+      "kind": "overpass",
+      "bytes": 23717425,
+      "sha256": "078efa34b4ec12efac8030f047f6c727c458683296626e3bceb26d606ef9a0ad",
+      "timestamp_osm_base": null
+    },
+    {
       "file": "tools/city/cache/3dep/box13.f32",
       "kind": "3dep",
       "bytes": 137075328,
