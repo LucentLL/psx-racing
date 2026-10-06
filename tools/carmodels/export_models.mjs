@@ -74,8 +74,11 @@ const MODELS = [
   // (Cars/EG_Independent_Textured_v01: 3,994 tris with the wheels, one red
   // 512x256 atlas, underside in the right half). GLB only -> glb2obj.py ->
   // converted/hatch_93_v01. `skinAs` gives the copied atlas a neutral name.
-  { key: 'civic_eg',     obj: `${here}/converted/hatch_93_v01/hatch_93_v01.obj`,
-    tex: `${ownerCars}/EG_Independent_Textured_v01`, skins: /^eg_red_512x256$/,
+  // 2026-10-05 later: revision 03 (spoiler lowered 34 mm to meet the revised
+  // rear glass, the painted strip between them gone; 3,970 tris, atlas
+  // unchanged), converted/hatch_93_v03.
+  { key: 'civic_eg',     obj: `${here}/converted/hatch_93_v03/hatch_93_v03.obj`,
+    tex: `${ownerCars}/EG_Independent_Textured_v03`, skins: /^eg_red_512x256$/,
     skinAs: 'hatch_93_red_512x256', gt4LengthM: 4.070 },
   // The owner's S13 hatch (the 180SX that America sold as the 240SX) — GT4's
   // "Nissan 240SX `96": 4520 mm, 2475 mm wheelbase. The S14 is its own row.
@@ -173,9 +176,12 @@ const MODELS = [
   // tris either way, 512x256 with the underfloor on the right): the catalog's
   // one pop-up variant of that car; its fixed-lamp twin keeps its scored
   // shell. GT4: 4205 mm, wb 2400. GLB -> converted/hatch_83_popup_v02.
-  { key: 'hatch_83_popup', obj: `${here}/converted/hatch_83_popup_v02/hatch_83_popup_v02.obj`,
-    lampsUp: `${here}/converted/hatch_83_popup_v02/hatch_83_popup_v02_up.obj`,
-    tex: `${ownerCars}/AE86_Independent_v02`, skins: /^ae86_white_black_512x256$/,
+  // 2026-10-05 later: revision 07 (rebuilt hood / headlight / front-fascia
+  // junction, raised housings 50 mm forward, black upper fascia; same stance
+  // and paint; 3,988 tris either way), converted/hatch_83_popup_v07.
+  { key: 'hatch_83_popup', obj: `${here}/converted/hatch_83_popup_v07/hatch_83_popup_v07.obj`,
+    lampsUp: `${here}/converted/hatch_83_popup_v07/hatch_83_popup_v07_up.obj`,
+    tex: `${ownerCars}/AE86_Independent_v07`, skins: /^ae86_white_black_512x256$/,
     skinAs: 'hatch_83_white_black_512x256', gt4LengthM: 4.205 },
 
   // The owner's 2026-10-02 set ("Integra, S2000, and Prelude have been
