@@ -109,7 +109,7 @@ namespace PSXRacing.City
         //  THE MEDIAN CARRIED THROUGH A SHORT SINGLE CARRIAGEWAY (leftovers-b)
         // ------------------------------------------------------------------
         /// <summary>OFF until gated: PSX_CITY_MEDIAN_CARRY=1 carries it (off = the gap at the piece).</summary>
-        public static readonly bool MedianCarryOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MEDIAN_CARRY") == "1";
+        public static readonly bool MedianCarryOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MEDIAN_CARRY") != "0";
         /// <summary>The longest two-way piece a divided road's median is carried through.</summary>
         public const float MedianCarryMaxM = 40f;
 

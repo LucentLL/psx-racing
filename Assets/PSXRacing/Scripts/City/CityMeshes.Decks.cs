@@ -24,7 +24,7 @@ namespace PSXRacing.City
         /// <summary>The bucket the deck being built lays its floors' tops in
         /// (the slab, see EmitDeck) - the concrete when there is none.</summary>
         static Bucket deckSlab;
-        static readonly bool DeckSlabOff = System.Environment.GetEnvironmentVariable("PSX_DECK_SLAB") != "1";
+        static readonly bool DeckSlabOff = System.Environment.GetEnvironmentVariable("PSX_DECK_SLAB") == "0";
         /// <summary>A floor top's UV: the lots' world mapping (12 m) on the
         /// slab, the pack concrete's 4 m otherwise.</summary>
         static Vector2 FUV(CityDecks.Deck d, float x, float z, Bucket con)
