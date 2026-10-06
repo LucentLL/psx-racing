@@ -20,7 +20,8 @@
 //   game can report the counts): i32 bld index (-1: not in the bld file),
 //   u32 way id, u8 levels (0 unknown), u8 layout (0 solid, 1 helix, 2 single
 //   bay), u8 reason (REASONS), u8 flags (bit0 enabled, bit1 levels tagged,
-//   bit2 levels from height), f32 cx, cz, ux, uz (unit long axis), hu, hv
+//   bit2 levels from height, bit3 levels from OVERRIDES, bit4 brick facade),
+//   f32 cx, cz, ux, uz (unit long axis), hu, hv
 //   (half length, half width), f32 fill, f32 height (m, 0 untagged).
 
 export const FLOOR1_M = 3.4, FLOOR_M = 3.05, PARAPET_M = 1.1;
@@ -45,6 +46,25 @@ export const WHITELIST_EXTRA = new Map([
   // coverage (2026-10-06, the owner: the campus deck by the engineering building)
   [1053094969, 'UNC Charlotte, the permit deck beside the EPIC building'],
   [1053094961, 'UNC Charlotte, Snyder Deck, west of the EPIC building'],
+]);
+
+// OWNER OVERRIDES (2026-10-06): facts OSM does not carry, read off the owner's
+// Street View screenshots. Our data, never OSM's. Matched by position: 969 is
+// 75 m from the EPIC building (access=permit, the "PERMIT PARKING ONLY" entry),
+// 961 is the one 98 m from Robert D Snyder Road (175 m for 969).
+//   levels  the runtime's count: every drivable floor, ground to the open roof
+//           (CityDecks: the turning bays at -x are the levels, the last the
+//           roof). The stair tower counts ground + 4 covered + roof on the Epic
+//           Ln deck = 6; ground + 1 covered + roof on the Snyder Rd one = 3.
+//           (The height formula's "roof not counted" is OSM's building:levels,
+//           the storeys UNDER the roof; it is not used for an override.)
+//   anyFill the footprint may fill its rectangle under FILL_MIN (969 is 0.75:
+//           a pinwheel outline round its stair towers; the owner wants this one most)
+//   brick   red brick with cast-stone floor bands (FLAG_BRICK), not precast
+export const FLAG_OWNER_LEVELS = 8, FLAG_BRICK = 16;
+export const OVERRIDES = new Map([
+  [1053094969, { levels: 6, anyFill: true, brick: true }],    // the Epic Ln deck (the owner's car-meet deck)
+  [1053094961, { levels: 3, brick: true }],                   // the Robert D Snyder Rd deck
 ]);
 
 /// Levels from a height in metres. Two conventions are possible (the roof
@@ -128,11 +148,14 @@ export function buildDecks({ rawBld, rawCov = [], all, parseHeight, uptown, log 
     const b = bi >= 0 ? all[bi] : null;
     let L = tagged(t), how = 1;
     const h = parseHeight(t.height);
+    const ov = OVERRIDES.get(el.id);
+    if (ov && ov.levels) L = ov.levels;
     if (!Number.isFinite(L)) {
       if (Number.isFinite(h) && h > 0) { L = Math.max(1, Math.round(levelsFromHeight(h, roofCounted))); how = 2; hN++; }
       else { L = 0; how = 0; noneN++; }
     } else tagN++;
-    const d = { bi, id: el.id, levels: L, layout: 0, reason: 0, flags: how === 1 ? 2 : how === 2 ? 4 : 0,
+    const d = { bi, id: el.id, levels: L, layout: 0, reason: 0,
+      flags: (how === 1 ? 2 : how === 2 ? 4 : 0) | (ov && ov.levels ? FLAG_OWNER_LEVELS : 0) | (ov && ov.brick ? FLAG_BRICK : 0),
       cx: 0, cz: 0, ux: 1, uz: 0, hu: 0, hv: 0, fill: 0, h: Number.isFinite(h) ? h : 0 };
     if (b) {
       const r = orientedRect(b.pts);
@@ -142,7 +165,7 @@ export function buildDecks({ rawBld, rawCov = [], all, parseHeight, uptown, log 
     if (!b) d.reason = 7;
     else if (b.hidden) d.reason = 8;
     else if (L < 2) d.reason = 1;
-    else if (d.fill < FILL_MIN) d.reason = 2;
+    else if (d.fill < FILL_MIN && !(ov && ov.anyFill)) d.reason = 2;
     else if (W < SINGLE_W) d.reason = 3;
     else if (W < HELIX_W) { d.layout = 2; d.reason = 4; }
     else if (Lm < HELIX_L) { d.layout = 1; d.reason = 5; }
