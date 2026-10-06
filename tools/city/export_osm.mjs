@@ -275,6 +275,33 @@ const rawNodes = loadJson(nodeFile).elements.filter(e => e.type === 'node');
 const minorFile = join(CACHE, 'streets_core.json');
 const rawMinor = existsSync(minorFile)
   ? loadJson(minorFile).elements.filter(e => e.type === 'way' && e.tags && e.geometry) : [];
+// The owner's campus deck (2026-10-06): the Epic Ln deck's own entry drive,
+// OSM way 1054111151, an unnamed service aisle from Phillips Road to the
+// deck's north-east face (OSM names no "Epic Ln"; it is the only way that
+// leaves a public street and ends at that footprint). It lies outside the
+// core streets' box, so it is fetched on its own (fetch/fetch_uncc.mjs) and
+// kept as a street though it has no name.
+const UNCC_ACCESS = new Set([1054111151]);
+const unccFile = join(CACHE, 'uncc_ways.json');
+const rawAccess = existsSync(unccFile)
+  ? loadJson(unccFile).elements.filter(e => e.type === 'way' && UNCC_ACCESS.has(e.id) && e.tags && e.geometry).map(w => trimHead(w, 30)) : [];
+/// Its first 30 m (from its first node, at the deck's face) are the deck's own
+/// driveway: the game builds that as the ramp up to the door (CityDecks.Solve,
+/// the deck stands 3.6 m over the street's end), so the street stops short.
+function trimHead(w, m) {
+  const P = w.geometry.map(g => [toX(g.lon), toZ(g.lat)]);
+  let acc = 0;
+  for (let i = 1; i < P.length; i++) {
+    const L = Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]);
+    if (acc + L > m) {
+      const t = (m - acc) / L, g0 = w.geometry[i - 1], g1 = w.geometry[i];
+      const head = { lat: g0.lat + (g1.lat - g0.lat) * t, lon: g0.lon + (g1.lon - g0.lon) * t };
+      return { ...w, nodes: [w.nodes[0], ...w.nodes.slice(i)], geometry: [head, ...w.geometry.slice(i)] };
+    }
+    acc += L;
+  }
+  return w;
+}
 const bldFile = join(CACHE, 'buildings_core.json');
 const rawBld = existsSync(bldFile) ? loadJson(bldFile).elements : [];
 // Coverage (2026-10-06, fetch/fetch_coverage.mjs): the non-residential
@@ -396,6 +423,7 @@ function keepWay(w, minor) {
 }
 for (const w of rawWays) keepWay(w, false);
 for (const w of rawMinor) keepWay(w, true);
+for (const w of rawAccess) keepWay(w, false);   // named by id: kept without a name
 console.log(KEEP_TOLL ? `kept ${ways.length} ways (${tollKept} of them toll: the express lanes and the Monroe Expressway, kept - owner Q3)`
                       : `kept ${ways.length} ways (dropped ${tollDropped} toll ways: held back, see KEEP_TOLL)`);
 // A slip ramp that only ever led to a dropped toll lane now ends in mid-air:
@@ -590,7 +618,7 @@ const uptownXY = [toX(-80.8431), toZ(35.2271)];
 // WP-11's fillet numbers are the smoothness gate's (Editor/SmoothRules.cs):
 // R_min by class (B3), the inner-edge floor, the 2 cm sagitta and the chord cap
 const SR = readSmoothRules(join(UNITY, 'Assets', 'PSXRacing', 'Editor', 'SmoothRules.cs'));
-const LC = lineClean({ ways, edges, nodes, rawWays: [...rawWays, ...rawMinor],
+const LC = lineClean({ ways, edges, nodes, rawWays: [...rawWays, ...rawMinor, ...rawAccess],
                        rawNodes, toX, toZ, uptown: uptownXY,
                        fillet: { rMinFor: SR.rMinFor, innerEdgeMinR: SR.InnerEdgeMinRM, eps: SR.DensifyEpsM,
                                  chordCap: SR.ChordCapM, collinearDeg: SR.CollinearDeg } });

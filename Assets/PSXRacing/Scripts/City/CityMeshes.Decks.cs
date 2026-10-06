@@ -77,6 +77,15 @@ namespace PSXRacing.City
             deckBrick = d.Brick ? buckets[(int)Slot.FacadeGlass] : null;
             var keepTint = Bucket.Tint;
             if (deckBrick != null) Bucket.Tint = new Color32(TintByte(1.18f), TintByte(0.92f), TintByte(0.84f), (byte)(LookBrick * 32));
+            // the clearance bar's yellow: the lines' own yellow in the stall paint's slot
+            deckPaint = deckBrick != null ? paint : null;
+            if (deckPaint != null)
+            {
+                var layY = LineModel.LayoutOf(stallSlot);
+                deckYellow = new Vector2(0.5f * (stallU0 + stallU1), 0.2f);
+                for (int q = 0; q < layY.m.Length; q++)
+                    if (layY.kind[q] == LineModel.KYellow) { deckYellow = new Vector2(layY.m[q] / layY.W, 0.2f); break; }
+            }
             int t0 = con.t.Count + (paint != null ? paint.t.Count : 0) + lampBucket.t.Count + (deckSlab != con ? deckSlab.t.Count : 0);
 
             int top = d.levels - 1;
@@ -110,21 +119,28 @@ namespace PSXRacing.City
                 System.Func<Vector2, float> yf = k == 0 ? (System.Func<Vector2, float>)(p => CityDecks.GroundBayLocal(d, p.x, p.y)) : (_ => y);
                 float oa = float.MaxValue, ob = float.MinValue;
                 if (k == 0) { oa = d.entryAt - half; ob = d.entryAt + half; }
-                DeckWall(con, d, tm, new Vector2(-hu, -hv), new Vector2(x0, -hv), new Vector2(0f, -1f), yf, skirt, low, d.entrySide == -1 ? oa : float.MaxValue, ob);
-                DeckWall(con, d, tm, new Vector2(-hu, hv), new Vector2(x0, hv), new Vector2(0f, 1f), yf, skirt, low, d.entrySide == 1 ? oa : float.MaxValue, ob);
-                DeckWall(con, d, tm, new Vector2(-hu, -hv), new Vector2(-hu, hv), new Vector2(-1f, 0f), yf, skirt, low, d.entrySide == 0 ? oa : float.MaxValue, ob);
+                // a brick deck's punched screen up to the floor above (none over the roof)
+                float yAbove = CityDecks.TurnLo(k + 1);
+                System.Func<Vector2, float> up = k < top ? (_ => yAbove) : (System.Func<Vector2, float>)null;
+                DeckWall(con, d, tm, new Vector2(-hu, -hv), new Vector2(x0, -hv), new Vector2(0f, -1f), yf, skirt, low, d.entrySide == -1 ? oa : float.MaxValue, ob, up, k == top);
+                DeckWall(con, d, tm, new Vector2(-hu, hv), new Vector2(x0, hv), new Vector2(0f, 1f), yf, skirt, low, d.entrySide == 1 ? oa : float.MaxValue, ob, up, k == top);
+                DeckWall(con, d, tm, new Vector2(-hu, -hv), new Vector2(-hu, hv), new Vector2(-1f, 0f), yf, skirt, low, d.entrySide == 0 ? oa : float.MaxValue, ob, up, k == top);
             }
             for (int k = 0; k < top; k++)
             {
                 int kk = k; float yh = CityDecks.TurnHi(k); bool skirt = k == 0;
-                DeckWall(con, d, tm, new Vector2(x1, -hv), new Vector2(hu, -hv), new Vector2(0f, -1f), _ => yh, skirt, low, float.MaxValue, 0f);
-                DeckWall(con, d, tm, new Vector2(x1, hv), new Vector2(hu, hv), new Vector2(0f, 1f), _ => yh, skirt, low, float.MaxValue, 0f);
-                DeckWall(con, d, tm, new Vector2(hu, -hv), new Vector2(hu, hv), new Vector2(1f, 0f), _ => yh, skirt, low, float.MaxValue, 0f);
-                DeckWall(con, d, tm, new Vector2(x0, -hv), new Vector2(x1, -hv), new Vector2(0f, -1f), p => CityDecks.BayA(d, kk, p.x), skirt, low, float.MaxValue, 0f);
-                DeckWall(con, d, tm, new Vector2(x0, hv), new Vector2(x1, hv), new Vector2(0f, 1f), p => CityDecks.BayB(d, kk, p.x), skirt, low, float.MaxValue, 0f);
+                bool roof = k == top - 1; float yh1 = CityDecks.TurnHi(k + 1);
+                System.Func<Vector2, float> upH = roof ? null : (System.Func<Vector2, float>)(_ => yh1);
+                System.Func<Vector2, float> upA = roof ? null : (System.Func<Vector2, float>)(p => CityDecks.BayA(d, kk + 1, p.x));
+                System.Func<Vector2, float> upB = roof ? null : (System.Func<Vector2, float>)(p => CityDecks.BayB(d, kk + 1, p.x));
+                DeckWall(con, d, tm, new Vector2(x1, -hv), new Vector2(hu, -hv), new Vector2(0f, -1f), _ => yh, skirt, low, float.MaxValue, 0f, upH, roof);
+                DeckWall(con, d, tm, new Vector2(x1, hv), new Vector2(hu, hv), new Vector2(0f, 1f), _ => yh, skirt, low, float.MaxValue, 0f, upH, roof);
+                DeckWall(con, d, tm, new Vector2(hu, -hv), new Vector2(hu, hv), new Vector2(1f, 0f), _ => yh, skirt, low, float.MaxValue, 0f, upH, roof);
+                DeckWall(con, d, tm, new Vector2(x0, -hv), new Vector2(x1, -hv), new Vector2(0f, -1f), p => CityDecks.BayA(d, kk, p.x), skirt, low, float.MaxValue, 0f, upA, roof);
+                DeckWall(con, d, tm, new Vector2(x0, hv), new Vector2(x1, hv), new Vector2(0f, 1f), p => CityDecks.BayB(d, kk, p.x), skirt, low, float.MaxValue, 0f, upB, roof);
             }
             // the roof's turning bay ends in a drop over bay A's last run: a parapet
-            DeckWall(con, d, tm, new Vector2(x0 + W, -hv + W), new Vector2(x0 + W, -S), new Vector2(1f, 0f), _ => CityDecks.TurnLo(top), false, low, float.MaxValue, 0f);
+            DeckWall(con, d, tm, new Vector2(x0 + W, -hv + W), new Vector2(x0 + W, -S), new Vector2(1f, 0f), _ => CityDecks.TurnLo(top), false, low, float.MaxValue, 0f, null, false);
 
             // ---- the spine between the bays, ground to a parapet over the top runs ----
             {
@@ -150,6 +166,8 @@ namespace PSXRacing.City
                 // the fill under bay B's first run faces the ground turning bay
                 con.Wall(DP(d, x0, 0f, S, tm), DP(d, x0, 0f, hv - W, tm), d.y0 + low, d.y0 + H, DirW(d, -1f, 0f), S * 0.25f, (hv - W) * 0.25f, low * 0.25f, H * 0.25f);
             }
+
+            if (deckBrick != null) DeckTower(con, d, tm, top, low);
 
             // ---- columns at the perimeter, between a parapet and the slab above ----
             for (int s = -1; s <= 1; s += 2)
@@ -340,7 +358,7 @@ namespace PSXRacing.City
             d.trisDeck = (con.t.Count + (paint != null ? paint.t.Count : 0) + lampBucket.t.Count + (deckSlab != con ? deckSlab.t.Count : 0) - t0) / 3;
             if (!d.built) { d.built = true; DecksBuilt++; }
             CityDecks.AnyBuilt = true;
-            Bucket.Tint = keepTint; deckBrick = null;
+            Bucket.Tint = keepTint; deckBrick = null; deckPaint = null;
             return true;
         }
 
@@ -410,7 +428,8 @@ namespace PSXRacing.City
         /// middle falls in [oa, ob] (along the run's own axis) are the opening:
         /// only the skirt below the sill.</summary>
         static void DeckWall(Bucket con, CityDecks.Deck d, TileMeshes tm, Vector2 A, Vector2 B, Vector2 outL,
-                             System.Func<Vector2, float> yf, bool skirt, float low, float oa, float ob)
+                             System.Func<Vector2, float> yf, bool skirt, float low, float oa, float ob,
+                             System.Func<Vector2, float> yUp = null, bool roof = false)
         {
             float len = Vector2.Distance(A, B);
             int n = Mathf.Max(1, Mathf.CeilToInt(len / 2.5f));
@@ -425,7 +444,10 @@ namespace PSXRacing.City
                 float bot = skirt ? low : -CityDecks.SlabM;
                 float mid = alongX ? 0.5f * (a.x + b.x) : 0.5f * (a.y + b.y);
                 float ua = (alongX ? a.x : a.y) * 0.25f, ub = (alongX ? b.x : b.y) * 0.25f;
-                if (mid > oa && mid < ob)
+                bool opening = mid > oa && mid < ob;
+                if (deckBrick != null && yUp != null) BrickScreen(con, d, tm, A, a, b, inV, oW, alongX, yf, yUp, i == 0, i == n - 1, oa, ob, opening);
+                if (deckBrick != null && roof && !opening) Cornice(con, d, tm, a, b, inV, oW, outL, ya + P, yb + P);
+                if (opening)
                 {
                     con.WallSloped(DP(d, a.x, 0f, a.y, tm), DP(d, b.x, 0f, b.y, tm), d.y0 + (skirt ? low : ya + bot), d.y0 + ya, d.y0 + (skirt ? low : yb + bot), d.y0 + yb,
                                    oW, ua, ub, 0f, 0.3f);
@@ -450,6 +472,153 @@ namespace PSXRacing.City
                                -oW, ua, ub, ya * 0.25f, (ya + P) * 0.25f);
                 con.Up(DP(d, a.x, ya + P, a.y, tm), DP(d, b.x, yb + P, b.y, tm), DP(d, bi.x, yb + P, bi.y, tm), DP(d, ai.x, ya + P, ai.y, tm),
                        DUV(d, a.x, a.y), DUV(d, b.x, b.y), DUV(d, bi.x, bi.y), DUV(d, ai.x, ai.y));
+            }
+        }
+
+        const float PierW = 0.6f, PierPitchM = CityDecks.ColumnPitchM / 4f, HeaderM = 0.18f, ClearM = 2.49f;
+
+        /// <summary>A brick deck's open band between a parapet and the slab
+        /// above, as the owner's photos show it: PUNCHED openings, a brick pier
+        /// every stall (three per column bay, on the column grid's phase, one at
+        /// each run's ends) the wall's depth deep, and a brick header under the
+        /// floor above's cast-stone band. Over the street opening only the header
+        /// (its soffit 2.55 m up, over the 8 ft 2 in bar), the yellow-striped
+        /// clearance bar under it and a sign plate on the header's face.</summary>
+        static void BrickScreen(Bucket con, CityDecks.Deck d, TileMeshes tm, Vector2 A, Vector2 a, Vector2 b, Vector2 inV, Vector2 oW,
+                                bool alongX, System.Func<Vector2, float> yf, System.Func<Vector2, float> yUp, bool first, bool last, float oa, float ob, bool opening)
+        {
+            float P = CityDecks.ParapetM;
+            float ta = yUp(a) - CityDecks.SlabM, tb = yUp(b) - CityDecks.SlabM, ha = ta - HeaderM, hb = tb - HeaderM;
+            Vector2 ai = a + inV, bi = b + inV;
+            BrickBand(d, tm, a, b, oW, ha, ta, hb, tb);
+            con.WallSloped(DP(d, ai.x, 0f, ai.y, tm), DP(d, bi.x, 0f, bi.y, tm), d.y0 + ha, d.y0 + ta, d.y0 + hb, d.y0 + tb, -oW, 0f, 0.3f, 0f, 0.05f);
+            con.Face(DP(d, a.x, ha, a.y, tm), DP(d, b.x, hb, b.y, tm), DP(d, bi.x, hb, bi.y, tm), DP(d, ai.x, ha, ai.y, tm), Vector3.down,
+                     DUV(d, a.x, a.y), DUV(d, b.x, b.y), DUV(d, bi.x, bi.y), DUV(d, ai.x, ai.y));
+            float ca = alongX ? a.x : a.y, cb = alongX ? b.x : b.y, lo = Mathf.Min(ca, cb), hi = Mathf.Max(ca, cb);
+            var n3 = new Vector3(oW.x, 0f, oW.y);
+            if (opening)
+            {
+                // the clearance bar: 15 cm, half the wall's depth in from the
+                // face, 0.4 m stripes of the lines' yellow and black
+                var o = inV * 0.5f;
+                float yb0 = Mathf.Max(yf(a), yf(b)) + ClearM;
+                int ns = Mathf.Max(1, Mathf.RoundToInt(Vector2.Distance(a, b) / 0.4f));
+                for (int j = 0; j < ns; j++)
+                {
+                    var p0 = Vector2.Lerp(a, b, j / (float)ns) + o; var p1 = Vector2.Lerp(a, b, (j + 1) / (float)ns) + o;
+                    var q0 = DP(d, p0.x, yb0, p0.y, tm); var q1 = DP(d, p1.x, yb0, p1.y, tm);
+                    var r0 = DP(d, p0.x, yb0 + 0.15f, p0.y, tm); var r1 = DP(d, p1.x, yb0 + 0.15f, p1.y, tm);
+                    if ((j & 1) == 0 && deckPaint != null)
+                    {
+                        deckPaint.Face(q0, q1, r1, r0, n3, deckYellow, deckYellow, deckYellow, deckYellow);
+                        deckPaint.Face(q1, q0, r0, r1, -n3, deckYellow, deckYellow, deckYellow, deckYellow);
+                    }
+                    else { Dark(tm, q0, q1, r1, r0, n3); Dark(tm, q1, q0, r0, r1, -n3); }
+                }
+                // the sign beam's plate on the header's face (no text)
+                var so = -inV.normalized * 0.03f;
+                Dark(tm, DP(d, a.x + so.x, ha + 0.02f, a.y + so.y, tm), DP(d, b.x + so.x, hb + 0.02f, b.y + so.y, tm),
+                         DP(d, b.x + so.x, tb + 0.42f, b.y + so.y, tm), DP(d, a.x + so.x, ta + 0.42f, a.y + so.y, tm), n3);
+                return;
+            }
+            float ph = (alongX ? -d.hu : -d.hv) + 0.8f;
+            for (float c = ph + Mathf.Ceil((lo - ph) / PierPitchM) * PierPitchM; c < hi; c += PierPitchM)
+                ScreenPier(d, tm, A, inV, oW, alongX, yf, yUp, c, oa, ob);
+            if (first) ScreenPier(d, tm, A, inV, oW, alongX, yf, yUp, ca < cb ? ca + PierW * 0.5f : ca - PierW * 0.5f, oa, ob);
+            if (last) ScreenPier(d, tm, A, inV, oW, alongX, yf, yUp, cb > ca ? cb - PierW * 0.5f : cb + PierW * 0.5f, oa, ob);
+        }
+
+        /// <summary>One brick pier of <see cref="BrickScreen"/> at <paramref name="c"/>
+        /// along its run: parapet top to the header, the wall's depth deep.</summary>
+        static void ScreenPier(CityDecks.Deck d, TileMeshes tm, Vector2 A, Vector2 inV, Vector2 oW, bool alongX,
+                               System.Func<Vector2, float> yf, System.Func<Vector2, float> yUp, float c, float oa, float ob)
+        {
+            if (c > oa - PierW && c < ob + PierW) return;
+            Vector2 Pt(float cc) => alongX ? new Vector2(cc, A.y) : new Vector2(A.x, cc);
+            var pm = Pt(c);
+            float y0 = yf(pm) + CityDecks.ParapetM, y1 = yUp(pm) - CityDecks.SlabM - HeaderM;
+            if (y1 - y0 < 0.3f) return;
+            Vector2 p0 = Pt(c - PierW * 0.5f), p1 = Pt(c + PierW * 0.5f), i0 = p0 + inV, i1 = p1 + inV;
+            float Y0 = d.y0 + y0, Y1 = d.y0 + y1, w0 = y0 / BrickUM, w1 = y1 / BrickUM;
+            var ax = alongX ? DirW(d, 1f, 0f) : DirW(d, 0f, 1f);
+            deckBrick.Wall(DP(d, p0.x, 0f, p0.y, tm), DP(d, p1.x, 0f, p1.y, tm), Y0, Y1, oW, 0.30f, 0.38f, w0, w1);
+            deckBrick.Wall(DP(d, i0.x, 0f, i0.y, tm), DP(d, i1.x, 0f, i1.y, tm), Y0, Y1, -oW, 0.30f, 0.38f, w0, w1);
+            deckBrick.Wall(DP(d, p0.x, 0f, p0.y, tm), DP(d, i0.x, 0f, i0.y, tm), Y0, Y1, -ax, 0.30f, 0.33f, w0, w1);
+            deckBrick.Wall(DP(d, p1.x, 0f, p1.y, tm), DP(d, i1.x, 0f, i1.y, tm), Y0, Y1, ax, 0.30f, 0.33f, w0, w1);
+        }
+
+        /// <summary>The roof parapet's cast-stone cornice: a coping 10 cm proud,
+        /// 0.36 m down the face, its soffit and its top.</summary>
+        static void Cornice(Bucket con, CityDecks.Deck d, TileMeshes tm, Vector2 a, Vector2 b, Vector2 inV, Vector2 oW, Vector2 outL, float ya, float yb)
+        {
+            var ao = a + outL * 0.1f; var bo = b + outL * 0.1f; var ai = a + inV; var bi = b + inV;
+            float ua = (a.x + a.y) * 0.25f, ub = ua + Vector2.Distance(a, b) * 0.25f;
+            con.WallSloped(DP(d, ao.x, 0f, ao.y, tm), DP(d, bo.x, 0f, bo.y, tm), d.y0 + ya - 0.3f, d.y0 + ya + 0.06f, d.y0 + yb - 0.3f, d.y0 + yb + 0.06f, oW, ua, ub, 0f, 0.09f);
+            con.Face(DP(d, ao.x, ya - 0.3f, ao.y, tm), DP(d, bo.x, yb - 0.3f, bo.y, tm), DP(d, b.x, yb - 0.3f, b.y, tm), DP(d, a.x, ya - 0.3f, a.y, tm), Vector3.down,
+                     DUV(d, ao.x, ao.y), DUV(d, bo.x, bo.y), DUV(d, b.x, b.y), DUV(d, a.x, a.y));
+            con.Up(DP(d, ao.x, ya + 0.06f, ao.y, tm), DP(d, bo.x, yb + 0.06f, bo.y, tm), DP(d, bi.x, yb + 0.06f, bi.y, tm), DP(d, ai.x, ya + 0.06f, ai.y, tm),
+                   DUV(d, ao.x, ao.y), DUV(d, bo.x, bo.y), DUV(d, bi.x, bi.y), DUV(d, ai.x, ai.y));
+        }
+
+        /// <summary>The brick decks' central stair tower (the owner's photos: a
+        /// tower on the long +z face, a glazed opening at every floor, cast-stone
+        /// bands, an arched top over the roof): 5.6 m wide, 3.2 m out from the
+        /// face, brick strips of the atlas's plain pier, solid like the walls.</summary>
+        static void DeckTower(Bucket con, CityDecks.Deck d, TileMeshes tm, int top, float low)
+        {
+            const float TW = 5.6f, TD = 3.2f;
+            float xc = 0f;
+            // clear of a side opening on +z (and its driveway)
+            if (d.entrySide == 1 && Mathf.Abs(d.entryAt - xc) < CityDecks.OpeningM * 0.5f + TW) xc = d.entryAt + CityDecks.OpeningM + TW;
+            if (xc + TW * 0.5f > d.hu - 1f) return;
+            float zf = d.hv + TD, zb = d.hv, xa = xc - TW * 0.5f, xb = xc + TW * 0.5f;
+            float yTop = CityDecks.TurnLo(top) + CityDecks.ParapetM + 2.2f, r = TW * 0.5f;
+            var nF = DirW(d, 0f, 1f); var nL = DirW(d, -1f, 0f); var nR = DirW(d, 1f, 0f);
+            float w0 = low / BrickUM, w1 = yTop / BrickUM;
+            void Strip(Vector2 p, Vector2 q, Vector2 n)
+            {
+                int m = Mathf.Max(1, Mathf.RoundToInt(Vector2.Distance(p, q) / 1f));
+                for (int j = 0; j < m; j++)
+                {
+                    var s0 = Vector2.Lerp(p, q, j / (float)m); var s1 = Vector2.Lerp(p, q, (j + 1) / (float)m);
+                    deckBrick.Wall(DP(d, s0.x, 0f, s0.y, tm), DP(d, s1.x, 0f, s1.y, tm), d.y0 + low, d.y0 + yTop, n, 0.30f, 0.38f, w0, w1);
+                }
+            }
+            Strip(new Vector2(xa, zf), new Vector2(xb, zf), nF);
+            Strip(new Vector2(xa, zb), new Vector2(xa, zf), nL);
+            Strip(new Vector2(xb, zb), new Vector2(xb, zf), nR);
+            var n3 = new Vector3(nF.x, 0f, nF.y);
+            for (int k = 0; k <= top; k++)
+            {
+                float y = CityDecks.TurnLo(k) + (k == 0 ? 0.9f : 1.1f);
+                // the glazed opening (dark, a mullion's gap down the middle)
+                float zo = zf + 0.03f;
+                Dark(tm, DP(d, xc - 0.85f, y, zo, tm), DP(d, xc - 0.06f, y, zo, tm), DP(d, xc - 0.06f, y + 1.7f, zo, tm), DP(d, xc - 0.85f, y + 1.7f, zo, tm), n3);
+                Dark(tm, DP(d, xc + 0.06f, y, zo, tm), DP(d, xc + 0.85f, y, zo, tm), DP(d, xc + 0.85f, y + 1.7f, zo, tm), DP(d, xc + 0.06f, y + 1.7f, zo, tm), n3);
+                // a cast-stone band at the floor line, 4 cm proud
+                if (k == 0) continue;
+                float yb = CityDecks.TurnLo(k) - CityDecks.SlabM, ys = CityDecks.TurnLo(k) + StoneBandM;
+                con.Wall(DP(d, xa - 0.04f, 0f, zf + 0.04f, tm), DP(d, xb + 0.04f, 0f, zf + 0.04f, tm), d.y0 + yb, d.y0 + ys, nF, 0f, TW * 0.25f, 0f, 0.12f);
+                con.Up(DP(d, xa - 0.04f, ys, zf + 0.04f, tm), DP(d, xb + 0.04f, ys, zf + 0.04f, tm), DP(d, xb, ys, zf, tm), DP(d, xa, ys, zf, tm),
+                       DUV(d, xa, zf), DUV(d, xb, zf), DUV(d, xb, zf + 0.04f), DUV(d, xa, zf + 0.04f));
+            }
+            // the arched top: a half round over the front and back, a stone barrel between
+            const int AS = 8;
+            var cF = DP(d, xc, yTop, zf, tm); var cB = DP(d, xc, yTop, zb, tm);
+            var nB = -n3;
+            for (int j = 0; j < AS; j++)
+            {
+                float t0 = Mathf.PI * j / AS, t1 = Mathf.PI * (j + 1) / AS;
+                float x0 = xc + r * Mathf.Cos(t0), y0 = yTop + r * Mathf.Sin(t0), x1 = xc + r * Mathf.Cos(t1), y1 = yTop + r * Mathf.Sin(t1);
+                Vector2 U(float x, float yy) => new Vector2(0.30f + 0.08f * (x - xa) / TW, yy / BrickUM);
+                var f0 = DP(d, x0, y0, zf, tm); var f1 = DP(d, x1, y1, zf, tm);
+                deckBrick.Face(cF, f0, f1, f1, n3, U(xc, yTop), U(x0, y0), U(x1, y1), U(x1, y1));
+                var g0 = DP(d, x0, y0, zb, tm); var g1 = DP(d, x1, y1, zb, tm);
+                deckBrick.Face(cB, g0, g1, g1, nB, U(xc, yTop), U(x0, y0), U(x1, y1), U(x1, y1));
+                var mid = new Vector3(Mathf.Cos(0.5f * (t0 + t1)), Mathf.Sin(0.5f * (t0 + t1)), 0f);
+                var nOut = DirW(d, mid.x, 0f); var nUp = new Vector3(nOut.x, mid.y, nOut.y);
+                var f0e = DP(d, x0, y0 + 0.08f * Mathf.Sin(t0), zf + 0.06f, tm); var f1e = DP(d, x1, y1 + 0.08f * Mathf.Sin(t1), zf + 0.06f, tm);
+                con.Face(DP(d, x0, y0, zb, tm), DP(d, x1, y1, zb, tm), f1e, f0e, nUp, DUV(d, x0, zb), DUV(d, x1, zb), DUV(d, x1, zf), DUV(d, x0, zf));
             }
         }
 
@@ -494,7 +663,8 @@ namespace PSXRacing.City
         }
         const float StoneBandM = 0.12f, BrickUM = 12.4f, BrickV0 = 0.232f, BrickV1 = 0.302f;
         /// <summary>The facade atlas's bucket while a BRICK deck is emitted, else null.</summary>
-        static Bucket deckBrick;
+        static Bucket deckBrick, deckPaint;
+        static Vector2 deckYellow;
 
         /// <summary>Four sides of a column; <paramref name="perimeter"/>: on a brick
         /// deck it is a brick pier (the atlas brick column's plain pier between

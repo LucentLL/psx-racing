@@ -46,11 +46,28 @@ namespace PSXRacing.City
         /// deck's campus driveway is 48 m; the Epic Ln deck stands on a slope that
         /// falls 4.5 m to its street, a 16% peak entry (9.7% mean).</summary>
         public const float OwnerDrivewayM = 60f, OwnerDriveGrade = 0.17f;
-        /// <summary>OFF until its lap is clean (2026-10-06): the Epic Ln deck solves,
-        /// but its driveway to Phillips Rd grazes the EPIC building and the AI is
-        /// pinned 9 m short of the door; the Snyder Rd deck laps, 10 LEFTs at the
-        /// roof. PSX_OWNER_DECKS=1 builds both (brick, owner levels).</summary>
-        public static bool OwnerDecksOn = System.Environment.GetEnvironmentVariable("PSX_OWNER_DECKS") == "1";
+        /// <summary>ON (2026-10-06, both laps clean): the Epic Ln deck's door is
+        /// on its own entry drive off Phillips Rd (OSM way 1054111151, now in the
+        /// graph), the Snyder Rd deck's roof is speed-capped (<see cref="RoofCap"/>).
+        /// PSX_OWNER_DECKS=0 leaves both out.</summary>
+        public static bool OwnerDecksOn = System.Environment.GetEnvironmentVariable("PSX_OWNER_DECKS") != "0";
+        /// <summary>An owner's deck whose bays run longer than <see cref="RoofCapBayM"/>
+        /// is driven at <see cref="RoofCapMps"/> at most on its roof (the Snyder Rd
+        /// deck, 110 m long, 67 m bays: the AI ran flat out down the open roof and
+        /// left the path ten times in its turnaround). The listed decks' runs are
+        /// left as they shipped.</summary>
+        public const float RoofCapMps = 9f, RoofCapBayM = 60f;
+        /// <summary>Raise <paramref name="sm"/> (the curvature the AI reads, gain
+        /// applied) on the roof's waypoints to the curvature whose corner speed
+        /// is <see cref="RoofCapMps"/> (AIDriver: sqrt(mu g / k) x 0.92, mu = skill 0.95).</summary>
+        public static void RoofCap(Deck d, Vector3[] w, float[] sm)
+        {
+            if (!d.OwnerDeck || d.x1 - d.x0 < RoofCapBayM) return;
+            float yRoof = d.y0 + (d.levels - 2) * FloorM + 0.3f;
+            float kCap = 0.95f * 9.81f * 0.92f * 0.92f / (RoofCapMps * RoofCapMps);
+            for (int i = 0; i < w.Length && i < sm.Length; i++)
+                if (w[i].y > yRoof) sm[i] = Mathf.Max(sm[i], kCap);
+        }
         public const float ColumnM = 0.5f, ColumnPitchM = 3f * 2.74f, LapStepM = 2.5f;
 
         public sealed class Deck
@@ -162,7 +179,7 @@ namespace PSXRacing.City
             // the entrance: a way that ENDS at the footprint (a service drive or
             // parking aisle into it), else the nearest street
             Vector2 target = Vector2.zero; bool found = false;
-            float r = Mathf.Max(d.hu, d.hv) + 4f;
+            float r = Mathf.Max(d.hu, d.hv) + (d.OwnerDeck ? 35f : 4f);
             segs.Clear();
             map.EdgeSegsInRect(d.c - new Vector2(r, r), d.c + new Vector2(r, r), segs);
             float bestD = float.MaxValue;
@@ -170,11 +187,14 @@ namespace PSXRacing.City
             {
                 var e = map.edges[packed >> 12];
                 if (e.link || e.cls >= 4) continue;
+                // an owner's deck's own unnamed drive (export_osm.mjs UNCC_ACCESS)
+                // ends where its driveway ramp begins, up to 35 m out
+                float reach = d.OwnerDeck && string.IsNullOrEmpty(e.name) ? 35f : 4f;
                 foreach (var end in new[] { e.pts[0], e.pts[e.pts.Length - 1] })
                 {
                     var q = end - d.c;
                     float qu = Mathf.Abs(Vector2.Dot(q, u)) - d.hu, qv = Mathf.Abs(Vector2.Dot(q, v)) - d.hv;
-                    if (qu > 4f || qv > 4f) continue;
+                    if (qu > reach || qv > reach) continue;
                     float dd = q.sqrMagnitude;
                     if (dd < bestD) { bestD = dd; target = end; found = true; }
                 }
@@ -212,6 +232,18 @@ namespace PSXRacing.City
             float maxDrive = d.OwnerDeck ? OwnerDrivewayM : MaxDrivewayM, maxGrade = d.OwnerDeck ? OwnerDriveGrade : MaxDriveGrade;
             if (!map.NearestRoadPoint(eP + nW * 2f, maxDrive + 30f, true, out int re, out float rs, out _)) { d.why = "no street in front of the opening"; return false; }
             var edge = map.edges[re];
+            // an owner's deck met by a street's END (the Epic Ln deck's own drive,
+            // stopped short by the exporter): the opening lines up with that end,
+            // so the apron runs onto the street, not onto the grass beside it
+            if (d.OwnerDeck && (rs < 0.5f || rs > edge.length - 0.5f))
+            {
+                var lp = edge.PointAt(rs) - d.c;
+                float lat = d.entrySide == 0 ? Vector2.Dot(lp, d.V) : Vector2.Dot(lp, d.U);
+                d.entryAt = d.entrySide == 0 ? Mathf.Clamp(lat, -d.hv + half + 1f, d.hv - half - 1f) : Mathf.Clamp(lat, -d.hu + half + 1f, d.x0 - half - 0.5f);
+                eP = d.W(d.EntryP.x, d.EntryP.y);
+                if (!map.NearestRoadPoint(eP + nW * 2f, maxDrive + 30f, true, out re, out rs, out _)) { d.why = "no street in front of the opening"; return false; }
+                edge = map.edges[re];
+            }
             d.streetEdge = re; d.streetS = rs;
             var P = edge.PointAt(rs);
             float ahead = Vector2.Dot(P - eP, nW);
@@ -568,6 +600,7 @@ namespace PSXRacing.City
                 for (int o = -2; o <= 2; o++) { int j = i + o; if (j < 0 || j >= n) continue; sum += curv[j]; k++; }
                 sm[i] = sum / k * CurvGain;
             }
+            CityDecks.RoofCap(d, wps, sm);
             lineIdx = Mathf.Clamp(Mathf.RoundToInt(lineAt / Step), 0, n - 1);
             int finish = Mathf.Clamp(Mathf.RoundToInt(flagAt / Step), lineIdx + 1, n - 4);
             var gates = new List<int>();

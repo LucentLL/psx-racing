@@ -26,6 +26,26 @@ namespace PSXRacing.EditorTools
     /// </summary>
     public static class DeckLapCheck
     {
+        /// <summary><paramref name="P"/> resampled every <paramref name="step"/> metres in plan.</summary>
+        internal static string shotSuffix = "";
+
+        internal static Vector3[] Even(Vector3[] P, float step)
+        {
+            var arcs = new float[P.Length];
+            for (int i = 1; i < P.Length; i++) arcs[i] = arcs[i - 1] + new Vector2(P[i].x - P[i - 1].x, P[i].z - P[i - 1].z).magnitude;
+            float total = arcs[P.Length - 1];
+            int n = Mathf.Max(2, Mathf.FloorToInt(total / step) + 1), seg = 0;
+            var w = new Vector3[n];
+            for (int i = 0; i < n; i++)
+            {
+                float s = Mathf.Min(i * step, total);
+                while (seg < P.Length - 2 && arcs[seg + 1] < s) seg++;
+                float L = arcs[seg + 1] - arcs[seg];
+                w[i] = Vector3.Lerp(P[seg], P[seg + 1], L > 1e-5f ? Mathf.Clamp01((s - arcs[seg]) / L) : 0f);
+            }
+            return w;
+        }
+
         internal static readonly StringBuilder log = new StringBuilder();
         internal static int failures;
 
@@ -112,10 +132,12 @@ namespace PSXRacing.EditorTools
             DeckLapCheck.Line("decks in OSM " + CityDecks.All.Length + ", listed " + listed + ", solved drivable " + solved);
 
             var shotId = Ids("PSX_DECK_SHOTS", new uint[0]);
-            if (shotId.Length > 0)
+            // several decks: each one's views carry its way after the tag
+            foreach (var sid in shotId)
             {
-                var d = Find(shotId[0]);
-                if (d == null || !d.ok) DeckLapCheck.Fail("photo deck " + shotId[0] + " not drivable");
+                var d = Find(sid);
+                DeckLapCheck.shotSuffix = shotId.Length > 1 ? "_" + sid : "";
+                if (d == null || !d.ok) DeckLapCheck.Fail("photo deck " + sid + " not drivable");
                 else yield return Shots(d, map, car, rb);
             }
             if (System.Environment.GetEnvironmentVariable("PSX_DECK_LAPS") != "0")
@@ -153,7 +175,10 @@ namespace PSXRacing.EditorTools
 
         IEnumerator Lap(CityDecks.Deck d, CarController car, Rigidbody rb, GameObject carGo)
         {
-            var w = d.lap;
+            // the lap at an even LapStepM, as DeckRun.BuildPath gives it to a
+            // race: the raw lap leaves ~10 m between the roof loop's ends and the
+            // bay runs, and a car halfway along read 5-6.5 m "off the path"
+            var w = DeckLapCheck.Even(d.lap, CityDecks.LapStepM);
             DeckLapCheck.Line("deck " + d.way + " (" + d.Label + ", " + (2 * d.hv).ToString("0") + " x " + (2 * d.hu).ToString("0") +
                               " m, bays " + (d.slope * 100f).ToString("0.0") + "%, driveway " + d.driveLen.ToString("0.0") + " m, " + w.Length + " waypoints):");
             yield return Arrive(d, car, rb, w[0], w[2]);
@@ -175,6 +200,7 @@ namespace PSXRacing.EditorTools
             // a deck is driven at deck speed: the curvature the AI reads is 2.5x the
             // drawn one (a 16 m turning-bay arc taken as if it were 6.4 m)
             for (int i = 0; i < n; i++) sm[i] *= 2.5f;
+            CityDecks.RoofCap(d, w, sm);
             tp.waypoints = w; tp.curvatures = sm; tp.spacing = CityDecks.LapStepM; tp.roadWidth = 3f; tp.drag = false; tp.pointToPoint = true;
             var ai = carGo.AddComponent<AIDriver>();
             ai.path = tp; ai.skill = 0.95f;
@@ -235,7 +261,7 @@ namespace PSXRacing.EditorTools
         // ---- the photographs (normal game views: the game's camera, its renderer) ----
         IEnumerator Shots(CityDecks.Deck d, CityMap map, CarController car, Rigidbody rb)
         {
-            string tag = System.Environment.GetEnvironmentVariable("PSX_DECK_TAG") ?? "after";
+            string tag = (System.Environment.GetEnvironmentVariable("PSX_DECK_TAG") ?? "after") + DeckLapCheck.shotSuffix;
             bool night = System.Environment.GetEnvironmentVariable("PSX_DECK_HOUR") == "night";
             var cam = Camera.main;
             var chase = cam != null ? cam.GetComponent<ChaseCamera>() : null;
