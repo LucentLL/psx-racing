@@ -140,6 +140,8 @@ namespace PSXRacing.EditorTools
             Check(Edition.Ships(TrackCatalog.At(index)), id + " is a venue this edition ships");
             EditorSceneManager.OpenScene(scenes[s].path);
             RaceHandoff.ClearAll();
+            string sky = HandlingPlayCheck.ApplyEnvWeather();
+            if (sky != null) Note(sky);
             RaceHandoff.FromLifeSim = true;
             RaceHandoff.TrackIndex = index;
             string hour = System.Environment.GetEnvironmentVariable("PSX_RACE_HOUR");

@@ -2612,11 +2612,56 @@ namespace PSXRacing
         /// loop reads. Refreshed once a tick — Seasons memoises by day, but
         /// four wheels a tick is still four lookups.</summary>
         float weatherRoadGrip = 1f, weatherOffroadGrip = 1f;
+        /// <summary>0 dry .. 1 soaked: Seasons.WetT of today's road grip,
+        /// what the drift layer and the recovery read (see WetRecovery).</summary>
+        [HideInInspector] public float wetT;
+
+        // ---- WET TARMAC: the drift layer and the recovery (2026-10-06) ----
+        //
+        // The tyres already lose their grip to Seasons.GripMult. These turn
+        // the ARCADE layer on top of them so a wet road is a change of pace,
+        // not a punishment: every assist still works, on less grip.
+        //   - the lateral stabilizer's cap falls WITH the grip (it is 0.45 g
+        //     of grip the tyres do not have; left whole it would hand a wet
+        //     car most of its dry cornering back);
+        //   - its gain and the grip-mode yaw damper ease off by WetRecovery,
+        //     a slightly lazier catch;
+        //   - a slide starts at WetDriftEnter of the dry rear slip and lives
+        //     on to WetDriftExit of the dry exit, the stabilizer's drift gain
+        //     at WetDriftHold: longer slides, easier to begin.
+        // All of it at wetT = 0 is exactly 1: a dry road drives as it did.
+        const float WetRecovery = 0.85f;
+        const float WetDriftEnter = 0.80f;
+        const float WetDriftExit = 0.70f;
+        const float WetDriftHold = 0.70f;
+
+        // AQUAPLANING: standing water, fronts only, above AquaFromKph on a
+        // soaked road - a brief lightness in the steering through a puddle.
+        // The puddles are fixed in the WORLD (a Perlin field over x/z), so
+        // the same stretch floats every lap and a driver can learn it.
+        const float AquaFromKph = 110f, AquaFullKph = 160f;
+        const float AquaFrontCut = 0.25f;   // front mu lost at full speed in the deepest puddle
+        const float AquaPuddleScale = 0.035f, AquaPuddleFrom = 0.60f, AquaPuddleWidth = 0.15f;
+
+        /// <summary>The front-mu cut a wheel at this point takes from
+        /// standing water right now: 0 off the rain, below AquaFromKph, or
+        /// between puddles.</summary>
+        float AquaCut(Vector3 at)
+        {
+            if (Seasons.CurrentWeather != Weather.Rain) return 0f;
+            float kph = Mathf.Abs(forwardSpeed) * 3.6f;
+            if (kph <= AquaFromKph) return 0f;
+            float speedT = Mathf.Clamp01((kph - AquaFromKph) / (AquaFullKph - AquaFromKph));
+            float puddle = Mathf.Clamp01((Mathf.PerlinNoise(at.x * AquaPuddleScale + 311.7f,
+                                                            at.z * AquaPuddleScale + 97.3f) - AquaPuddleFrom) / AquaPuddleWidth);
+            return AquaFrontCut * speedT * puddle;
+        }
 
         void SuspensionAndLoads(float dt)
         {
             weatherRoadGrip = Seasons.RoadGripMult;
             weatherOffroadGrip = Seasons.OffroadGripMult;
+            wetT = Seasons.WetT(weatherRoadGrip);
             anyWheelGrounded = false;
             int roadHits = 0, hits = 0;
             float rayLength = restLength + wheelRadius;
@@ -2660,6 +2705,7 @@ namespace PSXRacing
                     // read here rather than baked into roadGrip — see Seasons.
                     wheelGrip[i] = (isRoad ? roadGrip : offroadGrip) *
                                    (isRoad ? weatherRoadGrip : weatherOffroadGrip);
+                    if (front && isRoad && wetT > 0f) wheelGrip[i] *= 1f - AquaCut(hit.point);
 
                     wheelContacts[i].point = hit.point;
                     wheelContacts[i].normal = hit.normal;
@@ -3244,7 +3290,9 @@ namespace PSXRacing
                 // asking for it: a slide begun at 90 mph must not still be the
                 // "drift state" at walking pace - see DriftFullSpeed.
                 bool slowedOut = vel.magnitude < DriftNoneSpeed && !DriftRequested();
-                if ((rearSlip < DriftExitSlip && bodySlip < DriftExitBodySlip || slowedOut) &&
+                // WET TARMAC: the slide lives on to a smaller exit (WetDriftExit).
+                float exitT = Mathf.Lerp(1f, WetDriftExit, wetT);
+                if ((rearSlip < DriftExitSlip * exitT && bodySlip < DriftExitBodySlip * exitT || slowedOut) &&
                     !ebrakeActive && clutchKickTimer <= 0f)
                 {
                     Drifting = false;
@@ -3258,8 +3306,8 @@ namespace PSXRacing
                 // ebrakeActive would also block the EXIT for its whole window,
                 // which is the latch this pass exists to remove.
                 if (ebrakeActive || clutchKickTimer > 0f) Drifting = true;
-                else if (rearSlip > DriftEnterSlip && bodySlip > DriftEnterBodySlip &&
-                         postDriftTimer <= 0f) Drifting = true;
+                else if (rearSlip > DriftEnterSlip * Mathf.Lerp(1f, WetDriftEnter, wetT) &&
+                         bodySlip > DriftEnterBodySlip && postDriftTimer <= 0f) Drifting = true;
             }
         }
 
@@ -3277,13 +3325,16 @@ namespace PSXRacing
             float vLat = Vector3.Dot(Body.linearVelocity, transform.right);
             if (Mathf.Abs(vLat) < LateralDampDeadzone) return;
 
-            float k = Mathf.Lerp(lateralDampGrip, lateralDampDrift, DriftBlend);
+            // WET TARMAC: a lazier catch and a longer-lived slide (see WetRecovery).
+            float k = Mathf.Lerp(lateralDampGrip * Mathf.Lerp(1f, WetRecovery, wetT),
+                                 lateralDampDrift * Mathf.Lerp(1f, WetDriftHold, wetT), DriftBlend);
             // Stand down after an impact, or the hit is deleted before the player
             // can see it — the damper would pull the car straight within ~3 ticks.
             k *= 1f - impactStabilizerCut * ImpactGrace01;
             // Fade in with speed so low-speed manoeuvring is not rail-roaded.
             float speedFade = Mathf.Clamp01(Mathf.Abs(forwardSpeed) / LateralDampFadeSpeed);
-            float cap = lateralDampMaxG * 9.81f;
+            // The assist works on the road's grip: its cap falls with the weather's.
+            float cap = lateralDampMaxG * weatherRoadGrip * 9.81f;
             float accel = Mathf.Clamp(-vLat * k * speedFade, -cap, cap);
             Body.AddForce(transform.right * (accel * massKg), ForceMode.Force);
             // IN A SLIDE THE MOMENTUM IS TURNED, NOT DELETED (see
@@ -3354,9 +3405,9 @@ namespace PSXRacing
                 else loose = YawDampCommitted;   // committed slide still feels loose
                 // Faded in with how sideways the car is, not switched on with
                 // the flag — see DriftBlend.
-                yawDamp = Mathf.Lerp(yawDampGrip, loose, DriftBlend);
+                yawDamp = Mathf.Lerp(yawDampGrip * Mathf.Lerp(1f, WetRecovery, wetT), loose, DriftBlend);
             }
-            else yawDamp = yawDampGrip;
+            else yawDamp = yawDampGrip * Mathf.Lerp(1f, WetRecovery, wetT);   // WET TARMAC: a lazier catch
 
             // Damp only the yaw component, in the body frame — leave roll/pitch alone.
             Vector3 w = Body.angularVelocity;

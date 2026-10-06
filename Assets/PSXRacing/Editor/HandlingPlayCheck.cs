@@ -80,6 +80,8 @@ namespace PSXRacing.EditorTools
             RaceHandoff.CalendarDay = 0;
             RaceHandoff.TimeOfDayIndex = TimeOfDay.Noon;
             RaceHandoff.Solo = true;
+            string sky = ApplyEnvWeather();
+            if (sky != null) Note(sky);
             var cars = CarCatalog.All;
             if (cars.Count > 0) RaceHandoff.CarSpecId = cars[0].id;
             EditorSettings.enterPlayModeOptionsEnabled = true;
@@ -102,6 +104,20 @@ namespace PSXRacing.EditorTools
         }
 
         internal static void Note(string what) => log.AppendLine("  note " + what);
+
+        /// <summary>
+        /// PSX_WEATHER=rain|snow|fog|clear forces the sky (RaceHandoff.
+        /// WeatherOverride) for a wet-vs-dry run of the handling, brake and
+        /// race checks; unset leaves the day's own. Returns the line to log.
+        /// </summary>
+        internal static string ApplyEnvWeather()
+        {
+            string w = System.Environment.GetEnvironmentVariable("PSX_WEATHER");
+            if (string.IsNullOrEmpty(w) || !System.Enum.TryParse(w, true, out Weather sky)) return null;
+            RaceHandoff.WeatherOverride = (int)sky;
+            return "WEATHER forced " + sky.ToString().ToUpperInvariant() + ": road grip x" +
+                   Seasons.GripMult(sky, true).ToString("0.00") + " (PSX_WEATHER)";
+        }
 
         internal static void Finish()
         {
@@ -379,7 +395,9 @@ namespace PSXRacing.EditorTools
             }
             float dist = Vector3.Distance(p0, car.transform.position);
             float g = (100f * Mph) / Mathf.Max(0.01f, t) / 9.81f;
-            HandlingPlayCheck.Check(dist < 115f && g > 0.75f, who + ": A 100-0 mph full brake stops sensibly",
+            // The bars move with the weather's grip (both 1 on a dry road).
+            float wetBar = Seasons.RoadGripMult;
+            HandlingPlayCheck.Check(dist < 115f / wetBar && g > 0.75f * wetBar, who + ": A 100-0 mph full brake stops sensibly",
                 dist.ToString("0.0") + " m (" + (dist * 3.281f).ToString("0") + " ft) in " + t.ToString("0.00") + " s = " + g.ToString("0.00") + " g");
             HandlingPlayCheck.Check(worstSlide > 5f && lockedT > 0.5f, who + ": A full pedal locks the wheels (no ABS)",
                 "worst wheel slide " + worstSlide.ToString("0.0") + " m/s, a wheel locked for " + lockedT.ToString("0.00") + " s");
