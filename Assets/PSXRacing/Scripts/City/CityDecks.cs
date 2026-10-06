@@ -42,6 +42,15 @@ namespace PSXRacing.City
         public const float DrapeM = 0.12f;
         static CityMap mapRef;
         public const float OpeningM = 8f, MaxDrivewayM = 40f, MaxDriveGrade = 0.12f;
+        /// <summary>The owner's decks (the campus pair, 2026-10-06): the Snyder Rd
+        /// deck's campus driveway is 48 m; the Epic Ln deck stands on a slope that
+        /// falls 4.5 m to its street, a 16% peak entry (9.7% mean).</summary>
+        public const float OwnerDrivewayM = 60f, OwnerDriveGrade = 0.17f;
+        /// <summary>OFF until its lap is clean (2026-10-06): the Epic Ln deck solves,
+        /// but its driveway to Phillips Rd grazes the EPIC building and the AI is
+        /// pinned 9 m short of the door; the Snyder Rd deck laps, 10 LEFTs at the
+        /// roof. PSX_OWNER_DECKS=1 builds both (brick, owner levels).</summary>
+        public static bool OwnerDecksOn = System.Environment.GetEnvironmentVariable("PSX_OWNER_DECKS") == "1";
         public const float ColumnM = 0.5f, ColumnPitchM = 3f * 2.74f, LapStepM = 2.5f;
 
         public sealed class Deck
@@ -49,6 +58,12 @@ namespace PSXRacing.City
             public int index, bld; public uint way; public int levels; public byte layout, reason, flags;
             public Vector2 c, u; public float hu, hv, fill, h;
             public bool Listed => (flags & 1) != 0 && layout == 1 && reason == 0;
+            /// <summary>Red brick street faces with cast-stone floor bands (decks.mjs OVERRIDES, bit4).</summary>
+            public bool Brick => (flags & 16) != 0;
+            /// <summary>Levels from the owner's own count (decks.mjs OVERRIDES, bit3): a
+            /// deck he asked for by name, so its entrance may be longer and steeper
+            /// (<see cref="OwnerDrivewayM"/>, <see cref="OwnerDriveGrade"/>).</summary>
+            public bool OwnerDeck => (flags & 8) != 0;
             public bool solved, ok, built; public string why = "";
             /// <summary>Local axes: U along the long side toward the far
             /// turning bay, V = U turned left (the +z side, bay B).</summary>
@@ -142,6 +157,7 @@ namespace PSXRacing.City
             d.solved = true; d.ok = false;
             mapRef = map;
             if (!d.Listed || d.levels < 2) { d.why = "not listed"; return false; }
+            if (d.OwnerDeck && !OwnerDecksOn) { d.why = "an owner deck, built with PSX_OWNER_DECKS=1"; return false; }
             var u = d.u; var v = new Vector2(-u.y, u.x);
             // the entrance: a way that ENDS at the footprint (a service drive or
             // parking aisle into it), else the nearest street
@@ -185,17 +201,23 @@ namespace PSXRacing.City
             if (!endWall && lz < 0f) { d.U = -d.U; d.V = -d.V; lx = -lx; lz = -lz; }
             if (endWall) { d.entrySide = 0; d.entryAt = Mathf.Clamp(lz, -d.hv + half + 1f, d.hv - half - 1f); d.lin = d.T - 2f; }
             else { d.entrySide = 1; d.entryAt = Mathf.Clamp(lx, -d.hu + half + 1f, d.x0 - half - 0.5f); d.lin = d.hv; }
+            // the owner's decks stand among campus buildings: slide the opening
+            // along its wall to the nearest place whose driveway runs clear of
+            // every other footprint (the Epic Ln deck's straight run to Phillips
+            // Rd grazed the EPIC building and pinned the AI 9 m short of the door)
+            if (d.OwnerDeck) SlideOpening(map, d, half);
             // the driveway: straight out of the opening to the street's edge
             var eP = d.W(d.EntryP.x, d.EntryP.y);
             var nW = d.U * d.EntryN.x + d.V * d.EntryN.y;
-            if (!map.NearestRoadPoint(eP + nW * 2f, MaxDrivewayM + 30f, true, out int re, out float rs, out _)) { d.why = "no street in front of the opening"; return false; }
+            float maxDrive = d.OwnerDeck ? OwnerDrivewayM : MaxDrivewayM, maxGrade = d.OwnerDeck ? OwnerDriveGrade : MaxDriveGrade;
+            if (!map.NearestRoadPoint(eP + nW * 2f, maxDrive + 30f, true, out int re, out float rs, out _)) { d.why = "no street in front of the opening"; return false; }
             var edge = map.edges[re];
             d.streetEdge = re; d.streetS = rs;
             var P = edge.PointAt(rs);
             float ahead = Vector2.Dot(P - eP, nW);
             if (ahead < -1f || Vector2.Dot((P - eP).normalized, nW) < 0.4f) { d.why = "the street is not in front of the opening"; return false; }
             d.driveLen = Mathf.Max(0f, ahead - edge.HalfMax);
-            if (d.driveLen > MaxDrivewayM) { d.why = "driveway " + d.driveLen.ToString("0") + " m"; return false; }
+            if (d.driveLen > maxDrive) { d.why = "driveway " + d.driveLen.ToString("0") + " m"; return false; }
             d.roadEdge = eP + nW * d.driveLen;
             d.roadY = CityElevation.GroundY(map, d.roadEdge.x, d.roadEdge.y);
             d.ltot = d.driveLen + d.lin;
@@ -218,7 +240,7 @@ namespace PSXRacing.City
             for (int pass = 0; ; pass++)
             {
             float rise = d.y0 - d.roadY;
-            if (rise * RampLead > MaxDriveGrade * d.ltot)
+            if (rise * RampLead > maxGrade * d.ltot)
             { d.why = "entrance grade (" + rise.ToString("0.00") + " m over " + d.ltot.ToString("0.0") + " m)"; return false; }
             // the ramped part of the ground turning bay over the land
             float worst = 0f;
@@ -237,6 +259,39 @@ namespace PSXRacing.City
             d.lap = BuildLap(d);
             d.ok = true; d.why = "";
             return true;
+        }
+
+        /// <summary>An owner's deck: move <see cref="Deck.entryAt"/> (2 m steps, nearest
+        /// first) to the first opening whose straight driveway, 8 m wide, to the
+        /// street it meets within <see cref="OwnerDrivewayM"/> touches no other
+        /// footprint. None clear: it stays where it was.</summary>
+        static void SlideOpening(CityMap map, Deck d, float half)
+        {
+            float lo = d.entrySide == 0 ? -d.hv + half + 1f : -d.hu + half + 1f;
+            float hi = d.entrySide == 0 ? d.hv - half - 1f : d.x0 - half - 0.5f;
+            float at0 = d.entryAt;
+            for (int k = 0; k < 64; k++)
+            {
+                float at = at0 + (k % 2 == 0 ? 1f : -1f) * ((k + 1) / 2) * 2f;
+                if (at < lo || at > hi) { if (k > 2 * (hi - lo)) break; continue; }
+                d.entryAt = at;
+                var eP = d.W(d.EntryP.x, d.EntryP.y);
+                var nW = d.U * d.EntryN.x + d.V * d.EntryN.y;
+                if (!map.NearestRoadPoint(eP + nW * 2f, OwnerDrivewayM + 30f, true, out int re, out float rs, out _)) continue;
+                var edge = map.edges[re];
+                var P = edge.PointAt(rs);
+                float ahead = Vector2.Dot(P - eP, nW);
+                if (ahead < -1f || Vector2.Dot((P - eP).normalized, nW) < 0.4f) continue;
+                float len = Mathf.Max(0f, ahead - edge.HalfMax);
+                if (len > OwnerDrivewayM) continue;
+                var side = new Vector2(-nW.y, nW.x);
+                bool clear = true;
+                for (float t = 2f; t <= len + 0.01f && clear; t += 2f)
+                    for (int j = -1; j <= 1 && clear; j++)
+                        if (map.AnyFootprintNear(eP + nW * t + side * (j * (half + 1f)), 1.5f)) clear = false;
+                if (clear) return;
+            }
+            d.entryAt = at0;
         }
 
         /// <summary>Metres in from the opening's wall (negative: outside it).</summary>

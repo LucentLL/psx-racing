@@ -1150,9 +1150,17 @@ namespace PSXRacing.City
                 viewA = viewB; two = false;
             }
             float postR = 1.5f + RoadsideOccupancy.CellPadM, faceR = 0.8f + RoadsideOccupancy.CellPadM;
-            foreach (float extra in tries)
+            // coverage (2026-10-06): outside the core the real buildings stand by
+            // the suburban roads too; a board they push off every setback looks
+            // again 15 m up and down the road before it is refused (the first
+            // round is the old one, so every board placed before stands as it was)
+            bool covSite = !c.osm && !map.footprintBounds.Contains(c.station);
+            var along = new Vector2(c.f.y, -c.f.x);
+            for (int ti = 0; ti < tries.Length * (covSite ? 3 : 1); ti++)
             {
-                var P = c.osm ? c.osmPos + c.f * extra : c.station + c.f * (hwRoad + extra);
+                float extra = tries[ti % tries.Length];
+                float slide = ti < tries.Length ? 0f : ti < 2 * tries.Length ? 15f : -15f;
+                var P = c.osm ? c.osmPos + c.f * extra : c.station + c.f * (hwRoad + extra) + along * slide;
                 if (StaticAt(P) != 0 || !RoadsClear(map, trims, P)) continue;
                 // the faces in plan: a V with its point toward the road; back to
                 // back beside a two-way road where one plane faces both ways well

@@ -160,6 +160,9 @@ namespace PSXRacing.EditorTools
             sites.Add(new Site { name = "i277_uptown", at = LL(35.2195, -80.8500), how = "I-277, the uptown loop's north side (WP-23 sign shots)", extra = true });
             sites.Add(new Site { name = "south_blvd", at = LL(35.1930, -80.8680), how = "South Blvd, the commercial strip (WP-23 sign shots)", extra = true });
             // and two creek crossings (WP-25 water shots)
+            // coverage (2026-10-06): a campus and a suburban shopping centre outside the core
+            sites.Add(new Site { name = "cov_uncc", at = new Vector2(6919f, 13826f), how = "the university campus, its engineering quad (coverage pass)", extra = true });
+            sites.Add(new Site { name = "cov_shops", at = new Vector2(-2733f, -1204f), how = "a suburban shopping centre and its lot (coverage pass)", extra = true });
             sites.Add(new Site { name = "irwin_trade", at = LL(35.2345, -80.8560), how = "W Trade St over Irwin Creek (WP-25 water shots)", extra = true });
             sites.Add(new Site { name = "archdale_creek", at = LL(35.1500, -80.8500), how = "Archdale Dr over Little Sugar Creek (WP-25 water shots)", extra = true });
             try

@@ -199,7 +199,14 @@ namespace PSXRacing.EditorTools
                 if (airFor > 0.35f || rb.linearVelocity.y > 3.5f) { if (launches++ == 0) DeckLapCheck.Line("  LAUNCH at wp " + idx + " (air " + airFor.ToString("0.00") + " s, vy " + rb.linearVelocity.y.ToString("0.0") + ")"); airFor = 0f; }
                 slowFor = rb.linearVelocity.magnitude < 0.5f ? slowFor + Time.fixedDeltaTime : 0f;
                 if (ai.LastRecoveryWhy != lastWhy) { recov++; lastWhy = ai.LastRecoveryWhy; DeckLapCheck.Line("  RECOVERED at wp " + idx + ": " + lastWhy); }
-                if (slowFor > 8f) { stuck = true; DeckLapCheck.Line("  STUCK at wp " + best + " of " + n + " " + p); break; }
+                if (slowFor > 8f)
+                {
+                    stuck = true; DeckLapCheck.Line("  STUCK at wp " + best + " of " + n + " " + p + ", path y " + q.y.ToString("0.00"));
+                    // what holds it: every collider within 3 m that is not the car
+                    foreach (var c in Physics.OverlapSphere(p, 3f, ~0, QueryTriggerInteraction.Ignore))
+                        if (c.attachedRigidbody != rb) DeckLapCheck.Line("    touching " + c.name + " (" + c.GetType().Name + ", layer " + c.gameObject.layer + ")");
+                    break;
+                }
                 if (best >= n - 3) { done = true; break; }
             }
             Object.Destroy(ai); Object.Destroy(go);

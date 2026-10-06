@@ -1444,7 +1444,8 @@ namespace PSXRacing.City
         /// or a drive-thru on top of one.</summary>
         public bool AnyFootprintNear(Vector2 p, float r, bool nonHouseOnly = false)
         {
-            if (footprints.Length == 0 || !footprintBounds.Contains(p)) return false;
+            // coverage (2026-10-06): real footprints stand outside the core box too
+            if (footprints.Length == 0) return false;
             int x0 = Mathf.FloorToInt((p.x - r) / FootCell), x1 = Mathf.FloorToInt((p.x + r) / FootCell);
             int z0 = Mathf.FloorToInt((p.y - r) / FootCell), z1 = Mathf.FloorToInt((p.y + r) / FootCell);
             float r2 = r * r;

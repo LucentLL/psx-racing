@@ -70,6 +70,13 @@ namespace PSXRacing.City
                     var sb = buckets[(int)SlotOf(JunctionProfile, sf)];
                     if (sb.Count > 0) { deckSlab = sb; break; }
                 }
+            // BRICK (owner, 2026-10-06, the UNC Charlotte decks): the street
+            // faces in red brick, a cast-stone band at every floor. The brick
+            // rides the facade atlas's bucket (its brick column, the bucket the
+            // solid deck drew its walls in): no draw call of its own.
+            deckBrick = d.Brick ? buckets[(int)Slot.FacadeGlass] : null;
+            var keepTint = Bucket.Tint;
+            if (deckBrick != null) Bucket.Tint = new Color32(TintByte(1.18f), TintByte(0.92f), TintByte(0.84f), (byte)(LookBrick * 32));
             int t0 = con.t.Count + (paint != null ? paint.t.Count : 0) + lampBucket.t.Count + (deckSlab != con ? deckSlab.t.Count : 0);
 
             int top = d.levels - 1;
@@ -165,7 +172,8 @@ namespace PSXRacing.City
                         float c0 = f0 - 0.03f, c1 = f1 - CityDecks.SlabM;
                         if (c1 - c0 < 0.3f) continue;
                         float zo = s * (hv - W), zi = s * (hv - W - CityDecks.ColumnM), xa = x - CityDecks.ColumnM * 0.5f, xb = x + CityDecks.ColumnM * 0.5f;
-                        DeckBoxSides(con, d, tm, xa, xb, Mathf.Min(zo, zi), Mathf.Max(zo, zi), c0, c1);
+                        DeckBoxSides(con, d, tm, xa, xb, Mathf.Min(zo, zi), Mathf.Max(zo, zi), c0, c1, true);
+                        if (deckBrick != null) continue;    // brick piers: no precast joint
                         // the precast spandrel's joint on the street face, at
                         // the column it hangs from (dark, the lamp mesh)
                         // 12 cm: the 6 cm reveal fell under a pixel at
@@ -193,7 +201,8 @@ namespace PSXRacing.City
                         if (lo && k == 0 && d.entrySide == 0 && Mathf.Abs(z - d.entryAt) < half + CityDecks.ColumnM) continue;
                         float c0 = f0 + P, c1 = f1 - CityDecks.SlabM;
                         if (c1 - c0 < 0.3f) continue;
-                        DeckBoxSides(con, d, tm, Mathf.Min(xo, xw), Mathf.Max(xo, xw), z - CityDecks.ColumnM * 0.5f, z + CityDecks.ColumnM * 0.5f, c0, c1);
+                        DeckBoxSides(con, d, tm, Mathf.Min(xo, xw), Mathf.Max(xo, xw), z - CityDecks.ColumnM * 0.5f, z + CityDecks.ColumnM * 0.5f, c0, c1, true);
+                        if (deckBrick != null) continue;
                         float jb = k == 0 ? low : f0 - CityDecks.SlabM, jx = xe + sg * 0.02f;
                         var nn = new Vector3(DirW(d, sg, 0f).x, 0f, DirW(d, sg, 0f).y);
                         Dark(tm, DP(d, jx, jb, z - 0.06f, tm), DP(d, jx, c0, z - 0.06f, tm), DP(d, jx, c0, z + 0.06f, tm), DP(d, jx, jb, z + 0.06f, tm), nn);
@@ -331,6 +340,7 @@ namespace PSXRacing.City
             d.trisDeck = (con.t.Count + (paint != null ? paint.t.Count : 0) + lampBucket.t.Count + (deckSlab != con ? deckSlab.t.Count : 0) - t0) / 3;
             if (!d.built) { d.built = true; DecksBuilt++; }
             CityDecks.AnyBuilt = true;
+            Bucket.Tint = keepTint; deckBrick = null;
             return true;
         }
 
@@ -422,6 +432,17 @@ namespace PSXRacing.City
                     continue;
                 }
                 float ba = skirt ? low : ya + bot, bb = skirt ? low : yb + bot;
+                if (deckBrick != null)
+                {
+                    // cast stone from the slab's soffit to StoneBandM over the
+                    // floor, brick over it to the coping (and under it, down a skirt)
+                    float sa = ya + StoneBandM, sb = yb + StoneBandM, ta = ya - CityDecks.SlabM, tb = yb - CityDecks.SlabM;
+                    con.WallSloped(DP(d, a.x, 0f, a.y, tm), DP(d, b.x, 0f, b.y, tm), d.y0 + ta, d.y0 + sa, d.y0 + tb, d.y0 + sb,
+                                   oW, ua, ub, ta * 0.25f, sa * 0.25f);
+                    BrickBand(d, tm, a, b, oW, sa, ya + P, sb, yb + P);
+                    if (skirt && ta - ba > 0.05f) BrickBand(d, tm, a, b, oW, ba, ta, bb, tb);
+                }
+                else
                 con.WallSloped(DP(d, a.x, 0f, a.y, tm), DP(d, b.x, 0f, b.y, tm), d.y0 + ba, d.y0 + ya + P, d.y0 + bb, d.y0 + yb + P,
                                oW, ua, ub, ba * 0.25f, (ya + P) * 0.25f);
                 Vector2 ai = a + inV, bi = b + inV;
@@ -462,8 +483,33 @@ namespace PSXRacing.City
         }
 
         /// <summary>The four sides of an upright box (a column, a pole), local x/z extents.</summary>
-        static void DeckBoxSides(Bucket bk, CityDecks.Deck d, TileMeshes tm, float xa, float xb, float za, float zb, float y0, float y1)
+        /// <summary>A brick deck's band of brick on the street face (the facade
+        /// atlas's brick column, its plain spandrel row between two window rows:
+        /// atlas rows 178-197 of 256, so V 0.232-0.302; U at the look's 12.4 m).</summary>
+        static void BrickBand(CityDecks.Deck d, TileMeshes tm, Vector2 a, Vector2 b, Vector2 oW, float ya0, float ya1, float yb0, float yb1)
         {
+            float ua = (Mathf.Abs(b.x - a.x) > Mathf.Abs(b.y - a.y) ? a.x : a.y) / BrickUM, ub = ua + Vector2.Distance(a, b) / BrickUM;
+            deckBrick.WallSloped(DP(d, a.x, 0f, a.y, tm), DP(d, b.x, 0f, b.y, tm), d.y0 + ya0, d.y0 + ya1, d.y0 + yb0, d.y0 + yb1,
+                                 oW, ua, ub, BrickV0, BrickV1);
+        }
+        const float StoneBandM = 0.12f, BrickUM = 12.4f, BrickV0 = 0.232f, BrickV1 = 0.302f;
+        /// <summary>The facade atlas's bucket while a BRICK deck is emitted, else null.</summary>
+        static Bucket deckBrick;
+
+        /// <summary>Four sides of a column; <paramref name="perimeter"/>: on a brick
+        /// deck it is a brick pier (the atlas brick column's plain pier between
+        /// two window columns, U 0.30-0.38, V true to scale).</summary>
+        static void DeckBoxSides(Bucket bk, CityDecks.Deck d, TileMeshes tm, float xa, float xb, float za, float zb, float y0, float y1, bool perimeter = false)
+        {
+            if (perimeter && deckBrick != null)
+            {
+                float B0 = d.y0 + y0, B1 = d.y0 + y1, w0 = y0 / BrickUM, w1 = y1 / BrickUM;
+                deckBrick.Wall(DP(d, xa, 0f, za, tm), DP(d, xb, 0f, za, tm), B0, B1, DirW(d, 0f, -1f), 0.30f, 0.38f, w0, w1);
+                deckBrick.Wall(DP(d, xa, 0f, zb, tm), DP(d, xb, 0f, zb, tm), B0, B1, DirW(d, 0f, 1f), 0.30f, 0.38f, w0, w1);
+                deckBrick.Wall(DP(d, xa, 0f, za, tm), DP(d, xa, 0f, zb, tm), B0, B1, DirW(d, -1f, 0f), 0.30f, 0.38f, w0, w1);
+                deckBrick.Wall(DP(d, xb, 0f, za, tm), DP(d, xb, 0f, zb, tm), B0, B1, DirW(d, 1f, 0f), 0.30f, 0.38f, w0, w1);
+                return;
+            }
             float Y0 = d.y0 + y0, Y1 = d.y0 + y1, v0 = y0 * 0.25f, v1 = y1 * 0.25f;
             bk.Wall(DP(d, xa, 0f, za, tm), DP(d, xb, 0f, za, tm), Y0, Y1, DirW(d, 0f, -1f), 0f, 0.15f, v0, v1);
             bk.Wall(DP(d, xa, 0f, zb, tm), DP(d, xb, 0f, zb, tm), Y0, Y1, DirW(d, 0f, 1f), 0f, 0.15f, v0, v1);
