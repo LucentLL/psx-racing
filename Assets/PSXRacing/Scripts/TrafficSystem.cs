@@ -62,7 +62,8 @@ namespace PSXRacing
         /// and a real road closed for a drag (Bogue Banks) - has none: two
         /// cars and a tree (TrafficSystem.Begin).</summary>
         public static bool VenueHasTraffic(TrackCatalog.TrackDef def) =>
-            def != null && !def.IsDragEvent && !def.IsRoam;
+            def != null && !def.IsDragEvent && !def.IsRoam &&
+            !def.IsDeckRun;   // traffic runs ON the race path: never up a deck's aisles or its driveway
     }
 
     /// <summary>
@@ -273,6 +274,11 @@ namespace PSXRacing
             // A drag strip is two cars and a tree; a car wandering across it is
             // not traffic, it is a fault.
             if (race.path.drag) return;
+            // A DECK RUN has no traffic and no lanes: the path is already the
+            // aisle's right-hand lane, and lanes laid on it would push every
+            // racer a lane further right - into the columns.
+            if (!TrafficLevels.VenueHasTraffic(TrackCatalog.At(RaceHandoff.TrackIndex)) &&
+                TrackCatalog.At(RaceHandoff.TrackIndex).IsDeckRun) return;
             if (Instance != null) return;
             var go = new GameObject("Traffic");
             Instance = go.AddComponent<TrafficSystem>();

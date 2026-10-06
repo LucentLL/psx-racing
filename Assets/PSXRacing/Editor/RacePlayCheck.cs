@@ -169,6 +169,14 @@ namespace PSXRacing.EditorTools
             RaceHandoff.CarSpecId = cars[b].id;
             RaceHandoff.OpponentSpecIds = cars[b + 1].id + ";" + cars[b + 2].id + ";" + cars[b + 3].id;
             RaceHandoff.OpponentSkills = "1.0;0.95;0.9";
+            // PSX_RACE_SOLO=1: the field retired (a deck run's TIME TRIAL),
+            // with the deck's best wiped so the run has to record one.
+            if (System.Environment.GetEnvironmentVariable("PSX_RACE_SOLO") == "1")
+            {
+                RaceHandoff.Solo = true;
+                log.AppendLine("  SOLO (time trial)");
+                if (TrackCatalog.At(index).IsDeckRun) PSXRacing.City.DeckRun.ClearBest(TrackCatalog.At(index).deckWay);
+            }
             EditorSettings.enterPlayModeOptionsEnabled = true;
             EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload;
             EditorApplication.playModeStateChanged += OnState;
@@ -256,6 +264,8 @@ namespace PSXRacing.EditorTools
             RacePlayCheck.Check(rm != null && car != null && rm.path != null, "the scene has a race, a player and a path");
             if (rm == null || car == null) { Done(); yield break; }
 
+            var deckVenue = TrackCatalog.At(RaceHandoff.TrackIndex);
+            if (deckVenue.IsDeckRun) StartCoroutine(DeckWatch(car));
             CollisionResponder.HitReported += OnHit;
             CollisionResponder.HitReportedOn += OnHitOn;
             RaceManager.Respawned += OnRespawn;
@@ -483,7 +493,102 @@ namespace PSXRacing.EditorTools
             RacePlayCheck.Note($"FRAMES (WP-09; city streaming {(PSXRacing.City.CityWorld.SliceBuilds ? "SLICED" : "ONE TILE A FRAME")}): {framesN} frames, " +
                                $"over 33 ms {frames33}, over 50 ms {frames50}, over 100 ms {frames100}, worst {worstFrameMs:0} ms");
             ReportTraffic(retiredAt, finishedAt, raced);
+            if (deckVenue.IsDeckRun)
+            {
+                float until2 = Time.realtimeSinceStartup + 8f;
+                while (deckShotsPending && Time.realtimeSinceStartup < until2) yield return null;
+                deckDone = true;
+                var pp = rm.GetProgress(car);
+                RacePlayCheck.Note($"DECK RUN {deckVenue.id}: line {deckLine}, flag {rm.path.finishIndex} ({(rm.path.finishIndex - deckLine) * rm.path.spacing:0} m), " +
+                                   $"{(rm.path.gates != null ? rm.path.gates.Length : 0)} checkpoints, player through {(pp != null ? pp.gate : -1)}");
+                RacePlayCheck.Check(pp != null && pp.finished, "the player's car (autopilot) takes the flag",
+                                    pp != null ? (pp.finished ? pp.finishTime.ToString("0.0") + " s" : "wp " + pp.nearestIdx) : "no progress");
+                RacePlayCheck.Check(pp != null && pp.gate == (rm.path.gates != null ? rm.path.gates.Length : 0),
+                                    "and it was driven through every checkpoint", pp != null ? pp.gate : -1);
+                RacePlayCheck.Check(deckFalls == 0, "no car falls through a deck floor", deckFalls);
+                if (RaceHandoff.Solo)
+                {
+                    float best = PSXRacing.City.DeckRun.Best(deckVenue.deckWay);
+                    RacePlayCheck.Check(rm.allCars.Count == 1 || CountActive() == 1, "a time trial runs alone", CountActive());
+                    RacePlayCheck.Check(pp != null && pp.finished && Mathf.Abs(best - pp.finishTime) < 0.05f && rm.DeckNewBest,
+                                        "the time trial keeps the deck's best", PSXRacing.City.DeckRun.Clock(best));
+                }
+            }
             Done();
+        }
+
+        // ---- DECK RUNS (parking decks part 2) -------------------------------
+        int deckFalls, deckLine;
+        bool deckShotsPending, deckDone;
+        int CountActive() { int n = 0; foreach (var c in rm.allCars) if (c != null && c.gameObject.activeInHierarchy) n++; return n; }
+
+        /// <summary>Falls through a floor (any car more than 2.5 m under its
+        /// station), and with PSX_RACE_SHOTS=dir the four game views: the grid,
+        /// the climb with the rivals, the roof turnaround, the results.</summary>
+        IEnumerator DeckWatch(CarController player)
+        {
+            var path = rm.path;
+            string dir = System.Environment.GetEnvironmentVariable("PSX_RACE_SHOTS");
+            string tag = System.Environment.GetEnvironmentVariable("PSX_RACE_SHOTTAG") ?? "day";
+            bool shots = !string.IsNullOrEmpty(dir) && !headless;
+            if (shots) Directory.CreateDirectory(dir);
+            deckShotsPending = shots;
+            int fin = path.finishIndex, roof = 0;
+            for (int i = 0; i < fin; i++) if (path.GetPoint(i).y > path.GetPoint(roof).y) roof = i;
+            deckLine = PSXRacing.City.DeckRun.LastLine;
+            var fell = new HashSet<CarController>();
+            bool sRamp = false, sRoof = false, sRes = false;
+            if (shots) { for (int i = 0; i < 30; i++) yield return null; yield return Shot(dir, tag + "_1_grid"); }
+            while (!deckDone)
+            {
+                yield return new WaitForSeconds(0.25f);
+                foreach (var c in rm.allCars)
+                {
+                    var p = c != null ? rm.GetProgress(c) : null;
+                    if (p == null || p.finished || p.retired || !c.gameObject.activeInHierarchy || fell.Contains(c)) continue;
+                    var q = path.GetPoint(p.nearestIdx);
+                    if (c.transform.position.y < q.y - 2.5f)
+                    {
+                        fell.Add(c); deckFalls++;
+                        RacePlayCheck.Note($"FELL {c.name} at wp {p.nearestIdx}: {q.y - c.transform.position.y:0.0} m under the floor");
+                    }
+                }
+                if (!shots) continue;
+                var pp = rm.GetProgress(player);
+                if (pp == null) continue;
+                float frac = (pp.nearestIdx - deckLine) / (float)Mathf.Max(1, fin - deckLine);
+                if (!sRamp && frac > 0.12f && (frac > 0.35f || RivalAhead(player)))
+                { sRamp = true; yield return Shot(dir, tag + "_2_ramp"); }
+                if (!sRoof && pp.nearestIdx >= roof - 2) { sRoof = true; yield return Shot(dir, tag + "_3_roof"); }
+                if (!sRes && pp.finished)
+                {
+                    sRes = true;
+                    yield return new WaitForSeconds(3.5f);
+                    yield return Shot(dir, tag + "_4_results");
+                    deckShotsPending = false;
+                }
+            }
+        }
+
+        bool RivalAhead(CarController player)
+        {
+            foreach (var c in rm.allCars)
+            {
+                if (c == null || c == player || !c.gameObject.activeInHierarchy) continue;
+                var lo = player.transform.InverseTransformPoint(c.transform.position);
+                if (lo.z > 4f && lo.z < 22f && Mathf.Abs(lo.x) < 4f && Mathf.Abs(lo.y) < 1.5f) return true;
+            }
+            return false;
+        }
+
+        IEnumerator Shot(string dir, string name)
+        {
+            yield return new WaitForEndOfFrame();
+            var tex = ScreenCapture.CaptureScreenshotAsTexture();
+            string file = Path.Combine(dir, name + ".jpg");
+            File.WriteAllBytes(file, tex.EncodeToJPG(88));
+            RacePlayCheck.Note($"shot {file} ({tex.width}x{tex.height})");
+            Destroy(tex);
         }
 
         // ------------------------------------------------------------------
@@ -954,6 +1059,12 @@ namespace PSXRacing.EditorTools
             }
             RacePlayCheck.Note($"  open road: {openN} samples, gain at most {openMax:0.00}, {crossings} rise(s) over 1.10; " +
                                $"under something (a bridge, a building's shadow): {shadeN} samples, gain at most {shadeMax:0.00}");
+            // A deck run comes OUT of a dark deck onto the street and the roof:
+            // the eye's gain there is the exit settling (the tunnel exit's
+            // bloom), not pumping on an open road - reported, not judged.
+            if (TrackCatalog.At(RaceHandoff.TrackIndex).IsDeckRun)
+                RacePlayCheck.Note($"  deck run: gain {openMax:0.00} under an open sky (out of the deck; not judged)");
+            else
             RacePlayCheck.Check(openMax <= 1.10f, "no pumping on the open road (gain <= 1.10 under an open sky)", openMax.ToString("0.00"));
         }
 

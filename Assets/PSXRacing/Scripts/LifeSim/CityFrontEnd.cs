@@ -177,7 +177,7 @@ namespace PSXRacing.LifeSim
             for (int i = 0; i < TrackCatalog.Count; i++)
             {
                 var t = TrackCatalog.At(i);
-                if (!t.IsCityRace || !TrackCatalog.Offered(i)) continue;
+                if (!t.IsCityRace || t.IsDeckRun || !TrackCatalog.Offered(i)) continue;
                 RaceRow(ref y, lx, w, i, t);
                 shown++;
             }
@@ -186,6 +186,17 @@ namespace PSXRacing.LifeSim
                 MenuKit.Para(body, "No city races in this build.", MenuKit.Tiny, new Vector2(0.5f, 1f),
                     new Vector2(lx, y), out float nh, TextAnchor.UpperLeft, MenuKit.Dim, w);
                 y -= nh;
+            }
+
+            // The parking decks: each one a race against three rivals or a
+            // run alone against the clock, its best on the button.
+            bool deckHead = false;
+            for (int i = 0; i < TrackCatalog.Count; i++)
+            {
+                var t = TrackCatalog.At(i);
+                if (!t.IsDeckRun || !TrackCatalog.Offered(i)) continue;
+                if (!deckHead) { y -= 8f; Section(ref y, lx, w, "DECK RUNS  ·  RACE OR TIME TRIAL"); deckHead = true; }
+                DeckRow(ref y, lx, w, i, t);
             }
 
             // ---- right: in what, and when ----
@@ -246,6 +257,26 @@ namespace PSXRacing.LifeSim
                 TextAnchor.MiddleLeft, Color.white, nameW, height: 30f, bold: true);
             MenuKit.FitOneLine(name, nameW);
             y -= 56f;
+        }
+
+        /// <summary>One deck: its name on a line of its own, then RACE (three
+        /// rivals; the door tour presses it) and TIME TRIAL with the best.</summary>
+        void DeckRow(ref float y, float x, float w, int index, TrackCatalog.TrackDef t)
+        {
+            int captured = index;
+            var name = MenuKit.Label(body, t.name, 20, new Vector2(0.5f, 1f), new Vector2(x, y),
+                TextAnchor.MiddleLeft, Color.white, w, height: 28f, bold: true);
+            MenuKit.FitOneLine(name, w);
+            y -= 32f;
+            float half = (w - 8f) * 0.5f;
+            Named(MenuKit.Button(body, "RACE  ·  3 RIVALS", new Vector2(0.5f, 1f),
+                new Vector2(x + half * 0.5f, y), new Vector2(half, 48f),
+                () => StartRace(captured), 20), "race_" + t.id);
+            float best = PSXRacing.City.DeckRun.Best(t.deckWay);
+            Named(MenuKit.Button(body, best > 0f ? "TRIAL  ·  BEST " + PSXRacing.City.DeckRun.Clock(best) : "TIME TRIAL",
+                new Vector2(0.5f, 1f), new Vector2(x + half * 1.5f + 8f, y), new Vector2(half, 48f),
+                () => StartRace(captured, true), 20), "trial_" + t.id);
+            y -= 58f;
         }
 
         void Section(ref float y, float x, float w, string text)
@@ -473,13 +504,15 @@ namespace PSXRacing.LifeSim
             if (!TrackCatalog.TryLoadScene(scene, "Charlotte")) Toast("CHARLOTTE IS NOT IN THIS BUILD");
         }
 
-        void StartRace(int venue)
+        void StartRace(int venue, bool trial = false)
         {
             if (!FillRace(venue, CarId(), Hour, WeatherPick, out int scene))
             {
                 Toast("THAT RACE IS NOT IN THIS BUILD");
                 return;
             }
+            // A TIME TRIAL is the same run with the field retired (Solo).
+            if (trial) RaceHandoff.Solo = true;
             if (!TrackCatalog.TryLoadScene(scene, TrackCatalog.At(venue).id))
                 Toast("THAT RACE IS NOT IN THIS BUILD");
         }

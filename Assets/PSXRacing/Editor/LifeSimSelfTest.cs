@@ -2217,7 +2217,7 @@ namespace PSXRacing.EditorTools
                     var cityThumb = TrackCatalog.Thumbnail(t, 96);
                     Check(cityThumb != null && OpaquePixels(cityThumb) > 200,
                           t.id + " draws a map", cityThumb != null ? OpaquePixels(cityThumb) : 0);
-                    if (t.IsCityRace)
+                    if (t.IsCityRace && !t.IsDeckRun)
                     {
                         // A city race is a route through the graph: the menu
                         // quotes it off charlotte_routes.json and the scene

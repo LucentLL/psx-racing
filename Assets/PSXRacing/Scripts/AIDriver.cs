@@ -440,6 +440,22 @@ namespace PSXRacing
         /// three rivals on the wrong side of it, and on Gillespie Gap the one at
         /// -0.8 m met an oncoming Volvo head-on at 33 m/s eighteen seconds in.
         /// </summary>
+        /// <summary>
+        /// A car on ANOTHER FLOOR of a parking deck (a deck run's path has
+        /// checkpoints, TrackPath.gates): the levels of a helix stand over each
+        /// other, so the car a floor below or above is "dead ahead in my lane"
+        /// to every plan-view test here - and two racers a level apart on the
+        /// way down each braked for the other, to a standstill, for good.
+        /// Only on a deck: on a road a car 30 m up a grade is really ahead.
+        /// </summary>
+        bool OtherFloor(Vector3 local) => path != null && path.gates != null && Mathf.Abs(local.y) > OtherFloorM;
+        const float OtherFloorM = 2.2f;
+        bool OnDeck => path != null && path.gates != null;
+        /// <summary>A deck aisle's own lane, either side of this car's centre,
+        /// and what counts as stopped at deck speed (the roof loop is taken at
+        /// a walk).</summary>
+        const float DeckLaneM = 1.6f, DeckStoppedMps = 1f;
+
         float LineOffset()
         {
             var ts = TrafficSystem.Instance;
@@ -551,7 +567,11 @@ namespace PSXRacing
                 // A WRECK PULLS OVER: onto the verge past the right-hand edge,
                 // not stopped in its lane - on a 6 m mountain road a car
                 // parked in one lane is a roadblock the field queues behind.
-                if (Retired)
+                // A deck run's finisher pulls over like a wreck does (gently):
+                // the flag is a few car lengths off the deck's exit, and a
+                // finisher rolling to a stop in the lane parked the next car
+                // short of the line.
+                if (Retired || (ShuttingDown && OnDeck))
                     avoidBias = Mathf.MoveTowards(avoidBias,
                         path.roadWidth * 0.5f + RetiredVergeM - lineOffset, 2.5f * dt);
                 car.steerInput = coasting ? SteerToLine(rolling) : 0f;
@@ -788,11 +808,12 @@ namespace PSXRacing
                     if (other == null || other == car) continue;
 
                     Vector3 local = transform.InverseTransformPoint(other.transform.position);
+                    if (OtherFloor(local)) continue;
                     // Only cars AHEAD. Reacting to a car alongside or behind turns
                     // every side-by-side moment into a swerve, and reacting to one
                     // behind hands the lead car's line to whoever is chasing it.
                     if (local.z < 1.5f || local.z > AvoidLookM) continue;
-                    if (Mathf.Abs(local.x) > AvoidWidthM) continue;
+                    if (Mathf.Abs(local.x) > (OnDeck ? DeckLaneM : AvoidWidthM)) continue;
 
                     float closeness = 1f - local.z / AvoidLookM;      // 0 far, 1 touching
                     // Push away from the side they are on. Dead ahead resolves
@@ -844,6 +865,12 @@ namespace PSXRacing
                 {
                     var o = rm.allCars[i];
                     if (o == null || o == car || o.Body == null) continue;
+                    Vector3 lo0 = transform.InverseTransformPoint(o.transform.position);
+                    if (OtherFloor(lo0)) continue;
+                    // In a deck only a car IN THIS LANE, ahead, is in the way:
+                    // the down lane is 2.4 m over and a racer creeping round the
+                    // roof loop is not parked.
+                    if (OnDeck && (lo0.z < -2f || Mathf.Abs(lo0.x) > DeckLaneM)) continue;
                     var op = rm.GetProgress(o);
                     // ...and a rival this car is CLOSING on, up the road: in a
                     // queue behind traffic the one in front brakes, and the
@@ -858,7 +885,7 @@ namespace PSXRacing
                         Vector3 lo = transform.InverseTransformPoint(o.transform.position);
                         closingOnIt = lo.z > 1.5f && lo.z < 110f && Mathf.Abs(lo.x) < 6f;
                     }
-                    if ((op != null && op.retired) || Mathf.Abs(o.forwardSpeed) < StoppedRacerMps || closingOnIt)
+                    if ((op != null && op.retired) || Mathf.Abs(o.forwardSpeed) < (OnDeck ? DeckStoppedMps : StoppedRacerMps) || closingOnIt)
                     {
                         stopped.Add(o.Body);
                         stoppedHalf.Add(HalfWidthOf(o));
@@ -888,6 +915,7 @@ namespace PSXRacing
                     var rb = i < nTraffic ? traffic.Obstacles[i] : stopped[i - nTraffic];
                     if (rb == null) continue;
                     Vector3 local = transform.InverseTransformPoint(rb.position);
+                    if (OtherFloor(local)) continue;
                     float along = Vector3.Dot(rb.linearVelocity, transform.forward);
                     float closing = mySpeed - along;
                     // Three seconds of closing, to 110 m: a rival closing at 22

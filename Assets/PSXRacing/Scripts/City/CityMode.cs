@@ -233,6 +233,8 @@ namespace PSXRacing.City
         /// </summary>
         void SetupRace()
         {
+            var venue = TrackCatalog.At(RaceHandoff.TrackIndex);
+            if (venue != null && venue.IsDeckRun) { SetupDeckRun(venue); return; }
             var map = CityMap.Get();
             var route = map?.RouteById(routeId);
             var path = Object.FindFirstObjectByType<TrackPath>(FindObjectsInactive.Include);
@@ -276,6 +278,47 @@ namespace PSXRacing.City
             }
 
             // The ground under the whole grid, now, before physics steps.
+            if (world != null && player != null) world.EnsureRing(player.transform.position, 1);
+        }
+
+        /// <summary>
+        /// A DECK RUN in this scene: the route is set aside and the path is the
+        /// deck's (DeckRun.BuildPath). The grid stands SINGLE FILE in the
+        /// street's right-hand lane behind the line, and every rival drives its
+        /// lane's centre (no spread: an aisle lane is a car wide).
+        /// </summary>
+        void SetupDeckRun(TrackCatalog.TrackDef venue)
+        {
+            var map = CityMap.Get();
+            var path = Object.FindFirstObjectByType<TrackPath>(FindObjectsInactive.Include);
+            var deck = DeckRun.Find(venue.deckWay);
+            if (!DeckRun.BuildPath(map, deck, path, out int lineIdx))
+            {
+                Debug.LogError("[City] deck run " + venue.id + ": deck " + venue.deckWay + " is not drivable in this build" +
+                               (deck != null ? " (" + deck.why + ")" : ""));
+                return;
+            }
+            if (!string.IsNullOrEmpty(venue.dragLabel)) path.dragLabel = venue.dragLabel;   // the HUD's name for the run
+            var world = this.world != null ? this.world : Object.FindFirstObjectByType<CityWorld>();
+            var field = new List<CarController>(aiCars);
+            if (player != null) field.Add(player);
+            for (int row = 0; row < field.Count; row++)
+            {
+                var car = field[row];
+                if (car == null) continue;
+                // alone against the clock, the player has the front row
+                // (the field, retired at Start, stands behind it meanwhile)
+                int slot = !RaceHandoff.Solo ? row : car == player ? 0 : row + 1;
+                float fIdx = Mathf.Clamp(lineIdx - (GridFrontM + slot * GridRowM) / path.spacing, 0f, path.Count - 1.001f);
+                int i0 = Mathf.FloorToInt(fIdx);
+                var centre = Vector3.Lerp(path.GetPoint(i0), path.GetPoint(i0 + 1), fIdx - i0);
+                var fwd = path.GetTangent(i0); fwd.y = 0f;
+                fwd = fwd.sqrMagnitude > 1e-6f ? fwd.normalized : Vector3.forward;
+                car.TeleportTo(centre + Vector3.up * GridLiftM, Quaternion.LookRotation(fwd, Vector3.up));
+                var ai = car.GetComponent<AIDriver>();
+                if (ai != null) { ai.lateralOffset = 0f; ai.ReseedPath(); }
+                if (world != null && car != player) world.anchors.Add(car.transform);
+            }
             if (world != null && player != null) world.EnsureRing(player.transform.position, 1);
         }
 

@@ -58,6 +58,9 @@ namespace PSXRacing.City
             /// long side, within the ground turning bay.</summary>
             public int entrySide; public float entryAt;
             public Vector2 roadEdge; public float roadY, driveLen;
+            /// <summary>The street the driveway meets (graph edge, arc along
+            /// it): where a deck run's grid and finish stand.</summary>
+            public int streetEdge = -1; public float streetS;
             /// <summary>World waypoints, street to roof and back to the
             /// street, every ~<see cref="LapStepM"/>.</summary>
             public Vector3[] lap;
@@ -182,6 +185,7 @@ namespace PSXRacing.City
             var nW = d.U * d.EntryN.x + d.V * d.EntryN.y;
             if (!map.NearestRoadPoint(eP + nW * 2f, MaxDrivewayM + 30f, true, out int re, out float rs, out _)) { d.why = "no street in front of the opening"; return false; }
             var edge = map.edges[re];
+            d.streetEdge = re; d.streetS = rs;
             var P = edge.PointAt(rs);
             float ahead = Vector2.Dot(P - eP, nW);
             if (ahead < -1f || Vector2.Dot((P - eP).normalized, nW) < 0.4f) { d.why = "the street is not in front of the opening"; return false; }
@@ -308,17 +312,21 @@ namespace PSXRacing.City
             int top = d.levels - 1;
             Vector2 E = d.EntryP, n = d.EntryN;
             // on the street, then up the driveway
+            // In and out keep RIGHT on the driveway too (a deck run meets the
+            // leaders coming out while the tail goes in): each way is the
+            // driveway's centre moved a lane offset to the right of travel.
+            var keepIn = new Vector2(-n.y, n.x) * o;      // right of -n
             var street = E + n * (d.driveLen + 2.5f);
-            L.Add(new Vector3(street.x, float.NaN, street.y));
+            L.Add(new Vector3(street.x + keepIn.x, float.NaN, street.y + keepIn.y));
             int nd = Mathf.Max(2, Mathf.CeilToInt((d.driveLen + 2.5f) / LapStepM));
             for (int i = 1; i <= nd; i++)
             {
-                float t = i / (float)nd; var p = Vector2.Lerp(street, E, t);
+                float t = i / (float)nd; var p = Vector2.Lerp(street, E, t) + keepIn;
                 L.Add(new Vector3(p.x, float.NaN, p.y));
             }
             var inP = E - n * 3f;
-            L.Add(new Vector3(inP.x, float.NaN, inP.y));
-            Bezier(L, inP, -n, new Vector2(d.x0, -hz - o), new Vector2(1f, 0f), float.NaN);
+            L.Add(new Vector3(inP.x + keepIn.x, float.NaN, inP.y + keepIn.y));
+            Bezier(L, inP + keepIn, -n, new Vector2(d.x0, -hz - o), new Vector2(1f, 0f), float.NaN);
             for (int k = 0; k <= top - 1; k++)
             {
                 int kk = k;
@@ -342,15 +350,184 @@ namespace PSXRacing.City
                 Run(L, d.x1, d.x0, -hz + o, x => BayA(d, kk, x));
                 if (k > 0) Arc(L, new Vector2(d.x0, 0f), Ri, -90f, -270f, TurnLo(k));
             }
-            Bezier(L, new Vector2(d.x0, -hz + o), new Vector2(-1f, 0f), inP, n, float.NaN);
+            Bezier(L, new Vector2(d.x0, -hz + o), new Vector2(-1f, 0f), inP - keepIn, n, float.NaN);
             for (int i = 0; i <= nd; i++)
             {
-                float t = i / (float)nd; var p = Vector2.Lerp(E, street, t);
+                float t = i / (float)nd; var p = Vector2.Lerp(E, street, t) - keepIn;
                 L.Add(new Vector3(p.x, float.NaN, p.y));
             }
             var w = new Vector3[L.Count];
             for (int i = 0; i < L.Count; i++) w[i] = d.W3(L[i].x, float.IsNaN(L[i].y) ? GroundBayLocal(d, L[i].x, L[i].z) : L[i].y, L[i].z);
             return w;
         }
+    }
+
+    /// <summary>
+    /// A DECK RUN (parking decks part 2): <see cref="Deck.lap"/> raced as a
+    /// point-to-point TrackPath. On the street in the right-hand lane with the
+    /// deck on the right, a right turn in, the lap (up every level keeping
+    /// right, a loop on the roof, down keeping right), a right turn out and on
+    /// along the same street to the flag. The grid stands single file on the
+    /// street before the driveway; checkpoints every <see cref="GateEveryM"/>
+    /// hold the player's progress until they are driven through.
+    /// A time trial's best is kept here, per deck, in PlayerPrefs - the CITY
+    /// edition has no career save, and a record is not worth a save version.
+    /// </summary>
+    public static class DeckRun
+    {
+        public const float Step = 2.5f, CurvGain = 2.5f, LaneM = 1.7f, TurnM = 7f;
+        public const float LeadInM = 50f, LineM = 9f, FlagM = 30f, LeadOutM = 90f, GateEveryM = 40f;
+
+        /// <summary>The start line of the last path built (the harness reads it).</summary>
+        public static int LastLine;
+
+        public static CityDecks.Deck Find(uint way)
+        {
+            foreach (var d in CityDecks.All) if (d.way == way) return d;
+            return null;
+        }
+
+        static Vector2 Right(Vector2 h) => new Vector2(h.y, -h.x);
+
+        /// <summary>Fill <paramref name="path"/> with the run; lineIdx is the
+        /// start line (the grid stands behind it). False when the deck is not
+        /// drivable in this build (PSX_DECKS=0, or it did not solve).</summary>
+        public static bool BuildPath(CityMap map, CityDecks.Deck d, TrackPath path, out int lineIdx)
+        {
+            lineIdx = 0;
+            if (!CityDecks.Enabled || map == null || d == null || path == null) return false;
+            if (!CityDecks.Solve(map, d) || d.lap == null || d.streetEdge < 0) return false;
+            var e = map.edges[d.streetEdge];
+            Vector2 nW = d.U * d.EntryN.x + d.V * d.EntryN.y;          // deck -> street
+            Vector2 t0 = e.TangentAt(d.streetS).normalized;
+            int dir = Vector2.Dot(Right(t0), -nW) > 0f ? 1 : -1;       // the deck on the right
+            if (e.oneway) dir = 1;
+            float lat = e.oneway ? 0f : LaneM;
+            Vector3 Street(float a)
+            {
+                float s = d.streetS + dir * a, sc = Mathf.Clamp(s, 0f, e.length);
+                Vector2 tan = e.TangentAt(sc).normalized;
+                Vector2 p = LineModel.LanePoint(e, sc) + tan * (s - sc) + Right(tan * dir) * lat;
+                return new Vector3(p.x, e.YAt(sc), p.y);
+            }
+
+            var P = new List<Vector3>(1024);
+            float lineAt = -1f, flagAt = -1f;
+            float Arc() { float a = 0f; for (int i = 1; i < P.Count; i++) a += Plan(P[i - 1], P[i]); return a; }
+            for (float a = -LeadInM; a <= -TurnM + 0.01f; a += Step) P.Add(Street(a));
+            lineAt = Arc() - LineM;                                    // the line: LineM before the turn-in
+            // the lap, without its street ends (kept: > 1 m inside the driveway)
+            var w = d.lap;
+            int iA = -1, iB = -1;
+            for (int i = 0; i < w.Length; i++)
+            {
+                float into = Vector2.Dot(new Vector2(w[i].x, w[i].z) - d.roadEdge, nW);
+                if (into < -1f) { if (iA < 0) iA = i; iB = i; }
+            }
+            if (iA < 1 || iB >= w.Length - 1 || iB - iA < 20) return false;
+            Vector3 hIn = Street(-TurnM) - Street(-TurnM - 1f);
+            Turn(P, Street(-TurnM), hIn, w[iA], w[iA + 1] - w[iA]);
+            for (int i = iA; i <= iB; i++) P.Add(w[i]);
+            Turn(P, w[iB], w[iB] - w[iB - 1], Street(TurnM), Street(TurnM + 1f) - Street(TurnM));
+            float outAt = Arc();
+            for (float a = TurnM + Step; a <= TurnM + LeadOutM; a += Step) P.Add(Street(a));
+            flagAt = outAt + FlagM;
+
+            // even 2.5 m stations along the plan
+            var arcs = new float[P.Count];
+            for (int i = 1; i < P.Count; i++) arcs[i] = arcs[i - 1] + Plan(P[i - 1], P[i]);
+            float total = arcs[P.Count - 1];
+            int n = Mathf.Max(2, Mathf.FloorToInt(total / Step) + 1);
+            var wps = new Vector3[n];
+            int seg = 0;
+            for (int i = 0; i < n; i++)
+            {
+                float s = Mathf.Min(i * Step, total);
+                while (seg < P.Count - 2 && arcs[seg + 1] < s) seg++;
+                float L = arcs[seg + 1] - arcs[seg];
+                wps[i] = Vector3.Lerp(P[seg], P[seg + 1], L > 1e-5f ? Mathf.Clamp01((s - arcs[seg]) / L) : 0f);
+            }
+            // curvature as the lap check reads it: x2.5, a deck is driven at deck speed
+            var curv = new float[n];
+            for (int i = 1; i < n - 1; i++)
+            {
+                Vector3 a = wps[i - 1], b = wps[i], c = wps[i + 1]; a.y = b.y = c.y = 0f;
+                curv[i] = Vector3.Angle(b - a, c - b) * Mathf.Deg2Rad / Step;
+            }
+            var sm = new float[n];
+            for (int i = 0; i < n; i++)
+            {
+                float sum = 0f; int k = 0;
+                for (int o = -2; o <= 2; o++) { int j = i + o; if (j < 0 || j >= n) continue; sum += curv[j]; k++; }
+                sm[i] = sum / k * CurvGain;
+            }
+            lineIdx = Mathf.Clamp(Mathf.RoundToInt(lineAt / Step), 0, n - 1);
+            int finish = Mathf.Clamp(Mathf.RoundToInt(flagAt / Step), lineIdx + 1, n - 4);
+            var gates = new List<int>();
+            for (int g = lineIdx + Mathf.RoundToInt(GateEveryM / Step); g < finish; g += Mathf.RoundToInt(GateEveryM / Step)) gates.Add(g);
+
+            path.waypoints = wps;
+            path.curvatures = sm;
+            path.spacing = Step;
+            path.roadWidth = 3f;
+            path.drag = false;
+            path.pointToPoint = true;
+            path.finishIndex = finish;
+            path.reversed = false;
+            path.sprintFinish = -1;
+            path.gates = gates.ToArray();
+            LastLine = lineIdx;
+            Debug.Log("[DeckRun] deck " + d.way + ": " + n + " stations, line " + lineIdx + ", flag " + finish +
+                      " (" + ((finish - lineIdx) * Step).ToString("0") + " m), " + gates.Count + " checkpoints, street edge " +
+                      d.streetEdge + (e.oneway ? " one-way" : "") + ", deck at " + d.c.ToString("0"));
+            return true;
+        }
+
+        static float Plan(Vector3 a, Vector3 b) => new Vector2(b.x - a.x, b.z - a.z).magnitude;
+
+        /// <summary>A cubic from a heading to a heading (the turn in off the
+        /// street and out onto it), heights eased between the two ends.</summary>
+        static void Turn(List<Vector3> L, Vector3 p0, Vector3 h0, Vector3 p3, Vector3 h3)
+        {
+            Vector2 a = new Vector2(p0.x, p0.z), b = new Vector2(p3.x, p3.z);
+            Vector2 ha = new Vector2(h0.x, h0.z).normalized, hb = new Vector2(h3.x, h3.z).normalized;
+            float k = Vector2.Distance(a, b) * 0.45f;
+            Vector2 c1 = a + ha * k, c2 = b - hb * k;
+            int m = Mathf.Max(4, Mathf.CeilToInt(Vector2.Distance(a, b) * 1.4f / 1.25f));
+            for (int i = 1; i < m; i++)
+            {
+                float t = i / (float)m, u = 1f - t;
+                var p = u * u * u * a + 3f * u * u * t * c1 + 3f * u * t * t * c2 + t * t * t * b;
+                L.Add(new Vector3(p.x, Mathf.Lerp(p0.y, p3.y, t * t * (3f - 2f * t)), p.y));
+            }
+        }
+
+        // ---- the time trial's best, per deck ---------------------------------
+        static string Key(uint way) => "psx_deckrun_best_" + way;
+
+        /// <summary>The best time-trial time on this deck, seconds; 0 = none.</summary>
+        public static float Best(uint way)
+        {
+            try { return PlayerPrefs.GetFloat(Key(way), 0f); } catch { return 0f; }
+        }
+
+        /// <summary>Keep <paramref name="seconds"/> if it beats the best.
+        /// True when it is a new best.</summary>
+        public static bool OfferBest(uint way, float seconds)
+        {
+            if (seconds <= 1f) return false;
+            float had = Best(way);
+            if (had > 0f && had <= seconds) return false;
+            try { PlayerPrefs.SetFloat(Key(way), seconds); PlayerPrefs.Save(); } catch { return false; }
+            return true;
+        }
+
+        public static void ClearBest(uint way)
+        {
+            try { PlayerPrefs.DeleteKey(Key(way)); } catch { }
+        }
+
+        public static string Clock(float s) =>
+            s <= 0f ? "--:--.-" : ((int)(s / 60f)).ToString() + ":" + (s % 60f).ToString("00.0");
     }
 }

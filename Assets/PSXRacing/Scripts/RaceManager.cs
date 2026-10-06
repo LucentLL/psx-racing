@@ -69,6 +69,9 @@ namespace PSXRacing
         {
             public CarController car;
             public int nearestIdx;
+            /// <summary>The next checkpoint (TrackPath.gates) this car has to
+            /// be driven through.</summary>
+            public int gate;
             public int lap = 1;
             public bool crossedStartOnce;  // grid sits behind the line; first crossing starts lap 1
             public float progress;         // lap * length + distance along
@@ -98,6 +101,8 @@ namespace PSXRacing
         const float DriftWearMinSpeed = 4f;
 
         void Awake() => Instance = this;
+        /// <summary>The time trial just finished set this deck's best.</summary>
+        public bool DeckNewBest { get; private set; }
 
         void Start()
         {
@@ -230,6 +235,7 @@ namespace PSXRacing
                 // green and stops at the traps (or the stage finish).
                 if (path.HasEnds)
                 {
+                    if (path.gates != null && p.car == playerCar) HoldAtGate(p);
                     p.progress = p.nearestIdx * path.spacing;
                     if (path.finishIndex > 0 && p.nearestIdx >= path.finishIndex)
                     {
@@ -328,6 +334,25 @@ namespace PSXRacing
             }
         }
 
+        /// <summary>CHECKPOINTS (a deck run's TrackPath.gates): the player's
+        /// progress may not count past a checkpoint it was not driven through -
+        /// within <see cref="GateRadiusM"/> across and on the same floor. A
+        /// U-turn three levels up holds the clock's distance at the missed
+        /// checkpoint until the car goes back through it; the flag never comes.
+        /// Only the player: the rivals drive the path and cannot cut it.</summary>
+        void HoldAtGate(CarProgress p)
+        {
+            var g = path.gates;
+            while (p.gate < g.Length && p.nearestIdx >= g[p.gate])
+            {
+                Vector3 d = p.car.transform.position - path.GetPoint(g[p.gate]);
+                if (Mathf.Abs(d.y) < GateRiseM && d.x * d.x + d.z * d.z < GateRadiusM * GateRadiusM) { p.gate++; continue; }
+                p.nearestIdx = g[p.gate];
+                break;
+            }
+        }
+        const float GateRadiusM = 6f, GateRiseM = 2f;
+
         void OnCarFinished(CarProgress p)
         {
             if (p.car == playerCar)
@@ -368,6 +393,10 @@ namespace PSXRacing
                 RaceHandoff.FinishPos = GetPosition(playerCar);
                 RaceHandoff.FieldSize = allCars.Count;
                 RaceHandoff.RaceTimeSeconds = p.finishTime;
+                // A deck run alone is a TIME TRIAL: its best, per deck.
+                var deckVenue = TrackCatalog.At(RaceHandoff.TrackIndex);
+                if (deckVenue != null && deckVenue.IsDeckRun && RaceHandoff.Solo)
+                    DeckNewBest = PSXRacing.City.DeckRun.OfferBest(deckVenue.deckWay, p.finishTime);
                 // On a strip the ET IS the lap: there is one run and its time is
                 // the whole result, so it goes in the field the LifeSim already
                 // reports as the headline number rather than staying blank.
@@ -520,6 +549,9 @@ namespace PSXRacing
                 var ai = c.GetComponent<AIDriver>();
                 if (ai != null) rivals.Add(ai);
             }
+            // No planned error in a parking deck: running wide in an aisle is
+            // the down lane, with the leaders in it.
+            if (path != null && path.gates != null) return;
             if (rivals.Count == 0 || UnityEngine.Random.value >= IncidentChance) return;
             var who = rivals[UnityEngine.Random.Range(0, rivals.Count)];
             float at = Mathf.Lerp(0.2f, 0.88f, Mathf.Sqrt(UnityEngine.Random.value));

@@ -159,6 +159,25 @@ namespace PSXRacing
             /// <summary>A race venue whose scene is the streamed city.</summary>
             public bool IsCityRace => city && !string.IsNullOrEmpty(cityRoute);
 
+            /// <summary>
+            /// A DECK RUN (parking decks part 2, 2026-10-05): a drivable
+            /// Charlotte parking deck raced from the street, up every level,
+            /// round the roof and back down and out - this is the deck's OSM way
+            /// id (CityDecks.Deck.way). Its cityRoute is <see cref="DeckRoute"/>,
+            /// so every picker, door and edition rule that knows a city race
+            /// knows it; CityMode builds the path at load from the deck's own lap
+            /// (DeckRun.BuildPath) in the scene of <see cref="DeckScene"/>.
+            /// Appended after the sprints, so no saved index moves. Raced two
+            /// ways: three rivals, or alone against the clock (RaceHandoff.Solo,
+            /// best time kept by DeckRun.Best).
+            /// </summary>
+            public uint deckWay;
+            /// <summary>The run's length (line to flag) as the play check
+            /// measured it: the menu's figure, since the real path needs the
+            /// city graph.</summary>
+            public float deckRunM;
+            public bool IsDeckRun => deckWay != 0;
+
             // Loaded lazily out of charlotte_routes.json by EnsureRoute: the
             // menu's copy of the route (length, line, finish, a 4 m polyline
             // for the map), so the front end never parses the 2.5 MB graph.
@@ -1039,8 +1058,51 @@ namespace PSXRacing
                 foreach (var f in Authored) if (f.id == sd.baseId) baseDef = f;
                 if (baseDef != null) list.Add(SprintOn(baseDef, sd));
             }
+            // DECK RUNS after the sprints, for the same reason.
+            foreach (var dv in DeckRuns) list.Add(DeckRunDef(dv));
             return list.ToArray();
         }
+
+        /// <summary>The cityRoute every deck run carries, and the venue whose
+        /// scene it races in (a Charlotte race scene: the streamed city, three
+        /// AI cars, a RaceManager; CityMode swaps the route for the deck).</summary>
+        public const string DeckRoute = "deck", DeckScene = "TryonSprint";
+
+        struct DeckRunData { public string id, name, label; public uint way; public int levels; public float runM; }
+
+        /// <summary>
+        /// THE DECK RUNS, one per drivable deck with a clean AI lap. Names are
+        /// neutral (levels and a district): no deck's real name in game text.
+        /// runM = line to flag, as race-play-check measured it (the menu's
+        /// figure). A PROPERTY for the reason <see cref="SprintVariants"/> is.
+        /// </summary>
+        static DeckRunData[] DeckRuns => new[]
+        {
+            new DeckRunData { id = "DeckRunTryon", name = "DECK RUN: 7 LEVELS, SOUTH TRYON", label = "7 LEVELS",
+                              way = 90480727u, levels = 7, runM = 1778f },
+            new DeckRunData { id = "DeckRunSeven", name = "DECK RUN: 7 LEVELS, UPTOWN", label = "7 LEVELS",
+                              way = 255159816u, levels = 7, runM = 2483f },
+            new DeckRunData { id = "DeckRunNine", name = "DECK RUN: 9 LEVELS, UPTOWN", label = "9 LEVELS",
+                              way = 500204485u, levels = 9, runM = 2133f },
+        };
+
+        static TrackDef DeckRunDef(DeckRunData v) => new TrackDef
+        {
+            id = v.id,
+            name = v.name,
+            blurb = "A parking deck, raced: in off the street, up all " + v.levels + " levels, round the roof " +
+                    "and back down and out. Keep right both ways. Map (c) OpenStreetMap contributors.",
+            roadWidth = 3f,          // one aisle lane: the path is already in it
+            laps = 1,
+            speedLimitKmh = 16f,     // 10 mph in a deck
+            city = true,
+            cityRoute = DeckRoute,
+            deckWay = v.way,
+            deckRunM = v.runM,
+            noReverse = true,        // the lap already goes up and comes down
+            noDelivery = true,
+            dragLabel = v.label,
+        };
 
         /// <summary>One sprint on a loop, as data.</summary>
         struct SprintVariant
@@ -1496,6 +1558,7 @@ namespace PSXRacing
             var def = All[Mathf.Clamp(trackIndex, 0, All.Length - 1)];
             if (def.Reversed) return def.reverseOf;
             if (def.IsSprintVariant) return def.sprintOf;
+            if (def.IsDeckRun) return DeckScene;
             return def.id;
         }
 
@@ -1702,6 +1765,7 @@ namespace PSXRacing
             // (the editor simulates editions and comes back), every metric 0.
             if (!Edition.Ships(def)) return;
             def.routeLoaded = true;
+            if (def.IsDeckRun) { DeckRouteFacts(def); return; }
             if (routesJson == null)
             {
                 var ta = Resources.Load<TextAsset>("charlotte_routes");
@@ -1761,6 +1825,29 @@ namespace PSXRacing
                 pts[i] = new Vector3(p.x, 0f, p.y);
             }
             def.routePts = pts;
+        }
+
+        /// <summary>A deck run's menu facts: the measured length, and the
+        /// deck's footprint as the map's outline (a helix drawn flat is its
+        /// own rectangle). The race scene builds the real path.</summary>
+        static void DeckRouteFacts(TrackDef def)
+        {
+            def.routeLengthM = def.deckRunM; def.routeStartM = 0f; def.routeFinishM = def.deckRunM;
+            def.stageAttribution = "Map (c) OpenStreetMap contributors.";
+            PSXRacing.City.CityDecks.Deck d = null;
+            foreach (var c in PSXRacing.City.CityDecks.All) if (c.way == def.deckWay) d = c;
+            if (d == null) { def.routePts = new[] { Vector3.zero, new Vector3(Spacing, 0f, 0f) }; return; }
+            Vector2 u = d.u, v = new Vector2(-d.u.y, d.u.x);
+            var corners = new[] { d.c - u * d.hu - v * d.hv, d.c + u * d.hu - v * d.hv, d.c + u * d.hu + v * d.hv, d.c - u * d.hu + v * d.hv };
+            var pts = new List<Vector3>();
+            for (int k = 0; k < 4; k++)
+            {
+                Vector2 a = corners[k], b = corners[(k + 1) % 4];
+                int n = Mathf.Max(1, Mathf.CeilToInt(Vector2.Distance(a, b) / Spacing));
+                for (int i = 0; i < n; i++) { var p = Vector2.Lerp(a, b, i / (float)n); pts.Add(new Vector3(p.x, 0f, p.y)); }
+            }
+            pts.Add(pts[0]);
+            def.routePts = pts.ToArray();
         }
 
         /// <summary>

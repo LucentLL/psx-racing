@@ -45,6 +45,12 @@ namespace PSXRacing
         /// RaceHandoffApplier.ApplySprint, never baked - the scene is the
         /// loop's and serves both.</summary>
         [System.NonSerialized] public int sprintFinish = -1;
+        /// <summary>CHECKPOINTS on a run with ends (a deck run): waypoint
+        /// indices a car must pass, in order, within a few metres and on the
+        /// same floor, before its progress may count past them - so a U-turn
+        /// on the third level is not a lap of nine. Null on every other path.
+        /// See RaceManager.HoldAtGate.</summary>
+        [System.NonSerialized] public int[] gates;
 
         /// <summary>
         /// Make waypoint <paramref name="start"/> the first one, on a loop:
