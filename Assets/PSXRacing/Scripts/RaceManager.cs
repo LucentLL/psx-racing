@@ -235,9 +235,10 @@ namespace PSXRacing
                 // green and stops at the traps (or the stage finish).
                 if (path.HasEnds)
                 {
-                    if (path.gates != null && p.car == playerCar) HoldAtGate(p);
-                    p.progress = p.nearestIdx * path.spacing;
-                    if (path.finishIndex > 0 && p.nearestIdx >= path.finishIndex)
+                    int at = p.nearestIdx;
+                    if (path.gates != null && p.car == playerCar) at = GateClamp(p);
+                    p.progress = at * path.spacing;
+                    if (path.finishIndex > 0 && at >= path.finishIndex)
                     {
                         p.finished = true;
                         p.finishTime = p.raceTime;
@@ -336,22 +337,31 @@ namespace PSXRacing
 
         /// <summary>CHECKPOINTS (a deck run's TrackPath.gates): the player's
         /// progress may not count past a checkpoint it was not driven through -
-        /// within <see cref="GateRadiusM"/> across and on the same floor. A
-        /// U-turn three levels up holds the clock's distance at the missed
-        /// checkpoint until the car goes back through it; the flag never comes.
-        /// Only the player: the rivals drive the path and cannot cut it.</summary>
-        void HoldAtGate(CarProgress p)
+        /// within <see cref="GateRadiusM"/> across and on the same floor. The
+        /// next checkpoint is tested EVERY frame as the car comes up to it, and
+        /// the tracked index is never overwritten: only the progress the race
+        /// ranks and finishes by is capped at a missed checkpoint. (2026-10-06,
+        /// owner: "once I reach the second level my place is dropped to 4/4" -
+        /// the gate used to be judged only on the frame the index passed it;
+        /// a car a little wide or a ramp sample a little high failed that one
+        /// test, nearestIdx was reset to the gate, the car drove on, and every
+        /// later test failed by more: held at the gate for the rest of the run.)
+        /// A U-turn three levels up still holds the run at the missed
+        /// checkpoint until the car goes back through it. Only the player: the
+        /// rivals drive the path and cannot cut it.</summary>
+        int GateClamp(CarProgress p)
         {
             var g = path.gates;
-            while (p.gate < g.Length && p.nearestIdx >= g[p.gate])
+            Vector3 pos = p.car.transform.position;
+            while (p.gate < g.Length)
             {
-                Vector3 d = p.car.transform.position - path.GetPoint(g[p.gate]);
+                Vector3 d = pos - path.GetPoint(g[p.gate]);
                 if (Mathf.Abs(d.y) < GateRiseM && d.x * d.x + d.z * d.z < GateRadiusM * GateRadiusM) { p.gate++; continue; }
-                p.nearestIdx = g[p.gate];
                 break;
             }
+            return p.gate < g.Length ? Mathf.Min(p.nearestIdx, g[p.gate]) : p.nearestIdx;
         }
-        const float GateRadiusM = 6f, GateRiseM = 2f;
+        const float GateRadiusM = 8f, GateRiseM = 2f;
 
         void OnCarFinished(CarProgress p)
         {
@@ -596,7 +606,7 @@ namespace PSXRacing
         {
             if (p == null || path == null) return -1f;
             if (path.HasEnds)
-                return path.finishIndex > 0 ? (path.finishIndex - p.nearestIdx) * path.spacing : -1f;
+                return path.finishIndex > 0 ? path.finishIndex * path.spacing - p.progress : -1f;
             if (Sprint)
                 return path.TotalLength + sprintFinishIndex * path.spacing - p.progress;
             return -1f;
