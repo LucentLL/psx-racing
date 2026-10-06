@@ -24,6 +24,8 @@ namespace PSXRacing
         CarController car;
         CollisionResponder responder;
         int nearestIdx;
+        /// <summary>The waypoint this driver steers from (read by the deck-run play check).</summary>
+        public int PathIndex => nearestIdx;
         float stuckTimer;
         float wrongWayTimer;
         float avoidBias;                   // smoothed metres of give-way

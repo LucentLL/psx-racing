@@ -506,6 +506,7 @@ namespace PSXRacing.EditorTools
                 RacePlayCheck.Check(pp != null && pp.gate == (rm.path.gates != null ? rm.path.gates.Length : 0),
                                     "and it was driven through every checkpoint", pp != null ? pp.gate : -1);
                 RacePlayCheck.Check(deckFalls == 0, "no car falls through a deck floor", deckFalls);
+                DeckClimbReport(maxY, roofY, jumpRm, jumpAi, pastRoofLow);
                 if (RaceHandoff.Solo)
                 {
                     float best = PSXRacing.City.DeckRun.Best(deckVenue.deckWay);
@@ -520,6 +521,9 @@ namespace PSXRacing.EditorTools
         // ---- DECK RUNS (parking decks part 2) -------------------------------
         int deckFalls, deckLine;
         bool deckShotsPending, deckDone;
+        readonly Dictionary<CarController, float> maxY = new Dictionary<CarController, float>(), jumpRm = new Dictionary<CarController, float>(), jumpAi = new Dictionary<CarController, float>();
+        readonly Dictionary<CarController, int> pastRoofLow = new Dictionary<CarController, int>();
+        float roofY;
         int CountActive() { int n = 0; foreach (var c in rm.allCars) if (c != null && c.gameObject.activeInHierarchy) n++; return n; }
 
         /// <summary>Falls through a floor (any car more than 2.5 m under its
@@ -537,6 +541,9 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < fin; i++) if (path.GetPoint(i).y > path.GetPoint(roof).y) roof = i;
             deckLine = PSXRacing.City.DeckRun.LastLine;
             var fell = new HashSet<CarController>();
+            // 2026-10-06 owner: "I think the cars turned around without reaching the top floor"
+            var lastRm = new Dictionary<CarController, int>(); var lastAi = new Dictionary<CarController, int>();
+            roofY = path.GetPoint(roof).y;
             bool sRamp = false, sRoof = false, sRes = false;
             if (shots) { for (int i = 0; i < 30; i++) yield return null; yield return Shot(dir, tag + "_1_grid"); }
             while (!deckDone)
@@ -546,6 +553,19 @@ namespace PSXRacing.EditorTools
                 {
                     var p = c != null ? rm.GetProgress(c) : null;
                     if (p == null || p.finished || p.retired || !c.gameObject.activeInHierarchy || fell.Contains(c)) continue;
+                    {
+                        float y = c.transform.position.y; maxY[c] = maxY.TryGetValue(c, out var my) ? Mathf.Max(my, y) : y;
+                        if (lastRm.TryGetValue(c, out var li)) jumpRm[c] = Mathf.Max(jumpRm.TryGetValue(c, out var jr) ? jr : 0f, (p.nearestIdx - li) * path.spacing);
+                        lastRm[c] = p.nearestIdx;
+                        var ai = c.GetComponent<AIDriver>();
+                        if (ai != null && ai.enabled)
+                        {
+                            if (lastAi.TryGetValue(c, out var la)) jumpAi[c] = Mathf.Max(jumpAi.TryGetValue(c, out var ja) ? ja : 0f, (ai.PathIndex - la) * path.spacing);
+                            lastAi[c] = ai.PathIndex;
+                        }
+                        if (p.nearestIdx > roof + 4 && (!maxY.TryGetValue(c, out var mm) || mm < roofY - 2f))
+                            pastRoofLow[c] = pastRoofLow.TryGetValue(c, out var pr) ? pr + 1 : 1;
+                    }
                     var q = path.GetPoint(p.nearestIdx);
                     if (c.transform.position.y < q.y - 2.5f)
                     {
@@ -568,6 +588,25 @@ namespace PSXRacing.EditorTools
                     deckShotsPending = false;
                 }
             }
+        }
+
+        /// <summary>Per car after a deck run: the highest it got against the roof,
+        /// and the biggest single-tick jump in the race's and the driver's own
+        /// waypoint (a jump onto the way-down half reads as tens of metres).</summary>
+        static void DeckClimbReport(Dictionary<CarController, float> maxY, float roofY, Dictionary<CarController, float> jumpRm,
+                                    Dictionary<CarController, float> jumpAi, Dictionary<CarController, int> pastRoofLow)
+        {
+            int short_ = 0;
+            foreach (var kv in maxY)
+            {
+                var c = kv.Key; if (c == null) continue;
+                bool roofed = kv.Value >= roofY - 2f;
+                if (!roofed) short_++;
+                RacePlayCheck.Note($"CLIMB {c.name}: top {kv.Value:0.0} m vs roof {roofY:0.0} m ({(roofed ? "reached" : "SHORT")}), " +
+                                   $"race wp jump {(jumpRm.TryGetValue(c, out var a) ? a : 0f):0} m, driver wp jump {(jumpAi.TryGetValue(c, out var b) ? b : 0f):0} m, " +
+                                   $"counted past the roof below it {(pastRoofLow.TryGetValue(c, out var n) ? n : 0)} ticks");
+            }
+            RacePlayCheck.Check(short_ == 0, "every car climbs to the roof before it comes down", short_);
         }
 
         bool RivalAhead(CarController player)

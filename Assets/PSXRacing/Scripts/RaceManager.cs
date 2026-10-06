@@ -335,33 +335,26 @@ namespace PSXRacing
             }
         }
 
-        /// <summary>CHECKPOINTS (a deck run's TrackPath.gates): the player's
-        /// progress may not count past a checkpoint it was not driven through -
-        /// within <see cref="GateRadiusM"/> across and on the same floor. The
-        /// next checkpoint is tested EVERY frame as the car comes up to it, and
-        /// the tracked index is never overwritten: only the progress the race
-        /// ranks and finishes by is capped at a missed checkpoint. (2026-10-06,
-        /// owner: "once I reach the second level my place is dropped to 4/4" -
-        /// the gate used to be judged only on the frame the index passed it;
-        /// a car a little wide or a ramp sample a little high failed that one
-        /// test, nearestIdx was reset to the gate, the car drove on, and every
-        /// later test failed by more: held at the gate for the rest of the run.)
-        /// A U-turn three levels up still holds the run at the missed
-        /// checkpoint until the car goes back through it. Only the player: the
-        /// rivals drive the path and cannot cut it.</summary>
+        /// <summary>CHECKPOINTS (a deck run's TrackPath.gates): recorded, never
+        /// a brake on the standings. A checkpoint counts when the car's TRACKED
+        /// index reaches it while the car is on that checkpoint's floor (within
+        /// <see cref="GateRiseM"/> in height) - no distance across, because a
+        /// driver cuts the inside of every end turn and the line is the
+        /// autopilot's, not the player's. The ranked progress is the tracked
+        /// index, the same reckoning as the rivals'. Nothing can be skipped by
+        /// it: the tracker only ever searches a short window round where the car
+        /// was, so it cannot hop to another floor or to the way down.
+        /// (2026-10-06, owner: "first to the top" and still shown 4th - a
+        /// capped progress at a checkpoint judged 8 m off the line held him
+        /// there; before that, a checkpoint judged on one frame did the same.)</summary>
         int GateClamp(CarProgress p)
         {
             var g = path.gates;
-            Vector3 pos = p.car.transform.position;
-            while (p.gate < g.Length)
-            {
-                Vector3 d = pos - path.GetPoint(g[p.gate]);
-                if (Mathf.Abs(d.y) < GateRiseM && d.x * d.x + d.z * d.z < GateRadiusM * GateRadiusM) { p.gate++; continue; }
-                break;
-            }
-            return p.gate < g.Length ? Mathf.Min(p.nearestIdx, g[p.gate]) : p.nearestIdx;
+            float y = p.car.transform.position.y;
+            while (p.gate < g.Length && p.nearestIdx >= g[p.gate] && Mathf.Abs(y - path.GetPoint(g[p.gate]).y) < GateRiseM) p.gate++;
+            return p.nearestIdx;
         }
-        const float GateRadiusM = 8f, GateRiseM = 2f;
+        const float GateRiseM = 2.5f;
 
         void OnCarFinished(CarProgress p)
         {
