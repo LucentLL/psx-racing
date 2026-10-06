@@ -137,19 +137,55 @@ namespace PSXRacing
         // is fog. All three run the headlights, which is the cue a player
         // reads before any of the numbers.
 
-        /// <summary>Multiplier on the tyre's road or off-road mu.</summary>
-        public static float GripMult(Weather w, bool road)
+        /// <summary>
+        /// WET TARMAC (2026-10-06, the owner: "wet tarmac would be a nice
+        /// change of pace during inclement weather"). ONE number from the
+        /// road's water: dry 1.0, a soaked road WetRoadGrip of its dry peak,
+        /// in a straight line between - and snow its own SnowRoadGrip, slush
+        /// over a frozen base rather than more water. The tyres' circle
+        /// carries it, so braking (capped by the circle), breakaway (the slip
+        /// curve meets a smaller cap sooner) and the arcade stabilizer (its
+        /// cap scaled by the same number) all go together; CarController's
+        /// WET TARMAC block turns the drift layer, AIDriver and TrafficSystem read it
+        /// too. It was 0.85 rain / 0.72 snow until then.
+        ///
+        /// The water is the WEATHER's (GripWetness), not the shader's
+        /// PSXGlobals.wetness: a clear night's damp is an art licence for the
+        /// sodium streaks (TimeOfDay.WetnessFor), and a damp clear night still
+        /// drives dry.
+        /// </summary>
+        public const float WetRoadGrip = 0.70f, WetOffroadGrip = 0.65f;
+        public const float SnowRoadGrip = 0.50f, SnowOffroadGrip = 0.45f;
+
+        /// <summary>How wet the TYRES find the road, 0..1: rain soaks it, fog
+        /// leaves a film (a quarter), snow is SnowRoadGrip's own case.</summary>
+        public static float GripWetness(Weather w)
         {
             switch (w)
             {
-                case Weather.Fog:  return road ? 0.97f : 0.95f;
-                case Weather.Rain: return road ? 0.85f : 0.78f;
-                case Weather.Snow: return road ? 0.72f : 0.62f;
-                default: return 1f;
+                case Weather.Rain: return 1f;
+                case Weather.Fog:  return 0.25f;
+                case Weather.Snow: return 1f;
+                default: return 0f;
             }
+        }
+
+        /// <summary>Multiplier on the tyre's road or off-road mu.</summary>
+        public static float GripMult(Weather w, bool road)
+        {
+            if (w == Weather.Snow) return road ? SnowRoadGrip : SnowOffroadGrip;
+            float wet = GripWetness(w);
+            return Mathf.Lerp(1f, road ? WetRoadGrip : WetOffroadGrip, wet);
         }
         public static float RoadGripMult => GripMult(CurrentWeather, true);
         public static float OffroadGripMult => GripMult(CurrentWeather, false);
+
+        /// <summary>0 dry .. 1 soaked (or snow): how far the road's grip has
+        /// fallen toward a wet road's, for the things that scale with the
+        /// slipperiness rather than the grip itself (the drift layer, the
+        /// AI's and traffic's caution).</summary>
+        public static float WetT(float roadGripMult) =>
+            Mathf.Clamp01((1f - roadGripMult) / (1f - WetRoadGrip));
 
         /// <summary>Multiplier on the hour's fog band: how much CLOSER the
         /// world fades in than it would on a clear day.</summary>

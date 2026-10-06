@@ -137,6 +137,9 @@ namespace PSXRacing
         const float CornerAccel = 2.6f;
         /// <summary>Following distance at a stop, and the time gap above it.</summary>
         const float StopGap = 9f, TimeGap = 1.4f;
+        /// <summary>A soaked road's share of the cruise and the bend's grip,
+        /// and its stretch of the time gap (Seasons.WetT scales them in).</summary>
+        const float WetCruise = 0.90f, WetCornerAccel = 0.80f, WetTimeGap = 1.35f;
         /// <summary>A hit that changes the car's speed by this much (m/s) ends
         /// the drive.</summary>
         const float WreckSpeed = 1.5f;
@@ -683,16 +686,24 @@ namespace PSXRacing
 
             // Target speed: cruise, slowed for the bend, then for whatever is
             // ahead in the lane - traffic, a wreck, a racer, the player.
-            float v = c.cruise;
+            // WET TARMAC (2026-10-06): in the rain a driver goes a little
+            // slower, takes the bends gentler, leaves a longer gap and brakes
+            // on the road's grip - all off the same number the tyres get.
+            // The emergency 9 stays: the pile-up it stops is worse than a
+            // servo braking harder than wet rubber would.
+            float wet = Seasons.WetT(Seasons.RoadGripMult);
+            float v = c.cruise * Mathf.Lerp(1f, WetCruise, wet);
             float k = Curvature(c.s, c.dir);
-            if (k > 1e-4f) v = Mathf.Min(v, Mathf.Sqrt(CornerAccel / k));
+            if (k > 1e-4f) v = Mathf.Min(v, Mathf.Sqrt(CornerAccel * Mathf.Lerp(1f, WetCornerAccel, wet) / k));
             float gap = LeaderGap(c, out float leaderV);
+            float timeGap = TimeGap * Mathf.Lerp(1f, WetTimeGap, wet);
             if (gap < 120f)
-                v = Mathf.Min(v, Mathf.Max(0f, leaderV + (gap - StopGap - leaderV * TimeGap) * 0.5f));
+                v = Mathf.Min(v, Mathf.Max(0f, leaderV + (gap - StopGap - leaderV * timeGap) * 0.5f));
             // A driver, not a servo: 2.5 m/s^2 up, 6 down - and a full 9 when
             // what is ahead is closer than a 6 m/s^2 stop needs (a car ahead
             // just wrecked by a racer: at 6 the ones behind piled into it).
-            float decel = gap < c.speed * c.speed / 12f + StopGap ? 9f : 6f;
+            float firm = 6f * Seasons.RoadGripMult;
+            float decel = gap < c.speed * c.speed / (2f * firm) + StopGap ? 9f : firm;
 
             // A RACER COMING, and what this driver does about it (Temper).
             float latTarget = c.lat;

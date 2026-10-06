@@ -399,7 +399,7 @@ namespace PSXRacing
                 // A deck run alone is a TIME TRIAL: its best, per deck.
                 var deckVenue = TrackCatalog.At(RaceHandoff.TrackIndex);
                 if (deckVenue != null && deckVenue.IsDeckRun && RaceHandoff.Solo)
-                    DeckNewBest = PSXRacing.City.DeckRun.OfferBest(deckVenue.deckWay, p.finishTime);
+                    DeckNewBest = PSXRacing.City.DeckRun.OfferBest(deckVenue.deckWay, deckVenue.deckLeg, p.finishTime);
                 // On a strip the ET IS the lap: there is one run and its time is
                 // the whole result, so it goes in the field the LifeSim already
                 // reports as the headline number rather than staying blank.

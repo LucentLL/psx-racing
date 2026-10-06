@@ -140,6 +140,8 @@ namespace PSXRacing.EditorTools
             Check(Edition.Ships(TrackCatalog.At(index)), id + " is a venue this edition ships");
             EditorSceneManager.OpenScene(scenes[s].path);
             RaceHandoff.ClearAll();
+            string sky = HandlingPlayCheck.ApplyEnvWeather();
+            if (sky != null) Note(sky);
             RaceHandoff.FromLifeSim = true;
             RaceHandoff.TrackIndex = index;
             string hour = System.Environment.GetEnvironmentVariable("PSX_RACE_HOUR");
@@ -175,7 +177,7 @@ namespace PSXRacing.EditorTools
             {
                 RaceHandoff.Solo = true;
                 log.AppendLine("  SOLO (time trial)");
-                if (TrackCatalog.At(index).IsDeckRun) PSXRacing.City.DeckRun.ClearBest(TrackCatalog.At(index).deckWay);
+                if (TrackCatalog.At(index).IsDeckRun) PSXRacing.City.DeckRun.ClearBest(TrackCatalog.At(index).deckWay, TrackCatalog.At(index).deckLeg);
             }
             EditorSettings.enterPlayModeOptionsEnabled = true;
             EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload;
@@ -266,6 +268,7 @@ namespace PSXRacing.EditorTools
 
             var deckVenue = TrackCatalog.At(RaceHandoff.TrackIndex);
             if (deckVenue.IsDeckRun) StartCoroutine(DeckWatch(car));
+            if (deckVenue.IsDeckRun && deckVenue.deckLeg == PSXRacing.City.DeckRun.Down) StartCoroutine(RoofGridCheck());
             CollisionResponder.HitReported += OnHit;
             CollisionResponder.HitReportedOn += OnHitOn;
             RaceManager.Respawned += OnRespawn;
@@ -509,7 +512,7 @@ namespace PSXRacing.EditorTools
                 DeckClimbReport(maxY, roofY, jumpRm, jumpAi, pastRoofLow);
                 if (RaceHandoff.Solo)
                 {
-                    float best = PSXRacing.City.DeckRun.Best(deckVenue.deckWay);
+                    float best = PSXRacing.City.DeckRun.Best(deckVenue.deckWay, deckVenue.deckLeg);
                     RacePlayCheck.Check(rm.allCars.Count == 1 || CountActive() == 1, "a time trial runs alone", CountActive());
                     RacePlayCheck.Check(pp != null && pp.finished && Mathf.Abs(best - pp.finishTime) < 0.05f && rm.DeckNewBest,
                                         "the time trial keeps the deck's best", PSXRacing.City.DeckRun.Clock(best));
@@ -533,7 +536,7 @@ namespace PSXRacing.EditorTools
         {
             var path = rm.path;
             string dir = System.Environment.GetEnvironmentVariable("PSX_RACE_SHOTS");
-            string tag = System.Environment.GetEnvironmentVariable("PSX_RACE_SHOTTAG") ?? "day";
+            string tag = (System.Environment.GetEnvironmentVariable("PSX_RACE_SHOTTAG") ?? "day") + "_" + TrackCatalog.At(RaceHandoff.TrackIndex).id;
             bool shots = !string.IsNullOrEmpty(dir) && !headless;
             if (shots) Directory.CreateDirectory(dir);
             deckShotsPending = shots;
@@ -588,6 +591,29 @@ namespace PSXRacing.EditorTools
                     deckShotsPending = false;
                 }
             }
+        }
+
+        /// <summary>A DOWN deck run's grid on the roof, settled: every car on
+        /// the roof floor (not under it, not dropping), clear of the others.</summary>
+        IEnumerator RoofGridCheck()
+        {
+            yield return new WaitForSeconds(1.5f);
+            int bad = 0; float closest = 99f;
+            var cars = new List<CarController>();
+            foreach (var c in rm.allCars) if (c != null && c.gameObject.activeInHierarchy) cars.Add(c);
+            float roofFloor = rm.path.GetPoint(0).y;
+            foreach (var c in cars)
+            {
+                float dy = c.transform.position.y - roofFloor;
+                var rb = c.GetComponent<Rigidbody>();
+                float vy = rb != null ? rb.linearVelocity.y : 0f;
+                bool on = dy > -0.3f && dy < 1.5f && Mathf.Abs(vy) < 0.5f;
+                if (!on) bad++;
+                foreach (var o in cars) if (o != c) closest = Mathf.Min(closest, Vector3.Distance(c.transform.position, o.transform.position));
+                RacePlayCheck.Note($"ROOF GRID {c.name}: {dy:0.00} m over the roof floor ({roofFloor:0.0} m), vy {vy:0.00} m/s ({(on ? "settled" : "OFF THE FLOOR")})");
+            }
+            RacePlayCheck.Check(bad == 0, "the DOWN grid settles on the roof floor", bad);
+            RacePlayCheck.Check(cars.Count < 2 || closest > 2.2f, "and no two grid cars overlap", closest.ToString("0.0") + " m apart at the closest");
         }
 
         /// <summary>Per car after a deck run: the highest it got against the roof,

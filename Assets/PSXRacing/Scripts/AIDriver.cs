@@ -261,6 +261,9 @@ namespace PSXRacing
         /// <summary>The deceleration a full brake input gives, about - for
         /// turning a stopping distance into a pedal.</summary>
         const float BrakeDecel = 8.5f;
+        /// <summary>...on today's road: a wet one stops on the same smaller
+        /// circle it corners on (Seasons.GripMult).</summary>
+        static float BrakeDecelNow => BrakeDecel * Seasons.RoadGripMult;
         /// <summary>The share of it a stop behind traffic is planned on.</summary>
         const float PlanBrakeShare = 0.65f;
         /// <summary>How far up the road oncoming traffic keeps a racer in its
@@ -624,8 +627,10 @@ namespace PSXRacing
             float playerVmax = rmNow != null && rmNow.playerCar != null ? rmNow.playerCar.BuildTopSpeedMps : 0f;
             float targetSpeed = Mathf.Min(cornerSpeed, TargetSpeedCap(skill, playerVmax));
 
-            // Brake early for upcoming slow corners
-            float brakeScan = speed * speed / (2f * 6.5f) + 10f;
+            // Brake early for upcoming slow corners - on a wet road the
+            // tyres stop the car on the same smaller circle they corner on,
+            // so the look-ahead stretches by the weather's grip too.
+            float brakeScan = speed * speed / (2f * 6.5f * Seasons.RoadGripMult) + 10f;
             // Cap the scan: it grows with speed squared, and letting it run long
             // enough to wrap the whole track pins the AI to the tightest corner
             // anywhere on the circuit.
@@ -1036,7 +1041,7 @@ namespace PSXRacing
                         // Planned on two-thirds of the brakes: the car ahead may
                         // brake too, and a stop planned on all of them has none
                         // left for that.
-                        stopBrake = Mathf.Clamp01(bo.closing * bo.closing / (2f * room) / (BrakeDecel * PlanBrakeShare));
+                        stopBrake = Mathf.Clamp01(bo.closing * bo.closing / (2f * room) / (BrakeDecelNow * PlanBrakeShare));
                     }
                     if (!float.IsNaN(pick))
                     {
@@ -1081,7 +1086,7 @@ namespace PSXRacing
                     bool leaving = Mathf.Abs(wantedAbs - o.lat) >= o.half + myHalf;
                     if (leaving && tHitO > overlap / LateralRateMps * 1.3f) continue;
                     float roomO = Mathf.Max(gapO - 2f, 0.5f);
-                    float need = Mathf.Clamp01(o.closing * o.closing / (2f * roomO) / BrakeDecel);
+                    float need = Mathf.Clamp01(o.closing * o.closing / (2f * roomO) / BrakeDecelNow);
                     if (need > 0.2f)
                     {
                         trafficBrake = Mathf.Max(trafficBrake, need);

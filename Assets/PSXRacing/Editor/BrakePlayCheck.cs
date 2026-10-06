@@ -55,6 +55,8 @@ namespace PSXRacing.EditorTools
             RaceHandoff.CalendarDay = 0;               // clear: full grip, no weather
             RaceHandoff.TimeOfDayIndex = TimeOfDay.Noon;
             RaceHandoff.Solo = true;
+            string sky = HandlingPlayCheck.ApplyEnvWeather();
+            if (sky != null) Note(sky);
             var cars = CarCatalog.All;
             if (cars.Count > 0) RaceHandoff.CarSpecId = cars[0].id;
             EditorSettings.enterPlayModeOptionsEnabled = true;
@@ -179,10 +181,15 @@ namespace PSXRacing.EditorTools
                 }
                 float dist = Vector3.Distance(p0, car.transform.position);
                 float decelG = (100f / 3.6f) / Mathf.Max(0.01f, t) / 9.81f;
-                BrakePlayCheck.Check(decelG > 0.7f, who + ": STOP 100-0 km/h",
+                // The bar falls with the weather's grip (1 on a dry road).
+                BrakePlayCheck.Check(decelG > 0.7f * Seasons.RoadGripMult, who + ": STOP 100-0 km/h",
                     dist.ToString("0.0") + " m in " + t.ToString("0.00") + " s = " + decelG.ToString("0.00") + " g");
-                BrakePlayCheck.Check(worstSlide < 2.0f, who + ": and the tyres only scrub (no black stripes)",
-                    "worst scrub " + worstSlide.ToString("0.00") + " m/s; marks start at 1.1, full at 5.0");
+                // ABS ONLY: since 2026-09-30 the fronts LOCK with ABS off (the
+                // owner's no-ABS handling), and a locked front lays black
+                // stripes by design - then this is a note, not a gate.
+                string scrub = "worst scrub " + worstSlide.ToString("0.00") + " m/s; marks start at 1.1, full at 5.0";
+                if (car.Abs) BrakePlayCheck.Check(worstSlide < 2.0f, who + ": and the tyres only scrub (no black stripes)", scrub);
+                else BrakePlayCheck.Note(who + ": no ABS, the fronts lock and mark the road (" + scrub + ")");
                 BrakePlayCheck.Check(car.currentGear >= 1, who + ": and it is still in a forward gear when it stops",
                     "gear " + car.currentGear);
 
@@ -205,7 +212,7 @@ namespace PSXRacing.EditorTools
                 }
                 float turned = Mathf.Abs(Mathf.DeltaAngle(h0, car.transform.eulerAngles.y));
                 float latG = latSum / Mathf.Max(1, n) / 9.81f;
-                BrakePlayCheck.Check(turned > 8f, who + ": TURN full brake + full lock at 80 km/h still steers",
+                BrakePlayCheck.Check(turned > 8f * Seasons.RoadGripMult, who + ": TURN full brake + full lock at 80 km/h still steers",
                     "turned " + turned.ToString("0.0") + " deg in 1 s, ~" + latG.ToString("0.00") + " g lateral");
 
                 // ---- SLIDE sideways with the brake held -----------------------
@@ -233,6 +240,36 @@ namespace PSXRacing.EditorTools
                 BrakePlayCheck.Check(engagedAt < 0.7f, who + ": SLIDE sideways at 12 m/s, brake held - no reverse until it has stopped",
                     (engagedAt < 0f ? "never selected" : "reverse selected at " + engagedAt.ToString("0.00") + " m/s") +
                     (stoppedAfter >= 0f ? "; slid to a stop in " + stoppedAfter.ToString("0.00") + " s" : "; still sliding after 2.5 s"));
+                drive = false;
+
+                // ---- GRIP: the steady-state limit on a skid pad --------------
+                // 70 km/h held on the throttle, the lock wound on over 4 s and
+                // held 2 more; the most lateral g the car SUSTAINS (a 0.4 s
+                // average of speed x yaw rate) is its cornering limit. For
+                // the wet-vs-dry comparison (PSX_WEATHER): a note, not a gate.
+                car.TeleportTo(new Vector3(x, surfaceY + 0.6f, -8000f), Quaternion.identity);
+                for (int f = 0; f < 10; f++) yield return new WaitForFixedUpdate();
+                const float padV = 70f / 3.6f;
+                car.SetRolling(padV);
+                throttle = 0.3f; brake = 0f; steer = 0f; drive = true;
+                t = 0f;
+                float avgG = 0f, bestG = 0f, bestAtKph = 0f, worstBody = 0f;
+                while (t < 6f)
+                {
+                    yield return new WaitForFixedUpdate();
+                    t += step;
+                    float vNow = car.Body.linearVelocity.magnitude;
+                    steer = Mathf.Clamp01(t / 4f);
+                    throttle = Mathf.Clamp01(0.3f + (padV - vNow) * 0.4f);
+                    float aLat = vNow * Mathf.Abs(Vector3.Dot(car.Body.angularVelocity, car.transform.up));
+                    avgG += (aLat / 9.81f - avgG) * Mathf.Clamp01(step / 0.4f);
+                    if (t > 1f && avgG > bestG) { bestG = avgG; bestAtKph = vNow * 3.6f; }
+                    worstBody = Mathf.Max(worstBody, Vector3.Angle(Vector3.ProjectOnPlane(car.Body.linearVelocity, Vector3.up),
+                                                                   Vector3.ProjectOnPlane(car.transform.forward, Vector3.up)));
+                }
+                BrakePlayCheck.Note(who + ": GRIP skid pad at 70 km/h, road grip x" + Seasons.RoadGripMult.ToString("0.00") +
+                                    ": " + bestG.ToString("0.00") + " g sustained (at " + bestAtKph.ToString("0") +
+                                    " km/h), worst body slip " + worstBody.ToString("0") + " deg");
                 drive = false;
             }
             Done();

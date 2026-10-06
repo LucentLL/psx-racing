@@ -194,9 +194,16 @@ namespace PSXRacing.LifeSim
             for (int i = 0; i < TrackCatalog.Count; i++)
             {
                 var t = TrackCatalog.At(i);
-                if (!t.IsDeckRun || !TrackCatalog.Offered(i)) continue;
+                if (!t.IsDeckRun || t.deckLeg != 0 || !TrackCatalog.Offered(i)) continue;
                 if (!deckHead) { y -= 8f; Section(ref y, lx, w, "DECK RUNS  ·  RACE OR TIME TRIAL"); deckHead = true; }
-                DeckRow(ref y, lx, w, i, t);
+                // per deck: UP, DOWN, then the whole run (UP & DOWN)
+                foreach (int leg in DeckLegOrder)
+                    for (int j = 0; j < TrackCatalog.Count; j++)
+                    {
+                        var u = TrackCatalog.At(j);
+                        if (u.IsDeckRun && u.deckWay == t.deckWay && u.deckLeg == leg && TrackCatalog.Offered(j))
+                            DeckRow(ref y, lx, w, j, u);
+                    }
             }
 
             // ---- right: in what, and when ----
@@ -259,6 +266,8 @@ namespace PSXRacing.LifeSim
             y -= 56f;
         }
 
+        static readonly int[] DeckLegOrder = { PSXRacing.City.DeckRun.Up, PSXRacing.City.DeckRun.Down, PSXRacing.City.DeckRun.Full };
+
         /// <summary>One deck: its name on a line of its own, then RACE (three
         /// rivals; the door tour presses it) and TIME TRIAL with the best.</summary>
         void DeckRow(ref float y, float x, float w, int index, TrackCatalog.TrackDef t)
@@ -272,7 +281,7 @@ namespace PSXRacing.LifeSim
             Named(MenuKit.Button(body, "RACE  ·  3 RIVALS", new Vector2(0.5f, 1f),
                 new Vector2(x + half * 0.5f, y), new Vector2(half, 48f),
                 () => StartRace(captured), 20), "race_" + t.id);
-            float best = PSXRacing.City.DeckRun.Best(t.deckWay);
+            float best = PSXRacing.City.DeckRun.Best(t.deckWay, t.deckLeg);
             Named(MenuKit.Button(body, best > 0f ? "TRIAL  ·  BEST " + PSXRacing.City.DeckRun.Clock(best) : "TIME TRIAL",
                 new Vector2(0.5f, 1f), new Vector2(x + half * 1.5f + 8f, y), new Vector2(half, 48f),
                 () => StartRace(captured, true), 20), "trial_" + t.id);
