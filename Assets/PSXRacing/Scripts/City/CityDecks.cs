@@ -64,6 +64,11 @@ namespace PSXRacing.City
             /// <summary>World waypoints, street to roof and back to the
             /// street, every ~<see cref="LapStepM"/>.</summary>
             public Vector3[] lap;
+            /// <summary>In <see cref="lap"/>: the last point of the way up
+            /// (the top of the last ramp, on the roof) and the first of the
+            /// way down (the top of the first ramp down); the roof's
+            /// turnaround lies between them. A deck run's UP and DOWN cut here.</summary>
+            public int lapRoofIn = -1, lapRoofOut = -1;
             public int trisDeck;
             /// <summary>The only name the game ever shows (no brands).</summary>
             public string Label => "Parking deck, " + levels + " levels";
@@ -340,7 +345,9 @@ namespace PSXRacing.City
             float yTop = TurnLo(top);
             float R = Mathf.Min(7f, (d.T - WallM - 2.5f) * 0.5f, Ri - 0.5f);
             var C = new Vector2(-d.hu + WallM + 1.2f + R, hz);
+            d.lapRoofIn = L.Count - 1;
             Arc(L, C, R, 60f, 300f, yTop);
+            d.lapRoofOut = L.Count;
             L.Add(new Vector3(d.x0, yTop, hz - o));
             for (int k = top - 1; k >= 0; k--)
             {
@@ -389,14 +396,36 @@ namespace PSXRacing.City
 
         static Vector2 Right(Vector2 h) => new Vector2(h.y, -h.x);
 
+        /// <summary>The three runs a deck offers (TrackDef.deckLeg): the whole
+        /// lap, street to roof and back (FULL); street to the roof, the flag on
+        /// the roof before its turnaround (UP); a standing start on the roof,
+        /// the grid in the roof aisle facing the way down, out to the street's
+        /// flag (DOWN). UP and DOWN are the FULL run's stations cut at the roof.</summary>
+        public const int Full = 0, Up = 1, Down = 2;
+        public static readonly string[] LegName = { "UP & DOWN", "UP", "DOWN" };
+        /// <summary>UP: the flag this far onto the roof past the last ramp's
+        /// top; the path runs on round the turnaround and this far down, for
+        /// the finishers to roll to a stop on.</summary>
+        public const float RoofFlagM = 2.5f, UpTailM = 50f;
+        /// <summary>DOWN's grid: 2x2 on the roof's turning bay (flat), the
+        /// front row this far behind the top of the way down, rows this far
+        /// apart, the second column this far from the way-down lane.</summary>
+        public const float RoofFrontM = 2.8f, RoofRowM = 5.6f, RoofColM = 2.6f;
+
+        /// <summary>The line-to-flag length of the last path built, metres.</summary>
+        public static float LastRunM;
+
         /// <summary>Fill <paramref name="path"/> with the run; lineIdx is the
         /// start line (the grid stands behind it). False when the deck is not
-        /// drivable in this build (PSX_DECKS=0, or it did not solve).</summary>
-        public static bool BuildPath(CityMap map, CityDecks.Deck d, TrackPath path, out int lineIdx)
+        /// drivable in this build (PSX_DECKS=0, or it did not solve). A null
+        /// path only measures (<see cref="LastRunM"/>).</summary>
+        public static bool BuildPath(CityMap map, CityDecks.Deck d, TrackPath path, out int lineIdx, int leg = Full)
         {
             lineIdx = 0;
-            if (!CityDecks.Enabled || map == null || d == null || path == null) return false;
+            if (leg < Full || leg > Down) leg = Full;
+            if (!CityDecks.Enabled || map == null || d == null) return false;
             if (!CityDecks.Solve(map, d) || d.lap == null || d.streetEdge < 0) return false;
+            if (leg != Full && (d.lapRoofIn < 0 || d.lapRoofOut <= d.lapRoofIn)) return false;
             var e = map.edges[d.streetEdge];
             Vector2 nW = d.U * d.EntryN.x + d.V * d.EntryN.y;          // deck -> street
             Vector2 t0 = e.TangentAt(d.streetS).normalized;
@@ -414,8 +443,6 @@ namespace PSXRacing.City
             var P = new List<Vector3>(1024);
             float lineAt = -1f, flagAt = -1f;
             float Arc() { float a = 0f; for (int i = 1; i < P.Count; i++) a += Plan(P[i - 1], P[i]); return a; }
-            for (float a = -LeadInM; a <= -TurnM + 0.01f; a += Step) P.Add(Street(a));
-            lineAt = Arc() - LineM;                                    // the line: LineM before the turn-in
             // the lap, without its street ends (kept: > 1 m inside the driveway)
             var w = d.lap;
             int iA = -1, iB = -1;
@@ -425,13 +452,38 @@ namespace PSXRacing.City
                 if (into < -1f) { if (iA < 0) iA = i; iB = i; }
             }
             if (iA < 1 || iB >= w.Length - 1 || iB - iA < 20) return false;
-            Vector3 hIn = Street(-TurnM) - Street(-TurnM - 1f);
-            Turn(P, Street(-TurnM), hIn, w[iA], w[iA + 1] - w[iA]);
-            for (int i = iA; i <= iB; i++) P.Add(w[i]);
-            Turn(P, w[iB], w[iB] - w[iB - 1], Street(TurnM), Street(TurnM + 1f) - Street(TurnM));
-            float outAt = Arc();
-            for (float a = TurnM + Step; a <= TurnM + LeadOutM; a += Step) P.Add(Street(a));
-            flagAt = outAt + FlagM;
+            if (leg != Full && (d.lapRoofIn <= iA || d.lapRoofOut >= iB)) return false;
+            if (leg != Down)
+            {
+                for (float a = -LeadInM; a <= -TurnM + 0.01f; a += Step) P.Add(Street(a));
+                lineAt = Arc() - LineM;                                // the line: LineM before the turn-in
+                Vector3 hIn = Street(-TurnM) - Street(-TurnM - 1f);
+                Turn(P, Street(-TurnM), hIn, w[iA], w[iA + 1] - w[iA]);
+            }
+            else
+            {
+                // DOWN: the roof aisle in the way-down lane, from the turning
+                // bay's back wall to the top of the first ramp down (the line)
+                float hz = d.hv * 0.5f, yTop = CityDecks.TurnLo(d.levels - 1);
+                for (float x = -d.hu + CityDecks.WallM + 1.5f; x < d.x0 - 1f; x += Step)
+                    P.Add(d.W3(x, yTop, hz - CityDecks.LaneOffM));
+            }
+            int i0 = leg == Down ? d.lapRoofOut : iA;
+            int i1 = leg == Up ? Mathf.Min(iB, d.lapRoofOut + Mathf.CeilToInt(UpTailM / CityDecks.LapStepM)) : iB;
+            for (int i = i0; i <= i1; i++)
+            {
+                if (leg == Down && i == i0) lineAt = Arc() + (P.Count > 0 ? Plan(P[P.Count - 1], w[i]) : 0f);
+                if (leg == Up && i == d.lapRoofIn) flagAt = Arc() + (P.Count > 0 ? Plan(P[P.Count - 1], w[i]) : 0f) + RoofFlagM;
+                P.Add(w[i]);
+            }
+            if (leg != Up)
+            {
+                Turn(P, w[iB], w[iB] - w[iB - 1], Street(TurnM), Street(TurnM + 1f) - Street(TurnM));
+                float outAt = Arc();
+                for (float a = TurnM + Step; a <= TurnM + LeadOutM; a += Step) P.Add(Street(a));
+                flagAt = outAt + FlagM;
+            }
+            if (lineAt < 0f || flagAt <= lineAt) return false;
 
             // even 2.5 m stations along the plan
             var arcs = new float[P.Count];
@@ -465,6 +517,8 @@ namespace PSXRacing.City
             int finish = Mathf.Clamp(Mathf.RoundToInt(flagAt / Step), lineIdx + 1, n - 4);
             var gates = new List<int>();
             for (int g = lineIdx + Mathf.RoundToInt(GateEveryM / Step); g < finish; g += Mathf.RoundToInt(GateEveryM / Step)) gates.Add(g);
+            LastRunM = (finish - lineIdx) * Step;
+            if (path == null) return true;
 
             path.waypoints = wps;
             path.curvatures = sm;
@@ -477,7 +531,7 @@ namespace PSXRacing.City
             path.sprintFinish = -1;
             path.gates = gates.ToArray();
             LastLine = lineIdx;
-            Debug.Log("[DeckRun] deck " + d.way + ": " + n + " stations, line " + lineIdx + ", flag " + finish +
+            Debug.Log("[DeckRun] deck " + d.way + " " + LegName[leg] + ": " + n + " stations, line " + lineIdx + ", flag " + finish +
                       " (" + ((finish - lineIdx) * Step).ToString("0") + " m), " + gates.Count + " checkpoints, street edge " +
                       d.streetEdge + (e.oneway ? " one-way" : "") + ", deck at " + d.c.ToString("0"));
             return true;
@@ -502,29 +556,46 @@ namespace PSXRacing.City
             }
         }
 
-        // ---- the time trial's best, per deck ---------------------------------
-        static string Key(uint way) => "psx_deckrun_best_" + way;
-
-        /// <summary>The best time-trial time on this deck, seconds; 0 = none.</summary>
-        public static float Best(uint way)
+        /// <summary>DOWN's grid slot <paramref name="slot"/> (0 = pole): 2x2 on
+        /// the roof's turning bay, column 0 in the way-down lane, every car
+        /// facing the way down, standing on the roof floor (the caller lifts it
+        /// as it lifts a street grid). backGapM = the back row's room to the
+        /// turning bay's wall behind it (a 4.6 m car's tail).</summary>
+        public static void RoofGrid(CityDecks.Deck d, int slot, out Vector3 pos, out Quaternion rot, out float backGapM)
         {
-            try { return PlayerPrefs.GetFloat(Key(way), 0f); } catch { return 0f; }
+            int row = slot / 2, col = slot % 2;
+            float hz = d.hv * 0.5f, x = d.x0 - RoofFrontM - row * RoofRowM;
+            pos = d.W3(x, CityDecks.TurnLo(d.levels - 1), hz - CityDecks.LaneOffM + col * RoofColM);
+            var f = new Vector3(d.U.x, 0f, d.U.y);
+            rot = Quaternion.LookRotation(f.sqrMagnitude > 1e-6f ? f.normalized : Vector3.forward, Vector3.up);
+            backGapM = (x - 2.3f) - (-d.hu + CityDecks.WallM);
+        }
+
+        // ---- the time trial's best, per deck and run --------------------------
+        // the whole run keeps its first key; UP and DOWN add theirs
+        static string Key(uint way, int leg) =>
+            "psx_deckrun_best_" + way + (leg == Up ? "_up" : leg == Down ? "_down" : "");
+
+        /// <summary>The best time-trial time on this deck's run, seconds; 0 = none.</summary>
+        public static float Best(uint way, int leg = Full)
+        {
+            try { return PlayerPrefs.GetFloat(Key(way, leg), 0f); } catch { return 0f; }
         }
 
         /// <summary>Keep <paramref name="seconds"/> if it beats the best.
         /// True when it is a new best.</summary>
-        public static bool OfferBest(uint way, float seconds)
+        public static bool OfferBest(uint way, int leg, float seconds)
         {
             if (seconds <= 1f) return false;
-            float had = Best(way);
+            float had = Best(way, leg);
             if (had > 0f && had <= seconds) return false;
-            try { PlayerPrefs.SetFloat(Key(way), seconds); PlayerPrefs.Save(); } catch { return false; }
+            try { PlayerPrefs.SetFloat(Key(way, leg), seconds); PlayerPrefs.Save(); } catch { return false; }
             return true;
         }
 
-        public static void ClearBest(uint way)
+        public static void ClearBest(uint way, int leg = Full)
         {
-            try { PlayerPrefs.DeleteKey(Key(way)); } catch { }
+            try { PlayerPrefs.DeleteKey(Key(way, leg)); } catch { }
         }
 
         public static string Clock(float s) =>

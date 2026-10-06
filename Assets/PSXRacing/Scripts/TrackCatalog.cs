@@ -176,6 +176,10 @@ namespace PSXRacing
             /// measured it: the menu's figure, since the real path needs the
             /// city graph.</summary>
             public float deckRunM;
+            /// <summary>Which run of the deck (DeckRun.Full / Up / Down): the
+            /// whole lap, street to the roof, or roof to the street. Each has
+            /// its own best.</summary>
+            public int deckLeg;
             public bool IsDeckRun => deckWay != 0;
 
             // Loaded lazily out of charlotte_routes.json by EnsureRoute: the
@@ -1068,7 +1072,7 @@ namespace PSXRacing
         /// AI cars, a RaceManager; CityMode swaps the route for the deck).</summary>
         public const string DeckRoute = "deck", DeckScene = "TryonSprint";
 
-        struct DeckRunData { public string id, name, label; public uint way; public int levels; public float runM; }
+        struct DeckRunData { public string id, name, label; public uint way; public int levels, leg; public float runM; }
 
         /// <summary>
         /// THE DECK RUNS, one per drivable deck with a clean AI lap. Names are
@@ -1078,20 +1082,39 @@ namespace PSXRacing
         /// </summary>
         static DeckRunData[] DeckRuns => new[]
         {
-            new DeckRunData { id = "DeckRunTryon", name = "DECK RUN: 7 LEVELS, SOUTH TRYON", label = "7 LEVELS",
+            new DeckRunData { id = "DeckRunTryon", name = "7 LEVELS, SOUTH TRYON", label = "7 LEVELS",
                               way = 90480727u, levels = 7, runM = 1778f },
-            new DeckRunData { id = "DeckRunSeven", name = "DECK RUN: 7 LEVELS, UPTOWN", label = "7 LEVELS",
+            new DeckRunData { id = "DeckRunSeven", name = "7 LEVELS, UPTOWN", label = "7 LEVELS",
                               way = 255159816u, levels = 7, runM = 2483f },
-            new DeckRunData { id = "DeckRunNine", name = "DECK RUN: 9 LEVELS, UPTOWN", label = "9 LEVELS",
+            new DeckRunData { id = "DeckRunNine", name = "9 LEVELS, UPTOWN", label = "9 LEVELS",
                               way = 500204485u, levels = 9, runM = 2133f },
+            // 2026-10-06 owner: "There can be a race from bottom to top, top to
+            // bottom, and bottom to top to bottom." Appended: no index moves.
+            new DeckRunData { id = "DeckRunTryonUp", name = "7 LEVELS, SOUTH TRYON", label = "7 LEVELS",
+                              way = 90480727u, levels = 7, leg = 1, runM = 905f },
+            new DeckRunData { id = "DeckRunTryonDown", name = "7 LEVELS, SOUTH TRYON", label = "7 LEVELS",
+                              way = 90480727u, levels = 7, leg = 2, runM = 835f },
+            new DeckRunData { id = "DeckRunSevenUp", name = "7 LEVELS, UPTOWN", label = "7 LEVELS",
+                              way = 255159816u, levels = 7, leg = 1, runM = 1255f },
+            new DeckRunData { id = "DeckRunSevenDown", name = "7 LEVELS, UPTOWN", label = "7 LEVELS",
+                              way = 255159816u, levels = 7, leg = 2, runM = 1188f },
+            new DeckRunData { id = "DeckRunNineUp", name = "9 LEVELS, UPTOWN", label = "9 LEVELS",
+                              way = 500204485u, levels = 9, leg = 1, runM = 1100f },
+            new DeckRunData { id = "DeckRunNineDown", name = "9 LEVELS, UPTOWN", label = "9 LEVELS",
+                              way = 500204485u, levels = 9, leg = 2, runM = 1000f },
         };
+
+        // a method, not a static array: All is built before a later field is set
+        static string DeckLegName(int leg) => leg == 1 ? "UP" : leg == 2 ? "DOWN" : "UP & DOWN";
 
         static TrackDef DeckRunDef(DeckRunData v) => new TrackDef
         {
             id = v.id,
-            name = v.name,
-            blurb = "A parking deck, raced: in off the street, up all " + v.levels + " levels, round the roof " +
-                    "and back down and out. Keep right both ways. Map (c) OpenStreetMap contributors.",
+            name = v.name + ": " + DeckLegName(v.leg),
+            blurb = (v.leg == 1 ? "A parking deck, raced: in off the street and up all " + v.levels + " levels; the flag is on the roof. "
+                   : v.leg == 2 ? "A parking deck, raced: a standing start on the roof, then down all " + v.levels + " levels and out to the flag on the street. "
+                   : "A parking deck, raced: in off the street, up all " + v.levels + " levels, round the roof and back down and out. ") +
+                    "Keep right. Map (c) OpenStreetMap contributors.",
             roadWidth = 3f,          // one aisle lane: the path is already in it
             laps = 1,
             speedLimitKmh = 16f,     // 10 mph in a deck
@@ -1099,9 +1122,10 @@ namespace PSXRacing
             cityRoute = DeckRoute,
             deckWay = v.way,
             deckRunM = v.runM,
+            deckLeg = v.leg,
             noReverse = true,        // the lap already goes up and comes down
             noDelivery = true,
-            dragLabel = v.label,
+            dragLabel = v.leg == 0 ? v.label : v.label + " " + DeckLegName(v.leg),
         };
 
         /// <summary>One sprint on a loop, as data.</summary>

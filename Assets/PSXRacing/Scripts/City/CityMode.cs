@@ -292,7 +292,8 @@ namespace PSXRacing.City
             var map = CityMap.Get();
             var path = Object.FindFirstObjectByType<TrackPath>(FindObjectsInactive.Include);
             var deck = DeckRun.Find(venue.deckWay);
-            if (!DeckRun.BuildPath(map, deck, path, out int lineIdx))
+            if (Application.isEditor) LogDeckRunLengths(map);
+            if (!DeckRun.BuildPath(map, deck, path, out int lineIdx, venue.deckLeg))
             {
                 Debug.LogError("[City] deck run " + venue.id + ": deck " + venue.deckWay + " is not drivable in this build" +
                                (deck != null ? " (" + deck.why + ")" : ""));
@@ -309,17 +310,43 @@ namespace PSXRacing.City
                 // alone against the clock, the player has the front row
                 // (the field, retired at Start, stands behind it meanwhile)
                 int slot = !RaceHandoff.Solo ? row : car == player ? 0 : row + 1;
-                float fIdx = Mathf.Clamp(lineIdx - (GridFrontM + slot * GridRowM) / path.spacing, 0f, path.Count - 1.001f);
-                int i0 = Mathf.FloorToInt(fIdx);
-                var centre = Vector3.Lerp(path.GetPoint(i0), path.GetPoint(i0 + 1), fIdx - i0);
-                var fwd = path.GetTangent(i0); fwd.y = 0f;
-                fwd = fwd.sqrMagnitude > 1e-6f ? fwd.normalized : Vector3.forward;
-                car.TeleportTo(centre + Vector3.up * GridLiftM, Quaternion.LookRotation(fwd, Vector3.up));
+                if (venue.deckLeg == DeckRun.Down)
+                {
+                    // DOWN: a standing start on the roof, 2x2 in the turning
+                    // bay's aisle, every car facing the way down
+                    DeckRun.RoofGrid(deck, Mathf.Min(slot, 3), out var rp, out var rr, out float gap);
+                    car.TeleportTo(rp + Vector3.up * GridLiftM, rr);
+                    if (slot >= 2) Debug.Log("[DeckRun] roof grid slot " + slot + " " + car.name + " at " + rp.ToString("0.0") +
+                                             ", back wall " + gap.ToString("0.0") + " m behind its tail");
+                }
+                else
+                {
+                    float fIdx = Mathf.Clamp(lineIdx - (GridFrontM + slot * GridRowM) / path.spacing, 0f, path.Count - 1.001f);
+                    int i0 = Mathf.FloorToInt(fIdx);
+                    var centre = Vector3.Lerp(path.GetPoint(i0), path.GetPoint(i0 + 1), fIdx - i0);
+                    var fwd = path.GetTangent(i0); fwd.y = 0f;
+                    fwd = fwd.sqrMagnitude > 1e-6f ? fwd.normalized : Vector3.forward;
+                    car.TeleportTo(centre + Vector3.up * GridLiftM, Quaternion.LookRotation(fwd, Vector3.up));
+                }
                 var ai = car.GetComponent<AIDriver>();
                 if (ai != null) { ai.lateralOffset = 0f; ai.ReseedPath(); }
                 if (world != null && car != player) world.anchors.Add(car.transform);
             }
             if (world != null && player != null) world.EnsureRing(player.transform.position, 1);
+        }
+
+        /// <summary>Editor only: every deck run's line-to-flag length, per run
+        /// (TrackDef.deckRunM is this figure, kept as data for the menu).</summary>
+        static void LogDeckRunLengths(CityMap map)
+        {
+            var sb = new System.Text.StringBuilder("[DeckRun] lengths (line to flag, m):");
+            foreach (var t in TrackCatalog.All)
+            {
+                if (!t.IsDeckRun) continue;
+                bool ok = DeckRun.BuildPath(map, DeckRun.Find(t.deckWay), null, out _, t.deckLeg);
+                sb.Append(" " + t.id + "=" + (ok ? DeckRun.LastRunM.ToString("0") : "n/a") + " (menu " + t.deckRunM.ToString("0") + ")");
+            }
+            Debug.Log(sb.ToString());
         }
 
         /// <summary>Resample the chain and fill the TrackPath. Public and
