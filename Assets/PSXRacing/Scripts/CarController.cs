@@ -1808,6 +1808,52 @@ namespace PSXRacing
         public const float DefaultTireMuFront = 1.000f;
         public const float DefaultTireMuRear = 1.050f;
         public const float DefaultCorneringStiffness = 11.0f;
+
+        // ---- TYRE LOAD SENSITIVITY (2026-10-07, the owner: "Yes") ----------
+        // The tyre used to be LINEAR in load (circle = mu x Fz, C = cs x Fz),
+        // so moving load between wheels never changed what an axle could hold
+        // and every car balanced like the FD at the limit, whatever its weight
+        // split (22 cars at +1.4..+2.2 deg). A real tyre's friction falls as
+        // its load rises. Here a wheel's load is read against the mean of the
+        // grounded wheels (so downforce and a dip or crest, which load all four
+        // together, move nothing) and the tyre uses Fz x LoadMuFactor(Fz /
+        // mean) for BOTH its friction circle and its cornering stiffness - the
+        // whole curve scales, the slip it peaks at does not:
+        //   - a front-heavy car's front tyres run above the mean and push;
+        //     a rear-engined car's rears run above it and the tail is livelier;
+        //   - the axle carrying more of the roll couple (springs AND bars -
+        //     the bars now feed the tyre loads) loses more grip, so the roll
+        //     split finally moves the balance, as it does on a real car.
+
+        /// <summary>Friction lost per unit of load over the mean: 8% from the
+        /// mean load to double it (a real tyre loses 5-15%). 0.10 put the
+        /// Stratos at 15.3 deg of body slip in P's 70 mph lane change (12.5
+        /// before), 0.15 the A310 and Elise too; 0.08 keeps every surveyed
+        /// car under 15 (HandlingPlayCheck P, 2026-10-07).</summary>
+        public static float TyreLoadSensitivity = 0.08f;
+        /// <summary>The base friction re-calibrated for the load transfer it now
+        /// pays: the tuned FD (50:50) holds the same skidpad g as before
+        /// (HandlingPlayCheck P, 2026-10-07, at 0.08: 1.33 g, +1.8 -> +2.0 deg
+        /// at the first limit; at 0.10 a gain of 1.00 gave 1.28 g and 1.10
+        /// gave 1.37). Friction circle
+        /// only - the cornering stiffness is untouched, so the FD's response
+        /// below the limit does not move.</summary>
+        public static float TyreLoadGain = 1.05f;
+        /// <summary>Calibration switch (HandlingPlayCheck "lgc"): the gain on the
+        /// cornering stiffness as well as the circle.</summary>
+        public static bool TyreLoadGainOnStiffness = false;
+
+        /// <summary>The share of its load a tyre can use at
+        /// <paramref name="loadRatio"/> x the mean wheel load.</summary>
+        public static float LoadMuFactor(float loadRatio) =>
+            Mathf.Clamp(1f - TyreLoadSensitivity * (loadRatio - 1f),
+                        1f - 2f * TyreLoadSensitivity, 1f + TyreLoadSensitivity);
+
+        /// <summary>An axle's tyres at rest on a car with this weight share on
+        /// that axle (a wheel carries 2 x share of the mean): 1 on a 50:50
+        /// car. The AI's grip read (AIGrip.NominalMu) takes it.</summary>
+        public static float StaticAxleMuFactor(float axleWeightShare) =>
+            LoadMuFactor(2f * axleWeightShare);
         public const float DefaultRestLength = 0.30f;
         public const float DefaultCgHeight = 0.465f;
         public const float DefaultMaxSteerLowSpeedDeg = 34f;
@@ -2910,6 +2956,14 @@ namespace PSXRacing
                 // dampers.
                 Body.AddForceAtPosition(transform.up * arb, transform.TransformPoint(wheelLocalPos[l]));
                 Body.AddForceAtPosition(-transform.up * arb, transform.TransformPoint(wheelLocalPos[r]));
+                // ...and the bar's reaction goes through the TYRES: the loaded
+                // wheel is pressed down by what lifts the body there. Without
+                // this the bars moved the body and never the grip, so the roll
+                // split could not change the balance (2026-10-07; see
+                // TyreLoadSensitivity). The axle's total is unchanged.
+                float shift = arb >= 0f ? Mathf.Min(arb, wheelLoad[r]) : Mathf.Max(arb, -wheelLoad[l]);
+                wheelLoad[l] += shift; wheelLoad[r] -= shift;
+                wheelContacts[l].load = wheelLoad[l]; wheelContacts[r].load = wheelLoad[r];
             }
         }
 
@@ -3099,6 +3153,10 @@ namespace PSXRacing
                 if (!wheelGrounded[i]) continue;
                 if (i < 2) frontAxleLoad += wheelLoad[i]; else rearAxleLoad += wheelLoad[i];
             }
+            // LOAD SENSITIVITY reads each wheel against the mean of the
+            // grounded ones (TyreLoadSensitivity).
+            int groundedAxles = groundedFront + groundedRear;
+            float loadMean = groundedAxles > 0 ? (frontAxleLoad + rearAxleLoad) / groundedAxles : 0f;
 
             for (int i = 0; i < 4; i++)
             {
@@ -3120,10 +3178,13 @@ namespace PSXRacing
                 else { rearSlipSum += slip; rearCount++; }
 
                 float Fz = wheelLoad[i];
+                // The load the tyre can USE: its friction and its cornering
+                // stiffness both scale with it (TyreLoadSensitivity).
+                float FzGrip = loadMean > 1f ? Fz * LoadMuFactor(Fz / loadMean) : Fz;
                 float mu = wheelGrip[i] * gripBonus * faultGripMult *
                            (front ? tireMuFront : tireMuRear) * CamberMu(front);
                 if (!front) mu *= rearMuMult;
-                float circle = mu * Fz;
+                float circle = mu * FzGrip * TyreLoadGain;
                 // FULL circle, not the combined-slip reduced cap: using the
                 // reduced one inflates the wheelspin ratio during a slide and
                 // the yaw injector runs away.
@@ -3333,7 +3394,7 @@ namespace PSXRacing
                 wheelContacts[i].slide = Mathf.Sqrt(latSlide * latSlide + longSlide * longSlide);
                 wheelContacts[i].forward = wheelForward;
 
-                float C = corneringStiffness * Fz;
+                float C = corneringStiffness * FzGrip * (TyreLoadGainOnStiffness ? TyreLoadGain : 1f);
                 float fLat = TireCurve(slip, C);
                 float latCap = Mathf.Sqrt(Mathf.Max(circle * circle - fLong * fLong, 0f));
                 fLat = Mathf.Clamp(fLat, -latCap, latCap);

@@ -56,7 +56,13 @@ namespace PSXRacing
         public static float NominalMu(CarController c)
         {
             if (c == null) return 1f;
-            float tyre = Mathf.Min(c.tireMuFront, c.tireMuRear);
+            // Each axle's tyres at the load they carry at rest (tyre load
+            // sensitivity, 2026-10-07): a front-heavy car's fronts hold less
+            // per kilo than a 50:50 car's. 1 on the FD the constants were
+            // measured on.
+            float wf = c.weightDistFront;
+            float tyre = Mathf.Min(c.tireMuFront * CarController.StaticAxleMuFactor(wf),
+                                   c.tireMuRear * CarController.StaticAxleMuFactor(1f - wf));
             float surface = c.onRoad ? c.roadGrip * Seasons.RoadGripMult : c.offroadGrip * Seasons.OffroadGripMult;
             return surface * tyre * c.gripBonus * c.faultGripMult;
         }

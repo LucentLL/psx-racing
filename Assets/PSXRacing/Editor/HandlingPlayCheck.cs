@@ -355,9 +355,23 @@ namespace PSXRacing.EditorTools
         /// (PSX_P_EXP; diagnostics only): "lsd" the FD's 0.20/0.10 diff,
         /// "fd" the old FD chassis scaled by mass, "com" the CoM at the
         /// wheelbase midpoint, "mu" the FD's tyres, "noinj" no yaw injector.</summary>
+        static readonly float LoadSensDefault = CarController.TyreLoadSensitivity,
+                              LoadGainDefault = CarController.TyreLoadGain;
         void PExperiment(string exp)
         {
+            // "ls=0.10;lg=1.05": the tyre load sensitivity and its gain
+            // (CarController.TyreLoadSensitivity / TyreLoadGain), reset for
+            // every run so one experiment never leaks into the next car.
+            CarController.TyreLoadSensitivity = LoadSensDefault;
+            CarController.TyreLoadGain = LoadGainDefault;
+            CarController.TyreLoadGainOnStiffness = false;
             if (string.IsNullOrEmpty(exp) || exp == "base") return;
+            foreach (var tok in exp.Split(';'))
+            {
+                if (tok.StartsWith("ls=")) CarController.TyreLoadSensitivity = float.Parse(tok.Substring(3), System.Globalization.CultureInfo.InvariantCulture);
+                if (tok.StartsWith("lg=")) CarController.TyreLoadGain = float.Parse(tok.Substring(3), System.Globalization.CultureInfo.InvariantCulture);
+                if (tok == "lgc") CarController.TyreLoadGainOnStiffness = true;
+            }
             float s = car.massKg / CarController.ChassisRefMass;
             if (exp.Contains("lsd")) { car.diffAccelLock = 0.2f; car.diffDecelLock = 0.1f; }
             if (exp.Contains("fd"))
