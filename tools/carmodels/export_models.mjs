@@ -204,6 +204,16 @@ const MODELS = [
     tex: `${ownerCars}/Hatch_76_Original/Revision_02`, skins: /^hatch_512x256$/,
     skinAs: 'hatch_76_512x256', gt4LengthM: 3.705 },
 
+  // The owner's Rally Coupe 98 (2026-10-07, v02 - v01 superseded): an
+  // unbadged 1998 widebody turbo-4WD coupe, 3,787 tris with the wheels (Body +
+  // Wheel_FL/FR/RL/RR, Y-up, nose -Z, wb 2.520, tracks 1.480/1.500), one
+  // 512x256 atlas (exterior left, underbody right). GLB ->
+  // converted/rally_coupe_98_v02 by glb2obj.py; the atlas is renamed on the
+  // way in. GT4: the `98 widebody coupe sheet, 4365 mm, 1770 wide, wb 2520.
+  { key: 'rally_coupe_98', obj: `${here}/converted/rally_coupe_98_v02/rally_coupe_98_v02.obj`,
+    tex: `${ownerCars}/Impreza_22B_Independent_Textured_v02`, skins: /^impreza_22b_blue_512x256$/,
+    skinAs: 'rally_coupe_98_blue_512x256', gt4LengthM: 4.365 },
+
   // The owner's 2026-10-02 set ("Integra, S2000, and Prelude have been
   // added"), same layout (Body + Wheel_FL/FR/RL/RR, nose -Z, matte alpha 128),
   // each sized to its GT4 sheet:

@@ -9408,6 +9408,12 @@ namespace PSXRacing.EditorTools
                 foreach (var c in CarCatalog.All)
                     if (c.name.Contains("Golf I GTI")) { gti++; if (CarModelLibrary.KeyFor(c) == "hatch_76") gtiOk++; }
                 Check(gti >= 1 && gtiOk == gti, "the 1976 GTI wears the owner's Hatch 76", gtiOk + " of " + gti);
+                // 2026-10-07: the owner's Rally Coupe 98 dresses every car of its family
+                // (saloons, wagon, coupes, the rally car), none left on the R32 or the Volvo.
+                int rc98 = 0, rc98Ok = 0;
+                foreach (var c in CarCatalog.All)
+                    if (c.name.Contains("IMPREZA")) { rc98++; if (CarModelLibrary.KeyFor(c) == "rally_coupe_98") rc98Ok++; }
+                Check(rc98 >= 10 && rc98Ok == rc98, "every car of the Rally Coupe 98's family wears the owner's Rally Coupe 98", rc98Ok + " of " + rc98);
                 // The owner's 2026-10-02 set.
                 int integra = 0, integraOk = 0, s2k = 0, s2kOk = 0, prelude = 0, preludeOk = 0;
                 foreach (var c in CarCatalog.All)
