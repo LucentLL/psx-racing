@@ -51,7 +51,9 @@ namespace PSXRacing
         /// <summary>Uptown (the Square, Trade x Tryon) - inside it the heads are
         /// white LED, outside it warm bulbs; metres, world XZ.</summary>
         public static Vector2 UptownCentre = new Vector2(-2259f, 4782f);
-        public static float UptownInnerM = 700f, UptownOuterM = 1300f;
+        // (night v3, 2026-10-06: 700/1300 -> 1000/1500 - E Trade St at
+        // McDowell, 1 km out, read half-bulb at sat 0.24 against the refs' 0.05.)
+        public static float UptownInnerM = 1000f, UptownOuterM = 1500f;
         /// <summary>sRGB: an uptown LED head, a neighbourhood bulb. A bulb is
         /// warm, not sodium: (1, 0.84, 0.52) over the asphalt read as sand
         /// (the correction round; PSX/Lit reads the lit asphalt grey).</summary>

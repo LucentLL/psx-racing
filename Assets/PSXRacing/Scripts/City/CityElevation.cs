@@ -1068,6 +1068,7 @@ namespace PSXRacing.City
             // UP where they cross), so this adds no crest the curves did not
             // allow; it may add a gentle sag where the two cross, which is
             // measured (TwinFinalSagAdded) for the TWIN report and package B4.
+            RoundI277(map);   // OFF unless PSX_CITY_I277_ROUND=1 (exit 3A)
             TwinDyBeforeFinal = TwinDy(map, out _);
             FinalTwinHold(map);
             TwinDyAfterCurves = TwinDy(map, out TwinDyWorstPair);
@@ -3273,6 +3274,229 @@ namespace PSXRacing.City
         }
         static bool Touched(CityMap.Edge e) => heightTouched != null && (heightTouched[e.a] || heightTouched[e.b]);
         static bool MeasuredNode(int n) => measuredNodeY != null && !float.IsNaN(measuredNodeY[n]);
+
+        /// <summary>
+        /// THE I-277 ROUND (exit 3A, 2026-10-06; OFF: PSX_CITY_I277_ROUND=1, with
+        /// PSX_CITY_UNDERPASS=1). With the underpasses on, the cuts are a
+        /// ceiling for the cones, but the snaps, the twin holds and the raises
+        /// still lift I-277 past it, so a station held in its cut sat beside a
+        /// lifted node: 28-61 steps past 8%. Last, before the final twin hold,
+        /// the mainline is solved ONCE as one profile over all its carriageways
+        /// and their nodes: the largest profile no steeper than
+        /// <see cref="I277RoundGrade"/> under what the passes left (and under
+        /// each cut's ceiling, so a cut stays a cut), lifted back to what it
+        /// must clear - each road it crosses over at ClearanceM + DeckThick,
+        /// never above where it stands now. The larger of two grade-limited
+        /// profiles is grade-limited, so no station-to-station step is left
+        /// steeper than the grade. Held: seated stations, tunnels, water spans,
+        /// culverts, a bridge over nothing in the crossing list (a railway),
+        /// and every node another road's mainline meets. A ramp or street at a
+        /// node that moved follows it over a blend; the seated runs go back on
+        /// their host (SeatBranches).
+        /// </summary>
+        public static readonly bool I277RoundOn = System.Environment.GetEnvironmentVariable("PSX_CITY_I277_ROUND") == "1";
+        public const float I277RoundGrade = 0.04f;
+        public static int I277RoundMoved { get; private set; }
+        public static float I277RoundLoweredM { get; private set; }
+        public static float I277RoundRaisedM { get; private set; }
+        static bool IsI277(CityMap.Edge e) => e.cls >= 5 && !e.link && e.name != null && e.name.Contains("I-277");
+
+        static void RoundI277(CityMap map)
+        {
+            I277RoundMoved = 0; I277RoundLoweredM = 0f; I277RoundRaisedM = 0f;
+            if (!I277RoundOn) return;
+            int NE = map.edges.Length, V = 0;
+            var off = new int[NE];
+            for (int i = 0; i < NE; i++) off[i] = -1;
+            foreach (var e in map.edges)
+            {
+                if (e.stS == null || e.stS.Length == 0 || e.a == e.b || !IsI277(e)) continue;
+                off[e.index] = V; V += e.stS.Length;
+            }
+            if (V == 0) return;
+            var nodeV = new Dictionary<int, int>();
+            foreach (var e in map.edges)
+                if (off[e.index] >= 0)
+                {
+                    if (!nodeV.ContainsKey(e.a)) nodeV[e.a] = V + nodeV.Count;
+                    if (!nodeV.ContainsKey(e.b)) nodeV[e.b] = V + nodeV.Count;
+                }
+            int VT = V + nodeV.Count;
+            var adj = new List<(int to, float w)>[VT];
+            for (int v = 0; v < VT; v++) adj[v] = new List<(int, float)>(3);
+            void Link(int a, int b, float w) { w = Mathf.Max(0f, w); adj[a].Add((b, w)); adj[b].Add((a, w)); }
+            var cur = new float[VT]; var top = new float[VT]; var need = new float[VT];
+            var covered = new bool[VT];
+            var why = new byte[VT];   // what held a station (the report): 1 seat/tunnel, 2 a road's node, 3 a clearance, 4 a bridge, 5 water, 6 culvert
+            for (int v = 0; v < VT; v++) { top[v] = float.PositiveInfinity; need[v] = float.NegativeInfinity; }
+            foreach (var e in map.edges)
+            {
+                int o = off[e.index];
+                if (o < 0) continue;
+                int n = e.stS.Length;
+                var caps = cutCaps != null && e.index < cutCaps.Length ? cutCaps[e.index] : null;
+                for (int i = 0; i < n; i++)
+                {
+                    float y = e.stY[i];
+                    cur[o + i] = y;
+                    float t = y;
+                    if (caps != null) foreach (var (cs, cy, g) in caps) t = Mathf.Min(t, cy + Mathf.Abs(e.stS[i] - cs) * g);
+                    top[o + i] = t;
+                    if (e.SeatedAt(i) || e.tunnel) { need[o + i] = y; why[o + i] = 1; }
+                    if (i > 0) Link(o + i - 1, o + i, e.stS[i] - e.stS[i - 1]);
+                }
+                Link(nodeV[e.a], o, e.stS[0]);
+                Link(o + n - 1, nodeV[e.b], e.length - e.stS[n - 1]);
+            }
+            foreach (var kv in nodeV)
+            {
+                float y = map.nodeY[kv.Key];
+                cur[kv.Value] = y; top[kv.Value] = y;
+                foreach (int ei in map.nodeEdges[kv.Key])
+                {
+                    var x = map.edges[ei];
+                    if (off[ei] < 0 && !x.link) { need[kv.Value] = y; why[kv.Value] = 2; break; }
+                }
+            }
+            // what it must clear: each road it crosses over (never above where it is now)
+            foreach (var c in map.crossings)
+            {
+                int o = off[c.over];
+                if (o < 0) continue;
+                var over = map.edges[c.over]; var under = map.edges[c.under];
+                ProjectOn(over, c.at, out float sO);
+                ProjectOn(under, c.at, out float sU);
+                float cos = Mathf.Abs(Vector2.Dot(over.TangentAt(sO), under.TangentAt(sU)));
+                float sin = Mathf.Max(0.4f, Mathf.Sqrt(Mathf.Max(0f, 1f - cos * cos)));
+                float win = (under.width * 0.5f + 3f) / sin + StationStep;
+                float req = under.YAt(sU) + ClearanceM + DeckThick;
+                for (int i = 0; i < over.stS.Length; i++)
+                    if (Mathf.Abs(over.stS[i] - sO) <= win)
+                    {
+                        need[o + i] = Mathf.Max(need[o + i], Mathf.Min(req, cur[o + i]));
+                        covered[o + i] = true; why[o + i] = 3;
+                    }
+            }
+            foreach (var e in map.edges)
+            {
+                int o = off[e.index];
+                if (o < 0 || !e.bridge) continue;
+                // (correction: held at its height, a lifted bridge's hold filled
+                // the trench beside it 8.3 m; it may settle up to 2 m)
+                for (int i = 0; i < e.stS.Length; i++) if (!covered[o + i]) { need[o + i] = cur[o + i] - 2f; why[o + i] = 4; }
+            }
+            foreach (var ws in map.wspans)
+            {
+                int o = ws.edge >= 0 && ws.edge < NE ? off[ws.edge] : -1;
+                if (o < 0) continue;
+                var e = map.edges[ws.edge];
+                for (int i = 0; i < e.stS.Length; i++)
+                    if (e.stS[i] >= ws.s0 - StationStep && e.stS[i] <= ws.s1 + StationStep) { need[o + i] = cur[o + i]; why[o + i] = 5; }
+            }
+            if (map.creekCulverts != null)
+                foreach (var cv in map.creekCulverts)
+                {
+                    int o = cv.edge >= 0 && cv.edge < NE ? off[cv.edge] : -1;
+                    if (o < 0) continue;
+                    var e = map.edges[cv.edge];
+                    for (int i = 0; i < e.stS.Length; i++) if (Mathf.Abs(e.stS[i] - cv.s) <= 20f) { need[o + i] = cur[o + i]; why[o + i] = 6; }
+                }
+            // the two spreads: down from every station's top at the grade (the
+            // largest grade-limited profile under the tops), and down from
+            // every must-clear at the grade (the smallest one over them)
+            // what it must stay under: each road crossing over it, ClearanceM +
+            // DeckThick above it (the first run raised I-277 into the Caldwell,
+            // Davidson, 7th and Hamilton bridges: 18 under-height, -2.48 m)
+            var ceil = new float[VT];
+            for (int v = 0; v < VT; v++) ceil[v] = float.PositiveInfinity;
+            foreach (var c in map.crossings)
+            {
+                int o = off[c.under];
+                if (o < 0) continue;
+                var over = map.edges[c.over]; var under = map.edges[c.under];
+                ProjectOn(over, c.at, out float sO);
+                ProjectOn(under, c.at, out float sU);
+                float cos = Mathf.Abs(Vector2.Dot(over.TangentAt(sO), under.TangentAt(sU)));
+                float sin = Mathf.Max(0.4f, Mathf.Sqrt(Mathf.Max(0f, 1f - cos * cos)));
+                float win = (over.width * 0.5f + 3f) / sin + StationStep;
+                float lim = over.YAt(sO) - ClearanceM - DeckThick;
+                for (int i = 0; i < under.stS.Length; i++)
+                    if (Mathf.Abs(under.stS[i] - sU) <= win) ceil[o + i] = Mathf.Min(ceil[o + i], lim);
+            }
+            var src = new int[VT];
+            float[] Spread(float[] init, bool fromBelow)
+            {
+                var d = (float[])init.Clone();
+                if (fromBelow) for (int v = 0; v < VT; v++) src[v] = v;
+                var pq = new SortedSet<(float k, int v)>();
+                for (int v = 0; v < VT; v++) if (!float.IsInfinity(d[v])) pq.Add((fromBelow ? -d[v] : d[v], v));
+                while (pq.Count > 0)
+                {
+                    var m = pq.Min; pq.Remove(m);
+                    float dv = d[m.v];
+                    foreach (var (to, w) in adj[m.v])
+                    {
+                        float cand = fromBelow ? dv - I277RoundGrade * w : dv + I277RoundGrade * w;
+                        bool better = fromBelow ? cand > d[to] + 1e-4f : cand < d[to] - 1e-4f;
+                        if (!better) continue;
+                        if (!float.IsInfinity(d[to])) pq.Remove((fromBelow ? -d[to] : d[to], to));
+                        d[to] = cand;
+                        if (fromBelow) src[to] = src[m.v];
+                        pq.Add((fromBelow ? -cand : cand, to));
+                    }
+                }
+                return d;
+            }
+            var below = Spread(top, false);
+            var above = Spread(need, true);
+            var F = new float[VT];
+            var under1 = Spread(ceil, false);
+            // the min of grade-limited profiles is grade-limited too: no step
+            for (int v = 0; v < VT; v++) F[v] = Mathf.Min(Mathf.Max(below[v], above[v]), under1[v]);
+            var worst = new List<(float dy, string at)>();
+            foreach (var e in map.edges)
+            {
+                int o = off[e.index];
+                if (o < 0) continue;
+                for (int i = 0; i < e.stS.Length; i++)
+                {
+                    float dy = F[o + i] - e.stY[i];
+                    if (dy > 1f) { var q = e.PointAt(e.stS[i]); worst.Add((dy, $"e{e.index} s{e.stS[i]:0} ({q.x:0},{q.y:0}) +{dy:0.0} held by {why[src[o + i]]} at v{src[o + i]}")); }
+                    if (Mathf.Abs(dy) < 0.01f) continue;
+                    I277RoundMoved++;
+                    if (dy < 0f) I277RoundLoweredM = Mathf.Max(I277RoundLoweredM, -dy); else I277RoundRaisedM = Mathf.Max(I277RoundRaisedM, dy);
+                    e.stY[i] = F[o + i];
+                }
+            }
+            foreach (var kv in nodeV)
+            {
+                int n = kv.Key;
+                float dy = F[kv.Value] - map.nodeY[n];
+                if (Mathf.Abs(dy) < 0.01f) continue;
+                map.nodeY[n] = F[kv.Value];
+                // a ramp or street at the node follows it over a blend
+                foreach (int ei in map.nodeEdges[n])
+                {
+                    var x = map.edges[ei];
+                    if (off[ei] >= 0 || x.stS == null || x.length < 0.5f) continue;
+                    bool atA = x.a == n;
+                    float B = Mathf.Min(x.length, Mathf.Max(40f, Mathf.Abs(dy) / I277RoundGrade));
+                    for (int i = 0; i < x.stS.Length; i++)
+                    {
+                        if (x.SeatedAt(i)) continue;
+                        float from = atA ? x.stS[i] : x.length - x.stS[i];
+                        float f = 1f - from / B;
+                        if (f <= 0f) continue;
+                        x.stY[i] += dy * f * f * (3f - 2f * f);
+                    }
+                }
+            }
+            SeatBranches(map);
+            worst.Sort((a, b) => b.dy.CompareTo(a.dy));
+            var top5 = new System.Text.StringBuilder();
+            for (int k = 0; k < worst.Count && k < 6; k++) top5.Append(" | ").Append(worst[k].at);
+            Debug.Log($"[I277Round] {VT} stations+nodes, {I277RoundMoved} moved, lowered up to {I277RoundLoweredM:0.0} m, raised up to {I277RoundRaisedM:0.0} m; raised > 1 m: {worst.Count}{top5}");
+        }
 
         /// <summary>Edges the last solve's grade guard eased (report).</summary>
         public static int GradeGuarded { get; private set; }
