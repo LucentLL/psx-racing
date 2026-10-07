@@ -542,6 +542,12 @@ namespace PSXRacing.EditorTools
         const float ExhaustZoneM = 0.5f, ExhaustBinM = 0.025f, ExhaustDropM = 0.04f,
                     ExhaustGapM = 0.1f, ExhaustMaxWidthM = 0.4f, ExhaustMarginM = 0.01f;
 
+        /// <summary>The chase lens's look down onto the tail, as a slope
+        /// (metres of height per metre forward): the CHASE and CLOSE rows of
+        /// the probe sight the tail's lowest edge at 0.57 to 0.63 (about 31
+        /// degrees).</summary>
+        const float ExhaustSightSlope = 0.6f;
+
         /// <summary>
         /// "Camera ignores exhausts" (owner, 2026-10-04). The S13 and the FD
         /// hang their silencers to 0.13 m within half a metre of the tail, and
@@ -560,15 +566,37 @@ namespace PSXRacing.EditorTools
         /// masked, and so is every narrow mesh island over it that hangs under
         /// the edge (the silencer and tips whole, where they are modelled as
         /// parts). A floor or diffuser as wide as the car is never a dip.
+        ///
+        /// The edge is read twice: level from behind, and down the chase
+        /// lens's sight line (<see cref="ExhaustSightSlope"/>), where a point
+        /// counts at its height plus the slope times its distance forward of
+        /// the tail. A part is an exhaust if either view finds it. The level
+        /// view alone missed exhausts that hang no lower than the car's own
+        /// floor: viper_gts's twin centre tips and roadster_99's twin
+        /// silencers sit at the floor pan's 0.18 m, and the floor inside the
+        /// zone made the median edge 0.18 m, so there was no dip. From the
+        /// lens the floor sits behind the bumper, the tips hang under it, and
+        /// they framed the car (2026-10-06).
         /// Input is car-local (y up, z forward), x native; returns true per
         /// exhaust vertex.
         /// </summary>
         static bool[] ExhaustMask(List<Vector3> v, List<int> tris)
         {
+            var mask = ExhaustMaskSeen(v, tris, 0f);
+            var sighted = ExhaustMaskSeen(v, tris, ExhaustSightSlope);
+            for (int i = 0; i < mask.Length; i++) mask[i] |= sighted[i];
+            return mask;
+        }
+
+        /// <summary><see cref="ExhaustMask"/> in one view: heights are
+        /// y + <paramref name="slope"/> x (metres forward of the tail).</summary>
+        static bool[] ExhaustMaskSeen(List<Vector3> v, List<int> tris, float slope)
+        {
             var mask = new bool[v.Count];
             if (v.Count == 0 || tris == null || tris.Count < 3) return mask;
             float tail = float.MaxValue;
             foreach (var q in v) tail = Mathf.Min(tail, q.z);
+            float Seen(Vector3 q) => q.y + slope * (q.z - tail);
             float zone = tail + ExhaustZoneM;
             float x0 = float.MaxValue, x1 = float.MinValue;
             foreach (var q in v)
@@ -586,9 +614,9 @@ namespace PSXRacing.EditorTools
                 {
                     float xc = x0 + (i + 0.5f) * ExhaustBinM;
                     if (xc > tx1) break;
-                    CutLow(a, b, xc, zone, ref low[i]);
-                    CutLow(b, c, xc, zone, ref low[i]);
-                    CutLow(c, a, xc, zone, ref low[i]);
+                    CutLow(a, b, xc, zone, tail, slope, ref low[i]);
+                    CutLow(b, c, xc, zone, tail, slope, ref low[i]);
+                    CutLow(c, a, xc, zone, tail, slope, ref low[i]);
                 }
             }
             var sorted = new List<float>();
@@ -616,7 +644,7 @@ namespace PSXRacing.EditorTools
                 for (int i = 0; i < v.Count; i++)
                 {
                     var q = v[i];
-                    if (q.z < zone && q.x >= xa && q.x <= xb && q.y < edge - ExhaustMarginM) mask[i] = true;
+                    if (q.z < zone && q.x >= xa && q.x <= xb && Seen(q) < edge - ExhaustMarginM) mask[i] = true;
                 }
             }
             if (dips.Count == 0) return mask;
@@ -646,14 +674,15 @@ namespace PSXRacing.EditorTools
                 Union(rep[tris[t]], rep[tris[t + 1]]);
                 Union(rep[tris[t + 1]], rep[tris[t + 2]]);
             }
-            var lo = new Dictionary<int, Vector4>();   // island -> (x min, x max, y min, z min)
+            var lo = new Dictionary<int, Vector4>();   // island -> (x min, x max, seen y min, z min)
             for (int i = 0; i < v.Count; i++)
             {
                 int c = Find(rep[i]);
                 var q = v[i];
+                float sy = Seen(q);
                 lo[c] = lo.TryGetValue(c, out var b)
-                    ? new Vector4(Mathf.Min(b.x, q.x), Mathf.Max(b.y, q.x), Mathf.Min(b.z, q.y), Mathf.Min(b.w, q.z))
-                    : new Vector4(q.x, q.x, q.y, q.z);
+                    ? new Vector4(Mathf.Min(b.x, q.x), Mathf.Max(b.y, q.x), Mathf.Min(b.z, sy), Mathf.Min(b.w, q.z))
+                    : new Vector4(q.x, q.x, sy, q.z);
             }
             var exhaustIsland = new HashSet<int>();
             foreach (var kv in lo)
@@ -670,21 +699,22 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>The edge p-q cut by the plane x = <paramref name="xc"/>:
-        /// lowers <paramref name="low"/> to the cut's height if it lies inside
-        /// the rear zone.</summary>
-        static void CutLow(Vector3 p, Vector3 q, float xc, float zone, ref float low)
+        /// lowers <paramref name="low"/> to the cut's height as seen down
+        /// <paramref name="slope"/> (y + slope x metres forward of the tail)
+        /// if it lies inside the rear zone.</summary>
+        static void CutLow(Vector3 p, Vector3 q, float xc, float zone, float tail, float slope, ref float low)
         {
             if ((p.x - xc) * (q.x - xc) > 0f) return;
             float dx = q.x - p.x;
             if (Mathf.Abs(dx) < 1e-6f)
             {
-                if (p.z < zone) low = Mathf.Min(low, p.y);
-                if (q.z < zone) low = Mathf.Min(low, q.y);
+                if (p.z < zone) low = Mathf.Min(low, p.y + slope * (p.z - tail));
+                if (q.z < zone) low = Mathf.Min(low, q.y + slope * (q.z - tail));
                 return;
             }
             float u = (xc - p.x) / dx;
             float y = p.y + u * (q.y - p.y), z = p.z + u * (q.z - p.z);
-            if (z < zone) low = Mathf.Min(low, y);
+            if (z < zone) low = Mathf.Min(low, y + slope * (z - tail));
         }
 
         /// <summary>Monotone-chain hull of side-profile points (z, y), upper or
