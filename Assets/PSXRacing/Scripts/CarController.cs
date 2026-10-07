@@ -28,7 +28,27 @@ namespace PSXRacing
         public float massKg = 1280f;
         public float wheelbase = 2.425f;     // wb: 2425 mm
         public float trackWidth = 1.46f;     // trF/trR: 1460 mm
+        /// <summary>The DRIVEN axle's rolling radius: gearing, top speed,
+        /// engine RPM and the drive force all turn through it (rear for
+        /// FR/MR/RR, front for FF, the mean for 4WD).</summary>
         public float wheelRadius = 0.31f;    // 255/40 R17
+        /// <summary>
+        /// TO SPEC (owner, 2026-10-07: "Everything should be designed to spec
+        /// and scale"). The REAR track and each axle's own tyre radius, off
+        /// the spec sheet through CarModelLibrary.Fit. <see cref="trackWidth"/>
+        /// is then the FRONT track. Zero = the same as the front / the same as
+        /// <see cref="wheelRadius"/>, which is what every car baked before
+        /// these existed carries, so nothing moves until CarBody fits it.
+        /// </summary>
+        public float trackWidthRear;
+        public float wheelRadiusFront, wheelRadiusRear;
+        /// <summary>Wheel <paramref name="i"/>'s own tyre radius (0,1 front).</summary>
+        public float WheelRadiusOf(int i)
+        {
+            float r = i < 2 ? wheelRadiusFront : wheelRadiusRear;
+            return r > 0.05f ? r : wheelRadius;
+        }
+        public float TrackOf(int i) => i >= 2 && trackWidthRear > 0.1f ? trackWidthRear : trackWidth;
         public float weightDistFront = 0.5f; // wdF: 50
         /// <summary>CG height above ground. h/L = 0.1856 matches true geometry;
         /// the source's effective ratio was 0.1746.</summary>
@@ -918,14 +938,14 @@ namespace PSXRacing
         /// </summary>
         public void RebuildGeometry()
         {
-            float halfTrack = trackWidth * 0.5f;
+            float halfF = TrackOf(0) * 0.5f, halfR = TrackOf(2) * 0.5f;
             float halfBase = wheelbase * 0.5f;
             wheelLocalPos = new[]
             {
-                new Vector3(-halfTrack, mountHeight,  halfBase),
-                new Vector3( halfTrack, mountHeight,  halfBase),
-                new Vector3(-halfTrack, mountHeight, -halfBase),
-                new Vector3( halfTrack, mountHeight, -halfBase),
+                new Vector3(-halfF, mountHeight,  halfBase),
+                new Vector3( halfF, mountHeight,  halfBase),
+                new Vector3(-halfR, mountHeight, -halfBase),
+                new Vector3( halfR, mountHeight, -halfBase),
             };
             // Null before Awake: the builder fits a shell at bake time, where
             // there is no Rigidbody cached yet and none is needed — Awake runs
@@ -2045,7 +2065,7 @@ namespace PSXRacing
                 bool front = i < 2;
                 Vector3 mount = transform.TransformPoint(wheelLocalPos[i]);
                 Vector3 contact = mount - transform.up *
-                                  (restLength + wheelRadius - suspensionCompression[i]);
+                                  (restLength + WheelRadiusOf(i) - suspensionCompression[i]);
 
                 Quaternion steerRot = SteerRotFor(i);
                 Vector3 contactVel = Body.GetPointVelocity(contact);
@@ -2664,10 +2684,10 @@ namespace PSXRacing
             wetT = Seasons.WetT(weatherRoadGrip);
             anyWheelGrounded = false;
             int roadHits = 0, hits = 0;
-            float rayLength = restLength + wheelRadius;
-
             for (int i = 0; i < 4; i++)
             {
+                // Each axle on its own tyre (a staggered car stands on two).
+                float rayLength = restLength + WheelRadiusOf(i);
                 bool front = i < 2;
                 prevCompression[i] = suspensionCompression[i];
                 Vector3 mount = transform.TransformPoint(wheelLocalPos[i]);
@@ -2933,7 +2953,7 @@ namespace PSXRacing
                 if (!wheelGrounded[i]) continue;
                 bool front = i < 2;
                 Vector3 mount = transform.TransformPoint(wheelLocalPos[i]);
-                Vector3 contact = mount - transform.up * (restLength + wheelRadius - suspensionCompression[i]);
+                Vector3 contact = mount - transform.up * (restLength + WheelRadiusOf(i) - suspensionCompression[i]);
 
                 Quaternion steerRot = SteerRotFor(i);
                 Vector3 wheelForward = steerRot * transform.forward;
@@ -3474,7 +3494,7 @@ namespace PSXRacing
 
         void UpdateWheelVisuals(float dt)
         {
-            float rollDelta = forwardSpeed / wheelRadius * Mathf.Rad2Deg * dt;
+            float rollPerR = forwardSpeed * Mathf.Rad2Deg * dt;
             float spinExtra = wheelSpin * 720f * dt;
 
             for (int i = 0; i < 4; i++)
@@ -3497,7 +3517,7 @@ namespace PSXRacing
 
                 if (wheelMeshes[i] != null)
                 {
-                    wheelRollAngle[i] += rollDelta + (front ? 0f : spinExtra);
+                    wheelRollAngle[i] += rollPerR / WheelRadiusOf(i) + (front ? 0f : spinExtra);
                     float sign = (i % 2 == 0) ? -1f : 1f;
                     wheelMeshes[i].localRotation = Quaternion.Euler(wheelRollAngle[i] * sign, 0f, 0f);
                 }

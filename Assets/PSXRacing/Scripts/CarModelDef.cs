@@ -78,6 +78,28 @@ namespace PSXRacing
         public float wheelMeshScale = 0.93f;
 
         /// <summary>
+        /// THE REAR AXLE, MEASURED (2026-10-07, "everything to spec"): the
+        /// model's own rear track, and its rear tyre's radius and section
+        /// width, all as modelled (no 0.93). Several shells are staggered or
+        /// carry a wider rear track, and CarModelLibrary.Fit compares the spec
+        /// tyre against the wheel the model drew at EACH axle. Zero = never
+        /// measured (a prefab baked before these existed, or the built-in FD):
+        /// the front axle stands in.
+        /// </summary>
+        public float trackRear;
+        public float tyreRadiusRear;
+        public float tyreWidthRear;
+        /// <summary>
+        /// The LOWER body's width (bottom 55% of its height, so no mirrors),
+        /// in the car's frame, measured at bake time. The across-scale is
+        /// meant to set exactly this to the real car's width - but the pack's
+        /// OBJs import unreadable, so measuring at runtime fell back to the
+        /// mesh BOUNDS, mirrors and all, and every shell came out 5-10% too
+        /// narrow (an FD at 1.65 m for its 1.76). Zero = never baked.
+        /// </summary>
+        public float lowerBodyWidth;
+
+        /// <summary>
         /// Base of the windscreen, in the same car-local frame as the collider:
         /// Z along the car with +Z out of the nose, Y with the tyre contact
         /// patch at zero. MEASURED off the body mesh by CarModelBaker.

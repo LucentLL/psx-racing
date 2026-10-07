@@ -130,7 +130,7 @@ namespace PSXRacing.OnFoot
             // but never reach — and a shell you could walk through would only
             // ever be noticed by walking through it.
             CarShell.Spawn(anchor, def, Paint.SkinFor(car, spec, def),
-                           out Vector3 roof, solid: true, widthMm: spec != null ? spec.widthMm : 0);
+                           out Vector3 roof, solid: true, widthMm: spec != null ? spec.widthMm : 0, spec: spec);
             var focus = new GameObject("Focus");
             focus.transform.SetParent(anchor, false);
             focus.transform.localPosition = roof;

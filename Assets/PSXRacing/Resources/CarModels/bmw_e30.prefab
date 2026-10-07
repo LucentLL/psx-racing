@@ -83,6 +83,10 @@ MonoBehaviour:
   trackWidth: 1.4200001
   wheelRadius: 0.29993337
   wheelMeshScale: 0.93
+  trackRear: 1.4200001
+  tyreRadiusRear: 0.322509
+  tyreWidthRear: 0.21460599
+  lowerBodyWidth: 1.646694
   cowlZ: 0.910404
   cowlY: 0.9334246
   noseZ: 2.033114
@@ -93,6 +97,10 @@ MonoBehaviour:
   tailLamp: {x: 0.54689133, y: 0.66654754, z: -2.1689587}
   tailLampNormal: {x: 0.18538769, y: 0.078204945, z: -0.9795485}
   tailLampSize: {x: 0.33497888, y: 0.15555}
+  lampsUpMesh: {fileID: 0}
+  headLampUp: {x: 0, y: 0, z: 0}
+  headLampUpNormal: {x: 0, y: 0, z: 1}
+  headLampUpSize: {x: 0, y: 0}
   colliderCenter: {x: 0, y: 0.81642985, z: -0.13114601}
   colliderSize: {x: 1.6578519, y: 1.046521, z: 4.133736}
   blobSize: {x: 2.2104692, y: 4.6315165}

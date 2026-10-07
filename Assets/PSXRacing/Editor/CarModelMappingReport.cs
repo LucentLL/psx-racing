@@ -39,6 +39,36 @@ namespace PSXRacing.EditorTools
                           $"{hand} hand-mapped, {cars.Count - hand} scored.");
             sb.AppendLine("  =  hand-mapped (the real car, its twin, or a deliberate call)");
             sb.AppendLine("  ~  scored on body style, region, era and weight");
+            sb.AppendLine("  Per car, TO SPEC (CarModelLibrary.Fit, the owner's GT4 Specs sheet): wheelbase sheet/shell");
+            sb.AppendLine("  (the stretched shell's axle spacing), track F/R sheet against the stretched model's own,");
+            sb.AppendLine("  tyre diameter x section F/R, along/across stretch, camber F/R (top in) and any poke past");
+            sb.AppendLine("  the model's own wheel left after it. !CLAMP = a stretch hit its fence; !POKE = still out.");
+            sb.AppendLine();
+
+            // The fit, summarised first: every car with camber, every fence,
+            // every tyre still standing out (a model edit for the owner).
+            var cambered = new List<string>();
+            var fenced = new List<string>();
+            var poking = new List<string>();
+            foreach (var c in cars)
+            {
+                var d = CarModelLibrary.LoadFor(c);
+                if (d == null) continue;
+                var f = CarModelLibrary.Fit(d, c);
+                string who = $"{c.name} [{d.key}]";
+                if (f.camberF > 0.05f || f.camberR > 0.05f)
+                    cambered.Add($"{who}: F {f.camberF:0.0} R {f.camberR:0.0} deg");
+                if (f.clampX || f.clampZ)
+                    fenced.Add($"{who}: along x{f.sz:0.000} (wants x{c.wheelbaseMm / 1000f / Mathf.Max(d.wheelbase, 0.5f):0.000}), across x{f.sx:0.000}");
+                if (f.Pokes)
+                    poking.Add($"{who}: F {f.pokeF * 1000f:0} mm R {f.pokeR * 1000f:0} mm out after F {f.camberF:0.0} R {f.camberR:0.0} deg");
+            }
+            sb.AppendLine($"CAMBER ({cambered.Count} cars)");
+            foreach (var l in cambered) sb.AppendLine("    " + l);
+            sb.AppendLine($"STRETCH FENCED ({fenced.Count} cars)");
+            foreach (var l in fenced) sb.AppendLine("    " + l);
+            sb.AppendLine($"STILL POKING after the {CarModelLibrary.CamberCapDeg:0} deg cap ({poking.Count} cars) - model edits");
+            foreach (var l in poking) sb.AppendLine("    " + l);
             sb.AppendLine();
 
             foreach (var m in CarModelLibrary.Models)
@@ -48,8 +78,11 @@ namespace PSXRacing.EditorTools
                 sb.AppendLine($"=== {m.key}  ({m.name}, {m.region} {m.year} {m.body})  — {n} car{(n == 1 ? "" : "s")}");
                 var def = CarModelLibrary.Load(m.key);
                 if (def != null)
-                    sb.AppendLine($"    wheelbase {def.wheelbase:0.00} m, track {def.trackWidth:0.00} m, " +
-                                  $"tyre {def.wheelRadius:0.000} m, {def.SkinCount} liveries");
+                    sb.AppendLine($"    model: wheelbase {def.wheelbase * 1000f:0} mm, track {def.trackWidth * 1000f:0}/" +
+                                  $"{(def.trackRear > 0.1f ? def.trackRear : def.trackWidth) * 1000f:0} mm, " +
+                                  $"tyre {def.wheelRadius / Mathf.Max(def.wheelMeshScale, 0.01f) * 2000f:0}/" +
+                                  $"{(def.tyreRadiusRear > 0.05f ? def.tyreRadiusRear : def.wheelRadius / Mathf.Max(def.wheelMeshScale, 0.01f)) * 2000f:0} mm, " +
+                                  $"lower body {CarModelLibrary.BodyWidth(def) * 1000f:0} mm, {def.SkinCount} liveries");
                 if (n == 0)
                 {
                     sb.AppendLine("    (no catalog car — used as roadside scenery)");
@@ -57,9 +90,21 @@ namespace PSXRacing.EditorTools
                     continue;
                 }
                 foreach (var c in list.OrderBy(c => c.modelYear).ThenBy(c => c.name))
+                {
                     sb.AppendLine($"    {(CarModelLibrary.HandKey(c) != null ? "=" : "~")} " +
                                   $"{c.modelYear} {c.origin} {c.drv,-3} {c.kg,4}kg {c.hp,4}hp " +
                                   $"{CarModelLibrary.BodyOf(c),-8} {c.name}");
+                    if (def == null) continue;
+                    var f = CarModelLibrary.Fit(def, c);
+                    float mtr = def.trackRear > 0.1f ? def.trackRear : def.trackWidth;
+                    sb.AppendLine($"        wb {c.wheelbaseMm}/{def.wheelbase * f.sz * 1000f:0}  " +
+                                  $"track F {c.trackFMm}/{def.trackWidth * f.sx * 1000f:0} R {c.trackRMm}/{mtr * f.sx * 1000f:0}  " +
+                                  $"tyre {c.tyreFDiaMm}x{c.tyreFWidthMm} / {c.tyreRDiaMm}x{c.tyreRWidthMm}  " +
+                                  $"along x{f.sz:0.000} across x{f.sx:0.000}  " +
+                                  $"camber {f.camberF:0.0}/{f.camberR:0.0}  poke {f.pokeF * 1000f:0}/{f.pokeR * 1000f:0} mm" +
+                                  $"{(f.clampX || f.clampZ ? "  !CLAMP" : "")}" +
+                                  $"{(f.Pokes ? "  !POKE" : "")}");
+                }
                 sb.AppendLine();
             }
 

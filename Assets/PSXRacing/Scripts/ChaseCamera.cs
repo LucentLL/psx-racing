@@ -614,7 +614,9 @@ namespace PSXRacing
                 case View.Hood:
                 case View.Bumper:
                 case View.Cockpit:
-                    Mount(MountOffset(Current, BoxCenter, BoxSize, Shell), MountPitch(Current));
+                    Mount(MountOffset(Current, BoxCenter, BoxSize, Shell,
+                                      targetBody != null ? targetBody.LengthScale : 1f,
+                                      targetBody != null ? targetBody.BodyLift : 0f), MountPitch(Current));
                     break;
                 case View.TopDown:
                     TopDown(speed, fit);
@@ -964,8 +966,14 @@ namespace PSXRacing
         /// these can be wrong (a lens inside the windscreen, a bumper cam
         /// clipping through its own nose) is visual and silent.
         /// </summary>
-        public static Vector3 MountOffset(View v, Vector3 c, Vector3 s, CarModelDef def = null)
+        /// <param name="lengthScale">The body's along-stretch, and
+        /// <paramref name="lift"/> its rise on spec tyres (CarBody.LengthScale /
+        /// BodyLift, CarModelLibrary.Fit): the cowl, nose and roof were
+        /// measured on the unstretched shell.</param>
+        public static Vector3 MountOffset(View v, Vector3 c, Vector3 s, CarModelDef def = null,
+                                          float lengthScale = 1f, float lift = 0f)
         {
+            var m = Measured.Of(def, lengthScale, lift);
             switch (v)
             {
                 case View.Roof:
@@ -974,8 +982,8 @@ namespace PSXRacing
                     // MEASURED roof where there is one: the collider box is a
                     // shrunk fit, so deriving a roofline from it puts the lens
                     // inside the cabin on anything tall.
-                    if (def != null && def.roofY > 0.5f)
-                        return new Vector3(0f, def.roofY + MountClearance, c.z - s.z * 0.06f);
+                    if (m.ok && m.roofY > 0.5f)
+                        return new Vector3(0f, m.roofY + MountClearance, c.z - s.z * 0.06f);
                     return new Vector3(0f, c.y + s.y * 0.5f + 0.22f, c.z - s.z * 0.06f);
                 case View.Hood:
                     // Just in front of the windscreen and clear of the bonnet,
@@ -992,20 +1000,20 @@ namespace PSXRacing
                     // that much, so the two errors cancelled to "a camera three
                     // millimetres above the glass" — which is to say, inside it
                     // for the whole of the near plane.
-                    if (def != null && def.cowlY > 0.4f && def.noseZ > def.cowlZ
-                                    && def.cowlZ > c.z - s.z * 0.5f)
-                        return new Vector3(0f, def.cowlY + MountClearance, def.cowlZ + 0.05f);
+                    if (m.ok && m.cowlY > 0.4f && m.noseZ > m.cowlZ
+                             && m.cowlZ > c.z - s.z * 0.5f)
+                        return new Vector3(0f, m.cowlY + MountClearance, m.cowlZ + 0.05f);
                     return new Vector3(0f, c.y + s.y * 0.30f, c.z + s.z * 0.32f);
                 case View.Cockpit:
-                    return CockpitEye(c, s, def);
+                    return CockpitEye(c, s, m);
                 default:
                     // Ahead of the nose, not inside it — and the nose is the
                     // MESH's, not the box's. The collider is a 0.955 fit, so its
                     // front face sits a good 10 cm inside the bodywork and a
                     // bumper cam set just ahead of the box lands on the number
                     // plate rather than in front of it.
-                    float nose = def != null && def.noseZ > c.z
-                        ? def.noseZ
+                    float nose = m.ok && m.noseZ > c.z
+                        ? m.noseZ
                         : c.z + s.z * 0.5f + 0.11f;
                     return new Vector3(0f, Mathf.Max(0.36f, c.y - s.y * 0.34f), nose + 0.06f);
             }
@@ -1032,10 +1040,23 @@ namespace PSXRacing
         /// WIDTH rather than a constant: a quarter of the car's width from the
         /// centreline is a driver's seat in a supermini and in a Charger alike.
         /// </summary>
-        static Vector3 CockpitEye(Vector3 c, Vector3 s, CarModelDef def)
+        /// <summary>The baker's cowl, nose and roof where the FITTED body has
+        /// them: Z stretched with the shell, Y lifted with its tyres.</summary>
+        struct Measured
+        {
+            public bool ok;
+            public float cowlZ, cowlY, noseZ, roofY;
+            public static Measured Of(CarModelDef def, float sz, float lift) => def == null ? default : new Measured
+            {
+                ok = true, cowlZ = def.cowlZ * sz, cowlY = def.cowlY + lift,
+                noseZ = def.noseZ * sz, roofY = def.roofY + lift,
+            };
+        }
+
+        static Vector3 CockpitEye(Vector3 c, Vector3 s, Measured def)
         {
             float floor = c.y - s.y * 0.5f;
-            bool measured = def != null && def.cowlY > 0.4f && def.roofY > def.cowlY + 0.25f
+            bool measured = def.ok && def.cowlY > 0.4f && def.roofY > def.cowlY + 0.25f
                             && def.cowlZ > floor;
             float y = measured
                 ? Mathf.Lerp(def.cowlY, def.roofY, 0.62f)
@@ -1229,15 +1250,21 @@ namespace PSXRacing
                            body != null ? body.Def : null,
                            cc != null ? cc.wheelbase : 2.425f,
                            body != null ? body.WidthScale : 1f,
-                           body != null ? body.widthMm : 0);
+                           body != null ? body.widthMm : 0,
+                           body != null ? body.LengthScale : 1f,
+                           body != null ? body.BodyLift : 0f);
         }
 
+        /// <param name="lengthScale">The body's along-stretch, and
+        /// <paramref name="lift"/> its rise on spec tyres (CarModelLibrary.Fit):
+        /// the silhouette table was measured on the unstretched shell, so its
+        /// lengths stretch and its heights rise with the body.</param>
         public static CarFrame FrameOf(Vector3 c, Vector3 s, CarModelDef def, float wheelbase,
-                                       float widthScale, int widthMm)
+                                       float widthScale, int widthMm, float lengthScale = 1f, float lift = 0f)
         {
             var f = new CarFrame { key = def != null ? def.key : null };
             f.rearAxleZ = -Mathf.Max(wheelbase, 1f) * 0.5f;
-            f.roofY = def != null && def.roofY > 0.5f ? def.roofY : c.y + s.y * 0.5f / BoxFitY;
+            f.roofY = def != null && def.roofY > 0.5f ? def.roofY + lift : c.y + s.y * 0.5f / BoxFitY;
             float mm = widthMm;
             if (mm <= 0f && def != null)
             {
@@ -1248,17 +1275,17 @@ namespace PSXRacing
             if (def != null && ChaseSilhouettes.TryGet(def.key, out var e) && e.Count > 0
                 && e.RoofCount > 0 && e.LowCount > 0)
             {
-                f.tailZ = e.tailZ;
+                f.tailZ = e.tailZ * lengthScale;
                 f.sil = new Vector3[e.Count];
                 for (int i = 0; i < e.Count; i++)
                 {
                     var q = e.Point(i);
-                    f.sil[i] = new Vector3(q.x * widthScale, q.y, q.z);
+                    f.sil[i] = new Vector3(q.x * widthScale, q.y + lift, q.z * lengthScale);
                 }
                 f.roof = new Vector2[e.RoofCount];
-                for (int i = 0; i < e.RoofCount; i++) f.roof[i] = e.Roof(i);
+                for (int i = 0; i < e.RoofCount; i++) { var r = e.Roof(i); f.roof[i] = new Vector2(r.x + lift, r.y * lengthScale); }
                 f.low = new Vector2[e.LowCount];
-                for (int i = 0; i < e.LowCount; i++) f.low[i] = e.Low(i);
+                for (int i = 0; i < e.LowCount; i++) { var r = e.Low(i); f.low[i] = new Vector2(r.x + lift, r.y * lengthScale); }
             }
             else
             {
@@ -1648,6 +1675,7 @@ namespace PSXRacing
         View liveFitView = (View)(-1);
         float liveFitAspect, liveFitSx, liveFitWheelbase;
         int liveFitWidthMm;
+        float liveFitSz = 1f, liveFitLift;
         string liveFitKey;
         Vector3 liveFitBoxC, liveFitBoxS;
         HudDials liveFitDials;
@@ -1662,22 +1690,24 @@ namespace PSXRacing
             var def = Shell;
             var body = targetBody;
             float sx = body != null ? body.WidthScale : 1f;
+            float sz = body != null ? body.LengthScale : 1f, lift = body != null ? body.BodyLift : 0f;
             int mm = body != null ? body.widthMm : 0;
             float wb = targetCar != null ? targetCar.wheelbase : 2.425f;
             Vector3 bc = box != null ? box.center : Vector3.zero, bs = box != null ? box.size : Vector3.zero;
             var dials = LiveDials();
             string key = def != null ? def.key : null;
             if (v == liveFitView && target == liveFitTarget && Mathf.Abs(aspect - liveFitAspect) < 1e-4f
-                && key == liveFitKey && sx == liveFitSx && mm == liveFitWidthMm && wb == liveFitWheelbase
+                && key == liveFitKey && sx == liveFitSx && sz == liveFitSz && lift == liveFitLift
+                && mm == liveFitWidthMm && wb == liveFitWheelbase
                 && bc == liveFitBoxC && bs == liveFitBoxS
                 && dials.left == liveFitDials.left && dials.right == liveFitDials.right)
                 return liveFit;
             liveFitView = v; liveFitTarget = target; liveFitAspect = aspect; liveFitKey = key;
-            liveFitSx = sx; liveFitWidthMm = mm; liveFitWheelbase = wb; liveFitBoxC = bc; liveFitBoxS = bs;
+            liveFitSx = sx; liveFitSz = sz; liveFitLift = lift; liveFitWidthMm = mm; liveFitWheelbase = wb; liveFitBoxC = bc; liveFitBoxS = bs;
             liveFitDials = dials;
             var frame = box != null
-                ? FrameOf(bc, bs, def, wb, sx, mm)
-                : FrameOf(new Vector3(0f, 0.72f, 0.05f), new Vector3(1.72f, 1.0f, 4.1f), def, wb, sx, mm);
+                ? FrameOf(bc, bs, def, wb, sx, mm, sz, lift)
+                : FrameOf(new Vector3(0f, 0.72f, 0.05f), new Vector3(1.72f, 1.0f, 4.1f), def, wb, sx, mm, sz, lift);
             liveFit = Fit(v, aspect, frame, dials);
             return liveFit;
         }

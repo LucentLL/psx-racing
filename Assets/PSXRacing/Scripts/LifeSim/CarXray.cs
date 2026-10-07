@@ -172,11 +172,13 @@ namespace PSXRacing.LifeSim
         {
             // Fall back to the reference FD's numbers when a car has no shell
             // baked — every one of these is a real measurement off that mesh.
-            float L = shell != null ? shell.colliderSize.z : 4.1f;
-            float W = shell != null ? shell.colliderSize.x : 1.72f;
-            float wb = shell != null ? shell.wheelbase : 2.425f;
-            float track = shell != null ? shell.trackWidth : 1.46f;
-            float tyre = shell != null ? shell.wheelRadius : 0.31f;
+            // The car as it races: the same fit CarBody wears (to spec).
+            var fit = CarModelLibrary.Fit(shell, spec);
+            float L = shell != null ? shell.colliderSize.z * fit.sz : 4.1f;
+            float W = shell != null ? shell.colliderSize.x * fit.sx : 1.72f;
+            float wb = shell != null ? fit.wheelbase : 2.425f;
+            float track = shell != null ? fit.trackF : 1.46f;
+            float tyre = shell != null ? fit.radiusF : 0.31f;
 
             var pen = new Pen
             {

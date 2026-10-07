@@ -62,6 +62,10 @@ MonoBehaviour:
   trackWidth: 1.370474
   wheelRadius: 0.28229964
   wheelMeshScale: 0.93
+  trackRear: 1.3804929
+  tyreRadiusRear: 0.303548
+  tyreWidthRear: 0.20236498
+  lowerBodyWidth: 1.639318
   cowlZ: 0.82284796
   cowlY: 0.8976702
   noseZ: 2.0186448

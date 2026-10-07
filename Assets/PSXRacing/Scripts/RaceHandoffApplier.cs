@@ -334,8 +334,10 @@ namespace PSXRacing
         /// lower of the collider's underside and the tyres' contact line.</summary>
         static float ShellReach(CarController car)
         {
-            float wheels = car.mountHeight <= 0f ? car.wheelRadius
-                         : car.restLength + car.wheelRadius - car.mountHeight;
+            // The bigger of the two axles' tyres (a staggered car, to spec).
+            float r = Mathf.Max(car.WheelRadiusOf(0), car.WheelRadiusOf(2));
+            float wheels = car.mountHeight <= 0f ? r
+                         : car.restLength + r - car.mountHeight;
             var shell = car.GetComponent<CarBody>();
             float box = shell != null && shell.box != null
                 ? -(shell.box.center.y - shell.box.size.y * 0.5f) : 0f;

@@ -255,9 +255,9 @@ namespace PSXRacing.OnFoot
                 // nothing anywhere claiming they were the same colour. One
                 // answer now, and it is the one the body shop can change.
                 int skin = Paint.SkinFor(car, spec, def);
-                st.shell = SpawnShell(bay, def, skin, out Vector3 roofPoint, spec != null ? spec.widthMm : 0);
+                st.shell = SpawnShell(bay, def, skin, out Vector3 roofPoint, spec);
 
-                BuildRaiseRig(st, def);
+                BuildRaiseRig(st, def, spec);
                 // Straight to wherever the save says it was left. A car the
                 // player put on the lift last night is on the lift when they
                 // walk back in, and it does not perform the two seconds of
@@ -293,7 +293,7 @@ namespace PSXRacing.OnFoot
             if (def == null) return;
             liveSt = new BayState { bay = bays[0], car = car, garage = true, live = true };
             bayStates.Add(liveSt);
-            BuildRaiseRig(liveSt, def);
+            BuildRaiseRig(liveSt, def, spec);
             if (LiveInBay())
                 SetRaise(liveSt, RaiseHere(liveSt), instant: true);
             else if (Toolbox.RaiseOf(S, car) != Toolbox.Raise.Ground)
@@ -329,8 +329,8 @@ namespace PSXRacing.OnFoot
         /// SOLIDITY is the one thing the garage cares about specially: the box
         /// is inside the shell, so a car on the lift takes it up and the player
         /// can walk underneath, which is the whole point of the lift.</summary>
-        Transform SpawnShell(Transform bay, CarModelDef def, int skin, out Vector3 roofPoint, int widthMm = 0) =>
-            CarShell.Spawn(bay, def, skin, out roofPoint, widthMm: widthMm);
+        Transform SpawnShell(Transform bay, CarModelDef def, int skin, out Vector3 roofPoint, CarSpec spec) =>
+            CarShell.Spawn(bay, def, skin, out roofPoint, widthMm: spec != null ? spec.widthMm : 0, spec: spec);
 
         // ------------------------------------------------------------------
         //  getting the car in the air
@@ -365,14 +365,16 @@ namespace PSXRacing.OnFoot
             return !st.garage && best == Toolbox.Raise.Lift ? Toolbox.Raise.Stands : best;
         }
 
-        void BuildRaiseRig(BayState st, CarModelDef def)
+        void BuildRaiseRig(BayState st, CarModelDef def, CarSpec spec)
         {
             var bay = st.bay;
             // Under the sills, inboard of the wheels — where a jack stand goes.
-            float sillX = Mathf.Max(0.52f, def.trackWidth * 0.42f);
-            float sillZ = Mathf.Max(0.62f, def.wheelbase * 0.30f);
-            float centre = def.colliderCenter.z;
-            float floor = def.colliderCenter.y - def.colliderSize.y * 0.5f;
+            // Off the same fit the shell was spawned with (CarShell.Spawn).
+            var fit = CarModelLibrary.Fit(def, spec);
+            float sillX = Mathf.Max(0.52f, Mathf.Min(fit.trackF, fit.trackR) * 0.42f);
+            float sillZ = Mathf.Max(0.62f, fit.wheelbase * 0.30f);
+            float centre = fit.P(def.colliderCenter).z;
+            float floor = def.colliderCenter.y + fit.dy - def.colliderSize.y * 0.5f;
 
             // Real stands run 33-53 cm. The low end is honest and reads as
             // nothing at all from across the room, so this sits high in the

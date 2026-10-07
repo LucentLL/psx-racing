@@ -23,6 +23,13 @@ namespace PSXRacing
         /// (tools/bake_dims.py). The shell is scaled across to the width
         /// (CarBody); 0 means "use the shell's own reference car".</summary>
         public int widthMm, trackFMm, trackRMm;
+        /// <summary>TO SPEC (owner, 2026-10-07: "Everything should be designed
+        /// to spec and scale"): wheelbase, overall length, and each axle's
+        /// tyre diameter and section width, mm, off the owner's GT4 Specs
+        /// sheet (tools/bake_spec_geometry.py). CarModelLibrary.Fit builds
+        /// the chassis to them and stretches the shell to them; 0 = keep the
+        /// shell's own value.</summary>
+        public int wheelbaseMm, lengthMm, tyreFDiaMm, tyreRDiaMm, tyreFWidthMm, tyreRWidthMm;
         public bool defaultManual;
         public float topSpeedMps;
         public string tcRPMs, tcNorm, gearSpeeds;

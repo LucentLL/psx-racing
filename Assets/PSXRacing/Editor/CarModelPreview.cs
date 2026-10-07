@@ -126,21 +126,18 @@ namespace PSXRacing.EditorTools
             // this preview rendered every car with its wheels behind its arches
             // for a whole pass, because it pinned the body to the origin while
             // the game did not.
-            body.transform.localPosition = new Vector3(0f, def.bodyYOffset, def.bodyZOffset);
-            body.transform.localRotation = Quaternion.Euler(0f, def.bodyYaw, 0f);
+            // Through CarModelLibrary.Fit, like every other assembler: the
+            // shell's reference car (no catalog row), as wide as that car is.
+            var fit = CarModelLibrary.Fit(def, default(CarModelLibrary.SpecGeometry));
+            fit.PlaceBody(body.transform, def);
             body.AddComponent<MeshFilter>().sharedMesh = def.bodyMesh;
             body.AddComponent<MeshRenderer>().sharedMaterial = mat;
 
             for (int w = 0; w < 4; w++)
             {
-                bool left = w % 2 == 0;
                 var wheel = new GameObject("Wheel" + w);
                 wheel.transform.SetParent(root, false);
-                wheel.transform.localPosition = new Vector3(
-                    (left ? -0.5f : 0.5f) * def.trackWidth, def.wheelRadius,
-                    (w < 2 ? 0.5f : -0.5f) * def.wheelbase);
-                wheel.transform.localRotation = Quaternion.Euler(0f, left ? 180f : 0f, 0f);
-                wheel.transform.localScale = Vector3.one * def.wheelMeshScale;
+                fit.PlaceWheel(wheel.transform, w);
                 wheel.AddComponent<MeshFilter>().sharedMesh = def.wheelMesh;
                 var wmr = wheel.AddComponent<MeshRenderer>();
                 wmr.sharedMaterial = wheelMat;

@@ -107,7 +107,7 @@ namespace PSXRacing.LifeSim
             }
         }
 
-        int shownWidth;
+        CarModelLibrary.SpecGeometry shownGeo;
 
         string shownKey;
         int shownSkin = -1;
@@ -276,7 +276,7 @@ namespace PSXRacing.LifeSim
             // Paint's answer, which is CarBody's answer, so the car on the
             // turntable is the car on the grid rather than a different colour
             // of it.
-            Show(def, Paint.FactorySkin(spec, def), spec.widthMm);
+            Show(def, Paint.FactorySkin(spec, def), CarModelLibrary.SpecGeometry.Of(spec));
         }
 
         /// <summary>
@@ -292,19 +292,25 @@ namespace PSXRacing.LifeSim
         {
             var def = Paint.DefFor(spec);
             if (def == null) return;
-            Show(def, skinOverride >= 0 ? skinOverride : Paint.SkinFor(car, spec, def), spec != null ? spec.widthMm : 0);
+            Show(def, skinOverride >= 0 ? skinOverride : Paint.SkinFor(car, spec, def), CarModelLibrary.SpecGeometry.Of(spec));
         }
 
         /// <param name="widthMm">The real car's width (CarSpec.widthMm), 0 for
         /// the model's reference car: the turntable shows the car as wide as it
         /// races (CarModelLibrary.WidthScale).</param>
-        public void Show(CarModelDef def, int skin, int widthMm = 0)
+        public void Show(CarModelDef def, int skin, int widthMm = 0) =>
+            Show(def, skin, CarModelLibrary.SpecGeometry.WidthOnly(widthMm));
+
+        /// <summary>The turntable shows the car as it races: the same
+        /// CarModelLibrary.Fit as CarBody (stretch, spec track, tyres, camber).</summary>
+        public void Show(CarModelDef def, int skin, CarModelLibrary.SpecGeometry geo)
         {
             if (def == null) return;
             EnsureRig();
-            if (def.key == shownKey && skin == shownSkin && widthMm == shownWidth) return;
-            shownWidth = widthMm;
-            float sx = CarModelLibrary.WidthScale(def, widthMm);
+            if (def.key == shownKey && skin == shownSkin && geo.Equals(shownGeo)) return;
+            shownGeo = geo;
+            var fit = CarModelLibrary.Fit(def, geo);
+            float sx = fit.sx;
             shownKey = def.key;
             shownSkin = skin;
             Shown = def;
@@ -319,31 +325,22 @@ namespace PSXRacing.LifeSim
             // The two offsets inside that are the same ones CarBody applies:
             // the body sits back from the axles by the model's own asymmetry,
             // and the wheels sit symmetrically about them.
-            float centre = def.colliderCenter.z;
+            float centre = fit.P(def.colliderCenter).z;
 
             bodyFilter.sharedMesh = def.bodyMesh;
             bodyRenderer.sharedMaterial = mat;
-            bodyRoot.localPosition = new Vector3(0f, def.bodyYOffset, def.bodyZOffset - centre);
-            bodyRoot.localRotation = Quaternion.Euler(0f, def.bodyYaw, 0f);
-            bodyRoot.localScale = CarBody.AcrossScale(def.bodyYaw, sx);
+            fit.PlaceBody(bodyRoot, def, new Vector3(0f, 0f, -centre));
 
             for (int i = 0; i < 4; i++)
             {
-                bool left = i % 2 == 0;
-                var t = wheelFilters[i].transform;
-                t.localPosition = new Vector3(
-                    (left ? -0.5f : 0.5f) * def.trackWidth * sx,
-                    def.wheelRadius,
-                    (i < 2 ? 0.5f : -0.5f) * def.wheelbase - centre);
-                t.localRotation = Quaternion.Euler(0f, left ? 180f : 0f, 0f);
-                t.localScale = Vector3.one * def.wheelMeshScale;
+                fit.PlaceWheel(wheelFilters[i].transform, i, new Vector3(0f, 0f, -centre));
                 wheelFilters[i].sharedMesh = def.wheelMesh;
                 wheelRenderers[i].sharedMaterial = wheelMat;
                 CarPaint.DullWheels(wheelRenderers[i]);
             }
 
             if (shadow != null)
-                shadow.localScale = new Vector3(def.blobSize.x * sx * 1.5f, def.blobSize.y * 1.5f, 1f);
+                shadow.localScale = new Vector3(def.blobSize.x * sx * 1.5f, def.blobSize.y * fit.sz * 1.5f, 1f);
 
             // Frame the car it IS, not the car the framing was picked on. A
             // Daytona is a metre longer than an FD and a supermini a metre
@@ -357,7 +354,7 @@ namespace PSXRacing.LifeSim
             // (L/2)/tan(26) metres, plus a quarter for margin. The first
             // version used a flat 1.85x and put a 4 m car in the middle of an
             // otherwise empty panel.
-            carLength = Mathf.Max(def.colliderSize.z, 3f);
+            carLength = Mathf.Max(def.colliderSize.z * fit.sz, 3f);
             distance = carLength * 1.22f;
             PlaceCamera();
         }

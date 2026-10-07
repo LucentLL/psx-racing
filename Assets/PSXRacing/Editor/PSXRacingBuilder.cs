@@ -5791,23 +5791,19 @@ namespace PSXRacing.EditorTools
 
             var body = new GameObject("Body");
             body.transform.SetParent(root, false);
-            // Body and wheels through the SAME offsets the driven cars use.
-            body.transform.localPosition = new Vector3(0f, def.bodyYOffset, def.bodyZOffset);
-            body.transform.localRotation = Quaternion.Euler(0f, def.bodyYaw, 0f);
+            // Body and wheels through the SAME fit the driven cars use
+            // (CarModelLibrary.Fit): a parked car has no catalog row, so it is
+            // its shell's reference car, as wide as that car really is.
+            var fit = CarModelLibrary.Fit(def, default(CarModelLibrary.SpecGeometry));
+            fit.PlaceBody(body.transform, def);
             body.AddComponent<MeshFilter>().sharedMesh = def.bodyMesh;
             body.AddComponent<MeshRenderer>().sharedMaterial = mat;
 
             for (int w = 0; w < 4; w++)
             {
-                bool left = w % 2 == 0;
                 var wheel = new GameObject("Wheel" + w);
                 wheel.transform.SetParent(root, false);
-                wheel.transform.localPosition = new Vector3(
-                    (left ? -0.5f : 0.5f) * def.trackWidth,
-                    def.wheelRadius,
-                    (w < 2 ? 0.5f : -0.5f) * def.wheelbase);
-                wheel.transform.localRotation = Quaternion.Euler(0f, left ? 180f : 0f, 0f);
-                wheel.transform.localScale = Vector3.one * def.wheelMeshScale;
+                fit.PlaceWheel(wheel.transform, w);
                 wheel.AddComponent<MeshFilter>().sharedMesh = def.wheelMesh;
                 var wmr = wheel.AddComponent<MeshRenderer>();
                 wmr.sharedMaterial = wheelMat;

@@ -133,9 +133,11 @@ namespace PSXRacing
             // and the shell is picked by the same resolver the race scene uses.
             // A project with no baked models loads nothing, which is why this
             // falls through to the built-in figure rather than to zero.
+            // To spec since 2026-10-07: the DRIVEN axle's tyre off the sheet,
+            // through the same fit CarBody wears (CarModelLibrary.Fit).
             float radius = 0.31f;
             var def = CarModelLibrary.LoadFor(spec);
-            if (def != null && def.wheelRadius > 0.05f) radius = def.wheelRadius;
+            if (def != null && def.wheelRadius > 0.05f) radius = CarModelLibrary.Fit(def, spec).driveRadius;
             b.wheelRadius = radius;
 
             b.massKg = CarTune.WeightAtStage(spec.kg, spec.minKg, tune.weight);
