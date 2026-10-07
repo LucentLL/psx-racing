@@ -3,4 +3,4 @@ newmtl viper_gts_wheels_r
 Ka 1 1 1
 Kd 1 1 1
 illum 1
-map_Kd textures/viper_atlas_256.png
+map_Kd textures/coupe_96_blue_white_512x256.png

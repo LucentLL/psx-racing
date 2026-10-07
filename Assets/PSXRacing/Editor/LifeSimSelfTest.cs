@@ -9346,6 +9346,10 @@ namespace PSXRacing.EditorTools
                 Check(nsx >= 12 && nsxOk == nsx, "every NSX wears the owner's Midship Coupe", nsxOk + " of " + nsx);
                 Check(miata >= 8 && miataOk == miata, "every first-generation roadster wears the pop-up roadster, the rest the Classic Roadster", miataOk + " of " + miata);
                 Check(ae86 >= 2 && ae86Ok == ae86, "the 1983 pop-up hatch dresses only the pop-up-lamp variant", ae86Ok + " of " + ae86);
+                int gti = 0, gtiOk = 0;
+                foreach (var c in CarCatalog.All)
+                    if (c.name.Contains("Golf I GTI")) { gti++; if (CarModelLibrary.KeyFor(c) == "hatch_76") gtiOk++; }
+                Check(gti >= 1 && gtiOk == gti, "the 1976 GTI wears the owner's Hatch 76", gtiOk + " of " + gti);
                 // The owner's 2026-10-02 set.
                 int integra = 0, integraOk = 0, s2k = 0, s2kOk = 0, prelude = 0, preludeOk = 0;
                 foreach (var c in CarCatalog.All)

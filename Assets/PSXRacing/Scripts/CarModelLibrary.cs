@@ -92,6 +92,9 @@ namespace PSXRacing
             // lamp body when the lights come on (CarLights.PopUps).
             new Model { key = "roadster_na_popup", name = "Classic roadster (pop-up)", region = Region.Japan, year = 1989, body = Body.Roadster, kg = 1006, handOnly = true, widthMm = 1675 },
             new Model { key = "hatch_83_popup", name = "Hatch 83 (pop-up)",      region = Region.Japan,   year = 1983, body = Body.Sports,   kg = 1006, handOnly = true, widthMm = 1625 },
+            // The owner's 2026-10-06 Hatch 76: an unbadged 1976 GTI-style three-door,
+            // sized to GT4's Golf I GTI `76 sheet (3705 mm, 1630 wide, 878 kg).
+            new Model { key = "hatch_76",    name = "Hatch 76",                 region = Region.Europe,  year = 1976, body = Body.Hatch,    kg =  878, handOnly = true, widthMm = 1630 },
             // The owner's 2026-10-02 set, each sized to its GT4 sheet: the
             // Liftback 95 (every Integra Type R DC2, Spoon's too), the Roadster
             // 99 (the S2000) and the Coupe 99 (the fifth-generation Preludes).
@@ -223,7 +226,11 @@ namespace PSXRacing
             // Classic Roadster. The 1983 pop-up hatch is the catalog's one
             // pop-up variant of that car; its fixed-lamp twin stays scored.
             (@"Miata.*\(NA\b",                                  "roadster_na_popup"),
-            (@"SPRINTER TRUENO GT-APEX \(AE86\)",              "hatch_83_popup"),            ("Mazda MX-5|Miata|Eunos Roadster",                  "classic_roadster"),
+            (@"SPRINTER TRUENO GT-APEX \(AE86\)",              "hatch_83_popup"),
+            // 2026-10-06: the owner's Hatch 76 is the catalog's 1976 GTI, ahead of
+            // the European hatch rule below that takes every other Golf.
+            (@"Golf I GTI `76",                                 "hatch_76"),
+            ("Mazda MX-5|Miata|Eunos Roadster",                  "classic_roadster"),
             // And the 2026-10-02 set: every Integra Type R DC2 (Spoon's was on
             // the European hatch until there was an Integra to wear), the
             // S2000, and the fifth-generation Prelude (`96-`98: SiR, Type S,

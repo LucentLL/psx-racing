@@ -66,15 +66,15 @@ MonoBehaviour:
   cowlY: 0.8976702
   noseZ: 2.0186448
   roofY: 1.3201555
-  headLamp: {x: 0.49288994, y: 0.55639243, z: 2.0133672}
+  headLamp: {x: 0.4785519, y: 0.55633533, z: 2.0134459}
   headLampNormal: {x: 0.004963794, y: 0.11787668, z: 0.99301577}
-  headLampSize: {x: 0.2072089, y: 0.11330935}
+  headLampSize: {x: 0.1947653, y: 0.08973503}
   tailLamp: {x: 0.57408345, y: 0.6722785, z: -2.073744}
   tailLampNormal: {x: 0, y: 0, z: -1}
   tailLampSize: {x: 0.37237716, y: 0.1268416}
   lampsUpMesh: {fileID: -2432090755550338912, guid: cab0e63f600294646a74a6740c9a8ea2, type: 3}
-  headLampUp: {x: 0.49289024, y: 0.7514896, z: 1.9611715}
-  headLampUpNormal: {x: 0, y: 0.1003801, z: 0.99494916}
+  headLampUp: {x: 0.4928899, y: 0.7194309, z: 1.95428}
+  headLampUpNormal: {x: 0, y: 0.18180194, z: 0.98333514}
   headLampUpSize: {x: 0.2072089, y: 0.16535553}
   colliderCenter: {x: 0, y: 0.7586236, z: -0.08385503}
   colliderSize: {x: 1.759977, y: 1.04679, z: 4.0157747}

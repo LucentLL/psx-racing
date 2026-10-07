@@ -121,8 +121,15 @@ const MODELS = [
   // rip rebuilt as a game asset - reflection shell gone, levelled on its
   // wheels, arches cut, panel backs closed. It is GT4's "Dodge VIPER GTS `99"
   // (4488 mm, 2443 mm wheelbase), not traffic.
-  { key: 'viper_gts',    obj: `${ownerCars}/Viper_GTS_PSX/viper_gts_psx.obj`,
-    tex: `${ownerCars}/Viper_GTS_PSX`, skins: /^viper_atlas_256$/,
+  // 2026-10-06: the owner's independent rebuild, revision 02
+  // (Cars/Viper_Independent_Textured_v02: 3,925 tris with the wheels, smoother
+  // glass, raised tail-lamp housings, three-spoke wheels), in TWO paints on
+  // identical geometry and UVs - blue with white stripes, and solid red. GLB
+  // -> converted/viper_v02; both atlases sit beside the OBJ under neutral
+  // names and bake as the shell's two liveries. The catalog colour picks the
+  // nearer one (CarModelDef.SkinFor), a respray the other.
+  { key: 'viper_gts',    obj: `${here}/converted/viper_v02/viper_v02.obj`,
+    tex: `${here}/converted/viper_v02`, skins: /^coupe_96_(blue_white|red)_512x256$/,
     gt4LengthM: 4.488 },
 
   // The owner's FlatSix Coupe (2026-09-26, "add FlatSixCoupe for all Porsche
@@ -179,10 +186,23 @@ const MODELS = [
   // 2026-10-05 later: revision 07 (rebuilt hood / headlight / front-fascia
   // junction, raised housings 50 mm forward, black upper fascia; same stance
   // and paint; 3,988 tris either way), converted/hatch_83_popup_v07.
-  { key: 'hatch_83_popup', obj: `${here}/converted/hatch_83_popup_v07/hatch_83_popup_v07.obj`,
-    lampsUp: `${here}/converted/hatch_83_popup_v07/hatch_83_popup_v07_up.obj`,
-    tex: `${ownerCars}/AE86_Independent_v07`, skins: /^ae86_white_black_512x256$/,
+  // 2026-10-06: revision 09 (pop-up covers and their housing junctions
+  // rebuilt: the painted cover curves down to the hood, hinge on its sloping
+  // rear edge, 70-degree open pose, dark brow; 3,990 tris either way),
+  // converted/hatch_83_popup_v09.
+  { key: 'hatch_83_popup', obj: `${here}/converted/hatch_83_popup_v09/hatch_83_popup_v09.obj`,
+    lampsUp: `${here}/converted/hatch_83_popup_v09/hatch_83_popup_v09_up.obj`,
+    tex: `${ownerCars}/AE86_Independent_v09`, skins: /^ae86_white_black_512x256$/,
     skinAs: 'hatch_83_white_black_512x256', gt4LengthM: 4.205 },
+
+  // The owner's Hatch 76 (2026-10-06, Cars/Hatch_76_Original/Revision_02): an
+  // unbadged three-door 1976 GTI-style hatch, 2,926 tris with the wheels, one
+  // 512x256 atlas with the shared FF underbody. GLB -> converted/hatch_76_r02.
+  // The folder also holds the atlas's source layers, so `skins` names the one
+  // sheet. GT4: Golf I GTI `76, 3705 mm, wb 2400.
+  { key: 'hatch_76',     obj: `${here}/converted/hatch_76_r02/hatch_76_r02.obj`,
+    tex: `${ownerCars}/Hatch_76_Original/Revision_02`, skins: /^hatch_512x256$/,
+    skinAs: 'hatch_76_512x256', gt4LengthM: 3.705 },
 
   // The owner's 2026-10-02 set ("Integra, S2000, and Prelude have been
   // added"), same layout (Body + Wheel_FL/FR/RL/RR, nose -Z, matte alpha 128),
