@@ -417,7 +417,8 @@ Shader "PSX/Lit"
             #define POD_GAIN           0.9
             #define CROWN_GAIN_CITY    0.85   // the accent wash (ref crown Ycode ~94, blue)
             #define LED_GAIN           1.6    // the LED lines on a crown's storeys
-            #define CITY_ROAD_KEEP     0.15   // share of the asphalt texel's tint the city's lamps keep
+            #define CITY_ROAD_KEEP     0.06   // share of the asphalt texel's tint the city's lamps keep
+            #define CITY_ROAD_LIFT     1.35   // the lamps on a lit city pavement x this (night v3: refs' road Ycode 90-141)
             #define CW_SPANDREL        0.22   // a curtain floor's dark slab, as a share of the storey
             #define CW_MULLION         0.12   // a curtain bay's mullion, as a share of the bay
             #define SIGN_GAIN          0.85   // a lit sign face after dark, as a share of its texel (WP-23)
@@ -797,7 +798,12 @@ Shader "PSX/Lit"
                 // the lamps and the beam in the city see its luminance with
                 // CITY_ROAD_KEEP of its tint. The light's colour (white LED
                 // uptown, bulbs elsewhere) stays; by day nothing changes.
+                // (night v3, 2026-10-06: KEEP 0.15 -> 0.06, and the lamps' share
+                // on a lit pavement x CITY_ROAD_LIFT - the refs' lit roads read
+                // Ycode 90-141 at sat 0.06-0.21, ours 26-107 at 0.18-0.43. An
+                // unlit road takes no lamp light, so it does not move.)
                 float3 roadN = float3(1.0, 1.0, 1.0);
+                float roadLift = 1.0;
                 if (cityNight > 0.5)
                 {
                     float lumR = dot(tex.rgb, float3(0.2126, 0.7152, 0.0722));
@@ -807,8 +813,9 @@ Shader "PSX/Lit"
                     float chromaS = (mxS - min(sq.r, min(sq.g, sq.b))) / max(mxS, 0.05);
                     float paved = saturate(N.y * 3.0 - 1.5) * (1.0 - smoothstep(0.30, 0.45, chromaS));
                     roadN = lerp(float3(1.0, 1.0, 1.0), toGrey, (1.0 - CITY_ROAD_KEEP) * paved);
+                    roadLift = 1.0 + (CITY_ROAD_LIFT - 1.0) * paved;
                 }
-                float3 light = (sunAmb + (headD * beamGain + lampD * lerp(1.0, beamGain, cityNight)) * roadN) * expo;
+                float3 light = (sunAmb + (headD * beamGain + lampD * (lerp(1.0, beamGain, cityNight) * roadLift)) * roadN) * expo;
             #ifdef PSX_FACADE
                 light += _PSXCityBounce.rgb * ((1.0 - 0.6 * saturate(N.y)) * _PSXNight * expo);
             #endif

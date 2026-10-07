@@ -121,6 +121,7 @@ Shader "PSX/Blit"
             // Globals (PSXGlobals pushes them every frame from the hour;
             // see the header). NOT in Properties, on purpose.
             float _PSXGradeNight;   // 0 day .. 1 night
+            float4 _PSXLampFieldST; // the lamp field's switch (.w), StreetLights.Field.cs - the lit city
             float4 _PSXMood;        // rgb = shadow hue at any brightness, a = amount
             float _PSXEmitKey;      // 1 = the halation glows by the emitter mask (alpha)
             float _PSXGradeSun;     // the owner's C11 choice: 0 (ships) .. 1 at a clear sunlit hour
@@ -157,6 +158,14 @@ Shader "PSX/Blit"
             #define GRADE_SAT_NIGHT_BOOST 1.18
             #define GRADE_MOOD_LO         0.05  // the split-tone is full below this luma...
             #define GRADE_MOOD_HI         0.45  // ...and gone above this one: shadows only
+            // THE LIT CITY (night v3, 2026-10-06): in Charlotte at night with the
+            // lamp field on (_PSXLampFieldST.w, 0 everywhere else - Town and the
+            // mountains are bit-identical) the sodium split-tone stops at a
+            // lower luma, so the murk stays brown but a lamp-lit road keeps the
+            // lamps' own (white LED) colour, and the mids' amber lean is cut.
+            // Lit roads read sat 0.18-0.43 hue 31-42; the refs 0.06-0.21.
+            #define CITY_MOOD_HI          0.20
+            #define CITY_WARM_CUT         0.75
             // The halation: what is brighter than the knee bleeds, warm. The
             // knee is on LINEAR light where the framebuffer is linear (0.57
             // there is 0.78 on the display).
@@ -248,6 +257,7 @@ Shader "PSX/Blit"
             {
                 // 0 all day, 1 at full night (TimeOfDay.GradeNightFor).
                 float night = saturate(_PSXGradeNight);
+                float cityLit = night * step(0.5, _PSXLampFieldST.w);
 
                 c += glow * GLOW_GAIN * GLOW_TINT;
 
@@ -278,7 +288,7 @@ Shader "PSX/Blit"
                 if (_PSXMood.a > 0.0)
                 {
                     float3 hue = _PSXMood.rgb / max(dot(_PSXMood.rgb, float3(0.299, 0.587, 0.114)), 1e-3);
-                    float sh = 1.0 - smoothstep(GRADE_MOOD_LO, GRADE_MOOD_HI, l);
+                    float sh = 1.0 - smoothstep(GRADE_MOOD_LO, lerp(GRADE_MOOD_HI, CITY_MOOD_HI, cityLit), l);
                     c = saturate(lerp(c, c * hue, saturate(_PSXMood.a) * sh));
                 }
 
@@ -286,8 +296,9 @@ Shader "PSX/Blit"
                 c = lerp(c, c * c * (3.0 - 2.0 * c), GRADE_CONTRAST);
                 l = dot(c, float3(0.299, 0.587, 0.114));
                 float mid = 4.0 * l * (1.0 - l);
-                c.r += GRADE_WARM_MID * mid;
-                c.b -= GRADE_WARM_MID * mid;
+                float amber = GRADE_WARM_MID * (1.0 - CITY_WARM_CUT * cityLit);
+                c.r += amber * mid;
+                c.b -= amber * mid;
 
                 // The floor and the ceiling. `lift` is the floor THIS hour
                 // has: the matte lift is veiling glare, and at night there is
