@@ -319,7 +319,7 @@ namespace PSXRacing.LifeSim
             switch (kind)
             {
                 case Upgrades.Kind.Power:
-                    return CarTune.PowerAtStage(spec.hp, spec.builtHp, stage) + " hp, top speed +" +
+                    return CarSpec.ToHp(CarTune.PowerAtStage(spec.hp, spec.builtHp, stage)) + " hp, top speed +" +
                            CarTune.TopSpeedGainPct(stage, false) + "%";
                 case Upgrades.Kind.Weight:
                     return CarTune.WeightAtStage(spec.kg, spec.minKg, stage) + " kg";
@@ -589,7 +589,7 @@ namespace PSXRacing.LifeSim
             if (car == null) return "";
             if (spec == null) return "NO CATALOG ENTRY — this car takes faults but not parts";
             var sb = new System.Text.StringBuilder();
-            sb.Append(Upgrades.EffectiveHp(car, spec)).Append(" hp");
+            sb.Append(CarSpec.ToHp(Upgrades.EffectiveHp(car, spec))).Append(" hp");
             if (car.supercharged) sb.Append(" + blower");
             sb.Append("  ·  ").Append(Upgrades.EffectiveKg(car, spec)).Append(" kg  ·  ")
               .Append(Upgrades.TotalStages(car)).Append("/").Append(Upgrades.KindCount * Upgrades.MaxStage)

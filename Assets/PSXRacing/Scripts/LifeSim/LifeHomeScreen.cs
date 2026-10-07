@@ -794,7 +794,7 @@ namespace PSXRacing.LifeSim
                 MenuKit.Label(root, lane.spec.name, 17, new Vector2(0f, 1f),
                     new Vector2(60f, y - 38f), TextAnchor.MiddleLeft, Color.white, 780f)
                     .raycastTarget = false;
-                MenuKit.Label(root, lane.spec.hp + " hp · " + lane.spec.drv + " · " +
+                MenuKit.Label(root, CarSpec.ToHp(lane.spec.hp) + " hp · " + lane.spec.drv + " · " +
                         age + " yr · " + lane.odoMiles.ToString("N0") + " mi · cond " + lane.cond,
                     14, new Vector2(0f, 1f), new Vector2(60f, y - 62f),
                     TextAnchor.MiddleLeft, MenuKit.Dim, 780f).raycastTarget = false;
@@ -2628,7 +2628,7 @@ namespace PSXRacing.LifeSim
                 MenuKit.Label(rt, (active ? "> " : "") + Clip(owned.displayName, nameChars),
                     16, new Vector2(0f, 0.5f), new Vector2(nameX, 10f), TextAnchor.MiddleLeft,
                     active ? MenuKit.Accent : away ? MenuKit.Dim : Color.white, nameW, height: 22f);
-                string drv = spec != null ? spec.drv + "  ·  " + spec.hp + " hp  ·  " : "";
+                string drv = spec != null ? spec.drv + "  ·  " + CarSpec.ToHp(spec.hp) + " hp  ·  " : "";
                 MenuKit.Label(rt, drv + owned.odoMiles.ToString("N0") + " mi",
                     14, new Vector2(0f, 0.5f), new Vector2(nameX, -12f), TextAnchor.MiddleLeft,
                     MenuKit.Dim, nameW, height: 20f);
@@ -2997,7 +2997,7 @@ namespace PSXRacing.LifeSim
                 ty -= 26f;
             }
 
-            string drv = spec != null ? spec.drv + "  ·  " + spec.hp + " hp  ·  " : "";
+            string drv = spec != null ? spec.drv + "  ·  " + CarSpec.ToHp(spec.hp) + " hp  ·  " : "";
             MenuKit.Label(body, drv + car.odoMiles.ToString("N0") + " mi  ·  FUEL " +
                     Mathf.RoundToInt(car.fuel) + "%",
                 MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(tx, ty), TextAnchor.MiddleLeft,
@@ -3349,8 +3349,8 @@ namespace PSXRacing.LifeSim
             SpecRow("TOP SPEED", (topBuilt == topStock ? topStock + " "
                                                       : topStock + " → " + topBuilt + " ") +
                     SpeedUnits.Label, ref y, topBuilt != topStock);
-            SpecRow("POWER", effHp == spec.hp ? spec.hp + " hp"
-                                              : spec.hp + " → " + effHp + " hp", ref y,
+            SpecRow("POWER", effHp == spec.hp ? CarSpec.ToHp(spec.hp) + " hp"
+                                              : CarSpec.ToHp(spec.hp) + " → " + CarSpec.ToHp(effHp) + " hp", ref y,
                     effHp != spec.hp);
             int effTqNm = Upgrades.EffectiveTorqueNm(car, spec);
             SpecRow("TORQUE", effTqNm == spec.peakTorqueNm ? Upgrades.TorqueText(spec.peakTorqueNm)
@@ -3361,7 +3361,7 @@ namespace PSXRacing.LifeSim
                                              : spec.kg + " → " + effKg + " kg", ref y,
                     effKg != spec.kg);
             SpecRow("POWER TO WEIGHT", effKg > 0
-                    ? (effHp / (float)effKg * 1000f).ToString("0") + " hp/tonne" : "—", ref y);
+                    ? (CarSpec.ToHp(effHp) / (float)effKg * 1000f).ToString("0") + " hp/tonne" : "—", ref y);
 
             y -= 12f;
             MenuKit.Label(body, "DETAILS", 15, new Vector2(0.5f, 1f), new Vector2(ColL, y),
@@ -3381,8 +3381,8 @@ namespace PSXRacing.LifeSim
             SpecRow("GEARS", spec.gears.ToString(), ref y);
             SpecRow("YEAR", spec.modelYear.ToString(), ref y);
             SpecRow("BUILD CEILING", spec.IsRaceCar ? "race car — already built"
-                : !spec.CanFitTurboKit ? spec.builtHp + " hp at stage 4"
-                : spec.CeilingHp(false) + " hp NA  ·  " + spec.CeilingHp(true) + " hp turbo", ref y);
+                : !spec.CanFitTurboKit ? CarSpec.ToHp(spec.builtHp) + " hp at stage 4"
+                : CarSpec.ToHp(spec.CeilingHp(false)) + " hp NA  ·  " + CarSpec.ToHp(spec.CeilingHp(true)) + " hp turbo", ref y);
 
             y -= 14f;
             float sBtnW = Mathf.Min(300f, (ColW - 12f) / 2f);
@@ -3948,7 +3948,7 @@ namespace PSXRacing.LifeSim
             {
                 var spec = pool[i];
                 MenuKit.Button(body,
-                    Clip(spec.name, 40) + "   ·   " + spec.hp + " hp · " + spec.drv +
+                    Clip(spec.name, 40) + "   ·   " + CarSpec.ToHp(spec.hp) + " hp · " + spec.drv +
                     " · " + spec.modelYear,
                     new Vector2(0.5f, 1f), new Vector2(MenuKit.ColLeft(ColL, ColW), y),
                     new Vector2(ColW, 36f), () => GrantCar(spec), 14);
@@ -4010,12 +4010,12 @@ namespace PSXRacing.LifeSim
             int effKg = Upgrades.EffectiveKg(car, spec);
             int effTq = Upgrades.EffectiveTorqueNm(car, spec);
             string power = effHp == spec.hp
-                ? spec.hp + " hp / " + Upgrades.TorqueText(spec.peakTorqueNm)
-                : spec.hp + " -> " + effHp + " hp  ·  " + Upgrades.TorqueIn(spec.peakTorqueNm) + " -> " +
+                ? CarSpec.ToHp(spec.hp) + " hp / " + Upgrades.TorqueText(spec.peakTorqueNm)
+                : CarSpec.ToHp(spec.hp) + " -> " + CarSpec.ToHp(effHp) + " hp  ·  " + Upgrades.TorqueIn(spec.peakTorqueNm) + " -> " +
                   Upgrades.TorqueText(effTq);
             string weight = effKg == spec.kg ? spec.kg + " kg" : spec.kg + " -> " + effKg + " kg";
             MenuKit.Label(body, power + "   ·   " + weight + "   ·   " +
-                (effKg > 0 ? (effHp / (float)effKg * 1000f).ToString("0") + " hp/tonne" : ""),
+                (effKg > 0 ? (CarSpec.ToHp(effHp) / (float)effKg * 1000f).ToString("0") + " hp/tonne" : ""),
                 16, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 Upgrades.IsStock(car) ? MenuKit.Dim : MenuKit.Good, 820f);
             y -= 26f;
@@ -4030,7 +4030,7 @@ namespace PSXRacing.LifeSim
                     ? stockTop + SpeedUnits.Suffix
                     : stockTop + " -> " + builtTop + SpeedUnits.Suffix + " (+" + topPct + "%)") +
                 (spec.IsRaceCar ? "   ·   race car"
-                                : "   ·   engine ceiling " + spec.CeilingHp(car.turbo) + " hp at stage 4" +
+                                : "   ·   engine ceiling " + CarSpec.ToHp(spec.CeilingHp(car.turbo)) + " hp at stage 4" +
                                   (spec.OnTurboPath(car.turbo) ? " (turbo)" : spec.CanFitTurboKit ? " (NA)" : "")) +
                 "   ·   mech skill " + Mathf.RoundToInt(S.mechSkill), 14,
                 new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
@@ -4159,7 +4159,7 @@ namespace PSXRacing.LifeSim
             setup.EnsureGears(basis.GearCount);
 
             int open = CarSetupGate.UnlockedCount(car, spec);
-            MenuKit.Label(body, spec.name + "   ·   " + Upgrades.EffectiveHp(car, spec) + " hp   ·   " +
+            MenuKit.Label(body, spec.name + "   ·   " + CarSpec.ToHp(Upgrades.EffectiveHp(car, spec)) + " hp   ·   " +
                 Upgrades.EffectiveKg(car, spec) + " kg   ·   " + open + " adjustments unlocked",
                 MenuKit.Small, new Vector2(0.5f, 1f), new Vector2(ColL, y),
                 TextAnchor.MiddleLeft, MenuKit.Dim, 820f);
@@ -4513,9 +4513,13 @@ namespace PSXRacing.LifeSim
             }
             else
             {
+                // A power plan's numbers are PS (CarSpec.hp); shown as hp.
                 gain = plan.unit == "kg" ? "-" + plan.delta + " kg"
+                     : plan.unit == "hp" ? "+" + (CarSpec.ToHp(plan.toVal) - CarSpec.ToHp(plan.fromVal)) + " hp"
                                          : "+" + plan.delta + " " + plan.unit;
-                span = plan.fromVal + " -> " + plan.toVal + " " + plan.unit;
+                span = plan.unit == "hp"
+                    ? CarSpec.ToHp(plan.fromVal) + " -> " + CarSpec.ToHp(plan.toVal) + " hp"
+                    : plan.fromVal + " -> " + plan.toVal + " " + plan.unit;
                 if (plan.unit == "hp" && plan.toTqNm > 0)
                 {
                     // Torque beside the horsepower (owner, 2026-09-26).
@@ -4593,12 +4597,12 @@ namespace PSXRacing.LifeSim
                     new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                     MenuKit.Accent, 600f, bold: true);
                 y -= 24f;
-                MenuKit.Para(body, "  +" + kit.delta + " hp / +" +
+                MenuKit.Para(body, "  +" + (CarSpec.ToHp(kit.toVal) - CarSpec.ToHp(kit.fromVal)) + " hp / +" +
                     (Upgrades.TorqueIn(kit.toTqNm) - Upgrades.TorqueIn(kit.fromTqNm)) + " " + Upgrades.TorqueUnit +
-                    " (" + kit.fromVal + " -> " + kit.toVal + " hp, " + Upgrades.TorqueIn(kit.fromTqNm) + " -> " +
+                    " (" + CarSpec.ToHp(kit.fromVal) + " -> " + CarSpec.ToHp(kit.toVal) + " hp, " + Upgrades.TorqueIn(kit.fromTqNm) + " -> " +
                     Upgrades.TorqueText(kit.toTqNm) + ")   " +
-                    kit.days + "d   ·   builds to " + spec.CeilingHp(true) + " hp, against " +
-                    spec.CeilingHp(false) + " hp naturally aspirated", 14, new Vector2(0.5f, 1f),
+                    kit.days + "d   ·   builds to " + CarSpec.ToHp(spec.CeilingHp(true)) + " hp, against " +
+                    CarSpec.ToHp(spec.CeilingHp(false)) + " hp naturally aspirated", 14, new Vector2(0.5f, 1f),
                     new Vector2(ColL, y - 8f), out float kitH, TextAnchor.UpperLeft, MenuKit.Dim, ColW);
                 y -= kitH + 2f;
                 MenuKit.Para(body, "  The boost comes in with the revs, with lag that grows with each stage. " +
@@ -5594,7 +5598,7 @@ namespace PSXRacing.LifeSim
             DrawCarView(spec, ref y, 160f);
             if (spec != null)
             {
-                MenuKit.Label(body, spec.hp + " hp  ·  " + spec.kg + " kg  ·  " + spec.drv +
+                MenuKit.Label(body, CarSpec.ToHp(spec.hp) + " hp  ·  " + spec.kg + " kg  ·  " + spec.drv +
                         "  ·  " + spec.gears + "-speed  ·  " + spec.modelYear +
                         "  ·  " + Mathf.RoundToInt(SpeedUnits.FromKmh(spec.topSpeedMps * 3.6f)) +
                             SpeedUnits.Suffix,
@@ -5610,7 +5614,7 @@ namespace PSXRacing.LifeSim
                 string engine = string.IsNullOrEmpty(spec.eType) ? "engine" : spec.eType;
                 MenuKit.Label(body, engine + (spec.dispCc > 0 ? "  ·  " + spec.dispCc + "cc" : "") +
                         "  ·  " + boost + (spec.IsRaceCar ? "  ·  race car, already built"
-                                                           : "  ·  builds to " + spec.builtHp + " hp"),
+                                                           : "  ·  builds to " + CarSpec.ToHp(spec.builtHp) + " hp"),
                     15, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                     MenuKit.Dim, 820f);
                 y -= 30f;
@@ -7368,7 +7372,7 @@ namespace PSXRacing.LifeSim
                 new Vector2(0f, 0.5f), new Vector2(84f, 9f), TextAnchor.MiddleLeft,
                 gone ? MenuKit.Dim : driving ? MenuKit.Accent : Color.white, vw * 0.62f,
                 height: 22f);
-            string drv = spec != null ? spec.drv + "  ·  " + spec.hp + " hp  ·  " : "";
+            string drv = spec != null ? spec.drv + "  ·  " + CarSpec.ToHp(spec.hp) + " hp  ·  " : "";
             // Where a car that cannot be taken IS, in the line the fuel would
             // have been on (a tank nobody can drive is not news). WHEN it is
             // back goes on the right, under the condition: this column is 760

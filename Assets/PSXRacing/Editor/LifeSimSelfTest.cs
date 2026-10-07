@@ -9925,8 +9925,13 @@ namespace PSXRacing.EditorTools
                   + "shared array would let a race edit the save");
 
             // ---- the gate: what a car has bought ------------------------
-            var awdSpec = FindDrv("4WD");
-            var gateSpec = awdSpec != null ? awdSpec : CarCatalog.All[0];
+            // An OPEN-DIFF car (2026-10-07): a factory LSD (CarSpec.HasFactoryLsd -
+            // every 4WD on the sheet has one) is FITTED and opens its diff rows,
+            // so "adjusts nothing" is a car that left the factory with none.
+            CarSpec gateSpec = null;
+            foreach (var c in CarCatalog.All)
+                if (!c.HasFactoryLsd && (gateSpec == null || (c.drv == "4WD" && gateSpec.drv != "4WD"))) gateSpec = c;
+            if (gateSpec == null) gateSpec = CarCatalog.All[0];
 
             var stockCar = new OwnedCar { id = "tune_stock", specId = gateSpec.id,
                                           displayName = gateSpec.name };
@@ -10180,9 +10185,14 @@ namespace PSXRacing.EditorTools
 
             Check(car.activeSetup == null,
                   "a car nobody has tuned races with no setup at all");
-            Check(baseAccelLock == 0f && baseDecelLock == 0f && basePreload == 0f,
-                  "and an OPEN differential — DiffShare then reduces to the even split, which "
-                  + "is the line this replaced, bit-for-bit",
+            // The FACTORY differential: open (DiffShare reduces to the even
+            // split, bit-for-bit the line it replaced) unless the sheet fitted an
+            // LSD at the factory, which is then exactly the sheet's.
+            Check(baseAccelLock == CarController.FactoryDiffAccelOf(benchSpec) &&
+                  baseDecelLock == CarController.FactoryDiffDecelOf(benchSpec) &&
+                  basePreload == CarController.FactoryDiffPreloadOf(benchSpec, car.wheelRadius) &&
+                  (benchSpec.HasFactoryLsd || baseAccelLock + baseDecelLock + basePreload == 0f),
+                  "and the FACTORY differential — open, or the sheet's own LSD",
                   baseAccelLock + " / " + baseDecelLock + " / " + basePreload);
 
             // A factory setup is not the same object as no setup, but it must be
@@ -10255,7 +10265,7 @@ namespace PSXRacing.EditorTools
             // Handing the setup back is the undo the garage's RESET button is.
             car.SetSetup(null);
             Check(car.springRateFront == baseSpringF && car.brakeFrontShare == baseBrakeShare &&
-                  car.maxSteerLowSpeedDeg == baseSteerLock && car.diffAccelLock == 0f &&
+                  car.maxSteerLowSpeedDeg == baseSteerLock && car.diffAccelLock == baseAccelLock &&
                   TuneSameRatios(car.gearRatios, baseRatios),
                   "and taking the setup away puts the car back exactly where it started");
             TuneDrop(car);
@@ -10461,6 +10471,10 @@ namespace PSXRacing.EditorTools
                 Agree(spec.name, "damper rear", fromCar.damperRear, fromSpec.damperRear);
                 Agree(spec.name, "bar front", fromCar.antiRollFront, fromSpec.antiRollFront);
                 Agree(spec.name, "bar rear", fromCar.antiRollRear, fromSpec.antiRollRear);
+                Agree(spec.name, "mu front (sheet)", fromCar.tireMuFront, fromSpec.tireMuFront);
+                Agree(spec.name, "factory diff accel", fromCar.factoryDiffAccel, fromSpec.factoryDiffAccel);
+                Agree(spec.name, "factory diff decel", fromCar.factoryDiffDecel, fromSpec.factoryDiffDecel);
+                Agree(spec.name, "factory diff preload", fromCar.factoryDiffPreloadN, fromSpec.factoryDiffPreloadN);
                 Agree(spec.name, "rest length", fromCar.restLength, fromSpec.restLength);
                 Agree(spec.name, "cg height", fromCar.cgHeight, fromSpec.cgHeight);
                 Agree(spec.name, "drive split", fromCar.frontDriveShare, fromSpec.frontDriveShare);
@@ -10533,6 +10547,7 @@ namespace PSXRacing.EditorTools
                   "the garage and the race scene derive the same car — FromSpec still mirrors "
                   + "ApplySpec on all " + CarCatalog.All.Count + " cars",
                   basisBad + " fields apart, worst " + basisWorst);
+            SpecHandlingChecks();
             Check(gearboxBad == 0,
                   "every gearbox in the catalog stays strictly descending under any legal trim",
                   gearboxBad + " inverted, worst " + gearboxWorst);
@@ -10672,6 +10687,91 @@ namespace PSXRacing.EditorTools
         /// and Awake invoked by reflection the way edit mode never does. The
         /// wheel radius comes off the same shell resolver CarBody uses, because
         /// ApplySpec builds the gearbox from it.</summary>
+        /// <summary>
+        /// TO SPEC handling (owner, 2026-10-07: "I want everything to spec").
+        /// Every catalog car, stock: the centre of mass on the sheet's weight
+        /// split, the sheet's spring rates, its per-axle grip off the FD's,
+        /// its rev limiter, a factory LSD exactly where the sheet shows one,
+        /// and every engine's peak power at hp x 735.5 W (the sheet is PS).
+        /// </summary>
+        static void SpecHandlingChecks()
+        {
+            int n = 0, comBad = 0, springBad = 0, muBad = 0, revBad = 0, lsdBad = 0, lsdCars = 0, psBad = 0;
+            string comW = null, springW = null, muW = null, revW = null, lsdW = null, psW = null;
+            foreach (var spec in CarCatalog.All)
+            {
+                n++;
+                var c = TuneBenchCar(spec);
+                c.ApplySpec(spec);
+                float split = (c.Body.centerOfMass.z + c.wheelbase * 0.5f) / c.wheelbase;
+                if (spec.wdFront <= 0 || Mathf.Abs(split - spec.wdFront / 100f) > 0.01f)
+                { comBad++; comW = comW ?? spec.name + " " + split.ToString("0.000") + " vs " + spec.wdFront + "%"; }
+                float kF = spec.springF * CarController.KgfPerMm, kR = spec.springR * CarController.KgfPerMm;
+                if (spec.springF <= 0f || spec.springR <= 0f ||
+                    Mathf.Abs(c.springRateFront - kF) > 0.01f * kF || Mathf.Abs(c.springRateRear - kR) > 0.01f * kR)
+                { springBad++; springW = springW ?? spec.name + " " + c.springRateFront.ToString("0") + "/" + c.springRateRear.ToString("0") + " N/m vs " + spec.springF + "/" + spec.springR + " kgf/mm"; }
+                float muF = CarController.DefaultTireMuFront * spec.gripF / 96f;
+                float muR = CarController.DefaultTireMuRear * spec.gripR / 96f;
+                if (spec.gripF <= 0 || Mathf.Abs(c.tireMuFront - muF) > 1e-4f || Mathf.Abs(c.tireMuRear - muR) > 1e-4f)
+                { muBad++; muW = muW ?? spec.name + " " + c.tireMuFront.ToString("0.000") + "/" + c.tireMuRear.ToString("0.000"); }
+                if (spec.revLimit < spec.redline || Mathf.Abs(c.revLimitRPM - spec.revLimit) > 0.5f)
+                { revBad++; revW = revW ?? spec.name + " " + c.revLimitRPM + " vs " + spec.revLimit; }
+                bool locked = c.diffAccelLock > 0f || c.diffDecelLock > 0f || c.diffPreloadN > 0f;
+                if (locked != spec.HasFactoryLsd) { lsdBad++; lsdW = lsdW ?? spec.name; }
+                if (spec.HasFactoryLsd) lsdCars++;
+                spec.Decode();
+                float peak = 0f;
+                for (int i = 0; i < spec.curveNm.Length; i++)
+                    peak = Mathf.Max(peak, spec.curveNm[i] * spec.curveRPM[i] * Mathf.PI / 30f);
+                if (Mathf.Abs(peak / (spec.hp * CarSpec.PsWatts) - 1f) > 1e-3f)
+                { psBad++; psW = psW ?? spec.name + " " + (peak / 1000f).ToString("0.0") + " kW for " + spec.hp + " PS"; }
+                TuneDrop(c);
+            }
+            Check(n > 300 && comBad == 0, "every catalog car's centre of mass sits on its sheet weight split (within 1%)",
+                  comBad + " of " + n + " off" + (comW != null ? ", first " + comW : ""));
+            Check(springBad == 0, "every catalog car runs its sheet's stock spring rates (within 1%)",
+                  springBad + " off" + (springW != null ? ", first " + springW : ""));
+            Check(muBad == 0, "every car's tyre grip is the sheet's per-axle modifier over the tuned FD's 96",
+                  muBad + " off" + (muW != null ? ", first " + muW : ""));
+            Check(revBad == 0, "every car's rev limiter is the sheet's (never under its redline)",
+                  revBad + " off" + (revW != null ? ", first " + revW : ""));
+            Check(lsdBad == 0 && lsdCars > 0, "a factory LSD on exactly the cars whose sheet shows one on the driven axle",
+                  lsdCars + " fitted, " + lsdBad + " wrong" + (lsdW != null ? ", first " + lsdW : ""));
+            Check(psBad == 0, "every engine peaks at hp x 735.5 W: the sheet's power is metric PS",
+                  psBad + " off" + (psW != null ? ", first " + psW : ""));
+            Check(CarSpec.ToHp(255) == 252 && CarSpec.ToHp(100) == 99, "the player reads mechanical hp (255 PS = 252 hp)",
+                  CarSpec.ToHp(255));
+
+            // The tuned FD is the reference: its grip and balance are what they were.
+            CarSpec fd = null;
+            foreach (var c in CarCatalog.All) if (c.name == "Mazda RX-7 Type R (FD, J) `91") fd = c;
+            Check(fd != null && CarController.TireMuFrontOf(fd) == CarController.DefaultTireMuFront &&
+                  CarController.TireMuRearOf(fd) == CarController.DefaultTireMuRear &&
+                  CarController.WeightDistFrontOf(fd) == 0.5f,
+                  "the tuned FD keeps tireMu 1.000 / 1.050 and 50:50");
+
+            // The shop: a factory LSD is FITTED, never sold, never refunded, and
+            // a weld replaces it.
+            CarSpec open = null;
+            foreach (var c in CarCatalog.All) if (!c.HasFactoryLsd && !c.IsRaceCar) { open = c; break; }
+            if (fd != null && open != null)
+            {
+                var mine = new OwnedCar { id = "lsd_t", specId = fd.id, displayName = fd.name };
+                var offer = Upgrades.OfferFor(null, mine, fd, Upgrades.Mod.LimitedSlip);
+                Check(Upgrades.HasMod(mine, Upgrades.Mod.LimitedSlip) && !Upgrades.Bought(mine, Upgrades.Mod.LimitedSlip) &&
+                      !offer.available && offer.blockedReason == "FITTED",
+                      "the shop calls a factory LSD FITTED and does not sell one", offer.blockedReason);
+                mine.welded = true;
+                Check(!Upgrades.HasMod(mine, Upgrades.Mod.LimitedSlip), "a weld replaces the factory LSD");
+                var plain = new OwnedCar { id = "lsd_o", specId = open.id, displayName = open.name };
+                Check(!Upgrades.HasMod(plain, Upgrades.Mod.LimitedSlip) &&
+                      CarSetupRanges.Of(CarSetupBasis.FromSpec(open, default, false), SetupParam.DiffAccel).def == 0f,
+                      "an open-diff car still has none, and its diff rows still default open", open.name);
+                Check(CarSetupRanges.Of(CarSetupBasis.FromSpec(fd, default, false), SetupParam.DiffAccel).def > 0f,
+                      "a factory-LSD car's diff rows start at the sheet's lock");
+            }
+        }
+
         static CarController TuneBenchCar(CarSpec spec)
         {
             var go = new GameObject("SetupTestCar") { hideFlags = HideFlags.HideAndDontSave };

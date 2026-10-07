@@ -30,6 +30,44 @@ namespace PSXRacing
         /// the chassis to them and stretches the shell to them; 0 = keep the
         /// shell's own value.</summary>
         public int wheelbaseMm, lengthMm, tyreFDiaMm, tyreRDiaMm, tyreFWidthMm, tyreRWidthMm;
+        /// <summary>TO SPEC handling (owner, 2026-10-07: "I want everything to
+        /// spec"), off the same sheet by tools/bake_spec_handling.py. All 0 =
+        /// not baked: the car drives as the RX-7 FD reference chassis.
+        /// wdFront: % of the weight on the front axle ("63 : 37" = 63), where
+        /// CarController puts the centre of mass. springF/R: stock spring
+        /// rates, kgf/mm (the centre of the range for a race car's adjustable
+        /// stock coilover). rideFMm/RMm: stock ride height, mm - only the F-R
+        /// difference is used (the rake the car sits at); the shell sets the
+        /// clearance. gripF/R: GT4's per-axle grip modifier; the tuned FD's
+        /// 96/96 maps to tireMu 1.000/1.050 and every car scales from it.
+        /// revLimit: the rev limiter, rpm (0 = redline + 500).
+        /// lsdInit/Accel/Decel: the factory LSD on the driven axle in GT4's
+        /// units (all 0 = an open diff).</summary>
+        public int wdFront;
+        public float springF, springR;
+        public int rideFMm, rideRMm, gripF, gripR, revLimit, lsdInit, lsdAccel, lsdDecel;
+
+        /// <summary>The car left the factory with a limited-slip diff on its
+        /// driven axle (the sheet's LSD columns). It is FITTED: the shop does
+        /// not sell it one, and its setup sliders start from these figures.</summary>
+        public bool HasFactoryLsd => lsdInit > 0 || lsdAccel > 0 || lsdDecel > 0;
+
+        /// <summary>The rev limiter, rpm: the sheet's (never under the
+        /// redline), or redline + 500 for a car with none baked.</summary>
+        public float RevLimitRPM => revLimit >= redline && revLimit > 0 ? revLimit : redline + 500f;
+
+        /// <summary>
+        /// POWER UNITS. <see cref="hp"/> is the sheet's "Peak Power (ps)":
+        /// METRIC horsepower, 735.5 W, which RG2 stored as if it were 745.7 W
+        /// mechanical hp (every engine ran 1.4% strong). The field keeps its
+        /// name and its number - every ladder, price and save is keyed on it -
+        /// and the physics reads it as PS (<see cref="PsWatts"/>, applied in
+        /// <see cref="Decode"/>). What the PLAYER reads is mechanical hp:
+        /// every "hp" on screen goes through <see cref="ToHp"/>.
+        /// </summary>
+        public const float PsWatts = 735.49875f;
+        public const float PsToHp = PsWatts / 745.69987f;
+        public static int ToHp(int ps) => Mathf.RoundToInt(ps * PsToHp);
         public bool defaultManual;
         public float topSpeedMps;
         public string tcRPMs, tcNorm, gearSpeeds;
@@ -110,6 +148,21 @@ namespace PSXRacing
             var norm = ParseFloats(tcNorm);
             curveNm = new float[norm.Length];
             for (int i = 0; i < norm.Length; i++) curveNm[i] = norm[i] * peakTorqueNm;
+            // ON THE PS BASIS: the curve's peak power over its sample points is
+            // EXACTLY hp x 735.5 W. peakTorqueNm is baked on that basis already
+            // (tools/bake_spec_handling.py); this takes out the last half-Nm of
+            // its integer rounding, and tools/bake_topspeed.py assumes it.
+            if (hp > 0 && curveRPM.Length == curveNm.Length && curveNm.Length > 0)
+            {
+                float best = 0f;
+                for (int i = 0; i < curveNm.Length; i++)
+                    best = Mathf.Max(best, curveNm[i] * curveRPM[i] * (Mathf.PI / 30f));
+                if (best > 1f)
+                {
+                    float s = hp * PsWatts / best;
+                    for (int i = 0; i < curveNm.Length; i++) curveNm[i] *= s;
+                }
+            }
             gearBoundMps = ParseFloats(gearSpeeds);
         }
 
@@ -181,7 +234,11 @@ namespace PSXRacing
             Decode();
             float best = -1f, at = redline;
             float from = Mathf.Max(idleRPM, 500);
-            for (float rpm = from; rpm <= redline + 1e-3f; rpm += 25f)
+            // Up to the LIMITER, not the redline (2026-10-07): with the sheet's
+            // limiter up to 2100 rpm past the redline, an engine still pulling
+            // there (the GALANT GTO MR, the Chaparral 2D) reaches it in top gear,
+            // so that is where top gear and the top-speed bake must anchor.
+            for (float rpm = from; rpm <= RevLimitRPM + 1e-3f; rpm += 25f)
             {
                 float p = StockTorqueAt(rpm) * rpm *
                           (blower ? CarTune.BlowerBoost(rpm, idleRPM, redline) : 1f);
@@ -272,7 +329,15 @@ namespace PSXRacing
             float[] shape = n <= 4 ? Shape4 : (n == 5 ? Shape5 : Shape6);
 
             vmax = vmax > 1f ? vmax : 60f;
-            float anchor = anchorRpm > 1f ? Mathf.Min(anchorRpm, redline) : redline;
+            // Capped at the LIMITER, not the redline (2026-10-07): PeakPowerRPM
+            // walks to the limiter, and an engine still pulling past its
+            // redline (GALANT GTO MR, Chaparral 2D) clamped here sat at the
+            // redline at vmax with more power above it - it ran on past its
+            // build's top speed, and a longer box beat stock by 3%. 100 rpm
+            // under the limiter at most, so an engine still pulling there
+            // tops out clear of the cut (TireForces cuts at limit - 50)
+            // instead of bouncing on it; DeriveDrag balances it at vmax.
+            float anchor = anchorRpm > 1f ? Mathf.Min(anchorRpm, RevLimitRPM - 100f) : redline;
             float wheelRpmAtVmax = vmax / (2f * Mathf.PI * wheelRadius) * 60f;
             float topRatio = anchor / Mathf.Max(1f, wheelRpmAtVmax * finalDrive);
 

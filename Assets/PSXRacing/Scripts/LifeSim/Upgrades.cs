@@ -558,7 +558,25 @@ namespace PSXRacing.LifeSim
             FinalDrive = 5, LimitedSlip = 6, GearSet = 7,
         }
 
-        public static bool HasMod(OwnedCar car, Mod mod)
+        /// <summary>Whether the car HAS the part: bought, or (the LSD) fitted
+        /// at the factory - see <see cref="FactoryFitted"/>.</summary>
+        public static bool HasMod(OwnedCar car, Mod mod) =>
+            Bought(car, mod) || FactoryFitted(car, mod);
+
+        /// <summary>TO SPEC (2026-10-07): a car whose sheet shows a limited-slip
+        /// diff on its driven axle left the factory with it (CarSpec.
+        /// HasFactoryLsd). The shop calls it FITTED and does not sell it; a
+        /// weld replaces it (the same hole in the car), and it is never refunded
+        /// as a part, because nobody paid for it.</summary>
+        public static bool FactoryFitted(OwnedCar car, Mod mod)
+        {
+            if (car == null || mod != Mod.LimitedSlip || car.welded) return false;
+            var spec = CarCatalog.Get(car.specId);
+            return spec != null && spec.HasFactoryLsd;
+        }
+
+        /// <summary>Only what the player PAID for (the save's own flags).</summary>
+        public static bool Bought(OwnedCar car, Mod mod)
         {
             if (car == null) return false;
             switch (mod)
@@ -868,7 +886,8 @@ namespace PSXRacing.LifeSim
             }
             foreach (var mod in AllMods)
             {
-                if (!HasMod(car, mod)) continue;
+                // Bought, not HasMod: a factory LSD is not a part to refund.
+                if (!Bought(car, mod)) continue;
                 back += OfferFor(s, car, spec, mod).price;
                 SetMod(car, mod, false);
             }

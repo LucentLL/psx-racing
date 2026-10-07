@@ -44,6 +44,10 @@ namespace PSXRacing
         /// kei car and on a Group C car.</summary>
         public float firstGearForceN;
         public bool fourWheelDrive, welded;
+        /// <summary>The factory LSD (CarSpec.HasFactoryLsd): the diff rows'
+        /// FACTORY values, so a car that left the factory with a plate pack
+        /// starts its sliders there. All 0 on an open diff.</summary>
+        public float factoryDiffAccel, factoryDiffDecel, factoryDiffPreloadN;
 
         public int GearCount => gearRatios != null ? gearRatios.Length : 0;
 
@@ -98,6 +102,9 @@ namespace PSXRacing
                 c.finalDrive, c.drivetrainEfficiency, c.wheelRadius);
             b.fourWheelDrive = c.frontDriveShare > 0.01f && c.frontDriveShare < 0.99f;
             b.welded = c.weldedDiff;
+            b.factoryDiffAccel = c.factoryDiffAccel;
+            b.factoryDiffDecel = c.factoryDiffDecel;
+            b.factoryDiffPreloadN = c.FactoryDiffPreloadN;
             return b;
         }
 
@@ -143,20 +150,22 @@ namespace PSXRacing
             b.massKg = CarTune.WeightAtStage(spec.kg, spec.minKg, tune.weight);
             b.staticWheelLoad = b.massKg * 9.81f * 0.25f;
 
-            float k = b.massKg / CarController.ChassisRefMass;
-            b.springRateFront = CarController.SpringFrontRef * k;
-            b.springRateRear = CarController.SpringRearRef * k;
-            b.damperFront = CarController.DamperFrontRef * k;
-            b.damperRear = CarController.DamperRearRef * k;
-            b.antiRollFront = CarController.AntiRollFrontRef * k;
-            b.antiRollRear = CarController.AntiRollRearRef * k;
+            // TO SPEC: the same sheet chassis the race builds (ScaleChassisToMass).
+            var ch = CarController.StockChassisOf(spec, b.massKg);
+            b.springRateFront = ch.springF;
+            b.springRateRear = ch.springR;
+            b.damperFront = ch.damperF;
+            b.damperRear = ch.damperR;
+            b.antiRollFront = ch.arbF;
+            b.antiRollRear = ch.arbR;
 
             // Prefab defaults. These are the values the builder leaves on the
             // car and nothing in ApplySpec rewrites them, so they are constants
             // on this side of the fence.
             b.brakeFrontShare = CarController.DefaultBrakeFrontShare;
-            b.tireMuFront = CarController.DefaultTireMuFront;
-            b.tireMuRear = CarController.DefaultTireMuRear;
+            // TO SPEC: the sheet's per-axle grip, as ApplySpec sets it.
+            b.tireMuFront = CarController.TireMuFrontOf(spec);
+            b.tireMuRear = CarController.TireMuRearOf(spec);
             // NOT the prefab constants any more: a suspension stage lowers the
             // car whether or not it unlocked the slider, and the race side does
             // the same through CarController.ApplyStageRide. Both call the same
@@ -193,6 +202,9 @@ namespace PSXRacing
             b.frontDriveShare = spec.FrontDriveShare;
             b.fourWheelDrive = spec.drv == "4WD";
             b.welded = welded;
+            b.factoryDiffAccel = CarController.FactoryDiffAccelOf(spec);
+            b.factoryDiffDecel = CarController.FactoryDiffDecelOf(spec);
+            b.factoryDiffPreloadN = CarController.FactoryDiffPreloadOf(spec, b.wheelRadius);
 
             float scale = spec.hp > 0
                 ? spec.HpAtStage(tune.power, turboKit) / (float)spec.hp : 1f;
@@ -336,13 +348,17 @@ namespace PSXRacing
                     // locks these rows on a welded car, so t is pinned at 0 —
                     // which means the default is the whole answer, and the
                     // default has to be "solid".
+                    // A FACTORY LSD (the sheet's, CarSpec.HasFactoryLsd) is the
+                    // one non-zero default, because it is the car as it left
+                    // the factory - not a part handed out for free.
                     return b.welded ? R(1f, 1f, 1f, 100f, 0, "%")
-                                    : R(0f, 0f, 1f, 100f, 0, "%");
+                                    : R(0f, p == SetupParam.DiffAccel ? b.factoryDiffAccel : b.factoryDiffDecel,
+                                        1f, 100f, 0, "%");
                 case SetupParam.DiffPreload:
                     // A fraction of what this car can actually put down in
                     // first, so "60 N of preload" is the same amount of car on
                     // a Civic and on a Group C prototype.
-                    return R(0f, 0f, 0.03f * b.firstGearForceN, 1f, 0, "N");
+                    return R(0f, b.welded ? 0f : b.factoryDiffPreloadN, 0.03f * b.firstGearForceN, 1f, 0, "N");
                 case SetupParam.DriveSplit:
                 {
                     var r = R(0.15f, b.frontDriveShare, 0.65f, 100f, 0, "% F");

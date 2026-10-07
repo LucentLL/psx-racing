@@ -402,6 +402,7 @@ namespace PSXRacing.LifeSim
                 q.effect = plan.stageName +
                            "  ·  stage " + plan.toStage +
                            (plan.unit == "kg" ? "  ·  -" + plan.delta + " kg"
+                            : plan.unit == "hp" ? "  ·  +" + (CarSpec.ToHp(plan.toVal) - CarSpec.ToHp(plan.fromVal)) + " hp"
                                               : "  ·  +" + plan.delta + " " + plan.unit);
                 if (s.mechSkill < plan.skillReq)
                 {
