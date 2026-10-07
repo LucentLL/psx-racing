@@ -588,6 +588,17 @@ if (-not $SkipBuild) {
             $why = if ($cut) { "Bee cut the build off (BeeDriver connection terminated / TaskCanceledException)" + $(if ($nodes -ge 0) { " after $nodes node(s) this try" } else { "" }) + "; finished nodes are cached, so the next try resumes" }
                    else { "no build_ok.txt and no build error in the log" }
             Write-Host "  BUILD TRY $try/${tries}: $why - running it again" -ForegroundColor Yellow
+            # A cancelled try can stop part way through writing resources.assets,
+            # and the retry REUSES that half-written file from
+            # Library/PlayerDataCache: the build reports success with its texture
+            # data blank (another project on this machine shipped exactly that,
+            # 2026-10-06). The door tour loads scenes, it does not see blank
+            # textures - so the cache goes before every retry.
+            $pdc = Join-Path $proj "Library\PlayerDataCache"
+            if (Test-Path $pdc) {
+                Remove-Item $pdc -Recurse -Force -ErrorAction SilentlyContinue
+                Write-Host "  cleared Library\PlayerDataCache before the retry" -ForegroundColor Yellow
+            }
         }
     }
 
