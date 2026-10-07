@@ -392,7 +392,8 @@ namespace PSXRacing
         /// dirt car): every setup row its factory hardware supports is open
         /// without buying a part, and NO shop part is sold for it - not a stage,
         /// not a weld, not a blower or a turbo kit: it drives on its sheet
-        /// hardware (CarTune.BoughtOf). Every other car's factory part works at
+        /// hardware (CarTune.BoughtOf), a race car with its race kit on the
+        /// handling (CarTune.HandlingOf). Every other car's factory part works at
         /// its factory settings and opens nothing (CarSetupGate).
         /// </summary>
         public bool IsBuiltToTune => IsRaceCar || IsRallyCar || raceSusp > 0;

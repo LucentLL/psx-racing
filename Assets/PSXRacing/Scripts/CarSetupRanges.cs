@@ -166,7 +166,7 @@ namespace PSXRacing
             // turbo kit, and a kit replaces the blower.
             if (!spec.CanFitTurboKit) turboKit = false;
             if (turboKit) supercharged = false;
-            var hw = CarTune.HandlingOf(spec.IsBuiltToTune, tune);
+            var hw = CarTune.HandlingOf(spec.IsRaceCar, spec.IsBuiltToTune, tune);
 
             // The shell decides the wheel radius (CarBody.ApplySpec writes it),
             // and the shell is picked by the same resolver the race scene uses.
@@ -219,7 +219,8 @@ namespace PSXRacing
             b.finalDrive = CarController.DefaultFinalDrive;
 
             // Same two ApplyTuneHandling lines, on the same CarTune curves —
-            // off the HANDLING stages (none on a built car: its sheet).
+            // off the HANDLING stages (a race car's race kit; none on any other
+            // built car: its sheet).
             b.brakeDemandG = CarTune.BrakeDemandG(CarController.DefaultBrakeDemandG, hw);
             b.rawCorneringStiffness =
                 CarController.DefaultCorneringStiffness * CarTune.SuspStageMult(hw.suspension);

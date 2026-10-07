@@ -1213,9 +1213,12 @@ namespace PSXRacing
                 tuneBaselineCaptured = true;
             }
 
-            // What the handling is built FROM: the ladders as bought, or - on a
-            // built car - nothing, its sheet is its hardware. See CarTune.HandlingOf.
-            var hw = CarTune.HandlingOf(activeSpec != null && activeSpec.IsBuiltToTune, activeTune);
+            // What the handling is built FROM: the ladders as bought, nothing on
+            // a built car (its sheet), or a RACE car's race kit. Not activeTune
+            // itself, because the ride height reads that and a race car keeps
+            // its own. See CarTune.HandlingOf.
+            var hw = CarTune.HandlingOf(activeSpec != null && activeSpec.IsRaceCar,
+                                        activeSpec != null && activeSpec.IsBuiltToTune, activeTune);
             brakeDemandG = CarTune.BrakeDemandG(stockBrakeDemandG, hw);
             gripBonus = stockGripBonus * CarTune.GripStageMult(hw.tires);
 

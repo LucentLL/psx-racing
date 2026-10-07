@@ -385,10 +385,11 @@ namespace PSXRacing.EditorTools
             if (exp.Contains("com")) { car.weightDistFront = 0.5f; car.Body.centerOfMass = new Vector3(0f, car.cgHeight, 0f); }
             if (exp.Contains("mu")) { car.tireMuFront = CarController.DefaultTireMuFront; car.tireMuRear = CarController.DefaultTireMuRear; }
             if (exp.Contains("noinj")) car.wheelspinYawGain = 0f;
-            // "kit": the stage-4 race kit a race car carried before 2026-10-07
-            // (x1.20 grip, x1.25 stiffness to the 13 cap, x1.45 brakes to the
-            // tyre cap) - the before half of the "built cars run their sheet"
-            // before/after (CarTune.HandlingOf).
+            // "kit": the stage-4 race kit (x1.20 grip, x1.25 stiffness to the
+            // 13 cap, x1.45 brakes to the tyre cap) laid on top of whatever the
+            // car runs. A RACE car already carries it (CarTune.HandlingOf), so
+            // this is for trying it on a rally / touring car; on a race car it
+            // stacks twice.
             if (exp.Contains("kit"))
             {
                 var kit = new CarTune.Stages { brakes = CarTune.MaxStage, suspension = CarTune.MaxStage, tires = CarTune.MaxStage };

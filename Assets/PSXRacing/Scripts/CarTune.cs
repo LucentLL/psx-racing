@@ -181,25 +181,42 @@ namespace PSXRacing
 
         // ---- cars that come built ---------------------------------------------
         //
-        // The owner, 2026-09-21: race cars "are assumed to already be maxed out
-        // by default so they don't get upgrades". 2026-10-07: "Factory parts are
-        // not tuneable (exception is race cars and rally cars since they're
-        // built to be customized and can't receive different parts)", and
-        // "I want everything to spec". So EVERY car built to be tuned
-        // (CarSpec.IsBuiltToTune: race, rally, touring, the raceSusp group)
-        // takes no shop part, and drives on its SHEET hardware: the sheet's
-        // grip modifiers, springs, weight and power ARE its race figures. It
-        // used to arrive with stage-4 brakes, suspension and tyres on top
-        // (x1.45 brakes, x1.25 cornering stiffness, x1.20 grip) - a road car's
-        // upgrade ladder stacked over a sheet that already describes slicks.
+        // The owner, 2026-10-07: "Factory parts are not tuneable (exception is
+        // race cars and rally cars since they're built to be customized and
+        // can't receive different parts)", and "I want everything to spec". So
+        // EVERY car built to be tuned (CarSpec.IsBuiltToTune: race, rally,
+        // touring, the raceSusp group) takes no shop part (BoughtOf), and its
+        // sheet weight, power, springs and ride height are its own.
+        //
+        // A RACE car (CarSpec.IsRaceCar) still arrives with the race kit on its
+        // HANDLING. The owner, 2026-09-21: "Race cars are assumed to already be
+        // maxed out by default so they don't get upgrades, but they should also
+        // be close to the upper limit of speed, handling, etc." The sheet alone
+        // does not get it there: its grip modifiers are ~100 on a race car
+        // against ~95 on a road car, and it carries NO tyre compound - nothing
+        // on it says slicks. Without the kit a Lister Storm race car cornered
+        // at 1.34 g (an RX-7 road car's figure) and stopped from 100 mph in
+        // 101.6 m instead of 87.0 m. Rally, touring and the rest of the
+        // raceSusp group drive on their sheet with no stages at all.
 
         /// <summary>
-        /// The stages the car's HANDLING is built from: the ladders as bought,
-        /// or nothing at all on a built car (its sheet is its hardware). The
-        /// same thing as <see cref="BoughtOf"/> now that a built car carries
-        /// no race kit; kept as the name the handling callers read.
+        /// The stages the car's HANDLING (brakes, grip, cornering stiffness)
+        /// is built from: a RACE car's race kit - stage-4 brakes, suspension
+        /// and tyres, whatever the save says - and anybody else's
+        /// <see cref="BoughtOf"/> stages (none on a built car, the ladders as
+        /// bought on a road car). Power and weight are zero on a race car
+        /// because its sheet figures ARE its race figures.
+        ///
+        /// Handling only, and on purpose: the suspension stage also LOWERS a
+        /// road car (<see cref="RestLengthAtStage"/>), and a race car keeps its
+        /// own ride height - the race kit does not lower it again. So callers
+        /// pass THIS to the brake / grip / stiffness curves and the bought
+        /// (zero) stages to the ride height.
+        /// Pass CarSpec.IsRaceCar and CarSpec.IsBuiltToTune.
         /// </summary>
-        public static Stages HandlingOf(bool builtCar, Stages tune) => BoughtOf(builtCar, tune);
+        public static Stages HandlingOf(bool raceCar, bool builtCar, Stages tune) => raceCar
+            ? new Stages { brakes = MaxStage, suspension = MaxStage, tires = MaxStage, seat = tune.seat }
+            : BoughtOf(builtCar, tune);
 
         /// <summary>What a built car's save stages COUNT as: none (the seat is
         /// the pizza's). The one rule both sides of the fence apply before

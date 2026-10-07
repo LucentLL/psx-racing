@@ -8977,22 +8977,27 @@ namespace PSXRacing.EditorTools
                   !Upgrades.NextStagePlan(s, owned, race, Upgrades.Kind.Tires).valid,
                   "ordering a stage for one is refused, and says why", race.name);
 
-            // ---- the physics: its SHEET, its own power, weight and ride -------
-            // (2026-10-07, "everything to spec": no stage-4 race kit on top of a
-            // sheet that already describes the car's racing hardware.)
-            var claims = new CarTune.Stages { power = 4, weight = 4, brakes = 4, suspension = 4, tires = 4 };
+            // ---- the physics: race hardware, its own power, weight and ride ---
+            // The sheet's tyre mu is the car's own; the race KIT (stage-4
+            // brakes, suspension, tyres) goes on top, because the sheet carries
+            // no tyre compound and its grip modifiers sit ~100 against a road
+            // car's ~95 - a race car on its sheet alone corners like an RX-7.
+            var claims = new CarTune.Stages { power = 4, weight = 4, brakes = 0, suspension = 0, tires = 0 };
             var rc = TuneBenchCar(race);
             rc.supercharged = true;               // a save that somehow fitted a blower
             rc.ApplySpec(race, claims);
-            var hw = CarTune.HandlingOf(true, claims);
-            Check(hw.brakes == 0 && hw.suspension == 0 && hw.tires == 0 && hw.power == 0 && hw.weight == 0,
-                  "a race car's handling is built from its sheet: no stage counts, bought or given");
-            Check(Mathf.Approximately(rc.brakeDemandG, CarTune.BrakeDemandG(CarController.DefaultBrakeDemandG, default)) &&
-                  Mathf.Approximately(rc.gripBonus, 1f) &&
-                  Mathf.Approximately(rc.corneringStiffness, CarController.DefaultCorneringStiffness) &&
+            var hw = CarTune.HandlingOf(true, true, claims);
+            Check(hw.brakes == CarTune.MaxStage && hw.suspension == CarTune.MaxStage && hw.tires == CarTune.MaxStage &&
+                  hw.power == 0 && hw.weight == 0,
+                  "a race car's handling is built from stage-4 brakes, suspension and tyres (power and weight: its own)");
+            Check(Mathf.Approximately(rc.brakeDemandG, CarTune.BrakeDemandG(CarController.DefaultBrakeDemandG, hw)) &&
+                  Mathf.Approximately(rc.gripBonus, CarTune.GripStageMult(CarTune.MaxStage)) &&
+                  Mathf.Approximately(rc.corneringStiffness, Mathf.Min(
+                      CarController.DefaultCorneringStiffness * CarTune.SuspStageMult(CarTune.MaxStage),
+                      CarController.CorneringStiffnessCap)) &&
                   Mathf.Approximately(rc.tireMuFront, CarController.TireMuFrontOf(race)) &&
                   Mathf.Approximately(rc.tireMuRear, CarController.TireMuRearOf(race)),
-                  "and the car on the road has exactly the sheet's grip, brakes and stiffness — whatever the save says it bought",
+                  "and the car on the road has exactly those, on the sheet's tyre mu — whatever the save says it bought",
                   rc.brakeDemandG.ToString("0.00") + " g, grip x" + rc.gripBonus.ToString("0.00") +
                   ", mu " + rc.tireMuFront.ToString("0.000") + "/" + rc.tireMuRear.ToString("0.000"));
             Check(Mathf.Approximately(rc.massKg, race.kg) && !rc.supercharged &&
@@ -9012,6 +9017,30 @@ namespace PSXRacing.EditorTools
                   Mathf.Approximately(bs.topSpeedMps, bc.topSpeedMps) && !bs.welded,
                   "the garage quotes the same race car the race builds");
             TuneDrop(rc);
+
+            // ---- a RALLY car: built, but no race kit - its sheet -------------
+            CarSpec rally = null;
+            foreach (var c in CarCatalog.All)
+                if (c.IsRallyCar && !c.IsRaceCar) { rally = c; break; }
+            if (rally == null) Check(false, "a rally car to compare");
+            else
+            {
+                var full = new CarTune.Stages { power = 4, weight = 4, brakes = 4, suspension = 4, tires = 4 };
+                var lc = TuneBenchCar(rally);
+                lc.ApplySpec(rally, full);
+                Check(CarTune.HandlingOf(false, true, full).Equals(new CarTune.Stages { seat = full.seat }),
+                      "a rally car's handling carries no stage, bought or given", rally.name);
+                Check(Mathf.Approximately(lc.brakeDemandG, CarTune.BrakeDemandG(CarController.DefaultBrakeDemandG, default)) &&
+                      Mathf.Approximately(lc.gripBonus, 1f) &&
+                      Mathf.Approximately(lc.corneringStiffness, CarController.DefaultCorneringStiffness) &&
+                      Mathf.Approximately(lc.tireMuFront, CarController.TireMuFrontOf(rally)) &&
+                      Mathf.Approximately(lc.tireMuRear, CarController.TireMuRearOf(rally)) &&
+                      Mathf.Approximately(lc.massKg, rally.kg),
+                      "and it drives on its sheet: the sheet's grip, brakes, stiffness and weight",
+                      lc.brakeDemandG.ToString("0.00") + " g, grip x" + lc.gripBonus.ToString("0.00") +
+                      ", mu " + lc.tireMuFront.ToString("0.000") + "/" + lc.tireMuRear.ToString("0.000"));
+                TuneDrop(lc);
+            }
 
             // ---- the tuning gate: everything open ----------------------------
             var roadOwned = new OwnedCar { id = "road_stock", specId = road.id, displayName = road.name };
@@ -10827,8 +10856,12 @@ namespace PSXRacing.EditorTools
             // and the blower too) and the turbo kit, in the same words the
             // garage, the bench and the junkyard read; a car carrying a full
             // build from an old save builds the SAME chassis as a bare one -
-            // the sheet's, with no race kit stacked over it.
-            int shopBad = 0, physBad = 0; string shopW = null, physW = null, physWhy = null;
+            // the sheet's. A RACE car's handling adds the stage-4 race kit
+            // (2026-09-21: "close to the upper limit of speed, handling, etc.";
+            // the sheet has no tyre compound); every other built car's adds
+            // nothing.
+            int shopBad = 0, physBad = 0, kitN = 0, sheetN = 0;
+            string shopW = null, physW = null, physWhy = null;
             foreach (var c in CarCatalog.All)
             {
                 if (!c.IsBuiltToTune) continue;
@@ -10857,14 +10890,20 @@ namespace PSXRacing.EditorTools
                 var full = Upgrades.StagesOf(maxed);
                 var built = CarSetupBasis.FromSpec(c, full, true, true, true);
                 var sheet = CarSetupBasis.FromSpec(c, default, false);
+                var kitHw = c.IsRaceCar
+                    ? new CarTune.Stages { brakes = CarTune.MaxStage, suspension = CarTune.MaxStage,
+                                           tires = CarTune.MaxStage, seat = full.seat }
+                    : new CarTune.Stages { seat = full.seat };
+                if (c.IsRaceCar) kitN++; else sheetN++;
                 string bad =
                     !Mathf.Approximately(c.BuildTopSpeedMps(Upgrades.MaxStage, true, true), stockTop) ? "top speed" :
                     Upgrades.EffectiveHp(maxed, c) != c.hp || Upgrades.EffectiveKg(maxed, c) != c.kg ||
                     Upgrades.EffectiveTorqueNm(maxed, c) != c.peakTorqueNm ? "hp/kg/torque" :
-                    !CarTune.HandlingOf(true, full).Equals(new CarTune.Stages { seat = full.seat }) ? "HandlingOf" :
+                    !CarTune.HandlingOf(c.IsRaceCar, true, full).Equals(kitHw) ? "HandlingOf" :
                     !Mathf.Approximately(built.brakeDemandG, sheet.brakeDemandG) ||
-                    !Mathf.Approximately(sheet.brakeDemandG, Mathf.Min(CarController.DefaultBrakeDemandG, CarTune.BrakeGCapStock)) ? "brakes" :
-                    !Mathf.Approximately(built.rawCorneringStiffness, CarController.DefaultCorneringStiffness) ||
+                    !Mathf.Approximately(sheet.brakeDemandG, CarTune.BrakeDemandG(CarController.DefaultBrakeDemandG, kitHw)) ? "brakes" :
+                    !Mathf.Approximately(built.rawCorneringStiffness,
+                        CarController.DefaultCorneringStiffness * CarTune.SuspStageMult(kitHw.suspension)) ||
                     !Mathf.Approximately(built.corneringStiffness, sheet.corneringStiffness) ? "stiffness" :
                     !Mathf.Approximately(built.massKg, sheet.massKg) || !Mathf.Approximately(built.restLength, sheet.restLength) ||
                     !Mathf.Approximately(built.topSpeedMps, sheet.topSpeedMps) || built.welded ? "chassis" : null;
@@ -10873,9 +10912,9 @@ namespace PSXRacing.EditorTools
             Check(shopBad == 0,
                   "a built car (race, rally, touring) is sold no part: every ladder but the seat, every mod, the turbo kit - shop, bench and garage in one voice",
                   shopW);
-            Check(physBad == 0,
-                  "a built car drives on its sheet: a full old-save build changes nothing, and no race kit rides on top (brakes " +
-                  CarController.DefaultBrakeDemandG.ToString("0.00") + " g, stiffness " + CarController.DefaultCorneringStiffness.ToString("0.0") + ")",
+            Check(physBad == 0 && kitN > 0 && sheetN > 0,
+                  "a built car drives on its sheet: a full old-save build changes nothing; the " + kitN +
+                  " race cars carry the stage-4 race kit, the other " + sheetN + " (rally, touring) nothing on top",
                   physW == null ? null : physW + " (" + physWhy + ")");
 
             // A BUILT car's spring and ride-height sliders are its own coilover's
