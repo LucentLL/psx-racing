@@ -526,8 +526,69 @@ namespace PSXRacing.City
                 Vector2 p = LineModel.LanePoint(e, sc) + tan * (s - sc) + Right(tan * dir) * lat;
                 return new Vector3(p.x, e.YAt(sc), p.y);
             }
-
             var P = new List<Vector3>(1024);
+            // A STREET THAT MEETS THE DECK END-ON (an owner deck's own drive,
+            // stopped at its ramp's foot): the street runs INTO the opening, so
+            // "along the street, the deck on the right" has no side, and Street()
+            // ran its tangent on past the end - into the deck's footprint, in the
+            // air over its cut land (DeckRunUnivUp: every car fell 3.3 m at the
+            // grid and raced on the land under the floors). Such a run comes
+            // down the drive from the street the drive leaves and goes back up it
+            // to the other side of that street: Drive(t) is t metres out from the
+            // deck end, round the far node onto fIn (in) or fOut (out).
+            bool endOn = (d.streetS < 0.5f || d.streetS > e.length - 0.5f) && Mathf.Abs(Vector2.Dot(t0, nW)) > 0.7f;
+            int inward = d.streetS < 0.5f ? 1 : -1;
+            CityMap.Edge fIn = null, fOut = null;
+            if (endOn && map.nodeEdges != null)
+            {
+                int far = inward > 0 ? e.b : e.a;
+                if (far >= 0 && far < map.nodeEdges.Length)
+                    foreach (int k in map.nodeEdges[far])
+                    {
+                        var f = map.edges[k];
+                        if (f == e || f.link || f.cls >= 4) continue;
+                        if (fIn == null) fIn = f; else if (fOut == null) fOut = f;
+                    }
+                if (fOut == null) fOut = fIn;
+            }
+            float cornerR = Mathf.Clamp(e.length - TurnM - 2f, 2f, 8f);
+            Vector3 Drive(float t, bool outbound)
+            {
+                var f = outbound ? fOut : fIn;
+                CityMap.Edge g = e; int gd = inward; float s0 = d.streetS, u = t;
+                if (f != null && t > e.length)
+                {
+                    int far = inward > 0 ? e.b : e.a;
+                    g = f; gd = f.a == far ? 1 : -1; s0 = gd > 0 ? 0f : f.length; u = t - e.length;
+                }
+                float s = s0 + gd * u, sc = Mathf.Clamp(s, 0f, g.length);
+                Vector2 tan = g.TangentAt(sc).normalized * gd;          // out from the deck
+                Vector2 travel = outbound ? tan : -tan;
+                Vector2 p = LineModel.LanePoint(g, sc) + tan * Mathf.Abs(s - sc) + Right(travel) * (g.oneway ? 0f : LaneM);
+                return new Vector3(p.x, g.YAt(sc), p.y);
+            }
+            // the drive from t1 down to (in) or up from (out) t0, a cubic round the far node
+            void DriveRun(float tFrom, float tTo, bool outbound)
+            {
+                float sgn = tTo > tFrom ? 1f : -1f;
+                bool corner = (outbound ? fOut : fIn) != null;
+                float c0 = e.length - cornerR, c1 = e.length + cornerR;
+                for (float t = tFrom; sgn * (tTo - t) >= -0.01f; t += sgn * Step)
+                {
+                    if (corner && t > c0 && t < c1)
+                    {
+                        float ta = sgn > 0 ? c0 : c1, tb = sgn > 0 ? c1 : c0;
+                        Vector3 pa = Drive(ta, outbound), pb = Drive(tb, outbound);
+                        P.Add(pa);
+                        Turn(P, pa, pa - Drive(ta - sgn, outbound), pb, Drive(tb + sgn, outbound) - pb);
+                        P.Add(pb);
+                        t = tb;
+                        continue;
+                    }
+                    P.Add(Drive(t, outbound));
+                }
+            }
+
             float lineAt = -1f, flagAt = -1f;
             float Arc() { float a = 0f; for (int i = 1; i < P.Count; i++) a += Plan(P[i - 1], P[i]); return a; }
             // the lap, without its street ends (kept: > 1 m inside the driveway)
@@ -542,10 +603,12 @@ namespace PSXRacing.City
             if (leg != Full && (d.lapRoofIn <= iA || d.lapRoofOut >= iB)) return false;
             if (leg != Down)
             {
-                for (float a = -LeadInM; a <= -TurnM + 0.01f; a += Step) P.Add(Street(a));
+                if (endOn) DriveRun(LeadInM, TurnM, false);
+                else for (float a = -LeadInM; a <= -TurnM + 0.01f; a += Step) P.Add(Street(a));
                 lineAt = Arc() - LineM;                                // the line: LineM before the turn-in
-                Vector3 hIn = Street(-TurnM) - Street(-TurnM - 1f);
-                Turn(P, Street(-TurnM), hIn, w[iA], w[iA + 1] - w[iA]);
+                Vector3 pIn = endOn ? Drive(TurnM, false) : Street(-TurnM);
+                Vector3 hIn = pIn - (endOn ? Drive(TurnM + 1f, false) : Street(-TurnM - 1f));
+                Turn(P, pIn, hIn, w[iA], w[iA + 1] - w[iA]);
             }
             else
             {
@@ -565,9 +628,11 @@ namespace PSXRacing.City
             }
             if (leg != Up)
             {
-                Turn(P, w[iB], w[iB] - w[iB - 1], Street(TurnM), Street(TurnM + 1f) - Street(TurnM));
+                Vector3 pOut = endOn ? Drive(TurnM, true) : Street(TurnM);
+                Turn(P, w[iB], w[iB] - w[iB - 1], pOut, (endOn ? Drive(TurnM + 1f, true) : Street(TurnM + 1f)) - pOut);
                 float outAt = Arc();
-                for (float a = TurnM + Step; a <= TurnM + LeadOutM; a += Step) P.Add(Street(a));
+                if (endOn) DriveRun(TurnM, TurnM + LeadOutM, true);
+                else for (float a = TurnM + Step; a <= TurnM + LeadOutM; a += Step) P.Add(Street(a));
                 flagAt = outAt + FlagM;
             }
             if (lineAt < 0f || flagAt <= lineAt) return false;
@@ -621,7 +686,7 @@ namespace PSXRacing.City
             LastLine = lineIdx;
             Debug.Log("[DeckRun] deck " + d.way + " " + LegName[leg] + ": " + n + " stations, line " + lineIdx + ", flag " + finish +
                       " (" + ((finish - lineIdx) * Step).ToString("0") + " m), " + gates.Count + " checkpoints, street edge " +
-                      d.streetEdge + (e.oneway ? " one-way" : "") + ", deck at " + d.c.ToString("0"));
+                      d.streetEdge + (e.oneway ? " one-way" : "") + (endOn ? " END-ON (drive " + e.length.ToString("0") + " m, in off e" + (fIn != null ? fIn.index : -1) + ", out on e" + (fOut != null ? fOut.index : -1) + ")" : "") + ", deck at " + d.c.ToString("0"));
             return true;
         }
 

@@ -1102,6 +1102,22 @@ namespace PSXRacing
                               way = 500204485u, levels = 9, leg = 1, runM = 1100f },
             new DeckRunData { id = "DeckRunNineDown", name = "9 LEVELS, UPTOWN", label = "9 LEVELS",
                               way = 500204485u, levels = 9, leg = 2, runM = 1000f },
+            // 2026-10-06: the university's brick deck (OSM 1053094969, six
+            // drivable floors with the roof), in off its own drive from
+            // Phillips Road. Appended: no index moves.
+            new DeckRunData { id = "DeckRunUnivUp", name = "6 LEVELS, UNIVERSITY", label = "6 LEVELS",
+                              way = 1053094969u, levels = 6, leg = 1, runM = 818f },
+            new DeckRunData { id = "DeckRunUnivDown", name = "6 LEVELS, UNIVERSITY", label = "6 LEVELS",
+                              way = 1053094969u, levels = 6, leg = 2, runM = 763f },
+            new DeckRunData { id = "DeckRunUniv", name = "6 LEVELS, UNIVERSITY", label = "6 LEVELS",
+                              way = 1053094969u, levels = 6, runM = 1623f },
+            // the Robert D. Snyder Rd deck (OSM 1053094961, three floors with the roof)
+            new DeckRunData { id = "DeckRunUnivThreeUp", name = "3 LEVELS, UNIVERSITY", label = "3 LEVELS",
+                              way = 1053094961u, levels = 3, leg = 1, runM = 550f },
+            new DeckRunData { id = "DeckRunUnivThreeDown", name = "3 LEVELS, UNIVERSITY", label = "3 LEVELS",
+                              way = 1053094961u, levels = 3, leg = 2, runM = 543f },
+            new DeckRunData { id = "DeckRunUnivThree", name = "3 LEVELS, UNIVERSITY", label = "3 LEVELS",
+                              way = 1053094961u, levels = 3, runM = 1140f },
         };
 
         // a method, not a static array: All is built before a later field is set

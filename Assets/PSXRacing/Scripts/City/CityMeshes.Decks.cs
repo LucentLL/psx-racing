@@ -457,12 +457,25 @@ namespace PSXRacing.City
                 if (deckBrick != null)
                 {
                     // cast stone from the slab's soffit to StoneBandM over the
-                    // floor, brick over it to the coping (and under it, down a skirt)
+                    // floor, brick over it to the coping. A SKIRT (the ground
+                    // floor's runs, down to the lowest land) is cast stone from
+                    // its foot to the band's top, one plinth: the land meets the
+                    // wall 6-35 cm under the ground floor (Solve seats floor 0 at
+                    // least 6 cm over every land sample), right where a brick
+                    // skirt under the band put its brick/stone joint, and the
+                    // land's facets crossing that joint drew the sawtooth of
+                    // brick and stone triangles along the base (2026-10-06).
                     float sa = ya + StoneBandM, sb = yb + StoneBandM, ta = ya - CityDecks.SlabM, tb = yb - CityDecks.SlabM;
-                    con.WallSloped(DP(d, a.x, 0f, a.y, tm), DP(d, b.x, 0f, b.y, tm), d.y0 + ta, d.y0 + sa, d.y0 + tb, d.y0 + sb,
+                    if (skirt) { ta = Mathf.Min(ta, ba); tb = Mathf.Min(tb, bb); }
+                    // ...and that skin stands SkinProudM proud of the footprint
+                    // line: a lot's or verge's edge face laid along the same line
+                    // (the sheets stop at a building's footprint) shared its
+                    // plane, and the two fought in triangles, the grey sheet face
+                    // winning most of the brick band
+                    Vector2 sk = outL * SkinProudM, ao = a + sk, bo = b + sk;
+                    con.WallSloped(DP(d, ao.x, 0f, ao.y, tm), DP(d, bo.x, 0f, bo.y, tm), d.y0 + ta, d.y0 + sa, d.y0 + tb, d.y0 + sb,
                                    oW, ua, ub, ta * 0.25f, sa * 0.25f);
-                    BrickBand(d, tm, a, b, oW, sa, ya + P, sb, yb + P);
-                    if (skirt && ta - ba > 0.05f) BrickBand(d, tm, a, b, oW, ba, ta, bb, tb);
+                    BrickBand(d, tm, ao, bo, oW, sa, ya + P, sb, yb + P);
                 }
                 else
                 con.WallSloped(DP(d, a.x, 0f, a.y, tm), DP(d, b.x, 0f, b.y, tm), d.y0 + ba, d.y0 + ya + P, d.y0 + bb, d.y0 + yb + P,
@@ -560,20 +573,36 @@ namespace PSXRacing.City
                    DUV(d, ao.x, ao.y), DUV(d, bo.x, bo.y), DUV(d, bi.x, bi.y), DUV(d, ai.x, ai.y));
         }
 
-        /// <summary>The brick decks' central stair tower (the owner's photos: a
-        /// tower on the long +z face, a glazed opening at every floor, cast-stone
-        /// bands, an arched top over the roof): 5.6 m wide, 3.2 m out from the
-        /// face, brick strips of the atlas's plain pier, solid like the walls.</summary>
+        /// <summary>The brick decks' stair tower (the owner's photos: a tower on
+        /// the street face beside the way in, a glazed opening at every floor,
+        /// cast-stone bands, an arched top over the roof): 5.6 m wide, 3.2 m out
+        /// from the face, brick strips of the atlas's plain pier, solid like the
+        /// walls. It stands on the ENTRY face (the -x end or the +z side), the
+        /// one the street sees: on the +z side always (2026-10-06) it stood on
+        /// the Epic Ln deck's back, where no street photo shows it. Laid out in
+        /// the face's own frame, a along it and o out from the deck's centre.</summary>
         static void DeckTower(Bucket con, CityDecks.Deck d, TileMeshes tm, int top, float low)
         {
             const float TW = 5.6f, TD = 3.2f;
-            float xc = 0f;
-            // clear of a side opening on +z (and its driveway)
-            if (d.entrySide == 1 && Mathf.Abs(d.entryAt - xc) < CityDecks.OpeningM * 0.5f + TW) xc = d.entryAt + CityDecks.OpeningM + TW;
-            if (xc + TW * 0.5f > d.hu - 1f) return;
-            float zf = d.hv + TD, zb = d.hv, xa = xc - TW * 0.5f, xb = xc + TW * 0.5f;
+            bool endFace = d.entrySide == 0;
+            float faceD = endFace ? d.hu : d.hv, ext = endFace ? d.hv : d.hu;
+            // the face frame: +z side a = x, o = z; -x end a = z, o = -x (a turn, not a mirror)
+            Vector3 TP(float a, float y, float o) => endFace ? DP(d, -o, y, a, tm) : DP(d, a, y, o, tm);
+            Vector2 TN(float la, float lo) => endFace ? DirW(d, -lo, la) : DirW(d, la, lo);
+            Vector2 TUV(float a, float o) => endFace ? DUV(d, -o, a) : DUV(d, a, o);
+            // central when the opening leaves room, else beside the opening,
+            // on its roomier side (and clear of its driveway)
+            float clear = CityDecks.OpeningM * 0.5f + TW * 0.5f + 1.5f, xc = 0f;
+            if (Mathf.Abs(d.entryAt) < clear)
+            {
+                float sg = d.entryAt <= 0f ? 1f : -1f;
+                xc = d.entryAt + sg * clear;
+                if (Mathf.Abs(xc) + TW * 0.5f > ext - 1f) xc = d.entryAt - sg * clear;
+            }
+            if (Mathf.Abs(xc) + TW * 0.5f > ext - 1f) return;
+            float zf = faceD + TD, zb = faceD, xa = xc - TW * 0.5f, xb = xc + TW * 0.5f;
             float yTop = CityDecks.TurnLo(top) + CityDecks.ParapetM + 2.2f, r = TW * 0.5f;
-            var nF = DirW(d, 0f, 1f); var nL = DirW(d, -1f, 0f); var nR = DirW(d, 1f, 0f);
+            var nF = TN(0f, 1f); var nL = TN(-1f, 0f); var nR = TN(1f, 0f);
             float w0 = low / BrickUM, w1 = yTop / BrickUM;
             void Strip(Vector2 p, Vector2 q, Vector2 n)
             {
@@ -581,7 +610,7 @@ namespace PSXRacing.City
                 for (int j = 0; j < m; j++)
                 {
                     var s0 = Vector2.Lerp(p, q, j / (float)m); var s1 = Vector2.Lerp(p, q, (j + 1) / (float)m);
-                    deckBrick.Wall(DP(d, s0.x, 0f, s0.y, tm), DP(d, s1.x, 0f, s1.y, tm), d.y0 + low, d.y0 + yTop, n, 0.30f, 0.38f, w0, w1);
+                    deckBrick.Wall(TP(s0.x, 0f, s0.y), TP(s1.x, 0f, s1.y), d.y0 + low, d.y0 + yTop, n, 0.30f, 0.38f, w0, w1);
                 }
             }
             Strip(new Vector2(xa, zf), new Vector2(xb, zf), nF);
@@ -593,32 +622,32 @@ namespace PSXRacing.City
                 float y = CityDecks.TurnLo(k) + (k == 0 ? 0.9f : 1.1f);
                 // the glazed opening (dark, a mullion's gap down the middle)
                 float zo = zf + 0.03f;
-                Dark(tm, DP(d, xc - 0.85f, y, zo, tm), DP(d, xc - 0.06f, y, zo, tm), DP(d, xc - 0.06f, y + 1.7f, zo, tm), DP(d, xc - 0.85f, y + 1.7f, zo, tm), n3);
-                Dark(tm, DP(d, xc + 0.06f, y, zo, tm), DP(d, xc + 0.85f, y, zo, tm), DP(d, xc + 0.85f, y + 1.7f, zo, tm), DP(d, xc + 0.06f, y + 1.7f, zo, tm), n3);
+                Dark(tm, TP(xc - 0.85f, y, zo), TP(xc - 0.06f, y, zo), TP(xc - 0.06f, y + 1.7f, zo), TP(xc - 0.85f, y + 1.7f, zo), n3);
+                Dark(tm, TP(xc + 0.06f, y, zo), TP(xc + 0.85f, y, zo), TP(xc + 0.85f, y + 1.7f, zo), TP(xc + 0.06f, y + 1.7f, zo), n3);
                 // a cast-stone band at the floor line, 4 cm proud
                 if (k == 0) continue;
                 float yb = CityDecks.TurnLo(k) - CityDecks.SlabM, ys = CityDecks.TurnLo(k) + StoneBandM;
-                con.Wall(DP(d, xa - 0.04f, 0f, zf + 0.04f, tm), DP(d, xb + 0.04f, 0f, zf + 0.04f, tm), d.y0 + yb, d.y0 + ys, nF, 0f, TW * 0.25f, 0f, 0.12f);
-                con.Up(DP(d, xa - 0.04f, ys, zf + 0.04f, tm), DP(d, xb + 0.04f, ys, zf + 0.04f, tm), DP(d, xb, ys, zf, tm), DP(d, xa, ys, zf, tm),
-                       DUV(d, xa, zf), DUV(d, xb, zf), DUV(d, xb, zf + 0.04f), DUV(d, xa, zf + 0.04f));
+                con.Wall(TP(xa - 0.04f, 0f, zf + 0.04f), TP(xb + 0.04f, 0f, zf + 0.04f), d.y0 + yb, d.y0 + ys, nF, 0f, TW * 0.25f, 0f, 0.12f);
+                con.Up(TP(xa - 0.04f, ys, zf + 0.04f), TP(xb + 0.04f, ys, zf + 0.04f), TP(xb, ys, zf), TP(xa, ys, zf),
+                       TUV(xa, zf), TUV(xb, zf), TUV(xb, zf + 0.04f), TUV(xa, zf + 0.04f));
             }
             // the arched top: a half round over the front and back, a stone barrel between
             const int AS = 8;
-            var cF = DP(d, xc, yTop, zf, tm); var cB = DP(d, xc, yTop, zb, tm);
+            var cF = TP(xc, yTop, zf); var cB = TP(xc, yTop, zb);
             var nB = -n3;
             for (int j = 0; j < AS; j++)
             {
                 float t0 = Mathf.PI * j / AS, t1 = Mathf.PI * (j + 1) / AS;
                 float x0 = xc + r * Mathf.Cos(t0), y0 = yTop + r * Mathf.Sin(t0), x1 = xc + r * Mathf.Cos(t1), y1 = yTop + r * Mathf.Sin(t1);
                 Vector2 U(float x, float yy) => new Vector2(0.30f + 0.08f * (x - xa) / TW, yy / BrickUM);
-                var f0 = DP(d, x0, y0, zf, tm); var f1 = DP(d, x1, y1, zf, tm);
+                var f0 = TP(x0, y0, zf); var f1 = TP(x1, y1, zf);
                 deckBrick.Face(cF, f0, f1, f1, n3, U(xc, yTop), U(x0, y0), U(x1, y1), U(x1, y1));
-                var g0 = DP(d, x0, y0, zb, tm); var g1 = DP(d, x1, y1, zb, tm);
+                var g0 = TP(x0, y0, zb); var g1 = TP(x1, y1, zb);
                 deckBrick.Face(cB, g0, g1, g1, nB, U(xc, yTop), U(x0, y0), U(x1, y1), U(x1, y1));
                 var mid = new Vector3(Mathf.Cos(0.5f * (t0 + t1)), Mathf.Sin(0.5f * (t0 + t1)), 0f);
-                var nOut = DirW(d, mid.x, 0f); var nUp = new Vector3(nOut.x, mid.y, nOut.y);
-                var f0e = DP(d, x0, y0 + 0.08f * Mathf.Sin(t0), zf + 0.06f, tm); var f1e = DP(d, x1, y1 + 0.08f * Mathf.Sin(t1), zf + 0.06f, tm);
-                con.Face(DP(d, x0, y0, zb, tm), DP(d, x1, y1, zb, tm), f1e, f0e, nUp, DUV(d, x0, zb), DUV(d, x1, zb), DUV(d, x1, zf), DUV(d, x0, zf));
+                var nOut = TN(mid.x, 0f); var nUp = new Vector3(nOut.x, mid.y, nOut.y);
+                var f0e = TP(x0, y0 + 0.08f * Mathf.Sin(t0), zf + 0.06f); var f1e = TP(x1, y1 + 0.08f * Mathf.Sin(t1), zf + 0.06f);
+                con.Face(TP(x0, y0, zb), TP(x1, y1, zb), f1e, f0e, nUp, TUV(x0, zb), TUV(x1, zb), TUV(x1, zf), TUV(x0, zf));
             }
         }
 
@@ -661,7 +690,7 @@ namespace PSXRacing.City
             deckBrick.WallSloped(DP(d, a.x, 0f, a.y, tm), DP(d, b.x, 0f, b.y, tm), d.y0 + ya0, d.y0 + ya1, d.y0 + yb0, d.y0 + yb1,
                                  oW, ua, ub, BrickV0, BrickV1);
         }
-        const float StoneBandM = 0.12f, BrickUM = 12.4f, BrickV0 = 0.232f, BrickV1 = 0.302f;
+        const float StoneBandM = 0.12f, BrickUM = 12.4f, BrickV0 = 0.232f, BrickV1 = 0.302f, SkinProudM = 0.04f;
         /// <summary>The facade atlas's bucket while a BRICK deck is emitted, else null.</summary>
         static Bucket deckBrick, deckPaint;
         static Vector2 deckYellow;
