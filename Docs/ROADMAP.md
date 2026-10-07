@@ -4874,3 +4874,34 @@ ladder, bank loans, gym, hidden faults + inspection, upgrades 5x5, and the
 insurance multiplier that `atFaultIncidents` is already feeding. L5 was the next
 thing in progress when the phone playtest came back; the four device bugs above
 took priority and L5 has not been begun.
+
+## Future consideration: outstanding potential issues (owner, 2026-10-07: "note for future consideration")
+
+Found during the 2026-10-07 everything-to-spec, tyre and AI passes. None is blocking.
+
+### Handling / tyres
+- **Rear grip stagger on every car.** Every car inherits the FD's +5% rear tyre mu (`CarController.DefaultTireMuRear` 1.05, the FD's staggered tyres), scaled by the sheet's grip modifiers. So the fronts let go first on every car, and rear-heavy cars barely move toward neutral at steady cornering. To spec, the front/rear grip difference would come from each car's sheet tyre widths (e.g. NSX 205/225, Civic 195/195). That makes square-tyred cars livelier, so it needs a spin check.
+- **Load sensitivity is held at k = 0.08** (`TyreLoadSensitivity`). At 0.10 or more, the Stratos, A310 and Elise spun in HandlingPlayCheck P's plain lane change.
+- **Rear-heavy cars end 22-34 deg off line after a full-lock lane change** (Elise, A310, GT40, RUF CTR). They don't spin, but P's "under 15 deg off line" check fails for them.
+- **The GT4 sheet has no tyre-compound column.** Race cars' racing tyres, brakes and stiffness are a game-side kit (`CarTune.HandlingOf`: stage-4 brakes, suspension and tyres). Rally and touring cars run their sheet.
+- **Not applied from the sheet:**
+  - Max DF (the wing's adjustable maximum, not stock);
+  - flywheel, drive and prop inertia, engine brake, yaw radius, stiffness (no defined mapping);
+  - absolute ride height (only the front/rear rake is used).
+- **Not modelled:** tyre temperature, camber thrust (the camber you see is visual only), loose surfaces (gravel, mud and sand are planned for later).
+
+### AI
+- AIGrip over-predicts front-drive cars at tight radius on full throttle: Taurus SHO 0.805, Civic 0.876 of predicted g.
+- The scripted driver mistakes (PlanMistake) fire more often now that car speeds have changed, so there are more AI retirements. This is by design, but noticeable.
+- Low-speed rival-to-rival bumps on GillespieGap went from 1 to 4 after the AI rework.
+- DeckRunSevenUp has a crawl spot at waypoints 514-526 (pre-existing).
+- The uphill Chimney Rock hairpin runs at about 21-23 km/h, held there by the 0.92 rad/s full-lock turn rate.
+
+### Cars / visuals
+- Six placeholder-shell cars still poke a tyre out past the 8 deg camber cap: Stratos Rally, Shelby Cobra and AC 427 on mb_pagoda; Calibra Touring on audi_saloon; SLK 230; Xsara Rally front.
+
+### Checks / city
+- LifeSimSelfTest has about 50 stale checks: DeckRun scenes and speed limit, the removed glass window mask, ReleaseBudget labels, the beam floor, the TryonSprint finish. A cleanup task was offered.
+- "No pumping on the open road" (the exposure check) fails in every race-play-check, with gain 1.12-1.34. Pre-existing.
+- City audit: one prefab house on Scotland Ave shows 1.31 m of foundation (limit 1.0).
+- Exit 3A needs I-277 rounding that respects clearance (PSX_CITY_I277_ROUND is off). The W 4th foreslopes (PSX_CITY_FORESLOPES) are off.

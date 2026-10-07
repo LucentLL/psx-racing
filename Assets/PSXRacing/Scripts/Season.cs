@@ -187,6 +187,17 @@ namespace PSXRacing
         public static float WetT(float roadGripMult) =>
             Mathf.Clamp01((1f - roadGripMult) / (1f - WetRoadGrip));
 
+        /// <summary>
+        /// TODAY's road, 0 dry .. 1 soaked (or snow). A sliding tyre on a wet
+        /// road hisses rather than screams, lays little rubber (the water
+        /// between tread and tarmac carries the heat away) and barely smokes.
+        /// The owner, 2026-10-07: "tires shouldn't screech as much on wet
+        /// roads. Same with skid marks." TireAudio, SkidMarks and TireSmoke
+        /// scale by how much of the dry effect a soaked road keeps.
+        /// </summary>
+        public static float RoadWetT => WetT(RoadGripMult);
+        public const float WetScreechKeep = 0.35f, WetMarkKeep = 0.25f, WetSmokeKeep = 0.30f;
+
         /// <summary>Multiplier on the hour's fog band: how much CLOSER the
         /// world fades in than it would on a clear day.</summary>
         public static float FogMul(Weather w)
