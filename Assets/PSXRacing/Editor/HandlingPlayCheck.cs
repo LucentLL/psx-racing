@@ -365,12 +365,14 @@ namespace PSXRacing.EditorTools
             CarController.TyreLoadSensitivity = LoadSensDefault;
             CarController.TyreLoadGain = LoadGainDefault;
             CarController.TyreLoadGainOnStiffness = false;
+            CarController.ArbFeedsTyreLoads = true;
             if (string.IsNullOrEmpty(exp) || exp == "base") return;
             foreach (var tok in exp.Split(';'))
             {
                 if (tok.StartsWith("ls=")) CarController.TyreLoadSensitivity = float.Parse(tok.Substring(3), System.Globalization.CultureInfo.InvariantCulture);
                 if (tok.StartsWith("lg=")) CarController.TyreLoadGain = float.Parse(tok.Substring(3), System.Globalization.CultureInfo.InvariantCulture);
                 if (tok == "lgc") CarController.TyreLoadGainOnStiffness = true;
+                if (tok == "nobar") CarController.ArbFeedsTyreLoads = false;
             }
             float s = car.massKg / CarController.ChassisRefMass;
             if (exp.Contains("lsd")) { car.diffAccelLock = 0.2f; car.diffDecelLock = 0.1f; }
@@ -383,6 +385,18 @@ namespace PSXRacing.EditorTools
             if (exp.Contains("com")) { car.weightDistFront = 0.5f; car.Body.centerOfMass = new Vector3(0f, car.cgHeight, 0f); }
             if (exp.Contains("mu")) { car.tireMuFront = CarController.DefaultTireMuFront; car.tireMuRear = CarController.DefaultTireMuRear; }
             if (exp.Contains("noinj")) car.wheelspinYawGain = 0f;
+            // "kit": the stage-4 race kit a race car carried before 2026-10-07
+            // (x1.20 grip, x1.25 stiffness to the 13 cap, x1.45 brakes to the
+            // tyre cap) - the before half of the "built cars run their sheet"
+            // before/after (CarTune.HandlingOf).
+            if (exp.Contains("kit"))
+            {
+                var kit = new CarTune.Stages { brakes = CarTune.MaxStage, suspension = CarTune.MaxStage, tires = CarTune.MaxStage };
+                car.gripBonus *= CarTune.GripStageMult(CarTune.MaxStage);
+                car.corneringStiffness = Mathf.Min(car.corneringStiffness * CarTune.SuspStageMult(CarTune.MaxStage),
+                                                   CarController.CorneringStiffnessCap);
+                car.brakeDemandG = CarTune.BrakeDemandG(car.brakeDemandG, kit);
+            }
             if (exp.Contains("split"))
             {
                 // splitNN: the same total roll stiffness, NN% of it at the front.
