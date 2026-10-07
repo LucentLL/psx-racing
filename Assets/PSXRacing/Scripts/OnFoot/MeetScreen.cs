@@ -126,7 +126,7 @@ namespace PSXRacing.OnFoot
             // the skill, the way condition is a word: a driver can tell
             // somebody is quick, not that they are 0.94.
             MenuKit.Label(panel,
-                Short(racer.spec.name, 44).ToUpperInvariant() + "   ·   " + racer.spec.hp + " hp  " +
+                Short(racer.spec.name, 44).ToUpperInvariant() + "   ·   " + CarSpec.ToHp(racer.spec.hp) + " hp  " +
                 racer.spec.drv + "   ·   " + racer.Reputation,
                 MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(0f, y), TextAnchor.MiddleCenter,
                 Color.white, 900f, height: 24f);

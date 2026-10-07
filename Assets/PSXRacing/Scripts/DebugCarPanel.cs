@@ -1126,7 +1126,7 @@ namespace PSXRacing
                 bool here = owned == driving;
                 string state = here ? "   [DRIVING]" : owned.debugLoaner ? "   [LOANER]" : "";
                 string line = ospec == null ? "built-in car — lands on RESTART RACE"
-                    : Upgrades.EffectiveHp(owned, ospec) + " hp · " +
+                    : CarSpec.ToHp(Upgrades.EffectiveHp(owned, ospec)) + " hp · " +
                       Upgrades.EffectiveKg(owned, ospec) + " kg · " + ospec.drv + " · " +
                       owned.faults.Count + " fault" + (owned.faults.Count == 1 ? "" : "s");
                 string caption =
@@ -1194,7 +1194,7 @@ namespace PSXRacing
                 var m = models[i];
                 int col = i % cols;
                 if (i > 0 && col == 0) y -= CellH + Gap;
-                string line = m.hp + " hp · " + m.kg + " kg · " + m.drv + " · " + MenuKit.Money(m.price);
+                string line = CarSpec.ToHp(m.hp) + " hp · " + m.kg + " kg · " + m.drv + " · " + MenuKit.Money(m.price);
                 string caption = Clip((m.name ?? m.id).ToUpperInvariant(), CapsFit(cellW - 16f)) +
                                  "\n" + DimTag + Clip(line, LowerFit(cellW - 16f)) + "</color>";
                 Named(MenuKit.Button(content, caption, new Vector2(0.5f, 1f),

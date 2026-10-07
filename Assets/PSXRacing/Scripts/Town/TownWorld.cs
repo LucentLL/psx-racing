@@ -840,7 +840,7 @@ namespace PSXRacing.Town
                 ? TrackCatalog.At(racer.trackIndex) : null;
             t.detail = raced ? "You have run them tonight. They are done with you."
                 : done ? "Three runs is a night. Nobody else is lining up."
-                : racer.spec.hp + " hp " + racer.spec.drv + "   ·   " + racer.Reputation +
+                : CarSpec.ToHp(racer.spec.hp) + " hp " + racer.spec.drv + "   ·   " + racer.Reputation +
                   "   ·   " + (track != null ? track.name : racer.style) +
                   "   ·   " + MenuKit.Money(CarMeets.PurseFor(S, racer));
             // Empty action = a label, not a control: FootInteractor will not

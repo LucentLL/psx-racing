@@ -49,7 +49,17 @@ namespace PSXRacing
             return r > 0.05f ? r : wheelRadius;
         }
         public float TrackOf(int i) => i >= 2 && trackWidthRear > 0.1f ? trackWidthRear : trackWidth;
+        /// <summary>Share of the weight on the FRONT axle. TO SPEC since
+        /// 2026-10-07: the sheet's "Weight Distribution" (ApplySpec), and the
+        /// centre of mass sits where that split puts it - forward of the axle
+        /// midpoint on a front-heavy car (<see cref="CenterOfMassLocal"/>).
+        /// It was 0.5 for every car, so every car was 50:50.</summary>
         public float weightDistFront = 0.5f; // wdF: 50
+        /// <summary>Body-local centre of mass: cgHeight up, and along the car
+        /// so the static axle loads split weightDistFront : rest (the wheels
+        /// sit at +/- wheelbase / 2, RebuildGeometry).</summary>
+        public Vector3 CenterOfMassLocal =>
+            new Vector3(0f, cgHeight, (weightDistFront - 0.5f) * wheelbase);
         /// <summary>CG height above ground. h/L = 0.1856 matches true geometry;
         /// the source's effective ratio was 0.1746.</summary>
         public float cgHeight = 0.465f;
@@ -858,7 +868,7 @@ namespace PSXRacing
             // committed drift damps at 0.75/s instead of 0.15/s — dead on arrival.
             Body.angularDamping = 0.05f;
             Body.automaticCenterOfMass = false;
-            Body.centerOfMass = new Vector3(0f, cgHeight, 0f);
+            Body.centerOfMass = CenterOfMassLocal;
             // At 80 m/s the car covers 1.6 m per 50 Hz tick and the barriers are
             // 0.35 m thick, so discrete detection can step straight through one.
             // Only raise the mode — the builder sets ContinuousDynamic on the
@@ -950,7 +960,12 @@ namespace PSXRacing
             // Null before Awake: the builder fits a shell at bake time, where
             // there is no Rigidbody cached yet and none is needed — Awake runs
             // this again the moment the scene loads.
-            if (Body != null) ApplyInertiaTensor();
+            if (Body != null)
+            {
+                // The wheelbase moved, so the centre of mass moves with it.
+                Body.centerOfMass = CenterOfMassLocal;
+                ApplyInertiaTensor();
+            }
         }
 
         /// <summary>
@@ -1097,7 +1112,15 @@ namespace PSXRacing
 
             massKg = CarTune.WeightAtStage(spec.kg, spec.minKg, tune.weight);
             redlineRPM = spec.redline;
-            revLimitRPM = spec.redline + 500f;
+            // TO SPEC: the sheet's rev limiter (it was redline + 500 for all).
+            revLimitRPM = spec.revLimit >= spec.redline && spec.revLimit > 0
+                ? spec.revLimit : spec.redline + 500f;
+            weightDistFront = WeightDistFrontOf(spec);
+            rideRakeM = RideRakeOf(spec);
+            tireMuFront = TireMuFrontOf(spec);
+            tireMuRear = TireMuRearOf(spec);
+            factoryDiffAccel = FactoryDiffAccelOf(spec);
+            factoryDiffDecel = FactoryDiffDecelOf(spec);
             idleRPM = spec.idleRPM;
             upshiftRPM = spec.redline * 0.96f;
             downshiftRPM = Mathf.Max(1200f, spec.idleRPM * 3.4f);
@@ -1443,7 +1466,7 @@ namespace PSXRacing
             restLength = CarTune.RestLengthAtStage(stockRestLength, activeTune.suspension);
             cgHeight = CarTune.CgHeightAtStage(stockCgHeight, stockRestLength,
                                                activeTune.suspension);
-            if (Body != null) Body.centerOfMass = new Vector3(0f, cgHeight, 0f);
+            if (Body != null) Body.centerOfMass = CenterOfMassLocal;
         }
 
         bool stageRideCaptured;
@@ -1475,10 +1498,14 @@ namespace PSXRacing
             {
                 b.Restore(this);
                 camberFrontDeg = camberRearDeg = toeFrontDeg = toeRearDeg = 0f;
-                diffAccelLock = diffDecelLock = diffPreloadN = 0f;
-                if (weldedDiff) { diffAccelLock = 1f; diffDecelLock = 1f; }
+                // A factory LSD is the car as it left the factory (all 0 on an
+                // open diff, so every other car is untouched).
+                diffAccelLock = factoryDiffAccel;
+                diffDecelLock = factoryDiffDecel;
+                diffPreloadN = FactoryDiffPreloadN;
+                if (weldedDiff) { diffAccelLock = 1f; diffDecelLock = 1f; diffPreloadN = 0f; }
                 DeriveDownforce();
-                if (Body != null) Body.centerOfMass = new Vector3(0f, cgHeight, 0f);
+                if (Body != null) Body.centerOfMass = CenterOfMassLocal;
                 return;
             }
 
@@ -1540,7 +1567,7 @@ namespace PSXRacing
             // one line, and no new equation anywhere.
             restLength = CarSetupRanges.Of(basis, SetupParam.RideHeight).Value(s.rideHeight);
             cgHeight = Mathf.Max(0.30f, b.cgHeight + (restLength - b.restLength));
-            if (Body != null) Body.centerOfMass = new Vector3(0f, cgHeight, 0f);
+            if (Body != null) Body.centerOfMass = CenterOfMassLocal;
 
             // ---- differential ----
             if (weldedDiff)
@@ -1802,22 +1829,130 @@ namespace PSXRacing
 
         void ScaleChassisToMass()
         {
-            float k = massKg / ChassisRefMass;
-
-            springRateFront = SpringFrontRef * k;
-            springRateRear = SpringRearRef * k;
-            // Critical damping goes with sqrt(k*m), and k itself scales with
-            // mass here, so the damper scales linearly too — keeping the damping
-            // RATIO constant is the part that matters for how settled it feels.
-            damperFront = DamperFrontRef * k;
-            damperRear = DamperRearRef * k;
-            antiRollFront = AntiRollFrontRef * k;
-            antiRollRear = AntiRollRearRef * k;
+            var ch = StockChassisOf(activeSpec, massKg);
+            springRateFront = ch.springF;
+            springRateRear = ch.springR;
+            damperFront = ch.damperF;
+            damperRear = ch.damperR;
+            antiRollFront = ch.arbF;
+            antiRollRear = ch.arbR;
 
             staticWheelLoad = massKg * 9.81f * 0.25f;
-            // Half the static axle load, same relationship the reference used.
+            // Half the static load, same relationship the reference used; each
+            // axle scales it by its own share of the weight (SuspensionAndLoads).
             antiRollMaxForce = staticWheelLoad * 2f;
         }
+
+        // ================= TO SPEC chassis (2026-10-07) ======================
+        // The owner: "I want everything to spec." Every car used to run the
+        // FD's chassis scaled by mass: 50:50, the FD's 4.8 / 3.6 kgf/mm, its
+        // grip. These read the sheet (tools/bake_spec_handling.py) and are
+        // public static so the garage (CarSetupRanges) quotes the same car.
+        // A spec with nothing baked, and the built-in car, get exactly the old
+        // reference chassis.
+
+        /// <summary>kgf/mm to N/m.</summary>
+        public const float KgfPerMm = 9806.65f;
+        /// <summary>The tuned FD's grip modifier, both axles: it keeps
+        /// DefaultTireMuFront / Rear exactly and every car scales from it.</summary>
+        public const float GripModifierRef = 96f;
+        /// <summary>How far each axle sits down on its springs at rest, m: the
+        /// mean of the reference FD's two static sags (front 0.067, rear 0.089
+        /// - it squatted 2 cm at the tail). The spring PRELOAD holds every car
+        /// there whatever its rate and load, so a soft, front-heavy car does not
+        /// sit on its nose and the shell keeps the height it was fitted at.</summary>
+        public const float StaticSagRef = 0.5f * (ChassisRefMass * 9.81f * 0.25f / SpringFrontRef +
+                                                  ChassisRefMass * 9.81f * 0.25f / SpringRearRef);
+        /// <summary>The reference's front share of ROLL stiffness above its
+        /// front share of weight (57.2% on 50:50). Each car carries the same
+        /// margin over its own split - a front-heavy car is stiffer at the
+        /// front, a rear-engined one at the rear - which keeps the balance
+        /// each car's anti-roll bars give in the same family as the FD's.</summary>
+        public const float RollShareOverWeight =
+            (SpringFrontRef * 0.5f + AntiRollFrontRef) /
+            (SpringFrontRef * 0.5f + AntiRollFrontRef + SpringRearRef * 0.5f + AntiRollRearRef) - 0.5f;
+        /// <summary>A bar never drops below this share of the reference bar
+        /// scaled to the car's mass (a stiff-sprung car would otherwise
+        /// solve to no bar at all at one end).</summary>
+        public const float AntiRollFloorShare = 0.25f;
+        /// <summary>The tyre's own vertical rate, N/m, in series with a
+        /// PRELOADED spring: the contact force builds over a centimetre or so
+        /// of tyre instead of stepping to the preload the instant a ray
+        /// touches (no chatter on a lifting inside wheel).</summary>
+        public const float TyreVerticalRate = 200000f;
+        /// <summary>The drift injector's lever arm as a share of the wheelbase.
+        /// It read weightDistFront, which was 0.5 for every car; pinned there
+        /// so the drift ASSIST feels as it did, while the real centre of mass
+        /// now does the physics.</summary>
+        public const float InjectorArmShare = 0.5f;
+        /// <summary>The reference's damping ratio per axle - kept for every car
+        /// as its rates and corner masses change.</summary>
+        public static readonly float DampingRatioFront =
+            DamperFrontRef / (2f * Mathf.Sqrt(SpringFrontRef * ChassisRefMass * 0.25f));
+        public static readonly float DampingRatioRear =
+            DamperRearRef / (2f * Mathf.Sqrt(SpringRearRef * ChassisRefMass * 0.25f));
+
+        public struct Chassis { public float springF, springR, damperF, damperR, arbF, arbR; }
+
+        public static float WeightDistFrontOf(CarSpec spec) =>
+            spec != null && spec.wdFront > 0 ? Mathf.Clamp(spec.wdFront / 100f, 0.30f, 0.70f) : 0.5f;
+        public static float TireMuFrontOf(CarSpec spec) =>
+            spec != null && spec.gripF > 0 ? DefaultTireMuFront * spec.gripF / GripModifierRef : DefaultTireMuFront;
+        public static float TireMuRearOf(CarSpec spec) =>
+            spec != null && spec.gripR > 0 ? DefaultTireMuRear * spec.gripR / GripModifierRef : DefaultTireMuRear;
+        /// <summary>Front sits this much LOWER than the rear at rest, m: the
+        /// sheet's stock height F/R difference. 0 for all but a handful.</summary>
+        public static float RideRakeOf(CarSpec spec) =>
+            spec != null && spec.rideFMm > 0 && spec.rideRMm > 0
+                ? Mathf.Clamp((spec.rideRMm - spec.rideFMm) * 0.001f, -0.04f, 0.04f) : 0f;
+        /// <summary>GT4's accel / decel LSD figures as this diff model's lock
+        /// share (GT4 runs them 5..60, race cars to 80).</summary>
+        public static float FactoryDiffAccelOf(CarSpec spec) =>
+            spec != null ? Mathf.Clamp01(spec.lsdAccel / 100f) : 0f;
+        public static float FactoryDiffDecelOf(CarSpec spec) =>
+            spec != null ? Mathf.Clamp01(spec.lsdDecel / 100f) : 0f;
+        /// <summary>GT4's initial torque (kgf.m, between the two wheels) as a
+        /// clamp force at the contact patch, N.</summary>
+        public static float FactoryDiffPreloadOf(CarSpec spec, float driveRadius) =>
+            spec != null && spec.lsdInit > 0 ? spec.lsdInit * 9.80665f / Mathf.Max(0.2f, driveRadius) : 0f;
+
+        public static Chassis StockChassisOf(CarSpec spec, float massKg)
+        {
+            float scale = massKg / ChassisRefMass;
+            float wdF = WeightDistFrontOf(spec);
+            var ch = new Chassis
+            {
+                springF = spec != null && spec.springF > 0f ? spec.springF * KgfPerMm : SpringFrontRef * scale,
+                springR = spec != null && spec.springR > 0f ? spec.springR * KgfPerMm : SpringRearRef * scale,
+            };
+            // The same damping RATIO as the reference, on each axle's own rate
+            // and corner mass (for the reference itself this is DamperRef x scale).
+            ch.damperF = DampingRatioFront * 2f * Mathf.Sqrt(ch.springF * massKg * wdF * 0.5f);
+            ch.damperR = DampingRatioRear * 2f * Mathf.Sqrt(ch.springR * massKg * (1f - wdF) * 0.5f);
+            // ROLL: the reference's total roll stiffness at this mass (springs
+            // and bars, each axle t^2 (k/2 + bar)), with the springs now the
+            // sheet's, split front:rear at the car's weight split plus the
+            // reference's margin. The bars make up the split.
+            float tF = spec != null && spec.trackFMm > 0 ? spec.trackFMm * 0.001f : 1.46f;
+            float tR = spec != null && spec.trackRMm > 0 ? spec.trackRMm * 0.001f : tF;
+            float total = tF * tF * (ch.springF * 0.5f + AntiRollFrontRef * scale) +
+                          tR * tR * (ch.springR * 0.5f + AntiRollRearRef * scale);
+            float share = Mathf.Clamp(wdF + RollShareOverWeight, 0.30f, 0.80f);
+            ch.arbF = Mathf.Max(AntiRollFloorShare * AntiRollFrontRef * scale,
+                                share * total / (tF * tF) - ch.springF * 0.5f);
+            ch.arbR = Mathf.Max(AntiRollFloorShare * AntiRollRearRef * scale,
+                                (1f - share) * total / (tR * tR) - ch.springR * 0.5f);
+            return ch;
+        }
+
+        /// <summary>The sheet's ride rake, m (see RideRakeOf).</summary>
+        [System.NonSerialized] public float rideRakeM;
+        /// <summary>The factory LSD's lock shares (0 = an open diff).</summary>
+        [System.NonSerialized] public float factoryDiffAccel, factoryDiffDecel;
+        public float FactoryDiffPreloadN => FactoryDiffPreloadOf(activeSpec, wheelRadius);
+        /// <summary>Static load on ONE wheel of an axle, N.</summary>
+        float StaticWheelLoadOf(bool front) =>
+            massKg * 9.81f * 0.5f * (front ? weightDistFront : 1f - weightDistFront);
 
         /// <summary>
         /// The top speed of this car AS BUILT, m/s: the stock figure times the
@@ -2714,8 +2849,17 @@ namespace PSXRacing
                     float compressionVel = Mathf.Clamp((compression - prevCompression[i]) / dt, -4f, 4f);
                     float k = front ? springRateFront : springRateRear;
                     float c = front ? damperFront : damperRear;
-                    float force = Mathf.Max(0f, k * compression + c * compressionVel);
-                    force = Mathf.Min(force, staticWheelLoad * maxSuspensionForceRatio);
+                    // PRELOAD: the spring holds this axle at the reference sag
+                    // (plus the sheet's rake) whatever its rate and its share of
+                    // the weight - a soft front-heavy car does not sit on its
+                    // nose. Rate and load still decide how it MOVES. A preload
+                    // builds through the tyre's own rate, not in one step.
+                    float wheelStatic = StaticWheelLoadOf(front);
+                    float preload = wheelStatic - k * (StaticSagRef + (front ? 0.5f : -0.5f) * rideRakeM);
+                    float spring = k * compression + preload;
+                    if (preload > 0f) spring = Mathf.Min(spring, TyreVerticalRate * compression);
+                    float force = Mathf.Max(0f, spring + c * compressionVel);
+                    force = Mathf.Min(force, wheelStatic * maxSuspensionForceRatio);
                     wheelLoad[i] = force;
 
                     bool isRoad = hit.collider != null && hit.collider.gameObject.layer == roadLayer;
@@ -2748,8 +2892,10 @@ namespace PSXRacing
                 int l = axle * 2, r = axle * 2 + 1;
                 if (!wheelGrounded[l] || !wheelGrounded[r]) continue;
                 float rate = axle == 0 ? antiRollFront : antiRollRear;
+                // Each axle's bar tops out at its own share of the weight.
+                float arbMax = antiRollMaxForce * 2f * (axle == 0 ? weightDistFront : 1f - weightDistFront);
                 float arb = Mathf.Clamp((suspensionCompression[l] - suspensionCompression[r]) * rate,
-                                        -antiRollMaxForce, antiRollMaxForce);
+                                        -arbMax, arbMax);
                 // Push the MORE COMPRESSED side up and the extended side down.
                 // `compression` grows as the wheel is pushed in, which is the
                 // opposite sign to the "suspension travel" the usual formulation
@@ -3399,7 +3545,7 @@ namespace PSXRacing
                                         EbrakeTimer > 0f ? InjectorEbrake : InjectorDrift,
                                         DriftBlend);
                 float surfMult = onRoad ? 1.0f : InjectorOffroadMult;
-                float arm = wheelbase * weightDistFront;
+                float arm = wheelbase * InjectorArmShare;
                 float torque = Mathf.Sign(steerCommandDeg) * steerMag * wheelspinRatio *
                                arm * rearCircleTotal * InjectorCircleShare * mult * surfMult *
                                wheelspinYawGain * injectorFade * layoutGain;

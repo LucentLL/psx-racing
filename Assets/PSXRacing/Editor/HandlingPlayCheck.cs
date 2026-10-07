@@ -51,6 +51,10 @@ namespace PSXRacing.EditorTools
     ///   S  STEERING SENSITIVITY (the settings menu, 2026-10-04): a scripted
     ///      control at 50 / 100 / 150% read as the command and the wheel
     ///      angle, then the settings read back after a reload.
+    ///   P  TO SPEC handling (2026-10-07): the tuned FD, then one car per
+    ///      layout (Civic EG FF, AE86 FR, NSX MR, RUF CTR RR) - rest attitude
+    ///      and axle loads, launch, a 40 mph steer ramp (balance at the
+    ///      limit), a lift mid-corner, a 100 mph stop, a 70 mph lane change.
     /// PSX_HANDLING_ONLY="D,E,F,G,H" runs just those (the first car only; H
     /// in the Viper; S last, as it reloads the scene).
     /// </summary>
@@ -297,9 +301,167 @@ namespace PSXRacing.EditorTools
                     yield return TestH(viper.name);
                 }
             }
+            // P: the sheet's handling columns, one car per layout (the tuned FD
+            // as the reference, then FF / FR / MR / RR).
+            if (Want("P"))
+            {
+                foreach (var name in new[] { "RX-7 Type R (FD, J) `91", "CIVIC SiR-II (EG) `91",
+                                             "SPRINTER TRUENO GT-APEX (AE86) `83", "Honda NSX `90",
+                                             "\"Yellow Bird\" `87" })
+                {
+                    var ps = Pick(name);
+                    HandlingPlayCheck.Check(ps != null, "P: " + name + " is in the catalog with a model");
+                    if (ps == null) continue;
+                    RaceHandoff.CarSpecId = ps.id;
+                    RaceHandoff.CarPaintSkin = null;
+                    RaceHandoff.UpPower = RaceHandoff.UpWeight = RaceHandoff.UpBrakes = RaceHandoff.UpSuspension = RaceHandoff.UpTires = 0;
+                    RaceHandoff.Supercharged = false; RaceHandoff.Welded = false; RaceHandoff.Setup = null;
+                    RaceHandoff.StartFuelPct = 100f;
+                    applier.SwapCar();
+                    for (int f = 0; f < 5; f++) yield return null;
+                    car.manualMode = false;
+                    cam = Object.FindFirstObjectByType<ChaseCamera>();
+                    xLane += 400f;
+                    yield return TestP(ps.name);
+                }
+            }
             // Last: it reloads the scene.
             if (Want("S")) yield return TestS();
             Done();
+        }
+
+        // ---- P: TO SPEC handling, one car per layout (2026-10-07) ---------
+        // Rest attitude and axle loads, a standing launch, a 40 mph steer
+        // ramp (balance at the limit), a lift mid-corner, a 100 mph stop and
+        // a 70 mph lane change. Logged as numbers for a before/after table;
+        // FAILs only for what makes a car undriveable (spin from a lane
+        // change, rollover, a stop that swaps ends).
+        float Yaw() => car.transform.eulerAngles.y;
+        float YawRateDeg() => car.Body.angularVelocity.y * Mathf.Rad2Deg;
+        float HoldThrottle(float target) => Mathf.Clamp01(0.35f + (target - VFwd()) * 0.6f);
+        IEnumerator TestP(string who)
+        {
+            float minUp = 1f;
+            // REST: three seconds on the handbrake.
+            yield return Place(-14000f, 0f, 0f);
+            throttle = 0f; brake = 0f; steer = 0f; hand = true; drive = true;
+            for (float t = 0f; t < 3f; t += step) yield return new WaitForFixedUpdate();
+            float pitch = -Mathf.DeltaAngle(0f, car.transform.eulerAngles.x);
+            float ride = car.transform.position.y - surfaceY;
+            float lf = car.wheelContacts[0].load + car.wheelContacts[1].load;
+            float lr = car.wheelContacts[2].load + car.wheelContacts[3].load;
+            float split = lf / Mathf.Max(1f, lf + lr);
+            HandlingPlayCheck.Note(who + ": P chassis wdF " + car.weightDistFront.ToString("0.00") +
+                " CoM z " + car.Body.centerOfMass.z.ToString("0.000") + " springs " + (car.springRateFront / 1000f).ToString("0.0") +
+                "/" + (car.springRateRear / 1000f).ToString("0.0") + " N/mm dampers " + car.damperFront.ToString("0") + "/" +
+                car.damperRear.ToString("0") + " bars " + car.antiRollFront.ToString("0") + "/" + car.antiRollRear.ToString("0") +
+                " mu " + car.tireMuFront.ToString("0.000") + "/" + car.tireMuRear.ToString("0.000") +
+                " limiter " + car.revLimitRPM.ToString("0") + " (redline " + car.redlineRPM.ToString("0") + ") diff " +
+                car.diffAccelLock.ToString("0.00") + "/" + car.diffDecelLock.ToString("0.00") + "/" + car.diffPreloadN.ToString("0") + " N");
+            HandlingPlayCheck.Note(who + ": P rest pitch " + pitch.ToString("+0.00;-0.00") + " deg (nose up +), body " +
+                ride.ToString("0.000") + " m over the road, front axle carries " + (split * 100f).ToString("0.0") + "%");
+
+            // LAUNCH: full throttle from a standstill.
+            yield return Place(-13000f, 0f, 0f);
+            hand = false; throttle = 1f; brake = 0f; steer = 0f; drive = true;
+            float h0 = Yaw(), tl = 0f, v2 = -1f, t60 = -1f, slide2 = 0f;
+            while (tl < 15f && t60 < 0f)
+            {
+                yield return new WaitForFixedUpdate();
+                tl += step;
+                if (tl <= 2f) slide2 = Mathf.Max(slide2, MaxSlide());
+                if (v2 < 0f && tl >= 2f) v2 = VFwd();
+                if (VFwd() >= 60f * Mph) t60 = tl;
+                minUp = Mathf.Min(minUp, car.transform.up.y);
+            }
+            float launchYaw = Mathf.Abs(Mathf.DeltaAngle(h0, Yaw()));
+            HandlingPlayCheck.Note(who + ": P launch 0-60 " + (t60 > 0f ? t60.ToString("0.00") + " s" : "not in 15 s") +
+                ", " + (v2 / Mph).ToString("0.0") + " mph at 2 s, worst wheel slide in the first 2 s " +
+                slide2.ToString("0.0") + " m/s, heading moved " + launchYaw.ToString("0.0") + " deg");
+
+            // SKIDPAD: 40 mph held, the steer ramped 0 -> 1 over 8 s. Balance =
+            // |front slip| - |rear slip| at the most lateral g (+ = understeer).
+            yield return Place(-11000f, 0f, 40f * Mph);
+            drive = true;
+            float best = 0f, bF = 0f, bR = 0f, bSteer = 0f, bBody = 0f, maxBody = 0f;
+            for (float t = 0f; t < 8f; t += step)
+            {
+                steer = Mathf.Clamp01(t / 8f);
+                throttle = HoldThrottle(40f * Mph);
+                yield return new WaitForFixedUpdate();
+                float latG = Mathf.Abs(Planar() * car.Body.angularVelocity.y) / 9.81f;
+                maxBody = Mathf.Max(maxBody, BodySlipDeg());
+                minUp = Mathf.Min(minUp, car.transform.up.y);
+                if (t > 1f && latG > best && BodySlipDeg() < 25f)
+                {
+                    best = latG; bSteer = steer; bBody = BodySlipDeg();
+                    bF = Mathf.Abs(car.frontSlipAngle) * Mathf.Rad2Deg;
+                    bR = Mathf.Abs(car.rearSlipAngle) * Mathf.Rad2Deg;
+                }
+            }
+            HandlingPlayCheck.Note(who + ": P skidpad 40 mph max " + best.ToString("0.00") + " g at steer " + bSteer.ToString("0.00") +
+                ", slip F " + bF.ToString("0.0") + " R " + bR.ToString("0.0") + " deg, balance " + (bF - bR).ToString("+0.0;-0.0") +
+                " deg (+ understeer), body slip there " + bBody.ToString("0.0") + ", max " + maxBody.ToString("0.0"));
+
+            // LIFT mid-corner: 80% of that steer at 40 mph, settle 3 s, then off.
+            yield return Place(-9000f, 0f, 40f * Mph);
+            drive = true;
+            float holdSteer = Mathf.Max(0.15f, bSteer * 0.8f), r0 = 0f, s0 = 0f;
+            for (float t = 0f; t < 3f; t += step)
+            {
+                steer = holdSteer; throttle = HoldThrottle(40f * Mph);
+                yield return new WaitForFixedUpdate();
+                r0 = Mathf.Abs(YawRateDeg()); s0 = BodySlipDeg();
+            }
+            float r1 = r0, s1 = s0;
+            for (float t = 0f; t < 1.5f; t += step)
+            {
+                steer = holdSteer; throttle = 0f;
+                yield return new WaitForFixedUpdate();
+                r1 = Mathf.Max(r1, Mathf.Abs(YawRateDeg())); s1 = Mathf.Max(s1, BodySlipDeg());
+                minUp = Mathf.Min(minUp, car.transform.up.y);
+            }
+            HandlingPlayCheck.Note(who + ": P lift at steer " + holdSteer.ToString("0.00") + ": yaw " + r0.ToString("0.0") + " -> peak " +
+                r1.ToString("0.0") + " deg/s (" + ((r1 / Mathf.Max(0.1f, r0) - 1f) * 100f).ToString("+0;-0") + "%), body slip " +
+                s0.ToString("0.0") + " -> " + s1.ToString("0.0") + " deg");
+            HandlingPlayCheck.Check(s1 < 45f, who + ": P a lift mid-corner does not spin it", s1.ToString("0.0") + " deg body slip");
+
+            // BRAKE: 100 mph, full pedal, straight.
+            yield return Place(-7000f, 0f, 100f * Mph);
+            throttle = 0f; brake = 1f; steer = 0f; drive = true;
+            float hb = Yaw(), tb = 0f, maxR = 0f; Vector3 pb = car.transform.position;
+            while (tb < 15f && car.Body.linearVelocity.magnitude > 0.3f)
+            {
+                yield return new WaitForFixedUpdate();
+                tb += step;
+                maxR = Mathf.Max(maxR, Mathf.Abs(YawRateDeg()));
+                minUp = Mathf.Min(minUp, car.transform.up.y);
+            }
+            float bHead = Mathf.Abs(Mathf.DeltaAngle(hb, Yaw()));
+            HandlingPlayCheck.Note(who + ": P brake 100-0 " + Vector3.Distance(pb, car.transform.position).ToString("0.0") +
+                " m, heading moved " + bHead.ToString("0.0") + " deg, peak yaw " + maxR.ToString("0.0") + " deg/s");
+            HandlingPlayCheck.Check(bHead < 20f, who + ": P a straight stop stays straight", bHead.ToString("0.0") + " deg");
+            brake = 0f;
+
+            // LANE CHANGE: 70 mph, half lock one way then the other, let go.
+            yield return Place(-5000f, 0f, 70f * Mph);
+            drive = true;
+            float hl = Yaw(), lcSlip = 0f, lcYaw = 0f;
+            for (float t = 0f; t < 4f; t += step)
+            {
+                steer = t < 0.6f ? 0.5f : t < 1.2f ? -0.5f : 0f;
+                throttle = HoldThrottle(70f * Mph);
+                yield return new WaitForFixedUpdate();
+                lcSlip = Mathf.Max(lcSlip, BodySlipDeg());
+                lcYaw = Mathf.Max(lcYaw, Mathf.Abs(YawRateDeg()));
+                minUp = Mathf.Min(minUp, car.transform.up.y);
+            }
+            float lcHead = Mathf.Abs(Mathf.DeltaAngle(hl, Yaw()));
+            HandlingPlayCheck.Note(who + ": P lane change 70 mph body slip max " + lcSlip.ToString("0.0") + " deg, yaw max " +
+                lcYaw.ToString("0.0") + " deg/s, heading after " + lcHead.ToString("0.0") + " deg");
+            HandlingPlayCheck.Check(lcSlip < 15f, who + ": P a plain lane change does not spin it", lcSlip.ToString("0.0") + " deg");
+            HandlingPlayCheck.Check(minUp > 0.5f, who + ": P never rolls over", "lowest up.y " + minUp.ToString("0.00"));
+            drive = false; steer = 0f; throttle = 0f;
         }
 
         // ---- S: STEERING SENSITIVITY + settings that persist (2026-10-04) --

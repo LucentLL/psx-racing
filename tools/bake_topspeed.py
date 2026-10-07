@@ -39,10 +39,13 @@ formatting so the diff is only the fields it owns.
 import io
 import json
 import math
+import os
 import re
 import sys
 
-UNITY = r"C:\Users\mcgee\PSX Racing\Assets\PSXRacing\Resources\rg2_cars.json"
+# Next to this script, so a worktree bakes its own catalog (it once wrote MAIN's).
+UNITY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Assets", "PSXRacing",
+                     "Resources", "rg2_cars.json")
 RG2_DB = r"C:\Users\mcgee\code\Racing-Game-2\src\config\cars\gt4Database.ts"
 
 RHO = 1.225          # air, kg/m^3
@@ -78,10 +81,24 @@ def torque_at(rpms, nms, rpm):
     return nms[-1]
 
 
+PS_W = 735.49875     # one metric horsepower: the sheet's "Peak Power (ps)"
+
+
 def peak_power_w(car):
     """Most power the engine makes between idle and redline - the same window
     CarSpec.PeakPowerRPM searches, because that is where the gearbox puts the
-    engine at top speed."""
+    engine at top speed. Since 2026-10-07 CarSpec.Decode scales every curve so
+    its peak over the SAMPLE points is exactly hp x 735.5 W (the sheet's figure
+    is metric PS, see bake_spec_handling.py); the window walk is taken on the
+    stored curve and given the same scale, so the int torque's rounding cancels."""
+    rpms = [float(x) for x in car["tcRPMs"].split(";")]
+    nms = [float(x) * car["peakTorqueNm"] for x in car["tcNorm"].split(";")]
+    sample_peak = max(r * n * 2.0 * math.pi / 60.0 for r, n in zip(rpms, nms))
+    return curve_peak_power_w(car) * car["hp"] * PS_W / sample_peak
+
+
+def curve_peak_power_w(car):
+    """The stored curve's own peak, idle to redline on a 25 rpm grid."""
     rpms = [float(x) for x in car["tcRPMs"].split(";")]
     nms = [float(x) * car["peakTorqueNm"] for x in car["tcNorm"].split(";")]
     best = 0.0
