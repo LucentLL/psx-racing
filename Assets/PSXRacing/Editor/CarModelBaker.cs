@@ -142,6 +142,7 @@ namespace PSXRacing.EditorTools
             }
 
             float bodyYaw = 0f, wheelbase = 2.425f, track = 1.46f, tyre = 0.333f, bodyY = 0f, bodyZ = 0f;
+            float trackRear = 0f, tyreRear = 0f, tyreWidthRear = 0f;
             Bounds bodyBounds = bodyMesh.bounds;
             Mesh scratchL = null, scratchR = null;
 
@@ -169,6 +170,20 @@ namespace PSXRacing.EditorTools
                 // side beats mirroring a left one, which reverses the winding
                 // and the texture with it.
                 wheelSrc = bodyYaw == 0f ? scratchR : scratchL;
+
+                // The rear axle the same way (2026-10-07, to spec): its own
+                // track and tyre, because several shells are staggered and
+                // CarModelLibrary.Fit checks the spec tyre against the wheel
+                // the model drew at each axle. Measured, then thrown away -
+                // every corner still wears the front wheel mesh.
+                SplitSides(rearAxle, model.key, out var rearL, out var rearR,
+                           out var rNeg, out var rPos);
+                trackRear = Mathf.Abs(rPos.x - rNeg.x);
+                var rb = (bodyYaw == 0f ? rearR : rearL).bounds;
+                tyreRear = Mathf.Max(rb.size.y, rb.size.z) * 0.5f;
+                tyreWidthRear = rb.size.x;
+                UnityEngine.Object.DestroyImmediate(rearL);
+                UnityEngine.Object.DestroyImmediate(rearR);
 
                 var wb = wheelSrc.bounds;
                 tyre = Mathf.Max(wb.size.y, wb.size.z) * 0.5f;
@@ -225,6 +240,9 @@ namespace PSXRacing.EditorTools
             d.trackWidth = track;
             d.wheelRadius = tyre * TyreScale;
             d.wheelMeshScale = TyreScale;
+            d.trackRear = trackRear;
+            d.tyreRadiusRear = tyreRear;
+            d.tyreWidthRear = tyreWidthRear;
 
             if (builtIn)
             {
@@ -247,6 +265,9 @@ namespace PSXRacing.EditorTools
             }
 
             MeasureCowl(bodyMesh, bodyYaw, bodyY, bodyZ, d);
+            // The across-scale's yardstick, read here where the editor can
+            // read the mesh (the pack's OBJs import unreadable).
+            d.lowerBodyWidth = CarModelLibrary.MeasureLowerWidth(bodyMesh, bodyYaw, true);
 
             BakeSkins(d, texDir, model.key, shader);
             // After the skins: the lamps are found on the sheets.
@@ -256,7 +277,8 @@ namespace PSXRacing.EditorTools
             PrefabUtility.SaveAsPrefabAsset(def, prefabPath);
             UnityEngine.Object.DestroyImmediate(def);
 
-            log.Add($"{model.key,-13} wb={wheelbase:0.00} track={track:0.00} tyre={d.wheelRadius:0.000} " +
+            log.Add($"{model.key,-13} wb={wheelbase:0.00} track={track:0.00}/{trackRear:0.00} tyre={d.wheelRadius:0.000} " +
+                    $"rear tyre={tyreRear:0.000}x{tyreWidthRear:0.000} lowerW={d.lowerBodyWidth:0.000} " +
                     $"yaw={bodyYaw:0} bodyY={bodyY:0.000} bodyZ={bodyZ:0.000} " +
                     $"box={d.colliderSize.x:0.00}x{d.colliderSize.y:0.00}x{d.colliderSize.z:0.00} " +
                     // The cowl's FRACTION back from the nose is the number worth

@@ -68,16 +68,22 @@ namespace PSXRacing.OnFoot
         /// (CarModelLibrary.WidthScale), wheels and box with it.</param>
         public static Transform Spawn(Transform at, CarModelDef def, int skin,
                                       out Vector3 roofPoint, bool solid = true,
-                                      int missingWheels = 0, Material blockMat = null, int widthMm = 0)
+                                      int missingWheels = 0, Material blockMat = null, int widthMm = 0,
+                                      CarSpec spec = null)
         {
             roofPoint = new Vector3(0f, 1.1f, 0f);
             if (at == null || def == null) return null;
-            float sx = CarModelLibrary.WidthScale(def, widthMm);
+            // The same fit the car races on (CarModelLibrary.Fit): stretched
+            // to the spec, the sheet's track and tyres, the camber.
+            var fit = CarModelLibrary.Fit(def, spec != null ? CarModelLibrary.SpecGeometry.Of(spec)
+                                                            : CarModelLibrary.SpecGeometry.WidthOnly(widthMm));
+            float sx = fit.sx;
 
             var mat = def.SkinCount > 0
                 ? def.skinMaterials[Mathf.Clamp(skin, 0, def.SkinCount - 1)] : null;
             var wheelMat = def.wheelMaterial != null ? def.wheelMaterial : mat;
-            float centre = def.colliderCenter.z;
+            float centre = fit.P(def.colliderCenter).z;
+            var slide = new Vector3(0f, 0f, -centre);
 
             var shellGO = new GameObject("Shell");
             shellGO.transform.SetParent(at, false);
@@ -85,20 +91,14 @@ namespace PSXRacing.OnFoot
 
             var body = new GameObject("Body");
             body.transform.SetParent(shell, false);
-            body.transform.localPosition = new Vector3(0f, def.bodyYOffset, def.bodyZOffset - centre);
-            body.transform.localRotation = Quaternion.Euler(0f, def.bodyYaw, 0f);
-            body.transform.localScale = CarBody.AcrossScale(def.bodyYaw, sx);
+            fit.PlaceBody(body.transform, def, slide);
             body.AddComponent<MeshFilter>().sharedMesh = def.bodyMesh;
             var br = body.AddComponent<MeshRenderer>();
             if (mat != null) br.sharedMaterial = mat;
 
             for (int i = 0; i < 4; i++)
             {
-                bool left = i % 2 == 0;
-                var hub = new Vector3(
-                    (left ? -0.5f : 0.5f) * def.trackWidth * sx,
-                    def.wheelRadius,
-                    (i < 2 ? 0.5f : -0.5f) * def.wheelbase - centre);
+                var hub = fit.Hub(i) + slide;
 
                 if ((missingWheels & (1 << i)) != 0)
                 {
@@ -107,15 +107,13 @@ namespace PSXRacing.OnFoot
                     // hub height so the body sits exactly where its wheels
                     // would have put it — a car on blocks is level; a car on a
                     // guess is a car with one corner in the dirt.
-                    BuildBlockStack(shell, "Blocks" + i, hub, def.wheelRadius, blockMat);
+                    BuildBlockStack(shell, "Blocks" + i, hub, fit.Radius(i), blockMat);
                     continue;
                 }
 
                 var w = new GameObject("Wheel" + i);
                 w.transform.SetParent(shell, false);
-                w.transform.localPosition = hub;
-                w.transform.localRotation = Quaternion.Euler(0f, left ? 180f : 0f, 0f);
-                w.transform.localScale = Vector3.one * def.wheelMeshScale;
+                fit.PlaceWheel(w.transform, i, slide);
                 w.AddComponent<MeshFilter>().sharedMesh = def.wheelMesh;
                 var wr = w.AddComponent<MeshRenderer>();
                 if (wheelMat != null) wr.sharedMaterial = wheelMat;
@@ -125,12 +123,12 @@ namespace PSXRacing.OnFoot
             {
                 var col = new GameObject("Solid");
                 col.transform.SetParent(shell, false);
-                col.transform.localPosition = new Vector3(0f, def.colliderCenter.y, 0f);
+                col.transform.localPosition = new Vector3(0f, def.colliderCenter.y + fit.dy, 0f);
                 var box = col.AddComponent<BoxCollider>();
-                box.size = new Vector3(def.colliderSize.x * sx, def.colliderSize.y, def.colliderSize.z);
+                box.size = new Vector3(def.colliderSize.x * sx, def.colliderSize.y, def.colliderSize.z * fit.sz);
             }
 
-            roofPoint = new Vector3(0f, Mathf.Max(def.roofY, 1.1f) * 0.82f, 0f);
+            roofPoint = new Vector3(0f, Mathf.Max(def.roofY + fit.dy, 1.1f) * 0.82f, 0f);
             return shell;
         }
 

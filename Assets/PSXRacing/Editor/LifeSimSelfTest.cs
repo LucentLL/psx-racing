@@ -9306,6 +9306,64 @@ namespace PSXRacing.EditorTools
 
             if (!CarCatalog.Ready) { Check(false, "catalog loaded"); return; }
 
+            // TO SPEC (owner, 2026-10-07: "Everything should be designed to
+            // spec and scale"). Every catalog car's chassis is its sheet's -
+            // wheelbase, each axle's track and tyre - and its stretched shell
+            // puts its axles on that wheelbase too, unless the stretch hit its
+            // fence (logged, and listed in the mapping report).
+            {
+                var offSpec = new List<string>();
+                int fenced = 0, rearMeasured = 0, baked = 0, overCap = 0;
+                foreach (var m in CarModelLibrary.Models)
+                {
+                    var d = CarModelLibrary.Load(m.key);
+                    if (d == null || m.key == CarModelLibrary.Default) continue;
+                    baked++;
+                    if (d.trackRear > 0.1f && d.tyreRadiusRear > 0.05f && d.tyreWidthRear > 0.02f) rearMeasured++;
+                }
+                Check(rearMeasured == baked, "every baked shell measured its rear axle", rearMeasured + "/" + baked);
+                foreach (var c in CarCatalog.All)
+                {
+                    var d = CarModelLibrary.LoadFor(c);
+                    if (d == null) continue;
+                    var f = CarModelLibrary.Fit(d, c);
+                    bool chassis = Mathf.Abs(f.wheelbase * 1000f - c.wheelbaseMm) < 5f
+                                && Mathf.Abs(f.trackF * 1000f - c.trackFMm) < 5f
+                                && Mathf.Abs(f.trackR * 1000f - c.trackRMm) < 5f
+                                && Mathf.Abs(f.radiusF * 2000f - c.tyreFDiaMm) < 5f
+                                && Mathf.Abs(f.radiusR * 2000f - c.tyreRDiaMm) < 5f;
+                    bool shell = Mathf.Abs(d.wheelbase * f.sz * 1000f - c.wheelbaseMm) < 5f;
+                    if (f.clampZ) fenced++;
+                    if (f.camberF > CarModelLibrary.CamberCapDeg + 0.01f || f.camberR > CarModelLibrary.CamberCapDeg + 0.01f) overCap++;
+                    if (!chassis || (!shell && !f.clampZ)) offSpec.Add(c.name);
+                }
+                Check(offSpec.Count == 0, "every catalog car is built to its spec sheet (shell stretched onto it)",
+                      offSpec.Count == 0 ? fenced + " fenced" : string.Join(" | ", offSpec.Take(6)));
+                Check(overCap == 0, "no fitted camber past the cap", overCap);
+
+                // End to end through CarBody: the chassis the RIG ends up on.
+                CarSpec delSol = null;
+                foreach (var c in CarCatalog.All) if (c.name.Contains("del Sol")) { delSol = c; break; }
+                if (delSol != null)
+                {
+                    var go = new GameObject("SpecFitBench") { hideFlags = HideFlags.HideAndDontSave };
+                    var rig = go.AddComponent<CarController>();
+                    var shellBody = go.AddComponent<CarBody>();
+                    shellBody.car = rig;
+                    shellBody.box = go.AddComponent<BoxCollider>();
+                    shellBody.ApplySpec(delSol);
+                    bool onSpec = Mathf.Abs(rig.wheelbase * 1000f - delSol.wheelbaseMm) < 1f
+                               && Mathf.Abs(rig.TrackOf(0) * 1000f - delSol.trackFMm) < 1f
+                               && Mathf.Abs(rig.TrackOf(2) * 1000f - delSol.trackRMm) < 1f
+                               && Mathf.Abs(rig.WheelRadiusOf(0) * 2000f - delSol.tyreFDiaMm) < 1f
+                               && Mathf.Abs(rig.WheelRadiusOf(2) * 2000f - delSol.tyreRDiaMm) < 1f
+                               && Mathf.Abs(rig.wheelRadius - shellBody.Fit.driveRadius) < 1e-4f;
+                    Check(onSpec, "a del Sol's rig stands on the del Sol's sheet, not its hatch shell's",
+                          $"wb {rig.wheelbase:0.000} track {rig.TrackOf(0):0.000}/{rig.TrackOf(2):0.000} r {rig.WheelRadiusOf(0):0.000}");
+                    Object.DestroyImmediate(go);
+                }
+            }
+
             int unresolved = 0, hand = 0;
             var used = new Dictionary<string, int>();
             foreach (var c in CarCatalog.All)
@@ -10623,7 +10681,7 @@ namespace PSXRacing.EditorTools
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
                 ?.Invoke(car, null);
             var def = CarModelLibrary.LoadFor(spec);
-            if (def != null && def.wheelRadius > 0.05f) car.wheelRadius = def.wheelRadius;
+            if (def != null && def.wheelRadius > 0.05f) car.wheelRadius = CarModelLibrary.Fit(def, spec).driveRadius;
             return car;
         }
 

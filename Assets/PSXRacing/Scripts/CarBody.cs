@@ -43,16 +43,43 @@ namespace PSXRacing
         /// (CarSpec.widthMm); 0 = the model's reference car. Kept, so a
         /// respray (Apply with the same shell) keeps the car's width.</summary>
         public int widthMm;
-        /// <summary>The across-scale last applied (CarModelLibrary.WidthScale).</summary>
-        public float WidthScale { get; private set; } = 1f;
+        /// <summary>The car's spec-sheet geometry (wheelbase, track, tyres),
+        /// kept for the same reason as <see cref="widthMm"/>. Empty for a car
+        /// with no catalog row.</summary>
+        public CarModelLibrary.SpecGeometry specGeometry;
 
-        /// <summary>A body transform's local scale that makes the car
-        /// <paramref name="sx"/> times as wide - across the CAR, whichever of
-        /// the body's own axes that is after its yaw.</summary>
-        public static Vector3 AcrossScale(float bodyYaw, float sx)
+        /// <summary>
+        /// THE FIT this car wears (CarModelLibrary.Fit): body stretch, chassis
+        /// to spec, each tyre's size and camber. Re-solved from the key and the
+        /// kept spec when read before Apply has run in this session (a baked
+        /// scene keeps the key and the spec, not the struct).
+        /// </summary>
+        public CarModelLibrary.ShellFit Fit
         {
-            float s = Mathf.Abs(Mathf.Sin(bodyYaw * Mathf.Deg2Rad));
-            return s > 0.7f ? new Vector3(1f, 1f, sx) : new Vector3(sx, 1f, 1f);
+            get
+            {
+                if (!fitSolved) { fit = SolveFit(Def); fitSolved = true; }
+                return fit;
+            }
+        }
+        CarModelLibrary.ShellFit fit;
+        bool fitSolved;
+
+        /// <summary>The across-scale last applied (CarModelLibrary.WidthScale).</summary>
+        public float WidthScale => applyGeometry ? Fit.sx : 1f;
+        /// <summary>The along-scale: the shell's axles onto the spec wheelbase.</summary>
+        public float LengthScale => applyGeometry ? Fit.sz : 1f;
+        /// <summary>How far the body sits above its baked height (the tyres
+        /// grew or shrank to spec); every baked Y measurement moves with it.</summary>
+        public float BodyLift => applyGeometry ? Fit.dy : 0f;
+
+        CarModelLibrary.ShellFit SolveFit(CarModelDef def)
+        {
+            // Someone set widthMm alone (a tool fitting a shell at its own
+            // reference width): honour it and drop the rest of the sheet.
+            var g = specGeometry.widthMm == widthMm ? specGeometry
+                  : CarModelLibrary.SpecGeometry.WidthOnly(widthMm);
+            return CarModelLibrary.Fit(def, g);
         }
 
         CarModelDef cachedDef;
@@ -91,12 +118,14 @@ namespace PSXRacing
             // guaranteed to be the same colour when the catalog colour is
             // missing or when several liveries tie.
             widthMm = spec.widthMm;
+            specGeometry = CarModelLibrary.SpecGeometry.Of(spec);
             Apply(def, def.SkinFor(spec.color, Mathf.Abs(spec.id != null ? spec.id.GetHashCode() : 0) % 97));
         }
 
         public void ApplyKey(string key, int skin)
         {
             widthMm = 0;
+            specGeometry = default;
             Apply(CarModelLibrary.Load(key), skin);
         }
 
@@ -105,10 +134,14 @@ namespace PSXRacing
             if (def == null) return;
             modelKey = def.key;
             cachedDef = def;
-            // With the chassis left alone (applyGeometry off) the wheels stay on
-            // the model's track, so the body keeps its width too.
-            float sx = applyGeometry ? CarModelLibrary.WidthScale(def, widthMm) : 1f;
-            WidthScale = sx;
+            // ONE fit (CarModelLibrary.Fit) for the body, the wheels and the
+            // chassis - the same one the garage, the props and the previews
+            // draw. With the chassis left alone (applyGeometry off) the wheels
+            // stay on the model's track, so the body keeps its shape too.
+            fit = SolveFit(def);
+            fitSolved = true;
+            var f = applyGeometry ? fit : CarModelLibrary.Fit(def, default(CarModelLibrary.SpecGeometry));
+            if (!applyGeometry) { f.sx = 1f; f.sz = 1f; f.bodyY = def.bodyYOffset; f.bodyZ = def.bodyZOffset; f.dy = 0f; }
 
             var mat = def.SkinCount > 0
                 ? def.skinMaterials[Mathf.Clamp(skin, 0, def.SkinCount - 1)]
@@ -125,10 +158,12 @@ namespace PSXRacing
                 // origin and the pack's models are not symmetric about theirs —
                 // leaving this at zero is what put a GTO's wheels a quarter of a
                 // metre behind its arches.
-                bodyRoot.localPosition = new Vector3(0f, def.bodyYOffset, def.bodyZOffset);
-                // As wide as the real car (the lamps hang off this root and
-                // move with it).
-                bodyRoot.localScale = AcrossScale(def.bodyYaw, sx);
+                // Slid with the stretch, so the axle midpoint stays on the origin;
+                // lifted with the tyres, so the hubs stay in the arches.
+                bodyRoot.localPosition = new Vector3(0f, f.bodyY, f.bodyZ);
+                // As wide and as long as the real car (the lamps hang off this
+                // root and move with it).
+                bodyRoot.localScale = f.BodyScale(def.bodyYaw);
             }
 
             // Wheels ride on the body's livery: the pack draws them on a neutral
@@ -141,29 +176,34 @@ namespace PSXRacing
                 if (wheelFilters[i] != null) wheelFilters[i].sharedMesh = def.wheelMesh;
                 if (wheelRenderers[i] != null && wheelMat != null) wheelRenderers[i].sharedMaterial = wheelMat;
                 CarPaint.DullWheels(wheelRenderers[i]);
-                if (wheelHolders[i] != null)
-                    wheelHolders[i].localScale = Vector3.one * def.wheelMeshScale;
+                // Each tyre at the sheet's size, cambered in where it would
+                // stand out past the arch.
+                f.PlaceHolder(wheelHolders[i], i);
             }
 
             if (blobShadow != null)
             {
-                blobShadow.localScale = new Vector3(def.blobSize.x * sx, def.blobSize.y, 1f);
+                blobShadow.localScale = new Vector3(def.blobSize.x * f.sx, def.blobSize.y * f.sz, 1f);
                 // Under the BODY, which is no longer over the rig's origin.
                 var bs = blobShadow.localPosition;
-                blobShadow.localPosition = new Vector3(0f, bs.y, def.bodyZOffset);
+                blobShadow.localPosition = new Vector3(0f, bs.y, f.bodyZ);
             }
 
             if (!applyGeometry || car == null) return;
 
             if (box != null)
             {
-                box.center = def.colliderCenter;
-                box.size = new Vector3(def.colliderSize.x * sx, def.colliderSize.y, def.colliderSize.z);
+                box.center = f.P(def.colliderCenter);
+                box.size = new Vector3(def.colliderSize.x * f.sx, def.colliderSize.y, def.colliderSize.z * f.sz);
             }
-            car.wheelbase = def.wheelbase;
-            // The wheels stay in the arches of the narrowed body.
-            car.trackWidth = def.trackWidth * sx;
-            car.wheelRadius = def.wheelRadius;
+            // TO SPEC: the sheet's wheelbase, each axle's track and tyre; the
+            // gearbox turns through the DRIVEN axle's tyre.
+            car.wheelbase = f.wheelbase;
+            car.trackWidth = f.trackF;
+            car.trackWidthRear = f.trackR;
+            car.wheelRadiusFront = f.radiusF;
+            car.wheelRadiusRear = f.radiusR;
+            car.wheelRadius = f.driveRadius;
             car.RebuildGeometry();
         }
     }

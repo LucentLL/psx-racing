@@ -155,7 +155,7 @@ namespace PSXRacing
             if (widthMm <= 0) { var m = Get(def.key); widthMm = m != null ? m.widthMm : 0; }
             float body = BodyWidth(def);
             if (widthMm <= 0 || body < 0.5f) return 1f;
-            return Mathf.Clamp(widthMm / 1000f / body, 0.7f, 1.2f);
+            return Mathf.Clamp(widthMm / 1000f / body, WidthScaleMin, WidthScaleMax);
         }
 
         /// <summary>
@@ -167,12 +167,25 @@ namespace PSXRacing
         public static float BodyWidth(CarModelDef def)
         {
             if (def == null || def.bodyMesh == null) return 0f;
+            // Baked (CarModelBaker): the pack imports its OBJs unreadable, so
+            // the runtime path below only ever saw the bounds, mirrors and all.
+            if (def.lowerBodyWidth > 0.5f) return def.lowerBodyWidth;
             if (bodyWidths.TryGetValue(def.bodyMesh, out float w)) return w;
-            var rot = Quaternion.Euler(0f, def.bodyYaw, 0f);
-            var v = def.bodyMesh.isReadable ? def.bodyMesh.vertices : null;
+            w = MeasureLowerWidth(def.bodyMesh, def.bodyYaw, def.bodyMesh.isReadable);
+            bodyWidths[def.bodyMesh] = w;
+            return w;
+        }
+
+        /// <summary>The lower-body width of a mesh turned by
+        /// <paramref name="yaw"/>; the bounds when it may not be read.</summary>
+        public static float MeasureLowerWidth(Mesh mesh, float yaw, bool canRead)
+        {
+            float w;
+            var rot = Quaternion.Euler(0f, yaw, 0f);
+            var v = canRead ? mesh.vertices : null;
             if (v == null || v.Length == 0)
             {
-                var e = def.bodyMesh.bounds.extents;
+                var e = mesh.bounds.extents;
                 w = 2f * (Mathf.Abs((rot * new Vector3(e.x, 0f, 0f)).x) + Mathf.Abs((rot * new Vector3(0f, 0f, e.z)).x));
             }
             else
@@ -187,12 +200,272 @@ namespace PSXRacing
                     float x = (rot * p).x;
                     lo = Mathf.Min(lo, x); hi = Mathf.Max(hi, x);
                 }
-                w = hi > lo ? hi - lo : def.bodyMesh.bounds.size.x;
+                w = hi > lo ? hi - lo : mesh.bounds.size.x;
             }
-            bodyWidths[def.bodyMesh] = w;
             return w;
         }
         static readonly Dictionary<Mesh, float> bodyWidths = new Dictionary<Mesh, float>();
+
+        // ------------------------------------------------------------------
+        //  TO SPEC: one fit every assembler reads
+        // ------------------------------------------------------------------
+        // Owner, 2026-10-07: "The 3D models should match the wheelbases.
+        // Everything should be designed to spec and scale." And: "If we need
+        // to add camber and toe to get wheels to fit, so be it."
+        //
+        // The chassis is built to the SPEC SHEET (wheelbase, each axle's track
+        // and tyre); the shell is stretched to it (across to the real width,
+        // along until its axles land on the real wheelbase); and each tyre is
+        // drawn at the sheet's diameter and section width. Where the real tyre
+        // would stand out past the wheel the model drew, it is cambered (top
+        // in) just enough to tuck its top edge back under the arch.
+        //
+        // Driven cars (CarBody), parked scenery (the builder's DressProp), the
+        // garage turntable, the on-foot shell, the X-ray and the preview
+        // renders all ask THIS, so a car cannot be one size on the road and
+        // another in the garage. A car with no sheet row - the starter FD,
+        // traffic, a parked prop - gets exactly the fit it had before.
+
+        /// <summary>Same fence as the across-scale: a shell stretched further
+        /// than this reads as a different car, not a longer one.</summary>
+        public const float LengthScaleMin = 0.7f, LengthScaleMax = 1.2f;
+        public const float WidthScaleMin = 0.7f, WidthScaleMax = 1.2f;
+        /// <summary>The most negative camber the fit will draw, degrees.</summary>
+        public const float CamberCapDeg = 8f;
+        /// <summary>How far a spec tyre may stand past the model's own wheel
+        /// before it is cambered in, metres.</summary>
+        public const float PokeTolerance = 0.004f;
+
+        /// <summary>The fitted car, in the rig's frame (+Z forward, the axle
+        /// midpoint at the origin, wheel hubs at the radius).</summary>
+        public struct ShellFit
+        {
+            /// <summary>Any dimension came off the spec sheet.</summary>
+            public bool toSpec;
+            /// <summary>Body scale across / along the car, and whether either
+            /// hit its fence (then the wheels cannot all be in the arches).</summary>
+            public float sx, sz;
+            public bool clampX, clampZ;
+            /// <summary>The body root's local position. <see cref="dy"/> is the
+            /// lift against the baked bodyYOffset: every measurement the baker
+            /// took in the shell's frame (cowl, roof, lamps, collider) moves by
+            /// it, and its Z and X by <see cref="sz"/> and <see cref="sx"/> -
+            /// see <see cref="P"/>.</summary>
+            public float bodyY, bodyZ, dy;
+            public float wheelbase, trackF, trackR;
+            /// <summary>Each axle's tyre radius as simulated and drawn, and the
+            /// driven axle's (gearing, top speed, RPM).</summary>
+            public float radiusF, radiusR, driveRadius;
+            /// <summary>The wheel holder's local scale per axle: x = section
+            /// width, y/z = diameter, against the front wheel mesh.</summary>
+            public Vector3 wheelScaleF, wheelScaleR;
+            /// <summary>Visual camber per axle, degrees, top IN.</summary>
+            public float camberF, camberR;
+            /// <summary>How far each axle's tyre still stands past the model's
+            /// own wheel after the camber, metres (&lt;= 0: tucked).</summary>
+            public float pokeF, pokeR;
+
+            /// <summary>A tyre still stands out past the model's own wheel
+            /// after the capped camber: a model edit, not a fit.</summary>
+            public bool Pokes => pokeF > PokeTolerance + 5e-4f || pokeR > PokeTolerance + 5e-4f;
+
+            public float Track(int i) => i < 2 ? trackF : trackR;
+            public float Radius(int i) => i < 2 ? radiusF : radiusR;
+            public float Camber(int i) => i < 2 ? camberF : camberR;
+            public Vector3 WheelScale(int i) => i < 2 ? wheelScaleF : wheelScaleR;
+
+            /// <summary>A point the baker measured in the shell's frame (cowl,
+            /// lamp, collider centre) where the fitted body puts it.</summary>
+            public Vector3 P(Vector3 shell) => new Vector3(shell.x * sx, shell.y + dy, shell.z * sz);
+
+            /// <summary>Wheel <paramref name="i"/>'s hub at rest (0 FL, 1 FR,
+            /// 2 RL, 3 RR), rig frame, contact patch on y = 0.</summary>
+            public Vector3 Hub(int i) => new Vector3((i % 2 == 0 ? -0.5f : 0.5f) * Track(i), Radius(i),
+                                                     (i < 2 ? 0.5f : -0.5f) * wheelbase);
+
+            /// <summary>The wheel holder under a hub: the left-hand flip, the
+            /// camber, and the slide that makes the camber pivot on the contact
+            /// patch (the track is measured at the ground, so the patch stays
+            /// on it and the top leans in).</summary>
+            public void Holder(int i, out Vector3 localPos, out Quaternion localRot)
+            {
+                bool left = i % 2 == 0;
+                float c = Camber(i) * Mathf.Deg2Rad, r = Radius(i);
+                localRot = Quaternion.Euler(0f, left ? 180f : 0f, 0f) * Quaternion.Euler(0f, 0f, Camber(i));
+                localPos = new Vector3((left ? 1f : -1f) * r * Mathf.Sin(c), -r * (1f - Mathf.Cos(c)), 0f);
+            }
+
+            /// <summary>Put a wheel holder where this fit wants it.</summary>
+            public void PlaceHolder(Transform holder, int i)
+            {
+                if (holder == null) return;
+                Holder(i, out var p, out var q);
+                holder.localPosition = p;
+                holder.localRotation = q;
+                holder.localScale = WheelScale(i);
+            }
+
+            /// <summary>A wheel with no hub above it (a parked prop, the
+            /// turntable, a preview render): hub, flip, camber and tyre size
+            /// all on the one transform, slid by <paramref name="shift"/>.</summary>
+            public void PlaceWheel(Transform t, int i, Vector3 shift = default)
+            {
+                if (t == null) return;
+                Holder(i, out var p, out var q);
+                t.localPosition = Hub(i) + p + shift;
+                t.localRotation = q;
+                t.localScale = WheelScale(i);
+            }
+
+            /// <summary>The body transform: yaw, the fitted offsets, the stretch.</summary>
+            public void PlaceBody(Transform t, CarModelDef def, Vector3 shift = default)
+            {
+                if (t == null || def == null) return;
+                t.localPosition = new Vector3(0f, bodyY, bodyZ) + shift;
+                t.localRotation = Quaternion.Euler(0f, def.bodyYaw, 0f);
+                t.localScale = BodyScale(def.bodyYaw);
+            }
+
+            /// <summary>The body root's local scale: across and along the CAR,
+            /// whichever of the body's own axes those are after its yaw.</summary>
+            public Vector3 BodyScale(float bodyYaw)
+            {
+                float s = Mathf.Abs(Mathf.Sin(bodyYaw * Mathf.Deg2Rad));
+                return s > 0.7f ? new Vector3(sz, 1f, sx) : new Vector3(sx, 1f, sz);
+            }
+        }
+
+        /// <summary>The sheet's numbers for one car, mm (0 = not on the sheet).
+        /// Serializable so a car keeps them across a respray.</summary>
+        [System.Serializable]
+        public struct SpecGeometry
+        {
+            public int widthMm, wheelbaseMm, trackFMm, trackRMm;
+            public int tyreFDiaMm, tyreRDiaMm, tyreFWidthMm, tyreRWidthMm;
+            public string drv;
+
+            public static SpecGeometry Of(CarSpec s) => s == null ? default : new SpecGeometry
+            {
+                widthMm = s.widthMm, wheelbaseMm = s.wheelbaseMm, trackFMm = s.trackFMm, trackRMm = s.trackRMm,
+                tyreFDiaMm = s.tyreFDiaMm, tyreRDiaMm = s.tyreRDiaMm,
+                tyreFWidthMm = s.tyreFWidthMm, tyreRWidthMm = s.tyreRWidthMm, drv = s.drv,
+            };
+            public static SpecGeometry WidthOnly(int widthMm) => new SpecGeometry { widthMm = widthMm };
+        }
+
+        public static ShellFit Fit(CarModelDef def, CarSpec spec) => Fit(def, SpecGeometry.Of(spec));
+
+        /// <summary>THE fit. See the block comment above.</summary>
+        public static ShellFit Fit(CarModelDef def, SpecGeometry g)
+        {
+            var f = new ShellFit { sx = 1f, sz = 1f, wheelbase = 2.425f, trackF = 1.46f, trackR = 1.46f,
+                                   radiusF = 0.31f, radiusR = 0.31f, driveRadius = 0.31f,
+                                   wheelScaleF = Vector3.one * 0.93f, wheelScaleR = Vector3.one * 0.93f };
+            if (def == null) return f;
+
+            // Across: the real width (the reference car's with no row).
+            int wmm = g.widthMm;
+            if (wmm <= 0) { var m = Get(def.key); wmm = m != null ? m.widthMm : 0; }
+            float body = BodyWidth(def);
+            float wantX = wmm > 0 && body >= 0.5f ? wmm / 1000f / body : 1f;
+            f.sx = Mathf.Clamp(wantX, WidthScaleMin, WidthScaleMax);
+            f.clampX = Mathf.Abs(f.sx - wantX) > 1e-4f;
+
+            // Along: the model's axles onto the real wheelbase.
+            float mWb = Mathf.Max(def.wheelbase, 0.5f);
+            f.wheelbase = g.wheelbaseMm > 0 ? g.wheelbaseMm / 1000f : def.wheelbase;
+            float wantZ = f.wheelbase / mWb;
+            f.sz = Mathf.Clamp(wantZ, LengthScaleMin, LengthScaleMax);
+            f.clampZ = Mathf.Abs(f.sz - wantZ) > 1e-4f;
+
+            // The model's own wheels, as drawn (no 0.93), per axle.
+            Bounds wb = def.wheelMesh != null ? def.wheelMesh.bounds
+                : new Bounds(Vector3.zero, new Vector3(0.2f, 0.666f, 0.666f));
+            float meshR = Mathf.Max(Mathf.Max(wb.size.y, wb.size.z) * 0.5f, 0.05f);
+            float meshW = Mathf.Max(wb.size.x, 0.05f);
+            float mTrackF = def.trackWidth;
+            float mTrackR = def.trackRear > 0.1f ? def.trackRear : mTrackF;
+            float mWidthR = def.tyreWidthRear > 0.05f ? def.tyreWidthRear : meshW;
+
+            // The chassis: the sheet's track and tyres, else today's.
+            f.trackF = g.trackFMm > 0 ? g.trackFMm / 1000f : def.trackWidth * f.sx;
+            f.trackR = g.trackRMm > 0 ? g.trackRMm / 1000f : (g.trackFMm > 0 ? f.trackF : def.trackWidth * f.sx);
+            f.radiusF = g.tyreFDiaMm > 0 ? g.tyreFDiaMm / 2000f : def.wheelRadius;
+            f.radiusR = g.tyreRDiaMm > 0 ? g.tyreRDiaMm / 2000f : f.radiusF;
+            f.driveRadius = g.drv == "FF" ? f.radiusF
+                          : g.drv == "4WD" ? (f.radiusF + f.radiusR) * 0.5f
+                          : f.radiusR;
+            f.toSpec = g.wheelbaseMm > 0 || g.trackFMm > 0 || g.tyreFDiaMm > 0;
+
+            // The tyres: the front mesh at every corner, scaled to each axle's
+            // diameter and section width. No sheet tyre = the old uniform 0.93.
+            f.wheelScaleF = TyreScale(f.radiusF, g.tyreFWidthMm, meshR, meshW, def.wheelMeshScale, g.tyreFDiaMm > 0);
+            f.wheelScaleR = TyreScale(f.radiusR, g.tyreRWidthMm > 0 ? g.tyreRWidthMm : g.tyreFWidthMm,
+                                      meshR, meshW, def.wheelMeshScale, g.tyreRDiaMm > 0 || g.tyreFDiaMm > 0);
+
+            // The body rides with its hub on the (mean) tyre radius, as the
+            // baker set it for its own tyre, and slides with the stretch so its
+            // axle midpoint stays on the rig's origin.
+            f.bodyY = def.bodyYOffset + ((f.radiusF + f.radiusR) * 0.5f - def.wheelRadius);
+            f.dy = f.bodyY - def.bodyYOffset;
+            f.bodyZ = def.bodyZOffset * f.sz;
+
+            // Camber: only where the sheet moved the tyre out past the model's.
+            float drawnWF = f.wheelScaleF.x * meshW, drawnWR = f.wheelScaleR.x * meshW;
+            float limitF = f.sx * (mTrackF + meshW) * 0.5f, limitR = f.sx * (mTrackR + mWidthR) * 0.5f;
+            if (f.toSpec)
+            {
+                Tuck(f.trackF, drawnWF, f.radiusF, limitF, out f.camberF, out f.pokeF);
+                Tuck(f.trackR, drawnWR, f.radiusR, limitR, out f.camberR, out f.pokeR);
+            }
+            else
+            {
+                f.pokeF = (f.trackF + drawnWF) * 0.5f - limitF;
+                f.pokeR = (f.trackR + drawnWR) * 0.5f - limitR;
+            }
+            ReportFence(def, f, wantX, wantZ);
+            return f;
+        }
+
+        static Vector3 TyreScale(float radius, int widthMm, float meshR, float meshW, float legacy, bool spec)
+        {
+            if (!spec) return Vector3.one * legacy;
+            float d = radius / meshR;
+            float w = widthMm > 0 ? widthMm / 1000f / meshW : d;
+            return new Vector3(w, d, d);
+        }
+
+        /// <summary>
+        /// The least camber (top in, about the contact patch, capped) that
+        /// brings a tyre's top outer edge back inside <paramref name="limit"/>
+        /// - the outer face of the wheel the model drew, after the stretch.
+        /// About the patch the top outer corner sits at (w/2, 2r), so it moves
+        /// to x = a cos c - b sin c with a = w/2, b = 2r: solve that = room.
+        /// </summary>
+        static void Tuck(float track, float width, float r, float limit, out float camberDeg, out float poke)
+        {
+            float a = width * 0.5f, b = 2f * r;
+            float upright = track * 0.5f + a - limit;
+            camberDeg = 0f;
+            poke = upright;
+            if (upright <= PokeTolerance) return;
+            float room = limit - track * 0.5f;
+            float h = Mathf.Sqrt(a * a + b * b);
+            float c = Mathf.Acos(Mathf.Clamp(room / h, -1f, 1f)) - Mathf.Atan2(b, a);
+            camberDeg = Mathf.Clamp(c * Mathf.Rad2Deg, 0f, CamberCapDeg);
+            float cr = camberDeg * Mathf.Deg2Rad;
+            poke = track * 0.5f + a * Mathf.Cos(cr) - b * Mathf.Sin(cr) - limit;
+        }
+
+        static readonly HashSet<string> fenceLogged = new HashSet<string>();
+        static void ReportFence(CarModelDef def, ShellFit f, float wantX, float wantZ)
+        {
+            if (!f.clampX && !f.clampZ) return;
+            string k = def.key + "|" + wantX.ToString("0.000") + "|" + wantZ.ToString("0.000");
+            if (!fenceLogged.Add(k)) return;
+            Debug.LogWarning($"[CarFit] {def.key}: stretch fenced - across {wantX:0.000} -> {f.sx:0.000}, " +
+                             $"along {wantZ:0.000} -> {f.sz:0.000}; the wheels cannot all sit in its arches");
+        }
 
         // ------------------------------------------------------------------
         //  Pass 1: hand-mapped

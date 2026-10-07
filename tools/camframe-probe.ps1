@@ -13,6 +13,9 @@
 #   ... -Venue DragQuarter   another built venue
 #   ... -NoPng               numbers only
 #   ... -Cars a,b            only these shells (keys, comma-separated)
+#   ... -Spec worst          each shell on the catalog car that stretches it
+#                            furthest along (CarModelLibrary.Fit), not its
+#                            reference car
 #   ... -AllScreens          also 18:9 and 20:9 phones and a 16:9 touch tablet
 #                            (reported, not part of the verdict)
 #   ... -Emit                write the chase rig's per-shell silhouette table
@@ -31,7 +34,8 @@ param(
     [switch]$NoPng,
     [switch]$AllScreens,
     [switch]$Emit,
-    [string]$Cars = ""
+    [string]$Cars = "",
+    [string]$Spec = ""
 )
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
@@ -54,6 +58,7 @@ $env:PSX_CAMFRAME_PNG = if ($NoPng) { "0" } else { "1" }
 $env:PSX_CAMFRAME_SCREENS = if ($AllScreens) { "all" } else { "" }
 $env:PSX_CAMFRAME_EMIT = if ($Emit) { "1" } else { "" }
 $env:PSX_CAMFRAME_CARS = $Cars
+$env:PSX_CAMFRAME_SPEC = $Spec
 $log = "$proj\camframe_$Rig.log"
 Invoke-UnityJob -Log $log -MaxMinutes 20 -UnityArgs @(
     "-quit","-batchmode","-projectPath",$proj,

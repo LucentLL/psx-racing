@@ -222,8 +222,22 @@ namespace PSXRacing.EditorTools
                 int pngRow = System.Array.IndexOf(PngKeys, key);
                 var shell = CarModelLibrary.Load(key);
                 if (shell == null) { Debug.LogError("[CamFrame] FAIL no shell " + key); continue; }
-                body.widthMm = 0; // the model's reference car
-                body.Apply(shell, 0);
+                // The model's reference car, or (PSX_CAMFRAME_SPEC=worst) the
+                // catalog car that stretches this shell furthest along - the
+                // spec fit (CarModelLibrary.Fit) moves the tail and the roof.
+                var probeSpec = SpecFor(shell, Env("PSX_CAMFRAME_SPEC", ""));
+                if (probeSpec != null)
+                {
+                    body.ApplySpec(probeSpec);
+                    Debug.Log(string.Format(CultureInfo.InvariantCulture,
+                        "[CamFrame] car {0} on spec {1}: along x{2:0.000}, across x{3:0.000}, lift {4:+0.000;-0.000}",
+                        key, probeSpec.name, body.LengthScale, body.WidthScale, body.BodyLift));
+                }
+                else
+                {
+                    body.widthMm = 0; // the model's reference car
+                    body.Apply(shell, 0);
+                }
                 player.transform.SetPositionAndRotation(at, Quaternion.LookRotation(fwd, Vector3.up));
                 SeatWheels(car);
                 var geo = Measure(key, player, body, car);
@@ -342,6 +356,23 @@ namespace PSXRacing.EditorTools
             return true;
         }
 
+        /// <summary>The catalog car to probe a shell on: none (its reference
+        /// car) unless <paramref name="mode"/> is "worst" - then the car that
+        /// wears it with the largest along-stretch either way.</summary>
+        static CarSpec SpecFor(CarModelDef shell, string mode)
+        {
+            if (shell == null || mode != "worst") return null;
+            CarSpec best = null;
+            float worst = -1f;
+            foreach (var c in CarCatalog.All)
+            {
+                if (CarModelLibrary.KeyFor(c) != shell.key) continue;
+                float d = Mathf.Abs(CarModelLibrary.Fit(shell, c).sz - 1f);
+                if (d > worst) { worst = d; best = c; }
+            }
+            return best;
+        }
+
         static Vector3 W(Vector3[] w, int i, bool loop)
         {
             int n = w.Length;
@@ -356,11 +387,13 @@ namespace PSXRacing.EditorTools
         /// would read its tyre contact half a metre wrong.</summary>
         static void SeatWheels(CarController car)
         {
-            float ht = car.trackWidth * 0.5f, hb = car.wheelbase * 0.5f;
+            // Each axle on its own track and tyre (to spec, 2026-10-07).
+            float hf = car.TrackOf(0) * 0.5f, hr = car.TrackOf(2) * 0.5f, hb = car.wheelbase * 0.5f;
+            float rf = car.WheelRadiusOf(0), rr = car.WheelRadiusOf(2);
             var pos = new[]
             {
-                new Vector3(-ht, car.wheelRadius, hb), new Vector3(ht, car.wheelRadius, hb),
-                new Vector3(-ht, car.wheelRadius, -hb), new Vector3(ht, car.wheelRadius, -hb),
+                new Vector3(-hf, rf, hb), new Vector3(hf, rf, hb),
+                new Vector3(-hr, rr, -hb), new Vector3(hr, rr, -hb),
             };
             for (int i = 0; i < 4; i++)
             {
@@ -413,11 +446,12 @@ namespace PSXRacing.EditorTools
             if (bodyFrom >= 0)
             {
                 float bsx = Mathf.Max(body.WidthScale, 0.01f);
+                float bsz = Mathf.Max(body.LengthScale, 0.01f), lift = body.BodyLift;
                 var native = new List<Vector3>(bodyCount);
                 for (int i = 0; i < bodyCount; i++)
                 {
                     var lv = geo.localVerts[bodyFrom + i];
-                    native.Add(new Vector3(lv.x / bsx, lv.y, lv.z));
+                    native.Add(new Vector3(lv.x / bsx, lv.y - lift, lv.z / bsz));
                 }
                 var exhaust = ExhaustMask(native, bodyTris);
                 for (int i = 0; i < bodyCount; i++) geo.framed[bodyFrom + i] = !exhaust[i];
@@ -429,7 +463,8 @@ namespace PSXRacing.EditorTools
             // The spec-sheet width the shell was scaled to (mirrors excluded),
             // which is what the reference W-shares are quoted per metre of.
             var model = CarModelLibrary.Get(key);
-            geo.widthM = model != null && model.widthMm > 0 ? model.widthMm / 1000f : (maxX - minX);
+            int probeMm = body.widthMm > 0 ? body.widthMm : (model != null ? model.widthMm : 0);
+            geo.widthM = probeMm > 0 ? probeMm / 1000f : (maxX - minX);
             geo.tailZ = minZ;
             geo.noseZ = maxZ;
             geo.roofY = maxY;
