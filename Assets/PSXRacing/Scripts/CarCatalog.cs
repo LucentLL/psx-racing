@@ -52,6 +52,10 @@ namespace PSXRacing
         /// not sell it one, and its setup sliders start from these figures.</summary>
         public bool HasFactoryLsd => lsdInit > 0 || lsdAccel > 0 || lsdDecel > 0;
 
+        /// <summary>The rev limiter, rpm: the sheet's (never under the
+        /// redline), or redline + 500 for a car with none baked.</summary>
+        public float RevLimitRPM => revLimit >= redline && revLimit > 0 ? revLimit : redline + 500f;
+
         /// <summary>
         /// POWER UNITS. <see cref="hp"/> is the sheet's "Peak Power (ps)":
         /// METRIC horsepower, 735.5 W, which RG2 stored as if it were 745.7 W
@@ -230,7 +234,11 @@ namespace PSXRacing
             Decode();
             float best = -1f, at = redline;
             float from = Mathf.Max(idleRPM, 500);
-            for (float rpm = from; rpm <= redline + 1e-3f; rpm += 25f)
+            // Up to the LIMITER, not the redline (2026-10-07): with the sheet's
+            // limiter up to 2100 rpm past the redline, an engine still pulling
+            // there (the GALANT GTO MR, the Chaparral 2D) reaches it in top gear,
+            // so that is where top gear and the top-speed bake must anchor.
+            for (float rpm = from; rpm <= RevLimitRPM + 1e-3f; rpm += 25f)
             {
                 float p = StockTorqueAt(rpm) * rpm *
                           (blower ? CarTune.BlowerBoost(rpm, idleRPM, redline) : 1f);

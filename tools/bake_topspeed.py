@@ -103,7 +103,9 @@ def curve_peak_power_w(car):
     nms = [float(x) * car["peakTorqueNm"] for x in car["tcNorm"].split(";")]
     best = 0.0
     rpm = max(float(car["idleRPM"]), 500.0)
-    while rpm <= car["redline"] + 1e-6:
+    # To the LIMITER (CarSpec.RevLimitRPM / PeakPowerRPM, 2026-10-07).
+    lim = car["revLimit"] if car.get("revLimit", 0) >= car["redline"] else car["redline"] + 500
+    while rpm <= lim + 1e-6:
         best = max(best, torque_at(rpms, nms, rpm) * rpm * 2.0 * math.pi / 60.0)
         rpm += 25.0
     return best

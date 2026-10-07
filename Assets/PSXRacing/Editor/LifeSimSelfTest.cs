@@ -9925,8 +9925,13 @@ namespace PSXRacing.EditorTools
                   + "shared array would let a race edit the save");
 
             // ---- the gate: what a car has bought ------------------------
-            var awdSpec = FindDrv("4WD");
-            var gateSpec = awdSpec != null ? awdSpec : CarCatalog.All[0];
+            // An OPEN-DIFF car (2026-10-07): a factory LSD (CarSpec.HasFactoryLsd -
+            // every 4WD on the sheet has one) is FITTED and opens its diff rows,
+            // so "adjusts nothing" is a car that left the factory with none.
+            CarSpec gateSpec = null;
+            foreach (var c in CarCatalog.All)
+                if (!c.HasFactoryLsd && (gateSpec == null || (c.drv == "4WD" && gateSpec.drv != "4WD"))) gateSpec = c;
+            if (gateSpec == null) gateSpec = CarCatalog.All[0];
 
             var stockCar = new OwnedCar { id = "tune_stock", specId = gateSpec.id,
                                           displayName = gateSpec.name };
@@ -10180,9 +10185,14 @@ namespace PSXRacing.EditorTools
 
             Check(car.activeSetup == null,
                   "a car nobody has tuned races with no setup at all");
-            Check(baseAccelLock == 0f && baseDecelLock == 0f && basePreload == 0f,
-                  "and an OPEN differential — DiffShare then reduces to the even split, which "
-                  + "is the line this replaced, bit-for-bit",
+            // The FACTORY differential: open (DiffShare reduces to the even
+            // split, bit-for-bit the line it replaced) unless the sheet fitted an
+            // LSD at the factory, which is then exactly the sheet's.
+            Check(baseAccelLock == CarController.FactoryDiffAccelOf(benchSpec) &&
+                  baseDecelLock == CarController.FactoryDiffDecelOf(benchSpec) &&
+                  basePreload == CarController.FactoryDiffPreloadOf(benchSpec, car.wheelRadius) &&
+                  (benchSpec.HasFactoryLsd || baseAccelLock + baseDecelLock + basePreload == 0f),
+                  "and the FACTORY differential — open, or the sheet's own LSD",
                   baseAccelLock + " / " + baseDecelLock + " / " + basePreload);
 
             // A factory setup is not the same object as no setup, but it must be
@@ -10255,7 +10265,7 @@ namespace PSXRacing.EditorTools
             // Handing the setup back is the undo the garage's RESET button is.
             car.SetSetup(null);
             Check(car.springRateFront == baseSpringF && car.brakeFrontShare == baseBrakeShare &&
-                  car.maxSteerLowSpeedDeg == baseSteerLock && car.diffAccelLock == 0f &&
+                  car.maxSteerLowSpeedDeg == baseSteerLock && car.diffAccelLock == baseAccelLock &&
                   TuneSameRatios(car.gearRatios, baseRatios),
                   "and taking the setup away puts the car back exactly where it started");
             TuneDrop(car);

@@ -1113,8 +1113,7 @@ namespace PSXRacing
             massKg = CarTune.WeightAtStage(spec.kg, spec.minKg, tune.weight);
             redlineRPM = spec.redline;
             // TO SPEC: the sheet's rev limiter (it was redline + 500 for all).
-            revLimitRPM = spec.revLimit >= spec.redline && spec.revLimit > 0
-                ? spec.revLimit : spec.redline + 500f;
+            revLimitRPM = spec.RevLimitRPM;
             weightDistFront = WeightDistFrontOf(spec);
             rideRakeM = RideRakeOf(spec);
             tireMuFront = TireMuFrontOf(spec);
@@ -1330,7 +1329,9 @@ namespace PSXRacing
             public void RestoreOwned(CarController c)
             {
                 c.brakeFrontShare = brakeFrontShare;
-                c.tireMuFront = tireMuFront; c.tireMuRear = tireMuRear;
+                // NOT the tyre mus any more: ApplySpec writes them off the sheet
+                // (2026-10-07), and restoring the last capture here latched the
+                // FIRST car an instance was ever spec'd as onto every re-spec.
                 c.maxSteerLowSpeedDeg = maxSteerLowSpeedDeg; c.steerRateDeg = steerRateDeg;
                 c.restLength = restLength; c.cgHeight = cgHeight;
                 c.downforceWeightFractionAtVmax = downforceWeightFractionAtVmax;

@@ -395,7 +395,9 @@ namespace PSXRacing.EditorTools
                 float latG = Mathf.Abs(Planar() * car.Body.angularVelocity.y) / 9.81f;
                 maxBody = Mathf.Max(maxBody, BodySlipDeg());
                 minUp = Mathf.Min(minUp, car.transform.up.y);
-                if (t > 1f && latG > best && BodySlipDeg() < 25f)
+                // The FIRST time it reaches its limit: a plateau that creeps up
+                // by a few thousandths at more lock is not a higher limit.
+                if (t > 1f && latG > best + 0.005f && BodySlipDeg() < 25f)
                 {
                     best = latG; bSteer = steer; bBody = BodySlipDeg();
                     bF = Mathf.Abs(car.frontSlipAngle) * Mathf.Rad2Deg;
