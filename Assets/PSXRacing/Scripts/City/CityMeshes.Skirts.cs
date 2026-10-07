@@ -53,10 +53,14 @@ namespace PSXRacing.City
         /// <summary>The tile's last build: the raised sheet ends over a ledge
         /// laid as a recoverable foreslope instead of a face (<see cref="SlopeRun"/>).</summary>
         public static int skirtSlopeCount; public static float skirtSlopeMetres;
-        /// <summary>OFF until gated (leftovers-b added the fan, structure and
-        /// ledge rules of SkirtDown; the gates have not run): PSX_CITY_FORESLOPES=1
-        /// lays them; off, every raised sheet end keeps its render-only face.</summary>
+        /// <summary>OFF until gated (SlopeClear now walks past the whole toe,
+        /// 2026-10-06; the AuditOnly gate with it on has not finished):
+        /// PSX_CITY_FORESLOPES=1 lays them; off, every raised sheet end keeps
+        /// its render-only face.</summary>
         static readonly bool ForeslopesOff = System.Environment.GetEnvironmentVariable("PSX_CITY_FORESLOPES") != "1";
+        /// <summary>How far past a foreslope's toe SlopeClear walks for a ledge
+        /// (the roadside audit's own reach past a grounded edge).</summary>
+        const float ToeWalkM = 1.5f;
 
         /// <summary>
         /// RAISED SHEET ENDS (leftovers 2026-10-05: West 4th Street Extension
@@ -143,16 +147,27 @@ namespace PSXRacing.City
                 foreach (var X in new[] { P, Q, P2, Q2 })
                     if ((new Vector2(X.x + o.x, X.z + o.z) - c).sqrMagnitude < rr) { slopeWhy = 4; return false; }
             }
-            // past the toe: the land a hand on must not fall a ledge away
-            var T = (P2 + Q2) * 0.5f;
-            float tx = T.x + nrm.x * 0.4f, tz = T.z + nrm.y * 0.4f;
-            if (tx >= 0f && tz >= 0f && tx <= TileSize && tz <= TileSize)
+            // PAST THE TOE: walked out as the roadside audit walks a verge (a
+            // step over LedgeStepM between two samples a hand apart is a
+            // ledge), from both ends of the toe and between them, ToeWalkM on.
+            // One probe a hand past the toe's middle let I-277's left verge
+            // (e2027 s=220, 2026-10-06) end its slope on a lip whose far side
+            // fell 0.50 m, a ledge 1.5 m past the road's edge: a slope that
+            // would end on a lip keeps its face instead.
+            for (int k = 0; k <= 4; k++)
             {
-                float toeTop = T.y + RoadsideRules.ToeTuckM;
-                float land = LatticeY(map, tx + o.x, tz + o.z);
-                land = Mathf.Max(land, groundGrid.Between(tx, tz, land, toeTop + 0.3f));
-                land = Mathf.Max(land, roadGrid.Between(tx, tz, land, toeTop + 0.3f));
-                if (toeTop - land > RoadsideRules.LedgeStepM) { slopeWhy = 6; return false; }
+                var T = Vector3.Lerp(P2, Q2, k / 4f);
+                float prev = T.y + RoadsideRules.ToeTuckM;
+                for (float dd = 0.1f; dd <= ToeWalkM + 0.01f; dd += 0.1f)
+                {
+                    float tx = T.x + nrm.x * dd, tz = T.z + nrm.y * dd;
+                    if (tx < 0f || tz < 0f || tx > TileSize || tz > TileSize) break;
+                    float land = LatticeY(map, tx + o.x, tz + o.z);
+                    land = Mathf.Max(land, groundGrid.Between(tx, tz, land, prev + 0.3f));
+                    land = Mathf.Max(land, roadGrid.Between(tx, tz, land, prev + 0.3f));
+                    if (prev - land > RoadsideRules.LedgeStepM) { slopeWhy = 6; return false; }
+                    prev = land;
+                }
             }
             return true;
         }

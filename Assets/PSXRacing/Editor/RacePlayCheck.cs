@@ -527,6 +527,25 @@ namespace PSXRacing.EditorTools
         readonly Dictionary<CarController, float> maxY = new Dictionary<CarController, float>(), jumpRm = new Dictionary<CarController, float>(), jumpAi = new Dictionary<CarController, float>();
         readonly Dictionary<CarController, int> pastRoofLow = new Dictionary<CarController, int>();
         float roofY;
+        /// <summary>Once, five seconds in: is the deck built here, and what
+        /// does a ray straight down find under the path (its station's height
+        /// against the collider's)? A path in the air over land means the
+        /// deck the run was laid in was never built in this scene.</summary>
+        void DeckProbe(TrackPath path, int fin)
+        {
+            var d = PSXRacing.City.DeckRun.Find(TrackCatalog.At(RaceHandoff.TrackIndex).deckWay);
+            var sb = new System.Text.StringBuilder("DECK PROBE ");
+            sb.Append(d == null ? "no deck" : $"way {d.way} built {d.built} ok {d.ok} why '{d.why}' y0 {d.y0:0.0} levels {d.levels} street e{d.streetEdge} s {d.streetS:0.0} drive {d.driveLen:0.0}");
+            sb.Append($" | decks built {PSXRacing.City.CityMeshes.DecksBuilt} refused {PSXRacing.City.CityMeshes.DecksRefused} |");
+            for (int i = 0; i < fin; i += Mathf.Max(1, fin / 12))
+            {
+                var q = path.GetPoint(i);
+                bool hit = Physics.Raycast(q + Vector3.up * 1.5f, Vector3.down, out var h, 40f, ~0, QueryTriggerInteraction.Ignore);
+                sb.Append($" wp{i} {q.y:0.0}:{(hit ? h.point.y.ToString("0.0") + " " + h.collider.name : "none")}");
+            }
+            RacePlayCheck.Note(sb.ToString());
+        }
+
         int CountActive() { int n = 0; foreach (var c in rm.allCars) if (c != null && c.gameObject.activeInHierarchy) n++; return n; }
 
         /// <summary>Falls through a floor (any car more than 2.5 m under its
@@ -549,9 +568,11 @@ namespace PSXRacing.EditorTools
             roofY = path.GetPoint(roof).y;
             bool sRamp = false, sRoof = false, sRes = false;
             if (shots) { for (int i = 0; i < 30; i++) yield return null; yield return Shot(dir, tag + "_1_grid"); }
+            float probeAt = Time.time + 5f;
             while (!deckDone)
             {
                 yield return new WaitForSeconds(0.25f);
+                if (probeAt > 0f && Time.time > probeAt) { probeAt = -1f; DeckProbe(path, fin); }
                 foreach (var c in rm.allCars)
                 {
                     var p = c != null ? rm.GetProgress(c) : null;
