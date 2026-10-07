@@ -9936,7 +9936,7 @@ namespace PSXRacing.EditorTools
             // so "adjusts nothing" is a car that left the factory with none.
             CarSpec gateSpec = null;
             foreach (var c in CarCatalog.All)
-                if (!c.HasFactoryLsd && (gateSpec == null || (c.drv == "4WD" && gateSpec.drv != "4WD"))) gateSpec = c;
+                if (!c.IsBuiltToTune && !c.HasFactoryLsd && (gateSpec == null || (c.drv == "4WD" && gateSpec.drv != "4WD"))) gateSpec = c;
             if (gateSpec == null) gateSpec = CarCatalog.All[0];
 
             var stockCar = new OwnedCar { id = "tune_stock", specId = gateSpec.id,
@@ -10756,17 +10756,38 @@ namespace PSXRacing.EditorTools
                   CarController.WeightDistFrontOf(fd) == 0.5f,
                   "the tuned FD keeps tireMu 1.000 / 1.050 and 50:50");
 
-            // The shop: a factory LSD is FITTED, never sold, never refunded, and
-            // a weld replaces it.
+            // FACTORY PARTS ARE NOT TUNEABLE (2026-10-07, the owner: "Factory
+            // parts are not tuneable (exception is race cars and rally cars
+            // since they're built to be customized and can't receive different
+            // parts)"). A road car's factory LSD works at its factory figures,
+            // opens no slider, and the shop sells the adjustable plate pack
+            // over it; only the BOUGHT part opens the diff rows. A weld
+            // replaces the factory LSD, and it is never refunded.
             CarSpec open = null;
-            foreach (var c in CarCatalog.All) if (!c.HasFactoryLsd && !c.IsRaceCar) { open = c; break; }
+            foreach (var c in CarCatalog.All) if (!c.HasFactoryLsd && !c.IsBuiltToTune) { open = c; break; }
             if (fd != null && open != null)
             {
                 var mine = new OwnedCar { id = "lsd_t", specId = fd.id, displayName = fd.name };
                 var offer = Upgrades.OfferFor(null, mine, fd, Upgrades.Mod.LimitedSlip);
-                Check(Upgrades.HasMod(mine, Upgrades.Mod.LimitedSlip) && !Upgrades.Bought(mine, Upgrades.Mod.LimitedSlip) &&
-                      !offer.available && offer.blockedReason == "FITTED",
-                      "the shop calls a factory LSD FITTED and does not sell one", offer.blockedReason);
+                Check(!fd.IsBuiltToTune && Upgrades.HasMod(mine, Upgrades.Mod.LimitedSlip) &&
+                      !Upgrades.Bought(mine, Upgrades.Mod.LimitedSlip) && !offer.owned && offer.available,
+                      "the shop sells the adjustable LSD over a road car's factory LSD", offer.blockedReason);
+                Check(CarSetupGate.BlockedReason(mine, fd, SetupParam.DiffAccel) == CarSetupGate.FactoryNeeds &&
+                      CarSetupGate.BlockedReason(mine, fd, SetupParam.DiffPreload) == CarSetupGate.FactoryNeeds &&
+                      CarSetupGate.UnlockedCount(mine, fd) == 0,
+                      "a road car's factory LSD opens no slider (factory parts are not tuneable)",
+                      CarSetupGate.BlockedReason(mine, fd, SetupParam.DiffAccel));
+                var fdSetup = CarSetupGate.SetupOf(mine);
+                fdSetup.Set(SetupParam.DiffAccel, 0.8f);
+                Check(CarSetupGate.Sanitize(mine, fd).Get(SetupParam.DiffAccel) == 0f &&
+                      CarSetupRanges.Of(CarSetupBasis.FromSpec(fd, default, false), SetupParam.DiffAccel).Value(0f) > 0f,
+                      "...so it races at its factory lock (the row is zeroed, and zero is the sheet's figure)");
+                mine.lsd = true;
+                Check(CarSetupGate.Unlocked(mine, fd, SetupParam.DiffAccel) &&
+                      Upgrades.OfferFor(null, mine, fd, Upgrades.Mod.LimitedSlip).blockedReason == "FITTED",
+                      "a BOUGHT LSD opens the diff rows, and the shop then calls it FITTED");
+                mine.lsd = false;
+                mine.setup = null;
                 mine.welded = true;
                 Check(!Upgrades.HasMod(mine, Upgrades.Mod.LimitedSlip), "a weld replaces the factory LSD");
                 var plain = new OwnedCar { id = "lsd_o", specId = open.id, displayName = open.name };
@@ -10776,6 +10797,25 @@ namespace PSXRacing.EditorTools
                 Check(CarSetupRanges.Of(CarSetupBasis.FromSpec(fd, default, false), SetupParam.DiffAccel).def > 0f,
                       "a factory-LSD car's diff rows start at the sheet's lock");
             }
+            // RACE AND RALLY CARS keep every row their hardware supports, with
+            // nothing bought. Rally cars are NOT IsRaceCar ("Rally Car"), so
+            // IsBuiltToTune names them (and the sheet's other adjustable race
+            // suspensions: touring cars, the JGTC GT-R).
+            int rally = 0, builtBad = 0, builtN = 0; string builtW = null;
+            foreach (var c in CarCatalog.All)
+            {
+                if (c.IsRallyCar) { rally++; if (c.IsRaceCar || !c.IsBuiltToTune) { builtBad++; builtW = builtW ?? c.name; } }
+                if (c.name.Contains("Road Car") && c.IsBuiltToTune) { builtBad++; builtW = builtW ?? c.name; }
+                if (!c.IsBuiltToTune) continue;
+                builtN++;
+                var bare = new OwnedCar { id = "built_t", specId = c.id, displayName = c.name };
+                if (CarSetupGate.UnlockedCount(bare, c) != CarSetupGate.AdjustableCount(bare, c) ||
+                    (!c.IsRaceCar && Upgrades.OfferFor(null, bare, c, Upgrades.Mod.SwayBars).blockedReason != Upgrades.BuiltToTune))
+                { builtBad++; builtW = builtW ?? c.name; }
+            }
+            Check(rally > 0 && builtN > rally && builtBad == 0,
+                  "race and rally cars open every row their hardware has with nothing bought, and the shop sells them no slider part ("
+                  + builtN + " cars, " + rally + " rally)", builtW);
         }
 
         static CarController TuneBenchCar(CarSpec spec)

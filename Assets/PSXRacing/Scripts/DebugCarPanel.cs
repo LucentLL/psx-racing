@@ -594,9 +594,12 @@ namespace PSXRacing
                 if (i > 0 && col == 0) y -= CellH + Gap;
 
                 Upgrades.ModText(mod, out string name, out string effect);
-                bool on = Upgrades.HasMod(car, mod);
+                // BOUGHT, not HasMod: a factory LSD opens no slider on a road
+                // car, so the bench must be able to fit the bought plate pack
+                // over it (2026-10-07; CarSetupGate).
+                bool on = Upgrades.Bought(car, mod);
                 string no = on ? null : DebugCarOps.ModRefusal(spec, mod);
-                string fitted = on ? "   [FITTED]" : "";
+                string fitted = on ? "   [FITTED]" : Upgrades.FactoryFitted(car, mod) ? "   [FACTORY]" : "";
                 string caption = Clip(name, CapsFit(cellW - 16f) - fitted.Length) + fitted +
                                  "\n" + DimTag +
                                  (no != null ? Clip("CANNOT FIT — " + no, CapsFit(cellW - 16f))
@@ -606,7 +609,7 @@ namespace PSXRacing
                     new Vector2(cellW, CellH),
                     no != null ? (UnityEngine.Events.UnityAction)null : () =>
                     {
-                        bool now = !Upgrades.HasMod(car, mod);
+                        bool now = !Upgrades.Bought(car, mod);
                         bool hadLsd = car.lsd, hadWeld = car.welded;
                         string refused = DebugCarOps.SetMod(car, spec, mod, now);
                         note = refused != null ? name + " — " + refused

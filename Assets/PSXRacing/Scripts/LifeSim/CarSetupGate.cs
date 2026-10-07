@@ -99,6 +99,12 @@ namespace PSXRacing.LifeSim
             }
         }
 
+        /// <summary>A factory LSD's diff rows on a road car: the part is there
+        /// and working at its factory figures, and the bought, ADJUSTABLE one
+        /// is what opens them. Shorter than "NEEDS LIMITED-SLIP DIFF", so it
+        /// fits wherever that did.</summary>
+        public const string FactoryNeeds = "NEEDS ADJUSTABLE LSD";
+
         public static bool Unlocked(OwnedCar car, CarSpec spec, SetupParam p) =>
             string.IsNullOrEmpty(BlockedReason(car, spec, p));
 
@@ -182,19 +188,29 @@ namespace PSXRacing.LifeSim
             // it opens every row the car physically has — and the parts page
             // no longer sells it any of them. After the car facts, so a race
             // car still has no seventh gear it does not have.
-            if (spec != null && spec.IsRaceCar) return null;
+            // RALLY CARS TOO, and every car whose sheet gives it an adjustable
+            // race suspension (2026-10-07, the owner: "exception is race cars
+            // and rally cars since they're built to be customized") - see
+            // CarSpec.IsBuiltToTune. The weld first: a rally car can still
+            // have one welded in, and then its diff has nothing to adjust.
             if (car.welded && (p == SetupParam.DiffAccel || p == SetupParam.DiffDecel ||
                                p == SetupParam.DiffPreload))
                 return "DIFF IS WELDED";
+            if (spec != null && spec.IsBuiltToTune) return null;
 
             if (StageGate(p, out var kind, out int stage, out var mod))
                 return Upgrades.GetStage(car, kind) >= stage
                     ? null
                     : "NEEDS " + Upgrades.KindLabels[(int)kind] + " STAGE " + stage;
 
-            if (Upgrades.HasMod(car, mod)) return null;
+            // FACTORY PARTS ARE NOT TUNEABLE (2026-10-07, the owner). Only a
+            // part the player BOUGHT opens its rows; a factory LSD works at
+            // its factory figures (Sanitize zeroes the rows, and zero IS the
+            // factory setting - CarSetupRanges) and the shop sells the
+            // adjustable plate pack in its place.
+            if (Upgrades.Bought(car, mod)) return null;
             Upgrades.ModName(mod, out string name);
-            return "NEEDS " + name;
+            return Upgrades.FactoryFitted(car, mod) ? FactoryNeeds : "NEEDS " + name;
         }
 
         /// <summary>

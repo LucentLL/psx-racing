@@ -565,8 +565,11 @@ namespace PSXRacing.LifeSim
 
         /// <summary>TO SPEC (2026-10-07): a car whose sheet shows a limited-slip
         /// diff on its driven axle left the factory with it (CarSpec.
-        /// HasFactoryLsd). The shop calls it FITTED and does not sell it; a
-        /// weld replaces it (the same hole in the car), and it is never refunded
+        /// HasFactoryLsd). It works at its factory figures but opens NO slider
+        /// on a road car ("Factory parts are not tuneable", the owner,
+        /// 2026-10-07): the shop sells the adjustable plate pack in its place
+        /// (OfferFor), and only that BOUGHT part opens the diff rows. A weld
+        /// replaces it (the same hole in the car), and it is never refunded
         /// as a part, because nobody paid for it.</summary>
         public static bool FactoryFitted(OwnedCar car, Mod mod)
         {
@@ -721,6 +724,12 @@ namespace PSXRacing.LifeSim
             // blower or a weld on a prototype is not a thing anybody sells.
             if (spec != null && spec.IsRaceCar) return RaceCarBuilt;
             if (mod == Mod.AeroKit && !AeroKitAllowed(spec)) return "RACE CARS ONLY";
+            // A rally car (or any car built to be tuned - CarSpec.IsBuiltToTune)
+            // already opens every row these parts would: selling one would
+            // take money for nothing. The weld and the blower are hardware,
+            // not sliders, and stay on sale.
+            if (spec != null && spec.IsBuiltToTune && mod != Mod.WeldedDiff && mod != Mod.Supercharger)
+                return BuiltToTune;
             if (mod == Mod.Supercharger && spec != null && spec.IsForcedInduction)
                 return spec.IsTurbo ? "ALREADY TURBOCHARGED" : "ALREADY SUPERCHARGED";
             return null;
@@ -740,9 +749,13 @@ namespace PSXRacing.LifeSim
                                                              : CarCostMult(spec)));
             o.skillReq = Mathf.Min(95, baseSkill + CarSkillBoost(spec));
             o.canDiy = s != null && s.mechSkill >= o.skillReq;
-            o.owned = HasMod(car, mod);
+            // BOUGHT, not HasMod: a factory LSD is fitted and working, but it
+            // opens no slider on a road car (CarSetupGate), so the shop sells
+            // the adjustable plate pack that replaces it.
+            o.owned = Bought(car, mod);
 
             if (o.owned) { o.blockedReason = "FITTED"; return o; }
+            if (FactoryFitted(car, mod)) o.effect = "factory LSD fitted; this one adjusts";
             string never = CarRefuses(spec, mod);
             if (never != null) { o.blockedReason = never; return o; }
             // The blower is an NA part: a turbo build has its boost already.
@@ -851,6 +864,8 @@ namespace PSXRacing.LifeSim
         // one sentence on every row that would otherwise have sold something.
 
         public const string RaceCarBuilt = "RACE CAR — ALREADY BUILT";
+        /// <summary>A slider part on a car whose rows are all open already.</summary>
+        public const string BuiltToTune = "ALREADY ADJUSTABLE";
 
         /// <summary>Why this ladder is not for sale on this car, or null. The
         /// SEAT is not a performance part — it is the passenger seat the pizza

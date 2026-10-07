@@ -46,10 +46,16 @@ namespace PSXRacing
         public int wdFront;
         public float springF, springR;
         public int rideFMm, rideRMm, gripF, gripR, revLimit, lsdInit, lsdAccel, lsdDecel;
+        /// <summary>1 = the sheet's stock suspension is an adjustable race /
+        /// rally coilover (a Min..Max range on a car that is not a road car;
+        /// tools/bake_spec_handling.py). See <see cref="IsBuiltToTune"/>.</summary>
+        public int raceSusp;
 
         /// <summary>The car left the factory with a limited-slip diff on its
-        /// driven axle (the sheet's LSD columns). It is FITTED: the shop does
-        /// not sell it one, and its setup sliders start from these figures.</summary>
+        /// driven axle (the sheet's LSD columns). It is FITTED and works at
+        /// these figures; on a road car it unlocks NO slider (2026-10-07, the
+        /// owner: "Factory parts are not tuneable") - the shop sells an
+        /// adjustable plate pack in its place.</summary>
         public bool HasFactoryLsd => lsdInit > 0 || lsdAccel > 0 || lsdDecel > 0;
 
         /// <summary>The rev limiter, rpm: the sheet's (never under the
@@ -361,6 +367,20 @@ namespace PSXRacing
         /// <summary>Purpose-built race cars. Same name test RG2 uses; it drives
         /// the repair-cost premium and the skill gate, not the physics.</summary>
         public bool IsRaceCar => !string.IsNullOrEmpty(name) && name.Contains("Race Car");
+        /// <summary>A rally car ("Rally Car", the Pajero's "Rally Raid Car").
+        /// NOT covered by <see cref="IsRaceCar"/>.</summary>
+        public bool IsRallyCar => !string.IsNullOrEmpty(name) && name.Contains("Rally");
+        /// <summary>
+        /// BUILT TO BE TUNED (2026-10-07, the owner: "Factory parts are not
+        /// tuneable (exception is race cars and rally cars since they're built
+        /// to be customized and can't receive different parts)"). A race car,
+        /// a rally car, or any car whose sheet gives it an adjustable race
+        /// suspension (the touring cars, the JGTC GT-R, the 155 TI, the Escudo
+        /// dirt car): every setup row its factory hardware supports is open
+        /// without buying a part. Every other car's factory part works at its
+        /// factory settings and opens nothing (CarSetupGate).
+        /// </summary>
+        public bool IsBuiltToTune => IsRaceCar || IsRallyCar || raceSusp > 0;
 
         public bool IsFrontDriven => drv == "FF" || drv == "4WD";
         public bool IsRearDriven => drv != "FF";
