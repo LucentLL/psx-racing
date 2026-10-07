@@ -2856,7 +2856,12 @@ namespace PSXRacing
                     // nose. Rate and load still decide how it MOVES. A preload
                     // builds through the tyre's own rate, not in one step.
                     float wheelStatic = StaticWheelLoadOf(front);
-                    float preload = wheelStatic - k * (StaticSagRef + (front ? 0.5f : -0.5f) * rideRakeM);
+                    // The sag split also takes up a staggered car's tyre
+                    // difference (the mounts stand on rayLength = rest + r):
+                    // without it an NSX on a smaller front tyre sat 0.5 deg
+                    // nose-down against a sheet that says 135 / 135.
+                    float sagSplit = rideRakeM + (WheelRadiusOf(0) - WheelRadiusOf(2));
+                    float preload = wheelStatic - k * (StaticSagRef + (front ? 0.5f : -0.5f) * sagSplit);
                     float spring = k * compression + preload;
                     if (preload > 0f) spring = Mathf.Min(spring, TyreVerticalRate * compression);
                     float force = Mathf.Max(0f, spring + c * compressionVel);
