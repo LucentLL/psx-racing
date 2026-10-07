@@ -8957,7 +8957,7 @@ namespace PSXRacing.EditorTools
             foreach (var c in CarCatalog.All)
             {
                 if (race == null && c.IsRaceCar) race = c;
-                if (road == null && !c.IsRaceCar && !c.IsForcedInduction && c.builtHp > c.hp) road = c;
+                if (road == null && !c.IsBuiltToTune && !c.IsForcedInduction && c.builtHp > c.hp) road = c;
             }
             if (race == null || road == null) { Check(false, "a race car and an NA road car to compare"); return; }
 
@@ -8978,20 +8978,28 @@ namespace PSXRacing.EditorTools
                   "ordering a stage for one is refused, and says why", race.name);
 
             // ---- the physics: race hardware, its own power, weight and ride ---
+            // The sheet's tyre mu is the car's own; the race KIT (stage-4
+            // brakes, suspension, tyres) goes on top, because the sheet carries
+            // no tyre compound and its grip modifiers sit ~100 against a road
+            // car's ~95 - a race car on its sheet alone corners like an RX-7.
             var claims = new CarTune.Stages { power = 4, weight = 4, brakes = 0, suspension = 0, tires = 0 };
             var rc = TuneBenchCar(race);
             rc.supercharged = true;               // a save that somehow fitted a blower
             rc.ApplySpec(race, claims);
-            var hw = CarTune.HandlingOf(true, default);
-            Check(hw.brakes == CarTune.MaxStage && hw.suspension == CarTune.MaxStage && hw.tires == CarTune.MaxStage,
-                  "a race car's handling is built from stage-4 brakes, suspension and tyres");
+            var hw = CarTune.HandlingOf(true, true, claims);
+            Check(hw.brakes == CarTune.MaxStage && hw.suspension == CarTune.MaxStage && hw.tires == CarTune.MaxStage &&
+                  hw.power == 0 && hw.weight == 0,
+                  "a race car's handling is built from stage-4 brakes, suspension and tyres (power and weight: its own)");
             Check(Mathf.Approximately(rc.brakeDemandG, CarTune.BrakeDemandG(CarController.DefaultBrakeDemandG, hw)) &&
                   Mathf.Approximately(rc.gripBonus, CarTune.GripStageMult(CarTune.MaxStage)) &&
                   Mathf.Approximately(rc.corneringStiffness, Mathf.Min(
                       CarController.DefaultCorneringStiffness * CarTune.SuspStageMult(CarTune.MaxStage),
-                      CarController.CorneringStiffnessCap)),
-                  "and the car on the road has exactly those — whatever the save says it bought",
-                  rc.brakeDemandG.ToString("0.00") + " g, grip x" + rc.gripBonus.ToString("0.00"));
+                      CarController.CorneringStiffnessCap)) &&
+                  Mathf.Approximately(rc.tireMuFront, CarController.TireMuFrontOf(race)) &&
+                  Mathf.Approximately(rc.tireMuRear, CarController.TireMuRearOf(race)),
+                  "and the car on the road has exactly those, on the sheet's tyre mu — whatever the save says it bought",
+                  rc.brakeDemandG.ToString("0.00") + " g, grip x" + rc.gripBonus.ToString("0.00") +
+                  ", mu " + rc.tireMuFront.ToString("0.000") + "/" + rc.tireMuRear.ToString("0.000"));
             Check(Mathf.Approximately(rc.massKg, race.kg) && !rc.supercharged &&
                   Mathf.Approximately(rc.BuildTopSpeedMps, race.topSpeedMps),
                   "its weight, its engine and its top speed are its own: a race car's stock IS its race spec",
@@ -9009,6 +9017,30 @@ namespace PSXRacing.EditorTools
                   Mathf.Approximately(bs.topSpeedMps, bc.topSpeedMps) && !bs.welded,
                   "the garage quotes the same race car the race builds");
             TuneDrop(rc);
+
+            // ---- a RALLY car: built, but no race kit - its sheet -------------
+            CarSpec rally = null;
+            foreach (var c in CarCatalog.All)
+                if (c.IsRallyCar && !c.IsRaceCar) { rally = c; break; }
+            if (rally == null) Check(false, "a rally car to compare");
+            else
+            {
+                var full = new CarTune.Stages { power = 4, weight = 4, brakes = 4, suspension = 4, tires = 4 };
+                var lc = TuneBenchCar(rally);
+                lc.ApplySpec(rally, full);
+                Check(CarTune.HandlingOf(false, true, full).Equals(new CarTune.Stages { seat = full.seat }),
+                      "a rally car's handling carries no stage, bought or given", rally.name);
+                Check(Mathf.Approximately(lc.brakeDemandG, CarTune.BrakeDemandG(CarController.DefaultBrakeDemandG, default)) &&
+                      Mathf.Approximately(lc.gripBonus, 1f) &&
+                      Mathf.Approximately(lc.corneringStiffness, CarController.DefaultCorneringStiffness) &&
+                      Mathf.Approximately(lc.tireMuFront, CarController.TireMuFrontOf(rally)) &&
+                      Mathf.Approximately(lc.tireMuRear, CarController.TireMuRearOf(rally)) &&
+                      Mathf.Approximately(lc.massKg, rally.kg),
+                      "and it drives on its sheet: the sheet's grip, brakes, stiffness and weight",
+                      lc.brakeDemandG.ToString("0.00") + " g, grip x" + lc.gripBonus.ToString("0.00") +
+                      ", mu " + lc.tireMuFront.ToString("0.000") + "/" + lc.tireMuRear.ToString("0.000"));
+                TuneDrop(lc);
+            }
 
             // ---- the tuning gate: everything open ----------------------------
             var roadOwned = new OwnedCar { id = "road_stock", specId = road.id, displayName = road.name };
@@ -9936,7 +9968,7 @@ namespace PSXRacing.EditorTools
             // so "adjusts nothing" is a car that left the factory with none.
             CarSpec gateSpec = null;
             foreach (var c in CarCatalog.All)
-                if (!c.HasFactoryLsd && (gateSpec == null || (c.drv == "4WD" && gateSpec.drv != "4WD"))) gateSpec = c;
+                if (!c.IsBuiltToTune && !c.HasFactoryLsd && (gateSpec == null || (c.drv == "4WD" && gateSpec.drv != "4WD"))) gateSpec = c;
             if (gateSpec == null) gateSpec = CarCatalog.All[0];
 
             var stockCar = new OwnedCar { id = "tune_stock", specId = gateSpec.id,
@@ -10422,7 +10454,7 @@ namespace PSXRacing.EditorTools
                 // A BLOWER moves the power peak, and top gear is anchored
                 // there: the garage has to be told about it to draw the same
                 // gearbox the race builds.
-                if (!spec.IsForcedInduction && !spec.IsRaceCar)
+                if (!spec.IsForcedInduction && !spec.IsBuiltToTune)
                 {
                     var blown = TuneBenchCar(spec);
                     blown.supercharged = true;
@@ -10756,17 +10788,38 @@ namespace PSXRacing.EditorTools
                   CarController.WeightDistFrontOf(fd) == 0.5f,
                   "the tuned FD keeps tireMu 1.000 / 1.050 and 50:50");
 
-            // The shop: a factory LSD is FITTED, never sold, never refunded, and
-            // a weld replaces it.
+            // FACTORY PARTS ARE NOT TUNEABLE (2026-10-07, the owner: "Factory
+            // parts are not tuneable (exception is race cars and rally cars
+            // since they're built to be customized and can't receive different
+            // parts)"). A road car's factory LSD works at its factory figures,
+            // opens no slider, and the shop sells the adjustable plate pack
+            // over it; only the BOUGHT part opens the diff rows. A weld
+            // replaces the factory LSD, and it is never refunded.
             CarSpec open = null;
-            foreach (var c in CarCatalog.All) if (!c.HasFactoryLsd && !c.IsRaceCar) { open = c; break; }
+            foreach (var c in CarCatalog.All) if (!c.HasFactoryLsd && !c.IsBuiltToTune) { open = c; break; }
             if (fd != null && open != null)
             {
                 var mine = new OwnedCar { id = "lsd_t", specId = fd.id, displayName = fd.name };
                 var offer = Upgrades.OfferFor(null, mine, fd, Upgrades.Mod.LimitedSlip);
-                Check(Upgrades.HasMod(mine, Upgrades.Mod.LimitedSlip) && !Upgrades.Bought(mine, Upgrades.Mod.LimitedSlip) &&
-                      !offer.available && offer.blockedReason == "FITTED",
-                      "the shop calls a factory LSD FITTED and does not sell one", offer.blockedReason);
+                Check(!fd.IsBuiltToTune && Upgrades.HasMod(mine, Upgrades.Mod.LimitedSlip) &&
+                      !Upgrades.Bought(mine, Upgrades.Mod.LimitedSlip) && !offer.owned && offer.available,
+                      "the shop sells the adjustable LSD over a road car's factory LSD", offer.blockedReason);
+                Check(CarSetupGate.BlockedReason(mine, fd, SetupParam.DiffAccel) == CarSetupGate.FactoryNeeds &&
+                      CarSetupGate.BlockedReason(mine, fd, SetupParam.DiffPreload) == CarSetupGate.FactoryNeeds &&
+                      CarSetupGate.UnlockedCount(mine, fd) == 0,
+                      "a road car's factory LSD opens no slider (factory parts are not tuneable)",
+                      CarSetupGate.BlockedReason(mine, fd, SetupParam.DiffAccel));
+                var fdSetup = CarSetupGate.SetupOf(mine);
+                fdSetup.Set(SetupParam.DiffAccel, 0.8f);
+                Check(CarSetupGate.Sanitize(mine, fd).Get(SetupParam.DiffAccel) == 0f &&
+                      CarSetupRanges.Of(CarSetupBasis.FromSpec(fd, default, false), SetupParam.DiffAccel).Value(0f) > 0f,
+                      "...so it races at its factory lock (the row is zeroed, and zero is the sheet's figure)");
+                mine.lsd = true;
+                Check(CarSetupGate.Unlocked(mine, fd, SetupParam.DiffAccel) &&
+                      Upgrades.OfferFor(null, mine, fd, Upgrades.Mod.LimitedSlip).blockedReason == "FITTED",
+                      "a BOUGHT LSD opens the diff rows, and the shop then calls it FITTED");
+                mine.lsd = false;
+                mine.setup = null;
                 mine.welded = true;
                 Check(!Upgrades.HasMod(mine, Upgrades.Mod.LimitedSlip), "a weld replaces the factory LSD");
                 var plain = new OwnedCar { id = "lsd_o", specId = open.id, displayName = open.name };
@@ -10775,6 +10828,147 @@ namespace PSXRacing.EditorTools
                       "an open-diff car still has none, and its diff rows still default open", open.name);
                 Check(CarSetupRanges.Of(CarSetupBasis.FromSpec(fd, default, false), SetupParam.DiffAccel).def > 0f,
                       "a factory-LSD car's diff rows start at the sheet's lock");
+            }
+            // RACE AND RALLY CARS keep every row their hardware supports, with
+            // nothing bought. Rally cars are NOT IsRaceCar ("Rally Car"), so
+            // IsBuiltToTune names them (and the sheet's other adjustable race
+            // suspensions: touring cars, the JGTC GT-R).
+            int rally = 0, builtBad = 0, builtN = 0; string builtW = null;
+            foreach (var c in CarCatalog.All)
+            {
+                if (c.IsRallyCar) { rally++; if (c.IsRaceCar || !c.IsBuiltToTune) { builtBad++; builtW = builtW ?? c.name; } }
+                if (c.name.Contains("Road Car") && c.IsBuiltToTune) { builtBad++; builtW = builtW ?? c.name; }
+                if (!c.IsBuiltToTune) continue;
+                builtN++;
+                var bare = new OwnedCar { id = "built_t", specId = c.id, displayName = c.name };
+                if (CarSetupGate.UnlockedCount(bare, c) != CarSetupGate.AdjustableCount(bare, c))
+                { builtBad++; builtW = builtW ?? c.name; }
+            }
+            Check(rally > 0 && builtN > rally && builtBad == 0,
+                  "race and rally cars open every row their hardware has with nothing bought ("
+                  + builtN + " cars, " + rally + " rally)", builtW);
+
+            // BUILT CARS TAKE NO PARTS AND DRIVE ON THEIR SHEET (2026-10-07, the
+            // owner: "Factory parts are not tuneable (exception is race cars and
+            // rally cars since they're built to be customized and can't receive
+            // different parts)" + "everything to spec"). Every IsBuiltToTune car:
+            // the shop refuses every ladder but the seat, every mod (the weld
+            // and the blower too) and the turbo kit, in the same words the
+            // garage, the bench and the junkyard read; a car carrying a full
+            // build from an old save builds the SAME chassis as a bare one -
+            // the sheet's. A RACE car's handling adds the stage-4 race kit
+            // (2026-09-21: "close to the upper limit of speed, handling, etc.";
+            // the sheet has no tyre compound); every other built car's adds
+            // nothing.
+            int shopBad = 0, physBad = 0, kitN = 0, sheetN = 0;
+            string shopW = null, physW = null, physWhy = null;
+            foreach (var c in CarCatalog.All)
+            {
+                if (!c.IsBuiltToTune) continue;
+                string why = Upgrades.AlreadyBuilt(c);
+                var maxed = new OwnedCar { id = "built_m", specId = c.id, displayName = c.name };
+                for (var k = Upgrades.Kind.Power; k <= Upgrades.LastKind; k++)
+                {
+                    if ((Upgrades.RaceCarRefuses(c, k) == null) != (k == Upgrades.Kind.Seat) ||
+                        (k != Upgrades.Kind.Seat && DebugCarOps.SetStage(maxed, k, Upgrades.MaxStage)))
+                    { shopBad++; shopW = shopW ?? c.name + " " + k; }
+                    Upgrades.SetStage(maxed, k, Upgrades.MaxStage);
+                }
+                foreach (var mod in Upgrades.AllMods)
+                {
+                    if (Upgrades.OfferFor(null, maxed, c, mod).blockedReason != why ||
+                        DebugCarOps.SetMod(maxed, c, mod, true) == null)
+                    { shopBad++; shopW = shopW ?? c.name + " " + mod; }
+                }
+                maxed.welded = maxed.supercharged = maxed.swayBars = maxed.steeringRack = true;
+                maxed.aeroKit = maxed.finalDriveSet = maxed.lsd = maxed.gearSet = true;
+                maxed.turbo = true;
+                if (why == null || Upgrades.TurboKitRefuses(null, maxed, c) != why || c.CanFitTurboKit)
+                { shopBad++; shopW = shopW ?? c.name + " turbo"; }
+
+                float stockTop = c.topSpeedMps > 1f ? c.topSpeedMps : 60f;
+                var full = Upgrades.StagesOf(maxed);
+                var built = CarSetupBasis.FromSpec(c, full, true, true, true);
+                var sheet = CarSetupBasis.FromSpec(c, default, false);
+                var kitHw = c.IsRaceCar
+                    ? new CarTune.Stages { brakes = CarTune.MaxStage, suspension = CarTune.MaxStage,
+                                           tires = CarTune.MaxStage, seat = full.seat }
+                    : new CarTune.Stages { seat = full.seat };
+                if (c.IsRaceCar) kitN++; else sheetN++;
+                string bad =
+                    !Mathf.Approximately(c.BuildTopSpeedMps(Upgrades.MaxStage, true, true), stockTop) ? "top speed" :
+                    Upgrades.EffectiveHp(maxed, c) != c.hp || Upgrades.EffectiveKg(maxed, c) != c.kg ||
+                    Upgrades.EffectiveTorqueNm(maxed, c) != c.peakTorqueNm ? "hp/kg/torque" :
+                    !CarTune.HandlingOf(c.IsRaceCar, true, full).Equals(kitHw) ? "HandlingOf" :
+                    !Mathf.Approximately(built.brakeDemandG, sheet.brakeDemandG) ||
+                    !Mathf.Approximately(sheet.brakeDemandG, CarTune.BrakeDemandG(CarController.DefaultBrakeDemandG, kitHw)) ? "brakes" :
+                    !Mathf.Approximately(built.rawCorneringStiffness,
+                        CarController.DefaultCorneringStiffness * CarTune.SuspStageMult(kitHw.suspension)) ||
+                    !Mathf.Approximately(built.corneringStiffness, sheet.corneringStiffness) ? "stiffness" :
+                    !Mathf.Approximately(built.massKg, sheet.massKg) || !Mathf.Approximately(built.restLength, sheet.restLength) ||
+                    !Mathf.Approximately(built.topSpeedMps, sheet.topSpeedMps) || built.welded ? "chassis" : null;
+                if (bad != null) { physBad++; physW = physW ?? c.name; physWhy = physWhy ?? bad; }
+            }
+            Check(shopBad == 0,
+                  "a built car (race, rally, touring) is sold no part: every ladder but the seat, every mod, the turbo kit - shop, bench and garage in one voice",
+                  shopW);
+            Check(physBad == 0 && kitN > 0 && sheetN > 0,
+                  "a built car drives on its sheet: a full old-save build changes nothing; the " + kitN +
+                  " race cars carry the stage-4 race kit, the other " + sheetN + " (rally, touring) nothing on top",
+                  physW == null ? null : physW + " (" + physWhy + ")");
+
+            // A BUILT car's spring and ride-height sliders are its own coilover's
+            // range off the sheet (Stock Springs / Stock Height Min..Max): the
+            // generic 0.70x..1.45x span passed 20 kgf/mm on the Lister, the
+            // Calsonic and JGTC GT-Rs, the Panoz and the C2's rear.
+            int fenced = 0, fenceBad = 0; string fenceW = null;
+            foreach (var c in CarCatalog.All)
+            {
+                if (!c.HasSheetSpringRange) continue;
+                fenced++;
+                var bs = CarSetupBasis.FromSpec(c, default, false);
+                var sf = CarSetupRanges.Of(bs, SetupParam.SpringFront);
+                var sr = CarSetupRanges.Of(bs, SetupParam.SpringRear);
+                float k = CarController.KgfPerMm;
+                bool ok = Mathf.Abs(sf.min - c.springMinF * k) < 1f && Mathf.Abs(sf.max - c.springMaxF * k) < 1f &&
+                          Mathf.Abs(sr.min - c.springMinR * k) < 1f && Mathf.Abs(sr.max - c.springMaxR * k) < 1f &&
+                          Mathf.Approximately(sf.def, c.springF * k) && Mathf.Approximately(sr.def, c.springR * k);
+                if (ok && c.HasSheetRideRange)
+                {
+                    var rh = CarSetupRanges.Of(bs, SetupParam.RideHeight);
+                    float stockMm = 0.5f * (c.rideFMm + c.rideRMm);
+                    ok = Mathf.Abs((rh.max - rh.def) * 1000f - (c.rideMaxMm - stockMm)) < 0.5f &&
+                         Mathf.Abs((rh.def - rh.min) * 1000f - Mathf.Min(stockMm - c.rideMinMm, (rh.def - 0.20f) * 1000f)) < 0.5f;
+                }
+                if (!ok) { fenceBad++; fenceW = fenceW ?? c.name; }
+            }
+            Check(fenced > 40 && fenceBad == 0,
+                  "a built car's spring and ride-height sliders span its sheet's coilover range, never past it (" + fenced + " cars)",
+                  fenceW);
+
+            // An old save's rally car with a build on it: stripped and refunded
+            // on load, once.
+            CarSpec rallySpec = null;
+            foreach (var c in CarCatalog.All)
+                if (c.IsRallyCar && !c.IsRaceCar && c.IsNaturallyAspirated) { rallySpec = c; break; }
+            if (rallySpec == null) foreach (var c in CarCatalog.All) if (c.IsRallyCar) { rallySpec = c; break; }
+            if (rallySpec != null)
+            {
+                var st = new LifeState { money = 1000 };
+                var rc = new OwnedCar { id = "rally_old", specId = rallySpec.id, displayName = rallySpec.name };
+                Upgrades.SetStage(rc, Upgrades.Kind.Power, 2);
+                Upgrades.SetStage(rc, Upgrades.Kind.Tires, 3);
+                Upgrades.SetStage(rc, Upgrades.Kind.Seat, 1);
+                rc.welded = true;
+                rc.turbo = rallySpec.IsNaturallyAspirated;
+                st.cars.Add(rc);
+                int back = LifeSimManager.StripBuiltCars(st);
+                int again = LifeSimManager.StripBuiltCars(st);
+                Check(back > 0 && again == 0 && st.money == 1000 + back && !rc.turbo &&
+                      Upgrades.GetStage(rc, Upgrades.Kind.Power) == 0 && Upgrades.GetStage(rc, Upgrades.Kind.Tires) == 0 &&
+                      Upgrades.GetStage(rc, Upgrades.Kind.Seat) == 1 && !Upgrades.Bought(rc, Upgrades.Mod.WeldedDiff),
+                      "an old save's rally-car build comes off on load and is refunded once (seat stays)",
+                      rallySpec.name + " back " + back + ", again " + again);
             }
         }
 
@@ -12190,8 +12384,8 @@ namespace PSXRacing.EditorTools
             {
                 c.Decode();
                 bool curve = c.curveNm != null && c.curveNm.Length >= 2 && c.builtHp > c.hp && c.minKg < c.kg;
-                if (naSpec == null && curve && !c.IsForcedInduction && !c.IsRaceCar) naSpec = c;
-                if (turboSpec == null && c.IsTurbo && !c.IsRaceCar) turboSpec = c;
+                if (naSpec == null && curve && !c.IsForcedInduction && !c.IsBuiltToTune) naSpec = c;
+                if (turboSpec == null && c.IsTurbo && !c.IsBuiltToTune) turboSpec = c;
                 if (raceSpec == null && c.IsRaceCar) raceSpec = c;
             }
             if (naSpec == null || turboSpec == null || raceSpec == null)

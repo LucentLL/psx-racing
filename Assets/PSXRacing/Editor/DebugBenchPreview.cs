@@ -52,7 +52,7 @@ namespace PSXRacing.EditorTools
             LifeRules.EnableDebug(st);
             CarSpec spec = null;
             foreach (var c in CarCatalog.All)
-                if (!c.IsForcedInduction && !c.IsRaceCar && c.builtHp > c.hp) { spec = c; break; }
+                if (!c.IsForcedInduction && !c.IsBuiltToTune && c.builtHp > c.hp) { spec = c; break; }
             if (spec == null) { Debug.LogError("[BenchPreview] no NA road car in the catalog"); return; }
             var car = new OwnedCar
             {

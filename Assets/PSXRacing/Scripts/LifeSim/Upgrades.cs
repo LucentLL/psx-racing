@@ -259,7 +259,7 @@ namespace PSXRacing.LifeSim
         public static string TurboKitRefuses(LifeState s, OwnedCar car, CarSpec spec)
         {
             if (car == null || spec == null) return "no car";
-            if (spec.IsRaceCar) return RaceCarBuilt;
+            if (spec.IsBuiltToTune) return AlreadyBuilt(spec);
             if (spec.IsTurbo) return "ALREADY TURBOCHARGED";
             if (!spec.CanFitTurboKit) return "ALREADY SUPERCHARGED";
             if (car.turbo) return "TURBO FITTED";
@@ -565,8 +565,11 @@ namespace PSXRacing.LifeSim
 
         /// <summary>TO SPEC (2026-10-07): a car whose sheet shows a limited-slip
         /// diff on its driven axle left the factory with it (CarSpec.
-        /// HasFactoryLsd). The shop calls it FITTED and does not sell it; a
-        /// weld replaces it (the same hole in the car), and it is never refunded
+        /// HasFactoryLsd). It works at its factory figures but opens NO slider
+        /// on a road car ("Factory parts are not tuneable", the owner,
+        /// 2026-10-07): the shop sells the adjustable plate pack in its place
+        /// (OfferFor), and only that BOUGHT part opens the diff rows. A weld
+        /// replaces it (the same hole in the car), and it is never refunded
         /// as a part, because nobody paid for it.</summary>
         public static bool FactoryFitted(OwnedCar car, Mod mod)
         {
@@ -716,10 +719,11 @@ namespace PSXRacing.LifeSim
         /// </summary>
         public static string CarRefuses(CarSpec spec, Mod mod)
         {
-            // First: a race car has every one of these already, in effect —
-            // its tuning rows all open without them (CarSetupGate), and a
-            // blower or a weld on a prototype is not a thing anybody sells.
-            if (spec != null && spec.IsRaceCar) return RaceCarBuilt;
+            // First: a BUILT car (race, rally, touring - CarSpec.IsBuiltToTune)
+            // takes nothing. Its tuning rows all open without these parts
+            // (CarSetupGate), and the owner, 2026-10-07: race and rally cars
+            // "can't receive different parts" - the weld and the blower too.
+            if (spec != null && spec.IsBuiltToTune) return AlreadyBuilt(spec);
             if (mod == Mod.AeroKit && !AeroKitAllowed(spec)) return "RACE CARS ONLY";
             if (mod == Mod.Supercharger && spec != null && spec.IsForcedInduction)
                 return spec.IsTurbo ? "ALREADY TURBOCHARGED" : "ALREADY SUPERCHARGED";
@@ -740,9 +744,13 @@ namespace PSXRacing.LifeSim
                                                              : CarCostMult(spec)));
             o.skillReq = Mathf.Min(95, baseSkill + CarSkillBoost(spec));
             o.canDiy = s != null && s.mechSkill >= o.skillReq;
-            o.owned = HasMod(car, mod);
+            // BOUGHT, not HasMod: a factory LSD is fitted and working, but it
+            // opens no slider on a road car (CarSetupGate), so the shop sells
+            // the adjustable plate pack that replaces it.
+            o.owned = Bought(car, mod);
 
             if (o.owned) { o.blockedReason = "FITTED"; return o; }
+            if (FactoryFitted(car, mod)) o.effect = "factory LSD fitted; this one adjusts";
             string never = CarRefuses(spec, mod);
             if (never != null) { o.blockedReason = never; return o; }
             // The blower is an NA part: a turbo build has its boost already.
@@ -805,7 +813,7 @@ namespace PSXRacing.LifeSim
         /// <summary>Peak torque as built, Nm.</summary>
         public static int EffectiveTorqueNm(OwnedCar car, CarSpec spec) =>
             spec == null ? 0
-            : spec.IsRaceCar ? spec.peakTorqueNm
+            : spec.IsBuiltToTune ? spec.peakTorqueNm
             : spec.TorqueAtStage(GetStage(car, Kind.Power), car != null && car.turbo);
 
         /// <summary>Crank HP as built — what the SPECS screen should show
@@ -813,12 +821,12 @@ namespace PSXRacing.LifeSim
         /// car's stock figure IS its built one.</summary>
         public static int EffectiveHp(OwnedCar car, CarSpec spec) =>
             spec == null ? 0
-            : spec.IsRaceCar ? spec.hp
+            : spec.IsBuiltToTune ? spec.hp
             : spec.HpAtStage(GetStage(car, Kind.Power), car != null && car.turbo);
 
         public static int EffectiveKg(OwnedCar car, CarSpec spec) =>
             spec == null ? 0
-            : spec.IsRaceCar ? spec.kg
+            : spec.IsBuiltToTune ? spec.kg
             : CarTune.WeightAtStage(spec.kg, spec.minKg, GetStage(car, Kind.Weight));
 
         /// <summary>This car's top speed AS BUILT, m/s: the stock GT4 figure
@@ -832,7 +840,7 @@ namespace PSXRacing.LifeSim
 
         /// <summary>The build's top speed over stock, whole percent.</summary>
         public static int EffectiveTopSpeedPct(OwnedCar car, CarSpec spec) =>
-            spec == null || spec.IsRaceCar ? 0
+            spec == null || spec.IsBuiltToTune ? 0
             : CarTune.TopSpeedGainPct(GetStage(car, Kind.Power),
                                       car != null && car.supercharged && !car.turbo,
                                       spec.PathShare(car != null && car.turbo));
@@ -851,16 +859,28 @@ namespace PSXRacing.LifeSim
         // one sentence on every row that would otherwise have sold something.
 
         public const string RaceCarBuilt = "RACE CAR — ALREADY BUILT";
+        public const string RallyCarBuilt = "RALLY CAR — ALREADY BUILT";
+        /// <summary>The rest of CarSpec.IsBuiltToTune: touring cars, the JGTC
+        /// GT-R, the 155 TI, the Escudo dirt car.</summary>
+        public const string RaceSpecBuilt = "RACE-SPEC — ALREADY BUILT";
 
-        /// <summary>Why this ladder is not for sale on this car, or null. The
-        /// SEAT is not a performance part — it is the passenger seat the pizza
-        /// rides on — so a race car can still have one fitted.</summary>
+        /// <summary>Why a BUILT car (CarSpec.IsBuiltToTune) takes no part, in
+        /// its own words; null on any other car.</summary>
+        public static string AlreadyBuilt(CarSpec spec) =>
+            spec == null || !spec.IsBuiltToTune ? null
+            : spec.IsRaceCar ? RaceCarBuilt : spec.IsRallyCar ? RallyCarBuilt : RaceSpecBuilt;
+
+        /// <summary>Why this ladder is not for sale on this car, or null: every
+        /// ladder on a built car (CarSpec.IsBuiltToTune). The SEAT is not a
+        /// performance part — it is the passenger seat the pizza rides on — so
+        /// a built car can still have one fitted.</summary>
         public static string RaceCarRefuses(CarSpec spec, Kind kind) =>
-            spec != null && spec.IsRaceCar && kind != Kind.Seat ? RaceCarBuilt : null;
+            kind != Kind.Seat ? AlreadyBuilt(spec) : null;
 
         /// <summary>
-        /// Take off a race car everything the shop used to sell it and will
-        /// not any more — the performance stages, every bolt-on, and any of
+        /// Take off a BUILT car (CarSpec.IsBuiltToTune: race cars since v16,
+        /// rally and touring cars since 2026-10-07) everything the shop used
+        /// to sell it and will not any more — the performance stages, every bolt-on, and any of
         /// those still queued at a shop — and return what they cost. The
         /// money goes back into <paramref name="s"/>; the caller writes the
         /// diary line. The seat stays: it is the pizza's.
@@ -872,7 +892,7 @@ namespace PSXRacing.LifeSim
         /// </summary>
         public static int StripRaceCar(LifeState s, OwnedCar car, CarSpec spec)
         {
-            if (s == null || car == null || spec == null || !spec.IsRaceCar) return 0;
+            if (s == null || car == null || spec == null || !spec.IsBuiltToTune) return 0;
             int back = 0;
             for (var k = Kind.Power; k <= LastKind; k++)
             {
@@ -884,6 +904,9 @@ namespace PSXRacing.LifeSim
                 }
                 SetStage(car, k, 0);
             }
+            // The power path goes with the power stages: a built car takes no
+            // turbo kit (CarSpec.CanFitTurboKit).
+            car.turbo = false;
             foreach (var mod in AllMods)
             {
                 // Bought, not HasMod: a factory LSD is not a part to refund.

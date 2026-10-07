@@ -1093,15 +1093,15 @@ namespace PSXRacing
         public void ApplySpec(CarSpec spec, CarTune.Stages tune)
         {
             if (spec == null) return;
-            // A RACE CAR IS ALREADY BUILT. Whatever the request says was bought
-            // for it counts for nothing — only a save from before the shop
-            // refused race cars can say anything at all — and it arrives with
-            // race hardware instead (ApplyTuneHandling). First, so every line
-            // below sees the car it is building. See CarTune.BoughtOf.
-            tune = CarTune.BoughtOf(spec.IsRaceCar, tune);
+            // A BUILT CAR (race, rally, touring - CarSpec.IsBuiltToTune) TAKES
+            // NO PARTS. Whatever the request says was bought for it counts for
+            // nothing - only a save from before the shop refused it can say
+            // anything at all - and it drives on its SHEET hardware. First, so
+            // every line below sees the car it is building. See CarTune.BoughtOf.
+            tune = CarTune.BoughtOf(spec.IsBuiltToTune, tune);
             // (The weld's backing field, not the property: the property re-runs
             // the setup, and this method runs it once, at the end.)
-            if (spec.IsRaceCar) { supercharged = false; weldedDiffFitted = false; turboKit = false; }
+            if (spec.IsBuiltToTune) { supercharged = false; weldedDiffFitted = false; turboKit = false; }
             // One path: a turbo kit replaces the blower, and only an NA road
             // car takes one.
             if (!spec.CanFitTurboKit) turboKit = false;
@@ -1213,11 +1213,12 @@ namespace PSXRacing
                 tuneBaselineCaptured = true;
             }
 
-            // What the handling is built FROM: the ladders as bought, or a race
-            // car's own race hardware. Not activeTune itself, because the ride
-            // height reads that and a race car keeps its own — see
-            // CarTune.HandlingOf.
-            var hw = CarTune.HandlingOf(activeSpec != null && activeSpec.IsRaceCar, activeTune);
+            // What the handling is built FROM: the ladders as bought, nothing on
+            // a built car (its sheet), or a RACE car's race kit. Not activeTune
+            // itself, because the ride height reads that and a race car keeps
+            // its own. See CarTune.HandlingOf.
+            var hw = CarTune.HandlingOf(activeSpec != null && activeSpec.IsRaceCar,
+                                        activeSpec != null && activeSpec.IsBuiltToTune, activeTune);
             brakeDemandG = CarTune.BrakeDemandG(stockBrakeDemandG, hw);
             gripBonus = stockGripBonus * CarTune.GripStageMult(hw.tires);
 
@@ -1360,6 +1361,8 @@ namespace PSXRacing
                 b.damperFront = damperFront; b.damperRear = damperRear;
                 b.antiRollFront = antiRollFront; b.antiRollRear = antiRollRear;
                 b.restLength = restLength; b.cgHeight = cgHeight;
+                // The ride fence hangs off the SNAPSHOT height, not the live one.
+                CarSetupBasis.SheetFences(ref b, c.activeSpec);
                 b.frontDriveShare = frontDriveShare;
                 b.downforceWeightFractionAtVmax = downforceWeightFractionAtVmax;
                 b.downforceBalanceFront = downforceBalanceFront;
@@ -1808,6 +1811,55 @@ namespace PSXRacing
         public const float DefaultTireMuFront = 1.000f;
         public const float DefaultTireMuRear = 1.050f;
         public const float DefaultCorneringStiffness = 11.0f;
+
+        // ---- TYRE LOAD SENSITIVITY (2026-10-07, the owner: "Yes") ----------
+        // The tyre used to be LINEAR in load (circle = mu x Fz, C = cs x Fz),
+        // so moving load between wheels never changed what an axle could hold
+        // and every car balanced like the FD at the limit, whatever its weight
+        // split (22 cars at +1.4..+2.2 deg). A real tyre's friction falls as
+        // its load rises. Here a wheel's load is read against the mean of the
+        // grounded wheels (so downforce and a dip or crest, which load all four
+        // together, move nothing) and the tyre uses Fz x LoadMuFactor(Fz /
+        // mean) for BOTH its friction circle and its cornering stiffness - the
+        // whole curve scales, the slip it peaks at does not:
+        //   - a front-heavy car's front tyres run above the mean and push;
+        //     a rear-engined car's rears run above it and the tail is livelier;
+        //   - the axle carrying more of the roll couple (springs AND bars -
+        //     the bars now feed the tyre loads) loses more grip, so the roll
+        //     split finally moves the balance, as it does on a real car.
+
+        /// <summary>Friction lost per unit of load over the mean: 8% from the
+        /// mean load to double it (a real tyre loses 5-15%). 0.10 put the
+        /// Stratos at 15.3 deg of body slip in P's 70 mph lane change (12.5
+        /// before), 0.15 the A310 and Elise too; 0.08 keeps every surveyed
+        /// car under 15 (HandlingPlayCheck P, 2026-10-07).</summary>
+        public static float TyreLoadSensitivity = 0.08f;
+        /// <summary>The base friction re-calibrated for the load transfer it now
+        /// pays: the tuned FD (50:50) holds the same skidpad g as before
+        /// (HandlingPlayCheck P, 2026-10-07, at 0.08: 1.33 g, +1.8 -> +2.0 deg
+        /// at the first limit; at 0.10 a gain of 1.00 gave 1.28 g and 1.10
+        /// gave 1.37). Friction circle
+        /// only - the cornering stiffness is untouched, so the FD's response
+        /// below the limit does not move.</summary>
+        public static float TyreLoadGain = 1.05f;
+        /// <summary>Calibration switch (HandlingPlayCheck "lgc"): the gain on the
+        /// cornering stiffness as well as the circle.</summary>
+        public static bool TyreLoadGainOnStiffness = false;
+        /// <summary>Calibration switch (HandlingPlayCheck "nobar"): false puts
+        /// the anti-roll bars back to pushing the body only, not the tyre loads.</summary>
+        public static bool ArbFeedsTyreLoads = true;
+
+        /// <summary>The share of its load a tyre can use at
+        /// <paramref name="loadRatio"/> x the mean wheel load.</summary>
+        public static float LoadMuFactor(float loadRatio) =>
+            Mathf.Clamp(1f - TyreLoadSensitivity * (loadRatio - 1f),
+                        1f - 2f * TyreLoadSensitivity, 1f + TyreLoadSensitivity);
+
+        /// <summary>An axle's tyres at rest on a car with this weight share on
+        /// that axle (a wheel carries 2 x share of the mean): 1 on a 50:50
+        /// car. The AI's grip read (AIGrip.NominalMu) takes it.</summary>
+        public static float StaticAxleMuFactor(float axleWeightShare) =>
+            LoadMuFactor(2f * axleWeightShare);
         public const float DefaultRestLength = 0.30f;
         public const float DefaultCgHeight = 0.465f;
         public const float DefaultMaxSteerLowSpeedDeg = 34f;
@@ -2910,6 +2962,15 @@ namespace PSXRacing
                 // dampers.
                 Body.AddForceAtPosition(transform.up * arb, transform.TransformPoint(wheelLocalPos[l]));
                 Body.AddForceAtPosition(-transform.up * arb, transform.TransformPoint(wheelLocalPos[r]));
+                // ...and the bar's reaction goes through the TYRES: the loaded
+                // wheel is pressed down by what lifts the body there. Without
+                // this the bars moved the body and never the grip, so the roll
+                // split could not change the balance (2026-10-07; see
+                // TyreLoadSensitivity). The axle's total is unchanged.
+                if (!ArbFeedsTyreLoads) continue;
+                float shift = arb >= 0f ? Mathf.Min(arb, wheelLoad[r]) : Mathf.Max(arb, -wheelLoad[l]);
+                wheelLoad[l] += shift; wheelLoad[r] -= shift;
+                wheelContacts[l].load = wheelLoad[l]; wheelContacts[r].load = wheelLoad[r];
             }
         }
 
@@ -3099,6 +3160,10 @@ namespace PSXRacing
                 if (!wheelGrounded[i]) continue;
                 if (i < 2) frontAxleLoad += wheelLoad[i]; else rearAxleLoad += wheelLoad[i];
             }
+            // LOAD SENSITIVITY reads each wheel against the mean of the
+            // grounded ones (TyreLoadSensitivity).
+            int groundedAxles = groundedFront + groundedRear;
+            float loadMean = groundedAxles > 0 ? (frontAxleLoad + rearAxleLoad) / groundedAxles : 0f;
 
             for (int i = 0; i < 4; i++)
             {
@@ -3120,10 +3185,13 @@ namespace PSXRacing
                 else { rearSlipSum += slip; rearCount++; }
 
                 float Fz = wheelLoad[i];
+                // The load the tyre can USE: its friction and its cornering
+                // stiffness both scale with it (TyreLoadSensitivity).
+                float FzGrip = loadMean > 1f ? Fz * LoadMuFactor(Fz / loadMean) : Fz;
                 float mu = wheelGrip[i] * gripBonus * faultGripMult *
                            (front ? tireMuFront : tireMuRear) * CamberMu(front);
                 if (!front) mu *= rearMuMult;
-                float circle = mu * Fz;
+                float circle = mu * FzGrip * TyreLoadGain;
                 // FULL circle, not the combined-slip reduced cap: using the
                 // reduced one inflates the wheelspin ratio during a slide and
                 // the yaw injector runs away.
@@ -3333,7 +3401,7 @@ namespace PSXRacing
                 wheelContacts[i].slide = Mathf.Sqrt(latSlide * latSlide + longSlide * longSlide);
                 wheelContacts[i].forward = wheelForward;
 
-                float C = corneringStiffness * Fz;
+                float C = corneringStiffness * FzGrip * (TyreLoadGainOnStiffness ? TyreLoadGain : 1f);
                 float fLat = TireCurve(slip, C);
                 float latCap = Mathf.Sqrt(Mathf.Max(circle * circle - fLong * fLong, 0f));
                 fLat = Mathf.Clamp(fLat, -latCap, latCap);

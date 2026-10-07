@@ -525,13 +525,13 @@ namespace PSXRacing
             const float StageW = 56f, StageH = 50f;
             float stagesW = StageW * 5f + Gap * 4f;
             float textW = ColW - stagesW - 16f;
-            if (spec.IsRaceCar)
+            if (spec.IsBuiltToTune)
             {
-                // Already built: race brakes, suspension and tyres, every
-                // tuning row open, and no ladder or part to sell it. The seat
-                // is the pizza's, and stays.
+                // Already built (race, rally, touring): its spec sheet's
+                // hardware, every tuning row open, and no ladder or part to
+                // sell it. The seat is the pizza's, and stays.
                 MenuKit.Label(content,
-                    Clip(Upgrades.RaceCarBuilt + "   ·   race kit from the factory, every tuning row open",
+                    Clip(Upgrades.AlreadyBuilt(spec) + "   ·   sheet hardware, every tuning row open",
                          LowerFit(ColW)),
                     MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                     MenuKit.Good, ColW, height: 26f, bold: true);
@@ -573,10 +573,10 @@ namespace PSXRacing
             y -= 14f;
 
             // ---- the eight bolt-ons --------------------------------------
-            // None of them on a race car: it refuses all eight (Upgrades.
+            // None of them on a built car: it refuses all eight (Upgrades.
             // CarRefuses), and a grid of eight "CANNOT FIT" cells says less
             // than the line above already did.
-            if (spec.IsRaceCar) { BuildCooling(s, car, ref y); return; }
+            if (spec.IsBuiltToTune) { BuildCooling(s, car, ref y); return; }
             MenuKit.Label(content,
                 Clip("PARTS   ·   an UNLOCKS part only lets your ADVANCED TUNING through",
                      Mathf.FloorToInt(ColW / 11.6f)),
@@ -594,9 +594,12 @@ namespace PSXRacing
                 if (i > 0 && col == 0) y -= CellH + Gap;
 
                 Upgrades.ModText(mod, out string name, out string effect);
-                bool on = Upgrades.HasMod(car, mod);
+                // BOUGHT, not HasMod: a factory LSD opens no slider on a road
+                // car, so the bench must be able to fit the bought plate pack
+                // over it (2026-10-07; CarSetupGate).
+                bool on = Upgrades.Bought(car, mod);
                 string no = on ? null : DebugCarOps.ModRefusal(spec, mod);
-                string fitted = on ? "   [FITTED]" : "";
+                string fitted = on ? "   [FITTED]" : Upgrades.FactoryFitted(car, mod) ? "   [FACTORY]" : "";
                 string caption = Clip(name, CapsFit(cellW - 16f) - fitted.Length) + fitted +
                                  "\n" + DimTag +
                                  (no != null ? Clip("CANNOT FIT — " + no, CapsFit(cellW - 16f))
@@ -606,7 +609,7 @@ namespace PSXRacing
                     new Vector2(cellW, CellH),
                     no != null ? (UnityEngine.Events.UnityAction)null : () =>
                     {
-                        bool now = !Upgrades.HasMod(car, mod);
+                        bool now = !Upgrades.Bought(car, mod);
                         bool hadLsd = car.lsd, hadWeld = car.welded;
                         string refused = DebugCarOps.SetMod(car, spec, mod, now);
                         note = refused != null ? name + " — " + refused
