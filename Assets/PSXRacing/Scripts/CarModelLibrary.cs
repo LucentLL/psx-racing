@@ -202,6 +202,47 @@ namespace PSXRacing
         // scorer would get wrong for a structural reason noted alongside it.
         static readonly (string pattern, string key)[] HandRules =
         {
+            // 2026-10-06, the owner's Car Models Tracker remap (approved "all look good"):
+            // 38 cars moved onto the existing shell closest to the real car. Exact names,
+            // first so they win; review page https://claude.ai/artifact/MvczJsa8sF44Jj2YkECfAw
+            (@"^Alfa\ Romeo\ Giulia\ Sprint\ GTA\ 1600\ `65$", "bmw_e30"),
+            (@"^Chevrolet\ Camaro\ IROC\-Z\ Concept\ `88$", "citroen_cx"),
+            (@"^Chevrolet\ Camaro\ Z28\ Coupe\ `97$", "supra_a80"),
+            (@"^Chevrolet\ Corvette\ Convertible\ \(C1\)\ `54$", "mb_pagoda"),
+            (@"^Chevrolet\ Corvette\ GRAND\ SPORT\ \(C4\)\ `96$", "rx7_fd"),
+            (@"^Chevrolet\ Corvette\ ZR\-1\ \(C4\)\ `90$", "rx7_fd"),
+            (@"^Honda\ 1300\ Coupe\ 9\ S\ `70$", "bmw_e30"),
+            (@"^Honda\ ACCORD\ Coupe\ `88$", "citroen_cx"),
+            (@"^Honda\ CIVIC\ TYPE\ R\ \(EK\)\ `97$", "civic_eg"),
+            (@"^Honda\ CIVIC\ TYPE\ R\ \(EK\)\ `98$", "civic_eg"),
+            (@"^Honda\ CR\-X\ del\ Sol\ SiR\ `92$", "civic_eg"),
+            (@"^Honda\ Gathers\ Drider\ CIVIC\ Race\ Car\ `98$", "civic_eg"),
+            (@"^Honda\ S800\ RSC\ Race\ Car\ `68$", "mb_pagoda"),
+            (@"^Isuzu\ 117\ Coupe\ `68$", "gto_66"),
+            (@"^Isuzu\ Bellett\ 1600\ GT\-R\ `69$", "bmw_e30"),
+            (@"^Isuzu\ PIAZZA\ XE\ `81$", "citroen_cx"),
+            (@"^Jensen\ Interceptor\ MkIII\ `74$", "mustang_67"),
+            (@"^Lancia\ STRATOS\ Rally\ Car\ `77$", "mb_pagoda"),
+            (@"^Mazda\ 110S\ \(L10A\)\ `67$", "mb_pagoda"),
+            (@"^Mazda\ 110S\ \(L10B\)\ `68$", "mb_pagoda"),
+            (@"^Mitsubishi\ GALANT\ GTO\ MR\ `70$", "mustang_67"),
+            (@"^Mitsubishi\ Lancer\ 1600\ GSR\ Rally\ Car\ `74$", "bmw_e30"),
+            (@"^Mitsubishi\ Lancer\ 1600\ GSR\ `73$", "bmw_e30"),
+            (@"^Mitsubishi\ Lancer\ EX\ 1800GSR\ IC\ Turbo\ `83$", "audi_saloon"),
+            (@"^Nissan\ 240RS\ Rally\ Car\ `85$", "citroen_cx"),
+            (@"^Nissan\ 240ZG\ \(HS30\)\ `71$", "mustang_67"),
+            (@"^Nissan\ BLUEBIRD\ Rally\ Car\ \(510\)\ `69$", "bmw_e30"),
+            (@"^Nissan\ Fairlady\ Z\ 280Z\-L\ 2seater\ \(S130\)\ `78$", "mustang_67"),
+            (@"^Nissan\ SILVIA\ 240RS\ \(S100\)\ `83$", "citroen_cx"),
+            (@"^Nissan\ SILVIA\ K's\ \(S13\)\ `88$", "nissan_180sx"),
+            (@"^Nissan\ SILVIA\ K's\ \(S13\)\ `91$", "nissan_180sx"),
+            (@"^Nissan\ SILVIA\ Q's\ \(S13\)\ `88$", "nissan_180sx"),
+            (@"^Nissan\ SILVIA\ Q's\ \(S13\)\ `91$", "nissan_180sx"),
+            (@"^SILEIGHTY\ `98$", "nissan_180sx"),
+            (@"^TVR\ Griffith\ 500\ `94$", "mb_pagoda"),
+            (@"^Toyota\ 2000GT\ `67$", "mb_pagoda"),
+            (@"^Toyota\ CELICA\ 1600GT\ \(TA22\)\ `70$", "gto_66"),
+            (@"^Toyota\ MR2\ Spyder\ `99$", "mb_pagoda"),
             // Wagons before anything else: a Legacy Touring Wagon is an estate
             // before it is a turbo saloon, and a Stagea is a Skyline that grew a
             // tailgate. The Volvo IS the catalog's estate.
