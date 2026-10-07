@@ -370,7 +370,7 @@ namespace PSXRacing.LifeSim
                     string no = Upgrades.TurboKitRefuses(s, car, spec);
                     if (no != null)
                     {
-                        q.blockedReason = spec.IsSupercharged || spec.IsRaceCar ? no
+                        q.blockedReason = spec.IsSupercharged || spec.IsBuiltToTune ? no
                                         : "turbo hardware — this engine is an NA build";
                         return q;
                     }

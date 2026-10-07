@@ -50,6 +50,18 @@ namespace PSXRacing
         /// rally coilover (a Min..Max range on a car that is not a road car;
         /// tools/bake_spec_handling.py). See <see cref="IsBuiltToTune"/>.</summary>
         public int raceSusp;
+        /// <summary>On a raceSusp car only (0 elsewhere): the sheet's Stock
+        /// Springs Min..Max F / R, kgf/mm, and Stock Height Min..Max, mm (mean
+        /// of F and R). The adjustable coilover's own range - the spring and
+        /// ride-height sliders are fenced to it (CarSetupRanges), so a built
+        /// car is never set up past its own hardware.</summary>
+        public float springMinF, springMaxF, springMinR, springMaxR;
+        public int rideMinMm, rideMaxMm;
+        /// <summary>The sheet gives this car's adjustable springs a range.</summary>
+        public bool HasSheetSpringRange => IsBuiltToTune && springMaxF > 0f && springMaxR > 0f;
+        /// <summary>The sheet gives this car's adjustable ride height a range.</summary>
+        public bool HasSheetRideRange => IsBuiltToTune && rideMaxMm > rideMinMm && rideMinMm > 0 &&
+                                         rideFMm > 0 && rideRMm > 0;
 
         /// <summary>The car left the factory with a limited-slip diff on its
         /// driven axle (the sheet's LSD columns). It is FITTED and works at
@@ -259,8 +271,8 @@ namespace PSXRacing
         /// <summary>
         /// The top speed of this car AS BUILT, m/s: the stock figure
         /// (<see cref="topSpeedMps"/>, baked from GT4's spec fields) times the
-        /// power build's percentage (<see cref="CarTune.TopSpeedMult"/>). A race
-        /// car is already built and takes nothing — see
+        /// power build's percentage (<see cref="CarTune.TopSpeedMult"/>). A built
+        /// car (<see cref="IsBuiltToTune"/>) takes nothing — see
         /// <see cref="CarTune.BoughtOf"/>.
         /// </summary>
         public float BuildTopSpeedMps(int powerStage, bool blower) =>
@@ -271,7 +283,7 @@ namespace PSXRacing
         public float BuildTopSpeedMps(int powerStage, bool blower, bool turboKit)
         {
             float stock = topSpeedMps > 1f ? topSpeedMps : 60f;
-            return IsRaceCar ? stock
+            return IsBuiltToTune ? stock
                 : stock * CarTune.TopSpeedMult(powerStage, blower && !turboKit, PathShare(turboKit));
         }
 
@@ -279,8 +291,9 @@ namespace PSXRacing
 
         public bool IsNaturallyAspirated => !IsForcedInduction;
         /// <summary>May take a turbo kit: an NA road car. A factory turbo is
-        /// already on the turbo path; a factory blower and a race car stay put.</summary>
-        public bool CanFitTurboKit => IsNaturallyAspirated && !IsRaceCar;
+        /// already on the turbo path; a factory blower and a built car
+        /// (<see cref="IsBuiltToTune"/>) stay put.</summary>
+        public bool CanFitTurboKit => IsNaturallyAspirated && !IsBuiltToTune;
         /// <summary>Whether this car's power ladder is the TURBO one.</summary>
         public bool OnTurboPath(bool turboKit) => IsTurbo || (turboKit && CanFitTurboKit);
 
@@ -377,8 +390,10 @@ namespace PSXRacing
         /// a rally car, or any car whose sheet gives it an adjustable race
         /// suspension (the touring cars, the JGTC GT-R, the 155 TI, the Escudo
         /// dirt car): every setup row its factory hardware supports is open
-        /// without buying a part. Every other car's factory part works at its
-        /// factory settings and opens nothing (CarSetupGate).
+        /// without buying a part, and NO shop part is sold for it - not a stage,
+        /// not a weld, not a blower or a turbo kit: it drives on its sheet
+        /// hardware (CarTune.BoughtOf). Every other car's factory part works at
+        /// its factory settings and opens nothing (CarSetupGate).
         /// </summary>
         public bool IsBuiltToTune => IsRaceCar || IsRallyCar || raceSusp > 0;
 

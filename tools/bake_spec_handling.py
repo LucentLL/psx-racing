@@ -12,6 +12,10 @@ handling columns the game used to ignore:
   revLimit           Engine "Rev Limiter", rpm (never below the redline)
   lsdInit/Accel/Decel  the factory LSD on the DRIVEN axle (0 = open diff)
   raceSusp           1 = a race / rally car's adjustable stock suspension
+  springMinF..MaxR   on a raceSusp car only: the sheet's Stock Springs Min..Max
+                     F / R, kgf/mm - the spring slider's fence (CarSetupRanges)
+  rideMinMm/MaxMm    on a raceSusp car only: Stock Height Min..Max, mm (mean of
+                     F and R) - the ride-height slider's fence
   peakTorqueNm       re-solved on the PS basis: the sheet's "Peak Power (ps)"
                      is METRIC horsepower, 735.5 W, not 745.7 W
 
@@ -65,6 +69,9 @@ PS_W = 735.49875     # one metric horsepower, W
 FIELDS_I = ("wdFront", "rideFMm", "rideRMm", "gripF", "gripR", "revLimit", "lsdInit", "lsdAccel", "lsdDecel",
             "raceSusp")
 FIELDS_F = ("springF", "springR")
+# Written only on a raceSusp car (the adjustable stock coilover's range).
+FIELDS_RANGE_F = ("springMinF", "springMaxF", "springMinR", "springMaxR")
+FIELDS_RANGE_I = ("rideMinMm", "rideMaxMm")
 ANCHOR = "tyreRWidthMm"
 
 
@@ -181,6 +188,12 @@ def handling(car, sheet):
         # is BUILT TO BE TUNED (CarSpec.IsBuiltToTune).
         "raceSusp": 1 if (RANGED and RANGED[-1][0] == car["name"] and RANGED[-1][4]) else 0,
     }
+    if out["raceSusp"]:
+        lo, hi = pair(sus.get("Stock Springs Min")), pair(sus.get("Stock Springs Max"))
+        hlo, hhi = pair(sus.get("Stock Height Min")), pair(sus.get("Stock Height Max"))
+        out.update({"springMinF": lo[0], "springMaxF": hi[0], "springMinR": lo[1], "springMaxR": hi[1],
+                    "rideMinMm": int(round((hlo[0] + hlo[1]) / 2.0)) if hlo else 0,
+                    "rideMaxMm": int(round((hhi[0] + hhi[1]) / 2.0)) if hhi else 0})
     # Torque on the PS basis: scale the stored peak so the curve's peak power
     # is hp x 735.5 W (CarSpec.Decode then removes the last half-Nm of
     # rounding). Idempotent: a second run lands on the same int.
@@ -211,7 +224,8 @@ def main():
         if 0 < rev < car["redline"]:
             low_lim.append((car["name"], car["redline"], rev))
         baked[cid] = h
-        block = re.sub(r'\s*"(' + "|".join(FIELDS_I + FIELDS_F) + r')": -?[\d.]+,', "", block)
+        block = re.sub(r'\s*"(' + "|".join(FIELDS_I + FIELDS_F + FIELDS_RANGE_F + FIELDS_RANGE_I) + r')": -?[\d.]+,',
+                       "", block)
         block, k = re.subn(r'"peakTorqueNm": \d+', '"peakTorqueNm": %d' % h["peakTorqueNm"], block, count=1)
         km = re.search(r'("' + ANCHOR + r'": -?\d+,)(\s*)', block)
         if not km or k != 1:
@@ -219,6 +233,8 @@ def main():
         items = ['"%s": %d,' % (f, h[f]) for f in FIELDS_I[:1]] + \
                 ['"%s": %s,' % (f, repr(float(h[f]))) for f in FIELDS_F] + \
                 ['"%s": %d,' % (f, h[f]) for f in FIELDS_I[1:]]
+        if h["raceSusp"]:
+            items += ['"%s": %s,' % (f, repr(float(h[f]))) for f in FIELDS_RANGE_F] +                      ['"%s": %d,' % (f, h[f]) for f in FIELDS_RANGE_I]
         ins = km.group(1) + km.group(2) + km.group(2).join(items) + km.group(2)
         block = block[:km.start()] + ins + block[km.end():]
         out.append(text[pos:start])

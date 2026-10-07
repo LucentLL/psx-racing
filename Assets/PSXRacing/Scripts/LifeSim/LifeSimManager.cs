@@ -82,6 +82,7 @@ namespace PSXRacing.LifeSim
                 // version (the catalog did not move — nothing was removed or
                 // reordered) but a question asked of THIS build on every load.
                 EditionSanitize(s);
+                StripBuiltCars(s);
                 return s;
             }
             catch { return null; }   // corrupt save: fall through to new game
@@ -183,6 +184,36 @@ namespace PSXRacing.LifeSim
         /// JsonUtility leaves them at their initializer defaults — so this only
         /// handles cases where an old value would be WRONG rather than absent.
         /// </summary>
+        /// <summary>
+        /// A BUILT car (CarSpec.IsBuiltToTune: race, rally, touring) takes no
+        /// shop part (2026-10-07, the owner: race and rally cars "can't receive
+        /// different parts"). Race cars were stripped at v16; a rally or
+        /// touring car could still buy stages, the weld, the blower and a
+        /// turbo kit until this build. Every load rather than a save version,
+        /// like EditionSanitize: idempotent, a stripped car refunds nothing.
+        /// Returns the money handed back. Public for the self-test.
+        /// </summary>
+        public static int StripBuiltCars(LifeState s)
+        {
+            if (s == null || s.cars == null) return 0;
+            int refunded = 0, cars = 0;
+            foreach (var car in s.cars)
+            {
+                var spec = car != null ? CarCatalog.Get(car.specId) : null;
+                if (spec == null || !spec.IsBuiltToTune) continue;
+                bool had = car.turbo;
+                int back = Upgrades.StripRaceCar(s, car, spec);
+                if (back <= 0 && !had) continue;
+                refunded += back;
+                cars++;
+            }
+            if (cars > 0 && s.calendarLog != null)
+                s.calendarLog.Add(LifeRules.LogDate(s.day) +
+                    ": race and rally cars come built — the parts on " + cars +
+                    (cars == 1 ? " car" : " cars") + " went back (" + MenuKit.Money(refunded) + ")");
+            return refunded;
+        }
+
         /// <summary>Bring an older save forward. PUBLIC rather than private
         /// because the self-test lives in the editor assembly, which cannot
         /// see internals of this one - and the v7 rule is the only thing

@@ -179,38 +179,34 @@ namespace PSXRacing
             return SuperchargerPeak - (SuperchargerPeak - SuperchargerTop) * taper;
         }
 
-        // ---- race cars ---------------------------------------------------------
+        // ---- cars that come built ---------------------------------------------
         //
-        // The owner, 2026-09-21: "Race cars are assumed to already be maxed out
-        // by default so they don't get upgrades, but they should also be close
-        // to the upper limit of speed, handling, etc." A race car's GT4 power
-        // and weight are already race figures, so those ladders stay at its own
-        // stock. What a road car has to BUY - race brakes, coilovers, a track
-        // compound - a race car arrives with.
+        // The owner, 2026-09-21: race cars "are assumed to already be maxed out
+        // by default so they don't get upgrades". 2026-10-07: "Factory parts are
+        // not tuneable (exception is race cars and rally cars since they're
+        // built to be customized and can't receive different parts)", and
+        // "I want everything to spec". So EVERY car built to be tuned
+        // (CarSpec.IsBuiltToTune: race, rally, touring, the raceSusp group)
+        // takes no shop part, and drives on its SHEET hardware: the sheet's
+        // grip modifiers, springs, weight and power ARE its race figures. It
+        // used to arrive with stage-4 brakes, suspension and tyres on top
+        // (x1.45 brakes, x1.25 cornering stiffness, x1.20 grip) - a road car's
+        // upgrade ladder stacked over a sheet that already describes slicks.
 
         /// <summary>
-        /// The stages the car's HANDLING is built from: a race car's own race
-        /// hardware, whatever the save says is bolted to it; anybody else's
-        /// ladders as bought. Power and weight are zero on a race car because
-        /// its stock figures ARE the race figures.
-        ///
-        /// Handling only, and on purpose: the suspension stage also LOWERS a
-        /// road car (<see cref="RestLengthAtStage"/>), and a race car's factory
-        /// ride height is already its race ride height. So callers pass THIS to
-        /// the brake / grip / stiffness curves and the car's own (zero) stages
-        /// to the ride height.
+        /// The stages the car's HANDLING is built from: the ladders as bought,
+        /// or nothing at all on a built car (its sheet is its hardware). The
+        /// same thing as <see cref="BoughtOf"/> now that a built car carries
+        /// no race kit; kept as the name the handling callers read.
         /// </summary>
-        public static Stages HandlingOf(bool raceCar, Stages tune) => raceCar
-            ? new Stages { power = 0, weight = 0, brakes = MaxStage, suspension = MaxStage,
-                           tires = MaxStage, seat = tune.seat }
-            : tune;
+        public static Stages HandlingOf(bool builtCar, Stages tune) => BoughtOf(builtCar, tune);
 
-        /// <summary>What a race car's save stages COUNT as: none. The one rule
-        /// both sides of the fence apply before anything else, so a race car
-        /// carried over from a save that let it buy stages races as the race
-        /// car it is.</summary>
-        public static Stages BoughtOf(bool raceCar, Stages tune) =>
-            raceCar ? new Stages { seat = tune.seat } : tune;
+        /// <summary>What a built car's save stages COUNT as: none (the seat is
+        /// the pizza's). The one rule both sides of the fence apply before
+        /// anything else, so a car carried over from a save that let it buy
+        /// stages races on its sheet. Pass CarSpec.IsBuiltToTune.</summary>
+        public static Stages BoughtOf(bool builtCar, Stages tune) =>
+            builtCar ? new Stages { seat = tune.seat } : tune;
 
         // ---- what a suspension stage does that you cannot adjust -----------
         //

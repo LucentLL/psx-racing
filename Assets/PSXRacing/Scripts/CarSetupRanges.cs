@@ -48,6 +48,11 @@ namespace PSXRacing
         /// FACTORY values, so a car that left the factory with a plate pack
         /// starts its sliders there. All 0 on an open diff.</summary>
         public float factoryDiffAccel, factoryDiffDecel, factoryDiffPreloadN;
+        /// <summary>A BUILT car's own hardware range (CarSpec.HasSheetSpringRange
+        /// / HasSheetRideRange): springs N/m, rest length m. All 0 = no fence,
+        /// the generic span around the default.</summary>
+        public float springMinFront, springMaxFront, springMinRear, springMaxRear;
+        public float restLengthMin, restLengthMax;
 
         public int GearCount => gearRatios != null ? gearRatios.Length : 0;
 
@@ -105,7 +110,34 @@ namespace PSXRacing
             b.factoryDiffAccel = c.factoryDiffAccel;
             b.factoryDiffDecel = c.factoryDiffDecel;
             b.factoryDiffPreloadN = c.FactoryDiffPreloadN;
+            SheetFences(ref b, c.activeSpec);
             return b;
+        }
+
+        /// <summary>
+        /// A built car's slider fences off its sheet (2026-10-07): the spring
+        /// rows span the adjustable coilover's Stock Springs Min..Max, and the
+        /// ride height its Stock Height Min..Max, measured from the stock
+        /// height the car sits at by default (the range's centre). Both sides
+        /// of the fence call this on the same spec, so the garage and the
+        /// race agree.
+        /// </summary>
+        internal static void SheetFences(ref CarSetupBasis b, CarSpec spec)
+        {
+            if (spec == null) return;
+            if (spec.HasSheetSpringRange)
+            {
+                b.springMinFront = spec.springMinF * CarController.KgfPerMm;
+                b.springMaxFront = spec.springMaxF * CarController.KgfPerMm;
+                b.springMinRear = spec.springMinR * CarController.KgfPerMm;
+                b.springMaxRear = spec.springMaxR * CarController.KgfPerMm;
+            }
+            if (spec.HasSheetRideRange)
+            {
+                float stockMm = 0.5f * (spec.rideFMm + spec.rideRMm);
+                b.restLengthMin = b.restLength + (spec.rideMinMm - stockMm) * 0.001f;
+                b.restLengthMax = b.restLength + (spec.rideMaxMm - stockMm) * 0.001f;
+            }
         }
 
         /// <summary>Tractive effort in first, N. Internal because
@@ -126,15 +158,15 @@ namespace PSXRacing
             var b = new CarSetupBasis();
             if (spec == null) return b;
             spec.Decode();
-            // ApplySpec's first line, on this side too: a race car's bought
+            // ApplySpec's first line, on this side too: a built car's bought
             // stages count for nothing, and it carries no blower and no weld.
-            tune = CarTune.BoughtOf(spec.IsRaceCar, tune);
-            if (spec.IsRaceCar) { welded = false; supercharged = false; turboKit = false; }
+            tune = CarTune.BoughtOf(spec.IsBuiltToTune, tune);
+            if (spec.IsBuiltToTune) { welded = false; supercharged = false; turboKit = false; }
             // ApplySpec's path rule, mirrored: only an NA road car takes a
             // turbo kit, and a kit replaces the blower.
             if (!spec.CanFitTurboKit) turboKit = false;
             if (turboKit) supercharged = false;
-            var hw = CarTune.HandlingOf(spec.IsRaceCar, tune);
+            var hw = CarTune.HandlingOf(spec.IsBuiltToTune, tune);
 
             // The shell decides the wheel radius (CarBody.ApplySpec writes it),
             // and the shell is picked by the same resolver the race scene uses.
@@ -187,7 +219,7 @@ namespace PSXRacing
             b.finalDrive = CarController.DefaultFinalDrive;
 
             // Same two ApplyTuneHandling lines, on the same CarTune curves —
-            // off the HANDLING stages, which on a race car are its race kit.
+            // off the HANDLING stages (none on a built car: its sheet).
             b.brakeDemandG = CarTune.BrakeDemandG(CarController.DefaultBrakeDemandG, hw);
             b.rawCorneringStiffness =
                 CarController.DefaultCorneringStiffness * CarTune.SuspStageMult(hw.suspension);
@@ -205,6 +237,7 @@ namespace PSXRacing
             b.factoryDiffAccel = CarController.FactoryDiffAccelOf(spec);
             b.factoryDiffDecel = CarController.FactoryDiffDecelOf(spec);
             b.factoryDiffPreloadN = CarController.FactoryDiffPreloadOf(spec, b.wheelRadius);
+            SheetFences(ref b, spec);
 
             float scale = spec.hp > 0
                 ? spec.HpAtStage(tune.power, turboKit) / (float)spec.hp : 1f;
@@ -300,12 +333,20 @@ namespace PSXRacing
                     return R(-0.30f, 0f, 0.30f, 1f, 2, "deg");
 
                 // ---- springs and dampers ----
+                // A built car's springs are its own adjustable coilover: the
+                // sheet's Stock Springs Min..Max, never past it (SheetFences).
                 case SetupParam.SpringFront:
-                    return R(b.springRateFront * 0.70f, b.springRateFront,
-                             b.springRateFront * 1.45f, 0.001f, 1, "N/mm");
+                    return b.springMaxFront > 0f
+                        ? R(Mathf.Min(b.springMinFront, b.springRateFront), b.springRateFront,
+                            Mathf.Max(b.springMaxFront, b.springRateFront), 0.001f, 1, "N/mm")
+                        : R(b.springRateFront * 0.70f, b.springRateFront,
+                            b.springRateFront * 1.45f, 0.001f, 1, "N/mm");
                 case SetupParam.SpringRear:
-                    return R(b.springRateRear * 0.70f, b.springRateRear,
-                             b.springRateRear * 1.45f, 0.001f, 1, "N/mm");
+                    return b.springMaxRear > 0f
+                        ? R(Mathf.Min(b.springMinRear, b.springRateRear), b.springRateRear,
+                            Mathf.Max(b.springMaxRear, b.springRateRear), 0.001f, 1, "N/mm")
+                        : R(b.springRateRear * 0.70f, b.springRateRear,
+                            b.springRateRear * 1.45f, 0.001f, 1, "N/mm");
                 case SetupParam.DamperFront:
                     return R(b.damperFront * 0.65f, b.damperFront,
                              b.damperFront * 1.55f, 0.001f, 2, "Ns/mm");
@@ -323,7 +364,12 @@ namespace PSXRacing
                     // Floored so the spring can still carry the car statically:
                     // at the stiffest legal setting the FD sits 46 mm into its
                     // travel and at the softest 95, and 200 mm clears both.
+                    // A built car: its sheet's Stock Height Min..Max around the
+                    // stock height it sits at (SheetFences), still floored.
                     float def = b.restLength;
+                    if (b.restLengthMax > 0f)
+                        return R(Mathf.Min(Mathf.Max(0.20f, b.restLengthMin), def), def,
+                                 Mathf.Max(b.restLengthMax, def), 1000f, 0, "mm");
                     return R(Mathf.Max(0.20f, def - 0.08f), def, def + 0.02f, 1000f, 0, "mm");
                 }
 

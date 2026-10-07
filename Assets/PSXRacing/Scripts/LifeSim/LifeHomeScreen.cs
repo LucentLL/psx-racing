@@ -3380,7 +3380,7 @@ namespace PSXRacing.LifeSim
             SpecRow("REDLINE", spec.redline.ToString("N0") + " rpm", ref y);
             SpecRow("GEARS", spec.gears.ToString(), ref y);
             SpecRow("YEAR", spec.modelYear.ToString(), ref y);
-            SpecRow("BUILD CEILING", spec.IsRaceCar ? "race car — already built"
+            SpecRow("BUILD CEILING", spec.IsBuiltToTune ? Upgrades.AlreadyBuilt(spec).ToLowerInvariant()
                 : !spec.CanFitTurboKit ? CarSpec.ToHp(spec.builtHp) + " hp at stage 4"
                 : CarSpec.ToHp(spec.CeilingHp(false)) + " hp NA  ·  " + CarSpec.ToHp(spec.CeilingHp(true)) + " hp turbo", ref y);
 
@@ -4029,7 +4029,7 @@ namespace PSXRacing.LifeSim
             MenuKit.Label(body, "Top speed " + (builtTop == stockTop
                     ? stockTop + SpeedUnits.Suffix
                     : stockTop + " -> " + builtTop + SpeedUnits.Suffix + " (+" + topPct + "%)") +
-                (spec.IsRaceCar ? "   ·   race car"
+                (spec.IsBuiltToTune ? "   ·   " + Upgrades.AlreadyBuilt(spec).ToLowerInvariant()
                                 : "   ·   engine ceiling " + CarSpec.ToHp(spec.CeilingHp(car.turbo)) + " hp at stage 4" +
                                   (spec.OnTurboPath(car.turbo) ? " (turbo)" : spec.CanFitTurboKit ? " (NA)" : "")) +
                 "   ·   mech skill " + Mathf.RoundToInt(S.mechSkill), 14,
@@ -4037,17 +4037,17 @@ namespace PSXRacing.LifeSim
                 MenuKit.Dim, 820f);
             y -= 36f;
 
-            if (spec.IsRaceCar)
+            if (spec.IsBuiltToTune)
             {
-                // A race car is already built (the owner: "maxed out by
-                // default"). Say what it came with, instead of five ladders of
-                // FULLY BUILT and eight parts refusing to be sold; the seat is
-                // the one thing left, because it is the pizza's, not the car's.
-                MenuKit.Label(body, Upgrades.RaceCarBuilt, 17, new Vector2(0.5f, 1f),
+                // A BUILT car (race, rally, touring - CarSpec.IsBuiltToTune)
+                // takes no parts and drives on its spec sheet. Say so, instead
+                // of five ladders and eight parts refusing to be sold; the seat
+                // is the one thing left, because it is the pizza's, not the car's.
+                MenuKit.Label(body, Upgrades.AlreadyBuilt(spec), 17, new Vector2(0.5f, 1f),
                     new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Good, 820f, bold: true);
                 y -= 28f;
-                MenuKit.Para(body, "Race brakes, suspension and tyres from the factory, and every " +
-                    "tuning row is open. There is nothing to buy for it but a seat.", 14,
+                MenuKit.Para(body, "It runs the hardware on its spec sheet, and every tuning row " +
+                    "is open. There is nothing to buy for it but a seat.", 14,
                     new Vector2(0.5f, 1f), new Vector2(ColL, y - 8f), out float rcH, TextAnchor.UpperLeft,
                     MenuKit.Dim, ColW);
                 y -= rcH + 16f;
@@ -4460,7 +4460,7 @@ namespace PSXRacing.LifeSim
             for (int i = 1; i <= Upgrades.MaxStage; i++) pips += i <= stage ? "#" : "-";
 
             string rowName = Upgrades.KindLabels[(int)kind];
-            if (kind == Upgrades.Kind.Power && !spec.IsRaceCar)
+            if (kind == Upgrades.Kind.Power && !spec.IsBuiltToTune)
                 rowName += spec.OnTurboPath(car.turbo) ? " · TURBO" : spec.CanFitTurboKit ? " · NA" : "";
             MenuKit.Label(body, rowName + "  [" + pips + "]  " +
                 Upgrades.StageName(car, spec, kind, stage), 17, new Vector2(0.5f, 1f),
@@ -5613,7 +5613,7 @@ namespace PSXRacing.LifeSim
                                                                             : "naturally aspirated";
                 string engine = string.IsNullOrEmpty(spec.eType) ? "engine" : spec.eType;
                 MenuKit.Label(body, engine + (spec.dispCc > 0 ? "  ·  " + spec.dispCc + "cc" : "") +
-                        "  ·  " + boost + (spec.IsRaceCar ? "  ·  race car, already built"
+                        "  ·  " + boost + (spec.IsBuiltToTune ? "  ·  " + Upgrades.AlreadyBuilt(spec).ToLowerInvariant()
                                                            : "  ·  builds to " + CarSpec.ToHp(spec.builtHp) + " hp"),
                     15, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                     MenuKit.Dim, 820f);

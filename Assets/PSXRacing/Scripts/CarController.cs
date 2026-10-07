@@ -1093,15 +1093,15 @@ namespace PSXRacing
         public void ApplySpec(CarSpec spec, CarTune.Stages tune)
         {
             if (spec == null) return;
-            // A RACE CAR IS ALREADY BUILT. Whatever the request says was bought
-            // for it counts for nothing — only a save from before the shop
-            // refused race cars can say anything at all — and it arrives with
-            // race hardware instead (ApplyTuneHandling). First, so every line
-            // below sees the car it is building. See CarTune.BoughtOf.
-            tune = CarTune.BoughtOf(spec.IsRaceCar, tune);
+            // A BUILT CAR (race, rally, touring - CarSpec.IsBuiltToTune) TAKES
+            // NO PARTS. Whatever the request says was bought for it counts for
+            // nothing - only a save from before the shop refused it can say
+            // anything at all - and it drives on its SHEET hardware. First, so
+            // every line below sees the car it is building. See CarTune.BoughtOf.
+            tune = CarTune.BoughtOf(spec.IsBuiltToTune, tune);
             // (The weld's backing field, not the property: the property re-runs
             // the setup, and this method runs it once, at the end.)
-            if (spec.IsRaceCar) { supercharged = false; weldedDiffFitted = false; turboKit = false; }
+            if (spec.IsBuiltToTune) { supercharged = false; weldedDiffFitted = false; turboKit = false; }
             // One path: a turbo kit replaces the blower, and only an NA road
             // car takes one.
             if (!spec.CanFitTurboKit) turboKit = false;
@@ -1213,11 +1213,9 @@ namespace PSXRacing
                 tuneBaselineCaptured = true;
             }
 
-            // What the handling is built FROM: the ladders as bought, or a race
-            // car's own race hardware. Not activeTune itself, because the ride
-            // height reads that and a race car keeps its own — see
-            // CarTune.HandlingOf.
-            var hw = CarTune.HandlingOf(activeSpec != null && activeSpec.IsRaceCar, activeTune);
+            // What the handling is built FROM: the ladders as bought, or - on a
+            // built car - nothing, its sheet is its hardware. See CarTune.HandlingOf.
+            var hw = CarTune.HandlingOf(activeSpec != null && activeSpec.IsBuiltToTune, activeTune);
             brakeDemandG = CarTune.BrakeDemandG(stockBrakeDemandG, hw);
             gripBonus = stockGripBonus * CarTune.GripStageMult(hw.tires);
 
@@ -1360,6 +1358,8 @@ namespace PSXRacing
                 b.damperFront = damperFront; b.damperRear = damperRear;
                 b.antiRollFront = antiRollFront; b.antiRollRear = antiRollRear;
                 b.restLength = restLength; b.cgHeight = cgHeight;
+                // The ride fence hangs off the SNAPSHOT height, not the live one.
+                CarSetupBasis.SheetFences(ref b, c.activeSpec);
                 b.frontDriveShare = frontDriveShare;
                 b.downforceWeightFractionAtVmax = downforceWeightFractionAtVmax;
                 b.downforceBalanceFront = downforceBalanceFront;
@@ -1842,6 +1842,9 @@ namespace PSXRacing
         /// <summary>Calibration switch (HandlingPlayCheck "lgc"): the gain on the
         /// cornering stiffness as well as the circle.</summary>
         public static bool TyreLoadGainOnStiffness = false;
+        /// <summary>Calibration switch (HandlingPlayCheck "nobar"): false puts
+        /// the anti-roll bars back to pushing the body only, not the tyre loads.</summary>
+        public static bool ArbFeedsTyreLoads = true;
 
         /// <summary>The share of its load a tyre can use at
         /// <paramref name="loadRatio"/> x the mean wheel load.</summary>
@@ -2961,6 +2964,7 @@ namespace PSXRacing
                 // this the bars moved the body and never the grip, so the roll
                 // split could not change the balance (2026-10-07; see
                 // TyreLoadSensitivity). The axle's total is unchanged.
+                if (!ArbFeedsTyreLoads) continue;
                 float shift = arb >= 0f ? Mathf.Min(arb, wheelLoad[r]) : Mathf.Max(arb, -wheelLoad[l]);
                 wheelLoad[l] += shift; wheelLoad[r] -= shift;
                 wheelContacts[l].load = wheelLoad[l]; wheelContacts[r].load = wheelLoad[r];
