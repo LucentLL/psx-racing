@@ -335,6 +335,9 @@ namespace PSXRacing.EditorTools
             float seconds = 150f;
             float.TryParse(System.Environment.GetEnvironmentVariable("PSX_RACE_SECONDS") ?? "150", out seconds);
             t0 = Time.time;
+            // How hard the AI drives, against what its car can do (AI at the limit).
+            aiStats = new AIRaceStats();
+            aiStats.Begin(rm, car, this);
             var retiredAt = new Dictionary<CarController, float>();
             // PSX_RACE_FINISH=1 (race-play-check.ps1 -Finish): the run is the
             // whole race - it goes on past the player's flag until every rival
@@ -495,6 +498,7 @@ namespace PSXRacing.EditorTools
             }
             RacePlayCheck.Note($"FRAMES (WP-09; city streaming {(PSXRacing.City.CityWorld.SliceBuilds ? "SLICED" : "ONE TILE A FRAME")}): {framesN} frames, " +
                                $"over 33 ms {frames33}, over 50 ms {frames50}, over 100 ms {frames100}, worst {worstFrameMs:0} ms");
+            aiStats.Report(finishedAt, retiredAt);
             ReportTraffic(retiredAt, finishedAt, raced);
             if (deckVenue.IsDeckRun)
             {
@@ -827,8 +831,11 @@ namespace PSXRacing.EditorTools
         /// centreline), km/h, and the AI's line + give-way and limit.</summary>
         readonly Dictionary<string, Queue<string>> trail = new Dictionary<string, Queue<string>>();
 
+        AIRaceStats aiStats;
+
         void FixedUpdate()
         {
+            aiStats?.Tick();
             if (rm == null || rm.path == null || t0 <= 0f) return;
             if (Time.fixedTime - lastPassSample >= 0.1f) SamplePasses();
             if (Time.fixedTime - lastTrail < 0.25f) return;

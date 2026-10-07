@@ -211,6 +211,12 @@ namespace PSXRacing
         /// <summary>...and which stream each is in: +1 with the race, -1 the
         /// oncoming one - a car queued in the other lane is still in it.</summary>
         public readonly List<int> ObstacleDir = new List<int>();
+        /// <summary>...and where each is ALONG the road (metres, the path's
+        /// own measure: waypoint index x spacing). The racers' oncoming guard
+        /// measures up the road with it: in a straight line a car on the leg
+        /// below a switchback is "ahead", and a whole field held its lane
+        /// behind a slow car for it (AI at the limit, 2026-10-07).</summary>
+        public readonly List<float> ObstacleS = new List<float>();
 
         /// <summary>
         /// HOW A DRIVER TAKES A RACER COMING (owner, 2026-09-26: "traffic
@@ -461,7 +467,7 @@ namespace PSXRacing
             if (rm == null || rm.playerCar == null) return;
 
             // A replay is posing the pool from its recording: nothing drives.
-            if (replaying || RaceReplay.Playing) { Obstacles.Clear(); ObstacleHalfW.Clear(); ObstacleDir.Clear(); return; }
+            if (replaying || RaceReplay.Playing) { Obstacles.Clear(); ObstacleHalfW.Clear(); ObstacleDir.Clear(); ObstacleS.Clear(); return; }
 
             // Nothing moves on the road until the race is on: a car arriving
             // at a grid of four stationary racers would be a pile-up the
@@ -482,7 +488,8 @@ namespace PSXRacing
             Obstacles.Clear();
             ObstacleHalfW.Clear();
             ObstacleDir.Clear();
-            foreach (var c in live) { Obstacles.Add(c.rb); ObstacleHalfW.Add(c.halfW); ObstacleDir.Add(c.dir); }
+            ObstacleS.Clear();
+            foreach (var c in live) { Obstacles.Add(c.rb); ObstacleHalfW.Add(c.halfW); ObstacleDir.Add(c.dir); ObstacleS.Add(c.s); }
         }
 
         void MeasureField()

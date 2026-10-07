@@ -73,6 +73,20 @@ namespace PSXRacing
         float SteerToLine(float speed)
         {
             float lookDist = 7f + speed * 0.45f;
+            // NOT PAST A HAIRPIN'S OWN RADIUS: a point further round a tight
+            // bend than its radius is across its inside, and chasing it cut
+            // the corner from the turn-in - on Chimney Rock's downhill hairpin
+            // the racers were 1-1.5 m inside their lane at the entry, on a 4.5 m
+            // radius their lock could not hold, and ploughed across the road.
+            // On a two-way road only: a free line (a circuit, a city route, a
+            // deck) straightens a tight corner, and a nearer point dragged
+            // the deck racers onto the inside kerb of its tightest turn.
+            var tsLook = TrafficSystem.Instance;
+            if (tsLook != null && tsLook.TwoWay && path.curvatures != null && path.curvatures.Length == path.Count)
+            {
+                float kNear = path.MaxCurvatureAhead(nearestIdx, Mathf.CeilToInt(lookDist / path.spacing) + 1);
+                if (kNear > 1e-4f) lookDist = Mathf.Min(lookDist, Mathf.Max(LookMinM, LookPerRadius / kNear));
+            }
             int lookIdx = nearestIdx + Mathf.Max(2, Mathf.RoundToInt(lookDist / path.spacing));
             Vector3 target = path.GetPoint(lookIdx);
             Vector3 right = Vector3.Cross(Vector3.up, path.GetTangent(lookIdx));
@@ -112,7 +126,13 @@ namespace PSXRacing
                 laneInt = Mathf.Clamp(laneInt, -LaneIntMax, LaneIntMax);
                 trim = LaneKi * laneInt;
             }
-            else laneInt = 0f;
+            else
+            {
+                laneInt = 0f;
+                // The error the fast damping below aims the drift by.
+                laneErr = lineOffset + avoidBias - Vector3.Dot(transform.position - path.GetPoint(nearestIdx),
+                                                               Vector3.Cross(Vector3.up, path.GetTangent(nearestIdx)).normalized);
+            }
             target += right * (lineOffset + avoidBias + cutBack);
 
             Vector3 local = transform.InverseTransformPoint(target);
@@ -137,8 +157,13 @@ namespace PSXRacing
             // seconds after a knock (Mount Mitchell: +0.8, -0.6, +1.6 m in two
             // seconds with the line held at +1.1) - in a 3 m lane, across the
             // centre line into an oncoming Camry. Off on closed circuits,
-            // whose racing line this would change.
-            if (ts != null && ts.TwoWay && speed > 5f)
+            // whose racing line this would change - except FAST (2026-10-07):
+            // on the limit, city routes saw racers drift two metres off their
+            // line at 150-170 km/h on a gentle bend, onto the median (Uptown
+            // Loop: three spins a race). Damping the drift and the yaw does not
+            // move the line; it holds the car on it.
+            bool twoWayRoad = ts != null && ts.TwoWay;
+            if ((twoWayRoad && speed > 5f) || speed > FastDampMps)
             {
                 var rb = car.Body;
                 if (rb != null)
@@ -206,6 +231,10 @@ namespace PSXRacing
         /// faster it goes by.
         /// </summary>
         const float PassAirMinM = 0.3f, PassAirPerMps = 0.012f, PassAirMaxM = 0.8f;
+        /// <summary>Closing speed (m/s) a pass may be made at with
+        /// PassRoomTightM between the sides, rising to PassCloseMaxMps with
+        /// PassRoomEasyM (see UpdateAvoidance).</summary>
+        const float PassCloseMinMps = 12f, PassCloseMaxMps = 30f, PassRoomTightM = 0.4f, PassRoomEasyM = 1.6f;
         static float PassAir(float closing) =>
             Mathf.Clamp(PassAirMinM + PassAirPerMps * Mathf.Max(closing, 0f), PassAirMinM, PassAirMaxM);
         /// <summary>A car counts as in this one's corridor when their sides are
@@ -304,6 +333,13 @@ namespace PSXRacing
 
         /// <summary>The most the steering point moves out on a left-hander.</summary>
         const float MaxCutBackM = 2.5f;
+        /// <summary>The steering point is no further up the road than this
+        /// many radii of the tightest bend it spans, nor nearer than
+        /// LookMinM (SteerToLine).</summary>
+        const float LookPerRadius = 1.0f, LookMinM = 5f;
+        /// <summary>Over this speed the lane and yaw damping hold the car on
+        /// its line on every road, not only a two-way one.</summary>
+        const float FastDampMps = 25f;
 
         /// <summary>Is an ONCOMING traffic car within <paramref name="reach"/>
         /// metres up the road - or within OncomingGuardS seconds of closing,
@@ -312,6 +348,23 @@ namespace PSXRacing
         {
             var bodies = ts.Obstacles;
             float mine = Mathf.Max(car.forwardSpeed, 0f);
+            // UP THE ROAD, not up the car's nose (2026-10-07; owner: "I
+            // watched all four cars get stuck behind a slow NPC traffic car",
+            // a mountain two-lane with the oncoming lane empty). This was a
+            // slab - every oncoming-stream car anywhere in front of the car's
+            // nose and within the reach, however far to the side: on a
+            // winding stage that is a car on the leg below a switchback, or
+            // across a valley, nearly always, and the field held its lane
+            // behind a slow car for minutes. Measured along the road (the
+            // traffic's own path metres), the guard sees exactly the cars that
+            // can meet a pass.
+            bool alongRoad = ts.ObstacleS.Count == bodies.Count && path != null && path.Count > 1;
+            float myS = 0f, total = 0f;
+            if (alongRoad)
+            {
+                myS = nearestIdx * path.spacing + Vector3.Dot(transform.position - path.GetPoint(nearestIdx), path.GetTangent(nearestIdx));
+                total = path.TotalLength;
+            }
             for (int i = 0; i < bodies.Count; i++)
             {
                 var rb = bodies[i];
@@ -324,12 +377,30 @@ namespace PSXRacing
                 // out passing met a stopped Camry at 39 m/s).
                 bool otherStream = i < ts.ObstacleDir.Count && ts.ObstacleDir[i] < 0;
                 if (theirs < 1f && !otherStream) continue;
-                theirs = Mathf.Max(theirs, 0f);
-                Vector3 local = transform.InverseTransformPoint(rb.position);
-                if (local.z > -3f && local.z < Mathf.Max(reach, (mine + theirs) * OncomingGuardS)) return true;
+                // Coming down the ROAD at us: its whole speed (round a bend it
+                // is not pointed at our nose, and still closes at all of it).
+                theirs = otherStream ? new Vector2(rb.linearVelocity.x, rb.linearVelocity.z).magnitude : Mathf.Max(theirs, 0f);
+                float ahead;
+                if (alongRoad)
+                {
+                    ahead = ts.ObstacleS[i] - myS;
+                    if (!path.HasEnds)
+                    {
+                        if (ahead > total * 0.5f) ahead -= total;
+                        else if (ahead < -total * 0.5f) ahead += total;
+                    }
+                }
+                else ahead = transform.InverseTransformPoint(rb.position).z;
+                if (ahead > -3f && ahead < Mathf.Max(reach, (mine + theirs) * OncomingGuardS)) return true;
             }
             return false;
         }
+
+        /// <summary>A traffic car this far (or more) off where the road says
+        /// it is, ahead or behind, is on another leg of it (the far side of a
+        /// switchback): not in this car's way, however near in a straight
+        /// line. Plus this share of the road distance, for a bend's chord.</summary>
+        const float OtherLegM = 25f, OtherLegShare = 0.25f;
         /// <summary>Seconds of closing an oncoming car must be away before a
         /// racer may be over its own lane's inner edge.</summary>
         const float OncomingGuardS = 5f;
@@ -465,9 +536,42 @@ namespace PSXRacing
         {
             var ts = TrafficSystem.Instance;
             if (ts == null || !ts.TwoWay) return lateralOffset;
-            return ts.RaceLanesCentre + Mathf.Clamp(lateralOffset * 0.3f, -0.5f, 0.5f);
+            return ts.RaceLanesCentre + Mathf.Clamp(lateralOffset * 0.3f, -0.5f, 0.5f) + openLine;
         }
         float lineOffset;
+
+        /// <summary>
+        /// THE OPEN LINE (2026-10-07; owner: "the first/last turn of Chimney
+        /// Rock, AI basically just stops instead of taking the hairpin"). A
+        /// right-hand hairpin in the right-hand lane is a 6 m radius on
+        /// Chimney Rock's 7.5 m bend, and every car turns at most ~0.92 rad/s
+        /// (AIGrip.YawRateMax): 20 km/h, on full lock, crawling. With nothing
+        /// coming up the road (the same 130 m / 5 s guard a pass needs), the
+        /// racer takes it from the OTHER lane - the radius of the whole road -
+        /// and comes back to its own on the way out. Metres moved, slewed.
+        /// </summary>
+        float openLine;
+        const float OpenLookM = 50f, OpenMaxRadiusM = 25f, OpenFullRadiusM = 12f, OpenSlewMps = 2.5f;
+        void UpdateOpenLine(float dt)
+        {
+            float want = 0f;
+            var ts = TrafficSystem.Instance;
+            var curv = path.curvatures;
+            if (ts != null && ts.TwoWay && curv != null && curv.Length == path.Count && !OncomingAhead(ts, OncomingGuardM))
+            {
+                int n = Mathf.CeilToInt(OpenLookM / path.spacing);
+                float kMax = 0f; int at = 0;
+                for (int j = 0; j <= n; j++)
+                {
+                    float k = curv[path.Wrap(nearestIdx + j)];
+                    if (k > kMax) { kMax = k; at = nearestIdx + j; }
+                }
+                if (kMax > 1f / OpenMaxRadiusM &&
+                    Vector3.SignedAngle(path.GetTangent(at - 2), path.GetTangent(at + 2), Vector3.up) > 0f)
+                    want = -2f * ts.RaceLanesCentre * Mathf.InverseLerp(1f / OpenMaxRadiusM, 1f / OpenFullRadiusM, kMax);
+            }
+            openLine = Mathf.MoveTowards(openLine, want, OpenSlewMps * dt);
+        }
         /// <summary>Where a recovery should put this car across the road: its
         /// own lane on a two-way road, the centreline otherwise.</summary>
         public float RecoveryLateral
@@ -496,6 +600,9 @@ namespace PSXRacing
         /// waiting the full four seconds just leaves a car parked on the racing
         /// line for four seconds.</summary>
         const float PinnedSeconds = 1.5f;
+        /// <summary>A car whose up axis points less skyward than this is on
+        /// its side or its roof (UpdateRecovery).</summary>
+        const float FlippedUpY = 0.3f;
         /// <summary>Facing back down the road. Respawn rather than let the AI
         /// drive a lap the wrong way: the steering chases a lookahead point, so a
         /// car spun past 90 degrees can chase it around in a circle forever.</summary>
@@ -530,6 +637,298 @@ namespace PSXRacing
             Mathf.Min(SkillTopSpeedMps * skill,
                       playerVmaxMps > 1f ? playerVmaxMps * PlayerVmaxMargin : float.MaxValue);
 
+        // ---- AT THE LIMIT (2026-10-07) ----
+        // Owner: "I notice the AI is very brake happy, timid, scared to take a
+        // corner. Even without traffic like parking decks, they rarely push
+        // their cars to the limits, never drift or powerslide."
+        /// <summary>Share of the car's measured limit (AIGrip) a driver plans
+        /// its corners on, across the skill range 0.8 -> 1.05: the field's
+        /// spread is kept, but the best of it is on the limit.</summary>
+        const float LimitShareLo = 0.88f, LimitShareHi = 1.0f;
+        /// <summary>Share of a full ABS stop (AIGrip.BrakeDecel) the braking
+        /// profile is planned on, across the same range.</summary>
+        const float BrakeShareLo = 0.82f, BrakeShareHi = 0.96f;
+        /// <summary>Seconds of travel the braking point is brought forward by:
+        /// the pedal and the tyres take a moment to bite.</summary>
+        const float ReactS = 0.12f;
+        /// <summary>No bend is planned slower than this (a curvature spike
+        /// between two waypoints is not a corner to stop for).</summary>
+        const float MinCornerMps = 4.5f;
+        /// <summary>The longest look up the road for a bend to brake for.</summary>
+        const float PlanScanMaxM = 420f;
+        /// <summary>Pedals round the target (see FixedUpdate): brake past this
+        /// much over it, the trail band under it while a bend ahead sets it,
+        /// brake and throttle per m/s of error, and the throttle on the speed.</summary>
+        const float BrakeBandMps = 0.3f, TrailBandMps = 1.5f, BrakeGain = 0.35f;
+        const float HoldThrottle = 0.4f, ThrottleGain = 0.4f;
+        /// <summary>The least brake a car turning at its limit still gets.</summary>
+        const float MinTrailBrake = 0.35f;
+        /// <summary>Slides: the rear slip a tidy driver keeps the throttle to,
+        /// the slip over its tolerance at which the throttle is fully off, and
+        /// the body angle past which it is off whatever the driver.</summary>
+        const float GripSlideTolRad = 0.3f, SlideFadeRad = 0.3f, MaxBodySlipRad = 0.75f;
+        /// <summary>Up to SlideFreeMps a driver slides as it likes; from
+        /// SlideTidyMps on, every driver keeps the rear to FastSlideTolRad and
+        /// the body to FastBodySlipRad.</summary>
+        const float SlideFreeMps = 14f, SlideTidyMps = 32f, FastSlideTolRad = 0.2f, FastBodySlipRad = 0.3f;
+        /// <summary>Front slip the throttle tolerates, and over it the slip at
+        /// which it is fully off.</summary>
+        const float FrontSlipTolRad = 0.2f, FrontSlipFadeRad = 0.2f;
+        /// <summary>Ploughing: steer this near full lock with the fronts this
+        /// far past their peak gets up to this much brake.</summary>
+        const float PloughSteer = 0.9f, PloughSlipRad = 0.24f, PloughBrake = 0.6f;
+        /// <summary>With an oncoming car this near up the road, nobody slides
+        /// or flicks: a drift on a two-lane road takes the other lane.</summary>
+        const float SlideOncomingM = 150f;
+        /// <summary>Counter-steer: body slip ignored, and the share of the
+        /// rest the front wheels are turned back along the travel.</summary>
+        const float CsDeadzoneRad = 0.07f, CsGain = 0.75f;
+        /// <summary>Handbrake flick (drifters): speeds, the tightest radius it
+        /// is for, how far up the road the bend must turn FlickMinTurnDeg in,
+        /// how long the lever is held, and the wait before the next.</summary>
+        const float FlickMinMps = 8f, FlickMaxMps = 24f, FlickMaxRadiusM = 30f;
+        const float FlickTurnLookM = 30f, FlickMinTurnDeg = 70f, FlickHoldS = 0.2f, FlickCoolS = 3f;
+        /// <summary>Rear-driven (FR, MR, RR) drivers at this skill or over may
+        /// be drifters, and this share of them is.</summary>
+        const float DrifterMinSkill = 0.88f, DrifterOdds = 0.6f;
+
+        /// <summary>This driver: rolled once, from its car's name and skill
+        /// (the slot it races from), so a race replays the same.</summary>
+        float limitShare = -1f, brakeShare = 0.9f, slideTol = GripSlideTolRad;
+        bool drifter;
+        float flickHold, flickCool;
+        int flickBend = -100000;
+        /// <summary>For the harness: the speed planned this tick, the
+        /// driver's shares and whether it drifts.</summary>
+        public float DebugTarget { get; private set; }
+        public float LimitShare => limitShare;
+        public float BrakeShare => brakeShare;
+        public bool Drifter => drifter;
+
+        /// <summary>
+        /// TRAFFIC MANNERS: with a traffic car up the road (TrafficCapLookM,
+        /// measured along it, either stream), no more than its speed plus
+        /// TrafficCapMarginMps. On the limit everywhere, racers came up on a
+        /// car stopped in the other lane at 140 km/h, wandered half a metre
+        /// across the centreline under the brakes, and hit it (Gillespie Gap,
+        /// medium traffic, twice). In traffic a racer is a driver in traffic;
+        /// on an empty road (deck runs, NONE) this never binds.
+        /// </summary>
+        float TrafficCap()
+        {
+            var ts = TrafficSystem.Instance;
+            if (ts == null || ts.Obstacles.Count == 0 || ts.ObstacleS.Count != ts.Obstacles.Count) return float.PositiveInfinity;
+            float myS = nearestIdx * path.spacing + Vector3.Dot(transform.position - path.GetPoint(nearestIdx), path.GetTangent(nearestIdx));
+            float total = path.TotalLength, cap = float.PositiveInfinity;
+            for (int i = 0; i < ts.Obstacles.Count; i++)
+            {
+                var rb = ts.Obstacles[i];
+                if (rb == null) continue;
+                float ahead = ts.ObstacleS[i] - myS;
+                if (!path.HasEnds)
+                {
+                    if (ahead > total * 0.5f) ahead -= total;
+                    else if (ahead < -total * 0.5f) ahead += total;
+                }
+                if (ahead < -5f || ahead > TrafficCapLookM) continue;
+                float theirs = new Vector2(rb.linearVelocity.x, rb.linearVelocity.z).magnitude;
+                cap = Mathf.Min(cap, theirs + TrafficCapMarginMps);
+            }
+            return cap;
+        }
+        const float TrafficCapLookM = 150f, TrafficCapMarginMps = 20f;
+
+        void RollPersona()
+        {
+            uint h = 2166136261u;
+            foreach (char ch in gameObject.name) { h ^= ch; h *= 16777619u; }
+            h ^= (uint)Mathf.RoundToInt(skill * 1000f); h *= 16777619u;
+            if (h == 0u) h = 1u;
+            float U() { h ^= h << 13; h ^= h >> 17; h ^= h << 5; return (h & 0xFFFFFFu) / 16777216f; }
+            float sk = Mathf.InverseLerp(0.8f, 1.05f, skill);
+            limitShare = Mathf.Min(LimitShareHi, Mathf.Lerp(LimitShareLo, LimitShareHi, sk) + (U() - 0.5f) * 0.02f);
+            brakeShare = Mathf.Min(BrakeShareHi, Mathf.Lerp(BrakeShareLo, BrakeShareHi, sk) + (U() - 0.5f) * 0.03f);
+            // Rear-driven (FR, MR, RR): the throttle can steer it.
+            bool rearDriven = car.frontDriveShare < 0.35f;
+            float roll = U();
+            drifter = rearDriven && skill >= DrifterMinSkill && roll < DrifterOdds;
+            slideTol = drifter ? Mathf.Lerp(0.36f, 0.5f, U()) : Mathf.Lerp(0.27f, 0.33f, U());
+        }
+
+        /// <summary>
+        /// The speed this car may have NOW - a racing driver's speed profile.
+        /// Every point up the road gets its corner speed at this driver's share
+        /// of the car's limit (AIGrip: grip, and on a hairpin the steering
+        /// lock), on the radius THIS car takes it - where it is across the road
+        /// now, blending into the line it is aiming for (a right-hander is
+        /// tighter in the right-hand lane). Then, from the far end back to the
+        /// car, each point may be no faster than the next one plus what this
+        /// driver's brakes take off over the gap - with only the brake the
+        /// turn there leaves (the friction circle: braking into a hairpin's
+        /// entry while already turning is braking on part of the tyre). The
+        /// first runs of this braked in a straight line to the apex's speed
+        /// as if the entry were straight, and arrived at Chimney Rock's
+        /// downhill hairpin at 47 km/h on full lock and ran across the road.
+        /// Also: whether a bend AHEAD sets the speed (the braking zone), the
+        /// deceleration planned on, and the slowest bend ahead and how far
+        /// (the mistake's corner).
+        /// </summary>
+        float PlanSpeed(float speed, out bool zone, out float planDecel, out float bendSpeed, out float bendAtM)
+        {
+            float full = AIGrip.BrakeDecel(car, speed);
+            // Downhill the brakes have gravity against them; uphill, with them.
+            float slope = Mathf.Clamp(transform.forward.y, -0.2f, 0.2f);
+            planDecel = Mathf.Max(full * brakeShare + 9.81f * slope, full * 0.4f);
+            zone = false; bendSpeed = float.PositiveInfinity; bendAtM = 0f;
+            var curv = path.curvatures;
+            if (curv == null || curv.Length != path.Count) return float.PositiveInfinity;
+            float scan = Mathf.Min(speed * speed / (2f * planDecel) + speed + 25f, PlanScanMaxM);
+            int n = Mathf.CeilToInt(scan / path.spacing);
+            n = path.HasEnds ? Mathf.Min(n, path.Count - 1 - nearestIdx) : Mathf.Min(n, path.Count / 3);
+            if (n < 1) return float.PositiveInfinity;
+            if (vcBuf.Length < n + 1) { vcBuf = new float[n + 16]; kBuf = new float[n + 16]; }
+            Vector3 t0 = path.GetTangent(nearestIdx);
+            int yawWin = Mathf.Max(1, Mathf.RoundToInt(YawWindowM / path.spacing));
+            // The turn-rate ceiling is a steady circle's (AIGrip.YawRateMax),
+            // and binds on a lane - a two-way road's hairpin. On a free line
+            // the car straightens a tight corner: deck runs went round theirs
+            // at 1.5-2x it, clean, and held to it they crawled.
+            var tsYaw = TrafficSystem.Instance;
+            float yawShare = limitShare * (tsYaw != null && tsYaw.TwoWay ? 1f : FreeLineYawMult);
+            yawShareNow = yawShare;
+            float along0 = Vector3.Dot(transform.position - path.GetPoint(nearestIdx), t0);
+            float latNow = Vector3.Dot(transform.position - path.GetPoint(nearestIdx), Vector3.Cross(Vector3.up, t0).normalized);
+            float latAim = lineOffset + avoidBias;
+            for (int j = 0; j <= n; j++)
+            {
+                int wi = path.Wrap(nearestIdx + j);
+                float k = curv[wi];
+                float d = j * path.spacing - along0;
+                float lat = Mathf.Lerp(latNow, latAim, Mathf.Clamp01(d / LineBlendM));
+                if (k > 1f / 400f && Mathf.Abs(lat) > 0.3f)
+                {
+                    float turn = Vector3.SignedAngle(path.GetTangent(wi - 2), path.GetTangent(wi + 2), Vector3.up);
+                    k /= Mathf.Clamp(1f - (turn >= 0f ? 1f : -1f) * k * lat, 0.5f, 1.5f);
+                }
+                kBuf[j] = k;
+                // The turn rate a bend asks for is over the car's length of
+                // it, not one waypoint's kink (a deck's aisle corners).
+                float kYaw = 0f;
+                for (int w = -yawWin; w <= yawWin; w++) kYaw += curv[path.Wrap(wi + w)];
+                kYaw = kYaw / (2 * yawWin + 1) * (k / Mathf.Max(curv[wi], 1e-5f));
+                float vc = k < 1e-4f ? float.PositiveInfinity
+                         : Mathf.Min(AIGrip.CornerSpeed(car, k, limitShare, 0f), AIGrip.YawSpeed(kYaw, yawShare));
+                if (!float.IsInfinity(vc)) vc = Mathf.Max(vc, MinCornerMps);
+                // A CREST is a corner in the vertical: over it at speed the
+                // car goes light, and a city route's brow launched racers at
+                // 200 km/h into a spin (UptownLoop wp 1122, more than once).
+                float ky = -(path.GetPoint(wi + 2).y - 2f * path.GetPoint(wi).y + path.GetPoint(wi - 2).y) / (4f * path.spacing * path.spacing);
+                if (ky > 1e-4f) vc = Mathf.Min(vc, Mathf.Max(Mathf.Sqrt(CrestG * 9.81f / ky), MinCornerMps * 3f));
+                vcBuf[j] = vc;
+                if (vc < bendSpeed) { bendSpeed = vc; bendAtM = Mathf.Max(0f, d); }
+            }
+            float va = vcBuf[n];
+            for (int j = n - 1; j >= 1; j--)
+                va = Mathf.Min(vcBuf[j], BrakeBack(va, kBuf[j], path.spacing, planDecel));
+            float atCar = Mathf.Min(vcBuf[0], BrakeBack(va, kBuf[0], Mathf.Max(0f, path.spacing - along0), planDecel));
+            zone = atCar < vcBuf[0] - 0.3f;
+            // On the braking curve, the speed it must have a moment of travel
+            // EARLIER: the pedal and the tyres take that long to bite.
+            if (zone && !float.IsInfinity(atCar))
+                atCar = Mathf.Sqrt(Mathf.Max(atCar * atCar - 2f * planDecel * speed * ReactS, MinCornerMps * MinCornerMps));
+            return atCar;
+        }
+        float[] vcBuf = new float[0], kBuf = new float[0];
+        /// <summary>Metres over which the planner's line blends from where
+        /// the car is across the road to where it is aiming.</summary>
+        const float LineBlendM = 20f;
+        /// <summary>Half-length of road the turn rate's curvature is averaged
+        /// over (PlanSpeed).</summary>
+        const float YawWindowM = 10f;
+        /// <summary>The turn-rate ceiling on a free line, over a lane's.</summary>
+        const float FreeLineYawMult = 1.8f;
+        /// <summary>The share of the car's weight a crest may take off it.</summary>
+        const float CrestG = 0.6f;
+        float yawShareNow = 1f;
+        /// <summary>The least share of the brakes a bend at its limit leaves.</summary>
+        const float MinBrakeInTurn = 0.3f;
+
+        /// <summary>The fastest a car may be <paramref name="ds"/> metres
+        /// before a point it may reach at <paramref name="vNext"/>, braking at
+        /// <paramref name="decel"/> less what the bend of curvature
+        /// <paramref name="k"/> there takes out of the tyres.</summary>
+        float BrakeBack(float vNext, float k, float ds, float decel)
+        {
+            if (float.IsInfinity(vNext)) return vNext;
+            float latUse = 0f;
+            if (k > 1e-4f)
+                latUse = Mathf.Clamp01(Mathf.Max(vNext * vNext * k / (9.81f * Mathf.Max(AIGrip.LateralG(car, vNext) * limitShare, 0.2f)),
+                                                 vNext * k / (AIGrip.YawRateMax * yawShareNow)));
+            float avail = decel * Mathf.Max(MinBrakeInTurn, Mathf.Sqrt(1f - latUse * latUse));
+            return Mathf.Sqrt(vNext * vNext + 2f * avail * ds);
+        }
+
+        /// <summary>Steer that turns the front wheels back along the car's
+        /// travel, for the body slip past a small deadzone: what holds a
+        /// powerslide as a slide rather than a spin. The point-chase alone
+        /// counter-steers by about a third of the angle.</summary>
+        float CounterSteer(float speed)
+        {
+            if (speed < 5f) return 0f;
+            float cs = car.chassisSlipAngle;
+            float ex = Mathf.Abs(cs) - CsDeadzoneRad;
+            if (ex <= 0f) return 0f;
+            return -Mathf.Sign(cs) * ex * Mathf.Rad2Deg / Mathf.Max(car.CurrentMaxSteerDeg, 1f) * CsGain;
+        }
+
+        /// <summary>
+        /// THE HAIRPIN FLICK: a drifter (rear-driven, skilled, see RollPersona)
+        /// pulls the handbrake for FlickHoldS at the turn-in of a bend that is
+        /// tight (under FlickMaxRadiusM) and turns at least FlickMinTurnDeg in
+        /// the next FlickTurnLookM - and then STOPS turning (a deck's helix
+        /// keeps turning, and is driven) - with the wheels already turned into
+        /// it (the car's kick reads the actuator), nobody near, and nothing
+        /// coming. The car's own drift layer does the rest (the E-brake kick
+        /// and the rear's collapse); the counter-steer and the throttle hold
+        /// it. True while the lever is pulled.
+        /// </summary>
+        bool UpdateFlick(float dt, float speed, float steer, bool oncomingNear, bool allowed, ref float throttle, ref float brake)
+        {
+            flickCool -= dt;
+            if (flickHold > 0f)
+            {
+                flickHold -= dt;
+                if (!allowed) { flickHold = 0f; return false; }
+                throttle = 0f; brake = 0f;
+                return true;
+            }
+            if (!allowed || !drifter || oncomingNear || flickCool > 0f || speed < FlickMinMps || speed > FlickMaxMps) return false;
+            if (path.curvatures == null || path.curvatures.Length != path.Count ||
+                path.curvatures[path.Wrap(nearestIdx + 1)] < 1f / FlickMaxRadiusM) return false;
+            int ahead = Mathf.Max(2, Mathf.RoundToInt(FlickTurnLookM / path.spacing));
+            if (path.HasEnds && nearestIdx + 2 * ahead >= path.Count) return false;
+            float turn = Vector3.SignedAngle(path.GetTangent(nearestIdx), path.GetTangent(nearestIdx + ahead), Vector3.up);
+            if (Mathf.Abs(turn) < FlickMinTurnDeg) return false;
+            float turn2 = Vector3.SignedAngle(path.GetTangent(nearestIdx + ahead), path.GetTangent(nearestIdx + 2 * ahead), Vector3.up);
+            if (Mathf.Sign(turn2) == Mathf.Sign(turn) && Mathf.Abs(turn2) > FlickMinTurnDeg * 0.8f) return false;
+            if (Mathf.Sign(steer) != Mathf.Sign(turn) || Mathf.Abs(steer) < 0.3f) return false;
+            if (Mathf.Abs(nearestIdx - flickBend) < 2 * ahead) return false;
+            // Room: no racer within 15 m, no traffic within 40 m.
+            var rm = RaceManager.Instance;
+            if (rm != null)
+                foreach (var o in rm.allCars)
+                    if (o != null && o != car && (o.transform.position - transform.position).sqrMagnitude < 15f * 15f) return false;
+            var ts = TrafficSystem.Instance;
+            if (ts != null)
+                foreach (var rb in ts.Obstacles)
+                    if (rb != null && (rb.position - transform.position).sqrMagnitude < 40f * 40f) return false;
+            flickBend = nearestIdx;
+            flickHold = FlickHoldS;
+            flickCool = FlickCoolS;
+            throttle = 0f; brake = 0f;
+            return true;
+        }
+
         void Awake()
         {
             car = GetComponent<CarController>();
@@ -563,6 +962,7 @@ namespace PSXRacing
             if (path == null || path.Count == 0) return;
             float dt = Time.fixedDeltaTime;
             nearestIdx = path.NearestIndex(transform.position, nearestIdx);
+            if (driving) UpdateOpenLine(dt);
             lineOffset = LineOffset();
 
             if (!driving)
@@ -575,8 +975,11 @@ namespace PSXRacing
                 // A deck run's finisher pulls over like a wreck does (gently):
                 // the flag is a few car lengths off the deck's exit, and a
                 // finisher rolling to a stop in the lane parked the next car
-                // short of the line.
-                if (Retired || (ShuttingDown && OnDeck))
+                // short of the line. And now on a stage too (2026-10-07):
+                // with the field on the limit the finishers come home seconds
+                // apart, and the next racer braked to a stop behind one parked
+                // in its lane past the flag (Gillespie Gap's last bend).
+                if (Retired || ShuttingDown)
                     avoidBias = Mathf.MoveTowards(avoidBias,
                         path.roadWidth * 0.5f + RetiredVergeM - lineOffset, 2.5f * dt);
                 car.steerInput = coasting ? SteerToLine(rolling) : 0f;
@@ -613,44 +1016,93 @@ namespace PSXRacing
 
             // ---- steering: chase a lookahead point ----
             float steer = SteerToLine(speed);
+            if (limitShare < 0f) RollPersona();
+            // ...and hold a slide rather than spin it: the front wheels
+            // pointed back along the car's travel (CounterSteer).
+            steer = Mathf.Clamp(steer + CounterSteer(speed), -1f, 1f);
 
-            // ---- target speed from curvature ahead ----
-            // Scaled by the weather with the same number the tyres get, so a
-            // wet field brakes for the corner it can actually take.
-            float mu = 1.0f * skill * Seasons.RoadGripMult;
-            float curvNow = Mathf.Max(path.MaxCurvatureAhead(nearestIdx, 6), 0.0005f);
-            float cornerSpeed = Mathf.Sqrt(mu * 9.81f / curvNow) * 0.92f;
+            // ---- target speed: THIS car's grip, at this driver's share ----
+            // AT THE LIMIT (2026-10-07). The corner speed used to be planned on
+            // mu = skill x weather, times 0.92 - about 0.8 g for cars that hold
+            // well over 1.2 - and the brake went on at full the moment any
+            // slower bend came into a window sized for 6.5 m/s2 of braking,
+            // with 0.35 throttle all the way round it. Now (PlanSpeed): every
+            // point up the road gets this car's own corner speed (AIGrip, read
+            // live off the car: tyres, upgrades, faults, weather, downforce),
+            // and the speed allowed HERE is the slowest of sqrt(vc^2 + 2 a d)
+            // - a real braking profile on this car's real brakes.
             // The player's BUILD top speed: DeriveDrag solves the car to reach
             // exactly that on its own gearing, so it is the number the player
             // can actually reach, tuned or not.
             var rmNow = RaceManager.Instance;
             float playerVmax = rmNow != null && rmNow.playerCar != null ? rmNow.playerCar.BuildTopSpeedMps : 0f;
-            float targetSpeed = Mathf.Min(cornerSpeed, TargetSpeedCap(skill, playerVmax));
+            float planned = PlanSpeed(speed, out bool zone, out float planDecel, out float bendSpeed, out float bendAtM);
+            float targetSpeed = Mathf.Min(Mathf.Min(planned, TargetSpeedCap(skill, playerVmax)), TrafficCap());
+            DebugTarget = targetSpeed;
 
-            // Brake early for upcoming slow corners - on a wet road the
-            // tyres stop the car on the same smaller circle they corner on,
-            // so the look-ahead stretches by the weather's grip too.
-            float brakeScan = speed * speed / (2f * 6.5f * Seasons.RoadGripMult) + 10f;
-            // Cap the scan: it grows with speed squared, and letting it run long
-            // enough to wrap the whole track pins the AI to the tightest corner
-            // anywhere on the circuit.
-            int scanCount = Mathf.Min(Mathf.CeilToInt(brakeScan / path.spacing),
-                                      Mathf.Min(60, path.Count / 3));
-            float curvAhead = Mathf.Max(path.MaxCurvatureAhead(nearestIdx, scanCount), 0.0005f);
-            float aheadSpeed = Mathf.Sqrt(mu * 9.81f / curvAhead) * 0.92f;
-            targetSpeed = Mathf.Min(targetSpeed, Mathf.Max(aheadSpeed, 9f) + 3f);
-
+            // ---- pedals: on the profile, not on/off round it ----
+            // Over the target: the brake the profile is planned on (feed-
+            // forward) plus what it takes to get back onto it. Just under it
+            // while a bend ahead sets it: the brake tapering off - the trail
+            // into the turn-in. Otherwise the throttle, flat out a metre a
+            // second under the target, which is the whole of a corner's exit.
             float throttle = 0f, brake = 0f;
-            if (speed < targetSpeed - 1f) throttle = 1f;
-            else if (speed > targetSpeed + 2f) brake = Mathf.Clamp01((speed - targetSpeed) * 0.25f);
-            else throttle = 0.35f;
+            float err = speed - targetSpeed;
+            float fullDecel = AIGrip.BrakeDecel(car, speed);
+            float ff = zone ? Mathf.Clamp01(planDecel / Mathf.Max(fullDecel, 1f)) : 0f;
+            if (err > BrakeBandMps)
+                brake = Mathf.Clamp01(ff + (err - BrakeBandMps) * BrakeGain);
+            else if (zone && err > -TrailBandMps)
+                brake = ff * Mathf.Clamp01((err + TrailBandMps) / (TrailBandMps + BrakeBandMps));
+            else
+                throttle = Mathf.Clamp01(HoldThrottle - err * ThrottleGain);
+            // TRAIL BRAKING: what the tyres are spending on the turn is not
+            // there for the brake (the friction circle) - never all of it, so
+            // a car over the speed still slows.
+            if (brake > 0f && car.Body != null)
+            {
+                float latUse = Mathf.Abs(car.Body.angularVelocity.y * speed) / (9.81f * Mathf.Max(AIGrip.LateralG(car, speed), 0.3f));
+                brake = Mathf.Min(brake, Mathf.Max(MinTrailBrake, Mathf.Sqrt(Mathf.Max(0f, 1f - latUse * latUse))));
+            }
 
-            // Ease off throttle while sliding - a car that is MOVING. At a
-            // crawl the slip angle is the arctangent of centimetres a second
-            // (0.1 across over 0.4 along reads 0.24 rad), and the ease held a
-            // rival pulling away from a stop at 0.4 throttle and 1-2 km/h up
-            // Chimney Rock's 8% switchbacks until the recovery moved it.
-            if (speed > SlideEaseMinMps && Mathf.Abs(car.rearSlipAngle) > 0.25f) throttle *= 0.4f;
+            // SLIDES. The throttle used to drop to 0.4 at 0.25 rad of rear slip,
+            // so nothing ever powerslid. Now it is eased only past this
+            // driver's own tolerance (slideTol: 0.27-0.33 rad for a tidy
+            // driver, 0.36-0.5 for a drifter), and the counter-steer above
+            // holds the angle. A crawl's slip angle is noise (the arctangent
+            // of centimetres a second), hence the speed floor - the ease once
+            // held a rival pulling away up Chimney Rock's 8% switchbacks.
+            var tsNow = TrafficSystem.Instance;
+            bool oncomingNear = tsNow != null && tsNow.TwoWay && OncomingAhead(tsNow, SlideOncomingM);
+            float tol = oncomingNear ? Mathf.Min(slideTol, GripSlideTolRad) : slideTol;
+            // ...and the faster, the tidier: a slide is for a hairpin's exit,
+            // not for 120 km/h between city walls (UptownLoop, the first runs:
+            // a Charger let go on the power at speed, spun into a wall).
+            float fast = Mathf.InverseLerp(SlideFreeMps, SlideTidyMps, speed);
+            tol = Mathf.Lerp(tol, FastSlideTolRad, fast);
+            float maxBody = Mathf.Lerp(MaxBodySlipRad, FastBodySlipRad, fast);
+            if (speed > SlideEaseMinMps)
+            {
+                float rearSlip = Mathf.Abs(car.rearSlipAngle);
+                if (rearSlip > tol) throttle *= Mathf.Clamp01(1f - (rearSlip - tol) / SlideFadeRad);
+                // Getting away from it: off the throttle and let the car catch it.
+                if (Mathf.Abs(car.chassisSlipAngle) > maxBody) throttle = 0f;
+                // PUSHING (the fronts past their peak, a front-driver's exit
+                // above all): ease off until they bite, or it runs wide.
+                float frontSlip = Mathf.Abs(car.frontSlipAngle);
+                if (frontSlip > FrontSlipTolRad) throttle *= Mathf.Clamp01(1f - (frontSlip - FrontSlipTolRad) / FrontSlipFadeRad);
+                // PLOUGHING: on full lock with the fronts far past their peak
+                // the car is going straight on, and more lock buys nothing -
+                // scrub the speed off (the ABS keeps the wheels turning). The
+                // racers took Chimney Rock's downhill hairpin at full lock and
+                // 0.35-0.45 rad of front slip, off the pedals, and slid four
+                // metres across the road.
+                if (Mathf.Abs(steer) > PloughSteer && frontSlip > PloughSlipRad)
+                {
+                    throttle = 0f;
+                    brake = Mathf.Max(brake, PloughBrake * Mathf.Clamp01((frontSlip - PloughSlipRad) / 0.15f));
+                }
+            }
 
             // Closing on a car ahead: lift, and brake if the gap is going away
             // fast. Applied after the corner logic so it can only ever slow the
@@ -663,7 +1115,8 @@ namespace PSXRacing
             // A DRIVER ERROR (PlanMistake): into this corner too fast and not
             // turning enough. Before the traffic brake, which still wins - a
             // mistake is a corner overcooked, not a car driven into another.
-            if (UpdateMistake(speed, aheadSpeed, brakeScan))
+            bool mistake = UpdateMistake(speed, bendSpeed, bendAtM);
+            if (mistake)
             {
                 steer *= MistakeSteer;
                 brake = 0f;
@@ -676,11 +1129,15 @@ namespace PSXRacing
                 throttle = 0f;
                 brake = Mathf.Max(brake, trafficBrake);
             }
+            // THE HAIRPIN FLICK (drifters only): a pull of the handbrake at the
+            // turn-in of a tight bend, the throttle then holding the slide.
+            bool hb = UpdateFlick(dt, speed, steer, oncomingNear,
+                                  !mistake && trafficBrake <= 0f && throttleLift <= 0.05f, ref throttle, ref brake);
 
             car.steerInput = steer;
             car.throttleInput = throttle;
             car.brakeInput = brake;
-            car.handbrakeInput = false;
+            car.handbrakeInput = hb;
 
             // Holding station behind something it cannot pass (UpdateAvoidance
             // asked for the brake or the whole throttle) is waiting, not stuck -
@@ -723,6 +1180,22 @@ namespace PSXRacing
                 myHalfW = HalfWidthOf(car);
                 return myHalfW;
             }
+        }
+        /// <summary>
+        /// How far a car reaches across THIS car's road from its centre: its
+        /// half-width straight, its half-LENGTH sideways. A rival spun across
+        /// the road was passed as if it were 0.9 m wide - by a racer at 152
+        /// km/h, into its nose (UptownLoop, the first runs).
+        /// </summary>
+        float HalfAcrossOf(CarController c)
+        {
+            var box = c != null ? c.GetComponent<BoxCollider>() : null;
+            if (box == null) return HalfWidthOf(c);
+            float hw = HalfWidthOf(c);
+            float hl = Mathf.Clamp(box.size.z * Mathf.Abs(c.transform.lossyScale.z) * 0.5f, hw, 3f);
+            float yaw = Vector3.Angle(Vector3.ProjectOnPlane(c.transform.forward, Vector3.up),
+                                      Vector3.ProjectOnPlane(path.GetTangent(nearestIdx), Vector3.up)) * Mathf.Deg2Rad;
+            return Mathf.Max(hw, Mathf.Abs(Mathf.Cos(yaw)) * hw + Mathf.Abs(Mathf.Sin(yaw)) * hl);
         }
         static float HalfWidthOf(CarController c)
         {
@@ -788,6 +1261,15 @@ namespace PSXRacing
         /// centre on a 2.2 m plan).</summary>
         const float BendAirPerDeg = 0.015f, BendAirMaxM = 0.45f;
         readonly System.Collections.Generic.List<Obs> obs = new System.Collections.Generic.List<Obs>(16);
+        /// <summary>How far up the road something closed on at this speed is
+        /// looked at: 110 m, or its planned stopping distance and 30 m - at
+        /// the speeds the field runs now, 110 m is 2.2 s at 50 m/s, half the
+        /// stop.</summary>
+        /// <summary>Seconds ahead within which a car on the line this racer
+        /// is moving to counts as in its way.</summary>
+        const float WantedLineS = 3.5f;
+        float LookFor(float closing) =>
+            Mathf.Clamp(Mathf.Max(closing, 0f) * Mathf.Max(closing, 0f) / (2f * BrakeDecelNow * PlanBrakeShare) + 30f, 110f, 260f);
 
         void UpdateAvoidance(float dt, out float throttleLift, out float trafficBrake)
         {
@@ -890,12 +1372,12 @@ namespace PSXRacing
                     if (car.forwardSpeed - o.forwardSpeed > RacerClosingMps)
                     {
                         Vector3 lo = transform.InverseTransformPoint(o.transform.position);
-                        closingOnIt = lo.z > 1.5f && lo.z < 110f && Mathf.Abs(lo.x) < 6f;
+                        closingOnIt = lo.z > 1.5f && lo.z < LookFor(car.forwardSpeed - o.forwardSpeed) && Mathf.Abs(lo.x) < 6f;
                     }
                     if ((op != null && op.retired) || Mathf.Abs(o.forwardSpeed) < (OnDeck ? DeckStoppedMps : StoppedRacerMps) || closingOnIt)
                     {
                         stopped.Add(o.Body);
-                        stoppedHalf.Add(HalfWidthOf(o));
+                        stoppedHalf.Add(HalfAcrossOf(o));
                     }
                 }
             DebugPassSide = 0;
@@ -917,18 +1399,32 @@ namespace PSXRacing
                 float edge = Mathf.Max(0.5f, path.roadWidth * 0.5f - EdgeMarginM);
                 float mySpeed = car.forwardSpeed;
                 obs.Clear();
+                bool roadS = traffic != null && traffic.ObstacleS.Count == nTraffic;
+                float myS = nearestIdx * path.spacing + Vector3.Dot(transform.position - path.GetPoint(nearestIdx), path.GetTangent(nearestIdx));
                 for (int i = 0; i < nTraffic + stopped.Count; i++)
                 {
                     var rb = i < nTraffic ? traffic.Obstacles[i] : stopped[i - nTraffic];
                     if (rb == null) continue;
                     Vector3 local = transform.InverseTransformPoint(rb.position);
                     if (OtherFloor(local)) continue;
+                    // ON ANOTHER LEG of the road (OncomingAhead): the car on the
+                    // far side of a switchback stood "in the pass line" here.
+                    if (i < nTraffic && roadS)
+                    {
+                        float ds = traffic.ObstacleS[i] - myS;
+                        if (!path.HasEnds)
+                        {
+                            float tot = path.TotalLength;
+                            if (ds > tot * 0.5f) ds -= tot; else if (ds < -tot * 0.5f) ds += tot;
+                        }
+                        if (Mathf.Abs(ds - local.z) > OtherLegM + OtherLegShare * Mathf.Abs(ds)) continue;
+                    }
                     float along = Vector3.Dot(rb.linearVelocity, transform.forward);
                     float closing = mySpeed - along;
                     // Three seconds of closing, to 110 m: a rival closing at 22
                     // m/s on a car that then brake-checked it (a Braker, 70 m
                     // ahead) saw it 66 m out and hit it (Gillespie Gap, 2026-09-27).
-                    float look = Mathf.Clamp(AvoidLookM + Mathf.Max(closing, 0f) * 3.2f, AvoidLookM, 110f);
+                    float look = Mathf.Clamp(AvoidLookM + Mathf.Max(closing, 0f) * 3.2f, AvoidLookM, LookFor(closing));
                     // From 6 m back: a car level with this one is part of the
                     // pass until it is behind (see ALONGSIDE below).
                     if (local.z < -6f || local.z > look) continue;
@@ -996,7 +1492,11 @@ namespace PSXRacing
                     // on NC 226A - that was 0.1 m of air; this is 0.3-0.8).
                     float left = bo.lat - bo.half - air - myHalf;
                     float right = bo.lat + bo.half + air + myHalf;
-                    bool leftOk = Clear(left);
+                    // ...and nothing SOLID down it either: a city route's
+                    // "road" can be both carriageways with a median between,
+                    // and a racer passed a spun rival at 120 km/h along the
+                    // median's barrier, into it (UptownLoop).
+                    bool leftOk = Clear(left) && ShoulderClear(left, passEnd);
                     // THE RIGHT-HAND SIDE, on the shoulder where the tarmac runs
                     // out: only past a car going OUR way (a car coming at us in
                     // our lane is dodged, not passed, and the tarmac is enough
@@ -1057,6 +1557,24 @@ namespace PSXRacing
                         float tHit = gap / Mathf.Max(bo.closing, 0.3f);
                         if (tHit < tSide * 1.3f) trafficBrake = Mathf.Max(trafficBrake, stopBrake);
                         throttleLift = Mathf.Max(throttleLift, Mathf.Clamp01(tSide * 1.3f / Mathf.Max(tHit, 0.1f)) * 0.6f);
+                        // GOING BY CLOSE, GOING BY SLOWER: past a car with under
+                        // a metre and a half between the sides, no faster than
+                        // PassClosingCap allows for that room. At the limit a
+                        // racer came up on a Camry stopped in the other lane at
+                        // 33 m/s with 0.6 m planned, drifted half a metre on the
+                        // way, and hit it (Gillespie Gap, the first runs).
+                        float sideRoom = Mathf.Abs(pick - bo.lat) - bo.half - myHalf;
+                        float capClose = Mathf.Lerp(PassCloseMinMps, PassCloseMaxMps, Mathf.InverseLerp(PassRoomTightM, PassRoomEasyM, sideRoom));
+                        if (bo.closing > capClose)
+                        {
+                            float roomC = Mathf.Max(gap - 2f, 0.5f);
+                            float needC = (bo.closing * bo.closing - capClose * capClose) / (2f * roomC) / BrakeDecelNow;
+                            if (needC > 0.1f)
+                            {
+                                trafficBrake = Mathf.Max(trafficBrake, Mathf.Clamp01(needC));
+                                throttleLift = 1f;
+                            }
+                        }
                     }
                     else
                     {
@@ -1077,12 +1595,24 @@ namespace PSXRacing
                 {
                     var o = obs[i];
                     if (o.z < 1.5f || o.closing <= 0.3f) continue;
-                    float overlap = o.half + myHalf + 0.2f - Mathf.Abs(o.lat - myLat);
+                    // ...or where it is GOING: across the road to the line it
+                    // wants. A racer at 182 km/h swung out to pass a rival and
+                    // onto the line of a car stopped 100 m on, which nothing
+                    // had braked for because it was not where the racer WAS
+                    // (UptownLoop, the first runs: 40 m/s into it).
+                    // Only what is reached SOON (WantedLineS): a car further
+                    // up is past the end of the move, and braking for it
+                    // stopped racers behind a finisher parked in their lane
+                    // because another was parked up the other one.
+                    float wantedAbs = wanted + lineOffset;
+                    bool soon = o.z / Mathf.Max(o.closing, 0.3f) < WantedLineS;
+                    float latLo = soon ? Mathf.Min(myLat, wantedAbs) : myLat, latHi = soon ? Mathf.Max(myLat, wantedAbs) : myLat;
+                    float latDist = o.lat < latLo ? latLo - o.lat : o.lat > latHi ? o.lat - latHi : 0f;
+                    float overlap = o.half + myHalf + 0.2f - latDist;
                     if (overlap <= 0f) continue;
                     float gapO = o.z - 4.5f;
                     float tHitO = Mathf.Max(gapO, 0f) / o.closing;
                     // Moving out of its way already, fast enough: the plan holds.
-                    float wantedAbs = wanted + lineOffset;
                     bool leaving = Mathf.Abs(wantedAbs - o.lat) >= o.half + myHalf;
                     if (leaving && tHitO > overlap / LateralRateMps * 1.3f) continue;
                     float roomO = Mathf.Max(gapO - 2f, 0.5f);
@@ -1231,7 +1761,11 @@ namespace PSXRacing
         void UpdateRecovery(float dt, float speed, bool waiting)
         {
             bool pinned = responder != null && responder.InSolidContact;
-            float limit = pinned ? PinnedSeconds : StuckSeconds;
+            // ON ITS ROOF or its side: it is not driving out of that, and four
+            // seconds of it in the road is four seconds for the field to find
+            // it (UptownLoop: a Charger upside down in its lane, hit at 40 m/s).
+            bool flipped = transform.up.y < FlippedUpY;
+            float limit = pinned || flipped ? PinnedSeconds : StuckSeconds;
             // A car stopped behind a queue, or for an oncoming car filling a
             // narrow road, is WAITING: its clock runs at WaitingClockRate, so it
             // pulls away itself once the road clears (a queue of three up
