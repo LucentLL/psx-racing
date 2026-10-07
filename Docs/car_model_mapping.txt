@@ -1,5 +1,5 @@
 PSX Racing — catalog car to body shell
-317 cars across 29 of 35 shells; 220 hand-mapped, 97 scored.
+317 cars across 30 of 36 shells; 220 hand-mapped, 97 scored.
   =  hand-mapped (the real car, its twin, or a deliberate call)
   ~  scored on body style, region, era and weight
   Per car, TO SPEC (CarModelLibrary.Fit, the owner's GT4 Specs sheet): wheelbase sheet/shell
@@ -7,7 +7,7 @@ PSX Racing — catalog car to body shell
   tyre diameter x section F/R, along/across stretch, camber F/R (top in) and any poke past
   the model's own wheel left after it. !CLAMP = a stretch hit its fence; !POKE = still out.
 
-CAMBER (117 cars)
+CAMBER (124 cars)
     Honda CIVIC 1500 3door CX `79 [euro_hatch]: F 3.2 R 3.7 deg
     Honda CIVIC 1500 3door 25i `83 [euro_hatch]: F 3.9 R 4.7 deg
     Alpine A110 1600S `73 [mb_pagoda]: F 6.0 R 5.0 deg
@@ -46,6 +46,7 @@ CAMBER (117 cars)
     Toyota COROLLA LEVIN BZ-R `98 [euro_hatch]: F 5.3 R 4.3 deg
     Toyota SPRINTER TRUENO BZ-R `98 [euro_hatch]: F 5.3 R 4.3 deg
     Honda CIVIC TYPE R (EK) `97 [civic_eg]: F 0.0 R 0.6 deg
+    Subaru IMPREZA Sedan WRX STi (GC) `94 [rally_coupe_98]: F 1.1 R 0.0 deg
     Volvo 240 GLT Estate `88 [volvo_estate]: F 1.0 R 0.0 deg
     Honda CIVIC TYPE R (EK) `98 [civic_eg]: F 0.0 R 0.6 deg
     Infiniti G20 `90 [audi_saloon]: F 2.1 R 1.2 deg
@@ -55,19 +56,25 @@ CAMBER (117 cars)
     Mercedes-Benz A 160 Avantgarde `98 [euro_hatch]: F 6.0 R 3.5 deg
     Nissan Fairlady 2000 (SR311) `68 [mb_pagoda]: F 4.5 R 0.9 deg
     Subaru LEGACY Touring Wagon GT-B `96 [volvo_estate]: F 4.4 R 3.9 deg
+    Subaru IMPREZA Sedan WRX STi Version II (GC) `95 [rally_coupe_98]: F 1.1 R 0.0 deg
     Ford Taurus SHO `98 [audi_saloon]: F 0.7 R 0.0 deg
     Mitsubishi PAJERO Rally Raid Car `85 [landrover]: F 2.4 R 1.6 deg
     Honda INTEGRA TYPE R (DC2) `95 [liftback_95]: F 2.6 R 2.1 deg
+    Subaru IMPREZA Sedan WRX STi Version III (GC) `96 [rally_coupe_98]: F 1.3 R 0.0 deg
     Toyota MR2 Spyder `99 [mb_pagoda]: F 7.6 R 7.8 deg
     Honda INTEGRA TYPE R (DC2) `98 [liftback_95]: F 3.5 R 3.7 deg
     Chevrolet Corvette Stingray L46 350 (C3) `69 [mustang_67]: F 0.0 R 0.6 deg
     Honda INTEGRA TYPE R (DC2) `99 [liftback_95]: F 3.5 R 3.7 deg
     MGF `97 [mb_pagoda]: F 6.7 R 8.0 deg
     Pontiac Tempest Le Mans GTO `64 [gto_66]: F 1.9 R 1.9 deg
+    Subaru IMPREZA Sedan WRX STi Version IV (GC) `97 [rally_coupe_98]: F 1.3 R 0.0 deg
+    Subaru IMPREZA Sedan WRX STi Version V (GC) `98 [rally_coupe_98]: F 1.3 R 0.0 deg
     BUICK GNX `87 [gto_66]: F 6.3 R 5.8 deg
     Chevrolet Camaro Z28 302 `69 [gto_66]: F 3.4 R 3.3 deg
-    Subaru IMPREZA Sport Wagon WRX STi Version VI (GF) `99 [volvo_estate]: F 4.2 R 3.8 deg
+    Subaru IMPREZA Sedan WRX STi Version VI (GC) `99 [rally_coupe_98]: F 1.3 R 0.0 deg
+    Subaru IMPREZA Sport Wagon WRX STi Version VI (GF) `99 [rally_coupe_98]: F 1.3 R 0.0 deg
     Chevrolet Camaro SS `69 [gto_66]: F 3.0 R 2.9 deg
+    Subaru IMPREZA Coupe WRXtypeR STi Version VI (GC) `99 [rally_coupe_98]: F 1.3 R 0.0 deg
     Honda S2000 `99 [roadster_99]: F 0.0 R 1.4 deg
     Nissan STAGEA 25t RS FOUR S `98 [volvo_estate]: F 2.2 R 2.7 deg
     Lancia STRATOS `73 [mb_pagoda]: F 3.8 R 4.8 deg
@@ -308,7 +315,7 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
     ~ 1999 jpn MR  1059kg  608hp GT       Toyota GT-ONE Race Car (TS020) `99
         wb 2840/2840  track F 1600/1641 R 1644/1641  tyre 660x290 / 705x310  along x1.115 across x1.075  camber 0.0/0.0  poke -56/-24 mm
 
-=== skyline_r32  (Nissan Skyline GT-R (R32), Japan 1989 Sports)  — 59 cars
+=== skyline_r32  (Nissan Skyline GT-R (R32), Japan 1989 Sports)  — 50 cars
     model: wheelbase 2619 mm, track 1515/1515 mm, tyre 678/678 mm, lower body 1802 mm, 11 liveries
     = 1967 jpn FR  1133kg  125hp GT       Nissan SKYLINE 2000GT-B (S54A) `67
         wb 2590/2590  track F 1265/1269 R 1255/1269  tyre 562x145 / 562x145  along x0.989 across x0.838  camber 0.0/0.0  poke -60/-65 mm
@@ -356,8 +363,6 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2510/2510  track F 1465/1425 R 1470/1425  tyre 627x205 / 627x205  along x0.959 across x0.941  camber 0.0/0.0  poke -24/-22 mm
     = 1994 jpn 4WD 1465kg  280hp Coupe    Nissan SKYLINE GT-R Vspec II (R32) `94
         wb 2615/2615  track F 1480/1475 R 1480/1475  tyre 652x245 / 652x245  along x0.999 across x0.974  camber 0.0/0.0  poke -27/-27 mm
-    = 1994 jpn 4WD 1273kg  250hp Saloon   Subaru IMPREZA Sedan WRX STi (GC) `94
-        wb 2520/2520  track F 1465/1421 R 1455/1421  tyre 611x205 / 611x205  along x0.962 across x0.938  camber 0.0/0.0  poke -22/-27 mm
     = 1995 jpn 4WD 1260kg  270hp Coupe    Mitsubishi Lancer Evolution III GSR `95
         wb 2510/2510  track F 1465/1425 R 1470/1425  tyre 627x205 / 627x205  along x0.959 across x0.941  camber 0.0/0.0  poke -24/-22 mm
     = 1995 eur FR  1542kg  305hp Coupe    NISMO GT-R LM Road Going Version `95
@@ -368,8 +373,6 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2720/2720  track F 1480/1496 R 1490/1496  tyre 652x245 / 652x245  along x1.039 across x0.988  camber 0.0/0.0  poke -40/-35 mm
     = 1995 jpn 4WD 1504kg  280hp Coupe    Nissan SKYLINE GT-R Vspec (R33) `95
         wb 2720/2720  track F 1480/1496 R 1490/1496  tyre 652x245 / 652x245  along x1.039 across x0.988  camber 0.0/0.0  poke -40/-35 mm
-    = 1995 jpn 4WD 1284kg  275hp Saloon   Subaru IMPREZA Sedan WRX STi Version II (GC) `95
-        wb 2520/2520  track F 1465/1421 R 1455/1421  tyre 611x205 / 611x205  along x0.962 across x0.938  camber 0.0/0.0  poke -22/-27 mm
     = 1996 jpn 4WD 1349kg  280hp Coupe    Mitsubishi Lancer Evolution IV GSR `96
         wb 2510/2510  track F 1470/1421 R 1470/1421  tyre 611x205 / 611x205  along x0.959 across x0.938  camber 0.0/0.0  poke -19/-19 mm
     = 1996 eur 4WD 1513kg  400hp Coupe    NISMO 400R `96
@@ -380,16 +383,12 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2720/2720  track F 1480/1496 R 1490/1496  tyre 652x245 / 652x245  along x1.039 across x0.988  camber 0.0/0.0  poke -40/-35 mm
     = 1996 jpn 4WD 1504kg  280hp Coupe    Nissan SKYLINE GT-R Vspec LM Limited (R33) `96
         wb 2720/2720  track F 1480/1496 R 1490/1496  tyre 652x245 / 652x245  along x1.039 across x0.988  camber 0.0/0.0  poke -40/-35 mm
-    = 1996 jpn 4WD 1249kg  280hp Saloon   Subaru IMPREZA Sedan WRX STi Version III (GC) `96
-        wb 2520/2520  track F 1470/1421 R 1460/1421  tyre 611x205 / 611x205  along x0.962 across x0.938  camber 0.0/0.0  poke -19/-24 mm
     = 1997 jpn 4WD 1447kg  284hp Coupe    Mitsubishi Lancer Evolution IV Rally Car `97
         wb 2510/2510  track F 1490/1421 R 1490/1421  tyre 651x215 / 651x215  along x0.959 across x0.938  camber 0.0/0.0  poke -4/-4 mm
     = 1997 jpn 4WD 1493kg  280hp Coupe    Nissan SKYLINE GT-R (R33) `97
         wb 2720/2720  track F 1480/1496 R 1490/1496  tyre 652x245 / 652x245  along x1.039 across x0.988  camber 0.0/0.0  poke -40/-35 mm
     = 1997 jpn 4WD 1504kg  280hp Coupe    Nissan SKYLINE GT-R Vspec (R33) `97
         wb 2720/2720  track F 1480/1496 R 1490/1496  tyre 652x245 / 652x245  along x1.039 across x0.988  camber 0.0/0.0  poke -40/-35 mm
-    = 1997 jpn 4WD 1249kg  280hp Saloon   Subaru IMPREZA Sedan WRX STi Version IV (GC) `97
-        wb 2520/2520  track F 1470/1421 R 1460/1421  tyre 611x205 / 611x205  along x0.962 across x0.938  camber 0.0/0.0  poke -19/-24 mm
     = 1998 jpn FR  1340kg  210hp Saloon   Lexus IS200 (J) `98
         wb 2670/2670  track F 1495/1446 R 1485/1446  tyre 625x215 / 625x215  along x1.020 across x0.955  camber 0.0/0.0  poke -17/-22 mm
     = 1998 jpn FR  1309kg  160hp Saloon   Lexus IS200 `98
@@ -398,10 +397,6 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2510/2510  track F 1510/1488 R 1505/1488  tyre 634x225 / 634x225  along x0.959 across x0.982  camber 0.0/0.0  poke -30/-32 mm
     = 1998 jpn 4WD 1513kg  280hp Coupe    Mitsubishi LEGNUM VR-4 Type V `98
         wb 2635/2635  track F 1510/1463 R 1505/1463  tyre 632x205 / 632x205  along x1.006 across x0.966  camber 0.0/0.0  poke -25/-27 mm
-    = 1998 jpn 4WD 1269kg  280hp Coupe    Subaru IMPREZA Premium Sport Coupe 22B-STi Version (GC) `98
-        wb 2520/2520  track F 1480/1488 R 1500/1488  tyre 620x235 / 620x235  along x0.962 across x0.982  camber 0.0/0.0  poke -40/-30 mm
-    = 1998 jpn 4WD 1269kg  280hp Saloon   Subaru IMPREZA Sedan WRX STi Version V (GC) `98
-        wb 2520/2520  track F 1470/1421 R 1460/1421  tyre 611x205 / 611x205  along x0.962 across x0.938  camber 0.0/0.0  poke -19/-24 mm
     = 1998 jpn 4WD 1440kg  280hp Coupe    Subaru LEGACY B4 RSK `98
         wb 2650/2650  track F 1465/1425 R 1465/1425  tyre 625x215 / 625x215  along x1.012 across x0.941  camber 0.0/0.0  poke -19/-19 mm
     = 1999 jpn 4WD 1360kg  280hp Coupe    Mitsubishi Lancer Evolution VI GSR `99
@@ -422,12 +417,6 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2665/2665  track F 1480/1501 R 1490/1501  tyre 653x245 / 653x245  along x1.018 across x0.991  camber 0.0/0.0  poke -42/-37 mm
     = 1999 jpn 4WD 1513kg  280hp Coupe    Nissan SKYLINE GT-R V-spec N1 (R34) `99
         wb 2665/2665  track F 1480/1501 R 1490/1501  tyre 653x245 / 653x245  along x1.018 across x0.991  camber 0.0/0.0  poke -42/-37 mm
-    = 1999 jpn 4WD 1260kg  280hp Coupe    Subaru IMPREZA Coupe WRXtypeR STi Version VI (GC) `99
-        wb 2520/2520  track F 1470/1421 R 1460/1421  tyre 611x205 / 611x205  along x0.962 across x0.938  camber 0.0/0.0  poke -19/-24 mm
-    = 1999 jpn 4WD 1447kg  304hp Coupe    Subaru IMPREZA Rally Car `99
-        wb 2520/2520  track F 1510/1488 R 1500/1488  tyre 651x215 / 651x215  along x0.962 across x0.982  camber 0.0/0.0  poke -35/-40 mm
-    = 1999 jpn 4WD 1269kg  280hp Saloon   Subaru IMPREZA Sedan WRX STi Version VI (GC) `99
-        wb 2520/2520  track F 1470/1421 R 1460/1421  tyre 611x205 / 611x205  along x0.962 across x0.938  camber 0.0/0.0  poke -19/-24 mm
 
 === jdm_pickup  (Compact pickup, Japan 1983 Pickup)  — 0 cars
     model: wheelbase 2330 mm, track 1201/1201 mm, tyre 606/606 mm, lower body 1574 mm, 11 liveries
@@ -572,6 +561,29 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
     model: wheelbase 2387 mm, track 1396/1365 mm, tyre 573/573 mm, lower body 1621 mm, 1 liveries
     = 1976 ger FF   878kg  110hp Hatch    Volkswagen Golf I GTI `76
         wb 2400/2400  track F 1404/1404 R 1372/1372  tyre 575x175 / 575x175  along x1.005 across x1.005  camber 0.0/0.0  poke 0/0 mm
+
+=== rally_coupe_98  (Rally Coupe 98, Japan 1998 Coupe)  — 10 cars
+    model: wheelbase 2518 mm, track 1479/1499 mm, tyre 620/620 mm, lower body 1758 mm, 1 liveries
+    = 1994 jpn 4WD 1273kg  250hp Saloon   Subaru IMPREZA Sedan WRX STi (GC) `94
+        wb 2520/2520  track F 1465/1422 R 1455/1441  tyre 611x205 / 611x205  along x1.001 across x0.961  camber 1.1/0.0  poke 0/-3 mm
+    = 1995 jpn 4WD 1284kg  275hp Saloon   Subaru IMPREZA Sedan WRX STi Version II (GC) `95
+        wb 2520/2520  track F 1465/1422 R 1455/1441  tyre 611x205 / 611x205  along x1.001 across x0.961  camber 1.1/0.0  poke 0/-3 mm
+    = 1996 jpn 4WD 1249kg  280hp Saloon   Subaru IMPREZA Sedan WRX STi Version III (GC) `96
+        wb 2520/2520  track F 1470/1422 R 1460/1441  tyre 611x205 / 611x205  along x1.001 across x0.961  camber 1.3/0.0  poke 0/-1 mm
+    = 1997 jpn 4WD 1249kg  280hp Saloon   Subaru IMPREZA Sedan WRX STi Version IV (GC) `97
+        wb 2520/2520  track F 1470/1422 R 1460/1441  tyre 611x205 / 611x205  along x1.001 across x0.961  camber 1.3/0.0  poke 0/-1 mm
+    = 1998 jpn 4WD 1269kg  280hp Coupe    Subaru IMPREZA Premium Sport Coupe 22B-STi Version (GC) `98
+        wb 2520/2520  track F 1480/1489 R 1500/1509  tyre 620x235 / 620x235  along x1.001 across x1.007  camber 0.0/0.0  poke -5/-5 mm
+    = 1998 jpn 4WD 1269kg  280hp Saloon   Subaru IMPREZA Sedan WRX STi Version V (GC) `98
+        wb 2520/2520  track F 1470/1422 R 1460/1441  tyre 611x205 / 611x205  along x1.001 across x0.961  camber 1.3/0.0  poke 0/-1 mm
+    = 1999 jpn 4WD 1260kg  280hp Coupe    Subaru IMPREZA Coupe WRXtypeR STi Version VI (GC) `99
+        wb 2520/2520  track F 1470/1422 R 1460/1441  tyre 611x205 / 611x205  along x1.001 across x0.961  camber 1.3/0.0  poke 0/-1 mm
+    = 1999 jpn 4WD 1447kg  304hp Coupe    Subaru IMPREZA Rally Car `99
+        wb 2520/2520  track F 1510/1489 R 1500/1509  tyre 651x215 / 651x215  along x1.001 across x1.007  camber 0.0/0.0  poke 0/-15 mm
+    = 1999 jpn 4WD 1269kg  280hp Saloon   Subaru IMPREZA Sedan WRX STi Version VI (GC) `99
+        wb 2520/2520  track F 1470/1422 R 1460/1441  tyre 611x205 / 611x205  along x1.001 across x0.961  camber 1.3/0.0  poke 0/-1 mm
+    = 1999 jpn 4WD 1309kg  280hp Estate   Subaru IMPREZA Sport Wagon WRX STi Version VI (GF) `99
+        wb 2520/2520  track F 1470/1422 R 1460/1441  tyre 611x205 / 611x205  along x1.001 across x0.961  camber 1.3/0.0  poke 0/-1 mm
 
 === liftback_95  (Liftback (Integra DC2), Japan 1995 Sports)  — 4 cars
     model: wheelbase 2543 mm, track 1418/1418 mm, tyre 596/596 mm, lower body 1713 mm, 1 liveries
@@ -765,7 +777,7 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
     = 1999 fra FF  1118kg  140hp Hatch    Peugeot 206 S16 `99
         wb 2442/2442  track F 1437/1343 R 1428/1343  tyre 584x185 / 584x185  along x1.099 across x1.090  camber 5.2/4.8  poke 0/0 mm
 
-=== volvo_estate  (Volvo 240 Estate, Europe 1985 Estate)  — 5 cars
+=== volvo_estate  (Volvo 240 Estate, Europe 1985 Estate)  — 4 cars
     model: wheelbase 2625 mm, track 1408/1408 mm, tyre 644/644 mm, lower body 1715 mm, 6 liveries
     = 1988 eur FR  1845kg  129hp Estate   Volvo 240 GLT Estate `88
         wb 2640/2640  track F 1430/1403 R 1360/1403  tyre 615x195 / 615x195  along x1.006 across x0.997  camber 1.0/0.0  poke 0/-24 mm
@@ -775,8 +787,6 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2720/2720  track F 1480/1440 R 1490/1440  tyre 647x215 / 647x215  along x1.036 across x1.023  camber 2.2/2.7  poke 0/0 mm
     = 1998 jpn 4WD 1679kg  280hp Estate   Nissan STAGEA 260RS AutechVersion `98
         wb 2720/2720  track F 1480/1440 R 1510/1440  tyre 657x225 / 657x225  along x1.036 across x1.023  camber 2.6/3.9  poke 0/0 mm
-    = 1999 jpn 4WD 1309kg  280hp Estate   Subaru IMPREZA Sport Wagon WRX STi Version VI (GF) `99
-        wb 2520/2520  track F 1470/1387 R 1460/1387  tyre 611x205 / 611x205  along x0.960 across x0.985  camber 4.2/3.8  poke 0/0 mm
 
 === citroen_cx  (Citroen CX, Europe 1980 Saloon)  — 11 cars
     model: wheelbase 2787 mm, track 1557/1557 mm, tyre 669/669 mm, lower body 1816 mm, 7 liveries

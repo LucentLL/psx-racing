@@ -95,6 +95,11 @@ namespace PSXRacing
             // The owner's 2026-10-06 Hatch 76: an unbadged 1976 GTI-style three-door,
             // sized to GT4's Golf I GTI `76 sheet (3705 mm, 1630 wide, 878 kg).
             new Model { key = "hatch_76",    name = "Hatch 76",                 region = Region.Europe,  year = 1976, body = Body.Hatch,    kg =  878, handOnly = true, widthMm = 1630 },
+            // The owner's 2026-10-07 Rally Coupe 98 (v02): an unbadged 1998 widebody
+            // turbo-4WD coupe, sized to GT4's `98 widebody coupe sheet (4365 mm, 1770 wide, 1269 kg).
+            // Worn by every car of its family - saloons, wagon and coupes - each
+            // fitted to its own sheet (the saloons are 1690 wide).
+            new Model { key = "rally_coupe_98", name = "Rally Coupe 98",        region = Region.Japan,   year = 1998, body = Body.Coupe,    kg = 1269, handOnly = true, widthMm = 1770 },
             // The owner's 2026-10-02 set, each sized to its GT4 sheet: the
             // Liftback 95 (every Integra Type R DC2, Spoon's too), the Roadster
             // 99 (the S2000) and the Coupe 99 (the fifth-generation Preludes).
@@ -516,6 +521,11 @@ namespace PSXRacing
             (@"^Toyota\ 2000GT\ `67$", "mb_pagoda"),
             (@"^Toyota\ CELICA\ 1600GT\ \(TA22\)\ `70$", "gto_66"),
             (@"^Toyota\ MR2\ Spyder\ `99$", "mb_pagoda"),
+            // 2026-10-07: the owner's Rally Coupe 98 dresses its whole family - the
+            // GC saloons, the GF wagon, the coupes, the rally car and the widebody
+            // `98 - so it goes ahead of the wagon rule (the GF wagon was on the
+            // Volvo) and the R32 rule below (the rest were on the R32).
+            (@"Subaru IMPREZA",                                 "rally_coupe_98"),
             // Wagons before anything else: a Legacy Touring Wagon is an estate
             // before it is a turbo saloon, and a Stagea is a Skyline that grew a
             // tailgate. The Volvo IS the catalog's estate.
@@ -571,7 +581,7 @@ namespace PSXRacing
             // The R32 is THE Japanese turbo-4WD performance saloon of the era, so
             // its rivals wear it rather than being scored into a European shell
             // on the strength of having four doors.
-            ("Subaru IMPREZA|Lancer Evolution|Galant.*VR-4|LEGNUM|LEGACY B4", "skyline_r32"),
+            ("Lancer Evolution|Galant.*VR-4|LEGNUM|LEGACY B4",   "skyline_r32"),
             // Celica XX is the Supra's own name in Japan; the 3000GT, the Z32
             // and the Soarer are the same long-nose turbo GT coupe idea.
             ("Toyota SUPRA|Toyota CELICA XX|3000GT|300ZX|Lexus SC", "supra_a80"),

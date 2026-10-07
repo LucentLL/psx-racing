@@ -1,0 +1,6 @@
+# PSX Racing car model
+newmtl rally_coupe_98
+Ka 1 1 1
+Kd 1 1 1
+illum 1
+map_Kd textures/rally_coupe_98_blue_512x256.png
