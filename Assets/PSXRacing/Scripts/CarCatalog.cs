@@ -329,7 +329,15 @@ namespace PSXRacing
             float[] shape = n <= 4 ? Shape4 : (n == 5 ? Shape5 : Shape6);
 
             vmax = vmax > 1f ? vmax : 60f;
-            float anchor = anchorRpm > 1f ? Mathf.Min(anchorRpm, redline) : redline;
+            // Capped at the LIMITER, not the redline (2026-10-07): PeakPowerRPM
+            // walks to the limiter, and an engine still pulling past its
+            // redline (GALANT GTO MR, Chaparral 2D) clamped here sat at the
+            // redline at vmax with more power above it - it ran on past its
+            // build's top speed, and a longer box beat stock by 3%. 100 rpm
+            // under the limiter at most, so an engine still pulling there
+            // tops out clear of the cut (TireForces cuts at limit - 50)
+            // instead of bouncing on it; DeriveDrag balances it at vmax.
+            float anchor = anchorRpm > 1f ? Mathf.Min(anchorRpm, RevLimitRPM - 100f) : redline;
             float wheelRpmAtVmax = vmax / (2f * Mathf.PI * wheelRadius) * 60f;
             float topRatio = anchor / Mathf.Max(1f, wheelRpmAtVmax * finalDrive);
 
