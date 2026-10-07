@@ -306,9 +306,18 @@ namespace PSXRacing.EditorTools
             if (Want("P"))
             {
                 float pLane = -1300f;
-                foreach (var name in new[] { "RX-7 Type R (FD, J) `91", "CIVIC SiR-II (EG) `91",
-                                             "SPRINTER TRUENO GT-APEX (AE86) `83", "Honda NSX `90",
-                                             "\"Yellow Bird\" `87" })
+                // PSX_P_CARS="name|name|..." surveys other cars (catalog name
+                // fragments); PSX_P_EXP="base,lsd,..." runs each car once per
+                // chassis experiment (diagnostics; see PExperiment).
+                string pCars = System.Environment.GetEnvironmentVariable("PSX_P_CARS");
+                string pExp = System.Environment.GetEnvironmentVariable("PSX_P_EXP");
+                var pNames = !string.IsNullOrEmpty(pCars) ? pCars.Split('|')
+                    : new[] { "RX-7 Type R (FD, J) `91", "CIVIC SiR-II (EG) `91",
+                              "SPRINTER TRUENO GT-APEX (AE86) `83", "Honda NSX `90",
+                              "\"Yellow Bird\" `87" };
+                var pExps = !string.IsNullOrEmpty(pExp) ? pExp.Split(',') : new[] { "" };
+                foreach (var name in pNames)
+                foreach (var exp in pExps)
                 {
                     var ps = Pick(name);
                     HandlingPlayCheck.Check(ps != null, "P: " + name + " is in the catalog with a model");
@@ -324,8 +333,11 @@ namespace PSXRacing.EditorTools
                     cam = Object.FindFirstObjectByType<ChaseCamera>();
                     // Its own lanes: the strip is 3 km wide and A-H have
                     // walked xLane most of the way to its edge already.
-                    pLane += 500f; xLane = pLane;
-                    yield return TestP(ps.name);
+                    pLane += 500f;
+                    if (pLane > 1300f) pLane = -800f;
+                    xLane = pLane;
+                    PExperiment(exp);
+                    yield return TestP(ps.name + (exp == "" || exp == "base" ? "" : " [" + exp + "]"));
                 }
             }
             // Last: it reloads the scene.
@@ -339,6 +351,40 @@ namespace PSXRacing.EditorTools
         // a 70 mph lane change. Logged as numbers for a before/after table;
         // FAILs only for what makes a car undriveable (spin from a lane
         // change, rollover, a stop that swaps ends).
+        /// <summary>A chassis experiment on the car just swapped in
+        /// (PSX_P_EXP; diagnostics only): "lsd" the FD's 0.20/0.10 diff,
+        /// "fd" the old FD chassis scaled by mass, "com" the CoM at the
+        /// wheelbase midpoint, "mu" the FD's tyres, "noinj" no yaw injector.</summary>
+        void PExperiment(string exp)
+        {
+            if (string.IsNullOrEmpty(exp) || exp == "base") return;
+            float s = car.massKg / CarController.ChassisRefMass;
+            if (exp.Contains("lsd")) { car.diffAccelLock = 0.2f; car.diffDecelLock = 0.1f; }
+            if (exp.Contains("fd"))
+            {
+                car.springRateFront = CarController.SpringFrontRef * s; car.springRateRear = CarController.SpringRearRef * s;
+                car.damperFront = CarController.DamperFrontRef * s; car.damperRear = CarController.DamperRearRef * s;
+                car.antiRollFront = CarController.AntiRollFrontRef * s; car.antiRollRear = CarController.AntiRollRearRef * s;
+            }
+            if (exp.Contains("com")) { car.weightDistFront = 0.5f; car.Body.centerOfMass = new Vector3(0f, car.cgHeight, 0f); }
+            if (exp.Contains("mu")) { car.tireMuFront = CarController.DefaultTireMuFront; car.tireMuRear = CarController.DefaultTireMuRear; }
+            if (exp.Contains("noinj")) car.wheelspinYawGain = 0f;
+            if (exp.Contains("split"))
+            {
+                // splitNN: the same total roll stiffness, NN% of it at the front.
+                float share = int.Parse(exp.Substring(exp.IndexOf("split") + 5, 2)) / 100f;
+                float tot = car.springRateFront * 0.5f + car.antiRollFront + car.springRateRear * 0.5f + car.antiRollRear;
+                car.antiRollFront = Mathf.Max(0f, share * tot - car.springRateFront * 0.5f);
+                car.antiRollRear = Mathf.Max(0f, (1f - share) * tot - car.springRateRear * 0.5f);
+            }
+            if (exp.Contains("barsx2")) { car.antiRollFront *= 2f; car.antiRollRear *= 2f; }
+            if (exp.Contains("springx2"))
+            {
+                car.springRateFront *= 2f; car.springRateRear *= 2f;
+                car.damperFront *= 1.414f; car.damperRear *= 1.414f;
+            }
+            if (exp.Contains("dampx2")) { car.damperFront *= 2f; car.damperRear *= 2f; }
+        }
         float Yaw() => car.transform.eulerAngles.y;
         float YawRateDeg() => car.Body.angularVelocity.y * Mathf.Rad2Deg;
         float HoldThrottle(float target) => Mathf.Clamp01(0.35f + (target - VFwd()) * 0.6f);
@@ -361,8 +407,17 @@ namespace PSXRacing.EditorTools
                 " mu " + car.tireMuFront.ToString("0.000") + "/" + car.tireMuRear.ToString("0.000") +
                 " limiter " + car.revLimitRPM.ToString("0") + " (redline " + car.redlineRPM.ToString("0") + ") diff " +
                 car.diffAccelLock.ToString("0.00") + "/" + car.diffDecelLock.ToString("0.00") + "/" + car.diffPreloadN.ToString("0") + " N");
-            HandlingPlayCheck.Note(who + ": P rest pitch " + pitch.ToString("+0.00;-0.00") + " deg (nose up +), body " +
+            // The sheet's rake (front lower = nose down), read by reflection so
+            // this runs against main too (no rake there: level).
+            var rakeField = typeof(CarController).GetField("rideRakeM");
+            float rakeM = rakeField != null ? (float)rakeField.GetValue(car) : 0f;
+            float sheetPitch = -Mathf.Atan2(rakeM, Mathf.Max(1f, car.wheelbase)) * Mathf.Rad2Deg;
+            HandlingPlayCheck.Note(who + ": P rest pitch " + pitch.ToString("+0.00;-0.00") + " deg (nose up +; sheet rake " +
+                sheetPitch.ToString("+0.00;-0.00") + "), body " +
                 ride.ToString("0.000") + " m over the road, front axle carries " + (split * 100f).ToString("0.0") + "%");
+            HandlingPlayCheck.Check(Mathf.Abs(pitch - sheetPitch) < 0.3f,
+                who + ": P sits at its sheet's rake at rest (not nose-down or squatted)",
+                pitch.ToString("+0.00;-0.00") + " deg against " + sheetPitch.ToString("+0.00;-0.00"));
 
             // LAUNCH: full throttle from a standstill.
             yield return Place(-13000f, 0f, 0f);
@@ -387,17 +442,34 @@ namespace PSXRacing.EditorTools
             yield return Place(-11000f, 0f, 40f * Mph);
             drive = true;
             float best = 0f, bF = 0f, bR = 0f, bSteer = 0f, bBody = 0f, maxBody = 0f;
+            var curve = new System.Text.StringBuilder();
+            int nextMark = 1;
+            bool pastLimit = false;
             for (float t = 0f; t < 8f; t += step)
             {
                 steer = Mathf.Clamp01(t / 8f);
                 throttle = HoldThrottle(40f * Mph);
                 yield return new WaitForFixedUpdate();
                 float latG = Mathf.Abs(Planar() * car.Body.angularVelocity.y) / 9.81f;
+                // The g / slip curve against the lock, every 0.1 of steer.
+                if (steer >= nextMark * 0.1f - 1e-4f && nextMark <= 10)
+                {
+                    curve.Append(" " + steer.ToString("0.0") + ":" + latG.ToString("0.00") + "g/" +
+                                 (Mathf.Abs(car.frontSlipAngle) * Mathf.Rad2Deg).ToString("0") + "/" +
+                                 (Mathf.Abs(car.rearSlipAngle) * Mathf.Rad2Deg).ToString("0") + "/" +
+                                 (Planar() / Mph).ToString("0"));
+                    nextMark++;
+                }
                 maxBody = Mathf.Max(maxBody, BodySlipDeg());
                 minUp = Mathf.Min(minUp, car.transform.up.y);
                 // The FIRST time it reaches its limit: a plateau that creeps up
                 // by a few thousandths at more lock is not a higher limit.
-                if (t > 1f && latG > best + 0.005f && BodySlipDeg() < 25f)
+                // And only the FIRST: once the g has fallen 0.03 below its best
+                // the car is past its limit, and a later rise at full lock (an
+                // open-diff FR stepping out on the power, the AE86 at 1.30 g
+                // after a 1.25 g plateau at 0.3 of lock) is not that limit.
+                if (t > 1f && best > 0.5f && latG < best - 0.03f) pastLimit = true;
+                if (!pastLimit && t > 1f && latG > best + 0.005f && BodySlipDeg() < 25f)
                 {
                     best = latG; bSteer = steer; bBody = BodySlipDeg();
                     bF = Mathf.Abs(car.frontSlipAngle) * Mathf.Rad2Deg;
@@ -407,6 +479,7 @@ namespace PSXRacing.EditorTools
             HandlingPlayCheck.Note(who + ": P skidpad 40 mph max " + best.ToString("0.00") + " g at steer " + bSteer.ToString("0.00") +
                 ", slip F " + bF.ToString("0.0") + " R " + bR.ToString("0.0") + " deg, balance " + (bF - bR).ToString("+0.0;-0.0") +
                 " deg (+ understeer), body slip there " + bBody.ToString("0.0") + ", max " + maxBody.ToString("0.0"));
+            HandlingPlayCheck.Note(who + ": P skidpad curve (steer:g/slipF/slipR/mph)" + curve);
 
             // LIFT mid-corner: 80% of that steer at 40 mph, settle 3 s, then off.
             yield return Place(-9000f, 0f, 40f * Mph);
@@ -452,7 +525,19 @@ namespace PSXRacing.EditorTools
             // way at 70 mph, a light throttle), then let go.
             yield return Place(-5000f, 0f, 70f * Mph);
             drive = true;
-            float hl = Yaw(), lcSlip = 0f, lcYaw = 0f;
+            // ON ITS WHEELS FIRST: Place drops the car from 0.6 m and the
+            // lane change used to begin while it was still in the air, so a
+            // soft car (the AE86, 1.6 kgf/mm) was measured landing - 11 deg
+            // off line - not changing lanes. 1.5 s straight at 70 first.
+            for (float t = 0f; t < 1.5f; t += step)
+            {
+                steer = 0f; throttle = HoldThrottle(70f * Mph);
+                yield return new WaitForFixedUpdate();
+            }
+            float hl = Yaw(), lcSlip = 0f, lcYaw = 0f, lcRoll = 0f, minF = 9f, minR = 9f;
+            float sF = car.massKg * 9.81f * 0.5f * car.weightDistFront, sR = car.massKg * 9.81f * 0.5f * (1f - car.weightDistFront);
+            var trace = new System.Text.StringBuilder();
+            float nextT = 0.25f;
             for (float t = 0f; t < 4f; t += step)
             {
                 steer = t < 0.35f ? 1f : t < 0.7f ? -1f : 0f;
@@ -461,7 +546,19 @@ namespace PSXRacing.EditorTools
                 lcSlip = Mathf.Max(lcSlip, BodySlipDeg());
                 lcYaw = Mathf.Max(lcYaw, Mathf.Abs(YawRateDeg()));
                 minUp = Mathf.Min(minUp, car.transform.up.y);
+                lcRoll = Mathf.Max(lcRoll, Mathf.Abs(Mathf.DeltaAngle(0f, car.transform.eulerAngles.z)));
+                minF = Mathf.Min(minF, Mathf.Min(car.wheelContacts[0].load, car.wheelContacts[1].load) / sF);
+                minR = Mathf.Min(minR, Mathf.Min(car.wheelContacts[2].load, car.wheelContacts[3].load) / sR);
+                if (t >= nextT && nextT <= 2.01f)
+                {
+                    trace.Append(" " + nextT.ToString("0.00") + "s:" + YawRateDeg().ToString("0") + "/" +
+                                 Mathf.DeltaAngle(hl, Yaw()).ToString("0.0"));
+                    nextT += 0.25f;
+                }
             }
+            HandlingPlayCheck.Note(who + ": P lane change trace (t:yaw deg/s/heading) " + trace + "; roll max " +
+                lcRoll.ToString("0.0") + " deg, least wheel load F " + (minF * 100f).ToString("0") + "% R " +
+                (minR * 100f).ToString("0") + "% of static");
             float lcHead = Mathf.Abs(Mathf.DeltaAngle(hl, Yaw()));
             HandlingPlayCheck.Note(who + ": P lane change 70 mph body slip max " + lcSlip.ToString("0.0") + " deg, yaw max " +
                 lcYaw.ToString("0.0") + " deg/s, heading after " + lcHead.ToString("0.0") + " deg");
