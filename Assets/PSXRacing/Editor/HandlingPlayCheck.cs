@@ -305,6 +305,7 @@ namespace PSXRacing.EditorTools
             // as the reference, then FF / FR / MR / RR).
             if (Want("P"))
             {
+                float pLane = -1300f;
                 foreach (var name in new[] { "RX-7 Type R (FD, J) `91", "CIVIC SiR-II (EG) `91",
                                              "SPRINTER TRUENO GT-APEX (AE86) `83", "Honda NSX `90",
                                              "\"Yellow Bird\" `87" })
@@ -321,7 +322,9 @@ namespace PSXRacing.EditorTools
                     for (int f = 0; f < 5; f++) yield return null;
                     car.manualMode = false;
                     cam = Object.FindFirstObjectByType<ChaseCamera>();
-                    xLane += 400f;
+                    // Its own lanes: the strip is 3 km wide and A-H have
+                    // walked xLane most of the way to its edge already.
+                    pLane += 500f; xLane = pLane;
                     yield return TestP(ps.name);
                 }
             }
@@ -443,14 +446,15 @@ namespace PSXRacing.EditorTools
             HandlingPlayCheck.Check(bHead < 20f, who + ": P a straight stop stays straight", bHead.ToString("0.0") + " deg");
             brake = 0f;
 
-            // LANE CHANGE: 70 mph, half lock one way then the other, let go.
+            // LANE CHANGE: test E's keyboard lane change (full key 0.35 s each
+            // way at 70 mph, a light throttle), then let go.
             yield return Place(-5000f, 0f, 70f * Mph);
             drive = true;
             float hl = Yaw(), lcSlip = 0f, lcYaw = 0f;
             for (float t = 0f; t < 4f; t += step)
             {
-                steer = t < 0.6f ? 0.5f : t < 1.2f ? -0.5f : 0f;
-                throttle = HoldThrottle(70f * Mph);
+                steer = t < 0.35f ? 1f : t < 0.7f ? -1f : 0f;
+                throttle = 0.35f;
                 yield return new WaitForFixedUpdate();
                 lcSlip = Mathf.Max(lcSlip, BodySlipDeg());
                 lcYaw = Mathf.Max(lcYaw, Mathf.Abs(YawRateDeg()));
@@ -459,7 +463,8 @@ namespace PSXRacing.EditorTools
             float lcHead = Mathf.Abs(Mathf.DeltaAngle(hl, Yaw()));
             HandlingPlayCheck.Note(who + ": P lane change 70 mph body slip max " + lcSlip.ToString("0.0") + " deg, yaw max " +
                 lcYaw.ToString("0.0") + " deg/s, heading after " + lcHead.ToString("0.0") + " deg");
-            HandlingPlayCheck.Check(lcSlip < 15f, who + ": P a plain lane change does not spin it", lcSlip.ToString("0.0") + " deg");
+            HandlingPlayCheck.Check(lcSlip < 15f && lcHead < 15f, who + ": P a plain lane change does not spin it",
+                                    lcSlip.ToString("0.0") + " deg slip, " + lcHead.ToString("0.0") + " deg off line after");
             HandlingPlayCheck.Check(minUp > 0.5f, who + ": P never rolls over", "lowest up.y " + minUp.ToString("0.00"));
             drive = false; steer = 0f; throttle = 0f;
         }
