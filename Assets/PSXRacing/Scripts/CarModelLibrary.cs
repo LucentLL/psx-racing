@@ -227,6 +227,10 @@ namespace PSXRacing
             // pop-up variant of that car; its fixed-lamp twin stays scored.
             (@"Miata.*\(NA\b",                                  "roadster_na_popup"),
             (@"SPRINTER TRUENO GT-APEX \(AE86\)",              "hatch_83_popup"),
+            // 2026-10-06, the owner's Car Models Tracker: the fixed-lamp twin
+            // reads closest as the boxy 80s liftback (the shell in his sheet's
+            // F5), not the RX-7 it was scored onto.
+            (@"COROLLA LEVIN GT-APEX \(AE86\)",                "citroen_cx"),
             // 2026-10-06: the owner's Hatch 76 is the catalog's 1976 GTI, ahead of
             // the European hatch rule below that takes every other Golf.
             (@"Golf I GTI `76",                                 "hatch_76"),
