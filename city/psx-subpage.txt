@@ -1,0 +1,8 @@
+PSX Racing test build: tools\build-and-publish.ps1 -PagesDir city
+A root publish (no -PagesDir) keeps every gh-pages folder holding this file.
+label: CHARLOTTE TEST
+edition: CITY
+save: IndexedDB /idbfs-city (the game at the site root keeps /idbfs)
+source at publish: main@2ec5188a
+build stamp: 20261007235633 (the ?v= on this folder's index.html)
+published: 2026-10-08 00:01:31 UTC
