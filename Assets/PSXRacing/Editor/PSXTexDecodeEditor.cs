@@ -69,6 +69,8 @@ namespace PSXRacing.EditorTools
                 if (!p.EndsWith(".mat", System.StringComparison.OrdinalIgnoreCase)) continue;
                 var m = AssetDatabase.LoadAssetAtPath<Material>(p);
                 if (m == null) continue;
+                // CLASSIC / ENHANCED: a saved .mat always holds the original.
+                if (TextureTierTool.ToClassic(m)) zeroed = true;
                 foreach (int id in new[] { PSXTexDecode.MainTexRawId, PSXTexDecode.DeepTexRawId })
                     if (m.HasProperty(id) && m.GetFloat(id) != 0f) { m.SetFloat(id, 0f); zeroed = true; }
             }
