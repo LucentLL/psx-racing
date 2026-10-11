@@ -54,7 +54,7 @@ MonoBehaviour:
   - rally_coupe_98_blue_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.21819279, g: 0.24807057, b: 0.35722837, a: 1}
+  - {r: 0.21921165, g: 0.2688463, b: 0.37385005, a: 1}
   bodyYaw: 180
   bodyYOffset: -0.02168506
   bodyZOffset: 0
@@ -67,15 +67,15 @@ MonoBehaviour:
   tyreWidthRear: 0.23483801
   lowerBodyWidth: 1.758322
   cowlZ: 0.8736496
-  cowlY: 0.87560606
+  cowlY: 0.87534505
   noseZ: 2.169509
   roofY: 1.3411182
-  headLamp: {x: 0.57114625, y: 0.56553435, z: 2.00554}
-  headLampNormal: {x: 0.29344496, y: 0.23103397, z: 0.9276386}
-  headLampSize: {x: 0.4051956, y: 0.109214425}
-  tailLamp: {x: 0.6140944, y: 0.7147969, z: -2.0425801}
-  tailLampNormal: {x: 0.49170768, y: -0.029860789, z: -0.8702482}
-  tailLampSize: {x: 0.40627098, y: 0.124703884}
+  headLamp: {x: 0.62198347, y: 0.5610503, z: 1.9797498}
+  headLampNormal: {x: 0.5395313, y: 0.17303681, z: 0.82399285}
+  headLampSize: {x: 0.41395742, y: 0.103444606}
+  tailLamp: {x: 0.6071366, y: 0.7157118, z: -2.0425858}
+  tailLampNormal: {x: 0.4904238, y: -0.0774592, z: -0.8680349}
+  tailLampSize: {x: 0.39721948, y: 0.12330437}
   lampsUpMesh: {fileID: 0}
   headLampUp: {x: 0, y: 0, z: 0}
   headLampUpNormal: {x: 0, y: 0, z: 1}

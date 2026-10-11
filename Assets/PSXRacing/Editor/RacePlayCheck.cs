@@ -171,6 +171,16 @@ namespace PSXRacing.EditorTools
             RaceHandoff.CarSpecId = cars[b].id;
             RaceHandoff.OpponentSpecIds = cars[b + 1].id + ";" + cars[b + 2].id + ";" + cars[b + 3].id;
             RaceHandoff.OpponentSkills = "1.0;0.95;0.9";
+            // PSX_RACE_CARS="player;rival;rival;rival" (catalog ids): a chosen
+            // field instead of the seed's four - e.g. new shells as rivals.
+            string pick = System.Environment.GetEnvironmentVariable("PSX_RACE_CARS");
+            if (!string.IsNullOrEmpty(pick))
+            {
+                var ids = pick.Split(';');
+                RaceHandoff.CarSpecId = ids[0];
+                RaceHandoff.OpponentSpecIds = string.Join(";", ids, 1, ids.Length - 1);
+                log.AppendLine("  field " + pick);
+            }
             // PSX_RACE_SOLO=1: the field retired (a deck run's TIME TRIAL),
             // with the deck's best wiped so the run has to record one.
             if (System.Environment.GetEnvironmentVariable("PSX_RACE_SOLO") == "1")

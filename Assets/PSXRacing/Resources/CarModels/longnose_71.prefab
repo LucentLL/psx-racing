@@ -1,0 +1,85 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &7639652672935278000
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4152959269532151320}
+  - component: {fileID: 727534382090455660}
+  m_Layer: 0
+  m_Name: longnose_71
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &4152959269532151320
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7639652672935278000}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &727534382090455660
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7639652672935278000}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: longnose_71
+  displayName: Long-nose Coupe 71
+  bodyMesh: {fileID: -2432090755550338912, guid: a7609a7689a22ee46a0d84cfd0bdedf1, type: 3}
+  wheelMesh: {fileID: 4300000, guid: d693c28e2458b7e46af4297a23fdec15, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: 357df46b9f0ce0040b4de059c5f0d743, type: 2}
+  skinNames:
+  - longnose_71_brown_512x256
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.4622832, g: 0.31634167, b: 0.22997168, a: 1}
+  bodyYaw: 180
+  bodyYOffset: -0.024256222
+  bodyZOffset: 0
+  wheelbase: 2.305746
+  trackWidth: 1.349438
+  wheelRadius: 0.32226127
+  wheelMeshScale: 0.93
+  trackRear: 1.349438
+  tyreRadiusRear: 0.3465175
+  tyreWidthRear: 0.23860198
+  lowerBodyWidth: 1.629486
+  cowlZ: 0.4083532
+  cowlY: 0.8891932
+  noseZ: 2.089994
+  roofY: 1.2411101
+  headLamp: {x: 0.6232506, y: 0.6184912, z: 1.636552}
+  headLampNormal: {x: 0, y: -0, z: 1}
+  headLampSize: {x: 0.1353372, y: 0.14798215}
+  tailLamp: {x: 0.519024, y: 0.63105625, z: -2.036532}
+  tailLampNormal: {x: -0, y: 0, z: -1}
+  tailLampSize: {x: 0.31672326, y: 0.15913466}
+  lampsUpMesh: {fileID: 0}
+  headLampUp: {x: 0, y: 0, z: 0}
+  headLampUpNormal: {x: 0, y: 0, z: 1}
+  headLampUpSize: {x: 0, y: 0}
+  colliderCenter: {x: 0, y: 0.7301258, z: -0.06250608}
+  colliderSize: {x: 1.532775, y: 0.9565596, z: 4.111275}
+  blobSize: {x: 2.0437002, y: 4.6063504}

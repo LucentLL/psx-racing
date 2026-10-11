@@ -100,6 +100,13 @@ namespace PSXRacing
             // Worn by every car of its family - saloons, wagon and coupes - each
             // fitted to its own sheet (the saloons are 1690 wide).
             new Model { key = "rally_coupe_98", name = "Rally Coupe 98",        region = Region.Japan,   year = 1998, body = Body.Coupe,    kg = 1269, handOnly = true, widthMm = 1770 },
+            // The owner's 2026-10-10 set, three unbadged shells, each sized to
+            // its GT4 sheet: the long-nose 70s coupe (the catalog's one S30,
+            // 4305 mm), the `99 rally saloon (its three rows, 4350 mm) and the
+            // late-face pop-up fastback (the 240SX `96, 4520 mm; pop-ups).
+            new Model { key = "longnose_71",    name = "Long-nose Coupe 71",    region = Region.Japan,   year = 1971, body = Body.Sports,   kg = 1010, handOnly = true, widthMm = 1690 },
+            new Model { key = "rally_sedan_99", name = "Rally Sedan 99",        region = Region.Japan,   year = 1999, body = Body.Saloon,   kg = 1360, handOnly = true, widthMm = 1770 },
+            new Model { key = "fastback_96",    name = "Fastback 96 (pop-up)",  region = Region.Japan,   year = 1996, body = Body.Sports,   kg = 1220, handOnly = true, widthMm = 1695 },
             // The owner's 2026-10-02 set, each sized to its GT4 sheet: the
             // Liftback 95 (every Integra Type R DC2, Spoon's too), the Roadster
             // 99 (the S2000) and the Coupe 99 (the fifth-generation Preludes).
@@ -480,6 +487,13 @@ namespace PSXRacing
         // scorer would get wrong for a structural reason noted alongside it.
         static readonly (string pattern, string key)[] HandRules =
         {
+            // 2026-10-10: the owner's three new shells, exact rows, first so they
+            // win over the remap below (the 240ZG was on mustang_67), the S13
+            // rule (the 240SX `96 was on nissan_180sx; the Silvias and the
+            // SILEIGHTY stay there) and the Lancer Evolution rule (on the R32).
+            (@"^Nissan\ 240ZG\ \(HS30\)\ `71$",                          "longnose_71"),
+            (@"^Mitsubishi\ Lancer\ Evolution\ VI\ (RS|GSR|Rally\ Car)\ `99$", "rally_sedan_99"),
+            (@"^Nissan\ 240SX\ `96$",                                    "fastback_96"),
             // 2026-10-06, the owner's Car Models Tracker remap (approved "all look good"):
             // 38 cars moved onto the existing shell closest to the real car. Exact names,
             // first so they win; review page https://claude.ai/artifact/MvczJsa8sF44Jj2YkECfAw
@@ -508,7 +522,6 @@ namespace PSXRacing
             (@"^Mitsubishi\ Lancer\ 1600\ GSR\ `73$", "bmw_e30"),
             (@"^Mitsubishi\ Lancer\ EX\ 1800GSR\ IC\ Turbo\ `83$", "audi_saloon"),
             (@"^Nissan\ 240RS\ Rally\ Car\ `85$", "citroen_cx"),
-            (@"^Nissan\ 240ZG\ \(HS30\)\ `71$", "mustang_67"),
             (@"^Nissan\ BLUEBIRD\ Rally\ Car\ \(510\)\ `69$", "bmw_e30"),
             (@"^Nissan\ Fairlady\ Z\ 280Z\-L\ 2seater\ \(S130\)\ `78$", "mustang_67"),
             (@"^Nissan\ SILVIA\ 240RS\ \(S100\)\ `83$", "citroen_cx"),
