@@ -144,6 +144,42 @@ namespace PSXRacing.EditorTools
             Debug.Log(log.ToString());
         }
 
+        /// <summary>Batch: the same frames under CLASSIC and then ENHANCED -
+        /// a CityCircuit start (StartGrid, shop scenery), the home street
+        /// (garage door, windows) and two Charlotte streets - copied to
+        /// PSX_TEX_OUT as classic_*.png / enhanced_*.png.</summary>
+        public static void CaptureCompare()
+        {
+            string outDir = System.Environment.GetEnvironmentVariable("PSX_TEX_OUT");
+            string root = Directory.GetParent(Application.dataPath).FullName;
+            string shots = Path.Combine(root, "Screenshots");
+            Directory.CreateDirectory(outDir);
+            System.Environment.SetEnvironmentVariable("PSX_SHOT_VENUE", "CityCircuit");
+            System.Environment.SetEnvironmentVariable("PSX_SHOT_SPOTS", "0:start");
+            System.Environment.SetEnvironmentVariable("PSX_REF_ONLY", "sv_a1_trade,sv_a11_central");
+            foreach (var tier in new[] { "classic", "enhanced" })
+            {
+                System.Environment.SetEnvironmentVariable("PSX_TEX", tier == "enhanced" ? "enhanced" : null);
+                TextureTier.ApplyAll();
+                void Grab(string dir, string pattern)
+                {
+                    if (!Directory.Exists(dir)) return;
+                    foreach (var f in Directory.GetFiles(dir, pattern))
+                        File.Copy(f, Path.Combine(outDir, tier + "_" + Path.GetFileName(f)), true);
+                }
+                PSXScreenshotTool.CaptureSpotsOnly();
+                Grab(shots, "psx_spot_CityCircuit_0_*.png");
+                PSXScreenshotTool.CaptureNeighborhood();
+                Grab(shots, "psx_nb_*.png");
+                CityRefSpots.Run();
+                Grab(Path.Combine(shots, "City", "ref"), "*.png");
+                Debug.Log($"[TexTier] captured {tier} (twins loaded {TextureTier.LoadedCount})");
+            }
+            System.Environment.SetEnvironmentVariable("PSX_TEX", null);
+            RestoreClassic();
+            Debug.Log("[TexTier] CAPTURE DONE");
+        }
+
         /// <summary>Batch: build the map, then the self-test.</summary>
         public static void BuildAndTest()
         {

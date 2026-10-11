@@ -177,8 +177,11 @@ namespace PSXRacing.EditorTools
             int shots = 0;
             try
             {
+                // PSX_REF_ONLY=id,id: just those spots (the texture tier compare)
+                string only = System.Environment.GetEnvironmentVariable("PSX_REF_ONLY");
                 foreach (var sp in Spots)
                 {
+                    if (!string.IsNullOrEmpty(only) && System.Array.IndexOf(only.Split(','), sp.id) < 0) continue;
                     var at = LL(sp.lat, sp.lon);
                     if (!Snap(map, at, sp.road, out var e, out float s, out bool named))
                     { Debug.LogWarning($"[CityRefSpots] {sp.id}: no road near"); continue; }
