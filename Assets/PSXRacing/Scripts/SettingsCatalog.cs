@@ -178,7 +178,7 @@ namespace PSXRacing
         public static readonly string[] TabBlurbs =
         {
             "The camera, the steering and the instruments.",
-            "How the picture looks: resolution, sky, lens and grade.",
+            "How the picture looks: resolution, textures, sky, lens and grade.",
             "How loud the game is: everything, the engines, and the rest.",
             "The screen, the frame rate, the debug tools and the credits.",
         };

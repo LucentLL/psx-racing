@@ -57,8 +57,8 @@ namespace PSXRacing
         // Layout, in MenuKit units from the top of a 560-unit column (a phone
         // in landscape); a taller column centres the block (see Off).
         const float TitleY = -12f, TabY = -62f, TabH = 44f, TabGap = 8f;
-        const float RowTop = -120f, RowH = 40f, RowStep = 48f;
-        const float HelpY = -412f, HelpH = 72f;
+        const float RowTop = -120f, RowH = 40f, RowStep = 46f;   // 7 rows (VISUALS, 2026-10-11)
+        const float HelpY = -444f, HelpH = 56f;
         const float FooterY = -504f, FooterH = 42f, BackW = 200f, PadX = 18f;
         const float BlockH = 560f;
 
@@ -217,9 +217,9 @@ namespace PSXRacing
                 tabs.Add(tb);
             }
 
-            // The help line: what the row under the cursor does. Three lines
-            // of room at the type floor; the longest sentence takes two on the
-            // narrowest column (a 4:3 tablet's).
+            // The help line: what the row under the cursor does. Two lines
+            // of room at the type floor under SEVEN rows; the longest sentence
+            // takes two on the narrowest column (a 4:3 tablet's).
             help = MenuKit.Label(canvas.transform, "", MenuKit.MinLabelSize, top,
                                  new Vector2(-w * 0.5f, HelpY - off), TextAnchor.UpperLeft,
                                  MenuKit.Dim, w, HelpH);
