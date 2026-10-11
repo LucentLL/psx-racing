@@ -43,3 +43,11 @@ tools/city/charlotte_*.png
 
 # Python bytecode from the tools
 __pycache__/
+
+# The Enhanced texture bundle: a build product, made from
+# Assets/PSXRacing/EnhancedSrc right before every player build
+# (TextureTierTool.BuildBundle, called by PSXBuildWebGL) and shipped beside
+# the page as StreamingAssets/texenhanced.bundle.
+/Assets/StreamingAssets/texenhanced.bundle
+/Assets/StreamingAssets/texenhanced.bundle.meta
+/Assets/StreamingAssets.meta

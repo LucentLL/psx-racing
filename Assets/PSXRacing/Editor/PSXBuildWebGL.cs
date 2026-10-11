@@ -166,6 +166,22 @@ namespace PSXRacing.EditorTools
                 // tangents, no URP post data, no splash, LTO wasm.
                 ReleaseBudget.Apply();
 
+                // THE ENHANCED TEXTURES, BESIDE THE BUILD (2026-10-11). In
+                // Resources they took MAIN's WebGL.data to 106.6 MB; as one
+                // AssetBundle in StreamingAssets they ship as their own file
+                // (Build/../StreamingAssets/texenhanced.bundle, published
+                // with the page) that a player fetches only on ENHANCED. Built
+                // here, after ReleaseBudget, so the twins carry the release
+                // imports their originals do, and every edition gets a bundle
+                // that matches its own map. See TextureTierTool.BuildBundle.
+                string texErr = TextureTierTool.BuildBundle(BuildTarget.WebGL, out long texBytes);
+                if (texErr != null)
+                {
+                    Debug.LogError("[PSXBuildWebGL] TEX BUNDLE FAILED: " + texErr);
+                    return false;
+                }
+                Debug.Log($"[PSXBuildWebGL] Enhanced texture bundle: StreamingAssets/{TextureTier.BundleFile} {texBytes / 1048576f:F2} MB");
+
                 Directory.CreateDirectory(outDir);
 
                 var options = new BuildPlayerOptions

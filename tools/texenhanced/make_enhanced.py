@@ -14,16 +14,18 @@ truth. Rules, from the handoff and the owner:
   * the unmapped library trees have no binding and stay out;
   * SoilBeach: DRY (the wet one is a second choice for the same original);
   * names that share one artwork are imported ONCE.
-Enhanced files land under Resources/TexEnhanced/ in the ORIGINAL's folder
+Enhanced files land under EnhancedSrc/TexEnhanced/ in the ORIGINAL's folder
 (relative to Art/), so path rules (ReleaseBudget's /Roads/ exclusion) treat
-the copy as they treat the original, and load only when Enhanced is picked.
+the copy as they treat the original. EnhancedSrc is outside Resources: the
+twins ship as StreamingAssets/texenhanced.bundle (TextureTierTool.BuildBundle,
+run before every player build) and load only when Enhanced is picked.
 """
 import hashlib, json, os, shutil, sys
 from PIL import Image
 
 H, P = sys.argv[1], sys.argv[2]
 ART = "Assets/PSXRacing/Art/"
-DEST = "Assets/PSXRacing/Resources/TexEnhanced/"
+DEST = "Assets/PSXRacing/EnhancedSrc/TexEnhanced/"
 reg = json.load(open(os.path.join(H, "texture_registry_overhaul1.json"), encoding="utf-8"))
 tex = {t["id"]: t for t in reg["textures"]}
 
