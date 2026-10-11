@@ -1,0 +1,345 @@
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using UnityEditor;
+using UnityEngine;
+using UnityEngine.Experimental.Rendering;
+
+namespace PSXRacing.EditorTools
+{
+    /// <summary>
+    /// CLASSIC / ENHANCED, the editor half (2026-10-11).
+    ///
+    /// BUILD: reads Editor/TextureTierManifest.txt (written from the owner's
+    /// registry by tools/texenhanced/make_enhanced.py), checks every original
+    /// against its GUID, gives each Enhanced twin its original's import
+    /// settings - filter, wrap, mips, alpha, colour space, platform formats,
+    /// the psx16 label - at its own 2x size, and writes
+    /// Resources/TextureTierMap.asset. The twins live under
+    /// Resources/TexEnhanced, outside Art/, so the 256 cap
+    /// (PSXTextureCaps, applied by the builder's sweep over Art/) never sees
+    /// them and the Classic cap stays where it is.
+    ///
+    /// The ORIGINALS are never touched: not their files, GUIDs or imports.
+    ///
+    /// Batch: -executeMethod PSXRacing.EditorTools.TextureTierTool.BuildMap
+    ///        -executeMethod PSXRacing.EditorTools.TextureTierTool.SelfTest
+    ///        -executeMethod PSXRacing.EditorTools.TextureTierTool.BuildAndTest
+    /// They write PSXRacing_textier_build.txt / PSXRacing_textier.txt at the project root.
+    /// </summary>
+    [InitializeOnLoad]
+    public static class TextureTierTool
+    {
+        const string Manifest = "Assets/PSXRacing/Editor/TextureTierManifest.txt";
+        const string MapAsset = "Assets/PSXRacing/Resources/TextureTierMap.asset";
+        const string Prefix = "Assets/PSXRacing/Resources/";
+        const string LogFile = "PSXRacing_textier.txt";
+        const string BuildLogFile = "PSXRacing_textier_build.txt";
+
+        static TextureTierTool()
+        {
+            // Play mode swaps the material ASSETS; the editor must not keep that.
+            EditorApplication.playModeStateChanged += s =>
+            {
+                if (s == PlayModeStateChange.ExitingPlayMode || s == PlayModeStateChange.EnteredEditMode)
+                    RestoreClassic();
+            };
+            EditorApplication.quitting += RestoreClassic;
+        }
+
+        /// <summary>This material back to its originals. True when it changed.</summary>
+        public static bool ToClassic(Material m)
+        {
+            TextureTier.ForceClassic = true;
+            try { return TextureTier.Swap(m); }
+            finally { TextureTier.ForceClassic = false; }
+        }
+
+        /// <summary>Every material in memory back to its originals, and the
+        /// twins released.</summary>
+        public static void RestoreClassic()
+        {
+            if (TextureTier.LoadedCount == 0) return;
+            int n = 0;
+            foreach (var m in Resources.FindObjectsOfTypeAll<Material>())
+                if (ToClassic(m)) n++;
+            TextureTier.ResetMap();
+            if (n > 0) Debug.Log("[TexTier] restored " + n + " material(s) to CLASSIC");
+        }
+
+        struct Row
+        {
+            public string guid, orig, enh, id;
+            public int w, h;
+        }
+
+        static List<Row> ReadManifest()
+        {
+            var rows = new List<Row>();
+            foreach (var line in File.ReadAllLines(Manifest))
+            {
+                if (line.Length == 0 || line[0] == '#') continue;
+                var c = line.Split('\t');
+                rows.Add(new Row { guid = c[0], orig = c[1], enh = c[2], w = int.Parse(c[3]), h = int.Parse(c[4]), id = c[5] });
+            }
+            return rows;
+        }
+
+        static string ResPath(string enh) =>
+            enh.Substring(Prefix.Length, enh.Length - Prefix.Length - Path.GetExtension(enh).Length);
+
+        [MenuItem("PSX Racing/Textures/Build Enhanced Map")]
+        public static void BuildMap()
+        {
+            var log = new StringBuilder();
+            AssetDatabase.Refresh();
+            var rows = ReadManifest();
+            var pairs = new List<TextureTierMap.Pair>();
+            var configured = new Dictionary<string, string>();   // enhanced path -> the original that set it
+            int reimported = 0, fallback = 0;
+            foreach (var r in rows)
+            {
+                string at = AssetDatabase.GUIDToAssetPath(r.guid);
+                var orig = AssetDatabase.LoadAssetAtPath<Texture2D>(r.orig);
+                if (at != r.orig || orig == null)
+                {
+                    // No match: that original keeps its own texture (fallback).
+                    log.AppendLine("FALLBACK " + r.orig + " (guid resolves to '" + at + "')");
+                    fallback++;
+                    continue;
+                }
+                var oi = AssetImporter.GetAtPath(r.orig) as TextureImporter;
+                var ei = AssetImporter.GetAtPath(r.enh) as TextureImporter;
+                if (oi == null || ei == null) { log.AppendLine("FALLBACK " + r.orig + " (no importer for " + r.enh + ")"); fallback++; continue; }
+                if (configured.TryGetValue(r.enh, out string first))
+                {
+                    // One artwork, several originals: they must agree on import.
+                    string a = ImportKey(AssetImporter.GetAtPath(first) as TextureImporter), b = ImportKey(oi);
+                    if (a != b) log.AppendLine("WARN " + r.enh + ": originals disagree on import (" + first + " vs " + r.orig + ")");
+                }
+                else
+                {
+                    configured[r.enh] = r.orig;
+                    if (CopyImport(oi, ei, Mathf.NextPowerOfTwo(Mathf.Max(r.w, r.h)), r.enh)) reimported++;
+                }
+                pairs.Add(new TextureTierMap.Pair { original = orig, enhanced = ResPath(r.enh), id = r.id });
+            }
+
+            var map = AssetDatabase.LoadAssetAtPath<TextureTierMap>(MapAsset);
+            if (map == null)
+            {
+                map = ScriptableObject.CreateInstance<TextureTierMap>();
+                map.pairs = pairs.ToArray();
+                AssetDatabase.CreateAsset(map, MapAsset);
+            }
+            else
+            {
+                map.pairs = pairs.ToArray();
+                EditorUtility.SetDirty(map);
+            }
+            AssetDatabase.SaveAssets();
+            TextureTier.ResetMap();
+            log.Insert(0, $"[TexTier] BUILD OK {pairs.Count} pairs, {configured.Count} Enhanced files, {reimported} reimported, {fallback} fallback\n");
+            File.WriteAllText(BuildLogFile, log.ToString());
+            Debug.Log(log.ToString());
+        }
+
+        /// <summary>Batch: the same frames under CLASSIC and then ENHANCED -
+        /// a CityCircuit start (StartGrid, shop scenery), the home street
+        /// (garage door, windows) and two Charlotte streets - copied to
+        /// PSX_TEX_OUT as classic_*.png / enhanced_*.png.</summary>
+        public static void CaptureCompare()
+        {
+            string outDir = System.Environment.GetEnvironmentVariable("PSX_TEX_OUT");
+            string root = Directory.GetParent(Application.dataPath).FullName;
+            string shots = Path.Combine(root, "Screenshots");
+            Directory.CreateDirectory(outDir);
+            System.Environment.SetEnvironmentVariable("PSX_SHOT_VENUE", "CityCircuit");
+            System.Environment.SetEnvironmentVariable("PSX_SHOT_SPOTS", "0:start");
+            System.Environment.SetEnvironmentVariable("PSX_REF_ONLY", "sv_a1_trade,sv_a11_central");
+            foreach (var tier in new[] { "classic", "enhanced" })
+            {
+                System.Environment.SetEnvironmentVariable("PSX_TEX", tier == "enhanced" ? "enhanced" : null);
+                TextureTier.ApplyAll();
+                void Grab(string dir, string pattern)
+                {
+                    if (!Directory.Exists(dir)) return;
+                    foreach (var f in Directory.GetFiles(dir, pattern))
+                        File.Copy(f, Path.Combine(outDir, tier + "_" + Path.GetFileName(f)), true);
+                }
+                PSXScreenshotTool.CaptureSpotsOnly();
+                Grab(shots, "psx_spot_CityCircuit_0_*.png");
+                PSXScreenshotTool.CaptureNeighborhood();
+                Grab(shots, "psx_nb_*.png");
+                CityRefSpots.Run();
+                Grab(Path.Combine(shots, "City", "ref"), "*.png");
+                Debug.Log($"[TexTier] captured {tier} (twins loaded {TextureTier.LoadedCount})");
+            }
+            System.Environment.SetEnvironmentVariable("PSX_TEX", null);
+            RestoreClassic();
+            Debug.Log("[TexTier] CAPTURE DONE");
+        }
+
+        /// <summary>Batch: build the map, then the self-test.</summary>
+        public static void BuildAndTest()
+        {
+            BuildMap();
+            SelfTest();
+        }
+
+        /// <summary>Everything about an import but its size and identity.</summary>
+        static string ImportKey(TextureImporter i)
+        {
+            var s = new TextureImporterSettings();
+            i.ReadTextureSettings(s);
+            var sb = new StringBuilder(EditorJsonUtility.ToJson(s));
+            sb.Append('|').Append(i.textureType).Append(i.filterMode).Append(i.wrapModeU).Append(i.wrapModeV)
+              .Append(i.mipmapEnabled).Append(i.sRGBTexture).Append(i.alphaSource).Append(i.alphaIsTransparency)
+              .Append(i.npotScale).Append(i.isReadable).Append(i.anisoLevel);
+            sb.Append('|').Append(i.textureCompression).Append('|').Append(string.Join(",", AssetDatabase.GetLabels(AssetImporterGuid(i))));
+            foreach (var p in Platforms)
+            {
+                var ps = i.GetPlatformTextureSettings(p);
+                sb.Append('|').Append(p).Append(ps.overridden).Append(ps.format).Append(ps.textureCompression)
+                  .Append(ps.compressionQuality).Append(ps.crunchedCompression).Append(ps.resizeAlgorithm);
+            }
+            return sb.ToString();
+        }
+
+        static readonly string[] Platforms = { "Standalone", "WebGL", "Android", "iPhone" };
+
+        static string SizeKey(TextureImporter i)
+        {
+            var sb = new StringBuilder().Append(i.maxTextureSize);
+            foreach (var p in Platforms) sb.Append(',').Append(i.GetPlatformTextureSettings(p).maxTextureSize);
+            return sb.ToString();
+        }
+
+        static GUID AssetImporterGuid(AssetImporter i) => AssetDatabase.GUIDFromAssetPath(i.assetPath);
+
+        static bool CopyImport(TextureImporter src, TextureImporter dst, int max, string dstPath)
+        {
+            string before = ImportKey(dst) + "|" + SizeKey(dst);
+            var s = new TextureImporterSettings();
+            src.ReadTextureSettings(s);
+            dst.SetTextureSettings(s);
+            dst.textureCompression = src.textureCompression;
+            dst.maxTextureSize = max;
+            foreach (var p in Platforms)
+            {
+                var ps = src.GetPlatformTextureSettings(p);
+                var pd = dst.GetPlatformTextureSettings(p);
+                if (!ps.overridden && !pd.overridden) continue;
+                ps.maxTextureSize = max;
+                dst.SetPlatformTextureSettings(ps);
+            }
+            bool dirty = before != ImportKey(dst) + "|" + SizeKey(dst);
+            if (dirty) dst.SaveAndReimport();
+            // Labels last (they live in the .meta and change no import).
+            var want = AssetDatabase.GetLabels(AssetImporterGuid(src));
+            var have = AssetDatabase.GetLabels(AssetImporterGuid(dst));
+            if (string.Join(",", want) != string.Join(",", have))
+            {
+                AssetDatabase.SetLabels(AssetDatabase.LoadMainAssetAtPath(dstPath), want);
+                dirty = true;
+            }
+            return dirty;
+        }
+
+        static long Bytes(Texture2D t)
+        {
+            if (t == null) return 0;
+            long n = 0;
+            for (int m = 0; m < t.mipmapCount; m++)
+                n += GraphicsFormatUtility.ComputeMipmapSize(Mathf.Max(1, t.width >> m), Mathf.Max(1, t.height >> m), t.graphicsFormat);
+            return n;
+        }
+
+        /// <summary>Every pair resolves, every twin is 2x its original with
+        /// the original's import, the swap goes both ways without dirtying
+        /// the asset, and the size each way.</summary>
+        public static void SelfTest()
+        {
+            if (File.Exists(LogFile)) File.Delete(LogFile);
+            var log = new StringBuilder();
+            int fail = 0, warn = 0;
+            void Fail(string s) { fail++; log.AppendLine("FAIL " + s); }
+            void Warn(string s) { warn++; log.AppendLine("WARN " + s); }
+            log.AppendLine("target " + EditorUserBuildSettings.activeBuildTarget);
+
+            var rows = ReadManifest();
+            TextureTier.ResetMap();
+            var map = TextureTier.Map;
+            if (map == null) { Fail("no TextureTierMap in Resources"); goto done; }
+            var byOrig = new Dictionary<string, TextureTierMap.Pair>();
+            foreach (var p in map.pairs) if (p.original != null) byOrig[AssetDatabase.GetAssetPath(p.original)] = p;
+
+            var origSeen = new HashSet<Texture2D>();
+            var enhSeen = new HashSet<Texture2D>();
+            long origBytes = 0, enhBytes = 0;
+            var sizes = new List<(long, string)>();
+            foreach (var r in rows)
+            {
+                if (AssetDatabase.GUIDToAssetPath(r.guid) != r.orig) { Fail("guid " + r.guid + " no longer " + r.orig); continue; }
+                if (!byOrig.TryGetValue(r.orig, out var pair)) { Fail("no pair for " + r.orig); continue; }
+                var o = pair.original;
+                var e = Resources.Load<Texture2D>(pair.enhanced);
+                if (e == null) { Fail("twin missing: " + pair.enhanced); continue; }
+                if (e.width != r.w || e.height != r.h)
+                    Fail($"{r.orig}: twin {e.width}x{e.height}, registry {r.w}x{r.h}");
+                else if (e.width != 2 * o.width || e.height != 2 * o.height)
+                    Warn($"{r.orig}: original imports {o.width}x{o.height}; twin is 2x the registry baseline, {e.width}x{e.height}");
+                var oi = (TextureImporter)AssetImporter.GetAtPath(r.orig);
+                var ei = (TextureImporter)AssetImporter.GetAtPath(r.enh);
+                if (ImportKey(oi) != ImportKey(ei)) Fail("import differs: " + r.orig + " vs " + r.enh);
+                if (ei.maxTextureSize < Mathf.Max(r.w, r.h)) Fail("capped: " + r.enh);
+                if ((o.mipmapCount > 1) != (e.mipmapCount > 1)) Fail("mips differ: " + r.orig);
+                if (o.isDataSRGB != e.isDataSRGB) Fail("colour space differs: " + r.orig);
+                if (o.filterMode != e.filterMode || o.wrapModeU != e.wrapModeU || o.wrapModeV != e.wrapModeV) Fail("filter/wrap differs: " + r.orig);
+                if (o.format != e.format) Warn($"{r.orig}: format {o.format} vs twin {e.format}");
+                bool lo = ReleaseBudget.HasPsx16Label(r.guid), le = ReleaseBudget.HasPsx16Label(AssetDatabase.AssetPathToGUID(r.enh));
+                if (ReleaseBudget.InSet(r.orig, oi, lo) != ReleaseBudget.InSet(r.enh, ei, le))
+                    Warn($"{r.orig}: 16-bit set {ReleaseBudget.InSet(r.orig, oi, lo)} vs twin {ReleaseBudget.InSet(r.enh, ei, le)}");
+                if (origSeen.Add(o)) origBytes += Bytes(o);
+                if (enhSeen.Add(e)) { enhBytes += Bytes(e); sizes.Add((Bytes(e), $"{r.enh} {e.width}x{e.height} {e.graphicsFormat} mips={e.mipmapCount}")); }
+            }
+
+            // The swap, both ways, on a real material asset.
+            {
+                Material probe = null;
+                Texture2D was = null;
+                foreach (var guid in AssetDatabase.FindAssets("t:Material", new[] { "Assets/PSXRacing" }))
+                {
+                    var m = AssetDatabase.LoadAssetAtPath<Material>(AssetDatabase.GUIDToAssetPath(guid));
+                    if (m == null || !m.HasProperty("_MainTex")) continue;
+                    if (m.mainTexture is Texture2D t && byOrig.ContainsKey(AssetDatabase.GetAssetPath(t))) { probe = m; was = t; break; }
+                }
+                if (probe == null) Fail("no material wears a mapped original");
+                else
+                {
+                    bool dirtyBefore = EditorUtility.IsDirty(probe);
+                    System.Environment.SetEnvironmentVariable("PSX_TEX", "enhanced");
+                    PSXTexDecode.Stamp(probe);
+                    var on = probe.mainTexture;
+                    System.Environment.SetEnvironmentVariable("PSX_TEX", null);
+                    TextureTier.ApplyAll();
+                    var off = probe.mainTexture;
+                    log.AppendLine($"swap {probe.name}: {was.name} -> {(on ? on.name : "null")} -> {(off ? off.name : "null")}");
+                    if (on == was || on == null) Fail("ENHANCED did not swap " + probe.name);
+                    if (off != was) Fail("CLASSIC did not restore " + probe.name);
+                    if (!dirtyBefore && EditorUtility.IsDirty(probe)) Fail("swap dirtied " + probe.name);
+                    if (TextureTier.LoadedCount != 0) Warn("twins still loaded after CLASSIC: " + TextureTier.LoadedCount);
+                }
+            }
+
+            sizes.Sort((a, b) => b.Item1.CompareTo(a.Item1));
+            foreach (var z in sizes) log.AppendLine($"  twin {z.Item1 / 1024} KB {z.Item2}");
+            log.AppendLine($"SIZE originals {origSeen.Count} tex {origBytes / 1048576f:F2} MB | twins {enhSeen.Count} tex {enhBytes / 1048576f:F2} MB (this target's import format, mips included)");
+            log.AppendLine($"MEMORY classic {origBytes / 1048576f:F2} MB | enhanced {(origBytes + enhBytes) / 1048576f:F2} MB (the map keeps the originals)");
+        done:
+            log.Insert(0, (fail == 0 ? "[TexTier] SELF-TEST OK" : "[TexTier] SELF-TEST FAILED") + $" {rows.Count} rows, {fail} fail, {warn} warn\n");
+            File.WriteAllText(LogFile, log.ToString());
+            Debug.Log(log.ToString());
+        }
+    }
+}

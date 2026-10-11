@@ -1,0 +1,225 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f55a8ceb26c3a9342b80fd7ecb9a534e, type: 3}
+  m_Name: TextureTierMap
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.TextureTierMap
+  pairs:
+  - original: {fileID: 2800000, guid: 168820ed29077f34cb834ba7ba8bbe77, type: 3}
+    enhanced: TexEnhanced/BRP/Gen/Core_usage_mottle
+    id: Resolution_Aligned/Core_usage_mottle
+  - original: {fileID: 2800000, guid: 1f54cb0aa2c3ac04cbbbdad2d0c4d168, type: 3}
+    enhanced: TexEnhanced/BRP/Gen/summer_mottle
+    id: Resolution_Aligned/summer_mottle
+  - original: {fileID: 2800000, guid: 2dcbc1a8745bc61429efc204bde9109e, type: 3}
+    enhanced: TexEnhanced/BRP/Gen/Core_usage_atlas
+    id: Resolution_Aligned/Core_usage_atlas
+  - original: {fileID: 2800000, guid: eb42da3134c953d46b889e93524ffd76, type: 3}
+    enhanced: TexEnhanced/BRP/Gen/summer_atlas
+    id: Resolution_Aligned/summer_atlas
+  - original: {fileID: 2800000, guid: 00e4a5578112f6e4c8963740fe9e9f64, type: 3}
+    enhanced: TexEnhanced/Beach/Core_drygrass
+    id: Resolution_Aligned/Core_drygrass
+  - original: {fileID: 2800000, guid: 057f41e1e369be948ac7e0b32d6b0135, type: 3}
+    enhanced: TexEnhanced/Beach/Core_usage_coastgrass
+    id: Resolution_Aligned/Core_usage_coastgrass
+  - original: {fileID: 2800000, guid: 5a7afe952fd07444a8e5d138fc07181a, type: 3}
+    enhanced: TexEnhanced/Beach/Core_sand
+    id: Resolution_Aligned/Core_sand
+  - original: {fileID: 2800000, guid: eaa7dc7a130e1ab4d984a1a7b3cd4025, type: 3}
+    enhanced: TexEnhanced/Buildings/Textures/Earlier_Library_concrete
+    id: Resolution_Aligned/Earlier_Library_concrete
+  - original: {fileID: 2800000, guid: 26856e161de3b904d9ad684a66e64c17, type: 3}
+    enhanced: TexEnhanced/Buildings/Textures/Core_rooftiles
+    id: Resolution_Aligned/Core_rooftiles
+  - original: {fileID: 2800000, guid: 43596b6573b86824fbeaa37655fe48d1, type: 3}
+    enhanced: TexEnhanced/Buildings/Textures/shops03
+    id: Usage_Continuation_03/shops03
+  - original: {fileID: 2800000, guid: 04f381da265cab14784dc97e3ef455d9, type: 3}
+    enhanced: TexEnhanced/Buildings/Textures/shops04
+    id: Usage_Continuation_03/shops04
+  - original: {fileID: 2800000, guid: 900990c17bfd4164f921764b750aeb39, type: 3}
+    enhanced: TexEnhanced/Buildings/Textures/Core_citybrick
+    id: Resolution_Aligned/Core_citybrick
+  - original: {fileID: 2800000, guid: 9ac5e857514f97349925d4ad53170087, type: 3}
+    enhanced: TexEnhanced/Buildings/Textures/Core_citytower
+    id: Resolution_Aligned/Core_citytower
+  - original: {fileID: 2800000, guid: 5583f94afc29c6f428cd50142ca6dde2, type: 3}
+    enhanced: TexEnhanced/Buildings/Textures/Earlier_Regional_stone07
+    id: Resolution_Aligned/Earlier_Regional_stone07
+  - original: {fileID: 2800000, guid: 4d70a6426d4e40d4f8005503075bf617, type: 3}
+    enhanced: TexEnhanced/Buildings/Textures/Core_citymid
+    id: Resolution_Aligned/Core_citymid
+  - original: {fileID: 2800000, guid: 0f4c1b78159647efb49866c5b306a229, type: 3}
+    enhanced: TexEnhanced/City/Facade/Source/Earlier_Regional_tower04
+    id: Resolution_Aligned/Earlier_Regional_tower04
+  - original: {fileID: 2800000, guid: f2ae6f9fcad047e0aa11d43e70f98f82, type: 3}
+    enhanced: TexEnhanced/City/Facade/Source/Earlier_Regional_tower08
+    id: Resolution_Aligned/Earlier_Regional_tower08
+  - original: {fileID: 2800000, guid: 482d2628cfb5463faa217ef4d42ca0f9, type: 3}
+    enhanced: TexEnhanced/City/Facade/Core_cityatlas
+    id: Resolution_Aligned/Core_cityatlas
+  - original: {fileID: 2800000, guid: 674bb3aee8b3fef4d8414c84c3f81509, type: 3}
+    enhanced: TexEnhanced/City/Pack/Core_cityconcrete
+    id: Resolution_Aligned/Core_cityconcrete
+  - original: {fileID: 2800000, guid: f971aa22ef95ba1439617a0381507a8d, type: 3}
+    enhanced: TexEnhanced/City/Pack/Core_cityflatroof
+    id: Resolution_Aligned/Core_cityflatroof
+  - original: {fileID: 2800000, guid: e8a5736480b6c5d4c9f3386aef7f052a, type: 3}
+    enhanced: TexEnhanced/City/Pack/city_pavement
+    id: Resolution_Aligned/city_pavement
+  - original: {fileID: 2800000, guid: 38e56dc3c73818c42ae67d94ee9491f7, type: 3}
+    enhanced: TexEnhanced/City/Pack/city_grass
+    id: Resolution_Aligned/city_grass
+  - original: {fileID: 2800000, guid: 4702fb23bfb96bf478cf28259901088b, type: 3}
+    enhanced: TexEnhanced/Buildings/Textures/Core_citybrick
+    id: Resolution_Aligned/Core_citybrick
+  - original: {fileID: 2800000, guid: ef2f8c833289e1d4ba6e6bdd534db019, type: 3}
+    enhanced: TexEnhanced/City/Core_cityhouse
+    id: Resolution_Aligned/Core_cityhouse
+  - original: {fileID: 2800000, guid: b8dd78575dfa4b54e9edf23ac5326dc1, type: 3}
+    enhanced: TexEnhanced/Buildings/Textures/Core_citymid
+    id: Resolution_Aligned/Core_citymid
+  - original: {fileID: 2800000, guid: e16a52eac1a06fb48bb2ee33c131ff33, type: 3}
+    enhanced: TexEnhanced/Buildings/Textures/Core_citytower
+    id: Resolution_Aligned/Core_citytower
+  - original: {fileID: 2800000, guid: 156f2d634cb89044c9b21e0899484ac9, type: 3}
+    enhanced: TexEnhanced/City/junction_asphalt_new
+    id: Resolution_Aligned/junction_asphalt_new
+  - original: {fileID: 2800000, guid: 5d0a61c5be7fe5046aaf18671bb8fe67, type: 3}
+    enhanced: TexEnhanced/City/junction_asphalt_old
+    id: Resolution_Aligned/junction_asphalt_old
+  - original: {fileID: 2800000, guid: f3c0f6db148269142a32c36f86957f4b, type: 3}
+    enhanced: TexEnhanced/City/junction_concrete_new
+    id: Resolution_Aligned/junction_concrete_new
+  - original: {fileID: 2800000, guid: 6636c59f8de9ae044b4eb563617e6f30, type: 3}
+    enhanced: TexEnhanced/City/junction_concrete_old
+    id: Resolution_Aligned/junction_concrete_old
+  - original: {fileID: 2800000, guid: 7ed41a812ebc27c4ca85916e38226be2, type: 3}
+    enhanced: TexEnhanced/City/road_asphalt_new
+    id: Resolution_Aligned/road_asphalt_new
+  - original: {fileID: 2800000, guid: cff009e18fa7f084581a3377040ccbe9, type: 3}
+    enhanced: TexEnhanced/City/road_asphalt_old
+    id: Resolution_Aligned/road_asphalt_old
+  - original: {fileID: 2800000, guid: 2c182e75ca68e774ba6a50143ca01346, type: 3}
+    enhanced: TexEnhanced/City/road_concrete_new
+    id: Resolution_Aligned/road_concrete_new
+  - original: {fileID: 2800000, guid: 3a77981ba0d10264cbea1095162fabf4, type: 3}
+    enhanced: TexEnhanced/City/road_concrete_old
+    id: Resolution_Aligned/road_concrete_old
+  - original: {fileID: 2800000, guid: d35d78bbd5fcb774ba93c7bbaea9331a, type: 3}
+    enhanced: TexEnhanced/Buildings/Textures/Core_rooftiles
+    id: Resolution_Aligned/Core_rooftiles
+  - original: {fileID: 2800000, guid: 920a94f1f81988542814bfbeeb235f3b, type: 3}
+    enhanced: TexEnhanced/GasStation/Textures/gas_asphalt
+    id: Usage_Continuation_01/gas_asphalt
+  - original: {fileID: 2800000, guid: 36b857567fe6e3f499ae6186df8974a7, type: 3}
+    enhanced: TexEnhanced/GasStation/Textures/concrete
+    id: Usage_Continuation_02/concrete
+  - original: {fileID: 2800000, guid: bd2dacf2573fa2b4a8ffcb4238e0988f, type: 3}
+    enhanced: TexEnhanced/GasStation/Textures/Core_usage_ground
+    id: Resolution_Aligned/Core_usage_ground
+  - original: {fileID: 2800000, guid: 392dd2c5ad8cd2d40ad1d63f05e57496, type: 3}
+    enhanced: TexEnhanced/Buildings/Textures/Core_rooftiles
+    id: Resolution_Aligned/Core_rooftiles
+  - original: {fileID: 2800000, guid: 709eb139afe0aae4d8231dcce9815f67, type: 3}
+    enhanced: TexEnhanced/GasStation/Textures/gastree
+    id: Usage_Continuation_02/gastree
+  - original: {fileID: 2800000, guid: 62c4ac43b7220d0479852d710388ae62, type: 3}
+    enhanced: TexEnhanced/Guardrail/Core_guardrail
+    id: Resolution_Aligned/Core_guardrail
+  - original: {fileID: 2800000, guid: 5b11449d428d0f548812b99ff9f3a8b3, type: 3}
+    enhanced: TexEnhanced/LifeSim/Burger/Textures/plaster
+    id: Usage_Continuation_02/plaster
+  - original: {fileID: 2800000, guid: 97363921f5d23a54fa5aa65b7e71314d, type: 3}
+    enhanced: TexEnhanced/Buildings/Textures/Core_rooftiles
+    id: Resolution_Aligned/Core_rooftiles
+  - original: {fileID: 2800000, guid: ee24647df2e34dc4c8dd6eef8d77901a, type: 3}
+    enhanced: TexEnhanced/LifeSim/House/Textures/Core_concretebare
+    id: Resolution_Aligned/Core_concretebare
+  - original: {fileID: 2800000, guid: 8e6b6ab0ccac91a43b451d9062338105, type: 3}
+    enhanced: TexEnhanced/LifeSim/House/Textures/garage
+    id: Usage_Continuation_03/garage
+  - original: {fileID: 2800000, guid: 65cf3f075bba6414098e6f37f7b01fce, type: 3}
+    enhanced: TexEnhanced/LifeSim/House/Textures/Earlier_Library_grass
+    id: Resolution_Aligned/Earlier_Library_grass
+  - original: {fileID: 2800000, guid: 1e2a19cd5a764574687fa3f738883119, type: 3}
+    enhanced: TexEnhanced/LifeSim/House/Textures/slate
+    id: Usage_Continuation_02/slate
+  - original: {fileID: 2800000, guid: 5705805512a898b408ec6ce87f1fd396, type: 3}
+    enhanced: TexEnhanced/LifeSim/House/Textures/Earlier_Regional_sanddry
+    id: Resolution_Aligned/Earlier_Regional_sanddry
+  - original: {fileID: 2800000, guid: 12c5d4e568d6cfd4ab29920bbfbb82a9, type: 3}
+    enhanced: TexEnhanced/LifeSim/House/Textures/windows
+    id: Usage_Continuation_03/windows
+  - original: {fileID: 2800000, guid: a40e9ece4c51f26479f72f4f74b2d7d4, type: 3}
+    enhanced: TexEnhanced/Buildings/Textures/Earlier_Library_concrete
+    id: Resolution_Aligned/Earlier_Library_concrete
+  - original: {fileID: 2800000, guid: 3bbb9f91d734c9849b58250217633272, type: 3}
+    enhanced: TexEnhanced/Buildings/Textures/Core_rooftiles
+    id: Resolution_Aligned/Core_rooftiles
+  - original: {fileID: 2800000, guid: 940b80e4ab1ea874c9b1c2ec3c28334e, type: 3}
+    enhanced: TexEnhanced/Buildings/Textures/Core_citybrick
+    id: Resolution_Aligned/Core_citybrick
+  - original: {fileID: 2800000, guid: b6853ba0d191da842a634488223cba2c, type: 3}
+    enhanced: TexEnhanced/LifeSim/Pizzeria/Textures/brick03
+    id: Usage_Continuation_01/brick03
+  - original: {fileID: 2800000, guid: f8aa60b82d50f094891d216e6901f586, type: 3}
+    enhanced: TexEnhanced/LifeSim/Pizzeria/Textures/brick04
+    id: Usage_Continuation_02/brick04
+  - original: {fileID: 2800000, guid: 171b9090134d00849827ae81cc7736bf, type: 3}
+    enhanced: TexEnhanced/LifeSim/Pizzeria/Textures/brick06
+    id: Usage_Continuation_01/brick06
+  - original: {fileID: 2800000, guid: 6c0b693c7eecc8342b668954c7be0b89, type: 3}
+    enhanced: TexEnhanced/Buildings/Textures/Earlier_Library_concrete
+    id: Resolution_Aligned/Earlier_Library_concrete
+  - original: {fileID: 2800000, guid: bbfce43d6b8e9f640851fc39625a1f70, type: 3}
+    enhanced: TexEnhanced/Buildings/Textures/Core_rooftiles
+    id: Resolution_Aligned/Core_rooftiles
+  - original: {fileID: 2800000, guid: c3bda9e6590da8242973006e982f83c4, type: 3}
+    enhanced: TexEnhanced/Buildings/Textures/Core_citybrick
+    id: Resolution_Aligned/Core_citybrick
+  - original: {fileID: 2800000, guid: 7173b0f4b4db8b041a2ddabe6af808ee, type: 3}
+    enhanced: TexEnhanced/LifeSim/Skyscrapers/textures/Earlier_Regional_tower01
+    id: Resolution_Aligned/Earlier_Regional_tower01
+  - original: {fileID: 2800000, guid: 25b94e97bcbc6bb4888722d9c2042752, type: 3}
+    enhanced: TexEnhanced/LifeSim/Skyscrapers/textures/tower03
+    id: Usage_Continuation_02/tower03
+  - original: {fileID: 2800000, guid: 881f6321ba04b0c4e999f533c8dc6766, type: 3}
+    enhanced: TexEnhanced/City/Facade/Source/Earlier_Regional_tower04
+    id: Resolution_Aligned/Earlier_Regional_tower04
+  - original: {fileID: 2800000, guid: f95fd18dcf4d3c049a89dbe6e4f4dbaa, type: 3}
+    enhanced: TexEnhanced/City/Facade/Source/Earlier_Regional_tower08
+    id: Resolution_Aligned/Earlier_Regional_tower08
+  - original: {fileID: 2800000, guid: c75e023e234e6bd42a792d3a8e7404d8, type: 3}
+    enhanced: TexEnhanced/LifeSim/Trailer/Textures/whiteplaster
+    id: Usage_Continuation_02/whiteplaster
+  - original: {fileID: 2800000, guid: 7d26dc797adb1b0448177c689ef211c2, type: 3}
+    enhanced: TexEnhanced/Roads/ar4
+    id: Usage_Continuation_01/ar4
+  - original: {fileID: 2800000, guid: 6a1c1be597279ba44b7a482e70209425, type: 3}
+    enhanced: TexEnhanced/Roads/ar5
+    id: Usage_Continuation_01/ar5
+  - original: {fileID: 2800000, guid: b64e6eeeb79645b43bfcacaf512f22e3, type: 3}
+    enhanced: TexEnhanced/Roads/Core_usage_ar6
+    id: Resolution_Aligned/Core_usage_ar6
+  - original: {fileID: 2800000, guid: 546e3a2736c428a44b9ca6aafd63d05b, type: 3}
+    enhanced: TexEnhanced/Roads/Earlier_Library_asphalt
+    id: Resolution_Aligned/Earlier_Library_asphalt
+  - original: {fileID: 2800000, guid: 4c5d3790bef09fc4b9ae83d286d83fdb, type: 3}
+    enhanced: TexEnhanced/Roads/stonewall
+    id: Usage_Continuation_01/stonewall
+  - original: {fileID: 2800000, guid: de5e5c3b85cea7549b4ddf2b51d5fd37, type: 3}
+    enhanced: TexEnhanced/Roadside/Core_rock
+    id: Resolution_Aligned/Core_rock
+  - original: {fileID: 2800000, guid: bad3df88ffffe9143a8bb16daac2bb73, type: 3}
+    enhanced: TexEnhanced/Track/startgrid
+    id: Usage_Continuation_03/startgrid

@@ -178,7 +178,7 @@ namespace PSXRacing
         public static readonly string[] TabBlurbs =
         {
             "The camera, the steering and the instruments.",
-            "How the picture looks: resolution, sky, lens and grade.",
+            "How the picture looks: resolution, textures, sky, lens and grade.",
             "How loud the game is: everything, the engines, and the rest.",
             "The screen, the frame rate, the debug tools and the credits.",
         };
@@ -234,6 +234,9 @@ namespace PSXRacing
             Step(SettingsTab.Visuals, "PICTURE", () => PSXQuality.Name,
                  "How coarse the picture is. SHARP is 480 lines; RETRO is a PlayStation.",
                  () => PSXQuality.Cycle(1));
+            Step(SettingsTab.Visuals, "TEXTURES", () => TexturePrefs.Label,
+                 "ENHANCED: the remastered surfaces, twice the detail. CLASSIC: the original textures.",
+                 () => TexturePrefs.Toggle());
             Step(SettingsTab.Visuals, "SKY", () => SkyModePrefs.Label,
                  "PHOTO: the photographed skies. DYNAMIC: a computed sky - real sunsets, drifting clouds.",
                  () => SkyModePrefs.Toggle());

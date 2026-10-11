@@ -76,7 +76,9 @@ namespace PSXRacing
         public static bool Stamp(Material m)
         {
             if (m == null) return false;
-            bool changed = false;
+            // CLASSIC / ENHANCED first: the flags below are read off the
+            // texture the slot holds once the tier is in it.
+            bool changed = TextureTier.Swap(m);
             changed |= StampOne(m, MainTexRawId);
             changed |= StampOne(m, DeepTexRawId);
             return changed;
