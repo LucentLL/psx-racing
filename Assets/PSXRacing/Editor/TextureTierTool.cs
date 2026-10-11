@@ -16,15 +16,29 @@ namespace PSXRacing.EditorTools
     /// settings - filter, wrap, mips, alpha, colour space, platform formats,
     /// the psx16 label - at its own 2x size, and writes
     /// Resources/TextureTierMap.asset. The twins live under
-    /// Resources/TexEnhanced, outside Art/, so the 256 cap
+    /// EnhancedSrc/TexEnhanced, outside Art/, so the 256 cap
     /// (PSXTextureCaps, applied by the builder's sweep over Art/) never sees
-    /// them and the Classic cap stays where it is.
+    /// them and the Classic cap stays where it is - and outside Resources,
+    /// so the player never carries them (they took MAIN's WebGL.data to
+    /// 106.6 MB; GitHub refuses 100).
+    ///
+    /// BUNDLE: <see cref="BuildBundle"/> packs every twin into ONE
+    /// AssetBundle, Assets/StreamingAssets/texenhanced.bundle, which ships
+    /// BESIDE the build (not in .data) and is fetched by the player only when
+    /// ENHANCED is on. PSXBuildWebGL builds it right before every player
+    /// build, after ReleaseBudget, so the twins carry the same release
+    /// imports as their originals. LZ4 (ChunkBasedCompression), not LZMA: a
+    /// WebGL player has no worker threads, and an LZMA bundle is unpacked
+    /// whole on the main thread when it lands (a long freeze, and the whole
+    /// bundle uncompressed in the browser's heap); LZ4 is read chunk by chunk
+    /// as each texture loads. The download is bigger than LZMA's, once.
     ///
     /// The ORIGINALS are never touched: not their files, GUIDs or imports.
     ///
     /// Batch: -executeMethod PSXRacing.EditorTools.TextureTierTool.BuildMap
     ///        -executeMethod PSXRacing.EditorTools.TextureTierTool.SelfTest
     ///        -executeMethod PSXRacing.EditorTools.TextureTierTool.BuildAndTest
+    ///        -executeMethod PSXRacing.EditorTools.TextureTierTool.BundleAndTest
     /// They write PSXRacing_textier_build.txt / PSXRacing_textier.txt at the project root.
     /// </summary>
     [InitializeOnLoad]
@@ -32,7 +46,14 @@ namespace PSXRacing.EditorTools
     {
         const string Manifest = "Assets/PSXRacing/Editor/TextureTierManifest.txt";
         const string MapAsset = "Assets/PSXRacing/Resources/TextureTierMap.asset";
-        const string Prefix = "Assets/PSXRacing/Resources/";
+        const string Prefix = TextureTier.EditorSrcRoot;
+        public const string BundleDir = "Assets/StreamingAssets";
+        /// <summary>The bundle build's own output (kept, so a rebuild is
+        /// incremental); only the bundle itself is copied to StreamingAssets,
+        /// not the manifests Unity writes beside it.</summary>
+        const string BundleWork = "Library/PSXTexBundle";
+        /// <summary>GitHub refuses 100 MiB; the publish ratchet is 95.</summary>
+        const long BundleCap = 90L << 20;
         const string LogFile = "PSXRacing_textier.txt";
         const string BuildLogFile = "PSXRacing_textier_build.txt";
 
@@ -59,7 +80,7 @@ namespace PSXRacing.EditorTools
         /// twins released.</summary>
         public static void RestoreClassic()
         {
-            if (TextureTier.LoadedCount == 0) return;
+            if (TextureTier.LoadedCount == 0 && !TextureTier.BundleLoaded) return;
             int n = 0;
             foreach (var m in Resources.FindObjectsOfTypeAll<Material>())
                 if (ToClassic(m)) n++;
@@ -180,11 +201,94 @@ namespace PSXRacing.EditorTools
             Debug.Log("[TexTier] CAPTURE DONE");
         }
 
-        /// <summary>Batch: build the map, then the self-test.</summary>
+        /// <summary>Batch: build the map and the bundle, then the self-test.</summary>
         public static void BuildAndTest()
         {
             BuildMap();
+            BundleAndTest();
+        }
+
+        /// <summary>Batch: the bundle for the active target, then the
+        /// self-test (run with -buildTarget WebGL).</summary>
+        public static void BundleAndTest()
+        {
+            string err = BuildBundle(EditorUserBuildSettings.activeBuildTarget, out long bytes);
+            Debug.Log(err == null ? $"[TexTier] BUNDLE OK {bytes / 1048576f:F2} MB" : "[TexTier] BUNDLE FAILED: " + err);
             SelfTest();
+        }
+
+        [MenuItem("PSX Racing/Textures/Build Enhanced Bundle")]
+        public static void BuildBundleMenu()
+        {
+            string err = BuildBundle(EditorUserBuildSettings.activeBuildTarget, out long bytes);
+            if (err != null) Debug.LogError("[TexTier] BUNDLE FAILED: " + err);
+            else Debug.Log($"[TexTier] BUNDLE OK {bytes / 1048576f:F2} MB for {EditorUserBuildSettings.activeBuildTarget}");
+        }
+
+        /// <summary>Every twin the map names, into
+        /// StreamingAssets/texenhanced.bundle for this target, each under its
+        /// key (TextureTierMap.Pair.enhanced); the bundle's content hash goes
+        /// into the map as bundleVersion (the URL's ?v=). Null on success,
+        /// else why not. The twins' imports are used as they stand.</summary>
+        public static string BuildBundle(BuildTarget target, out long bytes)
+        {
+            bytes = 0;
+            var map = AssetDatabase.LoadAssetAtPath<TextureTierMap>(MapAsset);
+            if (map == null || map.pairs == null || map.pairs.Length == 0) return "no pairs in " + MapAsset;
+            var keys = new List<string>();
+            var paths = new List<string>();
+            var seen = new HashSet<string>();
+            foreach (var p in map.pairs)
+            {
+                if (string.IsNullOrEmpty(p.enhanced) || !seen.Add(p.enhanced)) continue;
+                string path = TextureTier.EditorSrcRoot + p.enhanced + ".png";
+                if (AssetDatabase.LoadAssetAtPath<Texture2D>(path) == null) return "twin missing: " + path;
+                keys.Add(p.enhanced);
+                paths.Add(path);
+            }
+            Directory.CreateDirectory(BundleWork);
+            var build = new AssetBundleBuild
+            {
+                assetBundleName = TextureTier.BundleFile,
+                assetNames = paths.ToArray(),
+                addressableNames = keys.ToArray(),
+            };
+            var manifest = BuildPipeline.BuildAssetBundles(BundleWork, new[] { build },
+                BuildAssetBundleOptions.ChunkBasedCompression | BuildAssetBundleOptions.StrictMode, target);
+            if (manifest == null) return "BuildAssetBundles failed for " + target;
+            string built = Path.Combine(BundleWork, TextureTier.BundleFile);
+            if (!File.Exists(built)) return "nothing written at " + built;
+            bytes = new FileInfo(built).Length;
+            if (bytes >= BundleCap) return $"{bytes / 1048576f:F1} MB - over the {BundleCap >> 20} MB cap";
+
+            bool newDir = !Directory.Exists(BundleDir);
+            Directory.CreateDirectory(BundleDir);
+            if (newDir) AssetDatabase.ImportAsset(BundleDir);
+            string dst = BundleDir + "/" + TextureTier.BundleFile;
+            if (!File.Exists(dst) || !SameBytes(built, dst))
+            {
+                File.Copy(built, dst, true);
+                AssetDatabase.ImportAsset(dst);
+            }
+            string v = manifest.GetAssetBundleHash(TextureTier.BundleFile).ToString();
+            // The bundle build unloads what nothing holds: the map loaded
+            // above is gone by now, so it is loaded again.
+            map = AssetDatabase.LoadAssetAtPath<TextureTierMap>(MapAsset);
+            if (map != null && map.bundleVersion != v)
+            {
+                map.bundleVersion = v;
+                EditorUtility.SetDirty(map);
+                AssetDatabase.SaveAssetIfDirty(map);
+            }
+            TextureTier.ResetMap();
+            Debug.Log($"[TexTier] bundle {dst}: {keys.Count} twins, {bytes / 1048576f:F2} MB LZ4, {target}, version {v}");
+            return null;
+        }
+
+        static bool SameBytes(string a, string b)
+        {
+            if (new FileInfo(a).Length != new FileInfo(b).Length) return false;
+            return System.Linq.Enumerable.SequenceEqual(File.ReadAllBytes(a), File.ReadAllBytes(b));
         }
 
         /// <summary>Everything about an import but its size and identity.</summary>
@@ -271,6 +375,8 @@ namespace PSXRacing.EditorTools
             TextureTier.ResetMap();
             var map = TextureTier.Map;
             if (map == null) { Fail("no TextureTierMap in Resources"); goto done; }
+            foreach (var p in map.pairs)
+                if (Resources.Load<Texture2D>(p.enhanced) != null) Fail("twin is in Resources (it would ship in the player): " + p.enhanced);
             var byOrig = new Dictionary<string, TextureTierMap.Pair>();
             foreach (var p in map.pairs) if (p.original != null) byOrig[AssetDatabase.GetAssetPath(p.original)] = p;
 
@@ -283,7 +389,7 @@ namespace PSXRacing.EditorTools
                 if (AssetDatabase.GUIDToAssetPath(r.guid) != r.orig) { Fail("guid " + r.guid + " no longer " + r.orig); continue; }
                 if (!byOrig.TryGetValue(r.orig, out var pair)) { Fail("no pair for " + r.orig); continue; }
                 var o = pair.original;
-                var e = Resources.Load<Texture2D>(pair.enhanced);
+                var e = AssetDatabase.LoadAssetAtPath<Texture2D>(TextureTier.EditorSrcRoot + pair.enhanced + ".png");
                 if (e == null) { Fail("twin missing: " + pair.enhanced); continue; }
                 if (e.width != r.w || e.height != r.h)
                     Fail($"{r.orig}: twin {e.width}x{e.height}, registry {r.w}x{r.h}");
@@ -329,6 +435,42 @@ namespace PSXRacing.EditorTools
                     if (off != was) Fail("CLASSIC did not restore " + probe.name);
                     if (!dirtyBefore && EditorUtility.IsDirty(probe)) Fail("swap dirtied " + probe.name);
                     if (TextureTier.LoadedCount != 0) Warn("twins still loaded after CLASSIC: " + TextureTier.LoadedCount);
+                }
+            }
+
+            // The bundle: every twin the map names, under its key, the size
+            // and format the editor imports it at.
+            {
+                string bp = BundleDir + "/" + TextureTier.BundleFile;
+                if (!File.Exists(bp)) Fail("no bundle at " + bp + " (PSX Racing/Textures/Build Enhanced Bundle)");
+                else
+                {
+                    var ab = AssetBundle.LoadFromFile(bp);
+                    if (ab == null) Fail("the bundle does not load: " + bp);
+                    else
+                    {
+                        try
+                        {
+                            var keys = new HashSet<string>();
+                            int held = 0;
+                            foreach (var p in map.pairs)
+                            {
+                                if (!keys.Add(p.enhanced)) continue;
+                                var bt = ab.LoadAsset<Texture2D>(p.enhanced);
+                                if (bt == null) { Fail("bundle lacks " + p.enhanced); continue; }
+                                held++;
+                                var st = AssetDatabase.LoadAssetAtPath<Texture2D>(TextureTier.EditorSrcRoot + p.enhanced + ".png");
+                                if (st == null) continue;
+                                if (bt.width != st.width || bt.height != st.height) Fail($"bundle {p.enhanced} is {bt.width}x{bt.height}, EnhancedSrc imports {st.width}x{st.height}");
+                                if (bt.format != st.format || bt.mipmapCount != st.mipmapCount || bt.filterMode != st.filterMode)
+                                    Warn($"bundle {p.enhanced}: {bt.format} mips={bt.mipmapCount} {bt.filterMode} vs EnhancedSrc {st.format} mips={st.mipmapCount} {st.filterMode}");
+                            }
+                            int extra = ab.GetAllAssetNames().Length - held;
+                            if (extra != 0) Warn("bundle holds " + extra + " asset(s) beyond the map");
+                            log.AppendLine($"BUNDLE {bp}: {new FileInfo(bp).Length / 1048576f:F2} MB, {held}/{keys.Count} twins, version '{map.bundleVersion}'");
+                        }
+                        finally { ab.Unload(true); }
+                    }
                 }
             }
 
