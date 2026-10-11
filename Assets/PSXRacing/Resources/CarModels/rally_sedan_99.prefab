@@ -1,0 +1,85 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &6726349300706275152
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 5825786461828061302}
+  - component: {fileID: 2995225297594639876}
+  m_Layer: 0
+  m_Name: rally_sedan_99
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &5825786461828061302
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6726349300706275152}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &2995225297594639876
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6726349300706275152}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: rally_sedan_99
+  displayName: Rally Sedan 99
+  bodyMesh: {fileID: -2432090755550338912, guid: 2dff408f8d675df48845cab1b1108379, type: 3}
+  wheelMesh: {fileID: 4300000, guid: 25dd6c8ba2c96024ab1b651aa988aab0, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: 81911e4a80e4f3043a2007ebd5fea770, type: 2}
+  skinNames:
+  - rally_sedan_99_red_512x256
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.38692006, g: 0.20915383, b: 0.20474316, a: 1}
+  bodyYaw: 180
+  bodyYOffset: -0.022179622
+  bodyZOffset: 0
+  wheelbase: 2.507694
+  trackWidth: 1.5096121
+  wheelRadius: 0.29467887
+  wheelMeshScale: 0.93
+  trackRear: 1.504617
+  tyreRadiusRear: 0.316859
+  tyreWidthRear: 0.218799
+  lowerBodyWidth: 1.728138
+  cowlZ: 0.9643697
+  cowlY: 0.90399647
+  noseZ: 2.147026
+  roofY: 1.3964348
+  headLamp: {x: 0.5591301, y: 0.5825429, z: 1.9134282}
+  headLampNormal: {x: 0.5631142, y: 0.4533223, z: 0.6909423}
+  headLampSize: {x: 0.45540187, y: 0.11877197}
+  tailLamp: {x: 0.4533222, y: 0.97508043, z: -2.075989}
+  tailLampNormal: {x: 0.11220133, y: 0.028811492, z: -0.9932677}
+  tailLampSize: {x: 0.30169448, y: 0.28}
+  lampsUpMesh: {fileID: 0}
+  headLampUp: {x: 0, y: 0, z: 0}
+  headLampUpNormal: {x: 0, y: 0, z: 1}
+  headLampUpSize: {x: 0, y: 0}
+  colliderCenter: {x: 0, y: 0.79708534, z: -0.02797401}
+  colliderSize: {x: 1.6875381, y: 1.114974, z: 4.15425}
+  blobSize: {x: 2.2500508, y: 4.6545005}

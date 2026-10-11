@@ -624,7 +624,19 @@ namespace PSXRacing.LifeSim
         }
 
         /// <summary>The bodies the starter lanes draw from (the owner's models).</summary>
-        public static readonly string[] StarterBodies = { "nissan_180sx", "civic_eg" };
+        /// Each entry is one FAMILY, its shells separated by '|': since
+        /// 2026-10-10 the 240SX `96 wears the late-face fastback_96, the S13
+        /// Silvias the 180SX shell - one starter family still.
+        public static readonly string[] StarterBodies = { "nissan_180sx|fastback_96", "civic_eg" };
+
+        /// <summary>Which StarterBodies family a shell key belongs to, or -1.</summary>
+        public static int StarterBodyOf(string key)
+        {
+            if (string.IsNullOrEmpty(key)) return -1;
+            for (int i = 0; i < StarterBodies.Length; i++)
+                if (System.Array.IndexOf(StarterBodies[i].Split('|'), key) >= 0) return i;
+            return -1;
+        }
 
         /// <summary>One car off each starter body, in a random order: the
         /// first for the BEATER lane, the second for USED. Nulls when the
@@ -633,11 +645,11 @@ namespace PSXRacing.LifeSim
         {
             rough = tidy = null;
             var picks = new List<CarSpec>();
-            foreach (string body in StarterBodies)
+            for (int b = 0; b < StarterBodies.Length; b++)
             {
                 var pool = new List<CarSpec>();
                 foreach (var c in CarCatalog.All)
-                    if (!c.IsRaceCar && CarModelLibrary.KeyFor(c) == body) pool.Add(c);
+                    if (!c.IsRaceCar && StarterBodyOf(CarModelLibrary.KeyFor(c)) == b) pool.Add(c);
                 if (pool.Count > 0) picks.Add(pool[Random.Range(0, pool.Count)]);
             }
             if (picks.Count == 0) return;

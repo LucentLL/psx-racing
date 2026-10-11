@@ -49,37 +49,37 @@ MonoBehaviour:
   bodyMesh: {fileID: -2432090755550338912, guid: 73e607915b864ff4c9150ce593dc315d, type: 3}
   wheelMesh: {fileID: 4300000, guid: 0065c379ecde8ea4ca7671cce8e2aa58, type: 2}
   skinMaterials:
-  - {fileID: 2100000, guid: 4f2d4a01138fc9a4f9aa092855282fd1, type: 2}
+  - {fileID: 2100000, guid: 49ad95aa56398b1489233b4bcc10395e, type: 2}
   skinNames:
-  - coupe_atlas_256
+  - flatsix_coupe_yellow_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.74331355, g: 0.5536846, b: 0.11764561, a: 1}
+  - {r: 0.6365676, g: 0.5399667, b: 0.1637515, a: 1}
   bodyYaw: 180
-  bodyYOffset: -0.023827998
+  bodyYOffset: -0.019971171
   bodyZOffset: 0
-  wheelbase: 2.29825
-  trackWidth: 1.3495
-  wheelRadius: 0.316572
+  wheelbase: 2.2517269
+  trackWidth: 1.3553929
+  wheelRadius: 0.26533133
   wheelMeshScale: 0.93
-  trackRear: 1.3495
-  tyreRadiusRear: 0.3404
-  tyreWidthRear: 0.22799999
-  lowerBodyWidth: 1.64006
-  cowlZ: 0.7674891
-  cowlY: 0.88324255
-  noseZ: 2.031016
-  roofY: 1.3206315
-  headLamp: {x: 0.61362195, y: 0.7167634, z: 1.7450494}
-  headLampNormal: {x: 0.14204119, y: 0.40123928, z: 0.904893}
-  headLampSize: {x: 0.15158227, y: 0.15381372}
-  tailLamp: {x: 0.5609518, y: 0.6482943, z: -2.1283774}
-  tailLampNormal: {x: 0.214611, y: 0.060352273, z: -0.97483313}
-  tailLampSize: {x: 0.4533782, y: 0.09114805}
+  trackRear: 1.4765251
+  tyreRadiusRear: 0.2853025
+  tyreWidthRear: 0.24110097
+  lowerBodyWidth: 1.761476
+  cowlZ: 0.62796026
+  cowlY: 0.7981143
+  noseZ: 2.015951
+  roofY: 1.1983714
+  headLamp: {x: 0.6258794, y: 0.6127125, z: 1.7227972}
+  headLampNormal: {x: 0, y: 0.27682856, z: 0.9609193}
+  headLampSize: {x: 0.16749099, y: 0.1605128}
+  tailLamp: {x: 0.47803617, y: 0.42850894, z: -1.985012}
+  tailLampNormal: {x: 0, y: 0.7515623, z: -0.6596621}
+  tailLampSize: {x: 0.27219212, y: 0.09336814}
   lampsUpMesh: {fileID: 0}
   headLampUp: {x: 0, y: 0, z: 0}
   headLampUpNormal: {x: 0, y: 0, z: 1}
   headLampUpSize: {x: 0, y: 0}
-  colliderCenter: {x: 0, y: 0.7486455, z: -0.09702945}
-  colliderSize: {x: 1.5006549, y: 1.0664523, z: 4.064567}
-  blobSize: {x: 2.000873, y: 4.5540175}
+  colliderCenter: {x: 0, y: 0.66494435, z: -0.059549093}
+  colliderSize: {x: 1.6117506, y: 0.99641436, z: 3.964205}
+  blobSize: {x: 2.149001, y: 4.4415703}

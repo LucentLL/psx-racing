@@ -1,0 +1,6 @@
+# PSX Racing car model
+newmtl fastback_96
+Ka 1 1 1
+Kd 1 1 1
+illum 1
+map_Kd textures/fastback_96_white_512x256.png

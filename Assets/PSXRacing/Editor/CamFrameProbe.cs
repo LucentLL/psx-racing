@@ -598,7 +598,7 @@ namespace PSXRacing.EditorTools
         /// dip under that, at most <see cref="ExhaustMaxWidthM"/> wide and at
         /// least <see cref="ExhaustDropM"/> deep, is a small low protrusion:
         /// an exhaust. Its vertices in the zone that sit under the edge are
-        /// masked, and so is every narrow mesh island over it that hangs under
+        /// masked, and so is every narrow mesh island in the zone that hangs under
         /// the edge (the silencer and tips whole, where they are modelled as
         /// parts). A floor or diffuser as wide as the car is never a dip.
         ///
@@ -670,11 +670,9 @@ namespace PSXRacing.EditorTools
                     runs[runs.Count - 1] = new Vector2Int(runs[runs.Count - 1].x, i);
                 else runs.Add(new Vector2Int(i, i));
             }
-            var dips = new List<Vector2>();
             foreach (var r in runs)
             {
                 if ((r.y - r.x + 1) * ExhaustBinM > ExhaustMaxWidthM) continue;
-                dips.Add(new Vector2(x0 + r.x * ExhaustBinM, x0 + (r.y + 1) * ExhaustBinM));
                 float xa = x0 + (r.x - 1) * ExhaustBinM, xb = x0 + (r.y + 2) * ExhaustBinM;
                 for (int i = 0; i < v.Count; i++)
                 {
@@ -682,14 +680,18 @@ namespace PSXRacing.EditorTools
                     if (q.z < zone && q.x >= xa && q.x <= xb && Seen(q) < edge - ExhaustMarginM) mask[i] = true;
                 }
             }
-            if (dips.Count == 0) return mask;
-
             // The whole part, where it is a part: a silencer or a tip modelled
             // as its own mesh island (the S13's and the FD's are) goes out
             // entire, up its sides to where it meets the floor, and the half of
             // a silencer that runs forward out of the zone with it. An island is
-            // the exhaust when it is narrow, reaches into the rear zone, hangs
-            // under the bumper's edge and stands over a dip. Islands are found
+            // the exhaust when it is narrow, reaches into the rear zone and
+            // hangs under the bumper's edge - with or without a dip
+            // (2026-10-10): viper_gts v06 hangs a 0.62 m transverse silencer at
+            // its floor's height across the middle, so the tips' dip merged
+            // with it into one run too wide to be an exhaust, and the
+            // flat-six coupe's twin tips sit only 3 cm under an engine floor
+            // that runs nearly to the tail. Both framed their cars from the
+            // tail (W 0.21-0.28 against 0.26-0.37). Islands are found
             // on positions welded to the millimetre (the importer splits
             // vertices along UV seams).
             var weld = new Dictionary<Vector3Int, int>();
@@ -724,8 +726,7 @@ namespace PSXRacing.EditorTools
             {
                 var b = kv.Value;
                 if (b.y - b.x > ExhaustMaxWidthM || b.w >= zone || b.z >= edge) continue;
-                foreach (var d in dips)
-                    if (b.x < d.y && b.y > d.x) { exhaustIsland.Add(kv.Key); break; }
+                exhaustIsland.Add(kv.Key);
             }
             if (exhaustIsland.Count > 0)
                 for (int i = 0; i < v.Count; i++)

@@ -49,33 +49,33 @@ MonoBehaviour:
   bodyMesh: {fileID: -2432090755550338912, guid: 59f2cade9c3ce854c89a73f5f482706f, type: 3}
   wheelMesh: {fileID: 4300000, guid: 55cdaceca20f24f47a9050c2fe4698e0, type: 2}
   skinMaterials:
-  - {fileID: 2100000, guid: c27032ce6864e09469b826b75ce1a7a1, type: 2}
+  - {fileID: 2100000, guid: 5f6370a7a0a6ba241bf7dbadb16c93ce, type: 2}
   skinNames:
-  - s2000_red_512x256
+  - roadster_99_red_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.4612023, g: 0.16403632, b: 0.17947689, a: 1}
+  - {r: 0.4199942, g: 0.17811736, b: 0.18938564, a: 1}
   bodyYaw: 180
   bodyYOffset: -0.022660714
   bodyZOffset: -0.00002503395
   wheelbase: 2.409591
-  trackWidth: 1.4203529
+  trackWidth: 1.419349
   wheelRadius: 0.3010638
   wheelMeshScale: 0.93
-  trackRear: 1.4456439
+  trackRear: 1.444641
   tyreRadiusRear: 0.3237245
-  tyreWidthRear: 0.294066
-  lowerBodyWidth: 1.785418
+  tyreWidthRear: 0.23083699
+  lowerBodyWidth: 1.800512
   cowlZ: 0.4343756
   cowlY: 0.83610046
   noseZ: 2.0237663
   roofY: 1.2757807
-  headLamp: {x: 0.5972755, y: 0.5854453, z: 1.7358619}
-  headLampNormal: {x: 0.11449642, y: 0.8860325, z: 0.44926265}
-  headLampSize: {x: 0.13790974, y: 0.08256346}
-  tailLamp: {x: 0.65784055, y: 0.68149436, z: -1.875959}
-  tailLampNormal: {x: 0.58708334, y: 0.09604208, z: -0.80380905}
-  tailLampSize: {x: 0.32078618, y: 0.25371546}
+  headLamp: {x: 0.6455698, y: 0.61454177, z: 1.6733335}
+  headLampNormal: {x: 0.489536, y: 0.6729729, z: 0.55449253}
+  headLampSize: {x: 0.20640025, y: 0.092182964}
+  tailLamp: {x: 0.52904797, y: 0.6774333, z: -2.0215511}
+  tailLampNormal: {x: 0.15455991, y: 0.11812373, z: -0.98089653}
+  tailLampSize: {x: 0.3447181, y: 0.25671145}
   lampsUpMesh: {fileID: 0}
   headLampUp: {x: 0, y: 0, z: 0}
   headLampUpNormal: {x: 0, y: 0, z: 1}

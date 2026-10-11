@@ -77,9 +77,11 @@ const MODELS = [
   // 2026-10-05 later: revision 03 (spoiler lowered 34 mm to meet the revised
   // rear glass, the painted strip between them gone; 3,970 tris, atlas
   // unchanged), converted/hatch_93_v03.
-  { key: 'civic_eg',     obj: `${here}/converted/hatch_93_v03/hatch_93_v03.obj`,
-    tex: `${ownerCars}/EG_Independent_Textured_v03`, skins: /^eg_red_512x256$/,
-    skinAs: 'hatch_93_red_512x256', gt4LengthM: 4.070 },
+  // 2026-10-10: revision 05 (wheelhouse brake art; 3,958 tris, 288 per
+  // wheel), converted/hatch_93_v05 with the GLB's own atlas beside it.
+  { key: 'civic_eg',     obj: `${here}/converted/hatch_93_v05/hatch_93_v05.obj`,
+    tex: `${here}/converted/hatch_93_v05`, skins: /^hatch_93_red_512x256$/,
+    gt4LengthM: 4.070 },
   // The owner's S13 hatch (the 180SX that America sold as the 240SX) — GT4's
   // "Nissan 240SX `96": 4520 mm, 2475 mm wheelbase. The S14 is its own row.
   // 2026-10-04 ("NSX, 240SX, and RX7 were updated"): the independent 1989
@@ -104,17 +106,20 @@ const MODELS = [
   // adjustable wing on the `98 Type RS (the 280 PS series-5 car), and no
   // spoiler at all (no catalog FD is wingless - the shell is there for the
   // car that is). The built-in FD (rx7_fd, the scene's own) is unchanged.
-  { key: 'rx7_fd_93', obj: `${here}/converted/rx7_fd_93/rx7_fd_93.obj`,
-    lampsUp: `${here}/converted/rx7_fd_93/rx7_fd_93_up.obj`,
-    tex: `${ownerCars}/FD_Shared_Independent_v01/Textured_08`, skins: /^fd_shared_512x256$/,
+  // 2026-10-10: Textured_12 (modelled muffler/tips, steel exhaust art, the
+  // downpipe joined; 3,856-3,986 tris), converted/rx7_fd_*_t12, the shared
+  // atlas once, in rx7_fd_93_t12.
+  { key: 'rx7_fd_93', obj: `${here}/converted/rx7_fd_93_t12/rx7_fd_93_t12.obj`,
+    lampsUp: `${here}/converted/rx7_fd_93_t12/rx7_fd_93_t12_up.obj`,
+    tex: `${here}/converted/rx7_fd_93_t12`, skins: /^fd_shared_512x256$/,
     gt4LengthM: 4.280 },
-  { key: 'rx7_fd_99', obj: `${here}/converted/rx7_fd_99/rx7_fd_99.obj`,
-    lampsUp: `${here}/converted/rx7_fd_99/rx7_fd_99_up.obj`,
-    tex: `${ownerCars}/FD_Shared_Independent_v01/Textured_08`, skins: /^fd_shared_512x256$/,
+  { key: 'rx7_fd_99', obj: `${here}/converted/rx7_fd_99_t12/rx7_fd_99_t12.obj`,
+    lampsUp: `${here}/converted/rx7_fd_99_t12/rx7_fd_99_t12_up.obj`,
+    tex: `${here}/converted/rx7_fd_93_t12`, skins: /^fd_shared_512x256$/,
     gt4LengthM: 4.280 },
-  { key: 'rx7_fd_nowing', obj: `${here}/converted/rx7_fd_nowing/rx7_fd_nowing.obj`,
-    lampsUp: `${here}/converted/rx7_fd_nowing/rx7_fd_nowing_up.obj`,
-    tex: `${ownerCars}/FD_Shared_Independent_v01/Textured_08`, skins: /^fd_shared_512x256$/,
+  { key: 'rx7_fd_nowing', obj: `${here}/converted/rx7_fd_nowing_t12/rx7_fd_nowing_t12.obj`,
+    lampsUp: `${here}/converted/rx7_fd_nowing_t12/rx7_fd_nowing_t12_up.obj`,
+    tex: `${here}/converted/rx7_fd_93_t12`, skins: /^fd_shared_512x256$/,
     gt4LengthM: 4.280 },
 
   // The owner's Viper GTS (2026-09-25, "I added Dodge Viper model"): the GT1
@@ -128,8 +133,10 @@ const MODELS = [
   // -> converted/viper_v02; both atlases sit beside the OBJ under neutral
   // names and bake as the shell's two liveries. The catalog colour picks the
   // nearer one (CarModelDef.SkinFor), a respray the other.
-  { key: 'viper_gts',    obj: `${here}/converted/viper_v02/viper_v02.obj`,
-    tex: `${here}/converted/viper_v02`, skins: /^coupe_96_(blue_white|red)_512x256$/,
+  // 2026-10-10: revision 06 (3,967 tris, dark plate surround), both paints
+  // again on identical geometry and UVs, converted/viper_v06.
+  { key: 'viper_gts',    obj: `${here}/converted/viper_v06/viper_v06.obj`,
+    tex: `${here}/converted/viper_v06`, skins: /^coupe_96_(blue_white|red)_512x256$/,
     gt4LengthM: 4.488 },
 
   // The owner's FlatSix Coupe (2026-09-26, "add FlatSixCoupe for all Porsche
@@ -137,8 +144,13 @@ const MODELS = [
   // built to Docs/CarModelSpec.md - 2,290 body tris, 92 per wheel, sealed,
   // one 256 atlas with matte alpha 128. Kept at its delivered, reference-
   // scaled 4.276 m (a G-body 911 is 4.29 m; the catalog carries no length).
-  { key: 'flatsix_coupe', obj: `${ownerCars}/FlatSix_Coupe_PSX/flat_six_coupe.obj`,
-    tex: `${ownerCars}/FlatSix_Coupe_PSX`, skins: /^coupe_atlas_256$/ },
+  // 2026-10-10: the owner's independent yellow coupe, Cars/CTR_Independent_v06
+  // (3,946 tris with the wheels, one 512x256 atlas, underbody right), GLB ->
+  // converted/flatsix_coupe_v06. Now sized to the GT4 sheet its two wearers
+  // share (the `86 BTR and `87 CTR: 4151 mm, wb 2272).
+  { key: 'flatsix_coupe', obj: `${here}/converted/flatsix_coupe_v06/flatsix_coupe_v06.obj`,
+    tex: `${here}/converted/flatsix_coupe_v06`, skins: /^flatsix_coupe_yellow_512x256$/,
+    gt4LengthM: 4.151 },
 
   // The owner's 2026-10-01 set ("I made more"), same spec and layout as the
   // FlatSix Coupe (Body + Wheel_FL/FR/RL/RR, nose -Z, one 256 atlas, matte
@@ -160,9 +172,10 @@ const MODELS = [
   // into midship_coupe_v04_up - same atlas, same frame, lamps raised. It
   // becomes the shell's second BODY (`lampsUp`): no wheels of its own, and the
   // DOWN body's scale, so the two coincide everywhere but the lamps.
-  { key: 'midship_coupe', obj: `${here}/converted/midship_coupe_v04/midship_coupe_v04.obj`,
-    lampsUp: `${here}/converted/midship_coupe_v04/midship_coupe_v04_up.obj`,
-    tex: `${ownerCars}/NSX_Independent_Textured_v04`, skins: /^midship_coupe_yellow_512x256$/,
+  // 2026-10-10: revision 09 (down 3,646 / up 3,702 tris), converted/midship_coupe_v09.
+  { key: 'midship_coupe', obj: `${here}/converted/midship_coupe_v09/midship_coupe_v09.obj`,
+    lampsUp: `${here}/converted/midship_coupe_v09/midship_coupe_v09_up.obj`,
+    tex: `${here}/converted/midship_coupe_v09`, skins: /^midship_coupe_yellow_512x256$/,
     gt4LengthM: 4.430 },
   { key: 'classic_roadster', obj: `${ownerCars}/Classic_Roadster_PSX/classic_roadster.obj`,
     tex: `${ownerCars}/Classic_Roadster_PSX`, skins: /^roadster_atlas_256$/,
@@ -175,9 +188,12 @@ const MODELS = [
   // keeps, so the tint is BAKED into the atlas copy there (every tinted
   // triangle samples only the right-half underside, no texel shared with an
   // untinted one - an exact equivalent). Same GT4 sheet as classic_roadster.
-  { key: 'roadster_na_popup', obj: `${here}/converted/roadster_na_popup_v01/roadster_na_popup_v01.obj`,
-    lampsUp: `${here}/converted/roadster_na_popup_v01/roadster_na_popup_v01_up.obj`,
-    tex: `${here}/converted/roadster_na_popup_v01`, skins: /^roadster_na_red_512x256$/,
+  // 2026-10-10: revision 05 (stepped hood, seated pop-ups, muffler, brake
+  // art; closed 3,788 / raised 3,996 tris). No vertex tint any more: the
+  // GLB's atlas is used as is. converted/roadster_na_popup_v05.
+  { key: 'roadster_na_popup', obj: `${here}/converted/roadster_na_popup_v05/roadster_na_popup_v05.obj`,
+    lampsUp: `${here}/converted/roadster_na_popup_v05/roadster_na_popup_v05_up.obj`,
+    tex: `${here}/converted/roadster_na_popup_v05`, skins: /^roadster_na_red_512x256$/,
     gt4LengthM: 3.955 },
   // 2026-10-05, the owner's 1983 pop-up-lamp hatch (white over black, 3,992
   // tris either way, 512x256 with the underfloor on the right): the catalog's
@@ -190,19 +206,22 @@ const MODELS = [
   // rebuilt: the painted cover curves down to the hood, hinge on its sloping
   // rear edge, 70-degree open pose, dark brow; 3,990 tris either way),
   // converted/hatch_83_popup_v09.
-  { key: 'hatch_83_popup', obj: `${here}/converted/hatch_83_popup_v09/hatch_83_popup_v09.obj`,
-    lampsUp: `${here}/converted/hatch_83_popup_v09/hatch_83_popup_v09_up.obj`,
-    tex: `${ownerCars}/AE86_Independent_v09`, skins: /^ae86_white_black_512x256$/,
-    skinAs: 'hatch_83_white_black_512x256', gt4LengthM: 4.205 },
+  // 2026-10-10: revision 11 (hood, fender tips, pop-up covers, brow, wells
+  // and fascia corrected; 3,923 tris either way), converted/hatch_83_popup_v11.
+  { key: 'hatch_83_popup', obj: `${here}/converted/hatch_83_popup_v11/hatch_83_popup_v11.obj`,
+    lampsUp: `${here}/converted/hatch_83_popup_v11/hatch_83_popup_v11_up.obj`,
+    tex: `${here}/converted/hatch_83_popup_v11`, skins: /^hatch_83_white_black_512x256$/,
+    gt4LengthM: 4.205 },
 
   // The owner's Hatch 76 (2026-10-06, Cars/Hatch_76_Original/Revision_02): an
   // unbadged three-door 1976 GTI-style hatch, 2,926 tris with the wheels, one
   // 512x256 atlas with the shared FF underbody. GLB -> converted/hatch_76_r02.
   // The folder also holds the atlas's source layers, so `skins` names the one
   // sheet. GT4: Golf I GTI `76, 3705 mm, wb 2400.
-  { key: 'hatch_76',     obj: `${here}/converted/hatch_76_r02/hatch_76_r02.obj`,
-    tex: `${ownerCars}/Hatch_76_Original/Revision_02`, skins: /^hatch_512x256$/,
-    skinAs: 'hatch_76_512x256', gt4LengthM: 3.705 },
+  // 2026-10-10: Hatch_76_Release_v06 (3,098 tris, white), converted/hatch_76_v06.
+  { key: 'hatch_76',     obj: `${here}/converted/hatch_76_v06/hatch_76_v06.obj`,
+    tex: `${here}/converted/hatch_76_v06`, skins: /^hatch_76_512x256$/,
+    gt4LengthM: 3.705 },
 
   // The owner's Rally Coupe 98 (2026-10-07, v02 - v01 superseded): an
   // unbadged 1998 widebody turbo-4WD coupe, 3,787 tris with the wheels (Body +
@@ -210,9 +229,32 @@ const MODELS = [
   // 512x256 atlas (exterior left, underbody right). GLB ->
   // converted/rally_coupe_98_v02 by glb2obj.py; the atlas is renamed on the
   // way in. GT4: the `98 widebody coupe sheet, 4365 mm, 1770 wide, wb 2520.
-  { key: 'rally_coupe_98', obj: `${here}/converted/rally_coupe_98_v02/rally_coupe_98_v02.obj`,
-    tex: `${ownerCars}/Impreza_22B_Independent_Textured_v02`, skins: /^impreza_22b_blue_512x256$/,
-    skinAs: 'rally_coupe_98_blue_512x256', gt4LengthM: 4.365 },
+  // 2026-10-10: v05 (side glass, screen and rear glass redrawn; 3,891
+  // tris), converted/rally_coupe_98_v05.
+  { key: 'rally_coupe_98', obj: `${here}/converted/rally_coupe_98_v05/rally_coupe_98_v05.obj`,
+    tex: `${here}/converted/rally_coupe_98_v05`, skins: /^rally_coupe_98_blue_512x256$/,
+    gt4LengthM: 4.365 },
+
+  // The owner's 2026-10-10 set, three NEW shells (unbadged, Y-up, nose -Z,
+  // Body + Wheel_FL/FR/RL/RR, one 512x256 atlas, underbody right), each GLB
+  // -> converted/<key>_vNN with its atlas renamed beside it:
+  //   Long-nose Coupe 71 = Cars/Fairlady_280Z_Independent_v01 (an S30 by its
+  //     shape: headlight bowls, long nose): the catalog's one S30, the 240ZG
+  //     (HS30) `71, 4305 mm, wb 2305. 3,844 tris.
+  //   Rally Sedan 99 = Cars/EvoVI_Independent_Textured_v07: the three `99
+  //     Evolution VI rows, 4350 mm, wb 2510. 4,000 tris.
+  //   Fastback 96 = Cars/TypeX_Refined_v04_White, pop-ups down and up: the
+  //     late-face S13 hatch, GT4's 240SX `96, 4520 mm, wb 2475. 3,972 tris.
+  { key: 'longnose_71', obj: `${here}/converted/longnose_71_v01/longnose_71_v01.obj`,
+    tex: `${here}/converted/longnose_71_v01`, skins: /^longnose_71_brown_512x256$/,
+    gt4LengthM: 4.305 },
+  { key: 'rally_sedan_99', obj: `${here}/converted/rally_sedan_99_v07/rally_sedan_99_v07.obj`,
+    tex: `${here}/converted/rally_sedan_99_v07`, skins: /^rally_sedan_99_red_512x256$/,
+    gt4LengthM: 4.350 },
+  { key: 'fastback_96', obj: `${here}/converted/fastback_96_v04/fastback_96_v04.obj`,
+    lampsUp: `${here}/converted/fastback_96_v04/fastback_96_v04_up.obj`,
+    tex: `${here}/converted/fastback_96_v04`, skins: /^fastback_96_white_512x256$/,
+    gt4LengthM: 4.520 },
 
   // The owner's 2026-10-02 set ("Integra, S2000, and Prelude have been
   // added"), same layout (Body + Wheel_FL/FR/RL/RR, nose -Z, matte alpha 128),
@@ -231,8 +273,10 @@ const MODELS = [
   { key: 'liftback_95', obj: `${ownerCars}/Liftback_95_PSX/liftback95.obj`,
     tex: `${ownerCars}/Liftback_95_PSX`, skins: /^liftback95_atlas_512x256$/,
     gt4LengthM: 4.380 },
-  { key: 'roadster_99', obj: `${here}/converted/roadster_99_v06/roadster_99_v06.obj`,
-    tex: `${ownerCars}/S2000_Independent_Textured_v06`, skins: /^s2000_red_512x256$/,
+  // 2026-10-10: roadster_99 v07 (3,636 tris), converted/roadster_99_v07, its
+  // atlas renamed roadster_99_red_512x256.
+  { key: 'roadster_99', obj: `${here}/converted/roadster_99_v07/roadster_99_v07.obj`,
+    tex: `${here}/converted/roadster_99_v07`, skins: /^roadster_99_red_512x256$/,
     gt4LengthM: 4.135 },
   { key: 'coupe_99', obj: `${ownerCars}/Coupe_99_Original/Revision_04/coupe_99.obj`,
     tex: `${ownerCars}/Coupe_99_Original/Revision_04`, skins: /^coupe_512x256$/,

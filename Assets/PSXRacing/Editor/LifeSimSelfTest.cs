@@ -9446,6 +9446,25 @@ namespace PSXRacing.EditorTools
                 foreach (var c in CarCatalog.All)
                     if (c.name.Contains("IMPREZA")) { rc98++; if (CarModelLibrary.KeyFor(c) == "rally_coupe_98") rc98Ok++; }
                 Check(rc98 >= 10 && rc98Ok == rc98, "every car of the Rally Coupe 98's family wears the owner's Rally Coupe 98", rc98Ok + " of " + rc98);
+                // 2026-10-10: the owner's three new shells, each on its exact rows only:
+                // the S30 240ZG, the three `99 Evolution VIs, the 240SX `96 (the S13
+                // Silvias and the SILEIGHTY stay on the 180SX shell).
+                int z30 = 0, z30Ok = 0, evo6 = 0, evo6Ok = 0, s13 = 0, s13Ok = 0;
+                foreach (var c in CarCatalog.All)
+                {
+                    string k = CarModelLibrary.KeyFor(c);
+                    bool isZ = c.name == "Nissan 240ZG (HS30) `71";
+                    bool isEvo = System.Text.RegularExpressions.Regex.IsMatch(c.name, @"^Mitsubishi Lancer Evolution VI (RS|GSR|Rally Car) `99$");
+                    bool isFb = c.name == "Nissan 240SX `96";
+                    if (isZ) z30++; if (isZ && k == "longnose_71") z30Ok++;
+                    if (isEvo) evo6++; if (isEvo && k == "rally_sedan_99") evo6Ok++;
+                    if (isFb) s13++; if (isFb && k == "fastback_96") s13Ok++;
+                    if ((k == "longnose_71" && !isZ) || (k == "rally_sedan_99" && !isEvo) || (k == "fastback_96" && !isFb)) { z30Ok = -99; }
+                    if ((c.name.Contains("(S13)") || c.name.StartsWith("SILEIGHTY")) && k != "nissan_180sx") s13Ok = -99;
+                }
+                Check(z30 == 1 && z30Ok == 1, "the S30 240ZG wears the owner's Long-nose Coupe 71 (and nothing else does)", z30Ok + " of " + z30);
+                Check(evo6 == 3 && evo6Ok == 3, "the three `99 Evolution VIs wear the owner's Rally Sedan 99", evo6Ok + " of " + evo6);
+                Check(s13 == 1 && s13Ok == 1, "the 240SX `96 wears the owner's Fastback 96; the S13 Silvias and SILEIGHTY keep the 180SX shell", s13Ok + " of " + s13);
                 // The owner's 2026-10-02 set.
                 int integra = 0, integraOk = 0, s2k = 0, s2kOk = 0, prelude = 0, preludeOk = 0;
                 foreach (var c in CarCatalog.All)
@@ -11649,11 +11668,10 @@ namespace PSXRacing.EditorTools
                 var ul = ls.Find(l => l.label == "USED, RELIABLE");
                 string bk = bl != null ? CarModelLibrary.KeyFor(bl.spec) : null;
                 string uk = ul != null ? CarModelLibrary.KeyFor(ul.spec) : null;
-                if (bk == "nissan_180sx") s13Rough++; if (bk == "civic_eg") egRough++;
-                if (uk == "nissan_180sx") s13Tidy++; if (uk == "civic_eg") egTidy++;
-                if (bk != null && uk != null && bk != uk &&
-                    System.Array.IndexOf(CarMarket.StarterBodies, bk) >= 0 &&
-                    System.Array.IndexOf(CarMarket.StarterBodies, uk) >= 0) both++;
+                if (CarMarket.StarterBodyOf(bk) == 0) s13Rough++; if (bk == "civic_eg") egRough++;
+                if (CarMarket.StarterBodyOf(uk) == 0) s13Tidy++; if (uk == "civic_eg") egTidy++;
+                int bf = CarMarket.StarterBodyOf(bk), uf = CarMarket.StarterBodyOf(uk);
+                if (bf >= 0 && uf >= 0 && bf != uf) both++;
                 foreach (var l in ls)
                 {
                     if (l.label == "NEW, ON FINANCE") continue;

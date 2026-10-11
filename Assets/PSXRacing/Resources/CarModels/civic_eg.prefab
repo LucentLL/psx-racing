@@ -54,7 +54,7 @@ MonoBehaviour:
   - hatch_93_red_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.39718917, g: 0.17636435, b: 0.18323718, a: 1}
+  - {r: 0.4091945, g: 0.19117445, b: 0.19631822, a: 1}
   bodyYaw: 180
   bodyYOffset: -0.020929929
   bodyZOffset: 0
@@ -73,13 +73,13 @@ MonoBehaviour:
   headLamp: {x: 0.55397975, y: 0.58291006, z: 1.9481546}
   headLampNormal: {x: 0.32308155, y: 0.52524585, z: 0.7872325}
   headLampSize: {x: 0.36775646, y: 0.108772844}
-  tailLamp: {x: 0.59446526, y: 0.70551294, z: -1.8339521}
-  tailLampNormal: {x: 0.39038247, y: 0.11887594, z: -0.91294575}
-  tailLampSize: {x: 0.37292773, y: 0.12272075}
+  tailLamp: {x: 0.6293998, y: 0.57808346, z: -1.836093}
+  tailLampNormal: {x: 0.33542463, y: 0.42391714, z: -0.8412993}
+  tailLampSize: {x: 0.3886528, y: 0.28}
   lampsUpMesh: {fileID: 0}
   headLampUp: {x: 0, y: 0, z: 0}
   headLampUpNormal: {x: 0, y: 0, z: 1}
   headLampUpSize: {x: 0, y: 0}
-  colliderCenter: {x: 0, y: 0.7689955, z: 0.061757922}
-  colliderSize: {x: 1.7366042, y: 1.0452896, z: 3.8868496}
+  colliderCenter: {x: 0, y: 0.747195, z: 0.061757922}
+  colliderSize: {x: 1.7366042, y: 1.0845306, z: 3.8868496}
   blobSize: {x: 2.3154721, y: 4.3549}
