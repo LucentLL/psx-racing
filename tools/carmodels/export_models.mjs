@@ -287,12 +287,29 @@ const MODELS = [
   // the real car, wheels split out, every source page baked onto one 512
   // atlas (the one exemption from the 256 clamp: ConfigureTextureImporters).
   // Configs in rips/.
-  { key: 'crown_victoria', obj: `${here}/converted/crown_victoria/crown_victoria.obj`,
-    tex: `${here}/converted/crown_victoria`, skins: /^crown_victoria_atlas_512$/ },
+  // crown_victoria is now the owner's own full-size sedan (2026-10-12,
+  // Crown_Victoria_Independent_v06 Passenger_Silver), unbadged; the rip it
+  // replaced stays in converted/crown_victoria. 5385 mm, the '98-'02 P71.
+  { key: 'crown_victoria', obj: `${here}/converted/fullsize_01/fullsize_01.obj`,
+    tex: `${here}/converted/fullsize_01`, skins: /^fullsize_01_512x256$/, gt4LengthM: 5.385 },
   { key: 'camry_2001',     obj: `${here}/converted/camry_2001/camry_2001.obj`,
     tex: `${here}/converted/camry_2001`, skins: /^camry_2001_atlas_512$/ },
   { key: 'ford_transit',   obj: `${here}/converted/ford_transit/ford_transit.obj`,
     tex: `${here}/converted/ford_transit`, skins: /^ford_transit_atlas_512$/ },
+  // The owner's 2026-10-12 set: R32 v05 (player), Accord coupe v05 (player),
+  // Accord sedan v05 and the three liveried full-size sedans (traffic).
+  { key: 'gtr_89', obj: `${here}/converted/gtr_89/gtr_89.obj`,
+    tex: `${here}/converted/gtr_89`, skins: /^gtr_89_512x256$/, gt4LengthM: 4.545 },
+  { key: 'coupe_03', obj: `${here}/converted/coupe_03/coupe_03.obj`,
+    tex: `${here}/converted/coupe_03`, skins: /^coupe_03_512x256$/, gt4LengthM: 4.680 },
+  { key: 'sedan_98', obj: `${here}/converted/sedan_98/sedan_98.obj`,
+    tex: `${here}/converted/sedan_98`, skins: /^sedan_98_512x256$/, gt4LengthM: 4.680 },
+  { key: 'fullsize_taxi', obj: `${here}/converted/fullsize_taxi/fullsize_taxi.obj`,
+    tex: `${here}/converted/fullsize_taxi`, skins: /^fullsize_taxi_512x256$/, gt4LengthM: 5.385 },
+  { key: 'fullsize_police', obj: `${here}/converted/fullsize_police/fullsize_police.obj`,
+    tex: `${here}/converted/fullsize_police`, skins: /^fullsize_police_512x256$/, gt4LengthM: 5.385 },
+  { key: 'fullsize_trooper', obj: `${here}/converted/fullsize_trooper/fullsize_trooper.obj`,
+    tex: `${here}/converted/fullsize_trooper`, skins: /^fullsize_trooper_512x256$/, gt4LengthM: 5.385 },
 ];
 
 // `node export_models.mjs civic_eg` re-exports one model and leaves the rest

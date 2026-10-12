@@ -1,5 +1,5 @@
 PSX Racing — catalog car to body shell
-317 cars across 33 of 39 shells; 220 hand-mapped, 97 scored.
+318 cars across 35 of 45 shells; 221 hand-mapped, 97 scored.
   =  hand-mapped (the real car, its twin, or a deliberate call)
   ~  scored on body style, region, era and weight
   Per car, TO SPEC (CarModelLibrary.Fit, the owner's GT4 Specs sheet): wheelbase sheet/shell
@@ -7,7 +7,7 @@ PSX Racing — catalog car to body shell
   tyre diameter x section F/R, along/across stretch, camber F/R (top in) and any poke past
   the model's own wheel left after it. !CLAMP = a stretch hit its fence; !POKE = still out.
 
-CAMBER (125 cars)
+CAMBER (131 cars)
     Honda CIVIC 1500 3door CX `79 [euro_hatch]: F 3.2 R 3.7 deg
     Honda CIVIC 1500 3door 25i `83 [euro_hatch]: F 3.9 R 4.7 deg
     Alpine A110 1600S `73 [mb_pagoda]: F 6.0 R 5.0 deg
@@ -56,13 +56,16 @@ CAMBER (125 cars)
     Isuzu 117 Coupe `68 [gto_66]: F 4.6 R 3.9 deg
     Mercedes-Benz A 160 Avantgarde `98 [euro_hatch]: F 6.0 R 3.5 deg
     Nissan Fairlady 2000 (SR311) `68 [mb_pagoda]: F 4.5 R 0.9 deg
+    Nissan SKYLINE GTS25 Type S (R32) `91 [gtr_89]: F 0.6 R 0.6 deg
     Subaru LEGACY Touring Wagon GT-B `96 [volvo_estate]: F 4.4 R 3.9 deg
+    Nissan SKYLINE GTS-t Type M (R32) `89 [gtr_89]: F 0.6 R 0.6 deg
     Subaru IMPREZA Sedan WRX STi Version II (GC) `95 [rally_coupe_98]: F 1.1 R 0.0 deg
     Ford Taurus SHO `98 [audi_saloon]: F 0.7 R 0.0 deg
     Mitsubishi PAJERO Rally Raid Car `85 [landrover]: F 2.4 R 1.6 deg
     Honda INTEGRA TYPE R (DC2) `95 [liftback_95]: F 2.6 R 2.1 deg
     Subaru IMPREZA Sedan WRX STi Version III (GC) `96 [rally_coupe_98]: F 1.3 R 0.0 deg
     Toyota MR2 Spyder `99 [mb_pagoda]: F 7.6 R 7.8 deg
+    Nissan SKYLINE GTS-t Type M (R32) `91 [gtr_89]: F 0.6 R 0.6 deg
     Honda INTEGRA TYPE R (DC2) `98 [liftback_95]: F 3.5 R 3.7 deg
     Chevrolet Corvette Stingray L46 350 (C3) `69 [mustang_67]: F 0.0 R 0.6 deg
     Honda INTEGRA TYPE R (DC2) `99 [liftback_95]: F 3.5 R 3.7 deg
@@ -85,6 +88,7 @@ CAMBER (125 cars)
     Spoon INTEGRA TYPE R (DC2) `99 [liftback_95]: F 3.5 R 3.7 deg
     Audi S4 `98 [audi_saloon]: F 2.9 R 2.2 deg
     Mercedes-Benz SLK 230 Kompressor `98 [mb_pagoda]: F 7.7 R 8.0 deg
+    Nissan SKYLINE GT-R Vspec II (R32) `94 [gtr_89]: F 0.7 R 0.7 deg
     Toyota CELICA GT-FOUR Rally Car (ST205) `95 [rx7_fd]: F 1.1 R 1.1 deg
     Toyota COROLLA Rally Car `98 [euro_hatch]: F 6.8 R 6.4 deg
     Peugeot 206 Rally Car `99 [euro_hatch]: F 5.7 R 4.9 deg
@@ -92,6 +96,7 @@ CAMBER (125 cars)
     BMW M Coupe `98 [bmw_e30]: F 0.0 R 0.4 deg
     Lancia DELTA HF Integrale Evoluzione `91 [euro_hatch]: F 4.8 R 4.2 deg
     Chevrolet Corvette GRAND SPORT (C4) `96 [rx7_fd]: F 0.0 R 1.7 deg
+    Nissan SKYLINE GT-R Vspec N1 (R32) `93 [gtr_89]: F 0.7 R 0.7 deg
     Nissan STAGEA 260RS AutechVersion `98 [volvo_estate]: F 2.6 R 3.9 deg
     Peugeot 205 Turbo 16 Rally Car `85 [euro_hatch]: F 4.8 R 4.8 deg
     Renault 5 Maxi Turbo Rally Car `85 [euro_hatch]: F 0.0 R 5.1 deg
@@ -133,6 +138,7 @@ CAMBER (125 cars)
     Nissan CALSONIC SKYLINE GT-R Race Car `93 [skyline_r32]: F 3.9 R 0.6 deg
     NISMO GT-R LM Road Going Version `95 [skyline_r32]: F 0.0 R 0.4 deg
     Lister Storm V12 Race Car `99 [supra_a80]: F 0.0 R 1.2 deg
+    Honda ACCORD Coupe Type-S `03 [coupe_03]: F 0.0 R 0.8 deg
 STRETCH FENCED (2 cars)
     Citroen Xsara Rally Car `99 [euro_hatch]: along x1.150 (wants x1.150), across x1.200
     Lancia Delta S4 Rally Car `85 [euro_hatch]: along x1.098 (wants x1.098), across x1.200
@@ -316,7 +322,7 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
     ~ 1999 jpn MR  1059kg  608hp GT       Toyota GT-ONE Race Car (TS020) `99
         wb 2840/2840  track F 1600/1641 R 1644/1641  tyre 660x290 / 705x310  along x1.115 across x1.075  camber 0.0/0.0  poke -56/-24 mm
 
-=== skyline_r32  (Nissan Skyline GT-R (R32), Japan 1989 Sports)  — 47 cars
+=== skyline_r32  (Nissan Skyline GT-R (R32), Japan 1989 Sports)  — 38 cars
     model: wheelbase 2619 mm, track 1515/1515 mm, tyre 678/678 mm, lower body 1802 mm, 11 liveries
     = 1967 jpn FR  1133kg  125hp GT       Nissan SKYLINE 2000GT-B (S54A) `67
         wb 2590/2590  track F 1265/1269 R 1255/1269  tyre 562x145 / 562x145  along x0.989 across x0.838  camber 0.0/0.0  poke -60/-65 mm
@@ -336,34 +342,16 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
         wb 2615/2615  track F 1425/1421 R 1420/1421  tyre 627x205 / 627x205  along x0.999 across x0.938  camber 0.0/0.0  poke -42/-44 mm
     = 1989 jpn 4WD 1340kg  205hp Coupe    Mitsubishi Galant 2.0 DOHC Turbo VR-4 `89
         wb 2600/2600  track F 1460/1425 R 1450/1425  tyre 615x195 / 615x195  along x0.993 across x0.941  camber 0.0/0.0  poke -32/-37 mm
-    = 1989 jpn 4WD 1429kg  280hp Coupe    Nissan SKYLINE GT-R (R32) `89
-        wb 2615/2615  track F 1480/1475 R 1480/1475  tyre 631x225 / 631x225  along x0.999 across x0.974  camber 0.0/0.0  poke -37/-37 mm
-    = 1989 jpn FR  1260kg  215hp Coupe    Nissan SKYLINE GTS-t Type M (R32) `89
-        wb 2615/2615  track F 1460/1425 R 1460/1425  tyre 632x205 / 632x205  along x0.999 across x0.941  camber 0.0/0.0  poke -27/-27 mm
     = 1991 jpn FR  1640kg  280hp Saloon   Lexus GS300 `91
         wb 2780/2780  track F 1535/1509 R 1510/1509  tyre 654x225 / 654x225  along x1.062 across x0.996  camber 0.0/0.0  poke -30/-42 mm
-    = 1991 jpn 4WD 1480kg  280hp Coupe    Nissan SKYLINE GT-R (R32) `91
-        wb 2615/2615  track F 1480/1475 R 1480/1475  tyre 631x225 / 631x225  along x0.999 across x0.974  camber 0.0/0.0  poke -37/-37 mm
-    = 1991 jpn 4WD 1469kg  280hp Coupe    Nissan SKYLINE GT-R N1 (R32) `91
-        wb 2615/2615  track F 1480/1475 R 1480/1475  tyre 657x225 / 657x225  along x0.999 across x0.974  camber 0.0/0.0  poke -37/-37 mm
-    = 1991 jpn FR  1320kg  180hp Coupe    Nissan SKYLINE GTS25 Type S (R32) `91
-        wb 2615/2615  track F 1460/1425 R 1460/1425  tyre 627x205 / 627x205  along x0.999 across x0.941  camber 0.0/0.0  poke -27/-27 mm
-    = 1991 jpn FR  1260kg  215hp Coupe    Nissan SKYLINE GTS-t Type M (R32) `91
-        wb 2615/2615  track F 1460/1425 R 1460/1425  tyre 632x205 / 632x205  along x0.999 across x0.941  camber 0.0/0.0  poke -27/-27 mm
     ~ 1991 jpn 4WD 1460kg  235hp Coupe    Toyota CELICA GT-FOUR RC (ST185) `91
         wb 2525/2525  track F 1475/1467 R 1445/1467  tyre 596x215 / 596x215  along x0.964 across x0.968  camber 0.0/0.0  poke -40/-55 mm
     = 1992 jpn 4WD 1284kg  250hp Coupe    Mitsubishi Lancer Evolution GSR `92
         wb 2500/2500  track F 1450/1425 R 1460/1425  tyre 596x195 / 596x195  along x0.955 across x0.941  camber 0.0/0.0  poke -37/-32 mm
     = 1993 jpn 4WD 1482kg  550hp Coupe    Nissan CALSONIC SKYLINE GT-R Race Car `93
         wb 2615/2615  track F 1610/1475 R 1530/1475  tyre 696x265 / 696x265  along x0.999 across x0.974  camber 3.9/0.6  poke 0/0 mm
-    = 1993 jpn 4WD 1465kg  280hp Coupe    Nissan SKYLINE GT-R Vspec (R32) `93
-        wb 2615/2615  track F 1480/1475 R 1480/1475  tyre 657x225 / 657x225  along x0.999 across x0.974  camber 0.0/0.0  poke -37/-37 mm
-    = 1993 jpn 4WD 1469kg  280hp Coupe    Nissan SKYLINE GT-R Vspec N1 (R32) `93
-        wb 2615/2615  track F 1480/1475 R 1480/1475  tyre 652x245 / 652x245  along x0.999 across x0.974  camber 0.0/0.0  poke -27/-27 mm
     = 1994 jpn 4WD 1249kg  260hp Coupe    Mitsubishi Lancer Evolution II GSR `94
         wb 2510/2510  track F 1465/1425 R 1470/1425  tyre 627x205 / 627x205  along x0.959 across x0.941  camber 0.0/0.0  poke -24/-22 mm
-    = 1994 jpn 4WD 1465kg  280hp Coupe    Nissan SKYLINE GT-R Vspec II (R32) `94
-        wb 2615/2615  track F 1480/1475 R 1480/1475  tyre 652x245 / 652x245  along x0.999 across x0.974  camber 0.0/0.0  poke -27/-27 mm
     = 1995 jpn 4WD 1260kg  270hp Coupe    Mitsubishi Lancer Evolution III GSR `95
         wb 2510/2510  track F 1465/1425 R 1470/1425  tyre 627x205 / 627x205  along x0.959 across x0.941  camber 0.0/0.0  poke -24/-22 mm
     = 1995 eur FR  1542kg  305hp Coupe    NISMO GT-R LM Road Going Version `95
@@ -889,8 +877,8 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
     model: wheelbase 2350 mm, track 1391/1391 mm, tyre 697/697 mm, lower body 2076 mm, 7 liveries
     (no catalog car — used as roadside scenery)
 
-=== crown_victoria  (Ford Crown Victoria, America 1998 Saloon)  — 0 cars
-    model: wheelbase 3221 mm, track 1605/1605 mm, tyre 748/748 mm, lower body 1898 mm, 1 liveries
+=== crown_victoria  (Full-size Sedan 01, America 2001 Saloon)  — 0 cars
+    model: wheelbase 2887 mm, track 1622/1622 mm, tyre 675/675 mm, lower body 1942 mm, 2 liveries
     (no catalog car — used as roadside scenery)
 
 === camry_2001  (Toyota Camry (XV20), Japan 1997 Saloon)  — 0 cars
@@ -899,5 +887,47 @@ STILL POKING after the 8 deg cap (6 cars) - model edits
 
 === ford_transit  (Ford Transit (Mk5), Europe 1994 Van)  — 0 cars
     model: wheelbase 2945 mm, track 1457/1457 mm, tyre 647/647 mm, lower body 1881 mm, 1 liveries
+    (no catalog car — used as roadside scenery)
+
+=== gtr_89  (Twin-Turbo Coupe 89, Japan 1989 Sports)  — 9 cars
+    model: wheelbase 2617 mm, track 1477/1477 mm, tyre 633/633 mm, lower body 1748 mm, 1 liveries
+    = 1989 jpn 4WD 1429kg  280hp Coupe    Nissan SKYLINE GT-R (R32) `89
+        wb 2615/2615  track F 1480/1484 R 1480/1484  tyre 631x225 / 631x225  along x0.999 across x1.004  camber 0.0/0.0  poke -2/-2 mm
+    = 1989 jpn FR  1260kg  215hp Coupe    Nissan SKYLINE GTS-t Type M (R32) `89
+        wb 2615/2615  track F 1460/1433 R 1460/1433  tyre 632x205 / 632x205  along x0.999 across x0.970  camber 0.6/0.6  poke 0/0 mm
+    = 1991 jpn 4WD 1480kg  280hp Coupe    Nissan SKYLINE GT-R (R32) `91
+        wb 2615/2615  track F 1480/1484 R 1480/1484  tyre 631x225 / 631x225  along x0.999 across x1.004  camber 0.0/0.0  poke -2/-2 mm
+    = 1991 jpn 4WD 1469kg  280hp Coupe    Nissan SKYLINE GT-R N1 (R32) `91
+        wb 2615/2615  track F 1480/1484 R 1480/1484  tyre 657x225 / 657x225  along x0.999 across x1.004  camber 0.0/0.0  poke -2/-2 mm
+    = 1991 jpn FR  1320kg  180hp Coupe    Nissan SKYLINE GTS25 Type S (R32) `91
+        wb 2615/2615  track F 1460/1433 R 1460/1433  tyre 627x205 / 627x205  along x0.999 across x0.970  camber 0.6/0.6  poke 0/0 mm
+    = 1991 jpn FR  1260kg  215hp Coupe    Nissan SKYLINE GTS-t Type M (R32) `91
+        wb 2615/2615  track F 1460/1433 R 1460/1433  tyre 632x205 / 632x205  along x0.999 across x0.970  camber 0.6/0.6  poke 0/0 mm
+    = 1993 jpn 4WD 1465kg  280hp Coupe    Nissan SKYLINE GT-R Vspec (R32) `93
+        wb 2615/2615  track F 1480/1484 R 1480/1484  tyre 657x225 / 657x225  along x0.999 across x1.004  camber 0.0/0.0  poke -2/-2 mm
+    = 1993 jpn 4WD 1469kg  280hp Coupe    Nissan SKYLINE GT-R Vspec N1 (R32) `93
+        wb 2615/2615  track F 1480/1484 R 1480/1484  tyre 652x245 / 652x245  along x0.999 across x1.004  camber 0.7/0.7  poke 0/0 mm
+    = 1994 jpn 4WD 1465kg  280hp Coupe    Nissan SKYLINE GT-R Vspec II (R32) `94
+        wb 2615/2615  track F 1480/1484 R 1480/1484  tyre 652x245 / 652x245  along x0.999 across x1.004  camber 0.7/0.7  poke 0/0 mm
+
+=== coupe_03  (Coupe 03, Japan 2003 Sports)  — 1 car
+    model: wheelbase 2624 mm, track 1527/1508 mm, tyre 641/641 mm, lower body 1756 mm, 1 liveries
+    = 2003 jpn FF  1329kg  264hp Coupe    Honda ACCORD Coupe Type-S `03
+        wb 2665/2665  track F 1485/1496 R 1485/1477  tyre 611x205 / 611x205  along x1.015 across x0.979  camber 0.0/0.8  poke -2/0 mm
+
+=== sedan_98  (Sedan 98, Japan 1998 Saloon)  — 0 cars
+    model: wheelbase 2668 mm, track 1549/1576 mm, tyre 624/624 mm, lower body 1842 mm, 1 liveries
+    (no catalog car — used as roadside scenery)
+
+=== fullsize_taxi  (Full-size Taxi 01, America 2001 Saloon)  — 0 cars
+    model: wheelbase 2887 mm, track 1622/1622 mm, tyre 675/675 mm, lower body 1942 mm, 1 liveries
+    (no catalog car — used as roadside scenery)
+
+=== fullsize_police  (Full-size Police 01, America 2001 Saloon)  — 0 cars
+    model: wheelbase 2887 mm, track 1622/1622 mm, tyre 675/675 mm, lower body 1942 mm, 1 liveries
+    (no catalog car — used as roadside scenery)
+
+=== fullsize_trooper  (Full-size Trooper 01, America 2001 Saloon)  — 0 cars
+    model: wheelbase 2887 mm, track 1622/1622 mm, tyre 675/675 mm, lower body 1942 mm, 1 liveries
     (no catalog car — used as roadside scenery)
 

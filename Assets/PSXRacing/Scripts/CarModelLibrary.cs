@@ -131,9 +131,18 @@ namespace PSXRacing
             // Ripped PS1-era cars (GT1/GT2 via the owner's Cars folder), added
             // 2026-09-25 as parked TRAFFIC on the race tracks. Hand-only so the
             // scorer never hands a catalog car a police-spec Crown Vic.
-            new Model { key = "crown_victoria", name = "Ford Crown Victoria", region = Region.America, year = 1998, body = Body.Saloon, kg = 1790, handOnly = true, widthMm = 1987 },
+            new Model { key = "crown_victoria", name = "Full-size Sedan 01", region = Region.America, year = 2001, body = Body.Saloon, kg = 1790, handOnly = true, widthMm = 1987 },
             new Model { key = "camry_2001",     name = "Toyota Camry (XV20)", region = Region.Japan,   year = 1997, body = Body.Saloon, kg = 1400, handOnly = true, widthMm = 1785 },
             new Model { key = "ford_transit",   name = "Ford Transit (Mk5)",  region = Region.Europe,  year = 1994, body = Body.Van,    kg = 1900, handOnly = true, widthMm = 1938 },
+
+            // The owner's 2026-10-12 set. gtr_89 and coupe_03 are player cars
+            // (hand rules below); the rest are traffic only.
+            new Model { key = "gtr_89",           name = "Twin-Turbo Coupe 89",  region = Region.Japan,   year = 1989, body = Body.Sports, kg = 1430, handOnly = true, widthMm = 1755 },
+            new Model { key = "coupe_03",         name = "Coupe 03",             region = Region.Japan,   year = 2003, body = Body.Sports, kg = 1329, handOnly = true, widthMm = 1720 },
+            new Model { key = "sedan_98",         name = "Sedan 98",             region = Region.Japan,   year = 1998, body = Body.Saloon, kg = 1329, handOnly = true, widthMm = 1720 },
+            new Model { key = "fullsize_taxi",    name = "Full-size Taxi 01",    region = Region.America, year = 2001, body = Body.Saloon, kg = 1790, handOnly = true, widthMm = 1987 },
+            new Model { key = "fullsize_police",  name = "Full-size Police 01",  region = Region.America, year = 2001, body = Body.Saloon, kg = 1790, handOnly = true, widthMm = 1987 },
+            new Model { key = "fullsize_trooper", name = "Full-size Trooper 01", region = Region.America, year = 2001, body = Body.Saloon, kg = 1790, handOnly = true, widthMm = 1987 },
         };
 
         static Dictionary<string, Model> byKey;
@@ -492,6 +501,8 @@ namespace PSXRacing
             // rule (the 240SX `96 was on nissan_180sx; the Silvias and the
             // SILEIGHTY stay there) and the Lancer Evolution rule (on the R32).
             (@"^Nissan\ 240ZG\ \(HS30\)\ `71$",                          "longnose_71"),
+            (@"^Nissan\ SKYLINE\ GT(S|-R).*\(R32\)\ `\d\d$",            "gtr_89"),
+            (@"^Honda\ ACCORD\ Coupe\ Type-S\ `03$",                    "coupe_03"),
             (@"^Mitsubishi\ Lancer\ Evolution\ VI\ (RS|GSR|Rally\ Car)\ `99$", "rally_sedan_99"),
             (@"^Nissan\ 240SX\ `96$",                                    "fastback_96"),
             // 2026-10-06, the owner's Car Models Tracker remap (approved "all look good"):

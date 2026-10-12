@@ -1,0 +1,85 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &8979978906203708224
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 6581896398461984933}
+  - component: {fileID: 7818126243633842545}
+  m_Layer: 0
+  m_Name: fullsize_trooper
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &6581896398461984933
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8979978906203708224}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &7818126243633842545
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8979978906203708224}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: fullsize_trooper
+  displayName: Full-size Trooper 01
+  bodyMesh: {fileID: -2432090755550338912, guid: d0e790453bc9ca249a6e940a176edd81, type: 3}
+  wheelMesh: {fileID: 4300000, guid: 95974958a7226924a9ad8e403e5f445c, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: 2822d2a685320334ebd118195ab8016e, type: 2}
+  skinNames:
+  - fullsize_trooper_512x256
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.39331812, g: 0.40137008, b: 0.41235998, a: 1}
+  bodyYaw: 180
+  bodyYOffset: -0.023610402
+  bodyZOffset: 0
+  wheelbase: 2.886807
+  trackWidth: 1.622304
+  wheelRadius: 0.31368107
+  wheelMeshScale: 0.93
+  trackRear: 1.622304
+  tyreRadiusRear: 0.33729148
+  tyreWidthRear: 0.24592203
+  lowerBodyWidth: 1.942152
+  cowlZ: -0.18127026
+  cowlY: 1.4419432
+  noseZ: 2.5617142
+  roofY: 1.6132736
+  headLamp: {x: 0.6191008, y: 0.66945064, z: 2.3050404}
+  headLampNormal: {x: 0.40447617, y: 0.5022238, z: 0.76431036}
+  headLampSize: {x: 0.41501892, y: 0.230782}
+  tailLamp: {x: 0.7683636, y: 0.8202877, z: -2.6259317}
+  tailLampNormal: {x: 0.19297375, y: -0.027835032, z: -0.98080903}
+  tailLampSize: {x: 0.26424763, y: 0.22437754}
+  lampsUpMesh: {fileID: 0}
+  headLampUp: {x: 0, y: 0, z: 0}
+  headLampUpNormal: {x: 0, y: 0, z: 1}
+  headLampUpSize: {x: 0, y: 0}
+  colliderCenter: {x: 0, y: 0.89259315, z: -0.13078606}
+  colliderSize: {x: 1.9904765, y: 1.3332248, z: 5.142675}
+  blobSize: {x: 2.6539686, y: 5.7619505}

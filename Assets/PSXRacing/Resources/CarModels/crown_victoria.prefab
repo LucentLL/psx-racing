@@ -45,41 +45,44 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
   key: crown_victoria
-  displayName: Ford Crown Victoria
+  displayName: Full-size Sedan 01
   bodyMesh: {fileID: -2432090755550338912, guid: 1c86fba0ffd7f0848b254de0ec989ce1, type: 3}
   wheelMesh: {fileID: 4300000, guid: 7318819ebdebc3d43b89ffc98188ca39, type: 2}
   skinMaterials:
   - {fileID: 2100000, guid: 20fd9befd10d14a4a982265015ad1f82, type: 2}
+  - {fileID: 2100000, guid: b0ee7368075cec94a8716c8a1f0948ca, type: 2}
   skinNames:
   - crown_victoria_atlas_512
+  - fullsize_01_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
   - {r: 0.5221647, g: 0.55006564, b: 0.55181897, a: 1}
+  - {r: 0.364733, g: 0.3864491, b: 0.41293684, a: 1}
   bodyYaw: 180
-  bodyYOffset: -0.026189094
-  bodyZOffset: -0.21358621
-  wheelbase: 3.2210295
-  trackWidth: 1.6050694
-  wheelRadius: 0.3479484
+  bodyYOffset: -0.023610402
+  bodyZOffset: 0
+  wheelbase: 2.886807
+  trackWidth: 1.622304
+  wheelRadius: 0.31368107
   wheelMeshScale: 0.93
-  trackRear: 1.60507
-  tyreRadiusRear: 0.3741375
-  tyreWidthRear: 0.26437402
-  lowerBodyWidth: 1.898434
-  cowlZ: 0.8129295
-  cowlY: 1.0983036
-  noseZ: 2.4789138
-  roofY: 1.5443549
-  headLamp: {x: 0.6252934, y: 0.7762457, z: 2.2573895}
-  headLampNormal: {x: 0.16490266, y: 0.22836791, z: 0.9595078}
-  headLampSize: {x: 0.46552235, y: 0.25677124}
-  tailLamp: {x: 0.7893037, y: 0.88206315, z: -2.690178}
-  tailLampNormal: {x: 0.10791474, y: 0.33886868, z: -0.9346242}
-  tailLampSize: {x: 0.20106089, y: 0.19452167}
+  trackRear: 1.622304
+  tyreRadiusRear: 0.33729148
+  tyreWidthRear: 0.24592203
+  lowerBodyWidth: 1.942152
+  cowlZ: 0.794761
+  cowlY: 1.0063946
+  noseZ: 2.5617142
+  roofY: 1.4556915
+  headLamp: {x: 0.67436904, y: 0.66147023, z: 2.281036}
+  headLampNormal: {x: 0.40447617, y: 0.5022238, z: 0.76431036}
+  headLampSize: {x: 0.5, y: 0.28}
+  tailLamp: {x: 0.7683636, y: 0.8202877, z: -2.6259317}
+  tailLampNormal: {x: 0.19297375, y: -0.027835032, z: -0.98080903}
+  tailLampSize: {x: 0.26424763, y: 0.22437754}
   lampsUpMesh: {fileID: 0}
   headLampUp: {x: 0, y: 0, z: 0}
   headLampUpNormal: {x: 0, y: 0, z: 1}
   headLampUpSize: {x: 0, y: 0}
-  colliderCenter: {x: 0, y: 0.92728937, z: -0.21358621}
-  colliderSize: {x: 1.7370672, y: 1.1470186, z: 5.142675}
-  blobSize: {x: 2.3160896, y: 5.7619505}
+  colliderCenter: {x: 0, y: 0.8138596, z: -0.13078606}
+  colliderSize: {x: 1.9904765, y: 1.1915046, z: 5.142675}
+  blobSize: {x: 2.6539686, y: 5.7619505}

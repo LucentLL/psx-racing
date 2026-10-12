@@ -148,12 +148,13 @@ namespace PSXRacing
         /// <summary>...and once it is a wreck.</summary>
         const float WreckFloor = 0.01f;
 
-        /// <summary>The owner's traffic cars twice, then the pack's everyday
-        /// shells for variety.</summary>
+        /// <summary>The owner's traffic cars twice (the taxi and the two
+        /// police liveries once), then the pack's everyday shells for variety.</summary>
         static readonly string[] Keys =
         {
-            "crown_victoria", "camry_2001", "ford_transit",
-            "crown_victoria", "camry_2001", "ford_transit",
+            "crown_victoria", "sedan_98", "camry_2001", "ford_transit",
+            "crown_victoria", "sedan_98", "camry_2001", "ford_transit",
+            "fullsize_taxi", "fullsize_police", "fullsize_trooper",
             "volvo_estate", "bmw_e30", "audi_saloon", "euro_hatch",
             "citroen_cx", "jdm_pickup", "landrover", "classic_van",
         };
