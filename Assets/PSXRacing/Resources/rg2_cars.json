@@ -18048,7 +18048,7 @@
   },
   {
    "id": "honda_accord_coupe_type_s__03",
-   "name": "Honda ACCORD Coupe Type-S `03",
+   "name": "Honda ACCORD Coupe Type S `99",
    "price": 28000,
    "hp": 264,
    "kg": 1329,
@@ -18074,7 +18074,7 @@
    "lsdDecel": 10,
    "raceSusp": 0,
    "drv": "FF",
-   "modelYear": 2003,
+   "modelYear": 1999,
    "gears": 6,
    "redline": 6500,
    "idleRPM": 700,
