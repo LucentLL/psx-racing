@@ -1609,10 +1609,17 @@ const lotsFile = join(CACHE, 'lots_core.json');
 // building:parts and the layer > 0 outlines they rescue stand where no
 // outline did, and lots were paved under them. A dry run of applyParts on
 // copies gives them; the real one below runs on the outlines untouched.)
+// Uptown reference tiers (2026-10-12, tools/city/ref_tiers.py): the steps of
+// towers OSM draws as one box, MEASURED off a model of uptown the owner may
+// not ship (no mesh or texture of it is used). OFF until the owner picks it:
+// PSX_CITY_REFTIERS=1 puts them in.
+const REF_TIERS = join(dirname(fileURLToPath(import.meta.url)), 'truth', 'uptown_ref_parts.json');
+const partsRaw = file => (existsSync(file) ? loadJson(file).elements : [])
+  .concat(process.env.PSX_CITY_REFTIERS === '1' && existsSync(REF_TIERS) ? loadJson(REF_TIERS).elements : []);
 const lotBuildings = (() => {
   const partsFile = join(CACHE, 'parts_core.json');
   if (!existsSync(partsFile)) return buildings.concat(covBld);
-  const dry = applyParts({ raw: loadJson(partsFile).elements, buildings: buildings.map(b => ({ ...b })), held: layerHeld.map(b => ({ ...b })),
+  const dry = applyParts({ raw: partsRaw(partsFile), buildings: buildings.map(b => ({ ...b })), held: layerHeld.map(b => ({ ...b })),
                            toX, toZ, rdp, polyArea, parseHeight, facadeLook });
   return buildings.concat(dry.rescued, dry.parts, covBld);
 })();
@@ -1955,7 +1962,7 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
   // fetch. Outlines keep their index (hidden where their parts draw them);
   // the parts follow every outline (lib/parts.mjs).
   const partsFile = join(CACHE, 'parts_core.json');
-  const PARTS = applyParts({ raw: existsSync(partsFile) ? loadJson(partsFile).elements : [], buildings, held: layerHeld,
+  const PARTS = applyParts({ raw: partsRaw(partsFile), buildings, held: layerHeld,
                              toX, toZ, rdp, polyArea, parseHeight, facadeLook });
   const { raised, ...ps } = PARTS.stats;
   console.log('parts (B2):', JSON.stringify(ps));
@@ -2128,6 +2135,7 @@ function inputFiles() {
   if (existsSync(join(CACHE, 'lots_core.json'))) add('tools/city/cache/lots_core.json', join(CACHE, 'lots_core.json'), 'overpass');
   add('tools/city/cache/buildings_core.json', join(CACHE, 'buildings_core.json'), 'overpass');
   add('tools/city/cache/parts_core.json', join(CACHE, 'parts_core.json'), 'overpass');   // B2
+  if (process.env.PSX_CITY_REFTIERS === '1') add('tools/city/truth/uptown_ref_parts.json', REF_TIERS, 'registry');   // measured tiers
   if (COVERAGE) {   // coverage (fetch/fetch_coverage.mjs)
     add('tools/city/cache/buildings_city.json', covBldFile, 'overpass');
     add('tools/city/cache/lots_city.json', covLotsFile, 'overpass');

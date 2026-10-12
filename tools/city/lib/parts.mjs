@@ -162,7 +162,7 @@ export function applyParts({ raw, buildings, held = [], toX, toZ, rdp, polyArea,
         if (roofShapeOf(t)) h += Number.isFinite(rh) && rh > 0 ? rh : Number.isFinite(rl) && rl > 0 ? rl * 3 : 0;
       } else h = NaN;
     }
-    parts.push({ key: k, pts, area, t, minH, h: Number.isFinite(h) ? Math.min(h, 340) : NaN });
+    parts.push({ key: k, pts, area, t, minH, h: Number.isFinite(h) ? Math.min(h, 340) : NaN, ref: t['psx:ref'] || null });
   };
   for (const el of raw) {
     if (!el.tags || !el.tags['building:part']) continue;
@@ -170,9 +170,19 @@ export function applyParts({ raw, buildings, held = [], toX, toZ, rdp, polyArea,
     else if (el.type === 'relation' && el.members)
       for (const m of el.members) if (m.role === 'outer' && m.geometry) addPart(m.geometry, el.tags, 'r' + el.id);
   }
-  // each part to the smallest kept outline holding its centroid
+  // each part to the smallest kept outline holding its centroid (a REFERENCE
+  // tier - truth/uptown_ref_parts.json, measured off a model of uptown - names
+  // its outline outright)
   const byOutline = new Map();
+  const indexOfKey = new Map(cand.map((b, i) => [b.key, i]));
   for (const p of parts) {
+    if (p.ref) {
+      const i = indexOfKey.get(p.ref);
+      if (i === undefined) { stats.refOrphan = (stats.refOrphan || 0) + 1; continue; }
+      if (!byOutline.has(i)) byOutline.set(i, []);
+      byOutline.get(i).push(p);
+      continue;
+    }
     const [cx, cz] = centroid(p.pts);
     let best = -1, bestA = 1e18;
     for (const i of grid.get(key(Math.floor(cx / CELL), Math.floor(cz / CELL))) || []) {
@@ -189,8 +199,16 @@ export function applyParts({ raw, buildings, held = [], toX, toZ, rdp, polyArea,
     byOutline.get(best).push(p);
   }
   const out = [], rescued = [];
-  for (const [ci, list] of [...byOutline].sort((a, b) => a[0] - b[0])) {
+  for (const [ci, all] of [...byOutline].sort((a, b) => a[0] - b[0])) {
     const b = cand[ci];
+    // OSM's own parts win where they carry usable heights over half the
+    // building; the reference tiers fill the towers OSM left as one box
+    const osmParts = all.filter(p => !p.ref), refParts = all.filter(p => p.ref);
+    const osmUse = osmParts.filter(p => Number.isFinite(p.h) && p.h > p.minH + 0.5);
+    const osmGood = osmUse.length && osmUse.reduce((s, p) => s + p.area, 0) >= osmParts.reduce((s, p) => s + p.area, 0) * 0.5;
+    const list = refParts.length && !osmGood ? refParts : osmParts;
+    if (!list.length) continue;
+    if (list === refParts) stats.refOutlines = (stats.refOutlines || 0) + 1;
     let oi = ci;
     stats.outlinesWithParts++;
     b.noSwap = true;

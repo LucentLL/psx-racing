@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
@@ -839,6 +840,28 @@ namespace PSXRacing.EditorTools
                 what = "uptown C: the stadium from the south-south-west, above its rim" },
         };
 
+        /// <summary>PSX_UPTOWN_EXTRA="name,aimLat,aimLon,aimAgl,dist,bearing,eyeAgl,fov;..."
+        /// - more close views, the eye <c>dist</c> metres from the aim along the
+        /// compass <c>bearing</c> (the reference-tier check, 2026-10-12).</summary>
+        static IEnumerable<SkyView> ExtraUptownViews()
+        {
+            string env = System.Environment.GetEnvironmentVariable("PSX_UPTOWN_EXTRA");
+            if (string.IsNullOrEmpty(env)) yield break;
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            foreach (var part in env.Split(';'))
+            {
+                var f = part.Split(',');
+                if (f.Length != 8) continue;
+                double aLat = double.Parse(f[1], inv), aLon = double.Parse(f[2], inv);
+                float dist = float.Parse(f[4], inv), brg = float.Parse(f[5], inv) * Mathf.Deg2Rad;
+                double eLat = aLat + dist * Mathf.Cos(brg) / 111132.0;
+                double eLon = aLon + dist * Mathf.Sin(brg) / (111320.0 * System.Math.Cos(aLat * System.Math.PI / 180.0));
+                yield return new SkyView { name = f[0], aimLat = aLat, aimLon = aLon, aimAgl = float.Parse(f[3], inv),
+                    eyeLat = eLat, eyeLon = eLon, eyeAgl = float.Parse(f[6], inv), fov = float.Parse(f[7], inv),
+                    what = "extra view " + f[0] };
+            }
+        }
+
         public static void RunUptownRef()
         {
             var def = System.Array.Find(TrackCatalog.All, d => d.id == "Charlotte");
@@ -880,7 +903,7 @@ namespace PSXRacing.EditorTools
             int shots = 0;
             try
             {
-                foreach (var v in UptownRefViews)
+                foreach (var v in UptownRefViews.Concat(ExtraUptownViews()))
                 {
                     if (only != null && !only.Contains(v.name)) continue;
                     Vector2 e2 = CityRefSpots.LL(v.eyeLat, v.eyeLon), a2 = CityRefSpots.LL(v.aimLat, v.aimLon);
