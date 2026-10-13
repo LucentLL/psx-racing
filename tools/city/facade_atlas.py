@@ -15,7 +15,17 @@
 #                                4 floors
 #   4 brick, punched windows     Buildings building_01 (Art/City/city_facade_tower.jpg),
 #                                4 floors
-#   5-7 spare (copies of 0, 3, 4; nothing points at them yet)
+#   5 granite office, punched    built here (2026-10-12): Pizza Doggy PSX
+#                                Textures concrete_2 as the stone's grain, the
+#                                skyscraper_pack blue glass in the windows, the
+#                                grid laid out in code; 8 floors x 8 bays of 1.9 m
+#   6 precast office, ribbon     the same parts: white precast spandrels and a
+#                                continuous window band per floor; 8 floors
+#   7 spare (a copy of 0)
+#
+# 5 and 6 exist because the city's only "stone" (3) is a weathered tenement
+# with window units: on a granite office tower it read as a dirty grid (owner,
+# 2026-10-12, "this building looks worse").
 #
 # CityMeshes.FacadeLooks holds the same table (floors and metres per repeat):
 # change one, change both.
@@ -78,6 +88,50 @@ def photo(img_path, mask_path):
     return np.asarray(c), np.asarray(m)
 
 
+def office(kind, scale=1, seed=50):
+    """Columns 5 (granite, punched) and 6 (precast, ribbon), at `scale` x the
+    atlas size (2 for the Enhanced twin). 8 floors of 32 px, 8 bays of 16 px."""
+    w, h = W * scale, H * scale
+    grain = rgb(os.path.join(SRC, "psx_concrete_2.png")).resize((w, h), Image.BICUBIC)
+    g = np.asarray(grain).astype(np.float32).mean(2)
+    g = (g - g.mean()) / (g.std() + 1e-6)                  # the grain, neutral
+    base = 0.66 if kind == "granite" else 0.80              # sRGB wall level
+    amp = 0.035 if kind == "granite" else 0.025
+    wall = np.clip(base + amp * g, 0, 1)
+    # a quiet vertical pier / horizontal spandrel rhythm, so a wall reads as
+    # built, not as a sheet
+    y = np.arange(h)[:, None]; x = np.arange(w)[None, :]
+    fy = (y % (32 * scale)) / (32.0 * scale); bx = (x % (16 * scale)) / (16.0 * scale)
+    col = np.stack([wall * 1.00, wall * 0.985, wall * 0.96], 2) if kind == "granite" else np.stack([wall] * 3, 2)
+    glass = np.asarray(rgb(os.path.join(SRC, "skyscraper_building_04.png")).crop((0, 0, 128, 256)).resize((w, h), Image.BICUBIC)).astype(np.float32) / 255
+    glass = glass * 0.55                                     # tinted, darker than the wall
+    if kind == "granite":
+        win = (bx > 0.22) & (bx < 0.78) & (fy > 0.22) & (fy < 0.84)
+        sill = (bx > 0.18) & (bx < 0.82) & (fy >= 0.84) & (fy < 0.89)
+        col[sill] *= 1.06
+    else:
+        win = (fy > 0.30) & (fy < 0.78)
+        mull = (np.abs(bx - 0.5) > 0.47)
+        col[win & mull] = col[win & mull] * 0.55
+        win = win & ~mull
+    out = np.where(win[..., None], glass, col)
+    # reveal shadow under each window head
+    head = np.roll(win, scale * 2, axis=0) & ~win
+    out[head] *= 0.80
+    c = np.clip(out * 255, 0, 255).astype(np.uint8)
+    rows = (y * 8) // h; blk = (x // (16 * scale)) // 2
+    table = ids(seed + (0 if kind == "granite" else 1), 8 * 64).reshape(8, 64)
+    m = np.zeros((h, w, 4), np.uint8)
+    cover = np.where(win, 255, 0).astype(np.uint8)
+    m[..., 0] = cover; m[..., 1] = table[rows, blk].astype(np.uint8); m[..., 3] = cover
+    return c, m
+
+
+def lin(c):
+    v = c.astype(np.float32) / 255
+    return np.where(v <= 0.04045, v / 12.92, ((v + 0.055) / 1.055) ** 2.4).reshape(-1, 3).mean(0)
+
+
 def main():
     cols, masks = [], []
     # 0: silver grid - 126 px of whole 9 px bays, stretched nearest to 128
@@ -98,14 +152,26 @@ def main():
     cols.append(c); masks.append(m)
     c, m = photo(os.path.join(CITY, "city_facade_tower.jpg"), os.path.join(CITY, "Night", "city_facade_tower_night.png"))
     cols.append(c); masks.append(m)
-    for k in (0, 3, 4):
-        cols.append(cols[k]); masks.append(masks[k])
+    for kind in ("granite", "precast"):
+        c, m = office(kind)
+        cols.append(c); masks.append(m)
+        print(kind, "mean linear", [round(float(v), 3) for v in lin(c)])
+    cols.append(cols[0]); masks.append(masks[0])
+    # the Enhanced twin (2x) gets the same two columns at its own size
+    enh = os.path.join(REPO, "Assets", "PSXRacing", "EnhancedSrc", "TexEnhanced", "City", "Facade", "Core_cityatlas.png")
+    if os.path.exists(enh):
+        e = np.asarray(rgb(enh)).copy()
+        if e.shape == (H * 2, W * 2 * COLS, 3):
+            for k, kind in ((5, "granite"), (6, "precast")):
+                e[:, k * W * 2:(k + 1) * W * 2] = office(kind, 2)[0]
+            Image.fromarray(e, "RGB").save(enh, optimize=True)
+            print("enhanced twin: columns 5, 6 written")
     atlas = np.concatenate(cols, axis=1)
     mask = np.concatenate(masks, axis=1)
     assert atlas.shape == (H, W * COLS, 3) and mask.shape == (H, W * COLS, 4)
     Image.fromarray(atlas, "RGB").save(os.path.join(OUT, "city_facade_atlas.png"), optimize=True)
     Image.fromarray(mask, "RGBA").save(os.path.join(OUT, "city_facade_atlas_night.png"), optimize=True)
-    lit = [(masks[k][..., 3] > 127).mean() for k in range(5)]
+    lit = [(masks[k][..., 3] > 127).mean() for k in range(7)]
     print("facade atlas", atlas.shape, "glass share per column", [round(v, 2) for v in lit])
 
 

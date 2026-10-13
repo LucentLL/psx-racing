@@ -71,10 +71,10 @@ namespace PSXRacing.City
                 var keepTint = Bucket.Tint; int keepLook = facLook;
                 if (facLook <= LookTeal && ((h >> 16) & 1u) == 0u)
                 {
-                    var pal = LookPalette[LookStone];
+                    var pal = LookPalette[LookGranite];
                     var k = pal[(int)((h >> 17) % (uint)pal.Length)];
-                    facLook = LookStone;
-                    Bucket.Tint = new Color32(TintByte(k.x), TintByte(k.y), TintByte(k.z), (byte)(LookStone * 32));
+                    facLook = LookGranite;   // an office podium, not the tenement (2026-10-12)
+                    Bucket.Tint = new Color32(TintByte(k.x), TintByte(k.y), TintByte(k.z), (byte)(LookGranite * 32));
                 }
                 Walls(tm, massPoly, y0, podTop);
                 facLook = keepLook; Bucket.Tint = keepTint;

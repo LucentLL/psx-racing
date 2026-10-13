@@ -469,7 +469,7 @@ namespace PSXRacing.City
             public FacadeLook(float floors, float uM, float r, float g, float b)
             { this.floors = floors; this.uM = uM; meanLin = new Vector3(r, g, b); }
         }
-        const int LookSilver = 0, LookBlue = 1, LookTeal = 2, LookStone = 3, LookBrick = 4;
+        const int LookSilver = 0, LookBlue = 1, LookTeal = 2, LookStone = 3, LookBrick = 4, LookGranite = 5, LookPrecast = 6;
         static readonly FacadeLook[] FacadeLooks =
         {
             new FacadeLook(16f, 30.4f, 0.248f, 0.269f, 0.270f),   // silver grid curtain wall: 14 bays of 2.2 m
@@ -477,6 +477,11 @@ namespace PSXRacing.City
             new FacadeLook(24f, 45.6f, 0.065f, 0.091f, 0.092f),   // teal glass: 16 bays of 2.85 m
             new FacadeLook(4f, 14.1f, 0.272f, 0.242f, 0.205f),    // precast stone, punched windows
             new FacadeLook(4f, 12.4f, 0.215f, 0.172f, 0.153f),    // brick, punched windows (aspect true at 3.1 m)
+            // 2026-10-12: office towers in stone - the tenement (3) read as a
+            // dirty grid up a granite tower. Built by facade_atlas.py from
+            // licensed parts: 8 floors x 8 bays of 1.9 m.
+            new FacadeLook(8f, 15.2f, 0.265f, 0.258f, 0.245f),    // granite office, punched windows
+            new FacadeLook(8f, 15.2f, 0.320f, 0.321f, 0.323f),    // precast office, ribbon windows
         };
         /// <summary>Real storey heights: an office floor, a home's.</summary>
         const float OfficeFloorM = 3.8f, HomeFloorM = 3.1f;
@@ -495,6 +500,10 @@ namespace PSXRacing.City
                     new Vector3(1.18f, 1.12f, 1.02f), new Vector3(1.00f, 0.90f, 0.84f), new Vector3(0.78f, 0.78f, 0.80f) },
             new[] { new Vector3(1.00f, 1.00f, 1.00f), new Vector3(1.12f, 0.96f, 0.86f), new Vector3(0.78f, 0.74f, 0.74f),
                     new Vector3(1.20f, 1.12f, 0.98f), new Vector3(0.95f, 0.88f, 0.95f), new Vector3(0.88f, 0.70f, 0.62f) },
+            new[] { new Vector3(1.10f, 1.02f, 0.92f), new Vector3(1.18f, 1.06f, 0.96f), new Vector3(1.00f, 0.96f, 0.92f),
+                    new Vector3(1.12f, 0.98f, 0.94f), new Vector3(0.94f, 0.92f, 0.90f) },
+            new[] { new Vector3(1.00f, 1.00f, 1.00f), new Vector3(1.04f, 1.02f, 0.98f), new Vector3(0.94f, 0.95f, 0.97f),
+                    new Vector3(1.06f, 1.04f, 1.00f) },
         };
         // The building being emitted: its column, its storey and where its
         // ground floor stands. Set by PickFacade, read by EmitFacadeQuad.
@@ -534,8 +543,8 @@ namespace PSXRacing.City
             else if (mat == 1 && colour.a == 255) look = NearestGlass(colour);   // a measured glass colour picks its kind
             else if (mat == 1) look = glass < 40 ? LookBlue : glass < 75 ? LookSilver : LookTeal;
             else if (mat == 2 || mat == 5) look = LookBrick;
-            else if (mat == 3) look = LookStone;
-            else if (style == 0) look = r < 0.12f ? LookStone : (glass < 38 ? LookBlue : glass < 72 ? LookSilver : LookTeal);
+            else if (mat == 3) look = height >= OfficeTowerM ? OfficeStone(colour, h) : LookStone;
+            else if (style == 0) look = r < 0.12f ? OfficeStone(colour, h) : (glass < 38 ? LookBlue : glass < 72 ? LookSilver : LookTeal);
             else if (style == 1) look = r < 0.36f ? (glass < 45 ? LookBlue : glass < 80 ? LookSilver : LookTeal)
                                       : r < 0.70f ? LookStone : LookBrick;
             else look = r < 0.72f ? LookBrick : LookStone;
@@ -562,6 +571,17 @@ namespace PSXRacing.City
             }
             // OSM metal cladding wears the silver grid AS metal (B1b)
             Bucket.Tint = new Color32(TintByte(k.x), TintByte(k.y), TintByte(k.z), (byte)(look * 32 + (mat == 4 ? FacadeMetalBit : 0)));
+        }
+
+        /// <summary>A stone wall this tall is an office tower's (granite or
+        /// precast), not the tenement's.</summary>
+        const float OfficeTowerM = 40f;
+        /// <summary>Granite for a warm colour, precast for a cool or white
+        /// one; untagged by hash.</summary>
+        static int OfficeStone(Color32 c, uint h)
+        {
+            if (c.a != 255) return ((h >> 24) & 1u) == 0u ? LookGranite : LookPrecast;
+            return c.r >= c.b + 6 ? LookGranite : LookPrecast;
         }
 
         /// <summary>The glass kind (blue, silver, teal) whose column mean is

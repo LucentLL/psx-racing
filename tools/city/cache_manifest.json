@@ -46,6 +46,12 @@
       "timestamp_osm_base": "2026-10-04T22:10:48Z"
     },
     {
+      "file": "tools/city/truth/uptown_ref_looks.json",
+      "kind": "registry",
+      "bytes": 6789,
+      "sha256": "a89159a9ce17e5e71a4205d335ed4c1d3416cc3d6a3190aa64bb7ce1d00c2bed"
+    },
+    {
       "file": "tools/city/cache/buildings_city.json",
       "kind": "overpass",
       "bytes": 67500464,
