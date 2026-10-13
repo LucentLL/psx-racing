@@ -49,7 +49,7 @@
       "file": "tools/city/truth/uptown_ref_looks.json",
       "kind": "registry",
       "bytes": 6789,
-      "sha256": "1c824da17094ab8f595bca6a3ecac8ee60f800f194bfab4f804300070f725bde"
+      "sha256": "a89159a9ce17e5e71a4205d335ed4c1d3416cc3d6a3190aa64bb7ce1d00c2bed"
     },
     {
       "file": "tools/city/cache/buildings_city.json",

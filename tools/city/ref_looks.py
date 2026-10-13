@@ -33,9 +33,11 @@ def ph(v):
         return None
 
 
-def family(r, g, b):
-    """glass / brick / stone from a wall's mean sRGB colour."""
-    h, s, v = colorsys.rgb_to_hsv(r, g, b)
+def family(mr, mg, mb):
+    """glass / brick / stone from a wall's MEAN colour, windows and all (a
+    curtain wall's bright texels are sky, so the cladding colour alone calls
+    glass stone); the colour written is the cladding's (see main)."""
+    h, s, v = colorsys.rgb_to_hsv(mr, mg, mb)
     hue = h * 360
     if 160 <= hue <= 250 and s >= 0.10:
         return "glass"
@@ -53,9 +55,11 @@ def main():
     refl, s = xf["refl"], complex(*xf["s"])
     pa, qa = complex(*xf["pa"]), complex(*xf["qa"])
     pts = []
-    for x, y, area, r, g, b in json.load(open(cols_path)):
+    for row in json.load(open(cols_path)):
+        x, y, area, r, g, b = row[:6]
+        mr, mg, mb = row[6:9] if len(row) >= 9 else (r, g, b)
         q = qa + s * (complex(x, refl * y) - pa)
-        pts.append((q.real, q.imag, max(area, 0.01), r, g, b))
+        pts.append((q.real, q.imag, max(area, 0.01), r, g, b, mr, mg, mb))
 
     outlines, keys, tall, walls = [], [], {}, {}
     for el in json.load(io.open("cache/buildings_core.json", encoding="utf-8"))["elements"]:
@@ -84,7 +88,7 @@ def main():
 
     tree = STRtree(outlines)
     acc = {}
-    for x, y, a, r, g, b in pts:
+    for x, y, a, r, g, b, mr, mg, mb in pts:
         c = Point(x, y)
         best, bd = None, BUFFER
         for k in tree.query(c.buffer(BUFFER)):
@@ -93,18 +97,19 @@ def main():
                 best, bd = k, d
         if best is None or keys[best] not in tall:
             continue
-        e = acc.setdefault(keys[best], [0.0, 0.0, 0.0, 0.0])
+        e = acc.setdefault(keys[best], [0.0] * 7)
         e[0] += a; e[1] += r * a; e[2] += g * a; e[3] += b * a
+        e[4] += mr * a; e[5] += mg * a; e[6] += mb * a
 
     looks, counts = {}, {"glass": 0, "brick": 0, "stone": 0}
-    for key, (a, r, g, b) in sorted(acc.items(), key=lambda kv: -tall[kv[0]]):
+    for key, (a, r, g, b, mr, mg, mb) in sorted(acc.items(), key=lambda kv: -tall[kv[0]]):
         # the model must hold most of this building's walls: a tower newer
         # than the model is otherwise coloured by a neighbour's podium
         if a < MIN_AREA or a < COVER * walls[key]:
             print("%-14s %5.0f m  walls %.0f%% measured - skipped" % (key, tall[key], 100 * a / walls[key]))
             continue
         r, g, b = r / a, g / a, b / a
-        fam = family(r, g, b)
+        fam = family(mr / a, mg / a, mb / a)
         counts[fam] += 1
         hexc = "#%02x%02x%02x" % tuple(int(round(min(1, max(0, c)) * 255)) for c in (r, g, b))
         looks[key] = {"building:colour": hexc, "building:material": fam}

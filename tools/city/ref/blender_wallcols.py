@@ -25,13 +25,20 @@ for o in [o for o in bpy.context.scene.objects if o.type=='MESH']:
         if im is None or im.size[0]==0: continue
         a=arr(im); h,w=a.shape[:2]
         uvs=[uv.data[l].uv for l in t.loops]
+        # 25 samples over the triangle; the CLADDING is the bright half of
+        # them (a punched window is dark glass: the mean of all of them made
+        # a pink granite tower read muddy grey, 2026-10-12)
         cs=[]
-        for wts in ((1/3,1/3,1/3),(.6,.2,.2),(.2,.6,.2),(.2,.2,.6)):
-            u=sum(wt*q.x for wt,q in zip(wts,uvs))%1.0; v=sum(wt*q.y for wt,q in zip(wts,uvs))%1.0
-            cs.append(a[min(h-1,int(v*h)),min(w-1,int(u*w)),:3])
-        c=np.mean(cs,axis=0)
+        for i in range(5):
+            for j in range(5 - i):
+                wa=(i+0.33)/5.33; wb=(j+0.33)/5.33; wc=max(0.0,1-wa-wb)
+                u=(wa*uvs[0].x+wb*uvs[1].x+wc*uvs[2].x)%1.0; v=(wa*uvs[0].y+wb*uvs[1].y+wc*uvs[2].y)%1.0
+                cs.append(a[min(h-1,int(v*h)),min(w-1,int(u*w)),:3])
+        cs=np.array(cs); lum=cs@np.array([0.299,0.587,0.114])
+        c=cs[lum>=np.median(lum)].mean(axis=0)
+        cm=cs.mean(axis=0)
         vs=[M@me.vertices[i].co for i in t.vertices]
         cx=sum(v.x for v in vs)/3*IN; cy=sum(v.y for v in vs)/3*IN
         area=t.area*IN*IN*(M.to_scale().x**2)
-        out.append([round(cx,2),round(cy,2),round(area,2),round(float(c[0]),3),round(float(c[1]),3),round(float(c[2]),3)])
+        out.append([round(cx,2),round(cy,2),round(area,2),round(float(c[0]),3),round(float(c[1]),3),round(float(c[2]),3),round(float(cm[0]),3),round(float(cm[1]),3),round(float(cm[2]),3)])
 json.dump(out,open(os.environ["OUT"],"w")); print("FACADE TRIS",len(out))
