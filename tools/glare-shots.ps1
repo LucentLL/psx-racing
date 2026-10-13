@@ -18,7 +18,7 @@ foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor", "Assets\
 }
 Copy-Item "$src\ProjectSettings\GraphicsSettings.asset" "$proj\ProjectSettings\GraphicsSettings.asset" -Force
 Remove-Item "$proj\Screenshots\glare_*.png" -ErrorAction SilentlyContinue
-Remove-Item "$proj\Screenshots\wet_*.png" -ErrorAction SilentlyContinue
+if ($env:PSX_GLARE_WET -ne "0") { Remove-Item "$proj\Screenshots\wet_*.png" -ErrorAction SilentlyContinue }
 Remove-Item "$proj\glareshots.log" -ErrorAction SilentlyContinue
 
 Invoke-UnityJob -Log "$proj\glareshots.log" -MaxMinutes 20 -UnityArgs @(
