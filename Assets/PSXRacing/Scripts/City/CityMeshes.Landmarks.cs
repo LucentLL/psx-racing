@@ -433,49 +433,50 @@ namespace PSXRacing.City
 
         /// <summary>
         /// C2 THE OPEN-FRAME TOWER. The shaft and its sloped glass top are
-        /// OSM's; OSM's stand-in slabs for the crown are replaced by an open
-        /// steel frame over the same box: four corner columns, a column
-        /// mid-face, ring beams in three bays and an X of bracing across every
-        /// face of every bay (the skyline: columns and rings).
+        /// OSM's; the crown's concrete pieces (sloped side panels, posts, the
+        /// bridge across the top) are drawn as mapped, solid white, round
+        /// OSM's two glass slopes (2026-10-12; the braced cage is gone).
         /// </summary>
         static void HeroOpenFrame(CityMap map, TileMeshes tm, int hero, CityMap.Footprint f, float floor)
         {
+            // 2026-10-12, the owner ("I live in Charlotte and I've never seen
+            // this"): the first cut threw OSM's crown pieces away and drew an
+            // invented braced cage that read as scaffolding. The real crown
+            // is what OSM maps - two glass slopes (kept, drawn as glass) in a
+            // frame of white concrete: sloped side panels, posts and a bridge
+            // across the top at 218-220 m. Those pieces are drawn here as
+            // they are mapped, solid white, their tops following each piece's
+            // own skillion (roof:direction).
             var fs = map.footprints;
-            heroPts.Clear();
-            float yt = 0f;
+            HeroTint(HeroMetalCol, false, 0.93f, 0.94f, 0.95f);
+            HeroNoCollide(true);
             foreach (int pi in heroDropped[hero])
             {
-                foreach (var p in fs[pi].pts) heroPts.Add(p);
-                yt = Mathf.Max(yt, fs[pi].h);
-            }
-            Vector2 c, u; float hu, hv;
-            if (heroPts.Count < 6 || !ObbOfPoints(heroPts, out c, out u, out hu, out hv))
-            { c = f.centre; u = f.u; hu = f.hu - 2f; hv = f.hv - 2f; yt = f.h + 60f; }
-            float yb = floor + f.h, yTop = floor + Mathf.Max(yt, f.h + 20f);
-            var v = new Vector2(-u.y, u.x);
-            var K = new[] { c + u * hu + v * hv, c - u * hu + v * hv, c - u * hu - v * hv, c + u * hu - v * hv };
-            HeroTint(HeroMetalCol, true, 0.50f, 0.53f, 0.58f);
-            HeroNoCollide(true);
-            const int Bays = 3;
-            for (int i = 0; i < 4; i++)
-            {
-                var a = K[i]; var b = K[(i + 1) % 4];
-                HeroBeam(tm, W3(a, yb), W3(a, yTop + 0.6f), 0.75f, HeroMetalUV);
-                for (int k = 1; k <= Bays; k++)
+                var p = fs[pi];
+                var pts = p.pts;
+                int n = pts.Length;
+                if (n < 3) continue;
+                float y0 = floor + p.minH, top = floor + p.h;
+                float rise = p.roof == 4 ? Mathf.Clamp(p.roofH, 0f, top - y0) : 0f;
+                Vector2 dir = p.roofDir >= 0
+                    ? new Vector2(Mathf.Sin(p.roofDir * Mathf.Deg2Rad), Mathf.Cos(p.roofDir * Mathf.Deg2Rad))
+                    : new Vector2(p.u.y, -p.u.x);
+                float s0 = float.MaxValue, s1 = float.MinValue;
+                foreach (var q in pts) { float sp = Vector2.Dot(q, dir); s0 = Mathf.Min(s0, sp); s1 = Mathf.Max(s1, sp); }
+                float span = Mathf.Max(0.5f, s1 - s0);
+                float YAt(Vector2 q) => top - rise * (Vector2.Dot(q, dir) - s0) / span;
+                Vector2 cen = Vector2.zero;
+                foreach (var q in pts) cen += q;
+                cen /= n;
+                for (int i = 0; i < n; i++)
                 {
-                    float y = Mathf.Lerp(yb, yTop, k / (float)Bays);
-                    HeroBeam(tm, W3(a, y), W3(b, y), 0.55f, HeroMetalUV);
-                }
-                if (skylineBuild) continue;
-                var m = (a + b) * 0.5f;
-                HeroBeam(tm, W3(m, yb), W3(m, yTop), 0.45f, HeroMetalUV);
-                for (int k = 0; k < Bays; k++)
-                {
-                    float y0b = Mathf.Lerp(yb, yTop, k / (float)Bays), y1b = Mathf.Lerp(yb, yTop, (k + 1) / (float)Bays);
-                    HeroBeam(tm, W3(a, y0b), W3(m, y1b), 0.32f, HeroMetalUV);
-                    HeroBeam(tm, W3(m, y0b), W3(b, y1b), 0.32f, HeroMetalUV);
-                    HeroBeam(tm, W3(m, y0b), W3(a, y1b), 0.32f, HeroMetalUV);
-                    HeroBeam(tm, W3(b, y0b), W3(m, y1b), 0.32f, HeroMetalUV);
+                    var a = pts[i]; var c = pts[(i + 1) % n];
+                    var d = c - a;
+                    if (d.sqrMagnitude < 0.01f) continue;
+                    var nrm = new Vector3(d.y, 0f, -d.x);
+                    HeroQuad(tm, W3(a, y0), W3(c, y0), W3(c, YAt(c)), W3(a, YAt(a)), nrm, HeroMetalUV);
+                    HeroTri(tm, W3(cen, YAt(cen)), W3(a, YAt(a)), W3(c, YAt(c)), Vector3.up, HeroMetalUV);
+                    if (p.minH > 1f) HeroTri(tm, W3(cen, y0), W3(a, y0), W3(c, y0), Vector3.down, HeroMetalUV);
                 }
             }
             HeroNoCollide(false);
