@@ -74,6 +74,17 @@ namespace PSXRacing
             /// panorama be turned to face the scene's own sun instead of the
             /// scene being rebuilt to face the panorama — see ApplySky.</summary>
             public float skyTexAzimuth;
+            /// <summary>How high the sun sits in THAT image, in degrees above
+            /// its horizon - measured off the photographs (2026-10-13, the
+            /// brightest point of each after a 4-pixel blur), because the pack
+            /// does NOT agree with the hour's light here: the noon photograph's
+            /// sun is 24 degrees up while the light is at 68. The panorama is
+            /// turned for azimuth only, so this is where the player SEES the
+            /// sun. 0 = take the light's own height (the dynamic sky draws its
+            /// disc there). The sun's emitter disc (PSX/Sky) and the sun glare
+            /// (SunGlareFx) follow it; the light, the shadows and every glint
+            /// stay on the light.</summary>
+            public float skyTexElevation;
             /// <summary>How hard the photograph is pulled toward the three
             /// stops above. 0 is the raw image, 1 is the image's structure
             /// wearing the hour's colour entirely. The hours whose look is
@@ -133,7 +144,7 @@ namespace PSXRacing
                 skyHorizon = new Color(0.95f, 0.62f, 0.55f),
                 skyBottom = new Color(0.20f, 0.18f, 0.24f),
                 skySharpness = 4.5f, lightsOn = true,
-                skyTex = "sky_dawn", skyTexAzimuth = 270f,
+                skyTex = "sky_dawn", skyTexAzimuth = 270f, skyTexElevation = 13.2f,
                 skyTint = 0.30f, skyExposure = 1.00f, skyStars = 0.15f,
             },
             new Preset
@@ -147,7 +158,7 @@ namespace PSXRacing
                 skyHorizon = new Color(0.86f, 0.86f, 0.80f),
                 skyBottom = new Color(0.28f, 0.30f, 0.30f),
                 skySharpness = 6f, lightsOn = false,
-                skyTex = "sky_morning", skyTexAzimuth = 270f,
+                skyTex = "sky_morning", skyTexAzimuth = 270f, skyTexElevation = 24.8f,
                 skyTint = 0.30f, skyExposure = 1.00f, skyStars = 0.00f,
             },
             new Preset
@@ -161,7 +172,7 @@ namespace PSXRacing
                 skyHorizon = new Color(0.72f, 0.85f, 0.96f),
                 skyBottom = new Color(0.34f, 0.38f, 0.40f),
                 skySharpness = 8f, lightsOn = false,
-                skyTex = "sky_noon", skyTexAzimuth = 270f,
+                skyTex = "sky_noon", skyTexAzimuth = 270f, skyTexElevation = 24.4f,
                 skyTint = 0.26f, skyExposure = 1.08f, skyStars = 0.00f,
             },
             new Preset
@@ -175,7 +186,7 @@ namespace PSXRacing
                 skyHorizon = new Color(0.90f, 0.82f, 0.66f),
                 skyBottom = new Color(0.30f, 0.28f, 0.26f),
                 skySharpness = 6f, lightsOn = false,
-                skyTex = "sky_afternoon", skyTexAzimuth = 270f,
+                skyTex = "sky_afternoon", skyTexAzimuth = 270f, skyTexElevation = 22.7f,
                 skyTint = 0.30f, skyExposure = 1.00f, skyStars = 0.00f,
             },
             new Preset
@@ -191,7 +202,7 @@ namespace PSXRacing
                 skyHorizon = new Color(0.98f, 0.58f, 0.36f),
                 skyBottom = new Color(0.25f, 0.20f, 0.22f),
                 skySharpness = 5f, lightsOn = true,
-                skyTex = "sky_sunset", skyTexAzimuth = 270f,
+                skyTex = "sky_sunset", skyTexAzimuth = 270f, skyTexElevation = 11.8f,
                 skyTint = 0.20f, skyExposure = 1.00f, skyStars = 0.00f,
             },
             new Preset
@@ -242,7 +253,7 @@ namespace PSXRacing
                 skyHorizon = new Color(0.38f, 0.46f, 0.70f),
                 skyBottom = new Color(0.12f, 0.11f, 0.16f),
                 skySharpness = 4f, lightsOn = true,
-                skyTex = "sky_dusk", skyTexAzimuth = 270f,
+                skyTex = "sky_dusk", skyTexAzimuth = 270f, skyTexElevation = 5.1f,
                 // 0.72 / 1.10: the steel-blue panorama at 0.55 / 0.95 measured
                 // (.23,.24,.30) in the sky against the NFS frame's (.25,.39,.59)
                 // - right hue family, too grey and too dim.
@@ -1353,6 +1364,21 @@ namespace PSXRacing
                 // reflections, the horizon ring - pointed at the computed sky.
                 bool dyn = SkyModePrefs.Dynamic;
                 if (skyInstance.HasProperty("_Dynamic")) skyInstance.SetFloat("_Dynamic", dyn ? 1f : 0f);
+
+                // THE SUN AS THE SKY SHOWS IT (2026-10-13): the photograph's
+                // own sun height on the light's bearing, or the light itself
+                // for the dynamic sky (which draws its disc there) and for an
+                // hour with no measured photograph.
+                Vector3 toSun = sun != null ? -sun.transform.forward : Vector3.up;
+                Vector3 flat = new Vector3(toSun.x, 0f, toSun.z);
+                if (!dyn && tex != null && p.skyTexElevation > 0f && flat.sqrMagnitude > 1e-6f)
+                {
+                    float e = p.skyTexElevation * Mathf.Deg2Rad;
+                    toSun = flat.normalized * Mathf.Cos(e) + Vector3.up * Mathf.Sin(e);
+                }
+                SunSeen = toSun.normalized;
+                if (skyInstance.HasProperty("_SunSeen"))
+                    skyInstance.SetVector("_SunSeen", new Vector4(SunSeen.x, SunSeen.y, SunSeen.z, 1f));
                 if (dyn)
                 {
                     skyInstance.SetFloat("_Rotation", 0f);
@@ -1362,6 +1388,11 @@ namespace PSXRacing
             }
             RenderSettings.skybox = skyInstance;
         }
+
+        /// <summary>Toward the sun the player SEES in the sky (see
+        /// <see cref="Preset.skyTexElevation"/>), as the last ApplySky left
+        /// it: where SunGlareFx aims. The light is still -Sun.forward.</summary>
+        public static Vector3 SunSeen { get; private set; } = Vector3.up;
 
         static Preset lastSkyPreset;
         static Light lastSkySun;

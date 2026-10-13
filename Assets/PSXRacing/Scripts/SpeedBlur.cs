@@ -172,6 +172,130 @@ namespace PSXRacing
     }
 
     /// <summary>
+    /// THE SUN IN THE LENS (2026-10-13, the GT look plan, item 2). Gran
+    /// Turismo 3's own list of effects (Sony, 2000) names "blinding sun glare
+    /// hitting the windshield", and its box blurb says the eyes "adjust"
+    /// when a car rounds a turn and the sun comes out from behind a building.
+    /// Here the sun was a disc in the sky and a small halation ring
+    /// (PSX/Blit), however hard the player drove into it.
+    ///
+    /// WHAT IT DRAWS (Shaders/PSXSunGlare.shader, a third pass of
+    /// <see cref="SpeedBlurFeature"/>, after the lens and before the HUD): a
+    /// hot white bloom on the sun, a wide glow round it, and a veil over the
+    /// whole picture that is strongest with the sun in the middle of it —
+    /// screen-blended, so it washes the frame toward the sun's colour
+    /// instead of clipping it.
+    ///
+    /// HOW MUCH OF THE SUN IS SEEN is read off the frame itself: the sky
+    /// writes its sun disc into the EMITTER MASK (the frame's alpha,
+    /// PSXTone.cginc) and every opaque surface writes 0 there, so a dozen taps
+    /// of alpha round the sun say how much of the disc a tower, a hill, a
+    /// tree's leaves or another car has hidden. No rays: the trees' leaves
+    /// have no colliders, and glare that ignored them would blaze through
+    /// every avenue. One pixel of GPU work, no read-back (WebGL has none).
+    ///
+    /// THE EYE. That pixel also keeps an adapted level that follows the
+    /// seen sun — quickly into the light, slowly back out of it — and the
+    /// glare FLASHES by how far the sun is ahead of it: come out of a tunnel
+    /// or round a building into a low sun and the frame blazes, then settles
+    /// over a second. Kept on the GPU frame to frame, packed 16 bits a value
+    /// into an RGBA8 pixel (no float targets needed on WebGL).
+    ///
+    /// WHEN. The hour's own sun (TimeOfDay.ShadowFor: a clear day 1, dawn and
+    /// sunset 0.85, rain 0.15, fog 0.2, snow 0.45, nothing from dusk), on the
+    /// LENS FX switch and under the same rules as the lens (off on foot, off
+    /// from the top-down view, never over a HUD that could not be moved).
+    /// Every interior applies no hour and gets none.
+    ///
+    /// Fields, not properties, by contract with the shot tools, like
+    /// <see cref="LensFx"/>.
+    /// </summary>
+    public static class SunGlareFx
+    {
+        public const string ShaderName = "PSX/SunGlare";
+
+        /// <summary>Below this sun strength nothing is drawn at all.</summary>
+        public const float MinDrawn = 0.01f;
+        /// <summary>The half-width of the patch of sky the meter reads, in
+        /// degrees: inside the disc's full-strength core (1.5, PSX/Sky).</summary>
+        public const float MeterDeg = 1.2f;
+        /// <summary>Time constants, seconds: how fast the seen sun is
+        /// followed (a little, so leaves flicker rather than strobe), how fast
+        /// the eye closes down in the light, and how slowly it opens again.</summary>
+        public const float SeenTau = 0.06f, CloseTau = 0.7f, OpenTau = 2.5f;
+
+        /// <summary>The one camera the glare is drawn on; null = none.</summary>
+        public static Camera Camera;
+        /// <summary>The hour's sun, 0..1.</summary>
+        public static float Strength;
+        /// <summary>xy = where the sun is on the picture (viewport, which IS
+        /// the pass's uv); z = 1 when it is in front of the lens; w = the
+        /// meter's radius as a fraction of the picture's height.</summary>
+        public static Vector4 Sun;
+        /// <summary>The glare's colour: the sun's own, half way to warm white.</summary>
+        public static Color Tint = Color.white;
+        /// <summary>Seconds since the last frame (the eye's clock); 0 = held.</summary>
+        public static float Dt;
+        /// <summary>This frame starts the eye adapted to what it sees (no
+        /// flash): the first frame after the glare was off, and every shot a
+        /// tool takes unless it asks otherwise.</summary>
+        public static bool Reset;
+        /// <summary>A camera is named and the hour has a sun.</summary>
+        public static bool Active;
+
+        static bool wasActive;
+
+        /// <summary>For the preview tools: publish the glare for
+        /// <paramref name="cam"/> at <paramref name="strength"/>, the frame
+        /// <paramref name="dt"/> seconds after the last one. A null camera
+        /// clears it — call that after the shot.</summary>
+        public static void PreviewSet(Camera cam, float strength, float dt, bool reset)
+        {
+            Publish(cam, strength, dt);
+            if (cam != null) Reset = reset;
+        }
+
+        internal static void Publish(Camera cam, float strength, float dt)
+        {
+            bool has = cam != null && strength > MinDrawn;
+            Camera = has ? cam : null;
+            Strength = has ? Mathf.Clamp01(strength) : 0f;
+            Dt = Mathf.Max(0f, dt);
+            Reset = has && !wasActive;
+            Active = has;
+            wasActive = has;
+        }
+
+        /// <summary>
+        /// Where the sun is on <paramref name="cam"/>'s picture, and its
+        /// colour: called by <see cref="SpeedBlurFeature"/> as the camera
+        /// RENDERS, not from Update. The chase camera moves in LateUpdate, and
+        /// a sun placed from the pose before it would sit a frame behind the
+        /// disc - in a fast turn, more than the meter's own radius, and the
+        /// glare would flicker every time the car turned. False = no sun.
+        /// </summary>
+        public static bool Aim(Camera cam)
+        {
+            // The sun the player SEES - the sky's emitter disc, which for
+            // the photographs is not the light's height (TimeOfDay.SunSeen).
+            Vector3 dir = TimeOfDay.SunSeen;
+            if (cam == null || dir.sqrMagnitude < 1e-6f) return false;
+            dir.Normalize();
+            var t = cam.transform;
+            Vector3 vp = cam.WorldToViewportPoint(t.position + dir * 100f);
+            float front = Vector3.Dot(t.forward, dir) > 0.05f && vp.z > 0f ? 1f : 0f;
+            float radius = MeterDeg / Mathf.Max(cam.fieldOfView, 1f);
+            Sun = new Vector4(vp.x, vp.y, front, radius);
+
+            Color c = Shader.GetGlobalColor("_PSXLightColor");
+            float m = Mathf.Max(c.r, Mathf.Max(c.g, c.b));
+            c = m > 1e-4f ? new Color(c.r / m, c.g / m, c.b / m) : Color.white;
+            Tint = Color.Lerp(c, new Color(1f, 0.96f, 0.88f), 0.5f);
+            return true;
+        }
+    }
+
+    /// <summary>
     /// The sense of speed, done the way Need for Speed Carbon did it: the
     /// picture smears radially, harder the faster the car goes, and the part
     /// of it that stays sharp CLOSES IN — tunnel vision — until at 140 mph
@@ -443,6 +567,7 @@ namespace PSXRacing
             // drives would keep drops published for it after the scene moved on.
             lensFlow = 0f;
             if (LensFx.Camera == cam) LensFx.Publish(null, 0f, 0f, 0f, 0f);
+            if (SunGlareFx.Camera == cam) SunGlareFx.Publish(null, 0f, 0f);
         }
 
         void Update()
@@ -507,6 +632,11 @@ namespace PSXRacing
             lensClock += Time.deltaTime * (1.0 + LensFx.FlowLife * lensFlow);
             LensFx.Publish(on ? cam : null, rain, on ? LensFx.DirtFor(night, rain) : 0f,
                            lensFlow, (float)lensClock);
+            // The sun in the lens, under the lens's own rules: the hour's sun
+            // (0 from dusk and in every interior), on SCALED time so a paused
+            // frame holds the eye where it was.
+            float sunStrength = on && sceneGlobals != null ? sceneGlobals.sunShadow : 0f;
+            SunGlareFx.Publish(on ? cam : null, sunStrength, Time.deltaTime);
         }
 
         /// <summary>

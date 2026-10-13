@@ -244,7 +244,7 @@ namespace PSXRacing
                  "PHOTO: the photographed skies. DYNAMIC: a computed sky - real sunsets, drifting clouds.",
                  () => SkyModePrefs.Toggle());
             Step(SettingsTab.Visuals, "LENS FX", () => LensFxPrefs.Label,
-                 "Rain drops and light bokeh on the lens. Off for a clean lens.",
+                 "Rain drops, light bokeh and sun glare on the lens. Off for a clean lens.",
                  () => LensFxPrefs.Toggle());
             Step(SettingsTab.Visuals, "FILM GRADE", () => FilmGradePrefs.Label,
                  "A faded 90s print: soft blacks, cream whites, light that bleeds. Off for the plain picture.",

@@ -46,6 +46,10 @@ Shader "PSX/Sky"
         // 1 = the DYNAMIC sky (PSXAtmosphere.cginc) instead of the photograph:
         // the owner's switch (SkyModePrefs), set by TimeOfDay.ApplySky.
         _Dynamic ("Dynamic sky", Float) = 0
+        // Toward the sun as this sky SHOWS it (TimeOfDay.ApplySky: the
+        // photograph's measured sun height on the light's bearing; w = 1 when
+        // set). The emitter disc sits there; w = 0 keeps it on the light.
+        [HideInInspector] _SunSeen ("Sun as shown", Vector) = (0, 0, 0, 0)
     }
     SubShader
     {
@@ -70,6 +74,7 @@ Shader "PSX/Sky"
             float _HorizonFade;
             float _Stars;
             float _Dynamic;
+            float4 _SunSeen;
             // THE SUN IN THE HAZE (the DAY PASS, 2026-09-21; PSXSunShadow.cginc
             // and TimeOfDay.FogSunFor). The world's fog is brighter toward the
             // sun now, and the horizon band below IS the fog's colour - the two
@@ -284,7 +289,11 @@ Shader "PSX/Sky"
                 // The sun's disc is the one emitter here (above the horizon:
                 // a sun below it is behind the ground, which the sky's lower
                 // half is painted as).
-                float emit = smoothstep(SKY_SUN_COS_OUT, SKY_SUN_COS_IN, dot(dir, normalize(_PSXLightDir.xyz)))
+                // On the sun the player SEES (_SunSeen), which for the
+                // photographs is not the light's height (TimeOfDay's
+                // skyTexElevation): the halation and the sun glare key on it.
+                float3 seenSun = _SunSeen.w > 0.5 ? _SunSeen.xyz : _PSXLightDir.xyz;
+                float emit = smoothstep(SKY_SUN_COS_OUT, SKY_SUN_COS_IN, dot(dir, normalize(seenSun)))
                            * step(0.0, y);
                 // Opaque on any camera but the PSX camera's own frame, whose
                 // alpha is the emitter mask (PSXTone.cginc).

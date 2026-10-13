@@ -71,6 +71,21 @@ namespace PSXRacing
         Material lensMaterial;
         LensPass lensPass;
 
+        /// <summary>PSX/SunGlare (<see cref="SunGlareFx"/>), found by name and
+        /// kept in the build by GraphicsSettings, for the lens's reason.</summary>
+        Shader glareShader;
+        Material glareMaterial;
+        GlarePass glarePass;
+
+        static readonly int GlareSunId = Shader.PropertyToID("_PSXGlareSun");
+        static readonly int GlareEyeId = Shader.PropertyToID("_PSXGlareEye");
+        static readonly int GlareParamsId = Shader.PropertyToID("_PSXGlareParams");
+        static readonly int GlareTintId = Shader.PropertyToID("_PSXGlareTint");
+
+        /// <summary>The glare's eye pixel the last recorded frame wrote, for the
+        /// shot tools to read back (GlareShots). Never read in the game.</summary>
+        public static RenderTexture GlareEyeForTools;
+
         public override void Create()
         {
             pass = new BlurPass
@@ -88,6 +103,14 @@ namespace PSXRacing
                 renderPassEvent = RenderPassEvent.AfterRenderingTransparents + 1,
                 requiresIntermediateTexture = true,
             };
+            glarePass = new GlarePass
+            {
+                // After the lens: the glare is light scattered INSIDE the lens
+                // and the eye, over whatever is on the glass. Still before the
+                // stacked HUD camera.
+                renderPassEvent = RenderPassEvent.AfterRenderingTransparents + 2,
+                requiresIntermediateTexture = true,
+            };
         }
 
         public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
@@ -96,6 +119,35 @@ namespace PSXRacing
             if (cam == null || renderingData.cameraData.renderType != CameraRenderType.Base) return;
             AddBlur(renderer, cam);
             AddLens(renderer, cam);
+            AddGlare(renderer, cam);
+        }
+
+        /// <summary>
+        /// The sun in the lens, for the camera <see cref="SunGlareFx"/> names.
+        /// The eye's two time constants become this frame's blend factors
+        /// here, so the shader needs no clock.
+        /// </summary>
+        void AddGlare(ScriptableRenderer renderer, Camera cam)
+        {
+            if (!SunGlareFx.Active || cam != SunGlareFx.Camera) return;
+            if (glareMaterial == null)
+            {
+                if (glareShader == null) glareShader = Shader.Find(SunGlareFx.ShaderName);
+                // No shader in this build: no glare. Never a pink frame.
+                if (glareShader == null || !glareShader.isSupported) return;
+                glareMaterial = CoreUtils.CreateEngineMaterial(glareShader);
+            }
+            if (!SunGlareFx.Aim(cam)) return;
+            float dt = SunGlareFx.Dt;
+            float seen = 1f - Mathf.Exp(-dt / SunGlareFx.SeenTau);
+            float close = 1f - Mathf.Exp(-dt / SunGlareFx.CloseTau);
+            float open = 1f - Mathf.Exp(-dt / SunGlareFx.OpenTau);
+            glareMaterial.SetVector(GlareSunId, SunGlareFx.Sun);
+            glareMaterial.SetVector(GlareEyeId, new Vector4(seen, close, open, SunGlareFx.Reset ? 1f : 0f));
+            glareMaterial.SetVector(GlareParamsId, new Vector4(SunGlareFx.Strength, Mathf.Max(cam.aspect, 0.01f), 0f, 0f));
+            glareMaterial.SetColor(GlareTintId, SunGlareFx.Tint);
+            glarePass.material = glareMaterial;
+            renderer.EnqueuePass(glarePass);
         }
 
         void AddBlur(ScriptableRenderer renderer, Camera cam)
@@ -147,6 +199,9 @@ namespace PSXRacing
             material = null;
             CoreUtils.Destroy(lensMaterial);
             lensMaterial = null;
+            CoreUtils.Destroy(glareMaterial);
+            glareMaterial = null;
+            glarePass?.Release();
         }
 
         class BlurPass : ScriptableRenderPass
@@ -316,6 +371,120 @@ namespace PSXRacing
                         Block.SetTexture(BlitTextureId, d.source);
                         Block.SetVector(BlitScaleBiasId, new Vector4(1f, 1f, 0f, 0f));
                         ctx.cmd.DrawProcedural(Matrix4x4.identity, d.material, d.pass,
+                                               MeshTopology.Triangles, 3, 1, Block);
+                    });
+                }
+            }
+        }
+
+        /// <summary>
+        /// The sun in the lens (<see cref="SunGlareFx"/>): ONE pixel that reads
+        /// how much of the sun the frame shows and keeps the eye's adaptation,
+        /// then the glare screen-blended straight into the camera's colour.
+        /// No copy of the frame — the glare reads nothing of the picture under
+        /// it, only that pixel. The eye lives in two 1x1 textures written in
+        /// turn (last frame's read, this frame's written), owned here and
+        /// imported into each frame's graph, so it survives from one frame to
+        /// the next.
+        /// </summary>
+        class GlarePass : ScriptableRenderPass
+        {
+            public Material material;
+
+            static readonly int BlitTextureId = Shader.PropertyToID("_BlitTexture");
+            static readonly int BlitScaleBiasId = Shader.PropertyToID("_BlitScaleBias");
+            static readonly int EyePrevId = Shader.PropertyToID("_PSXGlarePrev");
+            static readonly int EyeStateId = Shader.PropertyToID("_PSXGlareState");
+            static readonly MaterialPropertyBlock Block = new MaterialPropertyBlock();
+
+            // PSX/SunGlare's passes.
+            const int EyeShaderPass = 0, GlareShaderPass = 1;
+
+            readonly RenderTexture[] eyeTex = new RenderTexture[2];
+            readonly RTHandle[] eye = new RTHandle[2];
+            int current;
+
+
+            class EyeData { public TextureHandle colour, prev; public Material material; }
+            class GlareData { public TextureHandle state; public Material material; }
+
+            public void Release()
+            {
+                for (int i = 0; i < eye.Length; i++)
+                {
+                    eye[i]?.Release();
+                    eye[i] = null;
+                    CoreUtils.Destroy(eyeTex[i]);
+                    eyeTex[i] = null;
+                }
+            }
+
+            // Plain UNORM (never sRGB): the shader packs 16-bit values into
+            // pairs of channels, and an sRGB write would bend them.
+            RTHandle Eye(int i)
+            {
+                if (eye[i] == null || eyeTex[i] == null || !eyeTex[i].IsCreated())
+                {
+                    eye[i]?.Release();
+                    CoreUtils.Destroy(eyeTex[i]);
+                    eyeTex[i] = new RenderTexture(1, 1, 0, GraphicsFormat.R8G8B8A8_UNorm)
+                    {
+                        name = "_PSXGlareEye" + i,
+                        filterMode = FilterMode.Point,
+                        wrapMode = TextureWrapMode.Clamp,
+                    };
+                    eyeTex[i].Create();
+                    eye[i] = RTHandles.Alloc(eyeTex[i]);
+                }
+                return eye[i];
+            }
+
+            public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
+            {
+                var resources = frameData.Get<UniversalResourceData>();
+                if (material == null || resources.isActiveTargetBackBuffer) return;
+                var colour = resources.activeColorTexture;
+                var prev = renderGraph.ImportTexture(Eye(current));
+                current ^= 1;
+                var next = renderGraph.ImportTexture(Eye(current));
+                GlareEyeForTools = eyeTex[current];
+
+                // 1 — the eye: one pixel, reading the frame's alpha round the
+                // sun and last frame's eye.
+                using (var builder = renderGraph.AddRasterRenderPass<EyeData>("PSX Sun Glare (eye)", out var data))
+                {
+                    data.colour = colour;
+                    data.prev = prev;
+                    data.material = material;
+                    builder.UseTexture(colour);
+                    builder.UseTexture(prev);
+                    builder.SetRenderAttachment(next, 0, AccessFlags.Write);
+                    builder.SetRenderFunc(static (EyeData d, RasterGraphContext ctx) =>
+                    {
+                        Block.Clear();
+                        Block.SetTexture(BlitTextureId, d.colour);
+                        Block.SetTexture(EyePrevId, d.prev);
+                        Block.SetVector(BlitScaleBiasId, new Vector4(1f, 1f, 0f, 0f));
+                        ctx.cmd.DrawProcedural(Matrix4x4.identity, d.material, EyeShaderPass,
+                                               MeshTopology.Triangles, 3, 1, Block);
+                    });
+                }
+
+                // 2 — the glare, blended into the colour. ReadWrite: it is a
+                // blend over what is there, and it leaves the alpha (the
+                // emitter mask PSX/Blit's halation reads) as it found it.
+                using (var builder = renderGraph.AddRasterRenderPass<GlareData>("PSX Sun Glare", out var data))
+                {
+                    data.state = next;
+                    data.material = material;
+                    builder.UseTexture(next);
+                    builder.SetRenderAttachment(colour, 0, AccessFlags.ReadWrite);
+                    builder.SetRenderFunc(static (GlareData d, RasterGraphContext ctx) =>
+                    {
+                        Block.Clear();
+                        Block.SetTexture(EyeStateId, d.state);
+                        Block.SetVector(BlitScaleBiasId, new Vector4(1f, 1f, 0f, 0f));
+                        ctx.cmd.DrawProcedural(Matrix4x4.identity, d.material, GlareShaderPass,
                                                MeshTopology.Triangles, 3, 1, Block);
                     });
                 }
