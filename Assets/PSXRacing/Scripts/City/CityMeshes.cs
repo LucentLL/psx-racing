@@ -530,7 +530,9 @@ namespace PSXRacing.City
             float r = (h & 0xFFFF) / 65536f;
             int glass = (int)((h >> 16) % 100u);
             int look;
-            if (mat == 1 || mat == 4) look = mat == 4 ? LookSilver : (glass < 40 ? LookBlue : glass < 75 ? LookSilver : LookTeal);
+            if (mat == 4) look = LookSilver;
+            else if (mat == 1 && colour.a == 255) look = NearestGlass(colour);   // a measured glass colour picks its kind
+            else if (mat == 1) look = glass < 40 ? LookBlue : glass < 75 ? LookSilver : LookTeal;
             else if (mat == 2 || mat == 5) look = LookBrick;
             else if (mat == 3) look = LookStone;
             else if (style == 0) look = r < 0.12f ? LookStone : (glass < 38 ? LookBlue : glass < 72 ? LookSilver : LookTeal);
@@ -560,6 +562,25 @@ namespace PSXRacing.City
             }
             // OSM metal cladding wears the silver grid AS metal (B1b)
             Bucket.Tint = new Color32(TintByte(k.x), TintByte(k.y), TintByte(k.z), (byte)(look * 32 + (mat == 4 ? FacadeMetalBit : 0)));
+        }
+
+        /// <summary>The glass kind (blue, silver, teal) whose column mean is
+        /// nearest a building's tagged colour, by hue: the tint then carries
+        /// the rest.</summary>
+        static readonly int[] GlassLooks = { LookBlue, LookSilver, LookTeal };
+        static int NearestGlass(Color32 c)
+        {
+            var w = new Vector3(SrgbToLin(c.r), SrgbToLin(c.g), SrgbToLin(c.b));
+            w /= Mathf.Max(0.02f, w.x + w.y + w.z);
+            int best = LookBlue; float bd = float.MaxValue;
+            foreach (int look in GlassLooks)
+            {
+                var m = FacadeLooks[look].meanLin;
+                m /= Mathf.Max(0.02f, m.x + m.y + m.z);
+                float d = (m - w).sqrMagnitude;
+                if (d < bd) { bd = d; best = look; }
+            }
+            return best;
         }
 
         static void EndFacade() { Bucket.Tint = new Color32(128, 128, 128, 0); facCrownY = float.MaxValue; }
