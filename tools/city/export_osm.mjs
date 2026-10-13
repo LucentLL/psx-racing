@@ -1411,9 +1411,11 @@ const LOOK_WORD = { white: [240, 240, 236], grey: [128, 128, 128], gray: [128, 1
 // Uptown reference looks (2026-10-12, tools/city/ref_looks.py): what each
 // tower is clad in and its colour, MEASURED off a model of uptown the owner
 // may not ship - one colour and one word per building, used only where OSM
-// tags neither. PSX_CITY_REFLOOKS=0 leaves them out.
+// tags neither. OFF until uptown has a clean office-tower facade (owner,
+// 2026-10-12: granite towers on the tenement "stone" column looked worse);
+// PSX_CITY_REFLOOKS=1 puts them in.
 const REF_LOOKS_FILE = join(dirname(fileURLToPath(import.meta.url)), 'truth', 'uptown_ref_looks.json');
-const REF_LOOKS = process.env.PSX_CITY_REFLOOKS !== '0' && existsSync(REF_LOOKS_FILE)
+const REF_LOOKS = process.env.PSX_CITY_REFLOOKS === '1' && existsSync(REF_LOOKS_FILE)
   ? JSON.parse(readFileSync(REF_LOOKS_FILE, 'utf8')).looks : {};
 function facadeLook(t) {
   const use = LOOK_USE[t['building:use']] ?? LOOK_USE[t.building] ?? 0;
@@ -2142,7 +2144,7 @@ function inputFiles() {
   if (existsSync(join(CACHE, 'lots_core.json'))) add('tools/city/cache/lots_core.json', join(CACHE, 'lots_core.json'), 'overpass');
   add('tools/city/cache/buildings_core.json', join(CACHE, 'buildings_core.json'), 'overpass');
   add('tools/city/cache/parts_core.json', join(CACHE, 'parts_core.json'), 'overpass');   // B2
-  if (process.env.PSX_CITY_REFLOOKS !== '0') add('tools/city/truth/uptown_ref_looks.json', REF_LOOKS_FILE, 'registry');   // measured looks
+  if (process.env.PSX_CITY_REFLOOKS === '1') add('tools/city/truth/uptown_ref_looks.json', REF_LOOKS_FILE, 'registry');   // measured looks
   if (process.env.PSX_CITY_REFTIERS === '1') add('tools/city/truth/uptown_ref_parts.json', REF_TIERS, 'registry');   // measured tiers
   if (COVERAGE) {   // coverage (fetch/fetch_coverage.mjs)
     add('tools/city/cache/buildings_city.json', covBldFile, 'overpass');
