@@ -237,6 +237,9 @@ namespace PSXRacing
             Step(SettingsTab.Visuals, "TEXTURES", () => TexturePrefs.Label,
                  "ENHANCED: the remastered surfaces, twice the detail. CLASSIC: the original textures.",
                  () => TexturePrefs.Toggle());
+            Step(SettingsTab.Visuals, "REFLECTIONS", () => ReflectionPrefs.Label,
+                 "The world around the car in its paint and glass. OFF saves a little speed on slow phones.",
+                 () => ReflectionPrefs.Toggle());
             Step(SettingsTab.Visuals, "SKY", () => SkyModePrefs.Label,
                  "PHOTO: the photographed skies. DYNAMIC: a computed sky - real sunsets, drifting clouds.",
                  () => SkyModePrefs.Toggle());

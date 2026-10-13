@@ -209,6 +209,14 @@ Shader "PSX/CarPaint"
             #define GLASS_F0           0.10   // glass face-on: dark behind it, so the sky is most of what it shows
             #define GLASS_FMAX         0.70
             #define GLASS_LOD          1.5    // how soft the sky is in it (paint is 2.5)
+            #define ENV_PAINT_LOD      0.8    // how soft the world is in the paint (CarReflections' panorama)
+            #define ENV_GLASS_LOD      0.0    // ...and in the glass: sharp
+            #define ENV_MIX            1.0    // the world replaces the sky lookup where it is drawn
+            // ...and with the world in it the lacquer reads as GT's does: a
+            // showroom coat, the street plainly in the doors (2026-10-12).
+            #define ENV_COAT_F0        0.10
+            #define ENV_COAT_FMAX      0.62
+            #define ENV_GLASS_F0       0.16
             // THE SUN IN THE PAINT: a glint in the lacquer, a sheen in the flake.
             #define SUN_GLINT          0.70   // the sun's mirror image...
             #define SUN_GLINT_POW      160.0  // ...about six degrees across (doubled on glass)
@@ -438,13 +446,23 @@ Shader "PSX/CarPaint"
                 // so the paint under it gives up the same share.
                 float ndv = saturate(dot(N, V));
                 float fres = pow(1.0 - ndv, 5.0);
-                float k = lerp(COAT_F0 + (COAT_FMAX - COAT_F0) * fres,
-                               GLASS_F0 + (GLASS_FMAX - GLASS_F0) * fres, glass);
+                float envOn = step(0.5, _PSXEnvOn);
+                float coatF0 = lerp(COAT_F0, ENV_COAT_F0, envOn), coatFMax = lerp(COAT_FMAX, ENV_COAT_FMAX, envOn);
+                float glassF0 = lerp(GLASS_F0, ENV_GLASS_F0, envOn);
+                float k = lerp(coatF0 + (coatFMax - coatF0) * fres,
+                               glassF0 + (GLASS_FMAX - glassF0) * fres, glass);
                 k *= lerp(1.0, DULL_REFLECT, dull);
                 float3 R = reflect(-V, N);
                 // The sky in the lacquer is the sky: adapted, never exposed
                 // (C3), the same as the sky above the car.
                 float3 sky = SkyIn(R, lerp(2.5, GLASS_LOD, glass)) * PSXAdaptGain();
+                // THE WORLD IN THE LACQUER (2026-10-12, the GT look plan):
+                // what CarReflections drew from this car's roof - the road,
+                // the trees and buildings, other cars, the sky - as it is on
+                // screen, so it stands in for the adapted sky lookup outright.
+                // The day's dimming of the sky part below still applies.
+                if (_PSXEnvOn > 0.5)
+                    sky = lerp(sky, PSXEnvIn(R, lerp(ENV_PAINT_LOD, ENV_GLASS_LOD, glass)), ENV_MIX);
                 // ...except by day (2026-10-01): the paint under it is exposed
                 // (0.55 at a clear noon) and a full-brightness sky over an
                 // exposed panel is the white wash on every roof and boot.
@@ -459,7 +477,9 @@ Shader "PSX/CarPaint"
                 // The flake under the lacquer tints its share; glass does not.
                 float3 body = saturate(tex.rgb * 1.6);
                 float3 tint = lerp(float3(1, 1, 1), body, PAINT_METALLIC * (1.0 - glass));
-                float3 refl = sky * tint * (k * skyOpen);
+                // (the world panorama already shows a roof over the car, so
+                // the sky-openness guess is not laid over it as well)
+                float3 refl = sky * tint * (k * (_PSXEnvOn > 0.5 ? 1.0 : skyOpen));
 
                 // THE SUN: a glint a few degrees across in the lacquer - a
                 // spark on a curve, nothing at all across a flat roof - and

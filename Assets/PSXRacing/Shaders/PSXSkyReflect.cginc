@@ -118,4 +118,17 @@ float3 PSXSkyIn(float3 R, float lod)
     col = lerp(col, _PSXFogColor.rgb * GROUND_REFLECT, saturate(-y * 4.0));
     return col;
 }
+
+// THE WORLD AROUND THE CAR (2026-10-12, CarReflections + Hidden/PSX/EnvPano):
+// six views from the watched car's roof stitched into an equirect laid out
+// like the sky panorama above (no rotation: it is world-aligned). Only read
+// while _PSXEnvOn is 1; the sky lookup stays the fallback.
+sampler2D _PSXEnvPano;
+float _PSXEnvOn;
+float3 PSXEnvIn(float3 R, float lod)
+{
+    float u = atan2(R.z, R.x) * (0.5 / UNITY_PI) + 0.5;
+    float v = 0.5 + asin(clamp(R.y, -1.0, 1.0)) / UNITY_PI;
+    return tex2Dlod(_PSXEnvPano, float4(u, v, 0, lod)).rgb;
+}
 #endif
