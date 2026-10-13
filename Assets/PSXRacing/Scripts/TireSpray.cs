@@ -85,6 +85,29 @@ namespace PSXRacing
         /// comes from the shader.</summary>
         static readonly Color SprayColour = new Color(0.80f, 0.82f, 0.86f, Alpha);
 
+        // THE SPLASH (2026-10-12, owner: "I'd also like water splash for
+        // driving and sliding in the rain"). The mist above is the cloud a
+        // rear tyre leaves; the splash is the water itself: small, fast,
+        // stretched droplets flung up and back off every tread, and a sheet
+        // of them thrown out toward a tyre that SLIDES (a drift, a spin, a
+        // locked wheel). Fronts throw too - less, out of the arch.
+        /// <summary>The fronts' share of the rears' mist and droplets.</summary>
+        public const float FrontShare = 0.5f;
+        /// <summary>Droplets start earlier than the mist (a slow tyre still
+        /// throws water, it just does not make a cloud) and are full by here.</summary>
+        public const float DropSpeedStart = 12f, DropSpeedFull = 160f;
+        public const float DropRateAtFull = 150f;
+        public const float DropLife = 0.42f;
+        public const int DropCapacity = 360;
+        static readonly Color DropColour = new Color(0.86f, 0.88f, 0.92f, 0.55f);
+        /// <summary>Slide speed (m/s at the contact) where a sliding tyre
+        /// starts throwing a sheet, and where it is full.</summary>
+        public const float SlideStart = 1.5f, SlideFull = 8f;
+        public const float SlideDropRate = 260f, SlideMistRate = 40f;
+        ParticleSystem drops;
+        GameObject dropHolder;
+        readonly float[] dropBudget = new float[4];
+
         // One material and one texture for every car in every scene. Static,
         // HideAndDontSave, and re-made if Unity destroyed them (the Unity null
         // check catches that), so nothing leaks per scene.
@@ -96,7 +119,7 @@ namespace PSXRacing
         GameObject holder;
         ParticleSystem.EmitParams emit;
         /// <summary>Fractional puffs owed per rear wheel (RL, RR).</summary>
-        readonly float[] budget = new float[2];
+        readonly float[] budget = new float[4];
 
         void Awake()
         {
@@ -106,6 +129,7 @@ namespace PSXRacing
         void OnDestroy()
         {
             if (holder != null) Destroy(holder);
+            if (dropHolder != null) Destroy(dropHolder);
         }
 
         void LateUpdate()
@@ -117,39 +141,54 @@ namespace PSXRacing
             // Only while it is actually raining in this scene: a car that
             // outlives the WeatherFx instance stops spraying rather than
             // throwing water off a dry road.
-            float t = WeatherFx.Raining
-                ? Mathf.Clamp01((car.speedKmh - SpeedStart) / (SpeedFull - SpeedStart))
-                : 0f;
-            if (t <= 0f && ps == null) return;
-
+            bool rain = WeatherFx.Raining;
+            float t = rain ? Mathf.Clamp01((car.speedKmh - SpeedStart) / (SpeedFull - SpeedStart)) : 0f;
+            float td = rain ? Mathf.Clamp01((car.speedKmh - DropSpeedStart) / (DropSpeedFull - DropSpeedStart)) : 0f;
+            if (!rain && ps == null && drops == null) return;
             var contacts = car.wheelContacts;
             if (contacts == null || contacts.Length < 4) return;
-
             Vector3 carVel = CarVelocity();
             // Which way is "behind": reversing fast throws the water forward.
             float dir = car.forwardSpeed >= 0f ? 1f : -1f;
-
-            for (int k = 0; k < 2; k++)
+            // Which way a slide throws its sheet: the way the car is moving
+            // across itself (the water keeps going when the tyre lets go).
+            Vector3 right = car.transform.right;
+            float lat = Vector3.Dot(carVel, right);
+            Vector3 slideOut = Mathf.Abs(lat) > 0.5f ? right * Mathf.Sign(lat) : Vector3.zero;
+            for (int k = 0; k < 4; k++)
             {
-                var c = contacts[2 + k];
+                var c = contacts[k];
+                float share = k < 2 ? FrontShare : 1f;
                 // Airborne, off the tarmac (grass does not throw a sheet of
-                // water), or too slow: nothing, and no banked budget - landing
+                // water), or dry: nothing, and no banked budget - landing
                 // would otherwise dump every puff the wheel owed in the air.
-                if (t <= 0f || !c.grounded || !c.onRoad) { budget[k] = 0f; continue; }
-                if (ps == null && !Build()) return;
-
-                budget[k] += t * RateAtFull * dt;
-                // Bounded per frame, as TireSmoke does: a long stall must not
-                // hand one frame a wall of spray.
-                int n = Mathf.Min(Mathf.FloorToInt(budget[k]), 4);
-                budget[k] -= n;
-                for (int j = 0; j < n; j++) Spawn(c, carVel, dir);
+                if (!rain || !c.grounded || !c.onRoad) { budget[k] = 0f; dropBudget[k] = 0f; continue; }
+                float slide = Mathf.Clamp01((c.slide - SlideStart) / (SlideFull - SlideStart));
+                float mistRate = t * RateAtFull * share + slide * SlideMistRate;
+                float dropRate = td * DropRateAtFull * share + slide * SlideDropRate;
+                if (mistRate > 0f)
+                {
+                    if (ps == null && !Build()) return;
+                    budget[k] += mistRate * dt;
+                    // Bounded per frame, as TireSmoke does: a long stall must
+                    // not hand one frame a wall of spray.
+                    int n = Mathf.Min(Mathf.FloorToInt(budget[k]), 4);
+                    budget[k] -= n;
+                    for (int j = 0; j < n; j++) Spawn(c, carVel, dir);
+                }
+                else budget[k] = 0f;
+                if (dropRate > 0f)
+                {
+                    if (drops == null && !BuildDrops()) return;
+                    dropBudget[k] += dropRate * dt;
+                    int n = Mathf.Min(Mathf.FloorToInt(dropBudget[k]), 8);
+                    dropBudget[k] -= n;
+                    for (int j = 0; j < n; j++) SpawnDrop(c, carVel, dir, slide, slideOut);
+                }
+                else dropBudget[k] = 0f;
             }
         }
 
-        /// <summary>The car's velocity, from the body when physics owns it and
-        /// from the replay-written <c>forwardSpeed</c> when it does not (see the
-        /// replay trap above).</summary>
         Vector3 CarVelocity()
         {
             var body = car.Body;
@@ -253,6 +292,73 @@ namespace PSXRacing
         /// <summary>The shared spray material: PSX/Rain, or PSX/Decal if the
         /// rain shader is missing from the build (an unlit grey mist beats a
         /// pink one), or nothing.</summary>
+        /// <summary>One droplet: off the top of the tread, up and back (a
+        /// rooster tail) with the car's own motion under it, and when the tyre
+        /// slides, out toward the slide.</summary>
+        void SpawnDrop(CarController.WheelContact c, Vector3 carVel, float dir, float slide, Vector3 slideOut)
+        {
+            Vector3 n = c.normal.sqrMagnitude > 1e-6f ? c.normal.normalized : Vector3.up;
+            Vector3 fwd = c.forward.sqrMagnitude > 1e-6f ? c.forward.normalized : car.transform.forward;
+            Vector3 side = Vector3.Cross(n, fwd);
+            if (side.sqrMagnitude > 1e-6f) side.Normalize(); else side = car.transform.right;
+            var e = new ParticleSystem.EmitParams
+            {
+                position = c.point + n * Random.Range(0.05f, 0.30f) - fwd * (Random.Range(0.15f, 0.35f) * dir)
+                           + side * Random.Range(-0.15f, 0.15f),
+                velocity = carVel * 0.55f
+                           + n * Random.Range(1.2f, 3.6f)
+                           - fwd * (Random.Range(1.0f, 3.2f) * dir)
+                           + side * Random.Range(-1.1f, 1.1f)
+                           + slideOut * (slide * Random.Range(2.0f, 5.5f)),
+                startLifetime = DropLife * Random.Range(0.7f, 1.2f),
+                startSize = Random.Range(0.05f, 0.11f) * (1f + slide * 0.6f),
+                startColor = DropColour,
+            };
+            drops.Emit(e, 1);
+        }
+
+        bool BuildDrops()
+        {
+            var mat = SprayMaterial();
+            if (mat == null) { enabled = false; return false; }
+            dropHolder = new GameObject(car.name + " Splash");
+            dropHolder.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            drops = dropHolder.AddComponent<ParticleSystem>();
+            drops.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            var main = drops.main;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            main.scalingMode = ParticleSystemScalingMode.Local;
+            main.loop = true;
+            main.playOnAwake = false;
+            main.maxParticles = DropCapacity;
+            main.startLifetime = DropLife;
+            main.startSpeed = 0f;
+            main.startColor = DropColour;
+            // Water falls: full gravity, so the tail arcs back to the road.
+            main.gravityModifier = 1f;
+            var emission = drops.emission; emission.enabled = false;
+            var shape = drops.shape; shape.enabled = false;
+            var col = drops.colorOverLifetime;
+            col.enabled = true;
+            var grad = new Gradient();
+            grad.SetKeys(
+                new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(0.8f, 0.6f), new GradientAlphaKey(0f, 1f) });
+            col.color = new ParticleSystem.MinMaxGradient(grad);
+            var r = dropHolder.GetComponent<ParticleSystemRenderer>();
+            // Stretched along their flight: a streak, not a dot, at speed.
+            r.renderMode = ParticleSystemRenderMode.Stretch;
+            r.velocityScale = 0.035f;
+            r.lengthScale = 1.6f;
+            r.sharedMaterial = mat;
+            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            r.receiveShadows = false;
+            r.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+            r.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+            drops.Play();
+            return true;
+        }
+
         static Material SprayMaterial()
         {
             if (sharedMat != null) return sharedMat;
