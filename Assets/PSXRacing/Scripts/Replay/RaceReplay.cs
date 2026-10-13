@@ -81,11 +81,14 @@ namespace PSXRacing
             public float rpm, speedKmh, forwardSpeed, throttle, brake;
             /// <summary>Wheel roll, degrees, in CarController's own sign.</summary>
             public float roll0, roll1, roll2, roll3;
-            /// <summary>The larger of the two axle slip angles, radians —
-            /// what the tyre audio and the smoke key off.</summary>
-            public float slip;
-            /// <summary>Peak contact slide across the four wheels, m/s.</summary>
-            public float slide;
+            /// <summary>Each axle's slip angle, radians - what the tyre audio
+            /// keys off. PER AXLE since 2026-10-12: one number played back on
+            /// the rear put a front-drive car's wheelspin behind it (owner:
+            /// "my FWD Accord ... chirp/smoke the rear tires").</summary>
+            public float slipF, slipR;
+            /// <summary>Peak contact slide on each axle, m/s (the smoke and
+            /// the marks).</summary>
+            public float slideF, slideR;
             public sbyte gear;
             public byte lap, place;
             public byte flags;
@@ -348,7 +351,8 @@ namespace PSXRacing
                 throttle = c.throttleInput,
                 brake = c.brakeInput,
                 gear = (sbyte)Mathf.Clamp(c.currentGear, -1, 8),
-                slip = Mathf.Max(Mathf.Abs(c.rearSlipAngle), Mathf.Abs(c.frontSlipAngle)),
+                slipF = c.frontSlipAngle,
+                slipR = c.rearSlipAngle,
             };
             // The front hubs carry the steer angle as a yaw; either one
             // reads the same number (toe aside) so take the left.
@@ -359,15 +363,16 @@ namespace PSXRacing
                 f.roll0 = RollOf(c.wheelMeshes[0]); f.roll1 = RollOf(c.wheelMeshes[1]);
                 f.roll2 = RollOf(c.wheelMeshes[2]); f.roll3 = RollOf(c.wheelMeshes[3]);
             }
-            float slide = 0f; bool grounded = false, onRoad = false;
+            float slideF = 0f, slideR = 0f; bool grounded = false, onRoad = false;
             if (c.wheelContacts != null)
                 for (int i = 0; i < c.wheelContacts.Length; i++)
                 {
                     var wc = c.wheelContacts[i];
                     if (wc.grounded) { grounded = true; onRoad |= wc.onRoad; }
-                    if (wc.slide > slide) slide = wc.slide;
+                    if (i < 2) slideF = Mathf.Max(slideF, wc.slide);
+                    else slideR = Mathf.Max(slideR, wc.slide);
                 }
-            f.slide = slide;
+            f.slideF = slideF; f.slideR = slideR;
             if (c.handbrakeInput) f.flags |= FlagHandbrake;
             if (c.Drifting) f.flags |= FlagDrifting;
             if (grounded) f.flags |= FlagGrounded;
@@ -685,8 +690,8 @@ namespace PSXRacing
                 c.throttleInput = f.throttle;
                 c.brakeInput = f.brake;
                 c.handbrakeInput = (f.flags & FlagHandbrake) != 0;
-                c.rearSlipAngle = f.slip;
-                c.frontSlipAngle = 0f;
+                c.rearSlipAngle = f.slipR;
+                c.frontSlipAngle = f.slipF;
                 c.anyWheelGrounded = (f.flags & FlagGrounded) != 0;
                 c.onRoad = (f.flags & FlagOnRoad) != 0;
                 if (tr.bodyRoot != null) tr.bodyRoot.localRotation = f.lean;
@@ -699,8 +704,8 @@ namespace PSXRacing
                     SetRoll(c.wheelMeshes[0], f.roll0); SetRoll(c.wheelMeshes[1], f.roll1);
                     SetRoll(c.wheelMeshes[2], f.roll2); SetRoll(c.wheelMeshes[3], f.roll3);
                 }
-                // The contacts feed the smoke and the marks: a sliding rear
-                // axle at the recorded slide, seated at the wheel.
+                // The contacts feed the smoke and the marks: each axle at its
+                // own recorded slide, seated at the wheel.
                 // WheelContact is a struct: read, edit, WRITE BACK.
                 if (c.wheelContacts != null && c.wheelHubs != null)
                     for (int i = 0; i < Mathf.Min(4, c.wheelContacts.Length, c.wheelHubs.Length); i++)
@@ -708,7 +713,7 @@ namespace PSXRacing
                         var wc = c.wheelContacts[i];
                         wc.grounded = (f.flags & FlagGrounded) != 0;
                         wc.onRoad = (f.flags & FlagOnRoad) != 0;
-                        wc.slide = i >= 2 ? f.slide : f.slide * 0.3f;
+                        wc.slide = i >= 2 ? f.slideR : f.slideF;
                         wc.load = c.massKg * 9.81f * 0.25f;
                         wc.normal = Vector3.up;
                         wc.forward = c.transform.forward;
@@ -921,8 +926,8 @@ namespace PSXRacing
                 brake = Mathf.Lerp(a.brake, b.brake, u),
                 roll0 = Mathf.LerpAngle(a.roll0, b.roll0, u), roll1 = Mathf.LerpAngle(a.roll1, b.roll1, u),
                 roll2 = Mathf.LerpAngle(a.roll2, b.roll2, u), roll3 = Mathf.LerpAngle(a.roll3, b.roll3, u),
-                slip = Mathf.Lerp(a.slip, b.slip, u),
-                slide = Mathf.Lerp(a.slide, b.slide, u),
+                slipF = Mathf.Lerp(a.slipF, b.slipF, u), slipR = Mathf.Lerp(a.slipR, b.slipR, u),
+                slideF = Mathf.Lerp(a.slideF, b.slideF, u), slideR = Mathf.Lerp(a.slideR, b.slideR, u),
                 gear = u < 0.5f ? a.gear : b.gear,
                 lap = u < 0.5f ? a.lap : b.lap,
                 place = u < 0.5f ? a.place : b.place,
