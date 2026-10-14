@@ -17,6 +17,12 @@ namespace PSXRacing
     /// is how the era did it: a PS1 cockpit was a foreground sprite with a hole
     /// in it.
     ///
+    /// WITHOUT cabin.png (the state the game ships in) the cabin is the
+    /// generic 3D one instead (<see cref="CockpitInterior"/>, 2026-10-13):
+    /// geometry built round the shell, which this component shows with the
+    /// view, steers, and whose wheel it publishes for the binnacle. The sheet
+    /// path below is untouched and wins whenever a cabin.png is supplied.
+    ///
     /// THREE LAYERS, and the order is the whole design:
     ///
     ///   cabin   sortingOrder 80, under everything. Stretched to fill the
@@ -113,6 +119,9 @@ namespace PSXRacing
         Sprite builtCabin, builtWheel;
         bool shown;
         float lastWheelDeg = float.NaN;
+        /// <summary>The generic 3D cabin (CockpitInterior), used whenever no
+        /// cabin.png was supplied. Lives on the CAR, not under this canvas.</summary>
+        CockpitInterior interior;
 
         /// <summary>Mirror render target, in pixels. Tiny and staying that way:
         /// this is a second full pass over the scene, and every pixel of it is
@@ -130,6 +139,7 @@ namespace PSXRacing
             // Camera.targetTexture!" - an error the door tour (DoorTour) counts.
             if (mirrorCam != null) mirrorCam.targetTexture = null;
             if (mirrorRT != null) { mirrorRT.Release(); Destroy(mirrorRT); }
+            if (interior != null) DestroyNow(interior.gameObject);
             // Statics outlive the scene that set them. Leaving a wheel
             // published after this cabin is gone would have the next cluster
             // lay its binnacle out around a steering wheel that no longer
@@ -189,6 +199,12 @@ namespace PSXRacing
             Build();
             shown = on;
             if (root != null) root.gameObject.SetActive(on);
+            // The 3D cabin and the wheel it publishes, and the binnacle laid
+            // out round that wheel - which in the game happens on the
+            // cluster's next frame, and here there is no next frame.
+            if (Interior3D(on))
+                foreach (var gc in FindObjectsByType<GaugeCluster>(FindObjectsSortMode.None))
+                    gc.Build();
         }
 
         static void DestroyNow(GameObject go)
@@ -364,6 +380,7 @@ namespace PSXRacing
                 // only while it is being looked at.
                 if (mirrorCam != null) mirrorCam.gameObject.SetActive(want);
             }
+            Interior3D(want);
             if (!want || car == null || wheelRT == null) return;
 
             // Driven by the front ROAD wheel angle, not by the raw input, so it
@@ -374,6 +391,60 @@ namespace PSXRacing
                 lastWheelDeg = deg;
                 wheelRT.localRotation = Quaternion.Euler(0f, 0f, deg);
             }
+        }
+
+        // ------------------------------------------------------------------
+        //  The generic 3D cabin (2026-10-13)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The 3D cockpit when there is no cabin.png: shown with the view,
+        /// fitted to the car's measured cabin, the wheel turned with the front
+        /// road wheels, and the wheel's projected place PUBLISHED so the
+        /// binnacle sits in the top of its rim. With a cabin sheet the old 2D
+        /// path above is untouched and this stays off. Returns whether it is
+        /// showing.
+        /// </summary>
+        bool Interior3D(bool want)
+        {
+            bool use = want && cabin == null && car != null;
+            if (use && interior == null) interior = CockpitInterior.Ensure(car, worldCamera);
+            if (interior == null) return false;
+            bool touch = TouchControls.Instance != null && TouchControls.Instance.Visible;
+            interior.Show(use, !touch);
+            if (!use) return false;
+            interior.Refit();
+            interior.SetSteer(car.SteerAngleDeg, car.maxSteerLowSpeedDeg);
+            // A wheel.png with no cabin.png would be a second wheel.
+            if (wheelRT != null && wheelRT.gameObject.activeSelf) wheelRT.gameObject.SetActive(false);
+            PublishWheel3D(touch);
+            return true;
+        }
+
+        /// <summary>
+        /// WheelCentre / WheelRadius from the 3D wheel, in this canvas's units,
+        /// rounded so the cluster's dirty token holds still. Worked out from
+        /// the lens alone (CockpitInterior.ProjectWheel), not by projecting the
+        /// live transform, which the camera shake would move every frame. The
+        /// centre is published LOW by ClusterDrop of the radius: the cluster
+        /// puts its group 0.74 of the radius up, and the dial recess in the
+        /// model is 0.45 up, in the rim's opening above the spokes. Nothing on
+        /// a phone, as before: the binnacle has its own layout between the
+        /// touch controls there.
+        /// </summary>
+        void PublishWheel3D(bool touch)
+        {
+            if (touch) { WheelRadius = 0f; WheelCentre = Vector2.zero; return; }
+            var rt = transform as RectTransform;
+            float w = rt != null ? rt.rect.width : 0f, h = rt != null ? rt.rect.height : 0f;
+            if (h < 32f) { h = 720f; w = 1280f; }
+            float aspect = w / h;
+            float vfov = ChaseCamera.FOVFor(ChaseCamera.View.Cockpit, ChaseCamera.CockpitFOV, 0f, 1f, aspect);
+            if (!CockpitInterior.ProjectWheel(vfov, aspect, ChaseCamera.MountPitch(ChaseCamera.View.Cockpit),
+                                              out var hub, out float r)) return;
+            float radius = Mathf.Round(r * h);
+            WheelRadius = radius;
+            WheelCentre = new Vector2(Mathf.Round(hub.x * w), Mathf.Round(hub.y * h - CockpitInterior.ClusterDrop * radius));
         }
     }
 }

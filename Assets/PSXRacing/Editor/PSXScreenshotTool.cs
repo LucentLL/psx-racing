@@ -1268,7 +1268,10 @@ namespace PSXRacing.EditorTools
                 return o != null ? Mathf.Clamp(o.height, 120, 720) : 240;
             }
         }
-        static int ShotWidth => Mathf.RoundToInt(ShotHeight * 16f / 9f) & ~1;
+        static int ShotWidth => Mathf.RoundToInt(ShotHeight * (AspectOverride > 0f ? AspectOverride : 16f / 9f)) & ~1;
+        /// <summary>A tool shooting another screen shape (CockpitInteriorShots'
+        /// phone frame) sets this for the duration; 0 = 16:9.</summary>
+        internal static float AspectOverride;
         /// <summary>Nearest-neighbour blow-up for the PNG only, and only while
         /// the framebuffer is small enough to need it. The picture is the
         /// game's either way; point-doubling adds no information and hides
