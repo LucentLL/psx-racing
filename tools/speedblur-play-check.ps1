@@ -9,7 +9,8 @@
 #
 #   powershell -ExecutionPolicy Bypass -File tools\speedblur-play-check.ps1
 #
-# Code only, on an already-built sandbox (the three code folders are mirrored,
+# Code only, on an already-built sandbox (the three code folders are COPIED, /E -
+# never /MIR: the sandbox may hold files another job generated there;
 # Assets\Settings is copied over the top - the blur pass lives on the renderer
 # assets there). WITH a graphics device: it reads pixels, so no -nographics.
 #
@@ -21,7 +22,7 @@ $src   = Split-Path -Parent $PSScriptRoot
 . "$PSScriptRoot\unity-wait.ps1"
 
 foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor", "Assets\PSXRacing\Shaders")) {
-    robocopy "$src\$d" "$proj\$d" /MIR /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
+    robocopy "$src\$d" "$proj\$d" /E /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
 }
 robocopy "$src\Assets\Settings" "$proj\Assets\Settings" /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
 

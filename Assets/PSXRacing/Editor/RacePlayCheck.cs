@@ -42,6 +42,14 @@ namespace PSXRacing.EditorTools
             EditionParking.RecoverIfNeeded();   // a killed edition build's park, back first
             queue.Clear();
             totalFailures = 0;
+            // PSX_SPEEDBLUR = OFF / ZOOM / MOTION: the race under that blur,
+            // FORCED for this session and never saved (the sandbox editor's
+            // PlayerPrefs are the owner's own). Empty = his saved choice.
+            string blurMode = System.Environment.GetEnvironmentVariable("PSX_SPEEDBLUR");
+            int blurIndex = string.IsNullOrEmpty(blurMode)
+                ? -1 : System.Array.IndexOf(SpeedBlurPrefs.Names, blurMode.Trim().ToUpperInvariant());
+            SpeedBlurPrefs.Forced = blurIndex >= 0 ? (SpeedBlurMode?)blurIndex : null;
+            if (blurIndex >= 0) Debug.Log("[RacePlay] SPEED BLUR forced to " + SpeedBlurPrefs.Label);
             // PSX_RACE_MATRIX = "Venue:TRAFFIC:seed;Venue:TRAFFIC:seed;..." -
             // every race in ONE editor session (a Unity start per race was
             // most of the time a sweep took). Otherwise the one race the
@@ -212,6 +220,11 @@ namespace PSXRacing.EditorTools
 
         internal static void Finish()
         {
+            // Under a forced SPEED BLUR: MOTION, say whether it ran: frames
+            // smeared vs frames drawn sharp as cuts (grid, respawns, views).
+            if (SpeedBlurPrefs.Forced == SpeedBlurMode.Motion)
+                log.AppendLine("  note SPEED BLUR: MOTION " + MotionBlurFx.SmearedFrames + " frames with a motion, " +
+                               MotionBlurFx.CutFrames + " drawn sharp as cuts");
             log.AppendLine(failures == 0 ? "RACE CHECK OK." : failures + " FAILURE(S).");
             totalFailures += failures;
             string path = Path.Combine(ProjectDir, "PSXRacing_race_play_check.txt");

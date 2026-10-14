@@ -21,7 +21,11 @@
 param([string]$Venue = "GillespieGap", [int]$Seconds = 150, [int]$Seed = 0, [string]$Hour = "morning", [string]$Mistake = "",
       [switch]$NoWatch, [int]$MaxMinutes = 0, [switch]$Finish, [string]$Edition = "ALL",
       [string]$Traffic = "", [double]$TimeScale = 1, [string]$Matrix = "",
-      [string]$Venues = "", [string]$Seeds = "", [string]$Trees = "1", [string]$Signs = "1", [string]$Poles = "1")
+      [string]$Venues = "", [string]$Seeds = "", [string]$Trees = "1", [string]$Signs = "1", [string]$Poles = "1",
+      [string]$SpeedBlur = "")
+# -SpeedBlur OFF|ZOOM|MOTION: race under that SPEED BLUR, forced for the session
+#   and never saved (the editor's PlayerPrefs are the owner's). Empty = his pref.
+$env:PSX_SPEEDBLUR = $SpeedBlur
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot

@@ -65,10 +65,33 @@ namespace PSXRacing.EditorTools
                     // what the reference looks like. Not measured twice.
                     if (q == 0) fails += Shoot(outDir, pipe, "phone_night", 520, 240, night: true);
                 }
+
+                // SPEED BLUR: MOTION (2026-10-13), after EVERY zoom shot so
+                // the zoom's pictures are taken exactly as they were before it
+                // existed (tools\speedblur-preview.ps1 -Baseline compares them).
+                // The phone's 240 lines (12 taps) on Mobile, SHARP's 480 (16)
+                // on both.
+                if (System.Environment.GetEnvironmentVariable("PSX_SPEEDBLUR_MOTION") != "0")
+                {
+                    for (int q = 0; q < QualitySettings.count; q++)
+                    {
+                        if (QualitySettings.GetRenderPipelineAssetAt(q) == null) continue;
+                        QualitySettings.SetQualityLevel(q, true);
+                        string pipe = QualitySettings.names[q].ToLower();
+                        if (q == 0) fails += ShootMotion(outDir, pipe, "phone", 520, 240);
+                        fails += ShootMotion(outDir, pipe, "phone_sharp", 1040, 480);
+                    }
+                    // The owner's pictures: what WebGL ships (quality 0).
+                    QualitySettings.SetQualityLevel(0, true);
+                    fails += OwnerShots(outDir);
+                }
             }
             finally
             {
                 SpeedBlur.Preview(null, 0f);
+                MotionBlurFx.PreviewSet(null, default, default, 0f);
+                MotionBlurFx.DebugVelocity = false;
+                Wake.Clear();
                 QualitySettings.SetQualityLevel(keepQuality, true);
             }
             Debug.Log(fails == 0 ? "[SpeedBlur] ALL CHECKS OK"
@@ -177,6 +200,463 @@ namespace PSXRacing.EditorTools
                 else fails += Fail(tag, v.text);
             }
             return fails;
+        }
+
+        // ---- SPEED BLUR: MOTION (2026-10-13) ---------------------------------
+
+        /// <summary>MOTION is judged at the reference's road speed (Touge
+        /// Attack was measured at 90-140 km/h) and a 60 fps frame.</summary>
+        internal const float MotionKmh = 110f, MotionDt = 1f / 60f;
+        /// <summary>The turning frame: the lens yawed this far since the last
+        /// frame (90 deg/s, a hairpin) and did not move.</summary>
+        internal const float MotionYawDeg = 1.5f;
+        /// <summary>Depth classes for the straight frame: at or beyond
+        /// FarMetres (the sky included) is "far"; within NearMetres is the
+        /// near road and roadside.</summary>
+        const float FarMetres = 250f, NearMetres = 20f;
+        /// <summary>The motion readout's resolution near zero, in pixels:
+        /// one sRGB byte at 0.5 is ~0.0058 of the 256 px range, ~1.5 px.</summary>
+        const float ReadoutStepPx = 2f;
+
+        /// <summary>The scene's SpeedBlur, wired the builder's way if a stale
+        /// bake has none (and said so).</summary>
+        static SpeedBlur Wire(Camera cam, GameObject player, string tag)
+        {
+            var blur = cam.GetComponent<SpeedBlur>();
+            if (blur != null) return blur;
+            blur = cam.gameObject.AddComponent<SpeedBlur>();
+            blur.car = player.GetComponent<CarController>();
+            blur.hudCanvas = GameObject.Find("HUDCanvas")?.GetComponent<Canvas>();
+            Debug.LogWarning("[SpeedBlur] " + tag + " note  this scene was baked before SpeedBlur — wired by the tool");
+            return blur;
+        }
+
+        /// <summary>
+        /// SPEED BLUR: MOTION, measured on the first circuit's grid with the
+        /// chase lens: the car and the HUD untouched; on a STRAIGHT (the lens
+        /// 110 km/h x 1/60 s further back last frame) the sky and anything
+        /// past 250 m bit-for-bit what the camera drew while the near road
+        /// and roadside smear; on a TURN (the lens yawed 1.5 deg) the sides
+        /// of the frame smear sideways, sky included; a 300 m jump (a cut)
+        /// draws a sharp frame; and the zoom after all of it is the zoom
+        /// before. The pixel motions are read from the pass itself
+        /// (MotionBlurFx.DebugVelocity writes them as a colour).
+        /// </summary>
+        static int ShootMotion(string outDir, string pipe, string label, int w, int h)
+        {
+            string tag = pipe + "_" + label + "_motion";
+            if (!PSXScreenshotTool.Open(TrackCatalog.At(0), out var cam, out var player))
+                return Fail(tag, "could not open " + TrackCatalog.At(0).id + " (run the scene build)");
+            var blur = Wire(cam, player, tag);
+            if (blur.hudCanvas == null)
+                return Fail(tag, "SpeedBlur has no HUD canvas wired — nothing here can show the HUD staying sharp");
+            foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include))
+                if (c != blur.hudCanvas && c.isRootCanvas) c.enabled = false;
+
+            var t = player.transform;
+            ChaseCamera.PreviewView(ChaseCamera.View.Chase);
+            ChaseCamera.SteadyPose(ChaseCamera.View.Chase, w / (float)h, 0f, ChaseCamera.DefaultSpeedFullMps, t,
+                                   ChaseCamera.FrameOf(player), default,
+                                   out Vector3 pos, out Quaternion rot, out float chaseFov, out _);
+            cam.transform.SetPositionAndRotation(pos, rot);
+            cam.fieldOfView = chaseFov;
+            // The previous lens has to be the same lens: pin the aspect to the
+            // shot's before reading the projection back.
+            cam.aspect = w / (float)h;
+            blur.MarkCar();
+            Vector2 focus = blur.Heading();
+            if (!blur.SetSplit(true))
+                return Fail(tag, "THE HUD COULD NOT BE SPLIT OFF — URP refused the camera stack");
+
+            float v = MotionKmh / 3.6f;
+            float top = SpeedBlur.Stages[SpeedBlur.Stages.Length - 1].mph * SpeedBlur.MpsPerMph;
+            Matrix4x4 proj = cam.projectionMatrix;
+            var straightPrev = MotionBlurFx.ViewAt(pos - t.forward * (v * MotionDt), rot);
+            var yawPrev = MotionBlurFx.ViewAt(pos, Quaternion.AngleAxis(MotionYawDeg, Vector3.up) * rot);
+            var cutPrev = MotionBlurFx.ViewAt(pos - t.forward * 300f, rot);
+
+            blur.hudCanvas.enabled = false;
+            var zoomBefore = Render(cam, blur, w, h, top, focus, null, outDir, write: false);
+            blur.hudCanvas.enabled = true;
+            var off = Render(cam, blur, w, h, 0f, focus, null, outDir, write: false);
+            var straight = RenderMotion(cam, blur, w, h, v, straightPrev, proj, false, tag + "_straight", outDir, true);
+            blur.hudCanvas.enabled = false;
+            var offBare = Render(cam, blur, w, h, 0f, focus, null, outDir, write: false);
+            var straightBare = RenderMotion(cam, blur, w, h, v, straightPrev, proj, false, null, outDir, false);
+            var straightVel = RenderMotion(cam, blur, w, h, v, straightPrev, proj, true, null, outDir, false);
+            var yawBare = RenderMotion(cam, blur, w, h, v, yawPrev, proj, false, tag + "_yaw", outDir, true);
+            var yawVel = RenderMotion(cam, blur, w, h, v, yawPrev, proj, true, null, outDir, false);
+            var cutBare = RenderMotion(cam, blur, w, h, v, cutPrev, proj, false, null, outDir, false);
+            var body = OpaqueRenderers(player);
+            foreach (var r in body) r.enabled = false;
+            var offNoCar = Render(cam, blur, w, h, 0f, focus, null, outDir, write: false);
+            foreach (var r in body) r.enabled = true;
+            var zoomAfter = Render(cam, blur, w, h, top, focus, null, outDir, write: false);
+            blur.hudCanvas.enabled = true;
+            blur.SetSplit(false);
+            cam.ResetAspect();
+
+            int fails = 0;
+            foreach (var verdict in MotionVerdicts(off, offBare, offNoCar, straight, straightBare, straightVel,
+                                                   yawBare, yawVel, cutBare, zoomBefore, zoomAfter, w, h))
+            {
+                if (verdict.ok) Ok(tag, verdict.text);
+                else fails += Fail(tag, verdict.text);
+            }
+            return fails;
+        }
+
+        /// <summary>One MOTION frame: the lens as it is, its previous frame
+        /// seen through <paramref name="prevView"/> 1/60 s ago. With
+        /// <paramref name="debug"/> the pass writes each pixel's smear instead
+        /// (<see cref="Vel"/> reads it).</summary>
+        internal static Color32[] RenderMotion(Camera cam, SpeedBlur blur, int w, int h, float speedMps,
+                                               Matrix4x4 prevView, Matrix4x4 prevProj, bool debug,
+                                               string name, string outDir, bool write)
+        {
+            MotionBlurFx.PreviewSet(cam, prevView, prevProj, MotionDt);
+            MotionBlurFx.DebugVelocity = debug;
+            try
+            {
+                return Render(cam, blur, w, h, speedMps, new Vector2(0.5f, 0.5f), name, outDir,
+                              write && !debug, SpeedBlurMode.Motion);
+            }
+            finally
+            {
+                MotionBlurFx.PreviewSet(null, default, default, 0f);
+                MotionBlurFx.DebugVelocity = false;
+            }
+        }
+
+        /// <summary>How the debug colour was stored: linearly, or sRGB-encoded
+        /// (a linear project's default RenderTexture), and the stored value
+        /// of NO motion per channel. Calibrated off the sky of the straight
+        /// frame, whose motion is exactly zero: an sRGB byte near 0.5 is
+        /// +-0.75 px of readout, so a zero taken from the curve alone read the
+        /// still sky as moving a pixel.</summary>
+        static bool velSrgb;
+        static float zeroR = 0.5f, zeroG = 0.5f;
+
+        static float Lin(float c) => !velSrgb ? c
+            : c <= 0.04045f ? c / 12.92f : Mathf.Pow((c + 0.055f) / 1.055f, 2.4f);
+
+        /// <summary>A debug pixel: its smear in pixels (x, y) and its depth in
+        /// metres (infinity for the sky or past 250 m).</summary>
+        static void Vel(Color32 c, out float vx, out float vy, out float depthM)
+        {
+            vx = (Lin(c.r / 255f) - zeroR) * 256f;
+            vy = (Lin(c.g / 255f) - zeroG) * 256f;
+            float b = Lin(c.b / 255f);
+            depthM = b >= 0.985f ? float.PositiveInfinity : b * 255f;
+        }
+
+        static float Median(System.Collections.Generic.List<float> xs, float q = 0.5f)
+        {
+            if (xs.Count == 0) return 0f;
+            xs.Sort();
+            return xs[Mathf.Clamp((int)(q * (xs.Count - 1)), 0, xs.Count - 1)];
+        }
+
+        /// <summary>What a MOTION frame has to be (see ShootMotion). Shared
+        /// with SpeedBlurPlayCheck, which takes the same frames out of the
+        /// running game's framebuffer.</summary>
+        internal static System.Collections.Generic.List<(bool ok, string text)> MotionVerdicts(
+            Color32[] off, Color32[] offBare, Color32[] offNoCar, Color32[] straight, Color32[] straightBare,
+            Color32[] straightVel, Color32[] yawBare, Color32[] yawVel, Color32[] cutBare,
+            Color32[] zoomBefore, Color32[] zoomAfter, int w, int h)
+        {
+            var verdicts = new System.Collections.Generic.List<(bool ok, string text)>();
+            int n = w * h;
+
+            // Calibrate the debug colour on the sky (blue 255, zero motion).
+            var zero = new System.Collections.Generic.List<float>();
+            var zeroGs = new System.Collections.Generic.List<float>();
+            for (int i = 0; i < n; i++)
+                if (straightVel[i].b == 255) { zero.Add(straightVel[i].r); zeroGs.Add(straightVel[i].g); }
+            float z = Median(zero) / 255f, zg = Median(zeroGs) / 255f;
+            velSrgb = false;
+            bool linearOk = Mathf.Abs(z - 0.5f) < 0.012f;
+            velSrgb = true;
+            bool srgbOk = Mathf.Abs(Lin(z) - 0.5f) < 0.012f;
+            velSrgb = !linearOk && srgbOk;
+            zeroR = Lin(z);
+            zeroG = Lin(zg);
+            if (!linearOk && !srgbOk)
+            {
+                verdicts.Add((false, "THE MOTION READOUT DOES NOT DECODE: the still sky reads " + (z * 255f).ToString("0") +
+                                     " (" + zero.Count + " px) — the sky is moving, or the pass never ran"));
+                return verdicts;
+            }
+
+            int carN = 0, carSameS = 0, carSameY = 0, hudOff = 0, hudMot = 0, hudBoth = 0;
+            int farN = 0, farStill = 0, farSame = 0, nearN = 0, cutSame = 0, zoomSame = 0;
+            double farDiff = 0, nearDiff = 0, nearGradOff = 0, nearGradMot = 0;
+            double gxOff = 0, gxYaw = 0, gyOff = 0, gyYaw = 0;
+            var nearLen = new System.Collections.Generic.List<float>();
+            var allLen = new System.Collections.Generic.List<float>();
+            var sideVx = new System.Collections.Generic.List<float>();
+            var sideVy = new System.Collections.Generic.List<float>();
+            var skyTurn = new System.Collections.Generic.List<float>();
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    int i = y * w + x;
+                    bool hO = Differs(off[i], offBare[i], 24), hM = Differs(straight[i], straightBare[i], 24);
+                    if (hO) hudOff++;
+                    if (hM) hudMot++;
+                    if (hO && hM) hudBoth++;
+                    if (!Differs(cutBare[i], offBare[i], 0)) cutSame++;
+                    if (zoomBefore != null && zoomAfter != null && !Differs(zoomBefore[i], zoomAfter[i], 0)) zoomSame++;
+                    if (Differs(offBare[i], offNoCar[i], 12))
+                    {
+                        carN++;
+                        if (!Differs(straightBare[i], offBare[i], 0)) carSameS++;
+                        if (!Differs(yawBare[i], offBare[i], 0)) carSameY++;
+                        continue;
+                    }
+                    bool inner = x + 1 < w && y + 1 < h;
+
+                    Vel(straightVel[i], out float vx, out float vy, out float depth);
+                    float len = Mathf.Sqrt(vx * vx + vy * vy);
+                    allLen.Add(len);
+                    float d = Mathf.Abs(Luma(offBare[i]) - Luma(straightBare[i]));
+                    if (depth >= FarMetres)
+                    {
+                        farN++;
+                        // Within one step of the readout: an sRGB byte near
+                        // 0.5 is ~1.5 px, so a far ridge's true 0.3 px reads 1.5.
+                        if (len <= ReadoutStepPx) farStill++;
+                        if (!Differs(straightBare[i], offBare[i], 0)) farSame++;
+                        farDiff += d;
+                    }
+                    else if (depth <= NearMetres)
+                    {
+                        nearN++;
+                        nearLen.Add(len);
+                        nearDiff += d;
+                        if (inner)
+                        {
+                            nearGradOff += Mathf.Abs(Luma(offBare[i]) - Luma(offBare[i + 1])) +
+                                           Mathf.Abs(Luma(offBare[i]) - Luma(offBare[i + w]));
+                            nearGradMot += Mathf.Abs(Luma(straightBare[i]) - Luma(straightBare[i + 1])) +
+                                           Mathf.Abs(Luma(straightBare[i]) - Luma(straightBare[i + w]));
+                        }
+                    }
+
+                    // The turn: the left and right fifths of the frame.
+                    float fx = (x + 0.5f) / w;
+                    if ((fx < 0.2f || fx > 0.8f) && inner)
+                    {
+                        Vel(yawVel[i], out float yx, out float yy, out float yd);
+                        sideVx.Add(Mathf.Abs(yx));
+                        sideVy.Add(Mathf.Abs(yy));
+                        if (yd >= FarMetres) skyTurn.Add(Mathf.Sqrt(yx * yx + yy * yy));
+                        gxOff += Mathf.Abs(Luma(offBare[i]) - Luma(offBare[i + 1]));
+                        gxYaw += Mathf.Abs(Luma(yawBare[i]) - Luma(yawBare[i + 1]));
+                        gyOff += Mathf.Abs(Luma(offBare[i]) - Luma(offBare[i + w]));
+                        gyYaw += Mathf.Abs(Luma(yawBare[i]) - Luma(yawBare[i + w]));
+                    }
+                }
+
+            string Pct(float px) => (px / w * 100f).ToString("0.0") + "% of the width";
+
+            // The car and the HUD.
+            float kept = carN > 0 ? Mathf.Min(carSameS, carSameY) / (float)carN : 0f;
+            verdicts.Add(carN < 200
+                ? (false, "no player's car found to measure (" + carN + " px)")
+                : kept >= 0.995f
+                    ? (true, "MOTION: the player's car is pixel-for-pixel untouched on the straight and the turn (" +
+                             carN + " px, " + (kept * 100).ToString("0.0") + "%)")
+                    : (false, "MOTION IS SMEARING THE PLAYER'S CAR: only " + (kept * 100).ToString("0.0") + "% of " + carN + " px kept"));
+            float iou = Iou(hudOff, hudMot, hudBoth);
+            verdicts.Add(hudOff < 40
+                ? (false, "no HUD found to measure (" + hudOff + " px)")
+                : iou >= 0.8f
+                    ? (true, "MOTION: the HUD is untouched: " + (iou * 100).ToString("0") + "% the same footprint (" + hudOff + " px)")
+                    : (false, "MOTION IS SMEARING THE HUD: only " + (iou * 100).ToString("0") + "% of its footprint survives"));
+
+            // The straight: the far stays, the near goes.
+            float farKept = farN > 0 ? farSame / (float)farN : 0f, farQuiet = farN > 0 ? farStill / (float)farN : 0f;
+            verdicts.Add(farN < 500
+                ? (false, "no sky or far land in the frame to measure (" + farN + " px)")
+                : farKept >= 0.97f && farQuiet >= 0.98f
+                    ? (true, "straight at " + MotionKmh.ToString("0") + " km/h: the sky and everything past " + FarMetres.ToString("0") +
+                             " m is bit-for-bit sharp (" + (farKept * 100).ToString("0.0") + "% of " + farN + " px; " +
+                             (farQuiet * 100).ToString("0.0") + "% read as still, within the readout's " + ReadoutStepPx + " px step)")
+                    : (false, "THE SKY SMEARS ON A STRAIGHT: " + (farKept * 100).ToString("0.0") + "% of " + farN +
+                              " far px kept, " + (farQuiet * 100).ToString("0.0") + "% still — the far plane is getting translation"));
+            float nearMed = Median(nearLen), edge = Median(allLen, 0.98f);
+            double nearMean = nearN > 0 ? nearDiff / nearN : 0, farMean = farN > 0 ? farDiff / farN : 0;
+            double nearDetail = nearGradOff > 0 ? nearGradMot / nearGradOff : 1;
+            verdicts.Add(nearN < 300
+                ? (false, "nothing within " + NearMetres.ToString("0") + " m of the lens to measure (" + nearN + " px)")
+                : nearMed >= 0.004f * w && nearDetail < 0.9 && nearMean > 4 * farMean
+                    ? (true, "while everything within " + NearMetres.ToString("0") + " m smears: median " + nearMed.ToString("0.0") +
+                             " px (" + Pct(nearMed) + "), the longest 2% " + Pct(edge) + "; " +
+                             ((1 - nearDetail) * 100).ToString("0") + "% of its detail gone, mean change " +
+                             (nearMean * 100).ToString("0.0") + "% vs " + (farMean * 100).ToString("0.00") + "% far")
+                    : (false, "THE NEAR ROADSIDE DOES NOT SMEAR: median " + nearMed.ToString("0.0") + " px, detail kept " +
+                              (nearDetail * 100).ToString("0") + "%, change " + (nearMean * 100).ToString("0.0") + "% vs " +
+                              (farMean * 100).ToString("0.00") + "% far"));
+
+            // The turn: sideways, sky and all.
+            float sx = Median(sideVx), sy = Median(sideVy), sk = Median(skyTurn);
+            double gxR = gxOff > 0 ? gxYaw / gxOff : 1, gyR = gyOff > 0 ? gyYaw / gyOff : 1;
+            verdicts.Add(sideVx.Count < 1000
+                ? (false, "no sides of the frame to measure")
+                : sx >= 0.004f * w && sy < 0.35f * sx && (skyTurn.Count < 200 || sk >= 0.004f * w) && gxR < gyR - 0.05
+                    ? (true, "turning " + MotionYawDeg.ToString("0.0") + " deg a frame: the sides smear SIDEWAYS — median " +
+                             sx.ToString("0.0") + " px across vs " + sy.ToString("0.0") + " px up/down, the sky " + sk.ToString("0.0") +
+                             " px; " + ((1 - gxR) * 100).ToString("0") + "% of the across detail gone vs " +
+                             ((1 - gyR) * 100).ToString("0") + "% up/down")
+                    : (false, "THE TURN DOES NOT SMEAR SIDEWAYS: across " + sx.ToString("0.0") + " px, up/down " + sy.ToString("0.0") +
+                              " px, sky " + sk.ToString("0.0") + " px, detail kept across " + (gxR * 100).ToString("0") +
+                              "% vs up/down " + (gyR * 100).ToString("0") + "%"));
+
+            // The cut, and the zoom.
+            verdicts.Add(cutSame == n
+                ? (true, "a 300 m jump of the lens is a CUT: the frame is bit-for-bit the unblurred one")
+                : (false, "A CAMERA CUT SMEARED: " + (n - cutSame) + " px changed"));
+            if (zoomBefore != null && zoomAfter != null)
+            verdicts.Add(zoomSame == n
+                ? (true, "and ZOOM after all of it is bit-for-bit the ZOOM before")
+                : (false, "MOTION LEFT STATE BEHIND: the ZOOM frame changed in " + (n - zoomSame) + " px"));
+            return verdicts;
+        }
+
+        /// <summary>
+        /// The owner's pictures (four, by his budget): a mountain stage at
+        /// 110 km/h on a straight, ZOOM and MOTION, from the chase lens and
+        /// from the cockpit. Blue Ridge, a third of the way down the road,
+        /// the car in the right-hand lane. The cabin and the instruments are
+        /// screen overlays in the game, drawn after the framebuffer is shown;
+        /// here they ride the stacked HUD camera instead — after the blur, as
+        /// in the game — and are rasterised at the shot's 480 lines.
+        /// </summary>
+        static int OwnerShots(string outDir)
+        {
+            const int W = 854, H = 480;
+            const string Venue = "BlueRidge";
+            string tag = "owner_" + Venue;
+            var def = TrackCatalog.At(TrackCatalog.IndexOf(Venue));
+            if (def.id != Venue) return Fail(tag, "no " + Venue + " in the catalog");
+            if (!PSXScreenshotTool.Open(def, out var cam, out var player))
+                return Fail(tag, "could not open " + Venue + " (run the scene build)");
+            var blur = Wire(cam, player, tag);
+            if (blur.hudCanvas == null) return Fail(tag, "SpeedBlur has no HUD canvas wired");
+
+            // Down the road on the straightest stretch of its second quarter,
+            // away from the parked field.
+            var t = player.transform;
+            var rm = Object.FindFirstObjectByType<RaceManager>();
+            var path = rm != null ? rm.path : null;
+            if (path != null && path.Count > 200 && path.curvatures != null && path.curvatures.Length == path.Count)
+            {
+                int grid = path.NearestIndex(t.position);
+                float lift = t.position.y - path.GetPoint(grid).y;
+                int at = path.Count / 4;
+                float best = float.MaxValue;
+                for (int i = path.Count / 4; i < path.Count / 2; i += 5)
+                {
+                    float c = path.MaxCurvatureAhead(i, 30);
+                    if (c < best) { best = c; at = i; }
+                }
+                Vector3 tan = path.GetTangent(at);
+                Vector3 flat = new Vector3(tan.x, 0f, tan.z).normalized;
+                Vector3 right = Vector3.Cross(Vector3.up, flat);
+                t.SetPositionAndRotation(path.GetPoint(at) + right * (path.roadWidth * 0.25f) + Vector3.up * lift,
+                                         Quaternion.LookRotation(tan, Vector3.up));
+                Debug.Log("[SpeedBlur] " + tag + " note  waypoint " + at + " of " + path.Count +
+                          ", curvature " + best.ToString("0.0000"));
+            }
+
+            // The HUD on; the cabin and the instruments onto the HUD camera;
+            // every other canvas (touch panel, display) off.
+            if (!blur.SetSplit(true)) return Fail(tag, "THE HUD COULD NOT BE SPLIT OFF");
+            Wake.Clear();
+            foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include))
+            {
+                if (!c.isRootCanvas || c == blur.hudCanvas) continue;
+                bool cabin = c.GetComponentInChildren<CockpitView>(true) != null ||
+                             c.GetComponentInChildren<GaugeCluster>(true) != null;
+                c.enabled = false;
+                if (!cabin) continue;
+                c.renderMode = RenderMode.ScreenSpaceCamera;
+                c.worldCamera = blur.HudCamera;
+                c.planeDistance = 1f;
+                foreach (var tr in c.GetComponentsInChildren<Transform>(true)) tr.gameObject.layer = SpeedBlur.HudLayer;
+                c.enabled = true;
+                Wake.Add(c);
+            }
+            blur.MarkCar();
+            cam.aspect = W / (float)H;
+            float v = MotionKmh / 3.6f;
+            int fails = 0;
+
+            // The chase lens, at speed.
+            ChaseCamera.PreviewView(ChaseCamera.View.Chase);
+            foreach (var gc in Object.FindObjectsByType<GaugeCluster>(FindObjectsSortMode.None)) gc.Build();
+            foreach (var cv in Object.FindObjectsByType<CockpitView>(FindObjectsSortMode.None)) cv.PreviewShow(false);
+            ChaseCamera.SteadyPose(ChaseCamera.View.Chase, W / (float)H, v, ChaseCamera.DefaultSpeedFullMps, t,
+                                   ChaseCamera.FrameOf(player), default,
+                                   out Vector3 pos, out Quaternion rot, out float fov, out _);
+            cam.transform.SetPositionAndRotation(pos, rot);
+            cam.fieldOfView = fov;
+            OntoHudLayer();
+            fails += OwnerPair(cam, blur, W, H, v, t.forward, "owner_chase", outDir);
+
+            // The cockpit.
+            ChaseCamera.PreviewView(ChaseCamera.View.Cockpit);
+            foreach (var gc in Object.FindObjectsByType<GaugeCluster>(FindObjectsSortMode.None)) gc.Build();
+            foreach (var cv in Object.FindObjectsByType<CockpitView>(FindObjectsSortMode.None)) cv.PreviewShow(true);
+            var box = player.GetComponent<BoxCollider>();
+            var shell = player.GetComponent<CarBody>();
+            if (box == null) { Wake.Clear(); return fails + Fail(tag, "the player has no box to seat the cockpit lens in"); }
+            pos = t.TransformPoint(ChaseCamera.MountOffset(ChaseCamera.View.Cockpit, box.center, box.size,
+                                                           shell != null ? shell.Def : null));
+            rot = t.rotation * Quaternion.Euler(ChaseCamera.MountPitch(ChaseCamera.View.Cockpit), 0f, 0f);
+            cam.fieldOfView = ChaseCamera.ViewFOV(ChaseCamera.View.Cockpit, 58f);
+            cam.nearClipPlane = ChaseCamera.ViewNearClip(ChaseCamera.View.Cockpit, cam.nearClipPlane);
+            cam.transform.SetPositionAndRotation(pos, rot);
+            OntoHudLayer();
+            fails += OwnerPair(cam, blur, W, H, v, t.forward, "owner_cockpit", outDir);
+
+            ChaseCamera.PreviewView(ChaseCamera.View.Chase);
+            Wake.Clear();
+            blur.SetSplit(false);
+            cam.ResetAspect();
+            return fails;
+        }
+
+        /// <summary>The woken canvases' whole trees onto the HUD camera's
+        /// layer — AFTER the cabin and the cluster have built themselves, or
+        /// what they just made is on the Default layer and drawn by nobody.</summary>
+        static void OntoHudLayer()
+        {
+            foreach (var c in Wake)
+                if (c != null)
+                    foreach (var tr in c.GetComponentsInChildren<Transform>(true)) tr.gameObject.layer = SpeedBlur.HudLayer;
+        }
+
+        /// <summary>ZOOM and MOTION from one lens, written as the owner's
+        /// pictures, and how much of each frame each one changed.</summary>
+        static int OwnerPair(Camera cam, SpeedBlur blur, int w, int h, float v, Vector3 fwd, string name, string outDir)
+        {
+            var pos = cam.transform.position;
+            var rot = cam.transform.rotation;
+            var off = Render(cam, blur, w, h, 0f, blur.Heading(), null, null, write: false);
+            var zoom = Render(cam, blur, w, h, v, blur.Heading(), name + "_zoom", outDir, write: true);
+            var motion = RenderMotion(cam, blur, w, h, v, MotionBlurFx.ViewAt(pos - fwd * (v * MotionDt), rot),
+                                      cam.projectionMatrix, false, name + "_motion", outDir, true);
+            int zc = 0, mc = 0;
+            for (int i = 0; i < off.Length; i++)
+            {
+                if (Differs(off[i], zoom[i], 2)) zc++;
+                if (Differs(off[i], motion[i], 2)) mc++;
+            }
+            Ok("owner", name + ": ZOOM changes " + (zc * 100f / off.Length).ToString("0.0") + "% of the frame, MOTION " +
+                        (mc * 100f / off.Length).ToString("0.0") + "% (by more than 2/255)");
+            return 0;
         }
 
         /// <summary>The renderers the pass masks: everything under the car in
@@ -328,8 +808,13 @@ namespace PSXRacing.EditorTools
         /// pointed at <paramref name="focus"/>, raw. With
         /// <paramref name="write"/>, the same frame through PSX/Blit as a
         /// point-doubled PNG.</summary>
+        /// <summary>Canvases besides the HUD that ride the HUD camera for a
+        /// shot (the cockpit's cabin and cluster in the owner's pictures) and
+        /// have to be woken like it. Empty for every measured frame.</summary>
+        static readonly System.Collections.Generic.List<Canvas> Wake = new System.Collections.Generic.List<Canvas>();
+
         static Color32[] Render(Camera cam, SpeedBlur blur, int w, int h, float speedMps, Vector2 focus,
-                                string name, string outDir, bool write)
+                                string name, string outDir, bool write, SpeedBlurMode mode = SpeedBlurMode.Zoom)
         {
             var rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32) { filterMode = FilterMode.Point };
             rt.Create();
@@ -349,8 +834,10 @@ namespace PSXRacing.EditorTools
                 blur.hudCanvas.enabled = false;
                 blur.hudCanvas.enabled = true;
             }
+            foreach (var c in Wake)
+                if (c != null && c.enabled) { c.enabled = false; c.enabled = true; }
             Canvas.ForceUpdateCanvases();
-            SpeedBlur.Preview(cam, speedMps, focus);
+            SpeedBlur.Preview(cam, speedMps, focus, mode);
 
             // A render REQUEST hands the pipeline a list of one camera, and
             // Unity emits canvas geometry only for the cameras on the list it

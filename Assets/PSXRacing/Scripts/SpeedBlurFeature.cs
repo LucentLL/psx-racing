@@ -48,6 +48,13 @@ namespace PSXRacing
     /// of its own because a new feature would have to be added, by hand, to
     /// the YAML of BOTH renderer assets (the one the editor renders with is
     /// not the one WebGL ships), and a pass here is on both already.
+    ///
+    /// SPEED BLUR: MOTION (2026-10-13) is the blur pass's other smear, not a
+    /// fourth pass: the same copy and car mask, then PSX/SpeedBlur's pass 3
+    /// along each pixel's own screen motion (see <see cref="AddMotion"/> and
+    /// <see cref="MotionBlurFx"/>). It reads the DEPTH out of the camera's own
+    /// depth attachment, only on the frames it runs. The lens and the glare
+    /// follow it exactly as they follow the zoom.
     /// </summary>
     public class SpeedBlurFeature : ScriptableRendererFeature
     {
@@ -59,6 +66,12 @@ namespace PSXRacing
         static readonly int FocusId = Shader.PropertyToID("_PSXSpeedBlurFocus");
         static readonly int LensParamsId = Shader.PropertyToID("_PSXLens");
         static readonly int LensAspectId = Shader.PropertyToID("_PSXLensAspect");
+        static readonly int MaskCullId = Shader.PropertyToID("_PSXMaskCull");
+        static readonly int MotionReprojId = Shader.PropertyToID("_PSXMotionReproj");
+        static readonly int MotionRotId = Shader.PropertyToID("_PSXMotionRot");
+        static readonly int MotionProjId = Shader.PropertyToID("_PSXMotionProj");
+        static readonly int MotionParamsId = Shader.PropertyToID("_PSXMotionParams");
+        static readonly int MotionMiscId = Shader.PropertyToID("_PSXMotionMisc");
 
         Material material;
         BlurPass pass;
@@ -117,7 +130,7 @@ namespace PSXRacing
         {
             var cam = renderingData.cameraData.camera;
             if (cam == null || renderingData.cameraData.renderType != CameraRenderType.Base) return;
-            AddBlur(renderer, cam);
+            AddBlur(renderer, cam, ref renderingData);
             AddLens(renderer, cam);
             AddGlare(renderer, cam);
         }
@@ -150,23 +163,86 @@ namespace PSXRacing
             renderer.EnqueuePass(glarePass);
         }
 
-        void AddBlur(ScriptableRenderer renderer, Camera cam)
+        void AddBlur(ScriptableRenderer renderer, Camera cam, ref RenderingData renderingData)
         {
+            if (SpeedBlur.ActiveMode == SpeedBlurMode.Motion)
+            {
+                AddMotion(renderer, cam, ref renderingData);
+                return;
+            }
+
             float strength = SpeedBlur.ActiveStrength;
             if (strength < SpeedBlur.MinDrawnStrength) return;
             if (cam != SpeedBlur.ActiveCamera) return;
 
-            if (material == null)
-            {
-                if (shader == null) shader = Shader.Find(SpeedBlur.ShaderName);
-                // No shader in this build: no blur. Never a pink frame.
-                if (shader == null || !shader.isSupported) return;
-                material = CoreUtils.CreateEngineMaterial(shader);
-            }
+            if (!EnsureMaterial()) return;
             material.SetVector(ParamsId, new Vector4(
                 strength, SpeedBlur.ActiveInner, SpeedBlur.ActiveOuter, cam.aspect));
             material.SetVector(FocusId, SpeedBlur.ActiveFocus);
+            // The zoom's mask is drawn as it always was, both faces.
+            material.SetFloat(MaskCullId, (float)CullMode.Off);
             pass.material = material;
+            pass.motion = false;
+            pass.ConfigureInput(ScriptableRenderPassInput.None);
+            renderer.EnqueuePass(pass);
+        }
+
+        bool EnsureMaterial()
+        {
+            if (material != null) return true;
+            if (shader == null) shader = Shader.Find(SpeedBlur.ShaderName);
+            // No shader in this build: no blur. Never a pink frame.
+            if (shader == null || !shader.isSupported) return false;
+            material = CoreUtils.CreateEngineMaterial(shader);
+            return true;
+        }
+
+        /// <summary>
+        /// SPEED BLUR: MOTION (<see cref="MotionBlurFx"/>): the same three
+        /// steps as the zoom — copy out, the car into the alpha, smear back in
+        /// — with the smear taken along each pixel's own motion on the screen,
+        /// rebuilt from the DEPTH buffer and the lens's previous frame.
+        ///
+        /// The depth is read by this pass itself, from the camera's own depth
+        /// attachment, and only on the frames it runs: the Mobile asset (what
+        /// WebGL ships) has no depth texture, and turning it on in the asset
+        /// would pay for a depth copy on every frame of the game, on foot and
+        /// in the menus too.
+        ///
+        /// The car mask culls BACK faces in this mode, as the car's own paint
+        /// does. Both faces (the zoom's mask) is the same set of pixels from
+        /// outside the car — but from the cockpit the lens is INSIDE the
+        /// shell, every face round it is a back face, and a two-sided mask
+        /// would cover the whole windscreen and leave nothing to smear.
+        /// </summary>
+        void AddMotion(ScriptableRenderer renderer, Camera cam, ref RenderingData renderingData)
+        {
+            if (cam != SpeedBlur.ActiveCamera) return;
+            // The history is kept on EVERY frame of this camera, smear or no
+            // smear, so the first frame past 30 mph is not a cut.
+            bool moved = MotionBlurFx.Step(cam, out var reproj, out var rot, out float perFrame);
+            float shutter = SpeedBlur.ActiveShutter;
+            if (!moved || shutter < SpeedBlur.MinDrawnShutter) return;
+            if (!EnsureMaterial()) return;
+
+            var desc = renderingData.cameraData.cameraTargetDescriptor;
+            int width = Mathf.Max(desc.width, 1), height = Mathf.Max(desc.height, 1);
+            var p = cam.nonJitteredProjectionMatrix;
+            int taps = Application.isMobilePlatform || height <= 300 ? MotionBlurFx.PhoneTaps : MotionBlurFx.Taps;
+            material.SetMatrix(MotionReprojId, reproj);
+            material.SetMatrix(MotionRotId, rot);
+            // View space at depth 1 from a pixel: x = (ndc.x + m02) / m00.
+            material.SetVector(MotionProjId, new Vector4(p.m00, p.m11, p.m02, p.m12));
+            material.SetVector(MotionParamsId, new Vector4(
+                shutter * perFrame, MotionBlurFx.MaxSmear, width / (float)height, width));
+            material.SetVector(MotionMiscId, new Vector4(taps, MotionBlurFx.DebugVelocity ? 1f : 0f, 0f, 0f));
+            material.SetFloat(MaskCullId, (float)CullMode.Back);
+            pass.material = material;
+            pass.motion = true;
+            // No ConfigureInput(Depth): the pass reads the depth attachment
+            // itself (see RecordRenderGraph) — no copy, no prepass, no asset
+            // flag, on either renderer.
+            pass.ConfigureInput(ScriptableRenderPassInput.None);
             renderer.EnqueuePass(pass);
         }
 
@@ -207,6 +283,9 @@ namespace PSXRacing
         class BlurPass : ScriptableRenderPass
         {
             public Material material;
+            /// <summary>SPEED BLUR: MOTION this frame (the smear reads the
+            /// depth), else the zoom.</summary>
+            public bool motion;
 
             // The PSX shaders carry no LightMode tag, which URP draws as
             // SRPDefaultUnlit; the rest are here so a car dressed in a stock
@@ -219,13 +298,15 @@ namespace PSXRacing
             };
             static readonly int BlitTextureId = Shader.PropertyToID("_BlitTexture");
             static readonly int BlitScaleBiasId = Shader.PropertyToID("_BlitScaleBias");
+            static readonly int MotionDepthId = Shader.PropertyToID("_PSXMotionDepth");
             static readonly MaterialPropertyBlock Block = new MaterialPropertyBlock();
 
-            const int SmearPass = 0, CarMaskPass = 1, CopyPass = 2;
+            const int SmearPass = 0, CarMaskPass = 1, CopyPass = 2, MotionPass = 3;
 
             class FullFrameData
             {
                 public TextureHandle source;
+                public TextureHandle depth;
                 public Material material;
                 public int pass;
             }
@@ -258,7 +339,8 @@ namespace PSXRacing
                 // graph was pointing at when it ended, and the blur would be
                 // thrown away on exactly the frames that have one. Two full
                 // passes over a 480-line buffer are nothing.
-                FullFrame(renderGraph, "PSX Speed Blur (copy)", colour, copy, CopyPass, AccessFlags.Write);
+                FullFrame(renderGraph, "PSX Speed Blur (copy)", colour, copy, CopyPass, AccessFlags.Write,
+                          TextureHandle.nullHandle);
 
                 // 2 — the player's car into that alpha, against the scene's
                 // own depth, so whatever stands between it and the lens still
@@ -281,23 +363,45 @@ namespace PSXRacing
 
                 // 3 — smear back in. ReadWrite again: it writes RGB and leaves
                 // the camera's alpha as it found it.
-                FullFrame(renderGraph, "PSX Speed Blur", copy, colour, SmearPass, AccessFlags.ReadWrite);
+                if (!motion)
+                {
+                    FullFrame(renderGraph, "PSX Speed Blur", copy, colour, SmearPass, AccessFlags.ReadWrite,
+                              TextureHandle.nullHandle);
+                    return;
+                }
+                // MOTION reads the scene's depth straight out of the camera's
+                // own depth ATTACHMENT — the buffer the world was just drawn
+                // into, the one the car mask above tests against. NOT URP's
+                // _CameraDepthTexture: on the PC renderer that is drawn by a
+                // depth PREPASS (SSAO asks for one), and the PSX shaders have
+                // no DepthOnly pass, so it came back empty — every pixel "sky",
+                // no translation smear at all (SpeedBlurPreview, 2026-10-13).
+                // The Mobile asset has no depth texture to begin with; reading
+                // the attachment costs it no copy. Declaring the read is what
+                // keeps RenderGraph from discarding the buffer before this pass.
+                var depth = resources.activeDepthTexture;
+                if (!depth.IsValid()) depth = resources.cameraDepthTexture;
+                if (!depth.IsValid()) return;
+                FullFrame(renderGraph, "PSX Motion Blur", copy, colour, MotionPass, AccessFlags.ReadWrite, depth);
             }
 
             void FullFrame(RenderGraph renderGraph, string name, TextureHandle source, TextureHandle destination,
-                           int shaderPass, AccessFlags destinationAccess)
+                           int shaderPass, AccessFlags destinationAccess, TextureHandle depth)
             {
                 using (var builder = renderGraph.AddRasterRenderPass<FullFrameData>(name, out var data))
                 {
                     data.source = source;
+                    data.depth = depth;
                     data.material = material;
                     data.pass = shaderPass;
                     builder.UseTexture(source);
+                    if (depth.IsValid()) builder.UseTexture(depth);
                     builder.SetRenderAttachment(destination, 0, destinationAccess);
                     builder.SetRenderFunc(static (FullFrameData d, RasterGraphContext ctx) =>
                     {
                         Block.Clear();
                         Block.SetTexture(BlitTextureId, d.source);
+                        if (d.depth.IsValid()) Block.SetTexture(MotionDepthId, d.depth);
                         Block.SetVector(BlitScaleBiasId, new Vector4(1f, 1f, 0f, 0f));
                         ctx.cmd.DrawProcedural(Matrix4x4.identity, d.material, d.pass,
                                                MeshTopology.Triangles, 3, 1, Block);

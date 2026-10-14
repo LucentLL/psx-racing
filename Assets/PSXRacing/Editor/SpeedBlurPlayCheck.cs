@@ -120,6 +120,9 @@ namespace PSXRacing.EditorTools
         void LateUpdate()
         {
             if (holdPreview >= 0f && cam != null) SpeedBlur.Preview(cam, holdPreview, holdFocus);
+            // MOTION's history checks drive the lens by hand (the rig is off).
+            if (cam != null && jumpNext) { cam.transform.position += moveDir * 100f; jumpNext = false; moveSpeed = 0f; jumpFrame = Time.frameCount; }
+            else if (cam != null && moveSpeed > 0f) cam.transform.position += moveDir * (moveSpeed * Time.unscaledDeltaTime);
         }
 
         IEnumerator Start()
@@ -128,7 +131,7 @@ namespace PSXRacing.EditorTools
             yield return null;
             yield return new WaitForFixedUpdate();
 
-            bool keepPref = SpeedBlurPrefs.Enabled;
+            var keepPref = SpeedBlurPrefs.Mode;
             var keepPixels = PSXQuality.Current;
             // LENS FX OFF for the whole run. Since the lens pass (2026-09-21) the
             // HUD split is held by EITHER switch, so with the lens on (its
@@ -161,7 +164,8 @@ namespace PSXRacing.EditorTools
 
             // RETRO first: 240 lines, the coarsest HUD there is.
             PSXQuality.Current = PSXPixels.Retro;
-            SpeedBlurPrefs.Enabled = true;
+            // ZOOM, whatever the owner's saved mode is (put back by Done).
+            SpeedBlurPrefs.Mode = SpeedBlurMode.Zoom;
             // Let the grid settle and the HUD print itself, then stop the clock:
             // five frames of one still scene are only comparable if it is still.
             yield return new WaitForSecondsRealtime(2.5f);
@@ -286,7 +290,193 @@ namespace PSXRacing.EditorTools
                 SpeedBlurPlayCheck.Check(hud > 200, "with the HUD still drawn on it at 480 lines", hud + " px");
             }
 
+            yield return MotionChecks();
             Done(keepPref, keepPixels);
+        }
+
+        // ---- SPEED BLUR: MOTION (2026-10-13) ---------------------------------
+
+        Vector3 moveDir;
+        float moveSpeed;
+        bool jumpNext;
+        int jumpFrame = -1;
+        /// <summary>Per rendered frame of the PSX camera: did MOTION's
+        /// frame-to-frame history smear it (false = drawn sharp, a cut).</summary>
+        readonly System.Collections.Generic.Dictionary<int, bool> movedAt = new System.Collections.Generic.Dictionary<int, bool>();
+        Color32[] shot;
+
+        void OnEndCamera(UnityEngine.Rendering.ScriptableRenderContext ctx, Camera c)
+        {
+            if (c == cam && MotionBlurFx.LastFrame == Time.frameCount) movedAt[Time.frameCount] = MotionBlurFx.LastMoved;
+        }
+
+        /// <summary>
+        /// MOTION in the running game, on the Mobile pipeline, out of the real
+        /// framebuffer: the same frames and verdicts as SpeedBlurPreview's (the
+        /// previous lens handed in by MotionBlurFx.PreviewSet, the clock
+        /// stopped), then the frame-to-frame history with the lens driven by
+        /// hand: a steady lens smears every frame, and a 300 m jump, a view
+        /// switch and a TeleportTo each give a frame drawn sharp.
+        /// </summary>
+        IEnumerator MotionChecks()
+        {
+            // The cabin and the instruments are screen OVERLAYS, composited
+            // after the framebuffer is shown: neither blur can reach them.
+            foreach (var type in new[] { typeof(CockpitView), typeof(GaugeCluster) })
+            {
+                var comp = FindAnyObjectByType(type, FindObjectsInactive.Include) as Component;
+                var canvas = comp != null ? comp.GetComponentInParent<Canvas>(true) : null;
+                var root = canvas != null ? canvas.rootCanvas : null;
+                bool clear = root != null && (root.renderMode == RenderMode.ScreenSpaceOverlay ||
+                                              (root.worldCamera != null && root.worldCamera != cam));
+                SpeedBlurPlayCheck.Check(clear, "the " + type.Name + " canvas is not drawn by the PSX camera, so no blur pass can reach it",
+                                         root != null ? root.renderMode.ToString() : "none");
+            }
+
+            var rt = cam.targetTexture;
+            if (rt == null) yield break;
+            int w = rt.width, h = rt.height;
+            var t = car.transform;
+            Vector3 pos = cam.transform.position;
+            Quaternion rot = cam.transform.rotation;
+            float v = SpeedBlurPreview.MotionKmh / 3.6f;
+            var still = MotionBlurFx.ViewAt(pos, rot);
+            var straightPrev = MotionBlurFx.ViewAt(pos - t.forward * (v * SpeedBlurPreview.MotionDt), rot);
+            var yawPrev = MotionBlurFx.ViewAt(pos, Quaternion.AngleAxis(SpeedBlurPreview.MotionYawDeg, Vector3.up) * rot);
+            var cutPrev = MotionBlurFx.ViewAt(pos - t.forward * 300f, rot);
+            SpeedBlurPlayCheck.Note("MOTION frames at " + w + "x" + h + ", " + SpeedBlurPreview.MotionKmh + " km/h");
+
+            // The zoom at the top of the table, before MOTION runs at all.
+            SpeedBlurPrefs.Forced = SpeedBlurMode.Zoom;
+            holdSpeed = 100f;
+            yield return Settle(SpeedBlur.MaxStrength);
+            blur.hudCanvas.enabled = false;
+            yield return Frames(3);
+            var zoomBefore = SpeedBlurPreview.Read(rt);
+            blur.hudCanvas.enabled = true;
+
+            SpeedBlurPrefs.Forced = SpeedBlurMode.Motion;
+            holdSpeed = v;
+            float shutter = SpeedBlur.ShutterForMph(v / SpeedBlur.MpsPerMph);
+            float until = Time.realtimeSinceStartup + 4f;
+            while (Mathf.Abs(SpeedBlur.ActiveShutter - shutter) > 0.002f && Time.realtimeSinceStartup < until)
+                yield return null;
+            SpeedBlurPlayCheck.Check(SpeedBlur.ActiveMode == SpeedBlurMode.Motion && Mathf.Abs(SpeedBlur.ActiveShutter - shutter) <= 0.002f,
+                                     "SPEED BLUR: MOTION publishes the shutter for " + SpeedBlurPreview.MotionKmh + " km/h",
+                                     SpeedBlur.ActiveShutter.ToString("0.000"));
+
+            // Every frame at that speed; the references with a previous lens
+            // where this one is (no motion: the pass hands every pixel back).
+            yield return Shot(still, false);
+            var off = shot;
+            yield return Shot(straightPrev, false);
+            var straight = shot;
+            Save(straight, rt, "motion_straight");
+            blur.hudCanvas.enabled = false;
+            yield return Shot(still, false);
+            var offBare = shot;
+            yield return Shot(straightPrev, false);
+            var straightBare = shot;
+            yield return Shot(straightPrev, true);
+            var straightVel = shot;
+            yield return Shot(yawPrev, false);
+            var yawBare = shot;
+            Save(yawBare, rt, "motion_yaw");
+            yield return Shot(yawPrev, true);
+            var yawVel = shot;
+            yield return Shot(cutPrev, false);
+            var cutBare = shot;
+            var body = SpeedBlurPreview.OpaqueRenderers(car.gameObject);
+            foreach (var r in body) r.enabled = false;
+            yield return Shot(still, false);
+            var offNoCar = shot;
+            foreach (var r in body) r.enabled = true;
+            MotionBlurFx.PreviewSet(null, default, default, 0f);
+
+            // And the zoom after it.
+            SpeedBlurPrefs.Forced = SpeedBlurMode.Zoom;
+            holdSpeed = 100f;
+            yield return Settle(SpeedBlur.MaxStrength);
+            yield return Frames(3);
+            var zoomAfter = SpeedBlurPreview.Read(rt);
+            blur.hudCanvas.enabled = true;
+
+            foreach (var verdict in SpeedBlurPreview.MotionVerdicts(off, offBare, offNoCar, straight, straightBare, straightVel,
+                                                                  yawBare, yawVel, cutBare, null, null, w, h))
+                SpeedBlurPlayCheck.Check(verdict.ok, verdict.text);
+            Compare(zoomBefore, zoomAfter, 2, out float zoomWithin, out int zoomWorst);
+            SpeedBlurPlayCheck.Check(zoomWithin > 0.999f, "and ZOOM after MOTION is the ZOOM before",
+                                     (zoomWithin * 100f).ToString("0.00") + "% within 2/255, worst " + zoomWorst);
+
+            // ---- the history: a lens that really moves, frame after frame --
+            SpeedBlurPrefs.Forced = SpeedBlurMode.Motion;
+            holdSpeed = v;
+            yield return Frames(6);
+            UnityEngine.Rendering.RenderPipelineManager.endCameraRendering += OnEndCamera;
+            blur.hudCanvas.enabled = false;
+            var keepView = ChaseCamera.Current;
+            moveDir = t.forward;
+            moveSpeed = v;
+            yield return Frames(8);
+            int from = Time.frameCount - 5;
+            bool steady = true;
+            for (int f = from; f < Time.frameCount; f++) if (!movedAt.TryGetValue(f, out bool m) || !m) steady = false;
+            SpeedBlurPlayCheck.Check(steady, "a lens driven forward frame after frame smears every frame (no false cuts)",
+                                     "exposure x" + MotionBlurFx.LastPerFrame.ToString("0.00") + " of the frame's motion");
+
+            // A 100 m jump: that frame is drawn sharp, and so is the still
+            // frame after it (within 2/255: anything streamed or culled by
+            // the new position may land a frame late).
+            jumpNext = true;
+            yield return null;
+            var cutFrame = SpeedBlurPreview.Read(rt);
+            yield return null;
+            var nextFrame = SpeedBlurPreview.Read(rt);
+            bool cutSharp = jumpFrame > 0 && movedAt.TryGetValue(jumpFrame, out bool jm) && !jm;
+            Compare(cutFrame, nextFrame, 2, out float jumpSame, out int jumpWorst);
+            SpeedBlurPlayCheck.Check(cutSharp && jumpSame >= 0.99f,
+                                     "a 100 m jump of the lens is a cut: that frame is not smeared (it matches the still frame after it)",
+                                     (jumpSame * 100f).ToString("0.00") + "% within 2/255, worst " + jumpWorst + ", flagged " + cutSharp);
+
+            // A view switch and a TeleportTo, with the lens still moving.
+            moveSpeed = v;
+            yield return Frames(5);
+            int switchAt = Time.frameCount;
+            ChaseCamera.PreviewView(keepView == ChaseCamera.View.Close ? ChaseCamera.View.Chase : ChaseCamera.View.Close);
+            yield return Frames(4);
+            SpeedBlurPlayCheck.Check(CutWithin(switchAt, 3), "a VIEW SWITCH is a cut (a frame drawn sharp)");
+            ChaseCamera.PreviewView(keepView);
+            yield return Frames(5);
+            int teleportAt = Time.frameCount;
+            car.TeleportTo(t.position, t.rotation);
+            yield return Frames(4);
+            SpeedBlurPlayCheck.Check(CutWithin(teleportAt, 3), "a TeleportTo is a cut (a frame drawn sharp)");
+            moveSpeed = 0f;
+            UnityEngine.Rendering.RenderPipelineManager.endCameraRendering -= OnEndCamera;
+
+            cam.transform.SetPositionAndRotation(pos, rot);
+            blur.hudCanvas.enabled = true;
+            SpeedBlurPrefs.Forced = null;
+            holdSpeed = 0f;
+            yield return Frames(3);
+        }
+
+        bool CutWithin(int from, int frames)
+        {
+            for (int f = from; f <= from + frames; f++)
+                if (movedAt.TryGetValue(f, out bool m) && !m) return true;
+            return false;
+        }
+
+        /// <summary>One MOTION frame of the running game, its previous lens
+        /// handed in; read into <see cref="shot"/>.</summary>
+        IEnumerator Shot(Matrix4x4 prevView, bool debug)
+        {
+            MotionBlurFx.PreviewSet(cam, prevView, cam.projectionMatrix, SpeedBlurPreview.MotionDt);
+            MotionBlurFx.DebugVelocity = debug;
+            yield return Frames(3);
+            shot = SpeedBlurPreview.Read(cam.targetTexture);
+            MotionBlurFx.DebugVelocity = false;
         }
 
         /// <summary>Hold until the published strength has faded to a target.
@@ -343,11 +533,14 @@ namespace PSXRacing.EditorTools
         /// <summary>The owner's LENS FX switch, put back by <see cref="Done"/>.</summary>
         bool keepLens = true;
 
-        void Done(bool keepPref, PSXPixels keepPixels)
+        void Done(SpeedBlurMode keepPref, PSXPixels keepPixels)
         {
             // Both are PlayerPrefs, and the editor's are shared with the
             // owner's own project: leave them as they were found.
-            SpeedBlurPrefs.Enabled = keepPref;
+            SpeedBlurPrefs.Forced = null;
+            MotionBlurFx.PreviewSet(null, default, default, 0f);
+            MotionBlurFx.DebugVelocity = false;
+            SpeedBlurPrefs.Mode = keepPref;
             LensFxPrefs.Enabled = keepLens;
             PSXQuality.Current = keepPixels;
             Time.timeScale = 1f;

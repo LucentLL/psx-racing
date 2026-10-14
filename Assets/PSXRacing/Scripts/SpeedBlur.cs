@@ -25,18 +25,33 @@ namespace PSXRacing
     {
         const string PrefKey = "psx.speedBlur";
 
+        /// <summary>The row's three words, in pref order.</summary>
+        public static readonly string[] Names = { "OFF", "ZOOM", "MOTION" };
+
         static int cached = -1;
 
-        public static bool Enabled
+        /// <summary>
+        /// THE MODE (2026-10-13). The pref was a bool stored as an int — 0 off,
+        /// 1 on — and on meant the radial ZOOM, so those two numbers keep
+        /// their meaning and MOTION is the new 2. A saved 1 is still ZOOM, a
+        /// fresh install still gets ZOOM, and anything this build does not
+        /// know is read as ZOOM rather than as nothing.
+        /// </summary>
+        public static SpeedBlurMode Mode
         {
             get
             {
-                if (cached < 0) cached = PlayerPrefs.GetInt(PrefKey, 1);
-                return cached != 0;
+                if (Forced.HasValue) return Forced.Value;
+                if (cached < 0)
+                {
+                    cached = PlayerPrefs.GetInt(PrefKey, (int)SpeedBlurMode.Zoom);
+                    if (cached < 0 || cached >= Names.Length) cached = (int)SpeedBlurMode.Zoom;
+                }
+                return (SpeedBlurMode)cached;
             }
             set
             {
-                int v = value ? 1 : 0;
+                int v = Mathf.Clamp((int)value, 0, Names.Length - 1);
                 if (cached == v) return;
                 cached = v;
                 PlayerPrefs.SetInt(PrefKey, v);
@@ -44,9 +59,269 @@ namespace PSXRacing
             }
         }
 
-        public static void Toggle() => Enabled = !Enabled;
+        /// <summary>For the check tools: a mode used for this session without
+        /// being SAVED. The sandbox editor's PlayerPrefs are the owner's own,
+        /// and a check that dies half way must not leave his game on MOTION.
+        /// Null = the saved mode.</summary>
+        public static SpeedBlurMode? Forced;
 
-        public static string Label => Enabled ? "ON" : "OFF";
+        /// <summary>Any blur at all. Setting it true keeps a mode that is
+        /// already on (ZOOM or MOTION) and turns OFF into ZOOM.</summary>
+        public static bool Enabled
+        {
+            get => Mode != SpeedBlurMode.Off;
+            set
+            {
+                if (value == Enabled) return;
+                Mode = value ? SpeedBlurMode.Zoom : SpeedBlurMode.Off;
+            }
+        }
+
+        /// <summary>OFF -> ZOOM -> MOTION -> OFF.</summary>
+        public static void Cycle(int step = 1)
+        {
+            int n = Names.Length;
+            Mode = (SpeedBlurMode)((((int)Mode + step) % n + n) % n);
+        }
+
+        public static void Toggle() => Cycle(1);
+
+        public static string Label => Names[(int)Mode];
+    }
+
+    /// <summary>The SPEED BLUR row. The numbers are the stored pref.</summary>
+    public enum SpeedBlurMode
+    {
+        Off = 0,
+        /// <summary>The radial NFS-Carbon smear into a tunnel (2026-09-19).</summary>
+        Zoom = 1,
+        /// <summary>Per-pixel camera motion blur (2026-10-13, after Touge
+        /// Attack): every pixel smears along its own motion on the screen.</summary>
+        Motion = 2,
+    }
+
+    /// <summary>
+    /// MOTION BLUR, THE CAMERA HALF (2026-10-13). The owner approved it after
+    /// studying Touge Attack, whose sense of speed players rave about and
+    /// which does not zoom at all: each pixel smears along its OWN motion on
+    /// the screen. Measured off its 2560x1440 frames at 90-140 km/h: trees
+    /// and rock 2-5 m from the road streak 5-10% of the frame width at the
+    /// edges, the sky and the far ridges stay sharp on a straight (moving
+    /// forward does not move a point at infinity), a corner smears the whole
+    /// periphery sideways (the lens yaws), and the player's car and the
+    /// cabin stay crisp.
+    ///
+    /// HOW. The pass rebuilds each pixel's position from the depth buffer
+    /// and asks where the PREVIOUS frame's lens saw it; the difference is the
+    /// pixel's motion. This class keeps that previous lens per camera and
+    /// hands the pass two matrices, both from THIS frame's view space:
+    /// <c>reproj</c> to last frame's clip space (the real motion), and
+    /// <c>rot</c> the same with both lenses' positions taken out — what the
+    /// sky gets, because the sky is at infinity and only turning moves it.
+    /// The matrices are relative (last view times this view's inverse) and
+    /// built here in C#, so the world's kilometre-sized coordinates cancel on
+    /// the CPU instead of eating the GPU's float precision.
+    ///
+    /// THE SHUTTER. A frame's motion over (1/60 s) / dt is the smear a 1/60 s
+    /// exposure would show: the same picture at 30 fps and at 144. The
+    /// SpeedBlur shutter fraction (the owner's 30/60/100/140 ladder, see
+    /// <see cref="SpeedBlur.MotionStages"/>) scales it, and the pass clamps it
+    /// to <see cref="MaxSmear"/> of the frame width.
+    ///
+    /// CUTS DO NOT SMEAR. A frame whose lens jumped (a teleport, a respawn, a
+    /// view switch, a replay seek, a scene load, a frame the pass did not
+    /// see) has no previous lens worth the name: that frame is drawn sharp
+    /// and becomes the next frame's previous. Explicitly through
+    /// <see cref="Cut"/> (SpeedBlur watches the car's TeleportCount and the
+    /// view), and by measurement: further than <see cref="CutMinMetres"/> +
+    /// <see cref="CutSpeedMps"/> x dt, or turned more than
+    /// <see cref="CutDeg"/>, in one frame.
+    /// </summary>
+    public static class MotionBlurFx
+    {
+        /// <summary>The longest smear, as a fraction of the frame WIDTH: the
+        /// top of what the reference showed at the edges (5-10%).</summary>
+        public const float MaxSmear = 0.09f;
+        /// <summary>The exposure the shutter fraction is a fraction of.</summary>
+        public const float ShutterSeconds = 1f / 60f;
+        /// <summary>A lens that moves further than CutMinMetres +
+        /// CutSpeedMps x dt in one frame was cut, not driven (200 mph is
+        /// 89 m/s).</summary>
+        public const float CutMinMetres = 4f, CutSpeedMps = 90f;
+        /// <summary>Or turns further than this in one frame.</summary>
+        public const float CutDeg = 25f;
+        /// <summary>Taps along the smear: the desktop's, and a phone's (or a
+        /// 240-line picture's, where the smear is half as many pixels).</summary>
+        public const int Taps = 16, PhoneTaps = 12;
+
+        class History
+        {
+            public Matrix4x4 view, proj;
+            public int frame = int.MinValue;
+            public bool valid;
+            // The last motion handed out: re-used for a second render of the
+            // same frame, and while the lens is held still with the clock
+            // stopped (a paused frame is a photograph and keeps its blur).
+            public bool held;
+            public Matrix4x4 reproj, rot;
+            public float perFrame;
+        }
+
+        static readonly System.Collections.Generic.Dictionary<Camera, History> histories =
+            new System.Collections.Generic.Dictionary<Camera, History>();
+
+        // The preview tools' previous lens (edit mode has no frames).
+        static Camera previewCam;
+        static Matrix4x4 previewView, previewProj;
+        static float previewDt;
+
+        /// <summary>For the check tools: the pass writes each pixel's smear
+        /// (and its depth) instead of smearing. Never set in the game.</summary>
+        public static bool DebugVelocity;
+
+        /// <summary>Forget <paramref name="cam"/>'s previous lens: its next
+        /// frame is drawn sharp and starts a new history.</summary>
+        public static void Cut(Camera cam)
+        {
+            if (cam != null && histories.TryGetValue(cam, out var h)) { h.valid = false; h.held = false; }
+        }
+
+        /// <summary>
+        /// For the preview tools, where no frames run: render
+        /// <paramref name="cam"/> as if its previous frame, <paramref name="dt"/>
+        /// seconds ago, had been seen through <paramref name="prevView"/> /
+        /// <paramref name="prevProj"/> (worldToCameraMatrix and the plain
+        /// projectionMatrix). A null camera clears it.
+        /// </summary>
+        public static void PreviewSet(Camera cam, Matrix4x4 prevView, Matrix4x4 prevProj, float dt)
+        {
+            previewCam = cam;
+            previewView = prevView;
+            previewProj = prevProj;
+            previewDt = dt;
+        }
+
+        /// <summary>A camera's view matrix at a pose, as Unity builds
+        /// worldToCameraMatrix (camera space looks down -Z).</summary>
+        public static Matrix4x4 ViewAt(Vector3 pos, Quaternion rot) =>
+            Matrix4x4.Scale(new Vector3(1f, 1f, -1f)) * Matrix4x4.TRS(pos, rot, Vector3.one).inverse;
+
+        /// <summary>
+        /// This frame's motion for <paramref name="cam"/>, called as it
+        /// RENDERS (the lens is final then). <paramref name="perFrame"/> is the
+        /// exposure per unit of frame motion, (1/60 s) / dt. False = draw this
+        /// frame sharp: there is no previous lens, or it was a cut. Called on
+        /// every frame MOTION is chosen, whether or not the pass will run, so
+        /// the first frame past 30 mph already has a history.
+        /// </summary>
+        public static bool Step(Camera cam, out Matrix4x4 reproj, out Matrix4x4 rot, out float perFrame)
+        {
+            reproj = rot = Matrix4x4.identity;
+            perFrame = 0f;
+            if (cam == null) return false;
+            Matrix4x4 view = cam.worldToCameraMatrix;
+            Matrix4x4 proj = cam.nonJitteredProjectionMatrix;
+
+            if (previewCam != null && cam == previewCam)
+                return Build(previewView, previewProj, view, proj, previewDt, out reproj, out rot, out perFrame);
+
+            if (histories.Count > 8) Prune();
+            if (!histories.TryGetValue(cam, out var h)) histories[cam] = h = new History();
+
+            int frame = Time.frameCount;
+            if (h.valid && h.frame == frame)
+            {
+                // The same frame rendered again: the same answer.
+                reproj = h.reproj; rot = h.rot; perFrame = h.perFrame;
+                return h.held;
+            }
+
+            bool ok = false;
+            if (h.valid && h.frame == frame - 1)
+            {
+                if (Time.deltaTime <= 0f && h.held && Same(h.view, view) && Same(h.proj, proj))
+                {
+                    // The clock is stopped and the lens with it (the pause
+                    // menu): keep the last motion, as the zoom keeps its smear.
+                    reproj = h.reproj; rot = h.rot; perFrame = h.perFrame;
+                    ok = true;
+                }
+                else
+                {
+                    float dt = Time.deltaTime > 0f ? Time.deltaTime : Time.unscaledDeltaTime;
+                    ok = Build(h.view, h.proj, view, proj, dt, out reproj, out rot, out perFrame);
+                }
+            }
+
+            h.view = view;
+            h.proj = proj;
+            h.frame = frame;
+            h.valid = true;
+            h.held = ok;
+            h.reproj = reproj; h.rot = rot; h.perFrame = perFrame;
+            LastMoved = ok;
+            LastPerFrame = perFrame;
+            LastFrame = frame;
+            if (ok) SmearedFrames++; else CutFrames++;
+            return ok;
+        }
+
+        /// <summary>Frames the history handed a motion, and frames it drew
+        /// sharp as cuts, since the session began (the race check's note).</summary>
+        public static int SmearedFrames, CutFrames;
+
+        /// <summary>The last frame's answer from the frame-to-frame history
+        /// (not the preview path), for the play check: whether it smeared,
+        /// its exposure per unit of motion, and Time.frameCount.</summary>
+        public static bool LastMoved;
+        public static float LastPerFrame;
+        public static int LastFrame;
+
+        /// <summary>The two matrices from a previous lens to this one, or
+        /// false for a cut.</summary>
+        static bool Build(Matrix4x4 prevView, Matrix4x4 prevProj, Matrix4x4 view, Matrix4x4 proj, float dt,
+                          out Matrix4x4 reproj, out Matrix4x4 rot, out float perFrame)
+        {
+            reproj = rot = Matrix4x4.identity;
+            perFrame = 0f;
+            dt = Mathf.Max(dt, 1e-4f);
+
+            // Where each lens stood and which way it looked. Row 2 of a view
+            // matrix is the lens's BACK, row 1 its up.
+            Matrix4x4 camToWorld = view.inverse;
+            Vector3 pos = camToWorld.GetColumn(3);
+            Vector3 prevPos = prevView.inverse.GetColumn(3);
+            if ((pos - prevPos).magnitude > CutMinMetres + CutSpeedMps * dt) return false;
+            Vector3 back = view.GetRow(2), prevBack = prevView.GetRow(2);
+            Vector3 up = view.GetRow(1), prevUp = prevView.GetRow(1);
+            if (Vector3.Angle(back, prevBack) > CutDeg || Vector3.Angle(up, prevUp) > CutDeg) return false;
+
+            // This view space -> last frame's clip space, relative, so the
+            // world coordinates cancel here in C#.
+            reproj = prevProj * (prevView * camToWorld);
+            // The same with both lenses' positions taken out: turning only.
+            Matrix4x4 r = view, pr = prevView;
+            r.SetColumn(3, new Vector4(0f, 0f, 0f, 1f));
+            pr.SetColumn(3, new Vector4(0f, 0f, 0f, 1f));
+            rot = prevProj * (pr * r.transpose);
+            perFrame = ShutterSeconds / dt;
+            return true;
+        }
+
+        static bool Same(Matrix4x4 a, Matrix4x4 b)
+        {
+            for (int i = 0; i < 16; i++)
+                if (Mathf.Abs(a[i] - b[i]) > 1e-6f) return false;
+            return true;
+        }
+
+        /// <summary>Destroyed cameras (an old scene's) out of the table.</summary>
+        static void Prune()
+        {
+            var dead = new System.Collections.Generic.List<Camera>();
+            foreach (var kv in histories) if (kv.Key == null) dead.Add(kv.Key);
+            foreach (var c in dead) histories.Remove(c);
+        }
     }
 
     /// <summary>
@@ -347,6 +622,11 @@ namespace PSXRacing
     /// out of it; so the split is made while SPEED BLUR or LENS FX is on, and
     /// this component also publishes the lens every frame — it already knows
     /// the camera, the car and the view rule the lens needs.
+    ///
+    /// SPEED BLUR: MOTION (2026-10-13) is the second look on the same row:
+    /// per-pixel camera motion blur (<see cref="MotionBlurFx"/>) instead of
+    /// the zoom, on the same faded speed, the same HUD split, the same car
+    /// mask and the same view rule. ZOOM stays the default and is untouched.
     /// </summary>
     public class SpeedBlur : MonoBehaviour
     {
@@ -403,6 +683,49 @@ namespace PSXRacing
 
         public const float MpsPerMph = 0.44704f;
 
+        /// <summary>
+        /// MOTION's half of the owner's ladder: (mph, shutter), the fraction
+        /// of a 1/60 s exposure the camera blur gets at that speed. Straight
+        /// lines between, nothing under 30 (on foot, parking, the menus), the
+        /// last row held. The words are the same four as <see cref="Stages"/>;
+        /// what they come to here, on a 480-line 16:9 picture, for a tree
+        /// 4 m off the lens at the edge of the frame:
+        ///
+        ///  30  very subtle: it BEGINS. At 40 mph that tree streaks ~5 px.
+        ///  60  noticeable: ~2.5% of the width (~20 px); the sky is sharp.
+        /// 100  substantial: ~7% of the width. The verge is streaks.
+        /// 140  extreme: past <see cref="MotionBlurFx.MaxSmear"/>, so the
+        ///      whole roadside is at the clamp, and the near road with it.
+        ///
+        /// The reference (Touge Attack, 115 km/h = 71 mph) put 2-5 m roadside
+        /// at 5-10% of the width: between the second and third rows here.
+        /// </summary>
+        public static readonly (float mph, float shutter)[] MotionStages =
+        {
+            ( 30f, 0.00f),
+            ( 60f, 0.50f),
+            (100f, 0.90f),
+            (140f, 1.30f),
+        };
+
+        /// <summary>Below this the pass is not enqueued in MOTION.</summary>
+        public const float MinDrawnShutter = 0.02f;
+
+        /// <summary>MOTION's shutter fraction at a road speed in MPH.</summary>
+        public static float ShutterForMph(float mph)
+        {
+            mph = Mathf.Abs(mph);
+            var rows = MotionStages;
+            if (mph <= rows[0].mph) return 0f;
+            for (int i = 1; i < rows.Length; i++)
+            {
+                if (mph > rows[i].mph) continue;
+                var a = rows[i - 1]; var b = rows[i];
+                return Mathf.Lerp(a.shutter, b.shutter, (mph - a.mph) / (b.mph - a.mph));
+            }
+            return rows[rows.Length - 1].shutter;
+        }
+
         /// <summary>The longest the smear ever gets: the last row's.</summary>
         public static float MaxStrength => Stages[Stages.Length - 1].strength;
 
@@ -442,6 +765,12 @@ namespace PSXRacing
         public static float ActiveOuter { get; private set; } = 1f;
         /// <summary>Where the tunnel points, in viewport units.</summary>
         public static Vector2 ActiveFocus { get; private set; } = new Vector2(0.5f, 0.5f);
+        /// <summary>Which blur the pass draws: ZOOM reads the strength, the
+        /// tunnel and the focus above; MOTION reads <see cref="ActiveShutter"/>
+        /// and the lens's own motion (<see cref="MotionBlurFx"/>).</summary>
+        public static SpeedBlurMode ActiveMode { get; private set; } = SpeedBlurMode.Zoom;
+        /// <summary>MOTION's shutter fraction for the faded speed.</summary>
+        public static float ActiveShutter { get; private set; }
 
         /// <summary>The stacked camera the HUD is on while split, else null.</summary>
         public Camera HudCamera => split ? hudCam : null;
@@ -456,6 +785,11 @@ namespace PSXRacing
         float shownMps;
         Vector2 focus = new Vector2(0.5f, 0.5f);
         float nextCarMark;
+        // What MOTION's history was last checked against: a change in any of
+        // them is a camera cut (MotionBlurFx.Cut).
+        int seenTeleports = -1;
+        ChaseCamera.View seenView;
+        bool seenSuspended;
         readonly System.Collections.Generic.List<Renderer> carRenderers =
             new System.Collections.Generic.List<Renderer>();
 
@@ -533,6 +867,9 @@ namespace PSXRacing
         {
             cam = GetComponent<Camera>();
             PrepareCamera();
+            // A scene load, or the component back on: whatever this lens saw
+            // before is not the frame before this one.
+            MotionBlurFx.Cut(cam);
         }
 
         /// <summary>
@@ -596,8 +933,28 @@ namespace PSXRacing
                 nextCarMark = Time.unscaledTime + 0.5f;
             }
 
+            WatchCuts();
             Publish(cam, LookFor(shownMps), focus);
             UpdateLens(safe, dt);
+        }
+
+        /// <summary>
+        /// The camera cuts MOTION must not smear across, as far as this
+        /// component can see them: the car put somewhere (TeleportTo — a
+        /// respawn, the grid, the replay putting the player back), the view
+        /// switched, the replay taking the lens or giving it back. The pass
+        /// also refuses any frame whose lens jumped further than driving can
+        /// move it, so a cut nobody announced is still a sharp frame.
+        /// </summary>
+        void WatchCuts()
+        {
+            int teleports = car != null ? car.TeleportCount : 0;
+            var view = ChaseCamera.Current;
+            if (teleports != seenTeleports || view != seenView || suspended != seenSuspended)
+                MotionBlurFx.Cut(cam);
+            seenTeleports = teleports;
+            seenView = view;
+            seenSuspended = suspended;
         }
 
         /// <summary>
@@ -674,13 +1031,21 @@ namespace PSXRacing
                     r.renderingLayerMask |= CarRenderingLayer;
         }
 
-        static void Publish(Camera camera, Stage look, Vector2 where)
+        static void Publish(Camera camera, Stage look, Vector2 where) =>
+            Publish(camera, look, where, SpeedBlurPrefs.Mode);
+
+        /// <summary>The look for the pass. The faded speed (look.mph) drives
+        /// both modes, so a switch from the pause menu, a respawn or a view
+        /// change walks either one back through the owner's rows.</summary>
+        static void Publish(Camera camera, Stage look, Vector2 where, SpeedBlurMode mode)
         {
             ActiveCamera = camera;
             ActiveStrength = camera != null ? look.strength : 0f;
             ActiveInner = look.inner;
             ActiveOuter = look.outer;
             ActiveFocus = where;
+            ActiveMode = mode == SpeedBlurMode.Motion ? SpeedBlurMode.Motion : SpeedBlurMode.Zoom;
+            ActiveShutter = camera != null ? ShutterForMph(look.mph) : 0f;
         }
 
         void LateUpdate()
@@ -809,8 +1174,11 @@ namespace PSXRacing
         /// <summary>For the preview tools, where no Update runs: publish the
         /// look for a road speed and a camera by hand, the tunnel pointed at
         /// <paramref name="where"/> (the frame centre if none is given). A null
-        /// camera clears it.</summary>
-        public static void Preview(Camera camera, float speedMps, Vector2? where = null) =>
-            Publish(camera, LookFor(camera != null ? speedMps : 0f), where ?? FrameCentre);
+        /// camera clears it. ZOOM unless told otherwise, whatever the saved
+        /// pref: a tool's pictures do not depend on the owner's menu. MOTION
+        /// also needs the previous lens, from MotionBlurFx.PreviewSet.</summary>
+        public static void Preview(Camera camera, float speedMps, Vector2? where = null,
+                                   SpeedBlurMode mode = SpeedBlurMode.Zoom) =>
+            Publish(camera, LookFor(camera != null ? speedMps : 0f), where ?? FrameCentre, mode);
     }
 }

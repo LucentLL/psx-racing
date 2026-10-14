@@ -249,9 +249,10 @@ namespace PSXRacing
             Step(SettingsTab.Visuals, "FILM GRADE", () => FilmGradePrefs.Label,
                  "A faded 90s print: soft blacks, cream whites, light that bleeds. Off for the plain picture.",
                  () => FilmGradePrefs.Toggle());
+            // OFF / ZOOM / MOTION, one press a step (SpeedBlurPrefs.Cycle).
             Step(SettingsTab.Visuals, "SPEED BLUR", () => SpeedBlurPrefs.Label,
-                 "The picture smears into a tunnel as the car gets fast. Off if you would rather it did not.",
-                 () => SpeedBlurPrefs.Toggle());
+                 "ZOOM: a tunnel that closes with speed. MOTION: the roadside streaks past like film.",
+                 () => SpeedBlurPrefs.Cycle(1));
             Step(SettingsTab.Visuals, "SUN SHADOWS", () => SunShadowPrefs.Label,
                  "Daylight casts shadows; tunnels go dark. Off if the game runs slowly by day.",
                  () => SunShadowPrefs.Toggle());
