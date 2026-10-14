@@ -120,6 +120,20 @@ namespace PSXRacing
         public const float HoodMaxFOV = 80f;
         public const float BumperMaxFOV = 86f;
         /// <summary>
+        /// The cockpit lens, vertical, at 16:9: about 89 deg across, the
+        /// 85-90 a driver's-eye view reads right at (studied off Touge Attack,
+        /// 2026-10-13). Held at that HORIZONTAL field on a wider phone
+        /// (<see cref="HoldWide"/>), and given NO speed pull: the cabin is 3D
+        /// now (CockpitInterior), and a dashboard that zooms in and out with
+        /// the speedo looks like the car breathing, not like speed.
+        /// </summary>
+        public const float CockpitFOV = 58f;
+        /// <summary>The cockpit's near plane. The 3D wheel's nearest in-view
+        /// point is about 0.24 m from the eye on the measured shells
+        /// (CockpitInterior.NearestM); the mounted 0.18 would leave it 1.3x
+        /// of margin before the impact shake, this leaves twice that.</summary>
+        public const float CockpitNearClip = 0.12f;
+        /// <summary>
         /// Bound on how far along its own forward axis the follow lag may sit
         /// off the pose it is chasing, metres. With the speed term gone from
         /// <see cref="positionLag"/> a launch would otherwise pull the car
@@ -625,7 +639,7 @@ namespace PSXRacing
 
             if (cam != null)
             {
-                cam.fieldOfView = chaseView ? shape.vfov : FOVFor(Current, baseFOV, speed, speedFullMps);
+                cam.fieldOfView = chaseView ? shape.vfov : FOVFor(Current, baseFOV, speed, speedFullMps, aspect);
                 cam.nearClipPlane = ViewNearClip(Current, baseNear);
                 ApplyLensShift(chaseView ? shape.shift : 0f);
             }
@@ -1077,7 +1091,7 @@ namespace PSXRacing
         /// <summary>Clearance between the driver's eye and the roof, metres.</summary>
         const float EyeHeadroom = 0.22f;
         /// <summary>How far behind the base of the windscreen the eye sits.</summary>
-        const float EyeSetback = 0.46f;
+        public const float EyeSetback = 0.46f;
 
         // ==================================================================
         //  THE CHASE RIG — NFS Underground / Most Wanted framing (2026-09-28)
@@ -1740,7 +1754,8 @@ namespace PSXRacing
         /// gets shipped.
         /// </summary>
         public static float ViewNearClip(View v, float baseNear) =>
-            v == View.Roof || v == View.Hood || v == View.Bumper || v == View.Cockpit
+            v == View.Cockpit ? Mathf.Min(baseNear, CockpitNearClip)
+            : v == View.Roof || v == View.Hood || v == View.Bumper
                 ? Mathf.Min(baseNear, MountNearClip)
                 : baseNear;
 
@@ -1768,12 +1783,9 @@ namespace PSXRacing
                 case View.Close: return CloseRig.vfov;
                 case View.Hood: return baseFOV + 5f;
                 case View.Bumper: return baseFOV + 10f;
-                // The cabin overlay eats the bottom third of the frame and both
-                // sides, so the cockpit needs a wider lens than the roof cam
-                // just to be left with as much ROAD. Not as wide as the bumper:
-                // this is a view you steer by, and a fisheye makes a corner
-                // arrive at a different rate than the car is travelling.
-                case View.Cockpit: return baseFOV + 6f;
+                // The cabin's own lens, fixed (CockpitFOV): it no longer rides
+                // the scene's base FOV, because the 3D cabin is composed for it.
+                case View.Cockpit: return CockpitFOV;
                 case View.TopDown: return baseFOV - 6f;
                 default: return baseFOV;
             }
@@ -1790,6 +1802,7 @@ namespace PSXRacing
                 case View.Chase: return FarRig.speedFOV;
                 case View.Close: return CloseRig.speedFOV;
                 case View.TopDown: return 0f;
+                case View.Cockpit: return 0f;
                 default: return MountSpeedFOV;
             }
         }
@@ -1811,7 +1824,9 @@ namespace PSXRacing
         /// pull, smoothstepped in over <paramref name="fullMps"/>, capped per
         /// view. Chase at 16:9: 58 at rest, 59.75 at 100 km/h, 61.5 at 200;
         /// on a 19.5:9 phone the same HORIZONTAL fields (48.9 vertical at
-        /// rest). The mounted views keep a fixed vertical field on any screen.</summary>
+        /// rest). The mounted views keep a fixed vertical field on any screen,
+        /// except the cockpit, which holds CockpitFOV's 16:9 HORIZONTAL field
+        /// like the chase pair and never pulls.</summary>
         public static float FOVFor(View v, float baseFOV, float speedMps, float fullMps,
                                    float aspect = RefAspect)
         {
@@ -1821,6 +1836,7 @@ namespace PSXRacing
                 var q = RigFor(v);
                 return HoldWide(q.vfov + q.speedFOV * t, aspect);
             }
+            if (v == View.Cockpit) return HoldWide(CockpitFOV, aspect);
             return Mathf.Min(ViewFOV(v, baseFOV) + ViewSpeedFOV(v) * t, ViewMaxFOV(v));
         }
 

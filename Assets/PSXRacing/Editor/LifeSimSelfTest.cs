@@ -9205,6 +9205,7 @@ namespace PSXRacing.EditorTools
             var badRoof = new List<string>();
             var badLens = new List<string>();
             var badEye = new List<string>();
+            var badCabin = new List<string>();
             foreach (var m in CarModelLibrary.Models)
             {
                 var def = CarModelLibrary.Load(m.key);
@@ -9269,6 +9270,20 @@ namespace PSXRacing.EditorTools
                     badEye.Add(m.key + "(eye " + eye.y.ToString("0.00") + "/" +
                                eye.z.ToString("0.00") + " cowl " + def.cowlY.ToString("0.00") +
                                "/" + def.cowlZ.ToString("0.00") + " roof " + def.roofY.ToString("0.00") + ")");
+
+                // The generic 3D cabin (CockpitInterior) is scaled about that
+                // eye until its windscreen base lands on the cowl. Past the
+                // cowl, the shell's bonnet pokes up through the dash; well
+                // short of it, there is a slot of road under the car between
+                // the two. And the fit must not be riding a clamp. (A shell
+                // whose cowl the eye does not trust is fitted off the box, as
+                // the eye is, and only the clamps apply.)
+                var cabinFit = CockpitInterior.FitFor(def.colliderCenter, def.colliderSize, def);
+                float dashFront = cabinFit.eye.z + CockpitInterior.ZRef * cabinFit.scale;
+                if (cabinFit.measured && (dashFront > def.cowlZ + 0.02f || dashFront < def.cowlZ - 0.10f) ||
+                    cabinFit.scale <= CockpitInterior.MinScale || cabinFit.scale >= CockpitInterior.MaxScale)
+                    badCabin.Add(m.key + "(dash " + dashFront.ToString("0.00") + " cowl " +
+                                 def.cowlZ.ToString("0.00") + " x" + cabinFit.scale.ToString("0.00") + ")");
             }
             // THE LAMPS ARE ON THE CAR (owner, 2026-09-26: "off of the car, in
             // the car, in front of or behind the cars"). Measured by the baker,
@@ -9303,6 +9318,8 @@ namespace PSXRacing.EditorTools
                   badRoof.Count == 0 ? null : string.Join(" ", badRoof.ToArray()));
             Check(badLens.Count == 0, "every shell's bonnet camera clears its own bonnet",
                   badLens.Count == 0 ? null : string.Join(" ", badLens.ToArray()));
+            Check(badCabin.Count == 0, "every shell's 3D cockpit dash ends on its own windscreen base",
+                  badCabin.Count == 0 ? null : string.Join(" ", badCabin.ToArray()));
             Check(badEye.Count == 0, "every shell seats its driver in its own cabin",
                   badEye.Count == 0 ? null : string.Join(" ", badEye.ToArray()));
             // The standoff and the near plane are one decision, and it is the
@@ -11305,6 +11322,28 @@ namespace PSXRacing.EditorTools
             Check(ChaseCamera.FOVFor(ChaseCamera.View.Close, 58f, 0f, full) == 54f,
                   "the close chase has its own, longer lens: 54 at 16:9 (MW05's close camera)",
                   ChaseCamera.FOVFor(ChaseCamera.View.Close, 58f, 0f, full));
+            // THE COCKPIT LENS (2026-10-13, the generic 3D cabin): 58 at 16:9,
+            // about 89 deg across, whatever the scene's base FOV; the 16:9
+            // HORIZONTAL field held on a wider phone; and no speed pull - the
+            // cabin is geometry now and a dashboard that zooms is the car
+            // breathing, not speed. Was baseFOV + 6 = 64 plus the mounted 9.
+            float cockpitRest = ChaseCamera.FOVFor(ChaseCamera.View.Cockpit, 64f, 0f, full);
+            float cockpitFast = ChaseCamera.FOVFor(ChaseCamera.View.Cockpit, 64f, 200f / 3.6f, full);
+            Check(ChaseCamera.CockpitFOV == 58f && cockpitRest == 58f && cockpitFast == 58f &&
+                  ChaseCamera.ViewFOV(ChaseCamera.View.Cockpit, 64f) == 58f,
+                  "the cockpit lens is 58 at 16:9 and never pulls with speed",
+                  cockpitRest.ToString("0.0") + " at rest, " + cockpitFast.ToString("0.0") + " at 200");
+            float cockpitPhone = ChaseCamera.FOVFor(ChaseCamera.View.Cockpit, 58f, 0f, full, 19.5f / 9f);
+            Check(Mathf.Abs(cockpitPhone - 48.9f) < 0.2f,
+                  "a 19.5:9 phone holds the cockpit's 16:9 horizontal field (~48.9 vertical)",
+                  cockpitPhone.ToString("0.0"));
+            // The near plane against the 3D wheel and hands, at the smallest
+            // fit the clamps allow, with room for the impact shake.
+            float cockpitNear = ChaseCamera.ViewNearClip(ChaseCamera.View.Cockpit, 0.25f);
+            float wheelNearest = CockpitInterior.NearestM(CockpitInterior.MinScale);
+            Check(wheelNearest >= cockpitNear * 1.5f,
+                  "the cockpit near plane never cuts the 3D wheel or the hands",
+                  wheelNearest.ToString("0.000") + " m vs near " + cockpitNear.ToString("0.00") + " x1.5");
             // Every shell the catalog can put a player in has a rear silhouette
             // for the chase rig's width fit; without one the car is framed as a
             // box (the probe's numbers only hold for shells with a row).

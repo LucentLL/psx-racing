@@ -26,9 +26,11 @@ touching. Re-run the scene build after adding or changing either one.
                   wheelDrop) and the gauges follow the wheel, so moving it
                   moves them.
 
-Both are optional. With neither present the cockpit is a camera in the
-driver's seat with the instruments and nothing around them, which is a usable
-view and an obvious placeholder.
+Both are optional. With no cabin.png the cockpit is the GENERIC 3D CABIN
+(2026-10-13): a low-poly dash, pillars, mirrors and a steering wheel with
+hands, built by tools/cockpit/generic_cockpit.py into Resources/Cockpit and
+fitted to each car at runtime (Scripts/CockpitInterior.cs). A cabin.png here
+switches that off and brings back the 2D overlay described above.
 
 Any pixel size works. Sizes are fractions of the frame, so a 1280x720 sheet
 and a 320x180 one land in the same place -- the small one is just softer.
