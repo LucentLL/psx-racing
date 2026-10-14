@@ -13,7 +13,7 @@
 // whose sides pass through the head's ring (TopRadius) at the half-angle,
 // cut by the slab between the head and the lamp's ground - then integrates
 // the haze along that chord in CONE_SAMPLES steps:
-//   * radial (1 - (d/R)^2)^2 - zero at the rim, so a ray that grazes the cone
+//   * radial 1 - (d/R)^2 - zero at the rim, so a ray that grazes the cone
 //     (the edge of its silhouette) has nothing: the view-angle fade, no line;
 //   * 1 / (1 + (h/CONE_H0)^2) under the head - the light spreading out, so the
 //     cone is brightest just under the lamp, as through real haze;
@@ -51,7 +51,7 @@ Shader "PSX/LampCone"
 
             #define CONE_MAX        32     // == StreetLights.ConeMax
             #define CONE_SAMPLES    4
-            #define CONE_H0         2.5    // m under the head where the haze is at half
+            #define CONE_H0         4.0    // m under the head where the haze is at half
             #define CONE_TOP_SOFT   0.6    // m under the head over which it comes in
             #define CONE_GROUND_LO  0.3    // m above the ground: nothing below this
             #define CONE_GROUND_HI  3.5    // m above the ground: all of it above this
@@ -156,7 +156,7 @@ Shader "PSX/LampCone"
                     float R = r0 + K * max(h, 0.0);
                     float2 dxz = p.xz - i.a.xz;
                     float x2 = saturate(dot(dxz, dxz) / max(R * R, 1e-4));
-                    float radial = (1.0 - x2) * (1.0 - x2);
+                    float radial = 1.0 - x2;
                     float hh = h / CONE_H0;
                     float spread = 1.0 / (1.0 + hh * hh);
                     float top = smoothstep(0.0, CONE_TOP_SOFT, h);
