@@ -64,6 +64,22 @@ float _PSXToneOn;
 float _PSXExposure;
 float _PSXAdapt;
 
+// THE DARK WHERE NOTHING IS LIT (NightDark.cs, 2026-10-13): 0 lit / not night
+// .. 1 a fully unlit night. The sky (and what the paint reflects of it) keeps
+// PSX_SKY_DARK_KEEP of itself at 1 - the same share NightDark.FogKeep leaves
+// the fog colour, because the horizon and the fog are one pair. Declared in a
+// guarded block in both PSXTone.cginc and PSXSkyReflect.cginc (either may be
+// included first). At 0 the keep is exactly 1: day frames are bit-identical.
+#ifndef PSX_NIGHTDARK_DECLARED
+#define PSX_NIGHTDARK_DECLARED
+float _PSXNightDark;
+#define PSX_SKY_DARK_KEEP 0.30
+inline float PSXNightSkyKeep()
+{
+    return 1.0 - (1.0 - PSX_SKY_DARK_KEEP) * saturate(_PSXNightDark);
+}
+#endif
+
 // Khronos PBR Neutral, its shoulder only. START is 0.8 - 0.04: Khronos's
 // constants, which put the knee where its (omitted) toe would have ended.
 #define PSX_TONE_START   0.76

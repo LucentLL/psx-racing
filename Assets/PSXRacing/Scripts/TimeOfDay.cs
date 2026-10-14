@@ -399,6 +399,10 @@ namespace PSXRacing
             float urban = UrbanGlow();
             var p = Lit(index, weather, urban, out var anchor, out float fill);
             bool lights = p.lightsOn || Seasons.LightsOn(weather);
+            // THE DARK NIGHT'S CITY FLOOR (NightDark): a whole city lights its
+            // own haze, so every road in it keeps the lit night; anywhere else
+            // the lamps round the eye decide.
+            NightDark.CityFloor = urban >= 0.99f ? 1f : 0f;
 
             if (sun != null)
             {

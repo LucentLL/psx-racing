@@ -76,6 +76,22 @@ fixed4 _PSXSkyTop;
 fixed4 _PSXSkyHorizon;
 float _PSXSkySharpness;
 
+// THE DARK WHERE NOTHING IS LIT (NightDark.cs, 2026-10-13): 0 lit / not night
+// .. 1 a fully unlit night. The sky (and what the paint reflects of it) keeps
+// PSX_SKY_DARK_KEEP of itself at 1 - the same share NightDark.FogKeep leaves
+// the fog colour, because the horizon and the fog are one pair. Declared in a
+// guarded block in both PSXTone.cginc and PSXSkyReflect.cginc (either may be
+// included first). At 0 the keep is exactly 1: day frames are bit-identical.
+#ifndef PSX_NIGHTDARK_DECLARED
+#define PSX_NIGHTDARK_DECLARED
+float _PSXNightDark;
+#define PSX_SKY_DARK_KEEP 0.30
+inline float PSXNightSkyKeep()
+{
+    return 1.0 - (1.0 - PSX_SKY_DARK_KEEP) * saturate(_PSXNightDark);
+}
+#endif
+
 /// What the sky looks like in direction R - the same lookup and
 /// the same hour tint PSXSky.shader applies, at a blur picked by
 /// the caller (paint is a soft reflection, glass a sharper one).
@@ -101,6 +117,9 @@ float3 PSXSkyIn(float3 R, float lod)
         col = lerp(_PSXAmbient.rgb * 1.2, saturate(_PSXAmbient.rgb + _PSXLightColor.rgb * 0.5),
                    saturate(y * 1.5 + 0.3));
     }
+    // An unlit night's sky is near black (NightDark; the fog colour
+    // below is already scaled by the same share in C#).
+    col *= PSXNightSkyKeep();
     // Haze toward the horizon, the way the sky's own horizon
     // fades into the fog colour...
     float hz = saturate(1.0 - abs(y) * 6.0);

@@ -254,7 +254,16 @@ namespace PSXRacing
             EmitterMask.EnsureHook();
             // A new scene: the eye starts adapted to the open sky (C10).
             if (Application.isPlaying) ExposureAdapt.Reset();
+            // And the dark-night measure snaps to this scene's first eye.
+            NightDark.Reset();
             Apply();
+        }
+
+        /// <summary>The scene is going: no stale dark night on whatever draws
+        /// next (a menu's grade reads _PSXNightDark).</summary>
+        void OnDisable()
+        {
+            NightDark.Clear();
         }
 
         void Update()
@@ -294,6 +303,11 @@ namespace PSXRacing
             Shader.SetGlobalFloat("_PSXGradeSun", Mathf.Clamp01(gradeSun));
             Shader.SetGlobalFloat("_PSXEmitKey", emitKey > 0.5f ? 1f : 0f);
             Shader.SetGlobalVector("_PSXPaintWorld", new Vector4(Mathf.Clamp01(paintDay), Mathf.Clamp01(paintSnow), 0f, 0f));
+            // THE DARK WHERE NOTHING IS LIT (NightDark): the light just pushed is
+            // the base it scales; it re-pushes the ambient, the sky ambient, the
+            // moon and the fog colour scaled by how unlit the eye's surroundings
+            // are, and _PSXNightDark. 0 at every hour but NIGHT: unchanged.
+            NightDark.FromGlobals(ambient, skyAmbient.a > 0f ? skyAmbient : ambient, lightCol, fogColor, night);
             // The map itself is drawn per camera at render time (the hook in
             // OnEnable); this only says how strong and from where.
             // Times the player's own switch (OPTIONS, SUN SHADOWS): the hour

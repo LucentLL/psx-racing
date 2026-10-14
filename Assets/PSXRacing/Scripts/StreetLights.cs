@@ -179,6 +179,8 @@ namespace PSXRacing
             public Kind kind;
             public bool on;
             public bool field;       // a lit city street's lamp: lights through the LampField
+            public float ground;     // the ground under the head (the lamp cone's foot), once known
+            public bool groundKnown;
             public bool used;
             public int gen;
         }
@@ -232,6 +234,7 @@ namespace PSXRacing
             e.kind = kind;
             e.on = true;
             e.field = false;
+            e.groundKnown = false;
             Registered++;
             fieldVersion++;
             return (e.gen << 16) | slot;
@@ -244,6 +247,7 @@ namespace PSXRacing
             if (!Valid(handle, out int slot)) return;
             ref Entry e = ref entries[slot];
             if (e.field && (e.on != on || e.intensity != intensity || e.pos != pos)) fieldVersion++;
+            if (e.pos != pos) e.groundKnown = false;
             e.pos = pos;
             e.intensity = intensity;
             e.on = on;
@@ -392,9 +396,13 @@ namespace PSXRacing
                 GeometryUtility.CalculateFrustumPlanes(cam, planes);
                 Rank(t.position, t.forward, false, true);
                 Advance(t.position, t.forward, Time.unscaledDeltaTime);
+                // The dark-night measure and the lamp cones, chosen by the
+                // same eye once a frame (StreetLights.Cones.cs).
+                NightFrame(t.position, Time.unscaledDeltaTime, false);
             }
             EmitHeld(t.position);
             PushField(t.position);
+            NightDark.Push();
         }
 
         /// <summary>
@@ -440,7 +448,7 @@ namespace PSXRacing
         {
             var cam = Camera.main;
             if (cam == null) { PushNone(); return; }
-            if (Application.isPlaying) { EmitHeld(cam.transform.position); PushField(cam.transform.position); return; }
+            if (Application.isPlaying) { EmitHeld(cam.transform.position); PushField(cam.transform.position); NightDark.Push(); return; }
             PushInstant(cam);
         }
 
@@ -456,11 +464,12 @@ namespace PSXRacing
         public static void Push(Vector3 eye, Vector3 fwd)
         {
             PushField(eye);
-            if (Application.isPlaying) { EmitHeld(eye); return; }
+            if (Application.isPlaying) { EmitHeld(eye); NightDark.Push(); return; }
             float m = fwd.magnitude;
             bool cone = m > 1e-4f;
             Rank(eye, cone ? fwd / m : Vector3.forward, cone, false);
             EmitRanked();
+            NightFrame(eye, 0f, true);
         }
 
         /// <summary>
@@ -480,6 +489,7 @@ namespace PSXRacing
             Advance(eye, f, dt);
             EmitHeld(eye);
             PushField(eye);
+            NightFrame(eye, dt, false);
         }
 
         static void PushInstant(Camera cam)
@@ -489,6 +499,7 @@ namespace PSXRacing
             Rank(t.position, t.forward, false, true);
             EmitRanked();
             PushField(t.position);
+            NightFrame(t.position, 0f, true);
         }
 
         static void PushNone()

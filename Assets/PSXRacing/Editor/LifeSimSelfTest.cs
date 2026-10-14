@@ -13103,6 +13103,7 @@ namespace PSXRacing.EditorTools
                 ("PSX/Halo", "Assets/PSXRacing/Shaders/PSXHalo.shader", "c45054d8a68e418585222e5883dd00a3"),
                 ("PSX/Rain", "Assets/PSXRacing/Shaders/PSXRain.shader", "6d4aaa0c635141339bc03c48f539a9cc"),
                 ("PSX/Lens", "Assets/PSXRacing/Shaders/PSXLens.shader", "d20e150bc4684544b8222cba64cd2807"),
+                ("PSX/LampCone", "Assets/PSXRacing/Shaders/PSXLampCone.shader", "13a03f5e98b544d1889db778c2484423"),
             })
             {
                 var sh = Shader.Find(name);
@@ -13132,11 +13133,11 @@ namespace PSXRacing.EditorTools
             string[] globals =
             {
                 "_PSXWetness", "_PSXNight", "_PSXGradeNight", "_PSXMood",
-                "_PSXLampCount", "_PSXLampPos", "_PSXLampColor",
+                "_PSXLampCount", "_PSXLampPos", "_PSXLampColor", "_PSXNightDark",
             };
             string shadowed = "";
             foreach (var name in new[] { "PSX/Lit", "PSX/LitTransparent", "PSX/CarPaint", "PSX/Blit",
-                                         "PSX/Halo", "PSX/Rain", "PSX/Lens" })
+                                         "PSX/Halo", "PSX/Rain", "PSX/Lens", "PSX/Sky", "PSX/LampCone" })
             {
                 var sh = Shader.Find(name);
                 if (sh == null) continue;

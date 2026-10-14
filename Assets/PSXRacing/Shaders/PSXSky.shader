@@ -277,14 +277,21 @@ Shader "PSX/Sky"
                 // meet in the same paint. The dynamic sky above the band keeps
                 // its own 1 - exp(-x), its only curve. All a no-op with the
                 // tone off.
+                // An UNLIT night (NightDark, 2026-10-13): the sky, the photo's
+                // band and the ground below keep PSX_SKY_DARK_KEEP of
+                // themselves; the dynamic sky's band is the fog colour, which
+                // C# has already scaled by the same share (the pair rule).
+                // Exactly 1 at any hour but an unlit night.
+                float keep = PSXNightSkyKeep();
+                if (_Dynamic < 0.5) bandCol *= keep;
                 float adapt = PSXAdaptGain();
-                float3 upper = col * adapt;
+                float3 upper = col * (adapt * keep);
                 if (_Dynamic < 0.5) upper = PSXToneSky(upper);
                 col = lerp(upper, PSXToneSky((bandCol * PSXFogRing(dir, _Rotation) + sunHaze) * adapt), hz * hz);
                 // And below is the ground colour, not a mirror of the sky —
                 // these panoramas render the lower hemisphere as a reflection,
                 // which seen from a bridge deck is a lake hanging in the air.
-                col = lerp(col, PSXToneSky(_BottomColor.rgb * adapt), saturate(-y * 3.0 - 0.15));
+                col = lerp(col, PSXToneSky(_BottomColor.rgb * (adapt * keep)), saturate(-y * 3.0 - 0.15));
 
                 // The sun's disc is the one emitter here (above the horizon:
                 // a sun below it is behind the ground, which the sky's lower

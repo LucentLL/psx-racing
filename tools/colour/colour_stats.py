@@ -14,6 +14,8 @@
                                                                    shadow on the road, sun:shade and the shade's b* (harsh sun)
     py tools/colour/colour_stats.py night  <dir>                   the DARK NIGHT targets (-Sets night): unlit road, sky and
                                                                    frame on each _dark frame; the beam's pool against it
+    py tools/colour/colour_stats.py darknight <dir> [--only S3]    the UNLIT night after Touge Attack (-Sets darknight,
+                                                                   NightDark.cs): the same frames against the near-black targets
     ... --json out.json   also write every number as JSON
 
 Every frame is a PNG at native resolution with its sidecar (<png>.json,
@@ -925,17 +927,34 @@ NIGHT_SKY = (6.0, 24.0)
 NIGHT_MEDIAN_MAX, NIGHT_UNDER20_MIN = 22.0, 0.45
 NIGHT_POOL_MIN, NIGHT_POOL_MAX, NIGHT_POOL_RATIO = 45.0, 215.0, 4.0
 DAY_BEAM = 0.42
+NIGHT_TARGETS = {"road": NIGHT_UNLIT_ROAD_MAX, "sky": NIGHT_SKY, "median": NIGHT_MEDIAN_MAX,
+                 "under": (20.0, NIGHT_UNDER20_MIN), "label": "NIGHT"}
+
+# THE UNLIT NIGHT AFTER TOUGE ATTACK (2026-10-13, NightDark.cs). The owner's
+# ruling: "dark, if not ambient light in the area (like a wooded road outside
+# of the city)". Touge Attack's unlit mountain night, off 2560x1440 frames:
+# frame mean 7-9, MEDIAN 0, 83-86% of pixels under 12, a black sky (no moon
+# glow, no ambient fill) - the beam pool, the lamps' cones and the gauges are
+# the light. For the frames NightDark calls unlit (S3 Blue Ridge; any spot
+# whose sidecar says nightDark ~1); lit streets keep `night` / `citynight`.
+#   sky_top <= 6; darkest unlit road <= 4; frame median <= 6 with >= 75%
+#   under 12; the beam pool 14-22 m still >= 45 (<= 215, >= 4x the unlit road).
+DARK_TARGETS = {"road": 4.0, "sky": (0.0, 6.0), "median": 6.0, "under": (12.0, 0.75), "label": "DARK NIGHT"}
 
 
-def cmd_night(d, js):
+def cmd_night(d, js, T=None, only=None):
+    T = T or NIGHT_TARGETS
     out = {}
     fails = 0
     for dark in sorted(glob.glob(os.path.join(d, "cs_*_night_*_dark*_g1_world.png"))):
         name = os.path.basename(dark)
+        if only and only not in name:
+            continue
         D = Frame(dark)
         st = D.frame_stats()
         yc = D.Yc[D.mask]
-        med, u20 = float(np.median(yc)), float((yc < 20).mean())
+        uthr, umin = T["under"]
+        med, u20 = float(np.median(yc)), float((yc < uthr).mean())
         rt = D.region_table()
         # The road boxes (any road surface: the town's is "TownMain").
         onroad = lambda k, v: k.startswith(("road_", "beam_", "tail_")) and _usable(v, road_only=False)
@@ -943,14 +962,18 @@ def cmd_night(d, js):
         sky = rt.get("sky_top", {}).get("m")
         darkest = min(roads.values()) if roads else None
         brightest = max(roads.values()) if roads else None
-        ok_road = darkest is not None and darkest <= NIGHT_UNLIT_ROAD_MAX
-        ok_sky = sky is None or NIGHT_SKY[0] <= sky["Ycode_med"] <= NIGHT_SKY[1]
-        ok_frame = med <= NIGHT_MEDIAN_MAX and u20 >= NIGHT_UNDER20_MIN
+        ok_road = darkest is not None and darkest <= T["road"]
+        ok_sky = sky is None or T["sky"][0] <= sky["Ycode_med"] <= T["sky"][1]
+        ok_frame = med <= T["median"] and u20 >= umin
         verdict = "ok" if (ok_road and ok_sky and ok_frame) else "MISS"
         fails += verdict != "ok"
-        print(f"\n{name}\n  UNLIT  frame median {med:.0f} (<= {NIGHT_MEDIAN_MAX:.0f}), under 20 {u20:.0%} (>= {NIGHT_UNDER20_MIN:.0%})"
-              f"  sky_top {fmt(sky['Ycode_med'] if sky else None)} ({NIGHT_SKY[0]:.0f}-{NIGHT_SKY[1]:.0f})"
-              f"  road darkest {fmt(darkest)} (<= {NIGHT_UNLIT_ROAD_MAX:.0f}) brightest {fmt(brightest)}  {verdict}")
+        sc = (sidecar(dark) or {}).get("variant", {})
+        meas = (f"  [dark {sc['nightDark']:.2f} lamps {sc.get('lampSum', 0):.1f} cones {sc.get('cones', 0)}]"
+                if "nightDark" in sc else "")
+        print(f"\n{name}{meas}\n  UNLIT  frame median {med:.0f} (<= {T['median']:.0f}), mean {float(yc.mean()):.1f},"
+              f" under {uthr:.0f} {u20:.0%} (>= {umin:.0%})"
+              f"  sky_top {fmt(sky['Ycode_med'] if sky else None)} ({T['sky'][0]:.0f}-{T['sky'][1]:.0f})"
+              f"  road darkest {fmt(darkest)} (<= {T['road']:.0f}) brightest {fmt(brightest)}  {verdict}")
         rec = {"median": med, "under20": u20, "sky": sky["Ycode_med"] if sky else None, "roadDarkest": darkest,
                "roadBrightest": brightest, "roads": roads, "verdict": verdict, "lit": {}}
         # The lit twins: the same spot, eye and dress with the lamps on.
@@ -1000,7 +1023,7 @@ def cmd_night(d, js):
         print(f"\n{os.path.basename(p)}\n  SUN UP  beamIntensity {fmt(bi, 3)} (the day beam {DAY_BEAM}) beamNight {fmt(bn, 2)} (0)"
               f"  road 14 m {fmt(pool)}  {'ok' if ok else 'MISS'}")
         out[os.path.basename(p)] = {"beamIntensity": bi, "beamNight": bn, "road14": pool, "ok": ok}
-    print(f"\nNIGHT: {fails} miss(es)")
+    print(f"\n{T['label']}: {fails} miss(es)")
     if js:
         with open(js, "w") as f:
             json.dump(out, f, indent=1)
@@ -1140,6 +1163,9 @@ def main(argv):
         cmd_shade(rest[0], js); return 0
     if cmd == "night":
         return 0 if cmd_night(rest[0], js) else 1
+    if cmd == "darknight":
+        only = rest[rest.index("--only") + 1] if "--only" in rest else None
+        return 0 if cmd_night(rest[0], js, DARK_TARGETS, only) else 1
     if cmd == "citynight":
         cmd_citynight(expand(rest), js, boxes); return 0
     print(__doc__); return 2

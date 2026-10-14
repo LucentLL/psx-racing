@@ -167,6 +167,7 @@ namespace PSXRacing.EditorTools
                 if (sets.Contains("interior")) Guard("interior", Interiors);
                 if (sets.Contains("night")) Guard("night", NightSet);
                 if (sets.Contains("townnight")) Guard("townnight", TownNightSet);
+                if (sets.Contains("darknight")) Guard("darknight", DarkNightSet);
                 if (sets.Contains("census")) Guard("census", CensusSet);
             }
             finally
@@ -352,6 +353,68 @@ namespace PSXRacing.EditorTools
                 Frame(cam, player, tw, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Fall, lights = Lights.On, rig = "hood", extra = x });
             }
             StreetLights.FieldEnabled = true;
+        }
+
+        /// <summary>
+        /// THE DARK WHERE NOTHING IS LIT (set "darknight", 2026-10-13, after
+        /// Touge Attack): each frame twice, NightDark and the lamp cones off
+        /// (_nd0, the night before this pass) and on (_nd1). The unlit
+        /// mountain (S3, Blue Ridge: hood dark/lit and the chase rig) must hit
+        /// colour_stats.py darknight; the Town (TW) is judged by its lamps; downtown
+        /// Charlotte (CD) is a lit city and must not move (colour_stats.py
+        /// citynight on the _nd0/_nd1 pair), plus downtown in fog, the haze
+        /// the cones are made for. The log line carries the
+        /// measure (lamp sum, lit share, dark) and the cones drawn.
+        /// </summary>
+        static void DarkNightSet()
+        {
+            try
+            {
+                var s3 = ColourSpots.Find("S3");
+                if (OpenAt(s3, out var cam, out var player, out var pos, out var rot))
+                    foreach (bool nd in new[] { false, true })
+                    {
+                        DarkSwitch(nd);
+                        string x = nd ? "_nd1" : "_nd0";
+                        Frame(cam, player, s3, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Fall, lights = Lights.Off, rig = "hood", extra = x });
+                        Frame(cam, player, s3, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Fall, lights = Lights.On, rig = "hood", extra = x });
+                        Frame(cam, player, s3, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Fall, lights = Lights.On, rig = "chase", hud = true, extra = x });
+                    }
+                var tw = ColourSpots.Find("TW");
+                if (OpenAt(tw, out cam, out player, out pos, out rot))
+                {
+                    foreach (bool nd in new[] { false, true })
+                    {
+                        DarkSwitch(nd);
+                        string x = nd ? "_nd1" : "_nd0";
+                        Frame(cam, player, tw, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Fall, lights = Lights.Off, rig = "hood", extra = x });
+                        Frame(cam, player, tw, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Fall, lights = Lights.On, rig = "hood", extra = x });
+                        Frame(cam, player, tw, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Fall, lights = Lights.On, rig = "chase", extra = x });
+                        Frame(cam, player, tw, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Fall, lights = Lights.On, rig = "lamp", extra = x });
+                    }
+                    DarkSwitch(true);
+                    Frame(cam, player, tw, pos, rot, new Variant { hour = TimeOfDay.Night, season = Season.Fall, weather = Weather.Fog, lights = Lights.On, rig = "lamp", extra = "_nd1" });
+                }
+                var cd = ColourSpots.Find("CD");
+                if (OpenAt(cd, out cam, out player, out pos, out rot))
+                    foreach (bool nd in new[] { false, true })
+                    {
+                        DarkSwitch(nd);
+                        string x = nd ? "_nd1" : "_nd0";
+                        Frame(cam, player, cd, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.Off, extra = x });
+                        Frame(cam, player, cd, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.On, extra = x });
+                        // and in fog, the haze the cones are made for
+                        Frame(cam, player, cd, pos, rot, new Variant { hour = TimeOfDay.Night, weather = Weather.Fog, lights = Lights.On, extra = x });
+                        Frame(cam, player, cd, pos, rot, new Variant { hour = TimeOfDay.Night, lights = Lights.On, rig = "lamp", extra = x });
+                    }
+            }
+            finally { DarkSwitch(true); }
+        }
+
+        static void DarkSwitch(bool on)
+        {
+            NightDark.Enabled = on;
+            LampCones.Enabled = on;
         }
 
         static void NightSet()
@@ -877,6 +940,25 @@ namespace PSXRacing.EditorTools
                     ColourSpots.Eye(pos, rot, out eye, out look);
                     cam.fieldOfView = ColourSpots.Fov;
                 }
+                else if (v.rig == "lamp")
+                {
+                    // THE NEAREST STREET LAMP'S CONE (the darknight set): from
+                    // the car's side of the nearest lamp, 22 m off it at a
+                    // driver's height over its ground, looking at the cone's
+                    // middle - the lamp cones need a lamp in the picture.
+                    eye = pos + Vector3.up * 1.3f;
+                    look = rot;
+                    if (StreetLights.NearestStreetHead(pos, out var head, out float ground))
+                    {
+                        Vector3 away = pos - head; away.y = 0f;
+                        if (away.sqrMagnitude < 1f) away = rot * Vector3.back;
+                        eye = head + away.normalized * 22f;
+                        eye.y = ground + 1.4f;
+                        Vector3 at = new Vector3(head.x, Mathf.Lerp(ground, head.y, 0.45f), head.z);
+                        look = Quaternion.LookRotation(at - eye);
+                    }
+                    cam.fieldOfView = ColourSpots.Fov;
+                }
                 else if (v.rig == "hood")
                 {
                     // The game's HOOD CAM (the owner's frame 11): the mount
@@ -972,6 +1054,8 @@ namespace PSXRacing.EditorTools
                         ["dayFill"] = TimeOfDay.HarshSunFillNow,
                         ["snowTint"] = v.snowTint,
                         ["exposure"] = globals != null ? globals.exposure : 1f,
+                        ["nightDark"] = NightDark.Amount, ["lampSum"] = NightDark.LampSum, ["litShare"] = NightDark.LitShare,
+                        ["cones"] = LampCones.Drawn,
                     },
                     ["pose"] = new Dictionary<string, object> { ["pos"] = pos, ["rot"] = new List<object> { rot.x, rot.y, rot.z, rot.w } },
                     ["eye"] = new Dictionary<string, object> { ["pos"] = eye, ["rot"] = new List<object> { look.x, look.y, look.z, look.w }, ["fov"] = cam.fieldOfView, ["shift"] = rigShift },
@@ -997,7 +1081,8 @@ namespace PSXRacing.EditorTools
                 Line($"  {stem}: weather {Seasons.CurrentWeather} dress {DressName()} lit {lit} lamps {StreetLights.PushedCount} " +
                      $"heads {CarLights.PushedCount} wet {Shader.GetGlobalFloat("_PSXWetness"):0.00} night {night:0.00} " +
                      $"lens {dirt:0.00} adapt {(globals != null ? globals.adapt : 1f):0.00} (open {ExposureAdapt.Openness:0.00}{(ExposureAdapt.Tunnel ? ", tunnel" : "")})" +
-                     $"  regions visible {vis}/{regions.Count}, on ground {onGround}");
+                     $"  regions visible {vis}/{regions.Count}, on ground {onGround}" +
+                     $"  dark {NightDark.Amount:0.00} (lamps {NightDark.LampSum:0.0}, lit {NightDark.LitShare:0.00}) {LampCones.Describe()} cull {cam.cullingMask}");
             }
             catch (System.Exception e)
             {

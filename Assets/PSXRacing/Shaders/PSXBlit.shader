@@ -121,6 +121,10 @@ Shader "PSX/Blit"
             // Globals (PSXGlobals pushes them every frame from the hour;
             // see the header). NOT in Properties, on purpose.
             float _PSXGradeNight;   // 0 day .. 1 night
+            #ifndef PSX_NIGHTDARK_DECLARED
+            #define PSX_NIGHTDARK_DECLARED
+            float _PSXNightDark;    // 0 lit / day .. 1 an unlit night (NightDark.cs)
+            #endif
             float4 _PSXLampFieldST; // the lamp field's switch (.w), StreetLights.Field.cs - the lit city
             float4 _PSXMood;        // rgb = shadow hue at any brightness, a = amount
             float _PSXEmitKey;      // 1 = the halation glows by the emitter mask (alpha)
@@ -308,7 +312,12 @@ Shader "PSX/Blit"
                 // the corners greyer than the middle of a night frame.
                 // Written as the day's remap minus the lift night gives back:
                 // it IS lift + (GRADE_CEIL - lift) * s.
-                float3 lift = GRADE_LIFT * (1.0 - GRADE_NIGHT_LIFT_CUT * night);
+                // And on an UNLIT night (NightDark, 2026-10-13) the last of it
+                // goes too: with no lamp, no city glow and no moon to veil
+                // with, black is black (Touge Attack's median is 0). At
+                // _PSXNightDark 0 - every lit night and every day - this is
+                // the line it always was.
+                float3 lift = GRADE_LIFT * (1.0 - GRADE_NIGHT_LIFT_CUT * night) * (1.0 - saturate(_PSXNightDark));
                 float3 given = GRADE_LIFT - lift;
                 // G1, the owner's C11 choice (see the header): a uniform
                 // branch, not taken at _PSXGradeSun 0 - which is every frame
