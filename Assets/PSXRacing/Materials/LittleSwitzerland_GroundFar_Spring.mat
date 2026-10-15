@@ -27,11 +27,24 @@ Material:
         m_Texture: {fileID: 2800000, guid: 74216add142e76045b58bdc1bc7eb606, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _NightMask:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
     - _Affine: 0
+    - _AtlasPx: 256
+    - _Cull: 2
     - _Cutoff: 0
     - _Emission: 0
+    - _MainTexRaw: 0
+    - _NightFace: 0
+    - _NightWin: 0
+    - _Shore: 0
+    - _ShoreY: 0
+    - _Skyline: 0
+    - _Wet: 0
     m_Colors:
     - _Color: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []
