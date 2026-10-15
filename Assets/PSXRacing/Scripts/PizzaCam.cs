@@ -54,6 +54,9 @@ namespace PSXRacing
         /// <summary>The right-corner height this panel was last placed against,
         /// so a cluster rebuild that moves the dials moves this too.</summary>
         float builtCornerTop = -1f;
+        /// <summary>Standing down for the cockpit, where the load is on the
+        /// passenger seat in front of the player (CockpitInterior.CargoInView).</summary>
+        bool standDown;
 
         /// <summary>
         /// Where the lens goes, in the cargo island's frame.
@@ -291,6 +294,19 @@ namespace PSXRacing
 
         void LateUpdate()
         {
+            // COCKPIT VIEW: the pizzas are on the passenger seat beside the
+            // driver (owner, 2026-10-14: "stacked in the passenger seat with no
+            // pizza cam"), so the panel goes and so does its camera - a whole
+            // second render a frame for a picture nobody is shown. Every
+            // other view keeps it exactly as it was.
+            bool down = CockpitInterior.CargoInView;
+            if (down != standDown)
+            {
+                standDown = down;
+                if (panelRT != null) panelRT.gameObject.SetActive(!down);
+                if (cam != null) cam.enabled = !down;
+            }
+            if (down) return;
             // The panel moves if the player plugs in a pad mid-race and the
             // touch controls hide themselves — and with them, on the same frame,
             // the dials move into the corner this is standing in. The cluster

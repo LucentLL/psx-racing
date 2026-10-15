@@ -369,6 +369,10 @@ namespace PSXRacing
         int builtHeight = -1, builtUnits = -1;
         bool builtTouch;
         bool builtCockpit;
+        /// <summary>The owner's 3D cabin with its own needles is up
+        /// (CockpitInterior.GaugesShowing), and whether anything was built
+        /// yet (that layout builds no tach to test for).</summary>
+        bool builtCockpit3D, hasLayout;
         Vector2 builtWheelCentre = new Vector2(float.NaN, float.NaN);
         float builtWheelRadius = -1f;
         float flutter;
@@ -486,6 +490,7 @@ namespace PSXRacing
             // of the cockpit this was modelled on and of most cars built since
             // about 1990.
             bool cockpit = ChaseCamera.Current == ChaseCamera.View.Cockpit;
+            bool cockpit3D = cockpit && CockpitInterior.GaugesShowing;
 
             // The steering wheel the binnacle sits behind, as the cabin
             // reports it. Part of the dirty token because the cabin publishes
@@ -506,8 +511,8 @@ namespace PSXRacing
             // is already in `bulb`. A tunable transparency (a user setting,
             // the weather, how bright the sky is) would need a term here, or
             // the dials would keep the face they were baked with.
-            if (tach != null && bulb == builtBulb && frame == builtHeight && touch == builtTouch
-                && cockpit == builtCockpit && units == builtUnits
+            if (hasLayout && bulb == builtBulb && frame == builtHeight && touch == builtTouch
+                && cockpit == builtCockpit && cockpit3D == builtCockpit3D && units == builtUnits
                 && wheelC == builtWheelCentre && Mathf.Approximately(wheelR, builtWheelRadius)
                 && Mathf.Approximately(redline, builtRedline)
                 && Mathf.Approximately(speedMax, builtSpeedMax)) return;
@@ -515,6 +520,7 @@ namespace PSXRacing
             builtBulb = bulb; builtRedline = redline; builtSpeedMax = speedMax;
             builtUnits = units;
             builtHeight = frame; builtTouch = touch; builtCockpit = cockpit;
+            builtCockpit3D = cockpit3D; hasLayout = true;
             builtWheelCentre = wheelC; builtWheelRadius = wheelR;
             if (tach != null) { tach.Destroy(); tach = null; }
             if (speedo != null) { speedo.Destroy(); speedo = null; }
@@ -539,6 +545,17 @@ namespace PSXRacing
             float tachMaxRPM = Mathf.Max(1000f, Mathf.Ceil(redline * 1.1f / 1000f) * 1000f);
             float redFrac = car != null ? car.redlineRPM / tachMaxRPM : 0.85f;
 
+            if (cockpit3D)
+            {
+                // The owner's cabin has its own five dials with live needles
+                // (CockpitInterior); a 2D binnacle as well would be a second
+                // set of instruments drawn over his wheel. Only the gear stays,
+                // small, in the corner (after Touge Attack's "Gear 4" box) -
+                // and not on a phone, where the shifter knob carries it.
+                if (!touch) BuildCockpitGear(font, frame, margin);
+                HudOnTop.Apply(gameObject);
+                return;
+            }
             if (cockpit)
             {
                 BuildCockpit(font, frame, radius, margin, tachMaxRPM, redFrac, touch);
@@ -869,6 +886,42 @@ namespace PSXRacing
                              new Vector2(0f, gearH * (1f - GearHeadFrac) * 0.5f));
             gearText.text = "1";
         }
+
+        /// <summary>
+        /// The gear alone, bottom right, for the owner's 3D cabin: the same
+        /// smoked box with the AT/MT header the HUD's gear panel uses, sized
+        /// off the frame rather than off a dial that is not there.
+        /// </summary>
+        void BuildCockpitGear(Font font, int frame, int margin)
+        {
+            cockpitRoot = new GameObject("Cockpit", typeof(RectTransform));
+            cockpitRoot.transform.SetParent(transform, false);
+            var crt = (RectTransform)cockpitRoot.transform;
+            crt.anchorMin = Vector2.zero; crt.anchorMax = Vector2.one;
+            crt.offsetMin = Vector2.zero; crt.offsetMax = Vector2.zero;
+
+            float h = frame * CockpitGearFrac, w = h * 0.76f;
+            var anchor = new Vector2(1f, 0f);
+            Color smoke = new Color(0f, 0f, 0f, GearSmokeAlpha);
+            Color smokeEdge = ClusterBulbs.Dim;
+            smokeEdge.a = GearEdgeAlpha;
+            var box = Box(cockpitRoot.transform, "Gear", anchor,
+                          new Vector2(-(margin + w * 0.5f), margin + h * 0.5f),
+                          new Vector2(w, h), smoke, smokeEdge, GearHead);
+            var mode = Label(box, font, Mathf.Max(8, Mathf.RoundToInt(h * 0.22f)),
+                             Color.white, new Vector2(0.5f, 1f),
+                             new Vector2(0f, -h * GearHeadFrac * 0.5f));
+            mode.text = car != null && car.manualMode ? "MT" : "AT";
+            gearText = Label(box, font, Mathf.Max(12, Mathf.RoundToInt(h * 0.46f)),
+                             ClusterBulbs.Lit, new Vector2(0.5f, 0f),
+                             new Vector2(0f, h * (1f - GearHeadFrac) * 0.5f));
+            AddLegibilityOutline(gearText);
+            gearText.text = "1";
+            RightCornerTop = margin + h;
+        }
+
+        /// <summary>The 3D cockpit's gear box height, as a fraction of the frame.</summary>
+        public const float CockpitGearFrac = 0.10f;
 
         /// <summary>Fraction of the gear box taken by its blue header.</summary>
         const float GearHeadFrac = 0.36f;

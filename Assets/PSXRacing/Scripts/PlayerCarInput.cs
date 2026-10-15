@@ -93,6 +93,10 @@ namespace PSXRacing
             if (touch != null) touch.BindShift(ShiftBy);
         }
 
+        /// <summary>Right-stick shifting thresholds (see Update).</summary>
+        public const float StickShiftFire = 0.7f, StickShiftRearm = 0.3f;
+        bool stickShiftArmed = true;
+
         void ShiftBy(int dir)
         {
             if (!inputEnabled) return;
@@ -164,6 +168,19 @@ namespace PSXRacing
                 handbrake |= pad.buttonEast.isPressed;
                 if (pad.rightShoulder.wasPressedThisFrame) ShiftBy(1);
                 if (pad.leftShoulder.wasPressedThisFrame) ShiftBy(-1);
+                // The right stick's Y shifts too (owner, 2026-10-14: "up/down
+                // should be shifting gears"; its X is the cockpit look-over).
+                // A stick is not a button: edge-triggered past StickShiftFire,
+                // and armed again only once it is back under StickShiftRearm,
+                // so a held stick is one shift and a stick resting off-centre
+                // or drifting across the line never chatters.
+                float ry = pad.rightStick.y.ReadValue();
+                if (stickShiftArmed)
+                {
+                    if (ry > StickShiftFire) { stickShiftArmed = false; ShiftBy(1); }
+                    else if (ry < -StickShiftFire) { stickShiftArmed = false; ShiftBy(-1); }
+                }
+                else if (Mathf.Abs(ry) < StickShiftRearm) stickShiftArmed = true;
                 // X/Square as well as Back/Share. Recovering a beached car is
                 // the control a player reaches for in a hurry, and Back is a
                 // button most people have never pressed on purpose — it is not

@@ -128,10 +128,11 @@ namespace PSXRacing
         /// the speedo looks like the car breathing, not like speed.
         /// </summary>
         public const float CockpitFOV = 58f;
-        /// <summary>The cockpit's near plane. The 3D wheel's nearest in-view
-        /// point is about 0.24 m from the eye on the measured shells
-        /// (CockpitInterior.NearestM); the mounted 0.18 would leave it 1.3x
-        /// of margin before the impact shake, this leaves twice that.</summary>
+        /// <summary>The cockpit's near plane with no 3D cabin, and the most it
+        /// ever is. With the owner's cabin (2026-10-14) the interior publishes
+        /// its own, under the nearest visible surface at its fit scale
+        /// (CockpitInterior.NearClipFor: about 0.067 m, the cabin being scaled
+        /// x0.36 about the eye).</summary>
         public const float CockpitNearClip = 0.12f;
         /// <summary>
         /// Bound on how far along its own forward axis the follow lag may sit
@@ -616,6 +617,11 @@ namespace PSXRacing
             // Every view, so a switch back to a chase view mid-climb lands on
             // the grade rather than easing onto it.
             UpdateGrade();
+            // The driver's head in the cockpit (look-over to the passenger
+            // seat); back to straight ahead in every other view.
+            CockpitLook.Tick(Time.deltaTime,
+                             Current == View.Cockpit && !OnFoot.ForecourtMode.OnFoot,
+                             !PauseMenu.IsOpen && !FocusGuard.Frozen);
 
             switch (Current)
             {
@@ -628,9 +634,12 @@ namespace PSXRacing
                 case View.Hood:
                 case View.Bumper:
                 case View.Cockpit:
+                    bool head = Current == View.Cockpit;
                     Mount(MountOffset(Current, BoxCenter, BoxSize, Shell,
                                       targetBody != null ? targetBody.LengthScale : 1f,
-                                      targetBody != null ? targetBody.BodyLift : 0f), MountPitch(Current));
+                                      targetBody != null ? targetBody.BodyLift : 0f),
+                          MountPitch(Current) + (head ? CockpitLook.Pitch : 0f),
+                          head ? CockpitLook.Yaw : 0f);
                     break;
                 case View.TopDown:
                     TopDown(speed, fit);
@@ -955,10 +964,12 @@ namespace PSXRacing
         /// a camera bolted to the roof with rubber, and the whole reason to pick
         /// one of these views is that the car's rotation IS the picture.
         /// </summary>
-        void Mount(Vector3 localOffset, float pitchDeg)
+        /// <param name="yawDeg">The cockpit's look-over (CockpitLook): a turn
+        /// about the car's up, then the pitch about the turned head's right.</param>
+        void Mount(Vector3 localOffset, float pitchDeg, float yawDeg = 0f)
         {
             transform.position = target.TransformPoint(localOffset);
-            transform.rotation = target.rotation * Quaternion.Euler(pitchDeg, 0f, 0f);
+            transform.rotation = target.rotation * Quaternion.Euler(pitchDeg, yawDeg, 0f);
             smoothPos = transform.position;
             // So a switch back to a chase view slerps from where the lens IS,
             // not from wherever the chase rig last left it a lap ago. The aim
@@ -1754,7 +1765,8 @@ namespace PSXRacing
         /// gets shipped.
         /// </summary>
         public static float ViewNearClip(View v, float baseNear) =>
-            v == View.Cockpit ? Mathf.Min(baseNear, CockpitNearClip)
+            v == View.Cockpit
+                ? Mathf.Min(baseNear, CockpitInterior.ActiveNearClip > 0f ? CockpitInterior.ActiveNearClip : CockpitNearClip)
             : v == View.Roof || v == View.Hood || v == View.Bumper
                 ? Mathf.Min(baseNear, MountNearClip)
                 : baseNear;

@@ -9271,7 +9271,7 @@ namespace PSXRacing.EditorTools
                                eye.z.ToString("0.00") + " cowl " + def.cowlY.ToString("0.00") +
                                "/" + def.cowlZ.ToString("0.00") + " roof " + def.roofY.ToString("0.00") + ")");
 
-                // The generic 3D cabin (CockpitInterior) is scaled about that
+                // The owner's 3D cabin (CockpitInterior) is scaled about that
                 // eye until its windscreen base lands on the cowl. Past the
                 // cowl, the shell's bonnet pokes up through the dash; well
                 // short of it, there is a slot of road under the car between
@@ -11337,13 +11337,32 @@ namespace PSXRacing.EditorTools
             Check(Mathf.Abs(cockpitPhone - 48.9f) < 0.2f,
                   "a 19.5:9 phone holds the cockpit's 16:9 horizontal field (~48.9 vertical)",
                   cockpitPhone.ToString("0.0"));
-            // The near plane against the 3D wheel and hands, at the smallest
-            // fit the clamps allow, with room for the impact shake.
-            float cockpitNear = ChaseCamera.ViewNearClip(ChaseCamera.View.Cockpit, 0.25f);
-            float wheelNearest = CockpitInterior.NearestM(CockpitInterior.MinScale);
-            Check(wheelNearest >= cockpitNear * 1.5f,
-                  "the cockpit near plane never cuts the 3D wheel or the hands",
-                  wheelNearest.ToString("0.000") + " m vs near " + cockpitNear.ToString("0.00") + " x1.5");
+            // The near plane against the owner's 3D cabin: the wheel and hands
+            // ahead, the cabin at full look-over. The cabin is scaled about
+            // the eye per car, so the near plane follows the fit (on the
+            // default shell here and at the smallest fit the clamps allow),
+            // with room for the impact shake - and never so near that the
+            // depth buffer goes to pieces down the road.
+            {
+                var dShell = CarModelLibrary.Load(CarModelLibrary.Default);
+                var dFit = dShell != null
+                    ? CockpitInterior.FitFor(dShell.colliderCenter, dShell.colliderSize, dShell)
+                    : default;
+                float dNear = CockpitInterior.NearClipFor(dFit.scale);
+                float minNear = CockpitInterior.NearClipFor(CockpitInterior.MinScale);
+                bool layoutOk = CockpitInterior.L != null;
+                // (The margin is exactly 1.5 by construction: compared with a
+                // hair of float slack.)
+                const float slack = 0.9999f;
+                Check(layoutOk && dShell != null &&
+                      CockpitInterior.NearestM(dFit.scale) >= dNear * 1.5f * slack &&
+                      CockpitInterior.NearestM(CockpitInterior.MinScale) >= minNear * 1.5f * slack &&
+                      Mathf.Min(CockpitInterior.L.nearForward, CockpitInterior.L.nearLook) * dFit.scale >= dNear * 1.5f * slack &&
+                      dNear >= 0.05f && dNear <= ChaseCamera.CockpitNearClip,
+                      "the cockpit near plane never cuts the 3D wheel, the hands or the cabin at full look-over",
+                      (layoutOk ? CockpitInterior.NearestM(dFit.scale).ToString("0.000") : "no layout") +
+                      " m vs near " + dNear.ToString("0.000") + " x1.5 at fit x" + dFit.scale.ToString("0.000"));
+            }
             // Every shell the catalog can put a player in has a rear silhouette
             // for the chase rig's width fit; without one the car is framed as a
             // box (the probe's numbers only hold for shells with a row).

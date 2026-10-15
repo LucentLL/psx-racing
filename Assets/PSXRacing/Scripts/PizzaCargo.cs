@@ -1117,6 +1117,18 @@ namespace PSXRacing
         /// <summary>Where the cargo camera should look.</summary>
         public Transform Tray => tray;
 
+        /// <summary>Where the bottom of the stack stands, in the tray's frame,
+        /// and the pan's slope there: the island's SEAT FRAME, which the
+        /// cockpit's cargo mirror (CockpitCargoMirror) maps onto the cockpit
+        /// seat. Read-only views of what BuildIsland uses; nothing here moves
+        /// the simulation.</summary>
+        public Vector3 StackSeatLocal => PanRot * new Vector3(0f, 0f, -StackBackM);
+        public Quaternion StackSeatRotLocal => PanRot;
+        /// <summary>The footwell slab's centre height in the tray's frame, and
+        /// its top (it is 4 cm thick): the island's floor.</summary>
+        public const float FootwellFloorY = -0.34f;
+        public const float FootwellTopLocal = FootwellFloorY + 0.02f;
+
         /// <summary>How far box <paramref name="i"/> has moved from where it was
         /// put, in metres, measured in the SEAT's axes so the car's own motion
         /// does not count. Zero means it has not moved at all — which is a
@@ -1462,7 +1474,7 @@ namespace PSXRacing
             // is a race, not a measurement. Three seat-widths across, from
             // behind the squab to the bulkhead, with a kerb down each side and
             // one across the back: now FLOOR means on the floor.
-            const float FloorY = -0.34f;
+            const float FloorY = FootwellFloorY;
             float floorHalfW = SeatW * 1.5f;
             float floorZ0 = -SeatD * 0.5f - 0.30f;   // behind the backrest
             float floorZ1 = SeatD * 0.5f + 1.95f;    // the bulkhead's face
