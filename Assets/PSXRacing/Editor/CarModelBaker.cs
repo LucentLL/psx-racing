@@ -272,6 +272,8 @@ namespace PSXRacing.EditorTools
             BakeSkins(d, texDir, model.key, shader);
             // After the skins: the lamps are found on the sheets.
             CarLampFinder.Apply(d, log);
+            // After the skins: the covers take the first livery's sheet.
+            BakeLensVariant(d, dir, model.key, bodyMesh);
 
             string prefabPath = OutDir + "/" + model.key + ".prefab";
             PrefabUtility.SaveAsPrefabAsset(def, prefabPath);
@@ -289,6 +291,68 @@ namespace PSXRacing.EditorTools
                     $"bonnet={(d.noseZ - d.cowlZ) / Mathf.Max(bodyBounds.size.z, 0.01f):0.00}L " +
                     $"roof={d.roofY:0.00} " +
                     $"skins={d.SkinCount} tris={bodyMesh.triangles.Length / 3}");
+        }
+
+        /// <summary>
+        /// THE LENS VARIANT, where the shell has one (export_models.mjs `lens`:
+        /// the owner's R32 lens test B, 2026-10-16): `key_lens.obj` (the body
+        /// with recessed optics and dark cavity walls), `key_lens_head.obj` and
+        /// `key_lens_tail.obj` (the clear covers), all in the body's own frame
+        /// and scale. Nothing is measured off them; the covers get PSX/CarLens
+        /// with his numbers - opacity 0.06 front / 0.09 rear, atlas tint 0.15 /
+        /// 0.55, smoothness 0.90 - over the first livery's sheet. All three or
+        /// none: a half variant is no variant.
+        /// </summary>
+        static void BakeLensVariant(CarModelDef d, string dir, string key, Mesh bodyMesh)
+        {
+            Mesh Part(string suffix)
+            {
+                var go = AssetDatabase.LoadAssetAtPath<GameObject>(dir + "/" + key + suffix + ".obj");
+                return go != null ? go.GetComponentInChildren<MeshFilter>()?.sharedMesh : null;
+            }
+            d.lensBodyMesh = Part("_lens");
+            d.lensHeadMesh = Part("_lens_head");
+            d.lensTailMesh = Part("_lens_tail");
+            d.lensHeadMaterial = d.lensTailMaterial = null;
+            if (d.lensBodyMesh == null && d.lensHeadMesh == null && d.lensTailMesh == null) return;
+            var lensShader = Shader.Find("PSX/CarLens");
+            var sheet = d.SkinCount > 0 && d.skinMaterials[0] != null ? d.skinMaterials[0].mainTexture : null;
+            if (d.lensBodyMesh == null || d.lensHeadMesh == null || d.lensTailMesh == null ||
+                lensShader == null || sheet == null)
+            {
+                log.Add($"FAIL {key}: lens variant incomplete (body {d.lensBodyMesh != null}, head {d.lensHeadMesh != null}, " +
+                        $"tail {d.lensTailMesh != null}, PSX/CarLens {lensShader != null}, sheet {sheet != null}) - not baked");
+                d.lensBodyMesh = d.lensHeadMesh = d.lensTailMesh = null;
+                return;
+            }
+            d.lensHeadMaterial = LensMaterial(key + "_lens_head", lensShader, sheet, 0.06f, 0.15f);
+            d.lensTailMaterial = LensMaterial(key + "_lens_tail", lensShader, sheet, 0.09f, 0.55f);
+            var lb = d.lensBodyMesh.bounds;
+            float off = Mathf.Max((lb.min - bodyMesh.bounds.min).magnitude, (lb.max - bodyMesh.bounds.max).magnitude);
+            int bodyTris = d.lensBodyMesh.triangles.Length / 3, aTris = bodyMesh.triangles.Length / 3;
+            log.Add($"{key,-13} lens variant: body {bodyTris} tris ({bodyTris - aTris:+0;-0} over A), covers " +
+                    $"{d.lensHeadMesh.triangles.Length / 3} head + {d.lensTailMesh.triangles.Length / 3} tail tris, " +
+                    $"bounds off the body by {off * 1000f:0.0} mm");
+        }
+
+        static Material LensMaterial(string name, Shader shader, Texture sheet, float opacity, float tint)
+        {
+            string path = MatDir + "/" + name + ".mat";
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(shader);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            mat.shader = shader;
+            mat.mainTexture = sheet;
+            mat.SetFloat("_Opacity", opacity);
+            mat.SetFloat("_TintStrength", tint);
+            mat.SetFloat("_Smoothness", 0.90f);
+            mat.SetFloat("_Affine", 0f);
+            mat.renderQueue = -1;
+            EditorUtility.SetDirty(mat);
+            return mat;
         }
 
         /// <summary>How many slices the top-surface scan cuts the car into, and

@@ -822,6 +822,9 @@ namespace PSXRacing
                 // prefab: stamp them here too (PSXTexDecode).
                 if (def.skinMaterials != null) foreach (var m in def.skinMaterials) PSXTexDecode.Stamp(m);
                 PSXTexDecode.Stamp(def.wheelMaterial);
+                // The lens variant's covers read the same sheet (PSX/CarLens).
+                PSXTexDecode.Stamp(def.lensHeadMaterial);
+                PSXTexDecode.Stamp(def.lensTailMaterial);
             }
             if (def == null && key != Default)
             {

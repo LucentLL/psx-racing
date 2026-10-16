@@ -7694,6 +7694,9 @@ namespace PSXRacing.LifeSim
             // The debug bench's drive-side pick (empty outside a debug career
             // and on every car that was only ever sold one way).
             RaceHandoff.DriveSidePick = DebugCarOps.SidePick(S, car);
+            // ...and its lamp-lens pick (A outside a debug career and on every
+            // shell without a lens variant).
+            RaceHandoff.LampLensB = DebugCarOps.LensB(S, car);
 
             // Parts the car is carrying become the advantage it races with.
             var tuned = car;

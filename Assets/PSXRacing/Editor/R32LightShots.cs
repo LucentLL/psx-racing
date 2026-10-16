@@ -25,6 +25,15 @@ namespace PSXRacing.EditorTools
     /// by tools\r32lights-shots.ps1) - a car without a map and the R32 with its
     /// lamps off render bit for bit as they did.
     ///
+    /// PSX_RL_MODE=lens (2026-10-16, the owner's lens test: "I want to test out
+    /// headlight/taillight lenses") shoots every view as an A/B PAIR - A the
+    /// opaque lamps, B the shell's lens variant (CarBody.SetLensCovers) - as
+    /// &lt;hour&gt;_&lt;view&gt;_A.png / _B.png: at NIGHT the rear running and
+    /// braking and the front with the headlamps on; by day a close rear
+    /// three-quarter (depth, parallax, the covers' reflections). Plus the
+    /// lens checks: B swaps in and out (mesh, covers, shadows, layers, lamp
+    /// inputs) and the bench offers the pick only where it should.
+    ///
     /// PSX_RL_VENUE (BlueRidge), PSX_RL_CAR (nissan_skyline_gt_r__r32___89, the
     /// gtr_89 shell), PSX_RL_HOURS ("NIGHT,DUSK"), PSX_RL_OUT (directory).
     /// Writes &lt;hour&gt;_&lt;view&gt;.png and PSXRacing_r32lights_shots.txt.
@@ -35,6 +44,7 @@ namespace PSXRacing.EditorTools
     {
         static readonly Queue<int> hours = new Queue<int>();
         internal static string outDir, carId;
+        internal static bool lensMode;
         static int trackIndex = -1;
         internal static bool first = true;
         internal static int fails;
@@ -45,6 +55,7 @@ namespace PSXRacing.EditorTools
         {
             string venue = Env("PSX_RL_VENUE", "BlueRidge");
             carId = Env("PSX_RL_CAR", "nissan_skyline_gt_r__r32___89");
+            lensMode = Env("PSX_RL_MODE", "") == "lens";
             outDir = Env("PSX_RL_OUT", Path.Combine(ProjectDir, "Screenshots", "r32lights"));
             Directory.CreateDirectory(outDir);
             log.AppendLine("R32 lamp shots: " + venue + ", " + carId);
@@ -166,6 +177,7 @@ namespace PSXRacing.EditorTools
 
             yield return Wait(3f);
             if (R32LightShots.first) yield return Checks(cam, player, lights, body);
+            if (R32LightShots.first && R32LightShots.lensMode) yield return LensChecks(player, lights, body);
 
             // The field drives off; the R32 sits on the line.
             yield return Wait(9f);
@@ -178,6 +190,18 @@ namespace PSXRacing.EditorTools
             foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None))
                 if (c.enabled) { c.enabled = false; canvases.Add(c); }
             var t = player.transform;
+            if (R32LightShots.lensMode)
+            {
+                yield return LensShots(cam, preset, h, player, body, def);
+                CarLights.BrakeOverride = -1f;
+                CarLights.SetAll(preset.lightsOn);
+                if (body != null) body.SetLensCovers(false);
+                cam.fieldOfView = fov;
+                foreach (var c in canvases) if (c != null) c.enabled = true;
+                if (rig != null) rig.enabled = true;
+                R32LightShots.Next();
+                yield break;
+            }
             Vector3 tl = def.tailLamp;
             Vector3 eye = t.TransformPoint(new Vector3(0f, tl.y + 0.32f, tl.z - 3.9f));
             Vector3 at = t.TransformPoint(new Vector3(0f, tl.y - 0.06f, tl.z));
@@ -205,6 +229,120 @@ namespace PSXRacing.EditorTools
 
             if (night) yield return ChaseBraking(cam, rm, player);
             R32LightShots.Next();
+        }
+
+        /// <summary>
+        /// THE LENS A/B PAIRS. Each view is taken twice from the same camera,
+        /// the same frame state, A then B. At night: straight behind with the
+        /// running lights, then braking; straight ahead with the headlamps on.
+        /// By day: a close rear three-quarter, lights off, where the covers'
+        /// depth and their reflections show.
+        /// </summary>
+        IEnumerator LensShots(Camera cam, TimeOfDay.Preset preset, string h, CarController player, CarBody body, CarModelDef def)
+        {
+            var L = R32LightShots.log;
+            var t = player.transform;
+            Vector3 tl = def.tailLamp, hl = def.headLamp;
+            var views = new List<(string name, Vector3 eye, Vector3 at, float fov, bool run, float brake)>();
+            if (preset.name == "NIGHT")
+            {
+                Vector3 rEye = new Vector3(0f, tl.y + 0.32f, tl.z - 3.9f), rAt = new Vector3(0f, tl.y - 0.06f, tl.z);
+                views.Add(("rear_running", rEye, rAt, 30f, true, 0f));
+                views.Add(("rear_braking", rEye, rAt, 30f, true, 1f));
+                views.Add(("front_headlights", new Vector3(0f, hl.y + 0.30f, hl.z + 3.9f),
+                           new Vector3(0f, hl.y - 0.05f, hl.z), 30f, true, 0f));
+            }
+            else
+            {
+                views.Add(("rear34_close", new Vector3(tl.x + 1.55f, tl.y + 0.30f, tl.z - 2.0f),
+                           new Vector3(tl.x * 0.45f, tl.y - 0.04f, tl.z + 0.05f), 32f, false, 0f));
+            }
+            foreach (var v in views)
+            {
+                foreach (bool b in new[] { false, true })
+                {
+                    body.SetLensCovers(b);
+                    CarLights.SetAll(v.run);
+                    CarLights.BrakeOverride = v.brake;
+                    cam.fieldOfView = v.fov;
+                    Vector3 eye = t.TransformPoint(v.eye);
+                    cam.transform.SetPositionAndRotation(eye, Quaternion.LookRotation(t.TransformPoint(v.at) - eye, Vector3.up));
+                    yield return Wait(0.6f);
+                    var lights = player.GetComponent<CarLights>();
+                    L.AppendLine($"  {v.name} {(b ? "B" : "A")}: covers shown {body.LensCoversShown}, lit {(lights != null && lights.LensCoversLit)}, " +
+                                 $"head map {(lights != null && lights.HasHeadMap)}, head sprites lit {HeadSprites(lights)}");
+                    yield return Grab(cam, h + "_" + v.name + (b ? "_B" : "_A"));
+                }
+            }
+        }
+
+        /// <summary>B in and out on the live R32, and the bench's gate.</summary>
+        IEnumerator LensChecks(CarController player, CarLights lights, CarBody body)
+        {
+            var C = (System.Action<bool, string, object>)R32LightShots.Check;
+            R32LightShots.log.AppendLine("lens variant (B):");
+            var def = body != null ? body.Def : null;
+            C(def != null && def.HasLensVariant, "the R32's shell carries a lens variant", def != null ? def.key : "-");
+            if (def == null || !def.HasLensVariant || lights == null) yield break;
+            C(lights.HasHeadMap && HeadSprites(lights) == 0, "the R32 draws its headlamps from the RGBA map, head-lens sprites off",
+              $"head map {lights.HasHeadMap}, sprites {HeadSprites(lights)}");
+            C(!body.LensCoversShown, "A by default", null);
+            CarLights.SetAll(true);
+            body.SetLensCovers(true);
+            yield return Wait(0.3f);
+            var hr = body.LensRenderer(0);
+            var tr = body.LensRenderer(1);
+            var block = new MaterialPropertyBlock();
+            bool coversOk = hr != null && tr != null && hr.enabled && tr.enabled &&
+                            hr.shadowCastingMode == ShadowCastingMode.Off && tr.shadowCastingMode == ShadowCastingMode.Off &&
+                            hr.renderingLayerMask == body.bodyRenderer.renderingLayerMask &&
+                            hr.sharedMaterial == def.lensHeadMaterial && tr.sharedMaterial == def.lensTailMaterial;
+            C(body.bodyFilter.sharedMesh == def.lensBodyMesh && coversOk,
+              "B swaps in: the recessed body on the filter, two covers on, casting no shadow, on the body's rendering layers",
+              hr != null ? $"layers {hr.renderingLayerMask} vs {body.bodyRenderer.renderingLayerMask}, shadow {hr.shadowCastingMode}" : "no covers");
+            float run = -1f, layer = -1f, head = -1f;
+            if (tr != null) { tr.GetPropertyBlock(block); run = block.GetFloat("_RunningLights"); head = block.GetFloat("_HeadLights"); }
+            body.bodyRenderer.GetPropertyBlock(block);
+            layer = block.GetFloat("_LensLayer");
+            C(lights.LensCoversLit && run == 1f && head == 1f && layer == 1f,
+              "...lit with the body (covers running 1, headlamps 1; body lens layer 1)", $"cover run {run} head {head}, body layer {layer}");
+            body.SetLensCovers(false);
+            yield return Wait(0.3f);
+            body.bodyRenderer.GetPropertyBlock(block);
+            layer = block.GetFloat("_LensLayer");
+            C(body.bodyFilter.sharedMesh == def.bodyMesh && hr != null && !hr.enabled && !tr.enabled &&
+              !lights.LensCoversLit && layer == 0f,
+              "B swaps out: the A body back, covers off and unlit, body lens layer 0", $"layer {layer}");
+            CarLights.SetAll(TimeOfDay.All[hour].lightsOn);
+
+            // The bench's gate (DebugCarOps), on a scratch career.
+            var s = new LifeSim.LifeState { debugMode = true };
+            var r32 = new LifeSim.OwnedCar { id = "lens_r32", specId = R32LightShots.carId };
+            string otherId = null;
+            foreach (var spec in CarCatalog.All)
+            {
+                var d = CarModelLibrary.LoadFor(spec);
+                if (d != null && !d.HasLensVariant) { otherId = spec.id; break; }
+            }
+            var other = new LifeSim.OwnedCar { id = "lens_other", specId = otherId };
+            C(LifeSim.DebugCarOps.CanPickLens(s, r32) && !LifeSim.DebugCarOps.CanPickLens(s, other) &&
+              !LifeSim.DebugCarOps.LensB(s, r32),
+              "the bench offers LAMP LENSES on the R32 only, A by default", otherId);
+            bool set = LifeSim.DebugCarOps.SetLens(s, r32, true);
+            bool refused = !LifeSim.DebugCarOps.SetLens(s, other, true);
+            s.debugMode = false;
+            C(set && refused && r32.debugLampLens == "B" && !LifeSim.DebugCarOps.LensB(s, r32),
+              "...B is stored on the car, refused elsewhere, and inert outside a debug career", r32.debugLampLens);
+        }
+
+        /// <summary>How many of a car's two head-lens sprites are drawn.</summary>
+        static int HeadSprites(CarLights l)
+        {
+            int n = 0;
+            if (l == null) return -1;
+            foreach (var mr in l.GetComponentsInChildren<MeshRenderer>(true))
+                if (mr.name.StartsWith("Headlight") && mr.enabled) n++;
+            return n;
         }
 
         /// <summary>The R32 on autopilot (as RacePlayCheck drives the player),

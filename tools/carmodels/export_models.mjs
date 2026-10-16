@@ -298,8 +298,12 @@ const MODELS = [
     tex: `${here}/converted/ford_transit`, skins: /^ford_transit_atlas_512$/ },
   // The owner's 2026-10-12 set: R32 v05 (player), Accord coupe v05 (player),
   // Accord sedan v05 and the three liveried full-size sedans (traffic).
+  // `lens`: the owner's lens test B (2026-10-16, R32_LensTest_v04 via
+  // blend2obj.py) - the same car with recessed lamp optics and two separate
+  // clear-cover objects - written beside the body as the shell's LENS VARIANT.
   { key: 'gtr_89', obj: `${here}/converted/gtr_89/gtr_89.obj`,
-    tex: `${here}/converted/gtr_89`, skins: /^gtr_89_512x256$/, gt4LengthM: 4.545 },
+    tex: `${here}/converted/gtr_89`, skins: /^gtr_89_512x256$/, gt4LengthM: 4.545,
+    lens: `${here}/converted/gtr_89_lens/gtr_89_lens.obj` },
   { key: 'coupe_03', obj: `${here}/converted/coupe_03/coupe_03.obj`,
     tex: `${here}/converted/coupe_03`, skins: /^coupe_03_512x256$/, gt4LengthM: 4.680 },
   { key: 'sedan_98', obj: `${here}/converted/sedan_98/sedan_98.obj`,
@@ -471,6 +475,38 @@ illum 1
 map_Kd textures/${first}.png
 `);
     report.push(`${m.key.padEnd(14)} lamps-up body=${stats[mtl].faces}f (x${s.toFixed(4)}, the body's scale)`);
+  }
+
+  // LENS VARIANT (CarModelDef.lensBodyMesh / lensHeadMesh / lensTailMesh): the
+  // body with its lamp optics recessed behind separate clear covers. Three
+  // files - `${key}_lens.obj` (the body: every non-wheel, non-cover object),
+  // `${key}_lens_head.obj` and `${key}_lens_tail.obj` (one cover object each,
+  // their own files because the covers wear their own material and Unity's
+  // OBJ importer merges by material). Scaled by the A body's factor, never its
+  // own, so all of them coincide with the body; the wheels are the A wheels.
+  if (m.lens) {
+    const ln = parseObj(m.lens);
+    for (const p of ln.v) { p[0] *= s; p[1] *= s; p[2] *= s; }
+    const isHead = n => /^Headlight_Lenses/i.test(n), isTail = n => /^Taillight_Lenses/i.test(n);
+    const groups = { body: [], head: [], tail: [] };
+    for (const o of ln.objects) {
+      if (wheelSlot(o.name)) continue;
+      (isHead(o.name) ? groups.head : isTail(o.name) ? groups.tail : groups.body).push(...o.faces);
+    }
+    for (const [suffix, faces] of [['_lens', groups.body], ['_lens_head', groups.head], ['_lens_tail', groups.tail]]) {
+      if (faces.length === 0) throw new Error(`${m.key}: lens variant has no ${suffix} faces`);
+      const mtl = m.key + suffix;
+      stats[mtl] = writeObj(path.join(dir, mtl + '.obj'), ln, [{ name: mtl, faces }], mtl);
+      fs.writeFileSync(path.join(dir, mtl + '.mtl'),
+        `# PSX Racing car model
+newmtl ${mtl}
+Ka 1 1 1
+Kd 1 1 1
+illum 1
+map_Kd textures/${first}.png
+`);
+    }
+    report.push(`${m.key.padEnd(14)} lens variant body=${stats[m.key + '_lens'].faces}f head=${stats[m.key + '_lens_head'].faces}f tail=${stats[m.key + '_lens_tail'].faces}f (x${s.toFixed(4)}, the body's scale)`);
   }
 
   for (const f of skins)
