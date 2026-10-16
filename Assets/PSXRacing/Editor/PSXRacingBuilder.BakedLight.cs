@@ -55,9 +55,10 @@ namespace PSXRacing.EditorTools
         const float SkyReach = 220f;        // how far a bearing is marched (m)
         const int SkyAz = 16, SkyEl = 6;
         // what a crown takes of the cells it covers. 0.70 (first cut) left the
-        // canopy floor at 0.36 and moved a noon frame ~8%: the dapple lets a
-        // third of the SUN through under leaves, so the ambient is a quarter
-        // of the light there and has to go nearly all the way to read.
+        // canopy floor at 0.36 and moved a noon frame ~8%: the dapple let a
+        // third of the SUN through under leaves (a sixth since 2026-10-15),
+        // so the ambient is a quarter of the light there and has to go
+        // nearly all the way to read.
         const float SkyLeafK = 0.85f;
         const float SkyFloor = 0.15f;       // never below: the ambient is the shade's only light
         const float SkyTreeReach = 36f;     // crowns further than this are left to the horizon

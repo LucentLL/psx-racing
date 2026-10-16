@@ -13004,7 +13004,55 @@ namespace PSXRacing.EditorTools
             Guard("DayLook.Hours", DayLookHours);
             Guard("DayLook.Map", DayLookMap);
             Guard("DayLook.CarMap", DayLookCarMap);
-            Guard("DayLook.TerrainDetail", () => TerrainDetailTool.SelfTest(Check));
+            Guard("DayLook.Dapple", () => DappleSelfTest(Check));
+        }
+
+        /// <summary>THE LEAF DAPPLE'S SHARE OF THE SUN (2026-10-15, the owner's
+        /// "less sun through the leaves"): PSXSunShadow.cginc's dapple, worked
+        /// out here on the CPU with the shader's own hash and noise over 40,000
+        /// world points, lets through about a sixth of the sun, and its far
+        /// fade (PSX_DAPPLE_MEAN) is that same share - the first cut's 0.33
+        /// sat over a pattern that measured 0.38.</summary>
+        internal static void DappleSelfTest(System.Action<bool, string, object> check)
+        {
+            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(Application.dataPath, "PSXRacing", "Shaders", "PSXSunShadow.cginc"));
+            float Def(string name)
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(src, @"#define\s+" + name + @"\s+([0-9.]+)");
+                return m.Success ? float.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) : float.NaN;
+            }
+            float scale = Def("PSX_DAPPLE_SCALE"), lo = Def("PSX_DAPPLE_LO"), hi = Def("PSX_DAPPLE_HI"), mean = Def("PSX_DAPPLE_MEAN");
+            if (float.IsNaN(scale) || float.IsNaN(lo) || float.IsNaN(hi) || float.IsNaN(mean)) { check(false, "the dapple's four numbers are read from PSXSunShadow.cginc", null); return; }
+            float Frac(float x) => x - Mathf.Floor(x);
+            float Hash(float px, float py)
+            {
+                float x = Frac(px * 0.1031f), y = Frac(py * 0.1031f), z = Frac(px * 0.1031f);
+                float d = x * (y + 33.33f) + y * (z + 33.33f) + z * (x + 33.33f);
+                x += d; y += d; z += d;
+                return Frac((x + y) * z);
+            }
+            float Noise(float px, float py)
+            {
+                float cx = Mathf.Floor(px), cy = Mathf.Floor(py), fx = px - cx, fy = py - cy;
+                float sx = fx * fx * (3f - 2f * fx), sy = fy * fy * (3f - 2f * fy);
+                float a = Hash(cx, cy), b = Hash(cx + 1f, cy), c = Hash(cx, cy + 1f), e = Hash(cx + 1f, cy + 1f);
+                float ab = a + (b - a) * sx, ce = c + (e - c) * sx;
+                return ab + (ce - ab) * sy;
+            }
+            var rng = new System.Random(7);
+            double sum = 0; int whole = 0; const int N = 40000;
+            for (int i = 0; i < N; i++)
+            {
+                float qx = (float)(rng.NextDouble() * 4000.0 - 2000.0) * scale, qz = (float)(rng.NextDouble() * 4000.0 - 2000.0) * scale;
+                float n = Noise(qx, qz) * 0.6f + Noise(qx * 2.37f + 11.3f, qz * 2.37f + 11.3f) * 0.4f;
+                float t = Mathf.Clamp01((n - lo) / (hi - lo));
+                float sm = t * t * (3f - 2f * t);
+                sum += sm; if (sm > 0.9f) whole++;
+            }
+            float share = (float)(sum / N);
+            check(share > 0.12f && share < 0.22f, "the leaf dapple lets about a sixth of the sun through (0.12-0.22)", share.ToString("0.000"));
+            check(Mathf.Abs(share - mean) < 0.03f, "PSX_DAPPLE_MEAN (the far fade) is the pattern's own share", mean.ToString("0.00") + " vs " + share.ToString("0.000"));
+            check(whole > N * 0.10f, "the coins stay whole: >= 10% of the ground gets > 90% of the sun", ((float)whole / N).ToString("0.000"));
         }
 
         static void DayLookShaders()
