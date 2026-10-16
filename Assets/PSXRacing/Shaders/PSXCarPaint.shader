@@ -171,6 +171,9 @@ Shader "PSX/CarPaint"
         // 1 on a lens variant's body (recessed optics behind clear covers):
         // the covers carry their share of the light (PSXLampMap.cginc).
         [HideInInspector] _LensLayer ("Lens layer 0/1", Float) = 0
+        // 1 on the PLAYER'S renderers only (a property block, CabinClip): cut at
+        // the windscreen for a camera inside the car (PSXCabinClip.cginc).
+        [HideInInspector] _PSXCabinOwn ("Cut for a camera inside 0/1", Float) = 0
     }
     SubShader
     {
@@ -191,6 +194,8 @@ Shader "PSX/CarPaint"
             // The hour's exposure, the one tone curve and the emitter mask
             // (THE COLOUR PASS in the header).
             #include "PSXTone.cginc"
+            // The player's own shell, cut at its windscreen for a camera inside it.
+            #include "PSXCabinClip.cginc"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
@@ -430,6 +435,7 @@ Shader "PSX/CarPaint"
 
             fixed4 frag (v2f i) : SV_Target
             {
+                PSXCabinClip(i.wpos);
                 fixed4 tex = PSXMainTex(_MainTex, i.uvw.xy / i.uvw.z) * _Color;
                 clip(tex.a - _Cutoff);
 

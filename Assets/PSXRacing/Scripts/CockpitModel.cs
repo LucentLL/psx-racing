@@ -81,6 +81,10 @@ namespace PSXRacing
             /// field (deg), near clip (authored m).</summary>
             public float camPitch, camVFov, camNear;
             public float dashFrontZ;
+            /// <summary>The dash's top where the windscreen meets it, centre
+            /// band, authored metres: the line from the eye over it is the one
+            /// the game stands on the shell's cowl (CockpitInterior.SightDrop).</summary>
+            public Vector3 screenBase;
             public GaugeDef[] gauges;
             public PaneDef[] glass;
             public MirrorDef mirror;
