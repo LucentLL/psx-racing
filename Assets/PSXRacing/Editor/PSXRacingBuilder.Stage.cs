@@ -7341,6 +7341,7 @@ namespace PSXRacing.EditorTools
         {
             var root = new GameObject("Forest");
             root.transform.SetParent(parent, false);
+            skyCrowns.Clear();
 
             // Both faces drawn, in every season's dress — see PSX/Lit's _Cull.
             var mat = MakeMat(MeshPrefix + "Forest", StageGenDir + "/TreeAtlas.png", cutoff: 0.5f, twoSided: true);
@@ -7490,6 +7491,7 @@ namespace PSXRacing.EditorTools
                         // takes the trunk's radius (and, per season, how far the
                         // low foliage reaches) off what the billboard paints.
                         trunks.Add(new Vector4(wx, ground - 0.25f, wz, StageTreeWidth(sp, h)));
+                        NoteSkyCrown(wx, ground - 0.25f, wz, StageTreeWidth(sp, h), h, sp.conifer);
                         trunkCells.Add((byte)idx);
                     }
 

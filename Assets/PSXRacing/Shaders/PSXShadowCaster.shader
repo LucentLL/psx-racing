@@ -16,7 +16,7 @@
 // its far one on every platform - so reader and writer cannot disagree.
 //
 // TWO NUMBERS A TEXEL, because a wall and a tree are not the same kind of
-// shade. A wall stops the sun. A tree's crown lets a third of it through in
+// shade. A wall stops the sun. A tree's crown lets a sixth of it through in
 // coins of light, and 17 cm texels under four overlapping cards cannot draw
 // those coins - so the receiver is told "there are LEAVES between you and the
 // sun" and draws the dapple itself. The first cut kept ONE depth and a flag

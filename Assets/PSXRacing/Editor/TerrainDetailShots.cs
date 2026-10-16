@@ -50,8 +50,12 @@ namespace PSXRacing.EditorTools
             log.AppendLine("terrain detail shots: " + venue + ", " + carId + ", " + prefix);
             // the layer's self-test lines first (PSX_TD_SELFTEST=0 skips them)
             if (Env("PSX_TD_SELFTEST", "1") != "0")
-                TerrainDetailTool.SelfTest((ok, what, got) =>
-                    log.AppendLine((ok ? "  ok   " : "  FAIL ") + what + (got != null ? "  (got " + got + ")" : "")));
+            {
+                System.Action<bool, string, object> line = (ok, what, got) =>
+                    log.AppendLine((ok ? "  ok   " : "  FAIL ") + what + (got != null ? "  (got " + got + ")" : ""));
+                TerrainDetailTool.SelfTest(line);
+                LifeSimSelfTest.DappleSelfTest(line);
+            }
             if (trackIndex < 0) { Finish("no venue " + venue); return; }
             StartNext();
         }
@@ -65,7 +69,19 @@ namespace PSXRacing.EditorTools
         static void StartNext()
         {
             if (dresses.Count == 0) { Finish("done"); return; }
-            dress = dresses.Dequeue();
+            // A dress may carry its own weather and hour: "summer+rain@sunset"
+            // (Weather and TimeOfDay names); the shots are named with them,
+            // "summer_rain_sunset_wp1630". Plain "summer"/"snow" are as before.
+            string token = dresses.Dequeue();
+            string[] at = token.Split('@');
+            string[] plus = at[0].Split('+');
+            dress = token.Replace('+', '_').Replace('@', '_');
+            int dressHour = hour;
+            if (at.Length > 1)
+            {
+                int h = System.Array.FindIndex(TimeOfDay.All, t => t.name.Equals(at[1], System.StringComparison.OrdinalIgnoreCase));
+                if (h >= 0) dressHour = h;
+            }
             var scenes = EditorBuildSettings.scenes;
             int s = TrackCatalog.SceneIndex(trackIndex);
             if (s < 0 || s >= scenes.Length || !File.Exists(scenes[s].path)) { Finish("venue not built"); return; }
@@ -73,10 +89,12 @@ namespace PSXRacing.EditorTools
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;
             RaceHandoff.TrackIndex = trackIndex;
-            RaceHandoff.TimeOfDayIndex = hour;
-            bool snow = dress == "snow";
+            RaceHandoff.TimeOfDayIndex = dressHour;
+            bool snow = plus[0] == "snow";
             // The snow dress is worn under a snowy sky only (Seasons.DressIndex).
-            RaceHandoff.WeatherOverride = (int)(snow ? Weather.Snow : Weather.Clear);
+            Weather wx = snow ? Weather.Snow : Weather.Clear;
+            if (plus.Length > 1 && System.Enum.TryParse(plus[1], true, out Weather w)) wx = w;
+            RaceHandoff.WeatherOverride = (int)wx;
             RaceHandoff.TrafficLevel = 0;
             Season want = snow ? Season.Winter : Season.Summer;
             int day = 1;
