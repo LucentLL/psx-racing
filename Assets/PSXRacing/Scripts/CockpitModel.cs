@@ -145,6 +145,38 @@ namespace PSXRacing
             public Mesh mesh;
             /// <summary>The game material of each submesh.</summary>
             public string[] mats;
+            /// <summary>A glass part's least-squares plane (model space,
+            /// authored metres): its centroid and unit normal, sign
+            /// arbitrary. Measured while the vertices are in hand - the
+            /// player's meshes are not readable after the upload.</summary>
+            public Vector3 planePoint, planeNormal;
+            /// <summary>A glass part's vertices (model space), for framing.</summary>
+            public Vector3[] points;
+        }
+
+        /// <summary>The plane that best fits `pos` (Ernerfeldt's
+        /// determinant pick over the covariance; fine for a broad pane).</summary>
+        public static void FitPlane(Vector3[] pos, out Vector3 centroid, out Vector3 normal)
+        {
+            centroid = Vector3.zero;
+            normal = Vector3.up;
+            if (pos == null || pos.Length < 3) return;
+            foreach (var p in pos) centroid += p;
+            centroid /= pos.Length;
+            double xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
+            foreach (var p in pos)
+            {
+                Vector3 r = p - centroid;
+                xx += r.x * r.x; xy += r.x * r.y; xz += r.x * r.z;
+                yy += r.y * r.y; yz += r.y * r.z; zz += r.z * r.z;
+            }
+            double dx = yy * zz - yz * yz, dy = xx * zz - xz * xz, dz = xx * yy - xy * xy;
+            double m = System.Math.Max(dx, System.Math.Max(dy, dz));
+            if (m <= 0) return;
+            Vector3 n = m == dx ? new Vector3((float)dx, (float)(xz * yz - xy * zz), (float)(xy * yz - xz * yy))
+                      : m == dy ? new Vector3((float)(xz * yz - xy * zz), (float)dy, (float)(xy * xz - yz * xx))
+                      : new Vector3((float)(xy * yz - xz * yy), (float)(xy * xz - yz * xx), (float)dz);
+            if (n.sqrMagnitude > 0f) normal = n.normalized;
         }
 
         // ------------------------------------------------------------------
@@ -324,7 +356,9 @@ namespace PSXRacing
                     mesh.RecalculateTangents();
                     // Kept readable in the editor, where the shot tool measures it.
                     mesh.UploadMeshData(!Application.isEditor);
-                    into[name] = new Part { name = name, mesh = mesh, mats = mats };
+                    var part = new Part { name = name, mesh = mesh, mats = mats };
+                    if (name.StartsWith("glass_")) { FitPlane(pos, out part.planePoint, out part.planeNormal); part.points = pos; }
+                    into[name] = part;
                 }
             }
         }

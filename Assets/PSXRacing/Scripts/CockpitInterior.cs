@@ -39,6 +39,9 @@ namespace PSXRacing
     /// THE MIRROR is live: a small camera looking back renders into the
     /// mirror face's own texture, every other frame, only while this shows.
     ///
+    /// THE WINDSCREEN reflects the cabin, faintly (<see cref="CockpitReflection"/>:
+    /// a planar, interior-only reflection; desktop with REFLECTIONS on).
+    ///
     /// SHARP UNDER THE SPEED BLUR (every renderer carries
     /// SpeedBlur.CarRenderingLayer), ONLY THE DRIVER'S CAMERA SEES IT, and
     /// the driver's camera does not see the car's own shell (its faces would
@@ -138,6 +141,8 @@ namespace PSXRacing
         string[] gaugeKeys = new string[4];
         Material[] glassMats;
         Material mirrorMat;
+        CockpitReflection refl;
+        CockpitModel.Part screenPart;
         BoxCollider box;
         CarBody body;
         GaugeCluster cluster;
@@ -164,6 +169,9 @@ namespace PSXRacing
         public CockpitCargoMirror Mirror => mirror;
         public CockpitGauges Gauges => gauges;
         public bool RHD => Current.rhd;
+        public bool Shown => shown;
+        /// <summary>The windscreen's reflection of the cabin, or null.</summary>
+        public CockpitReflection Reflection => refl;
 
         public static CockpitInterior Ensure(CarController car, Camera driver)
         {
@@ -215,14 +223,19 @@ namespace PSXRacing
             }
             var glassShader = Shader.Find("PSX/CabinGlass");
             glassMats = new Material[lay.glass.Length];
+            var panes = new System.Collections.Generic.List<Renderer>();
+            Renderer screen = null;
             for (int i = 0; i < lay.glass.Length; i++)
             {
                 var g = lay.glass[i];
                 var r = Place(parts, g.part, model);
+                if (r != null) panes.Add(r);
+                if (g.key == "windshield" && r != null) { screen = r; parts.TryGetValue(g.part, out screenPart); }
                 if (r == null || glassShader == null) continue;
                 glassMats[i] = GlassMaterial(glassShader, g);
                 r.sharedMaterial = glassMats[i];
             }
+            BuildReflection(screen, panes);
 
             wheelPivot = new GameObject("WheelPivot").transform;
             wheelPivot.SetParent(model, false);
@@ -238,6 +251,29 @@ namespace PSXRacing
             cargoRoot = new GameObject("CargoMirror").transform;
             cargoRoot.SetParent(transform, false);
             CollectRenderers();
+        }
+
+        /// <summary>The windscreen's reflection of the cabin
+        /// (<see cref="CockpitReflection"/>): a second renderer on the
+        /// screen's mesh, under PSX/CabinGlass's rain.</summary>
+        void BuildReflection(Renderer screen, System.Collections.Generic.List<Renderer> panes)
+        {
+            var sh = Shader.Find("PSX/CabinGlassReflect");
+            var mf = screen != null ? screen.GetComponent<MeshFilter>() : null;
+            if (sh == null || mf == null || mf.sharedMesh == null || screenPart == null) return;
+            var go = new GameObject(screen.name + "_reflect");
+            go.layer = gameObject.layer;
+            go.transform.SetParent(screen.transform.parent, false);
+            go.AddComponent<MeshFilter>().sharedMesh = mf.sharedMesh;
+            var r = go.AddComponent<MeshRenderer>();
+            var m = new Material(sh) { name = "Cockpit_Glass_Reflect", hideFlags = HideFlags.HideAndDontSave };
+            m.SetFloat("_Gain", CockpitReflection.Gain);
+            m.SetFloat("_Peak", CockpitReflection.Peak);
+            m.SetFloat("_Lift", CockpitReflection.Lift);
+            r.sharedMaterial = m;
+            panes.Add(r);
+            refl = gameObject.AddComponent<CockpitReflection>();
+            refl.Init(this, r, m, panes);
         }
 
         /// <summary>A part as a renderer under `parent`, its submeshes on the
@@ -286,6 +322,7 @@ namespace PSXRacing
                 r.renderingLayerMask |= SpeedBlur.CarRenderingLayer;
                 SunShadows.Exclude(r.gameObject);
             }
+            if (refl != null) refl.Collect(rends);
         }
 
         /// <summary>Re-measure when the body or the car's drive side changed.</summary>
@@ -340,6 +377,7 @@ namespace PSXRacing
             ActiveNearClip = NearClipFor(f.scale);
             CollectRenderers();
             CollectShell();
+            if (refl != null) refl.Fit(model, screenPart);
         }
 
         /// <summary>The mirrored cluster's roles: the LHD file's tach face sits
@@ -488,6 +526,13 @@ namespace PSXRacing
             HideShell(true);
             mirrorCam.Render();
             SetVisible(true);
+        }
+
+        /// <summary>For the shot tool (edit mode, no frames): the windscreen's
+        /// reflection drawn now, by <see cref="CockpitReflection.Wanted"/>.</summary>
+        public void PreviewReflection()
+        {
+            if (refl != null) refl.Tick(true);
         }
 
         /// <summary>A small camera at the mirror looking back, into the

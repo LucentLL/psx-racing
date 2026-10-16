@@ -207,6 +207,197 @@ namespace PSXRacing.EditorTools
             }
         }
 
+        /// <summary>
+        /// The windscreen's reflection of the cabin (CockpitReflection),
+        /// photographed by tools/cockpit/cockpit-shots.ps1 -Reflect: noon at
+        /// the spot along the venue where the view through the glass is
+        /// DARKEST (trees, shade) without and with it, noon where it is
+        /// BRIGHTEST (sky), night, and RHD. Writes wsr_*.png; logs the
+        /// render's draws, tris, size and time ([Reflect] lines) and the
+        /// self-test's line.
+        /// </summary>
+        public static void CaptureReflection()
+        {
+            string want = System.Environment.GetEnvironmentVariable("PSX_SHOT_VENUE");
+            if (string.IsNullOrEmpty(want)) want = "BlueRidge";
+            var def = TrackCatalog.At(0);
+            foreach (var d in TrackCatalog.All) if (d.id == want) { def = d; break; }
+            if (!PSXScreenshotTool.Open(def, out var cam, out var player)) return;
+            var t = player.transform;
+            var car = player.GetComponent<CarController>();
+            var box = player.GetComponent<BoxCollider>();
+            var body = player.GetComponent<CarBody>();
+            var path = Object.FindFirstObjectByType<TrackPath>();
+            var cv = Object.FindFirstObjectByType<CockpitView>();
+            var globals = Object.FindFirstObjectByType<PSXGlobals>();
+            float keepFov = cam.fieldOfView, keepNear = cam.nearClipPlane;
+            var keepView = ChaseCamera.Current;
+            ChaseCamera.PreviewView(ChaseCamera.View.Cockpit);
+            Debug.Log("[Reflect] self-test line: " + (CockpitReflection.SelfCheck(out string why) ? "PASS " : "FAIL ") + why);
+            CockpitInterior ci = null;
+            float lift = path != null ? t.position.y - path.GetPoint(path.NearestIndex(t.position)).y : 0f;
+            int hourNow = -1;
+            void Hour(int h)
+            {
+                if (h == hourNow || globals == null || globals.sun == null) return;
+                TimeOfDay.Apply(h, globals.sun);
+                globals.Apply();
+                hourNow = h;
+            }
+            void PlaceAt(int i)
+            {
+                if (path == null) return;
+                Vector3 at = path.GetPoint(i);
+                Vector3 fwd = path.GetPoint(i + 1) - path.GetPoint(i - 1); fwd.y = 0f; fwd.Normalize();
+                Vector3 right = Vector3.Cross(Vector3.up, fwd).normalized;
+                t.SetPositionAndRotation(at + right * (path.roadWidth * 0.25f) + Vector3.up * lift, Quaternion.LookRotation(fwd, Vector3.up));
+                Physics.SyncTransforms();
+            }
+            bool Pose(bool rhd, bool cabin, out Vector3 pos, out Quaternion rot)
+            {
+                DriveSide.Override = rhd;
+                pos = Vector3.zero; rot = Quaternion.identity;
+                if (car != null) { car.currentRPM = 3000f; car.speedKmh = 60f; }
+                if (cv != null) cv.PreviewShow(true);
+                if (ci == null) ci = player.GetComponentInChildren<CockpitInterior>(true);
+                if (ci == null) { Debug.LogError("[Reflect] no CockpitInterior was built on the player"); return false; }
+                ci.Refit();
+                ci.Show(cabin, cabin);
+                ci.HideShell(true);
+                ci.SetSteer(0f, car != null ? car.maxSteerLowSpeedDeg : 34f);
+                CockpitInterior.PreviewRain(0f, 0f, 0f);
+                ci.Tick(0f, null);
+                Vector3 c = box != null ? box.center : new Vector3(0f, 0.72f, 0.05f);
+                Vector3 s = box != null ? box.size : new Vector3(1.72f, 1.0f, 4.1f);
+                Vector3 eye = ChaseCamera.MountOffset(ChaseCamera.View.Cockpit, c, s, body != null ? body.Def : null,
+                                                      body != null ? body.LengthScale : 1f, body != null ? body.BodyLift : 0f, rhd);
+                pos = t.TransformPoint(eye);
+                rot = t.rotation * Quaternion.Euler(ChaseCamera.MountPitch(ChaseCamera.View.Cockpit), 0f, 0f);
+                cam.fieldOfView = ChaseCamera.FOVFor(ChaseCamera.View.Cockpit, 58f, 0f, 1f, 16f / 9f);
+                cam.nearClipPlane = CockpitInterior.NearClipFor(ci.Current.scale, 0f);
+                return true;
+            }
+
+            try
+            {
+                // The darkest and brightest view through the glass by day,
+                // along the whole venue: the band of the frame the screen
+                // fills, measured with the cabin hidden.
+                Hour(TimeOfDay.Noon);
+                int dark = -1, bright = -1;
+                float lumDark = float.MaxValue, lumBright = float.MinValue;
+                if (path != null)
+                {
+                    var probe = new RenderTexture(160, 90, 24, RenderTextureFormat.ARGB32);
+                    var read = new Texture2D(160, 90, TextureFormat.RGBA32, false);
+                    for (int k = 1; k < 40; k++)
+                    {
+                        int i = Mathf.Clamp(Mathf.RoundToInt(k / 40f * (path.Count - 1)), 2, path.Count - 3);
+                        PlaceAt(i);
+                        if (!Pose(false, false, out var pos, out var rot)) break;
+                        cam.transform.SetPositionAndRotation(pos, rot);
+                        var req = new UnityEngine.Rendering.RenderPipeline.StandardRequest { destination = probe };
+                        UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(cam, req);
+                        RenderTexture.active = probe;
+                        read.ReadPixels(new Rect(0, 0, 160, 90), 0, 0);
+                        RenderTexture.active = null;
+                        float sum = 0f; int n = 0;
+                        for (int y = 43; y < 67; y++)
+                            for (int x = 48; x < 112; x++) { var px = read.GetPixel(x, y); sum += 0.2126f * px.r + 0.7152f * px.g + 0.0722f * px.b; n++; }
+                        float lum = sum / Mathf.Max(1, n);
+                        if (lum < lumDark) { lumDark = lum; dark = i; }
+                        if (lum > lumBright) { lumBright = lum; bright = i; }
+                    }
+                    probe.Release();
+                    Object.DestroyImmediate(probe);
+                    Object.DestroyImmediate(read);
+                }
+                Debug.Log($"[Reflect] {def.id}: darkest view through the glass at wp {dark} (luma {lumDark:0.000}), brightest at wp {bright} (luma {lumBright:0.000})");
+
+                // (name, spot, rhd, hour, reflection on)
+                var shots = new (string, int, bool, int, bool)[]
+                {
+                    ("day_trees_before", dark, false, TimeOfDay.Noon, false),
+                    ("day_trees_after", dark, false, TimeOfDay.Noon, true),
+                    ("day_sky_after", bright, false, TimeOfDay.Noon, true),
+                    ("night_after", dark, false, TimeOfDay.Night, true),
+                    ("rhd_day_trees_after", dark, true, TimeOfDay.Noon, true),
+                };
+                foreach (var (name, spot, rhd, hour, on) in shots)
+                {
+                    if (spot >= 0) PlaceAt(spot);
+                    Hour(hour);
+                    PSXScreenshotTool.AspectOverride = 16f / 9f;
+                    if (!Pose(rhd, true, out var pos, out var rot)) break;
+                    CockpitReflection.Override = on;
+                    // One throwaway frame first: the cabin's lighting reads
+                    // what the last camera left (its car's shadow map, the
+                    // lamp table, the exposure) - in play that is the last
+                    // frame at this spot, here it would be the last SHOT.
+                    cam.transform.SetPositionAndRotation(pos, rot);
+                    StreetLights.Push(pos, rot * Vector3.forward);
+                    var warm = RenderTexture.GetTemporary(160, 90, 24);
+                    UnityEngine.Rendering.RenderPipeline.SubmitRenderRequest(cam,
+                        new UnityEngine.Rendering.RenderPipeline.StandardRequest { destination = warm });
+                    RenderTexture.ReleaseTemporary(warm);
+                    ci.PreviewReflection();
+                    PSXScreenshotTool.ShotAs(cam, "wsr_" + name, pos, rot);
+                    var r = ci.Reflection;
+                    if (on && r != null && r.Texture != null)
+                    {
+                        // The reflection itself, for judging (not a frame of the game).
+                        var rt = r.Texture;
+                        void Dump(string tag)
+                        {
+                            var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+                            RenderTexture.active = rt;
+                            tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+                            RenderTexture.active = null;
+                            System.IO.File.WriteAllBytes(System.IO.Path.Combine("Screenshots", "reflrt_" + tag + ".png"), tex.EncodeToPNG());
+                            Object.DestroyImmediate(tex);
+                        }
+                        Dump(name);
+                    }
+                    Debug.Log($"[Reflect] {name}: {(rhd ? "RHD" : "LHD")} wp {spot} on {on} active {r != null && r.Active} " +
+                              (r != null && r.Texture != null ? $"rt {r.Texture.width}x{r.Texture.height} draws {r.LastDraws} tris {r.LastTris} rake {r.RakeDeg:0.0} deg" : "no reflection"));
+                }
+
+                // The cost: forced renders, then one read back to wait for the GPU.
+                var rf = ci != null ? ci.Reflection : null;
+                if (rf != null && rf.Texture != null)
+                {
+                    CockpitReflection.Override = true;
+                    Hour(TimeOfDay.Noon);
+                    var one = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+                    void Sync() { RenderTexture.active = rf.Texture; one.ReadPixels(new Rect(0, 0, 1, 1), 0, 0); one.Apply(); RenderTexture.active = null; }
+                    Sync();
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    for (int k = 0; k < 10; k++) Sync();
+                    double syncMs = sw.Elapsed.TotalMilliseconds / 10.0;
+                    const int N = 60;
+                    sw.Restart();
+                    for (int k = 0; k < N; k++) ci.PreviewReflection();
+                    Sync();
+                    double each = (sw.Elapsed.TotalMilliseconds - syncMs) / N;
+                    Debug.Log($"[Reflect] cost: {N} renders {each:0.000} ms each (CPU record + submit + GPU, editor {SystemInfo.graphicsDeviceType} on {SystemInfo.graphicsDeviceName}); " +
+                              $"{rf.LastDraws} draws, {rf.LastTris} tris, {rf.Texture.width}x{rf.Texture.height}, every {CockpitReflection.Every} frames");
+                    Object.DestroyImmediate(one);
+                }
+            }
+            finally
+            {
+                CockpitReflection.Override = null;
+                DriveSide.Override = null;
+                PSXScreenshotTool.AspectOverride = 0f;
+                if (ci != null) ci.HideShell(false);
+                if (cv != null) cv.PreviewShow(false);
+                ChaseCamera.PreviewView(keepView);
+                cam.fieldOfView = keepFov;
+                cam.nearClipPlane = keepNear;
+            }
+            Debug.Log("[Reflect] shots of " + def.id + " written");
+        }
+
         static PizzaCargo SettledCargo(CarController car)
         {
             var cargo = PizzaCargo.Spawn(car, new[] { 0, 3, 6 }, 2, seatStage: 0);

@@ -11453,6 +11453,17 @@ namespace PSXRacing.EditorTools
                 Check(Shader.Find("PSX/Cabin") != null && Shader.Find("PSX/CabinGauge") != null && Shader.Find("PSX/CabinGlass") != null
                       && CockpitModel.Mat("vinyl") != null && CockpitModel.Mat("solid") != null,
                       "cockpit v08: PSX/Cabin, PSX/CabinGauge and PSX/CabinGlass exist and the shared materials build", null);
+                {
+                    // The windscreen's reflection rides its own renderer and
+                    // shader: with it off (a phone, or REFLECTIONS off) that
+                    // renderer is disabled and PSX/CabinGlass is untouched.
+                    bool reflOk = CockpitReflection.SelfCheck(out string reflWhy);
+                    var glassSh = Shader.Find("PSX/CabinGlass");
+                    Check(reflOk && Shader.Find("PSX/CabinGlassReflect") != null && glassSh != null
+                          && glassSh.FindPropertyIndex("_ReflTex") < 0,
+                          "cockpit windscreen reflection: off on phones, on for desktop with REFLECTIONS; a mirror across the glass; the glass shader itself unchanged",
+                          reflWhy);
+                }
                 if (lay != null)
                 {
                     // Driver-left to right: temp, tach, speed, fuel - in the LHD
