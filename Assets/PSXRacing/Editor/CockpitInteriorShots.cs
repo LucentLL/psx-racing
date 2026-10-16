@@ -160,13 +160,13 @@ namespace PSXRacing.EditorTools
             var texs = new System.Text.StringBuilder();
             foreach (var n in new[] { "v08_vinyl", "v08_abs", "v08_headliner", "v08_leather", "v08_atlas", "hands_skin" })
             {
-                var tex = Resources.Load<Texture2D>(CockpitModel.Dir + n);
+                var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(CockpitModel.EditorSrc + n + ".png");
                 if (tex == null) { texs.Append(" " + n + "=MISSING"); continue; }
                 long b = UnityEngine.Profiling.Profiler.GetRuntimeMemorySizeLong(tex);
                 texBytes += b;
                 texs.Append($" {n}={tex.width}px {tex.format} {b / 1024}KiB");
             }
-            var geo = Resources.Load<TextAsset>(CockpitModel.GeoPath);
+            var geo = AssetDatabase.LoadAssetAtPath<TextAsset>(CockpitModel.EditorSrc + CockpitModel.GeoName + ".bytes");
             Debug.Log($"[Cockpit] cabin: {tris} tris in {draws} draws (cargo copies not: {(ci.Mirror != null ? ci.Mirror.Count : 0)}); " +
                       $"geometry {(geo != null ? geo.bytes.Length / 1024 : -1)} KiB; textures{texs} (sum {texBytes / 1024} KiB in the editor)");
 

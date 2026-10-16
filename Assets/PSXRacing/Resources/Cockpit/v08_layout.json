@@ -242,6 +242,8 @@
  },
  "nearForward": 0.2093,
  "nearLook": 0.1381,
+ "nearPassenger": 0.3085,
+ "nearDoor": 0.1381,
  "surfaces": {
   "vinyl": {
    "r": 0.01751,

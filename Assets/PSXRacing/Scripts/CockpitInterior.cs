@@ -157,6 +157,7 @@ namespace PSXRacing
         Camera mirrorCam;
         RenderTexture mirrorRT;
         static float rainWet, runClock, blowClock;
+        static bool warned;
 
         public Fit Current { get; private set; }
         public Transform Model => model;
@@ -169,9 +170,13 @@ namespace PSXRacing
             if (car == null) return null;
             var have = car.GetComponentInChildren<CockpitInterior>(true);
             if (have != null) { have.driver = driver; return have; }
+            // The model comes in an on-demand bundle: the first ask starts the
+            // download, and until it lands the view is the seat camera alone.
+            if (!CockpitModel.Ready) { CockpitModel.Request(); return null; }
             if (L == null || CockpitModel.Parts == null || CockpitModel.Mat("vinyl") == null)
             {
-                Debug.LogWarning("[Cockpit] the v08 model, its layout or PSX/Cabin is missing - no 3D cabin.");
+                if (!warned) Debug.LogWarning("[Cockpit] the v08 model, its layout or PSX/Cabin is missing - no 3D cabin.");
+                warned = true;
                 return null;
             }
             var go = new GameObject("CockpitInterior");
@@ -551,7 +556,9 @@ namespace PSXRacing
         {
             bool isDriver = driver != null ? cam == driver : StreetLights.IsDriver(cam);
             SetVisible(isDriver);
-            if (isDriver) HideShell(true);
+            // The mirror looks back from inside the shell too: whatever the
+            // shell models inside (seats, a parcel shelf) would fill it.
+            if (isDriver || (mirrorCam != null && cam == mirrorCam)) HideShell(true);
         }
 
         void OnEndCamera(ScriptableRenderContext ctx, Camera cam)

@@ -11413,6 +11413,18 @@ namespace PSXRacing.EditorTools
             {
                 var parts = CockpitModel.Parts;
                 var lay = CockpitInterior.L;
+                // The model must NOT be in the main data (MAIN's WebGL.data is
+                // near GitHub's 100 MB wall): only the layout is in Resources;
+                // the rest is CockpitSrc, built into StreamingAssets/cockpit.bundle.
+                bool srcOnly = true;
+                foreach (var a in CockpitModel.BundleAssets)
+                {
+                    string name = System.IO.Path.GetFileNameWithoutExtension(a);
+                    srcOnly &= AssetDatabase.LoadMainAssetAtPath(CockpitModel.EditorSrc + a) != null
+                                && Resources.Load(CockpitModel.Dir + name) == null;
+                }
+                Check(srcOnly && !CockpitModel.EditorSrc.Contains("/Resources/"),
+                      "cockpit v08: the model and its textures are bundle-only (CockpitSrc), not in Resources", null);
                 string[] need = { "cabin", "mirror", "wheel", "hands", "gauge_temp", "gauge_tach", "gauge_speed",
                                   "gauge_fuel", "glass_windshield", "glass_door_l", "glass_door_r", "glass_rear" };
                 int have = 0, cabinTris = 0;

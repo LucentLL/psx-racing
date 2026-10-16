@@ -7,9 +7,14 @@
 #   ...\PSX Racing\Universal_Cockpit_RX7_FD_v08\RX7_FD_Cockpit_v08_LHD.blend
 # 65,731 tris, 22 materials, four BLANK gauge faces (drawn in game), four
 # glass panes (rain is drawn on them in game), a mirror face for a render
-# texture. Writes into Assets/PSXRacing/Resources/Cockpit/:
-#   v08_geo.bytes     every part, quantized (format below; CockpitModel.cs reads it)
-#   v08_layout.json   markers, wheel pivot, the seat the cargo rests on, the
+# texture. Writes
+#   Assets/PSXRacing/CockpitSrc/v08_geo.bytes   every part, quantized (format
+#       below; CockpitModel.cs reads it) - OUTSIDE Resources: it ships in the
+#       on-demand StreamingAssets/cockpit.bundle (CockpitBundle.cs), not in
+#       the main WebGL.data, which is near GitHub's 100 MB wall
+#   Assets/PSXRacing/Resources/Cockpit/v08_layout.json   (4 KB, in the main
+#       data: the fit and near plane need it before the bundle arrives)
+#                     markers, wheel pivot, the seat the cargo rests on, the
 #                     gauge discs, the panes' UV directions, the near plane
 #
 # ONLY THE LHD FILE IS CONVERTED. The RHD file is its exact mirror in X (every
@@ -48,6 +53,7 @@ import numpy as np
 ARGS = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 ROOT = ARGS[0] if ARGS else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 OUT = os.path.join(ROOT, "Assets", "PSXRacing", "Resources", "Cockpit")
+SRC_OUT = os.path.join(ROOT, "Assets", "PSXRacing", "CockpitSrc")
 SRC = r"C:\Users\mcgee\OneDrive\Documents\Game Development\PSX Assets\PSX Racing\Universal_Cockpit_RX7_FD_v08"
 BLEND = os.path.join(SRC, "RX7_FD_Cockpit_v08_LHD.blend")
 INTEG = os.path.join(SRC, "Integration", "integration_LHD.json")
@@ -433,7 +439,8 @@ def main():
           % (pitch, vfov, near_fwd, near_pass, near_door))
 
     blob = b"PSXC" + struct.pack("<ii", 1, len(parts)) + b"".join(parts)
-    with open(os.path.join(OUT, "v08_geo.bytes"), "wb") as fh:
+    os.makedirs(SRC_OUT, exist_ok=True)
+    with open(os.path.join(SRC_OUT, "v08_geo.bytes"), "wb") as fh:
         fh.write(blob)
     with open(os.path.join(OUT, "v08_layout.json"), "w", newline="\n") as fh:
         json.dump(layout, fh, indent=1)

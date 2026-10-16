@@ -50,4 +50,7 @@ __pycache__/
 # the page as StreamingAssets/texenhanced.bundle.
 /Assets/StreamingAssets/texenhanced.bundle
 /Assets/StreamingAssets/texenhanced.bundle.meta
+# The owner's v08 cockpit, the same way (Editor/CockpitBundle.cs).
+/Assets/StreamingAssets/cockpit.bundle
+/Assets/StreamingAssets/cockpit.bundle.meta
 /Assets/StreamingAssets.meta

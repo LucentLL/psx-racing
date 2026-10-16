@@ -4,7 +4,7 @@ using UnityEngine;
 namespace PSXRacing.EditorTools
 {
     /// <summary>
-    /// The v08 cockpit's textures (Resources/Cockpit, tools/cockpit/
+    /// The v08 cockpit's textures (CockpitSrc, built into cockpit.bundle; tools/cockpit/
     /// cockpit_v08_tex.py), imported by path so every sandbox agrees:
     ///   * v08_vinyl / abs / headliner / leather: PACKED DATA (normal X/Y in
     ///     A/G, roughness R, base luminance B) - linear, RGBA, block-compressed
@@ -17,7 +17,7 @@ namespace PSXRacing.EditorTools
     /// </summary>
     class CockpitTextureImport : AssetPostprocessor
     {
-        internal const string Dir = "Assets/PSXRacing/Resources/Cockpit/";
+        internal const string Dir = CockpitModel.EditorSrc;
 
         void OnPreprocessTexture()
         {

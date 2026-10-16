@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
+using UnityEngine.Networking;
 
 namespace PSXRacing
 {
@@ -16,16 +17,31 @@ namespace PSXRacing
     /// the same parts under a -1 x scale (the two files are exact mirrors).
     /// cockpit_v08_tex.py packs his twelve 1024 textures into four 512
     /// surface tiles and the atlas. 1.25 MB of geometry + ~2.1 MB of GPU
-    /// textures, against the ~2 MB the v07 cabin it replaces cost - no
-    /// on-demand bundle needed.
+    /// textures - and MAIN's WebGL.data is near GitHub's 100 MB wall, so
+    /// none of it is in Resources: the geometry and the textures ship in
+    /// StreamingAssets/cockpit.bundle (built by CockpitBundle.cs with the
+    /// player, LZ4), fetched the first time the cockpit view is entered
+    /// (<see cref="Request"/>) and kept. Until it is <see cref="Ready"/> the
+    /// view is what it always was without a cabin: a camera in the seat with
+    /// the 2D binnacle. Only the 4 KB layout is in Resources (the fit and the
+    /// near plane need it before the bundle arrives). In the editor the
+    /// assets load straight from CockpitSrc unless PSX_COCKPIT_BUNDLE=1.
     /// </summary>
     public static class CockpitModel
     {
         public const string Dir = "Cockpit/";
-        public const string GeoPath = Dir + "v08_geo";
         public const string LayoutPath = Dir + "v08_layout";
-        public const string AtlasPath = Dir + "v08_atlas";
-        public const string SkinPath = Dir + "hands_skin";
+        /// <summary>A Resources TextAsset holding the bundle's content hash
+        /// (the URL's ?v=), written by CockpitBundle.Build.</summary>
+        public const string VersionPath = Dir + "v08_bundle";
+        public const string BundleFile = "cockpit.bundle";
+        /// <summary>Where the bundle's assets live in the project (outside
+        /// Resources, so the main data never carries them).</summary>
+        public const string EditorSrc = "Assets/PSXRacing/CockpitSrc/";
+        public const string GeoName = "v08_geo", AtlasName = "v08_atlas", SkinName = "hands_skin";
+        /// <summary>Every asset the bundle carries (file names in CockpitSrc).</summary>
+        public static readonly string[] BundleAssets =
+            { "v08_geo.bytes", "v08_vinyl.png", "v08_abs.png", "v08_headliner.png", "v08_leather.png", "v08_atlas.png", "hands_skin.png" };
         public static readonly string[] Surfaces = { "vinyl", "abs", "headliner", "leather" };
 
         // ------------------------------------------------------------------
@@ -131,20 +147,128 @@ namespace PSXRacing
             public string[] mats;
         }
 
+        // ------------------------------------------------------------------
+        //  The on-demand bundle
+        // ------------------------------------------------------------------
+
+        enum Fetch { None, Loading, Ready, Failed }
+        static Fetch fetch;
+        static AssetBundle bundle;
+        static bool failLogged;
+
+        /// <summary>The model's assets are here (parts and materials can build).</summary>
+        public static bool Ready => fetch == Fetch.Ready;
+        public static string State => fetch.ToString();
+
+#if UNITY_EDITOR
+        static bool UseBundle => Application.isPlaying && System.Environment.GetEnvironmentVariable("PSX_COCKPIT_BUNDLE") == "1";
+#else
+        static bool UseBundle => true;
+#endif
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void ResetStatics()
+        {
+            // Play mode without a domain reload: an editor fetch state must not
+            // outlive its bundle.
+            if (bundle == null && fetch != Fetch.Ready) fetch = Fetch.None;
+        }
+
+        public static string BundleUrl
+        {
+            get
+            {
+                string url = Application.streamingAssetsPath + "/" + BundleFile;
+                if (url.Contains("://"))
+                {
+                    var v = Resources.Load<TextAsset>(VersionPath);
+                    if (url.StartsWith("http") && v != null && v.text.Trim().Length > 0) url += "?v=" + v.text.Trim();
+                    return url;
+                }
+                return "file:///" + url.TrimStart('/');
+            }
+        }
+
+        /// <summary>Start loading the model: the bundle download in a player
+        /// (once; the browser caches it under its version), the project files
+        /// in the editor (at once). Safe to call every frame.</summary>
+        public static void Request()
+        {
+            if (fetch != Fetch.None) return;
+            if (!UseBundle)
+            {
+#if UNITY_EDITOR
+                bool have = UnityEditor.AssetDatabase.LoadAssetAtPath<TextAsset>(EditorSrc + GeoName + ".bytes") != null;
+                if (have) fetch = Fetch.Ready; else Failed(EditorSrc, "v08_geo.bytes missing");
+#endif
+                return;
+            }
+            fetch = Fetch.Loading;
+            string url = BundleUrl;
+            float t0 = Time.realtimeSinceStartup;
+            try
+            {
+                var req = UnityWebRequestAssetBundle.GetAssetBundle(url);
+                req.SendWebRequest().completed += _ => OnBundle(req, url, t0);
+                Debug.Log("[Cockpit] fetching the v08 cockpit: " + url);
+            }
+            catch (System.Exception e) { Failed(url, e.Message); }
+        }
+
+        static void OnBundle(UnityWebRequest req, string url, float t0)
+        {
+            AssetBundle b = null;
+            string err = null;
+            ulong bytes = req.downloadedBytes;
+            try
+            {
+                if (req.result == UnityWebRequest.Result.Success) b = DownloadHandlerAssetBundle.GetContent(req);
+                else err = req.error;
+            }
+            catch (System.Exception e) { err = e.Message; }
+            finally { req.Dispose(); }
+            if (b == null) { Failed(url, err ?? "not an AssetBundle"); return; }
+            bundle = b;
+            fetch = Fetch.Ready;
+            Debug.Log($"[Cockpit] v08 cockpit ready: {bytes / 1048576f:F2} MB in {Time.realtimeSinceStartup - t0:F1} s");
+        }
+
+        static void Failed(string where, string why)
+        {
+            fetch = Fetch.Failed;
+            if (failLogged) return;
+            failLogged = true;
+            Debug.LogWarning("[Cockpit] the v08 cockpit is unavailable (" + where + ": " + why + ") - the seat camera without a cabin");
+        }
+
+        /// <summary>One of the bundle's assets by name (no extension).</summary>
+        static T Asset<T>(string name) where T : Object
+        {
+            if (bundle != null) return bundle.LoadAsset<T>(name);
+#if UNITY_EDITOR
+            string ext = typeof(T) == typeof(TextAsset) ? ".bytes" : ".png";
+            return UnityEditor.AssetDatabase.LoadAssetAtPath<T>(EditorSrc + name + ext);
+#else
+            return null;
+#endif
+        }
+
         static Dictionary<string, Part> parts;
 
-        /// <summary>Every part by name, or null if the geometry is missing.</summary>
+        /// <summary>Every part by name, or null while the model is not
+        /// <see cref="Ready"/> (this starts the load) or if it is broken.</summary>
         public static Dictionary<string, Part> Parts
         {
             get
             {
                 if (parts != null) return parts.Count > 0 ? parts : null;
+                Request();
+                if (!Ready) return null;
                 parts = new Dictionary<string, Part>();
-                var ta = Resources.Load<TextAsset>(GeoPath);
-                if (ta == null) { Debug.LogWarning("[Cockpit] Resources/" + GeoPath + " missing"); return null; }
+                var ta = Asset<TextAsset>(GeoName);
+                if (ta == null) { Debug.LogWarning("[Cockpit] " + GeoName + " missing from the cockpit bundle"); return null; }
                 try { Read(ta.bytes, parts); }
-                catch (System.Exception e) { Debug.LogWarning("[Cockpit] " + GeoPath + " unreadable: " + e.Message); parts.Clear(); }
-                Resources.UnloadAsset(ta);
+                catch (System.Exception e) { Debug.LogWarning("[Cockpit] " + GeoName + " unreadable: " + e.Message); parts.Clear(); }
                 return parts.Count > 0 ? parts : null;
             }
         }
@@ -211,10 +335,16 @@ namespace PSXRacing
 
         static Dictionary<string, Material> mats;
 
-        /// <summary>The shared material for a game material key, or null.</summary>
+        /// <summary>The shared material for a game material key, or null
+        /// (also while the model is not <see cref="Ready"/>).</summary>
         public static Material Mat(string key)
         {
-            if (mats == null) BuildMats();
+            if (mats == null)
+            {
+                Request();
+                if (!Ready) return null;
+                BuildMats();
+            }
             return mats.TryGetValue(key, out var m) ? m : null;
         }
 
@@ -236,14 +366,14 @@ namespace PSXRacing
             for (int i = 0; i < Surfaces.Length; i++)
             {
                 var m = Make(Surfaces[i], 0f);
-                m.SetTexture("_SurfTex", Resources.Load<Texture2D>(Dir + "v08_" + Surfaces[i]));
+                m.SetTexture("_SurfTex", Asset<Texture2D>("v08_" + Surfaces[i]));
                 m.SetColor("_BaseColor", cols[i]);
             }
             var trim = Make("trim", 1f);
-            trim.SetTexture("_AtlasTex", Resources.Load<Texture2D>(AtlasPath));
+            trim.SetTexture("_AtlasTex", Asset<Texture2D>(AtlasName));
             trim.SetFloat("_Rough", 0.83f);
             var skin = Make("skin", 1f);
-            skin.SetTexture("_AtlasTex", Resources.Load<Texture2D>(SkinPath));
+            skin.SetTexture("_AtlasTex", Asset<Texture2D>(SkinName));
             skin.SetFloat("_Rough", 0.6f);
             Make("solid", 2f);
         }

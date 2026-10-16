@@ -181,6 +181,15 @@ namespace PSXRacing.EditorTools
                     return false;
                 }
                 Debug.Log($"[PSXBuildWebGL] Enhanced texture bundle: StreamingAssets/{TextureTier.BundleFile} {texBytes / 1048576f:F2} MB");
+                // The owner's v08 cockpit: its own on-demand bundle, fetched
+                // the first time the cockpit view is entered (CockpitBundle).
+                string ckErr = CockpitBundle.Build(BuildTarget.WebGL, out long ckBytes);
+                if (ckErr != null)
+                {
+                    Debug.LogError("[PSXBuildWebGL] COCKPIT BUNDLE FAILED: " + ckErr);
+                    return false;
+                }
+                Debug.Log($"[PSXBuildWebGL] Cockpit bundle: StreamingAssets/{CockpitModel.BundleFile} {ckBytes / 1048576f:F2} MB");
 
                 Directory.CreateDirectory(outDir);
 

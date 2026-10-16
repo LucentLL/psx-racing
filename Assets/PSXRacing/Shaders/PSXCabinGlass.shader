@@ -108,15 +108,15 @@ Shader "PSX/CabinGlass"
                 float cyc = floor(y);
                 float4 k = H42(float2(col, cyc + seed * 3.1));
                 float on = step(k.x, density);
-                float f = frac(y);                       // 0 = head end ... 1 = tail end
+                float f = frac(y);                       // grows along dir: the head LEADS at the top end
                 float wob = sin(f * 9.0 + k.y * 6.28) * 0.12 * (1.0 - trailK);
                 float dx = (frac(x) - 0.5 - (k.z - 0.5) * 0.4 - wob) * width;
                 float rHead = width * lerp(0.14, 0.24, k.w);
-                float head = Dome(float2(dx, (f - 0.06) * span), rHead);
+                float head = Dome(float2(dx, (f - 0.92) * span), rHead);
                 // The trail: thin, thinning, broken into droplets behind the head.
-                float tr = saturate(1.0 - f / 0.8);
+                float tr = saturate((f - 0.10) / 0.78) * step(f, 0.9);
                 float beadsOn = step(0.45, frac(f * span / (rHead * 3.0) + k.y));
-                float trail = saturate(1.0 - abs(dx) / (rHead * 0.35 * tr + 1e-4)) * tr * step(0.08, f)
+                float trail = saturate(1.0 - abs(dx) / (rHead * 0.35 * tr + 1e-4)) * tr
                             * lerp(beadsOn, 1.0, trailK) * 0.8;
                 return max(head, trail) * on;
             }

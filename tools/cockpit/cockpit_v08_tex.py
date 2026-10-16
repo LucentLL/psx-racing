@@ -24,7 +24,8 @@ import numpy as np
 from PIL import Image
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-OUT = os.path.join(ROOT, "Assets", "PSXRacing", "Resources", "Cockpit")
+OUT = os.path.join(ROOT, "Assets", "PSXRacing", "CockpitSrc")          # into cockpit.bundle
+LAYOUT = os.path.join(ROOT, "Assets", "PSXRacing", "Resources", "Cockpit", "v08_layout.json")
 SRC = r"C:\Users\mcgee\OneDrive\Documents\Game Development\PSX Assets\PSX Racing\Universal_Cockpit_RX7_FD_v08"
 SIZE = 512
 SETS = {  # game key: (base, normal, ORM or a constant roughness)
@@ -70,7 +71,7 @@ def main():
         print("[V08T] %-9s %dx%d  mean linear %s  rough %.2f..%.2f  lum ratio %.2f..%.2f"
               % (key, SIZE, SIZE, np.round(mean, 4), rough.min(), rough.max(), ratio.min(), ratio.max()))
     shutil.copyfile(os.path.join(SRC, "Cockpit_Atlas_1024.png"), os.path.join(OUT, "v08_atlas.png"))
-    lp = os.path.join(OUT, "v08_layout.json")
+    lp = LAYOUT
     lay = json.load(open(lp, encoding="utf-8"))
     lay["surfaces"] = surfaces
     with open(lp, "w", newline="\n") as fh:

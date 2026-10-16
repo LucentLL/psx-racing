@@ -12,14 +12,14 @@
 #   powershell -ExecutionPolicy Bypass -File tools\cockpit\cockpit-shots.ps1 [-Venue GillespieGap]
 #
 # Re-convert the owner's model first if it or the converter changed:
-#   blender.exe --background --python tools\cockpit\universal_cockpit.py -- <repo root>
+#   blender.exe --background --python tools\cockpit\cockpit_v08.py -- <repo root>, then py tools\cockpit\cockpit_v08_tex.py
 param([string]$Venue = "")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 . "$src\tools\unity-wait.ps1"
 
-foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor", "Assets\PSXRacing\Shaders", "Assets\PSXRacing\Resources\Cockpit")) {
+foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor", "Assets\PSXRacing\Shaders", "Assets\PSXRacing\Resources\Cockpit", "Assets\PSXRacing\CockpitSrc")) {
     robocopy "$src\$d" "$proj\$d" /E /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
 }
 if (Test-Path "$src\Assets\PSXRacing\Resources\Cockpit.meta") {
@@ -27,7 +27,7 @@ if (Test-Path "$src\Assets\PSXRacing\Resources\Cockpit.meta") {
 }
 # The generic cabin's files are gone from the source; robocopy /E never
 # deletes, so take them out of the sandbox too (unreferenced Resources ship).
-foreach ($f in @("generic_cockpit.obj", "generic_wheel.obj", "generic_hands.obj", "cockpit_sheet.png")) {
+foreach ($f in @("generic_cockpit.obj", "generic_wheel.obj", "generic_hands.obj", "cockpit_sheet.png", "hands_skin.png")) {
     Remove-Item "$proj\Assets\PSXRacing\Resources\Cockpit\$f", "$proj\Assets\PSXRacing\Resources\Cockpit\$f.meta" -ErrorAction SilentlyContinue
 }
 Get-ChildItem "$proj\Assets\PSXRacing\Resources\Cockpit" -Filter "universal_*" -ErrorAction SilentlyContinue | Remove-Item -Force
@@ -52,8 +52,10 @@ Get-ChildItem "$proj\Screenshots" -Filter "cockpitv08_*.png" | ForEach-Object {
 }
 # The importer's metas for the new assets, so the GUIDs the scenes and the
 # build see are the ones in git.
-Get-ChildItem "$proj\Assets\PSXRacing\Resources\Cockpit" -Filter "*.meta" | ForEach-Object {
-    Copy-Item $_.FullName (Join-Path "$src\Assets\PSXRacing\Resources\Cockpit" $_.Name) -Force
+foreach ($d in @("Assets\PSXRacing\Resources\Cockpit", "Assets\PSXRacing\CockpitSrc")) {
+    Get-ChildItem "$proj\$d" -Filter "*.meta" | ForEach-Object {
+        Copy-Item $_.FullName (Join-Path "$src\$d" $_.Name) -Force
+    }
 }
 if (Test-Path "$proj\Assets\PSXRacing\Resources\Cockpit.meta") {
     Copy-Item "$proj\Assets\PSXRacing\Resources\Cockpit.meta" "$src\Assets\PSXRacing\Resources\Cockpit.meta" -Force
