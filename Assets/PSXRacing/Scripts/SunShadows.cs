@@ -68,7 +68,7 @@ namespace PSXRacing
     /// (<see cref="Exclude"/>): nothing is under them to shade. The first
     /// Charlotte frames were 94-244 calls a map; with both, 30-60.
     /// </summary>
-    public static class SunShadows
+    public static partial class SunShadows
     {
         // ------------------------------------------------------------------
         //  The numbers
@@ -198,6 +198,8 @@ namespace PSXRacing
             public Mesh proxy;
             public bool proxyTried;
             public float drawnAt;
+            /// <summary>The car it belongs to, if it moves (SunShadows.Cars).</summary>
+            public CarGroup group;
         }
 
         static readonly List<Caster> casters = new List<Caster>();
@@ -279,6 +281,7 @@ namespace PSXRacing
             }
             owned.Clear();
             casterFor.Clear();
+            ForgetGroups();
             scanned = false;
             skyStale = true;
             Strength = 0f;
@@ -318,7 +321,7 @@ namespace PSXRacing
             // A sun at or under the horizon shadows everything with the
             // ground itself; that is the ambient's job, not a map's.
             if (dirToSun.y < 0.02f) Strength = 0f;
-            if (Strength <= 0.001f) Shader.SetGlobalVector(ParamsId, Vector4.zero);
+            if (Strength <= 0.001f) { Shader.SetGlobalVector(ParamsId, Vector4.zero); CarsOff(); }
             if (SkyStrength <= 0.001f) { Shader.SetGlobalVector(SkyParamsId, Vector4.zero); skyStale = true; }
         }
 
@@ -328,6 +331,7 @@ namespace PSXRacing
         {
             Shader.SetGlobalVector(ParamsId, Vector4.zero);
             Shader.SetGlobalVector(SkyParamsId, Vector4.zero);
+            CarsOff();
         }
 
         /// <summary>A streamed piece of world has just been built (a city
@@ -410,7 +414,7 @@ namespace PSXRacing
             if (!scanned || !Application.isPlaying || Time.unscaledTime >= nextScan) Scan();
             if (Application.isPlaying) Govern();
             bool sunOn = Strength > 0.001f && Level < 2;
-            if (!sunOn) Shader.SetGlobalVector(ParamsId, Vector4.zero);
+            if (!sunOn) { Shader.SetGlobalVector(ParamsId, Vector4.zero); CarsOff(); }
 
             var ct = cam.transform;
             Vector3 eyeAt = ct.position;
@@ -425,7 +429,11 @@ namespace PSXRacing
             {
                 Vector3 fwd = -dirToSun;
                 Vector3 upHint = Mathf.Abs(fwd.y) > 0.98f ? Vector3.forward : Vector3.up;
-                WorldToMap = Draw(map, centre, Quaternion.LookRotation(fwd, upHint), TowardSunM, AwayM,
+                var sunRot = Quaternion.LookRotation(fwd, upHint);
+                // The nearest cars into their own fine map first: the sun's
+                // then leaves them out (SunShadows.Cars).
+                DrawCars(eyeAt, flat, sunRot);
+                WorldToMap = Draw(map, centre, sunRot, TowardSunM, AwayM,
                                   eyeAt, false, out int drawn, out int calls);
                 DrawnLast = drawn;
                 DrawCallsLast = calls;
@@ -456,6 +464,7 @@ namespace PSXRacing
                 float texel = HalfExtent * 2f / map.width;
                 Shader.SetGlobalVector(ParamsId, new Vector4(Strength, map.width, texel * NormalOffsetTexels,
                                                              DepthBiasM / (TowardSunM + AwayM)));
+                PushCars();
             }
             if (SkyStrength > 0.001f)
             {
@@ -520,6 +529,7 @@ namespace PSXRacing
                 {
                     if (c.moves || c.radius * 2f < MinRoofM) continue;
                 }
+                else if (InCarMap(c)) continue;
                 else if (c.moves) Measure(c);
                 else if (c.radius < minRadius) continue;
                 // In the column? A sphere against the box, in the rays' frame.
@@ -667,6 +677,7 @@ namespace PSXRacing
             if (!c.moves && c.radius * 2f < MinCasterM) { notCasters.Add(r); return; }
             known[r] = c;
             casters.Add(c);
+            if (c.moves) JoinGroup(c);
             // Something new that stands still may be a roof over the square.
             if (!c.moves && c.radius * 2f >= MinRoofM) skyStale = true;
         }

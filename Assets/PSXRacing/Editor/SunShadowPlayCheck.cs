@@ -151,6 +151,8 @@ namespace PSXRacing.EditorTools
                                      "night switches both maps off");
             SunShadowPlayCheck.Check(Shader.GetGlobalVector("_PSXShadowParams").x == 0f && Shader.GetGlobalVector("_PSXSkyParams").x == 0f,
                                      "and the strengths the shaders read are zero");
+            SunShadowPlayCheck.Check(Shader.GetGlobalVector("_PSXCarShadowParams").x == 0f && Shader.GetGlobalFloat("_PSXBlobFade") == 0f,
+                                     "and the cars' map is off and the blob is whole again (the lamps' hours)");
             Done();
         }
 
@@ -205,6 +207,31 @@ namespace PSXRacing.EditorTools
             Vector3 roof = t.position + t.up * 0.9f;
             float gotRoof = Depth(roof, out float wantRoof);
             float roofM = (gotRoof - wantRoof) * range;
+            // THE NEAREST CARS HAVE A MAP OF THEIR OWN (SunShadows.Cars.cs,
+            // 2026-10-15) and are left out of this one: the player's car is
+            // looked for there, and must NOT be in the big map as well.
+            var cmap = SunShadows.CarMap;
+            if (SunShadows.CarsLast > 0 && cmap != null)
+            {
+                var ctex = new Texture2D(cmap.width, cmap.height, TextureFormat.RGBA32, false, true);
+                RenderTexture.active = cmap;
+                ctex.ReadPixels(new Rect(0, 0, cmap.width, cmap.height), 0, 0);
+                ctex.Apply();
+                RenderTexture.active = keep;
+                var cpx = ctex.GetPixels32();
+                Destroy(ctex);
+                Vector3 cs = SunShadows.WorldToCarMap.MultiplyPoint(roof);
+                int cx = Mathf.Clamp(Mathf.FloorToInt(cs.x * cmap.width), 0, cmap.width - 1);
+                int cy = Mathf.Clamp(Mathf.FloorToInt(cs.y * cmap.height), 0, cmap.height - 1);
+                var cc = cpx[cy * cmap.width + cx];
+                float cdepth = Mathf.Min(cc.r / 255f + cc.g / 65025f, cc.b / 255f + cc.a / 65025f);
+                float carM = (cdepth - cs.z) * (SunShadows.CarTowardM + SunShadows.CarAwayM);
+                SunShadowPlayCheck.Check(carM < 0.3f, where + ": the car is in the CARS' map, where the car is",
+                                         SunShadows.CarsLast + " cars; first surface " + carM.ToString("0.00") + " m past a point inside the body");
+                SunShadowPlayCheck.Check(Mathf.Abs(roofM) > 0.6f, where + ": and not in the big map as well (no blurred twin under the sharp shadow)",
+                                         "big map's first surface " + roofM.ToString("0.00") + " m past it");
+                yield break;
+            }
             SunShadowPlayCheck.Check(roofM < 0.6f, where + ": the car is in the map, where the car is",
                                      "first surface " + roofM.ToString("0.00") + " m past a point inside the body");
             yield break;
