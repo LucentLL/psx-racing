@@ -24,7 +24,7 @@
 # Writes Assets/PSXRacing/CockpitSrc/arms_geo.bytes (into the on-demand
 # cockpit.bundle with the rest of v08 - never the main data), read by
 # CockpitArms.cs, and CockpitSrc/hands_skin.png:
-#   'PSXA', int version 2, float3 elbow, float upperLen, float3 shoulderEnd,
+#   'PSXA', int version 3, float3 elbow, float upperLen, float3 shoulderEnd,
 #   int verts, int indices, int shapes,
 #   float3 pos[verts], float3 normal[verts], float2 uv[verts], float upper[verts],
 #   ushort index[indices],
@@ -38,7 +38,11 @@
 #   the wheel (v08 wheel mesh, its pivot frame): float rimCentreR, rimA
 #   (radial half-section), rimB (axial), rimZ; float hubR, hubZ0, hubZ1;
 #   int spokes; per spoke: float angleDeg, int segs; per seg: float r0, r1,
-#   halfWidth, z0, z1
+#   halfWidth, z0, z1;
+#   then (v3) THE CABIN the forearms keep out of (model frame): int walls,
+#   float cell; per wall: str name, int axisA, axisB, axisValue, float a0,
+#   a1, b0, b1, int solidSide (+1: solid below the value, -1: above), int
+#   nA, nB, float value[nA * nB] (NaN = no surface in the cell)
 #   (str = byte length + ASCII)
 # ONE arm is written, the driver's RIGHT (the pack's hand is a right hand);
 # the game mirrors it (x -> -x, winding reversed) for the left.
@@ -50,7 +54,7 @@
 # shapes are the other poses as deltas from it. `upper` is the vertex's
 # weight on the upper-arm bone, whose pivot is `elbow`; at rest the upper
 # arm runs straight back along -Z from it to `shoulderEnd`.
-import bpy, math, os, struct, sys
+import bpy, json, math, os, struct, sys
 from mathutils import Vector, Matrix
 
 ARGS = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
@@ -125,11 +129,9 @@ SKIN_GAP = 0.0025    # the skin's clearance off the wheel, metres
 GEO = os.path.join(SRC_OUT, "v08_geo.bytes")
 
 
-def measure_wheel():
-    """The steering wheel, measured from the v08 mesh (its pivot frame: x
-    right, y up the face, z along the column into the dash): the rim as a
-    torus of oval section, the hub/pad as a disc, each spoke as boxes along
-    its axis. Analytic, so the game can keep the hands outside it."""
+def part_samples(want):
+    """Dense surface samples (vertices, centroids, edge midpoints) of one
+    part of v08_geo.bytes, in that part's own frame."""
     b = open(GEO, "rb").read()
     o = [4]
     def rd(fmt):
@@ -148,7 +150,7 @@ def measure_wheel():
         for _ in range(ns):
             rs(); ni, = rd("<i")
             idx += rd(("<%dI" if nv > 65535 else "<%dH") % ni)
-        if name == "wheel":
+        if name == want:
             pts = [tuple(pmin[k] + q[k] / 65535.0 * pspan[k] for k in range(3)) for q in Q]
             tri = idx
     S = []
@@ -156,6 +158,53 @@ def measure_wheel():
         a, c, d = pts[tri[i]], pts[tri[i + 1]], pts[tri[i + 2]]
         for w in ((1, 0, 0), (0, 1, 0), (0, 0, 1), (1 / 3, 1 / 3, 1 / 3), (.5, .5, 0), (0, .5, .5), (.5, 0, .5)):
             S.append(tuple(a[k] * w[0] + c[k] * w[1] + d[k] * w[2] for k in range(3)))
+    return S
+
+
+# The cabin walls a forearm can reach, model frame (LHD; Unity axes), as
+# heightfields: the DOOR's inner face (x of its innermost surface per y/z
+# cell, solid outboard), the CONSOLE's driver-side face (solid inboard), the
+# driver SEAT's top (y per x/z cell, solid below).
+CABIN_CELL = 0.03
+
+
+def measure_cabin():
+    lay = json.load(open(os.path.join(ROOT, "Assets", "PSXRacing", "Resources", "Cockpit", "v08_layout.json"), encoding="utf-8"))
+    ex = lay["eye"]["x"]
+    S = part_samples("cabin")
+    walls = []
+    def grid(sel, a0, a1, b0, b1, ka, kb, val, pick):
+        na, nb = int(round((a1 - a0) / CABIN_CELL)), int(round((b1 - b0) / CABIN_CELL))
+        g = [None] * (na * nb)
+        for p in sel:
+            i, j = int((p[ka] - a0) / CABIN_CELL), int((p[kb] - b0) / CABIN_CELL)
+            if 0 <= i < na and 0 <= j < nb:
+                v = p[val]
+                k = i * nb + j
+                g[k] = v if g[k] is None else pick(g[k], v)
+        return na, nb, g
+    # Door: outboard of the driver; face = the innermost (max x) surface.
+    door = [p for p in S if p[0] < ex - 0.12 and 0.15 < p[1] < 0.95 and -0.45 < p[2] < 0.6]
+    walls.append(("door", 1, 2, 0, 0.15, 0.95, -0.45, 0.6, +1) + grid(door, 0.15, 0.95, -0.45, 0.6, 1, 2, 0, max))
+    # Console: inboard of the driver, below the dash top; face = min x.
+    cons = [p for p in S if ex + 0.12 < p[0] < 0.10 and 0.05 < p[1] < 0.75 and -0.45 < p[2] < 0.6]
+    walls.append(("console", 1, 2, 0, 0.05, 0.75, -0.45, 0.6, -1) + grid(cons, 0.05, 0.75, -0.45, 0.6, 1, 2, 0, min))
+    # Seat cushion and front bolsters (not the backrest): top = max y.
+    seat = [p for p in S if abs(p[0] - ex) < 0.2 and 0.05 < p[1] < 0.75 and -0.3 < p[2] < 0.15]
+    walls.append(("seat", 0, 2, 1, ex - 0.2, ex + 0.2, -0.3, 0.15, +1) + grid(seat, ex - 0.2, ex + 0.2, -0.3, 0.15, 0, 2, 1, max))
+    for w in walls:
+        vals = [v for v in w[-1] if v is not None]
+        print("[ARMS] cabin %-7s %d x %d cells of %.0f cm, %d filled, face %.3f..%.3f"
+              % (w[0], w[9], w[10], CABIN_CELL * 100, len(vals), min(vals), max(vals)))
+    return walls
+
+
+def measure_wheel():
+    """The steering wheel, measured from the v08 mesh (its pivot frame: x
+    right, y up the face, z along the column into the dash): the rim as a
+    torus of oval section, the hub/pad as a disc, each spoke as boxes along
+    its axis. Analytic, so the game can keep the hands outside it."""
+    S = part_samples("wheel")
     def rho(p): return math.hypot(p[0], p[1])
     def ang(p): return math.degrees(math.atan2(p[1], p[0])) % 360.0
     rmax = max(rho(p) for p in S)
@@ -588,7 +637,7 @@ def main():
         return struct.pack("<B", len(b)) + b
 
     n = len(out_v)
-    blob = bytearray(b"PSXA" + struct.pack("<i", 2))   # v2: + the contact data
+    blob = bytearray(b"PSXA" + struct.pack("<i", 3))   # v2: + the contact data; v3: + the cabin
     blob += struct.pack("<3f", *elbow) + struct.pack("<f", END - FOREARM) + struct.pack("<3f", *shoulder_end)
     blob += struct.pack("<iii", n, len(tris), 2)
     blob += b"".join(struct.pack("<3f", *p) for p in base_p)
@@ -620,6 +669,12 @@ def main():
         blob += struct.pack("<fi", sp["ang"], len(sp["segs"]))
         for g in sp["segs"]:
             blob += struct.pack("<5f", g["r0"], g["r1"], g["hw"], g["z0"], g["z1"])
+    # v3: the cabin walls the forearms keep out of.
+    walls = measure_cabin()
+    blob += struct.pack("<if", len(walls), CABIN_CELL)
+    for (name, ka, kb, kv, a0, a1, b0, b1, solid, na, nb, g) in walls:
+        blob += sstr(name) + struct.pack("<iiiffffiii", ka, kb, kv, a0, a1, b0, b1, solid, na, nb)
+        blob += struct.pack("<%df" % len(g), *[(v if v is not None else float("nan")) for v in g])
     os.makedirs(SRC_OUT, exist_ok=True)
     path = os.path.join(SRC_OUT, "arms_geo.bytes")
     with open(path, "wb") as fh:

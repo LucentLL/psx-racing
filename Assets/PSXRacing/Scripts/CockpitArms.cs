@@ -115,20 +115,21 @@ namespace PSXRacing
         /// <summary>The forearm aims from here at a hand LOW on the rim (8 and
         /// 4 o'clock): an elbow down by the door / console, below the frame
         /// even when the driver looks over at the passenger seat.</summary>
-        public static readonly Vector3 ElbowAim = new Vector3(-0.22f, -0.74f, 0.16f);
+        public static readonly Vector3 ElbowAim = new Vector3(-0.08f, -0.58f, 0.16f);
         /// <summary>... and from here at a hand on TOP of the rim: the elbow up
         /// and back toward the chest at shoulder width, so the forearm comes from
         /// behind and the palm lies DOWN over the rim instead of standing the
         /// hand on it (and crossed arms make an X in the picture).</summary>
-        public static readonly Vector3 ElbowAimHigh = new Vector3(-0.19f, -0.42f, 0.10f);
+        public static readonly Vector3 ElbowAimHigh = new Vector3(-0.11f, -0.42f, 0.10f);
         /// <summary>The crossing arm's aim: its elbow comes up and back, so its
         /// forearm passes OVER the other one.</summary>
         public static readonly Vector3 CrossLift = new Vector3(0.02f, 0.07f, -0.08f);
         /// <summary>The arm under a crossing one ducks a little.</summary>
         public static readonly Vector3 UnderDuck = new Vector3(0f, -0.06f, 0.04f);
         /// <summary>The upper arm aims at the shoulder: low and back, so the
-        /// upper arm stays under the frame even at full look-over.</summary>
-        public static readonly Vector3 Shoulder = new Vector3(-0.19f, -0.36f, -0.06f);
+        /// upper arm stays under the frame even at full look-over; inboard of the
+        /// door trim (the cabin is narrower than a pair of shoulders).</summary>
+        public static readonly Vector3 Shoulder = new Vector3(-0.13f, -0.36f, -0.06f);
         /// <summary>Where the inboard hand goes: the shifter knob and the
         /// handbrake lever (out of frame below the console), RIGHT arm.</summary>
         public static readonly Vector3 ShiftKnob = new Vector3(0.33f, -0.52f, 0.30f);
@@ -194,6 +195,51 @@ namespace PSXRacing
             public float[] levels;
             public int baseLevel;
             public Wheel wheel;
+            public Cabin cabin;
+        }
+
+        /// <summary>
+        /// THE CABIN WALLS a forearm can reach (owner via review, 2026-10-16:
+        /// the forearm was cut by the door trim), measured by cockpit_arms.py
+        /// from the v08 cabin mesh as heightfields in the model frame: the
+        /// door's inner face, the console's driver-side face, the seat's top.
+        /// <see cref="Depth"/> is how far a point is inside one (0 outside).
+        /// </summary>
+        public sealed class Cabin
+        {
+            public sealed class Wall
+            {
+                public string name;
+                public int ka, kb, kv, solid, na, nb;
+                public float a0, a1, b0, b1;
+                public float[] v;
+            }
+            public Wall[] walls;
+            public float cell;
+            /// <summary>Thicker than this inside a wall is the far side of it.</summary>
+            const float Thick = 0.15f;
+
+            public float Depth(Vector3 p, out Vector3 outward, float margin = 0f)
+            {
+                float best = 0f;
+                outward = Vector3.zero;
+                foreach (var w in walls)
+                {
+                    float a = p[w.ka], b = p[w.kb];
+                    int i = (int)((a - w.a0) / cell), j = (int)((b - w.b0) / cell);
+                    if (i < 0 || j < 0 || i >= w.na || j >= w.nb) continue;
+                    float v = w.v[i * w.nb + j];
+                    if (float.IsNaN(v)) continue;
+                    float d = (w.solid > 0 ? v - p[w.kv] : p[w.kv] - v) + margin;
+                    if (d > best && d < Thick + margin)
+                    {
+                        best = d;
+                        outward = Vector3.zero;
+                        outward[w.kv] = w.solid > 0 ? 1f : -1f;
+                    }
+                }
+                return best;
+            }
         }
 
         /// <summary>
@@ -304,7 +350,7 @@ namespace PSXRacing
         {
             using (var r = new BinaryReader(new MemoryStream(bytes), System.Text.Encoding.ASCII))
             {
-                if (new string(r.ReadChars(4)) != "PSXA" || r.ReadInt32() != 2) throw new IOException("not a v2 PSXA file");
+                if (new string(r.ReadChars(4)) != "PSXA" || r.ReadInt32() != 3) throw new IOException("not a v3 PSXA file");
                 var g = new Rig { elbow = V3(r), upperLen = r.ReadSingle(), shoulderEnd = V3(r) };
                 int nv = r.ReadInt32(), ni = r.ReadInt32(), ns = r.ReadInt32();
                 var pos = new Vector3[nv]; var nrm = new Vector3[nv]; var uv = new Vector2[nv]; var up = new float[nv];
@@ -378,6 +424,19 @@ namespace PSXRacing
                     w.spokes[k] = sp;
                 }
                 g.wheel = w;
+                // v3: the cabin walls.
+                var cab = new Cabin { walls = new Cabin.Wall[r.ReadInt32()], cell = r.ReadSingle() };
+                for (int k = 0; k < cab.walls.Length; k++)
+                {
+                    var wl = new Cabin.Wall { name = new string(r.ReadChars(r.ReadByte())) };
+                    wl.ka = r.ReadInt32(); wl.kb = r.ReadInt32(); wl.kv = r.ReadInt32();
+                    wl.a0 = r.ReadSingle(); wl.a1 = r.ReadSingle(); wl.b0 = r.ReadSingle(); wl.b1 = r.ReadSingle();
+                    wl.solid = r.ReadInt32(); wl.na = r.ReadInt32(); wl.nb = r.ReadInt32();
+                    wl.v = new float[wl.na * wl.nb];
+                    for (int i = 0; i < wl.v.Length; i++) wl.v[i] = r.ReadSingle();
+                    cab.walls[k] = wl;
+                }
+                g.cabin = cab;
                 var isHand = new bool[nv];
                 for (int i = 0; i < nv; i++) isHand[i] = up[i] <= 0f && pos[i].z > -0.13f;
                 g.right.tube = tube; g.left.tube = MX(tube);
@@ -466,13 +525,19 @@ namespace PSXRacing
 
         public sealed class Planner
         {
-            /// <summary>Rest grip: degrees BELOW 9 and 3 o'clock (the clip's
-            /// hands sit at ~8 and 4; this cabin's camera shows the wheel's
-            /// top half, so a little higher keeps the hands in the picture).</summary>
-            public const float RestDrop = 16f;
+            /// <summary>Rest grip: degrees ABOVE 9 and 3 o'clock - just over the
+            /// 9/3 spokes, as drivers hold a three-spoke wheel, the little-finger
+            /// side resting on the spoke (2026-10-16 review: the clip's low 8/4
+            /// grip sits under this cabin's frame, and the hands must show).</summary>
+            public const float RestRise = 20f;
             /// <summary>In each hand's own angle (beta: 180 = 9 o'clock for the
             /// left hand and 3 o'clock for the right, smaller = up):</summary>
             public const float TopBeta = 92f, CrossBeta = 58f, OverBeta = 30f, BottomBeta = 255f;
+            /// <summary>The door-side hand (the model's left) lets the rim slide
+            /// through it sooner: below ~8 o'clock its wrist would be in the
+            /// door trim (the cabin walls, measured).</summary>
+            public const float BottomBetaDoor = 205f;
+            public static float Bottom(Hand h) => h.left ? BottomBetaDoor : BottomBeta;
             public const float UnwindMin = 50f, UnwindRate = 260f, UnwindExit = 120f, SlideRate = 300f;
             public const float CrossSec = 0.24f, HomeSec = 0.28f, ReturnSlideDeg = 35f, ReturnSlideSec = 0.14f, ReturnDropSec = 0.26f;
             public const float ReleaseSec = 0.15f, DropSec = 0.25f, HoldSec = 0.3f, BackSec = 0.3f;
@@ -488,8 +553,11 @@ namespace PSXRacing
 
             public Planner() { Reset(0f); }
 
-            /// <summary>Rest grip, off the spokes (wheel at centre).</summary>
-            public static float RestAlpha(bool left) => Snap(left, left ? 180f + RestDrop : -RestDrop);
+            /// <summary>Rest grip (wheel at centre). Not moved off the spokes: it
+            /// is placed beside them on purpose (fingers rest on the spoke,
+            /// never in it - the contact solve sees to that).</summary>
+            public static float RestAlpha(bool left) =>
+                Contact ? (left ? 180f - RestRise : RestRise) : (left ? 196f : -16f);   // off: the first cut's
 
             /// <summary>Wheel-local grip angles a hand may not take, per hand:
             /// (lo, hi) pairs - a spoke under its palm or fingers. Null = none
@@ -501,6 +569,7 @@ namespace PSXRacing
             {
                 var spans = left ? BlockedL : BlockedR;
                 if (spans == null) return phi;
+                if (Mathf.Abs(Mathf.DeltaAngle(phi, RestAlpha(left))) < 0.5f) return phi;   // the rest itself
                 for (int pass = 0; pass < 3; pass++)
                 {
                     bool moved = false;
@@ -632,7 +701,7 @@ namespace PSXRacing
                         h.openT = 0f; h.relaxT = 0f;
                         float b = BetaOf(h);
                         if (Unwinding) { h.mode = Mode.Slide; h.openT = 1f; }
-                        else if (b > BottomBeta) { h.mode = Mode.Slide; h.alpha = AlphaOf(h.left, BottomBeta); h.relaxT = 0.7f; h.crossed = false; }
+                        else if (b > Bottom(h)) { h.mode = Mode.Slide; h.alpha = AlphaOf(h.left, Bottom(h)); h.relaxT = 0.7f; h.crossed = false; }
                         else if (b < OverBeta) { h.mode = Mode.Slide; h.alpha = AlphaOf(h.left, OverBeta); h.openT = 0.6f; }
                         break;
                     }
@@ -647,7 +716,7 @@ namespace PSXRacing
                             break;
                         }
                         float b = BetaOf(h), db = h.left ? Omega : -Omega;
-                        bool bottom = b >= BottomBeta - 0.5f, top = b <= OverBeta + 0.5f;
+                        bool bottom = b >= Bottom(h) - 0.5f, top = b <= OverBeta + 0.5f;
                         if ((bottom && db < -5f) || (top && db > 5f) || (!bottom && !top)) Grip(h, h.alpha);
                         else { h.openT = top ? 0.6f : 0f; h.relaxT = bottom ? 0.7f : 0f; }
                         break;
@@ -959,7 +1028,10 @@ namespace PSXRacing
             Vector3 X = RimTangent(alpha);
             // How high on the rim (0 = 6 o'clock... 1 = 12) picks the elbow.
             float high = Planner.Smooth(Mathf.Clamp01(Mathf.InverseLerp(-0.35f, 0.95f, Mathf.Sin(alpha * Mathf.Deg2Rad))));
-            Vector3 A = Eye + Side(left, Vector3.Lerp(ElbowAim, ElbowAimHigh, high))
+            // (Contact off = the first cut's elbows, out by the door and console.)
+            Vector3 lo = Contact ? ElbowAim : new Vector3(-0.22f, -0.74f, 0.16f);
+            Vector3 hi = Contact ? ElbowAimHigh : new Vector3(-0.19f, -0.42f, 0.10f);
+            Vector3 A = Eye + Side(left, Vector3.Lerp(lo, hi, high))
                         + Side(left, CrossLift) * crossLift + Side(left, UnderDuck) * duck;
             Vector3 D = P - A;
             Vector3 Z = (D - Mathf.Lerp(TangentLockLow, TangentLockHigh, high) * Vector3.Dot(D, X) * X).normalized;
@@ -1075,6 +1147,7 @@ namespace PSXRacing
                 a.posed = true;
                 if (Contact && data.wheel != null) Fit(a);
                 else for (int f = 0; f < 5; f++) a.curl[f] = 1f;
+                if (Contact && data.cabin != null) KeepOutOfCabin(a);
                 Place(a);
             }
         }
@@ -1178,6 +1251,70 @@ namespace PSXRacing
                 Vector3 dir = onRim && !inAir ? w.Normal(at) : Vector3.back;
                 a.pos += W.MultiplyVector(dir) * (worst + 0.0005f);
             }
+        }
+
+        /// <summary>Clear of the cabin by this, metres (door, console, seat).</summary>
+        public const float CabinMargin = 0.005f;
+
+        /// <summary>The forearm out of the door, console and seat: turned at
+        /// the wrist (the hand keeps its grip) until its deepest point is a
+        /// margin clear, a few passes.</summary>
+        void KeepOutOfCabin(Arm a)
+        {
+            var g = a.geo;
+            var cab = data.cabin;
+            Matrix4x4 W = WheelMatrix, toW = W.inverse;
+            Vector3 J = g.wrist;
+            Vector3 jw = a.pos + a.rot * J;
+            for (int iter = 0; iter < 10; iter++)
+            {
+                Vector3 fp = jw - a.foreRot * J;
+                float worst = 0f;
+                Vector3 at = Vector3.zero, n = Vector3.zero;
+                // The upper arm follows its elbow to the shoulder (as Place).
+                Vector3 elbowL = a.hand.left ? MX(data.elbow) : data.elbow;
+                Vector3 e = fp + a.foreRot * elbowL;
+                Vector3 want = Eye + Side(a.hand.left, Shoulder) - e;
+                Quaternion ur = (want.sqrMagnitude > 1e-6f ? Quaternion.FromToRotation(a.foreRot * Vector3.back, want.normalized) : Quaternion.identity) * a.foreRot;
+                for (int i = 0; i < g.pos.Length; i++)
+                {
+                    if (g.handW[i] > 0.5f) continue;
+                    Vector3 q = g.upper[i] > 0.5f ? e + ur * (g.pos[i] - elbowL) : fp + a.foreRot * g.pos[i];
+                    float need = cab.Depth(q, out var o, CabinMargin);
+                    if (need > worst) { worst = need; at = q; n = o; }
+                    // ... and out of the wheel (the rim under a turned wrist).
+                    if (data.wheel != null && g.upper[i] < 0.5f)
+                    {
+                        Vector3 qw = toW.MultiplyPoint3x4(q);
+                        float dw = CabinMargin - data.wheel.Sdf(qw);
+                        if (dw > worst) { worst = dw; at = q; n = W.MultiplyVector(data.wheel.Normal(qw)); }
+                    }
+                }
+                if (worst <= 1e-4f) break;
+                Vector3 r = at - jw;
+                Vector3 axis = Vector3.Cross(r, n);
+                if (axis.sqrMagnitude < 1e-10f || r.sqrMagnitude < 1e-6f) break;
+                float ang = Mathf.Rad2Deg * (worst / r.magnitude);
+                a.foreRot = Quaternion.AngleAxis(Mathf.Min(ang * 1.1f, 30f), axis.normalized) * a.foreRot;
+            }
+        }
+
+        /// <summary>The forearm and upper arm's depth in the cabin walls now
+        /// (metres; 0 = outside), on the drawn vertices.</summary>
+        public float CabinDepth()
+        {
+            if (data.cabin == null) return 0f;
+            float worst = 0f;
+            foreach (var a in arms)
+            {
+                var g = a.geo;
+                for (int i = 0; i < a.outP.Length; i++)
+                {
+                    if (g.handW[i] > 0.5f) continue;
+                    worst = Mathf.Max(worst, data.cabin.Depth(a.outP[i], out _));
+                }
+            }
+            return worst;
         }
 
         /// <summary>How deep the arms are in the wheel now (metres; 0 =

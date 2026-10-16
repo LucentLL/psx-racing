@@ -96,10 +96,10 @@ namespace PSXRacing.EditorTools
             Check(held && p.Crossings == 0 && p.L.open < 0.05f,
                   "cockpit arms: +/-30 degree corrections - both hands stay gripped and ride the rim", "crossings " + p.Crossings);
 
-            // A big right turn (1.25 turns at 300 deg/s): hand over hand.
+            // A big right turn (1.25 turns at the clip's pace, 180 deg/s): hand over hand.
             p.Reset(0f);
             bool crossedOver = false; float openMax = 0f; int returns = 0; bool wasReturn = false;
-            Sim(p, 2.0f, t => -Mathf.Min(450f, 300f * t), t =>
+            Sim(p, 3.2f, t => -Mathf.Min(450f, 180f * t), t =>
             {
                 crossedOver |= p.R.crossed && p.R.mode == CockpitArms.Mode.Move;
                 bool ret = p.L.mode == CockpitArms.Mode.Move && p.L.kind == CockpitArms.Kind.Return;
@@ -189,6 +189,16 @@ namespace PSXRacing.EditorTools
                 var after = Battery(lay, true);
                 bool clean = true;
                 foreach (var kv in after) clean &= kv.Value.x <= 0.001f;
+                bool outOfCabin = true;
+                string cabRows = "";
+                foreach (var kv in after)
+                {
+                    float c1 = Cab.TryGetValue((true, kv.Key), out var cv) ? cv : -1f;
+                    float c0 = Cab.TryGetValue((false, kv.Key), out var cb) ? cb : -1f;
+                    outOfCabin &= c1 <= 0.001f;
+                    cabRows += $"\n         {kv.Key,-22} forearm in door/console/seat {c0 * 1000f,5:0.0} -> {c1 * 1000f,4:0.0} mm" +
+                               (c1 > 0.001f && CabWhy.TryGetValue(kv.Key, out var cw) ? "  [worst: " + cw + "]" : "");
+                }
                 string rows = "";
                 foreach (var kv in after)
                 {
@@ -198,6 +208,7 @@ namespace PSXRacing.EditorTools
                             (Worst.TryGetValue(kv.Key, out var wy) ? "  [worst: " + wy + "]" : "");
                 }
                 Check(clean, "cockpit arms: no finger vertex deeper than 1 mm in the wheel (rim, spokes, pad), any frame of any sequence (max depth before -> after)", rows);
+                Check(outOfCabin, "cockpit arms: the forearms stay out of the door trim, console and seat (max depth before -> after, any frame)", cabRows);
             }
             finally { CockpitArms.Contact = keep; }
         }
@@ -205,6 +216,8 @@ namespace PSXRacing.EditorTools
         /// <summary>Max depth in the wheel (x fingers, y hand, z forearm),
         /// metres, per sequence, over every frame at 60 Hz.</summary>
         static readonly Dictionary<string, string> Worst = new Dictionary<string, string>();
+        static readonly Dictionary<(bool, string), float> Cab = new Dictionary<(bool, string), float>();
+        static readonly Dictionary<string, string> CabWhy = new Dictionary<string, string>();
 
         static Dictionary<string, Vector3> Battery(CockpitModel.Layout lay, bool contact)
         {
@@ -217,10 +230,16 @@ namespace PSXRacing.EditorTools
                 if (arms == null) return res;
                 Vector3 worst = Vector3.zero;
                 string why = "";
+                float cabinWorst = 0f;
+                string name0 = "";
                 void Frame(float theta, bool shift, bool brake)
                 {
                     arms.Drive(Dt, theta, shift, brake);
                     arms.Depths(out float f, out float h, out float fa);
+                    float cd = arms.CabinDepth();
+                    if (cd > cabinWorst + 1e-5f && contact)
+                        CabWhy[name0] = $"L {arms.Plan.L.mode}/{arms.Plan.L.kind} a {arms.Plan.L.alpha:0} R {arms.Plan.R.mode}/{arms.Plan.R.kind} a {arms.Plan.R.alpha:0} wheel {theta:0}";
+                    cabinWorst = Mathf.Max(cabinWorst, cd);
                     if (f > worst.x + 1e-5f)
                         why = $"L {arms.Plan.L.mode}/{arms.Plan.L.kind}{arms.Plan.L.phase} R {arms.Plan.R.mode}/{arms.Plan.R.kind}{arms.Plan.R.phase} " +
                               $"u {(arms.Plan.R.mode == CockpitArms.Mode.Move ? arms.Plan.R.t / Mathf.Max(1e-3f, arms.Plan.R.dur) : arms.Plan.L.t / Mathf.Max(1e-3f, arms.Plan.L.dur)):0.00} wheel {theta:0}";
@@ -231,6 +250,8 @@ namespace PSXRacing.EditorTools
                 {
                     if (fresh) { arms.Plan.Reset(theta(0f)); arms.Drive(0f, theta(0f), false, false); }
                     worst = Vector3.zero;
+                    name0 = name;
+                    cabinWorst = arms.CabinDepth();
                     arms.Depths(out float f0, out float h0, out float a0);
                     worst = new Vector3(f0, h0, a0);
                     int n = Mathf.RoundToInt(seconds / Dt);
@@ -240,6 +261,7 @@ namespace PSXRacing.EditorTools
                         Frame(theta(t), shift != null && shift(t), brake != null && brake(t));
                     }
                     res[name] = worst;
+                    Cab[(contact, name)] = cabinWorst;
                     if (contact && worst.x > 0.001f) Worst[name] = why;
                 }
                 Run("rest", 0.5f, t => 0f);
@@ -254,6 +276,8 @@ namespace PSXRacing.EditorTools
                 Run("sweep +/-450", 10f, t => t < 2.5f ? 180f * t : t < 7.5f ? 450f - 180f * (t - 2.5f) : -450f + 180f * (t - 7.5f));
                 // And held still at each 5 degrees, settled (hands rest there).
                 Vector3 still = Vector3.zero;
+                name0 = "still every 5 deg";
+                cabinWorst = 0f;
                 for (float th = -450f; th <= 450f; th += 5f)
                 {
                     arms.Plan.Reset(th);
@@ -263,6 +287,7 @@ namespace PSXRacing.EditorTools
                     still = Vector3.Max(still, new Vector3(f, h, fa));
                 }
                 res["still every 5 deg"] = still;
+                Cab[(contact, "still every 5 deg")] = cabinWorst;
             }
             finally
             {
