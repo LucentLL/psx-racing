@@ -60,6 +60,19 @@ float4x4 _PSXSkyMatrix;
 // w = the constant depth bias, in ray-depth units.
 float4 _PSXShadowParams;
 float4 _PSXSkyParams;
+// THE CARS' OWN MAP (SunShadows.Cars.cs, 2026-10-15): the nearest cars, and
+// nothing else, down the same rays at 3.9 cm a texel (5.5 on a touch device),
+// so a car's shadow is its silhouette and not the big map's 17.6 cm lozenge.
+// Those cars are left out of the big map. Same packing, same params layout.
+sampler2D _PSXCarShadowMap;
+float4x4 _PSXCarShadowMatrix;
+float4 _PSXCarShadowParams;
+// x = the depth bias for a receiver that is not PSX/Lit (a car's paint), in
+// ray units: 0.45 m. A car does not shade ITSELF from this map - at 3.9 cm a
+// texel its own trunk lip cut a staircase into its rear bumper's highlight -
+// but a car beside it, a metre or more along the ray, still does.
+// y = one texel of this map in ray units (the world receiver's slope bias).
+float4 _PSXCarShadowBias;
 // rgb = what the haze gains looking straight at the sun (linear),
 // a = how tight that glow is (the exponent). Alpha under 1 = off.
 float4 _PSXFogSun;
@@ -124,6 +137,58 @@ float PSXShadowTap(float2 uv, float z, float throughLeaves)
     return step(z, t.x) * lerp(throughLeaves, 1.0, step(z, t.y));
 }
 
+// How much sun one texel of the car map lets through to depth z: a car's
+// cutouts (b,a) are as solid as its solids (r,g) - there are no leaves here.
+float PSXCarShadowTap(float2 uv, float z)
+{
+    float2 t = PSXShadowTexel(_PSXCarShadowMap, uv);
+    return step(z, min(t.x, t.y));
+}
+
+// 1 = no car in the way of the sun, 0 = in a car's shadow. Outside the car
+// map's box there is nothing to say (those cars are in the big map). Read with
+// the four texels round the point, as the big map is: at 3.9 cm a texel the
+// edge is a pixel or two at 480 lines - hard, the way GT's is.
+float PSXCarShadow(float3 wpos, float3 N)
+{
+    float strength = _PSXCarShadowParams.x;
+    if (strength <= 0.001) return 1.0;
+    float3 L = normalize(_PSXLightDir.xyz);
+    float ndl = saturate(dot(N, L));
+    // PSX/Lit says it is the WORLD (#define PSX_WORLD_RECEIVER before the
+    // include): the road, a wall, a verge are never in this map, so they
+    // need next to no offset - and an offset shortens a long shadow (lifting
+    // the road 6 cm takes half a metre off a dawn shadow's tip).
+    // Its one PSX/Lit surface that IS in this map - a cockpit's dash, under
+    // its own car - takes a slope-scaled bias (a texel per unit of the
+    // face's tangent to the rays, up to one and a half), which near a caster is a few
+    // centimetres and on the open road changes nothing.
+#ifdef PSX_WORLD_RECEIVER
+    float offsetM = _PSXCarShadowParams.z * 0.33;
+    float tanL = min(sqrt(1.0 - ndl * ndl) / max(ndl, 1e-3), 1.5);
+    float bias = _PSXCarShadowParams.w + _PSXCarShadowBias.y * tanL;
+#else
+    float offsetM = _PSXCarShadowParams.z;
+    float bias = _PSXCarShadowBias.x;
+#endif
+    float3 p = wpos + N * (offsetM * sqrt(1.0 - ndl * ndl));
+    float3 s = mul(_PSXCarShadowMatrix, float4(p, 1.0)).xyz;
+    float2 fromMid = abs(s.xy - 0.5) * 2.0;
+    if (max(fromMid.x, fromMid.y) >= 1.0 || s.z >= 1.0 || s.z <= 0.0) return 1.0;
+    float res = _PSXCarShadowParams.y;
+    float2 t = s.xy * res - 0.5;
+    float2 f = frac(t);
+    float2 uv0 = (floor(t) + 0.5) / res;
+    float step1 = 1.0 / res;
+    float z = s.z - bias;
+    float s00 = PSXCarShadowTap(uv0, z);
+    float s10 = PSXCarShadowTap(uv0 + float2(step1, 0.0), z);
+    float s01 = PSXCarShadowTap(uv0 + float2(0.0, step1), z);
+    float s11 = PSXCarShadowTap(uv0 + float2(step1, step1), z);
+    float lit = lerp(lerp(s00, s10, f.x), lerp(s01, s11, f.x), f.y);
+    return lerp(1.0, lit, strength);
+}
+
 // 1 = in the sun, 0 = in shadow, for a world point with unit normal N, seen
 // from eyeDist metres away. `leaf` is 1 when the RECEIVER is itself a cutout -
 // a tree card, a fence - and then leaves do not shade it at all, from either
@@ -131,10 +196,17 @@ float PSXShadowTap(float2 uv, float z, float throughLeaves)
 // dapple is a pattern on the GROUND (on an upright card it would be stripes),
 // and a tree lit the way it always was is the tree the owner signed off.
 // Solid things still shade it: a tree behind a tower is in the tower's shadow.
-float PSXSunShadow(float3 wpos, float3 N, float eyeDist, float leaf)
+// carVis (out) is the cars' map's own answer, for PSXCarAmbientKeep.
+float PSXSunShadowCar(float3 wpos, float3 N, float eyeDist, float leaf, out float carVis)
 {
+    carVis = 1.0;
     float strength = _PSXShadowParams.x;
     if (strength <= 0.001) return 1.0;
+    // The nearest cars' shadows come from their own map; the nearer of the
+    // two answers wins (min, not a product: two shadows overlapping are not
+    // darker than either).
+    float car = PSXCarShadow(wpos, N);
+    carVis = car;
 
     // THE NORMAL OFFSET. One texel of the map covers more and more ray depth
     // the more edge-on a face is to the sun - a road at sunset changes depth
@@ -150,7 +222,7 @@ float PSXSunShadow(float3 wpos, float3 N, float eyeDist, float leaf)
     float3 s = mul(_PSXShadowMatrix, float4(p, 1.0)).xyz;
     float2 fromMid = abs(s.xy - 0.5) * 2.0;
     float rim = saturate((1.0 - max(fromMid.x, fromMid.y)) * PSX_SHADOW_RIM);
-    if (rim <= 0.0 || s.z >= 1.0 || s.z <= 0.0) return 1.0;
+    if (rim <= 0.0 || s.z >= 1.0 || s.z <= 0.0) return car;
 
     // The coins of light, fixed to the world. Worked out whether or not
     // there are leaves overhead: it is two noise lookups, and a branch on a
@@ -172,7 +244,40 @@ float PSXSunShadow(float3 wpos, float3 N, float eyeDist, float leaf)
     float s01 = PSXShadowTap(uv0 + float2(0.0, step1), z, dapple);
     float s11 = PSXShadowTap(uv0 + float2(step1, step1), z, dapple);
     float lit = lerp(lerp(s00, s10, f.x), lerp(s01, s11, f.x), f.y);
-    return lerp(1.0, lit, strength * rim);
+    return min(lerp(1.0, lit, strength * rim), car);
+}
+
+float PSXSunShadow(float3 wpos, float3 N, float eyeDist, float leaf)
+{
+    float carVis;
+    return PSXSunShadowCar(wpos, N, eyeDist, leaf, carVis);
+}
+
+// THE GT FLOOR UNDER A CAR'S SHADOW (2026-10-15). A car's shadow takes the
+// SUN away, and that is all a shadow does - which on flat ground under a low
+// sun is next to nothing: the dawn light's 6 degrees puts a tenth of the sun
+// on the road, the sky's ambient is the rest, and the car's long shadow was
+// there and could not be seen (the film grade's lifted floor halves what
+// contrast there is). GT4's car shadow is the same dark at every hour; it is
+// what sets the car ON the road. So inside a CAR's shadow (the cars' map
+// only - a tree's shadow is untouched) the ambient goes too, as far as it
+// takes for the shade to be 1/PSX_CAR_SHADE_RATIO of the light beside it,
+// never under PSX_CAR_SHADE_MIN of the ambient, and only on a face the sun
+// is on (a wall turned away from the sun is not "in" a shadow). Where the
+// sun alone already makes that contrast (a clear noon: 5.5 to 1 on the deck
+// the fill was tuned against) nothing changes. amb and sun are the
+// receiver's own lighting terms, before its texture.
+#define PSX_CAR_SHADE_RATIO 4.0
+#define PSX_CAR_SHADE_MIN   0.35
+float PSXCarAmbientKeep(float carVis, float3 amb, float3 sun, float3 N)
+{
+    if (carVis >= 0.999) return 1.0;
+    const float3 Y = float3(0.30, 0.59, 0.11);
+    float a = max(dot(amb, Y), 1e-4);
+    float keep = clamp((a + dot(sun, Y)) / (PSX_CAR_SHADE_RATIO * a), PSX_CAR_SHADE_MIN, 1.0);
+    float ndl = saturate(dot(N, normalize(_PSXLightDir.xyz)));
+    keep = lerp(1.0, keep, smoothstep(0.0, 0.08, ndl));
+    return lerp(keep, 1.0, carVis);
 }
 
 // How much of the AMBIENT a world point keeps: 1 under open sky, down to

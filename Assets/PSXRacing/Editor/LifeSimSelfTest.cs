@@ -12975,6 +12975,7 @@ namespace PSXRacing.EditorTools
             Guard("DayLook.Shaders", DayLookShaders);
             Guard("DayLook.Hours", DayLookHours);
             Guard("DayLook.Map", DayLookMap);
+            Guard("DayLook.CarMap", DayLookCarMap);
         }
 
         static void DayLookShaders()
@@ -13045,6 +13046,71 @@ namespace PSXRacing.EditorTools
             Check(tight, "every sunlit hour's haze glow has an exponent of at least 1 (under 1 means OFF to the shaders)");
             Color lo = TimeOfDay.FogSunFor(TimeOfDay.Afternoon, Weather.Clear), hi = TimeOfDay.FogSunFor(TimeOfDay.Noon, Weather.Clear);
             Check(lo.r + lo.g + lo.b > hi.r + hi.g + hi.b, "a low sun lights more haze than a high one");
+        }
+
+        /// <summary>
+        /// THE CARS' OWN MAP (SunShadows.Cars.cs): a car-sized Rigidbody in
+        /// front of the camera goes into it, a pizza-box-sized one does not,
+        /// and the map's matrix puts the car inside the map, toward the sun at
+        /// a smaller depth. With the sun's strength at zero nothing is drawn.
+        /// </summary>
+        static void DayLookCarMap()
+        {
+            if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null)
+            {
+                Skip("the car shadow map (no graphics device: sunshadow-play-check reads a real one)");
+                return;
+            }
+            var lit = Shader.Find("PSX/Lit");
+            if (lit == null) { Check(false, "PSX/Lit exists for the car map probe"); return; }
+            var go = new GameObject("DayLookCarMapProbe");
+            var mat = new Material(lit);
+            var made = new List<GameObject> { go };
+            try
+            {
+                var cam = go.AddComponent<Camera>();
+                cam.enabled = false;
+                go.transform.SetPositionAndRotation(new Vector3(-340f, 30f, 410f), Quaternion.Euler(8f, 20f, 0f));
+                Vector3 flat = go.transform.forward; flat.y = 0f; flat.Normalize();
+                GameObject Body(string name, Vector3 at, Vector3 size)
+                {
+                    var root = new GameObject(name);
+                    made.Add(root);
+                    root.transform.position = at;
+                    var rb = root.AddComponent<Rigidbody>();
+                    rb.isKinematic = true;
+                    var box = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    Object.DestroyImmediate(box.GetComponent<Collider>());
+                    box.transform.SetParent(root.transform, false);
+                    box.transform.localScale = size;
+                    box.GetComponent<MeshRenderer>().sharedMaterial = mat;
+                    return root;
+                }
+                Vector3 carAt = go.transform.position + flat * 9f + Vector3.down * 1.5f;
+                Body("ProbeCar", carAt, new Vector3(1.9f, 1.3f, 4.4f));
+                Body("ProbePizza", carAt + Vector3.Cross(Vector3.up, flat) * 4f, new Vector3(0.4f, 0.1f, 0.4f));
+                Vector3 toSun = (Quaternion.Euler(30f, -60f, 0f) * Vector3.back).normalized;
+                SunShadows.Configure(1f, 0f, toSun);
+                SunShadows.RenderFor(cam);
+                Check(SunShadows.CarMap != null && SunShadows.CarsLast == 1,
+                      "the car-sized Rigidbody is in the car map and the pizza box is not", SunShadows.CarsLast + " cars");
+                Check(SunShadows.CarCallsLast >= 1, "and drawing it is a draw call", SunShadows.CarCallsLast + " calls");
+                Vector3 c = SunShadows.WorldToCarMap.MultiplyPoint(carAt);
+                Vector3 up = SunShadows.WorldToCarMap.MultiplyPoint(carAt + toSun * 10f);
+                Check(c.x > 0.05f && c.x < 0.95f && c.y > 0.05f && c.y < 0.95f && c.z > 0f && c.z < 1f,
+                      "the car lands inside the car map", c.ToString("0.000"));
+                Check(up.z < c.z - 0.02f && Mathf.Abs(up.x - c.x) < 1e-3f && Mathf.Abs(up.y - c.y) < 1e-3f,
+                      "a point 10 m toward the sun is the same texel at a smaller depth");
+                SunShadows.Configure(0f, 0f, toSun);
+                SunShadows.RenderFor(cam);
+                Check(Shader.GetGlobalVector("_PSXCarShadowParams").x == 0f, "with the sun's strength at zero the car map is off");
+            }
+            finally
+            {
+                SunShadows.Configure(0f, 0f, Vector3.up);
+                foreach (var g in made) if (g != null) Object.DestroyImmediate(g);
+                Object.DestroyImmediate(mat);
+            }
         }
 
         /// <summary>

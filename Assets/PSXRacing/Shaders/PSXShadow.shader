@@ -24,6 +24,11 @@ Shader "PSX/Shadow"
 
             sampler2D _MainTex;
             float _Strength;
+            // How much of the blob goes in full sun (SunShadows.Cars.cs): the
+            // car's own shadow is the shadow then, and what is left is the
+            // contact darkening under the body. 0 - never set, every scene
+            // with no hour, dusk, night - is the blob as it always was.
+            float _PSXBlobFade;
 
             struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
             struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
@@ -38,7 +43,7 @@ Shader "PSX/Shadow"
 
             fixed4 frag (v2f i) : SV_Target
             {
-                fixed a = tex2D(_MainTex, i.uv).a * _Strength;
+                fixed a = tex2D(_MainTex, i.uv).a * _Strength * (1.0 - saturate(_PSXBlobFade));
                 return fixed4(0, 0, 0, a);
             }
             ENDCG

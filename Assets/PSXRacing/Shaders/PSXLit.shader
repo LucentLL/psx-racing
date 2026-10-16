@@ -276,6 +276,9 @@ Shader "PSX/Lit"
             #define WORLD_TOE          0.80
             #define WORLD_SPAN         0.50
             // The shadow map and the sun in the haze. After _PSXLightDir.
+            // This shader draws the WORLD the cars' shadows land on (the
+            // cars' own map treats it as never in that map: PSXCarShadow).
+            #define PSX_WORLD_RECEIVER
             #include "PSXSunShadow.cginc"
 
             // THE WET ROAD (the NIGHT PASS in the header). Like the car
@@ -763,8 +766,11 @@ Shader "PSX/Lit"
                 // A cutout (a tree card, a fence) takes no shade from leaves -
                 // PSXSunShadow says why. _Cutoff is a uniform.
                 float leaf = _Cutoff > 0.001 ? 1.0 : 0.0;
-                float sunVis = PSXSunShadow(i.wpos, N, eyeDist, leaf);
-                float3 sunAmb = i.amb * PSXSkyOpen(i.wpos, N, leaf) + i.sun * sunVis;
+                // A CAR's shadow takes some of the sky too, where the sun
+                // alone leaves it too faint to see (PSXCarAmbientKeep).
+                float carVis;
+                float sunVis = PSXSunShadowCar(i.wpos, N, eyeDist, leaf, carVis);
+                float3 sunAmb = i.amb * (PSXSkyOpen(i.wpos, N, leaf) * PSXCarAmbientKeep(carVis, i.amb, i.sun, N)) + i.sun * sunVis;
                 // The shoulder is the old tone curve, on the LIGHT: with the
                 // colour pass's one curve on (_PSXToneOn) the light goes
                 // through unrolled and the curve acts on the radiance below.
