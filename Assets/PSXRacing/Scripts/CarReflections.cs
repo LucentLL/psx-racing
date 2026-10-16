@@ -61,6 +61,7 @@ namespace PSXRacing
         public const string ShaderName = "Hidden/PSX/EnvPano";
         static readonly int EnvPanoId = Shader.PropertyToID("_PSXEnvPano");
         static readonly int EnvOnId = Shader.PropertyToID("_PSXEnvOn");
+        static readonly int EnvLodBiasId = Shader.PropertyToID("_PSXEnvLodBias");
         static readonly int FaceFId = Shader.PropertyToID("_FaceF");
         static readonly int FaceRId = Shader.PropertyToID("_FaceR");
         static readonly int FaceUId = Shader.PropertyToID("_FaceU");
@@ -123,9 +124,21 @@ namespace PSXRacing
 
         static void Kill(Object o) { if (Application.isPlaying) Destroy(o); else DestroyImmediate(o); }
 
+        /// <summary>Face size, pixels. Desktop 256 since the GT4 retune
+        /// (2026-10-15: a 1024x512 panorama, sharp enough to read as a
+        /// reflection on the glass); phones stay cheap. Measured in the editor
+        /// (ReflectionShots PSX_REFL_TIME): a six-face refresh is ~30 ms at 64,
+        /// 128 or 256 alike - the views are draw-call bound, not fill bound -
+        /// and the game draws one or two faces a frame.</summary>
+        public const int FaceResDesktop = 256, FaceResMobile = 64;
+
+        /// <summary>Tools only (ReflectionShots' timing): a face size to use
+        /// instead of the platform's; 0 = the platform's.</summary>
+        public static int FaceResOverride;
+
         bool Ensure()
         {
-            int res = Application.isMobilePlatform ? 64 : 128;
+            int res = FaceResOverride > 0 ? FaceResOverride : (Application.isMobilePlatform ? FaceResMobile : FaceResDesktop);
             if (faceRes != res) { Release(); faceRes = res; }
             if (stitch == null)
             {
@@ -248,6 +261,9 @@ namespace PSXRacing
 
             Graphics.Blit(null, pano, stitch);
             Shader.SetGlobalTexture(EnvPanoId, pano);
+            // Readers ask for a blur in mips of a 512-wide panorama
+            // (PSXSkyReflect.cginc): +1 at 1024, -1 at 256.
+            Shader.SetGlobalFloat(EnvLodBiasId, Mathf.Log(pano.width / 512f, 2f));
             Shader.SetGlobalFloat(EnvOnId, 1f);
         }
 

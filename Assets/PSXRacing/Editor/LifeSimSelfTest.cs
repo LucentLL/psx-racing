@@ -44,6 +44,19 @@ namespace PSXRacing.EditorTools
             finally { Edition.Simulate(editionWas); }
         }
 
+        /// <summary>Only the paint's pins (TestPaintAndFilmGrade), for a
+        /// shader-only change: seconds, no scene build needed. Writes
+        /// PSXRacing_selftest_paint.txt.</summary>
+        public static void RunPaint()
+        {
+            log = new StringBuilder();
+            failures = 0;
+            Guard(nameof(TestPaintAndFilmGrade), TestPaintAndFilmGrade);
+            Line(failures == 0 ? "PAINT SELF-TEST OK" : "PAINT SELF-TEST FAILED (" + failures + ")");
+            System.IO.File.WriteAllText(
+                System.IO.Path.Combine(Application.dataPath, "../PSXRacing_selftest_paint.txt"), log.ToString());
+        }
+
         static void RunAll()
         {
 
@@ -5332,6 +5345,21 @@ namespace PSXRacing.EditorTools
                   "a flank's grazing reflection is dark land, not a rim of sky", Define("LAND_TOP"));
             Check(Define("COAT_FMAX") <= 0.6f && Define("COAT_F0") <= 0.08f,
                   "lacquer reflects a few percent face-on", Define("COAT_F0"));
+            // THE GT4 RETUNE (2026-10-15): the red Viper read gold because the
+            // world went into the paint at 0.10 face-on / 0.62 at the edge,
+            // ground colours and all. The paint keeps its livery; the glass is
+            // the mirror.
+            Check(Define("ENV_COAT_F0") <= 0.06f && Define("ENV_COAT_FMAX") <= 0.4f,
+                  "with the world in it the paint keeps its livery: a few percent face-on, under 0.4 at the edge",
+                  Define("ENV_COAT_F0") + " / " + Define("ENV_COAT_FMAX"));
+            Check(Define("PAINT_LOW_KEEP") < 0.5f && Define("PAINT_UP_HI") > 0f,
+                  "below the horizon the paint reflects dark grey ground, never the verge's colour", Define("PAINT_LOW_KEEP"));
+            Check(Define("ENV_GLASS_F0") >= 3f * Define("ENV_COAT_F0") && Define("GLASS_CONTRAST") > 1f,
+                  "the glass is the strong, high-contrast mirror", Define("ENV_GLASS_F0") + " / " + Define("GLASS_CONTRAST"));
+            Check(Define("SILL_SKY") < 1f && Define("SILL_HI") > Define("SILL_LO"),
+                  "the sills see less sky than the roof", Define("SILL_SKY"));
+            Check(CarReflections.FaceResDesktop >= 256 && CarReflections.FaceResMobile <= 64,
+                  "reflection faces 256 on desktop, 64 on phones", CarReflections.FaceResDesktop + " / " + CarReflections.FaceResMobile);
             foreach (var sh in new[] { "PSX/CarPaint", "PSX/Blit" })
             {
                 var shader = Shader.Find(sh);

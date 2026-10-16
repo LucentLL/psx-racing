@@ -142,12 +142,19 @@ float3 PSXSkyIn(float3 R, float lod)
 // six views from the watched car's roof stitched into an equirect laid out
 // like the sky panorama above (no rotation: it is world-aligned). Only read
 // while _PSXEnvOn is 1; the sky lookup stays the fallback.
+//
+// The caller's lod is in mips OF A 512-WIDE PANORAMA (the size it was built
+// at). _PSXEnvLodBias = log2(real width / 512), pushed by CarReflections
+// (+1 at desktop's 1024 since 2026-10-15, -1 at phones' 256), so one number is
+// one blur in degrees at every size and the wet road's mirror did not change
+// when the panorama doubled. Unset (0) = the old arithmetic exactly.
 sampler2D _PSXEnvPano;
 float _PSXEnvOn;
+float _PSXEnvLodBias;
 float3 PSXEnvIn(float3 R, float lod)
 {
     float u = atan2(R.z, R.x) * (0.5 / UNITY_PI) + 0.5;
     float v = 0.5 + asin(clamp(R.y, -1.0, 1.0)) / UNITY_PI;
-    return tex2Dlod(_PSXEnvPano, float4(u, v, 0, lod)).rgb;
+    return tex2Dlod(_PSXEnvPano, float4(u, v, 0, max(lod + _PSXEnvLodBias, 0.0))).rgb;
 }
 #endif

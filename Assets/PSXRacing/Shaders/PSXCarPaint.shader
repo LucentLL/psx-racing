@@ -141,7 +141,9 @@
 //
 // _PSXPaintDebug (a global the screenshot tool sets) swaps the output for one
 // term at a time: 1 = N.L, 2 = the normal, 3 = the light before the knee,
-// 4 = the reflection alone, 5 = the sheet. When a picture disagrees with the
+// 4 = the reflection alone, 5 = the sheet, 6 = what the lacquer sees in
+// direction R (before how much and the tint), 7 = how much (k), 8 = the paint
+// without its reflection. When a picture disagrees with the
 // arithmetic, this is how to find out which of them is lying.
 Shader "PSX/CarPaint"
 {
@@ -209,14 +211,49 @@ Shader "PSX/CarPaint"
             #define GLASS_F0           0.10   // glass face-on: dark behind it, so the sky is most of what it shows
             #define GLASS_FMAX         0.70
             #define GLASS_LOD          1.5    // how soft the sky is in it (paint is 2.5)
-            #define ENV_PAINT_LOD      0.8    // how soft the world is in the paint (CarReflections' panorama)
-            #define ENV_GLASS_LOD      0.0    // ...and in the glass: sharp
+            // The panorama's blur, in mips OF A 512-WIDE PANORAMA: PSXEnvIn adds
+            // _PSXEnvLodBias (log2 of the real width over 512), so the same
+            // number is the same blur in degrees at 1024 (desktop) and 256
+            // (phones). Negative = sharper than the old 512 could be.
+            #define ENV_PAINT_LOD      0.6    // how soft the world is in the paint (CarReflections' panorama)
+            #define ENV_GLASS_LOD      -1.0   // ...and in the glass: the full 1024 panorama, sharp
             #define ENV_MIX            1.0    // the world replaces the sky lookup where it is drawn
-            // ...and with the world in it the lacquer reads as GT's does: a
-            // showroom coat, the street plainly in the doors (2026-10-12).
-            #define ENV_COAT_F0        0.10
-            #define ENV_COAT_FMAX      0.62
-            #define ENV_GLASS_F0       0.16
+            // THE GT4 RETUNE (2026-10-15). The owner, beside GT4's Trial
+            // Mountain: "The reflections seem much better than mine" - and
+            // his red Viper's rear read GOLD. In GT4 the paint stays its own
+            // colour (a weak reflection, a sky sheen on the roof, sills darker
+            // than the roof) and the STRONG reflection is on the glass. Ours
+            // reflected the world at 0.10 face-on and 0.62 at the edge - and
+            // what the lower body reflected was the SUNLIT VERGE seen from the
+            // ROOF (where the probe stands): yellow centre lines, tan grass,
+            // the wall, a few metres out. A sill a foot off the road sees the
+            // shadowed tarmac under the car instead; the roof probe cannot
+            // know that, so the paint does not trust its lower half.
+            #define ENV_COAT_F0        0.04   // lacquer as it is: four percent face-on (was 0.10)...
+            #define ENV_COAT_FMAX      0.30   // ...and under a third at the edge (was 0.62)
+            #define PAINT_UP_LO        -0.05  // the paint's world is the UPPER hemisphere: from R.y = this...
+            #define PAINT_UP_HI        0.25   // ...to this it fades in; below, the ground is
+            #define PAINT_LOW_KEEP     0.30   // ...its own luminance, GREY, at this share: dark, never its colour
+            #define LOW_GLOW_LO        0.70   // a light below the horizon (a headlight, a lamp) is not ground:
+            #define LOW_GLOW_HI        1.00   //   from this max channel up it passes as it is
+            // HEADROOM. The faces are LDR (ARGB32: the WebGL-safe target), so
+            // the sky in them stops at 1 and a sheen of it is dull. The bright
+            // end of the UPPER hemisphere is expanded back above 1; the paint's
+            // shoulder rolls it off. Dark skies (night) are untouched.
+            #define ENV_HDR            1.60   // x(1 + this) at a clipped white
+            #define ENV_HDR_LO         0.55   // from this max channel up
+            // THE GLASS is the mirror: dark, with the sky and the canopy in it
+            // in hard streaks.
+            #define ENV_GLASS_F0       0.24   // was 0.16
+            #define ENV_GLASS_FMAX     0.90
+            #define GLASS_CONTRAST     2.20   // the world's darks pushed down in the glass (a power on its luminance)...
+            #define GLASS_GAIN         1.20   // ...and its brights kept
+            // THE SKY OCCLUDED LOW ON THE BODY: the sky light and the sky in
+            // the lacquer fall off from the roof to the sills (metres above
+            // the model's ground, which is its mesh's y = 0).
+            #define SILL_SKY           0.62   // the sills' share
+            #define SILL_LO            0.20
+            #define SILL_HI            1.00
             // THE SUN IN THE PAINT: a glint in the lacquer, a sheen in the flake.
             #define SUN_GLINT          0.70   // the sun's mirror image...
             #define SUN_GLINT_POW      160.0  // ...about six degrees across (doubled on glass)
@@ -304,6 +341,7 @@ Shader "PSX/CarPaint"
                 fixed fog : TEXCOORD1;
                 float3 wnrm : TEXCOORD2;
                 float3 wpos : TEXCOORD3;
+                float hgt : TEXCOORD4;      // metres above the model's ground (mesh y, scaled)
             };
 
             v2f vert (appdata v)
@@ -326,6 +364,7 @@ Shader "PSX/CarPaint"
                 float nl2 = dot(rawN, rawN);
                 o.wnrm = nl2 > 1e-8 ? rawN * rsqrt(nl2) : float3(0, 1, 0);
                 o.wpos = mul(unity_ObjectToWorld, v.vertex).xyz;
+                o.hgt = v.vertex.y * length(float3(unity_ObjectToWorld._m01, unity_ObjectToWorld._m11, unity_ObjectToWorld._m21));
 
                 float dist = length(mul(UNITY_MATRIX_MV, v.vertex).xyz);
                 float fogT = saturate((dist - _PSXFogNear) / max(_PSXFogFar - _PSXFogNear, 1.0));
@@ -408,7 +447,11 @@ Shader "PSX/CarPaint"
                 // answer to the map that looks straight down (1 in the open,
                 // and 1 whenever the day pass is off).
                 float skyOpen = PSXSkyOpen(i.wpos, N, 0.0);
-                amb *= PAINT_AMBIENT * skyOpen;
+                // ...and low on the body the car itself hides the sky: the
+                // roof-to-sill gradient (not on a wheel, whose mesh is centred
+                // on its axle).
+                float occ = lerp(lerp(SILL_SKY, 1.0, smoothstep(SILL_LO, SILL_HI, i.hgt)), 1.0, dull);
+                amb *= PAINT_AMBIENT * skyOpen * occ;
                 // What the shadow map lets through: the sun's lambert, its
                 // glint and the flake's sheen all go with it - a shadowed
                 // bonnet has no sun in the lacquer either.
@@ -448,9 +491,9 @@ Shader "PSX/CarPaint"
                 float fres = pow(1.0 - ndv, 5.0);
                 float envOn = step(0.5, _PSXEnvOn);
                 float coatF0 = lerp(COAT_F0, ENV_COAT_F0, envOn), coatFMax = lerp(COAT_FMAX, ENV_COAT_FMAX, envOn);
-                float glassF0 = lerp(GLASS_F0, ENV_GLASS_F0, envOn);
+                float glassF0 = lerp(GLASS_F0, ENV_GLASS_F0, envOn), glassFMax = lerp(GLASS_FMAX, ENV_GLASS_FMAX, envOn);
                 float k = lerp(coatF0 + (coatFMax - coatF0) * fres,
-                               glassF0 + (GLASS_FMAX - glassF0) * fres, glass);
+                               glassF0 + (glassFMax - glassF0) * fres, glass);
                 k *= lerp(1.0, DULL_REFLECT, dull);
                 float3 R = reflect(-V, N);
                 // The sky in the lacquer is the sky: adapted, never exposed
@@ -461,8 +504,24 @@ Shader "PSX/CarPaint"
                 // the trees and buildings, other cars, the sky - as it is on
                 // screen, so it stands in for the adapted sky lookup outright.
                 // The day's dimming of the sky part below still applies.
+                // THE GT4 RETUNE (the header block at ENV_COAT_F0): the paint
+                // reads the UPPER hemisphere, with the ground below it grey and
+                // dark (a light passes); the glass reads all of it, its darks
+                // pushed down; the bright sky in both gets its headroom back.
                 if (_PSXEnvOn > 0.5)
-                    sky = lerp(sky, PSXEnvIn(R, lerp(ENV_PAINT_LOD, ENV_GLASS_LOD, glass)), ENV_MIX);
+                {
+                    float3 env = PSXEnvIn(R, lerp(ENV_PAINT_LOD, ENV_GLASS_LOD, glass));
+                    float em = max(env.r, max(env.g, env.b));
+                    float upW = smoothstep(PAINT_UP_LO, PAINT_UP_HI, R.y);
+                    float hdr = 1.0 + ENV_HDR * smoothstep(ENV_HDR_LO, 1.0, em) * upW;
+                    float lumE = dot(env, float3(0.2126, 0.7152, 0.0722));
+                    float3 low = lerp(lumE * PAINT_LOW_KEEP, env, smoothstep(LOW_GLOW_LO, LOW_GLOW_HI, em));
+                    float3 envPaint = lerp(low, env * hdr, upW);
+                    // (on the luminance, so a blue sky goes dark navy and a
+                    // cloud or a gap in the canopy stays a bright streak)
+                    float3 envGlass = env * (pow(saturate(lumE), GLASS_CONTRAST - 1.0) * GLASS_GAIN * hdr);
+                    sky = lerp(sky, lerp(envPaint, envGlass, glass), ENV_MIX);
+                }
                 // ...except by day (2026-10-01): the paint under it is exposed
                 // (0.55 at a clear noon) and a full-brightness sky over an
                 // exposed panel is the white wash on every roof and boot.
@@ -479,7 +538,9 @@ Shader "PSX/CarPaint"
                 float3 tint = lerp(float3(1, 1, 1), body, PAINT_METALLIC * (1.0 - glass));
                 // (the world panorama already shows a roof over the car, so
                 // the sky-openness guess is not laid over it as well)
-                float3 refl = sky * tint * (k * (_PSXEnvOn > 0.5 ? 1.0 : skyOpen));
+                // The sky in the lacquer is occluded low on the body like the
+                // sky light (paint only: the glass sits up top anyway).
+                float3 refl = sky * tint * (k * (_PSXEnvOn > 0.5 ? 1.0 : skyOpen) * lerp(occ, 1.0, glass));
 
                 // THE SUN: a glint a few degrees across in the lacquer - a
                 // spark on a curve, nothing at all across a flat roof - and
@@ -533,7 +594,10 @@ Shader "PSX/CarPaint"
                     else if (_PSXPaintDebug < 2.5) col = N * 0.5 + 0.5;
                     else if (_PSXPaintDebug < 3.5) col = rawLight;
                     else if (_PSXPaintDebug < 4.5) col = refl;
-                    else col = tex.rgb;
+                    else if (_PSXPaintDebug < 5.5) col = tex.rgb;
+                    else if (_PSXPaintDebug < 6.5) col = sky;            // what the lacquer sees (before k, tint)
+                    else if (_PSXPaintDebug < 7.5) col = float3(k, k, k); // how much of it
+                    else col = lit;                                       // the paint without it
                     return fixed4(col, 1);
                 }
 
