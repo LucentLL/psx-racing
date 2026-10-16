@@ -310,8 +310,10 @@ namespace PSXRacing.EditorTools
             public bool stageBanks = true;
             /// <summary>Bake each vertex's share of the sky into its colour
             /// (PSXRacingBuilder.BakedLight.cs): the ambient darkens under the
-            /// canopy, at the foot of walls and cuts, under decks. Off until a
-            /// venue's numbers and shots are checked; PSX_BAKEDLIGHT=0/1
+            /// canopy, at the foot of walls and cuts, under decks. On for
+            /// every mountain stage and every circuit (2026-10-16); off on
+            /// the drag strips and Bogue Banks (flat, no forest, nothing
+            /// over the land but the bridges, and not asked for). PSX_BAKEDLIGHT=0/1
             /// overrides for an A/B build.</summary>
             public bool bakedLight;
             /// <summary>Fog band multiplier over the hour presets and the
@@ -347,7 +349,7 @@ namespace PSXRacing.EditorTools
         {
             // Downtown: gravel verges, concrete barriers, street trees, and the
             // gas station on the back straight this circuit was designed around.
-            ["CityCircuit"] = new Theme(),
+            ["CityCircuit"] = new Theme { bakedLight = true },
 
             // Docks: concrete slab everywhere, corrugated hoarding instead of
             // barriers, warehouses shoulder to shoulder, and nothing growing.
@@ -366,6 +368,7 @@ namespace PSXRacing.EditorTools
                 // player cannot finish a long race on — the station stopped
                 // being set dressing the moment the nozzle became a control.
                 gasStation = true,
+                bakedLight = true,
             },
 
             // Out of town: dirt and grass, dry-stone walling, trees close enough
@@ -386,6 +389,7 @@ namespace PSXRacing.EditorTools
                 parkedEvery = 0,
                 lampEvery = 24,
                 gasStation = true,
+                bakedLight = true,
             },
 
             // An airfield: tarmac to the horizon, slab walls, a hangar here and
@@ -409,6 +413,7 @@ namespace PSXRacing.EditorTools
                 // Silverstone/Goodwood lineage, and the archetype of a
                 // purpose-built circuit. It keeps the red/white.
                 kerb = KerbStyle.Racing,
+                bakedLight = true,
             },
 
             // Both strips share one look: fresh prepped tarmac, concrete walls
@@ -459,6 +464,7 @@ namespace PSXRacing.EditorTools
                 stageDir = Root + "/Art/MtMitchell",
                 stagePrefix = "mtm",
                 artShareDir = Root + "/Art/BRP",
+                bakedLight = true,
             },
 
             // NC 215 off the Parkway at Beech Gap. It wears the Parkway's look
@@ -481,6 +487,7 @@ namespace PSXRacing.EditorTools
                 stageDir = Root + "/Art/BeechGap",
                 stagePrefix = "beech",
                 artShareDir = Root + "/Art/BRP",
+                bakedLight = true,
             },
 
             // The two Parkway LOOPS: a section of the Parkway and the roads
@@ -577,6 +584,7 @@ namespace PSXRacing.EditorTools
             stageDir = dir,
             stagePrefix = prefix,
             artShareDir = Root + "/Art/BRP",
+            bakedLight = true,
         };
 
         static Theme DragTheme() => new Theme

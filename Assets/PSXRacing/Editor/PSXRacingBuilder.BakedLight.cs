@@ -26,6 +26,14 @@ namespace PSXRacing.EditorTools
     ///    their tops, decks) splatted as its MAX into the cell, and past the
     ///    built band the DEM (GroundHeightAt) on an 8 m grid out to 220 m. A
     ///    bearing's horizon takes the bands below it.
+    ///  * a DECK as a slab at its real height (2026-10-16): where a deck
+    ///    stands, what is not land and stands no lower than its soffit
+    ///    (the deck, its road, its parapets) is a second level over the
+    ///    column, so the land beside a viaduct sees past it and the land
+    ///    under it sees the band of sky the deck covers, not a wall from the
+    ///    ground up. A soffit takes the share of the land under it.
+    ///  * a circuit's BUILDINGS (pack instances, never baked themselves)
+    ///    as occluders from the ground up.
     ///  * the FOREST: every tree of the table as a crown sphere (its card's
     ///    width and height), each taking LeafK of the cells it covers. Leaves
     ///    are not stone, and the per-cell product saturates where crowns
@@ -119,11 +127,84 @@ namespace PSXRacing.EditorTools
             return SkyRole.None;
         }
 
+        /// <summary>Ground meshes are the land: never part of a deck's slab,
+        /// however close under it they run.</summary>
+        static bool SkyIsGround(string meshName)
+        {
+            string n = meshName.StartsWith(MeshPrefix) ? meshName.Substring(MeshPrefix.Length) : meshName;
+            return n.StartsWith("StageGroundN") || n.StartsWith("FillTail") || n.StartsWith("GroundMesh") || n.StartsWith("ApronMesh");
+        }
+
+        static bool SkyIsDeck(string meshName)
+        {
+            string n = meshName.StartsWith(MeshPrefix) ? meshName.Substring(MeshPrefix.Length) : meshName;
+            return n.StartsWith("BridgeDeck") || n.StartsWith("BridgeJoint");
+        }
+
         // ---- the height field --------------------------------------------
         static float skyX0, skyZ0, skyCX0, skyCZ0;
         static int skyTilesX, skyTilesZ, skyCellsX, skyCellsZ, skyCoarseX, skyCoarseZ;
         static float[][] skySurf, skyStruct;
         static float[] skyCoarseH;
+
+        // ---- THE SECOND LEVEL: a deck is a slab, not a column -------------
+        // A one-level field holds the highest thing in a cell from the ground
+        // UP, so a viaduct stood on the land beside it as a wall as tall as
+        // its parapets, and the ground beside Linn Cove was held at the floor
+        // (2026-10-16). Where a deck stands (its own cells and SkyDeckDilate
+        // round them, for the fascias and the parapets), whatever is not land
+        // and stands no lower than SkySlabSlack under the soffit goes to the
+        // slab [skySlabBot, skySlabTop]; the land, a road passing under and a
+        // pier's foot stay in the column. A point under the slab sees it as a
+        // band of elevations; a point at or over its soffit (the road on the
+        // deck) as the wall it always was.
+        const float SkySlabSlack = 0.3f;
+        const float SkySlabMinGap = 2f;     // a slab nearer the column than this is part of it (the abutments)
+        const int SkyDeckDilate = 2;
+        static float[][] skyDeckLo, skySlabBot, skySlabTop;
+        static bool skyHasSlabs;
+        // The old one-level field, and the field without its forest, for the
+        // report's numbers only.
+        static bool skyOneLevel, skyNoCrowns;
+
+        static void SkyMin(float[][] tiles, int cx, int cz, float h)
+        {
+            var a = SkyTile(tiles, cx, cz, true, float.PositiveInfinity);
+            if (a == null) return;
+            int i = (cz % SkyTileN) * SkyTileN + cx % SkyTileN;
+            if (h < a[i]) a[i] = h;
+        }
+
+        /// <summary>One raster sample into its layer: the slab where a deck
+        /// stands over the cell and this is part of it, else the surface
+        /// (sampled at cell centres) or the structures (the cell's max).</summary>
+        static void SkyPut(int ix, int iz, float h, bool surface, bool slabbable)
+        {
+            if (slabbable && skySlabBot != null)
+            {
+                float sb = SkyGet(skySlabBot, ix, iz, float.PositiveInfinity);
+                if (sb < 1e30f && h >= sb - SkySlabSlack) { SkyMax(skySlabTop, ix, iz, h, float.NegativeInfinity); return; }
+            }
+            if (surface) SkyMax(skySurf, ix, iz, h, float.NaN);
+            else SkyMax(skyStruct, ix, iz, h, float.NegativeInfinity);
+        }
+
+        /// <summary>What stands at (x, z): the column's top
+        /// (<paramref name="col"/>, from the land up) and the slab over it
+        /// (NaN when there is none). A slab within SkySlabMinGap of the column
+        /// is the column's.</summary>
+        static void SkyLevels(float x, float z, out float col, out float sb, out float st)
+        {
+            col = SkyHeightAt(x, z);
+            sb = st = float.NaN;
+            if (!skyHasSlabs) return;
+            int cx = Mathf.FloorToInt((x - skyX0) / SkyCell), cz = Mathf.FloorToInt((z - skyZ0) / SkyCell);
+            float top = SkyGet(skySlabTop, cx, cz, float.NegativeInfinity);
+            if (float.IsNegativeInfinity(top)) return;
+            float bot = SkyGet(skySlabBot, cx, cz, float.PositiveInfinity);
+            if (skyOneLevel || !(bot < 1e30f) || bot - col < SkySlabMinGap) { if (top > col) col = top; return; }
+            sb = bot; st = top;
+        }
 
         static float[] SkyTile(float[][] tiles, int cx, int cz, bool make, float fill)
         {
@@ -194,7 +275,7 @@ namespace PSXRacing.EditorTools
             return st > s ? st : s;
         }
 
-        static void SkyRasterSurface(Vector3 a, Vector3 b, Vector3 c)
+        static void SkyRasterSurface(Vector3 a, Vector3 b, Vector3 c, bool slabbable)
         {
             float denom = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
             if (Mathf.Abs(denom) < 1e-5f) return;   // edge-on in plan: a structure's job
@@ -212,12 +293,15 @@ namespace PSXRacing.EditorTools
                     float l2 = ((c.z - a.z) * (px - c.x) + (a.x - c.x) * (pz - c.z)) / denom;
                     float l3 = 1f - l1 - l2;
                     if (l1 < -1e-4f || l2 < -1e-4f || l3 < -1e-4f) continue;
-                    SkyMax(skySurf, ix, iz, l1 * a.y + l2 * b.y + l3 * c.y, float.NaN);
+                    SkyPut(ix, iz, l1 * a.y + l2 * b.y + l3 * c.y, true, slabbable);
                 }
             }
         }
 
-        static void SkyRasterStructure(Vector3 a, Vector3 b, Vector3 c)
+        /// <summary>A steep face (or a deck's every face, with
+        /// <paramref name="deck"/>: its LOWEST point a cell, the soffit)
+        /// sampled every 0.4 m.</summary>
+        static void SkyRasterStructure(Vector3 a, Vector3 b, Vector3 c, bool slabbable, bool deck = false)
         {
             float e = Mathf.Max((b - a).magnitude, Mathf.Max((c - a).magnitude, (c - b).magnitude));
             int n = Mathf.Clamp(Mathf.CeilToInt(e / (SkyCell * 0.4f)), 1, 400);
@@ -225,8 +309,9 @@ namespace PSXRacing.EditorTools
                 for (int j = 0; j <= n - i; j++)
                 {
                     Vector3 p = a + (b - a) * ((float)i / n) + (c - a) * ((float)j / n);
-                    SkyMax(skyStruct, Mathf.FloorToInt((p.x - skyX0) / SkyCell), Mathf.FloorToInt((p.z - skyZ0) / SkyCell),
-                           p.y, float.NegativeInfinity);
+                    int cx = Mathf.FloorToInt((p.x - skyX0) / SkyCell), cz = Mathf.FloorToInt((p.z - skyZ0) / SkyCell);
+                    if (deck) SkyMin(skyDeckLo, cx, cz, p.y);
+                    else SkyPut(cx, cz, p.y, false, slabbable);
                 }
         }
 
@@ -258,6 +343,14 @@ namespace PSXRacing.EditorTools
         }
 
         static readonly float[] SkyBandW = BandWeights();
+        // cos^2 of each band's edges, from the horizon up
+        static readonly float[] SkyC2 = BandEdgesC2();
+        static float[] BandEdgesC2()
+        {
+            var c = new float[SkyEl + 1];
+            for (int e = 0; e <= SkyEl; e++) { float x = Mathf.Cos(e * (90f / SkyEl) * Mathf.Deg2Rad); c[e] = x * x; }
+            return c;
+        }
         static float[] BandWeights()
         {
             var w = new float[SkyEl];
@@ -281,6 +374,14 @@ namespace PSXRacing.EditorTools
         /// <paramref name="T"/> is SkyAz*SkyEl scratch.</summary>
         static float SkyVisAt(Vector3 p, Vector3 n, SkyRole role, float[] T)
         {
+            // A SOFFIT faces the land, not the sky: what reaches it is the
+            // land's bounce, so it takes the land's share under it (the
+            // one-level field lifted it onto the road it carries).
+            if (n.y < -0.5f && role != SkyRole.Card && !skyOneLevel)
+            {
+                float g = SkyHeightAt(p.x, p.z);
+                if (g < p.y - 0.5f) return SkyVisAt(new Vector3(p.x, g, p.z), Vector3.up, SkyRole.Surface, T);
+            }
             float nh = Mathf.Sqrt(n.x * n.x + n.z * n.z);
             bool upright = role != SkyRole.Card && nh > 0.8f;
             float dnx = nh > 1e-4f ? n.x / nh : 0f, dnz = nh > 1e-4f ? n.z / nh : 0f;
@@ -300,37 +401,98 @@ namespace PSXRacing.EditorTools
             const float bandRad = Mathf.PI * 0.5f / SkyEl;
             for (int i = 0; i < T.Length; i++) T[i] = 1f;
 
-            // THE HORIZON, bearing by bearing
+            // THE HORIZON, bearing by bearing: the columns' highest
+            // tangent, and the slabs overhead as runs of elevation (a run is
+            // a deck crossed by consecutive steps: it spans from its soffit
+            // at the far side to its top at the near side)
+            const int MaxRuns = 4;
+            float runLo0 = 0f, runHi0 = 0f, runLo1 = 0f, runHi1 = 0f, runLo2 = 0f, runHi2 = 0f, runLo3 = 0f, runHi3 = 0f;
             for (int a = 0; a < SkyAz; a++)
             {
                 float phi = (a + 0.5f) * (2f * Mathf.PI / SkyAz);
                 float dx = Mathf.Cos(phi), dz = Mathf.Sin(phi);
                 if (upright && dx * dnx + dz * dnz < 0.05f) { for (int e = 0; e < SkyEl; e++) T[a * SkyEl + e] = -1f; continue; }
                 float maxT = 0f;
+                int nRuns = 0; bool inRun = false; float rLo = 0f, rHi = 0f;
                 for (int k = 0; k < SkySteps.Length; k++)
                 {
                     float r = SkySteps[k];
-                    float h = SkyHeightAt(sx + dx * r, sz + dz * r);
+                    SkyLevels(sx + dx * r, sz + dz * r, out float h, out float sb, out float st);
                     float t = (h - y0) / r;
                     if (t > maxT) maxT = t;
+                    bool over = false;
+                    if (!float.IsNaN(sb))
+                    {
+                        if (sb <= y0) { float t2 = (st - y0) / r; if (t2 > maxT) maxT = t2; }
+                        else
+                        {
+                            over = true;
+                            float lo = (sb - y0) / r, hi = (st - y0) / r;
+                            if (!inRun) { inRun = true; rLo = lo; rHi = hi; }
+                            else { if (lo < rLo) rLo = lo; if (hi > rHi) rHi = hi; }
+                        }
+                    }
+                    if (inRun && (!over || k == SkySteps.Length - 1))
+                    {
+                        inRun = false;
+                        if (nRuns < MaxRuns)
+                        {
+                            float aLo = Mathf.Atan(rLo), aHi = Mathf.Atan(rHi);
+                            switch (nRuns)
+                            {
+                                case 0: runLo0 = aLo; runHi0 = aHi; break;
+                                case 1: runLo1 = aLo; runHi1 = aHi; break;
+                                case 2: runLo2 = aLo; runHi2 = aHi; break;
+                                default: runLo3 = aLo; runHi3 = aHi; break;
+                            }
+                            nRuns++;
+                        }
+                    }
                 }
-                if (maxT <= 0f) continue;
-                float hor = Mathf.Atan(maxT);
-                float c2h = 1f / (1f + maxT * maxT);   // cos^2 of the horizon
+                if (maxT <= 0f && nRuns == 0) continue;
+                if (nRuns == 0)
+                {
+                    // no slab over this bearing: the one-level horizon
+                    float horA = Mathf.Atan(maxT), c2h = 1f / (1f + maxT * maxT);   // cos^2 of the horizon
+                    for (int e = 0; e < SkyEl; e++)
+                    {
+                        float lo = e * bandRad, hi = lo + bandRad;
+                        if (horA >= hi) T[a * SkyEl + e] = 0f;
+                        else if (horA > lo) T[a * SkyEl + e] = (c2h - SkyC2[e + 1]) / Mathf.Max(SkyC2[e] - SkyC2[e + 1], 1e-6f);
+                    }
+                    continue;
+                }
+                float hor = maxT > 0f ? Mathf.Atan(maxT) : 0f;
                 for (int e = 0; e < SkyEl; e++)
                 {
                     float lo = e * bandRad, hi = lo + bandRad;
-                    if (hor >= hi) T[a * SkyEl + e] = 0f;
-                    else if (hor > lo)
+                    float from = Mathf.Max(lo, hor);
+                    if (from >= hi) { T[a * SkyEl + e] = 0f; continue; }
+                    float c2hi = Mathf.Cos(hi) * Mathf.Cos(hi), c2lo = Mathf.Cos(lo) * Mathf.Cos(lo);
+                    float free = Mathf.Cos(from) * Mathf.Cos(from) - c2hi;
+                    // the slabs' runs over the horizon; overlapping runs are
+                    // taken once (each run's part not already under an
+                    // earlier one)
+                    for (int q = 0; q < nRuns; q++)
                     {
-                        float cl = Mathf.Cos(lo), ch = Mathf.Cos(hi);
-                        T[a * SkyEl + e] = (c2h - ch * ch) / Mathf.Max(cl * cl - ch * ch, 1e-6f);
+                        float x0 = q == 0 ? runLo0 : q == 1 ? runLo1 : q == 2 ? runLo2 : runLo3;
+                        float x1 = q == 0 ? runHi0 : q == 1 ? runHi1 : q == 2 ? runHi2 : runHi3;
+                        x0 = Mathf.Max(x0, from); x1 = Mathf.Min(x1, hi);
+                        for (int u = 0; u < q && x1 > x0; u++)
+                        {
+                            float u0 = u == 0 ? runLo0 : u == 1 ? runLo1 : runLo2;
+                            float u1 = u == 0 ? runHi0 : u == 1 ? runHi1 : runHi2;
+                            if (u0 <= x0 && u1 > x0) x0 = u1;          // the earlier run covers its start
+                            else if (u0 < x1 && u1 >= x1) x1 = u0;     // or its end
+                        }
+                        if (x1 > x0) free -= Mathf.Cos(x0) * Mathf.Cos(x0) - Mathf.Cos(x1) * Mathf.Cos(x1);
                     }
+                    T[a * SkyEl + e] = Mathf.Clamp01(free / Mathf.Max(c2lo - c2hi, 1e-6f));
                 }
             }
 
             // THE CROWNS
-            if (skyCrownArr != null && skyCrownArr.Length > 0)
+            if (!skyNoCrowns && skyCrownArr != null && skyCrownArr.Length > 0)
             {
                 int g0x = Mathf.FloorToInt((p.x - SkyTreeReach - skyX0) / SkyCrownCell), g1x = Mathf.FloorToInt((p.x + SkyTreeReach - skyX0) / SkyCrownCell);
                 int g0z = Mathf.FloorToInt((p.z - SkyTreeReach - skyZ0) / SkyCrownCell), g1z = Mathf.FloorToInt((p.z + SkyTreeReach - skyZ0) / SkyCrownCell);
@@ -398,6 +560,12 @@ namespace PSXRacing.EditorTools
             return wsum > 0f ? vis / wsum : 1f;
         }
 
+        static bool SkyUnderBuilding(Transform t)
+        {
+            for (; t != null; t = t.parent) if (t.name == "Building") return true;
+            return false;
+        }
+
         // ---- the pass -------------------------------------------------------
         class SkyJob { public MeshFilter mf; public Mesh mesh; public SkyRole role; public float[] vis; public Vector3[] wv, wn; }
 
@@ -429,6 +597,7 @@ namespace PSXRacing.EditorTools
                         foreach (var v in entry.variants)
                             if (v != null && v.IsKeywordEnabled(SkyVisKeyword)) { v.DisableKeyword(SkyVisKeyword); EditorUtility.SetDirty(v); }
                 skySurf = skyStruct = null; skyCoarseH = null; skyCrownArr = null;
+                skyDeckLo = skySlabBot = skySlabTop = null; skyHasSlabs = false;
             }
         }
 
@@ -480,9 +649,43 @@ namespace PSXRacing.EditorTools
                     skyCoarseH[iz * skyCoarseX + ix] = stageDemLoaded ? StageDemY(skyCX0 + ix * SkyCoarse, skyCZ0 + iz * SkyCoarse)
                                                                        : GroundHeightAt(skyCX0 + ix * SkyCoarse, skyCZ0 + iz * SkyCoarse);
             long tris = 0;
+            // THE DECKS FIRST: their lowest point a cell (the soffit), then
+            // that grown by SkyDeckDilate cells into the slab's floor
+            skyDeckLo = new float[skyTilesX * skyTilesZ][]; skySlabBot = skySlabTop = null; skyHasSlabs = false; skyOneLevel = false;
+            int deckCells = 0;
+            foreach (var j in jobs)
+            {
+                if (j.role == SkyRole.Card || !SkyIsDeck(j.mesh.name)) continue;
+                for (int s = 0; s < j.mesh.subMeshCount; s++)
+                {
+                    var idx = j.mesh.GetTriangles(s);
+                    for (int k = 0; k + 2 < idx.Length; k += 3)
+                        SkyRasterStructure(j.wv[idx[k]], j.wv[idx[k + 1]], j.wv[idx[k + 2]], false, deck: true);
+                }
+            }
+            for (int t = 0; t < skyDeckLo.Length; t++)
+            {
+                var tile = skyDeckLo[t];
+                if (tile == null) continue;
+                if (skySlabBot == null) { skySlabBot = new float[skyDeckLo.Length][]; skySlabTop = new float[skyDeckLo.Length][]; }
+                int tx = t % skyTilesX, tz = t / skyTilesX;
+                for (int i = 0; i < tile.Length; i++)
+                {
+                    float v = tile[i];
+                    if (!(v < 1e30f)) continue;
+                    deckCells++;
+                    int cx = tx * SkyTileN + i % SkyTileN, cz = tz * SkyTileN + i / SkyTileN;
+                    for (int dz = -SkyDeckDilate; dz <= SkyDeckDilate; dz++)
+                        for (int dx = -SkyDeckDilate; dx <= SkyDeckDilate; dx++)
+                            SkyMin(skySlabBot, cx + dx, cz + dz, v);
+                }
+            }
+            skyDeckLo = null;
             foreach (var j in jobs)
             {
                 if (j.role == SkyRole.Card) continue;
+                // the land is never the deck's, however close under it
+                bool slabbable = !SkyIsGround(j.mesh.name);
                 for (int s = 0; s < j.mesh.subMeshCount; s++)
                 {
                     var idx = j.mesh.GetTriangles(s);
@@ -497,11 +700,35 @@ namespace PSXRacing.EditorTools
                         // faces (a wall's side, a cut) are what the max is for.
                         Vector3 fn = Vector3.Cross(p1 - p0, p2 - p0);
                         bool flat = fn.sqrMagnitude > 1e-10f && Mathf.Abs(fn.normalized.y) > 0.6f;
-                        if (j.role == SkyRole.Surface || flat) SkyRasterSurface(p0, p1, p2);
-                        else SkyRasterStructure(p0, p1, p2);
+                        if (j.role == SkyRole.Surface || flat) SkyRasterSurface(p0, p1, p2, slabbable);
+                        else SkyRasterStructure(p0, p1, p2, slabbable);
                     }
                     tris += idx.Length / 3;
                 }
+            }
+            if (skySlabTop != null)
+                foreach (var tile in skySlabTop) if (tile != null) { skyHasSlabs = true; break; }
+
+            // OCCLUDERS ONLY: a circuit's buildings (instances of one pack's
+            // meshes, so never baked themselves) stand from the ground up,
+            // every face splatted as the cell's max.
+            int occluders = 0;
+            foreach (var mf in all)
+            {
+                var m = mf.sharedMesh;
+                if (m == null || !SkyUnderBuilding(mf.transform)) continue;
+                var r = mf.GetComponent<Renderer>();
+                if (r == null || !r.enabled) continue;
+                var M = mf.transform.localToWorldMatrix;
+                var v = m.vertices;
+                for (int s = 0; s < m.subMeshCount; s++)
+                {
+                    var idx = m.GetTriangles(s);
+                    for (int k = 0; k + 2 < idx.Length; k += 3)
+                        SkyRasterStructure(M.MultiplyPoint3x4(v[idx[k]]), M.MultiplyPoint3x4(v[idx[k + 1]]), M.MultiplyPoint3x4(v[idx[k + 2]]), false);
+                    tris += idx.Length / 3;
+                }
+                occluders++;
             }
             SkyIndexCrowns();
             long fieldMs = clock.ElapsedMilliseconds;
@@ -579,10 +806,13 @@ namespace PSXRacing.EditorTools
                 meshesColoured++;
             }
             AssetDatabase.SaveAssets();
-            File.WriteAllBytes(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_bakedlight_colours.bin"), dump.ToArray());
+            string root = Path.GetDirectoryName(Application.dataPath), vid = track != null ? track.id : "venue";
+            File.WriteAllBytes(Path.Combine(root, "PSXRacing_bakedlight_colours.bin"), dump.ToArray());
+            File.WriteAllBytes(Path.Combine(root, "PSXRacing_bakedlight_colours_" + vid + ".bin"), dump.ToArray());
 
             // THE REPORT and its checks
             skyReport.AppendLine($"  field {skyCellsX}x{skyCellsZ} m, {tris} triangles, {fieldMs} ms; bake {verts} vertices in {bakeMs} ms");
+            skyReport.AppendLine($"  two-level field: {deckCells} deck cells (slab {(skyHasSlabs ? "yes" : "none")}); {occluders} building meshes as occluders");
             skyReport.AppendLine($"  keyed {keyed.Count} materials (+{variantsKeyed} season dresses); coloured {meshesColoured} meshes, {meshesSkipped} left plain; +{bytes / 1024} KB of vertex colour (4 B a vertex, before compression)");
             foreach (var mat in keyed) skyReport.AppendLine("    " + mat.name);
             SkyStats(jobs);
@@ -600,8 +830,10 @@ namespace PSXRacing.EditorTools
             }
             SkyCheck(bad == 0 && wearing > 0, "every renderer wearing a sky-baked material carries a colour a vertex", $"{bad} of {wearing} without");
             skyReport.AppendLine($"  total {clock.ElapsedMilliseconds} ms");
-            File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_bakedlight.txt"), skyReport.ToString());
+            File.WriteAllText(Path.Combine(root, "PSXRacing_bakedlight.txt"), skyReport.ToString());
+            File.WriteAllText(Path.Combine(root, "PSXRacing_bakedlight_" + vid + ".txt"), skyReport.ToString());
             skySurf = skyStruct = null; skyCoarseH = null; skyCrownArr = null;
+            skyDeckLo = skySlabBot = skySlabTop = null; skyHasSlabs = false;
         }
 
         /// <summary>Distributions per role, and the three checks the look
@@ -613,6 +845,14 @@ namespace PSXRacing.EditorTools
             void Add(string k, float v) { if (!groups.TryGetValue(k, out var l)) groups[k] = l = new List<float>(); l.Add(v); }
             var open = new List<float>(); var under = new List<float>(); var foot = new List<float>(); var verge = new List<float>();
             var cardLow = new List<float>(); var cardHigh = new List<float>();
+            // A stage's land is its near ground and its verge the shoulder
+            // strip; a circuit's are both its one ground mesh (and aprons).
+            bool stage = track != null && track.stage;
+            string landFam = stage ? "StageGroundN" : "GroundMesh";
+            // the land under a deck and beside it (2-12 m off, nothing over
+            // it), and the same vertices again under the old one-level field
+            var deckUnder = new List<float>(); var deckBeside = new List<float>();
+            var deckPts = new List<Vector3>(); var deckN = new List<Vector3>(); var deckIsUnder = new List<bool>();
             foreach (var j in jobs)
             {
                 if (j.vis == null) continue;
@@ -623,22 +863,41 @@ namespace PSXRacing.EditorTools
                 {
                     Add(fam, j.vis[i]);
                     Vector3 p = j.wv[i];
-                    if (n.StartsWith("StageGroundN") && j.wn[i].y > 0.95f)
+                    if (skyHasSlabs && n.StartsWith(landFam) && j.wn[i].y > 0.5f)
+                    {
+                        SkyLevels(p.x, p.z, out float _, out float sbHere, out float _);
+                        bool isUnder = !float.IsNaN(sbHere) && sbHere > p.y + 0.5f, near = false;
+                        for (float rr = 2f; rr <= 12.01f && !isUnder && !near; rr += 2f)
+                            for (int a = 0; a < 8 && !near; a++)
+                            {
+                                float ph = a * Mathf.PI / 4f;
+                                SkyLevels(p.x + Mathf.Cos(ph) * rr, p.z + Mathf.Sin(ph) * rr, out float _, out float sbr, out float _);
+                                if (!float.IsNaN(sbr) && sbr > p.y + 0.5f) near = true;
+                            }
+                        if (isUnder || near)
+                        {
+                            (isUnder ? deckUnder : deckBeside).Add(j.vis[i]);
+                            deckPts.Add(p); deckN.Add(j.wn[i]); deckIsUnder.Add(isUnder);
+                        }
+                    }
+                    if (n.StartsWith(landFam) && j.wn[i].y > 0.95f)
                     {
                         SkyNearestCrown(p, out float nearest, out bool overhead);
                         float st = SkyGetNear(p);
                         if (overhead) under.Add(j.vis[i]);
                         else if (nearest > 25f * 25f && st < p.y + 0.5f) open.Add(j.vis[i]);
                     }
-                    if (n.StartsWith("RoadEdge") && j.wn[i].y > 0.7f)
+                    if ((stage ? n.StartsWith("RoadEdge") : (n.StartsWith("GroundMesh") || n.StartsWith("ApronMesh"))) && j.wn[i].y > 0.7f)
                     {
                         // the foot of a wall or a cut: a structure cell 1.5 m off rising 0.5 m over it
                         bool atFoot = false;
                         for (int a = 0; a < 8 && !atFoot; a++)
                         {
                             float ph = a * Mathf.PI / 4f;
-                            float h = SkyGet(skyStruct, Mathf.FloorToInt((p.x + Mathf.Cos(ph) * 1.2f - skyX0) / SkyCell),
-                                             Mathf.FloorToInt((p.z + Mathf.Sin(ph) * 1.2f - skyZ0) / SkyCell), float.NegativeInfinity);
+                            int fcx = Mathf.FloorToInt((p.x + Mathf.Cos(ph) * 1.2f - skyX0) / SkyCell), fcz = Mathf.FloorToInt((p.z + Mathf.Sin(ph) * 1.2f - skyZ0) / SkyCell);
+                            float h = SkyGet(skyStruct, fcx, fcz, float.NegativeInfinity);
+                            // a parapet on a deck stands in the slab now
+                            if (skyHasSlabs) h = Mathf.Max(h, SkyGet(skySlabTop, fcx, fcz, float.NegativeInfinity));
                             if (h > p.y + 0.5f) atFoot = true;
                         }
                         (atFoot ? foot : verge).Add(j.vis[i]);
@@ -661,14 +920,77 @@ namespace PSXRacing.EditorTools
             SkyCheck(open.Count > 20 && openMed >= 0.88f, "open ground keeps its sky (flat ground vertex, no crown within 25 m, no structure): median >= 0.88",
                      $"median {openMed:0.00} over {open.Count}");
             float underMean = Mean(under);
-            SkyCheck(under.Count > 20 && underMean <= 0.60f, "the canopy floor loses it (a crown overhead): mean <= 0.60",
-                     $"mean {underMean:0.00} over {under.Count}");
+            // (a circuit's street trees stand over a handful of its ground's
+            // lattice points: too few to judge)
+            if (under.Count > 20)
+                SkyCheck(underMean <= 0.60f, "the canopy floor loses it (a crown overhead): mean <= 0.60",
+                         $"mean {underMean:0.00} over {under.Count}");
+            else skyReport.AppendLine($"  --   the canopy floor: {under.Count} ground vertices under a crown, too few to judge (mean {underMean:0.00})");
             float footMean = Mean(foot), vergeMean = Mean(verge);
             SkyCheck(foot.Count > 20 && footMean <= vergeMean - 0.08f, "the foot of a wall or a cut is darker than the open verge by >= 0.08",
                      $"foot {footMean:0.00} ({foot.Count}) vs verge {vergeMean:0.00} ({verge.Count})");
             if (cardLow.Count > 0)
                 SkyCheck(Mean(cardLow) < Mean(cardHigh) - 0.05f, "a tree card's foot is darker than its crown (depth into the wood)",
                          $"foot {Mean(cardLow):0.00} vs crown {Mean(cardHigh):0.00}");
+
+            // THE DECKS: the same land again under the one-level field (every
+            // deck a column from the ground up), the before of 2026-10-16
+            if (deckPts.Count > 0)
+            {
+                var oldUnder = new List<float>(); var oldBeside = new List<float>();
+                // and both again without the forest: what the deck itself takes
+                var bareNewU = new List<float>(); var bareNewB = new List<float>(); var bareOldU = new List<float>(); var bareOldB = new List<float>();
+                int lost = 0;
+                var T = new float[SkyAz * SkyEl];
+                try
+                {
+                    for (int i = 0; i < deckPts.Count; i++)
+                    {
+                        bool u = deckIsUnder[i];
+                        skyOneLevel = true; skyNoCrowns = false;
+                        float o = Mathf.Max(SkyVisAt(deckPts[i], deckN[i], SkyRole.Surface, T), SkyFloor);
+                        (u ? oldUnder : oldBeside).Add(o);
+                        skyNoCrowns = true;
+                        float bo = SkyVisAt(deckPts[i], deckN[i], SkyRole.Surface, T);
+                        skyOneLevel = false;
+                        float bn = SkyVisAt(deckPts[i], deckN[i], SkyRole.Surface, T);
+                        (u ? bareOldU : bareOldB).Add(bo); (u ? bareNewU : bareNewB).Add(bn);
+                        if (bn < bo - 0.02f) lost++;
+                    }
+                }
+                finally { skyOneLevel = false; skyNoCrowns = false; }
+                // how high the decks stand over the land under them
+                var clear = new List<float>();
+                for (int t = 0; t < skySlabTop.Length; t++)
+                {
+                    var tile = skySlabTop[t];
+                    if (tile == null) continue;
+                    int tx = t % skyTilesX, tz = t / skyTilesX;
+                    for (int i = 0; i < tile.Length; i++)
+                    {
+                        if (float.IsNegativeInfinity(tile[i])) continue;
+                        int cx = tx * SkyTileN + i % SkyTileN, cz = tz * SkyTileN + i / SkyTileN;
+                        float bot = SkyGet(skySlabBot, cx, cz, float.PositiveInfinity);
+                        if (!(bot < 1e30f)) continue;
+                        clear.Add(bot - SkyHeightAt(skyX0 + (cx + 0.5f) * SkyCell, skyZ0 + (cz + 0.5f) * SkyCell));
+                    }
+                }
+                clear.Sort();
+                if (clear.Count > 0)
+                    skyReport.AppendLine($"  soffit over the land under it: p50 {clear[clear.Count / 2]:0.0} m, p90 {clear[clear.Count * 9 / 10]:0.0} m, max {clear[clear.Count - 1]:0.0} m over {clear.Count} cells");
+                skyReport.AppendLine($"  without the forest (the deck and the land alone): beside {Mean(bareNewB):0.00} (one-level {Mean(bareOldB):0.00}), under {Mean(bareNewU):0.00} (one-level {Mean(bareOldU):0.00})");
+                SkyCheck(lost == 0, "no land by a deck loses sky to the second level (the slab takes a part of what the column took)", $"{lost} of {deckPts.Count}");
+                float AtFloor(List<float> l) { int c = 0; foreach (var v in l) if (v <= SkyFloor + 0.01f) c++; return l.Count > 0 ? (float)c / l.Count : 0f; }
+                skyReport.AppendLine($"  land beside a deck (2-12 m off): n {deckBeside.Count}, mean {Mean(deckBeside):0.00} (one-level field {Mean(oldBeside):0.00}), at the floor {AtFloor(deckBeside):P0} (was {AtFloor(oldBeside):P0})");
+                skyReport.AppendLine($"  land under a deck: n {deckUnder.Count}, mean {Mean(deckUnder):0.00} (one-level field {Mean(oldUnder):0.00}), at the floor {AtFloor(deckUnder):P0} (was {AtFloor(oldUnder):P0})");
+                if (deckBeside.Count > 20)
+                    SkyCheck(Mean(bareNewB) >= Mean(bareOldB) && Mean(deckBeside) >= Mean(oldBeside),
+                             "the land beside a deck sees at least as much sky as under the one-level field (bare and forested)",
+                             $"bare {Mean(bareNewB):0.00} vs {Mean(bareOldB):0.00}, forested {Mean(deckBeside):0.00} vs {Mean(oldBeside):0.00}");
+                if (deckUnder.Count > 20 && deckBeside.Count > 20)
+                    SkyCheck(Mean(deckUnder) < Mean(deckBeside), "under a deck stays darker than beside it",
+                             $"under {Mean(deckUnder):0.00} vs beside {Mean(deckBeside):0.00}");
+            }
         }
 
         /// <summary>The squared plan distance to the nearest crown within
