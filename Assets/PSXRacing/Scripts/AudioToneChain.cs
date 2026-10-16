@@ -8,14 +8,13 @@ namespace PSXRacing
     /// Master-bus tone shaping. Lives on the AudioListener, so OnAudioFilterRead
     /// hands it the final mix after every source is summed.
     ///
-    /// Unity has no parametric EQ component — only low/high-pass — so the tone
-    /// offsets that the source game applied per car (a peaking formant around
-    /// 620 Hz and a high shelf at 2.6 kHz for the 13B's "smooth high rotary
-    /// brap") have to be done as biquads here.
+    /// Unity has no parametric EQ component — only low/high-pass — so any
+    /// shaping of the final mix has to be done as biquads here.
     ///
-    /// The chain is: high pass -> low shelf (weight) -> peaking (the CAR's
-    /// formant) -> high shelf (the CAR's exhaust rasp) -> peaking cut (the
-    /// whine) -> high shelf (tame the top) -> low pass -> soft saturation.
+    /// The chain is: high pass -> low shelf -> peaking -> high shelf -> peaking
+    /// cut -> high shelf -> low pass -> soft saturation. Since 2026-10-16 the
+    /// five middle stages sit at 0 dB (see the note on the fields), leaving the
+    /// 40 Hz high pass, the 11 kHz band limit and the tanh drive.
     /// Seven biquads on a stereo bus is a few hundred thousand ops a second,
     /// which is nothing even on a phone.
     ///
@@ -42,46 +41,35 @@ namespace PSXRacing
     [RequireComponent(typeof(AudioListener))]
     public class AudioToneChain : MonoBehaviour
     {
-        // The previous settings were measured to produce only 1.0 dB of tilt
-        // between the engine's fundamental and the whine band — effectively a
-        // no-op. Two reasons: an RBJ shelf delivers only HALF its nominal dB at
-        // its own corner frequency (so "+7.5 dB at 110 Hz" was +2.16 dB at the
-        // 170 Hz where the fundamental actually sits), and the high shelf was
-        // *boosting* 3-5 kHz, which is exactly where "whiny" lives.
-        // These values target 9.0 dB of tilt instead.
+        // THE ENGINE TILT IS GONE (2026-10-16). The low shelf (+5 dB at 200 Hz),
+        // the "whine" cut (-4 dB at 3.2 kHz), the top shelf (-2 dB at 6.5 kHz)
+        // and the per-car formant/rasp (RG2's engineVoice.ts, written for a
+        // procedural synth) were all there to fight a whine. Measured on
+        // 2026-10-16, that whine was the old engine voice itself: a ladder that
+        // played every take 4-11 semitones sharp, and an intake take held at a
+        // fixed pitch. With the voice now following the vendor's own rig, the
+        // same chain pushed it 5-12 dB BELOW the vendor reference in the
+        // 4k/8k/16k octaves and 3-4 dB above it at 125 Hz - away from the sound
+        // the owner named as correct - and the 240ZG's 460 Hz formant sat right
+        // on its 498 Hz intake line. The stages stay (the Web plugin and the
+        // editor path both run the chain) but at 0 dB, and NOT serialized:
+        // every baked scene carries the old numbers on its listener, and a
+        // serialized field would quietly put them back.
         [Header("High pass — recover headroom below the engine")]
         public float highPassHz = 40f;
 
-        [Header("Low shelf — weight and bass")]
-        public float lowShelfHz = 200f;
-        public float lowShelfDb = 5.0f;
-
-        [Header("Peaking — the car's formant / body")]
-        /// <summary>Overwritten per car by <see cref="SetVoiceFormant"/>. The
-        /// default is a generic muscle/rotary body; the catalog carries the real
-        /// figure, which runs from 290 Hz on a 440 big-block to 980 Hz on an
-        /// S2000 and is the strongest single thing separating two cars that
-        /// share one recording.</summary>
-        public float peakHz = 280f;
-        public float peakDb = 3.0f;
-        /// <summary>0.9 is the source game's own formant Q.</summary>
-        public float peakQ = 0.9f;
-
-        [Header("High shelf — the car's exhaust rasp")]
-        /// <summary>Per car, and NEGATIVE for a soft cruiser: that is how a car
-        /// ends up duller than the recording it borrows. 0 = no-op, which is
-        /// what a scene with no car applied gets.</summary>
-        public float voiceShelfHz = 2600f;
-        public float voiceShelfDb = 0f;
-
-        [Header("Peaking CUT — the whine")]
-        public float cutHz = 3200f;
-        public float cutDb = -4.0f;
-        public float cutQ = 1.0f;
-
-        [Header("High shelf — tame the top")]
-        public float highShelfHz = 6500f;
-        public float highShelfDb = -2.0f;
+        [System.NonSerialized] public float lowShelfHz = 200f;
+        [System.NonSerialized] public float lowShelfDb = 0f;
+        [System.NonSerialized] public float peakHz = 1000f;
+        [System.NonSerialized] public float peakDb = 0f;
+        [System.NonSerialized] public float peakQ = 0.9f;
+        [System.NonSerialized] public float voiceShelfHz = 2600f;
+        [System.NonSerialized] public float voiceShelfDb = 0f;
+        [System.NonSerialized] public float cutHz = 3200f;
+        [System.NonSerialized] public float cutDb = 0f;
+        [System.NonSerialized] public float cutQ = 1.0f;
+        [System.NonSerialized] public float highShelfHz = 6500f;
+        [System.NonSerialized] public float highShelfDb = 0f;
 
         [Header("Low pass — PSX-era band limit")]
         public float lowPassHz = 11000f;
@@ -122,22 +110,6 @@ namespace PSXRacing
 #endif
 
         void OnEnable() => Build();
-
-        /// <summary>
-        /// Point the chain at one car's voice. The formant REPLACES the body
-        /// peak and the rasp shelf is the car's own, exactly as the source game
-        /// applies them — those two are the axes that need a parametric EQ, so
-        /// they land here rather than in EngineAudio with the pitch and level.
-        /// Called by RaceHandoffApplier once the car is known.
-        /// </summary>
-        public void SetVoiceFormant(CarSpec spec)
-        {
-            if (spec == null || spec.voicePeakHz <= 0f) return;
-            peakHz = Mathf.Clamp(spec.voicePeakHz, 120f, 4000f);
-            peakDb = Mathf.Clamp(spec.voicePeakDb, 0f, 6f);
-            voiceShelfDb = Mathf.Clamp(spec.voiceShelfDb, -6f, 9f);
-            Build();
-        }
 
         void Build() => Build(AudioSettings.outputSampleRate);
 

@@ -588,16 +588,9 @@ namespace PSXRacing
                 engine.SetFamily(spec);
             }
 
-            // The formant and the exhaust shelf need a parametric EQ, and the
-            // only one in the project is the master chain on the listener — so
-            // the car being DRIVEN sets it. Opponents keep the pitch and level
-            // half of their voice and share the player's tone, which is what
-            // you would hear from outside their car anyway.
-            if (isPlayer)
-            {
-                var tone = UnityEngine.Object.FindFirstObjectByType<AudioToneChain>();
-                if (tone != null) tone.SetVoiceFormant(spec);
-            }
+            // No per-car formant/rasp EQ any more: it was RG2's procedural-synth
+            // layer, and measured as moving the vendor recordings away from the
+            // vendor's own rig (see AudioToneChain).
 
             var boost = car.GetComponent<TurboAudio>();
             if (boost != null)
