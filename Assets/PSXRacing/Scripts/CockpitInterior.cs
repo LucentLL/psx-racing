@@ -172,7 +172,7 @@ namespace PSXRacing
             if (have != null) { have.driver = driver; return have; }
             // The model comes in an on-demand bundle: the first ask starts the
             // download, and until it lands the view is the seat camera alone.
-            if (!CockpitModel.Ready) { CockpitModel.Request(); return null; }
+            if (!CockpitModel.Ready) { CockpitModel.Request(); if (!CockpitModel.Ready) return null; }
             if (L == null || CockpitModel.Parts == null || CockpitModel.Mat("vinyl") == null)
             {
                 if (!warned) Debug.LogWarning("[Cockpit] the v08 model, its layout or PSX/Cabin is missing - no 3D cabin.");
@@ -271,7 +271,7 @@ namespace PSXRacing
             m.SetVector("_Down", -up);
             m.SetVector("_Wind", new Vector4(wind.x, wind.y, screen ? 1.6f : 0f, centre));
             m.SetVector("_Out", right);
-            m.SetFloat("_PaneRain", screen ? 1f : side ? 0.7f : 0.5f);
+            m.SetFloat("_PaneRain", screen ? 1f : side ? 0.55f : 0.45f);
             return m;
         }
 
@@ -483,7 +483,11 @@ namespace PSXRacing
             if (mirrorCam == null) return;
             mirrorCam.gameObject.SetActive(true);
             mirrorCam.enabled = false;
+            // Edit mode has no camera events: hide what play mode hides from it.
+            SetVisible(false);
+            HideShell(true);
             mirrorCam.Render();
+            SetVisible(true);
         }
 
         /// <summary>A small camera at the mirror looking back, into the
@@ -498,12 +502,13 @@ namespace PSXRacing
             var go = new GameObject("CockpitMirrorCamera");
             if (!Application.isPlaying) go.hideFlags = HideFlags.DontSave;
             go.transform.SetParent(transform, false);
-            // At the mirror, on the centreline, looking straight back.
+            mirrorCam = go.AddComponent<Camera>();
+            mirrorCam.CopyFrom(src);
+            // AFTER CopyFrom, which also copies the source camera's transform:
+            // at the mirror, on the centreline, looking straight back.
             var mc = L.mirror.centre;
             go.transform.localPosition = Vector3.Scale(model.localScale, mc) + model.localPosition;
             go.transform.localRotation = Quaternion.Euler(2f, 180f, 0f);
-            mirrorCam = go.AddComponent<Camera>();
-            mirrorCam.CopyFrom(src);
             go.tag = "Untagged";
             mirrorCam.targetTexture = mirrorRT;
             mirrorCam.aspect = MirrorW / (float)MirrorH;

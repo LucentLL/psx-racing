@@ -11400,7 +11400,8 @@ namespace PSXRacing.EditorTools
                 Check(layoutOk && dShell != null &&
                       CockpitInterior.NearestM(dFit.scale) >= dNear * 1.5f * slack &&
                       CockpitInterior.NearestM(CockpitInterior.MinScale) >= minNear * 1.5f * slack &&
-                      Mathf.Min(CockpitInterior.L.nearForward, CockpitInterior.L.nearLook) * dFit.scale >= dNear * 1.5f * slack &&
+                      // (ahead here; the near plane follows the head, checked per side below)
+                      CockpitInterior.L.nearForward * dFit.scale >= dNear * 1.5f * slack &&
                       dNear >= 0.04f && dNear <= ChaseCamera.CockpitNearClip &&
                       CockpitInterior.NearClipFor(dFit.scale, -1f) * 1.5f * slack <= CockpitInterior.L.nearDoor * dFit.scale &&
                       CockpitInterior.NearClipFor(dFit.scale, 1f) * 1.5f * slack <= CockpitInterior.L.nearPassenger * dFit.scale,

@@ -187,9 +187,10 @@ namespace PSXRacing
             for (float val = inStep; val <= inMax + 0.01f; val += inStep)
             {
                 float a = Lerp(BigFrom, BigTo, val / inMax);
-                c.Tick(a, 0.235f, 0.26f, 0.006f, Orange);
-                if (Mathf.RoundToInt(val / inStep) % 2 == 0 || inMax / inStep <= 9)
-                    c.Text(Mathf.RoundToInt(val).ToString(), a, 0.195f, 0.04f, 0.008f, Orange);
+                c.Tick(a, 0.228f, 0.252f, 0.006f, Orange);
+                // Small and sparse: the reference's inner scale is a hint, not a second dial.
+                if (Mathf.RoundToInt(val / inStep) % 2 == 0 || inMax / inStep <= 6)
+                    c.Text(Mathf.RoundToInt(val).ToString(), a, 0.183f, 0.034f, 0.007f, Orange);
             }
             c.TextAt(mph ? "MPH" : "km/h", 0.5f, 0.33f, 0.05f, 0.011f, Ink);
             c.TextAt(mph ? "km/h" : "MPH", 0.5f, 0.265f, 0.036f, 0.008f, Orange);

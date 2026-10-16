@@ -60,6 +60,7 @@ Shader "PSX/Cabin"
             fixed4 _PSXLightColor;
             fixed4 _PSXAmbient;
             fixed4 _PSXSkyAmbient;
+            fixed4 _PSXFogColor;
             float _PSXNight;
             float _PSXSunModel;
 

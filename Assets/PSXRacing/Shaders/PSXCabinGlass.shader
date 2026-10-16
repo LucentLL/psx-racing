@@ -48,16 +48,18 @@ Shader "PSX/CabinGlass"
             #include "UnityCG.cginc"
             #include "PSXLamps.cginc"
             #include "PSXTone.cginc"
-            #include "PSXSkyReflect.cginc"
 
             fixed4 _Tint;
             float4 _Metres, _Down, _Wind, _Out;
             float _PaneRain;
             float _CabinRain, _CabinWind, _CabinRun, _CabinBlow;
             fixed4 _PSXSkyAmbient;
+            fixed4 _PSXAmbient;
+            fixed4 _PSXFogColor;
             fixed4 _PSXLightColor;
             float4 _PSXLightDir;
             float _PSXNight;
+            #include "PSXSkyReflect.cginc"
 
             struct appdata { float4 vertex : POSITION; float3 normal : NORMAL; float2 uv : TEXCOORD0; };
             struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float3 wpos : TEXCOORD1; float3 wnrm : TEXCOORD2; };
@@ -146,23 +148,26 @@ Shader "PSX/CabinGlass"
                     float wind = _CabinWind;
                     // The windscreen's streaks bend outward from its middle.
                     float2 wdir = normalize(_Wind.xy + _Out.xy * (dot(q, _Out.xy) - _Wind.w) * _Wind.z * wind);
-                    float hB = max(Beads(q, 0.020, rain * lerp(0.55, 0.25, wind), 1.7),
-                                   Beads(q, 0.034, rain * lerp(0.35, 0.15, wind), 9.3));
-                    float hR = Runners(q, _Down.xy, 0.030, 0.30, _CabinRun, rain * 0.45, 4.1, 0.0) * (1.0 - wind);
-                    float hS = Runners(q, wdir, 0.022, 0.55, _CabinBlow, rain * 0.75, 7.7, 0.85) * wind;
+                    float hB = max(Beads(q, 0.016, rain * lerp(0.55, 0.25, wind), 1.7),
+                                   Beads(q, 0.028, rain * lerp(0.35, 0.15, wind), 9.3));
+                    float hR = Runners(q, _Down.xy, 0.026, 0.30, _CabinRun, rain * 0.45, 4.1, 0.0) * (1.0 - wind);
+                    float hS = Runners(q, wdir, 0.020, 0.55, _CabinBlow, rain * 0.75, 7.7, 0.85) * wind;
                     float hgt = max(hB, max(hR, hS));
-                    float cover = smoothstep(0.0, 0.25, hgt);
-                    if (cover > 0.001)
-                    {
-                        float2 grad = float2(ddx(hgt), ddy(hgt)) / max(fwidth(hgt), 1e-3);
-                        float spec = saturate(-grad.y * 0.6 + grad.x * 0.25);
-                        float rim = 1.0 - smoothstep(0.05, 0.45, hgt);
-                        float3 lamp = PSXLampsAt(i.wpos) * 0.6;
-                        float3 drop = (ambient * 1.1 + lamp + sky * 0.25) * (1.0 - 0.75 * rim)
-                                    + (sky * 0.6 + _PSXLightColor.rgb * 0.3 * day + lamp) * spec * 0.8;
-                        rgb = lerp(rgb, drop, cover * 0.85);
-                        a = lerp(a, 0.55, cover * 0.85);
-                    }
+                    // WATER, not paint: a drop is clear in the middle (a
+                    // little of the sky it bends in), dark at its rim where it
+                    // bends the scene away, with one small bright glint where
+                    // its dome faces the sky. (Derivatives taken before any
+                    // branch.)
+                    float2 grad = float2(ddx(hgt), ddy(hgt)) / max(fwidth(hgt), 1e-3);
+                    float cover = smoothstep(0.0, 0.12, hgt);
+                    float edge = 1.0 - smoothstep(0.05, 0.55, hgt);
+                    float glint = pow(saturate(-grad.y * 0.7 + grad.x * 0.3), 6.0) * smoothstep(0.25, 0.6, hgt);
+                    float3 lamp = PSXLampsAt(i.wpos) * 0.6;
+                    float dropA = cover * (0.10 + 0.50 * edge);
+                    float3 dropC = cover * (sky * 0.10 + ambient * 0.06) * (1.0 - edge)
+                                 + glint * (sky * 0.5 + _PSXLightColor.rgb * 0.35 * day + lamp * 1.5);
+                    rgb = rgb * (1.0 - dropA) + dropC;
+                    a = a + dropA * (1.0 - a);
                 }
                 rgb = PSXTone(rgb);
                 return fixed4(rgb, a);
