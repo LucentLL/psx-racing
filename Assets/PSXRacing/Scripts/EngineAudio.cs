@@ -78,6 +78,9 @@ namespace PSXRacing
             public AudioSource maxRpm, intakeOn, intakeOff;
             public AudioClip startup, engineStop;
             public GameObject root;
+            /// <summary>Every source of the set, for the spatial updates.</summary>
+            public readonly System.Collections.Generic.List<AudioSource> all =
+                new System.Collections.Generic.List<AudioSource>();
             /// <summary>Fade gain, and where it is heading.</summary>
             public float gain, target;
         }
@@ -129,6 +132,8 @@ namespace PSXRacing
 
         VoiceSet live, fading;
         string wantFamily;
+        Ear ear = Ear.Chase;
+        float blendNow = -1f;
         float waitSince = -1f;
         AudioSource oneShotSrc;
         float pendingStartupAt = -1f;
@@ -350,6 +355,7 @@ namespace PSXRacing
             src.volume = 0f;
             src.playOnAwake = false;
             ConfigureSpatial(src);
+            s.all.Add(src);
             // Deferred rather than a straight Play(): on WebGL the browser has
             // not decoded this clip yet, and a source started against an
             // undecoded clip loops a null buffer forever. See AudioLoopStarter.
@@ -359,15 +365,127 @@ namespace PSXRacing
 
         void ConfigureSpatial(AudioSource src)
         {
-            src.spatialBlend = spatial ? 1f : 0f;
-            src.dopplerLevel = spatial ? 0.6f : 0f;
             if (spatial)
             {
+                // Opponents: always a car somewhere else on the road.
+                src.spatialBlend = 1f;
+                src.dopplerLevel = OutsideDoppler;
                 src.rolloffMode = AudioRolloffMode.Linear;
                 src.maxDistance = spatialMaxDistance;
-                src.minDistance = 6f;
+                src.minDistance = OutsideMinDistance;
+                return;
             }
+            ApplyPlayerSpatial(src, blendNow >= 0f ? blendNow : BlendFor(ear), ear,
+                               OutsideMinDistance, spatialMaxDistance, OutsideDoppler);
         }
+
+        // ------------------------------------------------------------------
+        //  Where the listener is (phase 2, item 2)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Where the listener is relative to a car, for that car's OWN sounds
+        /// (engine, tyres, turbo, wind).
+        ///   Outside - a trackside replay lens, the chase rig following another
+        ///             car, the player on foot: the car is a sound source out in
+        ///             the world, full 3D with the opponents' rolloff and
+        ///             doppler, so it comes at the lens and flies by.
+        ///   Chase   - the rig following THIS car from outside (chase, close,
+        ///             roof, hood, bumper, top down): mostly 2D, see ChaseBlend.
+        ///   Cockpit - the rig in this car's driver's seat: 2D (and the
+        ///             interior recordings).
+        /// Before phase 2 the player's car was 2D in every one of these
+        /// (PSXRacingBuilder: spatial = !isPlayer), so a replay's lenses heard
+        /// the opponents pass and the player's own car not move at all.
+        /// </summary>
+        public enum Ear { Outside, Chase, Cockpit }
+
+        public static Ear EarFor(CarController car)
+        {
+            if (car == null) return Ear.Outside;
+            var rr = RaceReplay.Instance;
+            if (RaceReplay.Playing && rr != null && rr.Mode == RaceReplay.CamMode.Trackside) return Ear.Outside;
+            var cc = ChaseCamera.Active;
+            if (cc == null || !cc.isActiveAndEnabled) return Ear.Outside;
+            bool mine = cc.targetCar == car || (cc.targetCar == null && cc.target == car.transform);
+            if (!mine) return Ear.Outside;
+            return ChaseCamera.Current == ChaseCamera.View.Cockpit ? Ear.Cockpit : Ear.Chase;
+        }
+
+        /// <summary>
+        /// Spatial blend of the player's car heard from its own chase rig.
+        ///
+        /// The chase listener sits 5-7 m behind and above the car and turns
+        /// with it, so a full 3D source would add nothing but artefacts (a
+        /// constant distance, a centred pan, and doppler from every camera
+        /// lag). What a little 3D does add is the car moving in the stereo
+        /// image when the rig swings off it - the drift camera's hold, a
+        /// crash, a hairpin's camera lag. Unity's (and the WebGL build's)
+        /// blend is a dry/wet mix: (1 - b) of the signal unpanned plus b
+        /// through an equal-power panner. At b = 0.35 a car 90 deg off-axis
+        /// is 3.7 dB louder in the near ear (20 log10 1 / 0.65), and at the
+        /// 20-30 deg a chase swing reaches, 1-2 dB: heard, never a car that
+        /// seems to be somewhere else. Above ~0.5 the near-ear lead passes
+        /// 6 dB and the far side of the image goes thin on every drift.
+        /// </summary>
+        public const float ChaseBlend = 0.35f;
+        /// <summary>The cockpit: 2D in effect. Not 0, because the WebGL backend
+        /// rewires a source's audio nodes whenever its blend crosses zero
+        /// (Audio.js setSpatialBlendLevel), a click on the tyres and the
+        /// turbo at every view change; 2% wet is inaudible.</summary>
+        public const float CockpitBlend = 0.02f;
+        /// <summary>Outside: the opponents' linear rolloff (6..90 m for the
+        /// engine) and doppler (0.6).</summary>
+        public const float OutsideMinDistance = 6f, OutsideDoppler = 0.6f;
+        /// <summary>From the chase rig nothing attenuates (the rig never gets
+        /// this far from its own car unless it is cutting back to it).</summary>
+        public const float ChaseMinDistance = 12f;
+        /// <summary>Seconds for a blend change (replay camera modes, views).</summary>
+        public const float BlendSeconds = 0.25f;
+
+        public static float BlendFor(Ear e) => e == Ear.Outside ? 1f : e == Ear.Chase ? ChaseBlend : CockpitBlend;
+
+        /// <summary>One player-car source to the listener's place. Doppler only
+        /// Outside: from the chase rig or the seat, relative motion is camera
+        /// lag, and doppler on it is a pitch wobble on a tuned voice.</summary>
+        public static void ApplyPlayerSpatial(AudioSource src, float blend, Ear e,
+                                              float outsideMin, float outsideMax, float outsideDoppler)
+        {
+            if (src == null) return;
+            src.spatialBlend = Mathf.Max(CockpitBlend, blend);
+            src.dopplerLevel = e == Ear.Outside ? outsideDoppler : 0f;
+            src.rolloffMode = AudioRolloffMode.Linear;
+            src.minDistance = e == Ear.Outside ? outsideMin : Mathf.Max(outsideMin, ChaseMinDistance);
+            src.maxDistance = outsideMax;
+        }
+
+        /// <summary>Follow the listener (player car only): the ear, and the
+        /// blend eased toward it; sources are only touched when it moves.</summary>
+        void UpdateSpatial(float dt)
+        {
+            if (spatial) return;
+            var e = EarFor(car);
+            float target = BlendFor(e);
+            if (blendNow < 0f) blendNow = target;
+            float nb = Mathf.MoveTowards(blendNow, target, dt / BlendSeconds);
+            if (e == ear && Mathf.Abs(nb - blendNow) < 1e-4f) return;
+            ear = e;
+            blendNow = nb;
+            ApplyPlayerSpatial(oneShotSrc, blendNow, ear, OutsideMinDistance, spatialMaxDistance, OutsideDoppler);
+            ApplySet(live);
+            ApplySet(fading);
+        }
+
+        void ApplySet(VoiceSet s)
+        {
+            if (s == null || s.set == Set.Interior) return;
+            foreach (var src in s.all)
+                ApplyPlayerSpatial(src, blendNow, ear, OutsideMinDistance, spatialMaxDistance, OutsideDoppler);
+        }
+
+        /// <summary>The listener's place for this car right now (tests, HUD).</summary>
+        public Ear CurrentEar => spatial ? Ear.Outside : ear;
+        public float CurrentBlend => spatial ? 1f : blendNow;
 
         // ------------------------------------------------------------------
         //  One-shots
@@ -413,6 +531,7 @@ namespace PSXRacing
             if (dt <= 0f) return;
             UpdateVoice(dt);
             TryStartup();
+            UpdateSpatial(dt);
             if (car == null || live == null) return;
 
             UpdateAudibleRPM(dt);

@@ -115,6 +115,9 @@ namespace PSXRacing
             // the menu case, but the gain is driven to zero as well so the bed
             // does not resume at full strength for the first frame after it.
             if (PauseMenu.IsOpen || OnFoot.ForecourtMode.OnFoot) mul = 0f;
+            // The airstream is the DRIVER's: a trackside replay lens (or a
+            // chase rig on another car) is not sitting in it.
+            if (EngineAudio.EarFor(car) == EngineAudio.Ear.Outside) mul = 0f;
 
             lowGain = Smooth(lowGain, LowGain(v) * mul, GainTau, dt);
             highGain = Smooth(highGain, HighGain(v) * mul, GainTau, dt);

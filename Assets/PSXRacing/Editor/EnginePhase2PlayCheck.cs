@@ -185,7 +185,73 @@ namespace PSXRacing.EditorTools
             Note("after requesting every family: " + EngineVoiceLibrary.Census());
             Check(EngineVoiceLibrary.IdleLoaded <= EngineVoiceLibrary.IdleAllowance,
                   "idle packs are trimmed to the allowance", EngineVoiceLibrary.IdleLoaded + " <= " + EngineVoiceLibrary.IdleAllowance);
+
+            yield return Spatial(rm.playerCar);
             Done();
+        }
+
+        static IEnumerator Wait(float s)
+        {
+            float t = Time.realtimeSinceStartup;
+            while (Time.realtimeSinceStartup - t < s) yield return null;
+        }
+
+        /// <summary>ITEM 2: the player's own sounds follow the listener -
+        /// mostly 2D from its chase rig, 2D in the seat, full 3D with the
+        /// opponents' rolloff and doppler from a trackside replay lens.</summary>
+        IEnumerator Spatial(CarController player)
+        {
+            var e = player.GetComponent<EngineAudio>();
+            var tyre = player.GetComponentsInChildren<AudioSource>(true).FirstOrDefault(a => a.gameObject.name == "snd_skid");
+            var turbo = player.GetComponentsInChildren<AudioSource>(true).FirstOrDefault(a => a.gameObject.name == "snd_turbo_spool");
+            var wind = player.GetComponentsInChildren<AudioSource>(true).Where(a => a.gameObject.name.StartsWith("snd_wind")).ToList();
+            string Snap()
+            {
+                var eng = e.GetComponentsInChildren<AudioSource>(true).Where(a => a.loop && a.clip != null && a.gameObject.name.StartsWith("snd_") &&
+                                                                              a.transform.parent != null && a.transform.parent.name.StartsWith("snd_")).ToList();
+                float b0 = eng.Count > 0 ? eng.Min(a => a.spatialBlend) : -1f, b1 = eng.Count > 0 ? eng.Max(a => a.spatialBlend) : -1f;
+                float dop = eng.Count > 0 ? eng.Max(a => a.dopplerLevel) : -1f;
+                float md = eng.Count > 0 ? eng.Max(a => a.minDistance) : -1f;
+                return $"ear {e.CurrentEar} blend {e.CurrentBlend:0.00}; engine {eng.Count} src blend {b0:0.00}-{b1:0.00} doppler {dop:0.0} min {md:0}; " +
+                       $"tyre {(tyre != null ? tyre.spatialBlend.ToString("0.00") + "/" + tyre.dopplerLevel.ToString("0.0") : "-")}; " +
+                       $"turbo {(turbo != null ? turbo.spatialBlend.ToString("0.00") : "-")}; wind vol {(wind.Count > 0 ? wind.Max(w => w.volume).ToString("0.000") : "-")}";
+            }
+            bool EngineAt(float blend, float doppler) =>
+                e.GetComponentsInChildren<AudioSource>(true).Where(a => a.loop && a.clip != null && a.transform.parent != null &&
+                                                                     a.transform.parent.name.StartsWith("snd_") && !a.transform.parent.name.StartsWith("snd_int_"))
+                 .All(a => Mathf.Abs(a.spatialBlend - blend) < 0.01f && Mathf.Abs(a.dopplerLevel - doppler) < 0.01f);
+
+            ChaseCamera.PreviewView(ChaseCamera.View.Chase);
+            yield return Wait(0.6f);
+            Note("CHASE   " + Snap());
+            Check(e.CurrentEar == EngineAudio.Ear.Chase && EngineAt(EngineAudio.ChaseBlend, 0f),
+                  "chase view: the player's engine is mostly 2D (blend 0.35, no doppler)");
+            Check(tyre == null || Mathf.Abs(tyre.spatialBlend - EngineAudio.ChaseBlend) < 0.01f, "  ...and so are its tyres");
+
+            ChaseCamera.PreviewView(ChaseCamera.View.Cockpit);
+            yield return Wait(0.6f);
+            Note("COCKPIT " + Snap());
+            Check(e.CurrentEar == EngineAudio.Ear.Cockpit && (tyre == null || tyre.spatialBlend <= EngineAudio.CockpitBlend + 0.001f),
+                  "cockpit view: the player's sounds are 2D");
+
+            ChaseCamera.PreviewView(ChaseCamera.View.Chase);
+            var rr = RaceReplay.Instance;
+            float t = Time.realtimeSinceStartup;
+            while (rr != null && !rr.Available && Time.realtimeSinceStartup - t < 25f) yield return null;
+            Check(rr != null && rr.Available, "a replay is available to watch");
+            if (rr == null || !rr.Available) yield break;
+            rr.Begin();
+            yield return Wait(0.8f);
+            Note("REPLAY  " + Snap() + " (mode " + rr.Mode + ")");
+            Check(e.CurrentEar == EngineAudio.Ear.Outside && EngineAt(1f, EngineAudio.OutsideDoppler),
+                  "trackside replay lens: the player's engine is full 3D with the opponents' doppler (0.6)");
+            Check(tyre == null || (tyre.spatialBlend > 0.99f && tyre.dopplerLevel > 0.99f), "  ...its tyres full 3D too");
+            Check(turbo == null || turbo.spatialBlend > 0.99f, "  ...and its turbo");
+            Check(wind.All(w => w.volume < 0.001f), "  ...and the driver's wind bed is silent");
+            rr.End();
+            yield return Wait(0.6f);
+            Note("AFTER   " + Snap());
+            Check(e.CurrentEar == EngineAudio.Ear.Chase, "back from the replay: chase again");
         }
 
         void Done()

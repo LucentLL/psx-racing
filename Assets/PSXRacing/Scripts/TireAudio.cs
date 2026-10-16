@@ -68,15 +68,42 @@ namespace PSXRacing
                 src.loop = true;
                 src.volume = 0f;
                 src.playOnAwake = false;
-                src.spatialBlend = spatial ? 1f : 0f;
                 if (spatial)
                 {
+                    src.spatialBlend = 1f;
                     src.rolloffMode = AudioRolloffMode.Linear;
-                    src.maxDistance = 70f;
-                    src.minDistance = 5f;
+                    src.maxDistance = MaxDistance;
+                    src.minDistance = MinDistance;
+                }
+                else
+                {
+                    blendNow = EngineAudio.ChaseBlend;
+                    EngineAudio.ApplyPlayerSpatial(src, blendNow, ear, MinDistance, MaxDistance, 1f);
                 }
                 AudioLoopStarter.PlayLoop(src);
             }
+        }
+
+        const float MinDistance = 5f, MaxDistance = 70f;
+        EngineAudio.Ear ear = EngineAudio.Ear.Chase;
+        float blendNow = -1f;
+
+        /// <summary>The player's tyres follow the engine's rule (EngineAudio.Ear):
+        /// 3D with the opponents' rolloff and doppler when the listener is out
+        /// in the world (a trackside replay lens), mostly 2D from the car's own
+        /// chase rig, 2D in the seat.</summary>
+        void UpdateSpatial(float dt)
+        {
+            if (spatial || src == null) return;
+            var e = EngineAudio.EarFor(car);
+            float target = EngineAudio.BlendFor(e);
+            if (blendNow < 0f) blendNow = target;
+            float nb = Mathf.MoveTowards(blendNow, target, dt / EngineAudio.BlendSeconds);
+            if (e == ear && Mathf.Abs(nb - blendNow) < 1e-4f) return;
+            ear = e;
+            blendNow = nb;
+            // Doppler 1: what the opponents' tyre sources carry (Unity's default).
+            EngineAudio.ApplyPlayerSpatial(src, blendNow, ear, MinDistance, MaxDistance, 1f);
         }
 
         void Update()
@@ -84,6 +111,7 @@ namespace PSXRacing
             if (car == null || body == null || src == null) return;
             float dt = Time.deltaTime;
             if (dt <= 0f) return;
+            UpdateSpatial(dt);
 
             float speed = body.linearVelocity.magnitude;
             UpdateGripUse(dt, speed);
