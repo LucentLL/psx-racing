@@ -206,6 +206,15 @@ namespace PSXRacing
             return changed;
         }
 
+        /// <summary>The CLASSIC original an ENHANCED twin stands in for;
+        /// <paramref name="t"/> itself for any other texture (what a texture
+        /// IS should not depend on the tier: TerrainDetail.KindOf).</summary>
+        public static Texture OriginalOf(Texture t)
+        {
+            if (t != null && map != null && byEnhanced.TryGetValue(t, out int i)) return map.pairs[i].original;
+            return t;
+        }
+
         static void Set(Material m, int id, Texture t)
         {
 #if UNITY_EDITOR
@@ -227,6 +236,8 @@ namespace PSXRacing
         /// switching back really gives the memory back.</summary>
         public static void ApplyAll()
         {
+            // the terrain detail layer rides on the same row
+            TerrainDetail.ApplyGlobals();
             PSXTexDecode.StampAll();
             if (!WantEnhanced) Release();
         }

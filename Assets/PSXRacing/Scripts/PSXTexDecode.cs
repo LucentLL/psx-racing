@@ -81,6 +81,8 @@ namespace PSXRacing
             bool changed = TextureTier.Swap(m);
             changed |= StampOne(m, MainTexRawId);
             changed |= StampOne(m, DeepTexRawId);
+            // ...and the terrain detail amounts, off the same texture
+            changed |= TerrainDetail.Stamp(m);
             return changed;
         }
 

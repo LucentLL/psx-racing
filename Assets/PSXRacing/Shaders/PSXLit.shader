@@ -92,6 +92,11 @@ Shader "PSX/Lit"
     {
         _MainTex ("Texture", 2D) = "white" {}
         [HideInInspector] _MainTexRaw ("16-bit texel decode (set at runtime by PSXTexDecode.cs)", Float) = 0
+        // THE TERRAIN DETAIL amounts per channel of the detail sheet (R grass,
+        // G dirt, B rock, A snow): stamped at runtime from the main texture by
+        // TerrainDetail.cs, never saved. The sheet and its switch are globals
+        // (_PSXDetailTex, _PSXDetailParams) and deliberately NOT named here.
+        [HideInInspector] _PSXDetailMask ("Terrain detail (set at runtime by TerrainDetail.cs)", Vector) = (0,0,0,0)
         _Color ("Tint", Color) = (1,1,1,1)
         _Cutoff ("Alpha Cutoff", Range(0,1)) = 0
         _Emission ("Emission", Range(0,1)) = 0
@@ -223,6 +228,14 @@ Shader "PSX/Lit"
             float _ShoreY;
             float _AtlasPx;
             float _Skyline;
+            // THE TERRAIN DETAIL (TerrainDetail.cs; the GT4 study, gap 4): a
+            // luminance-only sheet, one class per channel at mean 0.5, read at
+            // a world-space repeat and multiplied into the albedo near the eye.
+            // _PSXDetailParams: x 1 / repeat (m), y fade start (m), z 1 / fade
+            // span, w on (the TEXTURES row's ENHANCED). Globals.
+            float4 _PSXDetailMask;
+            sampler2D _PSXDetailTex;
+            float4 _PSXDetailParams;
             // THE FAR SKYLINE (Uptown B4, 2026-10-04; CitySkyline.cs). The
             // camera's far plane stops at 500 m and the world fades just
             // before it; the skyline's towers stand kilometres out. Past the
@@ -698,6 +711,10 @@ Shader "PSX/Lit"
                 // undefined on GLES/Vulkan and an error on some D3D compilers.
                 float3 gx = ddx(float3(i.wpos.xz, uv.x));
                 float3 gy = ddy(float3(i.wpos.xz, uv.x));
+                // ...and the world position's own, for the terrain detail's
+                // fetch (taken here for the same reason)
+                float3 dWx = ddx(i.wpos);
+                float3 dWy = ddy(i.wpos);
                 // the repeat the lit-window hash is anchored to: the TILED uv
                 float2 winUV = uv;
             #ifdef PSX_FACADE
@@ -746,6 +763,45 @@ Shader "PSX/Lit"
                 float3 toEye = _WorldSpaceCameraPos - i.wpos;
                 float eyeDist = length(toEye);
                 float3 V = toEye / max(eyeDist, 1e-4);
+
+                // THE TERRAIN DETAIL (TerrainDetail.cs): grass, dirt, rock and
+                // snow carry a photographed grain near the eye. The sheet is
+                // projected on the world plane this surface faces most (the
+                // ground from above, a cut or bank from the side) at a 2 m
+                // repeat and a coarser one, and only its LUMINANCE moves the
+                // albedo, by 1 on average, so the dress's colour and
+                // the snow's whiteness stay theirs. Gone by the fade's end, and
+                // its point-filtered mips run to grey before that. The branch
+                // is uniform per material until the fade, then per pixel:
+                // tex2Dgrad with the derivatives taken above, so neither the
+                // branch nor the projection's switch can pick a wrong mip.
+                float4 dAmt = _PSXDetailMask * _PSXDetailParams.w;
+                float dSum = dot(dAmt, float4(1.0, 1.0, 1.0, 1.0));
+                float dFade = saturate(1.0 - (eyeDist - _PSXDetailParams.y) * _PSXDetailParams.z);
+                if (dSum * dFade > 0.0)
+                {
+                    float3 an = abs(N);
+                    float2 dP = i.wpos.xz, dGx = dWx.xz, dGy = dWy.xz;
+                    if (an.y < max(an.x, an.z))
+                    {
+                        if (an.x >= an.z) { dP = i.wpos.zy; dGx = dWx.zy; dGy = dWy.zy; }
+                        else              { dP = i.wpos.xy; dGx = dWx.xy; dGy = dWy.xy; }
+                    }
+                    // TWO OCTAVES of the one sheet: the fine grain at the repeat
+                    // and the same grain DETAIL_COARSE x larger (offset, at a
+                    // non-integer ratio, so neither grid lines up with the
+                    // other). At 480 lines the fine one alone has gone into its
+                    // mips by 10-15 m, and the slope or the cut beyond the wall
+                    // stayed as smooth as before; the coarse one carries clumps
+                    // and facets out to the fade. Each octave weighs 0.75:
+                    // k = 1 + 0.75 x sum over both of amount x (2t - 1).
+                    #define DETAIL_COARSE 0.27
+                    float dS = _PSXDetailParams.x;
+                    float dC = dS * DETAIL_COARSE;
+                    float4 dT = tex2Dgrad(_PSXDetailTex, dP * dS, dGx * dS, dGy * dS);
+                    float4 dU = tex2Dgrad(_PSXDetailTex, dP * dC + float2(0.37, 0.61), dGx * dC, dGy * dC);
+                    tex.rgb *= max(1.0 + 1.5 * (dot(dT + dU, dAmt) - dSum) * dFade, 0.0);
+                }
 
                 // Headlights and lamps are added to the vertex light, not to
                 // the result: a beam on a texture lights the texture. Each

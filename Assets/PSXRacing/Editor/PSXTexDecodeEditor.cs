@@ -51,6 +51,7 @@ namespace PSXRacing.EditorTools
             if (!Application.isBatchMode && !stale && now - last < 2.0) return;
             stale = false;
             last = now;
+            TerrainDetail.ApplyGlobals();
             PSXTexDecode.StampAll();
         }
 
@@ -73,6 +74,9 @@ namespace PSXRacing.EditorTools
                 if (TextureTierTool.ToClassic(m)) zeroed = true;
                 foreach (int id in new[] { PSXTexDecode.MainTexRawId, PSXTexDecode.DeepTexRawId })
                     if (m.HasProperty(id) && m.GetFloat(id) != 0f) { m.SetFloat(id, 0f); zeroed = true; }
+                // the terrain detail amounts: stamped at runtime, never stored
+                if (m.HasProperty(TerrainDetail.MaskId) && m.GetVector(TerrainDetail.MaskId) != Vector4.zero)
+                { m.SetVector(TerrainDetail.MaskId, Vector4.zero); zeroed = true; }
             }
             if (zeroed)
             {

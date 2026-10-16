@@ -13004,6 +13004,7 @@ namespace PSXRacing.EditorTools
             Guard("DayLook.Hours", DayLookHours);
             Guard("DayLook.Map", DayLookMap);
             Guard("DayLook.CarMap", DayLookCarMap);
+            Guard("DayLook.TerrainDetail", () => TerrainDetailTool.SelfTest(Check));
         }
 
         static void DayLookShaders()
