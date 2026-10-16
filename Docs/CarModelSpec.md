@@ -61,7 +61,45 @@ Wheels: a 10–12-sided cylinder for the tyre, the rim as a flat textured disc
 - **Matte black** (tyres, arch liners, grille, bumper plastic) that should NOT
   reflect like glass: alpha = 128 on those texels. Everything else alpha = 255.
 - Lights: tail lamps and headlamps painted on the sheet, clearly coloured
-  (red/amber/clear) so the shader does not mistake them for glass.
+  (red/amber/clear) so the shader does not mistake them for glass. To make the
+  tail lamps light up, add a lamp control map (next section).
+
+## Lamp control map (lit tail lamps)
+
+The owner's method, first used on the R32 (`gtr_89`, 2026-10-15). The lit lamp
+is authored art on the car's own atlas, not a sprite or extra geometry.
+
+- **One extra PNG per model**, the same size and UV layout as the body atlas.
+  Every livery of the model shares it.
+- **Channels (LINEAR data, not colour):** R = running-light intensity,
+  G = brake-light intensity, B = 0, A = 255. 0 means "not a lamp".
+  Paint only the lamp texels: no texel on any other surface may be non-zero.
+- Paint the PATTERN of the bulb, not a flat lens. On the R32, R is a dim ring
+  and G a brighter filled disc, on each of the four round lamps.
+- Leave the body atlas unchanged. Its unlit lens art stays, and the shader
+  multiplies the light by the lens texel (`lerp(0.55, 1, atlas.r × 2)`) so
+  the detail shows through.
+- Name it `<modelKey>_lightmask_rg.png` and put it in
+  `Assets/PSXRacing/Resources/CarLights/`. The game finds it by the model key
+  at runtime, so no car bake or material change is needed.
+- Import it linear (sRGB off), point filter, clamp, no mipmaps, no
+  compression. Copy the import settings from `gtr_89_lightmask_rg.png.meta`
+  (Resources is outside the builder's texture pass). The self-test fails a map
+  imported any other way.
+- The game shows emission = max(R × running colour × running strength ×
+  lights-on, G × brake colour × brake strength × brake) × lens detail.
+  - Braking works with the running lights off and does not double with them on.
+  - Running is on with the headlights; brake follows the brake pedal.
+  - The colours and strengths are tuned once in `PSX/CarPaint` (`LAMP_*`) for
+    the game's LDR picture. Bright brake texels get the picture's halation (a
+    halo); running lamps stay a dim glow without one.
+- A car with a map does not draw the old additive tail-lamp sprites. Its red
+  light on the road behind it stays.
+- Reverse lights and indicators are not in the map yet (B is reserved).
+- Check: `tools\r32lights-shots.ps1` (rear view off / running / braking /
+  brake-only, at night and dusk). The self-test checks each map for the right
+  name, import settings and channels, and that its lit texels land only on
+  rear-facing faces at the car's tail.
 
 ## File layout
 
