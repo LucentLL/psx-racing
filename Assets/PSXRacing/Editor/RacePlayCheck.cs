@@ -325,6 +325,14 @@ namespace PSXRacing.EditorTools
             while (rm.State == RaceManager.RaceState.Countdown && Time.realtimeSinceStartup < until) yield return null;
             RacePlayCheck.Check(rm.State == RaceManager.RaceState.Racing, "the race goes live", rm.State);
             RacePlayCheck.Note($"  road grip x{Seasons.RoadGripMult:0.00}, road {rm.path.roadWidth:0.0} m, two-way {(TrafficSystem.Instance != null && TrafficSystem.Instance.TwoWay)}");
+            // PSX_RACE_VIEW=COCKPIT (race-play-check.ps1 -View Cockpit): the
+            // race from the driver's seat, forced for the session and never
+            // saved (PreviewView), with the driver's arms tallied at the end.
+            bool cockpitView = string.Equals((System.Environment.GetEnvironmentVariable("PSX_RACE_VIEW") ?? "").Trim(), "cockpit",
+                                             System.StringComparison.OrdinalIgnoreCase);
+            if (cockpitView) { ChaseCamera.PreviewView(ChaseCamera.View.Cockpit); RacePlayCheck.Note("  camera forced to COCKPIT"); }
+            CockpitInterior cabin = null;
+            float wheelMax = 0f;
 
             // The player's own input stack OFF, not just told to stand down: it
             // still wrote the parking brake over the autopilot every tick, the
@@ -383,6 +391,11 @@ namespace PSXRacing.EditorTools
                    (rm.State == RaceManager.RaceState.Racing || (toFinish && RivalsRunning())))
             {
                 yield return new WaitForSeconds(0.5f);
+                if (cockpitView)
+                {
+                    if (cabin == null) cabin = car.GetComponentInChildren<CockpitInterior>(true);
+                    if (cabin != null) wheelMax = Mathf.Max(wheelMax, Mathf.Abs(cabin.WheelDeg));
+                }
                 foreach (var c in rm.allCars)
                 {
                     var p = c != null ? rm.GetProgress(c) : null;
@@ -432,6 +445,15 @@ namespace PSXRacing.EditorTools
                                        $"{(r != null ? r.WorstHit.ToString("0.0") : "?")} m/s into {(r != null ? r.WorstHitWhat : "?")}, " +
                                        $"damage {(r != null ? r.DamageScore.ToString("0") : "?")}");
                 }
+            }
+            if (cockpitView)
+            {
+                var plan = cabin != null && cabin.Arms != null ? cabin.Arms.Plan : null;
+                RacePlayCheck.Check(plan != null, "COCKPIT: the driver's arms were built and drove the race",
+                                    cabin == null ? "no cabin" : plan == null ? "no arms" : null);
+                if (plan != null)
+                    RacePlayCheck.Note($"COCKPIT ARMS: wheel up to {wheelMax:0} deg, {plan.Crossings} hand-over-hand crossings, " +
+                                       $"{plan.Unwinds} unwinds, {plan.Reaches} shift/handbrake reaches; now L {plan.L.mode} R {plan.R.mode}");
             }
             CollisionResponder.HitReported -= OnHit;
             CollisionResponder.HitReportedOn -= OnHitOn;

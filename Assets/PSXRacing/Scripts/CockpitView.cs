@@ -415,7 +415,10 @@ namespace PSXRacing
             interior.Show(use, !touch);
             if (!use) return false;
             interior.Refit();
-            interior.SetSteer(car.SteerAngleDeg, car.maxSteerLowSpeedDeg);
+            // Full lock of the visual wheel is the car's widest road-wheel
+            // angle (the drift lock), so the wheel never stops dead at the
+            // grip lock while the fronts keep turning.
+            interior.SetSteer(car.SteerAngleDeg, Mathf.Max(car.maxSteerLowSpeedDeg, car.maxSteerDriftDeg));
             // A wheel.png with no cabin.png would be a second wheel.
             if (wheelRT != null && wheelRT.gameObject.activeSelf) wheelRT.gameObject.SetActive(false);
             // Nothing to lay a binnacle round: the cabin has its own dials.

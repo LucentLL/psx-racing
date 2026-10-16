@@ -22,7 +22,10 @@ param([string]$Venue = "GillespieGap", [int]$Seconds = 150, [int]$Seed = 0, [str
       [switch]$NoWatch, [int]$MaxMinutes = 0, [switch]$Finish, [string]$Edition = "ALL",
       [string]$Traffic = "", [double]$TimeScale = 1, [string]$Matrix = "",
       [string]$Venues = "", [string]$Seeds = "", [string]$Trees = "1", [string]$Signs = "1", [string]$Poles = "1",
-      [string]$SpeedBlur = "")
+      [string]$SpeedBlur = "", [string]$View = "")
+# -View Cockpit: race seen from the driver's seat (ChaseCamera.PreviewView, never
+#   saved); the report tallies the cockpit arms (crossings, unwinds, reaches).
+$env:PSX_RACE_VIEW = $View
 # -SpeedBlur OFF|ZOOM|MOTION: race under that SPEED BLUR, forced for the session
 #   and never saved (the editor's PlayerPrefs are the owner's). Empty = his pref.
 $env:PSX_SPEEDBLUR = $SpeedBlur

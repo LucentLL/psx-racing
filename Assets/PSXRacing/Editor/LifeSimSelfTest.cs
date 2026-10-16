@@ -70,6 +70,23 @@ namespace PSXRacing.EditorTools
                 System.IO.Path.Combine(Application.dataPath, "../PSXRacing_selftest_driveside.txt"), log.ToString());
         }
 
+        /// <summary>Only the cockpit arms' pins (TestCockpitArms): seconds, no
+        /// scene build. Writes PSXRacing_selftest_cockpitarms.txt.</summary>
+        public static void RunCockpitArms()
+        {
+            log = new StringBuilder();
+            failures = 0;
+            Guard(nameof(TestCockpitArms), TestCockpitArms);
+            Line(failures == 0 ? "COCKPIT ARMS SELF-TEST OK" : "COCKPIT ARMS SELF-TEST FAILED (" + failures + ")");
+            System.IO.File.WriteAllText(
+                System.IO.Path.Combine(Application.dataPath, "../PSXRacing_selftest_cockpitarms.txt"), log.ToString());
+        }
+
+        /// <summary>The driver's arms (2026-10-16): the HandsPack arm and its
+        /// poses, hand over hand, the unwind, the shift and handbrake reaches,
+        /// RHD - CockpitArmsShots.SelfTest, which the arms' shot job runs too.</summary>
+        static void TestCockpitArms() => CockpitArmsShots.SelfTest(Check);
+
         static void RunAll()
         {
 
@@ -102,6 +119,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestAdvancedTuning), TestAdvancedTuning);
             Guard(nameof(TestDebugBench), TestDebugBench);
             Guard(nameof(TestDriveSideSpec), TestDriveSideSpec);
+            Guard(nameof(TestCockpitArms), TestCockpitArms);
             Guard(nameof(TestMarket), TestMarket);
             Guard(nameof(TestViewings), TestViewings);
             Guard(nameof(TestJunkyard), TestJunkyard);

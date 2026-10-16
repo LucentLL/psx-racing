@@ -2710,6 +2710,11 @@ namespace PSXRacing
         /// the change. Audio uses it for the turbo flutter between gears.</summary>
         public event System.Action<float> Upshifted;
 
+        /// <summary>Gear changes made by hand (manual mode), counted - the
+        /// cockpit's arms reach for the shifter on each. A counter, as
+        /// <see cref="TeleportCount"/>, so nothing has to subscribe.</summary>
+        public int ManualShifts { get; private set; }
+
         public void ShiftTo(int gear)
         {
             gear = Mathf.Clamp(gear, 1, gearRatios.Length);
@@ -2717,6 +2722,9 @@ namespace PSXRacing
             bool up = gear > currentGear;
             int from = currentGear;
             currentGear = gear;
+            // The player's own lever moves (PlayerCarInput.ShiftBy sets
+            // manualMode first; the automatic box never runs in manual).
+            if (manualMode) ManualShifts++;
             shiftTimer = shiftTime * faultShiftMult;
             gearJustChangedTimer = 0.6f;
             if (up && Upshifted != null)

@@ -41,7 +41,8 @@ namespace PSXRacing
         public const string GeoName = "v08_geo", AtlasName = "v08_atlas", SkinName = "hands_skin";
         /// <summary>Every asset the bundle carries (file names in CockpitSrc).</summary>
         public static readonly string[] BundleAssets =
-            { "v08_geo.bytes", "v08_vinyl.png", "v08_abs.png", "v08_headliner.png", "v08_leather.png", "v08_atlas.png", "hands_skin.png" };
+            { "v08_geo.bytes", "v08_vinyl.png", "v08_abs.png", "v08_headliner.png", "v08_leather.png", "v08_atlas.png", "hands_skin.png",
+              "arms_geo.bytes" };
         public static readonly string[] Surfaces = { "vinyl", "abs", "headliner", "leather" };
 
         // ------------------------------------------------------------------
@@ -251,6 +252,14 @@ namespace PSXRacing
 #else
             return null;
 #endif
+        }
+
+        /// <summary>The driver's arms (CockpitArms reads it), or null while
+        /// the model is not <see cref="Ready"/>.</summary>
+        public static TextAsset ArmsAsset()
+        {
+            Request();
+            return Ready ? Asset<TextAsset>(CockpitArms.GeoName) : null;
         }
 
         static Dictionary<string, Part> parts;

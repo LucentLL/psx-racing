@@ -39,6 +39,10 @@ namespace PSXRacing
     /// THE MIRROR is live: a small camera looking back renders into the
     /// mirror face's own texture, every other frame, only while this shows.
     ///
+    /// THE DRIVER'S ARMS (<see cref="CockpitArms"/>, 2026-10-16) hold the
+    /// wheel, go hand over hand through its 1.25 turns and reach for the
+    /// shifter and the handbrake; they ride the model, so RHD mirrors them.
+    ///
     /// SHARP UNDER THE SPEED BLUR (every renderer carries
     /// SpeedBlur.CarRenderingLayer), ONLY THE DRIVER'S CAMERA SEES IT, and
     /// the driver's camera does not see the car's own shell (its faces would
@@ -53,8 +57,13 @@ namespace PSXRacing
         public static float ZRef => L != null ? L.dashFrontZ - L.eye.z : 1.31f;
 
         public const float MinScale = 0.15f, MaxScale = 1.0f;
-        /// <summary>Wheel degrees at full lock, each way.</summary>
-        public const float LockDeg = 135f;
+        /// <summary>Wheel degrees at full lock, each way: 1.25 turns (2026-10-16,
+        /// the owner's clip turns 1-1.5 turns hand over hand; it was 135, a
+        /// wheel that never needed the hands to leave it). Full lock is the
+        /// car's widest road-wheel angle (CockpitView passes the drift lock),
+        /// so a 45-degree drift lock is a 10:1 rack and 9 degrees at speed is
+        /// a quarter turn. Visual only: the physics steering is untouched.</summary>
+        public const float LockDeg = 450f;
         /// <summary>Margin of the near plane under the nearest visible surface.</summary>
         public const float NearMargin = 1.5f;
         /// <summary>The mirror's render: pixels, field, reach, and every Nth frame.</summary>
@@ -153,7 +162,8 @@ namespace PSXRacing
         Vector3 fitC, fitS;
         float fitLs, fitLift;
         bool fitRhd;
-        float lastDeg = float.NaN;
+        float lastDeg = float.NaN, wheelDeg = float.NaN, wheelTarget;
+        CockpitArms arms;
         Camera mirrorCam;
         RenderTexture mirrorRT;
         static float rainWet, runClock, blowClock;
@@ -163,6 +173,8 @@ namespace PSXRacing
         public Transform Model => model;
         public CockpitCargoMirror Mirror => mirror;
         public CockpitGauges Gauges => gauges;
+        /// <summary>The driver's arms, or null (no arms data: the static hands).</summary>
+        public CockpitArms Arms => arms;
         public bool RHD => Current.rhd;
 
         public static CockpitInterior Ensure(CarController car, Camera driver)
@@ -231,8 +243,11 @@ namespace PSXRacing
             wheel = new GameObject("SteeringWheel").transform;
             wheel.SetParent(wheelPivot, false);
             Place(parts, "wheel", wheel);
-            // The hands are posed in the wheel's own frame and ride it.
-            Place(parts, "hands", wheel);
+            // The driver's arms (CockpitArms): they hold the rim, go hand over
+            // hand and reach for the shifter. Without their data, the old
+            // static hands posed in the wheel's own frame ride it instead.
+            arms = CockpitArms.Create(model, lay, gameObject.layer);
+            if (arms == null) Place(parts, "hands", wheel);
 
             // The cargo's frame: never mirrored (its motion is the car's).
             cargoRoot = new GameObject("CargoMirror").transform;
@@ -337,6 +352,7 @@ namespace PSXRacing
             if (mirrorMat != null && lay.mirror != null)
                 mirrorMat.SetFloat("_FlipU", lay.mirror.uRight * (f.rhd ? -1 : 1) > 0 ? 1f : 0f);
             lastDeg = float.NaN;
+            wheelDeg = float.NaN;
             ActiveNearClip = NearClipFor(f.scale);
             CollectRenderers();
             CollectShell();
@@ -384,6 +400,8 @@ namespace PSXRacing
             if (gameObject.activeSelf != on) gameObject.SetActive(on);
             if (wheelPivot != null && wheelPivot.gameObject.activeSelf != wheelOn)
                 wheelPivot.gameObject.SetActive(wheelOn);
+            // No wheel (a phone's is under the thumb): no hands to hold it.
+            if (arms != null) arms.Show(wheelOn);
             shown = on;
             GaugesShowing = on && gauges != null;
             GlassShowing = on && glassMats != null && glassMats.Length > 0;
@@ -404,12 +422,38 @@ namespace PSXRacing
         {
             if (wheel == null) return;
             float deg = -roadWheelDeg / Mathf.Max(5f, fullLockDeg) * LockDeg;
-            deg = Mathf.Clamp(deg, -LockDeg * 1.4f, LockDeg * 1.4f);
+            deg = Mathf.Clamp(deg, -LockDeg * 1.1f, LockDeg * 1.1f);
             if (Current.rhd) deg = -deg;
-            if (!float.IsNaN(lastDeg) && Mathf.Abs(deg - lastDeg) < 0.1f) return;
-            lastDeg = deg;
-            wheel.localRotation = Quaternion.Euler(0f, 0f, deg);
+            wheelTarget = deg;
+            // First frame (or a new fit / drive side): straight there, hands at rest.
+            if (float.IsNaN(wheelDeg))
+            {
+                wheelDeg = deg;
+                ApplyWheel();
+                if (arms != null) arms.Plan.Reset(deg);
+            }
         }
+
+        /// <summary>The visual wheel follows the rack at most
+        /// <see cref="CockpitArms.WheelMaxRate"/> (the hands must keep up);
+        /// a still (dt 0) goes straight to it.</summary>
+        void TickWheel(float dt)
+        {
+            if (float.IsNaN(wheelDeg)) return;
+            wheelDeg = dt > 0f ? Mathf.MoveTowards(wheelDeg, wheelTarget, CockpitArms.WheelMaxRate * dt) : wheelTarget;
+            ApplyWheel();
+            if (arms != null) arms.Tick(dt, wheelDeg, car);
+        }
+
+        void ApplyWheel()
+        {
+            if (wheel == null || (!float.IsNaN(lastDeg) && Mathf.Abs(wheelDeg - lastDeg) < 0.1f)) return;
+            lastDeg = wheelDeg;
+            wheel.localRotation = Quaternion.Euler(0f, 0f, wheelDeg);
+        }
+
+        /// <summary>The visual wheel angle now (model frame, degrees).</summary>
+        public float WheelDeg => float.IsNaN(wheelDeg) ? 0f : wheelDeg;
 
         void LateUpdate()
         {
@@ -427,6 +471,7 @@ namespace PSXRacing
                 if (tank == null) tank = car.GetComponent<FuelTank>();
                 if (temp == null) temp = car.GetComponent<EngineTemp>();
             }
+            TickWheel(dt);
             if (gauges != null) gauges.Tick(dt, car, cluster, tank, temp, ClusterBulbs.Backlit);
             ActiveNearClip = NearClipFor(Current.scale > 0f ? Current.scale : 0.357f,
                                          CockpitLook.Yaw * CockpitLook.PassengerSign / CockpitLook.MaxYaw);
@@ -551,6 +596,7 @@ namespace PSXRacing
         {
             if (mirror != null) mirror.Clear();
             if (gauges != null) gauges.Destroy();
+            if (arms != null) arms.Destroy();
             if (glassMats != null) foreach (var m in glassMats) if (m != null) DestroyImmediate(m);
             if (mirrorMat != null) DestroyImmediate(mirrorMat);
             if (mirrorRT != null) { mirrorRT.Release(); DestroyImmediate(mirrorRT); }
