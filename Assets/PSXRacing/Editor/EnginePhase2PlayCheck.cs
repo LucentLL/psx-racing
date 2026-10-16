@@ -69,8 +69,11 @@ namespace PSXRacing.EditorTools
             EngineVoiceLibrary.ForceBundle = BundleMode;
             EngineVoiceLibrary.UrlOverride = BundleMode ? url : null;
             EngineVoiceLibrary.DebugSlowPack = BundleMode ? SlowPack : null;
-            EngineVoiceLibrary.DebugSlowSeconds = 3f;
-            log.AppendLine(BundleMode ? "  bundles from " + url + " (slow: " + SlowPack + " 3 s, dead: " + DeadFamily + ")"
+            // Longer than the stand-in delay with room to spare: the slow pack
+            // counts REAL time from the prefetch at scene load, the stand-in
+            // GAME time from SetFamily, and the load hitch caps deltaTime.
+            EngineVoiceLibrary.DebugSlowSeconds = 6f;
+            log.AppendLine(BundleMode ? "  bundles from " + url + " (slow: " + SlowPack + " 6 s, dead: " + DeadFamily + ")"
                                       : "  SOURCE mode: clips from EngineSrc, bundle checks skipped");
 
             EditorSettings.enterPlayModeOptionsEnabled = true;
@@ -138,7 +141,7 @@ namespace PSXRacing.EditorTools
             var seen = new Dictionary<EngineAudio, List<string>>();
             foreach (var e in engines) seen[e] = new List<string>();
             float t0 = Time.realtimeSinceStartup;
-            while (Time.realtimeSinceStartup - t0 < 8f)
+            while (Time.realtimeSinceStartup - t0 < 10f)
             {
                 foreach (var e in engines)
                 {
@@ -155,7 +158,7 @@ namespace PSXRacing.EditorTools
                 string want = EngineVoiceLibrary.Resolve(car.activeSpec);
                 Note((car == rm.playerCar ? "PLAYER " : "rival  ") + (car.activeSpec != null ? car.activeSpec.id : "?") +
                      " wants " + want + ": " + string.Join(" -> ", seen[e]));
-                Check(e.LiveFamily == want && !e.StandingIn, "  speaks through its own family after 8 s", e.LiveFamily);
+                Check(e.LiveFamily == want && !e.StandingIn, "  speaks through its own family after 10 s", e.LiveFamily);
                 var srcs = EnginePhase2PlayCheck.Sources(e);
                 int loaded = srcs.Count(a => a.clip.loadState == AudioDataLoadState.Loaded);
                 int playing = srcs.Count(a => a.isPlaying);
