@@ -187,7 +187,43 @@ namespace PSXRacing.EditorTools
                   "idle packs are trimmed to the allowance", EngineVoiceLibrary.IdleLoaded + " <= " + EngineVoiceLibrary.IdleAllowance);
 
             yield return Spatial(rm.playerCar);
+            yield return Cabin(rm.playerCar);
             Done();
+        }
+
+        /// <summary>ITEM 4: the cockpit set. In the seat the family's interior
+        /// recordings play (2D), the exterior set is parked after the 0.25 s
+        /// crossfade; back out, the exterior returns and the cabin goes.</summary>
+        IEnumerator Cabin(CarController player)
+        {
+            var e = player.GetComponent<EngineAudio>();
+            string fam = EngineVoiceLibrary.Resolve(player.activeSpec);
+            int Count(bool interior) => e.GetComponentsInChildren<AudioSource>(true).Count(a =>
+                a.loop && a.transform.parent != null && a.transform.parent.name.StartsWith(interior ? "snd_int_" : "snd_") &&
+                (interior || !a.transform.parent.name.StartsWith("snd_int_")));
+            ChaseCamera.PreviewView(ChaseCamera.View.Cockpit);
+            float t = Time.realtimeSinceStartup, peak = 0;
+            while (e.InsideMix < 1f && Time.realtimeSinceStartup - t < 6f) { peak = Mathf.Max(peak, Count(false) + Count(true)); yield return null; }
+            float took = Time.realtimeSinceStartup - t;
+            yield return Wait(0.3f);
+            int ext = Count(false), inn = Count(true);
+            Note($"COCKPIT cabin {e.CabinFamily} mix {e.InsideMix:0.00} after {took:0.00} s; sources ext {ext} int {inn} (peak during the fade {peak})");
+            Check(e.CabinFamily == fam && e.InsideMix >= 1f, "cockpit: the family's interior set plays", e.CabinFamily);
+            Check(ext == 0 && inn > 0, "inside, the exterior set is parked - one set running", ext + " ext / " + inn + " int");
+            var ins = e.GetComponentsInChildren<AudioSource>(true).Where(a => a.loop && a.transform.parent != null && a.transform.parent.name.StartsWith("snd_int_")).ToList();
+            Check(ins.All(a => a.spatialBlend == 0f), "the cabin set is 2D");
+            Check(ins.All(a => a.clip != null && a.clip.loadState == AudioDataLoadState.Loaded && a.isPlaying), "every cabin loop is decoded and playing");
+            var idle = ins.FirstOrDefault(a => a.gameObject.name == "snd_idle");
+            Check(idle != null && EnginePhase2PlayCheck.Peak(idle.clip) > 0.01f, "the cabin idle take is not silent");
+
+            ChaseCamera.PreviewView(ChaseCamera.View.Chase);
+            t = Time.realtimeSinceStartup;
+            while ((e.InsideMix > 0f || e.CabinFamily != null) && Time.realtimeSinceStartup - t < 3f) yield return null;
+            took = Time.realtimeSinceStartup - t;
+            ext = Count(false); inn = Count(true);
+            Note($"CHASE   back after {took:0.00} s; sources ext {ext} int {inn}; live {e.LiveFamily}");
+            Check(e.CabinFamily == null && ext > 0 && inn == 0 && e.LiveFamily == fam, "back out: the exterior set returns, the cabin is torn down");
+            Check(took < 0.6f, "  ...within the crossfade", took.ToString("0.00") + " s");
         }
 
         static IEnumerator Wait(float s)

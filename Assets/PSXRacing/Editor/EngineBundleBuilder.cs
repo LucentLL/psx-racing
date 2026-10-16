@@ -34,10 +34,20 @@ namespace PSXRacing.EditorTools
         /// Resources (PSXRacingBuilder.EngineClipQuality), so moving them into
         /// bundles changes where they are, not how they sound.</summary>
         public const float ExteriorQuality = 0.8f;
-        /// <summary>Importer quality of the interior takes. See
-        /// tools/engine_interior_quality.mjs: the cabin recordings carry
-        /// almost nothing above 10 kHz, so they hold up at a lower rate.</summary>
-        public const float InteriorQuality = 0.6f;
+        /// <summary>
+        /// Importer quality of the interior (cockpit) takes, picked by
+        /// measurement. On WebGL Unity encodes AAC with the host's encoder
+        /// (Media Foundation on Windows: 96/128/160/192 kbps only); measured in
+        /// PSXCity's bundles, q0.8 -> ~192 kbps and q0.6 -> ~160 kbps, so 0.4
+        /// is the 128 kbps step. tools/engine_interior_quality.mjs, 20 takes
+        /// over four families through the same encoder: the cabin recordings
+        /// carry 23 dB less energy above 10 kHz than the exterior ones (-64.7
+        /// vs -41.9 dB re total), and at 128 kbps code to 36.4 dB SNR, better
+        /// than the exterior takes manage at 192 kbps (34.4 dB). All 28
+        /// interior sets: 20.6 MB at 160 kbps, ~16.5 MB at 128, in bundles
+        /// fetched only on the first cockpit entry.
+        /// </summary>
+        public const float InteriorQuality = 0.4f;
         /// <summary>A guard: a family's set is ~0.5-2 MB; anything near this is wrong.</summary>
         const long PackCap = 8L << 20;
 

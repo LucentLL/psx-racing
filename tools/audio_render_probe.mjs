@@ -686,12 +686,12 @@ export function layered(...rigs) {
 export function flybyProfile(c) {
   const red = c.redline, lim = c.revLimit, f = [], seg = {};
   const k4 = 175 / red;                              // km/h per rpm in 4th: ~175 km/h at redline
-  let rpm = red * 0.62, x = -150;
+  let rpm = red * 0.62, x = -100;                   // 90 m is the rolloff's silence: start just inside it
   const push = (thr, gear = 4) => { const kmh = rpm * k4; x += kmh / 3.6 * DT; f.push({ rpm, thr, kmh, gear, x }); };
   seg.pull = 0;
-  while (x < 15 && rpm < red * 0.99) { rpm += (red * 0.99 - red * 0.62) / 4.2 * DT; push(1); }
+  while (x < 15 && rpm < red * 0.99) { rpm += (red * 0.99 - red * 0.62) / 3.2 * DT; push(1); }
   seg.lift = f.length * DT;                          // just past the lens: lift for the corner
-  for (let t = 0; t < 2.6; t += DT) { rpm = Math.max(red * 0.55, rpm - 1700 * DT); push(0); }
+  for (let t = 0; t < 2.3; t += DT) { rpm = Math.max(red * 0.55, rpm - 1700 * DT); push(0); }
   seg.end = f.length * DT;
   f.seg = seg;
   return f;

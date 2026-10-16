@@ -131,6 +131,15 @@ namespace PSXRacing
         const float StartupGrace = 2f;
 
         VoiceSet live, fading;
+        /// <summary>The cockpit set (interior recordings), while the camera is
+        /// in this car's seat; <see cref="insideMix"/> crossfades the two.</summary>
+        VoiceSet inner;
+        float insideMix;
+        /// <summary>The family the exterior voice was built from before it was
+        /// parked (fully inside, the exterior set is torn down).</summary>
+        string parkedFamily;
+        /// <summary>The crossfade between the chase and cockpit sets.</summary>
+        const float ViewFadeSeconds = 0.25f;
         string wantFamily;
         Ear ear = Ear.Chase;
         float blendNow = -1f;
@@ -163,7 +172,7 @@ namespace PSXRacing
 
         /// <summary>The family this car's live voice is built from (the
         /// default while it stands in), or null before the first build.</summary>
-        public string LiveFamily => live != null ? live.family : null;
+        public string LiveFamily => live != null ? live.family : inner != null ? inner.family : null;
         /// <summary>True while the default family stands in for a download.</summary>
         public bool StandingIn => live != null && live.standIn;
 
@@ -188,6 +197,7 @@ namespace PSXRacing
         {
             Teardown(ref live);
             Teardown(ref fading);
+            Teardown(ref inner);
         }
 
         /// <summary>
@@ -246,7 +256,16 @@ namespace PSXRacing
                 waitSince = Time.time;
             }
 
-            bool settled = live != null && !live.standIn && live.family == wantFamily;
+            // Fully in the seat: the exterior voice is parked (torn down) so the
+            // two sets never both run at full voice count past the crossfade.
+            bool cabinOnly = inner != null && inner.family == wantFamily && insideMix >= 1f && ear == Ear.Cockpit;
+            if (cabinOnly)
+            {
+                if (live != null) { parkedFamily = live.family; Teardown(ref live); }
+                if (fading != null) Teardown(ref fading);
+            }
+
+            bool settled = cabinOnly || (live != null && !live.standIn && live.family == wantFamily);
             if (!settled)
             {
                 EngineVoiceLibrary.Request(wantFamily, Set.Exterior);
@@ -289,15 +308,18 @@ namespace PSXRacing
             // The first voice of a car starts at full when its family was
             // already here (prefetched): nothing was audible before it, and a
             // fade-in on scene start reads as a car slow to "start". A voice
-            // that had to be waited for, or replaces another, fades in.
-            live.gain = fading == null && !live.standIn && Time.time - waitSince < 0.1f ? 1f : 0f;
+            // that had to be waited for, or replaces another, fades in. Back
+            // out of the seat, the view crossfade (insideMix) does the fading.
+            bool unparking = parkedFamily != null && parkedFamily == live.family;
+            live.gain = fading == null && !live.standIn && (unparking || Time.time - waitSince < 0.1f) ? 1f : 0f;
             live.target = live.standIn ? StandInLevel : 1f;
+            parkedFamily = null;
         }
 
         VoiceSet Build(string fam, Set set, bool standIn)
         {
             fam = EngineVoiceLibrary.Canonical(fam);
-            var rig = EngineVoiceLibrary.RigFor(fam);
+            var rig = set == Set.Interior ? EngineVoiceLibrary.InteriorRigFor(fam) : EngineVoiceLibrary.RigFor(fam);
             if (rig == null) return null;
             if (EngineVoiceLibrary.State(fam, set) != Avail.Ready) return null;
 
@@ -362,7 +384,14 @@ namespace PSXRacing
             src.loop = true;
             src.volume = 0f;
             src.playOnAwake = false;
-            ConfigureSpatial(src);
+            if (s.set == Set.Interior)
+            {
+                // The cabin is AT the listener: 2D, and created that way, so
+                // no blend ever crosses zero on it (see CockpitBlend).
+                src.spatialBlend = 0f;
+                src.dopplerLevel = 0f;
+            }
+            else ConfigureSpatial(src);
             s.all.Add(src);
             // Deferred rather than a straight Play(): on WebGL the browser has
             // not decoded this clip yet, and a source started against an
@@ -430,11 +459,13 @@ namespace PSXRacing
         /// image when the rig swings off it - the drift camera's hold, a
         /// crash, a hairpin's camera lag. Unity's (and the WebGL build's)
         /// blend is a dry/wet mix: (1 - b) of the signal unpanned plus b
-        /// through an equal-power panner. At b = 0.35 a car 90 deg off-axis
-        /// is 3.7 dB louder in the near ear (20 log10 1 / 0.65), and at the
-        /// 20-30 deg a chase swing reaches, 1-2 dB: heard, never a car that
-        /// seems to be somewhere else. Above ~0.5 the near-ear lead passes
-        /// 6 dB and the far side of the image goes thin on every drift.
+        /// through an equal-power panner (Web Audio's rule for a stereo
+        /// source, which the WebGL build runs). At b = 0.35 a car 30 deg
+        /// off-axis - about as far as a chase swing goes - comes out 1.8 dB
+        /// louder in the near ear, and one at 90 deg 6.3 dB: heard, never a
+        /// car that seems to be somewhere else. At 0.5 that is 2.5 / 9.5 dB
+        /// and the far side of the image goes thin on every drift; at 0.25,
+        /// 1.3 / 4.4 dB, which a drift barely moves.
         /// </summary>
         public const float ChaseBlend = 0.35f;
         /// <summary>The cockpit: 2D in effect. Not 0, because the WebGL backend
@@ -512,12 +543,13 @@ namespace PSXRacing
 
         void TryStartup()
         {
-            if (pendingStartupAt < 0f || live == null || live.standIn) return;
+            var s = Speaking;
+            if (pendingStartupAt < 0f || s == null || s.standIn) return;
             if (Time.time > pendingStartupAt + StartupGrace) { pendingStartupAt = -1f; return; }
-            if (live.startup != null && oneShotSrc != null)
+            if (s.startup != null && oneShotSrc != null)
             {
                 oneShotSrc.volume = AudioPrefs.Engine;   // the ENGINE volume (settings, AUDIO)
-                AudioLoopStarter.PlayDelayed(oneShotSrc, live.startup, Mathf.Max(0f, pendingStartupAt - Time.time));
+                AudioLoopStarter.PlayDelayed(oneShotSrc, s.startup, Mathf.Max(0f, pendingStartupAt - Time.time));
             }
             pendingStartupAt = -1f;
         }
@@ -525,10 +557,54 @@ namespace PSXRacing
         public void PlayShutdown()
         {
             pendingStartupAt = -1f;
-            if (live == null || live.engineStop == null || oneShotSrc == null) return;
+            var s = Speaking;
+            if (s == null || s.engineStop == null || oneShotSrc == null) return;
             oneShotSrc.volume = AudioPrefs.Engine;
-            AudioLoopStarter.PlayOneShot(oneShotSrc, live.engineStop, 0.8f);
+            AudioLoopStarter.PlayOneShot(oneShotSrc, s.engineStop, 0.8f);
         }
+
+        /// <summary>The set the one-shots come from: the cabin's while the
+        /// camera is (mostly) in the seat, else the exterior voice.</summary>
+        VoiceSet Speaking => inner != null && insideMix >= 0.5f ? inner : live;
+
+        /// <summary>
+        /// THE COCKPIT SET (phase 2, item 4). With the camera in this car's
+        /// seat the engine is the vendor's INTERIOR recordings of the family
+        /// (their own bundle, &lt;family&gt;_int, asked for the first time the
+        /// seat camera is on this car - which is when CockpitInterior shows -
+        /// and kept), under the interior prefab's curves and level, 2D, intake
+        /// at full as the vendor plays it inside. Out of the seat, the exterior
+        /// set. A view change crossfades the two over 0.25 s; past it, only one
+        /// set is running (the exterior one is parked inside, the cabin torn
+        /// down outside). Until the cabin set is here, the exterior voice keeps
+        /// playing in the seat.
+        /// </summary>
+        void UpdateInterior(float dt)
+        {
+            if (!useOffTakes || spatial) return;
+            string fam = live != null && !live.standIn ? live.family : (parkedFamily == wantFamily ? wantFamily : null);
+            bool wantInside = ear == Ear.Cockpit && fam != null && fam == wantFamily;
+            if (wantInside)
+            {
+                EngineVoiceLibrary.Request(fam, Set.Interior);
+                if (inner != null && inner.family != fam) Teardown(ref inner);
+                if (inner == null && EngineVoiceLibrary.State(fam, Set.Interior) == Avail.Ready)
+                {
+                    inner = Build(fam, Set.Interior, false);
+                    if (inner != null) inner.gain = inner.target = 1f;
+                }
+            }
+            float target = wantInside && inner != null ? 1f : 0f;
+            // Leaving the seat: hold the cabin until the exterior voice is back.
+            if (!wantInside && inner != null && live == null) target = 1f;
+            insideMix = Mathf.MoveTowards(insideMix, target, dt / ViewFadeSeconds);
+            if (insideMix <= 0f && inner != null && !wantInside) Teardown(ref inner);
+        }
+
+        /// <summary>0 = the exterior set, 1 = the cockpit set (tests).</summary>
+        public float InsideMix => insideMix;
+        /// <summary>The family of the cockpit set, or null (tests).</summary>
+        public string CabinFamily => inner != null ? inner.family : null;
 
         // ------------------------------------------------------------------
         //  The mix
@@ -539,9 +615,11 @@ namespace PSXRacing
             float dt = Time.deltaTime;
             if (dt <= 0f) return;
             UpdateVoice(dt);
-            TryStartup();
             UpdateSpatial(dt);
-            if (car == null || live == null) return;
+            UpdateInterior(dt);
+            TryStartup();
+            var main = live ?? inner;
+            if (car == null || main == null) return;
 
             UpdateAudibleRPM(dt);
             float lim = LimiterRPM;
@@ -553,11 +631,11 @@ namespace PSXRacing
             if (car.currentGear != lastGear) { lastGear = car.currentGear; shiftLiftTimer = ShiftLift; }
             shiftLiftTimer = Mathf.Max(0f, shiftLiftTimer - dt);
             float pedal = shiftLiftTimer > 0f ? 0f : Mathf.Clamp01(car.throttleInput);
-            float gasF = Mathf.Clamp(0.02f * live.rig.gasPedalSimSpeed, 0.001f, 1f);
+            float gasF = Mathf.Clamp(0.02f * main.rig.gasPedalSimSpeed, 0.001f, 1f);
             load = Mathf.Lerp(load, pedal, 1f - Mathf.Pow(1f - gasF, dt / 0.02f));
 
             // ---- v2.3 Engine Load: adsrVol from the last workload, then update
-            float sustain = live.rig.sustainAdsrVol;
+            float sustain = main.rig.sustainAdsrVol;
             float adsr = Mathf.Lerp(Mathf.Max(1f - cv, sustain), Mathf.Lerp(sustain, 1f, workload), load);
             UpdateWorkload(dt, lim);
 
@@ -575,16 +653,25 @@ namespace PSXRacing
 
             float master = adsr * masterVolume * voiceLevelMul * LevelGain * lopeLevel;
             float rate = voiceRateMul * lopeWobble;
-            Mix(live, cv, master, rate);
-            if (fading != null) Mix(fading, cv, master, rate);
-            UpdateCrackle(live, cv, master, shiftLiftTimer > 0f);
+            float outside = 1f - insideMix;
+            if (live != null && outside > 0f) Mix(live, cv, master * outside, rate);
+            if (fading != null && outside > 0f) Mix(fading, cv, master * outside, rate);
+            if (inner != null && insideMix > 0f) Mix(inner, cv, master * insideMix, rate);
+            else if (inner != null) Silence(inner);
+            if (live != null && outside <= 0f) Silence(live);
+            UpdateCrackle(main, cv, master, shiftLiftTimer > 0f);
+        }
+
+        static void Silence(VoiceSet s)
+        {
+            foreach (var src in s.all) Apply(src, 0f, 1f);
         }
 
         /// <summary>One voice set through the vendor's arithmetic, at its fade gain.</summary>
         void Mix(VoiceSet s, float cv, float master, float rate)
         {
             var rig = s.rig;
-            master *= s.gain;
+            master *= s.gain * rig.level;
             float pitchMul = rig.pitchMultiplier * rate;
 
             var onCurve = useOffTakes ? rig.onLoad : rig.mqOnLoad;
@@ -622,7 +709,7 @@ namespace PSXRacing
             // full in front of the car or inside it, nearly nothing from behind.
             if (s.intakeOn != null || s.intakeOff != null)
             {
-                float mix = IntakeMixing() * rig.intakeMaster * onL * master;
+                float mix = (s.set == Set.Interior ? 1f : IntakeMixing()) * rig.intakeMaster * onL * master;
                 float ip = Mathf.Clamp(rig.intakePitch.Evaluate(cv) * pitchMul, PitchMin, PitchMax);
                 Apply(s.intakeOn, rig.intakeOnVol.Evaluate(cv) * load * mix, ip);
                 Apply(s.intakeOff, rig.intakeOffVol.Evaluate(cv) * (1f - load) * mix, ip);
@@ -710,7 +797,7 @@ namespace PSXRacing
                 crackleSrc.loop = false;
                 ConfigureSpatial(crackleSrc);
             }
-            var pool = EngineVoiceLibrary.Crackles(false);
+            var pool = EngineVoiceLibrary.Crackles(insideMix >= 0.5f);
             if (pool.Length == 0) return;
 
             float now = Time.time;
@@ -772,7 +859,7 @@ namespace PSXRacing
                 float top = Mathf.Max(car.topSpeedMps * 3.6f, 1f);
                 float kmh = Mathf.Abs(car.speedKmh);
                 float rate = Mathf.Max(0f, (rpm - effortSample) / effortTimer) / Mathf.Max(rpm, 1f);
-                float adj = rate * Mathf.Lerp(1f, 2f, Mathf.InverseLerp(0f, top, kmh)) * live.rig.effortSensitivity;
+                float adj = rate * Mathf.Lerp(1f, 2f, Mathf.InverseLerp(0f, top, kmh)) * (live ?? inner).rig.effortSensitivity;
                 float target = Mathf.Max(Mathf.InverseLerp(0.03f, 0.35f, adj),
                                          Mathf.Max(Mathf.InverseLerp(top * 0.5f, top, kmh),
                                                    Mathf.InverseLerp(0.75f, 0.9f, rpm / lim)));

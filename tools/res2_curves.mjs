@@ -149,6 +149,32 @@ const r5 = (v) => (isFinite(v) ? Math.round(v * 1e4) / 1e4 : (v > 0 ? 1e9 : -1e9
 const BAKE_MQ = ['idleVolCurve', 'idlePitchCurve', 'lowVolCurve', 'lowPitchCurve', 'medVolCurve', 'medPitchCurve',
   'very_highVolCurve', 'very_highPitchCurve', 'onLoadVolumeByRPM', 'offLoadVolumeByRPM'];
 
+/** The vendor's HQ INTERIOR prefab of a family (High_Interior/<Prefab>_int*). */
+export function loadInteriorHQ(name) {
+  const dir = HQ + '/High_Interior';
+  const want = name.toLowerCase() === 'v8_formula' ? 'v8_formula1_int' : name.toLowerCase() + '_int';
+  const f = fs.readdirSync(dir).find((n) => n.endsWith('.prefab') && n.toLowerCase().startsWith(want));
+  return f ? parsePrefab(dir + '/' + f) : null;
+}
+
+/** The cockpit rig: the interior prefab's level, intake level and the curves
+ *  that differ from the exterior prefab's (most are identical; the idle curve
+ *  and intakeOffVolCurve usually are not). EngineVoiceLibrary overlays these
+ *  on the exterior rig. */
+function interiorBlock(p, ip) {
+  if (!ip) return undefined;
+  const s = ip.scalars;
+  const same = (a, b) => JSON.stringify((a || []).flat().map(r5)) === JSON.stringify((b || []).flat().map(r5));
+  return {
+    prefab: path.basename(ip.file, '.prefab'),
+    masterVolume: s.masterVolume ?? 1,
+    intakeMaster: (s.enableIntakeSFX ?? 0) ? (s.intakeMaster ?? 1) : 0,
+    aggressivnessMaster: (s.enableAggressivness ?? 0) ? (s.aggressivnessMaster ?? 1) : 0,
+    curves: BAKE_CURVES.filter((n) => !same(p.curves[n], ip.curves[n]))
+      .map((n) => ({ name: n, k: (ip.curves[n] || []).flat().map(r5) })),
+  };
+}
+
 export function bake(families = Object.keys(PREFAB_OF)) {
   const out = { note: 'Baked by tools/res2_curves.mjs from the vendor HQ + MQ prefabs (RES2 Pro v2.3.1). Do not hand-edit.', families: [] };
   for (const fam of families) {
@@ -172,6 +198,8 @@ export function bake(families = Object.keys(PREFAB_OF)) {
       sustainAdsrVol: s.sustainAdsrVol ?? 0.4,
       curves: BAKE_CURVES.map((n) => ({ name: n, k: (p.curves[n] || []).flat().map(r5) })),
       mq: BAKE_MQ.map((n) => ({ name: n, k: (mq.curves[n] || []).flat().map(r5) })),
+      // The cockpit (phase 2, item 4).
+      interior: interiorBlock(p, loadInteriorHQ(PREFAB_OF[fam])),
     });
   }
   return out;

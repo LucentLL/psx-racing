@@ -119,11 +119,24 @@ namespace PSXRacing
             /// curve), level, and divisor while the limiter take plays.</summary>
             public AnimationCurve aggVol;
             public float aggMaster, aggTweak = 2f;
+            /// <summary>The set's own level: 1 outside, the vendor's interior
+            /// prefab masterVolume (0.6) in the cockpit.</summary>
+            public float level = 1f;
+            /// <summary>The cockpit rig (see <see cref="InteriorRigFor"/>), or null.</summary>
+            public Rig interior;
         }
 
         [System.Serializable] class CurveJ { public string name; public float[] k; }
+        /// <summary>The interior prefab's differences from the exterior one.</summary>
+        [System.Serializable] class InteriorJ
+        {
+            public string prefab;
+            public float masterVolume = 1f, intakeMaster, aggressivnessMaster;
+            public CurveJ[] curves;
+        }
         [System.Serializable] class FamilyJ
         {
+            public InteriorJ interior;
             public string family;
             public float pitchMultiplier = 1f, revLimiterTweaker = 3f, gasPedalSimSpeed = 12f;
             public float intakeMaster, effortSensitivity = 1f, sustainAdsrVol = 0.4f;
@@ -190,8 +203,51 @@ namespace PSXRacing
                     aggMaster = f.aggressivnessMaster,
                     aggTweak = f.revLimiterAggressTweaker > 0f ? f.revLimiterAggressTweaker : 2f,
                 };
+                if (f.interior != null && !string.IsNullOrEmpty(f.interior.prefab))
+                    rigs[f.family].interior = Interior(rigs[f.family], f.interior);
             }
         }
+
+        /// <summary>
+        /// The cockpit rig: the vendor's HQ INTERIOR prefab of the family, which
+        /// is the exterior prefab with its own level (masterVolume 0.6), intake
+        /// level and a few curves of its own (usually the idle window and
+        /// intakeOffVolCurve) - baked as differences by tools/res2_curves.mjs.
+        /// Its intake is heard at full (the vendor's IntakeMixing is 1 inside).
+        /// </summary>
+        static Rig Interior(Rig ext, InteriorJ j)
+        {
+            AnimationCurve O(string n, AnimationCurve was)
+            {
+                if (j.curves != null) foreach (var c in j.curves) if (c.name == n) return Curve(c.k);
+                return was;
+            }
+            Take T(Take t) => new Take
+            {
+                name = t.name, onClip = t.onClip, offClip = t.offClip,
+                vol = O(t.name + "VolCurve", t.vol), pitch = O(t.name + "PitchCurve", t.pitch),
+            };
+            var r = new Rig
+            {
+                family = ext.family,
+                pitchMultiplier = ext.pitchMultiplier, revLimiterTweaker = ext.revLimiterTweaker,
+                gasPedalSimSpeed = ext.gasPedalSimSpeed, effortSensitivity = ext.effortSensitivity,
+                sustainAdsrVol = ext.sustainAdsrVol,
+                intakeMaster = j.intakeMaster, aggMaster = j.aggressivnessMaster, aggTweak = ext.aggTweak,
+                level = j.masterVolume > 0f ? j.masterVolume : 1f,
+                hq = System.Array.ConvertAll(ext.hq, T), mq = ext.mq,
+                onLoad = O("onLoadVolumeByRPM", ext.onLoad), offLoad = O("offLoadVolumeByRPM", ext.offLoad),
+                mqOnLoad = ext.mqOnLoad, mqOffLoad = ext.mqOffLoad,
+                maxRPMVol = O("maxRPMVolCurve", ext.maxRPMVol),
+                intakeOnVol = O("intakeOnVolCurve", ext.intakeOnVol), intakeOffVol = O("intakeOffVolCurve", ext.intakeOffVol),
+                intakePitch = O("aggressivnessPitchCurve", ext.intakePitch),
+                aggVol = O("aggressivnessVolCurve", ext.aggVol),
+            };
+            return r;
+        }
+
+        /// <summary>The cockpit rig of a family, or null when it has none.</summary>
+        public static Rig InteriorRigFor(string family) => RigFor(family)?.interior;
 
         /// <summary>Flat [time, value, inSlope, outSlope]* keys -> a Unity curve,
         /// so it is evaluated by the same Hermite code the vendor's prefab is.
