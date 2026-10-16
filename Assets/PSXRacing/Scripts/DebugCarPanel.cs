@@ -1143,6 +1143,44 @@ namespace PSXRacing
         // ---- CAR -----------------------------------------------------------
 
         /// <summary>
+        /// LAMP LENSES (owner, 2026-10-16: "I want to test out headlight/
+        /// taillight lenses"): A, the shell's opaque painted lamps, or B, its
+        /// lens variant - the optics recessed behind separate clear covers -
+        /// on the car being driven, at once (Commit -> FillCarRequestFor ->
+        /// ReapplyCar -> CarBody.SetLensCovers). Only on a shell that has a
+        /// variant (the R32 today) in a debug career; nothing at all on any
+        /// other car. Key L in the drive flips it without the bench.
+        /// </summary>
+        void BuildLens(LifeState s, OwnedCar car, ref float y)
+        {
+            if (!DebugCarOps.CanPickLens(s, car)) return;
+            bool b = DebugCarOps.LensB(s, car);
+            const float CellW = 150f, CellH = 50f;
+            float cellsW = CellW * 2f + Gap;
+            float textW = ColW - cellsW - 16f;
+            MenuKit.Label(content,
+                Clip("LAMP LENSES   ·   " + DebugCarOps.LensLabel(b), CapsFit(textW)) +
+                "\n" + DimTag + Clip("A opaque lamps · B recessed behind clear covers · key L flips",
+                                     LowerFit(textW)) + "</color>",
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                TextAnchor.UpperLeft, Color.white, textW, height: CellH, bold: true);
+            for (int i = 0; i < 2; i++)
+            {
+                bool want = i == 1; // A, then B
+                var btn = Named(MenuKit.Button(content, DebugCarOps.LensLabel(want), new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColR - cellsW + i * (CellW + Gap), CellW), y),
+                    new Vector2(CellW, CellH), () =>
+                    {
+                        DebugCarOps.SetLens(s, car, want);
+                        note = "lamp lenses " + DebugCarOps.LensLabel(want);
+                        Apply(s, car);
+                    }, 22), "lens_" + (want ? "B" : "A"));
+                if (want == b) MenuKit.MarkTab(btn, true);
+            }
+            y -= CellH + 20f;
+        }
+
+        /// <summary>
         /// Climb into a different car without leaving the road: one of the
         /// player's own, or anything in the catalog through the one LOANER
         /// slot (<see cref="DebugCarOps.Loan"/>). The catalog is an index of
@@ -1160,6 +1198,9 @@ namespace PSXRacing
                 MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 note != null || refusal != null ? MenuKit.Accent : MenuKit.Dim, ColW, height: 28f);
             y -= 36f;
+            // Not a car swap (the same shell, its lamps rebuilt), so offered
+            // even where a swap is refused.
+            BuildLens(s, driving, ref y);
             if (refusal != null) return;
 
             int cols = Cols;

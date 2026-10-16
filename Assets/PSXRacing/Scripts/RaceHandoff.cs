@@ -32,6 +32,11 @@
         /// (LifeSim.DebugCarOps.SidePick, written by FillCarRequestFor; put on
         /// the live car by RaceHandoffApplier through DriveSide.Pick).</summary>
         public static string DriveSidePick;
+        /// <summary>The debug bench's LAMP LENSES pick for the player's car:
+        /// true = B, the shell's lens variant (LifeSim.DebugCarOps.LensB,
+        /// written by FillCarRequestFor; put on the live car by
+        /// RaceHandoffApplier through CarBody.SetLensCovers).</summary>
+        public static bool LampLensB;
         /// <summary>Purse for winning, from the LifeSim's race offer.</summary>
         public static int PurseWin;
         public static int PurseSecond;
@@ -426,6 +431,7 @@
             CarSpecId = null;
             CarPaintSkin = null;
             DriveSidePick = null;
+            LampLensB = false;
             PurseWin = PurseSecond = PurseThird = 0;
             TimeOfDayIndex = TimeOfDay.Sunset; TrackIndex = 0; IsPractice = false;
             WeatherOverride = -1;

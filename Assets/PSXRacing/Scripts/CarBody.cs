@@ -98,6 +98,95 @@ namespace PSXRacing
         public CarModelDef Def =>
             cachedDef != null ? cachedDef : cachedDef = CarModelLibrary.Load(modelKey);
 
+        // ------------------------------------------------------------------
+        //  LAMP LENSES A / B (owner, 2026-10-16: "I want to test out
+        //  headlight/taillight lenses"). A = the shell's body, its lamps
+        //  painted on opaque; B = its lens variant (CarModelDef.lensBodyMesh:
+        //  the optics recessed behind separate clear covers). B swaps the
+        //  body's MESH only - same livery, same frame, same wheels, collider
+        //  and lamps - and shows the two covers as children of the body's
+        //  filter, so it is safe on a moving car (the debug bench flips it
+        //  mid-drive). A shell without a variant always shows A.
+        // ------------------------------------------------------------------
+        /// <summary>True when the debug bench picked B for this car.</summary>
+        [System.NonSerialized] public bool lensCovers;
+        readonly MeshRenderer[] lensRenderers = new MeshRenderer[2];
+
+        /// <summary>The cover renderers (0 head, 1 tail) while B is shown,
+        /// else null - CarLights lights them with the body.</summary>
+        public MeshRenderer LensRenderer(int i) =>
+            LensCoversShown && i >= 0 && i < 2 ? lensRenderers[i] : null;
+
+        /// <summary>B is on the car right now.</summary>
+        public bool LensCoversShown
+        {
+            get
+            {
+                var def = cachedDef;
+                return def != null && def.HasLensVariant && bodyFilter != null &&
+                       bodyFilter.sharedMesh == def.lensBodyMesh;
+            }
+        }
+
+        /// <summary>Show B (true) or A on this car, now.</summary>
+        public void SetLensCovers(bool on)
+        {
+            lensCovers = on;
+            var def = Def;
+            if (def == null) return;
+            if (bodyFilter != null && !on && bodyFilter.sharedMesh == def.lensBodyMesh)
+                bodyFilter.sharedMesh = def.bodyMesh;
+            DressLenses(def);
+        }
+
+        /// <summary>
+        /// Put B on (or A back). The two cover objects are made the first time
+        /// a shell WITH a variant is applied in play, picked or not, and then
+        /// only switched: the cockpit (CockpitInterior.CollectShell) and the
+        /// car's own reflection (CarReflections) gather the car's renderers
+        /// once, and a cover made after that would float in the cockpit view
+        /// and show in the car's own reflection. Never made at bake time
+        /// (nothing picks B in a saved scene).
+        /// </summary>
+        void DressLenses(CarModelDef def)
+        {
+            bool has = def != null && def.HasLensVariant && bodyFilter != null;
+            bool on = has && lensCovers;
+            if (!has || (!on && lensRenderers[0] == null && !Application.isPlaying))
+            {
+                for (int i = 0; i < 2; i++) if (lensRenderers[i] != null) lensRenderers[i].enabled = false;
+                return;
+            }
+            if (on) bodyFilter.sharedMesh = def.lensBodyMesh;
+            for (int i = 0; i < 2; i++)
+            {
+                var r = lensRenderers[i];
+                if (r == null)
+                {
+                    var go = new GameObject(i == 0 ? "LensCoverHead" : "LensCoverTail");
+                    go.layer = bodyFilter.gameObject.layer;
+                    go.transform.SetParent(bodyFilter.transform, false);
+                    go.AddComponent<MeshFilter>();
+                    r = go.AddComponent<MeshRenderer>();
+                    // A clear cover throws no shadow (and PSX/CarLens is not a
+                    // caster SunShadows knows anyway), and takes none on itself.
+                    r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    r.receiveShadows = false;
+                    r.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+                    r.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+                    lensRenderers[i] = r;
+                }
+                // The body's rendering layers (SpeedBlur's car mask) and layer.
+                if (bodyRenderer != null) r.renderingLayerMask = bodyRenderer.renderingLayerMask;
+                r.gameObject.layer = bodyFilter.gameObject.layer;
+                r.GetComponent<MeshFilter>().sharedMesh = i == 0 ? def.lensHeadMesh : def.lensTailMesh;
+                var m = i == 0 ? def.lensHeadMaterial : def.lensTailMaterial;
+                PSXTexDecode.Stamp(m);
+                r.sharedMaterial = m;
+                r.enabled = on;
+            }
+        }
+
         /// <summary>
         /// Fit the chassis to the shell as well as re-skinning it. On by
         /// default: a 1969 Charger is 60 cm longer in the wheelbase than the FD
@@ -151,6 +240,9 @@ namespace PSXRacing
             if (bodyFilter != null) bodyFilter.sharedMesh = def.bodyMesh;
             PSXTexDecode.Stamp(mat);   // a livery's 16-bit sheet is decoded in the shader
             if (bodyRenderer != null && mat != null) bodyRenderer.sharedMaterial = mat;
+            // The lens variant (B), when picked and when this shell has one;
+            // A otherwise, covers put away.
+            DressLenses(def);
             if (bodyRoot != null)
             {
                 bodyRoot.localRotation = Quaternion.Euler(0f, def.bodyYaw, 0f);

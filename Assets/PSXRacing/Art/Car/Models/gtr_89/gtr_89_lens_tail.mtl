@@ -1,0 +1,6 @@
+# PSX Racing car model
+newmtl gtr_89_lens_tail
+Ka 1 1 1
+Kd 1 1 1
+illum 1
+map_Kd textures/gtr_89_512x256.png

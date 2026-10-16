@@ -143,6 +143,39 @@ namespace PSXRacing.LifeSim
             return true;
         }
 
+        // ------------------------------------------------------------------
+        //  Lamp lenses A / B (owner, 2026-10-16: "I want to test out
+        //  headlight/taillight lenses")
+        // ------------------------------------------------------------------
+
+        /// <summary>Whether the bench offers LAMP LENSES on this car: a debug
+        /// career, and a car whose shell carries a lens variant
+        /// (CarModelDef.HasLensVariant - the R32's, today).</summary>
+        public static bool CanPickLens(LifeState s, OwnedCar car)
+        {
+            if (s == null || !s.debugMode || car == null) return false;
+            var spec = CarCatalog.Get(car.specId);
+            var def = spec != null ? CarModelLibrary.LoadFor(spec) : null;
+            return def != null && def.HasLensVariant;
+        }
+
+        /// <summary>B (the clear covers) for this car; A everywhere the choice
+        /// is not offered, so a pick left on a car is inert outside debug.</summary>
+        public static bool LensB(LifeState s, OwnedCar car) =>
+            CanPickLens(s, car) && car.debugLampLens == "B";
+
+        /// <summary>The bench's word for it.</summary>
+        public static string LensLabel(bool b) => b ? "B COVERS" : "A OPAQUE";
+
+        /// <summary>Put A or B on this car. False, and nothing stored, where
+        /// <see cref="CanPickLens"/> is false.</summary>
+        public static bool SetLens(LifeState s, OwnedCar car, bool b)
+        {
+            if (!CanPickLens(s, car)) return false;
+            car.debugLampLens = b ? "B" : "A";
+            return true;
+        }
+
         static string OriginOf(CarSpec spec) =>
             spec != null && !string.IsNullOrEmpty(spec.origin) ? spec.origin : "jpn";
 

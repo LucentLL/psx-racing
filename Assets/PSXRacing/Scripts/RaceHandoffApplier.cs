@@ -89,6 +89,7 @@ namespace PSXRacing
                     SpecPlayerCar(spec);
                 }
                 else ApplyPaint(playerCar, RaceHandoff.CarPaintSkin);
+                ApplyLens(playerCar);
 
                 // The tank arrives with whatever is in it. A car sent out on a
                 // third of a tank is a car whose driver has to plan a stop at
@@ -271,6 +272,41 @@ namespace PSXRacing
             if (spec != null) SpecPlayerCar(spec);
             ApplyCarCondition(firstRun: false);
             ApplyHudFlags();
+            // The one shell change the bench makes here: LAMP LENSES A/B. B is
+            // the same body to the millimetre outside its lamps (same frame,
+            // wheels, collider and livery), so unlike SwapCar it is safe under
+            // a moving car.
+            ApplyLens(playerCar);
+        }
+
+        /// <summary>The debug bench's lamp-lens pick onto the player's shell
+        /// (A unless picked; a shell without a variant always shows A).</summary>
+        static void ApplyLens(CarController car)
+        {
+            var shell = car != null ? car.GetComponent<CarBody>() : null;
+            if (shell != null) shell.SetLensCovers(RaceHandoff.LampLensB);
+        }
+
+        /// <summary>
+        /// DEV KEY (debug career only): L flips the car being driven between
+        /// lamp lenses A and B - the bench's LAMP LENSES pick without opening
+        /// the bench, for flipping back and forth at night. Stored on the car
+        /// and saved like the bench's own press. Inert everywhere the bench
+        /// would not offer the choice.
+        /// </summary>
+        void Update()
+        {
+            if (!RaceHandoff.FromLifeSim || playerCar == null) return;
+            var kb = UnityEngine.InputSystem.Keyboard.current;
+            if (kb == null || !kb.lKey.wasPressedThisFrame) return;
+            var s = LifeSim.LifeSimManager.State;
+            if (s == null || !s.debugMode) return;
+            var car = LifeSim.DebugCarOps.TargetCar(s);
+            if (!LifeSim.DebugCarOps.CanPickLens(s, car)) return;
+            LifeSim.DebugCarOps.SetLens(s, car, !LifeSim.DebugCarOps.LensB(s, car));
+            LifeSim.DebugCarOps.Commit(s, car);
+            LifeSim.LifeSimManager.Save();
+            Debug.Log("[LampLenses] " + LifeSim.DebugCarOps.LensLabel(LifeSim.DebugCarOps.LensB(s, car)));
         }
 
         /// <summary>
@@ -305,6 +341,7 @@ namespace PSXRacing
             float reachBefore = ShellReach(playerCar);
 
             ApplyShell(playerCar, spec, RaceHandoff.CarPaintSkin);
+            ApplyLens(playerCar);
             SpecPlayerCar(spec);
 
             var tank = playerCar.GetComponent<FuelTank>();

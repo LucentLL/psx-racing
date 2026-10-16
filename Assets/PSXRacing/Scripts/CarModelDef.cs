@@ -174,6 +174,29 @@ namespace PSXRacing
         /// <summary>The body to show with the running lights on or off.</summary>
         public Mesh BodyMeshFor(bool lightsOn) => lightsOn && lampsUpMesh != null ? lampsUpMesh : bodyMesh;
 
+        /// <summary>
+        /// THE LENS VARIANT ("B", the owner's R32 lens test v04, 2026-10-16):
+        /// the same body with its lamp optics RECESSED (headlamp backings 22 mm
+        /// deep, rear 12 mm, dark cavity walls) behind separate CLEAR COVERS,
+        /// against the opaque painted lamps of <see cref="bodyMesh"/> ("A").
+        /// All three meshes are in the body's own frame and scale, on the same
+        /// atlas UVs, so they wear the same yaw, offsets and livery and the two
+        /// bodies coincide everywhere but the lamps; collider, cowl, lamps and
+        /// the chase silhouette stay measured off A. Null for a shell without
+        /// one. CarBody puts <see cref="lensBodyMesh"/> on the body's filter
+        /// and the covers on two children of it (PSX/CarLens, no shadow) when
+        /// the debug bench picks B (CarBody.SetLensCovers).
+        /// </summary>
+        public Mesh lensBodyMesh;
+        public Mesh lensHeadMesh;
+        public Mesh lensTailMesh;
+        /// <summary>The covers' materials (PSX/CarLens), front and rear: his
+        /// opacity / tint / smoothness per cover, the body atlas as the tint.</summary>
+        public Material lensHeadMaterial;
+        public Material lensTailMaterial;
+        public bool HasLensVariant => lensBodyMesh != null && lensHeadMesh != null && lensTailMesh != null &&
+                                      lensHeadMaterial != null && lensTailMaterial != null;
+
         public Vector3 colliderCenter = new Vector3(0f, 0.72f, 0.05f);
         public Vector3 colliderSize = new Vector3(1.72f, 1.0f, 4.1f);
         /// <summary>Width/length of the blob shadow quad.</summary>

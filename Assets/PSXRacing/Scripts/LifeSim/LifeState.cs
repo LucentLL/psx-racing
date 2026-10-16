@@ -407,6 +407,15 @@ namespace PSXRacing.LifeSim
         /// and rides in the one save the bench already writes on close. An ADDED
         /// field: every save reads back empty, no migration.</summary>
         public string debugDriveSide = "";
+        /// <summary>The debug bench's LAMP LENSES pick for THIS car (owner,
+        /// 2026-10-16: "I want to test out headlight/taillight lenses"): "B"
+        /// = the shell's lens variant (recessed optics behind clear covers),
+        /// anything else = A, the opaque lamps every player sees. Read only in
+        /// a debug career and only on a shell that has a variant
+        /// (<see cref="DebugCarOps.LensB"/>). Beside
+        /// <see cref="debugDriveSide"/> for the same reasons; an ADDED field,
+        /// no migration.</summary>
+        public string debugLampLens = "";
 
         public List<CarFault> faults = new List<CarFault>();
 
