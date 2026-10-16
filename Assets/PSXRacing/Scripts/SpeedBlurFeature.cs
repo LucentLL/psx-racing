@@ -183,6 +183,8 @@ namespace PSXRacing
             material.SetFloat(MaskCullId, (float)CullMode.Off);
             pass.material = material;
             pass.motion = false;
+            // ...and of the player's car alone, as it always was.
+            pass.maskLayers = SpeedBlur.CarRenderingLayer;
             pass.ConfigureInput(ScriptableRenderPassInput.None);
             renderer.EnqueuePass(pass);
         }
@@ -235,10 +237,14 @@ namespace PSXRacing
             material.SetVector(MotionProjId, new Vector4(p.m00, p.m11, p.m02, p.m12));
             material.SetVector(MotionParamsId, new Vector4(
                 shutter * perFrame, MotionBlurFx.MaxSmear, width / (float)height, width));
-            material.SetVector(MotionMiscId, new Vector4(taps, MotionBlurFx.DebugVelocity ? 1f : 0f, 0f, 0f));
+            material.SetVector(MotionMiscId, new Vector4(taps, MotionBlurFx.DebugVelocity ? 1f : 0f,
+                                                         MotionBlurFx.TapSpacingPx, MotionBlurFx.MinTaps));
             material.SetFloat(MaskCullId, (float)CullMode.Back);
             pass.material = material;
             pass.motion = true;
+            // EVERY car is masked in this mode (2026-10-16): a camera blur
+            // smeared a rival driving alongside as if it were the verge.
+            pass.maskLayers = SpeedBlur.MotionMaskLayers;
             // No ConfigureInput(Depth): the pass reads the depth attachment
             // itself (see RecordRenderGraph) — no copy, no prepass, no asset
             // flag, on either renderer.
@@ -266,6 +272,7 @@ namespace PSXRacing
             lensMaterial.SetVector(LensParamsId, new Vector4(LensFx.Rain, LensFx.Dirt, LensFx.Flow, LensFx.Time));
             lensMaterial.SetVector(LensAspectId, new Vector4(aspect, 1f / aspect, 0f, 0f));
             lensPass.material = lensMaterial;
+            lensPass.dirt = LensFx.Dirt > LensFx.MinDrawn;
             renderer.EnqueuePass(lensPass);
         }
 
@@ -286,6 +293,9 @@ namespace PSXRacing
             /// <summary>SPEED BLUR: MOTION this frame (the smear reads the
             /// depth), else the zoom.</summary>
             public bool motion;
+            /// <summary>The rendering layers drawn into the mask: the
+            /// player's car for the zoom, every car for MOTION.</summary>
+            public uint maskLayers = SpeedBlur.CarRenderingLayer;
 
             // The PSX shaders carry no LightMode tag, which URP draws as
             // SRPDefaultUnlit; the rest are here so a car dressed in a stock
@@ -351,7 +361,7 @@ namespace PSXRacing
                                                                     SortingCriteria.CommonOpaque);
                     draw.overrideMaterial = material;
                     draw.overrideMaterialPassIndex = CarMaskPass;
-                    var filter = new FilteringSettings(RenderQueueRange.opaque, -1, SpeedBlur.CarRenderingLayer);
+                    var filter = new FilteringSettings(RenderQueueRange.opaque, -1, maskLayers);
                     data.car = renderGraph.CreateRendererList(new RendererListParams(renderingData.cullResults, draw, filter));
                     builder.UseRendererList(data.car);
                     // ReadWrite: the pass writes ONE channel, and the three the
@@ -424,19 +434,33 @@ namespace PSXRacing
         class LensPass : ScriptableRenderPass
         {
             public Material material;
+            /// <summary>Dirt on the glass this frame: build what is bright
+            /// near each pixel first (passes 2 and 3).</summary>
+            public bool dirt;
 
             static readonly int BlitTextureId = Shader.PropertyToID("_BlitTexture");
             static readonly int BlitScaleBiasId = Shader.PropertyToID("_BlitScaleBias");
+            static readonly int DirtSrcId = Shader.PropertyToID("_PSXLensDirtSrc");
+            static readonly int DirtBlurId = Shader.PropertyToID("_PSXLensDirtBlur");
+            static readonly int BrightId = Shader.PropertyToID("_PSXLensBright");
             static readonly MaterialPropertyBlock Block = new MaterialPropertyBlock();
 
             // PSX/Lens's passes.
-            const int LensShaderPass = 0, CopyShaderPass = 1;
+            const int LensShaderPass = 0, CopyShaderPass = 1, DirtPrefilterPass = 2, DirtBlurPass = 3;
+
+            /// <summary>The old dirt ring's radius, picture heights (PSX/Lens
+            /// DIRT_RING), and its share of the weight (twelve taps of
+            /// thirteen; the last was the pixel itself): the Gaussian that
+            /// replaced it (2026-10-16) is as wide, RMS.</summary>
+            const float DirtRing = 0.055f, DirtRingShare = 12f / 13f;
 
             class FullFrameData
             {
                 public TextureHandle source;
+                public TextureHandle bright;
                 public Material material;
                 public int pass;
+                public Vector4 src, blur;
             }
 
             public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
@@ -454,26 +478,78 @@ namespace PSXRacing
 
                 // 1 — copy out, as it is.
                 FullFrame(renderGraph, "PSX Lens (copy)", colour, copy, CopyShaderPass, AccessFlags.Write);
+
+                // With dirt on the glass: what is bright near each pixel, as
+                // a real blur at ~60 lines (it used to be a 12-tap ring per
+                // pixel, which printed copies of a small bright lamp in every
+                // grime disc round it). The excess block-averaged to ~120
+                // lines, then a Gaussian across (halving it) and down. Its
+                // width is what is left of the old ring's after the block
+                // average and the bilinear reads have spread it (variances add).
+                TextureHandle bright = TextureHandle.nullHandle;
+                if (dirt)
+                {
+                    int w = Mathf.Max(desc.width, 1), h = Mathf.Max(desc.height, 1);
+                    int f = Halation.Factor(h);
+                    int aw = (w + f - 1) / f, ah = (h + f - 1) / f;
+                    int bw = Mathf.Max(1, (aw + 1) / 2), bh = Mathf.Max(1, (ah + 1) / 2);
+                    float sigma = DirtRing * Mathf.Sqrt(DirtRingShare) * h / Mathf.Sqrt(2f);
+                    float taps = Mathf.Sqrt(Mathf.Max(sigma * sigma - f * f, 0.25f * f * f)) / (2f * f);
+                    var e = renderGraph.CreateTexture(SmallDesc(aw, ah, "_PSXLensDirtE"));
+                    var across = renderGraph.CreateTexture(SmallDesc(bw, bh, "_PSXLensDirtT"));
+                    bright = renderGraph.CreateTexture(SmallDesc(bw, bh, "_PSXLensBright"));
+                    var src = new Vector4(1f / w, 1f / h, w, h);
+                    FullFrame(renderGraph, "PSX Lens (dirt prefilter)", copy, e, DirtPrefilterPass, AccessFlags.Write,
+                              src, new Vector4(0f, 0f, 0f, f), TextureHandle.nullHandle);
+                    FullFrame(renderGraph, "PSX Lens (dirt blur across)", e, across, DirtBlurPass, AccessFlags.Write,
+                              src, new Vector4(1f / bw, 0f, taps, f), TextureHandle.nullHandle);
+                    FullFrame(renderGraph, "PSX Lens (dirt blur down)", across, bright, DirtBlurPass, AccessFlags.Write,
+                              src, new Vector4(0f, 1f / bh, taps, f), TextureHandle.nullHandle);
+                }
+
                 // 2 — back in through the lens. ReadWrite: the shader writes
                 // RGB and leaves the camera's alpha as it found it.
-                FullFrame(renderGraph, "PSX Lens", copy, colour, LensShaderPass, AccessFlags.ReadWrite);
+                FullFrame(renderGraph, "PSX Lens", copy, colour, LensShaderPass, AccessFlags.ReadWrite,
+                          Vector4.zero, Vector4.zero, bright);
             }
+
+            static TextureDesc SmallDesc(int w, int h, string name) => new TextureDesc(w, h)
+            {
+                name = name,
+                format = GraphicsFormat.R8G8B8A8_UNorm,
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp,
+                clearBuffer = false,
+            };
 
             void FullFrame(RenderGraph renderGraph, string name, TextureHandle source, TextureHandle destination,
                            int shaderPass, AccessFlags destinationAccess)
+                => FullFrame(renderGraph, name, source, destination, shaderPass, destinationAccess,
+                             Vector4.zero, Vector4.zero, TextureHandle.nullHandle);
+
+            void FullFrame(RenderGraph renderGraph, string name, TextureHandle source, TextureHandle destination,
+                           int shaderPass, AccessFlags destinationAccess, Vector4 src, Vector4 blur,
+                           TextureHandle bright)
             {
                 using (var builder = renderGraph.AddRasterRenderPass<FullFrameData>(name, out var data))
                 {
                     data.source = source;
+                    data.bright = bright;
                     data.material = material;
                     data.pass = shaderPass;
+                    data.src = src;
+                    data.blur = blur;
                     builder.UseTexture(source);
+                    if (bright.IsValid()) builder.UseTexture(bright);
                     builder.SetRenderAttachment(destination, 0, destinationAccess);
                     builder.SetRenderFunc(static (FullFrameData d, RasterGraphContext ctx) =>
                     {
                         Block.Clear();
                         Block.SetTexture(BlitTextureId, d.source);
                         Block.SetVector(BlitScaleBiasId, new Vector4(1f, 1f, 0f, 0f));
+                        Block.SetVector(DirtSrcId, d.src);
+                        Block.SetVector(DirtBlurId, d.blur);
+                        if (d.bright.IsValid()) Block.SetTexture(BrightId, d.bright);
                         ctx.cmd.DrawProcedural(Matrix4x4.identity, d.material, d.pass,
                                                MeshTopology.Triangles, 3, 1, Block);
                     });

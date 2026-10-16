@@ -48,7 +48,8 @@
 // its own centre), so a dry day with LENS FX on is the picture it always was.
 //
 // Two passes, the blur's shape: 1 copies the frame out, 0 draws it back
-// through the lens. Both read _BlitTexture with the Blit.hlsl full-screen
+// through the lens. With dirt on the glass, 2 and 3 first blur what is bright
+// near each pixel into a small texture (2026-10-16; see LensBright). Both read _BlitTexture with the Blit.hlsl full-screen
 // triangle (SpeedBlurFeature sets it through a property block).
 Shader "PSX/Lens"
 {
@@ -134,7 +135,7 @@ Shader "PSX/Lens"
             // pixel itself, the excess over the knee averaged - lit through a
             // mask of soft grime discs. A disc near a lamp glows the lamp's
             // colour; a disc near nothing is invisible.
-            #define DIRT_RING         0.055   // ring radius, picture heights
+            #define DIRT_RING         0.055   // the old ring radius, picture heights: the blur is as wide (SpeedBlurFeature.LensPass.DirtRing)
             #define DIRT_TAPS         12
             #ifndef UNITY_COLORSPACE_GAMMA
             #define DIRT_KNEE         0.57    // linear (PSX/Blit's GLOW_KNEE_LINEAR)
@@ -316,25 +317,21 @@ Shader "PSX/Lens"
                      + LensDirtLayer(p + float2(0.37, 0.61), DIRT_CELL_B, float2(59.0, 211.0));
             }
 
-            // What is bright near this pixel: the excess over the knee, on a
-            // ring of DIRT_TAPS round it plus the pixel itself, averaged. The
-            // ring is turned per pixel by the same 4x4 Bayer cell PSX/Blit
-            // dithers and haloes with, so twelve taps read as a soft disc
-            // through the dither instead of as twelve ghosts of every lamp.
-            float3 LensBright(float2 uv, float2 pixel, float invAspect)
+            // What is bright near this pixel. It used to be the excess over the
+            // knee on a ring of DIRT_TAPS round the pixel (DIRT_RING picture
+            // heights out, turned per pixel by the Bayer cell) plus the pixel
+            // itself, averaged - and round a small, very bright lamp close to
+            // the lens (the R32's braking discs, 2026-10-16) that sparse ring
+            // printed twelve COPIES of the lamp in every grime disc near it:
+            // the "ghost copies" round the owner's brake lights. Now it is a
+            // real blur of the same excess (passes 2 and 3, built by
+            // SpeedBlurFeature's LensPass at ~60 lines into _PSXLensBright): a
+            // Gaussian as wide (RMS) as the old ring, so a disc glows by how
+            // near the lamp is, smoothly, and as much as it did.
+            TEXTURE2D(_PSXLensBright);
+            float3 LensBright(float2 uv)
             {
-                float2 px = floor(pixel);
-                int idx = (int)fmod(px.x, 4.0) + 4 * (int)fmod(px.y, 4.0);
-                float a = (bayer[idx] + 0.5) * (LENS_TAU / (16.0 * DIRT_TAPS));
-                float2 dir = float2(cos(a), sin(a));
-                float cs = cos(LENS_TAU / DIRT_TAPS), sn = sin(LENS_TAU / DIRT_TAPS);
-                float3 sum = LensGlare(uv);
-                for (int k = 0; k < DIRT_TAPS; k++)
-                {
-                    sum += LensGlare(uv + float2(dir.x * DIRT_RING * invAspect, dir.y * DIRT_RING));
-                    dir = float2(dir.x * cs - dir.y * sn, dir.x * sn + dir.y * cs);
-                }
-                return sum / (DIRT_TAPS + 1.0);
+                return SAMPLE_TEXTURE2D_LOD(_PSXLensBright, sampler_LinearClamp, uv, 0).rgb;
             }
 
             half4 Frag (Varyings input) : SV_Target
@@ -374,12 +371,12 @@ Shader "PSX/Lens"
                 // The dirt goes on AFTER the drops, over them: it is glare on
                 // the glass, and a drop does not wash the glass under it clean.
                 // The mask first - it is cheap, and where it is zero (most of
-                // the frame) the thirteen taps are never read.
+                // the frame) the blurred brightness is never read.
                 if (dirt > LENS_MIN)
                 {
                     float mask = LensDirtMask(p);
                     if (mask > 0.001)
-                        col += LensBright(uv, input.positionCS.xy, invAspect) * (mask * DIRT_GAIN * dirt);
+                        col += LensBright(uv) * (mask * DIRT_GAIN * dirt);
                 }
 
                 return half4(col, 1.0);
@@ -406,6 +403,100 @@ Shader "PSX/Lens"
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
                 return SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_PointClamp, input.texcoord, 0);
+            }
+            ENDHLSL
+        }
+
+        // 2 - the dirt's brightness, PREFILTERED (2026-10-16): the excess over
+        // the knee, by how much of it is a light source, taken per frame
+        // pixel exactly as the old ring's taps took it and averaged over each
+        // f x f block (about 120 lines).
+        Pass
+        {
+            Name "DirtPrefilter"
+            ZWrite Off ZTest Always Cull Off Blend Off
+
+            HLSLPROGRAM
+            #pragma vertex Vert
+            #pragma fragment PreFrag
+            #pragma target 3.0
+
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/Blit.hlsl"
+
+            // pass 0's DIRT_KNEE and DIRT_SRC_MIN (keep them together)
+            #ifndef UNITY_COLORSPACE_GAMMA
+            #define PRE_KNEE          0.57
+            #else
+            #define PRE_KNEE          0.78
+            #endif
+            #define PRE_SRC_MIN       0.25
+
+            // the frame: 1/width, 1/height, width, height
+            float4 _PSXLensDirtSrc;
+            // w: frame pixels per prefiltered pixel, 1..4
+            float4 _PSXLensDirtBlur;
+            float _PSXEmitKey;
+
+            half4 PreFrag (Varyings input) : SV_Target
+            {
+                UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
+                float f = clamp(floor(_PSXLensDirtBlur.w + 0.5), 1.0, 4.0);
+                float2 base = floor(input.texcoord * _PSXLensDirtSrc.zw - 0.5 * f + 0.5);
+                float key = saturate(_PSXEmitKey);
+                float3 sum = 0;
+                for (int y = 0; y < 4; y++)
+                {
+                    for (int x = 0; x < 4; x++)
+                    {
+                        if (x < f && y < f)
+                        {
+                            float4 t = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_PointClamp,
+                                                              (base + float2(x, y) + 0.5) * _PSXLensDirtSrc.xy, 0);
+                            float src = saturate((t.a - PRE_SRC_MIN) * (1.0 / (1.0 - PRE_SRC_MIN)));
+                            sum += max(t.rgb - PRE_KNEE, 0.0) * lerp(1.0, src, key);
+                        }
+                    }
+                }
+                return half4(sum / (f * f), 1);
+            }
+            ENDHLSL
+        }
+
+        // 3 - the dirt's brightness, BLURRED along one axis: thirteen taps of
+        // a Gaussian (bilinear, so reading the 120-line level two texels a
+        // step also halves it).
+        Pass
+        {
+            Name "DirtBlur"
+            ZWrite Off ZTest Always Cull Off Blend Off
+
+            HLSLPROGRAM
+            #pragma vertex Vert
+            #pragma fragment BlurFrag
+            #pragma target 3.0
+
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/Blit.hlsl"
+
+            // xy: one tap's step in uv; z: sigma in taps
+            float4 _PSXLensDirtBlur;
+
+            half4 BlurFrag (Varyings input) : SV_Target
+            {
+                UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
+                float sigma = max(_PSXLensDirtBlur.z, 0.05);
+                float k2 = -0.5 / (sigma * sigma);
+                float3 sum = 0;
+                float wsum = 0;
+                for (int k = -6; k <= 6; k++)
+                {
+                    float w = exp(k * k * k2);
+                    sum += SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp,
+                                                  input.texcoord + k * _PSXLensDirtBlur.xy, 0).rgb * w;
+                    wsum += w;
+                }
+                return half4(sum / wsum, 1);
             }
             ENDHLSL
         }

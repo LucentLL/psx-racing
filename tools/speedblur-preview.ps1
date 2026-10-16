@@ -7,8 +7,9 @@
 # Then SPEED BLUR: MOTION (2026-10-13): the car and the HUD untouched, the sky
 # sharp on a straight while the near roadside smears, a turn smearing the sides
 # sideways, a camera cut drawn sharp, and the zoom unchanged after it - and the
-# owner's four pictures (Blue Ridge at 110 km/h, chase and cockpit, ZOOM and
-# MOTION), copied to tools\shots\motionblur\.
+# owner's four pictures (Blue Ridge at 100 mph, chase and cockpit, ZOOM and
+# MOTION, a rival alongside), copied to tools\shots\motionblur\, and the smear
+# table: MOTION's near-roadside / far / rival-car smear at 40-140 mph (2026-10-16).
 #
 #   powershell -ExecutionPolicy Bypass -File tools\speedblur-preview.ps1
 #   ... -Baseline <dir>   compare every ZOOM picture byte for byte with the

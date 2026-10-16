@@ -129,6 +129,9 @@ namespace PSXRacing.OnFoot
             }
 
             roofPoint = new Vector3(0f, Mathf.Max(def.roofY + fit.dy, 1.1f) * 0.82f, 0f);
+            // A car, for SPEED BLUR: MOTION's mask: the lens moving never
+            // smears one (traffic, the town's cars, the lots).
+            SpeedBlur.MarkOtherCar(shell);
             return shell;
         }
 
