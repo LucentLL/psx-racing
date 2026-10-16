@@ -2602,6 +2602,7 @@ namespace PSXRacing.EditorTools
             TestTreesStopCars();
             TestForestIsThickAndHasBrush();
             TestPaintAndFilmGrade();
+            TestLampControlMaps();
             TestOneToneCurve();
             TestReversedStageDistance();
             TestDeliverySprint();
@@ -5327,6 +5328,16 @@ namespace PSXRacing.EditorTools
         /// the grade ships ON, comes OFF, and leaves a scene opened in the
         /// editor ungraded.
         /// </summary>
+        /// <summary>The owner's authored tail lamps (2026-10-15): every lamp
+        /// control map is named, imported and painted to his convention, lights
+        /// only its model's tail lamps, and a car without one is untouched
+        /// (CarLampMapCheck).</summary>
+        static void TestLampControlMaps()
+        {
+            Line("lamp control maps:");
+            CarLampMapCheck.Run(Check);
+        }
+
         static void TestPaintAndFilmGrade()
         {
             Line("paint and film grade:");

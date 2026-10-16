@@ -27,6 +27,11 @@ namespace PSXRacing
     ///     the bonnet of the car following it. One per car, not two: the two
     ///     lenses are half a metre apart and their pools are one pool three
     ///     metres out, and the table has only four slots for tail lamps.
+    ///   * THE LIT TAIL LAMPS, AUTHORED (2026-10-15, the owner's method): a
+    ///     model with a lamp control map (Resources/CarLights/
+    ///     &lt;modelKey&gt;_lightmask_rg.png, R running / G brake) has its lamp
+    ///     texels lit in PSX/CarPaint through a property block, and no tail
+    ///     sprites. See the LAMP CONTROL MAP block below.
     ///
     /// THE LAMPS ARE MEASURED OFF THE SHELL, NOT THE COLLIDER. They used to
     /// hang three centimetres outside the car's BoxCollider â€” and the baker
@@ -267,6 +272,108 @@ namespace PSXRacing
         [System.NonSerialized] int tailLamp = -1;
         Vector3 tailLampPos;
 
+        // ------------------------------------------------------------------
+        //  THE LAMP CONTROL MAP (owner, 2026-10-15: "please add the R32
+        //  running and brake light textures"). His method: the lit lamp is
+        //  AUTHORED ART - one linear map per model, in the body atlas's UV
+        //  layout, R = running intensity, G = brake intensity - and
+        //  PSX/CarPaint lights exactly those texels (the LAMP_* block there).
+        //  A model opts in by dropping a file at
+        //  Resources/CarLights/<modelKey>_lightmask_rg.png; nothing is
+        //  baked into a livery, so every livery of the model shares it. A car
+        //  that wears a map shows its lamps on the bodywork itself and its
+        //  additive tail-lens sprites stay off (they covered the lit texels);
+        //  its red light on the road behind it stays. A car without one is
+        //  untouched: no property block is ever written on its body.
+        // ------------------------------------------------------------------
+        public const string LampMapDir = "CarLights";
+        public const string LampMapSuffix = "_lightmask_rg";
+        /// <summary>An incandescent bulb: up in about 40 ms, down in about
+        /// 90 (time constants of the brake lamp's ease).</summary>
+        public const float BrakeLampOnTau = 0.04f, BrakeLampOffTau = 0.09f;
+        /// <summary>TOOLS ONLY: 0..1 holds every car's brake lamps (and its
+        /// brake light on the road) at that, for a picture; -1 = the car's own
+        /// brake.</summary>
+        public static float BrakeOverride = -1f;
+        static readonly int LightMaskId = Shader.PropertyToID("_LightMask");
+        static readonly int RunningLightsId = Shader.PropertyToID("_RunningLights");
+        static readonly int BrakeId = Shader.PropertyToID("_Brake");
+        static readonly Dictionary<string, Texture2D> lampMaps = new Dictionary<string, Texture2D>();
+        static MaterialPropertyBlock lampBlock;
+        Texture2D lampMap;
+        Renderer lampRenderer;
+        float brakeLit, pushedRun = -1f, pushedBrake = -1f;
+
+        /// <summary>The model's lamp control map, or null (cached, misses too).</summary>
+        public static Texture2D LampMapFor(string modelKey)
+        {
+            if (string.IsNullOrEmpty(modelKey)) return null;
+            if (!lampMaps.TryGetValue(modelKey, out var tex))
+            {
+                tex = Resources.Load<Texture2D>(LampMapDir + "/" + modelKey + LampMapSuffix);
+                lampMaps[modelKey] = tex;
+            }
+            return tex;
+        }
+
+        /// <summary>True once this car's body wears an authored lamp map.</summary>
+        public bool HasLampMap => lampMap != null && lampRenderer != null;
+
+        /// <summary>The tail-lens sprites: today's rule, and never on a car
+        /// whose lamps are drawn on its body.</summary>
+        bool TailSpriteOn => !HasLampMap && (lightsOn || braking);
+
+        /// <summary>Find the map for the shell this car wears now and the
+        /// renderer that draws its body; put the lamps out on a renderer that
+        /// no longer wears a map (the debug bench re-dresses at runtime).</summary>
+        void ResolveLampMap()
+        {
+            var def = Def;
+            var map = def != null ? LampMapFor(def.key) : null;
+            var f = map != null ? ShellFilter(def) : null;
+            var r = f != null ? f.GetComponent<Renderer>() : null;
+            if (lampRenderer != null && (lampRenderer != r || map == null))
+                WriteLampBlock(lampRenderer, Texture2D.blackTexture, 0f, 0f);
+            lampMap = r != null ? map : null;
+            lampRenderer = lampMap != null ? r : null;
+            pushedRun = pushedBrake = -1f;
+            for (int i = 0; i < 2; i++)
+                if (tailLens[i] != null) tailLens[i].enabled = TailSpriteOn;
+        }
+
+        /// <summary>Ease the brake lamp toward the brake switch and hand both
+        /// inputs to the body's renderer, only when they changed.</summary>
+        void UpdateLampMap(float dt)
+        {
+            if (!HasLampMap) return;
+            float target = braking ? 1f : 0f;
+            if (dt <= 0f) brakeLit = target;
+            else
+            {
+                float tau = target > brakeLit ? BrakeLampOnTau : BrakeLampOffTau;
+                brakeLit += (target - brakeLit) * (1f - Mathf.Exp(-dt / tau));
+                if (Mathf.Abs(target - brakeLit) < 0.003f) brakeLit = target;
+            }
+            float run = lightsOn ? 1f : 0f;
+            if (run == pushedRun && Mathf.Abs(brakeLit - pushedBrake) < 0.002f) return;
+            WriteLampBlock(lampRenderer, lampMap, run, brakeLit);
+            pushedRun = run;
+            pushedBrake = brakeLit;
+        }
+
+        /// <summary>Set the three lamp inputs on a renderer's property block,
+        /// keeping whatever else another writer put there.</summary>
+        static void WriteLampBlock(Renderer r, Texture tex, float run, float brake)
+        {
+            if (r == null) return;
+            if (lampBlock == null) lampBlock = new MaterialPropertyBlock();
+            r.GetPropertyBlock(lampBlock);
+            lampBlock.SetTexture(LightMaskId, tex);
+            lampBlock.SetFloat(RunningLightsId, run);
+            lampBlock.SetFloat(BrakeId, brake);
+            r.SetPropertyBlock(lampBlock);
+        }
+
         void OnEnable()
         {
             if (!all.Contains(this)) all.Add(this);
@@ -282,6 +389,9 @@ namespace PSXRacing
             // A disabled car lights nothing; the entry stays, so re-enabling
             // does not register a second one.
             if (tailLamp >= 0) StreetLights.Set(tailLamp, tailLampPos, 0f, false);
+            // ...and its lamps on the bodywork go out with it.
+            if (HasLampMap) WriteLampBlock(lampRenderer, lampMap, 0f, 0f);
+            pushedRun = pushedBrake = -1f;
         }
 
         void OnDestroy()
@@ -338,12 +448,16 @@ namespace PSXRacing
         {
             if (ShellChanged()) Fit();
 
-            bool nowBraking = car != null && (car.brakeInput > 0.15f || car.handbrakeInput);
+            bool nowBraking = BrakeOverride >= 0f ? BrakeOverride > 0.15f
+                            : car != null && (car.brakeInput > 0.15f || car.handbrakeInput);
             if (nowBraking != braking)
             {
                 braking = nowBraking;
                 ApplyBrake();
             }
+            // The lamps drawn on the body (a car with a lamp control map):
+            // the same brake switch, eased like a bulb.
+            UpdateLampMap(Time.deltaTime);
 
             // Every frame: the car moved (StreetLights pushes at render time,
             // after every LateUpdate, so this is where it will be drawn).
@@ -371,7 +485,7 @@ namespace PSXRacing
             {
                 if (tailLens[i] == null) continue;
                 tailLens[i].sharedMaterial = mat;
-                tailLens[i].enabled = lightsOn || braking;
+                tailLens[i].enabled = TailSpriteOn;
             }
         }
 
@@ -406,6 +520,9 @@ namespace PSXRacing
             braking = brake;
             ApplyBrake();
             Refresh();
+            // The lamps on the body, at once (no ease in a still picture).
+            pushedRun = pushedBrake = -1f;
+            UpdateLampMap(0f);
             PushGlobals();
             // And the tail lamp's light, which LateUpdate would otherwise
             // place - and LateUpdate never runs outside play mode.
@@ -418,9 +535,17 @@ namespace PSXRacing
             {
                 if (headLens[i] != null) headLens[i].enabled = lightsOn;
                 if (beams[i] != null) beams[i].enabled = lightsOn;
-                if (tailLens[i] != null) tailLens[i].enabled = lightsOn || braking;
+                if (tailLens[i] != null) tailLens[i].enabled = TailSpriteOn;
             }
             PopUps();
+            // The running lamps on the body switch with the hour too. (The
+            // brake keeps its ease: no dt here, so it is pushed as it stands.)
+            if (HasLampMap && pushedRun != (lightsOn ? 1f : 0f))
+            {
+                WriteLampBlock(lampRenderer, lampMap, lightsOn ? 1f : 0f, brakeLit);
+                pushedRun = lightsOn ? 1f : 0f;
+                pushedBrake = brakeLit;
+            }
             // SetAll lands here for every car: the tail lamp switches with
             // the hour now, not a frame later.
             UpdateTailLamp();
@@ -520,6 +645,8 @@ namespace PSXRacing
             }
             fittedMesh = body != null && body.bodyFilter != null ? body.bodyFilter.sharedMesh : null;
             if (box != null) { fitCenter = box.center; fitSize = box.size; }
+            // A new shell may bring (or drop) a lamp control map.
+            ResolveLampMap();
 
             // MEASURED (owner, 2026-09-26: lamps "off of the car, in the car,
             // in front of or behind"): the baker found each shell's lamp glass

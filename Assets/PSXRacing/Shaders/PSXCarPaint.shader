@@ -159,6 +159,12 @@ Shader "PSX/CarPaint"
         // share the body's sheet and material, and a black tyre would
         // otherwise read as glass. Set per renderer by CarPaint.DullWheels.
         _Dull ("Dull (wheels)", Range(0,1)) = 0
+        // THE LAMP CONTROL MAP (the owner's method, 2026-10-15): set per
+        // renderer by CarLights through a property block, never baked into a
+        // livery. Black / 0 / 0 = no lamps, and the paint is the paint.
+        [NoScaleOffset] _LightMask ("Lamp control map (linear: R running, G brake)", 2D) = "black" {}
+        [HideInInspector] _RunningLights ("Running lights 0/1", Float) = 0
+        [HideInInspector] _Brake ("Brake 0..1", Float) = 0
     }
     SubShader
     {
@@ -187,6 +193,9 @@ Shader "PSX/CarPaint"
             float _Emission;
             float _Affine;
             float _Dull;
+            sampler2D _LightMask;
+            float _RunningLights;
+            float _Brake;
 
             // THE LOOK. Linear-space numbers; see the header for what each
             // one is answering.
@@ -297,6 +306,27 @@ Shader "PSX/CarPaint"
             #define LAMP_GLINT         0.35   // ...at half the sun's gain (SUN_GLINT), x the lamp's own light
             #define HEAD_GLINT_POW     120.0  // another car's low beam in the lacquer...
             #define HEAD_GLINT         0.25   // ...gated by the beam's own spread (PSXHeadlightsBoth)
+            // THE LAMP CONTROL MAP (owner, 2026-10-15: "add the R32 running and
+            // brake light textures"). His method, authored in his own tool: ONE
+            // linear map in the body atlas's UV layout per model - R = running
+            // intensity, G = brake intensity - and
+            //   emission = max(R * run colour * run strength * running,
+            //                  G * brake colour * brake strength * brake) * lens detail,
+            // lens detail = lerp(0.55, 1, saturate(atlas.r * 2)), so braking works
+            // with the running lights off and never doubles with them on. His
+            // strengths (0.8 / 7) assume an HDR target and a bloom threshold of
+            // 1; this camera is LDR (allowHDR false) and the halo is PSX/Blit's
+            // HALATION, which glows by the excess over 0.57 linear times the
+            // emitter mask. So, retuned for LDR: the running ring peaks near 0.5
+            // linear - a dim red glow under the halation's knee, no halo - and
+            // the brake clips the red with a little green in the core (a hot
+            // lamp), so it halos. An emitter: the eye's adaptation, no exposure,
+            // no curve (PSXTone.cginc), added after the paint's shoulder.
+            #define LAMP_RUN_COLOR      float3(1.00, 0.025, 0.010)
+            #define LAMP_RUN_STRENGTH   0.60
+            #define LAMP_BRAKE_COLOR    float3(1.00, 0.050, 0.020)
+            #define LAMP_BRAKE_STRENGTH 1.80
+            #define LAMP_DETAIL_LO      0.55
 
             float4 _PSXLightDir;    // xyz = direction TO light (world)
             fixed4 _PSXLightColor;
@@ -586,6 +616,22 @@ Shader "PSX/CarPaint"
                     float span = PAINT_MAX - PAINT_TOE;
                     float rolled = PAINT_TOE + span * (1.0 - exp(-(top - PAINT_TOE) / span));
                     col *= rolled / top;
+                }
+
+                // THE LAMP CONTROL MAP (the LAMP_* block above). Skipped by one
+                // uniform branch unless CarLights has lit something on THIS
+                // renderer: a car with no map never gets a property block, so
+                // both inputs are 0 and its pixels are the paint's, bit for bit.
+                if (_RunningLights > 0.001 || _Brake > 0.001)
+                {
+                    float2 lampM = tex2D(_LightMask, i.uvw.xy / i.uvw.z).rg;
+                    float lensDetail = lerp(LAMP_DETAIL_LO, 1.0, saturate(tex.r * 2.0));
+                    float3 lampRun = lampM.r * LAMP_RUN_COLOR * (LAMP_RUN_STRENGTH * saturate(_RunningLights));
+                    float3 lampStop = lampM.g * LAMP_BRAKE_COLOR * (LAMP_BRAKE_STRENGTH * saturate(_Brake));
+                    float3 lampE = max(lampRun, lampStop) * (lensDetail * PSXAdaptGain());
+                    col += lampE;
+                    // A lit lens is a light source: the halation catches it.
+                    emit = max(emit, PSXEmitShare(lampE, col));
                 }
 
                 if (_PSXPaintDebug > 0.5)
