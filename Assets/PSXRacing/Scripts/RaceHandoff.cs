@@ -27,6 +27,11 @@
         /// or empty for the factory answer. The paint shop writes it onto the
         /// OwnedCar; this is how it reaches the grid. See LifeSim.Paint.</summary>
         public static string CarPaintSkin;
+        /// <summary>The debug bench's DRIVE SIDE pick for the player's car,
+        /// "RHD" / "LHD", or empty for the car's own side
+        /// (LifeSim.DebugCarOps.SidePick, written by FillCarRequestFor; put on
+        /// the live car by RaceHandoffApplier through DriveSide.Pick).</summary>
+        public static string DriveSidePick;
         /// <summary>Purse for winning, from the LifeSim's race offer.</summary>
         public static int PurseWin;
         public static int PurseSecond;
@@ -420,6 +425,7 @@
             CarId = null;
             CarSpecId = null;
             CarPaintSkin = null;
+            DriveSidePick = null;
             PurseWin = PurseSecond = PurseThird = 0;
             TimeOfDayIndex = TimeOfDay.Sunset; TrackIndex = 0; IsPractice = false;
             WeatherOverride = -1;

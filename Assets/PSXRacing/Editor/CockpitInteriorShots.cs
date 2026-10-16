@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 using PSXRacing;
+using PSXRacing.LifeSim;
 
 namespace PSXRacing.EditorTools
 {
@@ -111,6 +112,99 @@ namespace PSXRacing.EditorTools
             cam.fieldOfView = keepFov;
             cam.nearClipPlane = keepNear;
             Debug.Log("[Cockpit] shots of " + def.id + " written");
+        }
+
+        /// <summary>
+        /// The debug DRIVE SIDE pick, photographed (2026-10-16): the player's
+        /// car specced as an EG Civic SiR-II (sold both ways; the catalog
+        /// drives it from the right), shot once on its catalog side and once
+        /// after a debug career's bench flips it to LHD. The flip goes the
+        /// bench's own way - DebugCarOps.SetDriveSide, FillCarRequestFor,
+        /// RaceHandoffApplier.ReapplyCar - and the cabin is only asked to
+        /// Refit, the call CockpitView makes every frame, so the frame shows
+        /// what the next frame of a drive would. No DriveSide.Override here.
+        /// Writes driveside_cockpit_{rhd,lhd_flipped}.png beside the other
+        /// screenshots.
+        /// </summary>
+        public static void CaptureDriveSide()
+        {
+            const string EG = "honda_civic_sir_ii__eg___91";
+            var egSpec = CarCatalog.Get(EG);
+            if (egSpec == null) { Debug.LogError("[DriveSideShot] no EG Civic row"); return; }
+            var def = TrackCatalog.At(0);
+            if (!PSXScreenshotTool.Open(def, out var cam, out var player)) return;
+            var t = player.transform;
+            var car = player.GetComponent<CarController>();
+            var box = player.GetComponent<BoxCollider>();
+            var body = player.GetComponent<CarBody>();
+            var applier = Object.FindFirstObjectByType<RaceHandoffApplier>();
+            if (applier != null && applier.playerCar == null) applier.playerCar = car;
+            var cv = Object.FindFirstObjectByType<CockpitView>();
+            var globals = Object.FindFirstObjectByType<PSXGlobals>();
+            var keepView = ChaseCamera.Current;
+            float keepFov = cam.fieldOfView, keepNear = cam.nearClipPlane;
+            ChaseCamera.PreviewView(ChaseCamera.View.Cockpit);
+            DriveSide.Override = null;
+
+            var s = LifeRules.SeedNewGame("SIDES", 25, LifeRules.DefaultJobIndex);
+            s.debugMode = true;
+            var owned = new OwnedCar { id = "ds_eg", specId = EG, displayName = egSpec.name };
+            s.cars.Add(owned);
+            s.activeCar = owned.id;
+            if (globals != null && globals.sun != null) { TimeOfDay.Apply(TimeOfDay.Noon, globals.sun); globals.Apply(); }
+            var cargo = SettledCargo(car);
+            CockpitInterior ci = null;
+            try
+            {
+                RaceHandoff.ClearAll();
+                RaceHandoff.FromLifeSim = true;
+                RaceHandoff.CarId = owned.id;
+                RaceHandoff.CarSpecId = EG;
+                foreach (var (name, flip) in new[] { ("rhd", false), ("lhd_flipped", true) })
+                {
+                    if (flip) DebugCarOps.SetDriveSide(s, owned, false);
+                    LifeHomeScreen.FillCarRequestFor(s, owned);
+                    if (applier != null) applier.ReapplyCar();
+                    else { car.ApplySpec(egSpec, new CarTune.Stages()); DriveSide.Pick(car, RaceHandoff.DriveSidePick); }
+
+                    PSXScreenshotTool.AspectOverride = 16f / 9f;
+                    car.currentRPM = 3200f; car.speedKmh = 45f * 1.609344f;
+                    if (cv != null) cv.PreviewShow(true);
+                    if (ci == null) ci = player.GetComponentInChildren<CockpitInterior>(true);
+                    if (ci == null) { Debug.LogError("[DriveSideShot] no CockpitInterior was built on the player"); break; }
+                    ci.Refit();
+                    ci.Show(true, true);
+                    ci.HideShell(true);
+                    ci.SetSteer(0f, car.maxSteerLowSpeedDeg);
+                    ci.Tick(0f, cargo);
+                    foreach (var gc in Object.FindObjectsByType<GaugeCluster>(FindObjectsSortMode.None)) gc.Build();
+                    Canvas.ForceUpdateCanvases();
+
+                    bool rhd = DriveSide.IsRHD(car);
+                    Vector3 c = box != null ? box.center : new Vector3(0f, 0.72f, 0.05f);
+                    Vector3 sz = box != null ? box.size : new Vector3(1.72f, 1.0f, 4.1f);
+                    Vector3 eye = ChaseCamera.MountOffset(ChaseCamera.View.Cockpit, c, sz, body != null ? body.Def : null,
+                                                          body != null ? body.LengthScale : 1f, body != null ? body.BodyLift : 0f, rhd);
+                    var rot = t.rotation * Quaternion.Euler(ChaseCamera.MountPitch(ChaseCamera.View.Cockpit), 0f, 0f);
+                    cam.fieldOfView = ChaseCamera.FOVFor(ChaseCamera.View.Cockpit, 58f, 0f, 1f, 16f / 9f);
+                    cam.nearClipPlane = CockpitInterior.NearClipFor(ci.Current.scale, 0f);
+                    PSXScreenshotTool.ShotAs(cam, "driveside_cockpit_" + name, t.TransformPoint(eye), rot);
+                    Debug.Log($"[DriveSideShot] {name}: pick '{RaceHandoff.DriveSidePick}' -> IsRHD {rhd}, cabin {(ci.RHD ? "RHD" : "LHD")}, " +
+                              $"eye x {eye.x:0.000}, look-over sign {CockpitLook.PassengerSign:+0;-0}");
+                }
+            }
+            finally
+            {
+                DriveSide.Pick(car, null);
+                RaceHandoff.ClearAll();
+                PSXScreenshotTool.AspectOverride = 0f;
+                if (ci != null) ci.HideShell(false);
+                if (cargo != null) Object.DestroyImmediate(cargo.gameObject);
+                if (cv != null) cv.PreviewShow(false);
+                ChaseCamera.PreviewView(keepView);
+                cam.fieldOfView = keepFov;
+                cam.nearClipPlane = keepNear;
+            }
         }
 
         static PizzaCargo SettledCargo(CarController car)

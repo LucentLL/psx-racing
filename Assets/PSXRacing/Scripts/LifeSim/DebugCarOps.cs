@@ -100,6 +100,49 @@ namespace PSXRacing.LifeSim
             return s.FindCar(RaceHandoff.CarId) ?? s.ActiveCar;
         }
 
+        // ------------------------------------------------------------------
+        //  Drive side (owner, 2026-10-16: "In Debug mode, option to choose
+        //  RHD or LHD should be an option if there is a choice")
+        // ------------------------------------------------------------------
+
+        /// <summary>Whether the bench offers DRIVE SIDE on this car: a debug
+        /// career, and a car whose real counterpart was sold both ways
+        /// (DriveSide.Either). Every other car shows its one side and no
+        /// choice; a player outside debug never sees one.</summary>
+        public static bool CanPickSide(LifeState s, OwnedCar car) =>
+            s != null && s.debugMode && car != null && DriveSide.Either(car.specId);
+
+        /// <summary>The pick that applies: "RHD" / "LHD", or empty for the
+        /// catalog's side. Gated like <see cref="CanPickSide"/>, so a pick left
+        /// on a car is inert anywhere the choice is not offered.</summary>
+        public static string SidePick(LifeState s, OwnedCar car)
+        {
+            if (!CanPickSide(s, car)) return "";
+            string p = car.debugDriveSide ?? "";
+            return p == "RHD" || p == "LHD" ? p : "";
+        }
+
+        /// <summary>Right-hand drive for an owned car: the pick, else its row.</summary>
+        public static bool IsRHD(LifeState s, OwnedCar car)
+        {
+            string p = SidePick(s, car);
+            return p.Length > 0 ? p == "RHD" : car != null && DriveSide.IsRHD(car.specId);
+        }
+
+        /// <summary>The spec-sheet word for an owned car, pick included.</summary>
+        public static string SideLabel(LifeState s, OwnedCar car) => DriveSide.Label(IsRHD(s, car));
+
+        /// <summary>Sit this car's driver on one side. Stored explicitly (not
+        /// "empty when it matches the row"), so a later edit to the owner's
+        /// CSV cannot quietly move a car the tester set by hand. Refused, and
+        /// false, where <see cref="CanPickSide"/> is.</summary>
+        public static bool SetDriveSide(LifeState s, OwnedCar car, bool rhd)
+        {
+            if (!CanPickSide(s, car)) return false;
+            car.debugDriveSide = DriveSide.Label(rhd);
+            return true;
+        }
+
         static string OriginOf(CarSpec spec) =>
             spec != null && !string.IsNullOrEmpty(spec.origin) ? spec.origin : "jpn";
 

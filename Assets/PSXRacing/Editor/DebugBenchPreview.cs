@@ -121,6 +121,43 @@ namespace PSXRacing.EditorTools
             Debug.Log("[BenchPreview] done");
         }
 
+        /// <summary>The PARTS page's DRIVE SIDE row (2026-10-16) at the
+        /// bench's aspects: an EG Civic in a debug career, flipped to LHD by
+        /// the bench's own rule (two switch cells, LHD marked), and an R32,
+        /// sold one way, which shows its side and no choice. Writes
+        /// Screenshots/driveside/.</summary>
+        public static void CaptureDriveSide()
+        {
+            string outDir = Path.Combine(
+                Directory.GetParent(Application.dataPath).FullName, "Screenshots", "driveside");
+            Directory.CreateDirectory(outDir);
+            LifeSimManager.DeleteSave();
+            LifeSimManager.StartNewGame("VINCE", 25, LifeRules.DefaultJobIndex);
+            var st = LifeSimManager.State;
+            LifeRules.EnableDebug(st);
+            var eg = CarCatalog.Get("honda_civic_sir_ii__eg___91");
+            var r32 = CarCatalog.Get("nissan_skyline_gt_r__r32___89");
+            if (eg == null || r32 == null) { Debug.LogError("[BenchPreview] drive side: catalog rows missing"); return; }
+            var egCar = new OwnedCar
+            {
+                id = "ds_eg", specId = eg.id, displayName = eg.name,
+                catalogPrice = eg.price, paidPrice = eg.price, odoMiles = 88000f,
+            };
+            var r32Car = new OwnedCar
+            {
+                id = "ds_r32", specId = r32.id, displayName = r32.name,
+                catalogPrice = r32.price, paidPrice = r32.price, odoMiles = 61000f,
+            };
+            st.cars.Add(egCar);
+            st.cars.Add(r32Car);
+            st.activeCar = egCar.id;
+            DebugCarOps.SetDriveSide(st, egCar, false);
+            Shoot(outDir, "ds_bench_eg", egCar, DebugCarPanel.Page.Parts);
+            Shoot(outDir, "ds_bench_r32", r32Car, DebugCarPanel.Page.Parts);
+            Shoot(outDir, "ds_bench_car", egCar, DebugCarPanel.Page.Car);
+            Debug.Log("[BenchPreview] done (drive side)");
+        }
+
         static void Shoot(string outDir, string label, OwnedCar car, DebugCarPanel.Page page,
                           float scrollTo = 1f, string make = null, bool map = false)
         {

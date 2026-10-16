@@ -161,6 +161,11 @@ namespace PSXRacing
                 suspension = RaceHandoff.UpSuspension,
                 tires = RaceHandoff.UpTires,
             });
+            // The debug bench's DRIVE SIDE pick, after the spec (it is only
+            // honoured on a row sold both ways, so it reads activeSpec). The
+            // cockpit re-fits off DriveSide.IsRHD on its next frame, which is
+            // what makes a mid-drive flip land without a scene reload.
+            DriveSide.Pick(playerCar, RaceHandoff.DriveSidePick);
             // The voice comes after the spec, and reads the mods set above it:
             // a blower changes what the car sounds like as well as what it
             // makes.

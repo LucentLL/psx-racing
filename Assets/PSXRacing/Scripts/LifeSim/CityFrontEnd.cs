@@ -298,6 +298,7 @@ namespace PSXRacing.LifeSim
 
         static string CarLine(CarSpec c) =>
             CarSpec.ToHp(c.hp) + " HP  ·  " + c.kg.ToString("N0") + " KG  ·  " + c.drv +
+            " · " + DriveSide.Label(c.id) +
             (c.modelYear > 0 ? "  ·  " + c.modelYear : "");
 
         // =================== the car picker ===================
@@ -353,7 +354,7 @@ namespace PSXRacing.LifeSim
                     () => { SetCar(captured.id); Go("drive"); Toast(captured.name.ToUpperInvariant()); },
                     20), "model_" + c.id);
                 b.GetComponentInChildren<Text>().text = "";
-                string nums = CarSpec.ToHp(c.hp) + " HP  ·  " + c.drv;
+                string nums = CarSpec.ToHp(c.hp) + " HP  ·  " + c.drv + " · " + DriveSide.Label(c.id);
                 var num = MenuKit.Label(b.transform, nums, 20, new Vector2(1f, 0.5f), new Vector2(-12f, 0f),
                     TextAnchor.MiddleRight, MenuKit.Dim, 200f, height: 30f);
                 float numW = Mathf.Ceil(num.preferredWidth) + 4f;

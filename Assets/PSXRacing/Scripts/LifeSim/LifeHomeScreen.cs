@@ -795,6 +795,7 @@ namespace PSXRacing.LifeSim
                     new Vector2(60f, y - 38f), TextAnchor.MiddleLeft, Color.white, 780f)
                     .raycastTarget = false;
                 MenuKit.Label(root, CarSpec.ToHp(lane.spec.hp) + " hp · " + lane.spec.drv + " · " +
+                        DriveSide.Label(lane.spec.id) + " · " +
                         age + " yr · " + lane.odoMiles.ToString("N0") + " mi · cond " + lane.cond,
                     14, new Vector2(0f, 1f), new Vector2(60f, y - 62f),
                     TextAnchor.MiddleLeft, MenuKit.Dim, 780f).raycastTarget = false;
@@ -2628,7 +2629,7 @@ namespace PSXRacing.LifeSim
                 MenuKit.Label(rt, (active ? "> " : "") + Clip(owned.displayName, nameChars),
                     16, new Vector2(0f, 0.5f), new Vector2(nameX, 10f), TextAnchor.MiddleLeft,
                     active ? MenuKit.Accent : away ? MenuKit.Dim : Color.white, nameW, height: 22f);
-                string drv = spec != null ? spec.drv + "  ·  " + CarSpec.ToHp(spec.hp) + " hp  ·  " : "";
+                string drv = spec != null ? DrvSide(spec, owned) + "  ·  " + CarSpec.ToHp(spec.hp) + " hp  ·  " : "";
                 MenuKit.Label(rt, drv + owned.odoMiles.ToString("N0") + " mi",
                     14, new Vector2(0f, 0.5f), new Vector2(nameX, -12f), TextAnchor.MiddleLeft,
                     MenuKit.Dim, nameW, height: 20f);
@@ -2997,7 +2998,7 @@ namespace PSXRacing.LifeSim
                 ty -= 26f;
             }
 
-            string drv = spec != null ? spec.drv + "  ·  " + CarSpec.ToHp(spec.hp) + " hp  ·  " : "";
+            string drv = spec != null ? DrvSide(spec, car) + "  ·  " + CarSpec.ToHp(spec.hp) + " hp  ·  " : "";
             MenuKit.Label(body, drv + car.odoMiles.ToString("N0") + " mi  ·  FUEL " +
                     Mathf.RoundToInt(car.fuel) + "%",
                 MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(tx, ty), TextAnchor.MiddleLeft,
@@ -3368,6 +3369,13 @@ namespace PSXRacing.LifeSim
                 TextAnchor.MiddleLeft, MenuKit.Accent, 300f, bold: true);
             y -= 28f;
             SpecRow("DRIVETRAIN", spec.drv, ref y);
+            // Which side the wheel is on (owner, 2026-10-16). A debug pick
+            // that moved it is said so, in the "changed" colour; a car sold
+            // both ways says that, because the other side is not a mistake.
+            bool sidePicked = DebugCarOps.IsRHD(S, car) != DriveSide.IsRHD(spec.id);
+            SpecRow("DRIVE SIDE", DebugCarOps.SideLabel(S, car) +
+                    (sidePicked ? "  ·  debug pick" : DriveSide.Either(spec.id) ? "  ·  sold both ways" : ""),
+                    ref y, sidePicked);
             bool kit = car != null && car.turbo && spec.CanFitTurboKit;
             string boost = spec.IsTurbo ? "turbocharged"
                          : spec.IsSupercharged ? "supercharged"
@@ -3406,6 +3414,12 @@ namespace PSXRacing.LifeSim
 
         /// <summary>One label-and-value line on the specs page. Right-aligned
         /// values so a column of figures reads as a column.</summary>
+        /// <summary>"FR · RHD": the layout and the side the wheel is on, the
+        /// compact pair every one-line car row carries. An owned car's side
+        /// includes a debug career's bench pick (DebugCarOps.SideLabel).</summary>
+        string DrvSide(CarSpec spec, OwnedCar car) =>
+            spec.drv + " · " + (car != null ? DebugCarOps.SideLabel(S, car) : DriveSide.Label(spec.id));
+
         void SpecRow(string label, string value, ref float y, bool changed = false)
         {
             float w = Mathf.Min(700f, ColW);
@@ -3514,7 +3528,7 @@ namespace PSXRacing.LifeSim
             string layout = carSpec != null && !string.IsNullOrEmpty(carSpec.drv)
                 ? carSpec.drv.ToUpperInvariant() : "FR";
             string eng = carSpec != null && !string.IsNullOrEmpty(carSpec.eType) ? carSpec.eType : "";
-            MenuKit.Label(body, layout + (eng.Length > 0 ? "   ·   " + eng : ""),
+            MenuKit.Label(body, layout + "   ·   " + DebugCarOps.SideLabel(S, car) + (eng.Length > 0 ? "   ·   " + eng : ""),
                 MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y),
                 TextAnchor.MiddleLeft, Color.white, ColW, height: 22f);
             y -= 24f;
@@ -3949,7 +3963,7 @@ namespace PSXRacing.LifeSim
                 var spec = pool[i];
                 MenuKit.Button(body,
                     Clip(spec.name, 40) + "   ·   " + CarSpec.ToHp(spec.hp) + " hp · " + spec.drv +
-                    " · " + spec.modelYear,
+                    " · " + DriveSide.Label(spec.id) + " · " + spec.modelYear,
                     new Vector2(0.5f, 1f), new Vector2(MenuKit.ColLeft(ColL, ColW), y),
                     new Vector2(ColW, 36f), () => GrantCar(spec), 14);
                 y -= 42f;
@@ -5599,6 +5613,7 @@ namespace PSXRacing.LifeSim
             if (spec != null)
             {
                 MenuKit.Label(body, CarSpec.ToHp(spec.hp) + " hp  ·  " + spec.kg + " kg  ·  " + spec.drv +
+                        " · " + DriveSide.Label(spec.id) +
                         "  ·  " + spec.gears + "-speed  ·  " + spec.modelYear +
                         "  ·  " + Mathf.RoundToInt(SpeedUnits.FromKmh(spec.topSpeedMps * 3.6f)) +
                             SpeedUnits.Suffix,
@@ -7372,7 +7387,7 @@ namespace PSXRacing.LifeSim
                 new Vector2(0f, 0.5f), new Vector2(84f, 9f), TextAnchor.MiddleLeft,
                 gone ? MenuKit.Dim : driving ? MenuKit.Accent : Color.white, vw * 0.62f,
                 height: 22f);
-            string drv = spec != null ? spec.drv + "  ·  " + CarSpec.ToHp(spec.hp) + " hp  ·  " : "";
+            string drv = spec != null ? DrvSide(spec, owned) + "  ·  " + CarSpec.ToHp(spec.hp) + " hp  ·  " : "";
             // Where a car that cannot be taken IS, in the line the fuel would
             // have been on (a tank nobody can drive is not news). WHEN it is
             // back goes on the right, under the condition: this column is 760
@@ -7676,6 +7691,9 @@ namespace PSXRacing.LifeSim
             // has had resprayed, which is the factory answer and the path this
             // took before the body shop existed.
             RaceHandoff.CarPaintSkin = car != null ? car.paintSkin : null;
+            // The debug bench's drive-side pick (empty outside a debug career
+            // and on every car that was only ever sold one way).
+            RaceHandoff.DriveSidePick = DebugCarOps.SidePick(S, car);
 
             // Parts the car is carrying become the advantage it races with.
             var tuned = car;

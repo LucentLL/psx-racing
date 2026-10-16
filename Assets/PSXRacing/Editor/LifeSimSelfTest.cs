@@ -57,6 +57,19 @@ namespace PSXRacing.EditorTools
                 System.IO.Path.Combine(Application.dataPath, "../PSXRacing_selftest_paint.txt"), log.ToString());
         }
 
+        /// <summary>Only the drive-side pins (TestDriveSideSpec), for the
+        /// spec/pick pass: seconds, no scene build. Writes
+        /// PSXRacing_selftest_driveside.txt.</summary>
+        public static void RunDriveSide()
+        {
+            log = new StringBuilder();
+            failures = 0;
+            Guard(nameof(TestDriveSideSpec), TestDriveSideSpec);
+            Line(failures == 0 ? "DRIVE SIDE SELF-TEST OK" : "DRIVE SIDE SELF-TEST FAILED (" + failures + ")");
+            System.IO.File.WriteAllText(
+                System.IO.Path.Combine(Application.dataPath, "../PSXRacing_selftest_driveside.txt"), log.ToString());
+        }
+
         static void RunAll()
         {
 
@@ -88,6 +101,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestTurboPath), TestTurboPath);
             Guard(nameof(TestAdvancedTuning), TestAdvancedTuning);
             Guard(nameof(TestDebugBench), TestDebugBench);
+            Guard(nameof(TestDriveSideSpec), TestDriveSideSpec);
             Guard(nameof(TestMarket), TestMarket);
             Guard(nameof(TestViewings), TestViewings);
             Guard(nameof(TestJunkyard), TestJunkyard);
@@ -12518,6 +12532,115 @@ namespace PSXRacing.EditorTools
         /// the last decimal. A bench that leaves residue corrupts every test
         /// run after it, and nothing on screen would ever say so.
         /// </summary>
+        /// <summary>
+        /// Drive side as a SPEC, and the debug career's pick (owner,
+        /// 2026-10-16: "RHD and LHD should be a spec shown when viewing/
+        /// inspecting the car. In Debug mode, option to choose RHD or LHD
+        /// should be an option if there is a choice"). The words the menus
+        /// print are the CSV's own; only a debug career, and only on a car
+        /// whose real counterpart was sold both ways, can move the wheel; and
+        /// when the bench moves it, the live car's cockpit moves with it.
+        /// </summary>
+        static void TestDriveSideSpec()
+        {
+            Line("drive side as a spec + the debug pick:");
+            if (!CarCatalog.Ready) { Check(false, "catalog loaded for the drive-side checks"); return; }
+            const string R32 = "nissan_skyline_gt_r__r32___89", S14 = "nissan_240sx__s14___96",
+                         EG = "honda_civic_sir_ii__eg___91";
+            var ta = Resources.Load<TextAsset>(DriveSide.ResourcePath);
+            if (ta == null) { Check(false, "Resources/DriveSide.csv is there to read"); return; }
+            var csv = new Dictionary<string, string[]>();
+            foreach (var row in ta.text.Split('\n'))
+            {
+                var f = DriveSide.SplitCsv(row);
+                if (f.Count >= 5 && f[0].Length > 0 && f[0] != "id") csv[f[0]] = new[] { f[2].Trim(), f[4].Trim() };
+            }
+            string Csv(string id) => csv.TryGetValue(id, out var r) ? r[0] + (r[1] == "yes" ? " (both)" : "") : "missing";
+            Check(DriveSide.Label(R32) == "RHD" && Csv(R32) == "RHD" && !DriveSide.Either(R32),
+                  "drive side spec: an R32 GT-R prints RHD, as the CSV says", DriveSide.Label(R32) + " vs csv " + Csv(R32));
+            Check(DriveSide.Label(S14) == "LHD" && Csv(S14) == "LHD" && !DriveSide.Either(S14),
+                  "drive side spec: a 240SX (the US name) prints LHD, as the CSV says", DriveSide.Label(S14) + " vs csv " + Csv(S14));
+            Check(Csv(EG) == DriveSide.Label(EG) + " (both)" && DriveSide.Either(EG),
+                  "drive side spec: an EG Civic SiR-II prints its CSV side and is flagged as sold both ways",
+                  DriveSide.Label(EG) + " vs csv " + Csv(EG));
+            int wrong = 0, both = 0;
+            string firstWrong = null;
+            foreach (var kv in csv)
+            {
+                bool amb = kv.Value[1] == "yes";
+                if (amb) both++;
+                if (DriveSide.Label(kv.Key) != kv.Value[0] || DriveSide.Either(kv.Key) != amb)
+                { wrong++; if (firstWrong == null) firstWrong = kv.Key; }
+            }
+            Check(wrong == 0 && both > 0, "drive side spec: every CSV row's side and both-ways flag read back through DriveSide",
+                  csv.Count + " rows, " + both + " both ways" + (wrong > 0 ? ", " + wrong + " WRONG, e.g. " + firstWrong : ""));
+
+            var egSpec = CarCatalog.Get(EG);
+            var r32Spec = CarCatalog.Get(R32);
+            if (egSpec == null || r32Spec == null) { Check(false, "the EG Civic and R32 rows are in the catalog"); return; }
+            var s = LifeRules.SeedNewGame("SIDES", 25, LifeRules.DefaultJobIndex);
+            var eg = new OwnedCar { id = "ds_eg", specId = EG, displayName = egSpec.name };
+            var r32 = new OwnedCar { id = "ds_r32", specId = R32, displayName = r32Spec.name };
+            s.cars.Add(eg); s.cars.Add(r32); s.activeCar = eg.id;
+            s.debugMode = false;
+            bool refused = !DebugCarOps.SetDriveSide(s, eg, false);
+            eg.debugDriveSide = "LHD";
+            Check(refused && !DebugCarOps.CanPickSide(s, eg) && DebugCarOps.SideLabel(s, eg) == "RHD" &&
+                  DebugCarOps.SidePick(s, eg) == "",
+                  "drive side pick: outside a debug career there is no choice, and a pick left on the car is inert");
+            eg.debugDriveSide = "";
+            s.debugMode = true;
+            Check(DebugCarOps.CanPickSide(s, eg) && !DebugCarOps.CanPickSide(s, r32) &&
+                  !DebugCarOps.SetDriveSide(s, r32, false) && DebugCarOps.SideLabel(s, r32) == "RHD",
+                  "drive side pick: a debug career gets the choice on the EG Civic, not on the R32 (sold one way)");
+            Check(DebugCarOps.SetDriveSide(s, eg, false) && eg.debugDriveSide == "LHD" && DebugCarOps.SideLabel(s, eg) == "LHD",
+                  "drive side pick: LHD is stored on the car and printed as its spec", eg.debugDriveSide);
+
+            // ---- onto the live car: request -> applier -> cockpit --------
+            var car = TuneBenchCar(egSpec);
+            var tank = car.gameObject.AddComponent<FuelTank>();
+            tank.car = car;
+            var host = new GameObject("SideApplier") { hideFlags = HideFlags.HideAndDontSave };
+            var applier = host.AddComponent<RaceHandoffApplier>();
+            applier.playerCar = car;
+            var bc = new Vector3(0f, 0.72f, 0.05f);
+            var bs = new Vector3(1.72f, 1.0f, 4.1f);
+            try
+            {
+                RaceHandoff.ClearAll();
+                RaceHandoff.FromLifeSim = true;
+                RaceHandoff.CarId = eg.id;
+                RaceHandoff.CarSpecId = EG;
+                DebugCarOps.SetDriveSide(s, eg, true);
+                LifeHomeScreen.FillCarRequestFor(s, eg);
+                applier.ReapplyCar();
+                bool before = DriveSide.IsRHD(car);
+                var fitBefore = CockpitInterior.FitFor(bc, bs, null, 1f, 0f, before);
+                DebugCarOps.SetDriveSide(s, eg, false);
+                LifeHomeScreen.FillCarRequestFor(s, eg);
+                applier.ReapplyCar();
+                bool after = DriveSide.IsRHD(car);
+                var fitAfter = CockpitInterior.FitFor(bc, bs, null, 1f, 0f, after);
+                Check(before && !after && RaceHandoff.DriveSidePick == "LHD" && fitBefore.rhd && !fitAfter.rhd &&
+                      fitBefore.eye.x > 0.1f && fitAfter.eye.x < -0.1f,
+                      "drive side pick: the bench's flip reaches the live car, and the cockpit's variant and eye move right to left",
+                      (before ? "RHD" : "LHD") + " -> " + (after ? "RHD" : "LHD") + ", eye x " +
+                      fitBefore.eye.x.ToString("0.00") + " -> " + fitAfter.eye.x.ToString("0.00"));
+                // A stale pick on a car sold one way is ignored by the car.
+                RaceHandoff.CarSpecId = R32;
+                RaceHandoff.DriveSidePick = "LHD";
+                applier.ReapplyCar();
+                Check(DriveSide.IsRHD(car), "drive side pick: a stale LHD pick cannot move an R32's wheel");
+            }
+            finally
+            {
+                DriveSide.Pick(car, null);
+                RaceHandoff.ClearAll();
+                Object.DestroyImmediate(host);
+                Object.DestroyImmediate(car.gameObject);
+            }
+        }
+
         static void TestDebugBench()
         {
             Line("debug bench:");

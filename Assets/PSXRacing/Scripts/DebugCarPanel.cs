@@ -516,6 +516,8 @@ namespace PSXRacing
             y -= 52f;
             if (noSpec) return;
 
+            BuildDriveSide(s, car, spec, ref y);
+
             // ---- the six ladders: a row each, five buttons to a row ------
             MenuKit.Label(content, "STAGES   ·   0 is the factory part, 4 is race hardware",
                 MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
@@ -648,6 +650,56 @@ namespace PSXRacing
         /// them are not: they reach into the EngineTemp that is running right
         /// now, because "wait four minutes for it to boil" is not a test.
         /// </summary>
+        /// <summary>
+        /// DRIVE SIDE (owner, 2026-10-16: "In Debug mode, option to choose RHD
+        /// or LHD should be an option if there is a choice"). Two switch cells
+        /// on a car whose real counterpart was sold both ways
+        /// (DriveSide.Either: the EG Civic, the Honda-badged NSX); one fixed
+        /// line on every other car. On the PARTS page because it is the one
+        /// page both the garage bench and the drive bench open, and the pick
+        /// is a fact about the car like a part is. Mid-drive the press goes the
+        /// usual way (Commit -> FillCarRequestFor -> ReapplyCar -> DriveSide
+        /// .Pick) and the cockpit re-fits on its next frame; from the garage
+        /// it rides the save into the next drive.
+        /// </summary>
+        void BuildDriveSide(LifeState s, OwnedCar car, CarSpec spec, ref float y)
+        {
+            bool rhd = DebugCarOps.IsRHD(s, car);
+            if (!DebugCarOps.CanPickSide(s, car))
+            {
+                MenuKit.Label(content,
+                    Clip("DRIVE SIDE   ·   " + DriveSide.Label(rhd) + ", the only way the real car was sold",
+                         LowerFit(ColW)),
+                    MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                    MenuKit.Dim, ColW, height: 26f);
+                y -= 36f;
+                return;
+            }
+            const float SideW = 96f, SideH = 50f;
+            float cellsW = SideW * 2f + Gap;
+            float textW = ColW - cellsW - 16f;
+            MenuKit.Label(content,
+                Clip("DRIVE SIDE   ·   " + DriveSide.Label(rhd), CapsFit(textW)) +
+                "\n" + DimTag + Clip("sold both ways   ·   catalog says " + DriveSide.Label(spec.id) +
+                                     "   ·   the cockpit follows", LowerFit(textW)) + "</color>",
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y),
+                TextAnchor.UpperLeft, Color.white, textW, height: SideH, bold: true);
+            for (int i = 0; i < 2; i++)
+            {
+                bool want = i == 0; // RHD, then LHD
+                var b = Named(MenuKit.Button(content, DriveSide.Label(want), new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(ColR - cellsW + i * (SideW + Gap), SideW), y),
+                    new Vector2(SideW, SideH), () =>
+                    {
+                        DebugCarOps.SetDriveSide(s, car, want);
+                        note = "driven from the " + (want ? "right" : "left") + " (" + DriveSide.Label(want) + ")";
+                        Apply(s, car);
+                    }, 22), "side_" + DriveSide.Label(want));
+                if (want == rhd) MenuKit.MarkTab(b, true);
+            }
+            y -= SideH + 20f;
+        }
+
         void BuildCooling(LifeState s, OwnedCar car, ref float y)
         {
             MenuKit.Label(content,
@@ -1131,6 +1183,7 @@ namespace PSXRacing
                 string line = ospec == null ? "built-in car — lands on RESTART RACE"
                     : CarSpec.ToHp(Upgrades.EffectiveHp(owned, ospec)) + " hp · " +
                       Upgrades.EffectiveKg(owned, ospec) + " kg · " + ospec.drv + " · " +
+                      DebugCarOps.SideLabel(s, owned) + " · " +
                       owned.faults.Count + " fault" + (owned.faults.Count == 1 ? "" : "s");
                 string caption =
                     Clip((owned.displayName ?? "?").ToUpperInvariant(),
@@ -1197,7 +1250,7 @@ namespace PSXRacing
                 var m = models[i];
                 int col = i % cols;
                 if (i > 0 && col == 0) y -= CellH + Gap;
-                string line = CarSpec.ToHp(m.hp) + " hp · " + m.kg + " kg · " + m.drv + " · " + MenuKit.Money(m.price);
+                string line = CarSpec.ToHp(m.hp) + " hp · " + m.kg + " kg · " + m.drv + " · " + DriveSide.Label(m.id) + " · " + MenuKit.Money(m.price);
                 string caption = Clip((m.name ?? m.id).ToUpperInvariant(), CapsFit(cellW - 16f)) +
                                  "\n" + DimTag + Clip(line, LowerFit(cellW - 16f)) + "</color>";
                 Named(MenuKit.Button(content, caption, new Vector2(0.5f, 1f),

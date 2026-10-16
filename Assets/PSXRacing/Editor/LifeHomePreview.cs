@@ -31,6 +31,73 @@ namespace PSXRacing.EditorTools
             ("tablet_4x3", 1024, 768),
         };
 
+        /// <summary>
+        /// The drive-side pass (2026-10-16) in ONE Unity job: the self-test's
+        /// drive-side pins, the menu screens that print the spec, the bench's
+        /// DRIVE SIDE row and the cockpit before/after a debug flip. Each part
+        /// in its own net so one failure still leaves the others' output.
+        /// </summary>
+        public static void CaptureDriveSideAll()
+        {
+            // PSX_DS_PARTS=menus,bench runs a subset (a re-check of layout).
+            string only = System.Environment.GetEnvironmentVariable("PSX_DS_PARTS");
+            void Part(string name, System.Action a)
+            {
+                if (!string.IsNullOrEmpty(only) && !only.Contains(name)) return;
+                try { a(); Debug.Log("[DriveSide] " + name + " done"); }
+                catch (System.Exception e) { Debug.LogError("[DriveSide] " + name + " THREW: " + e); }
+            }
+            Part("selftest", LifeSimSelfTest.RunDriveSide);
+            Part("menus", CaptureDriveSide);
+            Part("bench", DebugBenchPreview.CaptureDriveSide);
+            Part("cockpit", CockpitInteriorShots.CaptureDriveSide);
+        }
+
+        /// <summary>The drive-side spec on the screens that print it, at the
+        /// three aspects, with the CLIP/OVERLAP report: the new-game car
+        /// picker (a 240SX, LHD, beside EG Civics, RHD), an owned EG Civic's
+        /// SPECS and INSPECT pages, MY CARS, and the BUY page of an R32 in the
+        /// classifieds. Writes Screenshots/driveside/.</summary>
+        public static void CaptureDriveSide()
+        {
+            string outDir = Path.Combine(
+                Directory.GetParent(Application.dataPath).FullName, "Screenshots", "driveside");
+            Directory.CreateDirectory(outDir);
+            LifeSimManager.DeleteSave();
+            LifeSimManager.StartNewGame("VINCE", 25, LifeRules.DefaultJobIndex);
+            Shoot(outDir, "ds_carpick");
+            LifeRules.SeedFallbackCar(LifeSimManager.State);
+            var st = LifeSimManager.State;
+            var eg = CarCatalog.Get("honda_civic_sir_ii__eg___91");
+            var r32 = CarCatalog.Get("nissan_skyline_gt_r__r32___89");
+            if (eg == null || r32 == null) { Debug.LogError("[HomePreview] drive side: catalog rows missing"); return; }
+            var car = new OwnedCar
+            {
+                id = "ds_eg", specId = eg.id, displayName = eg.name,
+                catalogPrice = eg.price, paidPrice = eg.price, odoMiles = 88000f,
+            };
+            st.cars.Add(car);
+            st.activeCar = car.id;
+            LifeSimManager.Save();
+            Shoot(outDir, "ds_specs", "specs", garageCar: car.id);
+            Shoot(outDir, "ds_inspect", "inspect", fields: new[] { ("inspectCarId", (object)car.id) });
+            Shoot(outDir, "ds_mycars", "garage");
+            Shoot(outDir, "ds_drive", "drive");
+            // A debug career: the grant list, and the SPECS row on a car the
+            // bench has flipped.
+            LifeRules.EnableDebug(st);
+            DebugCarOps.SetDriveSide(st, car, false);
+            LifeSimManager.Save();
+            Shoot(outDir, "ds_debugcars", "debugcars");
+            Shoot(outDir, "ds_specs_pick", "specs", garageCar: car.id);
+            var listing = new CarListing
+            {
+                specId = r32.id, displayName = r32.name, price = r32.price / 2, cond = 72,
+                odoMiles = 61000f, expiresDay = st.day + 3,
+            };
+            Shoot(outDir, "ds_buy", "buy", fields: new[] { ("buyTarget", (object)listing), ("buyFrom", (object)"market") });
+        }
+
         [MenuItem("PSX Racing/Preview LifeSim Menu")]
         public static void Capture()
         {

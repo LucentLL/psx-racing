@@ -397,6 +397,17 @@ namespace PSXRacing.LifeSim
         /// added field; false on every car anyone actually bought.</summary>
         public bool debugLoaner;
 
+        /// <summary>The debug bench's DRIVE SIDE pick for THIS car (owner,
+        /// 2026-10-16): "RHD" or "LHD", or empty for the side its catalog row
+        /// names (DriveSide). Read only in a debug career and only for a car
+        /// whose real counterpart was sold both ways (<see cref="DebugCarOps.SidePick"/>);
+        /// anywhere else it is ignored. Kept on the car beside
+        /// <see cref="debugLoaner"/> rather than in PlayerPrefs because the
+        /// pick belongs to the car (two EG Civics can sit on opposite sides)
+        /// and rides in the one save the bench already writes on close. An ADDED
+        /// field: every save reads back empty, no migration.</summary>
+        public string debugDriveSide = "";
+
         public List<CarFault> faults = new List<CarFault>();
 
         // === Inspection (see LifeSim/Inspection.cs) ===
