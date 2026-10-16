@@ -9603,11 +9603,49 @@ namespace PSXRacing.EditorTools
                 // batchmode the Resources cache can answer for an asset the
                 // importer has not finished with, and "the file is there" is the
                 // claim that actually matters for the build.
-                string dir = "Assets/PSXRacing/Resources/Engines/" + EngineVoiceLibrary.Canonical(fam);
-                if (!AssetDatabase.IsValidFolder(dir)) { missingDir++; missingNames.Add(fam); }
+                if (FamilyDir(EngineVoiceLibrary.Canonical(fam)) == null) { missingDir++; missingNames.Add(fam); }
             }
             Check(missingDir == 0, "every family has an imported clip folder",
                   missingDir > 0 ? string.Join(",", missingNames) : null);
+
+            // PHASE 2: every family but the default is an on-demand bundle.
+            // Each catalog family must resolve to a planned bundle or to the
+            // default (which must be in Resources, so a car always has a voice);
+            // and once the bundles have been built, each one must be on disk
+            // and named in the manifest the player reads.
+            string def = EngineVoiceLibrary.DefaultFamily;
+            Check(AssetDatabase.IsValidFolder("Assets/PSXRacing/Resources/Engines/" + def) &&
+                  ClipExists(def, "idle"), "the default family (" + def + ") is in Resources");
+            var plan = EngineBundleBuilder.Plan();
+            var planned = new HashSet<string>(plan.Select(p => p.name));
+            int unresolved = 0;
+            var unresolvedNames = new List<string>();
+            foreach (var key in families.Keys)
+            {
+                string fam = EngineVoiceLibrary.Canonical(key);
+                if (fam == def || planned.Contains(EngineVoiceLibrary.PackName(fam, EngineVoiceLibrary.Set.Exterior))) continue;
+                unresolved++; unresolvedNames.Add(fam);
+            }
+            Check(unresolved == 0, "every catalog family resolves to a bundle or the default",
+                  unresolved > 0 ? string.Join(",", unresolvedNames) : null);
+            Check(!AssetDatabase.IsValidFolder("Assets/PSXRacing/Resources/Engines") ||
+                  System.IO.Directory.GetDirectories(Application.dataPath + "/PSXRacing/Resources/Engines").Length == 1,
+                  "only the default family rides in the main data (Resources/Engines)");
+            if (System.IO.Directory.Exists(EngineBundleBuilder.BundleDir))
+            {
+                var man = AssetDatabase.LoadAssetAtPath<TextAsset>(EngineBundleBuilder.ManifestAsset);
+                string mtext = man != null ? man.text : "";
+                int noFile = 0, noLine = 0;
+                foreach (var p in plan)
+                {
+                    if (!System.IO.File.Exists(EngineBundleBuilder.BundleDir + "/" + p.name + ".bundle")) noFile++;
+                    if (!mtext.Contains("\n" + p.name + " ") && !mtext.StartsWith(p.name + " ")) noLine++;
+                }
+                Check(noFile == 0, "every planned engine bundle is built (StreamingAssets/engines)", noFile + " missing");
+                Check(noLine == 0, "every engine bundle is in the manifest (Resources/EngineBundles.txt)", noLine + " missing");
+                Line("  ..   " + plan.Count + " engine bundles planned and built");
+            }
+            else Line("  ..   engine bundles not built in this project (PSXBuildWebGL builds them) - " + plan.Count + " planned");
 
             // The vendor rig (Resources/res2_rig.json) names the takes it plays;
             // a family missing one of them loses that take silently, and a family
@@ -9629,6 +9667,36 @@ namespace PSXRacing.EditorTools
             Check(missingRigs == 0, "every family has a baked vendor rig", missingRigs + " missing");
             Check(missingClips == 0, "every family has every clip the vendor rig plays",
                   missingClips + " missing");
+
+            // PHASE 2: the aggressiveness pair beside the exterior takes, a
+            // cockpit set (rig + every take it plays) for every family, and
+            // the crackle one-shots.
+            int noAgg = 0, noInterior = 0, interiorClips = 0;
+            foreach (var key in families.Keys)
+            {
+                string fam = EngineVoiceLibrary.Canonical(key);
+                var rig = EngineVoiceLibrary.RigFor(fam);
+                if (rig == null) continue;
+                if (rig.aggMaster > 0f && (!ClipExists(fam, "aggressiveness_on") || !ClipExists(fam, "aggressiveness_off"))) noAgg++;
+                var inner = EngineVoiceLibrary.InteriorRigFor(fam);
+                if (inner == null) { noInterior++; continue; }
+                string idir = EngineBundleBuilder.SrcRoot + "/" + fam + "/Interior/";
+                foreach (var t in inner.hq)
+                {
+                    if (!System.IO.File.Exists(idir + t.onClip + ".ogg")) interiorClips++;
+                    if (t.offClip != null && !System.IO.File.Exists(idir + t.offClip + ".ogg")) interiorClips++;
+                }
+                foreach (var extra in new[] { "maxRPM", "intake_on", "intake_off", "aggressiveness_on", "aggressiveness_off", "startup", "engine_stop" })
+                    if (!System.IO.File.Exists(idir + extra + ".ogg")) interiorClips++;
+            }
+            Check(noAgg == 0, "every family has its aggressiveness pair", noAgg + " missing");
+            Check(noInterior == 0, "every family has a cockpit rig (interior prefab baked)", noInterior + " missing");
+            Check(interiorClips == 0, "every family has every cockpit take its rig plays", interiorClips + " missing");
+            int crackles = 0;
+            for (int i = 1; i <= EngineVoiceLibrary.CrackleCount; i++)
+                foreach (var pre in new[] { "crackle_", "crackle_int_" })
+                    if (System.IO.File.Exists(Application.dataPath + "/PSXRacing/Resources/" + EngineVoiceLibrary.CrackleRoot + pre + i.ToString("00") + ".ogg")) crackles++;
+            Check(crackles == 2 * EngineVoiceLibrary.CrackleCount, "the crackle one-shots are in Resources (outside + cockpit)", crackles);
 
             int turbo = 0, sc = 0;
             foreach (var c in CarCatalog.All)
@@ -9709,9 +9777,21 @@ namespace PSXRacing.EditorTools
                  " against an interior max of " + worstInterior.ToString("0.0000"));
         }
 
-        static bool ClipExists(string family, string clip) =>
-            System.IO.File.Exists(Application.dataPath +
-                "/PSXRacing/Resources/Engines/" + family + "/" + clip + ".ogg");
+        /// <summary>Where a family's exterior takes live: Resources for the
+        /// default, EngineSrc (bundled) for the rest; null if nowhere.</summary>
+        static string FamilyDir(string family)
+        {
+            foreach (var root in new[] { "Assets/PSXRacing/Resources/Engines/", EngineBundleBuilder.SrcRoot + "/" })
+                if (AssetDatabase.IsValidFolder(root + family) &&
+                    System.IO.File.Exists(root + family + "/idle.ogg")) return root + family;
+            return null;
+        }
+
+        static bool ClipExists(string family, string clip)
+        {
+            var dir = FamilyDir(family);
+            return dir != null && System.IO.File.Exists(dir + "/" + clip + ".ogg");
+        }
 
         /// <summary>
         /// The tuning ladder. The two things worth asserting are that it always

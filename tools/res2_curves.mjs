@@ -139,12 +139,41 @@ const BAKE_CURVES = [
   // (RealisticEngineSound.cs passes aggressivnessPitchCurve to both intake
   // DynamicSound calls). There is no intake pitch curve of its own.
   'aggressivnessPitchCurve',
+  // The aggressiveness (exhaust fx) layer itself: aggressiveness_on/off_fx
+  // under this volume curve x aggressivnessMaster (phase 2, item 3).
+  'aggressivnessVolCurve',
 ];
 const r5 = (v) => (isFinite(v) ? Math.round(v * 1e4) / 1e4 : (v > 0 ? 1e9 : -1e9));   // 1e9 = stepped key
 /** Opponents run the vendor's Medium Quality rig (idle + low/med/very_high,
  *  on-throttle takes only, the vendor's "Simulated" off-load): four voices a car. */
 const BAKE_MQ = ['idleVolCurve', 'idlePitchCurve', 'lowVolCurve', 'lowPitchCurve', 'medVolCurve', 'medPitchCurve',
   'very_highVolCurve', 'very_highPitchCurve', 'onLoadVolumeByRPM', 'offLoadVolumeByRPM'];
+
+/** The vendor's HQ INTERIOR prefab of a family (High_Interior/<Prefab>_int*). */
+export function loadInteriorHQ(name) {
+  const dir = HQ + '/High_Interior';
+  const want = name.toLowerCase() === 'v8_formula' ? 'v8_formula1_int' : name.toLowerCase() + '_int';
+  const f = fs.readdirSync(dir).find((n) => n.endsWith('.prefab') && n.toLowerCase().startsWith(want));
+  return f ? parsePrefab(dir + '/' + f) : null;
+}
+
+/** The cockpit rig: the interior prefab's level, intake level and the curves
+ *  that differ from the exterior prefab's (most are identical; the idle curve
+ *  and intakeOffVolCurve usually are not). EngineVoiceLibrary overlays these
+ *  on the exterior rig. */
+function interiorBlock(p, ip) {
+  if (!ip) return undefined;
+  const s = ip.scalars;
+  const same = (a, b) => JSON.stringify((a || []).flat().map(r5)) === JSON.stringify((b || []).flat().map(r5));
+  return {
+    prefab: path.basename(ip.file, '.prefab'),
+    masterVolume: s.masterVolume ?? 1,
+    intakeMaster: (s.enableIntakeSFX ?? 0) ? (s.intakeMaster ?? 1) : 0,
+    aggressivnessMaster: (s.enableAggressivness ?? 0) ? (s.aggressivnessMaster ?? 1) : 0,
+    curves: BAKE_CURVES.filter((n) => !same(p.curves[n], ip.curves[n]))
+      .map((n) => ({ name: n, k: (ip.curves[n] || []).flat().map(r5) })),
+  };
+}
 
 export function bake(families = Object.keys(PREFAB_OF)) {
   const out = { note: 'Baked by tools/res2_curves.mjs from the vendor HQ + MQ prefabs (RES2 Pro v2.3.1). Do not hand-edit.', families: [] };
@@ -160,11 +189,17 @@ export function bake(families = Object.keys(PREFAB_OF)) {
       revLimiterTweaker: s.revLimiterTweaker ?? 3,
       gasPedalSimSpeed: s.gasPedalSimSpeed ?? 5.5,
       intakeMaster: (s.enableIntakeSFX ?? 0) ? (s.intakeMaster ?? 1) : 0,
+      // The aggressiveness layer: its level (0 when the prefab disables it)
+      // and how far it drops while the limiter take plays.
+      aggressivnessMaster: (s.enableAggressivness ?? 0) ? (s.aggressivnessMaster ?? 1) : 0,
+      revLimiterAggressTweaker: s.revLimiterAggressTweaker ?? 2,
       // v2.3 Engine Load (adsrVol / EngineEffort)
       effortSensitivity: s.effortSensitivity ?? 1,
       sustainAdsrVol: s.sustainAdsrVol ?? 0.4,
       curves: BAKE_CURVES.map((n) => ({ name: n, k: (p.curves[n] || []).flat().map(r5) })),
       mq: BAKE_MQ.map((n) => ({ name: n, k: (mq.curves[n] || []).flat().map(r5) })),
+      // The cockpit (phase 2, item 4).
+      interior: interiorBlock(p, loadInteriorHQ(PREFAB_OF[fam])),
     });
   }
   return out;
@@ -174,8 +209,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const a = process.argv.slice(2);
   if (a[0] === '--bake') {
     const dst = path.join(REPO, 'Assets/PSXRacing/Resources/res2_rig.json');
-    const fams = fs.readdirSync(path.join(REPO, 'Assets/PSXRacing/Resources/Engines'), { withFileTypes: true })
-      .filter((e) => e.isDirectory()).map((e) => e.name).filter((f) => PREFAB_OF[f]);
+    // The default family lives in Resources/Engines, every other one in
+    // EngineSrc (built into on-demand bundles): a family is a folder with an idle take.
+    const fams = [...new Set(['Assets/PSXRacing/Resources/Engines', 'Assets/PSXRacing/EngineSrc'].flatMap((d) => {
+      const dir = path.join(REPO, d);
+      return fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && fs.existsSync(path.join(dir, e.name, 'idle.ogg'))).map((e) => e.name) : [];
+    }))].filter((f) => PREFAB_OF[f]).sort();
     const b = bake(fams);
     fs.writeFileSync(dst, JSON.stringify(b));
     console.log('wrote', dst, fs.statSync(dst).size, 'bytes,', b.families.length, 'families');

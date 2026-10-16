@@ -25,7 +25,8 @@ import { loadHQ, evalCurve, PREFAB_OF, TAKES } from './res2_curves.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
-const ENGINES = path.join(REPO, 'Assets/PSXRacing/Resources/Engines');
+const ENGINES = path.join(REPO, 'Assets/PSXRacing/Resources/Engines');   // the default family
+const ENGINE_SRC = path.join(REPO, 'Assets/PSXRacing/EngineSrc');          // every bundled family
 const SR = 44100, CH = 2, FPS = 60, DT = 1 / FPS;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * clamp(t, 0, 1);
@@ -34,13 +35,22 @@ const smooth = (c, t, tc, dt) => c + (t - c) * (1 - Math.exp(-dt / Math.max(tc, 
 
 /* ---- clips ---------------------------------------------------------------- */
 const clipCache = new Map();
-function decode(file) {
-  if (clipCache.has(file)) return clipCache.get(file);
-  if (!file || !fs.existsSync(file)) { clipCache.set(file, null); return null; }
+/** A take as the game plays it: decoded, stereo 44.1k, and through LoopSeam
+ *  (seam = false for a one-shot, which the game plays as recorded). */
+function decode(file, seam = true) {
+  const key = file + (seam ? '' : '#raw');
+  if (clipCache.has(key)) return clipCache.get(key);
+  if (!file || !fs.existsSync(file)) { clipCache.set(key, null); return null; }
   const b = execFileSync('ffmpeg', ['-v', 'error', '-i', file, '-ac', '2', '-ar', String(SR), '-f', 'f32le', '-'], { maxBuffer: 1 << 28 });
-  const x = loopSeam(new Float32Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)));
-  clipCache.set(file, x);
+  const raw = new Float32Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
+  const x = seam ? loopSeam(raw) : raw;
+  clipCache.set(key, x);
   return x;
+}
+/** Deterministic randomness for the crackle delays and picks (repeatable renders). */
+function rng(seed) {
+  let a = seed >>> 0;
+  return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
 /** LoopSeam.cs: cut where the tail best matches the head, fold the tail on. */
 function loopSeam(d) {
@@ -65,8 +75,14 @@ function loopSeam(d) {
   }
   return out;
 }
-export const oursClipPath = (fam, name) => path.join(ENGINES, fam, name + '.ogg');
-const oursClip = (fam, name) => decode(oursClipPath(fam, name));
+/** The game's own take: Resources/Engines (default family) or EngineSrc; set
+ *  'int' reads the cockpit (Interior) recordings. */
+export const oursClipPath = (fam, name, set = 'ext') => {
+  const sub = set === 'int' ? ['Interior', name + '.ogg'] : [name + '.ogg'];
+  const a = path.join(ENGINES, fam, ...sub);
+  return set !== 'int' && fs.existsSync(a) ? a : path.join(ENGINE_SRC, fam, ...sub);
+};
+const oursClip = (fam, name, set = 'ext') => decode(oursClipPath(fam, name, set));
 
 /** One AudioSource: fractional read head, linear interpolation, volume and
  *  pitch stepped once per control frame like Unity's per-frame writes. */
@@ -80,7 +96,22 @@ class Voice {
       out[0] += this.g * (this.b[i0 * 2] * (1 - f) + this.b[i1 * 2] * f);
       out[1] += this.g * (this.b[i0 * 2 + 1] * (1 - f) + this.b[i1 * 2 + 1] * f);
     }
-    this.p = (this.p + this.r) % this.n;
+    this.p = (this.p + this.r * (this.dop || 1)) % this.n;
+  }
+}
+
+/** A one-shot AudioSource: plays a buffer once from the start when fired. */
+class OneShot {
+  constructor(label) { this.b = null; this.n = 0; this.p = 0; this.g = 0; this.r = 1; this.label = label; }
+  get playing() { return this.b != null && this.p < this.n - 1; }
+  fire(buf, g, r = 1) { this.b = buf; this.n = buf ? buf.length / CH : 0; this.p = 0; this.g = g; this.r = r; }
+  set() {}
+  mix(out) {
+    if (!this.b || this.p >= this.n - 1) return;
+    const i0 = Math.floor(this.p), f = this.p - i0, i1 = i0 + 1;
+    out[0] += this.g * (this.b[i0 * 2] * (1 - f) + this.b[i1 * 2] * f);
+    out[1] += this.g * (this.b[i0 * 2 + 1] * (1 - f) + this.b[i1 * 2 + 1] * f);
+    this.p += this.r * (this.dop || 1);
   }
 }
 
@@ -290,7 +321,16 @@ export const LEVEL_GAIN = 1.0;           // EngineAudio.LevelGain
 export const NEW_CHAIN = { lowShelfDb: 0, cutDb: 0, highShelfDb: 0 };
 export const FLAT_VOICE = [1000, 0, 0];
 export function fixedRig(fam, c, opt = {}) {
-  const { F, cur } = bakedCurves(fam);
+  const { F, cur: ext } = bakedCurves(fam);
+  // The cockpit set (phase 2, item 4): the interior recordings under the
+  // interior prefab's curves (only those that differ are baked, in F.int).
+  const set = opt.set === 'int' ? 'int' : 'ext';
+  const inner = set === 'int' && F.int ? F.int : null;
+  const cur = inner ? { ...ext, ...Object.fromEntries((inner.curves || []).map((x) => {
+    const k = [], inf = (v) => (Math.abs(v) > 1e8 ? Math.sign(v) * Infinity : v);
+    for (let i = 0; i < x.k.length; i += 4) k.push([x.k[i], x.k[i + 1], inf(x.k[i + 2]), inf(x.k[i + 3])]);
+    return [x.name, k];
+  })) } : ext;
   const mq = Object.fromEntries((RIG.families.find((x) => x.family === fam).mq || []).map((x) => {
     const k = [], inf = (v) => (Math.abs(v) > 1e8 ? Math.sign(v) * Infinity : v);
     for (let i = 0; i < x.k.length; i += 4) k.push([x.k[i], x.k[i + 1], inf(x.k[i + 2]), inf(x.k[i + 3])]);
@@ -304,20 +344,35 @@ export function fixedRig(fam, c, opt = {}) {
   const names = player ? TAKES.map((t) => t[0]) : ['idle', 'low', 'med', 'very_high'];
   const takes = names.map((n) => ({
     n, vol: K[n + 'VolCurve'], pit: K[n + 'PitchCurve'],
-    on: new Voice(oursClip(fam, n === 'idle' ? 'idle' : n + '_on'), n + '_on'),
-    off: n === 'idle' || !player ? null : new Voice(oursClip(fam, n + '_off'), n + '_off'),
+    on: new Voice(oursClip(fam, n === 'idle' ? 'idle' : n + '_on', set), n + '_on'),
+    off: n === 'idle' || !player ? null : new Voice(oursClip(fam, n + '_off', set), n + '_off'),
   }));
-  const maxV = new Voice(player ? oursClip(fam, 'maxRPM') : null, 'maxRPM');
-  const inOn = new Voice(player ? oursClip(fam, 'intake_on') : null, 'intake_on');
-  const inOff = new Voice(player ? oursClip(fam, 'intake_off') : null, 'intake_off');
-  const voices = [...takes.flatMap((t) => [t.on, t.off].filter(Boolean)), maxV, inOn, inOff];
-  const gasF = clamp(0.02 * (F.gasPedalSimSpeed || 12), 0.001, 1), intakeMix = opt.intakeMix ?? 0.1;
+  const maxV = new Voice(player ? oursClip(fam, 'maxRPM', set) : null, 'maxRPM');
+  const inOn = new Voice(player ? oursClip(fam, 'intake_on', set) : null, 'intake_on');
+  const inOff = new Voice(player ? oursClip(fam, 'intake_off', set) : null, 'intake_off');
+  // EngineAudio's aggressiveness layer (phase 2, item 3): on unless opt.agg === false.
+  const aggMaster = opt.agg === false || !player ? 0 : (F.aggressivnessMaster || 0);
+  const agOn = new Voice(aggMaster ? oursClip(fam, 'aggressiveness_on', set) : null, 'agg_on');
+  const agOff = new Voice(aggMaster ? oursClip(fam, 'aggressiveness_off', set) : null, 'agg_off');
+  // EngineAudio's muffler crackle (item 3): opt.crackle = the car's level (0 = off).
+  const crackleLevel = player ? (opt.crackle || 0) : 0;
+  const crackleSrc = new OneShot('crackle');
+  const cracklePool = crackleLevel > 0 ? Array.from({ length: 12 }, (_, i) =>
+    decode(path.join(REPO, 'Assets/PSXRacing/Resources/Crackle', (set === 'int' ? 'crackle_int_' : 'crackle_') + String(i + 1).padStart(2, '0') + '.ogg'), false)).filter(Boolean) : [];
+  const rand = rng(opt.seed ?? 7);
+  let crackleCtl = 0, fireAt = -1, disarmAt = -1, t = 0;
+  const CRACKLE_VOL = [[0, 0, 1.1173617, 1.1173617], [0.8970616, 1.0023422, 0, 0], [1, 1, -0.022753645, -0.022753645]];
+  const voices = [...takes.flatMap((t) => [t.on, t.off].filter(Boolean)), maxV, inOn, inOff, agOn, agOff, crackleSrc];
+  const masterVol = (inner ? inner.masterVolume : 1) * (opt.interiorGain ?? 1);
+  const intakeMaster = inner ? inner.intakeMaster : F.intakeMaster;
+  const gasF = clamp(0.02 * (F.gasPedalSimSpeed || 12), 0.001, 1), intakeMix = set === 'int' ? 1 : (opt.intakeMix ?? 0.1);
   const EL = engineLoadV23(lim, opt.carMaxKmh || (c.topSpeedMps || 69.4) * 3.6, F.effortSensitivity || 1, F.sustainAdsrVol || 0.4);
   let load = 0, audible = c.idleRPM, lastGear = 0, shiftT = 0;
-  const level = opt.level ?? LEVEL_GAIN;
+  const level = (opt.level ?? LEVEL_GAIN) * masterVol;
   const rig = {
-    voices, name: 'fixed:' + fam, distortion: 0,
+    voices, name: 'fixed:' + fam + (set === 'int' ? ':int' : ''), distortion: 0, pops: 0,
     step(fr) {
+      t += DT;
       const raw = fr.rpm;
       if (raw >= audible || audible - raw > 5000) audible = raw; else audible = Math.max(raw, audible - 4200 * DT);
       const cv = audible / lim;
@@ -342,9 +397,29 @@ export function fixedRig(fam, c, opt = {}) {
       }
       maxV.set(mx * master, clamp(evalCurve(cur.very_highPitchCurve, cv) * rateMul, 0.05, 3));
       const ip = clamp(evalCurve(cur.aggressivnessPitchCurve, cv) * rateMul, 0.05, 3);
-      const mix = intakeMix * F.intakeMaster * onL * master;
+      const mix = intakeMix * intakeMaster * onL * master;
       inOn.set(evalCurve(cur.intakeOnVolCurve, cv) * load * mix, ip);
       inOff.set(evalCurve(cur.intakeOffVolCurve, cv) * (1 - load) * mix, ip);
+      if (aggMaster) {
+        const da = mx > 0 && mx >= 0.95 * onL ? (F.revLimiterAggressTweaker || 2) : 1;
+        const av = evalCurve(cur.aggressivnessVolCurve, cv) * master * aggMaster / da;
+        agOn.set(av * onL * load, ip);
+        agOff.set(av * offL * (1 - load), ip);
+      }
+      if (cracklePool.length) {
+        // EngineAudio.UpdateCrackle, line for line.
+        const pressing = shiftT <= 0 && fr.thr > 0.1, vol = evalCurve(CRACKLE_VOL, cv) * crackleLevel;
+        const playing = crackleSrc.playing;
+        const pop = () => { crackleSrc.fire(cracklePool[Math.floor(rand() * cracklePool.length)], vol * levelMul); rig.pops++; };
+        if (!pressing && vol > 0.09 && crackleCtl === 2 && disarmAt < 0 && !playing) {
+          const at = t + 0.1 + rand() * 0.4;
+          fireAt = fireAt < 0 ? at : Math.min(fireAt, at);
+        }
+        if (fireAt >= 0 && t >= fireAt) { fireAt = -1; if (crackleCtl !== 0 && !playing) pop(); disarmAt = t + 0.5; }
+        if (disarmAt >= 0 && t >= disarmAt) { crackleCtl = 0; disarmAt = -1; }
+        if (pressing) { if (crackleCtl !== 2) crackleCtl = 1; } else if (crackleCtl === 1) crackleCtl = 2;
+        if (evalCurve(cur.maxRPMVolCurve, cv) > 0.9 && !crackleSrc.playing) { crackleCtl = 2; pop(); }
+      }
       rig.cv = cv; rig.load = load; rig.master = master;
     },
   };
@@ -545,5 +620,140 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', wavPath, '-c:a', 'libmp3lame', '-q:a', '2', path.join(OUT, name + '.mp3')]);
     fs.unlinkSync(wavPath);
     console.log(name.padEnd(42), (x.length / 2 / SR).toFixed(1) + ' s', 'rms', rmsDb(x).toFixed(1), 'dB before normalising');
+  }
+}
+
+
+/* ---- TurboAudio.cs (Turbo aspiration), line for line ------------------------ */
+const AUDIO = path.join(REPO, 'Assets/PSXRacing/Audio');
+export function turboRig(c, opt = {}) {
+  const spool = new Voice(decode(path.join(AUDIO, 'turbo_spool.wav')), 'turbo_spool');
+  const maxL = new Voice(decode(path.join(AUDIO, 'turbo_maxloop.wav')), 'turbo_max');
+  const shot = new OneShot('bov');
+  const longs = [1, 2, 3].map((i) => decode(path.join(AUDIO, `turbo_bov_long_${i}.wav`), false));
+  const shorts = [1, 2, 3].map((i) => decode(path.join(AUDIO, `turbo_bov_short_${i}.wav`), false));
+  const rand = rng(opt.seed ?? 11);
+  const lim = c.revLimit, idle = c.idleRPM;
+  let boost = 0, prevThr = 0, cool = 0, sg = 0, mg = 0, idx = 0, lastGear = 0;
+  const sm = (cur, tgt, tc) => cur + (tgt - cur) * (1 - Math.exp(-DT / Math.max(tc, 1e-4)));
+  const fire = (pool, vol) => { idx = (idx + 1) % pool.length; shot.fire(pool[idx], vol * 0.5 * 1.6, 0.94 + rand() * 0.12); };
+  return {
+    voices: [spool, maxL, shot], name: 'turbo',
+    step(fr) {
+      const rpmNorm = clamp((fr.rpm - idle) / Math.max(lim - idle, 1), 0, 1), thr = clamp(fr.thr, 0, 1);
+      const flow = clamp((rpmNorm - 0.22) / 0.5, 0, 1), tgt = thr > 0.1 ? flow : 0;
+      const rate = tgt > boost ? 2.8 : 9.0;
+      boost = boost < tgt ? Math.min(tgt, boost + rate * DT) : Math.max(tgt, boost - rate * DT);
+      cool = Math.max(0, cool - DT);
+      if (prevThr > 0.45 && thr < 0.2 && boost > 0.3 && cool <= 0) {
+        const v = clamp((rpmNorm - 0.5) / 0.4, 0, 1);
+        if (v > 0.01) fire(rpmNorm > 0.8 ? longs : shorts, v);
+        cool = 0.6;
+      }
+      if ((fr.gear || 0) > lastGear && lastGear > 0 && cool <= 0.38) {      // upshift flutter
+        const v = clamp((rpmNorm - 0.5) / 0.4, 0, 1) * 0.55;
+        if (v > 0.01) { fire(shorts, v); cool = 0.22; }
+      }
+      lastGear = fr.gear || 0;
+      prevThr = thr;
+      const loopVol = rpmNorm <= 0.4 ? 0 : (() => { const u = clamp((rpmNorm - 0.4) / 0.6, 0, 1); return 0.353 * u * u * (3 - 2 * u); })();
+      sg = sm(sg, loopVol * 2.25 * 0.5 * Math.max(0.25, boost), 0.05);
+      spool.set(sg, 0.5 + rpmNorm);
+      const limiter = fr.rpm >= lim - 260 && fr.thr > 0.5;
+      mg = sm(mg, limiter ? 0.353 * 2.25 * 0.5 : 0, 0.08);
+      maxL.set(mg, 1);
+    },
+  };
+}
+
+/** Several rigs as one (engine + turbo), each stepping on the same frame. */
+export function layered(...rigs) {
+  const r = rigs.filter(Boolean);
+  return { voices: r.flatMap((x) => x.voices), name: r.map((x) => x.name).join('+'), distortion: 0,
+    get pops() { return r.reduce((s, x) => s + (x.pops || 0), 0); },
+    step(fr) { for (const x of r) x.step(fr); } };
+}
+
+/* ---- a replay fly-by: the car past a trackside lens -------------------------
+   The game's ReplayCamera: a HIGH lens 7 m off the road edge (6 m half-road ->
+   13 m from the line the car drives) and 3.6 m up, panning to hold the car at
+   PanLag 9/s - the AudioListener rides on that camera, so the car stays near
+   the middle of the stereo image and only leads it as it sweeps past. The
+   player's sources are full 3D there (EngineAudio.Ear.Outside): Unity's linear
+   rolloff 6..90 m, doppler 0.6 (FMOD: velocities x dopplerLevel, c = 343),
+   and an equal-power panner on the stereo takes (Web Audio's PannerNode rule
+   for a stereo input, which is what the WebGL build runs). */
+export function flybyProfile(c) {
+  const red = c.redline, lim = c.revLimit, f = [], seg = {};
+  const k4 = 175 / red;                              // km/h per rpm in 4th: ~175 km/h at redline
+  let rpm = red * 0.62, x = -100;                   // 90 m is the rolloff's silence: start just inside it
+  const push = (thr, gear = 4) => { const kmh = rpm * k4; x += kmh / 3.6 * DT; f.push({ rpm, thr, kmh, gear, x }); };
+  seg.pull = 0;
+  while (x < 15 && rpm < red * 0.99) { rpm += (red * 0.99 - red * 0.62) / 3.2 * DT; push(1); }
+  seg.lift = f.length * DT;                          // just past the lens: lift for the corner
+  for (let t = 0; t < 2.3; t += DT) { rpm = Math.max(red * 0.55, rpm - 1700 * DT); push(0); }
+  seg.end = f.length * DT;
+  f.seg = seg;
+  return f;
+}
+export function renderFlyby(rig, frames, { standoff = 13, height = 3.6, minD = 6, maxD = 90, doppler = 0.6 } = {}) {
+  const per = Math.round(SR * DT), out = new Float32Array(frames.length * per * CH);
+  const acc = [0, 0];
+  let aim = null, prevD = null;
+  const C = 343;
+  for (let fi = 0; fi < frames.length; fi++) {
+    const fr = frames[fi];
+    rig.step(fr);
+    // listener at (0, height, -standoff) looking at the car (x along the road)
+    const dx = fr.x, dz = standoff, d = Math.hypot(dx, dz, height);
+    const want = Math.atan2(dx, dz);
+    aim = aim == null ? want : aim + (want - aim) * (1 - Math.exp(-9 * DT));
+    const az = clamp(want - aim, -Math.PI / 2, Math.PI / 2);          // car's azimuth in the lens's frame
+    const gain = clamp(1 - (d - minD) / (maxD - minD), 0, 1);
+    const vr = prevD == null ? 0 : (prevD - d) / DT;                   // closing speed, m/s
+    prevD = d;
+    const dop = C / (C - clamp(vr * doppler, -C * 0.5, C * 0.5));
+    for (const v of rig.voices) v.dop = dop;
+    // Web Audio equal-power panning of a stereo input
+    const a = az * 180 / Math.PI, xp = a <= 0 ? (a + 90) / 90 : a / 90;
+    const gL = Math.cos(xp * Math.PI / 2), gR = Math.sin(xp * Math.PI / 2);
+    for (let s2 = 0; s2 < per; s2++) {
+      acc[0] = 0; acc[1] = 0;
+      for (const v of rig.voices) v.mix(acc);
+      let L, R;
+      if (a <= 0) { L = acc[0] + acc[1] * gL; R = acc[1] * gR; } else { L = acc[0] * gL; R = acc[1] + acc[0] * gR; }
+      const n = (fi * per + s2) * 2;
+      out[n] = L * gain; out[n + 1] = R * gain;
+    }
+  }
+  return out;
+}
+
+/* ---- the owner's phase-2 A/B set: node tools/audio_render_probe.mjs ab2 ----
+   Same profile as tools/audio_ab, peak-normalised to -1 dBFS, MP3 V2. The FD
+   files carry the turbo layer the game puts on it (TurboAudio). */
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url) && process.argv[2] === 'ab2') {
+  const OUT = path.join(REPO, 'tools/audio_ab2');
+  fs.mkdirSync(OUT, { recursive: true });
+  const FD = car('mazda_rx_7_type_r__fd__j___91'), ZG = car('nissan_240zg__hs30___71');
+  const kmh = (c) => ({ carMaxKmh: (c.topSpeedMps || 70) * 3.6 });
+  const FD_CRACKLE = 1.0;                              // EngineAudio.CrackleLevelFor: rotary
+  const intGain = Number(process.env.PSX_INTERIOR_GAIN || 1);
+  const only = process.argv[3] ? new Set(process.argv[3].split(',')) : null;
+  const set = [
+    ['1_FD_exterior_phase1_no_aggressiveness_no_crackle', () => render(layered(fixedRig('rotary_x7', FD, { ...kmh(FD), agg: false }), turboRig(FD)), profile(FD))],
+    ['2_FD_exterior_with_aggressiveness_and_crackle', () => render(layered(fixedRig('rotary_x7', FD, { ...kmh(FD), crackle: FD_CRACKLE }), turboRig(FD)), profile(FD))],
+    ['3_FD_interior_cockpit', () => render(layered(fixedRig('rotary_x7', FD, { ...kmh(FD), crackle: FD_CRACKLE, set: 'int', interiorGain: intGain }), turboRig(FD)), profile(FD))],
+    ['4_FD_replay_flyby_trackside_lens', () => renderFlyby(layered(fixedRig('rotary_x7', FD, { ...kmh(FD), crackle: FD_CRACKLE }), turboRig(FD)), flybyProfile(FD))],
+    ['5_240ZG_exterior_phase1', () => render(fixedRig('i6_japanese_2', ZG, { ...kmh(ZG), agg: false }), profile(ZG))],
+    ['6_240ZG_exterior_phase2_with_aggressiveness', () => render(fixedRig('i6_japanese_2', ZG, kmh(ZG)), profile(ZG))],
+  ];
+  for (const [name, fn] of set) {
+    if (only && !only.has(name.split('_')[0])) continue;
+    const x = fn(), wavPath = path.join(OUT, name + '.wav');
+    writeWav(wavPath, x, 0.891 / peakOf(x));
+    execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', wavPath, '-c:a', 'libmp3lame', '-q:a', '2', path.join(OUT, name + '.mp3')]);
+    fs.unlinkSync(wavPath);
+    console.log(name.padEnd(52), (x.length / 2 / SR).toFixed(1) + ' s', 'rms', rmsDb(x).toFixed(1), 'dB, peak', (20 * Math.log10(peakOf(x))).toFixed(1), 'dB before normalising');
   }
 }

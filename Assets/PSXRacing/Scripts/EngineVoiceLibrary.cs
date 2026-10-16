@@ -1,30 +1,74 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Networking;
 
 namespace PSXRacing
 {
     /// <summary>
-    /// The recorded engine voices, one folder per family under
-    /// Resources/Engines/. A family is a complete set of RPM-band loops taken
-    /// from one real engine; which family a car speaks through is baked into
-    /// <see cref="CarSpec.engineFamily"/> by RG2's resolver, so a 660 cc kei
-    /// car, a 13B-REW and a race V8 all arrive here as a folder name.
+    /// The recorded engine voices, one family per real engine. A family is a
+    /// complete set of rpm-band loops; which family a car speaks through is
+    /// baked into <see cref="CarSpec.engineFamily"/> by RG2's resolver, so a
+    /// 660 cc kei car, a 13B-REW and a race V8 all arrive here as a key.
     ///
-    /// Loaded lazily and cached: a race touches at most five families (player
-    /// plus four opponents), and pulling all 28 into memory on boot would cost
-    /// a few hundred megabytes of decompressed PCM for no reason. Note that
-    /// lazy LOADING does not mean lazy DOWNLOADING — everything under Resources
-    /// is packed into the WebGL data file regardless — so the size lever is the
-    /// import quality and the clip list, not this cache.
+    /// WHERE THE CLIPS LIVE (2026-10-16, engine audio phase 2). Until now every
+    /// family sat in Resources/Engines and rode in WebGL.data whether a player
+    /// ever heard it or not: ~23 MB of a data file that had reached 96.5 MB
+    /// against GitHub's hard 100 MB per-file limit. Now:
+    ///  - ONE family stays in Resources (<see cref="DefaultFamily"/>, the
+    ///    RX-7s' rotary_x7), so a car always has a voice, offline included;
+    ///  - every other family's exterior set is its own AssetBundle,
+    ///    StreamingAssets/engines/&lt;family&gt;.bundle, and every family's
+    ///    cockpit (interior) set is &lt;family&gt;_int.bundle. Both are built
+    ///    with the player by EngineBundleBuilder (from Assets/PSXRacing/
+    ///    EngineSrc, outside Resources) and versioned by content hash through
+    ///    Resources/EngineBundles.txt (the URL's ?v=, the texenhanced/cockpit
+    ///    pattern);
+    ///  - a family is fetched before it is needed (<see cref="PrefetchHandoff"/>:
+    ///    the player's car and the field, as the run is set up and again as
+    ///    the scene boots), held while a car speaks through it
+    ///    (<see cref="Acquire"/>/<see cref="Release"/>), and unloaded once
+    ///    idle and crowded out.
+    /// A family that is still downloading is <see cref="Avail.Loading"/>;
+    /// EngineAudio waits on it (a beat of silence, then the default family
+    /// quietly) and fades the real voice in when it lands. A failed fetch
+    /// (offline, 404) logs once and the car keeps the default family.
+    ///
+    /// In the editor the clips load straight from EngineSrc (no bundle build
+    /// needed for play mode); PSX_ENGINE_BUNDLE=1 or <see cref="ForceBundle"/>
+    /// takes the player's path instead.
     /// </summary>
     public static class EngineVoiceLibrary
     {
-        /// <summary>Family used when a car has no recording of its own. The
-        /// project's built-in car is an RX-7 FD, so the rotary the RX-7s now
-        /// speak through is the least surprising stand-in.</summary>
+        /// <summary>Family used when a car has no recording of its own, and
+        /// the stand-in while a car's own family downloads. The project's
+        /// built-in car is an RX-7 FD, so the rotary the RX-7s speak through is
+        /// the least surprising stand-in. The only family in Resources.</summary>
         public const string DefaultFamily = "rotary_x7";
 
         const string Root = "Engines/";
+
+        /// <summary>The two recordings of every family: from outside the car
+        /// (chase views, other cars, replays) and from the driver's seat.</summary>
+        public enum Set { Exterior = 0, Interior = 1 }
+
+        /// <summary>Where a family's clips stand. None = never asked for.</summary>
+        public enum Avail { None, Missing, Loading, Ready, Failed }
+
+        /// <summary>StreamingAssets/&lt;this&gt;/&lt;pack&gt;.bundle.</summary>
+        public const string BundleFolder = "engines";
+        /// <summary>Resources TextAsset: one line per bundle, "name hash bytes",
+        /// written by EngineBundleBuilder with the build.</summary>
+        public const string ManifestPath = "EngineBundles";
+#if UNITY_EDITOR
+        /// <summary>Where the bundled families live in the project (outside
+        /// Resources, so the main data never carries them): &lt;family&gt;/*.ogg
+        /// and &lt;family&gt;/Interior/*.ogg.</summary>
+        public const string EditorSrc = "Assets/PSXRacing/EngineSrc/";
+#endif
+
+        /// <summary>The bundle (pack) name of a family's set.</summary>
+        public static string PackName(string family, Set set) =>
+            set == Set.Interior ? family + "_int" : family;
 
         /// <summary>
         /// Catalog family keys that are played through a DIFFERENT recording.
@@ -70,14 +114,33 @@ namespace PSXRacing
             public Take[] hq, mq;
             public AnimationCurve onLoad, offLoad, mqOnLoad, mqOffLoad;
             public AnimationCurve maxRPMVol, intakeOnVol, intakeOffVol, intakePitch;
+            /// <summary>The aggressiveness (exhaust fx) layer: its volume curve
+            /// (pitch is <see cref="intakePitch"/>, the same aggressiveness
+            /// curve), level, and divisor while the limiter take plays.</summary>
+            public AnimationCurve aggVol;
+            public float aggMaster, aggTweak = 2f;
+            /// <summary>The set's own level: 1 outside, the vendor's interior
+            /// prefab masterVolume (0.6) in the cockpit.</summary>
+            public float level = 1f;
+            /// <summary>The cockpit rig (see <see cref="InteriorRigFor"/>), or null.</summary>
+            public Rig interior;
         }
 
         [System.Serializable] class CurveJ { public string name; public float[] k; }
+        /// <summary>The interior prefab's differences from the exterior one.</summary>
+        [System.Serializable] class InteriorJ
+        {
+            public string prefab;
+            public float masterVolume = 1f, intakeMaster, aggressivnessMaster;
+            public CurveJ[] curves;
+        }
         [System.Serializable] class FamilyJ
         {
+            public InteriorJ interior;
             public string family;
             public float pitchMultiplier = 1f, revLimiterTweaker = 3f, gasPedalSimSpeed = 12f;
             public float intakeMaster, effortSensitivity = 1f, sustainAdsrVol = 0.4f;
+            public float aggressivnessMaster, revLimiterAggressTweaker = 2f;
             public CurveJ[] curves, mq;
         }
         [System.Serializable] class TableJ { public FamilyJ[] families; }
@@ -136,9 +199,55 @@ namespace PSXRacing
                     // The vendor pitches the intake takes with its AGGRESSIVENESS
                     // pitch curve; there is no intake pitch curve of its own.
                     intakePitch = C(f.curves, "aggressivnessPitchCurve"),
+                    aggVol = C(f.curves, "aggressivnessVolCurve"),
+                    aggMaster = f.aggressivnessMaster,
+                    aggTweak = f.revLimiterAggressTweaker > 0f ? f.revLimiterAggressTweaker : 2f,
                 };
+                if (f.interior != null && !string.IsNullOrEmpty(f.interior.prefab))
+                    rigs[f.family].interior = Interior(rigs[f.family], f.interior);
             }
         }
+
+        /// <summary>
+        /// The cockpit rig: the vendor's HQ INTERIOR prefab of the family, which
+        /// is the exterior prefab with its own level (masterVolume 0.6), intake
+        /// level and a few curves of its own (usually the idle window and
+        /// intakeOffVolCurve) - baked as differences by tools/res2_curves.mjs.
+        /// Its intake is heard at full (the vendor's IntakeMixing is 1 inside).
+        /// </summary>
+        static Rig Interior(Rig ext, InteriorJ j)
+        {
+            AnimationCurve O(string n, AnimationCurve was)
+            {
+                if (j.curves != null) foreach (var c in j.curves) if (c.name == n) return Curve(c.k);
+                return was;
+            }
+            Take T(Take t) => new Take
+            {
+                name = t.name, onClip = t.onClip, offClip = t.offClip,
+                vol = O(t.name + "VolCurve", t.vol), pitch = O(t.name + "PitchCurve", t.pitch),
+            };
+            var r = new Rig
+            {
+                family = ext.family,
+                pitchMultiplier = ext.pitchMultiplier, revLimiterTweaker = ext.revLimiterTweaker,
+                gasPedalSimSpeed = ext.gasPedalSimSpeed, effortSensitivity = ext.effortSensitivity,
+                sustainAdsrVol = ext.sustainAdsrVol,
+                intakeMaster = j.intakeMaster, aggMaster = j.aggressivnessMaster, aggTweak = ext.aggTweak,
+                level = j.masterVolume > 0f ? j.masterVolume : 1f,
+                hq = System.Array.ConvertAll(ext.hq, T), mq = ext.mq,
+                onLoad = O("onLoadVolumeByRPM", ext.onLoad), offLoad = O("offLoadVolumeByRPM", ext.offLoad),
+                mqOnLoad = ext.mqOnLoad, mqOffLoad = ext.mqOffLoad,
+                maxRPMVol = O("maxRPMVolCurve", ext.maxRPMVol),
+                intakeOnVol = O("intakeOnVolCurve", ext.intakeOnVol), intakeOffVol = O("intakeOffVolCurve", ext.intakeOffVol),
+                intakePitch = O("aggressivnessPitchCurve", ext.intakePitch),
+                aggVol = O("aggressivnessVolCurve", ext.aggVol),
+            };
+            return r;
+        }
+
+        /// <summary>The cockpit rig of a family, or null when it has none.</summary>
+        public static Rig InteriorRigFor(string family) => RigFor(family)?.interior;
 
         /// <summary>Flat [time, value, inSlope, outSlope]* keys -> a Unity curve,
         /// so it is evaluated by the same Hermite code the vendor's prefab is.
@@ -160,47 +269,387 @@ namespace PSXRacing
             return c;
         }
 
+        // ------------------------------------------------------------------
+        //  The bundles
+        // ------------------------------------------------------------------
+
+        /// <summary>One fetched set: a family's exterior or interior bundle.</summary>
+        sealed class Pack
+        {
+            public string name;
+            public Avail state;
+            public AssetBundle bundle;
+            public int refs;
+            public float idleSince, requestedAt;
+            public readonly Dictionary<string, AudioClip> clips = new Dictionary<string, AudioClip>();
+        }
+
+        static readonly Dictionary<string, Pack> packs = new Dictionary<string, Pack>();
+        static Dictionary<string, string> manifest;
+        static readonly HashSet<string> failLogged = new HashSet<string>();
+        /// <summary>Idle packs (no car speaking through them) kept loaded so a
+        /// restart or the next race does not download them again; beyond this
+        /// the longest-idle is unloaded. A race touches the player's family,
+        /// up to seven opponents' and maybe the cockpit set.</summary>
+        const int MaxIdlePacks = 6;
+
+#if UNITY_EDITOR
+        /// <summary>Editor play: fetch the bundles from StreamingAssets the way
+        /// a player does, instead of reading EngineSrc.</summary>
+        public static bool ForceBundle;
+        /// <summary>Editor tests: fetch "&lt;this&gt;/&lt;pack&gt;.bundle" (a
+        /// file:/// folder URL) instead of StreamingAssets/engines.</summary>
+        public static string UrlOverride;
+        /// <summary>Editor tests: this pack reports Loading for this long
+        /// after it is asked for (a slow network, to exercise the stand-in).</summary>
+        public static string DebugSlowPack;
+        public static float DebugSlowSeconds;
+        static bool UseBundle => Application.isPlaying &&
+            (ForceBundle || System.Environment.GetEnvironmentVariable("PSX_ENGINE_BUNDLE") == "1");
+#else
+        static bool UseBundle => true;
+#endif
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void ResetStatics()
+        {
+            // Play mode without a domain reload: a fetch state must not
+            // outlive its bundle.
+            foreach (var p in packs.Values)
+                if (p.bundle == null && p.state != Avail.Ready) p.state = Avail.None;
+            failLogged.Clear();
+        }
+
+        /// <summary>Bundle name -> content hash, from Resources/EngineBundles.txt.</summary>
+        static Dictionary<string, string> Manifest
+        {
+            get
+            {
+                if (manifest != null) return manifest;
+                manifest = new Dictionary<string, string>();
+                var ta = Resources.Load<TextAsset>(ManifestPath);
+                if (ta == null) return manifest;
+                foreach (var raw in ta.text.Split('\n'))
+                {
+                    var line = raw.Trim();
+                    if (line.Length == 0 || line[0] == '#') continue;
+                    var f = line.Split(' ');
+                    manifest[f[0]] = f.Length > 1 ? f[1] : "";
+                }
+                return manifest;
+            }
+        }
+
+        /// <summary>Does this family's set exist at all (in Resources, in the
+        /// build's bundle list, or in the editor's EngineSrc)?</summary>
+        public static bool Exists(string family, Set set)
+        {
+            if (string.IsNullOrEmpty(family)) return false;
+            if (set == Set.Exterior && family == DefaultFamily) return true;
+            if (!UseBundle)
+            {
+#if UNITY_EDITOR
+                return UnityEditor.AssetDatabase.IsValidFolder(
+                    EditorSrc + family + (set == Set.Interior ? "/Interior" : ""));
+#else
+                return false;
+#endif
+            }
+            return Manifest.ContainsKey(PackName(family, set));
+        }
+
+        /// <summary>Does this family have a recording? Cheap enough to call per
+        /// car (no download, no load).</summary>
+        public static bool Has(string family) => Exists(family, Set.Exterior);
+
+        /// <summary>Where a family's set stands right now.</summary>
+        public static Avail State(string family, Set set)
+        {
+            if (!Exists(family, set)) return Avail.Missing;
+            if (set == Set.Exterior && family == DefaultFamily) return Avail.Ready;
+            if (!UseBundle) return Avail.Ready;
+            if (!packs.TryGetValue(PackName(family, set), out var p)) return Avail.None;
+#if UNITY_EDITOR
+            if (p.state == Avail.Ready && p.name == DebugSlowPack &&
+                Time.realtimeSinceStartup < p.requestedAt + DebugSlowSeconds) return Avail.Loading;
+#endif
+            return p.state;
+        }
+
+        public static bool Ready(string family, Set set) => State(family, set) == Avail.Ready;
+
+        /// <summary>The bundle URL: StreamingAssets beside the page, with the
+        /// bundle's content hash as ?v= over http so a cached older bundle is
+        /// never reused.</summary>
+        public static string BundleUrl(string pack)
+        {
+#if UNITY_EDITOR
+            if (!string.IsNullOrEmpty(UrlOverride)) return UrlOverride.TrimEnd('/') + "/" + pack + ".bundle";
+#endif
+            string url = Application.streamingAssetsPath + "/" + BundleFolder + "/" + pack + ".bundle";
+            if (url.Contains("://"))
+            {
+                if (url.StartsWith("http") && Manifest.TryGetValue(pack, out var v) && !string.IsNullOrEmpty(v))
+                    url += "?v=" + v;
+                return url;
+            }
+            return "file:///" + url.TrimStart('/');
+        }
+
+        /// <summary>Start fetching a family's set if it is not here yet. Safe
+        /// to call every frame, from anywhere, before anything is loaded; never
+        /// throws. A failed fetch is not retried (it logs once).</summary>
+        public static void Request(string family, Set set)
+        {
+            try
+            {
+                if (!UseBundle || !Exists(family, set)) return;
+                if (set == Set.Exterior && family == DefaultFamily) return;
+                string name = PackName(family, set);
+                if (!packs.TryGetValue(name, out var p)) packs[name] = p = new Pack { name = name, idleSince = Time.realtimeSinceStartup };
+                if (p.state != Avail.None) return;
+                p.state = Avail.Loading;
+                p.requestedAt = Time.realtimeSinceStartup;
+                string url = BundleUrl(name);
+                float t0 = Time.realtimeSinceStartup;
+                var req = UnityWebRequestAssetBundle.GetAssetBundle(url);
+                req.SendWebRequest().completed += _ => OnBundle(p, req, url, t0);
+            }
+            catch (System.Exception e)
+            {
+                Fail(PackName(family, set), "request: " + e.Message);
+            }
+        }
+
+        static void OnBundle(Pack p, UnityWebRequest req, string url, float t0)
+        {
+            AssetBundle b = null;
+            string err = null;
+            ulong bytes = 0;
+            try
+            {
+                bytes = req.downloadedBytes;
+                if (req.result == UnityWebRequest.Result.Success) b = DownloadHandlerAssetBundle.GetContent(req);
+                else err = req.error;
+            }
+            catch (System.Exception e) { err = e.Message; }
+            finally { req.Dispose(); }
+
+            if (p.state != Avail.Loading)
+            {
+                // Forgotten while in flight (play mode ended).
+                if (b != null) b.Unload(true);
+                return;
+            }
+            if (b == null) { Fail(p.name, url + ": " + (err ?? "not an AssetBundle")); return; }
+            p.bundle = b;
+            p.state = Avail.Ready;
+            Debug.Log($"[Engines] {p.name} ready: {bytes / 1024f:F0} KB in {Time.realtimeSinceStartup - t0:F2} s");
+            Trim();
+        }
+
+        static void Fail(string name, string why)
+        {
+            if (!packs.TryGetValue(name, out var p)) packs[name] = p = new Pack { name = name };
+            p.state = Avail.Failed;
+            if (failLogged.Add(name))
+                Debug.LogWarning("[Engines] " + name + " is unavailable (" + why + ") - the car keeps the default voice");
+        }
+
+        /// <summary>A car speaks through this set: keep it loaded.</summary>
+        public static void Acquire(string family, Set set)
+        {
+            if (packs.TryGetValue(PackName(family, set), out var p)) p.refs++;
+        }
+
+        /// <summary>The car no longer speaks through this set. It stays
+        /// loaded while there is room (<see cref="MaxIdlePacks"/>).</summary>
+        public static void Release(string family, Set set)
+        {
+            if (!packs.TryGetValue(PackName(family, set), out var p) || p.refs <= 0) return;
+            if (--p.refs == 0) { p.idleSince = Time.realtimeSinceStartup; Trim(); }
+        }
+
+        /// <summary>Unload the longest-idle packs beyond the idle allowance.
+        /// Only packs no car is using; their repaired loop copies go too.</summary>
+        static void Trim()
+        {
+            try
+            {
+                var idle = new List<Pack>();
+                foreach (var p in packs.Values)
+                    if (p.state == Avail.Ready && p.refs == 0 && p.bundle != null) idle.Add(p);
+                if (idle.Count <= MaxIdlePacks) return;
+                idle.Sort((a, b) => a.idleSince.CompareTo(b.idleSince));
+                for (int i = 0; i < idle.Count - MaxIdlePacks; i++)
+                {
+                    var p = idle[i];
+                    foreach (var c in p.clips.Values) LoopSeam.Forget(c);
+                    p.clips.Clear();
+                    p.bundle.Unload(true);
+                    p.bundle = null;
+                    p.state = Avail.None;
+                }
+            }
+            catch (System.Exception e) { Debug.LogWarning("[Engines] trim: " + e.Message); }
+        }
+
+        /// <summary>Loaded sets no car is speaking through (tests: never above
+        /// the idle allowance once the downloads settle).</summary>
+        public static int IdleLoaded
+        {
+            get
+            {
+                int n = 0;
+                foreach (var p in packs.Values) if (p.state == Avail.Ready && p.refs == 0 && p.bundle != null) n++;
+                return n;
+            }
+        }
+        public const int IdleAllowance = MaxIdlePacks;
+
+        /// <summary>How many sets are loaded / in use (logs and tests).</summary>
+        public static string Census()
+        {
+            int ready = 0, used = 0, loading = 0, failed = 0;
+            foreach (var p in packs.Values)
+            {
+                if (p.state == Avail.Ready) { ready++; if (p.refs > 0) used++; }
+                else if (p.state == Avail.Loading) loading++;
+                else if (p.state == Avail.Failed) failed++;
+            }
+            return $"{ready} loaded ({used} in use), {loading} loading, {failed} failed";
+        }
+
+        // ------------------------------------------------------------------
+        //  Prefetch
+        // ------------------------------------------------------------------
+
+        /// <summary>Fetch a family's exterior set ahead of need.</summary>
+        public static void Prefetch(string family)
+        {
+            family = Canonical(family);
+            if (!string.IsNullOrEmpty(family)) Request(family, Set.Exterior);
+        }
+
+        /// <summary>Fetch the family a catalog car speaks through.</summary>
+        public static void PrefetchSpec(string specId)
+        {
+            try
+            {
+                var spec = string.IsNullOrEmpty(specId) ? null : CarCatalog.Get(specId.Trim());
+                if (spec != null) Prefetch(Resolve(spec));
+            }
+            catch (System.Exception e) { Debug.LogWarning("[Engines] prefetch " + specId + ": " + e.Message); }
+        }
+
+        /// <summary>Fetch every family the run being set up will need: the
+        /// player's car and the field (RaceHandoff). Called as the run is
+        /// arranged (the car request, the field pick) and again as the scene
+        /// boots (RaceHandoffApplier.Awake), so the bundles are usually in
+        /// before the countdown's first engine fires.</summary>
+        public static void PrefetchHandoff()
+        {
+            PrefetchSpec(RaceHandoff.CarSpecId);
+            var ids = RaceHandoff.OpponentSpecIds;
+            if (string.IsNullOrEmpty(ids)) return;
+            foreach (var id in ids.Split(';')) if (id.Trim().Length > 0) PrefetchSpec(id);
+        }
+
+        // ------------------------------------------------------------------
+        //  Muffler crackle (phase 2, item 3)
+        // ------------------------------------------------------------------
+
+        /// <summary>Resources folder of the universal crackle one-shots: twelve
+        /// of the vendor's short muffler crackles (Random_ShortMufflerCrackle)
+        /// as crackle_01..12, and their interior recordings as
+        /// crackle_int_01..12. A few hundred KB, so they ride in main data.</summary>
+        public const string CrackleRoot = "Crackle/";
+        public const int CrackleCount = 12;
+        static AudioClip[] crackles, cracklesInt;
+
+        /// <summary>The crackle pool (the interior recordings for the cockpit),
+        /// asked to decode on first use. Empty, never null, if they are missing.</summary>
+        public static AudioClip[] Crackles(bool interior)
+        {
+            ref var pool = ref interior ? ref cracklesInt : ref crackles;
+            if (pool != null) return pool;
+            var list = new List<AudioClip>(CrackleCount);
+            for (int i = 1; i <= CrackleCount; i++)
+            {
+                var c = Resources.Load<AudioClip>(CrackleRoot + (interior ? "crackle_int_" : "crackle_") + i.ToString("00"));
+                if (c == null) continue;
+                if (c.loadState == AudioDataLoadState.Unloaded) c.LoadAudioData();
+                list.Add(c);
+            }
+            pool = list.ToArray();
+            return pool;
+        }
+
+        // ------------------------------------------------------------------
+        //  Clips
+        // ------------------------------------------------------------------
+
         static readonly Dictionary<string, AudioClip> cache =
             new Dictionary<string, AudioClip>();
         static readonly HashSet<string> knownMissing = new HashSet<string>();
 
         /// <summary>
-        /// Load one take. Returns null when the family was not imported, which
-        /// every caller treats as "skip this layer" rather than as an error —
-        /// a family missing its intake takes should still drive.
+        /// Load one take. Null when the set is not here (yet) or the take does
+        /// not exist, which every caller treats as "skip this layer" rather than
+        /// as an error — a family missing its intake takes should still drive.
+        /// Callers wait for <see cref="Ready"/> before building a voice.
         /// </summary>
-        public static AudioClip Clip(string family, string clip)
+        public static AudioClip Clip(string family, string clip, Set set = Set.Exterior)
         {
             if (string.IsNullOrEmpty(family) || string.IsNullOrEmpty(clip)) return null;
-            string path = Root + family + "/" + clip;
-            if (cache.TryGetValue(path, out var hit)) return hit;
+            AudioClip loaded;
+            if (set == Set.Exterior && family == DefaultFamily)
+            {
+                string path = Root + family + "/" + clip;
+                if (cache.TryGetValue(path, out var hit)) return hit;
+                loaded = Resources.Load<AudioClip>(path);
+                cache[path] = loaded;
+            }
+            else if (!UseBundle)
+            {
+#if UNITY_EDITOR
+                string path = EditorSrc + family + (set == Set.Interior ? "/Interior/" : "/") + clip + ".ogg";
+                if (cache.TryGetValue(path, out var hit)) return hit;
+                loaded = UnityEditor.AssetDatabase.LoadAssetAtPath<AudioClip>(path);
+                cache[path] = loaded;
+#else
+                return null;
+#endif
+            }
+            else
+            {
+                if (!packs.TryGetValue(PackName(family, set), out var p) || p.state != Avail.Ready || p.bundle == null)
+                    return null;
+                if (p.clips.TryGetValue(clip, out var hit)) return hit;
+                try { loaded = p.bundle.LoadAsset<AudioClip>(clip); }
+                catch (System.Exception e) { Debug.LogWarning("[Engines] " + p.name + "/" + clip + ": " + e.Message); loaded = null; }
+                p.clips[clip] = loaded;
+            }
 
-            var loaded = Resources.Load<AudioClip>(path);
-            // The engine clips import with preloadAudioData off — 560 clips of
-            // decompressed PCM on scene load would be hundreds of megabytes in a
-            // browser tab. Resources.Load therefore hands back an asset with no
-            // sample data, and an AudioSource pointed at one plays silence.
-            // Pulling it here (blocking, loadInBackground is off on these) means
-            // a family is ready the moment it is selected, and only the four or
-            // five families a race actually uses ever get decompressed.
-            if (loaded != null && loaded.loadState != AudioDataLoadState.Loaded)
+            // The engine clips import with preloadAudioData off — a family of
+            // decompressed PCM on load would be megabytes per car nobody hears.
+            // The load therefore hands back an asset with no sample data, and a
+            // source pointed at one plays silence: ask for it here (on WebGL
+            // the browser decodes asynchronously; AudioLoopStarter waits on it),
+            // so only the takes a car actually plays are ever decoded.
+            if (loaded != null && loaded.loadState == AudioDataLoadState.Unloaded)
                 loaded.LoadAudioData();
-            cache[path] = loaded;
-            if (loaded == null && knownMissing.Add(family))
-                Debug.LogWarning("EngineVoiceLibrary: no clips for family '" + family +
-                                 "' (looked under Resources/" + Root + family + "). " +
-                                 "Re-run the engine pack importer.");
+            if (loaded == null && clip == "idle" && knownMissing.Add(family + "/" + set))
+                Debug.LogWarning("EngineVoiceLibrary: no idle take for '" + family + "' (" + set + ")");
             return loaded;
         }
-
-        /// <summary>Does this family have at least its idle take? Cheap enough to
-        /// call per car; the result is cached by <see cref="Clip"/>.</summary>
-        public static bool Has(string family) => Clip(family, "idle") != null;
 
         /// <summary>
         /// The family a spec should speak through, after falling back. Kept in
         /// one place so the builder, the race applier and any future audio probe
-        /// cannot disagree about what a given car sounds like.
+        /// cannot disagree about what a given car sounds like. A family that
+        /// exists but is still downloading resolves to ITSELF: EngineAudio
+        /// stands in for it until it lands.
         /// </summary>
         public static string Resolve(CarSpec spec)
         {

@@ -53,4 +53,7 @@ __pycache__/
 # The owner's v08 cockpit, the same way (Editor/CockpitBundle.cs).
 /Assets/StreamingAssets/cockpit.bundle
 /Assets/StreamingAssets/cockpit.bundle.meta
+# The engine families, one bundle per family and set (Editor/EngineBundleBuilder.cs).
+/Assets/StreamingAssets/engines/
+/Assets/StreamingAssets/engines.meta
 /Assets/StreamingAssets.meta

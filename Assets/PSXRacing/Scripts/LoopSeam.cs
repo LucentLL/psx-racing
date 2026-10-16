@@ -110,6 +110,19 @@ namespace PSXRacing
             return made != null ? made : src;
         }
 
+        /// <summary>Drop the repaired copy of <paramref name="src"/> (an engine
+        /// family's bundle is about to be unloaded, which destroys the source
+        /// clip; the copy is a separate PCM clip and would otherwise outlive it
+        /// as a leak). Safe on a clip that was never repaired.</summary>
+        public static void Forget(AudioClip src)
+        {
+            if (ReferenceEquals(src, null) || !cache.TryGetValue(src, out var hit)) return;
+            cache.Remove(src);
+            if (hit == null || ReferenceEquals(hit, src)) return;
+            if (Application.isPlaying) Object.Destroy(hit);
+            else Object.DestroyImmediate(hit);
+        }
+
         static AudioClip Build(AudioClip src)
         {
             int n = src.samples, ch = src.channels, freq = src.frequency;

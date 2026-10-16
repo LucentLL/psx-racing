@@ -151,13 +151,37 @@ namespace PSXRacing
 
         void Configure(AudioSource src)
         {
-            src.spatialBlend = spatial ? 1f : 0f;
             if (spatial)
             {
+                src.spatialBlend = 1f;
                 src.rolloffMode = AudioRolloffMode.Linear;
-                src.maxDistance = 70f;
-                src.minDistance = 5f;
+                src.maxDistance = MaxDistance;
+                src.minDistance = MinDistance;
+                return;
             }
+            EngineAudio.ApplyPlayerSpatial(src, blendNow >= 0f ? blendNow : EngineAudio.BlendFor(ear), ear,
+                                           MinDistance, MaxDistance, EngineAudio.OutsideDoppler);
+        }
+
+        const float MinDistance = 5f, MaxDistance = 70f;
+        EngineAudio.Ear ear = EngineAudio.Ear.Chase;
+        float blendNow = -1f;
+
+        /// <summary>The turbo sits on top of the engine, so it follows the
+        /// engine's rule (EngineAudio.Ear): a fly-by past a trackside lens
+        /// whooshes past with the engine instead of staying in the camera.</summary>
+        void UpdateSpatial(float dt)
+        {
+            if (spatial) return;
+            var e = EngineAudio.EarFor(car);
+            float target = EngineAudio.BlendFor(e);
+            if (blendNow < 0f) blendNow = target;
+            float nb = Mathf.MoveTowards(blendNow, target, dt / EngineAudio.BlendSeconds);
+            if (e == ear && Mathf.Abs(nb - blendNow) < 1e-4f) return;
+            ear = e;
+            blendNow = nb;
+            foreach (var s in new[] { spoolSrc, maxSrc, shotSrc, blowerOnSrc, blowerOffSrc })
+                if (s != null) Configure(s);
         }
 
         void Update()
@@ -165,6 +189,7 @@ namespace PSXRacing
             if (car == null || aspiration == Aspiration.NaturallyAspirated) return;
             float dt = Time.deltaTime;
             if (dt <= 0f) return;
+            UpdateSpatial(dt);
 
             float rpmNorm = Mathf.Clamp01(
                 (car.currentRPM - car.idleRPM) / Mathf.Max(car.revLimitRPM - car.idleRPM, 1f));

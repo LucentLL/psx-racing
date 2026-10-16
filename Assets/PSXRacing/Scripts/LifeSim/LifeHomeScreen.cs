@@ -197,6 +197,9 @@ namespace PSXRacing.LifeSim
             // player who quits between the two steps has a save with no car.
             // Resume them at the step they left rather than at a broken home.
             if (S.cars.Count == 0) { BuildCarPick(); return; }
+            // The active car's engine family (an on-demand bundle) downloads
+            // while the player is in the menu.
+            if (S.ActiveCar != null) EngineVoiceLibrary.PrefetchSpec(S.ActiveCar.specId);
 
             // Back from a TEST DRIVE, which is not a race and must not be
             // banked as one.
@@ -7752,6 +7755,10 @@ namespace PSXRacing.LifeSim
             // rest of the career otherwise, since raising it is a state and not
             // an errand.
             Toolbox.SetRaise(S, car, Toolbox.Raise.Ground);
+
+            // The car's engine family is an on-demand bundle: start it now,
+            // while the scene loads, rather than at the countdown.
+            if (car != null) EngineVoiceLibrary.PrefetchSpec(car.specId);
         }
 
         /// <summary>
