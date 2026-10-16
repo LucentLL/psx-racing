@@ -284,7 +284,7 @@ export function bakedCurves(fam) {
 /** EngineAudio.cs (vendor rig) mirrored line for line. opt.player=false is the
  *  opponents' Medium Quality rig with the vendor's "Simulated" off-load. */
 /** EngineVoiceLibrary.Alias */
-export const canonical = (fam) => ({ rotary_x7: 'rotary_x8_free' })[fam] || fam;
+export const canonical = (fam) => fam;   // EngineVoiceLibrary.Alias is empty since the owner chose x7
 export const LEVEL_GAIN = 1.0;           // EngineAudio.LevelGain
 /** AudioToneChain since 2026-10-16: the five middle stages at 0 dB. */
 export const NEW_CHAIN = { lowShelfDb: 0, cutDb: 0, highShelfDb: 0 };

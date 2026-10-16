@@ -22,7 +22,7 @@ namespace PSXRacing
         /// <summary>Family used when a car has no recording of its own. The
         /// project's built-in car is an RX-7 FD, so the rotary the RX-7s now
         /// speak through is the least surprising stand-in.</summary>
-        public const string DefaultFamily = "rotary_x8_free";
+        public const string DefaultFamily = "rotary_x7";
 
         const string Root = "Engines/";
 
@@ -32,18 +32,14 @@ namespace PSXRacing
         /// from there, so a voice decision made here has to survive a re-bake —
         /// hence a table rather than an edit to rg2_cars.json.
         ///
-        /// rotary_x7 -> rotary_x8_free (all 13 RX-7s, FC and FD): the owner's
-        /// reference for a correct rotary is the vendor's own Rotary_x8_Free
-        /// rig. Measured through the vendor rig on the same FD profile
-        /// (tools/rotary_family_pick.mjs), NO other pack on disk comes close to
-        /// it: rotary_x7 sits 5.4 dB from it in octave balance and 3.1 st off in
-        /// steady-rpm spectra (r 0.74); x8_2 r 0.80 but 6.5 dB; x8_1 6.6 dB /
-        /// 6.3 st; 4-rotor 10.3 dB.
+        /// Empty today. The RX-7s were briefly aliased rotary_x7 -> rotary_x8_free
+        /// (closest to the owner's x8 reference: x7 sits 5.4 dB / 3.1 st from it),
+        /// but once x7 played at its true pitch through the vendor rig the owner
+        /// chose it (2026-10-16: "We can use the proper X7 sfx for RX7s") for its
+        /// growlier idle. The old ladder had x7 4-11 st sharp, which is what
+        /// made it sound wrong.
         /// </summary>
-        static readonly Dictionary<string, string> Alias = new Dictionary<string, string>
-        {
-            { "rotary_x7", "rotary_x8_free" },
-        };
+        static readonly Dictionary<string, string> Alias = new Dictionary<string, string>();
 
         public static string Canonical(string family) =>
             family != null && Alias.TryGetValue(family, out var to) ? to : family;
