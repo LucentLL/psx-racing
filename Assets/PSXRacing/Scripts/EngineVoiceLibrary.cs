@@ -114,6 +114,11 @@ namespace PSXRacing
             public Take[] hq, mq;
             public AnimationCurve onLoad, offLoad, mqOnLoad, mqOffLoad;
             public AnimationCurve maxRPMVol, intakeOnVol, intakeOffVol, intakePitch;
+            /// <summary>The aggressiveness (exhaust fx) layer: its volume curve
+            /// (pitch is <see cref="intakePitch"/>, the same aggressiveness
+            /// curve), level, and divisor while the limiter take plays.</summary>
+            public AnimationCurve aggVol;
+            public float aggMaster, aggTweak = 2f;
         }
 
         [System.Serializable] class CurveJ { public string name; public float[] k; }
@@ -122,6 +127,7 @@ namespace PSXRacing
             public string family;
             public float pitchMultiplier = 1f, revLimiterTweaker = 3f, gasPedalSimSpeed = 12f;
             public float intakeMaster, effortSensitivity = 1f, sustainAdsrVol = 0.4f;
+            public float aggressivnessMaster, revLimiterAggressTweaker = 2f;
             public CurveJ[] curves, mq;
         }
         [System.Serializable] class TableJ { public FamilyJ[] families; }
@@ -180,6 +186,9 @@ namespace PSXRacing
                     // The vendor pitches the intake takes with its AGGRESSIVENESS
                     // pitch curve; there is no intake pitch curve of its own.
                     intakePitch = C(f.curves, "aggressivnessPitchCurve"),
+                    aggVol = C(f.curves, "aggressivnessVolCurve"),
+                    aggMaster = f.aggressivnessMaster,
+                    aggTweak = f.revLimiterAggressTweaker > 0f ? f.revLimiterAggressTweaker : 2f,
                 };
             }
         }
@@ -488,6 +497,36 @@ namespace PSXRacing
             var ids = RaceHandoff.OpponentSpecIds;
             if (string.IsNullOrEmpty(ids)) return;
             foreach (var id in ids.Split(';')) if (id.Trim().Length > 0) PrefetchSpec(id);
+        }
+
+        // ------------------------------------------------------------------
+        //  Muffler crackle (phase 2, item 3)
+        // ------------------------------------------------------------------
+
+        /// <summary>Resources folder of the universal crackle one-shots: twelve
+        /// of the vendor's short muffler crackles (Random_ShortMufflerCrackle)
+        /// as crackle_01..12, and their interior recordings as
+        /// crackle_int_01..12. A few hundred KB, so they ride in main data.</summary>
+        public const string CrackleRoot = "Crackle/";
+        public const int CrackleCount = 12;
+        static AudioClip[] crackles, cracklesInt;
+
+        /// <summary>The crackle pool (the interior recordings for the cockpit),
+        /// asked to decode on first use. Empty, never null, if they are missing.</summary>
+        public static AudioClip[] Crackles(bool interior)
+        {
+            ref var pool = ref interior ? ref cracklesInt : ref crackles;
+            if (pool != null) return pool;
+            var list = new List<AudioClip>(CrackleCount);
+            for (int i = 1; i <= CrackleCount; i++)
+            {
+                var c = Resources.Load<AudioClip>(CrackleRoot + (interior ? "crackle_int_" : "crackle_") + i.ToString("00"));
+                if (c == null) continue;
+                if (c.loadState == AudioDataLoadState.Unloaded) c.LoadAudioData();
+                list.Add(c);
+            }
+            pool = list.ToArray();
+            return pool;
         }
 
         // ------------------------------------------------------------------

@@ -1269,6 +1269,9 @@ namespace PSXRacing.EditorTools
             // The generated wind beds (tools/gen_wind.mjs): two short mono
             // loops the player's WindAudio loads itself, core settings.
             ConfigureAudioFolder(Root + "/Resources/Sfx", 1.0f, true);
+            // The muffler crackle one-shots (EngineAudio): short transients,
+            // 160 kbps on WebGL, decoded when the player's car first pops.
+            ConfigureAudioFolder(Root + "/Resources/Crackle", 0.6f, false);
             Log($"Configured {core} core audio importers (Vorbis q1.0, preloaded) and " +
                 $"{engines} engine-family clips (Vorbis q{EngineClipQuality:0.00}, load-on-demand).");
         }

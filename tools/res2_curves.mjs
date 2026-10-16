@@ -139,6 +139,9 @@ const BAKE_CURVES = [
   // (RealisticEngineSound.cs passes aggressivnessPitchCurve to both intake
   // DynamicSound calls). There is no intake pitch curve of its own.
   'aggressivnessPitchCurve',
+  // The aggressiveness (exhaust fx) layer itself: aggressiveness_on/off_fx
+  // under this volume curve x aggressivnessMaster (phase 2, item 3).
+  'aggressivnessVolCurve',
 ];
 const r5 = (v) => (isFinite(v) ? Math.round(v * 1e4) / 1e4 : (v > 0 ? 1e9 : -1e9));   // 1e9 = stepped key
 /** Opponents run the vendor's Medium Quality rig (idle + low/med/very_high,
@@ -160,6 +163,10 @@ export function bake(families = Object.keys(PREFAB_OF)) {
       revLimiterTweaker: s.revLimiterTweaker ?? 3,
       gasPedalSimSpeed: s.gasPedalSimSpeed ?? 5.5,
       intakeMaster: (s.enableIntakeSFX ?? 0) ? (s.intakeMaster ?? 1) : 0,
+      // The aggressiveness layer: its level (0 when the prefab disables it)
+      // and how far it drops while the limiter take plays.
+      aggressivnessMaster: (s.enableAggressivness ?? 0) ? (s.aggressivnessMaster ?? 1) : 0,
+      revLimiterAggressTweaker: s.revLimiterAggressTweaker ?? 2,
       // v2.3 Engine Load (adsrVol / EngineEffort)
       effortSensitivity: s.effortSensitivity ?? 1,
       sustainAdsrVol: s.sustainAdsrVol ?? 0.4,

@@ -75,7 +75,7 @@ namespace PSXRacing
             public bool fromPack;
             public EngineVoiceLibrary.Rig rig;
             public Voice[] voices;
-            public AudioSource maxRpm, intakeOn, intakeOff;
+            public AudioSource maxRpm, intakeOn, intakeOff, aggOn, aggOff;
             public AudioClip startup, engineStop;
             public GameObject root;
             /// <summary>Every source of the set, for the spatial updates.</summary>
@@ -223,6 +223,7 @@ namespace PSXRacing
             lopeOrder = spec.lopeOrder > 0f ? spec.lopeOrder : 0.5f;
             lopeFadeTop = spec.lopeFadeTop;
             lopePhaseSeed = spec.lopePhase;
+            crackleLevel = CrackleLevelFor(spec, EngineVoiceLibrary.Resolve(spec));
         }
 
         // ------------------------------------------------------------------
@@ -327,6 +328,13 @@ namespace PSXRacing
                 s.maxRpm = MakeLoop(s, EngineVoiceLibrary.Clip(fam, "maxRPM", set), "maxRPM");
                 s.intakeOn = MakeLoop(s, EngineVoiceLibrary.Clip(fam, "intake_on", set), "intake_on");
                 s.intakeOff = MakeLoop(s, EngineVoiceLibrary.Clip(fam, "intake_off", set), "intake_off");
+                // The exhaust "fx" layer (phase 2, item 3): what the owner
+                // missed on the FD - "not as airy as a real exhaust".
+                if (rig.aggMaster > 0f)
+                {
+                    s.aggOn = MakeLoop(s, EngineVoiceLibrary.Clip(fam, "aggressiveness_on", set), "aggressiveness_on");
+                    s.aggOff = MakeLoop(s, EngineVoiceLibrary.Clip(fam, "aggressiveness_off", set), "aggressiveness_off");
+                }
             }
             s.startup = EngineVoiceLibrary.Clip(fam, "startup", set);
             s.engineStop = EngineVoiceLibrary.Clip(fam, "engine_stop", set);
@@ -472,6 +480,7 @@ namespace PSXRacing
             ear = e;
             blendNow = nb;
             ApplyPlayerSpatial(oneShotSrc, blendNow, ear, OutsideMinDistance, spatialMaxDistance, OutsideDoppler);
+            ApplyPlayerSpatial(crackleSrc, blendNow, ear, OutsideMinDistance, spatialMaxDistance, OutsideDoppler);
             ApplySet(live);
             ApplySet(fading);
         }
@@ -568,6 +577,7 @@ namespace PSXRacing
             float rate = voiceRateMul * lopeWobble;
             Mix(live, cv, master, rate);
             if (fading != null) Mix(fading, cv, master, rate);
+            UpdateCrackle(live, cv, master, shiftLiftTimer > 0f);
         }
 
         /// <summary>One voice set through the vendor's arithmetic, at its fade gain.</summary>
@@ -617,6 +627,133 @@ namespace PSXRacing
                 Apply(s.intakeOn, rig.intakeOnVol.Evaluate(cv) * load * mix, ip);
                 Apply(s.intakeOff, rig.intakeOffVol.Evaluate(cv) * (1f - load) * mix, ip);
             }
+
+            // Aggressiveness, the vendor's DynamicSound with its "aggressive"
+            // flag: the layer's volume curve x adsr x aggressivnessMaster x the
+            // load curve x the pedal (on take) or its release (off take), pitched
+            // by the aggressiveness pitch curve, and divided by
+            // revLimiterAggressTweaker while the limiter take is up (the same
+            // test the takes use: maxRPM >= 0.95 x master x onLoad). Heard from
+            // every side, unlike the intake.
+            if (s.aggOn != null || s.aggOff != null)
+            {
+                float da = mx > 0f && mx >= 0.95f * onL ? rig.aggTweak : 1f;
+                float av = rig.aggVol.Evaluate(cv) * master * rig.aggMaster / da;
+                float ap = Mathf.Clamp(rig.intakePitch.Evaluate(cv) * pitchMul, PitchMin, PitchMax);
+                Apply(s.aggOn, av * onL * load, ap);
+                Apply(s.aggOff, av * offL * (1f - load), ap);
+            }
+        }
+
+        // ------------------------------------------------------------------
+        //  Muffler crackle (phase 2, item 3)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The vendor's MufflerCrackleRandom (its DynamicSoundController half
+        /// decompiled), as its Random_ShortMufflerCrackle prefab sets it up:
+        /// lift off the gas from any rpm where the crackle curve tops 0.09 and,
+        /// after a short random delay, one pop from the pool; nothing more until
+        /// the pedal has been pressed and released again; at the limiter, pop
+        /// after pop. The prefab re-picks a 0.1-0.5 s delay every frame the
+        /// lift is armed and the EARLIEST wins, so in practice it fires 0.1-0.2 s
+        /// after the lift; that emergent timing is kept. Its 0.5 s "play time"
+        /// pauses the source mid-clip (a click on 0.64 s clips); here it only
+        /// disarms, and the pop rings out.
+        /// Player only (the vendor's add-on sits on one HQ engine), and only on
+        /// the cars that would pop - see <see cref="CrackleLevelFor"/>.
+        /// </summary>
+        AudioSource crackleSrc;
+        int crackleCtl;                       // vendor oneShotController: 0 idle, 1 gas held, 2 armed
+        float crackleFireAt = -1f, crackleDisarmAt = -1f;
+        float crackleLevel;
+        const float CracklePlayTime = 0.5f, CrackleDelayMin = 0.1f, CrackleDelayMax = 0.5f;
+        /// <summary>Gas below this is a released pedal (the vendor's bool).</summary>
+        const float CrackleGasPressed = 0.1f;
+        /// <summary>The prefab's crackleVolCurve, over clipsValue.</summary>
+        static readonly AnimationCurve CrackleVol = new AnimationCurve(
+            new Keyframe(0f, 0f, 1.1173617f, 1.1173617f),
+            new Keyframe(0.8970616f, 1.0023422f, 0f, 0f),
+            new Keyframe(1f, 1f, -0.022753645f, -0.022753645f));
+
+        /// <summary>
+        /// How hard a car pops on a lift, 0..1 (the crackle prefab's master).
+        /// Not every car does: a stock economy car's exhaust stays quiet on the
+        /// overrun. Rotaries pop (the FD reference the owner gave: lift-off
+        /// pops and twin-turbo whoosh), turbo cars and big-power cars pop, the
+        /// rest do not. OWNER CALL - the rule is here in one place.
+        /// </summary>
+        public static float CrackleLevelFor(CarSpec spec, string family)
+        {
+            if (family != null && family.StartsWith("rotary")) return 1f;
+            if (spec == null) return 0f;
+            if (spec.IsTurbo) return 0.7f;
+            if (spec.hp >= 250) return 0.5f;
+            return 0f;
+        }
+
+        /// <summary>The crackle level for this car, overriding the rule.</summary>
+        public void SetCrackle(float level) => crackleLevel = Mathf.Clamp01(level);
+        public float CrackleLevel => crackleLevel;
+        /// <summary>Pops fired so far (tests).</summary>
+        public int CracklesFired { get; private set; }
+
+        void UpdateCrackle(VoiceSet s, float cv, float onLMaster, bool shifting)
+        {
+            if (!useOffTakes || crackleLevel <= 0f || s == null) return;
+            if (crackleSrc == null)
+            {
+                var go = new GameObject("snd_crackle");
+                go.transform.SetParent(transform, false);
+                crackleSrc = go.AddComponent<AudioSource>();
+                crackleSrc.playOnAwake = false;
+                crackleSrc.loop = false;
+                ConfigureSpatial(crackleSrc);
+            }
+            var pool = EngineVoiceLibrary.Crackles(false);
+            if (pool.Length == 0) return;
+
+            float now = Time.time;
+            bool pressing = !shifting && car.throttleInput > CrackleGasPressed;
+            float vol = CrackleVol.Evaluate(cv) * crackleLevel;
+            bool playing = crackleSrc.isPlaying;
+
+            // Lift-off: armed, audible, nothing playing - keep the earliest of
+            // the prefab's per-frame random delays.
+            if (!pressing && vol > 0.09f && crackleCtl == 2 && crackleDisarmAt < 0f && !playing)
+            {
+                float at = now + Random.Range(CrackleDelayMin, CrackleDelayMax);
+                crackleFireAt = crackleFireAt < 0f ? at : Mathf.Min(crackleFireAt, at);
+            }
+            if (crackleFireAt >= 0f && now >= crackleFireAt)
+            {
+                crackleFireAt = -1f;
+                if (crackleCtl != 0 && !playing) Pop(pool, vol);
+                crackleDisarmAt = now + CracklePlayTime;
+            }
+            if (crackleDisarmAt >= 0f && now >= crackleDisarmAt) { crackleCtl = 0; crackleDisarmAt = -1f; }
+
+            if (pressing) { if (crackleCtl != 2) crackleCtl = 1; }
+            else if (crackleCtl == 1) crackleCtl = 2;
+
+            // The limiter: pop after pop.
+            if (s.rig.maxRPMVol.Evaluate(cv) > 0.9f && !crackleSrc.isPlaying)
+            {
+                crackleCtl = 2;
+                Pop(pool, vol);
+            }
+        }
+
+        void Pop(AudioClip[] pool, float vol)
+        {
+            var clip = pool[Random.Range(0, pool.Length)];
+            // A pop that is not decoded yet is dropped: late, it has no cause.
+            if (clip == null || clip.loadState != AudioDataLoadState.Loaded) return;
+            crackleSrc.clip = clip;          // a one-shot source, never reassigned while playing
+            crackleSrc.pitch = 1f;
+            crackleSrc.volume = vol * masterVolume * voiceLevelMul * AudioPrefs.Engine;
+            crackleSrc.Play();
+            CracklesFired++;
         }
 
         /// <summary>
