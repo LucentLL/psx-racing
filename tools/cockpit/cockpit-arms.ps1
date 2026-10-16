@@ -21,7 +21,7 @@ $src  = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor", "Assets\PSXRacing\Shaders", "Assets\PSXRacing\Resources\Cockpit", "Assets\PSXRacing\CockpitSrc")) {
     robocopy "$src\$d" "$proj\$d" /E /NFL /NDL /NJH /NJS /NP /MT:8 /R:1 /W:1 | Out-Null
 }
-Remove-Item "$proj\Screenshots\cockpitarms_*.png" -ErrorAction SilentlyContinue
+Remove-Item "$proj\Screenshots\cockpitarms_*.png", "$proj\Screenshots\cockpitcontact_*.png" -ErrorAction SilentlyContinue
 $report = "$proj\PSXRacing_cockpitarms.txt"
 Remove-Item $report -ErrorAction SilentlyContinue
 
@@ -44,6 +44,12 @@ New-Item -ItemType Directory -Force $out | Out-Null
 Get-ChildItem "$proj\Screenshots" -Filter "cockpitarms_*.png" -ErrorAction SilentlyContinue | ForEach-Object {
     Copy-Item $_.FullName (Join-Path $out $_.Name) -Force
     Write-Host ("shot " + (Join-Path $out $_.Name))
+}
+# The before/after contact close-ups (CockpitArms.Contact off, on).
+$cout = Join-Path $src "tools\shots\cockpitcontact"
+New-Item -ItemType Directory -Force $cout | Out-Null
+Get-ChildItem "$proj\Screenshots" -Filter "cockpitcontact_*.png" -ErrorAction SilentlyContinue | ForEach-Object {
+    Copy-Item $_.FullName (Join-Path $cout $_.Name) -Force
 }
 # The importer's metas for the new files (fixed GUIDs in git) and the bundle's
 # content hash (the URL's ?v=).

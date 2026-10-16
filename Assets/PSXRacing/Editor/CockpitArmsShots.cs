@@ -178,6 +178,98 @@ namespace PSXRacing.EditorTools
                 Object.DestroyImmediate(model);
             }
             Check(ok, "cockpit arms: RHD mirrors them - the shift hand is the console-side hand on both drive sides", got);
+
+            // THE HANDS NEVER INSIDE THE WHEEL (owner, 2026-10-16): every
+            // sequence, every frame, the skinned vertices against the measured
+            // wheel. Before (the first cut) and after (Contact).
+            bool keep = CockpitArms.Contact;
+            try
+            {
+                var before = Battery(lay, false);
+                var after = Battery(lay, true);
+                bool clean = true;
+                foreach (var kv in after) clean &= kv.Value.x <= 0.001f;
+                string rows = "";
+                foreach (var kv in after)
+                {
+                    var b0 = before[kv.Key];
+                    rows += $"\n         {kv.Key,-22} fingers {b0.x * 1000f,5:0.0} -> {kv.Value.x * 1000f,4:0.0} mm, " +
+                            $"hand {b0.y * 1000f,5:0.0} -> {kv.Value.y * 1000f,4:0.0} mm, forearm {b0.z * 1000f,5:0.0} -> {kv.Value.z * 1000f,4:0.0} mm" +
+                            (Worst.TryGetValue(kv.Key, out var wy) ? "  [worst: " + wy + "]" : "");
+                }
+                Check(clean, "cockpit arms: no finger vertex deeper than 1 mm in the wheel (rim, spokes, pad), any frame of any sequence (max depth before -> after)", rows);
+            }
+            finally { CockpitArms.Contact = keep; }
+        }
+
+        /// <summary>Max depth in the wheel (x fingers, y hand, z forearm),
+        /// metres, per sequence, over every frame at 60 Hz.</summary>
+        static readonly Dictionary<string, string> Worst = new Dictionary<string, string>();
+
+        static Dictionary<string, Vector3> Battery(CockpitModel.Layout lay, bool contact)
+        {
+            CockpitArms.Contact = contact;
+            var res = new Dictionary<string, Vector3>();
+            var model = new GameObject("ArmsDepthModel") { hideFlags = HideFlags.HideAndDontSave };
+            var arms = CockpitArms.Create(model.transform, lay, 0);
+            try
+            {
+                if (arms == null) return res;
+                Vector3 worst = Vector3.zero;
+                string why = "";
+                void Frame(float theta, bool shift, bool brake)
+                {
+                    arms.Drive(Dt, theta, shift, brake);
+                    arms.Depths(out float f, out float h, out float fa);
+                    if (f > worst.x + 1e-5f)
+                        why = $"L {arms.Plan.L.mode}/{arms.Plan.L.kind}{arms.Plan.L.phase} R {arms.Plan.R.mode}/{arms.Plan.R.kind}{arms.Plan.R.phase} " +
+                              $"u {(arms.Plan.R.mode == CockpitArms.Mode.Move ? arms.Plan.R.t / Mathf.Max(1e-3f, arms.Plan.R.dur) : arms.Plan.L.t / Mathf.Max(1e-3f, arms.Plan.L.dur)):0.00} wheel {theta:0}";
+                    worst = Vector3.Max(worst, new Vector3(f, h, fa));
+                }
+                void Run(string name, float seconds, System.Func<float, float> theta, System.Func<float, bool> shift = null,
+                         System.Func<float, bool> brake = null, bool fresh = true)
+                {
+                    if (fresh) { arms.Plan.Reset(theta(0f)); arms.Drive(0f, theta(0f), false, false); }
+                    worst = Vector3.zero;
+                    arms.Depths(out float f0, out float h0, out float a0);
+                    worst = new Vector3(f0, h0, a0);
+                    int n = Mathf.RoundToInt(seconds / Dt);
+                    for (int i = 1; i <= n; i++)
+                    {
+                        float t = i * Dt;
+                        Frame(theta(t), shift != null && shift(t), brake != null && brake(t));
+                    }
+                    res[name] = worst;
+                    if (contact && worst.x > 0.001f) Worst[name] = why;
+                }
+                Run("rest", 0.5f, t => 0f);
+                Run("small corrections", 4f, t => 30f * Mathf.Sin(t * Mathf.PI));
+                Run("hand over hand (right)", 2.2f, t => -Mathf.Min(450f, 300f * t));
+                Run("unwind", 1.6f, t => Mathf.Min(0f, -450f + 750f * t), fresh: false);
+                Run("hand over hand (left)", 3.0f, t => Mathf.Min(450f, 180f * t));
+                Run("unwind (left, open)", 1.6f, t => Mathf.Max(0f, 450f - 750f * t), fresh: false);
+                Run("shift reach", 1.5f, t => 0f, t => t < 1.5f * Dt);
+                Run("handbrake reach", 2.2f, t => 90f, null, t => t < 1.4f);
+                // Every 5 degrees (finer, 3 a frame): 0 -> +450 -> -450 -> 0.
+                Run("sweep +/-450", 10f, t => t < 2.5f ? 180f * t : t < 7.5f ? 450f - 180f * (t - 2.5f) : -450f + 180f * (t - 7.5f));
+                // And held still at each 5 degrees, settled (hands rest there).
+                Vector3 still = Vector3.zero;
+                for (float th = -450f; th <= 450f; th += 5f)
+                {
+                    arms.Plan.Reset(th);
+                    arms.Drive(0f, th, false, false);
+                    for (int i = 0; i < 6; i++) Frame(th, false, false);
+                    arms.Depths(out float f, out float h, out float fa);
+                    still = Vector3.Max(still, new Vector3(f, h, fa));
+                }
+                res["still every 5 deg"] = still;
+            }
+            finally
+            {
+                if (arms != null) arms.Destroy();
+                Object.DestroyImmediate(model);
+            }
+            return res;
         }
 
         // ------------------------------------------------------------------
@@ -232,8 +324,39 @@ namespace PSXRacing.EditorTools
                 cam.nearClipPlane = CockpitInterior.NearClipFor(ci.Current.scale, yaw * CockpitLook.PassengerSign / CockpitLook.MaxYaw);
                 PSXScreenshotTool.ShotAs(cam, "cockpitarms_" + name, t.TransformPoint(eye), rot);
                 var p = ci.Arms.Plan;
-                log.AppendLine($"[Arms] shot {name}: {(rhd ? "RHD" : "LHD")} wheel {ci.WheelDeg:0} deg; L {p.L.mode}/{p.L.kind} a {p.L.alpha:0} open {p.L.open:0.00} relax {p.L.relax:0.00}" +
+                ci.Arms.Depths(out float sf, out float sh, out _);
+                log.AppendLine($"[Arms] shot {name} (depth fingers {sf * 1000f:0.0} mm, hand {sh * 1000f:0.0}): {(rhd ? "RHD" : "LHD")} wheel {ci.WheelDeg:0} deg; L {p.L.mode}/{p.L.kind} a {p.L.alpha:0} open {p.L.open:0.00} relax {p.L.relax:0.00}" +
                                $"{(p.L.crossed ? " crossed" : "")}; R {p.R.mode}/{p.R.kind} a {p.R.alpha:0} open {p.R.open:0.00} relax {p.R.relax:0.00}{(p.R.crossed ? " crossed" : "")}");
+            }
+            // A close-up of one hand: from the eye, and from beside the rim.
+            void Close(string name, bool left)
+            {
+                var arms = ci.Arms;
+                arms.GripFrame(left, out var at, out var tan, out var rout);
+                var p = left ? arms.Plan.L : arms.Plan.R;
+                // The hand, wherever it is (not only gripping): its rim point
+                // follows alpha; aim between it and the hand's own bone.
+                arms.Probe(left, out var hp, out _, out _);
+                Vector3 aim = Vector3.Lerp(at, hp, 0.35f);
+                var M = ci.Model;
+                Vector3 eyeW = M.TransformPoint(CockpitInterior.L.eye);
+                Vector3 aimW = M.TransformPoint(aim);
+                float keepN = cam.nearClipPlane, keepF = cam.fieldOfView;
+                cam.nearClipPlane = 0.004f;
+                cam.fieldOfView = 24f;
+                PSXScreenshotTool.ShotAs(cam, "cockpitcontact_" + name + "_eye", eyeW, Quaternion.LookRotation(aimW - eyeW, t.up));
+                Vector3 face = CockpitInterior.L.wheel.rot * Vector3.back;
+                Vector3 side = at + tan * 0.15f + rout * 0.05f + face * 0.03f;
+                Vector3 sideW = M.TransformPoint(side);
+                cam.fieldOfView = 40f;
+                PSXScreenshotTool.ShotAs(cam, "cockpitcontact_" + name + "_side", sideW,
+                                         Quaternion.LookRotation(aimW - sideW, M.TransformDirection(rout)));
+                cam.nearClipPlane = keepN; cam.fieldOfView = keepF;
+                arms.Depths(out float df, out float dh, out float da);
+                log.AppendLine($"[Arms] contact shot {name} ({(CockpitArms.Contact ? "after" : "before")}): {(left ? "L" : "R")} {p.mode}/{p.kind} " +
+                               $"alpha {p.alpha:0} open {p.open:0.00}; depth fingers {df * 1000f:0.0} mm, hand {dh * 1000f:0.0}, forearm {da * 1000f:0.0}; " +
+                               "curls " + string.Join(" ", System.Array.ConvertAll(arms.Curls(left), c => c.ToString("0.00"))) +
+                               " (stopped by: " + arms.Stoppers(left) + ")");
             }
             // Steps the scripted sweep until `until` holds (or the time runs out).
             bool Sweep(System.Func<float, float> road, ref float clock, float maxSec, System.Func<bool> until)
@@ -306,6 +429,35 @@ namespace PSXRacing.EditorTools
                 Steer(0f, 0f);
                 Sweep(_ => 0f, ref clock, 0.5f, () => false);
                 Shoot("7_look_over_lhd", false, CockpitLook.MaxYaw);
+
+                // CONTACT close-ups, before (the first cut) and after: the
+                // left hand at rest, the right hand crossed over the top, the
+                // left hand open on the rim - from the driver's eye and from
+                // beside the rim (its cross-section), LHD.
+                bool keepContact = CockpitArms.Contact;
+                try
+                {
+                    foreach (bool contact in new[] { false, true })
+                    {
+                        CockpitArms.Contact = contact;
+                        string tag = contact ? "after" : "before";
+                        Ready(false);
+                        ci.Arms.Plan.Reset(0f);
+                        Steer(0f, 0f);
+                        Sweep(_ => 0f, ref clock, 0.5f, () => false);
+                        Close(tag + "_1_rest", true);
+                        plan = ci.Arms.Plan;
+                        float c0 = clock;
+                        System.Func<float, float> turn = tt => Mathf.Min(lockDeg, lockDeg * (tt - c0) / 2.5f);
+                        Sweep(turn, ref clock, 3f, () => plan.R.mode == CockpitArms.Mode.Grip && plan.R.crossed);
+                        Close(tag + "_2_top", false);
+                        Sweep(turn, ref clock, 3f, () => plan.L.mode == CockpitArms.Mode.Move && plan.L.kind == CockpitArms.Kind.Return
+                                                          && plan.L.open > 0.8f);
+                        Close(tag + "_3_open", true);
+                        Sweep(_ => 0f, ref clock, 2.5f, () => false);
+                    }
+                }
+                finally { CockpitArms.Contact = keepContact; }
 
                 // Where the arm pieces end up (model frame), for the report.
                 ci.Arms.Probe(true, out var g, out var e, out _);
