@@ -1,0 +1,319 @@
+id,name,side,reason,ambiguous
+honda_civic_1500_3door_cx__79,Honda CIVIC 1500 3door CX '79,RHD,Japanese-market name/trim,no
+honda_civic_1500_3door_25i__83,Honda CIVIC 1500 3door 25i '83,RHD,Japanese-market name/trim,no
+alpine_a110_1600s__73,Alpine A110 1600S '73,LHD,French make,no
+alpine_a310_1600ve__73,Alpine A310 1600VE '73,LHD,French make,no
+dome_zero__78,DOME ZERO '78,RHD,Japanese tuner / maker car on a JDM base,no
+honda_1300_coupe_9_s__70,Honda 1300 Coupe 9 S '70,RHD,Japanese-market name/trim,no
+mitsubishi_galant_gto_mr__70,Mitsubishi GALANT GTO MR '70,RHD,Japanese-market name/trim,no
+mitsubishi_lancer_1600_gsr__73,Mitsubishi Lancer 1600 GSR '73,RHD,Japanese-market name/trim,no
+nissan_bluebird_hardtop_1800sss__910___79,Nissan BLUEBIRD Hardtop 1800SSS (910) '79,RHD,Japanese-market name/trim,no
+nissan_fairlady_z_280z_l_2seater__s130___78,Nissan Fairlady Z 280Z-L 2seater (S130) '78,RHD,Japanese-market name/trim,no
+toyota_celica_1600gt__ta22___70,Toyota CELICA 1600GT (TA22) '70,RHD,Japanese-market name/trim,no
+volkswagen_golf_i_gti__76,Volkswagen Golf I GTI '76,LHD,German make,no
+toyota_corolla_levin_gt_apex__ae86___83,Toyota COROLLA LEVIN GT-APEX (AE86) '83,RHD,Japanese-market name/trim,no
+toyota_sprinter_trueno_gt_apex__ae86___83,Toyota SPRINTER TRUENO GT-APEX (AE86) '83,RHD,Japanese-market name/trim,no
+honda_ballade_sports_cr_x_1_5i__83,Honda BALLADE SPORTS CR-X 1.5i '83,RHD,Japanese-market name/trim,no
+mazda_110s__l10a___67,Mazda 110S (L10A) '67,RHD,Japanese-market name/trim,no
+honda_city_turbo_ii__83,Honda CITY Turbo II '83,RHD,Japanese-market name/trim,no
+nissan_silvia_q_s__s13___88,Nissan SILVIA Q's (S13) '88,RHD,Japanese-market name/trim,no
+mazda_demio__j___99,Mazda DEMIO (J) '99,RHD,(J) = the Japanese-market version,no
+nissan_silvia_q_s__s13___91,Nissan SILVIA Q's (S13) '91,RHD,Japanese-market name/trim,no
+mazda_mazda_323f__93,Mazda Mazda 323F '93,LHD,"323F = export name (Japan: Lantis); Europe LHD, the UK RHD",yes
+isuzu_piazza_xe__81,Isuzu PIAZZA XE '81,RHD,Japanese-market name/trim,no
+honda_accord_coupe__88,Honda ACCORD Coupe '88,LHD,US-built Accord Coupe; Japan took it as an LHD import,no
+nissan_silvia_k_s__s13___88,Nissan SILVIA K's (S13) '88,RHD,Japanese-market name/trim,no
+nissan_exa_canopy_l_a_version_type_s__n13___88,Nissan EXA CANOPY L.A.Version Type S (N13) '88,RHD,Japanese-market name/trim,no
+toyota_sera__92,Toyota SERA '92,RHD,Japanese-market name/trim,no
+toyota_carina_ed_2_0_x_4ws__89,Toyota CARINA ED 2.0 X 4WS '89,RHD,Japanese-market name/trim,no
+mazda_rx_7_gt_limited__fc__j___85,"Mazda RX-7 GT-Limited (FC, J) '85",RHD,(J) = the Japanese-market version,no
+toyota_mr2_1600_g__86,Toyota MR2 1600 G '86,RHD,Japanese-market name/trim,no
+toyota_starlet_glanza_v__97,Toyota STARLET Glanza V '97,RHD,Japanese-market name/trim,no
+buick_special__62,BUICK Special '62,LHD,American make,no
+nissan_silvia_k_s__s13___91,Nissan SILVIA K's (S13) '91,RHD,Japanese-market name/trim,no
+nissan_silvia_q_s_aero__s14___93,Nissan SILVIA Q's AERO (S14) '93,RHD,Japanese-market name/trim,no
+honda_cr_x_sir__90,Honda CR-X SiR '90,RHD,Japanese-market name/trim,no
+lotus_europa_special__71,Lotus Europa Special '71,RHD,British make,no
+mitsubishi_lancer_ex_1800gsr_ic_turbo__83,Mitsubishi Lancer EX 1800GSR IC Turbo '83,RHD,Japanese-market name/trim,no
+mazda_mx_5_miata__na___89,Mazda MX-5 Miata (NA) '89,LHD,MX-5 Miata with no (J) = US car (Japan: Eunos Roadster),no
+nissan_silvia_q_s_aero__s14___96,Nissan SILVIA Q's AERO (S14) '96,RHD,Japanese-market name/trim,no
+renault_5_turbo__80,Renault 5 Turbo '80,LHD,French make,no
+toyota_mr2_1600_g_limited_super_charger__86,Toyota MR2 1600 G-Limited Super Charger '86,RHD,Japanese-market name/trim,no
+mazda_mx_5_miata_j_limited__na__j___91,"Mazda MX-5 Miata J-Limited (NA, J) '91",RHD,(J) = the Japanese-market version,no
+honda_civic_sir_ii__eg___91,Honda CIVIC SiR-II (EG) '91,RHD,SiR-II = the Japanese EG trim (owner: EG Civic can be either),yes
+toyota_celica_xx_2800gt__81,Toyota CELICA XX 2800GT '81,RHD,Japanese-market name/trim,no
+audi_quattro__82,Audi quattro '82,LHD,German make,no
+honda_civic_sir_ii__eg___92,Honda CIVIC SiR-II (EG) '92,RHD,SiR-II = the Japanese EG trim (owner: EG Civic can be either),yes
+mazda_mx_5_miata_j_limited_ii__na__j___93,"Mazda MX-5 Miata J-Limited II (NA, J) '93",RHD,(J) = the Japanese-market version,no
+toyota_celica_2000gt_r__st162___86,Toyota CELICA 2000GT-R (ST162) '86,RHD,Japanese-market name/trim,no
+honda_civic_sir_ii__eg___93,Honda CIVIC SiR-II (EG) '93,RHD,SiR-II = the Japanese EG trim (owner: EG Civic can be either),yes
+honda_cr_x_del_sol_sir__92,Honda CR-X del Sol SiR '92,RHD,Japanese-market name/trim,no
+mazda_mx_5_miata_s_special_type_i__na__j___95,"Mazda MX-5 Miata S-Special Type I (NA, J) '95",RHD,(J) = the Japanese-market version,no
+mazda_mx_5_miata_v_special_type_ii__na__j___93,"Mazda MX-5 Miata V-Special Type II (NA, J) '93",RHD,(J) = the Japanese-market version,no
+mitsubishi_fto_gr__94,Mitsubishi FTO GR '94,RHD,Japanese-market name/trim,no
+honda_civic_sir_ii__eg___95,Honda CIVIC SiR-II (EG) '95,RHD,SiR-II = the Japanese EG trim (owner: EG Civic can be either),yes
+mazda_mx_5_miata_vr_limited__na__j___95,"Mazda MX-5 Miata VR-Limited (NA, J) '95",RHD,(J) = the Japanese-market version,no
+mazda_rx_7_gt_x__fc__j___90,"Mazda RX-7 GT-X (FC, J) '90",RHD,(J) = the Japanese-market version,no
+mitsubishi_mirage_cyborg_zr__97,Mitsubishi MIRAGE CYBORG ZR '97,RHD,Japanese-market name/trim,no
+nissan_240sx__96,Nissan 240SX '96,LHD,240SX = the US name of the Silvia / 180SX,no
+nissan_skyline_hard_top_2000_turbo_rs__r30___83,Nissan SKYLINE Hard Top 2000 Turbo RS (R30) '83,RHD,Japanese-market name/trim,no
+mazda_mx_5_miata_sr_limited__na__j___97,"Mazda MX-5 Miata SR-Limited (NA, J) '97",RHD,(J) = the Japanese-market version,no
+mitsubishi_fto_gr__97,Mitsubishi FTO GR '97,RHD,Japanese-market name/trim,no
+nissan_silvia_k_s_aero__s14___93,Nissan SILVIA K's AERO (S14) '93,RHD,Japanese-market name/trim,no
+nissan_silvia_spec_s_aero__s15___99,Nissan SILVIA Spec S AERO (S15) '99,RHD,Japanese-market name/trim,no
+opel_tigra_1_6i__99,Opel Tigra 1.6i '99,LHD,German make,no
+toyota_celica_gt_r__st183__4ws___91,"Toyota CELICA GT-R (ST183, 4WS) '91",RHD,Japanese-market name/trim,no
+lotus_elan_s1__62,Lotus Elan S1 '62,RHD,British make,no
+mitsubishi_lancer_1600_gsr_rally_car__74,Mitsubishi Lancer 1600 GSR Rally Car '74,RHD,Japanese works car for the Safari Rally (Kenya drives on the left),yes
+nissan_240zg__hs30___71,Nissan 240ZG (HS30) '71,RHD,Japanese-market name/trim,no
+nissan_skyline_2000gt_r__kpgc110___73,Nissan SKYLINE 2000GT-R (KPGC110) '73,RHD,Japanese-market name/trim,no
+nissan_skyline_hard_top_2000gt_r__kpgc10___70,Nissan SKYLINE Hard Top 2000GT-R (KPGC10) '70,RHD,Japanese-market name/trim,no
+peugeot_206_s16__99,Peugeot 206 S16 '99,LHD,French make,no
+sileighty__98,SILEIGHTY '98,RHD,Japanese tuner / maker car on a JDM base,no
+toyota_corolla_levin_bz_r__98,Toyota COROLLA LEVIN BZ-R '98,RHD,Japanese-market name/trim,no
+toyota_sprinter_trueno_bz_r__98,Toyota SPRINTER TRUENO BZ-R '98,RHD,Japanese-market name/trim,no
+bmw_2002_turbo__73,BMW 2002 Turbo '73,LHD,German make,no
+chevrolet_camaro_iroc_z_concept__88,Chevrolet Camaro IROC-Z Concept '88,LHD,concept car: home-market side assumed,yes
+mazda_rx_7_infini_iii__fc__j___90,"Mazda RX-7 INFINI III (FC, J) '90",RHD,(J) = the Japanese-market version,no
+nissan_240sx__s14___96,Nissan 240SX (S14) '96,LHD,240SX = the US name of the Silvia / 180SX,no
+nissan_skyline_hard_top_2000_rs_x_turbo_c__r30___84,Nissan SKYLINE Hard Top 2000 RS-X Turbo C (R30) '84,RHD,Japanese-market name/trim,no
+eagle_talon_esi__97,EAGLE Talon Esi '97,LHD,American make,no
+honda_civic_type_r__ek___97,Honda CIVIC TYPE R (EK) '97,RHD,Japanese-market name/trim,no
+mitsubishi_fto_gpx__94,Mitsubishi FTO GPX '94,RHD,Japanese-market name/trim,no
+subaru_impreza_sedan_wrx_sti__gc___94,Subaru IMPREZA Sedan WRX STi (GC) '94,RHD,Japanese-market name/trim,no
+volvo_240_glt_estate__88,Volvo 240 GLT Estate '88,LHD,continental European make,no
+honda_civic_type_r__ek___98,Honda CIVIC TYPE R (EK) '98,RHD,Japanese-market name/trim,no
+infiniti_g20__90,Infiniti G20 '90,LHD,Infiniti = Nissan's US brand,no
+mazda_mx_5_miata_1_8_rs__nb__j___98,"Mazda MX-5 Miata 1.8 RS (NB, J) '98",RHD,(J) = the Japanese-market version,no
+peugeot_205_turbo_16__85,Peugeot 205 Turbo 16 '85,LHD,French make,no
+mitsubishi_fto_gpx__97,Mitsubishi FTO GPX '97,RHD,Japanese-market name/trim,no
+mitsubishi_galant_2_0_dohc_turbo_vr_4__89,Mitsubishi Galant 2.0 DOHC Turbo VR-4 '89,RHD,Japanese VR-4; the US also had an LHD Galant VR-4,yes
+nissan_fairlady_z_300zx__z31___83,Nissan Fairlady Z 300ZX (Z31) '83,RHD,Japanese-market name/trim,no
+honda_prelude_si_vtec__91,Honda PRELUDE Si VTEC '91,RHD,Japanese-market name/trim,no
+mitsubishi_eclipse_gt__95,Mitsubishi ECLIPSE GT '95,LHD,Eclipse = US-built for the US market,no
+nissan_skyline_gts_r__r31___87,Nissan SKYLINE GTS-R (R31) '87,RHD,Japanese-market name/trim,no
+toyota_celica_ss_ii__st202___97,Toyota CELICA SS-II (ST202) '97,RHD,Japanese-market name/trim,no
+toyota_celica_ss_ii__zzt231___99,Toyota CELICA SS-II (ZZT231) '99,RHD,Japanese-market name/trim,no
+chevrolet_camaro_z28_coupe__97,Chevrolet Camaro Z28 Coupe '97,LHD,American make,no
+isuzu_117_coupe__68,Isuzu 117 Coupe '68,RHD,Japanese-market name/trim,no
+isuzu_bellett_1600_gt_r__69,Isuzu Bellett 1600 GT-R '69,RHD,Japanese-market name/trim,no
+mazda_110s__l10b___68,Mazda 110S (L10B) '68,RHD,Japanese-market name/trim,no
+mercedes_benz_a_160_avantgarde__98,Mercedes-Benz A 160 Avantgarde '98,LHD,German make,no
+mitsubishi_fto_gpx__99,Mitsubishi FTO GPX '99,RHD,Japanese-market name/trim,no
+nissan_bluebird_rally_car__510___69,Nissan BLUEBIRD Rally Car (510) '69,RHD,Japanese works car for the Safari Rally (Kenya drives on the left),yes
+nissan_fairlady_2000__sr311___68,Nissan Fairlady 2000 (SR311) '68,RHD,Japanese-market name/trim,no
+nissan_silvia_spec_r_aero__s15___99,Nissan SILVIA Spec R AERO (S15) '99,RHD,Japanese-market name/trim,no
+nissan_skyline_2000gt_b__s54a___67,Nissan SKYLINE 2000GT-B (S54A) '67,RHD,Japanese-market name/trim,no
+nissan_skyline_gts25_type_s__r32___91,Nissan SKYLINE GTS25 Type S (R32) '91,RHD,Japanese-market name/trim,no
+subaru_legacy_touring_wagon_gt_b__96,Subaru LEGACY Touring Wagon GT-B '96,RHD,Japanese-market name/trim,no
+toyota_celica_2000gt_four__st165___86,Toyota CELICA 2000GT-FOUR (ST165) '86,RHD,Japanese-market name/trim,no
+nissan_skyline_gts_t_type_m__r32___89,Nissan SKYLINE GTS-t Type M (R32) '89,RHD,Japanese-market name/trim,no
+mitsubishi_fto_gp_version_r__97,Mitsubishi FTO GP Version R '97,RHD,Japanese-market name/trim,no
+nissan_silvia_240rs__s100___83,Nissan SILVIA 240RS (S100) '83,RHD,Japanese-market name/trim,no
+subaru_impreza_sedan_wrx_sti_version_ii__gc___95,Subaru IMPREZA Sedan WRX STi Version II (GC) '95,RHD,Japanese-market name/trim,no
+ford_taurus_sho__98,Ford Taurus SHO '98,LHD,American make,no
+mitsubishi_fto_gp_version_r__99,Mitsubishi FTO GP Version R '99,RHD,Japanese-market name/trim,no
+mitsubishi_pajero_rally_raid_car__85,Mitsubishi PAJERO Rally Raid Car '85,LHD,works rally car: the European-run teams built them LHD (unverified per car),yes
+honda_integra_type_r__dc2___95,Honda INTEGRA TYPE R (DC2) '95,RHD,Japanese-market name/trim,no
+honda_prelude_sir__96,Honda PRELUDE SiR '96,RHD,Japanese-market name/trim,no
+mitsubishi_lancer_evolution_gsr__92,Mitsubishi Lancer Evolution GSR '92,RHD,Japanese-market name/trim,no
+subaru_impreza_sedan_wrx_sti_version_iii__gc___96,Subaru IMPREZA Sedan WRX STi Version III (GC) '96,RHD,Japanese-market name/trim,no
+toyota_mr2_spyder__99,Toyota MR2 Spyder '99,LHD,MR2 Spyder = the US name (Japan: MR-S),no
+honda_prelude_type_s__96,Honda PRELUDE Type S '96,RHD,Japanese-market name/trim,no
+nissan_skyline_gts_t_type_m__r32___91,Nissan SKYLINE GTS-t Type M (R32) '91,RHD,Japanese-market name/trim,no
+toyota_mr2_g_limited__97,Toyota MR2 G-Limited '97,RHD,Japanese-market name/trim,no
+nissan_240rs_rally_car__85,Nissan 240RS Rally Car '85,LHD,works rally car: the European-run teams built them LHD (unverified per car),yes
+subaru_legacy_b4_rsk__98,Subaru LEGACY B4 RSK '98,RHD,Japanese-market name/trim,no
+honda_integra_type_r__dc2___98,Honda INTEGRA TYPE R (DC2) '98,RHD,Honda-badged = Japan (US was Acura); Europe also had LHD,yes
+honda_prelude_sir_s_spec__98,Honda PRELUDE SiR S spec '98,RHD,Japanese-market name/trim,no
+chevrolet_corvette_stingray_l46_350__c3___69,Chevrolet Corvette Stingray L46 350 (C3) '69,LHD,American make,no
+honda_integra_type_r__dc2___99,Honda INTEGRA TYPE R (DC2) '99,RHD,Honda-badged = Japan (US was Acura); Europe also had LHD,yes
+mgf__97,MGF '97,RHD,British make,no
+pontiac_tempest_le_mans_gto__64,Pontiac Tempest Le Mans GTO '64,LHD,American make,no
+toyota_supra_3_0gt_turbo_a__88,Toyota SUPRA 3.0GT Turbo A '88,RHD,Japanese-market name/trim,no
+honda_prelude_type_s__98,Honda PRELUDE Type S '98,RHD,Japanese-market name/trim,no
+mitsubishi_lancer_evolution_ii_gsr__94,Mitsubishi Lancer Evolution II GSR '94,RHD,Japanese-market name/trim,no
+subaru_impreza_sedan_wrx_sti_version_iv__gc___97,Subaru IMPREZA Sedan WRX STi Version IV (GC) '97,RHD,Japanese-market name/trim,no
+toyota_celica_gt_four_rc__st185___91,Toyota CELICA GT-FOUR RC (ST185) '91,RHD,Japanese-market name/trim,no
+subaru_impreza_sedan_wrx_sti_version_v__gc___98,Subaru IMPREZA Sedan WRX STi Version V (GC) '98,RHD,Japanese-market name/trim,no
+toyota_mr2_gt_s__97,Toyota MR2 GT-S '97,RHD,Japanese-market name/trim,no
+buick_gnx__87,BUICK GNX '87,LHD,American make,no
+chevrolet_camaro_z28_302__69,Chevrolet Camaro Z28 302 '69,LHD,American make,no
+dodge_charger_440_r_t__70,Dodge Charger 440 R/T '70,LHD,American make,no
+alfa_romeo_156_2_5_v6_24v__98,Alfa Romeo 156 2.5 V6 24V '98,LHD,Italian make,no
+mitsubishi_lancer_evolution_iii_gsr__95,Mitsubishi Lancer Evolution III GSR '95,RHD,Japanese-market name/trim,no
+subaru_impreza_sedan_wrx_sti_version_vi__gc___99,Subaru IMPREZA Sedan WRX STi Version VI (GC) '99,RHD,Japanese-market name/trim,no
+subaru_impreza_sport_wagon_wrx_sti_version_vi__gf___99,Subaru IMPREZA Sport Wagon WRX STi Version VI (GF) '99,RHD,Japanese-market name/trim,no
+toyota_supra_2_5gt_twin_turbo_r__90,Toyota SUPRA 2.5GT Twin Turbo R '90,RHD,Japanese-market name/trim,no
+chevrolet_camaro_ss__69,Chevrolet Camaro SS '69,LHD,American make,no
+lexus_is200__j___98,Lexus IS200 (J) '98,RHD,(J) = the Japanese-market version,no
+lexus_is200__98,Lexus IS200 '98,LHD,"Lexus IS200 = export (Japan: Altezza); Europe LHD, but the UK got RHD",yes
+mitsubishi_3000gt_sl__j___95,Mitsubishi 3000GT SL (J) '95,RHD,(J) = the Japanese-market version,no
+mitsubishi_lancer_evolution_iv_gsr__96,Mitsubishi Lancer Evolution IV GSR '96,RHD,Japanese-market name/trim,no
+nissan_300zx_2seater__z32___89,Nissan 300ZX 2seater (Z32) '89,LHD,"300ZX = the US name (Japan: Fairlady Z), though JDM cars wore 300ZX badges too",yes
+subaru_impreza_coupe_wrxtyper_sti_version_vi__gc___99,Subaru IMPREZA Coupe WRXtypeR STi Version VI (GC) '99,RHD,Japanese-market name/trim,no
+mitsubishi_3000gt_sl__j___96,Mitsubishi 3000GT SL (J) '96,RHD,(J) = the Japanese-market version,no
+mitsubishi_lancer_evolution_vi_rs__99,Mitsubishi Lancer Evolution VI RS '99,RHD,Japanese-market name/trim,no
+toyota_celica_gt_four__st205___98,Toyota CELICA GT-FOUR (ST205) '98,RHD,Japanese-market name/trim,no
+honda_s2000__99,Honda S2000 '99,RHD,"sold in Japan, the US and Europe under one name; Japan by default",yes
+mazda_rx_7_type_r__fd__j___91,"Mazda RX-7 Type R (FD, J) '91",RHD,(J) = the Japanese-market version,no
+mitsubishi_lancer_evolution_v_gsr__98,Mitsubishi Lancer Evolution V GSR '98,RHD,Japanese-market name/trim,no
+nismo_270r__94,NISMO 270R '94,RHD,Japanese tuner / maker car on a JDM base,no
+nissan_skyline_gt_r__r32___89,Nissan SKYLINE GT-R (R32) '89,RHD,Japanese-market name/trim,no
+nissan_stagea_25t_rs_four_s__98,Nissan STAGEA 25t RS FOUR S '98,RHD,Japanese-market name/trim,no
+toyota_supra_sz_r__97,Toyota SUPRA SZ-R '97,RHD,Japanese-market name/trim,no
+tvr_v8s__91,TVR V8S '91,RHD,British make,no
+lancia_stratos__73,Lancia STRATOS '73,LHD,Italian make,no
+alfa_romeo_166_2_5_v6_24v_sportronic__98,Alfa Romeo 166 2.5 V6 24V Sportronic '98,LHD,Italian make,no
+mitsubishi_3000gt_sl__j___98,Mitsubishi 3000GT SL (J) '98,RHD,(J) = the Japanese-market version,no
+mazda_rx_7_type_r__fd__j___93,"Mazda RX-7 Type R (FD, J) '93",RHD,(J) = the Japanese-market version,no
+mitsubishi_lancer_evolution_vi_gsr__99,Mitsubishi Lancer Evolution VI GSR '99,RHD,Japanese-market name/trim,no
+mitsubishi_legnum_vr_4_type_v__98,Mitsubishi LEGNUM VR-4 Type V '98,RHD,Japanese-market name/trim,no
+nissan_skyline_gt_r__r32___91,Nissan SKYLINE GT-R (R32) '91,RHD,Japanese-market name/trim,no
+alfa_romeo_spider_1600_duetto__66,Alfa Romeo Spider 1600 Duetto '66,LHD,Italian make,no
+dodge_charger_super_bee_426_hemi__71,Dodge Charger Super Bee 426 Hemi '71,LHD,American make,no
+ford_rs200__84,Ford RS200 '84,LHD,Ford of Britain's Group B homologation car; most were LHD,yes
+mazda_rx_7_type_r_s__fd__j___95,"Mazda RX-7 Type R-S (FD, J) '95",RHD,(J) = the Japanese-market version,no
+peugeot_406_3_0_v6_coupe__98,Peugeot 406 3.0 V6 Coupe '98,LHD,French make,no
+mazda_rx_7_type_rs__fd__j___96,"Mazda RX-7 Type RS (FD, J) '96",RHD,(J) = the Japanese-market version,no
+nissan_300zx_2seater__z32___98,Nissan 300ZX 2seater (Z32) '98,LHD,"300ZX = the US name (Japan: Fairlady Z), though JDM cars wore 300ZX badges too",yes
+lotus_esprit_turbo_hc__87,Lotus Esprit Turbo HC '87,RHD,British make,no
+mitsubishi_lancer_evolution_iv_rally_car__97,Mitsubishi Lancer Evolution IV Rally Car '97,LHD,works rally car: the European-run teams built them LHD (unverified per car),yes
+mazda_rx_7_type_rz__fd__j___92,"Mazda RX-7 Type RZ (FD, J) '92",RHD,(J) = the Japanese-market version,no
+chevrolet_chevelle_ss_454__70,Chevrolet Chevelle SS 454 '70,LHD,American make,no
+chevrolet_corvette_zr_1__c4___90,Chevrolet Corvette ZR-1 (C4) '90,LHD,American make,no
+lexus_gs300__91,Lexus GS300 '91,LHD,Lexus name = US/export car (Japan: Soarer / Aristo),no
+lotus_elise_sport_190__98,Lotus Elise Sport 190 '98,RHD,British make,no
+mazda_rx_7_type_rs_r__fd___97,Mazda RX-7 Type RS-R (FD) '97,RHD,Japanese-market name/trim,no
+mazda_rx_7_type_rz__fd__j___93,"Mazda RX-7 Type RZ (FD, J) '93",RHD,(J) = the Japanese-market version,no
+nissan_300zx_2by2__z32___98,Nissan 300ZX 2by2 (Z32) '98,LHD,"300ZX = the US name (Japan: Fairlady Z), though JDM cars wore 300ZX badges too",yes
+nissan_skyline_gt_r_vspec__r32___93,Nissan SKYLINE GT-R Vspec (R32) '93,RHD,Japanese-market name/trim,no
+plymouth_cuda_440_six_pack__71,Plymouth Cuda 440 Six Pack '71,LHD,American make,no
+spoon_integra_type_r__dc2___99,Spoon INTEGRA TYPE R (DC2) '99,RHD,Honda-badged = Japan (US was Acura); Europe also had LHD,yes
+audi_s4__98,Audi S4 '98,LHD,German make,no
+mazda_rx_7_type_rs__fd___98,Mazda RX-7 Type RS (FD) '98,RHD,Japanese-market name/trim,no
+mazda_rx_7_type_rz__fd__j___95,"Mazda RX-7 Type RZ (FD, J) '95",RHD,(J) = the Japanese-market version,no
+mazda_rx_7_type_rz__fd__j___96,"Mazda RX-7 Type RZ (FD, J) '96",RHD,(J) = the Japanese-market version,no
+mercedes_benz_slk_230_kompressor__98,Mercedes-Benz SLK 230 Kompressor '98,LHD,German make,no
+mitsubishi_3000gt_mr__j___95,Mitsubishi 3000GT MR (J) '95,RHD,(J) = the Japanese-market version,no
+nissan_skyline_gt_r_vspec_ii__r32___94,Nissan SKYLINE GT-R Vspec II (R32) '94,RHD,Japanese-market name/trim,no
+toyota_celica_gt_four_rally_car__st185___95,Toyota CELICA GT-FOUR Rally Car (ST185) '95,LHD,works rally car: the European-run teams built them LHD (unverified per car),yes
+toyota_celica_gt_four_rally_car__st205___95,Toyota CELICA GT-FOUR Rally Car (ST205) '95,LHD,works rally car: the European-run teams built them LHD (unverified per car),yes
+mitsubishi_lancer_evolution_vi_rally_car__99,Mitsubishi Lancer Evolution VI Rally Car '99,LHD,works rally car: the European-run teams built them LHD (unverified per car),yes
+toyota_corolla_rally_car__98,Toyota COROLLA Rally Car '98,LHD,works rally car: the European-run teams built them LHD (unverified per car),yes
+peugeot_206_rally_car__99,Peugeot 206 Rally Car '99,LHD,works rally car: the European-run teams built them LHD (unverified per car),yes
+subaru_impreza_rally_car__99,Subaru IMPREZA Rally Car '99,LHD,works rally car: the European-run teams built them LHD (unverified per car),yes
+mitsubishi_starion_4wd_rally_car__84,Mitsubishi STARION 4WD Rally Car '84,LHD,works rally car: the European-run teams built them LHD (unverified per car),yes
+citroen_xsara_rally_car__99,Citroen Xsara Rally Car '99,LHD,works rally car: the European-run teams built them LHD (unverified per car),yes
+bmw_m_coupe__98,BMW M Coupe '98,LHD,German make,no
+chevrolet_corvette_coupe__c2___63,Chevrolet Corvette Coupe (C2) '63,LHD,American make,no
+hommell_berlinette_r_s_coupe__99,Hommell Berlinette R/S Coupe '99,LHD,French make,no
+lancia_delta_hf_integrale_evoluzione__91,Lancia DELTA HF Integrale Evoluzione '91,LHD,Italian make,no
+mitsubishi_3000gt_mr__j___98,Mitsubishi 3000GT MR (J) '98,RHD,(J) = the Japanese-market version,no
+nissan_skyline_gt_r__r33___95,Nissan SKYLINE GT-R (R33) '95,RHD,Japanese-market name/trim,no
+nissan_skyline_gt_r_n1__r32___91,Nissan SKYLINE GT-R N1 (R32) '91,RHD,Japanese-market name/trim,no
+subaru_impreza_premium_sport_coupe_22b_sti_version__gc___98,Subaru IMPREZA Premium Sport Coupe 22B-STi Version (GC) '98,RHD,Japanese-market name/trim,no
+toyota_supra_rz__97,Toyota SUPRA RZ '97,RHD,Japanese-market name/trim,no
+mitsubishi_3000gt_vr_4_turbo__j___95,Mitsubishi 3000GT VR-4 Turbo (J) '95,RHD,(J) = the Japanese-market version,no
+nissan_skyline_gt_r__r33___96,Nissan SKYLINE GT-R (R33) '96,RHD,Japanese-market name/trim,no
+lexus_sc300__97,Lexus SC300 '97,LHD,Lexus name = US/export car (Japan: Soarer / Aristo),no
+mitsubishi_3000gt_vr_4_turbo__j___96,Mitsubishi 3000GT VR-4 Turbo (J) '96,RHD,(J) = the Japanese-market version,no
+nissan_skyline_gt_r__r33___97,Nissan SKYLINE GT-R (R33) '97,RHD,Japanese-market name/trim,no
+chevrolet_corvette_grand_sport__c4___96,Chevrolet Corvette GRAND SPORT (C4) '96,LHD,American make,no
+mitsubishi_3000gt_vr_4__j___98,Mitsubishi 3000GT VR-4 (J) '98,RHD,(J) = the Japanese-market version,no
+nissan_skyline_gt_r_vspec__r33___95,Nissan SKYLINE GT-R Vspec (R33) '95,RHD,Japanese-market name/trim,no
+nissan_skyline_gt_r_vspec_n1__r32___93,Nissan SKYLINE GT-R Vspec N1 (R32) '93,RHD,Japanese-market name/trim,no
+nissan_stagea_260rs_autechversion__98,Nissan STAGEA 260RS AutechVersion '98,RHD,Japanese-market name/trim,no
+tvr_griffith_500__94,TVR Griffith 500 '94,RHD,British make,no
+mitsubishi_hsr_ii_concept__89,Mitsubishi HSR-II Concept '89,RHD,concept car: home-market side assumed,yes
+nissan_skyline_gt_r_vspec__r33___96,Nissan SKYLINE GT-R Vspec (R33) '96,RHD,Japanese-market name/trim,no
+nissan_skyline_gt_r_vspec__r33___97,Nissan SKYLINE GT-R Vspec (R33) '97,RHD,Japanese-market name/trim,no
+peugeot_205_turbo_16_rally_car__85,Peugeot 205 Turbo 16 Rally Car '85,LHD,works rally car: the European-run teams built them LHD (unverified per car),yes
+renault_5_maxi_turbo_rally_car__85,Renault 5 Maxi Turbo Rally Car '85,LHD,works rally car: the European-run teams built them LHD (unverified per car),yes
+lotus_carlton__90,Lotus Carlton '90,RHD,British make,no
+lotus_motor_sport_elise__99,Lotus Motor Sport Elise '99,RHD,British make,no
+nissan_skyline_gt_r_n1__r33___95,Nissan SKYLINE GT-R N1 (R33) '95,RHD,Japanese-market name/trim,no
+nissan_skyline_gt_r_vspec_lm_limited__r33___96,Nissan SKYLINE GT-R Vspec LM Limited (R33) '96,RHD,Japanese-market name/trim,no
+alfa_romeo_155_2_5_v6_ti__93,Alfa Romeo 155 2.5 V6 TI '93,LHD,Italian make,no
+chevrolet_corvette_convertible__c1___54,Chevrolet Corvette Convertible (C1) '54,LHD,American make,no
+mercedes_benz_190_e_2_5___16_evolution_ii__91,Mercedes-Benz 190 E 2.5 - 16 Evolution II '91,LHD,German make,no
+nissan_skyline_gt_r__r34___99,Nissan SKYLINE GT-R (R34) '99,RHD,Japanese-market name/trim,no
+tvr_cerbera_speed_six__97,TVR Cerbera Speed Six '97,RHD,British make,no
+nissan_skyline_gt_r_v_spec__r34___99,Nissan SKYLINE GT-R V-spec (R34) '99,RHD,Japanese-market name/trim,no
+ford_rs200_rally_car__85,Ford RS200 Rally Car '85,LHD,works rally car: the European-run teams built them LHD (unverified per car),yes
+acura_nsx__91,Acura NSX '91,LHD,Acura = Honda's US brand,no
+honda_nsx__90,Honda NSX '90,RHD,Honda-badged NSX = Japan (US was Acura); Europe also had LHD Honda NSXs,yes
+nissan_skyline_gt_r_special_color_midnight_purple_ii__r34___99,Nissan SKYLINE GT-R Special Color Midnight Purple II (R34) '99,RHD,Japanese-market name/trim,no
+nissan_skyline_gt_r_v_spec_n1__r34___99,Nissan SKYLINE GT-R V-spec N1 (R34) '99,RHD,Japanese-market name/trim,no
+peugeot_205_turbo_16_evolution_2_rally_car__86,Peugeot 205 Turbo 16 Evolution 2 Rally Car '86,LHD,works rally car: the European-run teams built them LHD (unverified per car),yes
+lancia_stratos_rally_car__77,Lancia STRATOS Rally Car '77,LHD,works rally car: the European-run teams built them LHD (unverified per car),yes
+lancia_delta_hf_integrale_rally_car__92,Lancia DELTA HF Integrale Rally Car '92,LHD,works rally car: the European-run teams built them LHD (unverified per car),yes
+jensen_interceptor_mkiii__74,Jensen Interceptor MkIII '74,RHD,British make,no
+honda_nsx__93,Honda NSX '93,RHD,Honda-badged NSX = Japan (US was Acura); Europe also had LHD Honda NSXs,yes
+dodge_viper_gts__99,Dodge VIPER GTS '99,LHD,American make,no
+alfa_romeo_giulia_sprint_speciale__63,Alfa Romeo Giulia Sprint Speciale '63,LHD,Italian make,no
+ford_escort_rally_car__98,Ford Escort Rally Car '98,LHD,works rally car: the European-run teams built them LHD (unverified per car),yes
+honda_nsx__95,Honda NSX '95,RHD,Honda-badged NSX = Japan (US was Acura); Europe also had LHD Honda NSXs,yes
+jaguar_xkr_coupe__99,Jaguar XKR Coupe '99,RHD,British make; most were exported LHD to the US,yes
+mercedes_benz_sl_500__r129___98,Mercedes-Benz SL 500 (R129) '98,LHD,German make,no
+acura_nsx_coupe__97,Acura NSX Coupe '97,LHD,Acura = Honda's US brand,no
+honda_nsx__97,Honda NSX '97,RHD,Honda-badged NSX = Japan (US was Acura); Europe also had LHD Honda NSXs,yes
+alfa_romeo_giulia_sprint_gta_1600__65,Alfa Romeo Giulia Sprint GTA 1600 '65,LHD,Italian make,no
+ford_focus_rally_car__99,Ford FOCUS Rally Car '99,LHD,works rally car: the European-run teams built them LHD (unverified per car),yes
+lotus_esprit_v8_gt__98,Lotus Esprit V8 GT '98,RHD,British make,no
+nismo_skyline_gt_r_r_tune__r34___99,NISMO Skyline GT-R R-tune (R34) '99,RHD,Japanese tuner / maker car on a JDM base,no
+plymouth_super_bird__70,Plymouth Super Bird '70,LHD,American make,no
+jaguar_e_type_coupe__61,Jaguar E-Type Coupe '61,RHD,British make; most were exported LHD to the US,yes
+honda_nsx__99,Honda NSX '99,RHD,Honda-badged NSX = Japan (US was Acura); Europe also had LHD Honda NSXs,yes
+lotus_esprit_v8_se__98,Lotus Esprit V8 SE '98,RHD,British make,no
+ruf_btr__86,RUF BTR '86,LHD,German make,no
+honda_nsx_type_s__97,Honda NSX Type S '97,RHD,NSX Type R/S/S Zero were Japan-only trims,no
+honda_nsx_type_r__92,Honda NSX Type R '92,RHD,NSX Type R/S/S Zero were Japan-only trims,no
+honda_nsx_type_s__99,Honda NSX Type S '99,RHD,NSX Type R/S/S Zero were Japan-only trims,no
+mercury_cougar_xr_7__67,Mercury Cougar XR-7 '67,LHD,American make,no
+honda_nsx_type_s_zero__97,Honda NSX Type S Zero '97,RHD,NSX Type R/S/S Zero were Japan-only trims,no
+opel_calibra_touring_car__94,Opel Calibra Touring Car '94,LHD,"German touring car (DTM/ITC), LHD road car base",no
+honda_nsx_type_s_zero__99,Honda NSX Type S Zero '99,RHD,NSX Type R/S/S Zero were Japan-only trims,no
+honda_gathers_drider_civic_race_car__98,Honda Gathers Drider CIVIC Race Car '98,RHD,Japanese race car on a Japanese road car,no
+honda_s800_rsc_race_car__68,Honda S800 RSC Race Car '68,RHD,Japanese race car on a Japanese road car,no
+mercedes_benz_sl_600__r129___98,Mercedes-Benz SL 600 (R129) '98,LHD,German make,no
+mitsubishi_fto_super_touring_car__97,Mitsubishi FTO Super Touring Car '97,RHD,Japanese race car on a Japanese road car,no
+ruf_ctr__yellow_bird___87,"RUF CTR ""Yellow Bird"" '87",LHD,German make,no
+nismo_400r__96,NISMO 400R '96,RHD,Japanese tuner / maker car on a JDM base,no
+lancia_delta_s4_rally_car__85,Lancia Delta S4 Rally Car '85,LHD,works rally car: the European-run teams built them LHD (unverified per car),yes
+mercedes_benz_300_sl_coupe__54,Mercedes-Benz 300 SL Coupe '54,LHD,German make,no
+honda_mugen_motul_civic_si_race_car__87,Honda MUGEN MOTUL CIVIC Si Race Car '87,RHD,Japanese race car on a Japanese road car,no
+shelby_mustang_g_t__350r__65,Shelby Mustang G.T. 350R '65,LHD,American make,no
+suzuki_escudo_dirt_trial_car__98,Suzuki ESCUDO Dirt Trial Car '98,RHD,Japanese-built hill-climb car,yes
+amg_mercedes_190_e_2_5___16_evolution_ii_touring_car__92,AMG Mercedes 190 E 2.5 - 16 Evolution II Touring Car '92,LHD,"German touring car (DTM/ITC), LHD road car base",no
+ac_cars_427_s_c__66,AC Cars 427 S/C '66,LHD,AC-built Cobra for Shelby's US market; British make,yes
+shelby_cobra_427__67,Shelby Cobra 427 '67,LHD,American make,no
+ruf_ctr2__96,RUF CTR2 '96,LHD,German make,no
+nissan_pennzoil_nismo_gt_r__jgtc___99,Nissan PENNZOIL Nismo GT-R (JGTC) '99,RHD,Japanese race car on a Japanese road car,no
+toyota_2000gt__67,Toyota 2000GT '67,RHD,Japanese-market name/trim,no
+aston_martin_v8_vantage__99,Aston Martin V8 Vantage '99,RHD,British make,no
+cizeta_v16t__94,Cizeta V16T '94,LHD,Italian make,no
+chaparral_2d_race_car__67,Chaparral 2D Race Car '67,LHD,"US race car (Chaparral seats were offset to the left, unverified)",yes
+ford_gt40_race_car__69,Ford GT40 Race Car '69,RHD,"the GT40 race cars were built in Britain, RHD",yes
+jaguar_xj220__92,Jaguar XJ220 '92,RHD,British make,no
+peugeot_905_race_car__92,Peugeot 905 Race Car '92,RHD,sports-prototype / GT1 race car: driver on the right for clockwise circuits (unverified per car),yes
+nissan_calsonic_skyline_gt_r_race_car__93,Nissan CALSONIC SKYLINE GT-R Race Car '93,RHD,Japanese race car on a Japanese road car,no
+mazda_787b_race_car__91,Mazda 787B Race Car '91,RHD,sports-prototype / GT1 race car: driver on the right for clockwise circuits (unverified per car),yes
+nismo_gt_r_lm_road_going_version__95,NISMO GT-R LM Road Going Version '95,RHD,Japanese tuner / maker car on a JDM base,no
+chevrolet_corvette_z06__c2__race_car__63,Chevrolet Corvette Z06 (C2) Race Car '63,LHD,American make,no
+toyota_gt_one_race_car__ts020___99,Toyota GT-ONE Race Car (TS020) '99,RHD,sports-prototype / GT1 race car: driver on the right for clockwise circuits (unverified per car),yes
+nissan_r390_gt1_race_car__98,Nissan R390 GT1 Race Car '98,RHD,sports-prototype / GT1 race car: driver on the right for clockwise circuits (unverified per car),yes
+bmw_v12_lmr_race_car__99,BMW V12 LMR Race Car '99,RHD,sports-prototype / GT1 race car: driver on the right for clockwise circuits (unverified per car),yes
+bmw_mclaren_f1_gtr_race_car__97,BMW McLaren F1 GTR Race Car '97,RHD,centre driving seat - nearest is a guess (British build),yes
+panoz_esperante_gtr_1_race_car__98,Panoz Esperante GTR-1 Race Car '98,RHD,"US team, British build; offset seat unverified",yes
+lister_storm_v12_race_car__99,Lister Storm V12 Race Car '99,RHD,sports-prototype / GT1 race car: driver on the right for clockwise circuits (unverified per car),yes
+amg_mercedes_clk_gtr_race_car__98,AMG Mercedes CLK-GTR Race Car '98,RHD,sports-prototype / GT1 race car: driver on the right for clockwise circuits (unverified per car),yes
+chaparral_2j_race_car__70,Chaparral 2J Race Car '70,LHD,"US race car (Chaparral seats were offset to the left, unverified)",yes
+sauber_mercedes_c_9_race_car__89,Sauber Mercedes C 9 Race Car '89,RHD,sports-prototype / GT1 race car: driver on the right for clockwise circuits (unverified per car),yes
+minolta_toyota_88c_v_race_car__89,MINOLTA Toyota 88C-V Race Car '89,RHD,sports-prototype / GT1 race car: driver on the right for clockwise circuits (unverified per car),yes
+nissan_r89c_race_car__89,Nissan R89C Race Car '89,RHD,sports-prototype / GT1 race car: driver on the right for clockwise circuits (unverified per car),yes
+nissan_r92cp_race_car__92,Nissan R92CP Race Car '92,RHD,sports-prototype / GT1 race car: driver on the right for clockwise circuits (unverified per car),yes
+toyota_7_race_car__70,Toyota 7 Race Car '70,RHD,sports-prototype / GT1 race car: driver on the right for clockwise circuits (unverified per car),yes
+nissan_r390_gt1_road_car__98,Nissan R390 GT1 Road Car '98,RHD,TWR-built in Britain from the Le Mans car,no
+jaguar_xjr_9_race_car__88,Jaguar XJR-9 Race Car '88,RHD,sports-prototype / GT1 race car: driver on the right for clockwise circuits (unverified per car),yes
+honda_accord_coupe_type_s__03,Honda ACCORD Coupe Type S '99,LHD,US-built Accord Coupe (Acura CL Type-S power); JDM Euro-R body was a sedan,yes
