@@ -1219,6 +1219,7 @@ namespace PSXRacing.LifeSim
 
             RaceHandoff.OpponentSpecIds = ids.ToString();
             RaceHandoff.OpponentSkills = skills.ToString();
+            EngineVoiceLibrary.PrefetchHandoff();   // the field's engine bundles
             return true;
         }
 
@@ -1233,6 +1234,7 @@ namespace PSXRacing.LifeSim
             RaceHandoff.OpponentSpecIds = spec.id;
             RaceHandoff.OpponentSkills = rival.skill.ToString("0.###",
                 System.Globalization.CultureInfo.InvariantCulture);
+            EngineVoiceLibrary.PrefetchSpec(spec.id);   // the rival's engine bundle
             return true;
         }
 

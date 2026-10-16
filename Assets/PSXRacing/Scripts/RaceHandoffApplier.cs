@@ -39,6 +39,11 @@ namespace PSXRacing
         // Instance is safe to read here: every Awake runs before every Start.
         void Start() => Apply(RaceManager.Instance != null ? RaceManager.Instance.allCars : null);
 
+        // The engine families this run needs are AssetBundles: start them as
+        // early as the scene allows (they were usually asked for already, when
+        // the run was set up - this catches every door that did not).
+        void Awake() => EngineVoiceLibrary.PrefetchHandoff();
+
         /// <summary>
         /// Apply the whole request. <paramref name="raceField"/> is RaceManager's
         /// own car list; when supplied, retired opponents are removed from it so

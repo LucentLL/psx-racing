@@ -25,7 +25,8 @@ import { loadHQ, evalCurve, PREFAB_OF, TAKES } from './res2_curves.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
-const ENGINES = path.join(REPO, 'Assets/PSXRacing/Resources/Engines');
+const ENGINES = path.join(REPO, 'Assets/PSXRacing/Resources/Engines');   // the default family
+const ENGINE_SRC = path.join(REPO, 'Assets/PSXRacing/EngineSrc');          // every bundled family
 const SR = 44100, CH = 2, FPS = 60, DT = 1 / FPS;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * clamp(t, 0, 1);
@@ -65,7 +66,13 @@ function loopSeam(d) {
   }
   return out;
 }
-export const oursClipPath = (fam, name) => path.join(ENGINES, fam, name + '.ogg');
+/** The game's own take: Resources/Engines (default family) or EngineSrc; set
+ *  'int' reads the cockpit (Interior) recordings. */
+export const oursClipPath = (fam, name, set = 'ext') => {
+  const sub = set === 'int' ? ['Interior', name + '.ogg'] : [name + '.ogg'];
+  const a = path.join(ENGINES, fam, ...sub);
+  return set !== 'int' && fs.existsSync(a) ? a : path.join(ENGINE_SRC, fam, ...sub);
+};
 const oursClip = (fam, name) => decode(oursClipPath(fam, name));
 
 /** One AudioSource: fractional read head, linear interpolation, volume and

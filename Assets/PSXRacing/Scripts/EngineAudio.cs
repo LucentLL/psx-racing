@@ -1,4 +1,6 @@
 using UnityEngine;
+using Set = PSXRacing.EngineVoiceLibrary.Set;
+using Avail = PSXRacing.EngineVoiceLibrary.Avail;
 
 namespace PSXRacing
 {
@@ -39,9 +41,18 @@ namespace PSXRacing
     /// tools/engine_audio_report.mjs and tools/engine_pitch_shift.mjs measure all
     /// of this against an offline port of the vendor rig.
     ///
+    /// ON-DEMAND FAMILIES (phase 2). A car's family is an AssetBundle that may
+    /// still be downloading when the car appears (EngineVoiceLibrary). The voice
+    /// is a <see cref="VoiceSet"/> built only once its clips are present: until
+    /// then the car is silent for <see cref="StandInDelay"/>, then speaks
+    /// quietly through the default family, and the real voice fades in when it
+    /// lands. A family that cannot be fetched keeps the default at full level.
+    /// Nothing here blocks or throws on a missing family.
+    ///
     /// What is kept from before, because it is about Unity/WebGL rather than
     /// about the sound: one dedicated AudioSource per clip, always playing and
-    /// volume-gated (never reassign .clip at runtime - it resets timeSamples);
+    /// volume-gated (never reassign .clip at runtime - it resets timeSamples; a
+    /// family change builds NEW sources and fades the old ones out);
     /// AudioLoopStarter for the browser's late decode; LoopSeam on every loop;
     /// the capped rpm fall so an upshift does not read as a slide whistle.
     /// </summary>
@@ -53,10 +64,28 @@ namespace PSXRacing
             public AudioSource on, off;
         }
 
+        /// <summary>One family's live sources: the take ladder plus the extras,
+        /// all under one child object so a teardown is one Destroy.</summary>
+        sealed class VoiceSet
+        {
+            public string family;
+            public Set set;
+            /// <summary>The default family speaking for a family still on its way.</summary>
+            public bool standIn;
+            public bool fromPack;
+            public EngineVoiceLibrary.Rig rig;
+            public Voice[] voices;
+            public AudioSource maxRpm, intakeOn, intakeOff;
+            public AudioClip startup, engineStop;
+            public GameObject root;
+            /// <summary>Fade gain, and where it is heading.</summary>
+            public float gain, target;
+        }
+
         public CarController car;
 
         [Header("Voice")]
-        /// <summary>Recorded family folder under Resources/Engines. Set by the
+        /// <summary>Recorded family key (EngineVoiceLibrary). Set by the
         /// builder to the default and re-set per car by RaceHandoffApplier once
         /// the catalog spec is known.</summary>
         public string family = EngineVoiceLibrary.DefaultFamily;
@@ -86,10 +115,23 @@ namespace PSXRacing
         /// this long on every gear change (CustomCarController_RES2.waitAtShifting).</summary>
         const float ShiftLift = 0.2f;
 
-        EngineVoiceLibrary.Rig rig;
-        Voice[] voices;
-        AudioClip maxRpmClip, startupClip, engineStopClip, intakeOnClip, intakeOffClip;
-        AudioSource maxRpmSrc, intakeOnSrc, intakeOffSrc, oneShotSrc;
+        /// <summary>Seconds of silence a car waits for its own family before the
+        /// default family stands in. Prefetch normally lands a family during
+        /// the scene load; a stand-in for a brief gap is worse than the gap.</summary>
+        const float StandInDelay = 1.5f;
+        /// <summary>The stand-in speaks quietly: it is the wrong engine.</summary>
+        const float StandInLevel = 0.45f;
+        /// <summary>Fade of a voice arriving, and of one leaving.</summary>
+        const float FadeInSeconds = 0.4f, FadeOutSeconds = 0.25f;
+        /// <summary>A starter that could not play yet (family downloading) is
+        /// still played if the voice lands within this long of when it was due.</summary>
+        const float StartupGrace = 2f;
+
+        VoiceSet live, fading;
+        string wantFamily;
+        float waitSince = -1f;
+        AudioSource oneShotSrc;
+        float pendingStartupAt = -1f;
 
         // ---- per-car voice (RG2's engineVoice.ts) ----------------------------
         // voiceRateMul rides as the vendor's own pitchMultiplier (+-2.5 st over
@@ -97,6 +139,7 @@ namespace PSXRacing
         // only exists on 33 big-cam V8s and fades out by ~2500 rpm.
         float voiceRateMul = 1f;
         float voiceLevelMul = 1f;
+        bool voiceSet;
         float lopeDepth, lopeOrder = 0.5f, lopeFadeTop, lopePhaseSeed;
         float lopePhase;
 
@@ -112,6 +155,12 @@ namespace PSXRacing
         /// <summary>The vendor's maxRPMLimit: "car's maximum RPM", i.e. the
         /// limiter. clipsValue = rpm / this.</summary>
         float LimiterRPM => car != null ? Mathf.Max(car.revLimitRPM, car.idleRPM + 100f) : 8000f;
+
+        /// <summary>The family this car's live voice is built from (the
+        /// default while it stands in), or null before the first build.</summary>
+        public string LiveFamily => live != null ? live.family : null;
+        /// <summary>True while the default family stands in for a download.</summary>
+        public bool StandingIn => live != null && live.standIn;
 
         void Awake()
         {
@@ -130,25 +179,28 @@ namespace PSXRacing
             // frame that needs sound.
         }
 
-        void EnsureVoice()
+        void OnDestroy()
         {
-            if (voices != null) return;
-            if (voiceRateMul == 1f && car != null) SetVoice(car.activeSpec);
-            BuildVoice();
+            Teardown(ref live);
+            Teardown(ref fading);
         }
 
         /// <summary>
-        /// Point this engine at a different recorded family and rebuild. No-ops
-        /// when the family is unchanged - a teardown mid-race would restart every
-        /// loop from sample zero.
+        /// Point this engine at a different recorded family. No-ops when the
+        /// family is unchanged - a teardown mid-race would restart every loop
+        /// from sample zero. A family still downloading is waited on (see the
+        /// class notes); one that is here is built at once.
         /// </summary>
         public void SetFamily(string key)
         {
             key = EngineVoiceLibrary.Canonical(key);
             string resolved = EngineVoiceLibrary.Has(key) ? key : EngineVoiceLibrary.DefaultFamily;
-            if (resolved == family && voices != null) return;
             family = resolved;
-            BuildVoice();
+            if (resolved == wantFamily) return;
+            wantFamily = resolved;
+            waitSince = Time.time;
+            EngineVoiceLibrary.Request(resolved, Set.Exterior);
+            UpdateVoice(0f);
         }
 
         public void SetFamily(CarSpec spec) => SetFamily(EngineVoiceLibrary.Resolve(spec));
@@ -159,6 +211,7 @@ namespace PSXRacing
         public void SetVoice(CarSpec spec)
         {
             if (spec == null) return;
+            voiceSet = true;
             voiceRateMul = spec.voiceRateMul > 0.05f ? spec.voiceRateMul : 1f;
             voiceLevelMul = spec.voiceLevelMul > 0.05f ? spec.voiceLevelMul : 1f;
             lopeDepth = Mathf.Max(0f, spec.lopeDepth);
@@ -167,71 +220,130 @@ namespace PSXRacing
             lopePhaseSeed = spec.lopePhase;
         }
 
-        void BuildVoice()
+        // ------------------------------------------------------------------
+        //  Building and swapping voices
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Keep the live voice on the wanted family: build it the moment its
+        /// clips are here, stand the default in after a short wait, fade the
+        /// outgoing voice. Called every frame (cheap when settled).
+        /// </summary>
+        void UpdateVoice(float dt)
         {
-            TeardownVoice();
-            family = EngineVoiceLibrary.Canonical(family);
-            rig = EngineVoiceLibrary.RigFor(family);
-            if (rig == null && family != EngineVoiceLibrary.DefaultFamily)
+            if (wantFamily == null)
             {
-                family = EngineVoiceLibrary.DefaultFamily;
-                rig = EngineVoiceLibrary.RigFor(family);
+                // Nobody called SetFamily (standalone play): the serialized key.
+                if (!voiceSet && car != null) SetVoice(car.activeSpec);
+                string k = EngineVoiceLibrary.Canonical(family);
+                wantFamily = EngineVoiceLibrary.Has(k) ? k : EngineVoiceLibrary.DefaultFamily;
+                waitSince = Time.time;
             }
-            if (rig == null) { voices = new Voice[0]; return; }
+
+            bool settled = live != null && !live.standIn && live.family == wantFamily;
+            if (!settled)
+            {
+                EngineVoiceLibrary.Request(wantFamily, Set.Exterior);
+                var st = EngineVoiceLibrary.State(wantFamily, Set.Exterior);
+                if (st == Avail.Ready)
+                {
+                    var built = Build(wantFamily, Set.Exterior, false);
+                    if (built != null) SwapTo(built);
+                    else if (live == null) SwapTo(Build(EngineVoiceLibrary.DefaultFamily, Set.Exterior, false));
+                }
+                else if (st == Avail.Loading || st == Avail.None)
+                {
+                    if (live == null && Time.time - waitSince >= StandInDelay)
+                        SwapTo(Build(EngineVoiceLibrary.DefaultFamily, Set.Exterior, true));
+                }
+                else
+                {
+                    // Failed or missing: the default IS this car's voice now.
+                    if (live != null && live.family == EngineVoiceLibrary.DefaultFamily) { live.standIn = false; live.target = 1f; }
+                    else SwapTo(Build(EngineVoiceLibrary.DefaultFamily, Set.Exterior, false));
+                    wantFamily = EngineVoiceLibrary.DefaultFamily;
+                }
+            }
+
+            if (live != null) live.gain = Mathf.MoveTowards(live.gain, live.target, dt / FadeInSeconds);
+            if (fading != null)
+            {
+                fading.gain = Mathf.MoveTowards(fading.gain, 0f, dt / FadeOutSeconds);
+                if (fading.gain <= 0f) Teardown(ref fading);
+            }
+        }
+
+        void SwapTo(VoiceSet next)
+        {
+            if (next == null) return;
+            if (fading != null) Teardown(ref fading);
+            fading = live;
+            if (fading != null) fading.target = 0f;
+            live = next;
+            // The first voice of a car starts at full when its family was
+            // already here (prefetched): nothing was audible before it, and a
+            // fade-in on scene start reads as a car slow to "start". A voice
+            // that had to be waited for, or replaces another, fades in.
+            live.gain = fading == null && !live.standIn && Time.time - waitSince < 0.1f ? 1f : 0f;
+            live.target = live.standIn ? StandInLevel : 1f;
+        }
+
+        VoiceSet Build(string fam, Set set, bool standIn)
+        {
+            fam = EngineVoiceLibrary.Canonical(fam);
+            var rig = EngineVoiceLibrary.RigFor(fam);
+            if (rig == null) return null;
+            if (EngineVoiceLibrary.State(fam, set) != Avail.Ready) return null;
+
+            var s = new VoiceSet { family = fam, set = set, standIn = standIn, rig = rig };
+            s.root = new GameObject("snd_" + (set == Set.Interior ? "int_" : "") + fam);
+            s.root.transform.SetParent(transform, false);
 
             var takes = useOffTakes ? rig.hq : rig.mq;
             var built = new System.Collections.Generic.List<Voice>(takes.Length);
             foreach (var t in takes)
             {
-                var onClip = EngineVoiceLibrary.Clip(family, t.onClip);
+                var onClip = EngineVoiceLibrary.Clip(fam, t.onClip, set);
                 if (onClip == null) continue;
-                var v = new Voice { take = t, on = MakeLoop(onClip, t.onClip) };
+                var v = new Voice { take = t, on = MakeLoop(s, onClip, t.onClip) };
                 if (useOffTakes && t.offClip != null)
-                    v.off = MakeLoop(EngineVoiceLibrary.Clip(family, t.offClip), t.offClip);
+                    v.off = MakeLoop(s, EngineVoiceLibrary.Clip(fam, t.offClip, set), t.offClip);
                 built.Add(v);
             }
-            voices = built.ToArray();
+            s.voices = built.ToArray();
+            if (s.voices.Length == 0) { Object.Destroy(s.root); return null; }
 
             // Opponents skip the limiter take and the intake pair: three more
             // always-resident voices each, for detail nobody hears from another
             // car. The one-shots stay - a grid of engines firing up is the point
             // of the countdown.
-            maxRpmClip = useOffTakes ? EngineVoiceLibrary.Clip(family, "maxRPM") : null;
-            intakeOnClip = useOffTakes ? EngineVoiceLibrary.Clip(family, "intake_on") : null;
-            intakeOffClip = useOffTakes ? EngineVoiceLibrary.Clip(family, "intake_off") : null;
-            startupClip = EngineVoiceLibrary.Clip(family, "startup");
-            engineStopClip = EngineVoiceLibrary.Clip(family, "engine_stop");
-
-            maxRpmSrc = MakeLoop(maxRpmClip, "maxRPM");
-            intakeOnSrc = MakeLoop(intakeOnClip, "intake_on");
-            intakeOffSrc = MakeLoop(intakeOffClip, "intake_off");
-        }
-
-        /// <summary>Destroy the previous family's sources - each loop lives on
-        /// its own child GameObject.</summary>
-        void TeardownVoice()
-        {
-            if (voices != null)
+            if (useOffTakes)
             {
-                foreach (var v in voices)
-                {
-                    if (v.on != null) Destroy(v.on.gameObject);
-                    if (v.off != null) Destroy(v.off.gameObject);
-                }
-                voices = null;
+                s.maxRpm = MakeLoop(s, EngineVoiceLibrary.Clip(fam, "maxRPM", set), "maxRPM");
+                s.intakeOn = MakeLoop(s, EngineVoiceLibrary.Clip(fam, "intake_on", set), "intake_on");
+                s.intakeOff = MakeLoop(s, EngineVoiceLibrary.Clip(fam, "intake_off", set), "intake_off");
             }
-            if (maxRpmSrc != null) Destroy(maxRpmSrc.gameObject);
-            if (intakeOnSrc != null) Destroy(intakeOnSrc.gameObject);
-            if (intakeOffSrc != null) Destroy(intakeOffSrc.gameObject);
-            maxRpmSrc = intakeOnSrc = intakeOffSrc = null;
-            rig = null;
+            s.startup = EngineVoiceLibrary.Clip(fam, "startup", set);
+            s.engineStop = EngineVoiceLibrary.Clip(fam, "engine_stop", set);
+
+            s.fromPack = !(set == Set.Exterior && fam == EngineVoiceLibrary.DefaultFamily);
+            if (s.fromPack) EngineVoiceLibrary.Acquire(fam, set);
+            return s;
         }
 
-        AudioSource MakeLoop(AudioClip clip, string label)
+        void Teardown(ref VoiceSet s)
+        {
+            if (s == null) return;
+            if (s.root != null) Destroy(s.root);
+            if (s.fromPack) EngineVoiceLibrary.Release(s.family, s.set);
+            s = null;
+        }
+
+        AudioSource MakeLoop(VoiceSet s, AudioClip clip, string label)
         {
             if (clip == null) return null;
             var go = new GameObject("snd_" + label);
-            go.transform.SetParent(transform, false);
+            go.transform.SetParent(s.root.transform, false);
             var src = go.AddComponent<AudioSource>();
             src.clip = clip;
             src.loop = true;
@@ -257,28 +369,51 @@ namespace PSXRacing
             }
         }
 
+        // ------------------------------------------------------------------
+        //  One-shots
+        // ------------------------------------------------------------------
+
+        /// <summary>The starter, <paramref name="delay"/> seconds from now. If
+        /// the car's family is still on its way it plays when the voice lands
+        /// (within <see cref="StartupGrace"/> of when it was due) - never the
+        /// stand-in's starter, which would be another engine's.</summary>
         public void PlayStartup(float delay = 0f)
         {
-            EnsureVoice();
-            if (startupClip == null || oneShotSrc == null) return;
-            oneShotSrc.volume = AudioPrefs.Engine;   // the ENGINE volume (settings, AUDIO)
-            AudioLoopStarter.PlayDelayed(oneShotSrc, startupClip, delay);
+            pendingStartupAt = Time.time + Mathf.Max(0f, delay);
+            TryStartup();
+        }
+
+        void TryStartup()
+        {
+            if (pendingStartupAt < 0f || live == null || live.standIn) return;
+            if (Time.time > pendingStartupAt + StartupGrace) { pendingStartupAt = -1f; return; }
+            if (live.startup != null && oneShotSrc != null)
+            {
+                oneShotSrc.volume = AudioPrefs.Engine;   // the ENGINE volume (settings, AUDIO)
+                AudioLoopStarter.PlayDelayed(oneShotSrc, live.startup, Mathf.Max(0f, pendingStartupAt - Time.time));
+            }
+            pendingStartupAt = -1f;
         }
 
         public void PlayShutdown()
         {
-            EnsureVoice();
-            if (engineStopClip == null || oneShotSrc == null) return;
+            pendingStartupAt = -1f;
+            if (live == null || live.engineStop == null || oneShotSrc == null) return;
             oneShotSrc.volume = AudioPrefs.Engine;
-            AudioLoopStarter.PlayOneShot(oneShotSrc, engineStopClip, 0.8f);
+            AudioLoopStarter.PlayOneShot(oneShotSrc, live.engineStop, 0.8f);
         }
+
+        // ------------------------------------------------------------------
+        //  The mix
+        // ------------------------------------------------------------------
 
         void Update()
         {
-            EnsureVoice();
-            if (car == null || rig == null || voices == null || voices.Length == 0) return;
             float dt = Time.deltaTime;
             if (dt <= 0f) return;
+            UpdateVoice(dt);
+            TryStartup();
+            if (car == null || live == null) return;
 
             UpdateAudibleRPM(dt);
             float lim = LimiterRPM;
@@ -290,11 +425,11 @@ namespace PSXRacing
             if (car.currentGear != lastGear) { lastGear = car.currentGear; shiftLiftTimer = ShiftLift; }
             shiftLiftTimer = Mathf.Max(0f, shiftLiftTimer - dt);
             float pedal = shiftLiftTimer > 0f ? 0f : Mathf.Clamp01(car.throttleInput);
-            float gasF = Mathf.Clamp(0.02f * rig.gasPedalSimSpeed, 0.001f, 1f);
+            float gasF = Mathf.Clamp(0.02f * live.rig.gasPedalSimSpeed, 0.001f, 1f);
             load = Mathf.Lerp(load, pedal, 1f - Mathf.Pow(1f - gasF, dt / 0.02f));
 
             // ---- v2.3 Engine Load: adsrVol from the last workload, then update
-            float sustain = rig.sustainAdsrVol;
+            float sustain = live.rig.sustainAdsrVol;
             float adsr = Mathf.Lerp(Mathf.Max(1f - cv, sustain), Mathf.Lerp(sustain, 1f, workload), load);
             UpdateWorkload(dt, lim);
 
@@ -311,7 +446,17 @@ namespace PSXRacing
             }
 
             float master = adsr * masterVolume * voiceLevelMul * LevelGain * lopeLevel;
-            float pitchMul = rig.pitchMultiplier * voiceRateMul * lopeWobble;
+            float rate = voiceRateMul * lopeWobble;
+            Mix(live, cv, master, rate);
+            if (fading != null) Mix(fading, cv, master, rate);
+        }
+
+        /// <summary>One voice set through the vendor's arithmetic, at its fade gain.</summary>
+        void Mix(VoiceSet s, float cv, float master, float rate)
+        {
+            var rig = s.rig;
+            master *= s.gain;
+            float pitchMul = rig.pitchMultiplier * rate;
 
             var onCurve = useOffTakes ? rig.onLoad : rig.mqOnLoad;
             var offCurve = useOffTakes ? rig.offLoad : rig.mqOffLoad;
@@ -321,12 +466,12 @@ namespace PSXRacing
             // the limiter) and is NOT gated on the pedal. While it is up, every
             // other take drops by revLimiterTweaker - DynamicSound compares
             // against 0.95 x loadCurve, the idle take against 0.95 flat.
-            float mx = maxRpmSrc != null ? rig.maxRPMVol.Evaluate(cv) * onL : 0f;
+            float mx = s.maxRpm != null ? rig.maxRPMVol.Evaluate(cv) * onL : 0f;
             float div = mx > 0f && mx >= 0.95f * onL ? rig.revLimiterTweaker : 1f;
             float divIdle = mx >= 0.95f ? rig.revLimiterTweaker : 1f;
             float idleLoad = Mathf.Lerp(offL, onL, load);
 
-            foreach (var v in voices)
+            foreach (var v in s.voices)
             {
                 var t = v.take;
                 float vol = t.vol.Evaluate(cv) * master;
@@ -340,18 +485,18 @@ namespace PSXRacing
                 else Apply(v.on, vol * idleLoad, pitch);   // opponents: vendor "Simulated" off-load
             }
 
-            Apply(maxRpmSrc, mx * master,
+            Apply(s.maxRpm, mx * master,
                   Mathf.Clamp(rig.hq[rig.hq.Length - 1].pitch.Evaluate(cv) * pitchMul, PitchMin, PitchMax));
 
             // Intake: the vendor's own volume curves x onLoad x load, pitched by
             // its aggressiveness pitch curve, and mixed by where the listener is -
             // full in front of the car or inside it, nearly nothing from behind.
-            if (intakeOnSrc != null || intakeOffSrc != null)
+            if (s.intakeOn != null || s.intakeOff != null)
             {
                 float mix = IntakeMixing() * rig.intakeMaster * onL * master;
                 float ip = Mathf.Clamp(rig.intakePitch.Evaluate(cv) * pitchMul, PitchMin, PitchMax);
-                Apply(intakeOnSrc, rig.intakeOnVol.Evaluate(cv) * load * mix, ip);
-                Apply(intakeOffSrc, rig.intakeOffVol.Evaluate(cv) * (1f - load) * mix, ip);
+                Apply(s.intakeOn, rig.intakeOnVol.Evaluate(cv) * load * mix, ip);
+                Apply(s.intakeOff, rig.intakeOffVol.Evaluate(cv) * (1f - load) * mix, ip);
             }
         }
 
@@ -371,7 +516,7 @@ namespace PSXRacing
                 float top = Mathf.Max(car.topSpeedMps * 3.6f, 1f);
                 float kmh = Mathf.Abs(car.speedKmh);
                 float rate = Mathf.Max(0f, (rpm - effortSample) / effortTimer) / Mathf.Max(rpm, 1f);
-                float adj = rate * Mathf.Lerp(1f, 2f, Mathf.InverseLerp(0f, top, kmh)) * rig.effortSensitivity;
+                float adj = rate * Mathf.Lerp(1f, 2f, Mathf.InverseLerp(0f, top, kmh)) * live.rig.effortSensitivity;
                 float target = Mathf.Max(Mathf.InverseLerp(0.03f, 0.35f, adj),
                                          Mathf.Max(Mathf.InverseLerp(top * 0.5f, top, kmh),
                                                    Mathf.InverseLerp(0.75f, 0.9f, rpm / lim)));

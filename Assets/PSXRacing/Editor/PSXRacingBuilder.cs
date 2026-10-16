@@ -1262,7 +1262,10 @@ namespace PSXRacing.EditorTools
             // Two populations with genuinely different budgets, so they get
             // different settings rather than one compromise.
             int core = ConfigureAudioFolder(Root + "/Audio", 1.0f, true);
-            int engines = ConfigureAudioFolder(Root + "/Resources/Engines", EngineClipQuality, false);
+            // The default family (Resources/Engines) and every bundled one
+            // (EngineSrc: exterior at the same quality, interior its own).
+            int engines = ConfigureAudioFolder(Root + "/Resources/Engines", EngineClipQuality, false)
+                        + EngineBundleBuilder.ConfigureImporters();
             // The generated wind beds (tools/gen_wind.mjs): two short mono
             // loops the player's WindAudio loads itself, core settings.
             ConfigureAudioFolder(Root + "/Resources/Sfx", 1.0f, true);

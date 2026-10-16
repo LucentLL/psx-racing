@@ -190,6 +190,17 @@ namespace PSXRacing.EditorTools
                     return false;
                 }
                 Debug.Log($"[PSXBuildWebGL] Cockpit bundle: StreamingAssets/{CockpitModel.BundleFile} {ckBytes / 1048576f:F2} MB");
+                // The engine families: one bundle per family and set, fetched
+                // when a car needs it (EngineBundleBuilder). Every family but
+                // the default left Resources for these (~23 MB of WebGL.data).
+                string enErr = EngineBundleBuilder.Build(BuildTarget.WebGL, out long enBytes, out var enLines);
+                if (enErr != null)
+                {
+                    Debug.LogError("[PSXBuildWebGL] ENGINE BUNDLES FAILED: " + enErr);
+                    return false;
+                }
+                Debug.Log($"[PSXBuildWebGL] Engine bundles: StreamingAssets/{EngineVoiceLibrary.BundleFolder}/ {enBytes / 1048576f:F2} MB - " +
+                          enLines[enLines.Count - 1]);
 
                 Directory.CreateDirectory(outDir);
 

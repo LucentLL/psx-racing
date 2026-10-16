@@ -174,8 +174,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const a = process.argv.slice(2);
   if (a[0] === '--bake') {
     const dst = path.join(REPO, 'Assets/PSXRacing/Resources/res2_rig.json');
-    const fams = fs.readdirSync(path.join(REPO, 'Assets/PSXRacing/Resources/Engines'), { withFileTypes: true })
-      .filter((e) => e.isDirectory()).map((e) => e.name).filter((f) => PREFAB_OF[f]);
+    // The default family lives in Resources/Engines, every other one in
+    // EngineSrc (built into on-demand bundles): a family is a folder with an idle take.
+    const fams = [...new Set(['Assets/PSXRacing/Resources/Engines', 'Assets/PSXRacing/EngineSrc'].flatMap((d) => {
+      const dir = path.join(REPO, d);
+      return fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && fs.existsSync(path.join(dir, e.name, 'idle.ogg'))).map((e) => e.name) : [];
+    }))].filter((f) => PREFAB_OF[f]).sort();
     const b = bake(fams);
     fs.writeFileSync(dst, JSON.stringify(b));
     console.log('wrote', dst, fs.statSync(dst).size, 'bytes,', b.families.length, 'families');
