@@ -24,11 +24,25 @@
 # Writes Assets/PSXRacing/CockpitSrc/arms_geo.bytes (into the on-demand
 # cockpit.bundle with the rest of v08 - never the main data), read by
 # CockpitArms.cs, and CockpitSrc/hands_skin.png:
-#   'PSXA', int version 1, float3 elbow, float upperLen, float3 shoulderEnd,
+#   'PSXA', int version 3, float3 elbow, float upperLen, float3 shoulderEnd,
 #   int verts, int indices, int shapes,
 #   float3 pos[verts], float3 normal[verts], float2 uv[verts], float upper[verts],
 #   ushort index[indices],
 #   per shape: str name, float3 dpos[verts], float3 dnormal[verts]
+#   then (v2) THE CONTACT DATA (owner: fingers never inside the wheel):
+#   float3 tube (where the rim's tube centre sits in the gripping hand),
+#   float footMin, footMax (the hand's reach along the rim, x), float skinGap,
+#   int levels, int baseLevel, float level[levels] (finger curl as x GRIP),
+#   int fingers; per finger: str name, int n, int vertex[n], per level but
+#   the base: float3 dpos[n], float3 dnormal[n];
+#   the wheel (v08 wheel mesh, its pivot frame): float rimCentreR, rimA
+#   (radial half-section), rimB (axial), rimZ; float hubR, hubZ0, hubZ1;
+#   int spokes; per spoke: float angleDeg, int segs; per seg: float r0, r1,
+#   halfWidth, z0, z1;
+#   then (v3) THE CABIN the forearms keep out of (model frame): int walls,
+#   float cell; per wall: str name, int axisA, axisB, axisValue, float a0,
+#   a1, b0, b1, int solidSide (+1: solid below the value, -1: above), int
+#   nA, nB, float value[nA * nB] (NaN = no surface in the cell)
 #   (str = byte length + ASCII)
 # ONE arm is written, the driver's RIGHT (the pack's hand is a right hand);
 # the game mirrors it (x -> -x, winding reversed) for the left.
@@ -40,7 +54,7 @@
 # shapes are the other poses as deltas from it. `upper` is the vertex's
 # weight on the upper-arm bone, whose pivot is `elbow`; at rest the upper
 # arm runs straight back along -Z from it to `shoulderEnd`.
-import bpy, math, os, struct, sys
+import bpy, json, math, os, struct, sys
 from mathutils import Vector, Matrix
 
 ARGS = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
@@ -106,6 +120,154 @@ RELAXED = {"curl": {"Finger2": 24, "Finger2.001": 30, "Finger3": 26, "Finger3.00
                     "Finger1": 12, "Finger1.001": 14},
            "wrist": 8, "spread": {"Finger2": 2, "Finger4": -2, "Finger5": -4}}
 REST = {"curl": {}, "wrist": 0, "spread": {}}
+# The grip's per-finger curl levels (fractions of GRIP's curl, wrist as GRIP):
+# the game curls each finger as far as the wheel lets it (CockpitArms).
+LEVELS = [0.0, 0.25, 0.5, 0.75, 1.0]
+BASE_LEVEL = 4       # LEVELS[4] = 1.0 is GRIP itself (the mesh's base pose)
+FINGERS = [("index", "Finger2"), ("middle", "Finger3"), ("ring", "Finger4"), ("pinky", "Finger5"), ("thumb", "Finger1")]
+SKIN_GAP = 0.0025    # the skin's clearance off the wheel, metres
+GEO = os.path.join(SRC_OUT, "v08_geo.bytes")
+
+
+def part_samples(want):
+    """Dense surface samples (vertices, centroids, edge midpoints) of one
+    part of v08_geo.bytes, in that part's own frame."""
+    b = open(GEO, "rb").read()
+    o = [4]
+    def rd(fmt):
+        v = struct.unpack_from(fmt, b, o[0]); o[0] += struct.calcsize(fmt); return v
+    def rs():
+        n = b[o[0]]; o[0] += 1; t = b[o[0]:o[0] + n].decode(); o[0] += n; return t
+    _, nparts = rd("<ii")
+    pts = tri = None
+    for _ in range(nparts):
+        name = rs()
+        nv, ns = rd("<ii")
+        pmin = rd("<3f"); pspan = rd("<3f"); rd("<4f")
+        Q = [rd("<3H") for _ in range(nv)]
+        o[0] += nv * 11
+        idx = []
+        for _ in range(ns):
+            rs(); ni, = rd("<i")
+            idx += rd(("<%dI" if nv > 65535 else "<%dH") % ni)
+        if name == want:
+            pts = [tuple(pmin[k] + q[k] / 65535.0 * pspan[k] for k in range(3)) for q in Q]
+            tri = idx
+    S = []
+    for i in range(0, len(tri), 3):
+        a, c, d = pts[tri[i]], pts[tri[i + 1]], pts[tri[i + 2]]
+        for w in ((1, 0, 0), (0, 1, 0), (0, 0, 1), (1 / 3, 1 / 3, 1 / 3), (.5, .5, 0), (0, .5, .5), (.5, 0, .5)):
+            S.append(tuple(a[k] * w[0] + c[k] * w[1] + d[k] * w[2] for k in range(3)))
+    return S
+
+
+# The cabin walls a forearm can reach, model frame (LHD; Unity axes), as
+# heightfields: the DOOR's inner face (x of its innermost surface per y/z
+# cell, solid outboard), the CONSOLE's driver-side face (solid inboard), the
+# driver SEAT's top (y per x/z cell, solid below).
+CABIN_CELL = 0.03
+
+
+def measure_cabin():
+    lay = json.load(open(os.path.join(ROOT, "Assets", "PSXRacing", "Resources", "Cockpit", "v08_layout.json"), encoding="utf-8"))
+    ex = lay["eye"]["x"]
+    S = part_samples("cabin")
+    walls = []
+    def grid(sel, a0, a1, b0, b1, ka, kb, val, pick):
+        na, nb = int(round((a1 - a0) / CABIN_CELL)), int(round((b1 - b0) / CABIN_CELL))
+        g = [None] * (na * nb)
+        for p in sel:
+            i, j = int((p[ka] - a0) / CABIN_CELL), int((p[kb] - b0) / CABIN_CELL)
+            if 0 <= i < na and 0 <= j < nb:
+                v = p[val]
+                k = i * nb + j
+                g[k] = v if g[k] is None else pick(g[k], v)
+        return na, nb, g
+    # Door: outboard of the driver; face = the innermost (max x) surface.
+    door = [p for p in S if p[0] < ex - 0.12 and 0.15 < p[1] < 0.95 and -0.45 < p[2] < 0.6]
+    walls.append(("door", 1, 2, 0, 0.15, 0.95, -0.45, 0.6, +1) + grid(door, 0.15, 0.95, -0.45, 0.6, 1, 2, 0, max))
+    # Console: inboard of the driver, below the dash top; face = min x.
+    cons = [p for p in S if ex + 0.12 < p[0] < 0.10 and 0.05 < p[1] < 0.75 and -0.45 < p[2] < 0.6]
+    walls.append(("console", 1, 2, 0, 0.05, 0.75, -0.45, 0.6, -1) + grid(cons, 0.05, 0.75, -0.45, 0.6, 1, 2, 0, min))
+    # Seat cushion and front bolsters (not the backrest): top = max y.
+    seat = [p for p in S if abs(p[0] - ex) < 0.2 and 0.05 < p[1] < 0.75 and -0.3 < p[2] < 0.15]
+    walls.append(("seat", 0, 2, 1, ex - 0.2, ex + 0.2, -0.3, 0.15, +1) + grid(seat, ex - 0.2, ex + 0.2, -0.3, 0.15, 0, 2, 1, max))
+    for w in walls:
+        vals = [v for v in w[-1] if v is not None]
+        print("[ARMS] cabin %-7s %d x %d cells of %.0f cm, %d filled, face %.3f..%.3f"
+              % (w[0], w[9], w[10], CABIN_CELL * 100, len(vals), min(vals), max(vals)))
+    return walls
+
+
+def measure_wheel():
+    """The steering wheel, measured from the v08 mesh (its pivot frame: x
+    right, y up the face, z along the column into the dash): the rim as a
+    torus of oval section, the hub/pad as a disc, each spoke as boxes along
+    its axis. Analytic, so the game can keep the hands outside it."""
+    S = part_samples("wheel")
+    def rho(p): return math.hypot(p[0], p[1])
+    def ang(p): return math.degrees(math.atan2(p[1], p[0])) % 360.0
+    rmax = max(rho(p) for p in S)
+    mins = {}
+    for p in S:
+        if rho(p) > 0.6 * rmax:
+            k = int(ang(p) // 3)
+            mins[k] = min(mins.get(k, 9.0), rho(p))
+    inner = sorted(mins.values())[len(mins) // 2]
+    free = {k for k, v in mins.items() if v > inner - 0.002}
+    rim = [p for p in S if rho(p) > inner - 0.0005 and int(ang(p) // 3) in free]
+    z0, z1 = min(p[2] for p in rim), max(p[2] for p in rim)
+    R = {"rc": (rmax + inner) / 2, "a": (rmax - inner) / 2, "zc": (z0 + z1) / 2, "b": (z1 - z0) / 2}
+    # The hub: out to where the pad stops covering (nearly) every direction.
+    hub_r = 0.03
+    r = 0.03
+    while r < inner - 0.02:
+        occ = {int(ang(p) // 3) for p in S if abs(rho(p) - r) < 0.0025}
+        if len(occ) < 0.85 * 120:
+            break
+        hub_r = r
+        r += 0.005
+    hub_r += 0.005
+    hub = [p for p in S if rho(p) < hub_r]
+    H = {"r": hub_r, "z0": min(p[2] for p in hub), "z1": max(p[2] for p in hub)}
+    # The spokes: angular clusters just inside the rim.
+    band = sorted(ang(p) for p in S if inner - 0.025 < rho(p) < inner - 0.004)
+    cl, cur = [], []
+    for a_ in band:
+        if cur and a_ - cur[-1] > 3.0:
+            cl.append(cur); cur = []
+        cur.append(a_)
+    if cur:
+        cl.append(cur)
+    if len(cl) > 1 and cl[0][0] < 3.0 and cl[-1][-1] > 357.0:
+        cl[0] = [a_ - 360.0 for a_ in cl[-1]] + cl[0]; cl.pop()
+    spokes = []
+    for c in cl:
+        cen = (c[0] + c[-1]) / 2
+        cr, sr = math.cos(math.radians(cen)), math.sin(math.radians(cen))
+        segs = []
+        # Four radial bands, each its own box: the spoke flares toward the
+        # hub, and one wide box would stop fingers short of the rim.
+        edges = [hub_r - 0.005 + (inner + 0.004 - hub_r + 0.005) * k / 4 for k in range(5)]
+        for r0, r1 in zip(edges, edges[1:]):
+            sel = []
+            for p in S:
+                u = p[0] * cr + p[1] * sr
+                v = -p[0] * sr + p[1] * cr
+                if r0 <= u <= r1 and abs(v) < 0.06 and rho(p) < inner - 0.0015 and rho(p) > hub_r - 0.005:
+                    sel.append((u, v, p[2]))
+            if not sel:
+                continue
+            segs.append({"r0": r0, "r1": r1, "hw": max(abs(v) for _, v, _ in sel),
+                         "z0": min(z for _, _, z in sel), "z1": max(z for _, _, z in sel)})
+        spokes.append({"ang": cen % 360.0, "segs": segs})
+    print("[ARMS] wheel: rim centre r %.4f, section %.4f radial x %.4f axial at z %+.4f; hub r %.3f z %+.4f..%+.4f"
+          % (R["rc"], R["a"], R["b"], R["zc"], H["r"], H["z0"], H["z1"]))
+    for sp in spokes:
+        print("[ARMS]   spoke at %.1f deg: %s" % (sp["ang"], ", ".join(
+            "r %.3f-%.3f half-width %.4f z %+.4f..%+.4f" % (g["r0"], g["r1"], g["hw"], g["z0"], g["z1"]) for g in sp["segs"])))
+    return R, H, spokes
+
 POSES = [("grip", GRIP), ("open", OPEN), ("relaxed", RELAXED)]
 
 
@@ -371,6 +533,96 @@ def main():
         cols[name] = ([to_arm(P[i]) for i, _ in out_v], [nrm(N[i]) for i, _ in out_v])
     base_p, base_n = cols["grip"]
     upper = [ramp(s_of(verts[i])) for i, _ in out_v]
+
+    # ---- the grip, fitted to the measured rim ---------------------------
+    wheel_r, wheel_h, wheel_s = measure_wheel()
+    tube = max(wheel_r["a"], wheel_r["b"])
+    need = tube + SKIN_GAP
+
+    def finger_of(pi):
+        w = {}
+        for g in me.vertices[pi].groups:
+            nm = groups.get(g.group, "")
+            for f, (_, bone) in enumerate(FINGERS):
+                if nm == bone or nm == bone + ".001":
+                    w[f] = w.get(f, 0.0) + g.weight
+        if not w:
+            return -1
+        f = max(w, key=w.get)
+        return f if w[f] > 0.05 else -1
+    fid = [finger_of(verts[i][1]) if verts[i][0] == "p" else -1 for i, _ in out_v]
+    hand = [k for k, (i, _) in enumerate(out_v) if verts[i][0] == "p"]
+    palm = [k for k in hand if fid[k] < 0]
+    four = [k for k in hand if 0 <= fid[k] <= 3]
+    # Per-finger curl levels (each level curls every finger; each finger keeps its own).
+    lev = []
+    for c in LEVELS:
+        pose(arm, {"curl": {k: v * c for k, v in GRIP["curl"].items()}, "wrist": GRIP["wrist"], "spread": {}})
+        Pl = evaluate(mesh)
+        P = [Pl[e[1]] if e[0] == "p" else e[1] for e in verts]
+        N = normals(P)
+        lev.append(([to_arm(P[i]) for i, _ in out_v], [nrm(N[i]) for i, _ in out_v]))
+    # The tube's place in the fist (the arm frame's YZ plane; the rim runs
+    # along X): the palm against it at the skin gap, and each finger curled
+    # (0..1 x GRIP) until it touches - the same solve the game makes in 3D
+    # against the whole wheel, here in section to choose where the palm sits.
+    def d2(k, P, cy, cz):
+        return math.hypot(P[k].y - cy, P[k].z - cz)
+    def reach(ks, cy, cz):
+        """(curl, gap) for a finger: the furthest curl clear of the tube."""
+        best_c, best_g = 0.0, None
+        prev = None
+        for L, c in enumerate(LEVELS):
+            P = lev[L][0]
+            g = min(d2(k, P, cy, cz) for k in ks) - need
+            if g < 0:
+                if prev is None:
+                    return 0.0, g
+                lo, hi = prev, c
+                for _ in range(7):
+                    m = (lo + hi) / 2
+                    j = max(i for i, v in enumerate(LEVELS) if v <= m)
+                    t = (m - LEVELS[j]) / (LEVELS[j + 1] - LEVELS[j])
+                    Pa, Pb = lev[j][0], lev[j + 1][0]
+                    gm = min(math.hypot(Pa[k].y + (Pb[k].y - Pa[k].y) * t - cy, Pa[k].z + (Pb[k].z - Pa[k].z) * t - cz)
+                             for k in ks) - need
+                    if gm >= 0:
+                        lo, best_g = m, gm
+                    else:
+                        hi = m
+                return lo, best_g if best_g is not None else 0.0
+            prev, best_c, best_g = c, c, g
+        return best_c, best_g
+    fk = [[k for k in hand if fid[k] == f] for f in range(5)]
+    best = None
+    for iy in range(-45, 46):
+        for iz in range(-45, 46):
+            cy, cz = iy * 0.001, iz * 0.001
+            rp = min(d2(k, base_p, cy, cz) for k in palm)
+            if rp < need or rp > need + 0.006:
+                continue
+            res = [reach(fk[f], cy, cz) for f in range(4)]
+            score = sum(max(0.0, g) for _, g in res) + 0.5 * (rp - need) + sum(0.02 for c, _ in res if c < 0.35)
+            if best is None or score < best[0]:
+                best = (score, cy, cz, rp, res)
+    _, cy, cz, rp, res = best
+    ins = max(min(min(d2(k, base_p, iy * 0.001, iz * 0.001) for k in palm), min(d2(k, base_p, iy * 0.001, iz * 0.001) for k in four))
+              for iy in range(-45, 46) for iz in range(-45, 46))
+    tube_c = Vector((0.0, cy, cz))
+    xs4 = [base_p[k].x for k in palm + four]
+    print("[ARMS] grip fit: rim section r %.4f + gap %.4f = %.4f; the GRIP fist's largest inscribed circle r %.4f -> %s"
+          % (tube, SKIN_GAP, need, ins, "the pack's fingers can wrap it" if ins >= need else
+             "TOO TIGHT by %.1f mm" % ((need - ins) * 1000)))
+    print("[ARMS] tube centre in the arm frame (0, %.4f, %.4f) (was the curled-finger centroid 0,0,0): palm %.1f mm off the rim; "
+          "hand footprint along the rim x %.3f..%.3f" % (cy, cz, (rp - tube) * 1000, min(xs4), max(xs4)))
+    th = reach(fk[4], cy, cz)
+    for f, (c, g) in enumerate(res + [th]):
+        print("[ARMS]   %-6s curls to %.2f x GRIP, then %.1f mm off the rim" % (FINGERS[f][0], c, (g + SKIN_GAP) * 1000))
+    fingers = []
+    for f, (fname, _) in enumerate(FINGERS):
+        ks = [k for k in hand if fid[k] == f and any((lev[L][0][k] - base_p[k]).length > 1e-5 for L in range(len(LEVELS) - 1))]
+        fingers.append((fname, ks))
+
     elbow = to_arm(Vector((c0.x, c0.y, zw - FOREARM / SCALE)))
     shoulder_end = to_arm(Vector((c0.x, c0.y, zw - END / SCALE)))
     xs = [p.x for p in base_p]; ys = [p.y for p in base_p]; zs = [p.z for p in base_p]
@@ -385,7 +637,7 @@ def main():
         return struct.pack("<B", len(b)) + b
 
     n = len(out_v)
-    blob = bytearray(b"PSXA" + struct.pack("<i", 1))
+    blob = bytearray(b"PSXA" + struct.pack("<i", 3))   # v2: + the contact data; v3: + the cabin
     blob += struct.pack("<3f", *elbow) + struct.pack("<f", END - FOREARM) + struct.pack("<3f", *shoulder_end)
     blob += struct.pack("<iii", n, len(tris), 2)
     blob += b"".join(struct.pack("<3f", *p) for p in base_p)
@@ -399,6 +651,30 @@ def main():
         blob += b"".join(struct.pack("<3f", *(a - b)) for a, b in zip(sp, base_p))
         blob += b"".join(struct.pack("<3f", *(a - b)) for a, b in zip(sn, base_n))
         print("[ARMS] shape %-8s max move %.3f m" % (name, max((a - b).length for a, b in zip(sp, base_p))))
+    # v2: the fit, the curl levels, the wheel.
+    blob += struct.pack("<3f", *tube_c) + struct.pack("<2f", min(xs4), max(xs4)) + struct.pack("<f", SKIN_GAP)
+    blob += struct.pack("<ii", len(LEVELS), BASE_LEVEL) + struct.pack("<%df" % len(LEVELS), *LEVELS)
+    blob += struct.pack("<i", len(fingers))
+    for fname, ks in fingers:
+        blob += sstr(fname) + struct.pack("<i", len(ks)) + struct.pack("<%di" % len(ks), *ks)
+        for L in range(len(LEVELS)):
+            if L == BASE_LEVEL:
+                continue
+            blob += b"".join(struct.pack("<3f", *(lev[L][0][k] - base_p[k])) for k in ks)
+            blob += b"".join(struct.pack("<3f", *(lev[L][1][k] - base_n[k])) for k in ks)
+    blob += struct.pack("<4f", wheel_r["rc"], wheel_r["a"], wheel_r["b"], wheel_r["zc"])
+    blob += struct.pack("<3f", wheel_h["r"], wheel_h["z0"], wheel_h["z1"])
+    blob += struct.pack("<i", len(wheel_s))
+    for sp in wheel_s:
+        blob += struct.pack("<fi", sp["ang"], len(sp["segs"]))
+        for g in sp["segs"]:
+            blob += struct.pack("<5f", g["r0"], g["r1"], g["hw"], g["z0"], g["z1"])
+    # v3: the cabin walls the forearms keep out of.
+    walls = measure_cabin()
+    blob += struct.pack("<if", len(walls), CABIN_CELL)
+    for (name, ka, kb, kv, a0, a1, b0, b1, solid, na, nb, g) in walls:
+        blob += sstr(name) + struct.pack("<iiiffffiii", ka, kb, kv, a0, a1, b0, b1, solid, na, nb)
+        blob += struct.pack("<%df" % len(g), *[(v if v is not None else float("nan")) for v in g])
     os.makedirs(SRC_OUT, exist_ok=True)
     path = os.path.join(SRC_OUT, "arms_geo.bytes")
     with open(path, "wb") as fh:
