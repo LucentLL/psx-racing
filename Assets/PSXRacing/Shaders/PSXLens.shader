@@ -454,7 +454,17 @@ Shader "PSX/Lens"
                             float4 t = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_PointClamp,
                                                               (base + float2(x, y) + 0.5) * _PSXLensDirtSrc.xy, 0);
                             float src = saturate((t.a - PRE_SRC_MIN) * (1.0 / (1.0 - PRE_SRC_MIN)));
-                            sum += max(t.rgb - PRE_KNEE, 0.0) * lerp(1.0, src, key);
+                            // Keyed on LUMINANCE, not per channel (owner, 2026-10-16:
+                            // the R32's brake lamps lit the grime discs red round
+                            // themselves). A saturated red or amber lamp clips its own
+                            // channel but its luminance is ~0.25-0.55, under the knee,
+                            // so tail lamps and indicators no longer light the dirt;
+                            // headlights, street lamps and the sun (white or warm
+                            // white, luminance near 1) do, at nearly the old strength,
+                            // in their own colour.
+                            float lum = dot(t.rgb, float3(0.2126, 0.7152, 0.0722));
+                            float k = max(lum - PRE_KNEE, 0.0) / max(lum, 1e-3);
+                            sum += t.rgb * k * lerp(1.0, src, key);
                         }
                     }
                 }
