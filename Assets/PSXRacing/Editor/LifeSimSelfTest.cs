@@ -9603,27 +9603,31 @@ namespace PSXRacing.EditorTools
                 // batchmode the Resources cache can answer for an asset the
                 // importer has not finished with, and "the file is there" is the
                 // claim that actually matters for the build.
-                string dir = "Assets/PSXRacing/Resources/Engines/" + fam;
+                string dir = "Assets/PSXRacing/Resources/Engines/" + EngineVoiceLibrary.Canonical(fam);
                 if (!AssetDatabase.IsValidFolder(dir)) { missingDir++; missingNames.Add(fam); }
             }
             Check(missingDir == 0, "every family has an imported clip folder",
                   missingDir > 0 ? string.Join(",", missingNames) : null);
 
-            // The band ladder names the clips it wants; a family missing one of
-            // them loses that rung silently.
-            int missingClips = 0;
-            foreach (var fam in families.Keys)
+            // The vendor rig (Resources/res2_rig.json) names the takes it plays;
+            // a family missing one of them loses that take silently, and a family
+            // with no baked rig plays nothing at all.
+            int missingClips = 0, missingRigs = 0;
+            foreach (var key in families.Keys)
             {
-                foreach (var b in EngineVoiceLibrary.PlayerBands)
+                string fam = EngineVoiceLibrary.Canonical(key);
+                var rig = EngineVoiceLibrary.RigFor(fam);
+                if (rig == null) { missingRigs++; continue; }
+                foreach (var t in rig.hq)
                 {
-                    if (!ClipExists(fam, b.onClip)) missingClips++;
-                    if (!string.IsNullOrEmpty(b.offClip) && b.offClip != b.onClip &&
-                        !ClipExists(fam, b.offClip)) missingClips++;
+                    if (!ClipExists(fam, t.onClip)) missingClips++;
+                    if (t.offClip != null && !ClipExists(fam, t.offClip)) missingClips++;
                 }
                 foreach (var extra in new[] { "maxRPM", "intake_on", "intake_off", "startup", "engine_stop" })
                     if (!ClipExists(fam, extra)) missingClips++;
             }
-            Check(missingClips == 0, "every family has every clip the ladder plays",
+            Check(missingRigs == 0, "every family has a baked vendor rig", missingRigs + " missing");
+            Check(missingClips == 0, "every family has every clip the vendor rig plays",
                   missingClips + " missing");
 
             int turbo = 0, sc = 0;
