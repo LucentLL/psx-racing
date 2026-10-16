@@ -196,7 +196,9 @@ Shader "PSX/SpeedBlur"
         // _PSXMotionRot, the same matrix with both lenses' positions taken
         // out. The motion is scaled to a 1/60 s shutter (x), clamped to y of
         // the frame width, and sampled with the zoom's centred, Bayer-jittered
-        // taps. Car pixels are handed back untouched and car taps are dropped.
+        // taps (one per few pixels of the smear). EVERY car is in the mask
+        // in this mode (2026-10-16): car pixels are handed back untouched
+        // and car taps are dropped.
         Pass
         {
             Name "MotionBlur"
@@ -222,7 +224,8 @@ Shader "PSX/SpeedBlur"
             // z: frame aspect (width / height)
             // w: frame width in pixels
             float4 _PSXMotionParams;
-            // x: taps; y: 1 = write the smear as a colour (the check tools)
+            // x: the most taps; y: 1 = write the smear as a colour (the check
+            // tools); z: pixels of smear per tap; w: the fewest taps
             float4 _PSXMotionMisc;
             TEXTURE2D_X_FLOAT(_PSXMotionDepth);
 
@@ -238,10 +241,12 @@ Shader "PSX/SpeedBlur"
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
                 float2 uv = input.texcoord;
-                // rgb: the frame. a: 1 where the player's car is.
+                // rgb: the frame. a: 1 where a car is (every car, in this
+                // mode: the lens moving says nothing about how they move).
                 half4 here = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_PointClamp, uv, 0);
                 bool debug = _PSXMotionMisc.y > 0.5;
-                if (here.a > 0.5 && !debug) return here;
+                // A car reads as no smear at depth 0 in the check tools' readout.
+                if (here.a > 0.5) return debug ? half4(0.5, 0.5, 0, 1) : here;
 
                 float raw = SAMPLE_TEXTURE2D_X_LOD(_PSXMotionDepth, sampler_PointClamp, uv, 0).r;
                 #if UNITY_REVERSED_Z
@@ -282,7 +287,11 @@ Shader "PSX/SpeedBlur"
                 int idx = (int)fmod(px.x, 4.0) + 4 * (int)fmod(px.y, 4.0);
                 float jitter = (bayer[idx] + 0.5) / 16.0;
 
-                int taps = (int)max(_PSXMotionMisc.x, 2.0);
+                // One tap per few pixels of THIS pixel's smear, within the
+                // budget: a short smear costs little, a long one is not a row
+                // of ghosts.
+                int taps = (int)clamp(ceil(lenPx / max(_PSXMotionMisc.z, 1.0)),
+                                      max(_PSXMotionMisc.w, 2.0), max(_PSXMotionMisc.x, 2.0));
                 half3 sum = 0;
                 half weight = 0;
                 UNITY_LOOP
@@ -290,7 +299,7 @@ Shader "PSX/SpeedBlur"
                 {
                     float t = (k + jitter) / taps - 0.5;
                     half4 tap = SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, saturate(uv + v * t), 0);
-                    // The player's car is not part of anyone else's smear.
+                    // No car is part of anyone else's smear.
                     half w = 1.0 - tap.a;
                     sum += tap.rgb * w;
                     weight += w;

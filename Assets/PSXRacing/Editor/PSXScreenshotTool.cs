@@ -1466,7 +1466,13 @@ namespace PSXRacing.EditorTools
                 filterMode = FilterMode.Point,
             };
             dst.Create();
+            // The halation's glow, built from THIS render (Halation.cs) - the
+            // game builds it from its own framebuffer every frame; a material
+            // copied out of a running scene would point at that one.
+            var glow = Halation.Wanted(tmp) ? Halation.BuildNow(src) : null;
+            Halation.Apply(tmp, glow);
             Graphics.Blit(src, dst, tmp);
+            Halation.Release(ref glow);
             Object.DestroyImmediate(tmp);
             return dst;
         }

@@ -429,7 +429,8 @@ namespace PSXRacing.EditorTools
                         if (!Differs(straightBare[i], offBare[i], 0)) farSame++;
                         farDiff += d;
                     }
-                    else if (depth <= NearMetres)
+                    // Depth 0 is a car the mask keeps (every car, in MOTION).
+                    else if (depth <= NearMetres && depth > 0.5f)
                     {
                         nearN++;
                         nearLen.Add(len);
@@ -526,13 +527,25 @@ namespace PSXRacing.EditorTools
 
         /// <summary>
         /// The owner's pictures (four, by his budget): a mountain stage at
-        /// 110 km/h on a straight, ZOOM and MOTION, from the chase lens and
-        /// from the cockpit. Blue Ridge, a third of the way down the road,
+        /// 100 mph (110 km/h until 2026-10-16) on a straight, ZOOM and MOTION,
+        /// from the chase lens and from the cockpit, a rival in the next lane;
+        /// and the smear table (<see cref="Ladder"/>) from both lenses. Blue Ridge, a third of the way down the road,
         /// the car in the right-hand lane. The cabin and the instruments are
         /// screen overlays in the game, drawn after the framebuffer is shown;
         /// here they ride the stacked HUD camera instead — after the blur, as
         /// in the game — and are rasterised at the shot's 480 lines.
         /// </summary>
+        /// <summary>The owner's road speed for his pictures and the smear table
+        /// (2026-10-16: "trees on the roadside as you drive 100mph").</summary>
+        internal const float OwnerMph = 100f;
+        /// <summary>The rows of the smear table: the owner's four words.</summary>
+        static readonly float[] LadderMph = { 40f, 60f, 100f, 140f };
+        /// <summary>"Near roadside" in the table: the side fifths of the frame,
+        /// above its bottom quarter (the road under the car), this close to
+        /// the lens. The chase lens sits ~5 m behind the car, so a tree 2-6 m
+        /// off the car's flank is 4-12 m from it at the edge of the frame.</summary>
+        const float NearMinM = 2f, NearMaxM = 12f;
+
         static int OwnerShots(string outDir)
         {
             const int W = 854, H = 480;
@@ -544,6 +557,7 @@ namespace PSXRacing.EditorTools
                 return Fail(tag, "could not open " + Venue + " (run the scene build)");
             var blur = Wire(cam, player, tag);
             if (blur.hudCanvas == null) return Fail(tag, "SpeedBlur has no HUD canvas wired");
+            GameObject rival = null;
 
             // Down the road on the straightest stretch of its second quarter,
             // away from the parked field.
@@ -568,6 +582,19 @@ namespace PSXRacing.EditorTools
                                          Quaternion.LookRotation(tan, Vector3.up));
                 Debug.Log("[SpeedBlur] " + tag + " note  waypoint " + at + " of " + path.Count +
                           ", curvature " + best.ToString("0.0000"));
+
+                // A rival in the other lane, a few metres ahead: a car driving
+                // WITH the lens, which camera-only motion smears as if it were
+                // the verge.
+                foreach (var cc in Object.FindObjectsByType<CarController>(FindObjectsSortMode.None))
+                {
+                    if (cc.gameObject == player) continue;
+                    rival = cc.gameObject;
+                    Vector3 rp = t.position + flat * 7f - right * (path.roadWidth * 0.5f);
+                    rp.y = path.GetPoint(path.NearestIndex(rp)).y + lift;
+                    rival.transform.SetPositionAndRotation(rp, Quaternion.LookRotation(tan, Vector3.up));
+                    break;
+                }
             }
 
             // The HUD on; the cabin and the instruments onto the HUD camera;
@@ -590,13 +617,18 @@ namespace PSXRacing.EditorTools
             }
             blur.MarkCar();
             cam.aspect = W / (float)H;
-            float v = MotionKmh / 3.6f;
+            float v = OwnerMph * SpeedBlur.MpsPerMph;
             int fails = 0;
 
-            // The chase lens, at speed.
+            // The chase lens, at speed: the smear table first (the HUD off, so
+            // nothing but the world is measured), then the pictures.
             ChaseCamera.PreviewView(ChaseCamera.View.Chase);
             foreach (var gc in Object.FindObjectsByType<GaugeCluster>(FindObjectsSortMode.None)) gc.Build();
             foreach (var cv in Object.FindObjectsByType<CockpitView>(FindObjectsSortMode.None)) cv.PreviewShow(false);
+            OntoHudLayer();
+            blur.hudCanvas.enabled = false;
+            Ladder(cam, blur, player, rival, W, H, true);
+            blur.hudCanvas.enabled = true;
             ChaseCamera.SteadyPose(ChaseCamera.View.Chase, W / (float)H, v, ChaseCamera.DefaultSpeedFullMps, t,
                                    ChaseCamera.FrameOf(player), default,
                                    out Vector3 pos, out Quaternion rot, out float fov, out _);
@@ -619,7 +651,11 @@ namespace PSXRacing.EditorTools
             cam.nearClipPlane = ChaseCamera.ViewNearClip(ChaseCamera.View.Cockpit, cam.nearClipPlane);
             cam.transform.SetPositionAndRotation(pos, rot);
             OntoHudLayer();
+            blur.MarkCar();   // the cabin the cockpit just built
             fails += OwnerPair(cam, blur, W, H, v, t.forward, "owner_cockpit", outDir);
+            // The world through the cockpit's windows (the cabin stays put:
+            // it is the car, and the car is masked).
+            Ladder(cam, blur, player, null, W, H, false);
 
             ChaseCamera.PreviewView(ChaseCamera.View.Chase);
             Wake.Clear();
@@ -657,6 +693,119 @@ namespace PSXRacing.EditorTools
             Ok("owner", name + ": ZOOM changes " + (zc * 100f / off.Length).ToString("0.0") + "% of the frame, MOTION " +
                         (mc * 100f / off.Length).ToString("0.0") + "% (by more than 2/255)");
             return 0;
+        }
+
+        /// <summary>
+        /// THE SMEAR TABLE (2026-10-16, the owner: "I only really notice it on
+        /// other cars ... like trying to look at trees on the roadside as you
+        /// drive 100mph, they fly by. meanwhile a distant mountain barely
+        /// moves"). At each of the owner's four speeds, from the lens as it
+        /// stands (<paramref name="chase"/>: re-posed per speed, as the rig
+        /// does), the pass's own per-pixel smear on a straight, as a share of
+        /// the frame WIDTH: the near roadside in the side fifths (2-12 m from
+        /// the lens, above the bottom quarter), everything 250 m or more away
+        /// (the sky included: the readout cannot tell them apart), and a
+        /// rival in the next lane - its smear and how much of it changed.
+        /// Numbers only; no verdict (the look is the owner's).
+        /// </summary>
+        static void Ladder(Camera cam, SpeedBlur blur, GameObject player, GameObject rival, int w, int h, bool chase)
+        {
+            var t = player.transform;
+            var rivalBody = rival != null ? OpaqueRenderers(rival) : null;
+            var hidden = new System.Collections.Generic.List<Canvas>();
+            if (blur.hudCanvas != null && blur.hudCanvas.enabled) { blur.hudCanvas.enabled = false; hidden.Add(blur.hudCanvas); }
+            foreach (var c in Wake) if (c != null && c.enabled) { c.enabled = false; hidden.Add(c); }
+            string view = chase ? "chase" : "cockpit";
+            try
+            {
+                foreach (float mph in LadderMph)
+                {
+                    float v = mph * SpeedBlur.MpsPerMph;
+                    if (chase)
+                    {
+                        ChaseCamera.SteadyPose(ChaseCamera.View.Chase, w / (float)h, v, ChaseCamera.DefaultSpeedFullMps, t,
+                                               ChaseCamera.FrameOf(player), default,
+                                               out Vector3 p, out Quaternion r, out float f, out _);
+                        cam.transform.SetPositionAndRotation(p, r);
+                        cam.fieldOfView = f;
+                    }
+                    var pos = cam.transform.position;
+                    var rot = cam.transform.rotation;
+                    var prev = MotionBlurFx.ViewAt(pos - t.forward * (v * MotionDt), rot);
+                    var vel = RenderMotion(cam, blur, w, h, v, prev, cam.projectionMatrix, true, null, null, false);
+                    bool[] isRival = null;
+                    Color32[] off = null, mot = null;
+                    if (rivalBody != null)
+                    {
+                        off = Render(cam, blur, w, h, 0f, new Vector2(0.5f, 0.5f), null, null, write: false);
+                        foreach (var rr in rivalBody) rr.enabled = false;
+                        var offNoRival = Render(cam, blur, w, h, 0f, new Vector2(0.5f, 0.5f), null, null, write: false);
+                        foreach (var rr in rivalBody) rr.enabled = true;
+                        mot = RenderMotion(cam, blur, w, h, v, prev, cam.projectionMatrix, false, null, null, false);
+                        isRival = new bool[w * h];
+                        for (int i = 0; i < w * h; i++) isRival[i] = Differs(off[i], offNoRival[i], 12);
+                    }
+                    if (!CalibrateVel(vel))
+                    {
+                        Debug.LogWarning("[SpeedBlur] ladder " + view + " " + mph + " mph: the readout did not decode");
+                        continue;
+                    }
+                    var near = new System.Collections.Generic.List<float>();
+                    var far = new System.Collections.Generic.List<float>();
+                    var car = new System.Collections.Generic.List<float>();
+                    int carN = 0, carChanged = 0;
+                    for (int y = 0; y < h; y++)
+                        for (int x = 0; x < w; x++)
+                        {
+                            int i = y * w + x;
+                            Vel(vel[i], out float vx, out float vy, out float d);
+                            float len = Mathf.Sqrt(vx * vx + vy * vy) / w * 100f;
+                            if (isRival != null && isRival[i])
+                            {
+                                carN++;
+                                car.Add(len);
+                                if (Differs(off[i], mot[i], 2)) carChanged++;
+                                continue;
+                            }
+                            if (d >= FarMetres) { far.Add(len); continue; }
+                            float fx = (x + 0.5f) / w, fy = (y + 0.5f) / h;
+                            if ((fx < 0.2f || fx > 0.8f) && fy > 0.25f && d >= NearMinM && d <= NearMaxM) near.Add(len);
+                        }
+                    int nearN = near.Count, farN = far.Count;
+                    string line = "ladder " + view + " " + mph.ToString("0") + " mph (shutter " +
+                                  SpeedBlur.ShutterForMph(mph).ToString("0.00") + "): near roadside median " +
+                                  Median(near).ToString("0.0") + "% p90 " + Median(near, 0.9f).ToString("0.0") +
+                                  "% of the width (" + nearN + " px); far p95 " + Median(far, 0.95f).ToString("0.00") +
+                                  "% p99 " + Median(far, 0.99f).ToString("0.00") + "% (" + farN + " px)";
+                    if (isRival != null)
+                        line += "; rival car median " + Median(car).ToString("0.0") + "%, " +
+                                (carN > 0 ? carChanged * 100f / carN : 0f).ToString("0") + "% of its " + carN + " px changed";
+                    Ok("owner", line);
+                }
+            }
+            finally
+            {
+                foreach (var c in hidden) if (c != null) c.enabled = true;
+            }
+        }
+
+        /// <summary>The readout's zero, off the still sky of a debug frame
+        /// (MotionVerdicts' calibration, for one frame).</summary>
+        static bool CalibrateVel(Color32[] vel)
+        {
+            var zr = new System.Collections.Generic.List<float>();
+            var zg = new System.Collections.Generic.List<float>();
+            foreach (var c in vel) if (c.b == 255) { zr.Add(c.r); zg.Add(c.g); }
+            if (zr.Count < 100) return false;
+            float z = Median(zr) / 255f, g = Median(zg) / 255f;
+            velSrgb = false;
+            bool linearOk = Mathf.Abs(z - 0.5f) < 0.012f;
+            velSrgb = true;
+            bool srgbOk = Mathf.Abs(Lin(z) - 0.5f) < 0.012f;
+            velSrgb = !linearOk && srgbOk;
+            zeroR = Lin(z);
+            zeroG = Lin(g);
+            return linearOk || srgbOk;
         }
 
         /// <summary>The renderers the pass masks: everything under the car in

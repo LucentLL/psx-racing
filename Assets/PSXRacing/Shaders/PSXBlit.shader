@@ -100,6 +100,9 @@ Shader "PSX/Blit"
         // colour protocol's bloom on/off frames (PSX_HALATION=0 in a tool).
         // 0 in every saved material and in the game.
         [HideInInspector] _GlowOff ("Halation off (measuring)", Float) = 0
+        // The halation's glow (Halation.cs builds it; 0 = none built).
+        [HideInInspector] _GlowTex ("Halation glow", 2D) = "black" {}
+        [HideInInspector] _GlowOn ("Halation built", Float) = 0
     }
     SubShader
     {
@@ -118,6 +121,8 @@ Shader "PSX/Blit"
             float _DitherStrength;
             float _Grade;
             float _GlowOff;
+            sampler2D _GlowTex;     // the halation, built by Halation.cs
+            float _GlowOn;          // 1 = _GlowTex was built for this material's frame
             // Globals (PSXGlobals pushes them every frame from the hour;
             // see the header). NOT in Properties, on purpose.
             float _PSXGradeNight;   // 0 day .. 1 night
@@ -171,14 +176,11 @@ Shader "PSX/Blit"
             #define CITY_MOOD_HI          0.20
             #define CITY_WARM_CUT         0.75
             // The halation: what is brighter than the knee bleeds, warm. The
-            // knee is on LINEAR light where the framebuffer is linear (0.57
-            // there is 0.78 on the display).
-            #define GLOW_KNEE_GAMMA   0.78
-            #define GLOW_KNEE_LINEAR  0.57
+            // knee (0.57 linear, 0.78 on the display) and the two ring widths
+            // live with the blur that builds the glow: PSXHalation.shader and
+            // Halation.cs.
             #define GLOW_GAIN         0.55
             #define GLOW_TINT         float3(1.00, 0.86, 0.66)
-            #define GLOW_R1           0.011   // ring radii, as a fraction of the picture's height
-            #define GLOW_R2           0.026
 
             struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
             struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
@@ -199,51 +201,26 @@ Shader "PSX/Blit"
                 15.0,  7.0, 13.0,  5.0
             };
 
-            // Eight directions; the ring is turned per source pixel by the
-            // Bayer cell, so sixteen taps read as a soft disc through the
-            // dither instead of as sixteen ghosts of every tail lamp.
-            static const float2 ring[8] =
+            // THE GLOW ITSELF (2026-10-16) is built once a frame, as a real
+            // blur, by Halation.cs through Hidden/PSX/Halation: the excess over
+            // the knee times the emitter mask, block-averaged to ~120 lines and
+            // spread by two Gaussians as wide as the two rings that used to be
+            // sampled HERE - sixteen taps per screen pixel, turned by the Bayer
+            // cell, which printed ghost copies of a small bright lamp (the R32's
+            // braking discs) in a ring round it. One bilinear tap at the source
+            // pixel's centre, so the glow still steps with the PSX pixels.
+            // _GlowOn 0 (a material nobody built a glow for): no halation.
+            float3 Halation(float2 srcPixel)
             {
-                float2( 1.000,  0.000), float2( 0.707,  0.707),
-                float2( 0.000,  1.000), float2(-0.707,  0.707),
-                float2(-1.000,  0.000), float2(-0.707, -0.707),
-                float2( 0.000, -1.000), float2( 0.707, -0.707)
-            };
-
-            float3 Halation(float2 srcPixel, float cell)
-            {
-                float2 px = _MainTex_TexelSize.xy;
-                float2 centre = (srcPixel + 0.5) * px;
-                float lines = _MainTex_TexelSize.w;
-                float a = cell * (UNITY_PI * 0.25 / 16.0);
-                float ca = cos(a), sa = sin(a);
-                // the second ring sits half a sector round from the first
-                float cb = cos(a + UNITY_PI * 0.125), sb = sin(a + UNITY_PI * 0.125);
-                float3 sum = 0;
-                // Each tap counts by how much of it is a light source (its
-                // alpha, the emitter mask - see the header), or wholly with
-                // the key off: lerp(1, a, 0) is exactly 1, the old sum.
-                float key = saturate(_PSXEmitKey);
-                for (int k = 0; k < 8; k++)
-                {
-                    float2 d = ring[k];
-                    float2 o1 = float2(d.x * ca - d.y * sa, d.x * sa + d.y * ca) * (lines * GLOW_R1);
-                    float2 o2 = float2(d.x * cb - d.y * sb, d.x * sb + d.y * cb) * (lines * GLOW_R2);
-                    float4 s1 = tex2D(_MainTex, centre + o1 * px);
-                    float4 s2 = tex2D(_MainTex, centre + o2 * px);
-                    float w1 = lerp(1.0, s1.a, key), w2 = lerp(1.0, s2.a, key);
-                    #ifndef UNITY_COLORSPACE_GAMMA
-                    sum += max(s1.rgb - GLOW_KNEE_LINEAR, 0.0) * w1 + max(s2.rgb - GLOW_KNEE_LINEAR, 0.0) * (0.6 * w2);
-                    #else
-                    sum += max(s1.rgb - GLOW_KNEE_GAMMA, 0.0) * w1 + max(s2.rgb - GLOW_KNEE_GAMMA, 0.0) * (0.6 * w2);
-                    #endif
-                }
-                // 12.8 = the taps' total weight. A linear excess is worth
-                // about half of itself on the display near the knee.
+                if (_GlowOn < 0.5) return 0;
+                float3 glow = tex2D(_GlowTex, (srcPixel + 0.5) * _MainTex_TexelSize.xy).rgb;
+                // A linear excess is worth about half of itself on the
+                // display near the knee (the old taps' 0.53 / 12.8 of a
+                // weighted sum; the glow is already the weighted mean).
                 #ifndef UNITY_COLORSPACE_GAMMA
-                return sum * (0.53 / 12.8);
+                return glow * 0.53;
                 #else
-                return sum * (1.0 / 12.8);
+                return glow;
                 #endif
             }
 
@@ -370,7 +347,7 @@ Shader "PSX/Blit"
                 // The grade goes in BEFORE the quantizer, so its gradients
                 // are dithered like everything else's.
                 if (_Grade > 0.001)
-                    col = lerp(col, Grade(col, i.uv, _GlowOff > 0.5 ? float3(0, 0, 0) : Halation(srcPixel, bayer[idx])), _Grade);
+                    col = lerp(col, Grade(col, i.uv, _GlowOff > 0.5 ? float3(0, 0, 0) : Halation(srcPixel)), _Grade);
 
                 float levels = pow(2.0, _ColorDepth) - 1.0;
                 col += threshold * (_DitherStrength / levels);

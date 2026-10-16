@@ -11645,6 +11645,8 @@ namespace PSXRacing.EditorTools
             Check(Shader.Find(SpeedBlur.ShaderName) != null, "PSX/SpeedBlur compiles and is found");
             TestSpeedBlurOnEveryPipeline();
             TestSpeedBlurHudSplit();
+            TestMotionLadderAndMask();
+            TestHalationGlow();
 
             // ---- the headlights ---------------------------------------------
             Check(Shader.Find("PSX/Beam") != null, "PSX/Beam compiles and is found");
@@ -13028,6 +13030,87 @@ namespace PSXRacing.EditorTools
                 Object.DestroyImmediate(host);
                 RaceHandoff.ClearAll();
             }
+        }
+
+        /// <summary>
+        /// SPEED BLUR: MOTION retuned (2026-10-16, the owner: "I only really
+        /// notice it on other cars. It seems very subtle other than that").
+        /// Bands on the shutter ladder, not its numbers (SpeedBlurPreview's
+        /// smear table is the measurement); and EVERY car masked in MOTION
+        /// while ZOOM still masks the player's alone.
+        /// </summary>
+        static void TestMotionLadderAndMask()
+        {
+            Check(SpeedBlur.ShutterForMph(29f) == 0f && SpeedBlur.ShutterForMph(40f) > 0f && SpeedBlur.ShutterForMph(40f) <= 0.5f,
+                  "MOTION: nothing under 30 mph, very subtle at 40", SpeedBlur.ShutterForMph(40f).ToString("0.00"));
+            Check(SpeedBlur.ShutterForMph(100f) >= 1.8f && SpeedBlur.ShutterForMph(100f) <= 2.8f,
+                  "MOTION: 100 mph streaks the near roadside (a shutter of ~2x 1/60 s)", SpeedBlur.ShutterForMph(100f).ToString("0.00"));
+            bool rises = true;
+            for (int mph = 31; mph <= 200; mph++)
+                if (SpeedBlur.ShutterForMph(mph) < SpeedBlur.ShutterForMph(mph - 1) - 1e-6f) rises = false;
+            Check(rises, "MOTION: faster is never a shorter exposure");
+            Check(MotionBlurFx.MaxSmear >= 0.10f && MotionBlurFx.MaxSmear <= 0.15f &&
+                  MotionBlurFx.MinTaps >= 2 && MotionBlurFx.PhoneTaps <= MotionBlurFx.Taps,
+                  "MOTION: the clamp is 10-15% of the width, the taps within budget",
+                  MotionBlurFx.MaxSmear + " / " + MotionBlurFx.MinTaps + "-" + MotionBlurFx.PhoneTaps + "-" + MotionBlurFx.Taps);
+            Check(SpeedBlur.OtherCarRenderingLayer != SpeedBlur.CarRenderingLayer &&
+                  (SpeedBlur.MotionMaskLayers & SpeedBlur.CarRenderingLayer) != 0 &&
+                  (SpeedBlur.MotionMaskLayers & SpeedBlur.OtherCarRenderingLayer) != 0,
+                  "MOTION masks the player's car AND every other car; ZOOM's layer is the player's alone");
+
+            // A traffic / town / lot car made by CarShell carries the layer.
+            var def = CarModelLibrary.Load(CarModelLibrary.Default);
+            if (def == null) { Check(false, "a car model to spawn a shell from"); return; }
+            var host = new GameObject("MotionMaskProbe");
+            try
+            {
+                var shell = OnFoot.CarShell.Spawn(host.transform, def, 0, out _, solid: false);
+                int n = 0, tagged = 0;
+                foreach (var r in shell.GetComponentsInChildren<Renderer>(true))
+                {
+                    n++;
+                    if ((r.renderingLayerMask & SpeedBlur.OtherCarRenderingLayer) != 0 &&
+                        (r.renderingLayerMask & SpeedBlur.CarRenderingLayer) == 0) tagged++;
+                }
+                Check(n > 0 && tagged == n, "every renderer of a spawned shell is on the other-cars layer (and not the player's)",
+                      tagged + "/" + n);
+            }
+            finally { Object.DestroyImmediate(host); }
+        }
+
+        /// <summary>
+        /// The halation's glow (2026-10-16, Halation.cs): a real blur built
+        /// once a frame, so a small bright lamp gets a smooth round halo and
+        /// no ring of copies. The shader is found, the glow is ~120 lines at
+        /// every picture setting, and the display blit no longer samples the
+        /// rings itself (it reads _GlowTex, and shows none unbuilt).
+        /// </summary>
+        static void TestHalationGlow()
+        {
+            Check(Shader.Find(Halation.ShaderName) != null, "Hidden/PSX/Halation compiles and is found");
+            Check(Halation.Factor(240) == 2 && Halation.Factor(480) == 4 && Halation.Factor(120) == 1 && Halation.Factor(2160) == 4,
+                  "the glow is built at ~120 lines (a block of 2 at 240, 4 at 480)");
+            var blitShader = Shader.Find("PSX/Blit");
+            var m = blitShader != null ? new Material(blitShader) : null;
+            try
+            {
+                Check(m != null && m.HasProperty(Halation.GlowTexId) && m.HasProperty(Halation.GlowOnId) &&
+                      m.GetFloat(Halation.GlowOnId) == 0f,
+                      "PSX/Blit reads the built glow and starts with none (_GlowOn 0)");
+                if (m != null)
+                {
+                    m.SetFloat("_Grade", 1f);
+                    var src = new RenderTexture(426, 240, 0, RenderTextureFormat.ARGB32) { filterMode = FilterMode.Point };
+                    src.Create();
+                    var glow = Halation.BuildNow(src);
+                    Check(glow != null && glow.width == 213 && glow.height == 120 && Halation.Wanted(m),
+                          "a 426x240 frame's glow is 213x120", glow != null ? glow.width + "x" + glow.height : "none");
+                    Halation.Release(ref glow);
+                    src.Release();
+                    Object.DestroyImmediate(src);
+                }
+            }
+            finally { if (m != null) Object.DestroyImmediate(m); }
         }
 
         /// <summary>

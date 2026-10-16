@@ -5833,6 +5833,8 @@ namespace PSXRacing.EditorTools
                 wmr.sharedMaterial = wheelMat;
                 CarPaint.DullWheels(wmr);
             }
+            // A car, for SPEED BLUR: MOTION's mask (SpeedBlur.OtherCarRenderingLayer).
+            SpeedBlur.MarkOtherCar(root);
         }
 
         static void PlaceBuildings(List<Vector3> pts, Transform parent)

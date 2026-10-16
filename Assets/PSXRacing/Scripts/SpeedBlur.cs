@@ -139,9 +139,11 @@ namespace PSXRacing
     /// </summary>
     public static class MotionBlurFx
     {
-        /// <summary>The longest smear, as a fraction of the frame WIDTH: the
-        /// top of what the reference showed at the edges (5-10%).</summary>
-        public const float MaxSmear = 0.09f;
+        /// <summary>The longest smear, as a fraction of the frame WIDTH. 9%
+        /// (the top of the reference's 5-10%) until 2026-10-16; at the
+        /// retuned ladder's 100 mph a tenth of the near roadside is past 10%,
+        /// and 140 mph is "extreme", so the clamp is 12%.</summary>
+        public const float MaxSmear = 0.12f;
         /// <summary>The exposure the shutter fraction is a fraction of.</summary>
         public const float ShutterSeconds = 1f / 60f;
         /// <summary>A lens that moves further than CutMinMetres +
@@ -150,9 +152,14 @@ namespace PSXRacing
         public const float CutMinMetres = 4f, CutSpeedMps = 90f;
         /// <summary>Or turns further than this in one frame.</summary>
         public const float CutDeg = 25f;
-        /// <summary>Taps along the smear: the desktop's, and a phone's (or a
-        /// 240-line picture's, where the smear is half as many pixels).</summary>
-        public const int Taps = 16, PhoneTaps = 12;
+        /// <summary>The most taps along a smear: the desktop's, and a phone's
+        /// (or a 240-line picture's, where the smear is half as many pixels).
+        /// Each pixel takes one tap per <see cref="TapSpacingPx"/> of its own
+        /// smear, at least <see cref="MinTaps"/> and at most these (16 / 12
+        /// for every pixel until 2026-10-16: the longer clamp would have left
+        /// eight pixels between taps).</summary>
+        public const int Taps = 24, PhoneTaps = 16, MinTaps = 4;
+        public const float TapSpacingPx = 3f;
 
         class History
         {
@@ -684,28 +691,38 @@ namespace PSXRacing
         public const float MpsPerMph = 0.44704f;
 
         /// <summary>
-        /// MOTION's half of the owner's ladder: (mph, shutter), the fraction
-        /// of a 1/60 s exposure the camera blur gets at that speed. Straight
-        /// lines between, nothing under 30 (on foot, parking, the menus), the
-        /// last row held. The words are the same four as <see cref="Stages"/>;
-        /// what they come to here, on a 480-line 16:9 picture, for a tree
-        /// 4 m off the lens at the edge of the frame:
+        /// MOTION's half of the owner's ladder: (mph, shutter), how many 1/60 s
+        /// exposures the camera blur gets at that speed. Straight lines
+        /// between, nothing under 30 (on foot, parking, the menus), the last
+        /// row held. The words are the same four as <see cref="Stages"/>.
         ///
-        ///  30  very subtle: it BEGINS. At 40 mph that tree streaks ~5 px.
-        ///  60  noticeable: ~2.5% of the width (~20 px); the sky is sharp.
-        /// 100  substantial: ~7% of the width. The verge is streaks.
-        /// 140  extreme: past <see cref="MotionBlurFx.MaxSmear"/>, so the
-        ///      whole roadside is at the clamp, and the near road with it.
+        /// RETUNED 2026-10-16. The owner, on the first tuning (0.5 / 0.9 /
+        /// 1.3): "with Motion blur I only really notice it on other cars. It
+        /// seems very subtle other than that ... trees on the roadside as you
+        /// drive 100mph, they fly by. meanwhile a distant mountain barely
+        /// moves." MEASURED on Blue Ridge from the chase lens
+        /// (SpeedBlurPreview's smear table: the side fifths of the frame,
+        /// 2-12 m from the lens) it was a median 2.8% of the width at 100 mph
+        /// against Touge Attack's 5-10%. The smear is the lens's travel over
+        /// the exposure divided by the depth, so a longer exposure lengthens
+        /// the near streaks and leaves the far ones short: a mountain 300 m
+        /// off moves 1/50th as far on the screen as a tree 6 m off. What the
+        /// rows come to now (median / 90th percentile of that near roadside,
+        /// as a share of the frame width; far land under 0.3%):
         ///
-        /// The reference (Touge Attack, 115 km/h = 71 mph) put 2-5 m roadside
-        /// at 5-10% of the width: between the second and third rows here.
+        ///  30  very subtle: it BEGINS. At 40 mph ~0.7%.
+        ///  60  noticeable: ~2% / 3%; the sky is sharp.
+        /// 100  substantial: ~7% / 10%. The verge is streaks, the cockpit's
+        ///      side windows more (the lens is nearer the trees).
+        /// 140  extreme: the roadside at <see cref="MotionBlurFx.MaxSmear"/>,
+        ///      and the near road with it.
         /// </summary>
         public static readonly (float mph, float shutter)[] MotionStages =
         {
             ( 30f, 0.00f),
-            ( 60f, 0.50f),
-            (100f, 0.90f),
-            (140f, 1.30f),
+            ( 60f, 1.10f),
+            (100f, 2.20f),
+            (140f, 3.20f),
         };
 
         /// <summary>Below this the pass is not enqueued in MOTION.</summary>
@@ -755,6 +772,22 @@ namespace PSXRacing
         /// about physics, culling or the wheels' raycasts moves) that marks
         /// the player's car for the pass's do-not-smear mask.</summary>
         public const uint CarRenderingLayer = 1u << 20;
+        /// <summary>
+        /// EVERY OTHER CAR (2026-10-16): rivals, traffic, the parked props,
+        /// the cars in town. MOTION's blur is the CAMERA's motion only, so
+        /// it smeared a rival driving alongside as if it were the verge
+        /// rushing past - the owner's "I only really notice it on other
+        /// cars". MOTION masks this layer with the player's
+        /// (<see cref="MotionMaskLayers"/>): no car is smeared by the lens
+        /// moving, and an oncoming car stays sharp too (its own motion is
+        /// not known to a camera blur). ZOOM masks the player's alone, as it
+        /// always has. Tagged where cars are made: <see cref="MarkCar"/>
+        /// (every driven car, twice a second), OnFoot.CarShell.Spawn
+        /// (traffic, town, lots) and the builder's parked props.
+        /// </summary>
+        public const uint OtherCarRenderingLayer = 1u << 21;
+        /// <summary>What MOTION's mask draws: every car.</summary>
+        public const uint MotionMaskLayers = CarRenderingLayer | OtherCarRenderingLayer;
 
         /// <summary>The camera the pipeline pass may run on, and the look it
         /// is to draw. Written here every frame, read by
@@ -1033,6 +1066,28 @@ namespace PSXRacing
             foreach (var r in carRenderers)
                 if (r != null && (r.renderingLayerMask & CarRenderingLayer) == 0)
                     r.renderingLayerMask |= CarRenderingLayer;
+            // And every other driven car (the rivals; a body the handoff or
+            // a respray swaps in later is found on the next pass).
+            foreach (var other in FindObjectsByType<CarController>(FindObjectsInactive.Exclude))
+                if (other != null && other != car) MarkOtherCar(other.transform);
+        }
+
+        static readonly System.Collections.Generic.List<Renderer> otherRenderers =
+            new System.Collections.Generic.List<Renderer>();
+
+        /// <summary>Tag every renderer under <paramref name="root"/> as a car
+        /// that is not the player's (<see cref="OtherCarRenderingLayer"/>).
+        /// Rendering layers move nothing else: no physics, no culling, no
+        /// light (a light reaches a renderer whose layers overlap its own, and
+        /// this only adds one).</summary>
+        public static void MarkOtherCar(Transform root)
+        {
+            if (root == null) return;
+            root.GetComponentsInChildren(true, otherRenderers);
+            foreach (var r in otherRenderers)
+                if (r != null && (r.renderingLayerMask & OtherCarRenderingLayer) == 0)
+                    r.renderingLayerMask |= OtherCarRenderingLayer;
+            otherRenderers.Clear();
         }
 
         static void Publish(Camera camera, Stage look, Vector2 where) =>

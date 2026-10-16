@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.UI;
 
 namespace PSXRacing
@@ -47,6 +49,11 @@ namespace PSXRacing
         int builtQuality = -1;
         int builtGrade = -1;
         Material blit;
+        /// <summary>The halation's glow for this frame (Halation.cs), and
+        /// the frame it was last built in.</summary>
+        RenderTexture glow;
+        CommandBuffer glowCmd;
+        int glowFrame = -1;
 
         void OnEnable()
         {
@@ -61,6 +68,45 @@ namespace PSXRacing
             }
             else if (display != null) blit = display.material;
             Rebuild();
+            if (Application.isPlaying)
+            {
+                RenderPipelineManager.beginCameraRendering += OnBeginCamera;
+                RenderPipelineManager.endContextRendering += OnEndContext;
+            }
+        }
+
+        /// <summary>
+        /// THE HALATION'S GLOW (2026-10-16, Halation.cs) is built from the
+        /// finished frame, once, before the display canvas shows it: when the
+        /// camera that draws to the SCREEN (the builder's OutputCamera, depth
+        /// 50) begins - the PSX camera and the HUD camera stacked on it have
+        /// drawn into the framebuffer by then. With no screen camera the
+        /// overlay canvas is drawn after the pipeline, so the end of the
+        /// frame's rendering is in time.
+        /// </summary>
+        void OnBeginCamera(ScriptableRenderContext ctx, Camera c)
+        {
+            if (c == null || c == cam || c.targetTexture != null || c.cameraType != CameraType.Game) return;
+            BuildGlow(ctx, false);
+        }
+
+        void OnEndContext(ScriptableRenderContext ctx, List<Camera> cams)
+        {
+            if (cam == null || cams == null || !cams.Contains(cam)) return;
+            BuildGlow(ctx, true);
+        }
+
+        void BuildGlow(ScriptableRenderContext ctx, bool submit)
+        {
+            if (glowFrame == Time.frameCount || rt == null || !Halation.Wanted(blit)) return;
+            glowFrame = Time.frameCount;
+            if (Halation.Ensure(ref glow, rt.width, rt.height)) Halation.Apply(blit, glow);
+            if (glowCmd == null) glowCmd = new CommandBuffer { name = Halation.Sampler };
+            glowCmd.Clear();
+            if (!Halation.Record(glowCmd, rt, rt.width, rt.height, glow)) return;
+            ctx.ExecuteCommandBuffer(glowCmd);
+            glowCmd.Clear();
+            if (submit) ctx.Submit();
         }
 
         void OnDestroy()
@@ -164,8 +210,14 @@ namespace PSXRacing
 
         void OnDisable()
         {
+            RenderPipelineManager.beginCameraRendering -= OnBeginCamera;
+            RenderPipelineManager.endContextRendering -= OnEndContext;
             if (cam != null) cam.targetTexture = null;
             Release();
+            Halation.Apply(blit, null);
+            Halation.Release(ref glow);
+            glowCmd?.Release();
+            glowCmd = null;
         }
 
         void Release()

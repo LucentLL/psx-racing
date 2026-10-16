@@ -214,6 +214,46 @@ namespace PSXRacing.EditorTools
             yield return Frames(3);
             var maxBare = SpeedBlurPreview.Read(rt);
 
+            // ZOOM IGNORES THE OTHER CARS' LAYER (2026-10-16): MOTION masks
+            // every car (SpeedBlur.OtherCarRenderingLayer), the zoom the
+            // player's alone, as it always did. The same full-strength frame
+            // with that layer stripped from every renderer must be the same
+            // frame (within 2/255, as the same frame read twice is).
+            {
+                var stripped = new System.Collections.Generic.List<Renderer>();
+                foreach (var r in Object.FindObjectsByType<Renderer>(FindObjectsInactive.Exclude))
+                    if ((r.renderingLayerMask & SpeedBlur.OtherCarRenderingLayer) != 0)
+                    {
+                        r.renderingLayerMask &= ~SpeedBlur.OtherCarRenderingLayer;
+                        stripped.Add(r);
+                    }
+                yield return Frames(3);
+                var maxBareUntagged = SpeedBlurPreview.Read(rt);
+                int retagged = 0;
+                foreach (var r in stripped)
+                {
+                    if (r == null) continue;
+                    if ((r.renderingLayerMask & SpeedBlur.OtherCarRenderingLayer) != 0) retagged++;
+                    r.renderingLayerMask |= SpeedBlur.OtherCarRenderingLayer;
+                }
+                // The control: the same tagged frame, read again. Renderers
+                // whose tags change can be drawn in another order, and two
+                // coplanar surfaces then trade a few pixels: that is the noise
+                // floor, not the zoom.
+                yield return Frames(3);
+                var maxBareAgain = SpeedBlurPreview.Read(rt);
+                int differ = 0, noise = 0;
+                for (int i = 0; i < maxBare.Length; i++)
+                {
+                    if (Off(maxBare[i], maxBareUntagged[i])) differ++;
+                    if (Off(maxBare[i], maxBareAgain[i])) noise++;
+                }
+                SpeedBlurPlayCheck.Check(stripped.Count > 0 && retagged == 0 && differ <= noise + maxBare.Length / 5000,
+                                         "ZOOM ignores the other cars' layer: the 140 mph frame with it stripped is the same frame",
+                                         stripped.Count + " renderers stripped, " + differ + " px off by more than 2/255 (the same frame read twice: " +
+                                         noise + ", of " + maxBare.Length + ")");
+            }
+
             // Where the player's car IS: the same still frame with its body
             // hidden. This is the car the handoff DRESSED at load, not the
             // reference shell the scene was saved with — which is the point:
@@ -291,7 +331,55 @@ namespace PSXRacing.EditorTools
             }
 
             yield return MotionChecks();
+            yield return HalationChecks();
             Done(keepPref, keepPixels);
+        }
+
+        static bool Off(Color32 a, Color32 b) =>
+            Mathf.Abs(a.r - b.r) > 2 || Mathf.Abs(a.g - b.g) > 2 || Mathf.Abs(a.b - b.b) > 2;
+
+        /// <summary>
+        /// THE HALATION'S GLOW (2026-10-16, Halation.cs): built from the
+        /// running game's framebuffer every frame, wired into the display
+        /// material, and what it costs - the GPU time of its passes (the
+        /// "PSX Halation" sample) at 480 and at 240 lines.
+        /// </summary>
+        IEnumerator HalationChecks()
+        {
+            var output = cam != null ? cam.GetComponent<PSXCameraOutput>() : null;
+            var mat = output != null && output.display != null ? output.display.material : null;
+            if (!Halation.Wanted(mat))
+            {
+                SpeedBlurPlayCheck.Note("halation: FILM GRADE is off in this editor's prefs - no glow to build or time");
+                yield break;
+            }
+            var rec = Halation.Profile.GetRecorder();
+            rec.enabled = true;
+            foreach (var pixels in new[] { PSXPixels.Sharp, PSXPixels.Retro })
+            {
+                PSXQuality.Current = pixels;
+                yield return Frames(10);
+                var glow = mat.GetTexture(Halation.GlowTexId) as RenderTexture;
+                var fb = cam.targetTexture;
+                bool built = glow != null && fb != null && mat.GetFloat(Halation.GlowOnId) > 0.5f &&
+                             glow.height == Mathf.CeilToInt(fb.height / (float)Halation.Factor(fb.height));
+                SpeedBlurPlayCheck.Check(built, "halation: the glow is built from the " + (fb != null ? fb.height : 0) +
+                                         "-line frame and wired into the display",
+                                         glow != null ? glow.width + "x" + glow.height : "none");
+                double gpu = 0, cpu = 0;
+                int n = 0;
+                for (int i = 0; i < 30; i++)
+                {
+                    yield return null;
+                    if (rec.sampleBlockCount > 0) { gpu += rec.gpuElapsedNanoseconds; cpu += rec.elapsedNanoseconds; n++; }
+                }
+                SpeedBlurPlayCheck.Note("halation cost at " + (fb != null ? fb.width + "x" + fb.height : "?") + ": " +
+                                        (n > 0 ? (gpu / n / 1e6).ToString("0.000") + " ms GPU, " +
+                                                 (cpu / n / 1e6).ToString("0.000") + " ms CPU a frame (" + n + " frames)"
+                                               : "no samples (no GPU recorder here)") +
+                                        "; GPU recorder " + (SystemInfo.supportsGpuRecorder ? "supported" : "unsupported"));
+            }
+            rec.enabled = false;
         }
 
         // ---- SPEED BLUR: MOTION (2026-10-13) ---------------------------------
