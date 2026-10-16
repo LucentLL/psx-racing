@@ -184,9 +184,22 @@ Shader "PSX/Lit"
             #pragma vertex vert
             #pragma fragment frag
             #pragma shader_feature_local __ PSX_ATLAS_RECT PSX_FURNITURE PSX_FACADE
+            // THE BAKED SKY (GT4 study gap 3; PSXRacingBuilder.BakedLight.cs):
+            // colour.r is the share of the sky the vertex sees (the terrain,
+            // the walls and cuts, the decks, the forest's crowns), baked by the
+            // stage builder. It scales the AMBIENT only - never the sun, which
+            // has its own shadow maps - as min() with the sky map's PSXSkyOpen
+            // (the same quantity, measured two ways). It rides in amb.w: no
+            // new interpolator. The builder keys only materials whose every
+            // mesh carries the colour; the atlas/facade variants use COLOR for
+            // something else and never take it.
+            #pragma shader_feature_local __ PSX_SKYVIS
             // the furniture draws from the prop atlas too
             #if defined(PSX_ATLAS_RECT) || defined(PSX_FURNITURE)
                 #define PSX_ATLAS 1
+            #endif
+            #if defined(PSX_SKYVIS) && !defined(PSX_ATLAS) && !defined(PSX_FACADE)
+                #define PSX_BAKEDSKY 1
             #endif
             // THE FACADE ATLAS (Uptown B1, 2026-10-04; tools/city/facade_atlas.py):
             // one texture of FACADE_COLS looks side by side, each a full-height
@@ -541,8 +554,8 @@ Shader "PSX/Lit"
                 float4 vertex : POSITION;
                 float3 normal : NORMAL;
                 float2 uv : TEXCOORD0;
-            #if defined(PSX_ATLAS) || defined(PSX_FACADE)
-                fixed4 color : COLOR;       // the cell: see _AtlasPx (PSX_FACADE: tint + column)
+            #if defined(PSX_ATLAS) || defined(PSX_FACADE) || defined(PSX_BAKEDSKY)
+                fixed4 color : COLOR;       // the cell: see _AtlasPx (PSX_FACADE: tint + column; PSX_BAKEDSKY: r = the sky seen)
             #endif
             #ifdef PSX_FURNITURE
                 float2 wire : TEXCOORD1;    // (side -1/+1, half width m); (0, 0) off a wire
@@ -567,7 +580,11 @@ Shader "PSX/Lit"
                 // may be clamped to 0..1 by the hardware, and the sun at noon
                 // is 1.9). amb is what the sky gives the face whatever is in
                 // the way; sun is what the shadow map gets a say in.
+            #ifdef PSX_BAKEDSKY
+                half4 amb : TEXCOORD4;      // w: the baked share of the sky
+            #else
                 half3 amb : TEXCOORD4;
+            #endif
                 half3 sun : TEXCOORD5;
                 // The horizon ring's ratio for this vertex's bearing: exactly
                 // 1 in a scene that never applied an hour.
@@ -665,7 +682,12 @@ Shader "PSX/Lit"
                 // and handed on whole, so the pixel shader's sum is the very
                 // number it used to be given.
                 if (_PSXSunModel < 0.5) { amb = saturate(amb + sunL); sunL = half3(0, 0, 0); }
+            #ifdef PSX_BAKEDSKY
+                // no hour applied, the sun is inside amb: leave it whole
+                o.amb = half4(amb, _PSXSunModel < 0.5 ? 1.0 : v.color.r);
+            #else
                 o.amb = amb;
+            #endif
                 o.sun = sunL;
                 o.wpos = wpos;
                 o.wnrm = n;
@@ -826,7 +848,11 @@ Shader "PSX/Lit"
                 // alone leaves it too faint to see (PSXCarAmbientKeep).
                 float carVis;
                 float sunVis = PSXSunShadowCar(i.wpos, N, eyeDist, leaf, carVis);
-                float3 sunAmb = i.amb * (PSXSkyOpen(i.wpos, N, leaf) * PSXCarAmbientKeep(carVis, i.amb, i.sun, N)) + i.sun * sunVis;
+                float skyKeep = PSXSkyOpen(i.wpos, N, leaf);
+            #ifdef PSX_BAKEDSKY
+                skyKeep = min(skyKeep, i.amb.w);
+            #endif
+                float3 sunAmb = i.amb.rgb * (skyKeep * PSXCarAmbientKeep(carVis, i.amb.rgb, i.sun, N)) + i.sun * sunVis;
                 // The shoulder is the old tone curve, on the LIGHT: with the
                 // colour pass's one curve on (_PSXToneOn) the light goes
                 // through unrolled and the curve acts on the radiance below.

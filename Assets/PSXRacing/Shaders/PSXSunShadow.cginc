@@ -83,13 +83,20 @@ float4 _PSXFogSun;
 #define PSX_SHADOW_RIM     12.5
 // THE DAPPLE under leaves. Two octaves of value noise on world XZ, cells 2.2 m
 // and 0.9 m; the sun comes through where the noise is over LO (all of it by
-// HI). 0.50 / 0.60 lets it through over about a third of the ground, which is
-// what the avenue frame shows. Past FADE_M the pattern is under a pixel at 240
-// lines and would shimmer, so it goes to its mean.
+// HI). The first cut, 0.50 / 0.60, let it through over 38% of the ground (the
+// avenue frame); under GT4 Trial Mountain's tunnel of trees the floor is
+// mostly shade with a few hard coins of sun, and the owner chose "less sun
+// through the leaves" (2026-10-15): 0.62 / 0.69 lets it through over about a
+// SIXTH (0.17, measured over 400k world points of this very noise). The coins
+// stay whole - inside one the sun is all there - there are just fewer, and
+// smaller. MEAN is that sixth, so the far pattern fades to the same light.
+// Past FADE_M the pattern is under a pixel at 240 lines and would shimmer, so
+// it goes to its mean. A cutout receiver (a tree card, a fence) is not
+// dappled at all (`leaf` below), so the trees themselves are not darkened.
 #define PSX_DAPPLE_SCALE   0.45
-#define PSX_DAPPLE_LO      0.50
-#define PSX_DAPPLE_HI      0.60
-#define PSX_DAPPLE_MEAN    0.33
+#define PSX_DAPPLE_LO      0.62
+#define PSX_DAPPLE_HI      0.69
+#define PSX_DAPPLE_MEAN    0.17
 #define PSX_DAPPLE_FADE_M  70.0
 // What is left of the AMBIENT with a solid roof overhead, and how much of a
 // roof a tree's crown is. 0.22: the tunnel frame's 24 to 1 is a camera

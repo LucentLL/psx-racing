@@ -308,6 +308,12 @@ namespace PSXRacing.EditorTools
             /// roofline is a five-metre concrete face along the pavement of
             /// Tryon Street with the lots seated on top of it.</summary>
             public bool stageBanks = true;
+            /// <summary>Bake each vertex's share of the sky into its colour
+            /// (PSXRacingBuilder.BakedLight.cs): the ambient darkens under the
+            /// canopy, at the foot of walls and cuts, under decks. Off until a
+            /// venue's numbers and shots are checked; PSX_BAKEDLIGHT=0/1
+            /// overrides for an A/B build.</summary>
+            public bool bakedLight;
             /// <summary>Fog band multiplier over the hour presets and the
             /// camera's far plane: mountain scale by default.</summary>
             public float fogScale = StageFogScale;
@@ -428,6 +434,7 @@ namespace PSXRacing.EditorTools
                 // "nothing built" rule, and the real parkway has them.
                 postEvery = 4,
                 gasStation = false,
+                bakedLight = true,
             },
 
             // Mount Mitchell. The same mountain as the Parkway and the same
@@ -831,6 +838,11 @@ namespace PSXRacing.EditorTools
             if (def.stage && theme.stageForest) BuildStageForest(waypoints, pathGO.transform);
             else BuildScenery(waypoints, pathGO.transform);
             if (def.stage && theme.stageHomes) BuildStageHomes(waypoints, pathGO.transform);
+            // After everything that stands in the light (the forest, the
+            // homes, the decks), before the dress is attached: it keys the
+            // dresses' materials too.
+            if (BakedLightOn) BakeStageSkyLight(pathGO.transform);
+            skyCrowns.Clear();
 
             var lightGO = BuildLighting();
             var cars = BuildCars(waypoints);
@@ -1587,6 +1599,10 @@ namespace PSXRacing.EditorTools
                 Log("WARN: PSX/Lit has no _Wet property — wet masks not written (first: " + name + ").");
             }
             if (cutoff > 0f) mat.renderQueue = 2450;
+            // The baked sky (PSX_SKYVIS) reads a colour every vertex must
+            // carry: cleared on EVERY build like the wet mask, and turned on
+            // again only by the bake that wrote the colours.
+            mat.DisableKeyword(SkyVisKeyword);
             EditorUtility.SetDirty(mat);
             return mat;
         }
@@ -7100,6 +7116,7 @@ namespace PSXRacing.EditorTools
 
         static void PlaceTrees(List<Vector3> pts, Transform parent)
         {
+            skyCrowns.Clear();
             // Crossed-quad billboard mesh
             var verts = new List<Vector3>();
             var uvs = new List<Vector2>();
@@ -7213,6 +7230,7 @@ namespace PSXRacing.EditorTools
                     // tree. On the Solid layer so no wheel ever stands on it.
                     TreeKit.AddTrunk(t.transform, treeAt, TreeKit.TrunkRadiusFor(TreeCardW * s),
                                      Mathf.Min(4f, 0.5f * TreeCardH * s));
+                    NoteSkyCrown(treeAt.x, treeAt.y, treeAt.z, TreeCardW * s, TreeCardH * s, false);
                     placed++;
                 }
             }
