@@ -29,6 +29,7 @@ namespace PSXRacing.EditorTools
     {
         internal static StringBuilder log;
         internal static int failures;
+        internal static bool BundleMode;
         internal const string Player = "mazda_rx_7_type_r__fd__j___91";
         internal const string RivalA = "nissan_240zg__hs30___71";          // i6_japanese_2
         internal const string RivalB = "dodge_charger_440_r_t__70";        // v8_american_classic_1 (slow)
@@ -61,11 +62,16 @@ namespace PSXRacing.EditorTools
             RaceHandoff.OpponentSpecIds = RivalA + ";" + RivalB;
             RaceHandoff.OpponentSkills = "0.9;0.9";
 
-            EngineVoiceLibrary.ForceBundle = true;
-            EngineVoiceLibrary.UrlOverride = System.Environment.GetEnvironmentVariable("PSX_ENGINE_URL");
-            EngineVoiceLibrary.DebugSlowPack = SlowPack;
+            // PSX_ENGINE_URL empty: SOURCE mode - the editor's own EngineSrc
+            // path (no bundles); the bundle-only checks are skipped.
+            string url = System.Environment.GetEnvironmentVariable("PSX_ENGINE_URL");
+            BundleMode = !string.IsNullOrEmpty(url);
+            EngineVoiceLibrary.ForceBundle = BundleMode;
+            EngineVoiceLibrary.UrlOverride = BundleMode ? url : null;
+            EngineVoiceLibrary.DebugSlowPack = BundleMode ? SlowPack : null;
             EngineVoiceLibrary.DebugSlowSeconds = 3f;
-            log.AppendLine("  bundles from " + EngineVoiceLibrary.UrlOverride + " (slow: " + SlowPack + " 3 s, dead: " + DeadFamily + ")");
+            log.AppendLine(BundleMode ? "  bundles from " + url + " (slow: " + SlowPack + " 3 s, dead: " + DeadFamily + ")"
+                                      : "  SOURCE mode: clips from EngineSrc, bundle checks skipped");
 
             EditorSettings.enterPlayModeOptionsEnabled = true;
             EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload;
@@ -158,11 +164,13 @@ namespace PSXRacing.EditorTools
                 var idle = srcs.FirstOrDefault(a => a.gameObject.name == "snd_idle");
                 float pk = idle != null ? EnginePhase2PlayCheck.Peak(idle.clip) : 0f;
                 Check(pk > 0.01f, "  its idle take is not silent", pk.ToString("0.000"));
-                if (want == EnginePhase2PlayCheck.SlowPack)
+                if (want == EnginePhase2PlayCheck.SlowPack && EnginePhase2PlayCheck.BundleMode)
                     Check(seen[e].Any(x => x.Contains("(stand-in)")) && !seen[e][0].Contains("(stand-in)"),
                           "  the slow family waited, then the default stood in, then it spoke");
             }
             Note("library: " + EngineVoiceLibrary.Census());
+
+            if (!EnginePhase2PlayCheck.BundleMode) { yield return Spatial(rm.playerCar); yield return Cabin(rm.playerCar); yield return Crackle(rm.playerCar); Done(); yield break; }
 
             // A family that cannot be fetched: the default speaks at full level.
             var victim = engines.FirstOrDefault(e => e.GetComponent<CarController>() != rm.playerCar);
@@ -188,6 +196,7 @@ namespace PSXRacing.EditorTools
 
             yield return Spatial(rm.playerCar);
             yield return Cabin(rm.playerCar);
+            yield return Crackle(rm.playerCar);
             Done();
         }
 
@@ -220,10 +229,38 @@ namespace PSXRacing.EditorTools
             t = Time.realtimeSinceStartup;
             while ((e.InsideMix > 0f || e.CabinFamily != null) && Time.realtimeSinceStartup - t < 3f) yield return null;
             took = Time.realtimeSinceStartup - t;
+            // Destroy() lands at the end of the frame: count after it.
+            yield return null; yield return null;
             ext = Count(false); inn = Count(true);
             Note($"CHASE   back after {took:0.00} s; sources ext {ext} int {inn}; live {e.LiveFamily}");
             Check(e.CabinFamily == null && ext > 0 && inn == 0 && e.LiveFamily == fam, "back out: the exterior set returns, the cabin is torn down");
             Check(took < 0.6f, "  ...within the crossfade", took.ToString("0.00") + " s");
+        }
+
+        /// <summary>ITEM 3: full throttle, then a lift - the aggressiveness
+        /// layer speaks on the pull and the lift fires a pop (the FD is a rotary).</summary>
+        IEnumerator Crackle(CarController player)
+        {
+            var e = player.GetComponent<EngineAudio>();
+            var input = player.GetComponent<PlayerCarInput>();
+            if (input != null) input.enabled = false;
+            var agg = e.GetComponentsInChildren<AudioSource>(true).FirstOrDefault(a => a.gameObject.name == "snd_aggressiveness_on");
+            int before = e.CracklesFired;
+            float t = Time.realtimeSinceStartup, aggMax = 0f, rpmMax = 0f;
+            while (Time.realtimeSinceStartup - t < 2.5f)
+            {
+                player.throttleInput = 1f; player.brakeInput = 0f; player.handbrakeInput = false;
+                if (agg != null) aggMax = Mathf.Max(aggMax, agg.volume);
+                rpmMax = Mathf.Max(rpmMax, player.currentRPM);
+                yield return null;
+            }
+            t = Time.realtimeSinceStartup;
+            while (Time.realtimeSinceStartup - t < 1.2f) { player.throttleInput = 0f; yield return null; }
+            Note($"PULL+LIFT rpm max {rpmMax:0}, aggressiveness_on peak volume {aggMax:0.000}, crackle level {e.CrackleLevel:0.0}, pops {e.CracklesFired - before}");
+            Check(agg != null && aggMax > 0.01f, "the aggressiveness layer speaks on a full-throttle pull", aggMax.ToString("0.000"));
+            Check(e.CrackleLevel >= 1f, "the FD (rotary) pops at full level", e.CrackleLevel);
+            Check(e.CracklesFired > before, "a lift off the gas fires a pop", e.CracklesFired - before);
+            if (input != null) input.enabled = true;
         }
 
         static IEnumerator Wait(float s)

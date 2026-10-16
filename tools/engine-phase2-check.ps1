@@ -10,7 +10,10 @@
 #
 #   powershell -ExecutionPolicy Bypass -File tools/engine-phase2-check.ps1 [-SkipBundles] [-NoWatch]
 #
-param([switch]$NoWatch, [switch]$SkipBundles, [switch]$SkipWebGL, [int]$MaxMinutes = 60)
+param([switch]$NoWatch, [switch]$SkipBundles, [switch]$SkipWebGL, [switch]$SourceMode, [int]$MaxMinutes = 60)
+# -SourceMode: no bundle builds at all; the play check runs on the editor's
+# EngineSrc path (voices, spatial, cockpit) and skips the bundle-only checks.
+if ($SourceMode) { $SkipBundles = [switch]$true }
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXCity" }
 $env:PSX_SANDBOX = $proj
@@ -59,7 +62,7 @@ if (-not $SkipBundles) {
 Remove-Item "$edOut\v12_british.bundle" -ErrorAction SilentlyContinue
 
 Remove-Item "$proj\PSXRacing_engine_phase2_check.txt" -ErrorAction SilentlyContinue
-$env:PSX_ENGINE_URL = "file:///" + ($edOut -replace '\\', '/')
+$env:PSX_ENGINE_URL = if ($SourceMode) { "" } else { "file:///" + ($edOut -replace '\\', '/') }
 Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\enginephase2.log" -MaxMinutes $MaxMinutes -UnityArgs @(
     "-batchmode","-projectPath",$proj,
     "-executeMethod","PSXRacing.EditorTools.EnginePhase2PlayCheck.Run",

@@ -9668,6 +9668,36 @@ namespace PSXRacing.EditorTools
             Check(missingClips == 0, "every family has every clip the vendor rig plays",
                   missingClips + " missing");
 
+            // PHASE 2: the aggressiveness pair beside the exterior takes, a
+            // cockpit set (rig + every take it plays) for every family, and
+            // the crackle one-shots.
+            int noAgg = 0, noInterior = 0, interiorClips = 0;
+            foreach (var key in families.Keys)
+            {
+                string fam = EngineVoiceLibrary.Canonical(key);
+                var rig = EngineVoiceLibrary.RigFor(fam);
+                if (rig == null) continue;
+                if (rig.aggMaster > 0f && (!ClipExists(fam, "aggressiveness_on") || !ClipExists(fam, "aggressiveness_off"))) noAgg++;
+                var inner = EngineVoiceLibrary.InteriorRigFor(fam);
+                if (inner == null) { noInterior++; continue; }
+                string idir = EngineBundleBuilder.SrcRoot + "/" + fam + "/Interior/";
+                foreach (var t in inner.hq)
+                {
+                    if (!System.IO.File.Exists(idir + t.onClip + ".ogg")) interiorClips++;
+                    if (t.offClip != null && !System.IO.File.Exists(idir + t.offClip + ".ogg")) interiorClips++;
+                }
+                foreach (var extra in new[] { "maxRPM", "intake_on", "intake_off", "aggressiveness_on", "aggressiveness_off", "startup", "engine_stop" })
+                    if (!System.IO.File.Exists(idir + extra + ".ogg")) interiorClips++;
+            }
+            Check(noAgg == 0, "every family has its aggressiveness pair", noAgg + " missing");
+            Check(noInterior == 0, "every family has a cockpit rig (interior prefab baked)", noInterior + " missing");
+            Check(interiorClips == 0, "every family has every cockpit take its rig plays", interiorClips + " missing");
+            int crackles = 0;
+            for (int i = 1; i <= EngineVoiceLibrary.CrackleCount; i++)
+                foreach (var pre in new[] { "crackle_", "crackle_int_" })
+                    if (System.IO.File.Exists(Application.dataPath + "/PSXRacing/Resources/" + EngineVoiceLibrary.CrackleRoot + pre + i.ToString("00") + ".ogg")) crackles++;
+            Check(crackles == 2 * EngineVoiceLibrary.CrackleCount, "the crackle one-shots are in Resources (outside + cockpit)", crackles);
+
             int turbo = 0, sc = 0;
             foreach (var c in CarCatalog.All)
             {
