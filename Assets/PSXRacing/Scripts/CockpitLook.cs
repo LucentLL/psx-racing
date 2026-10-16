@@ -11,7 +11,7 @@ namespace PSXRacing
     /// left/right". The point is the passenger seat, where the pizzas are.
     ///
     /// The head turns up to <see cref="MaxYaw"/> each way. Turning to the
-    /// PASSENGER side (right: the cabin is left-hand drive) also tips it down,
+    /// PASSENGER side (right in an LHD cabin, left in an RHD one) also tips it down,
     /// smoothstepped in to <see cref="DownAtFull"/> at full turn, so the stack
     /// on the seat is framed when the player is all the way round. Let go and
     /// it eases back to the road in about <see cref="ReturnSeconds"/>.
@@ -40,7 +40,7 @@ namespace PSXRacing
         /// <summary>A slide across this fraction of the screen width is a full turn.</summary>
         const float SlideFullFrac = 0.35f;
 
-        /// <summary>Head yaw, degrees, + = right (the passenger side).</summary>
+        /// <summary>Head yaw, degrees, + = right (<see cref="PassengerSign"/> says which way the passenger is).</summary>
         public static float Yaw { get; private set; }
         /// <summary>Extra downward tilt, degrees, at the current yaw.</summary>
         public static float Pitch => DownFor(Yaw);
@@ -48,7 +48,13 @@ namespace PSXRacing
         public static float Amount => Mathf.Clamp01(Mathf.Abs(Yaw) / MaxYaw);
 
         public static float DownFor(float yaw) =>
-            yaw <= 0f ? 0f : DownAtFull * ChaseCamera.Smooth01(yaw / MaxYaw);
+            yaw * PassengerSign <= 0f ? 0f : DownAtFull * ChaseCamera.Smooth01(Mathf.Abs(yaw) / MaxYaw);
+
+        /// <summary>+1 when the passenger seat is to the RIGHT (a left-hand
+        /// drive cabin), -1 in a right-hand drive one: the look-over dips
+        /// toward the cargo on whichever side it rides. CockpitInterior sets
+        /// it with the cabin's variant (DriveSide).</summary>
+        public static float PassengerSign = 1f;
 
         static int tickFrame = -1;
         static int slideTouch = -1;

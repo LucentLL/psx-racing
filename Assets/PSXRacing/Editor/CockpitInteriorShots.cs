@@ -6,29 +6,19 @@ using PSXRacing;
 namespace PSXRacing.EditorTools
 {
     /// <summary>
-    /// The owner's universal cockpit (CockpitInterior) photographed the way the
-    /// game shows it: the player's car on one built venue, the cockpit eye and
-    /// lens (ChaseCamera.MountOffset / FOVFor / ViewNearClip), the look-over
-    /// (CockpitLook), a full order on the passenger seat (three boxes and two
-    /// bottles, built with PizzaCargo.Spawn and settled by stepping physics by
-    /// hand, as PizzaCargoSim does) mirrored in by CockpitCargoMirror, and the
-    /// needles off made-up car readings. Six frames,
-    /// Screenshots\fdcockpit_*.png - tools\cockpit\cockpit-shots.ps1.
-    ///
-    /// It also pins the cockpit textures' imports (point filter, no mips, the
-    /// atlas at max 1024 for the WebGL build's size) and the models' (no
-    /// imported materials: CockpitInterior puts PSX/Lit on them), only when
-    /// they differ; logs what the importer made of the models; and MEASURES
-    /// the rest gap under the bottom box, on the island and in the cabin.
+    /// The owner's v08 cockpit, photographed (tools/cockpit/cockpit-shots.ps1):
+    /// eight frames on one car, both drive sides (DriveSide.Override), at
+    /// the owner's camera - LHD and RHD by day, the gauges close up at speed,
+    /// night, rain on the glass, the look-over to the cargo each side, and
+    /// the mirror. Edit mode: the cabin is ticked by hand (no frames), the
+    /// mirror rendered once (CockpitInterior.PreviewMirror), the rain set as
+    /// if it had been falling a while (CockpitInterior.PreviewRain).
     /// </summary>
     public static class CockpitInteriorShots
     {
-        const string Dir = "Assets/PSXRacing/Resources/Cockpit/";
-
         [MenuItem("PSX Racing/Capture Cockpit Interior")]
         public static void Capture()
         {
-            Imports();
             var def = TrackCatalog.At(0);
             string only = System.Environment.GetEnvironmentVariable("PSX_SHOT_VENUE");
             if (!string.IsNullOrEmpty(only))
@@ -41,78 +31,80 @@ namespace PSXRacing.EditorTools
             var body = player.GetComponent<CarBody>();
             Vector3 c = box != null ? box.center : new Vector3(0f, 0.72f, 0.05f);
             Vector3 s = box != null ? box.size : new Vector3(1.72f, 1.0f, 4.1f);
-            Vector3 eye = ChaseCamera.MountOffset(ChaseCamera.View.Cockpit, c, s, body != null ? body.Def : null,
-                                                  body != null ? body.LengthScale : 1f, body != null ? body.BodyLift : 0f);
-            Vector3 pos = t.TransformPoint(eye);
             float keepFov = cam.fieldOfView, keepNear = cam.nearClipPlane;
             var keepView = ChaseCamera.Current;
+            int keepWeather = RaceHandoff.WeatherOverride;
             ChaseCamera.PreviewView(ChaseCamera.View.Cockpit);
 
             var cargo = SettledCargo(car);
             var cv = Object.FindFirstObjectByType<CockpitView>();
-            if (cv != null) cv.PreviewShow(true);
-            var ci = player.GetComponentInChildren<CockpitInterior>(true);
-            if (ci == null) Debug.LogError("[Cockpit] no CockpitInterior was built on the player");
-
             var globals = Object.FindFirstObjectByType<PSXGlobals>();
-            // (name, hour, aspect, look yaw, steer deg, rpm, mph)
-            var shots = new (string, int, float, float, float, float, float)[]
+            const float Max = CockpitLook.MaxYaw;
+            // (name, rhd, hour, weather, look yaw, steer, rpm, mph, special)
+            var shots = new (string, bool, int, int, float, float, float, float, string)[]
             {
-                ("day_forward_16x9", TimeOfDay.Noon, 16f / 9f, 0f, 0f, 3200f, 45f),
-                ("day_look_16x9", TimeOfDay.Noon, 16f / 9f, CockpitLook.MaxYaw, 0f, 3200f, 45f),
-                ("night_forward_16x9", TimeOfDay.Night, 16f / 9f, 0f, 0f, 3200f, 45f),
-                ("phone_forward", TimeOfDay.Noon, 19.5f / 9f, 0f, 0f, 3200f, 45f),
-                ("phone_look", TimeOfDay.Noon, 19.5f / 9f, CockpitLook.MaxYaw, 0f, 3200f, 45f),
-                ("day_steer_16x9", TimeOfDay.Noon, 16f / 9f, 0f, -18f, 6400f, 82f),
+                ("lhd_day_forward", false, TimeOfDay.Noon, -1, 0f, 0f, 3200f, 45f, ""),
+                ("rhd_day_forward", true, TimeOfDay.Noon, -1, 0f, 0f, 3200f, 45f, ""),
+                ("gauges_speed", false, TimeOfDay.Noon, -1, 0f, 0f, 6400f, 92f, "gauges"),
+                ("night_forward", false, TimeOfDay.Night, -1, 0f, 0f, 3000f, 40f, ""),
+                ("rain_forward", false, TimeOfDay.Noon, (int)Weather.Rain, 0f, 0f, 3400f, 34f, "rain"),
+                ("lhd_look_cargo", false, TimeOfDay.Noon, -1, Max, 0f, 3200f, 45f, ""),
+                ("rhd_look_cargo", true, TimeOfDay.Noon, -1, -Max, 0f, 3200f, 45f, ""),
+                ("mirror", false, TimeOfDay.Noon, -1, 0f, 0f, 3200f, 45f, "mirror"),
             };
-            int lastHour = -1;
-            foreach (var (name, hour, aspect, yaw, steer, rpm, mph) in shots)
+            int lastHour = -1, lastWeather = -2;
+            CockpitInterior ci = null;
+            foreach (var (name, rhd, hour, weather, yaw, steer, rpm, mph, special) in shots)
             {
-                if (globals != null && globals.sun != null && hour != lastHour)
+                DriveSide.Override = rhd;
+                if (globals != null && globals.sun != null && (hour != lastHour || weather != lastWeather))
                 {
+                    RaceHandoff.WeatherOverride = weather;
                     TimeOfDay.Apply(hour, globals.sun);
                     globals.Apply();
-                    lastHour = hour;
+                    lastHour = hour; lastWeather = weather;
                 }
-                PSXScreenshotTool.AspectOverride = aspect;
+                PSXScreenshotTool.AspectOverride = 16f / 9f;
                 if (car != null) { car.currentRPM = rpm; car.speedKmh = mph * 1.609344f; }
                 if (cv != null) cv.PreviewShow(true);
-                if (ci != null)
-                {
-                    // A phone hides the 3D wheel (its own is under the thumb),
-                    // which also shows the dials whole.
-                    if (name.StartsWith("phone")) ci.Show(true, false);
-                    ci.HideShell(true);
-                    ci.SetSteer(steer, car != null ? car.maxSteerLowSpeedDeg : 34f);
-                    ci.Tick(0f, cargo);
-                }
+                if (ci == null) ci = player.GetComponentInChildren<CockpitInterior>(true);
+                if (ci == null) { Debug.LogError("[Cockpit] no CockpitInterior was built on the player"); break; }
+                ci.Refit();
+                ci.Show(true, true);
+                ci.HideShell(true);
+                ci.SetSteer(steer, car != null ? car.maxSteerLowSpeedDeg : 34f);
+                CockpitInterior.PreviewRain(special == "rain" ? 1f : 0f, mph * 0.44704f, 37f);
+                ci.Tick(0f, cargo);
                 foreach (var gc in Object.FindObjectsByType<GaugeCluster>(FindObjectsSortMode.None)) gc.Build();
-                foreach (var h in Object.FindObjectsByType<RaceHUD>(FindObjectsSortMode.None))
-                    HudOnTop.Apply(h.gameObject);
                 Canvas.ForceUpdateCanvases();
-                cam.fieldOfView = ChaseCamera.FOVFor(ChaseCamera.View.Cockpit, 58f, 0f, 1f, aspect);
-                cam.nearClipPlane = ChaseCamera.ViewNearClip(ChaseCamera.View.Cockpit, keepNear);
+
+                Vector3 eye = ChaseCamera.MountOffset(ChaseCamera.View.Cockpit, c, s, body != null ? body.Def : null,
+                                                      body != null ? body.LengthScale : 1f, body != null ? body.BodyLift : 0f, rhd);
+                Vector3 pos = t.TransformPoint(eye);
                 var rot = t.rotation * Quaternion.Euler(
                     ChaseCamera.MountPitch(ChaseCamera.View.Cockpit) + CockpitLook.DownFor(yaw), yaw, 0f);
-                PSXScreenshotTool.ShotAs(cam, "fdcockpit_" + name, pos, rot);
-                if (ci != null && ci.Needles != null)
+                cam.fieldOfView = ChaseCamera.FOVFor(ChaseCamera.View.Cockpit, 58f, 0f, 1f, 16f / 9f);
+                cam.nearClipPlane = CockpitInterior.NearClipFor(ci.Current.scale, yaw * CockpitLook.PassengerSign / Max);
+                var lay = CockpitInterior.L;
+                if (special == "gauges" || special == "mirror")
                 {
-                    var sb = new System.Text.StringBuilder("[Cockpit] " + name + " needles (deg clockwise):");
-                    var lay = CockpitInterior.L;
-                    for (int i = 0; i < ci.Needles.Length; i++)
-                        if (ci.Needles[i] != null)
-                            sb.Append(" " + lay.needles[i].key + " " +
-                                      Mathf.DeltaAngle(0f, -ci.Needles[i].localEulerAngles.z).ToString("0.0"));
-                    Debug.Log(sb.ToString());
+                    Vector3 aim = Vector3.zero;
+                    if (special == "gauges") { foreach (var g in lay.gauges) aim += g.centre; aim /= lay.gauges.Length; }
+                    else { aim = lay.mirror.centre; ci.PreviewMirror(cam); }
+                    aim = ci.Model.TransformPoint(aim);
+                    rot = Quaternion.LookRotation(aim - pos, t.up);
+                    cam.fieldOfView = special == "gauges" ? 21f : 24f;
                 }
+                PSXScreenshotTool.ShotAs(cam, "cockpitv08_" + name, pos, rot);
+                Debug.Log($"[Cockpit] {name}: {(rhd ? "RHD" : "LHD")} eye x {eye.x:0.000} scale {ci.Current.scale:0.000} " +
+                          $"near {cam.nearClipPlane:0.0000} tach 0-{ci.Gauges?.TachMax:0} speedo 0-{ci.Gauges?.SpeedMax:0} " +
+                          $"{(ci.Gauges != null && ci.Gauges.OuterMph ? "MPH" : "km/h")}");
             }
+            DriveSide.Override = null;
+            RaceHandoff.WeatherOverride = keepWeather;
             PSXScreenshotTool.AspectOverride = 0f;
-            if (ci != null) ci.HideShell(false);
-            if (ci != null && System.Environment.GetEnvironmentVariable("PSX_COCKPIT_DIAG") == "1")
-                Diagnose(ci, player, cam, pos, t.rotation * Quaternion.Euler(
-                    ChaseCamera.MountPitch(ChaseCamera.View.Cockpit) + CockpitLook.DownFor(CockpitLook.MaxYaw), CockpitLook.MaxYaw, 0f));
-
-            if (ci != null) Report(ci, cargo);
+            CockpitInterior.PreviewRain(0f, 0f, 0f);
+            if (ci != null) { ci.HideShell(false); Report(ci, cargo); }
             if (cargo != null) Object.DestroyImmediate(cargo.gameObject);
             if (cv != null) cv.PreviewShow(false);
             ChaseCamera.PreviewView(keepView);
@@ -121,35 +113,6 @@ namespace PSXRacing.EditorTools
             Debug.Log("[Cockpit] shots of " + def.id + " written");
         }
 
-        /// <summary>The full look-over shot with one thing at a time taken
-        /// out (diag_*.png, not copied to the shots folder): what is what.</summary>
-        static void Diagnose(CockpitInterior ci, GameObject player, Camera cam, Vector3 pos, Quaternion rot)
-        {
-            PSXScreenshotTool.AspectOverride = 16f / 9f;
-            var shell = new List<Renderer>();
-            foreach (var r in player.GetComponentsInChildren<Renderer>(true))
-                if (!r.transform.IsChildOf(ci.transform) && r.enabled) shell.Add(r);
-            var parts = new List<Transform>();
-            foreach (Transform c in ci.Model) parts.Add(c);
-            foreach (var p in parts)
-            {
-                bool was = p.gameObject.activeSelf;
-                p.gameObject.SetActive(false);
-                PSXScreenshotTool.ShotAs(cam, "diag_no_" + p.name, pos, rot);
-                p.gameObject.SetActive(was);
-            }
-            foreach (var r in shell) r.enabled = false;
-            PSXScreenshotTool.ShotAs(cam, "diag_no_shell", pos, rot);
-            foreach (var r in shell) r.enabled = true;
-            var names = new System.Text.StringBuilder("[Cockpit] diag shell renderers:");
-            foreach (var r in shell) names.Append(" " + r.name + "(" + (r.sharedMaterial != null ? r.sharedMaterial.shader.name : "-") + ")");
-            Debug.Log(names.ToString());
-            PSXScreenshotTool.AspectOverride = 0f;
-        }
-
-        /// <summary>A full order on the stock seat, settled: three boxes and
-        /// two bottles, stepped at rest for two seconds with everything else in
-        /// the scene held still (the car must not move under the lens).</summary>
         static PizzaCargo SettledCargo(CarController car)
         {
             var cargo = PizzaCargo.Spawn(car, new[] { 0, 3, 6 }, 2, seatStage: 0);
@@ -177,45 +140,47 @@ namespace PSXRacing.EditorTools
             return cargo;
         }
 
+        /// <summary>The fit, the draw cost, the textures, and the rest gap
+        /// under the bottom box on the owner's v08 seat.</summary>
         static void Report(CockpitInterior ci, PizzaCargo cargo)
         {
             var f = ci.Current;
             Debug.Log($"[Cockpit] fit eye {f.eye.x:0.000},{f.eye.y:0.000},{f.eye.z:0.000} scale {f.scale:0.000} " +
-                      $"measured {f.measured} near {CockpitInterior.ActiveNearClip:0.0000}");
+                      $"measured {f.measured} rhd {f.rhd} near {CockpitInterior.ActiveNearClip:0.0000}");
             int tris = 0, draws = 0;
-            var mirrorRoot = ci.Model.Find("CargoMirror");
+            var cargoRoot = ci.transform.Find("CargoMirror");
             foreach (var mf in ci.GetComponentsInChildren<MeshFilter>(true))
             {
                 var m = mf.sharedMesh;
-                if (m == null || (mirrorRoot != null && mf.transform.IsChildOf(mirrorRoot))) continue;
-                tris += m.triangles.Length / 3;
+                if (m == null || (cargoRoot != null && mf.transform.IsChildOf(cargoRoot))) continue;
+                for (int sm = 0; sm < m.subMeshCount; sm++) tris += (int)m.GetIndexCount(sm) / 3;
                 draws += m.subMeshCount;
-                var b = m.bounds;
-                Debug.Log($"[Cockpit] mesh {mf.transform.parent.name}/{mf.name}: {m.triangles.Length / 3} tris, " +
-                          $"{m.vertexCount} verts, local bounds min {b.min.x:0.000},{b.min.y:0.000},{b.min.z:0.000} " +
-                          $"max {b.max.x:0.000},{b.max.y:0.000},{b.max.z:0.000}");
             }
-            var atlas = Resources.Load<Texture2D>("Cockpit/universal_atlas");
-            Debug.Log($"[Cockpit] cabin: {tris} tris in {draws} draw calls (wheel, needles, hands included; " +
-                      $"cargo copies not: {(ci.Mirror != null ? ci.Mirror.Count : 0)} of those); atlas " +
-                      (atlas != null ? atlas.width + "x" + atlas.height + " " + atlas.format : "MISSING"));
+            long texBytes = 0;
+            var texs = new System.Text.StringBuilder();
+            foreach (var n in new[] { "v08_vinyl", "v08_abs", "v08_headliner", "v08_leather", "v08_atlas", "hands_skin" })
+            {
+                var tex = Resources.Load<Texture2D>(CockpitModel.Dir + n);
+                if (tex == null) { texs.Append(" " + n + "=MISSING"); continue; }
+                long b = UnityEngine.Profiling.Profiler.GetRuntimeMemorySizeLong(tex);
+                texBytes += b;
+                texs.Append($" {n}={tex.width}px {tex.format} {b / 1024}KiB");
+            }
+            var geo = Resources.Load<TextAsset>(CockpitModel.GeoPath);
+            Debug.Log($"[Cockpit] cabin: {tris} tris in {draws} draws (cargo copies not: {(ci.Mirror != null ? ci.Mirror.Count : 0)}); " +
+                      $"geometry {(geo != null ? geo.bytes.Length / 1024 : -1)} KiB; textures{texs} (sum {texBytes / 1024} KiB in the editor)");
 
-            // THE REST GAP under the bottom box: on the island, from the pan;
-            // in the cabin, a ray down onto the owner's seat from its base's
-            // middle and four corners (cabin metres, i.e. divided by the fit).
-            if (cargo == null || cargo.BoxCount == 0 || ci.Mirror == null) return;
+            if (cargo == null || cargo.BoxCount == 0 || ci.Mirror == null || cargoRoot == null) return;
             var parts = cargo.ReplayParts();
             Transform box0 = parts.Count > 1 ? parts[1] : null;
             if (box0 == null) return;
             var tray = cargo.Tray;
             var seatQ = tray.rotation * cargo.StackSeatRotLocal;
             float island = (Quaternion.Inverse(seatQ) * (box0.position - tray.TransformPoint(cargo.StackSeatLocal))).y;
-            // Straight down in the MODEL frame (the cabin mesh is authored
-            // there, so this is the owner's metres) onto the cabin's triangles.
-            var cabin = ci.Model.Find("Cabin");
-            var mf0 = cabin != null ? cabin.GetComponentInChildren<MeshFilter>(true) : null;
-            if (mf0 == null || mf0.sharedMesh == null) return;
-            var toMesh = mf0.transform.worldToLocalMatrix * ci.Model.localToWorldMatrix;
+            var cabin = ci.Model.Find("cabin");
+            var mf0 = cabin != null ? cabin.GetComponent<MeshFilter>() : null;
+            if (mf0 == null || mf0.sharedMesh == null || !mf0.sharedMesh.isReadable) return;
+            var toMesh = mf0.transform.worldToLocalMatrix * cargoRoot.localToWorldMatrix;
             var vs = mf0.sharedMesh.vertices;
             var ts = mf0.sharedMesh.triangles;
             var gaps = new List<string>();
@@ -235,7 +200,7 @@ namespace PSXRacing.EditorTools
                     float l3 = 1f - l1 - l2;
                     if (l1 < 0f || l2 < 0f || l3 < 0f) continue;
                     float y = l1 * a.y + l2 * b.y + l3 * cc.y;
-                    if (y > q.y + 0.10f) continue;          // above the box: not under it
+                    if (y > q.y + 0.10f) continue;
                     if (float.IsNaN(best) || y > best) best = y;
                 }
                 if (float.IsNaN(best)) { gaps.Add("miss"); continue; }
@@ -243,35 +208,8 @@ namespace PSXRacing.EditorTools
                 lo = Mathf.Min(lo, g); hi = Mathf.Max(hi, g);
                 gaps.Add((g * 100f).ToString("0.0"));
             }
-            Debug.Log($"[Cockpit] rest gap, bottom box: island {island * 100f:0.0} cm off its pan; cabin (centre, 4 corners) " +
+            Debug.Log($"[Cockpit] rest gap, bottom box ({(f.rhd ? "RHD" : "LHD")}): island {island * 100f:0.0} cm off its pan; cabin (centre, 4 corners) " +
                       string.Join(" / ", gaps) + $" cm (min {lo * 100f:0.0}, max {hi * 100f:0.0}; negative = sunk)");
-        }
-
-        static void Imports()
-        {
-            foreach (var (name, max) in new[] { ("universal_atlas.png", 1024), ("hands_skin.png", 2048) })
-            {
-                var imp = AssetImporter.GetAtPath(Dir + name) as TextureImporter;
-                if (imp == null) { Debug.LogError("[Cockpit] missing " + Dir + name); continue; }
-                var web = imp.GetPlatformTextureSettings("WebGL");
-                if (imp.filterMode == FilterMode.Point && !imp.mipmapEnabled && imp.wrapMode == TextureWrapMode.Clamp
-                    && imp.maxTextureSize == max && (!web.overridden || web.maxTextureSize <= max)) continue;
-                imp.filterMode = FilterMode.Point;
-                imp.mipmapEnabled = false;
-                imp.wrapMode = TextureWrapMode.Clamp;
-                imp.maxTextureSize = max;
-                if (web.overridden && web.maxTextureSize > max) { web.maxTextureSize = max; imp.SetPlatformTextureSettings(web); }
-                imp.SaveAndReimport();
-            }
-            foreach (var guid in AssetDatabase.FindAssets("universal_", new[] { Dir.TrimEnd('/') }))
-            {
-                var imp = AssetImporter.GetAtPath(AssetDatabase.GUIDToAssetPath(guid)) as ModelImporter;
-                if (imp == null) continue;
-                if (imp.materialImportMode == ModelImporterMaterialImportMode.None && !imp.isReadable) continue;
-                imp.materialImportMode = ModelImporterMaterialImportMode.None;
-                imp.isReadable = false;
-                imp.SaveAndReimport();
-            }
         }
     }
 }

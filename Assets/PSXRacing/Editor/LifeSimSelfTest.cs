@@ -9305,6 +9305,9 @@ namespace PSXRacing.EditorTools
                               eye.z > def.colliderCenter.z - eyeHalfLen &&
                               eye.z < def.colliderCenter.z + eyeHalfLen;
                 bool offCentre = eye.x < -0.15f && eye.x > -def.colliderSize.x * 0.5f;
+                // ...and a right-hand drive car seats its driver on the mirror side.
+                offCentre &= Mathf.Abs(ChaseCamera.MountOffset(ChaseCamera.View.Cockpit, def.colliderCenter,
+                                       def.colliderSize, def, 1f, 0f, true).x + eye.x) < 1e-4f;
                 if (!inCabin || !inBody || !offCentre)
                     badEye.Add(m.key + "(eye " + eye.y.ToString("0.00") + "/" +
                                eye.z.ToString("0.00") + " cowl " + def.cowlY.ToString("0.00") +
@@ -11368,13 +11371,14 @@ namespace PSXRacing.EditorTools
             // breathing, not speed. Was baseFOV + 6 = 64 plus the mounted 9.
             float cockpitRest = ChaseCamera.FOVFor(ChaseCamera.View.Cockpit, 64f, 0f, full);
             float cockpitFast = ChaseCamera.FOVFor(ChaseCamera.View.Cockpit, 64f, 200f / 3.6f, full);
-            Check(ChaseCamera.CockpitFOV == 58f && cockpitRest == 58f && cockpitFast == 58f &&
-                  ChaseCamera.ViewFOV(ChaseCamera.View.Cockpit, 64f) == 58f,
-                  "the cockpit lens is 58 at 16:9 and never pulls with speed",
+            Check(ChaseCamera.CockpitFOV == 53.7f && cockpitRest == 53.7f && cockpitFast == 53.7f &&
+                  ChaseCamera.ViewFOV(ChaseCamera.View.Cockpit, 64f) == 53.7f &&
+                  ChaseCamera.MountPitch(ChaseCamera.View.Cockpit) == 5.83f,
+                  "the cockpit lens is the owner's v08 camera (53.7 at 16:9, 5.83 deg down) and never pulls with speed",
                   cockpitRest.ToString("0.0") + " at rest, " + cockpitFast.ToString("0.0") + " at 200");
             float cockpitPhone = ChaseCamera.FOVFor(ChaseCamera.View.Cockpit, 58f, 0f, full, 19.5f / 9f);
-            Check(Mathf.Abs(cockpitPhone - 48.9f) < 0.2f,
-                  "a 19.5:9 phone holds the cockpit's 16:9 horizontal field (~48.9 vertical)",
+            Check(Mathf.Abs(cockpitPhone - 45.1f) < 0.2f,
+                  "a 19.5:9 phone holds the cockpit's 16:9 horizontal field (~45.1 vertical)",
                   cockpitPhone.ToString("0.0"));
             // The near plane against the owner's 3D cabin: the wheel and hands
             // ahead, the cabin at full look-over. The cabin is scaled about
@@ -11397,10 +11401,63 @@ namespace PSXRacing.EditorTools
                       CockpitInterior.NearestM(dFit.scale) >= dNear * 1.5f * slack &&
                       CockpitInterior.NearestM(CockpitInterior.MinScale) >= minNear * 1.5f * slack &&
                       Mathf.Min(CockpitInterior.L.nearForward, CockpitInterior.L.nearLook) * dFit.scale >= dNear * 1.5f * slack &&
-                      dNear >= 0.05f && dNear <= ChaseCamera.CockpitNearClip,
+                      dNear >= 0.04f && dNear <= ChaseCamera.CockpitNearClip &&
+                      CockpitInterior.NearClipFor(dFit.scale, -1f) * 1.5f * slack <= CockpitInterior.L.nearDoor * dFit.scale &&
+                      CockpitInterior.NearClipFor(dFit.scale, 1f) * 1.5f * slack <= CockpitInterior.L.nearPassenger * dFit.scale,
                       "the cockpit near plane never cuts the 3D wheel, the hands or the cabin at full look-over",
                       (layoutOk ? CockpitInterior.NearestM(dFit.scale).ToString("0.000") : "no layout") +
                       " m vs near " + dNear.ToString("0.000") + " x1.5 at fit x" + dFit.scale.ToString("0.000"));
+            }
+            // THE OWNER'S COCKPIT v08 (2026-10-16): his parts, both drive sides,
+            // the drawn gauges, the glass, and the per-car drive-side table.
+            {
+                var parts = CockpitModel.Parts;
+                var lay = CockpitInterior.L;
+                string[] need = { "cabin", "mirror", "wheel", "hands", "gauge_temp", "gauge_tach", "gauge_speed",
+                                  "gauge_fuel", "glass_windshield", "glass_door_l", "glass_door_r", "glass_rear" };
+                int have = 0, cabinTris = 0;
+                if (parts != null)
+                    foreach (var n in need) if (parts.ContainsKey(n)) have++;
+                if (parts != null && parts.TryGetValue("cabin", out var cab))
+                    for (int sm = 0; sm < cab.mesh.subMeshCount; sm++) cabinTris += (int)cab.mesh.GetIndexCount(sm) / 3;
+                Check(have == need.Length && cabinTris > 50000 && lay != null,
+                      "cockpit v08: every part of the owner's model loads (cabin, mirror, wheel, hands, 4 gauges, 4 panes)",
+                      have + "/" + need.Length + " parts, cabin " + cabinTris + " tris");
+                Check(Shader.Find("PSX/Cabin") != null && Shader.Find("PSX/CabinGauge") != null && Shader.Find("PSX/CabinGlass") != null
+                      && CockpitModel.Mat("vinyl") != null && CockpitModel.Mat("solid") != null,
+                      "cockpit v08: PSX/Cabin, PSX/CabinGauge and PSX/CabinGlass exist and the shared materials build", null);
+                if (lay != null)
+                {
+                    // Driver-left to right: temp, tach, speed, fuel - in the LHD
+                    // file, and in the mirrored RHD cabin once the roles swap.
+                    string lhd = "", rhd = "";
+                    var byX = new System.Collections.Generic.List<CockpitModel.GaugeDef>(lay.gauges);
+                    byX.Sort((a, b) => a.centre.x.CompareTo(b.centre.x));
+                    foreach (var g in byX) lhd += g.key + " ";
+                    byX.Sort((a, b) => (-a.centre.x).CompareTo(-b.centre.x));
+                    foreach (var g in byX) rhd += CockpitInterior.Swap(g.key) + " ";
+                    Check(lhd == "temp tach speed fuel " && rhd == lhd,
+                          "cockpit v08: the four gauges read temp, tach, speedo, fuel from the driver's left in both drive sides",
+                          "LHD " + lhd + "/ RHD " + rhd);
+                    var mc = lay.MirroredCargo();
+                    Check(lay.stack.centre.x > 0.2f && Mathf.Abs(mc.stack.centre.x + lay.stack.centre.x) < 1e-5f
+                          && Mathf.Abs(mc.room.doorX + lay.room.doorX) < 1e-5f && lay.eye.x < -0.2f,
+                          "cockpit v08: the cargo rides the passenger seat on the far side from the driver in both drive sides",
+                          "seat x " + lay.stack.centre.x.ToString("0.000") + ", eye x " + lay.eye.x.ToString("0.000"));
+                }
+                Check(CockpitGauges.TachMaxFor(8000f) == 9000f && CockpitGauges.SpeedMaxFor(300f, true) >= 300f * 0.621371f
+                      && CockpitGauges.SpeedMaxFor(300f, false) >= 300f && CockpitGauges.SpeedMaxFor(150f, true) <= 120f,
+                      "cockpit v08: the drawn tach ends past the limiter, the speedo past the car's top speed",
+                      CockpitGauges.SpeedMaxFor(300f, true) + " mph dial for 300 km/h");
+                var table = DriveSide.Table;
+                int rh = 0, lh = 0;
+                foreach (var kv in table) { if (kv.Value) rh++; else lh++; }
+                bool missing = false;
+                foreach (var spec in CarCatalog.All) if (!table.ContainsKey(spec.id)) { missing = true; break; }
+                Check(!missing && rh > 100 && lh > 50 &&
+                      DriveSide.IsRHD("nissan_skyline_gt_r_v_spec__r34___99") && !DriveSide.IsRHD("acura_nsx__91"),
+                      "drive side: every catalog row has a side (Japanese-market RHD, US-market LHD)",
+                      rh + " RHD, " + lh + " LHD" + (missing ? ", ROWS MISSING" : ""));
             }
             // Every shell the catalog can put a player in has a rear silhouette
             // for the chase rig's width fit; without one the car is framed as a

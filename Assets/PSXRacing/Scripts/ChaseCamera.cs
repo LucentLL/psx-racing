@@ -126,8 +126,13 @@ namespace PSXRacing
         /// (<see cref="HoldWide"/>), and given NO speed pull: the cabin is 3D
         /// now (CockpitInterior), and a dashboard that zooms in and out with
         /// the speedo looks like the car breathing, not like speed.
+        /// 2026-10-16: the owner's v08 cockpit camera's own field, 53.7
+        /// degrees vertical at 16:9 (it was 58 for the v07 cabin).
         /// </summary>
-        public const float CockpitFOV = 58f;
+        public const float CockpitFOV = 53.7f;
+        /// <summary>The cockpit's look-down: the owner's v08 driver camera aims
+        /// 5.83 degrees below the horizon (it was 3.5).</summary>
+        public const float CockpitPitch = 5.83f;
         /// <summary>The cockpit's near plane with no 3D cabin, and the most it
         /// ever is. With the owner's cabin (2026-10-14) the interior publishes
         /// its own, under the nearest visible surface at its fit scale
@@ -637,7 +642,8 @@ namespace PSXRacing
                     bool head = Current == View.Cockpit;
                     Mount(MountOffset(Current, BoxCenter, BoxSize, Shell,
                                       targetBody != null ? targetBody.LengthScale : 1f,
-                                      targetBody != null ? targetBody.BodyLift : 0f),
+                                      targetBody != null ? targetBody.BodyLift : 0f,
+                                      DriveSide.IsRHD(targetCar)),
                           MountPitch(Current) + (head ? CockpitLook.Pitch : 0f),
                           head ? CockpitLook.Yaw : 0f);
                     break;
@@ -996,7 +1002,7 @@ namespace PSXRacing
         /// BodyLift, CarModelLibrary.Fit): the cowl, nose and roof were
         /// measured on the unstretched shell.</param>
         public static Vector3 MountOffset(View v, Vector3 c, Vector3 s, CarModelDef def = null,
-                                          float lengthScale = 1f, float lift = 0f)
+                                          float lengthScale = 1f, float lift = 0f, bool rhd = false)
         {
             var m = Measured.Of(def, lengthScale, lift);
             switch (v)
@@ -1030,7 +1036,7 @@ namespace PSXRacing
                         return new Vector3(0f, m.cowlY + MountClearance, m.cowlZ + 0.05f);
                     return new Vector3(0f, c.y + s.y * 0.30f, c.z + s.z * 0.32f);
                 case View.Cockpit:
-                    return CockpitEye(c, s, m);
+                    return CockpitEye(c, s, m, rhd);
                 default:
                     // Ahead of the nose, not inside it — and the nose is the
                     // MESH's, not the box's. The collider is a 0.955 fit, so its
@@ -1078,7 +1084,7 @@ namespace PSXRacing
             };
         }
 
-        static Vector3 CockpitEye(Vector3 c, Vector3 s, Measured def)
+        static Vector3 CockpitEye(Vector3 c, Vector3 s, Measured def, bool rhd)
         {
             float floor = c.y - s.y * 0.5f;
             bool measured = def.ok && def.cowlY > 0.4f && def.roofY > def.cowlY + 0.25f
@@ -1096,7 +1102,9 @@ namespace PSXRacing
             float z = (measured ? def.cowlZ : c.z + s.z * 0.16f) - EyeSetback;
             z = Mathf.Max(z, c.z - s.z * 0.35f);
 
-            return new Vector3(-s.x * 0.22f, y, z);
+            // The driver's side is the car's own (DriveSide, 2026-10-16): left
+            // in a left-hand drive car, right in a right-hand drive one.
+            return new Vector3((rhd ? 0.22f : -0.22f) * s.x, y, z);
         }
 
         /// <summary>Clearance between the driver's eye and the roof, metres.</summary>
@@ -1776,7 +1784,7 @@ namespace PSXRacing
         /// of the four, because a driver looks at the road rather than at the
         /// horizon and because the dash takes the bottom of the frame.</summary>
         public static float MountPitch(View v) =>
-            v == View.Roof ? 3f : v == View.Cockpit ? 3.5f : v == View.Hood ? 2f : 1f;
+            v == View.Roof ? 3f : v == View.Cockpit ? CockpitPitch : v == View.Hood ? 2f : 1f;
 
         /// <summary>
         /// Field of view per view. The bumper cam is the widest of the six by

@@ -552,7 +552,9 @@ namespace PSXRacing
                 // set of instruments drawn over his wheel. Only the gear stays,
                 // small, in the corner (after Touge Attack's "Gear 4" box) -
                 // and not on a phone, where the shifter knob carries it.
-                if (!touch) BuildCockpitGear(font, frame, margin);
+                // v08 (2026-10-16): the gauges are drawn on the owner's four
+                // faces and the gear is in the tach's LCD slot, so nothing of
+                // the 2D cluster is left on screen in this view.
                 HudOnTop.Apply(gameObject);
                 return;
             }

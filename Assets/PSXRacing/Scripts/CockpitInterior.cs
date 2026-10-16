@@ -4,200 +4,81 @@ using UnityEngine.Rendering;
 namespace PSXRacing
 {
     /// <summary>
-    /// THE UNIVERSAL COCKPIT (owner's model, 2026-10-14). One interior shared by
-    /// every car in COCKPIT view: "Just as a proof of concept, I made a rough
-    /// cockpit to be used universally." It replaces the generic Blender cabin
-    /// of 2026-10-13 (tools/cockpit/generic_cockpit.py, kept as history).
+    /// THE OWNER'S COCKPIT, v08 (2026-10-16). One interior shared by every car
+    /// in COCKPIT view, now in both drive sides: "RHD when real car is RHD.
+    /// Same for LHD." It replaces the v07 cabin of 2026-10-14 (his first
+    /// universal cockpit: OBJs, five needles on a printed atlas).
     ///
-    /// THE MODEL is tools/cockpit/universal_cockpit.py's conversion of the
-    /// owner's packed .blend into Resources/Cockpit (loaded at runtime, so no
-    /// scene needs a rebake): the static cabin as ONE world-lit mesh, the five
-    /// dial faces and the clock as one glowing mesh, the wheel and each needle
-    /// in its own pivot frame, the HandsPack hands re-posed onto his rim at
-    /// nine and three, and universal_layout.json with his markers and what the
-    /// converter measured (see <see cref="Layout"/>).
+    /// THE MODEL is <see cref="CockpitModel"/>: his LHD file converted by
+    /// tools/cockpit/cockpit_v08.py into one quantized geometry file, PBR trim
+    /// on PSX/Cabin (his normal and roughness maps, lit by our sun, sky,
+    /// lamps and night). An RHD car (<see cref="DriveSide"/>) shows the SAME
+    /// parts under a -1 x scale - the owner's RHD file is the exact mirror of
+    /// his LHD one - with the gauges trading roles so the order stays temp,
+    /// tach, speedo, fuel from the driver's left, and their canvases flipped
+    /// back to read left-to-right. The cargo is never mirrored: it rides an
+    /// unmirrored frame on whichever seat is the passenger's.
     ///
-    /// THE FIT, per car - the same idea as the generic cabin's. The game's eye
-    /// (ChaseCamera.CockpitEye) sits only 0.46 m behind the shell's measured
-    /// cowl; this cabin's dash runs 1.29 m ahead of his Driver_Eye. So the
-    /// model is put with Driver_Eye ON the game's eye and scaled UNIFORMLY
-    /// about it until the front of the dash lands on the cowl (about x0.36).
-    /// A uniform scale about the eye changes no angle: every car gets the
-    /// owner's picture exactly, and nothing of the dash reaches past the
-    /// windscreen base, so the shell's bonnet can never poke up through it.
-    /// What the scale DOES change is how near the wheel and hands are, so the
-    /// near plane follows the fit (<see cref="ActiveNearClip"/>).
+    /// THE FIT, per car, as v07's: his Driver_Eye sits on the game's eye
+    /// (ChaseCamera.CockpitEye, on the driver's side of THIS car) and the
+    /// model is scaled UNIFORMLY about it until the front of the dash lands
+    /// on the shell's cowl (about x0.36). A uniform scale about the eye
+    /// changes no angle: every car gets the owner's picture exactly. The lens
+    /// is his camera's: 53.7 degrees vertical, 5.83 degrees down.
     ///
-    /// LIT BY THE WORLD (PSX/Lit), so the cabin is in its own shade by day and
-    /// dark at night - except the dial faces and the needles, which are
-    /// backlit: half self-lit by day so they read in the shade, fully at night
-    /// (<see cref="ClusterBulbs.Backlit"/>, the HUD's own switch).
+    /// THE GAUGES are drawn in game on his four blank faces
+    /// (<see cref="CockpitGauges"/>); the 2D cluster stands down entirely in
+    /// this view (<see cref="GaugesShowing"/>) - the gear is in the tach's LCD.
     ///
-    /// THE NEEDLES are the car's: tach and speedo on the printed scales of the
-    /// owner's art (0-9 x1000 r/min, 0-180 MPH), fuel E-F, coolant C-H off the
-    /// engine temperature model, oil 0-120 psi off the revs (the game has no
-    /// oil model; idle pressure rising to the limiter). A dead cluster parks
-    /// them and a fluttering tach flutters, as the 2D instruments do. With
-    /// these on the dash, GaugeCluster draws only a small gear box in the
-    /// corner in this view (<see cref="GaugesShowing"/>).
+    /// THE GLASS carries the rain (PSX/CabinGlass): while it shows, the lens
+    /// drops are off (<see cref="GlassShowing"/>) - "rain should stop at the
+    /// windows, not on camera". The rain particles already fade out inside
+    /// 1.2 m of the camera (PSX/Rain), which is outside this cabin, so none
+    /// fall inside it.
     ///
-    /// THE CARGO rides on his passenger seat: <see cref="CockpitCargoMirror"/>
-    /// copies the island's boxes, lids, pizzas and bottles into this cabin
-    /// every frame, and the Pizza Cam stands down (<see cref="CargoInView"/>).
+    /// THE MIRROR is live: a small camera looking back renders into the
+    /// mirror face's own texture, every other frame, only while this shows.
     ///
     /// SHARP UNDER THE SPEED BLUR (every renderer carries
-    /// SpeedBlur.CarRenderingLayer) and ONLY THE DRIVER'S CAMERA SEES IT (the
-    /// roof probe, the mirror and the pizza cam are other cameras).
-    ///
-    /// AND THE DRIVER'S CAMERA DOES NOT SEE THE SHELL. The cabin is scaled
-    /// about the eye to a third of its size, so the car's own body is all
-    /// round it, and wherever a shell has a face turned to the eye from inside
-    /// (an A-pillar, a modelled seat) it lands in FRONT of the cabin - at full
-    /// look-over a grey band of bodywork across the passenger seat. So for the
-    /// driver's camera alone, while this cabin shows, the shell is switched
-    /// off and restored as that camera finishes; every other camera (the
-    /// reflection probe, the mirror, the shadows) sees the car as before. The
-    /// blob shadow on the road stays. Looking ahead nothing is lost: the dash
-    /// line is above the bonnet on every shell (the fit puts the dash's front
-    /// on the cowl).
+    /// SpeedBlur.CarRenderingLayer), ONLY THE DRIVER'S CAMERA SEES IT, and
+    /// the driver's camera does not see the car's own shell (its faces would
+    /// land inside this scaled cabin) - as v07.
     /// </summary>
     public class CockpitInterior : MonoBehaviour
     {
-        // ------------------------------------------------------------------
-        //  The layout, written by tools/cockpit/universal_cockpit.py
-        // ------------------------------------------------------------------
+        /// <summary>The converter's layout (CockpitModel.L), or null.</summary>
+        public static CockpitModel.Layout L => CockpitModel.L;
 
-        [System.Serializable]
-        public class NeedleDef
-        {
-            public string key;
-            public Vector3 pivot;
-            public Quaternion rot;
-            public float minValue, maxValue;
-            /// <summary>The needle's angle at minValue, degrees clockwise from
-            /// up as the driver sees it, and the signed sweep to maxValue -
-            /// the art's printed marks, measured through the dial's UVs.</summary>
-            public float minDeg, sweepDeg;
-        }
+        /// <summary>Eye to the dash's front edge, authored metres.</summary>
+        public static float ZRef => L != null ? L.dashFrontZ - L.eye.z : 1.31f;
 
-        [System.Serializable]
-        public class WheelDef
-        {
-            public Vector3 pivot;
-            public Quaternion rot;
-            public float tiltDeg, rimRadius, rimZ, tube;
-        }
-
-        [System.Serializable]
-        public class StackDef
-        {
-            /// <summary>The bottom of the pizza stack at rest: on the owner's
-            /// marker, at the height of the plane a 0.41 m box rests on (the
-            /// cushion's highest points under it - its side bolsters).</summary>
-            public Vector3 centre, normal;
-            public float squabZ;
-        }
-
-        [System.Serializable]
-        public class RoomDef
-        {
-            /// <summary>Passenger footwell floor, the firewall's face, the door
-            /// card's and the console's faces: what a mirrored box stays
-            /// inside.</summary>
-            public float floorY, firewallZ, doorX, consoleX;
-        }
-
-        /// <summary>Everything in the MODEL frame: the owner's root (floor,
-        /// cabin centreline), Unity axes, authored metres.</summary>
-        [System.Serializable]
-        public class Layout
-        {
-            public Vector3 eye, seatSurface, cargoSpawn, footwell, sodaSpawn;
-            /// <summary>The dash's front edge, under the windscreen.</summary>
-            public float dashFrontZ;
-            public NeedleDef[] needles;
-            public WheelDef wheel;
-            public StackDef stack;
-            public RoomDef room;
-            /// <summary>The nearest visible surface from the eye, authored
-            /// metres of camera depth, looking ahead (wheel and hands in frame)
-            /// and at full look-over.</summary>
-            public float nearForward, nearLook;
-        }
-
-        const string Dir = "Cockpit/";
-        const string LayoutPath = Dir + "universal_layout";
-        const string CabinPath = Dir + "universal_cabin";
-        const string DialsPath = Dir + "universal_dials";
-        const string WheelPath = Dir + "universal_wheel";
-        const string HandsPath = Dir + "universal_hands";
-        const string NeedlePath = Dir + "universal_needle_";
-        const string AtlasPath = Dir + "universal_atlas";
-        const string SkinPath = Dir + "hands_skin";
-
-        static Layout layout;
-        static bool layoutTried;
-
-        /// <summary>The converter's layout, or null if it is missing.</summary>
-        public static Layout L
-        {
-            get
-            {
-                if (layout == null && !layoutTried)
-                {
-                    layoutTried = true;
-                    var ta = Resources.Load<TextAsset>(LayoutPath);
-                    if (ta != null) layout = JsonUtility.FromJson<Layout>(ta.text);
-                    if (layout == null || layout.needles == null || layout.wheel == null || layout.stack == null)
-                    {
-                        Debug.LogWarning("[Cockpit] Resources/" + LayoutPath + " missing or incomplete");
-                        layout = null;
-                    }
-                }
-                return layout;
-            }
-        }
-
-        /// <summary>Eye to the dash's front edge, authored metres - what the
-        /// fit lands on the shell's cowl.</summary>
-        public static float ZRef => L != null ? L.dashFrontZ - L.eye.z : 1.29f;
-
-        /// <summary>Fit clamps. The cowl distance the eye is set from is 0.46 m
-        /// on almost every shell (x0.357); the clamps only catch a shell whose
-        /// measurements are nonsense.</summary>
         public const float MinScale = 0.15f, MaxScale = 1.0f;
         /// <summary>Wheel degrees at full lock, each way.</summary>
         public const float LockDeg = 135f;
-        /// <summary>Margin of the near plane under the nearest visible surface
-        /// (the impact shake moves the eye).</summary>
+        /// <summary>Margin of the near plane under the nearest visible surface.</summary>
         public const float NearMargin = 1.5f;
-        /// <summary>Dial glow by day, as PSX/Lit's _Emission (night is 1).</summary>
-        public const float DayDialGlow = 0.5f;
-        /// <summary>Oil pressure, psi: at idle, and at the rev limiter.</summary>
-        public const float OilIdlePsi = 25f, OilPeakPsi = 72f;
+        /// <summary>The mirror's render: pixels, field, reach, and every Nth frame.</summary>
+        public const int MirrorW = 256, MirrorH = 64, MirrorEvery = 2;
+        public const float MirrorVFov = 13f, MirrorFar = 160f;
+        /// <summary>How long the glass takes to dry once the rain stops or
+        /// the car is under cover, seconds.</summary>
+        public const float DrySeconds = 25f;
 
         public struct Fit
         {
             public Vector3 eye;
-            /// <summary>Uniform scale about the eye.</summary>
             public float scale;
-            /// <summary>Whether the shell's cowl was usable - ChaseCamera's own
-            /// test for the eye. If not, the eye stands on the body box and so
-            /// does this (the fit assumes the eye's 0.46 m setback).</summary>
             public bool measured;
+            public bool rhd;
         }
 
-        /// <summary>
-        /// The fit for a body: the eye where ChaseCamera puts it and the scale
-        /// that lands the dash's front on the measured cowl. Static and pure,
-        /// so the self-test can walk every shell.
-        /// </summary>
+        /// <summary>The fit for a body: the eye where ChaseCamera puts it
+        /// (on the car's driving side) and the scale that lands the dash's
+        /// front on the measured cowl. Static and pure, for the self-test.</summary>
         public static Fit FitFor(Vector3 boxCenter, Vector3 boxSize, CarModelDef def,
-                                 float lengthScale = 1f, float lift = 0f)
+                                 float lengthScale = 1f, float lift = 0f, bool rhd = false)
         {
-            Vector3 eye = ChaseCamera.MountOffset(ChaseCamera.View.Cockpit, boxCenter, boxSize, def, lengthScale, lift);
-            // The same test ChaseCamera.CockpitEye applies before it trusts the
-            // cowl (the full-size sedans' roof signs read as a cowl at 1.44 m).
+            Vector3 eye = ChaseCamera.MountOffset(ChaseCamera.View.Cockpit, boxCenter, boxSize, def, lengthScale, lift, rhd);
             float cowlZ = def != null ? def.cowlZ * lengthScale : 0f;
             float cowlY = def != null ? def.cowlY + lift : 0f;
             float roofY = def != null ? def.roofY + lift : 0f;
@@ -208,51 +89,62 @@ namespace PSXRacing
             {
                 eye = eye,
                 measured = measured,
+                rhd = rhd,
                 scale = Mathf.Clamp(reach / Mathf.Max(0.1f, ZRef), MinScale, MaxScale),
             };
         }
 
-        /// <summary>The nearest in-view point of wheel and hands at a fit
-        /// scale, metres of camera depth.</summary>
-        public static float NearestM(float scale) => (L != null ? L.nearForward : 0.28f) * scale;
+        /// <summary>The nearest in-view point of wheel and hands at a fit scale.</summary>
+        public static float NearestM(float scale) => (L != null ? L.nearForward : 0.21f) * scale;
 
-        /// <summary>The near plane the cockpit wants at a fit scale: under the
-        /// nearest visible surface ahead or at full look-over, by
-        /// <see cref="NearMargin"/>.</summary>
-        public static float NearClipFor(float scale)
+        /// <summary>The near plane the cockpit wants at a fit scale, looking
+        /// ahead.</summary>
+        public static float NearClipFor(float scale) => NearClipFor(scale, 0f);
+
+        /// <summary>The near plane for a head turned `towardPassenger` of the
+        /// way to full look-over (negative: toward the driver's door, whose
+        /// card is the nearest thing in the cabin). It eases from the forward
+        /// value toward the nearer of it and that side's own, so the depth
+        /// buffer keeps the forward plane down the road while the driver
+        /// looks ahead.</summary>
+        public static float NearClipFor(float scale, float towardPassenger)
         {
-            float nearest = L != null ? Mathf.Min(L.nearForward, L.nearLook) : 0.28f;
+            float fwd = L != null ? L.nearForward : 0.21f;
+            float side = L == null ? 0.14f : towardPassenger >= 0f ? L.nearPassenger : L.nearDoor;
+            if (side <= 0f && L != null) side = L.nearLook;
+            float t = ChaseCamera.Smooth01(Mathf.Clamp01(Mathf.Abs(towardPassenger) * 1.6f));
+            float nearest = Mathf.Lerp(fwd, Mathf.Min(fwd, side), t);
             return Mathf.Min(ChaseCamera.CockpitNearClip, nearest * scale / NearMargin);
         }
 
-        /// <summary>The near plane of the interior that is showing, or 0 with
-        /// none (ChaseCamera.ViewNearClip reads it).</summary>
         public static float ActiveNearClip { get; private set; }
-        /// <summary>The 3D needles are on screen: the 2D binnacle stands down.</summary>
+        /// <summary>The drawn gauges are on screen: the 2D cluster stands down.</summary>
         public static bool GaugesShowing { get; private set; }
-        /// <summary>The cabin with the cargo on its seat is on screen: the
-        /// Pizza Cam stands down (panel hidden, camera off).</summary>
+        /// <summary>The cabin with the cargo on its seat is on screen.</summary>
         public static bool CargoInView { get; private set; }
+        /// <summary>The cabin's glass is on screen: the rain is drawn on it,
+        /// not on the lens.</summary>
+        public static bool GlassShowing { get; private set; }
 
         // ------------------------------------------------------------------
         //  The instance
         // ------------------------------------------------------------------
 
-        static Material cabinMat, dialMat, skinMat;
-        static float dialGlow = -1f;
-
         CarController car;
         Camera driver;
-        Transform model, wheelPivot, wheel, mirrorRoot;
-        Transform[] needles;
-        float[] needleDeg;
+        Transform model, wheelPivot, wheel, cargoRoot;
         Renderer[] rends;
+        Renderer[] gaugeRends = new Renderer[4];
+        string[] gaugeKeys = new string[4];
+        Material[] glassMats;
+        Material mirrorMat;
         BoxCollider box;
         CarBody body;
         GaugeCluster cluster;
         FuelTank tank;
         EngineTemp temp;
         CockpitCargoMirror mirror;
+        CockpitGauges gauges;
         Renderer[] shell;
         bool[] shellWas;
         bool shellHidden;
@@ -260,31 +152,26 @@ namespace PSXRacing
         CarModelDef fitDef;
         Vector3 fitC, fitS;
         float fitLs, fitLift;
+        bool fitRhd;
         float lastDeg = float.NaN;
-        float flutter;
+        Camera mirrorCam;
+        RenderTexture mirrorRT;
+        static float rainWet, runClock, blowClock;
 
         public Fit Current { get; private set; }
         public Transform Model => model;
         public CockpitCargoMirror Mirror => mirror;
-        /// <summary>The needle pivots' children, in Layout.needles order.</summary>
-        public Transform[] Needles => needles;
+        public CockpitGauges Gauges => gauges;
+        public bool RHD => Current.rhd;
 
-        /// <summary>
-        /// The interior on this car, built the first time it is asked for.
-        /// Null (with a warning) if the model is missing from Resources - the
-        /// view then falls back to what it was: a camera in the seat with the
-        /// 2D binnacle.
-        /// </summary>
         public static CockpitInterior Ensure(CarController car, Camera driver)
         {
             if (car == null) return null;
             var have = car.GetComponentInChildren<CockpitInterior>(true);
             if (have != null) { have.driver = driver; return have; }
-            var cabinPrefab = PSXTexDecode.LoadPrefab(CabinPath);
-            var wheelPrefab = PSXTexDecode.LoadPrefab(WheelPath);
-            if (cabinPrefab == null || wheelPrefab == null || L == null)
+            if (L == null || CockpitModel.Parts == null || CockpitModel.Mat("vinyl") == null)
             {
-                Debug.LogWarning("[Cockpit] Resources/" + CabinPath + ", " + WheelPath + " or the layout missing - no 3D cabin.");
+                Debug.LogWarning("[Cockpit] the v08 model, its layout or PSX/Cabin is missing - no 3D cabin.");
                 return null;
             }
             var go = new GameObject("CockpitInterior");
@@ -294,69 +181,96 @@ namespace PSXRacing
             var ci = go.AddComponent<CockpitInterior>();
             ci.car = car;
             ci.driver = driver;
-            ci.Build(cabinPrefab, wheelPrefab);
-            // A preview tool builds this in edit mode, into a scene someone
-            // might save: none of it belongs in the file.
+            ci.Build();
             if (!Application.isPlaying)
                 foreach (var t in go.GetComponentsInChildren<Transform>(true))
                     t.gameObject.hideFlags = HideFlags.DontSave;
             return ci;
         }
 
-        void Build(GameObject cabinPrefab, GameObject wheelPrefab)
+        void Build()
         {
-            var atlas = Resources.Load<Texture2D>(AtlasPath);
-            if (cabinMat == null) cabinMat = MakeMat("CockpitCabin", atlas, 0f);
-            if (dialMat == null) { dialMat = MakeMat("CockpitDials", atlas, DayDialGlow); dialGlow = -1f; }
-            if (skinMat == null) skinMat = MakeMat("CockpitHands", Resources.Load<Texture2D>(SkinPath), 0f);
+            var parts = CockpitModel.Parts;
             var lay = L;
-
             model = new GameObject("Model").transform;
             model.SetParent(transform, false);
-            Place(cabinPrefab, model, "Cabin", cabinMat);
-            Place(PSXTexDecode.LoadPrefab(DialsPath), model, "Dials", dialMat);
-
-            int n = lay.needles.Length;
-            needles = new Transform[n];
-            needleDeg = new float[n];
-            for (int i = 0; i < n; i++)
+            Place(parts, "cabin", model);
+            var mr = Place(parts, "mirror", model);
+            var gaugeShader = Shader.Find("PSX/CabinGauge");
+            if (mr != null && gaugeShader != null)
             {
-                var d = lay.needles[i];
-                var pivot = new GameObject("Needle_" + d.key).transform;
-                pivot.SetParent(model, false);
-                pivot.localPosition = d.pivot;
-                pivot.localRotation = d.rot;
-                needles[i] = Place(PSXTexDecode.LoadPrefab(NeedlePath + d.key), pivot, "Pointer", dialMat);
-                needleDeg[i] = float.NaN;
+                mirrorMat = new Material(gaugeShader) { name = "Cockpit_Mirror", hideFlags = HideFlags.HideAndDontSave };
+                mirrorMat.SetFloat("_Mode", 1f);
+                mr.sharedMaterial = mirrorMat;
+            }
+            for (int i = 0; i < 4; i++)
+            {
+                gaugeKeys[i] = lay.gauges[i].key;
+                gaugeRends[i] = Place(parts, lay.gauges[i].part, model);
+            }
+            var glassShader = Shader.Find("PSX/CabinGlass");
+            glassMats = new Material[lay.glass.Length];
+            for (int i = 0; i < lay.glass.Length; i++)
+            {
+                var g = lay.glass[i];
+                var r = Place(parts, g.part, model);
+                if (r == null || glassShader == null) continue;
+                glassMats[i] = GlassMaterial(glassShader, g);
+                r.sharedMaterial = glassMats[i];
             }
 
             wheelPivot = new GameObject("WheelPivot").transform;
             wheelPivot.SetParent(model, false);
             wheelPivot.localPosition = lay.wheel.pivot;
             wheelPivot.localRotation = lay.wheel.rot;
-            wheel = Place(wheelPrefab, wheelPivot, "SteeringWheel", cabinMat);
+            wheel = new GameObject("SteeringWheel").transform;
+            wheel.SetParent(wheelPivot, false);
+            Place(parts, "wheel", wheel);
             // The hands are posed in the wheel's own frame and ride it.
-            Place(PSXTexDecode.LoadPrefab(HandsPath), wheel, "Hands", skinMat);
+            Place(parts, "hands", wheel);
 
-            mirrorRoot = new GameObject("CargoMirror").transform;
-            mirrorRoot.SetParent(model, false);
-            mirror = new CockpitCargoMirror(mirrorRoot, lay);
+            // The cargo's frame: never mirrored (its motion is the car's).
+            cargoRoot = new GameObject("CargoMirror").transform;
+            cargoRoot.SetParent(transform, false);
             CollectRenderers();
         }
 
-        Transform Place(GameObject prefab, Transform parent, string name, Material mat)
+        /// <summary>A part as a renderer under `parent`, its submeshes on the
+        /// shared materials (a per-instance material replaces them after).</summary>
+        Renderer Place(System.Collections.Generic.Dictionary<string, CockpitModel.Part> parts, string name, Transform parent)
         {
-            if (prefab == null) { Debug.LogWarning("[Cockpit] missing part " + name); return null; }
-            var t = Instantiate(prefab, parent, false).transform;
-            t.name = name;
-            foreach (var r in t.GetComponentsInChildren<Renderer>(true))
-                if (mat != null) r.sharedMaterial = mat;
-            foreach (var c in t.GetComponentsInChildren<Transform>(true)) c.gameObject.layer = gameObject.layer;
-            return t;
+            if (parts == null || !parts.TryGetValue(name, out var p)) { Debug.LogWarning("[Cockpit] missing part " + name); return null; }
+            var go = new GameObject(name);
+            go.layer = gameObject.layer;
+            go.transform.SetParent(parent, false);
+            go.AddComponent<MeshFilter>().sharedMesh = p.mesh;
+            var r = go.AddComponent<MeshRenderer>();
+            var m = new Material[p.mats.Length];
+            for (int i = 0; i < m.Length; i++) m[i] = CockpitModel.Mat(p.mats[i]);
+            r.sharedMaterials = m;
+            return r;
         }
 
-        /// <summary>Every renderer this cabin draws, cargo copies included,
-        /// set up the cabin's way. Again whenever the mirror adds copies.</summary>
+        static Material GlassMaterial(Shader sh, CockpitModel.PaneDef g)
+        {
+            var m = new Material(sh) { name = "Cockpit_Glass_" + g.key, hideFlags = HideFlags.HideAndDontSave };
+            float mu = Mathf.Max(0.01f, g.metresU), mv = Mathf.Max(0.01f, g.metresV);
+            Vector2 Q(Vector2 uvDir) { var d = new Vector2(uvDir.x * mu, uvDir.y * mv); return d.sqrMagnitude > 1e-8f ? d.normalized : Vector2.down; }
+            Vector2 up = Q(g.up), rear = Q(g.rear), right = Q(g.right);
+            bool screen = g.key == "windshield", side = g.key.StartsWith("door");
+            // Wind: up the screen (and outward), back along the side glass;
+            // the rear window is in the roof's lee - its drops just run down.
+            Vector2 wind = screen ? up : side ? rear : -up;
+            float centre = Vector2.Dot(new Vector2(0.5f * mu, 0.5f * mv), right);
+            m.SetVector("_Metres", new Vector4(mu, mv, 0f, 0f));
+            m.SetVector("_Down", -up);
+            m.SetVector("_Wind", new Vector4(wind.x, wind.y, screen ? 1.6f : 0f, centre));
+            m.SetVector("_Out", right);
+            m.SetFloat("_PaneRain", screen ? 1f : side ? 0.7f : 0.5f);
+            return m;
+        }
+
+        /// <summary>Every renderer this cabin draws, cargo copies included.</summary>
         internal void CollectRenderers()
         {
             rends = GetComponentsInChildren<Renderer>(true);
@@ -369,53 +283,65 @@ namespace PSXRacing
             }
         }
 
-        static Material MakeMat(string name, Texture2D tex, float emission)
-        {
-            var sh = Shader.Find("PSX/Lit");
-            if (sh == null) return null;
-            var m = new Material(sh) { name = name, hideFlags = HideFlags.HideAndDontSave };
-            if (tex != null) m.mainTexture = tex;
-            if (m.HasProperty("_Color")) m.SetColor("_Color", Color.white);
-            if (m.HasProperty("_Affine")) m.SetFloat("_Affine", 0f);
-            if (m.HasProperty("_Emission")) m.SetFloat("_Emission", emission);
-            PSXTexDecode.Stamp(m);
-            return m;
-        }
-
-        /// <summary>Re-measure only when the body changed (a shell swapped
-        /// mid-drive by the bench or the handoff).</summary>
+        /// <summary>Re-measure when the body or the car's drive side changed.</summary>
         public void Refit()
         {
             if (car == null) return;
             if (box == null) box = car.GetComponent<BoxCollider>();
             if (body == null) body = car.GetComponent<CarBody>();
-            // ChaseCamera's own fallbacks for a car with no box.
             Vector3 c = box != null ? box.center : new Vector3(0f, 0.72f, 0.05f);
             Vector3 s = box != null ? box.size : new Vector3(1.72f, 1.0f, 4.1f);
             var def = body != null ? body.Def : null;
             float ls = body != null ? body.LengthScale : 1f;
             float lift = body != null ? body.BodyLift : 0f;
-            if (fitted && def == fitDef && c == fitC && s == fitS && ls == fitLs && lift == fitLift) return;
-            fitted = true; fitDef = def; fitC = c; fitS = s; fitLs = ls; fitLift = lift;
-            Apply(FitFor(c, s, def, ls, lift));
+            bool rhd = DriveSide.IsRHD(car);
+            if (fitted && def == fitDef && c == fitC && s == fitS && ls == fitLs && lift == fitLift && rhd == fitRhd)
+            {
+                if (gauges != null) gauges.Refresh(car);
+                return;
+            }
+            fitted = true; fitDef = def; fitC = c; fitS = s; fitLs = ls; fitLift = lift; fitRhd = rhd;
+            Apply(FitFor(c, s, def, ls, lift, rhd));
         }
 
         void Apply(Fit f)
         {
             Current = f;
+            var lay = L;
             transform.localPosition = f.eye;
             transform.localRotation = Quaternion.identity;
             transform.localScale = Vector3.one;
-            // Driver_Eye on the game's eye, everything scaled about it.
-            model.localScale = Vector3.one * f.scale;
-            model.localPosition = -L.eye * f.scale;
+            // Driver_Eye on the game's eye, everything scaled about it; an RHD
+            // car sees the mirror image.
+            model.localScale = new Vector3(f.rhd ? -f.scale : f.scale, f.scale, f.scale);
+            model.localPosition = -Vector3.Scale(model.localScale, lay.eye);
             model.localRotation = Quaternion.identity;
+            var eyeV = new Vector3(f.rhd ? -lay.eye.x : lay.eye.x, lay.eye.y, lay.eye.z);
+            cargoRoot.localScale = Vector3.one * f.scale;
+            cargoRoot.localPosition = -eyeV * f.scale;
+            if (mirror != null) mirror.Clear();
+            mirror = new CockpitCargoMirror(cargoRoot, f.rhd ? lay.MirroredCargo() : lay);
+            CockpitLook.PassengerSign = f.rhd ? -1f : 1f;
+
+            // The gauges: roles by where each face is, as the driver sees it.
+            if (gauges != null) gauges.Destroy();
+            gauges = new CockpitGauges();
+            for (int i = 0; i < 4; i++)
+                gauges.Add(f.rhd ? Swap(gaugeKeys[i]) : gaugeKeys[i], gaugeRends[i], f.rhd);
+            gauges.Refresh(car);
+            if (mirrorMat != null && lay.mirror != null)
+                mirrorMat.SetFloat("_FlipU", lay.mirror.uRight * (f.rhd ? -1 : 1) > 0 ? 1f : 0f);
+            lastDeg = float.NaN;
             ActiveNearClip = NearClipFor(f.scale);
+            CollectRenderers();
             CollectShell();
         }
 
-        /// <summary>The car's own renderers, less this cabin and the blob
-        /// shadow on the road. Again on every refit (a shell swap).</summary>
+        /// <summary>The mirrored cluster's roles: the LHD file's tach face sits
+        /// where the RHD driver's speedo is, its temp where the fuel is.</summary>
+        public static string Swap(string key) =>
+            key == "tach" ? "speed" : key == "speed" ? "tach" : key == "temp" ? "fuel" : key == "fuel" ? "temp" : key;
+
         void CollectShell()
         {
             if (shellHidden) HideShell(false);
@@ -454,21 +380,27 @@ namespace PSXRacing
             if (wheelPivot != null && wheelPivot.gameObject.activeSelf != wheelOn)
                 wheelPivot.gameObject.SetActive(wheelOn);
             shown = on;
-            GaugesShowing = on && needles != null && needles.Length > 0;
+            GaugesShowing = on && gauges != null;
+            GlassShowing = on && glassMats != null && glassMats.Length > 0;
             CargoInView = on;
-            if (on) ActiveNearClip = NearClipFor(Current.scale > 0f ? Current.scale : 0.357f);
+            if (on)
+            {
+                ActiveNearClip = NearClipFor(Current.scale > 0f ? Current.scale : 0.357f);
+                CockpitLook.PassengerSign = Current.rhd ? -1f : 1f;
+            }
+            if (mirrorCam != null && mirrorCam.gameObject.activeSelf != on) mirrorCam.gameObject.SetActive(on);
         }
 
-        /// <summary>
-        /// Turn the wheel with the front ROAD wheels, so it lags and
-        /// self-centres as the car does: full lock is <see cref="LockDeg"/> each
-        /// way. Positive = anticlockwise as the driver sees it.
-        /// </summary>
+        /// <summary>Turn the wheel with the front ROAD wheels: full lock is
+        /// <see cref="LockDeg"/> each way. Positive = anticlockwise as the
+        /// driver sees it (the mirrored RHD wheel turns the other way in its
+        /// own frame).</summary>
         public void SetSteer(float roadWheelDeg, float fullLockDeg)
         {
             if (wheel == null) return;
             float deg = -roadWheelDeg / Mathf.Max(5f, fullLockDeg) * LockDeg;
             deg = Mathf.Clamp(deg, -LockDeg * 1.4f, LockDeg * 1.4f);
+            if (Current.rhd) deg = -deg;
             if (!float.IsNaN(lastDeg) && Mathf.Abs(deg - lastDeg) < 0.1f) return;
             lastDeg = deg;
             wheel.localRotation = Quaternion.Euler(0f, 0f, deg);
@@ -480,61 +412,110 @@ namespace PSXRacing
             Tick(Time.deltaTime, PizzaCargo.Instance);
         }
 
-        /// <summary>The per-frame work: needles, dial glow, the cargo. Public
-        /// for the shot tool, which has no frames to wait for.</summary>
+        /// <summary>The per-frame work: gauges, rain, mirror, the cargo.
+        /// Public for the shot tool, which has no frames to wait for.</summary>
         public void Tick(float dt, PizzaCargo cargo)
         {
-            UpdateGauges(dt);
-            // Only this car's load (a cargo built without a car is a harness's).
+            if (car != null)
+            {
+                if (cluster == null) cluster = FindFirstObjectByType<GaugeCluster>();
+                if (tank == null) tank = car.GetComponent<FuelTank>();
+                if (temp == null) temp = car.GetComponent<EngineTemp>();
+            }
+            if (gauges != null) gauges.Tick(dt, car, cluster, tank, temp, ClusterBulbs.Backlit);
+            ActiveNearClip = NearClipFor(Current.scale > 0f ? Current.scale : 0.357f,
+                                         CockpitLook.Yaw * CockpitLook.PassengerSign / CockpitLook.MaxYaw);
+            TickRain(dt);
+            TickMirror();
             if (cargo != null && cargo.Car != null && cargo.Car != car) cargo = null;
             if (mirror != null && mirror.Sync(cargo)) CollectRenderers();
         }
 
-        void UpdateGauges(float dt)
+        /// <summary>The rain on the glass: how wet (eased in with the lens's
+        /// rain, drying over <see cref="DrySeconds"/>), how much wind, and the
+        /// two clocks the drops run on.</summary>
+        void TickRain(float dt)
         {
-            float glow = ClusterBulbs.Backlit ? 1f : DayDialGlow;
-            if (dialMat != null && glow != dialGlow) { dialGlow = glow; dialMat.SetFloat("_Emission", glow); }
-            if (car == null || needles == null) return;
-            if (cluster == null) cluster = FindFirstObjectByType<GaugeCluster>();
-            if (tank == null) tank = car.GetComponent<FuelTank>();
-            if (temp == null) temp = car.GetComponent<EngineTemp>();
-            bool dead = cluster != null && cluster.hideGauges;
-            float rpm = car.currentRPM;
-            if (cluster != null && cluster.rpmFlutter)
-            {
-                // A broken tacho drifts, the same Perlin the 2D one uses.
-                flutter += dt;
-                rpm *= 0.55f + Mathf.PerlinNoise(flutter * 2.3f, 0f) * 0.9f;
-            }
-            var lay = L;
-            for (int i = 0; i < needles.Length; i++)
-            {
-                if (needles[i] == null) continue;
-                var d = lay.needles[i];
-                float v, tau;
-                switch (d.key)
-                {
-                    case "tach": v = rpm; tau = 0.05f; break;
-                    case "speedo": v = Mathf.Abs(car.speedKmh) / 1.609344f; tau = 0.08f; break;
-                    case "fuel": v = tank != null ? tank.percent * 0.01f : 1f; tau = 0.8f; break;
-                    case "coolant": v = temp != null ? temp.Gauge : 0.5f; tau = 0.8f; break;
-                    case "oil":
-                        v = car.currentRPM > 150f
-                            ? Mathf.Lerp(OilIdlePsi, OilPeakPsi, Mathf.Clamp01(car.currentRPM / Mathf.Max(1000f, car.revLimitRPM)))
-                            : 0f;
-                        tau = 0.15f; break;
-                    default: v = d.minValue; tau = 0.1f; break;
-                }
-                if (dead) v = d.minValue;
-                float want = d.minDeg + d.sweepDeg * Mathf.Clamp01(Mathf.InverseLerp(d.minValue, d.maxValue, v));
-                float deg = float.IsNaN(needleDeg[i]) || dt <= 0f
-                    ? want
-                    : Mathf.Lerp(needleDeg[i], want, 1f - Mathf.Exp(-dt / tau));
-                if (!float.IsNaN(needleDeg[i]) && Mathf.Abs(deg - needleDeg[i]) < 0.05f) continue;
-                needleDeg[i] = deg;
-                // Clockwise as the driver sees it is a NEGATIVE turn about z.
-                needles[i].localRotation = Quaternion.Euler(0f, 0f, -deg);
-            }
+            float target = WeatherFx.LensRain;
+            rainWet = target >= rainWet ? target : Mathf.Max(target, rainWet - dt / DrySeconds);
+            float speed = car != null ? Mathf.Abs(car.forwardSpeed) : 0f;
+            float wind = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(5f, 28f, speed));
+            runClock += dt * 0.27f;
+            blowClock += dt * (0.4f + 2.6f * wind);
+            if (runClock > 1000f) runClock -= 1000f;
+            if (blowClock > 1000f) blowClock -= 1000f;
+            Shader.SetGlobalFloat("_CabinRain", rainWet);
+            Shader.SetGlobalFloat("_CabinWind", wind);
+            Shader.SetGlobalFloat("_CabinRun", runClock);
+            Shader.SetGlobalFloat("_CabinBlow", blowClock);
+        }
+
+        /// <summary>For the shot tool: the rain as if it had been raining
+        /// for a while at this speed.</summary>
+        public static void PreviewRain(float rain, float speedMps, float clock)
+        {
+            rainWet = rain;
+            float wind = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(5f, 28f, speedMps));
+            Shader.SetGlobalFloat("_CabinRain", rain);
+            Shader.SetGlobalFloat("_CabinWind", wind);
+            Shader.SetGlobalFloat("_CabinRun", clock * 0.27f);
+            Shader.SetGlobalFloat("_CabinBlow", clock * (0.4f + 2.6f * wind));
+        }
+
+        void TickMirror()
+        {
+            if (mirrorMat == null || !Application.isPlaying) return;
+            if (mirrorCam == null) EnsureMirrorCamera();
+            if (mirrorCam != null) mirrorCam.enabled = Time.frameCount % MirrorEvery == 0;
+        }
+
+        /// <summary>For the shot tool (edit mode, no frames): the mirror
+        /// rendered once from `src`'s world.</summary>
+        public void PreviewMirror(Camera src)
+        {
+            if (driver == null) driver = src;
+            if (mirrorCam == null) EnsureMirrorCamera();
+            if (mirrorCam == null) return;
+            mirrorCam.gameObject.SetActive(true);
+            mirrorCam.enabled = false;
+            mirrorCam.Render();
+        }
+
+        /// <summary>A small camera at the mirror looking back, into the
+        /// mirror face's texture. Play mode only (a preview tool's scene must
+        /// not grow cameras). It renders the world as the driver's camera does
+        /// (this cabin hides itself from every other camera).</summary>
+        void EnsureMirrorCamera()
+        {
+            var src = driver != null ? driver : Camera.main;
+            if (src == null || L == null || L.mirror == null || mirrorMat == null) return;
+            mirrorRT = new RenderTexture(MirrorW, MirrorH, 16) { name = "CockpitMirror", filterMode = FilterMode.Bilinear, antiAliasing = 1 };
+            var go = new GameObject("CockpitMirrorCamera");
+            if (!Application.isPlaying) go.hideFlags = HideFlags.DontSave;
+            go.transform.SetParent(transform, false);
+            // At the mirror, on the centreline, looking straight back.
+            var mc = L.mirror.centre;
+            go.transform.localPosition = Vector3.Scale(model.localScale, mc) + model.localPosition;
+            go.transform.localRotation = Quaternion.Euler(2f, 180f, 0f);
+            mirrorCam = go.AddComponent<Camera>();
+            mirrorCam.CopyFrom(src);
+            go.tag = "Untagged";
+            mirrorCam.targetTexture = mirrorRT;
+            mirrorCam.aspect = MirrorW / (float)MirrorH;
+            mirrorCam.fieldOfView = MirrorVFov;
+            mirrorCam.nearClipPlane = 0.3f;
+            mirrorCam.farClipPlane = Mathf.Min(src.farClipPlane, MirrorFar);
+            mirrorCam.depth = src.depth - 1f;
+            mirrorCam.useOcclusionCulling = false;
+            mirrorCam.allowHDR = false;
+            mirrorCam.allowMSAA = false;
+            var data = go.GetComponent<UnityEngine.Rendering.Universal.UniversalAdditionalCameraData>();
+            if (data == null) data = go.AddComponent<UnityEngine.Rendering.Universal.UniversalAdditionalCameraData>();
+            data.renderPostProcessing = false;
+            data.renderShadows = false;
+            data.antialiasing = UnityEngine.Rendering.Universal.AntialiasingMode.None;
+            mirrorMat.SetTexture("_FaceTex", mirrorRT);
+            go.SetActive(shown);
         }
 
         void OnEnable()
@@ -551,12 +532,18 @@ namespace PSXRacing
             SetVisible(true);
             shown = false;
             GaugesShowing = false;
+            GlassShowing = false;
             CargoInView = false;
+            CockpitLook.PassengerSign = 1f;
         }
 
         void OnDestroy()
         {
             if (mirror != null) mirror.Clear();
+            if (gauges != null) gauges.Destroy();
+            if (glassMats != null) foreach (var m in glassMats) if (m != null) DestroyImmediate(m);
+            if (mirrorMat != null) DestroyImmediate(mirrorMat);
+            if (mirrorRT != null) { mirrorRT.Release(); DestroyImmediate(mirrorRT); }
             ActiveNearClip = 0f;
         }
 

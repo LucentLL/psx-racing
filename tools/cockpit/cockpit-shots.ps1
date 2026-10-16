@@ -30,7 +30,8 @@ if (Test-Path "$src\Assets\PSXRacing\Resources\Cockpit.meta") {
 foreach ($f in @("generic_cockpit.obj", "generic_wheel.obj", "generic_hands.obj", "cockpit_sheet.png")) {
     Remove-Item "$proj\Assets\PSXRacing\Resources\Cockpit\$f", "$proj\Assets\PSXRacing\Resources\Cockpit\$f.meta" -ErrorAction SilentlyContinue
 }
-Remove-Item "$proj\Screenshots\fdcockpit_*.png" -ErrorAction SilentlyContinue
+Get-ChildItem "$proj\Assets\PSXRacing\Resources\Cockpit" -Filter "universal_*" -ErrorAction SilentlyContinue | Remove-Item -Force
+Remove-Item "$proj\Screenshots\cockpitv08_*.png" -ErrorAction SilentlyContinue
 
 $env:PSX_SHOT_VENUE = $Venue
 $log = "$proj\cockpitshots.log"
@@ -43,9 +44,9 @@ Invoke-UnityJob -Project $proj -Log $log -MaxMinutes 20 -UnityArgs @(
 Select-String -Path $log -Pattern "\[Cockpit\]|PSXShot\]|error CS|Exception" |
     Select-Object -First 40 | ForEach-Object { $_.Line }
 
-$out = Join-Path $src "tools\shots\fdcockpit"
+$out = Join-Path $src "tools\shots\cockpitv08"
 New-Item -ItemType Directory -Force $out | Out-Null
-Get-ChildItem "$proj\Screenshots" -Filter "fdcockpit_*.png" | ForEach-Object {
+Get-ChildItem "$proj\Screenshots" -Filter "cockpitv08_*.png" | ForEach-Object {
     Copy-Item $_.FullName (Join-Path $out $_.Name) -Force
     Write-Host ("shot " + (Join-Path $out $_.Name))
 }

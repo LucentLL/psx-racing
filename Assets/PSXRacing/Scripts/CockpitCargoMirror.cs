@@ -38,7 +38,7 @@ namespace PSXRacing
     public class CockpitCargoMirror
     {
         readonly Transform root;
-        readonly CockpitInterior.Layout lay;
+        readonly CockpitModel.Layout lay;
         PizzaCargo source;
 
         class Group
@@ -62,7 +62,7 @@ namespace PSXRacing
         readonly List<Pair> pairs = new List<Pair>();
         readonly List<Group> groups = new List<Group>();
 
-        public CockpitCargoMirror(Transform root, CockpitInterior.Layout lay)
+        public CockpitCargoMirror(Transform root, CockpitModel.Layout lay)
         {
             this.root = root;
             this.lay = lay;
@@ -212,7 +212,9 @@ namespace PSXRacing
                 var p = MapP(b.center, g.t);
                 // Inside his passenger space.
                 var q = p;
-                float lo = room.consoleX + g.halfW, hi = room.doorX - g.halfW;
+                // Between the console and the door, whichever side of the
+                // cabin the passenger is on (an RHD cabin's layout is mirrored).
+                float lo = Mathf.Min(room.consoleX, room.doorX) + g.halfW, hi = Mathf.Max(room.consoleX, room.doorX) - g.halfW;
                 q.x = lo <= hi ? Mathf.Clamp(q.x, lo, hi) : (room.consoleX + room.doorX) * 0.5f;
                 q.z = Mathf.Min(q.z, room.firewallZ - g.halfW);
                 q.y = Mathf.Max(q.y, room.floorY + g.halfH);

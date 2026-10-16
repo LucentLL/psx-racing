@@ -979,7 +979,11 @@ namespace PSXRacing
             // Same safety as the blur: a HUD that could not be moved out of
             // the way gets no lens rather than a refracted lap counter.
             bool on = LensAllowed && safe;
-            float rain = on ? Mathf.Clamp01(WeatherFx.LensRain) : 0f;
+            // In the cockpit the rain is on the cabin's GLASS, not the lens
+            // (owner, 2026-10-16: "rain should stop at the windows, not on
+            // camera when in cockpit view"): PSX/CabinGlass draws it there.
+            bool glass = CockpitInterior.GlassShowing && ChaseCamera.Current == ChaseCamera.View.Cockpit;
+            float rain = on && !glass ? Mathf.Clamp01(WeatherFx.LensRain) : 0f;
             float night = on && sceneGlobals != null ? Mathf.Clamp01(sceneGlobals.night) : 0f;
             float flowTarget = on && !suspended && car != null
                 ? Mathf.Clamp01(Mathf.Abs(car.forwardSpeed) * 3.6f / LensFx.FlowKmh)
