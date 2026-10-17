@@ -986,8 +986,18 @@ namespace PSXRacing.City
             public static bool FacOn;
             public static Vector2 FacA, FacDir;
             public static float FacLen, FacZ, FacW;
+            /// <summary>A hero's CROWN MEMBER (a fin, the needle; 2026-10-16,
+            /// the owner's video: the spired crown's fins sparkled a kilometre
+            /// out): while set, UV1 is (x, z of the vertex's offset from the
+            /// member's core line <see cref="MemberA"/>, the member's outward
+            /// bearing in radians, -1 a fin / -2 the needle), for PSX/Lit's
+            /// CROWN_MIN_PX and CROWN_LEAD_STEPS (no structure: w is under 2).</summary>
+            public static bool MemberOn;
+            public static Vector2 MemberA;
+            public static float MemberDir, MemberW;
             static Vector4 FacAt(Vector3 p)
             {
+                if (MemberOn) return new Vector4(p.x - MemberA.x, p.z - MemberA.y, MemberDir, MemberW);
                 if (!FacOn) return Vector4.zero;
                 float s = (p.x - FacA.x) * FacDir.x + (p.z - FacA.y) * FacDir.y;
                 return new Vector4(s, FacLen - s, FacZ, FacW);

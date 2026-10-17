@@ -41,6 +41,20 @@ namespace PSXRacing.EditorTools
             float.TryParse(System.Environment.GetEnvironmentVariable("PSX_SKYLINE_KM") ?? "1.5", System.Globalization.NumberStyles.Float, inv, out km);
             float shift = 0.03f;
             float.TryParse(System.Environment.GetEnvironmentVariable("PSX_DEPTH_SHIFT_M") ?? "0.03", System.Globalization.NumberStyles.Float, inv, out shift);
+            // PSX_SKYLINE_LANDMARK (a landmark byte, e.g. 1 the spired crown):
+            // the eyes stand PSX_SKYLINE_KM from THAT tower and look at its
+            // crown, and the crown's own screen box is scored too (CROWN lines)
+            int mark = 0;
+            int.TryParse(System.Environment.GetEnvironmentVariable("PSX_SKYLINE_LANDMARK") ?? "0", out mark);
+            Vector2 aim = map.uptown;
+            var crownParts = new List<CityMap.Footprint>();
+            if (mark > 0)
+            {
+                int outline = System.Array.FindIndex(map.footprints, f => f.landmark == mark && !f.part);
+                if (outline < 0) { Debug.LogError("[SkyDepth] no landmark " + mark); return; }
+                aim = map.footprints[outline].centre;
+                foreach (var f in map.footprints) if (f.outline == outline || f == map.footprints[outline]) crownParts.Add(f);
+            }
             var sun = GameObject.Find("Sun")?.GetComponent<Light>();
             var globals = Object.FindFirstObjectByType<PSXGlobals>();
             int oldWeather = RaceHandoff.WeatherOverride;
@@ -63,8 +77,8 @@ namespace PSXRacing.EditorTools
                         for (float s = 0f; s <= e.length; s += 10f)
                         {
                             var p = e.PointAt(s);
-                            if (Mathf.Sign(p.y - map.uptown.y) != side) continue;
-                            float d = Mathf.Abs(Vector2.Distance(p, map.uptown) - km * 1000f);
+                            if (Mathf.Sign(p.y - aim.y) != side) continue;
+                            float d = Mathf.Abs(Vector2.Distance(p, aim) - km * 1000f);
                             if (d < best) { best = d; bei = ei; bs = s; }
                         }
                     }
@@ -73,7 +87,8 @@ namespace PSXRacing.EditorTools
                     var at = be.PointAt(bs);
                     float groundY = be.YAt(bs);
                     var eye = new Vector3(at.x, groundY + 2.2f, at.y);
-                    var core = new Vector3(map.uptown.x, eye.y + 60f, map.uptown.y);
+                    var core = mark > 0 ? new Vector3(aim.x, eye.y + 200f, aim.y) : new Vector3(map.uptown.x, eye.y + 60f, map.uptown.y);
+                    if (mark > 0) name += "_lm" + mark;
                     var rot = Quaternion.LookRotation(core - eye);
                     world.EnsureRing(eye, world.ring);
                     TimeOfDay.Apply(night, sun);
@@ -127,6 +142,29 @@ namespace PSXRacing.EditorTools
                         Shader.SetGlobalFloat("_PSXFogNear", fnWas); Shader.SetGlobalFloat("_PSXFogFar", ffWas);
                         for (int m = 0; m < skMats.Length; m++) skMats[m].SetFloat("_Skyline", hazeWas[m]);
                         skr.bounds = bWas;
+
+                        // ---- THE CROWN (PSX_SKYLINE_LANDMARK): the pair above scored in
+                        // the tower's own screen box, and a SWEEP - four frames, the eye
+                        // moved a quarter of a pixel (at the tower) each time. An edge
+                        // that moves turns a pixel over once; a pixel that turns on and
+                        // off again is a member thinner than a pixel popping.
+                        if (mark > 0)
+                        {
+                            float dist = Vector2.Distance(at, aim);
+                            float onePx = 2f * dist * Mathf.Tan(0.5f * cam.fieldOfView * Mathf.Deg2Rad) / 540f;
+                            cam.transform.SetPositionAndRotation(eye, rot);
+                            var vb = CrownBox(cam, crownParts, groundY);
+                            var shots = new List<string> { sa, sb2 };
+                            for (int k = 0; k < 4; k++)
+                            {
+                                string sw = "skydepth_" + name + "_sweep" + k;
+                                var e2 = eye + right * (0.25f * onePx * k);
+                                cam.transform.SetPositionAndRotation(e2, rot); world.RefreshSkyline(cam);
+                                PSXScreenshotTool.ShotAs(cam, sw, e2, rot);
+                                shots.Add(sw);
+                            }
+                            CrownScore(dir, name, shots, vb, dist, onePx);
+                        }
                         foreach (var r in off) if (r != null) r.forceRenderingOff = false;
                         var sf = Flips(Path.Combine(dir, sa + ".png"), Path.Combine(dir, sb2 + ".png"), 0f, 1f);
                         var wrong = Flips(Path.Combine(dir, sa + ".png"), Path.Combine(dir, st + ".png"), 0f, 1f);
@@ -209,6 +247,86 @@ namespace PSXRacing.EditorTools
                 Object.DestroyImmediate(go);
             }
             Debug.Log("[SkyDepth] done");
+        }
+
+        /// <summary>The landmark's top (its parts from 120 m, their fins and
+        /// the needle) as a viewport rect.</summary>
+        static Rect CrownBox(Camera cam, List<CityMap.Footprint> parts, float floorY)
+        {
+            float x0 = 1f, y0 = 1f, x1 = 0f, y1 = 0f;
+            void Add(Vector3 w)
+            {
+                var v = cam.WorldToViewportPoint(w);
+                if (v.z <= 0f) return;
+                x0 = Mathf.Min(x0, v.x); x1 = Mathf.Max(x1, v.x); y0 = Mathf.Min(y0, v.y); y1 = Mathf.Max(y1, v.y);
+            }
+            foreach (var p in parts)
+            {
+                if (p.h < 120f) continue;
+                foreach (var q in p.pts) { Add(new Vector3(q.x, floorY + Mathf.Max(p.minH, 120f), q.y)); Add(new Vector3(q.x, floorY + p.h + 14f, q.y)); }
+                Add(new Vector3(p.centre.x, floorY + 265f, p.centre.y));
+            }
+            return Rect.MinMaxRect(x0, y0, x1, y1);
+        }
+
+        /// <summary>The CROWN lines: flips a/b (the depth) and pops over the
+        /// sweep (pixels that turn on and off again) inside the crown's box,
+        /// and Screenshots\skydepth_&lt;view&gt;_crown.png: a, b, the flips in
+        /// magenta, then the four sweep frames, each x4.</summary>
+        static void CrownScore(string dir, string name, List<string> shots, Rect vb, float dist, float onePx)
+        {
+            var tex = new List<Texture2D>();
+            foreach (var s in shots) { var t = new Texture2D(2, 2); t.LoadImage(File.ReadAllBytes(Path.Combine(dir, s + ".png"))); tex.Add(t); }
+            int w = tex[0].width, h = tex[0].height, pad = 6;
+            int bx0 = Mathf.Clamp(Mathf.FloorToInt(vb.xMin * w) - pad, 0, w - 1), bx1 = Mathf.Clamp(Mathf.CeilToInt(vb.xMax * w) + pad, bx0 + 1, w);
+            int by0 = Mathf.Clamp(Mathf.FloorToInt(vb.yMin * h) - pad, 0, h - 1), by1 = Mathf.Clamp(Mathf.CeilToInt(vb.yMax * h) + pad, by0 + 1, h);
+            var px = new List<Color32[]>();
+            foreach (var t in tex) px.Add(t.GetPixels32());
+            int L(int f, int i) => px[f][i].r + px[f][i].g + px[f][i].b;
+            int flips = 0, pops = 0, lit = 0;
+            var flipMark = new HashSet<int>();
+            for (int y = by0; y < by1; y++)
+                for (int x = bx0; x < bx1; x++)
+                {
+                    int i = y * w + x;
+                    int mx = 0;
+                    for (int f = 0; f < px.Count; f++) mx = Mathf.Max(mx, L(f, i));
+                    if (mx < 150) continue;
+                    lit++;
+                    if (Mathf.Abs(L(0, i) - L(1, i)) > 72) { flips++; flipMark.Add(i); }
+                    int dirN = 0, turns = 0, last = L(2, i);
+                    for (int f = 3; f < px.Count; f++)
+                    {
+                        int d = L(f, i) - last;
+                        if (Mathf.Abs(d) <= 72) continue;
+                        int sgn = d > 0 ? 1 : -1;
+                        if (dirN != 0 && sgn != dirN) turns++;
+                        dirN = sgn; last = L(f, i);
+                    }
+                    if (turns > 0) pops++;
+                }
+            Debug.Log($"[SkyDepth] {name} CROWN at {dist:0} m (1 px = {onePx:0.00} m), box {bx1 - bx0}x{by1 - by0} px: FLIPS {flips}, SWEEP POPS {pops} of {lit} drawn px");
+            const int z = 4;
+            int cw = (bx1 - bx0) * z, ch = (by1 - by0) * z;
+            var sheet = new Texture2D(cw * 4 + 12, ch * 2 + 4, TextureFormat.RGB24, false);
+            var bg = new Color32[sheet.width * sheet.height];
+            sheet.SetPixels32(bg);
+            void Tile(int f, int col, int row, bool mark)
+            {
+                for (int y = 0; y < ch; y++)
+                    for (int x = 0; x < cw; x++)
+                    {
+                        int i = (by0 + y / z) * w + bx0 + x / z;
+                        var c = mark && flipMark.Contains(i) ? new Color32(255, 0, 255, 255) : px[f][i];
+                        sheet.SetPixel(col * (cw + 4) + x, (1 - row) * (ch + 4) + y, c);
+                    }
+            }
+            Tile(0, 0, 0, false); Tile(1, 1, 0, false); Tile(0, 2, 0, true);
+            for (int k = 0; k < 4 && k + 2 < px.Count; k++) Tile(k + 2, k, 1, false);
+            sheet.Apply();
+            File.WriteAllBytes(Path.Combine(dir, "skydepth_" + name + "_crown.png"), sheet.EncodeToPNG());
+            Object.DestroyImmediate(sheet);
+            foreach (var t in tex) Object.DestroyImmediate(t);
         }
 
         /// <summary>Pixels of frame a that differ from frame b by more than a

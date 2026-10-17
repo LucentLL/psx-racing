@@ -273,18 +273,44 @@ namespace PSXRacing.City
         }
 
         /// <summary>A spike: an n-sided cone from a ring of radius r at
-        /// base to a point at tipY.</summary>
-        static void HeroSpike(TileMeshes tm, Vector3 baseC, float r, float tipY, int sides, float rot, Vector2 uv)
+        /// base to a point at tipY - or, with <paramref name="neckAt"/>, a
+        /// shaft narrowing to <paramref name="neckR"/> that share of the way
+        /// up, then the point. A crown member (the needle): PSX/Lit keeps
+        /// its rings a pixel across far off, so the shaft stays drawn and
+        /// only the point thins out.</summary>
+        static void HeroSpike(TileMeshes tm, Vector3 baseC, float r, float tipY, int sides, float rot, Vector2 uv, float neckAt = 0f, float neckR = 0f)
         {
+            HeroMember(tm, new Vector2(baseC.x, baseC.z), 0f, -2f);
             var tip = new Vector3(baseC.x, tipY, baseC.z);
+            float h = Mathf.Max(0.1f, tipY - baseC.y);
+            var neck = baseC + Vector3.up * (h * neckAt);
             for (int k = 0; k < sides; k++)
             {
                 float a0 = rot + k * Mathf.PI * 2f / sides, a1 = rot + (k + 1) * Mathf.PI * 2f / sides;
-                var p = baseC + new Vector3(Mathf.Cos(a0), 0f, Mathf.Sin(a0)) * r;
-                var q = baseC + new Vector3(Mathf.Cos(a1), 0f, Mathf.Sin(a1)) * r;
-                var mid = (p + q) * 0.5f - baseC;
-                HeroTri(tm, p, q, tip, mid + Vector3.up * (r * r / Mathf.Max(0.1f, tipY - baseC.y)), uv);
+                var e0 = new Vector3(Mathf.Cos(a0), 0f, Mathf.Sin(a0)); var e1 = new Vector3(Mathf.Cos(a1), 0f, Mathf.Sin(a1));
+                var p = baseC + e0 * r;
+                var q = baseC + e1 * r;
+                var mid = (e0 + e1) * 0.5f;
+                if (neckAt > 0f)
+                {
+                    var pn = neck + e0 * neckR; var qn = neck + e1 * neckR;
+                    HeroQuad(tm, p, q, qn, pn, mid * r + Vector3.up * ((r - neckR) * r / Mathf.Max(0.1f, h * neckAt)), uv);
+                    HeroTri(tm, pn, qn, tip, mid * neckR + Vector3.up * (neckR * neckR / Mathf.Max(0.1f, tipY - neck.y)), uv);
+                }
+                else HeroTri(tm, p, q, tip, mid * r + Vector3.up * (r * r / h), uv);
             }
+            Bucket.MemberOn = false;
+        }
+
+        /// <summary>The vertices emitted next belong to a crown member round
+        /// the vertical line through <paramref name="core"/> (world plan),
+        /// facing <paramref name="bearing"/>: <see cref="Bucket.MemberOn"/>.</summary>
+        static void HeroMember(TileMeshes tm, Vector2 core, float bearing, float w)
+        {
+            Bucket.MemberOn = true;
+            Bucket.MemberA = new Vector2(core.x - tm.origin.x, core.y - tm.origin.z);
+            Bucket.MemberDir = bearing;
+            Bucket.MemberW = w;
         }
 
         /// <summary>A crown fin: a thin blade in the vertical plane of
@@ -292,21 +318,33 @@ namespace PSXRacing.City
         /// <paramref name="outer"/> from y0 to yTop, its foot running
         /// <paramref name="depth"/> back in; a spike when
         /// <paramref name="pointed"/> (the top runs down to the inner foot),
-        /// else a straight-topped blade. Both faces and the outer edge.</summary>
+        /// else a straight-topped blade. Closed on every side but the foot.
+        /// A crown member round its outer edge: PSX/Lit keeps it at least a
+        /// pixel thick and a pixel deep (a blade 0.6 m thick is a fifth of a
+        /// pixel at 1.3 km, and popped in and out as the eye moved), and in
+        /// the far skyline a blade turned toward the eye is drawn a little
+        /// nearer than it is, so it never ties with the wall behind it.</summary>
         static void HeroFin(TileMeshes tm, Vector2 outer, Vector2 dir, float depth, float y0, float yTop, float half, bool pointed, Vector2 uv)
         {
+            HeroMember(tm, outer, Mathf.Atan2(dir.y, dir.x), -1f);
             var n = new Vector2(-dir.y, dir.x) * half;
             Vector2 inner = outer - dir * depth;
+            // the top's back edge: a spike's is a hair behind its point, so far
+            // off (where the blade is given a pixel's depth) the point is a
+            // pixel wide, not a sliver seen side-on
+            Vector2 back = pointed ? outer - dir * 0.05f : inner;
             for (int sgn = -1; sgn <= 1; sgn += 2)
             {
                 var o = n * sgn;
-                var face = W3(o, 0f);
-                if (pointed) HeroTri(tm, W3(outer + o, y0), W3(inner + o, y0), W3(outer + o, yTop), face, uv);
-                else HeroQuad(tm, W3(outer + o, y0), W3(outer + o, yTop), W3(inner + o, yTop), W3(inner + o, y0), face, uv);
+                HeroQuad(tm, W3(outer + o, y0), W3(outer + o, yTop), W3(back + o, yTop), W3(inner + o, y0), W3(o, 0f), uv);
             }
             HeroQuad(tm, W3(outer + n, y0), W3(outer + n, yTop), W3(outer - n, yTop), W3(outer - n, y0), W3(dir, 0f), uv);
-            if (!pointed)
-                HeroQuad(tm, W3(outer + n, yTop), W3(inner + n, yTop), W3(inner - n, yTop), W3(outer - n, yTop), Vector3.up, uv);
+            HeroQuad(tm, W3(outer + n, yTop), W3(back + n, yTop), W3(back - n, yTop), W3(outer - n, yTop), Vector3.up, uv);
+            // the back (a spike's slope, a blade's inner end): seen from the
+            // ring's far side a blade edge-on was nothing
+            HeroQuad(tm, W3(inner + n, y0), W3(back + n, yTop), W3(back - n, yTop), W3(inner - n, y0),
+                     W3(-dir, 0f) + Vector3.up * (pointed ? depth / Mathf.Max(0.1f, yTop - y0) : 0f), uv);
+            Bucket.MemberOn = false;
         }
 
         static Vector2 Centroid(IReadOnlyList<Vector2> poly)
@@ -416,7 +454,9 @@ namespace PSXRacing.City
                     float r = d.magnitude;
                     if (r < 2f) continue;
                     d /= r;
-                    HeroFin(tm, q - d * 0.2f, d, Mathf.Clamp(0.22f * r, 1.2f, 3.5f), yT - 0.5f, yT + rise, 0.3f, true, HeroMetalUV);
+                    // (the far skyline's fins stand ON the roof line: the half
+                    // metre sunk behind the wall tied with it in the squeeze)
+                    HeroFin(tm, q - d * 0.2f, d, Mathf.Clamp(0.22f * r, 1.2f, 3.5f), yT - (skylineBuild ? 0f : 0.5f), yT + rise, 0.3f, true, HeroMetalUV);
                 }
             }
             if (top >= 0)
@@ -426,7 +466,7 @@ namespace PSXRacing.City
                 float yT = floor + t.h;
                 float ang = Mathf.Atan2(t.u.y, t.u.x) + Mathf.PI * 0.25f;
                 if (!skylineBuild) HeroBox(tm, c, t.u, 1.4f, 1.4f, yT - 0.2f, yT + 3.5f, HeroMetalUV);
-                HeroSpike(tm, W3(c, yT + 3.5f), 1.25f, floor + NeedleTopM, 4, ang, HeroMetalUV);
+                HeroSpike(tm, W3(c, yT + 3.5f), 1.25f, floor + NeedleTopM, 4, ang, HeroMetalUV, 0.8f, 0.45f);
             }
             HeroNoCollide(false);
         }

@@ -214,6 +214,20 @@ Shader "PSX/Lit"
             #define WIRE_FADE_NEAR   100.0    // metres: past this a wire fades into the fog...
             #define WIRE_FADE_SPAN    80.0    //   ...wholly fogged this much further out
             #define WIRE_GONE        200.0    // and past this it is not drawn at all (zero width)
+            // A hero's CROWN MEMBERS (a fin, the needle: UV1 w -1 / -2,
+            // CityMeshes.Bucket.MemberOn; 2026-10-16, the owner's night video:
+            // the spired crown's fins sparkled 1-1.5 km out). A 0.6 m blade is
+            // a fifth of a pixel there, drawn only where it covers a pixel
+            // centre, so it popped in and out as the eye moved; in the far
+            // skyline it also tied in depth with the wall a few metres behind
+            // it (the squeeze keeps towers ~6 m apart in order at 1 km, not
+            // a fin and its own crown). A fin is kept at least CROWN_MIN_PX
+            // thick and deep, the needle CROWN_MIN_PX across, and in the skyline
+            // a fin turned toward the eye is drawn CROWN_LEAD_STEPS depth
+            // steps nearer (the same pixel; one step of the 24-bit buffer at
+            // the squeezed distance), so it always wins over that wall.
+            #define CROWN_MIN_PX       1.0    // a crown member is at least this many framebuffer pixels across
+            #define CROWN_LEAD_STEPS   2.0    // a skyline fin facing the eye: this many depth steps nearer
             #include "UnityCG.cginc"
             // Colour texels of the 16-bit set arrive undecoded: PSXMainTex decodes them.
             #include "PSXTexDecode.cginc"
@@ -770,6 +784,44 @@ Shader "PSX/Lit"
                     wireFade = saturate((wd - WIRE_FADE_NEAR) / WIRE_FADE_SPAN);
                 }
             #endif
+                // A CROWN MEMBER (the block above CROWN_MIN_PX), never pulled in.
+                // The needle: pushed out from its axis to half a pixel (its tip,
+                // a point, stays a point). A fin: across its blade half a pixel
+                // either side of its outer edge, and back from that edge a whole
+                // pixel (it has one side there), so it is a pixel wide face-on
+                // or edge-on. A fin's skyline lead, in depth steps: full while its
+                // outward bearing is no more than square to the eye, none once it
+                // faces away (the ring's far side keeps its depth).
+                float crownLead = 0.0;
+            #ifdef PSX_FACADE
+                if (v.fac.w < -0.5)
+                {
+                    float3 mc = mul(unity_ObjectToWorld, v.vertex).xyz;
+                    float3 mo = mul((float3x3)unity_ObjectToWorld, float3(v.fac.x, 0.0, v.fac.y));
+                    float md = max(length(_WorldSpaceCameraPos - mc), 1e-3);
+                    float mPx = 2.0 * md / max(abs(UNITY_MATRIX_P[1][1]) * _ScreenParams.y, 1.0);
+                    float mHalf = 0.5 * CROWN_MIN_PX * mPx;
+                    float3 mOut = normalize(mul((float3x3)unity_ObjectToWorld, float3(cos(v.fac.z), 0.0, sin(v.fac.z))));
+                    float3 mPush;
+                    if (v.fac.w > -1.5)
+                    {
+                        float3 mN = float3(-mOut.z, 0.0, mOut.x);
+                        float mT = dot(mo, mN), mS = -dot(mo, mOut);
+                        float mT2 = mT >= 0.0 ? max(mT, mHalf) : min(mT, -mHalf);
+                        float mS2 = mS > 1e-3 ? max(mS, 2.0 * mHalf) : mS;
+                        mPush = mN * (mT2 - mT) - mOut * (mS2 - mS);
+                        float2 mEye = _WorldSpaceCameraPos.xz - mc.xz;
+                        crownLead = saturate(dot(mOut.xz, mEye) * rsqrt(max(dot(mEye, mEye), 1e-8)) * 3.0 + 1.0) * CROWN_LEAD_STEPS;
+                    }
+                    else
+                    {
+                        float moL = length(mo);
+                        mPush = moL > 1e-4 ? mo * (max(moL, mHalf) / moL - 1.0) : float3(0.0, 0.0, 0.0);
+                    }
+                    mc += mPush;
+                    v.vertex = mul(unity_WorldToObject, float4(mc, 1.0));
+                }
+            #endif
                 float4 clipPos;
                 if (_Skyline > 0.0)
                 {
@@ -786,6 +838,8 @@ Shader "PSX/Lit"
                     float sTail = saturate(log(1.0 + max(sx - sT0, 0.0) / SKYLINE_TAIL_C)
                                          / log(1.0 + max(SKYLINE_TAIL_TO - sA - sT0, 1.0) / SKYLINE_TAIL_C));
                     float sdc = sd <= sA ? sd : sA + spanE * (1.0 - exp(-sx / spanE)) + span * SKYLINE_TAIL * sTail;
+                    // a crown member's lead: depth steps at the squeezed distance (z^2 / near / 2^24)
+                    sdc -= crownLead * sdc * sdc / (max(_ProjectionParams.y, 1e-3) * 16777216.0);
                     clipPos = mul(UNITY_MATRIX_VP, float4(_WorldSpaceCameraPos + rel * (sdc / max(sd, 1e-3)), 1.0));
                 }
                 else clipPos = UnityObjectToClipPos(v.vertex);
