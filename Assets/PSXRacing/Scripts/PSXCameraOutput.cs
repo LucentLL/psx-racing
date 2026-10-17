@@ -178,6 +178,35 @@ namespace PSXRacing
                 var fitter = display.GetComponent<AspectRatioFitter>();
                 if (fitter != null) fitter.aspectRatio = builtWidth / (float)builtHeight;
             }
+            ScaleHud();
+        }
+
+        /// <summary>
+        /// THE HUD IN A TALLER BUFFER (PICTURE: HD). Every canvas drawn into
+        /// this framebuffer is ConstantPixelSize, so its units are the
+        /// framebuffer's pixels, and the race HUD was laid out in SHARP's 480
+        /// lines: at 1080 its type would be under half the size. Its scale is
+        /// lines/480 over 480 lines (PSXQuality.HudScaleFor), so the canvas
+        /// is 480 units tall at every height - the cluster, the map and the
+        /// cabin, which lay out off the canvas's own height, come out exactly
+        /// as at SHARP - and 1 at 480 and below, as it always was. Found by
+        /// the camera each canvas draws through (the PSX camera, or the HUD
+        /// camera SpeedBlur splits onto this same buffer); runs on a rebuild,
+        /// never per frame.
+        /// </summary>
+        void ScaleHud()
+        {
+            if (!Application.isPlaying || rt == null) return;
+            float s = PSXQuality.HudScaleFor(builtHeight);
+            foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include))
+            {
+                if (c == null || !c.isRootCanvas || c.renderMode != RenderMode.ScreenSpaceCamera) continue;
+                var wc = c.worldCamera;
+                if (wc == null || (wc != cam && wc.targetTexture != rt)) continue;
+                var sc = c.GetComponent<CanvasScaler>();
+                if (sc != null && sc.uiScaleMode == CanvasScaler.ScaleMode.ConstantPixelSize && sc.scaleFactor != s)
+                    sc.scaleFactor = s;
+            }
         }
 
         /// <summary>Colour depth and dither strength, from the same setting the

@@ -232,7 +232,7 @@ namespace PSXRacing
 
             // ---- VISUALS ----------------------------------------------------
             Step(SettingsTab.Visuals, "PICTURE", () => PSXQuality.Name,
-                 "How coarse the picture is. SHARP is 480 lines; RETRO is a PlayStation.",
+                 "How fine the picture is. HD is your screen's own lines (up to 1440); SHARP is 480; RETRO is a PlayStation.",
                  () => PSXQuality.Cycle(1));
             Step(SettingsTab.Visuals, "TEXTURES", () => TexturePrefs.Label,
                  "ENHANCED: the remastered surfaces, twice the detail. CLASSIC: the original textures.",

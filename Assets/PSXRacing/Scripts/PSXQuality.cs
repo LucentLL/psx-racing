@@ -23,8 +23,14 @@ namespace PSXRacing
     /// are off now, on the owner's call, and for the same reason: each one is
     /// only correct on small triangles and wrecks large ones. See _Affine in
     /// PSXLit.shader and PSXGlobals.vertexSnap.
+    ///
+    /// HD (2026-10-16, the owner: "game resolution increased to 1080p or
+    /// 1440p to further progress towards GT4 visual fidelity") sits above
+    /// SHARP: the display's own lines, 1080 on a 1080p screen, up to 1440.
+    /// It is 3 rather than 0 because the number is what PlayerPrefs keeps,
+    /// and a player who chose SHARP keeps SHARP.
     /// </summary>
-    public enum PSXPixels { Sharp = 0, Classic = 1, Retro = 2 }
+    public enum PSXPixels { Sharp = 0, Classic = 1, Retro = 2, HD = 3 }
 
     /// <summary>
     /// FILM GRADE: the faded-print look over the whole picture — no true black,
@@ -302,18 +308,30 @@ namespace PSXRacing
 
     public static class PSXQuality
     {
-        public static readonly string[] Names = { "SHARP", "CLASSIC", "RETRO" };
+        public static readonly string[] Names = { "SHARP", "CLASSIC", "RETRO", "HD" };
         const string PrefKey = "psx.pixels";
-        const int Count = 3;
+        const int Count = 4;
+        /// <summary>The PICTURE row's order, finest first. The saved numbers
+        /// are the enum's, so this and not the numbers decides what follows
+        /// what.</summary>
+        static readonly PSXPixels[] Order = { PSXPixels.HD, PSXPixels.Sharp, PSXPixels.Classic, PSXPixels.Retro };
 
         static PSXPixels current = (PSXPixels)(-1);
+
+        /// <summary>What a player who never touched the row gets: HD on a
+        /// desktop, SHARP on a phone (its GPU fills a 480-line frame at the
+        /// screen's rate; a 1080-line one it does not). The editor stays on
+        /// SHARP too: the scene builder bakes <see cref="Height"/> into every
+        /// scene and the shot tools were all measured through 480 lines.</summary>
+        public static PSXPixels Default =>
+            Application.isMobilePlatform || Application.isEditor ? PSXPixels.Sharp : PSXPixels.HD;
 
         public static PSXPixels Current
         {
             get
             {
                 if ((int)current < 0)
-                    current = (PSXPixels)Mathf.Clamp(PlayerPrefs.GetInt(PrefKey, 0), 0, Count - 1);
+                    current = (PSXPixels)Mathf.Clamp(PlayerPrefs.GetInt(PrefKey, (int)Default), 0, Count - 1);
                 return current;
             }
             set
@@ -332,7 +350,11 @@ namespace PSXRacing
         /// Same pattern as <see cref="ClusterBulbs"/>.</summary>
         public static int Changed { get; private set; }
 
-        public static void Cycle(int step = 1) => Current = (PSXPixels)((int)Current + step);
+        public static void Cycle(int step = 1)
+        {
+            int i = System.Array.IndexOf(Order, Current);
+            Current = Order[((i + step) % Order.Length + Order.Length) % Order.Length];
+        }
 
         public static string Name => Names[(int)Current];
 
@@ -341,14 +363,40 @@ namespace PSXRacing
         /// PSXCameraOutput, which is a fixed-lines/variable-width machine the
         /// same way a PlayStation was.
         ///
-        /// 480 rather than 240 at the top end: double the lines is half the
-        /// pixel size, which is the single biggest thing between "console" and
-        /// "spreadsheet". It costs four times the fill of the old default and
-        /// this scene is a few thousand triangles of untextured-lighting, so
-        /// there is nothing to spend it on anyway.
+        /// 480 rather than 240 at SHARP: double the lines is half the pixel
+        /// size, which is the single biggest thing between "console" and
+        /// "spreadsheet". HD goes the rest of the way (<see cref="HDLines"/>).
         /// </summary>
-        public static int Height => Current == PSXPixels.Sharp ? 480
+        public static int Height => Current == PSXPixels.HD ? HDLines(Screen.height)
+                                  : Current == PSXPixels.Sharp ? 480
                                   : Current == PSXPixels.Classic ? 360 : 240;
+
+        /// <summary>The most lines HD draws: 1440p. A taller display (a 4K
+        /// screen at 100%) is upscaled from here, so the fill stays what a
+        /// desktop GPU holds at 60.</summary>
+        public const int HDMaxLines = 1440;
+
+        /// <summary>
+        /// HD's line count: the display's OWN lines, as many as the canvas has
+        /// (the page renders at CSS pixels, so a 1080p screen is 1080 lines
+        /// full screen), never more than <see cref="HDMaxLines"/> and never
+        /// fewer than SHARP's 480. The display's own count rather than a fixed
+        /// 1080 because the framebuffer is shown POINT-filtered: 1080 lines on
+        /// a 1125-line window doubles every 24th row, a seam across every edge.
+        /// </summary>
+        public static int HDLines(int displayLines) => Mathf.Clamp(displayLines, 480, HDMaxLines);
+
+        /// <summary>The line count the HUD is laid out in. The race HUD is
+        /// ConstantPixelSize on the PSX camera - its type, the cluster and the
+        /// map are all sized in SHARP's 480 lines - so a taller framebuffer
+        /// draws it at <see cref="HudScaleFor"/>: the same layout at the same
+        /// size on screen, only sharper.</summary>
+        public const int HudLines = 480;
+
+        /// <summary>The HUD canvas's scale factor in a framebuffer this many
+        /// lines tall: lines/480 over 480, and 1 at 480 and below, where every
+        /// preset has always drawn it.</summary>
+        public static float HudScaleFor(int lines) => lines > HudLines ? lines / (float)HudLines : 1f;
 
         /// <summary>Bits per channel before dithering. Five is the real 15-bit
         /// PS1 framebuffer; six halves the banding the dither has to hide, and
@@ -357,8 +405,9 @@ namespace PSXRacing
 
         /// <summary>How much of the Bayer pattern to mix in. At full strength on
         /// a 6-bit buffer the pattern is more visible than the banding it
-        /// exists to break up.</summary>
-        public static float Dither => Current == PSXPixels.Sharp ? 0.35f
+        /// exists to break up. HD keeps SHARP's: its cells are a screen pixel,
+        /// so the same strength is already a finer grain.</summary>
+        public static float Dither => Current == PSXPixels.Sharp || Current == PSXPixels.HD ? 0.35f
                                     : Current == PSXPixels.Classic ? 0.6f : 1f;
     }
 }
