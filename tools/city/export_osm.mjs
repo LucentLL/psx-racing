@@ -1624,11 +1624,13 @@ const lotsFile = join(CACHE, 'lots_core.json');
 // copies gives them; the real one below runs on the outlines untouched.)
 // Uptown reference tiers (2026-10-12, tools/city/ref_tiers.py): the steps of
 // towers OSM draws as one box, MEASURED off a model of uptown the owner may
-// not ship (no mesh or texture of it is used). OFF until the owner picks it:
-// PSX_CITY_REFTIERS=1 puts them in.
+// not ship (no mesh or texture of it is used). ON since 2026-10-16 (skyline
+// tops; owner: "City should reflect actual Charlotte buildings"): the real
+// setbacks, plant floors and measured crowns (the curved-top tower's barrel).
+// PSX_CITY_REFTIERS=0 leaves them out.
 const REF_TIERS = join(dirname(fileURLToPath(import.meta.url)), 'truth', 'uptown_ref_parts.json');
 const partsRaw = file => (existsSync(file) ? loadJson(file).elements : [])
-  .concat(process.env.PSX_CITY_REFTIERS === '1' && existsSync(REF_TIERS) ? loadJson(REF_TIERS).elements : []);
+  .concat(process.env.PSX_CITY_REFTIERS !== '0' && existsSync(REF_TIERS) ? loadJson(REF_TIERS).elements : []);
 const lotBuildings = (() => {
   const partsFile = join(CACHE, 'parts_core.json');
   if (!existsSync(partsFile)) return buildings.concat(covBld);
@@ -2150,7 +2152,7 @@ function inputFiles() {
   add('tools/city/cache/buildings_core.json', join(CACHE, 'buildings_core.json'), 'overpass');
   add('tools/city/cache/parts_core.json', join(CACHE, 'parts_core.json'), 'overpass');   // B2
   if (process.env.PSX_CITY_REFLOOKS !== '0') add('tools/city/truth/uptown_ref_looks.json', REF_LOOKS_FILE, 'registry');   // measured looks
-  if (process.env.PSX_CITY_REFTIERS === '1') add('tools/city/truth/uptown_ref_parts.json', REF_TIERS, 'registry');   // measured tiers
+  if (process.env.PSX_CITY_REFTIERS !== '0') add('tools/city/truth/uptown_ref_parts.json', REF_TIERS, 'registry');   // measured tiers
   if (COVERAGE) {   // coverage (fetch/fetch_coverage.mjs)
     add('tools/city/cache/buildings_city.json', covBldFile, 'overpass');
     add('tools/city/cache/lots_city.json', covLotsFile, 'overpass');

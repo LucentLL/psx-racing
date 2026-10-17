@@ -86,35 +86,35 @@
   },
   "bld": {
     "version": 3,
-    "footprints": 63873,
-    "points": 481588,
+    "footprints": 63897,
+    "points": 481747,
     "bbox": [
       -5844,
       516,
       2605,
       8674
     ],
-    "parts": 838,
-    "hidden": 107,
-    "roofs": 115,
+    "parts": 861,
+    "hidden": 109,
+    "roofs": 116,
     "landmarks": 18
   },
   "outputs": {
     "charlotte_city.bytes": {
-      "bytes": 7708770,
-      "sha256": "ea6f2f8f368a0ac2ab047df618577af234c7cfed3a42abcf1dd5a779a536ecd1"
+      "bytes": 7708786,
+      "sha256": "b27cc5bd8f25b29c9621a983391df583676c2ac0872764605d3c74845829315e"
     },
     "charlotte_dem.bytes": {
       "bytes": 3174661,
       "sha256": "eab411f020ba9caa4c55cbd69073bf217ee4797a19cf4a16f9c7f8c7ace0e841"
     },
     "charlotte_bld.bytes": {
-      "bytes": 4374885,
-      "sha256": "65f2c617e74f7d2082848faf2c2e417e94205a9ff0efa16bcb3527841b7be655"
+      "bytes": 4376668,
+      "sha256": "15bd40d89814fcc01bcd95ca50e2df05dcf755d77e217370bbb7bf68d084a654"
     },
     "charlotte_decks.bytes": {
       "bytes": 12772,
-      "sha256": "9d0187a95e479b0f82554287b9149f5fc7bfdcc1b0b82f6897ce32c4adb7c7e3"
+      "sha256": "d03d558ad1af6ae78d2f23da29251713a4b62f148a01dd9f34e49964d7059aeb"
     },
     "charlotte_routes.json": {
       "bytes": 16883,
