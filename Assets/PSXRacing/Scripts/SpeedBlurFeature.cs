@@ -3,6 +3,7 @@ using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.RenderGraphModule;
+using UnityEngine.Rendering.RenderGraphModule.Util;
 using UnityEngine.Rendering.Universal;
 
 namespace PSXRacing
@@ -55,6 +56,10 @@ namespace PSXRacing
     /// <see cref="MotionBlurFx"/>). It reads the DEPTH out of the camera's own
     /// depth attachment, only on the frames it runs. The lens and the glare
     /// follow it exactly as they follow the zoom.
+    ///
+    /// THE WORLD IN THE WATER (2026-10-17) is a fourth pass, and the only one
+    /// BEFORE the transparents (<see cref="WetPass"/>, <see cref="WetReflections"/>):
+    /// the wet road's screen-space reflections, on a PC, in the rain.
     /// </summary>
     public class SpeedBlurFeature : ScriptableRendererFeature
     {
@@ -99,6 +104,9 @@ namespace PSXRacing
         /// shot tools to read back (GlareShots). Never read in the game.</summary>
         public static RenderTexture GlareEyeForTools;
 
+        /// <summary>The wet road's mirror (<see cref="WetReflections"/>).</summary>
+        WetPass wetPass;
+
         public override void Create()
         {
             pass = new BlurPass
@@ -124,6 +132,16 @@ namespace PSXRacing
                 renderPassEvent = RenderPassEvent.AfterRenderingTransparents + 2,
                 requiresIntermediateTexture = true,
             };
+            wetPass = new WetPass
+            {
+                // After the opaques and the sky, before the transparents: the
+                // water mirrors the solid world, and the smoke, the glows, the
+                // skid marks and the rain are drawn over it (not in it).
+                renderPassEvent = RenderPassEvent.AfterRenderingSkybox,
+                // The camera's own depth attachment is READ as a texture, which
+                // a camera drawing straight into its target cannot offer.
+                requiresIntermediateTexture = true,
+            };
         }
 
         public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
@@ -133,6 +151,7 @@ namespace PSXRacing
             AddBlur(renderer, cam, ref renderingData);
             AddLens(renderer, cam);
             AddGlare(renderer, cam);
+            if (WetReflections.WantedFor(cam)) renderer.EnqueuePass(wetPass);
         }
 
         /// <summary>
@@ -285,6 +304,81 @@ namespace PSXRacing
             CoreUtils.Destroy(glareMaterial);
             glareMaterial = null;
             glarePass?.Release();
+        }
+
+        /// <summary>
+        /// THE WORLD IN THE WATER (<see cref="WetReflections"/> says why;
+        /// PSXWetSSR.cginc says how). Two raster passes: the frame so far
+        /// copied out (the water must read the colour it is about to write
+        /// over), then the WET renderers drawn again through PSX/Lit's
+        /// "PSXWetSSR" pass into the camera's colour, reading that copy and
+        /// the camera's own depth attachment. The depth is bound as a texture,
+        /// so this pass has no depth attachment at all: each fragment tests
+        /// itself against the depth it reads. A fragment that finds nothing to
+        /// mirror is discarded, so the colour it would have written is left as
+        /// the first pass made it (ReadWrite).
+        /// </summary>
+        class WetPass : ScriptableRenderPass
+        {
+            static readonly ShaderTagId PassTag = new ShaderTagId(WetReflections.PassTag);
+            static readonly int ColourId = Shader.PropertyToID("_PSXSSRColour");
+            static readonly int DepthId = Shader.PropertyToID("_PSXSSRDepth");
+            static readonly int ParamsId = Shader.PropertyToID("_PSXSSRParams");
+
+            class WetData
+            {
+                public TextureHandle copy;
+                public TextureHandle depth;
+                public RendererListHandle wet;
+                public Vector4 prms;
+            }
+
+            public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
+            {
+                var resources = frameData.Get<UniversalResourceData>();
+                if (resources.isActiveTargetBackBuffer) return;
+                var colour = resources.activeColorTexture;
+                var depth = resources.activeDepthTexture;
+                if (!colour.IsValid() || !depth.IsValid()) return;
+                var renderingData = frameData.Get<UniversalRenderingData>();
+                var cameraData = frameData.Get<UniversalCameraData>();
+                var lightData = frameData.Get<UniversalLightData>();
+
+                var desc = renderGraph.GetTextureDesc(colour);
+                desc.name = "_PSXSSRColour";
+                desc.clearBuffer = false;
+                desc.msaaSamples = MSAASamples.None;
+                // bilinear for the mirrored taps; the pixel's own is read at
+                // its centre, which bilinear returns exactly
+                desc.filterMode = FilterMode.Bilinear;
+                desc.wrapMode = TextureWrapMode.Clamp;
+                var copy = renderGraph.CreateTexture(desc);
+                renderGraph.AddBlitPass(colour, copy, Vector2.one, Vector2.zero,
+                    filterMode: RenderGraphUtils.BlitFilterMode.ClampNearest, passName: "PSX Wet SSR (copy)");
+
+                using (var builder = renderGraph.AddRasterRenderPass<WetData>("PSX Wet SSR", out var data))
+                {
+                    var draw = RenderingUtils.CreateDrawingSettings(PassTag, renderingData, cameraData, lightData,
+                                                                    SortingCriteria.CommonOpaque);
+                    var filter = new FilteringSettings(RenderQueueRange.opaque, -1, WetReflections.WetRenderingLayer);
+                    data.wet = renderGraph.CreateRendererList(new RendererListParams(renderingData.cullResults, draw, filter));
+                    data.copy = copy;
+                    data.depth = depth;
+                    data.prms = new Vector4(WetReflections.Strength, 0f, 0f, 0f);
+                    builder.UseRendererList(data.wet);
+                    builder.UseTexture(copy);
+                    builder.UseTexture(depth);
+                    builder.SetRenderAttachment(colour, 0, AccessFlags.ReadWrite);
+                    builder.AllowGlobalStateModification(true);
+                    builder.SetRenderFunc(static (WetData d, RasterGraphContext ctx) =>
+                    {
+                        ctx.cmd.SetGlobalTexture(ColourId, d.copy);
+                        ctx.cmd.SetGlobalTexture(DepthId, d.depth);
+                        ctx.cmd.SetGlobalVector(ParamsId, d.prms);
+                        ctx.cmd.DrawRendererList(d.wet);
+                    });
+                }
+            }
         }
 
         class BlurPass : ScriptableRenderPass

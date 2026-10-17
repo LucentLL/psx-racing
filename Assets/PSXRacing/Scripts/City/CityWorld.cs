@@ -1135,6 +1135,8 @@ namespace PSXRacing.City
             mr.sharedMaterials = mats;
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;
+            // a tile's roads and pavements mirror the world in the rain
+            WetReflections.Tag(mr);
         }
 
         Material MatFor(CityMeshes.Slot slot)

@@ -372,44 +372,11 @@ Shader "PSX/Lit"
             #define PSX_WORLD_RECEIVER
             #include "PSXSunShadow.cginc"
 
-            // THE WET ROAD (the NIGHT PASS in the header). Like the car
-            // paint's, the look lives in these #defines, not in materials,
-            // so tuning it never means rebuilding a scene. Linear-space.
-            #define WET_MIN            0.001  // below this a surface is dry: no puddles, no mirror, no spec work
-            #define WET_UP_GAIN        4.0    // only faces that look UP get wet: saturate(N.y * GAIN - BIAS)
-            #define WET_UP_BIAS        2.8    //   is 0 at 45 degrees of slope and full by 18, so a wall, a
-                                              //   kerb's face and a deck's soffit stay dry under a wet material
-            #define PUDDLE_SCALE       0.28   // puddle noise frequency on world XZ: cells about 3.6 m
-            #define PUDDLE_LO          0.30   // contrast on the two-octave noise, so it reads as puddles on
-            #define PUDDLE_HI          0.70   //   damp tarmac rather than as an even grey film
-            #define PUDDLE_MIN         0.45   // how wet the driest patch is, as a share of the hour's wet
-            #define PUDDLE_FADE_M      60.0   // beyond this the pattern fades to its mean: a 3.6 m cell is
-            #define PUDDLE_FAR         0.50   //   under a pixel out there at 240 lines, and would shimmer
-            #define WET_DARKEN         0.32   // wet asphalt is darker: albedo x (1 - this x wet)
-            #define WET_F0             0.03   // water's reflectance face-on (Schlick): the road is a mirror
-                                              //   only at the grazing angle a chase camera sees it at
-            #define WET_SKY_LOD        1.5    // how soft the sky is in the water (the paint's glass value)
-            #define WET_SKY            1.0    // the sky's weight in it
-            #define WET_LAMP_POW       80.0   // a street lamp's streak down the road: Blinn-Phong on a flat
-            #define WET_LAMP_GAIN      1.6    //   plane seen at a grazing angle stretches TOWARD the eye by
-                                              //   itself, which is the streak - no anisotropy needed
-            #define WET_HEAD_POW       60.0   // an oncoming low beam's streak
-            #define WET_HEAD_GAIN      0.9
-            #define WET_SPEC_BASE      0.25   // the streaks' floor under the fresnel: a streak is there
-                                              //   face-on too, only weaker
-            // THE LAND BAND, for a road. PSXSkyReflect.cginc's defaults are
-            // the car paint's (land up to ten degrees), and a road seen from a
-            // chase camera reflects at R.y 0.03-0.15 - every bit of it inside
-            // that band, so the wet road would mirror fog x 0.4 instead of the
-            // blue dusk or the sodium skyglow it is there to show. The land
-            // stops at the horizon here.
-            #define LAND_TOP           0.0
-            #define LAND_SOFT          0.03
-            #define LAND_REFLECT       0.8
-            #define GROUND_REFLECT     0.25
-            // The hour's sky (the _PSXSky* globals and PSXSkyIn). AFTER the
-            // fog/ambient/light uniforms it reads, and after the band above.
-            #include "PSXSkyReflect.cginc"
+            // THE WET ROAD (the NIGHT PASS in the header): its numbers, the
+            // land band for a road, the hash and noise its puddles use and
+            // the hour's sky (PSXSkyReflect.cginc) - in one include, because
+            // the "PSXWetSSR" pass below measures the same water.
+            #include "PSXWet.cginc"
             // The horizon ring (PSXFogRing.cginc): the fog's colour by bearing.
             // After SkyReflect, whose _PSXSkyRotation it is turned by.
             #include "PSXFogRing.cginc"
@@ -641,15 +608,6 @@ Shader "PSX/Lit"
             // alpha: windows keep a soft glow, a quarter of a lamp's.
             #define WIN_EMIT           0.25
 
-            // A sine-free hash (Dave Hoskins' hash12): sin() of a large world
-            // coordinate loses its fraction on a mobile GPU, this does not.
-            float PSXLitHash(float2 p)
-            {
-                float3 p3 = frac(p.xyx * 0.1031);
-                p3 += dot(p3, p3.yzx + 33.33);
-                return frac((p3.x + p3.y) * p3.z);
-            }
-
             // The share of one pixel's footprint [x - fw/2, x + fw/2] (fw in
             // periods) where frac(x) < w: a train of thin lines box-filtered,
             // so a pane edge or an LED line a fraction of a pixel tall fades to
@@ -659,19 +617,6 @@ Shader "PSX/Lit"
                 fw = max(fw, 1e-4);
                 float a = x - 0.5 * fw, b = x + 0.5 * fw;
                 return ((floor(b) * w + min(frac(b), w)) - (floor(a) * w + min(frac(a), w))) / fw;
-            }
-
-            // Value noise: a hash per lattice corner, smoothly blended.
-            float PSXLitNoise(float2 p)
-            {
-                float2 c = floor(p);
-                float2 f = p - c;
-                float2 s = f * f * (3.0 - 2.0 * f);
-                float a = PSXLitHash(c);
-                float b = PSXLitHash(c + float2(1.0, 0.0));
-                float d = PSXLitHash(c + float2(0.0, 1.0));
-                float e = PSXLitHash(c + float2(1.0, 1.0));
-                return lerp(lerp(a, b, s.x), lerp(d, e, s.x), s.y);
             }
 
         #ifdef PSX_FACADE
@@ -1355,17 +1300,8 @@ Shader "PSX/Lit"
                 // THE WET ROAD, one: how wet THIS pixel is - only if it looks
                 // up, more in the puddles - and the darker albedo of wet
                 // tarmac. w <= wetMat, so wherever w is set, specOn was 1.
-                float w = wetMat * saturate(N.y * WET_UP_GAIN - WET_UP_BIAS);
-                if (w > WET_MIN)
-                {
-                    float2 p = i.wpos.xz * PUDDLE_SCALE;
-                    float n = PSXLitNoise(p) * 0.65 + PSXLitNoise(p * 2.03 + 17.17) * 0.35;
-                    float puddle = smoothstep(PUDDLE_LO, PUDDLE_HI, n);
-                    puddle = lerp(puddle, PUDDLE_FAR, saturate(eyeDist / PUDDLE_FADE_M));
-                    w *= lerp(PUDDLE_MIN, 1.0, puddle);
-                    tex.rgb *= 1.0 - WET_DARKEN * w;
-                }
-                else w = 0.0;
+                float w = PSXWetAmount(wetMat, N, i.wpos, eyeDist);
+                if (w > 0.0) tex.rgb *= 1.0 - WET_DARKEN * w;
 
                 // THE SWASH (the SWASH_* #defines). A uniform branch: only a
                 // beach's sand ever takes it.
@@ -1478,10 +1414,13 @@ Shader "PSX/Lit"
                 if (w > 0.0)
                 {
                     float3 R = reflect(-V, N);
-                    float fres = WET_F0 + (1.0 - WET_F0) * pow(1.0 - saturate(dot(N, V)), 5.0);
+                    float fres = PSXWetFresnel(N, V);
                     // The sky in the water is the sky (adapted, not exposed);
                     // the lamps' and beams' streaks are their light (exposed).
-                    float3 refl = PSXSkyIn(R, WET_SKY_LOD) * (WET_SKY * adapt);
+                    // On a PC with REFLECTIONS on, the "PSXWetSSR" pass below
+                    // then trades this sky for the world wherever the mirrored
+                    // ray meets something on the screen.
+                    float3 refl = PSXWetSky(R, adapt);
                     // NOT THE WORLD AROUND THE CAR (2026-10-17; it was read
                     // here by day from 2026-10-13). CarReflections' panorama is
                     // taken from the player's roof, so on a road the size of a
@@ -1720,6 +1659,26 @@ Shader "PSX/Lit"
                 // by a RawImage that blends by alpha: the texel's, as ever.
                 return fixed4(col, _PSXEmitWrite > 0.5 ? emit : tex.a);
             }
+            ENDCG
+        }
+
+        // THE WORLD IN THE WATER (2026-10-17; PSXWetSSR.cginc says it all):
+        // drawn only by SpeedBlurFeature's WetPass, only for the renderers
+        // WetReflections tagged wet, only on a PC with REFLECTIONS on. URP's
+        // own passes never pick it: its LightMode is nobody else's. No depth
+        // test or write - the depth buffer is bound as a TEXTURE here, and the
+        // fragment tests itself against it.
+        Pass
+        {
+            Name "WetSSR"
+            Tags { "LightMode" = "PSXWetSSR" }
+            Cull [_Cull]
+            ZWrite Off
+            ZTest Always
+            CGPROGRAM
+            #pragma vertex vertSSR
+            #pragma fragment fragSSR
+            #include "PSXWetSSR.cginc"
             ENDCG
         }
     }
