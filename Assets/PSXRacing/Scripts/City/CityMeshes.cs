@@ -820,6 +820,9 @@ namespace PSXRacing.City
             /// gable, a fill house) as drawn - its oriented box and the bottom
             /// of its walls - for the house audit (gaps, buried fronts).</summary>
             public readonly List<HouseSeat> houseSeats = new List<HouseSeat>();
+            /// <summary>Skyline tops (2026-10-16): the tip of every rooftop
+            /// mast this tile stood (world space), for the night's beacons.</summary>
+            public readonly List<Vector3> mastTips = new List<Vector3>();
             /// <summary>WP-25: the culvert ends this tile stood (world plan:
             /// the wall's face on the ravine, the outward direction, the
             /// backfill's depth behind it), for the occupancy mask and the
@@ -10400,19 +10403,16 @@ namespace PSXRacing.City
                 }
                 if (floating && f.minH > 0.5f) EmitSoffit(tm, roofScratch, wallY0);
 
-                // A tall tower gets a crown: a smaller prism on top, then a
-                // smaller one still — enough silhouette to tell the tallest
-                // towers from a box, at a distance, in fog.
-                // (Not on one cut back off a street: it is centred on the
-                // footprint's box, and would overhang the cut.)
-                // (B2: not on a part, a shaped roof, or an outline its parts
-                // rise from - their own tiers are the silhouette)
-                // (B3: only a landmark with nothing better yet - every other
-                // tower of 60 m and more has its own massing above)
                 // (C: a landmark hero's own crown on the part it stands on)
+                // Skyline tops (2026-10-16): every other tower of 40 m and
+                // more with no parts and no roof shape wears the rooftop kit
+                // (a parapet lip, its plant, a mast on the tallest). It
+                // replaces the two stacked boxes a tall landmark used to get:
+                // a real tower's crown is its parts or its measured tiers.
                 if (heroAnchor) EmitHeroCrown(map, tm, hero, f, floorP);
-                else if (f.h > 120f && cut == 0 && !f.part && f.roof == 0 && f.landmark != 0)
-                { FacadeMetal(true); EmitCrown(map, tm, f, top, wallSlot); }
+                else if (wallSlot == Slot.FacadeGlass && !retail && !floating && f.roof == 0 && !f.part &&
+                         top - floorP >= RoofKitMinH && !OutlineHasParts(map, fi))
+                    EmitRoofKit(tm, f, fitPoly, top, top - floorP);
                 EndFacade();
                 if (f.style == 3) tm.houseSeats.Add(new HouseSeat { kind = 2, c = f.centre, u = f.u, hu = f.hu, hv = f.hv, y0 = y0, floor = floorP });
 
@@ -10728,28 +10728,6 @@ namespace PSXRacing.City
             return (a + ab * t - p).sqrMagnitude;
         }
 
-        static void EmitCrown(CityMap map, TileMeshes tm, CityMap.Footprint f, float top, Slot slot)
-        {
-            float hu = f.hu, hv = f.hv;
-            var v = new Vector2(-f.u.y, f.u.x);
-            float y = top;
-            for (int step = 0; step < 2; step++)
-            {
-                hu *= 0.62f; hv *= 0.62f;
-                float h = f.h * (step == 0 ? 0.09f : 0.07f);
-                var c1 = f.centre + f.u * hu + v * hv; var c2 = f.centre - f.u * hu + v * hv;
-                var c3 = f.centre - f.u * hu - v * hv; var c4 = f.centre + f.u * hu - v * hv;
-                EmitFacadeQuad(tm, slot, c2, c1, y, y + h, v);
-                EmitFacadeQuad(tm, slot, c1, c4, y, y + h, f.u);
-                EmitFacadeQuad(tm, slot, c4, c3, y, y + h, -v);
-                EmitFacadeQuad(tm, slot, c3, c2, y, y + h, -f.u);
-                var roof = buckets[(int)Slot.RoofFlat];
-                roof.Up(L(c2, y + h, tm), L(c3, y + h, tm), L(c4, y + h, tm), L(c1, y + h, tm),
-                    new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, 0f));
-                y += h;
-            }
-        }
-
         /// <summary>
         /// Uptown B2: an OSM roof:shape over a footprint's walls, simply, in
         /// the walls' own facade (a glass crown reads as glass): pyramidal to
@@ -10789,12 +10767,34 @@ namespace PSXRacing.City
                                   0f, ur, (eave - facBase) / rep, (Mathf.Max(ya, yc) - facBase) / rep);
                 }
                 var rf = buckets[(int)Slot.RoofFlat];
-                int v0 = rf.v.Count;
+                int v0 = rf.v.Count, t0 = rf.t.Count;
                 EarcutInto(rf, poly, top, tm.origin, RoofFlatM);
                 for (int k = v0; k < rf.v.Count; k++)
                 {
                     var v = rf.v[k];
                     rf.v[k] = new Vector3(v.x, YAt(new Vector2(v.x + tm.origin.x, v.z + tm.origin.z)), v.z);
+                }
+                // Skyline tops (2026-10-16): a TOWER's sloped top is its
+                // cladding (the slanted tower's glass), never roof gravel -
+                // the plane moves into the walls' facade, mapped up its slope
+                if (f.h >= RoofKitMinH && wallSlot == Slot.FacadeGlass)
+                {
+                    var side = new Vector2(-dir.y, dir.x);
+                    float runK = Mathf.Sqrt(1f + (rise / span) * (rise / span));   // metres of slope a metre of plan
+                    for (int j = t0; j + 2 < rf.t.Count; j += 3)
+                    {
+                        Vector3 a = rf.v[rf.t[j]], b = rf.v[rf.t[j + 1]], c = rf.v[rf.t[j + 2]];
+                        Vector2 UvOf(Vector3 p)
+                        {
+                            var q = new Vector2(p.x + tm.origin.x, p.z + tm.origin.z);
+                            return new Vector2(Vector2.Dot(q, side) / lk.uM, (eave - facBase + (s1 - Vector2.Dot(q, dir)) * runK) / rep);
+                        }
+                        if (Vector3.Dot(Vector3.Cross(c - a, b - a), Vector3.up) >= 0f) bk.Tri(a, b, c, UvOf(a), UvOf(b), UvOf(c));
+                        else bk.Tri(a, c, b, UvOf(a), UvOf(c), UvOf(b));
+                    }
+                    rf.t.RemoveRange(t0, rf.t.Count - t0);
+                    rf.v.RemoveRange(v0, rf.v.Count - v0);
+                    rf.uv.RemoveRange(v0, rf.uv.Count - v0);
                 }
                 return;
             }
@@ -10811,8 +10811,14 @@ namespace PSXRacing.City
                 cen = Mathf.Abs(ar) > 1e-4f ? cen / (3f * ar) : poly[0];
             }
             bool toAxis = f.roof == 3 || f.roof == 5;
-            int rings = f.roof == 2 || f.roof == 3 ? 3 : 1;
-            float axisHalf = Mathf.Max(0f, f.hu - f.hv);
+            // (skyline tops 2026-10-16: a TOWER's barrel crown runs the whole
+            // long axis, so its ends are upright half-round gables - OSM's
+            // roof:shape=round, and what the curved-top tower measures; a
+            // low building's barrel and every gable keep their rounded or
+            // hipped ends)
+            bool barrelCrown = f.roof == 3 && f.h >= RoofKitMinH;
+            int rings = barrelCrown ? 4 : f.roof == 2 || f.roof == 3 ? 3 : 1;
+            float axisHalf = barrelCrown ? f.hu : Mathf.Max(0f, f.hu - f.hv);
             Vector2 Target(Vector2 p) => toAxis
                 ? f.centre + f.u * Mathf.Clamp(Vector2.Dot(p - f.centre, f.u), -axisHalf, axisHalf) : cen;
             for (int i = 0; i < n; i++)
