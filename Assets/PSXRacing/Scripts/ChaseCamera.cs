@@ -447,7 +447,56 @@ namespace PSXRacing
         /// <summary>Whoever takes the lens next (the replay director, the
         /// walker's head on foot) sets a plain field of view, and a projection
         /// left shifted would silently ignore it.</summary>
-        void OnDisable() => ApplyLensShift(0f);
+        void OnDisable()
+        {
+            ApplyLensShift(0f);
+            UnityEngine.Rendering.RenderPipelineManager.beginCameraRendering -= OnBeginLens;
+            UnityEngine.Rendering.RenderPipelineManager.endCameraRendering -= OnEndLens;
+            if (hoodCutOpen) { CabinClip.Close(); hoodCutOpen = false; }
+        }
+
+        void OnEnable()
+        {
+            UnityEngine.Rendering.RenderPipelineManager.beginCameraRendering += OnBeginLens;
+            UnityEngine.Rendering.RenderPipelineManager.endCameraRendering += OnEndLens;
+        }
+
+        // ---- THE HOOD LENS STANDS BEHIND THE WINDSCREEN (2026-10-16): for
+        // this camera, in that view, the car's own shell is cut at its
+        // windscreen's base (CabinClip) - the bonnet and the wings stay, and
+        // the glass, the pillars and whatever a shell models inside are not
+        // drawn around the lens. The cockpit does the same for itself
+        // (CockpitInterior.HideShell).
+        bool hoodCutOpen;
+        Transform cutMarkedFor;
+        CarModelDef cutMarkedDef;
+
+        void OnBeginLens(UnityEngine.Rendering.ScriptableRenderContext ctx, Camera c)
+        {
+            if (c != cam || Current != View.Hood || target == null || CabinClip.IsOpen) return;
+            var def = Shell;
+            float ls = targetBody != null ? targetBody.LengthScale : 1f;
+            float lift = targetBody != null ? targetBody.BodyLift : 0f;
+            Vector3 bc = BoxCenter, bs = BoxSize;
+            var hood = HoodFor(bc, bs, def, ls, lift);
+            if (!hood.cut) return;
+            if (cutMarkedFor != target || cutMarkedDef != def)
+            {
+                foreach (var r in target.GetComponentsInChildren<Renderer>(true))
+                    if (CabinClip.Cuts(r)) CabinClip.Mark(r);
+                cutMarkedFor = target;
+                cutMarkedDef = def;
+            }
+            CabinClip.Open(target, hood.cutZ, bc, bs);
+            hoodCutOpen = true;
+        }
+
+        void OnEndLens(UnityEngine.Rendering.ScriptableRenderContext ctx, Camera c)
+        {
+            if (c != cam || !hoodCutOpen) return;
+            CabinClip.Close();
+            hoodCutOpen = false;
+        }
 
         /// <summary>Add impact energy, 0..1. Accumulates so a multi-panel crash
         /// shakes harder than a single tap, then clamps so it cannot run away.</summary>
@@ -596,6 +645,81 @@ namespace PSXRacing
         // first surface it meets.
         const int CoverMask = (1 << 8) | (1 << 9);   // CityWorld.RoadLayer, SolidLayer
         const float CoverProbeM = 0.3f;
+
+        // ---- THE BUMPER CAM STOPS AT WHAT IT TOUCHES (owner, 2026-10-16:
+        // "bumper view sees through objects when touching"). The lens rides
+        // 6 cm ahead of the nose's bodywork, and the collider stops about
+        // 10 cm inside it (a 0.955 fit), so nosed into a wall or a rival the
+        // lens and its near plane were already 15-30 cm inside whatever we
+        // touched - and a camera inside a shell sees through it. A box the
+        // size of the near plane is swept from inside our own nose out to
+        // where the near plane will be, plus a rival's bodywork past ITS
+        // collider; whatever it meets first (not us, not the road rising
+        // ahead) pulls the lens back along the car by the overlap. It goes
+        // back at once and comes out slowly, so a scrape does not flicker.
+        /// <summary>How far past the lens the probe reaches: the near plane
+        /// (<see cref="MountNearClip"/>) plus about 10 cm of a rival's shell
+        /// past its collider, plus a margin.</summary>
+        public const float BumperProbeAhead = 0.34f;
+        /// <summary>Half the probe's face: the near plane's half width at the
+        /// bumper lens's widest (86 deg vertical), and under its half height
+        /// so a kerb below the nose is not a wall.</summary>
+        static readonly Vector3 BumperProbeHalf = new Vector3(0.32f, 0.10f, 0.02f);
+        /// <summary>The furthest the lens is pulled into its own car, metres.</summary>
+        public const float BumperMaxPull = 1.2f;
+        /// <summary>How fast the lens returns once the way is clear, m/s.</summary>
+        public const float BumperReleaseMps = 1.5f;
+        // Everything but Water and UI. Cars, the player's and traffic alike,
+        // live on Ignore Raycast (2) so the suspension rays skip them - and a
+        // car is the first thing a bumper gets pushed into, so that layer is in.
+        const int BumperProbeMask = ~((1 << 4) | (1 << 5));
+        static readonly RaycastHit[] probeHits = new RaycastHit[16];
+        float bumperPull;
+        /// <summary>The bumper lens's current pull-back, metres (for the play check).</summary>
+        public float BumperPull => bumperPull;
+
+        Vector3 BumperClear(Vector3 local)
+        {
+            // Never from further back than the windscreen's base: the cabin
+            // (and the cargo riding in it) is behind that.
+            float cowlZ = CowlLine(BoxCenter, BoxSize, Shell,
+                                   targetBody != null ? targetBody.LengthScale : 1f,
+                                   targetBody != null ? targetBody.BodyLift : 0f, out _).x;
+            float want = BumperOverlap(target, local, Mathf.Max(BoxCenter.z, cowlZ));
+            float dt = Time.deltaTime;
+            bumperPull = want >= bumperPull ? want : Mathf.Max(want, bumperPull - BumperReleaseMps * dt);
+            return local - Vector3.forward * bumperPull;
+        }
+
+        /// <summary>How far the bumper lens at <paramref name="local"/> (the
+        /// car's frame) must come back to keep its near plane out of whatever
+        /// is in front of it, metres; 0 on a clear road. The sweep starts
+        /// inside the car, no further back than <paramref name="startMinZ"/>
+        /// (the middle of the car: never the cabin and its cargo). Static for
+        /// the play check.</summary>
+        public static float BumperOverlap(Transform car, Vector3 local, float startMinZ)
+        {
+            if (car == null) return 0f;
+            float back = Mathf.Clamp(local.z - startMinZ, 0.2f, BumperMaxPull);
+            float reach = back + BumperProbeAhead;
+            Vector3 from = car.TransformPoint(local - Vector3.forward * back);
+            Rigidbody own = car.GetComponent<Rigidbody>();
+            int n = Physics.BoxCastNonAlloc(from, BumperProbeHalf, car.forward, probeHits, car.rotation,
+                                            reach, BumperProbeMask, QueryTriggerInteraction.Ignore);
+            float nearest = reach;
+            for (int i = 0; i < n; i++)
+            {
+                var h = probeHits[i];
+                var c = h.collider;
+                // Overlapping where the sweep starts: inside our own car.
+                if (c == null || h.distance <= 0f) continue;
+                if (c.transform.IsChildOf(car) || (own != null && c.attachedRigidbody == own)) continue;
+                // The road climbing ahead of the nose is not a wall.
+                if (Vector3.Dot(h.normal, car.up) > 0.7f) continue;
+                if (h.distance < nearest) nearest = h.distance;
+            }
+            return Mathf.Clamp(reach - nearest, 0f, Mathf.Min(back, BumperMaxPull));
+        }
         void CoverClamp()
         {
             if (!PSXRacing.City.CityDecks.AnyBuilt || target == null) return;
@@ -640,11 +764,19 @@ namespace PSXRacing
                 case View.Bumper:
                 case View.Cockpit:
                     bool head = Current == View.Cockpit;
-                    Mount(MountOffset(Current, BoxCenter, BoxSize, Shell,
-                                      targetBody != null ? targetBody.LengthScale : 1f,
-                                      targetBody != null ? targetBody.BodyLift : 0f,
-                                      DriveSide.IsRHD(targetCar)),
-                          MountPitch(Current) + (head ? CockpitLook.Pitch : 0f),
+                    Vector3 mount = MountOffset(Current, BoxCenter, BoxSize, Shell,
+                                                targetBody != null ? targetBody.LengthScale : 1f,
+                                                targetBody != null ? targetBody.BodyLift : 0f,
+                                                DriveSide.IsRHD(targetCar));
+                    if (Current == View.Bumper) mount = BumperClear(mount);
+                    else bumperPull = 0f;
+                    float pitch = Current == View.Hood
+                        ? HoodFor(BoxCenter, BoxSize, Shell,
+                                  targetBody != null ? targetBody.LengthScale : 1f,
+                                  targetBody != null ? targetBody.BodyLift : 0f).pitch
+                        : MountPitch(Current);
+                    Mount(mount,
+                          pitch + (head ? CockpitLook.Pitch : 0f),
                           head ? CockpitLook.Yaw : 0f);
                     break;
                 case View.TopDown:
@@ -1031,10 +1163,11 @@ namespace PSXRacing
                     // that much, so the two errors cancelled to "a camera three
                     // millimetres above the glass" — which is to say, inside it
                     // for the whole of the near plane.
-                    if (m.ok && m.cowlY > 0.4f && m.noseZ > m.cowlZ
-                             && m.cowlZ > c.z - s.z * 0.5f)
-                        return new Vector3(0f, m.cowlY + MountClearance, m.cowlZ + 0.05f);
-                    return new Vector3(0f, c.y + s.y * 0.30f, c.z + s.z * 0.32f);
+                    //
+                    // Since 2026-10-16 the lens is SOLVED per car (HoodFor):
+                    // on a short or steep bonnet it pitches down and may step
+                    // back behind the windscreen's base.
+                    return HoodFor(c, s, def, lengthScale, lift).pos;
                 case View.Cockpit:
                     return CockpitEye(c, s, m, rhd);
                 default:
@@ -1050,27 +1183,6 @@ namespace PSXRacing
             }
         }
 
-        /// <summary>
-        /// Where the driver's eye goes, in car-local metres.
-        ///
-        /// Behind the base of the windscreen and above the top of the bonnet —
-        /// both MEASURED, for the same reason the hood camera measures them: a
-        /// fraction of the car's length puts the driver of a Superbird in the
-        /// boot and the driver of a 70s Civic on the bumper. The cabin is
-        /// between the cowl and the roof, and this sits the eye two thirds of
-        /// the way up that gap, which is where a seat and a head put it.
-        ///
-        /// Held clear of BOTH by a margin. Level with the roof is a camera
-        /// looking through its own headlining; level with the cowl is one
-        /// looking along the bonnet from underneath, which is what a bumper cam
-        /// is for. On a shell with no measurements at all, the body box gives
-        /// the same answer to within a few centimetres.
-        ///
-        /// Off to the LEFT, because the cars in this game are American and
-        /// their drivers sit on the left. The offset is a fraction of the body
-        /// WIDTH rather than a constant: a quarter of the car's width from the
-        /// centreline is a driver's seat in a supermini and in a Charger alike.
-        /// </summary>
         /// <summary>The baker's cowl, nose and roof where the FITTED body has
         /// them: Z stretched with the shell, Y lifted with its tyres.</summary>
         struct Measured
@@ -1084,33 +1196,159 @@ namespace PSXRacing
             };
         }
 
-        static Vector3 CockpitEye(Vector3 c, Vector3 s, Measured def, bool rhd)
+        /// <summary>
+        /// The base of the windscreen in the car's frame (x = z, y = height):
+        /// the baker's cowl where the shell has one the eye can trust, else a
+        /// fraction of the body box. The cockpit's dash lands on it, and the
+        /// player's own shell is cut there for a camera inside the car
+        /// (<see cref="CabinClip"/>). <paramref name="measured"/> says which.
+        /// </summary>
+        public static Vector2 CowlLine(Vector3 c, Vector3 s, CarModelDef def, float lengthScale,
+                                       float lift, out bool measured) =>
+            CowlOf(c, s, Measured.Of(def, lengthScale, lift), out measured);
+
+        static Vector2 CowlOf(Vector3 c, Vector3 s, Measured def, out bool measured)
         {
             float floor = c.y - s.y * 0.5f;
-            bool measured = def.ok && def.cowlY > 0.4f && def.roofY > def.cowlY + 0.25f
-                            && def.cowlZ > floor;
-            float y = measured
-                ? Mathf.Lerp(def.cowlY, def.roofY, 0.62f)
-                : c.y + s.y * 0.34f;
-            // Never through the headlining, and never below the scuttle.
-            if (measured)
-                y = Mathf.Clamp(y, def.cowlY + 0.12f, def.roofY - EyeHeadroom);
-
-            // Behind the windscreen base. Clamped INTO the box: on a cab-forward
-            // shell the cowl is already near the middle of the car, and half a
-            // metre further back would seat the driver over the rear axle.
-            float z = (measured ? def.cowlZ : c.z + s.z * 0.16f) - EyeSetback;
-            z = Mathf.Max(z, c.z - s.z * 0.35f);
-
-            // The driver's side is the car's own (DriveSide, 2026-10-16): left
-            // in a left-hand drive car, right in a right-hand drive one.
-            return new Vector3((rhd ? 0.22f : -0.22f) * s.x, y, z);
+            measured = def.ok && def.cowlY > 0.4f && def.roofY > def.cowlY + 0.25f
+                       && def.cowlZ > floor;
+            return measured ? new Vector2(def.cowlZ, def.cowlY)
+                            : new Vector2(c.z + s.z * 0.16f, c.y + s.y * 0.14f);
         }
 
-        /// <summary>Clearance between the driver's eye and the roof, metres.</summary>
-        const float EyeHeadroom = 0.22f;
-        /// <summary>How far behind the base of the windscreen the eye sits.</summary>
-        public const float EyeSetback = 0.46f;
+        /// <summary>
+        /// Where the driver's eye goes, in car-local metres. LIFE-SIZE since
+        /// 2026-10-16.
+        ///
+        /// The owner's cabin is modelled at real size - his Driver_Eye sits
+        /// 1.31 m behind the front of his dash (CockpitInterior.ZRef) - and it
+        /// is fitted about this eye until that dash lands on the cowl. The eye
+        /// used to stand 0.46 m behind the cowl, which shrank his cabin to a
+        /// third of its size: every angle inside it was still his, but the
+        /// world outside came 2.8 times too close to it, and a car nosed up to
+        /// our bumper sat on the dashboard (owner: "Cockpit cam does not give
+        /// player's car a physical body, the cockpit shell is the physical
+        /// barrier"). Now the eye stands a full ZRef behind the cowl, the cabin
+        /// is life-size (<see cref="CabinScale"/>), and what shows over its
+        /// dash is this car's own bonnet (<see cref="CabinClip"/>).
+        ///
+        /// The HEIGHT comes off the same picture: his eye looks over the dash,
+        /// where the windscreen meets it, 8.9 degrees down. The eye stands so
+        /// that sightline meets the shell's cowl just above it
+        /// (<see cref="SightMargin"/>). Lower, and the line over the dash would
+        /// pass under the bonnet's back edge into the empty engine bay - a
+        /// slot of road under the dash; higher, and less of the bonnet shows
+        /// than the car has. On a shell with no measurements, the body box.
+        ///
+        /// Clamped INTO the box lengthways: on a cab-forward shell the cowl is
+        /// near the middle, and a life-size reach from there would seat the
+        /// driver over the rear axle - the cabin is then fitted smaller about
+        /// the clamped eye. Across, the cabin sits on the car's centreline: the
+        /// eye is his own 0.405 m off it, on the car's drive side (DriveSide,
+        /// 2026-10-16: left in a left-hand drive car, right in a right-hand
+        /// drive one).
+        /// </summary>
+        static Vector3 CockpitEye(Vector3 c, Vector3 s, Measured def, bool rhd)
+        {
+            Vector2 cowl = CowlOf(c, s, def, out bool measured);
+            float z = Mathf.Max(cowl.x - CockpitInterior.ZRef * CabinScale, c.z - s.z * 0.35f);
+            float scale = Mathf.Max(0.1f, cowl.x - z) / CockpitInterior.ZRef;
+            float y = measured
+                ? cowl.y + CockpitInterior.SightDrop * scale + SightMargin
+                : c.y + s.y * 0.34f;
+            // Never through the roof (a shell this low has no cabin to speak of).
+            if (measured) y = Mathf.Min(y, def.roofY - 0.03f);
+            float x = CockpitInterior.EyeOffCentre * scale;
+            return new Vector3(rhd ? x : -x, y, z);
+        }
+
+        // ---- THE HOOD LENS, SOLVED PER CAR (owner, 2026-10-16: "Hood cam
+        // makes hood seem comparatively small compared to other cars"). One
+        // lens a hand's breadth over every cowl gave a long bonnet (an FD, a
+        // GTO) a third of the frame and a short, steep one (a hatchback) a
+        // strip along the bottom edge, with a car touching our nose towering
+        // over it. Now the bonnet's leading edge - the top of the headlamps,
+        // which the baker measures on every shell - must reach HoodEdgeU up
+        // the frame at rest. The lens keeps its old place where that already
+        // holds; otherwise it pitches down first (to HoodPitchMax), then steps
+        // back behind the windscreen's base (to HoodBackMax; the shell is cut
+        // there for it, CabinClip), which also stands a touching car further
+        // off. Its height keeps both old promises at the widest lens: the
+        // panel under it enters the frame beyond 1.2 near planes, and the
+        // frame's bottom edge lands on the shell at or above the cut (no slot
+        // of road through the empty cabin).
+        /// <summary>How far up the frame (from the bottom, at rest) the
+        /// bonnet's leading edge must reach.</summary>
+        public const float HoodEdgeU = 0.27f;
+        public const float HoodPitchMin = 2f, HoodPitchMax = 7.5f;
+        /// <summary>The furthest the lens steps back behind the cowl, metres.</summary>
+        public const float HoodBackMax = 0.25f;
+
+        public struct HoodLens
+        {
+            public Vector3 pos;
+            public float pitch;
+            /// <summary>Behind the windscreen's base: the shell is cut for it,
+            /// at <see cref="cutZ"/> (the cowl, car frame).</summary>
+            public bool cut;
+            public float cutZ;
+            /// <summary>The bonnet's edge reaches <see cref="HoodEdgeU"/> (false:
+            /// the solve stopped at its limits, or the shell is unmeasured).</summary>
+            public bool reached;
+        }
+
+        /// <summary>The bonnet's leading edge in the car's frame (z, height):
+        /// a few centimetres over the top of the measured headlamps; the nose
+        /// and the cowl where the lamps were never measured.</summary>
+        public static Vector2 BonnetEdge(CarModelDef def, float lengthScale = 1f, float lift = 0f)
+        {
+            var m = Measured.Of(def, lengthScale, lift);
+            if (!m.ok) return new Vector2(2.0f, 0.75f);
+            if (def.headLampSize.y <= 0f || def.headLamp.z * lengthScale <= m.cowlZ + 0.2f)
+                return new Vector2(m.noseZ - 0.1f, m.cowlY - 0.12f);
+            float y = def.headLamp.y + lift + def.headLampSize.y * 0.5f + 0.04f;
+            return new Vector2(Mathf.Min(def.headLamp.z * lengthScale, m.noseZ),
+                               Mathf.Clamp(y, m.cowlY - 0.6f, m.cowlY));
+        }
+
+        public static HoodLens HoodFor(Vector3 c, Vector3 s, CarModelDef def = null, float lengthScale = 1f, float lift = 0f)
+        {
+            var m = Measured.Of(def, lengthScale, lift);
+            if (!(m.ok && m.cowlY > 0.4f && m.noseZ > m.cowlZ && m.cowlZ > c.z - s.z * 0.5f))
+                return new HoodLens { pos = new Vector3(0f, c.y + s.y * 0.30f, c.z + s.z * 0.32f), pitch = HoodPitchMin };
+            Vector2 edge = BonnetEdge(def, lengthScale, lift);
+            float halfRest = ViewFOV(View.Hood, 58f) * 0.5f;
+            float halfMax = FOVFor(View.Hood, 58f, 1e4f, 1f) * 0.5f;
+            float aim = Mathf.Atan((0.5f - HoodEdgeU) * 2f * Mathf.Tan(halfRest * Mathf.Deg2Rad)) * Mathf.Rad2Deg;
+            float panel = MountNearClip * 1.2f;
+            HoodLens last = default;
+            for (int b = -1; b <= Mathf.RoundToInt(HoodBackMax / 0.05f); b++)
+            {
+                float back = b * 0.05f;
+                for (float pitch = HoodPitchMin; pitch <= HoodPitchMax + 1e-4f; pitch += 0.5f)
+                {
+                    float tanEdge = Mathf.Tan((pitch + halfMax) * Mathf.Deg2Rad);
+                    float rise = Mathf.Max(MountClearance, panel * tanEdge);
+                    if (back > 0f) rise = Mathf.Max(rise, back * tanEdge + 0.02f);
+                    float z = m.cowlZ - back;
+                    float edgeDeg = Mathf.Atan2(m.cowlY + rise - edge.y, Mathf.Max(0.1f, edge.x - z)) * Mathf.Rad2Deg;
+                    last = new HoodLens { pos = new Vector3(0f, m.cowlY + rise, z), pitch = pitch, cut = back > 0f, cutZ = m.cowlZ };
+                    if (edgeDeg - pitch <= aim) { last.reached = true; return last; }
+                }
+            }
+            return last;
+        }
+
+        /// <summary>The hood lens stands behind the windscreen's base, so the
+        /// shell must be cut there for it (<see cref="CabinClip"/>).</summary>
+        public static bool HoodCuts(Vector3 c, Vector3 s, CarModelDef def = null, float lengthScale = 1f, float lift = 0f) =>
+            HoodFor(c, s, def, lengthScale, lift).cut;
+
+        /// <summary>The cabin against the owner's model: life-size.</summary>
+        public const float CabinScale = 1f;
+        /// <summary>How far above the shell's cowl the line over the dash
+        /// meets it, metres.</summary>
+        public const float SightMargin = 0.02f;
 
         // ==================================================================
         //  THE CHASE RIG — NFS Underground / Most Wanted framing (2026-09-28)

@@ -204,6 +204,11 @@
   "height": 0.0546
  },
  "dashFrontZ": 1.00764,
+ "screenBase": {
+  "x": 0.0,
+  "y": 0.748,
+  "z": 0.95
+ },
  "wheel": {
   "pivot": {
    "x": -0.405,

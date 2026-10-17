@@ -318,6 +318,16 @@ def main():
 
     dash = [B2U(obs["Dashboard"].matrix_world @ v.co) for v in obs["Dashboard"].data.vertices]
     layout["dashFrontZ"] = round(max(v.z for v in dash), 5)
+    # The dash's top where the windscreen meets it, centre band (2026-10-16):
+    # the line from his eye over it is the one ChaseCamera.CockpitEye stands
+    # on the shell's cowl. Measured off the shipped file it is (0, 0.748, 0.95),
+    # 8.7 deg under the eye. The flattest line over the dash near the glass base.
+    wsv = [B2U(obs["Glass_Windshield"].matrix_world @ v.co) for v in obs["Glass_Windshield"].data.vertices]
+    wsv = [p for p in wsv if abs(p.x) < 0.3]
+    zb = max(p.z for p in wsv if p.y < min(q.y for q in wsv) + 0.01)
+    lip = [p for p in dash if abs(p.x) < 0.3 and p.z > zb - 0.15 and p.y < eye.y - 0.05 and p.z - eye.z > 0.5]
+    sb = min(lip, key=lambda p: (eye.y - p.y) / (p.z - eye.z)) if lip else min(wsv, key=lambda p: p.y)
+    layout["screenBase"] = {"x": 0.0, "y": round(sb.y, 4), "z": round(sb.z, 4)}
 
     # ---- the wheel ---------------------------------------------------------
     w = obs["Steering_Wheel"]
