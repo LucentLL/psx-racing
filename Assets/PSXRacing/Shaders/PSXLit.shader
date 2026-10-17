@@ -155,6 +155,13 @@ Shader "PSX/Lit"
         // the skyline's two copies, where it is the haze's e-folding distance
         // in metres - see the switch in vert.
         [HideInInspector] _Skyline ("Skyline haze (m)", Float) = 0
+        // ...and which of its three draws this copy is (THE SKYLINE'S OWN
+        // DEPTH, in vert): 0 everywhere else. The render state below is the
+        // three draws' too; every other material keeps On / LEqual / RGBA.
+        [HideInInspector] _SkylinePass ("Skyline pass", Float) = 0
+        [HideInInspector] _SkyZWrite ("Skyline ZWrite", Float) = 1
+        [HideInInspector] _SkyZTest ("Skyline ZTest", Float) = 4
+        [HideInInspector] _SkyColorMask ("Skyline ColorMask", Float) = 15
         // THE PROP ATLAS (Charlotte WP-07, PSX_ATLAS_RECT): one texture for a
         // whole city house, whose pack materials TILE (UVs well past 0..1).
         // Each vertex carries the texel rect of its own texture's cell in the
@@ -180,6 +187,9 @@ Shader "PSX/Lit"
         Pass
         {
             Cull [_Cull]
+            ZWrite [_SkyZWrite]
+            ZTest [_SkyZTest]
+            ColorMask [_SkyColorMask]
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
@@ -255,6 +265,7 @@ Shader "PSX/Lit"
             float _ShoreY;
             float _AtlasPx;
             float _Skyline;
+            float _SkylinePass;
             // THE TERRAIN DETAIL (TerrainDetail.cs; the GT4 study, gap 4): a
             // luminance-only sheet, one class per channel at mean 0.5, read at
             // a world-space repeat and multiplied into the albedo near the eye.
@@ -293,6 +304,31 @@ Shader "PSX/Lit"
             #define SKYLINE_TAIL_FROM  6.0    // the tail starts this many squeeze spans past A
             #define SKYLINE_TAIL_C     400.0  // the tail's log knee, metres
             #define SKYLINE_TAIL_TO    9000.0 // the tail reaches the band's end here, metres
+            // THE SKYLINE'S OWN DEPTH (owner, 2026-10-17, a live video on PC:
+            // the crowns and tower tops "flickering layers" still). The band
+            // is 400-469 m of a 24-bit buffer whose near plane is 0.25 m:
+            // ~1,800 steps for every tower from 400 m to 9 km, so at 1 km any
+            // two faces of one tower closer than ~5 m in depth (a crown on its
+            // roof, a fin on its band, a tier on its outline) tied, and which
+            // won was rounding, frame to frame. No squeeze can fix that, so
+            // the skyline is drawn FIRST, in three draws of one mesh
+            // (CitySkyline: queues 1990-1992, before the world):
+            //   1 colour, depth by the REAL distance over its own range,
+            //     SKYLINE_OWN_NEAR..FAR (1.2 cm a step at 1 km): the towers
+            //     cover each other as they really stand;
+            //   2 no colour, depth set to the far plane wherever they drew;
+            //   3 no colour, the squeezed depth (the nearest of them) - what
+            //     the world, the beacons and the sky then meet, as before.
+            // The same pixels in all three (only z differs), so 2 and 3 reach
+            // exactly what 1 drew. The world draws after and covers what it
+            // stands in front of; the sky draws only where nothing did.
+            #define SKYLINE_OWN_NEAR   5.0
+            #define SKYLINE_OWN_FAR    40000.0
+            #if defined(UNITY_REVERSED_Z)
+                #define SKYLINE_FAR_CLIP   0.0    // the far plane's clip z / w (UNITY_NEAR_CLIP_VALUE's partner)
+            #else
+                #define SKYLINE_FAR_CLIP   1.0
+            #endif
 
             float4 _PSXLightDir;    // xyz = direction TO light (world)
             fixed4 _PSXLightColor;
@@ -873,6 +909,20 @@ Shader "PSX/Lit"
                     // a crown member's lead: depth steps at the squeezed distance (z^2 / near / 2^24)
                     sdc -= crownLead * sdc * sdc / (max(_ProjectionParams.y, 1e-3) * 16777216.0);
                     clipPos = mul(UNITY_MATRIX_VP, float4(_WorldSpaceCameraPos + rel * (sdc / max(sd, 1e-3)), 1.0));
+                    // THE SKYLINE'S OWN DEPTH: draw 1 the real point's eye depth
+                    // on its own range (affine in 1/z, so a face's depth is exact
+                    // across the squeezed triangle: the same rays), draw 2 the far
+                    // plane, draw 3 the squeeze above, untouched.
+                    if (_SkylinePass > 0.5 && _SkylinePass < 2.5)
+                    {
+                        float d01 = 0.999999;
+                        if (_SkylinePass < 1.5)
+                        {
+                            float zr = clamp(-dot(UNITY_MATRIX_V[2].xyz, rel), SKYLINE_OWN_NEAR, SKYLINE_OWN_FAR);
+                            d01 = (1.0 / SKYLINE_OWN_NEAR - 1.0 / zr) / (1.0 / SKYLINE_OWN_NEAR - 1.0 / SKYLINE_OWN_FAR);
+                        }
+                        clipPos.z = lerp(UNITY_NEAR_CLIP_VALUE, SKYLINE_FAR_CLIP, d01) * clipPos.w;
+                    }
                 }
                 else clipPos = UnityObjectToClipPos(v.vertex);
 
@@ -1161,6 +1211,8 @@ Shader "PSX/Lit"
                 #define PSX_NIGHT_MASK(u) tex2Dlod(_NightMask, float4(u, 0.0, 0.0))
             #endif
                 clip(tex.a - _Cutoff);
+                // the skyline's depth-only draws (2, 3): nothing to shade
+                if (_SkylinePass > 1.5) return fixed4(0, 0, 0, 0);
 
                 // The pixel's normal, guarded like the vertex's: two
                 // interpolated normals can cancel, and normalize(0) is a NaN

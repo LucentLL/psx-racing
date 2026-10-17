@@ -17,7 +17,9 @@ namespace PSXRacing.EditorTools
     /// is two surfaces trading places in the depth buffer. The share of such
     /// pixels in the sky band is the flicker number ([SkyDepth] lines). The
     /// player's car is then parked on the road facing away from uptown and
-    /// the cockpit's real mirror drawn twice the same way. PNGs:
+    /// the cockpit's real mirror drawn twice the same way, and its FACE seen
+    /// from the driver's eye as the car moves in sub-millimetre steps (MIRROR
+    /// FACE lines: the face against the housing behind it). PNGs:
     /// Screenshots\skydepth_&lt;view&gt;_{a,b}.png and skydepth_&lt;view&gt;_mirror_{a,b}.png
     /// (the mirror blown up x4). Headless:
     /// -executeMethod PSXRacing.EditorTools.SkylineDepthShots.Run
@@ -112,9 +114,18 @@ namespace PSXRacing.EditorTools
                     var skr = sk != null ? sk.GetComponent<MeshRenderer>() : null;
                     if (skr != null)
                     {
+                        // the skyline's three draws (CitySkyline.Draws): every
+                        // renderer on its mesh, not the beacons under it
+                        var skMesh = sk.GetComponent<MeshFilter>().sharedMesh;
+                        var skRs = new List<MeshRenderer>();
+                        foreach (var r in sk.GetComponentsInChildren<MeshRenderer>(true))
+                        {
+                            var rf = r.GetComponent<MeshFilter>();
+                            if (rf != null && rf.sharedMesh == skMesh) skRs.Add(r);
+                        }
                         var off = new List<Renderer>();
                         foreach (var r in Object.FindObjectsByType<Renderer>(FindObjectsSortMode.None))
-                            if (r != skr && r.enabled && !r.forceRenderingOff) { r.forceRenderingOff = true; off.Add(r); }
+                            if (!(r is MeshRenderer mr0 && skRs.Contains(mr0)) && r.enabled && !r.forceRenderingOff) { r.forceRenderingOff = true; off.Add(r); }
                         string sa = "skydepth_" + name + "_sky_a", sb2 = "skydepth_" + name + "_sky_b";
                         cam.transform.SetPositionAndRotation(eye, rot); world.RefreshSkyline(cam);
                         PSXScreenshotTool.ShotAs(cam, sa, eye, rot);
@@ -125,23 +136,24 @@ namespace PSXRacing.EditorTools
                         // squeeze, a 15 km far plane, no fog - so who covers whom
                         // is the geometry's, and the squeezed frame is scored by
                         // how many of its pixels show a different tower.
-                        var skMats = skr.sharedMaterials;
-                        var hazeWas = new float[skMats.Length];
-                        for (int m = 0; m < skMats.Length; m++) { hazeWas[m] = skMats[m].GetFloat("_Skyline"); skMats[m].SetFloat("_Skyline", 0f); }
+                        var skMats = new List<Material>();
+                        foreach (var r in skRs) skMats.AddRange(r.sharedMaterials);
+                        var hazeWas = new float[skMats.Count];
+                        for (int m = 0; m < skMats.Count; m++) { hazeWas[m] = skMats[m].GetFloat("_Skyline"); skMats[m].SetFloat("_Skyline", 0f); }
                         float farWas = cam.farClipPlane, nearWas = cam.nearClipPlane;
                         float fnWas = Shader.GetGlobalFloat("_PSXFogNear"), ffWas = Shader.GetGlobalFloat("_PSXFogFar");
                         var bWas = skr.bounds;
                         cam.farClipPlane = 15000f; cam.nearClipPlane = 1f;
                         Shader.SetGlobalFloat("_PSXFogNear", 1e6f); Shader.SetGlobalFloat("_PSXFogFar", 2e6f);
                         var mf = sk.GetComponent<MeshFilter>();
-                        if (mf != null && mf.sharedMesh != null) skr.bounds = mf.sharedMesh.bounds;
+                        if (mf != null && mf.sharedMesh != null) foreach (var r in skRs) r.bounds = mf.sharedMesh.bounds;
                         string st = "skydepth_" + name + "_sky_truth";
                         cam.transform.SetPositionAndRotation(eye, rot);
                         PSXScreenshotTool.ShotAs(cam, st, eye, rot);
                         cam.farClipPlane = farWas; cam.nearClipPlane = nearWas;
                         Shader.SetGlobalFloat("_PSXFogNear", fnWas); Shader.SetGlobalFloat("_PSXFogFar", ffWas);
-                        for (int m = 0; m < skMats.Length; m++) skMats[m].SetFloat("_Skyline", hazeWas[m]);
-                        skr.bounds = bWas;
+                        for (int m = 0; m < skMats.Count; m++) skMats[m].SetFloat("_Skyline", hazeWas[m]);
+                        foreach (var r in skRs) r.bounds = bWas;
 
                         // ---- THE CROWN (PSX_SKYLINE_LANDMARK): the pair above scored in
                         // the tower's own screen box, and a SWEEP - four frames, the eye
@@ -233,6 +245,71 @@ namespace PSXRacing.EditorTools
                             }
                         }
                         foreach (var t in ab) if (t != null) Object.DestroyImmediate(t);
+
+                        // ---- THE MIRROR'S FACE through the driver's eye (owner,
+                        // 2026-10-17: "the reflective layer seems to interfere with
+                        // the modeled area it is placed on"). The car and the eye
+                        // move together in sub-millimetre steps - nothing moves on
+                        // screen, only the world-space rounding of the cabin's
+                        // vertices changes - so a pixel of the face that changes is
+                        // the face and the housing plate 0.5 mm behind it trading
+                        // places. The mirror's picture is rendered once, before.
+                        Renderer faceR = null;
+                        foreach (var r in player.GetComponentsInChildren<Renderer>(true))
+                            if (r.sharedMaterial != null && r.sharedMaterial.name == "Cockpit_Mirror") { faceR = r; break; }
+                        if (faceR != null)
+                        {
+                            player.transform.SetPositionAndRotation(carPos, carRot);
+                            ci.PreviewMirror(cam);
+                            var fwd = carRot * Vector3.forward; var rgt = carRot * Vector3.right;
+                            var fc = faceR.bounds.center;
+                            var eyeRel = (fc - fwd * 0.55f - rgt * 0.30f - Vector3.up * 0.04f) - carPos;
+                            float nearWas2 = cam.nearClipPlane;
+                            cam.nearClipPlane = CockpitInterior.NearClipFor(ci.Current.scale);
+                            ci.HideShell(true);
+                            Color32[] first = null; int fw = 0, boxN = 0, faceFlips = 0;
+                            var changed = new HashSet<int>();
+                            for (int k = 0; k < 8; k++)
+                            {
+                                var dp = rgt * (k * 0.00037f) + fwd * (k * 0.00023f);
+                                player.transform.SetPositionAndRotation(carPos + dp, carRot);
+                                var e = carPos + dp + eyeRel;
+                                var re = Quaternion.LookRotation(fc + dp - e);
+                                string fn = "skydepth_" + name + "_mirrorface" + k;
+                                PSXScreenshotTool.ShotAs(cam, fn, e, re);
+                                var t = new Texture2D(2, 2);
+                                t.LoadImage(File.ReadAllBytes(Path.Combine(dir, fn + ".png")));
+                                // the face's inner 60% as a pixel box (the eye is where it was)
+                                cam.transform.SetPositionAndRotation(e, re);
+                                var fb3 = faceR.bounds;
+                                float vx0 = 1f, vy0 = 1f, vx1 = 0f, vy1 = 0f;
+                                for (int c8 = 0; c8 < 8; c8++)
+                                {
+                                    var wv = new Vector3((c8 & 1) == 0 ? fb3.min.x : fb3.max.x, (c8 & 2) == 0 ? fb3.min.y : fb3.max.y, (c8 & 4) == 0 ? fb3.min.z : fb3.max.z);
+                                    var vp = cam.WorldToViewportPoint(wv);
+                                    vx0 = Mathf.Min(vx0, vp.x); vx1 = Mathf.Max(vx1, vp.x); vy0 = Mathf.Min(vy0, vp.y); vy1 = Mathf.Max(vy1, vp.y);
+                                }
+                                float mx = (vx1 - vx0) * 0.2f, my = (vy1 - vy0) * 0.2f;
+                                int px0 = Mathf.Clamp((int)((vx0 + mx) * t.width), 0, t.width - 1), px1 = Mathf.Clamp((int)((vx1 - mx) * t.width), 0, t.width - 1);
+                                int py0 = Mathf.Clamp((int)((vy0 + my) * t.height), 0, t.height - 1), py1 = Mathf.Clamp((int)((vy1 - my) * t.height), 0, t.height - 1);
+                                var px = t.GetPixels32();
+                                if (first == null) { first = px; fw = t.width; boxN = (px1 - px0 + 1) * (py1 - py0 + 1); }
+                                else if (t.width == fw)
+                                    for (int y = py0; y <= py1; y++)
+                                        for (int x = px0; x <= px1; x++)
+                                        {
+                                            int i = y * fw + x;
+                                            int la = first[i].r + first[i].g + first[i].b, lb = px[i].r + px[i].g + px[i].b;
+                                            if (Mathf.Abs(la - lb) > 72 && changed.Add(i)) faceFlips++;
+                                        }
+                                Object.DestroyImmediate(t);
+                            }
+                            ci.HideShell(false);
+                            cam.nearClipPlane = nearWas2;
+                            player.transform.SetPositionAndRotation(carPos, carRot);
+                            Debug.Log($"[SkyDepth] {name} MIRROR FACE (driver's eye, car at {carPos.x:0},{carPos.z:0}): FLIPS {faceFlips} of {boxN} px ({100f * faceFlips / Mathf.Max(1, boxN):0.00}%) over 8 sub-mm steps");
+                        }
+                        else Debug.LogError("[SkyDepth] no Cockpit_Mirror renderer");
                         ci.Show(false, false);
                         cv.PreviewShow(false);
                         player.SetActive(false);

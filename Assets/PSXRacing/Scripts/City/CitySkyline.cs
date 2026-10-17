@@ -17,15 +17,22 @@ namespace PSXRacing.City
     /// (<c>_Skyline</c>, the haze distance in metres): past the world's fade
     /// start each vertex is pulled in along its own line of sight into the
     /// last metres before the far plane - the same pixels, depth squeezed,
-    /// order kept - and hazed toward the hour's horizon colour by its REAL
-    /// distance (a fifth at 5 km by clear day, never the white wall the owner
-    /// banned: the drawn world still ends in its own short edge fade). At
-    /// night its lit windows are the facade's own.
+    /// order kept. Its haze toward the horizon colour is off since
+    /// 2026-10-17 (<see cref="HazeClearM"/>; the drawn world still ends in
+    /// its own short edge fade). At night its lit windows are the facade's own.
     ///
     /// A building is left out while its tile is live AND it is nearer than
     /// the world's fade start: there the tile draws it, clear; further out
     /// the tile's copy is fading into the sky and the skyline's (squeezed in
     /// front of it) carries on. In fog weather the skyline is off.
+    ///
+    /// THE OWN DEPTH (2026-10-17): the squeeze keeps towers in order but
+    /// not the faces of ONE tower (a crown on its roof, a fin on its band),
+    /// which tied in the band's few depth steps and flickered. So the mesh
+    /// is drawn three times, before the world (<see cref="Draws"/>; PSX/Lit's
+    /// _SkylinePass): in colour with depth by the real distance on its own
+    /// range, then the depth set to the far plane and the squeezed depth
+    /// written over it, for the world and the beacons to meet.
     /// </summary>
     public class CitySkyline : MonoBehaviour
     {
@@ -41,8 +48,14 @@ namespace PSXRacing.City
         /// a stadium ring kilometres out is under the world's own edge.</summary>
         const float MinPartM = 45f;
         /// <summary>The haze's e-folding distance by clear weather, and in
-        /// rain or snow (metres): 1 - exp(-d / this) of the horizon colour.</summary>
-        public const float HazeClearM = 24000f, HazeWetM = 9000f;
+        /// rain or snow (metres): 1 - exp(-d / this) of the horizon colour -
+        /// and the shader's skyline switch, so never 0. OFF in every weather
+        /// since 2026-10-17 (owner: the far towers still "faded/hazy"; his
+        /// rule of 2026-10-03 is no distance fog unless the weather is Fog,
+        /// and in fog the skyline is not drawn at all). At dusk it lifted the
+        /// finned crown's darkest tenth from 48 to 60 of 255 at 1.3 km. It was
+        /// 24 km clear, 9 km wet.</summary>
+        public const float HazeClearM = 1e9f, HazeWetM = 1e9f;
         /// <summary>The world's edge fade runs to this share of the far plane
         /// (PSXLit.shader's SKYLINE_FAR, the same number)...</summary>
         const float FarShare = 0.997f;
@@ -50,6 +63,16 @@ namespace PSXRacing.City
         /// the fade is about half (SKYLINE_BAND): the world's last, mostly
         /// sky-coloured metres are drawn behind the towers, not over them.</summary>
         const float BandShare = 0.70f;
+
+        /// <summary>The three draws (PSX/Lit _SkylinePass 1..3), each a
+        /// renderer on the one mesh: its queue, ZWrite, ZTest, ColorMask.
+        /// Before the world's Geometry (2000), so the world covers them.</summary>
+        static readonly (string name, int queue, float zwrite, float ztest, float mask)[] Draws =
+        {
+            ("CitySkyline", 1990, 1f, (float)UnityEngine.Rendering.CompareFunction.LessEqual, 15f),
+            ("CitySkyline depth reset", 1991, 1f, (float)UnityEngine.Rendering.CompareFunction.Always, 0f),
+            ("CitySkyline band depth", 1992, 1f, (float)UnityEngine.Rendering.CompareFunction.LessEqual, 0f),
+        };
 
         CityMeshes.SkylineMesh sm;
         long[] tile;
@@ -59,6 +82,8 @@ namespace PSXRacing.City
         int shown;
         readonly List<int> idx = new List<int>(16384);
         MeshRenderer mr;
+        /// <summary>The three draws' renderers (mr first).</summary>
+        MeshRenderer[] mrs;
         Material[] mats;
         float hazeSet = -1f;
         CityBeacons beacons;
@@ -94,23 +119,43 @@ namespace PSXRacing.City
             sk.sm = sm;
             sk.TowerCount = towers;
             sk.PackTowersLeftOut = pack;
-            go.AddComponent<MeshFilter>().sharedMesh = sm.mesh;
-            sk.mr = go.AddComponent<MeshRenderer>();
-            // its own copies: the switch is a material value, and the tiles'
-            // materials must never see it
-            sk.mats = new[] { new Material(mf) { name = mf.name + " (skyline)", hideFlags = HideFlags.DontSave },
-                              new Material(mr0) { name = mr0.name + " (skyline)", hideFlags = HideFlags.DontSave } };
-            // squeezed and hazed from the first frame, and drawn only once a
-            // Refresh has left out what the tiles draw
-            foreach (var m in sk.mats) m.SetFloat("_Skyline", HazeClearM);
+            // its own copies, a pair per draw: the switch is a material value,
+            // and the tiles' materials must never see it. Squeezed and hazed
+            // from the first frame, and drawn only once a Refresh has left out
+            // what the tiles draw.
+            sk.mrs = new MeshRenderer[Draws.Length];
+            sk.mats = new Material[Draws.Length * 2];
+            for (int d = 0; d < Draws.Length; d++)
+            {
+                var dgo = d == 0 ? go : new GameObject(Draws[d].name) { hideFlags = HideFlags.DontSave };
+                if (d > 0) dgo.transform.SetParent(go.transform, false);
+                dgo.AddComponent<MeshFilter>().sharedMesh = sm.mesh;
+                var r = dgo.AddComponent<MeshRenderer>();
+                var pair = new Material[2];
+                for (int k = 0; k < 2; k++)
+                {
+                    var src = k == 0 ? mf : mr0;
+                    var m = new Material(src) { name = src.name + " (" + Draws[d].name + ")", hideFlags = HideFlags.DontSave };
+                    m.SetFloat("_Skyline", HazeClearM);
+                    m.SetFloat("_SkylinePass", d + 1);
+                    m.SetFloat("_SkyZWrite", Draws[d].zwrite);
+                    m.SetFloat("_SkyZTest", Draws[d].ztest);
+                    m.SetFloat("_SkyColorMask", Draws[d].mask);
+                    m.renderQueue = Draws[d].queue;
+                    pair[k] = m;
+                    sk.mats[d * 2 + k] = m;
+                }
+                r.sharedMaterials = pair;
+                r.enabled = false;
+                r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                r.receiveShadows = false;
+                r.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+                r.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+                SunShadows.Exclude(dgo);
+                sk.mrs[d] = r;
+            }
+            sk.mr = sk.mrs[0];
             sk.hazeSet = HazeClearM;
-            sk.mr.sharedMaterials = sk.mats;
-            sk.mr.enabled = false;
-            sk.mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            sk.mr.receiveShadows = false;
-            sk.mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
-            sk.mr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
-            SunShadows.Exclude(go);
 
             int n = elems.Count;
             sk.tile = new long[n]; sk.centre = new Vector2[n]; sk.reach = new float[n]; sk.hidden = new bool[n];
@@ -186,9 +231,9 @@ namespace PSXRacing.City
             if (sm == null || mr == null) return;
             // the beacons and strips: lit with the street lamps, off in fog
             if (beacons != null) beacons.Show(cam != null && NightGlow.On && Seasons.CurrentWeather != Weather.Fog);
-            if (cam == null) { mr.enabled = false; return; }
+            if (cam == null) { Show(false); return; }
             var weather = Seasons.CurrentWeather;
-            if (weather == Weather.Fog) { mr.enabled = false; return; }
+            if (weather == Weather.Fog) { Show(false); return; }
             float far = cam.farClipPlane;
             float fadeEnd = far * FarShare;
             float fadeStart = Mathf.Min(Shader.GetGlobalFloat("_PSXFogNear"), fadeEnd - 30f);
@@ -219,10 +264,10 @@ namespace PSXRacing.City
                     if (!any) { b = new Bounds(p, Vector3.zero); any = true; } else b.Encapsulate(p);
                 }
             }
-            mr.enabled = any;
+            Show(any);
             if (!any) return;
             b.Expand(120f);
-            mr.bounds = b;
+            foreach (var r in mrs) r.bounds = b;
 
             float haze = weather == Weather.Clear ? HazeClearM : HazeWetM;
             if (haze != hazeSet)
@@ -230,6 +275,11 @@ namespace PSXRacing.City
                 hazeSet = haze;
                 foreach (var m in mats) m.SetFloat("_Skyline", haze);
             }
+        }
+
+        void Show(bool on)
+        {
+            foreach (var r in mrs) r.enabled = on;
         }
 
         /// <summary>The shader's squeeze (PSXLit.shader, the skyline switch):

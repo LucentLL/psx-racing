@@ -50,7 +50,12 @@ namespace PSXRacing.EditorTools
             string dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots");
             // PSX_HAZE_TEX=both: the game drawn twice instead, CLASSIC then ENHANCED textures
             bool texPair = System.Environment.GetEnvironmentVariable("PSX_HAZE_TEX") == "both";
-            string[] variants = texPair ? new[] { "classic", "enhanced" } : new[] { "game", "no_skyline_haze", "no_edge_fade", "neither" };
+            // PSX_HAZE_WIN=1 (2026-10-17): the towers' lit windows off instead
+            // of the edge fade - is the pale the windows' glow or the haze?
+            bool winSet = !texPair && System.Environment.GetEnvironmentVariable("PSX_HAZE_WIN") == "1";
+            string[] variants = texPair ? new[] { "classic", "enhanced" }
+                              : winSet ? new[] { "game", "no_windows", "no_skyline_haze", "neither" }
+                              : new[] { "game", "no_skyline_haze", "no_edge_fade", "neither" };
             bool texWas = TexturePrefs.Enhanced;
             try
             {
@@ -85,11 +90,15 @@ namespace PSXRacing.EditorTools
                     var skMats = sk != null ? sk.GetComponent<MeshRenderer>().sharedMaterials : new Material[0];
                     var hazeWas = new float[skMats.Length];
                     for (int m = 0; m < skMats.Length; m++) hazeWas[m] = skMats[m].GetFloat("_Skyline");
+                    var winWas = new float[skMats.Length];
+                    for (int m = 0; m < skMats.Length; m++) winWas[m] = skMats[m].GetFloat("_NightWin");
                     float curveWas = globals != null ? globals.fogCurve : 0f;
                     var shots = new Texture2D[variants.Length];
                     for (int v = 0; v < variants.Length; v++)
                     {
-                        bool noHaze = !texPair && (v == 1 || v == 3), noFade = !texPair && (v == 2 || v == 3);
+                        bool noHaze = !texPair && (winSet ? v >= 2 : (v == 1 || v == 3)), noFade = !texPair && !winSet && (v == 2 || v == 3);
+                        bool noWin = winSet && (v == 1 || v == 3);
+                        for (int m = 0; m < skMats.Length; m++) skMats[m].SetFloat("_NightWin", noWin ? 0f : winWas[m]);
                         if (texPair) { TexturePrefs.Enhanced = v == 1; TextureTier.ApplyAll(); }
                         for (int m = 0; m < skMats.Length; m++) skMats[m].SetFloat("_Skyline", noHaze ? 1e9f : hazeWas[m]);
                         if (globals != null) { globals.fogCurve = noFade ? 64f : curveWas; globals.Apply(); }
@@ -98,7 +107,7 @@ namespace PSXRacing.EditorTools
                         var t = new Texture2D(2, 2); t.LoadImage(File.ReadAllBytes(Path.Combine(dir, f + ".png")));
                         shots[v] = t;
                     }
-                    for (int m = 0; m < skMats.Length; m++) skMats[m].SetFloat("_Skyline", hazeWas[m]);
+                    for (int m = 0; m < skMats.Length; m++) { skMats[m].SetFloat("_Skyline", hazeWas[m]); skMats[m].SetFloat("_NightWin", winWas[m]); }
                     if (globals != null) { globals.fogCurve = curveWas; globals.Apply(); }
                     Debug.Log($"[SkyHaze] {name}: {Vector2.Distance(at, map.uptown):0} m from uptown, fog {(globals != null ? globals.fogNear : 0f):0}-{(globals != null ? globals.fogFar : 0f):0}, skyline haze {(hazeWas.Length > 0 ? hazeWas[0] : 0f):0} m");
                     for (int v = 0; v < variants.Length; v++)

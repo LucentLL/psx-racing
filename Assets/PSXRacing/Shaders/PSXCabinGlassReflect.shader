@@ -38,6 +38,7 @@ Shader "PSX/CabinGlassReflect"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            #include "PSXCameraRel.cginc"
 
             sampler2D _ReflTex;
             float4 _ReflTex_TexelSize;
@@ -50,7 +51,7 @@ Shader "PSX/CabinGlassReflect"
             v2f vert(appdata v)
             {
                 v2f o;
-                o.pos = UnityObjectToClipPos(v.vertex);
+                o.pos = PSXObjectToClipRel(v.vertex);
                 o.wpos = mul(unity_ObjectToWorld, v.vertex).xyz;
                 o.wnrm = UnityObjectToWorldNormal(v.normal);
                 return o;

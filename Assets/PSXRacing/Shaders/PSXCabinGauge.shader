@@ -40,6 +40,7 @@ Shader "PSX/CabinGauge"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            #include "PSXCameraRel.cginc"
             #include "PSXTone.cginc"
 
             sampler2D _FaceTex;
@@ -58,7 +59,7 @@ Shader "PSX/CabinGauge"
             v2f vert(appdata v)
             {
                 v2f o;
-                o.pos = UnityObjectToClipPos(v.vertex);
+                o.pos = PSXObjectToClipRel(v.vertex);
                 o.uv = v.uv;
                 if (_FlipU > 0.5) o.uv.x = 1.0 - o.uv.x;
                 return o;

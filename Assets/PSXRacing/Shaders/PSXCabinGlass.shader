@@ -46,6 +46,7 @@ Shader "PSX/CabinGlass"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            #include "PSXCameraRel.cginc"
             #include "PSXLamps.cginc"
             #include "PSXTone.cginc"
 
@@ -67,7 +68,7 @@ Shader "PSX/CabinGlass"
             v2f vert(appdata v)
             {
                 v2f o;
-                o.pos = UnityObjectToClipPos(v.vertex);
+                o.pos = PSXObjectToClipRel(v.vertex);
                 o.uv = v.uv;
                 o.wpos = mul(unity_ObjectToWorld, v.vertex).xyz;
                 o.wnrm = UnityObjectToWorldNormal(v.normal);
