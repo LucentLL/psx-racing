@@ -52,5 +52,41 @@ namespace PSXRacing.EditorTools
             finally { CityMeshes.FacadeStructureOff = keep; }
             Debug.Log("[FacadeShots] done: Screenshots\\facade_*_{before,after}.png");
         }
+
+        /// <summary>PSX/Lit compiled for the PLAYER's graphics API (GLES3,
+        /// the WebGL build), not just the editor's: every pass, vertex and
+        /// fragment, plain and with PSX_FACADE. Logs [FacadeCompile] OK or
+        /// each failing message. Headless (-buildTarget WebGL):
+        /// -executeMethod PSXRacing.EditorTools.FacadeStructureShots.CompileCheck</summary>
+        public static void CompileCheck()
+        {
+            var sh = Shader.Find("PSX/Lit");
+            if (sh == null) { Debug.LogError("[FacadeCompile] no PSX/Lit"); return; }
+            var data = UnityEditor.ShaderUtil.GetShaderData(sh);
+            int bad = 0, done = 0;
+            foreach (var kw in new[] { new string[0], new[] { "PSX_FACADE" } })
+            for (int s = 0; s < data.SubshaderCount; s++)
+            {
+                var sub = data.GetSubshader(s);
+                for (int p = 0; p < sub.PassCount; p++)
+                {
+                    var pass = sub.GetPass(p);
+                    foreach (var st in new[] { UnityEditor.Rendering.ShaderType.Vertex, UnityEditor.Rendering.ShaderType.Fragment })
+                    {
+                        if (!pass.HasShaderStage(st)) continue;
+                        var r = pass.CompileVariant(st, kw, UnityEditor.Rendering.ShaderCompilerPlatform.GLES3x, UnityEditor.BuildTarget.WebGL);
+                        done++;
+                        if (!r.Success)
+                        {
+                            bad++;
+                            foreach (var m in r.Messages)
+                                Debug.LogError($"[FacadeCompile] FAIL pass {p} {st} [{string.Join(" ", kw)}] line {m.line}: {m.message} {m.messageDetails}");
+                        }
+                    }
+                }
+            }
+            if (bad == 0) Debug.Log($"[FacadeCompile] OK: {done} GLES3 stages compiled");
+            else Debug.LogError($"[FacadeCompile] {bad} of {done} GLES3 stages FAILED");
+        }
     }
 }

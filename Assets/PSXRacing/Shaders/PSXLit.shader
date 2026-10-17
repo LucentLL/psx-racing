@@ -440,11 +440,13 @@ Shader "PSX/Lit"
             // is box-filtered by the pixel's footprint (PSXPulseBox, FstSpan):
             // past two pixels a band shows its mean, never a crawling line,
             // and the per-pane variety fades to its mean the same way.
-            #define FST_PIER_GLASS     float3(0.6, 0.9, 1.4)   // a curtain tower's corner pier, m: horizontal, grid, vertical
+            #define FST_PIER_GLASS     float3(0.35, 0.5, 0.9)  // a curtain tower's corner pier, m: horizontal, grid, vertical
             #define FST_PIER_STONE     float3(1.2, 1.6, 2.2)   // a stone tower's
             #define FST_FIN_GLASS      0.30   // a vertical tower's fin on every bay line (m)
             #define FST_FIN_STONE      0.50   // a stone pier carried up through the spandrels (m)
-            #define FST_SPANDREL       0.38   // a ribbon tower's spandrel, share of the storey (centred on the slab)
+            #define FST_SPANDREL       0.34   // a ribbon tower's spandrel, share of the storey (centred on the slab)
+            #define FST_SPANDREL_GLASS 0.42   // on glass it is spandrel GLASS: the same glass, opaque behind, this dark
+            #define FST_METAL_GRAIN    0.35   // how much of the panels' grain a glass tower's aluminium keeps (stone and louvres keep all of theirs)
             #define FST_BELT           0.30   // a grid tower's belt band, share of a storey
             #define FST_COPING         0.08   // the coping at a wall's top, storeys (~0.3 m)
             #define FST_PLANT_MIN      10.0   // a wall this many storeys tall has a plant band at its top...
@@ -987,8 +989,11 @@ Shader "PSX/Lit"
                 float louv = max(mech, plant);
                 float solidS = fstStone * max(max(pier, fin), max(belt, max(coping, lobbyMull)));
                 solidS = max(solidS, plinth);
-                float solidM = (1.0 - fstStone) * max(max(max(pier, fin), max(spandrel, belt)), max(coping, lobbyMull));
+                float solidM = (1.0 - fstStone) * max(max(pier, fin), max(coping, lobbyMull));
                 solidM = max(solidM * (1.0 - plinth), max(louv, canopy) * (1.0 - plinth));
+                // a glass tower's spandrels and belts are spandrel GLASS: its
+                // own glass, darker, opaque (no room, no blinds, never lit)
+                float spandG = (1.0 - fstStone) * max(spandrel, belt) * (1.0 - solidM) * (1.0 - plinth);
                 float lobbyGlass = lobby * (1.0 - lobbyMull) * (1.0 - plinth) * (1.0 - pier);
                 float3 sCol = stoneC * lerp(1.0, 1.10, max(fin, belt)) * lerp(1.0, 1.18, coping);
                 float3 mCol = metalC;
@@ -1006,15 +1011,17 @@ Shader "PSX/Lit"
                                        float2(dAM.x * (0.25 / FACADE_COLS), fdx.y * vk),
                                        float2(dAM.y * (0.25 / FACADE_COLS), fdy.y * vk)).rgb, _MainTexRaw);
                     float partD = dot(partT, float3(0.2126, 0.7152, 0.0722)) * 2.0;
-                    sCol *= partD; mCol *= partD;
+                    sCol *= partD;
+                    mCol *= lerp(1.0, partD, max(max(fstStone, useLouv), FST_METAL_GRAIN));
                 }
                 tex.rgb = lerp(tex.rgb, FST_LOBBY_GLASS * lerp(float3(1, 1, 1), fstHue, 0.3), lobbyGlass * fstOn);
+                tex.rgb *= lerp(1.0, FST_SPANDREL_GLASS, spandG * fstOn);
                 tex.rgb = lerp(tex.rgb, sCol, solidS * fstOn);
                 tex.rgb = lerp(tex.rgb, mCol, solidM * fstOn);
                 tex.rgb *= 1.0 - 0.35 * reveal * fstOn * (1.0 - max(solidS, solidM));
                 // read by the materials block (and the lit windows: a solid part is never a lit window)
-                float facSolid = fstOn * max(solidS, solidM);
-                float fstMetalW = fstOn * solidM, fstStoneW = fstOn * solidS, fstGlassW = fstOn * lobbyGlass;
+                float facSolid = fstOn * max(max(solidS, solidM), spandG);
+                float fstMetalW = fstOn * solidM, fstStoneW = fstOn * solidS, fstGlassW = fstOn * max(lobbyGlass, spandG);
 
                 // PANES: each its own tint, tilt and reflectance, a few with
                 // the blinds part-way down - faded to the mean (no variety at
@@ -1023,7 +1030,7 @@ Shader "PSX/Lit"
                 float2 paneC = float2(floor(bX), floor(sF));
                 float ph1 = PSXLitHash(paneC + float2(facKey * 517.0, facKey * 91.0));
                 float ph2 = PSXLitHash(paneC.yx * 1.37 + float2(facKey * 233.0 + 3.1, 7.7));
-                float paneSharp = fstOn * (1.0 - fstPlain) * saturate(2.0 - 2.0 * max(sFw, bXw));
+                float paneSharp = fstOn * (1.0 - fstPlain) * (1.0 - spandG) * saturate(2.0 - 2.0 * max(sFw, bXw));
                 float3 paneTint = lerp(float3(1, 1, 1), (1.0 + FST_TINT_VAR * (ph1 - 0.5))
                                 * lerp(float3(1.0 - FST_HUE_VAR, 1.0, 1.0 + FST_HUE_VAR), float3(1.0 + FST_HUE_VAR, 1.0, 1.0 - FST_HUE_VAR), ph2), paneSharp);
                 float2 paneTilt = (float2(ph2, frac(ph1 * 7.31)) - 0.5) * (FST_TILT * paneSharp);
