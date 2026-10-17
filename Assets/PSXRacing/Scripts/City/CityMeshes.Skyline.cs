@@ -118,6 +118,12 @@ namespace PSXRacing.City
                 mesh.SetVertices(verts);
                 mesh.SetUVs(0, uvs);
                 mesh.SetColors(cols);
+                // the walls (facade structure, UV1): the far skyline wears its bands too
+                var facs = new List<Vector4>(total);
+                if (fac.fac != null && fac.fac.Count == fac.Count) facs.AddRange(fac.fac);
+                else for (int k = 0; k < fac.Count; k++) facs.Add(Vector4.zero);
+                for (int k = 0; k < roof.Count; k++) facs.Add(Vector4.zero);
+                mesh.SetUVs(1, facs);
                 var idxF = fac.t.ToArray();
                 var idxR = new int[roof.t.Count];
                 for (int k = 0; k < idxR.Length; k++) idxR[k] = roof.t[k] + fac.Count;

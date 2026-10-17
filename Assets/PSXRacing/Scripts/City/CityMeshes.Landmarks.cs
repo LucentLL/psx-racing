@@ -498,7 +498,7 @@ namespace PSXRacing.City
             if (!InsetPoly(heroP2, 2.5f, heroP3)) { heroP3.Clear(); heroP3.AddRange(heroP2); }
             var roof = buckets[(int)Slot.RoofFlat];
             // the stone (granite-grey precast), its storeys from the ground
-            PickFacade(f.centre, 0, 1, 3, new Color32(186, 182, 176, 255), floor, yCrown - floor);
+            PickFacade(f.centre, 0, 1, 3, new Color32(186, 182, 176, 255), floor, yCrown - floor, f.rhythm);
             Walls(tm, poly, y0, yPod);
             EarcutInto(roof, poly, yPod, tm.origin, RoofFlatM);
             Walls(tm, heroP1, yPod, ySet1);
@@ -564,7 +564,7 @@ namespace PSXRacing.City
             float H = f.h;
             float yShaft = floor + H - 30f, yBand = yShaft + 2f, yApex = floor + H - 9f, yTip = floor + H;
             if (yShaft - floor < 20f) return false;
-            PickFacade(f.centre, 0, 1, 3, new Color32(196, 176, 150, 255), floor, yShaft - floor);
+            PickFacade(f.centre, 0, 1, 3, new Color32(196, 176, 150, 255), floor, yShaft - floor, f.rhythm);
             Walls(tm, poly, y0, yShaft);
             HeroNoCollide(yShaft - floor > HeroCollideTopM);
             // the cornice: the silver grid as metal, in the roof's green

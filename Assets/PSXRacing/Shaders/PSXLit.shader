@@ -415,6 +415,71 @@ Shader "PSX/Lit"
                 float3 env = lerp(city, sky, smoothstep(0.0, FAC_CITY_TOP, R.y));
                 return lerp(env, lerp(dark, groundLit, day), saturate(-R.y * FAC_GROUND_K));
             }
+
+            // THE TOWER-SCALE STRUCTURE (facade structure, 2026-10-16). The
+            // atlas repeats ONE window tile floor after floor, so up close
+            // and by day a tower read as a flat textured box. Over it, drawn
+            // at the scale a tower is BUILT at, from the wall each vertex
+            // stands on (UV1, CityMeshes.Bucket.fac: metres from the wall's
+            // start and to its end, its top in storeys, the packed scheme):
+            //   a BASE    the lobby (one storey, two on a tall tower): dark
+            //             clear glass between mullions or stone piers, a
+            //             canopy band over it, a stone plinth under it;
+            //   a TOP     a plant band of louvres under a coping line;
+            //   BANDS     a spandrel every floor (HORIZONTAL: ribbons), a
+            //             belt every 4-6 (GRID), a plant floor every 12-15 up
+            //             a tall VERTICAL tower;
+            //   PIERS     at every convex corner (stone or metal), and fins
+            //             on every bay line of a VERTICAL tower;
+            //   PANES     each its own tint, tilt and reflection, a few with
+            //             their blinds down - a glass wall is not one sheet;
+            //   AO        the foot of the wall and its inside corners darker
+            //             (sky light, most of the reflection, some of the sun).
+            // Which scheme a tower wears is MEASURED for the real uptown ones
+            // (ref_looks.py --rhythm), so they read as themselves. Every edge
+            // is box-filtered by the pixel's footprint (PSXPulseBox, FstSpan):
+            // past two pixels a band shows its mean, never a crawling line,
+            // and the per-pane variety fades to its mean the same way.
+            #define FST_PIER_GLASS     float3(0.6, 0.9, 1.4)   // a curtain tower's corner pier, m: horizontal, grid, vertical
+            #define FST_PIER_STONE     float3(1.2, 1.6, 2.2)   // a stone tower's
+            #define FST_FIN_GLASS      0.30   // a vertical tower's fin on every bay line (m)
+            #define FST_FIN_STONE      0.50   // a stone pier carried up through the spandrels (m)
+            #define FST_SPANDREL       0.38   // a ribbon tower's spandrel, share of the storey (centred on the slab)
+            #define FST_BELT           0.30   // a grid tower's belt band, share of a storey
+            #define FST_COPING         0.08   // the coping at a wall's top, storeys (~0.3 m)
+            #define FST_PLANT_MIN      10.0   // a wall this many storeys tall has a plant band at its top...
+            #define FST_PLANT          1.0    // ...this many storeys deep (1.5 from 30 storeys)
+            #define FST_CANOPY         0.12   // the band over the lobby, storeys
+            #define FST_PLINTH         0.12   // the stone under it
+            #define FST_LOBBY_MULL_M   1.5    // the lobby glass's mullion pitch (glass towers), m...
+            #define FST_LOBBY_PIER_M   4.5    // ...and its stone pier pitch (stone towers)
+            #define FST_METAL_LIN      0.30   // aluminium, linear, before the building's hue...
+            #define FST_BRONZE_LIN     0.085  // ...or a dark bronze / charcoal frame
+            #define FST_LOBBY_GLASS    0.030  // the lobby's clear glass, linear (a dark room behind it)
+            #define FST_TINT_VAR       0.28   // a pane's brightness spread
+            #define FST_HUE_VAR        0.05   // ...and its hue's
+            #define FST_TILT           0.07   // a pane's tilt (radians, about): its reflection is its own
+            #define FST_F0_VAR         0.40   // a pane's reflectance spread (x F)
+            #define FST_BLIND_SHARE    0.12   // share of panes with their blinds part-way down
+            #define FST_BLIND_LIN      0.30   // the blind, linear
+            #define FST_AO_FOOT        0.50   // sky light kept at the foot of a wall...
+            #define FST_AO_FOOT_S      2.2    // ...back to whole this many storeys up
+            #define FST_AO_CANYON      0.88   // the street canyon: the lower ten storeys a little darker
+            #define FST_AO_CORNER      0.50   // sky light lost at an inside corner...
+            #define FST_AO_CORNER_M    2.5    // ...falling off over this many metres
+            #define FST_AO_SUN         0.30   // share of the AO the sun takes too (the baked look)
+            #define FST_AO_ENV         0.60   // share of it the reflection takes
+
+            // The share of [x - fw/2, x + fw/2] inside [lo, hi].
+            float FstSpan(float x, float lo, float hi, float fw)
+            {
+                fw = max(fw, 1e-4);
+                return saturate((min(x + 0.5 * fw, hi) - max(x - 0.5 * fw, lo)) / fw);
+            }
+            // n = 3q + r for a small integer n carried in a float, robust to
+            // a GPU's approximate divide: (n + 0.5) / d is never within 1/6
+            // of an integer.
+            float FstDiv(float n, float d) { return floor((n + 0.5) / d); }
         #endif
 
             // THE LIT WINDOWS (the NIGHT PASS in the header). The facade's
@@ -560,6 +625,9 @@ Shader "PSX/Lit"
             #ifdef PSX_FURNITURE
                 float2 wire : TEXCOORD1;    // (side -1/+1, half width m); (0, 0) off a wire
             #endif
+            #ifdef PSX_FACADE
+                float4 fac : TEXCOORD1;     // the wall (THE TOWER-SCALE STRUCTURE): m from its start, m to its end, its top in storeys, the scheme
+            #endif
             };
 
             struct v2f
@@ -597,6 +665,8 @@ Shader "PSX/Lit"
             #ifdef PSX_FACADE
                 // rgb the building's tint (x2), w its atlas column (+0.5: metal)
                 half4 facade : TEXCOORD7;
+                // the wall, as given (full float: metres along a 200 m wall)
+                float4 fac : TEXCOORD8;
             #endif
             };
 
@@ -717,6 +787,7 @@ Shader "PSX/Lit"
                 float frem = fa8 - fcol * 32.0;
                 float fmet = step(15.5, frem);
                 o.facade = half4(v.color.rgb * 2.0, fcol + 0.5 * fmet + 0.25 * step(7.5, frem - 16.0 * fmet));
+                o.fac = v.fac;
             #endif
                 return o;
             }

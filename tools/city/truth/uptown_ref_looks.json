@@ -2,307 +2,383 @@
  "looks": {
   "r15420352": {
    "building:colour": "#a09b90",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "r20454106": {
    "building:colour": "#adaca3",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "r20499229": {
    "building:colour": "#9398a0",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "horizontal"
   },
   "r9668390": {
    "building:colour": "#b8c1cc",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "horizontal"
   },
   "r9916859": {
    "building:colour": "#b1aca2",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "vertical"
   },
   "w1024112214": {
    "building:colour": "#687e94",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "grid"
   },
   "w1024112216": {
    "building:colour": "#9fa9ac",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w1046919930": {
    "building:colour": "#acafb0",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "vertical"
   },
   "w1047699852": {
    "building:colour": "#c8bcad",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "vertical"
   },
   "w1082788394": {
    "building:colour": "#98a4ba",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "grid"
   },
   "w1189773794": {
    "building:colour": "#6b818e",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "horizontal"
   },
   "w120627540": {
    "building:colour": "#b7bab8",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "horizontal"
   },
   "w120628262": {
    "building:colour": "#aaa19c",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w131139722": {
    "building:colour": "#aa9180",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "horizontal"
   },
   "w131139730": {
    "building:colour": "#797276",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "horizontal"
   },
   "w131139746": {
    "building:colour": "#b3adaa",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "vertical"
   },
   "w131139755": {
    "building:colour": "#a7b4b6",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "horizontal"
   },
   "w1372094547": {
    "building:colour": "#c2b397",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "vertical"
   },
   "w1409110310": {
    "building:colour": "#d0ba99",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w1499786346": {
    "building:colour": "#a0a5a7",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "grid"
   },
   "w1499786347": {
    "building:colour": "#a5a7a4",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w1550692284": {
    "building:colour": "#c1d7d9",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "grid"
   },
   "w178365287": {
    "building:colour": "#b5c1c2",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "grid"
   },
   "w255159816": {
    "building:colour": "#aaa89b",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "horizontal"
   },
   "w313204070": {
    "building:colour": "#c4c9d2",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w322278731": {
    "building:colour": "#8e97a2",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "horizontal"
   },
   "w334176489": {
    "building:colour": "#939d9f",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "vertical"
   },
   "w337841702": {
    "building:colour": "#b6b5aa",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w337842693": {
    "building:colour": "#9b9584",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w341587198": {
    "building:colour": "#c2b09a",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "vertical"
   },
   "w380090204": {
    "building:colour": "#bbc5cf",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "horizontal"
   },
   "w380092604": {
    "building:colour": "#86919b",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "horizontal"
   },
   "w380092605": {
    "building:colour": "#a5978f",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w380092606": {
    "building:colour": "#b4aba5",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w394430321": {
    "building:colour": "#768d96",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "grid"
   },
   "w397369786": {
    "building:colour": "#bec2bf",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "vertical"
   },
   "w397372120": {
    "building:colour": "#bfb09a",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w397372122": {
    "building:colour": "#8a9089",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "horizontal"
   },
   "w397372377": {
    "building:colour": "#7b8892",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "horizontal"
   },
   "w397372378": {
    "building:colour": "#5285a3",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "grid"
   },
   "w398592361": {
    "building:colour": "#b8b8ab",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w398592602": {
    "building:colour": "#bdb6a6",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w398592604": {
    "building:colour": "#aaa196",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w461393549": {
    "building:colour": "#8a918e",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w461397324": {
    "building:colour": "#b8d1e8",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "horizontal"
   },
   "w484755656": {
    "building:colour": "#708481",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "horizontal"
   },
   "w498311840": {
    "building:colour": "#98a19f",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w498314236": {
    "building:colour": "#bcafa3",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "vertical"
   },
   "w499337304": {
    "building:colour": "#b1bbc6",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "horizontal"
   },
   "w500195176": {
    "building:colour": "#b5a697",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w500204485": {
    "building:colour": "#a19588",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w500204486": {
    "building:colour": "#a09c8e",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "horizontal"
   },
   "w500204487": {
    "building:colour": "#9aaab3",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "horizontal"
   },
   "w500727935": {
    "building:colour": "#8e8685",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w500727936": {
    "building:colour": "#887e7b",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w500727942": {
    "building:colour": "#9da5ab",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "horizontal"
   },
   "w500736201": {
    "building:colour": "#959b92",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w500736203": {
    "building:colour": "#dadace",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w500997294": {
    "building:colour": "#cfd1d0",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w500997295": {
    "building:colour": "#d0d6d6",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "horizontal"
   },
   "w500997296": {
    "building:colour": "#c3b7a1",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   },
   "w502712379": {
    "building:colour": "#958879",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "horizontal"
   },
   "w502718738": {
    "building:colour": "#aaa598",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "horizontal"
   },
   "w601807112": {
    "building:colour": "#949b9f",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "vertical"
   },
   "w695677597": {
    "building:colour": "#8e8a83",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "horizontal"
   },
   "w713125795": {
    "building:colour": "#80979f",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "horizontal"
   },
   "w715062087": {
    "building:colour": "#d0bd9d",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "vertical"
   },
   "w715062090": {
    "building:colour": "#8394b7",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "horizontal"
   },
   "w773909122": {
    "building:colour": "#99958c",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "horizontal"
   },
   "w90480703": {
    "building:colour": "#a89989",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "vertical"
   },
   "w90480711": {
    "building:colour": "#9bb6d3",
-   "building:material": "glass"
+   "building:material": "glass",
+   "psx:rhythm": "grid"
   },
   "w90480712": {
    "building:colour": "#a2a6a7",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "vertical"
   },
   "w90480718": {
    "building:colour": "#8b8a81",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "horizontal"
   },
   "w90480727": {
    "building:colour": "#b9b2a2",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "horizontal"
   },
   "w94405127": {
    "building:colour": "#aeb4b4",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "horizontal"
   },
   "w985188329": {
    "building:colour": "#b0aca1",
-   "building:material": "stone"
+   "building:material": "stone",
+   "psx:rhythm": "grid"
   }
  },
  "note": "measured from a reference model of uptown (not shipped); see ref_looks.py"

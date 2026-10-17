@@ -1425,8 +1425,13 @@ function facadeLook(t) {
   if ((m = /^#([0-9a-f]{6})$/.exec(c))) rgb = [0, 2, 4].map(k => parseInt(m[1].substr(k, 2), 16));
   else if ((m = /^#([0-9a-f]{3})$/.exec(c))) rgb = [0, 1, 2].map(k => parseInt(m[1][k] + m[1][k], 16));
   else if (LOOK_WORD[c]) rgb = LOOK_WORD[c];
-  return { use, mat, rgb };
+  // facade structure (2026-10-16, ref_looks.py --rhythm): the measured rhythm
+  // of the tower's walls - 1 vertical (piers, fins), 2 horizontal (ribbons,
+  // spandrels), 3 a punched grid; 0 unknown (CityMeshes.PickFacade hashes one)
+  const rhythm = LOOK_RHYTHM[t['psx:rhythm']] ?? 0;
+  return { use, mat, rgb, rhythm };
 }
+const LOOK_RHYTHM = { vertical: 1, horizontal: 2, grid: 3 };
 
 function parseHeight(h) {
   if (!h) return NaN;
@@ -1987,8 +1992,9 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
   for (const b of all) {
     w.u8(b.style | (b.gable ? 0x80 : 0)); w.f32(b.h);
     // v2 (Uptown B1, 2026-10-04): what the facade is made of, as OSM says
-    const lk = b.look || { use: 0, mat: 0, rgb: null };
-    w.u8(lk.use | (lk.mat << 2) | (lk.rgb ? 0x80 : 0));
+    // (bits 5-6, 2026-10-16: the measured rhythm; 0 in every older file)
+    const lk = b.look || { use: 0, mat: 0, rgb: null, rhythm: 0 };
+    w.u8(lk.use | (lk.mat << 2) | ((lk.rhythm || 0) << 5) | (lk.rgb ? 0x80 : 0));
     if (lk.rgb) { w.u8(lk.rgb[0]); w.u8(lk.rgb[1]); w.u8(lk.rgb[2]); }
     // v3 (Uptown B2): bit0 hidden (drawn by its parts), bit1 a part, bit2 never
     // swapped for a pack tower, bits3-5 roof shape; bit7: the extra block

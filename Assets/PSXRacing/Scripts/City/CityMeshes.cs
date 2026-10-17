@@ -533,7 +533,8 @@ namespace PSXRacing.City
         /// tagged), stretched so the top is a whole floor.
         /// Sets Bucket.Tint: call EndFacade after the building.
         /// </summary>
-        static void PickFacade(Vector2 centre, byte style, byte use, byte mat, Color32 colour, float groundY, float height)
+        static void PickFacade(Vector2 centre, byte style, byte use, byte mat, Color32 colour, float groundY, float height,
+                               byte rhythm = 0)
         {
             uint h = FacadeHash(centre);
             float r = (h & 0xFFFF) / 65536f;
@@ -543,8 +544,8 @@ namespace PSXRacing.City
             else if (mat == 1 && colour.a == 255) look = NearestGlass(colour);   // a measured glass colour picks its kind
             else if (mat == 1) look = glass < 40 ? LookBlue : glass < 75 ? LookSilver : LookTeal;
             else if (mat == 2 || mat == 5) look = LookBrick;
-            else if (mat == 3) look = height >= OfficeTowerM ? OfficeStone(colour, h) : LookStone;
-            else if (style == 0) look = r < 0.12f ? OfficeStone(colour, h) : (glass < 38 ? LookBlue : glass < 72 ? LookSilver : LookTeal);
+            else if (mat == 3) look = height >= OfficeTowerM ? OfficeStone(colour, h, rhythm) : LookStone;
+            else if (style == 0) look = r < 0.12f ? OfficeStone(colour, h, rhythm) : (glass < 38 ? LookBlue : glass < 72 ? LookSilver : LookTeal);
             else if (style == 1) look = r < 0.36f ? (glass < 45 ? LookBlue : glass < 80 ? LookSilver : LookTeal)
                                       : r < 0.70f ? LookStone : LookBrick;
             else look = r < 0.72f ? LookBrick : LookStone;
@@ -555,6 +556,7 @@ namespace PSXRacing.City
             float floors = Mathf.Max(1f, Mathf.Round(height / nominal));
             facFloorH = height > 0.5f ? height / floors : nominal;
             facBase = groundY;
+            FacadeStructure(look, rhythm, h, height);
 
             Vector3 k;
             if (colour.a == 255)
@@ -578,10 +580,83 @@ namespace PSXRacing.City
         const float OfficeTowerM = 40f;
         /// <summary>Granite for a warm colour, precast for a cool or white
         /// one; untagged by hash.</summary>
-        static int OfficeStone(Color32 c, uint h)
+        static int OfficeStone(Color32 c, uint h, byte rhythm = 0)
         {
+            // facade structure (2026-10-16): a MEASURED rhythm picks the
+            // stone's pattern - ribbons are precast, piers and a punched
+            // grid granite (the tint keeps the measured colour either way)
+            if (rhythm == RhythmHorizontal) return LookPrecast;
+            if (rhythm == RhythmVertical || rhythm == RhythmGrid) return LookGranite;
             if (c.a != 255) return ((h >> 24) & 1u) == 0u ? LookGranite : LookPrecast;
             return c.r >= c.b + 6 ? LookGranite : LookPrecast;
+        }
+
+        // ------------------------------------------------------------------
+        //  TOWER-SCALE STRUCTURE (facade structure, 2026-10-16)
+        // ------------------------------------------------------------------
+        // The atlas repeats ONE window tile floor after floor, so up close
+        // and by day a tower read as a flat textured box (the owner's UG2
+        // Bayview ask, step 3). PSX/Lit's FACADE STRUCTURE draws the scale
+        // a tower is built at over it: a lobby base, a plant band and coping
+        // at the top, spandrel or belt bands, corner piers, fins, per-pane
+        // tint and reflection, and the darker foot and inside corners. It
+        // needs to know the WALL each pixel is on, which rides in UV1
+        // (Bucket.fac): set here per building, per wall in EmitFacadeQuad.
+        // Each measured tower's rhythm (ref_looks.py --rhythm: vertical,
+        // horizontal, grid - CityMap.Footprint.rhythm) picks its scheme, so
+        // the real ones read as themselves; the rest by hash.
+        public const byte RhythmVertical = 1, RhythmHorizontal = 2, RhythmGrid = 3;
+        /// <summary>PSX/Lit's schemes: a punched GRID (belts every few
+        /// floors), VERTICAL piers or fins, HORIZONTAL ribbons (a spandrel
+        /// every floor), PLAIN (the photographed mid-rises: AO and coping only).</summary>
+        const int SchemeGrid = 0, SchemeVertical = 1, SchemeHorizontal = 2, SchemePlain = 3;
+        static int facScheme, facBaseN, facBelt;
+        /// <summary>The wall being emitted: its corners (0 none - a shallow
+        /// bend of a curved wall, 1 convex: a pier, 2 inside: shadow) and its
+        /// top when the emitter splits it (a shopfront under the atlas).
+        /// EmitFootprint sets them round each wall; anything else is a box
+        /// (convex both ends, its own top).</summary>
+        static int facCornerA = 1, facCornerB = 1;
+        static float facWallTop = float.NegativeInfinity;
+        /// <summary>A turn this small (degrees) is a bend in a curved wall, not a corner.</summary>
+        const float CornerMinDeg = 25f;
+        /// <summary>The lobby: one storey from this height, double-height from the next.</summary>
+        const float LobbyMinH = 30f, LobbyTallH = 100f;
+
+        static void FacadeStructure(int look, byte rhythm, uint h, float height)
+        {
+            uint hs = h * 0x9E3779B1u; hs ^= hs >> 13;
+            int p = (int)((hs >> 4) % 100u);
+            int scheme;
+            if (look == LookStone || look == LookBrick) scheme = SchemePlain;
+            else if (rhythm == RhythmVertical) scheme = SchemeVertical;
+            else if (rhythm == RhythmHorizontal) scheme = SchemeHorizontal;
+            else if (rhythm == RhythmGrid) scheme = SchemeGrid;
+            else if (look == LookPrecast) scheme = SchemeHorizontal;     // the ribbon column is ribbons
+            else if (look == LookGranite) scheme = p < 55 ? SchemeVertical : SchemeGrid;
+            else scheme = p < 45 ? SchemeGrid : p < 72 ? SchemeVertical : SchemeHorizontal;
+            facScheme = scheme;
+            facBaseN = scheme == SchemePlain ? 0 : height >= LobbyTallH ? 2 : height >= LobbyMinH ? 1 : 0;
+            // belts: every 4-6 floors on a grid; a plant floor every 12-15 up
+            // a tall pier tower; none on ribbons (a spandrel every floor)
+            facBelt = scheme == SchemeGrid ? 4 + (int)((hs >> 12) % 3u)
+                    : scheme == SchemeVertical && height >= 90f ? 12 + (int)((hs >> 16) % 4u) : 0;
+        }
+
+        /// <summary>UV1.w: 1 + corner A + 3 corner B + 9 (scheme + 4 (lobby
+        /// storeys + 4 belt period)) - an integer PSX/Lit reads back with
+        /// floor and fmod (every vertex of a wall carries the same one).</summary>
+        static float FacadeStructPack(int cornerA, int cornerB) =>
+            1 + cornerA + 3 * cornerB + 9 * (facScheme + 4 * (facBaseN + 4 * Mathf.Clamp(facBelt, 0, 15)));
+
+        /// <summary>The corner at <paramref name="b"/> between the wall
+        /// a→b and the wall b→c of a CCW outline: 1 convex, 2 inside, 0 a
+        /// bend too shallow to be a corner.</summary>
+        static int CornerKind(Vector2 a, Vector2 b, Vector2 c)
+        {
+            Vector2 d0 = b - a, d1 = c - b;
+            float turn = Mathf.Atan2(d0.x * d1.y - d0.y * d1.x, Vector2.Dot(d0, d1)) * Mathf.Rad2Deg;
+            return Mathf.Abs(turn) < CornerMinDeg ? 0 : turn > 0f ? 1 : 2;
         }
 
         /// <summary>The glass kind (blue, silver, teal) whose column mean is
@@ -603,7 +678,11 @@ namespace PSXRacing.City
             return best;
         }
 
-        static void EndFacade() { Bucket.Tint = new Color32(128, 128, 128, 0); facCrownY = float.MaxValue; }
+        static void EndFacade()
+        {
+            Bucket.Tint = new Color32(128, 128, 128, 0); facCrownY = float.MaxValue;
+            Bucket.FacOn = false; facCornerA = facCornerB = 1; facWallTop = float.NegativeInfinity;
+        }
 
         /// <summary>Uptown B1b: the vertex alpha's half step (column x 32
         /// + 16) tells PSX/Lit's facade that this surface is METAL - the
@@ -883,6 +962,23 @@ namespace PSXRacing.City
             /// stamp <see cref="Tint"/> on every vertex they add.</summary>
             public List<Color32> col;
             public static Color32 Tint = new Color32(128, 128, 128, 0);
+            /// <summary>Facade structure (2026-10-16): UV1 of the facade
+            /// atlas's bucket alone (null everywhere else) - the wall the
+            /// vertex stands on, for PSX/Lit's tower-scale structure: x metres
+            /// from the wall's start corner, y metres to its end corner, z the
+            /// wall's top in the building's storeys, w its packed scheme
+            /// (<see cref="FacadeStructPack"/>; 0 = no structure). Quad and Tri
+            /// stamp it from the wall frame below while <see cref="FacOn"/>.</summary>
+            public List<Vector4> fac;
+            public static bool FacOn;
+            public static Vector2 FacA, FacDir;
+            public static float FacLen, FacZ, FacW;
+            static Vector4 FacAt(Vector3 p)
+            {
+                if (!FacOn) return Vector4.zero;
+                float s = (p.x - FacA.x) * FacDir.x + (p.z - FacA.y) * FacDir.y;
+                return new Vector4(s, FacLen - s, FacZ, FacW);
+            }
             /// <summary>CloseOpenGround: the counts when the pass began (it never welds its own faces).</summary>
             public int passV, passT;
             /// <summary>Uptown C: triangles DRAWN but not COLLIDED (a
@@ -891,7 +987,7 @@ namespace PSXRacing.City
             /// <see cref="t"/>; the tile's collider is built from t alone.</summary>
             public List<int> tn;
             public static bool NoCollide;
-            public void Clear() { v.Clear(); uv.Clear(); t.Clear(); col?.Clear(); tn?.Clear(); }
+            public void Clear() { v.Clear(); uv.Clear(); t.Clear(); col?.Clear(); fac?.Clear(); tn?.Clear(); }
             public int Count => v.Count;
             List<int> Tris => NoCollide ? (tn ??= new List<int>(256)) : t;
 
@@ -906,6 +1002,7 @@ namespace PSXRacing.City
                 v.Add(a); v.Add(b); v.Add(c); v.Add(d);
                 uv.Add(ua); uv.Add(ub); uv.Add(uc); uv.Add(ud);
                 if (col != null) { col.Add(Tint); col.Add(Tint); col.Add(Tint); col.Add(Tint); }
+                if (fac != null) { fac.Add(FacAt(a)); fac.Add(FacAt(b)); fac.Add(FacAt(c)); fac.Add(FacAt(d)); }
                 var tl = Tris;
                 tl.Add(i); tl.Add(i + 2); tl.Add(i + 1);
                 tl.Add(i); tl.Add(i + 3); tl.Add(i + 2);
@@ -917,6 +1014,7 @@ namespace PSXRacing.City
                 v.Add(a); v.Add(b); v.Add(c);
                 uv.Add(ua); uv.Add(ub); uv.Add(uc);
                 if (col != null) { col.Add(Tint); col.Add(Tint); col.Add(Tint); }
+                if (fac != null) { fac.Add(FacAt(a)); fac.Add(FacAt(b)); fac.Add(FacAt(c)); }
                 var tl = Tris;
                 tl.Add(i); tl.Add(i + 2); tl.Add(i + 1);
             }
@@ -1015,6 +1113,7 @@ namespace PSXRacing.City
             var b = new Bucket[(int)Slot.COUNT];
             for (int i = 0; i < b.Length; i++) b[i] = new Bucket();
             b[(int)Slot.FacadeGlass].col = new List<Color32>(512);   // the facade atlas (Uptown B1)
+            b[(int)Slot.FacadeGlass].fac = new List<Vector4>(512);   // its walls (facade structure)
             return b;
         }
 
@@ -1984,6 +2083,15 @@ namespace PSXRacing.City
                     else for (int k = 0; k < bk.Count; k++) cols.Add(white);
                 }
                 mesh.SetColors(cols);
+                // ...and its walls (facade structure, UV1)
+                var facs = new List<Vector4>(totalV);
+                foreach (var s in used)
+                {
+                    var bk = buckets[(int)s];
+                    if (bk.fac != null && bk.fac.Count == bk.Count) facs.AddRange(bk.fac);
+                    else for (int k = 0; k < bk.Count; k++) facs.Add(Vector4.zero);
+                }
+                mesh.SetUVs(1, facs);
             }
             mesh.subMeshCount = used.Count;
             int baseV = 0;
@@ -10155,10 +10263,20 @@ namespace PSXRacing.City
                 float ur = Mathf.Max(1f, Mathf.Round(wallM / lk.uM));
                 float rep = facFloorH * lk.floors;
                 float va = (y0 - facBase) / rep, vb = (y1 - facBase) / rep;
+                // facade structure: the wall this is (UV1), in tile space
+                if (wallM > 0.05f)
+                {
+                    Bucket.FacOn = true;
+                    Bucket.FacA = new Vector2(a.x - tm.origin.x, a.y - tm.origin.z);
+                    Bucket.FacDir = (c - a) / wallM;
+                    Bucket.FacLen = wallM;
+                    Bucket.FacZ = (Mathf.Max(y1, facWallTop) - facBase) / facFloorH;
+                    Bucket.FacW = FacadeStructPack(facCornerA, facCornerB);
+                }
                 // a tall tower's floodlit top storeys: the wall split where
                 // the band starts, the crown bit on above it
                 float cy = facCrownY;
-                if (y1 <= cy + 0.3f) { EmitPanels(tm, style, a, c, y0, y1, outward, ur, vb - va, va); return; }
+                if (y1 <= cy + 0.3f) { EmitPanels(tm, style, a, c, y0, y1, outward, ur, vb - va, va); Bucket.FacOn = false; return; }
                 var keep = Bucket.Tint;
                 if (y0 < cy - 0.3f)
                 {
@@ -10170,6 +10288,7 @@ namespace PSXRacing.City
                 }
                 else { FacadeCrown(true); EmitPanels(tm, style, a, c, y0, y1, outward, ur, vb - va, va); }
                 Bucket.Tint = keep;
+                Bucket.FacOn = false;
                 return;
             }
             var fm = FacadeMeters[(int)style - (int)Slot.FacadeTower];
@@ -10312,7 +10431,7 @@ namespace PSXRacing.City
                 if (wallSlot == Slot.FacadeGlass)
                 {
                     PickFacade(gf.centre, (byte)(f.style == 4 ? 2 : f.style), f.use, f.mat, f.colour, floorP,
-                               gf != f ? Mathf.Max(gf.h, 1f) : top - floorP);
+                               gf != f ? Mathf.Max(gf.h, 1f) : top - floorP, f.rhythm != 0 ? f.rhythm : gf.rhythm);
                     // the tower's floodlit crown: its top band, whichever part reaches it
                     float towerH = Mathf.Max(top - floorP, gf.h);
                     facCrownY = towerH >= CrownMinH && !CrownsOff ? floorP + towerH - CrownBandM(towerH) : float.MaxValue;
@@ -10378,9 +10497,14 @@ namespace PSXRacing.City
                     var d = c - a;
                     if (d.sqrMagnitude < 0.04f) continue;
                     var outward = new Vector2(d.y, -d.x).normalized;
+                    // facade structure: this wall's two corners and its top
+                    facCornerA = CornerKind(fitPoly[(i + n0 - 1) % n0], a, c);
+                    facCornerB = CornerKind(a, c, fitPoly[(i + 2) % n0]);
+                    facWallTop = eaveY + parapet;
                     if (eaveY > wallY0 + 0.05f)
                         EmitWallStyled(tm, a, c, wallY0, eaveY + parapet, outward, retail, i == frontWall, wallSlot,
                                        covShop ? fi : -1);
+                    facCornerA = facCornerB = 1; facWallTop = float.NegativeInfinity;
                     // the parapet's inner face (seen from a deck's roof)
                     if (parapet > 0f) EmitFacadeQuad(tm, wallSlot, c, a, top, top + parapet, -outward);
                 }

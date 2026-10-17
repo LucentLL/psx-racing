@@ -440,7 +440,7 @@ export function parseBld(buf) {
   for (let i = 0; i < n; i++) {
     const sb = r.u8(); const f = { style: sb & 0x7f, gable: (sb & 0x80) !== 0, h: r.f32() };
     if (version >= 2) {
-      const lb = r.u8(); f.use = lb & 3; f.mat = (lb >> 2) & 7;
+      const lb = r.u8(); f.use = lb & 3; f.mat = (lb >> 2) & 7; f.rhythm = (lb >> 5) & 3;
       if (lb & 0x80) f.rgb = [r.u8(), r.u8(), r.u8()];
     }
     if (version >= 3) {

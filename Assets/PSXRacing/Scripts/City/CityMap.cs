@@ -359,6 +359,10 @@ namespace PSXRacing.City
             /// untagged, 1 glass, 2 brick, 3 stone/concrete, 4 metal, 5 wood;
             /// colour.a 255 only where building:colour was tagged.</summary>
             public byte use, mat;
+            /// <summary>Facade structure (2026-10-16): the measured rhythm of
+            /// its walls (ref_looks.py --rhythm): 0 unknown, 1 vertical,
+            /// 2 horizontal, 3 a punched grid.</summary>
+            public byte rhythm;
             public Color32 colour;
             /// <summary>PBLD v3 (Uptown B2): OSM building:part. A HIDDEN
             /// outline is drawn by its parts (it stays for occupancy, its h
@@ -1180,6 +1184,7 @@ namespace PSXRacing.City
                         int lb = r.ReadByte();
                         f.use = (byte)(lb & 3);
                         f.mat = (byte)((lb >> 2) & 7);
+                        f.rhythm = (byte)((lb >> 5) & 3);
                         if ((lb & 0x80) != 0) f.colour = new Color32(r.ReadByte(), r.ReadByte(), r.ReadByte(), 255);
                     }
                     if (version >= 3)

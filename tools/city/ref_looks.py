@@ -12,6 +12,17 @@ colour and one word per building.
 Usage: py ref_looks.py <pack_facade_cols.json> <xform.json> [--check]
 pack_facade_cols.json: [x, y, area, r, g, b] per wall triangle of the model
 (sRGB 0..1, sampled from its textures), model metres.
+
+RHYTHM (facade structure, 2026-10-16):
+       py ref_looks.py --rhythm <cp7_rhythm.json> <xform.json> [--check]
+adds "psx:rhythm" (vertical / horizontal / grid) to the towers ALREADY in
+truth/uptown_ref_looks.json, leaving their colour and material as they are.
+cp7_rhythm.json (ref/blender_wallrhythm.py): [x, y, samples, along, up, lum]
+per wall triangle - how much the luminance changes going ALONG the wall
+(vertical lines: piers, fins) and going UP it (horizontal lines: spandrels,
+ribbons). A tower whose along/up ratio is high reads as piers, low as
+ribbons, between as a punched grid (CityMeshes.PickFacade, PSX/Lit's
+FACADE STRUCTURE).
 """
 import colorsys, io, json, math, sys
 from shapely.geometry import Polygon, Point
@@ -48,7 +59,75 @@ def family(mr, mg, mb):
     return "stone"
 
 
+RHYTHM_V = 1.30      # along/up at or above: vertical (piers, fins)
+RHYTHM_H = 0.80      # at or below: horizontal (ribbons, spandrels)
+RHYTHM_MIN = 400     # wall samples (0.8 m apart) before a rhythm is trusted
+
+
+def outlines_core():
+    outlines, keys = [], []
+    for el in json.load(io.open("cache/buildings_core.json", encoding="utf-8"))["elements"]:
+        t = el.get("tags") or {}
+        if not t.get("building"):
+            continue
+        g = el.get("geometry")
+        if not g:
+            outer = [m for m in el.get("members", []) if m.get("role") == "outer" and m.get("geometry")]
+            if not outer:
+                continue
+            g = outer[0]["geometry"]
+        if len(g) < 3:
+            continue
+        poly = Polygon([((p["lon"] - LON0) * M_LON, (p["lat"] - LAT0) * M_LAT) for p in g]).buffer(0)
+        if poly.is_empty:
+            continue
+        outlines.append(poly); keys.append(el["type"][0] + str(el["id"]))
+    return outlines, keys
+
+
+def rhythm_main(rh_path, xf_path, check):
+    xf = json.load(open(xf_path))
+    refl, s = xf["refl"], complex(*xf["s"])
+    pa, qa = complex(*xf["pa"]), complex(*xf["qa"])
+    doc = json.load(io.open("truth/uptown_ref_looks.json", encoding="utf-8"))
+    looks = doc["looks"]
+    outlines, keys = outlines_core()
+    tree = STRtree(outlines)
+    acc = {}
+    for x, y, n, ev, eh, _ in json.load(open(rh_path)):
+        q = qa + s * (complex(x, refl * y) - pa)
+        c = Point(q.real, q.imag)
+        best, bd = None, BUFFER
+        for k in tree.query(c.buffer(BUFFER)):
+            d = outlines[k].distance(c)
+            if d < bd:
+                best, bd = k, d
+        if best is None or keys[best] not in looks:
+            continue
+        e = acc.setdefault(keys[best], [0, 0.0, 0.0])
+        e[0] += n; e[1] += ev; e[2] += eh
+    counts = {"vertical": 0, "horizontal": 0, "grid": 0}
+    for key in sorted(looks):
+        looks[key].pop("psx:rhythm", None)
+        n, ev, eh = acc.get(key, (0, 0.0, 0.0))
+        if n < RHYTHM_MIN or eh <= 0:
+            print("%-14s %-6s %5d samples - no rhythm" % (key, looks[key]["building:material"], n))
+            continue
+        r = ev / eh
+        rh = "vertical" if r >= RHYTHM_V else "horizontal" if r <= RHYTHM_H else "grid"
+        looks[key]["psx:rhythm"] = rh
+        counts[rh] += 1
+        print("%-14s %-6s %6d samples  along/up %.2f  %s" % (key, looks[key]["building:material"], n, r, rh))
+    print("rhythm for %d of %d measured towers: %s" % (sum(counts.values()), len(looks), counts))
+    if not check:
+        with io.open("truth/uptown_ref_looks.json", "w", encoding="utf-8", newline="\n") as f:
+            json.dump(doc, f, indent=1, sort_keys=True)
+        print("wrote truth/uptown_ref_looks.json")
+
+
 def main():
+    if sys.argv[1] == "--rhythm":
+        return rhythm_main(sys.argv[2], sys.argv[3], "--check" in sys.argv)
     cols_path, xf_path = sys.argv[1], sys.argv[2]
     check = "--check" in sys.argv
     xf = json.load(open(xf_path))
