@@ -91,7 +91,6 @@ namespace PSXRacing.City
             go.transform.rotation = Quaternion.identity;
             go.transform.localScale = Vector3.one;
             var sk = go.AddComponent<CitySkyline>();
-            Last = sk;
             sk.sm = sm;
             sk.TowerCount = towers;
             sk.PackTowersLeftOut = pack;
@@ -286,15 +285,8 @@ namespace PSXRacing.City
             }
         }
 
-        /// <summary>The skyline built last, while it lives: the cockpit's
-        /// mirror leaves it out (CockpitInterior.MirrorSkyline). A static,
-        /// because the object is DontSave - the Find calls never see it - and
-        /// a preview tool's world is not CityWorld.Active.</summary>
-        public static CitySkyline Last { get; private set; }
-
         void OnDestroy()
         {
-            if (Last == this) Last = null;
             if (sm != null && sm.mesh != null) Kill(sm.mesh);
             if (mats != null) foreach (var m in mats) if (m != null) Kill(m);
         }
