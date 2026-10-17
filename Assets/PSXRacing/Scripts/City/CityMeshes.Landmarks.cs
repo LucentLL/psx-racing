@@ -436,7 +436,9 @@ namespace PSXRacing.City
             HeroTint(HeroMetalCol, true, 1.02f, 1.02f, 1.06f);
             HeroNoCollide(true);
             int top = -1;
-            int maxFins = skylineBuild ? 6 : 14;
+            // every fin in the far skyline too (owner 2026-10-16: stop the
+            // flicker, never remove objects - PSX/Lit keeps each a pixel wide)
+            const int maxFins = 14;
             foreach (int pi in heroParts[hero])
             {
                 if (heroSkip.Contains(pi)) continue;
@@ -465,7 +467,7 @@ namespace PSXRacing.City
                 var c = Centroid(t.pts);
                 float yT = floor + t.h;
                 float ang = Mathf.Atan2(t.u.y, t.u.x) + Mathf.PI * 0.25f;
-                if (!skylineBuild) HeroBox(tm, c, t.u, 1.4f, 1.4f, yT - 0.2f, yT + 3.5f, HeroMetalUV);
+                HeroBox(tm, c, t.u, 1.4f, 1.4f, yT - 0.2f, yT + 3.5f, HeroMetalUV);
                 HeroSpike(tm, W3(c, yT + 3.5f), 1.25f, floor + NeedleTopM, 4, ang, HeroMetalUV, 0.8f, 0.45f);
             }
             HeroNoCollide(false);
@@ -572,7 +574,7 @@ namespace PSXRacing.City
             // the fins, on the lantern's top edge: from the setback up past
             // the roof, stepped taller toward the middle of each face
             HeroTint(HeroMetalCol, true, 1.12f, 1.14f, 1.2f);
-            float spacing = skylineBuild ? 14f : 6.5f;
+            const float spacing = 6.5f;   // the far skyline's too: every fin (PSX/Lit keeps each a pixel wide)
             for (int i = 0; i < n; i++)
             {
                 Vector2 a = heroP2[i], b = heroP2[(i + 1) % n];
