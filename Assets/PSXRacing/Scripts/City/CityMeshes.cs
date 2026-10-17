@@ -539,6 +539,7 @@ namespace PSXRacing.City
             uint h = FacadeHash(centre);
             float r = (h & 0xFFFF) / 65536f;
             int glass = (int)((h >> 16) % 100u);
+            if (FacadeStructureOff) rhythm = 0;
             int look;
             if (mat == 4) look = LookSilver;
             else if (mat == 1 && colour.a == 255) look = NearestGlass(colour);   // a measured glass colour picks its kind
@@ -617,6 +618,10 @@ namespace PSXRacing.City
         /// EmitFootprint sets them round each wall; anything else is a box
         /// (convex both ends, its own top).</summary>
         static int facCornerA = 1, facCornerB = 1;
+        /// <summary>PSX_FACADE_STRUCT=0 (or set by a tool before tiles are
+        /// built): no structure and no measured rhythm - the city as it was,
+        /// for the before shot (Editor/FacadeStructureShots.cs).</summary>
+        public static bool FacadeStructureOff = System.Environment.GetEnvironmentVariable("PSX_FACADE_STRUCT") == "0";
         static float facWallTop = float.NegativeInfinity;
         /// <summary>A turn this small (degrees) is a bend in a curved wall, not a corner.</summary>
         const float CornerMinDeg = 25f;
@@ -643,11 +648,13 @@ namespace PSXRacing.City
                     : scheme == SchemeVertical && height >= 90f ? 12 + (int)((hs >> 16) % 4u) : 0;
         }
 
-        /// <summary>UV1.w: 1 + corner A + 3 corner B + 9 (scheme + 4 (lobby
+        /// <summary>UV1.w: 2 + corner A + 3 corner B + 9 (scheme + 4 (lobby
         /// storeys + 4 belt period)) - an integer PSX/Lit reads back with
-        /// floor and fmod (every vertex of a wall carries the same one).</summary>
-        static float FacadeStructPack(int cornerA, int cornerB) =>
-            1 + cornerA + 3 * cornerB + 9 * (facScheme + 4 * (facBaseN + 4 * Mathf.Clamp(facBelt, 0, 15)));
+        /// floor and divides (every vertex of a wall carries the same one).
+        /// Under 2 is no structure: 0 off a wall, and 1 is what a mesh with
+        /// no UV1 at all may read.</summary>
+        static float FacadeStructPack(int cornerA, int cornerB) => FacadeStructureOff ? 0f :
+            2 + cornerA + 3 * cornerB + 9 * (facScheme + 4 * (facBaseN + 4 * Mathf.Clamp(facBelt, 0, 15)));
 
         /// <summary>The corner at <paramref name="b"/> between the wall
         /// a→b and the wall b→c of a CCW outline: 1 convex, 2 inside, 0 a
@@ -970,7 +977,7 @@ namespace PSXRacing.City
             /// vertex stands on, for PSX/Lit's tower-scale structure: x metres
             /// from the wall's start corner, y metres to its end corner, z the
             /// wall's top in the building's storeys, w its packed scheme
-            /// (<see cref="FacadeStructPack"/>; 0 = no structure). Quad and Tri
+            /// (<see cref="FacadeStructPack"/>; under 2 = no structure). Quad and Tri
             /// stamp it from the wall frame below while <see cref="FacOn"/>.</summary>
             public List<Vector4> fac;
             public static bool FacOn;

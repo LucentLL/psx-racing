@@ -883,8 +883,10 @@ Shader "PSX/Lit"
                 // so the storey and the bay are the texture's - the lit floors,
                 // windows, LED lines and uplights follow them, never a world
                 // height. Storeys and repeats per pixel feed the box filters.
+                // (granite and precast, 5 and 6, are 8 floors a repeat: they
+                // read 16 and 4 here from before they were built, 2026-10-16)
                 float facRows = facCol < 0.5 ? 16.0 : facCol < 1.5 ? 20.0 : facCol < 2.5 ? 24.0
-                              : facCol < 4.5 ? 4.0 : facCol < 5.5 ? 16.0 : 4.0;
+                              : facCol < 4.5 ? 4.0 : 8.0;
                 float facCurt = step(facCol, 2.5);
                 float facBays = facCol < 0.5 ? 14.0 : 16.0;
                 float facYF = winUV.y * facRows;
@@ -897,6 +899,144 @@ Shader "PSX/Lit"
                 // (and a crown's accent) broke into the glittering static.
                 float3 facQ = floor(i.facade.rgb * 127.5 + 0.5);
                 float facKey = PSXLitHash(float2(facQ.r + facQ.g * 256.0, facQ.b + 17.0));
+
+                // THE TOWER-SCALE STRUCTURE (the header above FstSpan). The
+                // wall from UV1 (w = 2 + its pack, CityMeshes.FacadeStructPack;
+                // anything less - a deck, a hero's own panel, a mesh with no
+                // UV1 - wears none); storeys and bays are the atlas's own, as
+                // the lit windows count them; metres along the wall the mesh's.
+                // Straight-line code: the derivatives below are taken outside
+                // any branch, as the ones above.
+                float fstW = floor(i.fac.w + 0.5) - 2.0;
+                float fstOn = step(0.0, fstW);
+                fstW = max(fstW, 0.0);
+                float fstQ3 = FstDiv(fstW, 3.0);
+                float fstCA = fstW - 3.0 * fstQ3;                  // the start corner: 0 none, 1 convex, 2 inside
+                float fstS = FstDiv(fstQ3, 3.0);
+                float fstCB = fstQ3 - 3.0 * fstS;                  // the end corner
+                float fstQ = FstDiv(fstS, 4.0);
+                float fstScheme = fstS - 4.0 * fstQ;               // 0 grid, 1 vertical, 2 horizontal, 3 plain
+                float fstBelt = FstDiv(fstQ, 4.0);                 // a band every this many storeys (0 none)
+                float fstBase = fstQ - 4.0 * fstBelt;              // the lobby's storeys
+                float fstGrid = step(fstScheme, 0.5);
+                float fstVert = step(0.5, fstScheme) * step(fstScheme, 1.5);
+                float fstHorz = step(1.5, fstScheme) * step(fstScheme, 2.5);
+                float fstPlain = step(2.5, fstScheme);
+                float fstStone = max(step(4.5, facCol), fstPlain);  // stone office (5, 6) or a photographed mid-rise
+                // the atlas's storeys and bays a repeat (FacadeLooks), and a bay in metres
+                float fstFloors = facCol < 0.5 ? 16.0 : facCol < 1.5 ? 20.0 : facCol < 2.5 ? 24.0 : facCol < 4.5 ? 4.0 : 8.0;
+                float fstBays = facCol < 0.5 ? 14.0 : facCol < 2.5 ? 16.0 : facCol < 4.5 ? 4.0 : 8.0;
+                float fstBayM = facCol < 0.5 ? 2.17 : facCol < 1.5 ? 2.375 : facCol < 2.5 ? 2.85 : facCol < 4.5 ? 3.3 : 1.9;
+                float sF = winUV.y * fstFloors;                                          // storeys up from the ground floor
+                float sFw = max(length(float2(fdx.y, fdy.y)) * fstFloors, 1e-4);         // ...per pixel
+                float bX = winUV.x * fstBays;                                            // bays along the wall
+                float bXw = max(length(float2(fdx.x, fdy.x)) * FACADE_COLS * fstBays, 1e-4);
+                float aM = i.fac.x, eM = i.fac.y;                                        // metres from the start corner, to the end
+                float2 dAM = float2(ddx(i.fac.x), ddy(i.fac.x));
+                float mW = max(length(dAM), 1e-4);                                       // ...per pixel
+                float topS = i.fac.z;                                                    // the wall's top, in storeys
+
+                // PIERS at the convex corners, and the reveal's shadow beside them
+                float3 fstMix = float3(fstHorz, fstGrid, fstVert);
+                float pierM = lerp(dot(FST_PIER_GLASS, fstMix), dot(FST_PIER_STONE, fstMix), fstStone) * (1.0 - fstPlain);
+                float cvA = step(0.5, fstCA) * step(fstCA, 1.5), cvB = step(0.5, fstCB) * step(fstCB, 1.5);
+                float pier = max(cvA * FstSpan(aM, -1.0, pierM, mW), cvB * FstSpan(eM, -1.0, pierM, mW));
+                float reveal = step(0.01, pierM) * max(cvA * FstSpan(aM, pierM, pierM + 0.15, mW),
+                                                       cvB * FstSpan(eM, pierM, pierM + 0.15, mW));
+                // FINS on the bay lines of a vertical tower: metal on glass
+                // (every bay or every other, by the building), stone piers
+                // carried up through the spandrels on stone
+                float finEvery = fstStone > 0.5 ? 1.0 : (facKey < 0.5 ? 1.0 : 2.0);
+                float finW = lerp(FST_FIN_GLASS, FST_FIN_STONE, fstStone) / (fstBayM * finEvery);
+                float fin = fstVert * PSXPulseBox(bX / finEvery + 0.5 * finW, finW, bXw / finEvery);
+                // the TOP: coping, and a plant band of louvres under it
+                float hasPlant = step(FST_PLANT_MIN, topS) * (1.0 - fstPlain);
+                float plantS = topS >= 30.0 ? 1.5 : FST_PLANT;
+                float coping = FstSpan(sF, topS - FST_COPING, topS + 1.0, sFw);
+                float plant = hasPlant * FstSpan(sF, topS - FST_COPING - plantS, topS - FST_COPING, sFw);
+                // the BASE: the lobby, the canopy band over it, the plinth under it
+                float lobbyOn = step(0.5, fstBase);
+                float lobby = lobbyOn * FstSpan(sF, -100.0, fstBase - FST_CANOPY, sFw);
+                float canopy = lobbyOn * FstSpan(sF, fstBase - FST_CANOPY, fstBase + 0.04, sFw);
+                float plinth = lobbyOn * FstSpan(sF, -100.0, FST_PLINTH, sFw);
+                float lobbyPitch = lerp(FST_LOBBY_MULL_M, FST_LOBBY_PIER_M, fstStone);
+                float lobbyW = lerp(0.10, 0.90, fstStone) / lobbyPitch;
+                float lobbyMull = lobby * PSXPulseBox(aM / lobbyPitch + 0.5 * lobbyW, lobbyW, mW / lobbyPitch);
+                // the SHAFT between them, and its bands: a spandrel every floor
+                // (ribbons, on glass: the precast column draws its own), a belt
+                // every few (a grid), a plant floor every 12-15 (a tall pier tower)
+                float shaft = FstSpan(sF, fstBase + 0.04, topS - FST_COPING - plantS * hasPlant, sFw);
+                float spandrel = shaft * fstHorz * (1.0 - fstStone) * PSXPulseBox(sF + 0.5 * FST_SPANDREL, FST_SPANDREL, sFw);
+                float beltP = max(fstBelt, 1.0);
+                float beltX = (sF - fstBase) / beltP;
+                float beltOn = step(0.5, fstBelt) * shaft;
+                float belt = beltOn * fstGrid * PSXPulseBox(beltX + 0.5 * FST_BELT / beltP, FST_BELT / beltP, sFw / beltP);
+                float mech = beltOn * fstVert * step(1.0, beltX) * PSXPulseBox(beltX, 1.0 / beltP, sFw / beltP);
+                fin *= shaft;
+
+                // What each part is made of: the stone the tower's walls are
+                // (its column's cladding x its tint), aluminium or dark bronze
+                // in its hue, louvres, the lobby's dark glass - the stone, the
+                // panels and the louvres with their own surfaces from the
+                // owner's PSX textures (atlas column 7, grey at a linear mean
+                // of 0.5: facade_atlas.py parts()).
+                float3 fstHue = i.facade.rgb / max(dot(i.facade.rgb, float3(0.3333, 0.3333, 0.3333)), 0.05);
+                float3 metalC = (facKey < 0.35 ? FST_BRONZE_LIN : FST_METAL_LIN) * lerp(float3(1, 1, 1), fstHue, 0.25);
+                float cladLvl = facCol < 3.5 ? 0.33 : facCol < 4.5 ? 0.25 : facCol < 5.5 ? 0.39 : 0.60;
+                float3 stoneC = cladLvl * i.facade.rgb * (abs(facCol - 5.0) < 0.5 ? float3(1.0, 0.985, 0.96) : float3(1, 1, 1));
+                float louv = max(mech, plant);
+                float solidS = fstStone * max(max(pier, fin), max(belt, max(coping, lobbyMull)));
+                solidS = max(solidS, plinth);
+                float solidM = (1.0 - fstStone) * max(max(max(pier, fin), max(spandrel, belt)), max(coping, lobbyMull));
+                solidM = max(solidM * (1.0 - plinth), max(louv, canopy) * (1.0 - plinth));
+                float lobbyGlass = lobby * (1.0 - lobbyMull) * (1.0 - plinth) * (1.0 - pier);
+                float3 sCol = stoneC * lerp(1.0, 1.10, max(fin, belt)) * lerp(1.0, 1.18, coping);
+                float3 mCol = metalC;
+                // the part's surface: one more fetch, only where there is a
+                // part (explicit gradients, so the branch is safe): stone 2 m
+                // wide, panels and louvres 1 m, all 8 m a repeat
+                if (fstOn * max(solidS, solidM) > 0.001)
+                {
+                    float useStone = step(solidM, solidS);
+                    float useLouv = (1.0 - useStone) * step(0.5, louv);
+                    float partU = lerp(lerp(0.5 + 0.25 * frac(aM), 0.75 + 0.25 * frac(aM), useLouv), 0.5 * frac(aM * 0.5), useStone);
+                    float vk = fstFloors * (WIN_STOREY_M / 8.0);
+                    float2 partUV = float2((7.0 + partU) / FACADE_COLS, sF * (WIN_STOREY_M / 8.0));
+                    float3 partT = PSXTexDecode(tex2Dgrad(_MainTex, partUV,
+                                       float2(dAM.x * (0.25 / FACADE_COLS), fdx.y * vk),
+                                       float2(dAM.y * (0.25 / FACADE_COLS), fdy.y * vk)).rgb, _MainTexRaw);
+                    float partD = dot(partT, float3(0.2126, 0.7152, 0.0722)) * 2.0;
+                    sCol *= partD; mCol *= partD;
+                }
+                tex.rgb = lerp(tex.rgb, FST_LOBBY_GLASS * lerp(float3(1, 1, 1), fstHue, 0.3), lobbyGlass * fstOn);
+                tex.rgb = lerp(tex.rgb, sCol, solidS * fstOn);
+                tex.rgb = lerp(tex.rgb, mCol, solidM * fstOn);
+                tex.rgb *= 1.0 - 0.35 * reveal * fstOn * (1.0 - max(solidS, solidM));
+                // read by the materials block (and the lit windows: a solid part is never a lit window)
+                float facSolid = fstOn * max(solidS, solidM);
+                float fstMetalW = fstOn * solidM, fstStoneW = fstOn * solidS, fstGlassW = fstOn * lobbyGlass;
+
+                // PANES: each its own tint, tilt and reflectance, a few with
+                // the blinds part-way down - faded to the mean (no variety at
+                // all) once a pane is under two pixels, so a far wall never
+                // glitters with per-pixel coins
+                float2 paneC = float2(floor(bX), floor(sF));
+                float ph1 = PSXLitHash(paneC + float2(facKey * 517.0, facKey * 91.0));
+                float ph2 = PSXLitHash(paneC.yx * 1.37 + float2(facKey * 233.0 + 3.1, 7.7));
+                float paneSharp = fstOn * (1.0 - fstPlain) * saturate(2.0 - 2.0 * max(sFw, bXw));
+                float3 paneTint = lerp(float3(1, 1, 1), (1.0 + FST_TINT_VAR * (ph1 - 0.5))
+                                * lerp(float3(1.0 - FST_HUE_VAR, 1.0, 1.0 + FST_HUE_VAR), float3(1.0 + FST_HUE_VAR, 1.0, 1.0 - FST_HUE_VAR), ph2), paneSharp);
+                float2 paneTilt = (float2(ph2, frac(ph1 * 7.31)) - 0.5) * (FST_TILT * paneSharp);
+                float paneF = 1.0 + FST_F0_VAR * (frac(ph1 * 3.17) - 0.5) * paneSharp;
+                float blind = paneSharp * (1.0 - facSolid) * step(frac(ph1 * 13.7), FST_BLIND_SHARE)
+                            * step(1.0 - 0.75 * frac(ph2 * 5.13), frac(sF));
+
+                // AO: the foot of the wall (and a little the street canyon),
+                // its inside corners
+                float aoFoot = lerp(FST_AO_FOOT, 1.0, smoothstep(-0.3, FST_AO_FOOT_S, sF)) * lerp(FST_AO_CANYON, 1.0, saturate(sF / 10.0));
+                float aoCorner = 1.0 - FST_AO_CORNER * max(step(1.5, fstCA) * exp(-max(aM, 0.0) / FST_AO_CORNER_M),
+                                                           step(1.5, fstCB) * exp(-max(eM, 0.0) / FST_AO_CORNER_M));
+                float facAO = lerp(1.0, aoFoot * aoCorner, fstOn);
                 #define PSX_NIGHT_MASK(u) tex2Dgrad(_NightMask, u, fdx, fdy)
             #else
                 fixed4 tex = PSXMainTex(_MainTex, uv) * _Color;
@@ -978,6 +1118,12 @@ Shader "PSX/Lit"
                 float skyKeep = PSXSkyOpen(i.wpos, N, leaf);
             #ifdef PSX_BAKEDSKY
                 skyKeep = min(skyKeep, i.amb.w);
+            #endif
+            #ifdef PSX_FACADE
+                // the tower's AO (THE TOWER-SCALE STRUCTURE): the sky's light,
+                // and a little of the sun's
+                skyKeep *= facAO;
+                sunVis *= lerp(1.0, facAO, FST_AO_SUN);
             #endif
                 float3 sunAmb = i.amb.rgb * (skyKeep * PSXCarAmbientKeep(carVis, i.amb.rgb, i.sun, N)) + i.sun * sunVis;
                 // The shoulder is the old tone curve, on the LIGHT: with the
@@ -1084,27 +1230,43 @@ Shader "PSX/Lit"
                     float metal = (1.0 - glass) * curtain;
                     glass *= 1.0 - 0.7 * facMetal;
                     metal = lerp(metal, 1.0 - glass, facMetal);
+                    // THE TOWER-SCALE STRUCTURE: its solid parts are metal or
+                    // stone whatever the texel was, the lobby's glass glass
+                    glass = lerp(glass, 1.0, fstGlassW) * (1.0 - max(fstMetalW, fstStoneW));
+                    metal = lerp(lerp(metal, 1.0, fstMetalW), 0.0, fstStoneW) * (1.0 - fstGlassW);
+                    // ...and each pane its own tilt: its own piece of the sky
+                    float3 Np = N;
+                    {
+                        float3 tw = float3(N.z, 0.0, -N.x);
+                        float tl = dot(tw, tw);
+                        tw = tl > 1e-6 ? tw * rsqrt(tl) : float3(1, 0, 0);
+                        Np = normalize(N + (tw * paneTilt.x + float3(0, paneTilt.y, 0)) * glass);
+                    }
 
                     float ndv = saturate(dot(N, V));
                     float fres = pow(1.0 - ndv, 5.0);
-                    float3 Rf = reflect(-V, N);
-                    float3 env = FacadeEnv(Rf, PSXAdaptGain());
+                    float3 Rf = reflect(-V, Np);
+                    float3 env = FacadeEnv(Rf, PSXAdaptGain()) * lerp(1.0, facAO, FST_AO_ENV);
                     // the lit city mirrored, in the GLASS only: a white frame
                     // or a crown's concrete is no mirror (the first cut lit
                     // every white mullion and the open frame's crown grey)
                     float cityN = cityNight * _PSXNight * (1.0 - saturate(_PSXPaintWorld.x));
                     float3 envN = cityN > 0.001 ? FacadeNightCity(Rf, eyeDist) * (cityN * PSXAdaptGain()) : float3(0, 0, 0);
                     float3 L = normalize(_PSXLightDir.xyz);
-                    float ndh = saturate(dot(N, normalize(L + V)));
+                    float ndh = saturate(dot(Np, normalize(L + V)));
                     // the sun as it lands here: shadowed, exposed, on the lit side only
                     float3 sunE = _PSXLightColor.rgb * (sunVis * PSXExposureGain() * step(0.0, dot(N, L)) * _PSXSunModel);
 
                     float F = lerp(FAC_WIN_F0, FAC_GLASS_F0, curtain);
                     F += (1.0 - F) * fres;
+                    F = saturate(F * paneF);
                     float3 hue = saturate(tex.rgb / max(max(tex.r, max(tex.g, tex.b)), 0.02));
                     float3 glassCol = lit * (FAC_GLASS_DIFF * (1.0 - F))
                                     + (env + envN) * lerp(float3(1, 1, 1), hue, FAC_GLASS_TINT) * (F * clamp(0.5 + FAC_PANE_PATTERN * lumT, 0.6, 1.4))
                                     + sunE * (pow(ndh, FAC_GLINT_POW) * FAC_GLINT * F);
+                    // each pane its own glass, and a few blinds down: the room's light, matte, behind the reflection
+                    glassCol *= paneTint;
+                    glassCol = lerp(glassCol, glassCol * 0.45 + light * (FST_BLIND_LIN * (1.0 - F)), blind);
                     float3 alb = saturate(tex.rgb * 1.5);
                     float3 metalCol = lit * (1.0 - FAC_METAL_REFL) + env * alb * FAC_METAL_REFL
                                     + sunE * alb * (pow(ndh, FAC_METAL_POW) * FAC_METAL_SPEC);
@@ -1253,6 +1415,7 @@ Shader "PSX/Lit"
                     float pane = (1.0 - PSXPulseBox(facYF, CW_SPANDREL, facFpF))
                                * (1.0 - PSXPulseBox(winUV.x * facBays, CW_MULLION, facFpU * facBays));
                     cover = lerp(cover, pane, facCurt);
+                    cover *= 1.0 - facSolid;   // a pier, fin, spandrel, belt or louvre is never a lit window (facade structure)
                     float3 glow = unitGlow * (cover * detail * _PSXNight);
                 #else
                     // WHICH windows are lit must not change inside a window.

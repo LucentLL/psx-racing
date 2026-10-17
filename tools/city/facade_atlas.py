@@ -21,7 +21,14 @@
 #                                grid laid out in code; 8 floors x 8 bays of 1.9 m
 #   6 precast office, ribbon     the same parts: white precast spandrels and a
 #                                continuous window band per floor; 8 floors
-#   7 spare (a copy of 0)
+#   7 THE STRUCTURE'S PARTS (facade structure, 2026-10-16): not a facade but
+#     the surfaces PSX/Lit's tower-scale structure draws its solid parts in,
+#     each a neutral grey at a linear mean of 0.5 (the shader divides it out,
+#     so the part keeps its own colour and gains the grain):
+#       x   0- 63  stone: PSX Textures concrete_2 (2 m x 8 m)
+#       x  64- 95  aluminium panels: PSX Textures II metal_panels_pt_4 (1 m x 8 m)
+#       x  96-127  louvres: PSX Textures II metal_shutters_pt_1 (1 m x 8 m)
+#     Its night mask is empty: no part is ever a lit window.
 #
 # 5 and 6 exist because the city's only "stone" (3) is a weathered tenement
 # with window units: on a granite office tower it read as a dirty grid (owner,
@@ -127,6 +134,32 @@ def office(kind, scale=1, seed=50):
     return c, m
 
 
+def parts(scale=1):
+    """Column 7: stone grain, aluminium panels, louvres - grey, linear mean
+    0.5 each, at `scale` x the atlas size. Real-world sizes above: each
+    source is tiled to the strip's metres and resampled isotropically."""
+    w, h = W * scale, H * scale
+    out = np.zeros((h, w, 3), np.float32)
+    def strip(name, x0, x1, src_m, strip_m, contrast):
+        src = rgb(os.path.join(SRC, name))
+        sw = src.size[0]
+        px_per_m = sw / src_m                       # source pixels a metre
+        need_w = int(round(px_per_m * strip_m[0])); need_h = int(round(px_per_m * strip_m[1]))
+        tile = Image.new("RGB", (max(need_w, 1), max(need_h, 1)))
+        for ty in range(0, need_h, src.size[1]):
+            for tx in range(0, need_w, sw):
+                tile.paste(src, (tx, ty))
+        g = np.asarray(tile.resize((x1 - x0, h), Image.LANCZOS)).astype(np.float32) / 255
+        g = np.where(g <= 0.04045, g / 12.92, ((g + 0.055) / 1.055) ** 2.4).mean(2)   # linear luminance
+        g = 0.5 + contrast * (g / max(g.mean(), 1e-4) - 1.0) * 0.5
+        out[:, x0:x1, :] = np.clip(g, 0.05, 0.95)[..., None]
+    strip("psx_concrete_2.png", 0, w // 2, 2.0, (2.0, 8.0), 1.0)
+    strip("psx2_metal_panels_4.png", w // 2, w * 3 // 4, 2.0, (1.0, 8.0), 1.0)
+    strip("psx2_metal_shutters_1.png", w * 3 // 4, w, 1.5, (1.0, 8.0), 1.0)
+    srgb = np.where(out <= 0.0031308, out * 12.92, 1.055 * out ** (1 / 2.4) - 0.055)
+    return np.clip(srgb * 255 + 0.5, 0, 255).astype(np.uint8)
+
+
 def lin(c):
     v = c.astype(np.float32) / 255
     return np.where(v <= 0.04045, v / 12.92, ((v + 0.055) / 1.055) ** 2.4).reshape(-1, 3).mean(0)
@@ -156,7 +189,7 @@ def main():
         c, m = office(kind)
         cols.append(c); masks.append(m)
         print(kind, "mean linear", [round(float(v), 3) for v in lin(c)])
-    cols.append(cols[0]); masks.append(masks[0])
+    cols.append(parts()); masks.append(np.zeros((H, W, 4), np.uint8))   # 7: the structure's parts
     # the Enhanced twin (2x) gets the same two columns at its own size
     enh = os.path.join(REPO, "Assets", "PSXRacing", "EnhancedSrc", "TexEnhanced", "City", "Facade", "Core_cityatlas.png")
     if os.path.exists(enh):
@@ -164,8 +197,9 @@ def main():
         if e.shape == (H * 2, W * 2 * COLS, 3):
             for k, kind in ((5, "granite"), (6, "precast")):
                 e[:, k * W * 2:(k + 1) * W * 2] = office(kind, 2)[0]
+            e[:, 7 * W * 2:8 * W * 2] = parts(2)
             Image.fromarray(e, "RGB").save(enh, optimize=True)
-            print("enhanced twin: columns 5, 6 written")
+            print("enhanced twin: columns 5, 6, 7 written")
     atlas = np.concatenate(cols, axis=1)
     mask = np.concatenate(masks, axis=1)
     assert atlas.shape == (H, W * COLS, 3) and mask.shape == (H, W * COLS, 4)
