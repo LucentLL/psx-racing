@@ -517,6 +517,9 @@ Shader "PSX/Lit"
             #define WIN_PART_FRAC      0.50   // stacks lit in blocks (x _PSXNight)
             #define WIN_BLOCK_ON       0.46   // share of a part-lit stack's blocks that are lit
             #define WIN_DROP           0.12   // a dark window inside a lit punched block
+            #define FAR_BLOCK_PX       2.5    // a far lit block is at least this many pixels each way
+            #define BOUNCE_HIGH        0.30   // the lit streets' bounce high on a tower, as a share of the street's
+            #define BOUNCE_FALL_M      40.0   //   halving every 40 m up: upper walls stay dark behind their lit blocks
             #define UPL_SHARE          0.35   // buildings with a warm uplight on the lower facade
             #define UPL_GAIN           0.55
             #define UPL_FALL_M         14.0   // the wash halves every 14 m up
@@ -1185,7 +1188,8 @@ Shader "PSX/Lit"
                 }
                 float3 light = (sunAmb + (headD * beamGain + lampD * (lerp(1.0, beamGain, cityNight) * roadLift)) * roadN) * expo;
             #ifdef PSX_FACADE
-                light += _PSXCityBounce.rgb * ((1.0 - 0.6 * saturate(N.y)) * _PSXNight * expo);
+                light += _PSXCityBounce.rgb * ((1.0 - 0.6 * saturate(N.y)) * _PSXNight * expo
+                       * lerp(BOUNCE_HIGH, 1.0, exp2(-max(facYF, 0.0) * WIN_STOREY_M / BOUNCE_FALL_M)));
             #endif
 
                 // THE WET ROAD, one: how wet THIS pixel is - only if it looks
@@ -1409,12 +1413,35 @@ Shader "PSX/Lit"
                     float onU = max(isFull, isPart * step(hb, WIN_BLOCK_ON) * (facCurt > 0.5 ? 1.0 : step(WIN_DROP, hw)));
                     float floorMean = isFull + isPart * WIN_BLOCK_ON * keepW;
                     float litMean = fullP + partP * WIN_BLOCK_ON * keepW;
-                    float winV = lerp(litMean, lerp(floorMean, onU, sharpU), sharpF);
+                    // THE FAR BLOCKS (the owner on the live skyline, 2026-10-16:
+                    // "Why does the city look so hazy and the buildings hidden in
+                    // fog? It doesn't look sharp at all like the UG2 city
+                    // references"). Under two pixels a unit or a storey used to
+                    // show its MEAN: past ~0.8 km at 480 lines every tower was
+                    // one even warm-grey glow (sRGB ~80 on a sky of ~20), which
+                    // reads as fog. Now nothing fades to the mean: under
+                    // FAR_BLOCK_PX pixels the lit unit is a COARSER block - 2^n
+                    // storeys by 2^m units, the smallest that is FAR_BLOCK_PX
+                    // across - lit or dark as a whole, keyed by the building, the
+                    // block and its size (stable as the camera moves, no sparkle),
+                    // lit with the same odds as the tenants' mean, each in one
+                    // tenant's colour; the wall between stays dark. The tower far
+                    // off is a dark wall with bright blocks and rows, as UG2's.
+                    float upx = facCurt > 0.5 ? facFpU * 4.0 : facFpU;
+                    float lvF = max(ceil(log2(max(facFpF * FAR_BLOCK_PX, 1e-4))), 0.0);
+                    float lvU = max(ceil(log2(max(upx * FAR_BLOCK_PX, 1e-4))), 0.0);
+                    float bS = floor(storey / exp2(lvF)), bU = floor(unitX / exp2(lvU));
+                    float hB = PSXLitHash(float2(bU + bk * 977.0 + lvU * 131.0, bS + bk * 389.0 + lvF * 71.0));
+                    // storeys resolved, units not: the stack's own state, its
+                    // blocks coarsened; neither resolved: one block of storeys
+                    float onMid = max(isFull, isPart * step(hB, WIN_BLOCK_ON * keepW));
+                    float onFar = step(hB, litMean);
+                    float winV = lvF > 0.5 ? onFar : (lvU > 0.5 ? onMid : onU);
                     // one colour and brightness per tenant: the stack when it
                     // is lit whole, else the block
-                    float th = isFull > 0.5 ? occ * 7.13 + stack : hb;
-                    float3 gWin = lerp(hueMean * brightMean, (frac(th * 3.7) < WIN_WARM_SHARE ? WIN_WARM : WIN_COOL)
-                                * (lerp(WIN_DIM, 1.0, frac(th * 11.3)) * WIN_GAIN * cityGain), sharpU * sharpF);
+                    float th = lvF > 0.5 ? hB * 5.17 : (isFull > 0.5 ? occ * 7.13 + stack : (lvU > 0.5 ? hB : hb));
+                    float3 gWin = (frac(th * 3.7) < WIN_WARM_SHARE ? WIN_WARM : WIN_COOL)
+                                * (lerp(WIN_DIM, 1.0, frac(th * 11.3)) * WIN_GAIN * cityGain);
                     float3 unitGlow = gWin * winV;
                     unitGlow = lerp(unitGlow, WIN_SHOP * (WIN_GAIN * cityGain), shop);
                     // the curtain's panes, box-filtered: its own mask is all glass
