@@ -546,9 +546,15 @@ Shader "PSX/Lit"
             #define WIN_PART_FRAC      0.50   // stacks lit in blocks (x _PSXNight)
             #define WIN_BLOCK_ON       0.46   // share of a part-lit stack's blocks that are lit
             #define WIN_DROP           0.12   // a dark window inside a lit punched block
-            #define FAR_BLOCK_PX       2.5    // a far lit block is at least this many pixels each way...
-            #define FAR_BLOCK_WIDE     2.0    // ...and this many times that across (floors read as rows)
-            #define FAR_COVER          0.65   // the least a far lit block's window cover is
+            #define FAR_BLOCK_PX       2.5    // a far lit run of bays is at least this many pixels...
+            #define FAR_BLOCK_WIDE     2.0    // ...times this across (2026-10-17: never coarsened UP a tower)
+            #define FAR_COVER          0.65   // the least a far lit floor's window cover is
+            #define FAR_TAPS           4      // storeys sampled across a far pixel's footprint (the box filter)
+            // the atlas facades' own window colours (2026-10-17, the owner: the
+            // cream read close to the grey wall): warmer, yellower tungsten and a
+            // bluer tube than WIN_WARM / WIN_COOL, which the houses keep
+            #define FAC_WIN_WARM       float3(1.00, 0.64, 0.24)
+            #define FAC_WIN_COOL       float3(0.58, 0.76, 1.00)
             #define BOUNCE_HIGH        0.30   // the lit streets' bounce high on a tower, as a share of the street's
             #define BOUNCE_FALL_M      40.0   //   halving every 40 m up: upper walls stay dark behind their lit blocks
             #define UPL_SHARE          0.35   // buildings with a warm uplight on the lower facade
@@ -666,6 +672,32 @@ Shader "PSX/Lit"
                 float3 c = sodium * (FAC_NIGHT_BAND * band) + winC * (FAC_NIGHT_FLOORS * lit * tower);
                 c += sodium * (FAC_NIGHT_SKYGLOW * exp(-max(el, 0.0) * 6.0));
                 return c;
+            }
+
+            // A tenant's window colour and brightness from its hash: warm
+            // (tungsten, more yellow than the houses' WIN_WARM so it does not
+            // read as the grey wall's cream) or cool (tube), dimmer or brighter.
+            float3 FacWinColour(float th, float cityGain)
+            {
+                return (frac(th * 3.7) < WIN_WARM_SHARE ? FAC_WIN_WARM : FAC_WIN_COOL)
+                     * (lerp(WIN_DIM, 1.0, frac(th * 11.3)) * WIN_GAIN * cityGain);
+            }
+
+            // ONE STOREY's state along a run of bays (THE FAR FLOORS): its
+            // tenant stack lit whole, part-lit in runs (bU, the run at its
+            // coarsening level lvU), or dark. rgb its colour, a lit or not.
+            float4 FacFloorLit(float st, float bU, float lvU, float bk, float keepW, float cityGain)
+            {
+                float stackH = 1.0 + floor(frac(bk * 5.31) * 3.0);
+                float stack = floor(st / stackH);
+                float occ = PSXLitHash(float2(bk * 211.0 + 3.0, stack + bk * 17.0));
+                float fullP = WIN_FULL_FRAC * _PSXNight * step(1.0, st);
+                float partP = WIN_PART_FRAC * _PSXNight;
+                float isFull = step(occ, fullP);
+                float isPart = step(occ, fullP + partP) * (1.0 - isFull);
+                float hB = PSXLitHash(float2(bU + bk * 977.0 + lvU * 131.0, st + bk * 389.0));
+                float on = max(isFull, isPart * step(hB, WIN_BLOCK_ON * keepW));
+                return float4(FacWinColour(isFull > 0.5 ? occ * 7.13 + stack : hB, cityGain), on);
             }
         #endif
 
@@ -1489,49 +1521,51 @@ Shader "PSX/Lit"
                     float onU = max(isFull, isPart * step(hb, WIN_BLOCK_ON) * (facCurt > 0.5 ? 1.0 : step(WIN_DROP, hw)));
                     float floorMean = isFull + isPart * WIN_BLOCK_ON * keepW;
                     float litMean = fullP + partP * WIN_BLOCK_ON * keepW;
-                    // THE FAR BLOCKS (the owner on the live skyline, 2026-10-16:
-                    // "Why does the city look so hazy and the buildings hidden in
-                    // fog? It doesn't look sharp at all like the UG2 city
-                    // references"). Under two pixels a unit or a storey used to
-                    // show its MEAN: past ~0.8 km at 480 lines every tower was
-                    // one even warm-grey glow (sRGB ~80 on a sky of ~20), which
-                    // reads as fog. Now nothing fades to the mean: under
-                    // FAR_BLOCK_PX pixels the lit unit is a COARSER block - 2^n
-                    // storeys by 2^m units, the smallest that is FAR_BLOCK_PX
-                    // across - lit or dark as a whole, keyed by the building, the
-                    // block and its size (stable as the camera moves, no sparkle),
-                    // lit with the same odds as the tenants' mean, each in one
-                    // tenant's colour; the wall between stays dark. The tower far
-                    // off is a dark wall with bright blocks and rows, as UG2's.
+                    // THE FAR FLOORS (the owner, 2026-10-17, on the far blocks
+                    // that replaced the far MEAN: "the buildings still look very
+                    // low quality. Nothing like UG2" - his frame: every far tower
+                    // in cream and blue patches several storeys tall, camouflage).
+                    // The mean had made a far tower one grey glow (the haze); the
+                    // blocks of 2^n STOREYS made squares. Real towers at night,
+                    // and UG2's, read as FLOOR LINES: rows of lit windows with dark
+                    // spandrels between. So a storey is never merged with the next:
+                    // each keeps its own tenant state, and a storey under two
+                    // pixels is box-filtered over the pixel's footprint (FAR_TAPS
+                    // storeys averaged), a fainter steady line rather than a
+                    // skipped one. Only ALONG the floor are bays coarsened, into
+                    // runs FAR_BLOCK_PX x FAR_BLOCK_WIDE pixels long, so a tower
+                    // shows lit floor strips of varying length on a dark wall.
                     float upx = facCurt > 0.5 ? facFpU * 4.0 : facFpU;
-                    float lvF = max(ceil(log2(max(facFpF * FAR_BLOCK_PX, 1e-4))), 0.0);
                     float lvU = max(ceil(log2(max(upx * FAR_BLOCK_PX * FAR_BLOCK_WIDE, 1e-4))), 0.0);
-                    float bS = floor(storey / exp2(lvF)), bU = floor(unitX / exp2(lvU));
-                    float hB = PSXLitHash(float2(bU + bk * 977.0 + lvU * 131.0, bS + bk * 389.0 + lvF * 71.0));
-                    // storeys resolved, units not: the stack's own state, its
-                    // blocks coarsened; neither resolved: one block of storeys
-                    float onMid = max(isFull, isPart * step(hB, WIN_BLOCK_ON * keepW));
-                    // far off the tenants still hold: a row of blocks lit whole,
-                    // part-lit in blocks, or dark - rows, not a checkerboard
-                    float occF = PSXLitHash(float2(bk * 211.0 + 3.0 + lvF * 29.0, bS + bk * 17.0));
-                    float onFar = max(step(occF, fullP), step(occF, fullP + partP) * (1.0 - step(occF, fullP)) * step(hB, WIN_BLOCK_ON * keepW));
-                    float winV = lvF > 0.5 ? onFar : (lvU > 0.5 ? onMid : onU);
-                    // one colour and brightness per tenant: the stack when it
-                    // is lit whole, else the block
-                    float th = lvF > 0.5 ? hB * 5.17 : (isFull > 0.5 ? occ * 7.13 + stack : (lvU > 0.5 ? hB : hb));
-                    float3 gWin = (frac(th * 3.7) < WIN_WARM_SHARE ? WIN_WARM : WIN_COOL)
-                                * (lerp(WIN_DIM, 1.0, frac(th * 11.3)) * WIN_GAIN * cityGain);
-                    float3 unitGlow = gWin * winV;
+                    float bU = floor(unitX / exp2(lvU));
+                    float farOn = step(0.5, facFpF) + step(0.5, lvU);
+                    float3 unitGlow;
+                    if (farOn > 0.5)
+                    {
+                        float fw = max(facFpF, 1e-3);
+                        float3 acc = float3(0, 0, 0);
+                        [unroll] for (int tk = 0; tk < FAR_TAPS; tk++)
+                        {
+                            float st = floor(facYF + ((tk + 0.5) / FAR_TAPS - 0.5) * fw);
+                            float4 fl = FacFloorLit(st, bU, lvU, bk, keepW, cityGain);
+                            acc += fl.rgb * fl.a;
+                        }
+                        unitGlow = acc / FAR_TAPS;
+                    }
+                    else unitGlow = FacWinColour(isFull > 0.5 ? occ * 7.13 + stack : hb, cityGain) * onU;
                     unitGlow = lerp(unitGlow, WIN_SHOP * (WIN_GAIN * cityGain), shop);
                     // the curtain's panes, box-filtered: its own mask is all glass
                     // (blue, teal) or a luminance cut of the photo (silver)
                     float pane = (1.0 - PSXPulseBox(facYF, CW_SPANDREL, facFpF))
                                * (1.0 - PSXPulseBox(winUV.x * facBays, CW_MULLION, facFpU * facBays));
                     cover = lerp(cover, pane, facCurt);
-                    cover *= 1.0 - facSolid;   // a pier, fin, spandrel, belt or louvre is never a lit window (facade structure)
-                    // a far lit block is a lit floor seen whole, not its mip's
-                    // average of glass and wall
-                    cover = lvF + lvU > 0.5 ? max(cover, FAR_COVER) : cover;
+                    // a far lit floor is the floor's windows seen whole, not its
+                    // mip's average of glass and wall...
+                    cover = farOn > 0.5 ? max(cover, FAR_COVER) : cover;
+                    // ...and a pier, fin, spandrel, belt or louvre is never a lit
+                    // window (facade structure) - after the floor, so far off
+                    // they stay dark too
+                    cover *= 1.0 - facSolid;
                     float3 glow = unitGlow * (cover * detail * _PSXNight);
                 #else
                     // WHICH windows are lit must not change inside a window.
