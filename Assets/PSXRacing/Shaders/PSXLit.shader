@@ -1482,17 +1482,17 @@ Shader "PSX/Lit"
                     // The sky in the water is the sky (adapted, not exposed);
                     // the lamps' and beams' streaks are their light (exposed).
                     float3 refl = PSXSkyIn(R, WET_SKY_LOD) * (WET_SKY * adapt);
-                    // THE WORLD IN THE WATER (2026-10-13, the GT look plan):
-                    // by day, what CarReflections drew from the player's roof
-                    // - the trees, the buildings, the cars ahead, the sky -
-                    // stands in for the sky lookup, as it does in the paint.
-                    // Seen from the car, not from this pixel, which a soft
-                    // wet reflection does not show. Not at night (_PSXNight
-                    // 1): the lamps' streaks are the night road, and the
-                    // night the owner signed off stays exactly as it is.
-                    float envW = step(0.5, _PSXEnvOn) * (1.0 - saturate(_PSXNight));
-                    if (envW > 0.0)
-                        refl = lerp(refl, PSXEnvIn(R, WET_SKY_LOD) * WET_SKY, envW);
+                    // NOT THE WORLD AROUND THE CAR (2026-10-17; it was read
+                    // here by day from 2026-10-13). CarReflections' panorama is
+                    // taken from the player's roof, so on a road the size of a
+                    // street it put things where the CAR sees them, not where
+                    // this pixel's mirror does: the owner's rain videos showed
+                    // houses sliding ACROSS the road as he drove past them, a
+                    // red car alongside smeared over the far side of the road,
+                    // and the faces' time-sliced refresh flashing the road.
+                    // A car's paint is small enough for one viewpoint; a road
+                    // is not. The road keeps the hour's sky (infinitely far,
+                    // so right from every pixel) and the lamps' streaks.
                     float3 spec = (lampS * WET_LAMP_GAIN + headS * WET_HEAD_GAIN) * expo;
                     float3 wetLit = lit * (1.0 - fres * w) + (refl * fres + spec * (WET_SPEC_BASE + fres)) * w;
                     col = lerp(PSXTone(wetLit), fogCol, i.fog);

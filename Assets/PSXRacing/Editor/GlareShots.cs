@@ -101,6 +101,8 @@ namespace PSXRacing.EditorTools
         /// The world in the water (PSX/Lit's wet road, 2026-10-13): a rainy
         /// afternoon down the road from behind the car, the road mirroring
         /// the sky lookup alone (wet_off) and CarReflections' panorama (wet_on).
+        /// Since 2026-10-17 the road no longer reads the panorama (it slid
+        /// houses across the road): the two differ only in the cars' paint.
         /// </summary>
         static void WetShots(TrackCatalog.TrackDef def, Camera cam, GameObject player)
         {
