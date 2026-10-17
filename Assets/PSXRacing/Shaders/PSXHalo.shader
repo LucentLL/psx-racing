@@ -121,6 +121,10 @@ Shader "PSX/Halo"
             #define BEACON_ON      0.50     // share of the period the lamp is up
             #define SKY_BEACON_PX  1.8      // a beacon's minimum size, x _MinPixels
             #define SKY_CORE_K     8.0      // the soft core of a tower light at its minimum size
+            // _MinPixels is in SHARP's pixels: a taller framebuffer (PICTURE:
+            // HD) keeps a far lamp the size on screen it has at 480 lines, not
+            // 2.25x smaller (and five times dimmer in the halation)
+            #define HALO_REF_LINES 480.0
 
             struct appdata
             {
@@ -176,7 +180,7 @@ Shader "PSX/Halo"
                 float depth = max(-vc.z, 1e-3);
                 float zScale = lerp(depth, 1.0, unity_OrthoParams.w);
                 float minM = _MinPixels * 2.0 * zScale
-                           / max(_ScreenParams.y * abs(UNITY_MATRIX_P[1][1]), 1e-3);
+                           / max(min(_ScreenParams.y, HALO_REF_LINES) * abs(UNITY_MATRIX_P[1][1]), 1e-3);
                 // a far beacon is a dot of a few pixels, never a sub-pixel spark
                 if (v.uv1.y <= -1.0) minM *= SKY_BEACON_PX;
                 float natural = _Size * v.uv1.x * (1.0 + HALO_WET_GROW * saturate(_PSXWetness));
