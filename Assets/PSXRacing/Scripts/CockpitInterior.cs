@@ -59,7 +59,28 @@ namespace PSXRacing
         /// <summary>Eye to the dash's front edge, authored metres.</summary>
         public static float ZRef => L != null ? L.dashFrontZ - L.eye.z : 1.31f;
 
-        public const float MinScale = 0.15f, MaxScale = 1.0f;
+        /// <summary>How far under his eye the line over the dash is by the
+        /// time it reaches the dash's front edge, authored metres: the line
+        /// from Driver_Eye over the dash where the windscreen meets it
+        /// (<see cref="CockpitModel.Layout.screenBase"/>, 8.9 degrees down),
+        /// carried on to the front. ChaseCamera stands the eye this far above
+        /// the shell's cowl so that line meets the bonnet (2026-10-16).</summary>
+        public static float SightDrop
+        {
+            get
+            {
+                if (L == null || L.screenBase.z < L.eye.z + 0.2f) return 0.205f;
+                float slope = (L.eye.y - L.screenBase.y) / (L.screenBase.z - L.eye.z);
+                return slope * (L.dashFrontZ - L.eye.z);
+            }
+        }
+
+        /// <summary>His eye's distance off his cabin's centreline, authored metres.</summary>
+        public static float EyeOffCentre => L != null ? Mathf.Abs(L.eye.x) : 0.405f;
+
+        /// <summary>The fit's range. Life-size is 1 (ChaseCamera.CabinScale);
+        /// a shell whose cowl is near its middle fits it smaller.</summary>
+        public const float MinScale = 0.15f, MaxScale = 1.25f;
         /// <summary>Wheel degrees at full lock, each way: 1.25 turns (2026-10-16,
         /// the owner's clip turns 1-1.5 turns hand over hand; it was 135, a
         /// wheel that never needed the hands to leave it). Full lock is the
@@ -82,26 +103,27 @@ namespace PSXRacing
             public float scale;
             public bool measured;
             public bool rhd;
+            /// <summary>The windscreen's base (car frame z): the dash's front
+            /// lands here and the shell is cut here (<see cref="CabinClip"/>).</summary>
+            public float cutZ;
         }
 
         /// <summary>The fit for a body: the eye where ChaseCamera puts it
         /// (on the car's driving side) and the scale that lands the dash's
-        /// front on the measured cowl. Static and pure, for the self-test.</summary>
+        /// front on the cowl - 1, life-size, wherever the body has room.
+        /// Static and pure, for the self-test.</summary>
         public static Fit FitFor(Vector3 boxCenter, Vector3 boxSize, CarModelDef def,
                                  float lengthScale = 1f, float lift = 0f, bool rhd = false)
         {
             Vector3 eye = ChaseCamera.MountOffset(ChaseCamera.View.Cockpit, boxCenter, boxSize, def, lengthScale, lift, rhd);
-            float cowlZ = def != null ? def.cowlZ * lengthScale : 0f;
-            float cowlY = def != null ? def.cowlY + lift : 0f;
-            float roofY = def != null ? def.roofY + lift : 0f;
-            bool measured = def != null && cowlY > 0.4f && roofY > cowlY + 0.25f
-                            && cowlZ > boxCenter.y - boxSize.y * 0.5f;
-            float reach = measured ? Mathf.Max(0.2f, cowlZ - eye.z) : ChaseCamera.EyeSetback;
+            Vector2 cowl = ChaseCamera.CowlLine(boxCenter, boxSize, def, lengthScale, lift, out bool measured);
+            float reach = Mathf.Max(0.2f, cowl.x - eye.z);
             return new Fit
             {
                 eye = eye,
                 measured = measured,
                 rhd = rhd,
+                cutZ = cowl.x,
                 scale = Mathf.Clamp(reach / Mathf.Max(0.1f, ZRef), MinScale, MaxScale),
             };
         }
@@ -401,6 +423,10 @@ namespace PSXRacing
         public static string Swap(string key) =>
             key == "tach" ? "speed" : key == "speed" ? "tach" : key == "temp" ? "fuel" : key == "fuel" ? "temp" : key;
 
+        /// <summary>The car's own renderers, sorted for a camera inside it: the
+        /// body and its lamp covers CUT at the windscreen (marked for
+        /// <see cref="CabinClip"/>), anything else under the car hidden
+        /// outright as before. Its shadow stays.</summary>
         void CollectShell()
         {
             if (shellHidden) HideShell(false);
@@ -411,14 +437,17 @@ namespace PSXRacing
                     if (r.transform.IsChildOf(transform)) continue;
                     var m = r.sharedMaterial;
                     if (m != null && m.shader != null && m.shader.name == "PSX/Shadow") continue;
+                    if (CabinClip.Cuts(r)) { CabinClip.Mark(r); continue; }
                     list.Add(r);
                 }
             shell = list.ToArray();
             shellWas = new bool[shell.Length];
         }
 
-        /// <summary>Shell off for the driver's camera (and back). Public for
-        /// the shot tool, which renders in edit mode with no camera events.</summary>
+        /// <summary>The shell as a camera inside the car sees it (and back):
+        /// cut at the windscreen, the rest of what hangs off the car hidden.
+        /// Public for the shot tool, which renders in edit mode with no camera
+        /// events.</summary>
         public void HideShell(bool hide)
         {
             if (shell == null || hide == shellHidden) return;
@@ -428,6 +457,14 @@ namespace PSXRacing
                 if (hide) { shellWas[i] = shell[i].forceRenderingOff; shell[i].forceRenderingOff = true; }
                 else shell[i].forceRenderingOff = shellWas[i];
             }
+            if (hide && car != null)
+            {
+                if (box == null) box = car.GetComponent<BoxCollider>();
+                Vector3 c = box != null ? box.center : new Vector3(0f, 0.72f, 0.05f);
+                Vector3 s = box != null ? box.size : new Vector3(1.72f, 1.0f, 4.1f);
+                CabinClip.Open(car.transform, Current.cutZ, c, s);
+            }
+            else CabinClip.Close();
             shellHidden = hide;
         }
 

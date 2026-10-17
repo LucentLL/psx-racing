@@ -1135,7 +1135,7 @@ namespace PSXRacing.EditorTools
                 Vector3 pos = t.TransformPoint(ChaseCamera.MountOffset(
                     ChaseCamera.View.Hood, box.center, box.size, shell));
                 Shot(cam, "hood_" + key, pos,
-                     t.rotation * Quaternion.Euler(ChaseCamera.MountPitch(ChaseCamera.View.Hood), 0f, 0f));
+                     t.rotation * Quaternion.Euler(ChaseCamera.HoodFor(box.center, box.size, shell).pitch, 0f, 0f));
             }
             cam.fieldOfView = keepFov;
             cam.nearClipPlane = keepNear;
