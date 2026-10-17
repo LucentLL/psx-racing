@@ -517,7 +517,9 @@ Shader "PSX/Lit"
             #define WIN_PART_FRAC      0.50   // stacks lit in blocks (x _PSXNight)
             #define WIN_BLOCK_ON       0.46   // share of a part-lit stack's blocks that are lit
             #define WIN_DROP           0.12   // a dark window inside a lit punched block
-            #define FAR_BLOCK_PX       2.5    // a far lit block is at least this many pixels each way
+            #define FAR_BLOCK_PX       2.5    // a far lit block is at least this many pixels each way...
+            #define FAR_BLOCK_WIDE     2.0    // ...and this many times that across (floors read as rows)
+            #define FAR_COVER          0.65   // the least a far lit block's window cover is
             #define BOUNCE_HIGH        0.30   // the lit streets' bounce high on a tower, as a share of the street's
             #define BOUNCE_FALL_M      40.0   //   halving every 40 m up: upper walls stay dark behind their lit blocks
             #define UPL_SHARE          0.35   // buildings with a warm uplight on the lower facade
@@ -1429,13 +1431,16 @@ Shader "PSX/Lit"
                     // off is a dark wall with bright blocks and rows, as UG2's.
                     float upx = facCurt > 0.5 ? facFpU * 4.0 : facFpU;
                     float lvF = max(ceil(log2(max(facFpF * FAR_BLOCK_PX, 1e-4))), 0.0);
-                    float lvU = max(ceil(log2(max(upx * FAR_BLOCK_PX, 1e-4))), 0.0);
+                    float lvU = max(ceil(log2(max(upx * FAR_BLOCK_PX * FAR_BLOCK_WIDE, 1e-4))), 0.0);
                     float bS = floor(storey / exp2(lvF)), bU = floor(unitX / exp2(lvU));
                     float hB = PSXLitHash(float2(bU + bk * 977.0 + lvU * 131.0, bS + bk * 389.0 + lvF * 71.0));
                     // storeys resolved, units not: the stack's own state, its
                     // blocks coarsened; neither resolved: one block of storeys
                     float onMid = max(isFull, isPart * step(hB, WIN_BLOCK_ON * keepW));
-                    float onFar = step(hB, litMean);
+                    // far off the tenants still hold: a row of blocks lit whole,
+                    // part-lit in blocks, or dark - rows, not a checkerboard
+                    float occF = PSXLitHash(float2(bk * 211.0 + 3.0 + lvF * 29.0, bS + bk * 17.0));
+                    float onFar = max(step(occF, fullP), step(occF, fullP + partP) * (1.0 - step(occF, fullP)) * step(hB, WIN_BLOCK_ON * keepW));
                     float winV = lvF > 0.5 ? onFar : (lvU > 0.5 ? onMid : onU);
                     // one colour and brightness per tenant: the stack when it
                     // is lit whole, else the block
@@ -1450,6 +1455,9 @@ Shader "PSX/Lit"
                                * (1.0 - PSXPulseBox(winUV.x * facBays, CW_MULLION, facFpU * facBays));
                     cover = lerp(cover, pane, facCurt);
                     cover *= 1.0 - facSolid;   // a pier, fin, spandrel, belt or louvre is never a lit window (facade structure)
+                    // a far lit block is a lit floor seen whole, not its mip's
+                    // average of glass and wall
+                    cover = lvF + lvU > 0.5 ? max(cover, FAR_COVER) : cover;
                     float3 glow = unitGlow * (cover * detail * _PSXNight);
                 #else
                     // WHICH windows are lit must not change inside a window.

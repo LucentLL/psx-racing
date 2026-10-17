@@ -995,6 +995,11 @@ namespace PSXRacing.EditorTools
             foreach (var t in (System.Environment.GetEnvironmentVariable("PSX_SKYLINE_KM") ?? "4").Split(','))
                 if (float.TryParse(t.Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float kme)) kms.Add(kme);
             if (kms.Count == 0) kms.Add(4f);
+            // PSX_SKYLINE_ROAD=I-277 shoots from the loop instead (the owner's
+            // night frame, 2026-10-16); the default is I-77
+            string road = System.Environment.GetEnvironmentVariable("PSX_SKYLINE_ROAD");
+            if (string.IsNullOrEmpty(road)) road = "I-77";
+            string tag = road.Replace("-", "").ToLowerInvariant();
             var sun = GameObject.Find("Sun")?.GetComponent<Light>();
             var globals = Object.FindFirstObjectByType<PSXGlobals>();
             int oldWeather = RaceHandoff.WeatherOverride;
@@ -1013,13 +1018,13 @@ namespace PSXRacing.EditorTools
                 foreach (float km in kms)
                 foreach (int side in new[] { -1, 1 })
                 {
-                    string name = (side < 0 ? "i77_south_" : "i77_north_") + km.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "km";
+                    string name = tag + (side < 0 ? "_south_" : "_north_") + km.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "km";
                     // the I-77 carriageway point nearest km from uptown on this side
                     float best = float.MaxValue; int bei = -1; float bs = 0f;
                     for (int ei = 0; ei < map.edges.Length; ei++)
                     {
                         var e = map.edges[ei];
-                        if (e.link || e.name != "I-77") continue;
+                        if (e.link || e.name != road) continue;
                         for (float s = 0f; s <= e.length; s += 20f)
                         {
                             var p = e.PointAt(s);
@@ -1028,7 +1033,7 @@ namespace PSXRacing.EditorTools
                             if (d < best) { best = d; bei = ei; bs = s; }
                         }
                     }
-                    if (bei < 0) { Debug.LogError($"[SkylinePlay] no I-77 {name}"); continue; }
+                    if (bei < 0) { Debug.LogError($"[SkylinePlay] no {road} {name}"); continue; }
                     var be = map.edges[bei];
                     var at = be.PointAt(bs);
                     var eye = new Vector3(at.x, be.YAt(bs) + 2.2f, at.y);
