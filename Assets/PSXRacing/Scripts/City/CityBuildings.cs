@@ -173,7 +173,10 @@ namespace PSXRacing.City
                 if (f.noSwap || f.hidden || f.part) continue;
                 if (CityDecks.ForFootprint(i) != null) continue;   // a listed parking deck is drawn as one
                 if (f.style > 1 || f.gable) continue;
-                if (f.h < 30f || f.h > 135f) continue;
+                // skyline tops (2026-10-16; owner: "City should reflect actual
+                // Charlotte buildings"): a tower of 40 m and more stays its
+                // own OSM massing with the rooftop kit, never a pack model
+                if (f.h < 30f || f.h >= CityMeshes.RoofKitMinH) continue;
                 float wide = f.hv * 2f, deep = f.hu * 2f;
                 if (wide < 20f || deep > 72f || deep / wide > 1.35f) continue;
                 if (Hash01(i, 0, 31) > 0.55f) continue;

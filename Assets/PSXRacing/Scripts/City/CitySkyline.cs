@@ -137,14 +137,21 @@ namespace PSXRacing.City
             var cand = new List<int>();
             float r2 = CoreRadiusM * CoreRadiusM;
             var fs = map.footprints;
+            // skyline tops (2026-10-16): a partly mapped outline (a measured
+            // tower's podium, its tiers standing on it) is shorter than what
+            // stands on it - it is as tall as its tallest part
+            var partTop = new Dictionary<int, float>();
+            foreach (var p in fs)
+                if (p.part && p.outline >= 0 && (!partTop.TryGetValue(p.outline, out float t) || p.h > t)) partTop[p.outline] = p.h;
+            float TowerH(int i) => partTop.TryGetValue(i, out float t) ? Mathf.Max(fs[i].h, t) : fs[i].h;
             for (int i = 0; i < fs.Length; i++)
             {
                 var f = fs[i];
-                if (f.part || f.gable || f.style == 3 || f.h < MinHeightM) continue;
+                if (f.part || f.gable || f.style == 3 || TowerH(i) < MinHeightM) continue;
                 if ((f.centre - map.uptown).sqrMagnitude > r2) continue;
                 cand.Add(i);
             }
-            cand.Sort((a, b) => fs[b].h.CompareTo(fs[a].h));
+            cand.Sort((a, b) => TowerH(b).CompareTo(TowerH(a)));
             var chosen = new HashSet<int>();
             pack = 0;
             foreach (int i in cand)

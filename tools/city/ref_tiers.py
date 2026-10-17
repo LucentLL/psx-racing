@@ -8,6 +8,9 @@ outline of each step, read off the model's flat roof faces, and the height of
 anything that rises above the last flat roof (a crown). They are written as
 building:part-shaped records keyed to the OSM outline (truth/uptown_ref_parts.json)
 and drawn by our own exporter + mesher exactly like OSM's own parts.
+2026-10-16 (skyline tops): tiers are clipped to OSM's outline, and a crown is
+measured for its shape (measure_crown) instead of always becoming a pyramid;
+the export uses these tiers by default (PSX_CITY_REFTIERS=0 leaves them out).
 
 Usage (the model is the owner's, outside the repo):
     blender --background --python <export script> -> pack triangles in metres
@@ -38,6 +41,112 @@ def ph(v):
         return float(str(v).split()[0].rstrip("m"))
     except Exception:
         return None
+
+
+def largest(g):
+    """The biggest polygon of a shapely result, holes filled (None if none)."""
+    if g is None or g.is_empty:
+        return None
+    polys = [x for x in getattr(g, "geoms", [g]) if isinstance(x, Polygon) and not x.is_empty]
+    return Polygon(max(polys, key=lambda x: x.area).exterior) if polys else None
+
+
+SLOPED = 0.5          # share of a crown's plan that must slope to be a roof shape
+ROUND_AT_HALF = 0.72  # height at half the half-width (of the rise): a circle 0.87, a gable 0.5
+
+
+def measure_crown(mine, base, last, poly):
+    """What rises above the last flat roof, measured: a barrel ("round": the
+    highest points a ridge down the middle, the section a circle), a gable
+    (the same ridge, straight slopes), a skillion (the ridge on one edge) or
+    a pyramid (the highest points a point), over the footprint the crown's
+    own sloped faces cover. None when it is none of those (a mast, a sign,
+    plant smaller than a tier): such a crown is left off, never guessed."""
+    from shapely.geometry import MultiPoint, LineString
+    # (the zone is the tower's own outline: the last flat level can be a
+    # strip of terrace beside the crown, not a roof under it)
+    lvl = last["h"]
+    zone = poly.buffer(1.0)
+    tris = []
+    for pts, z, nz in mine:
+        zr = [zz - base for zz in z]
+        if max(zr) <= lvl + 0.5:
+            continue
+        # the piece of the face above the last roof (a low-poly model's faces
+        # run on down past it): clipped at lvl, Sutherland-Hodgman
+        poly3 = []
+        for i in range(3):
+            a, b = (pts[i], zr[i]), (pts[(i + 1) % 3], zr[(i + 1) % 3])
+            if a[1] >= lvl:
+                poly3.append(a)
+            if (a[1] >= lvl) != (b[1] >= lvl):
+                f = (lvl - a[1]) / (b[1] - a[1])
+                poly3.append(((a[0][0] + f * (b[0][0] - a[0][0]), a[0][1] + f * (b[0][1] - a[0][1])), lvl))
+        if len(poly3) < 3:
+            continue
+        cx, cy = sum(p[0][0] for p in poly3) / len(poly3), sum(p[0][1] for p in poly3) / len(poly3)
+        if zone.contains(Point(cx, cy)):
+            tris.append(([p[0] for p in poly3], [p[1] for p in poly3], nz))
+    flat = [Polygon(p) for p, zr, nz in tris if nz > 0.05 and Polygon(p).area > 0.01]
+    if not flat:
+        return None
+    fp = largest(unary_union(flat).buffer(0.3).buffer(-0.3))
+    fp = largest(fp.simplify(0.6, preserve_topology=True).intersection(poly)) if fp else None
+    if fp is None or fp.area < MIN_AREA:
+        return None
+    sloped = sum(Polygon(p).area for p, zr, nz in tris if 0.05 < nz < 0.95)
+    if sloped < SLOPED * fp.area:
+        return None
+    ztop = max(max(zr) for p, zr, nz in tris)
+    rise_all = ztop - lvl
+    # the crown's footprint box and the box of its highest points
+    def box(geom):
+        r = geom.minimum_rotated_rectangle
+        c = list(r.exterior.coords)[:4]
+        e0 = (c[1][0] - c[0][0], c[1][1] - c[0][1]); e1 = (c[2][0] - c[1][0], c[2][1] - c[1][1])
+        l0, l1 = math.hypot(*e0), math.hypot(*e1)
+        ax = e0 if l0 >= l1 else e1
+        m = math.hypot(*ax) or 1.0
+        return r.centroid, (ax[0] / m, ax[1] / m), max(l0, l1), min(l0, l1)
+    fc, fax, fl, fw = box(fp)
+    hi = [p for pts, zr, nz in tris for p, zz in zip(pts, zr) if zz >= ztop - 0.3]
+    if len(hi) < 2:
+        return None
+    hm = MultiPoint(hi)
+    if hm.minimum_rotated_rectangle.geom_type != "Polygon":
+        # collinear: the farthest pair is its length
+        tl = max(math.hypot(a[0] - b[0], a[1] - b[1]) for a in hi for b in hi)
+        tw, tc = 0.0, hm.centroid
+    else:
+        tc, _, tl, tw = box(hm)
+    out = {"minH": round(lvl, 1), "h": round(ztop, 1), "pg": fp, "dir": None}
+    if tl <= max(3.0, 0.25 * fl) and tw <= max(3.0, 0.25 * fw):
+        out["roof"], out["roofH"] = "pyramidal", rise_all
+        return out
+    if tl >= 0.5 * fl and tw <= max(3.0, 0.35 * fw):
+        # a ridge: across the footprint's short axis, where does it stand?
+        nx, ny = -fax[1], fax[0]
+        off = (tc.x - fc.x) * nx + (tc.y - fc.y) * ny
+        if abs(off) > 0.3 * fw:
+            # on one edge: a skillion falling away from it (OSM roof:direction
+            # is the compass bearing downhill; x east, z north)
+            dx, dy = (-nx, -ny) if off > 0 else (nx, ny)
+            out["roof"], out["roofH"] = "skillion", rise_all
+            out["dir"] = int(round(math.degrees(math.atan2(dx, dy)))) % 360
+            return out
+        # centred: the section's height at half the half-width says circle or gable
+        half = fw / 2
+        ridge = LineString([(tc.x - fax[0] * fl, tc.y - fax[1] * fl), (tc.x + fax[0] * fl, tc.y + fax[1] * fl)])
+        hs = [zz for pts, zr, nz in tris if 0.05 < nz < 0.95 for p, zz in zip(pts, zr)
+              if 0.35 * half <= ridge.distance(Point(p)) <= 0.65 * half]
+        r = min(rise_all, half)
+        spring = ztop - r
+        if hs and r > 0.5 and sum((zz - spring) / r for zz in hs) / len(hs) >= ROUND_AT_HALF:
+            out["roof"], out["roofH"] = "round", r
+        else:
+            out["roof"], out["roofH"] = "gabled", rise_all
+        return out
+    return None
 
 
 def main():
@@ -142,8 +251,10 @@ def main():
             for gm in geoms:
                 if gm.is_empty or gm.area < MIN_AREA:
                     continue
-                filled = Polygon(gm.exterior).simplify(0.6, preserve_topology=True)
-                if filled.area >= MIN_AREA:
+                # 2026-10-16: clipped to OSM's outline (the model is fitted to
+                # ~7 m rms; OSM keeps the final word on where the walls stand)
+                filled = largest(Polygon(gm.exterior).simplify(0.6, preserve_topology=True).intersection(poly))
+                if filled is not None and filled.area >= MIN_AREA:
                     tiers.append([zl - base, filled])
         if not tiers:
             report.append((key, osm_h, round(top - base), "no flat roof"))
@@ -156,19 +267,36 @@ def main():
             parts.append({"h": hh, "minH": max(under) if under else 0.0, "pg": pg})
         last = max(parts, key=lambda p: p["h"])
         crown = (top - base) - last["h"]
+        what = ""
         if crown >= CROWN_MIN:
-            last["roof"] = crown
+            # 2026-10-16: the crown is MEASURED for its shape (it was a
+            # pyramid whatever stood there): its own part over its own
+            # footprint, or left off when it is no shape a roof can name
+            cp = measure_crown(mine, base, last, poly)
+            if cp:
+                # it stands on the highest tier under its middle (the last
+                # flat level can be a strip of terrace beside it: a crown
+                # from there would float over the core between the strips)
+                rp = cp["pg"].representative_point()
+                under = [p["h"] for p in parts if p["h"] < cp["minH"] + 0.5 and p["pg"].contains(rp)]
+                cp["minH"] = round(max(under), 1) if under else 0.0
+                parts.append(cp)
+                what = ", crown %.0f m %s" % (crown, cp["roof"])
+            else:
+                what = ", crown %.0f m left off (no roof shape)" % crown
         for p in parts:
             nid += 1
             ring = list(p["pg"].exterior.coords)[:-1]
-            tags = {"building:part": "yes", "height": "%.1f" % (p["h"] + p.get("roof", 0)),
+            tags = {"building:part": "yes", "height": "%.1f" % p["h"],
                     "min_height": "%.1f" % p["minH"], "psx:ref": key}
             if "roof" in p:
-                tags["roof:shape"] = "pyramidal"
-                tags["roof:height"] = "%.1f" % p["roof"]
+                tags["roof:shape"] = p["roof"]
+                tags["roof:height"] = "%.1f" % p["roofH"]
+                if p.get("dir") is not None:
+                    tags["roof:direction"] = "%d" % p["dir"]
             out.append({"type": "way", "id": 9000000000 + nid, "tags": tags,
                         "geometry": [{"lat": round(LAT0 + y / M_LAT, 7), "lon": round(LON0 + x / M_LON, 7)} for x, y in ring]})
-        report.append((key, osm_h, round(top - base), "%d tiers%s" % (len(parts), ", crown %.0f m" % crown if crown >= CROWN_MIN else "")))
+        report.append((key, osm_h, round(top - base), "%d tiers%s" % (len(parts), what)))
 
     for r in sorted(report, key=lambda r: -(r[1] or 0)):
         print("%-14s osm %5.0f  model %5s  %s" % (r[0], r[1], r[2], r[3]))

@@ -77,6 +77,7 @@ namespace PSXRacing.City
                     Bucket.Tint = new Color32(TintByte(k.x), TintByte(k.y), TintByte(k.z), (byte)(LookGranite * 32));
                 }
                 Walls(tm, massPoly, y0, podTop);
+                Ledge(tm, massPoly, podTop);   // the kit: the podium roof's lip
                 facLook = keepLook; Bucket.Tint = keepTint;
                 EarcutInto(buckets[(int)Slot.RoofFlat], massPoly, podTop, tm.origin, RoofFlatM);
                 shaftY0 = podTop;
@@ -91,10 +92,12 @@ namespace PSXRacing.City
                 if (setY - shaftY0 > 20f && InsetPoly(massShaft, step, massTop))
                 {
                     Walls(tm, massShaft, shaftY0, setY);
+                    Ledge(tm, massShaft, setY);                 // the kit: the setback's lip
                     EarcutInto(buckets[(int)Slot.RoofFlat], massShaft, setY, tm.origin, RoofFlatM);
                     Walls(tm, massTop, setY, top);
+                    Parapet(tm, massTop, top, ParapetLipM);
                     EarcutInto(buckets[(int)Slot.RoofFlat], massTop, top, tm.origin, RoofFlatM);
-                    PlantBox(tm, f, massTop, top, 0.30f, 1.0f * storey, h);
+                    RoofPlant(tm, f, massTop, top, 0.30f, 1.0f * storey, h, f.h);
                     return true;
                 }
                 kind = 0;   // no room to step back: a penthouse instead
@@ -103,7 +106,10 @@ namespace PSXRacing.City
             float parapet = kind == 2 ? 2.2f : 1.2f;
             Parapet(tm, massShaft, top, parapet);
             EarcutInto(buckets[(int)Slot.RoofFlat], massShaft, top, tm.origin, RoofFlatM);
-            if (kind == 0) PlantBox(tm, f, massShaft, top, 0.42f + 0.13f * (((h >> 24) & 0xFF) / 255f), 1.6f * storey, h);
+            // the kit: the plant on every roof (the tall parapet band's lower
+            // behind it), a mast on the tallest
+            if (kind == 0) RoofPlant(tm, f, massShaft, top, 0.42f + 0.13f * (((h >> 24) & 0xFF) / 255f), 1.6f * storey, h, f.h);
+            else RoofPlant(tm, f, massShaft, top, 0.30f, 1.0f * storey, h, f.h);
             return true;
         }
 
@@ -133,11 +139,15 @@ namespace PSXRacing.City
         }
 
         /// <summary>The plant: a metal-screened box on the roof over the box's
-        /// centre (nudged by the hash), <paramref name="share"/> of the roof's
-        /// box across, <paramref name="tall"/> high - left off where it would
-        /// overhang the roof (an L-shaped tower's box centre can be outside it).</summary>
-        static void PlantBox(TileMeshes tm, CityMap.Footprint f, List<Vector2> roof, float y, float share, float tall, uint h)
+        /// centre (nudged by the hash, and moved <paramref name="offU"/> of
+        /// the roof's half length along it), <paramref name="share"/> of the
+        /// roof's box across, <paramref name="tall"/> high - left off where it
+        /// would overhang the roof (an L-shaped tower's box centre can be
+        /// outside it). True with its centre and top when it stood.</summary>
+        static bool PlantBox(TileMeshes tm, CityMap.Footprint f, List<Vector2> roof, float y, float share, float tall, uint h,
+                             out Vector2 at, out float boxTop, float offU = 0f)
         {
+            at = default; boxTop = y;
             // the roof's own box along the footprint's axis
             var v = new Vector2(-f.u.y, f.u.x);
             float u0 = float.MaxValue, u1 = float.MinValue, v0 = float.MaxValue, v1 = float.MinValue;
@@ -147,8 +157,8 @@ namespace PSXRacing.City
                 u0 = Mathf.Min(u0, a); u1 = Mathf.Max(u1, a); v0 = Mathf.Min(v0, b); v1 = Mathf.Max(v1, b);
             }
             float hu = (u1 - u0) * 0.5f, hv = (v1 - v0) * 0.5f;
-            if (hu < 3f || hv < 3f) return;
-            float nudge = ((((h >> 12) & 0xF) / 15f) - 0.5f) * 0.3f;
+            if (hu < 3f || hv < 3f) return false;
+            float nudge = ((((h >> 12) & 0xF) / 15f) - 0.5f) * 0.3f + offU;
             var c = f.centre + f.u * ((u0 + u1) * 0.5f + nudge * hu) + v * ((v0 + v1) * 0.5f);
             for (int tries = 0; tries < 2; tries++, share *= 0.7f)
             {
@@ -164,8 +174,10 @@ namespace PSXRacing.City
                 FacadeMetal(false);
                 buckets[(int)Slot.RoofFlat].Up(L(c2, y + tall, tm), L(c3, y + tall, tm), L(c4, y + tall, tm), L(c1, y + tall, tm),
                     new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, 0f));
-                return;
+                at = c; boxTop = y + tall;
+                return true;
             }
+            return false;
         }
 
         /// <summary>

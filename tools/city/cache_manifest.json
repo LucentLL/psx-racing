@@ -52,6 +52,12 @@
       "sha256": "a89159a9ce17e5e71a4205d335ed4c1d3416cc3d6a3190aa64bb7ce1d00c2bed"
     },
     {
+      "file": "tools/city/truth/uptown_ref_parts.json",
+      "kind": "registry",
+      "bytes": 59499,
+      "sha256": "d619779146d89054f709478f7fb91b2be9dc83d6b28dcc23a96b5c09aff1f7fd"
+    },
+    {
       "file": "tools/city/cache/buildings_city.json",
       "kind": "overpass",
       "bytes": 67500464,

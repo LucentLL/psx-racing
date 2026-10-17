@@ -216,25 +216,45 @@ export function applyParts({ raw, buildings, held = [], toX, toZ, rdp, polyArea,
     stats.partsNoHeight += list.length - usable.length;
     const aAll = list.reduce((s, p) => s + p.area, 0), aUse = usable.reduce((s, p) => s + p.area, 0);
     if (!usable.length || aUse < aAll * 0.5) { if (!b.held) stats.keptBare++; continue; }
-    if (b.held) { oi = buildings.length + rescued.length; rescued.push(b); b.noSwap = true; stats.rescued = (stats.rescued || 0) + 1; }
-    // how much of the outline the usable parts stand on (sampled)
+    // how much of the outline a set of parts stands on (sampled)
     const bb = b.bb;
     const step = Math.max(1.0, Math.sqrt(b.area) / 40);
-    let inside = 0, covered = 0;
-    for (let x = bb[0] + step / 2; x < bb[2]; x += step)
-      for (let z = bb[1] + step / 2; z < bb[3]; z += step) {
-        if (!inPoly(x, z, b.pts)) continue;
-        inside++;
-        for (const p of usable) if (inPoly(x, z, p.pts)) { covered++; break; }
-      }
-    const cover = inside ? covered / inside : 0;
+    const coverOf = ps => {
+      let inside = 0, covered = 0;
+      for (let x = bb[0] + step / 2; x < bb[2]; x += step)
+        for (let z = bb[1] + step / 2; z < bb[3]; z += step) {
+          if (!inPoly(x, z, b.pts)) continue;
+          inside++;
+          for (const p of ps) if (inPoly(x, z, p.pts)) { covered++; break; }
+        }
+      return inside ? covered / inside : 0;
+    };
+    const cover = coverOf(usable);
     const top = Math.max(...usable.map(p => p.h));
-    if (process.env.PSX_PARTS_DEBUG && (b.landmark || top >= 40)) console.log('  outline', b.key, b.landmark ? LANDMARKS[b.landmark - 1][1] : '', 'h', b.h.toFixed(0), 'top', top.toFixed(0), 'cover', cover.toFixed(2), 'parts', usable.length + '/' + list.length);
+    // Skyline tops (2026-10-16): measured REFERENCE tiers seldom cover OSM's
+    // outline (a plaza, an arcade, the model's narrower walls), and the
+    // partly-mapped rule below then only capped the outline at the model's
+    // top - every step and crown above it was lost. Instead the outline
+    // stands to the MAIN ROOF (the highest level whose section - the tiers
+    // reaching it - still covers half the outline) and the measured steps,
+    // plant floors and crown above it are drawn on it. No main roof: the
+    // tower is left as OSM draws it.
+    let refMain = null;
+    if (list === refParts && cover < 0.8) {
+      const levels = [...new Set(usable.map(p => p.h))].sort((x, y) => y - x);
+      for (const h of levels) if (coverOf(usable.filter(p => p.h >= h - 0.05)) >= 0.5) { refMain = h; break; }
+      if (refMain === null) { stats.refLeft = (stats.refLeft || 0) + 1; continue; }
+    }
+    if (b.held) { oi = buildings.length + rescued.length; rescued.push(b); b.noSwap = true; stats.rescued = (stats.rescued || 0) + 1; }
+    if (process.env.PSX_PARTS_DEBUG && (b.landmark || top >= 40)) console.log('  outline', b.key, b.landmark ? LANDMARKS[b.landmark - 1][1] : '', 'h', b.h.toFixed(0), 'top', top.toFixed(0), 'cover', cover.toFixed(2), 'parts', usable.length + '/' + list.length, refMain !== null ? 'main roof ' + refMain.toFixed(1) : '');
     if (cover >= 0.8) {
       b.hidden = true;
       stats.replaced++;
       if (top > b.h + 10) stats.raised.push(`${b.key} ${b.h.toFixed(0)} -> ${top.toFixed(0)} m`);
       b.h = Math.max(b.h, top);
+    } else if (refMain !== null) {
+      stats.refMain = (stats.refMain || 0) + 1;
+      b.h = refMain;
     } else {
       // partly mapped: the outline stands as it was (no taller than its
       // tallest part) and the parts that rise above it are drawn on it
