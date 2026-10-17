@@ -150,9 +150,28 @@ Shader "PSX/SpeedBlur"
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
+            // CAMERA-RELATIVE, AND A FEW MILLIMETRES NEARER (2026-10-17; owner:
+            // past 40 mph "the cockpit starts to glitch"). The cabin draws
+            // through PSXCameraRel.cginc since e9909cc0 - Charlotte is 5 km
+            // from the origin, where a world-space transform rounds a vertex
+            // to 0.49 mm - and this mask, still world-space, then landed up
+            // to that far BEHIND the cabin it was masking: LEqual failed in
+            // patches, and those patches of dash and dials were smeared. The
+            // mask now takes the cabin's own path, and every vertex is pulled
+            // toward the lens along its own ray (same pixel, less depth) by
+            // MASK_PULL_M + MASK_PULL_K x its distance, which also covers the
+            // world-space body's rounding against it. Nothing between the car
+            // and the lens stands that close to it.
+            #define MASK_PULL_M 0.003
+            #define MASK_PULL_K 0.002
             float4 MaskVert (float4 positionOS : POSITION) : SV_POSITION
             {
-                return TransformObjectToHClip(positionOS.xyz);
+                float4x4 m = GetObjectToWorldMatrix();
+                float3 rel = mul((float3x3)m, positionOS.xyz) + (m._m03_m13_m23 - _WorldSpaceCameraPos);
+                float3 v = mul((float3x3)UNITY_MATRIX_V, rel);
+                float d = max(length(v), 1e-4);
+                v *= max(d - (MASK_PULL_M + MASK_PULL_K * d), 0.5 * d) / d;
+                return mul(UNITY_MATRIX_P, float4(v, 1.0));
             }
 
             half4 MaskFrag () : SV_Target
