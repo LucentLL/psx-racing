@@ -606,7 +606,11 @@ namespace PSXRacing
             // Edit mode has no camera events: hide what play mode hides from it.
             SetVisible(false);
             HideShell(true);
+            MirrorFog(true);
+            MirrorSkyline(false);
             mirrorCam.Render();
+            MirrorSkyline(true);
+            MirrorFog(false);
             SetVisible(true);
         }
 
@@ -625,7 +629,11 @@ namespace PSXRacing
         {
             var src = driver != null ? driver : Camera.main;
             if (src == null || L == null || L.mirror == null || mirrorMat == null) return;
-            mirrorRT = new RenderTexture(MirrorW, MirrorH, 16) { name = "CockpitMirror", filterMode = FilterMode.Bilinear, antiAliasing = 1 };
+            // 24-bit depth (owner, 2026-10-16: the mirror "flickers in and out of
+            // constantly overlapping layers"): at 16 bits a 0.3 m near plane
+            // resolves half a metre at 100 m, and the road and the ground under
+            // it traded places in black wedges every frame.
+            mirrorRT = new RenderTexture(MirrorW, MirrorH, 24) { name = "CockpitMirror", filterMode = FilterMode.Bilinear, antiAliasing = 1 };
             var go = new GameObject("CockpitMirrorCamera");
             if (!Application.isPlaying) go.hideFlags = HideFlags.DontSave;
             go.transform.SetParent(transform, false);
@@ -692,11 +700,87 @@ namespace PSXRacing
             // The mirror looks back from inside the shell too: whatever the
             // shell models inside (seats, a parcel shelf) would fill it.
             if (isDriver || (mirrorCam != null && cam == mirrorCam)) HideShell(true);
+            if (mirrorCam != null && cam == mirrorCam) { MirrorFog(true); MirrorSkyline(false); }
         }
 
         void OnEndCamera(ScriptableRenderContext ctx, Camera cam)
         {
             if (shellHidden) HideShell(false);
+            MirrorFog(false);
+            MirrorSkyline(true);
+        }
+
+        PSXRacing.City.CitySkyline skyFor;
+        Renderer[] skyRends;
+        bool[] skyWas;
+        bool skyOff;
+
+        /// <summary>The city's far skyline (and its beacons) left out of the
+        /// MIRROR (2026-10-16, the owner's "flicker in and out of constantly
+        /// overlapping layers"). It is culled by bounds fitted to the
+        /// DRIVER's squeeze, out at 400-469 m, but drawn by the mirror's own -
+        /// its far plane is 160 m, so towers kilometres behind landed at
+        /// 130-150 m, in front of the road, and came and went with the
+        /// culling: dark walls at night, the black wedges in the mirror. The
+        /// mirror's world now ends in its own edge fade (MirrorFog).</summary>
+        void MirrorSkyline(bool on)
+        {
+            if (on != skyOff) return;
+            if (!on)
+            {
+                var world = PSXRacing.City.CityWorld.Active;
+                var sk = world != null ? world.Skyline
+                    : Application.isPlaying ? null : FindFirstObjectByType<PSXRacing.City.CitySkyline>();
+                if (sk != skyFor)
+                {
+                    skyFor = sk;
+                    skyRends = sk != null ? sk.GetComponentsInChildren<Renderer>(true) : null;
+                    skyWas = skyRends != null ? new bool[skyRends.Length] : null;
+                }
+                if (skyRends == null) return;
+                for (int i = 0; i < skyRends.Length; i++)
+                    if (skyRends[i] != null) { skyWas[i] = skyRends[i].forceRenderingOff; skyRends[i].forceRenderingOff = true; }
+                skyOff = true;
+            }
+            else
+            {
+                if (skyRends != null)
+                    for (int i = 0; i < skyRends.Length; i++)
+                        if (skyRends[i] != null) skyRends[i].forceRenderingOff = skyWas[i];
+                skyOff = false;
+            }
+        }
+
+        static readonly int FogNearId = Shader.PropertyToID("_PSXFogNear");
+        static readonly int FogFarId = Shader.PropertyToID("_PSXFogFar");
+        bool mirrorFogSet;
+        float fogNearWas, fogFarWas;
+
+        /// <summary>The world's edge fade at the MIRROR's far plane while it
+        /// draws (2026-10-16). The mirror stops at <see cref="MirrorFar"/> m but
+        /// the fade is the driver's, out at 400-500 m, so the world behind the
+        /// car ended in a hard cut at 160 m - buildings and trees popping in
+        /// and out of it, the sky showing in the gap under the horizon. Now it
+        /// fades into the horizon colour over the mirror's own last fifth, as
+        /// the driver's view does over its own (TimeOfDay.EdgeFadeStart); a
+        /// foggy day's nearer band is kept.</summary>
+        void MirrorFog(bool on)
+        {
+            if (on == mirrorFogSet || mirrorCam == null) return;
+            if (on)
+            {
+                fogNearWas = Shader.GetGlobalFloat(FogNearId);
+                fogFarWas = Shader.GetGlobalFloat(FogFarId);
+                float far = mirrorCam.farClipPlane;
+                Shader.SetGlobalFloat(FogNearId, Mathf.Min(fogNearWas, far * TimeOfDay.EdgeFadeStart));
+                Shader.SetGlobalFloat(FogFarId, Mathf.Min(fogFarWas, far * 0.997f));
+            }
+            else
+            {
+                Shader.SetGlobalFloat(FogNearId, fogNearWas);
+                Shader.SetGlobalFloat(FogFarId, fogFarWas);
+            }
+            mirrorFogSet = on;
         }
 
         void SetVisible(bool on)

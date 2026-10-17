@@ -264,6 +264,21 @@ Shader "PSX/Lit"
                                               //   is about half (CitySkyline.BandShare). The world's last
                                               //   metres are mostly sky colour; a far tower drawn behind
                                               //   them was cut to a sliver by faded treetops
+            // THE FAR TAIL (owner, 2026-10-16: distant buildings "flicker in and
+            // out of constantly overlapping layers"). The squeeze alone ran out
+            // in a few spans: by clear night the band is 400-469 m, and every
+            // tower past ~1 km landed within a millimetre of 469 m - one depth
+            // for the whole skyline, so which tower won a pixel was float
+            // noise, frame to frame. Now the exponential has 70% of the band
+            // and the last 30% is a log TAIL that starts where it runs out
+            // (6 of its spans) and reaches the band's end at SKYLINE_TAIL_TO:
+            // towers ~6 m apart in distance at 1 km keep their order, ~13 m at
+            // 2 km, ~21 m at 3 km (one 24-bit depth step at 470 m). Still
+            // never deeper than the real point (CitySkyline.Squeeze, the same).
+            #define SKYLINE_TAIL       0.30   // the band's share given to the far tail
+            #define SKYLINE_TAIL_FROM  6.0    // the tail starts this many squeeze spans past A
+            #define SKYLINE_TAIL_C     400.0  // the tail's log knee, metres
+            #define SKYLINE_TAIL_TO    9000.0 // the tail reaches the band's end here, metres
 
             float4 _PSXLightDir;    // xyz = direction TO light (world)
             fixed4 _PSXLightColor;
@@ -765,7 +780,12 @@ Shader "PSX/Lit"
                     float sA = min(_PSXFogNear, sF - 30.0);
                     sA = sA < 50.0 ? min(50.0, sF * 0.5) : sA;
                     float span = max((sF - sA) * SKYLINE_BAND, 1.0);
-                    float sdc = sd <= sA ? sd : sA + span * (1.0 - exp(-(sd - sA) / span));
+                    float spanE = span * (1.0 - SKYLINE_TAIL);
+                    float sx = max(sd - sA, 0.0);
+                    float sT0 = SKYLINE_TAIL_FROM * spanE;
+                    float sTail = saturate(log(1.0 + max(sx - sT0, 0.0) / SKYLINE_TAIL_C)
+                                         / log(1.0 + max(SKYLINE_TAIL_TO - sA - sT0, 1.0) / SKYLINE_TAIL_C));
+                    float sdc = sd <= sA ? sd : sA + spanE * (1.0 - exp(-sx / spanE)) + span * SKYLINE_TAIL * sTail;
                     clipPos = mul(UNITY_MATRIX_VP, float4(_WorldSpaceCameraPos + rel * (sdc / max(sd, 1e-3)), 1.0));
                 }
                 else clipPos = UnityObjectToClipPos(v.vertex);

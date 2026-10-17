@@ -112,6 +112,10 @@ Shader "PSX/Halo"
             // SKYLINE_BAND, the same numbers (CitySkyline.FarShare / BandShare)
             #define SKY_FAR        0.997
             #define SKY_BAND       0.70
+            #define SKY_TAIL       0.30     // PSXLit.shader's far tail (SKYLINE_TAIL*), the same numbers
+            #define SKY_TAIL_FROM  6.0
+            #define SKY_TAIL_C     400.0
+            #define SKY_TAIL_TO    9000.0
             #define SKY_HAZE_M     24000.0  // CitySkyline.HazeClearM
             #define BEACON_PERIOD  2.0      // seconds: 30 flashes a minute (an L-864's slow end)
             #define BEACON_ON      0.50     // share of the period the lamp is up
@@ -148,7 +152,12 @@ Shader "PSX/Halo"
                     float sA = min(_PSXFogNear, sF - 30.0);
                     sA = sA < 50.0 ? min(50.0, sF * 0.5) : sA;
                     float span = max((sF - sA) * SKY_BAND, 1.0);
-                    float sdc = realDist <= sA ? realDist : sA + span * (1.0 - exp(-(realDist - sA) / span));
+                    float spanE = span * (1.0 - SKY_TAIL);
+                    float sx = max(realDist - sA, 0.0);
+                    float sT0 = SKY_TAIL_FROM * spanE;
+                    float sTail = saturate(log(1.0 + max(sx - sT0, 0.0) / SKY_TAIL_C)
+                                         / log(1.0 + max(SKY_TAIL_TO - sA - sT0, 1.0) / SKY_TAIL_C));
+                    float sdc = realDist <= sA ? realDist : sA + spanE * (1.0 - exp(-sx / spanE)) + span * SKY_TAIL * sTail;
                     wc.xyz = _WorldSpaceCameraPos + (wc.xyz - _WorldSpaceCameraPos) * (sdc / max(realDist, 1e-3));
                 }
                 float3 vc = mul(UNITY_MATRIX_V, wc).xyz;

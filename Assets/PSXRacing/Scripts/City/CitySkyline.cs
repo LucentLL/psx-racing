@@ -234,16 +234,38 @@ namespace PSXRacing.City
 
         /// <summary>The shader's squeeze (PSXLit.shader, the skyline switch):
         /// a point past <paramref name="a"/> metres moved in along its line
-        /// of sight to a + (b - a)(1 - e^-(d - a)/(b - a)).</summary>
+        /// of sight to <see cref="SqueezeDist"/>.</summary>
         public static Vector3 Squeeze(Vector3 eye, Vector3 p, float a, float b)
         {
             var rel = p - eye;
             float d = rel.magnitude;
             if (d <= a || d < 1e-3f) return p;
-            float span = Mathf.Max(b - a, 1f);
-            float dc = a + span * (1f - Mathf.Exp(-(d - a) / span));
-            return eye + rel * (dc / d);
+            return eye + rel * (SqueezeDist(d, a, b) / d);
         }
+
+        /// <summary>The squeezed distance (PSXLit.shader and PSXHalo.shader,
+        /// the same numbers, 2026-10-16): a + s(1 - e^-(d - a)/s) over 70% of
+        /// the band (s = 0.7 (b - a)), plus a log TAIL over the last 30% from
+        /// six of those spans past a to <see cref="TailToM"/> - so towers
+        /// kilometres out keep their order in depth instead of all landing on
+        /// the band's end, which was the flicker the owner saw. Never deeper
+        /// than <paramref name="d"/>.</summary>
+        public static float SqueezeDist(float d, float a, float b)
+        {
+            if (d <= a) return d;
+            float span = Mathf.Max(b - a, 1f);
+            float spanE = span * (1f - TailShare);
+            float x = d - a;
+            float t0 = TailFromSpans * spanE;
+            float tail = Mathf.Clamp01(Mathf.Log(1f + Mathf.Max(x - t0, 0f) / TailKneeM)
+                                       / Mathf.Log(1f + Mathf.Max(TailToM - a - t0, 1f) / TailKneeM));
+            return a + spanE * (1f - Mathf.Exp(-x / spanE)) + span * TailShare * tail;
+        }
+
+        /// <summary>The far tail (PSXLit's SKYLINE_TAIL*): its share of the
+        /// band, where it starts (in squeeze spans past a), its log knee and
+        /// the distance at which it reaches the band's end.</summary>
+        public const float TailShare = 0.30f, TailFromSpans = 6f, TailKneeM = 400f, TailToM = 9000f;
 
         void Reindex()
         {
