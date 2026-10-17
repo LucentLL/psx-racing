@@ -570,7 +570,7 @@ namespace PSXRacing.City
                 k = pal[(int)((h >> 8) % (uint)pal.Length)];
             }
             // OSM metal cladding wears the silver grid AS metal (B1b)
-            Bucket.Tint = new Color32(TintByte(k.x), TintByte(k.y), TintByte(k.z), (byte)(look * 32 + (mat == 4 ? FacadeMetalBit : 0)));
+            Bucket.Tint = new Color32(TintByte(k.x), TintByte(k.y), TintByte(k.z), (byte)(look * 32 + (mat == 4 ? FacadeMetalBit : 0) + facLed));
         }
 
         /// <summary>A stone wall this tall is an office tower's (granite or
@@ -603,7 +603,7 @@ namespace PSXRacing.City
             return best;
         }
 
-        static void EndFacade() { Bucket.Tint = new Color32(128, 128, 128, 0); facCrownY = float.MaxValue; }
+        static void EndFacade() { Bucket.Tint = new Color32(128, 128, 128, 0); facCrownY = float.MaxValue; facLed = 0; }
 
         /// <summary>Uptown B1b: the vertex alpha's half step (column x 32
         /// + 16) tells PSX/Lit's facade that this surface is METAL - the
@@ -614,7 +614,7 @@ namespace PSXRacing.City
         static void FacadeMetal(bool on)
         {
             var t = Bucket.Tint;
-            Bucket.Tint = new Color32(t.r, t.g, t.b, (byte)((t.a & (0xE0 | FacadeCrownBit)) | (on ? FacadeMetalBit : 0)));
+            Bucket.Tint = new Color32(t.r, t.g, t.b, (byte)((t.a & (0xE0 | FacadeCrownBit | FacadeLedMask)) | (on ? FacadeMetalBit : 0)));
         }
 
         /// <summary>Leftovers 2026-10-05, FLOODLIT CROWNS: the vertex alpha's
@@ -625,6 +625,9 @@ namespace PSXRacing.City
         /// <see cref="facCrownY"/> up: the walls that cross it are split
         /// there (one more panel row, no draw call).</summary>
         const int FacadeCrownBit = 8;
+        /// <summary>The uptown night pass (2026-10-16): the alpha's low three
+        /// bits are the crown's LED colour (CityMeshes.NightCrowns).</summary>
+        const int FacadeLedMask = 7;
         public const float CrownMinH = 60f;
         static float facCrownY = float.MaxValue;
         /// <summary>The floodlit band of a tower <paramref name="h"/> tall: a
@@ -10311,6 +10314,7 @@ namespace PSXRacing.City
                 Slot wallSlot = f.style == 3 ? Slot.FacadeHouse : Slot.FacadeGlass;
                 if (wallSlot == Slot.FacadeGlass)
                 {
+                    facLed = NightLedOf(gf.landmark);   // the uptown night pass: the crown's own colour
                     PickFacade(gf.centre, (byte)(f.style == 4 ? 2 : f.style), f.use, f.mat, f.colour, floorP,
                                gf != f ? Mathf.Max(gf.h, 1f) : top - floorP);
                     // the tower's floodlit crown: its top band, whichever part reaches it

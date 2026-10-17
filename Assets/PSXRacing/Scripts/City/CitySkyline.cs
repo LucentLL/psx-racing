@@ -61,6 +61,9 @@ namespace PSXRacing.City
         MeshRenderer mr;
         Material[] mats;
         float hazeSet = -1f;
+        CityBeacons beacons;
+        /// <summary>The towers' beacons and crown strips (null with none).</summary>
+        public CityBeacons Beacons => beacons;
 
         public int TowerCount { get; private set; }
         public int ElementCount => hidden != null ? hidden.Length : 0;
@@ -122,6 +125,8 @@ namespace PSXRacing.City
             }
             sk.shown = n;
             sk.hidden = new bool[n];
+            // the uptown night pass: the towers' aviation beacons and crown strips
+            sk.beacons = CityBeacons.Create(go.transform, map, elems, sm.bounds);
             Debug.Log($"[CitySkyline] {towers} towers ({n} buildings and parts), {sm.triangles} triangles, 2 draws; {pack} pack towers among the tallest left to their tiles");
             return sk;
         }
@@ -172,6 +177,8 @@ namespace PSXRacing.City
         public void Refresh(Camera cam, System.Func<long, bool> isLive)
         {
             if (sm == null || mr == null) return;
+            // the beacons and strips: lit with the street lamps, off in fog
+            if (beacons != null) beacons.Show(cam != null && NightGlow.On && Seasons.CurrentWeather != Weather.Fog);
             if (cam == null) { mr.enabled = false; return; }
             var weather = Seasons.CurrentWeather;
             if (weather == Weather.Fog) { mr.enabled = false; return; }

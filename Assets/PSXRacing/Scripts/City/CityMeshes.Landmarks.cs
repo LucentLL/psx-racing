@@ -224,7 +224,7 @@ namespace PSXRacing.City
         /// is floodlit after dark unless <paramref name="crown"/> says not.</summary>
         static void HeroTint(int col, bool metal, float r, float g, float b, bool crown = true)
         {
-            Bucket.Tint = new Color32(TintByte(r), TintByte(g), TintByte(b), (byte)(col * 32 + (metal ? FacadeMetalBit : 0)));
+            Bucket.Tint = new Color32(TintByte(r), TintByte(g), TintByte(b), (byte)(col * 32 + (metal ? FacadeMetalBit : 0) + facLed));
             FacadeCrown(metal && crown);
         }
 
@@ -449,6 +449,7 @@ namespace PSXRacing.City
             // own skillion (roof:direction).
             var fs = map.footprints;
             HeroTint(HeroMetalCol, false, 0.93f, 0.94f, 0.95f);
+            FacadeCrown(true);   // the uptown night pass: the real crown is LED-lit at night
             HeroNoCollide(true);
             foreach (int pi in heroDropped[hero])
             {

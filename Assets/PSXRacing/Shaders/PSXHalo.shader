@@ -42,6 +42,16 @@
 // The globals (_PSXWetness, _PSXFogFar) are uniforms ONLY, never Properties:
 // a property of the same name would shadow the global and read 0.
 //
+// THE SKYLINE'S LIGHTS (the uptown night pass, 2026-10-16; CityBeacons):
+// uv1.y < 0 marks a light ON A TOWER - a red aviation beacon or a bead of a
+// crown's LED strip - that must be seen from kilometres out, where the tower
+// itself is drawn by CitySkyline beyond the far plane. Such a halo is moved
+// in along its line of sight exactly as PSX/Lit's skyline switch moves the
+// tower under it (the same squeeze, so it sits on the squeezed crown), hazed
+// by its real distance instead of faded with the fog, and - for uv1.y <= -1 -
+// pulses: a slow beacon flash, BEACON_PERIOD seconds, phase frac(-uv1.y), so
+// the towers do not flash in step. uv1.y = -0.5 is a steady strip bead.
+//
 // PSX/Halo is created at runtime only (NightGlow: Shader.Find), never by a
 // saved .mat, so it is in ProjectSettings' Always Included Shaders or a
 // WebGL build would not have it.
@@ -96,6 +106,17 @@ Shader "PSX/Halo"
 
             float _PSXWetness;
             float _PSXFogFar;
+            float _PSXFogNear;
+
+            // THE SKYLINE'S LIGHTS (the header): PSXLit.shader's SKYLINE_FAR /
+            // SKYLINE_BAND, the same numbers (CitySkyline.FarShare / BandShare)
+            #define SKY_FAR        0.997
+            #define SKY_BAND       0.70
+            #define SKY_HAZE_M     24000.0  // CitySkyline.HazeClearM
+            #define BEACON_PERIOD  2.0      // seconds: 30 flashes a minute (an L-864's slow end)
+            #define BEACON_ON      0.50     // share of the period the lamp is up
+            #define SKY_BEACON_PX  1.8      // a beacon's minimum size, x _MinPixels
+            #define SKY_CORE_K     8.0      // the soft core of a tower light at its minimum size
 
             struct appdata
             {
@@ -111,6 +132,7 @@ Shader "PSX/Halo"
                 float4 pos : SV_POSITION;
                 float2 q : TEXCOORD0;      // -1..1 across the quad
                 float4 col : TEXCOORD1;    // rgb = tint x strength x fade
+                float core : TEXCOORD2;    // the core's sharpness (HALO_CORE_K; softer for a far tower light)
             };
 
             v2f vert (appdata v)
@@ -118,6 +140,17 @@ Shader "PSX/Halo"
                 v2f o;
                 // All four corners share the centre; the quad is made here.
                 float4 wc = mul(unity_ObjectToWorld, float4(v.vertex.xyz, 1.0));
+                bool skyLight = v.uv1.y < -0.25;
+                float realDist = length(wc.xyz - _WorldSpaceCameraPos);
+                if (skyLight)
+                {
+                    float sF = _ProjectionParams.z * SKY_FAR;
+                    float sA = min(_PSXFogNear, sF - 30.0);
+                    sA = sA < 50.0 ? min(50.0, sF * 0.5) : sA;
+                    float span = max((sF - sA) * SKY_BAND, 1.0);
+                    float sdc = realDist <= sA ? realDist : sA + span * (1.0 - exp(-(realDist - sA) / span));
+                    wc.xyz = _WorldSpaceCameraPos + (wc.xyz - _WorldSpaceCameraPos) * (sdc / max(realDist, 1e-3));
+                }
                 float3 vc = mul(UNITY_MATRIX_V, wc).xyz;
                 float dist = length(vc);
 
@@ -135,7 +168,13 @@ Shader "PSX/Halo"
                 float zScale = lerp(depth, 1.0, unity_OrthoParams.w);
                 float minM = _MinPixels * 2.0 * zScale
                            / max(_ScreenParams.y * abs(UNITY_MATRIX_P[1][1]), 1e-3);
-                float size = max(_Size * v.uv1.x * (1.0 + HALO_WET_GROW * saturate(_PSXWetness)), minM);
+                // a far beacon is a dot of a few pixels, never a sub-pixel spark
+                if (v.uv1.y <= -1.0) minM *= SKY_BEACON_PX;
+                float natural = _Size * v.uv1.x * (1.0 + HALO_WET_GROW * saturate(_PSXWetness));
+                float size = max(natural, minM);
+                // a tower light held at its minimum size gets a soft core, so
+                // the dot carries colour rather than one hot pixel
+                o.core = skyLight ? lerp(HALO_CORE_K, SKY_CORE_K, saturate(minM / max(natural, 1e-3) - 0.5)) : HALO_CORE_K;
 
                 float2 q = v.uv * 2.0 - 1.0;
                 vc.xy += q * size;
@@ -146,6 +185,17 @@ Shader "PSX/Halo"
                 float end = min(_PSXFogFar * HALO_FAR, _ProjectionParams.z * HALO_CLIP);
                 float start = min(_PSXFogFar, HALO_FULL * end);
                 float fade = 1.0 - saturate((dist - start) / max(end - start, 1.0));
+                if (skyLight)
+                {
+                    // hazed by the real distance, never cut by the fog band
+                    fade = exp(-realDist / SKY_HAZE_M);
+                    if (v.uv1.y <= -1.0)
+                    {
+                        // the flash: up fast, held, down slower (an LED beacon's soft edges)
+                        float t = frac(_Time.y / BEACON_PERIOD + frac(-v.uv1.y));
+                        fade *= smoothstep(0.0, 0.06, t) * (1.0 - smoothstep(BEACON_ON - 0.10, BEACON_ON, t));
+                    }
+                }
 
                 // A LENS THAT FACES ONE WAY (a traffic signal's, uv1.y > 0): lit
                 // from in front, nothing from behind or edge-on - the head and
@@ -169,7 +219,7 @@ Shader "PSX/Halo"
                 // linear framebuffer shows a 0.004 corner as a square).
                 float win = saturate(1.0 - r2);
                 win *= win;
-                float a = exp(-r2 * HALO_CORE_K) + exp(-r2 * HALO_SOFT_K) * _HaloAmt * win;
+                float a = exp(-r2 * i.core) + exp(-r2 * HALO_SOFT_K) * _HaloAmt * win;
                 return fixed4(i.col.rgb * (a * PSXAdaptGain()), saturate(a * i.col.a));
             }
             ENDCG

@@ -7285,6 +7285,24 @@ Instruments: `CityPreview.RunEyePlay` with `PSX_EYE_JCT="name:roadA:roadB:back:p
 
 **Correction round (2026-10-05).** Lit glass glittered: the building key was `frac(dot(tint, ...) x 43.758)` on the interpolated half tint, and a one-ulp wobble gave every pixel its own key. The key now comes from the tint rounded to its 8 bits. Lit units, storeys, LED and podium lines and uplights follow the atlas's own floors (`uv.y` x FacadeLooks' floors), not world height. A curtain wall's panes get a box-filtered spandrel and mullions. Anything under two pixels shows its mean, so the far-mip checkerboard is gone too. Under the lamps a low-chroma upward texel (asphalt, concrete, pavement) is read at its luminance with 15% of its tint. Road sat at the spots went from 0.22-0.52 to 0.18-0.41 (refs 0.06-0.21). The LED head is (1, 0.98, 0.94) and the bulb (1, 0.90, 0.72).
 
+## Uptown at night (the uptown night pass, 2026-10-16): real crowns, beacons, lit floors, glass
+
+The owner, with a UG2 Bayview night flythrough: "What can be done to make the city in my game look at least this good (the skyscrapers in particular)?" And on the city: "City should reflect actual Charlotte buildings. It should be familiar when driving through or viewing from a distance." Step 2 of the three-step plan (the tops and the facade structure are steps 1 and 3).
+
+**Crowns lit only where Charlotte lights them** (`CityMeshes.NightCrowns.cs`, `PSX/Lit` crown block). Until now every tower of 60 m and more wore a random accent colour on its crown after dark (a hash of its tint picked blue, violet, teal, pink or green): a confetti skyline that was not Charlotte's. Now the `NightCrowns` table, keyed by the exporter's landmark byte, gives a real tower its LED colour as an index into a seven-colour palette (1 warm white, 2 cool white, 3 blue, 4 violet, 5 teal, 6 gold, 7 green). The index rides in the facade tint's vertex alpha, in the low three bits under the crown bit, and only towers in the table get the coloured wash and the LED lines on their crown storeys. Every other tall tower keeps a floodlit top in warm or cool white. Colours are steady. The table holds the towers' usual night look as best known on 2026-10-16, and the owner corrects it there. `PSX_CITY_LEDS=0` drops the table.
+
+**Aviation beacons and crown strips** (`CityBeacons.cs`, `PSX/Halo`). Built once from the far skyline's towers (every tower of 90 m is among its 60), as one halo mesh and one draw:
+- a red beacon at the highest drawn point of every tower standing 90 m or more over its ground; each flashes slowly in its own phase (2 s period, on 38% of it);
+- for towers whose table row says `strips`, beads of the tower's LED colour every 1.6 m along the top edges and up the corners of the crown pieces OSM maps above 78% of its height. The beads merge into lines at a distance.
+
+`PSX/Halo` treats `uv1.y < 0` as a light on a tower: it is squeezed onto the far skyline exactly as `PSX/Lit` squeezes the tower, hazed by its real distance instead of being faded with the fog band, and pulses when `uv1.y <= -1`. The lights come on with the street lamps (`NightGlow.On`) and go off in fog, like the skyline. Lamps and signals (`uv1.y >= 0`) are unchanged.
+
+**Lit windows by tenant** (`PSX/Lit`, the `WIN_FULL_FRAC` block, atlas facades only). Offices light in rows and blocks, not window by window. A building's storeys come in stacks of one to three (a tenant's floors). Each stack is lit whole (13%), lit in office blocks (50%), or dark. The blocks are runs of two to five curtain bays or one to two punched repeats, 46% of them lit, each in one tenant's warm or cool colour. A punched window inside a lit block is dark one time in eight. The mean is about a third of a tower, as before, and the far-mip rule is unchanged: anything under two pixels shows its mean.
+
+**Glass carries the lit city** (`PSX/Lit` `FacadeNightCity`). At night, in the lit city only, a facade's reflection adds a sodium band at the horizon, a field of reflected lit windows (cells of about 1.5 x 0.8 degrees, 22% lit, warm or cool, going to their mean past 260 m) and a faint skyglow. Glass towers now read as glossy dark glass carrying the city's light, not as black.
+
+**What did not change.** Everything above is behind the facade variant (Charlotte's atlas) and the lit-city switch (`_PSXLampFieldST.w`), or on `uv1.y < 0` halos that only `CityBeacons` makes. The dark night of every unlit venue is untouched. Not done: a city glow on low cloud (it would need both sky shaders).
+
 ## Exit 3A and the medians (exit3a-medians, 2026-10-05)
 
 The owner: "exit 3a being a downward slope, but in game its a bridge that leads up into another bridge, which merge into a strange funnel of 90° angles", and "medians that taper off and start again for no apparent reason in the middle of the road".
