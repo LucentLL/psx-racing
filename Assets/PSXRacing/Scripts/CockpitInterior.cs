@@ -729,8 +729,7 @@ namespace PSXRacing
             if (!on)
             {
                 var world = PSXRacing.City.CityWorld.Active;
-                var sk = world != null ? world.Skyline
-                    : Application.isPlaying ? null : FindFirstObjectByType<PSXRacing.City.CitySkyline>();
+                var sk = world != null && world.Skyline != null ? world.Skyline : PSXRacing.City.CitySkyline.Last;
                 if (sk != skyFor)
                 {
                     skyFor = sk;
