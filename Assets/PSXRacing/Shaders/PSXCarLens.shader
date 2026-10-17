@@ -33,6 +33,9 @@ Shader "PSX/CarLens"
         [HideInInspector] _RunningLights ("Running lights 0/1", Float) = 0
         [HideInInspector] _Brake ("Brake 0..1", Float) = 0
         [HideInInspector] _HeadLights ("Headlamps 0/1", Float) = 0
+        // 1 on the PLAYER'S renderers only (a property block, CabinClip): cut at
+        // the windscreen for a camera inside the car (PSXCabinClip.cginc).
+        [HideInInspector] _PSXCabinOwn ("Cut for a camera inside 0/1", Float) = 0
     }
     SubShader
     {
@@ -51,6 +54,8 @@ Shader "PSX/CarLens"
             #include "PSXHeadlights.cginc"
             #include "PSXLamps.cginc"
             #include "PSXTone.cginc"
+            // The player's own shell, cut at its windscreen for a camera inside it.
+            #include "PSXCabinClip.cginc"
             #include "PSXLampMap.cginc"
 
             sampler2D _MainTex;
@@ -161,6 +166,7 @@ Shader "PSX/CarLens"
 
             fixed4 frag (v2f i) : SV_Target
             {
+                PSXCabinClip(i.wpos);
                 float2 uv = i.uvw.xy / i.uvw.z;
                 float3 art = PSXMainTex(_MainTex, uv).rgb;
                 float3 N = normalize(i.wnrm);

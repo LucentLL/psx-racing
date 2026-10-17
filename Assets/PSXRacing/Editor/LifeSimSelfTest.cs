@@ -9277,6 +9277,7 @@ namespace PSXRacing.EditorTools
             var badLens = new List<string>();
             var badEye = new List<string>();
             var badCabin = new List<string>();
+            var hoodShort = new List<string>();
             foreach (var m in CarModelLibrary.Models)
             {
                 var def = CarModelLibrary.Load(m.key);
@@ -9314,10 +9315,17 @@ namespace PSXRacing.EditorTools
                 // and the near plane did the rest — the whole nose of the car
                 // vanished and the player looked out through their own engine
                 // bay. So check the camera, not just the number under it.
+                // (2026-10-16: solved per car, ChaseCamera.HoodFor - at the cowl
+                // as before, or stepped back behind it by at most HoodBackMax
+                // with the shell cut there, and never closer to the panel.)
+                var hoodLens = ChaseCamera.HoodFor(def.colliderCenter, def.colliderSize, def);
                 Vector3 lens = ChaseCamera.MountOffset(ChaseCamera.View.Hood,
                                                        def.colliderCenter, def.colliderSize, def);
-                bool onMeasurement = Mathf.Abs(lens.z - (def.cowlZ + 0.05f)) < 0.001f;
+                bool onMeasurement = lens == hoodLens.pos && lens.z <= def.cowlZ + 0.0501f &&
+                                     lens.z >= def.cowlZ - ChaseCamera.HoodBackMax - 0.001f &&
+                                     hoodLens.cut == (lens.z < def.cowlZ);
                 bool clearsPanel = lens.y - def.cowlY >= ChaseCamera.MountNearClip * 0.8f;
+                if (!hoodLens.reached) hoodShort.Add(m.key);
                 if (!onMeasurement || !clearsPanel)
                     badLens.Add(m.key + "(lens " + lens.y.ToString("0.00") + " over " +
                                 def.cowlY.ToString("0.00") + (onMeasurement ? "" : " FALLBACK") + ")");
@@ -9354,10 +9362,22 @@ namespace PSXRacing.EditorTools
                 // the eye is, and only the clamps apply.)
                 var cabinFit = CockpitInterior.FitFor(def.colliderCenter, def.colliderSize, def);
                 float dashFront = cabinFit.eye.z + CockpitInterior.ZRef * cabinFit.scale;
+                // LIFE-SIZE (2026-10-16, "the cockpit shell is the physical
+                // barrier"): the cabin is the owner's real size wherever the
+                // body has room for his reach, and the line over his dash
+                // meets the shell at or above its cowl - under it, the line
+                // runs beneath the bonnet's back edge and the dash shows a slot
+                // of road where the car's own bonnet should be.
+                bool roomy = cabinFit.eye.z > def.colliderCenter.z - def.colliderSize.z * 0.35f + 0.001f;
+                float sightAtCut = cabinFit.eye.y - CockpitInterior.SightDrop * cabinFit.scale;
+                bool lifeSize = !roomy || Mathf.Abs(cabinFit.scale - ChaseCamera.CabinScale) < 0.001f;
+                bool noSlot = !cabinFit.measured || eye.y >= def.roofY - 0.031f || sightAtCut >= def.cowlY;
                 if (cabinFit.measured && (dashFront > def.cowlZ + 0.02f || dashFront < def.cowlZ - 0.10f) ||
-                    cabinFit.scale <= CockpitInterior.MinScale || cabinFit.scale >= CockpitInterior.MaxScale)
+                    cabinFit.scale <= CockpitInterior.MinScale || cabinFit.scale >= CockpitInterior.MaxScale ||
+                    !lifeSize || !noSlot)
                     badCabin.Add(m.key + "(dash " + dashFront.ToString("0.00") + " cowl " +
-                                 def.cowlZ.ToString("0.00") + " x" + cabinFit.scale.ToString("0.00") + ")");
+                                 def.cowlZ.ToString("0.00") + " x" + cabinFit.scale.ToString("0.00") +
+                                 (noSlot ? "" : " SLOT " + (sightAtCut - def.cowlY).ToString("0.000")) + ")");
             }
             // THE LAMPS ARE ON THE CAR (owner, 2026-09-26: "off of the car, in
             // the car, in front of or behind the cars"). Measured by the baker,
@@ -9392,8 +9412,12 @@ namespace PSXRacing.EditorTools
                   badRoof.Count == 0 ? null : string.Join(" ", badRoof.ToArray()));
             Check(badLens.Count == 0, "every shell's bonnet camera clears its own bonnet",
                   badLens.Count == 0 ? null : string.Join(" ", badLens.ToArray()));
-            Check(badCabin.Count == 0, "every shell's 3D cockpit dash ends on its own windscreen base",
+            Check(badCabin.Count == 0, "every shell's 3D cockpit is life-size and its dash ends on its own windscreen base, the bonnet showing over it",
                   badCabin.Count == 0 ? null : string.Join(" ", badCabin.ToArray()));
+            // Information, not a failure: the shells whose bonnet is so short or
+            // steep that the hood lens stops at its limits short of HoodEdgeU.
+            Debug.Log("[SelfTest] hood lens short of the bonnet target on " + hoodShort.Count + " shells: " +
+                      string.Join(" ", hoodShort.ToArray()));
             Check(badEye.Count == 0, "every shell seats its driver in its own cabin",
                   badEye.Count == 0 ? null : string.Join(" ", badEye.ToArray()));
             // The standoff and the near plane are one decision, and it is the

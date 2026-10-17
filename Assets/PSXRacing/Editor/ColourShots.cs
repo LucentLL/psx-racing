@@ -970,7 +970,7 @@ namespace PSXRacing.EditorTools
                     Vector3 s = box != null ? box.size : new Vector3(1.72f, 1.0f, 4.1f);
                     Vector3 off = ChaseCamera.MountOffset(ChaseCamera.View.Hood, c, s, body != null ? body.Def : null);
                     eye = player.transform.TransformPoint(off);
-                    look = player.transform.rotation * Quaternion.Euler(ChaseCamera.MountPitch(ChaseCamera.View.Hood), 0f, 0f);
+                    look = player.transform.rotation * Quaternion.Euler(ChaseCamera.HoodFor(c, s, body != null ? body.Def : null).pitch, 0f, 0f);
                     cam.fieldOfView = ChaseCamera.FOVFor(ChaseCamera.View.Hood, ColourSpots.Fov, 0f, ChaseCamera.DefaultSpeedFullMps);
                     keepNear = cam.nearClipPlane;
                     cam.nearClipPlane = ChaseCamera.ViewNearClip(ChaseCamera.View.Hood, keepNear);
