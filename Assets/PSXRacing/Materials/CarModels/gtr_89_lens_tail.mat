@@ -37,6 +37,7 @@ Material:
     - _Brake: 0
     - _HeadLights: 0
     - _Opacity: 0.09
+    - _PSXCabinOwn: 0
     - _RunningLights: 0
     - _Smoothness: 0.9
     - _TintStrength: 0.55

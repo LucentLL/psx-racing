@@ -26,7 +26,7 @@ from PIL import Image
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 OUT = os.path.join(ROOT, "Assets", "PSXRacing", "CockpitSrc")          # into cockpit.bundle
 LAYOUT = os.path.join(ROOT, "Assets", "PSXRacing", "Resources", "Cockpit", "v08_layout.json")
-SRC = r"C:\Users\mcgee\OneDrive\Documents\Game Development\PSX Assets\PSX Racing\Universal_Cockpit_RX7_FD_v08"
+SRC = r"C:\Users\mcgee\OneDrive\Documents\Game Development\PSX Assets\PSX Racing\Universal_Cockpit_RX7_FD_v09"
 SIZE = 512
 SETS = {  # game key: (base, normal, ORM or a constant roughness)
     "vinyl": ("Dash_Vinyl_BaseColor.png", "Dash_Vinyl_Normal.png", "Dash_Vinyl_ORM.png"),

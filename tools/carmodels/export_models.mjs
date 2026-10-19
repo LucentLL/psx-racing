@@ -270,9 +270,12 @@ const MODELS = [
   //                 Roadster_99_Original/Revision_02.
   //   Coupe 99    = Honda PRELUDE (5th gen) `96-`98: 4520 mm, wb 2585
   //                 (Revision_04, FF underbody, 512x256).
-  { key: 'liftback_95', obj: `${ownerCars}/Liftback_95_PSX/liftback95.obj`,
-    tex: `${ownerCars}/Liftback_95_PSX`, skins: /^liftback95_atlas_512x256$/,
-    gt4LengthM: 4.380 },
+  // 2026-10-18: Integra_Textured_v15 (glb2obj.py -> converted/liftback_95);
+  // its clear lamp covers ride as the lens variant, the body keeps the rest.
+  { key: 'liftback_95', obj: `${here}/converted/liftback_95/liftback_95.obj`,
+    tex: `${here}/converted/liftback_95`, skins: /^liftback_95_512x256$/,
+    gt4LengthM: 4.380, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'],
+    lens: `${here}/converted/liftback_95/liftback_95.obj` },
   // 2026-10-10: roadster_99 v07 (3,636 tris), converted/roadster_99_v07, its
   // atlas renamed roadster_99_red_512x256.
   { key: 'roadster_99', obj: `${here}/converted/roadster_99_v07/roadster_99_v07.obj`,
@@ -306,6 +309,17 @@ const MODELS = [
     lens: `${here}/converted/gtr_89_lens/gtr_89_lens.obj` },
   { key: 'coupe_03', obj: `${here}/converted/coupe_03/coupe_03.obj`,
     tex: `${here}/converted/coupe_03`, skins: /^coupe_03_512x256$/, gt4LengthM: 4.680 },
+  // 2026-10-18: R34_Bayside_Blue v05 (every R34 GT-R) and Charger_Independent
+  // v01 (the Charger 440 R/T `70), via glb2obj.py. The R34's two clear covers
+  // ride as its lens variant; the Charger's one cover object has no head/tail
+  // split, so it is left off (the lamps are painted on the atlas under it).
+  { key: 'gtr_99', obj: `${here}/converted/gtr_99/gtr_99.obj`,
+    tex: `${here}/converted/gtr_99`, skins: /^gtr_99_512x256$/, gt4LengthM: 4.600,
+    parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'],
+    lens: `${here}/converted/gtr_99/gtr_99.obj` },
+  { key: 'charger_70', obj: `${here}/converted/charger_70/charger_70.obj`,
+    tex: `${here}/converted/charger_70`, skins: /^charger_70_512x256$/, gt4LengthM: 5.283,
+    parts: ['Body', 'MirrorGlass_L'] },
   { key: 'sedan_98', obj: `${here}/converted/sedan_98/sedan_98.obj`,
     tex: `${here}/converted/sedan_98`, skins: /^sedan_98_512x256$/, gt4LengthM: 4.680 },
   { key: 'fullsize_taxi', obj: `${here}/converted/fullsize_taxi/fullsize_taxi.obj`,

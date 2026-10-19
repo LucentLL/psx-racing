@@ -143,6 +143,10 @@ namespace PSXRacing
             new Model { key = "fullsize_taxi",    name = "Full-size Taxi 01",    region = Region.America, year = 2001, body = Body.Saloon, kg = 1790, handOnly = true, widthMm = 1987 },
             new Model { key = "fullsize_police",  name = "Full-size Police 01",  region = Region.America, year = 2001, body = Body.Saloon, kg = 1790, handOnly = true, widthMm = 1987 },
             new Model { key = "fullsize_trooper", name = "Full-size Trooper 01", region = Region.America, year = 2001, body = Body.Saloon, kg = 1790, handOnly = true, widthMm = 1987 },
+            // The owner's 2026-10-18 pair: R34 v05 (every R34 GT-R row) and the
+            // '69 Charger v01 (the Charger 440 R/T `70 row only).
+            new Model { key = "gtr_99",           name = "Twin-Turbo Coupe 99",  region = Region.Japan,   year = 1999, body = Body.Sports, kg = 1560, handOnly = true, widthMm = 1785 },
+            new Model { key = "charger_70",       name = "Muscle Coupe 70",      region = Region.America, year = 1970, body = Body.Muscle, kg = 1700, handOnly = true, widthMm = 1946 },
         };
 
         static Dictionary<string, Model> byKey;
@@ -502,6 +506,8 @@ namespace PSXRacing
             // SILEIGHTY stay there) and the Lancer Evolution rule (on the R32).
             (@"^Nissan\ 240ZG\ \(HS30\)\ `71$",                          "longnose_71"),
             (@"^Nissan\ SKYLINE\ GT(S|-R).*\(R32\)\ `\d\d$",            "gtr_89"),
+            (@"(?i)SKYLINE\ GT-R.*\(R34\)\ `\d\d$",                   "gtr_99"),
+            (@"^Dodge\ Charger\ 440\ R/T\ `70$",                         "charger_70"),
             (@"^Honda\ ACCORD\ Coupe\ Type\ S\ `99$",                   "coupe_03"),
             (@"^Mitsubishi\ Lancer\ Evolution\ VI\ (RS|GSR|Rally\ Car)\ `99$", "rally_sedan_99"),
             (@"^Nissan\ 240SX\ `96$",                                    "fastback_96"),

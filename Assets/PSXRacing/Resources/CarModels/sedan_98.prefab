@@ -80,6 +80,11 @@ MonoBehaviour:
   headLampUp: {x: 0, y: 0, z: 0}
   headLampUpNormal: {x: 0, y: 0, z: 1}
   headLampUpSize: {x: 0, y: 0}
+  lensBodyMesh: {fileID: 0}
+  lensHeadMesh: {fileID: 0}
+  lensTailMesh: {fileID: 0}
+  lensHeadMaterial: {fileID: 0}
+  lensTailMaterial: {fileID: 0}
   colliderCenter: {x: 0, y: 0.7756609, z: -0.061863065}
   colliderSize: {x: 1.8074416, y: 1.1566826, z: 4.4694004}
   blobSize: {x: 2.4099221, y: 5.007601}

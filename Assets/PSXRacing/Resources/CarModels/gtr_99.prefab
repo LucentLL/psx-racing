@@ -1,0 +1,90 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &1664029457491537852
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 6103721353763159964}
+  - component: {fileID: 5959794049022023865}
+  m_Layer: 0
+  m_Name: gtr_99
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &6103721353763159964
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1664029457491537852}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &5959794049022023865
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1664029457491537852}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: gtr_99
+  displayName: Twin-Turbo Coupe 99
+  bodyMesh: {fileID: -2432090755550338912, guid: ec71714a3c8bf654d891e399c878a227, type: 3}
+  wheelMesh: {fileID: 4300000, guid: 966858c78d1b4f049af248a3bd650fa2, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: 77346f2385f1d7c4bb1a9f2769897418, type: 2}
+  skinNames:
+  - gtr_99_512x256
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.20033951, g: 0.28788495, b: 0.48813826, a: 1}
+  bodyYaw: 180
+  bodyYOffset: -0.023024993
+  bodyZOffset: 0
+  wheelbase: 2.669419
+  trackWidth: 1.484157
+  wheelRadius: 0.3059035
+  wheelMeshScale: 0.93
+  trackRear: 1.498275
+  tyreRadiusRear: 0.3289285
+  tyreWidthRear: 0.28993696
+  lowerBodyWidth: 1.782486
+  cowlZ: 0.85138094
+  cowlY: 0.9036127
+  noseZ: 2.274506
+  roofY: 1.2998194
+  headLamp: {x: 0.6012692, y: 0.56611496, z: 2.170731}
+  headLampNormal: {x: 0.5618205, y: 0.20063564, z: 0.8025603}
+  headLampSize: {x: 0.5, y: 0.28}
+  tailLamp: {x: 0.6157286, y: 0.78833544, z: -2.1612792}
+  tailLampNormal: {x: 0.10921749, y: 0.048219714, z: -0.9928476}
+  tailLampSize: {x: 0.244123, y: 0.18244004}
+  lampsUpMesh: {fileID: 0}
+  headLampUp: {x: 0, y: 0, z: 0}
+  headLampUpNormal: {x: 0, y: 0, z: 1}
+  headLampUpSize: {x: 0, y: 0}
+  lensBodyMesh: {fileID: -2432090755550338912, guid: cdeb1252e0e45074db32626e6b7b4579, type: 3}
+  lensHeadMesh: {fileID: -2432090755550338912, guid: 57e3af7d710c3db4d81050a62f988028, type: 3}
+  lensTailMesh: {fileID: -2432090755550338912, guid: a5c4458245bf1644093e165dfb5afe5a, type: 3}
+  lensHeadMaterial: {fileID: 2100000, guid: c331e82f30469c845843c0c8b08590b4, type: 2}
+  lensTailMaterial: {fileID: 2100000, guid: 104b017e1826091459ea19dc0d87df60, type: 2}
+  colliderCenter: {x: 0, y: 0.7084055, z: -0.02549398}
+  colliderSize: {x: 1.774714, y: 1.1006145, z: 4.393}
+  blobSize: {x: 2.3662853, y: 4.922001}

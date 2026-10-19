@@ -4,7 +4,10 @@
 #   py tools/cockpit/cockpit_v08_tex.py                      (the textures)
 #
 # Source, opened READ ONLY and never saved:
-#   ...\PSX Racing\Universal_Cockpit_RX7_FD_v08\RX7_FD_Cockpit_v08_LHD.blend
+#   ...\PSX Racing\Universal_Cockpit_RX7_FD_v09\RX7_FD_Cockpit_v09_LHD.blend
+#   2026-10-18: now reads v09 (door-window band fix, tapered shift knob,
+#   modeled handbrake folded into the cabin part at rest, thinner visors);
+#   output file names keep the v08_ prefix the game loads.
 # 65,731 tris, 22 materials, four BLANK gauge faces (drawn in game), four
 # glass panes (rain is drawn on them in game), a mirror face for a render
 # texture. Writes
@@ -54,8 +57,8 @@ ARGS = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 ROOT = ARGS[0] if ARGS else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 OUT = os.path.join(ROOT, "Assets", "PSXRacing", "Resources", "Cockpit")
 SRC_OUT = os.path.join(ROOT, "Assets", "PSXRacing", "CockpitSrc")
-SRC = r"C:\Users\mcgee\OneDrive\Documents\Game Development\PSX Assets\PSX Racing\Universal_Cockpit_RX7_FD_v08"
-BLEND = os.path.join(SRC, "RX7_FD_Cockpit_v08_LHD.blend")
+SRC = r"C:\Users\mcgee\OneDrive\Documents\Game Development\PSX Assets\PSX Racing\Universal_Cockpit_RX7_FD_v09"
+BLEND = os.path.join(SRC, "RX7_FD_Cockpit_v09_LHD.blend")
 INTEG = os.path.join(SRC, "Integration", "integration_LHD.json")
 GENERIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "generic_cockpit.py")
 

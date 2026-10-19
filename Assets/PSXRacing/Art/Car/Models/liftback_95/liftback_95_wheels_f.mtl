@@ -3,4 +3,4 @@ newmtl liftback_95_wheels_f
 Ka 1 1 1
 Kd 1 1 1
 illum 1
-map_Kd textures/liftback95_atlas_512x256.png
+map_Kd textures/liftback_95_512x256.png

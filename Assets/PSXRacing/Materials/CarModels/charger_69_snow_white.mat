@@ -23,6 +23,10 @@ Material:
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
+    - _LightMask:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _MainTex:
         m_Texture: {fileID: 2800000, guid: a21cd6aa65924164daf8d67d34c97d36, type: 3}
         m_Scale: {x: 1, y: 1}
@@ -30,14 +34,19 @@ Material:
     m_Ints: []
     m_Floats:
     - _Affine: 0
+    - _Brake: 0
     - _Cutoff: 0
     - _Dull: 0
     - _Emission: 0
     - _GlassBoost: 1.8
     - _GlassLum: 0.22
     - _Gloss: 28
+    - _HeadLights: 0
+    - _LensLayer: 0
     - _MainTexRaw: 0
+    - _PSXCabinOwn: 0
     - _Reflect: 0.34
+    - _RunningLights: 0
     - _SpecStrength: 0.55
     m_Colors:
     - _Color: {r: 1, g: 1, b: 1, a: 1}

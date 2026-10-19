@@ -45,7 +45,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
   key: coupe_03
-  displayName: Coupe 03
+  displayName: Coupe 99
   bodyMesh: {fileID: -2432090755550338912, guid: ad74e93d3c7a8b54684d33abff9af607, type: 3}
   wheelMesh: {fileID: 4300000, guid: 92433aa5a134a434ca04b55d90c4dfe2, type: 2}
   skinMaterials:
@@ -80,6 +80,11 @@ MonoBehaviour:
   headLampUp: {x: 0, y: 0, z: 0}
   headLampUpNormal: {x: 0, y: 0, z: 1}
   headLampUpSize: {x: 0, y: 0}
+  lensBodyMesh: {fileID: 0}
+  lensHeadMesh: {fileID: 0}
+  lensTailMesh: {fileID: 0}
+  lensHeadMaterial: {fileID: 0}
+  lensTailMaterial: {fileID: 0}
   colliderCenter: {x: 0, y: 0.75599355, z: -0.05957496}
   colliderSize: {x: 1.7502156, y: 1.1065177, z: 4.4694004}
   blobSize: {x: 2.333621, y: 5.007601}
