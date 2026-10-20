@@ -293,7 +293,7 @@ namespace PSXRacing
         /// the damper term alone spikes to ~24 kN and launches the car.</summary>
         public float maxSuspensionForceRatio = 5f;
         public float restLength = 0.30f;
-        public float mountHeight = 0.55f;
+        public float mountHeight = DefaultMountHeight;
 
         [Header("Aero")]
         public float dragCoefficient = 0.34f;
@@ -1861,6 +1861,8 @@ namespace PSXRacing
         public static float StaticAxleMuFactor(float axleWeightShare) =>
             LoadMuFactor(2f * axleWeightShare);
         public const float DefaultRestLength = 0.30f;
+        /// <summary>The suspension mounts' height in the car frame (m).</summary>
+        public const float DefaultMountHeight = 0.55f;
         public const float DefaultCgHeight = 0.465f;
         public const float DefaultMaxSteerLowSpeedDeg = 34f;
         /// <summary>9, down from 12, and the speed it is reached at 50 m/s,
@@ -1914,6 +1916,12 @@ namespace PSXRacing
         /// - it squatted 2 cm at the tail). The spring PRELOAD holds every car
         /// there whatever its rate and load, so a soft, front-heavy car does not
         /// sit on its nose and the shell keeps the height it was fitted at.</summary>
+        /// <summary>Where every hub hangs at stock ride, car frame (m): the
+        /// mounts, less the rest length, plus the preloaded sag - whatever the
+        /// tyre (the ray is rest + r long, so the ROAD moves instead). The
+        /// sheet's rake splits about it per axle. CarBody seats the shell on
+        /// it (CarBody.Lifted).</summary>
+        public const float StockHubRest = DefaultMountHeight - DefaultRestLength + StaticSagRef;
         public const float StaticSagRef = 0.5f * (ChassisRefMass * 9.81f * 0.25f / SpringFrontRef +
                                                   ChassisRefMass * 9.81f * 0.25f / SpringRearRef);
         /// <summary>The reference's front share of ROLL stiffness above its
@@ -2879,6 +2887,7 @@ namespace PSXRacing
             weatherOffroadGrip = Seasons.OffroadGripMult;
             wetT = Seasons.WetT(weatherRoadGrip);
             anyWheelGrounded = false;
+            for (int i = 0; i < 4; i++) bumpLimit[i] = BumpLimit(i);
             int roadHits = 0, hits = 0;
             for (int i = 0; i < 4; i++)
             {
@@ -2926,7 +2935,27 @@ namespace PSXRacing
                     if (preload > 0f) spring = Mathf.Min(spring, TyreVerticalRate * compression);
                     float force = Mathf.Max(0f, spring + c * compressionVel);
                     force = Mathf.Min(force, wheelStatic * maxSuspensionForceRatio);
+                    // The bump rubber, over the last BumpRubberLen before the
+                    // tyre would meet the body - outside the cap, which is
+                    // exactly what let a landing drive the wheel through the
+                    // arch. Zero anywhere short of it (see BumpStops).
+                    force += BumpRubberForce(i, compression, compressionVel, wheelStatic);
                     wheelLoad[i] = force;
+                    // How fast the GROUND rose under this wheel, apart from the
+                    // body falling onto it: a ray steps onto a kerb in one tick
+                    // at any speed, so the raw step is capped at what a rolling
+                    // tyre of this radius climbs at this pace (h / sqrt(2rh)
+                    // per metre). A wheel that was in the air has no rate - its
+                    // ray simply caught up with the ground.
+                    bumpGroundRate[i] = 0f;
+                    if (prevCompression[i] > 0f)
+                    {
+                        float bodyRate = -Vector3.Dot(Body.GetPointVelocity(mount), SpringDirection(hit.normal));
+                        float rise = (compression - prevCompression[i]) / dt - bodyRate;
+                        float horiz = Vector3.ProjectOnPlane(Body.linearVelocity, transform.up).magnitude;
+                        float climb = horiz * Mathf.Sqrt(Mathf.Max(rise * dt, 0f) / (2f * WheelRadiusOf(i)));
+                        bumpGroundRate[i] = Mathf.Clamp(rise, 0f, climb);
+                    }
 
                     bool isRoad = hit.collider != null && hit.collider.gameObject.layer == roadLayer;
                     if (isRoad) roadHits++;
@@ -2980,6 +3009,240 @@ namespace PSXRacing
                 wheelLoad[l] += shift; wheelLoad[r] -= shift;
                 wheelContacts[l].load = wheelLoad[l]; wheelContacts[r].load = wheelLoad[r];
             }
+
+            BumpStops(dt);
+        }
+
+        // ---- BUMP STOPS (owner, 2026-10-19) ---------------------------------
+        // "I've noticed tires clipping up through fenders and hood ... This
+        // should never happen. A tire should bottom out when hitting the body,
+        // potentially reducing speed, increasing wear, and causing damages."
+        //
+        // The spring and damper are capped at maxSuspensionForceRatio x the
+        // static load, so a kerb cannot fire the car into the air - and past
+        // that cap nothing at all resisted compression: a landing, a kerb, a
+        // car lowered to its last stage drove the hub straight on up through
+        // the arch, and the wheel was drawn wherever the ray put it (a 1 m
+        // landing put tyres 17-23 cm up through the bonnet). CarBody now knows
+        // where the bodywork is over each tyre (HubMax, from ArchCeilings),
+        // and the suspension ends:
+        //   1. in a jounce RUBBER over the last BumpRubberLen, rising with the
+        //      square of the squash - a firm cushion, not a wall;
+        //   2. at a HARD STOP at the arch or BumpTravelMin above the settled
+        //      ride, whichever is higher: the corner's closing speed is taken
+        //      out (an inelastic contact, solved over every corner on its stop
+        //      together, so a flat landing on four is not four stops each
+        //      fighting alone) and the body takes the load through the stop;
+        //   3. and the tyre is never DRAWN in the body: CarBodyLean seats the
+        //      render-only shell on any tyre that reaches its arch before the
+        //      stop, and holds each drawn hub under its arch.
+        // A stop met hard enough is a BOTTOMING HIT (Bottomed): the
+        // CollisionResponder turns it into a speed scrub, tyre wear and, past
+        // a threshold, a bent-suspension fault - a fault with a cause.
+        // Ordinary driving never reaches the rubber (BumpStopShots measures
+        // it), so the car drives exactly as it did.
+
+        /// <summary>The tyre stops this far short of the paint (m).</summary>
+        public const float BumpMargin = 0.005f;
+        /// <summary>Length of the jounce rubber ahead of the hard stop (m).</summary>
+        public const float BumpRubberLen = 0.02f;
+        /// <summary>The rubber's push fully squashed, as a multiple of the
+        /// wheel's static load; it rises with the square of the squash (900
+        /// kN/m at full squash on the reference car - stiff, and still well
+        /// inside what a 60 Hz step integrates).</summary>
+        public const float BumpRubberLoad = 3f;
+        /// <summary>The rubber's damping at full squash, N s/m.</summary>
+        public const float BumpRubberDamp = 2500f;
+        /// <summary>Push-out from an overshoot of the hard stop: per metre of
+        /// overshoot, and its cap (m/s). Small on purpose - the stop takes the
+        /// closing speed away; this only walks a residual few mm back out.</summary>
+        const float BumpBiasRate = 12f, BumpBiasMax = 0.6f;
+        /// <summary>Closing speed at the stop that makes it a HIT (m/s). Below
+        /// it the stop was met, not struck.</summary>
+        public const float BottomHitMps = 1.0f;
+        /// <summary>One wheel's hits closer together than this are one hit (s).</summary>
+        const float BottomHitWindow = 0.15f;
+        /// <summary>How much of the hard stop's push one tick may add to the
+        /// tyre's load, x static. The stop carries the body; the tyre under it
+        /// does see that load, but a single tick of a landing should not hand
+        /// the tyre three tonnes of grip.</summary>
+        const float BumpStopLoadCap = 3f;
+        /// <summary>Debug / harness switch: off = the suspension as it was.</summary>
+        public static bool BumpStopsEnabled = true;
+
+        /// <summary>A stop was struck: closing speed at the stop (m/s), wheel.
+        /// Once per tick at most (the hardest wheel).</summary>
+        public event System.Action<float, int> Bottomed;
+        /// <summary>Tyre-metres run on a hard stop since the car loaded (every
+        /// wheel on its stop counts the distance it rolled): the rub.</summary>
+        public float BumpRubMeters { get; private set; }
+        /// <summary>Per wheel: on its hard stop this tick.</summary>
+        public bool OnBumpStop(int i) => bumpOnStop[i];
+        /// <summary>Per wheel: in the rubber or on the stop this tick.</summary>
+        public bool InBumpRubber(int i) => bumpInRubber[i];
+
+        readonly float[] bumpLimit = new float[4];
+        readonly float[] bumpGroundRate = new float[4];
+        readonly float[] bumpHitClock = { 9f, 9f, 9f, 9f };
+        readonly bool[] bumpOnStop = new bool[4];
+        readonly bool[] bumpInRubber = new bool[4];
+        readonly int[] stopIdx = new int[4];
+        readonly Vector3[] stopArm = new Vector3[4], stopNormal = new Vector3[4], stopMount = new Vector3[4];
+        readonly float[] stopK = new float[4], stopBias = new float[4], stopImpulse = new float[4], stopFalling = new float[4];
+
+        [System.NonSerialized] CarBody archBody;
+        [System.NonSerialized] bool archBodyLooked;
+        CarBody ArchBody
+        {
+            get
+            {
+                if (!archBodyLooked) { archBody = GetComponent<CarBody>(); archBodyLooked = true; }
+                return archBody;
+            }
+        }
+
+        /// <summary>Wheel <paramref name="i"/>'s highest hub, car frame (m),
+        /// with the shell at rest: where its tyre meets the bodywork
+        /// (CarBody.HubMax). +inf with no measured arches.</summary>
+        public float HubMax(int i)
+        {
+            var b = ArchBody;
+            return b != null ? b.HubMax(i) : float.PositiveInfinity;
+        }
+
+        /// <summary>
+        /// THE STOP'S TRAVEL, from the settled ride (m). The shells leave a
+        /// tyre 2-4 cm under its arch (median 2 cm across the catalog with the
+        /// sheet's tyres; PSXRacing_archroom.txt) while ordinary hard driving
+        /// uses 4-7 cm of travel (BumpStopShots: full throttle, a 0.45-lock
+        /// corner, a stop from 80 km/h, a slalom). A stop AT the arch would
+        /// ride every car on its rubber through every corner - a different
+        /// car. So the hard stop sits at the arch or this far above the
+        /// settled ride, whichever is higher, from the ride the car has NOW (a
+        /// lowered car keeps its travel and its handling); and the render-only
+        /// shell rides up on any tyre that reaches its arch first
+        /// (CarBodyLean), so no tyre is ever drawn through the paint.
+        /// </summary>
+        public const float BumpTravelMin = 0.09f;
+
+        /// <summary>The compression at which wheel <paramref name="i"/>'s hard
+        /// stop is met (see <see cref="BumpTravelMin"/>); +inf with no stop.</summary>
+        public float BumpLimit(int i)
+        {
+            if (!BumpStopsEnabled) return float.PositiveInfinity;
+            float h = HubMax(i);
+            if (float.IsPositiveInfinity(h)) return h;
+            float split = rideRakeM + (WheelRadiusOf(0) - WheelRadiusOf(2));
+            float settled = StaticSagRef + (i < 2 ? 0.5f : -0.5f) * split;
+            return Mathf.Max(h - (mountHeight - restLength), settled + BumpTravelMin) - BumpMargin;
+        }
+
+        /// <summary>Wheel <paramref name="i"/>'s hub height as the suspension
+        /// has it this tick, car frame (m) - before anything holds the drawn
+        /// tyre under its arch.</summary>
+        public float PhysicsHubY(int i) => wheelGrounded[i]
+            ? mountHeight - restLength + suspensionCompression[i]
+            : mountHeight - restLength;
+
+        float BumpRubberForce(int i, float compression, float compressionVel, float wheelStatic)
+        {
+            float into = compression - (bumpLimit[i] - BumpRubberLen);
+            bumpInRubber[i] = into > 0f;
+            if (into <= 0f) return 0f;
+            float t = Mathf.Min(into / BumpRubberLen, 1f);
+            return Mathf.Max(0f, wheelStatic * BumpRubberLoad * t * t + BumpRubberDamp * t * compressionVel);
+        }
+
+        static Vector3 MulInvInertia(Quaternion frame, Vector3 invI, Vector3 x) =>
+            frame * Vector3.Scale(Quaternion.Inverse(frame) * x, invI);
+
+        /// <summary>
+        /// The hard stops: every grounded wheel at or past its limit is an
+        /// inelastic contact between body and wheel along the spring axis. The
+        /// impulses are found together (a few Gauss-Seidel passes on a copy of
+        /// the body's velocity - a flat landing loads all four at once, and four
+        /// stops each sized as if it were alone would throw the car back up),
+        /// then applied at the mounts. Also books the hits and the rub.
+        /// </summary>
+        void BumpStops(float dt)
+        {
+            var body = Body;
+            float invM = 1f / Mathf.Max(body.mass, 1f);
+            Vector3 com = body.worldCenterOfMass;
+            Vector3 v = body.linearVelocity, w = body.angularVelocity;
+            int n = 0;
+            for (int i = 0; i < 4; i++)
+            {
+                bumpHitClock[i] += dt;
+                if (!wheelGrounded[i]) bumpInRubber[i] = false;
+                float gap = bumpLimit[i] - suspensionCompression[i];
+                bumpOnStop[i] = wheelGrounded[i] && gap <= 0f;
+                if (!wheelGrounded[i] || float.IsPositiveInfinity(gap)) continue;
+                // SPECULATIVE: a corner that will REACH its stop within this tick
+                // is stopped this tick, not one tick late and centimetres deep (a
+                // 4 m/s landing covers 6.7 cm per 60 Hz step).
+                Vector3 mount = transform.TransformPoint(wheelLocalPos[i]);
+                Vector3 nrm = SpringDirection(wheelContacts[i].normal);
+                Vector3 arm = mount - com;
+                float falling = -Vector3.Dot(v + Vector3.Cross(w, arm), nrm);
+                if (gap > 0f && gap >= falling * dt) continue;
+                stopIdx[n] = i;
+                stopMount[n] = mount;
+                stopNormal[n] = nrm;
+                stopArm[n] = arm;
+                stopFalling[n] = falling;
+                // Past the stop: walk back out. Short of it: close no faster than the gap allows.
+                stopBias[n] = gap <= 0f ? Mathf.Min(-gap * BumpBiasRate, BumpBiasMax) : -gap / dt;
+                n++;
+            }
+            if (n == 0) return;
+
+            Quaternion frame = body.rotation * body.inertiaTensorRotation;
+            Vector3 it = body.inertiaTensor;
+            var invI = new Vector3(1f / Mathf.Max(it.x, 1e-3f), 1f / Mathf.Max(it.y, 1e-3f), 1f / Mathf.Max(it.z, 1e-3f));
+            for (int k = 0; k < n; k++)
+            {
+                Vector3 rn = Vector3.Cross(stopArm[k], stopNormal[k]);
+                stopK[k] = invM + Vector3.Dot(rn, MulInvInertia(frame, invI, rn));
+                stopImpulse[k] = 0f;
+            }
+
+            for (int pass = 0; pass < 6; pass++)
+                for (int k = 0; k < n; k++)
+                {
+                    float sep = Vector3.Dot(v + Vector3.Cross(w, stopArm[k]), stopNormal[k]);
+                    float d = (stopBias[k] - sep) / stopK[k];
+                    float next = Mathf.Max(0f, stopImpulse[k] + d);
+                    d = next - stopImpulse[k];
+                    stopImpulse[k] = next;
+                    v += stopNormal[k] * (d * invM);
+                    w += MulInvInertia(frame, invI, Vector3.Cross(stopArm[k], stopNormal[k] * d));
+                }
+
+            float horiz = Vector3.ProjectOnPlane(body.linearVelocity, transform.up).magnitude;
+            float hardest = 0f; int hardestWheel = -1;
+            for (int k = 0; k < n; k++)
+            {
+                int i = stopIdx[k];
+                if (bumpOnStop[i]) BumpRubMeters += horiz * dt;
+                if (stopImpulse[k] <= 0f) continue;
+                body.AddForceAtPosition(stopNormal[k] * stopImpulse[k], stopMount[k], ForceMode.Impulse);
+                // The stop's load reaches the road through this tyre.
+                wheelLoad[i] += Mathf.Min(stopImpulse[k] / dt, StaticWheelLoadOf(i < 2) * BumpStopLoadCap);
+                wheelContacts[i].load = wheelLoad[i];
+
+                // The strike: the body falling onto the stop at this corner, plus
+                // the ground coming up under the wheel - counted when the stop
+                // actually had to stop something.
+                float strike = Mathf.Max(0f, stopFalling[k]) + bumpGroundRate[i];
+                if (strike > BottomHitMps && bumpHitClock[i] >= BottomHitWindow)
+                {
+                    bumpHitClock[i] = 0f;
+                    if (strike > hardest) { hardest = strike; hardestWheel = i; }
+                }
+            }
+
+            if (hardestWheel >= 0) Bottomed?.Invoke(hardest, hardestWheel);
         }
 
         /// <summary>Crank drag with the throttle at <paramref name="accelPedal"/>,
@@ -3734,6 +3997,12 @@ namespace PSXRacing
                 local.y = wheelGrounded[i]
                     ? mountHeight - restLength + suspensionCompression[i]
                     : mountHeight - restLength;
+                // Never drawn past the hard stop, whatever the solver did this
+                // tick (a kerb steps the ray up faster than any stop can lift
+                // the body). The ARCH is CarBodyLean's: it seats the shell on
+                // the tyres and holds each drawn hub under its own arch.
+                if (BumpStopsEnabled)
+                    local.y = Mathf.Min(local.y, BumpLimit(i) + BumpMargin + mountHeight - restLength);
                 wheelHubs[i].localPosition = local;
                 // Through SteerDegFor, so the visible wheel carries the toe the
                 // physics is using. This was the THIRD copy of the steer

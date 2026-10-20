@@ -364,6 +364,12 @@
         /// <summary>Discrete heavy impacts. Feeds the driving record (at-fault
         /// incidents) rather than the repair bill, which DamageScore covers.</summary>
         public static int HardHits;
+        /// <summary>Tyre condition the bump stops cost (CollisionResponder.BottomScore:
+        /// strikes plus the distance run on the stops), lane points.</summary>
+        public static float BottomScore;
+        /// <summary>The hardest bump-stop strike, m/s at the stop: past
+        /// LifeRules.BottomFaultMps it bent something.</summary>
+        public static float BottomWorst;
 
         /// <summary>
         /// What is left of the pizza, 0-1, as the SIMULATION saw it — boxes
@@ -413,6 +419,8 @@
             EngineSeized = false;
             DamageScore = 0f;
             HardHits = 0;
+            BottomScore = 0f;
+            BottomWorst = 0f;
             CargoCondition = 1f;
             CargoConsumable = 1f;
             CargoBoxes = 0;

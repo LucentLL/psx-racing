@@ -70,8 +70,9 @@ namespace PSXRacing
         /// <summary>The along-scale: the shell's axles onto the spec wheelbase.</summary>
         public float LengthScale => applyGeometry ? Fit.sz : 1f;
         /// <summary>How far the body sits above its baked height (the tyres
-        /// grew or shrank to spec); every baked Y measurement moves with it.</summary>
-        public float BodyLift => applyGeometry ? Fit.dy : 0f;
+        /// grew or shrank to spec, and the seat on the hubs - see
+        /// <see cref="Lifted"/>); every baked Y measurement moves with it.</summary>
+        public float BodyLift => applyGeometry ? Applied.dy : 0f;
 
         CarModelLibrary.ShellFit SolveFit(CarModelDef def)
         {
@@ -80,6 +81,107 @@ namespace PSXRacing
             var g = specGeometry.widthMm == widthMm ? specGeometry
                   : CarModelLibrary.SpecGeometry.WidthOnly(widthMm);
             return CarModelLibrary.Fit(def, g);
+        }
+
+        /// <summary>The fit as Apply puts it on the car: <see cref="Fit"/>
+        /// seated on the hubs (<see cref="Lifted"/>), or with the chassis left
+        /// alone the shell at its own size and offsets.</summary>
+        CarModelLibrary.ShellFit AppliedFit(CarModelDef def)
+        {
+            var f = applyGeometry ? Fit : CarModelLibrary.Fit(def, default(CarModelLibrary.SpecGeometry));
+            if (!applyGeometry) { f.sx = 1f; f.sz = 1f; f.bodyY = def.bodyYOffset; f.bodyZ = def.bodyZOffset; f.dy = 0f; return f; }
+            // With the stops switched off (a harness's BEFORE), the car as it was.
+            return CarController.BumpStopsEnabled ? Lifted(f) : f;
+        }
+
+        CarModelLibrary.ShellFit Applied
+        {
+            get
+            {
+                if (!appliedSolved) { applied = AppliedFit(Def); appliedSolved = true; }
+                return applied;
+            }
+        }
+        [System.NonSerialized] CarModelLibrary.ShellFit applied;
+        [System.NonSerialized] bool appliedSolved;
+
+        /// <summary>
+        /// SEAT THE SHELL ON THE HUBS (2026-10-19). The fit places a body for
+        /// hubs at the tyre radius over a road at y = 0, which is how a parked
+        /// car, the turntable and the previews stand. A DRIVEN car's suspension
+        /// does not: it hangs every hub at CarController.StockHubRest (0.328 m)
+        /// whatever the tyre, and moves the road instead - so the road sat
+        /// (0.328 - mean radius) above the car's origin and every tyre stood
+        /// that far up its arch: 1.8 cm on the FD, 4.8 cm on a 0.28 m tyre. On
+        /// shells with 4-6 cm over the tyre that alone put tyres through the
+        /// arches the moment a corner loaded them. This lifts the body (and the
+        /// collider, which stood on the same false ground) onto the hubs; the
+        /// physics does not move, and the blob shadow stays a few cm over the
+        /// real road where it was. A lowered car still drops its body toward
+        /// its tyres - the lift is taken at STOCK ride.
+        /// </summary>
+        public static CarModelLibrary.ShellFit Lifted(CarModelLibrary.ShellFit f)
+        {
+            float lift = CarController.StockHubRest - 0.5f * (f.radiusF + f.radiusR);
+            f.bodyY += lift;
+            f.dy += lift;
+            return f;
+        }
+
+        /// <summary>The body root's resting local position (CarBodyLean seats
+        /// the shell on its tyres from here).</summary>
+        public Vector3 SeatPosition { get { var f = Applied; return new Vector3(0f, f.bodyY, f.bodyZ); } }
+
+        /// <summary>A baked scene holds the body where its bake put it; seat it
+        /// on today's fit before anything reads it (Apply does the same for a
+        /// car handed a spec).</summary>
+        void Awake()
+        {
+            if (!Application.isPlaying || !applyGeometry) return;
+            var def = Def;
+            if (def == null) return;
+            var f = Applied;
+            if (bodyRoot != null) bodyRoot.localPosition = new Vector3(0f, f.bodyY, f.bodyZ);
+            if (box != null && car != null) box.center = f.P(def.colliderCenter);
+        }
+
+        // ------------------------------------------------------------------
+        //  THE ARCHES (owner, 2026-10-19: "tires clipping up through fenders
+        //  and hood ... This should never happen. A tire should bottom out
+        //  when hitting the body"). ArchCeilings holds the bodywork over each
+        //  wheel; this is where a car's own tyres meet it.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Wheel <paramref name="i"/>'s highest hub, car frame (m): where its
+        /// tyre, as drawn on this car, meets the bodywork over it (see
+        /// <see cref="ArchCeilings.HubMax"/>). +inf on a shell with no
+        /// measured arches, and with applyGeometry off (the wheels then stand
+        /// on the car's own footprint, not the fit's). CarBodyLean keeps every
+        /// drawn tyre under it; CarController's hard stop sits here or
+        /// CarController.BumpTravelMin above the settled ride, whichever is
+        /// higher.
+        ///
+        /// Not serialized: a baked scene keeps the key and the spec, and this
+        /// is re-solved from them the first time it is asked - like
+        /// <see cref="Fit"/> - so it can never be a stale number in a scene.
+        /// </summary>
+        public float HubMax(int i)
+        {
+            if (hubMax == null) hubMax = SolveHubMax(Def, Applied);
+            return hubMax[i];
+        }
+        [System.NonSerialized] float[] hubMax;
+
+        /// <summary>Straight wheels: a bump stop is about the wheel RISING. A
+        /// steered tyre's corner swinging out through the side of its arch is
+        /// a sideways fit (camber/track), and no stop height can cure it.</summary>
+        float[] SolveHubMax(CarModelDef def, CarModelLibrary.ShellFit f)
+        {
+            var r = new float[4];
+            for (int i = 0; i < 4; i++)
+                r[i] = def == null || !applyGeometry ? float.PositiveInfinity : ArchCeilings.HubMax(def, f, i);
+            return r;
         }
 
         CarModelDef cachedDef;
@@ -229,8 +331,10 @@ namespace PSXRacing
             // stay on the model's track, so the body keeps its shape too.
             fit = SolveFit(def);
             fitSolved = true;
-            var f = applyGeometry ? fit : CarModelLibrary.Fit(def, default(CarModelLibrary.SpecGeometry));
-            if (!applyGeometry) { f.sx = 1f; f.sz = 1f; f.bodyY = def.bodyYOffset; f.bodyZ = def.bodyZOffset; f.dy = 0f; }
+            var f = AppliedFit(def);
+            applied = f;
+            appliedSolved = true;
+            hubMax = SolveHubMax(def, f);
 
             var mat = def.SkinCount > 0
                 ? def.skinMaterials[Mathf.Clamp(skin, 0, def.SkinCount - 1)]

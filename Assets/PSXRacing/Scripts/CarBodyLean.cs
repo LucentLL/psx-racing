@@ -93,10 +93,22 @@ namespace PSXRacing
             if (bodyRoot == null && body != null) bodyRoot = body.bodyRoot;
         }
 
-        void LateUpdate()
+        void LateUpdate() => Pose(Time.deltaTime);
+
+        /// <summary>Back to the plain seat while paused (a replay drives the
+        /// lean itself and must not inherit a frame's ride-up).</summary>
+        void OnDisable()
+        {
+            if (bodyRoot != null && body != null && body.Def != null && CarController.BumpStopsEnabled)
+                bodyRoot.localPosition = body.SeatPosition;
+        }
+
+        /// <summary>One frame of the shell's pose: the lean, then the seat on
+        /// its tyres. Public so a harness stepping the physics by hand can
+        /// pose the shell the way a frame would.</summary>
+        public void Pose(float dt)
         {
             if (bodyRoot == null || car == null || car.Body == null) return;
-            float dt = Time.deltaTime;
             if (dt <= 0f) return;
 
             // AN ACCELEROMETER, not a kinematic estimate.
@@ -164,8 +176,120 @@ namespace PSXRacing
             // pack happened to export it facing.
             var def = body != null ? body.Def : null;
             float modelYaw = def != null ? def.bodyYaw : 0f;
-            bodyRoot.localRotation = Quaternion.Euler(pitch, 0f, roll) *
-                                     Quaternion.Euler(0f, modelYaw, 0f);
+            var lean = Quaternion.Euler(pitch, 0f, roll);
+            var yaw = Quaternion.Euler(0f, modelYaw, 0f);
+            if (!Seat(lean, yaw)) bodyRoot.localRotation = lean * yaw;
+        }
+
+        // ---- THE SHELL RIDES ON ITS TYRES (owner, 2026-10-19) ---------------
+        // "Tires clipping up through fenders and hood ... This should never
+        // happen." The shells leave a tyre 2-4 cm under its arch and ordinary
+        // hard driving uses 4-7 cm of travel, so the physics' hard stop sits
+        // beyond normal driving (CarController.BumpTravelMin) and the car
+        // drives exactly as it did. What that leaves is the PICTURE: a loaded
+        // corner, a landing, a lowered car at rest - the tyre reaches its arch
+        // before the stop. Then the shell, which is render-only here anyway,
+        // rides up on it: lifted and tilted just enough that every arch stays
+        // over its own tyre, as if the tyre pushed it. The wheels stay on the
+        // road where the physics put them; the body visibly rolls and dives a
+        // little less at the corner that is full. Anything past
+        // SeatRideMax (a kerb stepping a wheel up 15 cm in one tick) is held
+        // by keeping the drawn hub under its arch instead.
+
+        /// <summary>Paint-to-tyre gap the seat keeps (m).</summary>
+        const float SeatMargin = 0.002f;
+        /// <summary>The most the seat lifts any corner of the shell (m).</summary>
+        const float SeatRideMax = 0.12f;
+
+        readonly Vector3[] seatArm = new Vector3[4];
+        readonly float[] seatNeed = new float[4], seatArch = new float[4];
+        readonly bool[] seatHas = new bool[4];
+
+        /// <summary>Pose the shell (lean, then the seat) and hold each drawn hub
+        /// under its arch. False when the stops are off or the shell has no
+        /// measured arches: the plain lean, exactly as before.</summary>
+        bool Seat(Quaternion lean, Quaternion yaw)
+        {
+            if (!CarController.BumpStopsEnabled || body == null || body.Def == null || car.wheelHubs == null) return false;
+            Vector3 pivot = body.SeatPosition;
+            int n = 0;
+            float worst = 0f;
+            for (int i = 0; i < 4; i++)
+            {
+                seatHas[i] = false;
+                if (i >= car.wheelHubs.Length || car.wheelHubs[i] == null) continue;
+                float h = car.HubMax(i);
+                if (float.IsPositiveInfinity(h)) continue;
+                Vector3 hub = car.wheelHubs[i].localPosition;
+                seatArm[i] = new Vector3(hub.x, h - pivot.y, hub.z - pivot.z);
+                seatArch[i] = h;
+                // The lean moves this arch by this much; the tyre's need is what
+                // is left of its rise once the arch is where the lean put it.
+                float leanLift = (lean * seatArm[i]).y - seatArm[i].y;
+                seatNeed[i] = car.PhysicsHubY(i) - (h + leanLift - SeatMargin);
+                if (seatNeed[i] > worst) worst = seatNeed[i];
+                seatHas[i] = true;
+                n++;
+            }
+            if (n == 0) return false;
+
+            // The tilt turns about the arches' own centroid at hub height, not
+            // about the body's origin down at the sills: turned about the sills,
+            // a 2.5 deg tilt slid each arch's near-vertical front and back walls
+            // 1.3 cm along the car - into tyres that stand 5-10 mm off them.
+            float cx = 0f, cy = 0f, cz = 0f;
+            for (int i = 0; i < 4; i++)
+                if (seatHas[i]) { cx += seatArm[i].x; cy += seatArm[i].y; cz += seatArm[i].z; }
+            cx /= n; cy /= n; cz /= n;
+            float lift = 0f, sinRoll = 0f, sinPitch = 0f;
+            if (worst > 0f)
+            {
+                // A plane of lifts over the four arches: least squares through
+                // the tyres that need lifting, then raised until every arch -
+                // including the ones with room to spare - clears its tyre.
+                float mean = 0f;
+                for (int i = 0; i < 4; i++)
+                    if (seatHas[i]) mean += Mathf.Max(0f, seatNeed[i]);
+                mean /= n;
+                float sxx = 0f, szz = 0f, sxd = 0f, szd = 0f;
+                for (int i = 0; i < 4; i++)
+                {
+                    if (!seatHas[i]) continue;
+                    float dx = seatArm[i].x - cx, dz = seatArm[i].z - cz, d = Mathf.Max(0f, seatNeed[i]);
+                    sxx += dx * dx; szz += dz * dz; sxd += dx * d; szd += dz * d;
+                }
+                float bx = sxx > 1e-6f ? sxd / sxx : 0f, bz = szz > 1e-6f ? szd / szz : 0f;
+                float a = mean, top = 0f;
+                for (int i = 0; i < 4; i++)
+                    if (seatHas[i])
+                        a = Mathf.Max(a, seatNeed[i] - bx * (seatArm[i].x - cx) - bz * (seatArm[i].z - cz));
+                for (int i = 0; i < 4; i++)
+                    if (seatHas[i]) top = Mathf.Max(top, a + bx * (seatArm[i].x - cx) + bz * (seatArm[i].z - cz));
+                if (top > SeatRideMax) { float k = SeatRideMax / top; a *= k; bx *= k; bz *= k; }
+                // lift = a + (x - cx) sin(roll) - (z - cz) sin(pitch), about the centroid.
+                lift = a;
+                sinRoll = Mathf.Clamp(bx, -0.5f, 0.5f);
+                sinPitch = Mathf.Clamp(-bz, -0.5f, 0.5f);
+            }
+            var fix = Quaternion.Euler(Mathf.Asin(sinPitch) * Mathf.Rad2Deg, 0f, Mathf.Asin(sinRoll) * Mathf.Rad2Deg);
+            // Turning the leaned shell about Q (the centroid) and lifting it:
+            // its origin goes to Q + fix (pivot - Q) + lift.
+            Vector3 q = pivot + new Vector3(cx, cy, cz);
+            bodyRoot.localPosition = q + fix * (pivot - q) + Vector3.up * lift;
+            bodyRoot.localRotation = fix * lean * yaw;
+
+            // Each drawn hub under its own arch, as the shell now stands.
+            for (int i = 0; i < 4; i++)
+            {
+                if (!seatHas[i]) continue;
+                Vector3 arch = q + fix * (pivot + lean * seatArm[i] - q) + Vector3.up * lift;
+                float limit = seatArch[i] + (arch.y - (pivot.y + seatArm[i].y)) - SeatMargin;
+                var t = car.wheelHubs[i];
+                Vector3 lp = t.localPosition;
+                lp.y = Mathf.Min(car.PhysicsHubY(i), limit);
+                t.localPosition = lp;
+            }
+            return true;
         }
     }
 }

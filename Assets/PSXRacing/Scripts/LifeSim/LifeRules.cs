@@ -1325,6 +1325,19 @@ namespace PSXRacing.LifeSim
                         AddFault(s, car, FaultCatalog.RollWearFault(car, "hp", damage >= ImpactFaultThreshold * 2.5f, "impact"));
                 }
 
+                // 4b'. BOTTOMING (owner, 2026-10-19: "A tire should bottom out
+                // when hitting the body, potentially reducing speed, increasing
+                // wear, and causing damages"). The bump stops' tally: tyres
+                // scrubbed on their arches plus the strikes. And the hardest
+                // strike past BottomFaultMps bent something - a tyres-lane fault
+                // from the IMPACT pool (the alignment knocked out), severe past
+                // BottomSevereMps. A cause, never a coin: no strike that hard, no
+                // fault, however often the stops were met.
+                if (RaceHandoff.BottomScore > 0f)
+                    car.tires = Mathf.Max(0f, car.tires - RaceHandoff.BottomScore);
+                if (RaceHandoff.BottomWorst >= BottomFaultMps)
+                    AddFault(s, car, FaultCatalog.RollWearFault(car, "tires", RaceHandoff.BottomWorst >= BottomSevereMps, "impact"));
+
                 // 4c. NO DRIVING RECORD. There used to be an at-fault incident
                 // tally here, feeding a BILLS row and an insurance multiplier
                 // that was never built. Cut at the owner's ask: "the player is
@@ -1798,6 +1811,12 @@ namespace PSXRacing.LifeSim
         public const float BodyDamagePerHit = 0.65f;
         public const float PaintDamagePerHit = 0.4f;
         public const float ImpactFaultThreshold = 22f;
+        /// <summary>A bump-stop strike this hard (m/s at the stop) bends the
+        /// suspension: a 15 cm kerb taken square at ~45 km/h, a 10 cm city kerb
+        /// at ~55 (CarController.BumpStops; a 1 m landing strikes at ~2.5).
+        /// Severe from the second.</summary>
+        public const float BottomFaultMps = 6f;
+        public const float BottomSevereMps = 9f;
 
         public static bool CarInShop(LifeState s, OwnedCar car) =>
             car != null && s.pendingParts.Exists(p => p.carId == car.id);

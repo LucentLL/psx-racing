@@ -418,6 +418,8 @@ namespace PSXRacing
                 var responder = playerCar.GetComponent<CollisionResponder>();
                 RaceHandoff.DamageScore = responder != null ? responder.DamageScore : 0f;
                 RaceHandoff.HardHits = responder != null ? responder.HardHits : 0;
+                RaceHandoff.BottomScore = responder != null ? responder.BottomScore : 0f;
+                RaceHandoff.BottomWorst = responder != null ? responder.WorstBottom : 0f;
 
                 // What the customer is about to open. Stamped like the tank is
                 // stamped, and for the same reason: the cargo is the only thing

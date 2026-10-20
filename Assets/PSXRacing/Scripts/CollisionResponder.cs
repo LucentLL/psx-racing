@@ -124,6 +124,67 @@ namespace PSXRacing
             car = GetComponent<CarController>();
             rb = GetComponent<Rigidbody>();
             audioVoices = GetComponent<CollisionAudio>();
+            if (car != null) car.Bottomed += OnBottomed;
+        }
+
+        void OnDestroy()
+        {
+            if (car != null) car.Bottomed -= OnBottomed;
+        }
+
+        // ---- BOTTOMING (owner, 2026-10-19) ----------------------------------
+        // "A tire should bottom out when hitting the body, potentially reducing
+        // speed, increasing wear, and causing damages." CarController's bump
+        // stops say when a stop was STRUCK (closing speed at the stop) and how
+        // far the tyres have run on their stops; the consequences live here
+        // with the other contact consequences.
+
+        /// <summary>Share of the car's speed along the road a strike takes, per
+        /// m/s of closing speed over CarController.BottomHitMps, and its cap:
+        /// the jolt and the tyre dragging on its arch. A 1 m drop (~3.4 m/s at
+        /// the stop) costs ~4%.</summary>
+        public const float BottomScrubPerMps = 0.015f, BottomScrubMax = 0.08f;
+        /// <summary>Tyre condition (0-100 lane) a strike costs per m/s over the
+        /// hit threshold.</summary>
+        public const float BottomWearPerMps = 0.5f;
+        /// <summary>Tyre condition per tyre-metre run on a hard stop: the rub.
+        /// Half of LifeRules.TireWearPerM per wheel, so all four on their
+        /// stops triple the car's tyre wear for the distance.</summary>
+        public const float RubWearPerM = 0.0031f;
+
+        /// <summary>Strikes on the bump stops this race.</summary>
+        public int BottomHits { get; private set; }
+        /// <summary>The hardest strike this race, closing speed at the stop (m/s):
+        /// what the apply-back rolls a bent-suspension fault on.</summary>
+        public float WorstBottom { get; private set; }
+        /// <summary>Tyre condition the stops cost this race (lane points):
+        /// strikes plus the rub.</summary>
+        public float BottomScore =>
+            bottomWear + (car != null ? (car.BumpRubMeters - rubAtReset) * RubWearPerM : 0f);
+        float bottomWear, rubAtReset;
+
+        void OnBottomed(float mps, int wheel)
+        {
+            float over = mps - CarController.BottomHitMps;
+            if (over <= 0f) return;
+            BottomHits++;
+            bottomWear += over * BottomWearPerMps;
+            if (mps > WorstBottom) WorstBottom = mps;
+
+            // Speed along the road only: the stop already took the vertical.
+            Vector3 v = rb.linearVelocity;
+            Vector3 vertical = Vector3.Project(v, transform.up);
+            float scrub = Mathf.Min(over * BottomScrubPerMps, BottomScrubMax);
+            rb.linearVelocity = vertical + (v - vertical) * (1f - scrub);
+
+            // A clunk, not a crash: the impact voice's lowest tier.
+            if (audioVoices != null && mps >= 2f && Time.time - lastImpactTime > 0.08f)
+            {
+                audioVoices.PlayImpact(Mathf.Min(mps * 0.45f, 2.4f));
+                lastImpactTime = Time.time;
+            }
+            if (cameraShake && ChaseCamera.Active != null)
+                ChaseCamera.Active.AddTrauma(Mathf.Clamp01(mps / 14f));
         }
 
         void LateUpdate()
@@ -335,7 +396,12 @@ namespace PSXRacing
             return true;
         }
 
-        public void ResetDamage() { DamageScore = 0f; HardHits = 0; WorstHit = 0f; }
+        public void ResetDamage()
+        {
+            DamageScore = 0f; HardHits = 0; WorstHit = 0f;
+            BottomHits = 0; WorstBottom = 0f; bottomWear = 0f;
+            rubAtReset = car != null ? car.BumpRubMeters : 0f;
+        }
 
         /// <summary>The hardest square hit this race (m/s into what was hit):
         /// what AIDriver retires a car on (RetireHitMps).</summary>
