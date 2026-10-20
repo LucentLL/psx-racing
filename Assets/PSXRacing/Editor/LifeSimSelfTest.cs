@@ -543,6 +543,11 @@ namespace PSXRacing.EditorTools
             LifeRules.Sleep(u);
             Check(u.day == ud + 1 && u.slotIndex == M && u.daysSinceSleep == 0,
                   "a night's sleep from NIGHT is NIGHT + DAWN, up at MORNING", LifeRules.SlotNames[u.slotIndex]);
+            // An evening with nothing written into its night (no meet, no
+            // booked race): the early night. (Day 2, where this used to
+            // stand, is a Saturday - a meet night.)
+            while (CarMeets.MeetAt(u.day, Ni)) u.day++;
+            ud = u.day - 1;
             u.slotIndex = E;
             LifeRules.Sleep(u);
             Check(u.day == ud + 2 && u.slotIndex == Dw, "an early night from EVENING is up at DAWN, for a dawn race");
@@ -553,6 +558,17 @@ namespace PSXRacing.EditorTools
             Check(LifeRules.SleepCaption(u).StartsWith("A NAP"), "and says so", LifeRules.SleepCaption(u));
             LifeRules.SleepUntilMorning(u);
             Check(u.day == ud + 3 && u.slotIndex == M, "SleepUntilMorning lands on tomorrow's MORNING",
+                  u.day + " " + LifeRules.SlotNames[u.slotIndex]);
+            // A NIGHT WITH PLANS (owner, 2026-10-19: sleeping from EVENING
+            // skipped the car meet): SLEEP never sleeps through a meet or a
+            // booked race - from EVENING it is a nap, up at NIGHT.
+            while (!CarMeets.MeetAt(u.day, Ni)) u.day++;
+            int md = u.day;
+            u.slotIndex = E;
+            Check(LifeRules.NightHasPlans(u) && LifeRules.WakeSlot(u) == Ni && LifeRules.SleepCaption(u).StartsWith("A NAP"),
+                  "SLEEP at EVENING on a meet night says A NAP, up at NIGHT", LifeRules.SleepCaption(u));
+            LifeRules.Sleep(u);
+            Check(u.day == md && u.slotIndex == Ni, "and wakes at NIGHT the same day, the meet still ahead",
                   u.day + " " + LifeRules.SlotNames[u.slotIndex]);
 
             // ---- the shop's hours and the shift ----
@@ -5088,6 +5104,8 @@ namespace PSXRacing.EditorTools
 
             // Six blocks (v21): a nap is one block, a night's sleep is two.
             var s = LifeRules.SeedNewGame("TESTER", 25, LifeRules.DefaultJobIndex);
+            // a day whose night holds no meet: its evening sleep is the early night
+            while (CarMeets.MeetAt(s.day, LifeRules.NightSlot)) s.day++;
             s.slotIndex = LifeRules.MorningSlot;
             int day = s.day;
 

@@ -2531,6 +2531,13 @@ namespace PSXRacing.LifeSim
         /// LATER, and the all-nighter the rollover docked is handed back —
         /// the night was late, not missed). Anywhere else, and at DAWN after a
         /// night already slept, it is a nap: one block, nothing restored.
+        ///
+        /// A NIGHT WITH PLANS (owner, 2026-10-19: "If I choose to Sleep, I will
+        /// not get the option to go to the Car Meet. It will skip the night
+        /// slot and move to the next day"). The early night never sleeps
+        /// through something written into the NIGHT - a car meet or a booked
+        /// race (<see cref="NightHasPlans"/>): from EVENING it is then a nap,
+        /// up at NIGHT with the plans still ahead, as any other block would be.
         /// </summary>
         public static void Sleep(LifeState s)
         {
@@ -2541,7 +2548,7 @@ namespace PSXRacing.LifeSim
             // town's cue asks the clock whether Tony's would take a shift now,
             // so waking to a morning the shop is shut answers itself.)
             int start = s.slotIndex;
-            if (start == EveningSlot || start == NightSlot)
+            if (start == NightSlot || (start == EveningSlot && !NightHasPlans(s)))
             {
                 // The night's sleep: this block, then on through NIGHT (an
                 // early night) and the rollover, then DAWN as well when the
@@ -2620,7 +2627,13 @@ namespace PSXRacing.LifeSim
         /// two for a night's sleep (EVENING, NIGHT, or DAWN after a night
         /// awake), one for a nap.</summary>
         public static int SleepBlocks(LifeState s) =>
-            s == null ? 1 : s.slotIndex == EveningSlot || s.slotIndex == NightSlot || LateNightOwed(s) ? 2 : 1;
+            s == null ? 1 : (s.slotIndex == EveningSlot && !NightHasPlans(s)) || s.slotIndex == NightSlot || LateNightOwed(s) ? 2 : 1;
+
+        /// <summary>Tonight's NIGHT block has something in it the player chose
+        /// or the calendar keeps - a car meet or a booked race - so an early
+        /// night from EVENING would sleep through it (see <see cref="Sleep"/>).</summary>
+        public static bool NightHasPlans(LifeState s) =>
+            s != null && (CarMeets.MeetAt(s.day, NightSlot) || BookingAt(s, s.day, NightSlot) != null);
 
         /// <summary>Whether SLEEP from here is a night's sleep — the one the
         /// health ladder counts — rather than a nap.</summary>
