@@ -63,6 +63,11 @@ namespace PSXRacing.LifeSim
         RectTransform body;
         string page = "drive";
         string carMake;
+        /// <summary>The race the card is showing (catalog index).</summary>
+        int eventVenue = -1;
+        /// <summary>Where the car picker goes back to: the door, or the race
+        /// card it was opened from.</summary>
+        string carBack = "drive";
         Text statusText;
         float toastExpires;
 
@@ -100,7 +105,18 @@ namespace PSXRacing.LifeSim
             // request is spent. The CalendarDay the scenes read stays 0: the
             // city has no calendar, so it is the fall the scenes were baked as.
             RaceHandoff.ClearAll();
-            if (!string.IsNullOrEmpty(PendingPage)) { page = PendingPage; PendingPage = null; }
+            if (!string.IsNullOrEmpty(PendingPage))
+            {
+                page = PendingPage;
+                PendingPage = null;
+                // "event:<id>" opens one race's card (the door tour and the
+                // menu preview go straight to it).
+                if (page.StartsWith("event:"))
+                {
+                    eventVenue = TrackCatalog.TryIndexOf(page.Substring(6), out int ev) ? ev : -1;
+                    page = "event";
+                }
+            }
             if (!string.IsNullOrEmpty(PendingMake)) { carMake = PendingMake; PendingMake = null; }
 
             BuildChrome();
@@ -136,6 +152,7 @@ namespace PSXRacing.LifeSim
                 case "carmake": BuildMakePage(); break;
                 case "options": BuildOptions(); break;
                 case "result": BuildResult(); break;
+                case "event": BuildEvent(); break;
                 default: page = "drive"; BuildDrive(); break;
             }
 
@@ -196,13 +213,14 @@ namespace PSXRacing.LifeSim
                 var t = TrackCatalog.At(i);
                 if (!t.IsDeckRun || t.deckLeg != 0 || !TrackCatalog.Offered(i)) continue;
                 if (!deckHead) { y -= 8f; Section(ref y, lx, w, "DECK RUNS  ·  RACE OR TIME TRIAL"); deckHead = true; }
-                // per deck: UP, DOWN, then the whole run (UP & DOWN)
+                // per deck: UP, DOWN, then the whole run (UP & DOWN); each
+                // opens its card, where RACE and TIME TRIAL are
                 foreach (int leg in DeckLegOrder)
                     for (int j = 0; j < TrackCatalog.Count; j++)
                     {
                         var u = TrackCatalog.At(j);
                         if (u.IsDeckRun && u.deckWay == t.deckWay && u.deckLeg == leg && TrackCatalog.Offered(j))
-                            DeckRow(ref y, lx, w, j, u);
+                            RaceRow(ref y, lx, w, j, u);
                     }
             }
 
@@ -212,7 +230,7 @@ namespace PSXRacing.LifeSim
             var spec = Car();
             var carBtn = Named(MenuKit.Button(body, " ", new Vector2(0.5f, 1f),
                 new Vector2(MenuKit.ColLeft(rx, w), ry), new Vector2(w, 56f),
-                () => { carMake = null; Go("car"); }, 20), "car");
+                () => { carMake = null; carBack = "drive"; Go("car"); }, 20), "car");
             var carName = carBtn.GetComponentInChildren<Text>();
             carName.text = spec != null ? spec.name.ToUpperInvariant() : "PICK A CAR";
             carName.fontSize = 22;
@@ -242,13 +260,16 @@ namespace PSXRacing.LifeSim
         }
 
         /// <summary>One race: its name on the left of the button and how far
-        /// it is on the right, so four of them fit a phone with no scroll.</summary>
+        /// it is on the right, so four of them fit a phone with no scroll.
+        /// Pressing it opens the race's CARD - the view from above and START -
+        /// rather than starting it (owner, 2026-10-19: "When selecting races,
+        /// I want it to show a view from above").</summary>
         void RaceRow(ref float y, float x, float w, int index, TrackCatalog.TrackDef t)
         {
             int captured = index;
             var b = Named(MenuKit.Button(body, " ", new Vector2(0.5f, 1f),
                 new Vector2(MenuKit.ColLeft(x, w), y), new Vector2(w, 50f),
-                () => StartRace(captured), 20), "race_" + t.id);
+                () => OpenEvent(captured), 20), "open_" + t.id);
             var caption = b.GetComponentInChildren<Text>();
             caption.text = "";
             string km = (t.RaceMeters / 1000f).ToString("0.0") + " KM" +
@@ -268,25 +289,112 @@ namespace PSXRacing.LifeSim
 
         static readonly int[] DeckLegOrder = { PSXRacing.City.DeckRun.Up, PSXRacing.City.DeckRun.Down, PSXRacing.City.DeckRun.Full };
 
-        /// <summary>One deck: its name on a line of its own, then RACE (three
-        /// rivals; the door tour presses it) and TIME TRIAL with the best.</summary>
-        void DeckRow(ref float y, float x, float w, int index, TrackCatalog.TrackDef t)
+        void OpenEvent(int venue)
         {
-            int captured = index;
-            var name = MenuKit.Label(body, t.name, 20, new Vector2(0.5f, 1f), new Vector2(x, y),
-                TextAnchor.MiddleLeft, Color.white, w, height: 28f, bold: true);
-            MenuKit.FitOneLine(name, w);
-            y -= 32f;
-            float half = (w - 8f) * 0.5f;
-            Named(MenuKit.Button(body, "RACE  ·  3 RIVALS", new Vector2(0.5f, 1f),
-                new Vector2(x + half * 0.5f, y), new Vector2(half, 48f),
-                () => StartRace(captured), 20), "race_" + t.id);
-            float best = PSXRacing.City.DeckRun.Best(t.deckWay, t.deckLeg);
-            Named(MenuKit.Button(body, best > 0f ? "TRIAL  ·  BEST " + PSXRacing.City.DeckRun.Clock(best) : "TIME TRIAL",
-                new Vector2(0.5f, 1f), new Vector2(x + half * 1.5f + 8f, y), new Vector2(half, 48f),
-                () => StartRace(captured, true), 20), "trial_" + t.id);
-            y -= 58f;
+            eventVenue = venue;
+            Go("event");
         }
+
+        // =================== the race card ===================
+        /// <summary>
+        /// ONE RACE, FROM ABOVE (owner, 2026-10-19, with NFS 2015's event card
+        /// as the reference: the map, then what kind of event, its name, what
+        /// it is). Left: the route over the streets round it (RouteMap). Right:
+        /// the kind and the facts, START, DRIVE TO THE START (free roam, put
+        /// down just short of this race's line, where the gate starts it), the
+        /// hour, the weather, the car, and the race's own words.
+        /// </summary>
+        void BuildEvent()
+        {
+            if (!TrackCatalog.Offered(eventVenue)) { page = "drive"; BuildDrive(); return; }
+            var t = TrackCatalog.At(eventVenue);
+            int venue = eventVenue;
+            float y = -14f;
+            PageHeader(ref y, t.name, () => Go("drive"));
+            float lx = LeftX, rx = RightX, w = HalfW;
+
+            // ---- left: the view from above, as big as the column allows ----
+            const float LegendH = 30f;
+            float mapSize = Mathf.Clamp(BodyH + y - LegendH - MenuKit.ScrollPad - 4f, 220f, w);
+            float mx = lx + (w - mapSize) * 0.5f;
+            RouteMap.Build(body, t, new Vector2(0.5f, 1f), new Vector2(mx, y), mapSize);
+            var legend = MenuKit.Label(body, RouteMap.LegendFor(t), MenuKit.Tiny, new Vector2(0.5f, 1f),
+                new Vector2(lx + w * 0.5f, y - mapSize - 2f), TextAnchor.MiddleCenter, MenuKit.Dim, w, height: 26f);
+            MenuKit.FitOneLine(legend, w);
+
+            // ---- right: the card ----
+            float ry = y;
+            Section(ref ry, rx, w, RouteGeo.KindOf(t) + (t.IsDeckRun ? "  ·  RACE OR TIME TRIAL" : "  ·  THREE RIVALS"));
+            var facts = MenuKit.Label(body, EventFacts(t), MenuKit.Small, new Vector2(0.5f, 1f), new Vector2(rx, ry),
+                TextAnchor.MiddleLeft, Color.white, w, height: 28f, bold: true);
+            MenuKit.FitOneLine(facts, w);
+            ry -= 36f;
+
+            if (t.IsDeckRun)
+            {
+                float half = (w - 8f) * 0.5f;
+                Named(MenuKit.Button(body, "RACE  ·  3 RIVALS", new Vector2(0.5f, 1f),
+                    new Vector2(rx + half * 0.5f, ry), new Vector2(half, 56f),
+                    () => StartRace(venue), 20, RaceBg), "race_" + t.id);
+                float best = PSXRacing.City.DeckRun.Best(t.deckWay, t.deckLeg);
+                var trial = Named(MenuKit.Button(body, best > 0f ? "TRIAL  ·  BEST " + PSXRacing.City.DeckRun.Clock(best) : "TIME TRIAL",
+                    new Vector2(0.5f, 1f), new Vector2(rx + half * 1.5f + 8f, ry), new Vector2(half, 56f),
+                    () => StartRace(venue, true), 20), "trial_" + t.id);
+                MenuKit.FitOneLine(trial.GetComponentInChildren<Text>(), half - 12f);
+                ry -= 62f;
+            }
+            else
+            {
+                Named(MenuKit.Button(body, "START RACE  >>", new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(rx, w), ry), new Vector2(w, 56f),
+                    () => StartRace(venue), 22, RaceBg), "race_" + t.id);
+                ry -= 62f;
+            }
+            // The other way in: drive there. A deck's line is inside the deck,
+            // so a deck has no gate on the street (yet).
+            bool gate = !t.IsDeckRun && RouteGeo.StartPose(t, out _, out _);
+            if (gate)
+            {
+                Named(MenuKit.Button(body, "DRIVE TO THE START", new Vector2(0.5f, 1f),
+                    new Vector2(MenuKit.ColLeft(rx, w), ry), new Vector2(w, 48f),
+                    () => StartFreeRoam(venue), 20), "drive_" + t.id);
+                ry -= 54f;
+            }
+            Named(MenuKit.Button(body, "HOUR:  " + TimeOfDay.Label(Hour), new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(rx, w), ry), new Vector2(w, 48f),
+                () => { SetHour((Hour + 1) % TimeOfDay.Count); Rebuild(); }, 20), "hour");
+            ry -= 54f;
+            Named(MenuKit.Button(body, "WEATHER:  " + WeatherName(WeatherPick), new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(rx, w), ry), new Vector2(w, 48f),
+                () => { SetWeather((WeatherPick + 1) % 4); Rebuild(); }, 20), "weather");
+            ry -= 54f;
+            var spec = Car();
+            var carBtn = Named(MenuKit.Button(body, "CAR:  " + (spec != null ? spec.name.ToUpperInvariant() : "PICK A CAR"),
+                new Vector2(0.5f, 1f), new Vector2(MenuKit.ColLeft(rx, w), ry), new Vector2(w, 48f),
+                () => { carMake = null; carBack = "event"; Go("car"); }, 20), "car");
+            MenuKit.FitOneLine(carBtn.GetComponentInChildren<Text>(), w - 20f);
+            ry -= 58f;
+            if (!string.IsNullOrEmpty(t.blurb))
+                MenuKit.Para(body, t.blurb, MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(rx, ry),
+                    out float bh, TextAnchor.UpperLeft, MenuKit.Dim, w);
+        }
+
+        /// <summary>The numbers line under the kind: how far, how many laps
+        /// or where it ends, and a deck's best.</summary>
+        static string EventFacts(TrackCatalog.TrackDef t)
+        {
+            string km = (t.RaceMeters / 1000f).ToString("0.0") + " KM";
+            if (t.IsDeckRun)
+            {
+                float best = PSXRacing.City.DeckRun.Best(t.deckWay, t.deckLeg);
+                return km + (best > 0f ? "  ·  BEST " + PSXRacing.City.DeckRun.Clock(best) : "  ·  NO BEST YET");
+            }
+            return km + "  ·  " + (t.loop ? t.laps + (t.laps == 1 ? " LAP" : " LAPS") : "POINT TO POINT");
+        }
+
+        /// <summary>The gold of a button that starts a race, as MAIN's START
+        /// wears it.</summary>
+        static readonly Color RaceBg = new Color(0.62f, 0.48f, 0.12f, 1f);
 
         void Section(ref float y, float x, float w, string text)
         {
@@ -308,7 +416,7 @@ namespace PSXRacing.LifeSim
         void BuildCarPage()
         {
             float y = -14f;
-            PageHeader(ref y, "PICK A CAR", () => Go("drive"));
+            PageHeader(ref y, "PICK A CAR", () => Go(carBack));
             var spec = Car();
             var now = MenuKit.Label(body, "DRIVING  " + (spec != null ? spec.name.ToUpperInvariant() : "-"),
                 MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
@@ -351,7 +459,7 @@ namespace PSXRacing.LifeSim
                 var captured = c;
                 var b = Named(MenuKit.Button(body, " ", new Vector2(0.5f, 1f),
                     new Vector2(0f, y), new Vector2(rowW, 48f),
-                    () => { SetCar(captured.id); Go("drive"); Toast(captured.name.ToUpperInvariant()); },
+                    () => { SetCar(captured.id); Go(carBack); Toast(captured.name.ToUpperInvariant()); },
                     20), "model_" + c.id);
                 b.GetComponentInChildren<Text>().text = "";
                 string nums = CarSpec.ToHp(c.hp) + " HP  ·  " + c.drv + " · " + DriveSide.Label(c.id);
@@ -504,13 +612,16 @@ namespace PSXRacing.LifeSim
         }
 
         // =================== launching ===================
-        void StartFreeRoam()
+        /// <param name="atVenue">A race whose start line the drive begins
+        /// just short of (DRIVE TO THE START), or -1 for the usual spawn.</param>
+        void StartFreeRoam(int atVenue = -1)
         {
             if (!FillFreeRoam(CarId(), Hour, WeatherPick, out int scene))
             {
                 Toast("CHARLOTTE IS NOT IN THIS BUILD");
                 return;
             }
+            RaceHandoff.RoamAtVenue = atVenue;
             if (!TrackCatalog.TryLoadScene(scene, "Charlotte")) Toast("CHARLOTTE IS NOT IN THIS BUILD");
         }
 
@@ -705,6 +816,7 @@ namespace PSXRacing.LifeSim
             if (!cancel) return;
             // B / Escape walks back towards the door, as MAIN's does.
             if (page == "carmake") Go("car");
+            else if (page == "car") Go(carBack);
             else if (page != "drive") Go("drive");
         }
     }

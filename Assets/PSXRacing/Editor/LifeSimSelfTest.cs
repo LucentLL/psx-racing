@@ -909,16 +909,16 @@ namespace PSXRacing.EditorTools
             var parkCity = EditionParking.ParkListFor(EditionKind.City);
             Check(EditionParking.ParkListFor(EditionKind.All).Count == 0, "ALL parks nothing");
             foreach (var want in new[] { "charlotte_city.bytes", "charlotte_bld.bytes", "charlotte_dem.bytes",
-                                         "charlotte_routes.json", "charlotte_thumb.png", "CityProps" })
+                                         "charlotte_routes.json", "charlotte_thumb.png", "CityProps", "RouteMaps" })
                 Check(parkMain.Contains(want), "MAIN parks " + want, string.Join(",", parkMain));
-            Check(parkMain.All(n => n.StartsWith("charlotte_") || n == "CityProps"),
+            Check(parkMain.All(n => n.StartsWith("charlotte_") || n == "CityProps" || n == "RouteMaps"),
                   "MAIN parks nothing but Charlotte's", string.Join(",", parkMain));
             Check(parkCity.Contains("PizzaCargo") && parkCity.Contains("brp_stage.json") &&
                   parkCity.Contains("chimney_stage.json") && parkCity.Contains("bogue_emerald.json"),
                   "CITY parks the pizza cargo and the stage bakes (held back included)",
                   string.Join(",", parkCity));
             Check(parkCity.Count == 12, "CITY parks the cargo + all eleven stage bakes", parkCity.Count);
-            Check(!parkCity.Any(n => n.StartsWith("charlotte_") || n == "CityProps" || n == "Engines" ||
+            Check(!parkCity.Any(n => n.StartsWith("charlotte_") || n == "CityProps" || n == "RouteMaps" || n == "Engines" ||
                                      n == "CarModels" || n == "Sky" || n == "Sfx" || n.StartsWith("rg2_")),
                   "CITY keeps Charlotte's data, the engines, the cars, the sky and the catalogs");
             Check(!System.IO.File.Exists(EditionParking.ManifestPath),

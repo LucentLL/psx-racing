@@ -134,6 +134,8 @@ namespace PSXRacing.EditorTools
                 foreach (var n in rootFiles)
                     if (n.StartsWith("charlotte_", StringComparison.OrdinalIgnoreCase)) list.Add(n);
                 if (Directory.Exists(ResourcesRoot + "/CityProps")) list.Add("CityProps");
+                // the streets under the race cards' maps (RouteMapBake)
+                if (Directory.Exists(ResourcesRoot + "/RouteMaps")) list.Add("RouteMaps");
             }
             else
             {

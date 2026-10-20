@@ -102,6 +102,11 @@ namespace PSXRacing.City
             if (player != null)
             {
                 spawnSeated = SeatOnStreet();
+                // DRIVE TO THE START (the CITY race card): down on the race's
+                // own road just short of its line, the gate ahead.
+                if (RaceHandoff.RoamAtVenue >= 0 && CityRaceStarts.Enabled &&
+                    CityRaceStarts.PlaceShort(world, player, RaceHandoff.RoamAtVenue))
+                    spawnSeated = false;
                 spawnPos = player.transform.position;
                 spawnRot = player.transform.rotation;
                 var input = player.GetComponent<PlayerCarInput>();
@@ -109,6 +114,8 @@ namespace PSXRacing.City
                 var engine = player.GetComponent<EngineAudio>();
                 if (engine != null && !arrivedRolling) engine.PlayStartup(0.3f);
             }
+            // Every city race's start line, standing in the street.
+            CityRaceStarts.Attach(this);
         }
 
         void Update()

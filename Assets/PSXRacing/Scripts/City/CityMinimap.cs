@@ -190,6 +190,19 @@ namespace PSXRacing.City
                 }
             }
 
+            // the race gates (CityRaceStarts): a flag where each start line
+            // is, held on the rim when it is further than the map reaches -
+            // the way to it, the way NFS's radar points at its events
+            foreach (var g in CityRaceStarts.Gates)
+            {
+                var at = Local(g.plan);
+                float r = at.magnitude, edge = half - 9f * px;
+                bool far = r > edge;
+                if (far) at *= edge / r;
+                Diamond(vh, at, (far ? 6f : 7.5f) * px, ColGateEdge);
+                Diamond(vh, at, (far ? 4f : 5.5f) * px, ColGate);
+            }
+
             // north, on the rim
             var north = new Vector2(-sn, cs);
             var nAt = north * (half - 6f * px);
@@ -200,6 +213,15 @@ namespace PSXRacing.City
             // the car: a nose-up arrow with a white edge, always at the centre
             Tri(vh, new Vector2(0f, 9f * px), new Vector2(-7f * px, -7f * px), new Vector2(7f * px, -7f * px), ColPlayerEdge);
             Tri(vh, new Vector2(0f, 6.5f * px), new Vector2(-4.5f * px, -5f * px), new Vector2(4.5f * px, -5f * px), ColPlayer);
+        }
+
+        static readonly Color32 ColGate = new Color32(255, 214, 90, 255);
+        static readonly Color32 ColGateEdge = new Color32(20, 16, 8, 255);
+
+        static void Diamond(VertexHelper vh, Vector2 c, float r, Color32 col)
+        {
+            Tri(vh, c + new Vector2(0f, r), c + new Vector2(r, 0f), c + new Vector2(0f, -r), col);
+            Tri(vh, c + new Vector2(0f, r), c + new Vector2(0f, -r), c + new Vector2(-r, 0f), col);
         }
 
         static readonly UIVertex[] quad = new UIVertex[4];
