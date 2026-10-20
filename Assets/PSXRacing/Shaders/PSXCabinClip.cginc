@@ -11,11 +11,15 @@
 // only), so a rival alongside is never cut, however close it rubs.
 // _PSXCabinOn is the global gate, open only for the camera inside.
 // _PSXCabinW2L takes a world point into the car's frame; _PSXCabinBox is
-// (cut z, half width, top, tail z) in that frame.
+// (cut z, half width, top, tail z) in that frame. The cockpit's box is
+// its own room (2026-10-19), so the door mirrors and the panels beside
+// it show through its glass; _PSXCabinKeep* are two boxes (each door
+// mirror, padded) never cut, empty (min > max) when unused.
 float _PSXCabinOwn;
 float _PSXCabinOn;
 float4x4 _PSXCabinW2L;
 float4 _PSXCabinBox;
+float4 _PSXCabinKeepMin0, _PSXCabinKeepMax0, _PSXCabinKeepMin1, _PSXCabinKeepMax1;
 
 inline void PSXCabinClip(float3 wpos)
 {
@@ -23,7 +27,11 @@ inline void PSXCabinClip(float3 wpos)
     {
         float3 p = mul(_PSXCabinW2L, float4(wpos, 1.0)).xyz;
         if (p.z < _PSXCabinBox.x && p.z > _PSXCabinBox.w && abs(p.x) < _PSXCabinBox.y && p.y < _PSXCabinBox.z)
-            discard;
+        {
+            bool keep = all(p >= _PSXCabinKeepMin0.xyz) && all(p <= _PSXCabinKeepMax0.xyz);
+            keep = keep || (all(p >= _PSXCabinKeepMin1.xyz) && all(p <= _PSXCabinKeepMax1.xyz));
+            if (!keep) discard;
+        }
     }
 }
 

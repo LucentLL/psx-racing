@@ -96,6 +96,8 @@ namespace PSXRacing
         /// <summary>How long the glass takes to dry once the rain stops or
         /// the car is under cover, seconds.</summary>
         public const float DrySeconds = 25f;
+        /// <summary>The cut stands this far outside the cabin's side glass.</summary>
+        public const float CabinCutMargin = 0.01f;
 
         public struct Fit
         {
@@ -106,6 +108,11 @@ namespace PSXRacing
             /// <summary>The windscreen's base (car frame z): the dash's front
             /// lands here and the shell is cut here (<see cref="CabinClip"/>).</summary>
             public float cutZ;
+            /// <summary>The cabin's own room, car frame (set by Apply, 0 before):
+            /// its side glass's half-width and its rearmost z. Only the shell
+            /// inside it is cut; the door mirrors and the panels beside the
+            /// cabin show through its glass (2026-10-19).</summary>
+            public float cabinHalfW, cabinTailZ;
         }
 
         /// <summary>The fit for a body: the eye where ChaseCamera puts it
@@ -193,6 +200,7 @@ namespace PSXRacing
         CockpitArms arms;
         Camera mirrorCam;
         RenderTexture mirrorRT;
+        DoorMirrorRig doors;
         static float rainWet, runClock, blowClock;
         static bool warned;
 
@@ -203,6 +211,8 @@ namespace PSXRacing
         /// <summary>The driver's arms, or null (no arms data: the static hands).</summary>
         public CockpitArms Arms => arms;
         public bool RHD => Current.rhd;
+        /// <summary>The live door mirrors, or null (a shell with no row).</summary>
+        public DoorMirrorRig Doors => doors;
         public bool Shown => shown;
         /// <summary>The windscreen's reflection of the cabin, or null.</summary>
         public CockpitReflection Reflection => refl;
@@ -413,9 +423,38 @@ namespace PSXRacing
             lastDeg = float.NaN;
             wheelDeg = float.NaN;
             ActiveNearClip = NearClipFor(f.scale);
+            Current = CabinRoom(f);
+            // The car's own door mirrors, live (DoorMirrors): built before
+            // the renderers are collected, so the cabin's visibility rules
+            // (the driver alone) cover their glass too.
+            if (doors != null) doors.Destroy();
+            // The car's widest point: the box is a 0.915 fit of the shell (CabinClip).
+            float halfW = box != null ? box.size.x / 0.915f * 0.5f : 0.9f;
+            doors = DoorMirrorRig.Build(transform, car != null ? car.transform : null, body, fitDef, gameObject.layer, halfW);
+            if (doors != null) doors.SetActive(shown);
             CollectRenderers();
             CollectShell();
             if (refl != null) refl.Fit(model, screenPart);
+        }
+
+        /// <summary>The cabin's own room in the car's frame (CabinClip): out
+        /// to its side glass (the door panes' outermost point, at its sill),
+        /// back to its rearmost part. The shell outside it - the door
+        /// mirrors, the door tops, a muscle car's haunches, the deck behind
+        /// the rear glass - stays, seen through the glass.</summary>
+        Fit CabinRoom(Fit f)
+        {
+            var parts = CockpitModel.Parts;
+            var lay = L;
+            if (parts == null || lay == null || lay.glass == null) return f;
+            float glassX = 0f;
+            foreach (var g in lay.glass)
+                if (g.key.StartsWith("door") && parts.TryGetValue(g.part, out var gp) && gp.mesh != null)
+                    glassX = Mathf.Max(glassX, Mathf.Max(Mathf.Abs(gp.mesh.bounds.min.x), Mathf.Abs(gp.mesh.bounds.max.x)));
+            if (glassX <= 0f || !parts.TryGetValue("cabin", out var cp) || cp.mesh == null) return f;
+            f.cabinHalfW = glassX * f.scale + CabinCutMargin;
+            f.cabinTailZ = f.eye.z + f.scale * (cp.mesh.bounds.min.z - lay.eye.z);
+            return f;
         }
 
         /// <summary>The mirrored cluster's roles: the LHD file's tach face sits
@@ -462,7 +501,15 @@ namespace PSXRacing
                 if (box == null) box = car.GetComponent<BoxCollider>();
                 Vector3 c = box != null ? box.center : new Vector3(0f, 0.72f, 0.05f);
                 Vector3 s = box != null ? box.size : new Vector3(1.72f, 1.0f, 4.1f);
-                CabinClip.Open(car.transform, Current.cutZ, c, s);
+                // The cabin's room only (2026-10-19), each door mirror kept
+                // whole where a narrow car's reaches inside it; the whole body
+                // box when the cabin was not measured.
+                if (Current.cabinHalfW > 0f)
+                {
+                    CabinClip.Open(car.transform, Current.cutZ, Current.cabinHalfW, c.y + s.y * 0.5f + 0.8f, Current.cabinTailZ);
+                    if (doors != null) doors.Keep();
+                }
+                else CabinClip.Open(car.transform, Current.cutZ, c, s);
             }
             else CabinClip.Close();
             shellHidden = hide;
@@ -487,6 +534,7 @@ namespace PSXRacing
                 CockpitLook.PassengerSign = Current.rhd ? -1f : 1f;
             }
             if (mirrorCam != null && mirrorCam.gameObject.activeSelf != on) mirrorCam.gameObject.SetActive(on);
+            if (doors != null) doors.SetActive(on);
         }
 
         /// <summary>Turn the wheel with the front ROAD wheels: full lock is
@@ -589,7 +637,10 @@ namespace PSXRacing
 
         void TickMirror()
         {
-            if (mirrorMat == null || !Application.isPlaying) return;
+            if (!Application.isPlaying) return;
+            // The door mirrors draw on the frames the rear-view does not.
+            if (doors != null) doors.Tick(driver != null ? driver : Camera.main);
+            if (mirrorMat == null) return;
             if (mirrorCam == null) EnsureMirrorCamera();
             if (mirrorCam != null) mirrorCam.enabled = Time.frameCount % MirrorEvery == 0;
         }
@@ -607,6 +658,20 @@ namespace PSXRacing
             SetVisible(false);
             HideShell(true);
             mirrorCam.Render();
+            SetVisible(true);
+        }
+
+        /// <summary>For the shot tool (edit mode, no frames): the door
+        /// mirrors rendered once from `src`'s world, the shell whole for
+        /// them (they look at it from outside).</summary>
+        public void PreviewDoorMirrors(Camera src)
+        {
+            if (doors == null) return;
+            if (driver == null) driver = src;
+            SetVisible(false);
+            if (shellHidden) HideShell(false);
+            CabinClip.Close();
+            doors.Preview(src);
             SetVisible(true);
         }
 
@@ -691,6 +756,7 @@ namespace PSXRacing
             if (mirror != null) mirror.Clear();
             if (gauges != null) gauges.Destroy();
             if (arms != null) arms.Destroy();
+            if (doors != null) { doors.Destroy(); doors = null; }
             if (glassMats != null) foreach (var m in glassMats) if (m != null) DestroyImmediate(m);
             if (mirrorMat != null) DestroyImmediate(mirrorMat);
             if (mirrorRT != null) { mirrorRT.Release(); DestroyImmediate(mirrorRT); }
@@ -701,8 +767,11 @@ namespace PSXRacing
         {
             bool isDriver = driver != null ? cam == driver : StreetLights.IsDriver(cam);
             SetVisible(isDriver);
+            // The door mirrors' glass sits on the body as it leans now.
+            if (isDriver && doors != null) doors.Pose();
             // The mirror looks back from inside the shell too: whatever the
-            // shell models inside (seats, a parcel shelf) would fill it.
+            // shell models inside (seats, a parcel shelf) would fill it. The
+            // door mirrors look at the car from outside: the whole shell.
             if (isDriver || (mirrorCam != null && cam == mirrorCam)) HideShell(true);
         }
 

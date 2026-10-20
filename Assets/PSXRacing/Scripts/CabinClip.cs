@@ -19,6 +19,15 @@ namespace PSXRacing
     /// so a rival rubbing doors with us keeps its doors. The gate is a global,
     /// opened by whoever renders from inside (<see cref="Open"/>) and closed
     /// when that camera is done (<see cref="Close"/>).
+    ///
+    /// THE CABIN'S SIZE, NOT THE BODY'S (owner, 2026-10-19: "I should see the
+    /// mirrors of cars from cockpit windows ... in rare cases like muscle cars,
+    /// see the body extend out"). The cockpit cuts only its own room - out to
+    /// its side glass, back to its rearmost part - so the door mirrors, the
+    /// door tops, the haunches and the deck show through its windows, and two
+    /// KEEP boxes (<see cref="Keep"/>) hold each door mirror whole where a
+    /// narrow car's mirror reaches inside that. From the seat every other
+    /// panel of a closed shell faces away and is culled anyway.
     /// </summary>
     public static class CabinClip
     {
@@ -26,6 +35,8 @@ namespace PSXRacing
         static readonly int OnId = Shader.PropertyToID("_PSXCabinOn");
         static readonly int W2LId = Shader.PropertyToID("_PSXCabinW2L");
         static readonly int BoxId = Shader.PropertyToID("_PSXCabinBox");
+        static readonly int[] KeepMinId = { Shader.PropertyToID("_PSXCabinKeepMin0"), Shader.PropertyToID("_PSXCabinKeepMin1") };
+        static readonly int[] KeepMaxId = { Shader.PropertyToID("_PSXCabinKeepMax0"), Shader.PropertyToID("_PSXCabinKeepMax1") };
         static MaterialPropertyBlock block;
 
         /// <summary>The gate is open (some camera is drawing from inside).</summary>
@@ -68,7 +79,19 @@ namespace PSXRacing
             Shader.SetGlobalMatrix(W2LId, car.worldToLocalMatrix);
             Shader.SetGlobalVector(BoxId, new Vector4(cutZ, halfWidth, top, tailZ));
             Shader.SetGlobalFloat(OnId, 1f);
+            Keep(0, default, false);
+            Keep(1, default, false);
             IsOpen = true;
+        }
+
+        /// <summary>Keep box `i` (0 or 1, the car's frame): nothing inside it
+        /// is cut while the gate is open. Off = an empty box. Set AFTER
+        /// <see cref="Open"/>, which empties both.</summary>
+        public static void Keep(int i, Bounds b, bool on)
+        {
+            if (i < 0 || i > 1) return;
+            Shader.SetGlobalVector(KeepMinId[i], on ? (Vector4)b.min : new Vector4(1e4f, 1e4f, 1e4f, 0f));
+            Shader.SetGlobalVector(KeepMaxId[i], on ? (Vector4)b.max : new Vector4(-1e4f, -1e4f, -1e4f, 0f));
         }
 
         /// <summary>The cut for a body box (centre and size in the car's
