@@ -187,8 +187,21 @@ namespace PSXRacing
         /// pure difference: the least gap between a point on the tyre's top
         /// half and the ceiling over that point, added to the hub height the
         /// samples were taken at.
+        ///
+        /// The EXACT answer (<see cref="ArchHubs"/>, baked off the wheel's own
+        /// faces and the body's triangles) wherever this fit has a row; the
+        /// field only for a fit nothing baked.
         /// </summary>
         public static float HubMax(CarModelDef def, CarModelLibrary.ShellFit f, int i, float steerDeg = 0f)
+        {
+            if (def == null) return float.PositiveInfinity;
+            if (ArchHubs.TryShellHubMax(f, i, steerDeg, out float exact))
+                return float.IsPositiveInfinity(exact) ? exact : exact + f.dy;
+            return FieldHubMax(def, f, i, steerDeg);
+        }
+
+        /// <summary>HubMax off the field alone (the bake compares against it).</summary>
+        public static float FieldHubMax(CarModelDef def, CarModelLibrary.ShellFit f, int i, float steerDeg = 0f)
         {
             if (def == null) return float.PositiveInfinity;
             var s = Get(def.key);
@@ -223,6 +236,159 @@ namespace PSXRacing
                 }
             }
             return float.IsPositiveInfinity(least) ? least : hub.y + least;
+        }
+    }
+
+    /// <summary>
+    /// THE EXACT ARCHES, per car (2026-10-20). The field above is blunt where
+    /// it matters most, at the lips. Each lane keeps the lowest bodywork
+    /// across a centimetre, the tyre is a sharp-edged cylinder, and heights
+    /// round down. So it read the straight arch 0.3-11 cm (median ~0.8 cm)
+    /// lower than the mesh does. It seated 30 cars' shells 2.5 cm high at rest
+    /// over tyres the mesh says are clear, and it would hold a steered wheel
+    /// that never touches.
+    ///
+    /// Editor/ArchProbe.BakeExact answers the question once, per shell and
+    /// sheet geometry (<see cref="CarModelLibrary.ShellFit.tableKey"/>):
+    /// - the tyre is the wheel mesh's own swept profile, from its vertices
+    ///   and face samples, whatever its spin;
+    /// - the bodywork is the body's own triangles;
+    /// - front wheels are baked at every whole degree of steer either side.
+    ///
+    /// A row carries the fit it was baked against. A fit that no longer
+    /// matches (the fit code moved, a shell was re-baked and not re-probed)
+    /// falls back to the field rather than trust a stale row.
+    /// </summary>
+    public static class ArchHubs
+    {
+        public const string ResourceName = "ArchHubs";
+        const uint Magic = 0x53425548; // "HUBS"
+        public const int Version = 1;
+        /// <summary>Steer either side, whole degrees: past the 45 deg drift
+        /// lock plus toe.</summary>
+        public const int SteerDeg = 46;
+        public const int SteerSteps = 2 * SteerDeg + 1;
+        /// <summary>Millimetres; this one means no bodywork over the tyre at all.</summary>
+        public const ushort Open = ushort.MaxValue;
+        /// <summary>How far a live fit may sit from the row's (m, or scale).</summary>
+        const float FitTolerance = 1e-3f;
+
+        public sealed class Row
+        {
+            public string key;
+            /// <summary>sx, sz, radiusF, radiusR, camberF, camberR, trackF,
+            /// trackR, wheelbase, wheel scale x front, rear.</summary>
+            public float[] fit = new float[FitFields];
+            /// <summary>Per wheel, the highest hub in the SHELL frame (car
+            /// frame less the fit's lift), mm: fronts at every steer
+            /// -SteerDeg..SteerDeg, rears one (straight).</summary>
+            public ushort[][] hubMm = new ushort[4][];
+        }
+        public const int FitFields = 11;
+
+        public static float[] FitPrint(CarModelLibrary.ShellFit f) => new[]
+        {
+            f.sx, f.sz, f.radiusF, f.radiusR, f.camberF, f.camberR, f.trackF, f.trackR, f.wheelbase,
+            f.wheelScaleF.x, f.wheelScaleR.x,
+        };
+
+        static Dictionary<string, Row> table;
+
+        public static void ClearCache() => table = null;
+
+        public static Row Get(string key)
+        {
+            if (string.IsNullOrEmpty(key)) return null;
+            if (table == null) Load();
+            return table.TryGetValue(key, out var r) ? r : null;
+        }
+
+        static void Load()
+        {
+            table = new Dictionary<string, Row>();
+            var ta = Resources.Load<TextAsset>(ResourceName);
+            if (ta == null) return;
+            try { Read(ta.bytes, table); }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning("[ArchHubs] unreadable table: " + e.Message);
+                table.Clear();
+            }
+        }
+
+        /// <summary>
+        /// Wheel <paramref name="i"/>'s highest hub in the shell frame, from
+        /// the baked row for this fit. False when there is no row, or the
+        /// row's fit is not this one. A steer between whole degrees takes
+        /// the lower of its two neighbours.
+        /// </summary>
+        public static bool TryShellHubMax(CarModelLibrary.ShellFit f, int i, float steerDeg, out float hub)
+        {
+            hub = float.PositiveInfinity;
+            var row = Get(f.tableKey);
+            if (row == null) return false;
+            var now = FitPrint(f);
+            for (int k = 0; k < FitFields; k++)
+                if (Mathf.Abs(now[k] - row.fit[k]) > FitTolerance) return false;
+            var mm = row.hubMm[i];
+            if (mm == null || mm.Length == 0) return false;
+            if (mm.Length == 1) { hub = Decode(mm[0]); return true; }
+            float a = Mathf.Clamp(steerDeg, -SteerDeg, SteerDeg) + SteerDeg;
+            int k0 = Mathf.FloorToInt(a), k1 = Mathf.Min(k0 + 1, SteerSteps - 1);
+            float h0 = Decode(mm[k0]);
+            hub = a - k0 < 1e-4f ? h0 : Mathf.Min(h0, Decode(mm[k1]));
+            return true;
+        }
+
+        public static float Decode(ushort mm) => mm == Open ? float.PositiveInfinity : mm * 0.001f;
+
+        /// <summary>DOWN to the millimetre: a hub may read lower than it can go, never higher.</summary>
+        public static ushort Encode(float hub) =>
+            float.IsPositiveInfinity(hub) ? Open : (ushort)Mathf.Clamp(Mathf.FloorToInt(hub * 1000f), 0, Open - 1);
+
+        public static void Read(byte[] bytes, Dictionary<string, Row> into)
+        {
+            using (var r = new BinaryReader(new MemoryStream(bytes)))
+            {
+                if (r.ReadUInt32() != Magic) throw new IOException("not a hub table");
+                int version = r.ReadInt32();
+                if (version != Version) throw new IOException("version " + version);
+                int steer = r.ReadInt32(), fields = r.ReadInt32(), count = r.ReadInt32();
+                if (steer != SteerDeg || fields != FitFields) throw new IOException("layout " + steer + "/" + fields);
+                for (int n = 0; n < count; n++)
+                {
+                    var row = new Row { key = r.ReadString() };
+                    for (int k = 0; k < FitFields; k++) row.fit[k] = r.ReadSingle();
+                    for (int w = 0; w < 4; w++)
+                    {
+                        int len = r.ReadInt32();
+                        row.hubMm[w] = new ushort[len];
+                        for (int k = 0; k < len; k++) row.hubMm[w][k] = r.ReadUInt16();
+                    }
+                    into[row.key] = row;
+                }
+            }
+        }
+
+        public static byte[] Write(IList<Row> rows)
+        {
+            using (var ms = new MemoryStream())
+            using (var w = new BinaryWriter(ms))
+            {
+                w.Write(Magic); w.Write(Version); w.Write(SteerDeg); w.Write(FitFields); w.Write(rows.Count);
+                foreach (var row in rows)
+                {
+                    w.Write(row.key);
+                    for (int k = 0; k < FitFields; k++) w.Write(row.fit[k]);
+                    for (int i = 0; i < 4; i++)
+                    {
+                        w.Write(row.hubMm[i].Length);
+                        foreach (var v in row.hubMm[i]) w.Write(v);
+                    }
+                }
+                w.Flush();
+                return ms.ToArray();
+            }
         }
     }
 }

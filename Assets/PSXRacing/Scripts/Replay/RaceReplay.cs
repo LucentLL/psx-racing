@@ -77,6 +77,12 @@ namespace PSXRacing
             public Quaternion rot;
             /// <summary>The body shell's lean, as CarBodyLean left it.</summary>
             public Quaternion lean;
+            /// <summary>Where the shell stood and each drawn hub's height, as
+            /// CarBodyLean seated them on the tyres (2026-10-20: a replay that
+            /// kept only the lean drew every bump-stop clip the race did not).
+            /// Valid with <see cref="FlagSeat"/>.</summary>
+            public Vector3 bodyPos;
+            public float hub0, hub1, hub2, hub3;
             public float steerDeg;
             public float rpm, speedKmh, forwardSpeed, throttle, brake;
             /// <summary>Wheel roll, degrees, in CarController's own sign.</summary>
@@ -93,7 +99,7 @@ namespace PSXRacing
             public byte lap, place;
             public byte flags;
         }
-        public const byte FlagHandbrake = 1, FlagDrifting = 2, FlagGrounded = 4, FlagOnRoad = 8;
+        public const byte FlagHandbrake = 1, FlagDrifting = 2, FlagGrounded = 4, FlagOnRoad = 8, FlagSeat = 16;
 
         class CarTrack
         {
@@ -377,6 +383,14 @@ namespace PSXRacing
             if (c.Drifting) f.flags |= FlagDrifting;
             if (grounded) f.flags |= FlagGrounded;
             if (onRoad) f.flags |= FlagOnRoad;
+            if (tr.bodyRoot != null && c.wheelHubs != null && c.wheelHubs.Length >= 4 &&
+                c.wheelHubs[0] != null && c.wheelHubs[1] != null && c.wheelHubs[2] != null && c.wheelHubs[3] != null)
+            {
+                f.bodyPos = tr.bodyRoot.localPosition;
+                f.hub0 = c.wheelHubs[0].localPosition.y; f.hub1 = c.wheelHubs[1].localPosition.y;
+                f.hub2 = c.wheelHubs[2].localPosition.y; f.hub3 = c.wheelHubs[3].localPosition.y;
+                f.flags |= FlagSeat;
+            }
             if (rm != null)
             {
                 var p = rm.GetProgress(c);
@@ -695,6 +709,12 @@ namespace PSXRacing
                 c.anyWheelGrounded = (f.flags & FlagGrounded) != 0;
                 c.onRoad = (f.flags & FlagOnRoad) != 0;
                 if (tr.bodyRoot != null) tr.bodyRoot.localRotation = f.lean;
+                if ((f.flags & FlagSeat) != 0 && c.wheelHubs != null && c.wheelHubs.Length >= 4)
+                {
+                    if (tr.bodyRoot != null) tr.bodyRoot.localPosition = f.bodyPos;
+                    SetHubY(c.wheelHubs[0], f.hub0); SetHubY(c.wheelHubs[1], f.hub1);
+                    SetHubY(c.wheelHubs[2], f.hub2); SetHubY(c.wheelHubs[3], f.hub3);
+                }
                 if (c.wheelHubs != null)
                     for (int i = 0; i < Mathf.Min(2, c.wheelHubs.Length); i++)
                         if (c.wheelHubs[i] != null)
@@ -722,6 +742,14 @@ namespace PSXRacing
                         c.wheelContacts[i] = wc;
                     }
             }
+        }
+
+        static void SetHubY(Transform hub, float y)
+        {
+            if (hub == null) return;
+            var lp = hub.localPosition;
+            lp.y = y;
+            hub.localPosition = lp;
         }
 
         static void SetRoll(Transform mesh, float deg)
@@ -918,6 +946,9 @@ namespace PSXRacing
                 pos = Vector3.Lerp(a.pos, b.pos, u),
                 rot = Quaternion.Slerp(a.rot, b.rot, u),
                 lean = Quaternion.Slerp(a.lean, b.lean, u),
+                bodyPos = Vector3.Lerp(a.bodyPos, b.bodyPos, u),
+                hub0 = Mathf.Lerp(a.hub0, b.hub0, u), hub1 = Mathf.Lerp(a.hub1, b.hub1, u),
+                hub2 = Mathf.Lerp(a.hub2, b.hub2, u), hub3 = Mathf.Lerp(a.hub3, b.hub3, u),
                 steerDeg = Mathf.Lerp(a.steerDeg, b.steerDeg, u),
                 rpm = Mathf.Lerp(a.rpm, b.rpm, u),
                 speedKmh = Mathf.Lerp(a.speedKmh, b.speedKmh, u),

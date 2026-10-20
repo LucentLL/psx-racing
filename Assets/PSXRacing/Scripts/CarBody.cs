@@ -128,6 +128,14 @@ namespace PSXRacing
             return f;
         }
 
+        /// <summary>Half wheel <paramref name="i"/>'s drawn section width (m).</summary>
+        public float TyreHalfWidth(int i)
+        {
+            var def = Def;
+            if (def == null || def.wheelMesh == null) return 0.1f;
+            return Applied.WheelScale(i).x * def.wheelMesh.bounds.size.x * 0.5f;
+        }
+
         /// <summary>The body root's resting local position (CarBodyLean seats
         /// the shell on its tyres from here).</summary>
         public Vector3 SeatPosition { get { var f = Applied; return new Vector3(0f, f.bodyY, f.bodyZ); } }

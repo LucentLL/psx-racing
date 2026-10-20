@@ -294,6 +294,10 @@ namespace PSXRacing
             /// after the capped camber: a model edit, not a fit.</summary>
             public bool Pokes => pokeF > PokeTolerance + 5e-4f || pokeR > PokeTolerance + 5e-4f;
 
+            /// <summary>Which baked arch row this fit is (ArchHubs): the shell
+            /// and the sheet's whole-millimetre geometry. Null on a default fit.</summary>
+            public string tableKey;
+
             public float Track(int i) => i < 2 ? trackF : trackR;
             public float Radius(int i) => i < 2 ? radiusF : radiusR;
             public float Camber(int i) => i < 2 ? camberF : camberR;
@@ -449,8 +453,16 @@ namespace PSXRacing
                 f.pokeR = (f.trackR + drawnWR) * 0.5f - limitR;
             }
             ReportFence(def, f, wantX, wantZ);
+            f.tableKey = TableKey(def.key, g);
             return f;
         }
+
+        /// <summary>The ArchHubs row key for a shell on a sheet: integers
+        /// only, so the editor that bakes it and the player that reads it
+        /// cannot round it apart.</summary>
+        public static string TableKey(string shell, SpecGeometry g) =>
+            shell + "|" + g.widthMm + "|" + g.wheelbaseMm + "|" + g.trackFMm + "|" + g.trackRMm + "|" +
+            g.tyreFDiaMm + "|" + g.tyreRDiaMm + "|" + g.tyreFWidthMm + "|" + g.tyreRWidthMm;
 
         static Vector3 TyreScale(float radius, int widthMm, float meshR, float meshW, float legacy, bool spec)
         {

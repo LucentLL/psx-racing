@@ -45,6 +45,7 @@ namespace PSXRacing.EditorTools
             new Case { label = "tuner, suspension stage 4", key = "nissan_180sx", stage = 4 },
             new Case { label = "muscle car", key = "charger_70", stage = 0 },
             new Case { label = "hatch", key = "civic_eg", stage = 0 },
+            new Case { label = "old pack hatch", key = "euro_hatch", stage = 0 },
         };
 
         static readonly MethodInfo BuildOne = typeof(PSXRacingBuilder).GetMethod("BuildOneCar",
@@ -63,6 +64,7 @@ namespace PSXRacing.EditorTools
         public static void BakeAndRun()
         {
             ArchProbe.Bake();
+            ArchProbe.BakeExact();
             ArchProbe.Report();
             Run();
         }
@@ -295,7 +297,7 @@ namespace PSXRacing.EditorTools
             }
             log.AppendLine($"  {what,-8} stops {(on ? "ON " : "OFF")}: deepest compression {deepest * 100f:0.0} cm on wheel {worstWheel} " +
                            $"(arch at {archAt * 100f:0.0} cm, hard stop at {(float.IsInfinity(stopAt) ? 0f : stopAt * 100f):0.0} cm); drawn tyre through the body: worst {worstClipAny * 1000f:0} mm, " +
-                           $"{overAny} vertices > 1 mm (at the deepest frame {worstClip * 1000f:0} mm); " +
+                           $"{overAny} points > 1 mm (at the deepest frame {worstClip * 1000f:0} mm); " +
                            $"strikes {responder.BottomHits}, hardest {responder.WorstBottom:0.0} m/s, tyre cost {responder.BottomScore:0.00}; " +
                            $"speed {speedBefore * 3.6f:0.0} -> {(speedAfter < 0f ? 0f : speedAfter) * 3.6f:0.0} km/h 0.4 s after touching down -> {name}.png");
             UnityEngine.Object.DestroyImmediate(car.transform.parent.gameObject);
@@ -305,12 +307,13 @@ namespace PSXRacing.EditorTools
         {
             public Vector3 pos; public float yaw;
             public int rubberTicks, stopTicks;
-            public float leastRoom, travelF, travelR, restClip, driveClip;
+            public float leastRoom, travelF, travelR, restClip, driveClip, straightClip, restSeat, unseatedClip;
+            public int unseatedOver;
             public int restOver, driveOver;
             public string worstAt;
             public string Text =>
                 $"rubber engaged {rubberTicks} ticks, on the stop {stopTicks}; travel used F {travelF * 100f:0.0} / R {travelR * 100f:0.0} cm " +
-                $"over the settled ride, least room left to the rubber {leastRoom * 100f:0.0} cm; at rest the tyres reach {restClip * 1000f:0} mm into the body ({restOver} vertices > 1 mm); driving, at worst {driveClip * 1000f:0} mm ({driveOver} vertices > 1 mm) [{worstAt}]";
+                $"over the settled ride, least room left to the rubber {leastRoom * 100f:0.0} cm; at rest the tyres reach {restClip * 1000f:0} mm into the body ({restOver} points > 1 mm); driving, at worst {driveClip * 1000f:0} mm ({driveOver} points > 1 mm) [{worstAt}], with the front wheels straight {straightClip * 1000f:0} mm; shell seated {restSeat * 100f:+0.0;-0.0} cm over its rest at rest (without that ride-up the tyres would reach {unseatedClip * 1000f:0} mm, {unseatedOver} points)";
         }
 
         /// <summary>A hard drive on flat ground: settle 1 s (and look for a tyre
@@ -340,6 +343,27 @@ namespace PSXRacing.EditorTools
                         {
                             for (int i = 0; i < 4; i++) settled[i] = comp[i];
                             res.restClip = ArchProbe.DrawnClip(body, out res.restOver, out _);
+                            res.restSeat = body.bodyRoot.localPosition.y - body.SeatPosition.y;
+                            if (CarController.BumpStopsEnabled)
+                            {
+                                // The same instant with the ride-up taken away: is the seat's lift real?
+                                var br = body.bodyRoot;
+                                Vector3 keepP = br.localPosition; Quaternion keepR = br.localRotation;
+                                var keepH = new float[4];
+                                for (int i = 0; i < 4; i++) keepH[i] = car.wheelHubs[i].localPosition.y;
+                                br.localPosition = body.SeatPosition;
+                                br.localRotation = Quaternion.Euler(0f, body.Def.bodyYaw, 0f);
+                                for (int i = 0; i < 4; i++)
+                                {
+                                    var lp = car.wheelHubs[i].localPosition; lp.y = car.PhysicsHubY(i); car.wheelHubs[i].localPosition = lp;
+                                }
+                                res.unseatedClip = ArchProbe.DrawnClip(body, out res.unseatedOver, out _);
+                                br.localPosition = keepP; br.localRotation = keepR;
+                                for (int i = 0; i < 4; i++)
+                                {
+                                    var lp = car.wheelHubs[i].localPosition; lp.y = keepH[i]; car.wheelHubs[i].localPosition = lp;
+                                }
+                            }
                             if (restShot != null)
                             {
                                 var tex = Shoot(car, 1);
@@ -383,6 +407,8 @@ namespace PSXRacing.EditorTools
                     if (k % 3 == 0)
                     {
                         float clip = ArchProbe.DrawnClip(body, out int over, out int cw);
+                        if (Mathf.Abs(Mathf.DeltaAngle(0f, car.wheelHubs[0].localEulerAngles.y)) < 1f)
+                            res.straightClip = Mathf.Max(res.straightClip, clip);
                         if (clip > res.driveClip)
                         {
                             res.driveClip = clip; res.driveOver = over;
