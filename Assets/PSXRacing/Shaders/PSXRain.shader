@@ -59,6 +59,11 @@ Shader "PSX/Rain"
     {
         _MainTex ("Texture (alpha = streak)", 2D) = "white" {}
         _Tint ("Tint", Color) = (1,1,1,1)
+        // The drop at the lens (see THE DROP AT THE LENS): fade in from
+        // _NearM metres over _NearRamp. The defaults are the tyre spray's;
+        // the falling rain sets its own, longer (WeatherFx).
+        _NearM ("Near fade start (m)", Float) = 1.2
+        _NearRamp ("Near fade span (m)", Float) = 2.0
     }
     SubShader
     {
@@ -83,6 +88,8 @@ Shader "PSX/Rain"
             // exposure like every lit surface's (it adds, so no curve), and
             // it adds nothing to the emitter mask (the alpha out is zero).
             #include "PSXTone.cginc"
+            // A car's own spray is not drawn inside it (TireSpray; off for the rain).
+            #include "PSXOwnCarClip.cginc"
 
             // THE LOOK OF THE RAIN. Linear-light multipliers on each source.
             //
@@ -125,13 +132,16 @@ Shader "PSX/Rain"
             // by the car and can drift through a chase camera 5.4 m back -
             // the same fade stops one filling the screen as it passes the
             // lens, and leaves the cloud at the rear wheels (about 4 m from
-            // that camera) whole.
-            #define RAIN_NEAR_M      1.2
-            #define RAIN_NEAR_RAMP_M 2.0
+            // that camera) whole. Material values since 2026-10-19 (_NearM,
+            // _NearRamp; these numbers are their defaults, the spray's): the
+            // FALLING rain fades over 2..6 m (WeatherFx) - the owner's
+            // "raindrops that fall are too big and white" were the drops a
+            // metre or three from the lens, a dozen pixels wide at 1080 lines.
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
             float4 _Tint;
+            float _NearM, _NearRamp;
 
             // Scene globals pushed every frame by PSXGlobals. Declared float4,
             // not fixed4: the sun's linear colour x intensity passes 1.0 at
@@ -166,6 +176,7 @@ Shader "PSX/Rain"
                 // fragment only applies the texture. A TEXCOORD, not COLOR0:
                 // next to a lamp this passes 1.0, and COLOR0 is lowp on GLES.
                 float3 col : TEXCOORD1;
+                float3 wpos : TEXCOORD2;
             };
 
             v2f vert (appdata v)
@@ -188,6 +199,7 @@ Shader "PSX/Rain"
                 }
                 o.pos = clipPos;
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
+                o.wpos = wpos;
 
                 float3 scene = _PSXAmbient.rgb
                              + _PSXSkyAmbient.rgb * RAIN_SKY
@@ -201,8 +213,8 @@ Shader "PSX/Rain"
                 float dist = length(mul(UNITY_MATRIX_V, float4(wpos, 1.0)).xyz);
                 float fogT = saturate((dist - _PSXFogNear) / max(_PSXFogFar - _PSXFogNear, 1.0));
                 float fade = 1.0 - pow(fogT, max(_PSXFogCurve, 1.0));
-                // ...and out of the way right at the lens (RAIN_NEAR_M).
-                fade *= saturate((dist - RAIN_NEAR_M) / RAIN_NEAR_RAMP_M);
+                // ...and out of the way right at the lens (_NearM, _NearRamp).
+                fade *= saturate((dist - _NearM) / max(_NearRamp, 0.01));
 
                 o.col = light * v.color.rgb * _Tint.rgb * (v.color.a * _Tint.a * fade);
                 return o;
@@ -212,6 +224,7 @@ Shader "PSX/Rain"
             {
                 // Premultiplied: the texture's alpha is the streak's shape and
                 // is applied here, once. Alpha out is zero (see the header).
+                PSXOwnCarClip(i.wpos);
                 float a = tex2D(_MainTex, i.uv).a;
                 return fixed4(i.col * a, 0.0);
             }

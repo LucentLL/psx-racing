@@ -66,6 +66,8 @@ Shader "PSX/Decal"
             // The lamp and beam tables, read per vertex for a lit particle.
             #include "PSXHeadlights.cginc"
             #include "PSXLamps.cginc"
+            // A car's own smoke is not drawn inside it (TireSmoke; off for marks and snow).
+            #include "PSXOwnCarClip.cginc"
 
             // THE LIT PARTICLE'S LIGHT: PSX/Rain's scene term (RAIN_SKY,
             // RAIN_SUN) with the lamps and beams at 1 - a puff is matt, not
@@ -108,6 +110,7 @@ Shader "PSX/Decal"
                 // The lit particle's light (1 unlit). A TEXCOORD, not in
                 // COLOR0: inside a beam or under a lamp it passes 1.0.
                 float3 light : TEXCOORD2;
+                float3 wpos : TEXCOORD3;
             };
 
             v2f vert (appdata v)
@@ -128,6 +131,7 @@ Shader "PSX/Decal"
                 o.pos = clipPos;
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
                 o.color = v.color * _Tint;
+                o.wpos = mul(unity_ObjectToWorld, float4(v.vertex.xyz, 1.0)).xyz;
 
                 float dist = length(mul(UNITY_MATRIX_MV, v.vertex).xyz);
                 float fogT = saturate((dist - _PSXFogNear) / max(_PSXFogFar - _PSXFogNear, 1.0));
@@ -148,6 +152,7 @@ Shader "PSX/Decal"
 
             fixed4 frag (v2f i) : SV_Target
             {
+                PSXOwnCarClip(i.wpos);
                 fixed4 tex = PSXMainTex(_MainTex, i.uv);
                 float4 c = tex * i.color;
                 c.rgb *= i.light;

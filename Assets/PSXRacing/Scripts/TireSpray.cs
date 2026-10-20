@@ -132,9 +132,15 @@ namespace PSXRacing
             if (dropHolder != null) Destroy(dropHolder);
         }
 
+        BoxCollider body;
+
         void LateUpdate()
         {
             if (car == null) return;
+            // No spray is drawn inside its own car (OwnCarClip).
+            if (body == null) body = car.GetComponent<BoxCollider>();
+            if (holder != null) OwnCarClip.Write(holder.GetComponent<ParticleSystemRenderer>(), car.transform, body);
+            if (dropHolder != null) OwnCarClip.Write(dropHolder.GetComponent<ParticleSystemRenderer>(), car.transform, body);
             float dt = Time.deltaTime;
             if (dt <= 0f) return;
 

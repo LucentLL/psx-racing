@@ -150,6 +150,17 @@ namespace PSXRacing
 
         void LateUpdate() => Tick(Time.deltaTime);
 
+        BoxCollider body;
+        MeshRenderer smokeRenderer;
+        /// <summary>The car's body box onto the cloud's renderer: no puff is
+        /// drawn inside its own car (OwnCarClip).</summary>
+        void ClipToCar()
+        {
+            if (smokeRenderer == null && holder != null) smokeRenderer = holder.GetComponent<MeshRenderer>();
+            if (body == null && car != null) body = car.GetComponent<BoxCollider>();
+            if (smokeRenderer != null && car != null) OwnCarClip.Write(smokeRenderer, car.transform, body);
+        }
+
         /// <summary>
         /// Advance the cloud by one step. Split out from LateUpdate so the
         /// preview tool can drive it on a clock of its own: Time.deltaTime is
@@ -158,6 +169,7 @@ namespace PSXRacing
         /// </summary>
         public void Tick(float dt)
         {
+            ClipToCar();
             if (car == null || material == null) return;
             if (dt <= 0f) return;
 

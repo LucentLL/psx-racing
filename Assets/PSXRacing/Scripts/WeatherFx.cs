@@ -337,15 +337,24 @@ namespace PSXRacing
             // a throttle. Paler colour because the shader now LIGHTS it: the
             // rgb is only the water's faint blue, the brightness comes from
             // the lamps, the beams and the sky.
-            main.maxParticles = snow ? 900 : 2200;
+            // FINER AND FAINTER (owner, 2026-10-19: "It looks amazing on the
+            // windshield, but the raindrops that fall are too big and white.
+            // They should look more like the rain on the glass"; his NFS 2015
+            // wet frames). A 2.8 cm streak a couple of metres from the lens
+            // was a dozen pixels wide at 1080 lines and white by day. Now
+            // 1.8 cm with a soft core (Streak), at 85% of the light (_Tint),
+            // faded out nearer than 2..6 m (_NearM), and denser so the rain
+            // still reads as a fine hatching: about 3100 alive. (A first cut
+            // at 1.1 cm / 60% was all but invisible: sub-pixel and faint.)
+            main.maxParticles = snow ? 900 : 4200;
             main.startLifetime = snow ? 7f : 1.3f;
             main.startSpeed = snow ? 1.6f : RainSpeed;
-            main.startSize = snow ? 0.10f : 0.028f;
-            main.startColor = snow ? new Color(1f, 1f, 1f, 0.95f) : new Color(0.80f, 0.85f, 0.95f, 0.55f);
+            main.startSize = snow ? 0.10f : 0.018f;
+            main.startColor = snow ? new Color(1f, 1f, 1f, 0.95f) : new Color(0.80f, 0.86f, 0.95f, 0.50f);
             main.gravityModifier = 0f;
 
             var emission = ps.emission;
-            emission.rateOverTime = snow ? 220f : 1100f;
+            emission.rateOverTime = snow ? 220f : 2400f;
 
             var shape = ps.shape;
             shape.shapeType = ParticleSystemShapeType.Box;
@@ -380,7 +389,7 @@ namespace PSXRacing
                 // travel, so the rain rakes toward the lens the way it does
                 // in the NFS frames instead of falling past a car that
                 // appears to be parked.
-                r.velocityScale = 0.045f;
+                r.velocityScale = 0.05f;
                 r.cameraVelocityScale = 0.02f;
                 r.lengthScale = 0f;
             }
@@ -397,7 +406,8 @@ namespace PSXRacing
             if (shader == null) shader = Shader.Find("PSX/Decal");
             mat = new Material(shader != null ? shader : Shader.Find("Sprites/Default")) { name = "WeatherFx (runtime)" };
             mat.mainTexture = tex;
-            if (mat.HasProperty("_Tint")) mat.SetColor("_Tint", Color.white);
+            if (mat.HasProperty("_Tint")) mat.SetColor("_Tint", snow ? Color.white : new Color(0.85f, 0.85f, 0.85f, 1f));
+            if (!snow && mat.HasProperty("_NearM")) { mat.SetFloat("_NearM", 2.0f); mat.SetFloat("_NearRamp", 4f); }
             // SNOW IS LIT TOO (the colour pass, C7, 2026-09-29): on PSX/Decal's
             // _Lit a flake takes the light it falls through - white by day, a
             // dot of halogen in a beam, next to nothing in the dark - where it
@@ -433,17 +443,19 @@ namespace PSXRacing
             return t;
         }
 
+        /// <summary>A rain streak: a soft core across (filtered, so a 1 cm
+        /// streak is a faint line, not a pixel-wide bar) and tapered ends.</summary>
         static Texture2D Streak()
         {
-            const int w = 4, h = 16;
-            var t = new Texture2D(w, h, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp };
+            const int w = 8, h = 32;
+            var t = new Texture2D(w, h, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
             var px = new Color32[w * h];
             for (int y = 0; y < h; y++)
                 for (int x = 0; x < w; x++)
                 {
                     float ax = 1f - Mathf.Abs(x + 0.5f - w * 0.5f) / (w * 0.5f);
                     float ay = Mathf.Sin((y + 0.5f) / h * Mathf.PI);
-                    byte a = (byte)(255f * Mathf.Clamp01(ax * ay * 1.3f));
+                    byte a = (byte)(255f * Mathf.Clamp01(ax * ax * ay * 1.3f));
                     px[y * w + x] = new Color32(255, 255, 255, a);
                 }
             t.SetPixels32(px); t.Apply();
