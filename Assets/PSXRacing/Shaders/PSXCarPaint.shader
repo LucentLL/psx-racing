@@ -165,6 +165,11 @@ Shader "PSX/CarPaint"
         [NoScaleOffset] _LightMask ("Lamp control map (linear: R running, G brake, B projector core, A lens scatter)", 2D) = "black" {}
         [HideInInspector] _RunningLights ("Running lights 0/1", Float) = 0
         [HideInInspector] _Brake ("Brake 0..1", Float) = 0
+        // The car's own tail lenses on its own body (CarLights.OwnSpillBack):
+        // xyz a lens's light (world), w its reach; rgb the light, w on.
+        [HideInInspector] _PSXOwnLampA ("Own tail lamp A", Vector) = (0, 0, 0, 1)
+        [HideInInspector] _PSXOwnLampB ("Own tail lamp B", Vector) = (0, 0, 0, 1)
+        [HideInInspector] _PSXOwnLampCol ("Own tail lamp light", Vector) = (0, 0, 0, 0)
         // 0/1: the headlamps' B/A channels (CarLights: lights on AND an RGBA
         // map - a legacy R/G map never has B/A read).
         [HideInInspector] _HeadLights ("Headlamps 0/1", Float) = 0
@@ -207,6 +212,16 @@ Shader "PSX/CarPaint"
             sampler2D _LightMask;
             float _RunningLights;
             float _Brake;
+            float4 _PSXOwnLampA, _PSXOwnLampB, _PSXOwnLampCol;
+            // One tail lens's pool on its own body: windowed falloff to its
+            // reach, on the faces turned toward it.
+            float OwnLamp(float4 P, float3 wpos, float3 N)
+            {
+                float3 L = P.xyz - wpos;
+                float d = max(length(L), 0.02);
+                float a = 1.0 - saturate(d / max(P.w, 0.1));
+                return a * a * saturate(dot(N, L / d));
+            }
             float _HeadLights;
             float _LensLayer;
 
@@ -500,6 +515,11 @@ Shader "PSX/CarPaint"
                 // The street lamps light the paint like the sun: before the
                 // knee, so a bonnet under a sodium lamp rolls off the same way.
                 rawLight += lampD * LAMP_PAINT;
+                // THE CAR'S OWN TAIL LAMPS on its bumper, tail panel and boot
+                // edge (owner, 2026-10-19; CarLights.OwnSpillBack): the table's
+                // tail lamp never lights its own car, so each lens does here.
+                if (_PSXOwnLampCol.w > 0.5)
+                    rawLight += (OwnLamp(_PSXOwnLampA, i.wpos, N) + OwnLamp(_PSXOwnLampB, i.wpos, N)) * _PSXOwnLampCol.rgb;
                 // THE COLOUR PASS: every light the paint receives through the
                 // hour's exposure, BEFORE the knee - the knee is this paint's
                 // own response to light, and it is fed the light the rest of

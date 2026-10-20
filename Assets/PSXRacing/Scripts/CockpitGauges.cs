@@ -23,6 +23,14 @@ namespace PSXRacing
     /// reach. Repainted only when that scale or the speed unit changes. The
     /// needles and the gear are drawn by PSX/CabinGauge from four uniforms
     /// per dial, so nothing is written to a texture per frame.
+    ///
+    /// THE BULB (owner, 2026-10-19: "Cockpit gauge color should match the
+    /// color of the gauges outside of the cockpit view"). The faces wear the
+    /// 2D cluster's own palette (<see cref="ClusterBulbs"/>): printed white on
+    /// black by day, and once the lights are on the player's bulb - green,
+    /// amber or orange - on a face tinted by it; the redline and the needles
+    /// stay red in every bulb, as there. Repainted when the bulb or the
+    /// lights change (<see cref="ClusterBulbs.Revision"/>).
     /// </summary>
     public class CockpitGauges
     {
@@ -35,11 +43,12 @@ namespace PSXRacing
         /// <summary>The LCD gear window on the tach face: centre and half size, UV.</summary>
         public static readonly Vector4 Lcd = new Vector4(0.5f, 0.27f, 0.075f, 0.058f);
 
-        static readonly Color32 Ink = new Color32(236, 236, 230, 255);
-        static readonly Color32 Red = new Color32(255, 52, 24, 255);
         static readonly Color32 Orange = new Color32(255, 132, 28, 255);
-        static readonly Color32 Black = new Color32(9, 9, 11, 255);
         static readonly Color32 LcdPane = new Color32(118, 136, 112, 255);
+        // The face's palette, from the 2D cluster's bulb (set by Refresh):
+        // numerals and major ticks, minor ticks and the other unit's ring,
+        // the face, the redline.
+        Color32 Ink, Minor, Black, Red, Inner;
 
         public class Dial
         {
@@ -53,6 +62,7 @@ namespace PSXRacing
         float tachMax, redFrom, speedMax;
         bool mph;
         int unitsRev = -1;
+        int bulbRev = -1;
         float flutter;
         float lastGlow = -1f;
         int lastGear = int.MinValue;
@@ -115,8 +125,17 @@ namespace PSXRacing
             float topKmh = car != null ? Mathf.Max(car.BuildTopSpeedMps, car.ReachableTopSpeedMps) * 3.6f : 240f;
             bool m = SpeedUnits.Mph;
             float t = TachMaxFor(limit), s = SpeedMaxFor(topKmh, m), rf = Mathf.Clamp01(red / t);
-            if (t == tachMax && s == speedMax && rf == redFrom && m == mph && unitsRev == SpeedUnits.Changed && FacesExist()) return;
-            tachMax = t; speedMax = s; redFrom = rf; mph = m; unitsRev = SpeedUnits.Changed;
+            int b = ClusterBulbs.Revision;
+            if (t == tachMax && s == speedMax && rf == redFrom && m == mph && unitsRev == SpeedUnits.Changed && b == bulbRev && FacesExist()) return;
+            tachMax = t; speedMax = s; redFrom = rf; mph = m; unitsRev = SpeedUnits.Changed; bulbRev = b;
+            bool lit = ClusterBulbs.Backlit;
+            Ink = ClusterBulbs.Lit;
+            Minor = lit ? ClusterBulbs.Dim : ClusterBulbs.Lit;
+            Black = ClusterBulbs.Face;
+            Red = ClusterBulbs.Red;
+            // the other unit's small ring: printed orange by day, the bulb's
+            // dimmer step at night (one bulb lights the whole face)
+            Inner = lit ? ClusterBulbs.Dim : Orange;
             foreach (var d in dials.Values)
             {
                 bool big = d.key == "tach" || d.key == "speed";
@@ -134,6 +153,7 @@ namespace PSXRacing
                 d.face.SetPixels32(px);
                 d.face.Apply(true, false);
                 d.mat.SetTexture("_FaceTex", d.face);
+                d.mat.SetColor("_NeedleColor", ClusterBulbs.Needle);
             }
         }
 
@@ -154,7 +174,7 @@ namespace PSXRacing
             {
                 float v = i / (float)(k * sub), a = Lerp(BigFrom, BigTo, v);
                 bool major = i % sub == 0, half = !major && (i * 2) % sub == 0;
-                c.Tick(a, major ? 0.385f : half ? 0.415f : 0.435f, 0.465f, major ? 0.013f : half ? 0.008f : 0.005f, Ink);
+                c.Tick(a, major ? 0.385f : half ? 0.415f : 0.435f, 0.465f, major ? 0.013f : half ? 0.008f : 0.005f, major ? Ink : Minor);
                 if (major)
                     c.Text((i / sub).ToString(), a, 0.31f, 0.085f, 0.016f, v >= redFrom - 1e-3f ? Red : Ink);
             }
@@ -173,7 +193,7 @@ namespace PSXRacing
             {
                 float v = i / (float)(steps * 2), a = Lerp(BigFrom, BigTo, v);
                 bool major = i % 2 == 0;
-                c.Tick(a, major ? 0.39f : 0.425f, 0.465f, major ? 0.012f : 0.007f, Ink);
+                c.Tick(a, major ? 0.39f : 0.425f, 0.465f, major ? 0.012f : 0.007f, major ? Ink : Minor);
                 if (major)
                 {
                     int val = Mathf.RoundToInt(i / 2 * step);
@@ -187,13 +207,13 @@ namespace PSXRacing
             for (float val = inStep; val <= inMax + 0.01f; val += inStep)
             {
                 float a = Lerp(BigFrom, BigTo, val / inMax);
-                c.Tick(a, 0.228f, 0.252f, 0.006f, Orange);
+                c.Tick(a, 0.228f, 0.252f, 0.006f, Inner);
                 // Small and sparse: the reference's inner scale is a hint, not a second dial.
                 if (Mathf.RoundToInt(val / inStep) % 2 == 0 || inMax / inStep <= 6)
-                    c.Text(Mathf.RoundToInt(val).ToString(), a, 0.183f, 0.034f, 0.007f, Orange);
+                    c.Text(Mathf.RoundToInt(val).ToString(), a, 0.183f, 0.034f, 0.007f, Inner);
             }
             c.TextAt(mph ? "MPH" : "km/h", 0.5f, 0.33f, 0.05f, 0.011f, Ink);
-            c.TextAt(mph ? "km/h" : "MPH", 0.5f, 0.265f, 0.036f, 0.008f, Orange);
+            c.TextAt(mph ? "km/h" : "MPH", 0.5f, 0.265f, 0.036f, 0.008f, Inner);
         }
 
         void PaintSmall(Color32[] px, int n, string lo, string hi, float red, bool coolant)
@@ -221,6 +241,7 @@ namespace PSXRacing
 
         public void Tick(float dt, CarController car, GaugeCluster cluster, FuelTank tank, EngineTemp temp, bool backlit)
         {
+            if (bulbRev != ClusterBulbs.Revision) Refresh(car);
             float glow = backlit ? NightGlow : DayGlow;
             bool glowChanged = glow != lastGlow;
             lastGlow = glow;

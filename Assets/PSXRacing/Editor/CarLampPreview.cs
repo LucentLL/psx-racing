@@ -15,6 +15,11 @@ namespace PSXRacing.EditorTools
     /// CarBody path shares the same Fit. Logs what CarLampFinder measured.
     ///
     /// tools\lamp-preview.ps1. Not -nographics: it renders.
+    ///
+    /// PSX_LAMP_KEYS=a,b only those shells; PSX_LAMP_NIGHT=1 a real night's
+    /// ambient instead of the grey one; PSX_LAMP_SPILL=1 the rear also with
+    /// the brakes off (_b_rear_run) and with no lens lighting its own car
+    /// (_b_rear_nospill, CarLights.OwnSpillOff) - the tail lamps' own pool.
     /// </summary>
     public static class CarLampPreview
     {
@@ -33,7 +38,12 @@ namespace PSXRacing.EditorTools
             RenderSettings.fog = false;
             var globals = sun.gameObject.AddComponent<PSXGlobals>();
             globals.sun = sun;
-            globals.ambient = new Color(0.30f, 0.30f, 0.36f);
+            bool night = System.Environment.GetEnvironmentVariable("PSX_LAMP_NIGHT") == "1";
+            bool spill = System.Environment.GetEnvironmentVariable("PSX_LAMP_SPILL") == "1";
+            string keys = System.Environment.GetEnvironmentVariable("PSX_LAMP_KEYS");
+            var only = string.IsNullOrEmpty(keys) ? null : new HashSet<string>(keys.Split(','));
+            if (night) sun.intensity = 0.02f;
+            globals.ambient = night ? new Color(0.012f, 0.013f, 0.020f) : new Color(0.30f, 0.30f, 0.36f);
             globals.fogNear = 400f;
             globals.fogFar = 900f;
             globals.SendMessage("Apply", SendMessageOptions.DontRequireReceiver);
@@ -60,6 +70,7 @@ namespace PSXRacing.EditorTools
             var log = new List<string>();
             foreach (var m in CarModelLibrary.Models)
             {
+                if (only != null && !only.Contains(m.key)) continue;
                 var def = CarModelLibrary.Load(m.key);
                 if (def == null) continue;
                 CarLampFinder.DiagMarks = new List<(Vector2, int, bool)>();
@@ -84,6 +95,16 @@ namespace PSXRacing.EditorTools
                 float hy = head.y, ty = def.tailLamp.y;
                 Shot(cam, m.key + "_a_front", new Vector3(1.2f, hy + 0.9f, nose + 5.5f), new Vector3(0f, hy, nose));
                 Shot(cam, m.key + "_b_rear", new Vector3(-1.2f, ty + 0.9f, tail - 5.5f), new Vector3(0f, ty, tail));
+                if (spill)
+                {
+                    lights.PreviewBuild(lit: true, brake: false);
+                    Shot(cam, m.key + "_b_rear_run", new Vector3(-1.2f, ty + 0.9f, tail - 5.5f), new Vector3(0f, ty, tail));
+                    CarLights.OwnSpillOff = true;
+                    lights.PreviewBuild(lit: true, brake: true);
+                    Shot(cam, m.key + "_b_rear_nospill", new Vector3(-1.2f, ty + 0.9f, tail - 5.5f), new Vector3(0f, ty, tail));
+                    CarLights.OwnSpillOff = false;
+                    lights.PreviewBuild(lit: true, brake: true);
+                }
                 // Along the lamp line from the side: a lens in the air or in the
                 // panel shows as a sliver off the silhouette.
                 Shot(cam, m.key + "_c_sidefront", new Vector3(3.2f, hy + 0.1f, nose - 0.2f), new Vector3(0f, hy, nose - 0.2f));

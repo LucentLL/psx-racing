@@ -257,6 +257,27 @@ namespace PSXRacing
         /// on: enough not to flicker into it, not enough to see a gap.</summary>
         public const float LensProud = 0.012f;
 
+        /// <summary>
+        /// THE LAMPS ON THEIR OWN CAR (owner, 2026-10-19: "Running Lights and
+        /// brake lights should illuminate the rear of the car. Currently the
+        /// car stays completely black at night, despite the light"). The
+        /// table's tail lamp never lights its own car (PSXLamps POINT_NEAR_M:
+        /// one point between the lenses would light the boot from inside), so
+        /// each LENS lights the panels round it instead, from just behind it,
+        /// in PSX/CarPaint (_PSXOwnLampA/B, _PSXOwnLampCol): a short red pool
+        /// on the bumper, the tail panel and the boot's edge, brighter on the
+        /// brakes. With the running lights only, like the road's pool.
+        /// </summary>
+        public const float OwnSpillBack = 0.10f, OwnSpillRadius = 0.95f, OwnSpillDim = 0.70f, OwnSpillBrake = 2.2f;
+        static readonly int OwnLampAId = Shader.PropertyToID("_PSXOwnLampA");
+        static readonly int OwnLampBId = Shader.PropertyToID("_PSXOwnLampB");
+        static readonly int OwnLampColId = Shader.PropertyToID("_PSXOwnLampCol");
+        static MaterialPropertyBlock spillBlock;
+        /// <summary>The tools' before-picture: no lens lights its own car.</summary>
+        public static bool OwnSpillOff;
+        Renderer spillRenderer;
+        bool spillOn;
+
         MeshRenderer[] headLens = new MeshRenderer[2];
         MeshRenderer[] tailLens = new MeshRenderer[2];
         MeshRenderer[] beams = new MeshRenderer[2];
@@ -465,6 +486,42 @@ namespace PSXRacing
         /// every braking car at noon would change the daytime picture the
         /// owner signed off.
         /// </summary>
+        /// <summary>The lenses' light on this car's own body (see
+        /// <see cref="OwnSpillBack"/>): their positions and the light onto the
+        /// shell's property block every frame while lit, cleared once when not.</summary>
+        void UpdateOwnSpill()
+        {
+            var def = Def;
+            var f = def != null ? ShellFilter(def) : null;
+            var r = f != null ? f.GetComponent<Renderer>() : null;
+            if (spillRenderer != null && spillRenderer != r && spillOn) WriteSpill(spillRenderer, false);
+            spillRenderer = r;
+            if (r == null) return;
+            bool lit = !OwnSpillOff && lightsOn && enabled && gameObject.activeInHierarchy && tailLens[0] != null && tailLens[1] != null;
+            if (!lit && !spillOn) return;
+            WriteSpill(r, lit);
+        }
+
+        void WriteSpill(Renderer r, bool lit)
+        {
+            if (spillBlock == null) spillBlock = new MaterialPropertyBlock();
+            r.GetPropertyBlock(spillBlock);
+            if (lit)
+            {
+                var a = tailLens[0].transform;
+                var b = tailLens[1].transform;
+                Vector3 pa = a.position + a.forward * OwnSpillBack, pb = b.position + b.forward * OwnSpillBack;
+                spillBlock.SetVector(OwnLampAId, new Vector4(pa.x, pa.y, pa.z, OwnSpillRadius));
+                spillBlock.SetVector(OwnLampBId, new Vector4(pb.x, pb.y, pb.z, OwnSpillRadius));
+                float brake = HasLampMap ? brakeLit : (braking ? 1f : 0f);
+                Color c = TailLampColour.linear * Mathf.Lerp(OwnSpillDim, OwnSpillBrake, brake);
+                spillBlock.SetVector(OwnLampColId, new Vector4(c.r, c.g, c.b, 1f));
+            }
+            else spillBlock.SetVector(OwnLampColId, Vector4.zero);
+            r.SetPropertyBlock(spillBlock);
+            spillOn = lit;
+        }
+
         void UpdateTailLamp()
         {
             if (tailLens[0] == null || tailLens[1] == null) return;
@@ -518,6 +575,7 @@ namespace PSXRacing
             // Every frame: the car moved (StreetLights pushes at render time,
             // after every LateUpdate, so this is where it will be drawn).
             UpdateTailLamp();
+            UpdateOwnSpill();
 
             // Once per frame for the whole field, by whichever car runs first.
             if (pushedFrame != Time.frameCount)
@@ -583,6 +641,7 @@ namespace PSXRacing
             // And the tail lamp's light, which LateUpdate would otherwise
             // place - and LateUpdate never runs outside play mode.
             UpdateTailLamp();
+            UpdateOwnSpill();
         }
 
         void Refresh()
