@@ -189,13 +189,14 @@ for (const r of rules) {
 // edition is ALLOWED to leave out. That allowance is written here, by rule,
 // not read from the build's own park list - a park that took too much must
 // fail, not excuse itself:
-//   MAIN may leave out charlotte_* (root) and cityprops/*;
+//   MAIN may leave out charlotte_* (root), cityprops/* and routemaps/* (the
+//        city race cards' street maps, RouteMapBake; EditionBuild parks them);
 //   CITY may leave out pizzacargo/* and the root .json stage bakes (every root
 //        .json but rg2_* and charlotte_*);
 //   ALL  may leave out nothing.
 // And the build's park list must stay inside the allowance.
 const mayOmit = k =>
-  edition === "MAIN" ? (/^charlotte_[^/]*$/.test(k) || k.startsWith("cityprops/"))
+  edition === "MAIN" ? (/^charlotte_[^/]*$/.test(k) || k.startsWith("cityprops/") || k.startsWith("routemaps/"))
   : edition === "CITY" ? (k.startsWith("pizzacargo/") || (!k.includes("/") && k.endsWith(".json") &&
                                                           !/^(rg2_|charlotte_)/.test(k)))
   : false;
