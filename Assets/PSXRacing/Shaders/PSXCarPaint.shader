@@ -545,6 +545,11 @@ Shader "PSX/CarPaint"
                                glassF0 + (glassFMax - glassF0) * fres, glass);
                 k *= lerp(1.0, DULL_REFLECT, dull);
                 float3 R = reflect(-V, N);
+                // The panorama is read where this pixel's own mirror ray meets
+                // the world round the car, not at infinity (PSXEnvRay), and no
+                // sharper than one pixel's mirror covers (PSXEnvPixelLod).
+                float3 Renv = PSXEnvRay(i.wpos, R);
+                float envPix = PSXEnvPixelLod(Renv);
                 // The sky in the lacquer is the sky: adapted, never exposed
                 // (C3), the same as the sky above the car.
                 float3 sky = SkyIn(R, lerp(2.5, GLASS_LOD, glass)) * PSXAdaptGain();
@@ -559,7 +564,7 @@ Shader "PSX/CarPaint"
                 // pushed down; the bright sky in both gets its headroom back.
                 if (_PSXEnvOn > 0.5)
                 {
-                    float3 env = PSXEnvIn(R, lerp(ENV_PAINT_LOD, ENV_GLASS_LOD, glass));
+                    float3 env = PSXEnvIn(Renv, max(lerp(ENV_PAINT_LOD, ENV_GLASS_LOD, glass), envPix));
                     float em = max(env.r, max(env.g, env.b));
                     float upW = smoothstep(PAINT_UP_LO, PAINT_UP_HI, R.y);
                     float hdr = 1.0 + ENV_HDR * smoothstep(ENV_HDR_LO, 1.0, em) * upW;

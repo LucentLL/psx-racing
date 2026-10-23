@@ -204,10 +204,12 @@ Shader "PSX/CarLens"
                 float F = LENS_F0 + (LENS_FMAX - LENS_F0) * fres;
                 float3 R = reflect(-V, N);
                 float lod = (1.0 - saturate(_Smoothness)) * LENS_LOD_SPAN;
+                float3 Renv = PSXEnvRay(i.wpos, R);   // PSX/CarPaint's read, exactly
+                float envPix = PSXEnvPixelLod(Renv);
                 float3 sky = PSXSkyIn(R, lod) * PSXAdaptGain();
                 if (_PSXEnvOn > 0.5)
                 {
-                    float3 env = PSXEnvIn(R, ENV_GLASS_LOD + lod);
+                    float3 env = PSXEnvIn(Renv, max(ENV_GLASS_LOD + lod, envPix));
                     float em = max(env.r, max(env.g, env.b));
                     float hdr = 1.0 + ENV_HDR * smoothstep(ENV_HDR_LO, 1.0, em);
                     float lumE = dot(env, float3(0.2126, 0.7152, 0.0722));

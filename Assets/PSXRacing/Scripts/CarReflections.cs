@@ -38,8 +38,8 @@ namespace PSXRacing
     ///
     /// Six disabled 90-degree cameras' worth of views (one camera, turned)
     /// are rendered by hand from the watched car's roof into six small
-    /// textures, a face or two a frame (the whole set refreshes several times
-    /// a second), then stitched into one equirect panorama with mips
+    /// textures, a face or two a frame (a whole set from one eye every few
+    /// frames), then stitched into one equirect panorama with mips
     /// (Hidden/PSX/EnvPano) laid out like the sky panorama, so the paint reads
     /// it the way it reads the sky: <c>_PSXEnvPano</c>, <c>_PSXEnvOn</c>.
     /// The car being watched is hidden while its own views are drawn.
@@ -74,6 +74,41 @@ namespace PSXRacing
         /// not the skyline's draw distance.</summary>
         const float FarM = 220f;
 
+        /// <summary>NOT IN ANY CAR'S MIRROR (2026-10-23, the owner: car
+        /// windows flicker, "especially in fog or rain"): the falling rain
+        /// (WeatherFx), every car's tyre spray and splash (TireSpray) and
+        /// tyre smoke (TireSmoke) live on this layer (Unity's TransparentFX,
+        /// which nothing else uses), and the probe's culling mask leaves it
+        /// out. They are near-field puffs and streaks, a metre or two from the
+        /// roof the probe stands on: in a 256-pixel face a drop or a puff
+        /// three metres out is a blob a tenth of the view across, new every
+        /// refresh, and the glass - which shows the whole sphere, sharp - was
+        /// flashing with them. Every camera that draws the world still draws
+        /// them.</summary>
+        public const int NoReflectLayer = 1;
+
+        /// <summary>THE WORLD IS NOT INFINITELY FAR (2026-10-23). The owner,
+        /// driving the '69 Charger down a street: the reflections "move in
+        /// the blue arrow direction" (sideways, across the roof) "when they
+        /// should move in the red arrow direction" (down the flank, front to
+        /// back). Nothing in the chain is mirrored - ReflectionMapCheck traces
+        /// every face, the panorama and the paint against coloured boxes on
+        /// OpenGL and Direct3D, 100% right. What was wrong is the model: a
+        /// panorama read by direction alone puts everything at infinity, so a
+        /// panel shows one direction and the world can only SWEEP across it by
+        /// angle (a house passing changes its heading, and on a curved roof
+        /// that is a sideways slide); it never FLOWS past along the body the
+        /// way a real car's reflections do, because the world is a few metres
+        /// to a few dozen away. So the panorama gets a distance: before each
+        /// set the probe measures how far the nearest solid thing is in eight
+        /// headings (physics rays at the eye's height, eased between sets),
+        /// and the paint traces each pixel's own reflected ray to that
+        /// cylinder - or to the road - and reads the panorama in the
+        /// direction of the hit (PSXSkyReflect.cginc, PSXEnvRay). A door
+        /// passing a house now shows it sliding from the front of the door to
+        /// the back at road speed.</summary>
+        const float RadiusNear = 4f, RadiusFar = 40f, RadiusEase = 0.35f;
+
         static CarReflections inst;
         Camera probe;
         readonly RenderTexture[] faces = new RenderTexture[6];
@@ -83,9 +118,16 @@ namespace PSXRacing
         int faceRes;
         ChaseCamera chase;
         float nextFind;
-        Transform hiddenRoot;
-        Renderer[] hidden;
-        bool[] hiddenWas;
+        readonly System.Collections.Generic.List<Renderer> hidden = new System.Collections.Generic.List<Renderer>();
+        readonly System.Collections.Generic.List<bool> hiddenWas = new System.Collections.Generic.List<bool>();
+        // the set being drawn: its eye and the distances round it
+        Vector3 setEye;
+        readonly float[] radius = new float[8];
+        Transform radiusFor;
+        static readonly RaycastHit[] rayHits = new RaycastHit[16];
+        static readonly int EnvEyeId = Shader.PropertyToID("_PSXEnvEye");
+        static readonly int EnvRad0Id = Shader.PropertyToID("_PSXEnvRad0");
+        static readonly int EnvRad1Id = Shader.PropertyToID("_PSXEnvRad1");
         static readonly Quaternion[] FaceRot =
         {
             Quaternion.LookRotation(Vector3.right, Vector3.up),
@@ -120,6 +162,8 @@ namespace PSXRacing
             for (int i = 0; i < 6; i++) if (faces[i] != null) { faces[i].Release(); Kill(faces[i]); faces[i] = null; }
             if (pano != null) { pano.Release(); Kill(pano); pano = null; }
             drawn = 0;
+            next = 0;
+            radiusFor = null;
         }
 
         static void Kill(Object o) { if (Application.isPlaying) Destroy(o); else DestroyImmediate(o); }
@@ -223,30 +267,47 @@ namespace PSXRacing
             RenderAround(ch.targetCar.transform, view, n);
         }
 
-        /// <summary>Draw <paramref name="faces"/> of the six views round
-        /// <paramref name="car"/> (the car hidden), restitch, publish.</summary>
+        /// <summary>Draw <paramref name="n"/> of the six views round
+        /// <paramref name="car"/> (the car hidden); when they complete a set,
+        /// restitch and publish.
+        ///
+        /// A SET OF SIX FROM ONE EYE, SHOWN WHOLE (2026-10-23; the owner: car
+        /// windows "flicker reflections inaccurately while driving"). The
+        /// faces used to be drawn a face or two a frame, each from where the
+        /// car was THAT frame, and restitched every frame: the panorama was
+        /// always a patchwork of up to three moments half a metre apart, its
+        /// seams shifting every frame, and the glass reads it sharp. Now the
+        /// eye is fixed when a set starts, every face of the set is drawn
+        /// from it, and the panorama the paint reads is replaced only when the
+        /// sixth is in - one moment, no seams, a new one every third frame at
+        /// two a frame (and the stitch and its mips are paid once a set, not
+        /// every frame).</summary>
         void RenderAround(Transform car, Camera view, int n)
         {
-            probe.transform.position = car.position + car.up * EyeUp;
+            if (next == 0)
+            {
+                setEye = car.position + car.up * EyeUp;
+                Measure(car, setEye);
+            }
+            probe.transform.position = setEye;
             if (view != null)
             {
                 probe.clearFlags = view.clearFlags == CameraClearFlags.Depth || view.clearFlags == CameraClearFlags.Nothing
                     ? CameraClearFlags.Skybox : view.clearFlags;
                 probe.backgroundColor = view.backgroundColor;
-                probe.cullingMask = view.cullingMask & ~(1 << 5);   // no UI
+                probe.cullingMask = view.cullingMask & ~((1 << 5) | (1 << NoReflectLayer));   // no UI, no weather
             }
 
-            // The watched car is not in its own reflection.
-            if (hiddenRoot != car || hidden == null)
-            {
-                hiddenRoot = car;
-                hidden = car.GetComponentsInChildren<Renderer>();
-                hiddenWas = new bool[hidden.Length];
-            }
-            for (int i = 0; i < hidden.Length; i++)
-                if (hidden[i] != null) { hiddenWas[i] = hidden[i].forceRenderingOff; hidden[i].forceRenderingOff = true; }
+            // The watched car is not in its own reflection - all of it as it
+            // is NOW: the cockpit, its arms and door mirrors, the lamps and a
+            // re-dressed body all arrive after the car is first seen, and a
+            // list taken once drew them into the faces from inside the car.
+            car.GetComponentsInChildren(false, hidden);
+            hiddenWas.Clear();
+            for (int i = 0; i < hidden.Count; i++) { hiddenWas.Add(hidden[i].forceRenderingOff); hidden[i].forceRenderingOff = true; }
 
-            for (int k = 0; k < n; k++)
+            bool whole = false;
+            for (int k = 0; k < n && !whole; k++)
             {
                 int i = next; next = (next + 1) % 6;
                 probe.transform.rotation = FaceRot[i];
@@ -254,17 +315,46 @@ namespace PSXRacing
                 if (RenderPipeline.SupportsRenderRequest(probe, req)) RenderPipeline.SubmitRenderRequest(probe, req);
                 else { probe.targetTexture = faces[i]; probe.Render(); probe.targetTexture = null; }
                 drawn++;
+                whole = next == 0;
             }
 
-            for (int i = 0; i < hidden.Length; i++)
+            for (int i = 0; i < hidden.Count; i++)
                 if (hidden[i] != null) hidden[i].forceRenderingOff = hiddenWas[i];
+            if (!whole) return;
 
             Graphics.Blit(null, pano, stitch);
             Shader.SetGlobalTexture(EnvPanoId, pano);
             // Readers ask for a blur in mips of a 512-wide panorama
             // (PSXSkyReflect.cginc): +1 at 1024, -1 at 256.
             Shader.SetGlobalFloat(EnvLodBiasId, Mathf.Log(pano.width / 512f, 2f));
+            // where the set was drawn from, and how far the world is round it
+            Shader.SetGlobalVector(EnvEyeId, new Vector4(setEye.x, setEye.y, setEye.z, EyeUp));
+            Shader.SetGlobalVector(EnvRad0Id, new Vector4(radius[0], radius[1], radius[2], radius[3]));
+            Shader.SetGlobalVector(EnvRad1Id, new Vector4(radius[4], radius[5], radius[6], radius[7]));
             Shader.SetGlobalFloat(EnvOnId, 1f);
+        }
+
+        /// <summary>How far the nearest solid thing is from the eye in eight
+        /// headings, k x 45 degrees from +X toward +Z (the panorama's own
+        /// atan2(z, x)), clamped to RadiusNear..RadiusFar and eased from set to
+        /// set so a gap between two houses is a swell, not a jump. The car's
+        /// own colliders are skipped (the eye is inside them).</summary>
+        void Measure(Transform car, Vector3 eye)
+        {
+            bool fresh = radiusFor != car;
+            radiusFor = car;
+            int mask = ~((1 << 5) | (1 << NoReflectLayer));
+            for (int i = 0; i < 8; i++)
+            {
+                float a = i * (Mathf.PI / 4f);
+                var dir = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a));
+                float r = RadiusFar;
+                int hits = Physics.RaycastNonAlloc(eye, dir, rayHits, RadiusFar, mask, QueryTriggerInteraction.Ignore);
+                for (int h = 0; h < hits; h++)
+                    if (rayHits[h].distance < r && !rayHits[h].collider.transform.IsChildOf(car)) r = rayHits[h].distance;
+                r = Mathf.Max(r, RadiusNear);
+                radius[i] = fresh ? r : Mathf.Lerp(radius[i], r, RadiusEase);
+            }
         }
 
         /// <summary>Editor shots and checks (nothing runs LateUpdate outside
@@ -278,6 +368,7 @@ namespace PSXRacing
                 inst = go.AddComponent<CarReflections>();
             }
             if (car == null || !inst.Ensure()) return false;
+            inst.next = 0;   // a whole set, from here
             inst.RenderAround(car, view, 6);
             return true;
         }

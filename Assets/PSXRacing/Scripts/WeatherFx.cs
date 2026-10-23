@@ -322,6 +322,8 @@ namespace PSXRacing
             bool snow = weather == Weather.Snow;
             // Emit straight DOWN: a box shape emits along its own forward.
             transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
+            // drawn by every world camera, never into a car's reflection
+            gameObject.layer = CarReflections.NoReflectLayer;
 
             ps = gameObject.AddComponent<ParticleSystem>();
             ps.Stop();

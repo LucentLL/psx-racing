@@ -131,7 +131,7 @@ namespace PSXRacing
             mesh.colors32 = colors;
             mesh.triangles = tris;
 
-            holder = new GameObject(name + " Smoke");
+            holder = new GameObject(name + " Smoke") { layer = CarReflections.NoReflectLayer };
             holder.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
             holder.AddComponent<MeshFilter>().sharedMesh = mesh;
             var mr = holder.AddComponent<MeshRenderer>();

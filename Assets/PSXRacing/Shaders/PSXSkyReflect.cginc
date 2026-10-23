@@ -157,4 +157,68 @@ float3 PSXEnvIn(float3 R, float lod)
     float v = 0.5 + asin(clamp(R.y, -1.0, 1.0)) / UNITY_PI;
     return tex2Dlod(_PSXEnvPano, float4(u, v, 0, max(lod + _PSXEnvLodBias, 0.0))).rgb;
 }
+
+// THE WORLD IS NOT INFINITELY FAR (2026-10-23; the owner: the reflections
+// slide "in the blue arrow direction" - sideways across the roof - "when they
+// should move in the red arrow direction", down the flank). Read by R alone,
+// the panorama is at infinity: a panel shows one direction, and a house going
+// past can only sweep across the body by angle. CarReflections measures how
+// far the nearest solid thing is round the eye in eight headings
+// (_PSXEnvRad0/1, metres, k x 45 degrees of atan2(z, x)) and where the eye is
+// (_PSXEnvEye.xyz, .w its height over the road); this traces the pixel's own
+// reflected ray from where the pixel IS to that cylinder (or to the road
+// first) and returns the direction of the hit as the eye sees it - so the
+// world flows past along a door at road speed, as in a mirror - and keeps
+// flowing between refreshes, because the pixel's offset from the set's eye
+// grows as the car moves on. Pixels more than a few metres from the eye (the
+// other cars, which borrow the player's panorama) keep R. Unset
+// (_PSXEnvEye.w 0): R exactly.
+float4 _PSXEnvEye;
+float4 _PSXEnvRad0, _PSXEnvRad1;
+float PSXEnvRadius(float2 dxz)
+{
+    // heading in eighths of a turn, then a hat weight per measured heading
+    float s = atan2(dxz.y, dxz.x) * (4.0 / UNITY_PI);
+    float4 t0 = s - float4(0.0, 1.0, 2.0, 3.0), t1 = s - float4(4.0, 5.0, 6.0, 7.0);
+    t0 -= 8.0 * round(t0 * 0.125);
+    t1 -= 8.0 * round(t1 * 0.125);
+    return dot(saturate(1.0 - abs(t0)), _PSXEnvRad0) + dot(saturate(1.0 - abs(t1)), _PSXEnvRad1);
+}
+float3 PSXEnvRay(float3 wpos, float3 R)
+{
+    float3 o = wpos - _PSXEnvEye.xyz;
+    // (6 m: the player's nose, a set of faces after its eye at speed)
+    float near = (1.0 - smoothstep(6.0, 10.0, length(o))) * step(0.001, _PSXEnvEye.w);
+    // |o.xz + t R.xz| = r, the far root (the pixel is inside the cylinder)
+    float a = max(dot(R.xz, R.xz), 1e-6);
+    float b = dot(o.xz, R.xz);
+    float c0 = dot(o.xz, o.xz);
+    float r = PSXEnvRadius(R.xz);
+    // (a pixel at or past the wall - a long car by a near wall - keeps R)
+    near *= saturate((r * r - c0) / (0.25 * r * r));
+    float t = (-b + sqrt(max(b * b - a * (c0 - r * r), 0.0))) / a;
+    // once more at the heading the ray actually lands on
+    r = PSXEnvRadius(o.xz + R.xz * t);
+    t = (-b + sqrt(max(b * b - a * (c0 - r * r), 0.0))) / a;
+    // ...or the road, if it gets there first
+    if (R.y < -1e-4) t = min(t, max((-_PSXEnvEye.w - o.y) / R.y, 0.0));
+    return normalize(lerp(R, normalize(o + R * t), near));
+}
+
+// HOW MUCH OF THE PANORAMA ONE PIXEL'S MIRROR COVERS (2026-10-23; the owner:
+// car windows "flicker reflections inaccurately while driving"). PSXEnvIn
+// reads at the caller's fixed blur, which knows nothing of the screen: on a
+// curved window, a far car or a phone's 240 lines one pixel's mirror spans
+// many panorama texels, the read picks one of them, and the picture sparkles
+// as the car moves. This is the angle R turns through across one pixel (R is
+// unit, so |ddx(R)| is in radians), in mips of the 512-wide panorama the
+// callers' blurs are written in (512 / 2pi texels a radian). A caller reads
+// at max(its blur, this). Derivatives: call it in uniform control flow,
+// before any branch.
+float PSXEnvPixelLod(float3 R)
+{
+    float3 dx = ddx(R), dy = ddy(R);
+    float a = sqrt(max(dot(dx, dx), dot(dy, dy)));
+    return log2(max(a * (512.0 / (2.0 * UNITY_PI)), 1e-5));
+}
 #endif

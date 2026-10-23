@@ -237,7 +237,7 @@ namespace PSXRacing
             var mat = SprayMaterial();
             if (mat == null) { enabled = false; return false; }
 
-            holder = new GameObject(car.name + " Spray");
+            holder = new GameObject(car.name + " Spray") { layer = CarReflections.NoReflectLayer };
             holder.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
             ps = holder.AddComponent<ParticleSystem>();
             ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
@@ -327,7 +327,7 @@ namespace PSXRacing
         {
             var mat = SprayMaterial();
             if (mat == null) { enabled = false; return false; }
-            dropHolder = new GameObject(car.name + " Splash");
+            dropHolder = new GameObject(car.name + " Splash") { layer = CarReflections.NoReflectLayer };
             dropHolder.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
             drops = dropHolder.AddComponent<ParticleSystem>();
             drops.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
