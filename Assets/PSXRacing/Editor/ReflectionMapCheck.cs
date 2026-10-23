@@ -63,6 +63,11 @@ namespace PSXRacing.EditorTools
             string dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots");
             Directory.CreateDirectory(dir);
             Debug.Log($"[ReflMap] graphics {api} ({SystemInfo.graphicsDeviceName}), uvStartsAtTop {SystemInfo.graphicsUVStartsAtTop}, tag {tag}");
+            // PSX_REFLMAP_WET: the rain's film on the paint (_PSXCarWet, which
+            // CarLights sets in play) for the whole run, 0 dry .. 1 soaked.
+            float wet = float.TryParse(Env("PSX_REFLMAP_WET", "0"), System.Globalization.NumberStyles.Float,
+                                       System.Globalization.CultureInfo.InvariantCulture, out float wv) ? wv : 0f;
+            Shader.SetGlobalFloat(PaintGloss.CarWetId, wet);
             bool ok = true;
             try
             {
@@ -78,6 +83,7 @@ namespace PSXRacing.EditorTools
             {
                 CarReflections.Off();
                 Shader.SetGlobalFloat("_PSXPaintDebug", 0f);
+                Shader.SetGlobalFloat(PaintGloss.CarWetId, 0f);
             }
             Debug.Log(ok ? "[ReflMap] RESULT PASS" : "[ReflMap] RESULT FAIL");
             Debug.Log("[ReflMap] DONE");

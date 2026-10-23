@@ -298,11 +298,15 @@ Shader "PSX/CarPaint"
             // THE FINISH (owner, 2026-10-23: "Car paint should have reflection
             // when car is clean/washed (potentially dirty cars or cars with
             // poor paint (from age or damage) do not reflect) and in rain").
-            #define SHINE_FMAX         0.45   // a clean lacquer's edge (the retune's 0.30 read matte)
+            // A clean coat over the GT4 retune's 0.04 / 0.30, which the owner
+            // read as matte now that the world below the horizon is trusted.
+            #define SHINE_F0           0.08   // a clean lacquer face-on...
+            #define SHINE_FMAX         0.60   // ...and at the edge...
+            #define SHINE_LOD          0.0    // ...sharp enough to show the trees (ENV_PAINT_LOD is a dull coat's)
             #define DULL_COAT          0.25   // a dirty or dead finish keeps this share of the lacquer...
             #define DULL_LOD           2.5    // ...and blurs it this many mips more
-            #define WET_COAT_F0        0.07   // the rain's water film: stronger face-on...
-            #define WET_COAT_FMAX      0.70   // ...near a mirror at the edge...
+            #define WET_COAT_F0        0.12   // the rain's water film: stronger face-on...
+            #define WET_COAT_FMAX      0.80   // ...near a mirror at the edge...
             #define WET_COAT_LOD      -0.4    // ...and sharp, whatever is under it
             #define LOW_GLOW_LO        0.70   // a light below the horizon (a headlight, a lamp) is not ground:
             #define LOW_GLOW_HI        1.00   //   from this max channel up it passes as it is
@@ -576,11 +580,12 @@ Shader "PSX/CarPaint"
                 // THE FINISH: a clean coat's sheen, dulled by dirt and a tired
                 // finish, and the rain's film over any of them.
                 float shine = saturate(_PSXGloss), wetC = saturate(_PSXCarWet);
+                coatF0 = max(coatF0, SHINE_F0 * envOn);
                 coatFMax = max(coatFMax, SHINE_FMAX * envOn);
                 float dullK = lerp(DULL_COAT, 1.0, shine);
                 coatF0 = lerp(coatF0 * dullK, WET_COAT_F0, wetC);
                 coatFMax = lerp(coatFMax * dullK, WET_COAT_FMAX, wetC);
-                float paintLod = lerp(lerp(ENV_PAINT_LOD + DULL_LOD, ENV_PAINT_LOD, shine), WET_COAT_LOD, wetC);
+                float paintLod = lerp(lerp(ENV_PAINT_LOD + DULL_LOD, SHINE_LOD, shine), WET_COAT_LOD, wetC);
                 float glassF0 = lerp(GLASS_F0, ENV_GLASS_F0, envOn), glassFMax = lerp(GLASS_FMAX, ENV_GLASS_FMAX, envOn);
                 float k = lerp(coatF0 + (coatFMax - coatF0) * fres,
                                glassF0 + (glassFMax - glassF0) * fres, glass);
