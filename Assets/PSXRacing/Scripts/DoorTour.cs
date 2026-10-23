@@ -96,6 +96,9 @@ namespace PSXRacing
             /// <summary>LifeHomeScreen.PendingTab (MAIN) - the front end's own
             /// hop - or null.</summary>
             public string hop;
+            /// <summary>CityFrontEnd.PendingPage (CITY) - the page the button
+            /// is on; null is the door ("drive").</summary>
+            public string page;
             /// <summary>The button pressed on the page the front end draws,
             /// by its GameObject name, or null when the hop itself loads.</summary>
             public string press;
@@ -201,6 +204,9 @@ namespace PSXRacing
                 doors.Add(new Door
                 {
                     label = "race " + t.id,
+                    // START is on the race's card now (the view from above),
+                    // under the same name the door's row used to carry.
+                    page = "event:" + t.id,
                     press = "Btn_race_" + t.id,
                     expectScene = TrackCatalog.SceneIdOf(i),
                 });
@@ -371,7 +377,7 @@ namespace PSXRacing
             else
             {
                 d.prepare?.Invoke();
-                CityFrontEnd.PendingPage = "drive";
+                CityFrontEnd.PendingPage = d.page ?? "drive";
             }
 
             // The front end first: every door is on one of its pages.

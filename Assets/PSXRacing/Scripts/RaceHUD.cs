@@ -232,6 +232,7 @@ namespace PSXRacing
                   ?? Town.TownVenue.Prompt
                   ?? OnFoot.ForecourtMode.Prompt
                   ?? Town.TownEdge.Prompt
+                  ?? City.CityRaceStarts.Prompt
                   ?? DriveThru.Prompt
                   ?? SeizedPrompt()
                   ?? DryTankPrompt()
@@ -257,6 +258,7 @@ namespace PSXRacing
             {
                 if ((GasPump.AtPump && GasPump.Prompt != null) || OnFoot.ForecourtMode.OfferFuel)
                     cityTouch.SetAction(true, "FUEL");
+                else if (City.CityRaceStarts.AtStart) cityTouch.SetAction(true, "START");
                 else if (DriveThru.AtBay) cityTouch.SetAction(true, "ORDER");
                 else if (Town.TownVenue.AtVenue) cityTouch.SetAction(true, "OPEN");
                 // No edge branch: a zone line opens its menu on crossing and

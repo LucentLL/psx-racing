@@ -693,6 +693,85 @@ namespace PSXRacing.EditorTools
             Debug.Log("[HomePreview] CLIP TOTAL " + clipCount);
         }
 
+        /// <summary>
+        /// THE VIEW FROM ABOVE (owner, 2026-10-19: "When selecting races, I
+        /// want it to show a view from above"): the street bake
+        /// (RouteMapBake), then the CITY door, every city race's card and one
+        /// deck's, and MAIN's pre-race page (a stage, a loop, and a race in
+        /// the diary) at 1080p and a wide phone. tools\menu-preview.ps1
+        /// -RaceSelect.
+        /// </summary>
+        [MenuItem("PSX Racing/Preview Race Select (view from above)")]
+        public static void CaptureRaceSelect()
+        {
+            RouteMapBake.Run();
+            string outDir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots");
+            Directory.CreateDirectory(outDir);
+            clipCount = 0;
+            var sizes = new[] { ("desktop_1080", 1920, 1080), EditionSizes[2] };
+            var was = Edition.Simulated;
+            try
+            {
+                // ---- MAIN: the pre-race page ----
+                Edition.Simulate(EditionKind.Main);
+                LifeSimManager.DeleteSave();
+                LifeSimManager.StartNewGame("VINCE", 25, LifeRules.DefaultJobIndex);
+                LifeRules.SeedFallbackCar(LifeSimManager.State);
+                var st = LifeSimManager.State;
+                st.health = 100f; st.daysSinceEat = 0; st.foodStock = 4;
+                int stage = -1, loop = -1;
+                for (int i = 0; i < TrackCatalog.Count; i++)
+                {
+                    var t = TrackCatalog.At(i);
+                    if (!TrackCatalog.Offered(i) || t.Reversed || t.IsSprintVariant) continue;
+                    if (stage < 0 && t.stage && !t.loop) stage = i;
+                    if (loop < 0 && t.loop && !t.drag) loop = i;
+                }
+                st.slotIndex = 0;
+                if (stage >= 0)
+                {
+                    st.trackIndex = stage;
+                    LifeSimManager.Save();
+                    Shoot(outDir, "rs_main_prerace_stage", "prerace", sizes: sizes);
+                }
+                if (loop >= 0)
+                {
+                    st.trackIndex = loop;
+                    LifeSimManager.Save();
+                    Shoot(outDir, "rs_main_prerace_loop", "prerace", sizes: sizes,
+                          fields: new (string, object)[] { ("raceFromLine", true) });
+                    st.slotIndex = LifeRules.NightSlot;
+                    LifeRules.Book(st, st.day, LifeRules.NightSlot, loop, false);
+                    LifeSimManager.Save();
+                    Shoot(outDir, "rs_main_prerace_booked", "prerace", sizes: sizes);
+                }
+                LifeSimManager.DeleteSave();
+
+                // ---- CITY: the door and the cards ----
+                Edition.Simulate(EditionKind.City);
+                PlayerPrefs.DeleteKey("psx.city.car");
+                PlayerPrefs.DeleteKey("psx.city.hour");
+                PlayerPrefs.DeleteKey("psx.city.weather");
+                Shoot(outDir, "rs_city_drive", cityPage: "drive", sizes: sizes);
+                bool deck = false;
+                for (int i = 0; i < TrackCatalog.Count; i++)
+                {
+                    var t = TrackCatalog.At(i);
+                    if (!t.IsCityRace || !TrackCatalog.Offered(i)) continue;
+                    if (t.IsDeckRun) { if (deck) continue; deck = true; }
+                    Shoot(outDir, "rs_city_event_" + t.id, cityPage: "event:" + t.id, sizes: sizes);
+                }
+            }
+            finally
+            {
+                Edition.Simulate(was);
+                CityFrontEnd.PendingPage = null;
+                CityFrontEnd.PendingMake = null;
+                RaceHandoff.ClearAll();
+            }
+            Debug.Log("[HomePreview] CLIP TOTAL " + clipCount);
+        }
+
         /// <summary>CITY's pages: the door (FREE ROAM, the races, the car, the
         /// hour), a race result, the make index, one make's cars, OPTIONS.
         /// Simulates CITY for the shots and puts the simulation back.</summary>

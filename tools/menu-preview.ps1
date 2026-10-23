@@ -19,7 +19,11 @@
 #                    and the CITY front end's pages (the door, a race result, a
 #                    free-roam result, the cars, options), at 16:9, 19.5:9,
 #                    ~2.24:1 and 4:3 (LifeHomePreview.CaptureEditions).
-param([switch]$Editions)
+#   ...  -RaceSelect the view from above: bakes Resources/RouteMaps (the
+#                    streets round each Charlotte race), then shoots the
+#                    CITY door, each race's card and MAIN's pre-race page
+#                    (rs_*.png; LifeHomePreview.CaptureRaceSelect).
+param([switch]$Editions, [switch]$RaceSelect)
 $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\unity-wait.ps1"
 
@@ -34,7 +38,7 @@ foreach ($d in @("Assets\PSXRacing\Scripts", "Assets\PSXRacing\Editor")) {
 # -nographics gives it a null one that reads back as a black PNG.
 $ok = Invoke-UnityJob -Log "$proj\menupreview.log" -UnityArgs @(
     "-quit","-batchmode","-projectPath",$proj,
-    "-executeMethod",$(if ($Editions) { "PSXRacing.EditorTools.LifeHomePreview.CaptureEditions" } else { "PSXRacing.EditorTools.LifeHomePreview.Capture" }),
+    "-executeMethod",$(if ($RaceSelect) { "PSXRacing.EditorTools.LifeHomePreview.CaptureRaceSelect" } elseif ($Editions) { "PSXRacing.EditorTools.LifeHomePreview.CaptureEditions" } else { "PSXRacing.EditorTools.LifeHomePreview.Capture" }),
     "-logFile","$proj\menupreview.log","-accept-apiupdate")
 if (-not $ok) { exit 1 }
 
@@ -54,7 +58,7 @@ $lost = Select-String -Path "$proj\menupreview.log" -Pattern "UNREACHABLE BY PAD
 if ($lost) { $lost | ForEach-Object { $_.Line } } else { Write-Host "  every control reachable" }
 
 Write-Host "=== LAYOUT (content height vs viewport) ==="
-Select-String -Path "$proj\menupreview.log" -Pattern "\[HomePreview\] (home|week|month|prerace|eat|bills|jobs|options|main_|city_)" |
+Select-String -Path "$proj\menupreview.log" -Pattern "\[HomePreview\] (home|week|month|prerace|eat|bills|jobs|options|main_|city_|rs_)" |
     ForEach-Object { $_.Line }
 
 # "No text may clip" (owner, 2026-09-26): glyphs off screen, cut by a panel,

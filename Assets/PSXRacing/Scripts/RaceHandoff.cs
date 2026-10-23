@@ -105,6 +105,12 @@
         /// CityMode on the way out — the town is not a TrackCatalog entry, so
         /// there is no index to look a name up from.</summary>
         public static string FreeRoamPlace;
+        /// <summary>
+        /// DRIVE TO THE START (CITY's race card): the free-roam drive begins
+        /// just short of this race's start line (catalog index), where its
+        /// gate (City.CityRaceStarts) starts it. -1 = the scene's own spawn.
+        /// </summary>
+        public static int RoamAtVenue = -1;
 
         /// <summary>This run is a paid delivery, not a race: the player picked
         /// an order up at the shop and the finish line is the customer's door.
@@ -435,6 +441,7 @@
         public static void ClearAll()
         {
             FromLifeSim = false;
+            RoamAtVenue = -1;
             CarId = null;
             CarSpecId = null;
             CarPaintSkin = null;

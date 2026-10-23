@@ -7042,55 +7042,56 @@ namespace PSXRacing.LifeSim
             float y = -14f;
             PageHeader(ref y, booked ? "RACE DAY" : raceFromLine ? "GO RACING" : "BOOK A RACE");
 
-            // ---- the venue ----
-            const float MapSize = 92f;
+            // ---- the venue, from above ----
+            // THE VIEW FROM ABOVE (owner, 2026-10-19: "When selecting races, I
+            // want it to show a view from above"): the route on the left as
+            // big as the venue's own facts are tall - where it starts, which
+            // way it runs, where it ends - and the venue's words, the steppers
+            // and the hour beside it. It replaced a 92-unit amber thumbnail.
             float vw = Mathf.Min(ColW, 760f);
             float vx = -vw * 0.5f;
-            var mapPanel = MenuKit.Rect(body, "TrackMap",
-                new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                new Vector2(MenuKit.ColLeft(vx, MapSize), y),
-                new Vector2(MapSize, MapSize), new Color(0f, 0f, 0f, 0.55f));
-            var mapGO = new GameObject("Map");
-            mapGO.transform.SetParent(mapPanel, false);
-            var mapImg = mapGO.AddComponent<RawImage>();
-            mapImg.texture = TrackCatalog.Thumbnail(t);
-            mapImg.raycastTarget = false;
-            var mrt = mapImg.rectTransform;
-            mrt.anchorMin = Vector2.zero; mrt.anchorMax = Vector2.one;
-            mrt.offsetMin = new Vector2(4f, 4f); mrt.offsetMax = new Vector2(-4f, -4f);
-
-            float tx = vx + MapSize + 14f;
-            float tw = vw - MapSize - 14f;
-            MenuKit.Label(body, Clip(t.name, 34), 22, new Vector2(0.5f, 1f),
+            float mapSize = Mathf.Clamp(vw * 0.31f, 180f, 236f);
+            RouteMap.Build(body, t, new Vector2(0.5f, 1f), new Vector2(vx, y), mapSize);
+            float top = y;
+            float tx = vx + mapSize + 14f;
+            float tw = vw - mapSize - 14f;
+            var vname = MenuKit.Label(body, t.name, 22, new Vector2(0.5f, 1f),
                 new Vector2(tx, y), TextAnchor.MiddleLeft, MenuKit.Accent, tw, height: 26f, bold: true);
+            MenuKit.FitOneLine(vname, tw);
             // The purse rides on the numbers line: it is the third fact about
             // the venue, and a line of its own is thirty units a phone column
             // does not have once the car list is under it.
             int tier = LifeRules.StreetTier(S.streetRep).idx;
-            MenuKit.Label(body, VenueNumbers(t) + "  ·  WIN " + MenuKit.Money(LifeRules.WinPrize[tier]) +
-                    "  ·  " + LifeRules.StreetTier(S.streetRep).name + " tier",
-                MenuKit.Tiny, new Vector2(0.5f, 1f),
+            var nums = MenuKit.Label(body, VenueNumbers(t), MenuKit.Tiny, new Vector2(0.5f, 1f),
                 new Vector2(tx, y - 28f), TextAnchor.MiddleLeft, Color.white, tw, height: 24f);
+            MenuKit.FitOneLine(nums, tw);
+            var purse = MenuKit.Label(body, "WIN " + MenuKit.Money(LifeRules.WinPrize[tier]) + "  ·  " +
+                    LifeRules.StreetTier(S.streetRep).name + " tier",
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(tx, y - 52f), TextAnchor.MiddleLeft,
+                Color.white, tw, height: 24f);
+            MenuKit.FitOneLine(purse, tw);
             int raceHour = PreRaceHour();
             int raceTraffic = PreRaceTraffic();
             string trafficWords = TrafficWords(t, raceTraffic);
-            MenuKit.Label(body, "RACING AT " + TimeOfDay.Label(raceHour) +
+            var whenLbl = MenuKit.Label(body, "RACING AT " + TimeOfDay.Label(raceHour) +
                     (trafficWords.Length > 0 ? "  ·  " + trafficWords : ""),
-                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(tx, y - 54f),
+                MenuKit.Tiny, new Vector2(0.5f, 1f), new Vector2(tx, y - 76f),
                 TextAnchor.MiddleLeft, MenuKit.Accent, tw, height: 24f);
-            y -= MapSize + 8f;
+            MenuKit.FitOneLine(whenLbl, tw);
+            y -= 106f;
 
+            float half = (tw - 6f) * 0.5f;
             if (booked)
             {
                 // The venue and the hour are the diary's and are not asked
-                // again; the TRAFFIC can still be changed here, into the diary,
-                // on the line's right-hand end.
-                const float trafW = 220f;
-                MenuKit.Label(body, "IN THE DIARY — " + LifeRules.DateLabel(S.day) + "  ·  " +
+                // again; the TRAFFIC can still be changed here, into the diary.
+                var diary = MenuKit.Label(body, "IN THE DIARY — " + LifeRules.DateLabel(S.day) + "  ·  " +
                         LifeRules.SlotNames[bookedNow.slot], MenuKit.Tiny, new Vector2(0.5f, 1f),
-                    new Vector2(vx, y), TextAnchor.MiddleLeft, MenuKit.Good, vw - trafW - 12f, height: 44f, bold: true);
+                    new Vector2(tx, y), TextAnchor.MiddleLeft, MenuKit.Good, tw, height: 26f, bold: true);
+                MenuKit.FitOneLine(diary, tw);
+                y -= 32f;
                 var bookedRef = bookedNow;
-                TrafficStepper(t, raceTraffic, vx + vw - trafW, y, trafW, 44f, v =>
+                TrafficStepper(t, raceTraffic, tx, y, half, 44f, v =>
                 {
                     LifeRules.SetBookingTraffic(bookedRef, v);
                     LifeSimManager.Save();
@@ -7102,33 +7103,27 @@ namespace PSXRacing.LifeSim
                 // 44 tall, the steppers' height: a NAME-over-VALUE button in
                 // 40 put its caption against the top rule on a phone.
                 MenuKit.Button(body, "<  VENUE", new Vector2(0.5f, 1f),
-                    new Vector2(MenuKit.ColLeft(vx, 200f), y), new Vector2(200f, 44f),
+                    new Vector2(MenuKit.ColLeft(tx, half), y), new Vector2(half, 44f),
                     () => StepTrack(-1), 17);
                 MenuKit.Button(body, "VENUE  >", new Vector2(0.5f, 1f),
-                    new Vector2(MenuKit.ColLeft(vx + 206f, 200f), y), new Vector2(200f, 44f),
+                    new Vector2(MenuKit.ColLeft(tx + half + 6f, half), y), new Vector2(half, 44f),
                     () => StepTrack(1), 17);
-                // WHAT TIME, on the venue arrows' own line — the width was
-                // there and the height is not (the car list is under this).
-                // Steps through the hours of the block the clock is in; a race
-                // already in the diary carries its hour with it and is not
-                // asked again, exactly as its venue is not.
-                // (A canvas too narrow to hold it there gets it on a line of
-                // its own: a picker that silently is not drawn is the bug this
-                // button was added to fix.)
-                // TRAFFIC beside TIME (owner, 2026-09-30), each a NAME-over-
-                // VALUE stepper sharing what the arrows leave.
-                float pairW = vw - 412f;
-                float stepW = (pairW - 6f) * 0.5f;
-                float timeX = vx + 412f;
-                if (stepW < 150f) { y -= 50f; pairW = Mathf.Min(vw, 406f); stepW = (pairW - 6f) * 0.5f; timeX = vx; }
-                StepperButton("TIME", "TIME", TimeOfDay.Label(raceHour), timeX, y, stepW, 44f,
+                y -= 50f;
+                // WHAT TIME steps through the hours of the block the clock is
+                // in (a race already in the diary carries its hour with it and
+                // is not asked again, exactly as its venue is not); TRAFFIC
+                // beside it (owner, 2026-09-30), each a NAME-over-VALUE stepper.
+                StepperButton("TIME", "TIME", TimeOfDay.Label(raceHour), tx, y, half, 44f,
                     () => { raceHourPick = TimeOfDay.StepHour(S.slotIndex, raceHour); Rebuild(); });
-                TrafficStepper(t, raceTraffic, timeX + stepW + 6f, y, stepW, 44f, v => raceTrafficPick = v);
+                TrafficStepper(t, raceTraffic, tx + half + 6f, y, half, 44f, v => raceTrafficPick = v);
                 y -= 50f;
             }
-            MenuKit.Label(body, Clip(t.blurb, 72), MenuKit.Tiny, new Vector2(0.5f, 1f),
-                new Vector2(vx, y), TextAnchor.MiddleLeft, MenuKit.Dim, vw, height: 24f);
-            y -= 28f;
+            // Whole: a stage's words end on its OpenStreetMap credit, which
+            // the map beside them now needs.
+            MenuKit.Para(body, t.blurb ?? "", MenuKit.Tiny, new Vector2(0.5f, 1f),
+                new Vector2(tx, y - 2f), out float blurbH, TextAnchor.UpperLeft, MenuKit.Dim, tw);
+            y -= blurbH + 4f;
+            y = Mathf.Min(y, top - mapSize - 10f);
 
             // ---- the car ----
             // Pre-race fuel gate, off the circuit actually picked and the car
