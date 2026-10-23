@@ -7,16 +7,23 @@
 // samples the sky - explicit LOD from the mips, no seam - and nothing about
 // cubemap face conventions (which differ between the editor and WebGL) is
 // ever relied on: each face's basis is the camera's own, passed in.
+//
+// ONE FACE A PASS (2026-10-23; the owner, a fourth time: the reflections move
+// "horizontally (right to left) across the car instead of front to back").
+// The stitch used to be one pass reading all six faces - the face picked
+// through uniform ARRAYS (_FaceF[6]...) and six samplers behind a branch -
+// and in the WebGL player (ReflTour, ANGLE over D3D11) that pass drew the +X
+// face where +X belongs AND where -Z belongs and black everywhere else, while
+// all six faces themselves were right: the paint reflected one sideways view
+// of the world, sliding across the body as the car drove. The editor (GL Core,
+// D3D11) never showed it. Now CarReflections draws this pass six times, one
+// face each: one sampler, plain vectors, and a clip to the texels whose
+// largest axis is this face's.
 Shader "Hidden/PSX/EnvPano"
 {
     Properties
     {
-        _F0 ("+X", 2D) = "black" {}
-        _F1 ("-X", 2D) = "black" {}
-        _F2 ("+Y", 2D) = "black" {}
-        _F3 ("-Y", 2D) = "black" {}
-        _F4 ("+Z", 2D) = "black" {}
-        _F5 ("-Z", 2D) = "black" {}
+        _Face ("Face", 2D) = "black" {}
     }
     SubShader
     {
@@ -28,34 +35,20 @@ Shader "Hidden/PSX/EnvPano"
             #pragma fragment frag
             #include "UnityCG.cginc"
 
-            sampler2D _F0, _F1, _F2, _F3, _F4, _F5;
-            // Each face camera's forward, right and up, world space.
-            float4 _FaceF[6], _FaceR[6], _FaceU[6];
+            sampler2D _Face;
+            float4 _FaceF, _FaceR, _FaceU;   // this face's camera basis
 
             float4 frag(v2f_img i) : SV_Target
             {
                 float lon = (i.uv.x - 0.5) * 2.0 * UNITY_PI;
                 float lat = (i.uv.y - 0.5) * UNITY_PI;
                 float3 d = float3(cos(lat) * cos(lon), sin(lat), cos(lat) * sin(lon));
-                int best = 0; float bd = -2.0;
-                [unroll] for (int k = 0; k < 6; k++)
-                {
-                    float dk = dot(d, _FaceF[k].xyz);
-                    if (dk > bd) { bd = dk; best = k; }
-                }
-                float3 f = 0, r = 0, u = 0;
-                [unroll] for (int j = 0; j < 6; j++)
-                    if (j == best) { f = _FaceF[j].xyz; r = _FaceR[j].xyz; u = _FaceU[j].xyz; }
-                float z = max(dot(d, f), 1e-4);
-                float2 uv = saturate(0.5 + 0.5 * float2(dot(d, r), dot(d, u)) / z);
-                float4 c;
-                if (best == 0) c = tex2Dlod(_F0, float4(uv, 0, 0));
-                else if (best == 1) c = tex2Dlod(_F1, float4(uv, 0, 0));
-                else if (best == 2) c = tex2Dlod(_F2, float4(uv, 0, 0));
-                else if (best == 3) c = tex2Dlod(_F3, float4(uv, 0, 0));
-                else if (best == 4) c = tex2Dlod(_F4, float4(uv, 0, 0));
-                else c = tex2Dlod(_F5, float4(uv, 0, 0));
-                return float4(c.rgb, 1.0);
+                // only where this face's axis is the direction's largest
+                float3 a = abs(d);
+                float z = dot(d, _FaceF.xyz);
+                clip(z - max(a.x, max(a.y, a.z)) + 1e-4);
+                float2 uv = saturate(0.5 + 0.5 * float2(dot(d, _FaceR.xyz), dot(d, _FaceU.xyz)) / max(z, 1e-4));
+                return float4(tex2Dlod(_Face, float4(uv, 0, 0)).rgb, 1.0);
             }
             ENDCG
         }

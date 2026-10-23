@@ -65,7 +65,7 @@ namespace PSXRacing
         static readonly int FaceFId = Shader.PropertyToID("_FaceF");
         static readonly int FaceRId = Shader.PropertyToID("_FaceR");
         static readonly int FaceUId = Shader.PropertyToID("_FaceU");
-        static readonly string[] FaceTex = { "_F0", "_F1", "_F2", "_F3", "_F4", "_F5" };
+        static readonly int FaceTexId = Shader.PropertyToID("_Face");
 
         /// <summary>Roof height the views are taken from, metres above the
         /// car's origin (its ground point).</summary>
@@ -189,16 +189,6 @@ namespace PSXRacing
                 var sh = Shader.Find(ShaderName);
                 if (sh == null) return false;
                 stitch = new Material(sh) { hideFlags = HideFlags.HideAndDontSave };
-                var f = new Vector4[6]; var r = new Vector4[6]; var u = new Vector4[6];
-                for (int i = 0; i < 6; i++)
-                {
-                    f[i] = FaceRot[i] * Vector3.forward;
-                    r[i] = FaceRot[i] * Vector3.right;
-                    u[i] = FaceRot[i] * Vector3.up;
-                }
-                stitch.SetVectorArray(FaceFId, f);
-                stitch.SetVectorArray(FaceRId, r);
-                stitch.SetVectorArray(FaceUId, u);
             }
             if (probe == null)
             {
@@ -224,13 +214,12 @@ namespace PSXRacing
                 faces[i] = new RenderTexture(faceRes, faceRes, 16, RenderTextureFormat.ARGB32)
                 { name = "EnvFace" + i, wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear, hideFlags = HideFlags.HideAndDontSave };
                 faces[i].Create();
-                stitch.SetTexture(FaceTex[i], faces[i]);
             }
             if (pano == null)
             {
                 pano = new RenderTexture(faceRes * 4, faceRes * 2, 0, RenderTextureFormat.ARGB32)
                 {
-                    name = "EnvPano", useMipMap = true, autoGenerateMips = true,
+                    name = "EnvPano", useMipMap = true, autoGenerateMips = false,
                     wrapModeU = TextureWrapMode.Repeat, wrapModeV = TextureWrapMode.Clamp,
                     filterMode = FilterMode.Trilinear, hideFlags = HideFlags.HideAndDontSave,
                 };
@@ -312,7 +301,7 @@ namespace PSXRacing
                 int i = next; next = (next + 1) % 6;
                 probe.transform.rotation = FaceRot[i];
                 var req = new RenderPipeline.StandardRequest { destination = faces[i] };
-                if (RenderPipeline.SupportsRenderRequest(probe, req)) RenderPipeline.SubmitRenderRequest(probe, req);
+                if (FacePath == 0 && RenderPipeline.SupportsRenderRequest(probe, req)) RenderPipeline.SubmitRenderRequest(probe, req);
                 else { probe.targetTexture = faces[i]; probe.Render(); probe.targetTexture = null; }
                 drawn++;
                 whole = next == 0;
@@ -333,7 +322,7 @@ namespace PSXRacing
                 Shader.SetGlobalVector(EnvEyeId, new Vector4(eyeNow.x, eyeNow.y, eyeNow.z, EyeUp));
             if (!whole) return;
 
-            Graphics.Blit(null, pano, stitch);
+            Stitch();
             Shader.SetGlobalTexture(EnvPanoId, pano);
             // Readers ask for a blur in mips of a 512-wide panorama
             // (PSXSkyReflect.cginc): +1 at 1024, -1 at 256.
@@ -365,6 +354,47 @@ namespace PSXRacing
                 r = Mathf.Max(r, RadiusNear);
                 radius[i] = fresh ? r : Mathf.Lerp(radius[i], r, RadiusEase);
             }
+        }
+
+        /// <summary>The six views into the panorama, one face a pass (see
+        /// Hidden/PSX/EnvPano: the one-pass stitch drew a single face in the
+        /// WebGL player), then its mips once.</summary>
+        void Stitch()
+        {
+            for (int i = 0; i < 6; i++)
+            {
+                stitch.SetTexture(FaceTexId, faces[i]);
+                stitch.SetVector(FaceFId, FaceRot[i] * Vector3.forward);
+                stitch.SetVector(FaceRId, FaceRot[i] * Vector3.right);
+                stitch.SetVector(FaceUId, FaceRot[i] * Vector3.up);
+                Graphics.Blit(null, pano, stitch);
+            }
+            pano.GenerateMips();
+        }
+
+        /// <summary>Checks only (ReflTour): how the six views are drawn - 0 a
+        /// render request (the game's), 1 Camera.Render into the face.</summary>
+        public static int FacePath;
+
+        /// <summary>Checks only (ReflTour): one of the six views as drawn.</summary>
+        public static RenderTexture Face(int i) => inst != null ? inst.faces[i] : null;
+
+        /// <summary>Checks only (ReflTour): <paramref name="n"/> more views round
+        /// <paramref name="car"/> the way LateUpdate draws them (a new set when
+        /// <paramref name="fresh"/>); true when this call completed a set.</summary>
+        public static bool StepNow(Transform car, Camera view, int n, bool fresh)
+        {
+            if (inst == null)
+            {
+                var go = new GameObject("~CarReflections") { hideFlags = HideFlags.HideAndDontSave };
+                inst = go.AddComponent<CarReflections>();
+            }
+            // (its own LateUpdate would release the views between frames: no chase camera here)
+            if (inst.enabled) inst.enabled = false;
+            if (car == null || !inst.Ensure()) return false;
+            if (fresh) inst.next = 0;
+            inst.RenderAround(car, view, n);
+            return inst.next == 0;
         }
 
         /// <summary>Editor shots and checks (nothing runs LateUpdate outside

@@ -700,11 +700,28 @@ namespace PSXRacing.EditorTools
                     cam.transform.SetPositionAndRotation(eye, rot);
                     cam.fieldOfView = fov;
                     if (f == 0) CarReflections.CaptureNow(car, cam); else Step(car, cam, 2);
+                    // PSX_REFLMAP_NOTRACE=1: the panorama read by R alone (no distance trace)
+                    if (EnvInt("PSX_REFLMAP_NOTRACE", 0) == 1) Shader.SetGlobalVector("_PSXEnvEye", Vector4.zero);
+                    if (f % 5 == 0)
+                    {
+                        Vector4 r0 = Shader.GetGlobalVector("_PSXEnvRad0"), r1 = Shader.GetGlobalVector("_PSXEnvRad1");
+                        Debug.Log($"[ReflMap] STREET f{f:000} z {car.position.z:F1} radii +x {r0.x:F1} {r0.y:F1} +z {r0.z:F1} {r0.w:F1} -x {r1.x:F1} {r1.y:F1} -z {r1.z:F1} {r1.w:F1}");
+                    }
                     if (f % every != 0) continue;
                     // the crop: the car's box on screen, padded
-                    var bounds = new Bounds(car.position + Vector3.up * 0.7f, Vector3.zero);
-                    foreach (var r in carGo.GetComponentsInChildren<Renderer>()) bounds.Encapsulate(r.bounds);
+                    // (on the shell: a car's other parts - a cockpit, a stray
+                    // wheel - can sit far off and drag the box off the car)
+                    var shellR = body.bodyFilter != null ? body.bodyFilter.GetComponent<Renderer>() : null;
+                    var bounds = shellR != null ? shellR.bounds : new Bounds(car.position + Vector3.up * 0.7f, Vector3.zero);
+                    if (shellR == null) foreach (var r in carGo.GetComponentsInChildren<Renderer>()) bounds.Encapsulate(r.bounds);
                     var lo = cam.WorldToViewportPoint(bounds.center);
+                    if (f == 0)
+                    {
+                        Debug.Log($"[ReflMap] STREET shell {(shellR != null ? shellR.name : "none")} on {(shellR != null && shellR.enabled && !shellR.forceRenderingOff)} at {bounds.center} size {bounds.size}, viewport {lo}, cam {cam.transform.position}");
+                        var full = Shoot(cam, W, H);
+                        File.WriteAllBytes(Path.Combine(dir, $"reflmap_{tag}_street_full.png"), full.EncodeToPNG());
+                        Object.DestroyImmediate(full);
+                    }
                     int cw = 640, ch = 360;
                     int cx = Mathf.Clamp(Mathf.RoundToInt(lo.x * W) - cw / 2, 0, W - cw);
                     int cy = Mathf.Clamp(Mathf.RoundToInt(lo.y * H) - ch / 2 + 20, 0, H - ch);
