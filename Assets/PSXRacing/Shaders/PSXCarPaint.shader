@@ -170,6 +170,9 @@ Shader "PSX/CarPaint"
         [HideInInspector] _PSXOwnLampA ("Own tail lamp A", Vector) = (0, 0, 0, 1)
         [HideInInspector] _PSXOwnLampB ("Own tail lamp B", Vector) = (0, 0, 0, 1)
         [HideInInspector] _PSXOwnLampCol ("Own tail lamp light", Vector) = (0, 0, 0, 0)
+        // The finish (CarLights / PaintGloss): 1 a clean car in good paint,
+        // toward 0 a dirty one or a dead finish. See THE FINISH.
+        [HideInInspector] _PSXGloss ("Paint gloss", Float) = 1
         // 0/1: the headlamps' B/A channels (CarLights: lights on AND an RGBA
         // map - a legacy R/G map never has B/A read).
         [HideInInspector] _HeadLights ("Headlamps 0/1", Float) = 0
@@ -213,6 +216,10 @@ Shader "PSX/CarPaint"
             float _RunningLights;
             float _Brake;
             float4 _PSXOwnLampA, _PSXOwnLampB, _PSXOwnLampCol;
+            // THE FINISH: this car's (_PSXGloss, per renderer) and the rain's
+            // water film on every car (_PSXCarWet, global, CarLights).
+            float _PSXGloss;
+            float _PSXCarWet;
             // One tail lens's pool on its own body: windowed falloff to its
             // reach, on the faces turned toward it.
             float OwnLamp(float4 P, float3 wpos, float3 N)
@@ -270,7 +277,33 @@ Shader "PSX/CarPaint"
             #define ENV_COAT_FMAX      0.30   // ...and under a third at the edge (was 0.62)
             #define PAINT_UP_LO        -0.05  // the paint's world is the UPPER hemisphere: from R.y = this...
             #define PAINT_UP_HI        0.25   // ...to this it fades in; below, the ground is
-            #define PAINT_LOW_KEEP     0.30   // ...its own luminance, GREY, at this share: dark, never its colour
+            #define PAINT_LOW_KEEP     0.30   // (unused since 2026-10-23: the world below, PAINT_LOW_*)
+            // THE WORLD BELOW THE HORIZON (owner, 2026-10-23, the Charger:
+            // reflections ran ACROSS the bonnet "when they should move" down
+            // the flank). Under the retune above everything below the horizon
+            // was dull grey, so the flanks - which mirror the street, the verge
+            // and the houses beside the car, the reflections that run front to
+            // back as it drives - showed nothing, and only the bonnet's and the
+            // roof's sky moved: sideways, as a passing house turns away. Now
+            // the lower half is the world (Renv traces it to the road and the
+            // walls round the car), a little desaturated, and DARK where its ray
+            // meets the road inside the car's own footprint: the car's shadow,
+            // which the roof probe (blind to its own car) draws sunlit - the
+            // gold verge the retune guarded against.
+            #define PAINT_LOW_WORLD    0.80   // the world below the horizon, at this share...
+            #define PAINT_LOW_SAT      0.60   // ...this much of its colour (the rest its grey)...
+            #define PAINT_LOW_SHADOW   0.20   // ...and this share of it under the car itself:
+            #define PAINT_FOOT_IN      1.6    //   road hits nearer than this to the car's axis (m)...
+            #define PAINT_FOOT_OUT     3.2    //   ...rising to the whole world by this
+            // THE FINISH (owner, 2026-10-23: "Car paint should have reflection
+            // when car is clean/washed (potentially dirty cars or cars with
+            // poor paint (from age or damage) do not reflect) and in rain").
+            #define SHINE_FMAX         0.45   // a clean lacquer's edge (the retune's 0.30 read matte)
+            #define DULL_COAT          0.25   // a dirty or dead finish keeps this share of the lacquer...
+            #define DULL_LOD           2.5    // ...and blurs it this many mips more
+            #define WET_COAT_F0        0.07   // the rain's water film: stronger face-on...
+            #define WET_COAT_FMAX      0.70   // ...near a mirror at the edge...
+            #define WET_COAT_LOD      -0.4    // ...and sharp, whatever is under it
             #define LOW_GLOW_LO        0.70   // a light below the horizon (a headlight, a lamp) is not ground:
             #define LOW_GLOW_HI        1.00   //   from this max channel up it passes as it is
             // HEADROOM. The faces are LDR (ARGB32: the WebGL-safe target), so
@@ -540,6 +573,14 @@ Shader "PSX/CarPaint"
                 float fres = pow(1.0 - ndv, 5.0);
                 float envOn = step(0.5, _PSXEnvOn);
                 float coatF0 = lerp(COAT_F0, ENV_COAT_F0, envOn), coatFMax = lerp(COAT_FMAX, ENV_COAT_FMAX, envOn);
+                // THE FINISH: a clean coat's sheen, dulled by dirt and a tired
+                // finish, and the rain's film over any of them.
+                float shine = saturate(_PSXGloss), wetC = saturate(_PSXCarWet);
+                coatFMax = max(coatFMax, SHINE_FMAX * envOn);
+                float dullK = lerp(DULL_COAT, 1.0, shine);
+                coatF0 = lerp(coatF0 * dullK, WET_COAT_F0, wetC);
+                coatFMax = lerp(coatFMax * dullK, WET_COAT_FMAX, wetC);
+                float paintLod = lerp(lerp(ENV_PAINT_LOD + DULL_LOD, ENV_PAINT_LOD, shine), WET_COAT_LOD, wetC);
                 float glassF0 = lerp(GLASS_F0, ENV_GLASS_F0, envOn), glassFMax = lerp(GLASS_FMAX, ENV_GLASS_FMAX, envOn);
                 float k = lerp(coatF0 + (coatFMax - coatF0) * fres,
                                glassF0 + (glassFMax - glassF0) * fres, glass);
@@ -562,14 +603,25 @@ Shader "PSX/CarPaint"
                 // reads the UPPER hemisphere, with the ground below it grey and
                 // dark (a light passes); the glass reads all of it, its darks
                 // pushed down; the bright sky in both gets its headroom back.
+                float upW = 1.0;
                 if (_PSXEnvOn > 0.5)
                 {
-                    float3 env = PSXEnvIn(Renv, max(lerp(ENV_PAINT_LOD, ENV_GLASS_LOD, glass), envPix));
+                    float3 env = PSXEnvIn(Renv, max(lerp(paintLod, ENV_GLASS_LOD, glass), envPix));
                     float em = max(env.r, max(env.g, env.b));
-                    float upW = smoothstep(PAINT_UP_LO, PAINT_UP_HI, R.y);
+                    upW = smoothstep(PAINT_UP_LO, PAINT_UP_HI, R.y);
                     float hdr = 1.0 + ENV_HDR * smoothstep(ENV_HDR_LO, 1.0, em) * upW;
                     float lumE = dot(env, float3(0.2126, 0.7152, 0.0722));
-                    float3 low = lerp(lumE * PAINT_LOW_KEEP, env, smoothstep(LOW_GLOW_LO, LOW_GLOW_HI, em));
+                    // the world below the horizon, dark under the car itself
+                    float lowShade = 1.0;
+                    if (R.y < -1e-3 && _PSXEnvEye.w > 0.001)
+                    {
+                        float3 eo = i.wpos - _PSXEnvEye.xyz;
+                        float tRoad = max((-_PSXEnvEye.w - eo.y) / R.y, 0.0);
+                        lowShade = lerp(PAINT_LOW_SHADOW, 1.0,
+                                        smoothstep(PAINT_FOOT_IN, PAINT_FOOT_OUT, length(eo.xz + R.xz * tRoad)));
+                    }
+                    float3 lowWorld = lerp(lumE.xxx, env, PAINT_LOW_SAT) * (PAINT_LOW_WORLD * lowShade);
+                    float3 low = lerp(lowWorld, env, smoothstep(LOW_GLOW_LO, LOW_GLOW_HI, em));
                     float3 envPaint = lerp(low, env * hdr, upW);
                     // (on the luminance, so a blue sky goes dark navy and a
                     // cloud or a gap in the canopy stays a bright streak)
@@ -594,7 +646,10 @@ Shader "PSX/CarPaint"
                 // the sky-openness guess is not laid over it as well)
                 // The sky in the lacquer is occluded low on the body like the
                 // sky light (paint only: the glass sits up top anyway).
-                float3 refl = sky * tint * (k * (_PSXEnvOn > 0.5 ? 1.0 : skyOpen) * lerp(occ, 1.0, glass));
+                // (the world BELOW the horizon is not the sky: the fall-off down
+                // the body is the sky's, so it goes on the upper half only)
+                float3 refl = sky * tint * (k * (_PSXEnvOn > 0.5 ? 1.0 : skyOpen)
+                                              * lerp(lerp(occ, 1.0, glass), 1.0, envOn * (1.0 - upW)));
 
                 // THE SUN: a glint a few degrees across in the lacquer - a
                 // spark on a curve, nothing at all across a flat roof - and

@@ -349,6 +349,10 @@ namespace PSXRacing.LifeSim
         public float tires = 100f;
         public float carHP = 100f;
         public float paint = 100f;
+        // Road dirt on the finish, 0 just washed .. 1 filthy. Not condition:
+        // it costs the paint nothing, it only dulls the shine (PaintGloss)
+        // until the car is washed. ADDED field, so old saves read clean.
+        public float dirt;
 
         // === the cooling system (see CoolingModel) ===
         // Three parts and what is in them, rather than one "cooling" number,

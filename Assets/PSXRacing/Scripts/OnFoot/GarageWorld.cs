@@ -256,6 +256,7 @@ namespace PSXRacing.OnFoot
                 // answer now, and it is the one the body shop can change.
                 int skin = Paint.SkinFor(car, spec, def);
                 st.shell = SpawnShell(bay, def, skin, out Vector3 roofPoint, spec);
+                PaintGloss.WriteAll(st.shell, PaintGloss.Of(car));
 
                 BuildRaiseRig(st, def, spec);
                 // Straight to wherever the save says it was left. A car the

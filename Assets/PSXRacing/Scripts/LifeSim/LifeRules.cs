@@ -1045,6 +1045,11 @@ namespace PSXRacing.LifeSim
         public const float TireWearPerM = 0.0062746f;
         public const float EngineWearPerM = 0.0031373f;
         public const float PaintWearPerM = 0.00062746f;
+        // Road dirt per km driven (OwnedCar.dirt): a dry road takes ~250 km
+        // to film a clean car over, a wet one ~65 km (spray). WASH clears it.
+        public const float DirtPerKmDry = 0.004f;
+        public const float DirtPerKmWet = 0.015f;
+        public const int WashCost = 8;
         public const float RaceWearScale = 1.0f;
 
         /// <summary>
@@ -1302,6 +1307,8 @@ namespace PSXRacing.LifeSim
                 car.carHP = Mathf.Max(0f, car.carHP - 0.005f * RaceHandoff.DriftSeconds);
                 car.paint = Mathf.Max(0f, car.paint - PaintWearPerM * meters * wearMult
                                               - 0.003f * RaceHandoff.DriftSeconds);
+                car.dirt = Mathf.Min(1f, car.dirt + meters / 1000f
+                                     * Mathf.Lerp(DirtPerKmDry, DirtPerKmWet, Seasons.RoadWetT));
 
                 // 4a. HEAT. Everything the coolant gauge did out there, banked
                 // from what the model MEASURED rather than derived from the
@@ -2232,6 +2239,19 @@ namespace PSXRacing.LifeSim
             car.coolant = 100f;
             s.calendarLog.Add(LogDate(s.day) + ": topped up the coolant in " +
                               car.displayName);
+            return null;
+        }
+
+        /// <summary>WASH: the road dirt off the finish (OwnedCar.dirt), so a
+        /// clean car's paint shines again. Null on success, else why not.</summary>
+        public static string WashCar(LifeState s, OwnedCar car)
+        {
+            if (car == null) return "no car";
+            if (car.dirt < 0.02f) return "it is already clean";
+            if (s.money < WashCost) return "need " + MenuKit.Money(WashCost);
+            s.money -= WashCost;
+            car.dirt = 0f;
+            s.calendarLog.Add(LogDate(s.day) + ": washed " + car.displayName);
             return null;
         }
 

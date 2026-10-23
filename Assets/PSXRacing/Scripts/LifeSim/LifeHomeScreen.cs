@@ -3290,12 +3290,25 @@ namespace PSXRacing.LifeSim
             // car in the garage: CarMarket refuses that sale, and a button whose
             // only outcome is a refusal is worse than no button.
             if (S.cars.Count > 1)
-            {
                 MenuKit.Button(body, "SELL / LIST AD", new Vector2(0.5f, 1f),
                     new Vector2(MenuKit.ColLeft(ColL, gBtnW), y), new Vector2(gBtnW, 42f),
                     () => { tab = "market"; Rebuild(); }, 16);
-                y -= 52f;
-            }
+            // WASH: road dirt dulls the paint's shine (PaintGloss) until the
+            // car is washed. Not at a shop: the car has to be here.
+            bool clean = car.dirt < 0.02f;
+            bool canWash = !away && !clean && S.money >= LifeRules.WashCost;
+            MenuKit.Button(body,
+                clean ? "CLEAN" : "WASH  " + MenuKit.Money(LifeRules.WashCost),
+                new Vector2(0.5f, 1f),
+                new Vector2(MenuKit.ColLeft(gRight, gBtnW), y), new Vector2(gBtnW, 42f),
+                !canWash ? (UnityEngine.Events.UnityAction)null : () =>
+                {
+                    string why = LifeRules.WashCar(S, car);
+                    if (why == null) LifeSimManager.Save();
+                    Rebuild();
+                    Toast(why ?? "washed " + Clip(car.displayName, 30));
+                }, 16, canWash ? (Color?)null : MenuKit.BtnBgDisabled);
+            y -= 52f;
 
             y -= 6f;
             MenuKit.Button(body, "< BACK TO MY CARS", new Vector2(0.5f, 1f),

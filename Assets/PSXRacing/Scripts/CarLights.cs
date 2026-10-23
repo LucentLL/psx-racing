@@ -277,6 +277,10 @@ namespace PSXRacing
         public static bool OwnSpillOff;
         Renderer spillRenderer;
         bool spillOn;
+        // THE FINISH (PaintGloss): this car's shine on its paint, asked again
+        // each second (a wash, a new shell) and written only when it changed.
+        float glossAt = -1f, glossSet = -1f;
+        Renderer glossRenderer;
 
         MeshRenderer[] headLens = new MeshRenderer[2];
         MeshRenderer[] tailLens = new MeshRenderer[2];
@@ -502,6 +506,17 @@ namespace PSXRacing
             WriteSpill(r, lit);
         }
 
+        void UpdateGloss()
+        {
+            if (Time.time < glossAt && spillRenderer == glossRenderer) return;
+            glossAt = Time.time + 1f;
+            float g = PaintGloss.For(gameObject);
+            if (Mathf.Abs(g - glossSet) < 0.005f && spillRenderer == glossRenderer) return;
+            PaintGloss.WriteAll(transform, g);
+            glossSet = g;
+            glossRenderer = spillRenderer;
+        }
+
         void WriteSpill(Renderer r, bool lit)
         {
             if (spillBlock == null) spillBlock = new MaterialPropertyBlock();
@@ -576,12 +591,15 @@ namespace PSXRacing
             // after every LateUpdate, so this is where it will be drawn).
             UpdateTailLamp();
             UpdateOwnSpill();
+            UpdateGloss();
 
             // Once per frame for the whole field, by whichever car runs first.
             if (pushedFrame != Time.frameCount)
             {
                 pushedFrame = Time.frameCount;
                 PushGlobals();
+                // the rain's water film on every car's paint (THE FINISH)
+                Shader.SetGlobalFloat(PaintGloss.CarWetId, Seasons.RoadWetT);
             }
         }
 
