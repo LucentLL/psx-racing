@@ -729,7 +729,7 @@ namespace PSXRacing.EditorTools
         // ------------------------------------------------------------------
         /// <summary>The '69 Charger on BlueRidge at noon, on the straightest
         /// run with the stone wall on its left (ReflectionShots' "auto" spot),
-        /// driven 0.4 m a step for PSX_REFLMAP_FRAMES steps; the chase lens
+        /// driven 0.4 m a step for PSX_REFLMAP_WALLSTEPS (24) steps; the chase lens
         /// and a rear three-quarter from the wall side, rigid on the car, a
         /// whole set of faces every step. Writes each step as it is and as the
         /// reflection alone (debug 6), for films:
@@ -752,7 +752,7 @@ namespace PSXRacing.EditorTools
             if (globals != null) globals.SendMessage("Apply", SendMessageOptions.DontRequireReceiver);
             Vector3 start = car.position, fwd = car.forward;
             var rot0 = car.rotation;
-            int steps = Mathf.Clamp(EnvInt("PSX_REFLMAP_FRAMES", 24), 4, 120);
+            int steps = Mathf.Clamp(EnvInt("PSX_REFLMAP_WALLSTEPS", 24), 4, 120);
             const float stepM = 0.4f;
             const int W = 1280, H = 720;
             var frame = ChaseCamera.FrameOf(player);

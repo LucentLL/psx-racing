@@ -320,6 +320,17 @@ namespace PSXRacing
 
             for (int i = 0; i < hidden.Count; i++)
                 if (hidden[i] != null) hidden[i].forceRenderingOff = hiddenWas[i];
+
+            // The paint traces from the car's eye AS IT IS NOW, every frame -
+            // not from where the published set was drawn. Traced from the
+            // set's eye, the reflection slid on between refreshes and snapped
+            // back at each one wherever the measured distance was off (the
+            // glass changed half as much again as a refresh every frame
+            // would); from the car's own eye a rigid car's reflection holds
+            // still between sets, as it always did.
+            Vector3 eyeNow = car.position + car.up * EyeUp;
+            if (drawn >= 6)
+                Shader.SetGlobalVector(EnvEyeId, new Vector4(eyeNow.x, eyeNow.y, eyeNow.z, EyeUp));
             if (!whole) return;
 
             Graphics.Blit(null, pano, stitch);
@@ -327,8 +338,7 @@ namespace PSXRacing
             // Readers ask for a blur in mips of a 512-wide panorama
             // (PSXSkyReflect.cginc): +1 at 1024, -1 at 256.
             Shader.SetGlobalFloat(EnvLodBiasId, Mathf.Log(pano.width / 512f, 2f));
-            // where the set was drawn from, and how far the world is round it
-            Shader.SetGlobalVector(EnvEyeId, new Vector4(setEye.x, setEye.y, setEye.z, EyeUp));
+            // how far the world is round the car, measured with this set
             Shader.SetGlobalVector(EnvRad0Id, new Vector4(radius[0], radius[1], radius[2], radius[3]));
             Shader.SetGlobalVector(EnvRad1Id, new Vector4(radius[4], radius[5], radius[6], radius[7]));
             Shader.SetGlobalFloat(EnvOnId, 1f);

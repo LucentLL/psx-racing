@@ -164,15 +164,14 @@ float3 PSXEnvIn(float3 R, float lod)
 // the panorama is at infinity: a panel shows one direction, and a house going
 // past can only sweep across the body by angle. CarReflections measures how
 // far the nearest solid thing is round the eye in eight headings
-// (_PSXEnvRad0/1, metres, k x 45 degrees of atan2(z, x)) and where the eye is
-// (_PSXEnvEye.xyz, .w its height over the road); this traces the pixel's own
-// reflected ray from where the pixel IS to that cylinder (or to the road
-// first) and returns the direction of the hit as the eye sees it - so the
-// world flows past along a door at road speed, as in a mirror - and keeps
-// flowing between refreshes, because the pixel's offset from the set's eye
-// grows as the car moves on. Pixels more than a few metres from the eye (the
-// other cars, which borrow the player's panorama) keep R. Unset
-// (_PSXEnvEye.w 0): R exactly.
+// (_PSXEnvRad0/1, metres, k x 45 degrees of atan2(z, x)) and where the car's
+// eye is this frame (_PSXEnvEye.xyz, .w its height over the road); this
+// traces the pixel's own reflected ray from where the pixel IS to that
+// cylinder (or to the road first) and returns the direction of the hit as the
+// eye sees it - so a flat door shows the world laid along it, and it goes by
+// from the front of the door to the back as the car passes, as in a mirror.
+// Pixels more than a few metres from the eye (the other cars, which borrow
+// the player's panorama) keep R. Unset (_PSXEnvEye.w 0): R exactly.
 float4 _PSXEnvEye;
 float4 _PSXEnvRad0, _PSXEnvRad1;
 float PSXEnvRadius(float2 dxz)
@@ -187,7 +186,7 @@ float PSXEnvRadius(float2 dxz)
 float3 PSXEnvRay(float3 wpos, float3 R)
 {
     float3 o = wpos - _PSXEnvEye.xyz;
-    // (6 m: the player's nose, a set of faces after its eye at speed)
+    // (the player's own body is within 3 m of its eye; a car alongside is further)
     float near = (1.0 - smoothstep(6.0, 10.0, length(o))) * step(0.001, _PSXEnvEye.w);
     // |o.xz + t R.xz| = r, the far root (the pixel is inside the cylinder)
     float a = max(dot(R.xz, R.xz), 1e-6);
