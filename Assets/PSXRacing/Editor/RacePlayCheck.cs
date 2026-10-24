@@ -870,6 +870,46 @@ namespace PSXRacing.EditorTools
                                   $"max traffic {maxTraffic} | fails {RacePlayCheck.failures}");
             // NONE means none: nothing on the road, the whole race.
             if (lvl == "NONE") RacePlayCheck.Check(maxTraffic == 0, "TRAFFIC NONE: not one traffic car on the road", maxTraffic);
+            RacePlayCheck.Note($"UNDRAWN RAILS (owner 2026-10-24, invisible walls on 277): {railSamples} samples at 4 Hz, " +
+                               $"{railUndrawn} with a solid Guardrail within {RailProbeM:0} m of a car and nothing drawn for it, " +
+                               $"{railUndrawnRails.Count} rails, nearest {(railNearest < float.MaxValue ? railNearest.ToString("0.0") + " m" : "-")}");
+            RacePlayCheck.Check(railUndrawn == 0, "no car comes within 40 m of a W-beam rail that is solid but not drawn (UNDRAWN RAILS)", railUndrawn);
+        }
+
+        // ---- UNDRAWN RAILS: a Guardrail collider stands at a tile's build; its
+        // drawn W-beam must stand with it (GuardrailDrawn), or - before
+        // 2026-10-24 - in the tile's Furniture, which plants later ----
+        const float RailProbeM = 40f;
+        float lastRail;
+        int railSamples, railUndrawn;
+        float railNearest = float.MaxValue;
+        readonly HashSet<Collider> railUndrawnRails = new HashSet<Collider>();
+        readonly Collider[] railHits = new Collider[64];
+
+        void RailCheck()
+        {
+            if (Time.time - lastRail < 0.25f || rm.allCars == null) return;
+            lastRail = Time.time;
+            railSamples++;
+            bool any = false;
+            foreach (var c in rm.allCars)
+            {
+                if (c == null) continue;
+                var p = c.transform.position;
+                int n = Physics.OverlapSphereNonAlloc(p, RailProbeM, railHits, 1 << PSXRacing.City.CityWorld.SolidLayer, QueryTriggerInteraction.Ignore);
+                for (int i = 0; i < n; i++)
+                {
+                    var h = railHits[i];
+                    if (h == null || h.name != "Guardrail" || h.transform.parent == null) continue;
+                    var root = h.transform.parent;
+                    if (root.Find("GuardrailDrawn") != null || root.Find("Furniture") != null) continue;
+                    any = true;
+                    railUndrawnRails.Add(h);
+                    float d = Vector3.Distance(h.bounds.ClosestPoint(p), p);   // a concave MeshCollider's ClosestPoint is the query point
+                    if (d < railNearest) railNearest = d;
+                }
+            }
+            if (any) railUndrawn++;
         }
 
         /// <summary>Per car, the last 3 s: time, lateral (m right of the
@@ -1129,6 +1169,7 @@ namespace PSXRacing.EditorTools
             if (fms > 100f) frames100++;
             if (fms > worstFrameMs) worstFrameMs = fms;
             BenchCheck();
+            RailCheck();
             if (Time.time - lastEye < 0.1f) return;
             lastEye = Time.time;
             eyeHint = rm.path.NearestIndex(rm.playerCar.transform.position, eyeHint, 40);

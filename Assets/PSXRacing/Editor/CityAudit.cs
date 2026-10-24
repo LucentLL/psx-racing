@@ -599,7 +599,9 @@ namespace PSXRacing.EditorTools
             Line($"drive audit along the race routes ({(ids.Count > 0 ? string.Join(",", ids) : "all")}): {routeEdges.Count} route edges on {tiles.Count} tiles");
             CityMeshes.carryOnSkipped.Clear();
             CityMeshes.sameWayDeckSides.Clear();
+            MedianLateralReset(map);
             DriveAudit(map, trims, buildings, tiles, routeEdges);
+            MedianLateralReport();
             {
                 var sw = new List<int>(CityMeshes.sameWayDeckSides); sw.Sort();
                 var ssb = new StringBuilder(); int swRoute = 0;
@@ -805,7 +807,7 @@ namespace PSXRacing.EditorTools
                             else if (counted) { reAll++; if (approach) reApproach++; if (guard) reGuard++; }
                             else { oReAll++; if (approach) oReApproach++; }
                             var rr = rec >= 0 ? railRecs[rec] : default;
-                            if (reNotes.Count < 80)
+                            if (reNotes.Count < 80 || (approach && !trailing && reNotes.Count < 200))   // the failing kind always listed
                                 reNotes.Add($"RAILEND {spot} ({hb.point.x:0.0},{hb.point.z:0.0}){(approach ? " APPROACH" : "")}{(trailing ? " TRAILING" : "")}{(counted ? "" : " (other road)")} along e{e.index} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} s={s:0}/{e.length:0} lateral {lat:+0.00;-0.00} {(dsg > 0 ? "ahead" : "behind")}: {(guard ? "Guardrail" : $"rail e{rr.edge} side {rr.side} node {rr.node} s {rr.s0:0.0}..{rr.s1:0.0}")} face {hb.distance:0.0} m on, {hb.point.y - baseY:+0.00} over the surface, facing {facing:0.00}{CityMeshes.DescribeSide(map, trims, e, Mathf.Clamp(sh, 0f, e.length), sd)}");
                         }
                     }
@@ -874,6 +876,7 @@ namespace PSXRacing.EditorTools
                     Physics.SyncTransforms();
                     FanMouths(map, trims, ptx, ptz);
                     if (spot == "w5th") W5thLateral(map, trims);
+                    if (routeMode && routeEdges != null) MedianLateral(map, trims, ptx, ptz, routeEdges);
 
                     var min = new Vector2(ptx * CityMeshes.TileSize, ptz * CityMeshes.TileSize);
                     var max = min + Vector2.one * CityMeshes.TileSize;

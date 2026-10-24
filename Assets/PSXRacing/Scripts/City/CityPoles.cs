@@ -704,12 +704,9 @@ namespace PSXRacing.City
                 for (int q = 0; q + 4 < tm.deckDark.Count; q += 5)
                     Quad(tm.origin + tm.deckDark[q], tm.origin + tm.deckDark[q + 1], tm.origin + tm.deckDark[q + 2], tm.origin + tm.deckDark[q + 3],
                          tm.deckDark[q + 4], CellBlack);
-            // leftover item 2: the W-beam lead-ins at the tile's parapet ends
-            if (tm != null)
-            {
-                foreach (var w in tm.wbeams) EmitWBeam(tm.origin, w);
-                foreach (var p in tm.wbeamPosts) EmitWBeamPost(tm.origin, p);
-            }
+            // (the W-beam lead-ins are NOT drawn here any more: CityWorld.Attach
+            // draws them with their collider, so a rail is never solid before it
+            // is visible - see WBeamMesh)
             pt.mesh = End(tm != null ? tm.origin : new Vector3(min.x, 0f, min.y));
             pt.ms = (float)clock.Elapsed.TotalMilliseconds;
             return pt;
@@ -1067,7 +1064,9 @@ namespace PSXRacing.City
         // ---- the W-beam lead-ins (leftover item 2, CityMeshes.EmitWBeam) ----
 
         /// <summary>A tile's W-beam lead-ins alone, as a furniture-atlas mesh
-        /// (null if none): the city preview draws them without the poles.</summary>
+        /// (null if none): CityWorld.Attach draws it with the rails' collider, at the
+        /// tile's build (never later, or a rail is solid before it is seen), and
+        /// the city preview draws it without the poles.</summary>
         public static Mesh WBeamMesh(CityMeshes.TileMeshes tm)
         {
             if (tm == null || tm.wbeams.Count == 0) return null;

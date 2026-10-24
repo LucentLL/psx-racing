@@ -825,12 +825,28 @@ namespace PSXRacing.City
             if (tm.guardrails != null)
             {
                 // Leftover item 2: the W-beam lead-ins at parapet ends are
-                // solid here, on the Solid layer like every barrier; they are
-                // DRAWN with the tile's furniture (CityPoles), the one draw its
-                // poles and lamps already are. Collider only, no renderer.
+                // solid here, on the Solid layer like every barrier, and DRAWN
+                // here too, on the furniture atlas. Until 2026-10-24 they were
+                // drawn with the tile's furniture, which plants only on a frame
+                // no tile builds or once a car is IN the tile: in a race tiles
+                // build nearly every frame, so a rail at the edge of the tile
+                // ahead stood solid and undrawn when the car met it (owner:
+                // "almost every race on 277 I hit invisible walls").
                 var g = Child(root, "Guardrail", SolidLayer);
                 CookCollider(g, tm.guardrails);
                 meshes.Add(tm.guardrails);
+                var wbm = CityPoles.WBeamMesh(tm);
+                if (wbm != null)
+                {
+                    var wg = Child(root, "GuardrailDrawn", 0);
+                    wg.AddComponent<MeshFilter>().sharedMesh = wbm;
+                    var mr = wg.AddComponent<MeshRenderer>();
+                    mr.sharedMaterial = CityPoles.Material();
+                    mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    mr.receiveShadows = false;
+                    SunShadows.Exclude(wg);
+                    meshes.Add(wbm);
+                }
             }
             if (tm.kerbs != null)
             {
