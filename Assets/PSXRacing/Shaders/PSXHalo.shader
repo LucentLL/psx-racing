@@ -52,6 +52,19 @@
 // pulses: a slow beacon flash, BEACON_PERIOD seconds, phase frac(-uv1.y), so
 // the towers do not flash in step. uv1.y = -0.5 is a steady strip bead.
 //
+// THE FAR CITY'S LIGHTS (CityFarLights, 2026-10-24; the owner's NFS night
+// frame: "Distant building lights are visible from a mile away"). With
+// _OwnDepth on, a tower light (uv1.y < 0) is NOT squeezed: it is drawn in
+// the far skyline's OWN depth (PSXLit.shader, THE SKYLINE'S OWN DEPTH - the
+// same mapping), between the skyline's colour draw and its depth reset, so
+// the far towers and the far land (CityFarLand) hide it exactly where they
+// stand in front of it, kilometres out. It takes no pull toward the eye,
+// none inside the squeeze's start (the streamed world's own lamps stand
+// there) and dims with its real distance past _FarFall metres.
+// _PSXFarWorld (a global, 1 while the far city is drawn) holds the streamed
+// world's own halos whole nearly to their end, so the hand-over to the far
+// lights is not a dim ring of lamps.
+//
 // PSX/Halo is created at runtime only (NightGlow: Shader.Find), never by a
 // saved .mat, so it is in ProjectSettings' Always Included Shaders or a
 // WebGL build would not have it.
@@ -64,6 +77,9 @@ Shader "PSX/Halo"
         _Size ("Halo half-size (m)", Float) = 2.6
         _HaloAmt ("Soft halo amount", Range(0, 1)) = 0.35
         _MinPixels ("Minimum size (framebuffer px)", Float) = 1.5
+        [HideInInspector] _OwnDepth ("Far lights: the skyline's own depth", Float) = 0
+        [HideInInspector] _FarFall ("Far lights: dim past (m)", Float) = 0
+        [HideInInspector] _FarLead ("Far lights: depth lead (m)", Float) = 0
     }
     SubShader
     {
@@ -103,10 +119,23 @@ Shader "PSX/Halo"
             float _Size;
             float _HaloAmt;
             float _MinPixels;
+            float _OwnDepth;
+            float _FarFall;
+            float _FarLead;
 
             float _PSXWetness;
             float _PSXFogFar;
             float _PSXFogNear;
+            float _PSXFarWorld;     // a global: 1 while the far city is drawn (the header)
+            #define HALO_FULL_FAR  0.96     // ...when the streamed lamps hold whole this far into their end
+            #define SKY_OWN_NEAR   5.0      // PSXLit.shader's SKYLINE_OWN_NEAR / FAR, the same numbers
+            #define SKY_OWN_FAR    40000.0
+            #if defined(UNITY_REVERSED_Z)
+                #define SKY_FAR_CLIP   0.0
+            #else
+                #define SKY_FAR_CLIP   1.0
+            #endif
+            #define FAR_FADE_IN    40.0     // metres past the squeeze's start a far light comes up over
 
             // THE SKYLINE'S LIGHTS (the header): PSXLit.shader's SKYLINE_FAR /
             // SKYLINE_BAND, the same numbers (CitySkyline.FarShare / BandShare)
@@ -149,12 +178,13 @@ Shader "PSX/Halo"
                 // All four corners share the centre; the quad is made here.
                 float4 wc = mul(unity_ObjectToWorld, float4(v.vertex.xyz, 1.0));
                 bool skyLight = v.uv1.y < -0.25;
+                bool own = skyLight && _OwnDepth > 0.5;
                 float realDist = length(wc.xyz - _WorldSpaceCameraPos);
-                if (skyLight)
+                float sF = _ProjectionParams.z * SKY_FAR;
+                float sA = min(_PSXFogNear, sF - 30.0);
+                sA = sA < 50.0 ? min(50.0, sF * 0.5) : sA;
+                if (skyLight && !own)
                 {
-                    float sF = _ProjectionParams.z * SKY_FAR;
-                    float sA = min(_PSXFogNear, sF - 30.0);
-                    sA = sA < 50.0 ? min(50.0, sF * 0.5) : sA;
                     float span = max((sF - sA) * SKY_BAND, 1.0);
                     float spanE = span * (1.0 - SKY_TAIL);
                     float sx = max(realDist - sA, 0.0);
@@ -167,8 +197,8 @@ Shader "PSX/Halo"
                 float3 vc = mul(UNITY_MATRIX_V, wc).xyz;
                 float dist = length(vc);
 
-                // Toward the eye, but never through it.
-                float pull = min(HALO_PULL, dist * 0.5);
+                // Toward the eye, but never through it (a far light: not at all).
+                float pull = own ? 0.0 : min(HALO_PULL, dist * 0.5);
                 vc -= vc * (pull / max(dist, 1e-3));
 
                 // The smallest half-size that still reaches _MinPixels of the
@@ -193,12 +223,32 @@ Shader "PSX/Halo"
                 vc.xy += q * size;
                 o.pos = mul(UNITY_MATRIX_P, float4(vc, 1.0));
                 o.q = q;
+                if (own)
+                {
+                    // THE FAR CITY'S LIGHTS (the header): the skyline's own
+                    // depth, and none inside the squeeze's start
+                    // _FarLead metres nearer: a lamp in a wooded street shows
+                    // through its own block's crowns (the far land's 128 m
+                    // canopy is solid, a real one is not), never through a hill
+                    float zr = clamp(depth - _FarLead, SKY_OWN_NEAR, SKY_OWN_FAR);
+                    float d01 = (1.0 / SKY_OWN_NEAR - 1.0 / zr) / (1.0 / SKY_OWN_NEAR - 1.0 / SKY_OWN_FAR);
+                    o.pos.z = lerp(UNITY_NEAR_CLIP_VALUE, SKY_FAR_CLIP, d01) * o.pos.w;
+                    if (realDist < sA) o.pos = float4(0.0, 0.0, 0.0, 1.0);
+                }
 
                 // Slower than the fog, never clipped by the far plane.
                 float end = min(_PSXFogFar * HALO_FAR, _ProjectionParams.z * HALO_CLIP);
-                float start = min(_PSXFogFar, HALO_FULL * end);
+                float start = min(_PSXFogFar, lerp(HALO_FULL, HALO_FULL_FAR, saturate(_PSXFarWorld)) * end);
                 float fade = 1.0 - saturate((dist - start) / max(end - start, 1.0));
-                if (skyLight)
+                if (own)
+                {
+                    // hazed by the real distance, dimmer past _FarFall (its
+                    // dot keeps its pixels, so its light must thin), up over
+                    // FAR_FADE_IN from the squeeze's start
+                    float ff = _FarFall > 0.0 ? realDist / _FarFall : 0.0;
+                    fade = exp(-realDist / SKY_HAZE_M) / (1.0 + ff * ff) * saturate((realDist - sA) / FAR_FADE_IN);
+                }
+                else if (skyLight)
                 {
                     // hazed by the real distance, never cut by the fog band
                     fade = exp(-realDist / SKY_HAZE_M);

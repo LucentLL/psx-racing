@@ -124,6 +124,44 @@ Shader "PSX/Sky"
             #define MILKY_WIDTH    3.6    // band = exp(-(dot(dir, pole) * WIDTH)^2)
             #define MILKY_STARS    0.10   // extra share of cells holding a star inside the band
             #define MILKY_GLOW     float3(0.030, 0.032, 0.042)
+            // THE CITY'S GLOW (owner, 2026-10-24, an NFS night frame: the
+            // skyline black against a lit haze). A lit city lights the air
+            // over it: low over its bearing the night sky is brighter, and
+            // its towers stand black against that. IN THE SKY ONLY - nothing
+            // in front of it is tinted (the owner's rule: no fog unless the
+            // weather is Fog). Pushed by CityWorld (CityFarLand.PushGlow):
+            // _PSXCityGlow xz the glow's centre (uptown), y the lit city's
+            // radius in metres, w its strength (0 = off: every other venue,
+            // every day hour, fog); _PSXCityGlowCol rgb its colour (linear),
+            // a the height of the lit air in metres. Across: a Gaussian in the
+            // bearing, as wide as the city's angular radius from here (all
+            // round once inside it); up: a Gaussian over the lit air's height
+            // as seen from here, never under GLOW_MIN_EL (measured 2026-10-24:
+            // an e-folding one lifted the sky 30 degrees up from 17 to 35-48).
+            #define GLOW_MIN_EL    0.035   // radians: the least angular height of the glow
+            #define GLOW_ROUND     0.25    // share of the glow all round the horizon when inside the city
+            float4 _PSXCityGlow;
+            float4 _PSXCityGlowCol;
+            float3 CityGlow(float3 dir)
+            {
+                if (_PSXCityGlow.w <= 0.0) return float3(0, 0, 0);
+                float2 to = _PSXCityGlow.xz - _WorldSpaceCameraPos.xz;
+                float d = length(to);
+                float R = max(_PSXCityGlow.y, 1.0);
+                float2 h = dir.xz;
+                float hl = length(h);
+                float cosB = hl > 1e-4 && d > 1e-3 ? dot(h / hl, to / d) : 1.0;
+                float ang = acos(clamp(cosB, -1.0, 1.0));
+                float angR = atan2(R, max(d, 1.0));
+                float across = exp(-(ang * ang) / (angR * angR));
+                float inside = saturate(1.0 - d / R);
+                across = max(across, GLOW_ROUND * inside);
+                float elR = max(atan2(_PSXCityGlowCol.a, max(d, R * 0.5)), GLOW_MIN_EL);
+                float el = asin(clamp(dir.y, -1.0, 1.0));
+                float u = max(el, 0.0) / elR;
+                float up = exp(-u * u);
+                return _PSXCityGlowCol.rgb * (_PSXCityGlow.w * across * up);
+            }
 
             struct appdata { float4 vertex : POSITION; };
             struct v2f
@@ -288,6 +326,8 @@ Shader "PSX/Sky"
                 float3 upper = col * (adapt * keep);
                 if (_Dynamic < 0.5) upper = PSXToneSky(upper);
                 col = lerp(upper, PSXToneSky((bandCol * PSXFogRing(dir, _Rotation) + sunHaze) * adapt), hz * hz);
+                // THE CITY'S GLOW (above), over the band and the sky alike
+                col += CityGlow(dir) * adapt;
                 // And below is the ground colour, not a mirror of the sky —
                 // these panoramas render the lower hemisphere as a reflection,
                 // which seen from a bridge deck is a lake hanging in the air.

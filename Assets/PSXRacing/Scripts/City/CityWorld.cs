@@ -273,18 +273,26 @@ namespace PSXRacing.City
             // Uptown B4: the far skyline, before any tile job holds the
             // builder's scratch
             Skyline = CitySkyline.Create(transform, Map, nodeTrims, MatFor);
+            // the far city (2026-10-24): the land, the lights and the glow
+            // past the streamed ring; the skyline's buildings keep their own windows
+            Far = CityFar.Create(transform, Map, MatFor, Skyline != null ? Skyline.Outlines : null, buildings);
         }
 
         /// <summary>Uptown B4: the tallest core towers past the streamed ring
         /// (null without a facade material).</summary>
         public CitySkyline Skyline { get; private set; }
+        /// <summary>The far city: land, lights, glow (CityFar).</summary>
+        public CityFar Far { get; private set; }
         System.Func<long, bool> isLive;
 
-        /// <summary>The skyline for this camera: what the live tiles draw is
-        /// left to them, its bounds and haze set. The game calls it every
-        /// frame; a tool that moves a camera by hand calls it before a shot.</summary>
+        /// <summary>The skyline and the far city for this camera: what the
+        /// live tiles draw is left to them, bounds, band and glow set. The
+        /// game calls it every frame; a tool that moves a camera by hand calls
+        /// it before a shot. The far city first: the skyline reads the edge
+        /// band it sets.</summary>
         public void RefreshSkyline(Camera cam)
         {
+            if (Far != null) Far.Refresh(cam);
             if (Skyline == null) return;
             if (isLive == null) isLive = k => live.ContainsKey(k);
             Skyline.Refresh(cam, isLive);
@@ -292,7 +300,7 @@ namespace PSXRacing.City
 
         void LateUpdate()
         {
-            if (Skyline != null) RefreshSkyline(Camera.main);
+            if (Skyline != null || Far != null) RefreshSkyline(Camera.main);
         }
 
         /// <summary>The key of the tile a plan point stands in (the tile a

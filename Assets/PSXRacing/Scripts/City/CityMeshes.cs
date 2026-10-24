@@ -4010,6 +4010,19 @@ namespace PSXRacing.City
             if (bothSides) gap *= 0.5f;
         }
 
+        /// <summary>The far city's lamps (CityFar, 2026-10-24): whether an
+        /// edge stands lamp posts at all, as <see cref="PlaceLamps"/> decides
+        /// it (no link, tunnel or deck; a pole line's cobra-heads count), its
+        /// pitch between posts, their height and whether they keep to the
+        /// outside.</summary>
+        public static bool FarLampPlan(CityMap map, CityMap.Edge e, out float gap, out float height, out bool outsideOnly)
+        {
+            gap = 0f; height = 0f; outsideOnly = false;
+            if (e.link || e.tunnel || e.bridge || e.length < LampMinRunM) return false;
+            LampPlanOf(map, e, out gap, out outsideOnly, out height, out _);
+            return gap > 1f;
+        }
+
         static readonly List<float> lampEnds = new List<float>(8);
         static readonly HashSet<int> lampSegs = new HashSet<int>();
         static readonly HashSet<int> lampNodes = new HashSet<int>();

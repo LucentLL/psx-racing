@@ -66,13 +66,45 @@ namespace PSXRacing.City
 
         /// <summary>The three draws (PSX/Lit _SkylinePass 1..3), each a
         /// renderer on the one mesh: its queue, ZWrite, ZTest, ColorMask.
-        /// Before the world's Geometry (2000), so the world covers them.</summary>
+        /// Before the world's Geometry (2000), so the world covers them. The
+        /// far land (CityFar) takes the same three; the far lights draw
+        /// between the first and the second (<see cref="FarLightsQueue"/>),
+        /// in the depth the first wrote.</summary>
         static readonly (string name, int queue, float zwrite, float ztest, float mask)[] Draws =
         {
-            ("CitySkyline", 1990, 1f, (float)UnityEngine.Rendering.CompareFunction.LessEqual, 15f),
-            ("CitySkyline depth reset", 1991, 1f, (float)UnityEngine.Rendering.CompareFunction.Always, 0f),
-            ("CitySkyline band depth", 1992, 1f, (float)UnityEngine.Rendering.CompareFunction.LessEqual, 0f),
+            ("CitySkyline", 1985, 1f, (float)UnityEngine.Rendering.CompareFunction.LessEqual, 15f),
+            ("CitySkyline depth reset", 1987, 1f, (float)UnityEngine.Rendering.CompareFunction.Always, 0f),
+            ("CitySkyline band depth", 1988, 1f, (float)UnityEngine.Rendering.CompareFunction.LessEqual, 0f),
         };
+        public const int DrawCount = 3;
+        /// <summary>The far city's lights (CityFar): after every colour draw
+        /// of the skyline and the far land, before their depth reset.</summary>
+        public const int FarLightsQueue = 1986;
+
+        /// <summary>Make <paramref name="m"/> (a PSX/Lit copy) draw
+        /// <paramref name="draw"/> (0..2) of the skyline's three, squeezed,
+        /// with no haze.</summary>
+        public static void SetDraw(Material m, int draw)
+        {
+            m.SetFloat("_Skyline", HazeClearM);
+            m.SetFloat("_SkylinePass", draw + 1);
+            m.SetFloat("_SkyZWrite", Draws[draw].zwrite);
+            m.SetFloat("_SkyZTest", Draws[draw].ztest);
+            m.SetFloat("_SkyColorMask", Draws[draw].mask);
+            m.renderQueue = Draws[draw].queue;
+        }
+
+        /// <summary>THE MID-RISE TIER (the far city, 2026-10-24): every
+        /// building this tall or more within <see cref="MidCoreM"/> of uptown
+        /// stands on the far land too - uptown's edges, midtown, South End,
+        /// the hospitals - drawn while it is within <see cref="MidDrawM"/> of
+        /// the eye. Their walls and lit floors are the tiles' own.</summary>
+        public const float MidMinM = 20f, MidCoreM = 7000f;
+        public static float MidDrawM => Application.isMobilePlatform ? 4500f : 7000f;
+        /// <summary>The outlines the skyline draws (its towers and its mid-rise
+        /// tier): the far lights leave their windows to it.</summary>
+        public readonly HashSet<int> Outlines = new HashSet<int>();
+        bool[] mid;
 
         CityMeshes.SkylineMesh sm;
         long[] tile;
@@ -91,6 +123,7 @@ namespace PSXRacing.City
         public CityBeacons Beacons => beacons;
 
         public int TowerCount { get; private set; }
+        public int MidCount { get; private set; }
         public int ElementCount => hidden != null ? hidden.Length : 0;
         public int Triangles => sm != null ? sm.triangles : 0;
         /// <summary>Buildings drawn now (not left to their tiles).</summary>
@@ -102,7 +135,10 @@ namespace PSXRacing.City
         public static CitySkyline Create(Transform parent, CityMap map, CityMeshes.Trims trims,
                                          System.Func<CityMeshes.Slot, Material> matFor)
         {
-            var elems = Pick(map, out int towers, out int pack);
+            var outlines = new HashSet<int>();
+            var midOf = new List<bool>();
+            var pickClock = System.Diagnostics.Stopwatch.StartNew();
+            var elems = Pick(map, out int towers, out int pack, out int mids, outlines, midOf);
             if (elems.Count == 0) return null;
             var sm = CityMeshes.BuildSkyline(map, trims, elems);
             if (sm == null) return null;
@@ -118,7 +154,10 @@ namespace PSXRacing.City
             var sk = go.AddComponent<CitySkyline>();
             sk.sm = sm;
             sk.TowerCount = towers;
+            sk.MidCount = mids;
             sk.PackTowersLeftOut = pack;
+            sk.Outlines.UnionWith(outlines);
+            sk.mid = midOf.ToArray();
             // its own copies, a pair per draw: the switch is a material value,
             // and the tiles' materials must never see it. Squeezed and hazed
             // from the first frame, and drawn only once a Refresh has left out
@@ -136,12 +175,7 @@ namespace PSXRacing.City
                 {
                     var src = k == 0 ? mf : mr0;
                     var m = new Material(src) { name = src.name + " (" + Draws[d].name + ")", hideFlags = HideFlags.DontSave };
-                    m.SetFloat("_Skyline", HazeClearM);
-                    m.SetFloat("_SkylinePass", d + 1);
-                    m.SetFloat("_SkyZWrite", Draws[d].zwrite);
-                    m.SetFloat("_SkyZTest", Draws[d].ztest);
-                    m.SetFloat("_SkyColorMask", Draws[d].mask);
-                    m.renderQueue = Draws[d].queue;
+                    SetDraw(m, d);
                     pair[k] = m;
                     sk.mats[d * 2 + k] = m;
                 }
@@ -172,7 +206,7 @@ namespace PSXRacing.City
             sk.hidden = new bool[n];
             // the uptown night pass: the towers' aviation beacons and crown strips
             sk.beacons = CityBeacons.Create(go.transform, map, elems, sm.bounds);
-            Debug.Log($"[CitySkyline] {towers} towers ({n} buildings and parts), {sm.triangles} triangles, 2 draws; {pack} pack towers among the tallest left to their tiles");
+            Debug.Log($"[CitySkyline] {towers} towers + {mids} mid-rise ({n} buildings and parts), {sm.triangles} triangles, 2 materials x 3 draws, built in {pickClock.ElapsedMilliseconds} ms; {pack} pack towers among the tallest left to their tiles");
             return sk;
         }
 
@@ -182,7 +216,7 @@ namespace PSXRacing.City
         /// outline unless its parts draw it, and every part of it. A lot
         /// whose tower is a pack model is left out (the model is not this
         /// mesh's to draw); it is counted.</summary>
-        static List<int> Pick(CityMap map, out int towers, out int pack)
+        static List<int> Pick(CityMap map, out int towers, out int pack, out int mids, HashSet<int> outlines, List<bool> midOf)
         {
             var cand = new List<int>();
             float r2 = CoreRadiusM * CoreRadiusM;
@@ -211,11 +245,27 @@ namespace PSXRacing.City
                 chosen.Add(i);
             }
             towers = chosen.Count;
+            // THE MID-RISE TIER: the 20 m+ buildings round uptown, the same
+            // rules (no house, no gable, no pack model)
+            var midSet = new HashSet<int>();
+            float m2 = MidCoreM * MidCoreM;
+            for (int i = 0; i < fs.Length; i++)
+            {
+                var f = fs[i];
+                if (f.part || f.gable || f.style == 3 || f.propKind != 0 || chosen.Contains(i) || TowerH(i) < MidMinM) continue;
+                if ((f.centre - map.uptown).sqrMagnitude > m2) continue;
+                midSet.Add(i);
+            }
+            mids = midSet.Count;
+            outlines.UnionWith(chosen);
+            outlines.UnionWith(midSet);
             var elems = new List<int>();
             for (int i = 0; i < fs.Length; i++)
             {
                 var f = fs[i];
-                if (f.part ? (chosen.Contains(f.outline) && f.h >= MinPartM) : (chosen.Contains(i) && !f.hidden)) elems.Add(i);
+                bool tower = f.part ? (chosen.Contains(f.outline) && f.h >= MinPartM) : (chosen.Contains(i) && !f.hidden);
+                bool midE = !tower && (f.part ? (midSet.Contains(f.outline) && f.h >= MidMinM) : (midSet.Contains(i) && !f.hidden));
+                if (tower || midE) { elems.Add(i); midOf.Add(midE); }
             }
             return elems;
         }
@@ -243,9 +293,11 @@ namespace PSXRacing.City
             var eye2 = new Vector2(eye.x, eye.z);
 
             bool dirty = false;
+            float midDraw = MidDrawM;
             for (int e = 0; e < hidden.Length; e++)
             {
-                bool hide = isLive(tile[e]) && Vector2.Distance(eye2, centre[e]) - reach[e] < fadeStart;
+                float de = Vector2.Distance(eye2, centre[e]) - reach[e];
+                bool hide = (isLive(tile[e]) && de < fadeStart) || (mid != null && mid[e] && de > midDraw);
                 if (hide != hidden[e]) { hidden[e] = hide; dirty = true; }
             }
             if (dirty) Reindex();

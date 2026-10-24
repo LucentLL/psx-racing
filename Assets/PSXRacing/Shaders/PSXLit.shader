@@ -162,6 +162,13 @@ Shader "PSX/Lit"
         [HideInInspector] _SkyZWrite ("Skyline ZWrite", Float) = 1
         [HideInInspector] _SkyZTest ("Skyline ZTest", Float) = 4
         [HideInInspector] _SkyColorMask ("Skyline ColorMask", Float) = 15
+        // THE FAR LAND (CityFarLand, 2026-10-24): 1 on the far ground's
+        // skyline copies only - drawn where the streamed world cannot reach
+        // (past the squeeze's start), never over it. 0 everywhere else.
+        [HideInInspector] _SkyFarLand ("Far land", Float) = 0
+        // ...and the far ROADS' lead in its own depth (metres nearer in draw
+        // 1): a ribbon on the far land wins over the coarse land round it
+        [HideInInspector] _SkyLeadM ("Far land lead (m)", Float) = 0
         // THE PROP ATLAS (Charlotte WP-07, PSX_ATLAS_RECT): one texture for a
         // whole city house, whose pack materials TILE (UVs well past 0..1).
         // Each vertex carries the texel rect of its own texture's cell in the
@@ -266,6 +273,13 @@ Shader "PSX/Lit"
             float _AtlasPx;
             float _Skyline;
             float _SkylinePass;
+            float _SkyFarLand;
+            float _SkyLeadM;
+            // THE FAR LAND'S LOOK (CityFar): its colours, measured off the
+            // city's own textures; a far-land vertex's UV says which (x the
+            // woods' share, y the pines' share of the woods; x 2 a road). Set
+            // only on the far land's copies (uniforms, never properties).
+            float4 _FarGround, _FarBroad, _FarPine, _FarRoad;
             // THE TERRAIN DETAIL (TerrainDetail.cs; the GT4 study, gap 4): a
             // luminance-only sheet, one class per channel at mean 0.5, read at
             // a world-space repeat and multiplied into the albedo near the eye.
@@ -312,7 +326,8 @@ Shader "PSX/Lit"
             // roof, a fin on its band, a tier on its outline) tied, and which
             // won was rounding, frame to frame. No squeeze can fix that, so
             // the skyline is drawn FIRST, in three draws of one mesh
-            // (CitySkyline: queues 1990-1992, before the world):
+            // (CitySkyline: queues 1985, 1987, 1988, before the world; the far
+            // city's lights draw at 1986, in the depth draw 1 wrote):
             //   1 colour, depth by the REAL distance over its own range,
             //     SKYLINE_OWN_NEAR..FAR (1.2 cm a step at 1 km): the towers
             //     cover each other as they really stand;
@@ -522,10 +537,15 @@ Shader "PSX/Lit"
             #define WIN_CELL_M         23.0   // world cell for the per-building variety, metres
             #define WIN_LIT_FRAC       0.34   // share of office windows lit at full night (x _PSXNight):
                                               //   dusk (0.75) lights ~25%, night ~34% (Uptown B1; was 0.42)
-            #define WIN_WARM_SHARE     0.62   // share of the lit ones that are warm (tungsten) not cool (tube)
+            // EVERY LIT WINDOW IS YELLOW (owner, 2026-10-24, on the "sky blue
+            // windows": "No blue/white windows. Yellow like the NFS screenshot
+            // I shared"). The cool tube colour read as the day sky's
+            // reflection pasted on a night tower (measured 122,146,162, sat
+            // 0.25). The second tone is a paler yellow now, for variety only.
+            #define WIN_WARM_SHARE     0.62   // share of the lit ones in the deeper yellow, not the paler one
             #define WIN_WARM           float3(1.00, 0.74, 0.42)
-            #define WIN_COOL           float3(0.70, 0.82, 1.00)
-            #define WIN_SHOP           float3(1.00, 0.86, 0.62)   // shopfront glass: always lit at night
+            #define WIN_PALE           float3(1.00, 0.84, 0.54)
+            #define WIN_SHOP           float3(1.00, 0.80, 0.48)   // shopfront glass: always lit at night (yellow, 2026-10-24; was a cream 0.86/0.62)
             #define WIN_DIM            0.55   // the dimmest lit window, as a share of the brightest
             #define WIN_GAIN           1.1
             // THE LIT CITY at night (the city-night pass, 2026-10-05; only
@@ -536,7 +556,7 @@ Shader "PSX/Lit"
             #define WIN_LIT_FRAC_CITY  0.20   // random lit windows (x _PSXNight)
             #define WIN_BAND_FRAC      0.16   // whole storeys of a building lit
             #define WIN_STOREY_M       3.8
-            #define WIN_CITY_GAIN      0.50   // a lit window's glow x this in the city
+            #define WIN_CITY_GAIN      0.62   // a lit window's glow x this in the city (0.50 until 2026-10-24: the NFS frame's windows are brighter)
             // THE TENANTS (the uptown night pass, 2026-10-16; UG2's Bayview and
             // the owner's photographs: offices light in ROWS and BLOCKS, not
             // window by window). On the atlas facades a building's storeys
@@ -554,10 +574,10 @@ Shader "PSX/Lit"
             #define FAR_COVER          0.65   // the least a far lit floor's window cover is
             #define FAR_TAPS           4      // storeys sampled across a far pixel's footprint (the box filter)
             // the atlas facades' own window colours (2026-10-17, the owner: the
-            // cream read close to the grey wall): warmer, yellower tungsten and a
-            // bluer tube than WIN_WARM / WIN_COOL, which the houses keep
+            // cream read close to the grey wall): a warmer, yellower tungsten
+            // than WIN_WARM, and (2026-10-24, no blue) a paler yellow, not a tube
             #define FAC_WIN_WARM       float3(1.00, 0.64, 0.24)
-            #define FAC_WIN_COOL       float3(0.58, 0.76, 1.00)
+            #define FAC_WIN_PALE       float3(1.00, 0.78, 0.38)
             #define BOUNCE_HIGH        0.30   // the lit streets' bounce high on a tower, as a share of the street's
             #define BOUNCE_FALL_M      40.0   //   halving every 40 m up: upper walls stay dark behind their lit blocks
             #define UPL_SHARE          0.35   // buildings with a warm uplight on the lower facade
@@ -607,6 +627,35 @@ Shader "PSX/Lit"
             // the Samuel Street block. The halation still reads the whole
             // alpha: windows keep a soft glow, a quarter of a lamp's.
             #define WIN_EMIT           0.25
+            // THE NIGHT SILHOUETTE (owner, 2026-10-24, an NFS night frame:
+            // "The city buildings look black and lit up from distance").
+            // Measured on our I-277 night frame, uptown's walls sat at the
+            // sky's own level (median Ycode 35-40 on a sky of 30): a tower read
+            // as a grey slab, not a shape. At night a facade's walls - the
+            // matte light and the glass's reflection - keep less of themselves
+            // the further off they are (FAR_WALL_KEEP by FAR_DARK_FAR). Its lit
+            // windows do not, and from FAR_WIN_NEAR out they brighten (x 1 +
+            // FAR_WIN_GAIN by FAR_WIN_FAR): a lit floor a mile off still reads,
+            // and glows in the halation, the way a city's lights carry.
+            #define FAR_DARK_NEAR      150.0
+            #define FAR_DARK_FAR       900.0
+            #define FAR_WALL_KEEP      0.35
+            #define FAR_WIN_NEAR       300.0
+            #define FAR_WIN_FAR        1600.0
+            #define FAR_WIN_GAIN       1.0
+            // ...and at ANY distance (the owner's I-277 frame, 2026-10-24:
+            // "something looks VERY wrong"): the walls and mullions up a tower
+            // read Ycode 73-78 against the photographs' 19-45, the frames 3x
+            // the glass - a lit cage, a day facade with the sky put out. From
+            // NIGHT_WALL_FROM storeys over the street (the lamps' own reach,
+            // which stays lit) to NIGHT_WALL_FULL, a wall keeps NIGHT_WALL_KEEP
+            // of its light. A lit pane REPLACES the wall it is cut in (WIN_OVER
+            // of the wall's light taken out from under it): it was added on
+            // top, so a window was only 1.8x its wall.
+            #define NIGHT_WALL_KEEP    0.45
+            #define NIGHT_WALL_FROM    2.0
+            #define NIGHT_WALL_FULL    6.0
+            #define WIN_OVER           0.85
 
             // The share of one pixel's footprint [x - fw/2, x + fw/2] (fw in
             // periods) where frac(x) < w: a train of thin lines box-filtered,
@@ -648,7 +697,7 @@ Shader "PSX/Lit"
                 float hc = PSXLitHash(cell + 431.0);
                 float lit = step(hc, FAC_NIGHT_FLOOR_P) * tw;
                 lit = lerp(lit, FAC_NIGHT_FLOOR_P * FAC_NIGHT_TOWER_P, saturate(dist / FAC_NIGHT_FAR_M));
-                float3 winC = frac(hc * 37.3) < 0.6 ? float3(1.00, 0.76, 0.46) : float3(0.72, 0.84, 1.00);
+                float3 winC = frac(hc * 37.3) < 0.6 ? float3(1.00, 0.76, 0.46) : float3(1.00, 0.86, 0.58);   // yellow, both (no blue windows)
                 float tower = step(-0.36, el) * (1.0 - smoothstep(0.08, 0.21, el));
                 float3 c = sodium * (FAC_NIGHT_BAND * band) + winC * (FAC_NIGHT_FLOORS * lit * tower);
                 c += sodium * (FAC_NIGHT_SKYGLOW * exp(-max(el, 0.0) * 6.0));
@@ -660,7 +709,7 @@ Shader "PSX/Lit"
             // read as the grey wall's cream) or cool (tube), dimmer or brighter.
             float3 FacWinColour(float th, float cityGain)
             {
-                return (frac(th * 3.7) < WIN_WARM_SHARE ? FAC_WIN_WARM : FAC_WIN_COOL)
+                return (frac(th * 3.7) < WIN_WARM_SHARE ? FAC_WIN_WARM : FAC_WIN_PALE)
                      * (lerp(WIN_DIM, 1.0, frac(th * 11.3)) * WIN_GAIN * cityGain);
             }
 
@@ -863,7 +912,7 @@ Shader "PSX/Lit"
                         float d01 = 0.999999;
                         if (_SkylinePass < 1.5)
                         {
-                            float zr = clamp(-dot(UNITY_MATRIX_V[2].xyz, rel), SKYLINE_OWN_NEAR, SKYLINE_OWN_FAR);
+                            float zr = clamp(-dot(UNITY_MATRIX_V[2].xyz, rel) - _SkyLeadM, SKYLINE_OWN_NEAR, SKYLINE_OWN_FAR);
                             d01 = (1.0 / SKYLINE_OWN_NEAR - 1.0 / zr) / (1.0 / SKYLINE_OWN_NEAR - 1.0 / SKYLINE_OWN_FAR);
                         }
                         clipPos.z = lerp(UNITY_NEAR_CLIP_VALUE, SKYLINE_FAR_CLIP, d01) * clipPos.w;
@@ -906,6 +955,16 @@ Shader "PSX/Lit"
                 // under a blue sky.
                 half3 amb = lerp(_PSXAmbient.rgb, _PSXSkyAmbient.rgb, saturate(n.y));
                 half3 sunL = _PSXLightColor.rgb * ndl;
+                // THE FAR LAND'S LOOK (above): its albedo rides on its light (its
+                // texture is white), so a far field mottles grass, oak and pine
+                // with no new interpolator
+                if (_SkyFarLand > 0.5)
+                {
+                    float3 farTint = v.uv.x > 1.5 ? _FarRoad.rgb
+                                   : lerp(_FarGround.rgb, lerp(_FarBroad.rgb, _FarPine.rgb, saturate(v.uv.y)), saturate(v.uv.x));
+                    amb *= farTint;
+                    sunL *= farTint;
+                }
                 // No hour applied (an interior): the old light, clamped HERE
                 // and handed on whole, so the pixel shader's sum is the very
                 // number it used to be given.
@@ -1156,6 +1215,16 @@ Shader "PSX/Lit"
                 #define PSX_NIGHT_MASK(u) tex2Dlod(_NightMask, float4(u, 0.0, 0.0))
             #endif
                 clip(tex.a - _Cutoff);
+                // THE FAR LAND (CityFarLand): only past the squeeze's start A,
+                // where the streamed world has stopped - in all three draws, so
+                // the depth-only two write nothing over the world's own ground
+                if (_SkyFarLand > 0.5)
+                {
+                    float fF = _ProjectionParams.z * SKYLINE_FAR;
+                    float fA = min(_PSXFogNear, fF - 30.0);
+                    fA = fA < 50.0 ? min(50.0, fF * 0.5) : fA;
+                    clip(length(i.wpos - _WorldSpaceCameraPos) - fA);
+                }
                 // the skyline's depth-only draws (2, 3): nothing to shade
                 if (_SkylinePass > 1.5) return fixed4(0, 0, 0, 0);
 
@@ -1379,6 +1448,11 @@ Shader "PSX/Lit"
                                     + sunE * alb * (pow(ndh, FAC_METAL_POW) * FAC_METAL_SPEC);
                     lit = lerp(lerp(lit, metalCol, metal), glassCol, glass);
                 }
+                // THE NIGHT SILHOUETTE (FAR_WALL_KEEP, NIGHT_WALL_KEEP): the
+                // walls up a tower and far off, not the windows
+                float wallKeep = min(lerp(1.0, NIGHT_WALL_KEEP, smoothstep(NIGHT_WALL_FROM, NIGHT_WALL_FULL, facYF)),
+                                     lerp(1.0, FAR_WALL_KEEP, smoothstep(FAR_DARK_NEAR, FAR_DARK_FAR, eyeDist)));
+                lit *= lerp(1.0, wallKeep, _PSXNight);
             #endif
                 // The haze is brighter toward the sun (zero extra with no
                 // _PSXFogSun set, which is every interior and every night).
@@ -1488,7 +1562,7 @@ Shader "PSX/Lit"
                     float storey = floor(facYF);
                     float gid = tex2Dlod(_NightMask, float4(uv, 0.0, 0.0)).g * 255.0;
                     float shop = step(0.5, m.b);
-                    float3 hueMean = lerp(WIN_COOL, WIN_WARM, WIN_WARM_SHARE);
+                    float3 hueMean = lerp(WIN_PALE, WIN_WARM, WIN_WARM_SHARE);
                     float brightMean = lerp(WIN_DIM, 1.0, 0.5) * WIN_GAIN * cityGain;
                     // a storey is resolved once it is two pixels tall; a unit
                     // once it is two pixels both ways
@@ -1575,14 +1649,14 @@ Shader "PSX/Lit"
                     float h = frac(m.g * 7.13 + PSXLitHash(cell + floor(winUV) * float2(131.0, 37.0)));
                     float shop = step(0.5, m.b);
                     float on = max(shop, step(h, lerp(WIN_LIT_FRAC, WIN_LIT_FRAC_CITY, cityNight) * _PSXNight));
-                    float3 hue = frac(h * 3.7) < WIN_WARM_SHARE ? WIN_WARM : WIN_COOL;
+                    float3 hue = frac(h * 3.7) < WIN_WARM_SHARE ? WIN_WARM : WIN_PALE;
                     // the city's whole lit storeys: one key per building and
                     // storey, so a band runs the width of the building
                     float bk = PSXLitHash(cell);
                     float storey = floor((i.wpos.y - streetY) / WIN_STOREY_M);
                     float bh = PSXLitHash(float2(bk * 113.0 + 7.0, storey));
                     float band = cityNight * step(bh, WIN_BAND_FRAC * _PSXNight) * step(1.0, storey);
-                    hue = band > 0.5 ? (frac(bh * 53.1) < WIN_WARM_SHARE ? WIN_WARM : WIN_COOL) : hue;
+                    hue = band > 0.5 ? (frac(bh * 53.1) < WIN_WARM_SHARE ? WIN_WARM : WIN_PALE) : hue;
                     on = max(on, band);
                     hue = lerp(hue, WIN_SHOP, shop);
                     float bright = lerp(WIN_DIM, 1.0, frac(h * 11.3)) * WIN_GAIN * cityGain;
@@ -1594,6 +1668,12 @@ Shader "PSX/Lit"
                 #endif
                     // Added after the fog, and fogged only 40% as hard.
                     float3 win = glow * ((1.0 - WIN_FOG_CUT * i.fog) * adapt);
+                #ifdef PSX_FACADE
+                    // THE NIGHT SILHOUETTE: a far lit floor carries, and a lit
+                    // pane replaces the wall under it (WIN_OVER)
+                    win *= 1.0 + FAR_WIN_GAIN * smoothstep(FAR_WIN_NEAR, FAR_WIN_FAR, eyeDist);
+                    col *= 1.0 - WIN_OVER * saturate(max(glow.r, max(glow.g, glow.b)) * 4.0);
+                #endif
                     col += win;
                     emit = max(emit, PSXEmitShare(win, col) * WIN_EMIT);
                 }
