@@ -1061,6 +1061,10 @@ if (-not $SkipDeploy) {
         #     (-KeepDirs, or holding a psx-subpage.txt) are not.
         #   -PagesDir: only that one folder is ours; EVERYTHING else stays.
         $kept = @(); $dropped = @()
+        # ONE BUILD (2026-10-24): the root is ALL, so the old /city/ CITY build
+        # goes and city/index.html below sends its links to the root.
+        $cityRedirect = (-not $PagesDir) -and $RootEdition -eq "ALL" -and -not $PSBoundParameters.ContainsKey('KeepDirs')
+        if ($cityRedirect) { $KeepDirs = @($KeepDirs | Where-Object { $_ -ne "city" }); $DropDirs = @($DropDirs) + "city" }
         if ($base) {
             foreach ($l in (Invoke-GitOut @("-C", $stage, "ls-tree", $base)).Out) {
                 if ($l -notmatch '^(\d+) (\w+) ([0-9a-f]+)\t(.+)$') { continue }
@@ -1097,6 +1101,16 @@ if (-not $SkipDeploy) {
         # 3. THE NEW BUILD: at the root, or into -PagesDir (labelled, marked).
         $target = if ($PagesDir) { Join-Path $stage $PagesDir } else { $stage }
         $st = Stage-Build $target
+        if ($cityRedirect) {
+            $cityDir = Join-Path $stage "city"
+            New-Item -ItemType Directory -Force $cityDir | Out-Null
+            $redirect = '<!doctype html><html><head><meta charset="utf-8"><title>PSX Racing</title>' +
+                '<meta http-equiv="refresh" content="0; url=../"><link rel="canonical" href="../"></head>' +
+                '<body style="background:#141416;color:#ffb533;font-family:sans-serif">Charlotte is in the game now: <a href="../" style="color:#ffb533">PSX Racing</a></body></html>'
+            [System.IO.File]::WriteAllText((Join-Path $cityDir "index.html"), $redirect + "`n")
+            Invoke-Git @("-C", $stage, "add", "--", "city/index.html")
+            Write-Host "  city/        : a redirect to the root (the game is one build since 2026-10-24)"
+        }
         if ($PagesDir) {
             Add-PagesLabel (Join-Path $target "index.html") $st.Stamp
             $marker = @(

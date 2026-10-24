@@ -206,12 +206,14 @@ namespace PSXRacing.EditorTools
             string blocked = BlockedReason();
             if (blocked != null) throw new Exception("[EditionParking] REFUSING TO PARK: " + blocked);
             var moved = new List<string>();
-            if (edition == EditionKind.All)
+            var items = ParkListFor(edition);
+            // ALL parks only Charlotte's five big files, which its
+            // charlotte.bundle carries (2026-10-24); everything else ships
+            if (items.Count == 0)
             {
-                Debug.Log("[EditionParking] ALL ships everything - nothing parked");
+                Debug.Log("[EditionParking] " + edition + " ships everything - nothing parked");
                 return moved;
             }
-            var items = ParkListFor(edition);
             // THE MANIFEST FIRST: from this line on, a kill is recoverable.
             var sb = new StringBuilder();
             sb.AppendLine("edition " + Edition.Name(edition));
