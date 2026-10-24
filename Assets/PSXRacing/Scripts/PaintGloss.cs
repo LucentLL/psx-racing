@@ -16,6 +16,13 @@ namespace PSXRacing
     {
         public static readonly int GlossId = Shader.PropertyToID("_PSXGloss");
         public static readonly int CarWetId = Shader.PropertyToID("_PSXCarWet");
+        /// <summary>The rain and snow ON the cars (PSXCarDrops): global x rain,
+        /// y snow; per renderer the air over that car.</summary>
+        public static readonly int CarDropsId = Shader.PropertyToID("_PSXCarDrops");
+        public static readonly int CarWindId = Shader.PropertyToID("_PSXCarWind");
+        /// <summary>Per renderer, the streaks' clock: x its value at
+        /// _Time.y = y (Time.timeSinceLevelLoad), rising z a second.</summary>
+        public static readonly int CarRunId = Shader.PropertyToID("_PSXCarRun");
         const string PaintShader = "PSX/CarPaint";
         static readonly string[] PaintFaults = { "paint_fade", "paint_bubble", "minor_rust", "panel_rust" };
         static MaterialPropertyBlock block;
@@ -46,6 +53,19 @@ namespace PSXRacing
             }
             float h = Mathf.Repeat(Mathf.Sin(go.GetHashCode() * 12.9898f) * 43758.5453f, 1f);
             return cc != null ? Mathf.Lerp(0.8f, 1f, h) : Mathf.Lerp(0.35f, 1f, h);
+        }
+
+        /// <summary>Every PSX/CarPaint renderer under a car, into
+        /// <paramref name="into"/> (cleared first).</summary>
+        public static void Collect(Transform root, System.Collections.Generic.List<Renderer> into)
+        {
+            into.Clear();
+            if (root == null) return;
+            foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+            {
+                var m = r.sharedMaterial;
+                if (m != null && m.shader != null && m.shader.name == PaintShader) into.Add(r);
+            }
         }
 
         /// <summary>The shine onto every PSX/CarPaint renderer under a car,

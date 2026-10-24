@@ -71,6 +71,24 @@ namespace PSXRacing
         /// that outlives the weather stops throwing water.</summary>
         public static bool Raining => instance != null && instance.rainSince >= 0f;
 
+        /// <summary>Seconds settled snow takes to build up on a car's body
+        /// (<see cref="CarSnow"/>): it gathers, it does not arrive.</summary>
+        public const float CarSnowEase = 40f;
+
+        /// <summary>How much snow has settled on the cars, 0..1 (PSX/CarPaint's
+        /// flakes, PSXCarDrops): 0 with no SNOW instance or under cover,
+        /// easing to 1 over <see cref="CarSnowEase"/> from the snow's start.
+        /// Stateless like <see cref="LensRain"/>.</summary>
+        public static float CarSnow
+        {
+            get
+            {
+                if (instance == null || instance.snowSince < 0f || instance.covered) return 0f;
+                float x = Mathf.Clamp01((Time.time - instance.snowSince) / CarSnowEase);
+                return x * x * (3f - 2f * x);
+            }
+        }
+
         /// <summary>Make sure the scene has the effect for <paramref name="w"/>,
         /// and nothing for clear or fog (fog is the fog band, not particles).</summary>
         public static void Ensure(Weather w)
@@ -121,6 +139,8 @@ namespace PSXRacing
         /// <summary>Time.time when the RAIN started (Build), or -1 when this
         /// instance is snow or has not built yet. Drives LensRain and Raining.</summary>
         float rainSince = -1f;
+        /// <summary>Time.time when the SNOW started (Build), or -1: drives CarSnow.</summary>
+        float snowSince = -1f;
         float sprayPoll;
         /// <summary>Smoothed horizontal camera velocity for the rain lead.</summary>
         Vector3 camVel, lastCamPos;
@@ -243,6 +263,7 @@ namespace PSXRacing
             if (instance.ps == null) instance.Build();
             // A picture, not weather: nothing downstream reads a preview as rain.
             instance.rainSince = -1f;
+            instance.snowSince = -1f;
             if (cam != null) instance.transform.position = instance.SlabOver(cam.transform);
             // The SAME drops and flakes every picture (the colour pass's A/B
             // pairs compare one run's particles with another's, pixel for
@@ -426,6 +447,7 @@ namespace PSXRacing
                 rainSince = Time.time;
                 sprayPoll = 0f;
             }
+            else snowSince = Time.time;   // the cars start gathering it (CarSnow)
         }
 
         static Texture2D Dot()

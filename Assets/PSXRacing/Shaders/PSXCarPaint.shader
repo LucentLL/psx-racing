@@ -173,6 +173,11 @@ Shader "PSX/CarPaint"
         // The finish (CarLights / PaintGloss): 1 a clean car in good paint,
         // toward 0 a dirty one or a dead finish. See THE FINISH.
         [HideInInspector] _PSXGloss ("Paint gloss", Float) = 1
+        // The air over this car in its body's frame (xyz) and how fast it is
+        // going (w, 0 parked .. 1 at speed): CarLights, for PSXCarDrops.
+        [HideInInspector] _PSXCarWind ("Air over the car", Vector) = (0, 0, 0, 0)
+        // The streaks' clock: x its value at time y, rising z a second (CarLights).
+        [HideInInspector] _PSXCarRun ("Streak clock", Vector) = (0, 0, 0, 0)
         // 0/1: the headlamps' B/A channels (CarLights: lights on AND an RGBA
         // map - a legacy R/G map never has B/A read).
         [HideInInspector] _HeadLights ("Headlamps 0/1", Float) = 0
@@ -220,6 +225,7 @@ Shader "PSX/CarPaint"
             // water film on every car (_PSXCarWet, global, CarLights).
             float _PSXGloss;
             float _PSXCarWet;
+            float4 _PSXCarWind;
             // One tail lens's pool on its own body: windowed falloff to its
             // reach, on the faces turned toward it.
             float OwnLamp(float4 P, float3 wpos, float3 N)
@@ -399,6 +405,7 @@ Shader "PSX/CarPaint"
             // and after this file's LAND_* #defines, which it keeps: its own
             // are #ifndef-guarded defaults.
             #include "PSXSkyReflect.cginc"
+            #include "PSXCarDrops.cginc"
             // The sun's shadow map and the sun in the haze (the DAY PASS,
             // 2026-09-21: PSXSunShadow.cginc). A car under an avenue is
             // dappled with the road it is on, and one in a tunnel is lit by
@@ -422,6 +429,8 @@ Shader "PSX/CarPaint"
                 float3 wnrm : TEXCOORD2;
                 float3 wpos : TEXCOORD3;
                 float hgt : TEXCOORD4;      // metres above the model's ground (mesh y, scaled)
+                float3 bpos : TEXCOORD5;    // the body's frame, metres (PSXCarDrops)
+                float3 bnrm : TEXCOORD6;
             };
 
             v2f vert (appdata v)
@@ -445,6 +454,10 @@ Shader "PSX/CarPaint"
                 o.wnrm = nl2 > 1e-8 ? rawN * rsqrt(nl2) : float3(0, 1, 0);
                 o.wpos = mul(unity_ObjectToWorld, v.vertex).xyz;
                 o.hgt = v.vertex.y * length(float3(unity_ObjectToWorld._m01, unity_ObjectToWorld._m11, unity_ObjectToWorld._m21));
+                float3 axisLen = float3(length(unity_ObjectToWorld._m00_m10_m20), length(unity_ObjectToWorld._m01_m11_m21),
+                                        length(unity_ObjectToWorld._m02_m12_m22));
+                o.bpos = v.vertex.xyz * axisLen;
+                o.bnrm = v.normal;
 
                 float dist = length(mul(UNITY_MATRIX_MV, v.vertex).xyz);
                 float fogT = saturate((dist - _PSXFogNear) / max(_PSXFogFar - _PSXFogNear, 1.0));
@@ -677,6 +690,31 @@ Shader "PSX/CarPaint"
                 hi *= expo;
 
                 float3 col = lit * (1.0 - k) + refl + hi;
+
+                // THE RAIN AND SNOW ON THE BODY (PSXCarDrops.cginc). Water is
+                // a little lens: the paint deeper under a bead, a dark rim,
+                // the sky in its dome and one glint where it faces the light.
+                // Snow is white in the light the paint gets. Not on a wheel.
+                if (_PSXCarDrops.x + _PSXCarDrops.y > 0.002)
+                {
+                    float3 axisL = float3(length(unity_ObjectToWorld._m00_m10_m20), length(unity_ObjectToWorld._m01_m11_m21),
+                                          length(unity_ObjectToWorld._m02_m12_m22));
+                    float3 downB = normalize(mul((float3x3)unity_WorldToObject, float3(0, -1, 0)) * axisL);
+                    float snowH;
+                    float hW = CarDropsH(i.bpos, normalize(i.bnrm), downB, _PSXCarWind.xyz,
+                                         saturate(N.y), saturate(_PSXCarWind.w), snowH) * (1.0 - dull);
+                    snowH *= 1.0 - dull;
+                    // (derivatives in uniform flow: the branch is on a global)
+                    float2 gradD = float2(ddx(hW), ddy(hW)) / max(fwidth(hW), 1e-3);
+                    float coverD = smoothstep(0.0, 0.12, hW);
+                    float edgeD = 1.0 - smoothstep(0.05, 0.55, hW);
+                    float glintD = pow(saturate(-gradD.y * 0.7 + gradD.x * 0.3), 6.0) * smoothstep(0.25, 0.6, hW);
+                    col = col * (1.0 - coverD * lerp(0.18, 0.45, edgeD))
+                        + coverD * (1.0 - edgeD) * sky * lerp(0.16, 0.30, glass)
+                        + glintD * (sky * 0.6 + _PSXLightColor.rgb * (0.35 * sunVis) * expo);
+                    float flake = smoothstep(0.05, 0.35, snowH);
+                    col = lerp(col, light * 0.92, flake * 0.92);
+                }
                 // THE EMITTER MASK (PSXTone.cginc): the GLINTS are light
                 // sources - the soft halation the owner signed off round
                 // "lamps and glints" - and neither the paint under them nor

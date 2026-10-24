@@ -281,6 +281,22 @@ namespace PSXRacing
         // each second (a wash, a new shell) and written only when it changed.
         float glossAt = -1f, glossSet = -1f;
         Renderer glossRenderer;
+        // THE RAIN AND SNOW ON THE BODY (PSXCarDrops): the air over this car
+        // in its paint renderers' own frames, and how fast it is going -
+        // from how far it moved, so a replay's kinematic car and the
+        // traffic's servo cars blow their drops back like a driven one.
+        // Written only when it changes (WindStep, WindTurnDeg), only in rain
+        // or snow.
+        public const float WindStep = 0.04f, WindTurnDeg = 6f, WindFullMps = 18f, WindNoneMps = 1.5f;
+        /// <summary>The streaks' clock rate (cycles a second) parked and at
+        /// full wind: they race back faster the faster the car goes.</summary>
+        public const float BlowRateLo = 0.15f, BlowRateHi = 1.1f;
+        float blowClk, blowT0, blowRate;
+        readonly System.Collections.Generic.List<Renderer> paintRends = new System.Collections.Generic.List<Renderer>();
+        Vector3 windLastPos, windVel, windAirSet;
+        float windSet = -1f;
+        bool windHavePos;
+        static MaterialPropertyBlock windBlock;
 
         MeshRenderer[] headLens = new MeshRenderer[2];
         MeshRenderer[] tailLens = new MeshRenderer[2];
@@ -514,7 +530,50 @@ namespace PSXRacing
             if (Mathf.Abs(g - glossSet) < 0.005f && spillRenderer == glossRenderer) return;
             PaintGloss.WriteAll(transform, g);
             glossSet = g;
+            if (glossRenderer != spillRenderer || paintRends.Count == 0)
+            {
+                PaintGloss.Collect(transform, paintRends);
+                windSet = -1f;
+            }
             glossRenderer = spillRenderer;
+        }
+
+        void UpdateWind(float dt)
+        {
+            Vector3 pos = transform.position;
+            if (windHavePos && dt > 0f)
+            {
+                Vector3 v = (pos - windLastPos) / dt;
+                // a teleport (respawn, replay cut) is not wind
+                if (v.sqrMagnitude < 90f * 90f) windVel = Vector3.Lerp(windVel, v, 1f - Mathf.Exp(-dt / 0.25f));
+            }
+            windLastPos = pos;
+            windHavePos = true;
+            if (WeatherFx.LensRain <= 0f && WeatherFx.CarSnow <= 0f) return;
+            float speed = windVel.magnitude;
+            float wind = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(WindNoneMps, WindFullMps, speed));
+            Vector3 air = speed > 0.5f ? -windVel / speed : -transform.forward;
+            Vector3 airCar = transform.InverseTransformDirection(air);
+            if (windSet >= 0f && Mathf.Abs(wind - windSet) < WindStep && Vector3.Angle(airCar, windAirSet) < WindTurnDeg) return;
+            windSet = wind;
+            windAirSet = airCar;
+            // re-base the streaks' clock where it is now, then run it at this
+            // speed's rate: continuous, so the pattern never jumps
+            float now = Time.timeSinceLevelLoad;
+            blowClk += blowRate * (now - blowT0);
+            blowT0 = now;
+            blowRate = Mathf.Lerp(BlowRateLo, BlowRateHi, wind);
+            if (windBlock == null) windBlock = new MaterialPropertyBlock();
+            for (int i = 0; i < paintRends.Count; i++)
+            {
+                var r = paintRends[i];
+                if (r == null) continue;
+                Vector3 a = r.transform.InverseTransformDirection(air);
+                r.GetPropertyBlock(windBlock);
+                windBlock.SetVector(PaintGloss.CarWindId, new Vector4(a.x, a.y, a.z, wind));
+                windBlock.SetVector(PaintGloss.CarRunId, new Vector4(blowClk, blowT0, blowRate, 0f));
+                r.SetPropertyBlock(windBlock);
+            }
         }
 
         void WriteSpill(Renderer r, bool lit)
@@ -592,6 +651,7 @@ namespace PSXRacing
             UpdateTailLamp();
             UpdateOwnSpill();
             UpdateGloss();
+            UpdateWind(Time.deltaTime);
 
             // Once per frame for the whole field, by whichever car runs first.
             if (pushedFrame != Time.frameCount)
@@ -600,6 +660,8 @@ namespace PSXRacing
                 PushGlobals();
                 // the rain's water film on every car's paint (THE FINISH)
                 Shader.SetGlobalFloat(PaintGloss.CarWetId, Seasons.RoadWetT);
+                // and the drops and flakes on them (PSXCarDrops)
+                Shader.SetGlobalVector(PaintGloss.CarDropsId, new Vector4(WeatherFx.LensRain, WeatherFx.CarSnow, 0f, 0f));
             }
         }
 
