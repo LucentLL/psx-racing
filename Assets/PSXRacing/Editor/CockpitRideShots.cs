@@ -18,6 +18,14 @@ namespace PSXRacing.EditorTools
     /// Writes Screenshots/ride_&lt;shell&gt;_&lt;old|new&gt;_&lt;state&gt;.png and
     /// ride_&lt;shell&gt;_mirror_&lt;old|new&gt;.png; logs how far the dash moved on
     /// screen between rest and each lean ("[Ride]" lines).
+    /// THE FILM (owner, same day: the first cut "feel[s] flat and 2D"): a
+    /// scripted corner, braking into it and a bump, the body posed as
+    /// CarBodyLean eases it, at 30 frames a second, in three ways - "pre"
+    /// (nothing rides: the gaps), "rigid" (cabin AND eye ride the body: the
+    /// first cut) and "head" (the cabin rides, the eye follows EyeFollow of
+    /// it EyeLag late: the fix) - every 6th frame written as
+    /// ride_&lt;shell&gt;_film_&lt;mode&gt;_NN.png, every frame logged as the
+    /// cabin's roll and drop against the view ("[Ride] film" lines).
     /// </summary>
     public static class CockpitRideShots
     {
@@ -110,6 +118,10 @@ namespace PSXRacing.EditorTools
                     cam.transform.SetPositionAndRotation(p, q);
                 }
 
+                Film(key, cam, ci, br, restPos, restRot, t, eye, eyeRot);
+                br.localPosition = restPos;
+                br.localRotation = restRot;
+
                 foreach (bool whole in new[] { false, true })
                 {
                     ci.PreviewMirror(cam, whole);
@@ -130,6 +142,56 @@ namespace PSXRacing.EditorTools
             }
             PSXScreenshotTool.AspectOverride = 0f;
             Debug.Log("[Ride] DONE");
+        }
+
+        /// <summary>The scripted drive, in the three ways (see the class).</summary>
+        static void Film(string key, Camera cam, CockpitInterior ci, Transform br, Vector3 restPos, Quaternion restRot,
+                         Transform t, Vector3 eye, Quaternion eyeRot)
+        {
+            const float dt = 1f / 30f;
+            const int frames = 72;
+            foreach (string mode in new[] { "pre", "rigid", "head" })
+            {
+                float roll = 0f, pitch = 0f, rise = 0f;
+                float maxRoll = 0f, maxDrop = 0f;
+                for (int f = 0; f < frames; f++)
+                {
+                    float time = f * dt;
+                    // the script: a corner from 0.4 s, the brakes from 1.2 s,
+                    // a bump at 1.8 s, all let go from 2.0 s
+                    float wantRoll = time >= 0.4f && time < 2.0f ? 1.7f : 0f;
+                    float wantPitch = time >= 1.2f && time < 2.0f ? 1.2f : 0f;
+                    float wantRise = time >= 1.8f && time < 1.9f ? 0.035f : 0f;
+                    roll = Mathf.Lerp(roll, wantRoll, 1f - Mathf.Exp(-dt / 0.30f));
+                    pitch = Mathf.Lerp(pitch, wantPitch, 1f - Mathf.Exp(-dt / 0.25f));
+                    rise = Mathf.Lerp(rise, wantRise, 1f - Mathf.Exp(-dt / 0.05f));
+                    br.localPosition = restPos + Vector3.up * rise;
+                    br.localRotation = Quaternion.Euler(pitch, 0f, roll) * restRot;
+
+                    Vector3 p = t.TransformPoint(eye);
+                    Quaternion q = eyeRot;
+                    if (mode == "pre") ci.PreviewRide(ref p, ref q, false);
+                    else if (mode == "rigid") ci.PreviewRide(ref p, ref q, true);
+                    else ci.PreviewStep(dt, ref p, ref q, f == 0);
+
+                    // the cabin against the view: its up, rolled about the view axis, and
+                    // its eye point's drop below the lens (cm)
+                    Vector3 cabUp = ci.transform.up;
+                    Vector3 vf = q * Vector3.forward, vu = q * Vector3.up, vr = q * Vector3.right;
+                    float cabRoll = Mathf.Atan2(Vector3.Dot(cabUp, vr), Vector3.Dot(cabUp, vu)) * Mathf.Rad2Deg;
+                    float drop = Vector3.Dot(ci.transform.position - p, vu) * 100f;
+                    maxRoll = Mathf.Max(maxRoll, Mathf.Abs(cabRoll));
+                    maxDrop = Mathf.Max(maxDrop, Mathf.Abs(drop));
+                    if (f % 6 == 0)
+                    {
+                        Debug.Log($"[Ride] film {key} {mode} t {time:0.00}: body roll {roll:0.00} pitch {pitch:0.00} rise {rise * 100f:0.0} cm | cabin vs view: roll {cabRoll:+0.00;-0.00} deg, offset {drop:+0.0;-0.0} cm");
+                        ci.HideShell(true);
+                        PSXScreenshotTool.ShotAs(cam, $"ride_{key}_film_{mode}_{f / 6:00}", p, q);
+                        ci.HideShell(false);
+                    }
+                }
+                Debug.Log($"[Ride] film {key} {mode}: the cabin moved against the view by up to {maxRoll:0.00} deg roll, {maxDrop:0.0} cm");
+            }
         }
 
         static Texture2D Load(string path)

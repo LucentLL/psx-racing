@@ -51,6 +51,10 @@ namespace PSXRacing
     /// the driver's camera does not see the car's own shell (its faces would
     /// land inside this scaled cabin) - as v07.
     /// </summary>
+    // After ChaseCamera has mounted the eye and CarBodyLean posed the body,
+    // and before the canvases are laid out (the HUD is screen-space-camera
+    // on the driver's camera): see THE CABIN RIDES THE BODY.
+    [DefaultExecutionOrder(1000)]
     public class CockpitInterior : MonoBehaviour
     {
         /// <summary>The converter's layout (CockpitModel.L), or null.</summary>
@@ -212,13 +216,25 @@ namespace PSXRacing
         // off the car's frame, while this cabin and the driver's eye sat on
         // the car's frame itself: the bonnet, the door tops and the door
         // mirrors slid against the dash and the window frames, and the road
-        // showed between them. Now the cabin (and the mirror cameras on it),
-        // the eye and the cut all take the body's motion from its rest seat,
-        // once a frame at render time when every LateUpdate has run: from
-        // the seat the car is one piece, and the world leans instead.
+        // showed between them. The cabin (and the mirror cameras on it) and
+        // the cut take the body's motion from its rest seat, so the car is
+        // one piece. The EYE does not (owner, same day, on the first cut that
+        // moved it with the body: "the body/cockpit don't move relative to
+        // car's motion. Instead the UI ... move around the screen while the
+        // cockpit and body are stiff and unmoving making the game feel flat
+        // and 2D"): a head rides the car's frame and only follows the body a
+        // little, late (EyeFollow, EyeLag), so the cabin and the bonnet roll,
+        // pitch and bob round the view. All of it in LateUpdate, after the
+        // chase camera and the lean (DefaultExecutionOrder) and before the
+        // canvases: that first cut moved the eye at render time, after the
+        // HUD had been laid out on the camera, and the HUD slid with it.
+        public const float EyeFollow = 0.25f;   // share of the body's lean and rise the head takes...
+        public const float EyeLag = 0.15f;      // ...this late (s)
         Quaternion rideRot = Quaternion.identity;
         Vector3 ridePos;
-        int rideFrame = -1, eyeFrame = -1;
+        Quaternion eyeRot = Quaternion.identity;
+        Vector3 eyePos;
+        bool eyeInit;
         Vector3 eyeBasePos, eyeSetPos;
         Quaternion eyeBaseRot, eyeSetRot;
         bool eyeSet;
@@ -602,7 +618,9 @@ namespace PSXRacing
 
         void LateUpdate()
         {
-            if (!shown) return;
+            if (!shown) { eyeInit = false; return; }
+            RideCabin();
+            RideEye(Time.deltaTime, driver != null ? driver : Camera.main);
             Tick(Time.deltaTime, PizzaCargo.Instance);
         }
 
@@ -794,14 +812,6 @@ namespace PSXRacing
         void OnBeginCamera(ScriptableRenderContext ctx, Camera cam)
         {
             bool isDriver = driver != null ? cam == driver : StreetLights.IsDriver(cam);
-            if (shown && rideFrame != Time.frameCount)
-            {
-                rideFrame = Time.frameCount;
-                Ride();
-                transform.localPosition = rideRot * Current.eye + ridePos;
-                transform.localRotation = rideRot;
-            }
-            if (isDriver && shown) RideEye(cam);
             SetVisible(isDriver);
             // The door mirrors' glass sits on the body as it leans now.
             if (isDriver && doors != null) doors.Pose();
@@ -831,13 +841,13 @@ namespace PSXRacing
         }
 
         /// <summary>A pose mounted on the car's frame, moved with the body.</summary>
-        void RideOnto(ref Vector3 pos, ref Quaternion rot)
+        void RideOnto(ref Vector3 pos, ref Quaternion rot, Quaternion q, Vector3 t)
         {
             var cr = car.transform;
             Vector3 lp = cr.InverseTransformPoint(pos);
             Quaternion lq = Quaternion.Inverse(cr.rotation) * rot;
-            pos = cr.TransformPoint(rideRot * lp + ridePos);
-            rot = cr.rotation * (rideRot * lq);
+            pos = cr.TransformPoint(q * lp + t);
+            rot = cr.rotation * (q * lq);
         }
 
         /// <summary>For the shot tool (edit mode, no frames): the cabin onto
@@ -851,7 +861,20 @@ namespace PSXRacing
             else { rideRot = Quaternion.identity; ridePos = Vector3.zero; }
             transform.localPosition = rideRot * Current.eye + ridePos;
             transform.localRotation = rideRot;
-            RideOnto(ref pos, ref rot);
+            RideOnto(ref pos, ref rot, rideRot, ridePos);
+        }
+
+        /// <summary>For the shot tool: one frame of play's order - the cabin
+        /// onto the body, the head stepped <paramref name="dt"/> - with the
+        /// eye mounted at pos/rot moved by the head (a fresh run when
+        /// <paramref name="reset"/>).</summary>
+        public void PreviewStep(float dt, ref Vector3 pos, ref Quaternion rot, bool reset)
+        {
+            if (car == null) return;
+            if (reset) eyeInit = false;
+            RideCabin();
+            StepEye(dt);
+            RideOnto(ref pos, ref rot, eyeRot, eyePos);
         }
 
         /// <summary>The rear-view mirror's picture (the shot tool reads it).</summary>
@@ -860,14 +883,34 @@ namespace PSXRacing
         /// <summary>World to the car's rest frame riding the body: the cut.</summary>
         Matrix4x4 RideW2L => (car.transform.localToWorldMatrix * Matrix4x4.TRS(ridePos, rideRot, Vector3.one)).inverse;
 
-        /// <summary>The driver's eye onto the body's motion, once a frame. The
-        /// chase camera mounts it on the car's frame every LateUpdate; a frame
-        /// it did not (nothing moved it since this did) starts again from
-        /// the mount this frame started from, so the motion never piles up.</summary>
-        void RideEye(Camera cam)
+        /// <summary>The cabin onto the body as it stands now.</summary>
+        void RideCabin()
         {
-            if (eyeFrame == Time.frameCount || car == null) return;
-            eyeFrame = Time.frameCount;
+            Ride();
+            transform.localPosition = rideRot * Current.eye + ridePos;
+            transform.localRotation = rideRot;
+        }
+
+        /// <summary>The head: EyeFollow of the body's motion, EyeLag late.</summary>
+        void StepEye(float dt)
+        {
+            var wantRot = Quaternion.Slerp(Quaternion.identity, rideRot, EyeFollow);
+            var wantPos = ridePos * EyeFollow;
+            float k = eyeInit && dt > 0f ? 1f - Mathf.Exp(-dt / EyeLag) : 1f;
+            eyeRot = Quaternion.Slerp(eyeRot, wantRot, k);
+            eyePos = Vector3.Lerp(eyePos, wantPos, k);
+            eyeInit = true;
+        }
+
+        /// <summary>The driver's eye onto the head's motion, once a frame. The
+        /// chase camera mounts it on the car's frame every LateUpdate (before
+        /// this); a frame it did not (nothing moved it since this did) starts
+        /// again from the mount this frame started from, so the motion never
+        /// piles up.</summary>
+        void RideEye(float dt, Camera cam)
+        {
+            StepEye(dt);
+            if (cam == null || car == null) return;
             var ct = cam.transform;
             var cr = car.transform;
             Vector3 bp = ct.position;
@@ -875,7 +918,7 @@ namespace PSXRacing
             if (eyeSet && bp == eyeSetPos && bq == eyeSetRot) { bp = eyeBasePos; bq = eyeBaseRot; }
             eyeBasePos = bp;
             eyeBaseRot = bq;
-            RideOnto(ref bp, ref bq);
+            RideOnto(ref bp, ref bq, eyeRot, eyePos);
             ct.SetPositionAndRotation(bp, bq);
             eyeSetPos = ct.position;
             eyeSetRot = ct.rotation;
