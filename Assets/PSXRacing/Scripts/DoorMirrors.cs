@@ -206,8 +206,9 @@ namespace PSXRacing
             root.localScale = new Vector3(bs.x / Mathf.Max(1e-4f, ps.x), bs.y / Mathf.Max(1e-4f, ps.y), bs.z / Mathf.Max(1e-4f, ps.z));
         }
 
-        /// <summary>Each mirror's box in the CAR's frame as the body stands
-        /// now, padded: the cut keeps it whole.</summary>
+        /// <summary>Each mirror's box in the CUT's frame as the body stands
+        /// now (CabinClip.W2L: the cut rides the body with the cabin),
+        /// padded: the cut keeps it whole.</summary>
         public void Keep()
         {
             for (int i = 0; i < 2; i++)
@@ -218,7 +219,7 @@ namespace PSXRacing
                 for (int k = 0; k < 8; k++)
                 {
                     var p = new Vector3((k & 1) == 0 ? g.min.x : g.max.x, (k & 2) == 0 ? g.min.y : g.max.y, (k & 4) == 0 ? g.min.z : g.max.z);
-                    p = car.InverseTransformPoint(body.TransformPoint(p));
+                    p = CabinClip.W2L.MultiplyPoint3x4(body.TransformPoint(p));
                     mn = Vector3.Min(mn, p);
                     mx = Vector3.Max(mx, p);
                 }

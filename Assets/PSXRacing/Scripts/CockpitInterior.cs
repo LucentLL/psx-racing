@@ -205,6 +205,23 @@ namespace PSXRacing
         static bool warned;
 
         public Fit Current { get; private set; }
+
+        // THE CABIN RIDES THE BODY (owner, 2026-10-24: "car body moves
+        // separately from the cockpit, leaving gaps between door and hood").
+        // The shell leans and rides its tyres (CarBodyLean, the bump stops)
+        // off the car's frame, while this cabin and the driver's eye sat on
+        // the car's frame itself: the bonnet, the door tops and the door
+        // mirrors slid against the dash and the window frames, and the road
+        // showed between them. Now the cabin (and the mirror cameras on it),
+        // the eye and the cut all take the body's motion from its rest seat,
+        // once a frame at render time when every LateUpdate has run: from
+        // the seat the car is one piece, and the world leans instead.
+        Quaternion rideRot = Quaternion.identity;
+        Vector3 ridePos;
+        int rideFrame = -1, eyeFrame = -1;
+        Vector3 eyeBasePos, eyeSetPos;
+        Quaternion eyeBaseRot, eyeSetRot;
+        bool eyeSet;
         public Transform Model => model;
         public CockpitCargoMirror Mirror => mirror;
         public CockpitGauges Gauges => gauges;
@@ -487,7 +504,11 @@ namespace PSXRacing
         /// cut at the windscreen, the rest of what hangs off the car hidden.
         /// Public for the shot tool, which renders in edit mode with no camera
         /// events.</summary>
-        public void HideShell(bool hide)
+        public void HideShell(bool hide) => HideShell(hide, false);
+
+        /// <summary><paramref name="whole"/>: the whole body behind the
+        /// windscreen cut, not only the cabin's room (the rear-view mirror).</summary>
+        public void HideShell(bool hide, bool whole)
         {
             if (shell == null || hide == shellHidden) return;
             for (int i = 0; i < shell.Length; i++)
@@ -504,12 +525,13 @@ namespace PSXRacing
                 // The cabin's room only (2026-10-19), each door mirror kept
                 // whole where a narrow car's reaches inside it; the whole body
                 // box when the cabin was not measured.
-                if (Current.cabinHalfW > 0f)
+                var w2l = RideW2L;
+                if (!whole && Current.cabinHalfW > 0f)
                 {
-                    CabinClip.Open(car.transform, Current.cutZ, Current.cabinHalfW, c.y + s.y * 0.5f + 0.8f, Current.cabinTailZ);
+                    CabinClip.Open(w2l, Current.cutZ, Current.cabinHalfW, c.y + s.y * 0.5f + 0.8f, Current.cabinTailZ);
                     if (doors != null) doors.Keep();
                 }
-                else CabinClip.Open(car.transform, Current.cutZ, c, s);
+                else CabinClip.Open(w2l, Current.cutZ, c, s);
             }
             else CabinClip.Close();
             shellHidden = hide;
@@ -647,7 +669,11 @@ namespace PSXRacing
 
         /// <summary>For the shot tool (edit mode, no frames): the mirror
         /// rendered once from `src`'s world.</summary>
-        public void PreviewMirror(Camera src)
+        public void PreviewMirror(Camera src) => PreviewMirror(src, true);
+
+        /// <summary><paramref name="whole"/> false: the cut as it was before
+        /// 2026-10-24 (the cabin's room only: the deck and the wing showed).</summary>
+        public void PreviewMirror(Camera src, bool whole)
         {
             if (driver == null) driver = src;
             if (mirrorCam == null) EnsureMirrorCamera();
@@ -656,8 +682,10 @@ namespace PSXRacing
             mirrorCam.enabled = false;
             // Edit mode has no camera events: hide what play mode hides from it.
             SetVisible(false);
-            HideShell(true);
+            if (shellHidden) HideShell(false);
+            HideShell(true, whole);
             mirrorCam.Render();
+            HideShell(false);
             SetVisible(true);
         }
 
@@ -766,13 +794,92 @@ namespace PSXRacing
         void OnBeginCamera(ScriptableRenderContext ctx, Camera cam)
         {
             bool isDriver = driver != null ? cam == driver : StreetLights.IsDriver(cam);
+            if (shown && rideFrame != Time.frameCount)
+            {
+                rideFrame = Time.frameCount;
+                Ride();
+                transform.localPosition = rideRot * Current.eye + ridePos;
+                transform.localRotation = rideRot;
+            }
+            if (isDriver && shown) RideEye(cam);
             SetVisible(isDriver);
             // The door mirrors' glass sits on the body as it leans now.
             if (isDriver && doors != null) doors.Pose();
             // The mirror looks back from inside the shell too: whatever the
-            // shell models inside (seats, a parcel shelf) would fill it. The
+            // shell models inside (seats, a parcel shelf) would fill it - and
+            // (owner, 2026-10-24: the rear-view "shows floating disconnecting
+            // spoilers and trunks (should not show any body, just rear view)")
+            // so would the deck and the wing behind the cabin, so for the
+            // mirror the cut is the whole body behind the windscreen. The
             // door mirrors look at the car from outside: the whole shell.
-            if (isDriver || (mirrorCam != null && cam == mirrorCam)) HideShell(true);
+            bool rear = mirrorCam != null && cam == mirrorCam;
+            if (isDriver || rear) HideShell(true, rear);
+        }
+
+        /// <summary>The body's motion from its rest seat in the car's frame:
+        /// a car-frame point at rest is now at rideRot * p + ridePos.</summary>
+        void Ride()
+        {
+            rideRot = Quaternion.identity;
+            ridePos = Vector3.zero;
+            if (car == null) return;
+            if (body == null) body = car.GetComponent<CarBody>();
+            var br = body != null ? body.bodyRoot : null;
+            if (br == null || body.Def == null || br.parent != car.transform) return;
+            rideRot = br.localRotation * Quaternion.Inverse(Quaternion.Euler(0f, body.Def.bodyYaw, 0f));
+            ridePos = br.localPosition - rideRot * body.SeatPosition;
+        }
+
+        /// <summary>A pose mounted on the car's frame, moved with the body.</summary>
+        void RideOnto(ref Vector3 pos, ref Quaternion rot)
+        {
+            var cr = car.transform;
+            Vector3 lp = cr.InverseTransformPoint(pos);
+            Quaternion lq = Quaternion.Inverse(cr.rotation) * rot;
+            pos = cr.TransformPoint(rideRot * lp + ridePos);
+            rot = cr.rotation * (rideRot * lq);
+        }
+
+        /// <summary>For the shot tool (edit mode, no frames): the cabin onto
+        /// the body as it stands now and the eye mounted at pos/rot moved
+        /// with it - or, <paramref name="ride"/> false, both left on the
+        /// car's frame as they were before 2026-10-24.</summary>
+        public void PreviewRide(ref Vector3 pos, ref Quaternion rot, bool ride = true)
+        {
+            if (car == null) return;
+            if (ride) Ride();
+            else { rideRot = Quaternion.identity; ridePos = Vector3.zero; }
+            transform.localPosition = rideRot * Current.eye + ridePos;
+            transform.localRotation = rideRot;
+            RideOnto(ref pos, ref rot);
+        }
+
+        /// <summary>The rear-view mirror's picture (the shot tool reads it).</summary>
+        public RenderTexture MirrorTexture => mirrorRT;
+
+        /// <summary>World to the car's rest frame riding the body: the cut.</summary>
+        Matrix4x4 RideW2L => (car.transform.localToWorldMatrix * Matrix4x4.TRS(ridePos, rideRot, Vector3.one)).inverse;
+
+        /// <summary>The driver's eye onto the body's motion, once a frame. The
+        /// chase camera mounts it on the car's frame every LateUpdate; a frame
+        /// it did not (nothing moved it since this did) starts again from
+        /// the mount this frame started from, so the motion never piles up.</summary>
+        void RideEye(Camera cam)
+        {
+            if (eyeFrame == Time.frameCount || car == null) return;
+            eyeFrame = Time.frameCount;
+            var ct = cam.transform;
+            var cr = car.transform;
+            Vector3 bp = ct.position;
+            Quaternion bq = ct.rotation;
+            if (eyeSet && bp == eyeSetPos && bq == eyeSetRot) { bp = eyeBasePos; bq = eyeBaseRot; }
+            eyeBasePos = bp;
+            eyeBaseRot = bq;
+            RideOnto(ref bp, ref bq);
+            ct.SetPositionAndRotation(bp, bq);
+            eyeSetPos = ct.position;
+            eyeSetRot = ct.rotation;
+            eyeSet = true;
         }
 
         void OnEndCamera(ScriptableRenderContext ctx, Camera cam)

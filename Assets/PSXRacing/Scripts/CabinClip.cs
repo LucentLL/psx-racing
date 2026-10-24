@@ -42,6 +42,10 @@ namespace PSXRacing
         /// <summary>The gate is open (some camera is drawing from inside).</summary>
         public static bool IsOpen { get; private set; }
 
+        /// <summary>World to the cut's frame, as last opened (the keep boxes
+        /// are measured in it).</summary>
+        public static Matrix4x4 W2L { get; private set; } = Matrix4x4.identity;
+
         /// <summary>Every material on the renderer cuts: its shader carries
         /// the _PSXCabinOwn flag (the paint and the lamp covers). Anything else
         /// under the car - a flare, a beam - is still hidden outright from a
@@ -76,7 +80,15 @@ namespace PSXRacing
         public static void Open(Transform car, float cutZ, float halfWidth, float top, float tailZ)
         {
             if (car == null) return;
-            Shader.SetGlobalMatrix(W2LId, car.worldToLocalMatrix);
+            Open(car.worldToLocalMatrix, cutZ, halfWidth, top, tailZ);
+        }
+
+        /// <summary>The cut in a frame of the caller's: the cockpit's is the
+        /// car's rest frame riding its leaning body (CockpitInterior.Ride).</summary>
+        public static void Open(Matrix4x4 w2l, float cutZ, float halfWidth, float top, float tailZ)
+        {
+            W2L = w2l;
+            Shader.SetGlobalMatrix(W2LId, w2l);
             Shader.SetGlobalVector(BoxId, new Vector4(cutZ, halfWidth, top, tailZ));
             Shader.SetGlobalFloat(OnId, 1f);
             Keep(0, default, false);
@@ -99,7 +111,13 @@ namespace PSXRacing
         /// is a 0.915 fit) plus a hand's breadth either side.</summary>
         public static void Open(Transform car, float cutZ, Vector3 boxCenter, Vector3 boxSize)
         {
-            Open(car, cutZ,
+            if (car == null) return;
+            Open(car.worldToLocalMatrix, cutZ, boxCenter, boxSize);
+        }
+
+        public static void Open(Matrix4x4 w2l, float cutZ, Vector3 boxCenter, Vector3 boxSize)
+        {
+            Open(w2l, cutZ,
                  boxSize.x / 0.915f * 0.5f + 0.08f,
                  boxCenter.y + boxSize.y * 0.5f + 0.8f,
                  boxCenter.z - boxSize.z / 0.955f * 0.5f - 0.3f);
