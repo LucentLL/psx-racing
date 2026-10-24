@@ -93,6 +93,10 @@ namespace PSXRacing.City
         /// wider medians stay grass) and at least
         /// <see cref="UnionGroundGapMinM"/> apart. A Jersey or a flush strip
         /// covers the <see cref="ApproachRailM"/> band only.</summary>
+        /// <summary>A raised median shorter than this with both ends free is
+        /// drawn flush (no curbs): a few metres of curb where a street divides
+        /// is a block in a car's way, not a median (owner, 2026-10-24).</summary>
+        public const float MinRaisedRunM = 20f;
         const float UnionApproachRaisedM = 80f, UnionGroundGapMaxM = 6.1f, UnionGroundGapMinM = 0.6f;
         /// <summary>A Jersey median carries on over the ground (and over
         /// structure the solve made, not an OSM bridge kept apart) for as long
@@ -301,11 +305,32 @@ namespace PSXRacing.City
                 }
             }
 
+            // 5. no short raised island (owner 2026-10-24: "random medians only a
+            // few feet long on random side streets where roads split ... they
+            // often result in wrecks"): a raised median whose owner run is
+            // shorter than MinRaisedRunM with neither end carried on is a flush
+            // strip - the hotfix's 30 m rule for Jerseys, for curbs. Its partner
+            // runs follow (they stand down; the owner draws).
+            int raisedFlushed = 0;
+            for (int ei = 0; ei < ne; ei++)
+            {
+                var list = t.unions[ei];
+                if (list == null) continue;
+                foreach (var r in list)
+                {
+                    if (!r.owner || r.median != DeckPairs.Median.Raised || r.s1 - r.s0 >= MinRaisedRunM || !r.open0 || !r.open1) continue;
+                    r.median = DeckPairs.Median.Flush; raisedFlushed++;
+                    if (r.mirror != null) r.mirror.median = DeckPairs.Median.Flush;
+                    foreach (int yi in r.across ?? System.Array.Empty<int>())
+                        if (t.unions[yi] != null) foreach (var o in t.unions[yi]) if (o.mirror == r) o.median = DeckPairs.Median.Flush;
+                }
+            }
+
             float deckM = 0f; int runs = 0;
             for (int ei = 0; ei < ne; ei++)
                 if (t.unions[ei] != null) foreach (var r in t.unions[ei]) if (r.owner && !r.approach) { runs++; deckM += r.s1 - r.s0; }
             LastUnionMs = (float)clock.Elapsed.TotalMilliseconds;
-            LastUnionReport = $"{pairsDrawn} union pairs drawn as one structure ({runs} runs, {deckM:0} m over the decks' ranges; {approachRuns} approach runs, {approachM:0} m; {groundRuns} ground-twin runs, {groundM:0} m); " +
+            LastUnionReport = $"{pairsDrawn} union pairs drawn as one structure ({runs} runs, {deckM:0} m over the decks' ranges; {approachRuns} approach runs, {approachM:0} m; {groundRuns} ground-twin runs, {groundM:0} m; {raisedFlushed} short raised medians made flush); " +
                               $"{pairsSplit} pairs in more than one run or ended by a split level over {UnionSplitDyM} m ({splitRuns} runs{(splitWorst > 0f ? "; worst " + splitWorstAt : "")}); " +
                               $"{pairsNone} union pairs with no run{(noRun.Length > 0 ? " (" + noRun.ToString().Trim().TrimEnd(';') + ")" : "")}; {open} open run ends; {LastUnionMs:0.0} ms";
         }

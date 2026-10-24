@@ -2,7 +2,9 @@
 # PUBLISHED commit) into PSXBuild - a -SkipScenes publish does not mirror them - then publish
 # both editions from one commit. Usage: tools\copy-publish.ps1 -Base <last live commit>
 # ProjectSettings matters: a new Always-Included shader lives in GraphicsSettings.asset.
-param([Parameter(Mandatory=$true)][string]$Base)
+# -CityOnly: a change only Charlotte shows (the city code, its data) publishes /city/
+# alone - one build, not two (the root keeps what it serves).
+param([Parameter(Mandatory=$true)][string]$Base, [switch]$CityOnly)
 $ErrorActionPreference = "Stop"
 $main = "C:\Users\mcgee\PSX Racing"
 $sb   = "C:\Users\mcgee\PSXBuild"
