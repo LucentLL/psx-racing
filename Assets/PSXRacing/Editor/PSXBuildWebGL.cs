@@ -216,11 +216,14 @@ namespace PSXRacing.EditorTools
                     options = development ? BuildOptions.Development : BuildOptions.None,
                 };
                 if (development) Debug.Log("[PSXBuildWebGL] DEVELOPMENT build (uncompressed) - never published");
-                // THE SWITCH. The player's scripts compile with the edition's
-                // define (Edition.Baked); nothing is written to the project, so
-                // nothing needs restoring and nothing leaks into the editor.
-                string define = EditionTarget.DefineFor(edition);
-                if (define != null) options.extraScriptingDefines = new[] { define };
+                // THE SWITCH. No scripting define any more (2026-10-24): a
+                // define made the two editions' scripts differ, so each one
+                // paid a full IL2CPP + wasm compile. The edition rides in the
+                // DATA instead - a one-word marker under Resources that
+                // Edition.Baked reads in the player - written for this one
+                // call and deleted in the finally, like the parking below.
+                // The scripts are identical in both, so the second build
+                // reuses the first one's compile.
 
                 // Resources ship whole, so the other edition's are moved out
                 // of Resources for exactly this one call — see EditionParking.
@@ -229,12 +232,14 @@ namespace PSXRacing.EditorTools
                 List<string> parked = new List<string>();
                 try
                 {
+                    WriteEditionMarker(edition);
                     parked = EditionParking.Park(edition);
                     report = BuildPipeline.BuildPlayer(options);
                 }
                 finally
                 {
                     EditionParking.Restore();
+                    WriteEditionMarker(EditionKind.All);
                 }
                 var s = report.summary;
                 var shaderLines = RuntimeShaders.ReportLines(shaders, report, parked, out var unpacked);
@@ -286,6 +291,23 @@ namespace PSXRacing.EditorTools
         /// and beside the build as psx-build-report.txt (not published: the
         /// deploy copies index.html, Build/, StreamingAssets/, LICENSES.txt).
         /// </summary>
+        /// <summary>Writes the edition marker Edition.Baked reads in a player
+        /// (Resources/PSXEdition.txt: "MAIN" / "CITY"), or deletes it for ALL.
+        /// Also run on ALL before a build so a marker a killed build left
+        /// behind never ships in the wrong edition.</summary>
+        static void WriteEditionMarker(EditionKind edition)
+        {
+            const string path = "Assets/PSXRacing/Resources/" + Edition.MarkerResource + ".txt";
+            if (edition == EditionKind.All)
+            {
+                if (File.Exists(path)) AssetDatabase.DeleteAsset(path);
+                return;
+            }
+            File.WriteAllText(path, Edition.Name(edition));
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
+            Debug.Log("[PSXBuildWebGL] edition marker " + path + " = " + Edition.Name(edition));
+        }
+
         static void WriteReport(BuildReport report, string outDir, EditionKind edition,
                                 string[] scenes, List<string> parked, List<string> shaderLines)
         {
@@ -296,7 +318,7 @@ namespace PSXRacing.EditorTools
                 sb.AppendLine("edition " + Edition.Name(edition));
                 sb.AppendLine("result " + sum.result + "  total " + (sum.totalSize / (1024.0 * 1024.0)).ToString("0.00") +
                               " MiB  errors " + sum.totalErrors + "  time " + sum.totalTime);
-                sb.AppendLine("define " + (EditionTarget.DefineFor(edition) ?? "(none)"));
+                sb.AppendLine("marker " + Edition.Name(edition));
                 sb.AppendLine("scenes " + scenes.Length);
                 foreach (var p in scenes) sb.AppendLine("  scene " + p);
                 sb.AppendLine("parked " + parked.Count);

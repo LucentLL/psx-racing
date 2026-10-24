@@ -22,21 +22,21 @@ namespace PSXRacing
     /// The owner, 2026-09-28: "Charlotte map and Charlotte tracks should be in
     /// their own version until being united." Until then the site root ships
     /// MAIN (no Charlotte at all, not even its data) and /city/ ships CITY (the
-    /// city and nothing else). Both are this code, told apart by ONE define
-    /// the WebGL build passes to the player compile
-    /// (BuildPlayerOptions.extraScriptingDefines):
+    /// city and nothing else). Both are this code, identical to the byte, told
+    /// apart by ONE marker the WebGL build packs into the player's data
+    /// (Resources/<see cref="MarkerResource"/>.txt, see <see cref="Baked"/>):
     ///
-    ///   PSX_EDITION_MAIN  -> <see cref="EditionKind.Main"/>
-    ///   PSX_EDITION_CITY  -> <see cref="EditionKind.City"/>
-    ///   neither           -> <see cref="EditionKind.All"/>
+    ///   "MAIN"     -> <see cref="EditionKind.Main"/>
+    ///   "CITY"     -> <see cref="EditionKind.City"/>
+    ///   no marker  -> <see cref="EditionKind.All"/>
     ///
-    /// The editor never has either define, so the editor, the scene builder,
+    /// The editor never reads the marker, so the editor, the scene builder,
     /// the self-test and every audit see ALL — the whole game — unless a tool
     /// asks to see one edition (<see cref="Simulate"/>, or
     /// <c>-psxEdition MAIN|CITY</c> / <c>PSX_EDITION</c> on the editor's
     /// command line or environment).
     ///
-    /// UNITING THEM AGAIN is the build passing no define: <see cref="Baked"/>
+    /// UNITING THEM AGAIN is the build writing no marker: <see cref="Baked"/>
     /// is ALL, every filter below lets everything through, and the game is
     /// the one it was on 2026-09-28. Nothing here deletes or reorders a venue;
     /// catalog indices, scene files and saves are the same in all three.
@@ -50,18 +50,42 @@ namespace PSXRacing
     /// </summary>
     public static class Edition
     {
-#if PSX_EDITION_MAIN && PSX_EDITION_CITY
-#error PSX_EDITION_MAIN and PSX_EDITION_CITY are both defined - a build is one edition or ALL
-#endif
+        /// <summary>Resources path of the edition marker: a one-word text
+        /// asset ("MAIN" / "CITY") that PSXBuildWebGL writes for the length
+        /// of ONE BuildPlayer call and deletes after. No marker = ALL.</summary>
+        public const string MarkerResource = "PSXEdition";
 
-        /// <summary>The edition this binary was compiled as. A const: the
-        /// player can never be talked into being another edition at runtime.</summary>
-#if PSX_EDITION_MAIN
-        public const EditionKind Baked = EditionKind.Main;
-#elif PSX_EDITION_CITY
-        public const EditionKind Baked = EditionKind.City;
+        /// <summary>
+        /// The edition this player was BUILT as. Until 2026-10-24 this was a
+        /// const off a scripting define, which made the two editions' script
+        /// assemblies differ by one line and forced a full IL2CPP + wasm
+        /// recompile for each (~20 min a build). Now the code is byte-for-byte
+        /// the same in both and the edition rides in the build's DATA, so the
+        /// second build reuses the first one's compile. Still not a runtime
+        /// choice: the marker is packed into the player, nothing on the page
+        /// or the URL reaches it. The editor never reads it - it is always ALL.
+        /// </summary>
+        public static EditionKind Baked
+        {
+            get
+            {
+#if UNITY_EDITOR
+                return EditionKind.All;
 #else
-        public const EditionKind Baked = EditionKind.All;
+                if (!bakedRead)
+                {
+                    bakedRead = true;
+                    var marker = Resources.Load<TextAsset>(MarkerResource);
+                    string word = marker != null ? marker.text.Trim().ToUpperInvariant() : "";
+                    baked = word == "MAIN" ? EditionKind.Main : word == "CITY" ? EditionKind.City : EditionKind.All;
+                }
+                return baked;
+#endif
+            }
+        }
+#if !UNITY_EDITOR
+        static bool bakedRead;
+        static EditionKind baked;
 #endif
 
 #if UNITY_EDITOR
@@ -95,7 +119,7 @@ namespace PSXRacing
         /// <summary>
         /// Editor tooling only: behave as <paramref name="e"/> until told
         /// otherwise; null goes back to the launch default. A no-op in a
-        /// player, where the edition is compiled in.
+        /// player, where the edition is packed into the build.
         /// </summary>
         public static void Simulate(EditionKind? e)
         {

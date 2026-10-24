@@ -846,7 +846,7 @@ namespace PSXRacing.EditorTools
         static void EditionChecks()
         {
             Check(Edition.Baked == EditionKind.All,
-                  "the editor compiles as ALL (no PSX_EDITION_* define)", Edition.Baked);
+                  "the editor is ALL (it never reads the edition marker)", Edition.Baked);
             Check(EditionTarget.DefineFor(EditionKind.Main) == "PSX_EDITION_MAIN" &&
                   EditionTarget.DefineFor(EditionKind.City) == "PSX_EDITION_CITY" &&
                   EditionTarget.DefineFor(EditionKind.All) == null,
