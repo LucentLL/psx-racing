@@ -344,7 +344,7 @@ namespace PSXRacing.EditorTools
             Top("w5th_top", "w5th", -3330.0f, 5918.0f, "West 5th", 70f, "W 5th St over I-77 from above (plan A2): one deck, two outer parapets, the raised median on to both signals"),
             // twin decks (B1/A2)
             Top("twin_i277", "twin", -2132.9f, 5956.5f, "I-277", 110f, "I-277 twin viaduct e1910/e1921: the longest union candidate"),
-            Top("twin_e2437", "twin", -983.5f, 4472.1f, "I-277", 60f, "I-277 e2437/e2438: must stay two structures (the negative case)"),
+            Top("twin_e2437", "twin", -983.5f, 4472.1f, "I-277", 60f, "I-277 e2437/e2438 over Elizabeth Ave: ONE bridge with a median (owner 2026-10-24, Street View)"),
             // vertical profiles (B2/B4/B7): side elevations, heights x5
             Prof("prof_w5th_i77", "profiles", -3327.4f, 5915.5f, "I-77", "I-77 under W 5th (e2132/e6608): the trench V and the 5 m carriageway step"),
             Prof("prof_i277_belk", "profiles", -2880.5f, 4085.9f, "I-277", "I-277 Belk Fwy under S College St"),

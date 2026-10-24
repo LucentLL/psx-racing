@@ -36,15 +36,16 @@ namespace PSXRacing.City
     ///     a culvert's creek    no: owner Q8 - OSM says the creek is piped
     ///                          (B2 builds a culvert); left exactly as it is
     ///     outlines (BRST)      the same man_made=bridge outline: yes to 20 m;
+    ///                          a freeway's twin carriageways within 6.1 m: yes (owner 2026-10-24);
     ///                          two different outlines: never
-    ///     else G               one road's two carriageways: 6.1 m for EVERY class
+    ///     else G               one road's two carriageways: 6.1 m for EVERY class, 10 m for a freeway (2026-10-24)
     ///                          (owner L3, 2026-10-02: the 9.1 m arterial band is gone); a ramp beside its road
     ///                          or two ramps: 3.05 m; any other pair 1.2 m
     /// </summary>
     public static class DeckPairs
     {
         public const float Step = 2f, GapMax = 20f, OverlapMin = 10f, SqueezeM = 0.3f;
-        public const float GOutline = 20f, GDualFreeway = 6.1f, GDualArterial = 6.1f /* owner 2026-10-02 (L3): was 9.1 */, GRamp = 3.05f, GOther = 1.2f;
+        public const float GOutline = 20f, GDualFreeway = 10f /* owner 2026-10-24: I-277's real single bridges stand 7-9.3 m apart in OSM's lines; was 6.1 */, GDualArterial = 6.1f /* owner 2026-10-02 (L3): was 9.1 */, GRamp = 3.05f, GOther = 1.2f;
         const float Cell = 32f;
         static readonly float CosMin = Mathf.Cos(15f * Mathf.Deg2Rad);
 
@@ -450,6 +451,11 @@ namespace PSXRacing.City
             if (pr.structA != 0 && pr.structB != 0)
             {
                 if (pr.structA == pr.structB) { pr.G = GOutline; pr.union = pr.gap <= GOutline; pr.why = pr.union ? "outline: ONE" : "outline: ONE (gap past 20 m)"; }
+                // ...but a FREEWAY's two carriageways a median apart are one
+                // bridge (owner 2026-10-24, Street View of I-277 over Elizabeth
+                // Avenue: "much of 277 is single bridge ... it should be accurate
+                // to real world"), however OSM outlined their halves
+                else if (pr.kind == Kind.Dual && pr.cls >= 4 && pr.gap <= GDualFreeway) { pr.G = GDualFreeway; pr.union = true; pr.why = "outline: TWO, one freeway bridge (G=" + GDualFreeway.ToString("0.0#", System.Globalization.CultureInfo.InvariantCulture) + ")"; }
                 else pr.why = "outline: TWO";
                 return;
             }

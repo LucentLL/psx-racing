@@ -5243,8 +5243,17 @@ namespace PSXRacing.City
                     // ...nor a rail standing at a deck's edge (the deck beside it has its own reasons)
                     // ...nor one handing over to a union's median (its owner
                     // draws that, and turns its own ends)
-                    if (openSpan >= 1 && openSpan < n && (spanFlags[openSpan].skip || spanFlags[openSpan].elev || spanFlags[openSpan].wedge
-                                                          || spanFlags[openSpan][side].union)) continue;
+                    if (openSpan >= 1 && openSpan < n && (spanFlags[openSpan].skip || spanFlags[openSpan].elev || spanFlags[openSpan].wedge)) continue;
+                    // ...but the union's median stands on the GAP's centre line, not
+                    // on this rail's: on the ground the rail's own end faced the
+                    // traffic square beside it (2026-10-24: I-277's e4596, once the
+                    // Elizabeth Avenue twins became one bridge). It slopes down
+                    // inside its own run, as at a gore.
+                    if (openSpan >= 1 && openSpan < n && spanFlags[openSpan][side].union)
+                    {
+                        endPlan.Add((k, dir, EndInside, 0f, k));
+                        continue;
+                    }
                     // a rail running into a gore on the ground slopes down
                     // inside its own run (nothing is laid on the gore)
                     if (openSpan >= 1 && openSpan < n && spanFlags[openSpan][side].gap)

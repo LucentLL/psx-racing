@@ -165,6 +165,7 @@ namespace PSXRacing.City
             var E = map.edges;
             int ne = E.Length;
             t.unions = new List<UnionRun>[ne];
+            twinEndsOf.Clear();
             var pairs = map.deckPairs;
             if (pairs == null) { LastUnionReport = "no twin-deck table"; return; }
             // The solve asks for trims before it marks any structure (its ramp

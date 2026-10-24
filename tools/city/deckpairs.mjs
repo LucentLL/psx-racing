@@ -61,7 +61,7 @@ const ll = (x, z) => `${toLat(z).toFixed(5)},${toLon(x).toFixed(5)}`;
 
 // ---- the rule's numbers (DeckPairs.cs carries the same) -------------------
 export const STEP = 2, GAP_MAX = 20, OVERLAP_MIN = 10, COS_MIN = Math.cos(15 * Math.PI / 180), CELL = 32;
-export const SQUEEZE_M = 0.3, G_OUTLINE = 20, G_DUAL_FWY = 6.1, G_DUAL_ART = 6.1 /* owner 2026-10-02 (L3): was 9.1 */, G_RAMP = 3.05, G_OTHER = 1.2;
+export const SQUEEZE_M = 0.3, G_OUTLINE = 20, G_DUAL_FWY = 10 /* owner 2026-10-24: I-277's single bridges, 7-9.3 m apart in OSM */, G_DUAL_ART = 6.1 /* owner 2026-10-02 (L3): was 9.1 */, G_RAMP = 3.05, G_OTHER = 1.2;
 const CORRIDOR_BLEND = 26;   // CityElevation.CorridorBlend
 
 const buf = readFileSync(join(DATA, 'charlotte_city.bytes'));
@@ -281,6 +281,9 @@ export function decide(r, a, b) {
   const sa = brst.structId[a.index], sb = brst.structId[b.index];
   if (sa && sb) {
     if (sa === sb) return { u: r.med <= G_OUTLINE, G: G_OUTLINE, why: 'outline: ONE' + (r.med <= G_OUTLINE ? '' : ' (gap past 20 m)') };
+    // a freeway's twin carriageways a median apart are one bridge (owner 2026-10-24)
+    if (r.kind === 'dual-carriageway' && ['motorway', 'trunk'].includes(r.cls) && r.med <= G_DUAL_FWY)
+      return { u: true, G: G_DUAL_FWY, why: `outline: TWO, one freeway bridge (G=${G_DUAL_FWY})` };
     return { u: false, G: 0, why: 'outline: TWO' };
   }
   const fwy = ['motorway', 'trunk'].includes(r.cls);
@@ -335,7 +338,7 @@ console.log(`DECK PAIRS: ${U.length} UNION (T1 ${byTier(1)}, T2 ${byTier(2)}, T3
             `${culvertWould.length} pairs (${culvertWould.reduce((a, r) => a + r.overlap, 0)} m) left apart as culvert creeks (Q8); unexplained 0`);
 const show = r => `e${r.i}/e${r.j} way ${r.wayA}/${r.wayB} '${r.nameA}'/'${r.nameB}' ${r.clsA}/${r.clsB} ${r.kind} gap ${r.med.toFixed(2)} (min ${r.min.toFixed(2)}) x ${r.overlap} m` +
                   ` ${r.structA || r.structB ? `outline ${r.structA ? outlineName(r.structA) : '-'}/${r.structB ? outlineName(r.structB) : '-'}` : 'no outline'} -> ${r.union ? 'UNION' : 'separate'} (${r.why}) @ ${ll(r.x, r.z)}`;
-for (const [label, a, b] of [['W 5th St over I-77 (the owner\'s example)', 1253, 5445], ['I-277 e2437/e2438 (negative test: two structures)', 2437, 2438],
+for (const [label, a, b] of [['W 5th St over I-77 (the owner\'s example)', 1253, 5445], ['I-277 e2437/e2438 over Elizabeth Ave (one bridge since 2026-10-24, from the owner Street View)', 2437, 2438],
                               ['I-277 viaduct e1910/e1921', 1910, 1921], ['I-277 e2026/e2029 (height test)', 2026, 2029]]) {
   const r = rows.find(q => q.i === Math.min(a, b) && q.j === Math.max(a, b));
   console.log(`  ${label}: ${r ? show(r) : 'not a pair'}`);
