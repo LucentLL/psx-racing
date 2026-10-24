@@ -118,17 +118,26 @@ namespace PSXRacing.EditorTools
         ///   CITY: PizzaCargo/ (deliveries are a career job) and the stage bake
         ///         of every venue CITY does not carry (TrackDef.stageData,
         ///         held-back venues included).
+        ///   ALL and CITY: Charlotte's five big files (CharlotteData.Bundled):
+        ///         they ship in StreamingAssets/charlotte.bundle instead.
         /// Engines, CarModels, Sfx, Sky and the two catalogs ship in both.
         /// </summary>
         public static List<string> ParkListFor(EditionKind edition)
         {
             var list = new List<string>();
-            if (edition == EditionKind.All || !Directory.Exists(ResourcesRoot)) return list;
+            if (!Directory.Exists(ResourcesRoot)) return list;
             var rootFiles = Directory.GetFiles(ResourcesRoot)
                 .Select(Path.GetFileName)
                 .Where(n => !n.EndsWith(".meta", StringComparison.OrdinalIgnoreCase))
                 .OrderBy(n => n, StringComparer.Ordinal)
                 .ToList();
+            // ALL and CITY carry Charlotte, but its five big files ride in
+            // StreamingAssets/charlotte.bundle (CharlotteBundle, 2026-10-24:
+            // one build under GitHub's 100 MB file wall), not in WebGL.data
+            if (edition != EditionKind.Main)
+                foreach (var b in PSXRacing.City.CharlotteData.Bundled)
+                    if (rootFiles.Contains(b + ".bytes")) list.Add(b + ".bytes");
+            if (edition == EditionKind.All) return list;
             if (edition == EditionKind.Main)
             {
                 foreach (var n in rootFiles)

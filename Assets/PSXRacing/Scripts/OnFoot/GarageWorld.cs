@@ -1148,7 +1148,7 @@ namespace PSXRacing.OnFoot
             LifeSimManager.Save();
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
-            SceneManager.LoadScene(idx);
+            SceneGate.Load(idx);
         }
 
         /// <summary>

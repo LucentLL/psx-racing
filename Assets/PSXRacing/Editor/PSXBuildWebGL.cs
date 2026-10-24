@@ -190,6 +190,20 @@ namespace PSXRacing.EditorTools
                     return false;
                 }
                 Debug.Log($"[PSXBuildWebGL] Cockpit bundle: StreamingAssets/{CockpitModel.BundleFile} {ckBytes / 1048576f:F2} MB");
+                // Charlotte's five big files: their own on-demand bundle in any
+                // build that carries the city (CharlotteBundle; EditionParking
+                // parks them out of WebGL.data for the BuildPlayer call).
+                if (edition != EditionKind.Main)
+                {
+                    string chErr = CharlotteBundle.Build(BuildTarget.WebGL, out long chBytes);
+                    if (chErr != null)
+                    {
+                        Debug.LogError("[PSXBuildWebGL] CHARLOTTE BUNDLE FAILED: " + chErr);
+                        return false;
+                    }
+                    Debug.Log($"[PSXBuildWebGL] Charlotte bundle: StreamingAssets/{PSXRacing.City.CharlotteData.BundleFile} {chBytes / 1048576f:F2} MB");
+                }
+                else CharlotteBundle.Remove();
                 // The engine families: one bundle per family and set, fetched
                 // when a car needs it (EngineBundleBuilder). Every family but
                 // the default left Resources for these (~23 MB of WebGL.data).

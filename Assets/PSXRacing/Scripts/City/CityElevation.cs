@@ -277,8 +277,9 @@ namespace PSXRacing.City
         static void EnsureDem()
         {
             if (demTried) return;
+            if (!CharlotteData.Ready) return;   // not yet downloaded: try again later, never cache the miss
             demTried = true;
-            var ta = Resources.Load<TextAsset>("charlotte_dem");
+            var ta = CharlotteData.Load("charlotte_dem");
             if (ta == null) { Debug.LogWarning("[City] charlotte_dem.bytes missing — using value-noise terrain"); return; }
             // Take the bytes and let the asset go BEFORE the grid is built,
             // so the TextAsset's copy and the grid are never both held.

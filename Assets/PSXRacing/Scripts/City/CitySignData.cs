@@ -50,8 +50,9 @@ namespace PSXRacing.City
         static void Ensure()
         {
             if (tried) return;
+            if (!CharlotteData.Ready) return;   // not yet downloaded: try again later, never cache the miss
             tried = true;
-            var ta = Resources.Load<TextAsset>("charlotte_signs");
+            var ta = CharlotteData.Load("charlotte_signs");
             if (ta == null) { Debug.LogWarning("[City] charlotte_signs.bytes missing - no billboards or signs (node tools/city/signs.mjs --out Assets/PSXRacing/Resources)"); return; }
             byte[] bytes = ta.bytes;
             Resources.UnloadAsset(ta);

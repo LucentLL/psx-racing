@@ -126,7 +126,10 @@ namespace PSXRacing
         {
             var doors = new List<Door>();
             foreach (var id in new[] { "CityCircuit", "BlueRidge", "BlueRidgeRev", "BlowingRockSprint",
-                                       "ChimneyRock", "ChimneyRockRev", "DragQuarter" })
+                                       "ChimneyRock", "ChimneyRockRev", "DragQuarter",
+                                       // ALL only (MAIN skips it: not shipped): a Charlotte race through
+                                       // SceneGate and the charlotte.bundle download (2026-10-24)
+                                       "UptownLoop" })
             {
                 if (!TrackCatalog.TryIndexOf(id, out int v) || !Edition.ShipsIn(TrackCatalog.At(v), edition)) continue;
                 int captured = v;

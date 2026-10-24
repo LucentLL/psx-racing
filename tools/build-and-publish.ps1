@@ -192,7 +192,8 @@ if ($PagesDir) {
 }
 
 # THE EDITION. Resolved and checked BEFORE a forty-minute build.
-$RootEdition = "MAIN"    # the site root's edition; "ALL" once MAIN and CITY are united
+$RootEdition = "ALL"     # the site root's edition: ALL since 2026-10-24 (one build again; Charlotte's big data is its own
+                         # download, StreamingAssets/charlotte.bundle - CharlotteData). /city/ is a redirect to the root.
 # The root and /city/ have fixed editions. Any other -PagesDir is a preview
 # folder with no edition of its own: it ships the -Edition it is given (ALL
 # when none is named), and every check below holds the build to that edition

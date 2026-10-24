@@ -1,10 +1,10 @@
 # Push main, copy the Assets/ProjectSettings/Packages files changed since $Base (the last
 # PUBLISHED commit) into PSXBuild - a -SkipScenes publish does not mirror them - then publish
-# both editions from one commit. Usage: tools\copy-publish.ps1 -Base <last live commit>
+# the game (one build) from that commit. Usage: tools\copy-publish.ps1 -Base <last live commit>
 # ProjectSettings matters: a new Always-Included shader lives in GraphicsSettings.asset.
-# -CityOnly: a change only Charlotte shows (the city code, its data) publishes /city/
-# alone - one build, not two (the root keeps what it serves).
-param([Parameter(Mandatory=$true)][string]$Base, [switch]$CityOnly)
+# ONE BUILD since 2026-10-24: the root is the ALL edition (the whole game; Charlotte's big
+# data rides in StreamingAssets/charlotte.bundle), and /city/ is a redirect to it.
+param([Parameter(Mandatory=$true)][string]$Base)
 $ErrorActionPreference = "Stop"
 $main = "C:\Users\mcgee\PSX Racing"
 $sb   = "C:\Users\mcgee\PSXBuild"
@@ -19,5 +19,5 @@ foreach ($line in (git diff --name-status "$Base" HEAD)) {
     else { New-Item -ItemType Directory -Force (Split-Path $dst) | Out-Null; Copy-Item (Join-Path $main $path) $dst -Force; Write-Host "copied  $path" }
     if ($st -like "R*") { Remove-Item (Join-Path $sb $parts[1]) -Force -ErrorAction SilentlyContinue }
 }
-& powershell -ExecutionPolicy Bypass -File "$main\tools\build-and-publish.ps1" -Both -SkipScenes
+& powershell -ExecutionPolicy Bypass -File "$main\tools\build-and-publish.ps1" -SkipScenes
 exit $LASTEXITCODE

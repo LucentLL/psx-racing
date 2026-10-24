@@ -193,13 +193,16 @@ for (const r of rules) {
 //        city race cards' street maps, RouteMapBake; EditionBuild parks them);
 //   CITY may leave out pizzacargo/* and the root .json stage bakes (every root
 //        .json but rg2_* and charlotte_*);
-//   ALL  may leave out nothing.
+//   ALL  may leave out only what CITY and ALL both ship in
+//        StreamingAssets/charlotte.bundle (CharlotteBundle, 2026-10-24): the
+//        five big charlotte_{city,bld,dem,signs,canopy}.bytes.
 // And the build's park list must stay inside the allowance.
+const inCharlotteBundle = k => /^charlotte_(city|bld|dem|signs|canopy)\.bytes$/.test(k);
 const mayOmit = k =>
   edition === "MAIN" ? (/^charlotte_[^/]*$/.test(k) || k.startsWith("cityprops/") || k.startsWith("routemaps/"))
-  : edition === "CITY" ? (k.startsWith("pizzacargo/") || (!k.includes("/") && k.endsWith(".json") &&
+  : edition === "CITY" ? (inCharlotteBundle(k) || k.startsWith("pizzacargo/") || (!k.includes("/") && k.endsWith(".json") &&
                                                           !/^(rg2_|charlotte_)/.test(k)))
-  : false;
+  : inCharlotteBundle(k);
 // mayOmit is asked of keys WITH their extension for the root-.json test.
 const srcRoot = srcArg || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const resDir = path.join(srcRoot, "Assets", "PSXRacing", "Resources");

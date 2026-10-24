@@ -615,9 +615,9 @@ namespace PSXRacing.City
         public static CityMap Get()
         {
             if (loaded != null) return loaded;
-            var ta = Resources.Load<TextAsset>("charlotte_city");
+            var ta = CharlotteData.Load("charlotte_city");
             if (ta == null) { Debug.LogError("charlotte_city.bytes missing from Resources — run tools/city/export_osm.mjs"); return null; }
-            var bld = Resources.Load<TextAsset>("charlotte_bld");
+            var bld = CharlotteData.Load("charlotte_bld");
             loaded = Parse(ta.bytes, bld != null ? bld.bytes : null);
             Resources.UnloadAsset(ta);
             if (bld != null) Resources.UnloadAsset(bld);

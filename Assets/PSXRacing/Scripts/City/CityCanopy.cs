@@ -33,8 +33,9 @@ namespace PSXRacing.City
         static void Ensure()
         {
             if (tried) return;
+            if (!CharlotteData.Ready) return;   // not yet downloaded: try again later, never cache the miss
             tried = true;
-            var ta = Resources.Load<TextAsset>("charlotte_canopy");
+            var ta = CharlotteData.Load("charlotte_canopy");
             if (ta == null) { Debug.LogWarning("[City] charlotte_canopy.bytes missing - no canopy trees (tools/city/canopy.mjs --out Assets/PSXRacing/Resources)"); return; }
             byte[] bytes = ta.bytes;
             Resources.UnloadAsset(ta);

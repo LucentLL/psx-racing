@@ -3640,7 +3640,7 @@ namespace PSXRacing.LifeSim
                         if (back == TrackCatalog.NeighborhoodSceneIndex || back == TrackCatalog.GarageSceneIndex)
                             PSXRacing.OnFoot.HomeWalk.Enter();
                         else
-                            SceneManager.LoadScene(back);
+                            SceneGate.Load(back);
                         return;
                     }
                     InspectReturnScene = -1;
@@ -5769,7 +5769,7 @@ namespace PSXRacing.LifeSim
                 tab = "viewing"; Rebuild();
                 return;
             }
-            SceneManager.LoadScene(idx);
+            SceneGate.Load(idx);
         }
 
         // =================== looking at somebody else's car ===================
@@ -6048,7 +6048,7 @@ namespace PSXRacing.LifeSim
             // car would come off the lift in a garage they are not in.
             FillCarRequestFor(S, v.car);
             LifeSimManager.Save();
-            SceneManager.LoadScene(TrackCatalog.SceneIndex(RaceHandoff.TrackIndex));
+            SceneGate.Load(TrackCatalog.SceneIndex(RaceHandoff.TrackIndex));
         }
 
         // =================== the dealership lot ===================
@@ -7619,7 +7619,7 @@ namespace PSXRacing.LifeSim
             FillCarRequest();
 
             LifeSimManager.Save();
-            SceneManager.LoadScene(TrackCatalog.SceneIndex(RaceHandoff.TrackIndex));
+            SceneGate.Load(TrackCatalog.SceneIndex(RaceHandoff.TrackIndex));
         }
 
         /// <summary>
@@ -7670,7 +7670,7 @@ namespace PSXRacing.LifeSim
             CarMeets.BeginRun(S, racer);
             FillCarRequest();
             LifeSimManager.Save();
-            SceneManager.LoadScene(TrackCatalog.SceneIndex(RaceHandoff.TrackIndex));
+            SceneGate.Load(TrackCatalog.SceneIndex(RaceHandoff.TrackIndex));
             return true;
         }
 
@@ -7800,7 +7800,7 @@ namespace PSXRacing.LifeSim
             RaceHandoff.StartFuelPct = S.ActiveCar != null ? S.ActiveCar.fuel : 100f;
             FillCarRequest();
             LifeSimManager.Save();
-            SceneManager.LoadScene(idx);
+            SceneGate.Load(idx);
         }
 
         /// <summary>
@@ -7829,7 +7829,7 @@ namespace PSXRacing.LifeSim
             RaceHandoff.StartFuelPct = S.ActiveCar != null ? S.ActiveCar.fuel : 100f;
             FillCarRequest();
             LifeSimManager.Save();
-            SceneManager.LoadScene(idx);
+            SceneGate.Load(idx);
         }
 
         /// <returns>False when nothing was loaded (the car is not here, or
@@ -7859,7 +7859,7 @@ namespace PSXRacing.LifeSim
             FillCarRequest();
 
             LifeSimManager.Save();
-            SceneManager.LoadScene(TrackCatalog.SceneIndex(RaceHandoff.TrackIndex));
+            SceneGate.Load(TrackCatalog.SceneIndex(RaceHandoff.TrackIndex));
             return true;
         }
 
