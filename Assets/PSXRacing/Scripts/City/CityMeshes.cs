@@ -2906,8 +2906,14 @@ namespace PSXRacing.City
             var fwd = n.dirM;
             tm.goreNoses.Add((vOut + o3, vIn + o3, new Vector3(fwd.x, 0f, fwd.y), elev));
             // On the ground the nose is warranted a block only by the same
-            // drop a ribbon's side would be.
-            bool warranted = elev || (DropFrom(map, trims, mid, fwd, 0.5f * (n.yIn + n.yOut), VergeShoulderM) & DropWarrant) != 0;
+            // drop a ribbon's side would be - and on a city street (not a
+            // barriered freeway) only by an UNGRADED one, a retaining face
+            // (2026-10-24, the owner's West Trade Street frame: a 10 m
+            // concrete block where its grass median ends by the I-77
+            // underpass, "random short median ... often result in wrecks";
+            // the median's graded fall to the lower carriageway is no cliff).
+            int noseDrop = elev ? 0 : DropFrom(map, trims, mid, fwd, 0.5f * (n.yIn + n.yOut), VergeShoulderM);
+            bool warranted = elev || ((noseDrop & DropWarrant) != 0 && (Barriered(n.H) || (noseDrop & DropUngraded) != 0));
             // ...and not where the V beyond it is paved at its height: where a
             // chain of short links meets at a junction on a bridge, the nose
             // fell inside the junction's fan and its block stood across the
@@ -5518,7 +5524,18 @@ namespace PSXRacing.City
             {
                 var ed = sec.Edge(side);
                 if (sec.Strip(side) < 0f)
+                {
                     drop = DropFrom(map, trims, new Vector2(ed.x + tm.origin.x, ed.z + tm.origin.z), sec.Out(side), ed.y, ShoulderOf(e, side), !MedianBarriered(e, side));
+                    // A CITY STREET'S MEDIAN (2026-10-24, the owner's West Trade
+                    // Street frame: a 10 m concrete rail standing where its
+                    // grass median falls to the lower carriageway by the I-77
+                    // underpass - "random short median ... often result in
+                    // wrecks"): a one-way street's left side (the median of a
+                    // divided street), graded, warrants no rail. A freeway's
+                    // keeps it; a retaining face (ungraded) keeps it anywhere.
+                    if ((drop & DropWarrant) != 0 && (drop & DropUngraded) == 0 && e.oneway && side > 0 && !Barriered(e))
+                        drop = 0;
+                }
                 else
                 {
                     // A squeeze strip is flat, so the step down to a lower
@@ -5530,8 +5547,15 @@ namespace PSXRacing.City
                     // retaining face — unless a median barrier on the strip
                     // stands between. Past SharedGuardDyM no barrier the lower
                     // road draws guards this edge.
-                    float step = ed.y - map.edges[sec.Nb(side)].YAt(sec.NbAt(side));
+                    var nbE = map.edges[sec.Nb(side)];
+                    float step = ed.y - nbE.YAt(sec.NbAt(side));
                     drop = SqueezeDrop(map, trims, e, sec, side, step);
+                    // ...but not between a CITY STREET's own two carriageways
+                    // (2026-10-24, West Trade Street by the I-77 underpass: a
+                    // 10 m rail on the strip where they meet to merge, at two
+                    // heights - one street, no rail between its halves).
+                    if (!Barriered(e) && e.oneway && nbE.oneway && !string.IsNullOrEmpty(e.name) && nbE.name == e.name)
+                        drop = 0;
                 }
             }
             dropCache[key] = drop;

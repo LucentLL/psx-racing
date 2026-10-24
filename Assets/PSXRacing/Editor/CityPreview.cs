@@ -221,9 +221,9 @@ namespace PSXRacing.EditorTools
                 }
 
                 // the roads pass's named views (A1): shot only when asked for (W 5th by default)
-                foreach (var v in NamedViews)
+                foreach (var v in AllNamedViews())
                 {
-                    if (!want.Takes(v.name, v.group, v.group == "w5th")) continue;
+                    if (!want.Takes(v.name, v.group, v.group == "w5th" || v.group == "custom")) continue;
                     if (!ShootNamed(map, trims, buildings, world, roots, dir, v, spotLog)) Debug.LogWarning($"[CityPreview] {v.name}: no road to stand on near ({v.at.x:0},{v.at.y:0})");
                     else named++;
                 }
@@ -307,6 +307,26 @@ namespace PSXRacing.EditorTools
 
         /// <summary>The plan's A1 view list: later packages shoot these by
         /// name (PSX_PREVIEW_SPOTS) without editing this file.</summary>
+        /// <summary>The named views plus PSX_PREVIEW_CUSTOM (2026-10-24, the owner's
+        /// screenshots of a place): a ';' list of name:top:x:z:road:size or
+        /// name:eye:x:z:road:heading (road: a name part, '' for any), group "custom",
+        /// shot whenever it is set.</summary>
+        static IEnumerable<NamedView> AllNamedViews()
+        {
+            foreach (var v in NamedViews) yield return v;
+            string s = System.Environment.GetEnvironmentVariable("PSX_PREVIEW_CUSTOM");
+            if (string.IsNullOrWhiteSpace(s)) yield break;
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            foreach (var item in s.Split(';'))
+            {
+                var f = item.Split(':');
+                if (f.Length < 6) continue;
+                float x = float.Parse(f[2], ci), z = float.Parse(f[3], ci), k = float.Parse(f[5], ci);
+                yield return f[1].Trim() == "top" ? Top(f[0].Trim(), "custom", x, z, f[4], k, "custom top " + item)
+                                                 : Eye(f[0].Trim(), "custom", x, z, f[4], k, "custom eye " + item);
+            }
+        }
+
         static readonly NamedView[] NamedViews =
         {
             // coverage (2026-10-06): the campus engineering quad, its deck, a suburban shopping centre and its lot

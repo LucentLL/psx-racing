@@ -581,9 +581,19 @@ namespace PSXRacing.EditorTools
             var tiles = new List<(int tx, int tz, string why)>();
             var seen = new HashSet<long>();
             var routeEdges = new HashSet<int>();
-            foreach (var r in map.routes)
+            // PSX_DRIVE_EDGES=9612,9611,...: these edges instead of the routes
+            // (2026-10-24: a place the owner screenshotted, off every route)
+            var only = System.Environment.GetEnvironmentVariable("PSX_DRIVE_EDGES");
+            var edgeLists = new List<(string id, int[] edges)>();
+            if (!string.IsNullOrWhiteSpace(only))
             {
-                if (ids.Count > 0 && !ids.Contains(r.id)) continue;
+                var l = new List<int>();
+                foreach (var t in only.Split(',', ';', ' ')) if (int.TryParse(t.Trim(), out int ei) && ei >= 0 && ei < map.edges.Length) l.Add(ei);
+                edgeLists.Add(("edges", l.ToArray()));
+            }
+            else foreach (var r in map.routes) if (ids.Count == 0 || ids.Contains(r.id)) edgeLists.Add((r.id, r.edges));
+            foreach (var r in edgeLists)
+            {
                 foreach (var ei in r.edges)
                 {
                     routeEdges.Add(ei);
