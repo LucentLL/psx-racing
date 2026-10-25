@@ -1035,7 +1035,12 @@ namespace PSXRacing.LifeSim
             body = MenuKit.ScrollBody(bodyViewport);
 
             moneyText.text = MenuKit.Money(S.money);
+            // The day's headline at home and the air right now (the climate,
+            // 2026-10-25): "RAIN 54F", or just the temperature on a clear day.
             string weather = Seasons.WeatherLabel(Seasons.WeatherFor(S.day));
+            var home = Seasons.At(S.day, TimeOfDay.ForSlot(S.slotIndex, S.day), "Charlotte");
+            string air = S.day > 0 ? Seasons.Temp(home.airC) : null;
+            weather = weather != null ? weather + (air != null ? " " + air : "") : air;
             dateText.text = LifeRules.DateLabel(S.day) + "  ·  " +
                             LifeRules.SlotNames[Mathf.Clamp(S.slotIndex, 0, LifeRules.SlotCount - 1)] +
                             (weather != null ? "  ·  " + weather : "") +
@@ -5245,9 +5250,16 @@ namespace PSXRacing.LifeSim
             // The real forecast, not the one the placeholder always printed:
             // "clear, cold, dry roads after dark" read as a lie in July, and
             // the save has known the day's weather since the seasons landed.
-            string sky = Seasons.WeatherLabel(Seasons.WeatherFor(S.day));
-            MenuKit.Label(body, "WEATHER — " + (sky ?? "CLEAR") + ", " +
+            // And since the weather layers (2026-10-25) the sky, the ground
+            // and the three temperatures at home this block - two short
+            // lines, the menus' no-clip rule.
+            var wx = Seasons.At(S.day, TimeOfDay.ForSlot(S.slotIndex, S.day), "Charlotte");
+            MenuKit.Label(body, "WEATHER — " + Seasons.SkyLine(wx) + ", " +
                     Seasons.Of(S.day).ToString().ToUpperInvariant(), 17,
+                new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
+                MenuKit.Dim, ColW);
+            y -= 26f;
+            MenuKit.Label(body, Seasons.TempLine(wx, hiLo: true), 17,
                 new Vector2(0.5f, 1f), new Vector2(ColL, y), TextAnchor.MiddleLeft,
                 MenuKit.Dim, ColW);
             y -= 26f;
@@ -7224,8 +7236,18 @@ namespace PSXRacing.LifeSim
             // launches the race says so — and says nothing at all about a
             // healthy car on a mild day, because a permanent weather line is
             // chrome.
-            string heat = CoolingModel.PreRaceWarning(car,
-                CoolingModel.AmbientC(S.day, raceHour));
+            // THE FORECAST at the venue for the hour booked (weather layers,
+            // 2026-10-25): the sky and the ground, then the air, the road and
+            // the bridges - a July afternoon on Bogue Banks is not one on
+            // Mount Mitchell, and a bridge can be ice when the road is wet.
+            var fc = Seasons.At(S.day, raceHour, t.id);
+            MenuKit.Label(body, "WEATHER  " + Seasons.SkyLine(fc), MenuKit.Tiny, new Vector2(0.5f, 1f),
+                new Vector2(vx, y), TextAnchor.MiddleLeft, MenuKit.Dim, vw, height: 24f);
+            y -= 26f;
+            MenuKit.Label(body, Seasons.TempLine(fc), MenuKit.Tiny, new Vector2(0.5f, 1f),
+                new Vector2(vx, y), TextAnchor.MiddleLeft, MenuKit.Dim, vw, height: 24f);
+            y -= 26f;
+            string heat = CoolingModel.PreRaceWarning(car, fc.airC);
             if (heat != null)
             {
                 MenuKit.Label(body, heat, MenuKit.Tiny, new Vector2(0.5f, 1f),

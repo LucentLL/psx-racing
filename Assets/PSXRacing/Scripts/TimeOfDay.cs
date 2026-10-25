@@ -458,7 +458,17 @@ namespace PSXRacing
                 // a global set here directly would be overwritten on the next
                 // tick — and a scene that never applies an hour keeps the
                 // fields' zero defaults, which is today's picture exactly.
-                globals.wetness = WetnessFor(index, weather);
+                // THE ROAD LAYER (2026-10-25): the open road's own water, slush
+                // and snow through the world-fixed patches the tyres read
+                // (PSXWet.cginc, RoadSurface), over the hour's art-licence damp.
+                var wn = Seasons.Now;
+                float damp = DampFor(index);
+                float water = RoadWaterVisual(wn, index, weather);
+                globals.wetness = Mathf.Max(damp, water);
+                globals.wetWater = water;
+                globals.wetDamp = damp;
+                globals.wetPatchOn = 1f;
+                globals.roadSnow = Mathf.Clamp01(wn.road.snow + 0.35f * wn.road.slush);
                 globals.night = NightFor(index);
                 globals.gradeNight = GradeNightFor(index);
                 globals.mood = MoodFor(index, urban);
@@ -474,7 +484,7 @@ namespace PSXRacing
                 // white"): a sunlit hour's world, not its pale haze colour; the
                 // ground white only under the snow dress.
                 globals.paintDay = IsSunUp(index) || IsLowSun(index) ? 1f : 0f;
-                globals.paintSnow = weather == Weather.Snow ? 1f : 0f;
+                globals.paintSnow = Seasons.Now.scenery == SceneryKind.Snow ? 1f : 0f;
                 // And the COLOUR PASS (Shaders/PSXTone.cginc): one exposure
                 // for the hour as the weather left it, the one tone curve, and
                 // the halation keyed on light sources. The adaptation (C10) is
@@ -814,6 +824,11 @@ namespace PSXRacing
             // darkened to 60% — which is the one tell that a weather layer
             // is a filter over a sunny scene. See SunMul.
             p.sunIntensity *= SunMul(weather);
+            // THE OVERCAST SKY (2026-10-25, the owner: rain and snow had "the
+            // same blue sky cloudy skybox (should be overcast with sky full of
+            // clouds, grays)"). Under the grey light, a grey panorama.
+            if (weather == Weather.Rain || weather == Weather.Snow)
+                Overcast(ref p, index, weather == Weather.Rain && Seasons.Now.sky == SkyKind.Storm);
 
             // THE CITY LIGHTS ITS OWN SKY. After the weather, so an overcast
             // city night is a murk the cloud holds down rather than a clear
@@ -907,6 +922,73 @@ namespace PSXRacing
         /// Weather never makes a road DRIER than the hour already has it: a
         /// fog or snow night takes whichever of the two is wetter.
         /// </summary>
+        /// <summary>
+        /// How wet the open road LOOKS this hour from the road layer, 0..1:
+        /// its water (black ice is water you cannot see is frozen), half its
+        /// slush - and under falling snow by day no more than a damp road's
+        /// 0.35, the C13 rule that kept a snowy noon's road from mirroring the
+        /// pale sky brighter than the sky itself (see SnowDayWetness).
+        /// </summary>
+        public static float RoadWaterVisual(in WeatherNow wn, int hour, Weather sky)
+        {
+            float water = Mathf.Max(wn.road.water, 0.5f * wn.road.slush);
+            if (sky == Weather.Snow && IsSunUp(hour)) water = Mathf.Min(water, 0.35f);
+            return Mathf.Clamp01(water);
+        }
+
+        /// <summary>The clock time of an hour, in hours (DAWN 05:40 = 5.67).</summary>
+        public static float ClockHours(int index)
+        {
+            var c = All[Mathf.Clamp(index, 0, All.Length - 1)].clock;
+            if (string.IsNullOrEmpty(c) || c.Length < 5) return 12f;
+            int hh = (c[0] - '0') * 10 + (c[1] - '0'), mm = (c[3] - '0') * 10 + (c[4] - '0');
+            return hh + mm / 60f;
+        }
+
+        // ---- the overcast panoramas ----------------------------------------
+        //
+        // Screaming Brain Studios "Cloudy Skyboxes" (CC0), the pack every hour
+        // sky already comes from, resized to 1024x512 like them: the pack's
+        // OVERCAST skies, picked off a contact sheet and measured (mean
+        // saturation of the top hemisphere 0.12-0.16, 84-100% of it grey):
+        //   sky_overcast     = Panorama_Sky_20, flat bright grey, a sun glow
+        //   sky_overcast_low = Panorama_Sky_25, low grey-violet cloud deck
+        //   sky_storm        = Panorama_Sky_01, dark heavy storm cloud
+        // The night keeps its own sky (Sky_12 is already a dark cloud deck)
+        // without its stars.
+
+        public const float OvercastTint = 0.30f;
+        public const float OvercastGrey = 0.75f;
+
+        static void Overcast(ref Preset p, int index, bool storm)
+        {
+            switch (index)
+            {
+                case Dawn: case Sunset: case Dusk:
+                    p.skyTex = "sky_overcast_low"; p.skyTexElevation = OvercastLowSunElev; break;
+                case Morning: case Noon: case Afternoon:
+                    p.skyTex = storm ? "sky_storm" : "sky_overcast";
+                    p.skyTexElevation = storm ? StormSunElev : OvercastSunElev; break;
+            }
+            p.skyStars = 0f;
+            p.skyTint = Mathf.Min(p.skyTint, OvercastTint);
+            p.skyTop = Grey(p.skyTop, OvercastGrey);
+            p.skyHorizon = Grey(p.skyHorizon, OvercastGrey);
+            p.skyBottom = Grey(p.skyBottom, OvercastGrey);
+        }
+
+        /// <summary>The sun's elevation in each overcast photo (degrees, the
+        /// pack's sun sits at azimuth ~270 like the rest), measured as the
+        /// luminance centroid of the top hemisphere, on the same scale as the
+        /// hour table (the same measure gives sky_noon 48.9 against its 24.4).</summary>
+        const float OvercastSunElev = 21f, OvercastLowSunElev = 10f, StormSunElev = 12f;
+
+        static Color Grey(Color c, float t)
+        {
+            float l = c.r * 0.30f + c.g * 0.59f + c.b * 0.11f;
+            return new Color(Mathf.Lerp(c.r, l, t), Mathf.Lerp(c.g, l, t), Mathf.Lerp(c.b, l, t), c.a);
+        }
+
         public static float WetnessFor(int hour, Weather w)
         {
             float damp = DampFor(hour);

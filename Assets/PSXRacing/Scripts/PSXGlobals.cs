@@ -118,6 +118,14 @@ namespace PSXRacing
         /// </summary>
         public float wetness;
         /// <summary>
+        /// THE WEATHER LAYERS' ROAD (2026-10-25; PSXWet.cginc): 1 once the
+        /// layered weather drives the road, then the open road's water, the
+        /// hour's art-licence damp and the snow lying on it - all through the
+        /// world-fixed patch mask the tyres read too (RoadSurface). 0 (a scene
+        /// or tool that never set them) keeps wetness one uniform film.
+        /// </summary>
+        public float wetPatchOn, wetWater, wetDamp, roadSnow;
+        /// <summary>
         /// HOW NIGHT-TIME IT IS, 0..1 (_PSXNight): night 1, dusk 0.75, dawn
         /// 0.5, sunset 0.3, day 0. Written by TimeOfDay.Apply from
         /// TimeOfDay.NightFor(hour). Lights the city's windows (PSX/Lit) and
@@ -289,6 +297,10 @@ namespace PSXRacing
             Shader.SetGlobalFloat("_PSXFogCurve", fogCurve);
             Shader.SetGlobalFloat("_PSXSnap", vertexSnap ? 1f : 0f);
             Shader.SetGlobalFloat("_PSXWetness", Mathf.Clamp01(wetness));
+            Shader.SetGlobalFloat("_PSXWetPatchOn", wetPatchOn > 0.5f ? 1f : 0f);
+            Shader.SetGlobalFloat("_PSXWetWater", Mathf.Clamp01(wetWater));
+            Shader.SetGlobalFloat("_PSXWetDamp", Mathf.Clamp01(wetDamp));
+            Shader.SetGlobalFloat("_PSXRoadSnow", Mathf.Clamp01(roadSnow));
             Shader.SetGlobalFloat("_PSXNight", Mathf.Clamp01(night));
             Shader.SetGlobalFloat("_PSXGradeNight", Mathf.Clamp01(gradeNight));
             Shader.SetGlobalVector("_PSXMood", new Vector4(mood.r, mood.g, mood.b, Mathf.Clamp01(mood.a)));

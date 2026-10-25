@@ -290,9 +290,9 @@ namespace PSXRacing
         /// <summary>The deceleration a full brake input gives, about - for
         /// turning a stopping distance into a pedal.</summary>
         const float BrakeDecel = 8.5f;
-        /// <summary>...on today's road: a wet one stops on the same smaller
-        /// circle it corners on (Seasons.GripMult).</summary>
-        static float BrakeDecelNow => BrakeDecel * Seasons.RoadGripMult;
+        /// <summary>...on the road ahead: a wet one stops on the same smaller
+        /// circle it corners on (CarController.SurfaceGripAhead).</summary>
+        float BrakeDecelNow => BrakeDecel * (car != null ? car.SurfaceGripAhead : Seasons.RoadGripMult);
         /// <summary>The share of it a stop behind traffic is planned on.</summary>
         const float PlanBrakeShare = 0.65f;
         /// <summary>How far up the road oncoming traffic keeps a racer in its

@@ -198,7 +198,7 @@ namespace PSXRacing
             float a = c.grounded && c.onRoad
                 ? Mathf.Clamp01((c.slide - SlideStart) / (SlideFull - SlideStart)) *
                   Mathf.Clamp01(c.load / staticLoad) * MaxAlpha *
-                  Mathf.Lerp(1f, Seasons.WetMarkKeep, Seasons.RoadWetT)   // little rubber on a wet road
+                  Mathf.Lerp(1f, Seasons.WetMarkKeep, c.wetT)   // little rubber on a wet spot (RoadSurface)
                 : 0f;
 
             if (a <= 0.01f) { laid[i] = false; return; }

@@ -195,8 +195,9 @@ namespace PSXRacing
 
                 float t = Mathf.Clamp01((c.slide - SlideStart) / (SlideFull - SlideStart)) *
                           Mathf.Clamp01(c.load / staticLoad);
-                // A tyre sliding on wet tarmac barely smokes (Seasons.RoadWetT).
-                if (c.onRoad) t *= Mathf.Lerp(1f, Seasons.WetSmokeKeep, Seasons.RoadWetT);
+                // A tyre sliding on wet tarmac barely smokes: this tyre's own
+                // spot (WheelContact.wetT, RoadSurface).
+                if (c.onRoad) t *= Mathf.Lerp(1f, Seasons.WetSmokeKeep, c.wetT);
                 if (t <= 0.01f) { budget[i] = 0f; continue; }
 
                 budget[i] += t * RateAtFull * density * dt;

@@ -63,7 +63,8 @@ namespace PSXRacing
             float wf = c.weightDistFront;
             float tyre = Mathf.Min(c.tireMuFront * CarController.StaticAxleMuFactor(wf),
                                    c.tireMuRear * CarController.StaticAxleMuFactor(1f - wf));
-            float surface = c.onRoad ? c.roadGrip * Seasons.RoadGripMult : c.offroadGrip * Seasons.OffroadGripMult;
+            // The road it is about to meet (weather layers: CarController.SurfaceGripAhead).
+            float surface = c.onRoad ? c.roadGrip * c.SurfaceGripAhead : c.offroadGrip * Seasons.OffroadGripMult;
             return surface * tyre * c.gripBonus * c.faultGripMult;
         }
 

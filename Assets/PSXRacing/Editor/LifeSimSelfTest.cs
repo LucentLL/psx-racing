@@ -20,7 +20,7 @@ namespace PSXRacing.EditorTools
     /// scene, no UI — so it is safe in batchmode and leaves no save behind.
     /// Menu: PSX Racing/Run LifeSim Self-Test.
     /// </summary>
-    public static class LifeSimSelfTest
+    public static partial class LifeSimSelfTest
     {
         static StringBuilder log;
         static int failures;
@@ -3323,27 +3323,8 @@ namespace PSXRacing.EditorTools
                   Seasons.DressIndex(Season.Summer, Weather.Rain) == (int)Season.Summer,
                   "snow picks the snow dress; rain keeps the season's own");
 
-            // Ten years of weather, rolled twice.
-            const int days = 3650;
-            int snow = 0, fog = 0, rain = 0, snowOutOfSeason = 0;
-            bool deterministic = true;
-            for (int d = 1; d <= days; d++)
-            {
-                var w = Seasons.WeatherFor(d);
-                if (Seasons.WeatherFor(d) != w) deterministic = false;
-                int m = LifeRules.MonthOf(d);
-                if (w == Weather.Snow) { snow++; if (m >= 4 && m <= 10) snowOutOfSeason++; }
-                else if (w == Weather.Fog) fog++;
-                else if (w == Weather.Rain) rain++;
-            }
-            Check(deterministic, "the same day always rolls the same weather");
-            Check(snowOutOfSeason == 0, "and it never snows between April and October", snowOutOfSeason);
-            Check(rain > days * 0.08f && rain < days * 0.25f, "rain on 8-25% of days", rain + "/" + days);
-            Check(fog > days * 0.05f && fog < days * 0.20f, "fog on 5-20% of days", fog + "/" + days);
-            Check(snow > days * 0.02f && snow < days * 0.10f, "snow on 2-10% of days", snow + "/" + days);
-            Check(Seasons.GripMult(Weather.Snow, true) < Seasons.GripMult(Weather.Rain, true) &&
-                  Seasons.GripMult(Weather.Rain, true) < 1f && Seasons.GripMult(Weather.Clear, true) == 1f,
-                  "snow costs more grip than rain, which costs some, and clear costs none");
+            // THE CLIMATE AND ITS LAYERS (2026-10-25) - LifeSimSelfTest.Weather.cs.
+            TestClimate();
             Check(Seasons.FogMul(Weather.Fog) < Seasons.FogMul(Weather.Rain) && Seasons.FogMul(Weather.Clear) == 1f,
                   "fog closes the fog band in further than rain does");
 
@@ -8713,12 +8694,19 @@ namespace PSXRacing.EditorTools
             // AMBIENT, as the calendar produces it. Not a constant any more —
             // this is the term that decides whether a marginal cooling system
             // is a problem in April or only in July.
+            // Since the climate (2026-10-25) a single day carries its own
+            // spread, so the month's MEAN is what is pinned.
             int jan = LifeRules.DayNumber(new System.DateTime(1999, 1, 15));
             int jul = LifeRules.DayNumber(new System.DateTime(1999, 7, 15));
-            float janDawn = CoolingModel.AmbientC(jan, TimeOfDay.Dawn);
-            float julNoon = CoolingModel.AmbientC(jul, TimeOfDay.Afternoon);
-            Check(janDawn < 6f, "a January dawn is near freezing", Mathf.RoundToInt(janDawn));
-            Check(julNoon > 28f, "a July afternoon is not", Mathf.RoundToInt(julNoon));
+            float janDawn = 0f, julNoon = 0f;
+            for (int y = 0; y < 5; y++)
+                for (int k = -14; k <= 14; k++)
+                {
+                    janDawn += CoolingModel.AmbientC(jan + y * 365 + k, TimeOfDay.Dawn) / 145f;
+                    julNoon += CoolingModel.AmbientC(jul + y * 365 + k, TimeOfDay.Afternoon) / 145f;
+                }
+            Check(janDawn < 4f, "a January dawn is near freezing (five Januaries' mean)", janDawn.ToString("0.0"));
+            Check(julNoon > 28f, "a July afternoon is not", julNoon.ToString("0.0"));
             Check(CoolingModel.AmbientC(jul, TimeOfDay.Dawn) <
                   CoolingModel.AmbientC(jul, TimeOfDay.Afternoon),
                   "and the same day is colder at dawn than in the afternoon");

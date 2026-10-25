@@ -76,9 +76,60 @@ float PSXLitNoise(float2 p)
 // in the puddles. wetMat is the material's _Wet times the hour's
 // _PSXWetness. 0 on a dry pixel; above 0 (never below WET_MIN x
 // PUDDLE_MIN of it) on a wet one.
+//
+// THE WEATHER'S PATCHES (2026-10-25, weather layers). The road's water and
+// snow are not one sheet: low spots and shaded stretches keep them longest,
+// so a drying road (or a treated one after snow) is wet in some places and
+// dry in others - and the TYRES read the very same mask (RoadSurface.cs ports
+// PSXWetPatch and PSXLocalShare line for line; keep the two in step). Set by
+// PSXGlobals from TimeOfDay.Apply; _PSXWetPatchOn 0 (any scene or tool that
+// never set it) keeps _PSXWetness the one uniform film it always was.
+float _PSXWetPatchOn;   // 1 = the layered weather drives the road
+float _PSXWetWater;     // 0..1 the open road's water (rain, meltwater, slush, ice)
+float _PSXWetDamp;      // 0..1 the hour's art-licence damp (clear nights), everywhere
+float _PSXRoadSnow;     // 0..1 snow (and a share of slush) lying on the road
+
+#define PATCH_SCALE        0.0263 // drying-patch cells about 38 m: a stretch, not a puddle
+#define PATCH_LO           0.25
+#define PATCH_HI           0.75
+#define PATCH_SPAN         0.85   // a deck at amount a is covered where patch > 1 - a/SPAN..
+#define PATCH_EDGE         0.15   //   ..with this soft an edge
+#define ROAD_SNOW_COLOR    float3(0.78, 0.80, 0.84)
+
+float PSXWetPatch(float2 xz)
+{
+    float2 p = xz * PATCH_SCALE;
+    float n = PSXLitNoise(p + 101.3) * 0.65 + PSXLitNoise(p * 2.03 + 47.7) * 0.35;
+    return smoothstep(PATCH_LO, PATCH_HI, n);
+}
+
+float PSXLocalShare(float amount, float patch)
+{
+    return saturate((amount - PATCH_SPAN * (1.0 - patch)) / PATCH_EDGE);
+}
+
+// How white the road is with snow here, 0..1 - only an up-facing material
+// that can be wet (roads, pavements, kerbs: wetMask is its _Wet).
+float PSXRoadSnowAt(float wetMask, float3 N, float3 wpos)
+{
+    if (_PSXWetPatchOn < 0.5 || _PSXRoadSnow <= WET_MIN || wetMask <= WET_MIN) return 0.0;
+    float up = saturate(N.y * WET_UP_GAIN - WET_UP_BIAS);
+    float s = PSXLocalShare(_PSXRoadSnow, PSXWetPatch(wpos.xz));
+    // Tyre tracks and drifts inside a covered patch.
+    float grain = PSXLitNoise(wpos.xz * 0.9 + 3.7);
+    return wetMask * up * s * lerp(0.55, 1.0, grain);
+}
+
 float PSXWetAmount(float wetMat, float3 N, float3 wpos, float eyeDist)
 {
     float w = wetMat * saturate(N.y * WET_UP_GAIN - WET_UP_BIAS);
+    if (w > WET_MIN && _PSXWetPatchOn > 0.5)
+    {
+        // wetMat is _Wet x _PSXWetness, and _PSXWetness is the larger of the
+        // two below: rescale to THIS spot's share.
+        float g = max(_PSXWetDamp, PSXLocalShare(_PSXWetWater, PSXWetPatch(wpos.xz)));
+        w *= g / max(_PSXWetness, 1e-4);
+    }
     if (w > WET_MIN)
     {
         float2 p = wpos.xz * PUDDLE_SCALE;

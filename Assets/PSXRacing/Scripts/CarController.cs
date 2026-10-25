@@ -822,6 +822,14 @@ namespace PSXRacing
             /// <summary>Hit the road layer, rather than grass or dirt. Decides
             /// black rubber against pale dust.</summary>
             public bool onRoad;
+            /// <summary>THE SURFACE THIS TYRE STANDS ON (weather layers,
+            /// RoadSurface.At): 0 dry .. 1 as slippery as a soaked road - the
+            /// screech, the marks and the smoke read it per wheel.</summary>
+            public float wetT;
+            public SurfaceKind surface;
+            /// <summary>On a bridge deck (found only while decks differ from
+            /// the road today: RoadSurface.BridgeMatters).</summary>
+            public bool bridge;
         }
 
         /// <summary>Live contact state for the four wheels, in the usual order:
@@ -840,6 +848,16 @@ namespace PSXRacing
         readonly float[] wheelLoad = new float[4];
         readonly bool[] wheelGrounded = new bool[4];
         readonly float[] wheelGrip = new float[4];
+        readonly bool[] wheelOnBridge = new bool[4];
+        int bridgeTick;
+        /// <summary>The open road's grip a second ahead of the car (or the
+        /// worst a wheel stands on now, if lower): the AI plans its corners
+        /// and its braking on the road it is about to meet (AIGrip,
+        /// AIDriver). 1 on a dry day.</summary>
+        [HideInInspector] public float SurfaceGripAhead = 1f;
+        /// <summary>The weather's multiplier on the road under the grounded
+        /// tyres (their mean): the arcade stabilizer's cap falls with it.</summary>
+        float roadSurfaceGrip = 1f;
         readonly float[] wheelRollAngle = new float[4];
         float steerAngleDeg;
         float shiftTimer;
@@ -2832,12 +2850,9 @@ namespace PSXRacing
         const float ClutchKickBase = 0.55f;      // rad/s at full overrun and full lock
         const float ClutchKickMinOverrun = 0.25f;
 
-        /// <summary>Today's weather, as the two grip multipliers the wheel
-        /// loop reads. Refreshed once a tick — Seasons memoises by day, but
-        /// four wheels a tick is still four lookups.</summary>
-        float weatherRoadGrip = 1f, weatherOffroadGrip = 1f;
-        /// <summary>0 dry .. 1 soaked: Seasons.WetT of today's road grip,
-        /// what the drift layer and the recovery read (see WetRecovery).</summary>
+        /// <summary>0 dry .. 1 soaked (or worse): the mean wetT of the road
+        /// under the grounded tyres (RoadSurface, per wheel), what the drift
+        /// layer and the recovery read (see WetRecovery).</summary>
         [HideInInspector] public float wetT;
 
         // ---- WET TARMAC: the drift layer and the recovery (2026-10-06) ----
@@ -2870,22 +2885,31 @@ namespace PSXRacing
         /// <summary>The front-mu cut a wheel at this point takes from
         /// standing water right now: 0 off the rain, below AquaFromKph, or
         /// between puddles.</summary>
-        float AquaCut(Vector3 at)
+        float AquaCut(Vector3 at, float water)
         {
-            if (Seasons.CurrentWeather != Weather.Rain) return 0f;
+            // Standing water: only where this spot is soaked (weather layers,
+            // RoadSurface) - not a drying road, not under a clear sky's damp.
+            float soak = Mathf.Clamp01((water - 0.8f) / 0.2f);
+            if (soak <= 0f) return 0f;
             float kph = Mathf.Abs(forwardSpeed) * 3.6f;
             if (kph <= AquaFromKph) return 0f;
             float speedT = Mathf.Clamp01((kph - AquaFromKph) / (AquaFullKph - AquaFromKph));
             float puddle = Mathf.Clamp01((Mathf.PerlinNoise(at.x * AquaPuddleScale + 311.7f,
                                                             at.z * AquaPuddleScale + 97.3f) - AquaPuddleFrom) / AquaPuddleWidth);
-            return AquaFrontCut * speedT * puddle;
+            return AquaFrontCut * speedT * puddle * soak;
         }
 
         void SuspensionAndLoads(float dt)
         {
-            weatherRoadGrip = Seasons.RoadGripMult;
-            weatherOffroadGrip = Seasons.OffroadGripMult;
-            wetT = Seasons.WetT(weatherRoadGrip);
+            // THE WEATHER'S ROAD, PER WHEEL (2026-10-25): each tyre reads the
+            // surface at its own contact - the open road or a bridge deck,
+            // through the world-fixed patches the road shader draws - so a
+            // drying road is wet in its low spots and a bridge can be ice on
+            // a night the road is only wet (RoadSurface).
+            var wn = Seasons.Now;
+            bool decksDiffer = RoadSurface.BridgeMatters(wn);
+            bridgeTick++;
+            float wetSum = 0f, gripSum = 0f, worstRoad = 1f; int wetN = 0;
             anyWheelGrounded = false;
             for (int i = 0; i < 4; i++) { bumpStart[i] = BumpStart(i); bumpLimit[i] = bumpStart[i] + BumpRubberLen; }
             int roadHits = 0, hits = 0;
@@ -2959,12 +2983,27 @@ namespace PSXRacing
 
                     bool isRoad = hit.collider != null && hit.collider.gameObject.layer == roadLayer;
                     if (isRoad) roadHits++;
-                    // The weather's cut, on top of the surface's. Rain and
-                    // snow are a day's property, not a scene's, so this is
-                    // read here rather than baked into roadGrip — see Seasons.
-                    wheelGrip[i] = (isRoad ? roadGrip : offroadGrip) *
-                                   (isRoad ? weatherRoadGrip : weatherOffroadGrip);
-                    if (front && isRoad && wetT > 0f) wheelGrip[i] *= 1f - AquaCut(hit.point);
+                    // The weather's cut, on top of the surface's: the surface
+                    // AT THIS TYRE (RoadSurface). A bridge is looked for a
+                    // wheel at a time, every eighth tick, and only on a day
+                    // its decks differ from the road.
+                    bool onBridge = false;
+                    if (isRoad && decksDiffer)
+                    {
+                        if (((bridgeTick + i * 2) & 7) == 0)
+                            wheelOnBridge[i] = RoadSurface.IsBridge(hit.point, hit.normal, hit.collider, suspensionMask);
+                        onBridge = wheelOnBridge[i];
+                    }
+                    else wheelOnBridge[i] = false;
+                    var surf = isRoad
+                        ? RoadSurface.OfDeck(onBridge ? wn.bridge : wn.road, RoadSurface.Patch(hit.point.x, hit.point.z))
+                        : RoadSurface.OffRoad(wn);
+                    wheelGrip[i] = (isRoad ? roadGrip : offroadGrip) * surf.grip;
+                    if (front && isRoad && surf.water > 0f) wheelGrip[i] *= 1f - AquaCut(hit.point, surf.water);
+                    wheelContacts[i].wetT = surf.wetT;
+                    wheelContacts[i].surface = surf.kind;
+                    wheelContacts[i].bridge = onBridge;
+                    if (isRoad) { wetSum += surf.wetT; gripSum += surf.grip; wetN++; if (surf.grip < worstRoad) worstRoad = surf.grip; }
 
                     wheelContacts[i].point = hit.point;
                     wheelContacts[i].normal = hit.normal;
@@ -2981,6 +3020,13 @@ namespace PSXRacing
                 }
             }
             onRoad = hits == 0 || roadHits * 2 >= hits;
+            // The drift layer's and the recovery's wetness: the road under
+            // the tyres (a car in the air keeps the last).
+            if (wetN > 0) { wetT = wetSum / wetN; roadSurfaceGrip = gripSum / wetN; }
+            // The road a second ahead, for the AI's plan.
+            Vector3 ahead = transform.position + Body.linearVelocity;
+            SurfaceGripAhead = Mathf.Min(worstRoad,
+                RoadSurface.OfDeck(wn.road, RoadSurface.Patch(ahead.x, ahead.z)).grip);
 
             for (int axle = 0; axle < 2; axle++)
             {
@@ -3913,7 +3959,7 @@ namespace PSXRacing
             // Fade in with speed so low-speed manoeuvring is not rail-roaded.
             float speedFade = Mathf.Clamp01(Mathf.Abs(forwardSpeed) / LateralDampFadeSpeed);
             // The assist works on the road's grip: its cap falls with the weather's.
-            float cap = lateralDampMaxG * weatherRoadGrip * 9.81f;
+            float cap = lateralDampMaxG * roadSurfaceGrip * 9.81f;
             float accel = Mathf.Clamp(-vLat * k * speedFade, -cap, cap);
             Body.AddForce(transform.right * (accel * massKg), ForceMode.Force);
             // IN A SLIDE THE MOMENTUM IS TURNED, NOT DELETED (see

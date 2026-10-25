@@ -405,6 +405,7 @@ namespace PSXRacing
         /// </summary>
         public void ReapplyWorld()
         {
+            Seasons.Invalidate();
             TimeOfDay.Apply(RaceHandoff.TimeOfDayIndex, sun);
 
             var dress = Object.FindFirstObjectByType<SeasonDress>();
@@ -413,7 +414,7 @@ namespace PSXRacing
                 dress.Apply(Seasons.CurrentDress);
                 // Only where the scene draws weather at all — an interior
                 // opts out, and the bench must not rain in one.
-                if (dress.weatherFx) WeatherFx.Set(Seasons.CurrentWeather);
+                if (dress.weatherFx) WeatherFx.Set(Seasons.CurrentPrecipWeather);
             }
 
             var temp = playerCar != null ? playerCar.GetComponent<EngineTemp>() : null;

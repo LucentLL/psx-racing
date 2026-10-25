@@ -271,32 +271,23 @@ namespace PSXRacing
             // No LifeSim — a standalone editor race — is a mild afternoon, which
             // is what EngineTemp assumed as a constant before any of this.
             if (day <= 0) return 18f;
-            int m = Mathf.Clamp(LifeRules.MonthOf(day), 1, 12) - 1;
-            float t = MonthMeanC[m] + HourOffsetC[Mathf.Clamp(hour, 0, HourOffsetC.Length - 1)];
-            switch (Seasons.WeatherFor(day))
-            {
-                case Weather.Rain: t -= 3f; break;
-                case Weather.Snow: t -= 4f; break;
-                case Weather.Fog: t -= 1f; break;
-            }
-            return t;
+            // THE CLIMATE (2026-10-25): Charlotte's own day - its normals, the
+            // day's spread, the hour on the diurnal curve - not a monthly
+            // mean and seven offsets. See Climate.
+            return Climate.At(ClimateRegion.Piedmont, Climate.CltElevM, day, TimeOfDay.ClockHours(hour)).airC;
+        }
+
+        /// <summary>Outside air at a venue (a track id) on a day at an hour:
+        /// a July afternoon on Bogue Banks is not one on Mount Mitchell.</summary>
+        public static float AmbientC(int day, int hour, string venueId)
+        {
+            if (day <= 0) return 18f;
+            return Seasons.At(day, hour, venueId).airC;
         }
 
         /// <summary>Ambient right now, wherever "now" is: the calendar day the
-        /// home screen stamped and the hour the scene was built for.</summary>
-        public static float CurrentAmbientC =>
-            AmbientC(Seasons.CurrentDay, TimeOfDay.Current);
-
-        /// <summary>Mean daily temperature by month, Charlotte / the NC
-        /// Piedmont, Jan..Dec.</summary>
-        static readonly float[] MonthMeanC =
-            { 6f, 8f, 12f, 16f, 21f, 25f, 27f, 26f, 23f, 16f, 11f, 7f };
-
-        /// <summary>Departure from the daily mean at each of the seven hours
-        /// the game is played at — dawn is the cold end of a day and the
-        /// afternoon is the hot one, indexed to match
-        /// <see cref="TimeOfDay.All"/>.</summary>
-        static readonly float[] HourOffsetC =
-            { -6f, -2f, 4f, 6f, 3f, 1f, -3f };
+        /// home screen stamped, the hour the scene was built for and the
+        /// venue's own climate (Seasons.Now).</summary>
+        public static float CurrentAmbientC => Seasons.Now.airC;
     }
 }

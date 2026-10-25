@@ -675,6 +675,16 @@ namespace PSXRacing
             }
         }
 
+        /// <summary>The open road's grip a second and a half ahead of a
+        /// traffic car (1 on a dry day).</summary>
+        static float GripAhead(Car c)
+        {
+            var w = Seasons.Now;
+            if (w.road.water <= 0f && w.road.slush <= 0f && w.road.snow <= 0f && !w.road.frost) return 1f;
+            Vector3 p = c.go.transform.position + c.rb.linearVelocity * 1.5f;
+            return RoadSurface.OfDeck(w.road, RoadSurface.Patch(p.x, p.z)).grip;
+        }
+
         void Drive(Car c, float dt)
         {
             if (c.wrecked) { SpinWheels(c, Vector3.Dot(c.rb.linearVelocity, c.go.transform.forward), dt); return; }
@@ -699,7 +709,9 @@ namespace PSXRacing
             // on the road's grip - all off the same number the tyres get.
             // The emergency 9 stays: the pile-up it stops is worse than a
             // servo braking harder than wet rubber would.
-            float wet = Seasons.WetT(Seasons.RoadGripMult);
+            // The road ahead of THIS car (weather layers: RoadSurface's patches).
+            float roadGrip = GripAhead(c);
+            float wet = Seasons.WetT(roadGrip);
             float v = c.cruise * Mathf.Lerp(1f, WetCruise, wet);
             float k = Curvature(c.s, c.dir);
             if (k > 1e-4f) v = Mathf.Min(v, Mathf.Sqrt(CornerAccel * Mathf.Lerp(1f, WetCornerAccel, wet) / k));
@@ -710,7 +722,7 @@ namespace PSXRacing
             // A driver, not a servo: 2.5 m/s^2 up, 6 down - and a full 9 when
             // what is ahead is closer than a 6 m/s^2 stop needs (a car ahead
             // just wrecked by a racer: at 6 the ones behind piled into it).
-            float firm = 6f * Seasons.RoadGripMult;
+            float firm = 6f * roadGrip;
             float decel = gap < c.speed * c.speed / (2f * firm) + StopGap ? 9f : firm;
 
             // A RACER COMING, and what this driver does about it (Temper).

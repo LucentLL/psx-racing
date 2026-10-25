@@ -91,7 +91,7 @@ namespace PSXRacing
             var B = LampCones.BufB;
             int shown = Mathf.Min(cap, ranked);
             float cut = ranked > cap ? coneDist[cap] : float.PositiveInfinity;
-            float haze = LampCones.HazeFor(Seasons.CurrentWeather);
+            float haze = LampCones.HazeFor(Seasons.CurrentPrecipWeather);
             float mix = Mathf.Lerp(LampCones.LitKeep, 1f, NightDark.Amount);
             float strength = LampCones.Strength * haze * mix;
             int n = 0;

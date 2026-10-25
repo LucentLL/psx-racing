@@ -179,8 +179,9 @@ namespace PSXRacing
                 pitchTarget = Mathf.Max(pitchTarget, 1.05f + 0.2f * w);
             }
 
-            // A wet road hisses rather than screams (Seasons.RoadWetT).
-            target *= Mathf.Lerp(1f, Seasons.WetScreechKeep, Seasons.RoadWetT);
+            // A wet road hisses rather than screams: the road under THIS car's
+            // tyres (CarController.wetT, per wheel from RoadSurface).
+            target *= Mathf.Lerp(1f, Seasons.WetScreechKeep, car.wetT);
             gain = Smooth(gain, target * masterVolume * AudioPrefs.Effects, GainTau, dt);
             pitch = Smooth(pitch, pitchTarget, 0.05f, dt);
             src.volume = gain;

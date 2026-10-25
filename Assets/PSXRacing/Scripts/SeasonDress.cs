@@ -57,7 +57,7 @@ namespace PSXRacing
         {
             Register();
             Apply(Seasons.CurrentDress);
-            if (weatherFx) WeatherFx.Ensure(Seasons.CurrentWeather);
+            if (weatherFx) WeatherFx.Ensure(Seasons.CurrentPrecipWeather);
         }
 
         void Register()
