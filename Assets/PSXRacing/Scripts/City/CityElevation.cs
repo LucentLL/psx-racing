@@ -36,7 +36,7 @@ namespace PSXRacing.City
     /// instead of a whole-track Gaussian, because an O(track) walk is a
     /// non-starter against 25,000 edges.
     /// </summary>
-    public static class CityElevation
+    public static partial class CityElevation
     {
         public const float StationStep = 10f;
         public const float ClearanceM = 5.0f;   // under-side of deck over road below
@@ -770,6 +770,10 @@ namespace PSXRacing.City
             var phaseClock = System.Diagnostics.Stopwatch.StartNew();
             var phases = new System.Text.StringBuilder();
             void Phase(string name) { HTrace(map, name); phases.Append(name).Append(' ').Append(phaseClock.ElapsedMilliseconds).Append(", "); phaseClock.Restart(); }
+            // the drawn profile is the presentation pass's, after the solve:
+            // nothing in the solve may read it (see CityElevation.VSmooth.cs)
+            foreach (var e in map.edges) { e.vS = null; e.vY = null; }
+            nodeYSolved = null;
             crossingOn = null;
             crossingTarget = null;
             routeEdge = new bool[map.edges.Length];
@@ -1092,6 +1096,12 @@ namespace PSXRacing.City
 
             // (10. the water was prepared first: PrepareWater)
             Phase("structure");
+            // 11. THE DRAWN PROFILE: every grade break the stations leave is
+            // rounded for what the road shows and the cars drive on; the
+            // stations above stay as solved (CityElevation.VSmooth.cs)
+            nodeYSolved = (float[])map.nodeY.Clone();
+            DrawnProfile(map);
+            Phase("drawn");
             LastSolvePhases = phases.ToString().TrimEnd(' ', ',') + " ms";
             TwinHoldReport = !TwinHoldsOn ? "twin holds OFF (PSX_CITY_TWINHOLD=0)"
                 : $"twin holds: {TwinHoldMoves} raises in the cone loop ({TwinHoldSkipped} station checks left apart, more than {TwinHoldMaxDyM} m off their partner); after the curves {TwinDyBeforeFinal:0.000} m apart at worst, the pointwise hold raised {TwinFinalRaised} stations (up to {TwinFinalRaiseMax:0.000} m; {TwinFinalClamped} taken back by the crest guard; sag added up to {TwinFinalSagAdded * 100f:0.00}%, crest added up to {TwinFinalCrestAdded * 100f:0.000}%), worst station dy now {TwinDyAfterCurves:0.000} m; TWIN (e) p50 {TwinDyP50:0.000} / p95 {TwinDyP95:0.000} / max {TwinDyMax:0.000} m over {TwinDySamples} samples" +

@@ -3214,6 +3214,9 @@ namespace PSXRacing.City
             sampleS.Clear();
             sampleS.Add(sMin);
             for (int i = 0; i < e.stS.Length; i++) if (e.stS[i] > sMin + 0.6f && e.stS[i] < sMax - 0.6f) sampleS.Add(e.stS[i]);
+            // the drawn profile's knots, where its vertical curves bend
+            // (CityElevation.VSmooth): the ribbon IS that profile
+            e.ProfileKnots(sampleS, sMin, sMax, 0.6f);
             for (int i = 1; i + 1 < e.s.Length; i++) if (e.s[i] > sMin + 0.6f && e.s[i] < sMax - 0.6f) sampleS.Add(e.s[i]);
             // the line model's tapers: their ends (where a line starts or
             // ends) and enough sections between that the eased edge is
@@ -3244,14 +3247,19 @@ namespace PSXRacing.City
                     // host's edge at the bottom of it (e1409 beside the East
                     // Independence Expressway's station at 318 m).
                     foreach (var H in c.host.edges)
-                        for (int k = 1; k + 1 < H.stS.Length; k++)
+                    {
+                        // (the drawn profile's knots where it has them: its
+                        // curves bend between the stations)
+                        var hk = H.vS ?? H.stS;
+                        for (int k = 1; k + 1 < hk.Length; k++)
                         {
-                            var v = H.PointAt(H.stS[k]);
+                            var v = H.PointAt(hk[k]);
                             CityElevation.ProjectOn(e, v, out float sOn);
                             if (sOn < c.sFrom || sOn > c.sTo || sOn <= sMin + 0.6f || sOn >= sMax - 0.6f) continue;
                             if ((e.PointAt(sOn) - v).sqrMagnitude > 40f * 40f) continue;
                             sampleS.Add(sOn);
                         }
+                    }
                     float from = Mathf.Max(sMin, c.sFrom), to = Mathf.Min(sMax, c.sTo);
                     int prevState = -1; float prevLam = 0f, prevS = from;
                     for (float sc = from; sc <= to + 0.01f; sc += 1f)

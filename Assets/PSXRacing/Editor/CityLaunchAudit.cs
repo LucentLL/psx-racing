@@ -201,6 +201,9 @@ namespace PSXRacing.EditorTools
         }
 
         // ---- the run ------------------------------------------------------
+        /// <summary>Set by a caller that runs the audit more than once in one
+        /// job (CityVSmoothCensus: the drawn profile off, then on).</summary>
+        public static bool NoExit;
         [MenuItem("PSX Racing/City Launch Audit")]
         public static void Run()
         {
@@ -591,7 +594,7 @@ namespace PSXRacing.EditorTools
             metrics.seconds = clock.Elapsed.TotalSeconds; metrics.label = label; metrics.box = string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PSX_LAUNCH_BOX")) ? "" : Environment.GetEnvironmentVariable("PSX_LAUNCH_BOX");
             File.WriteAllText(Path.Combine(root, "city_launch.json"), metrics.Json());
             File.WriteAllText(Path.Combine(root, "city_launch.txt"), log.ToString());
-            if (Application.isBatchMode) EditorApplication.Exit(status);
+            if (Application.isBatchMode && !NoExit) EditorApplication.Exit(status);
         }
 
         /// <summary>Debug: PSX_LAUNCH_PROBE="x,z;x,z": the tile under each point
