@@ -187,7 +187,7 @@ namespace PSXRacing
         CockpitModel.Part screenPart;
         BoxCollider box;
         CarBody body;
-        GaugeCluster cluster;
+        GaugeCluster cluster; float nextClusterFind;
         FuelTank tank;
         EngineTemp temp;
         CockpitCargoMirror mirror;
@@ -616,11 +616,20 @@ namespace PSXRacing
         /// <summary>The visual wheel angle now (model frame, degrees).</summary>
         public float WheelDeg => float.IsNaN(wheelDeg) ? 0f : wheelDeg;
 
+        /// <summary>The per-frame parts, for the profiler (tools\perf-probe.ps1).</summary>
+        static readonly Unity.Profiling.ProfilerMarker RideMarker = new Unity.Profiling.ProfilerMarker("CockpitInterior.Ride"),
+            WheelMarker = new Unity.Profiling.ProfilerMarker("CockpitInterior.WheelAndArms"),
+            GaugesMarker = new Unity.Profiling.ProfilerMarker("CockpitInterior.Gauges"),
+            MirrorMarker = new Unity.Profiling.ProfilerMarker("CockpitInterior.Mirrors");
+
         void LateUpdate()
         {
             if (!shown) { eyeInit = false; return; }
-            RideCabin();
-            RideEye(Time.deltaTime, driver != null ? driver : Camera.main);
+            using (RideMarker.Auto())
+            {
+                RideCabin();
+                RideEye(Time.deltaTime, driver != null ? driver : Camera.main);
+            }
             Tick(Time.deltaTime, PizzaCargo.Instance);
         }
 
@@ -630,16 +639,23 @@ namespace PSXRacing
         {
             if (car != null)
             {
-                if (cluster == null) cluster = FindFirstObjectByType<GaugeCluster>();
+                // Looked for once a second, not every frame: when the HUD's
+                // cluster is not there to find, the search walked the scene's
+                // objects every frame (Charlotte holds thousands).
+                if (cluster == null && Time.unscaledTime >= nextClusterFind)
+                {
+                    nextClusterFind = Time.unscaledTime + 1f;
+                    cluster = FindFirstObjectByType<GaugeCluster>();
+                }
                 if (tank == null) tank = car.GetComponent<FuelTank>();
                 if (temp == null) temp = car.GetComponent<EngineTemp>();
             }
-            TickWheel(dt);
-            if (gauges != null) gauges.Tick(dt, car, cluster, tank, temp, ClusterBulbs.Backlit);
+            using (WheelMarker.Auto()) TickWheel(dt);
+            if (gauges != null) using (GaugesMarker.Auto()) gauges.Tick(dt, car, cluster, tank, temp, ClusterBulbs.Backlit);
             ActiveNearClip = NearClipFor(Current.scale > 0f ? Current.scale : 0.357f,
                                          CockpitLook.Yaw * CockpitLook.PassengerSign / CockpitLook.MaxYaw);
             TickRain(dt);
-            TickMirror();
+            using (MirrorMarker.Auto()) TickMirror();
             if (cargo != null && cargo.Car != null && cargo.Car != car) cargo = null;
             if (mirror != null && mirror.Sync(cargo)) CollectRenderers();
         }
@@ -678,8 +694,10 @@ namespace PSXRacing
         void TickMirror()
         {
             if (!Application.isPlaying) return;
-            // The door mirrors draw on the frames the rear-view does not.
+            // The door mirrors draw on the frames the rear-view does not, and
+            // share those with the reflection probe (ExtraViews).
             if (doors != null) doors.Tick(driver != null ? driver : Camera.main);
+            ExtraViews.Report(true, doors != null && doors.SeenAny);
             if (mirrorMat == null) return;
             if (mirrorCam == null) EnsureMirrorCamera();
             if (mirrorCam != null) mirrorCam.enabled = Time.frameCount % MirrorEvery == 0;

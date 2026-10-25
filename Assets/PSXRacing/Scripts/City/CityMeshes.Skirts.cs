@@ -222,14 +222,29 @@ namespace PSXRacing.City
             for (int i = 0; i < cap; i++) keys[i] = EmptyKey;
         }
 
-        static void CloseOpenGround(CityMap map, Trims trims, TileMeshes tm)
+        /// <summary>The closing pass as the tile job's steps (the perf probe,
+        /// 2026-10-25: with the ground's mesh after it, it was ONE step of
+        /// 20-210 ms a tile in a Charlotte race, the longest of the build):
+        /// a step a phase, and a step every <see cref="SkirtEdgesAStep"/>
+        /// open edges of its two face passes. Nothing else touches the
+        /// builder between a job's steps, so the faces are the ones the one
+        /// call made. <see cref="skirtMs"/> sums the steps' own time.</summary>
+        static IEnumerable<int> CloseOpenGround(CityMap map, Trims trims, TileMeshes tm)
         {
             skirtCount = 0; skirtMetres = 0f; fasciaMetres = 0f; skirtMs = 0; skirtSoftCount = 0; skirtSoftMetres = 0f;
             skirtSlopeCount = 0; skirtSlopeMetres = 0f;
-            if (SkirtsOff) return;
+            if (SkirtsOff) yield break;
             var clock = System.Diagnostics.Stopwatch.StartNew();
-            try { CloseOpenGroundIn(map, trims, tm); } finally { skirtMs = clock.Elapsed.TotalMilliseconds; }
+            foreach (var _ in CloseOpenGroundIn(map, trims, tm))
+            {
+                clock.Stop(); skirtMs = clock.Elapsed.TotalMilliseconds;
+                yield return 0;
+                clock.Start();
+            }
+            skirtMs = clock.Elapsed.TotalMilliseconds;
         }
+
+        const int SkirtEdgesAStep = 48;
 
         /// <summary>
         /// THE CLOSING FACES. After every sheet of the tile is laid (before
@@ -258,7 +273,7 @@ namespace PSXRacing.City
         /// own inch is: closed to the eye, and no wall for the body box coming
         /// back onto a grounded edge (the sheet's edge is what the car meets).
         /// </summary>
-        static void CloseOpenGroundIn(CityMap map, Trims trims, TileMeshes tm)
+        static IEnumerable<int> CloseOpenGroundIn(CityMap map, Trims trims, TileMeshes tm)
         {
             foreach (var b in buckets) { b.passV = b.v.Count; b.passT = b.t.Count; }
             var g = buckets[(int)Slot.Ground];
@@ -306,7 +321,9 @@ namespace PSXRacing.City
             foreach (var v in kerbBucket.v) skirtKerb.Add(KeyXZ(v));
 
             // the ground's own sheets: a face to the lattice, in their material
-            skirtPhase[0] += sw.Elapsed.TotalMilliseconds; sw.Restart();
+            skirtPhase[0] += sw.Elapsed.TotalMilliseconds;
+            yield return 0;
+            sw.Restart();
             // the roads' lying triangles first: both passes ask what pavement
             // lies past or under an edge
             roadSheets.Clear();
@@ -315,12 +332,22 @@ namespace PSXRacing.City
             skirtSheets.Clear(); skirtSheets.Add(g); skirtSheets.Add(pv);
             groundGrid.Build(skirtSheets, groundBaseT);
             OpenEdges(skirtSheets, false, groundBaseV, groundBaseT);
-            skirtPhase[1] += sw.Elapsed.TotalMilliseconds; sw.Restart();
+            skirtPhase[1] += sw.Elapsed.TotalMilliseconds;
+            yield return 0;
+            sw.Restart();
             skirtRoadPass = false;
             skirtNoSlope = false;
             if (!ForeslopesOff) GatherSkirtFans(map, trims, o);
+            int edgeN = 0;
             foreach (var (A, B, nrm, bi) in skirtOpen)
             {
+                if (++edgeN % SkirtEdgesAStep == 0)
+                {
+                    skirtPhase[2] += sw.Elapsed.TotalMilliseconds;
+                    yield return 0;
+                    sw.Restart();
+                    skirtRoadPass = false; skirtNoSlope = false;
+                }
                 // a strip's inner edge: under its own road's edge, never seen
                 if (stripInner.Contains(KeyXZ(A)) && stripInner.Contains(KeyXZ(B))) continue;
                 // over another road: never a face down through its lanes
@@ -329,17 +356,29 @@ namespace PSXRacing.City
                 SkirtDown(map, o, paved ? pv : g, paved, A, B, nrm);
             }
 
-            skirtPhase[2] += sw.Elapsed.TotalMilliseconds; sw.Restart();
+            skirtPhase[2] += sw.Elapsed.TotalMilliseconds;
+            yield return 0;
+            sw.Restart();
             // the roads' sheets (ribbons, fans, decks and their concrete)
             skirtSheets.Clear();
             foreach (var s in RoadAndStructureSlots) skirtSheets.Add(buckets[(int)s]);
             OpenEdges(skirtSheets, true);
-            skirtPhase[3] += sw.Elapsed.TotalMilliseconds; sw.Restart();
+            skirtPhase[3] += sw.Elapsed.TotalMilliseconds;
+            yield return 0;
+            sw.Restart();
             skirtPhase[4] += sw.Elapsed.TotalMilliseconds; sw.Restart();
             var con = cb;
             skirtRoadPass = true;
+            edgeN = 0;
             foreach (var (A0, B0, nrm, bi) in skirtOpen)
             {
+            if (++edgeN % SkirtEdgesAStep == 0)
+            {
+                skirtPhase[5] += sw.Elapsed.TotalMilliseconds;
+                yield return 0;
+                sw.Restart();
+                skirtRoadPass = true; skirtNoSlope = false;
+            }
             // in pieces of 2 m at most: a deck's end runs on past its approach's
             // pavement at both corners, and only the corners stand over the drop
             int pieces = Mathf.Max(1, Mathf.CeilToInt(Vector2.Distance(new Vector2(A0.x, A0.z), new Vector2(B0.x, B0.z)) / SkirtStepM));

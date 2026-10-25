@@ -280,6 +280,11 @@ namespace PSXRacing.City
         /// reads the band this sets). The game calls it every frame; a tool
         /// that moves a camera by hand calls it before a shot.
         /// </summary>
+        /// <summary>The chunk-ring rebuilds, for the profiler (tools\perf-probe.ps1).</summary>
+        static readonly Unity.Profiling.ProfilerMarker LandMarker = new Unity.Profiling.ProfilerMarker("CityFar.RebuildLand"),
+            TreesMarker = new Unity.Profiling.ProfilerMarker("CityFar.RebuildTrees"),
+            LightsMarker = new Unity.Profiling.ProfilerMarker("CityFar.RebuildLights");
+
         public void Refresh(Camera cam)
         {
             var weather = Seasons.CurrentWeather;
@@ -302,8 +307,8 @@ namespace PSXRacing.City
             // land, a forest and a light table: no single frame pays for all
             // three); a tool's shot takes them all at once
             int budget = Application.isPlaying ? 1 : 3;
-            if (landOk && (at != landAt || landRadius != RadiusM) && budget-- > 0) RebuildLand(eye, at);
-            if (treesOk && at != treeAt && budget-- > 0) RebuildTrees(eye, at);
+            if (landOk && (at != landAt || landRadius != RadiusM) && budget-- > 0) using (LandMarker.Auto()) RebuildLand(eye, at);
+            if (treesOk && at != treeAt && budget-- > 0) using (TreesMarker.Auto()) RebuildTrees(eye, at);
             ShowLand(landOk && landMesh.vertexCount > 0);
             if (landR != null) foreach (var r in landR) r.bounds = b;
             ShowTrees(treesOk && treesShown > 0);
@@ -311,7 +316,7 @@ namespace PSXRacing.City
 
             if (lightR != null)
             {
-                if (at != lightAt && budget-- > 0) RebuildLights(eye, at);
+                if (at != lightAt && budget-- > 0) using (LightsMarker.Auto()) RebuildLights(eye, at);
                 bool lit = NightGlow.On && lightsShown > 0;
                 lightR.enabled = lit;
                 lightR.bounds = b;

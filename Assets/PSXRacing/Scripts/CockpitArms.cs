@@ -1064,6 +1064,11 @@ namespace PSXRacing
                         : Quaternion.LookRotation(new Vector3(-0.1f, -0.35f, 1f), Vector3.down);
         }
 
+        /// <summary>The solve's parts, for the profiler (tools\perf-probe.ps1).</summary>
+        static readonly Unity.Profiling.ProfilerMarker FitMarker = new Unity.Profiling.ProfilerMarker("CockpitArms.Fit"),
+            CabinMarker = new Unity.Profiling.ProfilerMarker("CockpitArms.KeepOutOfCabin"),
+            PlaceMarker = new Unity.Profiling.ProfilerMarker("CockpitArms.Place");
+
         void Solve(bool snap)
         {
             Hand other = null;
@@ -1145,10 +1150,10 @@ namespace PSXRacing
                     a.pos = tp; a.rot = tr; a.foreRot = tf;
                 }
                 a.posed = true;
-                if (Contact && data.wheel != null) Fit(a);
+                if (Contact && data.wheel != null) using (FitMarker.Auto()) Fit(a);
                 else for (int f = 0; f < 5; f++) a.curl[f] = 1f;
-                if (Contact && data.cabin != null) KeepOutOfCabin(a);
-                Place(a);
+                if (Contact && data.cabin != null) using (CabinMarker.Auto()) KeepOutOfCabin(a);
+                using (PlaceMarker.Auto()) Place(a);
             }
         }
 

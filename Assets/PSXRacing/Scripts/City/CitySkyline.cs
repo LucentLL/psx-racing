@@ -119,6 +119,30 @@ namespace PSXRacing.City
         Material[] mats;
         float hazeSet = -1f;
         CityBeacons beacons;
+
+        // ---- the per-frame refresh, cached (the perf probe, 2026-10-25:
+        // 2.3-2.8 ms of every editor frame in a Charlotte race, the bounds'
+        // eight squeezed corners of every tower shown, and a tile lookup per
+        // tower) ----
+        /// <summary>The perf probe's A/B: false runs every pass every frame,
+        /// as before.</summary>
+        public static bool CacheRefresh = true;
+        /// <summary>Bumped by CityWorld whenever a tile stands up or drops:
+        /// the towers' "its tile is live" flags are re-read only then.</summary>
+        public int LiveVersion;
+        /// <summary>The bounds are re-measured when the eye has moved this far
+        /// (and whenever what is shown changed); between, the last ones are
+        /// grown by <see cref="BoundsDrift"/> x the distance moved, which a
+        /// squeezed corner can never outrun (one in the band moves at most
+        /// about twice the eye's own move, an unsqueezed one not at all).</summary>
+        const float BoundsMoveM = 12f, BoundsDrift = 3.5f;
+        bool[] liveOf;
+        int liveOfVersion = int.MinValue;
+        bool boundsValid, boundsAny;
+        Bounds boundsAt;
+        Vector3 boundsEye;
+        float boundsFade, boundsBand;
+        static readonly int FogNearId = Shader.PropertyToID("_PSXFogNear");
         /// <summary>The towers' beacons and crown strips (null with none).</summary>
         public CityBeacons Beacons => beacons;
 
@@ -276,6 +300,8 @@ namespace PSXRacing.City
         /// bounds, and the real ones are past the far plane) and the haze.
         /// <paramref name="isLive"/> answers for a tile key.
         /// </summary>
+        static readonly Unity.Profiling.ProfilerMarker ReindexMarker = new Unity.Profiling.ProfilerMarker("CitySkyline.Reindex");
+
         public void Refresh(Camera cam, System.Func<long, bool> isLive)
         {
             if (sm == null || mr == null) return;
@@ -286,39 +312,57 @@ namespace PSXRacing.City
             if (weather == Weather.Fog) { Show(false); return; }
             float far = cam.farClipPlane;
             float fadeEnd = far * FarShare;
-            float fadeStart = Mathf.Min(Shader.GetGlobalFloat("_PSXFogNear"), fadeEnd - 30f);
+            float fadeStart = Mathf.Min(Shader.GetGlobalFloat(FogNearId), fadeEnd - 30f);
             if (fadeStart < 50f) fadeStart = Mathf.Min(50f, fadeEnd * 0.5f);
             float bandEnd = fadeStart + (fadeEnd - fadeStart) * BandShare;
             Vector3 eye = cam.transform.position;
             var eye2 = new Vector2(eye.x, eye.z);
 
+            // each tower's "its tile is live", re-read when the live set changed
+            if (liveOf == null || liveOf.Length != hidden.Length) { liveOf = new bool[hidden.Length]; liveOfVersion = int.MinValue; }
+            if (!CacheRefresh || liveOfVersion != LiveVersion)
+            {
+                for (int e = 0; e < hidden.Length; e++) liveOf[e] = isLive(tile[e]);
+                liveOfVersion = LiveVersion;
+            }
             bool dirty = false;
             float midDraw = MidDrawM;
             for (int e = 0; e < hidden.Length; e++)
             {
-                float de = Vector2.Distance(eye2, centre[e]) - reach[e];
-                bool hide = (isLive(tile[e]) && de < fadeStart) || (mid != null && mid[e] && de > midDraw);
+                // de < fadeStart and de > midDraw, de = |eye - centre| - reach,
+                // on the squared distance (reach is never negative)
+                float d2 = (eye2 - centre[e]).sqrMagnitude;
+                float near = fadeStart + reach[e], farM = midDraw + reach[e];
+                bool hide = (liveOf[e] && (near > 0f && d2 < near * near)) || (mid != null && mid[e] && d2 > farM * farM);
                 if (hide != hidden[e]) { hidden[e] = hide; dirty = true; }
             }
-            if (dirty) Reindex();
+            if (dirty) using (ReindexMarker.Auto()) Reindex();
 
             // bounds: the squeezed corners of what is shown
-            bool any = false;
-            var b = new Bounds();
-            for (int e = 0; e < hidden.Length; e++)
+            float moved = boundsValid ? Vector3.Distance(eye, boundsEye) : 0f;
+            if (!CacheRefresh || dirty || !boundsValid || moved > BoundsMoveM || fadeStart != boundsFade || bandEnd != boundsBand)
             {
-                if (hidden[e]) continue;
-                var eb = sm.bounds[e];
-                for (int k = 0; k < 8; k++)
+                bool any = false;
+                var bb = new Bounds();
+                for (int e = 0; e < hidden.Length; e++)
                 {
-                    var p = new Vector3((k & 1) == 0 ? eb.min.x : eb.max.x, (k & 2) == 0 ? eb.min.y : eb.max.y, (k & 4) == 0 ? eb.min.z : eb.max.z);
-                    p = Squeeze(eye, p, fadeStart, bandEnd);
-                    if (!any) { b = new Bounds(p, Vector3.zero); any = true; } else b.Encapsulate(p);
+                    if (hidden[e]) continue;
+                    var eb = sm.bounds[e];
+                    for (int k = 0; k < 8; k++)
+                    {
+                        var p = new Vector3((k & 1) == 0 ? eb.min.x : eb.max.x, (k & 2) == 0 ? eb.min.y : eb.max.y, (k & 4) == 0 ? eb.min.z : eb.max.z);
+                        p = Squeeze(eye, p, fadeStart, bandEnd);
+                        if (!any) { bb = new Bounds(p, Vector3.zero); any = true; } else bb.Encapsulate(p);
+                    }
                 }
+                boundsValid = true; boundsAny = any; boundsAt = bb;
+                boundsEye = eye; boundsFade = fadeStart; boundsBand = bandEnd;
+                moved = 0f;
             }
-            Show(any);
-            if (!any) return;
-            b.Expand(120f);
+            Show(boundsAny);
+            if (!boundsAny) return;
+            var b = boundsAt;
+            b.Expand(120f + 2f * BoundsDrift * moved);
             foreach (var r in mrs) r.bounds = b;
 
             float haze = weather == Weather.Clear ? HazeClearM : HazeWetM;
