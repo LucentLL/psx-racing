@@ -1255,6 +1255,19 @@ namespace PSXRacing.City
         /// <summary>One line on the last solve's REAL HEIGHTS: how far the
         /// solve moved the measured profiles, on structure and off it.</summary>
         public static string RealReport { get; private set; } = "";
+        /// <summary>
+        /// REAL HEIGHTS: the vertical curves pass treats a measured road as
+        /// any other (as shipped: no frozen measured stations, the junction
+        /// plane at the first station, the shipped raise allowance) - the
+        /// offline design already curved it to AASHTO, the drawn profile rounds
+        /// what is left, and the RPRF-era junction landings (2026-10-03, built
+        /// before the drawn profile) ran short of room on 3,563 of 5,464 arms
+        /// and doubled the launch audit's junction spots. PSX_CITY_REAL_VC=1
+        /// puts those measured rules back.
+        /// </summary>
+        public static bool RealCurvesShipped => RealOn && !realVcEnv;
+        static readonly bool realVcEnv = System.Environment.GetEnvironmentVariable("PSX_CITY_REAL_VC") == "1";
+        static bool CurvesMeasured(CityMap.Edge e) => Measured(e) && !RealCurvesShipped;
         /// <summary>Does this edge stand on its measured profile?</summary>
         public static bool Measured(CityMap.Edge e) => RprfOn && e.mY != null;
         /// <summary>Stations solved from a measured profile, last solve.</summary>
@@ -3853,7 +3866,7 @@ namespace PSXRacing.City
                 // LandingFreeM of a node of three arms or more, and on every
                 // street-branch station, a measured road is as free as any
                 // other: the junction landings below shape it.
-                if (Measured(e))
+                if (CurvesMeasured(e))
                 {
                     var fz = mFrozen[e.index] = new bool[n];
                     float freeA = e.a != e.b && LandingNode(map, e.a) ? LandingFreeM : -1f;
@@ -3939,7 +3952,7 @@ namespace PSXRacing.City
                         // The fresh raise after each round puts back any
                         // clearance it gives up; the last round, with no raise
                         // after it, holds it as before (frozen: it may rise).
-                        if (Measured(over) && round < 2) { if (fzO != null) fzO[i] = false; if (!over.SeatedAt(i)) mob[over.index][i] = Free; }
+                        if (CurvesMeasured(over) && round < 2) { if (fzO != null) fzO[i] = false; if (!over.SeatedAt(i)) mob[over.index][i] = Free; }
                         else if (fzO != null && fzO[i]) { fzO[i] = false; if (!over.SeatedAt(i)) mob[over.index][i] = Up; }
                         else mob[over.index][i] &= Up;
                     }
@@ -4056,7 +4069,7 @@ namespace PSXRacing.City
                     float Lc = -1f, d0 = 0f;
                     bool landShortNow = false;
                     // (heights OFF: the plane at the first station only, as shipped)
-                    if (!branch && RprfOn && MeasuredNode(n))
+                    if (!branch && RprfOn && !RealCurvesShipped && MeasuredNode(n))
                     {
                         float sin = Mathf.Abs(axis.x * u.y - axis.y * u.x);
                         // ...and at least to the arm's trim: the fan (or the
@@ -4215,7 +4228,7 @@ namespace PSXRacing.City
             // a crest held between pins is left, not chased up the hill
             float Lo(CityMap.Edge e, int i) => Mathf.Max((e.a != e.b && i == 0 ? nodeBefore[e.a] : e.a != e.b && i == e.stY.Length - 1 ? nodeBefore[e.b] : before[e.index][i]) - VcurveMaxLowerM,
                                                        floorY[e.index] != null ? floorY[e.index][i] : float.NegativeInfinity);
-            float Hi(CityMap.Edge e, int i) => (e.a != e.b && i == 0 ? nodeBefore[e.a] : e.a != e.b && i == e.stY.Length - 1 ? nodeBefore[e.b] : before[e.index][i]) + (Measured(e) ? VcurveMeasuredRaiseM : VcurveMaxRaiseM);
+            float Hi(CityMap.Edge e, int i) => (e.a != e.b && i == 0 ? nodeBefore[e.a] : e.a != e.b && i == e.stY.Length - 1 ? nodeBefore[e.b] : before[e.index][i]) + (CurvesMeasured(e) ? VcurveMeasuredRaiseM : VcurveMaxRaiseM);
 
             void Touch(CityMap.Edge e, int i)
             {
