@@ -473,6 +473,82 @@ export function buildRoadProfiles(city, groundY, opts = {}) {
   // carriageway under the same deck dipped the same. Anything short by more
   // is the game's (CityElevation.RaiseAllCrossings lifts the deck: a tagged
   // structure, the one place a height rule may lift a road).
+  // ---- 6a. (REAL HEIGHTS) JUNCTION LANDINGS (AASHTO: an intersection sits
+  // on a landing - the cross road meets the major road's plane, not its own
+  // hillside). At every node of three arms or more (no freeway mainline, no
+  // deck at the node): the plane is the node's height and its major through
+  // pair's grade (the pair the chains ran straight through); every other arm
+  // runs ON the plane for the fan's reach (d0: the major road's half width +
+  // 4 m, at least 10 m) and eases back into its own profile on a smoothstep
+  // over Le (a 30 mph comfort curve for the break, 20..60 m), all inside half
+  // the arm (both ends of a short piece land). Measured: the grade breaks
+  // through the nodes, every arm pair, before -> after (landingLine).
+  const landingLine = opts.all ? landJunctions() : null;
+  function landJunctions() {
+    const out = (e, nd, d) => { const t = st[e.index], n = t.s.length; const at = e.a === nd ? Math.min(d, e.length) : Math.max(0, e.length - d); const f = Math.max(0, Math.min(1, at / Math.max(1e-3, e.length))) * (n - 1), k = Math.min(n - 2, Math.floor(f)); return t.y[k] + (t.y[k + 1] - t.y[k]) * (f - k); };
+    const dirOut = (e, nd) => e.a === nd ? tangentAt(e, 0) : tangentAt(e, e.length).map(v => -v);
+    const breaks = () => {
+      let n4 = 0, n8 = 0;
+      for (let nd = 0; nd < NN; nd++) {
+        const arms = nodeEdges[nd].filter(i => st[i] && edges[i].a !== edges[i].b).map(i => edges[i]);
+        if (arms.length < 3) continue;
+        const g = arms.map(e => (out(e, nd, Math.min(10, e.length)) - out(e, nd, 0)) / Math.max(1, Math.min(10, e.length)));
+        for (let p = 0; p < arms.length; p++) for (let q = p + 1; q < arms.length; q++) { const b = Math.abs(g[p] + g[q]); if (b > 0.04) n4++; if (b > 0.08) n8++; }
+      }
+      return [n4, n8];
+    };
+    const before = breaks();
+    let landed = 0, nodes = 0, skipped = 0;
+    for (let nd = 0; nd < NN; nd++) {
+      const arms = nodeEdges[nd].filter(i => st[i] && edges[i].a !== edges[i].b).map(i => edges[i]);
+      if (arms.length < 3) continue;
+      if (arms.some(e => (e.rank >= 5 && !e.link) || e.bridge || e.tunnel)) continue;
+      if (arms.some(e => { const t = st[e.index]; return t.mask[e.a === nd ? 0 : t.s.length - 1]; })) continue;
+      // the major pair: the chain partner of the highest arm
+      const top = arms.slice().sort((a, b) => (b.rank * 2 + (b.link ? 0 : 1)) - (a.rank * 2 + (a.link ? 0 : 1)))[0];
+      const pi = partner.get(top.index + ':' + nd);
+      if (pi === undefined) continue;
+      const mA = top, mB = edges[pi];
+      const yN = out(mA, nd, 0);
+      const tA = dirOut(mA, nd), tB = dirOut(mB, nd);
+      const LA = Math.min(15, mA.length), LB = Math.min(15, mB.length);
+      // the through grade from A's side to B's, along t = (tB - tA)/|.|
+      let tx = tB[0] - tA[0], tz = tB[1] - tA[1]; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
+      const gMaj = (out(mB, nd, LB) - out(mA, nd, LA)) / (LA + LB);
+      const hwMaj = Math.max(mA.hw, mB.hw);
+      let any = false;
+      for (const e of arms) {
+        if (e === mA || e === mB) continue;
+        const t = st[e.index], n = t.s.length, atA = e.a === nd;
+        const u = dirOut(e, nd), gp = gMaj * (u[0] * tx + u[1] * tz);
+        const far = atA ? e.b : e.a, farJ = nodeEdges[far].length >= 3;
+        const room = e.length * (farJ ? 0.5 : 0.8);
+        let d0 = Math.min(room * 0.5, Math.max(10, hwMaj + 4));
+        const gArm = (out(e, nd, Math.min(d0 + 20, room)) - out(e, nd, d0)) / Math.max(1, Math.min(d0 + 20, room) - d0);
+        const A = Math.abs(gArm - gp);
+        // long enough for the break's curve AND for the offset at d0 to be
+        // made up inside the class's grade; a landing with no room is skipped
+        const gHead = classMaxGrade(e) - Math.max(Math.abs(gp), Math.abs(gArm));
+        const need = (dd) => Math.max(20, Math.min(60, sagComfortRadius(30) * A * 1.5), 1.5 * Math.abs(out(e, nd, dd) - (yN + gp * dd)) / Math.max(0.01, gHead));
+        let Le = need(d0);
+        if (d0 + Le > room) { d0 = Math.min(d0, Math.max(5, hwMaj + 1)); Le = need(d0); }
+        if (d0 + Le > room || gHead <= 0.005) { skipped++; continue; }
+        let moved = false;
+        for (let i = 0; i < n; i++) {
+          const d = atA ? t.s[i] : e.length - t.s[i];
+          if (d >= d0 + Le) continue;
+          const plane = yN + gp * d;
+          const w = d <= d0 ? 0 : (() => { const v = (d - d0) / Le; return v * v * (3 - 2 * v); })();
+          const ny = plane * (1 - w) + t.y[i] * w;
+          if (Math.abs(ny - t.y[i]) > 1e-4) { t.y[i] = ny; moved = true; }
+        }
+        if (moved) { landed++; any = true; }
+      }
+      if (any) nodes++;
+    }
+    const after = breaks();
+    return `JUNCTION LANDINGS (REAL HEIGHTS): ${landed} arms landed on their junction's plane at ${nodes} nodes (${skipped} arms without room left as designed); arm pairs breaking > 4% / > 8% through a node ${before[0]} / ${before[1]} -> ${after[0]} / ${after[1]}`;
+  }
   // ---- 7. (REAL HEIGHTS) the pairs once more on the finished profiles: each
   // carriageway was smoothed and limited on its own chain (interior stations
   // only - a node's height is every arm's)
@@ -533,6 +609,7 @@ export function buildRoadProfiles(city, groundY, opts = {}) {
   lines.push(`RPRF: ${nEdges} edges (${opts.all ? 'every road' : 'tier 1 + 2'}), ${nSt} stations, ${masked} masked (bridge ${why.bridge}, tunnel ${why.tunnel}, water ${why.water}, over a crossing ${why.over}, abutment ${why.abut}, under a fill ${why.underFill}, steeper than the class + 5% ${why.steep}); ` +
              `nodes ${nodesMeasured} from ground + ${nodesFilled} from neighbours; pairs ${pairStations} stations, ${pairMoved} pulled to ${PAIR_DY_M} m; ${chains.length} chains, limiter sweeps mean ${stats.sweepsMean.toFixed(1)} max ${sweepsMax}, ${leftOver} chains not fully limited (held by pins); ${gradesClamped} station moves by the grade cap (class max x ${GRADE_CAP}), ${nodeGradeMoves} node moves; ${ghosts} junction ghosts; ${structRuns} structure runs drawn ground to ground; ` +
              `designed vs measured ground p50 ${stats.devP50.toFixed(3)} / p95 ${stats.devP95.toFixed(3)} / max ${stats.devMax.toFixed(2)} m`);
+  if (landingLine) lines.push(landingLine);
   if (opts.all) lines.push(`SHORT PIECES (REAL HEIGHTS): ${shortMoves} junction nodes moved to keep pieces under 40 m within their class grade (up to ${shortMax.toFixed(2)} m, eased into every arm)`);
   if (clr) { lines.push(clr.line); stats.clearance = clr; }
   if (pairs2) lines.push(`PAIRS (REAL HEIGHTS, allowed 1.2% of the gap, 0.06..${PAIR_DY_M} m): on the finished profiles ${pairs2.stations} pair stations, over their allowance by >0.05/0.25/0.5/1/2 m ${pairs2.hist.join('/')} (worst ${pairs2.worst.toFixed(2)} m); after 4 pulls (nodes eased into their arms) ${pairs2.after.hist.join('/')} (worst ${pairs2.after.worst.toFixed(2)} m); two levels under 15 m apart ${pairs2.after.closeSplit}: ${pairs2.after.closeAt.join('; ')}`);

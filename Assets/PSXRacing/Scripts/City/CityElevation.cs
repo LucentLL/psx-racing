@@ -1256,17 +1256,15 @@ namespace PSXRacing.City
         /// solve moved the measured profiles, on structure and off it.</summary>
         public static string RealReport { get; private set; } = "";
         /// <summary>
-        /// REAL HEIGHTS: the vertical curves pass treats a measured road as
-        /// any other (as shipped: no frozen measured stations, the junction
-        /// plane at the first station, the shipped raise allowance) - the
-        /// offline design already curved it to AASHTO, the drawn profile rounds
-        /// what is left, and the RPRF-era junction landings (2026-10-03, built
-        /// before the drawn profile) ran short of room on 3,563 of 5,464 arms
-        /// and doubled the launch audit's junction spots. PSX_CITY_REAL_VC=1
-        /// puts those measured rules back.
+        /// PSX_CITY_REAL_VC=0: the vertical curves pass treats a measured
+        /// road as any other (as shipped: no frozen measured stations, the
+        /// junction plane at the first station). Measured 2026-10-25: city
+        /// launch 132 (UNLOAD 736, uptown route 3) against 134 (620, 1) with
+        /// the RPRF-era rules, and an I-277 deck at 33.5% - so the measured
+        /// rules (frozen stations, junction landings) stay on by default.
         /// </summary>
-        public static bool RealCurvesShipped => RealOn && !realVcEnv;
-        static readonly bool realVcEnv = System.Environment.GetEnvironmentVariable("PSX_CITY_REAL_VC") == "1";
+        public static bool RealCurvesShipped => RealOn && realVcEnv;
+        static readonly bool realVcEnv = System.Environment.GetEnvironmentVariable("PSX_CITY_REAL_VC") == "0";
         static bool CurvesMeasured(CityMap.Edge e) => Measured(e) && !RealCurvesShipped;
         /// <summary>Does this edge stand on its measured profile?</summary>
         public static bool Measured(CityMap.Edge e) => RprfOn && e.mY != null;
