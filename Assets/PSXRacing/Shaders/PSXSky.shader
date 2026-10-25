@@ -140,8 +140,8 @@ Shader "PSX/Sky"
             // an e-folding one lifted the sky 30 degrees up from 17 to 35-48).
             #define GLOW_MIN_EL    0.035   // radians: the least angular height of the glow
             #define GLOW_ROUND     0.25    // share of the glow all round the horizon when inside the city
-            float4 _PSXCityGlow;
-            float4 _PSXCityGlowCol;
+            // (_PSXCityGlow, _PSXCityGlowCol: declared in PSXVolClouds.cginc,
+            // whose cloud bases take the same glow.)
             float3 CityGlow(float3 dir)
             {
                 if (_PSXCityGlow.w <= 0.0) return float3(0, 0, 0);
@@ -225,15 +225,18 @@ Shader "PSX/Sky"
                 grad = lerp(grad, _BottomColor.rgb, below);
 
                 fixed3 col = grad;
+                // How much of the sky behind the dynamic sky's clouds shows:
+                // the stars go under them, and so does the sun's emitter.
+                float cloudT = 1.0;
                 if (_Dynamic > 0.5)
                 {
                     // THE DYNAMIC SKY (PSXAtmosphere.cginc), with the stars
                     // under it the way they go under the photograph's cloud.
-                    col = PSXDynamicSky(dir);
+                    col = PSXDynamicSkyT(dir, cloudT);
                     if (_Stars > 0.001)
                     {
                         float lum = dot(col, float3(0.299, 0.587, 0.114));
-                        float clear = saturate(1.0 - lum * 3.2);
+                        float clear = saturate(1.0 - lum * 3.2) * cloudT;
                         float high = saturate((y - 0.04) * 5.0);
                         float band = exp(-pow(dot(dir, normalize(MILKY_POLE)) * MILKY_WIDTH, 2.0));
                         col += StarField(dir, 0.072 + MILKY_STARS * band) * _Stars * clear * high;
@@ -341,7 +344,7 @@ Shader "PSX/Sky"
                 // skyTexElevation): the halation and the sun glare key on it.
                 float3 seenSun = _SunSeen.w > 0.5 ? _SunSeen.xyz : _PSXLightDir.xyz;
                 float emit = smoothstep(SKY_SUN_COS_OUT, SKY_SUN_COS_IN, dot(dir, normalize(seenSun)))
-                           * step(0.0, y);
+                           * step(0.0, y) * cloudT;
                 // Opaque on any camera but the PSX camera's own frame, whose
                 // alpha is the emitter mask (PSXTone.cginc).
                 return fixed4(col, _PSXEmitWrite > 0.5 ? emit : 1.0);

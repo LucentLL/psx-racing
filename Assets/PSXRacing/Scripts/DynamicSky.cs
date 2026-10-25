@@ -13,8 +13,11 @@ namespace PSXRacing
     ///     the MOON at night. The atmosphere needs the sun even when it is down -
     ///     just under the horizon at dusk (the blue hour), well under it at
     ///     night - and the moon drawn where the night's light comes from.
-    ///   * CLOUD by the weather: a scatter of fair-weather cumulus when clear,
-    ///     a closed deck in rain, fog or snow; drifting on a wind.
+    ///   * CLOUD by the weather's SKY layer (Seasons.Now, 2026-10-25): the
+    ///     VOLUMETRIC clouds (VolumetricClouds, PSXVolClouds.cginc) on a
+    ///     desktop - a few fair-weather cumulus or none when clear, broken
+    ///     cumulus (towering some days) when partly cloudy, a full grey deck
+    ///     overcast, a dark one in a storm; the old puffs on a phone.
     ///   * REFLECTIONS. The car paint, the wet road and the sea read the sky
     ///     through PSXSkyIn's panorama globals; they are pointed at a 256 x 128
     ///     equirect of the computed sky (Hidden/PSX/SkyEquirect), re-rendered
@@ -31,8 +34,16 @@ namespace PSXRacing
         /// measured Ycode 40 over the owner's town where the photograph's
         /// measures 17 and real night skies 1-20.</summary>
         static readonly float[] ExposureByHour = { 1.6f, 1.05f, 0.85f, 1.0f, 1.5f, 2.6f, 0.6f };
-        /// <summary>Cloud cover by weather (Clear, Fog, Rain, Snow).</summary>
+        /// <summary>The old puffs' cloud cover by the old one-word weather
+        /// (Clear, Fog, Rain, Snow) - the look before 2026-10-25, kept for
+        /// <see cref="LegacyCover"/>.</summary>
         static readonly float[] CoverByWeather = { 0.42f, 0.74f, 0.88f, 0.82f };
+        /// <summary>The old puffs' cover by the SKY layer (Clear, Partly
+        /// cloudy, Overcast, Storm): the phones' fallback.</summary>
+        static readonly float[] CoverBySky = { 0.22f, 0.45f, 0.88f, 0.92f };
+        /// <summary>Tools: the cover the old code gave (the one-word weather),
+        /// for a before/after of the same view.</summary>
+        public static bool LegacyCover;
         const float RefreshSeconds = 3f;
 
         static RenderTexture pano;
@@ -57,7 +68,8 @@ namespace PSXRacing
             Shader.SetGlobalVector("_PSXMoonDir", night ? new Vector4(light.x, light.y, light.z, 1f)
                                                         : new Vector4(0f, -1f, 0f, 0f));
             int w = Mathf.Clamp((int)weather, 0, CoverByWeather.Length - 1);
-            Shader.SetGlobalFloat("_PSXCloudCover", CoverByWeather[w]);
+            var now = Seasons.Now;
+            Shader.SetGlobalFloat("_PSXCloudCover", LegacyCover ? CoverByWeather[w] : CoverBySky[Mathf.Clamp((int)now.sky, 0, 3)]);
             Shader.SetGlobalVector("_PSXCloudWind", new Vector4(0.0035f, 0.0012f, 0f, 0f));
             float exposure = ExposureByHour[Mathf.Clamp(hour, 0, ExposureByHour.Length - 1)] *
                              Seasons.SkyMul(weather);
@@ -67,9 +79,15 @@ namespace PSXRacing
             // scattering stand-in lends the low sky (and this CPU copy too).
             zenith = Scatter(Vector3.up, sunTrue.normalized, false);
             Shader.SetGlobalVector("_PSXZenith", zenith);
-            // The ring, from the scattering.
-            Shader.SetGlobalVectorArray("_PSXFogRing", Ring(sunTrue.normalized, exposure, p.fogColor));
+            // The ring, from the scattering - under a closed deck nearly
+            // neutral: an overcast horizon has no orange side.
+            float grey = !LegacyCover && now.sky >= SkyKind.Overcast ? 0.75f : 0f;
+            Shader.SetGlobalVectorArray("_PSXFogRing", Ring(sunTrue.normalized, exposure, p.fogColor, grey));
             Shader.SetGlobalFloat("_PSXFogRingOn", TimeOfDay.FogRingAmount);
+
+            // THE VOLUMETRIC CLOUDS, lit by the sun - or at night the moon.
+            Vector3 cloudLight = night ? light : sunTrue;
+            if (LegacyCover || !VolumetricClouds.Configure(now, cloudLight.normalized)) VolumetricClouds.Off();
 
             RenderPanorama();
             if (driver == null && Application.isPlaying)
@@ -87,6 +105,16 @@ namespace PSXRacing
         public static void Stop()
         {
             if (driver != null) driver.enabled = false;
+            VolumetricClouds.Stop();
+        }
+
+        /// <summary>A tool's still frame: the volumetric clouds marched from
+        /// <paramref name="eye"/> to convergence, and the reflection panorama
+        /// re-rendered from them.</summary>
+        public static void PrimeClouds(Vector3 eye)
+        {
+            VolumetricClouds.Prime(eye);
+            RenderPanorama();
         }
 
         static void RenderPanorama()
@@ -119,6 +147,8 @@ namespace PSXRacing
             float next;
             void Update()
             {
+                // The clouds' dome map, a frame's share of it.
+                if (SkyModePrefs.Dynamic) VolumetricClouds.Tick();
                 if (Time.unscaledTime < next) return;
                 next = Time.unscaledTime + RefreshSeconds;
                 if (SkyModePrefs.Dynamic) RenderPanorama();
@@ -204,7 +234,7 @@ namespace PSXRacing
         /// the hour's fog colour, the owner's signed-off value - so the fog does
         /// not lighten or darken, it takes the sky's hue by bearing.
         /// </summary>
-        static Vector4[] Ring(Vector3 sunDir, float exposure, Color fog)
+        static Vector4[] Ring(Vector3 sunDir, float exposure, Color fog, float grey)
         {
             var c = new Vector3[8];
             float meanLum = 0f;
@@ -227,7 +257,7 @@ namespace PSXRacing
             {
                 // As a ratio to the fog colour, because that is what the fog
                 // and the band multiply: fog x ratio = this bearing's colour.
-                Vector3 want = c[k] * scale;
+                Vector3 want = Vector3.Lerp(c[k] * scale, new Vector3(fog.r, fog.g, fog.b), grey);
                 ring[k] = new Vector4(Mathf.Clamp(want.x / Mathf.Max(fog.r, 0.02f), 0.25f, 3f),
                                       Mathf.Clamp(want.y / Mathf.Max(fog.g, 0.02f), 0.25f, 3f),
                                       Mathf.Clamp(want.z / Mathf.Max(fog.b, 0.02f), 0.25f, 3f), 1f);

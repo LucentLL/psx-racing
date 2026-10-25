@@ -90,6 +90,10 @@ namespace PSXRacing.EditorTools
             RaceHandoff.TimeOfDayIndex = hourIdx;
             string sky = Env("PSX_PERF_WEATHER", "Rain");
             if (System.Enum.TryParse(sky, true, out Weather w)) RaceHandoff.WeatherOverride = (int)w;
+            // PSX_PERF_DYNSKY=1: the DYNAMIC sky (its volumetric clouds and
+            // their A/B against the old puffs); put back as it was at the end.
+            dynSkyWas = SkyModePrefs.Dynamic ? 1 : 0;
+            if (Env("PSX_PERF_DYNSKY", "0") == "1") SkyModePrefs.Dynamic = true;
             string carId = Env("PSX_PERF_CAR", "charger_70");
             var cars = CarCatalog.All;
             int ci = -1;
@@ -129,8 +133,13 @@ namespace PSXRacing.EditorTools
         internal static void Line(string s) => log.AppendLine(s);
         internal static void Fail(string what) { failures++; log.AppendLine("  FAIL " + what); }
 
+        static int dynSkyWas = -1;
+
         internal static void Finish()
         {
+            if (dynSkyWas >= 0) { SkyModePrefs.Dynamic = dynSkyWas == 1; dynSkyWas = -1; }
+            if (VolumetricClouds.TickCount > 0)
+                log.AppendLine($"volumetric clouds: driver CPU {VolumetricClouds.TickMsTotal * 1000.0 / VolumetricClouds.TickCount:0} us a frame over {VolumetricClouds.TickCount} frames (two Blits + globals)");
             log.AppendLine(failures == 0 ? "PERF PROBE DONE." : failures + " FAILURE(S).");
             string text = log.ToString();
             File.WriteAllText(Path.Combine(ProjectDir, "PSXRacing_perf_probe.txt"), text);
@@ -216,6 +225,7 @@ namespace PSXRacing.EditorTools
         readonly List<float> abMsOn = new List<float>(), abMsOff = new List<float>();
         readonly List<float> abCamOn = new List<float>(), abCamOff = new List<float>();
         readonly List<float> abExtraOn = new List<float>(), abExtraOff = new List<float>();
+        readonly List<float> abGpuOn = new List<float>(), abGpuOff = new List<float>();
 
         void Awake() { bornAt = Time.realtimeSinceStartup; }
 
@@ -334,6 +344,9 @@ namespace PSXRacing.EditorTools
                     (abState ? abMsOff : abMsOn).Add(ms);
                     (abState ? abCamOff : abCamOn).Add((float)frameMainMs);
                     (abState ? abExtraOff : abExtraOn).Add((float)frameExtraMs);
+                    FrameTimingManager.CaptureFrameTimings();
+                    if (FrameTimingManager.GetLatestTimings(1, timings) > 0 && timings[0].gpuFrameTime > 0)
+                        (abState ? abGpuOff : abGpuOn).Add((float)timings[0].gpuFrameTime);
                 }
             }
             if (car != null) lastPos = car.transform.position;
@@ -439,18 +452,32 @@ namespace PSXRacing.EditorTools
                 PerfProbe.Line("");
                 PerfProbe.Line($"A/B (each switched off and on every second for {abSecs:0} s; the first 3 frames after a switch not counted; FIX rows: OFF = the code before 2026-10-25):");
                 PerfProbe.Line("  what                 frame ms ON -> OFF (p50, p95)   main cam ms ON -> OFF   extra cams ms ON -> OFF");
+                bool cloudsOnly = PerfProbe.Env("PSX_PERF_AB", "all") == "clouds";
                 PerfProbe.Line(" chase:");
                 ChaseCamera.PreviewView(ChaseCamera.View.Chase);
                 yield return WaitReal(1f);
                 mainCam = Camera.main;
+                // ON = the volumetric clouds, OFF = the old puffs (the dynamic
+                // sky before 2026-10-25), switched without re-applying the hour.
+                if (SkyModePrefs.Dynamic)
+                {
+                    yield return AB("volumetric clouds", abSecs, off => SetVolClouds(!off));
+                    yield return AB("vol cloud map update", abSecs, off => VolumetricClouds.Paused = off);
+                    yield return AB("dynamic sky (vs photo)", abSecs, off => { SkyModePrefs.Dynamic = !off; });
+                    SkyModePrefs.Dynamic = true;
+                }
+                if (!cloudsOnly) {
                 yield return AB("FIX shared lamp field", abSecs, off => StreetLights.ShareFieldWindow = !off);
                 yield return AB("FIX one extra view a frame", abSecs, off => ExtraViews.Enabled = !off);
                 yield return AB("FIX skyline refresh cache", abSecs, off => CitySkyline.CacheRefresh = !off);
                 yield return AB("car reflections", abSecs, off => { foreach (var r in Object.FindObjectsByType<CarReflections>(FindObjectsSortMode.None)) r.enabled = !off; });
+                }
                 PerfProbe.Line(" cockpit:");
                 ChaseCamera.PreviewView(ChaseCamera.View.Cockpit);
                 yield return WaitReal(1f);
                 mainCam = Camera.main;
+                if (SkyModePrefs.Dynamic) yield return AB("volumetric clouds", abSecs, off => SetVolClouds(!off));
+                if (!cloudsOnly) {
                 yield return AB("FIX shared lamp field", abSecs, off => StreetLights.ShareFieldWindow = !off);
                 yield return AB("FIX one extra view a frame", abSecs, off => ExtraViews.Enabled = !off);
                 yield return AB("FIX skyline refresh cache", abSecs, off => CitySkyline.CacheRefresh = !off);
@@ -459,11 +486,23 @@ namespace PSXRacing.EditorTools
                 yield return AB("car reflections", abSecs, off => { foreach (var r in Object.FindObjectsByType<CarReflections>(FindObjectsSortMode.None)) r.enabled = !off; });
                 yield return AB("skyline (drawing)", abSecs, off => { foreach (var f in Object.FindObjectsByType<CitySkyline>(FindObjectsSortMode.None)) foreach (var r in f.GetComponentsInChildren<Renderer>(true)) r.forceRenderingOff = off; });
                 yield return AB("far city (drawing)", abSecs, off => { foreach (var f in Object.FindObjectsByType<CityFar>(FindObjectsSortMode.None)) foreach (var r in f.GetComponentsInChildren<Renderer>(true)) r.forceRenderingOff = off; });
+                }
+                SetVolClouds(true);
             }
             ReportBigSteps();
             PerfProbe.Line("");
             PerfProbe.Line($"race state at the end: {rm.State}");
             Exit();
+        }
+
+        /// <summary>The A/B's switch: the volumetric clouds, or the old puffs
+        /// under the same sky (the hour is re-applied, as the pause menu's SKY
+        /// switch would).</summary>
+        static void SetVolClouds(bool on)
+        {
+            if (VolumetricClouds.Override == on) return;
+            VolumetricClouds.Override = on;
+            TimeOfDay.RefreshSky();
         }
 
         void Exit()
@@ -493,6 +532,7 @@ namespace PSXRacing.EditorTools
         {
             stage = "A/B " + what;
             abMsOn.Clear(); abMsOff.Clear(); abCamOn.Clear(); abCamOff.Clear(); abExtraOn.Clear(); abExtraOff.Clear();
+            abGpuOn.Clear(); abGpuOff.Clear();
             abState = false; set(false);
             abSkip = 3; abOn = true;
             float end = Time.realtimeSinceStartup + seconds;
@@ -511,7 +551,8 @@ namespace PSXRacing.EditorTools
             abOn = false;
             set(false);
             PerfProbe.Line($"  {what,-28} {Avg(abMsOn),5:0.00} -> {Avg(abMsOff),5:0.00} (p50 {Pct(abMsOn, 50),5:0.0} -> {Pct(abMsOff, 50),5:0.0}; p95 {Pct(abMsOn, 95),5:0.0} -> {Pct(abMsOff, 95),5:0.0})   " +
-                           $"{Avg(abCamOn),5:0.00} -> {Avg(abCamOff),5:0.00}   {Avg(abExtraOn),5:0.00} -> {Avg(abExtraOff),5:0.00}   [{abMsOn.Count}/{abMsOff.Count} frames]");
+                           $"{Avg(abCamOn),5:0.00} -> {Avg(abCamOff),5:0.00}   {Avg(abExtraOn),5:0.00} -> {Avg(abExtraOff),5:0.00}   [{abMsOn.Count}/{abMsOff.Count} frames]" +
+                           (abGpuOn.Count > 0 && abGpuOff.Count > 0 ? $"   GPU {Avg(abGpuOn):0.00} -> {Avg(abGpuOff):0.00} (p95 {Pct(abGpuOn, 95):0.0} -> {Pct(abGpuOff, 95):0.0})" : "   (no GPU timing)"));
             yield return null;
         }
 

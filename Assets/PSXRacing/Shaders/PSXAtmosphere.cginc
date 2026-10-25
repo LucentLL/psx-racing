@@ -87,6 +87,19 @@ float2 AtmoRaySphere(float3 o, float3 d, float r)
     return float2(-b - h, -b + h);
 }
 
+// The volumetric clouds (2026-10-25) - their dome map, and with
+// PSX_VOLCLOUDS_MARCH defined (Hidden/PSX/VolClouds) the march that fills it.
+#include "PSXVolClouds.cginc"
+
+/// The sky straight up as AtmoScatter gives it, without marching it again: the
+/// CPU's single-scattered zenith (DynamicSky, _PSXZenith) and the multiple-
+/// scattering stand-in's share of it for the zenith column (8 x 7.5 km of
+/// air: 1 - exp(-0.111) = 0.105 of it, x ATMO_MS).
+float3 AtmoSkyUp()
+{
+    return _PSXZenith.rgb * 1.063;
+}
+
 /// Single-scattered sky radiance along dir, for a sun in sunDir.
 float3 AtmoScatter(float3 dir, float3 sunDir)
 {
@@ -387,11 +400,49 @@ float4 AtmoPuffs(float3 dir, float3 sunDir, float3 sunCol, float mu, float night
     return float4(lum, bestA);
 }
 
+/// CIRRUS: thin streaks far above the cumulus, in patches - some days a sky
+/// full, most of it none. Lit by the sun through the air, so at a low sun
+/// they burn orange-pink. amount scales CIRRUS_MAX; marchUp: the sky over
+/// them marched again (the old clouds' exact light) rather than AtmoSkyUp.
+float3 AtmoCirrus(float3 col, float3 dir, float3 sunDir, float3 sunCol, float night, float amount, bool marchUp)
+{
+    float tc = (CIRRUS_ALT - 2.0) / max(dir.y, 0.03);
+    float2 q = (_WorldSpaceCameraPos.xz + dir.xz * tc) * CIRRUS_SCALE + _PSXCloudWind.xy * _Time.y * 1.6;
+    float2 cax = float2(0.92, 0.39);
+    float2 qs = float2(dot(q, cax) * 0.28, dot(q, float2(-cax.y, cax.x)) * 1.7);   // long along, fine across
+    float patchy = saturate((AtmoNoise(q * 0.21 + 5.0) - 0.42) * 3.2);
+    if (patchy > 0.0)
+    {
+        float cir = saturate((AtmoFbm(qs) - 0.5) * 2.8) * patchy * CIRRUS_MAX * amount;
+        if (cir > 0.005)
+        {
+            float3 skyUp = marchUp ? AtmoScatter(float3(0, 1, 0), sunDir) : AtmoSkyUp();
+            float3 cirCol = sunCol * 1.25 * saturate(sunDir.y * 4.0 + 0.6) + skyUp * 0.8 + NIGHT_FLOOR * night;
+            col = lerp(col, cirCol, cir * saturate((dir.y - 0.02) * 6.0));
+        }
+    }
+    return col;
+}
+
+// How the volumetric clouds' responses (the map's rgb) become light. The sun
+// on a lit face: a face square to it with nothing in the way responds ~1, so
+// this is that face's brightness at a sun of colour 1 (the old puffs' lit
+// crown was 2 x sunCol). The sky above: the zenith's light, and the sun's own
+// light diffused down through the cloud. Below: the ground, lit by both.
+#define VOL_SUN          3.0
+#define VOL_SKY          1.2
+#define VOL_SUN_DIFFUSE  0.3
+#define VOL_GROUND       0.25
+#define VOL_MOON         float3(0.040, 0.046, 0.062)   // moonlight on a lit cloud: ~3x the night floor
+#define VOL_CITY         1.6       // a lit city on the cloud base over it, x its glow in the air
+
 /// The whole dynamic sky in direction dir (unit, world), before the horizon
 /// band and the stars, which PSX/Sky adds as it does for a photograph.
-/// Returned in the display's range (exposed, rolled off).
-float3 PSXDynamicSky(float3 dir)
+/// Returned in the display's range (exposed, rolled off). cloudT: how much of
+/// the sky behind the clouds shows (the stars and the sun's glare take it).
+float3 PSXDynamicSkyT(float3 dir, out float cloudT)
 {
+    cloudT = 1.0;
     float3 sunDir = normalize(_PSXSunTrue.xyz);
     float3 col = AtmoScatter(dir, sunDir);
     // Into the film grade a little over-coloured: PSX/Blit takes the whole
@@ -426,38 +477,54 @@ float3 PSXDynamicSky(float3 dir)
     // dome - white where it faces the sun, soft grey underneath and in the
     // shade of its neighbours - with a fuzzy rim that goes silver toward the
     // sun. The fair-weather cumulus of the owner's photograph.
-    // CIRRUS: thin streaks far above the cumulus, in patches - some days
-    // a sky full, most of it none. Drawn first; the heaps go in front. Lit by
-    // the sun through the air, so at a low sun they burn orange-pink.
-    if (dir.y > 0.01 && _PSXCloudCover > 0.01)
+    // (Since 2026-10-25 the fallback - phones, and a desktop that cannot run
+    // them - under the VOLUMETRIC clouds of PSXVolClouds.cginc.)
+    // CIRRUS first (AtmoCirrus); the heaps go in front.
+    if (_PSXVolOn > 0.5)
     {
-        float tc = (CIRRUS_ALT - 2.0) / max(dir.y, 0.03);
-        float2 q = (_WorldSpaceCameraPos.xz + dir.xz * tc) * CIRRUS_SCALE + _PSXCloudWind.xy * _Time.y * 1.6;
-        float2 cax = float2(0.92, 0.39);
-        float2 qs = float2(dot(q, cax) * 0.28, dot(q, float2(-cax.y, cax.x)) * 1.7);   // long along, fine across
-        float patchy = saturate((AtmoNoise(q * 0.21 + 5.0) - 0.42) * 3.2);
-        if (patchy > 0.0)
+        if (dir.y > 0.01 && _PSXVolSlab.w > 0.01)
+            col = AtmoCirrus(col, dir, sunDir, sunCol, night, _PSXVolSlab.w, false);
+        if (dir.y > -0.02)
         {
-            float cir = saturate((AtmoFbm(qs) - 0.5) * 2.8) * patchy * CIRRUS_MAX;
-            if (cir > 0.005)
-            {
-                float3 cirCol = sunCol * 1.25 * saturate(sunDir.y * 4.0 + 0.6) +
-                                AtmoScatter(float3(0, 1, 0), sunDir) * 0.8 + NIGHT_FLOOR * night;
-                col = lerp(col, cirCol, cir * saturate((dir.y - 0.02) * 6.0));
-            }
+            float4 cm = VolFetch(dir);
+            float3 skyUp = AtmoSkyUp();
+            float sunHigh = saturate(sunDir.y);
+            // The clear air behind an overcast deck is not blue: where the
+            // deck thins into the haze at the horizon, the haze is grey.
+            float lumC = dot(col, float3(0.2126, 0.7152, 0.0722));
+            col = lerp(col, lumC * float3(0.93, 0.96, 1.0), _PSXVolCov.z * 0.85);
+            float3 light = sunCol * VOL_SUN;
+            if (_PSXMoonDir.w > 0.5) light += VOL_MOON * night;
+            float3 above = skyUp * VOL_SKY + sunCol * (sunHigh * VOL_SUN_DIFFUSE) + NIGHT_FLOOR * (1.5 * night);
+            float3 below = (sunCol * sunHigh + skyUp) * VOL_GROUND + NIGHT_FLOOR * night +
+                           VolCityUnder(dir) * (VOL_CITY / max(_PSXDynExposure, 0.05));
+            float3 cloud = (light * cm.r + above * cm.g + below * cm.b) * (1.0 - _PSXVolCov.w * 0.45);
+            col = col * cm.a + cloud;
+            cloudT = cm.a;
         }
     }
-
-    if (dir.y > 0.005 && _PSXCloudCover > 0.01)
+    else
     {
-        float4 cl = AtmoPuffs(dir, sunDir, sunCol, mu, night);
-        // The far rows thin into the haze (and stop reading as rows).
-        float fade = saturate((dir.y - 0.015) * 7.0);
-        col = lerp(col, cl.rgb, cl.a * fade);
+        if (dir.y > 0.01 && _PSXCloudCover > 0.01)
+            col = AtmoCirrus(col, dir, sunDir, sunCol, night, 1.0, true);
+
+        if (dir.y > 0.005 && _PSXCloudCover > 0.01)
+        {
+            float4 cl = AtmoPuffs(dir, sunDir, sunCol, mu, night);
+            // The far rows thin into the haze (and stop reading as rows).
+            float fade = saturate((dir.y - 0.015) * 7.0);
+            col = lerp(col, cl.rgb, cl.a * fade);
+        }
     }
 
     // Exposure and a soft shoulder: the display's range.
     col *= _PSXDynExposure;
     return 1.0 - exp(-col);
+}
+
+float3 PSXDynamicSky(float3 dir)
+{
+    float cloudT;
+    return PSXDynamicSkyT(dir, cloudT);
 }
 #endif
