@@ -13,9 +13,10 @@ namespace PSXRacing.EditorTools
     ///   wx_charlotte_snowground : Charlotte, snow lying, roads treated and wet, overcast
     ///   wx_blueridge_wetclear   : the Parkway soaked under a clear sky after the rain
     ///   wx_blueridge_snowdry    : snow on the mountain, a dry road, a clear sky
+    ///   wx_blueridge_drying     : a summer road half dry: the patches the tyres read too
     ///   wx_emeraldisle_summer   : Bogue Banks, a clear summer noon
     /// Frames go to Screenshots\wx_*.png, the notes to PSXRacing_weathershots.txt.
-    /// PSX_WX_ONLY=tag runs one.
+    /// PSX_WX_ONLY=prefix runs those whose tag starts with it.
     /// </summary>
     public static class WeatherShots
     {
@@ -38,6 +39,15 @@ namespace PSXRacing.EditorTools
             Run();
         }
 
+        /// <summary>PSX_WX_REBUILD=venue: rebuild that one scene first
+        /// (PSXRacingBuilder.BuildOneVenue), then the matrix.</summary>
+        public static void RunWithRebuild()
+        {
+            string venue = System.Environment.GetEnvironmentVariable("PSX_WX_REBUILD");
+            if (!string.IsNullOrEmpty(venue) && !PSXRacingBuilder.BuildOneVenue(venue)) return;
+            Run();
+        }
+
         public static void Run()
         {
             notes = new StringBuilder();
@@ -55,6 +65,9 @@ namespace PSXRacing.EditorTools
                     fromMonth = 11, toMonth = 3,
                     want = (in WeatherNow w) => w.scenery == SceneryKind.Snow && w.precip == PrecipKind.None && w.sky == SkyKind.Clear &&
                                                 w.road.water < 0.05f && w.road.snow < 0.05f && w.road.slush < 0.05f && !w.road.ice },
+                new Combo { tag = "blueridge_drying", venue = "BlueRidge", hours = new[] { TimeOfDay.Noon, TimeOfDay.Afternoon, TimeOfDay.Morning },
+                    fromMonth = 5, toMonth = 9,
+                    want = (in WeatherNow w) => w.precip == PrecipKind.None && !w.fog && w.road.water > 0.35f && w.road.water < 0.6f },
                 new Combo { tag = "emeraldisle_summer", venue = "EmeraldIsle", hours = new[] { TimeOfDay.Noon },
                     fromMonth = 6, toMonth = 8,
                     want = (in WeatherNow w) => w.sky == SkyKind.Clear && w.precip == PrecipKind.None && w.road.water < 0.05f && !w.fog },
@@ -64,7 +77,7 @@ namespace PSXRacing.EditorTools
             {
                 foreach (var c in combos)
                 {
-                    if (!string.IsNullOrEmpty(only) && c.tag != only) continue;
+                    if (!string.IsNullOrEmpty(only) && !c.tag.StartsWith(only, System.StringComparison.Ordinal)) continue;
                     if (!Find(c, out int day, out int hour)) { Note("NOT FOUND " + c.tag); continue; }
                     Shoot(c, day, hour);
                 }
