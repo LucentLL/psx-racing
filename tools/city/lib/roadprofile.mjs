@@ -473,81 +473,184 @@ export function buildRoadProfiles(city, groundY, opts = {}) {
   // carriageway under the same deck dipped the same. Anything short by more
   // is the game's (CityElevation.RaiseAllCrossings lifts the deck: a tagged
   // structure, the one place a height rule may lift a road).
-  // ---- 6a. (REAL HEIGHTS) JUNCTION LANDINGS (AASHTO: an intersection sits
-  // on a landing - the cross road meets the major road's plane, not its own
-  // hillside). At every node of three arms or more (no freeway mainline, no
-  // deck at the node): the plane is the node's height and its major through
-  // pair's grade (the pair the chains ran straight through); every other arm
-  // runs ON the plane for the fan's reach (d0: the major road's half width +
-  // 4 m, at least 10 m) and eases back into its own profile on a smoothstep
-  // over Le (a 30 mph comfort curve for the break, 20..60 m), all inside half
-  // the arm (both ends of a short piece land). Measured: the grade breaks
-  // through the nodes, every arm pair, before -> after (landingLine).
-  const landingLine = opts.all && opts.landings !== false ? landJunctions() : null;
+  // ---- 6a. (REAL HEIGHTS) JUNCTION LANDINGS - run after the short pieces
+  // (7b), below: see landJunctions.
+  // AASHTO: an intersection sits on a landing - the major road's profile
+  // is held through it and every other approach warps to the major road's
+  // plane. At every node of three arms or more (and every two-arm node
+  // the chains did not run straight through), no freeway mainline and no
+  // deck at the node: the PLANE is the node's height and its major through
+  // pair's grade (the chord over 15 m either side), level across the major
+  // road. EVERY arm leaves the node on that plane: a minor arm runs ON it
+  // for the fan's reach (d0: the major road's half width over the sine of
+  // the angle it meets at, plus 3 m) and the major pair from the node
+  // itself, then each eases into its own profile on a cubic Hermite (the
+  // plane's height and grade at d0, the arm's own at d0 + L). L is the
+  // shortest that keeps the ease's curvature within the PREFERRED radius
+  // (400 m: a 25-30 mph stopping/comfort K at a junction) or, where there
+  // is no room for that, within the arm's SAFE radius (1.5 v^2/g at the
+  // speed the launch audit judges it, never under 60 m: no car leaves the
+  // road), else the gentlest that fits - never none. ROOM: the walk runs
+  // on through two-arm nodes into the next edge, to the next junction
+  // (half the way: that one lands its own half) or the first deck/masked
+  // station. Measured: the grade breaks through the nodes (every arm pair,
+  // > 4% / > 8%), before -> after, and how each arm landed (landingLine).
   function landJunctions() {
     const out = (e, nd, d) => { const t = st[e.index], n = t.s.length; const at = e.a === nd ? Math.min(d, e.length) : Math.max(0, e.length - d); const f = Math.max(0, Math.min(1, at / Math.max(1e-3, e.length))) * (n - 1), k = Math.min(n - 2, Math.floor(f)); return t.y[k] + (t.y[k + 1] - t.y[k]) * (f - k); };
     const dirOut = (e, nd) => e.a === nd ? tangentAt(e, 0) : tangentAt(e, e.length).map(v => -v);
+    const armsOf = nd => nodeEdges[nd].filter(i => st[i] && edges[i].a !== edges[i].b && st[i].s.length >= 2).map(i => edges[i]);
     const breaks = () => {
       let n4 = 0, n8 = 0;
       for (let nd = 0; nd < NN; nd++) {
-        const arms = nodeEdges[nd].filter(i => st[i] && edges[i].a !== edges[i].b).map(i => edges[i]);
+        const arms = armsOf(nd);
         if (arms.length < 3) continue;
         const g = arms.map(e => (out(e, nd, Math.min(10, e.length)) - out(e, nd, 0)) / Math.max(1, Math.min(10, e.length)));
         for (let p = 0; p < arms.length; p++) for (let q = p + 1; q < arms.length; q++) { const b = Math.abs(g[p] + g[q]); if (b > 0.04) n4++; if (b > 0.08) n8++; }
       }
       return [n4, n8];
     };
+    // the launch audit's judged speeds (CityLaunchAudit): the safe radius
+    const judgedMs = e => (e.link ? 80 : [70, 90, 100, 110, 130, 150][e.rank]) / 3.6;
+    const R_PREF = 400, R_SAFE_MIN = 60, G = 9.81, DBG = +(process.env.PSX_LAND_DEBUG || -1);
+    const isJ = nd => armsOf(nd).length >= 3;
+    // the stations outward from nd along e, on through two-arm nodes
+    // a masked station the landing may not move: a deck, a tunnel, a water
+    // span, the deck reach over a crossing, the fill under one (an abutment
+    // approach or a run steeper than the class, 5 / 7, are lines anyway)
+    const HARD = k => k > 0 && k !== 5 && k !== 7;
+    const walk = (nd, e0, maxD) => {
+      const pts = []; let e = e0, at = nd, base = 0, guard = 0;
+      while (e && guard++ < 40) {
+        const t = st[e.index], n = t.s.length, fwd = e.a === at;
+        for (let q = pts.length ? 1 : 0; q < n; q++) {
+          const i = fwd ? q : n - 1 - q, d = base + (fwd ? t.s[i] : e.length - t.s[i]);
+          if (HARD(t.mask[i])) return { pts, room: Math.max(0, d - 2), junction: false };
+          pts.push({ ei: e.index, i, d, node: q === n - 1 ? (fwd ? e.b : e.a) : (q === 0 ? at : -1) });
+          if (d > maxD) return { pts, room: d, junction: false };
+        }
+        base += e.length;
+        const far = fwd ? e.b : e.a, fa = armsOf(far);
+        if (fa.length >= 3) return { pts, room: base, junction: true };
+        if (fa.length < 2) return { pts, room: base, junction: false };
+        const nx = fa.find(o => o.index !== e.index);
+        if (!nx || nx.rank >= 5 && !nx.link && !(e.rank >= 5 && !e.link)) return { pts, room: base, junction: false };
+        at = far; e = nx;
+      }
+      return { pts, room: base, junction: false };
+    };
+    const yOn = (pts, d) => { let k = 0; while (k + 2 < pts.length && pts[k + 1].d < d) k++; const a = pts[k], b = pts[Math.min(k + 1, pts.length - 1)]; const ya = st[a.ei].y[a.i], yb = st[b.ei].y[b.i]; return b.d - a.d > 1e-3 ? ya + (yb - ya) * Math.max(0, Math.min(1, (d - a.d) / (b.d - a.d))) : ya; };
+    const write = (p, y) => {
+      st[p.ei].y[p.i] = y;
+      if (p.node >= 0) {   // a two-arm node's station is every arm's
+        for (const k of nodeEdges[p.node]) { const t = st[k]; if (!t) continue; const o = edges[k]; if (o.a === p.node) t.y[0] = y; if (o.b === p.node) t.y[t.y.length - 1] = y; }
+        nodeY[p.node] = y;
+      }
+    };
     const before = breaks();
-    let landed = 0, nodes = 0, skipped = 0;
+    let landed = 0, nodesLanded = 0, nPref = 0, nSafe = 0, nBest = 0, nNoRoom = 0, worstBest = 0;
+    const Ls = [];
+    // the nodes in order: the bigger roads' junctions first
+    const order = [];
     for (let nd = 0; nd < NN; nd++) {
-      const arms = nodeEdges[nd].filter(i => st[i] && edges[i].a !== edges[i].b).map(i => edges[i]);
-      if (arms.length < 3) continue;
+      const arms = armsOf(nd);
+      if (arms.length < 2) continue;
       if (arms.some(e => (e.rank >= 5 && !e.link) || e.bridge || e.tunnel)) continue;
-      if (arms.some(e => { const t = st[e.index]; return t.mask[e.a === nd ? 0 : t.s.length - 1]; })) continue;
-      // the major pair: the chain partner of the highest arm
-      const top = arms.slice().sort((a, b) => (b.rank * 2 + (b.link ? 0 : 1)) - (a.rank * 2 + (a.link ? 0 : 1)))[0];
-      const pi = partner.get(top.index + ':' + nd);
+      if (arms.some(e => { const t = st[e.index]; return HARD(t.mask[e.a === nd ? 0 : t.s.length - 1]); })) continue;
+      if (arms.length === 2) {
+        // a two-arm node the chains ran straight through needs nothing
+        const p = partner.get(arms[0].index + ':' + nd);
+        if (p === arms[1].index) continue;
+      }
+      let top = 0; for (const e of arms) top = Math.max(top, e.rank * 2 + (e.link ? 0 : 1));
+      order.push([top, nd]);
+    }
+    order.sort((a, b) => b[0] - a[0] || a[1] - b[1]);
+    for (const [, nd] of order) {
+      const arms = armsOf(nd);
+      // the major pair: the chain partner of the highest arm, else the
+      // straightest pair (two arms: the pair itself)
+      const top = arms.slice().sort((a, b) => (b.rank * 2 + (b.link ? 0 : 1)) - (a.rank * 2 + (a.link ? 0 : 1)) || a.index - b.index)[0];
+      let pi = partner.get(top.index + ':' + nd);
+      if (pi === undefined || !arms.some(e => e.index === pi)) {
+        const u0 = dirOut(top, nd); let bd = 0.3;
+        for (const e of arms) { if (e === top) continue; const u = dirOut(e, nd), dot = u0[0] * u[0] + u0[1] * u[1]; if (dot < bd) { bd = dot; pi = e.index; } }
+      }
       if (pi === undefined) continue;
       const mA = top, mB = edges[pi];
       const yN = out(mA, nd, 0);
       const tA = dirOut(mA, nd), tB = dirOut(mB, nd);
       const LA = Math.min(15, mA.length), LB = Math.min(15, mB.length);
-      // the through grade from A's side to B's, along t = (tB - tA)/|.|
       let tx = tB[0] - tA[0], tz = tB[1] - tA[1]; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
       const gMaj = (out(mB, nd, LB) - out(mA, nd, LA)) / (LA + LB);
       const hwMaj = Math.max(mA.hw, mB.hw);
       let any = false;
       for (const e of arms) {
-        if (e === mA || e === mB) continue;
-        const t = st[e.index], n = t.s.length, atA = e.a === nd;
+        const major = e === mA || e === mB;
         const u = dirOut(e, nd), gp = gMaj * (u[0] * tx + u[1] * tz);
-        const far = atA ? e.b : e.a, farJ = nodeEdges[far].length >= 3;
-        const room = e.length * (farJ ? 0.5 : 0.8);
-        let d0 = Math.min(room * 0.5, Math.max(10, hwMaj + 4));
-        const gArm = (out(e, nd, Math.min(d0 + 20, room)) - out(e, nd, d0)) / Math.max(1, Math.min(d0 + 20, room) - d0);
-        const A = Math.abs(gArm - gp);
-        // long enough for the break's curve AND for the offset at d0 to be
-        // made up inside the class's grade; a landing with no room is skipped
-        const gHead = classMaxGrade(e) - Math.max(Math.abs(gp), Math.abs(gArm));
-        const need = (dd) => Math.max(20, Math.min(60, sagComfortRadius(30) * A * 1.5), 1.5 * Math.abs(out(e, nd, dd) - (yN + gp * dd)) / Math.max(0.01, gHead));
-        let Le = need(d0);
-        if (d0 + Le > room) { d0 = Math.min(d0, Math.max(5, hwMaj + 1)); Le = need(d0); }
-        if (d0 + Le > room || gHead <= 0.005) { skipped++; continue; }
-        let moved = false;
-        for (let i = 0; i < n; i++) {
-          const d = atA ? t.s[i] : e.length - t.s[i];
-          if (d >= d0 + Le) continue;
-          const plane = yN + gp * d;
-          const w = d <= d0 ? 0 : (() => { const v = (d - d0) / Le; return v * v * (3 - 2 * v); })();
-          const ny = plane * (1 - w) + t.y[i] * w;
-          if (Math.abs(ny - t.y[i]) > 1e-4) { t.y[i] = ny; moved = true; }
+        const sin = Math.abs(tx * u[1] - tz * u[0]);
+        const w = walk(nd, e, 220);
+        if (DBG === nd) console.log(`LAND n${nd} e${e.index} walk pts ${w.pts.length} room ${w.room.toFixed(1)}`);
+        if (w.pts.length < 2) continue;
+        const room = w.junction ? 0.5 * w.room : w.room;
+        const d0Full = major ? 0 : Math.min(0.4 * room, hwMaj / Math.max(0.4, sin) + 3);
+        if (room - d0Full < 3 && room < 5) { nNoRoom++; continue; }
+        const rSafe = Math.max(R_SAFE_MIN, 1.5 * judgedMs(e) ** 2 / G);
+        const ownY = d => yOn(w.pts, d);
+        const ownG = d => { const lo = Math.max(0, d - 2), hi = Math.min(w.pts[w.pts.length - 1].d, d + 2); return hi - lo > 0.1 ? (ownY(hi) - ownY(lo)) / (hi - lo) : gp; };
+        // already on the plane and leaving it smoothly: nothing to do
+        if (Math.abs(ownY(d0Full) - (yN + gp * d0Full)) < 0.005 && Math.abs(ownG(d0Full + 2) - gp) < 0.002) continue;
+        // the shortest ease within the preferred radius, else within the
+        // safe one, else the gentlest; a steep street may climb to its own
+        // grade + 3% inside the ease (15% at least, the audit fails 16%).
+        // Where the full plane hold leaves no such ease, a shorter hold.
+        const search = d0 => {
+          const p0 = yN + gp * d0, span = room - d0;
+          let Lc = -1, Lbest = -1, cBest = Infinity, kind = 0;
+          for (let L = 4; L <= Math.min(span, 160) + 1e-6; L += Math.max(2, 0.15 * L)) {
+            const Y1 = ownY(d0 + L), g1 = ownG(d0 + L);
+            const delta = Y1 - (p0 + 0.5 * (gp + g1) * L);
+            const c0 = (g1 - gp) / L + 6 * delta / (L * L), c1 = (g1 - gp) / L - 6 * delta / (L * L);
+            const c = Math.max(Math.abs(c0), Math.abs(c1));
+            let gmx = 0; for (let k = 0; k <= 8; k++) { const t = k / 8, t2 = t * t; const dy = (6 * t2 - 6 * t) * p0 + (3 * t2 - 4 * t + 1) * gp * L + (-6 * t2 + 6 * t) * Y1 + (3 * t2 - 2 * t) * g1 * L; gmx = Math.max(gmx, Math.abs(dy) / L); }
+            if (gmx > Math.max(0.155, Math.abs(gp) + 0.005, Math.abs(g1) + 0.03)) continue;
+            if (c * R_PREF <= 1) { Lc = L; kind = 1; break; }
+            if (c * rSafe <= 1 && kind < 2) { Lc = L; kind = 2; }
+            if (c < cBest) { cBest = c; Lbest = L; }
+          }
+          return { d0, Lc, kind, Lbest, cBest };
+        };
+        let r = null;
+        for (const d0 of major ? [0] : [d0Full, 0.6 * d0Full, Math.min(2, d0Full)]) {
+          const q = search(d0);
+          if (q.kind) { r = q; break; }
+          if (q.Lbest > 0 && (!r || q.cBest < r.cBest)) r = q;
         }
-        if (moved) { landed++; any = true; }
+        if (DBG === nd) console.log(`LAND n${nd} e${e.index} major ${major} room ${room.toFixed(1)} junction ${w.junction} pts ${w.pts.length} d0 ${d0Full.toFixed(1)} gp ${gp.toFixed(3)} r ${r ? JSON.stringify(r) : null}`);
+        if (!r || (r.kind === 0 && r.Lbest < 0)) { nNoRoom++; continue; }
+        let { d0, Lc, kind } = r;
+        if (!kind) { Lc = r.Lbest; kind = 3; worstBest = Math.max(worstBest, r.cBest * rSafe); }
+        if (kind === 1) nPref++; else if (kind === 2) nSafe++; else nBest++;
+        const p0 = yN + gp * d0;
+        const Y1 = ownY(d0 + Lc), g1 = ownG(d0 + Lc);
+        const m0 = gp * Lc, m1 = g1 * Lc;
+        let moved = false;
+        const writes = [];
+        for (const p of w.pts) {
+          if (p.d > d0 + Lc) break;
+          if (p.d < 1e-6 && !major) continue;            // the node itself is the plane's
+          let y;
+          if (p.d <= d0) y = yN + gp * p.d;
+          else { const t = (p.d - d0) / Lc, t2 = t * t, t3 = t2 * t; y = (2 * t3 - 3 * t2 + 1) * p0 + (t3 - 2 * t2 + t) * m0 + (-2 * t3 + 3 * t2) * Y1 + (t3 - t2) * m1; }
+          writes.push([p, y]);
+        }
+        for (const [p, y] of writes) if (Math.abs(st[p.ei].y[p.i] - y) > 1e-4) { write(p, y); moved = true; }
+        if (moved) { landed++; any = true; Ls.push(d0 + Lc); }
       }
-      if (any) nodes++;
+      if (any) nodesLanded++;
     }
     const after = breaks();
-    return `JUNCTION LANDINGS (REAL HEIGHTS): ${landed} arms landed on their junction's plane at ${nodes} nodes (${skipped} arms without room left as designed); arm pairs breaking > 4% / > 8% through a node ${before[0]} / ${before[1]} -> ${after[0]} / ${after[1]}`;
+    Ls.sort((a, b) => a - b);
+    return `JUNCTION LANDINGS (REAL HEIGHTS): ${landed} arms landed on their junction's plane at ${nodesLanded} nodes (preferred radius ${R_PREF} m ${nPref}, safe radius ${nSafe}, the gentlest that fits ${nBest} (worst ${worstBest.toFixed(2)} x the safe curvature), no room ${nNoRoom}; reach p50 ${Ls.length ? Ls[Ls.length >> 1].toFixed(0) : 0} / max ${Ls.length ? Ls[Ls.length - 1].toFixed(0) : 0} m); arm pairs breaking > 4% / > 8% through a node ${before[0]} / ${before[1]} -> ${after[0]} / ${after[1]}`;
   }
   // ---- 7. (REAL HEIGHTS) the pairs once more on the finished profiles: each
   // carriageway was smoothed and limited on its own chain (interior stations
@@ -596,6 +699,7 @@ export function buildRoadProfiles(city, groundY, opts = {}) {
     }
     for (let nd = 0; nd < NN; nd++) { const d = ny[nd] - y0[nd]; if (!Number.isNaN(d) && Math.abs(d) >= 0.005) { shortMoves++; shortMax = Math.max(shortMax, Math.abs(d)); nodeY[nd] = ny[nd]; } }
   }
+  const landingLine = opts.all && opts.landings !== false ? landJunctions() : null;
   const clr = opts.all ? lowerUnderBridges(edges, nodes, nodeEdges, crossings, st) : null;
   // ---- stats: deviation from the raw ground on measured stations
   const dev = [];

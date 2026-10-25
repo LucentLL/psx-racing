@@ -53,6 +53,10 @@ namespace PSXRacing.EditorTools
             public readonly List<(string group, float A, float R, float need, int edge, float s, float x, float z)> worst = new List<(string, float, float, float, int, float, float, float)>();
             public readonly List<string> routeLines = new List<string>();
             public double tileSeconds;
+            // the retaining walls the tiles built (CityMeshes.InCut), by why and by edge
+            public float cutWall;
+            public readonly float[] cutWhy = new float[6];
+            public readonly Dictionary<int, (float m, byte why, Vector2 at)> cutByEdge = new Dictionary<int, (float, byte, Vector2)>();
         }
         // byGroup counters: 0 breaks >0.1%, 1 >0.5%, 2 >1%, 3 >2% (on the profile), 4 tight sag curves, 5 tight crest curves,
         // 6 node joints >0.5%, 7 breaks >0.5% where the mesh stands off the profile (a fan, a clip, a structure end), 8 curves >0.5%
@@ -106,6 +110,21 @@ namespace PSXRacing.EditorTools
                         g, b[0], a[0], b[1], a[1], b[2], a[2], b[3], a[3], b[6], a[6], b[8], a[8], b[4], a[4], b[5], a[5], b[7], a[7]));
                 }
                 Line($"  drawn sections {before.sections} -> {after.sections} ({(after.sections - before.sections) * 100.0 / Math.Max(1, before.sections):+0.0;-0.0}%), quads {before.spans} -> {after.spans}; tile builds {before.tileSeconds:0} s -> {after.tileSeconds:0} s");
+                {
+                    // RETAINING WALLS (CityMeshes.InCut): the walled cut length the
+                    // tiles built, by why; the walls REAL HEIGHTS adds are the
+                    // no-back-slope ones (why 5: before, a 1V:2H grass bank)
+                    var cw = after.cutWhy;
+                    Line(string.Format(CultureInfo.InvariantCulture, "  RETAINING WALLS (cut walls + barrier): {0:0.00} km - the back slope cannot reach the land {1:0} m, a road above in the slope {2:0} m, a building {3:0} m, held land {4:0} m, runs closed over a gap {5:0} m, NO ROOM FOR THE 1V:3H BACK SLOPE (added) {6:0} m",
+                        after.cutWall / 1000f, cw[1], cw[2], cw[3], cw[4], cw[0], cw[5]));
+                    var top = new List<KeyValuePair<int, (float m, byte why, Vector2 at)>>(after.cutByEdge);
+                    top.RemoveAll(kv => kv.Value.why != CityMeshes.CutWhyNoBackSlope);
+                    top.Sort((p, q) => q.Value.m.CompareTo(p.Value.m));
+                    var sbw = new System.Text.StringBuilder("  the longest added: ");
+                    for (int k = 0; k < Math.Min(8, top.Count); k++)
+                        sbw.Append(string.Format(CultureInfo.InvariantCulture, "e{0} '{1}' {2:0} m at ({3:0},{4:0}); ", top[k].Key, map.edges[top[k].Key].name, top[k].Value.m, top[k].Value.at.x, top[k].Value.at.y));
+                    Line(sbw.ToString());
+                }
                 Line("");
                 Line("VERTICAL ACCELERATION along the race routes (v^2 x grade change over a 2.5 m wheelbase), in g: max |a| / p95 |a| / max sag (pressed down) / max crest (lifted)");
                 for (int i = 0; i < before.routeLines.Count; i++)
@@ -158,12 +177,19 @@ namespace PSXRacing.EditorTools
                 File.WriteAllText(Path.Combine(root, "vsmooth_residuals.csv"), csv.ToString());
                 if (CityElevation.VsDump.Length > 0) File.WriteAllText(Path.Combine(root, "vsmooth_dump.txt"), CityElevation.VsDump.ToString());
 
-                if (Environment.GetEnvironmentVariable("PSX_VS_LAUNCH") == "1")
+                // PSX_VS_LAUNCH=1: the launch audit with the drawn profile off,
+                // then on; =lanes (REAL HEIGHTS): drawn on both times, the
+                // audit's old movement paths (before) then the lane carried
+                // through splits and merges (after, CityLaunchAudit.LaneCarry)
+                string vsl = Environment.GetEnvironmentVariable("PSX_VS_LAUNCH");
+                if (vsl == "1" || vsl == "lanes")
                 {
                     CityLaunchAudit.NoExit = true;
+                    bool lanes = vsl == "lanes", carry0 = CityLaunchAudit.LaneCarry;
                     foreach (bool on in new[] { false, true })
                     {
-                        CityElevation.ApplyVSmooth(map, on);
+                        CityElevation.ApplyVSmooth(map, lanes || on);
+                        if (lanes) CityLaunchAudit.LaneCarry = on;
                         Environment.SetEnvironmentVariable("PSX_LAUNCH_LABEL", on ? "vs_after" : "vs_before");
                         CityLaunchAudit.Run();
                         string tag = on ? "after" : "before";
@@ -175,6 +201,7 @@ namespace PSXRacing.EditorTools
                         Line($"launch audit {tag}: city_launch_{tag}.txt");
                     }
                     CityLaunchAudit.NoExit = false;
+                    CityLaunchAudit.LaneCarry = carry0;
                 }
                 status = 0;
             }
@@ -218,6 +245,10 @@ namespace PSXRacing.EditorTools
                 var tm = CityMeshes.Build(map, trims, buildings, tx, tz);
                 try
                 {
+                    st.cutWall += tm.cutWallM;
+                    for (int w = 0; w < st.cutWhy.Length && w < tm.cutWallByWhy.Length; w++) st.cutWhy[w] += tm.cutWallByWhy[w];
+                    foreach (var kv in tm.cutWallByEdge)
+                        st.cutByEdge[kv.Key] = st.cutByEdge.TryGetValue(kv.Key, out var cw) ? (cw.m + kv.Value.m, cw.why, cw.at) : kv.Value;
                     var tap = tm.tap;
                     if (tap == null || tm.roads == null || tap.slotBase == null) continue;
                     var verts = tm.roads.vertices;

@@ -204,6 +204,9 @@ namespace PSXRacing.EditorTools
         /// <summary>Set by a caller that runs the audit more than once in one
         /// job (CityVSmoothCensus: the drawn profile off, then on).</summary>
         public static bool NoExit;
+        /// <summary>REAL HEIGHTS: a movement through a split or a merge keeps its
+        /// lane (see the node movements); PSX_LAUNCH_LANECARRY=0 the old paths.</summary>
+        public static bool LaneCarry = System.Environment.GetEnvironmentVariable("PSX_LAUNCH_LANECARRY") != "0";
         [MenuItem("PSX Racing/City Launch Audit")]
         public static void Run()
         {
@@ -312,6 +315,30 @@ namespace PSXRacing.EditorTools
                             float cos = Vector2.Dot(inDir, outDir);
                             if (cos < -0.5f) continue;           // a U-turn between two arms
                             var pr = new PathRec { kind = (byte)(cos > 0.85f ? 1 : 2), start = nS, node = n, eA = ia, eB = ib, dirA = dA, dirB = dB };
+                            // THE LANE CARRIED THROUGH A SPLIT OR A MERGE (REAL
+                            // HEIGHTS, 2026-10-25): a two-way arm's path runs in
+                            // its right lane (half its half width out), a one-way's
+                            // on its centreline, and at a divided road's split the
+                            // one-way's centreline starts on the two-way's at the
+                            // node - so the path swerved its whole lane offset
+                            // sideways inside the trims, a hook the car never
+                            // drives, and on a real grade the hook's back-and-forth
+                            // read as a crest (West Boulevard at node 5192: 0.4% ->
+                            // -6.1% on a steady 5.7% grade). The offset the two
+                            // models disagree by at the trims is carried across and
+                            // eased out over the approach (a smoothstep), so the
+                            // car keeps its lane. PSX_LAUNCH_LANECARRY=0: the old paths.
+                            float carryA = 0f, carryB = 0f;
+                            if (LaneCarry && A.oneway != B.oneway)
+                            {
+                                float sAt0 = A.b == n ? A.length - tA : tA, sBt0 = B.a == n ? tB : B.length - tB;
+                                var pA0 = A.PointAt(sAt0) + RightOf(inDir) * LatFor(trims, A, sAt0);
+                                var pB0 = B.PointAt(sBt0) + RightOf(outDir) * LatFor(trims, B, sBt0);
+                                if (B.oneway) carryB = Vector2.Dot(pA0 - pB0, RightOf(outDir));
+                                else carryA = Vector2.Dot(pB0 - pA0, RightOf(inDir));
+                                carryA = Mathf.Clamp(carryA, -6f, 6f); carryB = Mathf.Clamp(carryB, -6f, 6f);
+                            }
+                            float Carry(float c, float past) { float u = Mathf.Clamp01(past / ApproachM); return c * (1f - u * u * (3f - 2f * u)); }
                             // arm A: from (trim + approach) back to the trim
                             float from = Mathf.Min(A.length, tA + ApproachM);
                             int na = Mathf.Max(1, Mathf.FloorToInt((from - tA) / StepM) + 1);
@@ -321,13 +348,13 @@ namespace PSXRacing.EditorTools
                                 float dist = Mathf.Max(tA, from - k * StepM);
                                 float s = A.b == n ? A.length - dist : dist;
                                 var t = A.TangentAt(s) * dA;
-                                Add(A.PointAt(s) + RightOf(t) * LatFor(trims, A, s), A.YAt(s));
+                                Add(A.PointAt(s) + RightOf(t) * (LatFor(trims, A, s) + Carry(carryA, dist - tA)), A.YAt(s));
                             }
                             pr.nA = nS - pr.start;
                             // the fan: a cubic from A's trim to B's
                             float sAt = A.b == n ? A.length - tA : tA, sBt = B.a == n ? tB : B.length - tB;
-                            var p0 = A.PointAt(sAt) + RightOf(inDir) * LatFor(trims, A, sAt);
-                            var p3 = B.PointAt(sBt) + RightOf(outDir) * LatFor(trims, B, sBt);
+                            var p0 = A.PointAt(sAt) + RightOf(inDir) * (LatFor(trims, A, sAt) + carryA);
+                            var p3 = B.PointAt(sBt) + RightOf(outDir) * (LatFor(trims, B, sBt) + carryB);
                             float chord = Vector2.Distance(p0, p3);
                             float yFan = Mathf.Max(map.nodeY[n], Mathf.Max(A.YAt(sAt), B.YAt(sBt)));
                             float yFanLo = Mathf.Min(map.nodeY[n], Mathf.Min(A.YAt(sAt), B.YAt(sBt)));
@@ -360,7 +387,7 @@ namespace PSXRacing.EditorTools
                                 float dist = Mathf.Min(to, tB + k * StepM);
                                 float s = B.a == n ? dist : B.length - dist;
                                 var t = B.TangentAt(s) * dB;
-                                Add(B.PointAt(s) + RightOf(t) * LatFor(trims, B, s), B.YAt(s));
+                                Add(B.PointAt(s) + RightOf(t) * (LatFor(trims, B, s) + Carry(carryB, dist - tB)), B.YAt(s));
                             }
                             pr.count = nS - pr.start;
                             if (!box.Contains(new Vector2(X[pr.start], Z[pr.start]))) { nS = pr.start; continue; }

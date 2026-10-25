@@ -869,7 +869,7 @@ namespace PSXRacing.City
             /// TerrainFidelity: real hills must not wall every hillside.</summary>
             public float cutWallM;
             /// <summary><see cref="cutWallM"/> by SideFlags.cutWhy (WP-14).</summary>
-            public readonly float[] cutWallByWhy = new float[4];
+            public readonly float[] cutWallByWhy = new float[6];
             /// <summary><see cref="cutWallM"/> by edge, with the wall's
             /// reason and a point on it (the audit lists the runs).</summary>
             public readonly Dictionary<int, (float m, byte why, Vector2 at)> cutWallByEdge = new Dictionary<int, (float, byte, Vector2)>();
@@ -5985,7 +5985,7 @@ namespace PSXRacing.City
             if (sf.cut && !sf.rail)
             {
                 tm.cutWallM += Vector3.Distance(fA, fB);
-                tm.cutWallByWhy[Mathf.Min(sf.cutWhy, (byte)3)] += Vector3.Distance(fA, fB);
+                tm.cutWallByWhy[Mathf.Min(sf.cutWhy, (byte)5)] += Vector3.Distance(fA, fB);
                 {
                     float cwm = Vector3.Distance(fA, fB);
                     if (tm.cutWallByEdge.TryGetValue(e.index, out var cw)) cwm += cw.m;
@@ -6972,7 +6972,9 @@ namespace PSXRacing.City
         /// <summary>A join eases back to the ribbon's own solve over this much
         /// run per metre of height it has to make up (a 3% grade), and never
         /// over less than <see cref="JoinMinM"/>.</summary>
-        const float JoinGrade = 0.03f, JoinMinM = 4f;
+        const float JoinGrade = 0.03f, JoinMinM = 4f, JoinRadiusM = 300f;
+        /// <summary>PSX_CITY_JOIN_STRAIGHT=1: the straight ease, as before REAL HEIGHTS.</summary>
+        public static bool JoinStraight = System.Environment.GetEnvironmentVariable("PSX_CITY_JOIN_STRAIGHT") == "1";
 
         /// <summary>
         /// A BURIED ARM STARTS ON THE FAN, AT THE FAN'S HEIGHT. An arm whose
@@ -7002,11 +7004,24 @@ namespace PSXRacing.City
             {
                 if (end == 0 ? !atA : !atB) continue;
                 float dL = end == 0 ? dLa : dLb, dR = end == 0 ? dRa : dRb;
-                float reach = Mathf.Min(Mathf.Max(Mathf.Max(Mathf.Abs(dL), Mathf.Abs(dR)) / JoinGrade, JoinMinM), span * share);
+                // (REAL HEIGHTS) a SMOOTH ease, not a straight one: the
+                // straight 3% ramp put a grade break at both of its ends (on
+                // the real ground's junctions, 0.1-0.4 m of offset: a kink a
+                // car felt). A smoothstep is C1 at both ends; its steepest
+                // added grade, 1.5 d / reach, is held to JoinGrade and its
+                // sharpest bend, 6 d / reach^2, to JoinRadiusM (a short one
+                // put a 2-4% break between every pair of sections).
+                float dMax = Mathf.Max(Mathf.Abs(dL), Mathf.Abs(dR));
+                float reach = JoinStraight ? Mathf.Max(dMax / JoinGrade, JoinMinM)
+                                           : Mathf.Max(Mathf.Max(1.5f * dMax / JoinGrade, Mathf.Sqrt(6f * dMax * JoinRadiusM)), JoinMinM);
+                reach = Mathf.Min(reach, span * share);
                 for (int k = 0; k < n; k++)
                 {
                     float dist = end == 0 ? list[k].s - sMin : sMax - list[k].s;
-                    float w = reach > 1e-3f ? 1f - dist / reach : (dist <= 1e-3f ? 1f : 0f);
+                    float w;
+                    if (reach <= 1e-3f) w = dist <= 1e-3f ? 1f : 0f;
+                    else if (JoinStraight) w = 1f - dist / reach;
+                    else { float u = Mathf.Clamp01(dist / reach); w = 1f - u * u * (3f - 2f * u); }
                     if (w <= 0f) continue;
                     var sec = list[k];
                     sec.L.y += dL * w; sec.R.y += dR * w;
@@ -7456,12 +7471,21 @@ namespace PSXRacing.City
             why = 0;
             var m = (A.L + B.L) * 0.5f;
             var p = new Vector2(m.x + tm.origin.x, m.z + tm.origin.z);
+            bool guard = true;
             foreach (float o in CutProbeM)
             {
                 var q = p + outward * o;
-                if (!(CityElevation.BaseY(q.x, q.y) - m.y > CutWallM)) return false;
+                if (!(CityElevation.BaseY(q.x, q.y) - m.y > CutWallM)) { guard = false; break; }
             }
-            if (CutWallsEverywhere) { why = 1; return true; }
+            // (the no-back-slope rule below asks only that the land 12 m out
+            // stands CutWallM over the road: the band's first metres are the
+            // road's own level in a real cut)
+            if (!guard)
+            {
+                var q12 = p + outward * CutProbeM[CutProbeM.Length - 1];
+                if (CutBankAllowed || !(CityElevation.BaseY(q12.x, q12.y) - m.y > CutWallM)) return false;
+            }
+            if (guard && CutWallsEverywhere) { why = 1; return true; }
             // THE SECTION (CityElevation.SectionCut, the one Ground grades
             // by): level across the band, the 1V:3H back slope, steepened to
             // the 1V:2H bank only where that cannot meet the land by the
@@ -7474,7 +7498,18 @@ namespace PSXRacing.City
             float atReach = CityElevation.BaseY(rq.x, rq.y);
             float pin = m.y - CityElevation.CorridorSink;
             float land0 = CityElevation.BaseY(p.x + outward.x * band, p.y + outward.y * band);
-            if (CityElevation.SectionCut(pin, band, band, reach, land0, atReach) > pin + CutBankTolM) { why = 1; return true; }
+            if (guard && CityElevation.SectionCut(pin, band, band, reach, land0, atReach) > pin + CutBankTolM) { why = 1; return true; }
+            // NO ROOM FOR THE TRAVERSABLE BACK SLOPE (REAL HEIGHTS, the owner
+            // 2026-10-25: "steep real cuts with no room for a recoverable
+            // slope get a retaining wall with a barrier, not a steep grass
+            // bank"). Where the 1V:3H back slope from the band has not met
+            // the land by the section's reach, Ground steepens its last
+            // stretch to the 1V:2H bank - critical, a car driven off at
+            // speed meets it as a face (I-277 by S College St: a 1V:1.6H bank,
+            // 2.5 m of air). DOT practice faces it: the retaining wall and its
+            // barrier along the shoulder, the land held at its top.
+            if (!CutBankAllowed && atReach > pin + Mathf.Max(0f, reach - band) * RoadsideRules.BackSlope + CutBankTolM) { why = CutWhyNoBackSlope; return true; }
+            if (!guard) return false;
             float day = reach;
             for (float o = band; o <= reach + 1e-3f; o += CutDaylightStepM)
             {
@@ -7537,6 +7572,12 @@ namespace PSXRacing.City
         /// because it holds land (the short barrier census does not count it
         /// as a stray piece).</summary>
         public const byte CutWhyHolds = 4;
+        /// <summary><see cref="SideFlags.cutWhy"/> of a cut walled because
+        /// the 1V:3H back slope cannot meet the land by the section's reach
+        /// (REAL HEIGHTS: no 1V:2H grass bank beside a barriered road).</summary>
+        public const byte CutWhyNoBackSlope = 5;
+        /// <summary>PSX_CITY_CUTWALL_BANK=1 keeps the 1V:2H bank there (the before-count).</summary>
+        public static bool CutBankAllowed = System.Environment.GetEnvironmentVariable("PSX_CITY_CUTWALL_BANK") == "1";
         static readonly float[] CutHoldProbeM = { 1f, 2f, 3f };
         /// <summary>PSX_CITY_CUTHOLD=0 drops them as the 2026-10-03 hotfix did (the before-count).</summary>
         static readonly bool CutHoldOff = System.Environment.GetEnvironmentVariable("PSX_CITY_CUTHOLD") == "0";

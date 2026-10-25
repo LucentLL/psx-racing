@@ -1216,7 +1216,7 @@ namespace PSXRacing.EditorTools
         /// <summary>Metres of cut (retaining) wall on the roadside audit's
         /// tiles, for <see cref="TerrainFidelity"/>.</summary>
         static float roadsideCutWallM;
-        static readonly float[] roadsideCutWhy = new float[4];
+        static readonly float[] roadsideCutWhy = new float[6];
         /// <summary>The roadside tiles' cut walls by edge (leftover item 1
         /// finish: the runs are listed, so a real walled cut can be named).</summary>
         static readonly Dictionary<int, (float m, byte why, Vector2 at)> roadsideCutByEdge = new Dictionary<int, (float, byte, Vector2)>();
@@ -1548,7 +1548,7 @@ namespace PSXRacing.EditorTools
                     CitySmooth.Collect(tx, tz, tmC);
                     vergeBuilt += tmC.vergeMetres; railBuilt += tmC.railMetres; nosesBuilt += tmC.goreNoses.Count; lampsBuilt += tmC.lamps.Count;
                     roadsideCutWallM += tmC.cutWallM;
-                    for (int w = 0; w < 4; w++) roadsideCutWhy[w] += tmC.cutWallByWhy[w];
+                    for (int w = 0; w < roadsideCutWhy.Length && w < tmC.cutWallByWhy.Length; w++) roadsideCutWhy[w] += tmC.cutWallByWhy[w];
                     foreach (var kv in tmC.cutWallByEdge)
                         roadsideCutByEdge[kv.Key] = roadsideCutByEdge.TryGetValue(kv.Key, out var cwe) ? (cwe.m + kv.Value.m, cwe.why, cwe.at) : kv.Value;
                     footprintsCut += tmC.footprintsCut; footprintsLeftOut += tmC.footprintsLeftOut;
@@ -3129,7 +3129,7 @@ namespace PSXRacing.EditorTools
             int margin = CityElevation.MarginStructureStations;
             Line($"    stations made structure by the {CityElevation.ElevMarginM} m last resort: {margin} (before WP-04 {MarginStationsBefore}); trenches {CityElevation.TrenchCount}; " +
                  $"cut walls on the {roadsideTiles} roadside tiles {roadsideCutWallM / 1000f:0.00} km (before WP-04 {CutWallBeforeM / 1000f:0.00} km; " +
-                 $"why: the back slope cannot reach the land {roadsideCutWhy[1]:0} m, a road above in the slope {roadsideCutWhy[2]:0} m, a building {roadsideCutWhy[3]:0} m, runs closed over a gap {roadsideCutWhy[0]:0} m)");
+                 $"why: the back slope cannot reach the land {roadsideCutWhy[1]:0} m, a road above in the slope {roadsideCutWhy[2]:0} m, a building {roadsideCutWhy[3]:0} m, no room for the 1V:3H back slope (REAL HEIGHTS) {roadsideCutWhy[5]:0} m, runs closed over a gap {roadsideCutWhy[0]:0} m)");
             {
                 // the walls by road, longest first (leftover item 1 finish)
                 var byRoad = new Dictionary<string, (float m, int edges, Vector2 at, float why2)>();

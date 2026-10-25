@@ -87,6 +87,44 @@ namespace PSXRacing.EditorTools
             CityElevation.RprfOverride = null;
         }
 
+        /// <summary>REAL HEIGHTS junction surfaces + retaining walls: the
+        /// PSX_PREVIEW_CUSTOM views on the measured solve, BEFORE (each fan
+        /// from its arms' own heights, the buried-arm ease straight, a cut with
+        /// no room for its 1V:3H back slope graded as a 1V:2H bank) and AFTER
+        /// (the major road held through the fan, the smooth ease, the wall).
+        /// -executeMethod PSXRacing.EditorTools.CityRealHeights.RunJunctionShots</summary>
+        public static void RunJunctionShots()
+        {
+            string shots = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "City");
+            var names = new System.Collections.Generic.List<string>();
+            foreach (var item in (System.Environment.GetEnvironmentVariable("PSX_PREVIEW_CUSTOM") ?? "").Split(';'))
+                if (item.Contains(":")) names.Add(item.Split(':')[0].Trim());
+            var map = CityMap.Get();
+            if (map == null) return;
+            CityElevation.Solve(map);
+            bool fm = CityMeshes.FanMajorOn, cb = CityMeshes.CutBankAllowed, js = CityMeshes.JoinStraight;
+            try
+            {
+                foreach (bool on in new[] { false, true })
+                {
+                    CityMeshes.FanMajorOn = on; CityMeshes.CutBankAllowed = !on; CityMeshes.JoinStraight = !on;
+                    var t0 = System.DateTime.Now.AddSeconds(-2);
+                    CityPreview.Run();
+                    if (!Directory.Exists(shots)) continue;
+                    foreach (var f in Directory.GetFiles(shots, "*.png"))
+                    {
+                        string b = Path.GetFileNameWithoutExtension(f);
+                        if (b.EndsWith("_before") || b.EndsWith("_after") || File.GetLastWriteTime(f) < t0) continue;
+                        bool mine = false; foreach (var n in names) if (b.Contains(n)) { mine = true; break; }
+                        if (!mine) continue;
+                        File.Copy(f, Path.Combine(shots, b + (on ? "_after" : "_before") + ".png"), true);
+                    }
+                    Debug.Log($"[RealHeights] junction shots {(on ? "after" : "before")}");
+                }
+            }
+            finally { CityMeshes.FanMajorOn = fm; CityMeshes.CutBankAllowed = cb; CityMeshes.JoinStraight = js; }
+        }
+
         static void Dump(CityMap map, string path)
         {
             var inv = CultureInfo.InvariantCulture;
