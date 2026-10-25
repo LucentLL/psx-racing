@@ -6,7 +6,7 @@
 # is in the log as [GlareShot].
 #
 #   powershell -ExecutionPolicy Bypass -File tools\glare-shots.ps1
-#   PSX_GLARE_VENUES=BlueRidge,CityCircuit  PSX_GLARE_HOURS=afternoon,sunset
+#   PSX_GLARE_VENUES=BlueRidge,EmeraldIsle  PSX_GLARE_HOURS=afternoon,sunset
 #   PSX_GLARE_WET=0 skips the wet-road pair.
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }

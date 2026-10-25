@@ -448,7 +448,9 @@
             DriveSidePick = null;
             LampLensB = false;
             PurseWin = PurseSecond = PurseThird = 0;
-            TimeOfDayIndex = TimeOfDay.Sunset; TrackIndex = 0; IsPractice = false;
+            // The first race venue, not index 0: that is Charlotte's free
+            // roam since the fictional circuits went (v22).
+            TimeOfDayIndex = TimeOfDay.Sunset; TrackIndex = TrackCatalog.FirstOffered(); IsPractice = false;
             WeatherOverride = -1;
             TrafficLevel = -1;
             FreeRoam = false; FreeRoamPlace = null;

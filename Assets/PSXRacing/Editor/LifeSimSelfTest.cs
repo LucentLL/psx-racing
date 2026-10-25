@@ -139,6 +139,7 @@ namespace PSXRacing.EditorTools
             Guard(nameof(TestShiftRoster), TestShiftRoster);
             Guard(nameof(TestCalendar), TestCalendar);
             Guard(nameof(TestDiary), TestDiary);
+            Guard(nameof(TestRetiredVenues), TestRetiredVenues);
             Guard(nameof(TestDayRecord), TestDayRecord);
             Guard(nameof(TestSixBlocks), TestSixBlocks);
             Guard(nameof(TestCarWhere), TestCarWhere);
@@ -382,10 +383,109 @@ namespace PSXRacing.EditorTools
             // would hand them back as MORNING. The migration puts them on the
             // night, which is what they meant.
             var v12 = new LifeState { saveVersion = 12 };
-            v12.bookings.Add(new RaceBooking { day = 3, slot = 0, trackIndex = 0 });
+            v12.bookings.Add(new RaceBooking { day = 3, slot = 0, trackIndex = TrackCatalog.V21IndexOf("BlueRidge") });
             LifeSimManager.Migrate(v12);
             Check(v12.saveVersion >= 13 && v12.bookings[0].slot == LifeRules.NightSlot,
                   "a v12 booking is migrated onto the night block", v12.bookings[0].slot);
+        }
+
+        /// <summary>
+        /// THE FICTIONAL CIRCUITS ARE GONE (2026-10-25, save v22). The frozen
+        /// v21 list is today's list plus the ten retired ids, in order; a v21
+        /// career that remembered them loads with its real-road bookings
+        /// re-pointed by id, the retired ones cancelled and said so, a live
+        /// series moved to the rival's own road, and the pre-race venue on a
+        /// race. Through the JSON, the way a real save comes back.
+        /// </summary>
+        static void TestRetiredVenues()
+        {
+            Line("retired venues (v22):");
+            string[] retired = { "CityCircuit", "HarborPoint", "RidgePass", "AirfieldSprint", "DragQuarter", "DragEighth",
+                                 "CityCircuitRev", "HarborPointRev", "RidgePassRev", "AirfieldSprintRev" };
+            foreach (var id in retired)
+                Check(TrackCatalog.IsRetired(id) && !TrackCatalog.TryIndexOf(id, out _) && TrackCatalog.V21IndexOf(id) >= 0,
+                      id + " is retired: out of the catalog, still read from a v21 save");
+            var survivors = new List<string>();
+            for (int i = 0; i < TrackCatalog.V21Count; i++)
+                if (!TrackCatalog.IsRetired(TrackCatalog.V21IdAt(i))) survivors.Add(TrackCatalog.V21IdAt(i));
+            var todayIds = TrackCatalog.All.Select(t => t.id).ToList();
+            Check(TrackCatalog.V21Count == 57 && survivors.SequenceEqual(todayIds),
+                  "the frozen v21 list less the retired ids is today's list, in order",
+                  TrackCatalog.V21Count + " v21, " + survivors.Count + " kept vs " + todayIds.Count + " today");
+            Check(TrackCatalog.All.All(t => !TrackCatalog.IsRetired(t.id) && !TrackCatalog.IsRetired(t.reverseOf) &&
+                                            !TrackCatalog.IsRetired(t.sprintOf)),
+                  "nothing today is, or races on, a retired venue");
+            Check(!TrackCatalog.Offered(0) && TrackCatalog.At(0).IsRoam && TrackCatalog.Offered(TrackCatalog.FirstOffered()),
+                  "index 0 is free roam now, and the fallback venue is a race", TrackCatalog.At(TrackCatalog.FirstOffered()).id);
+            Check(TrackCatalog.Offered(TrackCatalog.CheckVenue) && TrackCatalog.At(TrackCatalog.CheckVenue).id == "GillespieGap",
+                  "the editor checks' default venue is a real race road");
+            var fresh = LifeRules.SeedNewGame("FRESH", 25, LifeRules.DefaultJobIndex);
+            Check(TrackCatalog.Offered(fresh.trackIndex), "a new career's pre-race venue is a race",
+                  TrackCatalog.At(fresh.trackIndex).id);
+            Check(RaceHandoffDefaultsToARace(), "a cleared race handoff names a race, not free roam");
+
+            // A v21 career that raced the old circuits.
+            var s = LifeRules.SeedNewGame("OLDTIMER", 30, LifeRules.DefaultJobIndex);
+            s.saveVersion = 21;
+            s.trackIndex = TrackCatalog.V21IndexOf("CityCircuit");
+            s.bookings.Clear();
+            s.bookings.Add(new RaceBooking { day = s.day + 1, slot = LifeRules.NightSlot, trackIndex = TrackCatalog.V21IndexOf("DragQuarter") });
+            s.bookings.Add(new RaceBooking { day = s.day + 2, slot = LifeRules.NightSlot, trackIndex = TrackCatalog.V21IndexOf("EmeraldIsle") });
+            s.bookings.Add(new RaceBooking { day = s.day + 3, slot = LifeRules.NightSlot, trackIndex = TrackCatalog.V21IndexOf("HarborPointRev") });
+            s.bookings.Add(new RaceBooking { day = s.day + 4, slot = LifeRules.NightSlot, trackIndex = TrackCatalog.V21IndexOf("DeckRunUnivThree") });
+            Blacklist.SeedBoard(s);
+            s.blChallenge = new RankChallenge
+            {
+                alias = "DEACON", openedDay = s.day, deadlineDay = s.day + 5,
+                trackIndex = TrackCatalog.V21IndexOf("HarborPoint"), youLegs = 1,
+            };
+            int logBefore = s.calendarLog.Count;
+            var back = JsonUtility.FromJson<LifeState>(JsonUtility.ToJson(s));
+            LifeSimManager.TakeEditionNote();
+            LifeSimManager.Migrate(back);
+            string note = LifeSimManager.TakeEditionNote();
+            LifeSimManager.EditionSanitize(back);
+            Check(back.saveVersion == 22, "a v21 save migrates to v22", back.saveVersion);
+            Check(back.bookings.Count == 2 &&
+                  back.bookings.Any(b => b.trackIndex == TrackCatalog.IndexOf("EmeraldIsle")) &&
+                  back.bookings.Any(b => b.trackIndex == TrackCatalog.IndexOf("DeckRunUnivThree")),
+                  "its Emerald Isle and deck-run bookings stay, on the same roads (new indices)",
+                  string.Join(",", back.bookings.Select(b => TrackCatalog.At(b.trackIndex).id)));
+            var said = back.calendarLog.Skip(logBefore).ToList();
+            Check(said.Any(l => l.Contains("cancelled") && l.Contains("DRAG STRIP")) &&
+                  said.Any(l => l.Contains("cancelled") && l.Contains("HARBOR POINT II")),
+                  "the strip and Harbor Point II races are cancelled, and the diary names them", string.Join(" | ", said));
+            Check(TrackCatalog.Offered(back.trackIndex), "the pre-race venue leaves Sunset City GP for a race",
+                  TrackCatalog.At(back.trackIndex).id);
+            Check(back.blChallenge.Live && back.blChallenge.youLegs == 1 &&
+                  TrackCatalog.Offered(back.blChallenge.trackIndex),
+                  "a live series on Harbor Point moves to a real road with its legs kept",
+                  TrackCatalog.At(back.blChallenge.trackIndex).id);
+            Check(said.Any(l => l.Contains("series moved") && l.Contains("HARBOR POINT")), "and says so");
+            Check(note != null && note.Length <= LifeSimManager.NoteMax, "one short toast for the first screen", note);
+            int keepCount = back.bookings.Count, keepTrack = back.trackIndex;
+            LifeSimManager.Migrate(back);
+            Check(back.bookings.Count == keepCount && back.trackIndex == keepTrack && LifeSimManager.TakeEditionNote() == null,
+                  "a second load has nothing left to do");
+            // A dead series' road is "none", not a retired index; a bare save
+            // (pre-race venue 0, Sunset City GP when it was written) lands on
+            // a race.
+            var dead = new LifeState { saveVersion = 21, blChallenge = new RankChallenge { trackIndex = TrackCatalog.V21IndexOf("RidgePass") } };
+            LifeSimManager.Migrate(dead);
+            Check(dead.blChallenge.trackIndex == -1 && TrackCatalog.Offered(dead.trackIndex),
+                  "a finished series on Ridge Pass forgets the road; a bare save lands on a race", dead.blChallenge.trackIndex);
+            LifeSimManager.TakeEditionNote();
+        }
+
+        static bool RaceHandoffDefaultsToARace()
+        {
+            int keep = RaceHandoff.TrackIndex;
+            bool keepFrom = RaceHandoff.FromLifeSim;
+            RaceHandoff.ClearAll();
+            bool ok = TrackCatalog.Offered(RaceHandoff.TrackIndex);
+            RaceHandoff.TrackIndex = keep;
+            RaceHandoff.FromLifeSim = keepFrom;
+            return ok;
         }
 
         /// <summary>
@@ -599,14 +699,18 @@ namespace PSXRacing.EditorTools
             old.dayLog = new List<DayRecord>
                 { new DayRecord { day = 9, morning = LifeRules.ActInspect, afternoon = LifeRules.ActWork,
                                   night = LifeRules.ActRace } };
-            old.bookings.Add(new RaceBooking { day = 10, slot = 2, trackIndex = 1, hourPick = 0 });                       // tonight, NIGHT
-            old.bookings.Add(new RaceBooking { day = 11, slot = 2, trackIndex = 2, hourPick = TimeOfDay.Dusk + 1 });      // tomorrow at DUSK
-            old.bookings.Add(new RaceBooking { day = 12, slot = 1, trackIndex = 3, hourPick = TimeOfDay.Sunset + 1 });    // a DAY race at SUNSET
-            old.bookings.Add(new RaceBooking { day = 13, slot = 0, trackIndex = 4, hourPick = TimeOfDay.Dawn + 1 });      // a MORNING race at DAWN
+            // Venues as a v20 save writes them: V21-layout indices of real roads
+            // (the fictional ones would be cancelled by v22 - TestRetiredVenues).
+            int v21Br = TrackCatalog.V21IndexOf("BlueRidge"), v21Ei = TrackCatalog.V21IndexOf("EmeraldIsle");
+            int v21Lb = TrackCatalog.V21IndexOf("LangstonBridge"), v21Ab = TrackCatalog.V21IndexOf("AtlanticBeachBridge");
+            old.bookings.Add(new RaceBooking { day = 10, slot = 2, trackIndex = v21Br, hourPick = 0 });                       // tonight, NIGHT
+            old.bookings.Add(new RaceBooking { day = 11, slot = 2, trackIndex = v21Ei, hourPick = TimeOfDay.Dusk + 1 });      // tomorrow at DUSK
+            old.bookings.Add(new RaceBooking { day = 12, slot = 1, trackIndex = v21Lb, hourPick = TimeOfDay.Sunset + 1 });    // a DAY race at SUNSET
+            old.bookings.Add(new RaceBooking { day = 13, slot = 0, trackIndex = v21Ab, hourPick = TimeOfDay.Dawn + 1 });      // a MORNING race at DAWN
             old.pendingParts.Add(new PendingPart { carId = "x", faultId = "y", readyDay = 12, readySlot = 0 });
             old.pendingParts.Add(new PendingPart { carId = "x", faultId = "z", readyDay = 11, readySlot = 1 });
             LifeSimManager.Migrate(old);
-            Check(old.saveVersion == 21, "a v20 save is migrated to v21", old.saveVersion);
+            Check(old.saveVersion == 22, "a v20 save is migrated through v21 to v22", old.saveVersion);
             Check(old.slotIndex == N, "the clock in the old DAY block is at NOON, the start of it",
                   LifeRules.SlotNames[old.slotIndex]);
             Check(old.slotActs.Count == 6 && old.slotActs[Dw] == LifeRules.ActSleep &&
@@ -626,17 +730,18 @@ namespace PSXRacing.EditorTools
                   "a DAY race at SUNSET is an EVENING race at sunset", b12 != null ? b12.slot : -1);
             Check(b13 != null && b13.slot == Dw && LifeRules.BookingHour(b13) == TimeOfDay.Dawn,
                   "a MORNING race at DAWN is a DAWN race", b13 != null ? b13.slot : -1);
-            Check(old.bookings.Count == 4 && b10.trackIndex == 1 && b13.trackIndex == 4,
+            Check(old.bookings.Count == 4 && b10.trackIndex == TrackCatalog.IndexOf("BlueRidge") &&
+                  b13.trackIndex == TrackCatalog.IndexOf("AtlanticBeachBridge"),
                   "nothing lost, venues kept, one race a day");
             Check(old.pendingParts[0].readySlot == M && old.pendingParts[1].readySlot == N,
                   "a job promised for the old MORNING is ready at MORNING, the old DAY at NOON",
                   old.pendingParts[0].readySlot + "," + old.pendingParts[1].readySlot);
             // Through the JSON, the way a real save comes back: the v13 record
-            // fields still read, and a fresh save is born at 21.
+            // fields still read, and a fresh save is born at 22.
             var json = JsonUtility.FromJson<LifeState>(JsonUtility.ToJson(old));
             Check(json.slotActs.Count == 6 && json.dayLog[0].Act(Ni) == LifeRules.ActRace &&
                   json.bookings[0].slot == Ni, "and the migrated career saves and loads");
-            Check(new LifeState().saveVersion == 21 && new LifeState().slotActs.Count == 6,
+            Check(new LifeState().saveVersion == 22 && new LifeState().slotActs.Count == 6,
                   "a new career is born on six blocks");
             // An old NIGHT clock: the whole of the night is still ahead of it.
             var night = new LifeState { saveVersion = 20, day = 5, slotIndex = 2 };
@@ -858,11 +963,11 @@ namespace PSXRacing.EditorTools
                 Check(TrackCatalog.TryIndexOf(id, out int ci) &&
                       Edition.Of(TrackCatalog.At(ci)) == EditionKind.City,
                       id + " is CITY's");
-            foreach (var id in new[] { "CityCircuit", "CityCircuitRev", "BlueRidge", "DragQuarter",
+            foreach (var id in new[] { "BlueRidge", "BlueRidgeRev", "EmeraldIsle",
                                        "BlowingRockSprint", "SwissNC226AUpper", "GillespieGap" })
                 Check(TrackCatalog.TryIndexOf(id, out int mi) &&
                       Edition.Of(TrackCatalog.At(mi)) == EditionKind.Main,
-                      id + " is MAIN's (SUNSET CITY GP is a fictional circuit, not Charlotte)");
+                      id + " is MAIN's");
             foreach (var h in TrackCatalog.HeldBack)
                 Check(Edition.Of(h) == EditionKind.Main, "held-back " + h.id + " is MAIN's");
             int twinsOff = 0;
@@ -875,8 +980,8 @@ namespace PSXRacing.EditorTools
             }
             Check(twinsOff == 0, "every twin and sprint is in its road's edition", twinsOff);
             Check(!TrackCatalog.TryIndexOf("NoSuchVenue", out int none) && none == -1 &&
-                  TrackCatalog.IndexOf("NoSuchVenue") == 0,
-                  "TryIndexOf says MISSING where IndexOf says 0 (the bug the pickers had)");
+                  TrackCatalog.IndexOf("NoSuchVenue") == TrackCatalog.FirstOffered(),
+                  "TryIndexOf says MISSING where IndexOf says the first venue (the bug the pickers had)");
 
             // ---- the scene lists the players ship ----
             var all = PSXRacingBuilder.SceneOrder(EditionKind.All);
@@ -891,11 +996,11 @@ namespace PSXRacing.EditorTools
             Check(!main.Any(cityScenes.Contains),
                   "MAIN's player ships no Charlotte scene",
                   string.Join(",", main.Where(cityScenes.Contains).Select(System.IO.Path.GetFileNameWithoutExtension)));
-            Check(main.Contains(TrackCatalog.ScenePathOf("CityCircuit")) &&
+            Check(main.Contains(TrackCatalog.ScenePathOf("EmeraldIsle")) &&
                   main.Contains(TrackCatalog.ScenePathOf("BlueRidge")) &&
                   main.Contains(GarageSceneBuilder.ScenePath) && main.Contains(PSXRacingBuilder.TownScenePath) &&
                   main.Contains(PSXRacingBuilder.NeighborhoodScenePath),
-                  "MAIN keeps Sunset City GP, the stages and the career's scenes");
+                  "MAIN keeps the coast, the stages and the career's scenes");
             Check(city.Length == 1 + 4 && city.Skip(1).All(cityScenes.Contains),
                   "CITY's player is LifeHome + Charlotte, Uptown, Tryon, Independence and nothing else",
                   string.Join(",", city.Select(System.IO.Path.GetFileNameWithoutExtension)));
@@ -933,8 +1038,8 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < TrackCatalog.Count; i++)
                 if (TrackCatalog.Offered(i)) { offered++; if (TrackCatalog.At(i).city) offeredCity++; }
             Check(offeredCity == 0 && offered > 20, "MAIN offers no Charlotte venue", offered + " offered, " + offeredCity + " city");
-            Check(TrackCatalog.FirstOffered() == TrackCatalog.IndexOf("CityCircuit"),
-                  "MAIN's fallback venue is Sunset City GP");
+            Check(TrackCatalog.FirstOffered() == TrackCatalog.IndexOf("BlueRidge"),
+                  "MAIN's fallback venue is the Blue Ridge Parkway");
             // The steppers every picker uses, walked all the way round.
             int at = 0, stepsCity = 0;
             for (int k = 0; k < TrackCatalog.Count; k++)
@@ -976,7 +1081,7 @@ namespace PSXRacing.EditorTools
                   "three weeks of car meets in MAIN: every racer names a MAIN venue", meetBad + " of " + meetRacers);
 
             // An old save that points at Charlotte, loaded by MAIN.
-            int tryon = TrackCatalog.IndexOf("TryonSprint"), circuit = TrackCatalog.IndexOf("CityCircuit");
+            int tryon = TrackCatalog.IndexOf("TryonSprint"), circuit = TrackCatalog.IndexOf("GillespieGap");
             ms.bookings.Clear();
             ms.bookings.Add(new RaceBooking { day = ms.day + 2, slot = LifeRules.NightSlot, trackIndex = tryon });
             ms.bookings.Add(new RaceBooking { day = ms.day + 3, slot = LifeRules.NightSlot, trackIndex = circuit });
@@ -990,7 +1095,7 @@ namespace PSXRacing.EditorTools
             string note = LifeSimManager.EditionSanitize(ms);
             LifeSimManager.TakeEditionNote();
             Check(ms.bookings.Count == 1 && ms.bookings[0].trackIndex == circuit,
-                  "MAIN cancels the booked Tryon race and keeps the Sunset City GP one", ms.bookings.Count);
+                  "MAIN cancels the booked Tryon race and keeps the Gillespie Gap one", ms.bookings.Count);
             Check(ms.calendarLog.Count > logBefore &&
                   ms.calendarLog.Skip(logBefore).Any(l => l.Contains("cancelled") && l.Contains("TRYON")),
                   "and says so in the log");
@@ -1351,7 +1456,10 @@ namespace PSXRacing.EditorTools
                           r.absentDoors + " absent, " + r.careerOk + "/" + r.careerDoors + " career, " + r.scenes + " scenes",
                           r.Ok ? null : string.Join(" | ", r.problems.Take(4)));
                     if (e == EditionKind.Main)
-                        Check(r.absentDoors > 0 && r.venueDoors > 30, "MAIN has Charlotte's doors ABSENT and 30+ of its own");
+                        // 27 since the fictional circuits and their twins went
+                        // (2026-10-25; 37 before).
+                        Check(r.absentDoors > 0 && r.venueDoors > 20, "MAIN has Charlotte's doors ABSENT and 20+ of its own",
+                              r.venueDoors);
                     if (e == EditionKind.City)
                         Check(r.venueDoors == TrackCatalog.All.Count(t => t.city) && r.venueDoors >= 4,
                               "CITY's venue doors are exactly Charlotte's", r.venueDoors.ToString());
@@ -1402,7 +1510,7 @@ namespace PSXRacing.EditorTools
 
             var mainDoors = DoorTour.MainDoors(EditionKind.Main);
             var labels = mainDoors.Select(d => d.label).ToList();
-            foreach (var want in new[] { "race CityCircuit", "race BlueRidge", "race BlueRidgeRev", "race BlowingRockSprint",
+            foreach (var want in new[] { "race GillespieGap", "race BlueRidge", "race BlueRidgeRev", "race BlowingRockSprint",
                                          "race ChimneyRock", "IN TOWN", "walk-in garage", "seller viewing",
                                          "test drive", "pizza delivery" })
                 Check(labels.Contains(want), "MAIN's tour walks '" + want + "'",
@@ -1410,8 +1518,8 @@ namespace PSXRacing.EditorTools
             var roamDoor = mainDoors.Find(d => d.label.StartsWith("free roam"));
             Check(roamDoor != null && roamDoor.refuse, "and MAIN's tour expects free roam REFUSED");
             var staleDoor = mainDoors.Find(d => d.label.StartsWith("stale save"));
-            Check(staleDoor != null && staleDoor.expectScene == "CityCircuit",
-                  "and a stale save's Charlotte race to START Sunset City GP");
+            Check(staleDoor != null && staleDoor.expectScene == "BlueRidge",
+                  "and a stale save's Charlotte race to START the Blue Ridge Parkway");
             Check(mainDoors.Where(d => d.label.StartsWith("race ")).All(d =>
                       TrackCatalog.TryIndexOf(d.label.Substring(5), out int v) && Edition.ShipsIn(TrackCatalog.At(v), EditionKind.Main)),
                   "every race MAIN's tour starts is MAIN's");
@@ -2328,12 +2436,10 @@ namespace PSXRacing.EditorTools
                 // THE KERB POLICY, pinned by name so a new venue cannot slip
                 // back to the red/white: "there should not be racing
                 // red/white strips on city streets. it should be concrete
-                // textured curbs." Racing only on the airfield (the one
-                // purpose-built circuit) and the two strips; every stage is
-                // its own verge; every other real road is a street curb.
+                // textured curbs." Racing was only ever the airfield and the
+                // two flat strips, and they left the game on 2026-10-25; every
+                // stage is its own verge; every other real road is a street curb.
                 var wantKerb = t.stage ? PSXRacingBuilder.KerbStyle.Verge
-                    : (t.id == "AirfieldSprint" || t.id == "DragQuarter" || t.id == "DragEighth")
-                        ? PSXRacingBuilder.KerbStyle.Racing
                         : PSXRacingBuilder.KerbStyle.Street;
                 Check(PSXRacingBuilder.KerbStyleFor(t) == wantKerb,
                       t.id + " kerb style is " + wantKerb, PSXRacingBuilder.KerbStyleFor(t));
@@ -2502,36 +2608,40 @@ namespace PSXRacing.EditorTools
             // THE SAVE THAT REMEMBERED A TWIN. Version-10 saves were written
             // against thirteen authored venues with the twins from index 13;
             // appending the Charlotte venues moved the twins, so a v10 index
-            // has to be re-read through RemapV10Index. Pinned on the twins'
-            // ids rather than on numbers, so the next append cannot quietly
-            // break this again: the old first twin was Sunset City's, the old
-            // last (index 19) was Beech Gap's, and everything authored stays
-            // exactly where it was.
+            // has to be re-read through RemapV10Index, which lands it on the
+            // V21 layout (v22 then reads it across by id). Pinned on the twins'
+            // ids rather than on numbers: the old first twin was Sunset City's
+            // (retired at v22), the old last (index 19) was Beech Gap's, and
+            // everything authored stays exactly where it was.
             {
-                int cityRev = TrackCatalog.IndexOf("CityCircuitRev");
+                int cityRev = TrackCatalog.V21IndexOf("CityCircuitRev");
                 int beechRev = TrackCatalog.IndexOf("BeechGapRev");
                 Check(TrackCatalog.V10AuthoredCount == 13, "the v10 layout is thirteen authored venues");
                 Check(TrackCatalog.RemapV10Index(0) == 0, "a v10 authored index stays put (0)");
                 Check(TrackCatalog.RemapV10Index(12) == 12, "a v10 authored index stays put (12)");
-                Check(TrackCatalog.RemapV10Index(13) == cityRev,
-                      "the old first twin is still Sunset City II", TrackCatalog.At(TrackCatalog.RemapV10Index(13)).id);
-                Check(TrackCatalog.RemapV10Index(19) == beechRev,
-                      "the old last twin is still Beech Gap II", TrackCatalog.At(TrackCatalog.RemapV10Index(19)).id);
-                Check(TrackCatalog.RemapV10Index(-3) == 0 && TrackCatalog.RemapV10Index(999) == TrackCatalog.All.Length - 1,
+                Check(TrackCatalog.RemapV10Index(13) == cityRev &&
+                      TrackCatalog.RemapV21Index(cityRev) == TrackCatalog.RetiredIndex,
+                      "the old first twin is still Sunset City II - and that is retired now",
+                      TrackCatalog.V21IdAt(TrackCatalog.RemapV10Index(13)));
+                Check(TrackCatalog.RemapV21Index(TrackCatalog.RemapV10Index(19)) == beechRev,
+                      "the old last twin is still Beech Gap II",
+                      TrackCatalog.V21IdAt(TrackCatalog.RemapV10Index(19)));
+                Check(TrackCatalog.RemapV10Index(-3) == 0 && TrackCatalog.RemapV10Index(999) == TrackCatalog.V21Count - 1,
                       "and a nonsense index clamps like At() does");
                 // A whole seeded career, not a bare LifeState: Migrate walks
                 // the cars and the mail on the way through, and a state with
                 // null lists would die in a step this test is not about.
                 var v10 = LifeRules.SeedNewGame("TEST", 25, LifeRules.DefaultJobIndex);
                 v10.saveVersion = 10;
-                v10.trackIndex = 15;
+                v10.trackIndex = 18;   // the v10 list's sixth twin: MOUNT MITCHELL II
                 v10.bookings = new System.Collections.Generic.List<RaceBooking> {
-                    new RaceBooking { day = 3, trackIndex = 19 }, new RaceBooking { day = 4, trackIndex = 2 } };
+                    new RaceBooking { day = 3, trackIndex = 19 }, new RaceBooking { day = 4, trackIndex = 7 } };
                 LifeSimManager.Migrate(v10);
-                Check(v10.saveVersion >= 11 && v10.trackIndex == TrackCatalog.IndexOf("RidgePassRev"),
-                      "migrating a v10 save keeps its remembered twin (RIDGE PASS II)", TrackCatalog.At(v10.trackIndex).id);
-                Check(v10.bookings[0].trackIndex == beechRev && v10.bookings[1].trackIndex == 2,
-                      "and re-points its bookings the same way", v10.bookings[0].trackIndex);
+                Check(v10.saveVersion >= 11 && v10.trackIndex == TrackCatalog.IndexOf("MtMitchellRev"),
+                      "migrating a v10 save keeps its remembered twin (MOUNT MITCHELL II)", TrackCatalog.At(v10.trackIndex).id);
+                Check(v10.bookings.Count == 2 && v10.bookings[0].trackIndex == beechRev &&
+                      v10.bookings[1].trackIndex == TrackCatalog.IndexOf("BlueRidge"),
+                      "and re-points its bookings the same way", v10.bookings.Count > 0 ? v10.bookings[0].trackIndex : -1);
             }
 
             // EVERY VENUE RESOLVES TO ITS OWN SCENE, BY PATH. Since the editions
@@ -3168,6 +3278,8 @@ namespace PSXRacing.EditorTools
         {
             Line("delivery sprint:");
 
+            // Control-point CIRCUITS only. There are none since the fictional
+            // circuits left (2026-10-25); the loop stands for the next one.
             int circuits = 0;
             foreach (var t in TrackCatalog.All)
             {
@@ -3207,7 +3319,7 @@ namespace PSXRacing.EditorTools
                 Object.DestroyImmediate(go);
                 circuits++;
             }
-            Check(circuits > 0, "there are circuits to sprint on", circuits);
+            if (circuits == 0) Line("  (no control-point circuit in the catalog: nothing to sprint on)");
             // A loop too short to hold both margins is no sprint at all: laps.
             Check(RaceManager.SprintFinishIndexFor(12, 0.7f) == -1,
                   "a token road cannot host a sprint", RaceManager.SprintFinishIndexFor(12, 0.7f));
@@ -3376,9 +3488,16 @@ namespace PSXRacing.EditorTools
             // A plain circuit, not a stage: the point is the loop's
             // walk-backwards-from-waypoint-0 layout, and stage scenes are eight
             // megabytes to open for an answer this one already gives.
+            // Since the fictional circuits went (2026-10-25) there is no plain
+            // circuit, so the fixture is a LOOP STAGE (Blowing Rock): the same
+            // walk-backwards-from-waypoint-0 layout, and a loop's baked
+            // finishIndex is -1 like a circuit's.
             TrackCatalog.TrackDef fwd = null;
             foreach (var d in TrackCatalog.All)
                 if (d.CanReverse && !d.stage && !d.drag && !d.dragEvent && !d.city) { fwd = d; break; }
+            if (fwd == null)
+                foreach (var d in TrackCatalog.All)
+                    if (d.CanReverse && d.stage && d.loop && !d.city) { fwd = d; break; }
             if (fwd == null) { Check(false, "there is a reversible circuit to test"); return; }
 
             string scenePath = "Assets/PSXRacing/Scenes/" + fwd.id + ".unity";
@@ -5242,7 +5361,6 @@ namespace PSXRacing.EditorTools
             var log = new StringBuilder();
             var paths = new List<string>
             {
-                "Assets/PSXRacing/Scenes/CityCircuit.unity",
                 "Assets/PSXRacing/Scenes/BlueRidge.unity",
                 PSXRacingBuilder.TownScenePath,
                 PizzeriaSceneBuilder.ScenePath,
@@ -7430,7 +7548,7 @@ namespace PSXRacing.EditorTools
             Check(LifeRules.BookingTraffic(roundT) == TrafficLevels.Heavy,
                   "a booking's traffic changed on the pre-race page survives the save");
             // A strip has none to set.
-            var strip = TrackCatalog.At(TrackCatalog.IndexOf("DragQuarter"));
+            var strip = TrackCatalog.At(TrackCatalog.IndexOf("EmeraldIsle"));
             Check(strip != null && !TrafficLevels.VenueHasTraffic(strip) &&
                   TrafficLevels.VenueHasTraffic(TrackCatalog.At(TrackCatalog.IndexOf("BlueRidge"))),
                   "a drag strip has no traffic to set; a mountain road does");
@@ -7485,10 +7603,10 @@ namespace PSXRacing.EditorTools
             var br = TrackCatalog.At(TrackCatalog.IndexOf("BlowingRock"));
             Check(br.tunnels == null || br.tunnels.Length == 0, "Blowing Rock has no tunnel");
             Check(!TrackCatalog.InTunnel(br, 100f), "and InTunnel says so");
-            // The twins landed two places on: a v11 save's first twin is
-            // today's first twin, whichever index that is now.
-            Check(TrackCatalog.RemapV11Index(TrackCatalog.V11AuthoredCount) == TrackCatalog.SceneCount,
-                  "a v11 save's first twin is today's first twin",
+            // The twins landed two places on: a v11 save's first twin is the
+            // V21 layout's first twin (v22 reads it across from there by id).
+            Check(TrackCatalog.RemapV11Index(TrackCatalog.V11AuthoredCount) == TrackCatalog.V21AuthoredCount,
+                  "a v11 save's first twin is the v21 list's first twin",
                   TrackCatalog.RemapV11Index(TrackCatalog.V11AuthoredCount));
             Check(TrackCatalog.RemapV11Index(3) == 3, "and authored indices stand");
 
@@ -7503,14 +7621,14 @@ namespace PSXRacing.EditorTools
                 Check(d.RaceMeters < 14200f, "and fits a tank at race load", (d.RaceMeters / 1000f).ToString("0.0") + " km");
             }
             int v17FirstTwin = TrackCatalog.V17AuthoredCount;
-            Check(TrackCatalog.RemapV17Index(v17FirstTwin) == TrackCatalog.SceneCount,
-                  "a v17 save's first twin is today's first twin", TrackCatalog.RemapV17Index(v17FirstTwin));
+            Check(TrackCatalog.RemapV17Index(v17FirstTwin) == TrackCatalog.V21AuthoredCount,
+                  "a v17 save's first twin is the v21 list's first twin", TrackCatalog.RemapV17Index(v17FirstTwin));
             Check(TrackCatalog.RemapV17Index(17) == 17, "and authored indices stand");
             {
                 // A v17 save racing LITTLE SWITZERLAND II comes out on it still.
                 var mig = new LifeState { saveVersion = 17 };
                 int lsRev = TrackCatalog.IndexOf("LittleSwitzerlandRev");
-                int oldLsRev = v17FirstTwin + (lsRev - TrackCatalog.SceneCount);
+                int oldLsRev = v17FirstTwin + (TrackCatalog.V21IndexOf("LittleSwitzerlandRev") - TrackCatalog.V21AuthoredCount);
                 mig.trackIndex = oldLsRev;
                 mig.bookings.Add(new RaceBooking { day = 3, trackIndex = oldLsRev });
                 LifeSimManager.Migrate(mig);
@@ -7524,7 +7642,7 @@ namespace PSXRacing.EditorTools
             // v18 save's sprint section - which moved past Gillespie and its
             // twin - is the same section after the migration.
             {
-                // IndexOf answers 0 (City Circuit) for an id it does not know,
+                // IndexOf answers the first venue for an id it does not know,
                 // never -1: ask for the id back rather than for a sign.
                 int g = TrackCatalog.IndexOf("GillespieGap");
                 Check(TrackCatalog.At(g).id == "GillespieGap" && g < TrackCatalog.SceneCount &&
@@ -7533,17 +7651,20 @@ namespace PSXRacing.EditorTools
                 // Everything appended since v18 that sits before the section
                 // moved it along: Gillespie and its twin (v19), Chimney Rock
                 // and its twin (v20).
+                // Counted in the V21 layout, which is what RemapV18Index lands
+                // on; v22 then reads it onto today's list by id.
                 int now = TrackCatalog.IndexOf("SwissNC226ALowerRev");
+                int now21 = TrackCatalog.V21IndexOf("SwissNC226ALowerRev");
                 int shift = 0;
                 foreach (var id in new[] { "GillespieGap", "GillespieGapRev", "ChimneyRock", "ChimneyRockRev" })
                 {
-                    int k = TrackCatalog.IndexOf(id);
-                    if (TrackCatalog.At(k).id == id && k < now) shift++;
+                    int k = TrackCatalog.V21IndexOf(id);
+                    if (k >= 0 && k < now21) shift++;
                 }
                 Check(shift == 4, "four venues went in before a v18 save's NC 226A LOWER II", shift);
                 var mig18 = new LifeState { saveVersion = 18 };
-                mig18.trackIndex = now - shift;
-                mig18.bookings.Add(new RaceBooking { day = 3, trackIndex = now - shift });
+                mig18.trackIndex = now21 - shift;
+                mig18.bookings.Add(new RaceBooking { day = 3, trackIndex = now21 - shift });
                 LifeSimManager.Migrate(mig18);
                 Check(mig18.trackIndex == now && mig18.bookings[0].trackIndex == now &&
                       mig18.saveVersion == new LifeState().saveVersion,
@@ -7598,7 +7719,7 @@ namespace PSXRacing.EditorTools
                 for (int p = 0; p < probe.Length; p++)
                 {
                     int nowIdx = TrackCatalog.IndexOf(probe[p]);
-                    int oldIdx = nowIdx - moved[p];
+                    int oldIdx = TrackCatalog.V21IndexOf(probe[p]) - moved[p];
                     var m = new LifeState { saveVersion = 19, trackIndex = oldIdx };
                     m.bookings.Add(new RaceBooking { day = 3, trackIndex = oldIdx });
                     m.blChallenge = new RankChallenge { trackIndex = oldIdx };
@@ -7611,25 +7732,25 @@ namespace PSXRacing.EditorTools
                 Check(allSame, "a v19 save's NC 226A LOWER II, GILLESPIE GAP II and PARKWAY SPRINT are still those roads after the v20 migration",
                       firstWrong ?? "all three");
                 LifeSimManager.Migrate(mig19);
-                Check(mig19.saveVersion == 21 && new LifeState().saveVersion == 21, "a v19 save migrates through v20 to v21, where new careers start");
+                Check(mig19.saveVersion == 22 && new LifeState().saveVersion == 22, "a v19 save migrates through v20 and v21 to v22, where new careers start");
                 Check(TrackCatalog.RemapV19Index(3) == 3, "and v19 authored indices stand");
-                Check(TrackCatalog.RemapV19Index(19) == TrackCatalog.IndexOf("GillespieGap"),
+                Check(TrackCatalog.RemapV19Index(19) == TrackCatalog.V21IndexOf("GillespieGap"),
                       "and v19's last authored venue is still Gillespie Gap", TrackCatalog.RemapV19Index(19));
 
                 // The trap: the v18 and v19 lists are today's without what was
                 // appended since. Leave an append in and every later index
                 // lands one place off - a v18 CITY CIRCUIT II would come back
                 // as CHIMNEY ROCK.
-                int oldLen18 = TrackCatalog.Count - 4, oldLen19 = TrackCatalog.Count - 2;
+                int oldLen18 = TrackCatalog.V21Count - 4, oldLen19 = TrackCatalog.V21Count - 2;
                 string leak = null;
                 for (int k = 0; k < oldLen18 && leak == null; k++)
                 {
-                    string id = TrackCatalog.At(TrackCatalog.RemapV18Index(k)).id;
+                    string id = TrackCatalog.V21IdAt(TrackCatalog.RemapV18Index(k));
                     if (id == "ChimneyRock" || id == "ChimneyRockRev") leak = "v18 " + k + " -> " + id;
                 }
                 for (int k = 0; k < oldLen19 && leak == null; k++)
                 {
-                    string id = TrackCatalog.At(TrackCatalog.RemapV19Index(k)).id;
+                    string id = TrackCatalog.V21IdAt(TrackCatalog.RemapV19Index(k));
                     if (id == "ChimneyRock" || id == "ChimneyRockRev") leak = "v19 " + k + " -> " + id;
                 }
                 Check(leak == null, "no v18 or v19 index lands on Chimney Rock", leak ?? "none of " + oldLen18 + " / " + oldLen19);
@@ -14401,7 +14522,7 @@ namespace PSXRacing.EditorTools
             const string cityBuilder = "Assets/PSXRacing/Editor/PSXRacingBuilder.City.cs";
             const string nightDir = "Assets/PSXRacing/Art/City/Night";
             const string towerMask = nightDir + "/city_facade_tower_night.png";
-            string circuit = TrackCatalog.At(0).id;
+            string circuit = TrackCatalog.At(TrackCatalog.CheckVenue).id;
 
             if (!BuiltSince("Assets/PSXRacing/Scenes/" + circuit + ".unity", out string why, builder))
                 Skip("wet road materials: " + why);

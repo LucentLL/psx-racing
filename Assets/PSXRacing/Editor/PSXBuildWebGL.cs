@@ -375,11 +375,11 @@ namespace PSXRacing.EditorTools
 
         /// <summary>
         /// The loading screen's second line. The PSXMobile template prints
-        /// SUNSET CITY GP under the title — the circuit the game began as, and
-        /// a venue the CITY edition does not carry, so the Charlotte page
-        /// would open on the name of a race it cannot run. CITY says
-        /// CHARLOTTE instead; MAIN and ALL keep the template's line. (The
-        /// -PagesDir deploy adds its own CHARLOTTE TEST tag beside it.)
+        /// NORTH CAROLINA under the title (it was SUNSET CITY GP, the circuit
+        /// the game began as, until the fictional circuits went on
+        /// 2026-10-25). CITY says CHARLOTTE instead; MAIN and ALL keep the
+        /// template's line. (The -PagesDir deploy adds its own CHARLOTTE TEST
+        /// tag beside it.)
         /// </summary>
         static void SplashLine(string outDir, EditionKind edition)
         {
@@ -387,7 +387,7 @@ namespace PSXRacing.EditorTools
             string idx = Path.Combine(outDir, "index.html");
             if (!File.Exists(idx)) return;
             string html = File.ReadAllText(idx);
-            const string from = "<h2>SUNSET CITY GP</h2>";
+            const string from = "<h2>NORTH CAROLINA</h2>";
             if (!html.Contains(from))
             {
                 Debug.LogWarning("[PSXBuildWebGL] the template's splash line changed - CITY keeps it as written");

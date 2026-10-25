@@ -12,7 +12,7 @@
 #                    the circuit at noon, each with the old band (_old) and the
 #                    rule (_new), and the circuit on a fog day:
 #                    Screenshots\fe_<view>_<old|new>.png (FogShots.CaptureBeforeAfter).
-param([string]$Venue = "CityCircuit", [string]$Hour = "noon", [switch]$BeforeAfter)
+param([string]$Venue = "GillespieGap", [string]$Hour = "noon", [switch]$BeforeAfter)
 # -Venue takes a comma-separated list; the whole sweep runs in one Unity launch.
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }

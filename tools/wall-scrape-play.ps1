@@ -1,7 +1,7 @@
 # Lean the REAL car on the REAL walls, in the running game (WallScrapePlayCheck).
 #
 #   powershell -ExecutionPolicy Bypass -File tools\wall-scrape-play.ps1
-#   powershell -ExecutionPolicy Bypass -File tools\wall-scrape-play.ps1 -Venues DragQuarter,UptownLoop
+#   powershell -ExecutionPolicy Bypass -File tools\wall-scrape-play.ps1 -Venues EmeraldIsle,UptownLoop
 #   powershell -ExecutionPolicy Bypass -File tools\wall-scrape-play.ps1 -NoFilter
 #
 # wall-scrape.ps1 flies a car-sized box along every wall in edit mode. This one

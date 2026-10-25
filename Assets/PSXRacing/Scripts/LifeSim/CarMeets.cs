@@ -263,10 +263,13 @@ namespace PSXRacing.LifeSim
         };
 
         // Venue ids by the kind of race they are. Ids, not indices: the
-        // catalog's order has moved three times and a save-free rule should
-        // not care. One that is missing from a build is skipped.
-        static readonly string[] DragVenues = { "DragQuarter", "DragEighth", "EmeraldIsle", "LangstonBridge" };
-        static readonly string[] GripVenues = { "CityCircuit", "HarborPoint", "RidgePass", "AirfieldSprint" };
+        // catalog's order has moved four times and a save-free rule should
+        // not care. One that is missing from a build is skipped. Real roads
+        // only since 2026-10-25, when the fictional circuits and strips came
+        // out (save v22): GRIP is a closed circuit - the 277 belt and the two
+        // Parkway loops - and the strip is Emerald Isle's quarter mile.
+        static readonly string[] DragVenues = { "EmeraldIsle", "LangstonBridge" };
+        static readonly string[] GripVenues = { "UptownLoop", "BlowingRock", "LittleSwitzerland" };
         static readonly string[] TougeVenues = { "BlueRidge", "MtMitchell", "BlowingRock", "LittleSwitzerland",
                                                   "SwissNC226A", "BlowingRockSprint", "GillespieGap", "ChimneyRock" };
         static readonly string[] StreetVenues = { "TryonSprint", "UptownLoop", "IndependenceSprint" };
@@ -275,8 +278,8 @@ namespace PSXRacing.LifeSim
         {
             // Start at a seeded place and walk, so a missing id costs a step
             // rather than the whole pick. TryIndexOf, not IndexOf: IndexOf
-            // answers 0 for a missing id, so the walk never skipped anything
-            // and a missing venue silently became Sunset City GP. One draw
+            // answers the first venue for a missing id, so the walk never
+            // skipped anything and a missing venue silently became it. One draw
             // off the dice whatever the list's length, so the crowd rolled
             // after this is the same crowd in every edition.
             int start = rng.Next(ids.Length);
@@ -291,8 +294,7 @@ namespace PSXRacing.LifeSim
 
         /// <summary>The roads a style races on. STREET is Charlotte's three;
         /// MAIN ships no Charlotte, so there a street racer runs the grip
-        /// circuits — the town streets MAIN does have (Sunset City GP, Harbor
-        /// Point) rather than nowhere.</summary>
+        /// circuits that build has (the Parkway loops) rather than nowhere.</summary>
         static string[] VenuesFor(string style) =>
             style == "DRAG" ? DragVenues : style == "TOUGE" ? TougeVenues :
             style == "STREET" ? (Edition.HasCharlotte ? StreetVenues : GripVenues) : GripVenues;

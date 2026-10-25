@@ -20,7 +20,7 @@
 #
 # Code only, on an already-built sandbox (Scripts and Editor copied over).
 # WITH a graphics device. Exit code 0 = no FAIL in the report.
-param([string]$Venue = "DragQuarter", [string]$Shell = "", [switch]$NoWatch, [int]$MaxMinutes = 20)
+param([string]$Venue = "EmeraldIsle", [string]$Shell = "", [switch]$NoWatch, [int]$MaxMinutes = 20)
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot

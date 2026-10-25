@@ -31,7 +31,7 @@ namespace PSXRacing.EditorTools
         {
             log = new StringBuilder();
             var scenes = EditorBuildSettings.scenes;
-            int s = TrackCatalog.SceneIndex(0);
+            int s = TrackCatalog.SceneIndex(TrackCatalog.CheckVenue);
             if (s < 0 || s >= scenes.Length || !File.Exists(scenes[s].path))
             {
                 log.AppendLine("FAIL the venue is not built");
@@ -42,7 +42,7 @@ namespace PSXRacing.EditorTools
             EditorSceneManager.OpenScene(scenes[s].path);
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;
-            RaceHandoff.TrackIndex = 0;
+            RaceHandoff.TrackIndex = TrackCatalog.CheckVenue;
             RaceHandoff.CalendarDay = 0;
             RaceHandoff.TimeOfDayIndex = TimeOfDay.Noon;
             RaceHandoff.Solo = true;

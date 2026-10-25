@@ -46,7 +46,7 @@ namespace PSXRacing.EditorTools
             failures = 0;
 
             string id = System.Environment.GetEnvironmentVariable("PSX_FINISH_VENUE");
-            if (string.IsNullOrEmpty(id)) id = "DragEighth";
+            if (string.IsNullOrEmpty(id)) id = "EmeraldIsle";
             int index = -1;
             for (int i = 0; i < TrackCatalog.Count; i++)
                 if (TrackCatalog.At(i).id == id) index = i;

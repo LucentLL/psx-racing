@@ -31,7 +31,7 @@ namespace PSXRacing.EditorTools
         [MenuItem("PSX Racing/Capture Door Mirror Views")]
         public static void Capture()
         {
-            var def = TrackCatalog.At(0);
+            var def = TrackCatalog.At(TrackCatalog.CheckVenue);
             string only = System.Environment.GetEnvironmentVariable("PSX_SHOT_VENUE");
             if (string.IsNullOrEmpty(only)) only = "BeechGap";
             foreach (var d in TrackCatalog.All) if (d.id == only) { def = d; break; }
@@ -146,7 +146,7 @@ namespace PSXRacing.EditorTools
         /// against the first (a fight shows as a pattern trading places).</summary>
         static void Fight(string venueId, string key, string dir, System.Text.StringBuilder log)
         {
-            var def = TrackCatalog.At(0);
+            var def = TrackCatalog.At(TrackCatalog.CheckVenue);
             foreach (var d in TrackCatalog.All) if (d.id == venueId) { def = d; break; }
             if (!PSXScreenshotTool.Open(def, out var cam, out var player)) return;
             var globals = Object.FindFirstObjectByType<PSXGlobals>();

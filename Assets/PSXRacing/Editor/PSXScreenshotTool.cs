@@ -46,7 +46,7 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
-        /// PSX_SHOT_ONLY="RidgePass,UptownLoop" in the environment restricts
+        /// PSX_SHOT_ONLY="GillespieGap,UptownLoop" in the environment restricts
         /// the per-venue pass to those ids (the hour/sky/camera/forecourt
         /// sweeps on the city circuit and the garage/neighbourhood rooms are
         /// skipped too). A headless verification that has just fixed ONE
@@ -80,17 +80,17 @@ namespace PSXRacing.EditorTools
             // it is the one with buildings, trees, parked cars and a forecourt
             // all in shot, so it shows what an hour does to every kind of
             // surface at once.
-            CaptureHours(TrackCatalog.At(0));
-            CaptureSky(TrackCatalog.At(0));
-            CaptureCameras(TrackCatalog.At(0));
-            CaptureHoodCams(TrackCatalog.At(0));
+            CaptureHours(TrackCatalog.At(TrackCatalog.CheckVenue));
+            CaptureSky(TrackCatalog.At(TrackCatalog.CheckVenue));
+            CaptureCameras(TrackCatalog.At(TrackCatalog.CheckVenue));
+            CaptureHoodCams(TrackCatalog.At(TrackCatalog.CheckVenue));
             // The forecourt is a PLACE now — a hole in the barrier, an apron on
             // the road layer and four pump volumes — and every one of those
             // fails silently. A car that cannot get in, an apron floating over a
             // hillside, a station facing its own back wall at the road: all of
             // them build without a word and all of them are obvious in a
             // picture.
-            CaptureFuelStop(TrackCatalog.At(0));
+            CaptureFuelStop(TrackCatalog.At(TrackCatalog.CheckVenue));
             CaptureGarage();
             CaptureNeighborhood();
             Debug.Log("[PSXShot] Screenshots written to " + OutDir);
@@ -225,7 +225,7 @@ namespace PSXRacing.EditorTools
         public static void CapturePaintOnly()
         {
             Directory.CreateDirectory(OutDir);
-            var def = TrackCatalog.At(0);
+            var def = TrackCatalog.At(TrackCatalog.CheckVenue);
             CaptureCameras(def);
             CaptureHours(def);
             // PSX_PAINT_DEBUG=1 in the environment adds the shader's debug
@@ -266,7 +266,7 @@ namespace PSXRacing.EditorTools
         public static void CaptureCamerasOnly()
         {
             Directory.CreateDirectory(OutDir);
-            var def = TrackCatalog.At(0);
+            var def = TrackCatalog.At(TrackCatalog.CheckVenue);
             string only = System.Environment.GetEnvironmentVariable("PSX_SHOT_VENUE");
             if (!string.IsNullOrEmpty(only))
                 foreach (var d in TrackCatalog.All) if (d.id == only) { def = d; break; }

@@ -5,7 +5,7 @@
 # and the "a car without a map is untouched" checks.
 #
 #   powershell -ExecutionPolicy Bypass -File tools\r32lights-shots.ps1
-#   ... -Venue CityCircuit -Hours NIGHT -Out C:\some\dir
+#   ... -Venue GillespieGap -Hours NIGHT -Out C:\some\dir
 #
 # -Mode lens (2026-10-16, the owner's lens test): every view as an A/B pair (A
 # opaque lamps, B the shell's lens variant with clear covers) - NIGHT rear

@@ -79,8 +79,8 @@ namespace PSXRacing.LifeSim
                 if (s == null || s.saveVersion < 1) return null;
                 Migrate(s);
                 // After the migration, never inside it: this is not a save
-                // version (the catalog did not move — nothing was removed or
-                // reordered) but a question asked of THIS build on every load.
+                // version (the editions remove nothing from the catalog) but a
+                // question asked of THIS build on every load.
                 EditionSanitize(s);
                 StripBuiltCars(s);
                 return s;
@@ -465,11 +465,13 @@ namespace PSXRacing.LifeSim
             }
 
             // VENUE INDICES ARE REMAPPED ONCE, from the layout the save was
-            // written against straight to today's list. Each RemapV<n>Index
-            // lands on the CURRENT layout (it counts twins from where the
-            // twins start now), so running v10's remap and then v11's on the
-            // same save would move a twin twice: a v10 RIDGE PASS II came out
-            // as BLUE RIDGE PARKWAY II that way on 2026-09-11.
+            // written against straight to the V21 LAYOUT (the list from v20
+            // to v21, frozen in TrackCatalog.V21Ids). Each RemapV<n>Index
+            // lands there (it counts twins from where the twins start in it),
+            // so running v10's remap and then v11's on the same save would
+            // move a twin twice: a v10 RIDGE PASS II came out as BLUE RIDGE
+            // PARKWAY II that way on 2026-09-11. v22 then carries every
+            // stored venue from the V21 layout onto today's list BY ID.
             int written = s.saveVersion;
             if (s.saveVersion < 11)
             {
@@ -721,6 +723,86 @@ namespace PSXRacing.LifeSim
             {
                 MigrateToSixBlocks(s);
                 s.saveVersion = 21;
+            }
+
+            if (s.saveVersion < 22)
+            {
+                // v22 REMOVED THE FICTIONAL VENUES (owner, 2026-10-25: "Current
+                // fictional circuits to be removed from the game. New ones may
+                // be made in the future."). Every save, whatever it was written
+                // at, holds V21-layout indices by now (the remaps above), so
+                // this one step reads them all across by id.
+                RetireFictionalVenues(s);
+                s.saveVersion = 22;
+            }
+        }
+
+        /// <summary>
+        /// v22: the six fictional venues (Sunset City GP, Harbor Point, Ridge
+        /// Pass, Airfield Sprint, the 1/4 and 1/8 mile strips) and their four
+        /// twins left the catalog, and every index after them moved. The three
+        /// venues a save stores are read from the V21 layout by id
+        /// (<see cref="TrackCatalog.RemapV21Index"/>), and one on a venue that
+        /// is gone is dealt with the way the editions deal with a venue a
+        /// build lacks:
+        ///  - a BOOKING there is CANCELLED, with a diary line naming it (a
+        ///    booking is free, so nothing is owed back; the block is open);
+        ///  - a blacklist SERIES there moves to one of the rival's own roads
+        ///    (<see cref="Blacklist.RehomeSeries"/>; legs already run stand),
+        ///    and a dead series' road is simply "none";
+        ///  - the pre-race page's own venue goes to the first one offered.
+        /// The toast says so once. Best times are kept per deck (by way, not
+        /// by index) and no deck moved, so nothing else is stored by venue.
+        /// Public for the self-test, which pins it.
+        /// </summary>
+        public static void RetireFictionalVenues(LifeState s)
+        {
+            if (s == null) return;
+            int cancelled = 0;
+            if (s.bookings != null)
+            {
+                for (int i = s.bookings.Count - 1; i >= 0; i--)
+                {
+                    var b = s.bookings[i];
+                    if (b == null) continue;
+                    int now = TrackCatalog.RemapV21Index(b.trackIndex);
+                    if (now >= 0) { b.trackIndex = now; continue; }
+                    if (s.calendarLog == null) s.calendarLog = new System.Collections.Generic.List<string>();
+                    s.calendarLog.Add(LifeRules.LogDate(b.day) + ": cancelled, the race at " +
+                                      TrackCatalog.V21NameAt(b.trackIndex) + " (the circuit has closed)");
+                    s.bookings.RemoveAt(i);
+                    cancelled++;
+                }
+            }
+
+            bool moved = false;
+            var ch = s.blChallenge;
+            if (ch != null && ch.trackIndex >= 0)
+            {
+                int was = ch.trackIndex;
+                int now = TrackCatalog.RemapV21Index(was);
+                if (now >= 0) ch.trackIndex = now;
+                else if (ch.Live)
+                {
+                    Blacklist.RehomeSeries(s);
+                    if (s.calendarLog == null) s.calendarLog = new System.Collections.Generic.List<string>();
+                    s.calendarLog.Add(LifeRules.LogDate(s.day) + ": series moved to " +
+                                      TrackCatalog.At(ch.trackIndex).name + ", off " +
+                                      TrackCatalog.V21NameAt(was) + " (the circuit has closed)");
+                    moved = true;
+                }
+                else ch.trackIndex = -1;
+            }
+
+            int own = TrackCatalog.RemapV21Index(s.trackIndex);
+            s.trackIndex = own >= 0 && TrackCatalog.Offered(own) ? own : TrackCatalog.FirstOffered();
+
+            if (cancelled > 0 || moved)
+            {
+                string note = cancelled > 0 && moved ? "RACES OFF, SERIES MOVED"
+                            : cancelled > 1 ? cancelled + " RACES CANCELLED"
+                            : cancelled == 1 ? "RACE CANCELLED" : "SERIES MOVED";
+                editionNote = note.Length > NoteMax ? Short(note, NoteMax) : note;
             }
         }
 

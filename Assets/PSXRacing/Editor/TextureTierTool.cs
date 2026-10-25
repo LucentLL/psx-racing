@@ -166,7 +166,7 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>Batch: the same frames under CLASSIC and then ENHANCED -
-        /// a CityCircuit start (StartGrid, shop scenery), the home street
+        /// a Gillespie Gap start (StartGrid, roadside), the home street
         /// (garage door, windows) and two Charlotte streets - copied to
         /// PSX_TEX_OUT as classic_*.png / enhanced_*.png.</summary>
         public static void CaptureCompare()
@@ -175,7 +175,7 @@ namespace PSXRacing.EditorTools
             string root = Directory.GetParent(Application.dataPath).FullName;
             string shots = Path.Combine(root, "Screenshots");
             Directory.CreateDirectory(outDir);
-            System.Environment.SetEnvironmentVariable("PSX_SHOT_VENUE", "CityCircuit");
+            System.Environment.SetEnvironmentVariable("PSX_SHOT_VENUE", "GillespieGap");
             System.Environment.SetEnvironmentVariable("PSX_SHOT_SPOTS", "0:start");
             System.Environment.SetEnvironmentVariable("PSX_REF_ONLY", "sv_a1_trade,sv_a11_central");
             foreach (var tier in new[] { "classic", "enhanced" })
@@ -189,7 +189,7 @@ namespace PSXRacing.EditorTools
                         File.Copy(f, Path.Combine(outDir, tier + "_" + Path.GetFileName(f)), true);
                 }
                 PSXScreenshotTool.CaptureSpotsOnly();
-                Grab(shots, "psx_spot_CityCircuit_0_*.png");
+                Grab(shots, "psx_spot_GillespieGap_0_*.png");
                 PSXScreenshotTool.CaptureNeighborhood();
                 Grab(shots, "psx_nb_*.png");
                 CityRefSpots.Run();

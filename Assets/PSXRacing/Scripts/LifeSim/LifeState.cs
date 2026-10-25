@@ -60,7 +60,7 @@ namespace PSXRacing.LifeSim
         ///     under the same sky), and each job's ready block. See
         ///     LifeSimManager.Migrate.
         /// </summary>
-        public int saveVersion = 21;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
+        public int saveVersion = 22;   // NEW careers are born at the current version: a fresh save stamped 10 would be "migrated" on its next load and have its twin indices shifted for a move that never happened to it
 
         // === Core economy / clock ===
         public int money;
@@ -97,7 +97,10 @@ namespace PSXRacing.LifeSim
         // === Race setup (remembered between races) ===
         /// <summary>Which circuit the next race runs on, indexing
         /// TrackCatalog.All. An ADDED field, so old saves default to 0 —
-        /// the city circuit they have always raced.</summary>
+        /// the city circuit they had always raced, until v22 retired it
+        /// (the migration sends them to TrackCatalog.FirstOffered). New
+        /// careers are seeded on FirstOffered too: 0 is Charlotte's free
+        /// roam now, which is not a race.</summary>
         public int trackIndex;
         /// <summary>Hour every race runs at, indexing TimeOfDay.All. -1 means
         /// FOLLOW THE CLOCK — take whatever hour the current activity slot

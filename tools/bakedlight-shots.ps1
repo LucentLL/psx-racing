@@ -2,7 +2,7 @@
 # venue's scene opened by path, summer, clear, no traffic, the player parked on a spot.
 #
 #   powershell -ExecutionPolicy Bypass -File tools\bakedlight-shots.ps1 -Venue BlueRidge -Spot bridge -Views chase,sideL,sideR,highL,highR -Prefix before -Name viaduct
-#   ... -Venue CityCircuit -Spot 0.3 -Pair      (after_ = the bake, before_ = PSX_SKYVIS off)
+#   ... -Venue GillespieGap -Spot 0.3 -Pair      (after_ = the bake, before_ = PSX_SKYVIS off)
 #
 # Scripts, Editor and Shaders are copied into the sandbox first (no mirror, no scene
 # build: the scene must already be built there). Runs WATCHED (the shots read the

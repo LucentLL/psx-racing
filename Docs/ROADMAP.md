@@ -5,6 +5,28 @@ Artifact version: https://claude.ai/code/artifact/603964ae-4197-4e0b-b523-09b17c
 Sources: RG2 repo (`C:\Users\mcgee\code\Racing-Game-2`, src/sim 77 modules), this project's
 Scripts/, and the v2 design journal from the original extraction workflow (wf_f1bf0f6a-122).
 
+## THE FICTIONAL CIRCUITS ARE GONE (2026-10-25, save v22)
+
+"Current fictional circuits to be removed from the game. New ones may be made
+in the future." Removed: SUNSET CITY GP (`CityCircuit`), HARBOR POINT,
+RIDGE PASS, AIRFIELD SPRINT, the DRAG STRIP 1/4 and 1/8 MILE, and their four
+"II" twins. Every venue left is a real place: Charlotte (free roam, the three
+city routes, the deck runs), the Blue Ridge stages and loops, NC 226A and its
+thirds, Gillespie Gap, Chimney Rock, and Bogue Banks - Emerald Isle's quarter
+mile is the drag strip now, the two high-rises beside it.
+
+- **Saves migrate by id.** `TrackCatalog.V21Ids` freezes the old list; the
+  older `RemapV<n>Index` land on it and `RemapV21Index` reads each stored
+  venue across by id. A booking on a removed venue is cancelled with a diary
+  line, a live blacklist series moves to one of the rival's own roads, and
+  the pre-race venue goes to the first one offered.
+- **Index 0 is Charlotte's free roam** (not a race): `FirstOffered()` is the
+  default everywhere a venue is needed, and `TrackCatalog.CheckVenue`
+  (Gillespie Gap) is what the editor's play checks open when told nothing.
+- Meets and the blacklist race real roads: GRIP / "oval" = the 277 belt and
+  the two Parkway loops, DRAG = Emerald Isle and Langston Bridge.
+- The history below still names the old circuits; it is a log.
+
 ## NO FOG UNLESS IT IS FOGGY (2026-10-03)
 
 "I'd also like to remove fog from the game unless the weather is foggy. I'm

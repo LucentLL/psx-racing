@@ -638,7 +638,7 @@ namespace PSXRacing.EditorTools
                       fields: new (string, object)[] { ("raceTrafficPick", TrafficLevels.Heavy) });
                 Shoot(outDir, "main_prerace_traffic_line", "prerace", sizes: EditionSizes,
                       fields: new (string, object)[] { ("raceFromLine", true), ("raceTrafficPick", TrafficLevels.RushHour) });
-                int stripVenue = TrackCatalog.IndexOf("DragQuarter");
+                int stripVenue = TrackCatalog.IndexOf("EmeraldIsle");
                 int keepVenue = st.trackIndex;
                 st.trackIndex = stripVenue;
                 LifeSimManager.Save();

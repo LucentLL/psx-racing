@@ -20,9 +20,11 @@ namespace PSXRacing
     /// a player build carries only its own edition's scenes, so a scene is
     /// found by PATH (<see cref="SceneIndex"/>, <see cref="BuildIndexOfScene"/>)
     /// rather than by its position. The CATALOG order is still a contract:
-    /// saves store venues by index, so entries are only ever appended, and a
-    /// venue another edition does not ship stays in the list and is filtered
-    /// (<see cref="Offered"/>), never removed.
+    /// saves store venues by index, so entries are appended, and a venue
+    /// another edition does not ship stays in the list and is filtered
+    /// (<see cref="Offered"/>). A venue leaves the game only with a save
+    /// version that re-reads every stored index by id - the fictional
+    /// circuits did, at v22 (<see cref="RemapV21Index"/>).
     /// </summary>
     public static class TrackCatalog
     {
@@ -88,7 +90,7 @@ namespace PSXRacing
             /// STANDING start: a strip has no limit because the tree is the
             /// event, and a car placed rolling on one would cross the beams
             /// before the lights. Real-road venues carry their posted limit
-            /// (the Parkway's 45 mph is 72); the fictional circuits carry a
+            /// (the Parkway's 45 mph is 72); a venue that writes none gets a
             /// town street's 45. Read by RaceManager through
             /// RaceHandoff.RollingStartKmh, and copied by ReverseTwin — the
             /// same road has the same limit in both directions.
@@ -417,10 +419,10 @@ namespace PSXRacing
             /// <summary>
             /// Is this venue worth driving the other way?
             ///
-            /// Everything that is a real ROAD rather than a straight: the four
-            /// closed circuits, and the mountain stage, which northbound is a
-            /// climb where southbound is a descent and is genuinely a different
-            /// drive. Not the drag strips, where the direction IS the event;
+            /// Everything that is a real ROAD rather than a straight: a closed
+            /// circuit, and a mountain stage, which northbound is a climb
+            /// where southbound is a descent and is genuinely a different
+            /// drive. Not a drag strip, where the direction IS the event;
             /// not the bridge and beach runs, which are drag events on real
             /// roads; and not the city, which has no centreline at all.
             /// </summary>
@@ -440,175 +442,24 @@ namespace PSXRacing
         /// </summary>
         public const float DefaultSpeedLimitKmh = 45f;
 
-        // Layouts 2-4 were generated as polar loops — r(t) = R(1 + sum a_k
-        // cos(k t + phi_k)) — which cannot self-intersect however the harmonics
-        // are tuned, then checked for minimum corner radius (>= 22 m, so a
-        // hairpin is tight rather than impossible) and for self-clearance (no
-        // two parts of the circuit closer than road + both wall lines).
         /// <summary>The venues as WRITTEN. <see cref="All"/> is this plus a
         /// reverse twin for every one of them that has two directions worth
         /// driving, and it is this array — not that one — whose length decides
-        /// how many scenes get built.</summary>
+        /// how many scenes get built.
+        ///
+        /// Every venue here is a REAL place. The six fictional venues that
+        /// opened this list for a year (Sunset City GP, Harbor Point, Ridge
+        /// Pass, Airfield Sprint and the two flat drag strips) were removed on
+        /// 2026-10-25 - the owner: "Current fictional circuits to be removed
+        /// from the game. New ones may be made in the future." Their twins
+        /// went with them, every index after them moved, and save v22
+        /// carries old careers across by id (see <see cref="RemapV21Index"/>).
+        /// A new circuit is APPENDED, with a remap like that one.</summary>
         static readonly TrackDef[] Authored =
         {
-            new TrackDef
-            {
-                id = "CityCircuit",
-                name = "SUNSET CITY GP",
-                blurb = "Downtown blocks and close walls. The circuit this game was tuned on.",
-                roadWidth = 12f,
-                laps = 3,
-                speedLimitKmh = 45f,    // downtown blocks: a city street
-                controlPoints = new[]
-                {
-                    new Vector2(0, 0),      new Vector2(120, 0),   new Vector2(180, 8),
-                    new Vector2(215, 40),   new Vector2(220, 95),  new Vector2(205, 150),
-                    new Vector2(230, 205),  new Vector2(215, 260), new Vector2(160, 285),
-                    new Vector2(80, 290),   new Vector2(0, 285),   new Vector2(-70, 265),
-                    new Vector2(-110, 215), new Vector2(-105, 150),new Vector2(-140, 100),
-                    new Vector2(-135, 40),  new Vector2(-90, -5),
-                },
-                // Downtown on a slope: flat along the pit straight, climbing
-                // the whole east side to a bluff at the top of the circuit,
-                // then back down through the west. Peak grade 6.8%, which is a
-                // steep city street and nothing worse.
-                controlHeights = new[]
-                {
-                    0f,    0.5f,  2f,    5f,    8f,    10f,   11f,   10f,   7f,
-                    4f,    2f,    1f,    2f,    4f,    3f,    1f,    0f,
-                },
-                // The flyover across the top of the bluff, where the road is
-                // already 11 m up: the ground drops out from under it into a
-                // cutting and the circuit crosses on a deck.
-                bridges = new[] { new Vector2(340f, 450f) },
-                bridgeDepth = 9f,
-            },
-            new TrackDef
-            {
-                id = "HarborPoint",
-                name = "HARBOR POINT",
-                blurb = "Short, narrow and relentless. Nowhere to put the power down.",
-                roadWidth = 10.5f,
-                laps = 4,
-                speedLimitKmh = 45f,    // dock roads
-                controlPoints = new[]
-                {
-                    new Vector2(142, 0),   new Vector2(109, 45),  new Vector2(79, 79),
-                    new Vector2(38, 92),   new Vector2(0, 110),   new Vector2(-53, 128),
-                    new Vector2(-89, 89),  new Vector2(-94, 39),  new Vector2(-122, 0),
-                    new Vector2(-128, -53),new Vector2(-91, -91), new Vector2(-47, -114),
-                    new Vector2(0, -106),  new Vector2(32, -78),  new Vector2(80, -80),
-                    new Vector2(143, -59),
-                },
-                // Dock land is flat. The one thing that is not is the lift over
-                // the channel on the north side, and everything else here is
-                // the approach to it and the run back down. 5.0% at its worst.
-                controlHeights = new[]
-                {
-                    0f,    0.6f,  1.6f,  3.0f,  4.8f,  5.6f,  4.0f,  1.8f,
-                    0.4f,  0f,    0f,    0.4f,  0.9f,  0.6f,  0.2f,  0f,
-                },
-                // The channel itself. Ten metres of water under the deck, which
-                // is the only place on this circuit you can see daylight beside
-                // the road.
-                bridges = new[] { new Vector2(150f, 270f) },
-                bridgeDepth = 10f,
-            },
-            new TrackDef
-            {
-                id = "RidgePass",
-                name = "RIDGE PASS",
-                blurb = "Long, wide and flowing, through the trees. Two corners bite.",
-                roadWidth = 13f,
-                laps = 2,
-                speedLimitKmh = 72f,    // a mountain pass: 45 mph
-                controlPoints = new[]
-                {
-                    new Vector2(295, 0),    new Vector2(221, 50),   new Vector2(170, 84),
-                    new Vector2(138, 118),  new Vector2(93, 136),   new Vector2(46, 144),
-                    new Vector2(0, 178),    new Vector2(-70, 222),  new Vector2(-152, 224),
-                    new Vector2(-212, 180), new Vector2(-243, 119), new Vector2(-241, 55),
-                    new Vector2(-204, 0),   new Vector2(-177, -40), new Vector2(-195, -96),
-                    new Vector2(-198, -169),new Vector2(-138, -204),new Vector2(-57, -181),
-                    new Vector2(0, -154),   new Vector2(48, -152),  new Vector2(107, -157),
-                    new Vector2(180, -153), new Vector2(268, -131), new Vector2(323, -74),
-                },
-                // The reason the circuit is called a pass. 28 m from the valley
-                // floor to the summit at the north end, down the far side into
-                // a second, lower saddle, and a long descent home. Peak grade
-                // 9.8% — a real mountain road, and the steepest thing in the
-                // game.
-                controlHeights = new[]
-                {
-                    0f,    5f,    10.5f, 15f,   19f,   22.5f, 26f,   28.5f,
-                    27f,   23f,   18f,   13f,   9f,    10f,   15f,   18.5f,
-                    17f,   12.5f, 8f,    5.5f,  6.5f,  6.5f,  4.5f,  1.5f,
-                },
-                // The viaduct over the gorge on the second saddle, 140 m of it
-                // with the floor 14 m down. The road is around 18 m up here, so
-                // what you are looking at over the parapet is a long way.
-                bridges = new[] { new Vector2(920f, 1060f) },
-                bridgeDepth = 14f,
-            },
-            new TrackDef
-            {
-                id = "AirfieldSprint",
-                name = "AIRFIELD SPRINT",
-                blurb = "Two long straights joined by hairpins. Gearing decides this one.",
-                roadWidth = 14f,
-                laps = 2,
-                speedLimitKmh = 72f,    // perimeter road round an airfield
-                controlPoints = new[]
-                {
-                    new Vector2(331, 0),   new Vector2(276, 62),  new Vector2(170, 88),
-                    new Vector2(90, 96),   new Vector2(30, 106),  new Vector2(-30, 106),
-                    new Vector2(-90, 96),  new Vector2(-170, 88), new Vector2(-276, 62),
-                    new Vector2(-331, 0),  new Vector2(-276, -62),new Vector2(-170, -88),
-                    new Vector2(-90, -96), new Vector2(-30, -106),new Vector2(30, -106),
-                    new Vector2(90, -96),  new Vector2(170, -88), new Vector2(276, -62),
-                },
-                // An airfield is flat, and this one stays flat — 2 m of drainage
-                // camber across the whole site, 1.3% at its worst. It is the
-                // circuit that proves gearing rather than gradient decides a
-                // race, and putting a hill on it would take that away.
-                controlHeights = new[]
-                {
-                    0f,   0.8f,  1.6f,  2.0f,  1.6f,  1.6f,  2.0f,  1.6f,  0.8f,
-                    0f,  -0.8f, -1.6f, -2.0f, -1.6f, -1.6f, -2.0f, -1.6f, -0.8f,
-                },
-            },
-
-            // The strips. Wide enough for four lanes because the grid is four
-            // cars; a real strip is two, and the LifeSim can send one opponent
-            // when it wants a proper heads-up run.
-            new TrackDef
-            {
-                id = "DragQuarter",
-                name = "DRAG STRIP — 1/4 MILE",
-                blurb = "402 m in a straight line. Gearing, launch, and nothing else.",
-                roadWidth = 18f,
-                laps = 1,
-                speedLimitKmh = 0f,     // a strip: the tree IS the start
-                drag = true,
-                dragMeters = 402.336f,
-                dragLabel = "1/4 MILE",
-            },
-            new TrackDef
-            {
-                id = "DragEighth",
-                name = "DRAG STRIP — 1/8 MILE",
-                blurb = "201 m. Over before a long gearbox has finished thinking.",
-                roadWidth = 18f,
-                laps = 1,
-                speedLimitKmh = 0f,     // a strip: the tree IS the start
-                drag = true,
-                dragMeters = 201.168f,
-                dragShutdown = 260f,
-                dragLabel = "1/8 MILE",
-            },
-            // AFTER every circuit, deliberately: every scene index before it
-            // holds. The city is not in the race picker (StepTrack skips it) —
-            // FREE ROAM on the MAIN tab is its door.
+            // Charlotte opens the list since the fictional circuits went. The
+            // city is not in the race picker (Offered skips it) - FREE ROAM on
+            // the MAIN tab is its door.
             new TrackDef
             {
                 id = "Charlotte",
@@ -1274,7 +1125,7 @@ namespace PSXRacing
         /// <summary>The venues that HAVE a scene of their own — everything the
         /// builder builds and every audit walks. A reverse twin is deliberately
         /// NOT here: it races in its forward venue s scene, so a pass that
-        /// iterated All would go looking for CityCircuitRev.unity and fail on a
+        /// iterated All would go looking for BlueRidgeRev.unity and fail on a
         /// file nothing was ever supposed to write.</summary>
         public static TrackDef[] Scened => Authored;
 
@@ -1283,17 +1134,19 @@ namespace PSXRacing
         public static TrackDef At(int index) => All[Mathf.Clamp(index, 0, All.Length - 1)];
 
         /// <summary>
-        /// The index of a venue by id — or ZERO when there is no such id,
-        /// which is Sunset City GP. Kept for the callers that want exactly
-        /// that; anything that has to SKIP a missing or non-shipped venue asks
-        /// <see cref="TryIndexOf"/>, because "missing" and "the first circuit"
+        /// The index of a venue by id — or the FIRST OFFERED venue when there
+        /// is no such id (it was Sunset City GP, index 0, until the fictional
+        /// circuits went and index 0 became Charlotte's free roam, which is
+        /// no race at all). Kept for the callers that want exactly that;
+        /// anything that has to SKIP a missing or non-shipped venue asks
+        /// <see cref="TryIndexOf"/>, because "missing" and "the first venue"
         /// are the same number here (the blacklist and the meets both wrote
         /// "a missing id is skipped" over a loop that could never skip one).
         /// </summary>
         public static int IndexOf(string id)
         {
             for (int i = 0; i < All.Length; i++) if (All[i].id == id) return i;
-            return 0;
+            return FirstOffered();
         }
 
         /// <summary>The index of a venue by id, or false when the catalog has
@@ -1323,13 +1176,23 @@ namespace PSXRacing
         public static bool Offered(int index) => index >= 0 && index < All.Length && Offered(All[index]);
 
         /// <summary>The first venue this build offers — the fallback for a
-        /// save that points somewhere this edition does not go. Sunset City
-        /// GP (0) in MAIN and ALL.</summary>
+        /// save that points somewhere this edition does not go. Blue Ridge
+        /// Parkway (1, after Charlotte's free roam) in MAIN and ALL.</summary>
         public static int FirstOffered()
         {
             for (int i = 0; i < All.Length; i++) if (Offered(All[i])) return i;
             return 0;
         }
+
+        /// <summary>
+        /// The venue the editor's play checks and shot passes open when they
+        /// are told nothing else - what index 0 (Sunset City GP) was to them
+        /// until the fictional circuits went (2026-10-25) and index 0 became
+        /// Charlotte's streamed free roam. Gillespie Gap: a real two-lane
+        /// road with a grid, rivals, bends and a light scene, built in every
+        /// edition that carries the mountains.
+        /// </summary>
+        public static int CheckVenue => TryIndexOf("GillespieGap", out int i) ? i : FirstOffered();
 
         /// <summary>Step from <paramref name="from"/> by <paramref name="step"/>
         /// (+1 / -1) to the next venue this build offers, wrapping. Returns
@@ -1358,6 +1221,20 @@ namespace PSXRacing
             return list.ToArray();
         }
 
+        // ------------------------------------------------------------------
+        //  Saved venue indices from older layouts
+        // ------------------------------------------------------------------
+        //
+        // A save stores a venue by INDEX. Each RemapV<n>Index below reads an
+        // index written under save v<n> and lands it on the V21 LAYOUT - the
+        // list as it stood from v20 to v21, frozen in V21Ids - because that
+        // was "today's list" when each of them was written, and keeping them
+        // aimed at a FIXED layout is what stops the next change to the
+        // catalog from quietly re-aiming them. RemapV21Index then carries a
+        // v21 index onto TODAY's list by id. LifeSimManager.Migrate applies
+        // exactly one of the older remaps (chosen by the version the save was
+        // written at) and then RemapV21Index to every stored venue.
+
         /// <summary>
         /// How many venues the authored list held when saves were still
         /// version 10 — thirteen, Sunset City GP through Beech Gap — and so
@@ -1369,22 +1246,21 @@ namespace PSXRacing
         public const int V10AuthoredCount = 13;
 
         /// <summary>
-        /// A venue index from a version-10 save, in today's list.
+        /// A venue index from a version-10 save, in the V21 layout.
         ///
-        /// Appending to the authored list is the rule because a save stores
-        /// its venue by index — but the twins sit AFTER the authored list, so
-        /// an append moves every twin along by the number of venues added.
-        /// The twins keep their order (generated in authored order, and new
-        /// venues go on the end, so their twins do too), which makes the map
-        /// one line: the k-th twin is still the k-th twin, counted from where
-        /// the twins start NOW. Authored indices are untouched; anything past
-        /// the old list is clamped like <see cref="At"/> would clamp it.
+        /// The twins sit AFTER the authored list, so an append moved every
+        /// twin along by the number of venues added. The twins keep their
+        /// order (generated in authored order, and new venues went on the end,
+        /// so their twins did too), which makes the map one line: the k-th
+        /// twin is still the k-th twin, counted from where the twins start in
+        /// the v21 list. Authored indices are untouched; anything past the old
+        /// list is clamped like <see cref="At"/> would clamp it.
         /// </summary>
         public static int RemapV10Index(int oldIndex)
         {
             if (oldIndex < V10AuthoredCount) return Mathf.Max(0, oldIndex);
             int twin = oldIndex - V10AuthoredCount;
-            return Mathf.Clamp(SceneCount + twin, 0, All.Length - 1);
+            return Mathf.Clamp(V21AuthoredCount + twin, 0, V21Ids.Length - 1);
         }
 
         /// <summary>How many venues the authored list held under save v11:
@@ -1393,14 +1269,14 @@ namespace PSXRacing
         /// two places along. A constant, for the reason V10AuthoredCount is.</summary>
         public const int V11AuthoredCount = 16;
 
-        /// <summary>A venue index from a version-11 save, in today's list.
+        /// <summary>A venue index from a version-11 save, in the V21 layout.
         /// Same shape as <see cref="RemapV10Index"/>: authored indices stand,
         /// the k-th twin is still the k-th twin.</summary>
         public static int RemapV11Index(int oldIndex)
         {
             if (oldIndex < V11AuthoredCount) return Mathf.Max(0, oldIndex);
             int twin = oldIndex - V11AuthoredCount;
-            return Mathf.Clamp(SceneCount + twin, 0, All.Length - 1);
+            return Mathf.Clamp(V21AuthoredCount + twin, 0, V21Ids.Length - 1);
         }
 
         /// <summary>How many venues the authored list held under saves v12 to
@@ -1410,29 +1286,26 @@ namespace PSXRacing
         public const int V17AuthoredCount = 18;
 
         /// <summary>
-        /// A venue index from a v18 save, in today's list. v19 appended
+        /// A venue index from a v18 save, in the V21 layout. v19 appended
         /// Gillespie Gap to the authored list, which moved its twins one place
         /// and the sprint sections after them two - so the shift is not one
-        /// number. Mapped by IDENTITY: the v18 list is today's list without
-        /// the venues v19 AND v20 added (every later append has to come off
-        /// it too, or the v18 list gains a venue it never had - with Chimney
-        /// Rock left in, v18's index 19 would read CHIMNEY ROCK and every v18
-        /// twin and sprint would land one place off), and an old index is
-        /// that list's id, found again.
+        /// number. Mapped by IDENTITY: the v18 list is the v21 list without
+        /// the venues v19 AND v20 added, and an old index is that list's id,
+        /// found again.
         /// </summary>
         public static int RemapV18Index(int oldIndex)
         {
             if (v18Ids == null)
             {
                 var ids = new System.Collections.Generic.List<string>();
-                foreach (var d in All)
-                    if (System.Array.IndexOf(V19Added, d.id) < 0 &&
-                        System.Array.IndexOf(V20Added, d.id) < 0) ids.Add(d.id);
+                foreach (var id in V21Ids)
+                    if (System.Array.IndexOf(V19Added, id) < 0 &&
+                        System.Array.IndexOf(V20Added, id) < 0) ids.Add(id);
                 v18Ids = ids.ToArray();
             }
             if (oldIndex < 0) return oldIndex;
-            if (oldIndex >= v18Ids.Length) return Mathf.Clamp(oldIndex, 0, All.Length - 1);
-            int now = IndexOf(v18Ids[oldIndex]);
+            if (oldIndex >= v18Ids.Length) return Mathf.Clamp(oldIndex, 0, V21Ids.Length - 1);
+            int now = V21IndexOf(v18Ids[oldIndex]);
             return now >= 0 ? now : 0;
         }
         /// <summary>The venues v19 added (a twin is its base's id + "Rev").</summary>
@@ -1440,40 +1313,121 @@ namespace PSXRacing
         static string[] v18Ids;
 
         /// <summary>
-        /// A venue index from a v19 save, in today's list. v20 appended
+        /// A venue index from a v19 save, in the V21 layout. v20 appended
         /// Chimney Rock after Gillespie Gap: its twin went in after the other
-        /// twins (every twin but the new one stands, Gillespie's moved one
-        /// place) and every sprint section moved two. Same identity shape as
-        /// <see cref="RemapV18Index"/>: the v19 list is today's without the
-        /// venues v20 added. The id lists are read when this is CALLED, so
-        /// the order the static initialisers are written in does not matter.
+        /// twins and every sprint section moved two. Same identity shape as
+        /// <see cref="RemapV18Index"/>: the v19 list is the v21 list without
+        /// the venues v20 added.
         /// </summary>
         public static int RemapV19Index(int oldIndex)
         {
             if (v19Ids == null)
             {
                 var ids = new System.Collections.Generic.List<string>();
-                foreach (var d in All)
-                    if (System.Array.IndexOf(V20Added, d.id) < 0) ids.Add(d.id);
+                foreach (var id in V21Ids)
+                    if (System.Array.IndexOf(V20Added, id) < 0) ids.Add(id);
                 v19Ids = ids.ToArray();
             }
             if (oldIndex < 0) return oldIndex;
-            if (oldIndex >= v19Ids.Length) return Mathf.Clamp(oldIndex, 0, All.Length - 1);
-            int now = IndexOf(v19Ids[oldIndex]);
+            if (oldIndex >= v19Ids.Length) return Mathf.Clamp(oldIndex, 0, V21Ids.Length - 1);
+            int now = V21IndexOf(v19Ids[oldIndex]);
             return now >= 0 ? now : 0;
         }
-        /// <summary>The venues v20 added. A Chimney Rock sprint section added
-        /// in the same release would join this list.</summary>
+        /// <summary>The venues v20 added.</summary>
         static readonly string[] V20Added = { "ChimneyRock", "ChimneyRockRev" };
         static string[] v19Ids;
 
-        /// <summary>A venue index from a v12..v17 save, in today's list. Same
-        /// shape as <see cref="RemapV10Index"/>.</summary>
+        /// <summary>A venue index from a v12..v17 save, in the V21 layout.
+        /// Same shape as <see cref="RemapV10Index"/>.</summary>
         public static int RemapV17Index(int oldIndex)
         {
             if (oldIndex < V17AuthoredCount) return Mathf.Max(0, oldIndex);
             int twin = oldIndex - V17AuthoredCount;
-            return Mathf.Clamp(SceneCount + twin, 0, All.Length - 1);
+            return Mathf.Clamp(V21AuthoredCount + twin, 0, V21Ids.Length - 1);
+        }
+
+        /// <summary>
+        /// THE LIST AT SAVE v20/v21, by id, in index order: 21 authored
+        /// venues, 13 twins, 8 sprint sections and 15 deck runs. Frozen on
+        /// 2026-10-25, when the six fictional venues and their four twins
+        /// came out of the catalog: every save written up to v21 stores
+        /// indices into THIS list (the older remaps above land on it), and
+        /// after a removal the only way to read one is by what it named. A
+        /// constant for the reason V10AuthoredCount is - it describes an OLD
+        /// layout. The self-test holds it to today's list: take the retired
+        /// ids out and what is left is <see cref="All"/>, in order.
+        /// </summary>
+        static readonly string[] V21Ids =
+        {
+            // authored, 0..20
+            "CityCircuit", "HarborPoint", "RidgePass", "AirfieldSprint", "DragQuarter", "DragEighth",
+            "Charlotte", "BlueRidge", "EmeraldIsle", "LangstonBridge", "AtlanticBeachBridge",
+            "MtMitchell", "BeechGap", "UptownLoop", "TryonSprint", "IndependenceSprint",
+            "BlowingRock", "LittleSwitzerland", "SwissNC226A", "GillespieGap", "ChimneyRock",
+            // twins, 21..33
+            "CityCircuitRev", "HarborPointRev", "RidgePassRev", "AirfieldSprintRev", "BlueRidgeRev",
+            "MtMitchellRev", "BeechGapRev", "TryonSprintRev", "BlowingRockRev", "LittleSwitzerlandRev",
+            "SwissNC226ARev", "GillespieGapRev", "ChimneyRockRev",
+            // sprint sections, 34..41
+            "BlowingRockSprint", "BlowingRockSprintRev", "SwissNC226AUpper", "SwissNC226AUpperRev",
+            "SwissNC226AMiddle", "SwissNC226AMiddleRev", "SwissNC226ALower", "SwissNC226ALowerRev",
+            // deck runs, 42..56
+            "DeckRunTryon", "DeckRunSeven", "DeckRunNine", "DeckRunTryonUp", "DeckRunTryonDown",
+            "DeckRunSevenUp", "DeckRunSevenDown", "DeckRunNineUp", "DeckRunNineDown",
+            "DeckRunUnivUp", "DeckRunUnivDown", "DeckRunUniv",
+            "DeckRunUnivThreeUp", "DeckRunUnivThreeDown", "DeckRunUnivThree",
+        };
+        /// <summary>How many of <see cref="V21Ids"/> were authored venues.</summary>
+        public const int V21AuthoredCount = 21;
+        public static int V21Count => V21Ids.Length;
+        /// <summary>The id at a v21 index, or null outside the list.</summary>
+        public static string V21IdAt(int v21Index) =>
+            v21Index >= 0 && v21Index < V21Ids.Length ? V21Ids[v21Index] : null;
+        /// <summary>A venue's index in the v21 layout, or -1 (for the tests
+        /// that write old saves).</summary>
+        public static int V21IndexOf(string id) => System.Array.IndexOf(V21Ids, id);
+
+        /// <summary>What a save stores for a venue that no longer exists:
+        /// the "none" every stored venue already understands.</summary>
+        public const int RetiredIndex = -1;
+
+        /// <summary>
+        /// A venue index in the V21 layout, on TODAY's list: the same id found
+        /// again, or <see cref="RetiredIndex"/> when that venue was removed
+        /// (v22: the fictional circuits). A negative index stays "none"; one
+        /// past the old list's end reads its last entry, as At() would have.
+        /// </summary>
+        public static int RemapV21Index(int v21Index)
+        {
+            if (v21Index < 0) return RetiredIndex;
+            string id = V21Ids[Mathf.Min(v21Index, V21Ids.Length - 1)];
+            return TryIndexOf(id, out int now) ? now : RetiredIndex;
+        }
+
+        /// <summary>The venues REMOVED at v22 and the names a career knew
+        /// them by, for the diary line that says what came off the calendar.
+        /// Kept only for that line: nothing can be raced on them.</summary>
+        static readonly Dictionary<string, string> RetiredNames = new Dictionary<string, string>
+        {
+            ["CityCircuit"] = "SUNSET CITY GP", ["CityCircuitRev"] = "SUNSET CITY GP II",
+            ["HarborPoint"] = "HARBOR POINT", ["HarborPointRev"] = "HARBOR POINT II",
+            ["RidgePass"] = "RIDGE PASS", ["RidgePassRev"] = "RIDGE PASS II",
+            ["AirfieldSprint"] = "AIRFIELD SPRINT", ["AirfieldSprintRev"] = "AIRFIELD SPRINT II",
+            ["DragQuarter"] = "DRAG STRIP — 1/4 MILE", ["DragEighth"] = "DRAG STRIP — 1/8 MILE",
+        };
+
+        /// <summary>Was this id removed from the game (v22)?</summary>
+        public static bool IsRetired(string id) => id != null && RetiredNames.ContainsKey(id);
+
+        /// <summary>The name of the venue at a v21 index, for a diary line:
+        /// the retired venue's old name, today's name for one that stands,
+        /// or "a closed circuit" when the index names nothing.</summary>
+        public static string V21NameAt(int v21Index)
+        {
+            string id = V21IdAt(v21Index);
+            if (id == null) return "a closed circuit";
+            if (RetiredNames.TryGetValue(id, out var n)) return n;
+            return TryIndexOf(id, out int now) ? All[now].name : "a closed circuit";
         }
 
         // ------------------------------------------------------------------

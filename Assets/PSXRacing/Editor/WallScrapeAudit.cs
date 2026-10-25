@@ -522,7 +522,7 @@ namespace PSXRacing.EditorTools
 
                 // WHAT THIS CONTROL CAN AND CANNOT ASK. It was written as "the
                 // step must stop the car", and PhysX does not do that on its
-                // own: measured on DragQuarter with the filter dropping
+                // own: measured on the old flat strip with the filter dropping
                 // nothing, a box sliding at 137 km/h moves 0.63 m a step, lands
                 // 0.58 m past a 30 cm step's face and 0.30 m into it sideways,
                 // and the solver takes the SHALLOW way out — sideways, for

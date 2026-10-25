@@ -2893,6 +2893,10 @@ namespace PSXRacing.LifeSim
                 monthlyHousingCost = 425,
                 foodStock = 4,
                 lastMealTier = "regular",
+                // The pre-race page's first venue. Index 0 is Charlotte's free
+                // roam since the fictional circuits went (v22), and that is
+                // not a race.
+                trackIndex = TrackCatalog.FirstOffered(),
             };
             s.creditScore = StartingCredit(s.age, s.money, job.name);
             // Same switch the in-career button uses, so the two entry points

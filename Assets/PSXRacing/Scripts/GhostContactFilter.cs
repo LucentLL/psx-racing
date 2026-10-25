@@ -23,7 +23,7 @@ namespace PSXRacing
     /// in a single step. The player's sweep CCD is worse than the discrete
     /// pass: it rewinds the car to the time of impact with the face and then
     /// kills the velocity along the face's normal. WallScrapeAudit measured
-    /// it: 76 dead stops in 2.3 km of DragQuarter, 136 to 20 km/h in one
+    /// it: 76 dead stops in 2.3 km of the old flat strip, 136 to 20 km/h in one
     /// 1/60 s step, one every 36 m.
     ///
     /// The builder now bakes each run as one closed mesh, which removes those

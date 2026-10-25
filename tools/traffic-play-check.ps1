@@ -3,9 +3,9 @@
 # and damage the player. With graphics, so it can save chase-camera frames
 # (Screenshots/traffic_*.png).
 #
-#   powershell -ExecutionPolicy Bypass -File tools/traffic-play-check.ps1 [-Venue RidgePass]
+#   powershell -ExecutionPolicy Bypass -File tools/traffic-play-check.ps1 [-Venue GillespieGap]
 #
-param([string]$Venue = "RidgePass", [switch]$NoWatch, [int]$MaxMinutes = 20)
+param([string]$Venue = "GillespieGap", [switch]$NoWatch, [int]$MaxMinutes = 20)
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot

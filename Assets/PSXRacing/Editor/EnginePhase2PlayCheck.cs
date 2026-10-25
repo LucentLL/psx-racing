@@ -43,10 +43,10 @@ namespace PSXRacing.EditorTools
             failures = 0;
             log.AppendLine("ENGINE AUDIO PHASE 2 PLAY CHECK " + System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
             var scenes = EditorBuildSettings.scenes;
-            int s = TrackCatalog.SceneIndex(0);
+            int s = TrackCatalog.SceneIndex(TrackCatalog.CheckVenue);
             if (s < 0 || s >= scenes.Length || !File.Exists(scenes[s].path))
             {
-                Check(false, "the venue " + TrackCatalog.At(0).id + " is built");
+                Check(false, "the venue " + TrackCatalog.At(TrackCatalog.CheckVenue).id + " is built");
                 Finish();
                 EditorApplication.Exit(1);
                 return;
@@ -55,7 +55,7 @@ namespace PSXRacing.EditorTools
             EditorSceneManager.OpenScene(scenes[s].path);
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;
-            RaceHandoff.TrackIndex = 0;
+            RaceHandoff.TrackIndex = TrackCatalog.CheckVenue;
             RaceHandoff.CalendarDay = 0;
             RaceHandoff.TimeOfDayIndex = TimeOfDay.Noon;
             RaceHandoff.CarSpecId = Player;

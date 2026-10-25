@@ -10,7 +10,7 @@
 #
 #   powershell -ExecutionPolicy Bypass -File tools\camframe-probe.ps1
 #   ... -Rig legacy          the rig every scene carried on 2026-09-28
-#   ... -Venue DragQuarter   another built venue
+#   ... -Venue EmeraldIsle   another built venue
 #   ... -NoPng               numbers only
 #   ... -Cars a,b            only these shells (keys, comma-separated)
 #   ... -Spec worst          each shell on the catalog car that stretches it

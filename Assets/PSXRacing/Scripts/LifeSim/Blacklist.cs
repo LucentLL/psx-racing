@@ -484,10 +484,17 @@ namespace PSXRacing.LifeSim
         /// so a series rolls exactly the venue it always rolled. MAIN ships no
         /// Charlotte, and five of the ten names are "city" rivals whose turf
         /// was Tryon, the 277 and Independence: filtered, every one of their
-        /// series would land on Sunset City GP. So a pool left with fewer than
-        /// two roads takes the oval circuits in beside it — the closest thing
-        /// MAIN has to a street race. (The owner decides whether city rivals
-        /// should have a turf of their own in MAIN; this keeps them racing.)
+        /// series would land on the first venue offered. So a pool left with
+        /// fewer than two roads takes the circuits in beside it — the Parkway
+        /// loops, the closest thing MAIN has to a street race. (The owner
+        /// decides whether city rivals should have a turf of their own in
+        /// MAIN; this keeps them racing.)
+        ///
+        /// Every road here is a real place: the fictional circuits and strips
+        /// that were the drag and oval pools came out of the game on
+        /// 2026-10-25 (save v22). "oval" is a closed CIRCUIT now - the 277
+        /// belt and the two Parkway loops - and the strip is Emerald Isle's
+        /// quarter mile, with the Langston high-rise beside it.
         /// </summary>
         public static System.Collections.Generic.List<string> PoolFor(string style)
         {
@@ -503,9 +510,9 @@ namespace PSXRacing.LifeSim
             return pool;
         }
 
-        static readonly string[] DragVenues = { "DragQuarter", "DragEighth", "LangstonBridge" };
-        static readonly string[] OvalVenues = { "CityCircuit", "HarborPoint", "AirfieldSprint" };
-        static readonly string[] CityVenues = { "TryonSprint", "UptownLoop", "IndependenceSprint", "CityCircuit" };
+        static readonly string[] DragVenues = { "EmeraldIsle", "LangstonBridge" };
+        static readonly string[] OvalVenues = { "BlowingRock", "LittleSwitzerland", "UptownLoop" };
+        static readonly string[] CityVenues = { "TryonSprint", "UptownLoop", "IndependenceSprint" };
 
         static string VenueName(int trackIndex) =>
             trackIndex >= 0 && trackIndex < TrackCatalog.Count
@@ -543,6 +550,22 @@ namespace PSXRacing.LifeSim
             int now = PickVenue(ByAlias(ch.alias), ch.openedDay);
             ch.trackIndex = now >= 0 ? now : TrackCatalog.FirstOffered();
             return was;
+        }
+
+        /// <summary>
+        /// A series whose road was REMOVED from the game (save v22: the
+        /// fictional circuits) gets a new one, from the same rival's pool and
+        /// the same seed as it would be rolled today - the shape of
+        /// <see cref="RepointSeries"/>, for a road no build has any more.
+        /// Legs already run stand. Returns the new road's index.
+        /// </summary>
+        public static int RehomeSeries(LifeState s)
+        {
+            var ch = s != null ? s.blChallenge : null;
+            if (ch == null) return -1;
+            int now = PickVenue(ByAlias(ch.alias), ch.openedDay);
+            ch.trackIndex = now >= 0 ? now : TrackCatalog.FirstOffered();
+            return ch.trackIndex;
         }
 
         /// <summary>Stamp a leg as GONE TO THE START LINE. From here on it can

@@ -59,7 +59,10 @@ namespace PSXRacing
                        note = "an underpass: the road under the Samuel Street deck, else under the nearest deck to it" },
             new Spot { id = "S2",  venue = "BlowingRock", how = "grid", note = "Blowing Rock at its start: the snow stretch" },
             new Spot { id = "S3",  venue = "BlueRidge", how = "grid", note = "a mountain stage with no lamps (nl_blueridge_chase)" },
-            new Spot { id = "CC",  venue = "CityCircuit", how = "grid", note = "the circuit's grid: the psx_hour_* view (S4 at dusk)" },
+            // "CC" was Sunset City GP's grid until the fictional circuits went
+            // (2026-10-25); the id stays so the shot names and the passes that
+            // ask for it keep working, on a real road's grid.
+            new Spot { id = "CC",  venue = "GillespieGap", how = "grid", note = "Gillespie Gap's grid: the psx_hour_* view (S4 at dusk)" },
             new Spot { id = "T1",  venue = "LittleSwitzerland", how = "path", alongM = 3962f, note = "30 m short of the tunnel (3992-4180 m), looking in" },
             new Spot { id = "T2",  venue = "LittleSwitzerland", how = "path", alongM = 4086f, note = "inside the tunnel bore" },
             // The colour pass's C5 (the low beam): a road that is FLAT and
@@ -67,7 +70,7 @@ namespace PSXRacing
             // plateau is read on the road it lights and not on a verge, a
             // crest or the far side of a bend (S3's stage road bends away by
             // 31 m and climbs out of the cutoff by 40).
-            new Spot { id = "B1",  venue = "DragQuarter", how = "grid", note = "the quarter-mile strip: flat and straight, the low beam's measuring road" },
+            new Spot { id = "B1",  venue = "EmeraldIsle", how = "grid", note = "Emerald Isle's quarter mile: flat and straight, the low beam's measuring road" },
             // Review (2026-09-29): downtown Charlotte, where lit window walls
             // stand over fresh asphalt - the low beam on the owner's darkest
             // road next to the brightest emitters, and the lens over them.

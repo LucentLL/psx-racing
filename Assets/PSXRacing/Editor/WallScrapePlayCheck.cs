@@ -54,7 +54,7 @@ namespace PSXRacing.EditorTools
         /// (guard walls, cut banks, tunnels) and the city's Jerseys: one of
         /// every kind of wall the game builds.</summary>
         internal const string DefaultVenues =
-            "DragQuarter,LangstonBridge,HarborPoint,BeechGap,LittleSwitzerland,UptownLoop";
+            "EmeraldIsle,LangstonBridge,BeechGap,LittleSwitzerland,UptownLoop";
 
         internal static StringBuilder log;
         internal static int failures;
