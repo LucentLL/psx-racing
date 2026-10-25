@@ -7407,3 +7407,81 @@ and puts an AIDriver on the player's car (curvature read 2.5x: deck speed).
 | 500997294 | 6 | - | stuck at wp 46 | taken off the whitelist |
 
 PSX_DECKS=0 leaves every deck the solid building it was.
+
+## THE DRAWN PROFILE (smooth-sags, 2026-10-25): vertical curves on every grade break
+
+The owner, from a night race through Charlotte at ~150 mph: "Every bump in the
+road is angular instead of rounded/smooth and causes harsh bottoming out ...
+Roads need to be smoothed, no harsh angles to adjust height/elevation, ever."
+
+Every reader joined the solve's 10 m stations with straight lines
+(`Edge.YAt`), so every station was a grade break: the 4.5% feet of humps and
+cones, trench Vs under street bridges, seat climb-outs, DEM cell breaks, two
+arms meeting at a node. The crest limiter (`VerticalCurves`) spreads a crest
+over stations but each station is still a corner, and it leaves sags alone.
+Three earlier tries rounded sags INSIDE the solve and pumped against its pins
+(PSX_CITY_VSAG, raise-only sags, designed trench cuts).
+
+**The pass (`Scripts/City/CityElevation.VSmooth.cs`, `DrawnProfile`)** runs
+after the solve has settled and never feeds back into it. The stations
+(`stS/stY`) and every audit that reads them stay exactly as solved; each edge
+gets a drawn profile (`Edge.vS/vY`, knots) that `YAt` returns, and the solve's
+own heights are `Edge.StationYAt`. The tile builder samples the ribbon at
+every knot (`Edge.ProfileKnots` in `SamplePositions`, and the host's knots
+for a clipped branch), the race path too (`CityMode`), so the ribbon, its
+collider, paint, verges, decks, the land graded to the road and every path
+read one curved surface.
+
+- Chains run through two-arm nodes and each junction's MAJOR through pair
+  (the pair `VerticalCurves` keeps level across); each break A gets a
+  parabolic vertical curve y += A/(2L)(L/2 - |u - u_k|)^2, the sum C1
+  everywhere, L = R A with R = AASHTO's comfort radius at the design speed
+  (sags, `SagComfortR(VerticalMph)`) or the crest limiter's (`CrestR`).
+- Bounds per station, the curves shortened to fit (a curve beside a deck
+  stops short of it): the road under a deck rises only while its clearance
+  stays over ClearanceM - 0.1 m; the deck over it falls 3 cm at most; on
+  structure, a water span or a creek pipe 3 cm of lowering; a sag rises at
+  most 1.0 m on a freeway or ramp, 0.5 m on a street; a crest falls at most
+  0.15 m. Where a deck or structure holds a curve's own side, the other side
+  makes room (a trench floor DUG round its break, up to 0.6 m, tapers of at
+  most 1.5%; a crest on a deck LIFTED).
+- A seated station (ramp seats, street-branch seats) follows its host's
+  drawn change (found again by projection: the seat lists predate
+  `UnionAbutments`' inserted stations) and its own curves stay within 4 cm
+  (10 cm at a run's last station); a minor arm takes its junction's change
+  and cross-grade and eases it off (C1 Hermite, 40-150 m). Chains drawn
+  before the junction they end at are redrawn (3 rounds).
+- Knots: as many chords as keep the grade change from one to the next under
+  0.45% on freeways, ramps and arterials (0.9% on collectors and locals), no
+  shorter than 0.6 m.
+- PSX_CITY_VSMOOTH=0 = the old profile; `CityElevation.ApplyVSmooth(map, on)`
+  switches it in the editor without a re-solve.
+
+**Measured** (`Editor/CityVSmoothCensus.cs`, `tools/city-vsmooth.ps1 [-Routes]
+[-Launch]`: the ribbon read off the tile builder's own mesh, both ways in one
+job; every road tile, 10,303). Breaks over 0.5% between drawn sections where
+the mesh is on the profile, BEFORE -> AFTER: freeway 4,669 -> 293 (over 2%:
+2,106 -> 61), ramps 5,720 -> 3,085 (808 over 1%), arterials 13,026 -> 1,893,
+node joints over 0.5% freeway 542 -> 8, arterial 3,211 -> 17; tight crests
+freeway 921 -> 161. Collectors and locals count their 0.9% chords (over 1%:
+3,120 -> 283 and 2,422 -> 50). Launch audit city-wide: LAUNCH T1/T2/T3 52/69/8
+-> 28/27/6, UNLOAD 247/384/64 -> 154/215/37. Vertical acceleration at 150 mph
+(2.5 m wheelbase) on the race routes, p99: Uptown Loop 6.05 -> 1.72 g,
+Tryon 3.40 -> 1.79 g, Independence 2.32 -> 0.96 g. Cost: 722,782 knots on
+22,335 edges, drawn sections +30%, the pass ~2 s in the editor. (Measured
+before the last two refinements - a curve beside a deck now stops short of it
+instead of shrinking to nothing, and a street's sag rises 0.5 m at most - which
+only the play check saw; re-run `tools/city-vsmooth.ps1 -Launch`, ~55 min.)
+Twin decks side by side: p50 6 -> 16 mm, p95 0.275 -> 0.291 m. The PROFILE
+audit reads the stations, which do not move. `tools/city-play-check.ps1`: the
+drive-off's "fills and cuts" FAIL was there before (PSXBuild 2026-10-16: 0 cut
+spots on the routes), and its North Tryon Street fill (e4746 s 40, the same
+spot and the same -2.0 m) now ends in the building 6.3 m past the edge instead
+of 9.2 m (the 10-16 run hit it too, slowly); not separated from main's other
+changes since 10-16.
+
+**Left:** seat climb-outs (a ramp's 8% climb off its host's pavement can only
+be rounded within the seat's 4-10 cm), trench Vs whose floor cannot be dug
+(held by structure or another crossing), junction fans' own geometry
+(`JoinBuriedEnds`' linear eases - mesh off the profile), COMPRESSION spots
+counted per 6 m along curves still tighter than comfort.

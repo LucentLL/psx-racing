@@ -223,9 +223,52 @@ namespace PSXRacing.City
                 return lo;
             }
 
-            /// <summary>Road surface height at an arc position, from the solved
-            /// stations.</summary>
+            /// <summary>THE DRAWN PROFILE (2026-10-25, the owner: "every bump in
+            /// the road is angular ... no harsh angles to adjust height,
+            /// ever"; CityElevation.VSmooth). The solve's stations are joined by
+            /// straight lines, so every station was a grade break. After the
+            /// solve has settled, a presentation pass rounds every break with a
+            /// vertical curve and leaves the curve here as KNOTS (arc position,
+            /// height), close enough that no two segments differ by more than
+            /// ~0.45% of grade. Null: the edge needed nothing, and
+            /// <see cref="YAt"/> reads the stations. The solve itself never
+            /// sees these (they are cleared when it starts, and set after it
+            /// has settled).</summary>
+            public float[] vS, vY;
+
+            /// <summary>Road surface height at an arc position: the drawn
+            /// profile (<see cref="vS"/>) when the presentation pass gave the
+            /// edge one, else the solved stations.</summary>
             public float YAt(float at)
+            {
+                if (vS == null) return StationYAt(at);
+                at = Mathf.Clamp(at, 0f, length);
+                int lo = 0, hi = vS.Length - 2;
+                while (lo < hi)
+                {
+                    int mid = (lo + hi + 1) >> 1;
+                    if (vS[mid] <= at) lo = mid; else hi = mid - 1;
+                }
+                float seg = vS[lo + 1] - vS[lo];
+                float t = seg > 1e-6f ? (at - vS[lo]) / seg : 0f;
+                return Mathf.LerpUnclamped(vY[lo], vY[lo + 1], Mathf.Clamp01(t));
+            }
+
+            /// <summary>Every knot of the drawn profile strictly inside
+            /// (s0 + pad, s1 - pad), into <paramref name="into"/>: a ribbon
+            /// sampled at these (and its stations) is the drawn profile
+            /// exactly. Adds nothing on an edge without one.</summary>
+            public void ProfileKnots(List<float> into, float s0, float s1, float pad)
+            {
+                if (vS == null) return;
+                for (int i = 1; i + 1 < vS.Length; i++)
+                    if (vS[i] > s0 + pad && vS[i] < s1 - pad) into.Add(vS[i]);
+            }
+
+            /// <summary>The solved stations' height at an arc position,
+            /// straight between them: what the solve reads, and the base the
+            /// drawn profile is measured from.</summary>
+            public float StationYAt(float at)
             {
                 at = Mathf.Clamp(at, 0f, length);
                 int lo = 0, hi = stS.Length - 2;

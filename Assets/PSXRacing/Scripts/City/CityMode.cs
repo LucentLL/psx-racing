@@ -385,6 +385,8 @@ namespace PSXRacing.City
                 marks.Clear();
                 for (int i = 0; i < e.s.Length; i++) marks.Add(e.s[i]);
                 if (e.stS != null) for (int i = 0; i < e.stS.Length; i++) marks.Add(e.stS[i]);
+                // and the drawn profile's knots, where its vertical curves bend
+                e.ProfileKnots(marks, 0f, e.length, 0f);
                 // and through its tapers, where the lanes' centre eases over
                 LineModel.TaperSamples(e, 0f, e.length, marks);
                 // and through a ramp's merge zone, where it drives the host's aux lane (L5)
