@@ -131,6 +131,8 @@ namespace PSXRacing
             // Re-read the fuel row on the way in: its price is a function of
             // how empty the tank is right now.
             if (v && fuelLabel != null) fuelLabel.text = FuelLabel();
+            // And the temperatures out there (weather layers, 2026-10-25).
+            if (v && weatherLabel != null) weatherLabel.text = Seasons.TempLine(Seasons.Now);
 
             // Put the cursor on RESUME when the panel opens, and take it off
             // when it closes. A UGUI navigation event goes to whatever is
@@ -260,6 +262,9 @@ namespace PSXRacing
             settings.Open(at);
         }
         Text fuelLabel;
+        /// <summary>The air, the road and the bridges right now, under the
+        /// footer (filled when the menu opens).</summary>
+        Text weatherLabel;
 
         FuelTank Tank => playerCar != null ? playerCar.GetComponent<FuelTank>() : null;
 
@@ -525,6 +530,11 @@ namespace PSXRacing
                                              LifeSim.MenuKit.MinLabelSize, top, new Vector2(0f, y),
                                              TextAnchor.MiddleCenter, LifeSim.MenuKit.Dim, stripW, 26f);
             foot.name = "Footer";
+            y -= 30f;
+            weatherLabel = LifeSim.MenuKit.Label(panel.transform, "", LifeSim.MenuKit.MinLabelSize, top,
+                                                 new Vector2(0f, y), TextAnchor.MiddleCenter, LifeSim.MenuKit.Dim,
+                                                 stripW, 26f);
+            weatherLabel.name = "Weather";
 
             MenuNav.Column(menuItems);
             var navWatch = MenuNav.Watch(gameObject, menuItems[0]);

@@ -31,6 +31,13 @@ namespace PSXRacing.EditorTools
 
         static StringBuilder notes;
 
+        /// <summary>The climate self-test, then the matrix: one Unity job.</summary>
+        public static void RunWithSelfTest()
+        {
+            LifeSimSelfTest.RunWeather();
+            Run();
+        }
+
         public static void Run()
         {
             notes = new StringBuilder();

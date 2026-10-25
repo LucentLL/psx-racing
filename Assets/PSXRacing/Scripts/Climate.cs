@@ -149,15 +149,22 @@ namespace PSXRacing
         public const float LapseCPerKm = 6.0f;
         public const float BooneElevM = 1016f, CltElevM = 222f, CoastElevM = 5f;
 
-        /// <summary>Air at or below this falls as snow. With
-        /// <see cref="PrecipWarmC"/> it was TUNED on the climate printout (10
-        /// simulated years) to the three stations' snow days: CLT 2.2 a year
-        /// (normal 1.9) at 3.9 in (3.5), Boone 14.6 (14.2) at 30 in (25.6),
-        /// Morehead City 0.2 at 0.3 in (0.8 in, no snow-day month).</summary>
-        public const float SnowAirC = -1.0f;
+        /// <summary>
+        /// Air at or below this falls as snow. TUNED, with the three below, on
+        /// the climate printout (30 simulated years) against the stations'
+        /// snow: CLT 2.6 snow days a year at 3.9 in (normal 1.9 days, 3.5 in),
+        /// Boone 13.9 at 26.6 in (14.2, 25.6), Morehead City 0.3 at 0.7 in
+        /// (0.8 in, no month with a snow day) - while every month's mean
+        /// high and low stays within ~1 C of the normals.
+        /// </summary>
+        public const float SnowAirC = -2.0f;
         /// <summary>Winter rain comes on a warm wind: a stratiform day's air
-        /// runs this much above the day's anomaly (clouds, warm advection).</summary>
+        /// runs this much above the day's anomaly (cloud, warm advection);
+        /// the dry days give it back so the month's mean holds.</summary>
         public const float PrecipWarmC = 4.0f;
+        /// <summary>The sea keeps the coast's rain warmer again, and its snow
+        /// needs a colder airmass.</summary>
+        public const float CoastPrecipExtraC = 2.0f, CoastSnowExtraC = -1.5f;
 
         /// <summary>Chance a snow event's roads get treated (brine ahead,
         /// salt/plough after): main roads in a city that owns the trucks.</summary>
@@ -307,11 +314,10 @@ namespace PSXRacing
             Normals(r, elevM, day, out float nHi, out float nLo);
             float sd = AnomSdC[m] * (r == ClimateRegion.Mountains ? 1.05f : r == ClimateRegion.Coast ? 0.8f : 1f);
             double z = (0.62 * Smooth(ST3, day, 3) + 0.55 * Smooth(ST12, day, 12) + 0.40 * Gauss(STW ^ rs, day)) / 0.92;
-            rec.anomC = (float)(z * sd);
-
             Station(r, out _, out _, out var prcp, out _);
             int dim = DateTime.DaysInMonth(DateOf(day).Year, m + 1);
             double pi = Math.Min(0.9, prcp[m] / dim);
+            rec.anomC = (float)(z * sd);
             double zp = (0.80 * Smooth(SP2, day, 2) + 0.60 * Gauss(SPW ^ rs, day));
             double wetScore = Phi(zp);
             rec.precipDay = wetScore > 1.0 - pi;
@@ -334,7 +340,8 @@ namespace PSXRacing
                     rec.amountMm = 2f + (float)(16.0 * ua);
                 }
                 // Cloud holds the day's range in: cooler afternoon, milder night.
-                float warm = rec.convective ? 0f : PrecipWarmC;
+                // The sea keeps the coast's rain a little warmer again.
+                float warm = rec.convective ? 0f : PrecipWarmC + (r == ClimateRegion.Coast ? CoastPrecipExtraC : 0f);
                 rec.hiC = nHi + rec.anomC + warm - (rec.convective ? 0.10f : 0.30f) * range;
                 rec.loC = nLo + rec.anomC + warm + (rec.convective ? 0.0f : 0.12f) * range;
                 rec.drySky = rec.convective ? SkyKind.PartlyCloudy : SkyKind.Overcast;
@@ -345,6 +352,10 @@ namespace PSXRacing
                 // A dry day's cloud: days near the wet threshold are greyer.
                 double c = 0.6 * wetScore + 0.4 * us;
                 rec.drySky = c > 0.80 ? SkyKind.Overcast : c > 0.50 ? SkyKind.PartlyCloudy : SkyKind.Clear;
+                // The dry days give back the rain days' warmth (PrecipWarmC),
+                // so the month's mean stays the normal's.
+                rec.anomC -= (PrecipWarmC + (r == ClimateRegion.Coast ? CoastPrecipExtraC : 0f)) *
+                             (float)(pi * (1.0 - ConvectiveShare[m]) / (1.0 - pi));
                 rec.afterSky = rec.drySky;
                 float k = rec.drySky == SkyKind.Overcast ? -0.15f : rec.drySky == SkyKind.Clear ? 0.05f : 0f;
                 rec.hiC = nHi + rec.anomC + k * range;
@@ -424,6 +435,7 @@ namespace PSXRacing
             for (int i = 0; i < t.rec.Length; i++) t.rec[i] = Day(r, elevM, first - 1 + i);
             t.hours = new Hour[t.days * 24];
             uint rs = RSeed(r);
+            float snowAt = SnowAirC + (r == ClimateRegion.Coast ? CoastSnowExtraC : 0f);
 
             // Snow events and their treatment, found first so the brine can go
             // down ahead of the storm.
@@ -437,7 +449,7 @@ namespace PSXRacing
                 {
                     int di = i + (int)(h / 24f);
                     if (di + 2 >= t.rec.Length) break;
-                    if (AirAt(t.rec[di], t.rec[di + 1], t.rec[di + 2], h % 24f) <= SnowAirC + 1f) { snows = true; break; }
+                    if (AirAt(t.rec[di], t.rec[di + 1], t.rec[di + 2], h % 24f) <= snowAt + 1f) { snows = true; break; }
                 }
                 if (!snows) continue;
                 int startH = i * 24 + (int)d.pStart, endH = i * 24 + (int)(d.pStart + d.pDur);
@@ -471,7 +483,7 @@ namespace PSXRacing
                         amtPerH = src.amountMm / Math.Max(1f, src.pDur);
                         rate = conv ? 1f : Math.Min(1f, 0.45f + amtPerH / 4f);
                     }
-                    PrecipKind pk = rate <= 0f ? PrecipKind.None : air <= SnowAirC ? PrecipKind.Snow : PrecipKind.Rain;
+                    PrecipKind pk = rate <= 0f ? PrecipKind.None : air <= snowAt ? PrecipKind.Snow : PrecipKind.Rain;
 
                     // The sky this hour.
                     SkyKind sky;
@@ -512,7 +524,7 @@ namespace PSXRacing
                     // The scenery: snow lies where it falls cold enough and goes
                     // with the warmth and the sun; the ground stays wet longer
                     // than the road.
-                    if (pk == PrecipKind.Snow && air <= SnowAirC + 1.5f) depth += amtPerH;
+                    if (pk == PrecipKind.Snow && air <= snowAt + 1.5f) depth += amtPerH;
                     else if (pk == PrecipKind.Rain) depth -= 0.25f * amtPerH;   // rain on snow
                     depth -= 0.06f * Math.Max(0f, air) + 0.25f * s * (1f - cloud) * sinNoon;
                     if (depth < 0f) depth = 0f;
@@ -574,6 +586,12 @@ namespace PSXRacing
             {
                 float m = Math.Min(d.slush, 0.08f + 0.04f * Math.Max(0f, T) + 0.04f);
                 d.slush -= m; d.water = Math.Min(1f, d.water + 0.8f * m);
+            }
+            // A treated road's ploughs and salt turn snow already lying into slush.
+            if (treated && d.snow > 0f)
+            {
+                float m = Math.Min(d.snow, 0.35f);
+                d.snow -= m; d.slush = Math.Min(1f, d.slush + m);
             }
             // Snow on an untreated deck: melts in the warmth, packs under traffic.
             if (d.snow > 0f)
