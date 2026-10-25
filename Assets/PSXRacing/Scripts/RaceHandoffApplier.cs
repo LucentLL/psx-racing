@@ -80,6 +80,16 @@ namespace PSXRacing
             // Play still gives the sunset the scene was built with, because
             // that is the default the handoff clears to.
             TimeOfDay.Apply(RaceHandoff.TimeOfDayIndex, sun);
+            // THE SCENERY AND WHAT FALLS follow the hour just set (weather
+            // layers, 2026-10-25): SeasonDress dressed the scene in its Awake,
+            // possibly before this hour existed, and snow can fall at dawn and
+            // be gone by the afternoon.
+            var dressNow = Object.FindFirstObjectByType<SeasonDress>();
+            if (dressNow != null)
+            {
+                if (SeasonDress.AppliedDress != Seasons.CurrentDress) dressNow.Apply(Seasons.CurrentDress);
+                if (dressNow.weatherFx) WeatherFx.Set(Seasons.CurrentPrecipWeather);
+            }
 
             if (!RaceHandoff.FromLifeSim) return;
 
