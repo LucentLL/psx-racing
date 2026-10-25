@@ -2887,7 +2887,7 @@ namespace PSXRacing
             weatherOffroadGrip = Seasons.OffroadGripMult;
             wetT = Seasons.WetT(weatherRoadGrip);
             anyWheelGrounded = false;
-            for (int i = 0; i < 4; i++) bumpLimit[i] = BumpLimit(i);
+            for (int i = 0; i < 4; i++) { bumpStart[i] = BumpStart(i); bumpLimit[i] = bumpStart[i] + BumpRubberLen; }
             int roadHits = 0, hits = 0;
             for (int i = 0; i < 4; i++)
             {
@@ -2935,10 +2935,10 @@ namespace PSXRacing
                     if (preload > 0f) spring = Mathf.Min(spring, TyreVerticalRate * compression);
                     float force = Mathf.Max(0f, spring + c * compressionVel);
                     force = Mathf.Min(force, wheelStatic * maxSuspensionForceRatio);
-                    // The bump rubber, over the last BumpRubberLen before the
-                    // tyre would meet the body - outside the cap, which is
-                    // exactly what let a landing drive the wheel through the
-                    // arch. Zero anywhere short of it (see BumpStops).
+                    // The jounce bumper, over the BumpRubberLen before the hard
+                    // stop - outside the cap, which is exactly what let a
+                    // landing drive the wheel through the arch. Zero anywhere
+                    // short of it (see BumpStops).
                     force += BumpRubberForce(i, compression, compressionVel, wheelStatic);
                     wheelLoad[i] = force;
                     // How fast the GROUND rose under this wheel, apart from the
@@ -3026,10 +3026,11 @@ namespace PSXRacing
         // landing put tyres 17-23 cm up through the bonnet). CarBody now knows
         // where the bodywork is over each tyre (HubMax, from ArchCeilings),
         // and the suspension ends:
-        //   1. in a jounce RUBBER over the last BumpRubberLen, rising with the
-        //      square of the squash - a firm cushion, not a wall;
-        //   2. at a HARD STOP at the arch or BumpTravelMin above the settled
-        //      ride, whichever is higher: the corner's closing speed is taken
+        //   1. in a JOUNCE BUMPER over the last BumpRubberLen (2026-10-25: 7
+        //      cm of progressive foam, see BumperPush), met where the old 2 cm
+        //      rubber began - BumperTravel over the settled ride, or 2 cm
+        //      short of the arch, whichever is higher;
+        //   2. at a HARD STOP where the bumper goes solid: the corner's closing speed is taken
         //      out (an inelastic contact, solved over every corner on its stop
         //      together, so a flat landing on four is not four stops each
         //      fighting alone) and the body takes the load through the stop;
@@ -3041,18 +3042,68 @@ namespace PSXRacing
         // a threshold, a bent-suspension fault - a fault with a cause.
         // Ordinary driving never reaches the rubber (BumpStopShots measures
         // it), so the car drives exactly as it did.
+        //
+        // THE BUMPER (owner, 2026-10-25: "Stock suspension almost NEVER
+        // bottoms out, but every car currently bottoms out on every bump").
+        // The first stop was a 2 cm rubber (3x static at full squash) in
+        // front of a wall 8.5 cm over the settled ride. Measured on the I-277
+        // loop at race pace (SuspensionRideCheck, 150 s, ~6.4 km a car): the
+        // '70 Charger struck that wall 102-112 times (31-36 of them at 2 m/s
+        // and up, the clunk), the reference FD 78 times (30) - every one a
+        // speed scrub and camera trauma. Two reasons. The cars carry their
+        // downforce on their springs (70% of the weight at their own top
+        // speed): a soft stock car - the Charger's springs are 2.2 / 2.0
+        // kgf/mm, 18-20 cm of natural sag against the FD's 7-9 - sits on its
+        // rubber from ~110 mph and rode there half the race. And the rubber
+        // was too short to stop anything: a road's kink or step at 100 mph
+        // closes a corner at 1-4 m/s, which 2 cm of 3x static cannot take
+        // out, so the wall did, every time.
+        // A real jounce bumper is several centimetres of micro-cellular foam,
+        // soft at first contact and rising steeply (a road car's runs to ~5-8x
+        // static before it blocks), and it gives back about half of what it
+        // took (hysteresis). That is this one: met where the rubber began (so
+        // nothing that never reached the rubber changes), 7 cm long, the hard
+        // stop where it goes solid. A car riding low on its aero rides on the
+        // soft start of its bumper, a rising-rate spring; the wall is for what
+        // a real car bottoms on too - a landing, a big kerb, a kink no road
+        // should have. The same loop after: the Chargers 46-50 hits (25-26
+        // clunks), the FD 22 (17), and 30 of the player's 50 came within
+        // 0.4 s of a 2-5 deg grade break at 100+ mph (the road's angular
+        // profile: an energy no stock suspension takes out); a 150 mph
+        // freeway with a 0.5 deg break every 15 m, 21 hits -> 0. Nothing
+        // that stayed off the old rubber moved (BumpStopShots' and
+        // SuspensionRideCheck's control drives end on the same centimetre).
 
         /// <summary>The tyre stops this far short of the paint (m).</summary>
         public const float BumpMargin = 0.005f;
-        /// <summary>Length of the jounce rubber ahead of the hard stop (m).</summary>
-        public const float BumpRubberLen = 0.02f;
-        /// <summary>The rubber's push fully squashed, as a multiple of the
-        /// wheel's static load; it rises with the square of the squash (900
-        /// kN/m at full squash on the reference car - stiff, and still well
-        /// inside what a 60 Hz step integrates).</summary>
-        public const float BumpRubberLoad = 3f;
-        /// <summary>The rubber's damping at full squash, N s/m.</summary>
+        /// <summary>Length of the jounce bumper, first contact to solid (the
+        /// hard stop), m.</summary>
+        public const float BumpRubberLen = 0.07f;
+        /// <summary>The bumper's push at solid, as a multiple of the wheel's
+        /// static load (a road car's foam bumper runs to ~5-8x before it
+        /// blocks). Progressive: see <see cref="BumperPush"/>. Not more: 8x
+        /// took no more hits on the I-277 trace and fired the car harder off
+        /// a 15 cm kerb (the push a wheel stepped past solid in one tick gets).</summary>
+        public const float BumpRubberLoad = 6f;
+        /// <summary>How progressive the bumper is: its push is
+        /// Load x (e^(Curve t) - 1) / (e^Curve - 1) at squash share t - 0.2x
+        /// static a quarter of the way in, 0.7x at half, 2.1x at three
+        /// quarters (rate at solid ~1.1 MN/m on the reference car, well inside
+        /// what a 60 Hz step integrates).</summary>
+        public const float BumpRubberCurve = 4f;
+        /// <summary>Share of its push the foam gives back while it recovers
+        /// (the bumper's hysteresis): the energy of a hit is taken, not handed
+        /// back to throw the car off the kerb that caused it.</summary>
+        public const float BumpRubberReturn = 0.5f;
+        /// <summary>Extension speed over which the push blends down to its
+        /// return share (m/s): no step at the turn of a stroke.</summary>
+        const float BumpRubberReturnBlend = 0.05f;
+        /// <summary>The bumper's damping at full squash, N s/m.</summary>
         public const float BumpRubberDamp = 2500f;
+        /// <summary>The bumper's push at squash share <paramref name="t"/>
+        /// (0 = first contact, 1 = solid), x the wheel's static load.</summary>
+        public static float BumperPush(float t) =>
+            BumpRubberLoad * (Mathf.Exp(BumpRubberCurve * t) - 1f) / (Mathf.Exp(BumpRubberCurve) - 1f);
         /// <summary>Push-out from an overshoot of the hard stop: per metre of
         /// overshoot, and its cap (m/s). Small on purpose - the stop takes the
         /// closing speed away; this only walks a residual few mm back out.</summary>
@@ -3081,7 +3132,7 @@ namespace PSXRacing
         /// <summary>Per wheel: in the rubber or on the stop this tick.</summary>
         public bool InBumpRubber(int i) => bumpInRubber[i];
 
-        readonly float[] bumpLimit = new float[4];
+        readonly float[] bumpLimit = new float[4], bumpStart = new float[4];
         readonly float[] bumpGroundRate = new float[4];
         readonly float[] bumpHitClock = { 9f, 9f, 9f, 9f };
         readonly bool[] bumpOnStop = new bool[4];
@@ -3111,31 +3162,40 @@ namespace PSXRacing
         }
 
         /// <summary>
-        /// THE STOP'S TRAVEL, from the settled ride (m). The shells leave a
+        /// THE BUMPER'S TRAVEL, from the settled ride (m). The shells leave a
         /// tyre 2-4 cm under its arch (median 2 cm across the catalog with the
         /// sheet's tyres; PSXRacing_archroom.txt) while ordinary hard driving
         /// uses 4-7 cm of travel (BumpStopShots: full throttle, a 0.45-lock
-        /// corner, a stop from 80 km/h, a slalom). A stop AT the arch would
-        /// ride every car on its rubber through every corner - a different
-        /// car. So the hard stop sits at the arch or this far above the
-        /// settled ride, whichever is higher, from the ride the car has NOW (a
-        /// lowered car keeps its travel and its handling); and the render-only
-        /// shell rides up on any tyre that reaches its arch first
-        /// (CarBodyLean), so no tyre is ever drawn through the paint.
+        /// corner, a stop from 80 km/h, a slalom; the Charger 5.6 / 6.7). A
+        /// bumper AT the arch would ride every car on it through every corner
+        /// - a different car. So the bumper is met this far above the settled
+        /// ride or 2 cm short of the arch, whichever is higher, from the ride
+        /// the car has NOW (a lowered car keeps its travel and its handling) -
+        /// exactly where the first stop's 2 cm rubber began - and goes solid
+        /// BumpRubberLen on; the render-only shell rides up on any tyre that
+        /// reaches its arch first (CarBodyLean), so no tyre is ever drawn
+        /// through the paint.
         /// </summary>
-        public const float BumpTravelMin = 0.09f;
+        public const float BumperTravel = 0.07f;
+        /// <summary>Where the arch places the bumper instead: this far short of
+        /// the tyre meeting the paint (m).</summary>
+        const float BumperArchShort = 0.02f;
 
-        /// <summary>The compression at which wheel <paramref name="i"/>'s hard
-        /// stop is met (see <see cref="BumpTravelMin"/>); +inf with no stop.</summary>
-        public float BumpLimit(int i)
+        /// <summary>The compression at which wheel <paramref name="i"/>'s jounce
+        /// bumper is met (see <see cref="BumperTravel"/>); +inf with no stop.</summary>
+        public float BumpStart(int i)
         {
             if (!BumpStopsEnabled) return float.PositiveInfinity;
             float h = HubMax(i);
             if (float.IsPositiveInfinity(h)) return h;
             float split = rideRakeM + (WheelRadiusOf(0) - WheelRadiusOf(2));
             float settled = StaticSagRef + (i < 2 ? 0.5f : -0.5f) * split;
-            return Mathf.Max(h - (mountHeight - restLength), settled + BumpTravelMin) - BumpMargin;
+            return Mathf.Max(h - (mountHeight - restLength) - BumperArchShort, settled + BumperTravel) - BumpMargin;
         }
+
+        /// <summary>The compression at which wheel <paramref name="i"/>'s hard
+        /// stop is met - its bumper solid; +inf with no stop.</summary>
+        public float BumpLimit(int i) => BumpStart(i) + BumpRubberLen;
 
         /// <summary>Wheel <paramref name="i"/>'s hub height as the suspension
         /// has it this tick, car frame (m) - before anything holds the drawn
@@ -3146,11 +3206,15 @@ namespace PSXRacing
 
         float BumpRubberForce(int i, float compression, float compressionVel, float wheelStatic)
         {
-            float into = compression - (bumpLimit[i] - BumpRubberLen);
+            float into = compression - bumpStart[i];
             bumpInRubber[i] = into > 0f;
             if (into <= 0f) return 0f;
             float t = Mathf.Min(into / BumpRubberLen, 1f);
-            return Mathf.Max(0f, wheelStatic * BumpRubberLoad * t * t + BumpRubberDamp * t * compressionVel);
+            float push = wheelStatic * BumperPush(t);
+            // Recovering, the foam pushes back with only part of what it took.
+            if (compressionVel < 0f)
+                push *= 1f - (1f - BumpRubberReturn) * Mathf.Clamp01(-compressionVel / BumpRubberReturnBlend);
+            return Mathf.Max(0f, push + BumpRubberDamp * t * compressionVel);
         }
 
         static Vector3 MulInvInertia(Quaternion frame, Vector3 invI, Vector3 x) =>
@@ -3233,8 +3297,12 @@ namespace PSXRacing
 
                 // The strike: the body falling onto the stop at this corner, plus
                 // the ground coming up under the wheel - counted when the stop
-                // actually had to stop something.
-                float strike = Mathf.Max(0f, stopFalling[k]) + bumpGroundRate[i];
+                // actually had to stop something. The two are ONE closing
+                // speed: a body already rising off the last bump takes that
+                // much off the ground's rise (this was max(0, falling) + rise,
+                // which booked a body lifting at 1 m/s over ground rising at
+                // 1.5 as a 1.5 m/s strike).
+                float strike = Mathf.Max(0f, stopFalling[k] + bumpGroundRate[i]);
                 if (strike > BottomHitMps && bumpHitClock[i] >= BottomHitWindow)
                 {
                     bumpHitClock[i] = 0f;

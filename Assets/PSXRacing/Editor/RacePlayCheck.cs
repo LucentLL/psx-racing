@@ -369,6 +369,15 @@ namespace PSXRacing.EditorTools
             // How hard the AI drives, against what its car can do (AI at the limit).
             aiStats = new AIRaceStats();
             aiStats.Begin(rm, car, this);
+            // PSX_RACE_SUSP=1 (SuspensionRideCheck): every car's suspension tallied.
+            bool suspTally = System.Environment.GetEnvironmentVariable("PSX_RACE_SUSP") == "1";
+            if (suspTally)
+                foreach (var c in rm.allCars)
+                    if (c != null && c.GetComponent<SuspTally>() == null)
+                    {
+                        var st = c.gameObject.AddComponent<SuspTally>();
+                        if (c == car) st.trace = new StringBuilder("s,v,gF,gR,cF,cR,hit\n");
+                    }
             var retiredAt = new Dictionary<CarController, float>();
             // PSX_RACE_FINISH=1 (race-play-check.ps1 -Finish): the run is the
             // whole race - it goes on past the player's flag until every rival
@@ -477,6 +486,16 @@ namespace PSXRacing.EditorTools
                                    (p != null && p.retired ? ", RETIRED" : ""));
             }
             var ts = TrafficSystem.Instance;
+            if (suspTally)
+                foreach (var c in rm.allCars)
+                {
+                    var st = c != null ? c.GetComponent<SuspTally>() : null;
+                    if (st != null && st.trace != null)
+                        File.WriteAllText(Path.Combine(Path.GetDirectoryName(Application.dataPath), "PSXRacing_susp_trace.csv"), st.trace.ToString());
+                    if (st != null)
+                        RacePlayCheck.Note($"SUSP {c.name}{(c == car ? " (player, autopilot)" : "")} " +
+                                           $"[{(c.activeSpec != null ? c.activeSpec.name : "?")}, {c.massKg:0} kg, k {c.springRateFront / 1000f:0.0}/{c.springRateRear / 1000f:0.0} kN/m]: {st.Text}");
+                }
             if (ts != null) RacePlayCheck.Note(ts.WreckLog.Count + " traffic wrecks: " + string.Join("; ", ts.WreckLog));
             // A rival that is barely moving at the end: where it is, what it
             // is doing, and what traffic is round it.

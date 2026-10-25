@@ -36,7 +36,7 @@ namespace PSXRacing.EditorTools
     /// </summary>
     public static class BumpStopShots
     {
-        const float Dt = 1f / 60f;
+        internal const float Dt = 1f / 60f;
         const string OutDir = "Screenshots/BumpStop";
 
         struct Case { public string label, key; public int stage; }
@@ -50,14 +50,14 @@ namespace PSXRacing.EditorTools
 
         static readonly MethodInfo BuildOne = typeof(PSXRacingBuilder).GetMethod("BuildOneCar",
             BindingFlags.NonPublic | BindingFlags.Static);
-        static readonly MethodInfo CarFixed = typeof(CarController).GetMethod("FixedUpdate",
+        internal static readonly MethodInfo CarFixed = typeof(CarController).GetMethod("FixedUpdate",
             BindingFlags.NonPublic | BindingFlags.Instance);
-        static readonly FieldInfo Compression = typeof(CarController).GetField("suspensionCompression",
+        internal static readonly FieldInfo Compression = typeof(CarController).GetField("suspensionCompression",
             BindingFlags.NonPublic | BindingFlags.Instance);
 
         static StringBuilder log;
         static Camera cam;
-        static GameObject world;
+        internal static GameObject world;
 
         /// <summary>The whole pass in one editor: measure the arches, report
         /// every car's room, then the tests.</summary>
@@ -128,7 +128,7 @@ namespace PSXRacing.EditorTools
             }
         }
 
-        static CarSpec SpecFor(string key)
+        internal static CarSpec SpecFor(string key)
         {
             foreach (var s in CarCatalog.All)
             {
@@ -138,7 +138,7 @@ namespace PSXRacing.EditorTools
             return null;
         }
 
-        static void BuildWorld()
+        internal static void BuildWorld()
         {
             world = new GameObject("BumpWorld");
             var sun = new GameObject("Sun").AddComponent<Light>();
@@ -191,9 +191,9 @@ namespace PSXRacing.EditorTools
             cam.farClipPlane = 300f;
             Physics.SyncTransforms();
         }
-        static GameObject kerbGo;
+        internal static GameObject kerbGo;
 
-        static CarController MakeCar(CarSpec spec, int stage, Vector3 pos, float speed)
+        internal static CarController MakeCar(CarSpec spec, int stage, Vector3 pos, float speed)
         {
             var def = CarModelLibrary.LoadFor(spec);
             string skin = def != null && def.skinNames != null && def.skinNames.Length > 0 ? def.skinNames[0] : "";
@@ -303,7 +303,7 @@ namespace PSXRacing.EditorTools
             UnityEngine.Object.DestroyImmediate(car.transform.parent.gameObject);
         }
 
-        struct Pose
+        internal struct Pose
         {
             public Vector3 pos; public float yaw;
             public int rubberTicks, stopTicks;
@@ -322,7 +322,7 @@ namespace PSXRacing.EditorTools
         /// its bump rubber or on its stop, the most compression any axle used
         /// over its settled ride, and the least room left before the rubber
         /// (for stops OFF: the room the rubber WOULD have had).</summary>
-        static Pose Drive(CarSpec spec, int stage, string restShot = null)
+        internal static Pose Drive(CarSpec spec, int stage, string restShot = null)
         {
             kerbGo.SetActive(false);
             Physics.SyncTransforms();
@@ -400,7 +400,7 @@ namespace PSXRacing.EditorTools
                         float h = car.HubMax(i);
                         if (!float.IsPositiveInfinity(h))
                             res.leastRoom = Mathf.Min(res.leastRoom, h - (car.mountHeight - car.restLength) - CarController.BumpMargin
-                                                                     - CarController.BumpRubberLen - comp[i]);
+                                                                     - 0.02f - comp[i]);
                     }
                     if (rubber) res.rubberTicks++;
                     if (stop) res.stopTicks++;

@@ -166,9 +166,9 @@ namespace PSXRacing
         /// <see cref="ArchCeilings.HubMax"/>). +inf on a shell with no
         /// measured arches, and with applyGeometry off (the wheels then stand
         /// on the car's own footprint, not the fit's). CarBodyLean keeps every
-        /// drawn tyre under it; CarController's hard stop sits here or
-        /// CarController.BumpTravelMin above the settled ride, whichever is
-        /// higher.
+        /// drawn tyre under it; CarController's jounce bumper is met 2 cm short
+        /// of here or CarController.BumperTravel above the settled ride,
+        /// whichever is higher, and goes solid (the hard stop) BumpRubberLen on.
         ///
         /// Not serialized: a baked scene keeps the key and the spec, and this
         /// is re-solved from them the first time it is asked - like

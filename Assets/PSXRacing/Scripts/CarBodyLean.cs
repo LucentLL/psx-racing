@@ -185,7 +185,7 @@ namespace PSXRacing
         // "Tires clipping up through fenders and hood ... This should never
         // happen." The shells leave a tyre 2-4 cm under its arch and ordinary
         // hard driving uses 4-7 cm of travel, so the physics' hard stop sits
-        // beyond normal driving (CarController.BumpTravelMin) and the car
+        // beyond normal driving (CarController.BumperTravel) and the car
         // drives exactly as it did. What that leaves is the PICTURE: a loaded
         // corner, a landing, a lowered car at rest - the tyre reaches its arch
         // before the stop. Then the shell, which is render-only here anyway,
