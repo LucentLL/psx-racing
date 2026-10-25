@@ -85,9 +85,10 @@ float PSXLitNoise(float2 p)
 // PSXGlobals from TimeOfDay.Apply; _PSXWetPatchOn 0 (any scene or tool that
 // never set it) keeps _PSXWetness the one uniform film it always was.
 float _PSXWetPatchOn;   // 1 = the layered weather drives the road
-float _PSXWetWater;     // 0..1 the open road's water (rain, meltwater, slush, ice)
+float _PSXWetWater;     // 0..1 the open road's water (rain, meltwater, black ice)
 float _PSXWetDamp;      // 0..1 the hour's art-licence damp (clear nights), everywhere
-float _PSXRoadSnow;     // 0..1 snow (and a share of slush) lying on the road
+float _PSXRoadSnow;     // 0..1 snow lying on the road
+float _PSXRoadSlush;    // 0..1 treated snow churned to slush on the road
 
 #define PATCH_SCALE        0.0263 // drying-patch cells about 38 m: a stretch, not a puddle
 #define PATCH_LO           0.25
@@ -95,6 +96,7 @@ float _PSXRoadSnow;     // 0..1 snow (and a share of slush) lying on the road
 #define PATCH_SPAN         0.85   // a deck at amount a is covered where patch > 1 - a/SPAN..
 #define PATCH_EDGE         0.15   //   ..with this soft an edge
 #define ROAD_SNOW_COLOR    float3(0.78, 0.80, 0.84)
+#define ROAD_SLUSH_COLOR   float3(0.56, 0.54, 0.51)   // churned slush: grey-brown, road grime in it
 
 float PSXWetPatch(float2 xz)
 {
@@ -120,6 +122,27 @@ float PSXRoadSnowAt(float wetMask, float3 N, float3 wpos)
     return wetMask * up * s * lerp(0.55, 1.0, grain);
 }
 
+// How much of the road is SLUSH here, 0..1 (owner, 2026-10-25: "slush does
+// not reflect like this"). Treated snow churned with brine is MATTE: lumpy,
+// grey-brown, and broken where tyres have pushed it aside - those gaps show
+// the wet road under it, and only they may mirror. Same patches as the tyres.
+float PSXRoadSlushAt(float wetMask, float3 N, float3 wpos)
+{
+    if (_PSXWetPatchOn < 0.5 || _PSXRoadSlush <= WET_MIN || wetMask <= WET_MIN) return 0.0;
+    float up = saturate(N.y * WET_UP_GAIN - WET_UP_BIAS);
+    float s = PSXLocalShare(_PSXRoadSlush, PSXWetPatch(wpos.xz));
+    float lumps = PSXLitNoise(wpos.xz * 1.7 + 11.3) * 0.6 + PSXLitNoise(wpos.xz * 5.1 + 2.9) * 0.4;
+    return wetMask * up * s * smoothstep(0.30, 0.60, lumps);
+}
+
+// Snow and slush are not water: whatever they cover mirrors nothing (both
+// passes - PSX/Lit's own sky glint and the PSXWetSSR world - go through
+// PSXWetAmount, so they agree).
+float PSXRoadCoverAt(float3 N, float3 wpos)
+{
+    return max(PSXRoadSnowAt(1.0, N, wpos), PSXRoadSlushAt(1.0, N, wpos));
+}
+
 float PSXWetAmount(float wetMat, float3 N, float3 wpos, float eyeDist)
 {
     float w = wetMat * saturate(N.y * WET_UP_GAIN - WET_UP_BIAS);
@@ -129,6 +152,7 @@ float PSXWetAmount(float wetMat, float3 N, float3 wpos, float eyeDist)
         // two below: rescale to THIS spot's share.
         float g = max(_PSXWetDamp, PSXLocalShare(_PSXWetWater, PSXWetPatch(wpos.xz)));
         w *= g / max(_PSXWetness, 1e-4);
+        w *= 1.0 - PSXRoadCoverAt(N, wpos);
     }
     if (w > WET_MIN)
     {

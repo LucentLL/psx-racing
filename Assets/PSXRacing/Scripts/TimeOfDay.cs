@@ -468,7 +468,8 @@ namespace PSXRacing
                 globals.wetWater = water;
                 globals.wetDamp = damp;
                 globals.wetPatchOn = 1f;
-                globals.roadSnow = Mathf.Clamp01(wn.road.snow + 0.35f * wn.road.slush);
+                globals.roadSnow = Mathf.Clamp01(wn.road.snow);
+                globals.roadSlush = Mathf.Clamp01(wn.road.slush);
                 globals.night = NightFor(index);
                 globals.gradeNight = GradeNightFor(index);
                 globals.mood = MoodFor(index, urban);
@@ -924,14 +925,17 @@ namespace PSXRacing
         /// </summary>
         /// <summary>
         /// How wet the open road LOOKS this hour from the road layer, 0..1:
-        /// its water (black ice is water you cannot see is frozen), half its
-        /// slush - and under falling snow by day no more than a damp road's
-        /// 0.35, the C13 rule that kept a snowy noon's road from mirroring the
-        /// pale sky brighter than the sky itself (see SnowDayWetness).
+        /// its water (black ice is water you cannot see is frozen: it mirrors
+        /// like a wet road) - and under falling snow by day no more than a
+        /// damp road's 0.35, the C13 rule that kept a snowy noon's road from
+        /// mirroring the pale sky brighter than the sky itself (see
+        /// SnowDayWetness). SLUSH IS NOT WATER (owner, 2026-10-25: "slush does
+        /// not reflect like this"): it is its own matte layer (roadSlush,
+        /// PSXRoadSlushAt), and the water under it shows only in its gaps.
         /// </summary>
         public static float RoadWaterVisual(in WeatherNow wn, int hour, Weather sky)
         {
-            float water = Mathf.Max(wn.road.water, 0.5f * wn.road.slush);
+            float water = wn.road.water;
             if (sky == Weather.Snow && IsSunUp(hour)) water = Mathf.Min(water, 0.35f);
             return Mathf.Clamp01(water);
         }

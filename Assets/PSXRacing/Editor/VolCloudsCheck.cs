@@ -14,7 +14,11 @@ namespace PSXRacing.EditorTools
     /// </summary>
     public static class VolCloudsCheck
     {
-        static readonly string[] Shaders = { VolumetricClouds.ShaderName, "PSX/Sky", "Hidden/PSX/SkyEquirect" };
+        static readonly string[] Shaders = { VolumetricClouds.ShaderName, "PSX/Sky", "Hidden/PSX/SkyEquirect", "PSX/Lit" };
+
+        /// <summary>Batch entry: the check, then quit with its failure count
+        /// as the exit code (PSX/Lit joined the list with the matte slush).</summary>
+        public static void RunBatch() => EditorApplication.Exit(Run() == 0 ? 0 : 1);
 
         public static int Run()
         {
