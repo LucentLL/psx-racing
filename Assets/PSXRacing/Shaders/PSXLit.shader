@@ -278,8 +278,12 @@ Shader "PSX/Lit"
             // THE FAR LAND'S LOOK (CityFar): its colours, measured off the
             // city's own textures; a far-land vertex's UV says which (x the
             // woods' share, y the pines' share of the woods; x 2 a road). Set
-            // only on the far land's copies (uniforms, never properties).
-            float4 _FarGround, _FarBroad, _FarPine, _FarRoad;
+            // only on the far land's copies (uniforms, never properties), whose
+            // _SkyFarLand is 2 (1 = a far TREE card: the clip, no tint).
+            // _FarBump.x: a whole wood's crowns stand this high over the land,
+            // from _FarBump.y metres out to all of it by _FarBump.z (inside
+            // that the far trees are the woods; their cards stand on the land).
+            float4 _FarGround, _FarBroad, _FarPine, _FarRoad, _FarBump;
             // THE TERRAIN DETAIL (TerrainDetail.cs; the GT4 study, gap 4): a
             // luminance-only sheet, one class per channel at mean 0.5, read at
             // a world-space repeat and multiplied into the albedo near the eye.
@@ -881,6 +885,15 @@ Shader "PSX/Lit"
                     v.vertex = mul(unity_WorldToObject, float4(mc, 1.0));
                 }
             #endif
+                // THE FAR LAND'S WOODS (_FarBump, above): the crowns' height on
+                // a wooded vertex past the far trees' reach
+                if (_SkyFarLand > 1.5 && v.uv.x < 1.5)
+                {
+                    float3 bw = mul(unity_ObjectToWorld, v.vertex).xyz;
+                    float bd = length(bw.xz - _WorldSpaceCameraPos.xz);
+                    bw.y += _FarBump.x * saturate(v.uv.x) * smoothstep(_FarBump.y, max(_FarBump.z, _FarBump.y + 1.0), bd);
+                    v.vertex = mul(unity_WorldToObject, float4(bw, 1.0));
+                }
                 float4 clipPos;
                 if (_Skyline > 0.0)
                 {
@@ -955,7 +968,7 @@ Shader "PSX/Lit"
                 // THE FAR LAND'S LOOK (above): its albedo rides on its light (its
                 // texture is white), so a far field mottles grass, oak and pine
                 // with no new interpolator
-                if (_SkyFarLand > 0.5)
+                if (_SkyFarLand > 1.5)
                 {
                     float3 farTint = v.uv.x > 1.5 ? _FarRoad.rgb
                                    : lerp(_FarGround.rgb, lerp(_FarBroad.rgb, _FarPine.rgb, saturate(v.uv.y)), saturate(v.uv.x));
