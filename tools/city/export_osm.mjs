@@ -141,7 +141,13 @@ const MODE = {
   // default (the freeways-only attempt failed its boxed launch gate too):
   // --rprf writes it; without it the game solves every road from the
   // smoothed land.
-  rprf: ARGS.includes('--rprf'),
+  // REAL HEIGHTS (2026-10-25, the owner: ALL ROADS on the measured ground,
+  // bridges only where OSM tags them): ON by default and EVERY road's
+  // profile (lib/roadprofile.mjs opts.all, with the clearance pass under the
+  // tagged bridges); --no-rprf leaves the section out (the smoothed-land
+  // solve), --rprf-freeways writes the 2026-10-03 freeways-only section.
+  rprf: !ARGS.includes('--no-rprf'),
+  rprfFreeways: ARGS.includes('--rprf-freeways'),
 };
 if (!MODE.check && !MODE.out && !MODE.manifest) {
   console.error('export_osm.mjs writes nothing unless told where. Use one of:\n' +
@@ -1944,15 +1950,17 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
   // RPRF (leftover item 1, plan B7): the measured road profiles, designed on
   // the graph exactly as the game reads it (the file so far, parsed back), in
   // world y (3DEP bare earth minus the pinned datum). lib/roadprofile.mjs.
-  // Only with --rprf (see MODE.rprf). The whole tier 1+2 network is designed
-  // together (node heights, chains through junctions), then only the motorway
-  // and trunk mainline carriageways are written.
+  // REAL HEIGHTS (see MODE.rprf): every road designed together (node
+  // heights, chains through junctions, the clearance pass) and written;
+  // --rprf-freeways: the tier 1+2 network designed, the motorway and trunk
+  // mainline carriageways written (2026-10-03).
   if (MODE.rprf) {
     const graph = parseCity(assemble());
-    const rp = buildRoadProfiles(graph, (x, z) => dem3.sample(toLat(z), toLon(x)) - DEM_BASE);
+    const t0 = Date.now();
+    const rp = buildRoadProfiles(graph, (x, z) => dem3.sample(toLat(z), toLon(x)) - DEM_BASE, { all: !MODE.rprfFreeways });
     for (const l of rp.lines) console.log(l);
-    const fw = rp.prof.map((p, ei) => p && graph.edges[ei].rank >= 4 && !graph.edges[ei].link ? p : null);
-    console.log(`RPRF freeways only: ${fw.filter(Boolean).length} motorway/trunk mainline edges written of ${rp.prof.filter(Boolean).length} designed`);
+    const fw = MODE.rprfFreeways ? rp.prof.map((p, ei) => p && graph.edges[ei].rank >= 4 && !graph.edges[ei].link ? p : null) : rp.prof;
+    console.log(`RPRF ${MODE.rprfFreeways ? 'freeways only' : 'REAL HEIGHTS, every road'}: ${fw.filter(Boolean).length} edges written of ${rp.prof.filter(Boolean).length} designed (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
     section('RPRF', w => writeRprf(w, fw));
   }
   if ([...sec.keys()].join() !== CITY_SECTIONS.filter(t => t !== 'RPRF' || MODE.rprf).join()) throw new Error('PSXC sections out of step with citydata.mjs CITY_SECTIONS');

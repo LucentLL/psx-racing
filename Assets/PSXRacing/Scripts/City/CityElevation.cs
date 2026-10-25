@@ -773,6 +773,8 @@ namespace PSXRacing.City
             // the drawn profile is the presentation pass's, after the solve:
             // nothing in the solve may read it (see CityElevation.VSmooth.cs)
             foreach (var e in map.edges) { e.vS = null; e.vY = null; }
+            rprfData = map.measuredEdges > 0;
+            realData = map.measuredEdges * 10 >= map.edges.Length * 9;
             nodeYSolved = null;
             crossingOn = null;
             crossingTarget = null;
@@ -1093,6 +1095,7 @@ namespace PSXRacing.City
             UnionAbutments(map);
             MeasureTwinDy(map);
             MeasureSags(map);
+            RealReport = MeasureReal(map);
 
             // (10. the water was prepared first: PrepareWater)
             Phase("structure");
@@ -1223,8 +1226,35 @@ namespace PSXRacing.City
         /// owner, same day): --rprf now writes the motorway and trunk
         /// mainlines' profiles only; boxed LAUNCH 15 (gate 12), the uptown
         /// route 1, grades past 16% 4 (gate 3): still OFF.
+        ///
+        /// REAL HEIGHTS (2026-10-25, the owner: "Actual ground elevation needs
+        /// to be correct so roads can correctly be on ground or use
+        /// bridges"): the data now carries EVERY road's profile (export
+        /// --rprf; tools/city/lib/roadprofile.mjs opts.all, which also
+        /// lowers the road under a tagged bridge that falls short of its
+        /// clearance by up to 2 m), so this is ON whenever the data has the
+        /// section; PSX_CITY_RPRF=0 (or <see cref="RprfOverride"/> = false
+        /// in the editor) solves every road from the smoothed land as before.
         /// </summary>
-        public static bool RprfOn = System.Environment.GetEnvironmentVariable("PSX_CITY_RPRF") == "1";
+        public static bool RprfOn => (RprfOverride ?? !rprfEnvOff) && rprfData;
+        static readonly bool rprfEnvOff = System.Environment.GetEnvironmentVariable("PSX_CITY_RPRF") == "0";
+        /// <summary>Editor A/B (CityRealHeights): null = the environment's word.</summary>
+        public static bool? RprfOverride;
+        /// <summary>The solved map carries RPRF (set at the start of each solve).</summary>
+        static bool rprfData, realData;
+        /// <summary>
+        /// REAL HEIGHTS: the measured profiles cover (nearly) every road, so
+        /// nothing becomes a deck because a height rule lifted it - structure
+        /// is what OSM tags (a bridge's deck and the under road's corridor it
+        /// spans, a water span, a twin deck's shared abutment line), never
+        /// the <see cref="ElevMarginM"/> margin. PSX_CITY_REAL=0 keeps the
+        /// margin with the measured data (an A/B of this one rule).
+        /// </summary>
+        public static bool RealOn => RprfOn && realData && !realEnvOff;
+        static readonly bool realEnvOff = System.Environment.GetEnvironmentVariable("PSX_CITY_REAL") == "0";
+        /// <summary>One line on the last solve's REAL HEIGHTS: how far the
+        /// solve moved the measured profiles, on structure and off it.</summary>
+        public static string RealReport { get; private set; } = "";
         /// <summary>Does this edge stand on its measured profile?</summary>
         public static bool Measured(CityMap.Edge e) => RprfOn && e.mY != null;
         /// <summary>Stations solved from a measured profile, last solve.</summary>
@@ -1311,6 +1341,37 @@ namespace PSXRacing.City
             if (measuredNodeY != null && !float.IsNaN(measuredNodeY[n])) return y > measuredNodeY[n] + 0.5f;
             return y > RoadBaseY(map.nodes[n].x, map.nodes[n].y) + 0.5f;
         }
+        /// <summary>REAL HEIGHTS' own census (<see cref="RealReport"/>): how
+        /// far the solve's stations stand off each road's measured profile
+        /// (lifted / lowered, on structure or off it), and how much road OSM
+        /// does not tag as a bridge is drawn as structure.</summary>
+        static string MeasureReal(CityMap map)
+        {
+            if (!RprfOn) return "REAL HEIGHTS off (no RPRF in the data, or PSX_CITY_RPRF=0)";
+            int st = 0, up05 = 0, up14 = 0, up14El = 0, dn05 = 0, dn14 = 0, worstE = -1;
+            float worst = 0f, worstS = 0f, upLenOff = 0f, untagM = 0f, structM = 0f;
+            foreach (var e in map.edges)
+            {
+                if (e.stS == null || e.stS.Length < 2) continue;
+                float h = e.length / (e.stS.Length - 1);
+                for (int i = 0; i < e.stS.Length; i++)
+                {
+                    if (e.stElev[i]) { structM += h; if (!e.bridge) untagM += h; }
+                    if (!Measured(e)) continue;
+                    st++;
+                    float dy = e.stY[i] - e.MeasuredYAt(e.stS[i]);
+                    if (dy > 0.5f) up05++;
+                    if (dy > 1.4f) { up14++; if (e.stElev[i]) up14El++; else upLenOff += h; }
+                    if (dy < -0.5f) dn05++;
+                    if (dy < -1.4f) dn14++;
+                    if (!e.stElev[i] && dy > worst) { worst = dy; worstE = e.index; worstS = e.stS[i]; }
+                }
+            }
+            return $"REAL HEIGHTS {(RealOn ? "ON" : "off (margin rule kept)")}: {st} measured stations; the solve lifted {up05} > 0.5 m and {up14} > 1.4 m off their profile ({up14El} of them on structure, " +
+                   $"{upLenOff:0} m of road off structure; worst off structure {worst:0.00} m at e{worstE}{(worstE >= 0 ? " '" + map.edges[worstE].name + "'" : "")} s {worstS:0}), lowered {dn05} > 0.5 m / {dn14} > 1.4 m; " +
+                   $"structure {structM / 1000f:0.0} km, on roads OSM does not tag as a bridge {untagM:0} m (deck reach over the road under, water spans, twin abutment lines)";
+        }
+
         /// <summary>Margin stations NOT made structure because the lidar
         /// measured the road on the ground there (an embankment), last solve.</summary>
         public static int MeasuredMarginExempt { get; private set; }
@@ -2105,6 +2166,8 @@ namespace PSXRacing.City
                     }
                 }
             }
+            // REAL HEIGHTS: structure is what OSM tags, never a height margin
+            if (!RealOn)
             foreach (var e in map.edges)
             {
                 culvertWin.TryGetValue(e.index, out var win);

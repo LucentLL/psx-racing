@@ -54,6 +54,7 @@ const ABUT_FAR_M = 100;                      // ... and on while the ground fall
 const classMaxGrade = e => e.link ? 0.08 : e.rank >= 5 ? 0.05 : e.rank >= 3 ? 0.07 : e.rank >= 1 ? 0.09 : 0.12;
 const NODE_REACH_M = 40;                     // a node's height from ground this close
 const PAIR_REACH_M = 45, PAIR_DY_M = 0.3;    // carriageway pairs
+const PAIR_FINAL_MAX_M = 1.0;                // REAL HEIGHTS: the final pulls leave two levels alone
 const SIGMA_ST = 1.5;                        // Gaussian, in stations
 const GRADE_CAP = 1.6;                       // x the class's steepest grade
 const FT = 0.3048;
@@ -168,10 +169,11 @@ function limitCurvature(d, y, pinned, Rc, Rs, maxSweeps = 4000) {
 /// groundY(x, z): 3DEP bare earth in world y (metres above the datum).
 /// Returns { prof: Array(edge) of null | { y: Float64Array, mask: Uint8Array },
 ///           stats, lines }.
-export function buildRoadProfiles(city, groundY) {
+export function buildRoadProfiles(city, groundY, opts = {}) {
   const { edges, nodes, nodeEdges, crossings, wspans } = city;
   const NE = edges.length, NN = nodes.length;
-  const sel = edges.map(e => measuredRank(e) && e.a !== e.b && e.length >= 0.5);
+  // opts.all (REAL HEIGHTS, 2026-10-25): every road, local streets too
+  const sel = edges.map(e => (opts.all || measuredRank(e)) && e.a !== e.b && e.length >= 0.5);
   const st = new Array(NE).fill(null);        // { s, raw, y, mask }
   const lines = [];
   let nSt = 0;
@@ -241,45 +243,10 @@ export function buildRoadProfiles(city, groundY) {
     if (st[U.index] && !O.bridge) maskRange(U.index, sU - (O.hw + 4) / sin, sU + (O.hw + 4) / sin, 6);
   }
   // ---- 3. pairs: the two carriageways of a divided road within 0.3 m
-  let pairMoved = 0, pairStations = 0;
-  {
-    const cell = 50, grid = new Map();
-    const key = (x, z) => Math.floor(x / cell) * 100003 + Math.floor(z / cell);
-    const pts = [];   // [ei, i, x, z, tx, tz]
-    for (const e of edges) {
-      const t = st[e.index]; if (!t || !e.oneway || e.link || !e.name) continue;
-      for (let i = 0; i < t.s.length; i++) {
-        if (t.mask[i]) continue;
-        const p = pointAt(e, t.s[i]), g = tangentAt(e, t.s[i]);
-        const k = key(p[0], p[1]); let l = grid.get(k); if (!l) grid.set(k, l = []);
-        l.push(pts.length); pts.push([e.index, i, p[0], p[1], g[0], g[1]]);
-      }
-    }
-    const shift = new Float64Array(pts.length), cnt = new Uint16Array(pts.length);
-    for (let a = 0; a < pts.length; a++) {
-      const [ei, i, x, z, tx, tz] = pts[a];
-      const name = edges[ei].name;
-      let best = -1, bd = Infinity;
-      for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
-        const l = grid.get((Math.floor(x / cell) + dx) * 100003 + Math.floor(z / cell) + dz); if (!l) continue;
-        for (const b of l) {
-          const q = pts[b]; if (q[0] === ei || edges[q[0]].name !== name) continue;
-          if (tx * q[4] + tz * q[5] > -0.7) continue;
-          const along = Math.abs((q[2] - x) * tx + (q[3] - z) * tz);
-          if (along > 6) continue;
-          const dd = Math.hypot(q[2] - x, q[3] - z);
-          if (dd <= PAIR_REACH_M && dd < bd) { bd = dd; best = b; }
-        }
-      }
-      if (best < 0) continue;
-      const q = pts[best];
-      const ya = st[ei].y[i], yb = st[q[0]].y[q[1]], dy = ya - yb;
-      pairStations++;
-      if (Math.abs(dy) <= PAIR_DY_M) continue;
-      shift[a] += -Math.sign(dy) * (Math.abs(dy) - PAIR_DY_M) / 2; cnt[a]++;
-    }
-    for (let a = 0; a < pts.length; a++) if (cnt[a]) { const [ei, i] = pts[a]; st[ei].y[i] += shift[a] / cnt[a]; pairMoved++; }
-  }
+  // (REAL HEIGHTS: within 1.2% of the gap between them, 0.06 .. 0.3 m - a
+  // divided road reads as one road across its median)
+  const pairAllow = opts.all ? (gap => Math.max(0.06, Math.min(PAIR_DY_M, 0.012 * gap))) : (() => PAIR_DY_M);
+  let { stations: pairStations, moved: pairMoved } = pullPairs(edges, st, pairAllow, false);
   // ---- fill masked interior runs (straight between the ground either side)
   for (const e of edges) {
     const t = st[e.index]; if (!t) continue;
@@ -479,6 +446,27 @@ export function buildRoadProfiles(city, groundY) {
     if (!Number.isNaN(nodeY[e.a])) t.y[0] = nodeY[e.a];
     if (!Number.isNaN(nodeY[e.b])) t.y[t.y.length - 1] = nodeY[e.b];
   }
+  // ---- 6. (REAL HEIGHTS, opts.all) CLEARANCE UNDER THE TAGGED BRIDGES.
+  // The deck is drawn from abutment to abutment and the road under it reads
+  // the bare earth, so most separations clear as measured; where one falls
+  // short by up to LOWER_MAX_M the road UNDER is lowered (the owner: lower
+  // the under road within reason rather than raise the bridge), as a smooth
+  // dip along the graph from the crossing (1 - smootherstep over R, the max
+  // of every dip, node-consistent by construction: a station's distance is
+  // its edge's end nodes' graph distance plus its own arc), the twin
+  // carriageway under the same deck dipped the same. Anything short by more
+  // is the game's (CityElevation.RaiseAllCrossings lifts the deck: a tagged
+  // structure, the one place a height rule may lift a road).
+  // ---- 7. (REAL HEIGHTS) the pairs once more on the finished profiles: each
+  // carriageway was smoothed and limited on its own chain (interior stations
+  // only - a node's height is every arm's)
+  let pairs2 = null;
+  if (opts.all && opts.finalPairs !== false) {
+    pairs2 = pullPairs(edges, st, pairAllow, true, true);
+    for (let r = 0; r < 4; r++) pullPairs(edges, st, pairAllow, true);
+    pairs2.after = pullPairs(edges, st, pairAllow, true, true);
+  }
+  const clr = opts.all ? lowerUnderBridges(edges, nodes, nodeEdges, crossings, st) : null;
   // ---- stats: deviation from the raw ground on measured stations
   const dev = [];
   for (const e of edges) { const t = st[e.index]; if (!t) continue; for (let i = 0; i < t.s.length; i++) if (!t.mask[i]) dev.push(Math.abs(t.y[i] - t.raw[i])); }
@@ -488,10 +476,195 @@ export function buildRoadProfiles(city, groundY) {
   let masked = 0; for (const t of st) if (t) for (const m of t.mask) if (m) masked++;
   const stats = { edges: nEdges, stations: nSt, masked, why, nodesMeasured, nodesFilled, chains: chains.length, sweepsMax, sweepsMean: chains.length ? sweepsSum / chains.length : 0, leftOver, pinsTotal,
                   pairStations, pairMoved, devP50: pct(0.5), devP95: pct(0.95), devMax: dev.length ? dev[dev.length - 1] : 0 };
-  lines.push(`RPRF: ${nEdges} edges (tier 1 + 2), ${nSt} stations, ${masked} masked (bridge ${why.bridge}, tunnel ${why.tunnel}, water ${why.water}, over a crossing ${why.over}, abutment ${why.abut}, under a fill ${why.underFill}, steeper than the class + 5% ${why.steep}); ` +
+  lines.push(`RPRF: ${nEdges} edges (${opts.all ? 'every road' : 'tier 1 + 2'}), ${nSt} stations, ${masked} masked (bridge ${why.bridge}, tunnel ${why.tunnel}, water ${why.water}, over a crossing ${why.over}, abutment ${why.abut}, under a fill ${why.underFill}, steeper than the class + 5% ${why.steep}); ` +
              `nodes ${nodesMeasured} from ground + ${nodesFilled} from neighbours; pairs ${pairStations} stations, ${pairMoved} pulled to ${PAIR_DY_M} m; ${chains.length} chains, limiter sweeps mean ${stats.sweepsMean.toFixed(1)} max ${sweepsMax}, ${leftOver} chains not fully limited (held by pins); ${gradesClamped} station moves by the grade cap (class max x ${GRADE_CAP}), ${nodeGradeMoves} node moves; ${ghosts} junction ghosts; ` +
              `designed vs measured ground p50 ${stats.devP50.toFixed(3)} / p95 ${stats.devP95.toFixed(3)} / max ${stats.devMax.toFixed(2)} m`);
+  if (clr) { lines.push(clr.line); stats.clearance = clr; }
+  if (pairs2) lines.push(`PAIRS (REAL HEIGHTS, allowed 1.2% of the gap, 0.06..${PAIR_DY_M} m): on the finished profiles ${pairs2.stations} pair stations, over their allowance by >0.05/0.25/0.5/1/2 m ${pairs2.hist.join('/')} (worst ${pairs2.worst.toFixed(2)} m); after 4 pulls (nodes eased into their arms) ${pairs2.after.hist.join('/')} (worst ${pairs2.after.worst.toFixed(2)} m); two levels under 15 m apart ${pairs2.after.closeSplit}: ${pairs2.after.closeAt.join('; ')}`);
   return { prof: st.map(t => t ? { y: t.y, mask: t.mask, raw: t.raw, s: t.s } : null), stats, lines };
+}
+
+/// THE PAIRS: each station of a divided road's carriageway (one-way, same
+/// name, not a ramp, running opposite, its partner station within 45 m and
+/// 6 m along) is pulled toward its partner until they stand within
+/// allow(gap); both move half. interiorOnly leaves node stations (shared by
+/// every arm); measureOnly moves nothing and counts what is still over.
+function pullPairs(edges, st, allow, interiorOnly, measureOnly = false) {
+  const cell = 50, grid = new Map();
+  const key = (x, z) => Math.floor(x / cell) * 100003 + Math.floor(z / cell);
+  const pts = [];   // [ei, i, x, z, tx, tz]
+  for (const e of edges) {
+    const t = st[e.index]; if (!t || !e.oneway || e.link || !e.name) continue;
+    for (let i = 0; i < t.s.length; i++) {
+      if (t.mask[i]) continue;
+      const p = pointAt(e, t.s[i]), g = tangentAt(e, t.s[i]);
+      const k = key(p[0], p[1]); let l = grid.get(k); if (!l) grid.set(k, l = []);
+      l.push(pts.length); pts.push([e.index, i, p[0], p[1], g[0], g[1]]);
+    }
+  }
+  const shift = new Float64Array(pts.length), cnt = new Uint16Array(pts.length);
+  let stations = 0, moved = 0, over = 0, worst = 0;
+  const hist = [0, 0, 0, 0, 0], HB = [0.05, 0.25, 0.5, 1, 2], nodeShift = new Map(), closeAt = [];
+  let closeSplit = 0;
+  for (let a = 0; a < pts.length; a++) {
+    const [ei, i, x, z, tx, tz] = pts[a];
+    const name = edges[ei].name;
+    let best = -1, bd = Infinity;
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+      const l = grid.get((Math.floor(x / cell) + dx) * 100003 + Math.floor(z / cell) + dz); if (!l) continue;
+      for (const b of l) {
+        const q = pts[b]; if (q[0] === ei || edges[q[0]].name !== name) continue;
+        if (tx * q[4] + tz * q[5] > -0.7) continue;
+        const along = Math.abs((q[2] - x) * tx + (q[3] - z) * tz);
+        if (along > 6) continue;
+        const dd = Math.hypot(q[2] - x, q[3] - z);
+        if (dd <= PAIR_REACH_M && dd < bd) { bd = dd; best = b; }
+      }
+    }
+    if (best < 0) continue;
+    const q = pts[best];
+    const ya = st[ei].y[i], yb = st[q[0]].y[q[1]], dy = ya - yb, lim = allow(bd);
+    stations++;
+    if (Math.abs(dy) <= lim) continue;
+    over++; worst = Math.max(worst, Math.abs(dy) - lim);
+    for (let k = 0; k < HB.length; k++) if (Math.abs(dy) - lim > HB[k]) hist[k]++;
+    // on the finished profiles (interiorOnly) a pair more than a metre past
+    // its allowance is two levels (a stacked interchange) or not a pair: left
+    // (under 15 m apart nothing but a stacked interchange stands 3 m apart)
+    if (interiorOnly && Math.abs(dy) - lim > (bd < 15 ? 3 : PAIR_FINAL_MAX_M)) { if (bd < 15) { closeSplit++; if (closeAt.length < 6) closeAt.push(`e${ei} ${edges[ei].name} (${x.toFixed(0)},${z.toFixed(0)}) gap ${bd.toFixed(0)} m dy ${dy.toFixed(1)}`); } continue; }
+    if (interiorOnly && (i === 0 || i === st[ei].s.length - 1)) {
+      // a node station: the node moves (every arm's end), eased into each arm below
+      const nd = i === 0 ? edges[ei].a : edges[ei].b;
+      const v = nodeShift.get(nd) || [0, 0]; v[0] += -Math.sign(dy) * (Math.abs(dy) - lim) / 2; v[1]++; nodeShift.set(nd, v);
+      continue;
+    }
+    shift[a] += -Math.sign(dy) * (Math.abs(dy) - lim) / 2; cnt[a]++;
+  }
+  if (!measureOnly && !interiorOnly) for (let a = 0; a < pts.length; a++) if (cnt[a]) { const [ei, i] = pts[a]; st[ei].y[i] += shift[a] / cnt[a]; moved++; }
+  if (!measureOnly && interiorOnly) {
+    // on the finished profiles the pull is a smooth field along each edge
+    // (Gaussian over 2 stations; a station with no partner pulls 0), so it
+    // adds no kink to the curves step 5 drew
+    const per = new Map();
+    for (let a = 0; a < pts.length; a++) { if (!cnt[a]) continue; const [ei, i] = pts[a]; let v = per.get(ei); if (!v) per.set(ei, v = new Float64Array(st[ei].s.length)); v[i] = shift[a] / cnt[a]; }
+    for (const [ei, v] of per) {
+      const t = st[ei], n = v.length, sm = new Float64Array(n), r = 5, sg = 2;
+      for (let i = 1; i < n - 1; i++) {
+        let sum = 0, w = 0;
+        for (let k = -r; k <= r; k++) { const j = i + k; if (j < 0 || j >= n) continue; const q = Math.exp(-k * k / (2 * sg * sg)); sum += v[j] * q; w += q; }
+        sm[i] = sum / w;
+      }
+      for (let i = 1; i < n - 1; i++) if (Math.abs(sm[i]) > 1e-4) { t.y[i] += sm[i]; moved++; }
+    }
+  }
+  if (!measureOnly && nodeShift.size) {
+    // each moved node carries its arms' ends with it, eased out along each
+    // arm over min(60 m, the arm) on a smoothstep (C1 at both ends)
+    for (const e of edges) {
+      const t = st[e.index]; if (!t) continue;
+      const n = t.s.length, ease = Math.min(60, e.length);
+      for (const [nd, atA] of [[e.a, true], [e.b, false]]) {
+        const v = nodeShift.get(nd); if (!v) continue;
+        const d = v[0] / v[1];
+        for (let i = 0; i < n; i++) {
+          const dist = atA ? t.s[i] : e.length - t.s[i]; if (dist >= ease) continue;
+          const u = dist / ease; t.y[i] += d * (1 - u * u * (3 - 2 * u));
+        }
+      }
+    }
+  }
+  return { stations, moved, over, worst, hist, nodesMoved: nodeShift.size, closeSplit, closeAt };
+}
+
+/// The game's separation rule (CityElevation: ClearanceM 5.0 + DeckThick
+/// 0.55 between the deck's top and the road under), plus a margin.
+export const DECK_OVER_M = 5.55;
+const CLEAR_MARGIN_M = 0.15;
+const LOWER_MAX_M = 2.0;        // "within reason": deeper than this, the deck rises
+const DIP_GRADE = 0.01;         // the dip's mean grade: R = L / 1%, 80..250 m
+
+/// The clearance pass (step 6 above). Returns { line, short, lowered, left }.
+function lowerUnderBridges(edges, nodes, nodeEdges, crossings, st) {
+  const yAt = (ei, s) => {
+    const t = st[ei]; if (!t) return NaN;
+    const n = t.s.length, e = edges[ei];
+    const f = Math.max(0, Math.min(1, s / Math.max(1e-3, e.length))) * (n - 1), k = Math.min(n - 2, Math.floor(f));
+    return t.y[k] + (t.y[k + 1] - t.y[k]) * (f - k);
+  };
+  const maskedAt = (ei, s) => { const t = st[ei], n = t.s.length, e = edges[ei]; return t.mask[Math.round(Math.max(0, Math.min(1, s / Math.max(1e-3, e.length))) * (n - 1))] !== 0; };
+  const deficits = () => {
+    const out = [];
+    for (const c of crossings) {
+      if (!st[c.over] || !st[c.under]) continue;
+      const sO = projectOn(edges[c.over], [c.x, c.z]), sU = projectOn(edges[c.under], [c.x, c.z]);
+      const d = DECK_OVER_M - (yAt(c.over, sO) - yAt(c.under, sU));
+      out.push({ c, sO, sU, d });
+    }
+    return out;
+  };
+  const before = deficits().filter(x => x.d > 0);
+  // the dips' sources: the under road at the crossing, and its twin there
+  const src = [];
+  for (const x of before) {
+    if (x.d > LOWER_MAX_M || maskedAt(x.c.under, x.sU)) continue;
+    const L = Math.min(LOWER_MAX_M, x.d) + CLEAR_MARGIN_M, R = Math.max(80, Math.min(250, L / DIP_GRADE));
+    src.push({ ei: x.c.under, s: x.sU, L, R });
+    const U = edges[x.c.under];
+    if (U.oneway && !U.link && U.name) {
+      const tu = tangentAt(U, x.sU);
+      let best = -1, bs = 0, bd = 45;
+      for (const o of edges) {
+        if (o.index === U.index || o.name !== U.name || !o.oneway || !st[o.index]) continue;
+        const so = projectOn(o, [x.c.x, x.c.z]), p = pointAt(o, so), d = Math.hypot(p[0] - x.c.x, p[1] - x.c.z);
+        if (d >= bd) continue;
+        const to = tangentAt(o, so); if (tu[0] * to[0] + tu[1] * to[1] > -0.7) continue;
+        best = o.index; bs = so; bd = d;
+      }
+      if (best >= 0 && !maskedAt(best, bs)) src.push({ ei: best, s: bs, L, R });
+    }
+  }
+  // each source's graph-distance field, the max of their dips per station
+  const lower = st.map(t => t ? new Float64Array(t.s.length) : null);
+  const dist = new Float64Array(nodes.length);
+  for (const q of src) {
+    dist.fill(Infinity);
+    const E0 = edges[q.ei];
+    dist[E0.a] = q.s; dist[E0.b] = Math.min(E0.length - q.s, Infinity);
+    const heap = [[dist[E0.a], E0.a], [dist[E0.b], E0.b]];
+    while (heap.length) {
+      let m = 0; for (let k = 1; k < heap.length; k++) if (heap[k][0] < heap[m][0]) m = k;
+      const [d, nd] = heap[m]; heap[m] = heap[heap.length - 1]; heap.pop();
+      if (d > dist[nd] || d > q.R) continue;
+      for (const ei of nodeEdges[nd]) {
+        const e = edges[ei]; if (!st[ei] || e.a === e.b) continue;
+        const o = e.a === nd ? e.b : e.a, nd2 = d + e.length;
+        if (nd2 < dist[o]) { dist[o] = nd2; heap.push([nd2, o]); }
+      }
+    }
+    const dip = d => d >= q.R ? 0 : (() => { const t = d / q.R; return q.L * (1 - t * t * t * (t * (t * 6 - 15) + 10)); })();
+    for (const e of edges) {
+      const t = st[e.index]; if (!t) continue;
+      const dA = dist[e.a], dB = dist[e.b];
+      const self = e.index === q.ei;
+      if (!self && dA >= q.R && dB >= q.R) continue;
+      for (let i = 0; i < t.s.length; i++) {
+        let d = Math.min(dA + t.s[i], dB + e.length - t.s[i]);
+        if (self) d = Math.min(d, Math.abs(t.s[i] - q.s));
+        const v = dip(d);
+        if (v > lower[e.index][i]) lower[e.index][i] = v;
+      }
+    }
+  }
+  let lowered = 0, maxL = 0;
+  for (const e of edges) {
+    const t = st[e.index]; if (!t) continue;
+    for (let i = 0; i < t.s.length; i++) if (lower[e.index][i] > 0.005) { t.y[i] -= lower[e.index][i]; lowered++; maxL = Math.max(maxL, lower[e.index][i]); }
+  }
+  const after = deficits().filter(x => x.d > 0.005);
+  const line = `CLEARANCE (REAL HEIGHTS): ${before.length} of ${crossings.length} tagged-bridge crossings short of ${DECK_OVER_M} m deck over the road under as measured; ` +
+    `${src.length} dips (incl. twins) lowered ${lowered} stations up to ${maxL.toFixed(2)} m; still short ${after.length} (left to the game's deck lift; ` +
+    `deficit over ${LOWER_MAX_M} m ${after.filter(x => x.d > LOWER_MAX_M).length}, worst ${after.reduce((m, x) => Math.max(m, x.d), 0).toFixed(2)} m)`;
+  return { line, short: before.length, lowered, left: after.length, after };
 }
 
 /// RPRF bytes (lib/citydata.mjs documents the layout): u32 count, then per
