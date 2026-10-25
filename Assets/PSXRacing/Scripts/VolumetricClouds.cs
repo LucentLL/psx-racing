@@ -77,6 +77,10 @@ namespace PSXRacing
         static Texture3D shape, detail;
         static Texture2D weather;
         static RenderTexture mapA, mapB, compact;
+        /// <summary>The frame's two Blits and the map's global, recorded once
+        /// per ping-pong side: a frame executes one (less CPU than two
+        /// Graphics.Blit calls).</summary>
+        static UnityEngine.Rendering.CommandBuffer cbIntoB, cbIntoA;
         static bool aCurrent, failed;
         static Vector2 windVel, wind;
         static float rise;
@@ -145,6 +149,9 @@ namespace PSXRacing
                 compact = MakeRT(MapW / 4, MapH / 4, "VolCloudFresh");
                 mat.SetTexture("_PSXVolFresh", compact);
                 mat.SetVector(idSize, new Vector4(MapW, MapH, 1f / MapW, 1f / MapH));
+                mat.SetVector(idSteps, new Vector4(Steps, 30f, 18000f, 1f));
+                cbIntoB = Record(mapA, mapB, "VolClouds A->B");
+                cbIntoA = Record(mapB, mapA, "VolClouds B->A");
                 reset = true;
             }
             return true;
@@ -165,6 +172,15 @@ namespace PSXRacing
             return t;
         }
 
+        static UnityEngine.Rendering.CommandBuffer Record(RenderTexture src, RenderTexture dst, string name)
+        {
+            var cb = new UnityEngine.Rendering.CommandBuffer { name = name };
+            cb.Blit((Texture)null, compact, mat, 0);
+            cb.Blit(src, dst, mat, 1);
+            cb.SetGlobalTexture(idMap, dst);
+            return cb;
+        }
+
         static RenderTexture MakeRT(int w, int h, string name)
         {
             var rt = new RenderTexture(w, h, 0, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear)
@@ -182,6 +198,8 @@ namespace PSXRacing
             if (mapA != null) { mapA.Release(); Object.DestroyImmediate(mapA); mapA = null; }
             if (mapB != null) { mapB.Release(); Object.DestroyImmediate(mapB); mapB = null; }
             if (compact != null) { compact.Release(); Object.DestroyImmediate(compact); compact = null; }
+            cbIntoA?.Release(); cbIntoB?.Release();
+            cbIntoA = cbIntoB = null;
         }
 
         // ---- the day's clouds ---------------------------------------------
@@ -210,7 +228,7 @@ namespace PSXRacing
                 case SkyKind.Clear:
                     // A few small fair-weather cumulus - or none - and on
                     // some days a sheet of cirrus streaks.
-                    c = h1 < 0.3f ? 0.03f : 0.08f + 0.14f * h1;
+                    c = h1 < 0.35f ? 0f : 0.02f + 0.1f * h1;
                     kind = 0.05f + 0.2f * h2;
                     baseM = 1500f + 400f * h3;
                     tallM = 700f + 600f * h2;
@@ -326,6 +344,53 @@ namespace PSXRacing
             for (int i = 0; i < 48; i++) Step(eye, 0f, true);
         }
 
+        /// <summary>A tool's drive (edit mode): <paramref name="frames"/>
+        /// frames of the game's own update, the eye moving at
+        /// <paramref name="velocity"/> and the wind blowing - reprojection and
+        /// all - ending at the eye it returns.</summary>
+        public static Vector3 Drive(Vector3 eye, Vector3 velocity, int frames, float dt)
+        {
+            if (!Active || !Ensure()) return eye;
+            for (int i = 0; i < frames; i++) { eye += velocity * dt; Step(eye, dt, true); }
+            return eye;
+        }
+
+        /// <summary>
+        /// A tool's timing (edit mode): n frames of the map back to back, the
+        /// GPU drained before and after by a one-pixel readback - wall ms a
+        /// frame (an upper bound on the GPU's share), and the submit's CPU.
+        /// </summary>
+        public static Vector2 Benchmark(Vector3 eye, int n)
+        {
+            if (!Active || !Ensure()) return new Vector2(-1f, -1f);
+            var probe = new Texture2D(1, 1, TextureFormat.RGBAHalf, false);
+            Step(eye, 0.016f, true);
+            Drain(probe);
+            double cpu = 0;
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            for (int i = 0; i < n; i++)
+            {
+                long c0 = System.Diagnostics.Stopwatch.GetTimestamp();
+                Step(eye + Vector3.forward * (i * 0.5f), 0.016f, true);
+                cpu += System.Diagnostics.Stopwatch.GetTimestamp() - c0;
+            }
+            Drain(probe);
+            double f = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            float wall = (float)((System.Diagnostics.Stopwatch.GetTimestamp() - t0) * f / n);
+            Object.DestroyImmediate(probe);
+            return new Vector2(wall, (float)(cpu * f / n));
+        }
+
+        static void Drain(Texture2D probe)
+        {
+            var was = RenderTexture.active;
+            RenderTexture.active = aCurrent ? mapA : mapB;
+            probe.ReadPixels(new Rect(0, 0, 1, 1), 0, 0, false);
+            probe.Apply(false);
+            probe.GetPixel(0, 0);
+            RenderTexture.active = was;
+        }
+
         static void Step(Vector3 eye, float dt, bool jitter)
         {
             if (!haveEye) { lastEye = eye; haveEye = true; reset = true; }
@@ -337,7 +402,6 @@ namespace PSXRacing
             frame++;
             var ph = Order[frame & 15];
             mat.SetVector(idWind, new Vector4(wind.x, wind.y, rise, frame & 1023));
-            mat.SetVector(idSteps, new Vector4(Steps, 30f, 18000f, jitter ? 1f : 0f));
             // A fresh texel replaces its history for the first turn after a
             // reset, then keeps a third of each new march (~5 samples).
             mat.SetVector(idPhase, new Vector4(ph.x, ph.y, 0f, sinceReset < 16 ? 1f : 0.35f));
@@ -345,12 +409,8 @@ namespace PSXRacing
             // field at xz + wind), so last frame's cloud is a wind step back.
             mat.SetVector(idMove, new Vector4(move.x + dw.x, 0f, move.z + dw.y, reset ? 1f : 0f));
             Shader.SetGlobalVector(idEye, new Vector4(eye.x, eye.y, eye.z, 0f));
-            Graphics.Blit(null, compact, mat, 0);
-            var src = aCurrent ? mapA : mapB;
-            var dst = aCurrent ? mapB : mapA;
-            Graphics.Blit(src, dst, mat, 1);
+            Graphics.ExecuteCommandBuffer(aCurrent ? cbIntoB : cbIntoA);
             aCurrent = !aCurrent;
-            Shader.SetGlobalTexture(idMap, dst);
             sinceReset = reset ? 0 : sinceReset + 1;
             reset = false;
             lastEye = eye;

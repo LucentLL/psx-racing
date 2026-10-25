@@ -63,7 +63,13 @@ namespace PSXRacing.EditorTools
                         if (globals != null) globals.SendMessage("Apply", SendMessageOptions.DontRequireReceiver);
                         DynamicSky.PrimeClouds(eye);
                         if (!old)
-                            Debug.Log($"[DynSky] {set}: volumetric {(VolumetricClouds.Active ? "ON" : "OFF (fallback)")}, sky {w.sky}");
+                        {
+                            // The map's frame cost, timed: 300 frames back to back, drained.
+                            var bench = VolumetricClouds.Benchmark(eye, 300);
+                            DynamicSky.PrimeClouds(eye);
+                            Debug.Log($"[DynSky] {set}: volumetric {(VolumetricClouds.Active ? "ON" : "OFF (fallback)")}, sky {w.sky}; " +
+                                      $"map frame {bench.x:0.000} ms wall (GPU bound), submit CPU {bench.y * 1000f:0} us ({SystemInfo.graphicsDeviceName})");
+                        }
 
                         Vector3 toSun = sun != null ? -sun.transform.forward
                                                     : -(Quaternion.Euler(hour.sunEuler) * Vector3.forward);
@@ -72,10 +78,17 @@ namespace PSXRacing.EditorTools
                         flat.Normalize();
                         Vector3 side = Vector3.Cross(Vector3.up, flat);
                         string tag = "dsky_" + set.Replace(':', '-');
-                        PSXScreenshotTool.ShotAs(cam, tag + "_a_sunward_" + mode, eye, Quaternion.LookRotation(flat + Vector3.up * 0.14f));
-                        PSXScreenshotTool.ShotAs(cam, tag + "_b_side_" + mode, eye, Quaternion.LookRotation(side + Vector3.up * 0.14f));
-                        PSXScreenshotTool.ShotAs(cam, tag + "_c_away_" + mode, eye, Quaternion.LookRotation(-flat + Vector3.up * 0.14f));
-                        PSXScreenshotTool.ShotAs(cam, tag + "_d_up_" + mode, eye, Quaternion.LookRotation(-side + Vector3.up * 0.84f));
+                        // A fourth field "drive": first 3 s of the game's own
+                        // per-frame update at 70 m/s (reprojection, wind), shot as
+                        // mode "drive"; then the still march from the same eye.
+                        Vector3 at = eye;
+                        if (!old && hs.Length > 3 && hs[3] == "drive")
+                        {
+                            at = VolumetricClouds.Drive(eye, side * 70f, 180, 1f / 60f);
+                            Views(cam, tag, "drive", at, flat, side);
+                            DynamicSky.PrimeClouds(at);
+                        }
+                        Views(cam, tag, mode, at, flat, side);
                     }
                 }
             }
@@ -89,6 +102,14 @@ namespace PSXRacing.EditorTools
                 SkyModePrefs.Dynamic = false;
             }
             Debug.Log("[DynSky] Screenshots written to Screenshots\\dsky_* (GLES3 compile failures: " + compileFailures + ")");
+        }
+
+        static void Views(Camera cam, string tag, string mode, Vector3 eye, Vector3 flat, Vector3 side)
+        {
+            PSXScreenshotTool.ShotAs(cam, tag + "_a_sunward_" + mode, eye, Quaternion.LookRotation(flat + Vector3.up * 0.14f));
+            PSXScreenshotTool.ShotAs(cam, tag + "_b_side_" + mode, eye, Quaternion.LookRotation(side + Vector3.up * 0.14f));
+            PSXScreenshotTool.ShotAs(cam, tag + "_c_away_" + mode, eye, Quaternion.LookRotation(-flat + Vector3.up * 0.14f));
+            PSXScreenshotTool.ShotAs(cam, tag + "_d_up_" + mode, eye, Quaternion.LookRotation(-side + Vector3.up * 0.84f));
         }
 
         static int HourIndex(string name)
