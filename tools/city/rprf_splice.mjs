@@ -5,7 +5,7 @@
 // file the same way), in ~30 s instead of the full ~5 min export. The
 // export stays the source of truth: run `export_osm.mjs --check` before a
 // commit.
-//   node tools/city/rprf_splice.mjs [--in <charlotte_city.bytes>] [--out <path>] [--freeways]
+//   node tools/city/rprf_splice.mjs [--in <charlotte_city.bytes>] [--out <path>] [--freeways] [--no-landings]
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +19,7 @@ const val = n => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : null
 const inPath = val('--in') || join(HERE, '..', '..', 'Assets', 'PSXRacing', 'Resources', 'charlotte_city.bytes');
 const outPath = val('--out') || inPath;
 const freeways = args.includes('--freeways');
+const landings = !args.includes('--no-landings');
 
 class Writer {
   constructor() { this.b = []; }
@@ -55,7 +56,7 @@ const graph = parseCity(assemble());
 const dem = load3dep();
 const LAT0 = 35.18456015184093, LON0 = -80.81770185962013, M_LAT = 111132, M_LON = 111320 * Math.cos(LAT0 * Math.PI / 180);
 const t0 = Date.now();
-const rp = buildRoadProfiles(graph, (x, z) => dem.sample(LAT0 + z / M_LAT, LON0 + x / M_LON) - 97.0, { all: !freeways });
+const rp = buildRoadProfiles(graph, (x, z) => dem.sample(LAT0 + z / M_LAT, LON0 + x / M_LON) - 97.0, { all: !freeways, landings });
 for (const l of rp.lines) console.log(l);
 const prof = freeways ? rp.prof.map((p, ei) => p && graph.edges[ei].rank >= 4 && !graph.edges[ei].link ? p : null) : rp.prof;
 const w = new Writer(); writeRprf(w, prof);

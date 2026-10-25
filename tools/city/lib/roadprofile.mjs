@@ -483,7 +483,7 @@ export function buildRoadProfiles(city, groundY, opts = {}) {
   // over Le (a 30 mph comfort curve for the break, 20..60 m), all inside half
   // the arm (both ends of a short piece land). Measured: the grade breaks
   // through the nodes, every arm pair, before -> after (landingLine).
-  const landingLine = opts.all ? landJunctions() : null;
+  const landingLine = opts.all && opts.landings !== false ? landJunctions() : null;
   function landJunctions() {
     const out = (e, nd, d) => { const t = st[e.index], n = t.s.length; const at = e.a === nd ? Math.min(d, e.length) : Math.max(0, e.length - d); const f = Math.max(0, Math.min(1, at / Math.max(1e-3, e.length))) * (n - 1), k = Math.min(n - 2, Math.floor(f)); return t.y[k] + (t.y[k + 1] - t.y[k]) * (f - k); };
     const dirOut = (e, nd) => e.a === nd ? tangentAt(e, 0) : tangentAt(e, e.length).map(v => -v);
