@@ -537,14 +537,14 @@ Shader "PSX/Lit"
             #define WIN_CELL_M         23.0   // world cell for the per-building variety, metres
             #define WIN_LIT_FRAC       0.34   // share of office windows lit at full night (x _PSXNight):
                                               //   dusk (0.75) lights ~25%, night ~34% (Uptown B1; was 0.42)
-            // EVERY LIT WINDOW IS YELLOW (owner, 2026-10-24, on the "sky blue
-            // windows": "No blue/white windows. Yellow like the NFS screenshot
-            // I shared"). The cool tube colour read as the day sky's
+            // EVERY LIT WINDOW IS ONE YELLOW (owner, 2026-10-24, on the "sky
+            // blue windows": "No blue/white windows. Yellow like the NFS
+            // screenshot I shared"; then, of the paler yellow that took their
+            // slot: "a different shade yellow than the other windows. I'm not
+            // a fan of that"). The cool tube colour read as the day sky's
             // reflection pasted on a night tower (measured 122,146,162, sat
-            // 0.25). The second tone is a paler yellow now, for variety only.
-            #define WIN_WARM_SHARE     0.62   // share of the lit ones in the deeper yellow, not the paler one
+            // 0.25). Windows differ in brightness only, never in hue.
             #define WIN_WARM           float3(1.00, 0.74, 0.42)
-            #define WIN_PALE           float3(1.00, 0.84, 0.54)
             #define WIN_SHOP           float3(1.00, 0.80, 0.48)   // shopfront glass: always lit at night (yellow, 2026-10-24; was a cream 0.86/0.62)
             #define WIN_DIM            0.55   // the dimmest lit window, as a share of the brightest
             #define WIN_GAIN           1.1
@@ -573,11 +573,10 @@ Shader "PSX/Lit"
             #define FAR_BLOCK_WIDE     2.0    // ...times this across (2026-10-17: never coarsened UP a tower)
             #define FAR_COVER          0.65   // the least a far lit floor's window cover is
             #define FAR_TAPS           4      // storeys sampled across a far pixel's footprint (the box filter)
-            // the atlas facades' own window colours (2026-10-17, the owner: the
+            // the atlas facades' own window colour (2026-10-17, the owner: the
             // cream read close to the grey wall): a warmer, yellower tungsten
-            // than WIN_WARM, and (2026-10-24, no blue) a paler yellow, not a tube
+            // than WIN_WARM - the one colour of a facade's lit windows
             #define FAC_WIN_WARM       float3(1.00, 0.64, 0.24)
-            #define FAC_WIN_PALE       float3(1.00, 0.78, 0.38)
             #define BOUNCE_HIGH        0.30   // the lit streets' bounce high on a tower, as a share of the street's
             #define BOUNCE_FALL_M      40.0   //   halving every 40 m up: upper walls stay dark behind their lit blocks
             #define UPL_SHARE          0.35   // buildings with a warm uplight on the lower facade
@@ -697,20 +696,18 @@ Shader "PSX/Lit"
                 float hc = PSXLitHash(cell + 431.0);
                 float lit = step(hc, FAC_NIGHT_FLOOR_P) * tw;
                 lit = lerp(lit, FAC_NIGHT_FLOOR_P * FAC_NIGHT_TOWER_P, saturate(dist / FAC_NIGHT_FAR_M));
-                float3 winC = frac(hc * 37.3) < 0.6 ? float3(1.00, 0.76, 0.46) : float3(1.00, 0.86, 0.58);   // yellow, both (no blue windows)
+                float3 winC = float3(1.00, 0.76, 0.46);   // one yellow (no blue windows, no second shade)
                 float tower = step(-0.36, el) * (1.0 - smoothstep(0.08, 0.21, el));
                 float3 c = sodium * (FAC_NIGHT_BAND * band) + winC * (FAC_NIGHT_FLOORS * lit * tower);
                 c += sodium * (FAC_NIGHT_SKYGLOW * exp(-max(el, 0.0) * 6.0));
                 return c;
             }
 
-            // A tenant's window colour and brightness from its hash: warm
-            // (tungsten, more yellow than the houses' WIN_WARM so it does not
-            // read as the grey wall's cream) or cool (tube), dimmer or brighter.
+            // A tenant's window colour and brightness from its hash: the one
+            // facade yellow (FAC_WIN_WARM), dimmer or brighter.
             float3 FacWinColour(float th, float cityGain)
             {
-                return (frac(th * 3.7) < WIN_WARM_SHARE ? FAC_WIN_WARM : FAC_WIN_PALE)
-                     * (lerp(WIN_DIM, 1.0, frac(th * 11.3)) * WIN_GAIN * cityGain);
+                return FAC_WIN_WARM * (lerp(WIN_DIM, 1.0, frac(th * 11.3)) * WIN_GAIN * cityGain);
             }
 
             // ONE STOREY's state along a run of bays (THE FAR FLOORS): its
@@ -1562,7 +1559,7 @@ Shader "PSX/Lit"
                     float storey = floor(facYF);
                     float gid = tex2Dlod(_NightMask, float4(uv, 0.0, 0.0)).g * 255.0;
                     float shop = step(0.5, m.b);
-                    float3 hueMean = lerp(WIN_PALE, WIN_WARM, WIN_WARM_SHARE);
+                    float3 hueMean = WIN_WARM;
                     float brightMean = lerp(WIN_DIM, 1.0, 0.5) * WIN_GAIN * cityGain;
                     // a storey is resolved once it is two pixels tall; a unit
                     // once it is two pixels both ways
@@ -1649,14 +1646,13 @@ Shader "PSX/Lit"
                     float h = frac(m.g * 7.13 + PSXLitHash(cell + floor(winUV) * float2(131.0, 37.0)));
                     float shop = step(0.5, m.b);
                     float on = max(shop, step(h, lerp(WIN_LIT_FRAC, WIN_LIT_FRAC_CITY, cityNight) * _PSXNight));
-                    float3 hue = frac(h * 3.7) < WIN_WARM_SHARE ? WIN_WARM : WIN_PALE;
+                    float3 hue = WIN_WARM;
                     // the city's whole lit storeys: one key per building and
                     // storey, so a band runs the width of the building
                     float bk = PSXLitHash(cell);
                     float storey = floor((i.wpos.y - streetY) / WIN_STOREY_M);
                     float bh = PSXLitHash(float2(bk * 113.0 + 7.0, storey));
                     float band = cityNight * step(bh, WIN_BAND_FRAC * _PSXNight) * step(1.0, storey);
-                    hue = band > 0.5 ? (frac(bh * 53.1) < WIN_WARM_SHARE ? WIN_WARM : WIN_PALE) : hue;
                     on = max(on, band);
                     hue = lerp(hue, WIN_SHOP, shop);
                     float bright = lerp(WIN_DIM, 1.0, frac(h * 11.3)) * WIN_GAIN * cityGain;

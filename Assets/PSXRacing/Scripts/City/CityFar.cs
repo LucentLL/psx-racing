@@ -96,10 +96,11 @@ namespace PSXRacing.City
         /// (they are dim and mostly behind the trees), at this brightness.</summary>
         const float StreetLampGain = 0.70f, ArterialLampGain = 0.90f;
         const float StoreyM = 3.6f;
-        /// <summary>The windows' colours: yellow, every one (owner, 2026-10-24:
-        /// "No blue/white windows. Yellow like the NFS screenshot I shared";
-        /// PSX/Lit's WIN_WARM / WIN_PALE / WIN_SHOP, the same).</summary>
-        static readonly Color WinWarm = new Color(1.00f, 0.74f, 0.42f), WinPale = new Color(1.00f, 0.84f, 0.54f), WinShop = new Color(1.00f, 0.80f, 0.48f);
+        /// <summary>The windows' colours: ONE yellow a building type (owner,
+        /// 2026-10-24: "No blue/white windows. Yellow like the NFS screenshot
+        /// I shared", and no second shade): a house's PSX/Lit WIN_WARM, an
+        /// office's FAC_WIN_WARM, a shopfront's WIN_SHOP - the same numbers.</summary>
+        static readonly Color WinWarm = new Color(1.00f, 0.74f, 0.42f), WinOffice = new Color(1.00f, 0.64f, 0.24f), WinShop = new Color(1.00f, 0.80f, 0.48f);
 
         // ---- the glow ----
         /// <summary>The lit city's radius round uptown, the height of the lit
@@ -702,7 +703,7 @@ namespace PSXRacing.City
                     float pLit = shop && st == 0 ? ShopLit : OfficeLit;
                     if (Hash(i, 100 + salt) > pLit) continue;
                     var at = OnOutline(f.pts, Hash(i, 200 + salt), Hash(i, 300 + salt));
-                    var col = shop && st == 0 ? WinShop : Hash(i, 400 + salt) < 0.62f ? WinWarm : WinPale;
+                    var col = shop && st == 0 ? WinShop : WinOffice;
                     AddLight(new Vector3(at.x, ground + (st + 0.45f) * StoreyM, at.y), col, shop && st == 0 ? 0.70f : 0.55f, WindowSize);
                     WindowCount++;
                 }
