@@ -347,80 +347,10 @@ namespace PSXRacing.EditorTools
 
         static readonly Dictionary<string, Theme> Themes = new Dictionary<string, Theme>
         {
-            // Downtown: gravel verges, concrete barriers, street trees, and the
-            // gas station on the back straight this circuit was designed around.
-            ["CityCircuit"] = new Theme { bakedLight = true },
-
-            // Docks: concrete slab everywhere, corrugated hoarding instead of
-            // barriers, warehouses shoulder to shoulder, and nothing growing.
-            ["HarborPoint"] = new Theme
-            {
-                ground = Root + "/Art/Roads/T (4).jpg",
-                wall = Root + "/Art/GasStation/Textures/MetalPlates.jpg",
-                groundTile = 12f,
-                relief = 1.2f,          // reclaimed dock land, graded flat
-                buildingEvery = 7, buildingSkip = 0.12,
-                treeEvery = 0,
-                parkedEvery = 9,
-                lampEvery = 9,
-                // Every circuit has a forecourt now. Fuel burns in real time and
-                // is bought at the pumps, so a circuit without them is one the
-                // player cannot finish a long race on — the station stopped
-                // being set dressing the moment the nozzle became a control.
-                gasStation = true,
-                bakedLight = true,
-            },
-
-            // Out of town: dirt and grass, dry-stone walling, trees close enough
-            // to the road to matter, and almost nothing built.
-            ["RidgePass"] = new Theme
-            {
-                ground = Root + "/Art/GasStation/Textures/Ground.jpg",
-                wall = Root + "/Art/Roads/T (3).jpg",
-                tree = Root + "/Art/Roads/Ar (6).png",
-                groundTile = 14f,
-                relief = 13f,           // the hillside the pass is cut into
-                // Barely any: a 12 m apartment slab on a mountain pass reads as
-                // a mistake, so what few there are should be landmarks.
-                buildingEvery = 34, buildingSkip = 0.55,
-                treeEvery = 4, treeSkip = 0.15,
-                // A pass through a wood, not a lane with a tree every 32 m.
-                treeRows = 3, treeBothSides = true,
-                parkedEvery = 0,
-                lampEvery = 24,
-                gasStation = true,
-                bakedLight = true,
-            },
-
-            // An airfield: tarmac to the horizon, slab walls, a hangar here and
-            // there, and a line of trees along the perimeter.
-            ["AirfieldSprint"] = new Theme
-            {
-                ground = Root + "/Art/Roads/T (1).jpg",
-                wall = Root + "/Art/Roads/T (4).jpg",
-                tree = Root + "/Art/Roads/Ar (5).png",
-                groundTile = 16f,
-                relief = 1f,            // an airfield is chosen for being flat
-                buildingEvery = 17, buildingSkip = 0.35,
-                treeEvery = 7, treeSkip = 0.3,
-                // The perimeter line is a shelter belt: two ranks deep.
-                treeRows = 2,
-                parkedEvery = 19,
-                lampEvery = 11,
-                gasStation = true,
-                // The one venue whose blurb is about racing rather than about
-                // a place: perimeter-track tarmac, slab walls, hangars — the
-                // Silverstone/Goodwood lineage, and the archetype of a
-                // purpose-built circuit. It keeps the red/white.
-                kerb = KerbStyle.Racing,
-                bakedLight = true,
-            },
-
-            // Both strips share one look: fresh prepped tarmac, concrete walls
-            // the length of it, timing towers standing in as the only buildings,
-            // and light poles close enough together to read as speed.
-            ["DragQuarter"] = DragTheme(),
-            ["DragEighth"] = DragTheme(),
+            // Every venue here is a real place. The four fictional circuits
+            // and the two flat drag strips had themes at the top of this table
+            // until they left the game (2026-10-25); a venue with no entry gets
+            // the Theme defaults, which were Sunset City GP's downtown look.
 
             // The parkway: real terrain, a fall forest the stage plants
             // itself, low stone guard walls, and NOTHING built — no lamps, no
@@ -587,34 +517,6 @@ namespace PSXRacing.EditorTools
             bakedLight = true,
         };
 
-        static Theme DragTheme() => new Theme
-        {
-            ground = Root + "/Art/Roads/T (1).jpg",
-            wall = Root + "/Art/Roads/T (4).jpg",
-            groundTile = 14f,
-            // A strip is a prepped surface on a prepped site. The default 3 m of
-            // relief would put rolling hills either side of a quarter mile,
-            // which is the one place in the game where flat is the point.
-            relief = 0.8f,
-            // Sparse and one-sided-ish: a strip is a wall, a fence and a lot of
-            // nothing, and the reference for speed is the light poles going past.
-            buildingEvery = 24, buildingSkip = 0.45,
-            treeEvery = 0,
-            parkedEvery = 0,
-            lampEvery = 7,
-            // Every 8 m. There is no verge on a strip — 18 m of tarmac inside
-            // a 10 m barrier line — so this pitch is taken by the wall's own
-            // seam posts (see PlacePosts), which is what a strip's wall looks
-            // like anyway.
-            postEvery = 2,
-            gasStation = false,
-            // A strip is a purpose-built racing surface, and its kerb band
-            // (9.0-9.9 m out) is mostly behind the wall at 9.8 m anyway.
-            // Left as the red/white to bound the change; a plain white line
-            // over concrete would be truer and is one enum value away.
-            kerb = KerbStyle.Racing,
-        };
-
         /// <summary>For the self-test: every catalog track needs a theme, and a
         /// missing one only shows up as a circuit that quietly looks like the
         /// city one.</summary>
@@ -623,8 +525,8 @@ namespace PSXRacing.EditorTools
         static Theme ThemeFor(TrackCatalog.TrackDef d)
         {
             if (Themes.TryGetValue(d.id, out var t)) return t;
-            Log("WARN: no theme for track '" + d.id + "' — using the city one.");
-            return Themes["CityCircuit"];
+            Log("WARN: no theme for track '" + d.id + "' — using the defaults.");
+            return new Theme();
         }
 
         /// <summary>
@@ -7323,7 +7225,7 @@ namespace PSXRacing.EditorTools
         //  Cars
         // ------------------------------------------------------------------
         /// <summary>
-        /// The standalone demo grid. Pressing Play on CityCircuit still gives
+        /// The standalone demo grid. Pressing Play on a venue scene still gives
         /// the FD the handling was tuned against, but the three opponents now
         /// wear different shells — which is the fastest way to see at a glance
         /// that the model library baked and fitted correctly, without going

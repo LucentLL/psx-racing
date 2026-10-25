@@ -84,7 +84,7 @@ namespace PSXRacing.EditorTools
 
         static void CaptureCircuit()
         {
-            var def = TrackCatalog.At(0);
+            var def = TrackCatalog.At(TrackCatalog.CheckVenue);
             Line(def.id + ":");
             if (!PSXScreenshotTool.Open(def, out var cam, out var player)) { Skipped("the scene did not open (run the scene build)"); return; }
             var sun = NightLookShots.FindSun();

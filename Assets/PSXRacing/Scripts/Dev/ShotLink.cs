@@ -129,7 +129,7 @@ namespace PSXRacing
             string At(int i, string d) => i < f.Length && f[i].Trim().Length > 0 ? f[i].Trim() : d;
             var s = new Shot
             {
-                venue = At(0, "CityCircuit"), spot = At(1, "grid"), hour = At(2, "Noon"), weather = At(3, "Clear"),
+                venue = At(0, "GillespieGap"), spot = At(1, "grid"), hour = At(2, "Noon"), weather = At(3, "Clear"),
                 season = At(4, "Fall"), cam = At(5, "chase"), lights = At(6, "auto"),
                 lens = At(7, "0") == "1" ? 1 : 0, grade = At(8, "1") == "0" ? 0 : 1,
             };

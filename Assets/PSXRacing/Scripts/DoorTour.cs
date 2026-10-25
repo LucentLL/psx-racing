@@ -30,7 +30,7 @@ namespace PSXRacing
     ///   MAIN  a race at the line (LifeHomeScreen.PendingTab "racenow", then
     ///         the page's own START) for a circuit, a stage, a reverse twin,
     ///         a sprint in its loop's scene, Chimney Rock and a drag; a stale
-    ///         save's Charlotte race (START must run Sunset City GP); IN TOWN,
+    ///         save's Charlotte race (START must run the first venue offered); IN TOWN,
     ///         your street and the walk-in (the "town" / "drivehome" /
     ///         "garagewalk" hops); a seller's listing (GO AND SEE IT) and its
     ///         TEST DRIVE; a pizza drop (the counter's roll, then the
@@ -125,8 +125,8 @@ namespace PSXRacing
         public static List<Door> MainDoors(EditionKind edition)
         {
             var doors = new List<Door>();
-            foreach (var id in new[] { "CityCircuit", "BlueRidge", "BlueRidgeRev", "BlowingRockSprint",
-                                       "ChimneyRock", "ChimneyRockRev", "DragQuarter",
+            foreach (var id in new[] { "GillespieGap", "BlueRidge", "BlueRidgeRev", "BlowingRockSprint",
+                                       "ChimneyRock", "ChimneyRockRev", "EmeraldIsle",
                                        // ALL only (MAIN skips it: not shipped): a Charlotte race through
                                        // SceneGate and the charlotte.bundle download (2026-10-24)
                                        "UptownLoop" })

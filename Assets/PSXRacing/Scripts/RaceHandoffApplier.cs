@@ -10,7 +10,7 @@ namespace PSXRacing
     /// and the gauge flags onto the HUD.
     ///
     /// Everything here no-ops cleanly when <c>FromLifeSim</c> is false, so
-    /// pressing Play on CityCircuit in the editor still gives the standalone
+    /// pressing Play on a venue scene in the editor still gives the standalone
     /// demo race it always did. That property is worth protecting: it is the
     /// fastest way to test a physics change without going through the menus.
     ///

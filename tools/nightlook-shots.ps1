@@ -6,7 +6,7 @@
 #
 # Code, shaders, the always-included shader list and the night window masks
 # go into the sandbox; then ONE Unity job WITH graphics runs
-# NightLookShots.Capture (CityCircuit, Charlotte at three streamed spots,
+# NightLookShots.Capture (GillespieGap, Charlotte at three streamed spots,
 # BlueRidge; night, dusk, rain, lens) and night_stats.py scores every frame
 # against the numbers measured off the reference frames.
 #

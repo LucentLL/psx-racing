@@ -102,8 +102,8 @@ namespace PSXRacing.EditorTools
         static int Shoot(string outDir, string pipe, string label, int w, int h, bool night)
         {
             string tag = pipe + "_" + label;
-            if (!PSXScreenshotTool.Open(TrackCatalog.At(0), out var cam, out var player))
-                return Fail(tag, "could not open " + TrackCatalog.At(0).id + " (run the scene build)");
+            if (!PSXScreenshotTool.Open(TrackCatalog.At(TrackCatalog.CheckVenue), out var cam, out var player))
+                return Fail(tag, "could not open " + TrackCatalog.At(TrackCatalog.CheckVenue).id + " (run the scene build)");
             var blur = cam.GetComponent<SpeedBlur>();
             if (blur == null)
             {
@@ -245,8 +245,8 @@ namespace PSXRacing.EditorTools
         static int ShootMotion(string outDir, string pipe, string label, int w, int h)
         {
             string tag = pipe + "_" + label + "_motion";
-            if (!PSXScreenshotTool.Open(TrackCatalog.At(0), out var cam, out var player))
-                return Fail(tag, "could not open " + TrackCatalog.At(0).id + " (run the scene build)");
+            if (!PSXScreenshotTool.Open(TrackCatalog.At(TrackCatalog.CheckVenue), out var cam, out var player))
+                return Fail(tag, "could not open " + TrackCatalog.At(TrackCatalog.CheckVenue).id + " (run the scene build)");
             var blur = Wire(cam, player, tag);
             if (blur.hudCanvas == null)
                 return Fail(tag, "SpeedBlur has no HUD canvas wired — nothing here can show the HUD staying sharp");

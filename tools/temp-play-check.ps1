@@ -1,7 +1,7 @@
 # Is the temperature gauge actually wired to the engine, in the RUNNING game?
 #
 #   powershell -ExecutionPolicy Bypass -File tools\temp-play-check.ps1
-#   powershell -ExecutionPolicy Bypass -File tools\temp-play-check.ps1 -Venue AirfieldSprint
+#   powershell -ExecutionPolicy Bypass -File tools\temp-play-check.ps1 -Venue GillespieGap
 #
 # The MODEL is pinned in edit mode by the self-test (where the needle settles,
 # what an overheat costs, what destroys an engine). This asks the other half:
@@ -12,7 +12,7 @@
 #
 # Code only, on an already-built sandbox (Scripts and Editor over the top, no
 # mirror). Exit 0 = the gauge means something.
-param([string]$Venue = "DragEighth", [switch]$NoWatch, [int]$MaxMinutes = 20)
+param([string]$Venue = "EmeraldIsle", [switch]$NoWatch, [int]$MaxMinutes = 20)
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot

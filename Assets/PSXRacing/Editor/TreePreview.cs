@@ -36,8 +36,9 @@ namespace PSXRacing.EditorTools
             foreach (var f in Directory.GetFiles(dir, "*.png")) File.Delete(f);
             var log = new System.Text.StringBuilder();
 
-            // ---- a circuit's roadside tree ----
-            EditorSceneManager.OpenScene("Assets/PSXRacing/Scenes/CityCircuit.unity", OpenSceneMode.Single);
+            // ---- a roadside tree (the circuits' street trees went with the
+            // fictional circuits; Gillespie Gap's scene is the stand-in) ----
+            EditorSceneManager.OpenScene("Assets/PSXRacing/Scenes/GillespieGap.unity", OpenSceneMode.Single);
             Globals();
             MeshRenderer circuit = null;
             foreach (var r in Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None))

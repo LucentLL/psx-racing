@@ -13,7 +13,7 @@ namespace PSXRacing.EditorTools
     ///   settled  two seconds of frames later: back to "on";
     ///   edge     the sun half out of the frame: about half of it.
     /// Each frame's eye pixel (seen, eye) goes to the log as [GlareShot].
-    /// PSX_GLARE_VENUES=BlueRidge,CityCircuit picks the venues;
+    /// PSX_GLARE_VENUES=BlueRidge,EmeraldIsle picks the venues;
     /// PSX_GLARE_HOURS=afternoon,sunset the hours.
     /// Headless (with graphics): -executeMethod PSXRacing.EditorTools.GlareShots.Run
     /// </summary>

@@ -20,7 +20,7 @@ namespace PSXRacing.EditorTools
         [MenuItem("PSX Racing/Capture Cockpit Interior")]
         public static void Capture()
         {
-            var def = TrackCatalog.At(0);
+            var def = TrackCatalog.At(TrackCatalog.CheckVenue);
             string only = System.Environment.GetEnvironmentVariable("PSX_SHOT_VENUE");
             if (!string.IsNullOrEmpty(only))
                 foreach (var d in TrackCatalog.All) if (d.id == only) { def = d; break; }
@@ -131,7 +131,7 @@ namespace PSXRacing.EditorTools
             const string EG = "honda_civic_sir_ii__eg___91";
             var egSpec = CarCatalog.Get(EG);
             if (egSpec == null) { Debug.LogError("[DriveSideShot] no EG Civic row"); return; }
-            var def = TrackCatalog.At(0);
+            var def = TrackCatalog.At(TrackCatalog.CheckVenue);
             if (!PSXScreenshotTool.Open(def, out var cam, out var player)) return;
             var t = player.transform;
             var car = player.GetComponent<CarController>();
@@ -220,7 +220,7 @@ namespace PSXRacing.EditorTools
         {
             string want = System.Environment.GetEnvironmentVariable("PSX_SHOT_VENUE");
             if (string.IsNullOrEmpty(want)) want = "BlueRidge";
-            var def = TrackCatalog.At(0);
+            var def = TrackCatalog.At(TrackCatalog.CheckVenue);
             foreach (var d in TrackCatalog.All) if (d.id == want) { def = d; break; }
             if (!PSXScreenshotTool.Open(def, out var cam, out var player)) return;
             var t = player.transform;

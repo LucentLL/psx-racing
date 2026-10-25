@@ -29,7 +29,7 @@ namespace PSXRacing.EditorTools
     /// Shader.SetGlobalFloat here would be overwritten between the call and
     /// the render.
     ///
-    ///   PSX_FOG_VENUE  venue id (default CityCircuit)
+    ///   PSX_FOG_VENUE  venue id (default GillespieGap)
     ///   PSX_FOG_HOUR   hour name (default noon)
     /// Menu: PSX Racing/Capture Fog Views. Writes Screenshots/psx_fog_*.png.
     /// </summary>
@@ -89,7 +89,7 @@ namespace PSXRacing.EditorTools
             Directory.CreateDirectory(outDir);
 
             string venues = System.Environment.GetEnvironmentVariable("PSX_FOG_VENUE");
-            if (string.IsNullOrEmpty(venues)) venues = "CityCircuit";
+            if (string.IsNullOrEmpty(venues)) venues = "GillespieGap";
             string hourName = System.Environment.GetEnvironmentVariable("PSX_FOG_HOUR");
             if (string.IsNullOrEmpty(hourName)) hourName = "noon";
 
@@ -147,7 +147,7 @@ namespace PSXRacing.EditorTools
                 }
                 // a mountain stage, at stations along its road (a ridge with
                 // distance in it), and a circuit from the player's grid
-                foreach (var (id, view) in new[] { ("MtMitchell", "stage_mtmitchell"), ("CityCircuit", "circuit_noon") })
+                foreach (var (id, view) in new[] { ("MtMitchell", "stage_mtmitchell"), ("EmeraldIsle", "coast_noon") })
                 {
                     var def = TrackCatalog.At(TrackCatalog.IndexOf(id));
                     if (def.id != id || !PSXScreenshotTool.Open(def, out var cam2, out var pl2)) { Debug.LogError("[FogShots] no scene " + id); continue; }
@@ -168,7 +168,7 @@ namespace PSXRacing.EditorTools
                         continue;
                     }
                     PairBA(cam2, pl2.transform, view, TimeOfDay.Noon, 0);
-                    if (id == "CityCircuit" && fogDay > 0) PairBA(cam2, pl2.transform, "circuit_noon_fogday", TimeOfDay.Noon, fogDay);
+                    if (id == "EmeraldIsle" && fogDay > 0) PairBA(cam2, pl2.transform, "coast_noon_fogday", TimeOfDay.Noon, fogDay);
                 }
             }
             finally

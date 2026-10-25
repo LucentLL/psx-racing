@@ -25,16 +25,16 @@ namespace PSXRacing.EditorTools
     /// (projected from the world). tools\colour\colour_stats.py reads them.
     ///
     /// Sets (PSX_COLOUR_SETS, comma list; default all):
-    ///   pred     CityCircuit noon from the psx_hour_* view with the grid as
+    ///   pred     CC noon from the psx_hour_* view with the grid as
     ///            baked and no shadow map: the dated pair's view, for the
     ///            Step-0 prediction (asphalt 50 decoded against 117 raw).
     ///   protocol S1 (Samuel Street deck) noon, noon snow, night with and
     ///            without headlights, night through the lens; the road under
     ///            it; S2 Blowing Rock noon snow; S3 Blue Ridge night with and
-    ///            without headlights; CityCircuit noon, night (both), dusk;
+    ///            without headlights; CC noon, night (both), dusk;
     ///            the Little Switzerland tunnel at noon from outside and in.
     ///   ab       the A/B matrix's grade-OFF twins of S1 noon, S1 night lit,
-    ///            CityCircuit noon, CityCircuit night, S2 snow noon.
+    ///            CC noon, CC night, S2 snow noon.
     ///   sweep    every venue with a scene at noon and night (headlights on),
     ///            from its own grid pose: the road-colour gate's baseline.
     ///   interior the garage sweep and the pizzeria (cs_I_*): the INTERIORS
@@ -201,7 +201,7 @@ namespace PSXRacing.EditorTools
         // ------------------------------------------------------------------
 
         /// <summary>The dated pair's view (psx_hour_2_noon: CaptureHours on
-        /// CityCircuit, the grid as baked, no shadow map, the baked dress)
+        /// CC, the grid as baked, no shadow map, the baked dress)
         /// so the Step-0 prediction is read on the very pixels it was made
         /// from.</summary>
         static void Prediction()
@@ -643,9 +643,9 @@ namespace PSXRacing.EditorTools
         /// THE OWNER'S TWO OPEN CHOICES, A/B (the colour pass; set "look"):
         /// the same frames with each choice off (what ships) and on -
         /// C11 "G1", the grade's lift fading under a clear sun (_sunlift), at
-        /// S1 noon, CityCircuit noon and dusk (where it must change nothing)
+        /// S1 noon, CC noon and dusk (where it must change nothing)
         /// and Blowing Rock's noon snow; C12, cool night darks (_cool), at S1
-        /// and CityCircuit by night. With the HUD, so he sees the game.
+        /// and CC by night. With the HUD, so he sees the game.
         /// </summary>
         static void LookSet()
         {

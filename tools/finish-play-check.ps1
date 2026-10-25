@@ -1,11 +1,11 @@
 # Who is driving after the flag, in the RUNNING game.
 #
 #   powershell -ExecutionPolicy Bypass -File tools\finish-play-check.ps1
-#   powershell -ExecutionPolicy Bypass -File tools\finish-play-check.ps1 -Venue AirfieldSprint
+#   powershell -ExecutionPolicy Bypass -File tools\finish-play-check.ps1 -Venue GillespieGap
 #
 # Code only, on an already-built sandbox (Scripts and Editor over the top, no
 # mirror). Exit 0 = the player still has the car past the finish line.
-param([string]$Venue = "DragEighth", [switch]$NoWatch, [int]$MaxMinutes = 20)
+param([string]$Venue = "EmeraldIsle", [switch]$NoWatch, [int]$MaxMinutes = 20)
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot

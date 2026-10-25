@@ -8,7 +8,7 @@ namespace PSXRacing.EditorTools
     /// from several angles, once with the paint on the sky lookup alone and
     /// once with the six-view panorama, written side by side as
     /// Screenshots\refl_&lt;venue&gt;_&lt;hour&gt;_&lt;view&gt;_off|on.png (+ _pano).
-    /// PSX_REFL_VENUES=BlueRidge,CityCircuit picks the venues;
+    /// PSX_REFL_VENUES=BlueRidge,EmeraldIsle picks the venues;
     /// PSX_REFL_HOUR=noon,sunset (one or several) the hours;
     /// PSX_REFL_VIEWS=front34,side,rear34,graze (default) or chase,rear34c;
     /// PSX_REFL_CAR=viper_gts (+ PSX_REFL_SKIN=0) dresses the grid car;
@@ -28,7 +28,7 @@ namespace PSXRacing.EditorTools
 
         public static void Run()
         {
-            string venues = Env("PSX_REFL_VENUES", "BlueRidge,CityCircuit");
+            string venues = Env("PSX_REFL_VENUES", "BlueRidge,EmeraldIsle");
             string[] hours = Env("PSX_REFL_HOUR", "noon").Split(',');
             string[] viewNames = Env("PSX_REFL_VIEWS", "front34,side,rear34,graze").Split(',');
             string carKey = Env("PSX_REFL_CAR", "");

@@ -11,7 +11,7 @@ namespace PSXRacing.EditorTools
     /// TEXTURES ENHANCED / CLASSIC in PLAY MODE, both ways the twins load
     /// (2026-10-11): the editor's own (EnhancedSrc), then the player's (the
     /// StreamingAssets bundle over UnityWebRequest), then a fetch that fails.
-    /// At one venue's start (PSX_TEXPC_VENUE, CityCircuit by default), with
+    /// At one venue's start (PSX_TEXPC_VENUE, GillespieGap by default), with
     /// the world frozen so the two shots are the same frame:
     ///   A. EnhancedSrc: ENHANCED loads twins, CLASSIC lets them all go.
     ///   B. the bundle: ENHANCED stays CLASSIC while it downloads, swaps when
@@ -34,7 +34,7 @@ namespace PSXRacing.EditorTools
             log.Clear();
             failures = 0;
             string id = System.Environment.GetEnvironmentVariable("PSX_TEXPC_VENUE");
-            if (string.IsNullOrEmpty(id)) id = "CityCircuit";
+            if (string.IsNullOrEmpty(id)) id = "GillespieGap";
             int index = -1;
             for (int i = 0; i < TrackCatalog.Count; i++)
                 if (TrackCatalog.At(i).id == id) index = i;

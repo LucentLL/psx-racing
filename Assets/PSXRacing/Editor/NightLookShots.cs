@@ -24,7 +24,7 @@ namespace PSXRacing.EditorTools
     /// the pass was a milky 0.108 floor, 0.226 median, 0% under 0.10, sat 0.13).
     ///
     /// What is shot (Screenshots\nl_&lt;venue&gt;_&lt;spot&gt;_&lt;hour&gt;[_rain][_lens].png):
-    ///   CityCircuit  chase + three-quarter, at NIGHT, at DUSK (blue hour), at
+    ///   GillespieGap chase + three-quarter, at NIGHT, at DUSK (blue hour), at
     ///                night in RAIN, and that rain frame through the LENS.
     ///   Charlotte    chase at three streamed spots — an uptown arterial by the
     ///                277 loop's start line, the nearest motorway, the nearest
@@ -161,7 +161,7 @@ namespace PSXRacing.EditorTools
         /// psx_hour_6_night and psx_hour_5_dusk as the before and after.</summary>
         static void CaptureCircuit()
         {
-            var def = TrackCatalog.At(0);
+            var def = TrackCatalog.At(TrackCatalog.CheckVenue);
             Line(def.id + ":");
             if (!PSXScreenshotTool.Open(def, out var cam, out var player))
             {

@@ -43,7 +43,7 @@ namespace PSXRacing.EditorTools
             failures = 0;
 
             var scenes = EditorBuildSettings.scenes;
-            int s = TrackCatalog.SceneIndex(0);
+            int s = TrackCatalog.SceneIndex(TrackCatalog.CheckVenue);
             if (s >= scenes.Length || !File.Exists(scenes[s].path))
             {
                 Check(false, "the city circuit is built");
@@ -55,7 +55,7 @@ namespace PSXRacing.EditorTools
             EditorSceneManager.OpenScene(scenes[s].path);
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;
-            RaceHandoff.TrackIndex = 0;
+            RaceHandoff.TrackIndex = TrackCatalog.CheckVenue;
             var cars = CarCatalog.All;
             if (cars.Count > 4)
             {

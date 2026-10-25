@@ -20,12 +20,12 @@ namespace PSXRacing.EditorTools
         public static void Run()
         {
             var scenes = EditorBuildSettings.scenes;
-            int s = TrackCatalog.SceneIndex(0);
+            int s = TrackCatalog.SceneIndex(TrackCatalog.CheckVenue);
             if (s < 0 || s >= scenes.Length || !File.Exists(scenes[s].path)) { Debug.LogError("[Splash] venue not built"); EditorApplication.Exit(1); return; }
             EditorSceneManager.OpenScene(scenes[s].path);
             RaceHandoff.ClearAll();
             RaceHandoff.FromLifeSim = true;
-            RaceHandoff.TrackIndex = 0;
+            RaceHandoff.TrackIndex = TrackCatalog.CheckVenue;
             RaceHandoff.CalendarDay = 0;
             string hn = System.Environment.GetEnvironmentVariable("PSX_SPLASH_HOUR");
             int hour = string.IsNullOrEmpty(hn) ? TimeOfDay.Noon

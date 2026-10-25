@@ -32,7 +32,7 @@ namespace PSXRacing.EditorTools
         [MenuItem("PSX Racing/Capture Cockpit Ride")]
         public static void Capture()
         {
-            var def = TrackCatalog.At(0);
+            var def = TrackCatalog.At(TrackCatalog.CheckVenue);
             string only = System.Environment.GetEnvironmentVariable("PSX_SHOT_VENUE");
             if (string.IsNullOrEmpty(only)) only = "BeechGap";
             foreach (var d in TrackCatalog.All) if (d.id == only) { def = d; break; }

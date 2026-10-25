@@ -2,7 +2,7 @@
 # place the wall grabs it (WallScrapeAudit).
 #
 #   powershell -ExecutionPolicy Bypass -File tools\wall-scrape.ps1
-#   powershell -ExecutionPolicy Bypass -File tools\wall-scrape.ps1 -Only DragQuarter,LangstonBridge
+#   powershell -ExecutionPolicy Bypass -File tools\wall-scrape.ps1 -Only EmeraldIsle,LangstonBridge
 #   powershell -ExecutionPolicy Bypass -File tools\wall-scrape.ps1 -Filter
 #
 # Edit mode, on an ALREADY-BUILT sandbox: Editor and Scripts are copied over

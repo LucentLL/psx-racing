@@ -1,6 +1,6 @@
 """How much of a frame the distance fog is actually painting.
 
-    py tools\fog\fog_stats.py CityCircuit MtMitchell
+    py tools\fog\fog_stats.py GillespieGap MtMitchell
 
 Reads the contact sheet tools\fog-shots.ps1 leaves in the sandbox's
 Screenshots folder and, for every venue and station, compares each fog variant
@@ -69,5 +69,5 @@ def venue(name):
 
 
 if __name__ == "__main__":
-    for v in (sys.argv[1:] or ["CityCircuit"]):
+    for v in (sys.argv[1:] or ["GillespieGap"]):
         venue(v)

@@ -9,7 +9,7 @@
 #   ...  -Traffic HEAVY  the race's traffic setting: NONE, LIGHT, MEDIUM, HEAVY or
 #                        RUSH (RUSH HOUR); empty = the hour's own (what a delivery gets).
 #   ...  -TimeScale 3    the race at 3x game speed (physics keeps its fixed step).
-#   ...  -Matrix "BlueRidge:HEAVY:0;CityCircuit:RUSH:1"  several races in ONE editor
+#   ...  -Matrix "BlueRidge:HEAVY:0;GillespieGap:RUSH:1"  several races in ONE editor
 #                        session; one SUMMARY line each in PSXRacing_race_matrix.txt.
 # Several races in ONE launch (a line per race at the end of the report):
 #   ... -Venues UptownLoop,TryonSprint,IndependenceSprint -Seeds 0,1,2,3,4 -Trees ab

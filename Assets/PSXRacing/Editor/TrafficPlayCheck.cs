@@ -31,7 +31,7 @@ namespace PSXRacing.EditorTools
             log = new StringBuilder();
             failures = 0;
             string id = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_VENUE");
-            if (string.IsNullOrEmpty(id)) id = "RidgePass";
+            if (string.IsNullOrEmpty(id)) id = "GillespieGap";
             int index = -1;
             for (int i = 0; i < TrackCatalog.Count; i++)
                 if (TrackCatalog.At(i).id == id) index = i;

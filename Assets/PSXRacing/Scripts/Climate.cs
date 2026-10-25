@@ -175,7 +175,7 @@ namespace PSXRacing
         /// <summary>
         /// The region and the elevation (m) a venue drives at, by track id or
         /// scene name (a sprint shares its loop's). Anything not listed is the
-        /// Piedmont: Charlotte, the town, home and the fictional circuits.
+        /// Piedmont: Charlotte, the town and home.
         /// Mountain elevations are the route's middle, from the stage blurbs.
         /// </summary>
         public static void VenueOf(string id, out ClimateRegion region, out float elevM)

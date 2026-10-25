@@ -45,7 +45,7 @@ namespace PSXRacing.EditorTools
             Directory.CreateDirectory(outDir);
             foreach (var f in Directory.GetFiles(outDir, "psx_glow_*.png")) File.Delete(f);
 
-            if (!PSXScreenshotTool.Open(TrackCatalog.At(0), out var cam, out var player)) return;
+            if (!PSXScreenshotTool.Open(TrackCatalog.At(TrackCatalog.CheckVenue), out var cam, out var player)) return;
             var sun = GameObject.Find("Sun")?.GetComponent<Light>();
             var body = player.GetComponentInChildren<CarBody>(true);
             if (sun == null || body == null) { Debug.LogError("[PaintGlow] no sun or no CarBody"); return; }

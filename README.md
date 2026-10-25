@@ -1,7 +1,7 @@
 # PSX Racing
 
-A PlayStation-era arcade racer built in Unity 6, driven in a Mazda RX-7 Type RS
-(FD) around a generated 1.2 km city circuit at sunset.
+A PlayStation-era arcade racer built in Unity 6, raced on real North Carolina
+roads: Charlotte at 1:1, the Blue Ridge, and Bogue Banks on the coast.
 
 **▶ Play: https://lucentll.github.io/psx-racing/**
 
@@ -98,7 +98,7 @@ overwrite the career of the game at the root.
 publishes the game at the site root. From any other branch, a publish without
 `-PagesDir` is refused.
 
-`Assets/PSXRacing/Scenes/CityCircuit.unity` is generated output — edit
+Every venue scene under `Assets/PSXRacing/Scenes/` is generated output — edit
 `Editor/PSXRacingBuilder.cs`, not the scene.
 
 ## Credits
