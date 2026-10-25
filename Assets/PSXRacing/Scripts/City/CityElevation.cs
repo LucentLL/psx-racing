@@ -1073,6 +1073,7 @@ namespace PSXRacing.City
             TwinDyBeforeFinal = TwinDy(map, out _);
             FinalTwinHold(map);
             TwinDyAfterCurves = TwinDy(map, out TwinDyWorstPair);
+            HoldStreetHalves(map);
             GradeGuard(map);
             Phase("vcurves");
 
@@ -4589,6 +4590,88 @@ namespace PSXRacing.City
                     TwinFinalSagAdded = Mathf.Max(TwinFinalSagAdded, b - b0);
                     TwinFinalCrestAdded = Mathf.Max(TwinFinalCrestAdded, b0 - b);
                 }
+            }
+        }
+
+        /// <summary>
+        /// ONE STREET'S HALVES AT ONE HEIGHT (owner, 2026-10-25: "I just
+        /// crashed into the same West Trade Street median that was supposed
+        /// to be removed. It was just shortened and made partially
+        /// invisible"). West Trade's two one-way carriageways run with their
+        /// paved edges a quarter to one metre apart by the I-77 underpass, and
+        /// each was solved on its own: up to 0.22 m apart in height, so the
+        /// strip between them was a kerb-high step inside half a metre - drawn
+        /// as a thin grass strip, met as a wall by a low car. (The 2026-10-24
+        /// fix took the rail off that strip; the step stayed. No lane audit
+        /// saw it: it is in no lane.) Now wherever a street's two halves - the
+        /// same name, both one-way the opposite ways, not a barriered freeway,
+        /// on the ground - run with their ribbons within
+        /// <see cref="StreetHalvesGapM"/>, each interior station of the lower
+        /// rises to the higher's height beside it (raises only, so it settles;
+        /// never an end station, which is a node's; never a seated one; never
+        /// more than <see cref="StreetHalvesMaxDyM"/>, which is a real split
+        /// level; tapered to nothing over <see cref="StreetHalvesTaperM"/> from
+        /// either end, so a junction's approach keeps its grade). Pointwise
+        /// after the curves, like the decks' final hold. West Trade by the
+        /// I-77 underpass: the worst 0.5 m step across the strip 0.22 -> 0.04 m.
+        /// </summary>
+        public const float StreetHalvesGapM = 1.5f, StreetHalvesMaxDyM = 0.5f, StreetHalvesTaperM = 25f;
+        public static int StreetHalvesRaised { get; private set; }
+        public static float StreetHalvesRaiseMax { get; private set; }
+        /// <summary>PSX_CITY_HALVES=0: the hold off (the before picture).</summary>
+        public static bool StreetHalvesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_HALVES") != "0";
+        static void HoldStreetHalves(CityMap map)
+        {
+            StreetHalvesRaised = 0; StreetHalvesRaiseMax = 0f;
+            if (!StreetHalvesOn) return;
+            var byName = new Dictionary<string, List<CityMap.Edge>>();
+            foreach (var e in map.edges)
+            {
+                if (!e.oneway || e.link || e.bridge || e.tunnel || e.a == e.b || string.IsNullOrEmpty(e.name)
+                    || e.stS == null || e.stS.Length < 3 || CityMeshes.Barriered(e)) continue;
+                if (!byName.TryGetValue(e.name, out var l)) byName[e.name] = l = new List<CityMap.Edge>();
+                l.Add(e);
+            }
+            for (int pass = 0; pass < 3; pass++)
+            {
+                int moved = 0;
+                foreach (var l in byName.Values)
+                {
+                    if (l.Count < 2) continue;
+                    foreach (var e in l)
+                        for (int i = 1; i + 1 < e.stS.Length; i++)
+                        {
+                            if (e.SeatedAt(i) || DeckPairs.DeckAt(e.index, e.stS[i])) continue;
+                            float s = e.stS[i];
+                            var p = e.PointAt(s);
+                            var t = e.TangentAt(s);
+                            float best = float.MaxValue, target = 0f;
+                            foreach (var o in l)
+                            {
+                                if (o == e) continue;
+                                ProjectOn(o, p, out float at);
+                                if (at <= 0.01f || at >= o.length - 0.01f) continue;   // past its end: not beside it
+                                float d = Vector2.Distance(p, o.PointAt(at));
+                                if (d > e.HalfMax + o.HalfMax + StreetHalvesGapM || d >= best) continue;
+                                if (Vector2.Dot(t, o.TangentAt(at)) > -0.5f * t.magnitude * o.TangentAt(at).magnitude) continue;
+                                best = d; target = o.YAt(at);
+                            }
+                            if (best == float.MaxValue) continue;
+                            float dy = target - e.stY[i];
+                            if (dy <= 0.001f || dy > StreetHalvesMaxDyM) continue;
+                            // tapered to nothing at the edge's ends: a junction's
+                            // approach keeps its own grade (a raise right beside a
+                            // node would be a hump in front of it)
+                            float allow = StreetHalvesMaxDyM * Mathf.Clamp01(Mathf.Min(s, e.length - s) / StreetHalvesTaperM);
+                            float up = Mathf.Min(dy, allow);
+                            if (up <= 0.001f) continue;
+                            e.stY[i] += up;
+                            if (pass == 0) StreetHalvesRaised++;
+                            StreetHalvesRaiseMax = Mathf.Max(StreetHalvesRaiseMax, up);
+                            moved++;
+                        }
+                }
+                if (moved == 0) break;
             }
         }
 
