@@ -369,6 +369,10 @@ namespace PSXRacing
             RenderPipelineManager.beginCameraRendering += OnBeginCamera;
         }
 
+        /// <summary>The perf probe's A/B: false lets every camera rebuild the
+        /// lit-street field for its own eye, as before 2026-10-25.</summary>
+        public static bool ShareFieldWindow = true;
+
         static void OnBeginCamera(ScriptableRenderContext ctx, Camera cam)
         {
             if (cam == null) return;
@@ -390,7 +394,8 @@ namespace PSXRacing
             // times a frame, and a mirror looking backwards would rank its own
             // lamps IN and the view's OUT on every frame it rendered: the pop
             // back again, through the back door.
-            if (Time.frameCount != advancedFrame && IsDriver(cam))
+            bool driver = IsDriver(cam);
+            if (Time.frameCount != advancedFrame && driver)
             {
                 advancedFrame = Time.frameCount;
                 GeometryUtility.CalculateFrustumPlanes(cam, planes);
@@ -401,7 +406,9 @@ namespace PSXRacing
                 NightFrame(t.position, Time.unscaledDeltaTime, false);
             }
             EmitHeld(t.position);
-            PushField(t.position);
+            // The lit-street field's window is the game view's too: the
+            // mirrors and the reflection probe draw with the one it built.
+            PushField(t.position, driver || !ShareFieldWindow);
             NightDark.Push();
         }
 

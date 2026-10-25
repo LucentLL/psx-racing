@@ -1992,8 +1992,16 @@ namespace PSXRacing.City
             yield return 0;
 
             stepPhase = 9; stepItem = 0; stepPart = 0;
-            CloseOpenGround(map, trims, tm); // 2026-10-04: no ground or road sheet ends in the air
+            // 2026-10-04: no ground or road sheet ends in the air (a step a
+            // phase of it, the perf probe 2026-10-25: this step was the
+            // build's longest, 20-210 ms)
+            foreach (var _ in CloseOpenGround(map, trims, tm)) yield return 0;
+            stepItem = 5;
+            yield return 0;
             FlushLotIslands(map, tm, min);   // leftover item 4: the lots' islands, tops and curbs
+            stepItem = 6;
+            yield return 0;
+            stepItem = 0;
             tm.ground = MeshFrom("ground", new[] { Slot.Ground, Slot.Pavement }, out var gSlots, false);
             tm.groundSlots = gSlots;
             yield return 0;
@@ -2076,10 +2084,24 @@ namespace PSXRacing.City
             m.RecalculateBounds();
         }
 
+        // MeshFrom's lists, one set for every mesh of every tile (the builder
+        // runs one build at a time; a Mesh copies what it is given): a tile's
+        // meshes allocated their vertices, UVs, colours, facade data and
+        // indices afresh, megabytes a tile, the most of the city's garbage in
+        // a race (the perf probe, 2026-10-25: WebGL's collector stops the
+        // frame to sweep it).
+        static readonly List<Slot> meshUsed = new List<Slot>();
+        static readonly List<Vector3> meshV = new List<Vector3>();
+        static readonly List<Vector2> meshUV = new List<Vector2>();
+        static readonly List<Color32> meshCol = new List<Color32>();
+        static readonly List<Vector4> meshFac = new List<Vector4>();
+        static readonly List<int> meshTri = new List<int>();
+
         static Mesh MeshFrom(string name, Slot[] wanted, out Slot[] usedSlots, bool finish)
         {
             int totalV = 0;
-            var used = new List<Slot>();
+            var used = meshUsed;
+            used.Clear();
             foreach (var s in wanted)
                 if (buckets[(int)s].Count > 0) { used.Add(s); totalV += buckets[(int)s].Count; }
             usedSlots = used.ToArray();
@@ -2087,8 +2109,8 @@ namespace PSXRacing.City
 
             var mesh = new Mesh { name = name };
             if (totalV > 65000) mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
-            var verts = new List<Vector3>(totalV);
-            var uvs = new List<Vector2>(totalV);
+            var verts = meshV; verts.Clear(); if (verts.Capacity < totalV) verts.Capacity = totalV;
+            var uvs = meshUV; uvs.Clear(); if (uvs.Capacity < totalV) uvs.Capacity = totalV;
             bool anyCol = false;
             foreach (var s in used) { verts.AddRange(buckets[(int)s].v); uvs.AddRange(buckets[(int)s].uv); anyCol |= buckets[(int)s].col != null; }
             mesh.SetVertices(verts);
@@ -2097,7 +2119,7 @@ namespace PSXRacing.City
             {
                 // the facade atlas's tint + column (Uptown B1); every other
                 // slot's material never reads the colour
-                var cols = new List<Color32>(totalV);
+                var cols = meshCol; cols.Clear(); if (cols.Capacity < totalV) cols.Capacity = totalV;
                 var white = new Color32(128, 128, 128, 0);
                 foreach (var s in used)
                 {
@@ -2107,7 +2129,7 @@ namespace PSXRacing.City
                 }
                 mesh.SetColors(cols);
                 // ...and its walls (facade structure, UV1)
-                var facs = new List<Vector4>(totalV);
+                var facs = meshFac; facs.Clear(); if (facs.Capacity < totalV) facs.Capacity = totalV;
                 foreach (var s in used)
                 {
                     var bk = buckets[(int)s];
@@ -2124,9 +2146,9 @@ namespace PSXRacing.City
                 var bk = buckets[(int)used[i]];
                 if (RecordTap) tapSlotBase[i] = baseV;
                 int nc = bk.t.Count, nn = bk.tn != null ? bk.tn.Count : 0;
-                var tris = new int[nc + nn];
-                for (int j = 0; j < nc; j++) tris[j] = bk.t[j] + baseV;
-                for (int j = 0; j < nn; j++) tris[nc + j] = bk.tn[j] + baseV;   // Uptown C: drawn, not collided
+                var tris = meshTri; tris.Clear(); if (tris.Capacity < nc + nn) tris.Capacity = nc + nn;
+                for (int j = 0; j < nc; j++) tris.Add(bk.t[j] + baseV);
+                for (int j = 0; j < nn; j++) tris.Add(bk.tn[j] + baseV);   // Uptown C: drawn, not collided
                 mesh.SetTriangles(tris, i, false);
                 baseV += bk.Count;
             }
@@ -4954,7 +4976,7 @@ namespace PSXRacing.City
             stepPart = 11;
             for (int i = 1; i < n; i++)
             {
-                if ((i & 7) == 0) yield return 0;   // WP-09: eight spans a step
+                if ((i & 1) == 0) yield return 0;   // WP-09: two spans a step (eight made 8-55 ms steps, the perf probe 2026-10-25)
                 var A = sections[i - 1]; var B = sections[i];
                 var f = new SpanFlags
                 {

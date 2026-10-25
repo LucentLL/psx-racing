@@ -127,6 +127,8 @@ namespace PSXRacing
         public int Count => sides.Length;
         /// <summary>Mirrors drawn this frame (for the shot tool's log).</summary>
         public int Drawing { get; private set; }
+        /// <summary>A mirror's glass was in the driver's view at the last Tick.</summary>
+        public bool SeenAny { get; private set; }
 
         DoorMirrorRig(Transform owner, Transform car, Transform body, Side[] sides, Transform root, float halfW)
         { this.owner = owner; this.car = car; this.body = body; this.sides = sides; this.root = root; this.halfW = halfW; }
@@ -254,12 +256,14 @@ namespace PSXRacing
         /// can see draws at all: in a left-hand drive car the left one sits
         /// at the edge of the view ahead, the right one shows only when he
         /// looks over. Never on the rear-view's frames (it draws on even
-        /// ones); two in view take turns, and so does every mirror on a phone
-        /// (each at most every <see cref="DoorMirrors.EveryPhone"/>th frame).</summary>
+        /// ones), and only on the door mirrors' share of the odd ones
+        /// (<see cref="ExtraViews"/>: every fourth frame); two in view take
+        /// turns (each every eighth, at most every
+        /// <see cref="DoorMirrors.EveryPhone"/>th on a phone as before).</summary>
         public void Tick(Camera driver)
         {
             Drawing = 0;
-            if (!active || driver == null) { foreach (var s in sides) if (s.cam != null) s.cam.enabled = false; return; }
+            if (!active || driver == null) { SeenAny = false; foreach (var s in sides) if (s.cam != null) s.cam.enabled = false; return; }
             Pose();
             GeometryUtility.CalculateFrustumPlanes(driver, planes);
             int inView = 0;
@@ -268,13 +272,16 @@ namespace PSXRacing
                 s.seen = s.rend != null && GeometryUtility.TestPlanesAABB(planes, s.rend.bounds);
                 if (s.seen) inView++;
             }
-            bool phone = Application.isMobilePlatform;
+            SeenAny = inView > 0;
+            // One frame in four (ExtraViews: the frames between the
+            // rear-view's are shared with the reflection probe); two in view
+            // take turns, each every eighth frame.
             int f = Time.frameCount;
-            bool odd = (f & 1) == 1;
-            bool turns = phone || inView > 1;
+            bool slot = ExtraViews.DoorSlot(f, out bool second);
+            bool turns = inView > 1 || (!ExtraViews.Enabled && Application.isMobilePlatform);
             foreach (var s in sides)
             {
-                bool draw = s.seen && odd && (!turns || ((f >> 1) & 1) == (s.sign < 0f ? 0 : 1));
+                bool draw = s.seen && slot && (!turns || second == (s.sign >= 0f));
                 if (draw && s.cam == null) Ensure(s, driver);
                 if (s.cam == null) continue;
                 if (draw) Aim(s);

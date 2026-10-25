@@ -285,6 +285,16 @@ namespace PSXRacing.City
         public CityFar Far { get; private set; }
         System.Func<long, bool> isLive;
 
+        /// <summary>Streaming's stages, for the profiler (tools\perf-probe.ps1).</summary>
+        static readonly Unity.Profiling.ProfilerMarker FarMarker = new Unity.Profiling.ProfilerMarker("CityFar.Refresh"),
+            SkylineMarker = new Unity.Profiling.ProfilerMarker("CitySkyline.Refresh"),
+            JobStepMarker = new Unity.Profiling.ProfilerMarker("CityWorld.JobStep"),
+            StandUpMarker = new Unity.Profiling.ProfilerMarker("CityWorld.StandUp"),
+            PlantMarker = new Unity.Profiling.ProfilerMarker("CityWorld.PlantTrees"),
+            SignsMarker = new Unity.Profiling.ProfilerMarker("CityWorld.PrepareSigns"),
+            BuildSyncMarker = new Unity.Profiling.ProfilerMarker("CityWorld.BuildWholeTile"),
+            FinishMarker = new Unity.Profiling.ProfilerMarker("CityWorld.FinishJob");
+
         /// <summary>The skyline and the far city for this camera: what the
         /// live tiles draw is left to them, bounds, band and glow set. The
         /// game calls it every frame; a tool that moves a camera by hand calls
@@ -292,10 +302,10 @@ namespace PSXRacing.City
         /// band it sets.</summary>
         public void RefreshSkyline(Camera cam)
         {
-            if (Far != null) Far.Refresh(cam);
+            if (Far != null) using (FarMarker.Auto()) Far.Refresh(cam);
             if (Skyline == null) return;
             if (isLive == null) isLive = k => live.ContainsKey(k);
-            Skyline.Refresh(cam, isLive);
+            using (SkylineMarker.Auto()) Skyline.Refresh(cam, isLive);
         }
 
         void LateUpdate()
@@ -458,7 +468,7 @@ namespace PSXRacing.City
                 if (job != null)
                 {
                     if (job.Done) CompleteJob();
-                    else job.Step(hurry ? UrgentSliceBudgetMs : SliceBudgetMs);
+                    else using (JobStepMarker.Auto()) job.Step(hurry ? UrgentSliceBudgetMs : SliceBudgetMs);
                     built = true;
                 }
             }
@@ -519,6 +529,7 @@ namespace PSXRacing.City
             if (Trunks != null) Trunks.RemoveTable(key);
             if (!live.TryGetValue(key, out var t)) return;
             live.Remove(key);
+            if (Skyline != null) Skyline.LiveVersion++;
             if (t.go != null) Kill(t.go);
             // runtime meshes are not garbage-collected with their GameObjects
             foreach (var m in t.meshes) if (m != null) Kill(m);
@@ -534,6 +545,7 @@ namespace PSXRacing.City
         /// </summary>
         public void PlantTrees(long key)
         {
+            using var marker = PlantMarker.Auto();
             if (!treesPending.TryGetValue(key, out var job)) return;
             treesPending.Remove(key);
             if (!live.TryGetValue(key, out var tile) || tile.go == null) return;
@@ -629,6 +641,7 @@ namespace PSXRacing.City
         /// slice finished them, 2 when there is more.</summary>
         public int PrepareSigns(long key)
         {
+            using var marker = SignsMarker.Auto();
             if (Map == null) return 0;
             int tx = (int)(key >> 24), tz = (int)((key << 40) >> 40);
             var clock = System.Diagnostics.Stopwatch.StartNew();
@@ -671,7 +684,8 @@ namespace PSXRacing.City
             }
 
             var clock = System.Diagnostics.Stopwatch.StartNew();
-            var tm = CityMeshes.Build(Map, nodeTrims, buildings, tx, tz);
+            CityMeshes.TileMeshes tm;
+            using (BuildSyncMarker.Auto()) tm = CityMeshes.Build(Map, nodeTrims, buildings, tx, tz);
             StandUp(key, tx, tz, tm, clock.Elapsed.TotalMilliseconds, 0, 0f);
             return true;
         }
@@ -693,7 +707,7 @@ namespace PSXRacing.City
             long k = jobKey;
             job = null;
             if (j == null) return;
-            j.Finish();
+            using (FinishMarker.Auto()) j.Finish();
             if (live.ContainsKey(k)) return;
             StandUp(k, j.tx, j.tz, j.Result, j.WorkMs, j.Slices, (float)j.MaxSliceMs);
         }
@@ -703,6 +717,7 @@ namespace PSXRacing.City
         /// <paramref name="buildMs"/> is the build's own work.</summary>
         void StandUp(long key, int tx, int tz, CityMeshes.TileMeshes tm, double buildMs, int slices, float maxSliceMs)
         {
+            using var marker = StandUpMarker.Auto();
             var clock = System.Diagnostics.Stopwatch.StartNew();
             double tBuild = 0.0;
             var root = new GameObject($"Tile_{tx}_{tz}");
@@ -769,6 +784,7 @@ namespace PSXRacing.City
 
             int colliders = root.GetComponentsInChildren<Collider>(true).Length;
             live[key] = new Tile { go = root, meshes = meshes, colliders = colliders };
+            if (Skyline != null) Skyline.LiveVersion++;   // its towers' live flags re-read
             // Its towers cast on the frame they appear, not at the next
             // re-count of the scene.
             SunShadows.Register(root);

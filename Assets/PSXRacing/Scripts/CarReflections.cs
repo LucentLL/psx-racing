@@ -4,6 +4,72 @@ using UnityEngine.Rendering.Universal;
 
 namespace PSXRacing
 {
+    /// <summary>
+    /// ONE EXTRA VIEW OF THE WORLD A FRAME (the perf probe, 2026-10-25; the
+    /// owner: "Dropping to as low as 12FPS", cockpit 8-10 ms slower than
+    /// chase). Every camera render costs its whole URP setup, culling and
+    /// submit whatever its size - a 256x64 mirror about what a face of the
+    /// reflection probe costs - and in the cockpit three of them drew every
+    /// frame on top of the view: the rear-view or a door mirror, and two of
+    /// the probe's six faces. Now the secondary views share one slot a frame:
+    ///   * the rear-view mirror: even frames (as before);
+    ///   * a door mirror: every fourth frame (the odd frame 1 mod 4) while one
+    ///     is in view - two in view take turns;
+    ///   * the car-reflection probe: one face on the odd frames no door mirror
+    ///     takes (every fourth frame with a door mirror in view, every other
+    ///     without: a new panorama every 24 or 12 frames) - and one face every
+    ///     frame in the chase views, where no mirror draws (every 6 frames;
+    ///     it was two faces a frame at MAX, every 3).
+    /// The door mirrors' "in view" is read a frame late by both sides, so the
+    /// probe and a door mirror agree on whose slot it is whatever order their
+    /// LateUpdates run in.
+    /// </summary>
+    public static class ExtraViews
+    {
+        // the last four frames: were the cabin mirrors live, was a door mirror seen
+        static readonly int[] frameOf = { -1, -1, -1, -1 };
+        static readonly bool[] mirrorsAt = new bool[4], doorAt = new bool[4];
+
+        /// <summary>The cabin's mirrors this frame: live (the cockpit is
+        /// showing), and whether a door mirror is in the driver's view.</summary>
+        public static void Report(bool mirrorsLive, bool doorSeen)
+        {
+            int f = Time.frameCount, i = f & 3;
+            frameOf[i] = f; mirrorsAt[i] = mirrorsLive; doorAt[i] = doorSeen;
+        }
+
+        static bool Was(int f, bool[] flags) { int i = f & 3; return frameOf[i] == f && flags[i]; }
+
+        /// <summary>Is the cabin in use (its mirrors live last frame)?</summary>
+        public static bool MirrorsLive(int f) => Was(f - 1, mirrorsAt);
+
+        /// <summary>Frame <paramref name="f"/> is a door mirror's.</summary>
+        public static bool DoorFrame(int f) => (f & 3) == 1 && Was(f - 1, doorAt);
+
+        /// <summary>The probe may draw a face on frame <paramref name="f"/>.</summary>
+        public static bool ProbeFrame(int f) => !MirrorsLive(f) || ((f & 1) == 1 && !DoorFrame(f));
+
+        /// <summary>The perf probe's A/B: false is the schedule before
+        /// 2026-10-25 (a door mirror on every odd frame, two probe faces a
+        /// frame at MAX), for <see cref="ProbeFaces"/> and
+        /// <see cref="DoorSlot"/>.</summary>
+        public static bool Enabled = true;
+
+        /// <summary>How many probe faces frame <paramref name="f"/> draws
+        /// (after the cold start's six).</summary>
+        public static int ProbeFaces(int f) =>
+            Enabled ? (ProbeFrame(f) ? 1 : 0) : (FrameRatePrefs.Max && !Application.isMobilePlatform ? 2 : 1);
+
+        /// <summary>A door mirror may draw on frame <paramref name="f"/>, and
+        /// which of two in view (<paramref name="second"/>) has the turn.</summary>
+        public static bool DoorSlot(int f, out bool second)
+        {
+            if (!Enabled) { second = ((f >> 1) & 1) == 1; return (f & 1) == 1; }
+            second = ((f >> 2) & 1) == 1;
+            return DoorFrame(f);
+        }
+    }
+
     /// <summary>REFLECTIONS ON / OFF (VISUALS). On by default everywhere: it
     /// is the look the owner asked for first ("reflections ... are the things
     /// I notice most", 2026-10-12); the row is how a slow phone says no.</summary>
@@ -252,7 +318,11 @@ namespace PSXRacing
             var view = ch.GetComponent<Camera>();
             if (view == null) view = Camera.main;
             // A cold start fills every face before the paint sees any of it.
-            int n = drawn < 6 ? 6 : (FrameRatePrefs.Max && !Application.isMobilePlatform ? 2 : 1);
+            // Then ONE face on the frames it may have (ExtraViews: every frame
+            // in the chase views, the odd frames the door mirrors leave it in
+            // the cockpit) - it was two a frame at MAX, and each face is a
+            // whole camera render (the perf probe, 2026-10-25).
+            int n = drawn < 6 ? 6 : ExtraViews.ProbeFaces(Time.frameCount);
             RenderAround(ch.targetCar.transform, view, n);
         }
 
@@ -273,6 +343,7 @@ namespace PSXRacing
         /// every frame).</summary>
         void RenderAround(Transform car, Camera view, int n)
         {
+            if (n <= 0) { PushEye(car); return; }
             if (next == 0)
             {
                 setEye = car.position + car.up * EyeUp;
@@ -317,9 +388,7 @@ namespace PSXRacing
             // glass changed half as much again as a refresh every frame
             // would); from the car's own eye a rigid car's reflection holds
             // still between sets, as it always did.
-            Vector3 eyeNow = car.position + car.up * EyeUp;
-            if (drawn >= 6)
-                Shader.SetGlobalVector(EnvEyeId, new Vector4(eyeNow.x, eyeNow.y, eyeNow.z, EyeUp));
+            PushEye(car);
             if (!whole) return;
 
             Stitch();
@@ -331,6 +400,15 @@ namespace PSXRacing
             Shader.SetGlobalVector(EnvRad0Id, new Vector4(radius[0], radius[1], radius[2], radius[3]));
             Shader.SetGlobalVector(EnvRad1Id, new Vector4(radius[4], radius[5], radius[6], radius[7]));
             Shader.SetGlobalFloat(EnvOnId, 1f);
+        }
+
+        /// <summary>The car's eye as it is now, for the paint (every frame,
+        /// drawn or not).</summary>
+        void PushEye(Transform car)
+        {
+            if (drawn < 6) return;
+            Vector3 eyeNow = car.position + car.up * EyeUp;
+            Shader.SetGlobalVector(EnvEyeId, new Vector4(eyeNow.x, eyeNow.y, eyeNow.z, EyeUp));
         }
 
         /// <summary>How far the nearest solid thing is from the eye in eight

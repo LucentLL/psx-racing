@@ -87,19 +87,32 @@ namespace PSXRacing
         /// <summary>The field for an eye: rebuilt when the window steps or a
         /// marked lamp changes, else only re-sent (the stale-global rule:
         /// every push writes the switch).</summary>
-        static void PushField(Vector3 eye)
+        /// <summary>The field's rebuild, for the profiler (tools\perf-probe.ps1).</summary>
+        static readonly Unity.Profiling.ProfilerMarker BuildFieldMarker = new Unity.Profiling.ProfilerMarker("StreetLights.BuildField");
+
+        /// <param name="mayRebuild">False for a secondary view in play (a
+        /// mirror, the car-reflection probe): it draws with the window the
+        /// game's view last built, never its own. Its eye is metres from the
+        /// driver's, and the 512 m window holds all it shows; but whenever the
+        /// two eyes fell either side of a <see cref="FieldSnapM"/> step the
+        /// field was rebuilt for each in turn, two to four times a frame - a
+        /// splat, 262k half conversions and a 512 KB upload each (the perf
+        /// probe, 2026-10-25: 5-12 ms frames inside the probe's render).</param>
+        static void PushField(Vector3 eye, bool mayRebuild = true)
         {
             if (!FieldEnabled) { FieldOff(); return; }
             float span = FieldRes * FieldTexelM;
             var origin = new Vector2(Mathf.Round(eye.x / FieldSnapM) * FieldSnapM - span * 0.5f,
                                      Mathf.Round(eye.z / FieldSnapM) * FieldSnapM - span * 0.5f);
-            if (origin != builtOrigin || builtVersion != fieldVersion || builtStreetOn != StreetOn)
+            if (!mayRebuild && fieldTex != null && builtStreetOn == StreetOn) origin = builtOrigin;
+            else if (origin != builtOrigin || builtVersion != fieldVersion || builtStreetOn != StreetOn)
             {
                 builtOrigin = origin;
                 builtVersion = fieldVersion;
                 builtStreetOn = StreetOn;
                 builtBaseY = Mathf.Round(eye.y);
-                FieldLamps = StreetOn ? BuildField(origin, builtBaseY) : 0;
+                using (BuildFieldMarker.Auto())
+                    FieldLamps = StreetOn ? BuildField(origin, builtBaseY) : 0;
             }
             FieldActive = FieldLamps > 0;
             if (!FieldActive) { FieldOff(); return; }
