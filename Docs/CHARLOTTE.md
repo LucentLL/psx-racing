@@ -7485,3 +7485,158 @@ be rounded within the seat's 4-10 cm), trench Vs whose floor cannot be dug
 (held by structure or another crossing), junction fans' own geometry
 (`JoinBuriedEnds`' linear eases - mesh off the profile), COMPRESSION spots
 counted per 6 m along curves still tighter than comfort.
+
+## REAL HEIGHTS (real-heights, 2026-10-25): every road on its measured ground, bridges only where OSM tags them
+
+The owner, with screenshots of the Exit 3A ramp drawn as a concrete deck with
+parapets and North Davidson Street as a humped bridge, against Street View
+(I-277 at grade between grass slopes, the ramp leaving at grade, 901 N
+Davidson St a signalised junction at grade): "Actual ground elevation needs to
+be correct so roads can correctly be on ground or use bridges." His scope: ALL
+ROADS follow the measured ground; bridges only where OSM tags a structure;
+nothing becomes a deck because a height rule lifted it. Then: "changes in
+elevation should ALWAYS be smooth/rounded and driveable to pass DOT
+inspection", divided roads one road across their width.
+
+**Why it was wrong.** Every road read the smoothed land (60 m grid, 48 m
+Gaussian), which erases Charlotte's freeway cuts; the solve rebuilt every
+separation (trenches dug under streets, humps of 5 m + deck, approach cones
+from every lifted node) and the 3.5 m margin turned whatever it lifted into a
+deck. At Exit 3A, I-277's hump over N Brevard St sent cones that filled the
+cuts under N Caldwell and N Davidson; those bridges rose ~6 m; their cones lifted
+E 12th St +11 m and the ramp +9 m - decks with parapets (CHARLOTTE.md "Exit 3A
+and the medians").
+
+**The design (ON whenever the data carries RPRF).**
+- Export (`export_osm.mjs`, RPRF on by default, `--no-rprf` /
+  `--rprf-freeways` for the old sections; `tools/city/rprf_splice.mjs`
+  re-designs the section on an existing file in ~30 s, byte-identical to the
+  export): `lib/roadprofile.mjs` with `opts.all` designs EVERY road (25,031
+  edges, 421,787 stations) from USGS 3DEP 1/3" bare earth (bridges already
+  removed, so under a real bridge it reads the lower road's real grade): the
+  cross-section median at the solver's stations; tagged bridges, tunnels,
+  water spans and abutments masked; carriageway pairs within 1.2% of their gap
+  (0.06-0.3 m); nodes from their arms' ground; chains through the straightest
+  pairs smoothed, grade-capped and curvature-limited to AASHTO (crest =
+  stopping sight, sag = headlight). New with REAL HEIGHTS:
+  - a STRUCTURE RUN (a bridge and its masked approaches) is one straight line
+    between the ground either side, through the nodes inside it (929 runs);
+  - the pairs pulled again on the finished profiles as a smooth field (a pair
+    more than a metre past its allowance - 3 m under 15 m apart - is two
+    levels and left alone);
+  - SHORT PIECES under 40 m between junctions kept within their class grade
+    (the nodes moved, eased into every arm);
+  - CLEARANCE under every tagged bridge (deck top 5.55 m over the road under,
+    the game's rule): where the measured profiles fall short by up to 2 m the
+    road UNDER is lowered (a smooth dip along the graph, 80-250 m, the twin
+    carriageway with it). Deeper shortfalls (21 crossings: flyovers whose
+    straight deck line misses their crest, and bridges the lidar predates -
+    Independence Blvd over Stallings Rd, E Sugar Creek Rd) are left to the
+    game's deck lift: a tagged structure is the one place a height rule may
+    lift a road.
+- Runtime (`CityElevation`): `RprfOn` is on whenever the data has RPRF
+  (`PSX_CITY_RPRF=0` = the smoothed-land solve, `RprfOverride` in the editor);
+  `RealOn` (RPRF on and the section covering 90%+ of the edges): no 3.5 m
+  margin - structure is the tagged deck, the road-under corridor a tagged deck
+  spans (`DeckReach`), water spans and twin abutment lines
+  (`PSX_CITY_REAL=0` keeps the margin). No trench is dug under a measured
+  road (as before), so the freeway stays in its real cut; humps and cones on a
+  measured road were already additive (the lift a tagged deck needs, faded on
+  top of the real grade). Seats, junction planes, twin holds and the drawn
+  profile run as before.
+- Instruments: `Editor/CityRealHeights.cs` (`Run`: the city solved both ways,
+  every station dumped - real_on/off.tsv - with the REAL report, grades past
+  the class limit, clearance, the PROFILE report and the exit 3A deck facts;
+  `RunShots`: the PSX_PREVIEW_CUSTOM views before/after; `RunAll`: both),
+  `tools/city/realheights_check.mjs` (the dumps against 3DEP: per tier, the
+  owner's spots, untagged structure), `tools/city/realheights_probe.mjs`
+  (the design's clearance and spots, no Unity).
+- Junction LANDINGS offline (`landJunctions`): at each node of three arms or
+  more (no freeway mainline, no deck at the node) every arm but the major
+  through pair runs on the junction's plane (the node height and the major
+  pair's grade) for the fan's reach and eases back into its own profile on a
+  smoothstep long enough for a 30 mph comfort curve and for the offset at
+  the class's grade; 5,461 arms at 4,550 nodes (2,903 without room left as
+  designed); arm pairs breaking more than 4% / 8% through a node 4,716 / 808
+  -> 3,594 / 570.
+
+**Measured** (one job solves both ways: `CityRealHeights`; the launch audit
+`tools/city-launch.ps1`; the drawn-profile census `tools/city-vsmooth.ps1`;
+main's numbers from its own 2026-10-25 15:09 census):
+
+| spot (roads within 120-260 m) | main: most over 3DEP off its tagged bridge / structure | REAL HEIGHTS |
+|---|---|---|
+| Exit 3A ramp (e372) | +9.05 m / 195 m deck, untagged | +0.28 m / none |
+| E 12th St | +11.76 m / 407 m untagged | +0.59 m / none |
+| E 11th St, N Alexander St | +8.16, +10.38 m / 410, 145 m untagged | +0.48, +1.10 m / none |
+| N Davidson St | +7.44 m / 332 m (192 m untagged) | +2.63 m (the fill at its deck's end) / 157 m (17 m deck reach) |
+| I-277 by Exit 3A | +5.98 m / 28 m untagged | +0.78 m / none |
+| W 5th St over I-77: W 5th / I-77 | +0.22 / +1.72 m; deck 186 m (14 m reach) | +2.69 (deck-end fill) / +0.16 m; same deck |
+| I-277 at N Brevard: I-277 / N Brevard | +5.65 m, 491 m structure (373 untagged) / +2.94 m | +3.02 m (abutment fill), 135 m (17 reach) / +0.72 m |
+| I-277 at N Caldwell: N Caldwell / I-277 | +6.85 m, 307 m (239 untagged) / +5.98 m, 210 m (174 untagged) | +1.76 m, 68 m tagged only / +2.99 m, 45 m (9 reach) |
+| E Independence Expwy at Pecan Ave | +3.69 m, 440 m (277 untagged) | +3.39 m, 181 m (18 reach); Pecan Ave +1.11 -> +0.17 m |
+
+- City-wide, |drawn - 3DEP| off structure, p50 / p95: T1 0.84 / 3.52 -> 0.03 / 0.49 m,
+  T2 0.64 / 2.31 -> 0.03 / 0.44, T3 0.60 / 2.19 -> 0.06 / 0.63; road more than
+  1.4 m above its ground T1 181 / T2 110 / T3 55 km -> 5.8 / 8.0 / 2.2 km
+  (below: 246 / 235 / 36 -> 1.7 / 3.4 / 2.1 km). The solve's own lifts past
+  1.4 m off structure: 2.5 km, at the 21 crossings above (worst E Sugar Creek
+  Rd +7.3 m).
+- Structure 76.9 -> 54.0 km (OSM's bridges: 53.1 km); on roads OSM does not
+  tag as a bridge 23.7 km on 573 edges -> 0.83 km on 77 (a deck's reach over
+  the road under it, twin abutment lines); 3.5 m margin stations 2,834 -> 0;
+  CityDeckFacts' census (non-bridge roads on structure > 3.5 m over the
+  ground) 199 edges / 7,114 m -> 43 / 401 m; dug trenches 327 -> 0 (230
+  measured cuts).
+- Clearance under the enforced crossings (drawn): under 4.9 m 10 (lowest
+  4.71) -> 1 (4.90, Independence Blvd over Stallings Rd). PROFILE: T1 sags
+  short of comfort K 5,889 -> 3,499, corners 1,213 -> 470, crests short of
+  stopping sight 6,145 -> 4,252 (T2 6,850 / 1,545 / 6,899 -> 5,693 / 804 /
+  6,523; T3 3,028 / 1,168 / 2,963 -> 1,761 / 224 / 1,994); dips under bridges
+  T1 390 -> 95; PAIRS (a divided road's two carriageways under one street)
+  31 over 0.5 m (worst 1.05) -> 3 (0.65).
+- Drawn-profile census (breaks between drawn sections, AFTER, main -> REAL;
+  >0.5 / >1 / >2% / node joints >0.5%): freeway 290 / 131 / 45 / 4 -> 171 /
+  88 / 22 / 0; ramp 2,846 / 691 / 203 / 7 -> 1,773 / 579 / 174 / 3; arterial
+  1,886 / 929 / 308 / 16 -> 2,140 / 955 / 305 / 9; collector 5,231 / 280 /
+  98 / 702 -> 5,591 / 283 / 104 / 154; local 5,480 / 52 / 15 / 138 -> 19,856
+  / 99 / 16 / 69 (collectors and locals are drawn in 0.9% chords: their
+  >0.5% column counts chords on real hills). Twin decks p95 0.283 -> 0.076 m.
+  Race routes at 150 mph, p99 vertical acceleration: uptown 1.60 -> 1.06 g,
+  Tryon 1.79 -> 2.07 g, Independence 0.96 -> 0.66 g.
+- Grades past the class limit (station steps): T1 394 -> 396, T2 121 -> 401,
+  T3 10 -> 210 (the raw 3DEP itself: 3,031 / 2,268 / 157); the launch audit's
+  grades past 16%: 3 -> 2 (+5 slivers; Tuckaseegee Rd's bridge at 25%).
+- LAUNCH audit city-wide: 60 -> 116 spots (T1 28 -> 51, T2 26 -> 55, T3 6 ->
+  10), UNLOAD 408 -> 597; routes uptown 0 / 2 -> 1 / 4, Tryon 0 / 3 -> 0 / 0,
+  Independence 0 / 0 -> 0 / 1. By cause the growth is the junctions (mitred
+  joints 11 -> 38, junction fans 15 -> 25, junction nodes 4 -> 15) and
+  terrain crests (11 -> 23): real streets meet at real breaks the 48 m
+  Gaussian used to flatten. Without the offline landings: 134 / 620; with
+  the curves pass treating measured roads as shipped (PSX_CITY_REAL_VC=0):
+  132 / 736.
+- `tools/city-play-check.ps1`: main's two FAILs (North Tryon e4746's drive-off
+  into a building, too few cut spots) now pass (6 driven, 2 fill, 2 cut); one
+  new FAIL: the drive-off into I-277's real cut by S College St (e1482
+  s 1065, -3014,4222) meets a 1V:1.6H back slope, 2.5 m of air, stops.
+  The cut is real (the uptown belt is walled there); the corridor grading
+  has no room for a recoverable slope - a retaining wall, the owner's call.
+- Screenshots (not committed): Docs/shots/heights/rh_exit3a_before|after.png
+  (the ramp: concrete deck with parapets -> asphalt between grass slopes),
+  rh_davidson_before|after.png (N Davidson St northbound: humped deck ->
+  at grade).
+- Data: charlotte_city.bytes 7,708,786 -> 8,340,421 B (RPRF 617 KB); the
+  export +29 s; the solve (editor) 31.1 -> 31.2 s.
+
+**Left (with reasons):** the launch audit's junction spots (above): the
+landings skip 2,903 arms without room, and the fans' own geometry is drawn
+straight between arms of different grades - next: land the fan corners and
+the major arms on the same plane, then the remaining mitred joints; the 21
+tagged crossings the lidar shows no separation for keep the game's deck lift
+(an embankment, not a deck - flyovers whose OSM bridge ends at the ground,
+and structures newer than the lidar: Independence Blvd at Stallings Rd, E
+Sugar Creek Rd); grades past the class table on real steep streets (T2/T3:
+the class table is stricter than Charlotte's hills; Tuckaseegee Rd's bridge
+into its valley); 14 stations of divided roads under 15 m apart standing
+3 m+ apart (Tuckaseegee Rd, West Blvd: two levels or OSM pairing two
+different roads), left unpulled.
