@@ -1356,7 +1356,7 @@ namespace PSXRacing.City
                 float h = e.length / (e.stS.Length - 1);
                 for (int i = 0; i < e.stS.Length; i++)
                 {
-                    if (e.stElev[i]) { structM += h; if (!e.bridge) untagM += h; }
+                    if (i > 0 && e.stElev[i] && e.stElev[i - 1]) { structM += h; if (!e.bridge) untagM += h; }
                     if (!Measured(e)) continue;
                     st++;
                     float dy = e.stY[i] - e.MeasuredYAt(e.stS[i]);

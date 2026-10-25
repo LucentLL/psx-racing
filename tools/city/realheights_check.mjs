@@ -54,7 +54,7 @@ const spots = [];
 for (const path of dumps) {
   const rows = readFileSync(path, 'utf8').split(/\r?\n/);
   const dev = { 1: [], 2: [], 3: [] }, above = { 1: 0, 2: 0, 3: 0 }, below = { 1: 0, 2: 0, 3: 0 };
-  const untag = new Map(); let untagM = 0, structM = 0;
+  const untag = new Map(); let untagM = 0, structM = 0, prevEl = false, prevEi = -1;
   const spotRoads = spots.map(() => new Map());
   // station spacing per edge (for lengths)
   const cnt = new Map();
@@ -66,7 +66,9 @@ for (const path of dumps) {
     const h = e.length / Math.max(1, cnt.get(ei) - 1);
     const t = tierOf(e.rank);
     const isEl = elev === '1';
-    if (isEl) { structM += h; if (!e.bridge) { untagM += h; untag.set(ei, (untag.get(ei) || 0) + h); } }
+    // a segment is structure when both its stations are
+    if (isEl && prevEl && prevEi === ei) { structM += h; if (!e.bridge) { untagM += h; untag.set(ei, (untag.get(ei) || 0) + h); } }
+    prevEl = isEl; prevEi = ei;
     const p = pointAt(e, s);
     const inSpot = spots.map(q => Math.hypot(p[0] - q.x, p[1] - q.z) <= q.r);
     if (isEl && !inSpot.some(Boolean)) continue;
