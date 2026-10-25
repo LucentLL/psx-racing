@@ -66,6 +66,55 @@ namespace PSXRacing
     }
 
     /// <summary>
+    /// CHASE FOV (owner, 2026-10-25: "going 100mph feels like 50mph ... the
+    /// chase view feels the slowest"). The CHASE lens's vertical field at
+    /// 16:9, in degrees; CLOSE gets the same number of degrees on its own 54.
+    /// The road crosses the screen faster through a wider lens at the same
+    /// speed (screen speed goes with tan(fov/2)), so this is the setting that
+    /// trades the NFS lens for more speed. The rig re-solves the car into the
+    /// same share of the frame at any setting - the lens comes closer as it
+    /// widens - so the composition is the same and only the perspective is not.
+    /// 58 is the measured MW05 lens and exactly the rig as it was.
+    /// </summary>
+    public static class ChaseFovPrefs
+    {
+        const string PrefKey = "psx.chaseFov";
+        public const int MinDeg = 50, MaxDeg = 80, DefaultDeg = 58, StepDeg = 2;
+
+        static int cached = -1;
+
+        public static int Degrees
+        {
+            get
+            {
+                if (cached < 0) cached = Clamp(PlayerPrefs.GetInt(PrefKey, DefaultDeg));
+                return cached;
+            }
+            set
+            {
+                int v = Clamp(value);
+                if (cached == v) return;
+                cached = v;
+                PlayerPrefs.SetInt(PrefKey, v);
+                PlayerPrefs.Save();
+            }
+        }
+
+        static int Clamp(int v)
+        {
+            v = Mathf.Clamp(v, MinDeg, MaxDeg);
+            return Mathf.RoundToInt(v / (float)StepDeg) * StepDeg;
+        }
+
+        /// <summary>Degrees added to both chase rigs' rest lens.</summary>
+        public static float ExtraDeg => Degrees - DefaultDeg;
+
+        public static string Label => Degrees.ToString();
+
+        public static void ForgetCache() => cached = -1;
+    }
+
+    /// <summary>
     /// The three volumes the game's sound can honestly be split into
     /// (2026-10-04). There is no music or radio: every sound is the car or the
     /// world it touches, and it falls into two groups -
@@ -209,6 +258,13 @@ namespace PSXRacing
                      () => ChaseCamera.ViewNames[(int)ChaseCamera.Current],
                      "Which view you drive from. C, Y or Triangle changes it on the road as well.",
                      () => ChaseCamera.CycleView(1));
+            // Both chase views; the mounted views and the cockpit keep their own lenses.
+            Slide(SettingsTab.Gameplay, "CHASE FOV",
+                  ChaseFovPrefs.MinDeg / ChaseFovPrefs.StepDeg, ChaseFovPrefs.MaxDeg / ChaseFovPrefs.StepDeg,
+                  () => ChaseFovPrefs.Degrees / ChaseFovPrefs.StepDeg,
+                  v => ChaseFovPrefs.Degrees = v * ChaseFovPrefs.StepDeg,
+                  v => (v * ChaseFovPrefs.StepDeg).ToString(),
+                  "How wide the chase cameras see. Wider feels faster; the car keeps its size. 58 is the standard lens.");
             // In whole steps of 5%, so a pad or the arrow keys walk it a notch
             // at a time and the 100% notch is always on it.
             Slide(SettingsTab.Gameplay, "STEERING",

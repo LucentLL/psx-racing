@@ -11511,9 +11511,9 @@ namespace PSXRacing.EditorTools
             float fov100 = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 100f / 3.6f, full);
             float fov200 = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 200f / 3.6f, full);
             Check(fovRest == 58f, "chase FOV at rest is 58 at 16:9 (MW05's far camera, hFOV 89)", fovRest);
-            Check(fov100 > 59f && fov100 < 61f, "chase FOV at 100 km/h is ~60 — a pull you feel, not a lens you notice", fov100.ToString("0.0"));
-            Check(Mathf.Abs(fov200 - 61.5f) < 0.1f,
-                  "chase FOV at 200 km/h is 61.5 (was 66 on top of a 0.9 m pull-back: the car shrank by a third, MW's by 5-9%)",
+            Check(fov100 > 62f && fov100 < 64f, "chase FOV at 100 km/h is ~63 — the road streams wider as the speed builds", fov100.ToString("0.0"));
+            Check(Mathf.Abs(fov200 - 68f) < 0.1f,
+                  "chase FOV at 200 km/h is 68 (2026-10-25, was 61.5: the lens comes in as it widens, so the car still shrinks only MW's 5-9%)",
                   fov200.ToString("0.0"));
             float phoneRest = ChaseCamera.FOVFor(ChaseCamera.View.Chase, 58f, 0f, full, 19.5f / 9f);
             Check(Mathf.Abs(phoneRest - 48.9f) < 0.2f,
@@ -11664,6 +11664,9 @@ namespace PSXRacing.EditorTools
                           "the FD's chase lens stands inside the rig's range off its tail", fit.D.ToString("0.00") + " m");
                     Check(fit.h0 >= fdShell.roofY + 0.25f,
                           "and high enough over its roof to show the road", fit.h0.ToString("0.00") + " m");
+                    Check(fit.D1 < fit.D && fit.D1 >= ChaseCamera.FarRig.dMin,
+                          "and at full speed the wider lens stands closer, inside the rig's range (the car keeps its size)",
+                          fit.D.ToString("0.00") + " -> " + fit.D1.ToString("0.00") + " m");
                     var shape = ChaseCamera.Shape(ChaseCamera.View.Chase, fit, 0f, 16f / 9f);
                     Check(shape.pitch >= 1f && shape.pitch <= 3f, "and nearly level, NFS-style (pitch 2 +-1 deg)",
                           shape.pitch.ToString("0.0"));
@@ -11736,7 +11739,9 @@ namespace PSXRacing.EditorTools
             Check(rollDrift > 1.2f, "and a 1 rad/s drift at 30 m/s still leans the lens — the roll is a drift cue",
                   rollDrift.ToString("0.0"));
 
-            Check(ChaseCamera.SpeedShakeDeg(30f, true) == 0f, "no road noise at 108 km/h");
+            Check(ChaseCamera.SpeedShakeDeg(17f, true) == 0f, "no road noise under 40 mph");
+            Check(ChaseCamera.SpeedShakeDeg(44.7f, true) > 0.03f, "and some by 100 mph (it began at 105 until 2026-10-25)",
+                  ChaseCamera.SpeedShakeDeg(44.7f, true));
             Check(ChaseCamera.SpeedShakeDeg(80f, true) <= 0.15f && ChaseCamera.SpeedShakeDeg(80f, true) >= 0.05f,
                   "road noise tops out around a tenth of a degree on tarmac — the car jerked at a quarter",
                   ChaseCamera.SpeedShakeDeg(80f, true));

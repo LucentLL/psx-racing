@@ -98,10 +98,13 @@ namespace PSXRacing
         /// </summary>
         public float speedFullMps = DefaultSpeedFullMps;
         public const float DefaultSpeedFullMps = 55.6f;
-        // The chase views' FOV pull is ChaseRig.speedFOV now (3.5 / 3 deg at
-        // 200 km/h). It was 18, then 8 as a serialized field; eight plus the
-        // 0.9 m pull-back and the lag clamp shrank the car by a third between
-        // rest and 200 km/h, where MW05's measured frames shrink it by 5-9%.
+        // The chase views' FOV pull is ChaseRig.speedFOV now (10 / 9 deg at
+        // 200 km/h, 3.5 / 3 until 2026-10-25). It was 18, then 8 as a
+        // serialized field; eight plus the 0.9 m pull-back and the lag clamp
+        // shrank the car by a third between rest and 200 km/h, where MW05's
+        // measured frames shrink it by 5-9%. Now the lens comes in as it
+        // widens (Fit solves the full-speed pose too), so the pull is all
+        // perspective and the car gives up only ChaseRig.speedShrink.
         /// <summary>
         /// Mounted views get an INDEPENDENT 9 degrees, fixed by the near-plane
         /// geometry rather than derived from the chase pull — it used to be
@@ -292,20 +295,23 @@ namespace PSXRacing
         /// shake: 0.25 deg against 3.4. MW05 carries {Frequency, Amplitude,
         /// MinSpeed, MaxSpeed} per SURFACE for exactly this; here the surface
         /// is the car's own onRoad flag, and gravel shakes 2.5x tarmac. Ramps
-        /// in from 38 m/s (137 km/h) to full at 63 (227), at 11 Hz through the
-        /// same Perlin noise the impact shake uses. Held small on purpose — a
+        /// in from 18 m/s (40 mph) to full at 72 (161 mph), at 11 Hz through
+        /// the same Perlin noise the impact shake uses. (It began at 105 mph
+        /// until 2026-10-25: the owner, "the chase view feels the slowest" -
+        /// no road under the lens at all below that.) Held small on purpose — a
         /// phone is read at arm's length and a straight must not nauseate.
         /// None in TOP DOWN (nothing under the lens to shake it) and half in
         /// COCKPIT (the cabin overlay does not move, and the world jittering
         /// behind a still dashboard reads as a bug). Starting values.
         /// </summary>
-        public float speedShakeStartMps = DefaultSpeedShakeStartMps;
-        public float speedShakeSpanMps = DefaultSpeedShakeSpanMps;
+        // Not serialized: every baked scene carries the old 47 / 25.
+        [System.NonSerialized] public float speedShakeStartMps = DefaultSpeedShakeStartMps;
+        [System.NonSerialized] public float speedShakeSpanMps = DefaultSpeedShakeSpanMps;
         public float speedShakeDeg = DefaultSpeedShakeDeg;
         public float speedShakePos = 0.03f;
         public float speedShakeHz = 11f;
-        public const float DefaultSpeedShakeStartMps = 47f;
-        public const float DefaultSpeedShakeSpanMps = 25f;
+        public const float DefaultSpeedShakeStartMps = 18f;
+        public const float DefaultSpeedShakeSpanMps = 54f;
         public const float DefaultSpeedShakeDeg = 0.10f;
         public const float OffroadShakeMul = 2.5f;
         public const float CockpitShakeMul = 0.5f;
@@ -1430,9 +1436,11 @@ namespace PSXRacing
             public float gapLo, gapHi;
             /// <summary>The tail's lowest edge never below this line.</summary>
             public float bottom;
-            /// <summary>At 200 km/h: degrees of FOV pull (16:9 terms), metres
-            /// back, metres down, and how far the contact line rises.</summary>
-            public float speedFOV, speedPull, speedDrop, speedRise;
+            /// <summary>At 200 km/h: degrees of FOV pull (16:9 terms), how much
+            /// of its share the car gives up (MW05's 5-9%: the lens comes in
+            /// as it widens, so the pull is perspective, not a smaller car),
+            /// metres down, and how far the contact line rises.</summary>
+            public float speedFOV, speedShrink, speedDrop, speedRise;
             /// <summary>Distance range, lens to the rearmost bodywork, metres.</summary>
             public float dMin, dMax;
         }
@@ -1445,7 +1453,7 @@ namespace PSXRacing
             vfov = 58f, share = 0.25f, pitch16 = 2f, pitchWide = 5f,
             contact16 = 0.11f, contactWide = 0.09f, contactTol = 0.017f,
             pitchTol = 0.9f, tallPitch = 8f, gapLo = 0.07f, gapHi = 0.13f, bottom = 0.015f,
-            speedFOV = 3.5f, speedPull = 0.05f, speedDrop = 0.05f, speedRise = 0.02f,
+            speedFOV = 10f, speedShrink = 0.08f, speedDrop = 0.05f, speedRise = 0.02f,
             dMin = 1.6f, dMax = 5f,
         };
 
@@ -1463,11 +1471,25 @@ namespace PSXRacing
             vfov = 54f, share = 0.34f, pitch16 = 4.5f, pitchWide = 7.5f,
             contact16 = 0.07f, contactWide = 0.06f, contactTol = 0.017f,
             pitchTol = 0.6f, tallPitch = 8f, gapLo = 0.06f, gapHi = 0.15f, bottom = -0.035f,
-            speedFOV = 3f, speedPull = 0.03f, speedDrop = 0.05f, speedRise = 0.02f,
+            speedFOV = 9f, speedShrink = 0.07f, speedDrop = 0.05f, speedRise = 0.02f,
             dMin = 1.4f, dMax = 4.5f,
         };
 
-        public static ChaseRig RigFor(View v) => v == View.Close ? CloseRig : FarRig;
+        /// <summary>A chase view's rig with the player's CHASE FOV on its
+        /// rest lens (<see cref="ChaseFovPrefs"/>; 58 = the rig as measured).</summary>
+        public static ChaseRig RigFor(View v)
+        {
+            var q = v == View.Close ? CloseRig : FarRig;
+            q.vfov += ChaseFovPrefs.ExtraDeg;
+            return q;
+        }
+
+        /// <summary>No chase lens past this, whatever the setting and the
+        /// speed pull add up to (16:9 terms).</summary>
+        public const float ChaseMaxFOV = 90f;
+
+        /// <summary>A chase rig's lens at speed fraction <paramref name="t"/>, 16:9 terms.</summary>
+        public static float SpeedLens(ChaseRig q, float t) => Mathf.Min(q.vfov + q.speedFOV * t, ChaseMaxFOV);
 
         public const float RefAspect = 16f / 9f;
         /// <summary>The owner's phone, 2000x923.</summary>
@@ -1625,6 +1647,14 @@ namespace PSXRacing
             /// <summary>Lens shift, and the contact line the rest pose holds
             /// (the speed rig raises it from there).</summary>
             public float shift, contact0;
+            /// <summary>The same solved at the full speed rig: the wider lens
+            /// (<see cref="ChaseRig.speedFOV"/>) and the car's share less
+            /// <see cref="ChaseRig.speedShrink"/>. Shape walks rest to this.</summary>
+            public float D1, h1, pitch1, contact1;
+            /// <summary>The full-speed lens it was solved through (16:9
+            /// terms): the rig's pull, or less where the car would not keep
+            /// its size through it.</summary>
+            public float vfov1;
             public float tailZ, overhang;
             /// <summary>The car it was solved for (the speed rig re-reads the
             /// roof line).</summary>
@@ -1797,6 +1827,44 @@ namespace PSXRacing
         public static ChaseFit Fit(View v, float aspect, CarFrame car, HudDials dials)
         {
             var q = RigFor(v);
+            if (car.sil == null || car.sil.Length == 0 || car.roof == null || car.roof.Length == 0
+                || car.low == null || car.low.Length == 0)
+                car = FrameOf(new Vector3(0f, 0.72f, 0.05f), new Vector3(1.72f, 1.0f, 4.1f), null,
+                              Mathf.Max(-car.rearAxleZ * 2f, 1f), 1f, Mathf.RoundToInt(car.widthM * 1000f));
+            var f = FitAt(q, aspect, car, dials, out float w0);
+            // The full speed rig is a second fit, not an offset: through the
+            // wider lens the car is framed afresh (horizon, tyres, roof gap) at
+            // its share less speedShrink, so the lens comes IN as it widens.
+            // Widening alone (the old rig) shrank the car with the tangent:
+            // +10 deg would take a fifth off it, and MW05's shrinks 5-9%.
+            // Where the car cannot be framed that close through that lens (the
+            // 19.5:9 CLOSE: the fit backed off and the car lost 15%), the pull
+            // gives way a degree at a time until it can.
+            var q1 = q;
+            q1.share = q.share * (1f - q.speedShrink);
+            float pull = SpeedLens(q, 1f) - q.vfov, want = w0 * (1f - q.speedShrink - SpeedShrinkSlack);
+            ChaseFit f1;
+            while (true)
+            {
+                q1.vfov = q.vfov + pull;
+                f1 = FitAt(q1, aspect, car, dials, out float w1);
+                if (w1 >= want || pull <= 0f) break;
+                pull = Mathf.Max(0f, pull - 1f);
+            }
+            f.D1 = f1.D; f.h1 = f1.h0; f.pitch1 = f1.pitch0; f.contact1 = f1.contact0; f.vfov1 = q1.vfov;
+            return f;
+        }
+
+        /// <summary>How far past speedShrink the full-speed fit may leave the
+        /// car before its pull gives way (the play check's ceiling is 10%).</summary>
+        const float SpeedShrinkSlack = 0.015f;
+
+        /// <summary>One fit of <see cref="Fit"/>: rig <paramref name="q"/>'s
+        /// own lens and share, the rest pose only, and the car's width share
+        /// through it (<paramref name="width"/>: under the share where the lens
+        /// had to back off).</summary>
+        static ChaseFit FitAt(ChaseRig q, float aspect, CarFrame car, HudDials dials, out float width)
+        {
             float k = WideT(aspect);
             float vfov0 = HoldWide(q.vfov, aspect);
             float c0 = Mathf.Lerp(q.contact16, q.contactWide, k);
@@ -1807,10 +1875,6 @@ namespace PSXRacing
             float narrow = aspect < RefAspect ? RefAspect / Mathf.Max(aspect, 0.5f) : 1f;
             float share = q.share * car.widthM / RefWidthM * narrow;
             float floor = LaneFloor * FarRig.share * car.widthM / RefWidthM * narrow;
-            if (car.sil == null || car.sil.Length == 0 || car.roof == null || car.roof.Length == 0
-                || car.low == null || car.low.Length == 0)
-                car = FrameOf(new Vector3(0f, 0.72f, 0.05f), new Vector3(1.72f, 1.0f, 4.1f), null,
-                              Mathf.Max(-car.rearAxleZ * 2f, 1f), 1f, Mathf.RoundToInt(car.widthM * 1000f));
             float overhang = car.rearAxleZ - car.tailZ;
             float shift = LaneShift(dials);
             float roofTop = float.MinValue;
@@ -1855,6 +1919,7 @@ namespace PSXRacing
                 }
 
             SolvePose(q, car, overhang, D, vfov0, c0, p0, out h, out p, out c);
+            width = WidthAt(car, D, h, p, vfov0, aspect);
             return new ChaseFit
             {
                 D = D, h0 = h, pitch0 = p, shift = shift, contact0 = c,
@@ -1873,23 +1938,28 @@ namespace PSXRacing
             public float lookY;
         }
 
-        /// <summary>The speed rig on top of the fit: a wider lens, a few
-        /// centimetres back and down (never so far down the roof line closes
-        /// on the horizon), and the tyre line rising a little as the lens
-        /// levels — MW's squat, not the old third-of-the-car pull-back.</summary>
+        /// <summary>The speed rig on top of the fit: the lens widening while
+        /// it walks from the rest fit to the full-speed one (in, so the car
+        /// loses only speedShrink of its size), a few centimetres down (never
+        /// so far down the roof line closes on the horizon), and the tyre line
+        /// rising a little as the lens levels — MW's squat, not the old
+        /// third-of-the-car pull-back.</summary>
         public static ChaseShape Shape(View v, ChaseFit f, float speedT, float aspect)
         {
             var q = RigFor(v);
-            float D = f.D + q.speedPull * speedT;
-            float vfov = HoldWide(q.vfov + q.speedFOV * speedT, aspect);
-            float t16 = Mathf.Tan(q.vfov * 0.5f * Mathf.Deg2Rad);
-            float hDrop = f.h0 - q.speedDrop * speedT;
-            float h = hDrop, pitch = f.pitch0;
+            float D = Mathf.Lerp(f.D, f.D1, speedT);
+            float vfov16 = Mathf.Lerp(q.vfov, f.vfov1, speedT);
+            float vfov = HoldWide(vfov16, aspect);
+            float t16 = Mathf.Tan(vfov16 * 0.5f * Mathf.Deg2Rad);
+            float hRest = Mathf.Lerp(f.h0, f.h1, speedT);
+            float hDrop = hRest - q.speedDrop * speedT;
+            float contact = Mathf.Lerp(f.contact0, f.contact1, speedT) + q.speedRise * speedT;
+            float h = hDrop, pitch = Mathf.Lerp(f.pitch0, f.pitch1, speedT);
             bool hasRoof = f.car.roof != null && f.car.roof.Length > 0, hasLow = f.car.low != null && f.car.low.Length > 0;
             for (int i = 0; i < 3; i++)
             {
-                h = hasRoof ? Mathf.Max(hDrop, Mathf.Min(f.h0, RoofHeight(f.car.roof, D, pitch, q.gapLo, t16))) : hDrop;
-                pitch = PitchToLine(f.contact0 + q.speedRise * speedT, h, D + f.overhang, 0f, vfov);
+                h = hasRoof ? Mathf.Max(hDrop, Mathf.Min(hRest, RoofHeight(f.car.roof, D, pitch, q.gapLo, t16))) : hDrop;
+                pitch = PitchToLine(contact, h, D + f.overhang, 0f, vfov);
                 if (hasLow) pitch = Mathf.Max(pitch, BottomPitch(q, f.car.low, D, h, vfov));
             }
             var s = new ChaseShape { back = D - f.tailZ, height = h, pitch = pitch, vfov = vfov, shift = f.shift };
@@ -1945,7 +2015,7 @@ namespace PSXRacing
         ChaseFit liveFit;
         View liveFitView = (View)(-1);
         float liveFitAspect, liveFitSx, liveFitWheelbase;
-        int liveFitWidthMm;
+        int liveFitWidthMm, liveFitLens = -1;
         float liveFitSz = 1f, liveFitLift;
         string liveFitKey;
         Vector3 liveFitBoxC, liveFitBoxS;
@@ -1954,7 +2024,8 @@ namespace PSXRacing
 
         /// <summary>The fit for the car being followed, re-solved only when
         /// something it depends on changes: which car (a body swap during
-        /// Start, a replay's retarget), the view, the screen, the HUD.</summary>
+        /// Start, a replay's retarget), the view, the screen, the HUD, the
+        /// CHASE FOV setting.</summary>
         ChaseFit CurrentFit(View v, float aspect)
         {
             var box = Box;
@@ -1967,7 +2038,8 @@ namespace PSXRacing
             Vector3 bc = box != null ? box.center : Vector3.zero, bs = box != null ? box.size : Vector3.zero;
             var dials = LiveDials();
             string key = def != null ? def.key : null;
-            if (v == liveFitView && target == liveFitTarget && Mathf.Abs(aspect - liveFitAspect) < 1e-4f
+            int lens = ChaseFovPrefs.Degrees;
+            if (v == liveFitView && lens == liveFitLens && target == liveFitTarget && Mathf.Abs(aspect - liveFitAspect) < 1e-4f
                 && key == liveFitKey && sx == liveFitSx && sz == liveFitSz && lift == liveFitLift
                 && mm == liveFitWidthMm && wb == liveFitWheelbase
                 && bc == liveFitBoxC && bs == liveFitBoxS
@@ -1976,6 +2048,7 @@ namespace PSXRacing
             liveFitView = v; liveFitTarget = target; liveFitAspect = aspect; liveFitKey = key;
             liveFitSx = sx; liveFitSz = sz; liveFitLift = lift; liveFitWidthMm = mm; liveFitWheelbase = wb; liveFitBoxC = bc; liveFitBoxS = bs;
             liveFitDials = dials;
+            liveFitLens = lens;
             var frame = box != null
                 ? FrameOf(bc, bs, def, wb, sx, mm, sz, lift)
                 : FrameOf(new Vector3(0f, 0.72f, 0.05f), new Vector3(1.72f, 1.0f, 4.1f), def, wb, sx, mm, sz, lift);
@@ -2037,8 +2110,8 @@ namespace PSXRacing
             {
                 // The chase pair have their own lenses, at 16:9 (see FOVFor
                 // for a screen of another shape).
-                case View.Chase: return FarRig.vfov;
-                case View.Close: return CloseRig.vfov;
+                case View.Chase:
+                case View.Close: return RigFor(v).vfov;
                 case View.Hood: return baseFOV + 5f;
                 case View.Bumper: return baseFOV + 10f;
                 // The cabin's own lens, fixed (CockpitFOV): it no longer rides
@@ -2080,9 +2153,9 @@ namespace PSXRacing
         /// <summary>The lens at a given speed on a screen of
         /// <paramref name="aspect"/>: the view's rest FOV plus its share of the
         /// pull, smoothstepped in over <paramref name="fullMps"/>, capped per
-        /// view. Chase at 16:9: 58 at rest, 59.75 at 100 km/h, 61.5 at 200;
-        /// on a 19.5:9 phone the same HORIZONTAL fields (48.9 vertical at
-        /// rest). The mounted views keep a fixed vertical field on any screen,
+        /// view. Chase at 16:9 and the standard CHASE FOV: 58 at rest, 63 at
+        /// 100 km/h, 68 at 200; on a 19.5:9 phone the same HORIZONTAL fields
+        /// (48.9 vertical at rest). The mounted views keep a fixed vertical field on any screen,
         /// except the cockpit, which holds CockpitFOV's 16:9 HORIZONTAL field
         /// like the chase pair and never pulls.</summary>
         public static float FOVFor(View v, float baseFOV, float speedMps, float fullMps,
@@ -2092,7 +2165,7 @@ namespace PSXRacing
             if (v == View.Chase || v == View.Close)
             {
                 var q = RigFor(v);
-                return HoldWide(q.vfov + q.speedFOV * t, aspect);
+                return HoldWide(SpeedLens(q, t), aspect);
             }
             if (v == View.Cockpit) return HoldWide(CockpitFOV, aspect);
             return Mathf.Min(ViewFOV(v, baseFOV) + ViewSpeedFOV(v) * t, ViewMaxFOV(v));
