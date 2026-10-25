@@ -362,7 +362,7 @@ export function buildRoadProfiles(city, groundY, opts = {}) {
   }
   chains.sort((a, b) => b.rank - a.rank || b.len - a.len);
   const fixedNode = new Uint8Array(NN), done = new Uint8Array(NE);
-  let sweepsMax = 0, sweepsSum = 0, leftOver = 0, pinsTotal = 0, gradesClamped = 0, ghosts = 0;
+  let sweepsMax = 0, sweepsSum = 0, leftOver = 0, pinsTotal = 0, gradesClamped = 0, ghosts = 0, structRuns = 0;
   // THE ROAD ON THROUGH A JUNCTION: a chain ending at a node a higher chain
   // fixed is curved INTO that road's grade - the next station of the arm it
   // runs straight on into (already designed) is a pinned ghost beyond the
@@ -383,7 +383,7 @@ export function buildRoadProfiles(city, groundY, opts = {}) {
   };
   for (const ch of chains) {
     // the chain's stations in travel order
-    const D = [], Y = [], P = [], Rc = [], Rs = [], G = [], ref = [];
+    const D = [], Y = [], P = [], Rc = [], Rs = [], G = [], ref = [], Mk = [];
     let base = 0;
     for (let k = 0; k < ch.list.length; k++) {
       const [ei, fwd] = ch.list[k], e = edges[ei], t = st[ei], n = t.s.length;
@@ -397,7 +397,7 @@ export function buildRoadProfiles(city, groundY, opts = {}) {
         const nd = q === 0 ? startNode : q === n - 1 ? endNode : -1;
         let y = t.y[i];
         if (isNode && !Number.isNaN(nodeY[nd])) y = nodeY[nd];
-        D.push(base + along); Y.push(y); Rc.push(rc); Rs.push(rs); G.push(classMaxGrade(e) * GRADE_CAP); ref.push([[ei, i]]);
+        D.push(base + along); Y.push(y); Rc.push(rc); Rs.push(rs); G.push(classMaxGrade(e) * GRADE_CAP); ref.push([[ei, i]]); Mk.push(t.mask[i] ? 1 : 0);
         // pinned: the chain's two ends, and nodes a higher chain fixed
         P.push(isNode && ((k === 0 && q === 0) || (k === ch.list.length - 1 && q === n - 1) || fixedNode[nd]) ? 1 : 0);
       }
@@ -409,11 +409,11 @@ export function buildRoadProfiles(city, groundY, opts = {}) {
       const n0 = f0 ? edges[e0i].a : edges[e0i].b, nL = fL ? edges[eLi].b : edges[eLi].a;
       if (fixedNode[n0] && D.length >= 2) {
         const g = ghostAt(n0, e0i, true);
-        if (g && g.h > 0.5) { D.unshift(-g.h); Y.unshift(g.y); P.unshift(1); Rc.unshift(Rc[0]); Rs.unshift(Rs[0]); G.unshift(G[0]); ref.unshift([]); ghosts++; }
+        if (g && g.h > 0.5) { D.unshift(-g.h); Y.unshift(g.y); P.unshift(1); Rc.unshift(Rc[0]); Rs.unshift(Rs[0]); G.unshift(G[0]); ref.unshift([]); Mk.unshift(0); ghosts++; }
       }
       if (fixedNode[nL] && D.length >= 2 && !(n0 === nL)) {
         const g = ghostAt(nL, eLi, false);
-        if (g && g.h > 0.5) { D.push(D[D.length - 1] + g.h); Y.push(g.y); P.push(1); Rc.push(Rc[Rc.length - 1]); Rs.push(Rs[Rs.length - 1]); G.push(G[G.length - 1]); ref.push([]); ghosts++; }
+        if (g && g.h > 0.5) { D.push(D[D.length - 1] + g.h); Y.push(g.y); P.push(1); Rc.push(Rc[Rc.length - 1]); Rs.push(Rs[Rs.length - 1]); G.push(G[G.length - 1]); ref.push([]); Mk.push(0); ghosts++; }
       }
     }
     const n = Y.length;
@@ -425,6 +425,22 @@ export function buildRoadProfiles(city, groundY, opts = {}) {
       i = j;
     }
     if (Y.some(v => Number.isNaN(v))) continue;
+    // (REAL HEIGHTS) A STRUCTURE RUN ACROSS NODES: a bridge and its masked
+    // approaches drawn as one straight line between the ground either side,
+    // through the nodes inside it (each edge's own fill read those nodes'
+    // heights, filled from neighbours where no ground is near: Tuckaseegee
+    // Road came down a 13% approach onto a 16% deck into the valley it spans)
+    if (opts.all) {
+      for (let i = 1; i < n - 1;) {
+        if (!Mk[i] || P[i]) { i++; continue; }
+        let j = i; while (j < n - 1 && Mk[j] && !P[j]) j++;
+        if (!Mk[j] || P[j] || j === n - 1) {
+          if (D[j] - D[i - 1] < 1200) for (let k = i; k < j; k++) Y[k] = Y[i - 1] + (Y[j] - Y[i - 1]) * (D[k] - D[i - 1]) / (D[j] - D[i - 1]);
+          structRuns++;
+        }
+        i = j;
+      }
+    }
     for (const p of P) pinsTotal += p;
     smoothGauss(Y, SIGMA_ST, P);
     gradesClamped += clampGrades(D, Y, P, G);
@@ -466,6 +482,44 @@ export function buildRoadProfiles(city, groundY, opts = {}) {
     for (let r = 0; r < 4; r++) pullPairs(edges, st, pairAllow, true);
     pairs2.after = pullPairs(edges, st, pairAllow, true, true);
   }
+  // ---- 7b. (REAL HEIGHTS) SHORT PIECES BETWEEN JUNCTIONS: two nodes a few
+  // metres apart can be fixed by two different chains (e784, 3 m between two
+  // junctions by N Davidson St and E 9th St, stood 1.1 m apart: 36%). The
+  // nodes are pulled within the class's grade of each other (both halfway,
+  // swept), and each node's move is eased into every arm on a smoothstep
+  // over min(60 m, the arm), so the junction keeps one height for all its arms.
+  let shortMoves = 0, shortMax = 0;
+  if (opts.all) {
+    // the nodes' heights as the edges' ends now stand (the pairs and the
+    // clearance dips moved ends, not nodeY)
+    const y0 = new Float64Array(NN).fill(NaN);
+    for (const e of edges) { const t = st[e.index]; if (!t) continue; y0[e.a] = t.y[0]; y0[e.b] = t.y[t.y.length - 1]; }
+    const ny = Float64Array.from(y0);
+    for (let it = 0; it < 40; it++) {
+      let moved = 0;
+      for (const e of edges) {
+        if (!st[e.index] || e.a === e.b || e.length > 40) continue;
+        const ya = ny[e.a], yb = ny[e.b]; if (Number.isNaN(ya) || Number.isNaN(yb)) continue;
+        const cap = classMaxGrade(e) * Math.max(1, e.length), dy = yb - ya;
+        if (Math.abs(dy) <= cap + 1e-3) continue;
+        const fix = (Math.abs(dy) - cap) / 2 * Math.sign(dy);
+        ny[e.a] += fix; ny[e.b] -= fix; moved++;
+      }
+      if (!moved) break;
+    }
+    for (const e of edges) {
+      const t = st[e.index]; if (!t) continue;
+      const n = t.y.length, L = Math.min(60, e.length);
+      for (const [nd, atA] of [[e.a, true], [e.b, false]]) {
+        const d = ny[nd] - y0[nd]; if (Number.isNaN(d) || Math.abs(d) < 0.005) continue;
+        for (let i = 0; i < n; i++) {
+          const dist = atA ? t.s[i] : e.length - t.s[i]; if (dist >= L) continue;
+          const u = dist / L; t.y[i] += d * (1 - u * u * (3 - 2 * u));
+        }
+      }
+    }
+    for (let nd = 0; nd < NN; nd++) { const d = ny[nd] - y0[nd]; if (!Number.isNaN(d) && Math.abs(d) >= 0.005) { shortMoves++; shortMax = Math.max(shortMax, Math.abs(d)); nodeY[nd] = ny[nd]; } }
+  }
   const clr = opts.all ? lowerUnderBridges(edges, nodes, nodeEdges, crossings, st) : null;
   // ---- stats: deviation from the raw ground on measured stations
   const dev = [];
@@ -477,8 +531,9 @@ export function buildRoadProfiles(city, groundY, opts = {}) {
   const stats = { edges: nEdges, stations: nSt, masked, why, nodesMeasured, nodesFilled, chains: chains.length, sweepsMax, sweepsMean: chains.length ? sweepsSum / chains.length : 0, leftOver, pinsTotal,
                   pairStations, pairMoved, devP50: pct(0.5), devP95: pct(0.95), devMax: dev.length ? dev[dev.length - 1] : 0 };
   lines.push(`RPRF: ${nEdges} edges (${opts.all ? 'every road' : 'tier 1 + 2'}), ${nSt} stations, ${masked} masked (bridge ${why.bridge}, tunnel ${why.tunnel}, water ${why.water}, over a crossing ${why.over}, abutment ${why.abut}, under a fill ${why.underFill}, steeper than the class + 5% ${why.steep}); ` +
-             `nodes ${nodesMeasured} from ground + ${nodesFilled} from neighbours; pairs ${pairStations} stations, ${pairMoved} pulled to ${PAIR_DY_M} m; ${chains.length} chains, limiter sweeps mean ${stats.sweepsMean.toFixed(1)} max ${sweepsMax}, ${leftOver} chains not fully limited (held by pins); ${gradesClamped} station moves by the grade cap (class max x ${GRADE_CAP}), ${nodeGradeMoves} node moves; ${ghosts} junction ghosts; ` +
+             `nodes ${nodesMeasured} from ground + ${nodesFilled} from neighbours; pairs ${pairStations} stations, ${pairMoved} pulled to ${PAIR_DY_M} m; ${chains.length} chains, limiter sweeps mean ${stats.sweepsMean.toFixed(1)} max ${sweepsMax}, ${leftOver} chains not fully limited (held by pins); ${gradesClamped} station moves by the grade cap (class max x ${GRADE_CAP}), ${nodeGradeMoves} node moves; ${ghosts} junction ghosts; ${structRuns} structure runs drawn ground to ground; ` +
              `designed vs measured ground p50 ${stats.devP50.toFixed(3)} / p95 ${stats.devP95.toFixed(3)} / max ${stats.devMax.toFixed(2)} m`);
+  if (opts.all) lines.push(`SHORT PIECES (REAL HEIGHTS): ${shortMoves} junction nodes moved to keep pieces under 40 m within their class grade (up to ${shortMax.toFixed(2)} m, eased into every arm)`);
   if (clr) { lines.push(clr.line); stats.clearance = clr; }
   if (pairs2) lines.push(`PAIRS (REAL HEIGHTS, allowed 1.2% of the gap, 0.06..${PAIR_DY_M} m): on the finished profiles ${pairs2.stations} pair stations, over their allowance by >0.05/0.25/0.5/1/2 m ${pairs2.hist.join('/')} (worst ${pairs2.worst.toFixed(2)} m); after 4 pulls (nodes eased into their arms) ${pairs2.after.hist.join('/')} (worst ${pairs2.after.worst.toFixed(2)} m); two levels under 15 m apart ${pairs2.after.closeSplit}: ${pairs2.after.closeAt.join('; ')}`);
   return { prof: st.map(t => t ? { y: t.y, mask: t.mask, raw: t.raw, s: t.s } : null), stats, lines };

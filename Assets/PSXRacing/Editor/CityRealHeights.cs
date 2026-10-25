@@ -47,6 +47,13 @@ namespace PSXRacing.EditorTools
             CityElevation.RprfOverride = null;
         }
 
+        /// <summary>The census both ways, then the shots both ways, in one job.</summary>
+        public static void RunAll()
+        {
+            Run();
+            try { RunShots(); } catch (System.Exception ex) { Debug.LogError("[RealHeights] shots threw " + ex); }
+        }
+
         /// <summary>The owner's spots, BEFORE (RPRF off) and AFTER (on): the
         /// PSX_PREVIEW_CUSTOM views (CityPreview, PSX_PREVIEW_SPOTS=custom),
         /// each PNG renamed *_before / *_after in Screenshots/City. Headless:
