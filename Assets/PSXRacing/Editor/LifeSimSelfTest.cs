@@ -13759,16 +13759,19 @@ namespace PSXRacing.EditorTools
         /// <summary>
         /// The hour's new numbers. Days must come out of this pass exactly as
         /// the owner signed them off (no night grade, no mood tint, no damp);
-        /// a clear night is DAMP — NFS's always-wet night is an art licence,
-        /// one constant table — but not flooded; rain soaks every hour; and
-        /// night is darker than dusk, dusk darker than sunset.
+        /// a clear night is MATTE since 2026-10-25 (TimeOfDay.ArtDampOn off:
+        /// real dry asphalt has no sheen) and with the old art licence back on
+        /// it is damp but not flooded; rain soaks every hour; and night is
+        /// darker than dusk, dusk darker than sunset.
         /// </summary>
         static void NightLookHours()
         {
             Check(TimeOfDay.WetnessFor(TimeOfDay.Noon, Weather.Clear) == 0f, "a clear noon is dry",
                   TimeOfDay.WetnessFor(TimeOfDay.Noon, Weather.Clear));
             float damp = TimeOfDay.WetnessFor(TimeOfDay.Night, Weather.Clear);
-            Check(damp > 0.2f && damp < 0.6f, "a clear night is damp, not flooded", damp.ToString("0.00"));
+            Check(TimeOfDay.ArtDampOn ? damp > 0.2f && damp < 0.6f : damp == 0f,
+                  TimeOfDay.ArtDampOn ? "a clear night is damp, not flooded" : "a dry clear night is matte (no art-licence damp)",
+                  damp.ToString("0.00"));
             bool soaked = true;
             for (int h = 0; h < TimeOfDay.Count; h++)
                 if (!Mathf.Approximately(TimeOfDay.WetnessFor(h, Weather.Rain), 1f)) soaked = false;

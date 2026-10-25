@@ -1014,9 +1014,18 @@ namespace PSXRacing
         /// </summary>
         public const float SnowDayWetness = 0.15f;
 
+        /// <summary>The NFS pass's ART-LICENCE damp on a dry road (dusk and
+        /// night streaks, dawn's dew). OFF since 2026-10-25 - the owner: "Do
+        /// real dry roads have a sheen? I haven't noticed." They don't: dry
+        /// asphalt at night is matte, and dew seldom forms on a road that
+        /// holds the day's heat. A damp road now comes only from the climate's
+        /// own water (Seasons.Now, RoadWaterVisual). True = the old table.</summary>
+        public static bool ArtDampOn = false;
+
         /// <summary>The clear-sky dampness of an hour (see WetnessFor).</summary>
         static float DampFor(int hour)
         {
+            if (!ArtDampOn) return 0f;
             switch (Mathf.Clamp(hour, 0, All.Length - 1))
             {
                 case Night:  return 0.24f;
