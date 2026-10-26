@@ -1110,7 +1110,7 @@ namespace PSXRacing.City
             TwinHoldReport = !TwinHoldsOn ? "twin holds OFF (PSX_CITY_TWINHOLD=0)"
                 : $"twin holds: {TwinHoldMoves} raises in the cone loop ({TwinHoldSkipped} station checks left apart, more than {TwinHoldMaxDyM} m off their partner); after the curves {TwinDyBeforeFinal:0.000} m apart at worst, the pointwise hold raised {TwinFinalRaised} stations (up to {TwinFinalRaiseMax:0.000} m; {TwinFinalClamped} taken back by the crest guard; sag added up to {TwinFinalSagAdded * 100f:0.00}%, crest added up to {TwinFinalCrestAdded * 100f:0.000}%), worst station dy now {TwinDyAfterCurves:0.000} m; TWIN (e) p50 {TwinDyP50:0.000} / p95 {TwinDyP95:0.000} / max {TwinDyMax:0.000} m over {TwinDySamples} samples" +
                   (TwinDyWorstPair >= 0 ? $" (e{map.deckPairs[TwinDyWorstPair].a}/e{map.deckPairs[TwinDyWorstPair].b})" : "") +
-                  $"; deck ends aligned on {TwinAlignedPairs} pairs (+{TwinAlignedStations} stations on structure); one abutment line (L3): {AbutmentEnds} deck ends carried on to their twin's on {AbutmentPairs} pairs (up to {AbutmentMaxM:0.0} m; {AbutmentStations} stations inserted; {AbutmentSkipped} left: a junction or more than {TwinAlignMaxM:0} m); 3.5 m margin stations {MarginStructureStations} ({MarginStationsNearTwins} on or beside a twin deck's edge); {GroundTwinReport}";
+                  $"; deck ends aligned on {TwinAlignedPairs} pairs (+{TwinAlignedStations} stations on structure); one abutment line (L3): {AbutmentEnds} deck ends carried on to their twin's on {AbutmentPairs} pairs (up to {AbutmentMaxM:0.0} m; {AbutmentStations} stations inserted; {AbutmentSkipped} left: a junction or more than {TwinAlignMaxM:0} m); 3.5 m margin stations {MarginStructureStations} ({MarginStationsNearTwins} on or beside a twin deck's edge); decks carried past their edge's end over the road under (round 5): {ReachPastStations} stations on {ReachPastEdges} edges; {GroundTwinReport}";
             roadDem = null;
             pairCands = null;
             pairBlocks = null;
@@ -2121,6 +2121,7 @@ namespace PSXRacing.City
         /// </summary>
         static void MarkStructure(CityMap map)
         {
+            ReachPastStations = ReachPastEdges = 0;
             for (int ci = 0; ci < map.crossings.Length; ci++)
             {
                 if (crossingOn != null && ci < crossingOn.Length && !crossingOn[ci]) continue;
@@ -2132,6 +2133,7 @@ namespace PSXRacing.City
                 float reach = DeckReach(over, under, sO, sU);
                 for (int i = 0; i < over.stS.Length; i++)
                     if (Mathf.Abs(over.stS[i] - sO) <= reach) over.stElev[i] = true;
+                if (ReachPastEndOn && RealOn) ReachPastEnd(map, over, under, sO, sU);
             }
             int margin = 0, marginTwin = 0, marginMeasured = 0;
             // (plan B1) which edges are a twin deck's or meet one at a node:
@@ -2778,6 +2780,60 @@ namespace PSXRacing.City
             foreach (var (ei, st, h, hs) in seated)
                 if (h >= 0 && map.edges[h].ElevatedAt(hs)) map.edges[ei].stElev[st] = true;
         }
+
+        /// <summary>
+        /// A DECK THAT ENDS OVER THE ROAD UNDER IT (REAL HEIGHTS round 5; the
+        /// I-277 / I-77 interchange: the John Belk Freeway's tagged decks end
+        /// 7-12 m past where a wide loop ramp passes under them at 45 degrees,
+        /// so the ramp's pavement ran on under I-277's GROUND approach, whose
+        /// retaining faces stood across its lanes: 7 walls in ramp lanes).
+        /// The deck carries on past its edge's end, along the through arm
+        /// beyond the node, as far as the under road's drawn pavement (its
+        /// widest half, the over road's, 2 m) reaches along it at the crossing's
+        /// angle - the same rule as <see cref="DeckReach"/> inside the edge,
+        /// to the pavement only. Heights untouched (structure is marked after
+        /// the solve). PSX_CITY_REACH_PAST=0 is the before.
+        /// </summary>
+        static void ReachPastEnd(CityMap map, CityMap.Edge over, CityMap.Edge under, float sO, float sU)
+        {
+            var tO = over.TangentAt(sO); var tU = under.TangentAt(sU);
+            float cos = Vector2.Dot(tO, tU);
+            float sin = Mathf.Max(0.4f, Mathf.Sqrt(Mathf.Max(0f, 1f - cos * cos)));
+            float need = (under.HalfMax + over.HalfMax + 2f) / sin;
+            for (int end = 0; end < 2; end++)
+            {
+                float past = need - (end == 0 ? sO : over.length - sO);
+                if (past <= 0.5f) continue;
+                var from = over; int node = end == 0 ? over.a : over.b;
+                for (int hop = 0; hop < 3 && past > 0.5f; hop++)
+                {
+                    // the through arm: the straightest continuation, a road like this one
+                    var dIn = node == from.b ? from.TangentAt(from.length) : -from.TangentAt(0f);
+                    CityMap.Edge nx = null; float best = 0.95f;
+                    foreach (int oi in map.nodeEdges[node])
+                    {
+                        if (oi == from.index) continue;
+                        var o = map.edges[oi];
+                        if (o.a == o.b || o.link != over.link || o.tunnel || o.stS == null) continue;
+                        var dOut = o.a == node ? o.TangentAt(0f) : -o.TangentAt(o.length);
+                        float d = Vector2.Dot(dIn, dOut);
+                        if (d > best) { best = d; nx = o; }
+                    }
+                    if (nx == null || nx == under) break;
+                    bool atA = nx.a == node;
+                    for (int i = 0; i < nx.stS.Length; i++)
+                    {
+                        float dist = atA ? nx.stS[i] : nx.length - nx.stS[i];
+                        if (dist <= past && !nx.stElev[i]) { nx.stElev[i] = true; ReachPastStations++; }
+                    }
+                    ReachPastEdges++;
+                    past -= nx.length;
+                    from = nx; node = atA ? nx.b : nx.a;
+                }
+            }
+        }
+        public static bool ReachPastEndOn = System.Environment.GetEnvironmentVariable("PSX_CITY_REACH_PAST") != "0";
+        public static int ReachPastStations, ReachPastEdges;
 
         /// <summary>How far along the over road, either side of the crossing
         /// point, its deck must run to clear the under road's graded
@@ -4940,11 +4996,6 @@ namespace PSXRacing.City
                             float dy = o.YAt(at) - e.stY[i];
                             if (Mathf.Abs(dy) > GroundTwinMaxDyM) { if (pass == 0) { left++; worstLeft = Mathf.Max(worstLeft, Mathf.Abs(dy)); } continue; }
                             float want = 0.5f * dy;
-                            // a junction end keeps its height: the move tapers out toward it
-                            float w = 1f;
-                            if (Junction(e.a)) w = Mathf.Min(w, Mathf.Clamp01(s / GroundTwinTaperM));
-                            if (Junction(e.b)) w = Mathf.Min(w, Mathf.Clamp01((e.length - s) / GroundTwinTaperM));
-                            want *= w * w * (3f - 2f * w);
                             if (Mathf.Abs(want) < 0.002f) continue;
                             plan.Add((e, i, want));
                         }
@@ -4965,10 +5016,17 @@ namespace PSXRacing.City
                 foreach (var kv in wantBy)
                 {
                     var e = map.edges[kv.Key]; var wa = kv.Value; int n = wa.Length;
+                    // (round 5) the move tapers to nothing toward EVERY station that
+                    // keeps its height - a junction's end, a seat, a deck - by the
+                    // distance along the edge (a smoothstep over GroundTwinTaperM).
+                    // Before, only the junction ends tapered: a seat or a deck inside
+                    // the run stood still while the triangle-smoothed station beside
+                    // it moved half the want (the climb-out kinks, uptown's e2321
+                    // into its US 74 seat).
+                    var pin = PinDistances(e, Junction);
                     for (int i = 0; i < n; i++)
                     {
-                        bool endJ = (i == 0 && Junction(e.a)) || (i == n - 1 && Junction(e.b));
-                        if (endJ || e.SeatedAt(i) || DeckPairs.DeckAt(e.index, e.stS[i])) continue;
+                        if (pin[i] <= 0f) continue;
                         float sw = 0f, sv = 0f;
                         for (int j = 0; j < n; j++)
                         {
@@ -4978,6 +5036,8 @@ namespace PSXRacing.City
                             sw += w; sv += w * wa[j];
                         }
                         float ds = sw > 0f ? sv / sw : 0f;
+                        float wp = Mathf.Clamp01(pin[i] / GroundTwinTaperM);
+                        ds *= wp * wp * (3f - 2f * wp);
                         if (Mathf.Abs(ds) >= 0.002f) plan.Add((e, i, ds));
                     }
                 }
@@ -4990,26 +5050,60 @@ namespace PSXRacing.City
                     if (pass == 0) moved++;
                 }
                 // a node of two arms: both end stations and the node at their mean
+                // (an end that keeps its height - a seat, a deck - is the target),
+                // each arm's change FADED into it (round 5: the end station alone
+                // stepped against the arm's next one - the ramp node joints)
                 var seenN = new HashSet<int>();
                 foreach (var (e, i, d) in plan)
                 {
                     if (i != 0 && i != e.stS.Length - 1) continue;
                     int node = i == 0 ? e.a : e.b;
-                    if (!seenN.Add(node)) continue;
-                    float sum = 0f; int c = 0;
-                    foreach (int oi in map.nodeEdges[node]) { var o = map.edges[oi]; sum += o.a == node ? o.stY[0] : o.stY[o.stY.Length - 1]; c++; }
-                    float y = sum / Mathf.Max(1, c);
-                    foreach (int oi in map.nodeEdges[node])
-                    {
-                        var o = map.edges[oi];
-                        int k = o.a == node ? 0 : o.stY.Length - 1;
-                        float dd = y - o.stY[k];
-                        o.stY[k] = y;
-                        if (!delta.TryGetValue(oi, out var da)) delta[oi] = da = new float[o.stS.Length];
-                        da[k] += dd;
-                    }
-                    map.nodeY[node] = y;
+                    if (Junction(node) || !seenN.Add(node)) continue;
+                    MeetAtNode(node);
                     if (pass == 0) nodes++;
+                }
+            }
+            // the two arms of a node at one height: the kept end's, else their mean
+            void MeetAtNode(int node)
+            {
+                float sum = 0f, sumKept = 0f; int c = 0, cKept = 0;
+                foreach (int oi in map.nodeEdges[node])
+                {
+                    var o = map.edges[oi];
+                    if (o.a == o.b) return;
+                    int k = o.a == node ? 0 : o.stY.Length - 1;
+                    if (Kept(o, k)) { sumKept += o.stY[k]; cKept++; } else { sum += o.stY[k]; c++; }
+                }
+                float y = cKept > 0 ? sumKept / cKept : sum / Mathf.Max(1, c);
+                foreach (int oi in map.nodeEdges[node])
+                {
+                    var o = map.edges[oi];
+                    int k = o.a == node ? 0 : o.stY.Length - 1;
+                    if (!Kept(o, k)) FadeEnd(o, k, y - o.stY[k]);
+                }
+                map.nodeY[node] = y;
+            }
+            // a station this hold never moves
+            bool Kept(CityMap.Edge o, int j) =>
+                o.SeatedAt(j) || DeckPairs.DeckAt(o.index, o.stS[j])
+                || (j == 0 && Junction(o.a)) || (j == o.stS.Length - 1 && Junction(o.b));
+            // an end station's change eased into its edge: a smoothstep over
+            // GroundTwinSeatFadeM, short of the first station the hold keeps
+            void FadeEnd(CityMap.Edge o, int k, float dd)
+            {
+                if (Mathf.Abs(dd) < 1e-4f) return;
+                int n = o.stS.Length;
+                float sEnd = o.stS[k], L = GroundTwinSeatFadeM;
+                for (int j = 0; j < n; j++) if (j != k && Kept(o, j)) L = Mathf.Min(L, Mathf.Abs(o.stS[j] - sEnd));
+                L = Mathf.Max(L, 0.5f);
+                if (!delta.TryGetValue(o.index, out var da)) delta[o.index] = da = new float[n];
+                for (int j = 0; j < n; j++)
+                {
+                    float dist = Mathf.Abs(o.stS[j] - sEnd);
+                    if (dist >= L) continue;
+                    float x = 1f - dist / L;
+                    float m = dd * x * x * (3f - 2f * x);
+                    o.stY[j] += m; da[j] += m;
                 }
             }
             // the ramps and branches seated on a moved carriageway move with it
@@ -5046,27 +5140,71 @@ namespace PSXRacing.City
                     if (!bs[i])
                     {
                         // the nearest seated station's move, faded with distance
-                        float bestDist = float.MaxValue; d = 0f;
+                        float bestDist = float.MaxValue; d = 0f; int kb = -1;
                         for (int k = 0; k < n; k++)
                         {
                             if (!bs[k]) continue;
                             float dist = Mathf.Abs(be.stS[k] - be.stS[i]);
-                            if (dist < bestDist) { bestDist = dist; d = bd[k]; }
+                            if (dist < bestDist) { bestDist = dist; d = bd[k]; kb = k; }
                         }
-                        if (bestDist >= GroundTwinSeatFadeM) continue;
-                        float x = 1f - bestDist / GroundTwinSeatFadeM;
+                        // never the branch's far end at a junction (its node is not
+                        // ours to move): the fade reaches nothing AT that end (round 5:
+                        // a ramp shorter than the fade stepped there - climb-out launches)
+                        float L = GroundTwinSeatFadeM;
+                        if (kb >= 0)
+                        {
+                            bool up = i > kb;
+                            if (up ? Junction(be.b) : Junction(be.a)) L = Mathf.Min(L, Mathf.Abs((up ? be.length : 0f) - be.stS[kb]));
+                        }
+                        if (bestDist >= L) continue;
+                        float x = 1f - bestDist / L;
                         d *= x * x * (3f - 2f * x);
-                        // never the branch's far end at a junction (its node is not ours to move)
-                        if ((i == 0 && Junction(be.a)) || (i == n - 1 && Junction(be.b))) continue;
                     }
                     if (Mathf.Abs(d) < 0.002f) continue;
                     be.stY[i] += d;
                     seatsMoved++;
                 }
             }
+            // (round 5) a branch's end at a node of two arms takes the arm beyond
+            // it along (the node and the next edge's stations, faded), or eases back
+            // to an end there the hold keeps
+            foreach (var kv in branchD)
+            {
+                var be = map.edges[kv.Key]; int n = be.stS.Length;
+                for (int end = 0; end < 2; end++)
+                {
+                    int k = end == 0 ? 0 : n - 1, node = end == 0 ? be.a : be.b;
+                    if (Junction(node) || Mathf.Abs(map.nodeY[node] - be.stY[k]) < 0.002f) continue;
+                    MeetAtNode(node);
+                    nodes++;
+                }
+            }
             var after = Measure();
             GroundTwinDyReport = $"narrow-median twins beside each other ({before.n} stations): |dy| p95 {before.p95:0.00} / max {before.max:0.00} m -> p95 {after.p95:0.00} / max {after.max:0.00} m";
             GroundTwinReport = GroundTwinDyReport + $"; ground twins (narrow medians, one height): {moved} stations moved to the pair's mean (up to {maxMove:0.00} m), {nodes} two-arm nodes with them, {seatsMoved} seated branch stations followed; {left} station checks left apart (more than {GroundTwinMaxDyM} m: two levels, worst {worstLeft:0.00} m)";
+        }
+
+        /// <summary>Each station's distance along <paramref name="e"/> to the
+        /// nearest station the ground-twin hold keeps (a seat, a deck, an end at a
+        /// junction); 0 on one, float.MaxValue with none on the edge.</summary>
+        static float[] PinDistances(CityMap.Edge e, System.Func<int, bool> junction)
+        {
+            int n = e.stS.Length;
+            var d = new float[n];
+            bool Pin(int j) => e.SeatedAt(j) || DeckPairs.DeckAt(e.index, e.stS[j]) || (j == 0 && junction(e.a)) || (j == n - 1 && junction(e.b));
+            float run = float.MaxValue;
+            for (int j = 0; j < n; j++)
+            {
+                if (Pin(j)) run = 0f; else if (j > 0 && run < float.MaxValue) run += e.stS[j] - e.stS[j - 1];
+                d[j] = run;
+            }
+            run = float.MaxValue;
+            for (int j = n - 1; j >= 0; j--)
+            {
+                if (Pin(j)) run = 0f; else if (j < n - 1 && run < float.MaxValue) run += e.stS[j + 1] - e.stS[j];
+                d[j] = Mathf.Min(d[j], run);
+            }
+            return d;
         }
 
         /// <summary>The largest height difference left between union twins

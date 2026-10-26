@@ -515,7 +515,7 @@ namespace PSXRacing.City
                 if (!covered) return null;
             }
             if (X == null) return null;
-            var w = DrawnEdgeAt(map, trims, X, x, SideToward(X, x, pm));
+            var w = FacingEdgeAt(map, trims, X, x, pm);
             var mine = 0.5f * (A.Edge(side) + B.Edge(side)) + origin;
             var outw = (A.Out(side) + B.Out(side)).normalized;
             float d = Vector2.Dot(new Vector2(w.x - mine.x, w.z - mine.z), outw);
@@ -693,6 +693,27 @@ namespace PSXRacing.City
                             && Mathf.Abs(approachBlock - x) <= UnionStepM + 1e-3f
                             && ApproachSample(map, t, r, X, approachBlock, walked, gMin, gMax, dyMax, out Y, out y, true))
                             walk.Add((X, approachBlock, Y, y));
+                        // (round 5) stopped (by structure) a step short of another
+                        // union run starting on this side: the median meets that run's
+                        // start exactly, so no own rail stands in the metre between
+                        // (one place city-wide; uptown's route rail ends at I-277
+                        // e2144 s 500 / I-77 e1874 s 188 are not this - still open)
+                        else if (approachBlock < 0f && MeetNextRunOn && walk.Count > 0 && walk[walk.Count - 1].X == X)
+                        {
+                            var lw = walk[walk.Count - 1];
+                            int sideW = SideToward(X, lw.x, lw.Y.PointAt(lw.y));
+                            var lx = t.unions[X.index];
+                            float meet = -1f;
+                            if (lx != null)
+                                foreach (var o in lx)
+                                {
+                                    if (o == r || o.side != sideW) continue;
+                                    float se = dx > 0 ? o.s0 : o.s1;
+                                    if ((se - lw.x) * dx > 0.05f && (se - lw.x) * dx <= 2f * UnionStepM) meet = se;
+                                }
+                            if (meet >= 0f && ApproachSample(map, t, r, X, meet - dx * 0.02f, 0f, gMin, gMax, dyMax, out Y, out y, true))
+                                walk.Add((X, meet - dx * 0.02f, Y, y));
+                        }
                         break;
                     }
                     walk.Add((X, x, Y, y));
@@ -1151,7 +1172,7 @@ namespace PSXRacing.City
                 // into where the two decks do not end square
                 var pl = e.PointAt(uS[k]);
                 FootAny(map, run.across, pl, out var o, out float tk);
-                var w = DrawnEdgeAt(map, trims, o, tk, SideToward(o, tk, pl));
+                var w = FacingEdgeAt(map, trims, o, tk, pl);
                 uB[k] = w - org;
                 // nothing to span where the two drawn edges touch - or where
                 // the road across is drawn INTO this one (its edge past ours,
@@ -1415,6 +1436,115 @@ namespace PSXRacing.City
             var right = new Vector2(-tan.y, tan.x);
             var q = side > 0 ? p + right * eP : p - right * eM;
             return new Vector3(q.x, o.YAt(t), q.y);
+        }
+
+        // ------------------------------------------------------------------
+        //  A BRANCH COLLAPSED INTO ITS HOST (round 5, the owner's "concrete
+        //  box" in I-277's lane at the US 74 merge, uptown 2,486 m): I-277
+        //  e2321 merges into US 74 e2367 and its ribbon collapses into the
+        //  host's pavement 61 m before their node, while its union with the
+        //  opposing carriageway (e1394, then e2350) runs on to 84 / 128 m.
+        //  The collapsed sections stand on the cut line (for a metre 2.6 m
+        //  inside I-277's lanes), so the owner's median swung into the lane
+        //  (WALLS IN LANES 2, BLUNT 1); the host's median side drew its own
+        //  Jersey a metre from the union's (a box: two walls); and the
+        //  collapsed owner's spans are skipped, so its run drew nothing.
+        //  The road across's facing edge is the HOST's where the branch is
+        //  collapsed, and the host's side there is the union's: nothing of
+        //  its own, the median drawn by the owner - by the host itself when
+        //  the collapsed branch is that owner.
+        // ------------------------------------------------------------------
+
+        /// <summary>The drawn edge of <paramref name="o"/> facing
+        /// <paramref name="p"/> at arc <paramref name="t"/>, world space
+        /// (<see cref="DrawnEdgeAt"/>); where o is a branch collapsed into its
+        /// host there, the host's drawn edge facing p.</summary>
+        static Vector3 FacingEdgeAt(CityMap map, Trims trims, CityMap.Edge o, float t, Vector2 p)
+        {
+            if (CollapseHostOn && CollapsedAt(map, trims, o, t))
+                for (int end = 0; end < 2; end++)
+                {
+                    int h = end == 0 ? trims.branchA[o.index] : trims.branchB[o.index];
+                    if (h < 0 || h == o.index) continue;
+                    var H = map.edges[h];
+                    CityElevation.ProjectOn(H, p, out float th);
+                    if (Mathf.Abs(Vector2.Dot(p - H.PointAt(th), H.TangentAt(th))) > 1f) continue;   // past its end: not beside it
+                    return DrawnEdgeAt(map, trims, H, th, SideToward(H, th, p));
+                }
+            return DrawnEdgeAt(map, trims, o, t, SideToward(o, t, p));
+        }
+
+        /// <summary>PSX_CITY_MEET_NEXT_RUN=0: an approach run stops a step short of the next run (round 4).</summary>
+        public static bool MeetNextRunOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MEET_NEXT_RUN") != "0";
+        /// <summary>PSX_CITY_COLLAPSE_HOST=0: the round-4 medians at a collapsed branch.</summary>
+        public static bool CollapseHostOn = System.Environment.GetEnvironmentVariable("PSX_CITY_COLLAPSE_HOST") != "0";
+
+        /// <summary>Is branch <paramref name="o"/>'s ribbon collapsed into its
+        /// host at arc <paramref name="t"/> (either section around it)?</summary>
+        static bool CollapsedAt(CityMap map, Trims trims, CityMap.Edge o, float t)
+        {
+            if (trims.branchA[o.index] < 0 && trims.branchB[o.index] < 0) return false;
+            float sMin = trims.atA[o.index], sMax = o.length - trims.atB[o.index];
+            if (sMax - sMin < 0.6f || t < sMin - 0.01f || t > sMax + 0.01f) return false;
+            var secs = RawSectionsOf(map, trims, o, sMin, sMax);
+            if (secs.Count < 2) return false;
+            int lo = 0, hi = secs.Count - 1;
+            if (t <= secs[0].s) hi = 1;
+            else if (t >= secs[hi].s) lo = hi - 1;
+            else while (hi - lo > 1) { int mid = (lo + hi) >> 1; if (secs[mid].s <= t) lo = mid; else hi = mid; }
+            return secs[lo].collapsed || secs[hi].collapsed;
+        }
+
+        /// <summary>
+        /// A host's span side A-B beside a branch collapsed into it there,
+        /// where that branch holds a union run on the side toward this one:
+        /// the run (null: none). The road across must stand beyond this side.
+        /// For an OWNER run, <paramref name="mapped"/> is the run as this
+        /// host draws it (its arcs on the host, no closed ends).
+        /// </summary>
+        static UnionRun HostUnionHere(CityMap map, Trims trims, CityMap.Edge e, int side, in Section A, in Section B, Vector3 origin, out UnionRun mapped)
+        {
+            mapped = null;
+            if (!CollapseHostOn || trims.unions == null) return null;
+            var mine = 0.5f * (A.Edge(side) + B.Edge(side)) + origin;
+            var pm = new Vector2(mine.x, mine.z);
+            var outw = (A.Out(side) + B.Out(side)).normalized;
+            for (int end = 0; end < 2; end++)
+            {
+                int node = end == 0 ? e.a : e.b;
+                foreach (int bi in map.nodeEdges[node])
+                {
+                    if (bi == e.index) continue;
+                    var br = map.edges[bi];
+                    if (trims.BranchAt(br, node) != e.index) continue;
+                    var list = trims.unions[bi];
+                    if (list == null) continue;
+                    CityElevation.ProjectOn(br, pm, out float tb);
+                    if (Mathf.Abs(Vector2.Dot(pm - br.PointAt(tb), br.TangentAt(tb))) > 1f) continue;
+                    if (!CollapsedAt(map, trims, br, tb)) continue;
+                    int sideB = SideToward(br, tb, pm);
+                    foreach (var r in list)
+                    {
+                        if (r.side != sideB || !r.Covers(tb, 0.05f)) continue;
+                        // the road across stands beyond this side
+                        var cands = r.owner ? r.across : r.mirror != null ? new[] { r.mirror.edge } : null;
+                        if (cands == null || cands.Length == 0) continue;
+                        FootAny(map, cands, pm, out var X, out float x);
+                        if (X == null) continue;
+                        var w = DrawnEdgeAt(map, trims, X, x, SideToward(X, x, pm));
+                        if (Vector2.Dot(new Vector2(w.x - mine.x, w.z - mine.z), outw) < 0.05f) continue;
+                        if (r.owner)
+                        {
+                            CityElevation.ProjectOn(e, br.PointAt(r.s0), out float h0);
+                            CityElevation.ProjectOn(e, br.PointAt(r.s1), out float h1);
+                            mapped = new UnionRun { edge = e.index, nb = r.nb, side = side, pair = r.pair, s0 = Mathf.Min(h0, h1), s1 = Mathf.Max(h0, h1),
+                                                    median = r.median, owner = true, approach = r.approach, across = r.across, mirror = r.mirror };
+                        }
+                        return r;
+                    }
+                }
+            }
+            return null;
         }
 
         // ------------------------------------------------------------------
