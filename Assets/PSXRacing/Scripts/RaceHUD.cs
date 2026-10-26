@@ -182,7 +182,7 @@ namespace PSXRacing
                 cluster.hideGauges = hideGauges;
                 cluster.rpmFlutter = rpmFlutter;
             }
-            EnsureCityMap();
+            ShowMinimap(null);
 
             // The venue's own name, not a literal: this same HUD serves the
             // town, and a street called CHARLOTTE two hundred miles from
@@ -200,9 +200,12 @@ namespace PSXRacing
             // that prompted this was literally "where are they?". The town has
             // no attribution and no food index; its errand cue rides the same
             // slot instead — where the shift wants you, with the same arrow.
+            // The cue is asked every frame, attribution or not: it is also
+            // what tells the map where free roam is heading (timer-gated).
+            string food = FoodCue();
             Set(lastLapText, city.SessionSeconds < AttributionSeconds && world != null && world.Map != null
                 ? OsmAttribution
-                : Town.TownWorld.Cue ?? FoodCue());
+                : Town.TownWorld.Cue ?? food);
 
             UpdateFuel(ownsActionButton: false);
             UpdateTemp();
@@ -290,16 +293,30 @@ namespace PSXRacing
         {
             // No signpost to a counter that does not serve (the CITY edition:
             // DriveThru.Serves). The slot stays empty after the attribution.
-            if (!DriveThru.Serves || world == null || car == null) return "";
+            if (!DriveThru.Serves || world == null || car == null)
+            {
+                if (minimap != null) minimap.SetDestination(default, false);
+                return "";
+            }
             if (Time.unscaledTime < foodNext) return foodLine;
             foodNext = Time.unscaledTime + 0.4f;
 
             if (!world.NearestFood(car.transform.position, out string label,
                                    out Vector2 at, out float dist))
-            { foodLine = ""; return foodLine; }
+            {
+                foodLine = "";
+                if (minimap != null) minimap.SetDestination(default, false);
+                return foodLine;
+            }
+            // The map routes there along the streets (its GPS line) ...
+            if (minimap != null) minimap.SetDestination(at, true);
 
             // Standing in the car park already: the order prompt says the rest.
             if (dist < 30f) { foodLine = label; return foodLine; }
+
+            // ... and where it has a route, the distance here is the ROAD
+            // distance it prints under its arrow: one number, not two.
+            if (minimap != null && minimap.GpsRemaining(out float road)) dist = road;
 
             Vector3 to = new Vector3(at.x - car.transform.position.x, 0f,
                                      at.y - car.transform.position.z);
@@ -319,29 +336,6 @@ namespace PSXRacing
         public City.CityWorld world;
 
         /// <summary>
-        /// The free-roam street map (CityMinimap), where the race map sits
-        /// on a circuit — "I'd like a map to view where I'm at in the city".
-        /// Built here at runtime like the race map, so it reaches the shipped
-        /// Charlotte scene without a rebake, and rebuilt when the frame's
-        /// line count changes. Only where there is a road graph to draw: the
-        /// town shares this HUD and has none.
-        /// </summary>
-        City.CityMinimap cityMap;
-        int cityMapPx = -1;
-
-        void EnsureCityMap()
-        {
-            if (world == null || world.Map == null || car == null) return;
-            int px = Mathf.Max(24, Mathf.RoundToInt(FrameHeight() * MapFracNow()));
-            float centre = MapCentreNow();
-            if (cityMap != null && px == cityMapPx && Mathf.Approximately(centre, cityMapBuiltCentre)) return;
-            if (cityMap != null && cityMap.Root != null) Destroy(cityMap.Root);
-            cityMapPx = px;
-            cityMapBuiltCentre = centre;
-            cityMap = City.CityMinimap.Create(transform, px, centre, world.Map, car.transform);
-        }
-
-        /// <summary>
         /// Name the control the player actually HAS. On a phone there is no C
         /// key, and telling someone to press one on a device without a keyboard
         /// reads as the game not knowing what it is running on — the same
@@ -355,66 +349,71 @@ namespace PSXRacing
                 ? "(TRIANGLE / Y)" : "(PRESS C)";
         }
 
-        // =================== the race map ===================
+        // =================== the map ===================
         //
-        // Gran Turismo's corner map: the circuit as a white line with the
-        // field on it, drawn from the same centreline the road was built
-        // from (TrackCatalog.Thumbnail) and placed with the same projection,
-        // so the dot is on the road because the road is where the dot's
-        // maths says it is. Built at runtime rather than by the scene
-        // builder so it reaches every venue without a rebake and can follow
-        // the framebuffer's line count, which the player can change.
+        // ONE map for free roam and every race, after Need for Speed (2015):
+        // HudMinimap. No box - faint roads straight over the picture, the
+        // route bright, heading up with the arrow low, rivals as dots and the
+        // distance left under the arrow (the owner, 2026-10-26: "I want city
+        // and race maps to be more like NFS (not with orange square blocking
+        // view)"). Built at runtime, so it reaches every baked venue without
+        // a rebake, and rebuilt when the frame's line count or the touch
+        // panel changes.
+        //
+        // WHERE: on a PC in the bottom-LEFT corner, where the reference puts
+        // it - below the horizon, over road the car has already passed - and
+        // the two dials share the bottom-right (GaugeCluster). On a phone the
+        // corners belong to the wheel and the pedals, so it stays at the TOP
+        // of the left edge under the lap line, with MENU between it and the
+        // wheel and the pizza cam opposite it (2026-09-25).
 
-        /// <summary>Map height as a fraction of the frame height. About the
-        /// size the reference draws it.</summary>
-        public float mapFrac = 0.30f;
-        /// <summary>Where the map's centre sits up the left edge, as a
-        /// fraction of the frame height. Above the tach on a desktop layout,
-        /// under the lap counter. (Not on a phone: see TouchMapTopFrac.)</summary>
-        public float mapCentreYFrac = 0.60f;
+        /// <summary>Desktop: the map's square as a fraction of the frame
+        /// height, and its margin off the left and bottom edges (the dials'
+        /// own margin).</summary>
+        public const float PcMapFrac = 0.30f, PcMapMarginFrac = 0.03f;
+        /// <summary>The desktop map's centre as a fraction of the frame
+        /// height. The pizza cam stands level with it unless the speedometer
+        /// is in the way, which in the bottom corner it always is.</summary>
+        public static float PcMapCentreFrac => PcMapMarginFrac + PcMapFrac * 0.5f;
 
         /// <summary>
         /// On a PHONE the map goes to the TOP of the left edge, just under the
         /// lap/DROP line — the owner, 2026-09-25: "On mobile, pizza cam and
         /// race map should be top of screen, menu button can be lowered to
         /// middle left". A shade smaller than the desktop map, because the
-        /// MENU button now stands between it and the steering wheel and a
-        /// 20:9 phone has only so much left edge.
+        /// MENU button stands between it and the steering wheel and a 20:9
+        /// phone has only so much left edge.
         /// </summary>
         public const float TouchMapTopFrac = 0.11f, TouchMapFrac = 0.26f;
 
-        float MapFracNow() => TouchControls.Showing ? TouchMapFrac : mapFrac;
-        float MapCentreNow() => TouchControls.Showing
-            ? 1f - TouchMapTopFrac - TouchMapFrac * 0.5f : mapCentreYFrac;
-        /// <summary>The centre the map was last built at, so plugging in a
-        /// pad (the touch panel hides) moves it back.</summary>
-        float mapBuiltCentre = -1f, cityMapBuiltCentre = -1f;
-
-        GameObject mapRoot;
-        RectTransform playerDot;
-        readonly System.Collections.Generic.List<RectTransform> rivalDots =
-            new System.Collections.Generic.List<RectTransform>();
-        TrackCatalog.MapFrame mapFrame;
-        bool mapValid;
-        int mapBuiltPx = -1;
-        static readonly Color PlayerDotColor = new Color(1f, 0.28f, 0.22f);
-        // SOLID, AND NOT WHITE. The road is drawn as a white line, and the
-        // first cut put the rivals on it as 92% white with no edge - on the
-        // line they vanished, off it they read as a smudge, and the owner
-        // called them "white or transparent", which is what they were. Green
-        // with a dark edge is what the reference game used for the field.
-        static readonly Color RivalDotColor = new Color(0.30f, 0.95f, 0.40f);
-        static readonly Color RivalEdgeColor = new Color(0.05f, 0.12f, 0.06f);
         /// <summary>
-        /// Dot sizes as a fraction of the map's width. They were 0.07 and
-        /// 0.045 - on a HUD drawn at device resolution that is a 25 px
-        /// player marker on a track line two pixels wide, a marker wider than
-        /// the road it is on. The reference draws its dots at about a
-        /// thirtieth of the map; these are a shade over that so they survive
-        /// the framebuffer's dither, and the outline is fixed at a pixel.
+        /// The map's square on a frame <paramref name="frameH"/> units tall:
+        /// the anchor it hangs from, its CENTRE's offset from that anchor and
+        /// its side. One answer for the game and for DriveHudPreview, which
+        /// measures it against the wheel, MENU and the pizza cam.
         /// </summary>
-        const float PlayerDotFrac = 0.034f, RivalDotFrac = 0.027f;
-        int RivalDotPx() => Mathf.Max(2, Mathf.RoundToInt(mapBuiltPx * RivalDotFrac));
+        public static void MapRect(bool touch, float frameH, out Vector2 anchor, out Vector2 centre, out float size)
+        {
+            if (touch)
+            {
+                size = Mathf.Max(24f, Mathf.Round(frameH * TouchMapFrac));
+                anchor = new Vector2(0f, 1f);
+                centre = new Vector2(4f + size * 0.5f, -Mathf.Round(frameH * TouchMapTopFrac) - size * 0.5f);
+            }
+            else
+            {
+                size = Mathf.Max(24f, Mathf.Round(frameH * PcMapFrac));
+                float m = Mathf.Round(frameH * PcMapMarginFrac);
+                anchor = Vector2.zero;
+                centre = new Vector2(m + size * 0.5f, m + size * 0.5f);
+            }
+        }
+
+        HudMinimap minimap;
+        int minimapH = -1;
+        bool minimapTouch;
+        /// <summary>The map, for the tools (HUD previews and shots).</summary>
+        public HudMinimap Minimap => minimap;
 
         int FrameHeight()
         {
@@ -434,139 +433,87 @@ namespace PSXRacing
             return TrackCatalog.At(RaceHandoff.TrackIndex);
         }
 
-        void EnsureMap()
+        /// <summary>
+        /// The map's street network: Charlotte's, where there is one — free
+        /// roam, and a city race (whose scene streams the same streets).
+        /// Never parsed for a venue that has none: a mountain stage asks for
+        /// nothing here.
+        /// </summary>
+        City.CityMap StreetsHere(bool racing)
         {
-            int px = Mathf.Max(24, Mathf.RoundToInt(FrameHeight() * MapFracNow()));
-            float centre = MapCentreNow();
-            if (mapRoot != null && px == mapBuiltPx && Mathf.Approximately(centre, mapBuiltCentre)) return;
-            if (mapRoot != null)
+            // Free roam's own world, whose graph is the one already parsed
+            // (asked for again, not parsed twice, if it has not wired it yet).
+            if (world != null) return world.Map != null ? world.Map : City.CityMap.Get();
+            var active = City.CityWorld.Active;
+            if (active != null && active.Map != null) return active.Map;
+            if (racing)
             {
-                if (Application.isPlaying) Destroy(mapRoot); else DestroyImmediate(mapRoot);
+                var v = VenueDef();
+                if (v != null && v.IsCityRace) return City.CityMap.Get();
             }
-            rivalDots.Clear();
-            mapBuiltPx = px;
-            mapBuiltCentre = centre;
-
-            var def = VenueDef();
-            mapValid = TrackCatalog.MapFrameFor(def, px, out mapFrame);
-            if (!mapValid) return;
-            var tex = TrackCatalog.Thumbnail(def, px, hud: true);
-
-            mapRoot = new GameObject("TrackMap", typeof(RectTransform));
-            mapRoot.transform.SetParent(transform, false);
-            var rt = (RectTransform)mapRoot.transform;
-            rt.anchorMin = rt.anchorMax = new Vector2(0f, centre);
-            rt.pivot = new Vector2(0f, 0.5f);
-            rt.anchoredPosition = new Vector2(4f, 0f);
-            rt.sizeDelta = new Vector2(px, px);
-
-            var imgGO = new GameObject("Road", typeof(RectTransform));
-            imgGO.transform.SetParent(mapRoot.transform, false);
-            var img = imgGO.AddComponent<RawImage>();
-            img.texture = tex;
-            img.raycastTarget = false;
-            var irt = img.rectTransform;
-            irt.anchorMin = Vector2.zero; irt.anchorMax = Vector2.one;
-            irt.offsetMin = Vector2.zero; irt.offsetMax = Vector2.zero;
-
-            int dot = Mathf.Max(3, Mathf.RoundToInt(px * PlayerDotFrac));
-            playerDot = MakeDot(mapRoot.transform, dot, PlayerDotColor, Color.white);
-            HudOnTop.Apply(mapRoot);
+            return null;
         }
 
-        /// <summary>A filled square of <paramref name="size"/> pixels with a
-        /// one-pixel edge in <paramref name="edge"/> around it. Every marker
-        /// has an edge: a dot with no edge disappears the moment it crosses
-        /// a line of its own colour.</summary>
-        static RectTransform MakeDot(Transform parent, int size, Color color, Color edge)
+        /// <summary>Build the map if it is missing or the frame has changed
+        /// under it. <paramref name="rm"/> is the race (null in free roam);
+        /// <paramref name="path"/> its route.</summary>
+        void EnsureMinimap(RaceManager rm, TrackPath path, bool roam)
         {
-            var go = new GameObject("Dot", typeof(RectTransform));
-            go.transform.SetParent(parent, false);
-            var rt = (RectTransform)go.transform;
-            rt.anchorMin = rt.anchorMax = Vector2.zero;
-            rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.sizeDelta = new Vector2(size + 2, size + 2);
-            var img = go.AddComponent<Image>();
-            img.color = edge;
-            img.raycastTarget = false;
-            var inner = new GameObject("Fill", typeof(RectTransform));
-            inner.transform.SetParent(go.transform, false);
-            var ir = (RectTransform)inner.transform;
-            ir.anchorMin = ir.anchorMax = new Vector2(0.5f, 0.5f);
-            ir.pivot = new Vector2(0.5f, 0.5f);
-            ir.sizeDelta = new Vector2(size, size);
-            var ii = inner.AddComponent<Image>();
-            ii.color = color;
-            ii.raycastTarget = false;
-            return rt;
+            if (car == null) return;
+            int h = FrameHeight();
+            bool touch = TouchControls.Showing;
+            if (minimap != null && minimap.Root != null && h == minimapH && touch == minimapTouch) return;
+            if (minimap != null && minimap.Root != null)
+            {
+                if (Application.isPlaying) Destroy(minimap.Root); else DestroyImmediate(minimap.Root);
+            }
+            minimap = null;
+            minimapH = h;
+            minimapTouch = touch;
+            var streets = StreetsHere(!roam);
+            // The town shares this HUD and has no road graph: no map there.
+            if (roam && streets == null) return;
+            MapRect(touch, h, out var anchor, out var centre, out float size);
+            minimap = HudMinimap.Create(transform, anchor, centre, size, car.transform,
+                                        streets, path, rm, roam);
         }
 
-        /// <summary>Build the map and put every car in the scene on it,
-        /// outside play mode — for the screenshot tool, which otherwise
-        /// photographs a HUD with no map because nothing calls Update.</summary>
+        /// <summary>Hide the map (a replay, getting out of the car).</summary>
+        void HideMinimap()
+        {
+            if (minimap != null && minimap.Root != null && minimap.Root.activeSelf)
+                minimap.Root.SetActive(false);
+        }
+
+        void ShowMinimap(RaceManager rm)
+        {
+            EnsureMinimap(rm, rm != null ? rm.path : null, rm == null);
+            if (minimap != null && minimap.Root != null && !minimap.Root.activeSelf)
+                minimap.Root.SetActive(true);
+        }
+
+        /// <summary>Build the map and lay it out for the car where it stands,
+        /// outside play mode — for the screenshot tools, which otherwise
+        /// photograph a HUD with no map because nothing calls Update. A scene
+        /// with a RaceManager is a race (its rivals are every other car in
+        /// the scene); one without is free roam, heading for the nearest
+        /// food.</summary>
         public void PreviewMap()
         {
-            EnsureMap();
-            if (!mapValid || mapRoot == null) return;
-            mapRoot.SetActive(true);
-            int rivals = 0;
-            foreach (var c in Object.FindObjectsByType<CarController>(FindObjectsSortMode.None))
-            {
-                RectTransform dot;
-                if (c == car) dot = playerDot;
-                else
-                {
-                    if (rivals >= rivalDots.Count)
-                        rivalDots.Add(MakeDot(mapRoot.transform, RivalDotPx(), RivalDotColor, RivalEdgeColor));
-                    dot = rivalDots[rivals++];
-                }
-                if (dot == null) continue;
-                Vector3 p = c.transform.position;
-                dot.anchoredPosition = new Vector2(mapFrame.X(p.x), mapFrame.Y(p.z));
-            }
-            if (playerDot != null) playerDot.SetAsLastSibling();
-            HudOnTop.Apply(mapRoot);
+            minimapH = -1;
+            var rm = Object.FindAnyObjectByType<RaceManager>();
+            EnsureMinimap(Application.isPlaying ? rm : null, rm != null ? rm.path : null, rm == null);
+            if (minimap == null) return;
+            minimap.Root.SetActive(true);
+            if (minimap.freeRoam && world != null && car != null
+                && world.NearestFood(car.transform.position, out _, out Vector2 at, out _))
+                minimap.SetDestination(at, true);
+            minimap.PreviewNow();
+            HudOnTop.Apply(minimap.Root);
         }
 
-        /// <summary>Tools only: build the map again from scratch (a picture
-        /// the tool has just changed) and put the cars on it.</summary>
-        public void RebuildPreviewMap()
-        {
-            mapBuiltPx = -1;
-            PreviewMap();
-        }
-
-        void UpdateMap(RaceManager rm)
-        {
-            EnsureMap();
-            if (!mapValid || mapRoot == null) return;
-            if (!mapRoot.activeSelf) mapRoot.SetActive(true);
-
-            int rivals = 0;
-            foreach (var c in rm.allCars)
-            {
-                if (c == null || !c.gameObject.activeInHierarchy) continue;
-                RectTransform dot;
-                if (c == car) dot = playerDot;
-                else
-                {
-                    if (rivals >= rivalDots.Count)
-                        rivalDots.Add(MakeDot(mapRoot.transform, RivalDotPx(), RivalDotColor, RivalEdgeColor));
-                    dot = rivalDots[rivals++];
-                    // Under the player's, always: the dot that matters is the
-                    // one drawn last.
-                    dot.SetAsFirstSibling();
-                }
-                if (dot == null) continue;
-                Vector3 p = c.transform.position;
-                dot.anchoredPosition = new Vector2(mapFrame.X(p.x), mapFrame.Y(p.z));
-            }
-            if (playerDot != null) playerDot.SetAsLastSibling();
-            for (int i = rivals; i < rivalDots.Count; i++)
-                if (rivalDots[i].gameObject.activeSelf) rivalDots[i].gameObject.SetActive(false);
-            for (int i = 0; i < rivals; i++)
-                if (!rivalDots[i].gameObject.activeSelf) rivalDots[i].gameObject.SetActive(true);
-        }
+        /// <summary>Tools only: build the map again from scratch.</summary>
+        public void RebuildPreviewMap() => PreviewMap();
 
         // =================== the replay readout ===================
         //
@@ -616,7 +563,7 @@ namespace PSXRacing
                 if (fuelFill != null && fuelFill.parent != null) fuelFill.parent.gameObject.SetActive(false);
                 Set(fuelText, "");
                 fuelBarShown = -1;
-                if (mapRoot != null) mapRoot.SetActive(false);
+                HideMinimap();
                 var touch = TouchControls.Instance;
                 if (touch != null) { touch.SetAction(false); touch.SetContinue(true); }
             }
@@ -699,7 +646,7 @@ namespace PSXRacing
                 Set(lapText, ""); Set(timeText, ""); Set(lastLapText, "");
                 Set(posText, ""); Set(centerText, ""); Set(camText, "");
                 Set(fuelText, "");
-                if (mapRoot != null) mapRoot.SetActive(false);
+                HideMinimap();
                 if (fuelFill != null && fuelFill.parent != null)
                     fuelFill.parent.gameObject.SetActive(false);
                 fuelBarShown = -1;
@@ -819,7 +766,7 @@ namespace PSXRacing
             }
             else if (pos != lastPos) { lastPos = pos; Set(posText, "POS " + pos + "/" + rm.allCars.Count); }
 
-            UpdateMap(rm);
+            ShowMinimap(rm);
             UpdateFuel();
             UpdateTemp();
 
