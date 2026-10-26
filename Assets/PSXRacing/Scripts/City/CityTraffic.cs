@@ -42,9 +42,9 @@ namespace PSXRacing.City
     /// slower car, and back to the right on a freeway - with gap acceptance.
     ///
     /// HOW MANY: a share of the pool cap by the clock hour (very light at
-    /// 03:00, the cap at 08:00 and 17:00), born 140-420 m from the player out
+    /// 03:00, the cap at 08:00 and 17:00), born 140-380 m from the player out
     /// of the camera's view, on roads weighted by class and lanes (freeways and
-    /// arterials busier than locals), recycled past 520 m. Cap 48 desktop, 24
+    /// arterials busier than locals), recycled past 480 m. Cap 48 desktop, 24
     /// phone. PSX_CITY_TRAFFIC=0 (or <see cref="Enabled"/> = false) turns it off.
     /// </summary>
     public class CityTraffic : MonoBehaviour
@@ -63,11 +63,15 @@ namespace PSXRacing.City
 
         // ---- the knobs -------------------------------------------------------
         const float LaneM = RoadProfiles.LaneM;
-        const float SpawnMinM = 140f, SpawnMaxM = 420f, SpawnFirstMinM = 60f;
-        const float DespawnM = 520f, DespawnHardM = 760f;
+        const float SpawnMinM = 140f, SpawnMaxM = 380f, SpawnFirstMinM = 60f;
+        const float DespawnM = 480f, DespawnHardM = 700f;
         const int CapDesktop = 48, CapPhone = 24;
         const int MaxLegs = 8;
         const float RideClear = 0.22f, WreckFloor = 0.01f, WreckSpeed = 1.5f;
+        /// <summary>Two traffic cars touching at less than this (m/s of knock)
+        /// is a BUMP - counted, both drive on - not a wreck: a fender-bender
+        /// between two servoed bodies is the solver separating them.</summary>
+        const float BumpMps = 4.5f;
         /// <summary>The lateral acceleration a city driver takes a bend at.</summary>
         const float ALat = 2.8f;
         /// <summary>The gap left at a stop, bumper to bumper.</summary>
@@ -187,7 +191,18 @@ namespace PSXRacing.City
             public Vector2 boxU;
             // per-approach state
             public int committed = -1, stopKey = -1, goKey = -1, redStopKey = -1, lineKey = -1, waitKey = -1;
-            public float stopAt, lineD;
+            public float stopAt, lineD, waitAt;
+            /// <summary>Since when it has waited for a gap to reach the lane its
+            /// turn needs (-1: not waiting).</summary>
+            public float mandAt = -1f;
+            /// <summary>The last traffic car it touched, and when (a bump, not
+            /// a wreck, below <see cref="BumpMps"/>).</summary>
+            public Car lastTraffic;
+            public float lastTrafficAt = -9f, lastBumpAt = -9f;
+            public int vTick;
+            public float vDesCached;
+            /// <summary>The next Extend keeps the lane it is in (a replan).</summary>
+            public bool keepLane;
             public float gap;
             public bool leaderInLane;
             public float leaderV;
@@ -225,10 +240,26 @@ namespace PSXRacing.City
         {
             public int spawned, recycled, wrecks, laneChanges, mandatory, keepRight, merges, exits,
                 redStops, greenGoes, yellowGoes, ranRed, stopSignStops, stopRolls, yields, uTurns, deadEnds,
-                maxQueue, leftYields;
+                maxQueue, leftYields, bumps, replans, slowSteps;
         }
         public Counters Stats;
         public readonly List<string> WreckLog = new List<string>();
+        /// <summary>Traffic-on-traffic touches below BumpMps (the first 40).</summary>
+        public readonly List<string> BumpLog = new List<string>();
+
+        /// <summary>One line on what a car was doing (the logs).</summary>
+        string Describe(Car c)
+        {
+            if (c == null) return "?";
+            if (c.legCount == 0) return "car " + c.id + " no plan";
+            ref Leg L = ref c.legs[0];
+            string ctl = L.ctl == CtlSignal ? "signal" : L.ctl == CtlStop ? "stop" : L.ctl == CtlYield ? "yield" : "none";
+            var e = map.edges[L.edge];
+            string where = L.turn
+                ? $"turn {(L.kind == -1 ? "L" : L.kind == 1 ? "R" : L.kind == 2 ? "U" : "S")}{(L.merge ? " merge" : L.exit ? " exit" : "")} at node {L.node} e{L.edge}->e{L.edge2} lanes {L.laneIn}->{L.laneOut} {c.u:0.0}/{L.len:0.0} m"
+                : $"run e{L.edge} cls{e.cls}{(e.link ? "L" : "")} dir {L.dir} lane {c.lane}{(c.lc ? "->" + c.laneTo : "")} of {Lanes(L.edge, L.dir)} {c.u:0.0}/{L.len:0.0} m to {ctl}";
+            return $"car {c.id} {c.speed:0.0} m/s {where} at ({c.pos.x:0},{c.pos.y:0})";
+        }
         public int Active => live.Count;
         public int Target { get; private set; }
         public int Cap => cap;
@@ -491,7 +522,9 @@ namespace PSXRacing.City
                 top = Mathf.Max(top, Rank(o));
                 topCls = Mathf.Max(topCls, o.link ? 0 : o.cls);
             }
-            if (mine < top && !(e.link && topCls >= 4)) return CtlYield;
+            // the minor road yields; two of one rank both do (the car from the
+            // right goes first, CanGo)
+            if (mine <= top && !(e.link && topCls >= 4)) return CtlYield;
             return CtlNone;
         }
 
@@ -549,42 +582,58 @@ namespace PSXRacing.City
                 total += w;
             }
             if (options.Count == 0) return false;
-            float r = Random.value * total;
-            int pick = options.Count - 1;
-            for (int i = 0; i < options.Count; i++) { r -= options[i].w; if (r <= 0f) { pick = i; break; } }
-            var (e2i, dir2, _, angle) = options[pick];
-            var e2 = map.edges[e2i];
-
-            float aAbs = Mathf.Abs(angle);
-            sbyte kind = e2i == e.index || aAbs > 150f ? (sbyte)2 : aAbs < 35f ? (sbyte)0 : angle > 0f ? (sbyte)-1 : (sbyte)1;
-            bool exit = kind == 0 && !e.link && e2.link && anyMainline && e.cls >= 4;
-            bool merge = kind == 0 && e.link && !e2.link && e2.cls >= 4;
-
-            // where the turn starts and ends: the junction's mouths, or a long
-            // run through a freeway merge or diverge
-            float sA = c.legs[li].s1, sB;
-            if (merge) sA = dir > 0 ? e.length - ZoneBack(e, dir) : ZoneBack(e, dir);
-            if (exit) sA = dir > 0 ? Mathf.Max(e.length - 25f, e.length * 0.4f) : Mathf.Min(25f, e.length * 0.6f);
-            if (merge) sB = dir2 > 0 ? Mathf.Min(25f, e2.length * 0.6f) : Mathf.Max(e2.length - 25f, e2.length * 0.4f);
-            else if (exit) sB = dir2 > 0 ? ZoneBack(e2, -dir2) : e2.length - ZoneBack(e2, -dir2);
-            else sB = dir2 > 0 ? Back(e2, n) : e2.length - Back(e2, n);
-            // never behind where the run started
             ref Leg last = ref c.legs[li];
-            if ((sA - last.s0) * dir < 0f) sA = last.s0;
+            int refLane = li == 0 ? (c.lc ? c.laneTo : c.lane) : last.laneIn;
+            int e2i, dir2, req, outLane;
+            float angle, sA, sB;
+            sbyte kind;
+            bool exit, merge;
+            CityMap.Edge e2;
+            for (int attempt = 0; ; attempt++)
+            {
+                float r = Random.value * total;
+                int pick = -1;
+                for (int i = 0; i < options.Count; i++) { if (options[i].w <= 0f) continue; pick = i; r -= options[i].w; if (r <= 0f) break; }
+                if (pick < 0) pick = 0;
+                (e2i, dir2, _, angle) = options[pick];
+                e2 = map.edges[e2i];
+
+                float aAbs = Mathf.Abs(angle);
+                kind = e2i == e.index || aAbs > 150f ? (sbyte)2 : aAbs < 35f ? (sbyte)0 : angle > 0f ? (sbyte)-1 : (sbyte)1;
+                exit = kind == 0 && !e.link && e2.link && anyMainline && e.cls >= 4;
+                merge = kind == 0 && e.link && !e2.link && e2.cls >= 4;
+
+                // where the turn starts and ends: the junction's mouths, or a
+                // long run through a freeway merge or diverge
+                sA = last.s1;
+                if (merge) sA = dir > 0 ? e.length - ZoneBack(e, dir) : ZoneBack(e, dir);
+                if (exit) sA = dir > 0 ? Mathf.Max(e.length - 25f, e.length * 0.4f) : Mathf.Min(25f, e.length * 0.6f);
+                if (merge) sB = dir2 > 0 ? Mathf.Min(25f, e2.length * 0.6f) : Mathf.Max(e2.length - 25f, e2.length * 0.4f);
+                else if (exit) sB = dir2 > 0 ? ZoneBack(e2, -dir2) : e2.length - ZoneBack(e2, -dir2);
+                else sB = dir2 > 0 ? Back(e2, n) : e2.length - Back(e2, n);
+                // never behind where the run started
+                if ((sA - last.s0) * dir < 0f) sA = last.s0;
+
+                // the lanes: the kerb lane to turn right, the inside lane to
+                // turn left, the lane that runs on going straight (one that
+                // ends merges)
+                int nIn = Lanes(e.index, dir), nOut = Lanes(e2i, dir2);
+                bool rampRight = angle <= 0f;
+                if (kind == 1) { req = 0; outLane = 0; }
+                else if (kind == -1 || kind == 2) { req = nIn - 1; outLane = nOut - 1; }
+                else if (exit) { req = rampRight ? 0 : nIn - 1; outLane = rampRight ? 0 : nOut - 1; }
+                else if (merge) { bool fromRight = angle >= 0f; req = fromRight ? 0 : nIn - 1; outLane = fromRight ? 0 : nOut - 1; }
+                else MapStraight(e, dir, sA, e2, dir2, sB, refLane, out req, out outLane);
+                // A REPLAN (the lane change its turn needed never found a gap):
+                // only a way on from the lane it is in
+                if (!c.keepLane || li != 0 || req == refLane || attempt >= options.Count) break;
+                total -= options[pick].w;
+                var op = options[pick]; op.w = 0f; options[pick] = op;
+                if (total <= 1e-5f) break;
+            }
+            c.keepLane = false;
             last.s1 = sA;
             last.len = Mathf.Abs(last.s1 - last.s0);
-
-            // the lanes: the kerb lane to turn right, the inside lane to turn
-            // left, the lane that runs on going straight (one that ends merges)
-            int nIn = Lanes(e.index, dir), nOut = Lanes(e2i, dir2);
-            int refLane = li == 0 ? (c.lc ? c.laneTo : c.lane) : last.laneIn;
-            int req, outLane;
-            bool rampRight = angle <= 0f;
-            if (kind == 1) { req = 0; outLane = 0; }
-            else if (kind == -1 || kind == 2) { req = nIn - 1; outLane = nOut - 1; }
-            else if (exit) { req = rampRight ? 0 : nIn - 1; outLane = rampRight ? 0 : nOut - 1; }
-            else if (merge) { bool fromRight = angle >= 0f; req = fromRight ? 0 : nIn - 1; outLane = fromRight ? 0 : nOut - 1; }
-            else MapStraight(e, dir, sA, e2, dir2, sB, refLane, out req, out outLane);
             last.laneOut = req;
 
             var T = new Leg
@@ -695,6 +744,7 @@ namespace PSXRacing.City
             float ms = (float)clock.Elapsed.TotalMilliseconds;
             StepMsSum += ms; StepCount++;
             if (ms > StepMsMax) StepMsMax = ms;
+            if (ms > 5f) Stats.slowSteps++;
         }
 
         /// <summary>What each car is coming to, this step: the junction at the
@@ -737,14 +787,28 @@ namespace PSXRacing.City
         {
             // WAS IT HIT? (TrafficSystem.Drive's test: only a contact changes
             // this body's velocity between steps.)
-            if (c.hasCommand && (c.rb.linearVelocity - c.commanded).magnitude > WreckSpeed)
+            float knock = c.hasCommand ? (c.rb.linearVelocity - c.commanded).magnitude : 0f;
+            if (knock > WreckSpeed)
             {
-                Wreck(c, (c.lastContact ?? "?") + ", knocked " + (c.rb.linearVelocity - c.commanded).magnitude.ToString("0.0") + " m/s");
-                return;
+                bool bump = knock < BumpMps && c.lastTraffic != null && Time.time - c.lastTrafficAt < 0.3f;
+                if (!bump)
+                {
+                    Wreck(c, (c.lastContact ?? "?") + ", knocked " + knock.ToString("0.0") + " m/s; " + Describe(c) +
+                             (c.lastTraffic != null && Time.time - c.lastTrafficAt < 0.3f ? " | other: " + Describe(c.lastTraffic) : ""));
+                    return;
+                }
+                if (Time.time - c.lastBumpAt > 2f)
+                {
+                    Stats.bumps++;
+                    if (BumpLog.Count < 40) BumpLog.Add(knock.ToString("0.0") + " m/s: " + Describe(c) + " | other: " + Describe(c.lastTraffic));
+                }
+                c.lastBumpAt = Time.time;
             }
             if (c.legCount == 0) { Place(c, dt, false); return; }
 
-            float vDes = DesiredSpeed(c);
+            // the wanted speed (bends, limits ahead) every third step
+            if (c.vTick-- <= 0) { c.vTick = 2; c.vDesCached = DesiredSpeed(c); }
+            float vDes = c.vDesCached;
             float gap = LeaderGap(c, out float vL);
             float g2 = ControlGap(c, now);
             if (g2 < gap) { gap = g2; vL = 0f; }
@@ -753,6 +817,20 @@ namespace PSXRacing.City
                 float end = Remaining(c) - c.halfL - 1f;
                 if (end < gap) { gap = end; vL = 0f; }
             }
+            // the lane its turn needs not reached yet: wait short of the
+            // junction for a gap rather than cut across a lane in the turn
+            ref Leg L0 = ref c.legs[0];
+            if (!L0.turn && !c.lc && c.legCount > 1 && Mathf.Clamp(L0.laneOut, 0, Lanes(L0.edge, L0.dir) - 1) != c.lane)
+            {
+                float rem = L0.len - c.u;
+                if (rem < 40f)
+                {
+                    float hold = rem - c.halfL - 6f + StopS0;
+                    if (hold < gap) { gap = Mathf.Max(0.05f, hold); vL = 0f; }
+                    if (c.mandAt < 0f && c.speed < 0.5f) c.mandAt = Time.time;
+                }
+            }
+            else c.mandAt = -1f;
             c.gap = gap;
 
             // IDM
@@ -896,7 +974,20 @@ namespace PSXRacing.City
                         if (!SameLeg(c.legs[k], o.legs[j])) continue;
                         known = true;
                         if (!LanesMeet(c, k, o, j)) break;
-                        float gap = cumC[k] - oc;          // o's place on the leg less c's
+                        // o's place on the leg less c's: on a RUN by arc position
+                        // (two cars' runs on one edge start where each joined it
+                        // - a car born mid-edge starts there), on a turn by the
+                        // metres into it
+                        float gap;
+                        if (!c.legs[k].turn)
+                        {
+                            ref Leg lc = ref c.legs[k];
+                            ref Leg lo = ref o.legs[j];
+                            float sc = k == 0 ? lc.s0 + lc.dir * c.u : lc.s0 - lc.dir * cumC[k];
+                            float so = j == 0 ? lo.s0 + lo.dir * o.u : lo.s0 - lo.dir * oc;
+                            gap = (so - sc) * lc.dir;
+                        }
+                        else gap = cumC[k] - oc;
                         float lengths = c.halfL + o.halfL;
                         if (k >= 1 && j >= 1 && !SameLeg(c.legs[k - 1], o.legs[j - 1]))
                         {
@@ -988,8 +1079,21 @@ namespace PSXRacing.City
             for (int k = 0; k < c.legCount && dist < 160f; k++)
             {
                 ref Leg L = ref c.legs[k];
-                if (L.turn || L.ctl == CtlNone) { dist += L.len; continue; }
+                if (L.turn) { dist += L.len; continue; }
                 float dLine = dist + LineAt(L) - c.halfL;       // front bumper to the line
+                if (L.ctl == CtlNone)
+                {
+                    // an uncontrolled junction: a LEFT turn across the other
+                    // direction still waits for a gap in it
+                    if (k + 1 < c.legCount && c.legs[k + 1].kind == -1 && degree[L.node] >= 3 && dLine > -1f && dLine < 40f &&
+                        OncomingConflict(c, JKey(L.node), L.key, TravelTan(map.edges[L.edge], L.dir, L.s1)))
+                    {
+                        if (k == 0 && c.waitKey != L.key && c.speed < 0.5f) { c.waitKey = L.key; Stats.leftYields++; }
+                        return Mathf.Max(0f, dLine - 0.6f) + StopS0 - 0.4f;
+                    }
+                    dist += L.len;
+                    continue;
+                }
                 Vector2 u = TravelTan(map.edges[L.edge], L.dir, L.s1);
                 int key = L.key;
                 // crossing the line, for the tools
@@ -1009,6 +1113,9 @@ namespace PSXRacing.City
                         var asp = CitySignals.AspectOf(apps[L.app].group, now);
                         if (asp == CitySignals.Aspect.Green)
                         {
+                            // moving off the line: the junction clear of anyone
+                            // still crossing it from the other phase first
+                            if (c.speed < 3f && dLine < 6f && CrossInBox(c, jk, key, u)) return gStop;
                             if (next == -1 && OncomingConflict(c, jk, key, u))
                             {
                                 if (k == 0 && c.waitKey != key && c.speed < 0.5f && dLine < 4f) { c.waitKey = key; Stats.leftYields++; }
@@ -1029,19 +1136,20 @@ namespace PSXRacing.City
                         if (k == 0 && c.stopKey != key && c.speed < 0.3f && dLine < 2.0f) { c.stopKey = key; c.stopAt = Time.time; }
                         if (c.stopKey != key || Time.time - c.stopAt < StopHoldS) return gStop;
                         bool allWay = apps[L.app].allWay;
-                        if (CanGo(c, jk, key, L.node, allWay ? 1 : 2, Time.time - c.stopAt > 8f)) { c.goKey = key; return float.MaxValue; }
+                        if (CanGo(c, jk, key, L.node, u, allWay ? 1 : 2, Time.time - c.stopAt > 8f)) { c.goKey = key; return float.MaxValue; }
                         return gStop;
                     }
                     case CtlYield:
                     {
                         if (c.goKey == key) return float.MaxValue;
                         if (dLine > 30f) return float.MaxValue;
-                        if (CanGo(c, jk, key, L.node, 2, false))
+                        bool waiting = c.waitKey == key && c.speed < 0.5f;
+                        if (CanGo(c, jk, key, L.node, u, 2, waiting && Time.time - c.waitAt > 6f))
                         {
                             if (dLine < 8f) c.goKey = key;
                             return float.MaxValue;
                         }
-                        if (k == 0 && c.waitKey != key && c.speed < 0.5f) { c.waitKey = key; Stats.yields++; }
+                        if (k == 0 && c.waitKey != key && c.speed < 0.5f) { c.waitKey = key; c.waitAt = Time.time; Stats.yields++; }
                         return gStop;
                     }
                 }
@@ -1069,7 +1177,7 @@ namespace PSXRacing.City
         /// junction from another way (nor the player in it); at an all-way stop
         /// nobody who stopped before it still waiting; at a minor road nothing
         /// coming on the major one.</summary>
-        bool CanGo(Car c, int jk, int key, int node, int mode, bool impatient)
+        bool CanGo(Car c, int jk, int key, int node, Vector2 u, int mode, bool impatient)
         {
             Vector2 at = map.nodes[node];
             if ((playerPos - at).sqrMagnitude < 16f * 16f && playerVel.sqrMagnitude > 0.25f && Mathf.Abs(playerPos3.y - c.y) < LevelM) return false;
@@ -1080,13 +1188,33 @@ namespace PSXRacing.City
                 if (o.boxJ == jk && o.inKey != key) return false;
                 if (o.appJ != jk || o.appKey == key) continue;
                 if (mode == 1 && !impatient && o.stopKey == o.appKey && o.goKey != o.appKey && o.stopAt < c.stopAt) return false;
-                if (mode == 2 && o.appCtl == CtlNone)
+                if (mode != 2) continue;
+                float t = o.appDist / Mathf.Max(o.speed, 0.5f);
+                if (o.appCtl == CtlNone)
                 {
-                    float t = o.appDist / Mathf.Max(o.speed, 0.5f);
+                    // the major road: a gap in it
                     if ((o.speed > 1f && t < MajorGapS) || o.appDist < MajorNearM) return false;
+                }
+                else if (o.appCtl == CtlYield && !impatient && u.x * o.appU.y - u.y * o.appU.x > 0.3f)
+                {
+                    // two yields of one rank: the car from the right goes first
+                    if ((o.speed > 1f && t < 3f) || (o.appDist < 5f && o.appDist > -2f && o.goKey != o.appKey)) return false;
                 }
             }
             return true;
+        }
+
+        /// <summary>Anyone in the junction now who came in from a crossing
+        /// approach (a car still clearing it on the last of its phase).</summary>
+        bool CrossInBox(Car c, int jk, int key, Vector2 u)
+        {
+            for (int i = 0; i < live.Count; i++)
+            {
+                var o = live[i];
+                if (o == c || o.wrecked || o.boxJ != jk || o.inKey == key) continue;
+                if (Mathf.Abs(Vector2.Dot(o.boxU, u)) < 0.6f) return true;
+            }
+            return false;
         }
 
         /// <summary>A left turn on a green: anything coming the other way (not
@@ -1129,8 +1257,11 @@ namespace PSXRacing.City
             int req = Mathf.Clamp(L.laneOut, 0, n - 1);
             if (req != c.lane)
             {
+                // stuck for good waiting for the gap: take another way on from
+                // the lane it is in (a missed turn, not a cut across a lane)
+                if (c.mandAt >= 0f && Time.time - c.mandAt > 14f) { Replan(c); return; }
                 // MANDATORY: to the lane its turn (or the lane that runs on) needs
-                float zone = Mathf.Abs(req - c.lane) * (fwy ? 250f : 90f) + 40f;
+                float zone = Mathf.Abs(req - c.lane) * (fwy ? 250f : 110f) + 50f;
                 if (rem < zone && rem > 6f)
                 {
                     int to = c.lane + (req > c.lane ? 1 : -1);
@@ -1158,6 +1289,21 @@ namespace PSXRacing.City
             }
         }
 
+        void Replan(Car c)
+        {
+            ref Leg L = ref c.legs[0];
+            var e = map.edges[L.edge];
+            float s1 = EndS(e, L.dir);
+            if ((s1 - L.s0) * L.dir < c.u) s1 = L.s0 + L.dir * c.u;
+            L.s1 = s1; L.len = Mathf.Abs(L.s1 - L.s0); L.laneOut = c.lane;
+            c.legCount = 1;
+            c.deadEnd = false;
+            c.mandAt = -1f;
+            c.keepLane = true;
+            Stats.replans++;
+            EnsurePlan(c);
+        }
+
         void StartChange(Car c, int to, float rem)
         {
             c.lc = true; c.laneFrom = c.lane; c.laneTo = to; c.lcT = 0f;
@@ -1168,43 +1314,65 @@ namespace PSXRacing.City
         }
 
         /// <summary>The free road ahead in a lane of this car's run.</summary>
+        /// <summary>A car's arc position on the edge of its current run.</summary>
+        static float ArcNow(Car c) => c.legs[0].s0 + c.legs[0].dir * c.u;
+
         float LaneAhead(Car c, int lane)
         {
             ref Leg L = ref c.legs[0];
-            float best = L.len - c.u + 60f;
+            float best = L.len - c.u + 60f, sc = ArcNow(c);
             for (int i = 0; i < live.Count; i++)
             {
                 var o = live[i];
                 if (o == c || o.legCount == 0 || o.legs[0].turn || o.legs[0].edge != L.edge || o.legs[0].dir != L.dir) continue;
                 if (o.lane != lane && !(o.lc && (o.laneFrom == lane || o.laneTo == lane)) && !o.wrecked) continue;
-                float d = o.u - c.u - c.halfL - o.halfL;
+                float d = (ArcNow(o) - sc) * L.dir - c.halfL - o.halfL;
                 if (d > 0f && d < best) best = d;
             }
             return best;
         }
 
-        /// <summary>Gap acceptance: room ahead and behind in the target lane
-        /// (and the player not there).</summary>
+        /// <summary>Gap acceptance: room ahead and behind in the target lane -
+        /// cars on this run in it, and anything else (a car still in its turn
+        /// onto this road, one just behind on the road before) near that
+        /// lane's centre - and the player not there. Waiting long for the
+        /// lane its turn needs, a driver takes a tighter gap (the car behind
+        /// brakes for it).</summary>
         bool GapOk(Car c, int lane)
         {
             ref Leg L = ref c.legs[0];
             var e = map.edges[L.edge];
+            bool pushy = c.mandAt >= 0f && Time.time - c.mandAt > 5f;
+            float sc = ArcNow(c);
+            float s = Mathf.Clamp(sc, 0f, e.length);
+            var q = PlanPoint(e, s, LaneLat(e, L.dir, lane, s), out var t);
+            var tr = t * L.dir;
             for (int i = 0; i < live.Count; i++)
             {
                 var o = live[i];
-                if (o == c || o.legCount == 0 || o.legs[0].turn || o.legs[0].edge != L.edge || o.legs[0].dir != L.dir) continue;
-                if (o.lane != lane && !(o.lc && (o.laneFrom == lane || o.laneTo == lane))) continue;
-                float d = o.u - c.u;
-                float lengths = c.halfL + o.halfL;
-                if (d >= 0f) { if (d - lengths < 4f + c.speed * 0.5f + Mathf.Max(0f, c.speed - o.speed) * 1.5f) return false; }
-                else if (-d - lengths < 4f + o.speed * 0.4f + Mathf.Max(0f, o.speed - c.speed) * 2.5f) return false;
+                if (o == c || o.legCount == 0) continue;
+                float d, lengths = c.halfL + o.halfL;
+                bool sameRun = !o.legs[0].turn && o.legs[0].edge == L.edge && o.legs[0].dir == L.dir;
+                if (sameRun)
+                {
+                    if (o.lane != lane && !(o.lc && (o.laneFrom == lane || o.laneTo == lane)) && !o.wrecked) continue;
+                    d = (ArcNow(o) - sc) * L.dir;
+                }
+                else
+                {
+                    Vector2 dp = o.pos - q;
+                    if (dp.sqrMagnitude > 45f * 45f || Mathf.Abs(o.y - c.y) > LevelM) continue;
+                    if (Mathf.Abs(tr.x * dp.y - tr.y * dp.x) > 2.2f) continue;
+                    d = Vector2.Dot(dp, tr);
+                }
+                float ov = o.wrecked ? 0f : o.speed;
+                if (d >= 0f) { if (d - lengths < 4f + c.speed * 0.5f + Mathf.Max(0f, c.speed - ov) * 1.5f) return false; }
+                else if (-d - lengths < (pushy ? 3f + ov * 0.3f : 4f + ov * 0.4f + Mathf.Max(0f, ov - c.speed) * 2.5f)) return false;
             }
             // the player, near that lane
-            float s = Mathf.Clamp(L.s0 + L.dir * c.u, 0f, e.length);
-            var q = PlanPoint(e, s, LaneLat(e, L.dir, lane, s), out var t);
-            Vector2 dp = playerPos - q;
-            float along = Vector2.Dot(dp, t * L.dir);
-            if (Mathf.Abs(along) < 25f && Mathf.Abs(t.x * dp.y - t.y * dp.x) < 2.6f && Mathf.Abs(playerPos3.y - c.y) < LevelM) return false;
+            Vector2 dpp = playerPos - q;
+            float along = Vector2.Dot(dpp, tr);
+            if (Mathf.Abs(along) < 25f && Mathf.Abs(t.x * dpp.y - t.y * dpp.x) < 2.6f && Mathf.Abs(playerPos3.y - c.y) < LevelM) return false;
             return true;
         }
 
@@ -1423,6 +1591,7 @@ namespace PSXRacing.City
             c.aMax = Random.Range(1.4f, 2.2f);
             c.bDec = Random.Range(2.0f, 3.0f);
             c.committed = c.stopKey = c.goKey = c.redStopKey = c.lineKey = c.waitKey = -1;
+            c.mandAt = -1f; c.lastTraffic = null; c.lastTrafficAt = -9f; c.keepLane = false; c.vTick = 0;
             c.bornAt = Time.time;
             c.tan = TravelTan(e, dir, s);
             c.pos = q; c.fwd = c.tan; c.y = at.y;
@@ -1492,9 +1661,13 @@ namespace PSXRacing.City
             WreckLog.Add("hit by " + (by ?? "?"));
         }
 
-        internal void NoteContact(GameObject go, string what)
+        internal void NoteContact(GameObject go, GameObject other, string what)
         {
-            foreach (var c in live) if (c.go == go) { c.lastContact = what; return; }
+            Car c = null, o = null;
+            foreach (var x in live) { if (x.go == go) c = x; else if (x.go == other) o = x; }
+            if (c == null) return;
+            c.lastContact = what;
+            if (o != null) { c.lastTraffic = o; c.lastTrafficAt = Time.time; }
         }
     }
 
@@ -1502,10 +1675,12 @@ namespace PSXRacing.City
     /// (whether it WAS a hit is the velocity it left behind: CityTraffic.Drive).</summary>
     public class CityTrafficContact : MonoBehaviour
     {
-        void OnCollisionEnter(Collision col)
+        void OnCollisionEnter(Collision col) => Note(col);
+        void OnCollisionStay(Collision col) { if (col.rigidbody != null && col.gameObject.GetComponent<CityTrafficContact>() != null) Note(col); }
+
+        void Note(Collision col)
         {
-            if (col.gameObject.layer == CityWorld.RoadLayer) return;
-            CityTraffic.Instance?.NoteContact(gameObject, col.gameObject.name + " (" + LayerMask.LayerToName(col.gameObject.layer) + ")");
+            CityTraffic.Instance?.NoteContact(gameObject, col.gameObject, col.gameObject.name + " (" + LayerMask.LayerToName(col.gameObject.layer) + ")");
         }
     }
 }

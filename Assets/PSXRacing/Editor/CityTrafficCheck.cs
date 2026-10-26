@@ -70,7 +70,8 @@ namespace PSXRacing.EditorTools
 
         static void OnLog(string msg, string stack, LogType type)
         {
-            if (type == LogType.Exception)
+            // the game's own (the editor's search indexer threw once at start-up)
+            if (type == LogType.Exception && (stack ?? "").Contains("PSXRacing"))
             {
                 exceptions++;
                 if (firstException == null) firstException = msg + " @ " + (stack ?? "").Split('\n')[0];
@@ -120,6 +121,7 @@ namespace PSXRacing.EditorTools
 
         // a phase's tallies
         int samples, carSamples, offPave, wrongWay, overlaps, activeMin, activeMax, activeSum;
+        float phaseT0;
         string offWhat, wrongWhat, overlapWhat;
 
         void Awake() { bornAt = Time.realtimeSinceStartup; }
@@ -204,7 +206,10 @@ namespace PSXRacing.EditorTools
             int tt = 0;
             foreach (var w in traffic.WreckLog) if (w.Contains("CityTraffic_")) tt++;
             CityTrafficCheck.Check(tt <= 1, "traffic-on-traffic wrecks (at most 1)", tt);
+            CityTrafficCheck.Check(st.bumps <= 12, "traffic-on-traffic bumps over the whole run (at most 12)", st.bumps);
+            CityTrafficCheck.Line($"  replans {st.replans}, physics steps over 5 ms {st.slowSteps}");
             foreach (var w in traffic.WreckLog) CityTrafficCheck.Line("    wreck: " + w);
+            foreach (var w in traffic.BumpLog) CityTrafficCheck.Line("    bump: " + w);
             End();
         }
 
@@ -264,6 +269,7 @@ namespace PSXRacing.EditorTools
             offWhat = wrongWhat = overlapWhat = null;
             traffic.ResetTiming();
             float t0 = Time.time, nextSample = 0f;
+            phaseT0 = t0;
             float frameSum = 0f; int frames = 0;
             // the drive: from the spot along the straightest street on
             int de = -1, ddir = 1; float ds = 0f;
@@ -285,7 +291,7 @@ namespace PSXRacing.EditorTools
             CityTrafficCheck.Line($"  signals: stopped at red {a.redStops - before.redStops}, went on green {a.greenGoes - before.greenGoes}, on yellow {a.yellowGoes - before.yellowGoes}, RAN RED {a.ranRed - before.ranRed}; left turns waiting for oncoming {a.leftYields - before.leftYields}; longest queue so far {a.maxQueue}");
             CityTrafficCheck.Line($"  stop signs: full stops {a.stopSignStops - before.stopSignStops}, rolled {a.stopRolls - before.stopRolls}; yields at minor roads {a.yields - before.yields}");
             CityTrafficCheck.Line($"  lanes: passing changes {a.laneChanges - before.laneChanges}, mandatory (turn lane / lane ends) {a.mandatory - before.mandatory}, keep right {a.keepRight - before.keepRight}; ramp merges {a.merges - before.merges}, exits {a.exits - before.exits}");
-            CityTrafficCheck.Line($"  wrecks {a.wrecks - before.wrecks}");
+            CityTrafficCheck.Line($"  wrecks {a.wrecks - before.wrecks}, traffic bumps (< 4.5 m/s, no wreck) {a.bumps - before.bumps}, replans (missed a turn lane) {a.replans - before.replans}, physics steps over 5 ms {a.slowSteps - before.slowSteps}");
             float stepAvg = traffic.StepCount > 0 ? (float)(traffic.StepMsSum / traffic.StepCount) : 0f;
             CityTrafficCheck.Line($"  CityTraffic physics step: mean {stepAvg:0.000} ms, worst {traffic.StepMsMax:0.00} ms; frame mean {(frames > 0 ? frameSum / frames * 1000f : 0f):0.0} ms");
             if (rush) CityTrafficCheck.Check(mean >= Mathf.Min(20f, traffic.Cap * 0.5f), "rush hour fills the road (mean active >= 20)", mean.ToString("0.0"));
@@ -384,6 +390,9 @@ namespace PSXRacing.EditorTools
         IEnumerator FrameAB(CityTraffic traffic)
         {
             float with = 0f, without = 0f; int nw = 0, nwo = 0;
+            int vs = QualitySettings.vSyncCount, fr = Application.targetFrameRate;
+            QualitySettings.vSyncCount = 0; Application.targetFrameRate = 1000;
+            for (int i = 0; i < 30; i++) yield return null;
             float t0 = Time.realtimeSinceStartup;
             traffic.ResetTiming();
             while (Time.realtimeSinceStartup - t0 < 20f) { yield return null; with += Time.unscaledDeltaTime; nw++; }
@@ -394,6 +403,7 @@ namespace PSXRacing.EditorTools
             t0 = Time.realtimeSinceStartup;
             while (Time.realtimeSinceStartup - t0 < 20f) { yield return null; without += Time.unscaledDeltaTime; nwo++; }
             CityTraffic.Suspended = false;
+            QualitySettings.vSyncCount = vs; Application.targetFrameRate = fr;
             float mw = nw > 0 ? with / nw * 1000f : 0f, mwo = nwo > 0 ? without / nwo * 1000f : 0f;
             CityTrafficCheck.Line($"Frame time (editor, {(SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null ? "no graphics" : "rendering")}), the spot at rush hour: " +
                                   $"with {active} cars {mw:0.00} ms/frame, without {mwo:0.00} ms/frame (+{mw - mwo:0.00}); CityTraffic's own step {stepAvg:0.000} ms x {Time.fixedDeltaTime * 1000f:0} ms steps");
@@ -478,21 +488,30 @@ namespace PSXRacing.EditorTools
             if (rush && !shotsTaken.Contains("freeway"))
             {
                 traffic.Snapshot(view);
+                // the freeway car with the most freeway traffic within 120 m ahead of it
                 int near = 0; CityTraffic.CarView? lead = null;
                 foreach (var v in view)
-                    if (!v.wrecked && !v.turning && v.edge >= 0 && map.edges[v.edge].cls >= 5 && !map.edges[v.edge].link)
+                {
+                    if (v.wrecked || v.turning || v.edge < 0 || map.edges[v.edge].cls < 5 || map.edges[v.edge].link) continue;
+                    var fv = v.rot * Vector3.forward;
+                    int k = 0;
+                    foreach (var w in view)
                     {
-                        near++;
-                        if (lead == null) lead = v;
+                        if (w.wrecked || w.edge < 0 || map.edges[w.edge].cls < 5) continue;
+                        var d = w.pos - v.pos;
+                        float al = Vector3.Dot(d, fv);
+                        if (al > 0f && al < 120f && Vector3.Cross(fv, d).magnitude < 25f) k++;
                     }
-                if (near >= 4 && lead != null)
+                    if (k > near) { near = k; lead = v; }
+                }
+                if (near >= 3 && lead != null)
                 {
                     var f = lead.Value.rot * Vector3.forward; f.y = 0f; f.Normalize();
                     var r = Vector3.Cross(Vector3.up, f);
                     yield return Shot("freeway", lead.Value.pos - f * 30f + r * 9f + Vector3.up * 9f, lead.Value.pos + f * 25f);
                 }
             }
-            if (!rush && !shotsTaken.Contains("night"))
+            if (!rush && !shotsTaken.Contains("night") && Time.time - phaseT0 > 20f)
             {
                 traffic.Snapshot(view);
                 foreach (var v in view)
