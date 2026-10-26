@@ -709,8 +709,132 @@ namespace PSXRacing.EditorTools
                 UnityEngine.Object.DestroyImmediate(go);
                 DestroyMeshes(tm);
             }
+            ProbeEdges(map, trims, buildings, sb);
             File.WriteAllText(Path.Combine(Directory.GetParent(Application.dataPath).FullName, "city_launch_probe.txt"), sb.ToString());
             if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        /// <summary>Debug (REAL HEIGHTS round 3): PSX_LAUNCH_PROBE_EDGE="edge:s0:s1;...":
+        /// every 2 m along the edge's launch line (its LatFor) the drawn and
+        /// the station height, and every road surface the tile's tap puts
+        /// over that point (a ribbon span: its edge and arcs; a gore: its host;
+        /// a fan: its node), with its height there - which surface a launch
+        /// path samples where the mesh stands off the data.</summary>
+        static void ProbeEdges(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings, StringBuilder sb)
+        {
+            string pe = Environment.GetEnvironmentVariable("PSX_LAUNCH_PROBE_EDGE");
+            if (string.IsNullOrEmpty(pe)) return;
+            var tiles = new Dictionary<long, CityMeshes.TileMeshes>();
+            CityMeshes.RecordTap = true;
+            try
+            {
+                foreach (var spec in pe.Split(';'))
+                {
+                    var c = spec.Split(':');
+                    if (c.Length < 3) continue;
+                    int ei = int.Parse(c[0], CultureInfo.InvariantCulture);
+                    float s0 = float.Parse(c[1], CultureInfo.InvariantCulture), s1 = float.Parse(c[2], CultureInfo.InvariantCulture);
+                    var e = map.edges[ei];
+                    sb.AppendLine($"EDGE PROBE e{ei} '{e.name}'{(e.link ? " L" : "")} cls{e.cls} len {e.length:0.0} oneway {e.oneway} a=n{e.a} b=n{e.b} trims {trims.atA[ei]:0.0}/{trims.atB[ei]:0.0} branch host a e{trims.branchA[ei]} b e{trims.branchB[ei]}");
+                    var st = new StringBuilder("   stations (s:station/drawn, s = seated on host e#@arc):");
+                    for (int i = 0; i < e.stS.Length; i++)
+                        if (e.stS[i] >= s0 - 25f && e.stS[i] <= s1 + 25f)
+                        {
+                            float hs = 0f;
+                            int h = e.SeatedAt(i) ? CityElevation.SeatHost(ei, i, out hs) : -1;
+                            st.Append($" {e.stS[i]:0.0}:{e.stY[i]:0.00}/{e.YAt(e.stS[i]):0.00}{(e.stElev[i] ? "d" : "")}{(e.SeatedAt(i) ? "s" + (h >= 0 ? $"e{h}@{hs:0.0}={map.edges[h].YAt(hs):0.00}" : "?") : "")}");
+                        }
+                    sb.AppendLine(st.ToString());
+                    for (float s = s0; s <= s1 + 1e-3f; s += 2f)
+                    {
+                        var t = e.TangentAt(s);
+                        var p = e.PointAt(s) + RightOf(t) * LatFor(trims, e, s);
+                        int tx = Mathf.FloorToInt(p.x / CityMeshes.TileSize), tz = Mathf.FloorToInt(p.y / CityMeshes.TileSize);
+                        long key = ((long)tz << 32) | (uint)(tx + 100000);
+                        if (!tiles.TryGetValue(key, out var tm)) tiles[key] = tm = CityMeshes.Build(map, trims, buildings, tx, tz);
+                        sb.AppendLine($"   s={s:0.0} ({p.x:0.0},{p.y:0.0}) drawn {e.YAt(s):0.00} station {e.StationYAt(s):0.00} |{TapHits(tm, p.x, p.y)}");
+                    }
+                    if (c.Length > 3 && c[3] == "sec")
+                    {
+                        // the ribbon's sections in the range, as the tile builds them (3 decimals)
+                        var ds = CityMeshes.DescribeSections(map, trims, e).Split('\n');
+                        foreach (var l in ds)
+                        {
+                            int k = l.IndexOf("s=", StringComparison.Ordinal);
+                            if (k < 0 || !float.TryParse(l.Substring(k + 2).Split(' ')[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float ss)) { if (l.Contains("sections of")) sb.AppendLine(l); continue; }
+                            if (ss >= s0 - 0.01f && ss <= s1 + 0.01f) sb.AppendLine($"{l}  [drawn {e.YAt(ss):0.000} station {e.StationYAt(ss):0.000}]");
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                CityMeshes.RecordTap = false;
+                foreach (var tm in tiles.Values) DestroyMeshes(tm);
+            }
+        }
+
+        /// <summary>The tap's surfaces over a plan point: "span e# s a..b y" / "gore host e# y" / "fan n# y".</summary>
+        static string TapHits(CityMeshes.TileMeshes tm, float x, float z)
+        {
+            var tap = tm.tap;
+            if (tap == null || tm.roads == null || tap.slotBase == null) return " (no tap)";
+            var verts = tm.roads.vertices;
+            var o = tm.origin;
+            var sb = new StringBuilder();
+            int BaseOf(int slot)
+            {
+                for (int i = 0; i < tm.roadSlots.Length; i++) if ((int)tm.roadSlots[i] == slot) return tap.slotBase[i];
+                return -1;
+            }
+            bool Tri(Vector3 a, Vector3 b, Vector3 cc, out float y)
+            {
+                y = 0f;
+                float d = (b.z - cc.z) * (a.x - cc.x) + (cc.x - b.x) * (a.z - cc.z);
+                if (Mathf.Abs(d) < 1e-9f) return false;
+                float w1 = ((b.z - cc.z) * (x - cc.x) + (cc.x - b.x) * (z - cc.z)) / d;
+                float w2 = ((cc.z - a.z) * (x - cc.x) + (a.x - cc.x) * (z - cc.z)) / d;
+                float w3 = 1f - w1 - w2;
+                if (w1 < -1e-4f || w2 < -1e-4f || w3 < -1e-4f) return false;
+                y = w1 * a.y + w2 * b.y + w3 * cc.y;
+                return true;
+            }
+            Vector3 W(int i) => verts[i] + o;
+            void Quads(List<CityMeshes.RoadTap.Span> list, string kind)
+            {
+                foreach (var sp in list)
+                {
+                    int b = BaseOf(sp.slot);
+                    int nq = Math.Max(1, sp.strips);
+                    if (b < 0 || b + sp.bucketV + 4 * nq - 1 >= verts.Length) continue;
+                    for (int k = 0; k < nq; k++)
+                    {
+                        int i = b + sp.bucketV + 4 * k;
+                        Vector3 AL = W(i), BL = W(i + 1), BR = W(i + 2), AR = W(i + 3);
+                        if (Tri(AL, BL, BR, out float y) || Tri(AL, BR, AR, out y))
+                        {
+                            sb.Append(string.Format(CultureInfo.InvariantCulture, " {0} e{1} s {2:0.0}..{3:0.0} y {4:0.00} (L {5:0.00}/{6:0.00} R {7:0.00}/{8:0.00}{9});", kind, sp.edge, sp.sA, sp.sB, y, AL.y, BL.y, AR.y, BR.y,
+                                ((sp.flagsA | sp.flagsB) & (CityMeshes.RoadTap.FClipL | CityMeshes.RoadTap.FClipR)) != 0 ? " clip" : ""));
+                            break;
+                        }
+                    }
+                }
+            }
+            Quads(tap.spans, "span");
+            Quads(tap.gores, "gore host");
+            var subTris = new Dictionary<int, int[]>();
+            foreach (var fa in tap.fans)
+            {
+                int b = BaseOf(fa.slot);
+                if (b < 0) continue;
+                int[] tris = null;
+                for (int i = 0; i < tm.roadSlots.Length; i++)
+                    if ((int)tm.roadSlots[i] == fa.slot) { if (!subTris.TryGetValue(i, out tris)) subTris[i] = tris = tm.roads.GetTriangles(i); break; }
+                if (tris == null || fa.triStart + 3 * fa.triCount > tris.Length) continue;
+                for (int t = fa.triStart; t < fa.triStart + 3 * fa.triCount; t += 3)
+                    if (Tri(W(tris[t]), W(tris[t + 1]), W(tris[t + 2]), out float y)) { sb.Append(string.Format(CultureInfo.InvariantCulture, " fan n{0} y {1:0.00};", fa.node, y)); break; }
+            }
+            return sb.Length == 0 ? " nothing" : sb.ToString();
         }
 
         static readonly HashSet<int> whoScratch = new HashSet<int>();

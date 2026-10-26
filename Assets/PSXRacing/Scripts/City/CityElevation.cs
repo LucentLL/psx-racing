@@ -2345,6 +2345,12 @@ namespace PSXRacing.City
         const float SeatStepTrigger = 0.13f;
         /// <summary>Stations given up by runs meeting on two hosts, last solve.</summary>
         public static int SeatStepsSplit { get; private set; }
+        /// <summary>Stations put in at the seat zones' ends and inside them (CityMeshes.SeatIntoOnly), last solve.</summary>
+        public static int SeatStationsAdded { get; private set; }
+        /// <summary>A seat zone's end within this of a station is that station.</summary>
+        const float SeatEndSnapM = 0.5f;
+        /// <summary>Inside a seat zone no two stations further apart than this.</summary>
+        const float SeatStationMaxM = 5f;
 
         /// <summary>The node trims the seats were found with (plan only): the
         /// junction landings run each arm's plane out to its fan's corner.</summary>
@@ -2361,6 +2367,41 @@ namespace PSXRacing.City
             var seatTrims = CityMeshes.ComputeTrims(map);
             solveTrims = seatTrims;
             var seats = CityMeshes.BranchSeats(map, seatTrims);
+            // REAL HEIGHTS round 3 (CityMeshes.SeatIntoOnly): the seat zone is
+            // where the ramp's ribbon is IN its host's pavement, and it ends
+            // between stations 8-10 m apart. A station at its end, and none
+            // more than SeatStationMaxM apart inside it, so the ramp is on its
+            // host exactly as far as the host's pavement covers it and leaves
+            // it from there (a station past the end held the ramp on the host
+            // up to a station's length outside it).
+            SeatStationsAdded = 0;
+            if (CityMeshes.SeatIntoOnly)
+                foreach (var seat in seats)
+                    foreach (var (ei, s0, s1, dir) in seat.pieces)
+                    {
+                        var e = map.edges[ei];
+                        float sEnd = dir > 0 ? s1 : s0;
+                        if (sEnd > 0.5f && sEnd < e.length - 0.5f)
+                        {
+                            int near = 0;
+                            for (int i = 1; i < e.stS.Length; i++) if (Mathf.Abs(e.stS[i] - sEnd) < Mathf.Abs(e.stS[near] - sEnd)) near = i;
+                            if (Mathf.Abs(e.stS[near] - sEnd) > SeatEndSnapM) { InsertStation(e, sEnd); SeatStationsAdded++; }
+                        }
+                        for (int guard = 0; guard < 128; guard++)
+                        {
+                            int wi = -1; float wl = SeatStationMaxM;
+                            for (int i = 1; i < e.stS.Length; i++)
+                            {
+                                float a = Mathf.Max(e.stS[i - 1], s0), b = Mathf.Min(e.stS[i], s1);
+                                if (b - a < 0.5f) continue;   // not in the zone
+                                float l = e.stS[i] - e.stS[i - 1];
+                                if (l > wl) { wl = l; wi = i; }
+                            }
+                            if (wi < 0) break;
+                            float a2 = Mathf.Max(e.stS[wi - 1], s0), b2 = Mathf.Min(e.stS[wi], s1);
+                            InsertStation(e, 0.5f * (a2 + b2)); SeatStationsAdded++;
+                        }
+                    }
             // the other branches' zones, for the vertical curves' SOFT seats
             streetSeats.Clear();
             streetSeatInto.Clear();
@@ -2393,8 +2434,9 @@ namespace PSXRacing.City
                     var e = map.edges[ei];
                     int n = e.stS.Length;
                     int first = -1, last = -1;
+                    float tol = CityMeshes.SeatIntoOnly ? SeatEndSnapM : 0.01f;
                     for (int i = 0; i < n; i++)
-                        if (e.stS[i] >= s0 - 0.01f && e.stS[i] <= s1 + 0.01f) { if (first < 0) first = i; last = i; }
+                        if (e.stS[i] >= s0 - tol && e.stS[i] <= s1 + tol) { if (first < 0) first = i; last = i; }
                     if (first < 0) continue;
                     if (!runsOf.TryGetValue(ei, out var l)) runsOf[ei] = l = new List<int>(2);
                     l.Add(runs.Count);
@@ -2411,8 +2453,12 @@ namespace PSXRacing.City
             {
                 var (seat, ei, first, last, dir) = runs[r];
                 int n = map.edges[ei].stS.Length;
-                if (dir > 0 && last < n - 1) last++;
-                if (dir < 0 && first > 0) first--;
+                // (into-only seats: the zone's end IS a station, put there above)
+                if (!CityMeshes.SeatIntoOnly)
+                {
+                    if (dir > 0 && last < n - 1) last++;
+                    if (dir < 0 && first > 0) first--;
+                }
                 rFirst[r] = first; rLast[r] = last;
             }
             // Two runs of one edge walked in from its opposite ends: where
@@ -2673,6 +2719,15 @@ namespace PSXRacing.City
         {
             foreach (var (ei, st, h, _) in seated)
                 if (ei == edge && st == station) return h;
+            return -1;
+        }
+
+        /// <summary>Probes only (CityLaunchAudit.ProbeEdges): a seated station's host and arc, or -1.</summary>
+        public static int SeatHost(int edge, int station, out float hostS)
+        {
+            foreach (var (ei, st, h, hs) in seated)
+                if (ei == edge && st == station && h >= 0) { hostS = hs; return h; }
+            hostS = 0f;
             return -1;
         }
 

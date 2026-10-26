@@ -263,7 +263,7 @@ namespace PSXRacing.City
             // layout, measured back from the start line.
             var field = new List<CarController>(aiCars);
             if (player != null) field.Add(player);
-            int lineIdx = route.loop ? 0 : Mathf.RoundToInt(route.startM * LastArcScale / TrackCatalog.Spacing);
+            int lineIdx = route.loop ? 0 : TrackCatalog.RouteIndex(route.startM);
             for (int row = 0; row < field.Count; row++)
             {
                 var car = field[row];
@@ -432,16 +432,24 @@ namespace PSXRacing.City
             // the seam is one station like every other (floor left a 7 m gap
             // at the line on a 9195 m ring; the self-test holds it to 1.5
             // stations). The pitch is then 4 m to a tenth of a percent, and
-            // the path carries the pitch it actually has. A route with ends
-            // keeps the exact 4 m: its finish is an index times Spacing.
+            // the path carries the pitch it actually has.
+            // A route with ends is indexed by its OSM arc, as the catalog's
+            // bake is: waypoint i stands at OSM metre i * Spacing, mapped onto
+            // the lanes' centre by the route's one scale, so the pitch is
+            // Spacing * arcScale and a start or finish in OSM metres is the
+            // same index here and in TrackCatalog (TrackCatalog.RouteIndex,
+            // one definition). It was Spacing exactly with the finish at
+            // round(finishM * arcScale / Spacing): when the drawn profile's
+            // knots moved the lanes' length by a few metres the two rounded
+            // to different waypoints (IndependenceSprint's self-test).
             int count = route.loop ? Mathf.Max(2, Mathf.RoundToInt(total / spacing))
-                                   : Mathf.Max(2, Mathf.FloorToInt(total / spacing) + 1);
-            float step = route.loop ? total / count : spacing;
+                                   : Mathf.Max(2, Mathf.FloorToInt(total / (spacing * arcScale) + 1e-4f) + 1);
+            float step = route.loop ? total / count : spacing * arcScale;
             var wps = new Vector3[count];
             int seg = 0;
             for (int i = 0; i < count; i++)
             {
-                float s = route.loop ? Mathf.Repeat(route.startM * arcScale + i * step, total) : Mathf.Min(i * spacing, total);
+                float s = route.loop ? Mathf.Repeat(route.startM * arcScale + i * step, total) : Mathf.Min(i * step, total);
                 if (route.loop && i > 0 && s < arcs[seg]) seg = 0;   // wrapped past the seam
                 while (seg < arcs.Count - 2 && arcs[seg + 1] < s) seg++;
                 float segL = arcs[seg + 1] - arcs[seg];
@@ -477,7 +485,7 @@ namespace PSXRacing.City
             path.roadWidth = route.roadWidth;
             path.drag = false;
             path.pointToPoint = !route.loop;
-            path.finishIndex = route.loop ? -1 : Mathf.RoundToInt(route.finishM * arcScale / spacing);
+            path.finishIndex = route.loop ? -1 : TrackCatalog.RouteIndex(route.finishM);
             path.reversed = false;
         }
 

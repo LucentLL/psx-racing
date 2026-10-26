@@ -125,6 +125,43 @@ namespace PSXRacing.EditorTools
             finally { CityMeshes.FanMajorOn = fm; CityMeshes.CutBankAllowed = cb; CityMeshes.JoinStraight = js; }
         }
 
+        /// <summary>REAL HEIGHTS round 3, the seats: the PSX_PREVIEW_CUSTOM
+        /// views solved with the old seat zone (every metre beside the host,
+        /// one station past it) - _before - and with the into-only zone
+        /// (CityMeshes.SeatIntoOnly) - _after. Each pass re-solves the city.
+        /// -executeMethod PSXRacing.EditorTools.CityRealHeights.RunSeatShots</summary>
+        public static void RunSeatShots()
+        {
+            string shots = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "City");
+            var names = new System.Collections.Generic.List<string>();
+            foreach (var item in (System.Environment.GetEnvironmentVariable("PSX_PREVIEW_CUSTOM") ?? "").Split(';'))
+                if (item.Contains(":")) names.Add(item.Split(':')[0].Trim());
+            var map = CityMap.Get();
+            if (map == null) return;
+            bool keep = CityMeshes.SeatIntoEnv;
+            try
+            {
+                foreach (bool on in new[] { false, true })
+                {
+                    CityMeshes.SeatIntoEnv = on;
+                    CityElevation.Solve(map);
+                    var t0 = System.DateTime.Now.AddSeconds(-2);
+                    CityPreview.Run();
+                    if (!Directory.Exists(shots)) continue;
+                    foreach (var f in Directory.GetFiles(shots, "*.png"))
+                    {
+                        string b = Path.GetFileNameWithoutExtension(f);
+                        if (b.EndsWith("_before") || b.EndsWith("_after") || File.GetLastWriteTime(f) < t0) continue;
+                        bool mine = false; foreach (var n in names) if (b.Contains(n)) { mine = true; break; }
+                        if (!mine) continue;
+                        File.Copy(f, Path.Combine(shots, b + (on ? "_after" : "_before") + ".png"), true);
+                    }
+                    Debug.Log($"[RealHeights] seat shots {(on ? "after" : "before")}");
+                }
+            }
+            finally { CityMeshes.SeatIntoEnv = keep; }
+        }
+
         static void Dump(CityMap map, string path)
         {
             var inv = CultureInfo.InvariantCulture;

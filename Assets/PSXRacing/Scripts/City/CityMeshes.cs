@@ -2774,8 +2774,21 @@ namespace PSXRacing.City
                 // seam is floored whichever way the chord falls.
                 var innerX = smp.inner - smp.rL * (smp.lSign * GoreSeamM);
                 var outerX = smp.outer - smp.rM * (side * GoreSeamM);
-                var vIn = new Vector3(innerX.x - tm.origin.x, smp.yIn - RoadsideRules.EdgeDropM, innerX.y - tm.origin.z);
-                var vOut = new Vector3(outerX.x - tm.origin.x, smp.yOut - RoadsideRules.EdgeDropM, outerX.y - tm.origin.z);
+                // (REAL HEIGHTS round 3) ONE SURFACE: the seam strips stay
+                // under each road's own pavement. Between two roads at
+                // different heights the straight quad from one height to the
+                // other rose (or fell) across the 0.3 m it reaches under the
+                // lower road and stood out of that road's pavement - n3350's
+                // gore 0.26 m over its ramp. The lower side's seam vertex goes
+                // down along the gore's own slope (never more than the
+                // difference), so the quad is under both pavements at both
+                // edges and meets each a drop below it.
+                float yInG = smp.yIn, yOutG = smp.yOut;
+                float goreW = Mathf.Max(0.05f, smp.gap), dyG = Mathf.Abs(yOutG - yInG);
+                float sink = Mathf.Min(dyG, dyG * GoreSeamM / goreW);
+                if (yOutG > yInG) yInG -= sink; else yOutG -= sink;
+                var vIn = new Vector3(innerX.x - tm.origin.x, yInG - RoadsideRules.EdgeDropM, innerX.y - tm.origin.z);
+                var vOut = new Vector3(outerX.x - tm.origin.x, yOutG - RoadsideRules.EdgeDropM, outerX.y - tm.origin.z);
                 // The first quad of every attachment was skipped (no previous
                 // painted sample), a sliver up to 6 m long with no floor: it
                 // is painted now from the host's edge where the gore opens.
@@ -3098,44 +3111,102 @@ namespace PSXRacing.City
                     // (streetsOnly: the other branches, for the vertical
                     // curves' SOFT seats - CityElevation.VerticalCurves)
                     if (L.link == streetsOnly) continue;
-                    var seat = SeatOf(map, trims, L, map.edges[hostIdx], end == 0 ? L.a : L.b);
+                    var seat = SeatOf(map, trims, L, map.edges[hostIdx], end == 0 ? L.a : L.b, !streetsOnly && SeatIntoOnly);
                     if (seat != null) result.Add(seat);
                 }
             return result;
         }
 
-        static Seat SeatOf(CityMap map, Trims trims, CityMap.Edge L, CityMap.Edge M, int node)
+        /// <summary>
+        /// REAL HEIGHTS round 3: on measured data (CityElevation.RealOn) a ramp
+        /// is SEATED only where its ribbon runs INTO its host's pavement - its
+        /// inner edge inside the host's (within <see cref="SeatIntoGapM"/>),
+        /// contiguous from the node, the end found to a few decimetres - and
+        /// the solve puts a station at that end (CityElevation.PrepareSeats).
+        /// Beyond it the ramp eases onto its own measured design (ClimbOut).
+        /// The seat zone was every metre BESIDE the host (a gore up to 4.5 m
+        /// wide), held at the host's height to one station past it: on the
+        /// real ground a connector between two roads 0.7-1 m apart was held
+        /// on the lower one to 8.5 m from the higher one's pavement and then
+        /// climbed 10% into it (n3350's e2481), while the higher host's
+        /// pavement, overlapping the ramp's last metres between two stations,
+        /// stood 0.3 m over the ramp's own line (n4444's e3176, e2910 at
+        /// n685) - the launch audit's "@mesh-off-data" spots.
+        /// PSX_CITY_SEAT_INTO=0: the old zone.
+        /// </summary>
+        public static bool SeatIntoOnly => CityElevation.RealOn && SeatIntoEnv;
+        /// <summary>The switch (PSX_CITY_SEAT_INTO); the editor's before/after shots flip it and re-solve.</summary>
+        public static bool SeatIntoEnv = System.Environment.GetEnvironmentVariable("PSX_CITY_SEAT_INTO") != "0";
+        /// <summary>A branch whose inner edge is within this of its host's
+        /// edge is still in it (the gore's seams reach 0.3 m under both).</summary>
+        const float SeatIntoGapM = 0.25f;
+
+        static Seat SeatOf(CityMap map, Trims trims, CityMap.Edge L, CityMap.Edge M, int node, bool intoOnly)
         {
             var host = BuildChain(map, M, node, linkChain: false, GoreReach + 60f, null);
             var br = BuildChain(map, L, node, linkChain: true, GoreReach + 10f, host);
             int side = 0;
             var on = new Dictionary<int, (float s0, float s1)>();
             var into = new Dictionary<int, (float s0, float s1)>();
+            var zone = new Dictionary<int, (float s0, float s1)>();
+            // one sample of the walk: the branch piece and arc there, whether
+            // it is still beside its host, and whether its inner edge is in
+            // the host's pavement (the side is fixed by the first sample
+            // clearly off the host's centreline)
+            bool Sample(float travelled, ref int sd, out CityMap.Edge E, out float sE, out float gap, out bool beside, out bool inside, out float off)
+            {
+                gap = 0f; beside = inside = false; off = 0f;
+                if (!br.Walk(travelled, out E, out sE, out var p, out var dirL)) return false;
+                host.Project(p, out var H, out float sM, out var q, out var dirM, out bool hostOut);
+                if (hostOut) return false;
+                var rM = new Vector2(-dirM.y, dirM.x);
+                off = Vector2.Dot(p - q, rM);
+                int sideNow = off >= 0f ? 1 : -1;
+                if (sd == 0 && Mathf.Abs(off) > 0.4f) sd = sideNow;
+                var rL = new Vector2(-dirL.y, dirL.x);
+                var outer = sd == 0 ? q : EdgePoint(H, sM, q, rM, sd);
+                float lSign = Vector2.Dot(rL, rM) >= 0f ? -sd : sd;
+                var inner = EdgePoint(E, sE, p, rL, lSign);
+                gap = sd == 0 ? 0f : Vector2.Dot(inner - outer, rM) * sd;
+                beside = (gap <= GoreMaxGap && sideNow == sd) || Mathf.Abs(off) < 0.4f;
+                inside = beside && (gap < SeatIntoGapM || Mathf.Abs(off) < 0.4f);
+                return true;
+            }
+            void Grow(Dictionary<int, (float s0, float s1)> d, CityMap.Edge E, float sE) =>
+                d[E.index] = d.TryGetValue(E.index, out var r) ? (Mathf.Min(r.s0, sE), Mathf.Max(r.s1, sE)) : (sE, sE);
+            bool zoneOpen = true;
+            float lastIn = -1f;
             for (int k = 0; k <= 70; k++)
             {
                 float travelled = k * GoreStep;
                 if (travelled > GoreReach) break;
-                if (!br.Walk(travelled, out var E, out float sE, out var p, out var dirL)) break;
-                host.Project(p, out var H, out float sM, out var q, out var dirM, out bool hostOut);
-                if (hostOut) break;
-                var rM = new Vector2(-dirM.y, dirM.x);
-                float off = Vector2.Dot(p - q, rM);
-                int sideNow = off >= 0f ? 1 : -1;
-                if (side == 0 && Mathf.Abs(off) > 0.4f) side = sideNow;
-                var rL = new Vector2(-dirL.y, dirL.x);
-                var outer = side == 0 ? q : EdgePoint(H, sM, q, rM, side);
-                float lSign = Vector2.Dot(rL, rM) >= 0f ? -side : side;
-                var inner = EdgePoint(E, sE, p, rL, lSign);
-                float gap = side == 0 ? 0f : Vector2.Dot(inner - outer, rM) * side;
-                bool beside = (gap <= GoreMaxGap && sideNow == side) || Mathf.Abs(off) < 0.4f;
+                if (!Sample(travelled, ref side, out var E, out float sE, out float gap, out bool beside, out bool inside, out float off)) break;
                 if (!beside) break;
-                on[E.index] = on.TryGetValue(E.index, out var r)
-                    ? (Mathf.Min(r.s0, sE), Mathf.Max(r.s1, sE)) : (sE, sE);
-                if (gap < 0f || Mathf.Abs(off) < 0.4f)
-                    into[E.index] = into.TryGetValue(E.index, out var ri)
-                        ? (Mathf.Min(ri.s0, sE), Mathf.Max(ri.s1, sE)) : (sE, sE);
+                Grow(on, E, sE);
+                if (gap < 0f || Mathf.Abs(off) < 0.4f) Grow(into, E, sE);
+                if (!intoOnly || !zoneOpen) continue;
+                if (inside) { Grow(zone, E, sE); lastIn = travelled; continue; }
+                // the zone ends between the last sample in the host and this
+                // one: found to ~0.2 m (the solve stations it there)
+                zoneOpen = false;
+                if (lastIn < 0f) continue;
+                float t0 = lastIn, t1 = travelled;
+                for (int it = 0; it < 5; it++)
+                {
+                    float tm = 0.5f * (t0 + t1);
+                    int sd = side;
+                    if (Sample(tm, ref sd, out _, out _, out _, out bool bm, out bool im, out _) && im) t0 = tm; else t1 = tm;
+                }
+                int sdE = side;
+                if (Sample(t0, ref sdE, out var Ez, out float sz, out _, out _, out _, out _)) Grow(zone, Ez, sz);
             }
+            // the walk stopped with the branch still in its host (the host
+            // chain or the branch ran out, the side read flipped): where its
+            // pavement ends is not known, so the zone runs one gore step on
+            // (the old zone's station past its end did the same)
+            if (intoOnly && zoneOpen && lastIn >= 0f && br.Walk(lastIn + GoreStep, out var Eo, out float so, out _, out _)) Grow(zone, Eo, so);
             if (on.Count == 0) return null;
+            if (intoOnly) { on = zone; if (on.Count == 0) return null; }
             var seat = new Seat { node = node, host = host };
             foreach (var kv in into) seat.overlaps.Add((kv.Key, kv.Value.s0, kv.Value.s1));
             for (int i = 0; i < br.edges.Count; i++)
@@ -6750,15 +6821,71 @@ namespace PSXRacing.City
         {
             var raw = RawSectionsOf(map, trims, e, sMin, sMax);
             sections.Clear();
+            meetD.Clear();
             var o = tm.origin;
+            bool anyMeet = false;
             for (int k = 0; k < raw.Count; k++)
             {
                 var sec = raw[k];
-                if (!sec.elev && !sec.collapsed && !sec.zoneEnd && sec.s > sMin + 1e-3f && sec.s < sMax - 1e-3f)
-                    MeetPavement(map, trims, e, ref sec);
+                float yL0 = sec.L.y, yR0 = sec.R.y;
+                bool meets = !sec.elev && !sec.collapsed && !sec.zoneEnd && sec.s > sMin + 1e-3f && sec.s < sMax - 1e-3f;
+                if (meets) MeetPavement(map, trims, e, ref sec);
+                var d = new Vector3(meets ? sec.L.y - yL0 : float.NaN, meets ? sec.R.y - yR0 : float.NaN, 0f);
+                anyMeet |= meets && (d.x < -1e-3f || d.y < -1e-3f);
+                meetD.Add(d);
                 sec.L -= o; sec.R -= o;
                 sections.Add(sec);
             }
+            if (anyMeet && MeetEaseOn) EaseMeets();
+        }
+
+        /// <summary>Per section of the last BuildSections: what MeetPavement
+        /// moved its L (x) and R (y) vertex by, NaN where it may not move.</summary>
+        static readonly List<Vector3> meetD = new List<Vector3>(64);
+        /// <summary>PSX_CITY_MEET_EASE=0: MeetPavement's drops as they were, one section each.</summary>
+        static readonly bool MeetEaseOn = System.Environment.GetEnvironmentVariable("PSX_CITY_MEET_EASE") != "0";
+        const float MeetEaseGrade = 0.01f, MeetEaseMinM = 3f;
+
+        /// <summary>
+        /// REAL HEIGHTS round 3: MeetPavement drops a section's edge onto the
+        /// pavement it meets (up to <see cref="MeetDyM"/>) at that section
+        /// only, and the sections either side, half a metre to ten metres
+        /// off, keep their own height: a notch along the edge, which the lane
+        /// beside it rides as a dip of a few centimetres between two sections
+        /// - North Tryon Street's e16424 at s 19.5, +16.7 g at 150 mph, the
+        /// Tryon route's p99. Each drop now fades along the ribbon's same
+        /// edge at 1% per metre (never under 3 m) on the sections it may move,
+        /// so the edge meets its neighbour and the lane sees a gentle dip.
+        /// </summary>
+        static void EaseMeets()
+        {
+            int n = sections.Count;
+            for (int side = 0; side < 2; side++)
+                for (int k = 0; k < n; k++)
+                {
+                    float dk = side == 0 ? meetD[k].x : meetD[k].y;
+                    if (float.IsNaN(dk)) continue;
+                    var sk = sections[k];
+                    if (sk.clippedIn && sk.innerSide == (side == 0 ? -1 : 1)) continue;   // on its host's edge
+                    float want = dk;
+                    float reach = Mathf.Max(MeetEaseMinM, MeetDyM / MeetEaseGrade) + 0.01f;
+                    int j0 = k, j1 = k;
+                    while (j0 > 0 && sk.s - sections[j0 - 1].s < reach) j0--;
+                    while (j1 < n - 1 && sections[j1 + 1].s - sk.s < reach) j1++;
+                    for (int j = j0; j <= j1; j++)
+                    {
+                        float dj = side == 0 ? meetD[j].x : meetD[j].y;
+                        if (j == k || float.IsNaN(dj) || dj >= -1e-3f) continue;
+                        float L = Mathf.Max(MeetEaseMinM, -dj / MeetEaseGrade);
+                        float dist = Mathf.Abs(sections[j].s - sk.s);
+                        if (dist >= L) continue;
+                        float u = dist / L;
+                        want = Mathf.Min(want, dj * (1f - u * u * (3f - 2f * u)));
+                    }
+                    if (want >= dk - 1e-4f) continue;
+                    if (side == 0) sk.L.y += want - dk; else sk.R.y += want - dk;
+                    sections[k] = sk;
+                }
         }
 
         /// <summary>
@@ -7368,7 +7495,7 @@ namespace PSXRacing.City
                 var p = e.PointAt(sec.s);
                 float latL = Vector2.Dot(new Vector2(sec.L.x, sec.L.z) - p, sec.right);
                 float latR = Vector2.Dot(new Vector2(sec.R.x, sec.R.z) - p, sec.right);
-                sb.Append($"        s={sec.s:0.0} y={sec.L.y:0.00}{(Mathf.Abs(sec.R.y - sec.L.y) > 0.005f ? "/" + sec.R.y.ToString("0.00") : "")} L{latL:+0.0;-0.0} R{latR:+0.0;-0.0}{(sec.elev ? " deck" : "")}{(sec.collapsed ? " COLLAPSED" : sec.clippedIn ? " clippedIn" : "")}{(sec.innerSide != 0 ? " inner" + (sec.innerSide > 0 ? "R" : "L") : "")}{(sec.nbL >= 0 ? " nbL" + sec.nbL : "")}{(sec.nbR >= 0 ? " nbR" + sec.nbR : "")}\n");
+                sb.Append($"        s={sec.s:0.00} y={sec.L.y:0.000}{(Mathf.Abs(sec.R.y - sec.L.y) > 0.0005f ? "/" + sec.R.y.ToString("0.000") : "")} L{latL:+0.0;-0.0} R{latR:+0.0;-0.0}{(sec.elev ? " deck" : "")}{(sec.collapsed ? " COLLAPSED" : sec.clippedIn ? " clippedIn" : "")}{(sec.innerSide != 0 ? " inner" + (sec.innerSide > 0 ? "R" : "L") : "")}{(sec.nbL >= 0 ? " nbL" + sec.nbL : "")}{(sec.nbR >= 0 ? " nbR" + sec.nbR : "")}\n");
             }
             return sb.ToString();
         }

@@ -7692,3 +7692,69 @@ CityLaunchAudit.cs, the same job):
 path samples at n3350, n4444, e6798 first; Tryon's trim kinks (A/B `PSX_CITY_FANMAJOR=0 PSX_CITY_JOIN_STRAIGHT=1` on
 `city-vsmooth.ps1 -Routes`, then a section dump of e16424 s 15-25); the arterial > 0.5% residuals and the locals' /
 collectors' > 1% (99 vs 52, 293 vs 280).
+
+### REAL HEIGHTS - seats, round 3 (2026-10-25 late; not shipped: the launch gate still fails)
+
+**What the mesh was (the launch path's surfaces, `CityLaunchAudit.Probe` with `PSX_LAUNCH_PROBE_EDGE="edge:s0:s1[:sec]"`:
+every 2 m along the edge's launch line, its drawn and station height and every tap surface over the point - ribbon span,
+gore, fan - with its height).** At the round-2 spots the surface over the ramp's line was its HOST's pavement:
+- n3350 e2481 (43 m connector, e2473 -> Old Statesville Rd e2185): the last 6 m lie inside e2185's pavement (153.72-153.83)
+  while the ramp's line, held on e2473 to s 34.1 (8.5 m out, seated "beside" it), was 0.3-0.4 m under it - the path
+  climbed 17% onto the host's pavement and launched at its top.
+- n4444 e3176 and n685 e2910: the same - the higher host's pavement covering the ramp's last metres between two
+  stations 8.7-9.5 m apart, the ramp's straight line under it; e4260 (Billy Graham Pkwy n5809) the other way: the
+  ramp's last span standing 0.1-0.7 m OVER the parkway's lanes.
+- e6798: a 416 m ramp inside BOTH its hosts' pavements (e5756, e6782) where they are 0.85 m apart; left (below).
+
+**Changed (runtime, `RealOn` only; `PSX_CITY_SEAT_INTO=0` = round 2):**
+- `CityMeshes.SeatOf` (`SeatIntoOnly`): a ramp is seated only where its ribbon is IN its host's pavement (its inner
+  edge inside the host's edge, within 0.25 m), contiguous from the node; the zone's end found to ~0.2 m by bisection
+  (one gore step on where the walk stops with the branch still inside). It was every metre BESIDE the host (a 4.5 m gore).
+- `CityElevation.PrepareSeats`: a station at each zone's end and none more than 5 m apart inside it (`InsertStation`), and
+  no "one station past the end" (the zone end is a station). Beyond it the measured ramp eases
+  onto its design (`ClimbOut`, unchanged).
+- `CityMeshes.EmitBranch`: the gore's seam strips stay under both pavements (the lower side's seam vertex follows the
+  gore's slope down, never more than the difference) - the straight quad stood up to 0.26 m out of the lower road.
+- `CityMeshes.BuildSections` / `EaseMeets` (`PSX_CITY_MEET_EASE=0` off): a MeetPavement edge drop (up to 12 cm, one
+  section) fades along the same edge at 1%/m (at least 3 m) instead of a notch between two sections.
+- Finish index, one definition: `TrackCatalog.RouteIndex(osmM) = round(osmM / Spacing)`; `CityMode.BuildPath` stands a
+  route-with-ends' waypoint i at OSM metre i x Spacing (pitch Spacing x arcScale), so the catalog's FinishIndex, the
+  path's finishIndex, the grid's start line and RemapReversedFinish's start line are the same index however the
+  lanes' centre runs. Self-test: TryonSprint / IndependenceSprint "catalog and path agree on the finish" ok,
+  UptownLoop no finish ok. (RaceManager reads path.finishIndex; ApplySprint/sprintFinishIndex are the loops' sprint
+  variants, metres along the loop's bake, untouched.)
+- Tried and taken back: the drawn seat following the host's drawn height off the branch's own station (e6798 became
+  a 0.85 m step in 6 m between its two hosts); a mitred node's sections at the arms' drawn mean (no launch moved,
+  arterial node joints 16 -> 22).
+
+**Measured** (`tools\city-vsmooth.ps1 -Launch -Lanes`, J4 = this commit; main / J3 from round 2, the same job):
+
+| | main | J3 (round 2) | J4 (round 3) |
+|---|---|---|---|
+| launch / unload, old paths | 60 / 408 | 118 / 595 | 109 / 589 |
+| launch / unload, lane carry | 59 / 417 | 119 / 593 | 109 / 585 |
+| `@mesh-off-data` launches | 30 | 72 | 57 |
+| routes launch (uptown / tryon / indep.) | 0 / 0 / 0 | 1 / 0 / 0 | 1 / 0 / 0 (n3640, 0.16 m) |
+| freeway (>0.5 / >1 / >2% / node) | 290 / 131 / 45 / 4 | 182 / 97 / 24 / 1 | 243 / 79 / 19 / 3 |
+| ramp | 2,846 / 691 / 203 / 7 | 1,820 / 574 / 170 / 3 | 1,937 / 451 / 121 / 10 |
+| arterial | 1,886 / 929 / 308 / 16 | 2,125 / 919 / 296 / 13 | 2,139 / 796 / 236 / 16 |
+| collector | 5,231 / 280 / 98 / 702 | 5,365 / 293 / 94 / 154 | 5,321 / 246 / 66 / 153 |
+| local | 5,480 / 52 / 15 / 138 | 20,088 / 99 / 16 / 77 | 20,065 / 81 / 10 / 77 |
+| route p99 g at 150 mph | 1.60 / 1.79 / 0.96 | 1.06 / 2.11 / 0.68 | 1.12 / 2.11 / 0.75 |
+
+- Launch by cause (J4): mitred joint 35, ramp seat climb-out 20 (J3 10: the connectors now leave their hosts where
+  the hosts' pavement ends, and a 20-30 m connector between roads 1-2 m apart climbs 9-13% - e4260, e2910), junction
+  node 19, junction fan 18, terrain profile 14 (J3 29). T1 44 / T2 53 / T3 12.
+- The probe after the change: n3350 e2481 climbs 153.02 -> 153.83 at 2-6% and meets e2185's pavement at its height;
+  e3176, e2910 and e4260 on their hosts' pavement to 1 cm (e4260 / e2910 0.05-0.13 m at their a-end zone, the clip
+  past the zone's end).
+- `tools/city-play-check.ps1`: CITY SPAWNS OK (I-277 by S College St walled and skipped; 5 driven, 2 fill, 1 cut).
+- Tryon's p99 did not move (the same -17.4 / +16.7 g at e16383 s 17 / e16424 s 18): the section dump has e16424's
+  sections on its stations (s 14.77 / 19.50 / 19.95 at 130.337 / 130.413 / 130.420), so the kink is not the ribbon's
+  profile - the census reads each span's EDGE vertices (SideY) and the chord across the fan, and what moves them near
+  the trim is still to find (the `PSX_CITY_FANMAJOR=0 PSX_CITY_JOIN_STRAIGHT=1` A/B was not run).
+
+**Left:** launch 109 vs 60 (mitred joints 35 vs 11, climb-outs 20 vs 4, junction nodes/fans 37 vs 17); uptown's
+n3640 (the drawn -7.8 -> -9.2% through a two-arm node at 140 km/h, 1 cm over the limit); ramp node joints 10 vs 7;
+arterial > 0.5% 2,139 vs 1,886 (the "no curve here" junction residuals); locals > 1% 81 vs 52; Tryon p99 2.11 vs 1.79;
+e6798 (inside two hosts 0.85 m apart: either host's pavement stands over it somewhere).
