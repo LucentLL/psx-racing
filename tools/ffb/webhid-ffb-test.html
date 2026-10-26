@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wheel FFB Test</title>
+<style>
+  :root { --bg: #161616; --panel: #222; --ink: #eee; --dim: #9a9a9a; --amber: #f2b33d; --red: #e5533d; --ok: #7fcf6a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, Segoe UI, Arial, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; }
+  h1 { color: var(--amber); font-size: 22px; margin: 4px 0 8px; letter-spacing: 1px; }
+  h2 { color: var(--amber); font-size: 16px; margin: 18px 0 6px; letter-spacing: 1px; }
+  ol { margin: 4px 0 8px 20px; padding: 0; color: var(--dim); }
+  ol b { color: var(--ink); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
+  button { background: #333; color: var(--ink); border: 1px solid #555; border-top: 2px solid var(--amber);
+           padding: 9px 14px; font: inherit; font-weight: 600; cursor: pointer; min-width: 120px; }
+  button:hover { background: #3d3d3d; }
+  button:disabled { opacity: .4; cursor: default; }
+  button.stop { border-top-color: var(--red); background: #4a1d17; min-width: 160px; }
+  label { color: var(--dim); }
+  input[type=number] { width: 80px; background: #111; color: var(--ink); border: 1px solid #555; padding: 4px; font: inherit; }
+  input[type=range] { width: 160px; }
+  #status { padding: 8px 10px; background: var(--panel); border-left: 4px solid var(--dim); margin: 8px 0; white-space: pre-wrap; }
+  #status.ok { border-left-color: var(--ok); } #status.bad { border-left-color: var(--red); }
+  #log { background: #0d0d0d; border: 1px solid #333; padding: 8px; height: 320px; overflow: auto;
+         font: 12px/1.35 Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
+  #pads { font: 12px/1.35 Consolas, monospace; color: var(--dim); white-space: pre-wrap; background: var(--panel); padding: 8px; }
+  .warn { color: var(--amber); }
+</style>
+</head>
+<body>
+<main>
+<h1>WHEEL FORCE FEEDBACK TEST (WebHID)</h1>
+<ol>
+  <li>Open this page in <b>Chrome or Edge</b> on the PC the wheel is plugged into, at <b>http://localhost:8765/</b> (run <b>tools\ffb\serve.ps1</b>). WebHID only works on localhost or https.</li>
+  <li><b>Hold the wheel rim lightly</b>, or let go of it with nothing in reach. The strength starts at 25%.</li>
+  <li>Click <b>CONNECT WHEEL</b> and pick the Moza base in Chrome's list. If it is not listed, try <b>CONNECT (ANY DEVICE)</b>.</li>
+  <li>Click <b>PUSH LEFT</b>, <b>PUSH RIGHT</b>, <b>SPRING</b>, <b>DAMPER</b>, <b>RUMBLE</b>. Each lasts the duration below; <b>STOP ALL</b> ends everything at once.</li>
+  <li>Click <b>COPY LOG</b> and paste the whole log back, with one line on what each button did (e.g. "LEFT went right", "spring did nothing").</li>
+</ol>
+<div id="status">Not connected.</div>
+
+<h2>DEVICE</h2>
+<div class="row">
+  <button id="bConnect">CONNECT WHEEL</button>
+  <button id="bConnectAll">CONNECT (ANY DEVICE)</button>
+  <button id="bReset" disabled>RESET DEVICE</button>
+</div>
+
+<h2>EFFECTS</h2>
+<div class="row">
+  <label>Strength <input id="strength" type="range" min="5" max="100" step="5" value="25"> <span id="strengthV">25%</span></label>
+  <label>Duration ms <input id="duration" type="number" min="100" max="10000" step="100" value="1500"></label>
+</div>
+<div class="row">
+  <button id="bLeft" disabled>PUSH LEFT</button>
+  <button id="bRight" disabled>PUSH RIGHT</button>
+  <button id="bSpring" disabled>SPRING</button>
+  <button id="bDamper" disabled>DAMPER</button>
+  <button id="bRumble" disabled>RUMBLE</button>
+  <button id="bStop" class="stop" disabled>STOP ALL</button>
+</div>
+<div class="row">
+  <label>Direction deg <input id="dir" type="number" min="0" max="359" value="90"></label>
+  <label><input id="axesX" type="checkbox" checked> Axes Enable X</label>
+  <label><input id="dirEn" type="checkbox" checked> Direction Enable</label>
+  <label><input id="invert" type="checkbox"> Swap left / right</label>
+  <label><input id="noBlockLoad" type="checkbox"> Skip Create/Block Load</label>
+</div>
+<div class="warn">Leave the advanced boxes alone unless the log asks for them (they are there so a second try needs no new page).</div>
+
+<h2>LOG</h2>
+<div class="row"><button id="bCopy">COPY LOG</button><button id="bClear">CLEAR</button></div>
+<div id="log"></div>
+
+<h2>GAMEPAD API (what the game's WHEEL SETUP sees)</h2>
+<div id="pads">Press a button or move the wheel once - Chrome hides controllers until you do.</div>
+</main>
+
+<script src="pidffb.js"></script>
+<script>
+(function () {
+  'use strict';
+  var F = window.PSXPidFfb, U = F.U;
+  var $ = function (id) { return document.getElementById(id); };
+  var logEl = $('log'), lines = [];
+  var t0 = performance.now();
+  function log(s) {
+    var line = ((performance.now() - t0) / 1000).toFixed(3) + '  ' + s;
+    lines.push(line);
+    logEl.textContent += line + '\n';
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  function status(s, cls) { var e = $('status'); e.textContent = s; e.className = cls || ''; }
+
+  log('page loaded: ' + navigator.userAgent);
+  log('WebHID ' + ('hid' in navigator ? 'available' : 'NOT AVAILABLE') + ', secure context ' + window.isSecureContext);
+  if (!('hid' in navigator)) status('This browser has no WebHID. Use desktop Chrome or Edge, on localhost or https.', 'bad');
+
+  var pid = null, effects = [];
+  var effectButtons = ['bLeft', 'bRight', 'bSpring', 'bDamper', 'bRumble', 'bStop', 'bReset'];
+  function enable(on) { effectButtons.forEach(function (b) { $(b).disabled = !on; }); }
+
+  function connect(filters) {
+    if (!('hid' in navigator)) return;
+    navigator.hid.requestDevice({ filters: filters }).then(function (list) {
+      if (!list || !list.length) { log('no device chosen'); return; }
+      log('chosen: ' + list.map(function (d) { return '"' + d.productName + '" ' + F.hex(d.vendorId, 4) + ':' + F.hex(d.productId, 4) + ' collections ' + d.collections.length; }).join(', '));
+      // A base can show up as several HID interfaces; the one with PID reports wins.
+      var tries = list.slice();
+      function next() {
+        if (!tries.length) { status('No chosen device has force-feedback (PID) reports. Paste the log back.', 'bad'); return; }
+        var d = tries.shift();
+        var p = new F.Pid(d, log);
+        p.open().then(function () {
+          log(p.describe());
+          var ok = p.parse();
+          if (!ok) { log('"' + d.productName + '": no Set Effect / Effect Operation reports - not a PID interface'); next(); return; }
+          pid = p;
+          applyOptions();
+          return p.pool().then(function () { return p.reset(1); }).then(function () {
+            status('Connected: ' + d.productName + '. Force feedback reports found. Try the effects.', 'ok');
+            enable(true);
+          });
+        })['catch'](function (e) { log('ERROR opening "' + d.productName + '": ' + (e && e.message ? e.message : e)); next(); });
+      }
+      next();
+    })['catch'](function (e) { log('requestDevice failed: ' + e); status('The browser refused: ' + e, 'bad'); });
+  }
+  $('bConnect').onclick = function () { connect(F.filters); };
+  $('bConnectAll').onclick = function () { connect([]); };
+
+  function applyOptions() {
+    if (!pid) return;
+    pid.directionDeg = Math.max(0, Math.min(359, parseInt($('dir').value, 10) || 0));
+    pid.axesEnableX = $('axesX').checked;
+    pid.directionEnable = $('dirEn').checked;
+    pid.useBlockLoad = !$('noBlockLoad').checked;
+  }
+  ['dir', 'axesX', 'dirEn', 'noBlockLoad'].forEach(function (id) { $(id).onchange = function () { applyOptions(); log('option ' + id + ' = ' + ($(id).type === 'checkbox' ? $(id).checked : $(id).value)); }; });
+  $('strength').oninput = function () { $('strengthV').textContent = $('strength').value + '%'; };
+
+  function strength() { return Math.max(0.05, Math.min(1, ($('strength').value | 0) / 100)); }
+  function duration() { return Math.max(100, Math.min(10000, $('duration').value | 0)); }
+
+  /** Create -> Set Effect -> type block -> START, then free it after it ends. */
+  function play(type, label, define) {
+    if (!pid) return;
+    applyOptions();
+    var ms = duration();
+    log('--- ' + label + ' (' + Math.round(strength() * 100) + '%, ' + ms + ' ms)');
+    var ebi = 0;
+    pid.create(type)
+      .then(function (i) { ebi = i; effects.push(i); return pid.setEffect(i, type, ms, 1); })
+      .then(function () { return define(ebi); })
+      .then(function () { return pid.operate(ebi, U.OP_START, 1); })
+      .then(function () {
+        log(label + ' started on block ' + ebi);
+        setTimeout(function () {
+          var at = effects.indexOf(ebi);
+          if (at < 0) return;
+          effects.splice(at, 1);
+          pid.operate(ebi, U.OP_STOP, 0).then(function () { return pid.free(ebi); });
+        }, ms + 250);
+      })['catch'](function (e) { log('ERROR ' + label + ': ' + (e && e.message ? e.message : e)); });
+  }
+  // DirectInput convention: a positive force along X comes FROM +X, so it
+  // pushes the rim to the LEFT. "Swap left / right" flips it if this base
+  // reads it the other way.
+  function sideSign() { return $('invert').checked ? -1 : 1; }
+  $('bLeft').onclick = function () { play(U.ET_CONSTANT, 'PUSH LEFT', function (i) { return pid.setConstant(i, strength() * sideSign()); }); };
+  $('bRight').onclick = function () { play(U.ET_CONSTANT, 'PUSH RIGHT', function (i) { return pid.setConstant(i, -strength() * sideSign()); }); };
+  $('bSpring').onclick = function () { play(U.ET_SPRING, 'SPRING', function (i) { return pid.setCondition(i, strength(), strength(), 0); }); };
+  $('bDamper').onclick = function () { play(U.ET_DAMPER, 'DAMPER', function (i) { return pid.setCondition(i, strength(), strength(), 0); }); };
+  $('bRumble').onclick = function () { play(U.ET_SINE, 'RUMBLE', function (i) { return pid.setPeriodic(i, strength(), 40); }); };
+
+  function stopAll() {
+    if (!pid) return Promise.resolve();
+    log('--- STOP ALL');
+    var list = effects.splice(0, effects.length), p = Promise.resolve();
+    list.forEach(function (i) { p = p.then(function () { return pid.operate(i, U.OP_STOP, 0); }).then(function () { return pid.free(i); }); });
+    return p.then(function () { return pid.control(U.DC_STOP_ALL); });
+  }
+  $('bStop').onclick = function () { stopAll(); };
+  $('bReset').onclick = function () { effects.length = 0; log('--- RESET DEVICE'); pid.reset(1); };
+  // Never leave a force running: a closed or hidden tab stops everything.
+  window.addEventListener('pagehide', function () { stopAll(); });
+  document.addEventListener('visibilitychange', function () { if (document.hidden) stopAll(); });
+
+  $('bCopy').onclick = function () {
+    var text = lines.join('\n');
+    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject('no clipboard'))
+      .then(function () { status('Log copied - paste it back.', 'ok'); })
+      ['catch'](function () {
+        var r = document.createRange(); r.selectNodeContents(logEl);
+        var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+        status('Clipboard blocked: the log is selected - press Ctrl+C.', '');
+      });
+  };
+  $('bClear').onclick = function () { lines.length = 0; logEl.textContent = ''; };
+
+  // The Gamepad API side, live: what the game's WHEEL SETUP will read.
+  var seen = {};
+  function pads() {
+    var list = navigator.getGamepads ? navigator.getGamepads() : [], out = [];
+    for (var i = 0; i < list.length; i++) {
+      var g = list[i];
+      if (!g) continue;
+      if (!seen[g.id]) { seen[g.id] = 1; log('gamepad ' + g.index + ': "' + g.id + '" mapping "' + g.mapping + '" axes ' + g.axes.length + ' buttons ' + g.buttons.length +
+        (g.vibrationActuator ? ' rumble yes' : ' rumble no')); }
+      var ax = []; for (var a = 0; a < g.axes.length; a++) ax.push(a + ':' + g.axes[a].toFixed(3));
+      var bs = []; for (var b = 0; b < g.buttons.length; b++) if (g.buttons[b].pressed || g.buttons[b].value > 0.05) bs.push(b + (g.buttons[b].value < 0.99 ? '=' + g.buttons[b].value.toFixed(2) : ''));
+      out.push('#' + g.index + ' ' + g.id + '  [' + (g.mapping || 'non-standard') + ']\n  axes ' + ax.join('  ') + '\n  buttons down: ' + (bs.join(' ') || '-'));
+    }
+    if (out.length) $('pads').textContent = out.join('\n');
+    requestAnimationFrame(pads);
+  }
+  requestAnimationFrame(pads);
+})();
+</script>
+</body>
+</html>
