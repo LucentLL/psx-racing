@@ -539,8 +539,8 @@ namespace PSXRacing
                     if ((new Vector2(a.x, a.z) - centreW).sqrMagnitude > reach2) continue;
                     var la = Local(a); var lb = Local(b);
                     if (j == 0) la = ArrowPoint;   // the line starts at the arrow
-                    if (pass == 0) FadedLine(vh, la, lb, 5.2f * pxu, ColRouteEdge, 0f);
-                    else FadedLine(vh, la, lb, 3.0f * pxu, ColRoute, 0.25f);
+                    if (pass == 0) FadedLine(vh, la, lb, 5.8f * pxu, ColRouteEdge, 0f);
+                    else FadedLine(vh, la, lb, 3.4f * pxu, ColRoute, 0.25f);
                 }
             }
         }
@@ -555,8 +555,8 @@ namespace PSXRacing
                 {
                     var la = Local(pts[i]); var lb = Local(pts[i + 1]);
                     if (i == start) la = ArrowPoint;
-                    if (pass == 0) FadedLine(vh, la, lb, 5.2f * pxu, ColRouteEdge, 0f);
-                    else FadedLine(vh, la, lb, 3.0f * pxu, ColRoute, 0.25f);
+                    if (pass == 0) FadedLine(vh, la, lb, 5.8f * pxu, ColRouteEdge, 0f);
+                    else FadedLine(vh, la, lb, 3.4f * pxu, ColRoute, 0.25f);
                 }
             }
         }

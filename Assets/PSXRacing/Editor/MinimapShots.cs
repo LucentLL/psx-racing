@@ -70,8 +70,11 @@ namespace PSXRacing.EditorTools
                 if (world != null) world.EnsureRing(t.position, 2);
 
                 // A city race builds its path from the graph at runtime
-                // (CityMode.BuildPath); in edit mode the scene's is empty, so
-                // the menu's route polyline stands in for it.
+                // (CityMode.BuildPath) and grids the cars then; in edit mode
+                // the scene's path is empty and the player stands where free
+                // roam left it. The menu's route polyline stands in for the
+                // path, and the player goes onto it, a few stations past the
+                // line, pointing down the route.
                 var rm = Object.FindAnyObjectByType<RaceManager>();
                 if (rm != null && (rm.path == null || rm.path.Count < 2) && def.IsCityRace)
                 {
@@ -82,7 +85,17 @@ namespace PSXRacing.EditorTools
                     stand.pointToPoint = !def.loop;
                     stand.finishIndex = def.loop ? -1 : Mathf.Clamp(def.FinishIndex, 1, pts.Count - 1);
                     rm.path = stand;
-                    Debug.Log("[MinimapShots] " + venue + " route stand-in: " + pts.Count + " stations");
+                    int k = Mathf.Clamp(10, 0, pts.Count - 2);
+                    Vector3 p = pts[k], d = pts[k + 1] - pts[k];
+                    d.y = 0f;
+                    float lift = t.position.y - GroundY(t.position, t);
+                    if (world != null) world.EnsureRing(p, 2);
+                    float gy = GroundY(new Vector3(p.x, t.position.y, p.z), t);
+                    if (float.IsNaN(gy)) gy = 0f;
+                    t.SetPositionAndRotation(new Vector3(p.x, gy + (float.IsNaN(lift) ? 0.5f : lift), p.z),
+                                             Quaternion.LookRotation(d.sqrMagnitude > 1e-4f ? d.normalized : t.forward, Vector3.up));
+                    Physics.SyncTransforms();
+                    Debug.Log("[MinimapShots] " + venue + " route stand-in: " + pts.Count + " stations; player on station " + k);
                 }
 
                 if (touch) ShowTouch(cam);
@@ -101,46 +114,9 @@ namespace PSXRacing.EditorTools
                 }
                 else ChaseCamera.PreviewView(ChaseCamera.View.Chase);
 
-                // THE FRAME THE HUD IS LAID OUT IN: the shot's own size, so
-                // the canvases measure the picture they are drawn into.
-                var output = Object.FindAnyObjectByType<PSXCameraOutput>();
-                int h = output != null ? Mathf.Clamp(output.height, 120, 720) : 240;
-                int w = Mathf.RoundToInt(h * aspect) & ~1;
-                frame = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32);
-                frame.Create();
-                cam.targetTexture = frame;
-                // Every camera canvas onto the shot camera again, NOW that it
-                // has its target: a canvas sizes itself off its camera when it
-                // is pointed at it, and Open pointed them at a camera with no
-                // target (the batchmode game view, 640x480).
-                foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None))
-                {
-                    if (!c.isRootCanvas || c.renderMode != RenderMode.ScreenSpaceCamera) continue;
-                    c.worldCamera = null;
-                    c.worldCamera = cam;
-                }
-                Canvas.ForceUpdateCanvases();
-                foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None))
-                {
-                    if (!c.isRootCanvas || c.renderMode == RenderMode.WorldSpace) continue;
-                    var r = ((RectTransform)c.transform).rect;
-                    Debug.Log("[MinimapShots] " + label + " canvas " + c.name + " " + c.renderMode + " " +
-                              r.width.ToString("0") + "x" + r.height.ToString("0") + " scale " + c.scaleFactor.ToString("0.00"));
-                }
-                foreach (var c in Object.FindObjectsByType<GaugeCluster>(FindObjectsSortMode.None)) c.Build();
-                RaceHUD hud = null;
-                foreach (var hh in Object.FindObjectsByType<RaceHUD>(FindObjectsSortMode.None))
-                {
-                    hud = hh;
-                    hh.PreviewMap();
-                    HudOnTop.Apply(hh.gameObject);
-                }
-                Canvas.ForceUpdateCanvases();
-                // the second pass: the distance text and the marks after the
-                // layout has settled
-                if (hud != null && hud.Minimap != null) hud.Minimap.PreviewNow();
-                Canvas.ForceUpdateCanvases();
-
+                // THE LENS FIRST: a camera canvas is a plane in front of its
+                // camera, sized off the field of view, so a canvas laid out
+                // before the lens moves is measured skewed.
                 Vector3 eye; Quaternion rot;
                 if (cockpit)
                 {
@@ -162,33 +138,46 @@ namespace PSXRacing.EditorTools
                                            ChaseCamera.FrameOf(player), default, out eye, out rot, out float fov, out _);
                     cam.fieldOfView = fov;
                 }
+                cam.transform.SetPositionAndRotation(eye, rot);
 
+                // THE FRAME THE HUD IS LAID OUT IN: the shot's own size, so
+                // the canvases measure the picture they are drawn into.
+                var output = Object.FindAnyObjectByType<PSXCameraOutput>();
+                int h = output != null ? Mathf.Clamp(output.height, 120, 720) : 240;
+                int w = Mathf.RoundToInt(h * aspect) & ~1;
+                frame = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32);
+                frame.Create();
+                cam.targetTexture = frame;
+                // Every camera canvas onto the shot camera again, NOW that it
+                // has its target: a canvas sizes itself off its camera when it
+                // is pointed at it, and Open pointed them at a camera with no
+                // target (the batchmode game view, 640x480).
+                foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None))
+                {
+                    if (!c.isRootCanvas || c.renderMode != RenderMode.ScreenSpaceCamera) continue;
+                    c.worldCamera = null;
+                    c.worldCamera = cam;
+                }
+                Canvas.ForceUpdateCanvases();
+                foreach (var c in Object.FindObjectsByType<GaugeCluster>(FindObjectsSortMode.None)) c.Build();
+                RaceHUD hud = null;
+                foreach (var hh in Object.FindObjectsByType<RaceHUD>(FindObjectsSortMode.None))
+                {
+                    hud = hh;
+                    hh.PreviewMap();
+                    HudOnTop.Apply(hh.gameObject);
+                }
+                Canvas.ForceUpdateCanvases();
+                // the second pass: the distance text and the marks after the
+                // layout has settled
+                if (hud != null && hud.Minimap != null) hud.Minimap.PreviewNow();
+                Canvas.ForceUpdateCanvases();
                 if (hud != null && hud.Minimap != null)
-                    foreach (var g in hud.Minimap.Root.GetComponentsInChildren<Graphic>(true))
-                    {
-                        int verts = g is HudMinimap hm ? hm.LastVerts : g is MinimapMarks mk ? mk.LastVerts : -1;
-                        Debug.Log("[MinimapShots] " + label + " graphic " + g.name + " " + g.GetType().Name +
-                                  " active " + g.isActiveAndEnabled + " verts " + verts +
-                                  " canvas " + (g.canvas != null ? g.canvas.name + (g.canvas.isRootCanvas ? "(root)" : "(nested)") : "none") +
-                                  " layer " + g.gameObject.layer + " cull " + g.canvasRenderer.cull +
-                                  " depth " + g.canvasRenderer.absoluteDepth + " mat " + (g.material != null ? g.material.name : "none"));
-                    }
+                    Debug.Log("[MinimapShots] " + label + " road verts " + hud.Minimap.LastVerts +
+                              ", marks verts " + (hud.Minimap.Marks != null ? hud.Minimap.Marks.LastVerts : -1));
+
                 found = Check(cam, venue + "/" + label, w, h, hud);
                 PSXScreenshotTool.ShotAs(cam, "minimap_" + label, eye, rot);
-                // A/B for the nested road canvas (diagnostic): the same frame
-                // with the roads on the HUD's own canvas.
-                if (label == "roam_pc" && hud != null && hud.Minimap != null)
-                {
-                    var nested = hud.Minimap.GetComponent<Canvas>();
-                    if (nested != null)
-                    {
-                        Object.DestroyImmediate(nested);
-                        hud.Minimap.PreviewNow();
-                        Canvas.ForceUpdateCanvases();
-                        Debug.Log("[MinimapShots] roam_pc_flat road verts " + hud.Minimap.LastVerts);
-                        PSXScreenshotTool.ShotAs(cam, "minimap_roam_pc_flat", eye, rot);
-                    }
-                }
                 Debug.Log("[MinimapShots] " + label + " " + w + "x" + h + (touch ? " touch" : "") +
                           (cockpit ? " cockpit" : "") + " CLIP/OVERLAP " + found +
                           (hud != null && hud.Minimap != null && hud.Minimap.DistanceText != null
@@ -204,6 +193,19 @@ namespace PSXRacing.EditorTools
                 PSXScreenshotTool.AspectOverride = 0f;
             }
             return found;
+        }
+
+        /// <summary>The ground under a point: the highest collider that is not
+        /// part of <paramref name="skip"/>. NaN with nothing there.</summary>
+        static float GroundY(Vector3 at, Transform skip)
+        {
+            float best = float.NaN;
+            foreach (var hit in Physics.RaycastAll(new Vector3(at.x, at.y + 80f, at.z), Vector3.down, 600f))
+            {
+                if (hit.transform.IsChildOf(skip)) continue;
+                if (float.IsNaN(best) || hit.point.y > best) best = hit.point.y;
+            }
+            return best;
         }
 
         /// <summary>The touch panel up, as on a phone, on the shot camera.</summary>
