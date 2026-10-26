@@ -75,7 +75,8 @@ namespace PSXRacing.EditorTools
                 if (parts.Contains("drive")) ok &= Drive(dir, tag);
                 if (parts.Contains("street")) Street(dir, tag);
                 if (parts.Contains("wall")) Wall(dir, tag);
-                if (parts.Contains("paint")) Paint(dir, tag);
+                if (System.Array.IndexOf(parts.Split(','), "paint") >= 0) Paint(dir, tag);
+                if (parts.Contains("nightpaint")) NightPaint(dir, tag);
                 if (parts.Contains("gles")) ok &= Gles();
                 // the sky/cloud/Lit list (VolCloudsCheck), PSX/CarPaint on it too
                 if (parts.Contains("volclouds")) ok &= VolCloudsCheck.Run() == 0;
@@ -856,33 +857,7 @@ namespace PSXRacing.EditorTools
             foreach (var cc in Object.FindObjectsByType<CarController>(FindObjectsSortMode.None))
                 if (cc.gameObject != player) cc.gameObject.SetActive(false);
 
-            // THE SPOT: W Trade St, the point ~200 m from the square, heading in
-            float best = float.MaxValue; int bei = -1; float bs = 0f;
-            for (int ei = 0; ei < map.edges.Length; ei++)
-            {
-                var e = map.edges[ei];
-                if (e.link || e.name == null || !e.name.Contains("Trade") || !(e.name.StartsWith("West") || e.name.StartsWith("W "))) continue;
-                for (float s = 0f; s <= e.length; s += 4f)
-                {
-                    float d = Mathf.Abs(Vector2.Distance(e.PointAt(s), map.uptown) - EnvInt("PSX_PAINT_OUT", 200));
-                    if (d < best) { best = d; bei = ei; bs = s; }
-                }
-            }
-            if (bei < 0) { Debug.LogError("[ReflMap] paint: no West Trade Street"); return; }
-            var be = map.edges[bei];
-            Vector2 p2 = be.PointAt(bs), t2 = be.TangentAt(bs).normalized;
-            if (Vector2.Dot(t2, map.uptown - p2) < 0f) t2 = -t2;
-            Vector2 right = new Vector2(t2.y, -t2.x);
-            p2 += right * Mathf.Max(1.8f, be.width * 0.25f);
-            var pos = new Vector3(p2.x, be.YAt(bs), p2.y);
-            var rot = Quaternion.LookRotation(new Vector3(t2.x, 0f, t2.y), Vector3.up);
-            var world = Object.FindAnyObjectByType<PSXRacing.City.CityWorld>();
-            GameObject made = null;
-            if (world == null) { made = new GameObject("~paintWorld"); world = made.AddComponent<PSXRacing.City.CityWorld>(); }
-            world.EnsureRing(pos, 2);
-            Physics.SyncTransforms();
-            if (Physics.Raycast(pos + Vector3.up * 30f, Vector3.down, out var gh, 60f)) pos.y = gh.point.y;
-            Debug.Log($"[ReflMap] PAINT spot {be.name} e{bei} s {bs:0} -> ({pos.x:0.0},{pos.y:0.00},{pos.z:0.0}) heading {rot.eulerAngles.y:0}, {Vector2.Distance(p2, map.uptown):0} m from the square, tiles {world.LiveTiles}");
+            if (!TradeSpot(map, out var pos, out var rot, out var world, out var made)) return;
 
             var sun = GameObject.Find("Sun")?.GetComponent<Light>();
             var globals = Object.FindFirstObjectByType<PSXGlobals>();
@@ -999,6 +974,310 @@ namespace PSXRacing.EditorTools
                 if (made != null) { world.DropAll(); Object.DestroyImmediate(made); }
             }
             Debug.Log("[ReflMap] PAINT done");
+        }
+
+        /// <summary>THE SPOT of the paint parts: W Trade St, the point
+        /// PSX_PAINT_OUT (200) m from the square, heading in, in the right lane,
+        /// its city tiles built and the car set on the ground.</summary>
+        static bool TradeSpot(PSXRacing.City.CityMap map, out Vector3 pos, out Quaternion rot,
+                              out PSXRacing.City.CityWorld world, out GameObject made)
+        {
+            pos = Vector3.zero; rot = Quaternion.identity; world = null; made = null;
+            float best = float.MaxValue; int bei = -1; float bs = 0f;
+            for (int ei = 0; ei < map.edges.Length; ei++)
+            {
+                var e = map.edges[ei];
+                if (e.link || e.name == null || !e.name.Contains("Trade") || !(e.name.StartsWith("West") || e.name.StartsWith("W "))) continue;
+                for (float s = 0f; s <= e.length; s += 4f)
+                {
+                    float d = Mathf.Abs(Vector2.Distance(e.PointAt(s), map.uptown) - EnvInt("PSX_PAINT_OUT", 200));
+                    if (d < best) { best = d; bei = ei; bs = s; }
+                }
+            }
+            if (bei < 0) { Debug.LogError("[ReflMap] paint: no West Trade Street"); return false; }
+            var be = map.edges[bei];
+            Vector2 p2 = be.PointAt(bs), t2 = be.TangentAt(bs).normalized;
+            if (Vector2.Dot(t2, map.uptown - p2) < 0f) t2 = -t2;
+            Vector2 right = new Vector2(t2.y, -t2.x);
+            p2 += right * Mathf.Max(1.8f, be.width * 0.25f);
+            pos = new Vector3(p2.x, be.YAt(bs), p2.y);
+            rot = Quaternion.LookRotation(new Vector3(t2.x, 0f, t2.y), Vector3.up);
+            world = Object.FindAnyObjectByType<PSXRacing.City.CityWorld>();
+            if (world == null) { made = new GameObject("~paintWorld"); world = made.AddComponent<PSXRacing.City.CityWorld>(); }
+            world.EnsureRing(pos, 2);
+            Physics.SyncTransforms();
+            if (Physics.Raycast(pos + Vector3.up * 30f, Vector3.down, out var gh, 60f)) pos.y = gh.point.y;
+            Debug.Log($"[ReflMap] PAINT spot {be.name} e{bei} s {bs:0} -> ({pos.x:0.0},{pos.y:0.00},{pos.z:0.0}) heading {rot.eulerAngles.y:0}, {Vector2.Distance(p2, map.uptown):0} m from the square, tiles {world.LiveTiles}");
+            return true;
+        }
+
+        // ------------------------------------------------------------------
+        //  NIGHT PAINT: a rival in the player's low beams, a car under a lamp
+        // ------------------------------------------------------------------
+        /// <summary>The owner's frame (2026-10-26, Blue Ridge, rain, bumper cam:
+        /// the purple rival ahead in his low beams wore one flat beige panel -
+        /// "headlights ... make objects appear matte and flat"). Per venue
+        /// (PSX_NP_VENUES, default BlueRidge,Charlotte) the player (in the city a
+        /// black supra_a80, PSX_NP_PLAYER; elsewhere the scene's car) with a rival
+        /// (PSX_NP_RIVAL, default supra_a80:purple) PSX_NP_GAP (11) m ahead in
+        /// the same lane, both lit; per condition the chase and bumper views
+        /// (PSX_NP_VIEWS) with BOTH cars at gloss 1 and 0.3: np_&lt;tag&gt;_&lt;venue&gt;_&lt;cond&gt;_&lt;view&gt;_g&lt;gloss&gt;.png
+        /// (the frame) and ..._box.png (the rival's box, or the player's under a
+        /// lamp, x2). Blue Ridge: night, night rain, dusk rain. Charlotte: night
+        /// on W Trade St, the player under a street lamp dry and in rain, and a
+        /// clear noon (the day frame that must not change). At night dry, gloss
+        /// 1, also that box's raw half-float channels (_dNN.f32: 0 final, 3 the
+        /// light before the knee, 8 lit, 11/12 the car mask, 13 the glints) and
+        /// the frame with the beam cones hidden (_nocone.png + _d00nocone.f32).</summary>
+        static void NightPaint(string dir, string tag)
+        {
+            foreach (string vid in Env("PSX_NP_VENUES", "BlueRidge,Charlotte").Split(','))
+            {
+                var def = System.Array.Find(TrackCatalog.All, d => d.id == vid.Trim());
+                if (def == null || !PSXScreenshotTool.Open(def, out var cam, out var player)) { Debug.LogError("[ReflMap] np: " + vid + " did not open"); continue; }
+                try { NightPaintVenue(dir, tag, def, cam, player); }
+                catch (System.Exception e) { Debug.LogError("[ReflMap] np " + vid + ": " + e); }
+            }
+            Debug.Log("[ReflMap] NIGHTPAINT done");
+        }
+
+        static void NightPaintVenue(string dir, string tag, TrackCatalog.TrackDef def, Camera cam, GameObject player)
+        {
+            bool city = def.id == "Charlotte";
+            foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None)) c.enabled = false;
+            foreach (var cv in Object.FindObjectsByType<CockpitView>(FindObjectsSortMode.None)) cv.PreviewShow(false);
+            SunGlareFx.PreviewSet(null, 0f, 0f, true);
+            foreach (var cc in Object.FindObjectsByType<CarController>(FindObjectsSortMode.None))
+                if (cc.gameObject != player) cc.gameObject.SetActive(false);
+            var car = player.transform;
+            Vector3 pos = car.position; Quaternion rot = Quaternion.LookRotation(Vector3.ProjectOnPlane(car.forward, Vector3.up), Vector3.up);
+            PSXRacing.City.CityWorld world = null; GameObject made = null;
+            if (city)
+            {
+                var map = PSXRacing.City.CityMap.Get();
+                PSXRacingBuilder.EnsureCityTextures();
+                if (map == null || !TradeSpot(map, out pos, out rot, out world, out made)) return;
+            }
+            var sun = GameObject.Find("Sun")?.GetComponent<Light>();
+            var globals = Object.FindFirstObjectByType<PSXGlobals>();
+            const int W = 1600, H = 900;
+            float gap = EnvInt("PSX_NP_GAP", 11);
+
+            // THE RIVAL: the player's car cloned, dressed, lit
+            var rivalGo = Object.Instantiate(player);
+            rivalGo.name = "NP Rival";
+            var rival = rivalGo.transform;
+            string[] rs = Env("PSX_NP_RIVAL", "supra_a80:purple").Split(':');
+            var rdef = CarModelLibrary.Load(rs[0]);
+            var rbody = rivalGo.GetComponentInChildren<CarBody>(true);
+            if (rdef != null && rbody != null)
+                rbody.Apply(rdef, Mathf.Max(0, rs.Length > 1 ? System.Array.FindIndex(rdef.skinNames, n => n != null && n.Contains(rs[1])) : 0));
+            var body = player.GetComponentInChildren<CarBody>(true);
+            // the player's car: dark paint in the city (PSX_NP_PLAYER), where a
+            // white one under the lamp field shows a lamp's image at no contrast
+            string ps = Env("PSX_NP_PLAYER", city ? "supra_a80:black" : "");
+            if (ps.Length > 0 && body != null)
+            {
+                string[] pp = ps.Split(':');
+                var pdef = CarModelLibrary.Load(pp[0]);
+                if (pdef != null)
+                    body.Apply(pdef, Mathf.Max(0, pp.Length > 1 ? System.Array.FindIndex(pdef.skinNames, n => n != null && n.Contains(pp[1])) : 0));
+            }
+
+            int oldWeather = RaceHandoff.WeatherOverride;
+            var keepPixels = PSXQuality.Current;
+            var conds = city
+                ? new (string name, int hour, Weather weather, bool lamp)[]
+                  {
+                      ("night", TimeOfDay.Night, Weather.Clear, false),
+                      ("lamp", TimeOfDay.Night, Weather.Clear, true),
+                      ("lamprain", TimeOfDay.Night, Weather.Rain, true),
+                      ("noon", TimeOfDay.Noon, Weather.Clear, false),
+                  }
+                : new (string name, int hour, Weather weather, bool lamp)[]
+                  {
+                      ("night", TimeOfDay.Night, Weather.Clear, false),
+                      ("nightrain", TimeOfDay.Night, Weather.Rain, false),
+                      ("duskrain", TimeOfDay.Dusk, Weather.Rain, false),
+                  };
+            try
+            {
+                PSXQuality.Current = PSXPixels.HD;
+                foreach (var cd in conds)
+                {
+                    RaceHandoff.WeatherOverride = (int)cd.weather;
+                    TimeOfDay.Apply(cd.hour, sun);
+                    NightGlow.PreviewAll(TimeOfDay.At(cd.hour).lightsOn);
+                    if (globals != null) globals.Apply();
+                    bool wet = cd.weather == Weather.Rain;
+                    Shader.SetGlobalFloat(PaintGloss.CarWetId, wet ? 1f : 0f);
+                    Shader.SetGlobalVector(PaintGloss.CarDropsId, new Vector4(wet ? 1f : 0f, 0f, 0f, 0f));
+                    // the spot: as found, or (lamp) moved so a street lamp stands
+                    // just off the player's line ahead (below)
+                    Vector3 p = pos;
+                    Vector3 fwd = rot * Vector3.forward;
+                    if (cd.lamp)
+                    {
+                        car.SetPositionAndRotation(pos, rot);
+                        StreetLights.Push(pos + Vector3.up * 2f, fwd);
+                        int n = Mathf.RoundToInt(Shader.GetGlobalFloat("_PSXLampCount"));
+                        var lp = Shader.GetGlobalVectorArray("_PSXLampPos");
+                        var lc = Shader.GetGlobalVectorArray("_PSXLampColor");
+                        // the street lamp nearest the car's own line, 0-80 m up the road,
+                        // in the roof's and the boot's mirror from the chase eye...
+                        float bestD = float.MaxValue, bestAlong = 0f; Vector3 lamp = Vector3.zero;
+                        Vector3 side = Vector3.Cross(Vector3.up, fwd);
+                        for (int i = 0; lp != null && lc != null && i < n && i < lp.Length; i++)
+                        {
+                            if (lc[i].w > 0.5f) continue;   // a tail lamp
+                            Vector3 lv = (Vector3)lp[i] - pos;
+                            float along = Vector3.Dot(lv, fwd), lat = Mathf.Abs(Vector3.Dot(lv, side));
+                            if (along < 0f || along > 80f || lat >= bestD) continue;
+                            bestD = lat; bestAlong = along; lamp = lp[i];
+                        }
+                        // ...14 m ahead, the car moved over toward it (at most 3.5 m)
+                        // until it stands within 2.5 m of the car's line
+                        float lateral = 0f;
+                        if (bestD < 40f)
+                        {
+                            float signedLat = Vector3.Dot(lamp - pos, side);
+                            lateral = Mathf.Sign(signedLat) * Mathf.Clamp(Mathf.Abs(signedLat) - 2.5f, 0f, 3.5f);
+                            p = pos + fwd * (bestAlong - 14f) + side * lateral;
+                        }
+                        Debug.Log($"[ReflMap] NP lamp: {n} in the table, the street lamp nearest the car's line {bestD:0.0} m to the side, {lamp.y - pos.y:0.0} m up, at {lamp}; car slid {bestAlong - 14f:0.0} m along, {lateral:0.0} m over, to {p}");
+                    }
+                    if (Physics.Raycast(p + Vector3.up * 30f, Vector3.down, out var g0, 60f)) p.y = g0.point.y;
+                    car.SetPositionAndRotation(p, rot);
+                    Vector3 rp = p + fwd * gap;
+                    if (city) world.EnsureRing(rp, 2);
+                    Physics.SyncTransforms();
+                    if (Physics.Raycast(rp + Vector3.up * 30f, Vector3.down, out var g1, 60f)) rp.y = g1.point.y;
+                    rival.SetPositionAndRotation(rp, rot);
+                    Physics.SyncTransforms();
+                    foreach (var l in new[] { player.GetComponent<CarLights>(), rivalGo.GetComponent<CarLights>() })
+                        if (l != null) l.PreviewBuild(TimeOfDay.At(cd.hour).lightsOn);
+                    var frame = ChaseCamera.FrameOf(player);
+                    var views = cd.name == "noon" ? new[] { ChaseCamera.View.Chase } : new[] { ChaseCamera.View.Chase, ChaseCamera.View.Bumper };
+                    // PSX_NP_VIEWS: chase,bumper (default) or either alone
+                    string vf = Env("PSX_NP_VIEWS", "chase,bumper");
+                    views = System.Array.FindAll(views, v => vf.Contains(v == ChaseCamera.View.Chase ? "chase" : "bumper"));
+                    foreach (var view in views)
+                    {
+                        Vector3 eye; Quaternion look; float fov, shift;
+                        if (view == ChaseCamera.View.Chase)
+                            ChaseCamera.SteadyPose(view, W / (float)H, 0f, ChaseCamera.DefaultSpeedFullMps, car, frame,
+                                                   ChaseCamera.LiveDials(), out eye, out look, out fov, out shift);
+                        else
+                        {
+                            // the bumper cam as ChaseCamera mounts it (SteadyPose is the chase views')
+                            var bc = player.GetComponent<BoxCollider>();
+                            Vector3 mount = ChaseCamera.MountOffset(view, bc != null ? bc.center : new Vector3(0f, 0.72f, 0.05f),
+                                                                    bc != null ? bc.size : new Vector3(1.72f, 1.0f, 4.1f),
+                                                                    body != null ? body.Def : null, body != null ? body.LengthScale : 1f,
+                                                                    body != null ? body.BodyLift : 0f, false);
+                            eye = car.TransformPoint(mount);
+                            look = car.rotation * Quaternion.Euler(ChaseCamera.MountPitch(view), 0f, 0f);
+                            fov = ChaseCamera.FOVFor(view, 58f, 0f, ChaseCamera.DefaultSpeedFullMps, W / (float)H);
+                            shift = 0f;
+                        }
+                        cam.transform.SetPositionAndRotation(eye, look);
+                        cam.fieldOfView = fov;
+                        cam.ResetProjectionMatrix();
+                        cam.aspect = W / (float)H;
+                        if (Mathf.Abs(shift) > 1e-5f) cam.projectionMatrix = ChaseCamera.ShiftedProjection(fov, W / (float)H, cam.nearClipPlane, cam.farClipPlane, shift);
+                        if (city) world.RefreshSkyline(cam);
+                        if (globals != null)
+                        {
+                            Vector3 toSun = sun != null ? -sun.transform.forward : Vector3.up;
+                            globals.adapt = ExposureAdapt.SteadyFor(eye, car, toSun, globals.night, null, def, globals.dayFill);
+                            globals.Apply();
+                        }
+                        CarLights.PushGlobals();
+                        SunShadows.RenderFor(cam);
+                        CarReflections.CaptureNow(car, cam);
+                        // the box: the rival's shell on screen (the player's under a lamp in the chase view)
+                        var boxR = rbody != null && rbody.bodyFilter != null ? rbody.bodyFilter.GetComponent<Renderer>() : null;
+                        var bb = boxR != null ? boxR.bounds : new Bounds(rp + Vector3.up * 0.7f, new Vector3(2f, 1.4f, 4.5f));
+                        // (under a lamp, from the chase eye: both cars)
+                        var pr = body != null && body.bodyFilter != null ? body.bodyFilter.GetComponent<Renderer>() : null;
+                        if (cd.lamp && view == ChaseCamera.View.Chase && pr != null) bb.Encapsulate(pr.bounds);
+                        RectInt box = ScreenBox(cam, bb, W, H, 12);
+                        string vname = view == ChaseCamera.View.Chase ? "chase" : "bumper";
+                        foreach (float g in cd.name == "noon" ? new[] { 1f } : new[] { 1f, 0.3f })
+                        {
+                            PaintGloss.WriteAll(car, g);
+                            PaintGloss.WriteAll(rival, g);
+                            string stem = $"np_{tag}_{def.id}_{cd.name}_{vname}_g{Mathf.RoundToInt(g * 100):000}";
+                            ShootBoth(cam, W, H, box, Path.Combine(dir, stem));
+                            if (!(g >= 0.999f && (cd.name == "night" || cd.name == "lamp"))) continue;
+                            foreach (int dbg in new[] { 0, 3, 8, 11, 12, 13 })
+                            {
+                                Shader.SetGlobalFloat("_PSXPaintDebug", dbg);
+                                RawCrop(cam, W, H, box.x, box.y, box.width, box.height, $"{Path.Combine(dir, stem)}_d{dbg:00}.f32");
+                            }
+                            Shader.SetGlobalFloat("_PSXPaintDebug", 0f);
+                            // the beam in the air: the same frame with the cones hidden
+                            var cones = new List<Renderer>();
+                            foreach (var r in Object.FindObjectsByType<Renderer>(FindObjectsSortMode.None))
+                                if (r.enabled && r.sharedMaterial != null && r.sharedMaterial.shader != null && r.sharedMaterial.shader.name == "PSX/Beam") { cones.Add(r); r.enabled = false; }
+                            ShootBoth(cam, W, H, box, Path.Combine(dir, stem + "_nocone"));
+                            RawCrop(cam, W, H, box.x, box.y, box.width, box.height, $"{Path.Combine(dir, stem)}_d00nocone.f32");
+                            foreach (var r in cones) r.enabled = true;
+                            Debug.Log($"[ReflMap] NP {stem}: box {box}, {cones.Count} beam cones");
+                        }
+                        Debug.Log($"[ReflMap] NP {def.id} {cd.name} {vname}: eye {eye} fov {fov:0.0}, exposure {(globals != null ? globals.exposure : 1f):0.00} adapt {(globals != null ? globals.adapt : 1f):0.00} night {(globals != null ? globals.night : 0f):0.00} env {Shader.GetGlobalFloat("_PSXEnvOn"):0} heads {CarLights.PushedCount} lamps {StreetLights.PushedCount} field {StreetLights.FieldActive}");
+                    }
+                }
+            }
+            finally
+            {
+                Shader.SetGlobalFloat("_PSXPaintDebug", 0f);
+                Shader.SetGlobalFloat(PaintGloss.CarWetId, 0f);
+                Shader.SetGlobalVector(PaintGloss.CarDropsId, Vector4.zero);
+                RaceHandoff.WeatherOverride = oldWeather;
+                PSXQuality.Current = keepPixels;
+                cam.ResetProjectionMatrix();
+                CarReflections.Off();
+                Object.DestroyImmediate(rivalGo);
+                if (made != null) { world.DropAll(); Object.DestroyImmediate(made); }
+            }
+        }
+
+        /// <summary>A world box's rectangle on a w x h frame (bottom-left
+        /// origin, as ReadPixels and GetPixels count), padded, clamped.</summary>
+        static RectInt ScreenBox(Camera cam, Bounds b, int w, int h, int pad)
+        {
+            float x0 = float.MaxValue, y0 = float.MaxValue, x1 = float.MinValue, y1 = float.MinValue;
+            for (int i = 0; i < 8; i++)
+            {
+                var c = b.center + Vector3.Scale(b.extents, new Vector3((i & 1) == 0 ? -1 : 1, (i & 2) == 0 ? -1 : 1, (i & 4) == 0 ? -1 : 1));
+                var v = cam.WorldToViewportPoint(c);
+                if (v.z <= 0.05f) continue;
+                x0 = Mathf.Min(x0, v.x * w); x1 = Mathf.Max(x1, v.x * w);
+                y0 = Mathf.Min(y0, v.y * h); y1 = Mathf.Max(y1, v.y * h);
+            }
+            if (x1 < x0) return new RectInt(w / 2 - 100, h / 2 - 60, 200, 120);
+            int ix0 = Mathf.Clamp(Mathf.FloorToInt(x0) - pad, 0, w - 8), iy0 = Mathf.Clamp(Mathf.FloorToInt(y0) - pad, 0, h - 8);
+            int ix1 = Mathf.Clamp(Mathf.CeilToInt(x1) + pad, ix0 + 8, w), iy1 = Mathf.Clamp(Mathf.CeilToInt(y1) + pad, iy0 + 8, h);
+            return new RectInt(ix0, iy0, ix1 - ix0, iy1 - iy0);
+        }
+
+        /// <summary>The frame as the game shows it (stem.png) and the box,
+        /// doubled with no filtering (stem_box.png).</summary>
+        static void ShootBoth(Camera cam, int w, int h, RectInt box, string stem)
+        {
+            var tex = Shoot(cam, w, h);
+            File.WriteAllBytes(stem + ".png", tex.EncodeToPNG());
+            var src = tex.GetPixels(box.x, box.y, box.width, box.height);
+            var crop = new Texture2D(box.width * 2, box.height * 2, TextureFormat.RGBA32, false);
+            var dst = new Color[box.width * 2 * box.height * 2];
+            for (int y = 0; y < box.height * 2; y++)
+                for (int x = 0; x < box.width * 2; x++)
+                    dst[y * box.width * 2 + x] = src[(y / 2) * box.width + x / 2];
+            crop.SetPixels(dst);
+            crop.Apply();
+            File.WriteAllBytes(stem + "_box.png", crop.EncodeToPNG());
+            Object.DestroyImmediate(tex); Object.DestroyImmediate(crop);
         }
 
         /// <summary>The camera into a half-float target, no dither, no grade:

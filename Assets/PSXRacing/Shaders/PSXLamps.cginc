@@ -159,6 +159,23 @@ float PSXFieldStreetY(float3 wpos)
     return f.a > 0.02 ? _PSXLampFieldY.x + f.b / f.a - 8.5 : _PSXLampFieldY.x - 1.2;
 }
 
+// THE MIRROR IMAGE OF A LAMP (the car paint, specOn 2 below): see the block
+// over the same function in PSXHeadlights.cginc. Defined in both, guarded.
+#ifndef PSX_LAMP_IMAGE_DEFINED
+#define PSX_LAMP_IMAGE_DEFINED
+float PSXLampImage(float3 R, float3 l, float dist, float lensR, float rough)
+{
+    float aL = lensR / max(dist, 0.05);
+    float a2 = max(aL * aL + rough * rough, 1e-7);
+    float3 dv = R - l;
+    float q = 1.0 + dot(dv, dv) / a2;
+    return (aL * aL / a2) / (q * q);
+}
+#endif
+// The lens a coat mirrors (m): a cobra head's bowl, a tail lamp's lens.
+#define LAMP_LENS_STREET 0.25
+#define LAMP_LENS_POINT  0.12
+
 float  _PSXLampCount;
 float4 _PSXLampPos[PSX_MAX_LAMPS];    // xyz lamp head (world), w = pool radius (m)
 float4 _PSXLampColor[PSX_MAX_LAMPS];  // rgb = LINEAR colour x intensity x edge fade, w = kind (0 street: aimed down, 1 point/omni)
@@ -168,9 +185,12 @@ float4 _PSXLampColor[PSX_MAX_LAMPS];  // rgb = LINEAR colour x intensity x edge 
 /// road, the car paint) walks the table once rather than twice.
 ///   facingOn 1: the diffuse takes the surface's N.L (a surface).
 ///   facingOn 0: it does not (a raindrop, a particle, a volume - PSXLampsAt).
-///   specOn   1: also the Blinn-Phong glints at `power`; 0 skips them. Both
-///            flags are literals at every call site, so the branches fold
-///            away at compile time; where they do not, they are uniform.
+///   specOn   1: also the Blinn-Phong glints at `power`; 0 skips them; 2
+///            the LENS'S MIRROR IMAGE (PSXLampImage) with `power` read as the
+///            coat's roughness in radians and `V` as the mirror ray itself -
+///            the car paint. All the flags are
+///            literals at every call site, so the branches fold away at
+///            compile time; where they do not, they are uniform.
 void PSXLampsCore(float3 wpos, float3 N, float3 V, float power, float specOn, float facingOn,
                   out float3 diff, out float3 spec)
 {
@@ -207,9 +227,15 @@ void PSXLampsCore(float3 wpos, float3 N, float3 V, float power, float specOn, fl
 
         if (specOn > 0.5)
         {
-            float3 hv = l + V;
-            float3 H = hv * rsqrt(max(dot(hv, hv), 1e-6));
-            float nh = max(saturate(dot(N, H)), 1e-4);
+            float nh;
+            if (specOn > 1.5)
+                nh = PSXLampImage(V, l, d, lerp(LAMP_LENS_POINT, LAMP_LENS_STREET, street), power);   // (V IS the mirror ray here)
+            else
+            {
+                float3 hv = l + V;
+                float3 H = hv * rsqrt(max(dot(hv, hv), 1e-6));
+                nh = pow(max(saturate(dot(N, H)), 1e-4), power);
+            }
             // The reflection outlives the pool by LAMP_SPEC_REACH radii.
             float reach = 1.0 - saturate(d / (radius * LAMP_SPEC_REACH));
             reach *= reach;
@@ -228,7 +254,7 @@ void PSXLampsCore(float3 wpos, float3 N, float3 V, float power, float specOn, fl
             // which is also where a real reflection ends (at the horizon of
             // the surface, sharply).
             float seen = step(0.0, dot(N, l));
-            spec += C.rgb * (pow(nh, power) * reach * coneS * nearCut * seen);
+            spec += C.rgb * (nh * reach * coneS * nearCut * seen);
         }
     }
 }
@@ -238,6 +264,14 @@ void PSXLampsBoth(float3 wpos, float3 N, float3 V, float power, float specOn,
                   out float3 diff, out float3 spec)
 {
     PSXLampsCore(wpos, N, V, power, specOn, 1.0, diff, spec);
+}
+
+/// The car paint's walk: the diffuse on `N`, and each lamp's mirror image
+/// along the mirror ray `R` in a coat of roughness `rough` (radians) - see
+/// PSXLampImage.
+void PSXLampsPaint(float3 wpos, float3 N, float3 R, float rough, out float3 diff, out float3 spec)
+{
+    PSXLampsCore(wpos, N, R, rough, 2.0, 1.0, diff, spec);
 }
 
 /// Light arriving at world point `wpos` on a surface with normal `N` from

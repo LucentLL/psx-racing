@@ -154,9 +154,57 @@ float PSXBeamAlbedoGain(float3 albedo, float3 N)
 //  once; every variant is this one walk with literal switches.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+//  THE MIRROR IMAGE OF A LAMP, for the car paint (the night-paint pass,
+//  2026-10-26). The owner, behind a purple rival in his low beams at Linn
+//  Cove: "headlights ... do not reflect in the paint, but instead make objects
+//  appear matte and flat". Its rear bumper wore ONE flat beige panel, and the
+//  beige was the glint above, measured off his own frame: linear (0.78, 0.56,
+//  0.27) is Halogen.linear exactly, at the paint's shoulder. Blinn-Phong at
+//  pow 120 is a lobe about fourteen degrees across in the mirror direction,
+//  and a car's rear 10 m ahead is ten degrees wide - with the lamp beside the
+//  eye (chase and bumper cams sit on the lamp line) every texel of a flat
+//  panel facing it is "at the mirror angle", so the whole panel took the
+//  lamp's colour at full gain, the paint's own colour nowhere.
+//
+//  A mirror shows the LENS: a disc lensR / dist radians across (a headlamp
+//  at 10 m: half a degree), blurred by the coat's roughness, at the lens's own
+//  brightness. So this is a lobe on the angle between the mirror ray R and
+//  the lamp, of radius a = sqrt(lens^2 + rough^2), keeping its energy (the
+//  peak goes as lens^2 / a^2): a clean coat shows a small hot spot, a dull one
+//  a wide faint glow of the same total light. The lobe is Trowbridge-Reitz's
+//  (GGX's) shape, 1 / (1 + t^2/a^2)^2, not a Gaussian: a Gaussian that sharp
+//  never lands on a low-poly panel (measured: a rival's flat rear, whose
+//  normals are a degree or two off square, showed no image at all), and the
+//  long tail is what a real coat's haze draws - a hot spot with a soft glow
+//  round it that dies across the panel, never one tone over it. Returns the
+//  share of the lens's brightness seen (<= 1); the includer's gain is the
+//  lens's brightness. Shared with PSXLamps.cginc (guarded).
+// ---------------------------------------------------------------------------
+#ifndef PSX_LAMP_IMAGE_DEFINED
+#define PSX_LAMP_IMAGE_DEFINED
+float PSXLampImage(float3 R, float3 l, float dist, float lensR, float rough)
+{
+    float aL = lensR / max(dist, 0.05);
+    float a2 = max(aL * aL + rough * rough, 1e-7);
+    float3 dv = R - l;   // |R - l|^2 = 2 - 2 cos: the angle squared, without cos's cancellation
+    float q = 1.0 + dot(dv, dv) / a2;
+    return (aL * aL / a2) / (q * q);
+}
+#endif
+
+// A headlamp lens's radius (m) as the paint mirrors it (PSXLampImage).
+#define HEAD_LENS_R  0.09
+
 /// The shared walk. facingOn 0 drops the surface's facing term (a point in
-/// the air); specOn 0 skips the glints. Literals at every call site, so both
-/// branches fold at compile time.
+/// the air); 2 makes it a true Lambert (the car paint: a body's panels shade
+/// by how square they stand to the lamp - the road's saturating `facing`
+/// lit every panel turned even slightly toward a beam with the whole plateau,
+/// one flat tone over a curved boot). specOn 0 skips the glints; 2 makes
+/// them the LENS'S MIRROR IMAGE (PSXLampImage above) with `power` read as the
+/// coat's roughness in radians and `V` read as the MIRROR RAY itself (the
+/// paint bends its own: CarPaint's crown). Literals at every call site, so
+/// the branches fold at compile time.
 void PSXHeadlightsCore(float3 wpos, float3 N, float3 V, float power, float specOn, float facingOn,
                        out float3 diff, out float3 spec)
 {
@@ -195,15 +243,22 @@ void PSXHeadlightsCore(float3 wpos, float3 N, float3 V, float power, float specO
                     * (1.0 - smoothstep(BEAM_SPILL_FROM, BEAM_SPILL_TO, dist));
         // Grazing surfaces take the whole beam; back faces none.
         float nl = dot(N, -d) / max(dist, 0.05);
-        float facing = facingOn > 0.5 ? smoothstep(BEAM_FACE_LO, BEAM_FACE_HI, nl) : 1.0;
+        float facing = facingOn > 1.5 ? saturate(nl)
+                     : facingOn > 0.5 ? smoothstep(BEAM_FACE_LO, BEAM_FACE_HI, nl) : 1.0;
         diff += _PSXHeadColor[j].rgb * ((spread * cut * att + spill) * front * facing);
 
         if (specOn > 0.5)
         {
             float3 l = -d / max(dist, 0.05);
-            float3 hv = l + V;
-            float3 H = hv * rsqrt(max(dot(hv, hv), 1e-6));
-            float nh = max(saturate(dot(N, H)), 1e-4);
+            float nh;
+            if (specOn > 1.5)
+                nh = PSXLampImage(V, l, dist, HEAD_LENS_R, power);   // (V IS the mirror ray here)
+            else
+            {
+                float3 hv = l + V;
+                float3 H = hv * rsqrt(max(dot(hv, hv), 1e-6));
+                nh = pow(max(saturate(dot(N, H)), 1e-4), power);
+            }
             float reach = 1.0 - saturate(dist / (range * 1.6));
             reach *= reach;
             // Only a lamp on the seen side of the surface is mirrored in it
@@ -213,7 +268,7 @@ void PSXHeadlightsCore(float3 wpos, float3 N, float3 V, float power, float specO
             // a lamp just under the plane. A hard step - every lamp above the
             // plane keeps its whole grazing streak.
             float seen = step(0.0, dot(N, l));
-            spec += _PSXHeadColor[j].rgb * (max(_PSXHeadColor[j].w, 0.0) * pow(nh, power) * spread * front * reach * seen);
+            spec += _PSXHeadColor[j].rgb * (max(_PSXHeadColor[j].w, 0.0) * nh * spread * front * reach * seen);
         }
     }
 }
@@ -234,6 +289,14 @@ void PSXHeadlightsBoth(float3 wpos, float3 N, float3 V, float power, float specO
                        out float3 diff, out float3 spec)
 {
     PSXHeadlightsCore(wpos, N, V, power, specOn, 1.0, diff, spec);
+}
+
+/// The car paint's walk: Lambert diffuse on `N`, and each lens's mirror image
+/// along the mirror ray `R` in a coat of roughness `rough` (radians) - see
+/// PSXLampImage.
+void PSXHeadlightsPaint(float3 wpos, float3 N, float3 R, float rough, out float3 diff, out float3 spec)
+{
+    PSXHeadlightsCore(wpos, N, R, rough, 2.0, 2.0, diff, spec);
 }
 
 /// The glare of each lamp seen in a glossy surface (see the block above).
