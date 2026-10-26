@@ -962,6 +962,27 @@ namespace PSXRacing.EditorTools
                             }
                             Shader.SetGlobalFloat("_PSXPaintDebug", 0f);
                         }
+                        // the flank (the owner's "front to back"): a rear three-quarter
+                        // from the kerb side, clean and dull
+                        if (cd.name != "sunset")
+                        {
+                            cam.ResetProjectionMatrix();
+                            cam.fieldOfView = 40f;
+                            Vector3 e34 = car.TransformPoint(new Vector3(2.6f, 1.45f, -4.4f));
+                            cam.transform.SetPositionAndRotation(e34, Quaternion.LookRotation(car.TransformPoint(new Vector3(0f, 0.65f, 0.3f)) - e34));
+                            SunShadows.RenderFor(cam);
+                            CarReflections.CaptureNow(car, cam);
+                            foreach (float g in new[] { 1f, 0f })
+                            {
+                                PaintGloss.WriteAll(car, g);
+                                var tex = Shoot(cam, W, H);
+                                var crop = new Texture2D(CW, CH, TextureFormat.RGBA32, false);
+                                crop.SetPixels(tex.GetPixels((W - CW) / 2, (H - CH) / 2, CW, CH));
+                                crop.Apply();
+                                File.WriteAllBytes(Path.Combine(dir, $"paint_{tag}_{carTag}_{cd.name}34_g{Mathf.RoundToInt(g * 100):000}.png"), crop.EncodeToPNG());
+                                Object.DestroyImmediate(tex); Object.DestroyImmediate(crop);
+                            }
+                        }
                         Debug.Log($"[ReflMap] PAINT {carTag} {cd.name}: crop ({cx},{cy}) {CW}x{CH} of {W}x{H}, eye {eye} fov {fov:0.0} shift {shift:0.000}, exposure {(globals != null ? globals.exposure : 1f):0.00} adapt {(globals != null ? globals.adapt : 1f):0.00} paintDay {(globals != null ? globals.paintDay : 0f):0} env {Shader.GetGlobalFloat("_PSXEnvOn"):0}");
                     }
                     PaintGloss.WriteAll(car, 1f);

@@ -314,6 +314,45 @@ Shader "PSX/CarPaint"
             #define WET_COAT_F0        0.12   // the rain's water film: stronger face-on...
             #define WET_COAT_FMAX      0.80   // ...near a mirror at the edge...
             #define WET_COAT_LOD      -0.4    // ...and sharp, whatever is under it
+            // THE CLEAR COAT BY DAY (owner, 2026-10-26, a new R34 with every
+            // fault cleared on West Trade St at a clear noon: "How come when
+            // the car is clean the paint still doesn't reflect? ... You can see
+            // reflection on the windows, but not the paint" - and in rain the
+            // roof did). The coat above reflected a fifth of the world on the
+            // roof at chase height, the sky in it at 0.78 of its brightness
+            // (DAY_SKY_EXPOSE) and wearing 45% of the paint's colour
+            // (PAINT_METALLIC): a blue car added ~6% of a blue sky to blue
+            // paint. A clear coat - and a water film - is a DIELECTRIC: what it
+            // reflects is the world's colour, at the world's brightness, and
+            // its darks are dark. So by day (the sunlit and low-sun hours:
+            // _PSXPaintWorld.x; dusk and night keep the signed-off look) a
+            // clean or wet coat gets these instead, in proportion to how
+            // clean (gloss) or wet it is; a dull coat keeps the old mix.
+            // Measured on the owner's spot (ReflectionMapCheck "paint", the mix
+            // rebuilt offline from the raw channels): the R34's boot sat at
+            // k 0.08-0.11 and its roof at 0.2 from the chase eye, and the paint
+            // there is lit to about half of what the lacquer sees - so a
+            // physical 4-10% could only ever tint it. Where the coat mirrors
+            // something BRIGHT (the sky, a cloud, a sunlit wall) its rise to
+            // the edge is a softer power than Schlick's 5 (the boot ~0.4, the
+            // roof ~0.65, a door seen square still 0.12); where it mirrors the
+            // road or a dark wall Schlick's own keeps the paint's colour (at the
+            // soft power everywhere a Charger's flank went brick-dark from a
+            // rear quarter, and a white car grey). The HDR stretch that made a pale
+            // sky white-hot on every roof is cut to CLEAR_HDR of itself, and
+            // the darks get their weight back, so the reflection DRAWS - the
+            // horizon, the towers, the trees - instead of washing the panel.
+            #define CLEAR_F0           0.12   // face-on...
+            #define CLEAR_FMAX         0.95   // ...and at the silhouette...
+            #define CLEAR_POW          2.0    // ...rising as (1 - N.V)^this (Schlick's 5 for a dull coat)
+            #define CLEAR_BRIGHT_LO    0.10   //   ...where what it mirrors is bright: from this luminance (the
+            #define CLEAR_BRIGHT_HI    0.35   //   panorama's, as on screen) to this; a dark wall keeps Schlick's 5
+            #define CLEAR_HDR          0.40   // the share of ENV_HDR's stretch of the brights it keeps
+            #define CLEAR_TINT         0.08   // the flake's share of the colour under it (PAINT_METALLIC for a dull coat)
+            #define CLEAR_SKY_EXPOSE   0.00   // the day's dimming of the sky in it (DAY_SKY_EXPOSE for a dull coat)
+            #define CLEAR_CONTRAST     1.50   // the world's darks pushed down in it (a power on the luminance under
+            #define CLEAR_PIVOT        0.35   //   this pivot; the brights are left alone): a tower, a tree, a lamp
+                                              //   post reads as a dark shape against the sky, not as a dimmer sky
             #define LOW_GLOW_LO        0.70   // a light below the horizon (a headlight, a lamp) is not ground:
             #define LOW_GLOW_HI        1.00   //   from this max channel up it passes as it is
             // HEADROOM. The faces are LDR (ARGB32: the WebGL-safe target), so
@@ -593,17 +632,30 @@ Shader "PSX/CarPaint"
                 // THE FINISH: a clean coat's sheen, dulled by dirt and a tired
                 // finish, and the rain's film over any of them.
                 float shine = saturate(_PSXGloss), wetC = saturate(_PSXCarWet);
-                coatF0 = max(coatF0, SHINE_F0 * envOn);
-                coatFMax = max(coatFMax, SHINE_FMAX * envOn);
+                // by day the clean coat is the CLEAR coat (the header block)
+                float dayC = saturate(_PSXPaintWorld.x) * envOn;
+                coatF0 = max(coatF0, lerp(SHINE_F0, CLEAR_F0, dayC) * envOn);
+                coatFMax = max(coatFMax, lerp(SHINE_FMAX, CLEAR_FMAX, dayC) * envOn);
                 float dullK = lerp(DULL_COAT, 1.0, shine);
-                coatF0 = lerp(coatF0 * dullK, WET_COAT_F0, wetC);
-                coatFMax = lerp(coatFMax * dullK, WET_COAT_FMAX, wetC);
+                // (a film of water is never less of a mirror than the clean coat under it)
+                coatF0 = lerp(coatF0 * dullK, max(WET_COAT_F0, coatF0), wetC);
+                coatFMax = lerp(coatFMax * dullK, max(WET_COAT_FMAX, coatFMax), wetC);
+                // how much of a clear mirror the top of the paint is: clean or wet, by day
+                float clearC = max(shine, wetC) * dayC * (1.0 - _Dull);
                 float paintLod = lerp(lerp(ENV_PAINT_LOD + DULL_LOD, SHINE_LOD, shine), WET_COAT_LOD, wetC);
                 float glassF0 = lerp(GLASS_F0, ENV_GLASS_F0, envOn), glassFMax = lerp(GLASS_FMAX, ENV_GLASS_FMAX, envOn);
-                float k = lerp(coatF0 + (coatFMax - coatF0) * fres,
-                               glassF0 + (glassFMax - glassF0) * fres, glass);
-                k *= lerp(1.0, DULL_REFLECT, dull);
                 float3 R = reflect(-V, N);
+                float kCoat = coatF0 + (coatFMax - coatF0) * fres;
+                float kGlass = glassF0 + (glassFMax - glassF0) * fres;
+                float dullR = lerp(1.0, DULL_REFLECT, dull);
+                float k = lerp(kCoat, kGlass, glass) * dullR;
+                // (the clear coat's softer rise, CLEAR_POW, joins below where the
+                // world it mirrors is BRIGHT - the sky, a cloud, a sunlit wall:
+                // the part the paint outshines. Where it mirrors a dark wall or the
+                // road, Schlick's own rise keeps the paint's colour: at the softer
+                // power everywhere the Charger's flank went brick-dark from a rear
+                // quarter.)
+                float softW = 0.0;
                 // The panorama is read where this pixel's own mirror ray meets
                 // the world round the car, not at infinity (PSXEnvRay), and no
                 // sharper than one pixel's mirror covers (PSXEnvPixelLod).
@@ -627,7 +679,9 @@ Shader "PSX/CarPaint"
                     float3 env = PSXEnvIn(Renv, max(lerp(paintLod, ENV_GLASS_LOD, glass), envPix));
                     float em = max(env.r, max(env.g, env.b));
                     upW = smoothstep(PAINT_UP_LO, PAINT_UP_HI, R.y);
-                    float hdr = 1.0 + ENV_HDR * smoothstep(ENV_HDR_LO, 1.0, em) * upW;
+                    float hdrRise = ENV_HDR * smoothstep(ENV_HDR_LO, 1.0, em) * upW;
+                    float hdr = 1.0 + hdrRise;
+                    float hdrP = 1.0 + hdrRise * lerp(1.0, CLEAR_HDR, clearC);   // (the paint's: CLEAR_HDR)
                     float lumE = dot(env, float3(0.2126, 0.7152, 0.0722));
                     // the world below the horizon, dark under the car itself
                     float lowShade = 1.0;
@@ -640,12 +694,17 @@ Shader "PSX/CarPaint"
                     }
                     float3 lowWorld = lerp(lumE.xxx, env, PAINT_LOW_SAT) * (PAINT_LOW_WORLD * lowShade);
                     float3 low = lerp(lowWorld, env, smoothstep(LOW_GLOW_LO, LOW_GLOW_HI, em));
-                    float3 envPaint = lerp(low, env * hdr, upW);
+                    // the clear coat's darks (CLEAR_CONTRAST): only under the pivot
+                    float darkW = min(pow(max(lumE, 1e-4) / CLEAR_PIVOT, CLEAR_CONTRAST - 1.0), 1.0);
+                    float3 envPaint = lerp(low, env * (hdrP * lerp(1.0, darkW, clearC)), upW);
+                    softW = clearC * upW * smoothstep(CLEAR_BRIGHT_LO, CLEAR_BRIGHT_HI, lumE);
                     // (on the luminance, so a blue sky goes dark navy and a
                     // cloud or a gap in the canopy stays a bright streak)
                     float3 envGlass = env * (pow(saturate(lumE), GLASS_CONTRAST - 1.0) * GLASS_GAIN * hdr);
                     sky = lerp(sky, lerp(envPaint, envGlass, glass), ENV_MIX);
                 }
+                if (softW > 0.001)
+                    k = lerp(lerp(kCoat, coatF0 + (coatFMax - coatF0) * pow(1.0 - ndv, CLEAR_POW), softW), kGlass, glass) * dullR;
                 // ...except by day (2026-10-01): the paint under it is exposed
                 // (0.55 at a clear noon) and a full-brightness sky over an
                 // exposed panel is the white wash on every roof and boot.
@@ -655,11 +714,14 @@ Shader "PSX/CarPaint"
                 if (dayW > 0.001 && _PSXToneOn > 0.5)
                 {
                     float skyPart = smoothstep(LAND_TOP - LAND_SOFT, LAND_TOP + LAND_SOFT, R.y);
-                    sky *= lerp(1.0, lerp(1.0, _PSXExposure, DAY_SKY_EXPOSE), skyPart * dayW);
+                    // (a clear coat: the sky at its own brightness, CLEAR_SKY_EXPOSE)
+                    float skyExpose = lerp(DAY_SKY_EXPOSE, CLEAR_SKY_EXPOSE, clearC * (1.0 - glass));
+                    sky *= lerp(1.0, lerp(1.0, _PSXExposure, skyExpose), skyPart * dayW);
                 }
-                // The flake under the lacquer tints its share; glass does not.
+                // The flake under the lacquer tints its share; glass does not,
+                // and a clear coat hardly (CLEAR_TINT).
                 float3 body = saturate(tex.rgb * 1.6);
-                float3 tint = lerp(float3(1, 1, 1), body, PAINT_METALLIC * (1.0 - glass));
+                float3 tint = lerp(float3(1, 1, 1), body, lerp(PAINT_METALLIC, CLEAR_TINT, clearC) * (1.0 - glass));
                 // (the world panorama already shows a roof over the car, so
                 // the sky-openness guess is not laid over it as well)
                 // The sky in the lacquer is occluded low on the body like the
