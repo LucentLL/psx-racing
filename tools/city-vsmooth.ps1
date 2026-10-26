@@ -9,11 +9,14 @@
 #   powershell -ExecutionPolicy Bypass -File tools\city-vsmooth.ps1            every road tile
 #   ...  -Routes      only the tiles within 300 m of a race route (faster)
 #   ...  -Launch      and the launch audit after, once each way
+#   ...  -Launch -Lanes  the launch audit twice on the drawn profile: the old
+#                     movement paths (before), the lane carried through splits
+#                     and merges (after; CityLaunchAudit.LaneCarry)
 #                     (city_launch_before.txt / city_launch_after.txt)
 #   ...  -NoMirror    the sandbox as it stands
 #
 # Writes (sandbox root, then -OutDir): vsmooth_census.txt, vsmooth_residuals.csv.
-param([switch]$Routes, [switch]$Launch, [switch]$NoMirror, [string]$OutDir = "", [int]$MaxMinutes = 60)
+param([switch]$Routes, [switch]$Launch, [switch]$Lanes, [switch]$NoMirror, [string]$OutDir = "", [int]$MaxMinutes = 60)
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
@@ -29,7 +32,7 @@ if (-not $NoMirror) {
     }
 }
 if ($Routes) { $env:PSX_VS_TILES = "routes" } else { Remove-Item Env:\PSX_VS_TILES -ErrorAction SilentlyContinue }
-if ($Launch) { $env:PSX_VS_LAUNCH = "1" } else { Remove-Item Env:\PSX_VS_LAUNCH -ErrorAction SilentlyContinue }
+if ($Launch) { $env:PSX_VS_LAUNCH = $(if ($Lanes) { "lanes" } else { "1" }) } else { Remove-Item Env:\PSX_VS_LAUNCH -ErrorAction SilentlyContinue }
 Remove-Item Env:\PSX_LAUNCH_BOX -ErrorAction SilentlyContinue
 $outs = @("vsmooth_census.txt", "vsmooth_residuals.csv", "city_launch_before.txt", "city_launch_after.txt", "city_launch_before.json", "city_launch_after.json", "city_launch_before.csv", "city_launch_after.csv")
 foreach ($f in $outs) { Remove-Item (Join-Path $proj $f) -Force -ErrorAction SilentlyContinue }

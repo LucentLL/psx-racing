@@ -47,6 +47,18 @@ namespace PSXRacing.City
     {
         public static bool ArcsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_ARCS") != "0";
         public static bool ClustersOn = System.Environment.GetEnvironmentVariable("PSX_CITY_CLUSTERS") != "0";
+        /// <summary>REAL HEIGHTS: the major pair's pavement held at its own
+        /// profile through a lone fan (<see cref="FanSteiner"/>); PSX_CITY_FANMAJOR=0 off.</summary>
+        public static bool FanMajorOn = System.Environment.GetEnvironmentVariable("PSX_CITY_FANMAJOR") != "0";
+
+        /// <summary>Plan distance from q to the segment a-b.</summary>
+        static float DistToSeg(Vector2 q, Vector2 a, Vector2 b)
+        {
+            var ab = b - a;
+            float l2 = ab.sqrMagnitude;
+            float u = l2 > 1e-6f ? Mathf.Clamp01(Vector2.Dot(q - a, ab) / l2) : 0f;
+            return Vector2.Distance(q, a + ab * u);
+        }
 
         /// <summary>A corner's interior angle range that takes a curb return (plan A10).</summary>
         const float CurbMinPhiDeg = 30f, CurbMaxPhiDeg = 170f;
@@ -617,6 +629,62 @@ namespace PSXRacing.City
             // pinned 10 cm under the road's profile, came within 0.5-8 cm of the
             // fan (Trade x Tryon, 269 m2 of flicker at range). Two points on
             // each arm's line, at its profile's height, carry the fan along it.
+            //
+            // THE MAJOR ROAD HELD THROUGH THE JUNCTION (REAL HEIGHTS,
+            // 2026-10-25). The fan was triangulated from the centre to each
+            // arm's two corners at that arm's own height, level across, so on
+            // a real grade the minor arm's mouth was a FLAT triangle from the
+            // centre: a through car on a 5% major road drove 5% - flat - 5%
+            // across the junction, a crest and a sag (the launch audit's
+            // junction-fan spots, 4-6% breaks at 100-110 km/h). AASHTO: the
+            // major road's profile and cross-section are held through the
+            // intersection and the minor approaches warp to it. So the major
+            // pair's own pavement (both edge lines, a hand inside the kerb,
+            // every 3 m from the node to its trims) goes in at the major's
+            // profile height, and a minor arm's line points stay out of it:
+            // the warp lives between the major's edge and the minor's mouth,
+            // where traffic turns. PSX_CITY_FANMAJOR=0: off.
+            // (a cluster: where its main pair goes through one member node)
+            int mi = -1, pi = -1, mn = n;
+            if (FanMajorOn && t.fanMain != null && t.fanPartner != null)
+            {
+                int fk = FanKey(t, n);
+                mi = t.fanMain[fk]; pi = t.fanPartner[fk];
+                if (mi < 0 || pi < 0 || mi == pi) mi = pi = -1;
+                else if (cl != null)
+                {
+                    mn = t.fanMainNode[fk];
+                    var P = map.edges[pi];
+                    if (mn < 0 || (P.a != mn && P.b != mn)) mi = pi = -1;
+                }
+            }
+            float majHw = 0f;
+            Vector2 nP = map.nodes[mn], endM = nP, endP = nP;
+            if (mi >= 0)
+            {
+                for (int q = 0; q < 2; q++)
+                {
+                    var A = map.edges[q == 0 ? mi : pi];
+                    float tA = Mathf.Min(t.TrimAt(A, mn), A.length);
+                    float sEnd = A.a == mn ? tA : A.length - tA;
+                    if (q == 0) endM = A.PointAt(sEnd); else endP = A.PointAt(sEnd);
+                    for (float d = 1.5f; d <= tA - 0.4f; d += Mathf.Min(3f, Mathf.Max(1f, (tA - 1.9f) * 0.5f)))
+                    {
+                        float s = A.a == mn ? d : A.length - d;
+                        var p = A.PointAt(s);
+                        var tn = A.TangentAt(s);
+                        var rgt = new Vector2(-tn.y, tn.x);
+                        LineModel.Extents(A, s, out float eM, out float eP);
+                        majHw = Mathf.Max(majHw, Mathf.Max(eM, eP));
+                        float y = A.YAt(s);
+                        if (eM > 0.8f) Put(p - rgt * (eM - 0.3f), y);
+                        if (eP > 0.8f) Put(p + rgt * (eP - 0.3f), y);
+                    }
+                }
+            }
+            // a point inside the major road's pavement (its line from trim to trim)
+            bool InMajor(Vector2 q) =>
+                mi >= 0 && (DistToSeg(q, nP, endM) < majHw + 0.5f || DistToSeg(q, nP, endP) < majHw + 0.5f);
             int count = cl != null ? cl.nodes.Length : 1;
             for (int k = 0; k < count; k++)
             {
@@ -627,11 +695,14 @@ namespace PSXRacing.City
                     if (e.a == e.b || t.Internal(ei) || t.BranchAt(e, m) >= 0) continue;
                     float trim = t.TrimAt(e, m);
                     if (trim < 5f) continue;
+                    bool minor = mi >= 0 && ei != mi && ei != pi;
                     for (int q = 0; q < 2; q++)
                     {
                         float d = trim * (q == 0 ? 0.35f : 0.7f);
                         float s = e.a == m ? d : e.length - d;
-                        Put(e.PointAt(s), e.YAt(s));
+                        var p = e.PointAt(s);
+                        if (minor && InMajor(p)) continue;
+                        Put(p, e.YAt(s));
                     }
                 }
             }

@@ -341,7 +341,7 @@ namespace PSXRacing
                     if (IsCityRace)
                     {
                         EnsureRoute(this);
-                        return loop ? -1 : Mathf.RoundToInt(routeFinishM / Spacing);
+                        return loop ? -1 : RouteIndex(routeFinishM);
                     }
                     // A section of a route with ends finishes where it says, on
                     // the FORWARD bake (the map reads this, never the race).
@@ -432,6 +432,14 @@ namespace PSXRacing
         /// <summary>Waypoint spacing, metres. The scene builder reads its own
         /// Spacing from here so the menu and the mesh cannot disagree.</summary>
         public const float Spacing = 4f;
+
+        /// <summary>A city route's waypoint index for an arc in OSM metres
+        /// (its start line, its finish): the ONE definition the catalog and
+        /// CityMode.BuildPath share - the path of a route with ends stands
+        /// waypoint i at OSM metre i * Spacing (its pitch is Spacing times the
+        /// lanes' length over the OSM line's), so the index is the same in
+        /// both however the lanes' centre runs.</summary>
+        public static int RouteIndex(float osmM) => Mathf.RoundToInt(osmM / Spacing);
 
         /// <summary>
         /// The speed limit a road has when nobody wrote one down: 45 km/h, a

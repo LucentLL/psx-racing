@@ -54,6 +54,7 @@ const ABUT_FAR_M = 100;                      // ... and on while the ground fall
 const classMaxGrade = e => e.link ? 0.08 : e.rank >= 5 ? 0.05 : e.rank >= 3 ? 0.07 : e.rank >= 1 ? 0.09 : 0.12;
 const NODE_REACH_M = 40;                     // a node's height from ground this close
 const PAIR_REACH_M = 45, PAIR_DY_M = 0.3;    // carriageway pairs
+const PAIR_FINAL_MAX_M = 1.0;                // REAL HEIGHTS: the final pulls leave two levels alone
 const SIGMA_ST = 1.5;                        // Gaussian, in stations
 const GRADE_CAP = 1.6;                       // x the class's steepest grade
 const FT = 0.3048;
@@ -168,10 +169,11 @@ function limitCurvature(d, y, pinned, Rc, Rs, maxSweeps = 4000) {
 /// groundY(x, z): 3DEP bare earth in world y (metres above the datum).
 /// Returns { prof: Array(edge) of null | { y: Float64Array, mask: Uint8Array },
 ///           stats, lines }.
-export function buildRoadProfiles(city, groundY) {
+export function buildRoadProfiles(city, groundY, opts = {}) {
   const { edges, nodes, nodeEdges, crossings, wspans } = city;
   const NE = edges.length, NN = nodes.length;
-  const sel = edges.map(e => measuredRank(e) && e.a !== e.b && e.length >= 0.5);
+  // opts.all (REAL HEIGHTS, 2026-10-25): every road, local streets too
+  const sel = edges.map(e => (opts.all || measuredRank(e)) && e.a !== e.b && e.length >= 0.5);
   const st = new Array(NE).fill(null);        // { s, raw, y, mask }
   const lines = [];
   let nSt = 0;
@@ -241,45 +243,10 @@ export function buildRoadProfiles(city, groundY) {
     if (st[U.index] && !O.bridge) maskRange(U.index, sU - (O.hw + 4) / sin, sU + (O.hw + 4) / sin, 6);
   }
   // ---- 3. pairs: the two carriageways of a divided road within 0.3 m
-  let pairMoved = 0, pairStations = 0;
-  {
-    const cell = 50, grid = new Map();
-    const key = (x, z) => Math.floor(x / cell) * 100003 + Math.floor(z / cell);
-    const pts = [];   // [ei, i, x, z, tx, tz]
-    for (const e of edges) {
-      const t = st[e.index]; if (!t || !e.oneway || e.link || !e.name) continue;
-      for (let i = 0; i < t.s.length; i++) {
-        if (t.mask[i]) continue;
-        const p = pointAt(e, t.s[i]), g = tangentAt(e, t.s[i]);
-        const k = key(p[0], p[1]); let l = grid.get(k); if (!l) grid.set(k, l = []);
-        l.push(pts.length); pts.push([e.index, i, p[0], p[1], g[0], g[1]]);
-      }
-    }
-    const shift = new Float64Array(pts.length), cnt = new Uint16Array(pts.length);
-    for (let a = 0; a < pts.length; a++) {
-      const [ei, i, x, z, tx, tz] = pts[a];
-      const name = edges[ei].name;
-      let best = -1, bd = Infinity;
-      for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
-        const l = grid.get((Math.floor(x / cell) + dx) * 100003 + Math.floor(z / cell) + dz); if (!l) continue;
-        for (const b of l) {
-          const q = pts[b]; if (q[0] === ei || edges[q[0]].name !== name) continue;
-          if (tx * q[4] + tz * q[5] > -0.7) continue;
-          const along = Math.abs((q[2] - x) * tx + (q[3] - z) * tz);
-          if (along > 6) continue;
-          const dd = Math.hypot(q[2] - x, q[3] - z);
-          if (dd <= PAIR_REACH_M && dd < bd) { bd = dd; best = b; }
-        }
-      }
-      if (best < 0) continue;
-      const q = pts[best];
-      const ya = st[ei].y[i], yb = st[q[0]].y[q[1]], dy = ya - yb;
-      pairStations++;
-      if (Math.abs(dy) <= PAIR_DY_M) continue;
-      shift[a] += -Math.sign(dy) * (Math.abs(dy) - PAIR_DY_M) / 2; cnt[a]++;
-    }
-    for (let a = 0; a < pts.length; a++) if (cnt[a]) { const [ei, i] = pts[a]; st[ei].y[i] += shift[a] / cnt[a]; pairMoved++; }
-  }
+  // (REAL HEIGHTS: within 1.2% of the gap between them, 0.06 .. 0.3 m - a
+  // divided road reads as one road across its median)
+  const pairAllow = opts.all ? (gap => Math.max(0.06, Math.min(PAIR_DY_M, 0.012 * gap))) : (() => PAIR_DY_M);
+  let { stations: pairStations, moved: pairMoved } = pullPairs(edges, st, pairAllow, false);
   // ---- fill masked interior runs (straight between the ground either side)
   for (const e of edges) {
     const t = st[e.index]; if (!t) continue;
@@ -395,7 +362,7 @@ export function buildRoadProfiles(city, groundY) {
   }
   chains.sort((a, b) => b.rank - a.rank || b.len - a.len);
   const fixedNode = new Uint8Array(NN), done = new Uint8Array(NE);
-  let sweepsMax = 0, sweepsSum = 0, leftOver = 0, pinsTotal = 0, gradesClamped = 0, ghosts = 0;
+  let sweepsMax = 0, sweepsSum = 0, leftOver = 0, pinsTotal = 0, gradesClamped = 0, ghosts = 0, structRuns = 0;
   // THE ROAD ON THROUGH A JUNCTION: a chain ending at a node a higher chain
   // fixed is curved INTO that road's grade - the next station of the arm it
   // runs straight on into (already designed) is a pinned ghost beyond the
@@ -416,7 +383,7 @@ export function buildRoadProfiles(city, groundY) {
   };
   for (const ch of chains) {
     // the chain's stations in travel order
-    const D = [], Y = [], P = [], Rc = [], Rs = [], G = [], ref = [];
+    const D = [], Y = [], P = [], Rc = [], Rs = [], G = [], ref = [], Mk = [];
     let base = 0;
     for (let k = 0; k < ch.list.length; k++) {
       const [ei, fwd] = ch.list[k], e = edges[ei], t = st[ei], n = t.s.length;
@@ -430,7 +397,7 @@ export function buildRoadProfiles(city, groundY) {
         const nd = q === 0 ? startNode : q === n - 1 ? endNode : -1;
         let y = t.y[i];
         if (isNode && !Number.isNaN(nodeY[nd])) y = nodeY[nd];
-        D.push(base + along); Y.push(y); Rc.push(rc); Rs.push(rs); G.push(classMaxGrade(e) * GRADE_CAP); ref.push([[ei, i]]);
+        D.push(base + along); Y.push(y); Rc.push(rc); Rs.push(rs); G.push(classMaxGrade(e) * GRADE_CAP); ref.push([[ei, i]]); Mk.push(t.mask[i] ? 1 : 0);
         // pinned: the chain's two ends, and nodes a higher chain fixed
         P.push(isNode && ((k === 0 && q === 0) || (k === ch.list.length - 1 && q === n - 1) || fixedNode[nd]) ? 1 : 0);
       }
@@ -442,11 +409,11 @@ export function buildRoadProfiles(city, groundY) {
       const n0 = f0 ? edges[e0i].a : edges[e0i].b, nL = fL ? edges[eLi].b : edges[eLi].a;
       if (fixedNode[n0] && D.length >= 2) {
         const g = ghostAt(n0, e0i, true);
-        if (g && g.h > 0.5) { D.unshift(-g.h); Y.unshift(g.y); P.unshift(1); Rc.unshift(Rc[0]); Rs.unshift(Rs[0]); G.unshift(G[0]); ref.unshift([]); ghosts++; }
+        if (g && g.h > 0.5) { D.unshift(-g.h); Y.unshift(g.y); P.unshift(1); Rc.unshift(Rc[0]); Rs.unshift(Rs[0]); G.unshift(G[0]); ref.unshift([]); Mk.unshift(0); ghosts++; }
       }
       if (fixedNode[nL] && D.length >= 2 && !(n0 === nL)) {
         const g = ghostAt(nL, eLi, false);
-        if (g && g.h > 0.5) { D.push(D[D.length - 1] + g.h); Y.push(g.y); P.push(1); Rc.push(Rc[Rc.length - 1]); Rs.push(Rs[Rs.length - 1]); G.push(G[G.length - 1]); ref.push([]); ghosts++; }
+        if (g && g.h > 0.5) { D.push(D[D.length - 1] + g.h); Y.push(g.y); P.push(1); Rc.push(Rc[Rc.length - 1]); Rs.push(Rs[Rs.length - 1]); G.push(G[G.length - 1]); ref.push([]); Mk.push(0); ghosts++; }
       }
     }
     const n = Y.length;
@@ -458,6 +425,22 @@ export function buildRoadProfiles(city, groundY) {
       i = j;
     }
     if (Y.some(v => Number.isNaN(v))) continue;
+    // (REAL HEIGHTS) A STRUCTURE RUN ACROSS NODES: a bridge and its masked
+    // approaches drawn as one straight line between the ground either side,
+    // through the nodes inside it (each edge's own fill read those nodes'
+    // heights, filled from neighbours where no ground is near: Tuckaseegee
+    // Road came down a 13% approach onto a 16% deck into the valley it spans)
+    if (opts.all) {
+      for (let i = 1; i < n - 1;) {
+        if (!Mk[i] || P[i]) { i++; continue; }
+        let j = i; while (j < n - 1 && Mk[j] && !P[j]) j++;
+        if (!Mk[j] || P[j] || j === n - 1) {
+          if (D[j] - D[i - 1] < 1200) for (let k = i; k < j; k++) Y[k] = Y[i - 1] + (Y[j] - Y[i - 1]) * (D[k] - D[i - 1]) / (D[j] - D[i - 1]);
+          structRuns++;
+        }
+        i = j;
+      }
+    }
     for (const p of P) pinsTotal += p;
     smoothGauss(Y, SIGMA_ST, P);
     gradesClamped += clampGrades(D, Y, P, G);
@@ -479,6 +462,330 @@ export function buildRoadProfiles(city, groundY) {
     if (!Number.isNaN(nodeY[e.a])) t.y[0] = nodeY[e.a];
     if (!Number.isNaN(nodeY[e.b])) t.y[t.y.length - 1] = nodeY[e.b];
   }
+  // ---- 6. (REAL HEIGHTS, opts.all) CLEARANCE UNDER THE TAGGED BRIDGES.
+  // The deck is drawn from abutment to abutment and the road under it reads
+  // the bare earth, so most separations clear as measured; where one falls
+  // short by up to LOWER_MAX_M the road UNDER is lowered (the owner: lower
+  // the under road within reason rather than raise the bridge), as a smooth
+  // dip along the graph from the crossing (1 - smootherstep over R, the max
+  // of every dip, node-consistent by construction: a station's distance is
+  // its edge's end nodes' graph distance plus its own arc), the twin
+  // carriageway under the same deck dipped the same. Anything short by more
+  // is the game's (CityElevation.RaiseAllCrossings lifts the deck: a tagged
+  // structure, the one place a height rule may lift a road).
+  // ---- 6a. (REAL HEIGHTS) JUNCTION LANDINGS - run after the short pieces
+  // (7b), below: see landJunctions.
+  // AASHTO: an intersection sits on a landing - the major road's profile
+  // is held through it and every other approach warps to the major road's
+  // plane. At every node of three arms or more (and every two-arm node
+  // the chains did not run straight through), no freeway mainline and no
+  // deck at the node: the PLANE is the node's height and its major through
+  // pair's grade (the chord over 15 m either side), level across the major
+  // road. EVERY arm leaves the node on that plane: a minor arm runs ON it
+  // for the fan's reach (d0: the major road's half width over the sine of
+  // the angle it meets at, plus 3 m) and the major pair from the node
+  // itself, then each eases into its own profile on a cubic Hermite (the
+  // plane's height and grade at d0, the arm's own at d0 + L). L is the
+  // shortest that keeps the ease's curvature within the PREFERRED radius
+  // (400 m: a 25-30 mph stopping/comfort K at a junction) or, where there
+  // is no room for that, within the arm's SAFE radius (1.5 v^2/g at the
+  // speed the launch audit judges it, never under 60 m: no car leaves the
+  // road), else the gentlest that fits - never none. ROOM: the walk runs
+  // on through two-arm nodes into the next edge, to the next junction
+  // (half the way: that one lands its own half) or the first deck/masked
+  // station. Measured: the grade breaks through the nodes (every arm pair,
+  // > 4% / > 8%), before -> after, and how each arm landed (landingLine).
+  function landJunctions() {
+    const out = (e, nd, d) => { const t = st[e.index], n = t.s.length; const at = e.a === nd ? Math.min(d, e.length) : Math.max(0, e.length - d); const f = Math.max(0, Math.min(1, at / Math.max(1e-3, e.length))) * (n - 1), k = Math.min(n - 2, Math.floor(f)); return t.y[k] + (t.y[k + 1] - t.y[k]) * (f - k); };
+    const dirOut = (e, nd) => e.a === nd ? tangentAt(e, 0) : tangentAt(e, e.length).map(v => -v);
+    const armsOf = nd => nodeEdges[nd].filter(i => st[i] && edges[i].a !== edges[i].b && st[i].s.length >= 2).map(i => edges[i]);
+    const breaks = () => {
+      let n4 = 0, n8 = 0;
+      for (let nd = 0; nd < NN; nd++) {
+        const arms = armsOf(nd);
+        if (arms.length < 3) continue;
+        const g = arms.map(e => (out(e, nd, Math.min(10, e.length)) - out(e, nd, 0)) / Math.max(1, Math.min(10, e.length)));
+        for (let p = 0; p < arms.length; p++) for (let q = p + 1; q < arms.length; q++) { const b = Math.abs(g[p] + g[q]); if (b > 0.04) n4++; if (b > 0.08) n8++; }
+      }
+      return [n4, n8];
+    };
+    // the launch audit's judged speeds (CityLaunchAudit): the safe radius
+    const judgedMs = e => (e.link ? 80 : [70, 90, 100, 110, 130, 150][e.rank]) / 3.6;
+    const R_PREF = 400, R_PREF_MAJ = +(process.env.PSX_LAND_MAJOR_R || 1500), R_SAFE_MIN = 60, G = 9.81, DBG = +(process.env.PSX_LAND_DEBUG || -1);
+    const isJ = nd => armsOf(nd).length >= 3;
+    // the stations outward from nd along e, on through two-arm nodes
+    // a masked station the landing may not move: a deck, a tunnel, a water
+    // span, the deck reach over a crossing, the fill under one (an abutment
+    // approach or a run steeper than the class, 5 / 7, are lines anyway)
+    const HARD = k => k > 0 && k !== 5 && k !== 7;
+    const walk = (nd, e0, maxD) => {
+      const pts = []; let e = e0, at = nd, base = 0, guard = 0;
+      while (e && guard++ < 40) {
+        const t = st[e.index], n = t.s.length, fwd = e.a === at;
+        for (let q = pts.length ? 1 : 0; q < n; q++) {
+          const i = fwd ? q : n - 1 - q, d = base + (fwd ? t.s[i] : e.length - t.s[i]);
+          if (HARD(t.mask[i])) return { pts, room: Math.max(0, d - 2), junction: false };
+          pts.push({ ei: e.index, i, d, node: q === n - 1 ? (fwd ? e.b : e.a) : (q === 0 ? at : -1) });
+          if (d > maxD) return { pts, room: d, junction: false };
+        }
+        base += e.length;
+        const far = fwd ? e.b : e.a, fa = armsOf(far);
+        if (fa.length >= 3) return { pts, room: base, junction: true };
+        if (fa.length < 2) return { pts, room: base, junction: false };
+        const nx = fa.find(o => o.index !== e.index);
+        if (!nx || nx.rank >= 5 && !nx.link && !(e.rank >= 5 && !e.link)) return { pts, room: base, junction: false };
+        at = far; e = nx;
+      }
+      return { pts, room: base, junction: false };
+    };
+    const yOn = (pts, d) => { let k = 0; while (k + 2 < pts.length && pts[k + 1].d < d) k++; const a = pts[k], b = pts[Math.min(k + 1, pts.length - 1)]; const ya = st[a.ei].y[a.i], yb = st[b.ei].y[b.i]; return b.d - a.d > 1e-3 ? ya + (yb - ya) * Math.max(0, Math.min(1, (d - a.d) / (b.d - a.d))) : ya; };
+    const write = (p, y) => {
+      st[p.ei].y[p.i] = y;
+      if (p.node >= 0) {   // a two-arm node's station is every arm's
+        for (const k of nodeEdges[p.node]) { const t = st[k]; if (!t) continue; const o = edges[k]; if (o.a === p.node) t.y[0] = y; if (o.b === p.node) t.y[t.y.length - 1] = y; }
+        nodeY[p.node] = y;
+      }
+    };
+    const before = breaks();
+    let nSeat = 0, landed = 0, nodesLanded = 0, nPref = 0, nSafe = 0, nBest = 0, nNoRoom = 0, worstBest = 0;
+    const Ls = [];
+    // the nodes in order: the bigger roads' junctions first
+    const order = [];
+    for (let nd = 0; nd < NN; nd++) {
+      const arms = armsOf(nd);
+      if (arms.length < 2) continue;
+      if (arms.some(e => (e.rank >= 5 && !e.link) || e.bridge || e.tunnel)) continue;
+      if (arms.some(e => { const t = st[e.index]; return HARD(t.mask[e.a === nd ? 0 : t.s.length - 1]); })) continue;
+      if (arms.length === 2) {
+        // a two-arm node the chains ran straight through needs nothing
+        const p = partner.get(arms[0].index + ':' + nd);
+        if (p === arms[1].index) continue;
+      }
+      let top = 0; for (const e of arms) top = Math.max(top, e.rank * 2 + (e.link ? 0 : 1));
+      order.push([top, nd]);
+    }
+    order.sort((a, b) => b[0] - a[0] || a[1] - b[1]);
+    for (const [, nd] of order) {
+      const arms = armsOf(nd);
+      // the major pair: the chain partner of the highest arm, else the
+      // straightest pair (two arms: the pair itself)
+      let top = arms.slice().sort((a, b) => (b.rank * 2 + (b.link ? 0 : 1)) - (a.rank * 2 + (a.link ? 0 : 1)) || a.index - b.index)[0];
+      let pi = partner.get(top.index + ':' + nd);
+      // three arms or more: the pair the game's own junction plane holds
+      // (CityElevation's fan planes / VSmooth's majorOf): two arms meeting
+      // straight on (cos < -0.7), the higher class (a link half a class
+      // down), then the wider - so a ramp merging into a one-way arterial
+      // (Old Statesville Road n3350) is the minor arm, not the arterial's
+      // incoming half (it stood 0.3 m under the host's pavement it ran in)
+      if (arms.length >= 3 && process.env.PSX_LAND_PAIR !== '0') {
+        let bk = -Infinity, bp = null, bq = null;
+        for (let p = 0; p < arms.length; p++) for (let q = p + 1; q < arms.length; q++) {
+          const up = dirOut(arms[p], nd), uq = dirOut(arms[q], nd);
+          if (up[0] * uq[0] + up[1] * uq[1] >= -0.7) continue;
+          const P = arms[p], Q = arms[q];
+          const key = Math.min(P.link ? P.rank - 0.5 : P.rank, Q.link ? Q.rank - 0.5 : Q.rank) * 100 + 2 * (P.hw + Q.hw);
+          if (key > bk) { bk = key; bp = P; bq = Q; }
+        }
+        if (bp) { top = bp; pi = bq.index; }
+      }
+      if (pi === undefined || !arms.some(e => e.index === pi)) {
+        const u0 = dirOut(top, nd); let bd = 0.3;
+        for (const e of arms) { if (e === top) continue; const u = dirOut(e, nd), dot = u0[0] * u[0] + u0[1] * u[1]; if (dot < bd) { bd = dot; pi = e.index; } }
+      }
+      if (pi === undefined) continue;
+      const mA = top, mB = edges[pi];
+      const yN = out(mA, nd, 0);
+      const tA = dirOut(mA, nd), tB = dirOut(mB, nd);
+      const LA = Math.min(15, mA.length), LB = Math.min(15, mB.length);
+      let tx = tB[0] - tA[0], tz = tB[1] - tA[1]; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
+      const gMaj = (out(mB, nd, LB) - out(mA, nd, LA)) / (LA + LB);
+      const hwMaj = Math.max(mA.hw, mB.hw);
+      // the major pair's own break through the node (grades over 10 m out):
+      // where its chain already runs smooth through, it is left alone
+      const g10 = e => { const d = Math.min(10, e.length); return (out(e, nd, d) - out(e, nd, 0)) / Math.max(1, d); };
+      const majBreak = Math.abs(g10(mA) + g10(mB));
+      const MAJ_BREAK = +(process.env.PSX_LAND_MAJOR_BREAK || 0.03);
+      // THE MAJOR ROAD ON A TANGENT THROUGH THE JUNCTION (AASHTO: the major
+      // road's profile is held through the intersection, its vertical curves
+      // outside it). The fan is drawn flat between the arms' trims, so a
+      // major road curving across the node met the fan's chord with a kink
+      // at both trims (main's Tryon sprint p99 vertical g: 119 of the 120
+      // samples past it within 30 m of a junction, the worst ~17 m out - the
+      // trim). Both major arms run on the plane's line (node height, the
+      // through chord's grade) out past the fan - the widest minor arm's half
+      // width over its sine + a curb return (10 m), 10..30 m - and ease into
+      // their own profile beyond, where the drawn pass rounds what is left.
+      // PSX_LAND_MAJOR_HOLD=0: the major pair as it was (J2).
+      const HOLD = arms.length >= 3 && process.env.PSX_LAND_MAJOR_HOLD !== '0';
+      let dHoldMaj = 0;
+      if (HOLD) {
+        for (const o of arms) {
+          if (o === mA || o === mB) continue;
+          const uo = dirOut(o, nd), sinO = Math.abs(tx * uo[1] - tz * uo[0]);
+          dHoldMaj = Math.max(dHoldMaj, o.hw / Math.max(0.4, sinO));
+        }
+        dHoldMaj = Math.min(30, Math.max(10, dHoldMaj + 10));
+      }
+      let any = false;
+      // the host's own height along a major arm (its stations, by arc)
+      const yArc = (M, arc) => { const t = st[M.index]; let k = 0; while (k + 2 < t.s.length && t.s[k + 1] < arc) k++; const ds = t.s[k + 1] - t.s[k]; return t.y[k] + (t.y[k + 1] - t.y[k]) * (ds > 1e-6 ? Math.max(0, Math.min(1, (arc - t.s[k]) / ds)) : 0); };
+      // the major pair first: an arm seated on the host reads the host as landed
+      for (const e of [mA, mB, ...arms.filter(x => x !== mA && x !== mB)]) {
+        const major = e === mA || e === mB;
+        // the major pair keeps its own (smoothed, curvature-limited) chain:
+        // easing it on 10 m-station Hermites left breaks at its 2nd station
+        // the drawn pass does not round (census arterial residuals) - so
+        // only where the pair itself breaks past MAJ_BREAK through the node
+        // (Todd Road n8837: -6% | -14%). A two-arm node the chains broke at
+        // still eases both arms.
+        if (major && !HOLD && arms.length >= 3 && majBreak <= MAJ_BREAK && process.env.PSX_LAND_MAJOR !== '1') continue;
+        const u = dirOut(e, nd), gp0 = gMaj * (u[0] * tx + u[1] * tz), gp = gp0;
+        const sin = Math.abs(tx * u[1] - tz * u[0]);
+        const w = walk(nd, e, 220);
+        if (DBG === nd) console.log(`LAND n${nd} e${e.index} walk pts ${w.pts.length} room ${w.room.toFixed(1)}`);
+        if (w.pts.length < 2) continue;
+        const room = w.junction ? 0.5 * w.room : w.room;
+        const d0Full = major ? (HOLD ? Math.min(0.4 * room, dHoldMaj) : 0) : Math.min(0.4 * room, hwMaj / Math.max(0.4, sin) + 3);
+        if (room - d0Full < 3 && room < 5) { nNoRoom++; continue; }
+        const rSafe = Math.max(R_SAFE_MIN, 1.5 * judgedMs(e) ** 2 / G);
+        const ownY = d => yOn(w.pts, d);
+        const ownG = d => { const lo = Math.max(0, d - 2), hi = Math.min(w.pts[w.pts.length - 1].d, d + 2); return hi - lo > 0.1 ? (ownY(hi) - ownY(lo)) / (hi - lo) : gp; };
+        // SHALLOW MERGES: an arm whose centreline is still inside the major
+        // road's pavement past the plane's reach (a ramp merging at a few
+        // degrees: University City Blvd n4444's ramp ran 24 m inside it,
+        // eased down to 0.3 m under the host's pavement - the path stepped
+        // off the host's edge, a launch) rides the HOST'S own height there
+        // (the station's projection on the major arm, level across, as the
+        // game's seats put it), and eases from where it leaves.
+        const seatPts = [];
+        if (!major && process.env.PSX_LAND_SEAT !== '0') {
+          for (const p of w.pts) {
+            if (p.d < 1e-6) { seatPts.push([0, yN]); continue; }
+            const xz = pointAt(edges[p.ei], st[p.ei].s[p.i]);
+            let best = null;
+            for (const M of [mA, mB]) {
+              const arc = projectOn(M, xz); if (arc < 0.5 || arc > M.length - 0.5) continue;
+              const q = pointAt(M, arc), dist = Math.hypot(q[0] - xz[0], q[1] - xz[1]);
+              if (dist <= M.hw && (!best || dist < best.dist)) best = { dist, y: yArc(M, arc) };
+            }
+            if (!best || p.d > room - 6) break;
+            seatPts.push([p.d, best.y]);
+          }
+        }
+        const seatD = seatPts.length >= 2 ? seatPts[seatPts.length - 1][0] : 0;
+        const seat = seatD > d0Full + 1;
+        const seatY = d => { let k = 0; while (k + 2 < seatPts.length && seatPts[k + 1][0] < d) k++; const a = seatPts[k], b = seatPts[Math.min(k + 1, seatPts.length - 1)]; return b[0] - a[0] > 1e-3 ? a[1] + (b[1] - a[1]) * Math.max(0, Math.min(1, (d - a[0]) / (b[0] - a[0]))) : a[1]; };
+        const seatG = seat ? (seatPts[seatPts.length - 1][1] - seatPts[seatPts.length - 2][1]) / Math.max(0.5, seatPts[seatPts.length - 1][0] - seatPts[seatPts.length - 2][0]) : gp;
+        const holdY = d => seat ? seatY(d) : yN + gp * d;
+        if (seat) nSeat++;
+        // already on the plane and leaving it smoothly: nothing to do
+        if (!seat && Math.abs(ownY(d0Full) - (yN + gp * d0Full)) < 0.005 && Math.abs(ownG(d0Full + 2) - gp) < 0.002) continue;
+        // the shortest ease within the preferred radius, else within the
+        // safe one, else the gentlest; a steep street may climb to its own
+        // grade + 3% inside the ease (15% at least, the audit fails 16%).
+        // Where the full plane hold leaves no such ease, a shorter hold.
+        const search = d0 => {
+          const p0 = holdY(d0), span = room - d0, gp = seat ? seatG : gp0;
+          let Lc = -1, Lbest = -1, cBest = Infinity, kind = 0, tier = 9;
+          // a held major road eases at a through road's comfort (R 1500 m:
+          // 0.3 g at 150 mph - the race routes' p99 is under 1 g), else the
+          // junction's 400 m, else safe; a minor arm at 400 m, else safe
+          const tiers = major && HOLD ? [R_PREF_MAJ, R_PREF, rSafe] : [R_PREF, rSafe];
+          for (let L = 4; L <= Math.min(span, 160) + 1e-6; L += Math.max(2, 0.15 * L)) {
+            const Y1 = ownY(d0 + L), g1 = ownG(d0 + L);
+            const delta = Y1 - (p0 + 0.5 * (gp + g1) * L);
+            const c0 = (g1 - gp) / L + 6 * delta / (L * L), c1 = (g1 - gp) / L - 6 * delta / (L * L);
+            const c = Math.max(Math.abs(c0), Math.abs(c1));
+            let gmx = 0; for (let k = 0; k <= 8; k++) { const t = k / 8, t2 = t * t; const dy = (6 * t2 - 6 * t) * p0 + (3 * t2 - 4 * t + 1) * gp * L + (-6 * t2 + 6 * t) * Y1 + (3 * t2 - 2 * t) * g1 * L; gmx = Math.max(gmx, Math.abs(dy) / L); }
+            if (gmx > Math.max(0.155, Math.abs(gp) + 0.005, Math.abs(g1) + 0.03)) continue;
+            if (c * tiers[0] <= 1) { Lc = L; kind = 1; tier = 0; break; }
+            for (let ti = 1; ti < tiers.length; ti++) if (c * tiers[ti] <= 1) { if (ti < tier) { tier = ti; Lc = L; kind = 2; } break; }
+            if (c < cBest) { cBest = c; Lbest = L; }
+          }
+          return { d0, Lc, kind, Lbest, cBest };
+        };
+        let r = null;
+        for (const d0 of major && !HOLD ? [0] : seat ? [seatD] : [d0Full, 0.6 * d0Full, Math.min(2, d0Full)]) {
+          const q = search(d0);
+          if (q.kind) { r = q; break; }
+          if (q.Lbest > 0 && (!r || q.cBest < r.cBest)) r = q;
+        }
+        if (DBG === nd) console.log(`LAND n${nd} e${e.index} major ${major} room ${room.toFixed(1)} junction ${w.junction} pts ${w.pts.length} d0 ${d0Full.toFixed(1)} gp ${gp.toFixed(3)} r ${r ? JSON.stringify(r) : null}`);
+        if (!r || (r.kind === 0 && r.Lbest < 0)) { nNoRoom++; continue; }
+        let { d0, Lc, kind } = r;
+        if (!kind) { Lc = r.Lbest; kind = 3; worstBest = Math.max(worstBest, r.cBest * rSafe); }
+        if (kind === 1) nPref++; else if (kind === 2) nSafe++; else nBest++;
+        const p0 = holdY(d0);
+        const Y1 = ownY(d0 + Lc), g1 = ownG(d0 + Lc);
+        const m0 = (seat ? seatG : gp) * Lc, m1 = g1 * Lc;
+        let moved = false;
+        const writes = [];
+        for (const p of w.pts) {
+          if (p.d > d0 + Lc) break;
+          if (p.d < 1e-6 && !major) continue;            // the node itself is the plane's
+          let y;
+          if (p.d <= d0) y = holdY(p.d);
+          else { const t = (p.d - d0) / Lc, t2 = t * t, t3 = t2 * t; y = (2 * t3 - 3 * t2 + 1) * p0 + (t3 - 2 * t2 + t) * m0 + (-2 * t3 + 3 * t2) * Y1 + (t3 - t2) * m1; }
+          writes.push([p, y]);
+        }
+        for (const [p, y] of writes) if (Math.abs(st[p.ei].y[p.i] - y) > 1e-4) { write(p, y); moved = true; }
+        if (moved) { landed++; any = true; Ls.push(d0 + Lc); }
+      }
+      if (any) nodesLanded++;
+    }
+    const after = breaks();
+    Ls.sort((a, b) => a - b);
+    return `JUNCTION LANDINGS (REAL HEIGHTS): ${landed} arms landed on their junction's plane at ${nodesLanded} nodes (preferred radius - ${R_PREF} m, a held major road ${R_PREF_MAJ} m - ${nPref}, a tighter one (a major at ${R_PREF} m, else safe) ${nSafe}, the gentlest that fits ${nBest} (worst ${worstBest.toFixed(2)} x the safe curvature), no room ${nNoRoom}; ${nSeat} shallow arms seated on the major road's own height inside its pavement; reach p50 ${Ls.length ? Ls[Ls.length >> 1].toFixed(0) : 0} / max ${Ls.length ? Ls[Ls.length - 1].toFixed(0) : 0} m); arm pairs breaking > 4% / > 8% through a node ${before[0]} / ${before[1]} -> ${after[0]} / ${after[1]}`;
+  }
+  // ---- 7. (REAL HEIGHTS) the pairs once more on the finished profiles: each
+  // carriageway was smoothed and limited on its own chain (interior stations
+  // only - a node's height is every arm's)
+  let pairs2 = null;
+  if (opts.all && opts.finalPairs !== false) {
+    pairs2 = pullPairs(edges, st, pairAllow, true, true);
+    for (let r = 0; r < 4; r++) pullPairs(edges, st, pairAllow, true);
+    pairs2.after = pullPairs(edges, st, pairAllow, true, true);
+  }
+  // ---- 7b. (REAL HEIGHTS) SHORT PIECES BETWEEN JUNCTIONS: two nodes a few
+  // metres apart can be fixed by two different chains (e784, 3 m between two
+  // junctions by N Davidson St and E 9th St, stood 1.1 m apart: 36%). The
+  // nodes are pulled within the class's grade of each other (both halfway,
+  // swept), and each node's move is eased into every arm on a smoothstep
+  // over min(60 m, the arm), so the junction keeps one height for all its arms.
+  let shortMoves = 0, shortMax = 0;
+  if (opts.all) {
+    // the nodes' heights as the edges' ends now stand (the pairs and the
+    // clearance dips moved ends, not nodeY)
+    const y0 = new Float64Array(NN).fill(NaN);
+    for (const e of edges) { const t = st[e.index]; if (!t) continue; y0[e.a] = t.y[0]; y0[e.b] = t.y[t.y.length - 1]; }
+    const ny = Float64Array.from(y0);
+    for (let it = 0; it < 40; it++) {
+      let moved = 0;
+      for (const e of edges) {
+        if (!st[e.index] || e.a === e.b || e.length > 40) continue;
+        const ya = ny[e.a], yb = ny[e.b]; if (Number.isNaN(ya) || Number.isNaN(yb)) continue;
+        const cap = classMaxGrade(e) * Math.max(1, e.length), dy = yb - ya;
+        if (Math.abs(dy) <= cap + 1e-3) continue;
+        const fix = (Math.abs(dy) - cap) / 2 * Math.sign(dy);
+        ny[e.a] += fix; ny[e.b] -= fix; moved++;
+      }
+      if (!moved) break;
+    }
+    for (const e of edges) {
+      const t = st[e.index]; if (!t) continue;
+      const n = t.y.length, L = Math.min(60, e.length);
+      for (const [nd, atA] of [[e.a, true], [e.b, false]]) {
+        const d = ny[nd] - y0[nd]; if (Number.isNaN(d) || Math.abs(d) < 0.005) continue;
+        for (let i = 0; i < n; i++) {
+          const dist = atA ? t.s[i] : e.length - t.s[i]; if (dist >= L) continue;
+          const u = dist / L; t.y[i] += d * (1 - u * u * (3 - 2 * u));
+        }
+      }
+    }
+    for (let nd = 0; nd < NN; nd++) { const d = ny[nd] - y0[nd]; if (!Number.isNaN(d) && Math.abs(d) >= 0.005) { shortMoves++; shortMax = Math.max(shortMax, Math.abs(d)); nodeY[nd] = ny[nd]; } }
+  }
+  const landingLine = opts.all && opts.landings !== false ? landJunctions() : null;
+  const clr = opts.all ? lowerUnderBridges(edges, nodes, nodeEdges, crossings, st) : null;
   // ---- stats: deviation from the raw ground on measured stations
   const dev = [];
   for (const e of edges) { const t = st[e.index]; if (!t) continue; for (let i = 0; i < t.s.length; i++) if (!t.mask[i]) dev.push(Math.abs(t.y[i] - t.raw[i])); }
@@ -488,10 +795,197 @@ export function buildRoadProfiles(city, groundY) {
   let masked = 0; for (const t of st) if (t) for (const m of t.mask) if (m) masked++;
   const stats = { edges: nEdges, stations: nSt, masked, why, nodesMeasured, nodesFilled, chains: chains.length, sweepsMax, sweepsMean: chains.length ? sweepsSum / chains.length : 0, leftOver, pinsTotal,
                   pairStations, pairMoved, devP50: pct(0.5), devP95: pct(0.95), devMax: dev.length ? dev[dev.length - 1] : 0 };
-  lines.push(`RPRF: ${nEdges} edges (tier 1 + 2), ${nSt} stations, ${masked} masked (bridge ${why.bridge}, tunnel ${why.tunnel}, water ${why.water}, over a crossing ${why.over}, abutment ${why.abut}, under a fill ${why.underFill}, steeper than the class + 5% ${why.steep}); ` +
-             `nodes ${nodesMeasured} from ground + ${nodesFilled} from neighbours; pairs ${pairStations} stations, ${pairMoved} pulled to ${PAIR_DY_M} m; ${chains.length} chains, limiter sweeps mean ${stats.sweepsMean.toFixed(1)} max ${sweepsMax}, ${leftOver} chains not fully limited (held by pins); ${gradesClamped} station moves by the grade cap (class max x ${GRADE_CAP}), ${nodeGradeMoves} node moves; ${ghosts} junction ghosts; ` +
+  lines.push(`RPRF: ${nEdges} edges (${opts.all ? 'every road' : 'tier 1 + 2'}), ${nSt} stations, ${masked} masked (bridge ${why.bridge}, tunnel ${why.tunnel}, water ${why.water}, over a crossing ${why.over}, abutment ${why.abut}, under a fill ${why.underFill}, steeper than the class + 5% ${why.steep}); ` +
+             `nodes ${nodesMeasured} from ground + ${nodesFilled} from neighbours; pairs ${pairStations} stations, ${pairMoved} pulled to ${PAIR_DY_M} m; ${chains.length} chains, limiter sweeps mean ${stats.sweepsMean.toFixed(1)} max ${sweepsMax}, ${leftOver} chains not fully limited (held by pins); ${gradesClamped} station moves by the grade cap (class max x ${GRADE_CAP}), ${nodeGradeMoves} node moves; ${ghosts} junction ghosts; ${structRuns} structure runs drawn ground to ground; ` +
              `designed vs measured ground p50 ${stats.devP50.toFixed(3)} / p95 ${stats.devP95.toFixed(3)} / max ${stats.devMax.toFixed(2)} m`);
+  if (landingLine) lines.push(landingLine);
+  if (opts.all) lines.push(`SHORT PIECES (REAL HEIGHTS): ${shortMoves} junction nodes moved to keep pieces under 40 m within their class grade (up to ${shortMax.toFixed(2)} m, eased into every arm)`);
+  if (clr) { lines.push(clr.line); stats.clearance = clr; }
+  if (pairs2) lines.push(`PAIRS (REAL HEIGHTS, allowed 1.2% of the gap, 0.06..${PAIR_DY_M} m): on the finished profiles ${pairs2.stations} pair stations, over their allowance by >0.05/0.25/0.5/1/2 m ${pairs2.hist.join('/')} (worst ${pairs2.worst.toFixed(2)} m); after 4 pulls (nodes eased into their arms) ${pairs2.after.hist.join('/')} (worst ${pairs2.after.worst.toFixed(2)} m); two levels under 15 m apart ${pairs2.after.closeSplit}: ${pairs2.after.closeAt.join('; ')}`);
   return { prof: st.map(t => t ? { y: t.y, mask: t.mask, raw: t.raw, s: t.s } : null), stats, lines };
+}
+
+/// THE PAIRS: each station of a divided road's carriageway (one-way, same
+/// name, not a ramp, running opposite, its partner station within 45 m and
+/// 6 m along) is pulled toward its partner until they stand within
+/// allow(gap); both move half. interiorOnly leaves node stations (shared by
+/// every arm); measureOnly moves nothing and counts what is still over.
+function pullPairs(edges, st, allow, interiorOnly, measureOnly = false) {
+  const cell = 50, grid = new Map();
+  const key = (x, z) => Math.floor(x / cell) * 100003 + Math.floor(z / cell);
+  const pts = [];   // [ei, i, x, z, tx, tz]
+  for (const e of edges) {
+    const t = st[e.index]; if (!t || !e.oneway || e.link || !e.name) continue;
+    for (let i = 0; i < t.s.length; i++) {
+      if (t.mask[i]) continue;
+      const p = pointAt(e, t.s[i]), g = tangentAt(e, t.s[i]);
+      const k = key(p[0], p[1]); let l = grid.get(k); if (!l) grid.set(k, l = []);
+      l.push(pts.length); pts.push([e.index, i, p[0], p[1], g[0], g[1]]);
+    }
+  }
+  const shift = new Float64Array(pts.length), cnt = new Uint16Array(pts.length);
+  let stations = 0, moved = 0, over = 0, worst = 0;
+  const hist = [0, 0, 0, 0, 0], HB = [0.05, 0.25, 0.5, 1, 2], nodeShift = new Map(), closeAt = [];
+  let closeSplit = 0;
+  for (let a = 0; a < pts.length; a++) {
+    const [ei, i, x, z, tx, tz] = pts[a];
+    const name = edges[ei].name;
+    let best = -1, bd = Infinity;
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+      const l = grid.get((Math.floor(x / cell) + dx) * 100003 + Math.floor(z / cell) + dz); if (!l) continue;
+      for (const b of l) {
+        const q = pts[b]; if (q[0] === ei || edges[q[0]].name !== name) continue;
+        if (tx * q[4] + tz * q[5] > -0.7) continue;
+        const along = Math.abs((q[2] - x) * tx + (q[3] - z) * tz);
+        if (along > 6) continue;
+        const dd = Math.hypot(q[2] - x, q[3] - z);
+        if (dd <= PAIR_REACH_M && dd < bd) { bd = dd; best = b; }
+      }
+    }
+    if (best < 0) continue;
+    const q = pts[best];
+    const ya = st[ei].y[i], yb = st[q[0]].y[q[1]], dy = ya - yb, lim = allow(bd);
+    stations++;
+    if (Math.abs(dy) <= lim) continue;
+    over++; worst = Math.max(worst, Math.abs(dy) - lim);
+    for (let k = 0; k < HB.length; k++) if (Math.abs(dy) - lim > HB[k]) hist[k]++;
+    // on the finished profiles (interiorOnly) a pair more than a metre past
+    // its allowance is two levels (a stacked interchange) or not a pair: left
+    // (under 15 m apart nothing but a stacked interchange stands 3 m apart)
+    if (interiorOnly && Math.abs(dy) - lim > (bd < 15 ? 3 : PAIR_FINAL_MAX_M)) { if (bd < 15) { closeSplit++; if (closeAt.length < 6) closeAt.push(`e${ei} ${edges[ei].name} (${x.toFixed(0)},${z.toFixed(0)}) gap ${bd.toFixed(0)} m dy ${dy.toFixed(1)}`); } continue; }
+    if (interiorOnly && (i === 0 || i === st[ei].s.length - 1)) {
+      // a node station: the node moves (every arm's end), eased into each arm below
+      const nd = i === 0 ? edges[ei].a : edges[ei].b;
+      const v = nodeShift.get(nd) || [0, 0]; v[0] += -Math.sign(dy) * (Math.abs(dy) - lim) / 2; v[1]++; nodeShift.set(nd, v);
+      continue;
+    }
+    shift[a] += -Math.sign(dy) * (Math.abs(dy) - lim) / 2; cnt[a]++;
+  }
+  if (!measureOnly && !interiorOnly) for (let a = 0; a < pts.length; a++) if (cnt[a]) { const [ei, i] = pts[a]; st[ei].y[i] += shift[a] / cnt[a]; moved++; }
+  if (!measureOnly && interiorOnly) {
+    // on the finished profiles the pull is a smooth field along each edge
+    // (Gaussian over 2 stations; a station with no partner pulls 0), so it
+    // adds no kink to the curves step 5 drew
+    const per = new Map();
+    for (let a = 0; a < pts.length; a++) { if (!cnt[a]) continue; const [ei, i] = pts[a]; let v = per.get(ei); if (!v) per.set(ei, v = new Float64Array(st[ei].s.length)); v[i] = shift[a] / cnt[a]; }
+    for (const [ei, v] of per) {
+      const t = st[ei], n = v.length, sm = new Float64Array(n), r = 5, sg = 2;
+      for (let i = 1; i < n - 1; i++) {
+        let sum = 0, w = 0;
+        for (let k = -r; k <= r; k++) { const j = i + k; if (j < 0 || j >= n) continue; const q = Math.exp(-k * k / (2 * sg * sg)); sum += v[j] * q; w += q; }
+        sm[i] = sum / w;
+      }
+      for (let i = 1; i < n - 1; i++) if (Math.abs(sm[i]) > 1e-4) { t.y[i] += sm[i]; moved++; }
+    }
+  }
+  if (!measureOnly && nodeShift.size) {
+    // each moved node carries its arms' ends with it, eased out along each
+    // arm over min(60 m, the arm) on a smoothstep (C1 at both ends)
+    for (const e of edges) {
+      const t = st[e.index]; if (!t) continue;
+      const n = t.s.length, ease = Math.min(60, e.length);
+      for (const [nd, atA] of [[e.a, true], [e.b, false]]) {
+        const v = nodeShift.get(nd); if (!v) continue;
+        const d = v[0] / v[1];
+        for (let i = 0; i < n; i++) {
+          const dist = atA ? t.s[i] : e.length - t.s[i]; if (dist >= ease) continue;
+          const u = dist / ease; t.y[i] += d * (1 - u * u * (3 - 2 * u));
+        }
+      }
+    }
+  }
+  return { stations, moved, over, worst, hist, nodesMoved: nodeShift.size, closeSplit, closeAt };
+}
+
+/// The game's separation rule (CityElevation: ClearanceM 5.0 + DeckThick
+/// 0.55 between the deck's top and the road under), plus a margin.
+export const DECK_OVER_M = 5.55;
+const CLEAR_MARGIN_M = 0.15;
+const LOWER_MAX_M = 2.0;        // "within reason": deeper than this, the deck rises
+const DIP_GRADE = 0.01;         // the dip's mean grade: R = L / 1%, 80..250 m
+
+/// The clearance pass (step 6 above). Returns { line, short, lowered, left }.
+function lowerUnderBridges(edges, nodes, nodeEdges, crossings, st) {
+  const yAt = (ei, s) => {
+    const t = st[ei]; if (!t) return NaN;
+    const n = t.s.length, e = edges[ei];
+    const f = Math.max(0, Math.min(1, s / Math.max(1e-3, e.length))) * (n - 1), k = Math.min(n - 2, Math.floor(f));
+    return t.y[k] + (t.y[k + 1] - t.y[k]) * (f - k);
+  };
+  const maskedAt = (ei, s) => { const t = st[ei], n = t.s.length, e = edges[ei]; return t.mask[Math.round(Math.max(0, Math.min(1, s / Math.max(1e-3, e.length))) * (n - 1))] !== 0; };
+  const deficits = () => {
+    const out = [];
+    for (const c of crossings) {
+      if (!st[c.over] || !st[c.under]) continue;
+      const sO = projectOn(edges[c.over], [c.x, c.z]), sU = projectOn(edges[c.under], [c.x, c.z]);
+      const d = DECK_OVER_M - (yAt(c.over, sO) - yAt(c.under, sU));
+      out.push({ c, sO, sU, d });
+    }
+    return out;
+  };
+  const before = deficits().filter(x => x.d > 0);
+  // the dips' sources: the under road at the crossing, and its twin there
+  const src = [];
+  for (const x of before) {
+    if (x.d > LOWER_MAX_M || maskedAt(x.c.under, x.sU)) continue;
+    const L = Math.min(LOWER_MAX_M, x.d) + CLEAR_MARGIN_M, R = Math.max(80, Math.min(250, L / DIP_GRADE));
+    src.push({ ei: x.c.under, s: x.sU, L, R });
+    const U = edges[x.c.under];
+    if (U.oneway && !U.link && U.name) {
+      const tu = tangentAt(U, x.sU);
+      let best = -1, bs = 0, bd = 45;
+      for (const o of edges) {
+        if (o.index === U.index || o.name !== U.name || !o.oneway || !st[o.index]) continue;
+        const so = projectOn(o, [x.c.x, x.c.z]), p = pointAt(o, so), d = Math.hypot(p[0] - x.c.x, p[1] - x.c.z);
+        if (d >= bd) continue;
+        const to = tangentAt(o, so); if (tu[0] * to[0] + tu[1] * to[1] > -0.7) continue;
+        best = o.index; bs = so; bd = d;
+      }
+      if (best >= 0 && !maskedAt(best, bs)) src.push({ ei: best, s: bs, L, R });
+    }
+  }
+  // each source's graph-distance field, the max of their dips per station
+  const lower = st.map(t => t ? new Float64Array(t.s.length) : null);
+  const dist = new Float64Array(nodes.length);
+  for (const q of src) {
+    dist.fill(Infinity);
+    const E0 = edges[q.ei];
+    dist[E0.a] = q.s; dist[E0.b] = Math.min(E0.length - q.s, Infinity);
+    const heap = [[dist[E0.a], E0.a], [dist[E0.b], E0.b]];
+    while (heap.length) {
+      let m = 0; for (let k = 1; k < heap.length; k++) if (heap[k][0] < heap[m][0]) m = k;
+      const [d, nd] = heap[m]; heap[m] = heap[heap.length - 1]; heap.pop();
+      if (d > dist[nd] || d > q.R) continue;
+      for (const ei of nodeEdges[nd]) {
+        const e = edges[ei]; if (!st[ei] || e.a === e.b) continue;
+        const o = e.a === nd ? e.b : e.a, nd2 = d + e.length;
+        if (nd2 < dist[o]) { dist[o] = nd2; heap.push([nd2, o]); }
+      }
+    }
+    const dip = d => d >= q.R ? 0 : (() => { const t = d / q.R; return q.L * (1 - t * t * t * (t * (t * 6 - 15) + 10)); })();
+    for (const e of edges) {
+      const t = st[e.index]; if (!t) continue;
+      const dA = dist[e.a], dB = dist[e.b];
+      const self = e.index === q.ei;
+      if (!self && dA >= q.R && dB >= q.R) continue;
+      for (let i = 0; i < t.s.length; i++) {
+        let d = Math.min(dA + t.s[i], dB + e.length - t.s[i]);
+        if (self) d = Math.min(d, Math.abs(t.s[i] - q.s));
+        const v = dip(d);
+        if (v > lower[e.index][i]) lower[e.index][i] = v;
+      }
+    }
+  }
+  let lowered = 0, maxL = 0;
+  for (const e of edges) {
+    const t = st[e.index]; if (!t) continue;
+    for (let i = 0; i < t.s.length; i++) if (lower[e.index][i] > 0.005) { t.y[i] -= lower[e.index][i]; lowered++; maxL = Math.max(maxL, lower[e.index][i]); }
+  }
+  const after = deficits().filter(x => x.d > 0.005);
+  const line = `CLEARANCE (REAL HEIGHTS): ${before.length} of ${crossings.length} tagged-bridge crossings short of ${DECK_OVER_M} m deck over the road under as measured; ` +
+    `${src.length} dips (incl. twins) lowered ${lowered} stations up to ${maxL.toFixed(2)} m; still short ${after.length} (left to the game's deck lift; ` +
+    `deficit over ${LOWER_MAX_M} m ${after.filter(x => x.d > LOWER_MAX_M).length}, worst ${after.reduce((m, x) => Math.max(m, x.d), 0).toFixed(2)} m)`;
+  return { line, short: before.length, lowered, left: after.length, after };
 }
 
 /// RPRF bytes (lib/citydata.mjs documents the layout): u32 count, then per

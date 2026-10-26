@@ -53,6 +53,10 @@ namespace PSXRacing.EditorTools
             public readonly List<(string group, float A, float R, float need, int edge, float s, float x, float z)> worst = new List<(string, float, float, float, int, float, float, float)>();
             public readonly List<string> routeLines = new List<string>();
             public double tileSeconds;
+            // the retaining walls the tiles built (CityMeshes.InCut), by why and by edge
+            public float cutWall;
+            public readonly float[] cutWhy = new float[6];
+            public readonly Dictionary<int, (float m, byte why, Vector2 at)> cutByEdge = new Dictionary<int, (float, byte, Vector2)>();
         }
         // byGroup counters: 0 breaks >0.1%, 1 >0.5%, 2 >1%, 3 >2% (on the profile), 4 tight sag curves, 5 tight crest curves,
         // 6 node joints >0.5%, 7 breaks >0.5% where the mesh stands off the profile (a fan, a clip, a structure end), 8 curves >0.5%
@@ -106,6 +110,40 @@ namespace PSXRacing.EditorTools
                         g, b[0], a[0], b[1], a[1], b[2], a[2], b[3], a[3], b[6], a[6], b[8], a[8], b[4], a[4], b[5], a[5], b[7], a[7]));
                 }
                 Line($"  drawn sections {before.sections} -> {after.sections} ({(after.sections - before.sections) * 100.0 / Math.Max(1, before.sections):+0.0;-0.0}%), quads {before.spans} -> {after.spans}; tile builds {before.tileSeconds:0} s -> {after.tileSeconds:0} s");
+                {
+                    // RETAINING WALLS (CityMeshes.InCut): the walled cut length the
+                    // tiles built, by why; the walls REAL HEIGHTS adds are the
+                    // no-back-slope ones (why 5: before, a 1V:2H grass bank)
+                    var cw = after.cutWhy;
+                    Line(string.Format(CultureInfo.InvariantCulture, "  RETAINING WALLS (cut walls + barrier): {0:0.00} km - the back slope cannot reach the land {1:0} m, a road above in the slope {2:0} m, a building {3:0} m, held land {4:0} m, runs closed over a gap {5:0} m, NO ROOM FOR THE 1V:3H BACK SLOPE (added) {6:0} m",
+                        after.cutWall / 1000f, cw[1], cw[2], cw[3], cw[4], cw[0], cw[5]));
+                    var top = new List<KeyValuePair<int, (float m, byte why, Vector2 at)>>(after.cutByEdge);
+                    top.RemoveAll(kv => kv.Value.why != CityMeshes.CutWhyNoBackSlope);
+                    top.Sort((p, q) => q.Value.m.CompareTo(p.Value.m));
+                    var sbw = new System.Text.StringBuilder("  the longest added: ");
+                    for (int k = 0; k < Math.Min(8, top.Count); k++)
+                        sbw.Append(string.Format(CultureInfo.InvariantCulture, "e{0} '{1}' {2:0} m at ({3:0},{4:0}); ", top[k].Key, map.edges[top[k].Key].name, top[k].Value.m, top[k].Value.at.x, top[k].Value.at.y));
+                    Line(sbw.ToString());
+                }
+                try
+                {
+                    // FAN STEINER (CityMeshes.FanSteiner, FanMajorOn): do the major
+                    // pair's pavement points land in the fans' triangulation?
+                    var trF = CityMeshes.NodeTrims(map);
+                    int fans = 0, stAll = 0, stUsed = 0, folded = 0, withSt = 0, withUsed = 0;
+                    for (int n = 0; n < map.nodes.Length; n++)
+                    {
+                        if (map.nodeEdges[n].Count < 3) continue;
+                        var fr = CityMeshes.FanCheck(map, trF, n);
+                        fans++; stAll += fr.steiner; stUsed += fr.steinerUsed; folded += fr.folded;
+                        if (fr.steiner > 0) withSt++;
+                        if (fr.steinerUsed > 0) withUsed++;
+                    }
+                    var gl = map.nodes.Length > 5107 ? CityMeshes.FanCheck(map, trF, 5107) : default;
+                    Line(string.Format(CultureInfo.InvariantCulture, "FAN STEINER (major pavement held {0}): {1} fans, points {2} ({3} fans) of which in the triangulation {4} ({5} fans); folded triangles {6}; Gilead Rd n5107: points {7}, used {8}, folded {9}, worst node dy {10:0.00} m",
+                        CityMeshes.FanMajorOn, fans, stAll, withSt, stUsed, withUsed, folded, gl.steiner, gl.steinerUsed, gl.folded, gl.worstNodeDy));
+                }
+                catch (Exception ex) { Line("FAN STEINER failed: " + ex.GetType().Name + " " + ex.Message); }
                 Line("");
                 Line("VERTICAL ACCELERATION along the race routes (v^2 x grade change over a 2.5 m wheelbase), in g: max |a| / p95 |a| / max sag (pressed down) / max crest (lifted)");
                 for (int i = 0; i < before.routeLines.Count; i++)
@@ -158,12 +196,19 @@ namespace PSXRacing.EditorTools
                 File.WriteAllText(Path.Combine(root, "vsmooth_residuals.csv"), csv.ToString());
                 if (CityElevation.VsDump.Length > 0) File.WriteAllText(Path.Combine(root, "vsmooth_dump.txt"), CityElevation.VsDump.ToString());
 
-                if (Environment.GetEnvironmentVariable("PSX_VS_LAUNCH") == "1")
+                // PSX_VS_LAUNCH=1: the launch audit with the drawn profile off,
+                // then on; =lanes (REAL HEIGHTS): drawn on both times, the
+                // audit's old movement paths (before) then the lane carried
+                // through splits and merges (after, CityLaunchAudit.LaneCarry)
+                string vsl = Environment.GetEnvironmentVariable("PSX_VS_LAUNCH");
+                if (vsl == "1" || vsl == "lanes")
                 {
                     CityLaunchAudit.NoExit = true;
+                    bool lanes = vsl == "lanes", carry0 = CityLaunchAudit.LaneCarry;
                     foreach (bool on in new[] { false, true })
                     {
-                        CityElevation.ApplyVSmooth(map, on);
+                        CityElevation.ApplyVSmooth(map, lanes || on);
+                        if (lanes) CityLaunchAudit.LaneCarry = on;
                         Environment.SetEnvironmentVariable("PSX_LAUNCH_LABEL", on ? "vs_after" : "vs_before");
                         CityLaunchAudit.Run();
                         string tag = on ? "after" : "before";
@@ -175,6 +220,7 @@ namespace PSXRacing.EditorTools
                         Line($"launch audit {tag}: city_launch_{tag}.txt");
                     }
                     CityLaunchAudit.NoExit = false;
+                    CityLaunchAudit.LaneCarry = carry0;
                 }
                 status = 0;
             }
@@ -218,6 +264,10 @@ namespace PSXRacing.EditorTools
                 var tm = CityMeshes.Build(map, trims, buildings, tx, tz);
                 try
                 {
+                    st.cutWall += tm.cutWallM;
+                    for (int w = 0; w < st.cutWhy.Length && w < tm.cutWallByWhy.Length; w++) st.cutWhy[w] += tm.cutWallByWhy[w];
+                    foreach (var kv in tm.cutWallByEdge)
+                        st.cutByEdge[kv.Key] = st.cutByEdge.TryGetValue(kv.Key, out var cw) ? (cw.m + kv.Value.m, cw.why, cw.at) : kv.Value;
                     var tap = tm.tap;
                     if (tap == null || tm.roads == null || tap.slotBase == null) continue;
                     var verts = tm.roads.vertices;
@@ -407,6 +457,34 @@ namespace PSXRacing.EditorTools
                     return "-";
                 }
                 st.routeLines.Add($"{rt.id} '{rt.name}' {x0 / 1000f:0.0} km: 150 mph {Summ(a150)}; posted {Summ(aPost)}; worst sag at {(a150.Count > 0 ? Where(ax[iMax]) : "-")}, worst crest at {(a150.Count > 0 ? Where(ax[iMin]) : "-")}");
+                if (a150.Count > 100)
+                {
+                    // what makes the p99: the samples past it near a junction
+                    // (within 30 m of a route node of three arms or more) or not,
+                    // and the worst places (one per 15 m)
+                    var jx = new List<float>(); float xa = 0f;
+                    for (int k = 0; k < rt.edges.Length; k++) { var e = map.edges[rt.edges[k]]; int sn = rt.dirs[k] >= 0 ? e.a : e.b; if (map.nodeEdges[sn].Count >= 3) jx.Add(xa); xa += e.length; }
+                    var absA = new List<float>(a150.Count); foreach (var v in a150) absA.Add(Mathf.Abs(v)); absA.Sort();
+                    float p99 = absA[Mathf.Min(absA.Count - 1, (int)(0.99f * absA.Count))];
+                    int nJ = 0, nO = 0; var over = new List<int>();
+                    for (int i = 0; i < a150.Count; i++)
+                    {
+                        if (Mathf.Abs(a150[i]) < p99) continue;
+                        float dmin = float.MaxValue; foreach (float q in jx) dmin = Mathf.Min(dmin, Mathf.Abs(ax[i] - q));
+                        if (dmin < 30f) nJ++; else nO++;
+                        over.Add(i);
+                    }
+                    over.Sort((p, q) => Mathf.Abs(a150[q]).CompareTo(Mathf.Abs(a150[p])));
+                    var sbp = new StringBuilder(); var taken = new List<float>();
+                    foreach (int i in over)
+                    {
+                        bool near = false; foreach (float t in taken) if (Mathf.Abs(t - ax[i]) < 15f) { near = true; break; }
+                        if (near) continue; taken.Add(ax[i]);
+                        sbp.Append(string.Format(CultureInfo.InvariantCulture, "{0} {1:+0.00;-0.00} g; ", Where(ax[i]), a150[i]));
+                        if (taken.Count >= 8) break;
+                    }
+                    st.routeLines.Add($"{rt.id} p99 {p99:0.00} g: {nJ + nO} samples past it, {nJ} within 30 m of a junction, {nO} not; worst places: {sbp}");
+                }
             }
             return st;
         }
