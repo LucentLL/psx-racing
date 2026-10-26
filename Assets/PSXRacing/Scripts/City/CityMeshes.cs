@@ -10610,6 +10610,7 @@ namespace PSXRacing.City
         {
             var list = map.FootprintsInTile(tx, tz);
             if (list == null) yield break;
+            stackPlans.Clear();   // floored parts: their buildings' plans on this tile's pavement
             foreach (var fi in list)
             {
                 yield return 0;   // WP-09: a footprint a step
@@ -10633,13 +10634,13 @@ namespace PSXRacing.City
         {
             {
                 var f = map.footprints[fi];
-                if (f.propKind != 0) return;   // a model stands here; CityWorld places it
+                if (f.propKind != 0) { AuditFoot(fi, 2, null, float.NaN, float.NaN, float.NaN, false); return; }   // a model stands here; CityWorld places it
                 // Parking decks (2026-10-05): a listed deck REPLACES its solid
                 // building (CityMeshes.Decks.cs); the far skyline keeps the box
-                if (!skylineBuild && EmitDeck(map, trims, tm, fi)) { tm.footprintCount++; return; }
+                if (!skylineBuild && EmitDeck(map, trims, tm, fi)) { AuditFoot(fi, 3, null, float.NaN, float.NaN, float.NaN, false); tm.footprintCount++; return; }
                 // Uptown C: a landmark hero draws some of its parts itself
                 int hero = f.landmark != 0 ? HeroOf(map, f) : -1;
-                if (hero >= 0 && heroSkip.Contains(fi)) return;
+                if (hero >= 0 && heroSkip.Contains(fi)) { AuditFoot(fi, 4, null, float.NaN, float.NaN, float.NaN, false); return; }
                 if (f.hidden) return;          // Uptown B2: its building:parts draw it
                 // B2: a part stands on its outline's ground and wears its
                 // outline's look, so the tiers of one tower meet and match
@@ -10674,8 +10675,10 @@ namespace PSXRacing.City
                 fitPoly.Clear();
                 fitPoly.AddRange(f.pts);
                 if (skylineBuild) SimplifyPoly(fitPoly, SkylineSimplifyM);
+                // a floored part: its building's plans as drawn, before its own cut
+                if (f.part && f.minH > 0.05f && !skylineBuild && PartFillDown > 0) PrimeStack(map, trims, fi);
                 int cut = skylineBuild ? 0 : FitFootprint(map, trims, fitPoly, y0, top);
-                if (cut < 0) { tm.footprintsLeftOut++; return; }
+                if (cut < 0) { AuditFoot(fi, 1, null, g, float.NaN, float.NaN, false); tm.footprintsLeftOut++; return; }
                 if (cut > 0) tm.footprintsCut++;
                 // leftover item 6: a house polygon on the drawn ground of its
                 // graded lot (its box's lowest: never a wall over air)
@@ -10711,6 +10714,10 @@ namespace PSXRacing.City
                 bool floating = f.minH > 0.05f && !skylineBuild;
                 float wallY0 = floating ? floorP + f.minH : y0;
                 float eaveY = f.roof != 0 ? Mathf.Max(wallY0, top - f.roofH) : top;
+                // 2026-10-26 (CityMeshes.PartBase.cs): a wall whose foot hangs
+                // over air - its building cut away under it - runs to the ground
+                bool hangs = floating && PartFillDown > 0 && PartHangs(map, fi, fitPoly);
+                AuditFoot(fi, 0, fitPoly, floorP, floating ? wallY0 : floorP, top, hangs);
                 bool retail = f.style == 4 && !floating && !skylineBuild;
                 // Coverage (2026-10-06): a shop outside the core is a strip
                 // centre or a big box - plain bays (no lettering) and a flat
@@ -10770,7 +10777,7 @@ namespace PSXRacing.City
                     facCornerB = CornerKind(a, c, fitPoly[(i + 2) % n0]);
                     facWallTop = eaveY + parapet;
                     if (eaveY > wallY0 + 0.05f)
-                        EmitWallStyled(tm, a, c, wallY0, eaveY + parapet, outward, retail, i == frontWall, wallSlot,
+                        EmitWallStyled(tm, a, c, hangs ? HangFoot(i, y0, floorP, wallY0) : wallY0, eaveY + parapet, outward, retail, i == frontWall, wallSlot,
                                        covShop ? fi : -1);
                     facCornerA = facCornerB = 1; facWallTop = float.NegativeInfinity;
                     // the parapet's inner face (seen from a deck's roof)
