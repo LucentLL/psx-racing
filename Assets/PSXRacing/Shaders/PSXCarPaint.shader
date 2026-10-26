@@ -139,11 +139,35 @@
 // pixel. With the tone off (no hour applied, or PSX_TONE=0 in a tool) it is
 // the fourth cut's paint exactly.
 //
+// THE NIGHT-PAINT PASS, 2026-10-26. The owner, at Linn Cove in the rain from
+// the bumper cam, behind a purple rival in his low beams: "headlights (and
+// possibly street lights) do not reflect in the paint, but instead make
+// objects appear matte and flat ... especially since most racing is at
+// night". Its rear bumper was one flat beige panel - linear (0.78, 0.56,
+// 0.27), measured off his frame, which is Halogen.linear x 2 lamps x 0.25
+// through the shoulder: the beams' GLINT, not their light. Reproduced (Editor/
+// ReflectionMapCheck part "nightpaint"): in a third of the rival's paint
+// pixels the glint was over half the pixel, on a panel the low beam's cutoff
+// leaves unlit. Three changes, all at the lamps:
+//   * THE GLINTS ARE THE LENSES' MIRROR IMAGES (PSXLampImage, in
+//     PSXHeadlights.cginc): a lamp beside the eye put a whole flat panel
+//     inside a Blinn-Phong lobe fourteen degrees wide. Now a clean coat shows
+//     each lens as a small hot spot, a dull one as a wide faint glow, scaled
+//     by the coat's own k - and a hot core goes white, as on film.
+//   * A BEAM SHADES THE BODY BY N.L. The road's `facing` saturates at a
+//     grazing 0.02 so the tarmac takes the whole plateau; on a body it gave
+//     every panel turned toward the lamp the same tone.
+//   * THE CLEAR COAT AT EVERY HOUR (CLEAR_NIGHT): a clean or wet car mirrors
+//     the lit street, the lamps and the dusk sky in their own colours, its
+//     darks dark, as by day; a dull coat keeps the old mix.
+// The beam cone in the air (PSX/Beam) was measured over the rival's paint
+// too: +0.0005 linear on 0.12 - not a veil, left as it is.
+//
 // _PSXPaintDebug (a global the screenshot tool sets) swaps the output for one
 // term at a time: 1 = N.L, 2 = the normal, 3 = the light before the knee,
 // 4 = the reflection alone, 5 = the sheet, 6 = what the lacquer sees in
 // direction R (before how much and the tint), 7 = how much (k), 8 = the paint
-// without its reflection. When a picture disagrees with the
+// without its reflection, 13 = the glints (sun and lamps). When a picture disagrees with the
 // arithmetic, this is how to find out which of them is lying.
 Shader "PSX/CarPaint"
 {
@@ -412,10 +436,42 @@ Shader "PSX/CarPaint"
             // THE LAMPS (the NIGHT PASS in the header). Diffuse joins the
             // sun before the knee; the glints are sparks, never a sheen.
             #define LAMP_PAINT         1.0    // street/tail lamp diffuse on the paint, x the lamp table's light
-            #define LAMP_GLINT_POW     180.0  // a street lamp in the lacquer: tighter than the sun (doubled on glass)
-            #define LAMP_GLINT         0.35   // ...at half the sun's gain (SUN_GLINT), x the lamp's own light
-            #define HEAD_GLINT_POW     120.0  // another car's low beam in the lacquer...
-            #define HEAD_GLINT         0.25   // ...gated by the beam's own spread (PSXHeadlightsBoth)
+            // THE LAMPS' MIRROR IMAGES (the night-paint pass, 2026-10-26: see the
+            // header and PSXLampImage in PSXHeadlights.cginc). These replace the
+            // Blinn-Phong glints (street lamps pow 180 x 0.35, beams pow 120 x
+            // 0.25): a lobe that wide put a lamp's colour over a whole flat panel
+            // whenever the lamp stood beside the eye - the owner's beige bumper.
+            // A lamp's image is its lens, blurred by the coat:
+            #define IMG_ROUGH_CLEAN    0.030  // a clean coat's blur, radians (1.7 deg): a small hot spot...
+            #define IMG_ROUGH_DULL     0.12   // ...a dirty or tired one's (7 deg): a wide faint glow...
+            #define IMG_ROUGH_WET      0.022  // ...a water film's, over any finish...
+            #define IMG_ROUGH_GLASS    0.018  // ...the glass's...
+            #define IMG_ROUGH_WHEEL    0.20   // ...and a wheel's
+            #define HEAD_IMAGE         700.0  // a headlamp lens's brightness, x the table's glint light (Halogen x GlintIntensity):
+                                              //   a clean coat's image of one 11 m off peaks near 6x the display's white
+            #define LAMP_IMAGE         30.0   // a street or tail lamp's, x the table's light
+            #define IMG_WHITE          0.60   // a hot image's core goes this far to white, from 1x to 4x the display's white
+            // THE CROWN. A real car's panels are convex - a bumper wraps, a roof and
+            // a boot lid are crowned - so a lamp's image on one is a compact spot
+            // where the curve happens to face it. The pack's panels are flat: a
+            // flat panel's mirror ray moves only with the view across it (a
+            // rival's rear 11 m ahead: five degrees), so a lamp's image either
+            // misses it or, with any blur wide enough to land, covers all of it.
+            // For the lamps' images ONLY (not the light, not the world in the
+            // lacquer) the normal is bent as an ellipsoid's would be: by this
+            // many radians at the edges of the body's box, toward its outside.
+            #define IMG_CROWN          0.35
+            #define CROWN_C            float3(0.0, 0.65, 0.0)   // the box: centre in the body's frame (m, mesh origin
+            #define CROWN_H            float3(0.90, 0.65, 2.20) //   on the ground) and half-extents - a typical shell's
+            #define DROP_LAMP          0.35   // the lamps' light in a rain bead's glint (the sun's share, below)
+            // THE CLEAR COAT AT EVERY HOUR (the same pass): the coat a clean or
+            // wet car wears by day (CLEAR_*), at dusk and night as well, at this
+            // share: what it mirrors at night is the lamps and the lit street,
+            // its darks dark (CLEAR_CONTRAST). Not all of it: at the whole day's
+            // coat a clean rival's flat rear at dusk in the rain mirrored the wet
+            // road behind it in one grey tone (tint 0.08); at this share the
+            // reflection keeps a quarter of the paint's colour.
+            #define CLEAR_NIGHT        0.6
             // THE LAMP CONTROL MAP (owner, 2026-10-15/16): his authored lit
             // lamps, R running / G brake / B projector core / A lens scatter.
             // The numbers and the maths live in PSXLampMap.cginc, shared with
@@ -597,9 +653,24 @@ Shader "PSX/CarPaint"
                 // and no beam on - every daylight hour - both tables early-
                 // out with exact zeros, and adding a zero changes nothing:
                 // the paint is the signed-off paint.
+                // (since the night-paint pass: a beam shades the body by N.L, and
+                // the glints are each lens's mirror image, as sharp as the finish -
+                // THE FINISH below: a clean coat, a dull one, the rain's film)
+                float shine = saturate(_PSXGloss), wetC = saturate(_PSXCarWet);
+                float imgRough = lerp(lerp(lerp(IMG_ROUGH_DULL, IMG_ROUGH_CLEAN, shine), IMG_ROUGH_WET, wetC),
+                                      IMG_ROUGH_GLASS, glass);
+                imgRough = lerp(imgRough, IMG_ROUGH_WHEEL, dull);
+                // the lamps' mirror ray, off the CROWNED normal (IMG_CROWN; not on a
+                // wheel, whose mesh is centred on its axle)
+                float3 bN = normalize(i.bnrm);
+                float3 cE = (i.bpos - CROWN_C) / CROWN_H;
+                float3 cT = cE - bN * dot(cE, bN);
+                float3 cW = mul((float3x3)unity_ObjectToWorld, cT);
+                cW *= length(cT) / max(length(cW), 1e-5);
+                float3 Rimg = reflect(-V, normalize(N + cW * (IMG_CROWN * (1.0 - dull))));
                 float3 headD, headS, lampD, lampS;
-                PSXHeadlightsBoth(i.wpos, N, V, HEAD_GLINT_POW * (1.0 + glass), 1.0, headD, headS);
-                PSXLampsBoth(i.wpos, N, V, LAMP_GLINT_POW * (1.0 + glass), 1.0, lampD, lampS);
+                PSXHeadlightsPaint(i.wpos, N, Rimg, imgRough, headD, headS);
+                PSXLampsPaint(i.wpos, N, Rimg, imgRough, lampD, lampS);
                 float3 rawLight = amb + _PSXLightColor.rgb * (ndl * PAINT_SUN) + headD;
                 // The street lamps light the paint like the sun: before the
                 // knee, so a bonnet under a sodium lamp rolls off the same way.
@@ -631,16 +702,17 @@ Shader "PSX/CarPaint"
                 float coatF0 = lerp(COAT_F0, ENV_COAT_F0, envOn), coatFMax = lerp(COAT_FMAX, ENV_COAT_FMAX, envOn);
                 // THE FINISH: a clean coat's sheen, dulled by dirt and a tired
                 // finish, and the rain's film over any of them.
-                float shine = saturate(_PSXGloss), wetC = saturate(_PSXCarWet);
-                // by day the clean coat is the CLEAR coat (the header block)
-                float dayC = saturate(_PSXPaintWorld.x) * envOn;
+                // (shine and wetC: read above, with the lamps)
+                // the clean coat is the CLEAR coat (the header block): by day, and
+                // since the night-paint pass at dusk and night too (CLEAR_NIGHT)
+                float dayC = lerp(CLEAR_NIGHT, 1.0, saturate(_PSXPaintWorld.x)) * envOn;
                 coatF0 = max(coatF0, lerp(SHINE_F0, CLEAR_F0, dayC) * envOn);
                 coatFMax = max(coatFMax, lerp(SHINE_FMAX, CLEAR_FMAX, dayC) * envOn);
                 float dullK = lerp(DULL_COAT, 1.0, shine);
                 // (a film of water is never less of a mirror than the clean coat under it)
                 coatF0 = lerp(coatF0 * dullK, max(WET_COAT_F0, coatF0), wetC);
                 coatFMax = lerp(coatFMax * dullK, max(WET_COAT_FMAX, coatFMax), wetC);
-                // how much of a clear mirror the top of the paint is: clean or wet, by day
+                // how much of a clear mirror the top of the paint is: clean or wet
                 float clearC = max(shine, wetC) * dayC * (1.0 - _Dull);
                 float paintLod = lerp(lerp(ENV_PAINT_LOD + DULL_LOD, SHINE_LOD, shine), WET_COAT_LOD, wetC);
                 float glassF0 = lerp(GLASS_F0, ENV_GLASS_F0, envOn), glassFMax = lerp(GLASS_FMAX, ENV_GLASS_FMAX, envOn);
@@ -740,16 +812,21 @@ Shader "PSX/CarPaint"
                 float sheen = pow(ndh, FLAKE_POW) * FLAKE_SHEEN * (1.0 - glass) * step(0.0001, ndl);
                 float dullSpec = lerp(1.0, DULL_SPEC, dull);
                 float3 hi = _PSXLightColor.rgb * ((glint + sheen * body) * dullSpec * sunVis);
-                // THE LAMPS IN THE LACQUER: a spark per street lamp and per
-                // beam aimed at the car, under the very mask the sun's glint
-                // wears (glass shows it harder, a wheel hardly at all) and
-                // added where the sun's is, so the shoulder below rolls it
-                // off like everything else. No sheen term: a lamp is never
-                // a wash over a panel (the "white glow" in the header).
-                float3 lampGlint = (lampS * LAMP_GLINT + headS * HEAD_GLINT) * ((1.0 + glass * 0.8) * dullSpec);
-                hi += lampGlint;
                 // A glint is the sun's or a lamp's light: exposed like it.
                 hi *= expo;
+                // THE LAMPS IN THE LACQUER (the night-paint pass): each street
+                // lamp's, tail lamp's and aimed beam's LENS, mirrored - its image
+                // at the lens's own brightness (LAMP_IMAGE, HEAD_IMAGE) times what
+                // this coat reflects here (k: the clean, dull or wet coat, the
+                // glass, a wheel's tenth), as sharp as the finish (imgRough). Added
+                // where the sun's glint is, so the shoulder below rolls it off. A
+                // hot image's core goes toward white, as an over-exposed lamp does
+                // on film: rolled off on its brightest channel alone, a halogen
+                // image keeps its hue and reads as a beige patch, only smaller.
+                float3 lampGlint = (lampS * LAMP_IMAGE + headS * HEAD_IMAGE) * (k * expo);
+                float imgTop = max(lampGlint.r, max(lampGlint.g, lampGlint.b));
+                lampGlint = lerp(lampGlint, imgTop.xxx, IMG_WHITE * smoothstep(1.0, 4.0, imgTop));
+                hi += lampGlint;
 
                 float3 col = lit * (1.0 - k) + refl + hi;
 
@@ -773,7 +850,7 @@ Shader "PSX/CarPaint"
                     float glintD = pow(saturate(-gradD.y * 0.7 + gradD.x * 0.3), 6.0) * smoothstep(0.25, 0.6, hW);
                     col = col * (1.0 - coverD * lerp(0.18, 0.45, edgeD))
                         + coverD * (1.0 - edgeD) * sky * lerp(0.16, 0.30, glass)
-                        + glintD * (sky * 0.6 + _PSXLightColor.rgb * (0.35 * sunVis) * expo);
+                        + glintD * (sky * 0.6 + (_PSXLightColor.rgb * (0.35 * sunVis) + (headD + lampD) * DROP_LAMP) * expo);
                     float flake = smoothstep(0.05, 0.35, snowH);
                     col = lerp(col, light * 0.92, flake * 0.92);
                 }
@@ -781,7 +858,7 @@ Shader "PSX/CarPaint"
                 // sources - the soft halation the owner signed off round
                 // "lamps and glints" - and neither the paint under them nor
                 // the flake's broad sheen is.
-                float emit = PSXEmitShare((_PSXLightColor.rgb * (glint * dullSpec * sunVis) + lampGlint) * expo, col);
+                float emit = PSXEmitShare(_PSXLightColor.rgb * (glint * dullSpec * sunVis) * expo + lampGlint, col);
 
                 // THE SHOULDER, on the brightest channel so the hue holds:
                 // a white car in full sun keeps its shape instead of clipping.
@@ -842,7 +919,8 @@ Shader "PSX/CarPaint"
                         col = float3((_PSXEnvOn > 0.5 ? 1.0 : skyOpen) * lerp(lerp(occ, 1.0, glass), 1.0, envOn * (1.0 - upW)),
                                      upW, R.y * 0.5 + 0.5);
                     else if (_PSXPaintDebug < 11.5) col = float3(0, 0, 0); // the car's mask: this...
-                    else col = float3(1.0, 1.0 - dull, 1.0 - glass);      // ...against this
+                    else if (_PSXPaintDebug < 12.5) col = float3(1.0, 1.0 - dull, 1.0 - glass); // ...against this
+                    else col = hi;                                        // 13: the glints (sun + lamps), exposed
                     return fixed4(col, 1);
                 }
 
