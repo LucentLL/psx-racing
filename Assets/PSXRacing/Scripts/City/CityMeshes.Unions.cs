@@ -291,6 +291,24 @@ namespace PSXRacing.City
             // twin carriageways, wherever no deck or approach run reached
             float groundM = GroundTwinRuns(map, t, out int groundRuns);
 
+            // (round 6) a run end within UnionNodeSnapM of its edge's end is AT the
+            // node: an approach run starting 0.2 m into the edge after a deck run
+            // that ends on the node read as two closed ends - the deck's V legs and
+            // the Jersey turned down, a diamond in the median (I-277 e2307/e2303 at
+            // the Uptown Loop's 800 m, I-77 e15241)
+            if (TwinBridgesOn)
+                for (int ei = 0; ei < ne; ei++)
+                {
+                    var list = t.unions[ei];
+                    if (list == null) continue;
+                    float len = E[ei].length;
+                    foreach (var r in list)
+                    {
+                        if (r.s0 > 0f && r.s0 <= UnionNodeSnapM) r.s0 = 0f;
+                        if (r.s1 < len && r.s1 >= len - UnionNodeSnapM) r.s1 = len;
+                    }
+                }
+
             // 4. which ends are open
             int open = 0;
             for (int ei = 0; ei < ne; ei++)
@@ -841,6 +859,8 @@ namespace PSXRacing.City
         /// between two). PSX_CITY_TWIN_BRIDGES=0: before.
         /// </summary>
         public static bool TwinBridgesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWIN_BRIDGES") != "0";
+        /// <summary>(round 6) A union run's end this close to its edge's end is moved onto the node.</summary>
+        const float UnionNodeSnapM = 0.6f;
         /// <summary>Round 6: a partner run's side by every sample's own vote (PSX_CITY_TWIN_SIDEVOTE=0: the mid-arc read, before).</summary>
         public static bool TwinSideVoteOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWIN_SIDEVOTE") != "0";
         /// <summary>A run on <paramref name="edge"/>'s <paramref name="side"/> ending or starting within
