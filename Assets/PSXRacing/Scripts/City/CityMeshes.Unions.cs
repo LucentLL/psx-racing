@@ -572,6 +572,28 @@ namespace PSXRacing.City
                 if (o == r || o.side != r.side) continue;
                 if (end == 0 ? Mathf.Abs(o.s1 - s) < 0.1f || (o.s0 < s - 0.1f && o.s1 > s - 0.1f) : Mathf.Abs(o.s0 - s) < 0.1f || (o.s0 < s + 0.1f && o.s1 > s + 0.1f)) return true;
             }
+            // (REAL HEIGHTS round 4) a run laid on the TWIN that carries the median
+            // on past this end: a ground run stops where it finds the spot already
+            // covered by a run on the carriageway across (a deck's approach run),
+            // and each turned its end down to a curb in the other's face - a low V
+            // in the median a car crosses (the owner on I-277: "allowing cars to
+            // drive into oncoming traffic"; MEDIAN ACROSS none). Across, the two
+            // are one median.
+            if (TwinContinueOn && r.nb >= 0 && r.nb < map.edges.Length && t.unions[r.nb] != null)
+            {
+                var yt = map.edges[r.nb];
+                var pe = e.PointAt(Mathf.Clamp(s, 0f, e.length));
+                CityElevation.ProjectOn(yt, pe, out float ys);
+                if (Vector2.Distance(yt.PointAt(ys), pe) <= e.HalfMax + yt.HalfMax + GroundTwinGapMaxM + 2f)
+                {
+                    // the run across must carry on beyond this end (in our travel sense, on its line)
+                    var pIn = e.PointAt(Mathf.Clamp(end == 0 ? s + 2f : s - 2f, 0f, e.length));
+                    CityElevation.ProjectOn(yt, pIn, out float yIn);
+                    float beyond = ys + (ys - yIn) * 0.5f;
+                    foreach (var o in t.unions[r.nb])
+                        if (o.Covers(ys, 0.5f) && o.Covers(beyond, 0.5f)) return true;
+                }
+            }
             bool atNode = end == 0 ? s <= 0.05f : s >= e.length - 0.05f;
             if (!atNode) return false;
             int node = end == 0 ? e.a : e.b;
@@ -767,6 +789,17 @@ namespace PSXRacing.City
         /// drops), and the Jersey's own start is (2026-10-24: a ground median
         /// ending AT the band left I-277's e2143 approach rail square).</summary>
         const float GroundTwinBandLeadM = 10f;
+        /// <summary>REAL HEIGHTS round 4 (the owner on the live Uptown Loop: "This is not
+        /// how medians work. They don't just start and stop"): structure only where OSM
+        /// tags it put approach rail bands at every bridge end along I-277, and at each one
+        /// the shared median stopped - turned down to a curb - while each carriageway stood
+        /// its own approach rail: two walls with a ditch between (MEDIAN ACROSS boxes) and a
+        /// low gap where one ends and the others begin (none). The shared median now runs on
+        /// through the bands (the median side's approach rail stands down under it, as under
+        /// any union run); the outside keeps its approach rail. PSX_CITY_TWIN_BANDS=1 is the before.</summary>
+        /// <summary>REAL HEIGHTS round 4: a union run's end met by a run on the twin carriageway is continued (PSX_CITY_TWIN_CONTINUE=0: the before).</summary>
+        public static bool TwinContinueOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWIN_CONTINUE") != "0";
+        public static bool TwinStopsAtBands = System.Environment.GetEnvironmentVariable("PSX_CITY_TWIN_BANDS") == "1";
         static bool InApproachBand(List<float> ends, float s)
         {
             foreach (float se in ends) if (Mathf.Abs(s - se) < ApproachRailM + GroundTwinBandLeadM) return true;
@@ -859,7 +892,7 @@ namespace PSXRacing.City
             float reach = X.HalfMax + GroundTwinGapMaxM + 12f, best = float.MaxValue;
             // short of the approach rail band at a structure end: its rails and
             // their W-beam lead-ins are the designed transition onto a deck
-            if (InApproachBand(twinEndsX, x)) { TwinWhy = "in an approach rail band"; return false; }
+            if (TwinStopsAtBands && InApproachBand(twinEndsX, x)) { TwinWhy = "in an approach rail band"; return false; }
             // one grid query serves the next TwinQueryReuseM of the walk
             if (!(Vector2.Distance(p, twinQueryAt) <= TwinQueryReuseM))
             {
@@ -897,7 +930,7 @@ namespace PSXRacing.City
             // the lower index owns the pair's median: Y's own walk lays it
             if (Y == null) { TwinWhy = "no twin beside"; return false; }
             if (!twinEndsOf.TryGetValue(Y.index, out var endsY)) twinEndsOf[Y.index] = endsY = new List<float>(StructureEndsOf(map, t, Y));
-            if (InApproachBand(endsY, y)) { TwinWhy = $"twin e{Y.index} in an approach rail band"; return false; }
+            if (TwinStopsAtBands && InApproachBand(endsY, y)) { TwinWhy = $"twin e{Y.index} in an approach rail band"; return false; }
             if (Y.index < X.index) { TwinWhy = $"owned by e{Y.index}"; return false; }
             float ylo = t.patch[Y.a] ? t.atA[Y.index] + UnionFanSetbackM : 0f;
             float yhi = t.patch[Y.b] ? Y.length - t.atB[Y.index] - UnionFanSetbackM : Y.length;

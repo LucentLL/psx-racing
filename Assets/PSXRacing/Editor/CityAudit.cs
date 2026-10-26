@@ -607,11 +607,14 @@ namespace PSXRacing.EditorTools
                 }
             }
             Line($"drive audit along the race routes ({(ids.Count > 0 ? string.Join(",", ids) : "all")}): {routeEdges.Count} route edges on {tiles.Count} tiles");
+            Line("  solve: " + CityElevation.GroundTwinReport + $" (median runs through approach bands: {!CityMeshes.TwinStopsAtBands})");
             CityMeshes.carryOnSkipped.Clear();
             CityMeshes.sameWayDeckSides.Clear();
             MedianLateralReset(map);
+            FallHolesReset();
             DriveAudit(map, trims, buildings, tiles, routeEdges);
             MedianLateralReport();
+            FallHolesReport();
             {
                 var sw = new List<int>(CityMeshes.sameWayDeckSides); sw.Sort();
                 var ssb = new StringBuilder(); int swRoute = 0;
@@ -887,6 +890,7 @@ namespace PSXRacing.EditorTools
                     FanMouths(map, trims, ptx, ptz);
                     if (spot == "w5th") W5thLateral(map, trims);
                     if (routeMode && routeEdges != null) MedianLateral(map, trims, ptx, ptz, routeEdges);
+                    if (routeMode && routeEdges != null) FallHoles(map, trims, ptx, ptz);
 
                     var min = new Vector2(ptx * CityMeshes.TileSize, ptz * CityMeshes.TileSize);
                     var max = min + Vector2.one * CityMeshes.TileSize;
