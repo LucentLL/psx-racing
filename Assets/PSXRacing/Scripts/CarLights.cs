@@ -62,6 +62,9 @@ namespace PSXRacing
         /// (CarShell centres the body on the collider: -colliderCenter.z).</summary>
         public CarModelDef shellDef;
         public float shellZ;
+        /// <summary>A car with no CarController (city traffic, CityTraffic)
+        /// says here when its driver is on the brakes.</summary>
+        [System.NonSerialized] public bool externalBrake;
 
         static readonly List<CarLights> all = new List<CarLights>();
         static bool lightsOn;
@@ -636,7 +639,7 @@ namespace PSXRacing
             if (ShellChanged()) Fit();
 
             bool nowBraking = BrakeOverride >= 0f ? BrakeOverride > 0.15f
-                            : car != null && (car.brakeInput > 0.15f || car.handbrakeInput);
+                            : externalBrake || car != null && (car.brakeInput > 0.15f || car.handbrakeInput);
             if (nowBraking != braking)
             {
                 braking = nowBraking;

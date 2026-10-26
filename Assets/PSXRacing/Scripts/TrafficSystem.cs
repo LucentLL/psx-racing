@@ -150,7 +150,7 @@ namespace PSXRacing
 
         /// <summary>The owner's traffic cars twice (the taxi and the two
         /// police liveries once), then the pack's everyday shells for variety.</summary>
-        static readonly string[] Keys =
+        internal static readonly string[] Keys =
         {
             "crown_victoria", "sedan_98", "camry_2001", "ford_transit",
             "crown_victoria", "sedan_98", "camry_2001", "ford_transit",

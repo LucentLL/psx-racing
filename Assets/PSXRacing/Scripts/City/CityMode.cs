@@ -116,6 +116,8 @@ namespace PSXRacing.City
             }
             // Every city race's start line, standing in the street.
             CityRaceStarts.Attach(this);
+            // The city's own traffic (free roam only: a race keeps TrafficSystem).
+            CityTraffic.Attach(this);
         }
 
         void Update()
