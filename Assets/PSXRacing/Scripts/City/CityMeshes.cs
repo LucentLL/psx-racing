@@ -5090,7 +5090,8 @@ namespace PSXRacing.City
                     // on over. Nothing stands on it (no parapet, approach
                     // rail, Jersey or cut wall); the run's owner draws the
                     // median (EmitSide).
-                    if (!sf.gap && !f.skip && UnionSideHere(map, trims, e, side, A, B, tm.origin) != null)
+                    if (!sf.gap && !f.skip && (UnionSideHere(map, trims, e, side, A, B, tm.origin) != null
+                                               || HostUnionHere(map, trims, e, side, A, B, tm.origin, out _) != null))
                     {
                         sf.union = true;
                         f[side] = sf;
@@ -5979,6 +5980,9 @@ namespace PSXRacing.City
             {
                 var ur = UnionOn(trims, e.index, side, A.s, B.s);
                 if (ur != null && ur.owner) EmitUnionMedian(map, trims, tm, e, i, side, v0, v1, f.elev, ur);
+                // (round 5) a host's side beside a collapsed branch that owns the run
+                else if (ur == null && HostUnionHere(map, trims, e, side, A, B, tm.origin, out var hostRun) != null && hostRun != null)
+                    EmitUnionMedian(map, trims, tm, e, i, side, v0, v1, f.elev, hostRun);
                 return;
             }
 

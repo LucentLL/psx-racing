@@ -228,6 +228,13 @@ namespace PSXRacing.EditorTools
             finally { CityMeshes.RecordTap = false; }
             Line($"done in {clock.Elapsed.TotalSeconds:0} s");
             File.WriteAllText(Path.Combine(root, "vsmooth_census.txt"), log.ToString());
+            // (round 5) PSX_VS_THEN_DRIVE=1: the drive audit on the same solve
+            // after the census (one job for both gates; city_drive.txt)
+            if (Environment.GetEnvironmentVariable("PSX_VS_THEN_DRIVE") == "1")
+            {
+                try { CityAudit.RunDrive(); }
+                catch (Exception ex) { Debug.LogException(ex); File.AppendAllText(Path.Combine(root, "vsmooth_census.txt"), "DRIVE AUDIT THREW " + ex + "\n"); }
+            }
             if (Application.isBatchMode) EditorApplication.Exit(status);
         }
 
