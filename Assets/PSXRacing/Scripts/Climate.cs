@@ -57,8 +57,9 @@ namespace PSXRacing
         public float precipRate;
         public bool fog;
         public DeckState road, bridge;
-        /// <summary>The roads are treated (brined/salted) for a snow event: snow
-        /// on them is slush, and their water freezes far lower.</summary>
+        /// <summary>The roads are treated (brined/salted) for a snow event, or
+        /// salted behind rain ahead of a hard freeze: snow on them melts or
+        /// is slush, and their water freezes far lower.</summary>
         public bool treated;
         /// <summary>Snow lying on the scenery, centimetres.</summary>
         public float snowDepthCm;
@@ -136,11 +137,24 @@ namespace PSXRacing
         /// <summary>SD of the daily temperature anomaly, Celsius, Piedmont.</summary>
         static readonly float[] AnomSdC = { 5.0f, 5.0f, 4.6f, 4.0f, 3.0f, 2.2f, 1.8f, 1.9f, 2.6f, 3.6f, 4.3f, 4.9f };
 
-        /// <summary>Fog days per mille, mountains (the old game table, which
-        /// was a mountain year). The Piedmont has a third of them, the coast
-        /// its own (sea fog in the cool months).</summary>
-        static readonly int[] FogMountain = { 120, 120, 130, 110, 90, 60, 50, 60, 120, 160, 150, 120 };
+        /// <summary>Fog days per mille (a morning fog, and the night before
+        /// it). FOG STAYS RARE (2026-10-26, the owner: "fog is very rare"):
+        /// heavy fog (visibility under a quarter mile) is ~10-20 days a year
+        /// at Charlotte, more in the mountain valleys, some on the coast (sea
+        /// fog in the cool months). Piedmont 13/yr, mountains 23/yr (+ cloud
+        /// on the high ridges in rain, <see cref="RidgeFogChance"/>), coast
+        /// 19/yr (the climate printout, 10 years). The mountains' table was
+        /// the old game's (a mountain year, 39/yr + ridge fog on 40% of all
+        /// rain days at any height = 65 fog days a year): 0.6 of it now.</summary>
+        static readonly int[] FogMountain = { 72, 72, 78, 66, 54, 36, 30, 36, 72, 96, 90, 72 };
+        static readonly int[] FogPiedmont = { 40, 40, 43, 37, 30, 20, 17, 20, 40, 53, 50, 40 };
         static readonly int[] FogCoast    = { 80, 80, 90, 70, 50, 30, 20, 20, 40, 60, 70, 80 };
+
+        /// <summary>The chance a mountain day of steady rain has its cloud
+        /// down on the road: nothing in the valleys (Chimney Rock), rising
+        /// to 30% on the 1,800 m ridges.</summary>
+        static double RidgeFogChance(ClimateRegion r, float elevM) =>
+            r != ClimateRegion.Mountains ? 0.0 : 0.30 * Math.Max(0.0, Math.Min(1.0, (elevM - 600.0) / 1200.0));
 
         /// <summary>Share of precipitation days that are afternoon storms
         /// (short, heavy, convective) rather than a stratiform day of rain.</summary>
@@ -169,6 +183,64 @@ namespace PSXRacing
         /// <summary>Chance a snow event's roads get treated (brine ahead,
         /// salt/plough after): main roads in a city that owns the trucks.</summary>
         static float TreatChance(ClimateRegion r) => r == ClimateRegion.Coast ? 0.6f : r == ClimateRegion.Mountains ? 0.9f : 0.85f;
+
+        // ---- THE ROADS CLEAR LONG BEFORE THE SCENERY (2026-10-26) ---------
+        //
+        // The owner, from a snowy Chimney Rock: "Just because there is snow on
+        // ground, doesn't mean roads have to be icy" - and his reference (snow
+        // to the edge line, the carriageway black and wet in patches). Real
+        // practice on the main roads a race runs on: brine goes down ahead,
+        // ploughs run while it snows and right after, salt melts what they
+        // leave; once it stops, a treated road goes slush -> wet in patches ->
+        // dry within hours. The verges keep their snow for days while it is
+        // cold. So a road deck now MELTS what lands on it up to a capacity,
+        // the PLOUGHS take a share of the cover every hour, and only a heavy
+        // fall outruns them.
+
+        /// <summary>Unmelted snow (cm) that whitens a whole deck: the cover
+        /// share is cm / this.</summary>
+        const float CoverCm = 2.5f;
+        /// <summary>Brine and salt melt this many cm of snow an hour at 0 C on
+        /// the road, falling off with the cold to nothing at about -8.5 C
+        /// (rock salt's working floor).</summary>
+        const float SaltMeltCm = 1.2f, SaltMeltPerC = 0.14f;
+        /// <summary>A deck above freezing melts this many cm an hour per degree.</summary>
+        const float WarmMeltCm = 0.8f;
+        /// <summary>Share of the cover the ploughs take each hour while it
+        /// snows (a pass every two or three hours) and once it has stopped
+        /// (every truck out).</summary>
+        const float PlowSnowingPerH = 0.35f, PlowAfterPerH = 0.5f;
+        /// <summary>Hours after a snowfall the ploughs keep working.</summary>
+        const int PlowAfterH = 24;
+        /// <summary>An untreated road keeps this much packed snow after the
+        /// plough (its blade rides over it): traffic and the sun take it.</summary>
+        const float PackedSnow = 0.12f;
+        /// <summary>Traffic throws slush off a deck, and wears packed snow.</summary>
+        const float SlushChurnPerH = 0.08f, PackedWearPerH = 0.02f;
+        /// <summary>Hours brine stays on a treated road after the snow (its
+        /// water freezes far lower until then).</summary>
+        const int BrineAfterH = 60;
+        /// <summary>The road dries crowns first and keeps its water longest in
+        /// the low spots (the patch mask): the drying rate at a near-dry road
+        /// is this share of a soaked one's, so every drying spell passes
+        /// through a patchy wet/dry phase for hours (the owner likes it).</summary>
+        const float DryTail = 0.35f;
+        /// <summary>The least water (a deck's share) that freezes to black ice.</summary>
+        const float IceFilm = 0.3f;
+        /// <summary>A treated deck's water freezes here (salt brine, near
+        /// rock salt's working floor).</summary>
+        const float BrineFreezeC = -8f;
+        /// <summary>Rain ending ahead of air this cold gets salted against
+        /// the refreeze (at the event odds).</summary>
+        const float RefreezeAirC = -1f;
+
+        /// <summary>Snow (cm an hour) a deck at T melts as it lands.</summary>
+        static float MeltCapCm(float T, bool treated)
+        {
+            float warm = T > 0f ? WarmMeltCm * T : 0f;
+            float salt = treated ? Math.Max(0f, SaltMeltCm + SaltMeltPerC * Math.Min(T, 0f)) : 0f;
+            return warm + salt;
+        }
 
         // ---- venues ---------------------------------------------------------
 
@@ -361,7 +433,7 @@ namespace PSXRacing
                 rec.hiC = nHi + rec.anomC + k * range;
                 rec.loC = nLo + rec.anomC - (rec.drySky == SkyKind.Clear ? 0.08f : rec.drySky == SkyKind.Overcast ? -0.10f : 0f) * range;
             }
-            int fogPm = r == ClimateRegion.Mountains ? FogMountain[m] : r == ClimateRegion.Coast ? FogCoast[m] : FogMountain[m] / 3;
+            int fogPm = r == ClimateRegion.Mountains ? FogMountain[m] : r == ClimateRegion.Coast ? FogCoast[m] : FogPiedmont[m];
             rec.fogDay = !rec.convective && U01(SFOG ^ rs, day) * 1000.0 < fogPm;
             return rec;
         }
@@ -438,8 +510,12 @@ namespace PSXRacing
             float snowAt = SnowAirC + (r == ClimateRegion.Coast ? CoastSnowExtraC : 0f);
 
             // Snow events and their treatment, found first so the brine can go
-            // down ahead of the storm.
+            // down ahead of the storm. Every event is ploughed (the main roads
+            // a race runs on) while it falls and a day after; the coast's
+            // untreated events have no trucks at all.
             var treatFrom = new List<int>(); var treatTo = new List<int>();
+            var plowFrom = new List<int>(); var plowTo = new List<int>();
+            bool lastTreated = false, lastPlowed = false; int lastEnd = int.MinValue / 2;
             for (int i = 0; i < t.days; i++)
             {
                 var d = t.rec[i + 1];
@@ -454,10 +530,42 @@ namespace PSXRacing
                 if (!snows) continue;
                 int startH = i * 24 + (int)d.pStart, endH = i * 24 + (int)(d.pStart + d.pDur);
                 // One event, one decision: a run of snow days shares the first's.
-                if (treatTo.Count > 0 && startH - treatTo[treatTo.Count - 1] < 36) { treatTo[treatTo.Count - 1] = endH + 48; continue; }
-                if (U01(STREAT ^ rs, first + i) < TreatChance(r)) { treatFrom.Add(startH - 12); treatTo.Add(endH + 48); }
+                if (startH - lastEnd < 36)
+                {
+                    lastEnd = Math.Max(lastEnd, endH);
+                    if (lastPlowed) plowTo[plowTo.Count - 1] = lastEnd + PlowAfterH;
+                    if (lastTreated) treatTo[treatTo.Count - 1] = lastEnd + BrineAfterH;
+                    continue;
+                }
+                lastEnd = endH;
+                lastTreated = U01(STREAT ^ rs, first + i) < TreatChance(r);
+                lastPlowed = lastTreated || r != ClimateRegion.Coast;
+                if (lastTreated) { treatFrom.Add(startH - 12); treatTo.Add(endH + BrineAfterH); }
+                if (lastPlowed) { plowFrom.Add(startH); plowTo.Add(endH + PlowAfterH); }
+            }
+            // A REFREEZE FORECAST is treated too: rain ending on a night set to
+            // fall well below freezing gets salt behind it (the DOT's "watch
+            // for black ice" run), at the same odds - so black ice off a wet
+            // road stays rare and is mostly the untreated share's.
+            for (int i = 0; i < t.days; i++)
+            {
+                var d = t.rec[i + 1];
+                if (!d.precipDay) continue;
+                float end = d.pStart + d.pDur;
+                float coldest = 99f;
+                for (float h = end; h < end + 18f; h += 1f)
+                {
+                    int di = i + (int)(h / 24f);
+                    if (di + 2 >= t.rec.Length) break;
+                    coldest = Math.Min(coldest, AirAt(t.rec[di], t.rec[di + 1], t.rec[di + 2], h % 24f));
+                }
+                if (coldest > RefreezeAirC) continue;
+                if (U01(STREAT ^ rs ^ 0x3Cu, first + i) >= TreatChance(r)) continue;
+                int endH = i * 24 + (int)end;
+                treatFrom.Add(endH - 2); treatTo.Add(endH + 30);
             }
 
+            double ridgeFog = RidgeFogChance(r, elevM);
             var rd = new DeckState(); var br = new DeckState();
             float depth = 0f, groundWet = 0f, meanAir = t.rec[1].loC * 0.5f + t.rec[1].hiC * 0.5f;
             int ti = 0;
@@ -513,13 +621,14 @@ namespace PSXRacing
                     float roadC = air + gain + 0.3f * (meanAir - air) - 1.8f * (1f - cloud) * (s > 0f ? 0.3f : 1f);
                     float bridgeC = air + 0.55f * gain - (2.6f * (1f - cloud) + 0.6f) * (s > 0f ? 0.25f : 1f);
 
-                    bool treated = false;
+                    bool treated = false, plowing = false;
                     int hi = i * 24 + h;
                     for (int k = 0; k < treatFrom.Count; k++) if (hi >= treatFrom[k] && hi <= treatTo[k]) { treated = true; break; }
+                    for (int k = 0; k < plowFrom.Count; k++) if (hi >= plowFrom[k] && hi <= plowTo[k]) { plowing = true; break; }
 
                     rd.tempC = roadC; br.tempC = bridgeC;
-                    StepDeck(ref rd, pk, rate, amtPerH, s, cloud, treated, false, humidNight, groundWet);
-                    StepDeck(ref br, pk, rate, amtPerH, s, cloud, treated, true, humidNight, groundWet);
+                    StepDeck(ref rd, pk, rate, amtPerH, s, cloud, treated, plowing, false, humidNight, groundWet);
+                    StepDeck(ref br, pk, rate, amtPerH, s, cloud, treated, plowing, true, humidNight, groundWet);
 
                     // The scenery: snow lies where it falls cold enough and goes
                     // with the warmth and the sun; the ground stays wet longer
@@ -536,7 +645,7 @@ namespace PSXRacing
                     {
                         if (today.fogDay && clock < 10.5f && sky != SkyKind.Storm) fog = true;
                         else if (next.fogDay && clock >= 22f) fog = true;
-                        else if (r == ClimateRegion.Mountains && pk == PrecipKind.Rain && U01(SRIDGE, day) < 0.4) fog = true;
+                        else if (pk == PrecipKind.Rain && U01(SRIDGE, day) < ridgeFog) fog = true;
                     }
 
                     t.hours[ti++] = new Hour
@@ -559,10 +668,13 @@ namespace PSXRacing
 
         /// <summary>One hour of a deck's water, slush, snow, ice and frost.</summary>
         static void StepDeck(ref DeckState d, PrecipKind pk, float rate, float amtPerH, float s, float cloud,
-                             bool treated, bool isBridge, bool humidNight, float groundWet)
+                             bool treated, bool plowing, bool isBridge, bool humidNight, float groundWet)
         {
             float T = d.tempC;
-            float freezeAt = treated ? -6f : 0f;
+            float freezeAt = treated ? BrineFreezeC : 0f;
+            // What the deck can melt this hour (cm of snow): a road above
+            // freezing, and brine down to its floor.
+            float cap = MeltCapCm(T, treated);
             if (pk == PrecipKind.Rain)
             {
                 d.water = Math.Min(1f, d.water + 0.7f * rate);
@@ -570,44 +682,67 @@ namespace PSXRacing
             }
             else if (pk == PrecipKind.Snow)
             {
-                if (treated) d.slush = Math.Min(1f, d.slush + amtPerH / 2f);
-                else if (T <= 0.5f) d.snow = Math.Min(1f, d.snow + amtPerH / 3f);
-                else d.water = Math.Min(1f, d.water + amtPerH * 0.3f);
+                // What lands melts up to the capacity - a light fall on a
+                // brined road is a WET road - and only the rest lies: slush on
+                // a treated deck, snow on an untreated one.
+                float melt = Math.Min(amtPerH, cap);
+                cap -= melt;
+                d.water = Math.Min(1f, d.water + 0.5f * melt);
+                float rest = (amtPerH - melt) / CoverCm;
+                if (treated) d.slush = Math.Min(1f, d.slush + rest);
+                else d.snow = Math.Min(1f, d.snow + rest);
                 d.frost = false;
             }
             else
             {
-                float e = 0.03f + 0.20f * s * (1f - 0.8f * cloud) + 0.006f * Math.Max(0f, T);
+                // the sun, the warmth, and the dry wind behind a front (a
+                // clear sky after rain dries a road through the night)
+                float e = 0.03f + 0.20f * s * (1f - 0.8f * cloud) + 0.006f * Math.Max(0f, T) + 0.04f * (1f - cloud);
                 if (isBridge) e *= 1.2f;   // wind across both faces
+                e *= DryTail + (1f - DryTail) * d.water;   // the low spots keep theirs longest
                 if (!d.ice) d.water = Math.Max(0f, d.water - e);
             }
-            // Slush melts (brine) and is churned off by traffic.
-            if (d.slush > 0f && T > freezeAt)
+            // The ploughs: a share of what lies, every hour they are out - all
+            // of the slush, an untreated road's snow down to a packed skin.
+            if (plowing)
             {
-                float m = Math.Min(d.slush, 0.08f + 0.04f * Math.Max(0f, T) + 0.04f);
-                d.slush -= m; d.water = Math.Min(1f, d.water + 0.8f * m);
+                float k = pk == PrecipKind.Snow ? PlowSnowingPerH : PlowAfterPerH;
+                d.slush -= k * d.slush;
+                if (d.snow > PackedSnow) d.snow -= k * (d.snow - PackedSnow);
             }
-            // A treated road's ploughs and salt turn snow already lying into slush.
+            // Slush melts (brine, warmth) and is churned off by traffic.
+            if (d.slush > 0f)
+            {
+                float m = Math.Min(d.slush, cap / CoverCm);
+                d.slush -= m; d.water = Math.Min(1f, d.water + 0.8f * m);
+                d.slush = Math.Max(0f, d.slush - SlushChurnPerH);
+            }
+            // A treated road's salt turns snow already lying into slush.
             if (treated && d.snow > 0f)
             {
                 float m = Math.Min(d.snow, 0.35f);
                 d.snow -= m; d.slush = Math.Min(1f, d.slush + m);
             }
-            // Snow on an untreated deck: melts in the warmth, packs under traffic.
+            // Snow on an untreated deck: melts in the warmth and the sun,
+            // packs and wears under traffic.
             if (d.snow > 0f)
             {
                 float m = T > 0f ? Math.Min(d.snow, 0.04f * T + 0.2f * s * (1f - cloud)) : 0f;
-                d.snow = Math.Max(0f, d.snow - m - 0.01f);
+                d.snow = Math.Max(0f, d.snow - m - PackedWearPerH);
                 d.water = Math.Min(1f, d.water + 0.6f * m);
             }
-            // Water freezes (black ice) and thaws.
+            // Water freezes (black ice) and thaws. BLACK ICE STAYS RARE: it
+            // needs a film still lying (not a damp road) and a deck a degree
+            // below freezing - the winter's salt residue and the film's own
+            // latent heat - half a degree on a bridge, which goes first.
             if (d.ice) { if (T > freezeAt + 0.5f) d.ice = false; }
-            else if (d.water > 0.12f && T <= freezeAt) d.ice = true;
+            else if (d.water > IceFilm && T <= freezeAt - (isBridge ? 0.5f : 1.0f)) d.ice = true;
             // Frost: a deck that falls below freezing on a still, clear, humid
             // night. Bridges only - the road keeps the ground's warmth.
             if (isBridge)
             {
-                if (pk == PrecipKind.None && T <= -1.0f && cloud < 0.6f && (humidNight || groundWet > 0.1f) && !d.ice) d.frost = true;
+                // (brine on a treated deck keeps the frost off it too)
+                if (pk == PrecipKind.None && T <= -1.0f && cloud < 0.6f && (humidNight || groundWet > 0.1f) && !d.ice && !treated) d.frost = true;
                 if (d.frost && (T > 0.5f || s > 0.25f)) d.frost = false;
             }
         }

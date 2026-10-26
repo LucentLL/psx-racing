@@ -1,0 +1,17 @@
+blue ridge chase view at path 761/1812
+wl_before_mtn_aftersnow_photo: THU 3 JAN 2002 AFTERNOON 16:10 | OVERCAST, SNOW ON GROUND | sky Overcast, precip None 0.00, light Rain, volumetric off | road water 1.00 slush 0.76 snow 0.00 ice False, treated True | scenery Snow 27 cm, air -2.1 | globals roadSnow 0.00 roadSlush 0.76 wetWater 1.00 sun 0.60
+wl_before_mtn_aftersnow2_photo: MON 5 FEB 2001 NOON 12:30 | OVERCAST, SNOW ON GROUND | sky Overcast, precip None 0.00, light Rain, volumetric off | road water 0.91 slush 0.00 snow 0.00 ice False, treated True | scenery Snow 7 cm, air 1.5 | globals roadSnow 0.00 roadSlush 0.00 wetWater 0.91 sun 0.67
+wl_before_mtn_snowlight_photo: TUE 29 JAN 2002 MORNING 08:30 | OVERCAST, SNOW | sky Overcast, precip Snow 0.52, light Snow, volumetric off | road water 1.00 slush 0.17 snow 0.00 ice False, treated True | scenery Snow 13 cm, air -2.7 | globals roadSnow 0.00 roadSlush 0.17 wetWater 0.35 sun 0.84
+wl_before_mtn_snowlight_desktop: TUE 29 JAN 2002 MORNING 08:30 | OVERCAST, SNOW | sky Overcast, precip Snow 0.52, light Snow, volumetric ON | road water 1.00 slush 0.17 snow 0.00 ice False, treated True | scenery Snow 13 cm, air -2.7 | globals roadSnow 0.00 roadSlush 0.17 wetWater 0.35 sun 0.84
+mtn_snowcover: forced (the bench's heavy snow)
+wl_before_mtn_snowcover_photo: TUE 29 JAN 2002 MORNING 08:30 | OVERCAST, SNOW | sky Overcast, precip Snow 1.00, light Snow, volumetric off | road water 0.60 slush 1.00 snow 0.00 ice False, treated True | scenery Snow 8 cm, air -2.7 | globals roadSnow 0.00 roadSlush 1.00 wetWater 0.35 sun 0.84
+mtn_snowfresh: forced (the bench's heavy snow)
+wl_before_mtn_snowfresh_photo: TUE 29 JAN 2002 MORNING 08:30 | OVERCAST, SNOW | sky Overcast, precip Snow 1.00, light Snow, volumetric off | road water 0.00 slush 0.00 snow 1.00 ice False, treated False | scenery Snow 8 cm, air -2.7 | globals roadSnow 1.00 roadSlush 0.00 wetWater 0.00 sun 0.84
+wl_before_mtn_drying_photo: FRI 9 APR 1999 NOON 12:30 | CLEAR | sky Clear, precip None 0.00, light Clear, volumetric off | road water 0.44 slush 0.00 snow 0.00 ice False, treated False | scenery Wet 0 cm, air 6.5 | globals roadSnow 0.00 roadSlush 0.00 wetWater 0.44 sun 1.34
+tryon start: edge 'South Tryon Street' at (-3462, 3548)
+snowfall: not in the climate at this hour - the bench's Snow
+wl_before_snowfall_photo: THU 20 JAN 2000 NOON 12:30 | OVERCAST, SNOW | sky Overcast, precip Snow 0.80, light Snow, volumetric off | road water 0.60 slush 1.00 snow 0.00 ice False, treated True | scenery Snow 8 cm, air -2.0 | globals roadSnow 0.00 roadSlush 1.00 wetWater 0.35 sun 1.07
+snowroad: not in the climate at this hour - the bench's Snow, road untreated
+wl_before_snowroad_photo: THU 20 JAN 2000 NOON 12:30 | OVERCAST, SNOW | sky Overcast, precip Snow 0.80, light Snow, volumetric off | road water 0.00 slush 0.00 snow 1.00 ice False, treated False | scenery Snow 8 cm, air -2.0 | globals roadSnow 1.00 roadSlush 0.00 wetWater 0.00 sun 1.07
+packed: forced (the bench's heavy snow)
+wl_before_packed_photo: THU 20 JAN 2000 NOON 12:30 | OVERCAST, SNOW ON GROUND | sky Overcast, precip None 0.00, light Rain, volumetric off | road water 0.00 slush 0.00 snow 0.80 ice False, treated False | scenery Snow 8 cm, air -2.0 | globals roadSnow 0.80 roadSlush 0.00 wetWater 0.00 sun 0.67

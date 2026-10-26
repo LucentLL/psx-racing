@@ -1,0 +1,80 @@
+climate + weather layers:
+  ok   the climate's day 1 is the LifeSim's day 1
+  ok   snow LYING on the scenery picks the snow dress, whatever the sky
+  ok   the same day, hour and venue always give the same weather
+     snow on the scenery 67 h/yr, snow/slush on the open road 5 h/yr, black ice road/bridges 1/27 h/yr, fog days 13.4/yr
+  ok   CHARLOTTE (CLT): snow/slush on the road under a tenth of the scenery's snow hours  (got 15 vs 223)
+  ok   CHARLOTTE (CLT): bridges ice first  (got 89 vs 4)
+  ok   CHARLOTTE (CLT): fog stays rare  (got 13.4)
+  == CHARLOTTE (CLT)  (10 simulated years; sim hi/lo F vs normal hi/lo F, precip days)
+     JAN 50/32 vs 53/33  13.0     FEB 57/36 vs 57/35  8.6     MAR 64/43 vs 64/41  10.3
+     APR 72/49 vs 73/49  8.8     MAY 80/58 vs 80/58  10.6     JUN 85/64 vs 86/66  9.1
+     JUL 88/68 vs 90/69  8.5     AUG 87/67 vs 88/68  10.2     SEP 82/61 vs 82/62  7.7
+     OCT 72/51 vs 73/51  8.4     NOV 63/41 vs 63/40  7.6     DEC 56/36 vs 56/35  8.6
+     snow days (>=0.1 in) 2.1/yr, events 1.7/yr, snowfall 3.7 in/yr, snow-covered dawns 3.4/yr
+  ok   CHARLOTTE (CLT): JAN mean high/low within 3 C of the normals  (got 50/32 vs 53/33)
+  ok   CHARLOTTE (CLT): JUL mean high/low within 3 C of the normals  (got 88/68 vs 90/69)
+     snow on the scenery 584 h/yr, snow/slush on the open road 30 h/yr, black ice road/bridges 29/92 h/yr, fog days 28.0/yr
+  ok   MOUNTAINS @ Boone 1016 m: snow/slush on the road under a tenth of the scenery's snow hours  (got 99 vs 1946)
+  ok   MOUNTAINS @ Boone 1016 m: bridges ice first  (got 307 vs 97)
+  ok   MOUNTAINS @ Boone 1016 m: fog stays rare  (got 28)
+  == MOUNTAINS @ Boone 1016 m  (10 simulated years; sim hi/lo F vs normal hi/lo F, precip days)
+     JAN 40/22 vs 42/22  14.1     FEB 45/26 vs 45/24  11.3     MAR 52/31 vs 52/29  12.3
+     APR 59/37 vs 61/37  12.2     MAY 69/46 vs 69/46  14.7     JUN 74/52 vs 75/53  14.3
+     JUL 77/56 vs 78/57  13.2     AUG 76/55 vs 77/56  14.9     SEP 70/49 vs 72/50  10.2
+     OCT 61/39 vs 63/39  10.7     NOV 53/31 vs 53/30  9.2     DEC 45/26 vs 46/25  11.5
+     snow days (>=0.1 in) 13.6/yr, events 8.9/yr, snowfall 26.1 in/yr, snow-covered dawns 27.2/yr
+  ok   MOUNTAINS @ Boone 1016 m: JAN mean high/low within 3 C of the normals  (got 40/22 vs 42/22)
+  ok   MOUNTAINS @ Boone 1016 m: JUL mean high/low within 3 C of the normals  (got 77/56 vs 78/57)
+     snow on the scenery 1763 h/yr, snow/slush on the open road 101 h/yr, black ice road/bridges 105/231 h/yr, fog days 43.1/yr
+  ok   MOUNT MITCHELL 1800 m: snow/slush on the road under a tenth of the scenery's snow hours  (got 336 vs 5877)
+  ok   MOUNT MITCHELL 1800 m: bridges ice first  (got 771 vs 350)
+  ok   MOUNT MITCHELL 1800 m: fog stays rare  (got 43.1)
+  == MOUNT MITCHELL 1800 m  (10 simulated years; sim hi/lo F vs normal hi/lo F, precip days)
+     JAN 31/14 vs 34/14  14.1     FEB 37/18 vs 37/16  11.3     MAR 44/23 vs 44/21  12.3
+     APR 51/28 vs 53/29  12.2     MAY 60/38 vs 61/37  14.7     JUN 65/44 vs 67/45  14.3
+     JUL 68/47 vs 70/49  13.2     AUG 67/47 vs 69/47  14.9     SEP 62/41 vs 63/41  10.2
+     OCT 53/30 vs 54/31  10.7     NOV 44/22 vs 45/22  9.2     DEC 37/18 vs 37/16  11.5
+     snow days (>=0.1 in) 32.3/yr, events 18.1/yr, snowfall 76.8 in/yr, snow-covered dawns 76.8/yr
+  ok   MOUNT MITCHELL 1800 m: JAN mean high/low within 3 C of the normals  (got 31/14 vs 34/14)
+  ok   MOUNT MITCHELL 1800 m: JUL mean high/low within 3 C of the normals  (got 68/47 vs 70/49)
+     snow on the scenery 4 h/yr, snow/slush on the open road 1 h/yr, black ice road/bridges 1/23 h/yr, fog days 19.4/yr
+  ok   COAST (Morehead City): bridges ice first  (got 77 vs 4)
+  ok   COAST (Morehead City): fog stays rare  (got 19.4)
+  == COAST (Morehead City)  (10 simulated years; sim hi/lo F vs normal hi/lo F, precip days)
+     JAN 55/37 vs 57/37  10.9     FEB 59/39 vs 59/39  7.9     MAR 65/45 vs 64/44  7.9
+     APR 71/52 vs 71/52  7.4     MAY 78/61 vs 78/61  9.3     JUN 83/69 vs 84/69  8.7
+     JUL 86/72 vs 87/73  10.3     AUG 86/72 vs 87/72  14.0     SEP 82/66 vs 83/66  9.9
+     OCT 75/56 vs 76/57  7.6     NOV 67/48 vs 68/48  7.9     DEC 60/41 vs 60/40  9.6
+     snow days (>=0.1 in) 0.2/yr, events 0.2/yr, snowfall 0.3 in/yr, snow-covered dawns 0.3/yr
+  ok   COAST (Morehead City): JAN mean high/low within 3 C of the normals  (got 55/37 vs 57/37)
+  ok   COAST (Morehead City): JUL mean high/low within 3 C of the normals  (got 86/72 vs 87/73)
+     (normals: CLT 1.9 snow days 3.5 in; Boone 1 SE 14.2 days 25.6 in; Morehead City 0.8 in, no snow-day month)
+  ok   Charlotte: snow a couple of days a year  (got 2.1)
+  ok   the mountains: far more  (got 13.6)
+  ok   and more again up on Mount Mitchell  (got 32.3)
+  ok   the beach: next to never  (got 0.2)
+  ok   and nobody's June, July or August snows  (got 0)
+  ok   snow on the scenery over a DRY road under a clear sky happens  (got 4245)
+  ok   a WET road under a clear sky (after the rain) happens  (got 3101)
+  ok   a bridge iced while the road is not happens  (got 807)
+  ok   a TREATED road never carries lying snow (slush and water)  (got 0)
+     CHARLOTTE: 13.9 drying spells/yr after rain, patchy phase >= 3 h (sunny spells 4.2/yr, >= 3 h), 170 patchy h/yr
+  ok   CHARLOTTE: every drying spell after rain is patchy for hours, clearing skies included  (got 0 short of 139, sunny min 3 h)
+     BLUE RIDGE: 24.6 drying spells/yr after rain, patchy phase >= 3 h (sunny spells 7.5/yr, >= 3 h), 385 patchy h/yr
+  ok   BLUE RIDGE: every drying spell after rain is patchy for hours, clearing skies included  (got 0 short of 246, sunny min 3 h)
+  ok   rain and snow only ever fall from an OVERCAST or STORM sky (the date line, both sky modes)  (got 0 open of 4930 falling race hours, forced clear+snow closed True)
+  ok   after the rain the sky may clear over a wet road
+  ok   a dry road is grip 1 exactly  (got 1)
+  ok   a soaked road 0.70  (got 0.7)
+  ok   slush < wet, snow < slush, ice < snow, frost < wet  (got 0.55 0.42 0.28 0.55)
+     grip: dry 1.00, wet 0.70, slush 0.55, snow 0.42, frost 0.55, ice 0.28
+  ok   a drying road has wet stretches and dry ones  (got 175 wet / 192 dry of 400)
+  ok   and the patches are fixed in the world
+  ok   the bench: RAIN 0.70, CLEAR 1, SNOW below rain  (got 0.55)
+  ok   an overcast sky lights grey, falling snow lights as snow, a broken sky as clear
+     BLUE RIDGE WED 20 JAN 1999 NIGHT: CLEAR  |  AIR 46F (52F/41F)  ·  ROAD 41F DRY  ·  BRIDGES 41F DRY
+     BLUE RIDGE THU 21 JAN 1999 NIGHT: FOG  |  AIR 41F (53F/42F)  ·  ROAD 41F WET  ·  BRIDGES 39F WET
+     BLUE RIDGE FRI 22 JAN 1999 NIGHT: CLEAR  |  AIR 49F (55F/32F)  ·  ROAD 44F DRY  ·  BRIDGES 44F DRY
+     BLUE RIDGE SAT 23 JAN 1999 NIGHT: OVERCAST  |  AIR 46F (57F/46F)  ·  ROAD 46F DRY  ·  BRIDGES 45F DRY
+WEATHER SELF-TEST OK

@@ -470,6 +470,7 @@ namespace PSXRacing
                 globals.wetPatchOn = 1f;
                 globals.roadSnow = Mathf.Clamp01(wn.road.snow);
                 globals.roadSlush = Mathf.Clamp01(wn.road.slush);
+                globals.roadSnowFresh = wn.precip == PrecipKind.Snow ? 1f : 0f;
                 globals.night = NightFor(index);
                 globals.gradeNight = GradeNightFor(index);
                 globals.mood = MoodFor(index, urban);
@@ -939,9 +940,19 @@ namespace PSXRacing
         public static float RoadWaterVisual(in WeatherNow wn, int hour, Weather sky)
         {
             float water = wn.road.water;
-            if (sky == Weather.Snow && IsSunUp(hour)) water = Mathf.Min(water, 0.35f);
+            if (sky == Weather.Snow && IsSunUp(hour)) water = Mathf.Min(water, SnowDayWaterCap);
             return Mathf.Clamp01(water);
         }
+
+        /// <summary>
+        /// The most of the open road that LOOKS wet while snow falls by day.
+        /// 0.35 under the old bright snow light; 0.6 since 2026-10-26 (the
+        /// owner's reference: a brined road under light snow is black and
+        /// wet in patches - glossy stretches, drier lighter ones), now the
+        /// snowfall's light is the closed sky's and the mirror has no bright
+        /// sun-lit sky to throw back.
+        /// </summary>
+        public const float SnowDayWaterCap = 0.6f;
 
         /// <summary>The clock time of an hour, in hours (DAWN 05:40 = 5.67).</summary>
         public static float ClockHours(int index)
@@ -1074,11 +1085,14 @@ namespace PSXRacing
                 case Dawn: case Sunset: s = 0.85f; break;
                 default: s = 0f; break;
             }
+            // SNOW FALLS FROM THE SAME CLOSED SKY (2026-10-26, the owner's
+            // snow reference: flat soft light, no hard shadow off a car or a
+            // guardrail post): a snowfall's shadows are a rain day's smudges.
             switch (w)
             {
                 case Weather.Rain: return s * 0.15f;
                 case Weather.Fog:  return s * 0.20f;
-                case Weather.Snow: return s * 0.45f;
+                case Weather.Snow: return s * 0.15f;
                 default: return s;
             }
         }
@@ -1261,13 +1275,16 @@ namespace PSXRacing
         static readonly Color CoolUrbanNightMood = new Color(0.70f, 0.86f, 1.00f, 1f);
 
         /// <summary>
-        /// What weather leaves of the SUN: rain 0.50, fog 0.70, snow 0.80.
+        /// What weather leaves of the SUN: rain 0.50, fog 0.70, snow 0.55.
         /// Kept here rather than in Seasons beside SkyMul and AmbientMul
         /// because it is a statement about the directional light, which only
         /// this file touches. Overcast is the SHADOW going soft as much as
         /// the light going dim: halve the key and the ambient (barely
         /// dimmed) becomes most of the light, which is what a wet afternoon
-        /// looks like.
+        /// looks like. A snowfall is the same closed sky (2026-10-26, the
+        /// owner's reference: flat, soft, no hard sun - 0.80 had kept a warm
+        /// key on the snow, which read beige); a little over rain's for the
+        /// light the snow throws back up.
         /// </summary>
         public static float SunMul(Weather w)
         {
@@ -1275,7 +1292,7 @@ namespace PSXRacing
             {
                 case Weather.Rain: return 0.50f;
                 case Weather.Fog:  return 0.70f;
-                case Weather.Snow: return 0.80f;
+                case Weather.Snow: return 0.55f;
                 default: return 1f;
             }
         }

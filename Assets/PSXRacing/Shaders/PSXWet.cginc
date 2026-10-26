@@ -89,6 +89,7 @@ float _PSXWetWater;     // 0..1 the open road's water (rain, meltwater, black ic
 float _PSXWetDamp;      // 0..1 the hour's art-licence damp (clear nights), everywhere
 float _PSXRoadSnow;     // 0..1 snow lying on the road
 float _PSXRoadSlush;    // 0..1 treated snow churned to slush on the road
+float _PSXRoadSnowFresh; // 1 while snow is falling on it (fresh), 0 = packed under traffic
 
 #define PATCH_SCALE        0.0263 // drying-patch cells about 38 m: a stretch, not a puddle
 #define PATCH_LO           0.25
@@ -119,10 +120,24 @@ float _PSXRoadSlush;    // 0..1 treated snow churned to slush on the road
 // Linear albedo: Turf_Snow (the snow dress's ground) is 0.72; a road's snow is
 // a little greyer, compacted and grimy where it thins; slush is a wet, grimy
 // grey-brown at about a third of that (the first cut's 0.56 read as snow).
-#define ROAD_SNOW_COLOR    float3(0.55, 0.57, 0.61)   // fresh snow on a road (a touch under the verge's)
-#define ROAD_SNOW_EDGE     float3(0.34, 0.34, 0.34)   // where it thins: compacted, grimy
-#define ROAD_SLUSH_LIGHT   float3(0.36, 0.35, 0.33)   // slush lumps: ice in it, grey with grime
-#define ROAD_SLUSH_DARK    float3(0.15, 0.14, 0.13)   // churned, watery slush between them
+// THE COVER MUST LOOK LIKE SNOW (2026-10-26, the owner's snowy Chimney Rock:
+// the road read "like sand/ice"). Under a warm key and the warm grade a
+// neutral 0.55 went beige; snow in shade is BLUE (it is lit by the sky), so
+// the snow colours lean cool and the slush keeps its brown only faintly:
+//   FRESH  (snow falling, _PSXRoadSnowFresh 1): white-grey, cool, fine grain;
+//   PACKED (after the plough, traffic on it): grey-white, its coarse grain
+//          darkened into compacted streaks;
+//   SLUSH: wet grey-brown lumps in darker watery churn.
+// (Measured on the Blue Ridge frames, weather3: fresh road snow came out as
+// bright as the verge's snow and a shade cooler than it under the stage's
+// warm grade; the city's reads neutral-cool white.)
+#define ROAD_SNOW_COLOR    float3(0.59, 0.63, 0.71)   // fresh snow on a road (a touch under the verge's), cool
+#define ROAD_SNOW_PACKED   float3(0.44, 0.46, 0.50)   // packed under traffic: grey-white
+#define ROAD_SNOW_EDGE     float3(0.30, 0.31, 0.33)   // where it thins: compacted, grimy
+#define ROAD_SLUSH_LIGHT   float3(0.32, 0.318, 0.305) // slush lumps: ice in it, grey with grime
+#define ROAD_SLUSH_DARK    float3(0.115, 0.112, 0.106) // churned, watery slush between them
+#define COVER_PACKED_STREAK 0.45  // how dark packed snow's compacted streaks go (only ever darker:
+                                  //   the sheet's B is sd 0.14 about 0.5, so its darkest tenth ~17%)
 #define COVER_SLUSH_WATERY 0.45   // the watery churn is half see-through: the wet road under it shows
 #define COVER_FINE_M       2.6    // the grain's repeat, m
 #define COVER_COARSE       0.29   // and a second octave this many times as fine (~9 m), offset
@@ -226,10 +241,15 @@ float3 PSXRoadCoverAlbedo(float3 albedo, float wetMask, float3 N, float3 wpos, f
     }
     if (cSnow > 0.0)
     {
-        // fresh grain over the packed snow's broader streaks, low contrast;
-        // greyer and grimier where it thins
-        float k = 1.0 + COVER_SNOW_GRAIN * ((2.0 * g.r - 1.0) + (2.0 * h.b - 1.0));
-        float3 snow = lerp(ROAD_SNOW_EDGE, ROAD_SNOW_COLOR, saturate(cSnow * 2.5 - 1.2)) * k;
+        // FRESH: the fresh tile's fine grain over the packed tile's broad
+        // streaks, both low contrast. PACKED: the fine grain fainter, the
+        // broad streaks only ever DARKER (compacted tracks of grime, never
+        // bright blotches). Greyer and grimier where it thins.
+        float fresh = saturate(_PSXRoadSnowFresh);
+        float kFresh = 1.0 + COVER_SNOW_GRAIN * ((2.0 * g.r - 1.0) * 0.75 + (2.0 * h.b - 1.0) * 0.5);
+        float kPacked = 1.0 + COVER_SNOW_GRAIN * 0.5 * (2.0 * g.r - 1.0) - COVER_PACKED_STREAK * saturate(1.0 - 2.0 * h.b);
+        float3 top = lerp(ROAD_SNOW_PACKED * kPacked, ROAD_SNOW_COLOR * kFresh, fresh);
+        float3 snow = lerp(ROAD_SNOW_EDGE * kPacked, top, saturate(cSnow * 2.5 - 1.2));
         albedo = lerp(albedo, snow, cSnow);
     }
     if (cSlush > 0.0)

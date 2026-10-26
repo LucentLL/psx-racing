@@ -1,0 +1,39 @@
+WEATHER3 climate stats (scratchpad climate3 harness over Scripts/Climate.cs; before = main b8ca4c86)
+
+[before] 10 simulated years 1999-2008, h/yr. scen = snow lying on the scenery (>=1 cm); road/bridge cover = snow or slush on >=5% of the deck
+  (>=50%: the deck mostly white); untr = untreated snow on >=5%; ice = black ice where water lies (>=5%); frost = bridge frost.
+ venue               scen  roadCov  rd>=50%  untr  rdIce | brCov  brIce  frost | road/scen | covered-road h while snowing / after
+ CHARLOTTE 222m        67       14       10     0     31 |    17     76    223 |      0.21 |    8 /    6
+ CHIMNEY ROCK 500m    217       47       30     3     77 |    59    147    327 |      0.21 |   25 /   22
+ BOONE 1016m          584      113       76     7    141 |   136    255    498 |      0.19 |   56 /   57
+ BLUE RIDGE 1300m     917      176      124    11    201 |   225    336    590 |      0.19 |   82 /   94
+ MT MITCHELL 1800m   1761      369      263    17    369 |   446    526    756 |      0.21 |  151 /  218
+ COAST 5m               4        1        1     1      8 |     2     39    201 |      0.34 |    1 /    1
+[before] FOG + DRYING (10 yr)
+ venue               fogDays  fogH  fogBlocks%  ridgeFogH | spells/yr  patchy h: p10 med p90 min  %>=2h  dryH med | patchyH/yr  underClear/yr | spells drying mostly under a clear daytime sky
+ CHARLOTTE 222m        13.2   157        1.5          6 |      10.5             4   7  12   3   100%       9 |        112            59 | sunny spells  2.7/yr patchy min 3 p10 3 med 4
+ CHIMNEY ROCK 500m     66.6   647        6.9        305 |      16.3             4   8  12   2   100%      10 |        177           100 | sunny spells  5.7/yr patchy min 2 p10 3 med 4
+ BOONE 1016m           65.2   635        6.7        292 |      18.5             3   8  13   3   100%      10 |        218           110 | sunny spells  6.5/yr patchy min 3 p10 3 med 4
+ BLUE RIDGE 1300m      64.8   626        6.6        283 |      19.6             3   9  14   2   100%      11 |        246           119 | sunny spells  6.6/yr patchy min 2 p10 3 med 4
+ MT MITCHELL 1800m     61.6   594        6.3        251 |      16.6             3   7  14   2   100%      10 |        232           124 | sunny spells  6.1/yr patchy min 2 p10 3 med 4
+ COAST 5m              19.4   233        2.3         20 |       8.7             4   7  11   3   100%       9 |         67            50 | sunny spells  3.9/yr patchy min 3 p10 4 med 5
+ cover share at amount: 0.05->0.00  0.10->0.11  0.20->0.22  0.30->0.31  0.40->0.40  0.50->0.50  0.60->0.59  0.70->0.68  0.80->0.78  0.90->0.89  1.00->1.00  
+
+[after] 10 simulated years 1999-2008, h/yr. scen = snow lying on the scenery (>=1 cm); road/bridge cover = snow or slush on >=5% of the deck
+  (>=50%: the deck mostly white); untr = untreated snow on >=5%; ice = black ice where water lies (>=5%); frost = bridge frost.
+ venue               scen  roadCov  rd>=50%  untr  rdIce | brCov  brIce  frost | road/scen | covered-road h while snowing / after
+ CHARLOTTE 222m        67        4        0     0      1 |     6     26    180 |      0.06 |    4 /    0
+ CHIMNEY ROCK 500m    217       10        4     1     10 |    14     54    218 |      0.05 |   10 /    0
+ BOONE 1016m          584       28       10     3     29 |    36     91    280 |      0.05 |   26 /    1
+ BLUE RIDGE 1300m     917       44       16     3     44 |    55    130    322 |      0.05 |   42 /    2
+ MT MITCHELL 1800m   1761       92       35     4    108 |   107    231    386 |      0.05 |   88 /    4
+ COAST 5m               4        1        0     0      1 |     1     23    189 |      0.16 |    1 /    0
+[after] FOG + DRYING (10 yr)
+ venue               fogDays  fogH  fogBlocks%  ridgeFogH | spells/yr  patchy h: p10 med p90 min  %>=2h  dryH med | patchyH/yr  underClear/yr | spells drying mostly under a clear daytime sky
+ CHARLOTTE 222m        13.4   160        1.6          6 |      10.4             5   9  15   4   100%      12 |        127            78 | sunny spells  3.6/yr patchy min 4 p10 4 med 6
+ CHIMNEY ROCK 500m     19.1   226        2.2         22 |      17.7             5  10  14   4   100%      12 |        222           135 | sunny spells  5.6/yr patchy min 4 p10 4 med 5
+ BOONE 1016m           28.0   294        3.0         89 |      20.1             5  11  15   3   100%      13 |        295           164 | sunny spells  5.7/yr patchy min 3 p10 4 med 5
+ BLUE RIDGE 1300m      34.4   340        3.6        136 |      22.2             4  11  16   3   100%      13 |        339           183 | sunny spells  6.6/yr patchy min 3 p10 4 med 5
+ MT MITCHELL 1800m     43.1   401        4.3        197 |      19.4             5  11  16   4   100%      14 |        347           188 | sunny spells  4.9/yr patchy min 4 p10 4 med 5
+ COAST 5m              19.4   233        2.3         20 |       7.7             5   7  12   3   100%      10 |         68            52 | sunny spells  4.2/yr patchy min 3 p10 4 med 6
+ cover share at amount: 0.05->0.00  0.10->0.11  0.20->0.22  0.30->0.31  0.40->0.40  0.50->0.50  0.60->0.59  0.70->0.68  0.80->0.78  0.90->0.89  1.00->1.00  

@@ -71,8 +71,12 @@ namespace PSXRacing.EditorTools
                 var hi = new double[12]; var lo = new double[12]; var nh = new double[12]; var nl = new double[12];
                 var n = new int[12]; var wet = new int[12];
                 int snowDays = 0, events = 0, cover = 0; bool prevSnow = false; float fall = 0f;
+                int scenH = 0, roadCovH = 0, roadIceH = 0, bridgeIceH = 0, fogDays = 0;
                 for (int d = dA; d < dB; d++)
                 {
+                    bool fogToday = false;
+                    for (int hh = 0; hh < 22; hh++) if (Climate.At(c.r, c.elev, d, hh + 0.5f).fog) { fogToday = true; break; }
+                    if (fogToday) fogDays++;
                     int m = Climate.DateOf(d).Month - 1;
                     var rec = Climate.DayAt(c.r, c.elev, d);
                     Climate.Normals(c.r, c.elev, d, out float h, out float l);
@@ -92,8 +96,26 @@ namespace PSXRacing.EditorTools
                         if (w.road.water > 0.5f && w.precip == PrecipKind.None && w.sky <= SkyKind.PartlyCloudy) wetRoadClearSky++;
                         if (w.bridge.ice && !w.road.ice) bridgeIceRoadNot++;
                         if (w.treated && w.road.snow > 0.3f) treatedSnowIcyRoad++;
+                        if (w.scenery == SceneryKind.Snow) scenH++;
+                        if (w.road.snow >= 0.05f || w.road.slush >= 0.05f) roadCovH++;
+                        if (w.road.ice) roadIceH++;
+                        if (w.bridge.ice) bridgeIceH++;
                     }
                 }
+                // THE ROADS CLEAR LONG BEFORE THE SCENERY (owner, 2026-10-26):
+                // snow or slush on the open road a small share of the hours
+                // snow lies on the verges; black ice rare, bridges first.
+                // FOG STAYS RARE: fog days a year against heavy-fog normals
+                // (CLT ~10-20, mountains more, the coast some).
+                Line("     snow on the scenery " + (scenH * 3f / years).ToString("0") + " h/yr, snow/slush on the open road " +
+                     (roadCovH * 3f / years).ToString("0") + " h/yr, black ice road/bridges " + (roadIceH * 3f / years).ToString("0") +
+                     "/" + (bridgeIceH * 3f / years).ToString("0") + " h/yr, fog days " + (fogDays / (float)years).ToString("0.0") + "/yr");
+                if (scenH > 20)
+                    Check(roadCovH <= 0.1f * scenH, c.name + ": snow/slush on the road under a tenth of the scenery's snow hours",
+                          roadCovH + " vs " + scenH);
+                Check(bridgeIceH >= roadIceH, c.name + ": bridges ice first", bridgeIceH + " vs " + roadIceH);
+                float fogMax = c.r == ClimateRegion.Mountains ? 50f : c.r == ClimateRegion.Coast ? 25f : 20f;
+                Check(fogDays / (float)years <= fogMax && fogDays / (float)years >= 3f, c.name + ": fog stays rare", fogDays / (float)years);
                 snowDaysPerYear[ci] = snowDays / (float)years;
                 Line("  == " + c.name + "  (" + years + " simulated years; sim hi/lo F vs normal hi/lo F, precip days)");
                 var sb = new StringBuilder();
@@ -126,6 +148,48 @@ namespace PSXRacing.EditorTools
             Check(wetRoadClearSky > 0, "a WET road under a clear sky (after the rain) happens", wetRoadClearSky);
             Check(bridgeIceRoadNot > 0, "a bridge iced while the road is not happens", bridgeIceRoadNot);
             Check(treatedSnowIcyRoad == 0, "a TREATED road never carries lying snow (slush and water)", treatedSnowIcyRoad);
+
+            // THE PATCHY DRY/WET LOOK AFTER RAIN (owner, 2026-10-26: "I like
+            // how the roads have dry and wet patches"): every drying spell
+            // after rain, ten Charlotte and Blue Ridge years, an hour at a
+            // time, spends hours with the road part wet and part dry (water
+            // share 0.1-0.9 - the patch mask's share is the amount), clearing
+            // skies included.
+            foreach (var pc in new[] { new RegionCase { name = "CHARLOTTE", r = ClimateRegion.Piedmont, elev = Climate.CltElevM },
+                                       new RegionCase { name = "BLUE RIDGE", r = ClimateRegion.Mountains, elev = 1300f } })
+            {
+                int spells = 0, shortSpells = 0, sunnySpells = 0, minPatchy = 99, minSunny = 99, patchyHours = 0;
+                bool inSpell = false, lastRain = false; int sp = 0, spSun = 0, len = 0;
+                for (int d = dA; d < dB; d++)
+                    for (int hh = 0; hh < 24; hh++)
+                    {
+                        var w = Climate.At(pc.r, pc.elev, d, hh + 0.5f);
+                        if (w.precip != PrecipKind.None) { inSpell = false; lastRain = w.precip == PrecipKind.Rain; continue; }
+                        if (!inSpell && lastRain && w.road.water >= 0.9f && !w.road.ice) { inSpell = true; sp = spSun = len = 0; }
+                        lastRain = false;
+                        if (!inSpell) continue;
+                        len++;
+                        if (w.road.water >= 0.1f && w.road.water <= 0.9f)
+                        {
+                            sp++; patchyHours++;
+                            if (w.sky <= SkyKind.PartlyCloudy && hh >= 8 && hh <= 17) spSun++;
+                        }
+                        if (w.road.water < 0.02f)
+                        {
+                            inSpell = false; spells++;
+                            if (sp < 2) shortSpells++;
+                            minPatchy = Mathf.Min(minPatchy, sp);
+                            if (sp > 0 && spSun * 2 >= sp) { sunnySpells++; minSunny = Mathf.Min(minSunny, sp); }
+                        }
+                        else if (w.road.ice || len > 96) inSpell = false;
+                    }
+                Line("     " + pc.name + ": " + (spells / (float)years).ToString("0.0") + " drying spells/yr after rain, patchy phase >= " +
+                     minPatchy + " h (sunny spells " + (sunnySpells / (float)years).ToString("0.0") + "/yr, >= " + minSunny + " h), " +
+                     (patchyHours / (float)years).ToString("0") + " patchy h/yr");
+                Check(spells > 0 && shortSpells == 0 && sunnySpells > 0 && minSunny >= 2,
+                      pc.name + ": every drying spell after rain is patchy for hours, clearing skies included",
+                      shortSpells + " short of " + spells + ", sunny min " + minSunny + " h");
+            }
 
             // RAIN AND SNOW FALL FROM A CLOSED SKY (owner, 2026-10-26: "Rain
             // or snow, only a few clouds in the sky"): every race hour of ten

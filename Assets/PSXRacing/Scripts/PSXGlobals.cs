@@ -126,6 +126,10 @@ namespace PSXRacing
         /// keeps wetness one uniform film.
         /// </summary>
         public float wetPatchOn, wetWater, wetDamp, roadSnow, roadSlush;
+        /// <summary>1 while snow is falling on the road's snow (FRESH: cool
+        /// white-grey), 0 once it lies under traffic (PACKED: grey-white,
+        /// darker compacted grain). Runtime only - TimeOfDay sets it.</summary>
+        [System.NonSerialized] public float roadSnowFresh;
 
         /// <summary>
         /// THE ROAD COVER'S SHEET (2026-10-26; PSXWet.cginc "THE COVER,
@@ -324,6 +328,7 @@ namespace PSXRacing
             Shader.SetGlobalFloat("_PSXWetDamp", Mathf.Clamp01(wetDamp));
             Shader.SetGlobalFloat("_PSXRoadSnow", Mathf.Clamp01(roadSnow));
             Shader.SetGlobalFloat("_PSXRoadSlush", Mathf.Clamp01(roadSlush));
+            Shader.SetGlobalFloat("_PSXRoadSnowFresh", Mathf.Clamp01(roadSnowFresh));
             BindRoadCover();
             Shader.SetGlobalFloat("_PSXNight", Mathf.Clamp01(night));
             Shader.SetGlobalFloat("_PSXGradeNight", Mathf.Clamp01(gradeNight));
