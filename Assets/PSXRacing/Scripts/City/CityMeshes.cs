@@ -946,7 +946,7 @@ namespace PSXRacing.City
             /// <summary>tm.roads' vertex index of each used slot's first vertex,
             /// in tm.roadSlots order (MeshFrom concatenates the buckets).</summary>
             public int[] slotBase;
-            public const ushort FSqueezedL = 1, FSqueezedR = 2, FClipL = 4, FClipR = 8, FCollapsed = 16, FElevated = 32;
+            public const ushort FSqueezedL = 1, FSqueezedR = 2, FClipL = 4, FClipR = 8, FCollapsed = 16, FElevated = 32, FSnapL = 64, FSnapR = 128;
         }
         static int[] tapSlotBase;
         /// <summary>The section's CAUSES, never its symptoms: squeezed L/R -
@@ -960,7 +960,8 @@ namespace PSXRacing.City
         {
             int f = (c.sqL ? RoadTap.FSqueezedL : 0) | (c.sqR ? RoadTap.FSqueezedR : 0)
                   | (c.clippedIn && c.innerSide < 0 ? RoadTap.FClipL : 0) | (c.clippedIn && c.innerSide > 0 ? RoadTap.FClipR : 0)
-                  | (c.collapsed ? RoadTap.FCollapsed : 0) | (c.elev ? RoadTap.FElevated : 0);
+                  | (c.collapsed ? RoadTap.FCollapsed : 0) | (c.elev ? RoadTap.FElevated : 0)
+                  | (c.snapL ? RoadTap.FSnapL : 0) | (c.snapR ? RoadTap.FSnapR : 0);
             return (ushort)f;
         }
 
@@ -3266,6 +3267,8 @@ namespace PSXRacing.City
             /// cross-line at the nose N (MeetPavement leaves it alone).</summary>
             public bool zoneEnd;
             public bool collapsed;    // zero width: the whole ribbon is inside the host
+            /// <summary>Round 5: MitreSnap brought that vertex down onto the other through arm (the census reads the other one).</summary>
+            public bool snapL, snapR;
             public int innerSide;     // -1 / +1 which vertex is the inner one while clipped, 0 otherwise
             /// <summary>A parallel neighbour this section was squeezed against
             /// on that side (edge index, or -1), the arc on it, and the width
@@ -6867,6 +6870,7 @@ namespace PSXRacing.City
             meetD.Clear();
             var o = tm.origin;
             bool anyMeet = false;
+            bool split = MitreSnapOn && ((trims.branchA[e.index] >= 0 && trims.mitre[e.a]) || (trims.branchB[e.index] >= 0 && trims.mitre[e.b]));
             for (int k = 0; k < raw.Count; k++)
             {
                 var sec = raw[k];
@@ -6876,11 +6880,73 @@ namespace PSXRacing.City
                 var d = new Vector3(meets ? sec.L.y - yL0 : float.NaN, meets ? sec.R.y - yR0 : float.NaN, 0f);
                 anyMeet |= meets && (d.x < -1e-3f || d.y < -1e-3f);
                 meetD.Add(d);
+                if (split && !sec.elev) MitreSnap(map, trims, e, ref sec);
                 sec.L -= o; sec.R -= o;
                 sections.Add(sec);
             }
             if (anyMeet && MeetEaseOn) EaseMeets();
         }
+
+        /// <summary>
+        /// A DIVIDED ROAD'S SPLIT (REAL HEIGHTS round 4). Where a two-way road
+        /// becomes two one-way carriageways at a mitred node (South Boulevard
+        /// e7266 into e13253 + e13255 at n8848, West Boulevard n5192,
+        /// Providence Road West n14006), the through pair meets on the mitre
+        /// and the other carriageway is a BRANCH clipped onto its twin. Its
+        /// last sections are square to its own line, 35 degrees off the
+        /// mitre, so its outer corner runs 2-3 m on over the two-way road's
+        /// pavement past the node - at its own grade (2.9%) over a road
+        /// falling away at its own (5.6%): 5-9 cm proud of the lanes, the
+        /// launch audit's commonest junction cause (mitred joints 35 vs main's
+        /// 11; the movement through the split met the branch's corner as a
+        /// kerb). A branch vertex that lies on the OTHER through arm's
+        /// pavement (not its host's: the clip owns that seam) comes down to
+        /// that pavement, a centimetre under it, so the two-way road's surface
+        /// is the one on top there and the two meet on the node's line. Only
+        /// down, and only a step (MitreSnapMaxM): a vertex further above is
+        /// another level. PSX_CITY_MITRE_SNAP=0 is the before. World space.
+        /// </summary>
+        static void MitreSnap(CityMap map, Trims trims, CityMap.Edge e, ref Section sec)
+        {
+            for (int end = 0; end < 2; end++)
+            {
+                int n = end == 0 ? e.a : e.b;
+                int host = end == 0 ? trims.branchA[e.index] : trims.branchB[e.index];
+                if (host < 0 || !trims.mitre[n]) continue;
+                if ((end == 0 ? sec.s : e.length - sec.s) > MitreSnapReachM) continue;
+                for (int k = 0; k < 2; k++)
+                {
+                    int oi = k == 0 ? trims.throughA[n] : trims.throughB[n];
+                    if (oi < 0 || oi == host || oi == e.index) continue;
+                    // (round 5) only a DIVIDED ROAD'S SPLIT: a one-way carriageway clipped onto its
+                    // twin (one-way, the same name) where the other through arm is the two-way road
+                    // (the same name). Every mitred branch snapped (57k vertices) put collectors' first
+                    // metres on the arm beside them: census arterial +43 / collector +34 breaks > 0.5%.
+                    var H = map.edges[host]; var O = map.edges[oi];
+                    if (!e.oneway || !H.oneway || O.oneway || string.IsNullOrEmpty(e.name) || H.name != e.name || O.name != e.name) continue;
+                    var ol = RawOutlineOf(map, trims, oi);
+                    if (ol.L == null) continue;
+                    for (int side = -1; side <= 1; side += 2)
+                    {
+                        var v = sec.Edge(side);
+                        float h = OutlineHeightAt(ol, new Vector2(v.x, v.z));
+                        if (float.IsNaN(h)) continue;
+                        float want = h - MitreSnapProudM;
+                        if (v.y <= want || v.y - want > MitreSnapMaxM) continue;
+                        v.y = want;
+                        if (side < 0) { sec.L = v; sec.snapL = true; } else { sec.R = v; sec.snapR = true; }
+                        MitreSnaps++;
+                    }
+                }
+            }
+        }
+        public static bool MitreSnapOn => CityElevation.RealOn && MitreSnapEnv;
+        // round 5: OFF (PSX_CITY_MITRE_SNAP=1): even restricted to divided splits it costs the census
+        // (arterial >0.5% +20, >1% +14; collector +8/+5) for launch 109 -> 105 (CHARLOTTE.md round 5)
+        static readonly bool MitreSnapEnv = System.Environment.GetEnvironmentVariable("PSX_CITY_MITRE_SNAP") == "1";
+        const float MitreSnapProudM = 0.01f, MitreSnapMaxM = 0.15f, MitreSnapReachM = 20f;
+        /// <summary>Vertices MitreSnap moved (tile builds since load), for the census.</summary>
+        public static int MitreSnaps;
 
         /// <summary>Per section of the last BuildSections: what MeetPavement
         /// moved its L (x) and R (y) vertex by, NaN where it may not move.</summary>

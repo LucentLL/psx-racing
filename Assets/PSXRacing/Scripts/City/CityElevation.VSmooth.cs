@@ -117,6 +117,12 @@ namespace PSXRacing.City
         /// <summary>The clearance under a deck the curves may not take a road below.</summary>
         const float VsClearFloorM = ClearanceM - 0.1f;
         const float VsRaiseMaxM = 1.0f, VsLowerMaxM = 0.15f, VsLowerStructM = 0.03f, VsSeatTolM = 0.04f;
+        /// <summary>REAL HEIGHTS round 4: a seated station is drawn ON its host's drawn surface
+        /// unless it stands further off it than VsSeatAbsMaxM (another level). Round 5: OFF (with the
+        /// mitre snap it took the census ramp >0.5% 1,936 -> 2,831, >1% 451 -> 785, arterial, collector
+        /// and local up too); PSX_CITY_VSEAT_ABS=1 switches it on.</summary>
+        public static bool VsSeatAbsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_VSEAT_ABS") == "1";
+        const float VsSeatAbsMaxM = 0.6f;
         /// <summary>A street's sag rises at most this (a freeway or a ramp
         /// VsRaiseMaxM): its kerbs, driveways and the buildings along it do
         /// not follow the road up (the play check's drive-off found a raised
@@ -300,7 +306,7 @@ namespace PSXRacing.City
             }
 
             vsNodeD = new float[N]; vsNodeG = new Vector2[N]; vsNodeDone = new bool[N];
-            int anchorsSeat = 0, anchorsNode = 0, shifts = 0;
+            int anchorsSeat = 0, anchorsNode = 0, shifts = 0; int seatAbsMoved = 0;
             var pts = new List<CPt>(4096);
             var ws = new List<Win>(1024);
             var anchors = new List<Anchor>(256);
@@ -384,16 +390,40 @@ namespace PSXRacing.City
                     var hs = vsHost[cp.edge];
                     if (hs == null || hs[cp.st] < 0) continue;
                     var H = map.edges[hs[cp.st]];
-                    if (H.vS == null) continue;
                     float hsAt = vsHostS[cp.edge][cp.st];
-                    float t = H.YAt(hsAt) - H.StationYAt(hsAt);
                     var e = map.edges[cp.edge];
-                    // the host's change along the branch's direction of travel in the chain
                     var li = LinkOf(ch, cp.edge);
                     Vector2 dir = e.TangentAt(e.stS[cp.st]) * (li.fwd ? 1f : -1f);
                     float sg = Vector2.Dot(dir, H.TangentAt(hsAt)) >= 0f ? 1f : -1f;
                     float a1 = Mathf.Clamp(hsAt + sg, 0f, H.length), a0 = Mathf.Clamp(hsAt - sg, 0f, H.length);
-                    float m = Mathf.Abs(a1 - a0) > 0.1f ? ((H.YAt(a1) - H.StationYAt(a1)) - (H.YAt(a0) - H.StationYAt(a0))) / ((a1 - a0) * sg) : 0f;
+                    float t, m;
+                    // REAL HEIGHTS round 4 (VsSeatAbsOn): the seated station is put ON
+                    // its host's drawn surface, not moved by the host's change - the
+                    // solve's seats go stale when later passes move the host (the
+                    // landings, the major tangent, the crest limiter: "184 still off
+                    // their host"), and a ramp drawn 0.2-0.34 m under its host's
+                    // pavement for the length of its seat (e4913 by Johnston Rd)
+                    // came out from under it at the zone's end as a step the
+                    // clipped strip (its inner edge on the host's) dropped down -
+                    // the climb-out launches. A gap past VsSeatAbsMaxM is another
+                    // level, left to the change as before.
+                    float gap = H.YAt(hsAt) - cp.y;
+                    if (VsSeatAbsOn && Mathf.Abs(gap) <= VsSeatAbsMaxM)
+                    {
+                        t = gap;
+                        float hostG = Mathf.Abs(a1 - a0) > 0.1f ? (H.YAt(a1) - H.YAt(a0)) / ((a1 - a0) * sg) : 0f;
+                        float s1 = Mathf.Min(e.length, e.stS[cp.st] + 1f), s0 = Mathf.Max(0f, e.stS[cp.st] - 1f);
+                        float ownG = s1 - s0 > 0.1f ? (e.StationYAt(s1) - e.StationYAt(s0)) / (s1 - s0) * (li.fwd ? 1f : -1f) : 0f;
+                        m = hostG - ownG;
+                        if (Mathf.Abs(t) >= 0.02f) seatAbsMoved++;
+                    }
+                    else
+                    {
+                        if (H.vS == null) continue;
+                        // the host's change along the branch's direction of travel in the chain
+                        t = H.YAt(hsAt) - H.StationYAt(hsAt);
+                        m = Mathf.Abs(a1 - a0) > 0.1f ? ((H.YAt(a1) - H.StationYAt(a1)) - (H.YAt(a0) - H.StationYAt(a0))) / ((a1 - a0) * sg) : 0f;
+                    }
                     if (Mathf.Abs(t) < 0.002f && Mathf.Abs(m) < 0.0002f) continue;
                     anchors.Add(new Anchor { u = cp.u, t = t, m = m, D = FadeLen(t, m, cp.rSag) });
                     anchorsSeat++;
@@ -699,7 +729,7 @@ namespace PSXRacing.City
             VSmoothApplied = true;
             VSmoothMs = (float)clock.Elapsed.TotalMilliseconds;
             double tk = System.Diagnostics.Stopwatch.Frequency / 1000.0;
-            VSmoothReport = $"drawn profile: {chains.Count} chains, {wins} vertical curves ({VsCapped.Count} short of their road's radius), {shifts} floors dug / crests lifted to make room, {anchorsSeat} seat + {anchorsNode} junction eases, {redrawn} chains redrawn in {rounds} rounds, {edgesDrawn} edges drawn with {knots} knots, raised up to {maxRaise:0.00} m / lowered up to {maxLower:0.00} m, {endMismatch} edge ends off their node, {VSmoothMs:0} ms (points {tPts / tk:0}, curves {tCurves / tk:0}, knots {tKnots / tk:0})";
+            VSmoothReport = $"drawn profile: {chains.Count} chains, {wins} vertical curves ({VsCapped.Count} short of their road's radius), {shifts} floors dug / crests lifted to make room, {anchorsSeat} seat + {anchorsNode} junction eases ({seatAbsMoved} seated stations put on their host's drawn surface, 2 cm+), {redrawn} chains redrawn in {rounds} rounds, {edgesDrawn} edges drawn with {knots} knots, raised up to {maxRaise:0.00} m / lowered up to {maxLower:0.00} m, {endMismatch} edge ends off their node, {VSmoothMs:0} ms (points {tPts / tk:0}, curves {tCurves / tk:0}, knots {tKnots / tk:0})";
             vsHi = vsLo = null; vsHiC = vsLoC = null; vsHost = null; vsHostS = null;
         }
 

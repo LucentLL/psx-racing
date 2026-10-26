@@ -144,6 +144,7 @@ namespace PSXRacing.EditorTools
                         CityMeshes.FanMajorOn, fans, stAll, withSt, stUsed, withUsed, folded, gl.steiner, gl.steinerUsed, gl.folded, gl.worstNodeDy));
                 }
                 catch (Exception ex) { Line("FAN STEINER failed: " + ex.GetType().Name + " " + ex.Message); }
+                Line($"MITRE SNAP (round 4, on {CityMeshes.MitreSnapOn}): {CityMeshes.MitreSnaps} branch vertices brought down onto the other through arm at divided-road splits (tile builds so far)");
                 Line("");
                 Line("VERTICAL ACCELERATION along the race routes (v^2 x grade change over a 2.5 m wheelbase), in g: max |a| / p95 |a| / max sag (pressed down) / max crest (lifted)");
                 for (int i = 0; i < before.routeLines.Count; i++)
@@ -201,14 +202,17 @@ namespace PSXRacing.EditorTools
                 // audit's old movement paths (before) then the lane carried
                 // through splits and merges (after, CityLaunchAudit.LaneCarry)
                 string vsl = Environment.GetEnvironmentVariable("PSX_VS_LAUNCH");
-                if (vsl == "1" || vsl == "lanes")
+                // =uniform (round 5): lanes carried both times, the audit's old node
+                // sampling (before) then UniformSteps (after) - the sampling fix alone
+                if (vsl == "1" || vsl == "lanes" || vsl == "uniform")
                 {
                     CityLaunchAudit.NoExit = true;
-                    bool lanes = vsl == "lanes", carry0 = CityLaunchAudit.LaneCarry;
+                    bool uni = vsl == "uniform", lanes = vsl == "lanes" || uni, carry0 = CityLaunchAudit.LaneCarry, uni0 = CityLaunchAudit.UniformSteps;
                     foreach (bool on in new[] { false, true })
                     {
                         CityElevation.ApplyVSmooth(map, lanes || on);
-                        if (lanes) CityLaunchAudit.LaneCarry = on;
+                        if (lanes) CityLaunchAudit.LaneCarry = uni || on;
+                        if (uni) CityLaunchAudit.UniformSteps = on;
                         Environment.SetEnvironmentVariable("PSX_LAUNCH_LABEL", on ? "vs_after" : "vs_before");
                         CityLaunchAudit.Run();
                         string tag = on ? "after" : "before";
@@ -221,6 +225,13 @@ namespace PSXRacing.EditorTools
                     }
                     CityLaunchAudit.NoExit = false;
                     CityLaunchAudit.LaneCarry = carry0;
+                    CityLaunchAudit.UniformSteps = uni0;
+                }
+                // (round 4) the launch probe on the same solve, when asked (saves a job)
+                if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PSX_LAUNCH_PROBE_EDGE")) || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PSX_LAUNCH_PROBE")))
+                {
+                    CityLaunchAudit.ProbeRun(false);
+                    Line("launch probe: city_launch_probe.txt");
                 }
                 status = 0;
             }
@@ -234,6 +245,12 @@ namespace PSXRacing.EditorTools
             {
                 try { CityAudit.RunDrive(); }
                 catch (Exception ex) { Debug.LogException(ex); File.AppendAllText(Path.Combine(root, "vsmooth_census.txt"), "DRIVE AUDIT THREW " + ex + "\n"); }
+            }
+            // and PSX_SPOTS: the spot plans (MedianProfileProbe.Spots, spot_probe.txt)
+            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PSX_SPOTS")))
+            {
+                try { MedianProfileProbe.Spots(); }
+                catch (Exception ex) { Debug.LogException(ex); }
             }
             if (Application.isBatchMode) EditorApplication.Exit(status);
         }
@@ -288,8 +305,17 @@ namespace PSXRacing.EditorTools
                         int i0 = b + sp.bucketV, il = i0 + 4 * (nq - 1);
                         if (il + 3 >= verts.Length) continue;
                         if (((sp.flagsA | sp.flagsB) & CityMeshes.RoadTap.FCollapsed) != 0) continue;
-                        float YA = SideY(sp.flagsA, verts[i0].y, verts[il + 3].y) + oy;
-                        float YB = SideY(sp.flagsB, verts[i0 + 1].y, verts[il + 2].y) + oy;
+                        // (round 5) a section MitreSnap laid wholly on the other through arm is that arm's surface
+                        const ushort snapBoth = CityMeshes.RoadTap.FSnapL | CityMeshes.RoadTap.FSnapR;
+                        if ((sp.flagsA & snapBoth) == snapBoth || (sp.flagsB & snapBoth) == snapBoth) continue;
+                        // a span with a snapped vertex at either end reads the OTHER side at both
+                        // ends (one vertex per span: a snapped end against an averaged one was a
+                        // phantom break of half the snap)
+                        ushort snapSpan = (ushort)((sp.flagsA | sp.flagsB) & snapBoth);
+                        ushort fA = (ushort)(sp.flagsA | snapSpan), fB = (ushort)(sp.flagsB | snapSpan);
+                        if (snapSpan == snapBoth) continue;
+                        float YA = SideY(fA, verts[i0].y, verts[il + 3].y) + oy;
+                        float YB = SideY(fB, verts[i0 + 1].y, verts[il + 2].y) + oy;
                         if (!segs.TryGetValue(sp.edge, out var l)) segs[sp.edge] = l = new List<Seg>();
                         l.Add(new Seg { sA = Mathf.Min(sp.sA, sp.sB), yA = sp.sA <= sp.sB ? YA : YB, sB = Mathf.Max(sp.sA, sp.sB), yB = sp.sA <= sp.sB ? YB : YA });
                         st.spans++;
@@ -648,6 +674,10 @@ namespace PSXRacing.EditorTools
 
         static float SideY(ushort flags, float yL, float yR)
         {
+            // (round 5) a vertex MitreSnap brought down onto the other through arm is not this road's profile
+            bool sL = (flags & CityMeshes.RoadTap.FSnapL) != 0, sR = (flags & CityMeshes.RoadTap.FSnapR) != 0;
+            if (sL && !sR) return yR;
+            if (sR && !sL) return yL;
             if ((flags & CityMeshes.RoadTap.FClipL) != 0) return yR;
             if ((flags & CityMeshes.RoadTap.FClipR) != 0) return yL;
             return 0.5f * (yL + yR);
