@@ -6682,6 +6682,42 @@ all are skipped. Part `roof:colour` is not read. The trade_tryon back +4 draws
 are not explained yet; the suspected cause is occupancy moved by the rescued
 block south of Trade. The stadium is a 58 m dark box until C5.
 
+### Floating tiers (2026-10-26): a tier stands on what is drawn under it
+
+Owner, S Tryon at 4th, free roam: "I see floating buildings. Is that
+intentional?" Two 17.2-57 m tiers hung over the street with dark soffits.
+
+- **Cause.** Their podium outline (the 5-storey block between 4th and 3rd on
+  S Tryon's SE side) is cut clear of the drawn pavement by `FitFootprint` on
+  its own, down to 78% of its plan. The tiers, set back from the street, were
+  not cut, so they hung over the part that was cut away. The data is fine.
+  This is runtime only.
+- **Fix** (`CityMeshes.PartBase.cs`). A floored part works out what of ITS OWN
+  building (its outline, unless hidden, plus its lower parts) is drawn under
+  each wall's foot, on the plans the tile really cuts. A hanging wall runs down
+  to the top of what is drawn there, or to the ground where nothing is. It
+  never doubles a lower tier's face. The part's own plan was already cut clear
+  of the pavement at the ground. `PartFillDown` = 2 (the game) does the same
+  where OSM maps nothing under a tier. It leaves a slab with walls of 4 m or
+  less (a canopy, a marquee, a one-storey bridge piece) and crown pieces
+  100 m+ up as mapped. 0 is the old draw.
+- **Census** (`CityFloatProbe.Run` -> `city_float.txt`, every tile holding a
+  floored part plus neighbours, 166 tiles). A part hangs where nothing drawn
+  under one of its walls reaches its floor.
+  - Before: 47 hang. 2 are DRAWN (mapped under them, not drawn: the S Tryon
+    pair) and 45 are OSM (nothing mapped under them).
+  - After: 0 DRAWN. 30 parts run down (84 walls). 17 OSM exceptions are left,
+    all thin slabs: the transit-centre barrel canopy (w1501142074,
+    min_height 8, height 17, roof:shape round, roof:height 8), marquees and
+    cornices of 1-3 m at 4-11 m (w1502058334, w1553955048, r21303960,
+    w1259120989, w1229754555, w950088884, w1280342449), crown fins
+    (w1499786368 35-38 m, w1499786371 40-42 m, w1336645195 43-47 m),
+    one-storey pieces at 10-16 m (w1292471457-60 and w1292149593,
+    building:min_level 3) and a gabled roof piece (w1208917847).
+- **Known.** Whether a wall hangs is tested only against the part's own
+  building, not a neighbour's roof. A wall partly over its podium runs down
+  to the lowest point under it.
+
 ## Uptown facade materials (Uptown B1b, 2026-10-04): glass mirrors the sky, metal catches the sun
 
 Owner after B1: "Buildings seem to have that white coating washed out faded

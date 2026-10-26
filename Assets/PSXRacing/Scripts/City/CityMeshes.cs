@@ -10777,7 +10777,7 @@ namespace PSXRacing.City
                     facCornerB = CornerKind(a, c, fitPoly[(i + 2) % n0]);
                     facWallTop = eaveY + parapet;
                     if (eaveY > wallY0 + 0.05f)
-                        EmitWallStyled(tm, a, c, hangs && hangScratch[i] ? y0 : wallY0, eaveY + parapet, outward, retail, i == frontWall, wallSlot,
+                        EmitWallStyled(tm, a, c, hangs ? HangFoot(i, y0, floorP, wallY0) : wallY0, eaveY + parapet, outward, retail, i == frontWall, wallSlot,
                                        covShop ? fi : -1);
                     facCornerA = facCornerB = 1; facWallTop = float.NegativeInfinity;
                     // the parapet's inner face (seen from a deck's roof)

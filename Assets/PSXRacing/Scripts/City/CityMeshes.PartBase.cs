@@ -18,20 +18,24 @@ namespace PSXRacing.City
         //  Now every wall of a floored part asks what of ITS OWN building is
         //  drawn under its foot (the outline and the lower parts, each on the
         //  plan the tile really draws it on): where that does not reach the
-        //  part's floor, the wall runs on down to the ground. The part's own
-        //  plan was already cut clear of the pavement at the ground, so the
-        //  wall stands where a car cannot reach. Walls over a drawn podium
-        //  keep their floor (no wall inside another, no coincident faces).
-        //  Where OpenStreetMap itself maps nothing under a tier (a canopy, a
-        //  bridge between towers, a cantilever) it stays as mapped
-        //  (PartFillDown 1); 2 fills those down too, but a slab no thicker
-        //  than CanopyM or a crown piece CrownPieceM up.
+        //  part's floor, the wall runs on down to the top of what is drawn
+        //  there - the ground where nothing is - so it closes the gap without
+        //  doubling a lower tier's face. The part's own plan was already cut
+        //  clear of the pavement at the ground, so the wall stands where a car
+        //  cannot reach. Walls over a drawn podium keep their floor.
+        //  The same holds where OpenStreetMap maps nothing under a tier (45
+        //  parts uptown: blocks of 5-78 m of wall hung 5-59 m up), except a
+        //  slab no taller than CanopyM (a canopy, a marquee, a one-storey
+        //  bridge piece) or a crown piece CrownPieceM up: those stay as mapped.
+        //  Census: CityFloatProbe (city_float.txt).
         // ------------------------------------------------------------------
 
         /// <summary>0: a floored part floats as OSM's tiers say (the old
-        /// draw); 1: its walls run down to the ground where its building is
-        /// not DRAWN under it; 2: also where OSM maps nothing under it.</summary>
-        public static int PartFillDown = 1;
+        /// draw); 1: its walls run down where its building is mapped under
+        /// it but not DRAWN (cut back off the pavement, or left out); 2 (the
+        /// game): also where OSM maps nothing under it, but canopies and
+        /// crown pieces.</summary>
+        public static int PartFillDown = 2;
         /// <summary>A tier with walls no taller than this over air is a
         /// canopy, a marquee or a cornice - mode 2 leaves it hanging.</summary>
         const float CanopyM = 4f;
@@ -49,9 +53,10 @@ namespace PSXRacing.City
         static Dictionary<int, List<int>> partsOfOutline;
         static readonly List<Vector2> stackPlanScratch = new List<Vector2>(32);
         static readonly List<int> stackScratch = new List<int>(16);
-        /// <summary>Per wall of the part being drawn: its foot hangs (run it
-        /// to the ground). Read by EmitFootprint's wall loop.</summary>
-        static readonly List<bool> hangScratch = new List<bool>(32);
+        /// <summary>Per wall of the part being drawn: -1 its foot stands on
+        /// its building, else the height above the ground it runs down to
+        /// (<see cref="PartHangs"/>). Read by EmitFootprint's wall loop.</summary>
+        static readonly List<float> hangScratch = new List<float>(32);
 
         /// <summary>What the editor's float census reads (CityFloatProbe):
         /// one record per footprint a tile build drew or left out. Null in
@@ -76,7 +81,7 @@ namespace PSXRacing.City
             FootAudit.Add(new FootRec
             {
                 fi = fi, kind = kind, plan = plan != null ? plan.ToArray() : null,
-                ground = ground, baseY = baseY, topY = topY, filled = filled ? hangScratch.ToArray() : null,
+                ground = ground, baseY = baseY, topY = topY, filled = filled ? hangScratch.ConvertAll(x => x >= 0f).ToArray() : null,
             });
         }
 
@@ -135,10 +140,11 @@ namespace PSXRacing.City
             }
         }
 
-        /// <summary>Is the column at <paramref name="q"/> filled from the
-        /// ground to <paramref name="floor"/> by the stack (as drawn, or as
-        /// OSM maps it)? The stack is the last <see cref="PrimeStack"/>'s.</summary>
-        static bool StackHolds(CityMap map, Vector2 q, float floor, bool drawn)
+        /// <summary>How high above the floor the stack (as drawn, or as OSM
+        /// maps it) fills the column at <paramref name="q"/> without a gap,
+        /// stopping once it reaches <paramref name="floor"/>. The stack is the
+        /// last <see cref="PrimeStack"/>'s.</summary>
+        static float StackTop(CityMap map, Vector2 q, float floor, bool drawn)
         {
             var fs = map.footprints;
             float cur = 0f;
@@ -153,17 +159,20 @@ namespace PSXRacing.City
                     var plan = drawn ? stackPlans[j] : s.pts;
                     if (plan == null || !CityMap.PointInPoly(plan, q)) continue;
                     cur = s.h; grew = true;
-                    if (cur >= floor - 0.6f) return true;
+                    if (cur >= floor - 0.6f) return cur;
                 }
                 if (!grew) break;
             }
-            return cur >= floor - 0.6f;
+            return cur;
         }
 
-        /// <summary>Fill <see cref="hangScratch"/>, one flag per wall of the
-        /// floored part's drawn plan <paramref name="poly"/>: does the wall's
-        /// foot hang over air? True when any does. Needs
-        /// <see cref="PrimeStack"/> for the same part first.</summary>
+        /// <summary>Fill <see cref="hangScratch"/>, one per wall of the
+        /// floored part's drawn plan <paramref name="poly"/>: -1 where the
+        /// wall's foot stands on its building, else how far above the ground
+        /// (0: the ground itself) the drawn building under it reaches - the
+        /// wall runs down to there, so it never doubles a lower tier's face.
+        /// True when any wall hangs. Needs <see cref="PrimeStack"/> for the
+        /// same part first.</summary>
         static bool PartHangs(CityMap map, int fi, List<Vector2> poly)
         {
             hangScratch.Clear();
@@ -177,23 +186,33 @@ namespace PSXRacing.City
             {
                 Vector2 a = poly[i], c = poly[(i + 1) % n], d = c - a;
                 float len = d.magnitude;
-                bool hang = false;
+                float foot = -1f;
                 if (len >= 0.2f)
                 {
                     var inward = new Vector2(-d.y, d.x) / len;   // a CCW plan: the left is in
                     int k = Mathf.Clamp(Mathf.CeilToInt(len / 4f), 2, 16);
-                    for (int s = 0; s < k && !hang; s++)
+                    for (int s = 0; s < k; s++)
                     {
                         var q = Vector2.Lerp(a, c, (s + 0.5f) / k) + inward * HangProbeM;
-                        if (StackHolds(map, q, f.minH, true)) continue;
-                        if (!osmGapsToo && !StackHolds(map, q, f.minH, false)) continue;   // OSM's own overhang
-                        hang = true;
+                        float top = StackTop(map, q, f.minH, true);
+                        if (top >= f.minH - 0.6f) continue;
+                        if (!osmGapsToo && StackTop(map, q, f.minH, false) < f.minH - 0.6f) continue;   // OSM's own overhang
+                        foot = foot < 0f ? top : Mathf.Min(foot, top);
                     }
                 }
-                hangScratch.Add(hang);
-                any |= hang;
+                hangScratch.Add(foot);
+                any |= foot >= 0f;
             }
             return any;
+        }
+
+        /// <summary>Where wall <paramref name="i"/> of the part just tested
+        /// by <see cref="PartHangs"/> starts: its floor, or down at what is
+        /// drawn under it, or the ground (<paramref name="y0"/>).</summary>
+        static float HangFoot(int i, float y0, float floorY, float wallY0)
+        {
+            float foot = i < hangScratch.Count ? hangScratch[i] : -1f;
+            return foot < 0f ? wallY0 : foot <= 0.05f ? y0 : floorY + foot;
         }
     }
 }
