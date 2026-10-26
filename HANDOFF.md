@@ -1,61 +1,50 @@
-# HANDOFF - REAL HEIGHTS round 4 (2026-10-26 night): live-report hotfixes + junction WIP
+# HANDOFF - REAL HEIGHTS round 5 (2026-10-27): the concrete box and the ramp walls fixed; junction WIP + twin hold landed OFF
 
 Branch `real-heights` (worktree `C:\Users\mcgee\PSX Racing-heights`), sandbox `C:\Users\mcgee\PSXRec`
 (`$env:PSX_SANDBOX='C:\Users\mcgee\PSXRec'`; its built scenes predate the circuit removal: no scene-index tools there).
 Typecheck: `tools\typecheck.ps1 -Project C:\Users\mcgee\PSXRec -Source "C:\Users\mcgee\PSX Racing-heights" -OutDir $env:TEMP\psxtc-heights`.
-Reports in `C:\Users\mcgee\PSXRec`: gates `j4r3` (round 3), `j1r4` (mitre snap WIP), `j2r4` / `j3r4` (twin hold on, raw /
-smoothed); drive audits `d1r4_city_drive.txt` (HEAD before the hotfix) .. `d5r4_city_drive.txt` (85c9345c);
-`median_r4a.txt` (MedianProfileProbe slices, I-277); `probe_r4a.txt` (launch probe, mitred joints).
+Full write-up: Docs/CHARLOTTE.md "REAL HEIGHTS - round 5".
 
-## Shipped this round (hotfix for the owner's live reports: concrete chunks, medians, the fall off I-277)
-- 7f920b1c + 85c9345c: shared ground median runs on through approach rail bands (`PSX_CITY_TWIN_BANDS=1` = before);
-  a union run's end met by a run on the twin carriageway is continued (`PSX_CITY_TWIN_CONTINUE=0`); isolated rails
-  < 30 m off structure dropped (`PSX_CITY_KEEP_SHORT_RAILS=1`); piers clear a road's drawn (LineModel) extent.
-- Narrow-median twin HEIGHT hold `CityElevation.HoldGroundTwins` is in but OFF (`PSX_CITY_GROUND_TWINS=1`): |dy| p95
-  0.31 -> 0.02 m, but launch 109 -> 113, ramp node joints 10 -> 29, uptown route launches 1 -> 2 (j3r4).
-- Audits: drive audit FALL HOLES (`CityAudit.Holes.cs`), SHORT RAILS / PARAPETS (`CityAudit.Barriers.cs`), the solve's
-  twin report line; `MedianProfileProbe` takes `PSX_MED_EDGES="e:s0:s1;..."`.
+## One job for every gate
+`CityVSmoothCensus.Run` with `PSX_VS_LAUNCH=lanes` (or `uniform`) and `PSX_VS_THEN_DRIVE=1` runs the census, the launch
+audit twice and the drive audit in ONE Unity job (~50 min; the drive numbers match a separate `city-cycle -DriveOnly`);
+`PSX_SPOTS="edge:s0:s1:lat0:lat1;..."` adds spot plans (`MedianProfileProbe.Spots`, spot_probe.txt). Mirror only
+Scripts/Editor/Shaders into PSXRec and call Unity directly (`city-vsmooth.ps1` without -NoMirror robocopies Art/Resources).
+Reports in `C:\Users\mcgee\PSXRec\g1r5` .. `g6r5` (each: vsmooth_census.txt, city_launch_before/after.*, city_drive.txt).
 
-| drive audit (city-cycle -DriveOnly) | main | real heights (d1) | 85c9345c (d5) |
-|---|---|---|---|
-| MEDIAN ACROSS none (open) / two+ walls | 65 / 577 | 107 / 631 | 43 / 409 |
-| solid across a route lane | 0 | 2 | 0 |
-| WALLS IN LANES (route) / BLUNT | 0 / 0 | 2 / 1 | 2 / 1 |
-| route rail ends (BLUNT rail ends) | 0 | 1 | 3 |
-| default tiles: walls across lanes | 0 | 7 | 7 |
-| INVISIBLE lanes / solids | 5 / 43 | 22 / 56 | 7 / 56 |
-| short isolated rails < 30 m / Jersey stubs | - / 0 | 63 / 0 | 24 / 0 |
-| FALL HOLES (no collider, 111 route tiles) | - | 0 | 0 (8 off-route decks with nothing under) |
+## Shipped
+- **50219f8b** (g1r5): the US 74 merge box (I-277 e2321 collapsed into its host: `FacingEdgeAt` / `HostUnionHere`,
+  `PSX_CITY_COLLAPSE_HOST=0` = before); the I-277/I-77 interchange ramp walls (`CityElevation.ReachPastEnd`, deck carried
+  past its edge's end over the road under, `PSX_CITY_REACH_PAST=0` = before).
+- **6fd19d24**: the round-4 junction WIP and the twin hold v2, all OFF by default (game and gates = 50219f8b).
 
-Launch/census gates with the hold off = round 3 (j4r3): launch 109/589 old, 109/585 lane carry; routes 1/0/0; census
-freeway 243/79/19/3, ramp 1937/451/121/10, arterial 2139/796/236/16, collector 5321/246/66/153, local 20065/81/10/77;
-route p99 1.12/2.11/0.75. The solve is untouched with the hold off, so Exit 3A (+0.28 m) and untagged structure hold.
+| gate | round 3/4 | 50219f8b |
+|---|---|---|
+| launch old / lane carry; routes | 109/589, 109/585; 1/0/0 | 109/589, 109/585; 1/0/0 |
+| census freeway, ramp | 243/79/19/3, 1937/451/121/10 | 243/78/19/3, 1936/451/121/10 |
+| arterial, collector, local | 2139/796/236/16, 5321/246/66/153, 20065/81/10/77 | 2137/794/236/16, 5321/246/66/153, = |
+| route p99 g | 1.12/2.11/0.75 | 1.12/2.11/0.76 (sampling shift only) |
+| WALLS IN LANES / route BLUNT / default walls across lanes | 2 / 1 / 7 | 0 / 0 / 0 |
+| MEDIAN none / two+; INVISIBLE lanes; FALL HOLES route | 43 / 409; 7; 0 | 39 / 406; 3; 0 |
+| route rail ends; solve | 3; 30.9 s | 3; 30.0 s |
+
+## OFF switches (measured, see CHARLOTTE.md)
+- `PSX_CITY_GROUND_TWINS=1` twin hold v2 (class 5, |dy| <= 1 m, 20 m junction clear + 60 m ease; v1's pin tapers and
+  node fades): |dy| p95 0.31 -> 0.04 m but launch 108 (old sampling), uptown route launches 2, freeway 232/80/20/5,
+  ramp 1997/469/128/11, a 0.15 m route lane step at e2321 s 43 (clip seam on US 74: the hold moved the merge
+  carriageway, not its host). NEXT: keep a carriageway's CLIP zone (not only its seat) / skip merge carriageways; then
+  the ramps' seat follow.
+- `PSX_CITY_MITRE_SNAP=1` (divided splits only): launch 105/571; census arterial 2157/808/238, collector 5329/251/66 -
+  over. The census's snap-aware reading (FSnapL/R) is in but unmeasured alone: measure snap ON with it first.
+- `PSX_CITY_VSEAT_ABS=1`: census ramp 1936 -> 2831 (>0.5%). Drop it or rethink.
+- `PSX_LAUNCH_UNIFORM=1` (audit only): launch 105 -> 97, unload 571 -> 377, uptown route 1 -> 0 (n3640 was the audit).
+  Moves main's baseline too - re-baseline main with it before adopting.
 
 ## Next (in order)
-1. I-277 e2321 s 65-67 (uptown 2,486 m, the US 74 merge): e1394's union median END stands in e2321's lane (WALLS IN
-   LANES 2, BLUNT 1) - likely the owner's "concrete box ahead" at 1'06". The approach walk stops at gap < SqueezeM, so
-   the Jersey ends where it no longer fits between the edge lines: end it where gap >= the Jersey's footprint (~1.2 m)
-   with its sloped end, for approach AND ground runs; then re-count MEDIAN ACROSS none.
-2. The twin height hold: the regressions come from ramps at junction nodes (seated stations follow, the node does not).
-   Move the junction node with the mainline (and its ramps' ClimbOut) or keep the hold off within ~60 m of a ramp node.
-3. Default-tile walls across lanes (7) at the I-277/I-77 interchange ramps (e9823, e654, e5220, e9779): the ramp runs
-   ~6 m under I-277 (John Belk) on FILL with the plans overlapping - an untagged crossing (needs a deck / DeckReach).
-4. Route rail ends 3 (e9877 approach verge, e2311 deck approach gaps) and the 8 off-route deck holes (S Tryon e1107/8,
-   Briar Creek Rd creek bridge: nothing collides under the deck).
-5. Then the junction items (round 4 plan below).
-
-## Junction round 4 WIP (NOT committed: `git stash list` -> "r4-junction-wip"; backup C:\Users\mcgee\PSXRec\r4_junction_wip.patch)
-- Mitred joints are mostly DIVIDED-ROAD SPLITS (South Blvd n8848, West Blvd n5192, Providence Rd W n14006): the other
-  carriageway is a branch clipped onto its twin, its square end runs 2-3 m on over the two-way arm's pavement at its
-  own grade, 5-9 cm proud (probe_r4a). `CityMeshes.MitreSnap` brings those vertices 1 cm under the other through arm:
-  launch 109 -> 97 (old) / 103 (lane carry), mitred joints 35 -> 29 (j1r4); but census ramp/arterial/collector rose
-  (+8/+44/+43 >0.5%: the census averages the snapped edge vertices) - tag snapped sections (RoadTap flag) so the
-  census reads the unsnapped vertex, then commit.
-- uptown n3640's "launch" is the AUDIT: at a mitred node the flown path sampled the node point twice (arm A's last,
-  arm B's first) and the flight reads every sample 1 m on (a phantom 1 m flat: g0 -4.5% vs -9.3%, 0.16 m). WIP:
-  `CityLaunchAudit.UniformSteps` (A ends on its trim, fan walked by arc length, B starts a step on: `pr.bOff`) - not
-  yet measured; measure it alone (mitre snap vs mitre snap + uniform) since it changes main's baseline too.
-- Seated stations drawn ON the host's drawn surface (`VsSeatAbsOn`, e4913: ramp 0.2-0.34 m under its host for its seat,
-  the clipped strip dropped at the zone end) - not yet measured.
-- Tryon p99 is the census's own reading (edge-vertex averages + the chord across fans); the lane line is smooth
-  (probe_r4a e16424 at 0.5 m: top = drawn to 1 mm).
+1. Twin hold: the clip-zone keep (above), measure ON (`PSX_CITY_GROUND_TWINS=1`), then turn it on.
+2. Route rail ends 3 (main 0): e2144 s 500 / e1874 s 188 - the approach union stops at the twin's OSM bridge start and
+   the carriageway's own approach rail starts square, KEPT square because its deck starts 0.5-2.6 m in; e9877 s 18 -
+   ramp e279's approach rail start. Idea: a V into each carriageway's rail at a ground union end where a rail begins
+   within ~3 m (as on decks), or e2144's deck joined to the e2316/e2352 union.
+3. Mitre snap with the census fix measured; uniform sampling adopted with a re-baselined main.
+4. The 8 off-route deck holes (S Tryon e1107/8, Briar Creek Rd creek bridge).

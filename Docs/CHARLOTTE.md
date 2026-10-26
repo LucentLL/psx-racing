@@ -7826,3 +7826,79 @@ colliders) no point without a collider; 8 off-route decks with nothing under the
 **Left:** e1394's union median end in I-277 e2321's lane at the US 74 merge (WALLS IN LANES 2, BLUNT 1); route rail
 ends 3 (main 0); 7 walls across the I-277/I-77 interchange ramps' lanes (a ramp 6 m under I-277 on fill: an untagged
 crossing); the twin hold at ramp junction nodes; the junction round-4 WIP (stashed; HANDOFF.md).
+
+### REAL HEIGHTS - round 5 (2026-10-27; 50219f8b shipped, 6fd19d24 WIP landed OFF)
+
+The owner on the live real heights: "chunks of concrete everywhere. Randomly in highway lanes, randomly in bridges"
+(Uptown Loop ~1'06": a concrete box in I-277's lane ahead) and the medians that "go up and down" (~2'57"-4'06").
+
+**The box (I-277 e2321 at the US 74 merge, uptown 2,486 m).** e2321 merges into US 74 e2367: its ribbon is clipped from
+s 42.8 and COLLAPSES into the host from s 66.7 (61 m before their node n2295), while its union with the opposing I-277
+carriageway (owner e1394 to s 84.1, then e2321 itself as owner with e2350 to 127.8) runs on. The collapsed sections stand
+on the cut line (L = R at -2.6 m for a metre, then +5..6 m), so the owner's median, drawn to the partner's "drawn edge",
+swung into I-277's lane for one span (WALLS IN LANES 2, BLUNT 1); US 74's median side, no longer clipped, drew its own
+Jersey a metre from the union's (two walls s 70-82: the box); and the collapsed owner's spans are skipped, so its run
+drew nothing. `FacingEdgeAt`: the road across's facing edge is the HOST's where a branch is collapsed; `HostUnionHere`:
+the host's side beside a collapsed branch that holds a union run is the union's (nothing of its own; when the collapsed
+branch owns the run, the host draws it). `PSX_CITY_COLLAPSE_HOST=0` = before.
+
+**Walls across the I-277/I-77 interchange ramps (7, default tiles).** The John Belk Freeway's tagged decks (e954, e1258)
+end 7-12 m past where the wide loop ramps (e9823 hw 9.1, e654, e9779/e5220 hw 10.9) pass under at ~45 deg; the ramps'
+pavement ran on under I-277's GROUND approach (e1259 s 0-17: approach rails on retaining faces), whose faces stood across
+the ramp lanes 5.6 m below. `CityElevation.ReachPastEnd`: an enforced crossing's deck carries on past its edge's end
+along the through arm as far as the under road's pavement reaches along it at the crossing's angle ((both half widths
++ 2 m) / sin), RealOn only, marked with the structure (heights untouched); 151 stations city-wide;
+`PSX_CITY_REACH_PAST=0` = before. (An approach union stopped a step short of the next run now meets it: 1 place.)
+
+**Instruments.** `MedianProfileProbe.Spots` (`PSX_SPOTS="edge:s0:s1:lat0:lat1;..."`): a plan of a spot in an edge's frame
+(rays down every 1 x 0.5 m: '#' a barrier, the letter of the edge whose drawn ribbon covers the point) and, for every edge
+there, its sections, union runs and walled spans (rail R, retaining T, cut C, median M, union U, gap g). A barrier that is
+a single vertical face (a retaining face) is invisible to the plan's down-rays - read the walled spans. `CityVSmoothCensus`:
+`PSX_VS_THEN_DRIVE=1` runs the drive audit after the census and launch audits in the same job (city_drive.txt; the
+numbers match a separate `city-cycle -DriveOnly`), `PSX_SPOTS` the spot plans after it, `PSX_VS_LAUNCH=uniform` the
+launch audit with the old node sampling then UniformSteps.
+
+**Measured** (one job each: census + launch with the lane carry + drive; round 3/4 = j4r3 / d5r4):
+
+| | round 3/4 | 50219f8b (g1r5) |
+|---|---|---|
+| launch / unload, old paths / lane carry | 109/589, 109/585 | 109/589, 109/585 |
+| routes launch | 1 / 0 / 0 | 1 / 0 / 0 |
+| census freeway / ramp (>0.5 / >1 / >2% / node) | 243/79/19/3, 1937/451/121/10 | 243/78/19/3, 1936/451/121/10 |
+| arterial / collector | 2139/796/236/16, 5321/246/66/153 | 2137/794/236/16, 5321/246/66/153 |
+| local | 20065/81/10/77 | 20065/81/10/77 |
+| route p99 g | 1.12 / 2.11 / 0.75 | 1.12 / 2.11 / 0.76 (same max/p95/sag/crest; samples moved 0.5-2 m by deck-end sections) |
+| WALLS IN LANES (route) / route BLUNT | 2 / 1 | 0 / 0 |
+| default tiles: walls across lanes | 7 | 0 |
+| MEDIAN ACROSS none / two+ | 43 / 409 | 39 / 406 |
+| INVISIBLE lanes | 7 | 3 |
+| FALL HOLES on route tiles | 0 (8 off-route decks) | 0 (8 off-route decks) |
+| route rail ends | 3 | 3 |
+| solve | 30.9 s | 30.0 s |
+
+**Landed OFF (6fd19d24; each switch and what it measured).**
+- Mitre snap restricted to divided-road splits (`PSX_CITY_MITRE_SNAP=1`): unrestricted it moved 57k vertices (every
+  mitred branch: collectors' first metres put on the arm beside them) and cost the census arterial +43/+30, collector
+  +34/+20 (>0.5/>1%) for launch 109 -> 103; restricted (14.6k): launch 105/571, arterial 2157/808/238/16, collector
+  5329/251/66/153 - still over. The census now reads a snapped section's other vertex across the span and skips a section
+  wholly on the other arm (FSnapL/R) - not measured alone.
+- Seated stations ON the host's drawn surface (`PSX_CITY_VSEAT_ABS=1`): census ramp 1,936 -> 2,831 (>0.5%), 451 -> 785
+  (>1%); arterial, collector and local up too.
+- The launch audit's uniform node sampling (`PSX_LAUNCH_UNIFORM=1`; round 4's "phantom 1 m flat" at a mitred node):
+  with the restricted snap launch 105 -> 97, unload 571 -> 377, uptown route launch 1 -> 0 (n3640 was the audit). It moves
+  main's baseline as much; main is not re-measured.
+- Ground-twin hold v2 (`PSX_CITY_GROUND_TWINS=1`): v1 + the move tapers to every kept station (seat, deck, junction end)
+  and two-arm nodes carry it (faded) instead of stepping; v2 adds class 5 only, |dy| <= 1.0 m, nothing within 20 m of a
+  junction node then a 60 m ease. |dy| p95 0.31 -> 0.04 m. v1 (g2r5): launch 111/586, routes 2/0/0, freeway 228/90/23/4,
+  ramp 1971/460/118/11, Independence p99 0.89. v2 (g6r5, with the snap and uniform on): launch 108/572 old sampling,
+  routes 2/0/0 (I-277 e2321 s 43), freeway 232/80/20/5, ramp 1997/469/128/11, uptown p99 1.15, Independence 0.78, and a
+  0.15 m lane step on e2321 s 43: e2321 is CLIPPED onto US 74 from s 13 (a merge carriageway), the hold moved it and not
+  its host, and the clip seam stepped. Next: a carriageway clipped onto a different road (its clip zone, not only its
+  seat) is a kept station - or no hold on a merge carriageway; then the ramps' seat follow (ramp >0.5% +35..61).
+
+**Left:** the twin hold (above); the junction items (above); route rail ends 3 (main 0): I-277 e2144 s 500 - the approach
+union with e2353 stops where the twin's OSM bridge e2352 begins (not in the union table with e2144's own deck from s 502.6),
+and e2144's approach rail starting there is KEPT square because the deck starts 2.6 m into it (the "guards a drop to its
+end" rule); I-77 e1874 s 188 the same with the deck 0.5 m in; e9877 s 18 - ramp e279's approach rail start by I-277's edge
+line. Ideas: the union's ground end drawn as a V into each carriageway's rail where a rail begins within ~3 m (as on a
+deck), or e2144's deck in the e2316/e2352 union. The 8 off-route deck holes (S Tryon e1107/8, Briar Creek Rd).

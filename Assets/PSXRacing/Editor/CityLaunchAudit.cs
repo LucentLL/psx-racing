@@ -71,6 +71,7 @@ namespace PSXRacing.EditorTools
             public int dirA, dirB;          // +1 = increasing arc position
             public float sA0, sB0;          // arc position of the first sample on each
             public int nA, nF;              // samples on arm A, then in the fan
+            public float bOff;              // arm B's first sample this far past its trim (UniformSteps: a step on from the last)
             // kind 3 (TURNING MOVEMENTS): the junction cluster (-1: a single fan), the turn (0 through, 1 right, 2 left), the tier
             public int cluster = -1, turn, tier;
         }
@@ -207,6 +208,9 @@ namespace PSXRacing.EditorTools
         /// <summary>REAL HEIGHTS: a movement through a split or a merge keeps its
         /// lane (see the node movements); PSX_LAUNCH_LANECARRY=0 the old paths.</summary>
         public static bool LaneCarry = System.Environment.GetEnvironmentVariable("PSX_LAUNCH_LANECARRY") != "0";
+        /// <summary>REAL HEIGHTS round 4: a movement's samples a step apart through a mitred
+        /// joint (arm A's end on its trim, no point twice); round 5: OFF by default (the gates' baseline sampling); PSX_LAUNCH_UNIFORM=1 switches it on (with the restricted mitre snap: launch 105 -> 97, unload 571 -> 377, uptown route 1 -> 0).</summary>
+        public static bool UniformSteps = System.Environment.GetEnvironmentVariable("PSX_LAUNCH_UNIFORM") == "1";
         [MenuItem("PSX Racing/City Launch Audit")]
         public static void Run()
         {
@@ -342,6 +346,9 @@ namespace PSXRacing.EditorTools
                             // arm A: from (trim + approach) back to the trim
                             float from = Mathf.Min(A.length, tA + ApproachM);
                             int na = Mathf.Max(1, Mathf.FloorToInt((from - tA) / StepM) + 1);
+                            // (round 4, UniformSteps) A's samples END on its trim, a step apart:
+                            // the flight reads every sample StepM on from the last
+                            if (UniformSteps) from = tA + (na - 1) * StepM;
                             pr.sA0 = A.b == n ? A.length - from : from;
                             for (int k = 0; k < na; k++)
                             {
@@ -359,7 +366,52 @@ namespace PSXRacing.EditorTools
                             float yFan = Mathf.Max(map.nodeY[n], Mathf.Max(A.YAt(sAt), B.YAt(sBt)));
                             float yFanLo = Mathf.Min(map.nodeY[n], Mathf.Min(A.YAt(sAt), B.YAt(sBt)));
                             float rMin = float.MaxValue;
-                            if (chord > 0.6f)
+                            // (round 4, UniformSteps) THE FLIGHT READS EVERY SAMPLE A STEP ON
+                            // from the last (Separation: x * StepM), so the samples must BE a
+                            // step apart along the path. They were not across a node: at a
+                            // mitred joint (both trims 0, chord 0) B's first sample was A's
+                            // last - one point twice, which the flight read as a metre of level
+                            // road on any grade and the grade after it as a crest (uptown's
+                            // n3640: -9.5% both sides, g0 over the 2 m pitch base -4.5% at the
+                            // repeated point, "0.16 m at 140 km/h"); across a fan the cubic's
+                            // samples were chord / ceil(1.2 chord) apart (0.8 m), every grade
+                            // in the fan read 1.2x steeper, a break at both mouths; and A's
+                            // last sample stood up to a metre short of its trim. Now A ends on
+                            // its trim, the cubic is walked by arc length a step at a time, and
+                            // B starts a step on from the last sample (pr.bOff past its trim).
+                            float bOff = 0f;
+                            if (UniformSteps)
+                            {
+                                float arcLen = 0f, lastArc = 0f;
+                                if (chord > 0.05f)
+                                {
+                                    float kk = chord * 0.45f;
+                                    Vector2 p1 = p0 + inDir * kk, p2 = p3 - outDir * kk;
+                                    int fine = Mathf.Max(8, Mathf.CeilToInt(chord * 20f));
+                                    Vector2 prev = p0, prevT = inDir, prevS = p0;
+                                    float nextAt = StepM;
+                                    for (int k = 1; k <= fine; k++)
+                                    {
+                                        float u = k / (float)fine, w = 1f - u;
+                                        var q = w * w * w * p0 + 3f * w * w * u * p1 + 3f * w * u * u * p2 + u * u * u * p3;
+                                        float seg = Vector2.Distance(q, prev);
+                                        float a0 = arcLen; arcLen += seg;
+                                        while (arcLen >= nextAt - 1e-4f && k < fine)
+                                        {
+                                            var qs = Vector2.Lerp(prev, q, seg > 1e-6f ? Mathf.Clamp01((nextAt - a0) / seg) : 1f);
+                                            Add(qs, yFan, yFanLo);
+                                            var tq = (qs - prevS).normalized;
+                                            float sg = Vector2.Distance(qs, prevS);
+                                            float ang = Vector2.Angle(prevT, tq) * Mathf.Deg2Rad;
+                                            if (ang > 1e-3f && sg > 0.05f) rMin = Mathf.Min(rMin, sg / ang);
+                                            prevS = qs; prevT = tq; lastArc = nextAt; nextAt += StepM;
+                                        }
+                                        prev = q;
+                                    }
+                                }
+                                bOff = Mathf.Max(0f, StepM - (arcLen - lastArc));
+                            }
+                            else if (chord > 0.6f)
                             {
                                 float kk = chord * 0.45f;
                                 Vector2 p1 = p0 + inDir * kk, p2 = p3 - outDir * kk;
@@ -378,13 +430,15 @@ namespace PSXRacing.EditorTools
                                 }
                             }
                             pr.nF = nS - pr.start - pr.nA;
-                            // arm B: from its trim out
+                            // arm B: from its trim (+ bOff) out
                             float to = Mathf.Min(B.length, tB + ApproachM);
-                            int nb = Mathf.Max(1, Mathf.FloorToInt((to - tB) / StepM) + 1);
+                            if (to - tB - bOff < 0f) bOff = Mathf.Max(0f, to - tB);
+                            pr.bOff = bOff;
+                            int nb = Mathf.Max(1, Mathf.FloorToInt((to - tB - bOff) / StepM) + 1);
                             pr.sB0 = sBt;
                             for (int k = 0; k < nb; k++)
                             {
-                                float dist = Mathf.Min(to, tB + k * StepM);
+                                float dist = Mathf.Min(to, tB + bOff + k * StepM);
                                 float s = B.a == n ? dist : B.length - dist;
                                 var t = B.TangentAt(s) * dB;
                                 Add(B.PointAt(s) + RightOf(t) * (LatFor(trims, B, s) + Carry(carryB, dist - tB)), B.YAt(s));
@@ -627,7 +681,9 @@ namespace PSXRacing.EditorTools
         /// <summary>Debug: PSX_LAUNCH_PROBE="x,z;x,z": the tile under each point
         /// built alone, its road and ground meshes' bounds, this audit's surface
         /// query and a physics ray on the attached tile, side by side.</summary>
-        public static void Probe()
+        public static void Probe() => ProbeRun(true);
+        /// <summary>The probe without leaving the editor (the census runs it after its audits).</summary>
+        public static void ProbeRun(bool exit)
         {
             var sb = new StringBuilder();
             var probeNodes = new HashSet<int>();
@@ -711,7 +767,7 @@ namespace PSXRacing.EditorTools
             }
             ProbeEdges(map, trims, buildings, sb);
             File.WriteAllText(Path.Combine(Directory.GetParent(Application.dataPath).FullName, "city_launch_probe.txt"), sb.ToString());
-            if (Application.isBatchMode) EditorApplication.Exit(0);
+            if (exit && Application.isBatchMode) EditorApplication.Exit(0);
         }
 
         /// <summary>Debug (REAL HEIGHTS round 3): PSX_LAUNCH_PROBE_EDGE="edge:s0:s1;...":
@@ -725,6 +781,7 @@ namespace PSXRacing.EditorTools
             string pe = Environment.GetEnvironmentVariable("PSX_LAUNCH_PROBE_EDGE");
             if (string.IsNullOrEmpty(pe)) return;
             var tiles = new Dictionary<long, CityMeshes.TileMeshes>();
+            var surfs = new Dictionary<long, Surf>();
             CityMeshes.RecordTap = true;
             try
             {
@@ -745,16 +802,27 @@ namespace PSXRacing.EditorTools
                             st.Append($" {e.stS[i]:0.0}:{e.stY[i]:0.00}/{e.YAt(e.stS[i]):0.00}{(e.stElev[i] ? "d" : "")}{(e.SeatedAt(i) ? "s" + (h >= 0 ? $"e{h}@{hs:0.0}={map.edges[h].YAt(hs):0.00}" : "?") : "")}");
                         }
                     sb.AppendLine(st.ToString());
-                    for (float s = s0; s <= s1 + 1e-3f; s += 2f)
+                    // round 4: an optional step (a number token, default 2 m) and the
+                    // audit's own top surface (Query) beside the tap's surfaces
+                    float step = 2f; bool secs = false;
+                    for (int ci = 3; ci < c.Length; ci++)
+                    {
+                        if (c[ci] == "sec") secs = true;
+                        else if (float.TryParse(c[ci], NumberStyles.Float, CultureInfo.InvariantCulture, out float stv) && stv > 0.05f) step = stv;
+                    }
+                    for (float s = s0; s <= s1 + 1e-3f; s += step)
                     {
                         var t = e.TangentAt(s);
                         var p = e.PointAt(s) + RightOf(t) * LatFor(trims, e, s);
                         int tx = Mathf.FloorToInt(p.x / CityMeshes.TileSize), tz = Mathf.FloorToInt(p.y / CityMeshes.TileSize);
                         long key = ((long)tz << 32) | (uint)(tx + 100000);
                         if (!tiles.TryGetValue(key, out var tm)) tiles[key] = tm = CityMeshes.Build(map, trims, buildings, tx, tz);
-                        sb.AppendLine($"   s={s:0.0} ({p.x:0.0},{p.y:0.0}) drawn {e.YAt(s):0.00} station {e.StationYAt(s):0.00} |{TapHits(tm, p.x, p.y)}");
+                        if (!surfs.TryGetValue(key, out var sf)) surfs[key] = sf = SurfOf(tm);
+                        float top = float.NegativeInfinity; bool road = false;
+                        if (sf != null) Query(sf, p.x, p.y, 1e6f, ref top, ref road);
+                        sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "   s={0:0.0} ({1:0.0},{2:0.0}) drawn {3:0.000} station {4:0.000} top {5:0.000}{6} |{7}", s, p.x, p.y, e.YAt(s), e.StationYAt(s), top, road ? "" : " land", TapHits(tm, p.x, p.y)));
                     }
-                    if (c.Length > 3 && c[3] == "sec")
+                    if (secs)
                     {
                         // the ribbon's sections in the range, as the tile builds them (3 decimals)
                         var ds = CityMeshes.DescribeSections(map, trims, e).Split('\n');
@@ -1296,7 +1364,7 @@ namespace PSXRacing.EditorTools
             if (pr.kind == 0) { sp.edge = pr.eA; sp.s = pr.sA0 + pr.dirA * bk * StepM; }
             else if (bk < pr.nA) { sp.edge = pr.eA; var A = map.edges[pr.eA]; float from = pr.dirA > 0 ? A.length - pr.sA0 : pr.sA0; float dist = Mathf.Max(trims.TrimAt(A, pr.node), from - bk * StepM); sp.s = A.b == pr.node ? A.length - dist : dist; }
             else if (bk < pr.nA + pr.nF) { sp.edge = pr.eA; sp.inFan = true; sp.s = pr.dirA > 0 ? map.edges[pr.eA].length : 0f; }
-            else { sp.edge = pr.eB; var B = map.edges[pr.eB]; float dist = Mathf.Min(B.length, trims.TrimAt(B, pr.node) + (bk - pr.nA - pr.nF) * StepM); sp.s = B.a == pr.node ? dist : B.length - dist; }
+            else { sp.edge = pr.eB; var B = map.edges[pr.eB]; float dist = Mathf.Min(B.length, trims.TrimAt(B, pr.node) + (bk - pr.nA - pr.nF) * StepM + pr.bOff); sp.s = B.a == pr.node ? dist : B.length - dist; }
             sp.cls = map.edges[sp.edge].cls;
             sp.tier = sp.inFan ? Mathf.Min(CityTier.Of(map.edges[pr.eA]), CityTier.Of(map.edges[pr.eB])) : CityTier.Of(map.edges[sp.edge]);
         }
@@ -1387,7 +1455,7 @@ namespace PSXRacing.EditorTools
             if (pr.kind == 0) { sp.edge = pr.eA; sp.s = pr.sA0 + pr.dirA * bk * StepM; }
             else if (bk < pr.nA) { sp.edge = pr.eA; var A = map.edges[pr.eA]; float from = pr.dirA > 0 ? A.length - pr.sA0 : pr.sA0; float dist = Mathf.Max(trims.TrimAt(A, pr.node), from - bk * StepM); sp.s = A.b == pr.node ? A.length - dist : dist; }
             else if (bk < pr.nA + pr.nF) { sp.edge = pr.eA; sp.inFan = true; sp.s = pr.dirA > 0 ? map.edges[pr.eA].length : 0f; }
-            else { sp.edge = pr.eB; var B = map.edges[pr.eB]; float dist = Mathf.Min(B.length, trims.TrimAt(B, pr.node) + (bk - pr.nA - pr.nF) * StepM); sp.s = B.a == pr.node ? dist : B.length - dist; }
+            else { sp.edge = pr.eB; var B = map.edges[pr.eB]; float dist = Mathf.Min(B.length, trims.TrimAt(B, pr.node) + (bk - pr.nA - pr.nF) * StepM + pr.bOff); sp.s = B.a == pr.node ? dist : B.length - dist; }
             sp.cls = map.edges[sp.edge].cls;
             sp.cause = Cause(map, trims, sp);
             return sp;

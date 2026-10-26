@@ -4894,7 +4894,15 @@ namespace PSXRacing.City
         /// <see cref="GroundTwinTaperM"/>, and the ramps seated on a moved
         /// carriageway move with it. PSX_CITY_GROUND_TWINS=1 switches it on (off by default: see GroundTwinsOn).
         /// </summary>
-        public const float GroundTwinGapM = 9.5f, GroundTwinMaxDyM = 2.5f, GroundTwinTaperM = 40f, GroundTwinSmoothM = 25f, GroundTwinSeatFadeM = 30f;
+        public const float GroundTwinGapM = 9.5f, GroundTwinMaxDyM = 1.0f, GroundTwinTaperM = 40f, GroundTwinSmoothM = 25f, GroundTwinSeatFadeM = 30f;
+        /// <summary>(round 5) No hold within this of a junction node (the junction plane's
+        /// landing reach), easing in over the next <see cref="GroundTwinJunctionTaperM"/>: the hold's
+        /// moves beside the at-grade junctions of the divided expressways were the census's new
+        /// "no curve here" breaks (Johnston Rd, Independence Blvd, Albemarle Rd).</summary>
+        public const float GroundTwinJunctionClearM = 20f, GroundTwinJunctionTaperM = 60f;
+        /// <summary>(round 5) The hold is the freeways' (class 5): PSX_CITY_GROUND_TWINS_CLS4=1 adds the
+        /// one-way class-4 carriageways (expressways with at-grade junctions).</summary>
+        public static bool GroundTwinsCls4 = System.Environment.GetEnvironmentVariable("PSX_CITY_GROUND_TWINS_CLS4") == "1";
         /// <summary>OFF by default (round 4): the hold took freeway |dy| p95 0.31 -> 0.02 m but cost the gates
         /// (launch 109 -> 113, ramp node joints 10 -> 29, uptown route launches 1 -> 2: ramps at their junction
         /// nodes); PSX_CITY_GROUND_TWINS=1 switches it on until that is solved.</summary>
@@ -4908,7 +4916,7 @@ namespace PSXRacing.City
             var byName = new Dictionary<string, List<CityMap.Edge>>();
             foreach (var e in map.edges)
             {
-                if (!e.oneway || e.link || e.tunnel || e.a == e.b || string.IsNullOrEmpty(e.name)
+                if (!e.oneway || e.link || e.tunnel || e.a == e.b || string.IsNullOrEmpty(e.name) || (e.cls < 5 && !GroundTwinsCls4)
                     || e.stS == null || e.stS.Length < 2 || !CityMeshes.Barriered(e)) continue;
                 if (!byName.TryGetValue(e.name, out var l)) byName[e.name] = l = new List<CityMap.Edge>();
                 l.Add(e);
@@ -5038,6 +5046,14 @@ namespace PSXRacing.City
                         float ds = sw > 0f ? sv / sw : 0f;
                         float wp = Mathf.Clamp01(pin[i] / GroundTwinTaperM);
                         ds *= wp * wp * (3f - 2f * wp);
+                        // (round 5) and nothing within a junction's landing reach: the
+                        // junction plane (landJunctions) holds its arms there; the hold
+                        // eases in past it over GroundTwinJunctionTaperM
+                        float sj = float.MaxValue;
+                        if (Junction(e.a)) sj = e.stS[i];
+                        if (Junction(e.b)) sj = Mathf.Min(sj, e.length - e.stS[i]);
+                        float wj = Mathf.Clamp01((sj - GroundTwinJunctionClearM) / GroundTwinJunctionTaperM);
+                        ds *= wj * wj * (3f - 2f * wj);
                         if (Mathf.Abs(ds) >= 0.002f) plan.Add((e, i, ds));
                     }
                 }
