@@ -1,0 +1,53 @@
+NIGHT CITY numbers (2026-10-26, branch night-city). Ycode = Rec.709 Y re-encoded to sRGB 0-255.
+Per box: lit windows = pixels Ycode>=60 and r>b+12; walls = the rest (median, p75, median sRGB).
+win = median Ycode, HSV sat (8-bit sRGB), hue deg; contrast = win/wall. Instrument: NightCityShots + scratchpad ncstats2.py.
+BEFORE = main 8d22fe76; AFTER = this branch.
+
+== NIGHT, before ==
+before i277_tower   wall  21.9 p75  35.3 rgb (26, 21, 17) | win 126.9 sat 0.55 hue 38.5 rgb (154, 122, 65) share 21.8% | contrast  5.8x
+before i277_right   wall  21.6 p75  23.2 rgb (26, 21, 17) | win 114.0 sat 0.58 hue 38.9 rgb (138, 110, 56) share  9.8% | contrast  5.3x
+before i277_low     wall  33.1 p75  42.2 rgb (35, 35, 21) | win 137.5 sat 0.54 hue 41.7 rgb (162, 134, 73) share 42.0% | contrast  4.1x
+before i277_stone   wall  17.6 p75  39.3 rgb (21, 17, 7) | win  70.7 sat 0.38 hue 35.9 rgb (81, 69, 52) share 34.4% | contrast  4.0x
+before tryonL       wall   4.2 p75   7.0 rgb (4, 4, 4) | win 142.5 sat 0.56 hue 39.3 rgb (170, 138, 77) share 59.2% | contrast 33.8x
+before tryonR       wall  20.7 p75  21.9 rgb (26, 21, 12) | win 118.0 sat 0.58 hue 38.6 rgb (142, 114, 60) share 16.1% | contrast  5.7x
+before tryonRlow    wall  22.9 p75  35.6 rgb (30, 21, 12) | win 100.7 sat 0.56 hue 39.0 rgb (122, 97, 56) share 10.0% | contrast  4.4x
+before wtrade_twr   wall  20.7 p75  35.9 rgb (21, 21, 17) | win 155.1 sat 0.55 hue 37.5 rgb (186, 150, 81) share 41.9% | contrast  7.5x
+before wtrade_twr2  wall  31.1 p75  35.9 rgb (39, 30, 17) | win 150.1 sat 0.56 hue 41.9 rgb (178, 146, 77) share 36.3% | contrast  4.8x
+before high45_twrA  wall  12.9 p75  17.3 rgb (17, 12, 7) | win 146.3 sat 0.56 hue 39.7 rgb (174, 142, 77) share 38.6% | contrast 11.4x
+before high45_twrB  wall  26.6 p75 183.4 rgb (30, 26, 21) | win 158.0 sat 0.55 hue 39.7 rgb (190, 154, 85) share 27.7% | contrast  5.9x
+before i77s16_twr   wall  21.6 p75  43.8 rgb (30, 21, 7) | win 134.6 sat 0.57 hue 36.7 rgb (162, 130, 69) share 57.8% | contrast  6.2x
+
+== NIGHT, after ==  (i277_stone: BEFORE its uplit stone, Ycode 71, counted as "lit"; after it is wall)
+after  i277_tower   wall   6.8 p75  13.2 rgb (7, 7, 4) | win 144.9 sat 0.78 hue 42.2 rgb (182, 138, 39) share 17.0% | contrast 21.4x
+after  i277_right   wall   8.1 p75  12.9 rgb (12, 7, 7) | win 123.4 sat 0.79 hue 41.8 rgb (154, 118, 35) share  9.5% | contrast 15.3x
+after  i277_low     wall  17.6 p75  34.2 rgb (21, 17, 7) | win 147.8 sat 0.76 hue 42.5 rgb (182, 142, 43) share 34.4% | contrast  8.4x
+after  i277_stone   wall  26.4 p75  31.6 rgb (30, 26, 17) | win   0.0 sat 0.00 hue  0.0 rgb None share  0.0% | contrast  0.0x
+after  tryonL       wall   1.6 p75   4.0 rgb (4, 1, 1) | win 155.3 sat 0.77 hue 42.3 rgb (190, 150, 43) share 59.7% | contrast 94.8x
+after  tryonR       wall   8.1 p75  11.7 rgb (12, 7, 7) | win 128.4 sat 0.79 hue 41.6 rgb (162, 122, 35) share 16.1% | contrast 15.9x
+after  tryonRlow    wall  16.3 p75  32.5 rgb (17, 17, 7) | win 105.8 sat 0.77 hue 41.3 rgb (130, 102, 35) share 10.0% | contrast  6.5x
+after  wtrade_twr   wall   8.1 p75  12.0 rgb (12, 7, 7) | win 169.2 sat 0.76 hue 39.5 rgb (210, 162, 52) share 45.5% | contrast 20.9x
+after  wtrade_twr2  wall  27.4 p75  35.9 rgb (35, 26, 12) | win 160.4 sat 0.76 hue 43.5 rgb (198, 154, 48) share 36.3% | contrast  5.9x
+after  high45_twrA  wall   4.6 p75   7.9 rgb (7, 4, 4) | win 156.4 sat 0.77 hue 42.2 rgb (194, 150, 48) share 39.1% | contrast 33.7x
+after  high45_twrB  wall  13.2 p75 183.4 rgb (17, 12, 12) | win 169.2 sat 0.76 hue 43.2 rgb (210, 162, 48) share 27.7% | contrast 12.8x
+after  i77s16_twr   wall  26.0 p75  43.4 rgb (35, 21, 4) | win 144.9 sat 0.77 hue 40.2 rgb (182, 138, 39) share 56.7% | contrast  5.6x
+
+== DUSK (I-277 1 km S) ==
+before i277_tower   wall  60.2 p75  85.6 rgb (56, 60, 73) | win 122.1 sat 0.50 hue 37.5 rgb (146, 118, 77) share 11.5% | contrast  2.0x
+before i277_right   wall  78.8 p75  95.3 rgb (81, 77, 81) | win 101.0 sat 0.52 hue 34.8 rgb (122, 97, 65) share  6.8% | contrast  1.3x
+before i277_low     wall  58.4 p75  73.0 rgb (56, 60, 60) | win 126.1 sat 0.50 hue 40.9 rgb (150, 122, 77) share 31.9% | contrast  2.2x
+after  i277_tower   wall  47.6 p75  69.3 rgb (43, 48, 60) | win 127.7 sat 0.71 hue 40.6 rgb (158, 122, 48) share 11.8% | contrast  2.7x
+after  i277_right   wall  66.2 p75  78.2 rgb (69, 65, 73) | win 110.8 sat 0.73 hue 38.9 rgb (138, 106, 43) share  7.1% | contrast  1.7x
+after  i277_low     wall  47.0 p75  59.7 rgb (43, 48, 48) | win 135.1 sat 0.70 hue 43.3 rgb (166, 130, 48) share 31.1% | contrast  2.9x
+
+== NOON pixel diff, before vs after ==
+eye_ht_trade_i77       noon: 0 of 408960 pixels differ, max 0
+eye_i277b_2745         noon: 0 of 408960 pixels differ, max 0
+eye_jb_tryon_eye       noon: 0 of 408960 pixels differ, max 0
+far_high45             noon: 0 of 2250000 pixels differ, max 0
+far_i277s10            noon: 0 of 2250000 pixels differ, max 0
+far_i77s16             noon: 0 of 2250000 pixels differ, max 0
+
+== NFS 2015 reference frame (owner's, not in repo) ==
+nfs    nfs_hill     wall  18.7 p75  19.8 rgb (8, 18, 33) | win 136.2 sat 0.24 hue 26.8 rgb (155, 132, 116) share  1.6% | contrast  7.3x
+nfs    nfs_cityR    wall  31.7 p75  42.3 rgb (27, 32, 38) | win  90.9 sat 0.23 hue 358.2 rgb (107, 85, 86) share  1.4% | contrast  2.9x
+nfs    nfs_mass     wall  52.1 p75  68.2 rgb (49, 53, 55) | win 102.8 sat 0.29 hue 21.7 rgb (115, 101, 91) share  2.4% | contrast  2.0x

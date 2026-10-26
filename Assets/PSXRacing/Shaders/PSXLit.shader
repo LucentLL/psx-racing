@@ -579,13 +579,27 @@ Shader "PSX/Lit"
             #define FAR_TAPS           4      // storeys sampled across a far pixel's footprint (the box filter)
             // the atlas facades' own window colour (2026-10-17, the owner: the
             // cream read close to the grey wall): a warmer, yellower tungsten
-            // than WIN_WARM - the one colour of a facade's lit windows
-            #define FAC_WIN_WARM       float3(1.00, 0.64, 0.24)
+            // than WIN_WARM - the one colour of a facade's lit windows, its
+            // shopfronts and its reflected floors too.
+            // VIBRANT, NOT CREAM (owner, 2026-10-26: "windows are washed out
+            // yellow vs blacks and vibrant yellow of NFS"). (1, .64, .24) is
+            // sRGB (255, 209, 134): a cream, HSV sat 0.47, and the grade took
+            // our lit windows to Ycode 100-142 at sat 0.54-0.58, hue 38-42 -
+            // tan. And a bright one clipped per channel ((1.5, .96, .36) ->
+            // (1, .96, .36)): a pale lemon, hue 62, sat 0.40. Now a golden
+            // yellow - graded sat 0.76-0.80, hue 41-46 - and never clipped
+            // (WIN_PEAK below): brightness varies, the hue never does.
+            #define FAC_WIN_WARM       float3(1.00, 0.58, 0.09)
+            #define FAC_WIN_CITY_GAIN  0.80   // a facade's lit window x this in the city (WIN_CITY_GAIN 0.62 before 2026-10-26)
+            #define WIN_PEAK           1.0    // a facade's lit window is scaled down WHOLE to this peak channel, never clipped
             #define BOUNCE_HIGH        0.30   // the lit streets' bounce high on a tower, as a share of the street's
             #define BOUNCE_FALL_M      40.0   //   halving every 40 m up: upper walls stay dark behind their lit blocks
             #define UPL_SHARE          0.35   // buildings with a warm uplight on the lower facade
             #define UPL_GAIN           0.55
-            #define UPL_FALL_M         14.0   // the wash halves every 14 m up
+            #define UPL_FALL_M         6.0    // the wash halves every 6 m up: the base of a building, not its
+                                              //   face (14 m until 2026-10-26: it is added after the night
+                                              //   wall keep, and still lit a tower's photo brown-grey 60 m up -
+                                              //   the I-277 tower's walls did not move when the keep halved)
             #define UPL_COL            float3(1.00, 0.72, 0.42)
             #define POD_SHARE          0.10   // buildings with LED lines on their podium slabs
             #define POD_GAIN           0.9
@@ -640,9 +654,18 @@ Shader "PSX/Lit"
             // windows do not, and from FAR_WIN_NEAR out they brighten (x 1 +
             // FAR_WIN_GAIN by FAR_WIN_FAR): a lit floor a mile off still reads,
             // and glows in the halation, the way a city's lights carry.
+            // BLACKER (owner, 2026-10-26: "Uptown buildings are still very
+            // gray"): measured on our night frames the walls between the lit
+            // windows sat at Ycode 21-33 (p75 to 42), a brown grey (26,21,17)
+            // with the whole facade photo showing through, under lit windows
+            // only 4-6x as bright; the NFS frame's darks are near black,
+            // its lights 7x and more. FAR_WALL_KEEP 0.35 -> 0.16 and
+            // NIGHT_WALL_KEEP 0.45 -> 0.18 (from 5 storeys up, not 6): the
+            // structure stays, faintly, and the street's own two storeys
+            // keep their lamps.
             #define FAR_DARK_NEAR      150.0
             #define FAR_DARK_FAR       900.0
-            #define FAR_WALL_KEEP      0.35
+            #define FAR_WALL_KEEP      0.16
             #define FAR_WIN_NEAR       300.0
             #define FAR_WIN_FAR        1600.0
             #define FAR_WIN_GAIN       1.0
@@ -655,9 +678,9 @@ Shader "PSX/Lit"
             // of its light. A lit pane REPLACES the wall it is cut in (WIN_OVER
             // of the wall's light taken out from under it): it was added on
             // top, so a window was only 1.8x its wall.
-            #define NIGHT_WALL_KEEP    0.45
+            #define NIGHT_WALL_KEEP    0.18
             #define NIGHT_WALL_FROM    2.0
-            #define NIGHT_WALL_FULL    6.0
+            #define NIGHT_WALL_FULL    5.0
             #define WIN_OVER           0.85
 
             // The share of one pixel's footprint [x - fw/2, x + fw/2] (fw in
@@ -700,7 +723,7 @@ Shader "PSX/Lit"
                 float hc = PSXLitHash(cell + 431.0);
                 float lit = step(hc, FAC_NIGHT_FLOOR_P) * tw;
                 lit = lerp(lit, FAC_NIGHT_FLOOR_P * FAC_NIGHT_TOWER_P, saturate(dist / FAC_NIGHT_FAR_M));
-                float3 winC = float3(1.00, 0.76, 0.46);   // one yellow (no blue windows, no second shade)
+                float3 winC = FAC_WIN_WARM;   // one yellow (no blue windows, no second shade): the facade's own
                 float tower = step(-0.36, el) * (1.0 - smoothstep(0.08, 0.21, el));
                 float3 c = sodium * (FAC_NIGHT_BAND * band) + winC * (FAC_NIGHT_FLOORS * lit * tower);
                 c += sodium * (FAC_NIGHT_SKYGLOW * exp(-max(el, 0.0) * 6.0));
@@ -1576,6 +1599,7 @@ Shader "PSX/Lit"
                     // and mullions. Anything under two pixels - a unit, a storey,
                     // a mullion - shows its MEAN, never a per-pixel coin.
                     float bk = facKey;
+                    cityGain = lerp(1.0, FAC_WIN_CITY_GAIN, cityNight);
                     float storey = floor(facYF);
                     float gid = tex2Dlod(_NightMask, float4(uv, 0.0, 0.0)).g * 255.0;
                     float shop = step(0.5, m.b);
@@ -1635,7 +1659,9 @@ Shader "PSX/Lit"
                         unitGlow = acc / FAR_TAPS;
                     }
                     else unitGlow = FacWinColour(isFull > 0.5 ? occ * 7.13 + stack : hb, cityGain) * onU;
-                    unitGlow = lerp(unitGlow, WIN_SHOP * (WIN_GAIN * cityGain), shop);
+                    // a shopfront is the facade's own yellow too (WIN_SHOP's cream
+                    // under vivid office floors was a second shade, 2026-10-26)
+                    unitGlow = lerp(unitGlow, FAC_WIN_WARM * (WIN_GAIN * cityGain), shop);
                     // the curtain's panes, box-filtered: its own mask is all glass
                     // (blue, teal) or a luminance cut of the photo (silver)
                     float pane = (1.0 - PSXPulseBox(facYF, CW_SPANDREL, facFpF))
@@ -1688,6 +1714,10 @@ Shader "PSX/Lit"
                     // THE NIGHT SILHOUETTE: a far lit floor carries, and a lit
                     // pane replaces the wall under it (WIN_OVER)
                     win *= 1.0 + FAR_WIN_GAIN * smoothstep(FAR_WIN_NEAR, FAR_WIN_FAR, eyeDist);
+                    // ...never past WIN_PEAK in any channel, scaled WHOLE: a
+                    // clipped red turned the brightest windows lemon-cream
+                    float winPk = max(win.r, max(win.g, win.b));
+                    win *= WIN_PEAK / max(winPk, WIN_PEAK);
                     col *= 1.0 - WIN_OVER * saturate(max(glow.r, max(glow.g, glow.b)) * 4.0);
                 #endif
                     col += win;

@@ -113,8 +113,12 @@ namespace PSXRacing.City
         /// <summary>The windows' colours: ONE yellow a building type (owner,
         /// 2026-10-24: "No blue/white windows. Yellow like the NFS screenshot
         /// I shared", and no second shade): a house's PSX/Lit WIN_WARM, an
-        /// office's FAC_WIN_WARM, a shopfront's WIN_SHOP - the same numbers.</summary>
-        static readonly Color WinWarm = new Color(1.00f, 0.74f, 0.42f), WinOffice = new Color(1.00f, 0.64f, 0.24f), WinShop = new Color(1.00f, 0.80f, 0.48f);
+        /// office's FAC_WIN_WARM, a shopfront's WIN_SHOP - the same numbers.
+        /// An office's ground-floor shops take the office yellow (PSX/Lit's
+        /// facade shopfronts do, 2026-10-26), and that yellow is the vibrant
+        /// golden one now (the owner: "washed out yellow vs ... vibrant
+        /// yellow of NFS"), not the cream (1, .64, .24).</summary>
+        static readonly Color WinWarm = new Color(1.00f, 0.74f, 0.42f), WinOffice = new Color(1.00f, 0.58f, 0.09f), WinShop = new Color(1.00f, 0.80f, 0.48f);
 
         // ---- the glow ----
         /// <summary>The lit city's radius round uptown, the height of the lit
@@ -946,7 +950,7 @@ namespace PSXRacing.City
                     float pLit = shop && st == 0 ? ShopLit : OfficeLit;
                     if (Hash(i, 100 + salt) > pLit) continue;
                     var at = OnOutline(f.pts, Hash(i, 200 + salt), Hash(i, 300 + salt));
-                    var col = shop && st == 0 ? WinShop : WinOffice;
+                    var col = WinOffice;
                     AddLight(new Vector3(at.x, ground + (st + 0.45f) * StoreyM, at.y), col, shop && st == 0 ? 0.70f : 0.55f, WindowSize);
                     WindowCount++;
                 }
