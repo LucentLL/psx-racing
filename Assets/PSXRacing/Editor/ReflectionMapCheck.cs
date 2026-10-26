@@ -75,7 +75,10 @@ namespace PSXRacing.EditorTools
                 if (parts.Contains("drive")) ok &= Drive(dir, tag);
                 if (parts.Contains("street")) Street(dir, tag);
                 if (parts.Contains("wall")) Wall(dir, tag);
+                if (parts.Contains("paint")) Paint(dir, tag);
                 if (parts.Contains("gles")) ok &= Gles();
+                // the sky/cloud/Lit list (VolCloudsCheck), PSX/CarPaint on it too
+                if (parts.Contains("volclouds")) ok &= VolCloudsCheck.Run() == 0;
                 if (parts.Contains("flicker")) Flicker(dir, tag);
             }
             catch (System.Exception e) { Debug.LogError("[ReflMap] " + e); ok = false; }
@@ -821,6 +824,183 @@ namespace PSXRacing.EditorTools
                 PSXQuality.Current = keepPixels;
                 CarReflections.Off();
             }
+        }
+
+        // ------------------------------------------------------------------
+        //  PAINT: the owner's clean car on West Trade Street
+        // ------------------------------------------------------------------
+        /// <summary>The owner's frame (2026-10-26: a new, clean R34 on West Trade
+        /// Street at a clear noon showed no reflection in its paint, only in its
+        /// glass; in rain the roof reflected). Charlotte, the player's car on W
+        /// Trade St ~200 m out of the square heading in, the chase rig at rest.
+        /// Per car (PSX_PAINT_CARS, key[:skin word], default gtr_99,charger_70,
+        /// audi_saloon:white) and condition (noon clear at gloss 1 / 0.3 / 0,
+        /// sunset clear at 1 / 0, noon rain at 1): the frame as the game shows
+        /// it (paint_&lt;tag&gt;_&lt;car&gt;_&lt;cond&gt;_g&lt;gloss&gt;.png, full and a crop).
+        /// At gloss 1 noon and sunset also the raw (half-float, pre-grade) debug
+        /// channels of the car's crop (.f32: int w, int h, then w*h*3 floats) -
+        /// 0 the paint, 5 sheet, 6 what the lacquer sees, 7 k, 8 lit, 9 fres /
+        /// glass / day-sky share, 10 sky occlusion / upper share / R.y - and the
+        /// car's mask (debug 11 vs 12) - so the mix can be rebuilt offline.</summary>
+        static void Paint(string dir, string tag)
+        {
+            var def = System.Array.Find(TrackCatalog.All, d => d.id == "Charlotte");
+            if (def == null || !PSXScreenshotTool.Open(def, out var cam, out var player)) { Debug.LogError("[ReflMap] paint: Charlotte did not open"); return; }
+            var map = PSXRacing.City.CityMap.Get();
+            if (map == null) { Debug.LogError("[ReflMap] paint: no city data"); return; }
+            PSXRacingBuilder.EnsureCityTextures();
+            foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None)) c.enabled = false;
+            foreach (var cv in Object.FindObjectsByType<CockpitView>(FindObjectsSortMode.None)) cv.PreviewShow(false);
+            SunGlareFx.PreviewSet(null, 0f, 0f, true);
+            // other cars out of the frame (the player's harness has none)
+            foreach (var cc in Object.FindObjectsByType<CarController>(FindObjectsSortMode.None))
+                if (cc.gameObject != player) cc.gameObject.SetActive(false);
+
+            // THE SPOT: W Trade St, the point ~200 m from the square, heading in
+            float best = float.MaxValue; int bei = -1; float bs = 0f;
+            for (int ei = 0; ei < map.edges.Length; ei++)
+            {
+                var e = map.edges[ei];
+                if (e.link || e.name == null || !e.name.Contains("Trade") || !(e.name.StartsWith("West") || e.name.StartsWith("W "))) continue;
+                for (float s = 0f; s <= e.length; s += 4f)
+                {
+                    float d = Mathf.Abs(Vector2.Distance(e.PointAt(s), map.uptown) - EnvInt("PSX_PAINT_OUT", 200));
+                    if (d < best) { best = d; bei = ei; bs = s; }
+                }
+            }
+            if (bei < 0) { Debug.LogError("[ReflMap] paint: no West Trade Street"); return; }
+            var be = map.edges[bei];
+            Vector2 p2 = be.PointAt(bs), t2 = be.TangentAt(bs).normalized;
+            if (Vector2.Dot(t2, map.uptown - p2) < 0f) t2 = -t2;
+            Vector2 right = new Vector2(t2.y, -t2.x);
+            p2 += right * Mathf.Max(1.8f, be.width * 0.25f);
+            var pos = new Vector3(p2.x, be.YAt(bs), p2.y);
+            var rot = Quaternion.LookRotation(new Vector3(t2.x, 0f, t2.y), Vector3.up);
+            var world = Object.FindAnyObjectByType<PSXRacing.City.CityWorld>();
+            GameObject made = null;
+            if (world == null) { made = new GameObject("~paintWorld"); world = made.AddComponent<PSXRacing.City.CityWorld>(); }
+            world.EnsureRing(pos, 2);
+            Physics.SyncTransforms();
+            if (Physics.Raycast(pos + Vector3.up * 30f, Vector3.down, out var gh, 60f)) pos.y = gh.point.y;
+            Debug.Log($"[ReflMap] PAINT spot {be.name} e{bei} s {bs:0} -> ({pos.x:0.0},{pos.y:0.00},{pos.z:0.0}) heading {rot.eulerAngles.y:0}, {Vector2.Distance(p2, map.uptown):0} m from the square, tiles {world.LiveTiles}");
+
+            var sun = GameObject.Find("Sun")?.GetComponent<Light>();
+            var globals = Object.FindFirstObjectByType<PSXGlobals>();
+            var body = player.GetComponentInChildren<CarBody>(true);
+            var car = player.transform;
+            const int W = 1600, H = 900, CW = 720, CH = 405;
+            int oldWeather = RaceHandoff.WeatherOverride;
+            var keepPixels = PSXQuality.Current;
+            var conds = new (string name, int hour, Weather weather, float[] gloss, bool raw)[]
+            {
+                ("noon", TimeOfDay.Noon, Weather.Clear, new[] { 1f, 0.3f, 0f }, true),
+                ("sunset", TimeOfDay.Sunset, Weather.Clear, new[] { 1f, 0f }, true),
+                ("rain", TimeOfDay.Noon, Weather.Rain, new[] { 1f }, false),
+            };
+            try
+            {
+                PSXQuality.Current = PSXPixels.HD;
+                foreach (string carSpec in Env("PSX_PAINT_CARS", "gtr_99,charger_70,audi_saloon:white").Split(','))
+                {
+                    string[] cs = carSpec.Trim().Split(':');
+                    var cdef = CarModelLibrary.Load(cs[0]);
+                    if (body == null || cdef == null) { Debug.LogError("[ReflMap] paint: cannot dress " + cs[0]); continue; }
+                    int skin = cs.Length > 1 ? System.Array.FindIndex(cdef.skinNames, n => n != null && n.ToLower().Contains(cs[1])) : 0;
+                    body.Apply(cdef, Mathf.Max(0, skin));
+                    string carTag = cs[0];
+                    car.SetPositionAndRotation(pos, rot);
+                    Physics.SyncTransforms();
+                    var frame = ChaseCamera.FrameOf(player);
+                    foreach (var cd in conds)
+                    {
+                        RaceHandoff.WeatherOverride = (int)cd.weather;
+                        TimeOfDay.Apply(cd.hour, sun);
+                        NightGlow.PreviewAll(TimeOfDay.At(cd.hour).lightsOn);
+                        if (globals != null) globals.Apply();
+                        bool wet = cd.weather == Weather.Rain;
+                        Shader.SetGlobalFloat(PaintGloss.CarWetId, wet ? 1f : 0f);
+                        Shader.SetGlobalVector(PaintGloss.CarDropsId, new Vector4(wet ? 1f : 0f, 0f, 0f, 0f));
+                        ChaseCamera.SteadyPose(ChaseCamera.View.Chase, W / (float)H, 0f, ChaseCamera.DefaultSpeedFullMps, car, frame,
+                                               ChaseCamera.LiveDials(), out var eye, out var look, out float fov, out float shift);
+                        cam.transform.SetPositionAndRotation(eye, look);
+                        cam.fieldOfView = fov;
+                        cam.ResetProjectionMatrix();
+                        cam.aspect = W / (float)H;
+                        if (Mathf.Abs(shift) > 1e-5f) cam.projectionMatrix = ChaseCamera.ShiftedProjection(fov, W / (float)H, cam.nearClipPlane, cam.farClipPlane, shift);
+                        world.RefreshSkyline(cam);
+                        if (globals != null)
+                        {
+                            Vector3 toSun = sun != null ? -sun.transform.forward : Vector3.up;
+                            globals.adapt = ExposureAdapt.SteadyFor(eye, car, toSun, globals.night, null, def, globals.dayFill);
+                            globals.Apply();
+                        }
+                        CarLights.PushGlobals();
+                        SunShadows.RenderFor(cam);
+                        CarReflections.CaptureNow(car, cam);
+                        // the crop: the shell's box on screen
+                        var shellR = body.bodyFilter != null ? body.bodyFilter.GetComponent<Renderer>() : null;
+                        var bounds = shellR != null ? shellR.bounds : new Bounds(car.position + Vector3.up * 0.7f, Vector3.one);
+                        var vp = cam.WorldToViewportPoint(bounds.center);
+                        int cx = Mathf.Clamp(Mathf.RoundToInt(vp.x * W) - CW / 2, 0, W - CW);
+                        int cy = Mathf.Clamp(Mathf.RoundToInt(vp.y * H) - CH / 2 + 40, 0, H - CH);
+                        foreach (float g in cd.gloss)
+                        {
+                            PaintGloss.WriteAll(car, g);
+                            string stem = $"paint_{tag}_{carTag}_{cd.name}_g{Mathf.RoundToInt(g * 100):000}";
+                            var tex = Shoot(cam, W, H);
+                            File.WriteAllBytes(Path.Combine(dir, stem + "_full.png"), tex.EncodeToPNG());
+                            var crop = new Texture2D(CW, CH, TextureFormat.RGBA32, false);
+                            crop.SetPixels(tex.GetPixels(cx, cy, CW, CH));
+                            crop.Apply();
+                            File.WriteAllBytes(Path.Combine(dir, stem + ".png"), crop.EncodeToPNG());
+                            Object.DestroyImmediate(tex); Object.DestroyImmediate(crop);
+                            if (!(cd.raw && g >= 0.999f)) continue;
+                            foreach (int dbg in new[] { 0, 5, 6, 7, 8, 9, 10, 11, 12 })
+                            {
+                                Shader.SetGlobalFloat("_PSXPaintDebug", dbg);
+                                RawCrop(cam, W, H, cx, cy, CW, CH, Path.Combine(dir, $"{stem}_d{dbg:00}.f32"));
+                            }
+                            Shader.SetGlobalFloat("_PSXPaintDebug", 0f);
+                        }
+                        Debug.Log($"[ReflMap] PAINT {carTag} {cd.name}: crop ({cx},{cy}) {CW}x{CH} of {W}x{H}, eye {eye} fov {fov:0.0} shift {shift:0.000}, exposure {(globals != null ? globals.exposure : 1f):0.00} adapt {(globals != null ? globals.adapt : 1f):0.00} paintDay {(globals != null ? globals.paintDay : 0f):0} env {Shader.GetGlobalFloat("_PSXEnvOn"):0}");
+                    }
+                    PaintGloss.WriteAll(car, 1f);
+                }
+            }
+            finally
+            {
+                Shader.SetGlobalFloat("_PSXPaintDebug", 0f);
+                Shader.SetGlobalVector(PaintGloss.CarDropsId, Vector4.zero);
+                RaceHandoff.WeatherOverride = oldWeather;
+                PSXQuality.Current = keepPixels;
+                cam.ResetProjectionMatrix();
+                CarReflections.Off();
+                if (made != null) { world.DropAll(); Object.DestroyImmediate(made); }
+            }
+            Debug.Log("[ReflMap] PAINT done");
+        }
+
+        /// <summary>The camera into a half-float target, no dither, no grade:
+        /// the shader's own numbers for a crop, as raw floats.</summary>
+        static void RawCrop(Camera cam, int w, int h, int cx, int cy, int cw, int ch, string file)
+        {
+            var rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear) { filterMode = FilterMode.Point };
+            rt.Create();
+            Submit(cam, rt);
+            var prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            var tex = new Texture2D(cw, ch, TextureFormat.RGBAFloat, false, true);
+            tex.ReadPixels(new Rect(cx, cy, cw, ch), 0, 0);
+            tex.Apply();
+            RenderTexture.active = prev;
+            var px = tex.GetPixels();
+            using (var bw = new BinaryWriter(File.Open(file, FileMode.Create)))
+            {
+                bw.Write(cw); bw.Write(ch);
+                foreach (var c in px) { bw.Write(c.r); bw.Write(c.g); bw.Write(c.b); }
+            }
+            Object.DestroyImmediate(tex);
+            rt.Release(); Object.DestroyImmediate(rt);
         }
 
         // ------------------------------------------------------------------

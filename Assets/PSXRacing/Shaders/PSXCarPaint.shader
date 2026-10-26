@@ -770,7 +770,17 @@ Shader "PSX/CarPaint"
                     else if (_PSXPaintDebug < 5.5) col = tex.rgb;
                     else if (_PSXPaintDebug < 6.5) col = sky;            // what the lacquer sees (before k, tint)
                     else if (_PSXPaintDebug < 7.5) col = float3(k, k, k); // how much of it
-                    else col = lit;                                       // the paint without it
+                    else if (_PSXPaintDebug < 8.5) col = lit;             // the paint without it
+                    // (the paint-shine instruments, ReflectionMapCheck "paint":
+                    // the mix rebuilt offline from these)
+                    else if (_PSXPaintDebug < 9.5)
+                        col = float3(fres, glass, smoothstep(LAND_TOP - LAND_SOFT, LAND_TOP + LAND_SOFT, R.y)
+                                                  * saturate(_PSXPaintWorld.x) * step(0.5, _PSXToneOn));
+                    else if (_PSXPaintDebug < 10.5)
+                        col = float3((_PSXEnvOn > 0.5 ? 1.0 : skyOpen) * lerp(lerp(occ, 1.0, glass), 1.0, envOn * (1.0 - upW)),
+                                     upW, R.y * 0.5 + 0.5);
+                    else if (_PSXPaintDebug < 11.5) col = float3(0, 0, 0); // the car's mask: this...
+                    else col = float3(1.0, 1.0 - dull, 1.0 - glass);      // ...against this
                     return fixed4(col, 1);
                 }
 
