@@ -109,7 +109,24 @@ namespace PSXRacing.EditorTools
                 frame = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32);
                 frame.Create();
                 cam.targetTexture = frame;
+                // Every camera canvas onto the shot camera again, NOW that it
+                // has its target: a canvas sizes itself off its camera when it
+                // is pointed at it, and Open pointed them at a camera with no
+                // target (the batchmode game view, 640x480).
+                foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None))
+                {
+                    if (!c.isRootCanvas || c.renderMode != RenderMode.ScreenSpaceCamera) continue;
+                    c.worldCamera = null;
+                    c.worldCamera = cam;
+                }
                 Canvas.ForceUpdateCanvases();
+                foreach (var c in Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None))
+                {
+                    if (!c.isRootCanvas || c.renderMode == RenderMode.WorldSpace) continue;
+                    var r = ((RectTransform)c.transform).rect;
+                    Debug.Log("[MinimapShots] " + label + " canvas " + c.name + " " + c.renderMode + " " +
+                              r.width.ToString("0") + "x" + r.height.ToString("0") + " scale " + c.scaleFactor.ToString("0.00"));
+                }
                 foreach (var c in Object.FindObjectsByType<GaugeCluster>(FindObjectsSortMode.None)) c.Build();
                 RaceHUD hud = null;
                 foreach (var hh in Object.FindObjectsByType<RaceHUD>(FindObjectsSortMode.None))
@@ -146,8 +163,32 @@ namespace PSXRacing.EditorTools
                     cam.fieldOfView = fov;
                 }
 
+                if (hud != null && hud.Minimap != null)
+                    foreach (var g in hud.Minimap.Root.GetComponentsInChildren<Graphic>(true))
+                    {
+                        int verts = g is HudMinimap hm ? hm.LastVerts : g is MinimapMarks mk ? mk.LastVerts : -1;
+                        Debug.Log("[MinimapShots] " + label + " graphic " + g.name + " " + g.GetType().Name +
+                                  " active " + g.isActiveAndEnabled + " verts " + verts +
+                                  " canvas " + (g.canvas != null ? g.canvas.name + (g.canvas.isRootCanvas ? "(root)" : "(nested)") : "none") +
+                                  " layer " + g.gameObject.layer + " cull " + g.canvasRenderer.cull +
+                                  " depth " + g.canvasRenderer.absoluteDepth + " mat " + (g.material != null ? g.material.name : "none"));
+                    }
                 found = Check(cam, venue + "/" + label, w, h, hud);
                 PSXScreenshotTool.ShotAs(cam, "minimap_" + label, eye, rot);
+                // A/B for the nested road canvas (diagnostic): the same frame
+                // with the roads on the HUD's own canvas.
+                if (label == "roam_pc" && hud != null && hud.Minimap != null)
+                {
+                    var nested = hud.Minimap.GetComponent<Canvas>();
+                    if (nested != null)
+                    {
+                        Object.DestroyImmediate(nested);
+                        hud.Minimap.PreviewNow();
+                        Canvas.ForceUpdateCanvases();
+                        Debug.Log("[MinimapShots] roam_pc_flat road verts " + hud.Minimap.LastVerts);
+                        PSXScreenshotTool.ShotAs(cam, "minimap_roam_pc_flat", eye, rot);
+                    }
+                }
                 Debug.Log("[MinimapShots] " + label + " " + w + "x" + h + (touch ? " touch" : "") +
                           (cockpit ? " cockpit" : "") + " CLIP/OVERLAP " + found +
                           (hud != null && hud.Minimap != null && hud.Minimap.DistanceText != null

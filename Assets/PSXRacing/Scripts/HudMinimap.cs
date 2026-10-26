@@ -39,7 +39,11 @@ namespace PSXRacing
     /// property writes. The markers (rivals, rim marks, the arrow) are a few
     /// dozen vertices rebuilt every frame. Nothing allocates per frame.
     /// </summary>
+    // CanvasRenderer REQUIRED, as Image and Text declare it: Graphic only
+    // adds one itself in a player, and in the editor its GetComponent returns
+    // a fake null - the graphic is created, registered and never drawn.
     [ExecuteAlways]
+    [RequireComponent(typeof(CanvasRenderer))]
     public class HudMinimap : MaskableGraphic
     {
         // ------------------------------------------------------------------
@@ -200,6 +204,9 @@ namespace PSXRacing
             r.offsetMin = Vector2.zero; r.offsetMax = Vector2.zero;
             return go.AddComponent<T>();
         }
+
+        /// <summary>The markers' graphic, for the tools.</summary>
+        public MinimapMarks Marks => marks;
 
         /// <summary>The distance readout, for the HUD preview's text checks.</summary>
         public Text DistanceText => distText;
@@ -444,10 +451,20 @@ namespace PSXRacing
 
         Vector2 Local(Vector3 w) => Local(new Vector2(w.x, w.z));
 
+        /// <summary>Vertices in the last road mesh, for the tools.</summary>
+        public int LastVerts { get; private set; }
+
         protected override void OnPopulateMesh(VertexHelper vh)
         {
             vh.Clear();
+            LastVerts = 0;
             if (car == null || !built) return;
+            PopulateRoads(vh);
+            LastVerts = vh.currentVertCount;
+        }
+
+        void PopulateRoads(VertexHelper vh)
+        {
             if (half < 8f) return;
             rc = half * CircleFrac;
             rIn = rc * FadeInFrac;
@@ -806,59 +823,6 @@ namespace PSXRacing
             var notch = o + new Vector2(0f, -2.2f * s);
             Tri(vh, tip, l, notch, col);
             Tri(vh, tip, notch, r, col);
-        }
-    }
-
-    /// <summary>The live markers over the map: rivals, the rim marks, north,
-    /// and the arrow. A few dozen vertices, rebuilt every frame.</summary>
-    [ExecuteAlways]
-    public class MinimapMarks : MaskableGraphic
-    {
-        internal HudMinimap owner;
-
-        protected override void OnPopulateMesh(VertexHelper vh)
-        {
-            vh.Clear();
-            if (owner == null || owner.car == null) return;
-            owner.RimMarks(vh);
-            owner.Rivals(vh);
-            owner.Arrow(vh);
-        }
-    }
-
-    /// <summary>The only backing the map has: a soft dark radial fade for
-    /// legibility, gone well before the edge. Built once.</summary>
-    [ExecuteAlways]
-    public class MinimapFade : MaskableGraphic
-    {
-        static readonly Color32 Centre = new Color32(0, 4, 13, 76);
-        static readonly Color32 Mid = new Color32(0, 4, 13, 52);
-        static readonly Color32 Rim = new Color32(0, 4, 13, 0);
-
-        protected override void OnPopulateMesh(VertexHelper vh)
-        {
-            vh.Clear();
-            var rect = rectTransform.rect;
-            float r = Mathf.Min(rect.width, rect.height) * 0.5f;
-            if (r < 4f) return;
-            const int N = 40;
-            var v = UIVertex.simpleVert;
-            v.color = Centre; v.position = Vector2.zero; vh.AddVert(v);
-            for (int k = 0; k < N; k++)
-            {
-                float a = k * Mathf.PI * 2f / N;
-                var u = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
-                v.color = Mid; v.position = u * (r * 0.55f); vh.AddVert(v);
-                v.color = Rim; v.position = u * r; vh.AddVert(v);
-            }
-            for (int k = 0; k < N; k++)
-            {
-                int m0 = 1 + k * 2, r0 = m0 + 1;
-                int m1 = 1 + ((k + 1) % N) * 2, r1 = m1 + 1;
-                vh.AddTriangle(0, m0, m1);
-                vh.AddTriangle(m0, r0, r1);
-                vh.AddTriangle(m0, r1, m1);
-            }
         }
     }
 
