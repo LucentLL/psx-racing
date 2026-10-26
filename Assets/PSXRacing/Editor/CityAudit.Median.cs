@@ -28,11 +28,13 @@ namespace PSXRacing.EditorTools
         static readonly HashSet<long> medDone = new HashSet<long>();
         static readonly HashSet<int> medSegs = new HashSet<int>();
         static readonly Dictionary<int, (string route, float at)> medRouteAt = new Dictionary<int, (string, float)>();
+        /// <summary>(round 7) every ray in route order: walls crossed (-1 skipped: split level or wider band), for the classes.</summary>
+        static readonly List<(string route, float at, int n, Vector2 p, int edge, float s)> medSeq = new List<(string, float, int, Vector2, int, float)>(8192);
 
         static void MedianLateralReset(CityMap map)
         {
             medSamples = medZero = medOne = medMany = medSplit = medWide = 0;
-            medByName.Clear(); medSpots.Clear(); medDone.Clear(); medRouteAt.Clear();
+            medByName.Clear(); medSpots.Clear(); medDone.Clear(); medRouteAt.Clear(); medSeq.Clear();
             foreach (var r in map.routes)
             {
                 float acc = 0f;
@@ -92,7 +94,8 @@ namespace PSXRacing.EditorTools
                     int sideE = Vector2.Dot(po - p, right) >= 0f ? 1 : -1;
                     var tanO = o.TangentAt(ot);
                     int sideO = Vector2.Dot(p - po, new Vector2(-tanO.y, tanO.x)) >= 0f ? 1 : -1;
-                    if (Mathf.Abs(e.YAt(s) - o.YAt(ot)) > CityMeshes.UnionSplitDyM) { medSplit++; continue; }
+                    medRouteAt.TryGetValue(ei, out var rAt);
+                    if (Mathf.Abs(e.YAt(s) - o.YAt(ot)) > CityMeshes.UnionSplitDyM) { medSplit++; medSeq.Add((rAt.route, rAt.at + s, -1, p, ei, s)); continue; }
                     Vector3 a = MedianLaneIn(map, trims, e, s, sideE, 1.8f), b = MedianLaneIn(map, trims, o, ot, sideO, 1.8f);
                     var dir = b - a; float len = dir.magnitude;
                     if (len < 0.5f) continue;
@@ -111,7 +114,8 @@ namespace PSXRacing.EditorTools
                     // a median wider than the shared one's band (Independence's
                     // busway): a wall each side is the design, not a box
                     string why = n == 1 ? "" : CityMeshes.GroundTwinWhy(map, trims, e, s) + " / from e" + o.index + ": " + CityMeshes.GroundTwinWhy(map, trims, o, ot);
-                    if (n >= 2 && (why.StartsWith("gap ") || why.Contains(": gap "))) { medWide++; continue; }
+                    if (n >= 2 && (why.StartsWith("gap ") || why.Contains(": gap "))) { medWide++; medSeq.Add((rAt.route, rAt.at + s, -1, p, ei, s)); continue; }
+                    medSeq.Add((rAt.route, rAt.at + s, n, p, ei, s));
                     if (!medByName.TryGetValue(e.name, out var byN)) medByName[e.name] = byN = new int[3];
                     int k = n == 0 ? 0 : n == 1 ? 1 : 2;
                     byN[k]++;
@@ -134,8 +138,51 @@ namespace PSXRacing.EditorTools
             Line($"MEDIAN ACROSS DIVIDED ROUTES (owner 2026-10-24, boxes and diamonds): {medSamples} rays every {MedianStepM:0} m from a one-way route carriageway's inner lane " +
                  $"to its opposing twin's (inner edges within {MedianGapMaxM:0} m), Solid walls crossed: one {medOne}, two or more {medMany}, none {medZero}; a wall each side of a median wider than the shared one's band (reported) {medWide}; split levels skipped {medSplit};{names}");
             foreach (var sp in medSpots) Line("    " + sp.note);
+            MedianClasses();
             Check(medMany == 0, "no box, diamond or double wall between a divided route's carriageways (MEDIAN ACROSS: two or more walls)", medMany);
             Check(medZero == 0, "a divided route keeps one median between its carriageways (MEDIAN ACROSS: none)", medZero);
+        }
+
+        /// <summary>
+        /// (round 7, the owner on the live round 6: "rectangle cutouts with holes, spots that go
+        /// down then back up, and empty box areas"): the rays in route order, each run of
+        /// samples with no wall or with two+ as one PLACE, classed: (a/b) a BREAK - a stretch of
+        /// no wall at most <see cref="MedianBreakM"/> long with the median standing within 4 m
+        /// both sides of it (a notch, a hole, a nose turned down and back up); an OPEN gap - any
+        /// other stretch of none; (c) a BOX - a stretch of two+ walls (an empty box, a double
+        /// wall, a diamond). Each place listed with where it is.
+        /// </summary>
+        const float MedianBreakM = 16f;
+        static void MedianClasses()
+        {
+            var seq = new List<(string route, float at, int n, Vector2 p, int edge, float s)>(medSeq);
+            seq.Sort((x, y) => x.route != y.route ? string.CompareOrdinal(x.route ?? "", y.route ?? "") : x.at.CompareTo(y.at));
+            int breaks = 0, gaps = 0, boxes = 0;
+            var notes = new StringBuilder();
+            int i = 0;
+            while (i < seq.Count)
+            {
+                int n = seq[i].n;
+                if (n == 1 || n < 0) { i++; continue; }
+                bool none = n == 0;
+                int j = i;
+                while (j + 1 < seq.Count && seq[j + 1].route == seq[i].route && seq[j + 1].at - seq[j].at <= 2f * MedianStepM + 0.5f
+                       && (none ? seq[j + 1].n == 0 : seq[j + 1].n >= 2)) j++;
+                float len = seq[j].at - seq[i].at;
+                bool wallBefore = i > 0 && seq[i - 1].route == seq[i].route && seq[i].at - seq[i - 1].at <= 4f && seq[i - 1].n >= 1;
+                bool wallAfter = j + 1 < seq.Count && seq[j + 1].route == seq[i].route && seq[j + 1].at - seq[j].at <= 4f && seq[j + 1].n >= 1;
+                string cls;
+                if (!none) { boxes++; cls = "BOX (c)"; }
+                else if (len <= MedianBreakM && wallBefore && wallAfter) { breaks++; cls = "BREAK (a/b)"; }
+                else { gaps++; cls = "OPEN GAP"; }
+                if (notes.Length < 6000)
+                    notes.Append($"      {cls} route {seq[i].route} {seq[i].at:0}-{seq[j].at:0} m ({len + MedianStepM:0} m) e{seq[i].edge} s {seq[i].s:0} at ({seq[i].p.x:0},{seq[i].p.y:0})\n");
+                i = j + 1;
+            }
+            Line($"MEDIAN CLASSES (round 7, the owner's cutouts / down-and-up / empty boxes) on the routes' rays: BREAKS (a/b: no wall for at most {MedianBreakM:0} m with the median standing both sides) {breaks}, OPEN GAPS {gaps}, BOXES (c: two+ walls) {boxes} places");
+            if (notes.Length > 0) Line(notes.ToString().TrimEnd('\n'));
+            Check(breaks == 0, "no median cutout, notch or down-and-up break on a divided route (MEDIAN CLASSES a/b)", breaks);
+            Check(boxes == 0, "no empty boxed area in a divided route's median (MEDIAN CLASSES c)", boxes);
         }
     }
 }

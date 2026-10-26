@@ -7986,3 +7986,57 @@ plans and the PSX_PREVIEW_CUSTOM shots: ~3 min). Dropped: `PSX_CITY_VSEAT_ABS` (
 nose at the fan instead of each side's Jersey); the twin hold (neither variant ships: follow costs the ramps, host-keep
 halves the step and costs a launch - next idea: hold the pair only where NEITHER side is in a seat zone, the ramps then
 never move, and accept the interchange zones); e9877's rail end; the 8 off-route deck holes.
+
+### REAL HEIGHTS - round 7 (2026-10-29; the median that "goes up and down": a two-level Jersey; the owner's cutouts and boxes counted)
+
+The owner, open since round 4: "This is not how medians work. They don't just start and stop. Go up and down allowing
+cars to drive into oncoming traffic" (Uptown Loop ~2'57"-4'06" and 1'06"), and on the live round 6: "rectangle cutouts
+with holes, spots that go down then back up, and empty box areas" (0'54" a notch with a hole to the grass on I-277's
+deck by e2311, 1'47" the boxed grass median past the Elizabeth Ave bridge). The frames were placed from their minimaps
+(north-up; the 0'54"/1'47" HUD's remaining km): 0'54" uptown 609 m (-1595,5402) e9877 -> e2311; 1'47" 1809 m
+(-1007,4446) e2438 -> e2435; 2'57"-3'17" ~5620 m (-3890,4461) e2410 -> e2029; 4'06" ~6440 m (-3845,5085) e1885 -> e15241.
+
+**Why 1'06" never moved under the twin hold (round 5/6's "0.58 -> 0.52 m").** `CityElevation.GroundTwinSpotDiag`
+(twin_spots.txt from `CityRealHeights.RunMedianLookAB`): every station of I-277 e2321 is in its merge ZONE (it merges
+onto US 74 e2367 over its whole 128 m: zoneKeep, free 0), and its twin e1394 is an 88 m piece between two junction
+nodes (20 m clear + 60 m ease from both ends: free <= 0.59). Neither side may move there, so no share of the hold can
+meet the step; the same at 4'06" (e1885/e1887 s 109-179 in the ramps' seat zones, dy 0.17 m) and 3'xx" (e2028/e2414,
+zone). Converging heights there means moving US 74 or the merge - the ramps' cost the hold has failed on since round 4.
+
+**The fix shipped: a two-level union Jersey** (`CityMeshes.JerseyTwoLevelOn`, `PSX_CITY_JERSEY_TWOLEVEL=0` = before).
+The union Jersey's top was one level, 0.81 m over the HIGHER carriageway: from the lower one its face stood 0.81 m
+plus the step (p95 0.31 m) - a wall growing and shrinking along the road as the two 3DEP profiles part and meet. Each
+face's top now stands 0.81 m over its OWN carriageway's edge (never less than the turned-down nose over the strip at
+its foot), the cap sloping across; the deck V's legs run on the strip's line (their edge end at the carriageway's
+height + 0.81, the parapet they meet); the turned-down cap follows. From either carriageway the wall reads one height
+the whole way, whatever the other does. Shots (Docs/shots/heights, untracked): rh7_c106_before/after (1'06": the far
+side's lane lines now show over the wall the same height all along).
+
+**Measured** (g1r7 = every round-7 switch ON, see below; g5r6 = round 6 shipped): census, launch (old 109/585, uniform
+102/395, routes 0/0/0) and route p99 1.12/2.11/0.76 = g5r6 (no road surface moved); WALLS IN LANES 0; INVISIBLE lanes
+3; rail ends 1; FALL HOLES route 0 (8 off-route); MEDIAN ACROSS two+ 35 (I-77 2 -> 3, Independence 29 -> 28), none
+35 -> 36 (new: I-77 e1880 s 45 deck); solve 34.8 s (machine; the solve is unchanged). The two-level top moves no
+run, collider position or ray hit (the 0.5 m rays cross it where its cap is 0.81 m over the mean), so shipped (two-level
+alone) = g5r6 on every gate.
+
+**New census: MEDIAN CLASSES** (drive audit, `CityAudit.MedianClasses`): the MEDIAN ACROSS rays in route order, each
+stretch of none / two+ one PLACE: BREAKS (a/b: no wall for <= 16 m with the median standing both sides - a notch, a
+hole, a nose turned down and back up), OPEN GAPS (other none), BOXES (c: two+). g1r7: **breaks 18, open gaps 3, boxes
+15** (uptown: breaks at 617 m e2311 (the 0'54" notch), 1670 e2315, 2211/2285 e2144, 3574 e9905, 4940 e1826, 6520
+e15241, 6851 e1880, 7068/7128 e1874, 7216 e6608, 7978 e8478; boxes 1751 e2438 (1'47"), 6504 e15241 + 6524 e1883
+(4'06"), 7140 e1254, 8688 e2139; Independence 6 breaks, 2 open, 10 boxes at its junction fans).
+
+**Tried, OFF (unmeasured apart; g1r7 had them on with the +1 none):** `PSX_CITY_TWIN_RECIP=1` (the lower index owns a
+ground-twin pair only where its own walk sees this twin: e15241's box did not change - it is not ownership: e15241 s
+0-2.5 keeps its own deck parapet 'R>' because the foot falls before e1887 on e1894, whose first 4.1 m pair with e1891;
+s 16-19 is a 2 m piece of e1894 (58.2-60.3) in no run: a hole); `PSX_CITY_UNION_SEAM=1` (a carried-on run end at a
+node whose sections stop short draws to the node; run ends <= 3 m short of a mitred node whose next run meets it are
+put on the node; and - not yet in any job - a 1.5 m inset overlap past the node). The 0'54" notch is NOT a section
+gap: the ground run (owner e2317, n3523) and the deck run (owner e2306, n3523) end on one node but their cross-lines
+differ by ~0.5 m (the deck's facing edge vs the ground's), so the ground Jersey stands a square end, a step aside and a
+1 m hole to the grass at e2311 s ~1 (rh7_c054n_before/after, rh7_t054_*). The overlap piece is the candidate.
+
+**Left (in order):** the 0'54" notch (measure the inset overlap, or one canonical cross-line at a node both runs use);
+the 18 breaks / 15 boxes above (e15241's foot/pairing at n695/n2940; the 1'47" wide median past the e2437/e2438 deck V:
+each carriageway's own approach rail ends sloped ('R<' at e4593 s 0-5) in a 14 m grass median - decide one median or
+none there); the e1880 s 45 gap if RECIP/SEAM go on; the twin hold stays OFF (diag above).

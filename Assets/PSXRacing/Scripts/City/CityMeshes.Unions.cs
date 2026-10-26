@@ -308,6 +308,41 @@ namespace PSXRacing.City
                         if (r.s1 < len && r.s1 >= len - UnionNodeSnapM) r.s1 = len;
                     }
                 }
+            // (round 7, the owner's "spots that go down then back up"): a run ending up to
+            // UnionNodeSnapFarM short of a mitred node whose through edge's run (same median
+            // kind, the same side of the road) starts or ends at most as far from it: both are
+            // put ON the node, so the two are one median carried on (Continued) instead of a
+            // turned-down nose or a V facing the next run's (I-77 e1894's deck union ending
+            // 2.1 m short of n695 beside e1887's run from it, by the owner's 4'06").
+            nodeSnapsFar = 0;
+            if (NodeSeamOn)
+                for (int ei = 0; ei < ne; ei++)
+                {
+                    var list = t.unions[ei];
+                    if (list == null) continue;
+                    var X = E[ei];
+                    foreach (var r in list)
+                        for (int end = 0; end < 2; end++)
+                        {
+                            float gap = end == 0 ? r.s0 : X.length - r.s1;
+                            if (gap <= 0f || gap > UnionNodeSnapFarM || r.s1 - r.s0 < 2f * UnionNodeSnapFarM) continue;
+                            int node = end == 0 ? X.a : X.b;
+                            var y = MitredNext(map, t, X, node);
+                            if (y == null || t.unions[y.index] == null) continue;
+                            bool same = end == 1 ? y.a == node : y.b == node;
+                            int sideY = same ? r.side : -r.side;
+                            bool yAtA = y.a == node;
+                            foreach (var o in t.unions[y.index])
+                            {
+                                if (o == r || o.side != sideY || o.median != r.median || o.s1 - o.s0 < 2f * UnionNodeSnapFarM) continue;
+                                if (yAtA ? o.s0 > UnionNodeSnapFarM : o.s1 < y.length - UnionNodeSnapFarM) continue;
+                                if (end == 0) r.s0 = 0f; else r.s1 = X.length;
+                                if (yAtA) o.s0 = 0f; else o.s1 = y.length;
+                                nodeSnapsFar++;
+                                break;
+                            }
+                        }
+                }
 
             // 4. which ends are open
             int open = 0;
@@ -351,7 +386,7 @@ namespace PSXRacing.City
             LastUnionMs = (float)clock.Elapsed.TotalMilliseconds;
             LastUnionReport = $"{pairsDrawn} union pairs drawn as one structure ({runs} runs, {deckM:0} m over the decks' ranges; {approachRuns} approach runs, {approachM:0} m; {groundRuns} ground-twin runs, {groundM:0} m; {raisedFlushed} short raised medians made flush); " +
                               $"{pairsSplit} pairs in more than one run or ended by a split level over {UnionSplitDyM} m ({splitRuns} runs{(splitWorst > 0f ? "; worst " + splitWorstAt : "")}); " +
-                              $"{pairsNone} union pairs with no run{(noRun.Length > 0 ? " (" + noRun.ToString().Trim().TrimEnd(';') + ")" : "")}; {open} open run ends; {LastUnionMs:0.0} ms";
+                              $"{pairsNone} union pairs with no run{(noRun.Length > 0 ? " (" + noRun.ToString().Trim().TrimEnd(';') + ")" : "")}; {open} open run ends; {nodeSnapsFar} run ends put on a node with the next run (round 7); {LastUnionMs:0.0} ms";
         }
 
         /// <summary>One segment of a pair's walk (pairWalk[i0..i1]) as an owner
@@ -1045,7 +1080,11 @@ namespace PSXRacing.City
             if (Y == null) { TwinWhy = "no twin beside"; return false; }
             if (!twinEndsOf.TryGetValue(Y.index, out var endsY)) twinEndsOf[Y.index] = endsY = new List<float>(StructureEndsOf(map, t, Y));
             if (TwinStopsAtBands && InApproachBand(endsY, y)) { TwinWhy = $"twin e{Y.index} in an approach rail band"; return false; }
-            if (Y.index < X.index) { TwinWhy = $"owned by e{Y.index}"; return false; }
+            // (round 7) ...unless Y's own walk sees ANOTHER twin there (a piece of ours
+            // through a node, e1885 just past its end beside e15241's 20 m deck): then
+            // neither walk laid it and each carriageway stood its own wall - the owner's
+            // 4'06" box on I-77. X lays it.
+            if (Y.index < X.index && (!TwinRecipOn || TwinSeenFrom(map, Y, y) == X)) { TwinWhy = $"owned by e{Y.index}"; return false; }
             float ylo = t.patch[Y.a] ? t.atA[Y.index] + UnionFanSetbackM : 0f;
             float yhi = t.patch[Y.b] ? Y.length - t.atB[Y.index] - UnionFanSetbackM : Y.length;
             if (y < ylo - 1e-3f || y > yhi + 1e-3f) { TwinWhy = $"twin e{Y.index} in its fan"; return false; }
@@ -1062,6 +1101,53 @@ namespace PSXRacing.City
             TwinWhy = $"ok e{Y.index} gap {gap:0.00} m";
             side = sx;
             return true;
+        }
+
+        /// <summary>(round 7) The round's median switches as one set (the look tool's A/B).</summary>
+        public static bool[] Round7Flags() => new[] { JerseyTwoLevelOn, TwinRecipOn, NodeSeamOn };
+        public static void SetRound7Flags(bool[] f) { JerseyTwoLevelOn = f[0]; TwinRecipOn = f[1]; NodeSeamOn = f[2]; }
+        public static void SetRound7(bool on) => SetRound7Flags(new[] { on, on, on });
+        /// <summary>(round 7, OFF by default - see TwinRecipOn) PSX_CITY_UNION_SEAM=1: a carried-on run end
+        /// at a node draws on to the node (or NodeOverlapM past it, inset), and run ends up to
+        /// UnionNodeSnapFarM short of a node whose through edge's run meets it are put on the node.</summary>
+        public static bool NodeSeamOn = System.Environment.GetEnvironmentVariable("PSX_CITY_UNION_SEAM") == "1";
+        const float NodeSeamMaxM = 4f, UnionNodeSnapFarM = 3f, NodeOverlapM = 1.5f;
+        public static int nodeSnapsFar;
+        /// <summary>(round 7) node seams drawn since the counter was last read (the drive audit's tiles).</summary>
+        public static int nodeSeams;
+        /// <summary>(round 7, OFF by default: g1r7 measured it with the node seams together, MEDIAN
+        /// ACROSS none 35 -> 36 at I-77 e1880 s 45, not split out) PSX_CITY_TWIN_RECIP=1: the lower
+        /// index owns the pair only where its own walk sees this twin there.</summary>
+        public static bool TwinRecipOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWIN_RECIP") == "1";
+        static readonly HashSet<int> recipSegs = new HashSet<int>();
+        /// <summary>The opposing twin Y's own ground-twin walk finds at its arc
+        /// <paramref name="y"/> (GroundTwinSample's search from Y's side).</summary>
+        static CityMap.Edge TwinSeenFrom(CityMap map, CityMap.Edge Y, float y)
+        {
+            var p = Y.PointAt(y); var tan = Y.TangentAt(y);
+            float r = Y.HalfMax + GroundTwinGapMaxM + 12f, best = float.MaxValue;
+            recipSegs.Clear();
+            map.EdgeSegsInRect(p - Vector2.one * r, p + Vector2.one * r, recipSegs);
+            CityMap.Edge Z = null;
+            foreach (int seg in recipSegs)
+            {
+                var c = map.edges[seg >> 12];
+                if (c == Y || c.a == c.b || !c.oneway || c.link || (c.bridge && !TwinBridgesOn) || c.name != Y.name) continue;
+                int si = seg & 0xFFF;
+                if (si + 1 >= c.pts.Length) continue;
+                Vector2 a0 = c.pts[si], dseg = c.pts[si + 1] - a0;
+                float L2 = dseg.sqrMagnitude;
+                if (L2 < 1e-8f) continue;
+                float L = Mathf.Sqrt(L2);
+                var dirC = dseg / L;
+                if (Vector2.Dot(tan, dirC) > -0.5f) continue;
+                float along = Vector2.Dot(p - a0, dirC);
+                bool first = si == 0, lastSeg = si + 2 >= c.pts.Length;
+                if (along < -(first ? UnionFootSlackM : 0.5f) || along > L + (lastSeg ? UnionFootSlackM : 0.5f)) continue;
+                float d = Vector2.Distance(p, a0 + dirC * Mathf.Clamp(along, 0f, L));
+                if (d < best) { best = d; Z = c; }
+            }
+            return Z;
         }
 
         /// <summary>A ground run's ends meet a run already on that side of the
@@ -1421,6 +1507,63 @@ namespace PSXRacing.City
                     if (vee1 && inV1) EmitUnionLegs(uA[k], uB[k], uA[k + 1], uB[k + 1], uLeg1[k], uLeg1[k + 1], uV[k], uV[k + 1], vO1, vP1);
                 }
             }
+            // (round 7, the owner's 0'54" on I-277: "rectangle cutouts with holes") a run
+            // CARRIED ON at a node whose drawn sections stop short of the node (the deck's
+            // last section at its joint, the ground's first past the node's mitre) left the
+            // metre or two between its last cross-line and the next run's undrawn: a notch in
+            // the Jersey with a hole to the grass under it (e2306 -> e2317 at n3523, beside
+            // e9877 -> e2311). Each such end draws on to the node's own cross-line, the next
+            // run does the same from its side; the strip a centimetre low under any overlap.
+            for (int end = 0; NodeSeamOn && end < 2; end++)
+            {
+                // the run's first / last drawn span ending on a node, carried on there
+                bool nodeEnd = end == 0 ? run.s0 <= 0.05f && i - 1 == 0 : run.s1 >= e.length - 0.05f && i == sections.Count - 1;
+                if (!nodeEnd || (end == 0 ? open0 : open1)) continue;
+                float short_ = end == 0 ? A.s : e.length - B.s;
+                if (short_ > NodeSeamMaxM) continue;
+                int k = end == 0 ? 0 : pieces, kIn = end == 0 ? 1 : pieces - 1;
+                if (!uOk[k]) continue;
+                Vector3 aN, bN;
+                if (short_ > 0.05f)
+                {
+                    float sN = end == 0 ? 0f : e.length;
+                    var plN = e.PointAt(sN);
+                    FootAny(map, run.across, plN, out var oN, out float tN);
+                    if (oN == null) continue;
+                    aN = DrawnEdgeAt(map, trims, e, sN, side) - org; bN = FacingEdgeAt(map, trims, oN, tN, plN) - org;
+                }
+                else
+                {
+                    // (the 0'54" notch itself: the two runs' cross-lines at the node are
+                    // not one line - the deck's and the ground's facing edges differ by
+                    // half a metre - and the Jersey stood a square end, a step aside and a
+                    // hole to the grass) the end runs on NodeOverlapM past the node, its
+                    // Jersey inset so it never shares a face with the next run's
+                    var ow = new Vector3(uA[k].x - uA[kIn].x, 0f, uA[k].z - uA[kIn].z);
+                    if (ow.sqrMagnitude < 1e-6f) continue;
+                    ow = ow.normalized * NodeOverlapM;
+                    aN = uA[k] + ow; bN = uB[k] + ow;
+                }
+                if (Vector2.Distance(new Vector2(aN.x, aN.z), new Vector2(bN.x, bN.z)) < 0.3f) continue;
+                Vector3 a0s = end == 0 ? aN : uA[k], b0s = end == 0 ? bN : uB[k], a1s = end == 0 ? uA[k] : aN, b1s = end == 0 ? uB[k] : bN;
+                bool standS = uOut[k];
+                Profile(standS ? shape : DeckPairs.Median.Flush, a0s, b0s, prof0, out int m0);
+                Profile(standS ? shape : DeckPairs.Median.Flush, a1s, b1s, prof1, out int m1);
+                if (m0 != m1) { Profile(DeckPairs.Median.Flush, a0s, b0s, prof0, out m0); Profile(DeckPairs.Median.Flush, a1s, b1s, prof1, out m1); }
+                var low = Vector3.down * 0.01f;
+                for (int j = 0; j + 1 < m0; j++)
+                {
+                    float uj = Mathf.Lerp(gA, gB, Mathf.Clamp01(profU[j])), uj1 = Mathf.Lerp(gA, gB, Mathf.Clamp01(profU[j + 1]));
+                    bk.Up(prof0[j] + low, prof1[j] + low, prof1[j + 1] + low, prof0[j + 1] + low,
+                          new Vector2(uj, uV[k]), new Vector2(uj, uV[k]), new Vector2(uj1, uV[k]), new Vector2(uj1, uV[k]));
+                }
+                if (deck)
+                    con.Down(a0s + Vector3.down * dk, b0s + Vector3.down * dk, b1s + Vector3.down * dk, a1s + Vector3.down * dk,
+                             new Vector2(0f, uV[k]), new Vector2(1f, uV[k]), new Vector2(1f, uV[k]), new Vector2(0f, uV[k]));
+                if (standS && shape == DeckPairs.Median.Barrier)
+                    EmitUnionJersey(a0s, b0s, a1s, b1s, uV[k], uV[k], BarrierH - (short_ > 0.05f ? 0f : 0.02f), BarrierH - (short_ > 0.05f ? 0f : 0.02f), short_ > 0.05f ? 0f : 0.02f);
+                nodeSeams++;
+            }
             // the closed ends this span holds
             for (int end = 0; end < 2; end++)
             {
@@ -1468,23 +1611,45 @@ namespace PSXRacing.City
         /// cross-lines (owner edge a, partner edge b at each), its feet on the
         /// strip at each side's height and its top 0.81 m over the higher.</summary>
         static void EmitUnionJersey(Vector3 a0, Vector3 b0, Vector3 a1, Vector3 b1, float v0, float v1,
-                                    float h0 = BarrierH, float h1 = BarrierH)
+                                    float h0 = BarrierH, float h1 = BarrierH, float inset = 0f)
         {
             var bk = barrierBucket;
             Vector3 c0 = 0.5f * (a0 + b0), c1 = 0.5f * (a1 + b1);
             var d0 = new Vector3(b0.x - a0.x, 0f, b0.z - a0.z); float g0 = d0.magnitude; d0 = g0 > 1e-4f ? d0 / g0 : Vector3.right;
             var d1 = new Vector3(b1.x - a1.x, 0f, b1.z - a1.z); float g1 = d1.magnitude; d1 = g1 > 1e-4f ? d1 / g1 : Vector3.right;
-            float w0 = Mathf.Min(BarrierW * 0.5f, Mathf.Max(0.1f, 0.5f * g0 - 0.1f)), w1 = Mathf.Min(BarrierW * 0.5f, Mathf.Max(0.1f, 0.5f * g1 - 0.1f));
+            float w0 = Mathf.Min(BarrierW * 0.5f, Mathf.Max(0.1f, 0.5f * g0 - 0.1f)) - inset, w1 = Mathf.Min(BarrierW * 0.5f, Mathf.Max(0.1f, 0.5f * g1 - 0.1f)) - inset;
             Vector3 pa0 = c0 - d0 * w0, pb0 = c0 + d0 * w0, pa1 = c1 - d1 * w1, pb1 = c1 + d1 * w1;
-            float top0 = Mathf.Max(a0.y, b0.y) + h0, top1 = Mathf.Max(a1.y, b1.y) + h1;
             // the feet: the strip's height there, a kerb face lower
             float fa0 = Mathf.Lerp(a0.y, b0.y, 0.5f - w0 / Mathf.Max(g0, 1e-3f)) - KerbFaceM, fb0 = Mathf.Lerp(a0.y, b0.y, 0.5f + w0 / Mathf.Max(g0, 1e-3f)) - KerbFaceM;
             float fa1 = Mathf.Lerp(a1.y, b1.y, 0.5f - w1 / Mathf.Max(g1, 1e-3f)) - KerbFaceM, fb1 = Mathf.Lerp(a1.y, b1.y, 0.5f + w1 / Mathf.Max(g1, 1e-3f)) - KerbFaceM;
+            JerseyTops(a0.y, b0.y, fa0, fb0, h0, out float ta0, out float tb0);
+            JerseyTops(a1.y, b1.y, fa1, fb1, h1, out float ta1, out float tb1);
             var toA = new Vector2(-d0.x, -d0.z);
-            bk.WallSloped(pa0, pa1, fa0, top0, fa1, top1, toA, v0, v1, 0.3f, 0.45f);
-            bk.WallSloped(pb0, pb1, fb0, top0, fb1, top1, -toA, v0, v1, 0.3f, 0.45f);
-            bk.Up(new Vector3(pa0.x, top0, pa0.z), new Vector3(pa1.x, top1, pa1.z), new Vector3(pb1.x, top1, pb1.z), new Vector3(pb0.x, top0, pb0.z),
+            bk.WallSloped(pa0, pa1, fa0, ta0, fa1, ta1, toA, v0, v1, 0.3f, 0.45f);
+            bk.WallSloped(pb0, pb1, fb0, tb0, fb1, tb1, -toA, v0, v1, 0.3f, 0.45f);
+            bk.Up(new Vector3(pa0.x, ta0, pa0.z), new Vector3(pa1.x, ta1, pa1.z), new Vector3(pb1.x, tb1, pb1.z), new Vector3(pb0.x, tb0, pb0.z),
                   new Vector2(0.45f, v0), new Vector2(0.45f, v1), new Vector2(0.5f, v1), new Vector2(0.5f, v0));
+        }
+
+        /// <summary>
+        /// REAL HEIGHTS round 7 (the owner: "This is not how medians work ... Go up and
+        /// down"): the union Jersey's top was ONE level across, <c>h</c> over the higher
+        /// carriageway, so from the lower one its face stood 0.81 m plus the step between
+        /// the two - a wall growing and shrinking along the road as the two 3DEP profiles
+        /// part and meet (|dy| p95 0.31 m), and where they cross over, the tall side swaps.
+        /// A split-level median's barrier is built to each side's own height: each face's
+        /// top <c>h</c> over ITS carriageway's edge (never less than the turned-down nose
+        /// over the strip at its foot), the cap sloping across between them, so from either
+        /// carriageway the wall reads one height the whole way whatever the other does.
+        /// PSX_CITY_JERSEY_TWOLEVEL=0: the one-level top (before).
+        /// </summary>
+        public static bool JerseyTwoLevelOn = System.Environment.GetEnvironmentVariable("PSX_CITY_JERSEY_TWOLEVEL") != "0";
+        static void JerseyTops(float ya, float yb, float footA, float footB, float h, out float topA, out float topB)
+        {
+            if (!JerseyTwoLevelOn) { topA = topB = Mathf.Max(ya, yb) + h; return; }
+            float nose = Mathf.Min(h, TaperFootM);
+            topA = Mathf.Max(ya + h, footA + KerbFaceM + nose);
+            topB = Mathf.Max(yb + h, footB + KerbFaceM + nose);
         }
 
         /// <summary>
@@ -1532,6 +1697,10 @@ namespace PSXRacing.City
                 float t0 = l0 > 1e-3f ? Mathf.Clamp01(Vector3.Dot(p0 - a0, g0) / l0) : 0.5f;
                 float t1 = l1 > 1e-3f ? Mathf.Clamp01(Vector3.Dot(p1 - a1, g1) / l1) : 0.5f;
                 float foot0 = Mathf.Lerp(a0.y, b0.y, t0) - KerbFaceM, foot1 = Mathf.Lerp(a1.y, b1.y, t1) - KerbFaceM;
+                // (round 7) a leg's top over the strip's own line under it: its edge
+                // end at its carriageway's height + h (the parapet it meets), its
+                // inner end at the two-level Jersey's cap line
+                if (JerseyTwoLevelOn) { top0 = foot0 + KerbFaceM + BarrierH; top1 = foot1 + KerbFaceM + BarrierH; }
                 barrierBucket.WallSloped(p0 + n3, p1 + n3, foot0, top0, foot1, top1, nrm, v0, v1, 0.3f, 0.45f);
                 barrierBucket.WallSloped(p0 - n3, p1 - n3, foot0, top0, foot1, top1, -nrm, v0, v1, 0.3f, 0.45f);
                 barrierBucket.Up(new Vector3(p0.x + n3.x, top0, p0.z + n3.z), new Vector3(p1.x + n3.x, top1, p1.z + n3.z),
@@ -1598,10 +1767,13 @@ namespace PSXRacing.City
                 Vector3 c = 0.5f * (a + b);
                 var d = new Vector3(b.x - a.x, 0f, b.z - a.z); float g = d.magnitude; d = g > 1e-4f ? d / g : Vector3.right;
                 float h = Mathf.Min(BarrierW * 0.5f, Mathf.Max(0.1f, 0.5f * g - 0.1f));
-                float top = Mathf.Max(a.y, b.y) + TaperFootM, foot = Mathf.Min(a.y, b.y) - KerbFaceM;
+                float foot = Mathf.Min(a.y, b.y) - KerbFaceM;
+                // (round 7) the cap at the Jersey's own two-level nose height each side
+                float fl = Mathf.Lerp(a.y, b.y, 0.5f - h / Mathf.Max(g, 1e-3f)) - KerbFaceM, fr = Mathf.Lerp(a.y, b.y, 0.5f + h / Mathf.Max(g, 1e-3f)) - KerbFaceM;
+                JerseyTops(a.y, b.y, fl, fr, TaperFootM, out float topL, out float topR);
                 Vector3 l = c - d * h, r = c + d * h;
                 var uv = new Vector2(0.3f, v);
-                barrierBucket.Face(new Vector3(l.x, foot, l.z), new Vector3(l.x, top, l.z), new Vector3(r.x, top, r.z), new Vector3(r.x, foot, r.z), o3, uv, uv, uv, uv);
+                barrierBucket.Face(new Vector3(l.x, foot, l.z), new Vector3(l.x, topL, l.z), new Vector3(r.x, topR, r.z), new Vector3(r.x, foot, r.z), o3, uv, uv, uv, uv);
             }
         }
 
