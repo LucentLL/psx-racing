@@ -7902,3 +7902,79 @@ and e2144's approach rail starting there is KEPT square because the deck starts 
 end" rule); I-77 e1874 s 188 the same with the deck 0.5 m in; e9877 s 18 - ramp e279's approach rail start by I-277's edge
 line. Ideas: the union's ground end drawn as a V into each carriageway's rail where a rail begins within ~3 m (as on a
 deck), or e2144's deck in the e2316/e2352 union. The 8 off-route deck holes (S Tryon e1107/8, Briar Creek Rd).
+
+### REAL HEIGHTS - round 6 (2026-10-28; the median boxes at the start line, the ground V, the twin hold v3/v4 measured)
+
+The owner on the live real heights, again: "rectangles and diamonds of medians in the center of the highways", "there's
+literally one at the starting line of 277 race" (Uptown Loop 0'09": a short grass strip boxed in by two Jersey walls with
+square ends), and the open "medians ... go up and down".
+
+**The boxes (MEDIAN ACROSS two+ 406 -> 42 on the routes; I-277 332 -> 11).** Two causes, both in the union runs
+(CityMeshes.Unions.cs):
+- *Bridges were never walked.* The ground-twin walk (GroundTwinRuns, the shared median between a freeway's carriageways)
+  skipped OSM bridges on both sides, and the twin-deck table only pairs bridge with bridge. Wherever the two OSM bridges do
+  not start and end together, one carriageway's deck (or its deck carried on to the twin's abutment line) stood beside the
+  other's ground or deck outside any union, and each stood its own parapet or Jersey: a box of grass between two walls.
+  The start line is I-277 e1910's deck beside e1920 s 0-13 (4.5 m x 13 m); also e1826/e2413, e2411/e2413, e2029/e9900,
+  e2438/e2436, e2144/e2352, e1920 ... The walk now takes bridges too (a deck union's run already there keeps its place), a
+  stretch shorter than GroundTwinMinRunM is laid when it meets a run already on that side, a run's end next to a sample
+  refused for a run already there is found to ~0.25 m (TwinEdgeBisect), and "covered" counts only a run that is DRAWN
+  there (CoveredDrawn: an owner run, or a partner run whose owner covers its foot - a partner run whose owner's edge ends
+  at a node while the twin's piece runs on covered nothing and stood its own parapet: Elizabeth Ave e2436/e2438, I-277
+  e9672's ends). `PSX_CITY_TWIN_BRIDGES=0` = before.
+- *Partner runs on the wrong side.* A partner run's side was read at its mid ARC against the LAST walk sample's point; on
+  a curve that is the outside, so the partner's inner side was never a union side and it kept its own median Jersey 1.4 m
+  from the union's (I-277 e2315, 482 m of double wall along the John Belk curve). Every sample now votes with its own
+  pair of points (ground-twin and approach walks). `PSX_CITY_TWIN_SIDEVOTE=0` = before.
+
+**The ground V (route rail ends 3 -> 1).** A union run on the ground closed where a carriageway's structure begins within
+TaperLenM past it: that carriageway's approach rail starts at the run's end and guards a drop to its very end, so it kept
+its square end beside the turned-down Jersey (I-277 e2144 s 500, I-77 e1874 s 188). The median now ends there as on a
+deck: a Jersey-high leg (1:3 or flatter) from the gap's centre line to each such carriageway's edge, its end inside the
+rail's (both on structure: a V with no turned-down nose; one: the Jersey turns down beside its leg).
+`PSX_CITY_GROUND_V=0` = before. Left: e9877 s 18 (ramp e279's approach rail start by I-277's edge line - not a union end).
+
+**The twin hold (still OFF; `PSX_CITY_GROUND_TWINS=1`).** v3: the move is one smooth function along each carriageway's
+CHAIN (its pieces through two-arm nodes, smoothed +-25 m over the chain's arc, so a node moves with both arms); nothing in a
+carriageway's own merge/diverge zone moves (its street-seat gore and the station either side - round 5's 0.15 m step at
+I-277 e2321 s 43 is gone: uptown route launch 0 with uniform sampling); where one side keeps its height the other takes
+the whole difference (shares by the twin's freedom); eases are grade-limited (taper 400 x the move, 40-250 m). Ramps:
+follow their host (v3) or the host keeps its height under every seat (v4, `PSX_CITY_TWIN_HOSTKEEP=1`). Measured:
+
+| | median step p95 all / I-277 / I-77 | census freeway, ramp | launch old / uniform | route p99 g |
+|---|---|---|---|---|
+| hold off (g3r6) | 0.31 / 0.29 / 0.31 | 244/80/19/3, 1936/451/121/10 | 109/585 / 102/395 | 1.12/2.11/0.76 |
+| v3 follow (g1r6) | 0.02 / 0.11 / 0.03 | 219/79/19/3, 1983/474/131/15 | 112/588 / 104/394 | 1.15/2.11/0.77 |
+| v4 host keeps (g2r6) | 0.10 / 0.21 / 0.14 | 238/78/19/3, 1936/451/121/10 | 110/585 / 103/395 | 1.11/2.11/0.83 |
+
+v3's ramp breaks were two bugs: a seated station on an UNMOVED host piece took its neighbour's fade and left its host (a
+20% break at e1338's climb-out; six "ramp seat (climb-out) @mesh-off-data" launches), and fades ending in the far
+junction's fan ("no curve here" at e162's far end). Both fixed after g1r6 (every seated station of a touched branch pinned
+to its own host's move, 0 on an unmoved one; the fade ends GroundTwinJunctionClearM short of the junction): measured in
+g4r6 (below). v4's extra launch is US 74 e9094 (-718, 3907) 0.171 m (the twin taking a kept host's whole difference);
+Independence p99 0.83.
+
+**Audit truth: the uniform launch sampling adopted.** `PSX_VS_LAUNCH=uniform` measures the old node sampling (before) and
+UniformSteps (after) on one solve. Main's surfaces re-measured with it (g3r6: the median changes move no road surface - the
+old-sampling numbers are round 5's exactly): **launch 102 / unload 395, routes 0/0/0** - the new launch baseline; the old
+sampling stays in the reports for continuity (109/585, routes 1/0/0).
+
+**Measured** (one job each, census + launch both samplings + drive; g1r5 = round 5 shipped):
+
+| gate | g1r5 | g3r6 (shipped) |
+|---|---|---|
+| launch old (lane carry) / uniform; routes | 109/585 / -; 1/0/0 | 109/585 / 102/395; 1/0/0 (uniform 0/0/0) |
+| census freeway | 243/78/19/3 | 244/80/19/3 (one spot: e5906 s 44-46, a junction fan's "no curve here" sampled by a union run's new end sections; BEFORE column +1/+1/+2 too) |
+| census ramp, arterial, collector, local | 1936/451/121/10, 2137/794/236/16, 5321/246/66/153, 20065/81/10/77 | = |
+| route p99 g | 1.12/2.11/0.76 | 1.12/2.11/0.76 |
+| MEDIAN ACROSS two+ / none (routes) | 406 / 39 | 42 / 35 (I-277 332 -> 11 two+) |
+| route rail ends; WALLS IN LANES; INVISIBLE lanes; FALL HOLES route | 3; 0; 3; 0 | 1; 0; 3; 0 |
+| solve | 30.0 s | 29.7 s |
+
+Shots (Docs/shots/heights, untracked like round 5's): rh_startline_top_before/after.png (the start-line box from above),
+rh_e2315_double_before/after.png (the double wall). Tools: `CityRealHeights.RunMedianLook` (one solve, then the PSX_SPOTS
+plans and the PSX_PREVIEW_CUSTOM shots: ~3 min). Dropped: `PSX_CITY_VSEAT_ABS` (census ramp 1,936 -> 2,831).
+
+**Left:** the 42 two+ (I-277 11: e2307/e2310 two parapets 0.7 m apart on two OSM bridges, e2349/e2351, e1483/e1823,
+e2410/e2412, e2139/e8488, e15241/e1887; East Independence Expressway 29 at its at-grade junction fans); the twin hold
+(g4r6); e9877's rail end; the 8 off-route deck holes.

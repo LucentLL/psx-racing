@@ -87,6 +87,21 @@ namespace PSXRacing.EditorTools
             CityElevation.RprfOverride = null;
         }
 
+        /// <summary>REAL HEIGHTS round 6 (the owner: "rectangles and diamonds of medians in the
+        /// center of the highways"): the city solved once, then the PSX_SPOTS plans
+        /// (MedianProfileProbe.Spots -> spot_probe.txt) and the PSX_PREVIEW_CUSTOM views
+        /// (CityPreview, PSX_PREVIEW_SPOTS=custom -> Screenshots/City) on that solve.
+        /// -executeMethod PSXRacing.EditorTools.CityRealHeights.RunMedianLook</summary>
+        public static void RunMedianLook()
+        {
+            var map = CityMap.Get();
+            if (map == null) return;
+            CityElevation.Solve(map);
+            if (!string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable("PSX_SPOTS"))) MedianProfileProbe.Spots();
+            CityPreview.Run();
+            Debug.Log("[RealHeights] median look done");
+        }
+
         /// <summary>REAL HEIGHTS junction surfaces + retaining walls: the
         /// PSX_PREVIEW_CUSTOM views on the measured solve, BEFORE (each fan
         /// from its arms' own heights, the buried-arm ease straight, a cut with

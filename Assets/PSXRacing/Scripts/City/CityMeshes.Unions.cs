@@ -751,7 +751,12 @@ namespace PSXRacing.City
                 for (int k = i0; k < i; k++) { x0 = Mathf.Min(x0, walk[k].x); x1 = Mathf.Max(x1, walk[k].x); }
                 if (x1 - x0 >= 0.5f)
                 {
-                    int sideX = SideToward(X, 0.5f * (x0 + x1), walk[(i0 + i - 1) / 2].Y.PointAt(walk[(i0 + i - 1) / 2].y));
+                    // (round 6) the side from every sample's own pair of points (the
+                    // mid ARC against the mid SAMPLE's twin read the wrong side on a
+                    // curve: the partner's own median Jersey stood beside the union's)
+                    int sideX = 0;
+                    for (int k = i0; k < i; k++) sideX += SideToward(X, walk[k].x, walk[k].Y.PointAt(walk[k].y));
+                    sideX = !TwinSideVoteOn ? SideToward(X, 0.5f * (x0 + x1), walk[(i0 + i - 1) / 2].Y.PointAt(walk[(i0 + i - 1) / 2].y)) : sideX >= 0 ? 1 : -1;
                     var acrossX = ChainAround(map, t, X);
                     // the road across as far as this edge's stretch met it (a
                     // kilometre-long chain is not searched per median piece)
@@ -764,18 +769,19 @@ namespace PSXRacing.City
                     laid += x1 - x0; added++;
                     foreach (var be in metY)
                     {
-                        float lo = float.MaxValue, hi = float.MinValue; int kMid = -1;
+                        float lo = float.MaxValue, hi = float.MinValue; int kMid = -1, vote = 0;
                         for (int k = i0; k < i; k++)
                         {
                             if (walk[k].Y != be) continue;
                             lo = Mathf.Min(lo, walk[k].y); hi = Mathf.Max(hi, walk[k].y); kMid = k;
+                            vote += SideToward(be, walk[k].y, X.PointAt(walk[k].x));
                         }
                         if (kMid < 0) continue;
                         lo = Mathf.Max(0f, lo - 0.5f * UnionStepM); hi = Mathf.Min(be.length, hi + 0.5f * UnionStepM);
                         if (lo <= 1f) lo = 0f;
                         if (be.length - hi <= 1f) hi = be.length;
                         if (hi - lo < 0.25f) continue;
-                        var rb = new UnionRun { edge = be.index, nb = X.index, side = SideToward(be, 0.5f * (lo + hi), X.PointAt(walk[kMid].x)), s0 = lo, s1 = hi,
+                        var rb = new UnionRun { edge = be.index, nb = X.index, side = !TwinSideVoteOn ? SideToward(be, 0.5f * (lo + hi), X.PointAt(walk[kMid].x)) : vote >= 0 ? 1 : -1, s0 = lo, s1 = hi,
                                                 median = r.median, owner = false, pair = r.pair, approach = true, across = acrossX, mirror = ra };
                         AddRun(t, rb);
                         if (ra.mirror == null || be.index == ra.nb) ra.mirror = rb;
@@ -821,6 +827,63 @@ namespace PSXRacing.City
         /// <summary>REAL HEIGHTS round 4: a union run's end met by a run on the twin carriageway is continued (PSX_CITY_TWIN_CONTINUE=0: the before).</summary>
         public static bool TwinContinueOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWIN_CONTINUE") != "0";
         public static bool TwinStopsAtBands = System.Environment.GetEnvironmentVariable("PSX_CITY_TWIN_BANDS") == "1";
+        /// <summary>
+        /// REAL HEIGHTS round 6 (the owner, again: "rectangles and diamonds of medians in the
+        /// center of the highways", one at the Uptown Loop's start line). The ground-twin walk
+        /// skipped OSM bridges on both sides, so wherever one carriageway's bridge (or its deck
+        /// carried on to the twin's abutment line) stood beside the other's ground or deck
+        /// outside the twin-deck table's union - every place the two OSM bridges do not start
+        /// and end together - each carriageway stood its own parapet or Jersey: a box of grass
+        /// between two walls (I-277 e1910/e1920 at the start line, 4.5 m by 13 m; e1826/e2413,
+        /// e2411/e2413, e2029/e9900, e2438/e2436 ...). The walk now takes bridges too (a deck
+        /// union's run already there keeps its place), and a stretch shorter than
+        /// GroundTwinMinRunM is laid when it meets a run already on that side (it fills the gap
+        /// between two). PSX_CITY_TWIN_BRIDGES=0: before.
+        /// </summary>
+        public static bool TwinBridgesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWIN_BRIDGES") != "0";
+        /// <summary>Round 6: a partner run's side by every sample's own vote (PSX_CITY_TWIN_SIDEVOTE=0: the mid-arc read, before).</summary>
+        public static bool TwinSideVoteOn = System.Environment.GetEnvironmentVariable("PSX_CITY_TWIN_SIDEVOTE") != "0";
+        /// <summary>A run on <paramref name="edge"/>'s <paramref name="side"/> ending or starting within
+        /// <paramref name="reach"/> of the arc range (the gap a short stretch fills).</summary>
+        static bool RunNear(Trims t, int edge, int side, float s0, float s1, float reach)
+        {
+            var list = t.unions[edge];
+            if (list == null) return false;
+            foreach (var o in list)
+                if (o.side == side && o.s0 <= s1 + reach && o.s1 >= s0 - reach) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// (round 6) Is arc s of an edge's side covered by a run that is DRAWN there: its own
+        /// owner run, or a partner run whose owner's run covers the partner's foot on the road
+        /// across (as UnionSideHere decides, without the drawn edges). A partner run whose
+        /// owner stops short of its foot - the owner's edge ends at a node while the twin's
+        /// piece runs on (Elizabeth Ave e2436 by e2438's start, I-277 e9672's ends) - covers
+        /// nothing: it stood its own parapet there and no median was laid (boxes).
+        /// </summary>
+        static bool CoveredDrawn(CityMap map, Trims t, int edge, int side, float s)
+        {
+            var list = t.unions[edge];
+            if (list == null) return false;
+            var e = map.edges[edge];
+            Vector2 pm = default; bool havePm = false;
+            foreach (var r in list)
+            {
+                if (r.side != side || !r.Covers(s, 0.5f)) continue;
+                if (r.owner) return true;
+                if (r.across == null) continue;
+                if (!havePm) { pm = e.PointAt(s); havePm = true; }
+                if (!FootOn(map, r.across, pm, 0.5f, out var X, out float x, out _) || X == null) continue;
+                int sx = SideToward(X, x, pm);
+                var l2 = t.unions[X.index];
+                if (l2 == null) continue;
+                foreach (var r2 in l2) if (r2.owner && r2.side == sx && r2.Covers(x, 0.3f)) return true;
+            }
+            return false;
+        }
+        /// <summary>Why the last refused sample was refused: a run already there.</summary>
+        static bool twinRefusedCovered;
         static bool InApproachBand(List<float> ends, float s)
         {
             foreach (float se in ends) if (Mathf.Abs(s - se) < ApproachRailM + GroundTwinBandLeadM) return true;
@@ -851,7 +914,7 @@ namespace PSXRacing.City
             twinEndsOf.Clear();
             foreach (var X in map.edges)
             {
-                if (X.a == X.b || !X.oneway || X.bridge || !Barriered(X) || string.IsNullOrEmpty(X.name)) continue;
+                if (X.a == X.b || !X.oneway || (X.bridge && !TwinBridgesOn) || !Barriered(X) || string.IsNullOrEmpty(X.name)) continue;
                 float lo = t.patch[X.a] ? t.atA[X.index] + UnionFanSetbackM : 0f;
                 float hi = t.patch[X.b] ? X.length - t.atB[X.index] - UnionFanSetbackM : X.length;
                 if (hi - lo < GroundTwinMinRunM) continue;
@@ -862,7 +925,7 @@ namespace PSXRacing.City
                 {
                     bool last = x >= hi - 1e-4f;
                     if (last) x = hi;
-                    twinWalk.Add(GroundTwinSample(map, t, X, x, out var Y, out float y, out int side) ? (x, Y.index, y, side) : (x, -1, 0f, 0));
+                    twinWalk.Add(GroundTwinSample(map, t, X, x, out var Y, out float y, out int side) ? (x, Y.index, y, side) : (x, -1, 0f, twinRefusedCovered ? 9 : 0));
                     if (last) break;
                 }
                 // stretches beside on one side; a gap of up to one missed sample bridged
@@ -874,10 +937,20 @@ namespace PSXRacing.City
                     bool ok = !end && twinWalk[i].y >= 0;
                     if (ok && i0 >= 0 && twinWalk[i].side == twinWalk[i0].side && twinWalk[i].x - twinWalk[iLast].x <= bridge) { iLast = i; continue; }
                     if (!ok && !end && (i0 < 0 || twinWalk[i].x - twinWalk[iLast].x <= bridge)) continue;
-                    if (i0 >= 0 && twinWalk[iLast].x - twinWalk[i0].x >= GroundTwinMinRunM)
+                    bool shortFill = i0 >= 0 && TwinBridgesOn && twinWalk[iLast].x - twinWalk[i0].x < GroundTwinMinRunM
+                                     && RunNear(t, X.index, twinWalk[i0].side, twinWalk[i0].x, twinWalk[iLast].x, GroundTwinSnapM + GroundTwinStepM);
+                    if (i0 >= 0 && (twinWalk[iLast].x - twinWalk[i0].x >= GroundTwinMinRunM || shortFill))
                     {
-                        laid += AddGroundTwinRun(map, t, X, i0, iLast);
-                        added++;
+                        // (round 6) an end next to a sample refused for a run already
+                        // there is found to ~0.25 m, so the two meet instead of leaving
+                        // up to a step of each carriageway's own wall between them
+                        float x0o = float.NaN, x1o = float.NaN;
+                        if (TwinBridgesOn && i0 > 0 && twinWalk[i0 - 1].y < 0 && twinWalk[i0 - 1].side == 9)
+                            x0o = TwinEdgeBisect(map, t, X, twinWalk[i0].x, twinWalk[i0 - 1].x, twinWalk[i0].side);
+                        if (TwinBridgesOn && iLast + 1 < twinWalk.Count && twinWalk[iLast + 1].y < 0 && twinWalk[iLast + 1].side == 9)
+                            x1o = TwinEdgeBisect(map, t, X, twinWalk[iLast].x, twinWalk[iLast + 1].x, twinWalk[iLast].side);
+                        float l = AddGroundTwinRun(map, t, X, i0, iLast, shortFill ? 2f : 0f, x0o, x1o);
+                        if (l > 0f) { laid += l; added++; }
                     }
                     i0 = iLast = ok ? i : -1;
                 }
@@ -894,8 +967,8 @@ namespace PSXRacing.City
         public static string TwinWhy { get; private set; } = "";
         public static string GroundTwinWhy(CityMap map, Trims t, CityMap.Edge X, float x)
         {
-            if (X.a == X.b || !X.oneway || X.bridge || !Barriered(X) || string.IsNullOrEmpty(X.name))
-                return X.bridge ? "an OSM bridge (decks: the twin table's)" : "not a barriered one-way";
+            if (X.a == X.b || !X.oneway || (X.bridge && !TwinBridgesOn) || !Barriered(X) || string.IsNullOrEmpty(X.name))
+                return X.bridge && !TwinBridgesOn ? "an OSM bridge (decks: the twin table's)" : "not a barriered one-way";
             float lo = t.patch[X.a] ? t.atA[X.index] + UnionFanSetbackM : 0f;
             float hi = t.patch[X.b] ? X.length - t.atB[X.index] - UnionFanSetbackM : X.length;
             if (x < lo || x > hi) return "in its junction fan";
@@ -907,7 +980,7 @@ namespace PSXRacing.City
 
         static bool GroundTwinSample(CityMap map, Trims t, CityMap.Edge X, float x, out CityMap.Edge Y, out float y, out int side)
         {
-            Y = null; y = 0f; side = 0; TwinWhy = "";
+            Y = null; y = 0f; side = 0; TwinWhy = ""; twinRefusedCovered = false;
             var p = X.PointAt(x);
             var tanX = X.TangentAt(x);
             float reach = X.HalfMax + GroundTwinGapMaxM + 12f, best = float.MaxValue;
@@ -928,7 +1001,7 @@ namespace PSXRacing.City
             foreach (int seg in twinSegs)
             {
                 var c = map.edges[seg >> 12];
-                if (c == X || c.a == c.b || !c.oneway || c.link || c.bridge || c.name != X.name) continue;
+                if (c == X || c.a == c.b || !c.oneway || c.link || (c.bridge && !TwinBridgesOn) || c.name != X.name) continue;
                 int si = seg & 0xFFF;
                 if (si + 1 >= c.pts.Length) continue;
                 Vector2 a0 = c.pts[si], dseg = c.pts[si + 1] - a0;
@@ -964,7 +1037,8 @@ namespace PSXRacing.City
             float gap = best - (sx > 0 ? xp : xm) - (sy > 0 ? yp : ym);
             if (gap > GroundTwinGapMaxM || gap < DeckPairs.SqueezeM) { TwinWhy = $"gap {gap:0.00} m to e{Y.index}"; return false; }
             // a deck's or an approach's run already there keeps its place
-            if (CoveredOn(t, X.index, sx, x) || CoveredOn(t, Y.index, sy, y)) { TwinWhy = $"covered (e{Y.index}, gap {gap:0.00})"; return false; }
+            if (TwinBridgesOn ? CoveredDrawn(map, t, X.index, sx, x) || CoveredDrawn(map, t, Y.index, sy, y) : CoveredOn(t, X.index, sx, x) || CoveredOn(t, Y.index, sy, y))
+            { TwinWhy = $"covered (e{Y.index}, gap {gap:0.00})"; twinRefusedCovered = true; return false; }
             TwinWhy = $"ok e{Y.index} gap {gap:0.00} m";
             side = sx;
             return true;
@@ -997,9 +1071,24 @@ namespace PSXRacing.City
 
         /// <summary>twinWalk[i0..i1] as an owner run on X and a partner run on
         /// each twin edge it met (as <see cref="ExtendOverApproach"/> lays them).</summary>
-        static float AddGroundTwinRun(CityMap map, Trims t, CityMap.Edge X, int i0, int i1)
+        /// <summary>The last arc from <paramref name="xOk"/> toward <paramref name="xNo"/> the
+        /// walk still lays a median at on that side (5 halvings).</summary>
+        static float TwinEdgeBisect(CityMap map, Trims t, CityMap.Edge X, float xOk, float xNo, int side)
         {
-            float x0 = twinWalk[i0].x, x1 = twinWalk[i1].x;
+            float a = xOk, b = xNo;
+            for (int it = 0; it < 5; it++)
+            {
+                float m = 0.5f * (a + b);
+                twinQueryAt = new Vector2(float.NaN, float.NaN);
+                if (GroundTwinSample(map, t, X, m, out _, out _, out int sd) && sd == side) a = m; else b = m;
+            }
+            twinQueryAt = new Vector2(float.NaN, float.NaN);
+            return a;
+        }
+
+        static float AddGroundTwinRun(CityMap map, Trims t, CityMap.Edge X, int i0, int i1, float minLen = 0f, float x0o = float.NaN, float x1o = float.NaN)
+        {
+            float x0 = float.IsNaN(x0o) ? twinWalk[i0].x : x0o, x1 = float.IsNaN(x1o) ? twinWalk[i1].x : x1o;
             int side = twinWalk[i0].side;
             metY.Clear();
             int kMidAll = i0;
@@ -1013,6 +1102,8 @@ namespace PSXRacing.City
             if (x0 <= GroundTwinSnapM && !t.patch[X.a]) x0 = 0f;
             if (X.length - x1 <= GroundTwinSnapM && !t.patch[X.b]) x1 = X.length;
             SnapToNeighbours(t, X.index, side, ref x0, ref x1);
+            // (round 6) a short stretch filling a gap: only when it spans one after snapping
+            if (minLen > 0f && x1 - x0 < minLen) return 0f;
             var acrossMet = new int[metY.Count];
             for (int k = 0; k < metY.Count; k++) acrossMet[k] = metY[k].index;
             var ra = new UnionRun { edge = X.index, nb = twinWalk[kMidAll].y, side = side, s0 = x0, s1 = x1, median = DeckPairs.Median.Barrier,
@@ -1021,11 +1112,16 @@ namespace PSXRacing.City
             var acrossX = ChainAround(map, t, X);
             foreach (var be in metY)
             {
-                float lo = float.MaxValue, hi = float.MinValue; int kMid = -1;
+                float lo = float.MaxValue, hi = float.MinValue; int kMid = -1, vote = 0;
                 for (int k = i0; k <= i1; k++)
                 {
                     if (twinWalk[k].y != be.index) continue;
                     lo = Mathf.Min(lo, twinWalk[k].ty); hi = Mathf.Max(hi, twinWalk[k].ty); kMid = k;
+                    // (round 6) each sample's own pair of points: the mid ARC against the
+                    // LAST sample's point read the wrong side on a curve (I-277 e2315: its
+                    // partner run on its outside, so its own median Jersey stood 1.4 m
+                    // from the union's for 482 m - the owner's "rectangles")
+                    vote += SideToward(be, twinWalk[k].ty, X.PointAt(twinWalk[k].x));
                 }
                 if (kMid < 0) continue;
                 lo = Mathf.Max(0f, lo - 0.5f * GroundTwinStepM); hi = Mathf.Min(be.length, hi + 0.5f * GroundTwinStepM);
@@ -1034,7 +1130,7 @@ namespace PSXRacing.City
                 if (lo <= GroundTwinSnapM) lo = 0f;
                 if (be.length - hi <= GroundTwinSnapM) hi = be.length;
                 if (hi - lo < 0.25f) continue;
-                int sideB = SideToward(be, 0.5f * (lo + hi), X.PointAt(twinWalk[kMid].x));
+                int sideB = !TwinSideVoteOn ? SideToward(be, 0.5f * (lo + hi), X.PointAt(twinWalk[kMid].x)) : vote >= 0 ? 1 : -1;
                 SnapToNeighbours(t, be.index, sideB, ref lo, ref hi);
                 var rb = new UnionRun { edge = be.index, nb = X.index, side = sideB, s0 = lo, s1 = hi,
                                         median = DeckPairs.Median.Barrier, owner = false, pair = -1, approach = true, across = acrossX, mirror = ra };
@@ -1140,6 +1236,61 @@ namespace PSXRacing.City
         static readonly bool[] uOk = new bool[64];
         static readonly float[] uEnd = new float[64];
         static readonly bool[] uOut = new bool[64];
+        /// <summary>(round 6) The pieces' place in a GROUND V's legs (1: before them).</summary>
+        static readonly float[] uLeg0 = new float[64], uLeg1 = new float[64];
+
+        /// <summary>
+        /// THE GROUND V (REAL HEIGHTS round 6; route rail ends I-277 e2144 s 500,
+        /// I-77 e1874 s 188). A union run on the ground closed where a carriageway's
+        /// structure begins within <see cref="TaperLenM"/> past it: that
+        /// carriageway's approach rail starts AT the run's end and guards a drop to
+        /// its very end, so it kept its square end - facing the traffic along the
+        /// edge line beside the turned-down Jersey. Now the median ends there as
+        /// it does on a deck: a leg (Jersey high, never steeper than 1:3) from the
+        /// gap's centre line to each such carriageway's edge, its end inside the
+        /// rail's; with both carriageways on structure there the legs are the
+        /// whole end (a V, no turned-down nose), with one the Jersey turns down
+        /// beside its leg. PSX_CITY_GROUND_V=0: before.
+        /// </summary>
+        public static bool GroundVOn = System.Environment.GetEnvironmentVariable("PSX_CITY_GROUND_V") != "0";
+        static readonly HashSet<int> gvSegs = new HashSet<int>();
+        /// <summary>Which carriageways start structure within TaperLenM past a
+        /// ground union run's closed end (dir +1: past s1, -1: before s0): the
+        /// owner's own edge, and the road across (any one-way road the other
+        /// way beside it within the twins' gap).</summary>
+        static void GroundVEnd(CityMap map, CityMap.Edge e, float sEnd, int dir, out bool own, out bool across)
+        {
+            own = across = false;
+            for (float x = 0.5f; x <= TaperLenM + 1e-3f; x += 0.5f)
+            {
+                float s = sEnd + dir * x;
+                if (s < 0f || s > e.length) break;
+                if (!own && e.ElevatedAt(s)) own = true;
+                if (!across)
+                {
+                    var p = e.PointAt(s); var t = e.TangentAt(s).normalized;
+                    float r = e.HalfMax + GroundTwinGapMaxM + 14f;
+                    gvSegs.Clear();
+                    map.EdgeSegsInRect(p - Vector2.one * r, p + Vector2.one * r, gvSegs);
+                    foreach (int seg in gvSegs)
+                    {
+                        var o = map.edges[seg >> 12];
+                        if (o == e || !o.oneway || o.link) continue;
+                        int si = seg & 0xFFF;
+                        if (si + 1 >= o.pts.Length) continue;
+                        Vector2 a0 = o.pts[si], dseg = o.pts[si + 1] - a0;
+                        float L = dseg.magnitude;
+                        if (L < 1e-4f) continue;
+                        var dirO = dseg / L;
+                        if (Vector2.Dot(t, dirO) > -0.8f) continue;
+                        float along = Mathf.Clamp(Vector2.Dot(p - a0, dirO), 0f, L);
+                        if (Vector2.Distance(p, a0 + dirO * along) - e.HalfMax - o.HalfMax > GroundTwinGapMaxM) continue;
+                        if (o.ElevatedAt(o.s[si] + along)) { across = true; break; }
+                    }
+                }
+                if (own && across) break;
+            }
+        }
 
         /// <summary>
         /// The union median beside one span of its owner (EmitSide's union
@@ -1161,6 +1312,14 @@ namespace PSXRacing.City
             // the owner's I-277 wall at the left exit by East 4th Street)
             bool open0 = run.open0 || UnionEndAdrift(map, trims, e, run, 0, side, org);
             bool open1 = run.open1 || UnionEndAdrift(map, trims, e, run, 1, side, org);
+            // (round 6) the ground V's legs at a closed end where structure begins past it
+            bool vO0 = false, vP0 = false, vO1 = false, vP1 = false;
+            if (!deck && GroundVOn && run.median == DeckPairs.Median.Barrier)
+            {
+                if (open0) GroundVEnd(map, e, run.s0, -1, out vO0, out vP0);
+                if (open1) GroundVEnd(map, e, run.s1, +1, out vO1, out vP1);
+            }
+            bool vee0 = vO0 || vP0, vee1 = vO1 || vP1, full0 = vO0 && vP0, full1 = vO1 && vP1;
             for (int k = 0; k <= pieces; k++)
             {
                 float f = (float)k / pieces;
@@ -1185,6 +1344,13 @@ namespace PSXRacing.City
                 // a V whose legs are never steeper than 1:3 to the traffic)
                 float d0 = open0 ? uS[k] - run.s0 : float.MaxValue, d1 = open1 ? run.s1 - uS[k] : float.MaxValue;
                 float endLen = Mathf.Max(TaperLenM, deck ? 1.5f * Vector2.Distance(pw, new Vector2(w.x, w.z)) : 0f);
+                // (round 6) a ground V: its legs as long as a deck's; a full V
+                // takes the end from the Jersey (no turned-down nose there)
+                float legLen = Mathf.Max(TaperLenM, 1.5f * Vector2.Distance(pw, new Vector2(w.x, w.z)));
+                uLeg0[k] = vee0 ? Mathf.Clamp01((uS[k] - run.s0) / legLen) : 1f;
+                uLeg1[k] = vee1 ? Mathf.Clamp01((run.s1 - uS[k]) / legLen) : 1f;
+                if (full0) d0 = float.MaxValue;
+                if (full1) d1 = float.MaxValue;
                 uEnd[k] = Mathf.Clamp01(Mathf.Min(d0, d1) / endLen);
             }
             var bk = buckets[(int)RoadSlot(e, deck)];
@@ -1226,8 +1392,14 @@ namespace PSXRacing.City
                 if (deck && (uEnd[k] < 1f || uEnd[k + 1] < 1f))
                     EmitUnionLegs(uA[k], uB[k], uA[k + 1], uB[k + 1], uEnd[k], uEnd[k + 1], uV[k], uV[k + 1]);
                 else if (shape == DeckPairs.Median.Barrier)
-                    EmitUnionJersey(uA[k], uB[k], uA[k + 1], uB[k + 1], uV[k], uV[k + 1],
-                                    deck ? BarrierH : Mathf.Lerp(TaperFootM, BarrierH, uEnd[k]), deck ? BarrierH : Mathf.Lerp(TaperFootM, BarrierH, uEnd[k + 1]));
+                {
+                    bool inV0 = uLeg0[k] < 1f || uLeg0[k + 1] < 1f, inV1 = uLeg1[k] < 1f || uLeg1[k + 1] < 1f;
+                    if (!(full0 && inV0) && !(full1 && inV1))
+                        EmitUnionJersey(uA[k], uB[k], uA[k + 1], uB[k + 1], uV[k], uV[k + 1],
+                                        deck ? BarrierH : Mathf.Lerp(TaperFootM, BarrierH, uEnd[k]), deck ? BarrierH : Mathf.Lerp(TaperFootM, BarrierH, uEnd[k + 1]));
+                    if (vee0 && inV0) EmitUnionLegs(uA[k], uB[k], uA[k + 1], uB[k + 1], uLeg0[k], uLeg0[k + 1], uV[k], uV[k + 1], vO0, vP0);
+                    if (vee1 && inV1) EmitUnionLegs(uA[k], uB[k], uA[k + 1], uB[k + 1], uLeg1[k], uLeg1[k + 1], uV[k], uV[k + 1], vO1, vP1);
+                }
             }
             // the closed ends this span holds
             for (int end = 0; end < 2; end++)
@@ -1240,7 +1412,9 @@ namespace PSXRacing.City
                 var outw = new Vector2(uA[k].x - uA[kIn].x, uA[k].z - uA[kIn].z);
                 if (outw.sqrMagnitude < 1e-6f) continue;
                 outw.Normalize();
-                EmitUnionEnd(map, tm, e, run, side, uA[k], uB[k], outw, deck, uV[k], end == 0 ? run.s0 : run.s1, uOut[k] ? shape : DeckPairs.Median.Flush);
+                // (a full ground V has no Jersey end to cap)
+                bool fullV = end == 0 ? full0 : full1;
+                EmitUnionEnd(map, tm, e, run, side, uA[k], uB[k], outw, deck, uV[k], end == 0 ? run.s0 : run.s1, uOut[k] && !fullV ? shape : DeckPairs.Median.Flush);
             }
         }
 
@@ -1316,7 +1490,7 @@ namespace PSXRacing.City
             return !EdgeLinesUp(map, trims, e, end == 0 ? e.a : e.b, side, sec, origin);
         }
 
-        static void EmitUnionLegs(Vector3 a0, Vector3 b0, Vector3 a1, Vector3 b1, float f0, float f1, float v0, float v1)
+        static void EmitUnionLegs(Vector3 a0, Vector3 b0, Vector3 a1, Vector3 b1, float f0, float f1, float v0, float v1, bool legA = true, bool legB = true)
         {
             var g0 = new Vector3(b0.x - a0.x, 0f, b0.z - a0.z); float l0 = g0.magnitude; g0 = l0 > 1e-4f ? g0 / l0 : Vector3.right;
             var g1 = new Vector3(b1.x - a1.x, 0f, b1.z - a1.z); float l1 = g1.magnitude; g1 = l1 > 1e-4f ? g1 / l1 : Vector3.right;
@@ -1324,6 +1498,7 @@ namespace PSXRacing.City
             float top0 = Mathf.Max(a0.y, b0.y) + BarrierH, top1 = Mathf.Max(a1.y, b1.y) + BarrierH;
             for (int leg = 0; leg < 2; leg++)
             {
+                if (leg == 0 ? !legA : !legB) continue;
                 // the leg's centre line: on the edge at the end (the parapet's
                 // own line there), on the gap's middle TaperLenM back
                 Vector3 e0 = leg == 0 ? a0 - g0 * (0.5f * (RailW - RailOverhangM)) : b0 + g0 * (0.5f * (RailW - RailOverhangM)),
