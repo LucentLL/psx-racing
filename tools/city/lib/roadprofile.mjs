@@ -511,7 +511,7 @@ export function buildRoadProfiles(city, groundY, opts = {}) {
     };
     // the launch audit's judged speeds (CityLaunchAudit): the safe radius
     const judgedMs = e => (e.link ? 80 : [70, 90, 100, 110, 130, 150][e.rank]) / 3.6;
-    const R_PREF = 400, R_SAFE_MIN = 60, G = 9.81, DBG = +(process.env.PSX_LAND_DEBUG || -1);
+    const R_PREF = 400, R_PREF_MAJ = +(process.env.PSX_LAND_MAJOR_R || 1500), R_SAFE_MIN = 60, G = 9.81, DBG = +(process.env.PSX_LAND_DEBUG || -1);
     const isJ = nd => armsOf(nd).length >= 3;
     // the stations outward from nd along e, on through two-arm nodes
     // a masked station the landing may not move: a deck, a tunnel, a water
@@ -547,7 +547,7 @@ export function buildRoadProfiles(city, groundY, opts = {}) {
       }
     };
     const before = breaks();
-    let landed = 0, nodesLanded = 0, nPref = 0, nSafe = 0, nBest = 0, nNoRoom = 0, worstBest = 0;
+    let nSeat = 0, landed = 0, nodesLanded = 0, nPref = 0, nSafe = 0, nBest = 0, nNoRoom = 0, worstBest = 0;
     const Ls = [];
     // the nodes in order: the bigger roads' junctions first
     const order = [];
@@ -569,8 +569,25 @@ export function buildRoadProfiles(city, groundY, opts = {}) {
       const arms = armsOf(nd);
       // the major pair: the chain partner of the highest arm, else the
       // straightest pair (two arms: the pair itself)
-      const top = arms.slice().sort((a, b) => (b.rank * 2 + (b.link ? 0 : 1)) - (a.rank * 2 + (a.link ? 0 : 1)) || a.index - b.index)[0];
+      let top = arms.slice().sort((a, b) => (b.rank * 2 + (b.link ? 0 : 1)) - (a.rank * 2 + (a.link ? 0 : 1)) || a.index - b.index)[0];
       let pi = partner.get(top.index + ':' + nd);
+      // three arms or more: the pair the game's own junction plane holds
+      // (CityElevation's fan planes / VSmooth's majorOf): two arms meeting
+      // straight on (cos < -0.7), the higher class (a link half a class
+      // down), then the wider - so a ramp merging into a one-way arterial
+      // (Old Statesville Road n3350) is the minor arm, not the arterial's
+      // incoming half (it stood 0.3 m under the host's pavement it ran in)
+      if (arms.length >= 3 && process.env.PSX_LAND_PAIR !== '0') {
+        let bk = -Infinity, bp = null, bq = null;
+        for (let p = 0; p < arms.length; p++) for (let q = p + 1; q < arms.length; q++) {
+          const up = dirOut(arms[p], nd), uq = dirOut(arms[q], nd);
+          if (up[0] * uq[0] + up[1] * uq[1] >= -0.7) continue;
+          const P = arms[p], Q = arms[q];
+          const key = Math.min(P.link ? P.rank - 0.5 : P.rank, Q.link ? Q.rank - 0.5 : Q.rank) * 100 + 2 * (P.hw + Q.hw);
+          if (key > bk) { bk = key; bp = P; bq = Q; }
+        }
+        if (bp) { top = bp; pi = bq.index; }
+      }
       if (pi === undefined || !arms.some(e => e.index === pi)) {
         const u0 = dirOut(top, nd); let bd = 0.3;
         for (const e of arms) { if (e === top) continue; const u = dirOut(e, nd), dot = u0[0] * u[0] + u0[1] * u[1]; if (dot < bd) { bd = dot; pi = e.index; } }
@@ -583,29 +600,97 @@ export function buildRoadProfiles(city, groundY, opts = {}) {
       let tx = tB[0] - tA[0], tz = tB[1] - tA[1]; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
       const gMaj = (out(mB, nd, LB) - out(mA, nd, LA)) / (LA + LB);
       const hwMaj = Math.max(mA.hw, mB.hw);
+      // the major pair's own break through the node (grades over 10 m out):
+      // where its chain already runs smooth through, it is left alone
+      const g10 = e => { const d = Math.min(10, e.length); return (out(e, nd, d) - out(e, nd, 0)) / Math.max(1, d); };
+      const majBreak = Math.abs(g10(mA) + g10(mB));
+      const MAJ_BREAK = +(process.env.PSX_LAND_MAJOR_BREAK || 0.03);
+      // THE MAJOR ROAD ON A TANGENT THROUGH THE JUNCTION (AASHTO: the major
+      // road's profile is held through the intersection, its vertical curves
+      // outside it). The fan is drawn flat between the arms' trims, so a
+      // major road curving across the node met the fan's chord with a kink
+      // at both trims (main's Tryon sprint p99 vertical g: 119 of the 120
+      // samples past it within 30 m of a junction, the worst ~17 m out - the
+      // trim). Both major arms run on the plane's line (node height, the
+      // through chord's grade) out past the fan - the widest minor arm's half
+      // width over its sine + a curb return (10 m), 10..30 m - and ease into
+      // their own profile beyond, where the drawn pass rounds what is left.
+      // PSX_LAND_MAJOR_HOLD=0: the major pair as it was (J2).
+      const HOLD = arms.length >= 3 && process.env.PSX_LAND_MAJOR_HOLD !== '0';
+      let dHoldMaj = 0;
+      if (HOLD) {
+        for (const o of arms) {
+          if (o === mA || o === mB) continue;
+          const uo = dirOut(o, nd), sinO = Math.abs(tx * uo[1] - tz * uo[0]);
+          dHoldMaj = Math.max(dHoldMaj, o.hw / Math.max(0.4, sinO));
+        }
+        dHoldMaj = Math.min(30, Math.max(10, dHoldMaj + 10));
+      }
       let any = false;
-      for (const e of arms) {
+      // the host's own height along a major arm (its stations, by arc)
+      const yArc = (M, arc) => { const t = st[M.index]; let k = 0; while (k + 2 < t.s.length && t.s[k + 1] < arc) k++; const ds = t.s[k + 1] - t.s[k]; return t.y[k] + (t.y[k + 1] - t.y[k]) * (ds > 1e-6 ? Math.max(0, Math.min(1, (arc - t.s[k]) / ds)) : 0); };
+      // the major pair first: an arm seated on the host reads the host as landed
+      for (const e of [mA, mB, ...arms.filter(x => x !== mA && x !== mB)]) {
         const major = e === mA || e === mB;
-        const u = dirOut(e, nd), gp = gMaj * (u[0] * tx + u[1] * tz);
+        // the major pair keeps its own (smoothed, curvature-limited) chain:
+        // easing it on 10 m-station Hermites left breaks at its 2nd station
+        // the drawn pass does not round (census arterial residuals) - so
+        // only where the pair itself breaks past MAJ_BREAK through the node
+        // (Todd Road n8837: -6% | -14%). A two-arm node the chains broke at
+        // still eases both arms.
+        if (major && !HOLD && arms.length >= 3 && majBreak <= MAJ_BREAK && process.env.PSX_LAND_MAJOR !== '1') continue;
+        const u = dirOut(e, nd), gp0 = gMaj * (u[0] * tx + u[1] * tz), gp = gp0;
         const sin = Math.abs(tx * u[1] - tz * u[0]);
         const w = walk(nd, e, 220);
         if (DBG === nd) console.log(`LAND n${nd} e${e.index} walk pts ${w.pts.length} room ${w.room.toFixed(1)}`);
         if (w.pts.length < 2) continue;
         const room = w.junction ? 0.5 * w.room : w.room;
-        const d0Full = major ? 0 : Math.min(0.4 * room, hwMaj / Math.max(0.4, sin) + 3);
+        const d0Full = major ? (HOLD ? Math.min(0.4 * room, dHoldMaj) : 0) : Math.min(0.4 * room, hwMaj / Math.max(0.4, sin) + 3);
         if (room - d0Full < 3 && room < 5) { nNoRoom++; continue; }
         const rSafe = Math.max(R_SAFE_MIN, 1.5 * judgedMs(e) ** 2 / G);
         const ownY = d => yOn(w.pts, d);
         const ownG = d => { const lo = Math.max(0, d - 2), hi = Math.min(w.pts[w.pts.length - 1].d, d + 2); return hi - lo > 0.1 ? (ownY(hi) - ownY(lo)) / (hi - lo) : gp; };
+        // SHALLOW MERGES: an arm whose centreline is still inside the major
+        // road's pavement past the plane's reach (a ramp merging at a few
+        // degrees: University City Blvd n4444's ramp ran 24 m inside it,
+        // eased down to 0.3 m under the host's pavement - the path stepped
+        // off the host's edge, a launch) rides the HOST'S own height there
+        // (the station's projection on the major arm, level across, as the
+        // game's seats put it), and eases from where it leaves.
+        const seatPts = [];
+        if (!major && process.env.PSX_LAND_SEAT !== '0') {
+          for (const p of w.pts) {
+            if (p.d < 1e-6) { seatPts.push([0, yN]); continue; }
+            const xz = pointAt(edges[p.ei], st[p.ei].s[p.i]);
+            let best = null;
+            for (const M of [mA, mB]) {
+              const arc = projectOn(M, xz); if (arc < 0.5 || arc > M.length - 0.5) continue;
+              const q = pointAt(M, arc), dist = Math.hypot(q[0] - xz[0], q[1] - xz[1]);
+              if (dist <= M.hw && (!best || dist < best.dist)) best = { dist, y: yArc(M, arc) };
+            }
+            if (!best || p.d > room - 6) break;
+            seatPts.push([p.d, best.y]);
+          }
+        }
+        const seatD = seatPts.length >= 2 ? seatPts[seatPts.length - 1][0] : 0;
+        const seat = seatD > d0Full + 1;
+        const seatY = d => { let k = 0; while (k + 2 < seatPts.length && seatPts[k + 1][0] < d) k++; const a = seatPts[k], b = seatPts[Math.min(k + 1, seatPts.length - 1)]; return b[0] - a[0] > 1e-3 ? a[1] + (b[1] - a[1]) * Math.max(0, Math.min(1, (d - a[0]) / (b[0] - a[0]))) : a[1]; };
+        const seatG = seat ? (seatPts[seatPts.length - 1][1] - seatPts[seatPts.length - 2][1]) / Math.max(0.5, seatPts[seatPts.length - 1][0] - seatPts[seatPts.length - 2][0]) : gp;
+        const holdY = d => seat ? seatY(d) : yN + gp * d;
+        if (seat) nSeat++;
         // already on the plane and leaving it smoothly: nothing to do
-        if (Math.abs(ownY(d0Full) - (yN + gp * d0Full)) < 0.005 && Math.abs(ownG(d0Full + 2) - gp) < 0.002) continue;
+        if (!seat && Math.abs(ownY(d0Full) - (yN + gp * d0Full)) < 0.005 && Math.abs(ownG(d0Full + 2) - gp) < 0.002) continue;
         // the shortest ease within the preferred radius, else within the
         // safe one, else the gentlest; a steep street may climb to its own
         // grade + 3% inside the ease (15% at least, the audit fails 16%).
         // Where the full plane hold leaves no such ease, a shorter hold.
         const search = d0 => {
-          const p0 = yN + gp * d0, span = room - d0;
-          let Lc = -1, Lbest = -1, cBest = Infinity, kind = 0;
+          const p0 = holdY(d0), span = room - d0, gp = seat ? seatG : gp0;
+          let Lc = -1, Lbest = -1, cBest = Infinity, kind = 0, tier = 9;
+          // a held major road eases at a through road's comfort (R 1500 m:
+          // 0.3 g at 150 mph - the race routes' p99 is under 1 g), else the
+          // junction's 400 m, else safe; a minor arm at 400 m, else safe
+          const tiers = major && HOLD ? [R_PREF_MAJ, R_PREF, rSafe] : [R_PREF, rSafe];
           for (let L = 4; L <= Math.min(span, 160) + 1e-6; L += Math.max(2, 0.15 * L)) {
             const Y1 = ownY(d0 + L), g1 = ownG(d0 + L);
             const delta = Y1 - (p0 + 0.5 * (gp + g1) * L);
@@ -613,14 +698,14 @@ export function buildRoadProfiles(city, groundY, opts = {}) {
             const c = Math.max(Math.abs(c0), Math.abs(c1));
             let gmx = 0; for (let k = 0; k <= 8; k++) { const t = k / 8, t2 = t * t; const dy = (6 * t2 - 6 * t) * p0 + (3 * t2 - 4 * t + 1) * gp * L + (-6 * t2 + 6 * t) * Y1 + (3 * t2 - 2 * t) * g1 * L; gmx = Math.max(gmx, Math.abs(dy) / L); }
             if (gmx > Math.max(0.155, Math.abs(gp) + 0.005, Math.abs(g1) + 0.03)) continue;
-            if (c * R_PREF <= 1) { Lc = L; kind = 1; break; }
-            if (c * rSafe <= 1 && kind < 2) { Lc = L; kind = 2; }
+            if (c * tiers[0] <= 1) { Lc = L; kind = 1; tier = 0; break; }
+            for (let ti = 1; ti < tiers.length; ti++) if (c * tiers[ti] <= 1) { if (ti < tier) { tier = ti; Lc = L; kind = 2; } break; }
             if (c < cBest) { cBest = c; Lbest = L; }
           }
           return { d0, Lc, kind, Lbest, cBest };
         };
         let r = null;
-        for (const d0 of major ? [0] : [d0Full, 0.6 * d0Full, Math.min(2, d0Full)]) {
+        for (const d0 of major && !HOLD ? [0] : seat ? [seatD] : [d0Full, 0.6 * d0Full, Math.min(2, d0Full)]) {
           const q = search(d0);
           if (q.kind) { r = q; break; }
           if (q.Lbest > 0 && (!r || q.cBest < r.cBest)) r = q;
@@ -630,16 +715,16 @@ export function buildRoadProfiles(city, groundY, opts = {}) {
         let { d0, Lc, kind } = r;
         if (!kind) { Lc = r.Lbest; kind = 3; worstBest = Math.max(worstBest, r.cBest * rSafe); }
         if (kind === 1) nPref++; else if (kind === 2) nSafe++; else nBest++;
-        const p0 = yN + gp * d0;
+        const p0 = holdY(d0);
         const Y1 = ownY(d0 + Lc), g1 = ownG(d0 + Lc);
-        const m0 = gp * Lc, m1 = g1 * Lc;
+        const m0 = (seat ? seatG : gp) * Lc, m1 = g1 * Lc;
         let moved = false;
         const writes = [];
         for (const p of w.pts) {
           if (p.d > d0 + Lc) break;
           if (p.d < 1e-6 && !major) continue;            // the node itself is the plane's
           let y;
-          if (p.d <= d0) y = yN + gp * p.d;
+          if (p.d <= d0) y = holdY(p.d);
           else { const t = (p.d - d0) / Lc, t2 = t * t, t3 = t2 * t; y = (2 * t3 - 3 * t2 + 1) * p0 + (t3 - 2 * t2 + t) * m0 + (-2 * t3 + 3 * t2) * Y1 + (t3 - t2) * m1; }
           writes.push([p, y]);
         }
@@ -650,7 +735,7 @@ export function buildRoadProfiles(city, groundY, opts = {}) {
     }
     const after = breaks();
     Ls.sort((a, b) => a - b);
-    return `JUNCTION LANDINGS (REAL HEIGHTS): ${landed} arms landed on their junction's plane at ${nodesLanded} nodes (preferred radius ${R_PREF} m ${nPref}, safe radius ${nSafe}, the gentlest that fits ${nBest} (worst ${worstBest.toFixed(2)} x the safe curvature), no room ${nNoRoom}; reach p50 ${Ls.length ? Ls[Ls.length >> 1].toFixed(0) : 0} / max ${Ls.length ? Ls[Ls.length - 1].toFixed(0) : 0} m); arm pairs breaking > 4% / > 8% through a node ${before[0]} / ${before[1]} -> ${after[0]} / ${after[1]}`;
+    return `JUNCTION LANDINGS (REAL HEIGHTS): ${landed} arms landed on their junction's plane at ${nodesLanded} nodes (preferred radius - ${R_PREF} m, a held major road ${R_PREF_MAJ} m - ${nPref}, a tighter one (a major at ${R_PREF} m, else safe) ${nSafe}, the gentlest that fits ${nBest} (worst ${worstBest.toFixed(2)} x the safe curvature), no room ${nNoRoom}; ${nSeat} shallow arms seated on the major road's own height inside its pavement; reach p50 ${Ls.length ? Ls[Ls.length >> 1].toFixed(0) : 0} / max ${Ls.length ? Ls[Ls.length - 1].toFixed(0) : 0} m); arm pairs breaking > 4% / > 8% through a node ${before[0]} / ${before[1]} -> ${after[0]} / ${after[1]}`;
   }
   // ---- 7. (REAL HEIGHTS) the pairs once more on the finished profiles: each
   // carriageway was smoothed and limited on its own chain (interior stations

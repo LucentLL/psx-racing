@@ -7640,3 +7640,55 @@ the class table is stricter than Charlotte's hills; Tuckaseegee Rd's bridge
 into its valley); 14 stations of divided roads under 15 m apart standing
 3 m+ apart (Tuckaseegee Rd, West Blvd: two levels or OSM pairing two
 different roads), left unpulled.
+
+### REAL HEIGHTS - junctions, round 2 (2026-10-25 night; not shipped: the launch gate fails)
+
+**Offline design (`landJunctions`, data spliced = the export, fingerprint updated, `--check` run):**
+- The MAJOR PAIR is the game's own (two arms meeting straight on, cos < -0.7; the higher class, a link half a class
+  down; then the wider - CityElevation's fan planes / VSmooth's majorOf). Before, a motorway link outranked a primary:
+  at Old Statesville Rd n3350 the ramp was the "major" and the arterial's incoming half the minor arm.
+- SHALLOW MERGES: an arm whose centreline is still inside the major road's pavement past the plane's reach rides the
+  host's own height there (512 arms), then eases.
+- The major pair runs on a TANGENT through the junction (node height + through chord, 10-30 m: the widest minor arm's
+  half width over its sine + 10 m), eased at R 1,500 m (0.3 g at 150 mph), else 400 m, else the safe radius
+  (`PSX_LAND_MAJOR_HOLD=0`: the majors untouched unless they break > 3% through the node). 20,918 arms at 7,706 nodes.
+- Offline proxies (`junction_proxy.mjs`): FAN FOLDS 1,493 (> 0.3 m: 210) -> 889 (129); arm pairs breaking > 4% / > 8%
+  through a node 2,817 / 379 -> 2,581 / 317; through-node crests LAUNCH / UNLOAD 12 / 59 -> 11 / 43.
+
+**Measured** (`tools\city-vsmooth.ps1 -Launch -Lanes`: one job, the drawn profile on, the launch audit on the old
+movement paths then with the lane carried through splits and merges; main = bcf6298b's sources + this branch's
+CityLaunchAudit.cs, the same job):
+
+| | main | J2 (pair + seats) | J3 (+ major tangent; committed) |
+|---|---|---|---|
+| launch / unload, old paths | 60 / 408 | 125 / 625 | 118 / 595 |
+| launch / unload, lane carry | 59 / 417 | 124 / 620 | 119 / 593 |
+| routes launch | 0 / 0 / 0 | 1 / 0 / 0 | 1 / 0 / 0 |
+| census freeway (>0.5 / >1 / >2% / node) | 290 / 131 / 45 / 4 | 172 / 88 / 25 / 0 | 182 / 97 / 24 / 1 |
+| ramp | 2,846 / 691 / 203 / 7 | 1,759 / 581 / 160 / 3 | 1,820 / 574 / 170 / 3 |
+| arterial | 1,886 / 929 / 308 / 16 | 2,112 / 908 / 282 / 9 | 2,125 / 919 / 296 / 13 |
+| collector | 5,231 / 280 / 98 / 702 | 4,890 / 306 / 101 / 150 | 5,365 / 293 / 94 / 154 |
+| local | 5,480 / 52 / 15 / 138 | 18,329 / 99 / 15 / 69 | 20,088 / 99 / 16 / 77 |
+| route p99 g at 150 mph | 1.60 / 1.79 / 0.96 | 1.06 / 2.07 / 0.69 | 1.06 / 2.11 / 0.68 |
+
+- The lane carry moves main by -1 / +9 and the branch by +1 / -2: the split/merge hook was not the branch's excess.
+- The excess is the MESH: 72 of J3's 119 launches are `@mesh-off-data` (the drawn surface > 0.1 m off the solve's
+  own stations; main 30 of 59), at seated ramps and connectors - n3350's ramp (e2481) held 0.65 m under its design
+  8.5 m out by its seat on its other host (the last 8.5 m at 10.4%), the gore pavement 0.26 m over its ribbon; the
+  University City Blvd ramp at n4444 (e3176) under a surface 0.3 m higher 14-24 m out; e6798 drawn 0.7 m over its
+  seated stations. At most of J1's launch nodes the design's own break through the node is 0.2-1%.
+- Tryon's p99: 123 of the 123 samples past it lie within 30 m of a junction, the worst 17-24 m out - the trims
+  (e16383 s 17 -17.4 g, e16424 s 18 +16.7 g), in the ribbon's first sections with the stations drawn straight too;
+  the major tangent did not move it (main has the same kind, 119 of 120).
+- FAN STEINER: 8,280 fans, 117,765 major-pavement points in 5,128 fans, 115,720 of them in the triangulation, 0
+  folded triangles (Gilead Rd n5107: 35 / 35).
+- RETAINING WALLS (cut walls + barrier): 6.59 km; added where the 1V:3H back slope has no room 3.37 km (longest
+  I-485 e2154 481 m at (-6198,-8952), I-485 e2499 297 m, NC 16 e4936 269 m, I-85 e1263 258 m).
+- `tools/city-play-check.ps1`: PASS - the I-277 drive-off by S College St (e1482 s 1065) is walled ("Barriers in the
+  run, skipped"); 5 driven (2 fill, 1 cut), no FAIL.
+- Data 8,340,419 B (main 7,708,786); the census solve 30.9 s (main 32.4 s).
+
+**Left:** the mesh at seated ramps (SeatBranches / SplitTwoHosts / ClimbOut on RPRF data) - dump the surface the
+path samples at n3350, n4444, e6798 first; Tryon's trim kinks (A/B `PSX_CITY_FANMAJOR=0 PSX_CITY_JOIN_STRAIGHT=1` on
+`city-vsmooth.ps1 -Routes`, then a section dump of e16424 s 15-25); the arterial > 0.5% residuals and the locals' /
+collectors' > 1% (99 vs 52, 293 vs 280).

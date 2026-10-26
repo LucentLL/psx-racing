@@ -101,8 +101,8 @@
   },
   "outputs": {
     "charlotte_city.bytes": {
-      "bytes": 8340421,
-      "sha256": "a0f54a50b82362f18684b26ef0342fdac595e8a96b69b067cc5d844490039b15"
+      "bytes": 8340419,
+      "sha256": "ee9be0b01c2cc971bb044d16842f56880826b0522edc2ed4b665eb868c2d5b25"
     },
     "charlotte_dem.bytes": {
       "bytes": 3174661,

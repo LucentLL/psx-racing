@@ -125,6 +125,25 @@ namespace PSXRacing.EditorTools
                         sbw.Append(string.Format(CultureInfo.InvariantCulture, "e{0} '{1}' {2:0} m at ({3:0},{4:0}); ", top[k].Key, map.edges[top[k].Key].name, top[k].Value.m, top[k].Value.at.x, top[k].Value.at.y));
                     Line(sbw.ToString());
                 }
+                try
+                {
+                    // FAN STEINER (CityMeshes.FanSteiner, FanMajorOn): do the major
+                    // pair's pavement points land in the fans' triangulation?
+                    var trF = CityMeshes.NodeTrims(map);
+                    int fans = 0, stAll = 0, stUsed = 0, folded = 0, withSt = 0, withUsed = 0;
+                    for (int n = 0; n < map.nodes.Length; n++)
+                    {
+                        if (map.nodeEdges[n].Count < 3) continue;
+                        var fr = CityMeshes.FanCheck(map, trF, n);
+                        fans++; stAll += fr.steiner; stUsed += fr.steinerUsed; folded += fr.folded;
+                        if (fr.steiner > 0) withSt++;
+                        if (fr.steinerUsed > 0) withUsed++;
+                    }
+                    var gl = map.nodes.Length > 5107 ? CityMeshes.FanCheck(map, trF, 5107) : default;
+                    Line(string.Format(CultureInfo.InvariantCulture, "FAN STEINER (major pavement held {0}): {1} fans, points {2} ({3} fans) of which in the triangulation {4} ({5} fans); folded triangles {6}; Gilead Rd n5107: points {7}, used {8}, folded {9}, worst node dy {10:0.00} m",
+                        CityMeshes.FanMajorOn, fans, stAll, withSt, stUsed, withUsed, folded, gl.steiner, gl.steinerUsed, gl.folded, gl.worstNodeDy));
+                }
+                catch (Exception ex) { Line("FAN STEINER failed: " + ex.GetType().Name + " " + ex.Message); }
                 Line("");
                 Line("VERTICAL ACCELERATION along the race routes (v^2 x grade change over a 2.5 m wheelbase), in g: max |a| / p95 |a| / max sag (pressed down) / max crest (lifted)");
                 for (int i = 0; i < before.routeLines.Count; i++)
@@ -438,6 +457,34 @@ namespace PSXRacing.EditorTools
                     return "-";
                 }
                 st.routeLines.Add($"{rt.id} '{rt.name}' {x0 / 1000f:0.0} km: 150 mph {Summ(a150)}; posted {Summ(aPost)}; worst sag at {(a150.Count > 0 ? Where(ax[iMax]) : "-")}, worst crest at {(a150.Count > 0 ? Where(ax[iMin]) : "-")}");
+                if (a150.Count > 100)
+                {
+                    // what makes the p99: the samples past it near a junction
+                    // (within 30 m of a route node of three arms or more) or not,
+                    // and the worst places (one per 15 m)
+                    var jx = new List<float>(); float xa = 0f;
+                    for (int k = 0; k < rt.edges.Length; k++) { var e = map.edges[rt.edges[k]]; int sn = rt.dirs[k] >= 0 ? e.a : e.b; if (map.nodeEdges[sn].Count >= 3) jx.Add(xa); xa += e.length; }
+                    var absA = new List<float>(a150.Count); foreach (var v in a150) absA.Add(Mathf.Abs(v)); absA.Sort();
+                    float p99 = absA[Mathf.Min(absA.Count - 1, (int)(0.99f * absA.Count))];
+                    int nJ = 0, nO = 0; var over = new List<int>();
+                    for (int i = 0; i < a150.Count; i++)
+                    {
+                        if (Mathf.Abs(a150[i]) < p99) continue;
+                        float dmin = float.MaxValue; foreach (float q in jx) dmin = Mathf.Min(dmin, Mathf.Abs(ax[i] - q));
+                        if (dmin < 30f) nJ++; else nO++;
+                        over.Add(i);
+                    }
+                    over.Sort((p, q) => Mathf.Abs(a150[q]).CompareTo(Mathf.Abs(a150[p])));
+                    var sbp = new StringBuilder(); var taken = new List<float>();
+                    foreach (int i in over)
+                    {
+                        bool near = false; foreach (float t in taken) if (Mathf.Abs(t - ax[i]) < 15f) { near = true; break; }
+                        if (near) continue; taken.Add(ax[i]);
+                        sbp.Append(string.Format(CultureInfo.InvariantCulture, "{0} {1:+0.00;-0.00} g; ", Where(ax[i]), a150[i]));
+                        if (taken.Count >= 8) break;
+                    }
+                    st.routeLines.Add($"{rt.id} p99 {p99:0.00} g: {nJ + nO} samples past it, {nJ} within 30 m of a junction, {nO} not; worst places: {sbp}");
+                }
             }
             return st;
         }
