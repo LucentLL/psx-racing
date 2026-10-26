@@ -14,10 +14,11 @@ namespace PSXRacing.EditorTools
     /// </summary>
     public static class VolCloudsCheck
     {
-        static readonly string[] Shaders = { VolumetricClouds.ShaderName, "PSX/Sky", "Hidden/PSX/SkyEquirect", "PSX/Lit" };
+        static readonly string[] Shaders = { VolumetricClouds.ShaderName, "PSX/Sky", "Hidden/PSX/SkyEquirect", "PSX/Lit", "PSX/CarPaint" };
 
         /// <summary>Batch entry: the check, then quit with its failure count
-        /// as the exit code (PSX/Lit joined the list with the matte slush).</summary>
+        /// as the exit code (PSX/Lit joined the list with the matte slush,
+        /// PSX/CarPaint with the clean-coat retune of 2026-10-26).</summary>
         public static void RunBatch() => EditorApplication.Exit(Run() == 0 ? 0 : 1);
 
         public static int Run()
