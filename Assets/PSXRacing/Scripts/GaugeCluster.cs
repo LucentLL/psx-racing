@@ -203,6 +203,14 @@ namespace PSXRacing
         /// <summary>Clearance from the frame edges, also as a fraction of the
         /// frame height.</summary>
         public float marginFrac = 0.03f;
+        /// <summary>The PC pair's keep-out round the car: half the chase
+        /// view's car plus a little air, as a fraction of the frame HEIGHT
+        /// either side of the centre line (the chase fit holds the car at a
+        /// steady width in height terms, whatever the aspect).</summary>
+        const float PcCarHalfFrac = 0.25f;
+        /// <summary>The smallest the PC pair shrinks to on a narrow window
+        /// (4:3): a readable dial beats one sized to nothing.</summary>
+        const float PcMinRadiusFrac = 0.085f;
         /// <summary>Between a dial and the touch control beside it, in canvas
         /// units — the same 12 the pair used to leave either side of the
         /// centreline when they sat together in the middle.</summary>
@@ -317,9 +325,9 @@ namespace PSXRacing
         Text gearText, speedText;
         /// <summary>
         /// How far up the BOTTOM-LEFT CORNER this cluster reaches, in its own
-        /// canvas units — the top of the tach when the dials are in the
-        /// corners, and zero in every other layout, because in those the corner
-        /// belongs to the steering wheel or to nothing.
+        /// canvas units. Zero in every layout since 2026-10-26: on a PC that
+        /// corner is the map's (both dials moved to the bottom-right), on a
+        /// phone the steering wheel's.
         ///
         /// Published for the same reason TouchControls.WheelInset is: the pizza
         /// cam has to sit clear of whatever is in that corner, and a fraction of
@@ -570,9 +578,9 @@ namespace PSXRacing
             // are TouchControls, at screen resolution, where nothing measured in
             // framebuffer pixels can see them.
             //
-            // With no touch controls both bottom corners are empty, and the
-            // corners are where instruments belong -- as far from the vanishing
-            // point as the frame allows. With them, the corners are the
+            // With no touch controls the bottom corners are free: the map
+            // takes the left one and both dials the right one -- as far from
+            // the vanishing point as the frame allows. With them, the corners are the
             // controls', so each dial goes as far out as the controls let it:
             // hard against the one on its own side, which leaves the middle of
             // the bottom edge -- the road -- to the road.
@@ -619,10 +627,26 @@ namespace PSXRacing
             }
             else
             {
-                tachAnchor = new Vector2(0f, 0f);
-                speedoAnchor = new Vector2(1f, 0f);
-                tachPos = new Vector2(radius + margin, radius + margin);
+                // BOTH DIALS IN THE BOTTOM-RIGHT, the gear between them: the
+                // bottom-left corner is the map's now, where Need for Speed
+                // puts it (the owner, 2026-10-26: "more like NFS"). Speed in
+                // the corner, revs inboard of it, the gear box in the gap -
+                // right to left the order the reference reads its cluster in.
+                //
+                // The group may not reach the car: in the chase views it is
+                // centred and about 0.22 of the frame HEIGHT either side of
+                // the centre line, so the dials get what is left of the right
+                // half beyond that (PcCarHalfFrac), and shrink on a narrow
+                // window rather than sit on the bumper. Width of the group:
+                // margin + four radii + the box (0.52 r) and its two gaps
+                // (0.14 r each) = margin + 4.8 r.
+                float room = FrameWidth() * 0.5f - frame * PcCarHalfFrac - margin;
+                radius = Mathf.Min(radius, Mathf.FloorToInt(room / 4.8f));
+                radius = Mathf.Max(Mathf.RoundToInt(frame * PcMinRadiusFrac), radius);
+                float gearW = radius * 0.52f, gap = radius * 0.14f;
+                tachAnchor = speedoAnchor = new Vector2(1f, 0f);
                 speedoPos = new Vector2(-(radius + margin), radius + margin);
+                tachPos = new Vector2(-(margin + radius * 3f + gap * 2f + gearW), radius + margin);
             }
 
             // Revs on the left, speed on the right: the same side of the binnacle
@@ -671,14 +695,18 @@ namespace PSXRacing
             // screen is already showing it.
             if (!touch)
             {
+                // Inboard of the tach on its right, i.e. between the two dials.
                 MakeGearPanel(font, radius, margin, tachAnchor, tachPos);
-                CornerTop = tachPos.y + radius;
             }
             RightCornerTop = speedoPos.y + radius;
 
-            // For the chase camera's lane (see TachCircle). Anchored as above:
-            // the tach from the bottom-left, the speedo from the bottom-left on
-            // a touch screen and from the bottom-RIGHT on a PC.
+            // For the chase camera's lane (see TachCircle). Only on a touch
+            // screen, where the dials sit either side of the road: on a PC both
+            // are in the bottom-right, there is no lane between them, and the
+            // width cap above already keeps them off the car - so nothing is
+            // published and the chase framing is what it was with the dials in
+            // the corners.
+            if (touch)
             {
                 float fw = Mathf.Max(1f, FrameWidth()), fh = Mathf.Max(1f, frame);
                 float tx = tachPos.x + tachAnchor.x * fw, sxp = speedoPos.x + speedoAnchor.x * fw;

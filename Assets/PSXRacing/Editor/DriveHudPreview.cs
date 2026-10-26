@@ -41,9 +41,6 @@ namespace PSXRacing.EditorTools
             ("tablet_4x3", 1024, 768),
         };
 
-        /// <summary>The desktop race map: RaceHUD's default centre and height,
-        /// as fractions of the frame. (The phone's are RaceHUD constants.)</summary>
-        const float PcMapCentre = 0.60f, PcMapFrac = 0.30f;
 
         [MenuItem("PSX Racing/Preview Driving HUD (touch)")]
         public static void Capture()
@@ -119,14 +116,16 @@ namespace PSXRacing.EditorTools
             // The map lives on the framebuffer canvas, where a fraction of the
             // frame height is the whole story; a canvas with no scaler draws in
             // pixels here.
-            float mapFrac = touch ? RaceHUD.TouchMapFrac : PcMapFrac;
-            float mapTop = touch ? RaceHUD.TouchMapTopFrac : 1f - PcMapCentre - PcMapFrac * 0.5f;
+            // RaceHUD.MapRect: the NFS map (2026-10-26) - bottom-left on a PC,
+            // top-left on a phone. The stand-in pivots on its anchor.
+            RaceHUD.MapRect(touch, h, out Vector2 mapAnchor, out Vector2 mapCentre, out float mapSide);
             var standIns = new GameObject("StandIns");
             var sic = standIns.AddComponent<Canvas>();
             sic.renderMode = RenderMode.ScreenSpaceOverlay;
             sic.sortingOrder = 80;
-            StandIn(standIns.transform, "Map", new Vector2(0f, 1f),
-                                   new Vector2(4f, -mapTop * h), new Vector2(mapFrac * h, mapFrac * h),
+            StandIn(standIns.transform, "Map", mapAnchor,
+                                   mapCentre + (mapAnchor - new Vector2(0.5f, 0.5f)) * mapSide,
+                                   new Vector2(mapSide, mapSide),
                                    new Color(0.95f, 0.95f, 0.95f, 0.55f));
             var menuCanvasGO = new GameObject("MenuCanvas");
             var mc = menuCanvasGO.AddComponent<Canvas>();
@@ -179,6 +178,32 @@ namespace PSXRacing.EditorTools
             }
             if (!touch)
             {
+                // THE NFS LAYOUT (2026-10-26): the map alone in the bottom-left,
+                // both dials and the gear box in the bottom-right, and the
+                // pair clear of the car's lane round the centre line.
+                var tachP = PixelRect(cam, clusterGO.transform, "Tach");
+                var speedoP = PixelRect(cam, clusterGO.transform, "Speedo");
+                var gearP = PixelRect(cam, clusterGO.transform, "Panel/Gear");
+                if (!tachP.HasValue || !speedoP.HasValue || !gearP.HasValue)
+                    fails += Fail(label, "a dial or the gear box is missing - nothing measured");
+                else
+                {
+                    var m = mapR.Value;
+                    float left = Mathf.Min(tachP.Value.xMin, gearP.Value.xMin);
+                    if (m.xMax <= left + 0.5f && m.xMin >= -0.5f && m.yMin >= -0.5f)
+                        Ok(label, "map bottom-left x " + m.xMin.ToString("0") + "-" + m.xMax.ToString("0") +
+                                  ", y " + m.yMin.ToString("0") + "-" + m.yMax.ToString("0") +
+                                  "; the cluster starts at x " + left.ToString("0"));
+                    else fails += Fail(label, "MAP MEETS THE CLUSTER - map to x " + m.xMax.ToString("0") +
+                                              ", cluster from " + left.ToString("0"));
+                    float lane = w * 0.5f + h * 0.22f;
+                    if (left >= lane - 0.5f)
+                        Ok(label, "dials clear of the car: from x " + left.ToString("0") + " (car to ~" + lane.ToString("0") + ")");
+                    else fails += Fail(label, "DIALS REACH THE CAR - from x " + left.ToString("0") + ", car to ~" + lane.ToString("0"));
+                    bool order = gearP.Value.xMin >= tachP.Value.xMax - 0.5f && speedoP.Value.xMin >= gearP.Value.xMax - 0.5f;
+                    if (order) Ok(label, "tach | gear | speedo, no overlaps (" + (tachP.Value.width).ToString("0") + " px dials)");
+                    else fails += Fail(label, "CLUSTER PIECES OVERLAP");
+                }
                 Snap(cam, rt, w, h, Path.Combine(outDir, "drivehud_" + label + ".png"));
                 return fails;
             }
@@ -250,7 +275,13 @@ namespace PSXRacing.EditorTools
             if (r.xMin > w * 0.5f) Ok(label, "pizza cam on the right: x " + r.xMin.ToString("0") + "-" + r.xMax.ToString("0"));
             else fails += Fail(label, "PIZZA CAM NOT ON THE RIGHT - from x " + r.xMin.ToString("0") + " of " + w);
             float cy = r.center.y;
-            if (cy >= map.yMin && cy <= map.yMax)
+            // On a PC the map is in the bottom-left corner and the speedometer
+            // in the bottom-right one, so "opposite" is the right edge, just
+            // above the speedo (checked below) - it cannot also be level.
+            if (touchPanel == null)
+                Ok(label, "pizza cam centre " + (cy / h * 100f).ToString("0") + "% up on the right, map bottom-left (" +
+                          (map.yMin / h * 100f).ToString("0") + "-" + (map.yMax / h * 100f).ToString("0") + "%)");
+            else if (cy >= map.yMin && cy <= map.yMax)
                 Ok(label, "pizza cam centre " + (cy / h * 100f).ToString("0") + "% up - level with the map (" +
                           (map.yMin / h * 100f).ToString("0") + "-" + (map.yMax / h * 100f).ToString("0") + "%)");
             else

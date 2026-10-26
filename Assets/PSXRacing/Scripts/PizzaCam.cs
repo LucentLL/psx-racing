@@ -264,12 +264,10 @@ namespace PSXRacing
             builtTouch = touch;
             builtCornerTop = GaugeCluster.RightCornerTop;
             float frameH = builtFrameH = FrameH();
-            if (mapCentreYFrac < 0f)
-            {
-                var hud = FindAnyObjectByType<RaceHUD>();
-                mapCentreYFrac = hud != null ? hud.mapCentreYFrac : 0.60f;
-            }
-            float levelWithMap = frameH * mapCentreYFrac - PanelH * 0.5f;
+            // The desktop map's centre (RaceHUD.MapRect). Since the NFS map
+            // (2026-10-26) that is the bottom-left corner, so "level with it"
+            // gives way to "above the speedometer" below.
+            float levelWithMap = frameH * RaceHUD.PcMapCentreFrac - PanelH * 0.5f;
             float underAction = frameH - TouchControls.ActionTopInset - TouchControls.ActionH
                               - AboveWheelGap - PanelH;
             float y = Mathf.Max(touch ? underAction : levelWithMap, builtCornerTop + AboveWheelGap);
@@ -280,8 +278,6 @@ namespace PSXRacing
             panelRT.anchoredPosition = new Vector2(-x, y);
         }
 
-        /// <summary>RaceHUD's map height, read once; negative until then.</summary>
-        float mapCentreYFrac = -1f;
         /// <summary>The canvas height this was placed on. The scaler settles
         /// after Build, and a window can be resized mid-race.</summary>
         float builtFrameH = -1f;
