@@ -1,0 +1,10 @@
+tryon start: edge 'South Tryon Street' at (-3462, 3548)
+snowfall: not in the climate at this hour - the bench's Snow
+wl_after_snowfall_photo: THU 20 JAN 2000 NOON 12:30 | OVERCAST, SNOW | sky Overcast, precip Snow 0.80, light Snow, volumetric off | road water 0.60 slush 1.00 snow 0.00 ice False, treated True | globals roadSnow 0.00 roadSlush 1.00 wetWater 0.35
+wl_after_snowfall_phone: THU 20 JAN 2000 NOON 12:30 | OVERCAST, SNOW | sky Overcast, precip Snow 0.80, light Snow, volumetric off | road water 0.60 slush 1.00 snow 0.00 ice False, treated True | globals roadSnow 0.00 roadSlush 1.00 wetWater 0.35
+wl_after_snowfall_desktop: THU 20 JAN 2000 NOON 12:30 | OVERCAST, SNOW | sky Overcast, precip Snow 0.80, light Snow, volumetric ON | road water 0.60 slush 1.00 snow 0.00 ice False, treated True | globals roadSnow 0.00 roadSlush 1.00 wetWater 0.35
+snowroad: not in the climate at this hour - the bench's Snow, road untreated
+wl_after_snowroad_photo: THU 20 JAN 2000 NOON 12:30 | OVERCAST, SNOW | sky Overcast, precip Snow 0.80, light Snow, volumetric off | road water 0.00 slush 0.00 snow 1.00 ice False, treated False | globals roadSnow 1.00 roadSlush 0.00 wetWater 0.00
+wl_after_slush_photo: SUN 22 JAN 2006 NOON 12:30 | OVERCAST, SNOW ON GROUND | sky Overcast, precip None 0.00, light Rain, volumetric off | road water 0.13 slush 0.64 snow 0.00 ice False, treated True | globals roadSnow 0.00 roadSlush 0.64 wetWater 0.13
+wl_after_rain_photo: SUN 17 JAN 1999 NOON 12:30 | STORMS, T-STORMS | sky Storm, precip Rain 1.00, light Rain, volumetric off | road water 1.00 slush 0.00 snow 0.00 ice False, treated False | globals roadSnow 0.00 roadSlush 0.00 wetWater 1.00
+wl_after_rain_phone: SUN 17 JAN 1999 NOON 12:30 | STORMS, T-STORMS | sky Storm, precip Rain 1.00, light Rain, volumetric off | road water 1.00 slush 0.00 snow 0.00 ice False, treated False | globals roadSnow 0.00 roadSlush 0.00 wetWater 1.00

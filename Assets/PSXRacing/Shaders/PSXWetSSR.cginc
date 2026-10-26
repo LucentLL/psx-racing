@@ -191,8 +191,8 @@ fixed4 fragSSR(v2f_ssr i) : SV_Target
     float3 toEye = _WorldSpaceCameraPos - i.wpos;
     float eyeDist = length(toEye);
     float3 V = toEye / max(eyeDist, 1e-4);
-    float w = PSXWetAmount(_Wet * _PSXWetness, N, i.wpos, eyeDist);
-    float k = PSXWetFresnel(N, V) * w * (1.0 - i.fog) * _PSXSSRParams.x;
+    float w = PSXWetAmount(_Wet * _PSXWetness, N, i.wpos, eyeDist) * PSXWetGloss(i.wpos);
+    float k =PSXWetFresnel(N, V) * w * (1.0 - i.fog) * _PSXSSRParams.x;
     if (k < SSR_MIN_K) discard;
 
     // 3 - what the mirrored ray meets

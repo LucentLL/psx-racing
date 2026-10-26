@@ -114,7 +114,7 @@ namespace PSXRacing
         {
             get
             {
-                if (Forced.HasValue) return Forced.Value;
+                if (Forced.HasValue) return SkyOverPrecip(Forced.Value);
                 int scene = SceneHandle();
                 int d = CurrentDay, h = TimeOfDay.Current, o = RaceHandoff.WeatherOverride;
                 if (!nowValid || d != nowDay || h != nowHour || o != nowOverride || scene != nowScene)
@@ -150,7 +150,23 @@ namespace PSXRacing
         {
             var w = Climate.At(r, elev, day, TimeOfDay.ClockHours(hour));
             if (overrideW >= 0 && overrideW <= (int)Weather.Snow) w = BenchWeather((Weather)overrideW, w);
-            return EnvOverrides(w);
+            return SkyOverPrecip(EnvOverrides(w));
+        }
+
+        /// <summary>
+        /// RAIN AND SNOW FALL FROM A CLOSED SKY (owner, 2026-10-26: "Rain or
+        /// snow, only a few clouds in the sky."). Whatever set the layers - the
+        /// climate (which already closes the sky over every hour it rains or
+        /// snows, and the hours either side), the bench, a PSX_SKY override, a
+        /// tool's <see cref="Forced"/> state - while anything is falling the
+        /// sky is OVERCAST or STORM, never clear or broken, so the sky drawn
+        /// (both modes), its light and the date line all agree. After the
+        /// rain the sky may clear over a wet road: nothing falls then.
+        /// </summary>
+        public static WeatherNow SkyOverPrecip(WeatherNow w)
+        {
+            if (w.precip != PrecipKind.None && w.sky < SkyKind.Overcast) w.sky = SkyKind.Overcast;
+            return w;
         }
 
         /// <summary>

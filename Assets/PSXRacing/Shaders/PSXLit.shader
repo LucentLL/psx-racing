@@ -1381,14 +1381,13 @@ Shader "PSX/Lit"
                 // tarmac. w <= wetMat, so wherever w is set, specOn was 1.
                 float w = PSXWetAmount(wetMat, N, i.wpos, eyeDist);
                 if (w > 0.0) tex.rgb *= 1.0 - WET_DARKEN * w;
+                w *= PSXWetGloss(i.wpos);
                 // SNOW AND SLUSH ON THE ROAD (weather layers): an untreated
                 // road under snow, a treated one under churned slush, in the
-                // same patches the tyres read (RoadSurface.cs). Both MATTE:
+                // same patches the tyres read (RoadSurface.cs), TEXTURED from
+                // the owner's pack (PSXRoadCoverAlbedo). Both MATTE:
                 // PSXWetAmount already took the water out from under them.
-                float roadSnow = PSXRoadSnowAt(_Wet, N, i.wpos);
-                if (roadSnow > 0.0) tex.rgb = lerp(tex.rgb, ROAD_SNOW_COLOR, roadSnow);
-                float roadSlush = PSXRoadSlushAt(_Wet, N, i.wpos);
-                if (roadSlush > 0.0) tex.rgb = lerp(tex.rgb, ROAD_SLUSH_COLOR, roadSlush);
+                tex.rgb = PSXRoadCoverAlbedo(tex.rgb, _Wet, N, i.wpos, dWx, dWy);
 
                 // THE SWASH (the SWASH_* #defines). A uniform branch: only a
                 // beach's sand ever takes it.

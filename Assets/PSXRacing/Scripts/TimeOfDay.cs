@@ -827,8 +827,11 @@ namespace PSXRacing
             p.sunIntensity *= SunMul(weather);
             // THE OVERCAST SKY (2026-10-25, the owner: rain and snow had "the
             // same blue sky cloudy skybox (should be overcast with sky full of
-            // clouds, grays)"). Under the grey light, a grey panorama.
-            if (weather == Weather.Rain || weather == Weather.Snow)
+            // clouds, grays)"). Under the grey light, a grey panorama - and
+            // in a fog that is raining or snowing too (the light is the fog's,
+            // the sky over it still closed: Seasons.SkyOverPrecip).
+            if (weather == Weather.Rain || weather == Weather.Snow ||
+                (weather == Weather.Fog && Seasons.Now.precip != PrecipKind.None))
                 Overcast(ref p, index, weather == Weather.Rain && Seasons.Now.sky == SkyKind.Storm);
 
             // THE CITY LIGHTS ITS OWN SKY. After the weather, so an overcast

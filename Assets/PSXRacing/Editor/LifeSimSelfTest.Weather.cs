@@ -127,6 +127,30 @@ namespace PSXRacing.EditorTools
             Check(bridgeIceRoadNot > 0, "a bridge iced while the road is not happens", bridgeIceRoadNot);
             Check(treatedSnowIcyRoad == 0, "a TREATED road never carries lying snow (slush and water)", treatedSnowIcyRoad);
 
+            // RAIN AND SNOW FALL FROM A CLOSED SKY (owner, 2026-10-26: "Rain
+            // or snow, only a few clouds in the sky"): every race hour of ten
+            // Charlotte and Boone years, as the game resolves it, plus a
+            // tool's forced clear sky with snow in it.
+            int precipOpen = 0, precipHours = 0;
+            for (int d = dA; d < dB; d++)
+                for (int h = 0; h < TimeOfDay.All.Length; h++)
+                    foreach (string venue in new[] { "Charlotte", "BlueRidge" })
+                    {
+                        var w = Seasons.At(d, h, venue);
+                        if (w.precip == PrecipKind.None) continue;
+                        precipHours++;
+                        if (w.sky < SkyKind.Overcast) precipOpen++;
+                    }
+            var forced = Seasons.Forced;
+            Seasons.Forced = new WeatherNow { day = dA, sky = SkyKind.Clear, precip = PrecipKind.Snow, precipRate = 1f };
+            bool forcedClosed = Seasons.Now.sky >= SkyKind.Overcast;
+            Seasons.Forced = forced;
+            Check(precipHours > 0 && precipOpen == 0 && forcedClosed,
+                  "rain and snow only ever fall from an OVERCAST or STORM sky (the date line, both sky modes)",
+                  precipOpen + " open of " + precipHours + " falling race hours, forced clear+snow closed " + forcedClosed);
+            Check(Seasons.SkyOverPrecip(new WeatherNow { sky = SkyKind.PartlyCloudy, precip = PrecipKind.None, road = new DeckState { water = 1f } }).sky
+                  == SkyKind.PartlyCloudy, "after the rain the sky may clear over a wet road");
+
             // GRIP per surface (dry stays exactly 1: handling bit-identical).
             var dry = RoadSurface.OfDeck(new DeckState(), 0.7f);
             var soaked = RoadSurface.OfDeck(new DeckState { water = 1f }, 0.3f);

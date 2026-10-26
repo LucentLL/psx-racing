@@ -436,6 +436,49 @@ float3 AtmoCirrus(float3 col, float3 dir, float3 sunDir, float3 sunCol, float ni
 #define VOL_MOON         float3(0.040, 0.046, 0.062)   // moonlight on a lit cloud: ~3x the night floor
 #define VOL_CITY         1.6       // a lit city on the cloud base over it, x its glow in the air
 
+// THE FALLBACK'S DECK (2026-10-26, the owner on a phone, snowing: "Rain or
+// snow, only a few clouds in the sky"). The puffs are cumulus in cells and
+// can never close a sky, so under an overcast or a storm (_PSXCloudDeck x, y:
+// VolumetricClouds.CloudsFor's own z and w, set by DynamicSky) the phones get
+// a stratus base over the whole sky: the light above it let through grey
+// (DECK_K), lumpy underneath at a few hundred metres (DECK_SCALE), darker in a
+// storm, a soft bright patch where the sun is behind a thin deck, and the air
+// under it grey, not blue, down to the horizon. Two noise octaves a pixel,
+// once per sky direction (the panorama's refresh and the skybox).
+float4 _PSXCloudDeck;   // x overcast deck 0..1, y storm 0..1 (the fallback only)
+#define DECK_ALT         900.0     // the base over the eye, m
+#define DECK_SCALE       0.0016    // its lumps: about 600 m
+#define DECK_K           0.95      // the share of the light above that the base gives back down
+                                   //   (the photographs' overcast measures ~140 sRGB at noon)
+#define DECK_LUMPS       0.24      // how far the lumps darken/lighten it
+#define DECK_SUN         0.22      // the sun's patch through an overcast (none in a storm)
+
+float3 AtmoDeck(float3 col, float3 dir, float3 sunDir, float3 sunCol, float mu, float night,
+                float deck, float storm, out float cover)
+{
+    float lumC = dot(col, float3(0.2126, 0.7152, 0.0722));
+    col = lerp(col, lumC * float3(0.93, 0.96, 1.0), deck * 0.9);
+    cover = 0.0;
+    if (dir.y <= -0.02) return col;
+    float3 skyUp = AtmoSkyUp();
+    float sunHigh = saturate(sunDir.y);
+    float3 above = skyUp * VOL_SKY + sunCol * (sunHigh * VOL_SUN_DIFFUSE) + NIGHT_FLOOR * (1.5 * night);
+    float lumA = dot(above, float3(0.2126, 0.7152, 0.0722));
+    float3 base = lerp(lumA.xxx, above, 0.2) * float3(0.94, 0.97, 1.04) * DECK_K;
+    float t = DECK_ALT / max(dir.y, 0.03);
+    float2 q = (_WorldSpaceCameraPos.xz + dir.xz * t) * DECK_SCALE + _PSXCloudWind.xy * _Time.y * 0.5;
+    float lump = saturate((AtmoNoise(q) * 0.65 + AtmoNoise(q * 2.3 + 5.1) * 0.35 - 0.5) * 2.0 + 0.5);
+    // the lumps flatten into the distance (and stop shimmering there)
+    float near = saturate(dir.y * 4.0);
+    base *= (1.0 + DECK_LUMPS * (lump - 0.5) * 2.0 * near) * (1.0 - 0.4 * storm);
+    base += sunCol * (pow(saturate(mu), 6.0) * DECK_SUN * sunHigh * (1.0 - storm));
+    // toward the horizon the base is seen through miles of grey air
+    float3 low = lerp(col, base, 0.55);
+    float3 deckCol = lerp(low, base, saturate(dir.y * 8.0));
+    cover = deck * saturate((dir.y + 0.02) * 25.0);
+    return lerp(col, deckCol, cover);
+}
+
 /// The whole dynamic sky in direction dir (unit, world), before the horizon
 /// band and the stars, which PSX/Sky adds as it does for a photograph.
 /// Returned in the display's range (exposed, rolled off). cloudT: how much of
@@ -508,12 +551,19 @@ float3 PSXDynamicSkyT(float3 dir, out float cloudT)
         if (dir.y > 0.01 && _PSXCloudCover > 0.01)
             col = AtmoCirrus(col, dir, sunDir, sunCol, night, 1.0, true);
 
-        if (dir.y > 0.005 && _PSXCloudCover > 0.01)
+        // Under a closed deck no heaps show (AtmoDeck below).
+        if (dir.y > 0.005 && _PSXCloudCover > 0.01 && _PSXCloudDeck.x < 0.99)
         {
             float4 cl = AtmoPuffs(dir, sunDir, sunCol, mu, night);
             // The far rows thin into the haze (and stop reading as rows).
             float fade = saturate((dir.y - 0.015) * 7.0);
             col = lerp(col, cl.rgb, cl.a * fade);
+        }
+        if (_PSXCloudDeck.x > 0.001)
+        {
+            float deckCover;
+            col = AtmoDeck(col, dir, sunDir, sunCol, mu, night, _PSXCloudDeck.x, _PSXCloudDeck.y, deckCover);
+            cloudT = 1.0 - deckCover;
         }
     }
 

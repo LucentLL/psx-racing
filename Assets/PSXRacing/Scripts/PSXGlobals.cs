@@ -126,6 +126,27 @@ namespace PSXRacing
         /// keeps wetness one uniform film.
         /// </summary>
         public float wetPatchOn, wetWater, wetDamp, roadSnow, roadSlush;
+
+        /// <summary>
+        /// THE ROAD COVER'S SHEET (2026-10-26; PSXWet.cginc "THE COVER,
+        /// TEXTURED"): Resources/RoadCover.png, the owner's pack snow and slush
+        /// (tools/roadcover/make_cover.py), loaded once and bound as a global
+        /// with its switch - without it the cover is flat colour, never noise.
+        /// </summary>
+        static Texture2D roadCover;
+        static bool roadCoverTried;
+
+        static void BindRoadCover()
+        {
+            if (!roadCoverTried)
+            {
+                roadCoverTried = true;
+                roadCover = Resources.Load<Texture2D>("RoadCover");
+            }
+            if (roadCover != null) Shader.SetGlobalTexture("_PSXRoadCoverTex", roadCover);
+            Shader.SetGlobalFloat("_PSXRoadCoverOn", roadCover != null ? 1f : 0f);
+        }
+
         /// <summary>
         /// HOW NIGHT-TIME IT IS, 0..1 (_PSXNight): night 1, dusk 0.75, dawn
         /// 0.5, sunset 0.3, day 0. Written by TimeOfDay.Apply from
@@ -303,6 +324,7 @@ namespace PSXRacing
             Shader.SetGlobalFloat("_PSXWetDamp", Mathf.Clamp01(wetDamp));
             Shader.SetGlobalFloat("_PSXRoadSnow", Mathf.Clamp01(roadSnow));
             Shader.SetGlobalFloat("_PSXRoadSlush", Mathf.Clamp01(roadSlush));
+            BindRoadCover();
             Shader.SetGlobalFloat("_PSXNight", Mathf.Clamp01(night));
             Shader.SetGlobalFloat("_PSXGradeNight", Mathf.Clamp01(gradeNight));
             Shader.SetGlobalVector("_PSXMood", new Vector4(mood.r, mood.g, mood.b, Mathf.Clamp01(mood.a)));

@@ -71,6 +71,16 @@ namespace PSXRacing
             var now = Seasons.Now;
             Shader.SetGlobalFloat("_PSXCloudCover", LegacyCover ? CoverByWeather[w] : CoverBySky[Mathf.Clamp((int)now.sky, 0, 3)]);
             Shader.SetGlobalVector("_PSXCloudWind", new Vector4(0.0035f, 0.0012f, 0f, 0f));
+            // THE FALLBACK'S DECK (2026-10-26, the owner on a phone in the
+            // snow: "Rain or snow, only a few clouds in the sky"). The old
+            // puffs are cumulus in cells and can never close a sky: at the
+            // overcast cover they were still a blue sky with heaps in it. So
+            // the phones draw the volumetric clouds' own overcast and storm
+            // (VolumetricClouds.CloudsFor's z and w, one table for both) as a
+            // grey deck over everything (PSXAtmosphere.cginc AtmoDeck).
+            VolumetricClouds.CloudsFor(now, out var deckCov, out _, out _);
+            Shader.SetGlobalVector("_PSXCloudDeck", LegacyCover ? Vector4.zero
+                : new Vector4(deckCov.z, deckCov.w, 0f, 0f));
             float exposure = ExposureByHour[Mathf.Clamp(hour, 0, ExposureByHour.Length - 1)] *
                              Seasons.SkyMul(weather);
             Shader.SetGlobalFloat("_PSXDynExposure", exposure);

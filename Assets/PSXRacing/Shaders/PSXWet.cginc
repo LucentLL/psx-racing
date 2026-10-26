@@ -95,8 +95,46 @@ float _PSXRoadSlush;    // 0..1 treated snow churned to slush on the road
 #define PATCH_HI           0.75
 #define PATCH_SPAN         0.85   // a deck at amount a is covered where patch > 1 - a/SPAN..
 #define PATCH_EDGE         0.15   //   ..with this soft an edge
-#define ROAD_SNOW_COLOR    float3(0.78, 0.80, 0.84)
-#define ROAD_SLUSH_COLOR   float3(0.56, 0.54, 0.51)   // churned slush: grey-brown, road grime in it
+
+// THE COVER, TEXTURED (2026-10-26, the owner from a snowy NoDa start: "The
+// roads look terrible during snow. I thought it was broken textures."). The
+// first cut was hard-edged value noise at 1-5 cycles a metre, white or
+// grey-brown on black wet tarmac: under the PSX dither it read as broken
+// texture. Now the cover comes off the owner's pack (Resources/RoadCover.png,
+// tools/roadcover/make_cover.py: R fresh snow's grain = PSX Textures v3.1
+// snow_2, G slush = snow_melting_1, B packed snow = snow_1, each band-passed
+// luminance at mean 0.5; A = snow_melting_1's broad shapes, equalised), laid
+// on the WORLD's XZ - so the colour is the shader's (snow bright but not
+// lit-up white, slush a matte grey-brown) and the grain is the pack's:
+//   EXTENT: the tyres' patch share (PSXLocalShare, untouched: RoadSurface.cs
+//     reads the same), broken where it runs out into soft-edged gaps by the
+//     sheet's A field at two scales (COVER_FIELD_*); a covered stretch is
+//     whole, and only its edge thins. The gaps show the wet road, darkened
+//     and barely mirroring (PSXWetAmount: COVER_GAP_MIRROR).
+//   GRAIN: the colour channel at two octaves (COVER_FINE_M and x COVER_COARSE),
+//     low contrast, faded to its mean with distance by its own mips.
+// No wheel tracks: a road's U runs over its painter's layout, not across its
+// lanes (CityMeshes.EmitRibbon draws paint columns at fixed U), so nothing
+// in the mesh says where a lane's wheels run.
+// Linear albedo: Turf_Snow (the snow dress's ground) is 0.72; a road's snow is
+// a little greyer, compacted and grimy where it thins; slush is a wet, grimy
+// grey-brown at about a third of that (the first cut's 0.56 read as snow).
+#define ROAD_SNOW_COLOR    float3(0.55, 0.57, 0.61)   // fresh snow on a road (a touch under the verge's)
+#define ROAD_SNOW_EDGE     float3(0.34, 0.34, 0.34)   // where it thins: compacted, grimy
+#define ROAD_SLUSH_LIGHT   float3(0.36, 0.35, 0.33)   // slush lumps: ice in it, grey with grime
+#define ROAD_SLUSH_DARK    float3(0.15, 0.14, 0.13)   // churned, watery slush between them
+#define COVER_SLUSH_WATERY 0.45   // the watery churn is half see-through: the wet road under it shows
+#define COVER_FINE_M       2.6    // the grain's repeat, m
+#define COVER_COARSE       0.29   // and a second octave this many times as fine (~9 m), offset
+#define COVER_FIELD_M      17.0   // the extent field's repeat, m ...
+#define COVER_FIELD_M2     43.0   //   ...and a second, turned, so neither repeat shows
+#define COVER_FIELD_LOD    2.0    // its blobs are tens of texels: a fixed mip, safe in any branch
+#define COVER_EDGE         0.30   // how soft a gap's edge is, in the field's units
+#define COVER_SNOW_GRAIN   0.22   // the grain's contrast on fresh snow (x (2t - 1), each octave)
+#define COVER_SLUSH_LUMPS  1.6    // how far the slush tile's lumps push dark..light
+#define COVER_GAP_MIRROR   0.6    // in a slushy stretch the gaps' water mirrors 1 - this of its own
+sampler2D _PSXRoadCoverTex;
+float _PSXRoadCoverOn;            // 1 once PSXGlobals bound the sheet
 
 float PSXWetPatch(float2 xz)
 {
@@ -110,29 +148,47 @@ float PSXLocalShare(float amount, float patch)
     return saturate((amount - PATCH_SPAN * (1.0 - patch)) / PATCH_EDGE);
 }
 
-// How white the road is with snow here, 0..1 - only an up-facing material
-// that can be wet (roads, pavements, kerbs: wetMask is its _Wet).
+// The extent field here, 0..1 and about flat in distribution (the sheet's A
+// at two scales, the second turned). 0.5 everywhere without the sheet.
+float PSXCoverField(float2 xz)
+{
+    if (_PSXRoadCoverOn < 0.5) return 0.5;
+    float2 q = float2(xz.x * 0.8 - xz.y * 0.6, xz.x * 0.6 + xz.y * 0.8);
+    float a = tex2Dlod(_PSXRoadCoverTex, float4(xz / COVER_FIELD_M + float2(0.13, 0.71), 0.0, COVER_FIELD_LOD)).a;
+    float b = tex2Dlod(_PSXRoadCoverTex, float4(q / COVER_FIELD_M2 + float2(0.52, 0.29), 0.0, COVER_FIELD_LOD)).a;
+    // the mean of two flat fields is a triangle: stretched back toward flat
+    return saturate(0.5 + (a * 0.62 + b * 0.38 - 0.5) * 1.55);
+}
+
+// How much of THIS spot a deck's share s covers, 0..1: ALL of a patch the
+// tyres call covered, nothing where they call it bare, and between, the
+// field's soft-edged blobs - the cover thins where the field is low first.
+float PSXCoverOf(float s, float field)
+{
+    float c = saturate((s - (1.0 - field) * (1.0 - COVER_EDGE)) / COVER_EDGE);
+    return c * c * (3.0 - 2.0 * c);
+}
+
+// How much of the road is under SNOW here, 0..1 - only an up-facing material
+// that can be wet (roads, pavements, kerbs: wetMask is its _Wet). Same
+// patches as the tyres.
 float PSXRoadSnowAt(float wetMask, float3 N, float3 wpos)
 {
     if (_PSXWetPatchOn < 0.5 || _PSXRoadSnow <= WET_MIN || wetMask <= WET_MIN) return 0.0;
     float up = saturate(N.y * WET_UP_GAIN - WET_UP_BIAS);
     float s = PSXLocalShare(_PSXRoadSnow, PSXWetPatch(wpos.xz));
-    // Tyre tracks and drifts inside a covered patch.
-    float grain = PSXLitNoise(wpos.xz * 0.9 + 3.7);
-    return wetMask * up * s * lerp(0.55, 1.0, grain);
+    return wetMask * up * PSXCoverOf(s, PSXCoverField(wpos.xz));
 }
 
-// How much of the road is SLUSH here, 0..1 (owner, 2026-10-25: "slush does
-// not reflect like this"). Treated snow churned with brine is MATTE: lumpy,
-// grey-brown, and broken where tyres have pushed it aside - those gaps show
-// the wet road under it, and only they may mirror. Same patches as the tyres.
+// How much of the road is under SLUSH here, 0..1 (owner, 2026-10-25: "slush
+// does not reflect like this"). Treated snow churned with brine is MATTE and
+// grey-brown; where it runs out the wet road shows, dark, and barely mirrors.
 float PSXRoadSlushAt(float wetMask, float3 N, float3 wpos)
 {
     if (_PSXWetPatchOn < 0.5 || _PSXRoadSlush <= WET_MIN || wetMask <= WET_MIN) return 0.0;
     float up = saturate(N.y * WET_UP_GAIN - WET_UP_BIAS);
     float s = PSXLocalShare(_PSXRoadSlush, PSXWetPatch(wpos.xz));
-    float lumps = PSXLitNoise(wpos.xz * 1.7 + 11.3) * 0.6 + PSXLitNoise(wpos.xz * 5.1 + 2.9) * 0.4;
-    return wetMask * up * s * smoothstep(0.30, 0.60, lumps);
+    return wetMask * up * PSXCoverOf(s, PSXCoverField(wpos.xz + 211.0));
 }
 
 // Snow and slush are not water: whatever they cover mirrors nothing (both
@@ -141,6 +197,50 @@ float PSXRoadSlushAt(float wetMask, float3 N, float3 wpos)
 float PSXRoadCoverAt(float3 N, float3 wpos)
 {
     return max(PSXRoadSnowAt(1.0, N, wpos), PSXRoadSlushAt(1.0, N, wpos));
+}
+
+// How much of its water a pixel MIRRORS, after it has darkened the albedo
+// (both passes multiply PSXWetAmount by it, so they agree): a slushy
+// stretch's gaps are wet, dark and churned and hardly mirror. Black ice and
+// plain water keep the whole gloss.
+float PSXWetGloss(float3 wpos)
+{
+    if (_PSXWetPatchOn < 0.5 || _PSXRoadSlush <= WET_MIN) return 1.0;
+    return 1.0 - COVER_GAP_MIRROR * PSXLocalShare(_PSXRoadSlush, PSXWetPatch(wpos.xz));
+}
+
+// THE COVER'S COLOUR over the albedo (PSX/Lit, after the wet darkening):
+// snow and slush in their extents, the pack's grain in each. dWx/dWy: the
+// world position's screen derivatives, taken outside any branch.
+float3 PSXRoadCoverAlbedo(float3 albedo, float wetMask, float3 N, float3 wpos, float3 dWx, float3 dWy)
+{
+    float cSnow = PSXRoadSnowAt(wetMask, N, wpos);
+    float cSlush = PSXRoadSlushAt(wetMask, N, wpos);
+    if (cSnow + cSlush <= 0.0) return albedo;
+    float4 g = float4(0.5, 0.5, 0.5, 0.5), h = float4(0.5, 0.5, 0.5, 0.5);
+    if (_PSXRoadCoverOn > 0.5)
+    {
+        float fs = 1.0 / COVER_FINE_M, cs = fs * COVER_COARSE;
+        g = tex2Dgrad(_PSXRoadCoverTex, wpos.xz * fs, dWx.xz * fs, dWy.xz * fs);
+        h = tex2Dgrad(_PSXRoadCoverTex, wpos.xz * cs + float2(0.37, 0.61), dWx.xz * cs, dWy.xz * cs);
+    }
+    if (cSnow > 0.0)
+    {
+        // fresh grain over the packed snow's broader streaks, low contrast;
+        // greyer and grimier where it thins
+        float k = 1.0 + COVER_SNOW_GRAIN * ((2.0 * g.r - 1.0) + (2.0 * h.b - 1.0));
+        float3 snow = lerp(ROAD_SNOW_EDGE, ROAD_SNOW_COLOR, saturate(cSnow * 2.5 - 1.2)) * k;
+        albedo = lerp(albedo, snow, cSnow);
+    }
+    if (cSlush > 0.0)
+    {
+        // the slush tile's own lumps (light, solid) in its watery churn
+        // (dark, half see-through to the wet road and its paint)
+        float lumps = saturate(0.5 + COVER_SLUSH_LUMPS * ((g.g - 0.5) * 0.65 + (h.g - 0.5) * 0.35));
+        float3 slush = lerp(ROAD_SLUSH_DARK, ROAD_SLUSH_LIGHT, lumps);
+        albedo = lerp(albedo, slush, cSlush * lerp(COVER_SLUSH_WATERY, 1.0, lumps));
+    }
+    return albedo;
 }
 
 float PSXWetAmount(float wetMat, float3 N, float3 wpos, float eyeDist)
