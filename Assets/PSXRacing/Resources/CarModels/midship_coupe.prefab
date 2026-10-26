@@ -54,37 +54,37 @@ MonoBehaviour:
   - midship_coupe_yellow_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.5437125, g: 0.47276777, b: 0.18249467, a: 1}
+  - {r: 0.58290577, g: 0.5013568, b: 0.17904212, a: 1}
   bodyYaw: 180
-  bodyYOffset: -0.020743385
+  bodyYOffset: -0.020819824
   bodyZOffset: 0
-  wheelbase: 2.534861
-  trackWidth: 1.5377359
-  wheelRadius: 0.2755911
+  wheelbase: 2.544201
+  trackWidth: 1.543402
+  wheelRadius: 0.27660668
   wheelMeshScale: 0.93
-  trackRear: 1.557758
-  tyreRadiusRear: 0.31835952
-  tyreWidthRear: 0.21424198
-  lowerBodyWidth: 1.835334
-  cowlZ: 1.098819
-  cowlY: 0.74406666
-  noseZ: 2.1924753
-  roofY: 1.147529
-  headLamp: {x: 0.7525269, y: 0.42762685, z: 1.9546558}
-  headLampNormal: {x: 0.9248864, y: -0.021506246, z: 0.37963492}
-  headLampSize: {x: 0.12, y: 0.07}
-  tailLamp: {x: 0.5357795, y: 0.7336377, z: -2.1155071}
-  tailLampNormal: {x: 0.06260569, y: 0, z: -0.99803835}
-  tailLampSize: {x: 0.32768303, y: 0.1205312}
+  trackRear: 1.563499
+  tyreRadiusRear: 0.3195325
+  tyreWidthRear: 0.21503103
+  lowerBodyWidth: 1.810414
+  cowlZ: 1.0935878
+  cowlY: 0.74274415
+  noseZ: 2.187244
+  roofY: 1.1476443
+  headLamp: {x: 0.589228, y: 0.4208234, z: 2.0212884}
+  headLampNormal: {x: 0.54717934, y: 0.024380827, z: 0.83666015}
+  headLampSize: {x: 0.23799753, y: 0.07}
+  tailLamp: {x: 0.5363761, y: 0.78208137, z: -2.11238}
+  tailLampNormal: {x: 0.07248068, y: -0.012929268, z: -0.997286}
+  tailLampSize: {x: 0.3396177, y: 0.21649647}
   lampsUpMesh: {fileID: -2432090755550338912, guid: 30b80f0c298d4b47922edfcab32f8254, type: 3}
-  headLampUp: {x: 0.57364744, y: 0.61776173, z: 1.8751916}
-  headLampUpNormal: {x: 0.0000022502477, y: 0.061678607, z: 0.99809605}
-  headLampUpSize: {x: 0.23809882, y: 0.10028997}
+  headLampUp: {x: 0.6045085, y: 0.58597493, z: 1.865653}
+  headLampUpNormal: {x: 0.17559263, y: 0.044257935, z: 0.9834675}
+  headLampUpSize: {x: 0.20639703, y: 0.075576484}
   lensBodyMesh: {fileID: 0}
   lensHeadMesh: {fileID: 0}
   lensTailMesh: {fileID: 0}
   lensHeadMaterial: {fileID: 0}
   lensTailMaterial: {fileID: 0}
-  colliderCenter: {x: 0, y: 0.6449856, z: -0.022524953}
-  colliderSize: {x: 1.7899303, y: 0.94066197, z: 4.2306504}
-  blobSize: {x: 2.3865738, y: 4.7401004}
+  colliderCenter: {x: 0, y: 0.6452567, z: -0.027755976}
+  colliderSize: {x: 1.7928492, y: 0.94047034, z: 4.23065}
+  blobSize: {x: 2.3904657, y: 4.7401}

@@ -9682,6 +9682,12 @@ namespace PSXRacing.EditorTools
                 foreach (var c in CarCatalog.All)
                     if (c.name.Contains("Golf I GTI")) { gti++; if (CarModelLibrary.KeyFor(c) == "hatch_76") gtiOk++; }
                 Check(gti >= 1 && gtiOk == gti, "the 1976 GTI wears the owner's Hatch 76", gtiOk + " of " + gti);
+                // 2026-10-26: the owner's GT Liftback 97 dresses the two `97 rows of
+                // its body only; the older generation stays on the grand tourer.
+                int a80 = 0, a80Ok = 0;
+                foreach (var c in CarCatalog.All)
+                    if (c.name.StartsWith("Toyota SUPRA")) { a80++; if ((CarModelLibrary.KeyFor(c) == "gt_liftback_97") == c.name.EndsWith("`97")) a80Ok++; }
+                Check(a80 >= 4 && a80Ok == a80, "the GT Liftback 97 dresses only the catalog's `97 rows of its body", a80Ok + " of " + a80);
                 // 2026-10-07: the owner's Rally Coupe 98 dresses every car of its family
                 // (saloons, wagon, coupes, the rally car), none left on the R32 or the Volvo.
                 int rc98 = 0, rc98Ok = 0;

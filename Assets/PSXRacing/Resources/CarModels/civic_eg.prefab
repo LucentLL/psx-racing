@@ -54,28 +54,28 @@ MonoBehaviour:
   - hatch_93_red_512x256
   wheelMaterial: {fileID: 0}
   skinColors:
-  - {r: 0.4091945, g: 0.19117445, b: 0.19631822, a: 1}
+  - {r: 0.4039879, g: 0.18374364, b: 0.19114132, a: 1}
   bodyYaw: 180
-  bodyYOffset: -0.020929929
+  bodyYOffset: -0.020920653
   bodyZOffset: 0
-  wheelbase: 2.58078
-  trackWidth: 1.4811859
-  wheelRadius: 0.27806908
+  wheelbase: 2.579637
+  trackWidth: 1.480531
+  wheelRadius: 0.27794585
   wheelMeshScale: 0.93
-  trackRear: 1.471144
-  tyreRadiusRear: 0.298999
-  tyreWidthRear: 0.195818
-  lowerBodyWidth: 1.699896
-  cowlZ: 0.9902267
-  cowlY: 0.8596577
-  noseZ: 2.096758
-  roofY: 1.3296471
-  headLamp: {x: 0.55397975, y: 0.58291006, z: 1.9481546}
-  headLampNormal: {x: 0.32308155, y: 0.52524585, z: 0.7872325}
-  headLampSize: {x: 0.36775646, y: 0.108772844}
-  tailLamp: {x: 0.6293998, y: 0.57808346, z: -1.836093}
-  tailLampNormal: {x: 0.33542463, y: 0.42391714, z: -0.8412993}
-  tailLampSize: {x: 0.3886528, y: 0.28}
+  trackRear: 1.4704931
+  tyreRadiusRear: 0.2988665
+  tyreWidthRear: 0.19573098
+  lowerBodyWidth: 1.704924
+  cowlZ: 0.9638613
+  cowlY: 0.8755458
+  noseZ: 2.09583
+  roofY: 1.3290476
+  headLamp: {x: 0.61230195, y: 0.57728523, z: 1.8490659}
+  headLampNormal: {x: 0.580989, y: 0, z: 0.81391144}
+  headLampSize: {x: 0.2846256, y: 0.095838755}
+  tailLamp: {x: 0.6116271, y: 0.58314216, z: -1.8425703}
+  tailLampNormal: {x: 0.2952345, y: 0.32414526, z: -0.8987583}
+  tailLampSize: {x: 0.32569438, y: 0.26880893}
   lampsUpMesh: {fileID: 0}
   headLampUp: {x: 0, y: 0, z: 0}
   headLampUpNormal: {x: 0, y: 0, z: 1}
@@ -85,6 +85,6 @@ MonoBehaviour:
   lensTailMesh: {fileID: 0}
   lensHeadMaterial: {fileID: 0}
   lensTailMaterial: {fileID: 0}
-  colliderCenter: {x: 0, y: 0.747195, z: 0.061757922}
-  colliderSize: {x: 1.7366042, y: 1.0845306, z: 3.8868496}
-  blobSize: {x: 2.3154721, y: 4.3549}
+  colliderCenter: {x: 0, y: 0.7468734, z: 0.060829997}
+  colliderSize: {x: 1.763388, y: 1.0840499, z: 3.8868496}
+  blobSize: {x: 2.351184, y: 4.3549}

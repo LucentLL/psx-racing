@@ -79,9 +79,15 @@ const MODELS = [
   // unchanged), converted/hatch_93_v03.
   // 2026-10-10: revision 05 (wheelhouse brake art; 3,958 tris, 288 per
   // wheel), converted/hatch_93_v05 with the GLB's own atlas beside it.
-  { key: 'civic_eg',     obj: `${here}/converted/hatch_93_v05/hatch_93_v05.obj`,
-    tex: `${here}/converted/hatch_93_v05`, skins: /^hatch_93_red_512x256$/,
-    gt4LengthM: 4.070 },
+  // 2026-10-26: revision 07 (EG_Independent_Textured_v07: painted mirror
+  // sail panels, recessed headlamp optics, opaque colored tail plastic;
+  // 9,636 tris), converted/hatch_93_v07, atlas eg_red_512x256 copied in as
+  // hatch_93_red_512x256. The body keeps the mirror inserts and the OPAQUE
+  // Taillight_Lenses (they carry the tail-lamp art); the 4.5%-opaque clear
+  // Headlight_Lenses cover is left off (the OBJ path would paint it opaque).
+  { key: 'civic_eg',     obj: `${here}/converted/hatch_93_v07/hatch_93_v07.obj`,
+    tex: `${here}/converted/hatch_93_v07`, skins: /^hatch_93_red_512x256$/,
+    gt4LengthM: 4.070, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R', 'Taillight_Lenses'] },
   // The owner's S13 hatch (the 180SX that America sold as the 240SX) — GT4's
   // "Nissan 240SX `96": 4520 mm, 2475 mm wheelbase. The S14 is its own row.
   // 2026-10-04 ("NSX, 240SX, and RX7 were updated"): the independent 1989
@@ -109,18 +115,25 @@ const MODELS = [
   // 2026-10-10: Textured_12 (modelled muffler/tips, steel exhaust art, the
   // downpipe joined; 3,856-3,986 tris), converted/rx7_fd_*_t12, the shared
   // atlas once, in rx7_fd_93_t12.
-  { key: 'rx7_fd_93', obj: `${here}/converted/rx7_fd_93_t12/rx7_fd_93_t12.obj`,
-    lampsUp: `${here}/converted/rx7_fd_93_t12/rx7_fd_93_t12_up.obj`,
-    tex: `${here}/converted/rx7_fd_93_t12`, skins: /^fd_shared_512x256$/,
-    gt4LengthM: 4.280 },
-  { key: 'rx7_fd_99', obj: `${here}/converted/rx7_fd_99_t12/rx7_fd_99_t12.obj`,
-    lampsUp: `${here}/converted/rx7_fd_99_t12/rx7_fd_99_t12_up.obj`,
-    tex: `${here}/converted/rx7_fd_93_t12`, skins: /^fd_shared_512x256$/,
-    gt4LengthM: 4.280 },
-  { key: 'rx7_fd_nowing', obj: `${here}/converted/rx7_fd_nowing_t12/rx7_fd_nowing_t12.obj`,
-    lampsUp: `${here}/converted/rx7_fd_nowing_t12/rx7_fd_nowing_t12_up.obj`,
-    tex: `${here}/converted/rx7_fd_93_t12`, skins: /^fd_shared_512x256$/,
-    gt4LengthM: 4.280 },
+  // 2026-10-26: Textured_14 (pop-up housings refitted, no exposed hinge
+  // barrel, new rear optics; 9,686-9,884 tris), converted/rx7_fd_*_t14. Each
+  // spoiler now has its OWN atlas (paint shading under the wing differs), so
+  // each key carries its spoiler's DOWN sheet, copied in as fd_shared_512x256
+  // (the raised sheet differs only in 201 lid-shading texels; one sheet a
+  // shell). The body keeps the mirror inserts; the nine clear LensCover_*
+  // objects are left off (the lamp art is on the recessed backing).
+  { key: 'rx7_fd_93', obj: `${here}/converted/rx7_fd_93_t14/rx7_fd_93_t14.obj`,
+    lampsUp: `${here}/converted/rx7_fd_93_t14/rx7_fd_93_t14_up.obj`,
+    tex: `${here}/converted/rx7_fd_93_t14`, skins: /^fd_shared_512x256$/,
+    gt4LengthM: 4.280, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
+  { key: 'rx7_fd_99', obj: `${here}/converted/rx7_fd_99_t14/rx7_fd_99_t14.obj`,
+    lampsUp: `${here}/converted/rx7_fd_99_t14/rx7_fd_99_t14_up.obj`,
+    tex: `${here}/converted/rx7_fd_99_t14`, skins: /^fd_shared_512x256$/,
+    gt4LengthM: 4.280, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
+  { key: 'rx7_fd_nowing', obj: `${here}/converted/rx7_fd_nowing_t14/rx7_fd_nowing_t14.obj`,
+    lampsUp: `${here}/converted/rx7_fd_nowing_t14/rx7_fd_nowing_t14_up.obj`,
+    tex: `${here}/converted/rx7_fd_nowing_t14`, skins: /^fd_shared_512x256$/,
+    gt4LengthM: 4.280, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R'] },
 
   // The owner's Viper GTS (2026-09-25, "I added Dodge Viper model"): the GT1
   // rip rebuilt as a game asset - reflection shell gone, levelled on its
@@ -173,9 +186,11 @@ const MODELS = [
   // becomes the shell's second BODY (`lampsUp`): no wheels of its own, and the
   // DOWN body's scale, so the two coincide everywhere but the lamps.
   // 2026-10-10: revision 09 (down 3,646 / up 3,702 tris), converted/midship_coupe_v09.
-  { key: 'midship_coupe', obj: `${here}/converted/midship_coupe_v09/midship_coupe_v09.obj`,
-    lampsUp: `${here}/converted/midship_coupe_v09/midship_coupe_v09_up.obj`,
-    tex: `${here}/converted/midship_coupe_v09`, skins: /^midship_coupe_yellow_512x256$/,
+  // 2026-10-26: revision 15 (NSX_Independent_v15: down 8,588 / up 8,240 tris
+  // with the wheels; Body + four wheels only), converted/midship_coupe_v15.
+  { key: 'midship_coupe', obj: `${here}/converted/midship_coupe_v15/midship_coupe_v15.obj`,
+    lampsUp: `${here}/converted/midship_coupe_v15/midship_coupe_v15_up.obj`,
+    tex: `${here}/converted/midship_coupe_v15`, skins: /^midship_coupe_yellow_512x256$/,
     gt4LengthM: 4.430 },
   { key: 'classic_roadster', obj: `${ownerCars}/Classic_Roadster_PSX/classic_roadster.obj`,
     tex: `${ownerCars}/Classic_Roadster_PSX`, skins: /^roadster_atlas_256$/,
@@ -208,10 +223,15 @@ const MODELS = [
   // converted/hatch_83_popup_v09.
   // 2026-10-10: revision 11 (hood, fender tips, pop-up covers, brow, wells
   // and fascia corrected; 3,923 tris either way), converted/hatch_83_popup_v11.
-  { key: 'hatch_83_popup', obj: `${here}/converted/hatch_83_popup_v11/hatch_83_popup_v11.obj`,
-    lampsUp: `${here}/converted/hatch_83_popup_v11/hatch_83_popup_v11_up.obj`,
-    tex: `${here}/converted/hatch_83_popup_v11`, skins: /^hatch_83_white_black_512x256$/,
-    gt4LengthM: 4.205 },
+  // 2026-10-26: revision 15 (AE86_Independent_v15: rebuilt lamps, molded
+  // opaque colored tail plastic, mirror inserts; 9,727 tris either way),
+  // converted/hatch_83_popup_v15, atlas ae86_white_black_512x256 copied in as
+  // hatch_83_white_black_512x256. The body keeps the mirror inserts and the
+  // opaque Taillight_Lenses; the clear front Headlight_Lenses is left off.
+  { key: 'hatch_83_popup', obj: `${here}/converted/hatch_83_popup_v15/hatch_83_popup_v15.obj`,
+    lampsUp: `${here}/converted/hatch_83_popup_v15/hatch_83_popup_v15_up.obj`,
+    tex: `${here}/converted/hatch_83_popup_v15`, skins: /^hatch_83_white_black_512x256$/,
+    gt4LengthM: 4.205, parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R', 'Taillight_Lenses'] },
 
   // The owner's Hatch 76 (2026-10-06, Cars/Hatch_76_Original/Revision_02): an
   // unbadged three-door 1976 GTI-style hatch, 2,926 tris with the wheels, one
@@ -304,9 +324,16 @@ const MODELS = [
   // `lens`: the owner's lens test B (2026-10-16, R32_LensTest_v04 via
   // blend2obj.py) - the same car with recessed lamp optics and two separate
   // clear-cover objects - written beside the body as the shell's LENS VARIANT.
-  { key: 'gtr_89', obj: `${here}/converted/gtr_89/gtr_89.obj`,
-    tex: `${here}/converted/gtr_89`, skins: /^gtr_89_512x256$/, gt4LengthM: 4.545,
-    lens: `${here}/converted/gtr_89_lens/gtr_89_lens.obj` },
+  // 2026-10-26: R32_Refined_v09 (KH2 gun grey paint, recessed projector
+  // optics behind a clear front cover, crowned opaque colored rear lenses,
+  // mirror inserts; 9,970 tris), converted/gtr_89_v09, atlas R32_KH2_512x256
+  // copied in as gtr_89_512x256 (the lamp mask is unchanged). The body keeps
+  // the mirrors and the opaque ColoredLamp_Lenses; the clear Headlight_Lenses
+  // is left off. v09 has no rear clear cover, so the lens test B (the
+  // 2026-10-16 R32_LensTest_v04 body) is retired with the shell it matched.
+  { key: 'gtr_89', obj: `${here}/converted/gtr_89_v09/gtr_89_v09.obj`,
+    tex: `${here}/converted/gtr_89_v09`, skins: /^gtr_89_512x256$/, gt4LengthM: 4.545,
+    parts: ['Body', 'MirrorGlass_L', 'MirrorGlass_R', 'ColoredLamp_Lenses'] },
   { key: 'coupe_03', obj: `${here}/converted/coupe_03/coupe_03.obj`,
     tex: `${here}/converted/coupe_03`, skins: /^coupe_03_512x256$/, gt4LengthM: 4.680 },
   // 2026-10-18: R34_Bayside_Blue v05 (every R34 GT-R) and Charger_Independent
@@ -320,6 +347,13 @@ const MODELS = [
   { key: 'charger_70', obj: `${here}/converted/charger_70/charger_70.obj`,
     tex: `${here}/converted/charger_70`, skins: /^charger_70_512x256$/, gt4LengthM: 5.283,
     parts: ['Body', 'MirrorGlass_L'] },
+  // 2026-10-26: the owner's fourth-generation turbo liftback
+  // (Supra_MKIV_GlossBlack_v37: unbadged, gloss black, 10,000 tris; mirrors in
+  // the Body), on the catalog's two `97 rows of that body. GT4: 4520 mm, wb
+  // 2550. The four clear LensCover_* objects are left off.
+  { key: 'gt_liftback_97', obj: `${here}/converted/gt_liftback_97_v37/gt_liftback_97_v37.obj`,
+    tex: `${here}/converted/gt_liftback_97_v37`, skins: /^gt_liftback_97_512x256$/, gt4LengthM: 4.520,
+    parts: ['Body'] },
   { key: 'sedan_98', obj: `${here}/converted/sedan_98/sedan_98.obj`,
     tex: `${here}/converted/sedan_98`, skins: /^sedan_98_512x256$/, gt4LengthM: 4.680 },
   { key: 'fullsize_taxi', obj: `${here}/converted/fullsize_taxi/fullsize_taxi.obj`,

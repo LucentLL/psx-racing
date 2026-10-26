@@ -147,6 +147,11 @@ namespace PSXRacing
             // '69 Charger v01 (the Charger 440 R/T `70 row only).
             new Model { key = "gtr_99",           name = "Twin-Turbo Coupe 99",  region = Region.Japan,   year = 1999, body = Body.Sports, kg = 1560, handOnly = true, widthMm = 1785 },
             new Model { key = "charger_70",       name = "Muscle Coupe 70",      region = Region.America, year = 1970, body = Body.Muscle, kg = 1700, handOnly = true, widthMm = 1946 },
+            // 2026-10-26: the owner's fourth-generation turbo liftback
+            // (Supra_MKIV_GlossBlack_v37), the catalog's two `97 rows of that
+            // body (RZ, SZ-R). The pack's grand tourer keeps the older rows
+            // and the cars scored onto it.
+            new Model { key = "gt_liftback_97",   name = "GT Liftback 97",       region = Region.Japan,   year = 1997, body = Body.GT,     kg = 1474, handOnly = true, widthMm = 1810 },
         };
 
         static Dictionary<string, Model> byKey;
@@ -520,6 +525,7 @@ namespace PSXRacing
             (@"^Nissan\ SKYLINE\ GT(S|-R).*\(R32\)\ `\d\d$",            "gtr_89"),
             (@"(?i)SKYLINE\ GT-R.*\(R34\)\ `\d\d$",                   "gtr_99"),
             (@"^Dodge\ Charger\ 440\ R/T\ `70$",                         "charger_70"),
+            (@"^Toyota\ SUPRA\ (RZ|SZ-R)\ `97$",                         "gt_liftback_97"),
             (@"^Honda\ ACCORD\ Coupe\ Type\ S\ `99$",                   "coupe_03"),
             (@"^Mitsubishi\ Lancer\ Evolution\ VI\ (RS|GSR|Rally\ Car)\ `99$", "rally_sedan_99"),
             (@"^Nissan\ 240SX\ `96$",                                    "fastback_96"),

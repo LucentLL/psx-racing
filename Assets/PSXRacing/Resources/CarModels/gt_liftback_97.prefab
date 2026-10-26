@@ -1,0 +1,90 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &2776753346376943645
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 6011846318831421389}
+  - component: {fileID: 1755244825960394472}
+  m_Layer: 0
+  m_Name: gt_liftback_97
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &6011846318831421389
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2776753346376943645}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1755244825960394472
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2776753346376943645}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9003aa5af5df0914a836bf189308f6ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PSXRacing.CarModelDef
+  key: gt_liftback_97
+  displayName: GT Liftback 97
+  bodyMesh: {fileID: -2432090755550338912, guid: d631c158455e0124ab012a0957efbfa5, type: 3}
+  wheelMesh: {fileID: 4300000, guid: 59cd536219211844ca6a8c32ebb4eaec, type: 2}
+  skinMaterials:
+  - {fileID: 2100000, guid: 2dcff456f3b500b40ae1950c8ac6d7d9, type: 2}
+  skinNames:
+  - gt_liftback_97_512x256
+  wheelMaterial: {fileID: 0}
+  skinColors:
+  - {r: 0.20863575, g: 0.20344768, b: 0.1992716, a: 1}
+  bodyYaw: 180
+  bodyYOffset: -0.023426624
+  bodyZOffset: 0
+  wheelbase: 2.545067
+  trackWidth: 1.508003
+  wheelRadius: 0.31123987
+  wheelMeshScale: 0.93
+  trackRear: 1.508003
+  tyreRadiusRear: 0.33466652
+  tyreWidthRear: 0.29558897
+  lowerBodyWidth: 1.817466
+  cowlZ: 0.71906614
+  cowlY: 0.86709297
+  noseZ: 2.230441
+  roofY: 1.2516068
+  headLamp: {x: 0.51532733, y: 0.6050769, z: 1.9260787}
+  headLampNormal: {x: 0.20471853, y: -0.07585955, z: 0.9758768}
+  headLampSize: {x: 0.287728, y: 0.12609223}
+  tailLamp: {x: 0.46919525, y: 0.78876966, z: -2.0957813}
+  tailLampNormal: {x: 0.26012057, y: -0.00045381958, z: -0.965576}
+  tailLampSize: {x: 0.27379036, y: 0.09635058}
+  lampsUpMesh: {fileID: 0}
+  headLampUp: {x: 0, y: 0, z: 0}
+  headLampUpNormal: {x: 0, y: 0, z: 1}
+  headLampUpSize: {x: 0, y: 0}
+  lensBodyMesh: {fileID: 0}
+  lensHeadMesh: {fileID: 0}
+  lensTailMesh: {fileID: 0}
+  lensHeadMaterial: {fileID: 0}
+  lensTailMaterial: {fileID: 0}
+  colliderCenter: {x: 0, y: 0.70949286, z: -0.029558897}
+  colliderSize: {x: 1.778641, y: 1.0127169, z: 4.3166}
+  blobSize: {x: 2.3715215, y: 4.8364}

@@ -128,7 +128,10 @@ namespace PSXRacing.EditorTools
         /// texels make one lamp a side.</summary>
         static void CheckHead(CarModelDef def, string key, List<Vector2> head, System.Action<bool, string, object> check)
         {
-            var mesh = def.bodyMesh;
+            // Headlamps only light with the lights on, which is the RAISED body
+            // on a pop-up shell (CarLights.PopUps): closed, the same texels sit
+            // on optics folded away under the lids.
+            var mesh = def.BodyMeshFor(true);
             var v = mesh.vertices;
             var uv = mesh.uv;
             var nrm = mesh.normals;
@@ -256,21 +259,25 @@ namespace PSXRacing.EditorTools
                 }
                 if (into == null) lamps.Add(new List<Vector3> { c });
             }
-            int left = 0, right = 0;
+            // A lamp centred on the car's axis (within 5 cm) is the high-mount
+            // third stop lamp (the FD's hatch strip, the R34's wing light): one
+            // of it, not half of a pair.
+            int left = 0, right = 0, onAxis = 0;
             var where = new List<string>();
             foreach (var l in lamps)
             {
                 Vector3 m = Vector3.zero;
                 foreach (var q in l) m += q;
                 m /= l.Count;
-                if (m.x < 0f) left++; else right++;
+                if (Mathf.Abs(m.x) < 0.05f) onAxis++;
+                else if (m.x < 0f) left++; else right++;
                 where.Add($"({m.x:0.00},{m.y:0.00},{m.z:0.00})");
             }
-            string got = $"{lamps.Count} lamps, {left} left / {right} right: " + string.Join(" ", where);
+            string got = $"{lamps.Count} lamps, {left} left / {right} right / {onAxis} centre: " + string.Join(" ", where);
             if (LampsPerModel.TryGetValue(key, out int want))
                 check(lamps.Count == want && left == right, $"{key}: the map lights its {want} tail lamps and nothing else", got);
             else
-                check(lamps.Count > 0 && left == right, $"{key}: the map's lamps come in pairs", got);
+                check(lamps.Count > 0 && left == right && onAxis <= 1, $"{key}: the map's lamps come in pairs (plus at most one centre stop lamp)", got);
         }
 
         static bool InTri(Vector2 p, Vector2 a, Vector2 b, Vector2 c)
