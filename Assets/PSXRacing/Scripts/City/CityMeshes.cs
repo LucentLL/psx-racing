@@ -5296,6 +5296,45 @@ namespace PSXRacing.City
                         i = j;
                     }
 
+            // NO ISOLATED SHORT RAILS ON THE GROUND (REAL HEIGHTS round 4; the
+            // owner: "There are chunks of concrete everywhere. Randomly in
+            // highway lanes", East 12th Street's 0.6 m parapet pair, Reedy Creek
+            // Road's and Archdale Drive's 4-7 m pairs). On the measured ground a
+            // drop beside the road or a structure end's approach band switched a
+            // rail on for a few metres: a parapet block standing alone. A rail run
+            // OFF structure shorter than MinMedianRunM that ends inside the edge
+            // at both ends with nothing beside either end (the Jerseys' rule
+            // above) is not drawn - unless it stands on a retaining face (the land
+            // it holds back would end in an open edge). PSX_CITY_KEEP_SHORT=1 keeps
+            // them too.
+            if (!KeepShortBarriers && ShortRailsDropOn)
+                for (int side = -1; side <= 1; side += 2)
+                    for (int i = 1; i < n;)
+                    {
+                        var si = spanFlags[i][side];
+                        if (!si.rail) { i++; continue; }
+                        int j = i;
+                        bool anyElev = false, anyRetain = false;
+                        while (j < n && spanFlags[j][side].rail) { anyElev |= spanFlags[j].elev; anyRetain |= spanFlags[j][side].retain; j++; }
+                        bool Bare(int k) { var b = spanFlags[k][side]; return !(b.rail || b.cut || b.median || b.union || b.retain); }
+                        if (!anyElev && !anyRetain && i > 1 && j < n && Bare(i - 1) && Bare(j) && sections[j - 1].s - sections[i - 1].s < MinMedianRunM)
+                        {
+                            if (shortDropLog != null)
+                            {
+                                var sm = sections[(i + j) / 2 - 1];
+                                var pm = (side < 0 ? sm.L : sm.R) + tm.origin;
+                                shortDropLog.Add($"e{e.index} '{e.name}' cls{e.cls} rail side {side} s {sections[i - 1].s:0.0}..{sections[j - 1].s:0.0} at ({pm.x:0.0},{pm.z:0.0}) y {pm.y:0.00}");
+                            }
+                            for (int k = i; k < j; k++)
+                            {
+                                var fk = spanFlags[k]; var sk = fk[side];
+                                sk.rail = false;
+                                fk[side] = sk; spanFlags[k] = fk;
+                            }
+                        }
+                        i = j;
+                    }
+
             // THE RAIL END (leftover item 2, 2026-10-03; the owner's W 5th
             // frame: a parapet starting on its approach as a blunt concrete
             // block, its flat grey end square to the traffic). DOT practice,
@@ -7703,6 +7742,9 @@ namespace PSXRacing.City
         /// the 1V:3H back slope cannot meet the land by the section's reach
         /// (REAL HEIGHTS: no 1V:2H grass bank beside a barriered road).</summary>
         public const byte CutWhyNoBackSlope = 5;
+        /// <summary>REAL HEIGHTS round 4: isolated short rails off structure are not drawn
+        /// (PSX_CITY_KEEP_SHORT_RAILS=1 keeps them: the before).</summary>
+        public static readonly bool ShortRailsDropOn = System.Environment.GetEnvironmentVariable("PSX_CITY_KEEP_SHORT_RAILS") != "1";
         /// <summary>PSX_CITY_CUTWALL_BANK=1 keeps the 1V:2H bank there (the before-count).</summary>
         public static bool CutBankAllowed = System.Environment.GetEnvironmentVariable("PSX_CITY_CUTWALL_BANK") == "1";
         static readonly float[] CutHoldProbeM = { 1f, 2f, 3f };
@@ -9266,7 +9308,11 @@ namespace PSXRacing.City
                 float at = o.s[si] + Mathf.Sqrt(L2) * t;
                 if (o.YAt(at) >= deckY - 1.2f) continue;
                 float dist = SegRectDistance(a - p, o.pts[si + 1] - p, right, tan, hw, 0.7f);
-                if (dist <= o.HalfMax + PierClearM) return true;
+                // (REAL HEIGHTS round 4) the road's DRAWN extent there, not its nominal
+                // half width: I-277's e1483 under South Church Street is 17.6 m wide on
+                // its left (an added lane) and a pier stood in it (drive audit WALL)
+                LineModel.Extents(o, at, out float exM, out float exP);
+                if (dist <= Mathf.Max(o.HalfMax, Mathf.Max(exM, exP)) + PierClearM) return true;
             }
             // nor in a junction's paved area below the deck (leftover item 3: a
             // crossing's cluster paves the ground between the roads under I-85)

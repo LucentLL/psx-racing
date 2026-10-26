@@ -7794,3 +7794,35 @@ gore, fan - with its height).** At the round-2 spots the surface over the ramp's
 n3640 (the drawn -7.8 -> -9.2% through a two-arm node at 140 km/h, 1 cm over the limit); ramp node joints 10 vs 7;
 arterial > 0.5% 2,139 vs 1,886 (the "no curve here" junction residuals); locals > 1% 81 vs 52; Tryon p99 2.11 vs 1.79;
 e6798 (inside two hosts 0.85 m apart: either host's pavement stands over it somewhere).
+
+### REAL HEIGHTS - live hotfix, round 4 (2026-10-26 night; 7f920b1c + 85c9345c)
+
+The owner on the live real heights: "chunks of concrete everywhere", "This is not how medians work. They don't just
+start and stop. Go up and down allowing cars to drive into oncoming traffic", and a fall off I-277 through an open
+median (Uptown Loop ~1'06").
+
+**Causes found.** Structure only where OSM tags it put an approach rail band at every bridge end along I-277; the
+shared ground median (GroundTwinRuns) stopped at each band, turned down to a curb, while each carriageway stood its own
+approach rail: two walls with a ditch (MEDIAN ACROSS two+) and a low V where one ended and the others began (none).
+Where a ground run met a deck's approach run laid on the OTHER carriageway, both ends turned down (none). On the
+measured ground a drop or a structure end switched a rail on for a few metres (East 12th Street's 0.6 m pair, Reedy
+Creek Road, Archdale Drive). A pier under South Church Street stood in I-277's drawn lanes (its clearance read the
+nominal half width, not the added lane). The twins themselves read separate 3DEP sections (|dy| p95 0.31 m beside
+each other across narrow medians), so one Jersey stood high over one side and low over the other.
+
+**Changed.** The shared median runs through approach bands (`PSX_CITY_TWIN_BANDS=1` = before); a union run's end met
+by a run on the twin is continued (`PSX_CITY_TWIN_CONTINUE=0`); isolated rails under 30 m off structure are not drawn
+(`PSX_CITY_KEEP_SHORT_RAILS=1`); piers clear a road's drawn extent. `CityElevation.HoldGroundTwins` (both twins to their
+mean across a median <= 9.5 m, smoothed +-25 m, seated ramps easing it off over 30 m) takes |dy| p95 0.31 -> 0.02 m but
+regressed the gates (launch 109 -> 113, ramp node joints 10 -> 29, uptown route launches 1 -> 2): OFF by default
+(`PSX_CITY_GROUND_TWINS=1`).
+
+**Measured** (`tools\city-cycle.ps1 -DriveOnly`; main / real heights before / 85c9345c): MEDIAN ACROSS none 65 / 107 /
+43, two+ walls 577 / 631 / 409; solid across a route lane 0 / 2 / 0; INVISIBLE lanes 5 / 22 / 7; isolated short rails
+- / 63 / 24 (new SHORT RAILS census); FALL HOLES (new: a ray down every metre of the 111 route tiles against the game's
+colliders) no point without a collider; 8 off-route decks with nothing under them. Launch/census gates unchanged
+(the solve is round 3's with the hold off).
+
+**Left:** e1394's union median end in I-277 e2321's lane at the US 74 merge (WALLS IN LANES 2, BLUNT 1); route rail
+ends 3 (main 0); 7 walls across the I-277/I-77 interchange ramps' lanes (a ramp 6 m under I-277 on fill: an untagged
+crossing); the twin hold at ramp junction nodes; the junction round-4 WIP (stashed; HANDOFF.md).

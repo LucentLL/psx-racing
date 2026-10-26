@@ -167,6 +167,60 @@ namespace PSXRacing.EditorTools
                 foreach (var l in shownC) Line(l);
             }
             Check(pieces.Count == 0, $"no isolated barrier or median piece shorter than {ShortBarrierM:0} m, city-wide (short barrier census)", pieces.Count);
+            ShortRailCensus(map, trims);
+        }
+
+        /// <summary>
+        /// SHORT RAILS AND PARAPETS (REAL HEIGHTS round 4; the owner: "There
+        /// are chunks of concrete everywhere. Randomly in highway lanes,
+        /// randomly in bridges", N Davidson St's short parapet blocks standing
+        /// in the road). The census above counts only the Jersey runs of
+        /// barriered roads; a rail (a deck's parapet, an approach rail, a rail
+        /// over a drop) shorter than <see cref="ShortBarrierM"/> that starts and
+        /// ends inside its edge, touching no other barrier on that side, is a
+        /// block standing alone - on any road of the tiles built above (every
+        /// tile a barriered road crosses). Counted on structure and off it.
+        /// </summary>
+        static void ShortRailCensus(CityMap map, CityMeshes.Trims trims)
+        {
+            var rails = new Dictionary<(int edge, int side), List<(float s0, float s1)>>();
+            var other = new Dictionary<(int edge, int side), List<(float s0, float s1)>>();
+            foreach (var sp in CityMeshes.AuditView.Spans)
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    var sv = sp.Side(side);
+                    var dict = sv.rail ? rails : (sv.median || sv.cut || sv.union || sv.retain) ? other : null;
+                    if (dict == null) continue;
+                    if (!dict.TryGetValue((sp.edge, side), out var l)) dict[(sp.edge, side)] = l = new List<(float, float)>();
+                    l.Add((sp.s0, sp.s1));
+                }
+            int runs = 0, shortOn = 0, shortOff = 0; float mOn = 0f, mOff = 0f;
+            var list = new List<(float len, string what)>();
+            foreach (var kv in rails)
+            {
+                var e = map.edges[kv.Key.edge];
+                var l = kv.Value; l.Sort((a, b) => a.s0.CompareTo(b.s0));
+                float sMin = trims.atA[e.index], sMax = e.length - trims.atB[e.index];
+                other.TryGetValue(kv.Key, out var ol);
+                bool Touch(float s) { if (ol != null) foreach (var o in ol) if (s >= o.s0 - 0.3f && s <= o.s1 + 0.3f) return true; return false; }
+                int i = 0;
+                while (i < l.Count)
+                {
+                    float r0 = l[i].s0, r1 = l[i].s1; int j = i + 1;
+                    while (j < l.Count && l[j].s0 <= r1 + 0.3f) { r1 = Mathf.Max(r1, l[j].s1); j++; }
+                    i = j; runs++;
+                    float len = r1 - r0;
+                    if (len >= ShortBarrierM || r0 <= sMin + 0.5f || r1 >= sMax - 0.5f || Touch(r0) || Touch(r1)) continue;
+                    bool on = e.ElevatedAt(0.5f * (r0 + r1));
+                    if (on) { shortOn++; mOn += len; } else { shortOff++; mOff += len; }
+                    var p = e.PointAt(0.5f * (r0 + r1));
+                    list.Add((len, $"rail {len:0.0} m {(on ? "ON STRUCTURE" : "on the ground")} e{e.index} '{e.name}'{(e.link ? " L" : "")}{(e.bridge ? " B" : "")} cls{e.cls} side {(kv.Key.side < 0 ? "L" : "R")} s {r0:0.0}..{r1:0.0}/{e.length:0} (trims {sMin:0.0}/{e.length - sMax:0.0}) at ({p.x:0},{p.y:0}) {LatLon(p.x, p.y)}"));
+                }
+            }
+            list.Sort((a, b) => a.len.CompareTo(b.len));
+            Line($"SHORT RAILS / PARAPETS (round 4; the tiles above, every road): {runs} rail runs, {shortOn + shortOff} isolated under {ShortBarrierM:0} m inside their edge ({shortOn} on structure {mOn:0} m, {shortOff} on the ground {mOff:0} m)");
+            for (int k = 0; k < Mathf.Min(25, list.Count); k++) Line("    SHORT " + list[k].what);
+            Check(shortOn + shortOff == 0, $"no isolated rail or parapet piece shorter than {ShortBarrierM:0} m inside its edge (short rail census)", shortOn + shortOff);
         }
     }
 }

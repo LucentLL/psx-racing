@@ -25,14 +25,29 @@ namespace PSXRacing.EditorTools
             var map = CityMap.Get();
             if (map == null) { Debug.LogError("[MedianProbe] no city data"); return; }
             var ci = System.Globalization.CultureInfo.InvariantCulture;
-            int ei = int.Parse(System.Environment.GetEnvironmentVariable("PSX_MED_EDGE") ?? "5781", ci);
-            var e = map.edges[ei];
-            float s0 = float.Parse(System.Environment.GetEnvironmentVariable("PSX_MED_S0") ?? "0", ci);
-            float s1 = Mathf.Min(e.length, float.Parse(System.Environment.GetEnvironmentVariable("PSX_MED_S1") ?? e.length.ToString(ci), ci));
+            var sb = new StringBuilder();
             float step = float.Parse(System.Environment.GetEnvironmentVariable("PSX_MED_STEP") ?? "2", ci);
+            // (round 4) PSX_MED_EDGES="edge:s0:s1;...": several slices in one job
+            var specs = new System.Collections.Generic.List<(int ei, float s0, float s1)>();
+            foreach (var sp in (System.Environment.GetEnvironmentVariable("PSX_MED_EDGES") ?? "").Split(';'))
+            {
+                var c = sp.Split(':');
+                if (c.Length < 3) continue;
+                specs.Add((int.Parse(c[0], ci), float.Parse(c[1], ci), float.Parse(c[2], ci)));
+            }
+            if (specs.Count == 0)
+            {
+                int e0 = int.Parse(System.Environment.GetEnvironmentVariable("PSX_MED_EDGE") ?? "5781", ci);
+                specs.Add((e0, float.Parse(System.Environment.GetEnvironmentVariable("PSX_MED_S0") ?? "0", ci),
+                           float.Parse(System.Environment.GetEnvironmentVariable("PSX_MED_S1") ?? map.edges[e0].length.ToString(ci), ci)));
+            }
+            foreach (var (ei, s0in, s1in) in specs)
+            {
+            var e = map.edges[ei];
+            float s0 = s0in;
+            float s1 = Mathf.Min(e.length, s1in);
             var go = new GameObject("~medianProbe");
             var world = go.AddComponent<CityWorld>();
-            var sb = new StringBuilder();
             try
             {
                 var pm = e.PointAt(0.5f * (s0 + s1));
@@ -65,7 +80,7 @@ namespace PSXRacing.EditorTools
                     if (tw == null) { sb.AppendLine($"s={s:0.0} ({p.x:0.0},{p.y:0.0}) y {y:0.00}: no twin within 40 m"); continue; }
                     float ty = tw.YAt(qs);
                     var dir = (q - p).normalized;
-                    var line = new StringBuilder($"s={s:0.0} ({p.x:0.0},{p.y:0.0}) y {y:0.00} | twin e{tw.index} s={qs:0.0} at {bestD:0.0} m, y {ty:0.00} (dy {ty - y:+0.00;-0.00}) | surface:");
+                    var line = new StringBuilder($"e{ei} s={s:0.0} ({p.x:0.0},{p.y:0.0}) y {y:0.00}{(e.ElevatedAt(s) ? " DECK" : "")} | twin e{tw.index}{(tw.bridge ? " B" : "")} s={qs:0.0} at {bestD:0.0} m, y {ty:0.00}{(tw.ElevatedAt(qs) ? " DECK" : "")} (dy {ty - y:+0.00;-0.00}) | surface:");
                     string lastName = null;
                     for (float d = 0f; d <= bestD + 1e-3f; d += 0.5f)
                     {
@@ -93,6 +108,7 @@ namespace PSXRacing.EditorTools
                 }
             }
             finally { Object.DestroyImmediate(go); }
+            }
             string path = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "median_profile.txt");
             File.WriteAllText(path, sb.ToString());
             Debug.Log("[MedianProbe] wrote " + path);
