@@ -221,7 +221,54 @@ namespace PSXRacing.EditorTools
 
         /// <summary>A debug career mid-drive: the pause screen, or (with a
         /// tab) the settings menu open over it at that page.</summary>
-        static void ShootPause(string outDir, string label, SettingsTab? tab = null)
+        /// <summary>
+        /// The CONTROLS tab and the four WHEEL SETUP pages (2026-10-26), at the
+        /// pause sizes, with a simulated wheel set up so every row shows the
+        /// value it would on a real one - and one shot mid-capture. Also the
+        /// pause screen and GAMEPLAY, whose strips now hold five pages.
+        /// Writes Screenshots/controls/.
+        /// </summary>
+        [MenuItem("PSX Racing/Preview Controls Pages")]
+        public static void CaptureControls()
+        {
+            string outDir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "controls");
+            Directory.CreateDirectory(outDir);
+            foreach (var f in Directory.GetFiles(outDir, "*.png")) File.Delete(f);
+            string saved = PlayerPrefs.GetString("psx.wheel", "");
+            var pad = new RawPad { id = "SIM WHEEL BASE (Vendor: 346e Product: 0002)",
+                                   axes = new float[] { 0.25f, 0.2f, 1f, 0f }, buttons = new float[32] };
+            RawPads.Override = new List<RawPad> { pad };
+            try
+            {
+                WheelConfig.ResetAll();
+                var d = WheelConfig.Data;
+                d.steer = new WheelSteerBinding { dev = pad.id, index = 0, left = -1f, right = 1f, centre = 0f };
+                d.throttle = new WheelBinding { dev = pad.id, index = 1, rest = -1f, full = 1f };
+                d.brake = new WheelBinding { dev = pad.id, index = 2, rest = 1f, full = -1f };
+                d.shiftUp = new WheelBinding { dev = pad.id, index = 4, button = true };
+                d.shiftDown = new WheelBinding { dev = pad.id, index = 5, button = true };
+                d.handbrake = new WheelBinding { dev = pad.id, index = 3, rest = 0f, full = 1f };
+                ShootPause(outDir, "bench_pause");
+                ShootPause(outDir, "settings_gameplay", SettingsTab.Gameplay);
+                ShootPause(outDir, "settings_controls", SettingsTab.Controls);
+                for (int p = 0; p < WheelSetupCatalog.TabNames.Length; p++)
+                    ShootPause(outDir, "wheel_" + WheelSetupCatalog.TabNames[p].ToLowerInvariant(), SettingsTab.Controls, p);
+                WheelSetupCatalog.Capture.Begin(WheelCapture.Target.Steer);
+                ShootPause(outDir, "wheel_steer_capture", SettingsTab.Controls, 0);
+                WheelSetupCatalog.Capture.Cancel();
+            }
+            finally
+            {
+                RawPads.Override = null;
+                PlayerPrefs.SetString("psx.wheel", saved);
+                WheelConfig.ForgetCache();
+                RaceHandoff.ClearAll();
+                MenuKit.ScreenSizeOverride = Vector2.zero;
+            }
+            Debug.Log("[BenchPreview] done");
+        }
+
+        static void ShootPause(string outDir, string label, SettingsTab? tab = null, int wheelPage = -1)
         {
             foreach (var size in PauseSizes)
             {
@@ -244,6 +291,13 @@ namespace PSXRacing.EditorTools
                 build.Invoke(menu, null);
                 PauseMenu.PreviewFuelRow = false;
                 if (tab.HasValue) menu.OpenSettings(tab.Value);
+                SettingsPanel wheel = null;
+                if (wheelPage >= 0)
+                {
+                    var main = host.GetComponent<SettingsPanel>();
+                    wheel = main != null ? main.OpenSub(WheelSetupCatalog.Pages, wheelPage) : null;
+                    if (wheel != null) wheel.RefreshValues();
+                }
 
                 Repoint(cam, size.w, size.h);
                 string where = label + "/" + size.name;
@@ -283,6 +337,10 @@ namespace PSXRacing.EditorTools
                         Debug.LogError("[BenchPreview] " + where + " NO BENCH BUTTON in a debug career's SETTINGS page");
                     if (tab.Value == SettingsTab.Gameplay && !Has("Slider_STEERING"))
                         Debug.LogError("[BenchPreview] " + where + " NO CONTROLS - no STEERING slider on GAMEPLAY");
+                    if (tab.Value == SettingsTab.Controls && wheelPage < 0 && !Has("Btn_WHEEL SETUP"))
+                        Debug.LogError("[BenchPreview] " + where + " NO CONTROLS - no WHEEL SETUP row on CONTROLS");
+                    if (wheelPage >= 0 && (wheel == null || !wheel.IsOpen))
+                        Debug.LogError("[BenchPreview] " + where + " NO CONTROLS - the wheel setup page did not open");
                 }
 
                 CheckReach(host.transform, where);

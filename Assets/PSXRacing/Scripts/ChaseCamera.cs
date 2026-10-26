@@ -576,6 +576,8 @@ namespace PSXRacing
             // line. The reset lives on X/Square and Back/Share now.
             var pad = Gamepad.current;
             if (pad != null && pad.buttonNorth.wasPressedThisFrame) CycleView(1);
+            // A wheel's CAMERA button (WHEEL SETUP > BUTTONS).
+            if (WheelInput.Active && WheelInput.CameraPressed) CycleView(1);
         }
 
         const Key FirstDigit = Key.Digit1;
@@ -800,6 +802,23 @@ namespace PSXRacing
             // Composed onto the follow result, never fed back into it.
             ApplyRoll(speed);
             ApplyShake(speed);
+            ApplyLookBack();
+        }
+
+        /// <summary>
+        /// LOOK BACK, held on a wheel's button (WHEEL SETUP > BUTTONS): the
+        /// same shot turned round the car - a chase view swings to the front
+        /// looking back, a mounted view turns in its seat. Composed last and
+        /// never fed back into the follow state, like the shake, so letting
+        /// go is the old shot on the very next frame.
+        /// </summary>
+        void ApplyLookBack()
+        {
+            if (Current == View.TopDown || !WheelInput.Active || !WheelInput.LookBack) return;
+            var turn = Quaternion.AngleAxis(180f, target.up);
+            if (Current == View.Chase || Current == View.Close)
+                transform.position = target.position + turn * (transform.position - target.position);
+            transform.rotation = turn * transform.rotation;
         }
 
         /// <summary>Smoothstep wind-in of the speed rig, 0 at rest to 1 at

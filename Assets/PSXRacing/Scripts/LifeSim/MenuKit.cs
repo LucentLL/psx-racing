@@ -519,6 +519,18 @@ namespace PSXRacing.LifeSim
             t.text = cut.TrimEnd(' ', ',', ';', ':', '·', '—', '-') + "…";
         }
 
+        /// <summary>
+        /// A tab or page-door button's caption in a narrow cell (five pages on
+        /// a 4:3 column leave ~125 units a cell): down to the type floor, never
+        /// below it - the only shrink an eight-letter tab name ever needs.
+        /// </summary>
+        public static void FitTabLabel(Button b, float width)
+        {
+            var t = b != null ? b.GetComponentInChildren<Text>() : null;
+            if (t == null || t.fontSize <= MinLabelSize) return;
+            if (t.preferredWidth > width - 8f) t.fontSize = MinLabelSize;
+        }
+
         public static Button Button(Transform parent, string label, Vector2 anchor,
             Vector2 pos, Vector2 size, UnityEngine.Events.UnityAction onClick,
             int fontSize = Body, Color? bg = null)

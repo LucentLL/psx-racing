@@ -44,11 +44,17 @@ namespace PSXRacing
         /// debug bench) owns the keys.</summary>
         public System.Func<bool> blocked;
 
+        /// <summary>What this page shows: the settings menu (null) or a page
+        /// of its own over it, like the WHEEL SETUP (<see cref="OpenSub"/>).</summary>
+        public SettingsPages pages;
+        SettingsPages P => pages ?? SettingsPages.Main;
+
         public bool IsOpen { get; private set; }
         /// <summary>The frame this page closed on: B / Escape on that frame was
         /// the press that closed it, and must not also back the host out.</summary>
         public int ClosedFrame { get; private set; } = -1;
-        public SettingsTab Tab => tab;
+        public SettingsTab Tab => (SettingsTab)tab;
+        public int Page => tab;
 
         /// <summary>Over the pause menu's 200 and every front-end canvas,
         /// under the bench and CREDITS at 210, which open on top of it.</summary>
@@ -68,8 +74,9 @@ namespace PSXRacing
         Button back;
         MenuNavWatch watch;
         CreditsPanel credits;
-        SettingsTab tab;
+        int tab;
         float liveTimer;
+        SettingsPanel sub;
         internal GameObject lastSel;
         readonly List<Button> tabs = new List<Button>();
         readonly List<Selectable> rows = new List<Selectable>();
@@ -79,9 +86,11 @@ namespace PSXRacing
         static float Width => Mathf.Min(760f, MenuKit.HalfWidth * 2f - 80f);
         static float Off => Mathf.Max(0f, (MenuKit.DesignHeight - BlockH) * 0.5f);
 
-        public void Open(SettingsTab at)
+        public void Open(SettingsTab at) => OpenPage((int)at);
+
+        public void OpenPage(int at)
         {
-            if (IsOpen) { Show(at, false); return; }
+            if (IsOpen) { ShowPage(at, false); return; }
             IsOpen = true;
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
@@ -92,11 +101,11 @@ namespace PSXRacing
             foreach (var w in FindObjectsByType<MenuNavWatch>(FindObjectsInactive.Exclude))
                 if (w != null && w.enabled) { w.enabled = false; stoodDown.Add(w); }
 
-            canvas = MenuKit.Canvas(transform, "SettingsCanvas", SortOrder);
+            canvas = MenuKit.Canvas(transform, "SettingsCanvas", P.sortOrder);
             MenuKit.Panel(canvas.transform, "Backdrop", new Color(0.08f, 0.08f, 0.08f, 0.94f));
             MenuKit.GridBackdrop(canvas.transform);
             BuildChrome();
-            Show(at, false);
+            ShowPage(at, false);
         }
 
         public void Close()
@@ -105,6 +114,8 @@ namespace PSXRacing
             IsOpen = false;
             ClosedFrame = Time.frameCount;
             if (credits != null && credits.IsOpen) credits.Close();
+            if (sub != null && sub.IsOpen) sub.Close();
+            P.onClose?.Invoke();
             foreach (var w in stoodDown) if (w != null) w.enabled = true;
             stoodDown.Clear();
             if (canvas != null) Kill(canvas.gameObject);
@@ -135,11 +146,43 @@ namespace PSXRacing
             credits.Open();
         }
 
+        /// <summary>A page of its own over this one (the WHEEL SETUP): the
+        /// same rows and strip, its own list, and this page stands back while
+        /// it is up, as it does for CREDITS.</summary>
+        public SettingsPanel OpenSub(SettingsPages p, int page = 0)
+        {
+            if (!IsOpen) return null;
+            if (sub == null)
+            {
+                var go = new GameObject("SubPage");
+                go.transform.SetParent(transform, false);
+                sub = go.AddComponent<SettingsPanel>();
+                sub.onClosed = () =>
+                {
+                    if (this == null) return;
+                    if (canvas != null) canvas.gameObject.SetActive(true);
+                    Refocus();
+                };
+            }
+            sub.host = host;
+            sub.pages = p;
+            sub.OpenPage(page);
+            // One page on screen at a time: this one hides under its sub page
+            // (as the pause screen hides under this one).
+            if (sub.IsOpen && canvas != null) canvas.gameObject.SetActive(false);
+            return sub;
+        }
+
+        /// <summary>The page open over this one, if any.</summary>
+        public SettingsPanel Sub => sub != null && sub.IsOpen ? sub : null;
+
         void Update()
         {
             if (!IsOpen) return;
             if (credits != null && (credits.IsOpen || credits.ClosedFrame == Time.frameCount)) return;
+            if (sub != null && (sub.IsOpen || sub.ClosedFrame == Time.frameCount)) return;
             if (blocked != null && blocked()) return;
+            P.onTick?.Invoke(this);
 
             var kb = Keyboard.current;
             var pad = Gamepad.current;
@@ -156,7 +199,7 @@ namespace PSXRacing
             }
             if (step != 0)
             {
-                Show((SettingsTab)(((int)tab + step + TabCount) % TabCount), false);
+                ShowPage((tab + step + TabCount) % TabCount, false);
                 return;
             }
             if ((kb != null && kb.escapeKey.wasPressedThisFrame) ||
@@ -171,9 +214,14 @@ namespace PSXRacing
             // keyboard. Four times a second, on unscaled time (the pause menu
             // runs at timeScale 0).
             liveTimer += Time.unscaledDeltaTime;
-            if (liveTimer > 0.25f)
+            if (liveTimer > P.liveEvery)
             {
                 liveTimer = 0f;
+                // A page can take the help line over (a capture's instructions).
+                string over = P.helpOverride != null ? P.helpOverride() : null;
+                if (over != null) ShowHelp(over);
+                else if (helpWasOverridden) ShowHelp(lastHelp);
+                helpWasOverridden = over != null;
                 foreach (var l in live)
                 {
                     if (l.Value == null || l.Key.value == null) continue;
@@ -183,7 +231,9 @@ namespace PSXRacing
             }
         }
 
-        static int TabCount => SettingsCatalog.TabNames.Length;
+        int TabCount => P.tabNames.Length;
+        bool helpWasOverridden;
+        string lastHelp = "";
 
         // ---- layout -----------------------------------------------------------
 
@@ -191,7 +241,7 @@ namespace PSXRacing
         {
             var top = new Vector2(0.5f, 1f);
             float w = Width, off = Off;
-            var title = MenuKit.Label(canvas.transform, "OPTIONS", 34, top, new Vector2(0f, TitleY - off),
+            var title = MenuKit.Label(canvas.transform, P.title, 34, top, new Vector2(0f, TitleY - off),
                                       TextAnchor.MiddleCenter, MenuKit.Accent, 600f, 44f, bold: true);
             title.name = "Title";
 
@@ -208,12 +258,14 @@ namespace PSXRacing
             for (int i = 0; i < TabCount; i++)
             {
                 int idx = i;
+                var tabName = P.tabNames[i];
                 float x = -w * 0.5f + cell * 0.5f + i * (cell + TabGap);
-                var tb = MenuKit.Button(canvas.transform, SettingsCatalog.TabNames[i], top,
+                var tb = MenuKit.Button(canvas.transform, tabName, top,
                                         new Vector2(x, TabY - off), new Vector2(cell, TabH),
-                                        () => Show((SettingsTab)idx, true), MenuKit.Small);
-                tb.name = "Tab_" + SettingsCatalog.TabNames[i];
-                Tag(tb.gameObject, SettingsCatalog.TabBlurbs[i]);
+                                        () => ShowPage(idx, true), MenuKit.Small);
+                tb.name = "Tab_" + tabName;
+                MenuKit.FitTabLabel(tb, cell);
+                Tag(tb.gameObject, P.tabBlurbs[i]);
                 tabs.Add(tb);
             }
 
@@ -232,7 +284,7 @@ namespace PSXRacing
             back.name = "Btn_BACK";
             Tag(back.gameObject, "Back to where you came from. B, Circle or Escape does the same.");
 
-            var hint = MenuKit.Label(canvas.transform, "Q / E  ·  LB / RB  PAGES     B / ESC  BACK",
+            var hint = MenuKit.Label(canvas.transform, P.hint,
                                      MenuKit.MinLabelSize, top, new Vector2(w * 0.5f, FooterY - off),
                                      TextAnchor.MiddleRight, MenuKit.Dim, w - BackW - 30f, FooterH);
             hint.name = "Hint";
@@ -243,18 +295,21 @@ namespace PSXRacing
         /// <paramref name="cursorOnTab"/> keeps the cursor on the strip (the
         /// tab was pressed); otherwise it lands on the first row (the page was
         /// opened at this tab, or stepped to with a shoulder button).</summary>
-        public void Show(SettingsTab t, bool cursorOnTab)
+        public void Show(SettingsTab t, bool cursorOnTab) => ShowPage((int)t, cursorOnTab);
+
+        public void ShowPage(int t, bool cursorOnTab)
         {
-            tab = t;
+            tab = Mathf.Clamp(t, 0, Mathf.Max(0, TabCount - 1));
+            t = tab;
             if (!IsOpen || body == null) return;
-            for (int i = 0; i < tabs.Count; i++) MenuKit.MarkTab(tabs[i], i == (int)t);
+            for (int i = 0; i < tabs.Count; i++) MenuKit.MarkTab(tabs[i], i == t);
 
             for (int i = body.childCount - 1; i >= 0; i--) Kill(body.GetChild(i).gameObject);
             rows.Clear();
             live.Clear();
 
             float y = RowTop - Off;
-            foreach (var it in SettingsCatalog.Items(host, t, OpenCredits))
+            foreach (var it in P.items(host, t, OpenCredits))
             {
                 rows.Add(it.IsSlider ? SliderRow(it, y) : StepRow(it, y));
                 y -= RowStep;
@@ -268,21 +323,43 @@ namespace PSXRacing
             var col = new List<Selectable>(rows) { back };
             MenuNav.Row(new List<Selectable>(tabs));
             MenuNav.Column(col);
-            MenuNav.Join(new List<Selectable>(tabs), col, tabs[(int)t]);
+            MenuNav.Join(new List<Selectable>(tabs), col, tabs[t]);
             Selectable first = rows.Count > 0 ? rows[0] : (Selectable)back;
             if (watch == null) watch = MenuNav.Watch(canvas.gameObject, first);
             else watch.fallback = first;
 
-            Selectable sel = cursorOnTab ? tabs[(int)t] : first;
+            Selectable sel = cursorOnTab ? tabs[t] : first;
             lastSel = sel.gameObject;
             MenuNav.Select(sel);
             var tag = sel.GetComponent<SettingsHelpTag>();
-            ShowHelp(tag != null ? tag.text : "");
+            ShowRowHelp(tag != null ? tag.text : "");
         }
 
         internal void ShowHelp(string s)
         {
             if (help != null && help.text != s) help.text = s ?? "";
+        }
+
+        /// <summary>A row's help (not an override): what the line goes back to.</summary>
+        internal void ShowRowHelp(string s)
+        {
+            lastHelp = s ?? "";
+            if (!helpWasOverridden) ShowHelp(s);
+        }
+
+        /// <summary>Rewrite every row's value now (a capture finished).</summary>
+        public void RefreshValues()
+        {
+            string over = P.helpOverride != null ? P.helpOverride() : null;
+            if (over != null) ShowHelp(over);
+            else if (helpWasOverridden) ShowHelp(lastHelp);
+            helpWasOverridden = over != null;
+            foreach (var l in live)
+            {
+                if (l.Value == null || l.Key.value == null) continue;
+                string v = l.Key.value();
+                if (l.Value.text != v) l.Value.text = v;
+            }
         }
 
         void Tag(GameObject go, string text)
@@ -431,6 +508,36 @@ namespace PSXRacing
         }
     }
 
+    /// <summary>
+    /// What a <see cref="SettingsPanel"/> shows: its title, its strip of
+    /// pages, the rows of each, and the footer hint. <see cref="Main"/> is the
+    /// settings menu itself; the WHEEL SETUP is another (WheelSetupCatalog).
+    /// </summary>
+    public sealed class SettingsPages
+    {
+        public string title = "OPTIONS";
+        public string[] tabNames;
+        public string[] tabBlurbs;
+        public System.Func<SettingsHost, int, System.Action, List<SettingItem>> items;
+        public string hint = "Q / E  ·  LB / RB  PAGES     B / ESC  BACK";
+        public int sortOrder = SettingsPanel.SortOrder;
+        /// <summary>How often the row values are re-read, unscaled seconds.</summary>
+        public float liveEvery = 0.25f;
+        /// <summary>Every frame the page is up and has the keys.</summary>
+        public System.Action<SettingsPanel> onTick;
+        /// <summary>When it closes, whatever closed it.</summary>
+        public System.Action onClose;
+        /// <summary>Non-null: the help line says this instead of the row's blurb.</summary>
+        public System.Func<string> helpOverride;
+
+        public static readonly SettingsPages Main = new SettingsPages
+        {
+            tabNames = SettingsCatalog.TabNames,
+            tabBlurbs = SettingsCatalog.TabBlurbs,
+            items = (h, t, credits) => SettingsCatalog.Items(h, (SettingsTab)t, credits),
+        };
+    }
+
     /// <summary>Tells the settings page's help line which row the cursor or
     /// the mouse is on, and remembers it for <see cref="SettingsPanel.Refocus"/>.</summary>
     public class SettingsHelpTag : MonoBehaviour, IPointerEnterHandler, ISelectHandler
@@ -438,13 +545,13 @@ namespace PSXRacing
         public SettingsPanel panel;
         public string text;
 
-        public void OnPointerEnter(PointerEventData e) { if (panel != null) panel.ShowHelp(text); }
+        public void OnPointerEnter(PointerEventData e) { if (panel != null) panel.ShowRowHelp(text); }
 
         public void OnSelect(BaseEventData e)
         {
             if (panel == null) return;
             panel.lastSel = gameObject;
-            panel.ShowHelp(text);
+            panel.ShowRowHelp(text);
         }
     }
 }

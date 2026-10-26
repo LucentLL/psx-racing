@@ -100,7 +100,9 @@ namespace PSXRacing
             var kb = Keyboard.current;
             var pad = Gamepad.current;
             bool toggle = (kb != null && kb.escapeKey.wasPressedThisFrame) ||
-                          (pad != null && pad.startButton.wasPressedThisFrame);
+                          (pad != null && pad.startButton.wasPressedThisFrame) ||
+                          // a wheel's PAUSE button (WHEEL SETUP > BUTTONS)
+                          (WheelInput.Active && WheelInput.PausePressed);
             // B / Circle closes, matching every console menu and the LifeSim's
             // own back key. It must not OPEN the menu — buttonEast is the
             // handbrake while driving.
@@ -521,6 +523,7 @@ namespace PSXRacing
                                                 new Vector2(cell, RowH), () => OpenSettings(page),
                                                 LifeSim.MenuKit.Small);
                 pb.name = "Btn_page_" + SettingsCatalog.TabNames[i];
+                LifeSim.MenuKit.FitTabLabel(pb, cell);
                 pageBtns.Add(pb);
                 menuItems.Add(pb);
             }

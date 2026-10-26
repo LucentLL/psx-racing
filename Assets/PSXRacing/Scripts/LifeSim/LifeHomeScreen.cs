@@ -5430,10 +5430,11 @@ namespace PSXRacing.LifeSim
                     new Vector2(-total * 0.5f + cw * 0.5f + i * (cw + 10f), y), new Vector2(cw, 52f),
                     () => OpenSettings(page), MenuKit.Small);
                 b.name = "Btn_page_" + SettingsCatalog.TabNames[i];
+                MenuKit.FitTabLabel(b, cw);
             }
             y -= 66f;
-            MenuKit.Para(body, "Steering and the instruments, the picture, the sound, the screen. " +
-                "The pause menu in a drive opens the same four pages.",
+            MenuKit.Para(body, "Steering and the instruments, the wheel and rumble, the picture, the sound, the screen. " +
+                "The pause menu in a drive opens the same pages.",
                 MenuKit.MinLabelSize, new Vector2(0.5f, 1f), new Vector2(ColL, y), out float h,
                 TextAnchor.UpperLeft, MenuKit.Dim, ColW);
             y -= h + 14f;

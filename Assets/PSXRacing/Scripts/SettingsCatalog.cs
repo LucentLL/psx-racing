@@ -175,8 +175,9 @@ namespace PSXRacing
         }
     }
 
-    /// <summary>The four pages of the settings menu, in strip order.</summary>
-    public enum SettingsTab { Gameplay, Visuals, Audio, System }
+    /// <summary>The pages of the settings menu, in strip order. CONTROLS
+    /// (2026-10-26: rumble and the wheel) sits beside GAMEPLAY.</summary>
+    public enum SettingsTab { Gameplay, Controls, Visuals, Audio, System }
 
     /// <summary>
     /// One row of the settings menu. Either a STEP row (<see cref="value"/>
@@ -221,12 +222,13 @@ namespace PSXRacing
     /// </summary>
     public static class SettingsCatalog
     {
-        public static readonly string[] TabNames = { "GAMEPLAY", "VISUALS", "AUDIO", "SETTINGS" };
+        public static readonly string[] TabNames = { "GAMEPLAY", "CONTROLS", "VISUALS", "AUDIO", "SETTINGS" };
 
         /// <summary>The sentence the help line shows while a TAB is under the cursor.</summary>
         public static readonly string[] TabBlurbs =
         {
             "The camera, the steering and the instruments.",
+            "Rumble, and a steering wheel with pedals: set it up, and its force feedback.",
             "How the picture looks: resolution, textures, sky, lens and grade.",
             "How loud the game is: everything, the engines, and the rest.",
             "The screen, the frame rate, the debug tools and the credits.",
@@ -285,6 +287,24 @@ namespace PSXRacing
                 Step(SettingsTab.Gameplay, "LOOK Y", () => LookPrefs.Label,
                      "Which way the view pitches on foot. NORMAL unless you fly.",
                      () => LookPrefs.Toggle());
+
+            // ---- CONTROLS ---------------------------------------------------
+            // A pad's rumble, and the WHEEL SETUP page (WheelSetupCatalog),
+            // which the panel opens over itself.
+            Step(SettingsTab.Controls, "RUMBLE", () => RumblePrefs.Label,
+                 "The pad shakes with the engine, the kerbs, slides, hits and gear changes.",
+                 () => RumblePrefs.Toggle());
+            Slide(SettingsTab.Controls, "RUMBLE LEVEL", 0, 100 / RumblePrefs.StepPercent,
+                  () => RumblePrefs.Level / RumblePrefs.StepPercent,
+                  v => RumblePrefs.Level = v * RumblePrefs.StepPercent,
+                  v => (v * RumblePrefs.StepPercent) + "%",
+                  "How hard the pad shakes. 70% is the standard.");
+            Step(SettingsTab.Controls, "WHEEL", WheelSetupCatalog.WheelStateLabel,
+                 "Drive with a steering wheel and pedals. Set them up first, in WHEEL SETUP.",
+                 WheelSetupCatalog.ToggleWheel);
+            Step(SettingsTab.Controls, "WHEEL SETUP", () => "OPEN",
+                 "Steering, pedals, buttons and force feedback for a steering wheel.",
+                 () => WheelSetupCatalog.OpenFromSettings());
 
             // ---- VISUALS ----------------------------------------------------
             Step(SettingsTab.Visuals, "PICTURE", () => PSXQuality.Name,

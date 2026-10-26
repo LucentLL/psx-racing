@@ -830,6 +830,12 @@ namespace PSXRacing
             /// <summary>On a bridge deck (found only while decks differ from
             /// the road today: RoadSurface.BridgeMatters).</summary>
             public bool bridge;
+            /// <summary>The tyre's lateral force along the wheel's right, N,
+            /// as last applied; its slip angle (rad); and its grip circle at
+            /// this load (N). The FORCE FEEDBACK's self-aligning torque reads
+            /// these (FfbModel.SatOne). Stale while the wheel is airborne -
+            /// read them only when <see cref="grounded"/>.</summary>
+            public float latForce, slipAngle, gripCircle;
         }
 
         /// <summary>Live contact state for the four wheels, in the usual order:
@@ -2485,6 +2491,24 @@ namespace PSXRacing
             // A pulling fault (bad alignment) biases the wheels, so holding a
             // straight line costs the player constant correction. Added to the
             // TARGET, not to steerInput, so it survives a released stick.
+            if (WheelSteerLive)
+            {
+                // A STEERING WHEEL asks for an ANGLE (WheelConfig): the
+                // driver's hands are the actuator, so the speed falloff of
+                // the lock and of the rate - both there so a thumb or a key
+                // cannot flick a car into a spin - stand aside. The car's
+                // most lock (its drift lock) is still the hard stop, and the
+                // drift actuator rate is the cap, so the tyres never see a
+                // step a frame. A pulling fault still pulls.
+                float lockMax = Mathf.Max(maxSteerLowSpeedDeg, maxSteer);
+                float wheelRate = Mathf.Max(steerRateDriftDeg, steerRateDeg);
+                float want = Mathf.Clamp(wheelSteerDeg, -lockMax, lockMax);
+                steerAngleDeg = Mathf.MoveTowards(steerAngleDeg,
+                    Mathf.Clamp(want + faultSteerPull * maxSteer, -lockMax, lockMax), wheelRate * dt);
+                steerCommandDeg = Mathf.MoveTowards(steerCommandDeg, want, wheelRate * dt);
+                currentMaxSteerDeg = Mathf.Max(maxSteer, 1f);
+                return;
+            }
             float steerTarget = Mathf.Clamp(steerInput + faultSteerPull, -1f, 1f);
             steerAngleDeg = Mathf.MoveTowards(steerAngleDeg, steerTarget * maxSteer, rate * dt);
             // The same actuator, WITHOUT the fault — see SteerCommand.
@@ -2492,6 +2516,27 @@ namespace PSXRacing
                                                 Mathf.Clamp(steerInput, -1f, 1f) * maxSteer, rate * dt);
             currentMaxSteerDeg = Mathf.Max(maxSteer, 1f);
         }
+
+        /// <summary>
+        /// A steering wheel's road-wheel angle in degrees (+ = right), written
+        /// by PlayerCarInput each frame a configured wheel is driving
+        /// (<see cref="SetWheelSteer"/>). Used only while FRESH - written this
+        /// frame or the last - so a wheel unplugged, a disabled input or the
+        /// AI taking the car can never leave a stale angle on the rack.
+        /// </summary>
+        [System.NonSerialized] public float wheelSteerDeg;
+        [System.NonSerialized] int wheelSteerFrame = -10;
+
+        public void SetWheelSteer(float deg)
+        {
+            wheelSteerDeg = deg;
+            wheelSteerFrame = Time.frameCount;
+        }
+
+        public void ClearWheelSteer() => wheelSteerFrame = -10;
+
+        /// <summary>A wheel angle was written this frame or the one before.</summary>
+        public bool WheelSteerLive => Time.frameCount - wheelSteerFrame <= 1;
 
         /// <summary>Lock available this tick, for normalising <see cref="SteerCommand"/>.</summary>
         float currentMaxSteerDeg = 34f;
@@ -3822,6 +3867,9 @@ namespace PSXRacing
                         -Vector3.Dot(Physics.gravity, wheelRight) * parkShareKg
                         - vLat * ParkHoldDamp * parkShareKg, -latCap, latCap);
 
+                wheelContacts[i].latForce = fLat;
+                wheelContacts[i].slipAngle = slip;
+                wheelContacts[i].gripCircle = circle;
                 Body.AddForceAtPosition(wheelForward * fLong + wheelRight * fLat, contact);
             }
 

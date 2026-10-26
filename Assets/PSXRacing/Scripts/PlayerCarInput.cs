@@ -87,6 +87,19 @@ namespace PSXRacing
             temp = GetComponent<EngineTemp>();
         }
 
+        /// <summary>The player's car input that is live now (the rumble and
+        /// the force feedback follow it), or null.</summary>
+        public static PlayerCarInput Active { get; private set; }
+        public CarController Car => car;
+
+        void OnEnable() { Active = this; }
+
+        void OnDisable()
+        {
+            if (Active == this) Active = null;
+            if (car != null) car.ClearWheelSteer();
+        }
+
         void Start()
         {
             var touch = TouchControls.Instance;
@@ -228,6 +241,23 @@ namespace PSXRacing
                 // own timer, and RESET CAR (UNSTICK) is one tap behind MENU.
             }
 
+            // A STEERING WHEEL and its pedals (WHEEL SETUP, CONTROLS tab). The
+            // pedals and buttons add to the others like a pad's do; the
+            // steering is an ANGLE and goes its own way below.
+            float? wheelDeg = null;
+            if (WheelInput.Active)
+            {
+                throttle = Mathf.Max(throttle, WheelInput.Throttle);
+                brake = Mathf.Max(brake, WheelInput.Brake);
+                handbrake |= WheelInput.Handbrake;
+                if (WheelInput.ShiftUpPressed) ShiftBy(1);
+                if (WheelInput.ShiftDownPressed) ShiftBy(-1);
+                // Same gates as R and pad X above.
+                if (WheelInput.ResetPressed && inputEnabled && !DriveSession.ResultsUp)
+                    DriveSession.Respawn(car);
+                wheelDeg = WheelInput.RoadDegrees(car);
+            }
+
             // THE GAME HAS THE CONTROLS: coast to a stop, then PARK.
             //
             // It used to hold 30% of pedal and no lever, which is a car being
@@ -248,6 +278,7 @@ namespace PSXRacing
             {
                 kbSteer = 0f; analogSteer = null; throttle = 0f; brake = 0.3f;
                 handbrake = Mathf.Abs(car.forwardSpeed) < 1f;
+                wheelDeg = null;
             }
 
             // Three things take the throttle off the player, and all of them
@@ -269,7 +300,37 @@ namespace PSXRacing
             if (temp != null && temp.Seized) throttle = 0f;
             if (GasPump.Fuelling) { throttle = 0f; handbrake = true; }
 
-            if (ScriptedSteer.HasValue) analogSteer = ScriptedSteer.Value;
+            if (ScriptedSteer.HasValue) { analogSteer = ScriptedSteer.Value; wheelDeg = null; }
+
+            // The wheel steers unless the keys, a stick or the touch wheel are
+            // being used THIS frame: a wheel at rest reads dead centre, and
+            // must not hold the car straight against a player on the arrows.
+            if (wheelDeg.HasValue && !analogSteer.HasValue && kbSteer == 0f)
+            {
+                float lowLock = Mathf.Max(1f, car.maxSteerLowSpeedDeg);
+                if (WheelConfig.Data.speedLock)
+                {
+                    // SPEED LOCK on: the wheel as a full-travel analog control,
+                    // through the car's own speed-sensitive lock (the assist
+                    // the pad and the keys get) - and still no expo, no unwind
+                    // and no STEERING SENSITIVITY.
+                    steerAxis = Mathf.Clamp(wheelDeg.Value / lowLock, -1f, 1f);
+                    car.ClearWheelSteer();
+                }
+                else
+                {
+                    car.SetWheelSteer(wheelDeg.Value);
+                    steerAxis = Mathf.Clamp(wheelDeg.Value / Mathf.Max(1f, car.CurrentMaxSteerDeg), -1f, 1f);
+                }
+                car.steerInput = steerAxis;
+                car.throttleInput = throttle;
+                car.brakeInput = brake;
+                car.handbrakeInput = handbrake;
+                if (touch != null && touch.Visible)
+                    touch.ReflectState(steerAxis, throttle, brake, car.currentGear);
+                return;
+            }
+            car.ClearWheelSteer();
 
             if (analogSteer.HasValue)
             {
