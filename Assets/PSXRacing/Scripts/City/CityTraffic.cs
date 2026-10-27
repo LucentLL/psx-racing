@@ -320,9 +320,14 @@ namespace PSXRacing.City
         //  Start
         // ======================================================================
         /// <summary>Called by CityMode.Start in free roam (never in a race).</summary>
+        /// <summary>The live site's switch while the default is OFF: the page
+        /// opened with ?traffic=1 (the owner's look before it ships on).</summary>
+        static bool UrlAsks() =>
+            !Application.isEditor && (Application.absoluteURL ?? "").Contains("traffic=1");
+
         public static void Attach(CityMode mode)
         {
-            if (!Enabled || Instance != null || mode == null || mode.IsRace || mode.player == null ||
+            if (!(Enabled || UrlAsks()) || Instance != null || mode == null || mode.IsRace || mode.player == null ||
                 mode.world == null || mode.world.Map == null) return;
             var go = new GameObject("CityTraffic");
             Instance = go.AddComponent<CityTraffic>();
