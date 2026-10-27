@@ -62,7 +62,7 @@ namespace PSXRacing.EditorTools
             // (a sandbox's build list can belong to another edition).
             string scene = null;
             string id = null;
-            foreach (var v in new[] { "DragQuarter", "HarborPoint", "RidgePass", "CityCircuit" })
+            foreach (var v in new[] { "BlueRidge", "GillespieGap", "BlowingRock", "BeechGap" })
             {
                 // By ABSOLUTE path: a watched (windowed) editor's working
                 // directory is not the project, and a relative File.Exists
