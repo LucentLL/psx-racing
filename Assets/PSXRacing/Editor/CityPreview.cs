@@ -322,8 +322,11 @@ namespace PSXRacing.EditorTools
                 var f = item.Split(':');
                 if (f.Length < 6) continue;
                 float x = float.Parse(f[2], ci), z = float.Parse(f[3], ci), k = float.Parse(f[5], ci);
-                yield return f[1].Trim() == "top" ? Top(f[0].Trim(), "custom", x, z, f[4], k, "custom top " + item)
-                                                 : Eye(f[0].Trim(), "custom", x, z, f[4], k, "custom eye " + item);
+                var nv = f[1].Trim() == "top" ? Top(f[0].Trim(), "custom", x, z, f[4], k, "custom top " + item)
+                                              : Eye(f[0].Trim(), "custom", x, z, f[4], k, "custom eye " + item);
+                // (round 7) an eye's 7th field: metres over the 1.2 m eye (the chase camera's height)
+                if (f.Length >= 7 && nv.kind == ViewKind.Eye) nv.rise = float.Parse(f[6], ci);
+                yield return nv;
             }
         }
 

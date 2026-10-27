@@ -102,6 +102,55 @@ namespace PSXRacing.EditorTools
             Debug.Log("[RealHeights] median look done");
         }
 
+        /// <summary>REAL HEIGHTS round 7 (the owner's medians that "go up and down"): the
+        /// PSX_PREVIEW_CUSTOM views and the twin report on two solves - the ground-twin
+        /// hold OFF (_off) and ON (_on, PSX_CITY_TWIN_* as set) - with the PSX_SPOTS plans
+        /// on the first, and twin_spots.txt (CityElevation.GroundTwinSpotDiag) on the second.
+        /// PSX_LOOK_PASSES=off|on|both (default both).
+        /// -executeMethod PSXRacing.EditorTools.CityRealHeights.RunMedianLookAB</summary>
+        public static void RunMedianLookAB()
+        {
+            string root = Directory.GetParent(Application.dataPath).FullName;
+            string shots = Path.Combine(root, "Screenshots", "City");
+            var names = new System.Collections.Generic.List<string>();
+            foreach (var item in (System.Environment.GetEnvironmentVariable("PSX_PREVIEW_CUSTOM") ?? "").Split(';'))
+                if (item.Contains(":")) names.Add(item.Split(':')[0].Trim());
+            string passes = System.Environment.GetEnvironmentVariable("PSX_LOOK_PASSES") ?? "both";
+            var map = CityMap.Get();
+            if (map == null) return;
+            bool keep = CityElevation.GroundTwinsOn;
+            var keep7 = CityMeshes.Round7Flags();
+            // PSX_LOOK_AB=round7: the A/B is round 7's median fixes (CityMeshes.SetRound7), the hold as set
+            bool abJersey = System.Environment.GetEnvironmentVariable("PSX_LOOK_AB") == "round7";
+            var rep = new StringBuilder();
+            try
+            {
+                foreach (bool on in new[] { false, true })
+                {
+                    if ((on && passes == "off") || (!on && passes == "on")) continue;
+                    if (abJersey) CityMeshes.SetRound7(on); else CityElevation.GroundTwinsOn = on;
+                    CityElevation.Solve(map);
+                    rep.Append($"== {(abJersey ? "round 7 medians" : "hold")} {(on ? "ON" : "OFF")}\n{CityElevation.GroundTwinReport}\n{CityElevation.GroundTwinSpotDiag}\n");
+                    if (!string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable("PSX_SPOTS")) && (!on || passes == "on"))
+                        try { MedianProfileProbe.Spots(); } catch (System.Exception ex) { Debug.LogWarning("[RealHeights] spot probe: " + ex.Message); }
+                    var t0 = System.DateTime.Now.AddSeconds(-2);
+                    CityPreview.Run();
+                    if (!Directory.Exists(shots)) continue;
+                    foreach (var f in Directory.GetFiles(shots, "*.png"))
+                    {
+                        string b = Path.GetFileNameWithoutExtension(f);
+                        if (b.EndsWith("_off") || b.EndsWith("_on") || File.GetLastWriteTime(f) < t0) continue;
+                        bool mine = false; foreach (var n in names) if (b == n) { mine = true; break; }
+                        if (!mine) continue;
+                        File.Copy(f, Path.Combine(shots, b + (on ? "_on" : "_off") + ".png"), true);
+                    }
+                }
+            }
+            finally { CityElevation.GroundTwinsOn = keep; CityMeshes.SetRound7Flags(keep7); }
+            File.WriteAllText(Path.Combine(root, "twin_spots.txt"), rep.ToString());
+            Debug.Log("[RealHeights] median look A/B done");
+        }
+
         /// <summary>REAL HEIGHTS junction surfaces + retaining walls: the
         /// PSX_PREVIEW_CUSTOM views on the measured solve, BEFORE (each fan
         /// from its arms' own heights, the buried-arm ease straight, a cut with

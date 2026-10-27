@@ -4928,6 +4928,8 @@ namespace PSXRacing.City
         public static bool GroundTwinHostKeep = System.Environment.GetEnvironmentVariable("PSX_CITY_TWIN_HOSTKEEP") == "1";
         public static string GroundTwinReport { get; private set; } = "";
         public static string GroundTwinDyReport { get; private set; } = "";
+        /// <summary>(round 7) The hold's stations at the owner's spots still over 5 cm, and what keeps each side.</summary>
+        public static string GroundTwinSpotDiag { get; private set; } = "";
         /// <summary>The owner's spots (round 6 median-step gate): the twin |dy| within
         /// <see cref="GroundTwinSpotR"/> of each, before -> after.</summary>
         static readonly (string name, Vector2 p)[] GroundTwinSpots =
@@ -4935,6 +4937,9 @@ namespace PSXRacing.City
             ("uptown 1'06\" I-277 at the US 74 merge", new Vector2(-1352f, 3929f)),
             ("uptown 3'06\" I-277 by I-77", new Vector2(-3773f, 4455f)),
             ("uptown 4'06\" I-77", new Vector2(-3877f, 4960f)),
+            // (round 7) the owner's frames placed from their minimaps (north-up): stopped by the e2029 deck, and on I-77 by e15241
+            ("uptown 2'57\"-3'17\" I-277 at e2029", new Vector2(-3890f, 4461f)),
+            ("uptown 4'06\" I-77 at e1885", new Vector2(-3845f, 5085f)),
         };
         const float GroundTwinSpotR = 150f;
         static void HoldGroundTwins(CityMap map)
@@ -5376,6 +5381,46 @@ namespace PSXRacing.City
             var spotAfter = new float[GroundTwinSpots.Length];
             var after = Measure(spotAfter);
             GroundTwinDyReport = DyReport(before, after, spotBefore, spotAfter);
+            // (round 7) WHY a spot keeps its step: every measured station within an
+            // owner's spot still over 5 cm after the hold, and what keeps each side
+            string Why(CityMap.Edge o, int j)
+            {
+                if (!hold.Contains(o.index)) return "not held";
+                var w = new System.Text.StringBuilder();
+                if (o.SeatedAt(j)) w.Append("seated ");
+                if (DeckPairs.DeckAt(o.index, o.stS[j])) w.Append("deck ");
+                if (j == 0 && Junction(o.a)) w.Append("junction-a ");
+                if (j == o.stS.Length - 1 && Junction(o.b)) w.Append("junction-b ");
+                if (zoneKeep.TryGetValue(o.index, out var zk) && zk[j]) w.Append("zone ");
+                w.Append($"free {(free.TryGetValue(o.index, out var fa) ? fa[j] : -1f):0.00} moved {(delta.TryGetValue(o.index, out var da) ? da[j] : 0f):+0.00;-0.00}");
+                return w.ToString();
+            }
+            var diag = new System.Text.StringBuilder();
+            foreach (var kv in byName)
+            {
+                if (kv.Value.Count < 2) continue;
+                foreach (var e in kv.Value)
+                {
+                    if (e.bridge) continue;
+                    for (int i = 1; i + 1 < e.stS.Length; i++)
+                    {
+                        if (DeckPairs.DeckAt(e.index, e.stS[i])) continue;
+                        var p = e.PointAt(e.stS[i]);
+                        int sk = -1;
+                        for (int k = 0; k < GroundTwinSpots.Length; k++)
+                            if ((p - GroundTwinSpots[k].p).sqrMagnitude < GroundTwinSpotR * GroundTwinSpotR) sk = k;
+                        if (sk < 0) continue;
+                        var o = TwinOf(e, p, e.TangentAt(e.stS[i]), out float at);
+                        if (o == null) continue;
+                        float dy = o.YAt(at) - e.stY[i];
+                        if (Mathf.Abs(dy) <= 0.05f) continue;
+                        int j = 0; while (j + 2 < o.stS.Length && o.stS[j + 1] <= at) j++;
+                        if (at - o.stS[j] > 0.5f * (o.stS[j + 1] - o.stS[j])) j++;
+                        diag.Append($"  {GroundTwinSpots[sk].name}: e{e.index} st{i} s {e.stS[i]:0} ({p.x:0},{p.y:0}) dy {dy:+0.00;-0.00} | self {Why(e, i)} | twin e{o.index} s {at:0} st{j} {Why(o, j)}\n");
+                    }
+                }
+            }
+            GroundTwinSpotDiag = diag.ToString();
             GroundTwinReport = GroundTwinDyReport + $"; ground twins (narrow medians, one height; round 6 chains): {chains.Count} chains, {moved} stations moved (up to {maxMove:0.00} m), {nodes} two-arm nodes with them, {zoneStations} merge/diverge zone stations kept, {seatsMoved} branch stations followed; {left} station checks left apart (more than {GroundTwinMaxDyM} m: two levels, worst {worstLeft:0.00} m)";
         }
 
