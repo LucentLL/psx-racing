@@ -45,14 +45,20 @@ namespace PSXRacing.City
     /// 03:00, the cap at 08:00 and 17:00), born 140-380 m from the player out
     /// of the camera's view, on roads weighted by class and lanes (freeways and
     /// arterials busier than locals), recycled past 480 m. Cap 48 desktop, 24
-    /// phone. PSX_CITY_TRAFFIC=0 (or <see cref="Enabled"/> = false) turns it off.
+    /// phone. OFF by default for now (<see cref="DefaultOn"/>); PSX_CITY_TRAFFIC=1/0 or <see cref="Enabled"/> overrides.
     /// </summary>
     public class CityTraffic : MonoBehaviour
     {
         public static CityTraffic Instance { get; private set; }
 
-        /// <summary>The switch: PSX_CITY_TRAFFIC=0 keeps free roam empty.</summary>
-        public static bool Enabled = System.Environment.GetEnvironmentVariable("PSX_CITY_TRAFFIC") != "0";
+        /// <summary>THE DEFAULT (2026-10-26 skeleton): OFF until it has had an
+        /// owner look and a phone measurement - flip to true to ship it.</summary>
+        public const bool DefaultOn = false;
+        /// <summary>The switch: PSX_CITY_TRAFFIC=1 / =0 in the environment
+        /// overrides the default; a tool sets it before the scene starts
+        /// (CityTrafficCheck does).</summary>
+        public static bool Enabled = System.Environment.GetEnvironmentVariable("PSX_CITY_TRAFFIC") is string v && v.Length > 0
+            ? v != "0" : DefaultOn;
         /// <summary>Tools: the clock hour the density reads (negative: the
         /// hour the scene runs at).</summary>
         public static float ClockOverride = -1f;
