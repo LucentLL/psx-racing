@@ -233,7 +233,7 @@ namespace PSXRacing.City
         byte[] lanesF, lanesB, slots, offF;
         float[] limitMps, spawnW;
         bool[] routable;
-        int[] degree, nodeJunction;
+        int[] degree, nodeJunction, majorA, majorB;
         float maxSpawnW;
 
         struct App { public int junction; public bool signal, allWay; public float sStop; public byte group; }
@@ -469,6 +469,13 @@ namespace PSXRacing.City
                 spawnW[i] = w;
                 maxSpawnW = Mathf.Max(maxSpawnW, w);
             }
+            // the major road through every unsigned junction (CtlAt)
+            majorA = new int[nn]; majorB = new int[nn];
+            for (int i = 0; i < nn; i++)
+            {
+                majorA[i] = majorB[i] = -1;
+                if (degree[i] >= 3) MajorAt(i, out majorA[i], out majorB[i]);
+            }
             // the controls: every approach CitySignals stands a signal head or a STOP sign on
             nodeJunction = new int[nn];
             for (int i = 0; i < nn; i++) nodeJunction[i] = -1;
@@ -607,22 +614,72 @@ namespace PSXRacing.City
             app = -1;
             int n = dir > 0 ? e.b : e.a;
             if (degree[n] < 3 || nodeJunction[n] >= 0 || trims.mitre[n] || trims.Internal(e.index)) return CtlNone;
-            int mine = Rank(e), top = -1, topCls = -1;
+            int topCls = -1;
             foreach (int ei in map.nodeEdges[n])
             {
                 if (ei == e.index) continue;
                 var o = map.edges[ei];
                 if (o.a == o.b) continue;
-                top = Mathf.Max(top, Rank(o));
                 topCls = Mathf.Max(topCls, o.link ? 0 : o.cls);
             }
-            // the minor road yields; two of one rank both do (the car from the
-            // right goes first, CanGo)
-            if (mine <= top && !(e.link && topCls >= 4)) return CtlYield;
-            return CtlNone;
+            // a ramp at the freeway: the merge's own rules
+            if (e.link && topCls >= 4) return CtlNone;
+            // THE MAJOR ROAD has the way (MajorAt). 2026-10-29: before, an arm
+            // yielded to ANY other arm of its own rank - so a through street
+            // yielded to its own continuation, and an arterial gave way to a
+            // side street on its right at every unsigned T. Everyone else
+            // yields; where no one road goes through (two equal roads
+            // crossing) all yield, the car on the right first (CanGo).
+            return majorA[n] == e.index || majorB[n] == e.index ? CtlNone : CtlYield;
+        }
+
+        /// <summary>The major road through an unsigned junction: the two arms
+        /// that carry on from each other (within 40 deg) with the highest rank
+        /// between them, one of them of the node's top rank; else the single
+        /// arm of the top rank. None (-1) where that is ambiguous: two through
+        /// pairs of one rank (equal roads crossing), or several top-rank arms
+        /// and no straight pair.</summary>
+        void MajorAt(int n, out int m1, out int m2)
+        {
+            m1 = m2 = -1;
+            var arms = map.nodeEdges[n];
+            int top = -1, topN = 0, topArm = -1;
+            foreach (int ei in arms)
+            {
+                var e = map.edges[ei];
+                if (e.a == e.b || !routable[ei]) continue;
+                int r = Rank(e);
+                if (r > top) { top = r; topN = 1; topArm = ei; }
+                else if (r == top) topN++;
+            }
+            if (top < 0) return;
+            int bestSum = -1, pairs = 0;
+            float bestAng = 999f;
+            for (int i = 0; i < arms.Count; i++)
+            {
+                var a = map.edges[arms[i]];
+                if (a.a == a.b || !routable[arms[i]]) continue;
+                for (int j = i + 1; j < arms.Count; j++)
+                {
+                    var b = map.edges[arms[j]];
+                    if (arms[j] == arms[i] || b.a == b.b || !routable[arms[j]]) continue;
+                    if (Rank(a) != top && Rank(b) != top) continue;
+                    float ang = Vector2.Angle(-ArmOut(a, n), ArmOut(b, n));
+                    if (ang > 40f) continue;
+                    int sum = Rank(a) + Rank(b);
+                    if (sum > bestSum) { bestSum = sum; pairs = 1; bestAng = ang; m1 = arms[i]; m2 = arms[j]; }
+                    else if (sum == bestSum) { pairs++; if (ang < bestAng) { bestAng = ang; m1 = arms[i]; m2 = arms[j]; } }
+                }
+            }
+            if (pairs == 1) return;
+            m1 = m2 = -1;
+            if (pairs == 0 && topN == 1) m1 = topArm;
         }
 
         static int Rank(CityMap.Edge e) => e.link ? 2 : e.cls * 2 + 1;
+
+        /// <summary>The way out of node n along edge e.</summary>
+        static Vector2 ArmOut(CityMap.Edge e, int n) => e.a == n ? e.TangentAt(0f) : -e.TangentAt(e.length);
 
         float Remaining(Car c)
         {
