@@ -40,7 +40,7 @@ namespace PSXRacing.City
         public static readonly NightCrown[] NightCrowns =
         {
             new NightCrown(1,  LedWarmWhite, false, "spired crown tower: the crown's rods and needle floodlit"),
-            new NightCrown(2,  LedBlue,      true,  "open-frame tower: the LED-lit crown structure"),
+            new NightCrown(2,  LedBlue,      true,  "open-frame tower: LED lines up its corners and along its crown frame, never a wash"),
             new NightCrown(3,  LedCoolWhite, false, "silver crown tower: the lantern lit white"),
             new NightCrown(4,  LedWarmWhite, false, "curved-top tower: the curved top floodlit"),
             new NightCrown(5,  LedWarmWhite, false, "pyramid-top tower: the copper top floodlit"),

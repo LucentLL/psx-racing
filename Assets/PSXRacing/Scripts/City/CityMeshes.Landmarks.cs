@@ -474,24 +474,41 @@ namespace PSXRacing.City
         }
 
         /// <summary>
-        /// C2 THE OPEN-FRAME TOWER. The shaft and its sloped glass top are
-        /// OSM's; the crown's concrete pieces (sloped side panels, posts, the
-        /// bridge across the top) are drawn as mapped, solid white, round
-        /// OSM's two glass slopes (2026-10-12; the braced cage is gone).
+        /// C2 THE OPEN-FRAME TOWER. The shaft and its sloped glass tops are
+        /// OSM's; so is the crown's frame, drawn as mapped round them
+        /// (2026-10-12; the braced cage is gone): each face's glass runs on
+        /// up to the sloped white member along its top edge, and the bridge
+        /// across the top, its two short posts and the ridge beam over them
+        /// are white, with the sky through the openings between (2026-10-29).
         /// </summary>
         static void HeroOpenFrame(CityMap map, TileMeshes tm, int hero, CityMap.Footprint f, float floor)
         {
             // 2026-10-12, the owner ("I live in Charlotte and I've never seen
             // this"): the first cut threw OSM's crown pieces away and drew an
             // invented braced cage that read as scaffolding. The real crown
-            // is what OSM maps - two glass slopes (kept, drawn as glass) in a
-            // frame of white concrete: sloped side panels, posts and a bridge
-            // across the top at 218-220 m. Those pieces are drawn here as
-            // they are mapped, solid white, their tops following each piece's
-            // own skillion (roof:direction).
+            // is what OSM maps: two glass slopes in a frame of white concrete
+            // - a sloped piece along the top of each face, posts, a bridge
+            // across the top at 218-220 m, a ridge beam at 230-240 m.
+            // 2026-10-29, the owner on his photographs ("a strange glass/light
+            // layer in triangles on top"): the sloped pieces were drawn SOLID
+            // WHITE, so each face carried a white triangle from 180 m up to
+            // its top edge, and after dark the crown wash lit them as one
+            // big blue triangle. OSM tags them otherwise: their walls the
+            // tower's glass (building:colour = the shaft's), only their tops
+            // white (roof:colour) - and the real faces are glass right up to
+            // a white edge, sky through the frame above the glass slopes. So
+            // a piece coloured like its tower's glass wears the shaft's own
+            // facade, storeys and all, and only its sloped top is white. Its
+            // glass twin (OSM maps each face's top twice: as glass and as
+            // concrete on the same plan, a metre or so over it) is that same
+            // glass, drawn once as the concrete piece's walls (two copies of
+            // one wall fought in depth). Nothing here is floodlit: the real
+            // crown is outlined in LED lines after dark (CityBeacons, the
+            // NightCrowns strips flag), not washed.
             var fs = map.footprints;
+            var glass = Bucket.Tint;   // the shaft's own facade (PickFacade), before the white
             HeroTint(HeroMetalCol, false, 0.93f, 0.94f, 0.95f);
-            FacadeCrown(true);   // the uptown night pass: the real crown is LED-lit at night
+            var white = Bucket.Tint;
             HeroNoCollide(true);
             foreach (int pi in heroDropped[hero])
             {
@@ -499,6 +516,8 @@ namespace PSXRacing.City
                 var pts = p.pts;
                 int n = pts.Length;
                 if (n < 3) continue;
+                if (p.mat == 1 && FrameTwinOf(fs, hero, pi)) continue;
+                bool glassWalls = p.mat == 1 || (p.colour.a == 255 && f.colour.a == 255 && p.colour.r == f.colour.r && p.colour.g == f.colour.g && p.colour.b == f.colour.b);
                 float y0 = floor + p.minH, top = floor + p.h;
                 float rise = p.roof == 4 ? Mathf.Clamp(p.roofH, 0f, top - y0) : 0f;
                 Vector2 dir = p.roofDir >= 0
@@ -508,21 +527,85 @@ namespace PSXRacing.City
                 foreach (var q in pts) { float sp = Vector2.Dot(q, dir); s0 = Mathf.Min(s0, sp); s1 = Mathf.Max(s1, sp); }
                 float span = Mathf.Max(0.5f, s1 - s0);
                 float YAt(Vector2 q) => top - rise * (Vector2.Dot(q, dir) - s0) / span;
-                Vector2 cen = Vector2.zero;
-                foreach (var q in pts) cen += q;
-                cen /= n;
+                Bucket.Tint = glassWalls ? glass : white;
                 for (int i = 0; i < n; i++)
                 {
                     var a = pts[i]; var c = pts[(i + 1) % n];
                     var d = c - a;
                     if (d.sqrMagnitude < 0.01f) continue;
+                    float ya = YAt(a), yc = YAt(c);
+                    if (ya < y0 + 0.02f && yc < y0 + 0.02f) continue;   // the slope down to its floor: no wall
                     var nrm = new Vector3(d.y, 0f, -d.x);
-                    HeroQuad(tm, W3(a, y0), W3(c, y0), W3(c, YAt(c)), W3(a, YAt(a)), nrm, HeroMetalUV);
-                    HeroTri(tm, W3(cen, YAt(cen)), W3(a, YAt(a)), W3(c, YAt(c)), Vector3.up, HeroMetalUV);
-                    if (p.minH > 1f) HeroTri(tm, W3(cen, y0), W3(a, y0), W3(c, y0), Vector3.down, HeroMetalUV);
+                    if (glassWalls) FrameGlassWall(tm, a, c, y0, ya, yc, nrm);
+                    else HeroQuad(tm, W3(a, y0), W3(c, y0), W3(c, yc), W3(a, ya), nrm, HeroMetalUV);
                 }
+                // the top (earcut: a thin wedge's fan from its middle strayed
+                // outside it), white unless the piece is glass through
+                Bucket.Tint = p.mat == 1 ? glass : white;
+                FrameCap(tm, pts, YAt, p.mat == 1, true);
+                Bucket.Tint = white;
+                if (p.minH > 1f) FrameCap(tm, pts, q => y0, false, false);
             }
             HeroNoCollide(false);
+        }
+
+        /// <summary>A thin glass crown piece of the open frame that OSM maps
+        /// again as concrete on the same plan (its twin, which draws it).</summary>
+        static bool FrameTwinOf(CityMap.Footprint[] fs, int hero, int pi)
+        {
+            var p = fs[pi];
+            var c = Centroid(p.pts);
+            float area = 4f * p.hu * p.hv;
+            foreach (int qi in heroDropped[hero])
+            {
+                var q = fs[qi];
+                if (qi == pi || q.mat == 1 || q.pts.Length < 3) continue;
+                if ((Centroid(q.pts) - c).sqrMagnitude < 4f && Mathf.Abs(4f * q.hu * q.hv - area) < 0.3f * area) return true;
+            }
+            return false;
+        }
+
+        /// <summary>The tower's glass carried up a frame piece's wall: the
+        /// shaft's own facade (the tint the caller set), storeys counted from
+        /// its ground floor, the top sloping with the piece's.</summary>
+        static void FrameGlassWall(TileMeshes tm, Vector2 a, Vector2 c, float y0, float ya, float yc, Vector3 facing)
+        {
+            var lk = FacadeLooks[facLook];
+            float rep = Mathf.Max(0.5f, facFloorH * lk.floors);
+            float ur = Mathf.Max(1f, Mathf.Round(Vector2.Distance(a, c) / lk.uM));
+            float v0 = (y0 - facBase) / rep;
+            buckets[(int)Slot.FacadeGlass].Face(Lw(tm, W3(a, y0)), Lw(tm, W3(a, ya)), Lw(tm, W3(c, yc)), Lw(tm, W3(c, y0)), facing,
+                new Vector2(0f, v0), new Vector2(0f, (ya - facBase) / rep), new Vector2(ur, (yc - facBase) / rep), new Vector2(ur, v0));
+        }
+
+        /// <summary>A frame piece's top (<paramref name="up"/>) or floor, each
+        /// corner at <paramref name="yAt"/>: the white member's one texel, or
+        /// the shaft's facade (<paramref name="facade"/>, a glass piece's top).
+        /// Earcut through the flat-roof bucket's scratch.</summary>
+        static void FrameCap(TileMeshes tm, Vector2[] pts, System.Func<Vector2, float> yAt, bool facade, bool up)
+        {
+            var rf = buckets[(int)Slot.RoofFlat];
+            int v0 = rf.v.Count, t0 = rf.t.Count;
+            heroPts.Clear();
+            heroPts.AddRange(pts);
+            EarcutInto(rf, heroPts, 0f, tm.origin, RoofFlatM);
+            var lk = FacadeLooks[facLook];
+            float rep = Mathf.Max(0.5f, facFloorH * lk.floors);
+            Vector2 UvOf(Vector2 q, float y) => facade ? new Vector2((q.x + q.y) / lk.uM, (y - facBase) / rep) : HeroMetalUV;
+            for (int j = t0; j + 2 < rf.t.Count; j += 3)
+            {
+                Vector3 la = rf.v[rf.t[j]], lb = rf.v[rf.t[j + 1]], lc = rf.v[rf.t[j + 2]];
+                Vector2 qa = new Vector2(la.x + tm.origin.x, la.z + tm.origin.z), qb = new Vector2(lb.x + tm.origin.x, lb.z + tm.origin.z), qc = new Vector2(lc.x + tm.origin.x, lc.z + tm.origin.z);
+                float ya = yAt(qa), yb = yAt(qb), yc = yAt(qc);
+                Vector3 a = Lw(tm, W3(qa, ya)), b = Lw(tm, W3(qb, yb)), c = Lw(tm, W3(qc, yc));
+                var bk = buckets[(int)Slot.FacadeGlass];
+                bool faces = Vector3.Dot(Vector3.Cross(c - a, b - a), up ? Vector3.up : Vector3.down) >= 0f;
+                if (faces) bk.Tri(a, b, c, UvOf(qa, ya), UvOf(qb, yb), UvOf(qc, yc));
+                else bk.Tri(a, c, b, UvOf(qa, ya), UvOf(qc, yc), UvOf(qb, yb));
+            }
+            rf.t.RemoveRange(t0, rf.t.Count - t0);
+            rf.v.RemoveRange(v0, rf.v.Count - v0);
+            rf.uv.RemoveRange(v0, rf.uv.Count - v0);
         }
 
         /// <summary>

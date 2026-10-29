@@ -285,6 +285,23 @@ Shader "PSX/Halo"
                     float2 toEye = _WorldSpaceCameraPos.xz - wc.xz;
                     facing = smoothstep(0.05, 0.6, dot(float2(sin(yaw), cos(yaw)), toEye) / max(length(toEye), 1e-3));
                 }
+                // A CROWN LINE'S BEAD THAT FACES ONE WAY (2026-10-29, the
+                // open-frame tower; CityBeacons): a tower light whose colour
+                // alpha is under 1 carries the compass yaw its member faces -
+                // 0..126 a face's top edge, 127..253 a corner (seen from three
+                // quarters round) - and is hidden from behind its own tower, as
+                // the tower's glass hides the real one: a far tower's squeezed
+                // copy cannot hide its own back by depth (its lines crossed it
+                // as an X). Every other light keeps alpha 1 (x 1).
+                else if (skyLight && v.color.a < 0.998)
+                {
+                    float code = floor(v.color.a * 255.0 + 0.5);
+                    float corner = step(126.5, code);
+                    float yaw = (code - 127.0 * corner) * (6.2831853 / 127.0);
+                    float2 toEye = _WorldSpaceCameraPos.xz - wc.xz;
+                    float lim = lerp(-0.12, -0.72, corner);
+                    facing = smoothstep(lim, lim + 0.2, dot(float2(sin(yaw), cos(yaw)), toEye) / max(length(toEye), 1e-3));
+                }
                 o.col = float4(_Color.rgb * v.color.rgb * (_Strength * fade * facing), fade * facing);
                 return o;
             }
