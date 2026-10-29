@@ -751,7 +751,10 @@ namespace PSXRacing.City
             // can start no earlier: at 7 s a freeway exit was known 200 m out,
             // short of the 300 m its lane change zone asks (forced short lane
             // changes, cars still changing lanes in the diverge).
-            float look = Mathf.Max(150f, c.speed * 12f);
+            // and 20 s on a freeway: an exit two or three lanes over needs
+            // 550-800 m of lane change zone (census: exits missed for room)
+            bool onFwy = c.legCount > 0 && map.edges[c.legs[c.legCount - 1].edge].cls >= 4 && !map.edges[c.legs[c.legCount - 1].edge].link;
+            float look = Mathf.Max(150f, c.speed * (onFwy ? 20f : 12f));
             int guard = 0;
             while (!c.deadEnd && c.legCount <= MaxLegs - 3 && Remaining(c) < look && guard++ < 4)
                 if (!Extend(c))
@@ -1988,6 +1991,12 @@ namespace PSXRacing.City
                     latRate = (b - a) * 6f * t * (1f - t) / Mathf.Max(0.5f, c.lcDur);
                 }
                 else lat = LaneLat(e, L.dir, c.lane, s);
+                // a lane a taper narrows under the car (a drop it has not yet
+                // left, a split's median taper): the car keeps to the
+                // pavement, squeezing over - never hangs off the edge
+                LineModel.Extents(e, s, out float pM, out float pP);
+                float lo = -pM + c.halfW + 0.05f, hi = pP - c.halfW - 0.05f;
+                if (hi > lo) lat = Mathf.Clamp(lat, lo, hi);
                 c.lat = lat;
                 p = PlanPoint(e, s, lat, out var tan);
                 travel = tan * L.dir;
