@@ -203,6 +203,9 @@ namespace PSXRacing.City
             public Vector2 pos, fwd, tan;
             public float y, lat, spin;
             public bool deadEnd;
+            /// <summary>Its plan ends where the DATA ends and the road goes on
+            /// (CityMap.nodeFrontier): it drives on off the map there, no stop.</summary>
+            public bool offMap;
 
             // the junction facts this step (Facts)
             public int appJ = -1, appKey = -1, appIdx = -1, boxJ = -1, inKey = -1;
@@ -246,6 +249,13 @@ namespace PSXRacing.City
         float[] limitMps, spawnW;
         bool[] routable;
         int[] degree, nodeJunction, majorA, majorB;
+        /// <summary>Per directed edge ((edge << 1) | (driven a->b ? 1 : 0)):
+        /// the node it arrives at has no legal way on but back the way it
+        /// came - a cul-de-sac, or a street that turns one-way against it
+        /// (2026-10-29 census: East 16th, Barry, Buchanan, Atherton Heights,
+        /// Berkeley, Morehead Medical - "only a U-turn"). Extend keeps out of
+        /// those unless the data ends there (a frontier: it drives on off the map).</summary>
+        bool[] noWayOn;
         float maxSpawnW;
 
         struct App { public int junction; public bool signal, allWay; public float sStop; public byte group; }
@@ -483,6 +493,28 @@ namespace PSXRacing.City
                 float w = spawnable ? ClassSpawnW[Mathf.Clamp(e.cls, 0, 5)] * (e.link ? 0.5f : 1f) * (sub == 4 ? 0.2f : 1f) * (nF + nB) : 0f;
                 spawnW[i] = w;
                 maxSpawnW = Mathf.Max(maxSpawnW, w);
+            }
+            // the dead ends ahead of every directed edge (Extend's look-ahead)
+            noWayOn = new bool[ne * 2];
+            for (int i = 0; i < ne; i++)
+            {
+                if (!routable[i]) continue;
+                var e = map.edges[i];
+                for (int dir = 1; dir >= -1; dir -= 2)
+                {
+                    if (dir < 0 && e.oneway) continue;
+                    int n = dir > 0 ? e.b : e.a;
+                    bool on = false;
+                    foreach (int oi in map.nodeEdges[n])
+                    {
+                        if (oi == i) continue;
+                        var o = map.edges[oi];
+                        if (o.a == o.b || !routable[oi]) continue;
+                        if (o.oneway && o.a != n) continue;
+                        on = true; break;
+                    }
+                    noWayOn[(i << 1) | (dir > 0 ? 1 : 0)] = !on;
+                }
             }
             // the major road through every unsigned junction (CtlAt)
             majorA = new int[nn]; majorB = new int[nn];
@@ -763,8 +795,8 @@ namespace PSXRacing.City
                     if (Log != null)
                     {
                         int dn = c.legs[c.legCount - 1].node;
-                        bool cutEnd = AtMapEdge(dn, map.edges[c.legs[c.legCount - 1].edge].cls);
-                        Note(c, "route", cutEnd ? "dead-end-map-edge" : "dead-end", 1f, (cutEnd ? "the road is cut where the data stops: " : "no legal way on at the end of its plan (a one-way into nothing): ") + Describe(c), node: dn);
+                        bool cutEnd = c.offMap || AtMapEdge(dn, map.edges[c.legs[c.legCount - 1].edge].cls);
+                        Note(c, "route", cutEnd ? "dead-end-map-edge" : "dead-end", 1f, (cutEnd ? "the road is cut where the data stops (it drives on off the map): " : "no legal way on at the end of its plan (a one-way into nothing): ") + Describe(c), node: dn);
                     }
                 }
         }
@@ -800,11 +832,22 @@ namespace PSXRacing.City
                 if (!e.link && o.link && e.cls >= 4) w *= 0.3f;
                 if (o.hasLset && o.lsSub == 4) w *= 0.2f;
                 int far = d2 > 0 ? o.b : o.a;
-                if (degree[far] <= 1 && o.length < 300f) w *= 0.05f;
+                // a dead end ahead (nothing on but back), or the data's edge
+                if ((degree[far] <= 1 || noWayOn[(ei << 1) | (d2 > 0 ? 1 : 0)]) && o.length < 300f) w *= 0.05f;
                 if (!reverse && !o.link && aa < 35f) anyMainline = true;
                 if (CensusMode) w *= CensusRouteBonus(ei, o);
                 options.Add((ei, d2, w, ang));
                 total += w;
+            }
+            // THE DATA'S EDGE (CityMap.nodeFrontier): where the map stops and
+            // the road goes on, nothing on but back is the road leaving the
+            // map - the car drives on off it (Cull takes it at the end)
+            // rather than stopping there or turning round in the road.
+            if (map.Frontier(n))
+            {
+                bool forward = false;
+                foreach (var op in options) if (op.e != e.index && Mathf.Abs(op.ang) <= 150f) { forward = true; break; }
+                if (!forward) { c.offMap = true; return false; }
             }
             if (options.Count == 0) return false;
             ref Leg last = ref c.legs[li];
@@ -1266,6 +1309,16 @@ namespace PSXRacing.City
                 }
                 Drive(c, dt, now);
             }
+            // OFF THE MAP: a car whose plan ends at the data's frontier leaves
+            // in the step it reaches the end, at speed - left to Cull (once a
+            // frame, many steps at a census's time scale) it stood frozen at
+            // the end and the next car ran into it (the first spot census:
+            // 56 same-road wrecks at I-77's, Wilkinson's, I-85's ends)
+            for (int i = live.Count - 1; i >= 0; i--)
+            {
+                var c = live[i];
+                if (c.offMap && !c.wrecked && Remaining(c) < 0.5f + c.speed * dt) Recycle(i);
+            }
             if (Log != null) CensusStep(dt);
             clock.Stop();
             float ms = (float)clock.Elapsed.TotalMilliseconds;
@@ -1342,7 +1395,7 @@ namespace PSXRacing.City
             byte why = gap < float.MaxValue ? c.leadKind : (byte)0;
             float g2 = ControlGap(c, now);
             if (g2 < gap) { gap = g2; vL = 0f; why = (byte)(10 + c.ctlWhy); }
-            if (c.deadEnd)
+            if (c.deadEnd && !c.offMap)
             {
                 float end = Remaining(c) - c.halfL - 1f;
                 if (end < gap) { gap = end; vL = 0f; why = 20; }
@@ -1584,21 +1637,45 @@ namespace PSXRacing.City
                     }
                     oc += o.legs[j].len;
                 }
-                if (known || d2 > 40f * 40f || Mathf.Abs(o.y - c.y) > LevelM) continue;
-                // not on this car's plan: only something ACROSS its path - a
-                // car in the junction, one crossing it - not one beside it or
-                // coming the other way in its own lanes
-                bool crossing = c.legs[0].turn || o.legCount > 0 && o.legs[0].turn ||
-                                Mathf.Abs(Vector2.Dot(o.fwd, c.fwd)) < 0.85f;
-                if (!crossing) continue;
+                if (known || d2 > 90f * 90f || Mathf.Abs(o.y - c.y) > LevelM) continue;
+                // not on this car's plan: its neighbour lanes and the oncoming
+                // lanes of its own run are kept apart by the lanes
                 if (o.legCount > 0 && !o.legs[0].turn && c.legCount > 0 && !c.legs[0].turn && o.legs[0].edge == c.legs[0].edge) continue;
-                float along = Vector2.Dot(d, c.fwd);
-                float lat = c.fwd.x * d.y - c.fwd.y * d.x;
-                float reach = 3f + c.speed * 1.0f + c.halfL + o.halfL;
-                if (along > 0f && along < reach && Mathf.Abs(lat) < c.halfW + o.halfW + 0.3f)
+                float dot = Vector2.Dot(o.fwd, c.fwd);
+                bool crossing = c.legs[0].turn || o.legCount > 0 && o.legs[0].turn || Mathf.Abs(dot) < 0.85f;
+                if (crossing)
                 {
-                    float g = along - c.halfL - o.halfL;
-                    if (g < best) { best = g; vL = Mathf.Max(0f, Vector2.Dot(o.fwd, c.fwd) * o.speed); c.leadKind = 4; }
+                    // something ACROSS its path - a car in the junction, one
+                    // crossing it; of two that would each stop for the other,
+                    // the one in the box (then the moving one, then the lower
+                    // id) goes, so they never wait for each other
+                    if (d2 > 40f * 40f) continue;
+                    float g = CrossGap(c, o, d);
+                    if (g == float.MaxValue) continue;
+                    // c goes first and o, still moving, waits for it; a car standing
+                    // with its nose in the lane is braked for whoever it is (the
+                    // census: a ramp car stopped at a stop line inside Sunset
+                    // Road, run into by the car that "went first")
+                    if (o.speed > 1.5f && CrossGap(o, c, -d) < float.MaxValue && Precedes(c, o)) continue;
+                    if (g < best) { best = g; vL = Mathf.Max(0f, dot * o.speed); c.leadKind = 4; }
+                }
+                else if (dot > 0f)
+                {
+                    // A CAR ON ANOTHER ROAD IN THIS CAR'S LANE AHEAD, going its
+                    // way (2026-10-29 census, road-logic topology): where two
+                    // roads' lanes run together short of or past the node they
+                    // share - a ramp laid beside lane 0 before the merge node, an
+                    // exit just past the diverge, the last metres of two
+                    // approaches meeting at a sharp angle, the first metres of a
+                    // run past a node. All 98 car-on-car wrecks the census filed
+                    // as "overlapping roads" or "roads crossing with no node"
+                    // were these, on edges sharing a node (none on roads laid
+                    // over each other or crossing unseen). Measured onto its lane
+                    // like the player; only the car behind brakes (the other has
+                    // this one behind it).
+                    float b0 = best;
+                    Obstacle(c, o.pos, o.halfL, o.fwd * o.speed, ref best, ref vL, o.halfW + 0.3f, true);
+                    if (best < b0) c.leadKind = 5;
                 }
             }
             // the player
@@ -1608,10 +1685,42 @@ namespace PSXRacing.City
             return best;
         }
 
+        /// <summary>The gap from c to o (d = o - c) when o is across c's path
+        /// ahead within its reach: o's half extent across c's heading counts
+        /// its angle (a car standing at 60 degrees reaches 2 m further across
+        /// than its half width - the census's wrecks at the junction mouths of
+        /// Sunset Road and Brookshire Boulevard, a nose in the lane); else
+        /// MaxValue.</summary>
+        static float CrossGap(Car c, Car o, Vector2 d)
+        {
+            float cosA = Mathf.Abs(Vector2.Dot(o.fwd, c.fwd));
+            float sinA = Mathf.Sqrt(Mathf.Max(0f, 1f - cosA * cosA));
+            float across = o.halfW * cosA + o.halfL * sinA, alongExt = o.halfL * cosA + o.halfW * sinA;
+            float along = Vector2.Dot(d, c.fwd);
+            float lat = c.fwd.x * d.y - c.fwd.y * d.x;
+            float reach = 3f + c.speed * 1.0f + c.halfL + alongExt;
+            if (along > 0f && along < reach && Mathf.Abs(lat) < c.halfW + across + 0.3f) return along - c.halfL - alongExt;
+            return float.MaxValue;
+        }
+
+        /// <summary>Of two cars each across the other's path, does a go first?
+        /// The one already turning in the box, then the moving one, then the
+        /// lower id.</summary>
+        static bool Precedes(Car a, Car b)
+        {
+            bool ta = a.legCount > 0 && a.legs[0].turn, tb = b.legCount > 0 && b.legs[0].turn;
+            if (ta != tb) return ta;
+            bool ma = a.speed > 1f, mb = b.speed > 1f;
+            if (ma != mb) return ma;
+            return a.id < b.id;
+        }
+
         /// <summary>Something that is not traffic (the player, a wreck) in this
         /// car's lane ahead: on its run, measured onto the lane; past it, in a
-        /// short corridor straight ahead.</summary>
-        void Obstacle(Car c, Vector2 p, float halfL, Vector2 vel, ref float best, ref float vL)
+        /// short corridor straight ahead. halfW: the obstacle's half width
+        /// (the player's and a wreck's 1.15 m; a car its own + 0.3 m);
+        /// runOnly: only on its run, no corridor past it.</summary>
+        void Obstacle(Car c, Vector2 p, float halfL, Vector2 vel, ref float best, ref float vL, float halfW = 1.15f, bool runOnly = false)
         {
             Vector2 d = p - c.pos;
             float along = Vector2.Dot(d, c.fwd);
@@ -1627,10 +1736,14 @@ namespace PSXRacing.City
             }
             else
             {
-                if (along > 30f) return;
+                // runOnly (a car on another road): past this car's run its
+                // plan turns where it will, and the plan's own legs see what
+                // stands on them - a straight corridor would stop a right turn
+                // behind a car that went straight on
+                if (runOnly || along > 30f) return;
                 latErr = Mathf.Abs(c.fwd.x * d.y - c.fwd.y * d.x);
             }
-            if (latErr > c.halfW + 1.15f) return;
+            if (latErr > c.halfW + halfW) return;
             float g = along - c.halfL - halfL;
             if (g < best) { best = g; vL = Mathf.Max(0f, Vector2.Dot(vel, c.fwd)); }
         }
@@ -1892,7 +2005,7 @@ namespace PSXRacing.City
             if ((s1 - L.s0) * L.dir < c.u) s1 = L.s0 + L.dir * c.u;
             L.s1 = s1; L.len = Mathf.Abs(L.s1 - L.s0); L.laneOut = c.lane;
             c.legCount = 1;
-            c.deadEnd = false;
+            c.deadEnd = false; c.offMap = false;
             c.mandAt = -1f;
             c.keepLane = true;
             Stats.replans++;
@@ -2168,6 +2281,7 @@ namespace PSXRacing.City
                 if (CensusMode)
                     go = d > CensusDespawnM || p.y < -500f ||
                          (c.wrecked ? Time.time - c.wreckedAt > 10f : (c.deadEnd && Remaining(c) < 5f) || (over > 4 && d > CensusRadiusM));
+                else if (c.offMap && !c.wrecked && Remaining(c) < 3f + c.speed * 0.25f) go = true;   // drove off the map's data
                 else if (c.wrecked) go = d > DespawnHardM || (Time.time - c.wreckedAt > 20f && !seen) || (Time.time - c.wreckedAt > 60f && d > 60f) || p.y < -500f;
                 else go = d > DespawnHardM || (d > DespawnM && !seen) || (c.deadEnd && !seen && Remaining(c) < 5f) || p.y < -500f
                           || (over > 4 && d > SpawnMinM && !seen);
@@ -2223,7 +2337,7 @@ namespace PSXRacing.City
             foreach (var o in live) if ((o.pos - q).sqrMagnitude < 20f * 20f) { if (Log != null) Log.spCrowded++; return; }
 
             var c = free;
-            c.active = true; c.wrecked = false; c.hasCommand = false; c.lastContact = null; c.deadEnd = false;
+            c.active = true; c.wrecked = false; c.hasCommand = false; c.lastContact = null; c.deadEnd = false; c.offMap = false;
             c.box.center = c.rideCenter; c.box.size = c.rideSize;
             c.rb.useGravity = false;
             c.legCount = 0; c.u = 0f;

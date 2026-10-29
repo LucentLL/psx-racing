@@ -48,8 +48,8 @@
     {
       "file": "tools/city/truth/uptown_ref_looks.json",
       "kind": "registry",
-      "bytes": 8915,
-      "sha256": "b6281d53db36959d9c96b3b5fc84d3fbe27ce2d29e06438c7314f858ce3efcba"
+      "bytes": 9299,
+      "sha256": "d2e9278560bdf8861c0b1f638b4f12981b1ed90a7904487bfe40fc3041614963"
     },
     {
       "file": "tools/city/truth/uptown_ref_parts.json",
@@ -126,6 +126,13 @@
       "bytes": 1694090,
       "sha256": "966a76faab89b12eea99e1556dc3fee12bb71adb66a289fff2370150bd914628",
       "timestamp_osm_base": "2026-09-28T20:18:06Z"
+    },
+    {
+      "file": "tools/city/cache/layers/connectors.json",
+      "kind": "overpass",
+      "bytes": 835708,
+      "sha256": "5016ca71bb7c47a5f418d4c087bc6caa6b4f9f97bd4c33f5d15297fc29f67a72",
+      "timestamp_osm_base": "2026-10-29T18:57:20Z"
     },
     {
       "file": "tools/city/deckpairs_overrides.json#pairs",

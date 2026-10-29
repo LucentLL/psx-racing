@@ -23,6 +23,11 @@
 #                        (e.g. -Spots Docs\traffic_census\spots_lanes.txt -Minutes 20 -NoShots -ReportDir <dir>)
 #   ... -ReportDir <dir> the report, map, CSVs and raw data go to <dir> instead of
 #                        Docs\ (a spot-list run must not overwrite the city-wide census)
+#   ... -Spots f.txt     visit ONLY the places in f.txt ("x,z[,label]" a line), in
+#                        order, an equal share each: a before/after census of fixed spots
+#   ... -SpotSeconds 180 game seconds at each of those spots (0: the budget decides)
+#   ... -Tag name        write to Docs\traffic_census_<name>\ and Docs\ROAD_LOGIC_TRAFFIC_<name>.md
+#                        (a spot census must not overwrite the city-wide one)
 #
 # SANDBOX RULES: waits for another agent's AGENT_LOCK.txt (younger than 90
 # min), writes its own, mirrors ONLY Scripts / Editor / Shaders (never
@@ -30,14 +35,17 @@
 # Docs\traffic_census\raw\ (git-ignored); the report goes to Docs\.
 param([int]$Minutes = 60, [int]$MaxSpots = 0, [int]$Cap = 64, [double]$Speed = 30,
       [switch]$NoShots, [switch]$ShotsOnly, [switch]$ReportOnly, [switch]$ThenCheck, [switch]$Watch, [switch]$NoWatch,
-      [string]$Spots = "", [string]$ReportDir = "", [string]$Me = "city-traffic-census")
+      [string]$Spots = "", [string]$ReportDir = "", [string]$Tag = "", [int]$SpotSeconds = 0,
+      [string]$Me = "city-traffic-census")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXCity" }
 $src  = Split-Path -Parent $PSScriptRoot
 . "$PSScriptRoot\unity-wait.ps1"
 $lock = Join-Path $proj "AGENT_LOCK.txt"
-$outDir = if ($ReportDir) { $ReportDir } else { Join-Path $src "Docs\traffic_census" }
-$mdPath = if ($ReportDir) { Join-Path $ReportDir "ROAD_LOGIC_TRAFFIC.md" } else { Join-Path $src "Docs\ROAD_LOGIC_TRAFFIC.md" }
+$outName = if ($Tag) { "traffic_census_$Tag" } else { "traffic_census" }
+$mdName = if ($Tag) { "ROAD_LOGIC_TRAFFIC_$Tag.md" } else { "ROAD_LOGIC_TRAFFIC.md" }
+$outDir = if ($ReportDir) { $ReportDir } else { Join-Path $src "Docs\$outName" }
+$mdPath = if ($ReportDir) { Join-Path $ReportDir "ROAD_LOGIC_TRAFFIC.md" } else { Join-Path $src "Docs\$mdName" }
 $raw = Join-Path $outDir "raw"
 New-Item -ItemType Directory -Force $raw | Out-Null
 if (-not (Test-Path "$raw\.gitignore")) { "*" | Out-File -FilePath "$raw\.gitignore" -Encoding ascii }
@@ -94,6 +102,7 @@ try {
         $env:PSX_CENSUS_SPEED = "$Speed"
         $env:PSX_CENSUS_THENCHECK = if ($ThenCheck) { "1" } else { "0" }
         $env:PSX_CENSUS_SPOTS = if ($Spots) { (Resolve-Path $Spots).Path } else { "" }
+        $env:PSX_CENSUS_SPOT_S = "$SpotSeconds"
         $max = $Minutes + 25 + $(if ($ThenCheck) { 25 } else { 0 })
         "census: $Minutes min budget, $(if ($MaxSpots -gt 0) { "$MaxSpots spots" } else { "every spot" }), cap $Cap, time scale up to $Speed$(if ($ThenCheck) { ', then the traffic check' })"
         Remove-Item "$proj\census.log" -ErrorAction SilentlyContinue

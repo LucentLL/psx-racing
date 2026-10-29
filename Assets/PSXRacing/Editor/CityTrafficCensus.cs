@@ -28,7 +28,9 @@ namespace PSXRacing.EditorTools
     /// PSX_CENSUS_MINUTES (60) the whole run's budget, PSX_CENSUS_MAXSPOTS (0:
     /// all), PSX_CENSUS_CAP (64 cars), PSX_CENSUS_SPEED (30, the time scale
     /// ceiling), PSX_CENSUS_THENCHECK=1 runs CityTrafficCheck after it in the
-    /// same editor. Out: census\events.csv, edges.txt, spots.csv, summary.json
+    /// same editor, PSX_CENSUS_SPOTS a file of "x,z[,label]" lines: visit ONLY
+    /// those places, in that order, each for an equal share (a before/after
+    /// census of fixed spots; no re-tour, none dropped). Out: census\events.csv, edges.txt, spots.csv, summary.json
     /// and PSXRacing_city_traffic_census.txt in the project folder.
     /// <see cref="Shots"/>: the close-ups of census\top6.txt.
     /// </summary>
@@ -48,6 +50,9 @@ namespace PSXRacing.EditorTools
         internal static int Cap => (int)Env("PSX_CENSUS_CAP", 64f);
         internal static float Speed => Env("PSX_CENSUS_SPEED", 30f);
         internal static bool ThenCheck => System.Environment.GetEnvironmentVariable("PSX_CENSUS_THENCHECK") == "1";
+        /// <summary>PSX_CENSUS_SPOT_S: game seconds at each fixed spot (0: the budget decides).</summary>
+        internal static float SpotSeconds => Env("PSX_CENSUS_SPOT_S", 0f);
+        internal static string SpotsFile { get { var f = System.Environment.GetEnvironmentVariable("PSX_CENSUS_SPOTS"); return string.IsNullOrEmpty(f) || !File.Exists(f) ? null : f; } }
         internal static string ProjectDir => Path.GetDirectoryName(Application.dataPath);
         internal static string OutDir => Path.Combine(ProjectDir, "census");
 
@@ -296,7 +301,8 @@ namespace PSXRacing.EditorTools
 
             // ---- the tour
             stage = "planning";
-            var spots = Plan(out float totalW, out float plannedW);
+            bool fixedSpots = CityTrafficCensus.SpotsFile != null;
+            var spots = fixedSpots ? FixedSpots(out float totalW, out float plannedW) : Plan(out totalW, out plannedW);
             CityTrafficCensus.Line($"Tour: {spots.Count} spots cover {plannedW / Mathf.Max(1f, totalW) * 100f:0}% of the weighted road ({totalW / 1000f:0} km weighted) within {PlanRadiusM:0} m");
             var spotRows = new StringBuilder("i,x,z,gain_km,game_s,real_s,stream_s,cars_mean,events\n");
             float rate = 6f, streamEst = 4f;
@@ -319,7 +325,7 @@ namespace PSXRacing.EditorTools
                 // build a fresh ring of tiles each (2026-10-29: 1974 spots
                 // planned; the first pace kept 388 and the walk ended early)
                 bool ranOut = idx >= spots.Count;
-                if ((retours == 0 && idx == 3) || (ranOut && spare.Count > 0 && left > 60f))
+                if (!fixedSpots && ((retours == 0 && idx == 3) || (ranOut && spare.Count > 0 && left > 60f)))
                 {
                     retours++;
                     float needEach = streamEst * 0.7f + MinGameS / Mathf.Max(0.5f, rate);
@@ -343,7 +349,7 @@ namespace PSXRacing.EditorTools
                 if (idx >= spots.Count) break;
                 // drop the least useful spots ahead until each left gets its minimum
                 float need = streamEst + MinGameS / Mathf.Max(0.5f, rate);
-                while (spots.Count - idx > 1 && (spots.Count - idx) * need > left)
+                while (!fixedSpots && spots.Count - idx > 1 && (spots.Count - idx) * need > left)
                 {
                     int worst = -1;
                     for (int k = idx + 1; k < spots.Count; k++) if (worst < 0 || spots[k].gain < spots[worst].gain) worst = k;
@@ -354,7 +360,7 @@ namespace PSXRacing.EditorTools
                 float sumG = 0f;
                 for (int k = idx; k < spots.Count; k++) sumG += spots[k].gain;
                 float driveReal = Mathf.Max(1f, left - streamEst * (spots.Count - idx)) * spots[idx].gain / Mathf.Max(1f, sumG);
-                float allocGame = Mathf.Clamp(driveReal * rate, MinGameS, MaxGameS);
+                float allocGame = fixedSpots && CityTrafficCensus.SpotSeconds > 0f ? CityTrafficCensus.SpotSeconds : Mathf.Clamp(driveReal * rate, MinGameS, MaxGameS);
 
                 stage = "spot " + idx;
                 var sp = spots[idx].p;
@@ -403,6 +409,25 @@ namespace PSXRacing.EditorTools
 
         // ---- the plan ---------------------------------------------------------------
         struct Spot { public Vector2 p; public float gain; }
+
+        /// <summary>PSX_CENSUS_SPOTS: the places listed, in order, one share of
+        /// the time each (gain 1 km: the time is split evenly).</summary>
+        List<Spot> FixedSpots(out float totalW, out float coveredW)
+        {
+            var list = new List<Spot>();
+            foreach (var raw in File.ReadAllLines(CityTrafficCensus.SpotsFile))
+            {
+                var line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith("#")) continue;
+                var p = line.Split(',');
+                if (p.Length < 2 || !float.TryParse(p[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x)
+                    || !float.TryParse(p[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float z)) continue;
+                list.Add(new Spot { p = new Vector2(x, z), gain = 1000f });
+            }
+            totalW = coveredW = list.Count * 1000f;
+            CityTrafficCensus.Line($"Fixed spots from {CityTrafficCensus.SpotsFile}: {list.Count}");
+            return list;
+        }
 
         /// <summary>A greedy cover of the drivable road (60 m pieces, locals
         /// weighted 0.7) by discs of <see cref="PlanRadiusM"/>, then a
@@ -585,7 +610,7 @@ namespace PSXRacing.EditorTools
                 if (inDisc) { kmIn[k] += e.length / 1000f; nIn[k]++; }
                 if (drv) { kmDrv[k] += e.length / 1000f; nDrv[k]++; }
                 drivenKm += log.driven[i] / 1000.0;
-                // id;cls;link;oneway;limit;driven flag;metres driven;in a visited disc;name;x,z x,z ...
+                // id;cls;link;oneway;limit;driven flag;metres driven;in a visited disc;name;x,z x,z ...;a;b (its nodes)
                 sb.Append(i).Append(';').Append(e.cls).Append(';').Append(e.link ? 1 : 0).Append(';').Append(e.oneway ? 1 : 0).Append(';')
                   .Append(traffic.LimitKmh(i).ToString("0", ic)).Append(';').Append(drv ? 1 : 0).Append(';').Append(log.driven[i].ToString("0", ic)).Append(';')
                   .Append(inDisc ? 1 : 0).Append(';').Append((e.name ?? "").Replace(';', ',')).Append(';');
@@ -597,6 +622,7 @@ namespace PSXRacing.EditorTools
                     sb.Append(q.x.ToString("0", ic)).Append(',').Append(q.y.ToString("0", ic)).Append(' ');
                     last = q;
                 }
+                sb.Append(';').Append(e.a).Append(';').Append(e.b);
                 sb.Append('\n');
             }
             File.WriteAllText(Out("edges.txt"), sb.ToString());
