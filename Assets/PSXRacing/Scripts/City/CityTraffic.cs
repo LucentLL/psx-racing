@@ -81,7 +81,7 @@ namespace PSXRacing.City
         const float SpawnMinM = 140f, SpawnMaxM = 380f, SpawnFirstMinM = 60f;
         const float DespawnM = 480f, DespawnHardM = 700f;
         const int CapDesktop = 48, CapPhone = 24;
-        const int MaxLegs = 8;
+        const int MaxLegs = 9;
         const float RideClear = 0.22f, WreckFloor = 0.01f, WreckSpeed = 1.5f;
         /// <summary>Two traffic cars touching at less than this (m/s of knock)
         /// is a BUMP - counted, both drive on - not a wreck: a fender-bender
@@ -154,6 +154,13 @@ namespace PSXRacing.City
             public int app;
             /// <summary>Turn: -1 left, 0 straight, 1 right, 2 U.</summary>
             public sbyte kind;
+            /// <summary>Turn: the arc positions it leaves the first edge at and
+            /// joins the second at (its mouths), so a re-mapped lane can lay
+            /// the same turn again (<see cref="ShapeTurn"/>).</summary>
+            public float sA, sB;
+            /// <summary>Turn: the first half of a U-turn round a cul-de-sac's
+            /// bulb (to its far point); the second half follows it.</summary>
+            public bool uHalf;
             public bool merge, exit;
             public Vector2 p0, p1, p2, p3;
             public float y0, y1;
@@ -300,7 +307,7 @@ namespace PSXRacing.City
             public int spawned, recycled, wrecks, laneChanges, mandatory, keepRight, merges, exits,
                 redStops, greenGoes, yellowGoes, ranRed, stopSignStops, stopRolls, yields, uTurns, deadEnds,
                 maxQueue, leftYields, bumps, replans, slowSteps,
-                rightOnRed, sneakLefts, keepClearHolds;
+                rightOnRed, sneakLefts, keepClearHolds, lanesBack, remaps, lateHolds;
         }
         public Counters Stats;
         public readonly List<string> WreckLog = new List<string>();
@@ -348,8 +355,10 @@ namespace PSXRacing.City
             {
                 int req, outLane;
                 float aAbs = Mathf.Abs(ang);
-                if (aAbs >= 35f && aAbs <= 150f) { req = ang > 0f ? nIn - 1 : 0; outLane = ang > 0f ? nOut - 1 : 0; }
-                else MapStraight(e, dir, sA, e2, dir2, sB, lane, out req, out outLane);
+                TurnOnlyLanes(e, dir, node, out int lo, out int ro);
+                NodeTurns(e, dir, node, out bool hl, out bool hr);
+                if (aAbs >= 35f && aAbs <= 150f) TurnLane(ang > 0f ? (lo != 0 ? lo : 1 << (nIn - 1)) : (ro != 0 ? ro : 1), lane, nIn, nOut, ang > 0f, out req, out outLane);
+                else MapStraight(e, dir, sA, e2, dir2, sB, lane, node, StraightAvoid(lo, ro, hl, hr, nIn), out req, out outLane);
                 var T = new Leg();
                 Shape(ref T, LanePos(e, dir, req, sA), TravelTan(e, dir, sA), LanePos(e2, dir2, outLane, sB), TravelTan(e2, dir2, sB));
                 var hits = new System.Text.StringBuilder();
@@ -587,22 +596,83 @@ namespace PSXRacing.City
         /// lanes' band of the line model (tapers in, aux lanes out), its slots
         /// laid out as the painter lays the line set - the b->a lanes from the
         /// left edge, the TWLTL, the a->b lanes.</summary>
-        float LaneLat(CityMap.Edge e, int dir, int lane, float s)
+        float LaneLat(CityMap.Edge e, int dir, int lane, float s) => LaneBounds(e, dir, lane, s, out float l, out float r);
+
+        /// <summary>A lane's centre and its two boundaries (+ left of a->b) at
+        /// s. THROUGH A TAPER (road-logic lanes, 2026-10-29) the lanes keep
+        /// their width and place, as the paint draws them (LineModel.LinesAt:
+        /// a line eases only toward its partner in the narrow layout): the
+        /// slots are laid out over the FULL band and clamped into the band at
+        /// s, so the lane on the moving side narrows to nothing (a drop) or
+        /// grows from nothing (an add) while the others hold. Before, every
+        /// lane was squeezed evenly into the narrowing band - six freeway lanes
+        /// 1.8 m wide at the end of a three-lane drop, every one of them
+        /// "running on" into the three past it, the cars' paths not the
+        /// painted lanes. A median shift (L4) moves the whole band.</summary>
+        float LaneBounds(CityMap.Edge e, int dir, int lane, float s, out float bl, out float br)
         {
             LineModel.ExtentsBefore(e, s, out float eM, out float eP);
             float left = eP - e.shl, right = -(eM - e.shr);
             int i = e.index;
-            float w = Mathf.Max(1.5f, (left - right) / slots[i]);
             int n = Lanes(i, dir);
             lane = Mathf.Clamp(lane, 0, n - 1);
             int j = dir > 0 ? offF[i] + (n - 1 - lane) : lane;
-            return left - (j + 0.5f) * w;
+            bool model = e.lmPlus != 0f || e.lmMinus != 0f;
+            float sh = model ? LineModel.ShiftAt(e, s) : 0f;
+            float L0 = (model ? e.lmPlus : e.width * 0.5f) - e.shl + sh, R0 = -((model ? e.lmMinus : e.width * 0.5f) - e.shr) + sh;
+            if (left - right < 1.5f || L0 - R0 < 1.5f || L0 - R0 < left - right - 0.05f)
+            {
+                // no taper to read (or a band wider than its full width): even slots, as before
+                float w = Mathf.Max(1.5f, (left - right) / slots[i]);
+                bl = left - j * w; br = left - (j + 1) * w;
+                return left - (j + 0.5f) * w;
+            }
+            float w0 = (L0 - R0) / slots[i];
+            bl = Mathf.Clamp(L0 - j * w0, right, left);
+            br = Mathf.Clamp(L0 - (j + 1) * w0, right, left);
+            return 0.5f * (bl + br);
         }
 
+        /// <summary>A lane's width at s (a lane a taper ends: under a lane).</summary>
+        float LaneWidth(CityMap.Edge e, int dir, int lane, float s)
+        {
+            LaneBounds(e, dir, lane, s, out float bl, out float br);
+            return bl - br;
+        }
+
+        /// <summary>The lane line's direction at arc s. ROAD-LOGIC BENDS
+        /// (2026-10-29): it turns SMOOTHLY along each segment, from the bisector
+        /// at one vertex to the bisector at the next, so a car's heading and
+        /// its lane's offset point (PlanPoint) never jump at a vertex. Before,
+        /// it was the segment's own direction: every vertex snapped the car by
+        /// its whole turn and threw a lane 9 m out by 9 m x the turn sideways -
+        /// the census's 1,457 "kinks" (4 deg+ within a metre: the first chord
+        /// of every tight fillet, 5 deg at R 15 m). The drawn line is the same;
+        /// its own corners are linecheck's to count.</summary>
         static Vector2 Bisector(CityMap.Edge e, float s)
         {
-            var t = e.TangentAt(Mathf.Max(0f, s - 0.01f)) + e.TangentAt(Mathf.Min(e.length, s + 0.01f));
-            return t.sqrMagnitude > 1e-8f ? t.normalized : e.TangentAt(s);
+            var P = e.pts;
+            if (P == null || P.Length < 2) return e.TangentAt(s);
+            int i = e.SegmentAt(Mathf.Clamp(s, 0f, e.length), out float t);
+            Vector2 d = P[i + 1] - P[i];
+            float m = d.magnitude;
+            if (m < 1e-5f) return e.TangentAt(s);
+            Vector2 u = d / m;
+            Vector2 b0 = i > 0 ? VertexBisector(P, i, u) : u;
+            Vector2 b1 = i + 2 < P.Length ? VertexBisector(P, i + 1, u) : u;
+            var v = Vector2.LerpUnclamped(b0, b1, Mathf.Clamp01(t));
+            return v.sqrMagnitude > 1e-8f ? v.normalized : u;
+        }
+
+        /// <summary>The bisector of the line's two directions at vertex k (u is
+        /// the direction of one of its segments, the fallback at a fold).</summary>
+        static Vector2 VertexBisector(Vector2[] P, int k, Vector2 u)
+        {
+            Vector2 a = P[k] - P[k - 1], b = P[k + 1] - P[k];
+            float la = a.magnitude, lb = b.magnitude;
+            if (la < 1e-5f || lb < 1e-5f) return u;
+            var v = a / la + b / lb;
+            return v.sqrMagnitude > 1e-6f ? v.normalized : u;
         }
 
         /// <summary>The plan point at arc s, lat off the OSM line, and the
@@ -653,7 +723,11 @@ namespace PSXRacing.City
             float c = Vector2.Distance(p0, p3);
             float a = Mathf.Clamp(Mathf.Abs(Vector2.SignedAngle(t0, t3)), 1f, 179f) * Mathf.Deg2Rad;
             float k = c * (2f / 3f) * Mathf.Tan(a * 0.25f) / Mathf.Sin(a * 0.5f);
-            k = Mathf.Clamp(k, 0.5f, c + 4f);
+            // road-logic-bends: the floor scales with a short chord - a fixed
+            // 0.5 m on a leg of 1-2 m pushed the controls past the arc and the
+            // cubic looped (the census's 6 deg+ heading snaps inside sub-3 m
+            // turn legs)
+            k = Mathf.Clamp(k, Mathf.Min(0.5f, 0.3f * c), c + 4f);
             L.p0 = p0; L.p1 = p0 + t0 * k; L.p2 = p3 - t3 * k; L.p3 = p3;
             L.len = BezLen(L);
         }
@@ -776,9 +850,17 @@ namespace PSXRacing.City
 
         void EnsurePlan(Car c)
         {
-            float look = Mathf.Max(150f, c.speed * 7f);
+            // road-logic lanes, 2026-10-29: 12 s ahead (was 7). The turn at a
+            // node is chosen only once the plan reaches it, and its lane change
+            // can start no earlier: at 7 s a freeway exit was known 200 m out,
+            // short of the 300 m its lane change zone asks (forced short lane
+            // changes, cars still changing lanes in the diverge).
+            // and 20 s on a freeway: an exit two or three lanes over needs
+            // 550-800 m of lane change zone (census: exits missed for room)
+            bool onFwy = c.legCount > 0 && map.edges[c.legs[c.legCount - 1].edge].cls >= 4 && !map.edges[c.legs[c.legCount - 1].edge].link;
+            float look = Mathf.Max(150f, c.speed * (onFwy ? 20f : 12f));
             int guard = 0;
-            while (!c.deadEnd && c.legCount <= MaxLegs - 2 && Remaining(c) < look && guard++ < 4)
+            while (!c.deadEnd && c.legCount <= MaxLegs - 3 && Remaining(c) < look && guard++ < 4)
                 if (!Extend(c))
                 {
                     c.deadEnd = true; Stats.deadEnds++;
@@ -847,6 +929,10 @@ namespace PSXRacing.City
             sbyte kind;
             bool exit, merge;
             CityMap.Edge e2;
+            // THE LANES' USE at this node (road-logic lanes): the turn-only
+            // lanes OSM's turn:lanes (or a TAPR bay) gives the end of this run
+            TurnOnlyLanes(e, dir, n, out int leftOnly, out int rightOnly);
+            NodeTurns(e, dir, n, out bool hasLeft, out bool hasRight);
             for (int attempt = 0; ; attempt++)
             {
                 float r = Random.value * total;
@@ -860,6 +946,15 @@ namespace PSXRacing.City
                 kind = e2i == e.index || aAbs > 150f ? (sbyte)2 : aAbs < 35f ? (sbyte)0 : angle > 0f ? (sbyte)-1 : (sbyte)1;
                 exit = kind == 0 && !e.link && e2.link && anyMainline && e.cls >= 4;
                 merge = kind == 0 && e.link && !e2.link && e2.cls >= 4;
+                // A RAMP WHOSE LANES RUN ON (road-logic lanes): where OSM adds
+                // the ramp's lanes to the road it joins (I-485's six lanes past
+                // the ramp at node 3697: three and three), or the lanes that
+                // leave with an exit are the road's own (an exit-only lane),
+                // it is no merge - every lane runs straight on and nobody
+                // changes lanes. Before, all three ramp lanes funnelled into
+                // the kerb lane: forced lane changes, merges begun from the
+                // wrong lane, the heading snapping where the arc met lane 0.
+                if ((merge || exit) && RampLanesRunOn(e, dir, e2, dir2, n, merge)) merge = exit = false;
 
                 // where the turn starts and ends: the junction's mouths, or a
                 // long run through a freeway merge or diverge
@@ -873,19 +968,22 @@ namespace PSXRacing.City
                 if ((sA - last.s0) * dir < 0f) sA = last.s0;
 
                 // the lanes: the kerb lane to turn right, the inside lane to
-                // turn left, the lane that runs on going straight (one that
-                // ends merges)
+                // turn left - or, where turn:lanes marks them, any of the
+                // turn's own lanes (a double left: the one nearest) - the lane
+                // that runs on going straight (one that ends merges; never a
+                // lane marked for a turn this node has)
                 int nIn = Lanes(e.index, dir), nOut = Lanes(e2i, dir2);
                 bool rampRight = exit ? RampOnRight(e2, dir2, n, TravelTan(e, dir, dir > 0 ? e.length : 0f), angle <= 0f) : angle <= 0f;
-                if (kind == 1) { req = 0; outLane = 0; }
-                else if (kind == -1 || kind == 2) { req = nIn - 1; outLane = nOut - 1; }
+                if (kind == 1) TurnLane(rightOnly != 0 ? rightOnly : 1, refLane, nIn, nOut, false, out req, out outLane);
+                else if (kind == -1) TurnLane(leftOnly != 0 ? leftOnly : 1 << (nIn - 1), refLane, nIn, nOut, true, out req, out outLane);
+                else if (kind == 2) { req = nIn - 1; outLane = nOut - 1; }
                 else if (exit) { req = rampRight ? 0 : nIn - 1; outLane = rampRight ? 0 : nOut - 1; }
                 else if (merge)
                 {
                     bool fromRight = RampOnRight(e, dir, n, TravelTan(e2, dir2, dir2 > 0 ? 0f : e2.length), angle >= 0f);
                     req = fromRight ? 0 : nIn - 1; outLane = fromRight ? 0 : nOut - 1;
                 }
-                else MapStraight(e, dir, sA, e2, dir2, sB, refLane, out req, out outLane);
+                else MapStraight(e, dir, sA, e2, dir2, sB, refLane, n, StraightAvoid(leftOnly, rightOnly, hasLeft, hasRight, nIn), out req, out outLane);
                 // A REPLAN (the lane change its turn needed never found a gap):
                 // only a way on from the lane it is in
                 if (!c.keepLane || li != 0 || req == refLane || attempt >= options.Count) break;
@@ -894,6 +992,7 @@ namespace PSXRacing.City
                 if (total <= 1e-5f) break;
             }
             c.keepLane = false;
+            if (kind == 0 && !merge && !exit) StretchStraight(e, dir, req, last.s0, ref sA, e2, dir2, outLane, ref sB);
             last.s1 = sA;
             last.len = Mathf.Abs(last.s1 - last.s0);
             last.laneOut = req;
@@ -902,23 +1001,348 @@ namespace PSXRacing.City
             {
                 turn = true, edge = e.index, dir = (sbyte)dir, edge2 = e2i, dir2 = (sbyte)dir2, node = n,
                 laneIn = req, laneOut = outLane, kind = kind, merge = merge, exit = exit, app = -1, key = -1,
+                sA = sA, sB = sB,
             };
-            Vector2 p0 = LanePos(e, dir, req, sA), t0 = TravelTan(e, dir, sA);
-            Vector2 p3 = LanePos(e2, dir2, outLane, sB), t3 = TravelTan(e2, dir2, sB);
+            ShapeTurn(ref T);
+            if (kind == 2 && e2i == e.index && BulbUTurn(ref T, n))
+            {
+                // two halves round the bulb: in to its far point, out again
+                var T2 = T; T2.uHalf = false;
+                T.uHalf = true;
+                Vector2 tA = TravelTan(e, dir, sA), left = new Vector2(-tA.y, tA.x);
+                float rp = Mathf.Max(4f, trims.bulbRad[n] - 2.6f);
+                Vector2 apex = trims.bulbC[n] + tA * rp;
+                float yN = e.YAt(dir > 0 ? e.length : 0f);
+                Shape(ref T, LanePos(e, dir, req, sA), tA, apex, left);
+                T.y0 = e.YAt(sA); T.y1 = yN;
+                Shape(ref T2, apex, left, LanePos(e2, dir2, outLane, sB), TravelTan(e2, dir2, sB));
+                T2.y0 = yN; T2.y1 = e2.YAt(sB);
+                T.vMax = T2.vMax = Mathf.Clamp(Mathf.Sqrt(ALat * rp * 0.8f), 3f, 6f);
+                c.legs[c.legCount++] = T;
+                c.legs[c.legCount++] = T2;
+            }
+            else c.legs[c.legCount++] = T;
+            c.legs[c.legCount++] = MakeRun(e2i, dir2, sB, outLane);
+            LaneBack(c, li);
+            return true;
+        }
+
+        /// <summary>A U-TURN AT A CUL-DE-SAC goes round its bulb (road-logic
+        /// lanes, 2026-10-29): the drawn turning circle (roads pass L8,
+        /// <see cref="CityMeshes.Trims.bulb"/>) is the room a driver loops
+        /// round, anticlockwise, out to the far side and back - two halves
+        /// through the circle's far point. Before, the U-turn was one cubic
+        /// between the two lanes of the street (3.7 m apart): a 1.8 m hairpin,
+        /// the car's nose over the curb (504 of the census's 1,057
+        /// turn-clips-corner were dead-end U-turns).</summary>
+        bool BulbUTurn(ref Leg T, int n)
+        {
+            if (trims.bulb == null || n >= trims.bulb.Length || !trims.bulb[n] || degree[n] > 1) return false;
+            return trims.bulbRad[n] >= 7f;
+        }
+
+        /// <summary>A turn's arc from its lanes and mouths (the cubic, the
+        /// heights at each end, the speed it is taken at).</summary>
+        void ShapeTurn(ref Leg T)
+        {
+            var e = map.edges[T.edge]; var e2 = map.edges[T.edge2];
+            Vector2 p0 = LanePos(e, T.dir, T.laneIn, T.sA), t0 = TravelTan(e, T.dir, T.sA);
+            Vector2 p3 = LanePos(e2, T.dir2, T.laneOut, T.sB), t3 = TravelTan(e2, T.dir2, T.sB);
             Shape(ref T, p0, t0, p3, t3);
-            T.y0 = e.YAt(sA); T.y1 = e2.YAt(sB);
+            T.y0 = e.YAt(T.sA); T.y1 = e2.YAt(T.sB);
             float turnA = Mathf.Abs(Vector2.SignedAngle(t0, t3)) * Mathf.Deg2Rad;
-            float vLim = Mathf.Min(limitMps[e.index], limitMps[e2i]);
-            if (kind == 2) T.vMax = 3f;
-            else if (turnA < 0.17f) T.vMax = vLim;
+            float vLim = Mathf.Min(limitMps[T.edge], limitMps[T.edge2]);
+            // ROAD-LOGIC BENDS: the speed of the arc AS DRAWN - its tightest
+            // point, sampled - not the circle through its ends. A cubic whose
+            // mouths sit off the circle (a lane offset, a short leg) bends
+            // tighter than that circle: the census's 1,396
+            // "turn-tighter-than-planned" were cars at the planned speed on it,
+            // and a straight-on connector was taken at the limit however much
+            // its lanes shifted.
+            float kMax = BezMaxCurvature(T);
+            if (T.kind == 2) T.vMax = 3f;
+            else if (turnA < 0.17f) T.vMax = kMax > 1e-4f ? Mathf.Clamp(Mathf.Sqrt(ALat / kMax), 4f, vLim) : vLim;
             else
             {
                 float chord = Vector2.Distance(p0, p3);
                 float R = chord / Mathf.Max(0.05f, 2f * Mathf.Sin(turnA * 0.5f));
+                if (kMax > 1e-4f) R = Mathf.Min(R, 1f / kMax);
                 T.vMax = Mathf.Clamp(Mathf.Sqrt(ALat * R), 4f, vLim);
             }
-            c.legs[c.legCount++] = T;
-            c.legs[c.legCount++] = MakeRun(e2i, dir2, sB, outLane);
+        }
+
+        /// <summary>ROAD-LOGIC BENDS: a STRAIGHT-ON connector whose two lanes do
+        /// not line up across the node (a lane offset left by the lane widths,
+        /// a taper, a lane-count change) was an S of the junction box's few
+        /// metres - 0.9 m across 4.5 m is a 17 deg swerve, the census's
+        /// heading-snaps (1,225 of 2,774 inside straight-on arcs under 8 m,
+        /// 457 more where they hand over). It now begins before the mouth
+        /// and ends after the far one, long enough that its S stays within
+        /// StraightSwerveDeg: up to StraightStretchM more each side, never
+        /// into the run's first 2 m nor past 40% of the next edge.</summary>
+        void StretchStraight(CityMap.Edge e, int dir, int laneIn, float runS0, ref float sA,
+                             CityMap.Edge e2, int dir2, int laneOut, ref float sB)
+        {
+            Vector2 p0 = LanePos(e, dir, laneIn, sA), t0 = TravelTan(e, dir, sA);
+            Vector2 p3 = LanePos(e2, dir2, laneOut, sB), t3 = TravelTan(e2, dir2, sB);
+            // only a near-straight node: a longer cubic across a bend would cut
+            // its corner (4 deg over 45 m is 0.4 m)
+            if (Vector2.Angle(t0, t3) > 4f) return;
+            Vector2 d = p3 - p0, mid = (t0 + t3).normalized;
+            float chord = d.magnitude;
+            if (chord < 0.05f) return;
+            // the S in it: the far mouth's offset across the mean direction (an
+            // arc between the two tangents has none)
+            float gap = Mathf.Abs(mid.x * d.y - mid.y * d.x);
+            float need = 1.5f * gap / Mathf.Tan(StraightSwerveDeg * Mathf.Deg2Rad);
+            if (need <= chord) return;
+            float add = Mathf.Min(StraightStretchM, 0.5f * (need - chord));
+            // back along the run (dir > 0: toward s 0), forward along the next edge
+            float roomA = Mathf.Max(0f, Mathf.Abs(sA - runS0) - 2f);
+            float farB = dir2 > 0 ? e2.length * 0.4f : e2.length * 0.6f;
+            float roomB = Mathf.Max(0f, dir2 > 0 ? farB - sB : sB - farB);
+            float a = Mathf.Min(add, roomA), b = Mathf.Min(add, roomB);
+            sA -= dir * a;
+            sB += dir2 * b;
+        }
+        const float StraightSwerveDeg = 3f, StraightStretchM = 20f;
+
+        /// <summary>The tightest curvature along a turn's cubic (1/m), sampled
+        /// at 16 points: |B' x B''| / |B'|^3.</summary>
+        static float BezMaxCurvature(in Leg L)
+        {
+            float best = 0f;
+            Vector2 a = L.p2 - 2f * L.p1 + L.p0, b = L.p3 - 2f * L.p2 + L.p1;
+            for (int i = 0; i <= 16; i++)
+            {
+                float t = i / 16f;
+                Bez(L, t, out var d);
+                Vector2 dd = 6f * (1f - t) * a + 6f * t * b;
+                float m = d.magnitude;
+                if (m < 1e-3f) continue;
+                best = Mathf.Max(best, Mathf.Abs(d.x * dd.y - d.y * dd.x) / (m * m * m));
+            }
+            return best;
+        }
+
+        // ======================================================================
+        //  The lanes across a node (road-logic lanes, 2026-10-29)
+        // ======================================================================
+
+        /// <summary>THE LANE JUMP across a node: the sideways gap between lane
+        /// i of e at its mouth sA and lane j of e2 at its mouth sB, where the
+        /// two lanes' lines - each run on along its own direction - cross the
+        /// node's bisector line. A lane that keeps its place through a bend
+        /// reads 0. Before, the far lane's mouth point was measured against the
+        /// near lane's normal, which read the BEND as a jump (10 m past a 20 deg
+        /// bend is 3.4 m sideways): MapStraight sent cars across a lane to go
+        /// straight on at every bent junction, and the census counted 1,327
+        /// straight-throughs whose lanes "jump" that mostly did not.</summary>
+        float LaneJump(CityMap.Edge e, int dir, int i, float sA, CityMap.Edge e2, int dir2, int j, float sB, int node)
+        {
+            Vector2 p = LanePos(e, dir, i, sA), t0 = TravelTan(e, dir, sA);
+            Vector2 q = LanePos(e2, dir2, j, sB), t3 = TravelTan(e2, dir2, sB);
+            return CrossGap(p, t0, q, t3, map.nodes[node]);
+        }
+
+        /// <summary>Two lane lines (a point and its travel direction each, on
+        /// either side of a node c): how far apart they cross the line through
+        /// c square to their mean direction.</summary>
+        static float CrossGap(Vector2 p, Vector2 t0, Vector2 q, Vector2 t3, Vector2 c)
+        {
+            var b = t0 + t3;
+            b = b.sqrMagnitude > 1e-6f ? b.normalized : t0;
+            var nb = new Vector2(-b.y, b.x);
+            var P = p + t0 * (Vector2.Dot(c - p, b) / Mathf.Max(0.3f, Vector2.Dot(t0, b)));
+            var Q = q + t3 * (Vector2.Dot(c - q, b) / Mathf.Max(0.3f, Vector2.Dot(t3, b)));
+            return Mathf.Abs(Vector2.Dot(P - Q, nb));
+        }
+
+        /// <summary>The lanes (kerb-counted bits: bit 0 the kerb lane) at the
+        /// end of a run that only turn there: LEFT-only lanes (contiguous from
+        /// the left edge) and RIGHT-only lanes (contiguous from the kerb), from
+        /// OSM turn:lanes or a TAPR left-turn bay (<see cref="CityMeshes.TurnOnly"/>,
+        /// the arrows the paint draws). Only where the tagged way ENDS at this
+        /// node (a way that runs on through it keeps its lanes there for a node
+        /// further on), only where the counts agree, never where every lane
+        /// turns (which way each turns is not in the line set).</summary>
+        void TurnOnlyLanes(CityMap.Edge e, int dir, int node, out int left, out int right)
+        {
+            left = right = 0;
+            if (!e.hasLset) return;
+            CityMeshes.TurnOnly(e, out int fwd, out int bwd, out int nF, out int nB, out _);
+            int bits = dir > 0 ? fwd : bwd, osmN = dir > 0 ? nF : nB;
+            int n = Lanes(e.index, dir);
+            if (bits == 0 || osmN != n || n < 2) return;
+            if (bits == (1 << n) - 1) return;
+            if (e.wayId != 0)
+                foreach (int oi in map.nodeEdges[node])
+                    if (oi != e.index && map.edges[oi].wayId == e.wayId) return;
+            // OSM lane k (0 the leftmost in travel) is kerb-counted lane n-1-k
+            for (int k = 0; k < n && (bits & (1 << k)) != 0; k++) left |= 1 << (n - 1 - k);
+            for (int k = n - 1; k >= 0 && (bits & (1 << k)) != 0; k--) right |= 1 << (n - 1 - k);
+            right &= ~left;
+        }
+
+        /// <summary>Whether a node offers this run a left and a right (not a
+        /// U-turn).</summary>
+        void NodeTurns(CityMap.Edge e, int dir, int n, out bool hasLeft, out bool hasRight)
+        {
+            hasLeft = hasRight = false;
+            Vector2 tIn = TravelTan(e, dir, dir > 0 ? e.length : 0f);
+            foreach (int ei in map.nodeEdges[n])
+            {
+                var o = map.edges[ei];
+                if (ei == e.index || o.a == o.b || !routable[ei]) continue;
+                int d2 = o.a == n ? 1 : -1;
+                if (d2 < 0 && o.oneway) continue;
+                float ang = Vector2.SignedAngle(tIn, TravelTan(o, d2, d2 > 0 ? 0f : o.length));
+                float aa = Mathf.Abs(ang);
+                if (aa < 35f || aa > 150f) continue;
+                if (ang > 0f) hasLeft = true; else hasRight = true;
+            }
+        }
+
+        /// <summary>The lanes a straight-on keeps out of: those marked for a
+        /// turn the node has (a left-only lane where there is no left runs on
+        /// to the node that has it - a divided road's two crossings).</summary>
+        static int StraightAvoid(int leftOnly, int rightOnly, bool hasLeft, bool hasRight, int nIn)
+        {
+            int m = (hasLeft ? leftOnly : 0) | (hasRight ? rightOnly : 0);
+            return m == (1 << nIn) - 1 ? 0 : m;
+        }
+
+        /// <summary>A turn's lanes: of the lanes it may leave from (bits), the
+        /// one nearest the car's; lane discipline into the next road (the kerb
+        /// lane of a double right into its kerb lane, the inner lane of a
+        /// double left into the inner lane).</summary>
+        static void TurnLane(int bits, int refLane, int nIn, int nOut, bool left, out int req, out int outLane)
+        {
+            bits &= (1 << nIn) - 1;
+            if (bits == 0) bits = left ? 1 << (nIn - 1) : 1;
+            req = -1;
+            for (int i = 0; i < nIn; i++)
+                if ((bits & (1 << i)) != 0 && (req < 0 || Mathf.Abs(i - refLane) < Mathf.Abs(req - refLane))) req = i;
+            int rank = 0;
+            if (left) { for (int i = req + 1; i < nIn; i++) if ((bits & (1 << i)) != 0) rank++; outLane = Mathf.Max(0, nOut - 1 - rank); }
+            else { for (int i = 0; i < req; i++) if ((bits & (1 << i)) != 0) rank++; outLane = Mathf.Min(nOut - 1, rank); }
+        }
+
+        /// <summary>A ramp's lanes run on into the road it joins (a merge: every
+        /// lane of the ramp lines up with a lane past the node), or the lanes
+        /// of an exit ramp are the road's own (every ramp lane lines up with a
+        /// lane before it): the lane counts add up and nobody merges.</summary>
+        bool RampLanesRunOn(CityMap.Edge e, int dir, CityMap.Edge e2, int dir2, int n, bool merge)
+        {
+            float sA = EndS(e, dir), sB = dir2 > 0 ? Back(e2, n) : e2.length - Back(e2, n);
+            int nIn = Lanes(e.index, dir), nOut = Lanes(e2.index, dir2);
+            int nRamp = merge ? nIn : nOut, nRoad = merge ? nOut : nIn;
+            if (nRoad <= nRamp) return false;
+            // the mainline arm on the other side of the node (into it for a
+            // merge, out of it for an exit): the road must carry ITS lanes and
+            // the ramp's - lanes OSM adds at the merge or drops onto the exit.
+            // A ramp that only lines up with the kerb lane (OSM joins it at the
+            // edge lane) is a true merge: it yields and fits in.
+            Vector2 tRef = merge ? TravelTan(e2, dir2, sB) : TravelTan(e, dir, sA);
+            int nMain = -1;
+            foreach (int mi in map.nodeEdges[n])
+            {
+                var m = map.edges[mi];
+                if (mi == e.index || mi == e2.index || m.a == m.b || m.link || !routable[mi]) continue;
+                int dm = merge ? (m.b == n ? 1 : -1) : (m.a == n ? 1 : -1);
+                if (dm < 0 && m.oneway) continue;
+                Vector2 tm = merge ? TravelTan(m, dm, dm > 0 ? m.length : 0f) : TravelTan(m, dm, dm > 0 ? 0f : m.length);
+                if (Vector2.Angle(tm, tRef) < 35f) nMain = Mathf.Max(nMain, Lanes(mi, dm));
+            }
+            if (nMain < 0 || nRoad < nMain + nRamp) return false;
+            for (int r = 0; r < nRamp; r++)
+            {
+                bool found = false;
+                for (int k = 0; k < nRoad && !found; k++)
+                    found = (merge ? LaneJump(e, dir, r, sA, e2, dir2, k, sB, n) : LaneJump(e, dir, k, sA, e2, dir2, r, sB, n)) < 1f;
+                if (!found) return false;
+            }
+            return true;
+        }
+
+        /// <summary>THE LANE A TURN NEEDS, IN TIME: where the run before a node
+        /// is too short for the lane changes its turn needs (a turn bay, a lane
+        /// that ends at a node close behind another, a divided road's two
+        /// crossings), the straight-through before that run delivers the car
+        /// in the lane it needs - it changes lanes on the longer road before,
+        /// as a driver who knows the way does. Back over up to three straights.
+        /// Before, every change waited for the last edge: 1,000+ census lane
+        /// changes squeezed under 2.2 s on edges under 60 m, turns begun from
+        /// the wrong lane.</summary>
+        void LaneBack(Car c, int li)
+        {
+            for (int guard = 0; guard < 3 && li >= 2; guard++)
+            {
+                ref Leg R = ref c.legs[li];
+                int need = Mathf.Abs(R.laneOut - R.laneIn);
+                if (need == 0) return;
+                float v = Mathf.Max(6f, limitMps[R.edge] * 0.9f);
+                float per = Mathf.Max(40f, v * 4f);
+                if (R.len >= need * per + 15f) return;                       // room to change on it
+                ref Leg T = ref c.legs[li - 1];
+                if (!T.turn || T.kind != 0 || T.merge || T.exit) return;     // a turn's lanes are its own
+                ref Leg P = ref c.legs[li - 2];
+                float roomP = li - 2 == 0 ? P.len - c.u : P.len;
+                if (roomP <= R.len) return;                                  // no more room before it
+                var e = map.edges[T.edge]; var e2 = map.edges[T.edge2];
+                int nIn = Lanes(T.edge, T.dir), nOut = Lanes(T.edge2, T.dir2);
+                TurnOnlyLanes(e, T.dir, T.node, out int lo, out int ro);
+                NodeTurns(e, T.dir, T.node, out bool hl, out bool hr);
+                int avoid = StraightAvoid(lo, ro, hl, hr, nIn);
+                int pIn = li - 2 == 0 ? c.lane : P.laneIn;
+                int bi = -1, bj = -1; float bs = float.MaxValue;
+                for (int i = 0; i < nIn; i++)
+                {
+                    if ((avoid & (1 << i)) != 0 || LaneWidth(e, T.dir, i, T.sA) < 2f) continue;
+                    for (int j = 0; j < nOut; j++)
+                    {
+                        if (LaneWidth(e2, T.dir2, j, T.sB) < 2f) continue;
+                        float d = LaneJump(e, T.dir, i, T.sA, e2, T.dir2, j, T.sB, T.node);
+                        if (d > 1f) continue;
+                        float sc = Mathf.Abs(j - R.laneOut) * 100f + Mathf.Abs(i - pIn) * 10f + d;
+                        if (sc < bs) { bs = sc; bi = i; bj = j; }
+                    }
+                }
+                if (bj < 0 || Mathf.Abs(bj - R.laneOut) >= need) return;    // no lane delivers it nearer
+                P.laneOut = bi;
+                T.laneIn = bi; T.laneOut = bj;
+                ShapeTurn(ref T);
+                R.laneIn = bj;
+                Stats.lanesBack++;
+                li -= 2;
+            }
+        }
+
+        /// <summary>A lane change by choice (round a slower car, keep right)
+        /// only where the plan runs on from the new lane: the next move a
+        /// straight on that the new lane continues, re-mapped from it (the plan
+        /// past it made again); never ahead of a turn, a merge or an exit -
+        /// the car is in, or heading for, the lane that one needs. Before, a
+        /// car left its lane for a pass and then had to come back to the lane
+        /// the straight-on was mapped from: lane changes squeezed in at the
+        /// node and 1,500 census straights begun from the wrong lane.</summary>
+        bool RemapTo(Car c, int to)
+        {
+            if (c.legCount < 2) return true;
+            ref Leg T = ref c.legs[1];
+            if (!T.turn || T.kind != 0 || T.merge || T.exit) return false;
+            var e = map.edges[T.edge]; var e2 = map.edges[T.edge2];
+            TurnOnlyLanes(e, T.dir, T.node, out int lo, out int ro);
+            NodeTurns(e, T.dir, T.node, out bool hl, out bool hr);
+            int nIn = Lanes(T.edge, T.dir);
+            MapStraight(e, T.dir, T.sA, e2, T.dir2, T.sB, to, T.node, StraightAvoid(lo, ro, hl, hr, nIn), out int req, out int outLane);
+            if (req != to) return false;
+            c.legs[0].laneOut = to;
+            T.laneIn = to; T.laneOut = outLane;
+            ShapeTurn(ref T);
+            c.legCount = 2;
+            c.legs[c.legCount++] = MakeRun(T.edge2, T.dir2, T.sB, outLane);
+            c.deadEnd = false;
             return true;
         }
 
@@ -958,28 +1382,29 @@ namespace PSXRacing.City
             return Mathf.Clamp(d, 20f, cap);
         }
 
-        /// <summary>Going straight on: the lane on the next edge nearest
-        /// (across the road) to the lane the car is in; where that lane ENDS
-        /// (nothing within 2 m), the nearest lane that runs on instead.</summary>
-        void MapStraight(CityMap.Edge e, int dir, float sA, CityMap.Edge e2, int dir2, float sB, int refLane, out int req, out int outLane)
+        /// <summary>Going straight on: the lane on the next edge that the lane
+        /// the car is in runs on into (<see cref="LaneJump"/>, through any bend);
+        /// where that lane ENDS (nothing within 2 m) or is marked for a turn
+        /// this node has (avoid, kerb-counted bits), the nearest lane that runs
+        /// on instead.</summary>
+        void MapStraight(CityMap.Edge e, int dir, float sA, CityMap.Edge e2, int dir2, float sB, int refLane, int node, int avoid, out int req, out int outLane)
         {
             int nIn = Lanes(e.index, dir), nOut = Lanes(e2.index, dir2);
             refLane = Mathf.Clamp(refLane, 0, nIn - 1);
-            Vector2 t0 = TravelTan(e, dir, sA);
-            Vector2 nrm = new Vector2(-t0.y, t0.x);
             req = refLane; outLane = Mathf.Clamp(refLane, 0, nOut - 1);
             float bestScore = float.MaxValue;
             for (int i = 0; i < nIn; i++)
             {
-                Vector2 p = LanePos(e, dir, i, sA);
+                if (LaneWidth(e, dir, i, sA) < 2f) continue;          // a lane its taper ends
                 int bj = 0; float bd = float.MaxValue;
                 for (int j = 0; j < nOut; j++)
                 {
-                    float d = Mathf.Abs(Vector2.Dot(LanePos(e2, dir2, j, sB) - p, nrm));
+                    if (LaneWidth(e2, dir2, j, sB) < 2f) continue;    // a lane not yet opened
+                    float d = LaneJump(e, dir, i, sA, e2, dir2, j, sB, node);
                     if (d < bd) { bd = d; bj = j; }
                 }
                 if (bd > 2.0f) continue;
-                float score = Mathf.Abs(i - refLane) * 10f + bd;
+                float score = Mathf.Abs(i - refLane) * 10f + bd + ((avoid & (1 << i)) != 0 ? 1000f : 0f);
                 if (score < bestScore) { bestScore = score; req = i; outLane = bj; }
             }
         }
@@ -1053,6 +1478,7 @@ namespace PSXRacing.City
                 c.boxU = (L.p1 - L.p0).sqrMagnitude > 1e-6f ? (L.p1 - L.p0).normalized : c.tan;
                 // across a cluster's second node it is still in the box it entered
                 c.inKey = trims.Internal(L.edge) && c.entryKey >= 0 ? c.entryKey : (L.edge << 1) | (L.dir > 0 ? 1 : 0);
+                if (L.uHalf) return;   // round a bulb: its second half next, no approach yet
                 if (c.legCount > 1)
                 {
                     ref Leg R = ref c.legs[1];
@@ -1132,6 +1558,13 @@ namespace PSXRacing.City
             if (!L0.turn && !c.lc && c.legCount > 1 && Mathf.Clamp(L0.laneOut, 0, Lanes(L0.edge, L0.dir) - 1) != c.lane)
             {
                 float rem = L0.len - c.u;
+                // road-logic lanes: where its lane CLOSES before the node (a
+                // drop's taper, drawn as the paint draws it: LaneBounds), the
+                // car waits where the lane gets too narrow for it, not 6 m
+                // short of the node with its lane gone under it and its side
+                // in the next lane's car (the traffic check's wreck on e16794)
+                float shut = LaneShutAhead(c, ref L0, Mathf.Min(rem, 70f));
+                if (shut < rem) rem = shut + 6f - 2f;
                 if (rem < 40f && !trims.Internal(L0.edge) && map.edges[L0.edge].length >= 20f)
                 {
                     float hold = rem - c.halfL - 6f + StopS0;
@@ -1175,7 +1608,7 @@ namespace PSXRacing.City
         void PopLeg(Car c)
         {
             ref Leg old = ref c.legs[0];
-            if (old.turn)
+            if (old.turn && !old.uHalf)
             {
                 if (old.merge) Stats.merges++;
                 if (old.exit) Stats.exits++;
@@ -1215,6 +1648,19 @@ namespace PSXRacing.City
                 float lim = L.turn ? Mathf.Min(L.vMax, limitMps[L.edge2] * c.factor) : limitMps[L.edge] * c.factor;
                 float d0 = Mathf.Max(0f, dist);
                 best = Mathf.Min(best, Mathf.Sqrt(lim * lim + 2f * c.bDec * d0));
+                if (!L.turn)
+                {
+                    // THE CURVE ADVISORIES (road-logic-bends, CityCurves - the
+                    // number the exit-speed sign shows and the census measures):
+                    // the lowest on what is left of this run, braked to by its start
+                    float a0 = k == 0 ? L.s0 + L.dir * c.u : L.s0, a1 = L.s0 + L.dir * L.len;
+                    float adv = CityCurves.MinMpsBetween(map, L.edge, a0, a1, out float advAt);
+                    if (adv < float.MaxValue)
+                    {
+                        float va = adv * c.factor, dTo = Mathf.Max(0f, dist + Mathf.Abs(advAt - L.s0));
+                        best = Mathf.Min(best, Mathf.Sqrt(va * va + 2f * c.bDec * dTo));
+                    }
+                }
                 if (!L.turn && L.len > 8f && (k == 0 || dist < 80f))
                 {
                     var e = map.edges[L.edge];
@@ -1241,6 +1687,7 @@ namespace PSXRacing.City
         {
             if (a.turn != b.turn || a.edge != b.edge || a.dir != b.dir) return false;
             if (!a.turn) return true;
+            if (a.uHalf != b.uHalf) return false;   // the two halves of a bulb U-turn
             return a.edge2 == b.edge2 && a.dir2 == b.dir2 && (a.laneOut == b.laneOut || a.laneIn == b.laneIn);
         }
 
@@ -1852,13 +2299,26 @@ namespace PSXRacing.City
                 float zone = Mathf.Abs(req - c.lane) * (fwy ? 250f : 110f) + 50f;
                 if (rem < zone && rem > 6f)
                 {
+                    // road-logic lanes: a change is begun only with the room to
+                    // finish it (MinChangeS at its speed) - short of that the car
+                    // slows for the gap (the hold in Step), and at speed past
+                    // the point it could still stop it drives on from its lane
+                    // (a missed exit), never a 1.5 s swerve into the node
+                    bool straightNext = c.legCount > 1 && c.legs[1].turn && c.legs[1].kind == 0 && !c.legs[1].merge && !c.legs[1].exit;
+                    if (!straightNext && c.speed > 3f && rem - 4f < c.speed * MinChangeS)
+                    {
+                        Stats.lateHolds++;
+                        if (c.speed > 12f && rem < 40f + c.speed * c.speed / (2f * c.bDec)) Replan(c, "no room left to change lanes at its speed");
+                        return;
+                    }
                     int to = c.lane + (req > c.lane ? 1 : -1);
                     if (GapOk(c, to)) { StartChange(c, to, rem); Stats.mandatory++; }
                 }
                 return;
             }
             if (rem < 70f) return;
-            // DISCRETIONARY: round a slower car (left first), and keep right
+            // DISCRETIONARY: round a slower car (left first), and keep right -
+            // only where the plan runs on from the new lane (RemapTo)
             if (c.leaderInLane && c.gap < 30f + c.speed * 2f && c.leaderV < limitMps[L.edge] * c.factor - 2.5f)
             {
                 for (int side = 0; side < 2; side++)
@@ -1867,17 +2327,21 @@ namespace PSXRacing.City
                     if (to < 0 || to >= n) continue;
                     if (LaneAhead(c, to) < c.gap + 15f) continue;
                     if (!GapOk(c, to)) continue;
-                    StartChange(c, to, rem); Stats.laneChanges++;
+                    if (!RemapTo(c, to)) continue;
+                    StartChange(c, to, rem); Stats.laneChanges++; Stats.remaps++;
                     return;
                 }
             }
-            else if (fwy && c.lane > 0 && Random.value < 0.15f && LaneAhead(c, c.lane - 1) > 110f && GapOk(c, c.lane - 1))
+            else if (fwy && c.lane > 0 && Random.value < 0.15f && LaneAhead(c, c.lane - 1) > 110f && GapOk(c, c.lane - 1) && RemapTo(c, c.lane - 1))
             {
                 StartChange(c, c.lane - 1, rem); Stats.keepRight++;
             }
         }
 
-        void Replan(Car c)
+        /// <summary>The shortest a lane change is begun in (s at the car's speed).</summary>
+        const float MinChangeS = 2.2f;
+
+        void Replan(Car c, string why = "waited 14 s for a gap")
         {
             ref Leg L = ref c.legs[0];
             var e = map.edges[L.edge];
@@ -1885,7 +2349,7 @@ namespace PSXRacing.City
             {
                 string turn = c.legCount > 1 ? (c.legs[1].merge ? "merge" : c.legs[1].exit ? "exit" : c.legs[1].kind == -1 ? "left" : c.legs[1].kind == 1 ? "right" : "straight on") : "?";
                 Note(c, "lane", "missed-turn-lane", Mathf.Abs(Mathf.Clamp(L.laneOut, 0, Lanes(L.edge, L.dir) - 1) - c.lane),
-                     $"waited 14 s for a gap into lane {L.laneOut} of {Lanes(L.edge, L.dir)} from lane {c.lane} for its {turn} at node {L.node}: replanned; " + Describe(c));
+                     $"{why} into lane {L.laneOut} of {Lanes(L.edge, L.dir)} from lane {c.lane} for its {turn} at node {L.node}: replanned; " + Describe(c));
             }
             float s1 = EndS(e, L.dir);
             if ((s1 - L.s0) * L.dir < c.u) s1 = L.s0 + L.dir * c.u;
@@ -1912,6 +2376,21 @@ namespace PSXRacing.City
                     Note(c, "lane", pushy ? "forced-into-tight-gap" : "forced-short-change", pushy ? Time.time - c.mandAt : dur,
                          $"lane {c.lane}->{to} {(pushy ? $"after waiting {Time.time - c.mandAt:0} s, into a tight gap" : $"in {dur:0.0} s with {rem:0} m left at {c.speed:0.0} m/s")}; " + Describe(c));
             }
+        }
+
+        /// <summary>Metres ahead (within look) where the car's own lane gets
+        /// narrower than the car (a taper closing it), or float.MaxValue.</summary>
+        float LaneShutAhead(Car c, ref Leg L, float look)
+        {
+            var e = map.edges[L.edge];
+            float s0 = ArcNow(c), need = 2f * c.halfW + 0.4f;
+            for (float d = 0f; d <= look; d += 3f)
+            {
+                float s = Mathf.Clamp(s0 + L.dir * d, 0f, e.length);
+                if (LaneWidth(e, L.dir, c.lane, s) < need) return d;
+                if (s <= 0f || s >= e.length) break;
+            }
+            return float.MaxValue;
         }
 
         /// <summary>The free road ahead in a lane of this car's run.</summary>
@@ -1946,6 +2425,10 @@ namespace PSXRacing.City
             bool pushy = c.mandAt >= 0f && Time.time - c.mandAt > 5f;
             float sc = ArcNow(c);
             float s = Mathf.Clamp(sc, 0f, e.length);
+            // never into a lane too narrow for the car here or just ahead (a
+            // lane a taper is still opening, or closing)
+            float need = 2f * c.halfW + 0.6f;
+            if (LaneWidth(e, L.dir, lane, s) < need || LaneWidth(e, L.dir, lane, Mathf.Clamp(s + L.dir * Mathf.Max(8f, c.speed * 2f), 0f, e.length)) < need) return false;
             var q = PlanPoint(e, s, LaneLat(e, L.dir, lane, s), out var t);
             var tr = t * L.dir;
             for (int i = 0; i < live.Count; i++)
@@ -1997,6 +2480,12 @@ namespace PSXRacing.City
                     latRate = (b - a) * 6f * t * (1f - t) / Mathf.Max(0.5f, c.lcDur);
                 }
                 else lat = LaneLat(e, L.dir, c.lane, s);
+                // a lane a taper narrows under the car (a drop it has not yet
+                // left, a split's median taper): the car keeps to the
+                // pavement, squeezing over - never hangs off the edge
+                LineModel.Extents(e, s, out float pM, out float pP);
+                float lo = -pM + c.halfW + 0.05f, hi = pP - c.halfW - 0.05f;
+                if (hi > lo) lat = Mathf.Clamp(lat, lo, hi);
                 c.lat = lat;
                 p = PlanPoint(e, s, lat, out var tan);
                 travel = tan * L.dir;
@@ -2185,6 +2674,9 @@ namespace PSXRacing.City
             if ((s - start) * dir < 0f || (end - s) * dir < 20f) { if (Log != null) Log.spBounds++; return; }
             int n = Lanes(ei, dir);
             int lane = Random.Range(0, n);
+            // never born in a lane a taper has closed (or not yet opened)
+            for (int k = 0; k < n && LaneWidth(e, dir, lane, s) < 2.5f; k++) lane = (lane + 1) % n;
+            if (LaneWidth(e, dir, lane, s) < 2.5f) { if (Log != null) Log.spBounds++; return; }
             var q = LanePos(e, dir, lane, s);
             var at = new Vector3(q.x, e.YAt(s), q.y);
             if (!CensusMode)

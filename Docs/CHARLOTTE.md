@@ -8138,3 +8138,369 @@ and then the wooded strips either side come from the canopy as everywhere.
 Open: the photo's woods are denser than the lot rows (canopy cells that are not
 lots, round the rail line, need the corridor first); the noon west faces stay
 darker than the afternoon photograph (that is the hour, not an error).
+### REAL HEIGHTS - round 8 (2026-10-29; the owner's three median spots: 0'54" notch, 1'47" box, 4'06" holes)
+
+The owner on the live round 6/7: "rectangle cutouts with holes, spots that go down then back up, and empty box
+areas". His rule: fix the spot he shows. Every one of his three spots was two medians that did not MEET; the code is
+`CityMeshes.Medians8.cs` (new partial) plus hooks in `CityMeshes.Unions.cs` and one line in `RailContinuesPast`.
+
+**0'54" I-277 e2311 s ~1 (uptown 617 m): the notch (CHAIN).** A deck run (owner e2306) hands over to a ground run
+(owner e2317) at node n3523, which stands 1.1 m into the partner's deck e2311 (n3531 is the partner's node). The ground
+run's road across was only the twin pieces its walk met (e9877, e2322), so at n3523 its foot clamped to e9877's END,
+1.1 m back, while the deck run found e2311: two cross-lines 1.1 m apart at the partner edge, the Jersey stepped 0.55 m
+aside with a square end, and the triangle between drawn by neither - a hole to the grass. Fix: a ground/approach run's
+`across` = the twins met PLUS the edges mitred nodes carry them on into (as a deck run's ChainAround), and an edge across
+its median reaches gets an exact partner run (`PSX_CITY_R8_CHAIN=0` = before). Both runs now draw one cross-line at
+n3523. (`PSX_CITY_UNION_SEAM`'s 1.5 m inset overlap is not needed and stays OFF.)
+
+**4'06" I-77 e15241 (uptown 6504-6524 m): a box at the deck start, a hole at its end (EXACT, FILL, SEAM).**
+Partner runs claim half a walk step (2 m) past their owner's last foot and are snapped up to 6 m on to their edge's
+end. (a) e1887's own run snapped its end to e1885's partner run's padded 15.6 while e1885's median reaches e1887 at
+17.6 (the foot of n2945): a 2 m gap and a grass triangle, and e15241's first 2.5 m kept its own deck parapet beside the
+union Jersey (the box). Runs now meet a partner run where its owner's median is DRAWN (`DrawnRange`: the feet of the
+owner's ends), the partner's padded claim kept for Continued (cutting every claim to the feet left 408 run ends open
+instead of 110 - the first look). (b) e15241's partner run claimed 15.8..20 past e1887's start at n695, so the 2.6 m of
+e1894 beside it (57.7..60.3) was refused as "covered" by the walk's 4 m samples - in no run: a hole between the two
+decks, each side's own rail sloped down into it. FILL: every gap of up to 16 m between two drawn medians (on the edge,
+or carried on through its node), with the opposing twin beside in the band at one level and no other run drawing there,
+gets an owner run (e1894 57.7..60.3). (c) Perpendicular feet from two diverging carriageways land up to ~2 m apart,
+so two runs owned on OPPOSITE carriageways never shared a cross-line where one hands over to the other (e1887 s 17.6 vs
+e1885's end at n2945): SEAM links such ends and each draws its end to the other's edge at the other's end, blended in
+over max(3 m, 1.5 x the move).
+
+**1'47" I-277 past the Elizabeth Ave bridge (uptown ~1800 m): the empty box (DECKEND, MEDRAIL).** The one bridge's
+union run (owner e2437) began 8 m into e2437's deck, where the pair table's range began. The two decks end on a skewed
+abutment line (e2438's at n3657, e2437's 7.5 m on at n3295), and past the V's mouth the median was the ground under the
+bridge, more than 1 m below both roads (spot probe heights 'v'): a pit 12 m wide and ~9 m long, walled by each
+carriageway's own rail and the V's legs, the terrain's concrete closing face beyond - the box. A real deck carries its
+median slab to the abutment: a closed end of a Barrier run whose OWNER's deck carries on past it, the twin beside within
+16 m at one level and the land across the gap 0.5 m+ under both roads (at a quarter point), now carries on (slab,
+soffit, Jersey, its V) to where that deck or the pit ends (max 24 m; `PSX_CITY_R8_DECKEND=0`). 22 m on, at n3658 (e2435 -> e4593, a plain node one
+approach band from the bridge), the route's median-side approach rail was capped down to nothing and back up (a 3 m
+notch: RailContinuesPast carried rails uncapped only on structure). A divided freeway's median-side rail now carries on
+across a plain two-edge node inside its approach band on both sides, where no union holds that side
+(`PSX_CITY_R8_MEDRAIL=0`).
+
+**Also this round.** Two approach walks from one deck end laid I-77 e1891 0..3 and 0..4.2 on one side; the seam of the
+two at s 3 was a 3 m hole under the rays (uptown 6579 m): an owner run inside another on the same side is dropped (10
+city-wide). A side with no median at all whose neighbour's run reaches its node, the twin still in the band for less
+than the walk's 12 m minimum (I-277 e2139 at uptown 8688 m: two own Jerseys 8.6 m apart for 9 m, a box), gets the median
+carried on as far as the band holds (up to 16 m) - measured WORSE and left OFF (`PSX_CITY_R8_FILLEND=1`): the piece is
+short with a closed far end, so its Jersey is turned down over most of it and the box became an 8 m BREAK (8690 m).
+
+**Measured** (gate1 = every round-8 switch on, PSXLab; base = the same branch with round 8 off, i.e. main
+70e81508's medians; g1r7 = round 7's gate): launch uniform 102/395, routes 0/0/0, old 109/585; census per class =
+g1r7 (freeway >0.1% 28900 vs 28901, >0.5% 243 vs 244, TIGHT crest 63 vs 65; ramp/arterial/collector/local identical);
+route p99 1.12/2.11/0.76; WALLS IN LANES 0; FALL HOLES 8 places, all off-route (S Tryon e1107/8, Briar Creek Rd);
+INVISIBLE lanes 4 and BLUNT route 1 (e9877 s 18, the ramp e279's rail end) = base. MEDIAN ACROSS one/two+/none
+3903/35/35 -> 3940/22/28. MEDIAN CLASSES breaks/open gaps/boxes 17/3/15 -> 8/3/10 (r8 without DECKEND/MEDRAIL/
+dedupe: 8/3/12). Gone on the routes: uptown 617 (0'54"), 1670, 1751 (the Elizabeth Ave deck's north end), 2285, 3574,
+4940, 6504/6520 + 6524 (4'06"), 7068/7128/7140/7216 (I-77 e1874/e1254/e6608), independence 218 and the 964 box (e2328's
+deck end, DECKEND). The 1'47" pit is covered (e2437's run 8.0 -> 0.0) and n3658's rail notch is gone (spot probe
+heights: H through e2435 s 22 / e4593 s 0-5). Left (gate1): uptown 2211 (e2144 s 349) and Independence 161/2482/4407/
+4507/4531 - BREAKS where the twins part past the 9.5 m band: the union's closed end turns down beside each
+carriageway's own Jersey's capped start, a 2-8 m low spot the 0.5 m rays pass over (a ground V meeting both own
+Jerseys is the fix; it was not built this round); 7978 (e8478 s 11) the same at an ownership hand-over; 8690 (e2139 s 5)
+was the continuation fill drawn flush (both its ends closed, under MinMedianRunM) - after the gate the fill only
+carries a median on that continues through its node (final drive below); OPEN GAPS 290/2600/8727: twins at 9.4-9.6 m,
+on the band's edge, where neither walk lays the median; BOXES 10, all Independence: walls 11-17 m apart across the
+busway median at junction fans (Barriers@~1.8 and @13-17 m), each carriageway's own Jersey by design - counted only
+because the walk's reason there reads "fan"/"no twin", not "gap" (the round-6 wide rule); the median NOSE at a fan
+(one end across both) is not built. Solve unchanged; union build 0.47 -> 0.56 s.
+
+**Final drive (r8_final, the shipped set with the e2139 continuation still ON)**: MEDIAN ACROSS 3940/22/28, CLASSES
+8/3/10, WALLS IN LANES 0, FALL HOLES 8 off-route = gate1. With `PSX_CITY_R8_FILLEND` OFF (shipped) the 8690 BREAK goes
+back to round 7's 8688 BOX (two own Jerseys 8.6 m apart for 9 m): expected 7/3/11, not re-measured. RECIP / SEAM apart
+on top of round 8: `C:/Users/mcgee/PSXLab/r8_final/city_drive_r8_recip.txt` and `..._r8_seam.txt` (the job ran on
+after this was written; both stay OFF).
+
+**Tools.** `CityRealHeights.RunMedianLookAB` re-built the union runs per pass at last: CityWorld caches its trims per map
+object, so a round-7 A/B's second pass re-used the first's runs (the preview's own trims were fresh; the spot probe and
+the drive audit's tiles were not) - `ResetWorldTrims`. `RunDriveAB` (PSX_DRIVE_AB="base;r8;r8+recip;r8+seam": the
+drive audit per configuration in one job), `RunLookThenDrive`, `PSX_LOOK_AB=round8`, spot probe: each run's road across
+/ seams / FILL, the ground-twin WHY per metre, `PSX_SPOT_HEIGHTS=1` (a heights row: v l 0 h H X).
+### REAL HEIGHTS - round 9 (2026-10-29; the last median breaks, gaps and boxes on the race routes)
+
+The owner: "This is not how medians work. They don't just start and stop. Go up and down allowing cars to drive into
+oncoming traffic"; "rectangles and diamonds"; "rectangle cutouts with holes, spots that go down then back up, and empty
+box areas". Round 8 left on the routes 7-8 breaks, 3 open gaps and 10-11 boxes (MEDIAN ACROSS two+ 22 / none 28).
+Every place was looked at first (spot probe with heights + chase/top shots, PSXLab r9_look1): the 28 "none" rays were
+exactly the breaks and gaps, the 22 "two+" rays exactly the boxes. The code is `CityMeshes.Medians9.cs` (new partial)
+plus hooks in `CityMeshes.Unions.cs` and `CityMeshes.cs`.
+
+**1. SPLIT - the median ended where the twins part (Independence 161 / 290 / 2482 / 2600 / 4407, uptown 2211 / 7978).**
+A ground-twin run stops at the last 4 m walk sample inside the 9.5 m band. Two things then went wrong at once: (a) the
+run's end was read as CONTINUED by its own partner run's padded claim across (Continued's twin test: a partner claims
+2 m past its owner's last foot, so the owner's end looked carried on by itself) and drawn with no end at all, and (b)
+each carriageway's own Jersey, starting there, was turned down to a 0.12 m curb over 8 m - a 2-8 m low spot a car
+crosses into oncoming traffic. A real median SPLITS. Now a closed ground end of a Barrier run - or one "continued" only
+by its own partner (`ContinuedButByOwnPartner`) - where both carriageways go on with their own Jersey
+(`OwnBarrierPast`: grounded, barriered, out of fans and rail bands, no median drawn there) is a split
+(`UnionRun.split0/1`): two Jersey legs from the centre line, each flaring 1:6 (a leg 3 x the median's width, 8 m min,
+45% of the run max) to its carriageway's edge with the Jersey's own footprint (traffic face on the edge), full height;
+no centre Jersey in the V, no turned-down nose; the own Jerseys keep full height at that end (`R9KeepJerseyEnd`, also
+at a partner's padded end within the foot's reach); each leg's foot runs on 2.6 m along its edge inside the own Jersey,
+inset 2 cm (`EmitSplitFeet`), and a partner gets a section station on the split's foot (`SplitFeetOn`). A run split
+at both ends shorter than its two legs (a diamond) is not laid. `PSX_CITY_R9_SPLIT=0`: before.
+
+**2. BRIDGE - two shared medians a short way apart, the twins hovering at the band (uptown 8688 / 8727).** I-277 e2141
+-> e2139 -> e8474 against e8488 / e4596: 8.9-10.2 m apart for 45 m between two shared medians; each walk refused the
+samples over 9.5 m and e2139 (35 m) was too short for a run of its own, so the stretch was two own Jerseys 9 m apart (the
+BOX) and a turned-down restart (the OPEN GAP). A gap of up to 60 m between two drawn medians (on an edge, or on through
+its nodes - a ramp's merge node too, `R9Next`) with the twin beside every 2 m within 12 m, at one level, on the ground,
+its side not drawn already, is laid as one median (an owner run per edge, exact partners). `PSX_CITY_R9_BRIDGE=0`.
+
+**3. FANS - junctions on ONE carriageway of a divided road.** (a) Independence 4507-4537 at Norland Road: Norland Rd
+joins only the westbound carriageway (a right-in/right-out); the shared median's walks stopped at that carriageway's
+fan and the eastbound one stood its own Jersey across the 28 m, turned down at both ends - a grass rectangle cut out
+of the median (the owner's "rectangle cutouts") with a BREAK at each end. The bridge carries the median on past a
+twin's fan whose other arms all leave on the twin's outside (`FanOutsideOnly`; the twin's facing edge there is its line
+model = the fan's median-side chord), and that chord draws no kerb or verge under the strip (`MedianChordUnion`: its
+grass stood a hair over the strip). (b) At every right-in/right-out and outside ramp on Independence's busway median
+(Paul Buck Blvd, Woodland Dr, the 6141 ramp ...) a carriageway's own median Jersey ended square, full height and OPEN
+(no end face: EdgeLinesUp reads every fan node as lined up) at its fan: the fan's median side was open for 10-30 m, both
+carriageways' at once at Paul Buck Blvd (13 rays of "none" across the routes' fans, never seen: the census rays start
+between the trims). The chord between the two through arms' median corners now carries the Jersey across
+(`MedianChordJersey`, BuildJunctions) where nothing leaves the node on that side and no shared median is drawn there.
+A node a road crosses or leaves the median at keeps its opening. `PSX_CITY_R9_FANS=0`: before.
+The 1-2 m BOXES at Independence 3163 / 3481 / 3513 / 3731 / 5044 / 6141 and 6053-6061 / 131-155 were not boxes: two
+continuous walls 11-17 m apart (the busway median), counted only because the walk's reason there reads "fan" / "no
+twin" / "owned by" instead of "gap". The census reads a wide median from the walls now (exactly two, each at its own
+carriageway's edge, the edges further apart than the band).
+
+**4. 1'47" - NOT fixed (`PSX_CITY_R9_DECKEND2`, OFF).** The pit past the Elizabeth Ave deck is the twin's bridge
+e2437 starting ~14 m along e2435 (a skewed abutment line), the land under its deck footprint dug to the creek channel
+(the `underDeck` channel rule in CityElevation.Ground: terms 'd'/'D', land -11 m at e2435 s 8-12), and the 8 m lattice
+cells carrying that dip on to s ~17 where the land term is back at the road (spot spec `T`). Two trials of a slab along
+e2435's longer deck (DECKEND2: a partner run whose own deck carries on over a pit gets an owner run along it, its
+ground continuation read from the lattice the land draws) covered most of the pit but left the median-side parapet
+starting square (+1 BLUNT on the route, e2435 s 14.5) or the wall stepping in blocks at the slab's end - worse than the
+pit, so OFF. Next: grade the land under a deck within the abutment band as a spill-through slope from the bridge seat
+(not the channel) in a twin median only, or end both decks on one abutment line.
+
+**Census (drive audit, CityAudit.Median).** MEDIAN ACROSS round 9 line: two+ walls that are a split's V (or 5 m past its
+mouth: its designed end, as a deck's V is) - V class; a wide median read from the walls - WIDE; rays across the routes'
+OWN junction fans: one / two+ / none where nothing leaves into the median (a defect) / none where a road does (an
+opening by design). (Round 8's census read "wide" from the walk's reason only: the base on the new census is CLASSES
+7/3/2 where round 8 reported 7/3/11.)
+
+**Measured** (PSXLab r9_ab2 drives on one census code; HANDOFF.md round 9 'Gates'): Drive audit (PSXLab r9_ab2, same code but before the 7980 fix and with DECKEND2 still on) vs the base = this branch with round 9 off on the SAME census code (r9_ab2/city_drive_r8.txt): MEDIAN CLASSES breaks/gaps/boxes 7/3/2 -> 1/0/0 (round 8's own census reported 8/3/10; the one left, uptown 7980 e8478 s 13 2 m, fixed after: the partner's own Jersey kept full height at its padded end, the final look r9_ab3's spot probe shows it full height); MEDIAN ACROSS two+ 5 -> 0, none 24 -> 1 (= that ray); split V rays 113, WIDE-from-walls 32; fan rays none (nothing leaving into the median) 13 -> 0. WALLS IN LANES 0 = 0; FALL HOLES 8 places all off-route = base; INVISIBLE lanes 4 = 4; INVISIBLE solids 830 = 830 (the base branch's value - round 8's 59 predates the integration's other passes); BLUNT route 1 -> 2 (+1 at e2435 s 14.5 = DECKEND2, now OFF: expected 1). NOT YET MEASURED: launch uniform / census per class / route p99 - the gate job (CityVSmoothCensus.Run, PSX_VS_LAUNCH=uniform, PSX_VS_THEN_DRIVE=1) was started 17:29 on PSXLab with the final defaults: results in C:/Users/mcgee/PSXLab/r9_gate1 (vsmooth_census.txt, city_launch_after.txt, city_drive.txt) when it ends (~18:30). The solve is untouched (medians and fan chords only), so the census/launch are expected equal to round 8's 102/395, routes 0/0/0, p99 1.12/2.11/0.76 - unverified.
+
+**Tools.** `PSX_LOOK_AB=round9` (RunMedianLookAB / RunLookThenDrive; DECKEND2 joins the set only with
+`PSX_CITY_R9_DECKEND2=1`), `PSX_DRIVE_AB` names containing "r9" (round 8 + 9 on), custom view
+`name:along:x:z:road:back[:rise[:fov]]` (the chase view of a place, along its carriageway), spot spec 6th field `T` (the
+land term per column: d deck cap, D deck protect, p cap, f floor, c cut, n natural; and the lowest grass point's
+numbers), world coordinates in the SPOT header. Scratch job scripts (session scratchpad): r9job.ps1, r9look.ps1,
+r9gate.ps1, r9sheet.py. Sheet: Docs/shots/medians9/real_heights_r9_sheet.png.
+
+## THE BRIDGES AND RAILS PASS (city-bridges-rails, 2026-10-29): structures and guardrails like the owner's I-77 photos
+
+The owner's two photos of I-77 northbound at the Brookshire Freeway (NC 16, left exit 11B): "what bridges, highway signs,
+and guard rails should look like" (signs are a parallel package). Code: `Scripts/City/CityMeshes.Bridges.cs`; one job that
+shoots, measures and audits it: `Editor/CityBridgesPass.cs` (-executeMethod PSXRacing.EditorTools.CityBridgesPass.Run,
+PSX_BR_TAG, PSX_BR_STEPS = stats,shotsab,flicker,drive,launch; shotsab shoots every view with the pass off and on).
+
+- **Structure atlas** `Art/City/Pack/city_structure.png` (512, mips, psx16; `tools/city/structure_atlas.py` from the PSX
+  Textures II 512 pack: concrete_wall_pt_1/_2/_4, concrete_pt_5/_6, rusty_metal_pt_7, metal_roofing_pt_1, metal_panels_pt_4),
+  seven horizontal BANDS that tile in U (girder web with the overhang's shadow, weathering-steel plate with stiffeners,
+  column with its splash-stained foot, cap, undersides, abutment form liner) + a misc row (OM-3 marker, bearing pad,
+  galvanized steel, luminaire housing). `Slot.Structure` (after Sidewalk: no slot moves; kit 98 slots), material
+  `CityStructure.mat`. A tile's `TileMeshes.structure` is RENDER-ONLY (CityWorld.Attach "Structure"): nothing new is cooked.
+- **Girders** under every span on structure (`EmitGirders`): a concrete BOX under links and decks <= 13.5 m (webs from
+  1.15 m inside the edge, battered 0.28/m), else a row of girders 3 m apart, precast concrete or weathering steel (40%, by
+  road name + 600 m cell, so twins match). Depth per edge (`PlanOf`): 1.2 m, 1.7 m over nothing, 0.75 m over water, and
+  never leaving less than 3.8 m between a girder and a road below (slab clearance is the solve's 5.0 m). Run ends closed.
+- **Piers** (`EmitBridgePier`, same 26 m pitch and nudges): a HAMMERHEAD (round 12-sided column 1.2-2.0 m, cap tapering
+  from 1.3-2.2 m over the column to 55% at the tips, a bearing under every girder line) or, wider than 17 m, a
+  MULTI-COLUMN BENT (2-4 columns, 1.15 m cap beam). A cap never reaches over a road passing under it within 4.6 m
+  (`CapBlocked`: the pier moves, else a column with its own cap). Columns stand from min(lattice, ground) - 0.6 m and
+  are solid as CAPSULES the drawn size (`SolidBox.round`; the INVISIBLE solids census samples capsules now).
+  THE PIERS' CLEAR ZONE (`PierClearFor`): a column keeps a fast road's bench (RoadsideRules.CityBenchM: freeway 8 m,
+  ramp 4.5 m) from its pavement - DOT's first choice, move the hazard - except on a divided road's median side, behind
+  its Jersey; streets keep PierClearM 1.5 m. Union bents (`EmitBent`) stand under the girders on round columns too.
+- **Abutments** (`EmitAbutments`): a backwall at every place a deck meets its fill (inside an edge, or at a node where
+  the road it carries on into is on structure), from the slab into the ground, 0.35 m past each edge.
+- **W-beam runs**: a grounded rail span that is a warranted DROP (not an approach, not on a retaining face, not in a
+  squeeze strip, not beside a deck's or retaining face's rail) is W-beam on posts, not the parapet carried along the
+  road. Ends: the lead-in terminal on open roadside (flared, turned down), else turned down inside the run and eased out
+  over the verge; where a run meets a parapet on the ground the parapet slopes down over TaperLenM with the beam bolted
+  along it (`WBeamHandOvers`). Colliders are the drawn beam (as the lead-ins'). All W-beams (lead-ins too) are drawn
+  galvanized with steel posts on the structure atlas (`DrawWBeams`; CityPoles.WBeamMesh stands down). Every turned-down
+  end and terminal gets a 1999 OM-3 object marker (yellow/black, render-only). PSX_CITY_WBEAM_RUNS=0 keeps the concrete.
+- **High masts** (`HighMasts`): inside every freeway/trunk link turning >= 100 degrees (a loop's middle, a big curve's
+  inside), 14 m clear of all pavement, no building or water, 170 m apart; 36.5 m (30.5 m off a trunk) galvanized
+  12-gon pole, ring frame, six HPS floods whose heads join the tile's NightGlow (gain 0.45 each), capsule at its foot,
+  the roadside mask keeps trees off it. PSX_CITY_MASTS=0: none.
+- **Rumble strips**: the freeway profiles (mw*) paint a 0.4 m milled band 0.15 m outside each edge line (grooves a row,
+  19 cm, apart; light/dark around the pavement's mean so it does not stripe at range). Texture only: a span drawn as
+  paint columns (tapers, squeezes, clips) shows its shoulder from the paint-free band, so the band breaks where the
+  lane lines are re-laid (as real strips break at gores). No tyre buzz yet (the wheel would need the hit's profile).
+- PSX_CITY_BRIDGES=0 draws everything as it was (the A/B; the rumble paint follows it).
+- **Measured (PSXBuild, one CityBridgesPass job each, main 70e81508 = before):** drive audit identical - WALLS IN LANES
+  0/0, FALL HOLES 8/8, INVISIBLE lanes 4/4, INVISIBLE solids 59/59 (capsules sampled now), BLUNT 1/1 (routes) 9/9 (box),
+  short rails 24/24, CITY AUDIT 10/10 failures (the median classes are real-heights'); launch audit routes identical
+  (uptown 1 LAUNCH 4 UNLOAD, tryon 0/0, independence 0/1); flicker finder depth ties 2130 -> 2132 px, colour flips
+  3067 -> 3034 (final run; the run before the pier fallback 2129 / 3037). Tiles at the I-77 / I-277 / NC 16 interchange: draws equal where W-beams already stood (the galvanized
+  beams share the structure draw: 20/22/25/19) and +1 on a bridge-only tile; triangles +0-33% (the I-277 viaduct's tile
+  23.1k -> 30.7k: 7.9k of girders, bents and caps), collider triangles unchanged or fewer. Perf probe (UptownLoop, night,
+  rain, editor, uncapped): cockpit avg 25.6 -> 25.0 ms, p95 35.1 -> 35.7; chase avg 19.8 -> 20.8, p95 29.2 -> 31.2,
+  SetPass 330 -> 342 (with the structure in the sun map; it is excluded from it since).
+- Sheet: `Docs/shots/bridges/bridges_rails_sheet.png` (owner photo | before | after at the owner's two spots, the I-277
+  viaduct, the interchange, a ramp guardrail).
+- Open: no guardrail shields a pier (a pier's tile would have to lay a run along another road's edge - two tiles could
+  lay it twice and z-fight); piers move out of the clear zone first, else stand where the old rule put them. The tyre
+  buzz on the rumble strip, wingwalls and slope paving at abutments, an F-shape parapet profile (the parapets share the
+  Jerseys' concrete), and I-77 NB's left side at exit 11B (the photos show the open infield slope; the game stands its
+  median wall there - the medians' rule, not this pass's).
+## ROAD LOGIC - LANES (road-logic-lanes, 2026-10-29; from the traffic census)
+
+The owner: "improve road logic (a lot of strange implementation currently)". The census
+(Docs/ROAD_LOGIC_TRAFFIC.md) listed the lane faults; this pass fixed their causes in the lane model
+the traffic drives and the exporter's lane layout. Spot census before/after: `tools\city-traffic-census.ps1
+-Spots Docs\traffic_census\spots_lanes.txt -Minutes 16 -NoShots -ReportDir <dir>` (the 40 lane / turn-lane /
+merge / off-pavement hotspots; each spot the same share; ~29 car-hours a run).
+
+- **Lanes across a node were measured wrong.** The static audit AND the traffic's straight-on lane
+  mapping (MapStraight) compared the far lane's mouth point against the near lane's normal: 10 m past a
+  20 deg bend reads 3.4 m sideways. 1,308 of the 1,327 "no continuing lane" and most "misaligned" were the
+  bend, and cars were sent across a lane to go straight on. Now `CityTraffic.LaneJump`: each lane's line
+  is run on to the node's bisector line and compared there (a lane that keeps its place through a bend
+  reads 0). The audit also says, for what is left, whether every lane holds its place on its own road
+  (the roads' lines jog or bend inside the box: geometry) or the two edges lay their lanes differently.
+- **Lanes in a taper were squeezed evenly** (six freeway lanes 1.8 m wide at the end of a three-lane drop).
+  `LaneBounds`: the slots are laid over the full band and clamped into the band at s, so the lane on the
+  moving side narrows to nothing (a drop) or grows from nothing (an add) and the others hold - as
+  LineModel.LinesAt paints them. A lane a taper closes is never mapped, joined, spawned in or changed into;
+  a car still in it waits where it gets too narrow, and a car keeps to the pavement.
+- **Lane use.** OSM turn:lanes / TAPR bays (the arrows the paint draws, `CityMeshes.TurnOnly`) choose the
+  lanes of a turn (double lefts and rights) and keep straight-on traffic out of a lane marked for a turn
+  the node has - only at the end of the way that carries the tag (a divided road's left-only lane runs on
+  to the crossing that has the left).
+- **Lane needs in time.** A turn's lane need is carried back over a run too short for its changes,
+  through the straight-throughs before it (`LaneBack`); a pass or keep-right only where the next move is a
+  straight on the new lane continues (`RemapTo`, the plan re-made from it); a turn's change is begun only
+  with room to finish it (2.2 s), else the car slows or drives on (a missed turn); 12 s plan horizon,
+  20 s on a freeway.
+- **Ramps whose lanes run on** (OSM adds the ramp's lanes to the road it joins, or drops lanes onto an
+  exit: the counts add up and every ramp lane lines up) are straight-throughs, not funnels into lane 0
+  (I-485 at node 3697: three and three make six).
+- **Cul-de-sac U-turns** loop round the drawn bulb (two halves through its far point) instead of a 1.8 m
+  hairpin between the street's two lanes.
+- **One-way turn lanes on both sides** (exporter, `lineclean.mjs tagSidesBoth`): 'left|through|through|right'
+  four lanes to two moves BOTH edges, so the through lanes hold their line (East Brooklyn Village Ave at
+  South Blvd, Fairview Rd at node 735). Kept one-sided where the split would carry the ribbon farther off
+  its OSM line; applied in a final TAPR pass so the blip step's lane counts do not change. 230 split, 25
+  kept; ribbons on their OSM line 2,746 -> 2,784 km, a lane or more off 285 -> 220 km; offline line gate
+  passes (every check's runs equal or fewer but A2 +18, B3 +3, C2 +3 runs). `PSX_LC_OWBOTH=0` = before.
+- **Merge room** in the audit is the drawn merge zone's full-width aux lane (`CityMeshes.ZoneFor`), not
+  the ramp's own straightness.
+
+**Measured (spot census, the 40 spots, ~28-29 car-hours each; before = main 3aa4b63a, after = d9e16f43 + data):**
+forced short lane changes 295 -> 87, turns begun from the wrong lane 396 -> 219, forced into tight gaps 10 -> 5,
+lane-change waits 55 -> 50, heading snaps 415 -> 158, turns tighter than planned 225 -> 152, turn clips corner
+132 -> 105 (leaves road 9 -> 9), wrong way across the divider 25 -> 2, car wrecks 54 -> 46, bumps 51 -> 50, barrier
+contacts 14 -> 5; UP: missed turn lanes 67 -> 119 (a car with no room at speed now misses the turn and drives on from
+its lane instead of cutting across - realistic, but counted), no road under a lane 27 -> 43 (holes in the drawn road
+collider, mostly freeway mid-edge - not the lane model; left). Static, city-wide: no continuing lane 1,327 -> 337
+(248 of them the roads' lines jogging or bending inside the box, every lane in its place on its own road), lanes
+misaligned 297 -> 137 (76 jogs); merge room under 30 m 57 -> 38 (the drawn zones; 16 ramps' lanes run on).
+Gates: traffic check OK (ran red 0, rolled STOP 0, wrong way 0, overlap 0); drive audit WALLS IN LANES 0, FALL HOLES
+8 places (deck sides, as before), INVISIBLE 4 (+25 hits on the player car the chained run left in the scene);
+launch audit routes 1/0/0, city-wide 104 (main today in PSXBuild: 1/0/0, 109 - the uptown spot e2422 n3640 is not
+ours); city-play-check cannot run in PSXCity (UptownLoop not in that sandbox's build settings).
+
+**Left:** 89 + 61 straight-throughs whose lanes are laid differently on the two edges (one-way <-> two-way carriageway
+splits 50, a TWLTL opening or closing at a junction 34, one-way lane-count changes 25, one-ways re-anchored across a
+junction 29: each is a chain offset in lineclean, moved at a junction mouth by design - fixing them re-lays the
+chain, with the same ripple the two-sided split needed a guard for); 38 merge zones under 30 m (clamped by a
+junction or a deck); ramps drawn over freeway lanes upstream of their merge (I-85 e2120/e3031, I-77 e2456/e1310:
+the topology package's overlaps); the Park Road / E Tremont loop (n10626/11091/13889: a one-way ring of 6-17 m
+edges round a tiny island - the fans do not cover its turns); missed exits at speed.
+
+## ROAD LOGIC - BENDS (road-logic-bends, 2026-10-29; from the traffic census)
+
+The census (Docs/ROAD_LOGIC_TRAFFIC.md, run 1) counted 13,006 lateral hotspot events. 99% of the
+bend events sit where the drawn centreline itself bends as tight within 6 m, so the question per spot
+was: is the LINE wrong (a mapped curve drawn as a short tight arc) or the SPEED (a real curve posted at
+the road's limit)? Measured on the shipped data: a "spike" is R over 6 m under half of R over 40 m.
+
+- **Geometry (fillet starvation).** lineclean's PARA pass leaves its eased offsets as points every
+  ~5 m, and the WP-11 fillet lets a corner use only its two neighbouring segments. A mapped 4.5 deg
+  corner between such points became a 15 m arc of R 188 m inside I-85's 480 m curve, with
+  reverse-curving chords between corners (the census's top freeway bend, 0.65 g at 60 mph).
+  `tools/city/lib/fillet.mjs` BENDS: (1) each strand is collapsed with Douglas-Peucker at 10 cm
+  before the shares are solved (ends and junction vertices fixed; a dropped 2-arm node is carried and
+  projected onto the drawn line); (2) on freeway and trunk mainlines, a corner under 0.6 of the radius
+  it wants and of its class design radius (0.12 g at the road's speed) merges with its neighbour, the
+  apex kept within Emax of the segment it replaces. **SHIPPED OFF** (`PSX_FILLET_BENDS=1` turns it on): the gate
+  below showed the race routes' medians move with it (each carriageway of a divided road is re-fitted on its own).
+  With it on, over-limit spikes on the centrelines: freeway 109 -> 30, trunk 31 -> 15, primary 236 -> 165,
+  secondary 616 -> 443, tertiary 599 -> 543. Points 393,507 -> 336,862; corners under their class
+  floor 715 -> 614; past Emax 184 -> 174; departure from the pre-fillet line unchanged (max 3.06 m).
+- **Speed (one source of truth).** `Scripts/City/CityCurves.cs`: an edge whose OSM way posts
+  maxspeed:advisory keeps it (new optional section ADVS, 97 edges); every other curve gets AASHTO's
+  V^2 = 15 R (e + f) at e + f = 0.22 (the highway-signs pass's number) at the innermost lane, rounded
+  down to 5 mph, as spans padded 12 m. The EXIT nn MPH sign (`CitySigns.Guide.CurveMph`), the traffic
+  (`DesiredSpeed` brakes to each span) and the census (`vLim` on a run) all read it. The exit sign
+  skips a span ending within 40 m of the diverge (OSM joins the ramp's line to the freeway's at an
+  angle; the traffic slows for that swing, the sign shows the ramp's curve).
+- **Heading snaps.** A straight-on connector across lanes that do not line up was an S crammed into
+  the junction box (0.9 m across 4.5 m is a 17 deg swerve). `StretchStraight` starts it before the
+  mouth and ends it after the far one (up to 20 m each side, only at near-straight nodes under 4 deg,
+  never into a run's first 2 m nor past 40% of the next edge) so the S stays within 3 deg. A cubic's
+  control floor now scales with a short chord (a fixed 0.5 m on a 1-2 m leg made it loop).
+- **Kinks.** The traffic took its heading and its lane's normal from the polyline segment, so every
+  vertex snapped a car by its whole turn (the first chord of a tight fillet is 5 deg at R 15 m) and
+  threw an outer lane sideways. `CityTraffic.Bisector` now turns smoothly from one vertex's bisector to
+  the next. The drawn line is unchanged: its own corners are linecheck's to count.
+- **Turns tighter than planned.** A turn's speed came from the circle through its two ends; a cubic
+  whose mouths sit off that circle bends tighter. `BezMaxCurvature` samples the arc as drawn.
+
+**Line gate (offline, same gate code, base 1bde9af7 data vs this data):** B1 JITTER 128,250 -> 115,624
+runs; B3 CURVE 2,564 -> 2,244; drawn-edge kinks over 2 deg 68,417 -> 67,478 (over 10 deg 876 -> 839);
+UP: B2 KINK runs 74,773 -> 71,787 but metres 587,943 -> 600,929, A5 STRAY 11,356 -> 11,573 runs, the
+census-style quad-diagonal zigzag 51.05 -> 59.59 km. The ratchet baseline (2026-10-06) is stale on
+both the base and this data.
+
+**Data notes.** Regenerated with `export_osm.mjs --out` + `--manifest`. The base's shipped
+charlotte_decks.bytes was already out of step with its code (`--check` failed on it before any change
+here); the regenerated one is the code's. Wilkinson Blvd e3594's two water spans (gap closed by the
+refit) are now one, 158-341 m (SPAN 252 -> 251).
+
+**Measured (spot census, `-Spots Docs\traffic_census\spots_bends.txt -Minutes 30 -NoShots`: the four named curves
++ the top census lateral hotspots by kind, 600 m apart; before = base 1bde9af7 code and data, after = this branch;
+21.9 / 21.7 car-hours, 971 / 876 km - the traffic slower through signed curves):** bend tighter than its limit
+680 -> 10 (all ten on ramp e251, whose OSM-posted 35 mph advisory is over its drawn 48-54 m curves: the mapped sign is
+kept), ramp bend with no limit 911 -> 0, heading snaps 131 -> 67 (the straight-on S's are gone; what is left are
+turn legs under 3 m whose mouths almost touch: junction trims), kinks 122 -> 31 (23 on local streets: the first metre
+of a fillet under R 13 m), turns tighter than planned 122 -> 8; vertical steps 17 -> 5, crests 10 -> 7. The lane
+classes moved with it (forced short changes 57 -> 44, turns from the wrong lane 127 -> 84, missed turn lanes 100 -> 78,
+wrong way 9 -> 1); UP: car wrecks 46 -> 50, turn clips corner 56 -> 63, barrier contacts 9 -> 12, dead-end U-turns
+32 -> 41 (inside the spread of a 22 car-hour sample; not chased). Every spot's own lateral count fell (I-85 47 -> 0,
+Independence Expwy 58 -> 2, I-77 66 -> 3, West Woodlawn 139 -> 8). NOTE: the bend classes are measured against the
+curve's advisory where one applies (the census's own "or a lower limit"); the geometry fix stands on the static scan:
+over-limit spikes city-wide 2,394 -> 1,984, freeways 109 -> 30 (with it on). The spot census ran WITH the refit; with it
+off the freeway spots' bends are covered by advisories instead (45-55 mph at the spikes) until the refit ships.
+
+**Gates (PSXCity, one job: CityVSmoothCensus with PSX_VS_LAUNCH=uniform + PSX_VS_THEN_DRIVE=1, 62 min):** launch
+uniform city-wide 96 / 382 (reference 102 / 395), routes 0/0/0; route p99 1.18 / 2.11 / 0.74 g (reference 1.12 / 2.11 /
+0.76: uptown +0.06); census per class freeway 29,033 / 212 / 70 / 17 (round 8: 28,900 / 243 / 80 / 19); WALLS IN LANES 0;
+FALL HOLES the same 8 places near roads; INVISIBLE lanes 3 (4); MEDIAN ACROSS two+ / none 31 / 26 and MEDIAN CLASSES
+8 / 3 / 13 (round 8 published 22 / 28 and 8 / 3 / 10 on its own base) with the refit ON vs the same job on the
+base code and data: 25 / 24 and 7 / ? / 11, BLUNT rail ends in the box 9 -> 14, one new lane step / land-on-lane spot;
+launch base 99 / 376, route p99 1.12 / 2.11 / 0.76, freeway 28,903 / 238 / 77 / 17. So the refit is SHIPPED OFF and the data
+regenerated without it: geometry byte-identical to the base (routes.json identical; the city file = base + ADVS, 504 B),
+so the drive audit and launch audit are the base run's; traffic check (city-traffic-check
+play check, chained after the shots) OK: ran red 0, rolled STOP 0, wrong way 0, overlap 0, wrecks 0, off the pavement
+0 / 9,677 samples, physics step 0.52 ms. lane-audit.ps1 measures the venues' built scenes (none in PSXCity, no venue code
+touched here).
+
+**Left:** the refit itself - re-fit a twin pair together (one offset for both carriageways) and re-run the median
+gate; with it on, 30 freeway spikes, about a third within 10 m of a mitred junction (a ramp split or merge
+end is fixed in place and direction, so a corner beside it cannot be spread) and the I-277 inner loop
+(real ~250 m curves with a tighter middle that Emax keeps); ramp lines that swing off the mainline at
+the gore (OSM topology); ramp e251, whose posted 35 mph advisory (OSM) is over its drawn 48-54 m curves
+(the 10 bend events left: the mapped sign kept, the line or the tag to check against imagery); turn legs under 3 m
+whose two mouths almost touch (the 67 heading snaps left: junction trims); the vertical class (crests and steps on Billy Graham Pkwy and junction lips:
+the drawn profile, not touched here); no curve warning signs (W1-2 + W13-1P) yet - the advisories
+reach the player only through the exit sign.

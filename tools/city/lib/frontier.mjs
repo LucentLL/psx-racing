@@ -58,14 +58,16 @@ export const FR_NAMES = { [FR_WORLD]: 'world box', [FR_MINOR]: 'minor streets no
 /// (kept or not); keptIds Set(way id); dropWhy(raw way) -> reason or '';
 /// world / core [south, west, north, east]; toLat(z), toLon(x).
 /// Returns { bits: Uint8Array(nodes), rows: [{ n, osm, bits, why, x, z }], stats }.
-export function findFrontier({ nodes, edges, nodeIndex, raw, keptIds, dropWhy, world, core, toLat, toLon, worldMarginDeg = 0.004 }) {
+/// drivable(edge): whether traffic may use it (a parking aisle, a driveway,
+/// an unpaved track carries no car on: a ramp into one is still open).
+export function findFrontier({ nodes, edges, nodeIndex, raw, keptIds, dropWhy, world, core, toLat, toLon, worldMarginDeg = 0.004, drivable = () => true }) {
   const nn = nodes.length;
   const deg = new Int32Array(nn), exitsOf = new Int32Array(nn), entriesOf = new Int32Array(nn);
   // legal ways out of / into each node, counted per arc (a two-way edge is
   // both an exit and an entry at each of its ends; a one-way an exit at a,
   // an entry at b)
   for (const e of edges) {
-    if (e.a === e.b) continue;
+    if (e.a === e.b || !drivable(e)) continue;
     deg[e.a]++; deg[e.b]++;
     exitsOf[e.a]++; entriesOf[e.b]++;
     if (!e.way.oneway) { exitsOf[e.b]++; entriesOf[e.a]++; }
@@ -73,7 +75,7 @@ export function findFrontier({ nodes, edges, nodeIndex, raw, keptIds, dropWhy, w
   // OPEN: some arc into or out of the node has nowhere to go
   const open = new Uint8Array(nn);
   for (const e of edges) {
-    if (e.a === e.b) continue;
+    if (e.a === e.b || !drivable(e)) continue;
     // arriving at b: any way on besides this edge back (a U-turn on a two-way)?
     const onB = exitsOf[e.b] - (e.way.oneway ? 0 : 1);
     if (onB <= 0) open[e.b] = 1;
@@ -103,7 +105,7 @@ export function findFrontier({ nodes, edges, nodeIndex, raw, keptIds, dropWhy, w
   // one-way arcs that dead-end or have no way in, per node (ONEWAY)
   const onewayOpen = new Uint8Array(nn);
   for (const e of edges) {
-    if (e.a === e.b || !e.way.oneway) continue;
+    if (e.a === e.b || !e.way.oneway || !drivable(e)) continue;
     if (exitsOf[e.b] <= 0) onewayOpen[e.b] = 1;
     if (entriesOf[e.a] <= 0) onewayOpen[e.a] = 1;
   }

@@ -104,15 +104,16 @@ class Reader {
 }
 
 /// The section tags of PSXC v2, in file order (a reader skips any other).
-export const CITY_SECTIONS = ['META', 'NODE', 'NAME', 'EDGE', 'PNTS', 'WATR', 'WBED', 'XING', 'SPAN', 'ROUT', 'GHSH', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST', 'CULV', 'LSET', 'TURN', 'LOTS', 'LENT', 'FRNT', 'RPRF'];
+export const CITY_SECTIONS = ['META', 'NODE', 'NAME', 'EDGE', 'PNTS', 'WATR', 'WBED', 'XING', 'SPAN', 'ROUT', 'GHSH', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST', 'CULV', 'LSET', 'TURN', 'LOTS', 'LENT', 'FRNT', 'ADVS', 'RPRF'];
 /// Sections a file may lack: added after the version-2 layout first shipped,
 /// so a file exported before them still parses (WBED: WP-04b; LANW, TAPR,
 /// PARA and TAGN: WP-10, lib/lineclean.mjs; SPLT: WP-11, lib/splits.mjs;
 /// BRST: the roads pass's B1, lib/bridges.mjs; CULV: B2, lib/culverts.mjs;
 /// LSET: L2, lib/lineset.mjs; TURN, LOTS, LENT: L8, lib/lots.mjs; RPRF: the
 /// measured road profiles, leftover item 1, lib/roadprofile.mjs; FRNT: the
-/// frontier, where the data stops and the road goes on, lib/frontier.mjs).
-export const CITY_OPTIONAL = new Set(['WBED', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST', 'CULV', 'LSET', 'TURN', 'LOTS', 'LENT', 'FRNT', 'RPRF']);
+/// frontier, where the data stops and the road goes on, lib/frontier.mjs; ADVS:
+/// the OSM-posted advisory speeds (road-logic-bends, export_osm.mjs)).
+export const CITY_OPTIONAL = new Set(['WBED', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST', 'CULV', 'LSET', 'TURN', 'LOTS', 'LENT', 'FRNT', 'ADVS', 'RPRF']);
 
 /// THE ROADS PASS'S TIERS (plan P0/B1), by the shipped rank (0 local ..
 /// 5 motorway; a link keeps its base): 1 motorway/trunk/primary and links,
@@ -333,6 +334,14 @@ export function parseCity(buf) {
     if (n !== ne) throw new Error(`charlotte_city.bytes: LSET has ${n} rows for ${ne} edges`);
     for (let i = 0; i < n; i++) edges[i].lset = { nF: r.u8(), nB: r.u8(), centre: r.u8(), flags: r.u8(), turnOnly: r.u16(), sub: r.u8(), bike: r.u8() };
     close('LSET');
+  }
+  // ADVS (road-logic-bends, 2026-10-29): the OSM-posted advisory speeds
+  // (maxspeed:advisory, mph) - u32 n | n x { u32 edge; u8 mph }. e.advisoryMph.
+  if (table && table.has('ADVS')) {
+    open('ADVS');
+    const n = r.u32();
+    for (let i = 0; i < n; i++) { const ei = r.u32(), mph = r.u8(); if (ei < ne) edges[ei].advisoryMph = mph; }
+    close('ADVS');
   }
   // RPRF (leftover item 1, lib/roadprofile.mjs): per measured edge u32 edge,
   // u16 n, i16 first height in cm above the datum, n-1 i8 steps in cm (-128

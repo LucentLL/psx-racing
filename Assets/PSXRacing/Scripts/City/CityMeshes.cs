@@ -412,6 +412,11 @@ namespace PSXRacing.City
             /// a submesh of the ground; after the driving surfaces, so no
             /// existing slot moves.</summary>
             Sidewalk = RoadFirst + RoadClassCount * SurfaceCount,
+            /// <summary>The bridges pass (2026-10-29): girders, piers, caps,
+            /// bearings, abutments, object markers and high masts on the
+            /// structure atlas (Art/City/Pack/city_structure.png) - the tile's
+            /// render-only structure mesh. After the sidewalks, so no slot moves.</summary>
+            Structure,
             COUNT,
         }
 
@@ -830,6 +835,10 @@ namespace PSXRacing.City
             public Vector3 center;   // tile-local
             public Vector3 size;
             public float yawDeg;
+            /// <summary>The bridges pass: a ROUND pier column - CityWorld.Attach
+            /// stands a vertical capsule of <see cref="radius"/> and size.y.</summary>
+            public bool round;
+            public float radius;
         }
 
         /// <summary>
@@ -980,6 +989,16 @@ namespace PSXRacing.City
             /// "Guardrail"): the W-beams, a closed box from the beam's face
             /// back past its posts. Null where the tile has none.</summary>
             public Mesh guardrails;
+            /// <summary>THE BRIDGES PASS (2026-10-29): render-only structure on
+            /// the structure atlas (Slot.Structure) - girders, bearings, pier
+            /// columns and caps, abutments, guardrail object markers, high
+            /// masts. Null where the tile has none.</summary>
+            public Mesh structure;
+            /// <summary>The bridges pass's high masts on this tile: their floods'
+            /// heads (tile-local, for the night glow) and their feet (world plan,
+            /// for the roadside mask).</summary>
+            public readonly List<Vector3> mastHeads = new List<Vector3>();
+            public readonly List<Vector2> mastFeet = new List<Vector2>();
             /// <summary>For the audit: rail run ends this tile decided, by
             /// treatment (W-beam lead-in, sloped past the end, sloped inside).</summary>
             public int railEndsWBeam, railEndsSloped, railEndsInside, railEndsConnected, railEndsKept, railEndsShort;
@@ -2024,6 +2043,7 @@ namespace PSXRacing.City
             foreach (var b in buckets) b.Clear();
             barrierBucket.Clear();
             guardBucket.Clear();
+            structBucket.Clear();
             kerbBucket.Clear();
             stripInner.Clear(); stripInnerSegs.Clear();
             lampBucket.Clear();
@@ -2042,7 +2062,7 @@ namespace PSXRacing.City
             tileOrigin = tm.origin;
 
             phaseClock.Restart();
-            PrepareFanFloor(map, trims, min, max);   // roads pass L7: the lattice under the fans
+            foreach (var _ in PrepareFanFloorSteps(map, trims, min, max)) yield return 0;   // roads pass L7: the lattice under the fans (city-build-hitches: a fan a step)
             foreach (var _ in BuildGround(map, tm, min)) yield return 0;
             // the lattice, the lots and the driveways end here: what the closing
             // pass welds starts after them (they lie on the lattice, flush)
@@ -2061,6 +2081,7 @@ namespace PSXRacing.City
             Phase(2);
             foreach (var _ in BuildJunctions(map, trims, tm, min, max)) yield return 0;
             BuildCentreMedians(map, trims, tm, min, max);
+            BuildHighMasts(map, tm, min, max);   // the bridges pass: the interchanges' high masts
             Phase(3);
             stepPhase = 4; stepItem = -1; stepPart = 0;
             BuildWater(map, tm, min, max);
@@ -2096,17 +2117,23 @@ namespace PSXRacing.City
             tm.ground = MeshFrom("ground", new[] { Slot.Ground, Slot.Pavement, Slot.Sidewalk }, out var gSlots, false);
             tm.groundSlots = gSlots;
             yield return 0;
-            FinishMesh(tm.ground);
+            stepPart = 1;   // city-build-hitches: the normals a chunk a step
+            foreach (var _ in FinishMeshSteps(tm.ground)) yield return 0;
+            stepPart = 0;
             yield return 0;
             stepItem = 1;
             tm.roads = MeshFrom("roads", RoadAndStructureSlots, out var roadSlots, false);
             tm.roadSlots = roadSlots;
             if (tm.tap != null) tm.tap.slotBase = tapSlotBase;
             yield return 0;
-            FinishMesh(tm.roads);
+            stepPart = 1;   // city-build-hitches
+            foreach (var _ in FinishMeshSteps(tm.roads)) yield return 0;
+            stepPart = 0;
             yield return 0;
             tm.barriers = MeshFromBucket("barriers", barrierBucket);
             tm.guardrails = MeshFromBucket("guardrails", guardBucket);
+            DrawWBeams(tm);   // the bridges pass: galvanized W-beams with the structure
+            tm.structure = MeshFromBucket("structure", structBucket);
             tm.kerbs = MeshFromBucket("kerbs", kerbBucket);
             tm.lampPosts = MeshFromBucket("lamps", lampBucket);
             tm.banks = MeshFromBucket("banks", bankBucket);
@@ -2118,7 +2145,20 @@ namespace PSXRacing.City
             tm.buildingCollider = ColliderFrom(bSlots);   // Uptown C: only where a landmark left triangles out
             yield return 0;
             stepItem = 4;
-            FinishMesh(tm.buildings);
+            stepPart = 1;   // city-build-hitches
+            foreach (var _ in FinishMeshSteps(tm.buildings)) yield return 0;
+            stepPart = 0;
+            // city-build-hitches: every mesh CityWorld.Attach gives a MeshCollider,
+            // cooked now a step each (Physics.BakeMesh), so standing the tile up
+            // assigns cooked meshes instead of cooking them all in its one frame
+            if (BakeColliders)
+                foreach (var cm in new[] { tm.ground, tm.roads, tm.barriers, tm.guardrails, tm.buildings != null ? (tm.buildingCollider != null ? tm.buildingCollider : tm.buildings) : null })
+                {
+                    if (cm == null) continue;
+                    yield return 0;
+                    stepItem = 8;
+                    BakeCollider(cm);
+                }
             Phase(9);
         }
 
@@ -2277,10 +2317,16 @@ namespace PSXRacing.City
             int ix0 = Mathf.RoundToInt(min.x / cell), iz0 = Mathf.RoundToInt(min.y / cell);
             var heights = new float[stride * stride];
             for (int z = 0; z <= res; z++)
+            {
+                // city-build-hitches: the corners eight rows a step, then the lots, then the drives
+                if (FineSteps && z > 0 && (z & 7) == 0) { yield return 0; stepPhase = 0; stepItem = -z; stepPart = 31; }
                 for (int x = 0; x <= res; x++)
                     heights[z * stride + x] = LatticeVertex(map, ix0 + x, iz0 + z);
+            }
+            if (FineSteps) { yield return 0; stepPhase = 0; stepItem = -1; stepPart = 32; }
             // roads pass L8: the parking lots laid into the lattice
             PrepareTileLots(map, min, min + new Vector2(TileSize, TileSize));
+            if (FineSteps) { yield return 0; stepPhase = 0; stepItem = -1; stepPart = 33; }
             // leftover item 6: and the houses' driveways
             PrepareTileDrives(map, min, min + new Vector2(TileSize, TileSize));
 
@@ -2554,6 +2600,7 @@ namespace PSXRacing.City
         /// never enters the host it is being clipped against.</summary>
         static Chain BuildChain(CityMap map, CityMap.Edge first, int node, bool linkChain, float reach, Chain avoid)
         {
+            using var _hz = new HitchZone(HitchClock.Chain);   // city-build-hitches: the zone clock
             var ch = new Chain();
             var cur = first; int at = node; float len = 0f;
             for (int k = 0; k < 6; k++)
@@ -2992,6 +3039,7 @@ namespace PSXRacing.City
                 }
             }
             // a nose only where the two actually part (not where a chain ran out)
+            if (FineSteps && lastOk && detached) { yield return 0; stepPart = 23; }   // city-build-hitches: the nose a step of its own
             if (lastOk && detached) EmitNose(map, trims, tm, min, max, host, br, last, side, attachedTo, quadsFrom);
             if (quads > 0) tm.goreCount++;
             tm.branchCount++;
@@ -3398,6 +3446,16 @@ namespace PSXRacing.City
         /// </summary>
         static void SamplePositions(CityMap map, CityMap.Edge e, Trims trims, float sMin, float sMax)
         {
+            using var _hz = new HitchZone(HitchClock.Samples);   // city-build-hitches: the zone clock
+            foreach (var _ in SamplePositionsSteps(map, e, trims, sMin, sMax, 0)) { }
+        }
+
+        /// <summary>SamplePositions's body (city-build-hitches): a step every
+        /// <paramref name="everyM"/> metres of a clip's walk (the host cut at
+        /// every metre of it) when the roads phase sections a long edge ahead
+        /// (0: in one go).</summary>
+        static IEnumerable<int> SamplePositionsSteps(CityMap map, CityMap.Edge e, Trims trims, float sMin, float sMax, int everyM)
+        {
             sampleS.Clear();
             sampleS.Add(sMin);
             for (int i = 0; i < e.stS.Length; i++) if (e.stS[i] > sMin + 0.6f && e.stS[i] < sMax - 0.6f) sampleS.Add(e.stS[i]);
@@ -3449,8 +3507,10 @@ namespace PSXRacing.City
                     }
                     float from = Mathf.Max(sMin, c.sFrom), to = Mathf.Min(sMax, c.sTo);
                     int prevState = -1; float prevLam = 0f, prevS = from;
+                    int walked = 0;
                     for (float sc = from; sc <= to + 0.01f; sc += 1f)
                     {
+                        if (everyM > 0 && ++walked % everyM == 0) yield return 0;   // city-build-hitches
                         var pc = e.PointAt(sc);
                         var tc = e.TangentAt(sc);
                         var rc = new Vector2(-tc.y, tc.x);
@@ -3498,6 +3558,14 @@ namespace PSXRacing.City
                         // section added inside a clipped ramp moved its rail (e14947)
                         if (su > sMin + 0.6f && su < sMax - 0.6f && ClipAt(e, su) == null) { sampleS.Add(su); unionEndScratch.Add(su); }
                     }
+            // (round 9) a split end's foot on a partner: its own Jersey starts there
+            if (uruns != null && R9SplitOn)
+            {
+                splitFeetScratch.Clear();
+                SplitFeetOn(map, trims, e, splitFeetScratch);
+                foreach (float su in splitFeetScratch)
+                    if (su > sMin + 0.6f && su < sMax - 0.6f && ClipAt(e, su) == null) { sampleS.Add(su); unionEndScratch.Add(su); }
+            }
             sampleS.Add(sMax);
             sampleS.Sort();
             // Drop near-duplicates (a station on a vertex) — and where one of a
@@ -3933,7 +4001,8 @@ namespace PSXRacing.City
                     if (w1s - w0s < 0.6f) continue;
                     yield return 0;   // WP-09: an edge's sections a step, ahead of its spans
                     stepPhase = 2; stepItem = wi; stepPart = 4;
-                    RawSectionsOf(map, trims, we, w0s, w1s);
+                    if (FineSteps) { foreach (var _ in RawSectionsMissSteps(map, trims, we, w0s, w1s, WarmEvery)) yield return 0; }   // city-build-hitches
+                    else RawSectionsOf(map, trims, we, w0s, w1s);
                 }
 
             foreach (var ei in edgeScratch)
@@ -3946,7 +4015,7 @@ namespace PSXRacing.City
                 if (sMax - sMin < 0.6f) continue;   // the fans own all of it
 
                 // ---- sections ----
-                BuildSections(map, trims, tm, e, sMin, sMax);
+                foreach (var _ in BuildSectionsSteps(map, trims, tm, e, sMin, sMax, FineSteps ? WarmEvery : 0)) yield return 0;   // city-build-hitches: a long edge's in steps
                 int n = sections.Count;
                 if (n < 2) continue;
                 yield return 0;   // WP-09: the sections, then the side flags, a step each
@@ -3961,9 +4030,11 @@ namespace PSXRacing.City
                             float n0s = trims.atA[nb], n1s = ne.length - trims.atB[nb];
                             if (n1s - n0s < 0.6f) continue;
                             stepPart = 5; stepItem = nb;
-                            RawSectionsOf(map, trims, ne, n0s, n1s);
+                            if (FineSteps) { foreach (var _ in RawSectionsMissSteps(map, trims, ne, n0s, n1s, WarmEvery)) yield return 0; }   // city-build-hitches
+                            else RawSectionsOf(map, trims, ne, n0s, n1s);
                             yield return 0;   // WP-09: a neighbour's sections a step
                         }
+                foreach (var _ in WarmOutlinesSteps(map, trims, e, tm, min, max)) yield return 0;   // city-build-hitches: outlines ahead
                 stepItem = ei;
                 stepPart = 1;
 
@@ -4007,6 +4078,7 @@ namespace PSXRacing.City
                         // across the gap); the partner of a union stands no pier,
                         // its owner a bent under both
                         EmitDeckBox(buckets[(int)Slot.Concrete], A, B, v0, v1, f.l.union, f.r.union);
+                        if (BridgeDetailOn) EmitGirders(map, e, i);   // the bridges pass: girders under the slab
                         sincePier += B.s - A.s;
                         if (sincePier >= PierEvery)
                         {
@@ -4020,6 +4092,7 @@ namespace PSXRacing.City
                         EmitSide(map, trims, tm, e, i, side, v0, v1);
                     if (spanLog != null) RecordSpan(e, A, B, f);   // AuditView's record (audits only)
                 }
+                if (BridgeDetailOn) EmitAbutments(map, trims, tm, e, min, max);   // the bridges pass: backwalls at the fills
 
                 // ---- street lamps ----
                 // Here, while this edge's sections and side flags are still
@@ -4718,6 +4791,7 @@ namespace PSXRacing.City
         /// way stopped at the node with a blunt end, ten metres short.</summary>
         static void StructureEnds(CityMap map, Trims trims, CityMap.Edge e, List<float> ends)
         {
+            using var _hz = new HitchZone(HitchClock.Ends);   // city-build-hitches: the zone clock
             ends.Clear();
             if (e.stS.Length < 2) return;
             InternalStructureEnds(e, ends);
@@ -4813,6 +4887,7 @@ namespace PSXRacing.City
         /// </summary>
         static bool ChordRailed(CityMap map, Trims trims, int node, FanCorner k0, FanCorner k1, Vector3 origin)
         {
+            using var _hz = new HitchZone(HitchClock.Chord);   // city-build-hitches: the zone clock
             bool onDeck = ArmElevatedAtTrim(map, trims, map.edges[k0.edge], k0.node) || ArmElevatedAtTrim(map, trims, map.edges[k1.edge], k1.node);
             var a = new Vector2(k0.pos.x + origin.x, k0.pos.z + origin.z);
             var b = new Vector2(k1.pos.x + origin.x, k1.pos.z + origin.z);
@@ -4964,6 +5039,7 @@ namespace PSXRacing.City
         /// </summary>
         static void RailRunsOffLanes(CityMap map, Trims trims, Vector3 a, Vector3 b, int skipNode)
         {
+            using var _hz = new HitchZone(HitchClock.RailLanes);   // city-build-hitches: the zone clock
             railRuns.Clear();
             var a2 = new Vector2(a.x, a.z); var b2 = new Vector2(b.x, b.z);
             float len = Vector2.Distance(a2, b2);
@@ -5092,7 +5168,10 @@ namespace PSXRacing.City
             if (trims.patch[node]) return FanCornerRailed(map, trims, node, e, side);
             var o = ThroughPartner(map, e, node);
             if (o == null) return false;
-            return e.ElevatedAt(e.a == node ? 0f : e.length) || o.ElevatedAt(o.a == node ? 0f : o.length);
+            return e.ElevatedAt(e.a == node ? 0f : e.length) || o.ElevatedAt(o.a == node ? 0f : o.length)
+                // (REAL HEIGHTS round 8, the owner's 1'47" "down then back up") a divided freeway's
+                // median-side approach rail across a plain node inside its band (CityMeshes.Medians8)
+                || MedianRailCarriesOn(map, trims, e, o, node, side);
         }
 
         /// <summary>How far apart this road's drawn edge and the through
@@ -5145,6 +5224,7 @@ namespace PSXRacing.City
             int n = sections.Count;
             spanFlags.Clear(); flareL.Clear(); flareR.Clear(); shiftL.Clear(); shiftR.Clear(); taperL.Clear(); taperR.Clear(); wbUL.Clear(); wbUR.Clear(); wbDL.Clear(); wbDR.Clear();
             for (int k = 0; k < n; k++) { spanFlags.Add(default); flareL.Add(0f); flareR.Add(0f); shiftL.Add(0f); shiftR.Add(0f); taperL.Add(1f); taperR.Add(1f); wbUL.Add(float.NaN); wbUR.Add(float.NaN); wbDL.Add(float.NaN); wbDR.Add(float.NaN); }
+            ResetWBeamRuns(n);   // the bridges pass: which grounded rails are W-beam
             dropCache.Clear();
 
             // the window of sections within FlagReachM of the tile
@@ -5166,7 +5246,7 @@ namespace PSXRacing.City
             stepPart = 11;
             for (int i = 1; i < n; i++)
             {
-                if ((i & 1) == 0) yield return 0;   // WP-09: two spans a step (eight made 8-55 ms steps, the perf probe 2026-10-25)
+                if (FineSteps || (i & 1) == 0) yield return 0;   // WP-09: two spans a step (city-build-hitches: one) (eight made 8-55 ms steps, the perf probe 2026-10-25)
                 var A = sections[i - 1]; var B = sections[i];
                 var f = new SpanFlags
                 {
@@ -5447,6 +5527,10 @@ namespace PSXRacing.City
                         i = j;
                     }
 
+            // THE BRIDGES PASS: the grounded drop rails that are W-beam runs
+            // (their ends are planned below as a W-beam's, not a parapet's)
+            MarkWBeamRuns(false);
+
             // THE RAIL END (leftover item 2, 2026-10-03; the owner's W 5th
             // frame: a parapet starting on its approach as a blunt concrete
             // block, its flat grey end square to the traffic). DOT practice,
@@ -5516,7 +5600,10 @@ namespace PSXRacing.City
                     // inside its own run, as at a gore.
                     if (openSpan >= 1 && openSpan < n && spanFlags[openSpan][side].union)
                     {
-                        endPlan.Add((k, dir, EndInside, 0f, k));
+                        // (round 9) ...unless that median SPLITS there, its leg meeting this rail at
+                        // full height (DECKEND2's slab over the 1'47" pit): no end of its own
+                        if (!R9KeepJerseyEnd(map, trims, e, side, sections[openSpan - 1].s, sections[openSpan].s, sections[k].s))
+                            endPlan.Add((k, dir, EndInside, 0f, k));
                         continue;
                     }
                     // a rail running into a gore on the ground slopes down
@@ -5526,6 +5613,7 @@ namespace PSXRacing.City
                         endPlan.Add((k, dir, EndInside, 0f, k));
                         continue;
                     }
+                    if (FineSteps) yield return 0;   // city-build-hitches: an end's walk a step
                     float room; bool shared = false;
                     // how far the W-beam's corridor (its flare, posts and box)
                     // keeps off every other road's pavement
@@ -5563,9 +5651,13 @@ namespace PSXRacing.City
                 }
                 foreach (var (k, dir, how0, room, jEnd) in endPlan)
                 {
+                    if (FineSteps) yield return 0;   // city-build-hitches: an end a step
                     int how = how0;
                     var pk = e.PointAt(sections[k].s);
                     bool mineEnd = pk.x >= min.x && pk.x < max.x && pk.y >= min.y && pk.y < max.y;   // counted by the tile it is in
+                    // the bridges pass: a W-beam run's end is a W-beam's - its
+                    // terminal on the open roadside, or turned down inside the run
+                    if (how != EndConnect && PlanWBeamRunEnd(side, k, dir, how == EndWBeam, mineEnd ? tm : null)) continue;
                     if (how == EndConnect)
                     {
                         // the open stretch to the next barrier, rail at full height
@@ -5621,7 +5713,7 @@ namespace PSXRacing.City
                     }
                     // the concrete carries on past its end, sloped from full
                     // height down to a curb over that length
-                    for (int q = k; q != jx; q += dir) MarkRail(dir > 0 ? q + 1 : q);
+                    for (int q = k; q != jx; q += dir) { MarkRail(dir > 0 ? q + 1 : q); WBeamConcrete(side, dir > 0 ? q + 1 : q); }
                     for (int q = k; ; q += dir)
                     {
                         float d = Mathf.Abs(sections[q].s - sections[k].s);
@@ -5640,6 +5732,12 @@ namespace PSXRacing.City
                     if (mineEnd) tm.railEndsWBeam++;
                 }
             }
+
+            // THE BRIDGES PASS: the runs again (a connection joins them), and
+            // where a W-beam run meets a parapet run on the ground, the
+            // parapet's end sloped down with the beam bolted along it
+            MarkWBeamRuns(true);
+            WBeamHandOvers(w0, w1);
 
             // Run ends, caps and flares, by KIND of barrier: a rail, a
             // retaining wall, a median Jersey barrier. Where one kind hands
@@ -5728,6 +5826,11 @@ namespace PSXRacing.City
                     // instead of capped square. (A rail stays full height: it
                     // guards a drop. Where one runs out into a gore on a deck,
                     // the nose's V stands in front of its end - EmitNose.)
+                    // (round 9) ...but where the union beside it SPLITS there, its leg meets this
+                    // end at full height: not turned down (the 2-8 m low spot of round 8's BREAKS)
+                    if (ending == KindMedian && otherSpan >= 1 && otherSpan < n && spanFlags[otherSpan][side].union
+                        && R9KeepJerseyEnd(map, trims, e, side, sections[otherSpan - 1].s, sections[otherSpan].s, sections[k].s))
+                        continue;
                     if (ending == KindMedian)
                     {
                         var taper = side < 0 ? taperL : taperR;
@@ -5866,6 +5969,7 @@ namespace PSXRacing.City
         /// NaN where the foot is not beside the neighbour's pavement.</summary>
         static float StepToNeighbour(CityMap map, TileMeshes tm, Section sec, int side, int nb)
         {
+            using var _hz = new HitchZone(HitchClock.StepNb);   // city-build-hitches: the zone clock
             if (sec.collapsed) return float.NaN;
             var ed = sec.Edge(side);
             var o = map.edges[nb];
@@ -5924,6 +6028,7 @@ namespace PSXRacing.City
         /// </summary>
         static int DropFrom(CityMap map, Trims trims, Vector2 pW, Vector2 outw, float y, float shoulder, bool ledges = true)
         {
+            using var _hz = new HitchZone(HitchClock.DropFrom);   // city-build-hitches: the zone clock
             GatherNear(map, pW, pW, VergeMaxRunM + RoadsideRules.ToeTuckRunM);
             var sh = new StripShape { shoulder = shoulder, maxRun = VergeMaxRunM };
             bool laid = SolveStrip(map, trims, pW, y, outw, sh, dropProf, out bool graded, out float stoppedBy);
@@ -6097,7 +6202,16 @@ namespace PSXRacing.City
                 return;
             }
 
-            if (sf.rail)
+            if (sf.rail && WBeamRunAt(side, i))
+            {
+                // the bridges pass: a warranted drop on the ground is guarded
+                // by W-beam on posts, as a real fill is - not by a parapet
+                float outAm = flare[i - 1] + Mathf.Max(shift[i - 1], VertexRailOut(e, A, side, tm.origin)),
+                      outBm = flare[i] + Mathf.Max(shift[i], VertexRailOut(e, B, side, tm.origin));
+                EmitWBeamRun(tm, e, i, side, outAm, outBm);
+                tm.railMetres += len;
+            }
+            else if (sf.rail)
             {
                 float outAm = flare[i - 1] + Mathf.Max(shift[i - 1], VertexRailOut(e, A, side, tm.origin)),
                       outBm = flare[i] + Mathf.Max(shift[i], VertexRailOut(e, B, side, tm.origin));
@@ -6671,6 +6785,7 @@ namespace PSXRacing.City
         /// nominal edge and reported every squeezed barrier as a wall.)</summary>
         public static void LaneExtents(CityMap map, Trims trims, CityMap.Edge e, float s, out float hwL, out float hwR)
         {
+            using var _hz = new HitchZone(HitchClock.LaneExt);   // city-build-hitches: the zone clock
             // after a tile build, the ribbon it drew: its sections, as they
             // stand (the eased squeeze, a clip, a taper), straight between
             // them as the mesh is - so an audit probes the edge the tile drew
@@ -6828,6 +6943,7 @@ namespace PSXRacing.City
                             ref float hwL, ref float hwR, out int nbL, out int nbR,
                             out float nbAtL, out float nbAtR, out float stripL, out float stripR)
         {
+            using var _hz = new HitchZone(HitchClock.Squeeze);   // city-build-hitches: the zone clock
             nbL = -1; nbR = -1; nbAtL = 0f; nbAtR = 0f; stripL = -1f; stripR = -1f;
             nbScratch.Clear();
             // a segment further than 32 m is past any two half widths (13.1 m at most each)
@@ -6977,6 +7093,15 @@ namespace PSXRacing.City
         static void BuildSections(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e,
                                   float sMin, float sMax)
         {
+            foreach (var _ in BuildSectionsSteps(map, trims, tm, e, sMin, sMax, 0)) { }   // city-build-hitches: the one body
+        }
+
+        /// <summary>BuildSections's body (city-build-hitches): a step every
+        /// <paramref name="every"/> sections met against the pavement beside
+        /// them, in the roads phase (0: in one go).</summary>
+        static IEnumerable<int> BuildSectionsSteps(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e,
+                                                   float sMin, float sMax, int every)
+        {
             var raw = RawSectionsOf(map, trims, e, sMin, sMax);
             sections.Clear();
             meetD.Clear();
@@ -6995,6 +7120,7 @@ namespace PSXRacing.City
                 if (split && !sec.elev) MitreSnap(map, trims, e, ref sec);
                 sec.L -= o; sec.R -= o;
                 sections.Add(sec);
+                if (every > 0 && (k + 1) % every == 0) yield return 0;   // city-build-hitches
             }
             if (anyMeet && MeetEaseOn) EaseMeets();
         }
@@ -7132,19 +7258,33 @@ namespace PSXRacing.City
 
         static List<Section> RawSectionsOfMiss(CityMap map, Trims trims, CityMap.Edge e, float sMin, float sMax)
         {
-            if (rawSectionCache.TryGetValue(e.index, out var list)) return list;
-            list = rawSectionPool.Count > 0 ? rawSectionPool.Pop() : new List<Section>(32);
+            if (rawSectionCache.TryGetValue(e.index, out var hit)) return hit;
+            using var _hz = new HitchZone(HitchClock.RawSections);   // city-build-hitches: the zone clock
+            foreach (var _ in RawSectionsMissSteps(map, trims, e, sMin, sMax, 0)) { }
+            return rawSectionCache[e.index];
+        }
+
+        /// <summary>RawSectionsOfMiss's body (city-build-hitches): a step every
+        /// <paramref name="every"/> sections when the roads phase sections a
+        /// long edge ahead (0: in one go, the lazy miss).</summary>
+        static IEnumerable<int> RawSectionsMissSteps(CityMap map, Trims trims, CityMap.Edge e, float sMin, float sMax, int every)
+        {
+            var list = rawSectionPool.Count > 0 ? rawSectionPool.Pop() : new List<Section>(32);
             list.Clear();
             rawSectionCache[e.index] = list;
             // SamplePositions rebuilds the structure ends a caller may be
             // walking (DecideSideFlags, EmitSide)
             rawSaveEnds.Clear(); rawSaveEnds.AddRange(endScratch);
-            SamplePositions(map, e, trims, sMin, sMax);
-            for (int k = 0; k < sampleS.Count; k++) list.Add(SectionAt(map, trims, e, sampleS[k], true));
+            if (every > 0) { foreach (var _ in SamplePositionsSteps(map, e, trims, sMin, sMax, 2 * every)) yield return 0; }   // city-build-hitches
+            else SamplePositions(map, e, trims, sMin, sMax);
+            for (int k = 0; k < sampleS.Count; k++)
+            {
+                list.Add(SectionAt(map, trims, e, sampleS[k], true));
+                if (every > 0 && (k + 1) % every == 0) yield return 0;   // city-build-hitches
+            }
             if (EaseSqueezes) EaseSqueeze(map, trims, e, list, sMin, sMax);
             JoinBuriedEnds(map, trims, e, list, sMin, sMax);
             endScratch.Clear(); endScratch.AddRange(rawSaveEnds);
-            return list;
         }
 
         /// <summary>One cross-section at s: the line model's extents, the clip,
@@ -7483,6 +7623,7 @@ namespace PSXRacing.City
         /// </summary>
         static void MeetPavement(CityMap map, Trims trims, CityMap.Edge e, ref Section sec)
         {
+            using var _hz = new HitchZone(HitchClock.Meet);   // city-build-hitches: the zone clock
             var p = e.PointAt(sec.s);
             float hw = sec.hw;
             // The roads it can touch without being drawn into it: the other
@@ -7569,6 +7710,7 @@ namespace PSXRacing.City
         {
             if (oi == e.index || meetEdges.Contains(oi)) return;
             var o = map.edges[oi];
+            if (MeetPrune && MeetBoxFar(map, o, vL, vR)) return;   // city-build-hitches: no segment of it can pass
             if (node >= 0)
             {
                 float near = hw + o.HalfMax + MeetNodeM;
@@ -7580,6 +7722,7 @@ namespace PSXRacing.City
                 float L2 = d.sqrMagnitude;
                 if (L2 < 1e-6f) continue;
                 float tL = Mathf.Clamp01(Vector2.Dot(vL - a, d) / L2), tR = Mathf.Clamp01(Vector2.Dot(vR - a, d) / L2);
+                if (MeetPrune && (vL - (a + d * tL)).sqrMagnitude > MeetFarM * MeetFarM && (vR - (a + d * tR)).sqrMagnitude > MeetFarM * MeetFarM) continue;   // city-build-hitches
                 float at = o.s[si] + Mathf.Sqrt(L2) * 0.5f * (tL + tR);
                 // its edge on the side each vertex is on (the line model)
                 var rO = new Vector2(-d.y, d.x);
@@ -7816,6 +7959,7 @@ namespace PSXRacing.City
         /// </summary>
         static bool InCut(CityMap map, CityMap.Edge e, TileMeshes tm, Section A, Section B, Vector2 outward, out byte why)
         {
+            using var _hz = new HitchZone(HitchClock.InCut);   // city-build-hitches: the zone clock
             why = 0;
             var m = (A.L + B.L) * 0.5f;
             var p = new Vector2(m.x + tm.origin.x, m.z + tm.origin.z);
@@ -8126,6 +8270,17 @@ namespace PSXRacing.City
                 At(u, out var fp, out var np, out float yp);
                 tm.wbeamPosts.Add(new WBeamPost { at = fp, outward = np, top = yp + WBeamTop(u) - 0.03f });
             }
+            // the bridges pass: the terminal's object marker (OM-3) before its turned-down end
+            if (BridgeDetailOn)
+            {
+                float um = WBeamLenM - WBeamDownM - 0.4f;
+                if (um >= u0 && um < u1)
+                {
+                    At(um, out var fm, out var nm, out float ym);
+                    At(Mathf.Min(WBeamLenM, um + 1f), out var fe, out _, out _);
+                    EmitObjectMarker(fm, nm, new Vector3(fe.x - fm.x, 0f, fe.z - fm.z), ym);
+                }
+            }
         }
         /// <summary>The drawn W-beam's back, metres behind its face
         /// (CityPoles.WBeamBackO): the collider's depth.</summary>
@@ -8160,6 +8315,7 @@ namespace PSXRacing.City
 
         static bool OtherRoadAt(CityMap map, CityMap.Edge e, Vector2 p, float y)
         {
+            using var _hz = new HitchZone(HitchClock.WBeam);   // city-build-hitches: the zone clock
             wbRoadScratch.Clear();
             map.EdgeSegsInRect(p - Vector2.one * 20f, p + Vector2.one * 20f, wbRoadScratch);
             foreach (int packed in wbRoadScratch)
@@ -8239,6 +8395,7 @@ namespace PSXRacing.City
         /// tarmac height, outward unit vectors in map view).</summary>
         static void EmitStrip(CityMap map, Trims trims, TileMeshes tm, Vector3 a, Vector3 b, Vector2 outA, Vector2 outB, StripShape sh)
         {
+            using var _hz = new HitchZone(HitchClock.EmitStrip);   // city-build-hitches: the zone clock
             var o = tm.origin;
             var pa = new Vector2(a.x + o.x, a.z + o.z); var pb = new Vector2(b.x + o.x, b.z + o.z);
             int steps = Mathf.Max(1, Mathf.CeilToInt(Vector2.Distance(pa, pb) / VergeStepM));
@@ -8475,6 +8632,7 @@ namespace PSXRacing.City
         /// otherwise. A step down onto a road is not a fall off a roadside.</param>
         static bool SolveStrip(CityMap map, Trims trims, Vector2 edgeW, float yEdge, Vector2 outw, StripShape sh, Vector3[] prof, out bool graded, out float stoppedBy)
         {
+            using var _hz = new HitchZone(HitchClock.SolveStrip);   // city-build-hitches: the zone clock
             graded = false;
             stoppedBy = float.NaN;
             stripTuckEdge = -1;
@@ -9038,6 +9196,7 @@ namespace PSXRacing.City
         {
             if (pavementVersion == nearVersion) return;
             pavementVersion = nearVersion;
+            using var _hz = new HitchZone(HitchClock.Gather);   // city-build-hitches: the zone clock
             nearFans.Clear(); nearFanSet.Clear();
             nearEdges.Clear(); nearEdgeAt.Clear(); nearEdgeBox.Clear();
             foreach (int packed in nearSegs)
@@ -9077,6 +9236,7 @@ namespace PSXRacing.City
         static FanPoly FanPolyOf(CityMap map, Trims trims, int n)
         {
             if (fanPolys.TryGetValue(n, out var fan)) return fan;
+            using var _hz = new HitchZone(HitchClock.FanPoly);   // city-build-hitches: the zone clock
             // scratch lists of its own: BuildJunctions is walking its own
             FanCorners(map, trims, n, Vector3.zero, fanCornerScratch);
             FanCentre(map, trims, n, out var np, out float npY);
@@ -9165,17 +9325,26 @@ namespace PSXRacing.City
 
         static Outline OutlineOf(CityMap map, Trims trims, int ei)
         {
-            if (outlines.TryGetValue(ei, out var ol)) return ol;
-            ol = new Outline();
+            if (outlines.TryGetValue(ei, out var hit)) return hit;
+            using var _hz = new HitchZone(HitchClock.Outline);   // city-build-hitches: the zone clock
+            foreach (var _ in OutlineSteps(map, trims, ei, 0)) { }
+            return outlines[ei];
+        }
+
+        /// <summary>OutlineOf's body (city-build-hitches): its sections a step
+        /// every <paramref name="every"/> in the roads phase (0: in one go).</summary>
+        static IEnumerable<int> OutlineSteps(CityMap map, Trims trims, int ei, int every)
+        {
+            var ol = new Outline();
             outlines[ei] = ol;
             var e = map.edges[ei];
             float sMin = trims.atA[ei], sMax = e.length - trims.atB[ei];
-            if (sMax - sMin < 0.6f || (e.a == e.b && e.length < 1f)) return ol;
+            if (sMax - sMin < 0.6f || (e.a == e.b && e.length < 1f)) yield break;
             // BuildSections rebuilds the section list and the structure ends
             // a caller may be walking (DecideSideFlags, EmitSide)
             outlineSections.Clear(); outlineSections.AddRange(sections);
             outlineEnds.Clear(); outlineEnds.AddRange(endScratch);
-            BuildSections(map, trims, worldOrigin, e, sMin, sMax);
+            foreach (var _ in BuildSectionsSteps(map, trims, worldOrigin, e, sMin, sMax, every)) yield return 0;
             int n = sections.Count;
             if (n >= 2)
             {
@@ -9191,7 +9360,6 @@ namespace PSXRacing.City
             }
             sections.Clear(); sections.AddRange(outlineSections);
             endScratch.Clear(); endScratch.AddRange(outlineEnds);
-            return ol;
         }
 
         /// <summary>A ribbon's outline without MeetPavement's step
@@ -9200,6 +9368,7 @@ namespace PSXRacing.City
         static Outline RawOutlineOf(CityMap map, Trims trims, int ei)
         {
             if (rawOutlines.TryGetValue(ei, out var ol)) return ol;
+            using var _hz = new HitchZone(HitchClock.RawOutline);   // city-build-hitches: the zone clock
             ol = new Outline();
             rawOutlines[ei] = ol;
             var e = map.edges[ei];
@@ -9424,6 +9593,8 @@ namespace PSXRacing.City
         static readonly float[] PierNudges = { 0f, -5f, 5f, -10f, 10f, -14f, 14f };
         static void EmitPier(CityMap map, Trims trims, CityMap.Edge e, TileMeshes tm, float sAt)
         {
+            // the bridges pass: a hammerhead or a bent, on the structure atlas
+            if (BridgeDetailOn) { EmitBridgePier(map, trims, e, tm, sAt); return; }
             foreach (var dS in PierNudges)
             {
                 float s = sAt + dS;
@@ -9494,7 +9665,7 @@ namespace PSXRacing.City
                 // half width: I-277's e1483 under South Church Street is 17.6 m wide on
                 // its left (an added lane) and a pier stood in it (drive audit WALL)
                 LineModel.Extents(o, at, out float exM, out float exP);
-                if (dist <= Mathf.Max(o.HalfMax, Mathf.Max(exM, exP)) + PierClearM) return true;
+                if (dist <= Mathf.Max(o.HalfMax, Mathf.Max(exM, exP)) + (BridgeDetailOn ? PierClearFor(o, at, p) : PierClearM)) return true;
             }
             // nor in a junction's paved area below the deck (leftover item 3: a
             // crossing's cluster paves the ground between the roads under I-85)
@@ -9724,8 +9895,19 @@ namespace PSXRacing.City
                                                           new RailRecord { edge = -1, side = 0, node = n });
                         continue;
                     }
+                    // (round 9, FANS) a shared median carried on past this fan lies over its median
+                    // side: no kerb, verge or corner fill there (the verge's grass stood over the strip)
+                    if (!onStructure && MedianChordUnion(map, trims, n, k0.edge, k0.side, k0.node, k1.edge, k1.side, k1.node)) continue;
                     kerbBucket.WallSloped(k0.pos, k1.pos, k0.pos.y - KerbFaceM, k0.pos.y, k1.pos.y - KerbFaceM, k1.pos.y,
                                           nrm, 0f, 0.6f, 0f, 0.05f);
+                    // (round 9, FANS) the median side of a divided road's fan with nothing leaving
+                    // there (a right-in/right-out, a ramp on the outside): the Jersey carries on across
+                    // it from one arm's own to the next's - they ended square and open at the fan
+                    if (!onStructure && MedianChordJersey(map, trims, n, k0.edge, k0.side, k0.node, k1.edge, k1.side, k1.node))
+                    {
+                        EmitBarrier(k0.pos, k1.pos, nrm, 0f, len / RoadVTile, false, false);
+                        r9FanChords++;
+                    }
                     if (groundLog != null) groundTag = $"fan chord verge node {n} e{k0.edge}-e{k1.edge}";
                     // a curb return's pieces share their cross-sections (plan A10)
                     EmitVergeLine(map, trims, tm, k0.pos, k1.pos, RingOut(corners, i, nrm, true), RingOut(corners, (i + 1) % corners.Count, nrm, false), VergeShoulderM);
@@ -9846,6 +10028,7 @@ namespace PSXRacing.City
 
         static void FanCorners(CityMap map, Trims trims, int n, Vector3 origin, List<FanCorner> corners)
         {
+            using var _hz = new HitchZone(HitchClock.FanCorners);   // city-build-hitches: the zone clock
             corners.Clear();
             if (trims.bulb != null && trims.bulb[n]) { BulbCorners(map, trims, n, origin, corners); return; }
             // a junction cluster (roads pass L7, plan A11): one ring round all

@@ -253,6 +253,71 @@ namespace PSXRacing.City
         }
         CityMeshes.TileJob job;
         long jobKey;
+        // ---- city-build-hitches (2026-10-29): no tile job finished in one frame ----
+        /// <summary>A car reaching a tile whose trees still waited, or a tile
+        /// of its own not built, FINISHED the open tile job in that one frame
+        /// (CompleteJob: 89-440 ms in the editor on the Uptown Loop, the HUD's
+        /// "build max 208 ms" in the owner's I-277 race) and then planted, or
+        /// built. Now: a tile next to a car plants its trees (a slice a frame)
+        /// before the next job starts, so a car is seldom IN one still waiting;
+        /// and where one is, or a car's own tile is missing, the open job for
+        /// ANOTHER tile is given up (its tile is built again later, the same
+        /// tile: a job is deterministic from its start) instead of finished.
+        /// PSX_CITY_NOFORCE=0: as before (the A/B).</summary>
+        public static bool NoForcedFinish = System.Environment.GetEnvironmentVariable("PSX_CITY_NOFORCE") != "0";
+        /// <summary>Tile jobs given up so far (their tiles built again later).</summary>
+        public static int JobsAbandoned;
+
+        /// <summary>Is a tile within one tile of the player's, or of a car the
+        /// world keeps a ring under?</summary>
+        bool NearCar(long k, int ptx, int ptz)
+        {
+            int tx = (int)(k >> 24), tz = (int)((k << 40) >> 40);
+            if (Mathf.Abs(tx - ptx) <= 1 && Mathf.Abs(tz - ptz) <= 1) return true;
+            foreach (var a in anchors)
+            {
+                if (a == null || !a.gameObject.activeInHierarchy) continue;
+                int ax = Mathf.FloorToInt(a.position.x / CityMeshes.TileSize), az = Mathf.FloorToInt(a.position.z / CityMeshes.TileSize);
+                if (Mathf.Abs(tx - ax) <= 1 && Mathf.Abs(tz - az) <= 1) return true;
+            }
+            return false;
+        }
+
+        /// <summary>The share of a frame the open job may take while a car is
+        /// within <see cref="CriticalM"/> of its tile (city-build-hitches).</summary>
+        public static float CriticalSliceBudgetMs = 20f;
+        const float CriticalM = 48f;
+
+        /// <summary>Is a car (the player, or one the world keeps a ring under)
+        /// within <see cref="CriticalM"/> of the open job's tile?</summary>
+        bool JobTileCritical()
+        {
+            if (job == null) return false;
+            float x0 = job.tx * CityMeshes.TileSize, z0 = job.tz * CityMeshes.TileSize;
+            bool Near(Vector3 p)
+            {
+                float nx = Mathf.Clamp(p.x, x0, x0 + CityMeshes.TileSize) - p.x, nz = Mathf.Clamp(p.z, z0, z0 + CityMeshes.TileSize) - p.z;
+                return nx * nx + nz * nz < CriticalM * CriticalM;
+            }
+            if (player != null && Near(player.position)) return true;
+            foreach (var a in anchors) if (a != null && a.gameObject.activeInHierarchy && Near(a.position)) return true;
+            return false;
+        }
+
+        /// <summary>Give the open job up: its meshes so far destroyed, the
+        /// builder's scratch left for the next job's start to clear.</summary>
+        void AbandonJob()
+        {
+            var j = job;
+            job = null;
+            if (j == null) return;
+            j.Abandon();
+            var r = j.Result;
+            if (r != null)
+                foreach (var m in new[] { r.ground, r.roads, r.barriers, r.guardrails, r.kerbs, r.lampPosts, r.banks, r.water, r.buildings, r.buildingCollider })
+                    Kill(m);
+            JobsAbandoned++;
+        }
 
         static long Key(int tx, int tz) => ((long)tx << 24) ^ (tz & 0xFFFFFF);
 
@@ -539,16 +604,32 @@ namespace PSXRacing.City
                         float cx = (tx + 0.5f) * CityMeshes.TileSize - a.position.x;
                         float cz = (tz + 0.5f) * CityMeshes.TileSize - a.position.z;
                         // (ahead: as urgent as the player's tiles in view - a car is on it)
-                        wanted.Add((tx, tz, BuildAhead ? Mathf.Sqrt(cx * cx + cz * cz) / 50f : cx * cx + cz * cz));
+                        // city-build-hitches: by when THIS car is in it (its nearest edge at
+                        // the car's own speed), on the player's clock of seconds: a rival
+                        // reaching a tile still building forced the job's finish (780 ms)
+                        if (NoForcedFinish && BuildAhead)
+                        {
+                            float x0 = tx * CityMeshes.TileSize, z0 = tz * CityMeshes.TileSize;
+                            float nx = Mathf.Clamp(a.position.x, x0, x0 + CityMeshes.TileSize) - a.position.x, nz = Mathf.Clamp(a.position.z, z0, z0 + CityMeshes.TileSize) - a.position.z;
+                            var arb = a.GetComponent<Rigidbody>();
+                            float sa = arb != null ? new Vector2(arb.linearVelocity.x, arb.linearVelocity.z).magnitude : 0f;
+                            wanted.Add((tx, tz, Mathf.Sqrt(nx * nx + nz * nz) / Mathf.Max(6f, sa)));
+                        }
+                        else wanted.Add((tx, tz, BuildAhead ? Mathf.Sqrt(cx * cx + cz * cz) / 50f : cx * cx + cz * cz));
                     }
             }
+            // city-build-hitches: a tile next to a car whose trees still wait
+            // plants them before the next tile starts (see NoForcedFinish)
+            bool treesFirst = treeSteps != null;   // an open tree frame first (city-build-hitches)
+            if (NoForcedFinish && job == null && treesPending.Count > 0)
+                foreach (var k in treesPending.Keys) if (NearCar(k, ptx, ptz)) { treesFirst = true; break; }
             if (SliceBuilds && (job != null || wanted.Count > 0))
             {
                 // A few ms of the nearest missing tile's build every frame
                 // until it stands; its stand-up (renderers, colliders, props)
                 // takes a frame of its own. The tile is finished even if the
                 // car turned away from it: a drop takes it back if need be.
-                if (job == null)
+                if (job == null && !treesFirst)
                 {
                     wanted.Sort((a, b) => a.d2.CompareTo(b.d2));
                     StartJob(wanted[0].tx, wanted[0].tz);
@@ -557,9 +638,12 @@ namespace PSXRacing.City
                 {
                     // at speed, while the frame rate holds, a bigger share
                     bool fast = BuildAhead && speed > FastSpeed && frameMsAvg < FastFrameMs;
+                    float budget = hurry ? (fast ? FastUrgentSliceBudgetMs : UrgentSliceBudgetMs) : (fast ? FastSliceBudgetMs : SliceBudgetMs);
+                    // city-build-hitches: a car about to drive onto the tile still building
+                    // spends a bigger share, so it is done over frames, not finished in one
+                    if (NoForcedFinish && JobTileCritical()) budget = Mathf.Max(budget, CriticalSliceBudgetMs);
                     if (job.Done) CompleteJob();
-                    else using (JobStepMarker.Auto()) job.Step(hurry ? (fast ? FastUrgentSliceBudgetMs : UrgentSliceBudgetMs)
-                                                                     : (fast ? FastSliceBudgetMs : SliceBudgetMs));
+                    else using (JobStepMarker.Auto()) job.Step(budget);
                     built = true;
                 }
             }
@@ -580,7 +664,7 @@ namespace PSXRacing.City
             // waiting plants its trees (a tile is built at least a tile ahead
             // of any car, and a car at 250 km/h is seconds from it). A waiting
             // tile a car is IN plants now regardless: its trunks must stand.
-            if (treesPending.Count > 0)
+            if (treesPending.Count > 0 || treeSteps != null)
             {
                 long best = 0; float bestD = float.MaxValue; bool urgent = false;
                 foreach (var k in treesPending.Keys)
@@ -595,6 +679,7 @@ namespace PSXRacing.City
                     }
                     float cx = (tx + 0.5f) * CityMeshes.TileSize - p.x, cz = (tz + 0.5f) * CityMeshes.TileSize - p.z;
                     float d2 = cx * cx + cz * cz - (near ? 1e12f : 0f);
+                    if (NoForcedFinish && !near && NearCar(k, ptx, ptz)) d2 -= 1e11f;   // city-build-hitches: next to a car first
                     if (d2 < bestD) { bestD = d2; best = k; urgent = near; }
                 }
                 // the gantries and billboards that reach it are decided first,
@@ -604,8 +689,15 @@ namespace PSXRacing.City
                 {
                     // the trees put their own lattice in the builder's cache:
                     // no job may be open across them (WP-09)
-                    if (job != null) CompleteJob();
-                    if (urgent || PrepareSigns(best) == 0) PlantTrees(best);
+                    if (job != null) { if (NoForcedFinish) AbandonJob(); else CompleteJob(); }   // city-build-hitches
+                    bool fastT = BuildAhead && speed > FastSpeed && frameMsAvg < FastFrameMs;
+                    if (treeSteps != null && !(urgent && best != treeKey)) { using (PlantMarker.Auto()) RunTreeJob(urgent ? double.MaxValue : fastT ? FastSliceBudgetMs : SliceBudgetMs); }
+                    else if (urgent) PlantTrees(best);
+                    else if (PrepareSigns(best) == 0)
+                    {
+                        if (SliceTrees) { using (PlantMarker.Auto()) if (BeginTrees(best)) RunTreeJob(fastT ? FastSliceBudgetMs : SliceBudgetMs); }
+                        else PlantTrees(best);
+                    }
                 }
             }
         }
@@ -613,11 +705,13 @@ namespace PSXRacing.City
         void OnDestroy()
         {
             if (job != null) { job.Abandon(); job = null; }
+            AbandonTrees();
             foreach (var k in new List<long>(live.Keys)) DropTile(k);
         }
 
         void DropTile(long key)
         {
+            if (treeSteps != null && treeKey == key) AbandonTrees();   // city-build-hitches
             treesPending.Remove(key);
             liveSigns.Remove(key);
             livePoles.Remove(key);
@@ -643,13 +737,89 @@ namespace PSXRacing.City
         public void PlantTrees(long key)
         {
             using var marker = PlantMarker.Auto();
-            if (!treesPending.TryGetValue(key, out var job)) return;
+            // city-build-hitches: a tree frame still open (sliced) is finished
+            // first - the planting's scratch and the lattice are its
+            if (treeSteps != null) { bool same = treeKey == key; RunTreeJob(double.MaxValue); if (same) return; }
+            if (BeginTrees(key)) RunTreeJob(double.MaxValue);
+        }
+
+        // ---- city-build-hitches (2026-10-29): a tile's tree frame a slice a frame ----
+        /// <summary>A tile's trees, poles, junction furniture and signs were
+        /// planted in one frame (up to 63 ms in the editor, 28 ms on the Uptown
+        /// Loop). Now CityTrees.BuildSteps runs a slice a frame
+        /// (<see cref="SliceBudgetMs"/>) and the tile stands them up when it
+        /// is done; while it is open no tile job and no other tree frame runs
+        /// (they share its scratch and the builder's lattice), a tile build
+        /// that cannot wait finishes it first, and a car IN the tile plants
+        /// it now. PSX_CITY_SLICETREES=0: one frame, as before.</summary>
+        public static bool SliceTrees = System.Environment.GetEnvironmentVariable("PSX_CITY_SLICETREES") != "0";
+        IEnumerator<int> treeSteps;
+        long treeKey;
+        CityTrees.TreeTile treeTile;
+        CityMeshes.TileMeshes treeTm;
+        double treeWorkMs;
+        /// <summary>A tile's tree frame is open (sliced, not finished).</summary>
+        public bool TreeJobOpen => treeSteps != null;
+
+        bool BeginTrees(long key)
+        {
+            if (!treesPending.TryGetValue(key, out var job)) return false;
             treesPending.Remove(key);
-            if (!live.TryGetValue(key, out var tile) || tile.go == null) return;
+            if (!live.TryGetValue(key, out var tile) || tile.go == null) return false;
             int tx = (int)(key >> 24), tz = (int)((key << 40) >> 40);
-            var clock = System.Diagnostics.Stopwatch.StartNew();
             CityMeshes.PutLattice(job.lattice);
-            var tt = CityTrees.Build(Map, nodeTrims, buildings, job.tm, tx, tz);
+            treeKey = key; treeTm = job.tm; treeWorkMs = 0.0;
+            treeTile = new CityTrees.TreeTile { tx = tx, tz = tz };
+            treeSteps = CityTrees.BuildSteps(Map, nodeTrims, buildings, job.tm, tx, tz, treeTile).GetEnumerator();
+            return true;
+        }
+
+        /// <summary>The open tree frame's steps for a budget (all of them for
+        /// double.MaxValue), and the tile's trees stood up when they end. True
+        /// when it ended.</summary>
+        bool RunTreeJob(double budgetMs)
+        {
+            if (treeSteps == null) return true;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            bool more;
+            do { more = treeSteps.MoveNext(); } while (more && clock.Elapsed.TotalMilliseconds < budgetMs);
+            double ms = clock.Elapsed.TotalMilliseconds;
+            treeWorkMs += ms;
+            if (more)
+            {
+                var slice = new TileTiming { tx = treeTile.tx, tz = treeTile.tz, treeFrame = true, treesMs = (float)ms, totalMs = (float)ms };
+                recentBuilds.Add((Time.realtimeSinceStartup, (float)ms));
+                if (recentBuilds.Count > 256) recentBuilds.RemoveAt(0);
+                TileBuilt?.Invoke(slice);
+                return false;
+            }
+            treeSteps.Dispose();
+            treeSteps = null;
+            long key = treeKey;
+            if (live.TryGetValue(key, out var tile) && tile.go != null) StandTrees(key, tile, treeTile, treeTm, clock);
+            treeTile = null; treeTm = null;
+            return true;
+        }
+
+        /// <summary>Give the open tree frame up (its tile was dropped).</summary>
+        void AbandonTrees()
+        {
+            if (treeSteps == null) return;
+            treeSteps.Dispose();
+            treeSteps = null;
+            var tt = treeTile;
+            treeTile = null; treeTm = null;
+            if (tt == null) return;
+            Kill(tt.mesh);
+            if (tt.poles != null) Kill(tt.poles.mesh);
+            if (tt.signals != null) { Kill(tt.signals.mesh); Kill(tt.signals.lamps); Kill(tt.signals.halos); }
+            if (tt.signs != null) { Kill(tt.signs.mesh); Kill(tt.signs.guideMesh); }
+        }
+
+        void StandTrees(long key, Tile tile, CityTrees.TreeTile tt, CityMeshes.TileMeshes tm, System.Diagnostics.Stopwatch clock)
+        {
+            int tx = (int)(key >> 24), tz = (int)((key << 40) >> 40);
+            var job = (tm: tm, lattice: (Dictionary<long, float>)null);
             if (tt.mesh != null)
             {
                 AttachTrees(tile.go, tt, CityTrees.MaterialFor(CityTrees.DressNow()));
@@ -710,6 +880,7 @@ namespace PSXRacing.City
                 var gains = new List<float>(heads.Capacity);
                 var mercs = new List<bool>(heads.Capacity);   // the 1990s city: mercury heads by street
                 foreach (var l in job.tm.lamps) { heads.Add(job.tm.origin + l.head); gains.Add(LampGain(l)); mercs.Add(l.mercury); }
+                foreach (var h in job.tm.mastHeads) { heads.Add(job.tm.origin + h); gains.Add(MastLightGain); mercs.Add(false); }
                 if (signLamps > 0) { heads.AddRange(st.lamps); for (int k = 0; k < signLamps; k++) { gains.Add(1f); mercs.Add(false); } }
                 if (poleHeads > 0) { heads.AddRange(pt.heads); for (int k = 0; k < poleHeads; k++) { gains.Add(1f); mercs.Add(k < pt.headMercury.Count && pt.headMercury[k]); } }
                 var lt = tile.go.transform.Find("LampLights");
@@ -733,7 +904,7 @@ namespace PSXRacing.City
             {
                 tx = tx, tz = tz, treeFrame = true,
                 treesMs = (float)clock.Elapsed.TotalMilliseconds, treePlantMs = tt.ms,
-                totalMs = (float)clock.Elapsed.TotalMilliseconds, trees = tt.trees.Count,
+                totalMs = (float)clock.Elapsed.TotalMilliseconds, trees = tt.trees.Count,   // (sliced: the last slice and the stand-up)
                 signsMs = st != null ? st.ms : 0f, signs = st != null ? st.signs.Count : 0,
             };
             recentBuilds.Add((Time.realtimeSinceStartup, timing.totalMs));
@@ -786,10 +957,12 @@ namespace PSXRacing.City
             if (job != null)
             {
                 bool same = jobKey == key;
-                CompleteJob();
+                // city-build-hitches: another tile's job is given up, not finished
+                if (same || !NoForcedFinish) CompleteJob(); else AbandonJob();
                 if (same) { CityTileFade.TileUp(tx, tz, false); return true; }
             }
 
+            if (treeSteps != null) RunTreeJob(double.MaxValue);   // city-build-hitches: its lattice is the builder's
             var clock = System.Diagnostics.Stopwatch.StartNew();
             CityMeshes.TileMeshes tm;
             using (BuildSyncMarker.Auto()) tm = CityMeshes.Build(Map, nodeTrims, buildings, tx, tz);
@@ -802,6 +975,7 @@ namespace PSXRacing.City
         {
             EnsureInit();
             if (Map == null) return;
+            if (treeSteps != null) RunTreeJob(double.MaxValue);   // city-build-hitches (not reached: an open tree frame blocks new jobs)
             jobKey = Key(tx, tz);
             job = CityMeshes.Begin(Map, nodeTrims, buildings, tx, tz);
         }
@@ -867,7 +1041,7 @@ namespace PSXRacing.City
             // (the tile's roads, fill houses and lamps are in tm, the lots in
             // the building table) and on a later frame: queued here with the
             // lattice this build cached, planted by PlantTrees.
-            if (CityTrees.Enabled || CitySigns.Enabled || CityPoles.Enabled || tm.lamps.Count > 0) treesPending[key] = (tm, CityMeshes.TakeLattice());
+            if (CityTrees.Enabled || CitySigns.Enabled || CityPoles.Enabled || tm.lamps.Count > 0 || tm.mastHeads.Count > 0) treesPending[key] = (tm, CityMeshes.TakeLattice());
             double tTrees = clock.Elapsed.TotalMilliseconds;
 
             // THE LIGHT the street lamps throw (the posts are Attach's). A
@@ -877,12 +1051,15 @@ namespace PSXRacing.City
             // tiles up without play) AddComponent runs no Awake at all. It
             // registers every head with StreetLights and builds the halos;
             // dropping the tile destroys it, which takes both back.
-            if (tm.lamps.Count > 0)
+            if (tm.lamps.Count > 0 || tm.mastHeads.Count > 0)
             {
-                var heads = new Vector3[tm.lamps.Count];
-                var gains = new float[tm.lamps.Count];
-                var mercs = new bool[tm.lamps.Count];
-                for (int i = 0; i < heads.Length; i++) { heads[i] = tm.origin + tm.lamps[i].head; gains[i] = LampGain(tm.lamps[i]); mercs[i] = tm.lamps[i].mercury; }
+                int nl = tm.lamps.Count;
+                var heads = new Vector3[nl + tm.mastHeads.Count];
+                var gains = new float[heads.Length];
+                var mercs = new bool[heads.Length];
+                for (int i = 0; i < nl; i++) { heads[i] = tm.origin + tm.lamps[i].head; gains[i] = LampGain(tm.lamps[i]); mercs[i] = tm.lamps[i].mercury; }
+                // the bridges pass: a high mast's ring of sodium floods
+                for (int i = 0; i < tm.mastHeads.Count; i++) { heads[nl + i] = tm.origin + tm.mastHeads[i]; gains[nl + i] = MastLightGain; }
                 var lights = new GameObject("LampLights");
                 lights.transform.SetParent(root.transform, false);
                 var glow = lights.AddComponent<NightGlow>();
@@ -990,6 +1167,25 @@ namespace PSXRacing.City
                     meshes.Add(wbm);
                 }
             }
+            if (tm.structure != null)
+            {
+                // THE BRIDGES PASS (2026-10-29): girders, piers, caps, bearings,
+                // abutments, object markers, high masts - RENDER-ONLY on the
+                // structure atlas. Nothing here is cooked: the columns' and
+                // masts' solids are capsules in tm.solids, the decks' surfaces
+                // and rails are the Roads and Barriers meshes they always were.
+                var g = Child(root, "Structure", 0);
+                g.AddComponent<MeshFilter>().sharedMesh = tm.structure;
+                var mr = g.AddComponent<MeshRenderer>();
+                mr.sharedMaterial = matFor != null ? matFor(CityMeshes.Slot.Structure) : null;
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                mr.receiveShadows = false;
+                // no sun-map caster: the deck above already throws the bridge's
+                // shadow, and a caster a tile is a draw a tile in the sun's map
+                // (the perf probe: SetPass +24 a frame with it)
+                SunShadows.Exclude(g);
+                meshes.Add(tm.structure);
+            }
             if (tm.kerbs != null)
             {
                 // RENDER-ONLY, deliberately: the inch of face under a grounded
@@ -1043,6 +1239,15 @@ namespace PSXRacing.City
                 s.transform.localPosition = box.center;
                 s.transform.localRotation = Quaternion.Euler(0f, box.yawDeg, 0f);
                 s.layer = SolidLayer;
+                if (box.round)
+                {
+                    // the bridges pass: a round column, solid as drawn
+                    var cc = s.AddComponent<CapsuleCollider>();
+                    cc.direction = 1;
+                    cc.radius = box.radius;
+                    cc.height = Mathf.Max(box.size.y, 2f * box.radius);
+                    continue;
+                }
                 var bc = s.AddComponent<BoxCollider>();
                 bc.size = box.size;
             }
@@ -1253,6 +1458,9 @@ namespace PSXRacing.City
         /// ceilings concrete burnt the night interior white (the field is flat:
         /// every floor's lights land on the same texels).</summary>
         const float DeckLightGain = 0.07f;
+        /// <summary>One flood of a high mast's ring (the bridges pass): six of
+        /// them stand over one foot, so each throws a share.</summary>
+        const float MastLightGain = 0.45f;
 
         /// <summary>A lamp post collider's square side: the drawn post's own
         /// (a cobra-head's 0.26 m, an acorn's 0.14 m). It was 0.3 m for both,
@@ -1338,6 +1546,8 @@ namespace PSXRacing.City
                 return SeasonDress.Substitute(table[i]);
             // a kit built before the sidewalks: they wear the pavement concrete
             if (slot == CityMeshes.Slot.Sidewalk) return MatFor(CityMeshes.Slot.Pavement);
+            // ...and one built before the bridges pass: the structure wears the concrete
+            if (slot == CityMeshes.Slot.Structure) return MatFor(CityMeshes.Slot.Concrete);
             return null;
         }
 

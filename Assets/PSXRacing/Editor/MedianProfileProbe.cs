@@ -134,6 +134,7 @@ namespace PSXRacing.EditorTools
             var hits = new RaycastHit[16];
             var secs = new System.Collections.Generic.List<CityMeshes.AuditView.SectionView>(256);
             var runs = new System.Collections.Generic.List<CityMeshes.AuditView.UnionRunView>(8);
+            bool heightsRow = System.Environment.GetEnvironmentVariable("PSX_SPOT_HEIGHTS") == "1";
             foreach (var sp in (System.Environment.GetEnvironmentVariable("PSX_SPOTS") ?? "").Split(';'))
             {
                 var c = sp.Split(':');
@@ -165,7 +166,8 @@ namespace PSXRacing.EditorTools
                     near.Remove(ei); near.Insert(0, ei);
                     const string letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
                     if (near.Count > letters.Length) near.RemoveRange(letters.Length, near.Count - letters.Length);
-                    sb.AppendLine($"SPOT e{ei} '{e.name}' s {s0:0}..{s1:0} lat {l0:0.0}..{l1:0.0} (columns lat from {l1:0.0} down to {l0:0.0}, 0.5 m)");
+                    var pa0 = e.PointAt(s0); var pa1 = e.PointAt(s1);
+                    sb.AppendLine($"SPOT e{ei} '{e.name}' s {s0:0}..{s1:0} lat {l0:0.0}..{l1:0.0} (columns lat from {l1:0.0} down to {l0:0.0}, 0.5 m) at ({pa0.x:0.0},{pa0.y:0.0})..({pa1.x:0.0},{pa1.y:0.0})");
                     var secOf = new System.Collections.Generic.Dictionary<int, CityMeshes.AuditView.SectionView[]>();
                     for (int k = 0; k < near.Count; k++)
                     {
@@ -180,12 +182,38 @@ namespace PSXRacing.EditorTools
                         var p = e.PointAt(s); var t = e.TangentAt(s).normalized; var right = new Vector2(-t.y, t.x);
                         float y = e.YAt(s);
                         var row = new StringBuilder($"{s,6:0.0} {y,7:0.00} |");
+                        // (round 8) PSX_SPOT_HEIGHTS=1: under each row the top surface against this
+                        // road's height: v under -1 m, l -1..-0.3, 0 within 0.3, h to 0.6, H to 1.2, X over
+                        var hrow = heightsRow ? new StringBuilder("        heights |") : null;
+                        // (round 9) a 6th field "T": under each row the term that set the land at each
+                        // column (CityElevation.Ground): d deck cap (air under a soffit), D deck protect,
+                        // p a road's cap, f a road's fill floor, c a road's cut, n the natural land; and the
+                        // lowest grass point's numbers
+                        var trow = c.Length >= 6 && c[5].Trim() == "T" ? new StringBuilder("        terms   |") : null;
+                        float lowY = float.MaxValue; string lowNote = null;
                         for (float l = l1; l >= l0 - 1e-3f; l -= 0.5f)
                         {
                             var w = p + right * l;
                             int n = Physics.RaycastNonAlloc(new Vector3(w.x, y + 3f, w.y), Vector3.down, hits, 12f, ~0, QueryTriggerInteraction.Ignore);
                             float top = float.NegativeInfinity; string name = null;
                             for (int i = 0; i < n; i++) if (hits[i].point.y > top) { top = hits[i].point.y; name = hits[i].collider.name; }
+                            if (trow != null)
+                            {
+                                float g = CityElevation.Ground(map, w.x, w.y, out var gt);
+                                bool Eq(float v) => !float.IsNaN(v) && Mathf.Abs(v - g) < 0.005f;
+                                trow.Append(Eq(gt.deckCap) ? 'd' : Eq(gt.deckProtect) ? 'D' : Eq(gt.protect) ? 'p' : Eq(gt.floor) ? 'f' : Eq(gt.cut) ? 'c' : 'n');
+                                if (name != null && !name.Contains("Road") && !name.Contains("Barrier") && !name.Contains("Guardrail") && g < lowY)
+                                {
+                                    lowY = g;
+                                    lowNote = $"lat {l:0.0} land {g - y:+0.00;-0.00} dem {gt.dem - y:+0.00;-0.00} floor {gt.floor - y:+0.00;-0.00} (e{gt.floorEdge}) cut {gt.cut - y:+0.00;-0.00} " +
+                                              $"cap {gt.protect - y:+0.00;-0.00} (e{gt.protectEdge}) deckCap {gt.deckCap - y:+0.00;-0.00} deckProt {gt.deckProtect - y:+0.00;-0.00} (e{gt.deckEdge}) near {gt.nearFloor - y:+0.00;-0.00} (e{gt.nearEdge})";
+                                }
+                            }
+                            if (hrow != null)
+                            {
+                                float dy = top - y;
+                                hrow.Append(name == null ? ' ' : dy < -1f ? 'v' : dy < -0.3f ? 'l' : dy <= 0.3f ? '0' : dy <= 0.6f ? 'h' : dy <= 1.2f ? 'H' : 'X');
+                            }
                             char ch = ' ';
                             if (name != null)
                             {
@@ -214,6 +242,8 @@ namespace PSXRacing.EditorTools
                             row.Append(ch);
                         }
                         sb.AppendLine(row.ToString());
+                        if (hrow != null) sb.AppendLine(hrow.ToString());
+                        if (trow != null) { sb.AppendLine(trow.ToString()); if (lowNote != null) sb.AppendLine("        lowest  " + lowNote); }
                     }
                     // each edge met: sections in range, union runs, walled spans
                     foreach (int oi in near)
@@ -229,6 +259,26 @@ namespace PSXRacing.EditorTools
                         CityMeshes.AuditView.UnionRunsOf(trims, oi, runs);
                         foreach (var u in runs)
                             sb.AppendLine($"    union side {u.side} s {u.s0:0.0}..{u.s1:0.0} nb e{u.nb} {u.nb0:0.0}..{u.nb1:0.0} {u.median}{(u.owner ? " OWNER" : "")}{(u.approach ? " approach" : "")}{(u.open0 ? " open0" : "")}{(u.open1 ? " open1" : "")}{(u.solid ? " solid" : " flat")}");
+                        // (round 8) each run's road across, its seams owned across, a gap fill
+                        var ul = trims?.unions != null && oi < trims.unions.Length ? trims.unions[oi] : null;
+                        if (ul != null)
+                            foreach (var r in ul)
+                                sb.AppendLine($"      run {(r.owner ? "OWN" : "par")} s {r.s0:0.00}..{r.s1:0.00} side {r.side} across [{string.Join(",", r.across ?? new int[0])}]{(r.fill ? " FILL" : "")}" +
+                                              $"{(r.seamEdge0 >= 0 ? $" seam0 e{r.seamEdge0}@{r.seamArc0:0.00}" : "")}{(r.seamEdge1 >= 0 ? $" seam1 e{r.seamEdge1}@{r.seamArc1:0.00}" : "")}");
+                        // and why the ground-twin walk would (or would not) lay a median along it now
+                        if (o.oneway && CityMeshes.Barriered(o) && !string.IsNullOrEmpty(o.name) && trims != null)
+                        {
+                            var why = new StringBuilder("    why:");
+                            string last = null;
+                            for (float s = Mathf.Max(0f, lo); s <= Mathf.Min(o.length, hi) + 1e-3f; s += 1f)
+                            {
+                                string w = CityMeshes.GroundTwinWhy(map, trims, o, s);
+                                if (w == last) continue;
+                                why.Append($" {s:0}:{w};");
+                                last = w;
+                            }
+                            sb.AppendLine(why.ToString());
+                        }
                         var sl = new StringBuilder("    walled spans:");
                         foreach (var r in CityMeshes.AuditView.Spans)
                         {

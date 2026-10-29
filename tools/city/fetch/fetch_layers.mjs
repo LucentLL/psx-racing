@@ -29,7 +29,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const OUT = join(HERE, '..', 'cache', 'layers');
+// PSX_CITY_CACHE: the cache a worktree shares with the main checkout (export_osm.mjs reads the same)
+const OUT = join(process.env.PSX_CITY_CACHE || join(HERE, '..', 'cache'), 'layers');
 const MANIFEST = join(HERE, 'layers_manifest.json');
 const UA = 'psx-racing-city-bake/1.0 (game map data; https://github.com/LucentLL/psx-racing)';
 // Each server is tried up to three times (the main one answers 504 under
@@ -82,6 +83,22 @@ const LAYERS = {
     'shops, restaurants, fuel, banks, motels (WP-23 business pole signs)', 1],
 };
 
+// CONNECTORS (road-logic topology, 2026-10-29; the owner chose "Close the
+// gaps"): the ways at the data's frontier nodes listed in connector_nodes.json
+// (a pinned list, see connector_nodes.mjs) - inside the beltway box every
+// drivable way at a gap (a ramp handing over to a local street, a one-way
+// into an alley), and at a road cut by the box its continuation: the way(s)
+// of an arterial class that carry it on. NOT the side streets at large.
+{
+  const CONN_FILE = join(HERE, 'connector_nodes.json');
+  if (existsSync(CONN_FILE)) {
+    const c = JSON.parse(readFileSync(CONN_FILE, 'utf8'));
+    const DRIVE = '^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service)(_link)?$';
+    const ART = '^(motorway|trunk|primary|secondary|tertiary|unclassified|residential)(_link)?$';
+    LAYERS.connectors = [`(node(id:${c.gaps.join(',')});way(bn)["highway"~"${DRIVE}"];node(id:${c.world.join(',')});way(bn)["highway"~"${ART}"];);out geom;`,
+      'the ways that close the data frontier (owner 2026-10-29 "Close the gaps": ramps handing over to local streets, roads cut at the beltway box); connector_nodes.json', 1];
+  }
+}
 const ARGS = process.argv.slice(2);
 const only = ARGS.includes('--only') ? ARGS[ARGS.indexOf('--only') + 1].split(',') : null;
 const force = ARGS.includes('--force');

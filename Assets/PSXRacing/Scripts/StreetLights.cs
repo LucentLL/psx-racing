@@ -257,7 +257,8 @@ namespace PSXRacing
             e.field = false; e.mercury = false;
             e.groundKnown = false;
             Registered++;
-            fieldVersion++;
+            // (city-build-hitches: a lamp is not on the field until MarkField says so)
+            if (!FieldCull) fieldVersion++;
             return (e.gen << 16) | slot;
         }
 
@@ -267,7 +268,7 @@ namespace PSXRacing
         {
             if (!Valid(handle, out int slot)) return;
             ref Entry e = ref entries[slot];
-            if (e.field && (e.on != on || e.intensity != intensity || e.pos != pos)) fieldVersion++;
+            if (e.field && (e.on != on || e.intensity != intensity || e.pos != pos) && (!FieldCull || OnFieldWindow(e.pos) || OnFieldWindow(pos))) fieldVersion++;
             if (e.pos != pos) e.groundKnown = false;
             e.pos = pos;
             e.intensity = intensity;
@@ -282,7 +283,7 @@ namespace PSXRacing
             if (!Valid(handle, out int slot)) return;
             entries[slot].field = field;
             entries[slot].mercury = mercury;
-            fieldVersion++;
+            if (!FieldCull || OnFieldWindow(entries[slot].pos)) fieldVersion++;   // city-build-hitches
         }
 
         public static void Remove(int handle)
@@ -326,7 +327,7 @@ namespace PSXRacing
 
         static void Free(int slot)
         {
-            if (entries[slot].field) fieldVersion++;
+            if (entries[slot].field && (!FieldCull || OnFieldWindow(entries[slot].pos))) fieldVersion++;   // city-build-hitches
             entries[slot].used = false;
             entries[slot].field = false; entries[slot].mercury = false;
             entries[slot].owner = null;

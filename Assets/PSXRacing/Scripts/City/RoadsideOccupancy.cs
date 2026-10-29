@@ -350,6 +350,8 @@ namespace PSXRacing.City
                 foreach (var h in tm.houseBoxes) o.MarkBox(h.c, h.u, h.hu, h.hv, BuildingMarginM + CellPadM, Building);
                 foreach (var l in tm.lamps)
                     o.MarkDisc(new Vector2(l.foot.x + tm.origin.x, l.foot.z + tm.origin.z), LampFootR + CellPadM, Other);
+                // the bridges pass: a high mast's foot and the reach of its ring
+                foreach (var f in tm.mastFeet) o.MarkDisc(f, 2.5f + CellPadM, Other);
                 // WP-25: a culvert's headwall and its backfill (or its pipe's
                 // barrel), the apron in front and the clay ditch down the
                 // ravine: no tree grows through the wall or in the ditch

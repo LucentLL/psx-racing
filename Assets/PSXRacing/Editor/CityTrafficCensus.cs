@@ -178,6 +178,33 @@ namespace PSXRacing.EditorTools
             EditorApplication.playModeStateChanged -= AfterExit;
             EditorApplication.delayCall += CityTrafficCheck.Run;
         }
+
+        /// <summary>PSX_CENSUS_THENDRIVE=1 (road-logic lanes): after the
+        /// close-ups, the DRIVE AUDIT (CityAudit.RunDrive: walls in lanes,
+        /// fall holes, invisible colliders; city_drive.txt) in the same editor,
+        /// back in edit mode - the paint's after-shots and the data's gate in
+        /// one Unity job.</summary>
+        internal static bool ThenDrive => System.Environment.GetEnvironmentVariable("PSX_CENSUS_THENDRIVE") is string v && (v == "1" || v == "audit");
+        /// <summary>PSX_CENSUS_THENDRIVE=audit: the city audit (CityAudit.Run, city_audit.txt) instead.</summary>
+        static bool ThenAudit => System.Environment.GetEnvironmentVariable("PSX_CENSUS_THENDRIVE") == "audit";
+        internal static void ChainDrive()
+        {
+            EditorApplication.playModeStateChanged += AfterExitDrive;
+            EditorApplication.ExitPlaymode();
+        }
+
+        static void AfterExitDrive(PlayModeStateChange s)
+        {
+            if (s != PlayModeStateChange.EnteredEditMode) return;
+            EditorApplication.playModeStateChanged -= AfterExitDrive;
+            EditorApplication.delayCall += () =>
+            {
+                int code = 0;
+                try { if (ThenAudit) CityAudit.Run(); else CityAudit.RunDrive(); }
+                catch (System.Exception ex) { Debug.LogException(ex); code = 1; }
+                EditorApplication.Exit(code);
+            };
+        }
     }
 
     /// <summary>What the tour and the close-ups share: the session, the
@@ -407,6 +434,36 @@ namespace PSXRacing.EditorTools
         /// nearest-first tour from uptown.</summary>
         List<Spot> Plan(out float totalW, out float coveredW)
         {
+            // THE SPOT LIST (road-logic lanes, 2026-10-29): PSX_CENSUS_SPOTS
+            // names a file of "x,z" lines (a label after a third comma is
+            // ignored; # comments) - the tour visits exactly those, walked
+            // nearest-first from uptown, each the same share of the budget:
+            // the before/after of a fix at the places it was made for.
+            string list = System.Environment.GetEnvironmentVariable("PSX_CENSUS_SPOTS");
+            if (!string.IsNullOrEmpty(list) && System.IO.File.Exists(list))
+            {
+                var given = new List<Spot>();
+                foreach (var raw in System.IO.File.ReadAllLines(list))
+                {
+                    var ln = raw.Trim();
+                    if (ln.Length == 0 || ln.StartsWith("#")) continue;
+                    var f = ln.Split(',');
+                    if (f.Length < 2 || !float.TryParse(f[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x)
+                        || !float.TryParse(f[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float z)) continue;
+                    given.Add(new Spot { p = new Vector2(x, z), gain = 1000f });
+                }
+                var walk = new List<Spot>();
+                Vector2 from = map.uptown;
+                while (given.Count > 0)
+                {
+                    int bi = 0; float bd = float.MaxValue;
+                    for (int i = 0; i < given.Count; i++) { float d = (given[i].p - from).sqrMagnitude; if (d < bd) { bd = d; bi = i; } }
+                    walk.Add(given[bi]); from = given[bi].p; given.RemoveAt(bi);
+                }
+                totalW = coveredW = walk.Count * 1000f;
+                CityTrafficCensus.Line($"  the spot list {list}: {walk.Count} spots");
+                return walk;
+            }
             var pts = new List<Vector2>(); var ws = new List<float>();
             totalW = 0f;
             for (int i = 0; i < map.edges.Length; i++)
@@ -653,6 +710,17 @@ namespace PSXRacing.EditorTools
                 // above the canopy (13 m put one shot inside a tree), along the move
                 var eye = at - f * 26f + r * 9f + Vector3.up * 24f;
                 yield return Shot(Path.Combine(dir, $"census_top{i}.png"), eye, at + f * 3f);
+                // PSX_CENSUS_SHOTEYE=driver (road-logic lanes): also the lane
+                // paint as a driver sees it - 1.2 m over the road, 16 m short
+                // of the spot along the move, looking down the lanes
+                string eyeMode = System.Environment.GetEnvironmentVariable("PSX_CENSUS_SHOTEYE") ?? "";
+                if (eyeMode.Contains("driver"))
+                    yield return Shot(Path.Combine(dir, $"census_top{i}_driver.png"), at - f * 16f + Vector3.up * 1.2f, at + f * 30f + Vector3.up * 0.4f);
+                // PSX_CENSUS_SHOTEYE=driver+plan (road-logic bends): and the PLAN
+                // of the spot - 80 m up, looking down with the move up the frame -
+                // for a curve's before/after (the paint's line through the bend)
+                if (eyeMode.Contains("plan"))
+                    yield return Shot(Path.Combine(dir, $"census_top{i}_plan.png"), at - f * 4f + Vector3.up * 80f, at + f * 1f);
                 CityTrafficCensus.Line($"shot {i}: {label}");
             }
             Done();
@@ -663,6 +731,7 @@ namespace PSXRacing.EditorTools
             finished = true;
             CityTrafficCensus.Finish();
             if (CityTrafficCensus.ThenCheck && CityTrafficCensus.failures == 0) CityTrafficCensus.ChainCheck();
+            else if (CityTrafficCensus.ThenDrive) CityTrafficCensus.ChainDrive();
             else EditorApplication.Exit(CityTrafficCensus.failures == 0 ? 0 : 1);
         }
 

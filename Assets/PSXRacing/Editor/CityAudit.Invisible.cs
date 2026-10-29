@@ -432,6 +432,19 @@ namespace PSXRacing.EditorTools
                                     outs.Add(tr.TransformDirection(f).normalized);
                                 }
                             }
+                            else if (c is CapsuleCollider cap && cap.direction == 1)
+                            {
+                                // the bridges pass's round pier columns and high masts: eight
+                                // points round the capsule's side, a quarter and three quarters up
+                                var tr = cap.transform;
+                                for (int kc = 0; kc < 8; kc++)
+                                {
+                                    float a = kc * Mathf.PI / 4f;
+                                    var f = new Vector3(Mathf.Cos(a) * cap.radius, (kc % 2 == 0 ? -0.25f : 0.25f) * cap.height, Mathf.Sin(a) * cap.radius);
+                                    pts.Add(tr.TransformPoint(cap.center + f));
+                                    outs.Add(tr.TransformDirection(new Vector3(f.x, 0f, f.z)).normalized);
+                                }
+                            }
                             else continue;
                             int bare = 0; Vector3 firstBare = default;
                             for (int qi = 0; qi < pts.Count; qi++)

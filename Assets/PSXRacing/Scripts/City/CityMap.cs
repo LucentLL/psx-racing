@@ -70,6 +70,10 @@ namespace PSXRacing.City
             public float width;      // full paved width, metres (section scale)
             public float shl, shr;   // paved shoulders, left / right of travel
             public int speedKmh;
+            /// <summary>Section ADVS (road-logic-bends, 2026-10-29): the OSM way's
+            /// posted advisory speed (maxspeed:advisory), mph; 0 when untagged.
+            /// <see cref="CityCurves"/> keeps it and derives every other curve's.</summary>
+            public int advisoryMph;
             public uint wayId;
             /// <summary>Section BRST (plan B1; 0 in older data, and on every
             /// edge not tagged bridge=yes): the OSM man_made=bridge outline
@@ -1127,6 +1131,19 @@ namespace PSXRacing.City
                     }
                     Close("FRNT");
                 }
+                // ADVS (road-logic-bends): the OSM-posted advisory speeds
+                if (Has("ADVS"))
+                {
+                    Open("ADVS");
+                    int na = r.ReadInt32();
+                    for (int i = 0; i < na; i++)
+                    {
+                        int ei = r.ReadInt32(); int mph = r.ReadByte();
+                        if (ei >= 0 && ei < ne) map.edges[ei].advisoryMph = mph;
+                    }
+                    Close("ADVS");
+                }
+                CityCurves.Reset();
                 // RPRF (leftover item 1): the measured road profiles, tiers 1-2
                 if (Has("RPRF"))
                 {

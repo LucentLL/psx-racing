@@ -120,21 +120,40 @@ namespace PSXRacing.EditorTools
             if (map == null) return;
             bool keep = CityElevation.GroundTwinsOn;
             var keep7 = CityMeshes.Round7Flags();
+            var keep8 = CityMeshes.Round8Flags();
             // PSX_LOOK_AB=round7: the A/B is round 7's median fixes (CityMeshes.SetRound7), the hold as set
             bool abJersey = System.Environment.GetEnvironmentVariable("PSX_LOOK_AB") == "round7";
+            // PSX_LOOK_AB=round8: round 8's (CityMeshes.SetRound8), the spot plans on both passes
+            // (spot_probe_off.txt / spot_probe_on.txt)
+            bool ab8 = System.Environment.GetEnvironmentVariable("PSX_LOOK_AB") == "round8";
+            // PSX_LOOK_AB=round9: round 9's (CityMeshes.SetRound9) over round 8's as set, spot plans both passes
+            bool ab9 = System.Environment.GetEnvironmentVariable("PSX_LOOK_AB") == "round9";
+            var keep9 = CityMeshes.Round9Flags();
+            if (ab9) ab8 = false;
             var rep = new StringBuilder();
             try
             {
                 foreach (bool on in new[] { false, true })
                 {
                     if ((on && passes == "off") || (!on && passes == "on")) continue;
-                    if (abJersey) CityMeshes.SetRound7(on); else CityElevation.GroundTwinsOn = on;
+                    if (ab9) CityMeshes.SetRound9(on); else if (ab8) CityMeshes.SetRound8(on); else if (abJersey) CityMeshes.SetRound7(on); else CityElevation.GroundTwinsOn = on;
                     CityElevation.Solve(map);
-                    rep.Append($"== {(abJersey ? "round 7 medians" : "hold")} {(on ? "ON" : "OFF")}\n{CityElevation.GroundTwinReport}\n{CityElevation.GroundTwinSpotDiag}\n");
-                    if (!string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable("PSX_SPOTS")) && (!on || passes == "on"))
-                        try { MedianProfileProbe.Spots(); } catch (System.Exception ex) { Debug.LogWarning("[RealHeights] spot probe: " + ex.Message); }
+                    // (round 8) CityWorld keeps its trims (the union runs) for the life of the map: the
+                    // second pass re-used the first's runs, so a run-level switch never showed in an A/B
+                    ResetWorldTrims();
+                    rep.Append($"== {(ab9 ? "round 9 medians" : ab8 ? "round 8 medians" : abJersey ? "round 7 medians" : "hold")} {(on ? "ON" : "OFF")}\n{CityElevation.GroundTwinReport}\n{CityElevation.GroundTwinSpotDiag}\n");
+                    if (!string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable("PSX_SPOTS")) && (!on || passes == "on" || ab8 || ab9))
+                        try
+                        {
+                            MedianProfileProbe.Spots();
+                            string sp = Path.Combine(root, "spot_probe.txt");
+                            if ((ab8 || ab9) && File.Exists(sp)) File.Copy(sp, Path.Combine(root, on ? "spot_probe_on.txt" : "spot_probe_off.txt"), true);
+                        }
+                        catch (System.Exception ex) { Debug.LogWarning("[RealHeights] spot probe: " + ex.Message); }
                     var t0 = System.DateTime.Now.AddSeconds(-2);
                     CityPreview.Run();
+                    rep.Append($"unions {(on ? "ON" : "OFF")}: {CityMeshes.LastUnionReport}\n");
+                    rep.Append($"deck ends {(on ? "ON" : "OFF")}:{CityMeshes.LastDeckEndWhy}\n");
                     if (!Directory.Exists(shots)) continue;
                     foreach (var f in Directory.GetFiles(shots, "*.png"))
                     {
@@ -146,9 +165,64 @@ namespace PSXRacing.EditorTools
                     }
                 }
             }
-            finally { CityElevation.GroundTwinsOn = keep; CityMeshes.SetRound7Flags(keep7); }
+            finally { CityElevation.GroundTwinsOn = keep; CityMeshes.SetRound7Flags(keep7); CityMeshes.SetRound8Flags(keep8); CityMeshes.SetRound9Flags(keep9); }
             File.WriteAllText(Path.Combine(root, "twin_spots.txt"), rep.ToString());
             Debug.Log("[RealHeights] median look A/B done");
+        }
+
+        /// <summary>(round 8) The look A/B, then the drive audit per PSX_DRIVE_AB, in one job.
+        /// -executeMethod PSXRacing.EditorTools.CityRealHeights.RunLookThenDrive</summary>
+        public static void RunLookThenDrive()
+        {
+            try { RunMedianLookAB(); } catch (System.Exception ex) { Debug.LogException(ex); }
+            ResetWorldTrims();
+            RunDriveAB();
+        }
+
+        /// <summary>(round 8) Forget CityWorld's cached trims, so the next world built computes the
+        /// union runs with the switches as now set (CityWorld caches them per map object).</summary>
+        static void ResetWorldTrims()
+        {
+            var f = typeof(CityWorld).GetField("cachedFor", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            if (f != null) f.SetValue(null, null);
+            else Debug.LogWarning("[RealHeights] CityWorld.cachedFor not found: an A/B pass may re-use the last pass's union runs");
+        }
+
+        /// <summary>
+        /// REAL HEIGHTS round 8: the drive audit (city_drive.txt) once per configuration in
+        /// PSX_DRIVE_AB, a ';' list of names, each switching ON over everything off: "r8" (round 8's
+        /// four), "recip" (PSX_CITY_TWIN_RECIP), "seam" (PSX_CITY_UNION_SEAM), e.g.
+        /// "base;r8;r8+recip;r8+seam" -> city_drive_base.txt ... The two-level Jersey stays as set.
+        /// -executeMethod PSXRacing.EditorTools.CityRealHeights.RunDriveAB
+        /// </summary>
+        public static void RunDriveAB()
+        {
+            string root = Directory.GetParent(Application.dataPath).FullName;
+            var map = CityMap.Get();
+            if (map == null) return;
+            var keep7 = CityMeshes.Round7Flags(); var keep8 = CityMeshes.Round8Flags(); var keep9 = CityMeshes.Round9Flags();
+            try
+            {
+                foreach (var item in (System.Environment.GetEnvironmentVariable("PSX_DRIVE_AB") ?? "r8").Split(';'))
+                {
+                    string name = item.Trim();
+                    if (name.Length == 0) continue;
+                    // (round 9) "r9": round 8's and round 9's switches on
+                    CityMeshes.SetRound8(name.Contains("r8") || name.Contains("r9"));
+                    CityMeshes.SetRound9(name.Contains("r9"));
+                    var f7 = (bool[])keep7.Clone();
+                    f7[1] = name.Contains("recip"); f7[2] = name.Contains("seam");
+                    CityMeshes.SetRound7Flags(f7);
+                    CityElevation.Solve(map);
+                    ResetWorldTrims();
+                    string drv = Path.Combine(root, "city_drive.txt");
+                    if (File.Exists(drv)) File.Delete(drv);
+                    try { CityAudit.RunDrive(); } catch (System.Exception ex) { Debug.LogException(ex); }
+                    if (File.Exists(drv)) File.Copy(drv, Path.Combine(root, $"city_drive_{name.Replace('+', '_')}.txt"), true);
+                    Debug.Log($"[RealHeights] drive {name}: {CityMeshes.LastUnionReport}");
+                }
+            }
+            finally { CityMeshes.SetRound7Flags(keep7); CityMeshes.SetRound8Flags(keep8); CityMeshes.SetRound9Flags(keep9); ResetWorldTrims(); }
         }
 
         /// <summary>REAL HEIGHTS junction surfaces + retaining walls: the

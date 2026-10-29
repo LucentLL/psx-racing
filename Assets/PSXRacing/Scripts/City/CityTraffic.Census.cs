@@ -314,6 +314,15 @@ namespace PSXRacing.City
             float d03 = w.hd[i0] - w.hd[i3], d36 = w.hd[i3] - w.hd[i6], d06 = w.hd[i0] - w.hd[i6];
             if (d03 < 1f || d36 < 1f || d06 > 14f) return;
             float vLim = L.turn ? Mathf.Min(limitMps[L.edge], limitMps[L.edge2]) : limitMps[L.edge];
+            // road-logic-bends: on a run the limit is the curve's advisory where one
+            // applies (CityCurves: the number the exit-speed sign shows and the
+            // traffic drives) - a signed curve is driven at its advisory
+            float vAdv = float.MaxValue;
+            if (!L.turn)
+            {
+                vAdv = CityCurves.MpsAt(map, L.edge, Mathf.Clamp(L.s0 + L.dir * c.u, 0f, map.edges[L.edge].length));
+                vLim = Mathf.Min(vLim, vAdv);
+            }
 
             // VERTICAL: the grade change over the last ~6 m (+ a sag, - a
             // crest) as the vertical velocity it gives a car at the limit
@@ -355,7 +364,7 @@ namespace PSXRacing.City
                     w.latCool = Time.time + 3f;
                     float vOk = Mathf.Sqrt(ALat / Mathf.Max(1e-4f, kh));
                     var re = map.edges[L.edge];
-                    Note(c, "lateral", re.link && re.speedKmh <= 0 ? "ramp-bend-no-limit" : "bend-tighter-than-limit", aLat / G,
+                    Note(c, "lateral", re.link && re.speedKmh <= 0 && vAdv == float.MaxValue ? "ramp-bend-no-limit" : "bend-tighter-than-limit", aLat / G,
                          $"radius {1f / Mathf.Max(1e-4f, kh):0} m mid-road: {aLat / G:0.00} g at the limit {vLim * 3.6f:0} km/h (comfortable {vOk * 3.6f:0} km/h); " + Describe(c));
                 }
                 if (turn1 >= 4f && d01 < 1.6f && turn1 >= 0.6f * turn6 && Time.time > w.kinkCool)
@@ -781,8 +790,13 @@ namespace PSXRacing.City
             for (int k = 2; k < 6; k++)
                 if (missN[k] > 0) log.Add("speed", "missing-limit-" + cn[k], -1, -1, -1, Vector3.zero, -1, 0f, missKm[k], "static", $"{missN[k]} {cn[k]} edges ({missKm[k]:0.0} km) carry no maxspeed");
 
-            // ---- 6. LANES: straight-throughs whose lanes do not line up
-            int noLane = 0, misaligned = 0, straights = 0;
+            // ---- 6. LANES: straight-throughs whose lanes do not line up. Each
+            // lane is measured where its line crosses the node's bisector
+            // (LaneJump, road-logic lanes 2026-10-29); the first census
+            // measured the far lane's mouth against the near lane's normal,
+            // which counts a bend as a jump - kept as "the old test" for the
+            // comparison.
+            int noLane = 0, misaligned = 0, straights = 0, oldNoLane = 0, oldMis = 0, jogNo = 0, jogMis = 0;
             for (int n = 0; n < nn; n++)
             {
                 var arms = map.nodeEdges[n];
@@ -807,35 +821,55 @@ namespace PSXRacing.City
                         float sA = EndS(e, dir), sB = d2 > 0 ? Back(o, n) : o.length - Back(o, n);
                         int nIn = Lanes(ei, dir), nOut = Lanes(oi, d2);
                         Vector2 t0 = TravelTan(e, dir, sA), nrm = new Vector2(-t0.y, t0.x);
-                        float worst = 0f, best = float.MaxValue; int ends = 0;
+                        float worst = 0f, best = float.MaxValue, ownWorst = 0f; int ends = 0, oldEnds = 0;
                         for (int i = 0; i < nIn; i++)
                         {
                             Vector2 p = LanePos(e, dir, i, sA);
-                            float bd = float.MaxValue;
-                            for (int jj = 0; jj < nOut; jj++) bd = Mathf.Min(bd, Mathf.Abs(Vector2.Dot(LanePos(o, d2, jj, sB) - p, nrm)));
+                            float bd = float.MaxValue, od = float.MaxValue, wd = float.MaxValue;
+                            // each road's own frame (+ right of travel): the lane's
+                            // place on its own road, whatever the roads' lines do in the box
+                            float ri = dir > 0 ? -LaneLat(e, dir, i, sA) : LaneLat(e, dir, i, sA);
+                            for (int jj = 0; jj < nOut; jj++)
+                            {
+                                bd = Mathf.Min(bd, LaneJump(e, dir, i, sA, o, d2, jj, sB, n));
+                                od = Mathf.Min(od, Mathf.Abs(Vector2.Dot(LanePos(o, d2, jj, sB) - p, nrm)));
+                                float rj = d2 > 0 ? -LaneLat(o, d2, jj, sB) : LaneLat(o, d2, jj, sB);
+                                wd = Mathf.Min(wd, Mathf.Abs(ri - rj));
+                            }
                             best = Mathf.Min(best, bd);
-                            if (bd > 2f) { ends++; worst = Mathf.Max(worst, bd); }
+                            if (bd > 2f) { ends++; worst = Mathf.Max(worst, bd); ownWorst = Mathf.Max(ownWorst, wd); }
+                            if (od > 2f) oldEnds++;
                         }
+                        // the roads' own lines do not meet straight across the
+                        // box (a jog, a bend inside it): every lane holds its place
+                        // on its road, the path still shifts - geometry, not lanes
+                        bool jog = ends > 0 && ownWorst <= 2f;
+                        if (jog && ends == nIn) jogNo++; else if (jog && nOut >= nIn) jogMis++;
+                        string why = jog ? $"; on their own roads the lanes line up (worst {ownWorst:0.0} m): the roads' lines jog or bend inside the box"
+                                         : $"; on their own roads too (worst {ownWorst:0.0} m): the lanes are laid differently on the two edges";
+                        if (oldEnds == nIn) oldNoLane++; else if (oldEnds > 0 && nOut >= nIn) oldMis++;
                         var at = P(map.nodes[n], e.YAt(dir > 0 ? e.length : 0f));
                         if (ends == nIn)
                         {
                             noLane++;
                             log.Add("lanes", "no-continuing-lane", n, ei, oi, at, -1, 0f, best, "static",
-                                    $"straight on from e{ei} '{e.name}' ({nIn} lanes) into e{oi} '{o.name}' ({nOut} lanes): no lane within 2 m of any lane across the node (nearest {best:0.0} m) - the lanes jump sideways");
+                                    $"straight on from e{ei} '{e.name}' ({nIn} lanes) into e{oi} '{o.name}' ({nOut} lanes): no lane within 2 m of any lane across the node (nearest {best:0.0} m) - the lanes jump sideways" + why);
                         }
                         else if (ends > 0 && nOut >= nIn)
                         {
                             misaligned++;
                             log.Add("lanes", "lanes-misaligned", n, ei, oi, at, -1, 0f, worst, "static",
-                                    $"straight on from e{ei} '{e.name}' ({nIn} lanes) into e{oi} '{o.name}' ({nOut} lanes): {ends} lane(s) find nothing within 2 m (worst {worst:0.0} m) though the next road has as many lanes");
+                                    $"straight on from e{ei} '{e.name}' ({nIn} lanes) into e{oi} '{o.name}' ({nOut} lanes): {ends} lane(s) find nothing within 2 m (worst {worst:0.0} m) though the next road has as many lanes" + why);
                         }
                     }
                 }
             }
-            report.AppendLine($"  straight-throughs {straights}: no lane continues {noLane}, lanes misaligned (as many lanes, not lined up) {misaligned}");
+            report.AppendLine($"  straight-throughs {straights}: no lane continues {noLane}, lanes misaligned (as many lanes, not lined up) {misaligned}" +
+                              $"; of them the roads' lines jog or bend inside the box, every lane in its place on its own road: {jogNo} / {jogMis}" +
+                              $" (the old test, mouth against the near lane's normal, which reads a bend as a jump: {oldNoLane} / {oldMis})");
 
             // ---- 7. RAMPS: the room a merge is driven over
-            int shortZone = 0, merges = 0;
+            int shortZone = 0, merges = 0, zoned = 0, runOn = 0, oldShort = 0;
             for (int i = 0; i < ne; i++)
             {
                 var e = map.edges[i];
@@ -855,14 +889,24 @@ namespace PSXRacing.City
                     }
                     if (!joins) continue;
                     merges++;
-                    float z = ZoneBack(e, dir);
+                    // THE ROOM TO MERGE as drawn (road-logic lanes): the merge
+                    // zone's full-width aux lane from the nose N on (D - xf) where
+                    // CityMeshes built one; a ramp whose lanes run on into lanes
+                    // OSM adds needs none; else the ramp's own run alongside (its
+                    // straightness, the first census's only measure)
+                    bool zone = CityMeshes.ZoneFor(i, n, out _, out float zD, out float zXf);
+                    float z = zone ? zD - zXf : ZoneBack(e, dir);
+                    if (zone) zoned++;
+                    if (ZoneBack(e, dir) < 30f) oldShort++;
                     if (z >= 30f) continue;
+                    if (RampLanesRunOn(e, dir, map.edges[into], map.edges[into].a == n ? 1 : -1, n, true)) { runOn++; continue; }
                     shortZone++;
                     log.Add("merge", "short-merge-zone", n, i, into, P(map.nodes[n], e.YAt(dir > 0 ? e.length : 0f)), -1, 0f, z, "static",
-                            $"ramp e{i} '{e.name}' ({e.length:0} m) runs within 12 deg of the freeway for only {z:0} m before it joins e{into} '{map.edges[into].name}'");
+                            zone ? $"ramp e{i} '{e.name}' ({e.length:0} m): its drawn acceleration lane runs only {z:0} m at full width from the nose before it tapers into e{into} '{map.edges[into].name}'"
+                                 : $"ramp e{i} '{e.name}' ({e.length:0} m), no merge zone built: it runs within 12 deg of the freeway for only {z:0} m before it joins e{into} '{map.edges[into].name}'");
                 }
             }
-            report.AppendLine($"  ramp merges {merges}: merge zone under 30 m {shortZone}");
+            report.AppendLine($"  ramp merges {merges} ({zoned} with a drawn merge zone, {runOn} whose lanes run on): merge room under 30 m {shortZone} (the first census's measure, the ramp's own run alongside under 30 m: {oldShort})");
         }
 
         /// <summary>Does part <paramref name="part"/> lead (by next: the arcs

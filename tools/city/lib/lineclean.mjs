@@ -59,7 +59,7 @@
 // (plan A3, "Lane widths").
 import { profileFor } from './citydata.mjs';
 import { makeSplitOf, CENTRE_TWLTL } from './lineset.mjs';
-import { filletGraph, emaxOf, mitredThrough } from './fillet.mjs';
+import { filletGraph, emaxOf, mitredThrough, bendsDesignR } from './fillet.mjs';
 import { writeFileSync } from 'node:fs';
 
 export const SMOOTH = t => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
@@ -144,7 +144,11 @@ export function buildChains(edges, nodes, acrossNames = false) {
   const nodeEdges = nodeEdgesOf(edges, nodes.length);
   const contA = new Array(edges.length).fill(null), contB = new Array(edges.length).fill(null);
   for (let n = 0; n < nodes.length; n++) {
-    const arms = nodeEdges[n].filter(e => e.a !== e.b && !e.way.roundabout).map(e => ({ e, atA: e.a === n, dir: outDir(e, n) }));
+    // CONNECTORS (export_osm.mjs, 2026-10-29) chain among themselves only: the
+    // network they join keeps the chains it had (lane fixes, TAPR, PARA)
+    const all = nodeEdges[n].filter(e => e.a !== e.b && !e.way.roundabout);
+    for (const kind of [false, true]) {
+    const arms = all.filter(e => !!e.way.connector === kind).map(e => ({ e, atA: e.a === n, dir: outDir(e, n) }));
     if (arms.length < 2) continue;
     const pairs = [];
     for (let i = 0; i < arms.length; i++) for (let j = i + 1; j < arms.length; j++) {
@@ -164,6 +168,7 @@ export function buildChains(edges, nodes, acrossNames = false) {
       used.add(p); used.add(q);
       (p.atA ? contA : contB)[p.e.id] = { e: q.e, atA: q.atA };
       (q.atA ? contA : contB)[q.e.id] = { e: p.e, atA: p.atA };
+    }
     }
   }
   const chainOf = new Int32Array(edges.length).fill(-1);
@@ -205,6 +210,34 @@ function tagSide(wideTl, narrowTl) {
   if (left && !right) return 'L';
   if (right && !left) return 'R';
   return null;
+}
+
+/// ONE-WAY TURN LANES ON BOTH SIDES (road-logic lanes, 2026-10-29): how many
+/// lanes a one-way's wide run has beyond its narrow neighbour on each side of
+/// travel, where turn:lanes says the extra lanes are its turn lanes - left-only
+/// lanes from the left edge, right-only from the right, at least one through
+/// lane between them, the counts adding up to the change. East Brooklyn
+/// Village Avenue at South Boulevard ('left|through|through|right', four lanes
+/// to two): both turn lanes end at the node and the two through lanes run on.
+/// tagSide says nothing there (a turn lane each side), so the rule's default
+/// dropped both on the right and the two lanes that run on lined up with the
+/// LEFT pair - the left-turn lane and a through lane: every car going straight
+/// in the right through lane had to change lanes in 47 m. null when the tags
+/// do not say this.
+/// PSX_LC_OWBOTH=0: the rule off (the data as before it, for an A/B).
+const OW_BOTH = process.env.PSX_LC_OWBOTH !== '0';
+export function tagSidesBoth(wideTl, narrowTl, wideLanes, narrowLanes) {
+  if (!wideTl) return null;
+  const W = splitLanes(wideTl), N = narrowTl ? splitLanes(narrowTl) : [];
+  if (W.length !== wideLanes || (narrowTl && N.length !== narrowLanes)) return null;
+  const only = (v, w) => { const a = (v || '').split(';').map(x => x.trim()); return a.some(x => x === w || x === 'slight_' + w || x === 'sharp_' + w) && !a.includes('through'); };
+  const lead = (A, w) => { let k = 0; while (k < A.length && only(A[k], w)) k++; return k; };
+  const trail = (A, w) => { let k = 0; while (k < A.length && only(A[A.length - 1 - k], w)) k++; return k; };
+  const lW = lead(W, 'left'), rW = trail(W, 'right');
+  if (lW + rW >= W.length) return null;            // a through lane must run on between them
+  const l = lW - lead(N, 'left'), r = rW - trail(N, 'right');
+  if (l < 1 || r < 1 || l + r !== wideLanes - narrowLanes) return null;
+  return { l, r };
 }
 
 // ================================================================== main
@@ -656,7 +689,7 @@ export function lineClean(ctx) {
   /// edges); null = on its line.
   const edgeOffset = new Array(edges.length).fill(null);
   const tStats = { transitions: 0, tagged: 0, bays: 0, atJunction: 0, absorbed: 0, shortened: 0, oneSided: 0, twoSided: 0, symmetric: 0, reanchored: 0, recentred: 0,
-                   perDirection: 0, mergeSide: 0, mergeSideLeft: 0, shifts: 0 };
+                   perDirection: 0, mergeSide: 0, mergeSideLeft: 0, shifts: 0, owBothSides: 0, owBothKept: 0 };
   const taprPass = () => {
   for (const chain of chains) {
     const runs = runsOf(chain);
@@ -670,6 +703,8 @@ export function lineClean(ctx) {
     const sides = new Array(runs.length - 1).fill(null), srcs = new Array(runs.length - 1).fill(0), bayF = new Array(runs.length - 1).fill(false);
     const dLc = new Array(runs.length - 1).fill(0), dRc = new Array(runs.length - 1).fill(0);
     const addOnR = new Array(runs.length - 1).fill(true);   // 'D': the chain-right record is the add (else the drop)
+    const owBoth = new Array(runs.length - 1).fill(false);  // 'D' on a one-way: both sides add (or both drop)
+    const owAlt = new Array(runs.length - 1).fill(null);    // its one-sided fallback { side, src, bay }
     const mergeNodes = new Set();
     for (let i = 0; i + 1 < runs.length; i++) {
       const X = runs[i], Y = runs[i + 1];
@@ -680,6 +715,9 @@ export function lineClean(ctx) {
       // direction INTO the wide run, relative to the chain: +1 along, -1 against
       const into = gain ? 1 : -1;
       let side = null, src = 0, bay = false;
+      // turn lanes on both sides of a one-way (tagSidesBoth): its through lanes hold
+      const both = OW_BOTH && owBothPass && we.way.oneway && nEdge.way.oneway
+        ? tagSidesBoth(we.way.tl, nEdge.way.tl, profOf(we).lanes, profOf(nEdge).lanes) : null;
       if (we.way.oneway) {
         // travel is chain order; a drop seen against travel is still judged in travel
         const ts = tagSide(we.way.tl, nEdge.way.tl);
@@ -693,6 +731,16 @@ export function lineClean(ctx) {
           else { side = 'R'; src = 0; }
         }
         bay = !!ts && ts === 'L';
+        if (both && Math.abs((both.l + both.r) * LANE - Math.abs(W[i + 1] - W[i])) < 0.1) {
+          // each side moves by its own turn lanes, in the chain frame (the
+          // chain's left is travel's left where the wide edge runs along it);
+          // the one-sided rule's side is kept as the fallback (OFFSETS below)
+          const [tl, tr] = weF ? [both.l, both.r] : [both.r, both.l];
+          const sg = gain ? 1 : -1;
+          owAlt[i] = { side, src, bay };
+          side = 'D'; src = 2; bay = false; owBoth[i] = true;
+          dLc[i] = sg * tl * LANE; dRc[i] = sg * tr * LANE;
+        }
       } else {
         // two-way: lanes per direction from THE split, in the INTO frame
         // ("forward" = the direction travelling from the narrow run into the
@@ -779,6 +827,18 @@ export function lineClean(ctx) {
             if (pick !== sides[t]) { sides[t] = pick; tStats.recentred++; }
             if (peak(i) && locked[i]) sides[i] = pick;   // the bay closes on the side it opened
           }
+          if (owBoth[t]) {
+            // the two-sided split (tagSidesBoth) where it keeps the ribbon at
+            // least as near its OSM line as the one-sided rule would: the chain
+            // carries its offset on along every run after it (re-anchored only
+            // past a lane off its line), so a split that moved a ribbon nearer
+            // here could carry the next kilometre a lane off where an earlier
+            // change was placed by the rule
+            const altL = owAlt[t].side === 'L' ? dw : 0, altR = owAlt[t].side === 'R' ? dw : 0;
+            if (Math.abs(cur + (dLc[t] - dRc[t]) / 2) > Math.abs(cur + (altL - altR) / 2) + 0.01) {
+              owBoth[t] = false; sides[t] = owAlt[t].side; srcs[t] = owAlt[t].src; bayF[t] = owAlt[t].bay; tStats.owBothKept++;
+            } else tStats.owBothSides++;
+          }
           if (sides[t] !== 'D') { dLc[t] = sides[t] === 'L' ? dw : 0; dRc[t] = sides[t] === 'R' ? dw : 0; }
           else if (nodeDeg[startNode(runs[i].items[0])] < 3 && Math.abs(cur + (dLc[t] - dRc[t]) / 2) > LANE / 2 + 0.05) {
             // MID-BLOCK, a per-direction change that would carry the ribbon
@@ -837,7 +897,7 @@ export function lineClean(ctx) {
         // WS^2/60 below 45 mph, WS from 45); never under the class floor. Per
         // direction, the right of the direction into the wide run is its add,
         // the other side the other direction's drop.
-        const isAdd = sides[i] === 'D' ? (sd === 'R') === addOnR[i] : gain;
+        const isAdd = owBoth[i] ? gain : sides[i] === 'D' ? (sd === 'R') === addOnR[i] : gain;
         let len = bayF[i] ? Math.min(55, Math.max(30, 12 * dw))
                 : isAdd ? Math.max(floor, 15 * dw)
                 : Math.max(floor, mutcdLen(dw, mphOf(e.way)));
@@ -859,6 +919,12 @@ export function lineClean(ctx) {
     }
   }
   };
+  // THE ONE-WAY TWO-SIDED SPLIT (tagSidesBoth) runs only in a final pass:
+  // the blip step's decisions (which short pieces take their neighbours'
+  // lanes, and which get them back) read the offsets of the passes before
+  // it, so they stay exactly the one-sided rule's - no lane count changes
+  // with the split; only the sides and the offsets do.
+  let owBothPass = false;
   // THE BLIP STEP between two TAPR passes: a dry pass with every blip in
   // place gives each edge's offset (the gated rule takes out only a blip
   // the ribbon leaves where it entered), then the real pass on the new lanes.
@@ -898,6 +964,13 @@ export function lineClean(ctx) {
     }
     stats.blips_left.chains_restored = moved.size;
   }
+  if (OW_BOTH) {
+    owBothPass = true;
+    tapr.length = 0; edgeOffset.fill(null);
+    for (const k of Object.keys(tStats)) tStats[k] = 0;
+    splitOf = makeSplitOf(profileFor);
+    taprPass();
+  }
   stats.tapr = tStats;
 
   // ---------------------------------------------------- 6. PARA
@@ -919,14 +992,16 @@ export function lineClean(ctx) {
     if (process.env.PSX_FILLET_DUMP) {
       // the graph as the fillet step gets it, for iterating on lib/fillet.mjs alone
       writeFileSync(process.env.PSX_FILLET_DUMP, JSON.stringify({
-        nodes, edges: edges.map(e => ({ id: e.id, a: e.a, b: e.b, pts: e.pts, len: e.len, hw: hwOf(e), way: { link: e.way.link, rank: e.way.rank, oneway: e.way.oneway }, pw: profOf(e).width,
+        nodes, edges: edges.map(e => ({ id: e.id, a: e.a, b: e.b, pts: e.pts, len: e.len, hw: hwOf(e), way: { link: e.way.link, rank: e.way.rank, oneway: e.way.oneway, speed: e.way.speed }, pw: profOf(e).width,
           rf: Math.max(F.rMinFor(RANK[e.way.rank] + (e.way.link ? '_link' : '')), hwOf(e) + F.innerEdgeMinR), em: emaxOf(e.way) })) }));
     }
     const out = filletGraph(edges, nodes, {
       rFloor: e => Math.max(F.rMinFor(RANK[e.way.rank] + (e.way.link ? '_link' : '')), hwOf(e) + F.innerEdgeMinR),
       emax: e => emaxOf(e.way), hw: hwOf,
+      // BENDS (road-logic-bends): the class design radius a starved corner is measured against
+      rDesign: e => bendsDesignR(mphOf(e.way)),
       eps: F.eps, chordCap: F.chordCap, collinearDeg: F.collinearDeg, innerMin: F.innerEdgeMinR,
-      through: mitredThrough(edges, nodes, e => profOf(e).width / 2),
+      through: mitredThrough(edges.filter(e => !e.way.connector), nodes, e => profOf(e).width / 2),   // connectors: see fillet.mjs
     });
     stats.fillet = out.stats;
     for (const r of out.review) review.push(r);
