@@ -132,8 +132,9 @@ namespace PSXRacing
         static bool UseBundle => true;
 #endif
 
-        /// <summary>A player set to ENHANCED starts the download before the
-        /// first scene, so it is usually there before the first race.</summary>
+        /// <summary>A player set to ENHANCED asks for the download before the
+        /// first scene; it starts as soon as Charlotte's data has settled
+        /// (see RequestBundle), so it is usually there before the first race.</summary>
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         static void Boot()
         {
@@ -269,6 +270,20 @@ namespace PSXRacing
         static void RequestBundle()
         {
             if (fetch != Fetch.None) return;
+            // CHARLOTTE'S DATA FIRST (2026-10-28). A scene can wait on that
+            // download (SceneGate's LOADING CHARLOTTE), never on this one, so
+            // this one starts only once that one has settled and the ~28 MB
+            // never shares the line with the ~14 MB a city load may be
+            // waiting for. Until then every material simply stays CLASSIC.
+            if (!PSXRacing.City.CharlotteData.Settled)
+            {
+                if (!waitingForCity)
+                {
+                    waitingForCity = true;
+                    PSXRacing.City.CharlotteData.SettledNow += CitySettled;
+                }
+                return;
+            }
             fetch = Fetch.Loading;
             int gen = ++fetchGen;
             string url = BundleUrl;
@@ -285,6 +300,14 @@ namespace PSXRacing
                 return;
             }
             Debug.Log("[TexTier] fetching ENHANCED textures: " + url);
+        }
+
+        static bool waitingForCity;
+
+        static void CitySettled()
+        {
+            waitingForCity = false;
+            if (UseBundle && WantEnhanced && EnsureMap()) RequestBundle();
         }
 
         static void OnBundle(UnityWebRequest req, string url, int gen, float t0)
@@ -309,9 +332,13 @@ namespace PSXRacing
             if (b == null) { Failed(url, err ?? "not an AssetBundle"); return; }
             bundle = b;
             fetch = Fetch.Ready;
-            Debug.Log($"[TexTier] ENHANCED textures ready: {bytes / 1048576f:F1} MB in {Time.realtimeSinceStartup - t0:F1} s");
-            if (WantEnhanced) ApplyAll();
+            float secs = Time.realtimeSinceStartup - t0;
+            bool want = WantEnhanced;
+            if (want) ApplyAll();
             else Release();
+            // the count shows the sweep really swapped (a headless check reads it)
+            Debug.Log($"[TexTier] ENHANCED textures ready: {bytes / 1048576f:F1} MB in {secs:F1} s" +
+                      (want ? $", {loadedCount} twins on screen" : ", CLASSIC was picked meanwhile"));
         }
 
         static void Failed(string url, string why)
