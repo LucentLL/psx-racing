@@ -10771,7 +10771,9 @@ namespace PSXRacing.City
                 {
                     var centre = f.centre; var u = f.u;
                     float hu = f.hu, hv = f.hv;
-                    int fit = FitHouse(map, trims, ref centre, ref u, ref hu, ref hv, y0, top);
+                    // (a far-building proxy, city-popin: the footprint as mapped -
+                    // the fit's metre is half a pixel past the far plane)
+                    int fit = proxyBuild ? 0 : FitHouse(map, trims, ref centre, ref u, ref hu, ref hv, y0, top);
                     if (fit < 0) { tm.footprintsLeftOut++; return; }
                     if (fit > 0) tm.footprintsCut++;
                     // leftover item 6: its storeys on its own graded pad, its
@@ -10783,6 +10785,7 @@ namespace PSXRacing.City
                         y0 = lo - BuildingSink; top = floorG + f.h;
                     }
                     float eave = floorG + f.h * 0.68f;
+                    if (proxyBuild) y0 -= ProxySkirtM;
                     EmitGableHouse(tm, centre, u, hu, hv, y0, eave, top, Slot.FacadeHouse);
                     tm.houseSeats.Add(new HouseSeat { kind = 1, c = centre, u = u, hu = hu, hv = hv, y0 = y0, floor = floorG });
                     tm.footprintCount++;
@@ -10807,7 +10810,7 @@ namespace PSXRacing.City
                 // Uptown B4: a skyline building's walls run on far below its
                 // ground - the land between the eye and uptown is not drawn
                 // out there, and its base must never hang over the horizon
-                if (skylineBuild) y0 -= SkylineSkirtM;
+                if (skylineBuild) y0 -= proxyBuild ? ProxySkirtM : SkylineSkirtM;
 
                 // Uptown B1: towers, midrises and brick blocks all wear the
                 // facade atlas (one material), each in its own look and tint
@@ -10827,12 +10830,12 @@ namespace PSXRacing.City
                 // shaft) and the eave its roof shape rises from
                 // (the skyline stands every tier on the ground: a tier whose
                 // podium part is left out must not float either)
-                bool floating = f.minH > 0.05f && !skylineBuild;
+                bool floating = f.minH > 0.05f && (!skylineBuild || proxyBuild);
                 float wallY0 = floating ? floorP + f.minH : y0;
                 float eaveY = f.roof != 0 ? Mathf.Max(wallY0, top - f.roofH) : top;
                 // 2026-10-26 (CityMeshes.PartBase.cs): a wall whose foot hangs
                 // over air - its building cut away under it - runs to the ground
-                bool hangs = floating && PartFillDown > 0 && PartHangs(map, fi, fitPoly);
+                bool hangs = floating && !proxyBuild && PartFillDown > 0 && PartHangs(map, fi, fitPoly);
                 AuditFoot(fi, 0, fitPoly, floorP, floating ? wallY0 : floorP, top, hangs);
                 bool retail = f.style == 4 && !floating && !skylineBuild;
                 // Coverage (2026-10-06): a shop outside the core is a strip

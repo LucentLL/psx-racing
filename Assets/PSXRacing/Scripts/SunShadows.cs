@@ -759,6 +759,11 @@ namespace PSXRacing
         {
             if (src == null) return null;
             if (casterFor.TryGetValue(src, out var have)) return have;
+            // (a tool's tile can register before any shadow render looked the
+            // caster up - city-popin's flicker finder did: new Material(null) threw)
+            if (casterShader == null) casterShader = Shader.Find("PSX/ShadowCaster");
+            if (casterShader == null) return null;
+            if (opaque == null) opaque = new Material(casterShader) { name = "SunShadowOpaque", hideFlags = HideFlags.HideAndDontSave };
             Material made = null;
             var sh = src.shader;
             string name = sh != null ? sh.name : null;

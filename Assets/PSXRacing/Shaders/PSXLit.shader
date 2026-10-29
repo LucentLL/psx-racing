@@ -166,6 +166,14 @@ Shader "PSX/Lit"
         // skyline copies only - drawn where the streamed world cannot reach
         // (past the squeeze's start), never over it. 0 everywhere else.
         [HideInInspector] _SkyFarLand ("Far land", Float) = 0
+        // CITY POP-IN (city-popin, 2026-10-28; CityTileFade.cs): how this draw
+        // takes part in Charlotte's tile fade. 0 on every material (the other
+        // venues never read the table); set per renderer by a
+        // MaterialPropertyBlock on the tiles, and on their own copies by the
+        // far buildings (CityProxies) and the skyline: 1 a tile's object
+        // fading in, 2 a far-building proxy, 3 a tile's tree-frame object,
+        // 4 a tile's buildings, 5 a skyline copy.
+        [HideInInspector] _TileFade ("Tile fade mode", Float) = 0
         // ...and the far ROADS' lead in its own depth (metres nearer in draw
         // 1): a ribbon on the far land wins over the coarse land round it
         [HideInInspector] _SkyLeadM ("Far land lead (m)", Float) = 0
@@ -274,6 +282,18 @@ Shader "PSX/Lit"
             float _Skyline;
             float _SkylinePass;
             float _SkyFarLand;
+            // CITY POP-IN (CityTileFade.cs): the fade table, 32 x 32 tiles
+            // wrapped (texel = tile mod 32; point, repeat). r: a live tile's
+            // buildings in, its proxies out; g: its objects in; b: its tree
+            // frame in; a: its proxies in (0: the tile draws its own buildings
+            // out to the far plane). _PSXTileFadeOn.x: 1 while the proxies draw.
+            float _TileFade;
+            sampler2D _PSXTileFadeTex;
+            float4 _PSXTileFadeOn;
+            // THE FLICKER FINDER (Editor/CityFlickerFinder.cs, city-popin): a
+            // global switch and, per renderer x submesh, its flat ID colour
+            float _PSXIdOn;
+            float4 _PSXIdCol;
             float _SkyLeadM;
             // THE FAR LAND'S LOOK (CityFar): its colours, measured off the
             // city's own textures; a far-land vertex's UV says which (x the
@@ -800,6 +820,9 @@ Shader "PSX/Lit"
             #ifdef PSX_FACADE
                 float4 fac : TEXCOORD1;     // the wall (THE TOWER-SCALE STRUCTURE): m from its start, m to its end, its top in storeys, the scheme
             #endif
+                // CITY POP-IN: a proxy's / skyline copy's building tile (+512 in
+                // x: a tile the proxies do not wholly draw); (0, 0) on other meshes
+                float2 uv2 : TEXCOORD2;
             };
 
             struct v2f
@@ -840,6 +863,9 @@ Shader "PSX/Lit"
                 // the wall, as given (full float: metres along a 200 m wall)
                 float4 fac : TEXCOORD8;
             #endif
+                // CITY POP-IN: xy the fade table's texel, z 1 = a proxy of a tile
+                // the proxies wholly draw
+                float3 tileUV : TEXCOORD9;
             };
 
             v2f vert (appdata v)
@@ -1044,6 +1070,21 @@ Shader "PSX/Lit"
                 o.facade = half4(v.color.rgb * 2.0, fcol + 0.5 * fmet + 0.25 * fcrn + fled / 80.0);
                 o.fac = v.fac;
             #endif
+                // CITY POP-IN: this draw's tile in the fade table - a tile's
+                // object by its origin (the tile root's corner; a prop at its
+                // lot), a proxy or skyline copy by its building's tile (UV2)
+                o.tileUV = float3(0.0, 0.0, 1.0);
+                if (_TileFade > 0.5)
+                {
+                    float2 tl = floor(float2(unity_ObjectToWorld._m03, unity_ObjectToWorld._m23) / 256.0 + 1e-5);
+                    float cov = 1.0;
+                    if ((_TileFade > 1.5 && _TileFade < 2.5) || _TileFade > 4.5)
+                    {
+                        cov = v.uv2.x > 256.0 ? 0.0 : 1.0;
+                        tl = v.uv2 - float2(512.0 * (1.0 - cov), 0.0);
+                    }
+                    o.tileUV = float3((tl + 0.5) / 32.0, cov);
+                }
                 return o;
             }
 
@@ -1258,6 +1299,35 @@ Shader "PSX/Lit"
                     fA = fA < 50.0 ? min(50.0, fF * 0.5) : fA;
                     clip(length(i.wpos - _WorldSpaceCameraPos) - fA);
                 }
+                // CITY POP-IN (CityTileFade.cs): the 0.5 s fade of a tile that
+                // stands up, and the hand-overs, as ONE dither both sides share
+                // pixel for pixel (one draws exactly where the other does not,
+                // so a proxy and the building it stands for never fight in
+                // depth): nearer than the squeeze's start A a live tile draws
+                // its buildings and the proxy steps out; past A the proxy
+                // (squeezed in front) draws them and the tile's own copy steps
+                // out. In all three skyline draws alike.
+                if (_TileFade > 0.5)
+                {
+                    float4 tf = tex2Dlod(_PSXTileFadeTex, float4(i.tileUV.xy, 0.0, 0.0));
+                    float2 dpx = floor(i.pos.xy);
+                    float dith = frac(52.9829189 * frac(dot(dpx, float2(0.06711056, 0.00583715))));
+                    float tF = _ProjectionParams.z * SKYLINE_FAR;
+                    float tA = min(_PSXFogNear, tF - 30.0);
+                    tA = tA < 50.0 ? min(50.0, tF * 0.5) : tA;
+                    bool past = length(i.wpos - _WorldSpaceCameraPos) > tA;
+                    bool proxyLike = (_TileFade > 1.5 && _TileFade < 2.5) || _TileFade > 4.5;
+                    // in: this side's share (a dither under it draws)
+                    float inF = _TileFade < 1.5 ? tf.g : _TileFade < 2.5 ? (i.tileUV.z > 0.5 ? tf.a : 1.0)
+                              : _TileFade < 3.5 ? tf.b : _TileFade < 4.5 ? tf.g : 1.0;
+                    if (inF < 0.999) clip(inF < 0.001 ? -1.0 : inF - dith - 1e-5);
+                    // out: the other side's share of a hand-over (a dither under it does not)
+                    float outF = proxyLike ? (past ? 0.0 : tf.r)
+                               : (_TileFade > 3.5 && past && _PSXTileFadeOn.x > 0.5 ? tf.a : 0.0);
+                    if (outF > 0.001) clip(outF > 0.999 ? -1.0 : dith - outF);
+                }
+                // THE FLICKER FINDER: the draw's ID, alpha its distance (2 km = 1)
+                if (_PSXIdOn > 0.5) return fixed4(_PSXIdCol.rgb, saturate(length(i.wpos - _WorldSpaceCameraPos) / 2000.0));
                 // the skyline's depth-only draws (2, 3): nothing to shade
                 if (_SkylinePass > 1.5) return fixed4(0, 0, 0, 0);
 

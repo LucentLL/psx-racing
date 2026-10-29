@@ -220,6 +220,37 @@ namespace PSXRacing.City
         /// <summary>A frame's share of tile work, ms, and the share while a
         /// tile next to a car (one tile away) is still missing.</summary>
         public static float SliceBudgetMs = 4f, UrgentSliceBudgetMs = 10f;
+        // ---- city-popin (2026-10-28): tiles built AHEAD ----
+        /// <summary>The tile build order: by when a tile will be needed (its
+        /// nearest edge inside <see cref="NeedM"/> of the car, at the car's
+        /// closing speed along its travel or view), not by plain distance -
+        /// and at speed the next row ahead (ring + 1, which the drop rule
+        /// keeps) is built before the car reaches it. PSX_CITY_AHEAD=0: the old
+        /// nearest-first order (the A/B).</summary>
+        public static bool BuildAhead = System.Environment.GetEnvironmentVariable("PSX_CITY_AHEAD") != "0";
+        const float NeedM = 420f, LookaheadSpeed = 25f, LookaheadCos = 0.6f;
+        /// <summary>At speed the slice budget rises to this - only while the
+        /// frame rate holds (the smoothed frame under <see cref="FastFrameMs"/>).</summary>
+        public static float FastSliceBudgetMs = 6f, FastUrgentSliceBudgetMs = 12f;
+        const float FastSpeed = 30f, FastFrameMs = 17.5f;
+        Vector3 lastPlayerPos;
+        Vector3 playerVel;
+        float frameMsAvg = 16.7f;
+        bool velValid;
+        int fadeSeen = -1;
+
+        /// <summary>Seconds until a tile is needed (its nearest edge within
+        /// NeedM), plus a tie-break by distance; behind the car a little later.</summary>
+        float NeedScore(int tx, int tz, Vector3 p, Vector2 dir, float speed)
+        {
+            float x0 = tx * CityMeshes.TileSize, z0 = tz * CityMeshes.TileSize;
+            float nx = Mathf.Clamp(p.x, x0, x0 + CityMeshes.TileSize) - p.x, nz = Mathf.Clamp(p.z, z0, z0 + CityMeshes.TileSize) - p.z;
+            float dNear = Mathf.Sqrt(nx * nx + nz * nz);
+            var rel = new Vector2(x0 + 0.5f * CityMeshes.TileSize - p.x, z0 + 0.5f * CityMeshes.TileSize - p.z);
+            float cosA = rel.sqrMagnitude > 1f ? Vector2.Dot(rel.normalized, dir) : 1f;
+            float closing = 6f + speed * Mathf.Max(cosA, 0f);
+            return Mathf.Max(dNear - NeedM, 0f) / closing + dNear * 0.0005f + (cosA < 0f ? 0.25f : 0f);
+        }
         CityMeshes.TileJob job;
         long jobKey;
 
@@ -276,7 +307,15 @@ namespace PSXRacing.City
             // the far city (2026-10-24): the land, the lights and the glow
             // past the streamed ring; the skyline's buildings keep their own windows
             Far = CityFar.Create(transform, Map, MatFor, Skyline != null ? Skyline.Outlines : null, buildings);
+            // city-popin (2026-10-28): the tile fade table, and every building
+            // the skyline does not draw as a far proxy out to ~2 km
+            CityTileFade.Ensure();
+            Proxies = CityProxies.Create(transform, Map, nodeTrims, MatFor, Skyline != null ? Skyline.Outlines : null);
         }
+
+        /// <summary>The far buildings (city-popin): every footprint the
+        /// skyline does not draw, past the far plane to ~2 km (null: off).</summary>
+        public CityProxies Proxies { get; private set; }
 
         /// <summary>Uptown B4: the tallest core towers past the streamed ring
         /// (null without a facade material).</summary>
@@ -293,7 +332,9 @@ namespace PSXRacing.City
             PlantMarker = new Unity.Profiling.ProfilerMarker("CityWorld.PlantTrees"),
             SignsMarker = new Unity.Profiling.ProfilerMarker("CityWorld.PrepareSigns"),
             BuildSyncMarker = new Unity.Profiling.ProfilerMarker("CityWorld.BuildWholeTile"),
-            FinishMarker = new Unity.Profiling.ProfilerMarker("CityWorld.FinishJob");
+            FinishMarker = new Unity.Profiling.ProfilerMarker("CityWorld.FinishJob"),
+            ProxiesMarker = new Unity.Profiling.ProfilerMarker("CityProxies.Refresh"),
+            ProxyStepMarker = new Unity.Profiling.ProfilerMarker("CityProxies.Step");
 
         /// <summary>The skyline and the far city for this camera: what the
         /// live tiles draw is left to them, bounds, band and glow set. The
@@ -303,8 +344,12 @@ namespace PSXRacing.City
         public void RefreshSkyline(Camera cam)
         {
             if (Far != null) using (FarMarker.Auto()) Far.Refresh(cam);
+            CityTileFade.Ensure();
+            if (Proxies != null) using (ProxiesMarker.Auto()) Proxies.Refresh(cam);
             if (Skyline == null) return;
-            if (isLive == null) isLive = k => live.ContainsKey(k);
+            // a live tile draws a skyline tower near only once its own copy
+            // has faded in over it (city-popin: PSX/Lit hands the pixels over)
+            if (isLive == null) isLive = k => live.ContainsKey(k) && CityTileFade.Get((int)(k >> 24), (int)((k << 40) >> 40), CityTileFade.R) >= 1f;
             using (SkylineMarker.Auto()) Skyline.Refresh(cam, isLive);
         }
 
@@ -392,6 +437,29 @@ namespace PSXRacing.City
             var p = player.position;
             int ptx = Mathf.FloorToInt(p.x / CityMeshes.TileSize);
             int ptz = Mathf.FloorToInt(p.z / CityMeshes.TileSize);
+            // city-popin: the fades advance; the skyline re-reads its live
+            // towers once a tile's own copy is whole; the car's travel
+            CityTileFade.Tick();
+            if (Skyline != null && fadeSeen != CityTileFade.BuildingsVersion) { fadeSeen = CityTileFade.BuildingsVersion; Skyline.LiveVersion++; }
+            float dtS = Mathf.Max(Time.unscaledDeltaTime, 1e-4f);
+            frameMsAvg = Mathf.Lerp(frameMsAvg, dtS * 1000f, 0.05f);
+            if (velValid && Time.deltaTime > 1e-5f)
+            {
+                var v = (p - lastPlayerPos) / Time.deltaTime;
+                v.y = 0f;
+                if (v.sqrMagnitude > 120f * 120f) v = playerVel;   // a teleport, not a speed
+                playerVel = Vector3.Lerp(playerVel, v, 0.2f);
+            }
+            lastPlayerPos = p; velValid = true;
+            float speed = playerVel.magnitude;
+            Vector2 dir;
+            if (speed > 3f) dir = new Vector2(playerVel.x, playerVel.z) / speed;
+            else
+            {
+                var cf = Camera.main != null ? Camera.main.transform.forward : player.forward;
+                dir = new Vector2(cf.x, cf.z);
+                dir = dir.sqrMagnitude > 1e-4f ? dir.normalized : Vector2.up;
+            }
 
             // the ground under the car is not allowed to be missing — nor
             // under any car the race is timing (and those plant their trees
@@ -436,8 +504,23 @@ namespace PSXRacing.City
                     if (Mathf.Abs(dx) <= 1 && Mathf.Abs(dz) <= 1) hurry = true;
                     float cx = (tx + 0.5f) * CityMeshes.TileSize - p.x;
                     float cz = (tz + 0.5f) * CityMeshes.TileSize - p.z;
-                    wanted.Add((tx, tz, cx * cx + cz * cz));
+                    wanted.Add((tx, tz, BuildAhead ? NeedScore(tx, tz, p, dir, speed) : cx * cx + cz * cz));
                 }
+            // the row ahead, at speed (kept: the drop rule holds ring + 1)
+            if (BuildAhead && speed > LookaheadSpeed)
+            {
+                int r1 = ring + 1;
+                for (int dz = -r1; dz <= r1; dz++)
+                    for (int dx = -r1; dx <= r1; dx++)
+                    {
+                        if (Mathf.Abs(dx) != r1 && Mathf.Abs(dz) != r1) continue;
+                        int tx = ptx + dx, tz = ptz + dz;
+                        if (live.ContainsKey(Key(tx, tz))) continue;
+                        var rel = new Vector2((tx + 0.5f) * CityMeshes.TileSize - p.x, (tz + 0.5f) * CityMeshes.TileSize - p.z);
+                        if (Vector2.Dot(rel.normalized, dir) < LookaheadCos) continue;
+                        wanted.Add((tx, tz, NeedScore(tx, tz, p, dir, speed)));
+                    }
+            }
             foreach (var a in anchors)
             {
                 if (a == null || !a.gameObject.activeInHierarchy) continue;
@@ -451,7 +534,8 @@ namespace PSXRacing.City
                         hurry = true;   // an anchor's ring is the tiles next to it
                         float cx = (tx + 0.5f) * CityMeshes.TileSize - a.position.x;
                         float cz = (tz + 0.5f) * CityMeshes.TileSize - a.position.z;
-                        wanted.Add((tx, tz, cx * cx + cz * cz));
+                        // (ahead: as urgent as the player's tiles in view - a car is on it)
+                        wanted.Add((tx, tz, BuildAhead ? Mathf.Sqrt(cx * cx + cz * cz) / 50f : cx * cx + cz * cz));
                     }
             }
             if (SliceBuilds && (job != null || wanted.Count > 0))
@@ -467,8 +551,11 @@ namespace PSXRacing.City
                 }
                 if (job != null)
                 {
+                    // at speed, while the frame rate holds, a bigger share
+                    bool fast = BuildAhead && speed > FastSpeed && frameMsAvg < FastFrameMs;
                     if (job.Done) CompleteJob();
-                    else using (JobStepMarker.Auto()) job.Step(hurry ? UrgentSliceBudgetMs : SliceBudgetMs);
+                    else using (JobStepMarker.Auto()) job.Step(hurry ? (fast ? FastUrgentSliceBudgetMs : UrgentSliceBudgetMs)
+                                                                     : (fast ? FastSliceBudgetMs : SliceBudgetMs));
                     built = true;
                 }
             }
@@ -477,6 +564,11 @@ namespace PSXRacing.City
                 wanted.Sort((a, b) => a.d2.CompareTo(b.d2));
                 built |= EnsureTile(wanted[0].tx, wanted[0].tz);
             }
+
+            // city-popin: the far buildings' share - small while a tile is
+            // being built (smaller still when one next to a car is missing)
+            if (Proxies != null)
+                using (ProxyStepMarker.Auto()) Proxies.Step(job != null ? (hurry ? 0.5 : 1.25) : 2.5);
 
             // THE TREES ON A FRAME OF THEIR OWN (WP-08; WP-09's third stage,
             // for the trees): a tile's build and its planting never share a
@@ -529,6 +621,7 @@ namespace PSXRacing.City
             if (Trunks != null) Trunks.RemoveTable(key);
             if (!live.TryGetValue(key, out var t)) return;
             live.Remove(key);
+            CityTileFade.TileDown((int)(key >> 24), (int)((key << 40) >> 40));
             if (Skyline != null) Skyline.LiveVersion++;
             if (t.go != null) Kill(t.go);
             // runtime meshes are not garbage-collected with their GameObjects
@@ -622,6 +715,11 @@ namespace PSXRacing.City
                 glow.cityField = true;
                 glow.Init(heads, gains);
             }
+            // city-popin: the tree frame (trees, poles, signals, signs) fades in
+            // of its own, unless a car is in the tile
+            if (CityTileFade.On || Proxies != null) CityTileFade.MarkTile(tile.go, CityTileFade.ModeTreeFrame, null);
+            bool carIn = player != null && TileKeyAt(new Vector2(player.position.x, player.position.z)) == key;
+            CityTileFade.TreesUp(tx, tz, !carIn);
             var timing = new TileTiming
             {
                 tx = tx, tz = tz, treeFrame = true,
@@ -680,7 +778,7 @@ namespace PSXRacing.City
             {
                 bool same = jobKey == key;
                 CompleteJob();
-                if (same) return true;
+                if (same) { CityTileFade.TileUp(tx, tz, false); return true; }
             }
 
             var clock = System.Diagnostics.Stopwatch.StartNew();
@@ -783,6 +881,12 @@ namespace PSXRacing.City
             }
 
             int colliders = root.GetComponentsInChildren<Collider>(true).Length;
+            // city-popin: every renderer of the tile reads its fade (its
+            // buildings their own mode: they hand over to their proxies), and a
+            // tile built a slice a frame fades in; one built whole (under a car,
+            // a tool's ring) stands at once
+            if (CityTileFade.On || Proxies != null) CityTileFade.MarkTile(root, CityTileFade.ModeObject, "Buildings");
+            CityTileFade.TileUp(tx, tz, slices > 0);
             live[key] = new Tile { go = root, meshes = meshes, colliders = colliders };
             if (Skyline != null) Skyline.LiveVersion++;   // its towers' live flags re-read
             // Its towers cast on the frame they appear, not at the next
