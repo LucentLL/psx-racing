@@ -201,6 +201,39 @@ namespace PSXRacing.EditorTools
             Debug.Log("[TexTier] CAPTURE DONE");
         }
 
+        /// <summary>Batch (2026-10-28): the bundle and the self-test, then
+        /// Charlotte's CLASSIC / ENHANCED frames, day and night
+        /// (CityRefSpots.RunTierCompare). Run with -buildTarget WebGL.</summary>
+        public static void BundleTestAndCityShots()
+        {
+            BundleAndTest();
+            try { CityRefSpots.RunTierCompare(); }
+            catch (System.Exception e) { Debug.LogError("[TexTier] CITY SHOTS FAILED: " + e); }
+            RestoreClassic();
+            Debug.Log("[TexTier] CITY SHOTS DONE");
+        }
+
+        /// <summary>Batch, ONE editor session for both (2026-10-28): the
+        /// CLASSIC / ENHANCED city frames, then the WebGL player
+        /// (PSXBuildWebGL.BuildFromCommandLine, with its own -psxEdition /
+        /// -psxOutput arguments; it exits the editor). The build is refused if
+        /// any Enhanced twin is still in memory after the frames: a material
+        /// still wearing one would be packed into WebGL.data.</summary>
+        public static void CityShotsThenWebGL()
+        {
+            try { CityRefSpots.RunTierCompare(); }
+            catch (System.Exception e) { Debug.LogError("[TexTier] CITY SHOTS FAILED: " + e); }
+            RestoreClassic();
+            if (TextureTier.LoadedCount != 0)
+            {
+                Debug.LogError($"[TexTier] {TextureTier.LoadedCount} twins still in memory after the frames - NOT building");
+                EditorApplication.Exit(1);
+                return;
+            }
+            Debug.Log("[TexTier] CITY SHOTS DONE, building the player");
+            PSXBuildWebGL.BuildFromCommandLine();
+        }
+
         /// <summary>Batch: build the map and the bundle, then the self-test.</summary>
         public static void BuildAndTest()
         {

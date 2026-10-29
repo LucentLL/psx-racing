@@ -57,6 +57,23 @@ CITY = os.path.join(REPO, "Assets", "PSXRacing", "Art", "City")
 SRC = os.path.join(CITY, "Facade", "Source")
 OUT = os.path.join(CITY, "Facade")
 W, H, COLS = 128, 256, 8
+# THE ENHANCED TWIN (EnhancedSrc/TexEnhanced/City/Facade/Core_cityatlas.png,
+# 2x) is built from the owner's Enhanced twin of each source sheet (the pairs
+# in Assets/PSXRacing/Editor/TextureTierManifest.txt), cut exactly as the
+# classic columns are at twice the pixels and graded to each classic column's
+# linear mean, so the ONE night mask above lands on the windows of both tiers
+# and CityMeshes.FacadeLooks' means hold for both. 2026-10-28: columns 0-4 used
+# to be the overhaul's own 2x of the 2026-10-04 atlas and did not register (33
+# floors in the silver grid where the mask has 16; 21 and 25 in the glass where
+# it has 20 and 24): lit windows on spandrels at night. Column 2 (teal) has no
+# twin that fits (see enhanced_atlas) and is the classic column, doubled.
+ENH = os.path.join(REPO, "Assets", "PSXRacing", "EnhancedSrc", "TexEnhanced")
+TWINS = {
+    "skyscraper_building_03.png": ("LifeSim", "Skyscrapers", "textures", "tower03.png"),   # the same file as LifeSim building_03
+    "skyscraper_building_04.png": ("City", "Facade", "Source", "Earlier_Regional_tower04.png"),
+    "city_facade_mid.jpg": ("Buildings", "Textures", "Core_citymid.png"),
+    "city_facade_tower.jpg": ("Buildings", "Textures", "Core_citytower.png"),
+}
 
 
 def rgb(p):
@@ -110,7 +127,12 @@ def office(kind, scale=1, seed=50):
     y = np.arange(h)[:, None]; x = np.arange(w)[None, :]
     fy = (y % (32 * scale)) / (32.0 * scale); bx = (x % (16 * scale)) / (16.0 * scale)
     col = np.stack([wall * 1.00, wall * 0.985, wall * 0.96], 2) if kind == "granite" else np.stack([wall] * 3, 2)
-    glass = np.asarray(rgb(os.path.join(SRC, "skyscraper_building_04.png")).crop((0, 0, 128, 256)).resize((w, h), Image.BICUBIC)).astype(np.float32) / 255
+    # the glass: the pack's blue curtain wall, or at 2x the owner's Enhanced
+    # twin of it (sharper than the classic sheet upscaled)
+    gsrc, gcrop = os.path.join(SRC, "skyscraper_building_04.png"), (0, 0, 128, 256)
+    if scale == 2 and os.path.exists(os.path.join(ENH, *TWINS["skyscraper_building_04.png"])):
+        gsrc, gcrop = os.path.join(ENH, *TWINS["skyscraper_building_04.png"]), (0, 0, 256, 512)
+    glass = np.asarray(rgb(gsrc).crop(gcrop).resize((w, h), Image.BICUBIC)).astype(np.float32) / 255
     glass = glass * 0.55                                     # tinted, darker than the wall
     if kind == "granite":
         win = (bx > 0.22) & (bx < 0.78) & (fy > 0.22) & (fy < 0.84)
@@ -165,6 +187,52 @@ def lin(c):
     return np.where(v <= 0.04045, v / 12.92, ((v + 0.055) / 1.055) ** 2.4).reshape(-1, 3).mean(0)
 
 
+def twin_cut(name, box, classic_dir=SRC):
+    """The owner's Enhanced twin of a source sheet, cut where `box` cuts the
+    classic one (the box scaled by the twin's size over the classic's)."""
+    c = rgb(os.path.join(classic_dir, name))
+    e = rgb(os.path.join(ENH, *TWINS[name]))
+    sx, sy = e.size[0] / c.size[0], e.size[1] / c.size[1]
+    return e.crop((round(box[0] * sx), round(box[1] * sy), round(box[2] * sx), round(box[3] * sy)))
+
+
+def to_lin(c):
+    v = np.asarray(c).astype(np.float32) / 255
+    return np.where(v <= 0.04045, v / 12.92, ((v + 0.055) / 1.055) ** 2.4)
+
+
+def match_mean(e, c):
+    """Enhanced column `e` graded per channel, in linear light, to the classic
+    column `c`'s mean: CityMeshes.FacadeLooks divides an OSM colour by the
+    classic mean to make the tint, so both tiers must share it (the owner's
+    tower04 twin is ~2.5x brighter than the sheet it stands in for)."""
+    el, cl = to_lin(e), to_lin(c)
+    gain = cl.reshape(-1, 3).mean(0) / np.maximum(el.reshape(-1, 3).mean(0), 1e-6)
+    v = np.clip(el * gain, 0, 1)
+    v = np.where(v <= 0.0031308, v * 12.92, 1.055 * v ** (1 / 2.4) - 0.055)
+    return np.clip(v * 255 + 0.5, 0, 255).astype(np.uint8)
+
+
+def enhanced_atlas(classic):
+    """Core_cityatlas at 2x, column for column as main() cuts the classic
+    (`classic`: main()'s eight columns), each graded to its classic mean."""
+    W2, H2 = W * 2, H * 2
+    cols = []
+    cols.append(np.asarray(twin_cut("skyscraper_building_03.png", (0, 0, 126, 256)).resize((W2, H2), Image.NEAREST)))
+    cols.append(np.asarray(twin_cut("skyscraper_building_04.png", (0, 0, 128, 256)).resize((W2, H2), Image.NEAREST)))
+    # 2, teal: the owner's twin of building_08 is ANOTHER facade there (18
+    # banded floors with spandrels where the sheet and the mask have 24 floors
+    # of plain glass), so this column stays the classic one, doubled.
+    cols.append(np.repeat(np.repeat(classic[2], 2, axis=0), 2, axis=1))
+    for name in ("city_facade_mid.jpg", "city_facade_tower.jpg"):
+        cols.append(np.asarray(rgb(os.path.join(ENH, *TWINS[name])).resize((W2, H2), Image.LANCZOS)))
+    for kind in ("granite", "precast"):
+        cols.append(office(kind, 2)[0])
+    cols = [match_mean(e, classic[k]) for k, e in enumerate(cols)]
+    cols.append(parts(2))      # 7: neutral by construction (linear 0.5)
+    return np.concatenate(cols, axis=1)
+
+
 def main():
     cols, masks = [], []
     # 0: silver grid - 126 px of whole 9 px bays, stretched nearest to 128
@@ -190,16 +258,16 @@ def main():
         cols.append(c); masks.append(m)
         print(kind, "mean linear", [round(float(v), 3) for v in lin(c)])
     cols.append(parts()); masks.append(np.zeros((H, W, 4), np.uint8))   # 7: the structure's parts
-    # the Enhanced twin (2x) gets the same two columns at its own size
-    enh = os.path.join(REPO, "Assets", "PSXRacing", "EnhancedSrc", "TexEnhanced", "City", "Facade", "Core_cityatlas.png")
-    if os.path.exists(enh):
-        e = np.asarray(rgb(enh)).copy()
-        if e.shape == (H * 2, W * 2 * COLS, 3):
-            for k, kind in ((5, "granite"), (6, "precast")):
-                e[:, k * W * 2:(k + 1) * W * 2] = office(kind, 2)[0]
-            e[:, 7 * W * 2:8 * W * 2] = parts(2)
-            Image.fromarray(e, "RGB").save(enh, optimize=True)
-            print("enhanced twin: columns 5, 6, 7 written")
+    # the Enhanced twin (2x): every column from the owner's twins (see ENH)
+    enh = os.path.join(ENH, "City", "Facade", "Core_cityatlas.png")
+    missing = [n for n, t in TWINS.items() if not os.path.exists(os.path.join(ENH, *t))]
+    if missing:
+        print("enhanced twin NOT written - missing twins of", missing)
+    else:
+        e = enhanced_atlas(cols)
+        assert e.shape == (H * 2, W * 2 * COLS, 3)
+        Image.fromarray(e, "RGB").save(enh, optimize=True)
+        print("enhanced twin: all 8 columns written", e.shape)
     atlas = np.concatenate(cols, axis=1)
     mask = np.concatenate(masks, axis=1)
     assert atlas.shape == (H, W * COLS, 3) and mask.shape == (H, W * COLS, 4)
