@@ -35,8 +35,14 @@ namespace PSXRacing.City
         /// <summary>The why (Drive) of a car held short of a full box.</summary>
         const byte WhyKeepClear = 7;
 
+        /// <summary>Per CitySignals junction id: is it signalised?</summary>
+        bool[] junctionSignal = new bool[0];
+
         void PrepareJunctions()
         {
+            var js = CitySignals.All(map, trims);
+            junctionSignal = new bool[js != null ? js.Count : 0];
+            if (js != null) foreach (var j in js) junctionSignal[j.id] = j.signal;
             int nn = map.nodes.Length;
             splitNode = new bool[nn];
             for (int i = 0; i < nn; i++) if (degree[i] >= 3) splitNode[i] = CitySignals.SplitArms(map, i, out _, out _, out _);

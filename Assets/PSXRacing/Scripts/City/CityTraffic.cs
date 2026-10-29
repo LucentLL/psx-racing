@@ -659,7 +659,12 @@ namespace PSXRacing.City
             if (approachOf.TryGetValue(key, out app)) return apps[app].signal ? CtlSignal : apps[app].yield ? CtlYield : CtlStop;
             app = -1;
             int n = dir > 0 ? e.b : e.a;
-            if (degree[n] < 3 || nodeJunction[n] >= 0 || trims.mitre[n] || trims.Internal(e.index)) return CtlNone;
+            if (degree[n] < 3 || trims.mitre[n] || trims.Internal(e.index)) return CtlNone;
+            // a signal's arm with no head of its own goes with the junction; at a
+            // STOP or yield junction an arm without its sign still gives way
+            // unless it is the major road (an arm MakeApproach could not stand a
+            // sign on - a stub, a stop line on structure - was left uncontrolled)
+            if (nodeJunction[n] >= 0 && junctionSignal[nodeJunction[n]]) return CtlNone;
             int topCls = -1;
             foreach (int ei in map.nodeEdges[n])
             {
