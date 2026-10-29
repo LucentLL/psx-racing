@@ -209,6 +209,7 @@ namespace PSXRacing.City
                 case 14: return "a STOP";
                 case 15: return "a yield";
                 case 16: return "oncoming (left, unsigned)";
+                case 17: return "a full box ahead (keep clear)";
                 case 20: return "a dead end";
                 case 21: return "the lane its turn needs";
                 default: return "why " + why;
@@ -248,6 +249,7 @@ namespace PSXRacing.City
                 case 13: case 16: sub = "left-turn-starved"; need = 45f; break;
                 case 14: sub = "stop-deadlock"; need = 30f; break;
                 case 15: sub = "yield-starved"; need = 40f; break;
+                case 17: sub = "keep-clear-wait"; need = 40f; break;
                 case 20: return;
                 case 21: sub = "lane-change-wait"; need = 12f; break;
                 default: sub = inBox ? "crawl-in-turn" : "crawl"; break;
@@ -622,7 +624,8 @@ namespace PSXRacing.City
                                     $"junction {j.id}: approaches e{A.edge} '{map.edges[A.edge].name}' and e{B.edge} '{map.edges[B.edge].name}' cross at {ang:0} deg and are both phase group {A.group}: green together");
                         }
                 }
-            report.AppendLine($"  signals: {sigJ} signalised junctions, {stopJ} STOP junctions ({allWay} all-way); crossing approaches green together: {conflictPairs} pairs");
+            report.AppendLine($"  signals: {sigJ} signalised junctions, {stopJ} STOP / yield junctions ({allWay} all-way); crossing approaches green together: {conflictPairs} pairs");
+            report.AppendLine("  " + CitySignals.ControlReport());
 
             // ---- 2. JUNCTION CONTROL where no signal or STOP stands: big roads
             // crossing with nobody given the way

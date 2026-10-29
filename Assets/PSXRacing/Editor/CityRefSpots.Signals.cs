@@ -356,17 +356,17 @@ namespace PSXRacing.EditorTools
                     // by day first, from the same eye (the geometry)
                     DayLight();
                     NightGlow.PreviewAll(false);
-                    CitySignals.Tick(best.group == 0 ? 6.0 : CitySignals.HalfCycleS + 6.0);
+                    CitySignals.Tick(CitySignals.GreenTime(best.channel, 6f));
                     Shoot(dir, "uptown_signals_day", eye, Quaternion.LookRotation(look - eye), 0f);
                     TimeOfDay.Apply(TimeOfDay.Night, sun);
                     nightSky = globals.fogColor;
                     NightGlow.PreviewAll(true);
                     globals.Apply();
                     // its own pair green
-                    CitySignals.Tick(best.group == 0 ? 6.0 : CitySignals.HalfCycleS + 6.0);
+                    CitySignals.Tick(CitySignals.GreenTime(best.channel, 6f));
                     Shoot(dir, "uptown_signals_night", eye, Quaternion.LookRotation(look - eye), 0f);
                     // and a frame later in the cycle: the pair on yellow / the other green
-                    CitySignals.Tick(best.group == 0 ? CitySignals.GreenS + 1.0 : CitySignals.HalfCycleS + CitySignals.GreenS + 1.0);
+                    CitySignals.Tick(CitySignals.YellowTime(best.channel));
                     Shoot(dir, "uptown_signals_night_yellow", eye, Quaternion.LookRotation(look - eye), 0f);
                     string names = string.Join(" / ", j.approaches.Select(q => map.edges[q.edge].name).Distinct());
                     log.AppendLine($"shot uptown_signals_night: junction {j.id} at ({j.centre.x:0.0}, {j.centre.y:0.0}) ({names}), {j.approaches.Count} approaches, {bestN} heads facing the camera, eye ({eye.x:0.0}, {eye.y:0.00}, {eye.z:0.0})");
@@ -390,7 +390,7 @@ namespace PSXRacing.EditorTools
                     var p = a.at - a.u * 18f + a.Right * ((a.inL + a.inR) * 0.5f);
                     var eye = new Vector3(p.x, a.roadY + 1.3f, p.y);
                     var look = new Vector3(j.centre.x, j.roadY + 5.5f, j.centre.y);
-                    CitySignals.Tick(a.group == 0 ? 6.0 : CitySignals.HalfCycleS + 6.0);
+                    CitySignals.Tick(CitySignals.GreenTime(a.channel, 6f));
                     Shoot(dir, "span_wire_day", eye, Quaternion.LookRotation(look - eye), 0f);
                     log.AppendLine($"shot span_wire_day: junction {j.id} at ({j.centre.x:0.0}, {j.centre.y:0.0}) ('{map.edges[a.edge].name}'), eye ({eye.x:0.0}, {eye.y:0.00}, {eye.z:0.0})");
                     world.DropAll();

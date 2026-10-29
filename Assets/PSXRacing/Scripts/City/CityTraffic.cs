@@ -210,6 +210,12 @@ namespace PSXRacing.City
             // per-approach state
             public int committed = -1, stopKey = -1, goKey = -1, redStopKey = -1, lineKey = -1, waitKey = -1;
             public float stopAt, lineD, waitAt;
+            /// <summary>Junction logic (CityTraffic.Junctions): held short of a
+            /// full box this step; the approach it turns right on red from, the
+            /// approach it stopped at on the red, when; the last box it held for.</summary>
+            public bool heldClear;
+            public int rtorKey = -1, rtorStopKey = -1, clearKey = -1;
+            public float rtorAt;
             /// <summary>Since when it has waited for a gap to reach the lane its
             /// turn needs (-1: not waiting).</summary>
             public float mandAt = -1f;
@@ -251,7 +257,7 @@ namespace PSXRacing.City
         bool[] noWayOn;
         float maxSpawnW;
 
-        struct App { public int junction; public bool signal, allWay; public float sStop; public byte group; }
+        struct App { public int junction; public bool signal, allWay, yield, warrant, noRtor; public float sStop; public byte group; public int channel; }
         readonly List<App> apps = new List<App>();
         readonly Dictionary<int, int> approachOf = new Dictionary<int, int>();
 
@@ -270,7 +276,8 @@ namespace PSXRacing.City
         {
             public int spawned, recycled, wrecks, laneChanges, mandatory, keepRight, merges, exits,
                 redStops, greenGoes, yellowGoes, ranRed, stopSignStops, stopRolls, yields, uTurns, deadEnds,
-                maxQueue, leftYields, bumps, replans, slowSteps;
+                maxQueue, leftYields, bumps, replans, slowSteps,
+                rightOnRed, sneakLefts, keepClearHolds;
         }
         public Counters Stats;
         public readonly List<string> WreckLog = new List<string>();
@@ -526,9 +533,11 @@ namespace PSXRacing.City
                         var e = map.edges[a.edge];
                         int key = (a.edge << 1) | (e.b == a.node ? 1 : 0);
                         approachOf[key] = apps.Count;
-                        apps.Add(new App { junction = j.id, signal = j.signal, allWay = j.allWay, sStop = a.sStop, group = a.group });
+                        apps.Add(new App { junction = j.id, signal = j.signal, allWay = j.allWay, sStop = a.sStop, group = a.group, channel = a.channel,
+                                           yield = !j.signal && a.ctl == 1, warrant = j.warrant, noRtor = j.NoTurnOnRed });
                     }
                 }
+            PrepareJunctions();
         }
 
         static float DefaultLimit(int cls)
@@ -647,7 +656,7 @@ namespace PSXRacing.City
         byte CtlAt(CityMap.Edge e, int dir, out int app)
         {
             int key = (e.index << 1) | (dir > 0 ? 1 : 0);
-            if (approachOf.TryGetValue(key, out app)) return apps[app].signal ? CtlSignal : CtlStop;
+            if (approachOf.TryGetValue(key, out app)) return apps[app].signal ? CtlSignal : apps[app].yield ? CtlYield : CtlStop;
             app = -1;
             int n = dir > 0 ? e.b : e.a;
             if (degree[n] < 3 || nodeJunction[n] >= 0 || trims.mitre[n] || trims.Internal(e.index)) return CtlNone;
@@ -680,6 +689,9 @@ namespace PSXRacing.City
         void MajorAt(int n, out int m1, out int m2)
         {
             m1 = m2 = -1;
+            // a CARRIAGEWAY SPLIT is not a junction (CitySignals.SplitArms): its
+            // two-way arm and arriving carriageway both have the way, a side road yields
+            if (CitySignals.SplitArms(map, n, out int sTwo, out int sIn, out _)) { m1 = sTwo; m2 = sIn; return; }
             var arms = map.nodeEdges[n];
             int top = -1, topN = 0, topArm = -1;
             foreach (int ei in arms)
@@ -1033,6 +1045,14 @@ namespace PSXRacing.City
         /// <summary>Metres from a run's start to its stop line (its end when
         /// the approach has no bar).</summary>
         float LineAt(in Leg L) => L.app >= 0 ? Mathf.Min(Mathf.Abs(apps[L.app].sStop - L.s0), L.len) : L.len;
+
+        /// <summary>A run that ends merging (a one-way slip or ramp joining
+        /// at a shallow angle: its yield wants a gap in one lane, not a crossing).</summary>
+        bool MergeArm(in Leg L)
+        {
+            var e = map.edges[L.edge];
+            return e.oneway && (e.link || string.IsNullOrEmpty(e.name));
+        }
 
         void Drive(Car c, float dt, double now)
         {
@@ -1417,12 +1437,28 @@ namespace PSXRacing.City
         float ControlGap(Car c, double now)
         {
             c.ctlWhy = 0;
+            c.heldClear = false;
+            bool boxSeen = false;
             float dist = -c.u;
             for (int k = 0; k < c.legCount && dist < 160f; k++)
             {
                 ref Leg L = ref c.legs[k];
                 if (L.turn) { dist += L.len; continue; }
                 float dLine = dist + LineAt(L) - c.halfL;       // front bumper to the line
+                // DON'T BLOCK THE BOX (CityTraffic.Junctions): the first junction
+                // ahead, whatever controls it, not entered while its way out is full
+                if (!boxSeen && k + 1 < c.legCount && c.legs[k + 1].turn && degree[L.node] >= 3)
+                {
+                    boxSeen = true;
+                    if (KeepClearHold(c, k, dLine))
+                    {
+                        if (k == 0 && c.clearKey != L.key && c.speed < 0.5f) { c.clearKey = L.key; Stats.keepClearHolds++; }
+                        // a STOP's full stop counts while it waits (the all-way's order)
+                        if (L.ctl == CtlStop && k == 0 && c.stopKey != L.key && c.speed < 0.3f && dLine < 2.0f) { c.stopKey = L.key; c.stopAt = Time.time; }
+                        c.heldClear = true; c.ctlWhy = WhyKeepClear; c.ctlNode = L.node;
+                        return Mathf.Max(0f, dLine - 0.6f) + StopS0 - 0.4f;
+                    }
+                }
                 if (L.ctl == CtlNone)
                 {
                     // an uncontrolled junction: a LEFT turn across the other
@@ -1453,12 +1489,14 @@ namespace PSXRacing.City
                 {
                     case CtlSignal:
                     {
-                        var asp = CitySignals.AspectOf(apps[L.app].group, now);
+                        var asp = CitySignals.AspectOf(apps[L.app].channel, now);
                         if (asp == CitySignals.Aspect.Green)
                         {
                             // moving off the line: the junction clear of anyone
-                            // still crossing it from the other phase first
+                            // still crossing it from the other phase first; coming
+                            // up to it, one still clearing it from the last phase
                             if (c.speed < 3f && dLine < 6f && CrossInBox(c, jk, key, u)) { c.ctlWhy = 2; c.ctlNode = L.node; return gStop; }
+                            if (dLine < 40f && dLine > c.speed * c.speed / (2f * 4f) + 1f && ClearingInBox(c, jk, key, u, now)) { c.ctlWhy = 2; c.ctlNode = L.node; return gStop; }
                             if (next == -1 && OncomingConflict(c, jk, key, u))
                             {
                                 if (k == 0 && c.waitKey != key && c.speed < 0.5f && dLine < 4f) { c.waitKey = key; Stats.leftYields++; }
@@ -1467,11 +1505,26 @@ namespace PSXRacing.City
                             }
                             return float.MaxValue;
                         }
-                        if (c.committed == key) return float.MaxValue;
+                        if (c.committed == key || c.rtorKey == key) return float.MaxValue;
                         if (asp == CitySignals.Aspect.Yellow && dLine < c.speed * c.speed / (2f * YellowDecel) + 0.5f)
                         { c.committed = key; return float.MaxValue; }
                         if (dLine < 0f) { c.committed = key; return float.MaxValue; }   // already over it
+                        // the permissive left that waited through its green goes
+                        // on the yellow once the oncoming stop for it
+                        if (asp == CitySignals.Aspect.Yellow && next == -1 && k == 0 && c.waitKey == key && dLine < 6f)
+                        {
+                            if (!OncomingConflict(c, jk, key, u)) { c.committed = key; Stats.sneakLefts++; return float.MaxValue; }
+                            c.ctlWhy = 3; c.ctlNode = L.node;
+                            return gStop;
+                        }
                         if (k == 0 && c.speed < 0.3f && dLine < 3f && c.redStopKey != key) { c.redStopKey = key; Stats.redStops++; }
+                        // RIGHT ON RED after the full stop, clear of the cross street
+                        if (asp == CitySignals.Aspect.Red && next == 1 && k == 0 && !apps[L.app].noRtor)
+                        {
+                            if (c.speed < 0.3f && dLine < 3f && c.rtorStopKey != key) { c.rtorStopKey = key; c.rtorAt = Time.time; }
+                            if (c.rtorStopKey == key && Time.time - c.rtorAt >= StopHoldS && RtorClear(c, jk, key, u, now))
+                            { c.rtorKey = key; return float.MaxValue; }
+                        }
                         c.ctlWhy = 1; c.ctlNode = L.node;
                         return gStop;
                     }
@@ -1482,7 +1535,7 @@ namespace PSXRacing.City
                         c.ctlWhy = 4; c.ctlNode = L.node;
                         if (c.stopKey != key || Time.time - c.stopAt < StopHoldS) return gStop;
                         bool allWay = apps[L.app].allWay;
-                        if (CanGo(c, jk, key, L.node, u, allWay ? 1 : 2, Time.time - c.stopAt > 8f)) { c.goKey = key; c.ctlWhy = 0; return float.MaxValue; }
+                        if (CanGo(c, jk, key, L.node, u, allWay ? 1 : 2, Time.time - c.stopAt > 8f, next, MergeArm(L))) { c.goKey = key; c.ctlWhy = 0; return float.MaxValue; }
                         return gStop;
                     }
                     case CtlYield:
@@ -1490,7 +1543,7 @@ namespace PSXRacing.City
                         if (c.goKey == key) return float.MaxValue;
                         if (dLine > 30f) return float.MaxValue;
                         bool waiting = c.waitKey == key && c.speed < 0.5f;
-                        if (CanGo(c, jk, key, L.node, u, 2, waiting && Time.time - c.waitAt > 6f))
+                        if (CanGo(c, jk, key, L.node, u, 2, waiting && Time.time - c.waitAt > 6f, next, MergeArm(L)))
                         {
                             if (dLine < 8f) c.goKey = key;
                             return float.MaxValue;
@@ -1509,9 +1562,10 @@ namespace PSXRacing.City
         {
             if (L.ctl == CtlSignal)
             {
-                var asp = CitySignals.AspectOf(apps[L.app].group, now);
+                var asp = CitySignals.AspectOf(apps[L.app].channel, now);
                 if (asp == CitySignals.Aspect.Green) Stats.greenGoes++;
                 else if (asp == CitySignals.Aspect.Yellow || c.committed == L.key) Stats.yellowGoes++;
+                else if (c.rtorKey == L.key) Stats.rightOnRed++;
                 else Stats.ranRed++;
             }
             else if (L.ctl == CtlStop)
@@ -1524,23 +1578,30 @@ namespace PSXRacing.City
         /// junction from another way (nor the player in it); at an all-way stop
         /// nobody who stopped before it still waiting; at a minor road nothing
         /// coming on the major one.</summary>
-        bool CanGo(Car c, int jk, int key, int node, Vector2 u, int mode, bool impatient)
+        bool CanGo(Car c, int jk, int key, int node, Vector2 u, int mode, bool impatient, sbyte turn = 0, bool merge = false)
         {
             Vector2 at = map.nodes[node];
             if ((playerPos - at).sqrMagnitude < 16f * 16f && playerVel.sqrMagnitude > 0.25f && Mathf.Abs(playerPos3.y - c.y) < LevelM) return false;
+            float need = GapFor(turn, merge);
             for (int i = 0; i < live.Count; i++)
             {
                 var o = live[i];
                 if (o == c || o.wrecked) continue;
-                if (o.boxJ == jk && o.inKey != key) return false;
+                // in the box from another way - unless the two do not cross
+                if (o.boxJ == jk && o.inKey != key && !(mode == 1 && Compatible(u, turn, o.boxU, o.boxKind))) return false;
                 if (o.appJ != jk || o.appKey == key) continue;
-                if (mode == 1 && !impatient && o.stopKey == o.appKey && o.goKey != o.appKey && o.stopAt < c.stopAt) return false;
+                // a car given the way and about to enter the box holds it (its claim)
+                if (o.goKey == o.appKey && o.appDist < 4f && o.appDist > -3f && !(mode == 1 && Compatible(u, turn, o.appU, o.turnNext))) return false;
+                if (mode == 1 && !impatient && o.stopKey == o.appKey && o.goKey != o.appKey && o.stopAt < c.stopAt &&
+                    !o.heldClear && !Compatible(u, turn, o.appU, o.turnNext)) return false;
                 if (mode != 2) continue;
                 float t = o.appDist / Mathf.Max(o.speed, 0.5f);
                 if (o.appCtl == CtlNone)
                 {
-                    // the major road: a gap in it
-                    if ((o.speed > 1f && t < MajorGapS) || o.appDist < MajorNearM) return false;
+                    // the major road: a gap in it, by this car's movement; a car
+                    // standing in its queue leaves the way
+                    if (StandingInQueue(o)) continue;
+                    if ((o.speed > 1f && t < need) || (o.appDist < MajorNearM && o.appDist > -2f)) return false;
                 }
                 else if (o.appCtl == CtlYield && !impatient && u.x * o.appU.y - u.y * o.appU.x > 0.3f)
                 {
@@ -1576,8 +1637,13 @@ namespace PSXRacing.City
                 if (o.boxJ == jk && o.boxKind != -1 && Vector2.Dot(o.boxU, u) < -0.5f && o.inKey != key) return true;
                 if (o.appJ != jk || o.appKey == key || o.turnNext == -1) continue;
                 if (Vector2.Dot(o.appU, u) > -0.5f) continue;
-                if (o.appCtl == CtlSignal && o.appIdx >= 0 &&
-                    CitySignals.AspectOf(apps[o.appIdx].group, Time.timeAsDouble) == CitySignals.Aspect.Red) continue;
+                if (o.appCtl == CtlSignal && o.appIdx >= 0)
+                {
+                    var oa = CitySignals.AspectOf(apps[o.appIdx].channel, Time.timeAsDouble);
+                    if (oa == CitySignals.Aspect.Red) continue;
+                    // on its yellow and not committed to it: it stops
+                    if (oa == CitySignals.Aspect.Yellow && o.committed != o.appKey && o.appDist > 0.5f) continue;
+                }
                 float t = o.appDist / Mathf.Max(o.speed, 0.5f);
                 if ((o.speed > 1f && t < OncomingGapS) || (o.appDist < 6f && o.appDist > -2f)) return true;
             }

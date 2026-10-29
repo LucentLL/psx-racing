@@ -315,7 +315,7 @@ namespace PSXRacing.EditorTools
             float mean = samples > 0 ? activeSum / (float)samples : 0f;
             CityTrafficCheck.Line($"{name}: target {traffic.Target} (share {traffic.Share:0.00}, level {TrafficLevels.Name(CityTraffic.LevelAt(CityTraffic.ClockNow))})");
             CityTrafficCheck.Line($"  active cars min {(activeMin == int.MaxValue ? 0 : activeMin)} / mean {mean:0.0} / max {activeMax}; spawned {a.spawned - before.spawned}, recycled {a.recycled - before.recycled}");
-            CityTrafficCheck.Line($"  signals: stopped at red {a.redStops - before.redStops}, went on green {a.greenGoes - before.greenGoes}, on yellow {a.yellowGoes - before.yellowGoes}, RAN RED {a.ranRed - before.ranRed}; left turns waiting for oncoming {a.leftYields - before.leftYields}; longest queue so far {a.maxQueue}");
+            CityTrafficCheck.Line($"  signals: stopped at red {a.redStops - before.redStops}, went on green {a.greenGoes - before.greenGoes}, on yellow {a.yellowGoes - before.yellowGoes}, RAN RED {a.ranRed - before.ranRed}, right on red {a.rightOnRed - before.rightOnRed}; left turns waiting for oncoming {a.leftYields - before.leftYields}, gone on the yellow {a.sneakLefts - before.sneakLefts}; held short of a full box {a.keepClearHolds - before.keepClearHolds}; longest queue so far {a.maxQueue}");
             CityTrafficCheck.Line($"  stop signs: full stops {a.stopSignStops - before.stopSignStops}, rolled {a.stopRolls - before.stopRolls}; yields at minor roads {a.yields - before.yields}");
             CityTrafficCheck.Line($"  lanes: passing changes {a.laneChanges - before.laneChanges}, mandatory (turn lane / lane ends) {a.mandatory - before.mandatory}, keep right {a.keepRight - before.keepRight}; ramp merges {a.merges - before.merges}, exits {a.exits - before.exits}");
             CityTrafficCheck.Line($"  wrecks {a.wrecks - before.wrecks}, traffic bumps (< 4.5 m/s, no wreck) {a.bumps - before.bumps}, replans (missed a turn lane) {a.replans - before.replans}, physics steps over 5 ms {a.slowSteps - before.slowSteps}");
@@ -445,7 +445,7 @@ namespace PSXRacing.EditorTools
             Vector2 best = from; float bd = float.MaxValue; bool found = false;
             foreach (var j in CitySignals.All(map, trims))
             {
-                if (j.signal || j.approaches.Count < 2) continue;
+                if (j.signal || j.YieldOnly || j.approaches.Count < 2) continue;
                 bool busy = false;
                 foreach (int n in j.nodes) foreach (int ei in map.nodeEdges[n]) if (map.edges[ei].cls >= 1) busy = true;
                 float d = Vector2.Distance(j.centre, from) + (busy ? 0f : 800f) + (j.allWay ? 0f : 300f);

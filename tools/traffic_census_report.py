@@ -47,6 +47,7 @@ K = {
     ("stuck", "crawl-in-turn"): (7, "cars crawl in this turn with nothing ahead: the arc or the road after it reads as a hairpin"),
     ("stuck", "gridlock-box"): (5, "a queue stands in the junction box 15 s+: the next junction is too close (no storage) or something blocks the exit"),
     ("stuck", "stop-deadlock"): (7, "cars wait 30 s+ at a STOP and never get to go: a STOP facing a busy road with no gap, or STOP approaches waiting on each other"),
+    ("stuck", "keep-clear-wait"): (2, "cars wait 40 s+ short of a junction whose way out is full (they keep the box clear): a long queue from the next junction"),
     ("stuck", "yield-starved"): (4, "a minor road waits 40 s+ for a gap in the major one: a busy unsigned junction (a signal or STOP missing)"),
     ("stuck", "left-turn-starved"): (4, "a left turn waits 45 s+ for the oncoming flow: wants a protected left phase"),
     ("stuck", "red-never-ends"): (8, "a red held 60 s+ (the cycle is 38 s): the approach's phase or a blocked box"),

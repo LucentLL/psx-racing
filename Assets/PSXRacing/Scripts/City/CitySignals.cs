@@ -66,7 +66,7 @@ namespace PSXRacing.City
     /// by vertex colour on a phase change. No per-light draw, no per-frame
     /// work between phase changes.
     /// </summary>
-    public static class CitySignals
+    public static partial class CitySignals
     {
         /// <summary>Tools switch the junction furniture off for an A/B.</summary>
         public static bool Enabled = true;
@@ -83,27 +83,36 @@ namespace PSXRacing.City
 
         public enum Aspect : byte { Red = 0, Yellow = 1, Green = 2 }
 
-        /// <summary>What a phase group (0 or 1) shows at clock time t (seconds).
-        /// THE one clock: every head in the city, and later the traffic.</summary>
-        public static Aspect AspectOf(int group, double t)
+        /// <summary>What a CHANNEL (a phase of a plan at an offset,
+        /// CitySignals.Control) shows at clock time t (seconds). THE one
+        /// clock: every head in the city and the traffic. Channels 0 and 1 are
+        /// the old two-phase clock (a group number read as a channel).</summary>
+        public static Aspect AspectOf(int channel, double t)
         {
-            double u = t % CycleS;
-            if (u < 0) u += CycleS;
-            if (group != 0) { u -= HalfCycleS; if (u < 0) u += CycleS; }
-            if (u < GreenS) return Aspect.Green;
-            if (u < GreenS + YellowS) return Aspect.Yellow;
+            if (channel < 0 || channel >= chans.Count)
+            {
+                double w = t % CycleS;
+                if (w < 0) w += CycleS;
+                if (channel != 0) { w -= HalfCycleS; if (w < 0) w += CycleS; }
+                return w < GreenS ? Aspect.Green : w < GreenS + YellowS ? Aspect.Yellow : Aspect.Red;
+            }
+            var c = chans[channel];
+            double u = (t + c.offset - c.start) % c.cycle;
+            if (u < 0) u += c.cycle;
+            if (u < c.green) return Aspect.Green;
+            if (u < c.green + c.yellow) return Aspect.Yellow;
             return Aspect.Red;
         }
 
-        /// <summary>What an approach's head shows now (the later traffic
-        /// package's question).</summary>
-        public static Aspect AspectNow(Approach a) => AspectOf(a.group, Now);
+        /// <summary>What an approach's head shows now.</summary>
+        public static Aspect AspectNow(Approach a) => AspectOf(a.channel, Now);
 
         /// <summary>The clock's last time (<see cref="Tick"/>).</summary>
         public static double Now { get; private set; }
 
-        static int lastState = -1;
-        static bool lastNight;
+        static byte[] lastAspect = new byte[0];
+        static bool[] changedNow = new bool[0];
+        static bool lastNight, lampsDirty = true;
 
         /// <summary>
         /// Advance the one clock (CityWorld.Update; a tool calls it once after
@@ -113,18 +122,38 @@ namespace PSXRacing.City
         public static void Tick(double t)
         {
             Now = t;
-            int state = (int)AspectOf(0, t) * 3 + (int)AspectOf(1, t);
+            int n = Mathf.Max(2, chans.Count);
+            if (lastAspect.Length != n)
+            {
+                lastAspect = new byte[n]; changedNow = new bool[n];
+                for (int i = 0; i < n; i++) lastAspect[i] = 255;
+                lampsDirty = true;
+            }
+            bool any = false;
+            for (int i = 0; i < n; i++)
+            {
+                byte s = (byte)AspectOf(i, t);
+                if (s == lastAspect[i]) continue;
+                lastAspect[i] = s; changedNow[i] = true; any = true;
+            }
             bool night = NightGlow.On;
-            if (state == lastState && night == lastNight) return;
-            lastState = state; lastNight = night;
+            bool nightFlip = night != lastNight;
+            if (!any && !nightFlip && !lampsDirty) return;
+            lastNight = night;
             WriteLamps();
+            lampsDirty = false;
+            // the halos: only the tiles that hold a channel that changed
             for (int i = halos.Count - 1; i >= 0; i--)
             {
                 var h = halos[i];
                 if (h.r == null || h.mesh == null) { halos.RemoveAt(i); continue; }
                 h.r.enabled = night;
-                if (night) Recolour(h);
+                if (!night) continue;
+                bool touch = nightFlip || h.chans == null;
+                if (!touch) foreach (int c in h.chans) if (c < n && changedNow[c]) { touch = true; break; }
+                if (touch) Recolour(h);
             }
+            if (any) System.Array.Clear(changedNow, 0, n);
         }
 
         // lens colours, lit and dark (sRGB). INCANDESCENT (the 1990s city,
@@ -137,22 +166,29 @@ namespace PSXRacing.City
         static readonly Color32[] DarkColour = { new Color32(46, 10, 8, 255), new Color32(44, 30, 6, 255), new Color32(6, 36, 24, 255) };
         static readonly Color32 Black = new Color32(0, 0, 0, 255);
 
-        static bool Lit(int group, int colour) => (int)AspectOf(group, Now) == colour;
+        static bool Lit(int channel, int colour) =>
+            (channel < lastAspect.Length && lastAspect[channel] != 255 ? lastAspect[channel] : (int)AspectOf(channel, Now)) == colour;
 
         static Texture2D lampTex;
         static Material lampMat, haloMat;
         static bool warned;
 
+        static Color32[] lampPx;
+
+        /// <summary>The lens texture's height: a row per channel, a power of two.</summary>
+        static int LampRows => Mathf.NextPowerOfTwo(Mathf.Max(2, chans.Count));
+
         static void WriteLamps()
         {
             if (lampTex == null) return;
-            var px = new Color32[8];
-            for (int g = 0; g < 2; g++)
+            int rows = lampTex.height, used = Mathf.Max(2, chans.Count);
+            if (lampPx == null || lampPx.Length != rows * 4) lampPx = new Color32[rows * 4];
+            for (int g = 0; g < rows; g++)
             {
-                for (int c = 0; c < 3; c++) px[g * 4 + c] = Lit(g, c) ? LitColour[c] : DarkColour[c];
-                px[g * 4 + 3] = Black;
+                for (int c = 0; c < 3; c++) lampPx[g * 4 + c] = g < used && Lit(g, c) ? LitColour[c] : DarkColour[c];
+                lampPx[g * 4 + 3] = Black;
             }
-            lampTex.SetPixels32(px);
+            lampTex.SetPixels32(lampPx);
             lampTex.Apply(false, false);
         }
 
@@ -167,20 +203,29 @@ namespace PSXRacing.City
         /// <summary>
         /// THE LENSES' ONE MATERIAL: the kit's signal material without its
         /// atlas keyword, emissive (a lens is its own light, and at night an
-        /// emitter the halation glows by), on a 4 x 2 texture - a column per
-        /// lens colour, a row per phase group - that <see cref="Tick"/>
-        /// rewrites when a phase changes. Every lens in the city samples it.
+        /// emitter the halation glows by), on a 4 x N texture - a column per
+        /// lens colour, a row per CHANNEL (a plan's phase at an offset) - that
+        /// <see cref="Tick"/> rewrites when a channel changes. Every lens in
+        /// the city samples it.
         /// </summary>
         public static Material LampMaterial()
         {
-            if (lampMat != null) return lampMat;
+            if (lampMat != null && lampTex != null && lampTex.height == LampRows) return lampMat;
+            if (lampMat != null && lampTex != null)
+            {
+                // the plans changed (another map): the texture at the new height
+                lampTex.Reinitialize(4, LampRows);
+                lampPx = null;
+                WriteLamps();
+                return lampMat;
+            }
             var baseMat = StaticMaterial();
             if (baseMat == null)
             {
                 if (!warned) { warned = true; Debug.LogWarning("[City] the city kit has no signals material - the signal heads are not drawn (run a city build: PSXRacingBuilder.EnsureCityKit)."); }
                 return null;
             }
-            lampTex = new Texture2D(4, 2, TextureFormat.RGBA32, false)
+            lampTex = new Texture2D(4, LampRows, TextureFormat.RGBA32, false)
             {
                 name = "CitySignalLamps", filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp,
                 hideFlags = HideFlags.HideAndDontSave,
@@ -194,7 +239,7 @@ namespace PSXRacing.City
             lampMat.color = Color.white;
             lampMat.SetFloat("_Emission", 1f);
             PSXTexDecode.Stamp(lampMat);
-            lastState = -1;
+            lampsDirty = true;
             WriteLamps();
             return lampMat;
         }
@@ -217,14 +262,14 @@ namespace PSXRacing.City
         /// incandescent lens's glow, wider and softer than the LED's 1.1.</summary>
         public const float HaloSizeM = 1.4f;
 
-        sealed class HaloSet { public Mesh mesh; public Renderer r; public byte[] lens; public Color32[] cols; }
+        sealed class HaloSet { public Mesh mesh; public Renderer r; public ushort[] lens; public int[] chans; public Color32[] cols; }
         static readonly List<HaloSet> halos = new List<HaloSet>();
 
         static void Recolour(HaloSet h)
         {
             for (int i = 0; i < h.lens.Length; i++)
             {
-                int g = h.lens[i] >> 2, c = h.lens[i] & 3;
+                int g = h.lens[i] >> 2, c = h.lens[i] & 3;   // the channel, the colour
                 var col = Lit(g, c) ? LitColour[c] : Black;
                 int v = i * 4;
                 h.cols[v] = h.cols[v + 1] = h.cols[v + 2] = h.cols[v + 3] = col;
@@ -283,10 +328,17 @@ namespace PSXRacing.City
                 foreach (var jj in junctions) foreach (int m in jj.nodes) nodeJunction[m] = jj;
             }
             if (!nodeJunction.TryGetValue(n, out var j)) return 0;
+            if (j.warrant) return 0;                                  // the paint answers to OSM's controls
             if (j.signal) return 4;
             if (j.allWay) return 3;
-            foreach (var a in j.approaches) if (a.node == n && (a.edge == edgeA || a.edge == edgeB)) throughStops = true;
-            return 2;
+            bool any = false;
+            foreach (var a in j.approaches)
+            {
+                if (a.ctl != 2) continue;
+                any = true;
+                if (a.node == n && (a.edge == edgeA || a.edge == edgeB)) throughStops = true;
+            }
+            return any ? 2 : 0;
         }
         static Dictionary<int, Junction> nodeJunction;
 
@@ -324,7 +376,13 @@ namespace PSXRacing.City
             public float inL, inR;
             public int lanesIn;
             public float roadY;
+            /// <summary>Signals: the junction's phase (0 = the main road's) and
+            /// the clock's channel its heads show.</summary>
             public byte group;
+            public ushort channel;
+            /// <summary>STOP and yield junctions: 2 STOP, 1 YIELD (a give_way
+            /// tag: no sign of ours, no bar - the road paint's yield line).</summary>
+            public byte ctl;
             public Vector2 Right => new Vector2(u.y, -u.x);
         }
 
@@ -337,6 +395,20 @@ namespace PSXRacing.City
             public int[] nodes;
             public readonly List<Approach> approaches = new List<Approach>();
             public bool uptown;
+            /// <summary>Decided by the MUTCD warrants where OSM says nothing
+            /// (CitySignals.Control); the road paint ignores it.</summary>
+            public bool warrant;
+            /// <summary>Crosswalks on its arms (the plan walks them).</summary>
+            public bool walks;
+            /// <summary>Signals: the plan, its phases, the controller it runs
+            /// in (its own id, or the junction it is linked to).</summary>
+            public int plan = -1, controller = -1;
+            public byte phases;
+            /// <summary>Signals: no right turn on red (uptown's walked
+            /// junctions, where the city posts NO TURN ON RED).</summary>
+            public bool NoTurnOnRed => signal && uptown && walks;
+            /// <summary>Only yields (give_way tags): no STOP here.</summary>
+            public bool YieldOnly { get { foreach (var a in approaches) if (a.ctl != 1) return false; return !signal && approaches.Count > 0; } }
         }
 
         static CityMap mapFor;
@@ -407,6 +479,8 @@ namespace PSXRacing.City
             crosswalks = new List<Crosswalk>();
             crosswalkAt = new Dictionary<long, int>();
             CrosswalkJunctions = 0; CrosswalkArmsSkipped = 0;
+            Counts = default;
+            ResetPlans();
             if (map == null || map.tagged == null) return;
             int nn = map.nodes.Length;
 
@@ -457,10 +531,13 @@ namespace PSXRacing.City
 
             var keys = new List<int>(clusters.Keys);
             keys.Sort();
-            foreach (int root in keys)
+            foreach (int root in keys) if (BuildCluster(clusters[root], root, false)) Counts.osmSignals++;
+
+            // one signalised junction per cluster: its approaches, its crosswalks
+            // (OSM's only: a warrant's leaves the road paint as it was)
+            bool BuildCluster(List<int> ns, int root, bool warrant)
             {
-                var ns = clusters[root];
-                var j = new Junction { signal = true, nodes = ns.ToArray() };
+                var j = new Junction { signal = true, nodes = ns.ToArray(), warrant = warrant };
                 int arms = 0;
                 // roads pass L7 (Q5 a): a tier-1 signalised junction (its best
                 // arm tier 1) has a crosswalk on every arm that takes one
@@ -472,7 +549,7 @@ namespace PSXRacing.City
                         if (e.a == e.b || inCluster[e.a == n ? e.b : e.a] == root) continue;
                         tier = Mathf.Min(tier, CityTier.Of(e));
                     }
-                bool walks = CrosswalksOn && tier == CityTier.T1;
+                bool walks = !warrant && CrosswalksOn && tier == CityTier.T1;
                 cwPending.Clear();
                 int skipped = 0;
                 foreach (int n in ns)
@@ -494,8 +571,10 @@ namespace PSXRacing.City
                         }
                         if (MakeApproach(map, trims, e, n, out var a, cw ? CrossStopBackM : StopBackM)) j.approaches.Add(a);
                     }
-                if (arms < 3 || j.approaches.Count < 2) continue;
+                if (arms < 3 || j.approaches.Count < 2) return false;
+                for (int i = 0; i < j.approaches.Count; i++) { var ap = j.approaches[i]; ap.ctl = 4; j.approaches[i] = ap; }
                 Finish(map, j, root);
+                j.walks = cwPending.Count > 0;
                 if (cwPending.Count > 0) CrosswalkJunctions++;
                 CrosswalkArmsSkipped += skipped;
                 foreach (var c in cwPending)
@@ -505,18 +584,20 @@ namespace PSXRacing.City
                     crosswalkAt[((long)c.edge << 1) | (ce.b == c.node ? 1L : 0L)] = crosswalks.Count;
                     crosswalks.Add(cc);
                 }
+                return true;
             }
 
             // ---- stops
             var flags = LoadStopFlags();
             var stopAt = new Dictionary<int, Junction>();
             var seen = new HashSet<long>();
-            void AddStop(int n, CityMap.Edge e, bool allWay)
+            void AddStop(int n, CityMap.Edge e, bool allWay, byte ctl = 2, bool warrant = false)
             {
                 if (inCluster[n] >= 0 || sig[n]) return;              // a signal wins
                 if (!seen.Add(((long)e.index << 1) | (e.b == n ? 1L : 0L))) return;
                 if (!MakeApproach(map, trims, e, n, out var a)) return;
-                if (!stopAt.TryGetValue(n, out var j)) stopAt[n] = j = new Junction { signal = false, nodes = new[] { n } };
+                a.ctl = ctl;
+                if (!stopAt.TryGetValue(n, out var j)) stopAt[n] = j = new Junction { signal = false, nodes = new[] { n }, warrant = warrant };
                 j.approaches.Add(a);
                 j.allWay |= allWay;
             }
@@ -573,13 +654,99 @@ namespace PSXRacing.City
                     AddStop(n, e, false);
                 }
             }
+            // ---- yields (highway=give_way): the tagged way's approach that is
+            // not the node's through road, or the approach it stands on
+            foreach (var t in map.tagged)
+            {
+                if (t.kind != 1 || t.edge < 0 || t.edge >= map.edges.Length) continue;
+                var e = map.edges[t.edge];
+                float d0 = t.s, d1 = e.length - t.s;
+                int n = d0 <= d1 ? e.a : e.b;
+                if (Degree(map, n) < 3) continue;
+                if (Mathf.Min(d0, d1) < 1.5f)
+                {
+                    ThroughArms(map, n, out int t1, out int t2);
+                    foreach (int ei in map.nodeEdges[n])
+                    {
+                        var o = map.edges[ei];
+                        if (o.wayId != t.wayId || ei == t1 || ei == t2) continue;
+                        if (o.oneway && o.a == n) continue;
+                        AddStop(n, o, false, 1);
+                    }
+                }
+                else if (Mathf.Min(d0, d1) <= StopSnapM)
+                {
+                    if (e.oneway && e.a == n) continue;
+                    AddStop(n, e, false, 1);
+                }
+            }
+
+            // ---- THE WARRANTS where OSM says nothing (CitySignals.Control)
+            if (WarrantsOn)
+            {
+                var taken = new bool[nn];
+                var sigMember = new bool[nn];
+                for (int i = 0; i < nn; i++) { sigMember[i] = member[i] || sig[i]; taken[i] = sigMember[i]; }
+                foreach (var kv in stopAt) taken[kv.Key] = true;
+                var wsig = new bool[nn];
+                foreach (var d in Warrants(map, trims, taken, sigMember))
+                {
+                    if (d.signal) { wsig[d.node] = true; Counts.warrantSignalNodes++; continue; }
+                    foreach (int ei in d.stops) AddStop(d.node, map.edges[ei], d.allWay, 2, true);
+                }
+                // the warrants' signals: one junction per cluster, as OSM's
+                for (int i = 0; i < nn; i++)
+                {
+                    if (!wsig[i]) continue;
+                    foreach (int ei in map.nodeEdges[i])
+                    {
+                        var e = map.edges[ei];
+                        if (e.a == e.b || e.length > ClusterM) continue;
+                        int o = e.a == i ? e.b : e.a;
+                        if (wsig[o]) Union(i, o);
+                    }
+                }
+                var wcl = new Dictionary<int, List<int>>();
+                for (int i = 0; i < nn; i++)
+                {
+                    if (!wsig[i]) continue;
+                    int r = Find(i);
+                    if (!wcl.TryGetValue(r, out var l)) wcl[r] = l = new List<int>(4);
+                    l.Add(i);
+                }
+                var wkeys = new List<int>(wcl.Keys);
+                wkeys.Sort();
+                foreach (int r in wkeys)
+                {
+                    var ns = wcl[r];
+                    ns.Sort();
+                    int root = ns[0];
+                    foreach (int n in ns) inCluster[n] = root;
+                    if (BuildCluster(ns, root, true)) Counts.warrantSignals++;
+                    else foreach (int n in ns) inCluster[n] = -1;
+                }
+            }
+
             var stopKeys = new List<int>(stopAt.Keys);
             stopKeys.Sort();
-            foreach (int n in stopKeys) Finish(map, stopAt[n], n);
+            foreach (int n in stopKeys)
+            {
+                var sj = stopAt[n];
+                if (inCluster[n] >= 0) continue;                       // a warrant's signal took it
+                Finish(map, sj, n);
+                bool stopsHere = false;
+                foreach (var a in sj.approaches) if (a.ctl == 2) stopsHere = true;
+                if (!stopsHere) Counts.osmYieldJ++;
+                else if (sj.warrant) { if (sj.allWay) Counts.warrantAllWay++; else Counts.warrantStopJ++; Counts.warrantStopApp += sj.approaches.Count; }
+                else { Counts.osmStopJ++; if (sj.allWay) Counts.osmAllWay++; }
+            }
+
+            // ---- the signals' phases and plans, over every signal junction
+            PlanSignals(map);
 
             int sigs = 0, sigApp = 0, stops = 0, stopApp = 0;
             foreach (var j in junctions) { if (j.signal) { sigs++; sigApp += j.approaches.Count; } else { stops++; stopApp += j.approaches.Count; } }
-            Debug.Log($"[City] junction controls: {sigs} signalised junctions ({sigApp} approaches), {stops} stop-controlled ({stopApp} approaches) from {map.tagged.Length} tagged nodes, {flags.Count} stop tags");
+            Debug.Log($"[City] junction controls: {sigs} signalised junctions ({sigApp} approaches), {stops} stop/yield-controlled ({stopApp} approaches) from {map.tagged.Length} tagged nodes, {flags.Count} stop tags; " + ControlReport());
         }
 
         /// <summary>The approach an edge makes into node n, if it makes one.</summary>
@@ -635,25 +802,8 @@ namespace PSXRacing.City
             foreach (var a in j.approaches) y = Mathf.Max(y, a.roadY);
             j.roadY = y;
             j.uptown = CityPoles.Uptown(map, j.centre);
-            if (j.signal)
-            {
-                // the main road: the biggest approach; within 45 degrees of it
-                // is its pair, the rest the other; half start on the other
-                int best = 0;
-                for (int i = 1; i < j.approaches.Count; i++)
-                {
-                    var ei = map.edges[j.approaches[i].edge]; var eb = map.edges[j.approaches[best].edge];
-                    if (ei.cls * 16 + ei.lanes > eb.cls * 16 + eb.lanes) best = i;
-                }
-                var axis = j.approaches[best].u;
-                byte flip = (byte)(Hash01(seed, 0, 41) < 0.5f ? 1 : 0);
-                for (int i = 0; i < j.approaches.Count; i++)
-                {
-                    var a = j.approaches[i];
-                    a.group = (byte)((Mathf.Abs(Vector2.Dot(a.u, axis)) >= 0.7071f ? 0 : 1) ^ flip);
-                    j.approaches[i] = a;
-                }
-            }
+            // a signal's phases, plan and channels: PlanSignals, once every
+            // junction stands (two may run as one controller)
             junctions.Add(j);
             long k = Key(Mathf.FloorToInt(j.centre.x / CityMeshes.TileSize), Mathf.FloorToInt(j.centre.y / CityMeshes.TileSize));
             if (!byTile.TryGetValue(k, out var l)) byTile[k] = l = new List<Junction>(4);
@@ -664,7 +814,7 @@ namespace PSXRacing.City
         //  A TILE
         // ==================================================================
 
-        public struct Head { public Vector3 pos; public Vector2 face; public byte group; }
+        public struct Head { public Vector3 pos; public Vector2 face; public byte group; public ushort channel; }
         public struct Stop { public Vector3 foot; public Vector2 face; public int edge; }
 
         public sealed class SignalTile
@@ -676,8 +826,8 @@ namespace PSXRacing.City
             public readonly List<Head> heads = new List<Head>();
             public readonly List<Stop> stops = new List<Stop>();
             public int junctions, signalJunctions, mastArms, spanWires, stopBars, refused;
-            /// <summary>The halos' lens codes (group << 2 | colour), in mesh order.</summary>
-            public byte[] haloLens;
+            /// <summary>The halos' lens codes (channel << 2 | colour), in mesh order.</summary>
+            public ushort[] haloLens;
             public float ms;
         }
 
@@ -732,13 +882,17 @@ namespace PSXRacing.City
         static void Furnish(Junction j, SignalTile st)
         {
             st.junctions++;
-            // the stop bars, every approach
-            foreach (var a in j.approaches) { StopBar(a); st.stopBars++; }
+            // the stop bars: every signal approach and every STOP (a yield
+            // has the road paint's yield line)
+            foreach (var a in j.approaches) { if (!j.signal && a.ctl != 2) continue; StopBar(a); st.stopBars++; }
             if (!j.signal)
             {
                 foreach (var a in j.approaches)
+                {
+                    if (a.ctl != 2) continue;
                     if (PlaceStop(a, out var s)) { st.stops.Add(s); EmitStopSign(s, a); }
                     else st.refused++;
+                }
                 return;
             }
             st.signalJunctions++;
@@ -1045,20 +1199,20 @@ namespace PSXRacing.City
                 var lc = c + Vector3.up * dy + face * (HeadD * 0.5f + 0.012f);
                 // its visor
                 Box(c + Vector3.up * (dy + LensM * 0.5f + 0.02f) + face * (HeadD * 0.5f + 0.09f), across * (LensM * 0.6f), Vector3.up * 0.015f, face * 0.09f, CellBlack, true);
-                LensQuad(lc, face, across, a.group, k);
+                LensQuad(lc, face, across, a.channel, k);
                 haloCentres.Add(lc + face * 0.08f);
-                haloLens.Add((byte)(a.group << 2 | LensCode(k)));
+                haloLens.Add((ushort)(a.channel << 2 | LensCode(k)));
                 haloYaw.Add(Mathf.Atan2(face.x, face.z));
             }
-            st.heads.Add(new Head { pos = c, face = new Vector2(face.x, face.z), group = a.group });
+            st.heads.Add(new Head { pos = c, face = new Vector2(face.x, face.z), group = a.group, channel = a.channel });
         }
 
         /// <summary>The texture column of lens k (0 top = red, 1 yellow, 2 green).</summary>
         static int LensCode(int k) => k == 0 ? (int)Aspect.Red : k == 1 ? (int)Aspect.Yellow : (int)Aspect.Green;
 
-        static void LensQuad(Vector3 c, Vector3 n, Vector3 across, int group, int k)
+        static void LensQuad(Vector3 c, Vector3 n, Vector3 across, int channel, int k)
         {
-            var uv = new Vector2((LensCode(k) + 0.5f) / 4f, (group + 0.5f) / 2f);
+            var uv = new Vector2((LensCode(k) + 0.5f) / 4f, (channel + 0.5f) / LampRows);
             var u = across * (LensM * 0.5f); var v = Vector3.up * (LensM * 0.5f);
             int i = lv.Count;
             lv.Add(c - u - v); lv.Add(c - u + v); lv.Add(c + u + v); lv.Add(c + u - v);
@@ -1081,7 +1235,7 @@ namespace PSXRacing.City
         static readonly List<Vector2> luv = new List<Vector2>(512);
         static readonly List<int> lt = new List<int>(768);
         static readonly List<Vector3> haloCentres = new List<Vector3>(256);
-        static readonly List<byte> haloLens = new List<byte>(256);
+        static readonly List<ushort> haloLens = new List<ushort>(256);
         static readonly List<float> haloYaw = new List<float>(256);
 
         static void Begin()
@@ -1117,7 +1271,7 @@ namespace PSXRacing.City
             return m;
         }
 
-        static Mesh EndHalos(Vector3 origin, out byte[] codes)
+        static Mesh EndHalos(Vector3 origin, out ushort[] codes)
         {
             codes = null;
             if (haloCentres.Count == 0) return null;
@@ -1221,7 +1375,9 @@ namespace PSXRacing.City
                 meshes.Add(m);
                 if (name == "SignalHalos" && mat != null)
                 {
-                    var h = new HaloSet { mesh = m, r = mr, lens = st.haloLens, cols = new Color32[m.vertexCount] };
+                    var hc = new HashSet<int>();
+                    if (st.haloLens != null) foreach (var code in st.haloLens) hc.Add(code >> 2);
+                    var h = new HaloSet { mesh = m, r = mr, lens = st.haloLens, chans = new List<int>(hc).ToArray(), cols = new Color32[m.vertexCount] };
                     halos.Add(h);
                     if (NightGlow.On) Recolour(h);
                 }
