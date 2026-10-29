@@ -75,11 +75,11 @@ namespace PSXRacing.City
         {
             public static float walkM;
             public static int spans, ramps, cornersPoly, cornersStrip, cornersNone, sideMismatch;
-            /// <summary>Why corners were left as verges: shape, arm, width, acute, strip, P.</summary>
-            public static readonly int[] noneWhy = new int[8];
+            /// <summary>Why corners were left as verges: shape, arm, width, acute, strip, P, paved, lane.</summary>
+            public static readonly int[] noneWhy = new int[9];
             public static void Reset() { walkM = 0f; spans = ramps = cornersPoly = cornersStrip = cornersNone = sideMismatch = 0; System.Array.Clear(noneWhy, 0, noneWhy.Length); lotCurbM = 0f; }
             public static string Line() =>
-                $"walks {walkM:0} m in {spans} spans ({ramps} ramp ends), corners {cornersPoly} fanned from P + {cornersStrip} strips, {cornersNone} left as verges (shape/arm/width/acute/strip/P/paved {noneWhy[1]}/{noneWhy[2]}/{noneWhy[3]}/{noneWhy[4]}/{noneWhy[5]}/{noneWhy[6]}/{noneWhy[7]}), {sideMismatch} side mismatches, lot curbs {lotCurbM:0} m";
+                $"walks {walkM:0} m in {spans} spans ({ramps} ramp ends), corners {cornersPoly} fanned from P + {cornersStrip} strips, {cornersNone} left as verges (shape/arm/width/acute/strip/P/paved/lane {noneWhy[1]}/{noneWhy[2]}/{noneWhy[3]}/{noneWhy[4]}/{noneWhy[5]}/{noneWhy[6]}/{noneWhy[7]}/{noneWhy[8]}), {sideMismatch} side mismatches, lot curbs {lotCurbM:0} m";
         }
 
         static CityMap walkMapFor;
@@ -407,6 +407,9 @@ namespace PSXRacing.City
                     if (OnPavement(map, trims, q + oq * (0.5f * wq), pq.y, k0.edge, k1.edge, fans: false)) return 0;   // ribbons only: the fans refused 99 of 135 uptown corners
                 }
             }
+            // the curb out of every arm's lanes where they run on through the fan
+            noneWhyNow = 8;
+            if (CurbInLanes(map, trims, node, ring, g0, g1, origin)) return 0;
             float c = Vector2.Dot(cw.n0, cw.n1);
             noneWhyNow = 5;
             if (c >= 0.866f) return RingStripFits(ring, cw, origin) ? 2 : 0;
@@ -445,6 +448,55 @@ namespace PSXRacing.City
 
         /// <summary>Why the last CornerWalkOf returned 0 (WalkStats.noneWhy).</summary>
         static int noneWhyNow;
+
+        /// <summary>How finely an arm's lanes are read through its fan.</summary>
+        const float LaneStepM = 0.5f;
+
+        /// <summary>
+        /// Would a corner's curb (its foot along the ring from g0 to g1) stand
+        /// inside any arm's lanes where they run on through the fan to the node,
+        /// more than <see cref="WalkPadM"/> in? An arm's lanes reach from its trim
+        /// to the node at the line model's extents (the lane paint's, and what the
+        /// drive audit sweeps), and a ring chord cut the bend of an arm curving
+        /// inside the fan: East 7th Street's e7270 into e16550 at node 8855, the
+        /// corner one 31 m chord, its curb up to 0.8 m into the outer lane (the
+        /// drive audit's INVISIBLE sweep at (-1220, 4202)). Such a corner keeps
+        /// its verge, and the arms' walks ramp out before it.
+        /// </summary>
+        static bool CurbInLanes(CityMap map, Trims trims, int node, List<FanCorner> ring, int g0, int g1, Vector3 origin)
+        {
+            int nR = ring.Count;
+            foreach (int ai in map.nodeEdges[node])
+            {
+                var arm = map.edges[ai];
+                if (arm.a == arm.b) continue;
+                float trim = trims.TrimAt(arm, node);
+                if (trim < LaneStepM) continue;
+                bool atA = arm.a == node;
+                for (float d = 0f; d < trim + 1e-3f; d += LaneStepM)   // metres in from the node
+                {
+                    float s = Mathf.Clamp(atA ? d : arm.length - d, 0f, arm.length);
+                    var p = arm.PointAt(s);
+                    var tan = arm.TangentAt(s);
+                    var right = new Vector2(-tan.y, tan.x);
+                    LineModel.Extents(arm, s, out float eMinus, out float ePlus);
+                    for (int j = g0; j != g1; j = (j + 1) % nR)
+                    {
+                        int jn = (j + 1) % nR;
+                        var a = new Vector2(ring[j].pos.x + origin.x, ring[j].pos.z + origin.z);
+                        var ch = new Vector2(ring[jn].pos.x + origin.x, ring[jn].pos.z + origin.z) - a;
+                        float den = right.x * ch.y - right.y * ch.x;
+                        if (Mathf.Abs(den) < 1e-6f) continue;   // the chord runs along this cross-line
+                        var w = a - p;
+                        float u = (w.x * right.y - w.y * right.x) / den;   // along the chord
+                        if (u < 0f || u > 1f) continue;
+                        float lat = (w.x * ch.y - w.y * ch.x) / den;       // along the cross-line
+                        if (lat > -eMinus + WalkPadM && lat < ePlus - WalkPadM) return true;
+                    }
+                }
+            }
+            return false;
+        }
 
         static int MidArc(List<FanCorner> ring, int g0, int g1)
         {
@@ -548,7 +600,17 @@ namespace PSXRacing.City
                 if (wB <= 0f) { vB0 = vB1 = 0f; }
                 bk.Up(pa[q], pa[q + 1], pb[q + 1], pb[q],
                       new Vector2(uA, vA0), new Vector2(uA, vA1), new Vector2(uB, vB1), new Vector2(uB, vB0));
+                LogWalkQuad(" walk band" + q, pa[q], pa[q + 1], pb[q + 1], pb[q]);
             }
+        }
+
+        /// <summary>The probes' record of a walk quad (groundLog, world space).</summary>
+        static void LogWalkQuad(string what, Vector3 a, Vector3 b, Vector3 c, Vector3 d)
+        {
+            if (groundLog == null) return;
+            var o = tileOrigin;
+            groundLog.Add((groundTag + what, a + o, b + o, c + o));
+            groundLog.Add((groundTag + what, a + o, c + o, d + o));
         }
 
         /// <summary>The back of a walk as a verge's start: EmitStrip lays a
@@ -629,6 +691,7 @@ namespace PSXRacing.City
             var bk = WalkBucket;
             int nR = ring.Count;
             var verge = new StripShape { shoulder = VergeShoulderM, maxRun = VergeMaxRunM, noFins = true };
+            if (groundLog != null) groundTag = $"corner walk kind {kind} node {ring[cw.g0].node} e{ring[cw.g0].edge}-e{ring[cw.g1].edge}";
             if (kind == 2)
             {
                 float u = 0f;
@@ -667,9 +730,12 @@ namespace PSXRacing.City
                     float len = Vector2.Distance(new Vector2(prevNose.x, prevNose.z), new Vector2(walkProfB[2].x, walkProfB[2].z));
                     // the curb's two bands (foot to face top, face top to nose)
                     for (int q = 0; q < 2; q++)
+                    {
                         bk.Up(walkProfA[q], walkProfA[q + 1], walkProfB[q + 1], walkProfB[q],
                               new Vector2(prevU / WalkTexM, walkBandV[q]), new Vector2(prevU / WalkTexM, walkBandV[q + 1]),
                               new Vector2((u2 + len) / WalkTexM, walkBandV[q + 1]), new Vector2((u2 + len) / WalkTexM, walkBandV[q]));
+                        LogWalkQuad(" curb band" + q, walkProfA[q], walkProfA[q + 1], walkProfB[q + 1], walkProfB[q]);
+                    }
                     // ... and the walk from the nose back to P
                     UpTri(bk, P3, walkProfA[2], walkProfB[2], UV(P3), UV(walkProfA[2]), UV(walkProfB[2]));
                     u2 += len;
@@ -772,6 +838,7 @@ namespace PSXRacing.City
                         float uA = uAcc + len * j / k, uB = uAcc + len * (j + 1) / k;
                         if (m.x < min.x || m.x >= min.x + TileSize || m.y < min.y || m.y >= min.y + TileSize) continue;
                         if (!LotCurbHere(map, li, m, outw)) continue;
+                        if (groundLog != null) groundTag = $"lot curb lot {li}";
                         for (int q = 0; q < 4; q++)
                         {
                             var qa = pa + outw * lotCurbU[q]; var qb = pb + outw * lotCurbU[q];
@@ -782,6 +849,7 @@ namespace PSXRacing.City
                             bk.Up(lotCurbA[q], lotCurbA[q + 1], lotCurbB[q + 1], lotCurbB[q],
                                   new Vector2(uA / WalkTexM, lotCurbU[q] / WalkTexM), new Vector2(uA / WalkTexM, lotCurbU[q + 1] / WalkTexM),
                                   new Vector2(uB / WalkTexM, lotCurbU[q + 1] / WalkTexM), new Vector2(uB / WalkTexM, lotCurbU[q] / WalkTexM));
+                        for (int q = 0; q < 3; q++) LogWalkQuad(" band" + q, lotCurbA[q], lotCurbA[q + 1], lotCurbB[q + 1], lotCurbB[q]);
                         lotCurbM += len / k;
                     }
                     uAcc += len;
@@ -825,6 +893,7 @@ namespace PSXRacing.City
         {
             var n = Vector3.Cross(b - a, c - a);
             if (n.sqrMagnitude < 1e-10f) return;
+            if (groundLog != null) groundLog.Add((groundTag + " walk tri", a + tileOrigin, b + tileOrigin, c + tileOrigin));
             // Tri(a, b, c) draws (a, c, b), whose normal is Cross(c - a, b - a)
             if (n.y > 0f) bk.Tri(a, c, b, ua, uc, ub);
             else bk.Tri(a, b, c, ua, ub, uc);

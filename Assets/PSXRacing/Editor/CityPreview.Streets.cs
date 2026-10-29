@@ -134,6 +134,165 @@ namespace PSXRacing.EditorTools
             CityAudit.RunDrive();
         }
 
+        /// <summary>The collider probe, then the roadside lane probe
+        /// (CityRoadsideProbe, PSX_LANEPROBE): one Unity start.</summary>
+        public static void RunStreetsProbes()
+        {
+            RunColliderProbe();
+            CityRoadsideProbe.Run();
+        }
+
+        /// <summary>The street shots, the collider probe, then the drive audit
+        /// with the walks ON (city_drive.txt, also kept as city_drive_walks.txt)
+        /// and OFF (city_drive_nowalks.txt, the same code's control): one Unity start.</summary>
+        public static void RunStreetsDriveAB()
+        {
+            RunStreets();
+            RunColliderProbe();
+            string root = Directory.GetParent(Application.dataPath).FullName;
+            string drive = Path.Combine(root, "city_drive.txt"), on = Path.Combine(root, "city_drive_walks.txt"), off = Path.Combine(root, "city_drive_nowalks.txt");
+            CityAudit.RunDrive();
+            if (File.Exists(drive)) File.Copy(drive, on, true);
+            bool was = CityMeshes.WalksOn;
+            try { CityMeshes.WalksOn = false; CityAudit.RunDrive(); }
+            finally { CityMeshes.WalksOn = was; }
+            if (File.Exists(drive)) File.Copy(drive, off, true);
+            if (File.Exists(on)) File.Copy(on, drive, true);
+        }
+
+        /// <summary>
+        /// THE STREETS COLLIDER PROBE (a diagnostic): the hit tile's own Ground
+        /// and Roads collider triangles round each PSX_CPROBE point ("x,z,y;...",
+        /// world metres, y the hit's height), the tile built (its 3x3, the
+        /// centre last, as the lane probe does) with the walks ON and OFF; each
+        /// triangle marked + (walks only), - (no walks only) or = (both), with
+        /// its slot, normal, corners from the point and what laid it
+        /// (CityMeshes.groundLog). Writes Screenshots/City/streets/collider_probe.txt.
+        ///   -executeMethod PSXRacing.EditorTools.CityPreview.RunColliderProbe
+        /// </summary>
+        public static void RunColliderProbe()
+        {
+            string dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "City", "streets");
+            Directory.CreateDirectory(dir);
+            string outPath = Path.Combine(dir, "collider_probe.txt");
+            var sb = new System.Text.StringBuilder();
+            var map = CityMap.Get();
+            if (map == null) { File.WriteAllText(outPath, "no city data"); return; }
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            var trims = CityMeshes.NodeTrims(map);
+            var buildings = CityBuildings.Precompute(map);
+            bool was = CityMeshes.WalksOn;
+            try
+            {
+                foreach (var item in (System.Environment.GetEnvironmentVariable("PSX_CPROBE") ?? "").Split(';'))
+                {
+                    var f = item.Trim().Split(',');
+                    if (f.Length < 3) continue;
+                    var P = new Vector3(float.Parse(f[0], inv), float.Parse(f[2], inv), float.Parse(f[1], inv));
+                    int tx = Mathf.FloorToInt(P.x / CityMeshes.TileSize), tz = Mathf.FloorToInt(P.z / CityMeshes.TileSize);
+                    sb.AppendLine($"=== ({P.x:0.00},{P.z:0.00}) y {P.y:0.00} tile {tx},{tz}");
+                    var rows = new Dictionary<string, (string text, int mask)>();
+                    for (int pass = 1; pass >= 0; pass--)
+                    {
+                        CityMeshes.WalksOn = pass == 1;
+                        for (int dz = -1; dz <= 1; dz++)
+                            for (int dx = -1; dx <= 1; dx++)
+                                if (dx != 0 || dz != 0) CityMeshes.Build(map, trims, buildings, tx + dx, tz + dz);
+                        CityMeshes.WalkStats.Reset();
+                        CityMeshes.groundLog = new List<(string, Vector3, Vector3, Vector3)>();
+                        var tm = CityMeshes.Build(map, trims, buildings, tx, tz);
+                        ProbeTris(tm.ground, tm.groundSlots, "Ground", tm.origin, P, pass, rows);
+                        ProbeTris(tm.roads, tm.roadSlots, "Roads", tm.origin, P, pass, rows);
+                        sb.AppendLine($"  walks {(pass == 1 ? "on" : "off")}: {CityMeshes.WalkStats.Line()}");
+                        CityMeshes.groundLog = null;
+                    }
+                    var keys = new List<string>(rows.Keys);
+                    keys.Sort(System.StringComparer.Ordinal);
+                    foreach (var k in keys)
+                        sb.AppendLine("  " + (rows[k].mask == 3 ? "=" : rows[k].mask == 2 ? "+" : "-") + " " + rows[k].text);
+                }
+            }
+            finally { CityMeshes.WalksOn = was; CityMeshes.groundLog = null; }
+            File.WriteAllText(outPath, sb.ToString());
+            Debug.Log("[Streets] collider probe: " + outPath);
+        }
+
+        static void ProbeTris(Mesh m, CityMeshes.Slot[] slots, string name, Vector3 o, Vector3 P, int pass,
+                              Dictionary<string, (string text, int mask)> rows)
+        {
+            if (m == null) return;
+            var v = m.vertices;
+            var p2 = new Vector2(P.x, P.z);
+            for (int s = 0; s < m.subMeshCount; s++)
+            {
+                var t = m.GetTriangles(s);
+                string slot = slots != null && s < slots.Length ? slots[s].ToString() : "s" + s;
+                for (int i = 0; i + 2 < t.Length; i += 3)
+                {
+                    Vector3 a = v[t[i]] + o, b = v[t[i + 1]] + o, c = v[t[i + 2]] + o;
+                    float lo = Mathf.Min(a.y, Mathf.Min(b.y, c.y)), hi = Mathf.Max(a.y, Mathf.Max(b.y, c.y));
+                    if (hi < P.y - 0.3f || lo > P.y + 0.3f || PlanDist(p2, a, b, c) > 0.6f) continue;
+                    var n = Vector3.Cross(b - a, c - a).normalized;
+                    string key = $"{name} {slot} {CornerKey(a, b, c)}";
+                    int bit = pass == 1 ? 2 : 1;
+                    if (rows.TryGetValue(key, out var r)) { rows[key] = (r.text, r.mask | bit); continue; }
+                    rows[key] = ($"{name}/{slot} n({n.x:+0.00;-0.00},{n.y:+0.00;-0.00},{n.z:+0.00;-0.00}) {Rel(a, P)} {Rel(b, P)} {Rel(c, P)} [{TagOf(a, b, c)}]", bit);
+                }
+            }
+        }
+
+        static string Rel(Vector3 a, Vector3 P) => $"({a.x - P.x:+0.00;-0.00},{a.z - P.z:+0.00;-0.00},{a.y - P.y:+0.00;-0.00})";
+
+        static string CornerKey(Vector3 a, Vector3 b, Vector3 c)
+        {
+            var k = new[] { $"{Mathf.RoundToInt(a.x * 50f)}:{Mathf.RoundToInt(a.z * 50f)}:{Mathf.RoundToInt(a.y * 50f)}",
+                            $"{Mathf.RoundToInt(b.x * 50f)}:{Mathf.RoundToInt(b.z * 50f)}:{Mathf.RoundToInt(b.y * 50f)}",
+                            $"{Mathf.RoundToInt(c.x * 50f)}:{Mathf.RoundToInt(c.z * 50f)}:{Mathf.RoundToInt(c.y * 50f)}" };
+            System.Array.Sort(k, System.StringComparer.Ordinal);
+            return string.Join("|", k);
+        }
+
+        /// <summary>Plan distance from p to the triangle (0 inside it).</summary>
+        static float PlanDist(Vector2 p, Vector3 a3, Vector3 b3, Vector3 c3)
+        {
+            Vector2 a = new Vector2(a3.x, a3.z), b = new Vector2(b3.x, b3.z), c = new Vector2(c3.x, c3.z);
+            float d1 = Cross2(b - a, p - a), d2 = Cross2(c - b, p - b), d3 = Cross2(a - c, p - c);
+            bool neg = d1 < 0f || d2 < 0f || d3 < 0f, pos = d1 > 0f || d2 > 0f || d3 > 0f;
+            if (!(neg && pos) && Mathf.Abs(Cross2(b - a, c - a)) > 1e-6f) return 0f;
+            return Mathf.Min(SegDist(p, a, b), Mathf.Min(SegDist(p, b, c), SegDist(p, c, a)));
+        }
+
+        static float Cross2(Vector2 u, Vector2 w) => u.x * w.y - u.y * w.x;
+
+        static float SegDist(Vector2 p, Vector2 a, Vector2 b)
+        {
+            var ab = b - a; float l2 = ab.sqrMagnitude;
+            float u = l2 > 1e-10f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / l2) : 0f;
+            return Vector2.Distance(p, a + ab * u);
+        }
+
+        /// <summary>What laid a triangle: a groundLog entry with the same
+        /// corners, else one whose plan holds its centre at its height.</summary>
+        static string TagOf(Vector3 a, Vector3 b, Vector3 c)
+        {
+            var log = CityMeshes.groundLog;
+            if (log == null) return "";
+            string key = CornerKey(a, b, c);
+            foreach (var (tag, la, lb, lc) in log) if (CornerKey(la, lb, lc) == key) return tag;
+            var m = (a + b + c) / 3f;
+            foreach (var (tag, la, lb, lc) in log)
+            {
+                if (PlanDist(new Vector2(m.x, m.z), la, lb, lc) > 0.001f) continue;
+                Vector2 pa = new Vector2(la.x, la.z), pb = new Vector2(lb.x, lb.z), pc = new Vector2(lc.x, lc.z);
+                float den = Cross2(pb - pa, pc - pa);
+                if (Mathf.Abs(den) < 1e-6f) continue;
+                float wb = Cross2(new Vector2(m.x, m.z) - pa, pc - pa) / den, wc = Cross2(pb - pa, new Vector2(m.x, m.z) - pa) / den;
+                float h = la.y + wb * (lb.y - la.y) + wc * (lc.y - la.y);
+                if (Mathf.Abs(h - m.y) < 0.02f) return "~" + tag;
+            }
+            return "";
+        }
+
         /// <summary>The tile's own meshes (not its props): triangles and submeshes (draws).</summary>
         static void TileCost(GameObject tile, out int tris, out int draws)
         {
