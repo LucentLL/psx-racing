@@ -560,6 +560,10 @@ namespace PSXRacing.City
 
         static Bucket WalkBucket => buckets[(int)Slot.Sidewalk];
 
+        /// <summary>Span i's side has a walk at both ends (no ramp): its curb hides the inch under the edge.</summary>
+        static bool FullWalkSpan(CityMap.Edge e, int i, int side) =>
+            walkEdgeNow == e.index && i >= 1 && i < sections.Count && WalkArr(side)[i - 1] > 0f && WalkArr(side)[i] > 0f;
+
         /// <summary>
         /// EmitSide's plain-verge span with a walk at either end: the curb and
         /// walk, then the verge from the walk's back. False where the span

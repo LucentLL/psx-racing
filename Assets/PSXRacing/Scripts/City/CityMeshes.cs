@@ -6103,7 +6103,9 @@ namespace PSXRacing.City
             // surface meets the edge (nor a retaining face stands in its plane).
             // A wedge span's OUTER side is a real edge: its collapsed end sits
             // on the host's edge exactly where the host's verge stands down.
-            if (!sf.gap && !(sf.rail && sf.retain))
+            // (streets pass 4: not where a full walk's curb rises from under the
+            // edge - the face stood inside the curb, a depth tie along its foot)
+            if (!sf.gap && !(sf.rail && sf.retain) && !FullWalkSpan(e, i, side))
                 kerbBucket.WallSloped(eA, eB, eA.y - KerbFaceM, eA.y, eB.y - KerbFaceM, eB.y,
                                       outA, v0, v1, 0f, 0.05f);
 
