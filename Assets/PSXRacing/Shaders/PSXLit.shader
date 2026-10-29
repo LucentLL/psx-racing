@@ -282,6 +282,12 @@ Shader "PSX/Lit"
             float _Wet;
             sampler2D _NightMask;
             float _NightWin;
+            // ==== NIGHT-LOOK PASS 5 (2026-10-28): globals only (PSXGlobals.Apply), never Properties ====
+            sampler2D _PSXRoomTex;      // Resources/CityRooms.png: the rooms' surfaces as luminance (FacRoom)
+            float _PSXRoomsOn;          // 1 = the sheet is bound and the rooms are on
+            float4 _PSXDistHaze;        // THE DISTANT HAZE: x amount (0 = off, the default), y start m, z 1/scale m
+            float _PSXWinWhite;         // LookChoices.WarmWindows A/B: the one window colour as a warm white
+            // ==== END NIGHT-LOOK PASS 5 ====
             float _NightFace;
             float _Shore;
             float _ShoreY;
@@ -596,10 +602,26 @@ Shader "PSX/Lit"
             // punched repeats - each block one tenant's colour. A punched
             // window in a lit block is dark one time in WIN_DROP. The means
             // match the old 0.20 random + 0.16 bands (~0.33 of a tower lit).
-            #define WIN_FULL_FRAC      0.13   // stacks lit whole (x _PSXNight)
-            #define WIN_PART_FRAC      0.50   // stacks lit in blocks (x _PSXNight)
-            #define WIN_BLOCK_ON       0.46   // share of a part-lit stack's blocks that are lit
+            // ==== NIGHT-LOOK PASS 5 (2026-10-28): LATE AT NIGHT A TOWER IS MOSTLY DARK ====
+            // The owner's own Tryon frames: "SOLID YELLOW GRIDS - whole floors
+            // and whole buildings lit"; his NFS frames: dark towers, scattered
+            // lit windows, a few lit floors (lit share of a box 1.4-2.4%, ours
+            // 10-60%). The means were ~0.36 of a tower's windows lit, whole
+            // stacks of 1-3 storeys at 0.13 and curtain blocks of 7-20 bays
+            // unbroken. Now ~0.12: few whole floors (0.13 -> 0.035), fewer
+            // part-lit stacks and blocks (0.50 -> 0.36, 0.46 -> 0.32), shorter
+            // curtain blocks (BLK_CURT_*), and a curtain bay in a lit block is
+            // dark one time in CURT_DROP - offices lit desk by desk, each window
+            // its own brightness (WIN_DIM_FAC; the hue never moves).
+            #define WIN_FULL_FRAC      0.035  // stacks lit whole (x _PSXNight; 0.13 before pass 5)
+            #define WIN_PART_FRAC      0.36   // stacks lit in blocks (x _PSXNight; 0.50 before)
+            #define WIN_BLOCK_ON       0.32   // share of a part-lit stack's blocks that are lit (0.46 before)
             #define WIN_DROP           0.12   // a dark window inside a lit punched block
+            #define CURT_DROP          0.30   // a dark bay inside a lit curtain block (none before)
+            #define BLK_CURT_MIN       1.0    // a curtain block is this many four-bay units...
+            #define BLK_CURT_SPAN      3.0    // ...plus 0..2 more (2..5 before)
+            #define WIN_DIM_FAC        0.38   // the dimmest lit facade window, as a share of the brightest (WIN_DIM 0.55 before)
+            // ==== END NIGHT-LOOK PASS 5 ====
             #define FAR_BLOCK_PX       2.5    // a far lit run of bays is at least this many pixels...
             #define FAR_BLOCK_WIDE     2.0    // ...times this across (2026-10-17: never coarsened UP a tower)
             #define FAR_COVER          0.65   // the least a far lit floor's window cover is
@@ -616,7 +638,12 @@ Shader "PSX/Lit"
             // (1, .96, .36)): a pale lemon, hue 62, sat 0.40. Now a golden
             // yellow - graded sat 0.76-0.80, hue 41-46 - and never clipped
             // (WIN_PEAK below): brightness varies, the hue never does.
-            #define FAC_WIN_WARM       float3(1.00, 0.58, 0.09)
+            // NIGHT-LOOK PASS 5: the owner's gold, or - LookChoices.WarmWindows,
+            // OFF, an A/B only - NFS's measured warm white (sat ~0.26). One
+            // colour either way, for every facade window, shopfront and room.
+            #define FAC_WIN_GOLD       float3(1.00, 0.58, 0.09)
+            #define FAC_WIN_WHITE      float3(1.00, 0.76, 0.50)
+            #define FAC_WIN_WARM       (_PSXWinWhite > 0.5 ? FAC_WIN_WHITE : FAC_WIN_GOLD)
             #define FAC_WIN_CITY_GAIN  0.80   // a facade's lit window x this in the city (WIN_CITY_GAIN 0.62 before 2026-10-26)
             #define WIN_PEAK           1.0    // a facade's lit window is scaled down WHOLE to this peak channel, never clipped
             #define BOUNCE_HIGH        0.30   // the lit streets' bounce high on a tower, as a share of the street's
@@ -761,7 +788,8 @@ Shader "PSX/Lit"
             // facade yellow (FAC_WIN_WARM), dimmer or brighter.
             float3 FacWinColour(float th, float cityGain)
             {
-                return FAC_WIN_WARM * (lerp(WIN_DIM, 1.0, frac(th * 11.3)) * WIN_GAIN * cityGain);
+                // (NIGHT-LOOK PASS 5: WIN_DIM_FAC, a wider spread, was WIN_DIM)
+                return FAC_WIN_WARM * (lerp(WIN_DIM_FAC, 1.0, frac(th * 11.3)) * WIN_GAIN * cityGain);
             }
 
             // ONE STOREY's state along a run of bays (THE FAR FLOORS): its
@@ -780,6 +808,77 @@ Shader "PSX/Lit"
                 float on = max(isFull, isPart * step(hB, WIN_BLOCK_ON * keepW));
                 return float4(FacWinColour(isFull > 0.5 ? occ * 7.13 + stack : hB, cityGain), on);
             }
+
+            // ==== NIGHT-LOOK PASS 5 (2026-10-28): THE ROOMS BEHIND THE GLASS ====
+            // The owner's NFS frames against his own: our lit window was one
+            // flat yellow pane, "nothing behind the glass". Near a facade a lit
+            // window now shows a ROOM - interior mapping (van Dongen 2008): no
+            // geometry, the eye's ray traced through a box behind the pane to
+            // the wall, ceiling or floor it leaves by, and ONE texture fetch.
+            // The surfaces are the owner's pack textures as LUMINANCE
+            // (Resources/CityRooms.png, tools/night/room_atlas.py: R
+            // wallpaper_wall_pt_1 with its wainscot, G building_ceiling_pt_1, B
+            // carpet_pt_1_1, A wooden_floor_pt_1), lit by the window's own
+            // colour - so a room varies the brightness, never the hue (owner
+            // rule: ONE yellow). Full to ROOM_NEAR, gone by ROOM_FAR and under
+            // ~2 px a room (the unit's sharpness), where the flat glow carries on.
+            #define ROOM_NEAR          110.0  // metres: rooms whole inside this...
+            #define ROOM_FAR           180.0  // ...the flat glow past this
+            #define ROOM_WALL_M        2.0    // metres along a wall one repeat of the wallpaper covers (floor to ceiling up it)
+            #define ROOM_CEIL_M        1.2    // ...of the ceiling tile
+            #define ROOM_FLOOR_M       1.6    // ...of the carpet or the boards
+            #define ROOM_TEX_AMT       0.55   // how much of its pattern a surface shows (the planes' light reads first)
+            #define ROOM_DEPTH_LO      4.5    // a room's depth behind the glass, metres, by the room
+            #define ROOM_DEPTH_HI      8.5
+            #define ROOM_AO            0.50   // a room's corners and edges, as a share of the open surface...
+            #define ROOM_AO_W          0.14   // ...over this share of the face from its edge
+            #define ROOM_GAIN          1.75   // the room's mean x this ~ the flat glow's mean (WIN_DETAIL's)
+            #define ROOM_TEX_PX        256.0  // the sheet's texels a repeat (its mip pick)
+            #define ROOM_TEX_M         1.6    // (the mip pick's metres a repeat)
+            // rx, ry: the pixel on the window plane (0..1 across the room, 0..1
+            // up the storey: floor to ceiling); d: the eye's ray into the room
+            // in room units (x across, y up, z in, z > 0); roomW, storeyM,
+            // depthM its size in metres; seed the room's; lod the fetch's mip.
+            float FacRoom(float rx, float ry, float3 d, float roomW, float storeyM, float depthM, float seed, float lod)
+            {
+                float3 o = float3(rx, ry, 0.0);
+                float3 dd = float3(d.x >= 0.0 ? max(d.x, 1e-4) : min(d.x, -1e-4),
+                                   d.y >= 0.0 ? max(d.y, 1e-4) : min(d.y, -1e-4), max(d.z, 1e-4));
+                // the exit through each pair of walls: x 0..1, y 0..1, z 0..1 (z = 1 the back wall)
+                float3 tEx = (step(0.0, dd) - o) / dd;
+                float isZ = step(tEx.z, min(tEx.x, tEx.y));
+                float isY = (1.0 - isZ) * step(tEx.y, tEx.x);
+                float isX = (1.0 - isZ) * (1.0 - isY);
+                float t = min(tEx.z, min(tEx.x, tEx.y));
+                float3 h = saturate(o + dd * t);
+                float ceilg = isY * step(0.0, dd.y);
+                float flr = isY - ceilg;
+                // repeats along the surface it hits (a wall's v floor to
+                // ceiling, one repeat: the wainscot stands on the floor)
+                float2 mB = float2(h.x * roomW / ROOM_WALL_M, h.y);
+                float2 mS = float2(h.z * depthM / ROOM_WALL_M, h.y);
+                float2 mF = float2(h.x * roomW, h.z * depthM) / lerp(ROOM_FLOOR_M, ROOM_CEIL_M, ceilg);
+                float2 tuv = isZ * mB + isX * mS + isY * mF + float2(frac(seed * 3.71), isY * frac(seed * 7.31));
+                float4 t4 = tex2Dlod(_PSXRoomTex, float4(tuv, 0.0, lod));
+                float floorL = frac(seed * 5.17) < 0.6 ? t4.b : t4.a;     // carpet, or wood
+                float s = (isZ + isX) * t4.r + ceilg * t4.g + flr * floorL;
+                // the sheet holds sqrt(linear luminance) at a mean of 0.5; a
+                // surface shows ROOM_TEX_AMT of its pattern
+                float lum = lerp(1.0, s * s * 4.0, ROOM_TEX_AMT);
+                // THE ROOM READS BY ITS PLANES: lit from the ceiling fittings -
+                // the ceiling brightest, the back wall less (brighter up toward
+                // the fittings), the side walls and the floor darker, all of it
+                // darker deeper in - and darker into every corner and edge
+                // (each face's own 0..1 coordinates)
+                float shade = isZ * 0.55 + isX * 0.40 + ceilg * 1.00 + flr * 0.30;
+                shade *= lerp(1.0, lerp(0.70, 1.15, h.y), isZ + isX);
+                shade *= lerp(1.0, 0.50, h.z);
+                float2 f2 = isZ * h.xy + isX * h.zy + isY * h.xz;
+                float edge = min(min(f2.x, 1.0 - f2.x), min(f2.y, 1.0 - f2.y));
+                shade *= lerp(ROOM_AO, 1.0, smoothstep(0.0, ROOM_AO_W, edge));
+                return lum * shade * ROOM_GAIN;
+            }
+            // ==== END NIGHT-LOOK PASS 5 ====
         #endif
 
             // THE SWASH on a beach (_Shore): Tidewater's run-up curve
@@ -1147,6 +1246,16 @@ Shader "PSX/Lit"
                 // (and a crown's accent) broke into the glittering static.
                 float3 facQ = floor(i.facade.rgb * 127.5 + 0.5);
                 float facKey = PSXLitHash(float2(facQ.r + facQ.g * 256.0, facQ.b + 17.0));
+                // ==== NIGHT-LOOK PASS 5: the wall's own frame for THE ROOMS (FacRoom) ====
+                // world metres per repeat along (u) and up (v) the wall, solved
+                // from the screen derivatives of the world position and the
+                // tiled uv (exact on a plane) - here, outside every branch
+                float2 rmU = float2(fdx.x, fdy.x) * FACADE_COLS, rmV = float2(fdx.y, fdy.y);
+                float rmDet = rmU.x * rmV.y - rmV.x * rmU.y;
+                float rmInv = abs(rmDet) > 1e-14 ? 1.0 / rmDet : 0.0;
+                float3 facTu = (dWx * rmV.y - dWy * rmV.x) * rmInv;
+                float3 facTv = (dWy * rmU.x - dWx * rmU.y) * rmInv;
+                // ==== END NIGHT-LOOK PASS 5 ====
 
                 // THE TOWER-SCALE STRUCTURE (the header above FstSpan). The
                 // wall from UV1 (w = 2 + its pack, CityMeshes.FacadeStructPack;
@@ -1695,13 +1804,19 @@ Shader "PSX/Lit"
                     float partP = WIN_PART_FRAC * _PSXNight;
                     float isFull = step(occ, fullP);
                     float isPart = step(occ, fullP + partP) * (1.0 - isFull);
-                    float blkW = facCurt > 0.5 ? 2.0 + floor(frac(bk * 7.77) * 4.0) : 1.0 + floor(frac(bk * 3.33) * 2.0);
+                    // (NIGHT-LOOK PASS 5: shorter curtain blocks, BLK_CURT_*)
+                    float blkW = facCurt > 0.5 ? BLK_CURT_MIN + floor(frac(bk * 7.77) * BLK_CURT_SPAN) : 1.0 + floor(frac(bk * 3.33) * 2.0);
                     float unitX = facCurt > 0.5 ? floor(winUV.x * 4.0) : floor(winUV.x);
                     float blk = floor(unitX / blkW);
                     float hb = PSXLitHash(float2(blk + bk * 977.0, storey + bk * 389.0));
-                    float hw = PSXLitHash(float2(gid + unitX * 311.0, storey + bk * 59.0));
-                    float keepW = facCurt > 0.5 ? 1.0 : 1.0 - WIN_DROP;
-                    float onU = max(isFull, isPart * step(hb, WIN_BLOCK_ON) * (facCurt > 0.5 ? 1.0 : step(WIN_DROP, hw)));
+                    // ==== NIGHT-LOOK PASS 5: a WINDOW of a curtain wall is its
+                    // room (two bays), so a lit block is broken bay pair by bay
+                    // pair (CURT_DROP) and each window its own brightness ====
+                    float winKey = facCurt > 0.5 ? floor(winUV.x * facBays * 0.5) : gid + unitX * 311.0;
+                    float hw = PSXLitHash(float2(winKey, storey + bk * 59.0));
+                    float keepW = facCurt > 0.5 ? 1.0 - CURT_DROP : 1.0 - WIN_DROP;
+                    float onU = max(isFull, isPart * step(hb, WIN_BLOCK_ON) * step(facCurt > 0.5 ? CURT_DROP : WIN_DROP, hw));
+                    // ==== END NIGHT-LOOK PASS 5 ====
                     float floorMean = isFull + isPart * WIN_BLOCK_ON * keepW;
                     float litMean = fullP + partP * WIN_BLOCK_ON * keepW;
                     // THE FAR FLOORS (the owner, 2026-10-17, on the far blocks
@@ -1735,7 +1850,8 @@ Shader "PSX/Lit"
                         }
                         unitGlow = acc / FAR_TAPS;
                     }
-                    else unitGlow = FacWinColour(isFull > 0.5 ? occ * 7.13 + stack : hb, cityGain) * onU;
+                    // (NIGHT-LOOK PASS 5: the brightness by the window, hw, not the block)
+                    else unitGlow = FacWinColour(hw * 3.17 + (isFull > 0.5 ? occ * 7.13 + stack : hb), cityGain) * onU;
                     // a shopfront is the facade's own yellow too (WIN_SHOP's cream
                     // under vivid office floors was a second shade, 2026-10-26)
                     unitGlow = lerp(unitGlow, FAC_WIN_WARM * (WIN_GAIN * cityGain), shop);
@@ -1751,6 +1867,33 @@ Shader "PSX/Lit"
                     // window (facade structure) - after the floor, so far off
                     // they stay dark too
                     cover *= 1.0 - facSolid;
+                    // ==== NIGHT-LOOK PASS 5: THE ROOMS BEHIND THE GLASS (FacRoom) ====
+                    // two curtain bays or one punched window a room; only a near,
+                    // resolved, lit office window (never a shopfront, never past
+                    // ROOM_FAR), and the fetch only where there is light to show
+                    float roomsPer = facCurt > 0.5 ? facBays * 0.5 : fstBays;
+                    float mPerU = length(facTu);
+                    float storeyM = length(facTv) / facRows;
+                    float roomPx = 1.0 / max(facFpU * roomsPer, 1e-4);
+                    float roomK = _PSXRoomsOn * (1.0 - step(0.5, farOn)) * (1.0 - shop)
+                                * (1.0 - smoothstep(ROOM_NEAR, ROOM_FAR, eyeDist)) * smoothstep(3.0, 6.0, roomPx)
+                                * step(0.5, mPerU) * step(0.5, storeyM);
+                    float roomL = 1.0;
+                    if (roomK > 0.001 && max(unitGlow.r, unitGlow.g) * cover > 1e-4)
+                    {
+                        float3 rT = facTu / mPerU, rB = facTv / (storeyM * facRows);
+                        float roomW = mPerU / roomsPer;
+                        float rxc = winUV.x * roomsPer;
+                        float seed = PSXLitHash(float2(floor(rxc) + bk * 131.0, storey + bk * 71.0));
+                        float depthM = lerp(ROOM_DEPTH_LO, ROOM_DEPTH_HI, frac(seed * 13.7));
+                        float3 rd = float3(dot(-V, rT) / roomW, dot(-V, rB) / storeyM, abs(dot(V, N)) / depthM);
+                        float lod = log2(max(ROOM_TEX_PX * facFpU * mPerU / ROOM_TEX_M, 1.0));
+                        roomL = FacRoom(frac(rxc), frac(facYF), rd, roomW, storeyM, depthM, seed, lod);
+                    }
+                    // the room IS the window's light on its surfaces: the photo's
+                    // own texel (WIN_DETAIL) gives way to it
+                    detail = lerp(detail, roomL, roomK);
+                    // ==== END NIGHT-LOOK PASS 5 ====
                     float3 glow = unitGlow * (cover * detail * _PSXNight);
                 #else
                     // WHICH windows are lit must not change inside a window.
@@ -1854,6 +1997,22 @@ Shader "PSX/Lit"
                     emit = max(emit, PSXEmitShare(wash, col) * WIN_EMIT * 0.5);
                 }
             #endif
+                // ==== NIGHT-LOOK PASS 5 (2026-10-28): THE DISTANT HAZE ====
+                // The owner: "Light haze far out only" (LookChoices.DistantHaze,
+                // OFF until his A/B). TimeOfDay sets the amount in the lit city
+                // at dusk and night only - 0 by day, in Fog, everywhere else - so
+                // this uniform branch costs nothing when it is off. Past
+                // _PSXDistHaze.y (1 km) the world gathers a little of the sky's
+                // own horizon paint (fogCol: the band is the same colour, so a
+                // far tower settles into it with no seam); lit windows and the
+                // halation's emitters thin with it. Never near the car.
+                if (_PSXDistHaze.x > 0.0)
+                {
+                    float hz = _PSXDistHaze.x * (1.0 - exp(-max(eyeDist - _PSXDistHaze.y, 0.0) * _PSXDistHaze.z));
+                    col = lerp(col, fogCol, hz);
+                    emit *= 1.0 - hz;
+                }
+                // ==== END NIGHT-LOOK PASS 5 ====
                 // The alpha is the emitter mask (PSXTone.cginc) on the PSX
                 // camera's own frame: this pass blends nothing, the clip above
                 // has already used tex.a, and that frame's alpha is what

@@ -3998,6 +3998,10 @@ namespace PSXRacing.City
         /// two-way trunk or freeway, lights both sides staggered by half of
         /// this.</summary>
         const float LampPitchStreetM = 55f, LampPitchArterialM = 38f, LampPitchTrunkM = 42f, LampPitchFreewayM = 60f;
+        /// <summary>NIGHT-LOOK PASS 5: a pole road on a city race route stands
+        /// its own lamp posts (see <see cref="PlaceLamps"/>). Tools set it
+        /// false for the BEFORE of an A/B; PSX_ROUTELAMPS=0 does the same.</summary>
+        public static bool RouteLamps = System.Environment.GetEnvironmentVariable("PSX_ROUTELAMPS") != "0";
         /// <summary>
         /// UPTOWN'S ACORN POSTS (WP-15; the Street View survey, spot A1): black
         /// pedestrian posts 4.5-5 m tall with an acorn globe, every 20-30 m on
@@ -4147,8 +4151,19 @@ namespace PSXRacing.City
         {
             if (e.link || e.tunnel || e.bridge) return;
             // WP-15: a road with a pole line is lit by the cobra-heads on its
-            // poles (CityPoles); it stands no lamp posts of its own
-            if (CityPoles.Enabled && CityPoles.IsPoleEdge(map, e)) return;
+            // poles (CityPoles); it stands no lamp posts of its own...
+            // NIGHT-LOOK PASS 5 (2026-10-28, the owner's Tryon Sprint frames:
+            // "the street is black with no visible lamp pools"): ...EXCEPT on
+            // a city race route. Its run-off (RaceRunOff, 8 m past the drawn
+            // edge, 16 m outside a bend) is clear zone on the static mask, and a
+            // pole's foot is tried only 1-3.4 m past the road's clear zone - so
+            // along every route outside uptown no pole ever stood, and with
+            // this return no lamp post either: S Tryon from South End to NoDa
+            // (and the Independence Sprint's surface streets) had no light at
+            // all. A route's pole road stands davit posts as any street does -
+            // the same verge, DOT offset, building and pavement rules - and in
+            // the run-off they BREAK AWAY (TryLamp), as uptown's acorns do.
+            if (CityPoles.Enabled && CityPoles.IsPoleEdge(map, e) && !(RouteLamps && RaceRunOff.OnRoute(map, e.index))) return;
             int n = sections.Count;
             if (n < 2) { LampTrace?.Invoke(e.index, -2f, -1); return; }
             if (lampTrims != trims || lampFanReach == null || lampFanReach.Length != map.nodes.Length)

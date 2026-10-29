@@ -132,6 +132,7 @@ Shader "PSX/Halo"
             // past it, so a lit window is never drawn twice. 0: no proxies.
             float _PSXProxyFarM;
             #define WIN_HANDOVER_M 250.0    // metres past that a window dot comes up over
+            float4 _PSXDistHaze;    // NIGHT-LOOK PASS 5: the distant haze (PSX/Lit's; x 0 = off, the default)
             #define HALO_FULL_FAR  0.96     // ...when the streamed lamps hold whole this far into their end
             #define SKY_OWN_NEAR   5.0      // PSXLit.shader's SKYLINE_OWN_NEAR / FAR, the same numbers
             #define SKY_OWN_FAR    40000.0
@@ -268,6 +269,10 @@ Shader "PSX/Halo"
                         fade *= smoothstep(0.0, 0.06, t) * (1.0 - smoothstep(BEACON_ON - 0.10, BEACON_ON, t));
                     }
                 }
+                // NIGHT-LOOK PASS 5: THE DISTANT HAZE (LookChoices.DistantHaze,
+                // OFF by default) dims a light by its real distance as PSX/Lit
+                // fades the world behind it - never cut, only fainter
+                fade *= 1.0 - _PSXDistHaze.x * (1.0 - exp(-max(realDist - _PSXDistHaze.y, 0.0) * _PSXDistHaze.z));
 
                 // A LENS THAT FACES ONE WAY (a traffic signal's, uv1.y > 0): lit
                 // from in front, nothing from behind or edge-on - the head and
