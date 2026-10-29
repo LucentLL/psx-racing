@@ -370,7 +370,8 @@ def draw_map(edges, spots, top, summary, path, maxpx=2600):
     y += 12
     tot = collections.Counter()
     for s in spots:
-        tot[s["cat"]] += s["count"]
+        if s["sev"] > 0:
+            tot[s["cat"]] += s["count"]
     for cat in CATS:
         if cat in ("speed", "traffic") or tot[cat] == 0:
             continue
@@ -485,12 +486,19 @@ def main():
             top = shown
 
     # ---- the hotspot table and the events
-    with io.open(os.path.join(a.out, "hotspots.csv"), "w", encoding="utf-8", newline="") as f:
+    hs_path = os.path.join(a.out, "hotspots.csv")
+    with io.open(hs_path, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(["rank", "score", "severity", "count", "cars", "cat", "sub", "x", "z", "y", "node", "edge", "edge2", "roads", "moves", "value_max", "static", "diagnosis", "example"])
-        for i, s in enumerate(spots, 1):
+        for i, s in enumerate([x for x in spots if x["sev"] > 0], 1):
             w.writerow([i, "%.1f" % s["score"], s["sev"], s["count"], s["cars"], s["cat"], s["sub"], "%.0f" % s["x"], "%.0f" % s["z"], "%.1f" % s["y"],
-                        s["node"], s["edge"], s["edge2"], " / ".join(s["roads"]), " / ".join(s["moves"]), "%.3g" % s["vmax"], int(s["static"]), s["diag"], s["detail"][:400]])
+                        s["node"], s["edge"], s["edge2"], " / ".join(s["roads"]), " / ".join(s["moves"]), "%.3g" % s["vmax"], int(s["static"]), s["diag"][:90], s["detail"][:200]])
+    if os.path.getsize(hs_path) > 2_500_000:
+        with io.open(hs_path, "rb") as fi, gzip.open(hs_path + ".gz", "wb", compresslevel=9) as fo:
+            shutil.copyfileobj(fi, fo)
+        os.remove(hs_path)
+    elif os.path.exists(hs_path + ".gz"):
+        os.remove(hs_path + ".gz")
     ev_src = os.path.join(a.raw, "events.csv")
     if os.path.getsize(ev_src) > 3_000_000:
         with io.open(ev_src, "rb") as fi, gzip.open(os.path.join(a.out, "events.csv.gz"), "wb", compresslevel=9) as fo:
@@ -523,6 +531,8 @@ def main():
     n_drv = sum(v["edges_driven"] for v in cov.values())
     tot = collections.Counter(); tot_spots = collections.Counter(); tot_score = collections.Counter()
     for s in spots:
+        if s["sev"] <= 0:
+            continue
         tot[s["cat"]] += s["count"]; tot_spots[s["cat"]] += 1; tot_score[s["cat"]] += s["score"]
     L = []
     L.append("# Charlotte road logic, by traffic (census)\n")
@@ -538,7 +548,7 @@ def main():
              "(steps, crests, sags as the vertical speed a car at the limit gets), its heading (kinks, bends tighter than the limit), crossing flows in one box. "
              "Plus a static audit that needs no driving (signal phase groups, unsigned big-road crossings, one-way traps and islands, limits, lane alignment, merge room).")
     L.append("- Score = severity (0-10, below) x count. Counts of driven events grow with traffic, so a busy junction ranks above a quiet one with the same fault.")
-    L.append("- Files: `Docs/traffic_census/census_map.png` (hotspots by category), `census_top6.jpg` (close-ups), `hotspots.csv` (every hotspot), `%s` (every event), `summary.json`.\n" % ev_name)
+    L.append("- Files: `Docs/traffic_census/census_map.png` (hotspots by category), `census_top6.jpg` (close-ups), `hotspots.csv` (every scored hotspot; .gz when large), `%s` (every event), `summary.json`.\n" % ev_name)
     L.append("![map](traffic_census/census_map.png)\n")
     if has_sheet:
         L.append("![top 6](traffic_census/census_top6.jpg)\n")
