@@ -304,6 +304,15 @@ namespace PSXRacing.City
             float d03 = w.hd[i0] - w.hd[i3], d36 = w.hd[i3] - w.hd[i6], d06 = w.hd[i0] - w.hd[i6];
             if (d03 < 1f || d36 < 1f || d06 > 14f) return;
             float vLim = L.turn ? Mathf.Min(limitMps[L.edge], limitMps[L.edge2]) : limitMps[L.edge];
+            // road-logic-bends: on a run the limit is the curve's advisory where one
+            // applies (CityCurves: the number the exit-speed sign shows and the
+            // traffic drives) - a signed curve is driven at its advisory
+            float vAdv = float.MaxValue;
+            if (!L.turn)
+            {
+                vAdv = CityCurves.MpsAt(map, L.edge, Mathf.Clamp(L.s0 + L.dir * c.u, 0f, map.edges[L.edge].length));
+                vLim = Mathf.Min(vLim, vAdv);
+            }
 
             // VERTICAL: the grade change over the last ~6 m (+ a sag, - a
             // crest) as the vertical velocity it gives a car at the limit
@@ -345,7 +354,7 @@ namespace PSXRacing.City
                     w.latCool = Time.time + 3f;
                     float vOk = Mathf.Sqrt(ALat / Mathf.Max(1e-4f, kh));
                     var re = map.edges[L.edge];
-                    Note(c, "lateral", re.link && re.speedKmh <= 0 ? "ramp-bend-no-limit" : "bend-tighter-than-limit", aLat / G,
+                    Note(c, "lateral", re.link && re.speedKmh <= 0 && vAdv == float.MaxValue ? "ramp-bend-no-limit" : "bend-tighter-than-limit", aLat / G,
                          $"radius {1f / Mathf.Max(1e-4f, kh):0} m mid-road: {aLat / G:0.00} g at the limit {vLim * 3.6f:0} km/h (comfortable {vOk * 3.6f:0} km/h); " + Describe(c));
                 }
                 if (turn1 >= 4f && d01 < 1.6f && turn1 >= 0.6f * turn6 && Time.time > w.kinkCool)

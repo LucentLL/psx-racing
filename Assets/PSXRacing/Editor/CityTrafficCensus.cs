@@ -713,8 +713,14 @@ namespace PSXRacing.EditorTools
                 // PSX_CENSUS_SHOTEYE=driver (road-logic lanes): also the lane
                 // paint as a driver sees it - 1.2 m over the road, 16 m short
                 // of the spot along the move, looking down the lanes
-                if (System.Environment.GetEnvironmentVariable("PSX_CENSUS_SHOTEYE") == "driver")
+                string eyeMode = System.Environment.GetEnvironmentVariable("PSX_CENSUS_SHOTEYE") ?? "";
+                if (eyeMode.Contains("driver"))
                     yield return Shot(Path.Combine(dir, $"census_top{i}_driver.png"), at - f * 16f + Vector3.up * 1.2f, at + f * 30f + Vector3.up * 0.4f);
+                // PSX_CENSUS_SHOTEYE=driver+plan (road-logic bends): and the PLAN
+                // of the spot - 80 m up, looking down with the move up the frame -
+                // for a curve's before/after (the paint's line through the bend)
+                if (eyeMode.Contains("plan"))
+                    yield return Shot(Path.Combine(dir, $"census_top{i}_plan.png"), at - f * 4f + Vector3.up * 80f, at + f * 1f);
                 CityTrafficCensus.Line($"shot {i}: {label}");
             }
             Done();

@@ -34,6 +34,17 @@
 // edge); past ChordCapM (10 m) the gate's lone-vertex facet, min(c, 10 m) *
 // turn / 8 <= eps, sets it (a gentle motorway arc keeps chords of R / 62).
 //
+// BENDS (road-logic-bends, 2026-10-29, the traffic census' tight bends): a
+// strand's near-collinear vertices are collapsed (Douglas-Peucker at
+// BENDS_COLLAPSE_EPS, 10 cm) before the shares are solved, so a mapped corner
+// is no longer starved by the 5 m points PARA's eased offsets leave beside it;
+// and on freeway and trunk mainlines a corner whose radius is under
+// BENDS_STARVE of what it wants and of its class design radius (0.12 g at the
+// road's speed) merges with its neighbour like a corner under its floor, the
+// apex kept within Emax of the segment it replaces. I-85 at (-6917,7464):
+// R 146-158 m arcs in a 480-600 m curve -> one curve. OFF by default (the
+// median gate, below): PSX_FILLET_BENDS=1 turns it on.
+//
 // Review 2026-09-30:
 //   * LONE VERTICES stay vertices: where the line turns by 8 eps / ChordCapM
 //     (0.92 degrees) or less in all within ChordCapM either side, the facet is
@@ -55,6 +66,21 @@ const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
 /// Emax, the largest departure from a mapped corner (plan WP-11): street
 /// 0.75 m, arterial 1.0, trunk 1.25, motorway 1.5, ramp 1.25.
 export const emaxOf = w => w.link ? 1.25 : [0.75, 0.75, 1.0, 1.0, 1.25, 1.5][w.rank];
+
+/// BENDS (road-logic-bends, 2026-10-29): the Douglas-Peucker tolerance of the
+/// collapse before a strand's shares are solved (runStrand). 0.10 m is a fifth
+/// of the step-3 simplify and under a tenth of every class Emax: what it drops
+/// is densified offset (PARA, snapEnd) or mapping noise, never a corner.
+export const BENDS_COLLAPSE_EPS = +(process.env.PSX_FILLET_BENDS_EPS || 0.10);
+/// A corner whose fillet radius is under this share of min(the radius it wants,
+/// its class design radius) is starved and merges with a neighbour (runStrand).
+export const BENDS_STARVE = +(process.env.PSX_FILLET_BENDS_STARVE || 0.6);
+/// ... across a reverse turn under this share of its own (offset / mapping noise).
+export const BENDS_REVERSE = 0.15;
+/// The class design radius for the starve test: the radius a car at the road's
+/// speed takes at 0.12 g (AASHTO e + f for a comfortable open-road curve),
+/// v = maxspeed or the class default (lineclean's mphOf).
+export const bendsDesignR = mph => { const v = mph * 0.44704; return v * v / (0.12 * 9.80665); };
 
 /// THE MITRED JUNCTIONS: nodes of 3+ arms the builder draws as a mitred
 /// THROUGH pair with every other arm clipped beside it (a ramp's split or
@@ -115,6 +141,14 @@ export function mitredThrough(edges, nodes, hwOf) {
 export function filletGraph(edges, nodes, opts) {
   const { rFloor, emax, hw, eps = 0.02, chordCap = 10, collinearDeg = 0.02, through = new Map(),
           innerMin = 3, loneRule = true } = opts;
+  // BENDS (road-logic-bends): the strand collapse before the shares (runStrand)
+  // OFF BY DEFAULT (2026-10-29 gate): measured on PSXCity it cut the freeway
+  // spikes 109 -> 30 but each carriageway of a divided road is re-fitted on its
+  // own, and the race routes' medians moved with them (MEDIAN ACROSS two+/none
+  // 25/24 -> 31/26, boxes 11 -> 13). PSX_FILLET_BENDS=1 turns it on; ship it
+  // when a twin pair is re-fitted together.
+  const collapseEps = opts.collapseEps ?? (process.env.PSX_FILLET_BENDS === '1' ? BENDS_COLLAPSE_EPS : 0);
+  const rDesign = opts.rDesign || null;
   const colTurn = collinearDeg * DEG;
   const loneTurn = loneRule ? Math.max(colTurn, 8 * eps / chordCap) : colTurn;
   const arms = Array.from({ length: nodes.length }, () => []);
@@ -203,7 +237,7 @@ export function filletGraph(edges, nodes, opts) {
 
   const stats = { strands: strands.length, closed: 0, vertices: 0, filleted: 0, merged: 0, tight: 0, overEmax: 0,
                   nodesMoved: 0, nodeMoveMax: 0, pointsBefore: 0, pointsAfter: 0, armsFollowed: 0, junctionsFilleted: 0,
-                  lone: 0, held: 0, oneWayClash: 0, foldFree: 0 };
+                  lone: 0, held: 0, oneWayClash: 0, foldFree: 0, collapsed: 0 };
   const review = [];
   for (const e of edges) stats.pointsBefore += e.pts.length;
   for (let n = 0; n < nodes.length; n++) if (two[n] && oneWayClash(n, arms[n][0], arms[n][1])) stats.oneWayClash++;
@@ -275,17 +309,64 @@ export function filletGraph(edges, nodes, opts) {
     const RF = v => Math.max(...v.cls.map(rFloor));   // the class floor (the stricter arm at a class change)
     const EM = v => Math.min(...v.cls.map(emax));
     const HW = v => Math.max(...v.cls.map(hw));
-    for (const v of W) { v.rf = RF(v); v.em = EM(v); v.hw = HW(v); v.srcs = [v.p]; }
+    const RC = v => rDesign ? Math.max(...v.cls.map(rDesign)) : 0;   // BENDS: the class design radius
+    for (const v of W) { v.rf = RF(v); v.em = EM(v); v.hw = HW(v); v.rc = RC(v); v.big = v.cls.every(e => e.way && !e.way.link && e.way.rank >= 4); v.srcs = [v.p]; }
+
+    // ---- BENDS (road-logic-bends, 2026-10-29): collapse the near-collinear
+    // vertices BETWEEN the mapped corners before the shares are solved. PARA's
+    // eased offsets (lineclean step 6) arrive here densified every ~5 m, and a
+    // corner may only take its two neighbouring segments, so it was starved:
+    // I-85 at (-6850,7509), a 4.5 deg OSM corner between 5 m PARA points, was
+    // drawn as a 15 m arc of R 188 m inside the road's 480 m curve, with
+    // reverse-curving chords between (0.65 g at 60 mph, the traffic census'
+    // top freeway bend). Douglas-Peucker at collapseEps over the strand, its
+    // ends and every junction (3+ arm) vertex fixed; a dropped 2-arm node is
+    // carried by the kept vertex before it and projected onto the line drawn,
+    // as a merged corner's nodes are. PSX_FILLET_BENDS=0 is the before.
+    const carried = [];   // { node, v }: dropped 2-arm nodes, v = the kept vertex before (merges follow .into)
+    if (collapseEps > 0 && W.length > 3) {
+      const m0 = W.length, keep = new Uint8Array(m0);
+      keep[0] = keep[m0 - 1] = 1;
+      for (let i = 1; i < m0 - 1; i++) if (W[i].nodes.some(n => !two[n])) keep[i] = 1;
+      const rdpSpan = (a, b) => {
+        const stack = [[a, b]];
+        while (stack.length) {
+          const [lo, hi] = stack.pop();
+          if (hi - lo < 2) continue;
+          const A = W[lo].p, B = W[hi].p, dx = B[0] - A[0], dz = B[1] - A[1], L2 = dx * dx + dz * dz;
+          let worst = -1, wi = -1;
+          for (let i = lo + 1; i < hi; i++) {
+            const P = W[i].p;
+            let t = L2 > 0 ? ((P[0] - A[0]) * dx + (P[1] - A[1]) * dz) / L2 : 0; t = Math.max(0, Math.min(1, t));
+            const d = Math.hypot(P[0] - A[0] - dx * t, P[1] - A[1] - dz * t);
+            if (d > worst) { worst = d; wi = i; }
+          }
+          if (worst > collapseEps) { keep[wi] = 1; stack.push([lo, wi], [wi, hi]); }
+        }
+      };
+      for (let a = 0, b = 1; b < m0; b++) if (keep[b]) { rdpSpan(a, b); a = b; }
+      let dropped = 0;
+      for (let i = 0; i < m0; i++) if (!keep[i]) dropped++;
+      if (dropped) {
+        const W2 = [];
+        for (let i = 0; i < m0; i++) {
+          if (keep[i]) { W2.push(W[i]); continue; }
+          for (const n of W[i].nodes) carried.push({ node: n, v: W2[W2.length - 1] });
+        }
+        stats.collapsed += dropped;
+        W.length = 0; W.push(...W2);
+      }
+    }
 
     // ---- shares, with merges of short same-hand pairs until nothing merges
-    let T, D, U, Vv, R, lone;
+    let T, D, U, Vv, R, lone, want;
     const solve = () => {
       const m = W.length;
       D = new Float64Array(m); T = new Float64Array(m); R = new Float64Array(m);
       U = new Array(m); Vv = new Array(m);
       const L = new Float64Array(m);   // L[i]: segment i -> i+1
       for (let i = 0; i + 1 < m; i++) L[i] = dist(W[i].p, W[i + 1].p);
-      const want = new Float64Array(m), wt = new Float64Array(m);
+      want = new Float64Array(m); const wt = new Float64Array(m);
       for (let i = 1; i + 1 < m; i++) {
         const a = W[i - 1].p, b = W[i].p, c = W[i + 1].p;
         const ux = b[0] - a[0], uz = b[1] - a[1], vx = c[0] - b[0], vz = c[1] - b[1];
@@ -350,17 +431,30 @@ export function filletGraph(edges, nodes, opts) {
       return L;
     };
     let L = solve();
-    for (let pass = 0; pass < 64; pass++) {
+    // BENDS: a corner STARVED of its radius - under BENDS_STARVE of the
+    // radius it wants and of its class design radius (rDesign, from the
+    // speed) - merges like one under its floor: a mapped curve drawn as two
+    // close corners (I-85 e883 at (-4846,3883): 4.7 + 2.4 deg 18 m apart in a
+    // 500 m curve, drawn R 188 m) becomes one arc; a reverse turn under
+    // BENDS_REVERSE of the corner's (offset or mapping noise) may be absorbed.
+    // Every merge still keeps its arc within Emax of every mapped corner.
+    const passCap = collapseEps > 0 ? 64 + 4 * W.length : 64;
+    for (let pass = 0; pass < passCap; pass++) {
       let did = false;
       for (let i = 1; i + 1 < W.length && !did; i++) {
-        if (lone[i] || R[i] >= W[i].rf * 0.999) continue;
+        if (lone[i]) continue;
+        const floorStarved = R[i] < W[i].rf * 0.999;
+        const bendStarved = collapseEps > 0 && T[i] > 1e-4 && W[i].rc > 0 && W[i].big &&
+          R[i] < BENDS_STARVE * Math.min(want[i] / Math.tan(Math.abs(D[i]) / 2), W[i].rc);
+        if (!floorStarved && !bendStarved) continue;
         // the neighbour across the shorter side that limits it
         const cands = [];
         if (i - 1 >= 1) cands.push(i - 1);
         if (i + 1 <= W.length - 2) cands.push(i + 1);
         cands.sort((x, y) => L[Math.min(i, x)] - L[Math.min(i, y)]);
         for (const j of cands) {
-          if (Math.abs(D[j]) >= colTurn && Math.sign(D[j]) !== Math.sign(D[i])) continue;
+          if (Math.abs(D[j]) >= colTurn && Math.sign(D[j]) !== Math.sign(D[i]) &&
+              !(bendStarved && Math.abs(D[j]) <= BENDS_REVERSE * Math.abs(D[i]))) continue;
           const a = Math.min(i, j), b = Math.max(i, j);
           const Dt = D[a] + D[b];
           if (Math.abs(Dt) > 175 * DEG) continue;
@@ -373,6 +467,9 @@ export function filletGraph(edges, nodes, opts) {
           if (!(al > 0.05 && be < -0.05)) continue;
           const X = [p[0] + r[0] * al, p[1] + r[1] * al];
           if (dist(X, W[a].p) > L[a] + 1 || dist(X, W[b].p) > L[a] + 1) continue;
+          // BENDS: a starved (not floored) corner merges only where the apex stays
+          // within Emax of the short segment it replaces
+          if (!floorStarved && segDist(X, W[a].p, W[b].p) > Math.min(W[a].em, W[b].em)) continue;
           // the arc the merged corner would get must stay near what was mapped:
           // within Emax, or half the road width at a corner of 30 degrees or more
           {
@@ -387,7 +484,8 @@ export function filletGraph(edges, nodes, opts) {
           }
           const mv = { p: X, nodes: [...W[a].nodes, ...W[b].nodes], cls: [...W[a].cls, ...W[b].cls],
                        rf: Math.max(W[a].rf, W[b].rf), em: Math.min(W[a].em, W[b].em), hw: Math.max(W[a].hw, W[b].hw),
-                       srcs: [...W[a].srcs, ...W[b].srcs], merged: true };
+                       rc: Math.max(W[a].rc, W[b].rc), big: W[a].big && W[b].big, srcs: [...W[a].srcs, ...W[b].srcs], merged: true };
+          W[a].into = mv; W[b].into = mv;   // BENDS: a carried node follows its vertex into the merge
           W.splice(a, 2, mv);
           stats.merged++;
           did = true;
@@ -463,7 +561,9 @@ export function filletGraph(edges, nodes, opts) {
     const cum = [0];
     for (let k = 1; k < Q.length; k++) cum.push(cum[k - 1] + dist(Q[k], Q[k - 1]));
     // a merged corner's nodes: where each old position projects onto the line
-    // from the previous corner's end to the next corner's start
+    // from the previous corner's end to the next corner's start (BENDS: and
+    // the 2-arm nodes the collapse dropped, from the kept vertex before them)
+    for (const c of carried) { let v = c.v; while (v.into) v = v.into; pending.push({ node: c.node, i: Math.max(0, W.indexOf(v)) }); }
     for (const { node: nd, i } of pending) {
       const o = nodes[nd];
       const lo = q0[Math.max(1, i - 1)], hi = i + 2 < W.length ? Math.min(Q.length - 1, q0[i + 2] + 1) : Q.length - 1;
@@ -544,6 +644,12 @@ export function filletGraph(edges, nodes, opts) {
 /// How far the arc (tangent points at +-T about the corner c, radius r)
 /// passes from a source vertex s: the distance from s to the arc's circle
 /// where s lies inside the corner's wedge, else to the nearer tangent line.
+/// The distance from p to the segment a-b.
+function segDist(p, a, b) {
+  const dx = b[0] - a[0], dz = b[1] - a[1], L2 = dx * dx + dz * dz;
+  let t = L2 > 0 ? ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / L2 : 0; t = Math.max(0, Math.min(1, t));
+  return Math.hypot(p[0] - a[0] - dx * t, p[1] - a[1] - dz * t);
+}
 function arcDev(s, c, u, v, T, r, sg) {
   const t0 = [c[0] - u[0] * T, c[1] - u[1] * T];
   const nrm = [-u[1] * sg, u[0] * sg];

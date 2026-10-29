@@ -1,0 +1,31 @@
+# road-logic bends: the spots of the bend / ramp-advisory / heading-snap / kink fixes (top census lateral hotspots by kind, 600 m apart, + the named curves)
+-6917,7464,I-85 bend 114 m
+-555,3838,E Independence Expwy bend
+-3718,5428,I-77 bend 87 m
+-4846,3883,I-85 e883 curve
+6187,-975,lateral/bend-tighter-than-limit Wallace Lane / Wallace Road score 69.0
+-4624,1523,lateral/bend-tighter-than-limit South Boulevard score 57.0
+-5172,5764,lateral/bend-tighter-than-limit Tuckaseegee Road / Thrift Road score 51.0
+-6071,-588,lateral/bend-tighter-than-limit West Woodlawn Road score 51.0
+-3936,13785,lateral/bend-tighter-than-limit Beatties Ford Road score 48.0
+-9442,-6162,lateral/bend-tighter-than-limit I-485 score 48.0
+-2579,-13153,lateral/ramp-bend-no-limit  score 28.5
+-2422,20038,lateral/ramp-bend-no-limit  score 25.5
+2797,1802,lateral/ramp-bend-no-limit  score 25.5
+-6563,-2394,lateral/ramp-bend-no-limit  score 25.5
+5240,14190,lateral/ramp-bend-no-limit  score 24.0
+7905,11621,lateral/ramp-bend-no-limit  score 24.0
+7190,18893,lateral/heading-snap I-485 score 92.0
+-2639,21280,lateral/heading-snap I-77 score 60.0
+-13591,7592,lateral/heading-snap  score 56.0
+-1923,1686,lateral/heading-snap  score 52.0
+14014,8233,lateral/heading-snap I-485 score 48.0
+9106,15928,lateral/heading-snap I-485 score 44.0
+-2548,2485,lateral/kink Dilworth Road West score 48.0
+13958,20510,lateral/kink Pitts School Road Southwest score 44.0
+-1503,6356,lateral/kink North Graham Street score 36.0
+9835,20295,lateral/turn-tighter-than-planned Weddington Road score 42.0
+-10411,-10580,lateral/turn-tighter-than-planned Springhill Farm Road / Highway score 30.0
+-3161,17802,lateral/turn-tighter-than-planned Perimeter Parkway score 27.0
+-9573,3479,vertical/step Billy Graham Parkway score 60.0
+11785,18703,vertical/crest  score 20.0

@@ -54,6 +54,27 @@ chords only), so the census/launch are expected equal to round 8's 102/395, rout
 
 # (round 8 below)
 
+# HANDOFF - ROAD LOGIC: BENDS (road-logic-bends, 2026-10-29): tight bends, ramp advisories, snaps, kinks
+
+Branch `road-logic-bends` (worktree `C:\Users\mcgee\PSX Racing-bends`, base 1bde9af7 = integration-1029 +
+road-logic-lanes). Sandbox PSXCity (AGENT_LOCK). Not merged, not pushed. Write-up: Docs/CHARLOTTE.md
+"ROAD LOGIC - BENDS"; sheet Docs/traffic_census/bends_before_after.png.
+- Exporter: `tools/city/lib/fillet.mjs` BENDS (collapse before the shares; starved-corner merge on freeway
+  and trunk mainlines) SHIPPED OFF - `PSX_FILLET_BENDS=1`: freeway spikes 109 -> 30 but MEDIAN ACROSS two+/none
+  25/24 -> 31/26, boxes 11 -> 13 on the routes (gate vs base, same job); section ADVS (export_osm.mjs, citydata.mjs, CityMap).
+  Data regenerated; `export_osm.mjs --check` OK byte for byte. The re-run on merged code reproduces it.
+- Runtime: `Scripts/City/CityCurves.cs` = THE curve advisories (EXIT sign, traffic, census read it);
+  CityTraffic: Bisector (smooth lane heading), StretchStraight, Shape's control floor, BezMaxCurvature.
+- Spot census: `tools\city-traffic-census.ps1 -Spots Docs\traffic_census\spots_bends.txt -Minutes 30 -NoShots
+  -ReportDir <dir>`; shots of the sheet's curves: write census\top6.txt, `-ShotsOnly` with
+  `PSX_CENSUS_SHOTEYE=driver+plan`.
+## Next
+0. Re-fit each divided road's twin carriageways TOGETHER (one offset), then turn BENDS on and re-run the median gate.
+1. Corners beside mitred junctions (ramp split/merge ends, fixed in place and direction): about a third of
+   the 30 freeway spikes left; needs the junction's arm direction freed (ComputeTrims reads it).
+2. Ramp lines swinging off the mainline at the gore (OSM topology): spread over the gore taper.
+3. Curve warning signs (W1-2 + W13-1P) from CityCurves spans - the player sees only the exit advisory now.
+4. The vertical class (Billy Graham Pkwy crest R 29 m, junction-tile lips): the drawn profile's.
 # HANDOFF - REAL HEIGHTS round 8 (2026-10-29): the owner's three median spots met; MEDIAN CLASSES driven down
 
 Branch `real-heights-r8` (worktree `C:\Users\mcgee\PSX Racing-medians8`, off main 70e81508), sandbox `C:\Users\mcgee\PSXLab`

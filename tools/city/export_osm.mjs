@@ -262,6 +262,17 @@ function parseSpeedKmh(t) {
   return Math.round(m[2] || !t.maxspeed.includes('km') ? v * 1.609344 : v);
 }
 
+/// maxspeed:advisory (road-logic-bends, 2026-10-29): the posted advisory speed
+/// of a curve or a ramp (MUTCD W13-1P / W13-2), mph; 0 when untagged. A value
+/// under 10 mph is a mapping slip (one way says "3 mph") and is dropped.
+function parseAdvisoryMph(t) {
+  const v = t['maxspeed:advisory'] || '';
+  const m = /([\d.]+)\s*(mph|km\/h|kmh)?/.exec(v);
+  if (!m) return 0;
+  const n = parseFloat(m[1]), mph = /km/.test(v) ? n / 1.609344 : n;
+  return mph >= 10 && mph < 80 ? Math.round(mph) : 0;
+}
+
 function onewayOf(t) {
   if (t.oneway === '-1' || t.oneway === 'reverse') return -1;
   if (t.oneway === 'yes' || t.oneway === '1' || t.oneway === 'true') return 1;
@@ -430,7 +441,7 @@ function keepWay(w, minor) {
   const rev = onewayOf(t) === -1;
   ways.push({
     id: w.id, base, link, rank: CLS_RANK[base], oneway, lanes, turn, shl, shr,
-    bridge, tunnel, level, name, speed: parseSpeedKmh(t),
+    bridge, tunnel, level, name, speed: parseSpeedKmh(t), advisoryMph: parseAdvisoryMph(t),
     roundabout: t.junction === 'roundabout' || t.junction === 'circular',
     toll: t.toll === 'yes', tagged,
     lf: Number.isFinite(lf) ? lf : NaN, lb: Number.isFinite(lb) ? lb : NaN,
@@ -1991,6 +2002,15 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
   section('FRNT', w => {
     w.u32(FRONTIER.rows.length);
     for (const r of FRONTIER.rows) { w.u32(r.n); w.u8(r.bits); }
+  });
+  // ADVS (road-logic-bends, 2026-10-29): the OSM-posted advisory speeds
+  // (maxspeed:advisory) of the edges whose way carries one - u32 n | n x
+  // { u32 edge; u8 mph }. The game's CityCurves keeps them and derives every
+  // other curve's advisory from the drawn line (AASHTO, the signs pass's e + f).
+  section('ADVS', w => {
+    const rows = edges.filter(e => e.way.advisoryMph > 0);
+    w.u32(rows.length);
+    for (const e of rows) { w.u32(e.id); w.u8(e.way.advisoryMph); }
   });
   const align = n => (n + 3) & ~3;
   const assemble = () => {
