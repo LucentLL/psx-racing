@@ -288,6 +288,10 @@ namespace PSXRacing.EditorTools
         {
             public string name, group, road, what; public ViewKind kind; public Vector2 at;
             public float hdg, size, back, look, fov, rise; public int ring;
+            /// <summary>RunEyePlay's camera field of view, degrees (the highway
+            /// signs pass: a long lens reads a sign at its driving distance);
+            /// 0 keeps the scene camera's own.</summary>
+            public float lens;
             /// <summary>Eye: stand on the ground lattice at <see cref="at"/>
             /// (a parking lot), not on the nearest road's height.</summary>
             public bool ground;
@@ -332,6 +336,22 @@ namespace PSXRacing.EditorTools
 
         static readonly NamedView[] NamedViews =
         {
+            // the highway signs pass (2026-10-29): the owner's photos at I-77 exit 11B, an I-277 exit, a left exit, an I-85 exit and its 1/2 MILE sign
+            new NamedView { name = "hs_11b_drive", group = "hsigns", kind = ViewKind.Eye, at = new Vector2(-2896.2f, 6360.7f), road = "I-77", lookAt = new Vector2(-2750.6f, 6449.5f), fov = 60f, lens = 60f, ring = 1, what = "I-77 northbound, left lane, 170 m before the exit 11B diverge (node 570): the owner's photos" },
+            new NamedView { name = "hs_11b_read", group = "hsigns", kind = ViewKind.Eye, at = new Vector2(-2896.2f, 6360.7f), road = "I-77", lookAt = new Vector2(-2750.6f, 6449.5f), fov = 60f, lens = 22f, ring = 1, what = "the same eye, a 22 deg lens on the exit 11B signs" },
+            new NamedView { name = "hs_11b_gore", group = "hsigns", kind = ViewKind.Eye, at = new Vector2(-2846.2f, 6394.9f), road = "I-77", lookAt = new Vector2(-2713.6f, 6495.7f), fov = 60f, lens = 50f, ring = 1, what = "I-77 northbound, left lane, 110 m before exit 11B: the gore sign and the EXIT 40 MPH advisory" },
+            new NamedView { name = "hs_i277_4_drive", group = "hsigns", kind = ViewKind.Eye, at = new Vector2(-2096.8f, 5883.7f), road = "I-277", lookAt = new Vector2(-2004.3f, 5741.1f), fov = 60f, lens = 60f, ring = 1, what = "I-277 (Brookshire Fwy) 170 m before exit 4 Graham St (node 304)" },
+            new NamedView { name = "hs_i277_4_read", group = "hsigns", kind = ViewKind.Eye, at = new Vector2(-2096.8f, 5883.7f), road = "I-277", lookAt = new Vector2(-2004.3f, 5741.1f), fov = 60f, lens = 22f, ring = 1, what = "the same eye, a 22 deg lens on the exit 4 signs" },
+            new NamedView { name = "hs_i277_2b_drive", group = "hsigns", kind = ViewKind.Eye, at = new Vector2(-967.9f, 4556.3f), road = "I-277", lookAt = new Vector2(-1028.6f, 4397.3f), fov = 60f, lens = 60f, ring = 1, what = "I-277 170 m before the LEFT exit 2B to US 74 East / Independence Blvd (node 610)" },
+            new NamedView { name = "hs_i277_2b_read", group = "hsigns", kind = ViewKind.Eye, at = new Vector2(-967.9f, 4556.3f), road = "I-277", lookAt = new Vector2(-1028.6f, 4397.3f), fov = 60f, lens = 22f, ring = 1, what = "the same eye, a 22 deg lens on the exit 2B signs" },
+            new NamedView { name = "hs_i85_36_drive", group = "hsigns", kind = ViewKind.Eye, at = new Vector2(-5995.5f, 8248.3f), road = "I-85", lookAt = new Vector2(-5853.7f, 8341.7f), fov = 60f, lens = 60f, ring = 1, what = "I-85 170 m before exit 36 NC 16 / Brookshire Blvd (node 390)" },
+            new NamedView { name = "hs_i85_36_read", group = "hsigns", kind = ViewKind.Eye, at = new Vector2(-5995.5f, 8248.3f), road = "I-85", lookAt = new Vector2(-5853.7f, 8341.7f), fov = 60f, lens = 22f, ring = 1, what = "the same eye, a 22 deg lens on the exit 36 signs" },
+            new NamedView { name = "hs_i85_36_adv", group = "hsigns", kind = ViewKind.Eye, at = new Vector2(-6586.1f, 7669.3f), road = "I-85", lookAt = new Vector2(-6431.8f, 7787.5f), fov = 60f, lens = 26f, ring = 1, what = "I-85 1000 m before exit 36: the 1/2 MILE advance sign (805 m) through a 26 deg lens" },
+            new NamedView { name = "hs_11b_close", group = "hsigns", kind = ViewKind.Eye, at = new Vector2(-2854.7f, 6389.5f), road = "I-77", lookAt = new Vector2(-2750.6f, 6449.5f), fov = 60f, lens = 16f, ring = 1, what = "I-77 northbound, left lane, 120 m before exit 11B, a 16 deg lens: the legends read" },
+            new NamedView { name = "hs_i277_4_close", group = "hsigns", kind = ViewKind.Eye, at = new Vector2(-2069.6f, 5841.8f), road = "I-277", lookAt = new Vector2(-2004.3f, 5741.1f), fov = 60f, lens = 16f, ring = 1, what = "I-277 120 m before exit 4, a 16 deg lens" },
+            new NamedView { name = "hs_i277_2b_close", group = "hsigns", kind = ViewKind.Eye, at = new Vector2(-979.6f, 4507.2f), road = "I-277", lookAt = new Vector2(-1028.6f, 4397.3f), fov = 60f, lens = 16f, ring = 1, what = "I-277 120 m before the left exit 2B, a 16 deg lens" },
+            new NamedView { name = "hs_i85_36_close", group = "hsigns", kind = ViewKind.Eye, at = new Vector2(-5955.4f, 8278.1f), road = "I-85", lookAt = new Vector2(-5853.7f, 8341.7f), fov = 60f, lens = 16f, ring = 1, what = "I-85 120 m before exit 36, a 16 deg lens" },
+            new NamedView { name = "hs_i85_36_advclose", group = "hsigns", kind = ViewKind.Eye, at = new Vector2(-6527.6f, 7707.7f), road = "I-85", lookAt = new Vector2(-6431.8f, 7787.5f), fov = 60f, lens = 18f, ring = 1, what = "I-85 930 m before exit 36: the 1/2 MILE sign through an 18 deg lens" },
             // coverage (2026-10-06): the campus engineering quad, its deck, a suburban shopping centre and its lot
             new NamedView { name = "cov_uncc_eng", group = "cov", kind = ViewKind.Eye, at = new Vector2(6919f, 13826f), road = "", back = 35f, lookAt = new Vector2(6919f, 13826f), fov = 60f, ring = 1, what = "the campus engineering quad from its nearest road" },
             new NamedView { name = "cov_uncc_deck", group = "cov", kind = ViewKind.Eye, at = new Vector2(6856f, 13865f), road = "", back = 35f, lookAt = new Vector2(6856f, 13865f), fov = 60f, ring = 1, what = "the deck by the engineering building from the street" },
@@ -1417,7 +1437,10 @@ namespace PSXRacing.EditorTools
                         if (globals != null) globals.Apply();
                         cam.transform.SetPositionAndRotation(eye, rot);
                         world.RefreshSkyline(cam);
+                        float oldFov = cam.fieldOfView;
+                        if (v.lens > 0f) cam.fieldOfView = v.lens;
                         PSXScreenshotTool.ShotAs(cam, $"eye_{v.name}_{TimeOfDay.All[hour].name.ToLowerInvariant()}", eye, rot);
+                        cam.fieldOfView = oldFov;
                     }
                     log.Append($"{v.name}: eye ({eye.x:0.0},{eye.y:0.00},{eye.z:0.0}) on {(e != null ? "e" + e.index + " '" + e.name + "'" : "the ground")}, tiles {world.LiveTiles}\n");
                     world.DropAll();

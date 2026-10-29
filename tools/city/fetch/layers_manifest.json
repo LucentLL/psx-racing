@@ -146,6 +146,19 @@
       "bytes": 2366585,
       "sha256": "18b84341522ca33b61a89a99a66c6e9f283c56b00c0d466a6adaccefd37ee562",
       "fetched": "2026-09-29"
+    },
+    "junctions": {
+      "for": "motorway junctions: exit numbers for the guide signs (highway signs pass)",
+      "query": "[out:json][timeout:300][date:\"2026-09-12T02:44:33Z\"];node[\"highway\"=\"motorway_junction\"](35.03,-81.03,35.42,-80.62);out;",
+      "tiles": 1,
+      "pinned": "2026-09-12T02:44:33Z",
+      "server_base": "2026-10-29T14:16:36Z",
+      "elements": {
+        "node": 322
+      },
+      "bytes": 38184,
+      "sha256": "37d6ad727c819c3744176c1dca0b45f0c8308c8e03c53944da0fee2374d1000d",
+      "fetched": "2026-10-29"
     }
   }
 }

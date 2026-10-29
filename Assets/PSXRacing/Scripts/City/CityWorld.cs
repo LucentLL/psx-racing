@@ -685,11 +685,15 @@ namespace PSXRacing.City
             // THE SIGNS (WP-23), placed on the mask before the trees
             var st = tt.signs;
             if (st != null) liveSigns[key] = st;
-            if (st != null && st.mesh != null)
+            if (st != null && (st.mesh != null || st.guideMesh != null))
             {
                 AttachSigns(tile.go, st, CitySigns.Material());
-                System.Array.Resize(ref tile.meshes, tile.meshes.Length + 1);
-                tile.meshes[tile.meshes.Length - 1] = st.mesh;
+                foreach (var sm in new[] { st.mesh, st.guideMesh })
+                {
+                    if (sm == null) continue;
+                    System.Array.Resize(ref tile.meshes, tile.meshes.Length + 1);
+                    tile.meshes[tile.meshes.Length - 1] = sm;
+                }
                 tile.colliders += st.posts.Count;
             }
             // the billboards' floodlights and the poles' cobra-heads join the
@@ -1139,15 +1143,33 @@ namespace PSXRacing.City
         /// </summary>
         public static GameObject AttachSigns(GameObject root, CitySigns.SignTile st, Material mat)
         {
-            if (st == null || st.mesh == null) return null;
-            var g = Child(root, "Signs", 0);
-            g.AddComponent<MeshFilter>().sharedMesh = st.mesh;
-            var mr = g.AddComponent<MeshRenderer>();
-            mr.sharedMaterial = mat;
-            mr.enabled = mat != null;
-            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            mr.receiveShadows = false;
-            SunShadows.Exclude(g);
+            if (st == null || (st.mesh == null && st.guideMesh == null)) return null;
+            GameObject g = null;
+            if (st.mesh != null)
+            {
+                g = Child(root, "Signs", 0);
+                g.AddComponent<MeshFilter>().sharedMesh = st.mesh;
+                var mr = g.AddComponent<MeshRenderer>();
+                mr.sharedMaterial = mat;
+                mr.enabled = mat != null;
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                mr.receiveShadows = false;
+                SunShadows.Exclude(g);
+            }
+            // the freeway guide signs (the highway signs pass): their own atlas, one more draw
+            if (st.guideMesh != null)
+            {
+                var gm = CitySigns.GuideMaterial();
+                var gg = Child(root, "GuideSigns", 0);
+                gg.AddComponent<MeshFilter>().sharedMesh = st.guideMesh;
+                var gr = gg.AddComponent<MeshRenderer>();
+                gr.sharedMaterial = gm;
+                gr.enabled = gm != null;
+                gr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                gr.receiveShadows = false;
+                SunShadows.Exclude(gg);
+                if (g == null) g = gg;
+            }
             if (st.posts.Count > 0)
             {
                 var c = Child(root, CitySigns.PostName, SolidLayer);

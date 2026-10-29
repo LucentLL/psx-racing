@@ -18,6 +18,10 @@ namespace PSXRacing.EditorTools
             // structure metal on one sheet, so every sign of a tile is one
             // draw. At 256 a bulletin's lettering would be 3 px tall.
             if (assetPath.EndsWith("/Art/City/Signs/CitySigns.png")) return 512;
+            // The freeway guide signs' atlas (the highway signs pass, 2026-10-29):
+            // every letter of the guide signs' face at a 40 px capital, so a 16 in.
+            // legend reads crisp from under the sign bridge; written at its size.
+            if (assetPath.EndsWith("/Art/City/Signs/CityGuide.png")) return 1024;
             // BUILDING PASS (2026-10-28): the facade atlas is sixteen columns, 2048 x 256
             if (assetPath.Contains("/Art/City/Facade/city_facade_atlas")) return 2048;
             if (MipsFor(assetPath)) return 1024;
@@ -40,6 +44,8 @@ namespace PSXRacing.EditorTools
         /// into curved moire bands. Written at their final size, so the 1024
         /// cap never resamples them.</summary>
         public static bool MipsFor(string assetPath) =>
-            assetPath.Contains("/Art/City/Facade/city_facade_atlas");
+            assetPath.Contains("/Art/City/Facade/city_facade_atlas") ||
+            // the guide signs' letters: without mips a legend 200 m off sparkles
+            assetPath.EndsWith("/Art/City/Signs/CityGuide.png");
     }
 }

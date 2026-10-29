@@ -38,15 +38,16 @@ namespace PSXRacing.City
     ///     frontage). A 2.4-3.2 m cabinet 6-10 m up, square to the road so
     ///     both directions read it, lit from inside at night. Breakaway (Q15):
     ///     no collider.
-    ///   * EXIT GANTRIES: a sign bridge over the motorway
-    ///     <see cref="GantryBackM"/> before every exit (a motorway_link
-    ///     diverge), a panel over each destination group of its lanes (OSM
-    ///     destination:lanes), the exit's panel over the exit lanes; the panels
-    ///     are the plan's code-drawn green (Q7), the truss pack metal. Its legs
-    ///     stand clear of every carriageway's clear zone, across both
-    ///     carriageways when the median has no room; the panels clear the
-    ///     highest road under them by <see cref="GantryClearM"/>. Unlit, as
-    ///     NCDOT's retroreflective panels are today: the headlights light them.
+    ///   * THE FREEWAY GUIDE SIGNS (CitySigns.Guide.cs, the highway signs
+    ///     pass, 2026-10-29): at every exit (a motorway_link diverge) the exit
+    ///     direction sign on a galvanised box-truss sign bridge
+    ///     <see cref="GantryBackM"/> before it (the exit's panel, its number tab
+    ///     and LEFT plate, the pull-through), the advance signs a mile and half
+    ///     a mile back, the gore sign and the exit-speed advisory - every legend
+    ///     the map's own words, set from the guide atlas in Overpass (the open
+    ///     Highway Gothic). Legs clear of every carriageway's clear zone; the
+    ///     panels clear the highest road under them by <see cref="GantryClearM"/>.
+    ///     Unlit, as NCDOT's retroreflective panels are: the headlights light them.
     ///
     /// Every face is FICTIONAL and made of the owner's pack pictures only
     /// (tools/city/signs_atlas.py; no lettering drawn in code).
@@ -84,7 +85,7 @@ namespace PSXRacing.City
     /// billboards' monopoles and the gantries' legs (box colliders on one
     /// Solid-layer object a tile named <see cref="PostName"/>).
     /// </summary>
-    public static class CitySigns
+    public static partial class CitySigns
     {
         /// <summary>Tools switch the signs off for an A/B (the budget probe).</summary>
         public static bool Enabled = true;
@@ -188,7 +189,10 @@ namespace PSXRacing.City
         /// <summary>The strip malls' pylons where OSM maps no shop.</summary>
         static readonly byte[] FrontCells = { 13, 13, 13, 14, 12, 11, 9, 8, 13, 6 };
 
-        public enum Kind : byte { Bulletin, Poster, PoleSign, Gantry }
+        /// <summary>Gantry: any overhead sign structure (the exit direction
+        /// sign, an advance sign); Guide: a small freeway sign on breakaway
+        /// posts (the gore sign, the exit-speed advisory).</summary>
+        public enum Kind : byte { Bulletin, Poster, PoleSign, Gantry, Guide }
 
         /// <summary>A face that shows to traffic: its centre, outward normal,
         /// size, and the driver it was turned to (on a carriageway, at eye
@@ -238,7 +242,11 @@ namespace PSXRacing.City
             /// for the audit.</summary>
             public readonly List<Mark> marks = new List<Mark>();
             public Mesh mesh;
+            /// <summary>The freeway guide signs: their own mesh on the guide atlas (one more draw).</summary>
+            public Mesh guideMesh;
             public int bulletins, posters, poleSigns, gantries, osm;
+            /// <summary>Gore signs and exit-speed advisories (Kind.Guide).</summary>
+            public int guides;
             /// <summary>Candidates that won their spacing but found no free ground.</summary>
             public int refusedBoards, refusedPoleSigns, refusedGantries;
             /// <summary>The business signs that did not stand, by why: lost the
@@ -280,7 +288,19 @@ namespace PSXRacing.City
             public readonly List<(Vector2 a, Vector2 b)> spans = new List<(Vector2, Vector2)>();
             /// <summary>Places tried and left for a utility wire, pole or cobra-head.</summary>
             public int wireSteps;
+            /// <summary>On breakaway posts (a guide sign at a gore or a ramp): may stand in a clear zone.</summary>
+            public bool breakaway;
             internal readonly List<BoxOp> ops = new List<BoxOp>();
+            /// <summary>Its quads on the guide atlas (CitySigns.Guide).</summary>
+            internal readonly List<GQuad> gquads = new List<GQuad>();
+            /// <summary>Forget a placement that did not stand (its owner point kept).</summary>
+            internal void Reset()
+            {
+                faces.Clear(); posts.Clear(); lamps.Clear(); marks.Clear(); feet.Clear(); spans.Clear(); ops.Clear(); gquads.Clear();
+                lo = Vector2.one * float.MaxValue; hi = Vector2.one * float.MinValue;
+                placed = false;
+                var o = sign.owner; sign = default; sign.owner = o;
+            }
             public Vector2 lo = Vector2.one * float.MaxValue, hi = Vector2.one * float.MinValue;
             internal void Take(Mark m)
             {
@@ -349,7 +369,7 @@ namespace PSXRacing.City
             // advertising): every one that could reach this tile, decided from
             // global data, so the tiles either side of a seam agree on them
             pureNear.Clear(); pureSeen.Clear();
-            Gantries(map, trims, min, max, NoDeadline);
+            Guides(map, trims, min, max, NoDeadline);
             Billboards(map, trims, min, max, st, NoDeadline);
             // the owner drops one that stands on its own fill house or lamp
             // (only it knows them), before anything is marked
@@ -371,6 +391,7 @@ namespace PSXRacing.City
             // then the businesses, on what is left
             PoleSigns(map, trims, buildings, tm, occ, st, min, max);
             st.mesh = End(min);
+            st.guideMesh = EndGuide(min);
             st.ms = (float)clock.Elapsed.TotalMilliseconds;
             return st;
         }
@@ -395,7 +416,7 @@ namespace PSXRacing.City
             Setup(map, trims, buildings, tx, tz);
             decided = 0;
             pureNear.Clear(); pureSeen.Clear();
-            bool done = Gantries(map, trims, min, max, deadline) && Billboards(map, trims, min, max, null, deadline);
+            bool done = Guides(map, trims, min, max, deadline) && Billboards(map, trims, min, max, null, deadline);
             pureNear.Clear(); pureSeen.Clear();
             return !done ? 2 : decided > 0 ? 1 : 0;
         }
@@ -472,7 +493,10 @@ namespace PSXRacing.City
         static bool OnTileOnly(RoadsideOccupancy occ, Pure pu, Vector2 min, Vector2 max)
         {
             if (!pu.placed) return false;
-            foreach (var f in pu.feet) if (InTile(f, min, max) && occ.At(f) != 0) return true;
+            // a breakaway post may stand in a clear zone: only the tile's own houses and lamps veto it
+            byte footBits = pu.breakaway ? (byte)(RoadsideOccupancy.Building | RoadsideOccupancy.Other) : (byte)0xFF;
+            byte spanBits = pu.breakaway ? (byte)(RoadsideOccupancy.Building | RoadsideOccupancy.Water | RoadsideOccupancy.Other) : BlockBits;
+            foreach (var f in pu.feet) if (InTile(f, min, max) && (occ.At(f) & footBits) != 0) return true;
             foreach (var (a, b) in pu.spans)
             {
                 float L = Vector2.Distance(a, b);
@@ -480,7 +504,7 @@ namespace PSXRacing.City
                 for (int i = 0; i <= n; i++)
                 {
                     var q = Vector2.Lerp(a, b, i / (float)n);
-                    if (InTile(q, min, max) && (occ.At(q) & BlockBits) != 0) return true;
+                    if (InTile(q, min, max) && (occ.At(q) & spanBits) != 0) return true;
                 }
             }
             return false;
@@ -498,9 +522,11 @@ namespace PSXRacing.City
             sg.firstFace = first;
             st.signs.Add(sg);
             foreach (var op in pu.ops) BoxNow(op.c, op.x, op.y, op.z, op.hx, op.hy, op.hz, op.front, op.sides, op.hasBack ? op.back : (RectInt?)null);
+            foreach (var q in pu.gquads) GQuadNow(q.a, q.b, q.c, q.d, q.n, q.ua, q.ub, q.uc, q.ud);
             switch (sg.kind)
             {
                 case Kind.Gantry: st.gantries++; break;
+                case Kind.Guide: st.guides++; break;
                 case Kind.Bulletin: st.bulletins++; break;
                 case Kind.Poster: st.posters++; break;
             }
@@ -774,50 +800,6 @@ namespace PSXRacing.City
 
         static float GantryS0(CityMap.Edge e) => e.length > GantryBackM + 10f ? e.length - GantryBackM : e.length * 0.5f;
 
-        static bool Gantries(CityMap map, CityMeshes.Trims trims, Vector2 min, Vector2 max, long deadline)
-        {
-            var lo = min - Vector2.one * ReachGantryM;
-            var hi = max + Vector2.one * ReachGantryM;
-            foreach (int ei in edgeList)
-            {
-                var e = map.edges[ei];
-                if (!IsExit(map, e)) continue;
-                var o = e.PointAt(GantryS0(e));
-                if (o.x < lo.x || o.y < lo.y || o.x > hi.x || o.y > hi.y) continue;
-                if (Due(deadline, GantryKey(ei))) return false;
-                var pu = PureGantry(map, trims, ei);
-                if (pureSeen.Add(pu)) pureNear.Add(pu);
-            }
-            return true;
-        }
-
-        static long GantryKey(int ei) => (1L << 56) | (uint)ei;
-
-        /// <summary>An exit's gantry, decided once from global data.</summary>
-        static Pure PureGantry(CityMap map, CityMeshes.Trims trims, int ei)
-        {
-            long key = GantryKey(ei);
-            if (pureCache.TryGetValue(key, out var pu)) return pu;
-            decided++;
-            pu = new Pure { kind = Kind.Gantry };
-            var e = map.edges[ei];
-            float s0 = GantryS0(e);
-            pu.sign.owner = e.PointAt(s0);
-            var was = rec; rec = pu;
-            try
-            {
-                // on a deck there is nothing to stand a leg on: step back up the road
-                for (float s = s0; s > 5f && !pu.placed && s0 - s < 130f; s -= 40f)
-                {
-                    if (e.bridge || e.ElevatedAt(s)) continue;
-                    pu.placed = Gantry(map, trims, pu, e, s, pu.sign.owner);
-                }
-            }
-            finally { rec = was; }
-            pureCache[key] = pu;
-            return pu;
-        }
-
         static bool FindLeg(Vector2 c, Vector2 dir, float from, out Vector2 leg)
         {
             for (float d = from + 1f; d <= LegReachM; d += 0.5f)
@@ -830,135 +812,25 @@ namespace PSXRacing.City
             return false;
         }
 
-        static bool Gantry(CityMap map, CityMeshes.Trims trims, Pure pu, CityMap.Edge e, float s, Vector2 owner)
-        {
-            RoadsideOccupancy.RoadEdgeAt(e, trims, s, out var c, out _, out float hwL, out float hwR);
-            var t = e.TangentAt(s);
-            var right = RightOf(t);
-            if (!FindLeg(c, right, hwR, out var legR)) return false;
-            // a sign bridge over the whole road; failing a place for its left
-            // leg (no room in the median outside the clear zones, and the far
-            // carriageway too wide to reach over), a cantilever from the right
-            // leg out to the carriageway's left edge
-            bool cantilever = !FindLeg(c, -right, hwL, out var legL) || Vector2.Distance(legL, legR) > MaxSpanM;
-            var armEnd = cantilever ? c - right * (hwL - 0.3f) : legL;
-            // clear of the utility poles and their wires: a leg found past a
-            // frontage road stands its truss over that road's pole line (the
-            // sign audit found three such, the WP-15 review). A left leg's
-            // span that crosses one becomes a cantilever from the right leg;
-            // a right leg's, the next station up the road
-            if (!OffPoles(armEnd, legR, GantryHalfD))
-            {
-                pu.wireSteps++;
-                if (cantilever) return false;
-                cantilever = true;
-                armEnd = c - right * (hwL - 0.3f);
-                if (!OffPoles(armEnd, legR, GantryHalfD)) return false;
-            }
-
-            // the highest road under the span
-            float roadTop = e.YAt(s);
-            float span = Vector2.Distance(armEnd, legR);
-            for (float d = 0f; d <= span; d += 2f)
-            {
-                roadTop = Mathf.Max(roadTop, RoadTopAt(map, trims, Vector2.Lerp(armEnd, legR, d / span), 0.5f));
-                // and under the panels, hung 0.72 m toward the traffic (roads
-                // pass L5: an aux lane's pavement can rise under them)
-                roadTop = Mathf.Max(roadTop, RoadTopAt(map, trims, Vector2.Lerp(armEnd, legR, d / span) - t * 0.72f, 0.5f));
-            }
-            float bottom = roadTop + GantryClearM;
-
-            // panels: one per destination group, over its lanes (left to right)
-            var groups = CitySignData.GantryGroups(e.wayId);
-            int total = 0;
-            if (groups != null) foreach (var g in groups) total += g;
-            if (groups == null || total < 1)
-            {
-                int nl = Mathf.Max(2, e.lanes);
-                groups = new[] { (byte)(nl - 1), (byte)1 };
-                total = nl;
-            }
-            // the panels over the road's own lanes: a merge zone's aux lane
-            // (roads pass L5) widens the pavement, not the destinations
-            LineModel.ExtentsNoAux(e, s, out float pL, out float pR);
-            float laneW = Mathf.Clamp((pL + pR - e.shl - e.shr) / total, 2.8f, 4.2f);
-            var leftEdge = c - right * pL;
-            float tallest = 0f;
-            int lane = 0;
-            var n3 = new Vector3(-t.x, 0f, -t.y);   // the panels face the traffic coming up to them
-            for (int gi = 0; gi < groups.Length; gi++)
-            {
-                int g = groups[gi];
-                bool exit = groups.Length >= 2 && gi == groups.Length - 1;
-                float h = exit ? 3.0f : 3.4f;
-                tallest = Mathf.Max(tallest, h);
-                float mid = e.shl + (lane + g * 0.5f) * laneW;
-                lane += g;
-                float w = Mathf.Clamp(Mathf.Min(g * laneW - 0.5f, 2.2f + 2.6f * g), 2.4f, 12f);
-                var pc = leftEdge + right * mid;
-                pu.faces.Add(new Face
-                {
-                    centre = V3(pc, bottom + h * 0.5f) + n3 * 0.72f, normal = n3, w = w, h = h, kind = Kind.Gantry,
-                    viewer = Driver(map, e, s, -ViewAheadM, mid - pL),
-                });
-            }
-            // truss: a box beam behind the panels' upper half, leg to leg
-            float truss = bottom + tallest - 0.7f;
-            var mid3 = V3((armEnd + legR) * 0.5f, truss);
-            var along = V3((legR - armEnd) / Mathf.Max(0.01f, span), 0f);
-            Box(mid3, along, Vector3.up, new Vector3(t.x, 0f, t.y), span * 0.5f + 0.35f, 0.55f, 0.55f, MetalLight, MetalLight);
-            // the panels, hung on its front
-            for (int i = 0; i < pu.faces.Count; i++)
-            {
-                var f = pu.faces[i];
-                bool exit = i == pu.faces.Count - 1 && pu.faces.Count >= 2;
-                BoxFacing(f.centre - n3 * 0.08f, n3, f.w * 0.5f, f.h * 0.5f, 0.08f, exit ? GantryExit : GantryThrough, MetalLight);
-            }
-            // legs: from the ground to the top of the truss
-            foreach (var leg in cantilever ? new[] { legR } : new[] { legL, legR })
-            {
-                float gy = CityMeshes.LatticeAt(map, leg.x, leg.y) - 0.3f;
-                float top = truss + 0.55f;
-                var lc = V3(leg, (gy + top) * 0.5f);
-                Box(lc, along, Vector3.up, new Vector3(t.x, 0f, t.y), 0.35f, (top - gy) * 0.5f, 0.7f, MetalLight, MetalLight);
-                pu.posts.Add((lc, new Vector3(0.7f, top - gy, 1.4f), Mathf.Atan2(t.x, t.y) * Mathf.Rad2Deg));   // 1.4 m along the road, as drawn
-                pu.feet.Add(leg);
-                pu.Take(new Mark { a = leg, b = leg, r = 2f + RoadsideOccupancy.CellPadM, bit = RoadsideOccupancy.Other });
-            }
-            // and no tree under the truss (a wide median's, past the clear zones)
-            pu.Take(new Mark { a = armEnd, b = legR, r = 2f + RoadsideOccupancy.CellPadM, bit = RoadsideOccupancy.Other });
-            pu.sign = new Sign
-            {
-                kind = Kind.Gantry, pos = c, ground = CityMeshes.LatticeAt(map, c.x, c.y), bottom = bottom, top = truss + 0.55f,
-                route = -1, edge = e.index, legA = cantilever ? legR : legL, legB = legR, clearance = bottom - roadTop, firstFace = 0, faces = pu.faces.Count, owner = owner,
-            };
-            return true;
-        }
-
         /// <summary>Does a disc or a capsule (the plan footprint of a
         /// billboard's post or face) touch the ground any gantry near it takes?</summary>
         static bool GantryClash(CityMap map, CityMeshes.Trims trims, Vector2 a, Vector2 b, float r)
         {
-            gxScratch.Clear();
+            EnsureSites(map);
             float reach = ReachGantryM + 20f;
             var lo = Vector2.Min(a, b) - Vector2.one * reach;
             var hi = Vector2.Max(a, b) + Vector2.one * reach;
-            map.EdgeSegsInRect(lo, hi, gxScratch);
-            gxEdges.Clear();
-            foreach (int packed in gxScratch) gxEdges.Add(packed >> 12);
-            foreach (int ei in gxEdges)
+            var near = new List<int>(16);
+            SitesIn(lo, hi, near);
+            foreach (int si in near)
             {
-                var e = map.edges[ei];
-                if (!IsExit(map, e)) continue;
-                var pu = PureGantry(map, trims, ei);
+                var pu = PureGuide(map, trims, si);
                 if (!pu.placed || pu.hi.x < lo.x + reach - r || pu.hi.y < lo.y + reach - r || pu.lo.x > hi.x - reach + r || pu.lo.y > hi.y - reach + r) continue;
                 foreach (var m in pu.marks)
                     if (RoadsideOccupancy.SegSegDistance(a, b, m.a, m.b) < r + m.r) return true;
             }
             return false;
         }
-        static readonly HashSet<int> gxScratch = new HashSet<int>();
-        static readonly SortedSet<int> gxEdges = new SortedSet<int>();
 
         // ------------------------------------------------------------------
         //  Billboards
@@ -1676,7 +1548,7 @@ namespace PSXRacing.City
         static readonly List<Vector2> uvs = new List<Vector2>(4096);
         static readonly List<int> tris = new List<int>(8192);
 
-        static void Begin() { vs.Clear(); ns.Clear(); uvs.Clear(); tris.Clear(); }
+        static void Begin() { vs.Clear(); ns.Clear(); uvs.Clear(); tris.Clear(); gvs.Clear(); gns.Clear(); guvs.Clear(); gtris.Clear(); }
 
         static Mesh End(Vector2 min)
         {

@@ -458,6 +458,7 @@ MonoBehaviour:
   furniture: {fileID: 2100000, guid: b7063e982a5005f4787763a04fe00365, type: 2}
   paint: {fileID: 0}
   signs: {fileID: 2100000, guid: 7fc18ab0222e98d4fb2acb40725701e4, type: 2}
+  guide: {fileID: 2100000, guid: fdf68c9031d187c4992402dc698b053d, type: 2}
   signals: {fileID: 2100000, guid: 2cbfeaacb898d224baeeabb6d26c14d9, type: 2}
   shaders:
   - {fileID: 4800000, guid: 8e5fd0c4978b3af46a27d1b2ff8b281b, type: 3}

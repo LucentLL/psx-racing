@@ -35,15 +35,34 @@
 //     bigger), each with the kind of sign it would have;
 //   * per motorway way that ends at an exit (a motorway_link diverge), the
 //     lanes of each destination group from its OSM destination:lanes, which
-//     is how many panels the exit gantry carries and over which lanes.
+//     is how many panels the exit gantry carries and over which lanes;
+//   * (v2, the highway signs pass, 2026-10-29) per exit, the LEGENDS of its
+//     guide signs, set from the map's own words: the exit number (the
+//     motorway_junction node's ref, else the ramp's junction:ref), the route
+//     it leads to (destination:ref as words - "NC 16 NORTH", "I-85 SOUTH" -
+//     never a shield: the Interstate shield, the US shield and the NC diamond
+//     are trademarks), up to two destinations (destination, else
+//     destination:street, else the junction's exit_to, else the ramp's name,
+//     else the road it reaches), a destination's own cardinal word
+//     ("Brookshire Freeway West" -> "Brookshire Frwy" / "WEST"), the posted
+//     exit-speed advisory (maxspeed:advisory), and the pull-through legend of
+//     the motorway going on (its route, its cardinal from the way it runs,
+//     its control city by the vote of every destination:lanes on that route
+//     and direction). Express-lane and toll ramps get no record (1999: there
+//     were none).
 //
-// PSGN v1, little-endian:
-//   u32 'PSGN' | i32 1 | i32 nx, nz | f32 x0, z0, cell | nx*nz u8 grid (row z0 first)
+// PSGN v2, little-endian:
+//   u32 'PSGN' | i32 2 | i32 nx, nz | f32 x0, z0, cell | nx*nz u8 grid (row z0 first)
 //   u16 nRoutes { u8 len, name | u8 cls (1 interstate, 2 US/NC) | f32 perRouteKm | f32 perZonedCarriagewayKm }
 //   u32 nWays { u32 wayId | u8 route }            sorted by wayId
 //   u32 nBill { f32 x, z | f32 yawDeg (NaN: a node) | u8 flags (1 lit) }
 //   u32 nPoi { f32 x, z | u8 kind }               sorted by x, z
 //   u32 nGant { u32 wayId | u8 n | n x u8 lanes } sorted by wayId
+//   u32 nExit { f32 x, z (the diverge node) | u8 flags | u8 advisory mph (0: none)
+//               | str number | str route | str dest1 | str dest2 | str cardinal
+//               | str thru | str thruCity }      sorted by x, z; str = u8 len + latin1
+//     flags: 1 = destination:lanes gives the ramp's destination to the left lane,
+//            2 = the number came from the ramp's junction:ref, 4 = a destination is a fallback
 // All OSM-derived data (c) OpenStreetMap contributors, ODbL 1.0.
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
@@ -353,10 +372,173 @@ for (const [n, outs] of outOf) {
 }
 const gantList = [...gant.entries()].sort((a, b) => a[0] - b[0]);
 
+// ---- exit guide-sign legends (v2, the highway signs pass, 2026-10-29)
+const JN = need(join(CACHE, 'layers', 'junctions.json'));
+const junctions = JN.elements.filter(e => e.type === 'node' && e.tags).map(e => ({ x: gx(e.lon), z: gz(e.lat), t: e.tags }));
+const isMain = e => e.rank >= 5 && !e.link && e.oneway;
+const edgeLen = e => { let L = 0; for (let i = 1; i < e.pts.length; i++) L += Math.hypot(e.pts[i][0] - e.pts[i - 1][0], e.pts[i][1] - e.pts[i - 1][1]); return L; };
+const CARD = { North: 'NORTH', South: 'SOUTH', East: 'EAST', West: 'WEST', N: 'NORTH', S: 'SOUTH', E: 'EAST', W: 'WEST' };
+// words as a 1990s NCDOT guide sign spells them (MUTCD abbreviations; NCDOT's "Frwy")
+const ABBR = [[/\bBoulevard\b/g, 'Blvd'], [/\bStreet\b/g, 'St'], [/\bAvenue\b/g, 'Ave'], [/\bRoad\b/g, 'Rd'], [/\bDrive\b/g, 'Dr'],
+  [/\bParkway\b/g, 'Pkwy'], [/\bFreeway\b/g, 'Frwy'], [/\bExpressway\b/g, 'Expwy'], [/\bHighway\b/g, 'Hwy'], [/\bLane\b/g, 'Ln'],
+  [/\bCourt\b/g, 'Ct'], [/\bPlace\b/g, 'Pl'], [/\bExtension\b/g, 'Ext'], [/\bInternational\b/g, 'Intl'], [/\bMount\b/g, 'Mt'],
+  [/\bCircle\b/g, 'Cir'], [/\bTerrace\b/g, 'Ter']];
+// the map's slips, and a name the city did not have in 1999 (Queens became a university in 2002)
+const FIX = [[/Spartansburg/g, 'Spartanburg'], [/Bouleyard/g, 'Boulevard'], [/\bBill Graham\b/g, 'Billy Graham'], [/\bNation Ford\b/g, 'Nations Ford'],
+  [/Queens University/g, 'Queens College']];
+// places that were not there in 1999 (the whitewater centre opened in 2006, the IKEA in 2009)
+const DROP = /Whitewater Center|\bIkea\b/i;
+const latin = t => t.normalize('NFKD').replace(/[^\x20-\x7e]/g, '');
+function destWords(raw) {
+  let t = latin(raw.trim());
+  for (const [re, to] of FIX) t = t.replace(re, to);
+  let card = '';
+  const m = t.match(/^(.*\S)\s+(North|South|East|West)$/);
+  if (m && m[1].split(' ').length >= 2) { t = m[1]; card = CARD[m[2]]; }
+  const w = t.split(' ');
+  if (w.length >= 3 && CARD[w[0]] && w[0].length > 1 && w[1] !== 'Carolina') { w[0] = w[0][0]; t = w.join(' '); }   // "North Polk Street" -> "N Polk St"
+  for (const [re, to] of ABBR) t = t.replace(re, to);
+  return { text: t, card };
+}
+const NETS = { I: 0, US: 1, NC: 2, SC: 3 };
+function routeWords(ref) {
+  // "I 77 North" / "NC 16" / "I 485 South Outer" -> { net, num, card }
+  const m = latin(ref).trim().replace(/-/g, ' ').match(/^(I|US|NC|SC)\s*(\d+[A-Z]?)\s*(.*)$/i);
+  if (!m) return null;
+  const card = (m[3].match(/\b(North|South|East|West)\b/i) || [])[1];
+  return { net: m[1].toUpperCase(), num: m[2], card: card ? CARD[card[0].toUpperCase() + card.slice(1).toLowerCase()] : '' };
+}
+const routeText = r => (r.net === 'I' ? 'I-' : r.net + ' ') + r.num;
+const bestRoute = refs => refs.map(routeWords).filter(Boolean).sort((a, b) => NETS[a.net] - NETS[b.net])[0] || null;
+// a route's direction of travel from the way a carriageway runs: odd numbers north-south, even east-west
+function cardinalOf(r, dx, dz) {
+  const odd = parseInt(r.num, 10) % 2 === 1;
+  return odd ? (dz >= 0 ? 'NORTH' : 'SOUTH') : (dx >= 0 ? 'EAST' : 'WEST');
+}
+/// From a node along the motorway going on (one-way, not a ramp), as far as `dist`: the displacement.
+function runFrom(n, dist) {
+  const x0 = city.nodes[n].x, z0 = city.nodes[n].z;
+  let at = n, walked = 0;
+  for (let hop = 0; hop < 60 && walked < dist; hop++) {
+    const nx = (outOf.get(at) || []).filter(isMain).sort((a, b) => a.index - b.index)[0];
+    if (!nx) break;
+    walked += edgeLen(nx); at = nx.b;
+  }
+  return [city.nodes[at].x - x0, city.nodes[at].z - z0];
+}
+/// The first road a ramp reaches (not a ramp).
+function reached(link) {
+  let e = link;
+  for (let hop = 0; hop < 12; hop++) {
+    const nx = (outOf.get(e.b) || []).filter(o => o !== e).sort((a, b) => (a.link - b.link) || (a.index - b.index))[0];
+    if (!nx) return null;
+    if (!nx.link) return nx;
+    e = nx;
+  }
+  return null;
+}
+const isCity = t => !!t && !/\b(Street|Road|Avenue|Boulevard|Freeway|Expressway|Parkway|Drive|Highway|Lane|Way|Airport|Center|Mall|Speedway|University|College|Area|none)\b/i.test(t);
+// the control cities: every destination:lanes word on a route and direction, by vote
+const cityVote = new Map();
+for (const e of city.edges) {
+  if (!isMain(e)) continue;
+  const t = tags.get(e.wayId) || {};
+  const r = t.ref ? bestRoute(t.ref.split(';')) : null;
+  if (!r || !t['destination:lanes']) continue;
+  const dx = e.pts[e.pts.length - 1][0] - e.pts[0][0], dz = e.pts[e.pts.length - 1][1] - e.pts[0][1];
+  const key = routeText(r) + ' ' + cardinalOf(r, dx, dz);
+  for (const lane of t['destination:lanes'].split('|')) for (const tok of lane.split(';')) {
+    const w = latin(tok.trim()).replace(/Spartansburg/, 'Spartanburg');
+    if (!isCity(w)) continue;
+    const v = cityVote.get(key) || new Map(); cityVote.set(key, v); v.set(w, (v.get(w) || 0) + 1);
+  }
+}
+// where the vote is wrong (an exit's towns outvote the through city): the
+// route's MUTCD control city. The loops (I-277, I-485) have none.
+const CONTROL = { 'I-85 NORTH': 'Greensboro' };
+const LOOP = /^I-(277|485)$/;
+const controlCity = key => {
+  if (key in CONTROL) return CONTROL[key];
+  const v = cityVote.get(key); if (!v) return '';
+  return [...v.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0];
+};
+
+const exitRecs = [];
+let exNum = 0, exNumRamp = 0, exRoute = 0, exDest = 0, exDestFallback = 0, exNone = 0, exAdv = 0, exExpress = 0, exThruCity = 0;
+for (const [n, outs] of outOf) {
+  if (!outs.some(e => e.link && e.oneway) || !outs.some(isMain)) continue;
+  const ins = (into.get(n) || []).filter(isMain);
+  if (!ins.length) continue;
+  const link = outs.filter(e => e.link && e.oneway).sort((a, b) => a.index - b.index)[0];
+  const lt = tags.get(link.wayId) || {}, mt = tags.get(ins[0].wayId) || {};
+  if (lt.toll === 'yes' || /^(designated|lane)$/.test(lt.hov || '') || mt.toll === 'yes') { exExpress++; continue; }
+  const P = city.nodes[n];
+  let jn = null, jd = 40;
+  for (const j of junctions) { const d = Math.hypot(j.x - P.x, j.z - P.z); if (d < jd) { jd = d; jn = j; } }
+  let flags = 0;
+  let num = (jn && jn.t.ref) || '';
+  if (!num && lt['junction:ref']) { num = lt['junction:ref']; flags |= 2; }
+  num = latin(num).replace(/\s+/g, '').replace(/^(\d+)([A-Z].*)$/i, '$1 $2').toUpperCase();
+  if (num) exNum++;
+  if (flags & 2) exNumRamp++;
+  // the route the ramp leads to
+  const r = lt['destination:ref'] ? bestRoute(lt['destination:ref'].split(';')) : null;
+  let route = '';
+  if (r) { route = routeText(r) + (r.card ? ' ' + r.card : ''); exRoute++; }
+  // the destinations
+  let raw = (lt.destination || lt['destination:street'] || (jn && jn.t.exit_to) || '').split(';').map(t => t.trim()).filter(Boolean);
+  let fallback = false;
+  if (!raw.length && lt.name) { raw = [lt.name]; fallback = true; }
+  if (!raw.length) {
+    const to = reached(link);
+    const tt = to ? (tags.get(to.wayId) || {}) : {};
+    if (to && to.name && !/^(I|US|NC)[ -]\d/.test(to.name)) { raw = [to.name]; fallback = true; }
+    else if (!route && tt.ref) { const rr = bestRoute(tt.ref.split(';')); if (rr) { route = routeText(rr); fallback = true; } }
+  }
+  const seen = new Set(), dest = [];
+  let card = '';
+  for (const d of raw) {
+    if (DROP.test(d)) continue;
+    const w = destWords(d);
+    if (!w.text || seen.has(w.text)) continue;
+    seen.add(w.text); dest.push(w.text);
+    if (!card && w.card && !route.endsWith(w.card)) card = w.card;
+    if (dest.length === 2) break;
+  }
+  if (fallback) flags |= 4;
+  if (dest.length) { exDest++; if (fallback) exDestFallback++; } else if (!route) exNone++;
+  // left: destination:lanes gives the ramp's destination to the first lane and not the last
+  const dl = mt['destination:lanes'];
+  if (dl && lt.destination) {
+    const lanes = dl.split('|'), mine = lt.destination.split(';')[0].trim();
+    if (lanes[0].includes(mine) && !lanes[lanes.length - 1].includes(mine)) flags |= 1;
+  }
+  const adv = Math.min(255, parseInt((lt['maxspeed:advisory'] || '0').replace(/[^0-9]/g, '') || '0', 10));
+  if (adv) exAdv++;
+  // the motorway going on: its route, its cardinal, its control city
+  let thru = '', thruCity = '';
+  const mr = mt.ref ? bestRoute(mt.ref.split(';')) : null;
+  if (mr) {
+    const [dx, dz] = runFrom(n, 1500);
+    const c = cardinalOf(mr, dx, dz);
+    if (LOOP.test(routeText(mr))) {
+      // a loop's pull-through names the freeway it is on, not a city (I-277 has no cardinal)
+      thru = routeText(mr) + (routeText(mr) === 'I-277' ? '' : ' ' + c);
+      thruCity = ins[0].name && !/^(I|US|NC)[ -]\d/.test(ins[0].name) ? destWords(ins[0].name).text : '';
+    } else {
+      thru = routeText(mr) + ' ' + c;
+      thruCity = controlCity(thru);
+    }
+    if (thruCity) exThruCity++;
+  }
+  exitRecs.push({ x: P.x, z: P.z, flags, adv, strs: [num, route, dest[0] || '', dest[1] || '', card, thru, thruCity] });
+}
+exitRecs.sort((a, b) => a.x - b.x || a.z - b.z);
+
 // ---- encode
 const parts = [];
 const head = Buffer.alloc(28);
-head.write('PSGN', 0, 'latin1'); head.writeInt32LE(1, 4);
+head.write('PSGN', 0, 'latin1'); head.writeInt32LE(2, 4);
 head.writeInt32LE(lat.nx, 8); head.writeInt32LE(lat.nz, 12);
 head.writeFloatLE(lat.x0, 16); head.writeFloatLE(lat.z0, 20); head.writeFloatLE(lat.cell, 24);
 parts.push(head, Buffer.from(grid));
@@ -378,6 +560,12 @@ const ways = [...wayRoute.entries()].sort((a, b) => a[0] - b[0]);
   const b = Buffer.alloc(n); b.writeUInt32LE(gantList.length, 0); let o = 4;
   for (const [w, g] of gantList) { b.writeUInt32LE(w, o); b.writeUInt8(g.length, o + 4); g.forEach((v, i) => b.writeUInt8(v, o + 5 + i)); o += 5 + g.length; }
   parts.push(b); }
+{ const chunks = [Buffer.alloc(4)]; chunks[0].writeUInt32LE(exitRecs.length, 0);
+  for (const r of exitRecs) {
+    const h = Buffer.alloc(10); h.writeFloatLE(r.x, 0); h.writeFloatLE(r.z, 4); h.writeUInt8(r.flags, 8); h.writeUInt8(r.adv, 9); chunks.push(h);
+    for (const t0 of r.strs) { const t = Buffer.from(t0.slice(0, 60), 'latin1'); chunks.push(Buffer.from([t.length]), t); }
+  }
+  parts.push(Buffer.concat(chunks)); }
 const bytes = Buffer.concat(parts);
 const br = brotliCompressSync(bytes, { params: { [Z.BROTLI_PARAM_QUALITY]: 11, [Z.BROTLI_PARAM_LGWIN]: 24, [Z.BROTLI_PARAM_SIZE_HINT]: bytes.length } }).length;
 
@@ -389,6 +577,8 @@ for (const r of [...routes].sort((a, b) => b.km - a.km)) if (r.km >= 3)
   console.log(`  ${r.name.padEnd(8)} ${r.cls === 1 ? 'interstate' : 'US/NC     '} ${r.km.toFixed(1).padStart(6)} km  ${r.density.toFixed(2)}/km${r.measured ? ' (NCDOT)' : ' (class) '}  want ${(r.density * r.km).toFixed(0).padStart(3)}  osm ${String(r.osm).padStart(2)}  zoned ${r.zonedKm.toFixed(1).padStart(6)} km  to stand ${r.stand.toFixed(3)}  drawn at ${r.rate.toFixed(3)}`);
 console.log(`OSM billboards ${bills.length}; businesses ${bizAll}, ${pois.length} within 70 m of a collector or bigger: ${KINDS.map((k, i) => k + ' ' + kindCount[i]).join(', ')}`);
 console.log(`motorway diverges ${diverges}, ${tagged} with destination:lanes (gantry panels)`);
+console.log(`exit legends ${exitRecs.length} (${exExpress} express/toll ramps left unsigned): numbers ${exNum} (${exNumRamp} from the ramp's junction:ref), routes ${exRoute}, destinations ${exDest} (${exDestFallback} from a fallback), nothing to say ${exNone}; posted advisories ${exAdv}; pull-throughs with a control city ${exThruCity}`);
+if (args.includes('--legends')) for (const r of exitRecs) console.log(`  (${r.x.toFixed(0)},${r.z.toFixed(0)}) f${r.flags} adv${r.adv} | ${r.strs.join(' | ')}`);
 console.log(`size ${(bytes.length / 1e3).toFixed(0)} KB raw, ${(br / 1e3).toFixed(0)} KB Brotli; built in ${((Date.now() - t0) / 1e3).toFixed(1)} s`);
 
 const shipped = join(RES, 'charlotte_signs.bytes');

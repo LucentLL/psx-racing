@@ -256,6 +256,28 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
+        /// Charlotte's freeway guide signs (the highway signs pass, 2026-10-29):
+        /// one 1024 x 512 atlas (tools/city/guide_atlas.py: every letter of
+        /// Overpass, the open Highway Gothic, OFL 1.1, white on green and black
+        /// on yellow; the arrows and border pieces; the owner's PSX Textures II
+        /// galvanised steel and concrete), point-filtered WITH mips
+        /// (PSXTextureCaps.MipsFor) so a legend reads at a distance without
+        /// shimmer. Unlit at night, as NCDOT's retroreflective panels are. Null
+        /// if the atlas is missing: the guide signs then stand with their
+        /// renderer off (their legs still collide).
+        /// </summary>
+        internal static Material CityGuideMat()
+        {
+            const string tex = Root + "/Art/City/Signs/CityGuide.png";
+            if (AssetDatabase.LoadAssetAtPath<Texture2D>(tex) == null)
+            {
+                Log("WARN: " + tex + " missing (py tools/city/guide_atlas.py) - Charlotte's freeway guide signs will not draw.");
+                return null;
+            }
+            return MakeMat("CityGuide", tex, affine: 0f);
+        }
+
+        /// <summary>
         /// Charlotte's roadside furniture (WP-15): the utility poles, their
         /// wires and cobra-heads, the street lamps and uptown's acorn posts on
         /// one 256 atlas of the owner's pack wood and metal
@@ -396,6 +418,7 @@ namespace PSXRacing.EditorTools
             kit.trees = CityTreeMats();
             kit.treeLowReach = CityTreeLowReach();
             kit.signs = CitySignsMat();
+            kit.guide = CityGuideMat();
             kit.furniture = CityFurnitureMat();
             kit.signals = CitySignalsMat();
             var shaders = new List<Shader>();
@@ -411,6 +434,8 @@ namespace PSXRacing.EditorTools
                 if (m != null && m.shader != null && !shaders.Contains(m.shader)) shaders.Add(m.shader);
             if (kit.signs != null && kit.signs.shader != null && !shaders.Contains(kit.signs.shader))
                 shaders.Add(kit.signs.shader);
+            if (kit.guide != null && kit.guide.shader != null && !shaders.Contains(kit.guide.shader))
+                shaders.Add(kit.guide.shader);
             if (kit.signals != null && kit.signals.shader != null && !shaders.Contains(kit.signals.shader))
                 shaders.Add(kit.signals.shader);
             foreach (var name in new[] { "PSX/Lit", "PSX/Water", "PSX/LitTransparent" })
