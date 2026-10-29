@@ -137,16 +137,19 @@ namespace PSXRacing.EditorTools
                     {
                     var sp = spots.Find(s => s.name == target);
                     if (sp.name == null) continue;
-                    foreach (float back in new[] { 600f, 300f })
+                    foreach (float backS in new[] { 600f, 300f, -600f })
                     {
+                        // -600: from 600 m with the tile builds LATE (only the 3 x 3
+                        // round the eye stands): what a car at speed sees
+                        bool late = backS < 0f; float back = Mathf.Abs(backS);
                         var (eye, rot) = Pose(sp, back, 8f);
-                        world.EnsureRing(eye, world.ring);
+                        world.EnsureRing(eye, late ? 1 : world.ring);
                         foreach (bool on in new[] { true, false })
                         {
                             CityProxies.Suppress = !on;
                             cam.transform.SetPositionAndRotation(eye, rot);
                             world.RefreshSkyline(cam);
-                            string name = $"popin_{sp.name}_{back:0}m_{(on ? "proxies" : "noproxies")}_{tag}";
+                            string name = $"popin_{sp.name}_{back:0}m{(late ? "_late" : "")}_{(on ? "proxies" : "noproxies")}_{tag}";
                             PSXScreenshotTool.ShotAs(cam, name, eye, rot);
                             log.Append($"[Flicker] shot {name}.png ({world.Proxies?.Summary ?? "no proxies"})\n");
                         }

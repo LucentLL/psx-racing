@@ -238,7 +238,7 @@ namespace PSXRacing.City
         /// <paramref name="budgetMs"/>.</summary>
         public void Step(double budgetMs)
         {
-            if (!eyeValid) return;
+            if (!eyeValid || Suppress) return;
             if (next != null) { UploadStep(UploadVertsPerFrame); return; }
             if (StartRebuild(false)) return;
             if (!jobOpen && !StartNextJob()) return;

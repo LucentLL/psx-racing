@@ -174,6 +174,12 @@ Shader "PSX/Lit"
         // fading in, 2 a far-building proxy, 3 a tile's tree-frame object,
         // 4 a tile's buildings, 5 a skyline copy.
         [HideInInspector] _TileFade ("Tile fade mode", Float) = 0
+        // CITY FLICKER (city-popin): a polygon offset toward the eye - 0 on
+        // every material but the city's median barriers' copy (CityWorld),
+        // which wins the line where its foot meets the road instead of
+        // trading pixels with it along the whole barrier
+        [HideInInspector] _ZOffF ("Depth offset factor", Float) = 0
+        [HideInInspector] _ZOffU ("Depth offset units", Float) = 0
         // ...and the far ROADS' lead in its own depth (metres nearer in draw
         // 1): a ribbon on the far land wins over the coarse land round it
         [HideInInspector] _SkyLeadM ("Far land lead (m)", Float) = 0
@@ -205,6 +211,7 @@ Shader "PSX/Lit"
             ZWrite [_SkyZWrite]
             ZTest [_SkyZTest]
             ColorMask [_SkyColorMask]
+            Offset [_ZOffF], [_ZOffU]
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag

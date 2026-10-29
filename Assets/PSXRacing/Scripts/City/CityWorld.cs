@@ -947,6 +947,10 @@ namespace PSXRacing.City
                 // skip only this layer) could stand a car on a rail's top.
                 var g = Child(root, "Barriers", SolidLayer);
                 Render(g, tm.barriers, new[] { CityMeshes.Slot.Concrete }, matFor);
+                // city-popin (the flicker finder): the barrier wins the line its
+                // foot stands on - it traded pixels with the road all along it
+                var bmr = g.GetComponent<MeshRenderer>();
+                if (bmr != null) bmr.sharedMaterial = BarrierMat(bmr.sharedMaterial);
                 CookCollider(g, tm.barriers);
                 meshes.Add(tm.barriers);
             }
@@ -1258,6 +1262,20 @@ namespace PSXRacing.City
         {
             var kit = CityKit.Get();
             return kit != null ? SeasonDress.Substitute(kit.bank) : null;
+        }
+
+        static readonly Dictionary<Material, Material> barrierMats = new Dictionary<Material, Material>();
+        /// <summary>The median barriers' concrete with a slope-scaled depth
+        /// offset (PSX/Lit _ZOffF/_ZOffU): one copy per source material.</summary>
+        static Material BarrierMat(Material src)
+        {
+            if (src == null || !src.HasProperty("_ZOffF")) return src;
+            if (barrierMats.TryGetValue(src, out var m) && m != null) return m;
+            m = new Material(src) { name = src.name + " (barrier)", hideFlags = HideFlags.DontSave };
+            m.SetFloat("_ZOffF", -1f);
+            m.SetFloat("_ZOffU", -1f);
+            barrierMats[src] = m;
+            return m;
         }
 
         static GameObject Child(GameObject parent, string name, int layer)
