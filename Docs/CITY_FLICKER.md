@@ -77,3 +77,30 @@ Row 1 (8170 px, 83%): ONE building - footprint 26043, a 102 m tower at (-3075, 4
 **Roads (mine, not fixed this pass):** Roads mw3_concrete vs mw4_concrete at (-1549, 107.8, 3700) - I-277 where edge 2344 (prof17, 18.8 m) meets edge 1393 (prof16, 15.2 m) beside link 7338 and bridge 14177: two carriageway ribbons overlap at the lane-count change, 44 px at 8 m from the eye (uptown1). Barriers vs road surfaces remain the largest class (~700 px, 8-60 m): the foot line at grazing angles; the -1,-1 offset took ~250 px off it, a larger one or ending the barrier faces exactly at the deck is next.
 
 **Small, unassigned:** JunctionFurniture vs SignalLenses (34 px at 180 m: the lens quads on the head faces) - a lens depth offset; Ground vs Ground (24, tryon3@400m).
+
+## West Trade Street - twin footprints (west-trade-flicker, 2026-10-29)
+
+Owner's video (live WebGL, free roam westbound on West Trade Street at ~100 mph, chase camera): "not the orange brick building, the tannish cream one before that. flickers probably 30 times while driving by".
+
+**The spot:** West Trade Street westbound, edge 5780 (-2933, 5390) -> (-3036, 5483) and edge 5781 on to (-3157, 5588), the long stone building on the right between South Cedar Street and the next block (finder spots `wtrade0..2`).
+
+**Cause - one building, two footprints.** charlotte_bld.bytes held footprint 13904 (h 24.8) and 31553 (h 28.2) on ONE outline, and 13903/31552 (28.2/28.2) on the next: OSM's building way and the multipolygon relation whose outer ring is that way, and the exporter took both (addPoly per way, then per relation outer). Every wall was the same face twice. They tie in depth; since the building pass (2026-10-28) each record wears the floors of its own height - 7 floors of 3.54 m against 7 of 4.03 m - so the tie shows as window rows that jump at every wall and change from frame to frame. Both records are in one tile's Buildings mesh: ONE draw, one ID whichever wins, so the ID finder saw only 53 px of it (Buildings vs Buildings, wtrade1@150m).
+
+**Fix - twin footprints flagged hidden** (`tools/city/lib/twins.mjs`; `export_osm.mjs` runs it on its records before writing, `PSX_CITY_TWINS=0` skips it; `tools/city/bld_twins.mjs --write` flagged the shipped file: 41 flag bytes, same size, same indices). A footprint is a twin when one of its walls lies on a same-facing wall of another non-part footprint (5 cm, 0.5 m long, 0.5 m of shared height) and that other one holds all of it: the SAME outline (the lower top is the twin; equal tops, the later record), or wholly INSIDE one whose top is no lower (0.3 m slack). The keeper stands as it was - the silhouette and look are the keeper's. A hidden outline draws nothing in the tiles, the far buildings or the skyline; CitySkyline now also skips a hidden outline with no parts when it picks its towers.
+
+City-wide: 64 pairs of non-part footprints shared a face (131,245 m2 of doubled wall); 41 twins flagged (28 one outline twice, 87,972 m2; 13 inside another, 30,257 m2). Two of the keepers are listed parking decks (20058, 36000): the solid box that stood on or inside each deck's outline is gone and the deck draws as the deck. One twin is itself a listed deck (15628, inside 31542): EmitDeck runs before the hidden test, so its deck still draws in the tiles exactly as before.
+
+**Left drawn (their shared walls need cutting, not removing):** 12 pairs - 5 where the inner building RISES above the outer (the 138.6 m tower 13866 inside its 31 m podium 32 at (-2741, 4419), uptown; 31542/31543 at (-1383, 3402); 20058/31528; 61969/62022; 62260/63494) and 7 that only overlap (18479/29597, 27949/30646, 30270/31709, 36692/36693, 55679/57882, 57881/57882). `node tools/city/bld_twins.mjs` lists them.
+
+**The finder now counts COLOUR FLIPS** too: the shaded picture at the same two near planes (post off); a pixel whose colour changes is a visible depth tie, one draw or two. Ranked by the draw on top, written into the per-view table and the magenta pictures. The default run now has 15 spots (wtrade0..2 added).
+
+**Measured** (`tools\city-flicker.ps1 -Spots wtrade0,wtrade1,wtrade2`, OpenGL core, 18 views; the after run with `-BldFrom` the flagged file):
+
+| | ID ties px | COLOUR FLIPS px | of which Buildings [CityFacadeGlass] | worst view (wtrade2@150m cockpit / chase) |
+|---|---|---|---|---|
+| BEFORE (main's data) | 675 | **69,930** | 69,218 | 39,937 / 21,271 |
+| AFTER (twins flagged) | 667 | **1,211** | 507 | 79 / 26 |
+
+-98% of what a player sees fight at the spot; no view keeps 300 flipped pixels (the magenta pictures are only written over 300). What is left is the ID finder's old list (facade feet on the pavement, signal lenses, kerbs) and a few dozen pixels on other buildings.
+
+**The see-through poles in the same video are the SPEED BLUR, not the tile fade.** The posts the owner drives past are the street lamps (CityPoles.EmitLamp: a black post with a box head). Their fade share (b, ModeTreeFrame) ramps 0 to 1 once over 0.5 s when the tile's tree frame is planted (PlantTrees runs once per tile) and is 1 for an unbuilt tile, so it cannot stay part-way; and in the video the posts near the tunnel's centre stay solid in the same frames where the near ones ghost, and one post goes from solid to ghost as it moves out of the centre within half a second - one tile, one share. The finder's `-ShotBlurMph 100` frame (edit mode: every share whole) shows it: through the game's ZOOM blur at 100 mph the nearest lamp post at wtrade1 40 m back is gone entirely and the far ones stay solid (Screenshots/popin_wtrade1_40m_proxies_*_blur100mph.png). A 16-tap gather along the radial line averages a 2-4 px post with 30-100 px of facade, so it reads as glass. That is the owner's blur table (100 mph: substantial), not a fault; changing it is his call.

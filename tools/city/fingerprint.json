@@ -95,7 +95,7 @@
       8674
     ],
     "parts": 861,
-    "hidden": 109,
+    "hidden": 150,
     "roofs": 116,
     "landmarks": 18
   },
@@ -110,7 +110,7 @@
     },
     "charlotte_bld.bytes": {
       "bytes": 4376668,
-      "sha256": "15bd40d89814fcc01bcd95ca50e2df05dcf755d77e217370bbb7bf68d084a654"
+      "sha256": "167ee4cfdd42f63a9990860eb278fd46281f0d849a1bdc899c46398194c88f6b"
     },
     "charlotte_decks.bytes": {
       "bytes": 12772,
