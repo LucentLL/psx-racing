@@ -45,20 +45,29 @@ namespace PSXRacing.City
     /// 03:00, the cap at 08:00 and 17:00), born 140-380 m from the player out
     /// of the camera's view, on roads weighted by class and lanes (freeways and
     /// arterials busier than locals), recycled past 480 m. Cap 48 desktop, 24
-    /// phone. OFF by default for now (<see cref="DefaultOn"/>); PSX_CITY_TRAFFIC=1/0 or <see cref="Enabled"/> overrides.
+    /// phone. ON by default on a desktop, OFF on a phone until its frame cost
+    /// is measured (<see cref="DefaultOn"/>, <see cref="DefaultOnPhone"/>); the
+    /// page's ?traffic=1 / ?traffic=0, PSX_CITY_TRAFFIC=1/0 or <see cref="Enabled"/> override.
     /// </summary>
-    public class CityTraffic : MonoBehaviour
+    public partial class CityTraffic : MonoBehaviour
     {
         public static CityTraffic Instance { get; private set; }
 
-        /// <summary>THE DEFAULT (2026-10-26 skeleton): OFF until it has had an
-        /// owner look and a phone measurement - flip to true to ship it.</summary>
-        public const bool DefaultOn = false;
-        /// <summary>The switch: PSX_CITY_TRAFFIC=1 / =0 in the environment
-        /// overrides the default; a tool sets it before the scene starts
-        /// (CityTrafficCheck does).</summary>
-        public static bool Enabled = System.Environment.GetEnvironmentVariable("PSX_CITY_TRAFFIC") is string v && v.Length > 0
-            ? v != "0" : DefaultOn;
+        /// <summary>THE DEFAULT (2026-10-29, the owner: "I still don't see
+        /// traffic in city free roam"): ON in desktop free roam. A phone stays
+        /// OFF (<see cref="DefaultOnPhone"/>) until its frame cost is measured.</summary>
+        public const bool DefaultOn = true;
+        public const bool DefaultOnPhone = false;
+        /// <summary>The tools' and the environment's switch: PSX_CITY_TRAFFIC=1
+        /// / =0 overrides the default; a tool sets <see cref="Enabled"/> before
+        /// the scene starts (CityTrafficCheck does). Null: the platform default.</summary>
+        public static bool? Forced = System.Environment.GetEnvironmentVariable("PSX_CITY_TRAFFIC") is string v && v.Length > 0
+            ? v != "0" : (bool?)null;
+        public static bool Enabled
+        {
+            get => Forced ?? (Application.isMobilePlatform ? DefaultOnPhone : DefaultOn);
+            set => Forced = value;
+        }
         /// <summary>Tools: the clock hour the density reads (negative: the
         /// hour the scene runs at).</summary>
         public static float ClockOverride = -1f;
@@ -266,6 +275,58 @@ namespace PSXRacing.City
                 : $"run e{L.edge} cls{e.cls}{(e.link ? "L" : "")} dir {L.dir} lane {c.lane}{(c.lc ? "->" + c.laneTo : "")} of {Lanes(L.edge, L.dir)} {c.u:0.0}/{L.len:0.0} m to {ctl}";
             return $"car {c.id} {c.speed:0.0} m/s {where} at ({c.pos.x:0},{c.pos.y:0})";
         }
+        /// <summary>A movement across a node as Extend would lay it, lane by
+        /// lane (the tools: what a turn path meets, why a lane lands where it
+        /// does) - each in-lane's mapping, its ends against the pavement, and
+        /// any collider (not road, not traffic) on the path or the first 24 m
+        /// of the run after it. Its tiles must be built (EnsureRing).</summary>
+        public string DescribeTurn(int node, int eIn, int eOut)
+        {
+            var sb = new System.Text.StringBuilder();
+            if (map == null || eIn < 0 || eOut < 0 || eIn >= map.edges.Length || eOut >= map.edges.Length) return "no such edges";
+            var e = map.edges[eIn]; var e2 = map.edges[eOut];
+            if ((e.a != node && e.b != node) || (e2.a != node && e2.b != node)) return $"e{eIn} / e{eOut} do not meet at node {node}";
+            int dir = e.b == node ? 1 : -1, dir2 = e2.a == node ? 1 : -1;
+            float sA = EndS(e, dir), sB = dir2 > 0 ? Back(e2, node) : e2.length - Back(e2, node);
+            float ang = Vector2.SignedAngle(TravelTan(e, dir, dir > 0 ? e.length : 0f), TravelTan(e2, dir2, dir2 > 0 ? 0f : e2.length));
+            string Facts(CityMap.Edge x, int d) =>
+                $"e{x.index} '{x.name}' cls{x.cls}{(x.link ? " link" : "")}{(x.oneway ? " oneway" : "")} len {x.length:0} lanes {Lanes(x.index, d)} (F{lanesF[x.index]} B{lanesB[x.index]} slots {slots[x.index]} offF {offF[x.index]}" +
+                $"{(x.hasLset ? $" lset {x.lsNF}/{x.lsNB} c{x.lsCentre} sub{x.lsSub}" : " no lset")}) width {x.width:0.0} lm +{x.lmPlus:0.0}/-{x.lmMinus:0.0} sh {x.shl:0.0}/{x.shr:0.0}";
+            var pn = map.nodes[node];
+            sb.AppendLine($"node {node} ({pn.x:0},{pn.y:0}) degree {degree[node]} junction {nodeJunction[node]}, turn {ang:0} deg");
+            sb.AppendLine("  in  " + Facts(e, dir) + $" dir {dir}, ends at s {sA:0.0}");
+            sb.AppendLine("  out " + Facts(e2, dir2) + $" dir {dir2}, starts at s {sB:0.0}");
+            LineModel.Extents(e2, sB, out float eM, out float eP);
+            int mask = ~((1 << 2) | roadMask);
+            int nIn = Lanes(eIn, dir), nOut = Lanes(eOut, dir2);
+            for (int lane = 0; lane < nIn; lane++)
+            {
+                int req, outLane;
+                float aAbs = Mathf.Abs(ang);
+                if (aAbs >= 35f && aAbs <= 150f) { req = ang > 0f ? nIn - 1 : 0; outLane = ang > 0f ? nOut - 1 : 0; }
+                else MapStraight(e, dir, sA, e2, dir2, sB, lane, out req, out outLane);
+                var T = new Leg();
+                Shape(ref T, LanePos(e, dir, req, sA), TravelTan(e, dir, sA), LanePos(e2, dir2, outLane, sB), TravelTan(e2, dir2, sB));
+                var hits = new System.Text.StringBuilder();
+                var seen = new HashSet<Collider>();
+                for (int i = 0; i <= 28; i++)
+                {
+                    Vector2 p; float y;
+                    if (i <= 16) { p = Bez(T, i / 16f, out _); y = Mathf.Lerp(e.YAt(sA), e2.YAt(sB), i / 16f); }
+                    else
+                    {
+                        float s = Mathf.Clamp(sB + dir2 * (i - 16) * 2f, 0f, e2.length);
+                        p = LanePos(e2, dir2, outLane, s); y = e2.YAt(s);
+                    }
+                    foreach (var col in Physics.OverlapBox(new Vector3(p.x, y + 0.9f, p.y), new Vector3(0.9f, 0.6f, 0.9f), Quaternion.identity, mask, QueryTriggerInteraction.Ignore))
+                        if (seen.Add(col)) hits.Append($" | {col.name} ({LayerMask.LayerToName(col.gameObject.layer)}) {(i <= 16 ? "turn " + (i * 100 / 16) + "%" : "run +" + ((i - 16) * 2) + " m")} at ({p.x:0.0},{p.y:0.0})");
+                }
+                sb.AppendLine($"  lane {lane}: from lane {req} to lane {outLane} of {nOut}; ends lat {LaneLat(e, dir, req, sA):0.00} -> {LaneLat(e2, dir2, outLane, sB):0.00} " +
+                              $"(out pavement -{eM:0.0}..+{eP:0.0}, divider {LineModel.DividerLat(e2):0.0}), path {T.len:0.0} m{(hits.Length > 0 ? hits.ToString() : " | meets nothing")}");
+            }
+            return sb.ToString();
+        }
+
         public int Active => live.Count;
         public int Target { get; private set; }
         public int Cap => cap;
@@ -319,15 +380,37 @@ namespace PSXRacing.City
         // ======================================================================
         //  Start
         // ======================================================================
-        /// <summary>Called by CityMode.Start in free roam (never in a race).</summary>
-        /// <summary>The live site's switch while the default is OFF: the page
-        /// opened with ?traffic=1 (the owner's look before it ships on).</summary>
-        static bool UrlAsks() =>
-            !Application.isEditor && (Application.absoluteURL ?? "").Contains("traffic=1");
+        /// <summary>The live page's switch: opened with ?traffic=1 it is on
+        /// (a phone too), with ?traffic=0 off; 1 / 0, or -1 when the page does
+        /// not say (and always in the editor).</summary>
+        static int UrlSwitch()
+        {
+            if (Application.isEditor) return -1;
+            string url = Application.absoluteURL ?? "";
+            int q = url.IndexOf('?');
+            for (int i = url.IndexOf("traffic=", q < 0 ? 0 : q, System.StringComparison.OrdinalIgnoreCase); q >= 0 && i > q;
+                 i = url.IndexOf("traffic=", i + 8, System.StringComparison.OrdinalIgnoreCase))
+            {
+                char before = url[i - 1];
+                if ((before != '?' && before != '&') || i + 8 >= url.Length) continue;
+                if (url[i + 8] == '1') return 1;
+                if (url[i + 8] == '0') return 0;
+            }
+            return -1;
+        }
 
+        /// <summary>Is traffic on for this session: the page's switch, else
+        /// the tools' / environment's, else the platform default.</summary>
+        public static bool WantedOn()
+        {
+            int url = UrlSwitch();
+            return url >= 0 ? url == 1 : Enabled;
+        }
+
+        /// <summary>Called by CityMode.Start in free roam (never in a race).</summary>
         public static void Attach(CityMode mode)
         {
-            if (!(Enabled || UrlAsks()) || Instance != null || mode == null || mode.IsRace || mode.player == null ||
+            if (!WantedOn() || Instance != null || mode == null || mode.IsRace || mode.player == null ||
                 mode.world == null || mode.world.Map == null) return;
             var go = new GameObject("CityTraffic");
             Instance = go.AddComponent<CityTraffic>();
