@@ -3418,6 +3418,15 @@ namespace PSXRacing.City
         static void SamplePositions(CityMap map, CityMap.Edge e, Trims trims, float sMin, float sMax)
         {
             using var _hz = new HitchZone(HitchClock.Samples);   // city-build-hitches: the zone clock
+            foreach (var _ in SamplePositionsSteps(map, e, trims, sMin, sMax, 0)) { }
+        }
+
+        /// <summary>SamplePositions's body (city-build-hitches): a step every
+        /// <paramref name="everyM"/> metres of a clip's walk (the host cut at
+        /// every metre of it) when the roads phase sections a long edge ahead
+        /// (0: in one go).</summary>
+        static IEnumerable<int> SamplePositionsSteps(CityMap map, CityMap.Edge e, Trims trims, float sMin, float sMax, int everyM)
+        {
             sampleS.Clear();
             sampleS.Add(sMin);
             for (int i = 0; i < e.stS.Length; i++) if (e.stS[i] > sMin + 0.6f && e.stS[i] < sMax - 0.6f) sampleS.Add(e.stS[i]);
@@ -3469,8 +3478,10 @@ namespace PSXRacing.City
                     }
                     float from = Mathf.Max(sMin, c.sFrom), to = Mathf.Min(sMax, c.sTo);
                     int prevState = -1; float prevLam = 0f, prevS = from;
+                    int walked = 0;
                     for (float sc = from; sc <= to + 0.01f; sc += 1f)
                     {
+                        if (everyM > 0 && ++walked % everyM == 0) yield return 0;   // city-build-hitches
                         var pc = e.PointAt(sc);
                         var tc = e.TangentAt(sc);
                         var rc = new Vector2(-tc.y, tc.x);
@@ -3953,7 +3964,8 @@ namespace PSXRacing.City
                     if (w1s - w0s < 0.6f) continue;
                     yield return 0;   // WP-09: an edge's sections a step, ahead of its spans
                     stepPhase = 2; stepItem = wi; stepPart = 4;
-                    RawSectionsOf(map, trims, we, w0s, w1s);
+                    if (FineSteps) { foreach (var _ in RawSectionsMissSteps(map, trims, we, w0s, w1s, WarmEvery)) yield return 0; }   // city-build-hitches
+                    else RawSectionsOf(map, trims, we, w0s, w1s);
                 }
 
             foreach (var ei in edgeScratch)
@@ -3966,7 +3978,7 @@ namespace PSXRacing.City
                 if (sMax - sMin < 0.6f) continue;   // the fans own all of it
 
                 // ---- sections ----
-                BuildSections(map, trims, tm, e, sMin, sMax);
+                foreach (var _ in BuildSectionsSteps(map, trims, tm, e, sMin, sMax, FineSteps ? WarmEvery : 0)) yield return 0;   // city-build-hitches: a long edge's in steps
                 int n = sections.Count;
                 if (n < 2) continue;
                 yield return 0;   // WP-09: the sections, then the side flags, a step each
@@ -3981,7 +3993,8 @@ namespace PSXRacing.City
                             float n0s = trims.atA[nb], n1s = ne.length - trims.atB[nb];
                             if (n1s - n0s < 0.6f) continue;
                             stepPart = 5; stepItem = nb;
-                            RawSectionsOf(map, trims, ne, n0s, n1s);
+                            if (FineSteps) { foreach (var _ in RawSectionsMissSteps(map, trims, ne, n0s, n1s, WarmEvery)) yield return 0; }   // city-build-hitches
+                            else RawSectionsOf(map, trims, ne, n0s, n1s);
                             yield return 0;   // WP-09: a neighbour's sections a step
                         }
                 foreach (var _ in WarmOutlinesSteps(map, trims, e, tm, min, max)) yield return 0;   // city-build-hitches: outlines ahead
@@ -7007,6 +7020,15 @@ namespace PSXRacing.City
         static void BuildSections(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e,
                                   float sMin, float sMax)
         {
+            foreach (var _ in BuildSectionsSteps(map, trims, tm, e, sMin, sMax, 0)) { }   // city-build-hitches: the one body
+        }
+
+        /// <summary>BuildSections's body (city-build-hitches): a step every
+        /// <paramref name="every"/> sections met against the pavement beside
+        /// them, in the roads phase (0: in one go).</summary>
+        static IEnumerable<int> BuildSectionsSteps(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e,
+                                                   float sMin, float sMax, int every)
+        {
             var raw = RawSectionsOf(map, trims, e, sMin, sMax);
             sections.Clear();
             meetD.Clear();
@@ -7025,6 +7047,7 @@ namespace PSXRacing.City
                 if (split && !sec.elev) MitreSnap(map, trims, e, ref sec);
                 sec.L -= o; sec.R -= o;
                 sections.Add(sec);
+                if (every > 0 && (k + 1) % every == 0) yield return 0;   // city-build-hitches
             }
             if (anyMeet && MeetEaseOn) EaseMeets();
         }
@@ -7162,20 +7185,33 @@ namespace PSXRacing.City
 
         static List<Section> RawSectionsOfMiss(CityMap map, Trims trims, CityMap.Edge e, float sMin, float sMax)
         {
-            if (rawSectionCache.TryGetValue(e.index, out var list)) return list;
+            if (rawSectionCache.TryGetValue(e.index, out var hit)) return hit;
             using var _hz = new HitchZone(HitchClock.RawSections);   // city-build-hitches: the zone clock
-            list = rawSectionPool.Count > 0 ? rawSectionPool.Pop() : new List<Section>(32);
+            foreach (var _ in RawSectionsMissSteps(map, trims, e, sMin, sMax, 0)) { }
+            return rawSectionCache[e.index];
+        }
+
+        /// <summary>RawSectionsOfMiss's body (city-build-hitches): a step every
+        /// <paramref name="every"/> sections when the roads phase sections a
+        /// long edge ahead (0: in one go, the lazy miss).</summary>
+        static IEnumerable<int> RawSectionsMissSteps(CityMap map, Trims trims, CityMap.Edge e, float sMin, float sMax, int every)
+        {
+            var list = rawSectionPool.Count > 0 ? rawSectionPool.Pop() : new List<Section>(32);
             list.Clear();
             rawSectionCache[e.index] = list;
             // SamplePositions rebuilds the structure ends a caller may be
             // walking (DecideSideFlags, EmitSide)
             rawSaveEnds.Clear(); rawSaveEnds.AddRange(endScratch);
-            SamplePositions(map, e, trims, sMin, sMax);
-            for (int k = 0; k < sampleS.Count; k++) list.Add(SectionAt(map, trims, e, sampleS[k], true));
+            if (every > 0) { foreach (var _ in SamplePositionsSteps(map, e, trims, sMin, sMax, 2 * every)) yield return 0; }   // city-build-hitches
+            else SamplePositions(map, e, trims, sMin, sMax);
+            for (int k = 0; k < sampleS.Count; k++)
+            {
+                list.Add(SectionAt(map, trims, e, sampleS[k], true));
+                if (every > 0 && (k + 1) % every == 0) yield return 0;   // city-build-hitches
+            }
             if (EaseSqueezes) EaseSqueeze(map, trims, e, list, sMin, sMax);
             JoinBuriedEnds(map, trims, e, list, sMin, sMax);
             endScratch.Clear(); endScratch.AddRange(rawSaveEnds);
-            return list;
         }
 
         /// <summary>One cross-section at s: the line model's extents, the clip,
@@ -9205,18 +9241,26 @@ namespace PSXRacing.City
 
         static Outline OutlineOf(CityMap map, Trims trims, int ei)
         {
-            if (outlines.TryGetValue(ei, out var ol)) return ol;
+            if (outlines.TryGetValue(ei, out var hit)) return hit;
             using var _hz = new HitchZone(HitchClock.Outline);   // city-build-hitches: the zone clock
-            ol = new Outline();
+            foreach (var _ in OutlineSteps(map, trims, ei, 0)) { }
+            return outlines[ei];
+        }
+
+        /// <summary>OutlineOf's body (city-build-hitches): its sections a step
+        /// every <paramref name="every"/> in the roads phase (0: in one go).</summary>
+        static IEnumerable<int> OutlineSteps(CityMap map, Trims trims, int ei, int every)
+        {
+            var ol = new Outline();
             outlines[ei] = ol;
             var e = map.edges[ei];
             float sMin = trims.atA[ei], sMax = e.length - trims.atB[ei];
-            if (sMax - sMin < 0.6f || (e.a == e.b && e.length < 1f)) return ol;
+            if (sMax - sMin < 0.6f || (e.a == e.b && e.length < 1f)) yield break;
             // BuildSections rebuilds the section list and the structure ends
             // a caller may be walking (DecideSideFlags, EmitSide)
             outlineSections.Clear(); outlineSections.AddRange(sections);
             outlineEnds.Clear(); outlineEnds.AddRange(endScratch);
-            BuildSections(map, trims, worldOrigin, e, sMin, sMax);
+            foreach (var _ in BuildSectionsSteps(map, trims, worldOrigin, e, sMin, sMax, every)) yield return 0;
             int n = sections.Count;
             if (n >= 2)
             {
@@ -9232,7 +9276,6 @@ namespace PSXRacing.City
             }
             sections.Clear(); sections.AddRange(outlineSections);
             endScratch.Clear(); endScratch.AddRange(outlineEnds);
-            return ol;
         }
 
         /// <summary>A ribbon's outline without MeetPavement's step

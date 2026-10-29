@@ -239,9 +239,31 @@ namespace PSXRacing.City
                 if (outlines.ContainsKey(oi)) continue;
                 yield return 0;
                 stepPhase = phase; stepItem = oi; stepPart = 6;
-                OutlineOf(map, trims, oi);
+                // its own raw sections and those of the roads it meets first,
+                // each a few dozen sections a step, then the outline the same way
+                var oe = map.edges[oi];
+                foreach (var _ in WarmRaw(map, trims, oe)) yield return 0;
+                foreach (var (ai, _n) in MeetArmsOf(map, oe)) foreach (var _ in WarmRaw(map, trims, map.edges[ai])) yield return 0;
+                if (clips.TryGetValue(oi, out var cl))
+                    foreach (var c in cl) foreach (var H in c.host.edges) foreach (var _ in WarmRaw(map, trims, H)) yield return 0;
+                foreach (var _ in OutlineSteps(map, trims, oi, WarmEvery)) yield return 0;
             }
             stepPhase = phase; stepItem = item; stepPart = part;
+        }
+
+        /// <summary>How many sections a warm-ahead step works out (a long
+        /// freeway edge has hundreds).</summary>
+        const int WarmEvery = 24;
+
+        /// <summary>An edge's raw sections ahead, a step every
+        /// <see cref="WarmEvery"/>, if the tile does not hold them (RawOutlineOf's
+        /// own extent and its rule for an edge too short to have any).</summary>
+        static IEnumerable<int> WarmRaw(CityMap map, Trims trims, CityMap.Edge e)
+        {
+            if (rawSectionCache.ContainsKey(e.index)) yield break;
+            float sMin = trims.atA[e.index], sMax = e.length - trims.atB[e.index];
+            if (sMax - sMin < 0.6f || (e.a == e.b && e.length < 1f)) yield break;
+            foreach (var _ in RawSectionsMissSteps(map, trims, e, sMin, sMax, WarmEvery)) yield return 0;
         }
 
         /// <summary>One zone's scope: <c>using var _hz = new HitchZone(HitchClock.X);</c>
