@@ -10979,8 +10979,11 @@ namespace PSXRacing.City
                     PickFacade(gf.centre, (byte)(f.style == 4 ? 2 : f.style), f.use, f.mat, f.colour, floorP,
                                gf != f ? Mathf.Max(gf.h, 1f) : top - floorP, f.rhythm != 0 ? f.rhythm : gf.rhythm);
                     // the tower's floodlit crown: its top band, whichever part reaches it
+                    // (none on a crown its real tower outlines in LED strips: those
+                    // lines are its light - CityBeacons; 2026-10-29, the open frame
+                    // washed blue read as one big glowing triangle)
                     float towerH = Mathf.Max(top - floorP, gf.h);
-                    facCrownY = towerH >= CrownMinH && !CrownsOff ? floorP + towerH - CrownBandM(towerH) : float.MaxValue;
+                    facCrownY = towerH >= CrownMinH && !CrownsOff && !NightStripsOf(gf.landmark) ? floorP + towerH - CrownBandM(towerH) : float.MaxValue;
                 }
                 // B2: a part's floor (a tier on its podium, a crown on its
                 // shaft) and the eave its roof shape rises from
