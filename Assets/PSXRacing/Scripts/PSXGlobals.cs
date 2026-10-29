@@ -306,6 +306,15 @@ namespace PSXRacing
         /// is on, 0 otherwise. It ships off: 0 is the signed-off grade bit
         /// for bit. TimeOfDay.Apply writes it.</summary>
         [System.NonSerialized] public float gradeSun;
+        /// <summary>THE SKYLINE PASS's sky A/B (<see cref="LookChoices.ClearDay"/>,
+        /// ships OFF; _PSXGradeClear, PSX/Blit): 1 at a clear morning, noon or
+        /// afternoon with the switch on - the grade lets the day's blues keep
+        /// their colour. 0 is the signed-off grade bit for bit.</summary>
+        [System.NonSerialized] public float gradeClear;
+        /// <summary>THE SKYLINE PASS: 1 turns the facades' day light back to
+        /// what it was (_PSXFacDayOff, PSX/Lit: no city bounce, the old glass;
+        /// PSX_FACDAY=0 in a tool, the before shot). 0 in a build.</summary>
+        [System.NonSerialized] public float facDayOff;
         /// <summary>THE HOUR'S SKY FILL (TimeOfDay.DayFillFor, the harsh
         /// sun, review 2026-09-29): the share of its sky light a sunlit hour
         /// keeps - 1 at every hour but a clear or snowy morning, noon or
@@ -398,6 +407,8 @@ namespace PSXRacing
             Shader.SetGlobalFloat("_PSXExposure", Mathf.Max(0.01f, exposure));
             Shader.SetGlobalFloat("_PSXAdapt", Mathf.Max(0.01f, adapt));
             Shader.SetGlobalFloat("_PSXGradeSun", Mathf.Clamp01(gradeSun));
+            Shader.SetGlobalFloat("_PSXGradeClear", Mathf.Clamp01(gradeClear));
+            Shader.SetGlobalFloat("_PSXFacDayOff", facDayOff > 0.5f ? 1f : 0f);
             Shader.SetGlobalFloat("_PSXEmitKey", emitKey > 0.5f ? 1f : 0f);
             Shader.SetGlobalVector("_PSXPaintWorld", new Vector4(Mathf.Clamp01(paintDay), Mathf.Clamp01(paintSnow), 0f, 0f));
             // THE DARK WHERE NOTHING IS LIT (NightDark): the light just pushed is

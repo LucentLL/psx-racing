@@ -598,6 +598,13 @@ namespace PSXRacing.City
                 k = new Vector3(SrgbToLin(colour.r) / Mathf.Max(m.x, 0.02f),
                                 SrgbToLin(colour.g) / Mathf.Max(m.y, 0.02f),
                                 SrgbToLin(colour.b) / Mathf.Max(m.z, 0.02f));
+                // (the skyline pass, 2026-10-29) a measured LIGHT glass is far past
+                // the tint's 1.99 (the glass columns are dark: the sky in them is
+                // the shader's), and clamping each channel there threw its hue
+                // away - every light glass the column's own blue. The hue kept:
+                // the channels scaled down together.
+                float kMax = Mathf.Max(k.x, Mathf.Max(k.y, k.z));
+                if (!LookFixOff && look <= LookTeal && kMax > 1.99f) k *= 1.99f / kMax;
             }
             else
             {
@@ -11022,8 +11029,12 @@ namespace PSXRacing.City
                 if (wallSlot == Slot.FacadeGlass)
                 {
                     facLed = NightFloodOf(gf.landmark);   // the crown's own flood (the 1990s city: NightCrowns)
-                    PickFacade(gf.centre, (byte)(f.style == 4 ? 2 : f.style), f.use, f.mat, f.colour, floorP,
-                               gf != f ? Mathf.Max(gf.h, 1f) : top - floorP, f.rhythm != 0 ? f.rhythm : gf.rhythm);
+                    // (the skyline pass, 2026-10-29: CityMeshes.Facades.cs FacadeArgs -
+                    // a part keeps its tower's measured colour, the tower's height
+                    // class, and a landmark wears its cladding of today)
+                    FacadeArgs(map, fi, f, gf, top - floorP, out byte pfMat, out Color32 pfCol, out byte pfRh, out float pfH);
+                    PickFacade(gf.centre, (byte)(f.style == 4 ? 2 : f.style), f.use, pfMat, pfCol, floorP, pfH, pfRh);
+                    if (hero >= 0) StadiumPartLook(hero, f, fi);
                     // the tower's floodlit crown: its top band, whichever part reaches it
                     // (none on a tower whose light is on its frame - NightCrowns: the
                     // open frame's white members are floodlit, HeroOpenFrame; washed
@@ -11133,7 +11144,13 @@ namespace PSXRacing.City
                 else
                 {
                     FacadeMetal(true); FacadeCrown(top > facCrownY + 0.3f);
+                    var roofKeep = Bucket.Tint;
+                    int roofLookKeep = facLook;
+                    StadiumRoofLook(hero, f);   // (the skyline pass: the gate towers' white domes)
+                    GlassCrownLook(wallSlot == Slot.FacadeGlass && !LookFixOff && f.roof == 1 && FacadeArgsMat(map, fi, f) == MatGlass);
                     EmitRoofShape(tm, f, roofScratch, eaveY, top, wallSlot);
+                    Bucket.Tint = roofKeep;
+                    facLook = roofLookKeep;
                     FacadeCrown(false); FacadeMetal(f.mat == 4);
                 }
                 if (floating && f.minH > 0.5f && !onOutline) EmitSoffit(tm, roofScratch, wallY0);
