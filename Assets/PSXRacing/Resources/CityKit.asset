@@ -109,6 +109,7 @@ MonoBehaviour:
   - {fileID: 2100000, guid: d5422c6184432004c86e37ee8fb92712, type: 2}
   - {fileID: 2100000, guid: 6e0cf69609695334eb11881e82baefa1, type: 2}
   - {fileID: 2100000, guid: 6db9e7427b8854f4b86aa8dd1ec68066, type: 2}
+  - {fileID: 2100000, guid: 8140fb8e8cbb1f447bfb44f4bae10a1a, type: 2}
   lampPost: {fileID: 2100000, guid: 998abe81626b23548b6cf25c93ca02f4, type: 2}
   bank: {fileID: 2100000, guid: dfded5dc865c2c14b83c65c2914b85cf, type: 2}
   trees:
@@ -457,8 +458,9 @@ MonoBehaviour:
   furniture: {fileID: 2100000, guid: b7063e982a5005f4787763a04fe00365, type: 2}
   paint: {fileID: 0}
   signs: {fileID: 2100000, guid: 7fc18ab0222e98d4fb2acb40725701e4, type: 2}
+  signals: {fileID: 2100000, guid: 2cbfeaacb898d224baeeabb6d26c14d9, type: 2}
   shaders:
   - {fileID: 4800000, guid: 8e5fd0c4978b3af46a27d1b2ff8b281b, type: 3}
   - {fileID: 4800000, guid: 2b0cd64ee1968b4439e4c60e0b21cf07, type: 3}
   - {fileID: 4800000, guid: b1572da546646034db2fdf99d1a903e2, type: 3}
-  slotCount: 96
+  slotCount: 97

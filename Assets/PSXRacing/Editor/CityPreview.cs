@@ -28,7 +28,7 @@ namespace PSXRacing.EditorTools
     /// to four views without the whole set; preview_spots.txt says where
     /// each camera stood.
     /// </summary>
-    public static class CityPreview
+    public static partial class CityPreview
     {
         [MenuItem("PSX Racing/Preview Charlotte")]
         public static void Run()

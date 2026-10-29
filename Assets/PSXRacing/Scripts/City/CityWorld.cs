@@ -1308,6 +1308,8 @@ namespace PSXRacing.City
             if (table == null) { var kit = CityKit.Get(); table = kit != null ? kit.slots : null; }
             if (table != null && i < table.Length && table[i] != null)
                 return SeasonDress.Substitute(table[i]);
+            // a kit built before the sidewalks: they wear the pavement concrete
+            if (slot == CityMeshes.Slot.Sidewalk) return MatFor(CityMeshes.Slot.Pavement);
             return null;
         }
 
