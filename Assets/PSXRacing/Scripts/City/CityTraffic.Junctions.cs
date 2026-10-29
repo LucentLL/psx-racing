@@ -31,7 +31,7 @@ namespace PSXRacing.City
         /// <summary>Carriageway splits (CitySignals.SplitArms): not boxes.</summary>
         bool[] splitNode;
 
-        const float GapRightS = 5.0f, GapThroughS = 5.5f, GapLeftS = 6.5f, GapMergeS = 3.5f;
+        const float GapRightS = 4.5f, GapThroughS = 5.0f, GapLeftS = 6.0f, GapMergeS = 3.0f;
         /// <summary>The why (Drive) of a car held short of a full box.</summary>
         const byte WhyKeepClear = 7;
 
@@ -63,14 +63,20 @@ namespace PSXRacing.City
             if (!IsBox(L.node)) return false;
             if (dLine < 0.3f || dLine > 45f) return false;
             if (c.committed == L.key || c.goKey == L.key || c.rtorKey == L.key) return false;
-            if (c.speed > 3f && dLine < c.speed * c.speed / (2f * 3.5f)) return false;   // too late to stop for it
-            // the way out: past the box's turns and its internal runs (a cluster)
+            if (c.speed > 3f && dLine < c.speed * c.speed / (2f * 4.5f)) return false;   // too late to stop for it
+            // the way out: past the box's turns and its internal runs (a cluster),
+            // and past runs too short to hold this car (two nodes a few metres
+            // apart are one box: the way out is beyond both)
+            float need = 2f * c.halfL + StopS0 + 0.5f;
             int kx = k + 2;
-            while (kx < c.legCount && (c.legs[kx].turn || trims.Internal(c.legs[kx].edge))) kx++;
+            while (kx < c.legCount && (c.legs[kx].turn || trims.Internal(c.legs[kx].edge) || c.legs[kx].len < need + 3f))
+            {
+                // a car standing on a short run between the two: the box is full
+                if (!c.legs[kx].turn && ExitRoom(c, c.legs[kx]) < c.legs[kx].len) return true;
+                kx++;
+            }
             if (kx >= c.legCount) return false;
             ref Leg X = ref c.legs[kx];
-            float need = 2f * c.halfL + StopS0 + 0.5f;
-            if (X.len < need + 3f) return false;
             float room = ExitRoom(c, X);
             if (room >= need) return false;
 
@@ -92,8 +98,9 @@ namespace PSXRacing.City
                 {
                     if (ol.edge != X.edge || ol.dir != X.dir) continue;
                     bool lane = o.lane == X.laneIn || (o.lc && (o.laneFrom == X.laneIn || o.laneTo == X.laneIn));
-                    if (!lane || o.speed > 3f) continue;
-                    float t = ((ol.s0 + ol.dir * o.u) - X.s0) * X.dir - o.halfL;
+                    if (!lane || o.speed > 5f) continue;
+                    // its tail, and the room a queue still rolling makes in 1.5 s
+                    float t = ((ol.s0 + ol.dir * o.u) - X.s0) * X.dir - o.halfL + o.speed * 1.5f;
                     if (t < -2f * o.halfL) continue;
                     if (t < tail) tail = t;
                 }
@@ -160,9 +167,11 @@ namespace PSXRacing.City
             for (int i = 0; i < live.Count; i++)
             {
                 var o = live[i];
-                if (o == c || o.wrecked || o.boxJ != jk || o.inKey == key) continue;
+                if (o == c || o.wrecked || o.boxJ != jk || o.inKey == key || o.speed < 0.5f) continue;
                 if (Mathf.Abs(Vector2.Dot(o.boxU, u)) >= 0.6f) continue;
-                if (approachOf.TryGetValue(o.inKey, out int ai) && apps[ai].signal &&
+                // came in on a signal approach whose phase is over (a car from an
+                // arm with no head, or one standing in the box, is the physics' to avoid)
+                if (!approachOf.TryGetValue(o.inKey, out int ai) || !apps[ai].signal ||
                     CitySignals.AspectOf(apps[ai].channel, now) == CitySignals.Aspect.Green) continue;
                 return true;
             }

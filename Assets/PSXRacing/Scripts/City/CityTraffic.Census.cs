@@ -216,6 +216,10 @@ namespace PSXRacing.City
             }
         }
 
+        /// <summary>The red its signal approach shows for, one cycle (0: not at a signal).</summary>
+        float RedS(Car c) => c.legCount > 0 && !c.legs[0].turn && c.legs[0].app >= 0 && apps[c.legs[0].app].signal
+            ? CitySignals.RedS(apps[c.legs[0].app].channel) : 0f;
+
         void Stuck(Car c, Watch w, ref Leg L)
         {
             if (c.speed >= 1f)
@@ -246,7 +250,7 @@ namespace PSXRacing.City
                 case 3: return;
                 case 4: sub = inBox ? "gridlock-box" : "crossing-blocked"; need = 15f; break;
                 case 5: sub = "other-road-in-lane"; need = 15f; break;
-                case 11: sub = "red-never-ends"; need = 60f; break;
+                case 11: sub = "red-never-ends"; need = Mathf.Max(60f, RedS(c) + 15f); break;
                 case 12: sub = "box-blocked-on-green"; need = 25f; break;
                 case 13: case 16: sub = "left-turn-starved"; need = 45f; break;
                 case 14: sub = "stop-deadlock"; need = 30f; break;

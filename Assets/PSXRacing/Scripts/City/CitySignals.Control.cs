@@ -420,6 +420,10 @@ namespace PSXRacing.City
             return u < c.green ? (float)u : -1f;
         }
 
+        /// <summary>How long channel ch's red lasts (seconds, the cycle less its
+        /// green and yellow).</summary>
+        public static float RedS(int ch) => ch < 0 || ch >= chans.Count ? CycleS - GreenS - YellowS : chans[ch].cycle - chans[ch].green - chans[ch].yellow;
+
         /// <summary>A clock time at which channel ch has been green
         /// <paramref name="into"/> seconds (the tools' photographs).</summary>
         public static double GreenTime(int ch, float into = 6f)
@@ -621,6 +625,14 @@ namespace PSXRacing.City
                     }
                     green[k] = Mathf.Ceil(g / 2f) * 2f;
                 }
+                // a cycle past 100 s is scaled back (pedestrian minimums kept where they bind)
+                float cyc = 0f;
+                for (int k = 0; k < phases; k++) cyc += green[k] + yellow + allRed;
+                if (cyc > MaxCycleS)
+                {
+                    float lost = phases * (yellow + allRed), scale = (MaxCycleS - lost) / Mathf.Max(1f, cyc - lost);
+                    for (int k = 0; k < phases; k++) green[k] = Mathf.Max(8f, Mathf.Ceil(green[k] * scale / 2f) * 2f);
+                }
                 int plan = PlanOf(green, yellow, allRed);
                 int bucket = (int)(Hash01(c, 7, 113) * 4f) & 3;
                 if (phases == 2) Counts.phases2++; else if (phases == 3) Counts.phases3++; else Counts.phases4++;
@@ -641,6 +653,8 @@ namespace PSXRacing.City
         /// <summary>Green by the phase's top road class (local .. freeway
         /// ramps), the main road's and a side road's (seconds).</summary>
         static readonly float[] MainGreen = { 16f, 20f, 26f, 32f, 38f, 30f };
+        /// <summary>The longest cycle a plan runs (seconds).</summary>
+        public const float MaxCycleS = 100f;
         static readonly float[] SideGreen = { 12f, 14f, 18f, 22f, 26f, 20f };
 
         static float DefaultLimitMps(int cls)

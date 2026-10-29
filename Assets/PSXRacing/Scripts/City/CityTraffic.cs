@@ -1496,7 +1496,8 @@ namespace PSXRacing.City
                             // still crossing it from the other phase first; coming
                             // up to it, one still clearing it from the last phase
                             if (c.speed < 3f && dLine < 6f && CrossInBox(c, jk, key, u)) { c.ctlWhy = 2; c.ctlNode = L.node; return gStop; }
-                            if (dLine < 40f && dLine > c.speed * c.speed / (2f * 4f) + 1f && ClearingInBox(c, jk, key, u, now)) { c.ctlWhy = 2; c.ctlNode = L.node; return gStop; }
+                            if (dLine < 40f && dLine > c.speed * c.speed / (2f * 4f) + 1f && CitySignals.GreenAge(apps[L.app].channel, now) < 8f &&
+                                ClearingInBox(c, jk, key, u, now)) { c.ctlWhy = 2; c.ctlNode = L.node; return gStop; }
                             if (next == -1 && OncomingConflict(c, jk, key, u))
                             {
                                 if (k == 0 && c.waitKey != key && c.speed < 0.5f && dLine < 4f) { c.waitKey = key; c.waitAt = Time.time; Stats.leftYields++; }
