@@ -1707,7 +1707,12 @@ namespace PSXRacing.City
             // before its tail clears it; the straight-on car behind ran into it)
             float reach = c.halfW + o.halfW + 0.3f;
             Vector2 d = o.pos - c.pos, r = d - o.fwd * o.halfL;
-            return Mathf.Abs(c.fwd.x * d.y - c.fwd.y * d.x) < reach || Mathf.Abs(c.fwd.x * r.y - c.fwd.y * r.x) < reach;
+            if (Mathf.Abs(c.fwd.x * d.y - c.fwd.y * d.x) < reach || Mathf.Abs(c.fwd.x * r.y - c.fwd.y * r.x) < reach) return true;
+            // round 3: released only when the leader's BODY is clear of the way this
+            // car sweeps through its own turn (2026-10-29 check: a straight behind a
+            // right at node 7288 and one beside a left at node 14049 let go at 2.1 m
+            // off the heading line, the bodies still met in the arc)
+            return InTheWay(c, a, o, k == 0 && a.len > 0.1f ? Mathf.Clamp01(c.u / a.len) : 0f);
         }
 
         /// <summary>Do the two cars use a lane in common on these legs (runs:
@@ -1851,8 +1856,10 @@ namespace PSXRacing.City
                     // of them pairs standing for good, each "crossing" the other -
                     // a turn braked for a nose its straight corridor met and its
                     // arc did not, and the other waited for the turn in the box)
-                    if (o.speed < 0.5f && c.legs[0].turn && c.legs[0].len > 0.5f &&
-                        !InTheWay(c, c.legs[0], o, Mathf.Clamp01(c.u / c.legs[0].len))) continue;
+                    // (round 3: a car on its RUN too - its lane's line and its next turn,
+                    // not its straight corridor: the mutual locks, a run car's nose in a
+                    // turner's arc and the turner standing across the run car's corridor)
+                    if (o.speed < 0.5f && !PathHits(c, o)) continue;
                     // c goes first and o, still moving, waits for it; a car standing
                     // with its nose in the lane is braked for whoever it is (the
                     // census: a ramp car stopped at a stop line inside Sunset

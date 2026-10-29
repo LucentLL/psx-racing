@@ -34,6 +34,16 @@ namespace PSXRacing.EditorTools
         public static void Run()
         {
             EditionParking.RecoverIfNeeded();
+            // -nographics: URP logs "RenderTexture.Create failed" / "EndRenderPass"
+            // every frame, each with a full stack - citytraffic.log grew ~2.5 GB.
+            // No stacks for errors, warnings and logs then; exceptions and
+            // asserts keep theirs (the check's own exception count reads those)
+            if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null)
+            {
+                Application.SetStackTraceLogType(LogType.Error, StackTraceLogType.None);
+                Application.SetStackTraceLogType(LogType.Warning, StackTraceLogType.None);
+                Application.SetStackTraceLogType(LogType.Log, StackTraceLogType.None);
+            }
             log = new StringBuilder();
             failures = 0;
             roamIdx = TrackCatalog.IndexOf("Charlotte");

@@ -196,6 +196,27 @@ namespace PSXRacing.City
             return false;
         }
 
+        /// <summary>Does the way car c takes from where it is - the rest of its run
+        /// along its lane for 14 m, then its next turn; or the rest of the turn it
+        /// is in - pass within its half width and half a metre of car o's body?</summary>
+        bool PathHits(Car c, Car o)
+        {
+            if (c.legCount == 0) return true;
+            ref Leg L = ref c.legs[0];
+            if (L.turn) return L.len <= 0.5f || InTheWay(c, L, o, Mathf.Clamp01(c.u / L.len));
+            var e = map.edges[L.edge];
+            var right = new Vector2(o.fwd.y, -o.fwd.x);
+            float reach = c.halfW + 0.5f, rem = L.len - c.u;
+            for (float x = 0f; x <= Mathf.Min(rem, 14f); x += 1f)
+            {
+                var p = PlanPoint(e, Mathf.Clamp(L.s0 + L.dir * (c.u + x), 0f, e.length), c.lat, out _);
+                Vector2 d = p - o.pos;
+                float a = Mathf.Max(0f, Mathf.Abs(Vector2.Dot(d, o.fwd)) - o.halfL), b = Mathf.Max(0f, Mathf.Abs(Vector2.Dot(d, right)) - o.halfW);
+                if (a * a + b * b < reach * reach) return true;
+            }
+            return rem < 14f && c.legCount > 1 && c.legs[1].turn && InTheWay(c, c.legs[1], o, 0f);
+        }
+
         /// <summary>Is car o's body in the way car c takes through the box
         /// (the turn T from <paramref name="t0"/> of it on, and 8 m on past it,
         /// c's half width and half a metre either side)?</summary>
