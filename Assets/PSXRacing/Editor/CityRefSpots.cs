@@ -835,6 +835,107 @@ namespace PSXRacing.EditorTools
             return false;
         }
 
+        /// <summary>
+        /// TEXTURES CLASSIC vs ENHANCED IN CHARLOTTE (2026-10-28, the Enhanced
+        /// download pass): the same frames under each tier, 1280 x 720 - a
+        /// South End street by day (S Tryon St near W Bland St, looking up
+        /// the road to uptown) and an uptown facade close-up at night (N Tryon St,
+        /// the towers across the street on either side, looking up at them).
+        /// The night pair is the check that the ONE night mask's lit windows
+        /// land on the Enhanced facade atlas's windows as on the classic one's.
+        /// To PSX_TEX_OUT (default Screenshots/City/tier) as
+        /// tier_{classic,enhanced}_{day,night_l,night_r}.png.
+        ///   -executeMethod PSXRacing.EditorTools.CityRefSpots.RunTierCompare
+        /// </summary>
+        public static void RunTierCompare()
+        {
+            var map = CityMap.Get();
+            if (map == null) { Debug.LogError("[TierCompare] no city data"); return; }
+            string dir = System.Environment.GetEnvironmentVariable("PSX_TEX_OUT");
+            if (string.IsNullOrEmpty(dir)) dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots", "City", "tier");
+            Directory.CreateDirectory(dir);
+            foreach (var f in Directory.GetFiles(dir, "tier_*.png")) File.Delete(f);
+            PSXRacingBuilder.EnsureCityTextures();
+            // name, where, the road it stands on, the view's heading, its pitch up
+            var plan = new (string name, double lat, double lon, string road, float hdg, float pitch)[]
+            {
+                ("day", 35.21520, -80.86000, "Tryon", 40f, 3f),
+                ("night_l", 35.22880, -80.84078, "Tryon", 229f - 90f, 24f),
+                ("night_r", 35.22880, -80.84078, "Tryon", 229f + 90f, 24f),
+            };
+            var cams = new List<(string name, Vector3 eye, Quaternion rot)>();
+            var log = new StringBuilder();
+            foreach (var c in plan)
+            {
+                if (!Snap(map, LL(c.lat, c.lon), c.road, out var e, out float s, out bool named))
+                { log.AppendLine($"{c.name}: no '{c.road}' near {c.lat},{c.lon}"); continue; }
+                var p = e.PointAt(s);
+                float h = c.hdg * Mathf.Deg2Rad, pt = c.pitch * Mathf.Deg2Rad;
+                var eye = new Vector3(p.x, e.YAt(s) + EyeM, p.y);
+                var fwd = new Vector3(Mathf.Sin(h) * Mathf.Cos(pt), Mathf.Sin(pt), Mathf.Cos(h) * Mathf.Cos(pt));
+                cams.Add((c.name, eye, Quaternion.LookRotation(fwd)));
+                log.AppendLine($"{c.name}: e{e.index} '{e.name}' s={s:0} named={named} eye {eye.x:0.0},{eye.y:0.0},{eye.z:0.0} hdg {c.hdg:0} pitch {c.pitch:0}");
+            }
+            var go = new GameObject("~tierCompare");
+            var world = go.AddComponent<CityWorld>();
+            GameObject sunGo = null;
+            try
+            {
+                // every day frame first, then every night one: the night's lamp
+                // glows and globals must not leak into a day frame
+                foreach (var tier in new[] { "classic", "enhanced" })
+                {
+                    System.Environment.SetEnvironmentVariable("PSX_TEX", tier == "enhanced" ? "enhanced" : null);
+                    DayLight();
+                    NightGlow.PreviewAll(false);
+                    foreach (var c in cams)
+                    {
+                        if (c.name.StartsWith("night")) continue;
+                        world.EnsureRing(c.eye, 1);
+                        TextureTier.ApplyAll();   // after the ring: its materials are in memory now
+                        Shoot(dir, $"tier_{tier}_{c.name}", c.eye, c.rot, 0f, 1280, 720);
+                        world.DropAll();
+                    }
+                    log.AppendLine($"{tier} day: twins loaded {TextureTier.LoadedCount}");
+                }
+                sunGo = new GameObject("~tierSun");
+                var sun = sunGo.AddComponent<Light>();
+                sun.type = LightType.Directional;
+                var globals = sunGo.AddComponent<PSXGlobals>();
+                globals.sun = sun;
+                TimeOfDay.Apply(TimeOfDay.Night, sun);
+                globals.Apply();
+                nightSky = globals.fogColor;
+                foreach (var tier in new[] { "classic", "enhanced" })
+                {
+                    System.Environment.SetEnvironmentVariable("PSX_TEX", tier == "enhanced" ? "enhanced" : null);
+                    foreach (var c in cams)
+                    {
+                        if (!c.name.StartsWith("night")) continue;
+                        world.EnsureRing(c.eye, 1);
+                        TextureTier.ApplyAll();
+                        NightGlow.PreviewAll(true);
+                        globals.Apply();
+                        Shoot(dir, $"tier_{tier}_{c.name}", c.eye, c.rot, 0f, 1280, 720);
+                        world.DropAll();
+                    }
+                    log.AppendLine($"{tier} night: twins loaded {TextureTier.LoadedCount}");
+                }
+                NightGlow.PreviewAll(false);
+            }
+            finally
+            {
+                nightSky = null;
+                System.Environment.SetEnvironmentVariable("PSX_TEX", null);
+                TextureTier.ApplyAll();
+                if (world != null) world.DropAll();
+                Object.DestroyImmediate(go);
+                if (sunGo != null) Object.DestroyImmediate(sunGo);
+            }
+            File.WriteAllText(Path.Combine(dir, "tier_shots.txt"), log.ToString());
+            Debug.Log("[TierCompare] " + log.ToString().Replace('\n', ' ') + " -> " + dir);
+        }
+
         /// <summary>The background the sign shots' night frames clear to (the
         /// hour's fog); null by day.</summary>
         static Color? nightSky;
@@ -854,7 +955,7 @@ namespace PSXRacing.EditorTools
             Shader.SetGlobalFloat("_PSXNight", 0f);
         }
 
-        static void Shoot(string dir, string name, Vector3 pos, Quaternion rot, float ortho)
+        static void Shoot(string dir, string name, Vector3 pos, Quaternion rot, float ortho, int W = W, int H = H)
         {
             var camGO = new GameObject("~refCam");
             var cam = camGO.AddComponent<Camera>();
