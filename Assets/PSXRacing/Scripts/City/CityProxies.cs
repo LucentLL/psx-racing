@@ -71,8 +71,13 @@ namespace PSXRacing.City
         readonly CityMeshes.ProxyOut jobOut = new CityMeshes.ProxyOut();
         double jobMs;
 
-        // the merged mesh: the one drawn, and the one a rebuild fills
+        // the merged mesh: the one drawn, and the one a rebuild fills. Their
+        // GPU buffers are KEPT between rebuilds and only grow (to a power of
+        // two): sizing them to every rebuild freed and made a buffer a second
+        // while driving, and the editor's D3D12 died freeing one
+        // (BufferD3D12::~BufferD3D12, the UptownLoop race check, 2026-10-28).
         Mesh front, back;
+        int frontCapV, frontCapI, backCapV, backCapI;
         readonly MeshFilter[] mfs = new MeshFilter[CitySkyline.DrawCount];
         readonly MeshRenderer[] mrs = new MeshRenderer[CitySkyline.DrawCount];
         readonly Material[][] mats = new Material[(int)CityMeshes.Slot.COUNT][];
@@ -383,11 +388,12 @@ namespace PSXRacing.City
                 nextIBase[s] = I; nextIRun[s] = 0;
                 I += nextICount[s];
             }
-            back.Clear();
             if (V > 0 && I > 0)
             {
-                back.SetVertexBufferParams(V, CityMeshes.ProxyLayout);
-                back.SetIndexBufferParams(I, IndexFormat.UInt32);
+                // the submeshes cover only what this rebuild writes; a
+                // buffer's tail past it is never drawn
+                if (V > backCapV) { backCapV = Mathf.NextPowerOfTwo(V); back.SetVertexBufferParams(backCapV, CityMeshes.ProxyLayout); }
+                if (I > backCapI) { backCapI = Mathf.NextPowerOfTwo(I); back.SetIndexBufferParams(backCapI, IndexFormat.UInt32); }
             }
             if (V == 0 || I == 0) { nextAt = want.Count; }
             return true;
@@ -431,6 +437,8 @@ namespace PSXRacing.City
             }
             var oldShown = new HashSet<long>(shown);
             (front, back) = (back, front);
+            (frontCapV, backCapV) = (backCapV, frontCapV);
+            (frontCapI, backCapI) = (backCapI, frontCapI);
             frontAny = nextSlots.Count > 0 && nextVBase > 0;
             var mset = new Material[nextSlots.Count];
             for (int d = 0; d < mfs.Length; d++)
