@@ -221,6 +221,17 @@ namespace PSXRacing.City
                     if (w < WalkMinM || WalkOnPavement(map, trims, pw, outw, w, ed.y, e.index)) continue;
                     arr[k] = w;
                 }
+                // and between the sections: a span whose walk would lie on
+                // another road at its middle takes none (both ends ramp)
+                for (int k = 1; k < n; k++)
+                {
+                    if (arr[k - 1] <= 0f && arr[k] <= 0f) continue;
+                    var A = sections[k - 1]; var B = sections[k];
+                    var em = 0.5f * (A.Edge(side) + B.Edge(side));
+                    var om = (A.Out(side) + B.Out(side)).normalized;
+                    if (WalkOnPavement(map, trims, new Vector2(em.x + o.x, em.z + o.z), om, Mathf.Max(arr[k - 1], arr[k]), em.y, e.index))
+                        arr[k - 1] = arr[k] = 0f;
+                }
             }
         }
 
@@ -377,6 +388,24 @@ namespace PSXRacing.City
             noneWhyNow = 1;
             for (int j = g0; j != g1; j = (j + 1) % ring.Count)
                 if (ChordRailed(map, trims, node, ring[j], ring[(j + 1) % ring.Count], origin)) return 0;   // a deck edge or a drop: its face and rail stand
+            // every chord's walk off any other road (a link collapsed into the
+            // fan's mouth is no corner of the ring, and its lanes ran under it)
+            noneWhyNow = 7;
+            for (int j = g0; j != g1; j = (j + 1) % ring.Count)
+            {
+                int jn = (j + 1) % ring.Count;
+                var ka = ring[j]; var kb = ring[jn];
+                var oa = j == g0 ? cw.n0 : GroupOut(ring, cw, j); var ob = jn == g1 ? cw.n1 : GroupOut(ring, cw, jn);
+                for (int t4 = 1; t4 <= 3; t4++)
+                {
+                    float t = t4 * 0.25f;
+                    var pq = Vector3.Lerp(ka.pos, kb.pos, t);
+                    var oq = Vector2.Lerp(oa, ob, t).normalized;
+                    var q = new Vector2(pq.x + origin.x, pq.z + origin.z);
+                    float wq = Mathf.Min(cw.w0, cw.w1);
+                    if (OnPavement(map, trims, q + oq * 0.3f, pq.y, k0.edge, k1.edge) || OnPavement(map, trims, q + oq * (0.5f * wq), pq.y, k0.edge, k1.edge)) return 0;
+                }
+            }
             float c = Vector2.Dot(cw.n0, cw.n1);
             noneWhyNow = 5;
             if (c >= 0.866f) return RingStripFits(ring, cw, origin) ? 2 : 0;
