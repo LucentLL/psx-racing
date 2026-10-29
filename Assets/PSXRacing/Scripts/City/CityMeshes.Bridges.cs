@@ -274,6 +274,25 @@ namespace PSXRacing.City
         /// </summary>
         static void EmitBridgePier(CityMap map, Trims trims, CityMap.Edge e, TileMeshes tm, float sAt)
         {
+            // first out of every fast road's clear zone; where no nudge finds
+            // such a place, where the old rule stood it (1.5 m off any
+            // pavement) - a deck is never left without the pier it had
+            try
+            {
+                pierStrict = true;
+                if (TryBridgePier(map, trims, e, tm, sAt)) return;
+                pierStrict = false;
+                TryBridgePier(map, trims, e, tm, sAt);
+            }
+            finally { pierStrict = false; }
+        }
+
+        /// <summary>The clear-zone rule's switch (<see cref="PierClearFor"/>):
+        /// on for a pier's first search only.</summary>
+        static bool pierStrict;
+
+        static bool TryBridgePier(CityMap map, Trims trims, CityMap.Edge e, TileMeshes tm, float sAt)
+        {
             var gp = PlanOf(map, e);
             float dk = CityElevation.DeckThick;
             bool haveSlim = false; float slimS = 0f;
@@ -362,8 +381,9 @@ namespace PSXRacing.City
                         EmitRoundColumn(tm, new Vector3(cpl.x, gy - 0.6f, cpl.z), top + 0.05f, radius);
                         if (pierLog != null) RecordPier(e, sAt, s, cp, gy - 0.6f, top, radius, tan);   // AuditView's record (audits only)
                     }
-                    return;
+                    return true;
                 }
+            return false;
         }
 
         /// <summary>
@@ -963,7 +983,7 @@ namespace PSXRacing.City
         static float PierClearFor(CityMap.Edge o, float at, Vector2 p)
         {
             bool fast = o.link || o.cls >= 4 || o.speedKmh >= 80;
-            if (!fast) return PierClearM;
+            if (!fast || !pierStrict) return PierClearM;
             if (o.oneway && !o.link && Barriered(o))
             {
                 // R (the left of travel) is a carriageway's median side

@@ -5,19 +5,19 @@
 #
 #   py -3 tools/city/bridges_sheet.py <shots dir> <out.png> [photo1 photo2]
 import os, sys
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 shots, out = sys.argv[1], sys.argv[2]
 photos = sys.argv[3:5]
 H = 432
 SW = int(H * 16 / 9)
 rows = [
-    ("br_own1", "I-77 NB before the left exit 11B (owner photo 1)", 0),
-    ("br_own2", "I-77 NB at the 11B gantry (owner photo 2)", 1),
-    ("br_flyover", "I-77 NB under the I-277 / I-77 flyover", None),
-    ("br_viaduct277", "I-277 viaduct over NC Music Factory Blvd", None),
-    ("br_ramp", "Exit ramp to NC 16: guardrail and bridge end", None),
-    ("br_ictop", "The I-77 / I-277 / NC 16 interchange from above", None),
+    ("br_own1", "I-77 NB before the left exit 11B (owner photo 1): high mast, flyovers, rumble strip", 0),
+    ("br_own2", "I-77 NB at the 11B gantry (owner photo 2): the lower steel-girder bridge, the flyover", 1),
+    ("br_viaduct277", "I-277 viaduct over NC Music Factory Blvd: girders, bents and hammerheads", None),
+    ("br_viaduct_close", "the same viaduct closer: round columns, caps, bearings, steel or concrete girders", None),
+    ("br_flyover", "I-77 NB under the I-277 / I-77 interchange", None),
+    ("br_rail", "ramp guardrail close-up: W-beam run on steel posts with blockouts", None),
 ]
 PW = int(H * 2252 / 2800)
 W = PW + 2 * SW + 4 * 6
@@ -35,7 +35,7 @@ for name, title, pi in rows:
     y0 = y + 26
     x = 6
     if pi is not None and pi < len(photos) and os.path.exists(photos[pi]):
-        ph = Image.open(photos[pi]).convert("RGB")
+        ph = ImageOps.exif_transpose(Image.open(photos[pi])).convert("RGB")
         ph = ph.crop((0, 0, ph.width, int(ph.height * 0.70)))   # the dashboard out
         ph = ph.resize((int(H * ph.width / ph.height), H), Image.LANCZOS)
         sheet.paste(ph, (x + (PW - ph.width) // 2, y0))

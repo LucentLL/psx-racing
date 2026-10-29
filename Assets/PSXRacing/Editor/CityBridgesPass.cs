@@ -38,6 +38,7 @@ namespace PSXRacing.EditorTools
             ";br_flyover:eye:-2730:6472:I-77:40:0:50" +
             ";br_ramp:eye:-2722:6590::13:0:50" +
             ";br_viaduct277:eye:-2190:5925:Music Factory:105" +
+            ";br_viaduct_close:eye:-2140:5914:Music Factory:95:0:55" +
             ";br_ictop:top:-2700:6520:I-77:330";
         /// <summary>The stats step's pick for the guardrail close-up (a W-beam
         /// piece near the interchange), appended to the views as br_rail.</summary>

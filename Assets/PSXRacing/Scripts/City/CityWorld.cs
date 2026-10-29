@@ -999,6 +999,10 @@ namespace PSXRacing.City
                 mr.sharedMaterial = matFor != null ? matFor(CityMeshes.Slot.Structure) : null;
                 mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 mr.receiveShadows = false;
+                // no sun-map caster: the deck above already throws the bridge's
+                // shadow, and a caster a tile is a draw a tile in the sun's map
+                // (the perf probe: SetPass +24 a frame with it)
+                SunShadows.Exclude(g);
                 meshes.Add(tm.structure);
             }
             if (tm.kerbs != null)
