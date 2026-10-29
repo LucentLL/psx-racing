@@ -1,0 +1,41 @@
+# road-logic lanes: the spots of the lane / turn-lane / merge / off-pavement fixes (top census hotspots, 600 m apart, + the named ones)
+-2773,6259,node 19735 no-continuing
+9842,20299,Weddington Rd node 6268
+7190,18893,I-485 node 3697
+-3168,2080,Park Road node 11091
+-2464,3942,E Brooklyn Village Ave node 5990
+2069,-3358,Fairview/Providence node 8894
+-1802,3269,lane/missed-turn-lane Charlottetowne Avenue score 56.0
+2058,8582,lane/turn-from-wrong-lane West Sugar Creek Road score 55.0
+2394,1361,lane/turn-from-wrong-lane Monroe Road / North Wendover R score 50.0
+-5534,4363,lane/turn-from-wrong-lane West Morehead Street / Wilkins score 50.0
+-2228,20966,lane/turn-from-wrong-lane Statesville Road score 45.0
+-3149,23133,lane/turn-from-wrong-lane I-77 score 45.0
+-1219,4185,lane/turn-from-wrong-lane East 7th Street score 45.0
+7979,152,lane/turn-from-wrong-lane Idlewild Road score 45.0
+17118,-3586,offpave/no-road-under-lane I-485 score 42.0
+-2295,19635,lane/turn-from-wrong-lane I-77 score 40.0
+7869,12978,lane/turn-from-wrong-lane University City Boulevard score 40.0
+2437,10567,lane/turn-from-wrong-lane I-85 score 40.0
+1925,11948,lane/turn-from-wrong-lane West Sugar Creek Road / North  score 40.0
+-16869,6583,lane/turn-from-wrong-lane Wilkinson Boulevard / Moores C score 40.0
+-2448,3257,lane/turn-from-wrong-lane East Morehead Street score 40.0
+-13763,-1504,lane/turn-from-wrong-lane I-485 score 40.0
+-13741,1317,lane/turn-from-wrong-lane I-485 score 40.0
+-9745,-7707,lane/turn-from-wrong-lane I-77 score 40.0
+-615,-3298,lane/turn-from-wrong-lane Sharon Road / Colony Road score 40.0
+-5162,5760,lane/missed-turn-lane  score 40.0
+-13637,6097,lane/missed-turn-lane Todd Road / Wilkinson Boulevar score 36.0
+-3831,4922,lane/turn-from-wrong-lane West Morehead Street score 35.0
+7325,17820,lane/turn-from-wrong-lane  score 35.0
+15989,15386,lane/turn-from-wrong-lane NC 49 score 35.0
+6129,16622,lane/turn-from-wrong-lane West Mallard Creek Church Road score 35.0
+4942,11720,lane/turn-from-wrong-lane University City Boulevard score 35.0
+5577,-93,lane/turn-from-wrong-lane East Independence Expressway score 35.0
+1637,5951,lane/turn-from-wrong-lane The Plaza / Matheson Avenue score 35.0
+4711,12280,lane/turn-from-wrong-lane I-85 score 35.0
+-11580,15711,lane/turn-from-wrong-lane Mount Holly-Huntersville Road  score 35.0
+8511,-4158,lane/turn-from-wrong-lane East Independence Boulevard score 35.0
+-15545,-9090,lane/turn-from-wrong-lane Steele Creek Road / South Tryo score 35.0
+-7939,-7334,offpave/no-road-under-lane I-485 score 35.0
+4521,17439,lane/missed-turn-lane Mallard Creek Road / Prosperit score 32.0

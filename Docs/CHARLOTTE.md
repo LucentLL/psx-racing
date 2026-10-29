@@ -8278,3 +8278,67 @@ PSX_BR_TAG, PSX_BR_STEPS = stats,shotsab,flicker,drive,launch; shotsab shoots ev
   buzz on the rumble strip, wingwalls and slope paving at abutments, an F-shape parapet profile (the parapets share the
   Jerseys' concrete), and I-77 NB's left side at exit 11B (the photos show the open infield slope; the game stands its
   median wall there - the medians' rule, not this pass's).
+## ROAD LOGIC - LANES (road-logic-lanes, 2026-10-29; from the traffic census)
+
+The owner: "improve road logic (a lot of strange implementation currently)". The census
+(Docs/ROAD_LOGIC_TRAFFIC.md) listed the lane faults; this pass fixed their causes in the lane model
+the traffic drives and the exporter's lane layout. Spot census before/after: `tools\city-traffic-census.ps1
+-Spots Docs\traffic_census\spots_lanes.txt -Minutes 16 -NoShots -ReportDir <dir>` (the 40 lane / turn-lane /
+merge / off-pavement hotspots; each spot the same share; ~29 car-hours a run).
+
+- **Lanes across a node were measured wrong.** The static audit AND the traffic's straight-on lane
+  mapping (MapStraight) compared the far lane's mouth point against the near lane's normal: 10 m past a
+  20 deg bend reads 3.4 m sideways. 1,308 of the 1,327 "no continuing lane" and most "misaligned" were the
+  bend, and cars were sent across a lane to go straight on. Now `CityTraffic.LaneJump`: each lane's line
+  is run on to the node's bisector line and compared there (a lane that keeps its place through a bend
+  reads 0). The audit also says, for what is left, whether every lane holds its place on its own road
+  (the roads' lines jog or bend inside the box: geometry) or the two edges lay their lanes differently.
+- **Lanes in a taper were squeezed evenly** (six freeway lanes 1.8 m wide at the end of a three-lane drop).
+  `LaneBounds`: the slots are laid over the full band and clamped into the band at s, so the lane on the
+  moving side narrows to nothing (a drop) or grows from nothing (an add) and the others hold - as
+  LineModel.LinesAt paints them. A lane a taper closes is never mapped, joined, spawned in or changed into;
+  a car still in it waits where it gets too narrow, and a car keeps to the pavement.
+- **Lane use.** OSM turn:lanes / TAPR bays (the arrows the paint draws, `CityMeshes.TurnOnly`) choose the
+  lanes of a turn (double lefts and rights) and keep straight-on traffic out of a lane marked for a turn
+  the node has - only at the end of the way that carries the tag (a divided road's left-only lane runs on
+  to the crossing that has the left).
+- **Lane needs in time.** A turn's lane need is carried back over a run too short for its changes,
+  through the straight-throughs before it (`LaneBack`); a pass or keep-right only where the next move is a
+  straight on the new lane continues (`RemapTo`, the plan re-made from it); a turn's change is begun only
+  with room to finish it (2.2 s), else the car slows or drives on (a missed turn); 12 s plan horizon,
+  20 s on a freeway.
+- **Ramps whose lanes run on** (OSM adds the ramp's lanes to the road it joins, or drops lanes onto an
+  exit: the counts add up and every ramp lane lines up) are straight-throughs, not funnels into lane 0
+  (I-485 at node 3697: three and three make six).
+- **Cul-de-sac U-turns** loop round the drawn bulb (two halves through its far point) instead of a 1.8 m
+  hairpin between the street's two lanes.
+- **One-way turn lanes on both sides** (exporter, `lineclean.mjs tagSidesBoth`): 'left|through|through|right'
+  four lanes to two moves BOTH edges, so the through lanes hold their line (East Brooklyn Village Ave at
+  South Blvd, Fairview Rd at node 735). Kept one-sided where the split would carry the ribbon farther off
+  its OSM line; applied in a final TAPR pass so the blip step's lane counts do not change. 230 split, 25
+  kept; ribbons on their OSM line 2,746 -> 2,784 km, a lane or more off 285 -> 220 km; offline line gate
+  passes (every check's runs equal or fewer but A2 +18, B3 +3, C2 +3 runs). `PSX_LC_OWBOTH=0` = before.
+- **Merge room** in the audit is the drawn merge zone's full-width aux lane (`CityMeshes.ZoneFor`), not
+  the ramp's own straightness.
+
+**Measured (spot census, the 40 spots, ~28-29 car-hours each; before = main 3aa4b63a, after = d9e16f43 + data):**
+forced short lane changes 295 -> 87, turns begun from the wrong lane 396 -> 219, forced into tight gaps 10 -> 5,
+lane-change waits 55 -> 50, heading snaps 415 -> 158, turns tighter than planned 225 -> 152, turn clips corner
+132 -> 105 (leaves road 9 -> 9), wrong way across the divider 25 -> 2, car wrecks 54 -> 46, bumps 51 -> 50, barrier
+contacts 14 -> 5; UP: missed turn lanes 67 -> 119 (a car with no room at speed now misses the turn and drives on from
+its lane instead of cutting across - realistic, but counted), no road under a lane 27 -> 43 (holes in the drawn road
+collider, mostly freeway mid-edge - not the lane model; left). Static, city-wide: no continuing lane 1,327 -> 337
+(248 of them the roads' lines jogging or bending inside the box, every lane in its place on its own road), lanes
+misaligned 297 -> 137 (76 jogs); merge room under 30 m 57 -> 38 (the drawn zones; 16 ramps' lanes run on).
+Gates: traffic check OK (ran red 0, rolled STOP 0, wrong way 0, overlap 0); drive audit WALLS IN LANES 0, FALL HOLES
+8 places (deck sides, as before), INVISIBLE 4 (+25 hits on the player car the chained run left in the scene);
+launch audit routes 1/0/0, city-wide 104 (main today in PSXBuild: 1/0/0, 109 - the uptown spot e2422 n3640 is not
+ours); city-play-check cannot run in PSXCity (UptownLoop not in that sandbox's build settings).
+
+**Left:** 89 + 61 straight-throughs whose lanes are laid differently on the two edges (one-way <-> two-way carriageway
+splits 50, a TWLTL opening or closing at a junction 34, one-way lane-count changes 25, one-ways re-anchored across a
+junction 29: each is a chain offset in lineclean, moved at a junction mouth by design - fixing them re-lays the
+chain, with the same ripple the two-sided split needed a guard for); 38 merge zones under 30 m (clamped by a
+junction or a deck); ramps drawn over freeway lanes upstream of their merge (I-85 e2120/e3031, I-77 e2456/e1310:
+the topology package's overlaps); the Park Road / E Tremont loop (n10626/11091/13889: a one-way ring of 6-17 m
+edges round a tiny island - the fans do not cover its turns); missed exits at speed.
