@@ -1223,8 +1223,12 @@ namespace PSXRacing.City
             ref Leg a = ref c.legs[k];
             ref Leg b = ref o.legs[j];
             if (!a.turn || !b.turn || a.edge != b.edge || a.dir != b.dir || a.node != b.node || a.laneIn != b.laneIn) return false;
-            Vector2 d = o.pos - c.pos;
-            return Mathf.Abs(c.fwd.x * d.y - c.fwd.y * d.x) < c.halfW + o.halfW + 0.3f;
+            // its centre or its REAR still across this car's way (2026-10-29: a slow
+            // right turn - a right on red - swings its nose out of the lane long
+            // before its tail clears it; the straight-on car behind ran into it)
+            float reach = c.halfW + o.halfW + 0.3f;
+            Vector2 d = o.pos - c.pos, r = d - o.fwd * o.halfL;
+            return Mathf.Abs(c.fwd.x * d.y - c.fwd.y * d.x) < reach || Mathf.Abs(c.fwd.x * r.y - c.fwd.y * r.x) < reach;
         }
 
         /// <summary>Do the two cars use a lane in common on these legs (runs:
@@ -1655,6 +1659,9 @@ namespace PSXRacing.City
                     if (oa == CitySignals.Aspect.Yellow && o.committed != o.appKey && o.appDist > 0.5f) continue;
                 }
                 float t = o.appDist / Mathf.Max(o.speed, 0.5f);
+                // one standing at its line and held there (a red, the box, the car
+                // ahead) is not about to come: a left may go in front of it
+                if (o.speed < 0.5f && o.why != 0) continue;
                 if ((o.speed > 1f && t < gapS) || (o.appDist < 6f && o.appDist > -2f)) return true;
             }
             return false;
