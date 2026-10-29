@@ -63,6 +63,7 @@ namespace PSXRacing.EditorTools
                 // ---- AFTER's junctions: the eyes and the clock time
                 CitySignals.LegacyPhases = false; CitySignals.WarrantsOn = true; CitySignals.Invalidate();
                 var shots = new List<JShot>();
+                var paint = new Dictionary<string, ulong>();
                 foreach (var (p, label) in targets)
                 {
                     var s = new JShot { label = label, at = p };
@@ -83,6 +84,11 @@ namespace PSXRacing.EditorTools
                 {
                     CitySignals.LegacyPhases = mode == "before"; CitySignals.WarrantsOn = mode == "after"; CitySignals.Invalidate();
                     world.DropAll();
+                    // THE ROAD PAINT'S INPUTS (the road meshes read only these of the
+                    // controls): ControlAt at every junction node for each pair of its
+                    // arms, and every crosswalk - one hash, the same both ways
+                    paint[mode] = PaintHash(map, trims, out string what);
+                    log.AppendLine($"{mode}: road-paint inputs hash {paint[mode]:x16} ({what})");
                     foreach (var s in shots)
                     {
                         log.AppendLine($"{mode} {s.label}: {s.note}");
@@ -99,6 +105,9 @@ namespace PSXRacing.EditorTools
                         world.DropAll();
                     }
                 }
+                log.AppendLine(paint.Count == 2 && paint["before"] == paint["after"]
+                    ? "ROAD PAINT UNCHANGED: ControlAt and the crosswalks answer the same before and after"
+                    : "ROAD PAINT CHANGED: ControlAt or the crosswalks differ");
                 log.AppendLine(CitySignals.ControlReport());
             }
             catch (System.Exception e)
@@ -114,6 +123,39 @@ namespace PSXRacing.EditorTools
                 File.WriteAllText(txt, log.ToString());
                 Debug.Log("[CityRefSpots] junctions:\n" + log);
             }
+        }
+
+        /// <summary>FNV-1a over what the road meshes read of the junction
+        /// controls (CityMeshes.Minor: ControlAt; CityMeshes.Marks: the
+        /// crosswalks and their stop-bar offsets).</summary>
+        static ulong PaintHash(CityMap map, CityMeshes.Trims trims, out string what)
+        {
+            ulong h = 1469598103934665603UL;
+            void Mix(long v) { for (int b = 0; b < 8; b++) { h ^= (ulong)((v >> (8 * b)) & 0xFF); h *= 1099511628211UL; } }
+            int calls = 0, nonZero = 0;
+            for (int n = 0; n < map.nodes.Length; n++)
+            {
+                var arms = map.nodeEdges[n];
+                if (arms.Count < 3) continue;
+                for (int i = 0; i < arms.Count; i++)
+                    for (int j = i + 1; j < arms.Count; j++)
+                    {
+                        int c = CitySignals.ControlAt(map, trims, n, arms[i], arms[j], out bool st);
+                        calls++; if (c != 0) nonZero++;
+                        Mix(((long)n << 20) ^ ((long)c << 2) ^ (st ? 1 : 0));
+                    }
+            }
+            var cws = CitySignals.Crosswalks(map, trims);
+            foreach (var cw in cws)
+            {
+                Mix(((long)cw.edge << 24) ^ cw.node);
+                Mix((long)System.BitConverter.SingleToInt32Bits(cw.sNear) ^ ((long)System.BitConverter.SingleToInt32Bits(cw.sFar) << 32));
+                Mix(System.BitConverter.SingleToInt32Bits(cw.sStop));
+                var e = map.edges[cw.edge];
+                Mix(System.BitConverter.SingleToInt32Bits(CitySignals.CrosswalkStopBack(map, trims, e, cw.node)));
+            }
+            what = $"{calls} ControlAt calls, {nonZero} controlled, {cws.Count} crosswalks";
+            return h;
         }
 
         /// <summary>A driver's eye 22 m short of approach a's stop line in its
