@@ -1,3 +1,10 @@
+# HANDOFF - ROAD LOGIC JUNCTIONS (road-logic-junctions, 2026-10-29 17:45; stopped at the context budget)
+
+**Not ready to merge whole.** Static part clean; the dynamic junction logic needs one more round: the traffic check FAILS "traffic-on-traffic wrecks (at most 1)" with 2 in rounds 2-4 (round 1 passed, 0). Branch = main 810ecd2c + road-logic-topology (merged in) + this. No exporter/data change. Unity jobs 5 of 9 (PSXRec holds topology's charlotte_city/decks.bytes).
+- CLEAN (static, city-wide): no-control major crossings 141 -> 18 (112 of 133 were carriageway SPLITS: CitySignals.SplitArms; warrants where OSM is silent: 1 signal (Colony/Carnegie), 10 all-way, 943 two-way STOP junctions / 1079 approaches; OSM give_way 59 now read); conflicting greens 15 -> 0 (phases by axis, 2-4 phases, 215 plans / 779 channels). Road paint unchanged (ControlAt + crosswalks answer for OSM only).
+- NEEDS A ROUND (40-spot census, 131 / 135 car-hours): gridlock in real boxes 163 -> 141 (round 3: 107), left-turn-starved 29 -> 21, yield-starved 23 -> 17, wrecks 105 -> 99; WORSE: box-blocked-on-green 0 -> 57 (CrossInBox holds a green for any crossing car standing in the box), stop-deadlock 22 -> 37 (new STOP approaches), crossing-flow conflicts 6 -> 14, overlap rows 2 -> 51 (~5 incidents). Next: CrossInBox only for paths that cross; no warrant STOP on very short / overlapping stubs; gaps back to round 1 (5.0/5.5/6.5); the driver's-view shots (Editor/CityRefSpots.Junctions.RunJunctionShots) not taken.
+- Data: Docs/traffic_census_junctions_before|after, Docs/ROAD_LOGIC_TRAFFIC_junctions_*.md, sheet Docs/shots/road_logic_junctions_before_after.png (numbers only).
+
 # HANDOFF - CITY POP-IN + FLICKER (city-popin, 2026-10-28), passes 2+3
 
 Branch `city-popin` (worktree `C:\Users\mcgee\PSX Racing-popin`, off main d133631a). Sandbox PSXRec (shared, AGENT_LOCK.txt).
