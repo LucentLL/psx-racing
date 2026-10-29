@@ -1006,7 +1006,7 @@ namespace PSXRacing.City
             playerVel = new Vector2(pv.x, pv.z);
             double now = Time.timeAsDouble;
 
-            for (int i = 0; i < live.Count; i++) if (!live[i].wrecked) { Facts(live[i]); Horizon(live[i]); }
+            for (int i = 0; i < live.Count; i++) if (!live[i].wrecked) { Facts(live[i]); Horizon(live[i], now); }
             for (int i = 0; i < live.Count; i++)
             {
                 var c = live[i];
@@ -1120,12 +1120,19 @@ namespace PSXRacing.City
                 if (end < gap) { gap = end; vL = 0f; why = 20; }
             }
             // the lane its turn needs not reached yet: wait short of the
-            // junction for a gap rather than cut across a lane in the turn
+            // junction for a gap rather than cut across a lane in the turn -
+            // not on a run with no room to change lanes on (inside a junction's
+            // cluster, a piece under 20 m between two nodes): it would stand
+            // in the box for 14 s and replan, at a carriageway split into a
+            // U-turn across the oncoming lanes (2026-10-29 census: greens held
+            // 25 s+ by cars waiting for their lane on 2-17 m internal runs;
+            // South Kings Drive's 10 m piece, a U-turn and a lock head to head).
+            // It takes its turn from the lane it is in.
             ref Leg L0 = ref c.legs[0];
             if (!L0.turn && !c.lc && c.legCount > 1 && Mathf.Clamp(L0.laneOut, 0, Lanes(L0.edge, L0.dir) - 1) != c.lane)
             {
                 float rem = L0.len - c.u;
-                if (rem < 40f)
+                if (rem < 40f && !trims.Internal(L0.edge) && map.edges[L0.edge].length >= 20f)
                 {
                     float hold = rem - c.halfL - 6f + StopS0;
                     if (hold < gap) { gap = Mathf.Max(0.05f, hold); vL = 0f; why = 21; }
@@ -1296,7 +1303,7 @@ namespace PSXRacing.City
                     if (best < b0) { c.leadKind = 2; c.leadId = o.id; }
                     continue;
                 }
-                bool known = false;
+                bool known = false, lanesApartLater = false;
                 float oc = -o.u;
                 int jo = Mathf.Min(o.legCount, 3);
                 for (int j = 0; j < jo && !known; j++)
@@ -1310,6 +1317,13 @@ namespace PSXRacing.City
                             // two lanes of one run whose next turns end in ONE lane
                             // (CityTraffic.Junctions.JoinAhead)
                             if (!c.legs[k].turn && k + 1 < kc && j + 1 < o.legCount) JoinAhead(c, k, o, j, oc, ref best, ref vL);
+                            // lanes apart only on a LATER leg (two roads into one road's
+                            // two lanes): until then they are on roads of their own, and
+                            // where those run together short of the node the bodies meet
+                            // all the same (2026-10-29 check: East 13th Street into North
+                            // Tryon Street, a shallow merge, 0.86 m overlap) - seen as a
+                            // car on another road below
+                            if (k > 0 && j > 0 && !SameLeg(c.legs[0], o.legs[0])) lanesApartLater = true;
                             break;
                         }
                         // o's place on the leg less c's: on a RUN by arc position
@@ -1369,7 +1383,7 @@ namespace PSXRacing.City
                     }
                     oc += o.legs[j].len;
                 }
-                if (known || d2 > 90f * 90f || Mathf.Abs(o.y - c.y) > LevelM) continue;
+                if ((known && !lanesApartLater) || d2 > 90f * 90f || Mathf.Abs(o.y - c.y) > LevelM) continue;
                 // not on this car's plan: its neighbour lanes and the oncoming
                 // lanes of its own run are kept apart by the lanes
                 if (o.legCount > 0 && !o.legs[0].turn && c.legCount > 0 && !c.legs[0].turn && o.legs[0].edge == c.legs[0].edge) continue;
@@ -1612,7 +1626,7 @@ namespace PSXRacing.City
                         c.ctlWhy = 4; c.ctlNode = L.node;
                         if (c.stopKey != key || Time.time - c.stopAt < StopHoldS) return gStop;
                         bool allWay = apps[L.app].allWay;
-                        if (CanGo(c, jk, key, L.node, u, allWay ? 1 : 2, Time.time - c.stopAt > 8f, next, MergeArm(L), Time.time - c.stopAt > 20f))
+                        if (CanGo(c, jk, key, L.node, u, allWay ? 1 : 2, Time.time - c.stopAt > 8f, next, MergeArm(L), Time.time - c.stopAt > 20f, ClearS(c, k, dLine)))
                         { c.goKey = key; c.goAt = Time.time; c.ctlWhy = 0; return float.MaxValue; }
                         return gStop;
                     }
@@ -1621,7 +1635,7 @@ namespace PSXRacing.City
                         if (c.goKey == key) return float.MaxValue;
                         if (dLine > 30f) return float.MaxValue;
                         bool waiting = c.waitKey == key && c.speed < 0.5f;
-                        if (CanGo(c, jk, key, L.node, u, 2, waiting && Time.time - c.waitAt > 6f, next, MergeArm(L), waiting && Time.time - c.waitAt > 20f))
+                        if (CanGo(c, jk, key, L.node, u, 2, waiting && Time.time - c.waitAt > 6f, next, MergeArm(L), waiting && Time.time - c.waitAt > 20f, ClearS(c, k, dLine)))
                         {
                             if (dLine < 8f && c.goKey != key) { c.goKey = key; c.goAt = Time.time; }
                             return float.MaxValue;
@@ -1656,7 +1670,7 @@ namespace PSXRacing.City
         /// junction from another way (nor the player in it); at an all-way stop
         /// nobody who stopped before it still waiting; at a minor road nothing
         /// coming on the major one.</summary>
-        bool CanGo(Car c, int jk, int key, int node, Vector2 u, int mode, bool impatient, sbyte turn = 0, bool merge = false, bool veryImpatient = false)
+        bool CanGo(Car c, int jk, int key, int node, Vector2 u, int mode, bool impatient, sbyte turn = 0, bool merge = false, bool veryImpatient = false, float clearS = 0f)
         {
             Vector2 at = map.nodes[node];
             if ((playerPos - at).sqrMagnitude < 16f * 16f && playerVel.sqrMagnitude > 0.25f && Mathf.Abs(playerPos3.y - c.y) < LevelM)
@@ -1664,9 +1678,13 @@ namespace PSXRacing.City
             // a driver who has waited a while takes a shorter gap (HCM: the
             // critical gap falls with the wait): after 8 s a fifth less; after
             // 20 s joining the near lane (a right, a merge) about the follow-up
-            // headway (HCM 3.3 s), crossing about the old flat 4.5 s
+            // headway (HCM 3.3 s), crossing about the old flat 4.5 s. Never less
+            // than the time it takes to get clear across the box from here and
+            // a margin (ClearS: a long box, a slow start - round 2's census, a
+            // STOP car took 5 s to cross Queens Road's 18 m box on a 5.5 s gap)
             bool joins = turn == 1 || merge;
             float need = GapFor(turn, merge) * (veryImpatient ? (joins ? 0.65f : 0.72f) : impatient ? 0.8f : 1f);
+            if (!merge) need = Mathf.Max(need, clearS + (impatient ? 1.0f : 1.5f));
             for (int i = 0; i < live.Count; i++)
             {
                 var o = live[i];

@@ -101,10 +101,14 @@ namespace PSXRacing.City
         /// way there all the same (2026-10-29 census: a STOP car at Edgehill
         /// Road South pulled out in front of a Queens Road car 74 m back on
         /// the edge before, most likely - it saw only cars whose run ENDS at
-        /// its junction).
+        /// its junction). A control it will be let through - a green now, a
+        /// yellow it is committed to, a STOP or yield it was given the way at,
+        /// a line it is over - is no end: past it the car comes on (round 2's
+        /// census: a STOP at Queens Road pulled out across a car that had a
+        /// green 50 m before it).
         /// Entry 0 is Facts' approach.
         /// </summary>
-        void Horizon(Car c)
+        void Horizon(Car c, double now)
         {
             c.hN = 0;
             float dist = -c.u;
@@ -118,7 +122,9 @@ namespace PSXRacing.City
                 c.hU[i] = TravelTan(map.edges[L.edge], L.dir, L.s1);
                 c.hTurn[i] = k + 1 < c.legCount ? c.legs[k + 1].kind : (sbyte)0;
                 c.hLeg[i] = (sbyte)k;
-                if (L.ctl != CtlNone) break;
+                bool through = L.ctl == CtlNone || c.hDist[i] < 0f || c.goKey == L.key || c.committed == L.key || c.rtorKey == L.key ||
+                               (L.ctl == CtlSignal && L.app >= 0 && CitySignals.AspectOf(apps[L.app].channel, now) == CitySignals.Aspect.Green);
+                if (!through) break;
                 dist += L.len;
             }
         }
@@ -292,6 +298,17 @@ namespace PSXRacing.City
                 }
             }
             return tail == float.MaxValue ? float.MaxValue : tail - boxed;
+        }
+
+        /// <summary>The seconds car c needs from where it is to be clear across
+        /// the box after run k (its line, the turn, its own length) at its
+        /// comfortable acceleration from its speed now (0: no turn there).</summary>
+        static float ClearS(Car c, int k, float dLine)
+        {
+            if (k + 1 >= c.legCount || !c.legs[k + 1].turn) return 0f;
+            float d = Mathf.Max(0f, dLine) + c.legs[k + 1].len + 2f * c.halfL;
+            float a = Mathf.Max(1f, c.aMax), v = c.speed;
+            return (-v + Mathf.Sqrt(v * v + 2f * a * d)) / a;
         }
 
         /// <summary>The gap a car pulling out from a STOP or a yield needs in

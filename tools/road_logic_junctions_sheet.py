@@ -41,7 +41,9 @@ KINDS = [
     ('stuck/yield-starved', 'waiting 40 s+ to yield'),
     ('stuck/left-turn-starved', 'left turn waiting 45 s+'),
     ('stuck/keep-clear-wait', 'held 40 s+ short of a full box (new rule)'),
+    ('stuck/headless-yield-wait', 'giving way 40 s+ in a signal box with no head for it (new rule)'),
     ('wreck/car', 'car-on-car wrecks (all)'),
+    ('wreck/road-surface', 'wrecks on the road surface (a step in the drawn road)'),
     ('traffic/overlap', 'traffic cars overlapping (a code fault)'),
     ('contact/car-bump', 'car-on-car bump'),
 ]
