@@ -70,7 +70,36 @@ CITY = os.path.join(REPO, "Assets", "PSXRacing", "Art", "City")
 SRC = os.path.join(CITY, "Facade", "Source")
 PHOTO = os.path.join(HERE, "facade_src")
 OUT = os.path.join(CITY, "Facade")
-ENH = os.path.join(REPO, "Assets", "PSXRacing", "EnhancedSrc", "TexEnhanced", "City", "Facade", "Core_cityatlas.png")
+# THE ENHANCED TWIN (EnhancedSrc/TexEnhanced/City/Facade/Core_cityatlas.png,
+# 2x) is cut exactly as the classic columns are, at twice the pixels, and
+# graded to each classic column's linear mean, so the ONE night mask lands on
+# the windows of both tiers and CityMeshes.FacadeLooks' means hold for both
+# (main's enhanced-download pass, 2026-10-28). Columns 3 and 4 are the owner's
+# Enhanced twins of their photographs, the glass of 5 and 6 at 2x his twin of
+# tower04; the re-laid curtain walls and the Buildings-pack photographs are
+# cut at 2x from their own sources.
+ENHDIR = os.path.join(REPO, "Assets", "PSXRacing", "EnhancedSrc", "TexEnhanced")
+ENH = os.path.join(ENHDIR, "City", "Facade", "Core_cityatlas.png")
+TWINS = {
+    "skyscraper_building_04.png": ("City", "Facade", "Source", "Earlier_Regional_tower04.png"),
+    "city_facade_mid.jpg": ("Buildings", "Textures", "Core_citymid.png"),
+    "city_facade_tower.jpg": ("Buildings", "Textures", "Core_citytower.png"),
+}
+
+
+def to_lin(c):
+    v = np.asarray(c).astype(np.float32) / 255
+    return np.where(v <= 0.04045, v / 12.92, ((v + 0.055) / 1.055) ** 2.4)
+
+
+def match_mean(e, c):
+    """Enhanced column `e` graded per channel, in linear light, to the
+    classic column `c`'s mean (the tint is an OSM colour over that mean)."""
+    el, cl = to_lin(e), to_lin(c)
+    gain = cl.reshape(-1, 3).mean(0) / np.maximum(el.reshape(-1, 3).mean(0), 1e-6)
+    v = np.clip(el * gain, 0, 1)
+    v = np.where(v <= 0.0031308, v * 12.92, 1.055 * v ** (1 / 2.4) - 0.055)
+    return np.clip(v * 255 + 0.5, 0, 255).astype(np.uint8)
 W, H, COLS = 128, 256, 16
 # the shader's curtain-wall shares (PSXLit.shader CW_MULLION, CW_SPANDREL)
 CW_MULLION, CW_SPANDREL = 0.12, 0.22
@@ -178,7 +207,11 @@ def office(kind, scale=1, seed=50):
     y = np.arange(h)[:, None]; x = np.arange(w)[None, :]
     fy = (y % (32 * scale)) / (32.0 * scale); bx = (x % (16 * scale)) / (16.0 * scale)
     col = np.stack([wall * 1.00, wall * 0.985, wall * 0.96], 2) if kind == "granite" else np.stack([wall] * 3, 2)
-    glass = np.asarray(rgb(os.path.join(SRC, "skyscraper_building_04.png")).crop((0, 0, 128, 256)).resize((w, h), Image.BICUBIC)).astype(np.float32) / 255
+    # the glass: the pack's blue curtain wall, or at 2x the owner's Enhanced twin of it
+    gsrc, gcrop = os.path.join(SRC, "skyscraper_building_04.png"), (0, 0, 128, 256)
+    if scale == 2 and os.path.exists(os.path.join(ENHDIR, *TWINS["skyscraper_building_04.png"])):
+        gsrc, gcrop = os.path.join(ENHDIR, *TWINS["skyscraper_building_04.png"]), (0, 0, 256, 512)
+    glass = np.asarray(rgb(gsrc).crop(gcrop).resize((w, h), Image.BICUBIC)).astype(np.float32) / 255
     glass = glass * 0.55                                     # tinted, darker than the wall
     if kind == "granite":
         win = (bx > 0.22) & (bx < 0.78) & (fy > 0.22) & (fy < 0.84)
@@ -401,17 +434,15 @@ def main():
     assert atlas.shape == (H, W * COLS, 3) and mask.shape == (H, W * COLS, 4)
     Image.fromarray(atlas, "RGB").save(os.path.join(OUT, "city_facade_atlas.png"), optimize=True)
     Image.fromarray(mask, "RGBA").save(os.path.join(OUT, "city_facade_atlas_night.png"), optimize=True)
-    # THE ENHANCED TWIN (4096 x 512): every column at 2x from its source;
-    # 3 and 4 keep the owner's overhaul art from the twin as it was
-    if os.path.exists(ENH):
-        old = np.asarray(rgb(ENH))
+    # THE ENHANCED TWIN (4096 x 512): every column at 2x, cut as the classic
+    # is, graded to the classic column's mean (match_mean)
+    if all(os.path.exists(os.path.join(ENHDIR, *t)) for t in TWINS.values()):
         e = np.zeros((H * 2, W * 2 * COLS, 3), np.uint8)
         for k in range(COLS):
             x0 = k * W * 2
-            if k in (3, 4) and old.shape[0] == H * 2 and old.shape[1] >= (k + 1) * W * 2:
-                e[:, x0:x0 + W * 2] = old[:, k * W * 2:(k + 1) * W * 2]
-            elif k in (3, 4):
-                e[:, x0:x0 + W * 2] = np.asarray(Image.fromarray(cols[k]).resize((W * 2, H * 2), Image.LANCZOS))
+            if k in (3, 4):
+                tw = TWINS["city_facade_mid.jpg" if k == 3 else "city_facade_tower.jpg"]
+                e[:, x0:x0 + W * 2] = np.asarray(rgb(os.path.join(ENHDIR, *tw)).resize((W * 2, H * 2), Image.LANCZOS))
             elif k <= 2:
                 e[:, x0:x0 + W * 2] = curtain_synth(("silver", "blue", "teal")[k], 2, seed=3 + k)[0]
             elif k in (5, 6):
@@ -422,8 +453,12 @@ def main():
                 e[:, x0:x0 + W * 2] = apartment(2)[0]
             else:
                 e[:, x0:x0 + W * 2] = photo_col(k, 2)[0]
+            if k != 7:
+                e[:, x0:x0 + W * 2] = match_mean(e[:, x0:x0 + W * 2], cols[k])
         Image.fromarray(e, "RGB").save(ENH, optimize=True)
         print("enhanced twin", e.shape)
+    else:
+        print("enhanced twin NOT written - a twin is missing")
     if sheet_dir:
         S = Image.new("RGB", (COLS * W, H * 2 + 16), (20, 20, 20))
         for k in range(COLS):

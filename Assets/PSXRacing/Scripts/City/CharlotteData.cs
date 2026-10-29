@@ -73,6 +73,23 @@ namespace PSXRacing.City
         /// <summary>The fetch failed: the files are read from Resources (absent
         /// in a bundled build - the city then reports its data missing).</summary>
         public static bool Failed => fetch == Fetch.Failed;
+        /// <summary>Nothing more is coming: the data arrived, the fetch failed,
+        /// or this player does not download it at all.</summary>
+        public static bool Settled => !InBundle || fetch == Fetch.Ready || fetch == Fetch.Failed;
+
+        /// <summary>Raised once, when the download settles (arrived or
+        /// failed). TextureTier holds its own, bigger download until then
+        /// (2026-10-28): a Charlotte scene can wait on this one behind LOADING
+        /// CHARLOTTE, never on that one, so the two never share the line.</summary>
+        public static event System.Action SettledNow;
+
+        static void RaiseSettled()
+        {
+            var h = SettledNow;
+            SettledNow = null;
+            h?.Invoke();
+        }
+
         /// <summary>0..1 of the download, for the loading screen.</summary>
         public static float Progress => Ready ? 1f : req != null ? req.downloadProgress : 0f;
 
@@ -104,7 +121,7 @@ namespace PSXRacing.City
                 req.SendWebRequest().completed += _ => OnBundle(url, t0);
                 Debug.Log("[Charlotte] fetching the city's data: " + url);
             }
-            catch (System.Exception e) { fetch = Fetch.Failed; Debug.LogWarning("[Charlotte] the city's data is unavailable (" + url + ": " + e.Message + ")"); }
+            catch (System.Exception e) { fetch = Fetch.Failed; Debug.LogWarning("[Charlotte] the city's data is unavailable (" + url + ": " + e.Message + ")"); RaiseSettled(); }
         }
 
         static void OnBundle(string url, float t0)
@@ -122,11 +139,13 @@ namespace PSXRacing.City
             {
                 fetch = Fetch.Failed;
                 Debug.LogWarning("[Charlotte] the city's data is unavailable (" + url + ": " + (err ?? "not an AssetBundle") + ")");
+                RaiseSettled();
                 return;
             }
             bundle = b;
             fetch = Fetch.Ready;
             Debug.Log($"[Charlotte] the city's data is ready: {bytes / 1048576f:F2} MB in {Time.realtimeSinceStartup - t0:F1} s");
+            RaiseSettled();
         }
 
         /// <summary>One of the city's data files: from the bundle when this
