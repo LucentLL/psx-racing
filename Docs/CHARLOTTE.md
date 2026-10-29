@@ -8358,8 +8358,9 @@ the road's limit)? Measured on the shipped data: a "spike" is R over 6 m under h
   before the shares are solved (ends and junction vertices fixed; a dropped 2-arm node is carried and
   projected onto the drawn line); (2) on freeway and trunk mainlines, a corner under 0.6 of the radius
   it wants and of its class design radius (0.12 g at the road's speed) merges with its neighbour, the
-  apex kept within Emax of the segment it replaces. `PSX_FILLET_BENDS=0` is the before.
-  Over-limit spikes on the shipped centrelines: freeway 109 -> 30, trunk 31 -> 15, primary 236 -> 165,
+  apex kept within Emax of the segment it replaces. **SHIPPED OFF** (`PSX_FILLET_BENDS=1` turns it on): the gate
+  below showed the race routes' medians move with it (each carriageway of a divided road is re-fitted on its own).
+  With it on, over-limit spikes on the centrelines: freeway 109 -> 30, trunk 31 -> 15, primary 236 -> 165,
   secondary 616 -> 443, tertiary 599 -> 543. Points 393,507 -> 336,862; corners under their class
   floor 715 -> 614; past Emax 184 -> 174; departure from the pre-fillet line unchanged (max 3.06 m).
 - **Speed (one source of truth).** `Scripts/City/CityCurves.cs`: an edge whose OSM way posts
@@ -8404,9 +8405,24 @@ wrong way 9 -> 1); UP: car wrecks 46 -> 50, turn clips corner 56 -> 63, barrier 
 32 -> 41 (inside the spread of a 22 car-hour sample; not chased). Every spot's own lateral count fell (I-85 47 -> 0,
 Independence Expwy 58 -> 2, I-77 66 -> 3, West Woodlawn 139 -> 8). NOTE: the bend classes are measured against the
 curve's advisory where one applies (the census's own "or a lower limit"); the geometry fix stands on the static scan:
-over-limit spikes city-wide 2,394 -> 1,984, freeways 109 -> 30.
+over-limit spikes city-wide 2,394 -> 1,984, freeways 109 -> 30 (with it on). The spot census ran WITH the refit; with it
+off the freeway spots' bends are covered by advisories instead (45-55 mph at the spikes) until the refit ships.
 
-**Left:** 30 freeway spikes, about a third within 10 m of a mitred junction (a ramp split or merge
+**Gates (PSXCity, one job: CityVSmoothCensus with PSX_VS_LAUNCH=uniform + PSX_VS_THEN_DRIVE=1, 62 min):** launch
+uniform city-wide 96 / 382 (reference 102 / 395), routes 0/0/0; route p99 1.18 / 2.11 / 0.74 g (reference 1.12 / 2.11 /
+0.76: uptown +0.06); census per class freeway 29,033 / 212 / 70 / 17 (round 8: 28,900 / 243 / 80 / 19); WALLS IN LANES 0;
+FALL HOLES the same 8 places near roads; INVISIBLE lanes 3 (4); MEDIAN ACROSS two+ / none 31 / 26 and MEDIAN CLASSES
+8 / 3 / 13 (round 8 published 22 / 28 and 8 / 3 / 10 on its own base) with the refit ON vs the same job on the
+base code and data: 25 / 24 and 7 / ? / 11, BLUNT rail ends in the box 9 -> 14, one new lane step / land-on-lane spot;
+launch base 99 / 376, route p99 1.12 / 2.11 / 0.76, freeway 28,903 / 238 / 77 / 17. So the refit is SHIPPED OFF and the data
+regenerated without it: geometry byte-identical to the base (routes.json identical; the city file = base + ADVS, 504 B),
+so the drive audit and launch audit are the base run's; traffic check (city-traffic-check
+play check, chained after the shots) OK: ran red 0, rolled STOP 0, wrong way 0, overlap 0, wrecks 0, off the pavement
+0 / 9,677 samples, physics step 0.52 ms. lane-audit.ps1 measures the venues' built scenes (none in PSXCity, no venue code
+touched here).
+
+**Left:** the refit itself - re-fit a twin pair together (one offset for both carriageways) and re-run the median
+gate; with it on, 30 freeway spikes, about a third within 10 m of a mitred junction (a ramp split or merge
 end is fixed in place and direction, so a corner beside it cannot be spread) and the I-277 inner loop
 (real ~250 m curves with a tighter middle that Emax keeps); ramp lines that swing off the mainline at
 the gore (OSM topology); ramp e251, whose posted 35 mph advisory (OSM) is over its drawn 48-54 m curves

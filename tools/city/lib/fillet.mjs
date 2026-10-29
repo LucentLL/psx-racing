@@ -42,8 +42,8 @@
 // BENDS_STARVE of what it wants and of its class design radius (0.12 g at the
 // road's speed) merges with its neighbour like a corner under its floor, the
 // apex kept within Emax of the segment it replaces. I-85 at (-6917,7464):
-// R 146-158 m arcs in a 480-600 m curve -> one curve. PSX_FILLET_BENDS=0 is
-// the before.
+// R 146-158 m arcs in a 480-600 m curve -> one curve. OFF by default (the
+// median gate, below): PSX_FILLET_BENDS=1 turns it on.
 //
 // Review 2026-09-30:
 //   * LONE VERTICES stay vertices: where the line turns by 8 eps / ChordCapM
@@ -142,7 +142,12 @@ export function filletGraph(edges, nodes, opts) {
   const { rFloor, emax, hw, eps = 0.02, chordCap = 10, collinearDeg = 0.02, through = new Map(),
           innerMin = 3, loneRule = true } = opts;
   // BENDS (road-logic-bends): the strand collapse before the shares (runStrand)
-  const collapseEps = opts.collapseEps ?? (process.env.PSX_FILLET_BENDS === '0' ? 0 : BENDS_COLLAPSE_EPS);
+  // OFF BY DEFAULT (2026-10-29 gate): measured on PSXCity it cut the freeway
+  // spikes 109 -> 30 but each carriageway of a divided road is re-fitted on its
+  // own, and the race routes' medians moved with them (MEDIAN ACROSS two+/none
+  // 25/24 -> 31/26, boxes 11 -> 13). PSX_FILLET_BENDS=1 turns it on; ship it
+  // when a twin pair is re-fitted together.
+  const collapseEps = opts.collapseEps ?? (process.env.PSX_FILLET_BENDS === '1' ? BENDS_COLLAPSE_EPS : 0);
   const rDesign = opts.rDesign || null;
   const colTurn = collinearDeg * DEG;
   const loneTurn = loneRule ? Math.max(colTurn, 8 * eps / chordCap) : colTurn;

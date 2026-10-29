@@ -2,10 +2,10 @@
   "schema": 1,
   "city": {
     "version": 2,
-    "graph_hash": "92d58670",
+    "graph_hash": "02324a60",
     "nodes": 20196,
     "edges": 25044,
-    "points": 336862,
+    "points": 393507,
     "node_degrees": [
       0,
       926,
@@ -35,7 +35,7 @@
     "culvert_crossings": 312,
     "crossings": 783,
     "crossings_forced": 783,
-    "water_spans": 251,
+    "water_spans": 252,
     "controls": {
       "signal": 1668,
       "stop": 140,
@@ -45,7 +45,7 @@
       {
         "id": "uptown",
         "edges": 68,
-        "length_m": 9190.3
+        "length_m": 9191
       },
       {
         "id": "tryon",
@@ -55,21 +55,21 @@
       {
         "id": "independence",
         "edges": 38,
-        "length_m": 7014.5
+        "length_m": 7014.6
       }
     ],
-    "free_vertices": 292258,
+    "free_vertices": 348813,
     "kinks_per_km": {
-      "ge5": 2.259,
-      "ge10": 0.045,
+      "ge5": 2.32,
+      "ge10": 0.048,
       "ge25": 0.021
     },
     "kinks": {
-      "ge5": 8669,
-      "ge10": 171,
+      "ge5": 8901,
+      "ge10": 184,
       "ge25": 82,
       "max_deg": 173.1,
-      "folds_over_10cm": 384
+      "folds_over_10cm": 433
     }
   },
   "dem": {
@@ -101,8 +101,8 @@
   },
   "outputs": {
     "charlotte_city.bytes": {
-      "bytes": 7847828,
-      "sha256": "3c604aed63f6bf71f9b7e6d7dd78849d53df71e4ce03a4fe42edd25f206a70ab"
+      "bytes": 8301043,
+      "sha256": "e6601e67b2cc2356ac04cb513caa903ef773f5da3744fbb77b523495c2da2801"
     },
     "charlotte_dem.bytes": {
       "bytes": 3174661,
@@ -117,8 +117,8 @@
       "sha256": "4fcd9076affeb8bc8361d732502812aab14cb7a7a6dda83ada82eb8a648355a5"
     },
     "charlotte_routes.json": {
-      "bytes": 16873,
-      "sha256": "28eda907a7216ca8c74df77b397d57c965bf73ffc1625f02bcf54f79bcbc0654"
+      "bytes": 16883,
+      "sha256": "b08b2362879b39790e1ce007efaf7ec60b2ec2e849ed43eed6d28d8c14565ef6"
     }
   },
   "generated": {
