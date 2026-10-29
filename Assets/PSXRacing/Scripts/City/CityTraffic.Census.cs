@@ -626,6 +626,19 @@ namespace PSXRacing.City
                 }
             report.AppendLine($"  signals: {sigJ} signalised junctions, {stopJ} STOP / yield junctions ({allWay} all-way); crossing approaches green together: {conflictPairs} pairs");
             report.AppendLine("  " + CitySignals.ControlReport());
+            // the warrants' signals and all-way stops, where (the owner checks them against the streets)
+            if (js != null)
+            {
+                int ws = 0, wa = 0;
+                foreach (var j in js)
+                {
+                    if (!j.warrant || !(j.signal || j.allWay)) continue;
+                    if (j.signal ? ws++ >= 40 : wa++ >= 25) continue;
+                    var names = new HashSet<string>();
+                    foreach (var a in j.approaches) names.Add(string.IsNullOrEmpty(map.edges[a.edge].name) ? "(unnamed " + (map.edges[a.edge].link ? "ramp" : "road") + ")" : map.edges[a.edge].name);
+                    report.AppendLine($"    warrant {(j.signal ? $"signal ({j.phases} phases)" : "all-way STOP")} at ({j.centre.x:0},{j.centre.y:0}) node {j.nodes[0]}: {string.Join(" / ", names)}");
+                }
+            }
 
             // ---- 2. JUNCTION CONTROL where no signal or STOP stands: big roads
             // crossing with nobody given the way
