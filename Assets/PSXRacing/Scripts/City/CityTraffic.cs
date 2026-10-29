@@ -980,6 +980,16 @@ namespace PSXRacing.City
                 }
                 Drive(c, dt, now);
             }
+            // OFF THE MAP: a car whose plan ends at the data's frontier leaves
+            // in the step it reaches the end, at speed - left to Cull (once a
+            // frame, many steps at a census's time scale) it stood frozen at
+            // the end and the next car ran into it (the first spot census:
+            // 56 same-road wrecks at I-77's, Wilkinson's, I-85's ends)
+            for (int i = live.Count - 1; i >= 0; i--)
+            {
+                var c = live[i];
+                if (c.offMap && !c.wrecked && Remaining(c) < 0.5f + c.speed * dt) Recycle(i);
+            }
             if (Log != null) CensusStep(dt);
             clock.Stop();
             float ms = (float)clock.Elapsed.TotalMilliseconds;
@@ -1304,7 +1314,11 @@ namespace PSXRacing.City
                     if (d2 > 40f * 40f) continue;
                     float g = CrossGap(c, o, d);
                     if (g == float.MaxValue) continue;
-                    if (CrossGap(o, c, -d) < float.MaxValue && Precedes(c, o)) continue;   // c goes first: o waits for it
+                    // c goes first and o, still moving, waits for it; a car standing
+                    // with its nose in the lane is braked for whoever it is (the
+                    // census: a ramp car stopped at a stop line inside Sunset
+                    // Road, run into by the car that "went first")
+                    if (o.speed > 1.5f && CrossGap(o, c, -d) < float.MaxValue && Precedes(c, o)) continue;
                     if (g < best) { best = g; vL = Mathf.Max(0f, dot * o.speed); c.leadKind = 4; }
                 }
                 else if (dot > 0f)
@@ -1322,7 +1336,7 @@ namespace PSXRacing.City
                     // like the player; only the car behind brakes (the other has
                     // this one behind it).
                     float b0 = best;
-                    Obstacle(c, o.pos, o.halfL, o.fwd * o.speed, ref best, ref vL, o.halfW + 0.3f);
+                    Obstacle(c, o.pos, o.halfL, o.fwd * o.speed, ref best, ref vL, o.halfW + 0.3f, true);
                     if (best < b0) c.leadKind = 5;
                 }
             }
@@ -1366,8 +1380,9 @@ namespace PSXRacing.City
         /// <summary>Something that is not traffic (the player, a wreck) in this
         /// car's lane ahead: on its run, measured onto the lane; past it, in a
         /// short corridor straight ahead. halfW: the obstacle's half width
-        /// (the player's and a wreck's 1.15 m; a car its own + 0.3 m).</summary>
-        void Obstacle(Car c, Vector2 p, float halfL, Vector2 vel, ref float best, ref float vL, float halfW = 1.15f)
+        /// (the player's and a wreck's 1.15 m; a car its own + 0.3 m);
+        /// runOnly: only on its run, no corridor past it.</summary>
+        void Obstacle(Car c, Vector2 p, float halfL, Vector2 vel, ref float best, ref float vL, float halfW = 1.15f, bool runOnly = false)
         {
             Vector2 d = p - c.pos;
             float along = Vector2.Dot(d, c.fwd);
@@ -1383,7 +1398,11 @@ namespace PSXRacing.City
             }
             else
             {
-                if (along > 30f) return;
+                // runOnly (a car on another road): past this car's run its
+                // plan turns where it will, and the plan's own legs see what
+                // stands on them - a straight corridor would stop a right turn
+                // behind a car that went straight on
+                if (runOnly || along > 30f) return;
                 latErr = Mathf.Abs(c.fwd.x * d.y - c.fwd.y * d.x);
             }
             if (latErr > c.halfW + halfW) return;

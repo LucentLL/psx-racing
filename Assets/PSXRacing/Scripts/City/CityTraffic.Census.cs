@@ -588,15 +588,15 @@ namespace PSXRacing.City
             Bounds();
             if (map.nodeFrontier != null)
             {
-                int[] why = new int[4]; int fr = 0;
+                int[] why = new int[5]; int fr = 0;
                 for (int n = 0; n < map.nodeFrontier.Length; n++)
                 {
                     byte b = map.nodeFrontier[n];
                     if (b == 0) continue;
                     fr++;
-                    for (int k = 0; k < 4; k++) if ((b & (1 << k)) != 0) why[k]++;
+                    for (int k = 0; k < 5; k++) if ((b & (1 << k)) != 0) why[k]++;
                 }
-                report.AppendLine($"  the data's frontier (section FRNT): {fr} nodes where the data stops and the road goes on - outside the beltway box {why[0]}, minor streets not fetched there {why[1]}, a dropped way {why[2]}, a one-way into what the map lacks {why[3]}: the data's end, not a dead end");
+                report.AppendLine($"  the data's frontier (section FRNT): {fr} nodes where the data stops and the road goes on - outside the beltway box {why[0]}, minor streets not fetched there {why[1]}, a dropped way {why[2]}, a one-way into what the map lacks {why[3]}, a road joined to nothing else {why[4]}: the data's end, not a dead end");
             }
             else report.AppendLine($"  the map: ({mapMin.x:0},{mapMin.y:0})..({mapMax.x:0},{mapMax.y:0}); local streets ({coreMin.x:0},{coreMin.y:0})..({coreMax.x:0},{coreMax.y:0}) - a road cut within 400 m of the map's edge (150 m of the streets' box for a local) is the data's end, not a dead end");
             var ic = System.Globalization.CultureInfo.InvariantCulture;
