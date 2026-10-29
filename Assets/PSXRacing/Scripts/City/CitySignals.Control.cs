@@ -237,14 +237,22 @@ namespace PSXRacing.City
                 if (m1 < 0 || m2 < 0)
                 {
                     // NO THROUGH ROAD: equal roads crossing
-                    int inb = 0, outb = 0, nonLinkIn = 0;
+                    int inb = 0, outb = 0, nonLinkIn = 0, firstIn = -1;
+                    bool crossIn = false;
                     foreach (int ei in armScratch)
                     {
                         var e = map.edges[ei];
-                        if (!e.oneway || e.b == n) { inb++; if (!e.link) nonLinkIn++; }
+                        if (!e.oneway || e.b == n)
+                        {
+                            inb++; if (!e.link) nonLinkIn++;
+                            // two inbound flows that cross (a one-way carriageway over another)
+                            if (firstIn < 0) firstIn = ei;
+                            else if (Vector2.Angle(Out(map.edges[firstIn], n), Out(e, n)) > 45f && map.edges[firstIn].name != e.name) crossIn = true;
+                        }
                         if (!e.oneway || e.a == n) outb++;
                     }
-                    if (inb < 3 || outb <= 1 || nonLinkIn < 2) continue;     // a merge, a diverge, ramps
+                    // a merge, a diverge, ramps: no crossing to control
+                    if (outb <= 1 || nonLinkIn < 2 || inb < 2 || (inb == 2 && !crossIn)) continue;
                     // the roads: by name (an unnamed arm is its own), each its top class
                     int r1 = -1, r2 = -1; string n1 = null;
                     var roads = new Dictionary<string, int>();
