@@ -363,6 +363,10 @@ namespace PSXRacing.City
         public static long TileKeyAt(Vector2 p) =>
             Key(Mathf.FloorToInt(p.x / CityMeshes.TileSize), Mathf.FloorToInt(p.y / CityMeshes.TileSize));
 
+        /// <summary>Is the tile under a plan point built (its colliders
+        /// standing)? The road log tells a hole from a tile not there yet.</summary>
+        public bool TileLive(Vector2 p) => live.ContainsKey(TileKeyAt(p));
+
         /// <summary>Every restaurant in the city, flattened out of the tile
         /// buckets once, so the HUD has something to point at.</summary>
         readonly List<(byte kind, Vector2 pos)> food = new List<(byte, Vector2)>();

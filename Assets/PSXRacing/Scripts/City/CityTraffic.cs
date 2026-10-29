@@ -221,6 +221,11 @@ namespace PSXRacing.City
             public float gap;
             public bool leaderInLane;
             public float leaderV;
+            /// <summary>What held it this step (the road log's 'why', Census
+            /// WhyName), the kind of thing ahead, and the node of the control
+            /// that held it.</summary>
+            public byte why, leadKind, ctlWhy;
+            public int ctlNode = -1;
         }
 
         // ---- state -----------------------------------------------------------
@@ -702,7 +707,16 @@ namespace PSXRacing.City
             float look = Mathf.Max(150f, c.speed * 7f);
             int guard = 0;
             while (!c.deadEnd && c.legCount <= MaxLegs - 2 && Remaining(c) < look && guard++ < 4)
-                if (!Extend(c)) { c.deadEnd = true; Stats.deadEnds++; }
+                if (!Extend(c))
+                {
+                    c.deadEnd = true; Stats.deadEnds++;
+                    if (Log != null)
+                    {
+                        int dn = c.legs[c.legCount - 1].node;
+                        bool cutEnd = AtMapEdge(dn, map.edges[c.legs[c.legCount - 1].edge].cls);
+                        Note(c, "route", cutEnd ? "dead-end-map-edge" : "dead-end", 1f, (cutEnd ? "the road is cut where the data stops: " : "no legal way on at the end of its plan (a one-way into nothing): ") + Describe(c), node: dn);
+                    }
+                }
         }
 
         static readonly List<(int e, int dir, float w, float ang)> options = new List<(int, int, float, float)>(8);
@@ -738,6 +752,7 @@ namespace PSXRacing.City
                 int far = d2 > 0 ? o.b : o.a;
                 if (degree[far] <= 1 && o.length < 300f) w *= 0.05f;
                 if (!reverse && !o.link && aa < 35f) anyMainline = true;
+                if (CensusMode) w *= CensusRouteBonus(ei, o);
                 options.Add((ei, d2, w, ang));
                 total += w;
             }
@@ -922,6 +937,7 @@ namespace PSXRacing.City
                 }
                 Drive(c, dt, now);
             }
+            if (Log != null) CensusStep(dt);
             clock.Stop();
             float ms = (float)clock.Elapsed.TotalMilliseconds;
             StepMsSum += ms; StepCount++;
@@ -982,6 +998,7 @@ namespace PSXRacing.City
                 if (Time.time - c.lastBumpAt > 2f)
                 {
                     Stats.bumps++;
+                    if (Log != null) Note(c, "contact", "car-bump", knock, "a bump below the wreck line: " + Describe(c) + " | other: " + Describe(c.lastTraffic));
                     if (BumpLog.Count < 40) BumpLog.Add(knock.ToString("0.0") + " m/s: " + Describe(c) + " | other: " + Describe(c.lastTraffic));
                 }
                 c.lastBumpAt = Time.time;
@@ -992,12 +1009,13 @@ namespace PSXRacing.City
             if (c.vTick-- <= 0) { c.vTick = 2; c.vDesCached = DesiredSpeed(c); }
             float vDes = c.vDesCached;
             float gap = LeaderGap(c, out float vL);
+            byte why = gap < float.MaxValue ? c.leadKind : (byte)0;
             float g2 = ControlGap(c, now);
-            if (g2 < gap) { gap = g2; vL = 0f; }
+            if (g2 < gap) { gap = g2; vL = 0f; why = (byte)(10 + c.ctlWhy); }
             if (c.deadEnd)
             {
                 float end = Remaining(c) - c.halfL - 1f;
-                if (end < gap) { gap = end; vL = 0f; }
+                if (end < gap) { gap = end; vL = 0f; why = 20; }
             }
             // the lane its turn needs not reached yet: wait short of the
             // junction for a gap rather than cut across a lane in the turn
@@ -1008,12 +1026,13 @@ namespace PSXRacing.City
                 if (rem < 40f)
                 {
                     float hold = rem - c.halfL - 6f + StopS0;
-                    if (hold < gap) { gap = Mathf.Max(0.05f, hold); vL = 0f; }
+                    if (hold < gap) { gap = Mathf.Max(0.05f, hold); vL = 0f; why = 21; }
                     if (c.mandAt < 0f && c.speed < 0.5f) c.mandAt = Time.time;
                 }
             }
             else c.mandAt = -1f;
             c.gap = gap;
+            c.why = why;
 
             // IDM
             float v = c.speed;
@@ -1052,12 +1071,14 @@ namespace PSXRacing.City
                 if (old.merge) Stats.merges++;
                 if (old.exit) Stats.exits++;
                 if (old.kind == 2) Stats.uTurns++;
+                if (Log != null) CensusTurnDone(c, ref old);
             }
             for (int k = 1; k < c.legCount; k++) c.legs[k - 1] = c.legs[k];
             c.legCount--;
             ref Leg N = ref c.legs[0];
             if (N.turn)
             {
+                if (Log != null && (c.lc || c.lane != N.laneIn)) CensusWrongLaneTurn(c, ref N);
                 // the turn starts where the car IS (a lane change still under
                 // way, a lane that ended): the same arc to the same lane
                 Shape(ref N, c.pos, c.tan, N.p3, (N.p3 - N.p2).sqrMagnitude > 1e-6f ? (N.p3 - N.p2).normalized : c.tan);
@@ -1150,6 +1171,7 @@ namespace PSXRacing.City
         {
             float best = float.MaxValue; vL = 0f;
             c.leaderInLane = false;
+            c.leadKind = 0;
             int kc = Mathf.Min(c.legCount, 5);
             cumC[0] = -c.u;
             for (int k = 0; k < kc; k++) cumC[k + 1] = cumC[k] + c.legs[k].len;
@@ -1160,7 +1182,13 @@ namespace PSXRacing.City
                 Vector2 d = o.pos - c.pos;
                 float d2 = d.sqrMagnitude;
                 if (d2 > 170f * 170f) continue;
-                if (o.wrecked) { if (Mathf.Abs(o.rb.position.y - c.y) < LevelM) Obstacle(c, o.pos, 2.4f, Vector2.zero, ref best, ref vL); continue; }
+                if (o.wrecked)
+                {
+                    float b0 = best;
+                    if (Mathf.Abs(o.rb.position.y - c.y) < LevelM) Obstacle(c, o.pos, 2.4f, Vector2.zero, ref best, ref vL);
+                    if (best < b0) c.leadKind = 2;
+                    continue;
+                }
                 bool known = false;
                 float oc = -o.u;
                 int jo = Mathf.Min(o.legCount, 3);
@@ -1212,6 +1240,7 @@ namespace PSXRacing.City
                             best = g; vL = o.speed;
                             c.leaderInLane = k == 0 && j == 0;
                             c.leaderV = o.speed;
+                            c.leadKind = 1;
                         }
                         break;
                     }
@@ -1231,11 +1260,13 @@ namespace PSXRacing.City
                 if (along > 0f && along < reach && Mathf.Abs(lat) < c.halfW + o.halfW + 0.3f)
                 {
                     float g = along - c.halfL - o.halfL;
-                    if (g < best) { best = g; vL = Mathf.Max(0f, Vector2.Dot(o.fwd, c.fwd) * o.speed); }
+                    if (g < best) { best = g; vL = Mathf.Max(0f, Vector2.Dot(o.fwd, c.fwd) * o.speed); c.leadKind = 4; }
                 }
             }
             // the player
+            float bp = best;
             if (Mathf.Abs(playerPos3.y - c.y) < LevelM) Obstacle(c, playerPos, 2.3f, playerVel, ref best, ref vL);
+            if (best < bp) c.leadKind = 3;
             return best;
         }
 
@@ -1272,6 +1303,7 @@ namespace PSXRacing.City
         /// with no gap, a left turn with something coming), or MaxValue.</summary>
         float ControlGap(Car c, double now)
         {
+            c.ctlWhy = 0;
             float dist = -c.u;
             for (int k = 0; k < c.legCount && dist < 160f; k++)
             {
@@ -1286,6 +1318,7 @@ namespace PSXRacing.City
                         OncomingConflict(c, JKey(L.node), L.key, TravelTan(map.edges[L.edge], L.dir, L.s1)))
                     {
                         if (k == 0 && c.waitKey != L.key && c.speed < 0.5f) { c.waitKey = L.key; Stats.leftYields++; }
+                        c.ctlWhy = 6; c.ctlNode = L.node;
                         return Mathf.Max(0f, dLine - 0.6f) + StopS0 - 0.4f;
                     }
                     dist += L.len;
@@ -1312,10 +1345,11 @@ namespace PSXRacing.City
                         {
                             // moving off the line: the junction clear of anyone
                             // still crossing it from the other phase first
-                            if (c.speed < 3f && dLine < 6f && CrossInBox(c, jk, key, u)) return gStop;
+                            if (c.speed < 3f && dLine < 6f && CrossInBox(c, jk, key, u)) { c.ctlWhy = 2; c.ctlNode = L.node; return gStop; }
                             if (next == -1 && OncomingConflict(c, jk, key, u))
                             {
                                 if (k == 0 && c.waitKey != key && c.speed < 0.5f && dLine < 4f) { c.waitKey = key; Stats.leftYields++; }
+                                c.ctlWhy = 3; c.ctlNode = L.node;
                                 return gStop;
                             }
                             return float.MaxValue;
@@ -1325,15 +1359,17 @@ namespace PSXRacing.City
                         { c.committed = key; return float.MaxValue; }
                         if (dLine < 0f) { c.committed = key; return float.MaxValue; }   // already over it
                         if (k == 0 && c.speed < 0.3f && dLine < 3f && c.redStopKey != key) { c.redStopKey = key; Stats.redStops++; }
+                        c.ctlWhy = 1; c.ctlNode = L.node;
                         return gStop;
                     }
                     case CtlStop:
                     {
                         if (c.goKey == key) return float.MaxValue;
                         if (k == 0 && c.stopKey != key && c.speed < 0.3f && dLine < 2.0f) { c.stopKey = key; c.stopAt = Time.time; }
+                        c.ctlWhy = 4; c.ctlNode = L.node;
                         if (c.stopKey != key || Time.time - c.stopAt < StopHoldS) return gStop;
                         bool allWay = apps[L.app].allWay;
-                        if (CanGo(c, jk, key, L.node, u, allWay ? 1 : 2, Time.time - c.stopAt > 8f)) { c.goKey = key; return float.MaxValue; }
+                        if (CanGo(c, jk, key, L.node, u, allWay ? 1 : 2, Time.time - c.stopAt > 8f)) { c.goKey = key; c.ctlWhy = 0; return float.MaxValue; }
                         return gStop;
                     }
                     case CtlYield:
@@ -1347,6 +1383,7 @@ namespace PSXRacing.City
                             return float.MaxValue;
                         }
                         if (k == 0 && c.waitKey != key && c.speed < 0.5f) { c.waitKey = key; c.waitAt = Time.time; Stats.yields++; }
+                        c.ctlWhy = 5; c.ctlNode = L.node;
                         return gStop;
                     }
                 }
@@ -1490,6 +1527,12 @@ namespace PSXRacing.City
         {
             ref Leg L = ref c.legs[0];
             var e = map.edges[L.edge];
+            if (Log != null)
+            {
+                string turn = c.legCount > 1 ? (c.legs[1].merge ? "merge" : c.legs[1].exit ? "exit" : c.legs[1].kind == -1 ? "left" : c.legs[1].kind == 1 ? "right" : "straight on") : "?";
+                Note(c, "lane", "missed-turn-lane", Mathf.Abs(Mathf.Clamp(L.laneOut, 0, Lanes(L.edge, L.dir) - 1) - c.lane),
+                     $"waited 14 s for a gap into lane {L.laneOut} of {Lanes(L.edge, L.dir)} from lane {c.lane} for its {turn} at node {L.node}: replanned; " + Describe(c));
+            }
             float s1 = EndS(e, L.dir);
             if ((s1 - L.s0) * L.dir < c.u) s1 = L.s0 + L.dir * c.u;
             L.s1 = s1; L.len = Mathf.Abs(L.s1 - L.s0); L.laneOut = c.lane;
@@ -1508,6 +1551,13 @@ namespace PSXRacing.City
             // never longer than the road left at its speed
             if (c.speed > 1f) dur = Mathf.Min(dur, Mathf.Max(1.5f, (rem - 4f) / c.speed));
             c.lcDur = dur;
+            if (Log != null)
+            {
+                bool pushy = c.mandAt >= 0f && Time.time - c.mandAt > 5f;
+                if (pushy || dur < 2.2f)
+                    Note(c, "lane", pushy ? "forced-into-tight-gap" : "forced-short-change", pushy ? Time.time - c.mandAt : dur,
+                         $"lane {c.lane}->{to} {(pushy ? $"after waiting {Time.time - c.mandAt:0} s, into a tight gap" : $"in {dur:0.0} s with {rem:0} m left at {c.speed:0.0} m/s")}; " + Describe(c));
+            }
         }
 
         /// <summary>The free road ahead in a lane of this car's run.</summary>
@@ -1667,12 +1717,13 @@ namespace PSXRacing.City
             Share = ShareAt(ClockNow);
             Target = Share <= 0f ? 0 : Mathf.Clamp(Mathf.RoundToInt(cap * Share * drift), 1, cap);
             // the pool, one car a frame while it is short
-            if (pool.Count < cap && live.Count >= pool.Count - 1 && live.Count < Target) pool.Add(Build(pool.Count));
+            for (int k = 0; k < (CensusMode ? 8 : 1); k++)
+                if (pool.Count < cap && (CensusMode || live.Count >= pool.Count - 1) && live.Count < Target) pool.Add(Build(pool.Count));
             if (Time.time >= nextSpawn)
             {
                 nextSpawn = Time.time + (Time.time < firstFillUntil ? 0.02f : 0.25f);
                 Cull();
-                int tries = Time.time < firstFillUntil ? 12 : 6;
+                int tries = CensusMode ? 120 : Time.time < firstFillUntil ? 12 : 6;
                 for (int t = 0; t < tries && live.Count < Target; t++) TrySpawn();
             }
             if (Time.time >= nextQueueCount) { nextQueueCount = Time.time + 0.5f; CountQueues(); }
@@ -1734,7 +1785,10 @@ namespace PSXRacing.City
                 float d = Vector2.Distance(new Vector2(p.x, p.z), playerPos);
                 bool seen = InView(p);
                 bool go;
-                if (c.wrecked) go = d > DespawnHardM || (Time.time - c.wreckedAt > 20f && !seen) || (Time.time - c.wreckedAt > 60f && d > 60f) || p.y < -500f;
+                if (CensusMode)
+                    go = d > CensusDespawnM || p.y < -500f ||
+                         (c.wrecked ? Time.time - c.wreckedAt > 10f : (c.deadEnd && Remaining(c) < 5f) || (over > 4 && d > CensusRadiusM));
+                else if (c.wrecked) go = d > DespawnHardM || (Time.time - c.wreckedAt > 20f && !seen) || (Time.time - c.wreckedAt > 60f && d > 60f) || p.y < -500f;
                 else go = d > DespawnHardM || (d > DespawnM && !seen) || (c.deadEnd && !seen && Remaining(c) < 5f) || p.y < -500f
                           || (over > 4 && d > SpawnMinM && !seen);
                 if (!go) continue;
@@ -1756,25 +1810,34 @@ namespace PSXRacing.City
         {
             Car free = null;
             foreach (var x in pool) if (!x.active) { free = x; break; }
-            if (free == null) return;
+            if (Log != null) Log.spTries++;
+            if (free == null) { if (Log != null) Log.spNoFree++; return; }
             bool first = Time.time < firstFillUntil;
-            float r = Random.Range(first ? SpawnFirstMinM : SpawnMinM, SpawnMaxM);
-            float a = Random.value * Mathf.PI * 2f;
-            var p = playerPos + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r;
-            if (!map.NearestRoadPoint(p, 45f, false, out int ei, out float s, out _)) return;
-            if (spawnW[ei] <= 0f || Random.value * maxSpawnW > spawnW[ei]) return;
+            int ei; float s;
+            if (CensusMode) { if (!CensusSpawnPoint(out ei, out s)) return; }
+            else
+            {
+                float r = Random.Range(first ? SpawnFirstMinM : SpawnMinM, SpawnMaxM);
+                float a = Random.value * Mathf.PI * 2f;
+                var p = playerPos + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r;
+                if (!map.NearestRoadPoint(p, 45f, false, out ei, out s, out _)) return;
+                if (spawnW[ei] <= 0f || Random.value * maxSpawnW > spawnW[ei]) return;
+            }
             var e = map.edges[ei];
             int dir = e.oneway ? 1 : Random.value < 0.5f ? 1 : -1;
             float start = dir > 0 ? Back(e, e.a) + 4f : e.length - Back(e, e.b) - 4f;
             float end = EndS(e, dir);
-            if ((s - start) * dir < 0f || (end - s) * dir < 20f) return;
+            if ((s - start) * dir < 0f || (end - s) * dir < 20f) { if (Log != null) Log.spBounds++; return; }
             int n = Lanes(ei, dir);
             int lane = Random.Range(0, n);
             var q = LanePos(e, dir, lane, s);
             var at = new Vector3(q.x, e.YAt(s), q.y);
-            if ((q - playerPos).sqrMagnitude < (first ? 40f * 40f : SpawnMinM * SpawnMinM * 0.6f)) return;
-            if (!first && InView(at)) return;
-            foreach (var o in live) if ((o.pos - q).sqrMagnitude < 20f * 20f) return;
+            if (!CensusMode)
+            {
+                if ((q - playerPos).sqrMagnitude < (first ? 40f * 40f : SpawnMinM * SpawnMinM * 0.6f)) return;
+                if (!first && InView(at)) return;
+            }
+            foreach (var o in live) if ((o.pos - q).sqrMagnitude < 20f * 20f) { if (Log != null) Log.spCrowded++; return; }
 
             var c = free;
             c.active = true; c.wrecked = false; c.hasCommand = false; c.lastContact = null; c.deadEnd = false;
@@ -1790,6 +1853,7 @@ namespace PSXRacing.City
             c.committed = c.stopKey = c.goKey = c.redStopKey = c.lineKey = c.waitKey = -1;
             c.mandAt = -1f; c.lastTraffic = null; c.lastTrafficAt = -9f; c.keepLane = false; c.vTick = 0;
             c.bornAt = Time.time;
+            if (Log != null) CensusSpawned(c);
             c.tan = TravelTan(e, dir, s);
             c.pos = q; c.fwd = c.tan; c.y = at.y;
             EnsurePlan(c);
@@ -1856,15 +1920,17 @@ namespace PSXRacing.City
             if (c.lights != null) c.lights.externalBrake = false;
             Stats.wrecks++;
             WreckLog.Add("hit by " + (by ?? "?"));
+            if (Log != null) CensusWreck(c, by);
         }
 
-        internal void NoteContact(GameObject go, GameObject other, string what)
+        internal void NoteContact(GameObject go, GameObject other, string what, Vector3 point = default)
         {
             Car c = null, o = null;
             foreach (var x in live) { if (x.go == go) c = x; else if (x.go == other) o = x; }
             if (c == null) return;
             c.lastContact = what;
             if (o != null) { c.lastTraffic = o; c.lastTrafficAt = Time.time; }
+            else if (Log != null && !c.wrecked) CensusContact(c, what, point);
         }
     }
 
@@ -1877,7 +1943,8 @@ namespace PSXRacing.City
 
         void Note(Collision col)
         {
-            CityTraffic.Instance?.NoteContact(gameObject, col.gameObject, col.gameObject.name + " (" + LayerMask.LayerToName(col.gameObject.layer) + ")");
+            CityTraffic.Instance?.NoteContact(gameObject, col.gameObject, col.gameObject.name + " (" + LayerMask.LayerToName(col.gameObject.layer) + ")",
+                                              col.contactCount > 0 ? col.GetContact(0).point : transform.position);
         }
     }
 }

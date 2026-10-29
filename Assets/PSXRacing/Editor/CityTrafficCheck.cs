@@ -252,6 +252,10 @@ namespace PSXRacing.EditorTools
             foreach (var mb in player.GetComponents<MonoBehaviour>())
                 if (mb is PlayerCarInput || mb is StuckRecovery) mb.enabled = !on;
             player.enabled = !on;
+            // with no graphics device the reflection probes log a failed
+            // RenderTexture every frame (gigabytes of log): off
+            if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null)
+                foreach (var r in Object.FindObjectsByType<CarReflections>(FindObjectsInactive.Include)) r.enabled = false;
             if (on)
             {
                 ghostCols.Clear();
