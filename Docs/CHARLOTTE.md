@@ -8342,3 +8342,75 @@ chain, with the same ripple the two-sided split needed a guard for); 38 merge zo
 junction or a deck); ramps drawn over freeway lanes upstream of their merge (I-85 e2120/e3031, I-77 e2456/e1310:
 the topology package's overlaps); the Park Road / E Tremont loop (n10626/11091/13889: a one-way ring of 6-17 m
 edges round a tiny island - the fans do not cover its turns); missed exits at speed.
+
+## ROAD LOGIC - BENDS (road-logic-bends, 2026-10-29; from the traffic census)
+
+The census (Docs/ROAD_LOGIC_TRAFFIC.md, run 1) counted 13,006 lateral hotspot events. 99% of the
+bend events sit where the drawn centreline itself bends as tight within 6 m, so the question per spot
+was: is the LINE wrong (a mapped curve drawn as a short tight arc) or the SPEED (a real curve posted at
+the road's limit)? Measured on the shipped data: a "spike" is R over 6 m under half of R over 40 m.
+
+- **Geometry (fillet starvation).** lineclean's PARA pass leaves its eased offsets as points every
+  ~5 m, and the WP-11 fillet lets a corner use only its two neighbouring segments. A mapped 4.5 deg
+  corner between such points became a 15 m arc of R 188 m inside I-85's 480 m curve, with
+  reverse-curving chords between corners (the census's top freeway bend, 0.65 g at 60 mph).
+  `tools/city/lib/fillet.mjs` BENDS: (1) each strand is collapsed with Douglas-Peucker at 10 cm
+  before the shares are solved (ends and junction vertices fixed; a dropped 2-arm node is carried and
+  projected onto the drawn line); (2) on freeway and trunk mainlines, a corner under 0.6 of the radius
+  it wants and of its class design radius (0.12 g at the road's speed) merges with its neighbour, the
+  apex kept within Emax of the segment it replaces. `PSX_FILLET_BENDS=0` is the before.
+  Over-limit spikes on the shipped centrelines: freeway 109 -> 30, trunk 31 -> 15, primary 236 -> 165,
+  secondary 616 -> 443, tertiary 599 -> 543. Points 393,507 -> 336,862; corners under their class
+  floor 715 -> 614; past Emax 184 -> 174; departure from the pre-fillet line unchanged (max 3.06 m).
+- **Speed (one source of truth).** `Scripts/City/CityCurves.cs`: an edge whose OSM way posts
+  maxspeed:advisory keeps it (new optional section ADVS, 97 edges); every other curve gets AASHTO's
+  V^2 = 15 R (e + f) at e + f = 0.22 (the highway-signs pass's number) at the innermost lane, rounded
+  down to 5 mph, as spans padded 12 m. The EXIT nn MPH sign (`CitySigns.Guide.CurveMph`), the traffic
+  (`DesiredSpeed` brakes to each span) and the census (`vLim` on a run) all read it. The exit sign
+  skips a span ending within 40 m of the diverge (OSM joins the ramp's line to the freeway's at an
+  angle; the traffic slows for that swing, the sign shows the ramp's curve).
+- **Heading snaps.** A straight-on connector across lanes that do not line up was an S crammed into
+  the junction box (0.9 m across 4.5 m is a 17 deg swerve). `StretchStraight` starts it before the
+  mouth and ends it after the far one (up to 20 m each side, only at near-straight nodes under 4 deg,
+  never into a run's first 2 m nor past 40% of the next edge) so the S stays within 3 deg. A cubic's
+  control floor now scales with a short chord (a fixed 0.5 m on a 1-2 m leg made it loop).
+- **Kinks.** The traffic took its heading and its lane's normal from the polyline segment, so every
+  vertex snapped a car by its whole turn (the first chord of a tight fillet is 5 deg at R 15 m) and
+  threw an outer lane sideways. `CityTraffic.Bisector` now turns smoothly from one vertex's bisector to
+  the next. The drawn line is unchanged: its own corners are linecheck's to count.
+- **Turns tighter than planned.** A turn's speed came from the circle through its two ends; a cubic
+  whose mouths sit off that circle bends tighter. `BezMaxCurvature` samples the arc as drawn.
+
+**Line gate (offline, same gate code, base 1bde9af7 data vs this data):** B1 JITTER 128,250 -> 115,624
+runs; B3 CURVE 2,564 -> 2,244; drawn-edge kinks over 2 deg 68,417 -> 67,478 (over 10 deg 876 -> 839);
+UP: B2 KINK runs 74,773 -> 71,787 but metres 587,943 -> 600,929, A5 STRAY 11,356 -> 11,573 runs, the
+census-style quad-diagonal zigzag 51.05 -> 59.59 km. The ratchet baseline (2026-10-06) is stale on
+both the base and this data.
+
+**Data notes.** Regenerated with `export_osm.mjs --out` + `--manifest`. The base's shipped
+charlotte_decks.bytes was already out of step with its code (`--check` failed on it before any change
+here); the regenerated one is the code's. Wilkinson Blvd e3594's two water spans (gap closed by the
+refit) are now one, 158-341 m (SPAN 252 -> 251).
+
+**Measured (spot census, `-Spots Docs\traffic_census\spots_bends.txt -Minutes 30 -NoShots`: the four named curves
++ the top census lateral hotspots by kind, 600 m apart; before = base 1bde9af7 code and data, after = this branch;
+21.9 / 21.7 car-hours, 971 / 876 km - the traffic slower through signed curves):** bend tighter than its limit
+680 -> 10 (all ten on ramp e251, whose OSM-posted 35 mph advisory is over its drawn 48-54 m curves: the mapped sign is
+kept), ramp bend with no limit 911 -> 0, heading snaps 131 -> 67 (the straight-on S's are gone; what is left are
+turn legs under 3 m whose mouths almost touch: junction trims), kinks 122 -> 31 (23 on local streets: the first metre
+of a fillet under R 13 m), turns tighter than planned 122 -> 8; vertical steps 17 -> 5, crests 10 -> 7. The lane
+classes moved with it (forced short changes 57 -> 44, turns from the wrong lane 127 -> 84, missed turn lanes 100 -> 78,
+wrong way 9 -> 1); UP: car wrecks 46 -> 50, turn clips corner 56 -> 63, barrier contacts 9 -> 12, dead-end U-turns
+32 -> 41 (inside the spread of a 22 car-hour sample; not chased). Every spot's own lateral count fell (I-85 47 -> 0,
+Independence Expwy 58 -> 2, I-77 66 -> 3, West Woodlawn 139 -> 8). NOTE: the bend classes are measured against the
+curve's advisory where one applies (the census's own "or a lower limit"); the geometry fix stands on the static scan:
+over-limit spikes city-wide 2,394 -> 1,984, freeways 109 -> 30.
+
+**Left:** 30 freeway spikes, about a third within 10 m of a mitred junction (a ramp split or merge
+end is fixed in place and direction, so a corner beside it cannot be spread) and the I-277 inner loop
+(real ~250 m curves with a tighter middle that Emax keeps); ramp lines that swing off the mainline at
+the gore (OSM topology); ramp e251, whose posted 35 mph advisory (OSM) is over its drawn 48-54 m curves
+(the 10 bend events left: the mapped sign kept, the line or the tag to check against imagery); turn legs under 3 m
+whose two mouths almost touch (the 67 heading snaps left: junction trims); the vertical class (crests and steps on Billy Graham Pkwy and junction lips:
+the drawn profile, not touched here); no curve warning signs (W1-2 + W13-1P) yet - the advisories
+reach the player only through the exit sign.
