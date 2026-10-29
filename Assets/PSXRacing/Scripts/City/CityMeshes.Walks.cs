@@ -260,7 +260,7 @@ namespace PSXRacing.City
 
         /// <summary>Is the plan point on a drawn road ribbon or fan within a
         /// car's height of <paramref name="y"/>?</summary>
-        static bool OnPavement(CityMap map, Trims trims, Vector2 q, float y, int skipA = -1, int skipB = -1)
+        static bool OnPavement(CityMap map, Trims trims, Vector2 q, float y, int skipA = -1, int skipB = -1, bool fans = true)
         {
             GatherNear(map, q, q, 1f);
             GatherPavement(map, trims);
@@ -271,6 +271,7 @@ namespace PSXRacing.City
                 float h = OutlineHeightAt(ol, q);
                 if (!float.IsNaN(h) && Mathf.Abs(h - y) < RoadsideRules.CarBandM) return true;
             }
+            if (fans)
             foreach (int n in nearFans)
                 if (OnFan(FanPolyOf(map, trims, n), q, out float fy) && Mathf.Abs(fy - y) < RoadsideRules.CarBandM) return true;
             return false;
@@ -403,7 +404,7 @@ namespace PSXRacing.City
                     var oq = Vector2.Lerp(oa, ob, t).normalized;
                     var q = new Vector2(pq.x + origin.x, pq.z + origin.z);
                     float wq = Mathf.Min(cw.w0, cw.w1);
-                    if (OnPavement(map, trims, q + oq * 0.3f, pq.y, k0.edge, k1.edge) || OnPavement(map, trims, q + oq * (0.5f * wq), pq.y, k0.edge, k1.edge)) return 0;
+                    if (OnPavement(map, trims, q + oq * (0.5f * wq), pq.y, k0.edge, k1.edge, fans: false)) return 0;   // ribbons only: the fans refused 99 of 135 uptown corners
                 }
             }
             float c = Vector2.Dot(cw.n0, cw.n1);
