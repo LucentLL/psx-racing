@@ -408,7 +408,11 @@ namespace PSXRacing.City
             // Driving surfaces, laid out as RoadFirst + profile * SurfaceCount +
             // surface. Arithmetic rather than eighty named members.
             RoadFirst,
-            COUNT = RoadFirst + RoadClassCount * SurfaceCount,
+            /// <summary>Streets pass 4: the curbs and sidewalks (CityMeshes.Walks),
+            /// a submesh of the ground; after the driving surfaces, so no
+            /// existing slot moves.</summary>
+            Sidewalk = RoadFirst + RoadClassCount * SurfaceCount,
+            COUNT,
         }
 
         public static Slot SlotOf(int profile, Surface surf) =>
@@ -1981,6 +1985,7 @@ namespace PSXRacing.City
             pavedCache.Clear();
             fanStructure.Clear();
             fanPolys.Clear(); outlines.Clear(); ClearSectionCaches(); pavementVersion = -1;
+            cornerKindCache.Clear(); walkEdgeNow = -1;
             tileOrigin = tm.origin;
 
             phaseClock.Restart();
@@ -2031,10 +2036,11 @@ namespace PSXRacing.City
             stepItem = 5;
             yield return 0;
             FlushLotIslands(map, tm, min);   // leftover item 4: the lots' islands, tops and curbs
+            EmitLotCurbs(map, tm, min);      // streets pass 4: the lots' own curbs
             stepItem = 6;
             yield return 0;
             stepItem = 0;
-            tm.ground = MeshFrom("ground", new[] { Slot.Ground, Slot.Pavement }, out var gSlots, false);
+            tm.ground = MeshFrom("ground", new[] { Slot.Ground, Slot.Pavement, Slot.Sidewalk }, out var gSlots, false);
             tm.groundSlots = gSlots;
             yield return 0;
             FinishMesh(tm.ground);
@@ -2335,7 +2341,8 @@ namespace PSXRacing.City
             long k = LatticeKey(ix, iz);
             if (pavedCache.TryGetValue(k, out bool paved)) return paved;
             var c = new Vector2((ix + 0.5f) * LatticeCell, (iz + 0.5f) * LatticeCell);
-            paved = Vector2.Distance(c, map.uptown) < 1000f || map.AnyFootprintNear(c, 20f, nonHouseOnly: true);
+            paved = Vector2.Distance(c, map.uptown) < 1000f || map.AnyFootprintNear(c, 20f, nonHouseOnly: true)
+                    || WalkFrontage(map, c);   // streets pass 4: a walk street's frontage
             pavedCache[k] = paved;
             return paved;
         }
@@ -3912,6 +3919,8 @@ namespace PSXRacing.City
                 // run that ends just beyond the tile flares and caps the same
                 // way whichever tile draws the span beside it.
                 foreach (var _ in DecideSideFlagsSteps(map, trims, tm, e, min, max)) yield return 0;
+                // streets pass 4: the walk's width at each section, both sides
+                foreach (var _ in PrepareWalks(map, trims, tm, e, min, max)) yield return 0;
                 yield return 0;
                 stepPart = 2;
 
@@ -6125,7 +6134,9 @@ namespace PSXRacing.City
             // surface meets the edge (nor a retaining face stands in its plane).
             // A wedge span's OUTER side is a real edge: its collapsed end sits
             // on the host's edge exactly where the host's verge stands down.
-            if (!sf.gap && !(sf.rail && sf.retain))
+            // (streets pass 4: not where a full walk's curb rises from under the
+            // edge - the face stood inside the curb, a depth tie along its foot)
+            if (!sf.gap && !(sf.rail && sf.retain) && !FullWalkSpan(e, i, side))
                 kerbBucket.WallSloped(eA, eB, eA.y - KerbFaceM, eA.y, eB.y - KerbFaceM, eB.y,
                                       outA, v0, v1, 0f, 0.05f);
 
@@ -6205,7 +6216,9 @@ namespace PSXRacing.City
             // fill slope an approach guardrail stands on. It used to stop past
             // the rail's foot and drop straight down to the lattice there.
             var verge = new StripShape { shoulder = shoulder, maxRun = VergeMaxRunM };
-            EmitStrip(map, trims, tm, eA, eB, outA, outB, verge);
+            // streets pass 4: an urban street's curb and sidewalk, the verge behind it
+            if (!EmitWalkSpan(map, trims, tm, e, i, side, eA, eB, outA, outB, A.s, B.s, verge))
+                EmitStrip(map, trims, tm, eA, eB, outA, outB, verge);
             tm.vergeSpans.Add((e.index, side, A.s, B.s));
             tm.vergeMetres += len;
         }
@@ -9612,10 +9625,23 @@ namespace PSXRacing.City
                 // one arm are adjacent, so an arm's own pair IS its mouth, and
                 // the envelope of two overlapping mouths is flagged like one;
                 // the rest face open ground.
+                // streets pass 4: the corners whose walk turns them (CornerWalkOf)
+                walkGroupOf.Clear();
+                if (WalksOn && !onStructure && trims.ClusterOfNode(n) == null && !(trims.bulb != null && trims.bulb[n]))
+                    for (int i = 0; i < corners.Count; i++)
+                    {
+                        var kg = corners[i];
+                        if (kg.arc || kg.mouthNext) continue;
+                        int kind = CornerWalkOf(map, trims, n, corners, i, tm.origin, out var cwk);
+                        if (kind == 0) { WalkStats.cornersNone++; WalkStats.noneWhy[noneWhyNow]++; continue; }
+                        EmitCornerWalk(map, trims, tm, corners, kind, cwk);
+                        for (int j = cwk.g0; j != cwk.g1; j = (j + 1) % corners.Count) walkGroupOf.Add(j);
+                    }
                 for (int i = 0; i < corners.Count; i++)
                 {
                     var k0 = corners[i];
                     var k1 = corners[(i + 1) % corners.Count];
+                    if (walkGroupOf.Contains(i)) continue;   // its walk and verges are laid
                     // road mouth - but an envelope stretch between two
                     // DIFFERENT arms that faces open ground is a free edge
                     // (owner 2026-10-04, W Trade St at Graham St: the
@@ -9660,6 +9686,8 @@ namespace PSXRacing.City
 
         /// <summary>A fan stands a hair above the arm ends, against z-fighting.</summary>
         const float FanProudM = 0.012f;
+        /// <summary>The perimeter chords a corner walk laid (streets pass 4).</summary>
+        static readonly HashSet<int> walkGroupOf = new HashSet<int>();
 
         struct FanCorner
         {

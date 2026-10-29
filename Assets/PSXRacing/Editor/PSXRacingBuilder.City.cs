@@ -507,6 +507,11 @@ namespace PSXRacing.EditorTools
                 }
             m[(int)CityMeshes.Slot.Concrete] = MakeMat("CityConcrete", EnsureConcreteTex(), affine: 0f,
                 wet: WetCityConcrete);
+            // streets pass 4: the curbs and sidewalks - the pack's broom-finished
+            // slab (concrete_pt_4, three 1.5 m panels a repeat), half its olive
+            // cast out and matched to the pavement copy's brightness
+            m[(int)CityMeshes.Slot.Sidewalk] = MakeMat("CitySidewalk", CityPackDir + "/concrete_pt_4_walk.png", affine: 0f,
+                wet: WetCityPavement);
             m[(int)CityMeshes.Slot.Water] = CityWaterMat();
             // Night windows: the five facades with glass in them carry a mask
             // (Art/City/Night, see WithNightWindows); brick and both roofs are
