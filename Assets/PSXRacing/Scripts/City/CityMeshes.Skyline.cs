@@ -86,6 +86,7 @@ namespace PSXRacing.City
             var vf = new int[n * 2];
             var vr = new int[n * 2];
             skylineBuild = true;
+            skylineElemSet = new HashSet<int>(elems);
             try
             {
                 for (int e = 0; e < n; e++)
@@ -99,7 +100,7 @@ namespace PSXRacing.City
                     vr[e * 2] = v1; vr[e * 2 + 1] = roof.Count - v1;
                 }
             }
-            finally { skylineBuild = false; EndFacade(); }
+            finally { skylineBuild = false; skylineElemSet = null; EndFacade(); }
 
             SkylineMesh sm = null;
             int total = fac.Count + roof.Count;

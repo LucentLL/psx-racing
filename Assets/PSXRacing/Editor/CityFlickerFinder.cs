@@ -37,7 +37,24 @@ namespace PSXRacing.EditorTools
         static readonly float[] Backs = { 0f, 150f, 400f };
         const float EyeUp = 2.0f;
 
-        struct Spot { public string name; public Vector2 at; public Vector2 dir; public float y; }
+        struct Spot
+        {
+            public string name; public Vector2 at; public Vector2 dir; public float y;
+            /// <summary>The road <c>back</c> metres before the spot: where the
+            /// eye stands, its heading and the road's height there.</summary>
+            public System.Func<float, (Vector2 p, Vector2 d, float y)> back;
+        }
+
+        static (Vector3 eye, Quaternion rot) Pose(Spot sp, float back, float lookUp)
+        {
+            (Vector2 p, Vector2 d, float y) b = sp.back != null ? sp.back(back) : (sp.at - sp.dir * back, sp.dir, sp.y);
+            var eye = new Vector3(b.p.x, b.y + EyeUp, b.p.y);
+            // look along the road toward the spot (and on past it)
+            var tgt = sp.at + sp.dir * 60f;
+            var aim = new Vector3(tgt.x, sp.y + EyeUp + lookUp, tgt.y);
+            if ((new Vector2(aim.x, aim.z) - b.p).sqrMagnitude < 1f) aim = eye + new Vector3(b.d.x, 0f, b.d.y);
+            return (eye, Quaternion.LookRotation(aim - eye));
+        }
 
         sealed class Pair { public string a, b; public int px; public double distSum; public readonly Dictionary<string, int> spots = new Dictionary<string, int>(); }
 
@@ -92,10 +109,7 @@ namespace PSXRacing.EditorTools
                     foreach (float back in Backs)
                     try
                     {
-                        var at2 = sp.at - sp.dir * back;
-                        var eye = new Vector3(at2.x, sp.y + EyeUp, at2.y);
-                        var aim = new Vector3(sp.at.x + sp.dir.x * 60f, sp.y + EyeUp, sp.at.y + sp.dir.y * 60f);
-                        var rot = Quaternion.LookRotation(aim - eye);
+                        var (eye, rot) = Pose(sp, back, 0f);
                         world.EnsureRing(eye, world.ring);
                         cam.transform.SetPositionAndRotation(eye, rot);
                         world.RefreshSkyline(cam);
@@ -107,6 +121,7 @@ namespace PSXRacing.EditorTools
                             CityProxies.Suppress = !modes[mi];
                             world.RefreshSkyline(cam);
                             var r = Measure(cam, world, near, eye, rot, view, pairsM[mi], out int nudge, out int drawn);
+                            if (modes[mi] == modes[M - 1]) Diagnose(cam, world, map, near, eye, rot, view, r, log);
                             totalM[mi] += r; nudgeM[mi] += nudge; pxM[mi] += drawn;
                             perSpotM[mi].Append($"| {view} | {r} | {nudge} | {drawn} |\n");
                             }
@@ -118,14 +133,13 @@ namespace PSXRacing.EditorTools
                 // the pop-in frames: a Tryon street from 600 m and 300 m, far buildings on and off
                 if (shots && spots.Count > 1)
                 {
-                    var sp = spots.Find(s => s.name == "tryon2");
-                    if (sp.name == null) sp = spots[1];
+                    foreach (string target in (System.Environment.GetEnvironmentVariable("PSX_FLICK_SHOT_SPOTS") ?? "tryon3,i277s").Split(','))
+                    {
+                    var sp = spots.Find(s => s.name == target);
+                    if (sp.name == null) continue;
                     foreach (float back in new[] { 600f, 300f })
                     {
-                        var at2 = sp.at - sp.dir * back;
-                        var eye = new Vector3(at2.x, sp.y + EyeUp, at2.y);
-                        var aim = new Vector3(sp.at.x + sp.dir.x * 60f, sp.y + EyeUp + 8f, sp.at.y + sp.dir.y * 60f);
-                        var rot = Quaternion.LookRotation(aim - eye);
+                        var (eye, rot) = Pose(sp, back, 8f);
                         world.EnsureRing(eye, world.ring);
                         foreach (bool on in new[] { true, false })
                         {
@@ -137,6 +151,7 @@ namespace PSXRacing.EditorTools
                             log.Append($"[Flicker] shot {name}.png ({world.Proxies?.Summary ?? "no proxies"})\n");
                         }
                         world.DropAll();
+                    }
                     }
                     CityProxies.Suppress = !proxiesOn;
                 }
@@ -197,8 +212,13 @@ namespace PSXRacing.EditorTools
                 for (int k = 0; k < arcs.Length; k++)
                 {
                     float s = (fromStart ? rt.startM : 0f) + arcs[k] * (fromStart ? 1f : rt.lengthM);
+                    float s0 = s;
                     if (RoutePoint(map, rt, s, out var p, out var d, out float y))
-                        spots.Add(new Spot { name = prefix + k, at = p, dir = d, y = y });
+                        spots.Add(new Spot
+                        {
+                            name = prefix + k, at = p, dir = d, y = y,
+                            back = b => RoutePoint(map, rt, s0 - b, out var bp, out var bd, out float by) ? (bp, bd, by) : (p - d * b, d, y),
+                        });
                 }
             }
             // the Tryon Sprint's first ~25 s from its start in South End
@@ -224,9 +244,49 @@ namespace PSXRacing.EditorTools
                 if (bei < 0) continue;
                 var be = map.edges[bei];
                 var a = be.PointAt(Mathf.Max(bs - 5f, 0f)); var b = be.PointAt(Mathf.Min(bs + 5f, be.length));
-                spots.Add(new Spot { name = side < 0 ? "i277s" : "i277n", at = be.PointAt(bs), dir = (b - a).normalized, y = be.YAt(bs) });
+                float bs0 = bs; var dir0 = (b - a).normalized; var at0 = be.PointAt(bs);
+                spots.Add(new Spot
+                {
+                    name = side < 0 ? "i277s" : "i277n", at = at0, dir = dir0, y = be.YAt(bs),
+                    // back along the freeway: this edge, then its chain's edge before it by name
+                    back = bk => WalkBack(map, bei, bs0, bk, dir0),
+                });
             }
             return spots;
+        }
+
+        /// <summary>Back <paramref name="back"/> metres along a named road from
+        /// edge <paramref name="ei"/> at <paramref name="s"/> (heading
+        /// <paramref name="dir"/>), onto the same-named edge that meets it.</summary>
+        static (Vector2 p, Vector2 d, float y) WalkBack(CityMap map, int ei, float s, float back, Vector2 dir)
+        {
+            var e = map.edges[ei];
+            var a0 = e.PointAt(Mathf.Max(s - 1f, 0f)); var a1 = e.PointAt(Mathf.Min(s + 1f, e.length));
+            float sign = Vector2.Dot(a1 - a0, dir) >= 0f ? 1f : -1f;
+            for (int guard = 0; guard < 32; guard++)
+            {
+                float t = s - sign * back;
+                if (t >= 0f && t <= e.length)
+                {
+                    var q0 = e.PointAt(Mathf.Clamp(t - 2f, 0f, e.length)); var q1 = e.PointAt(Mathf.Clamp(t + 2f, 0f, e.length));
+                    return (e.PointAt(t), ((q1 - q0) * sign).normalized, e.YAt(t));
+                }
+                // off this edge's end: on to the same-named edge that starts or ends there
+                float used = sign > 0f ? s : e.length - s;
+                back -= used;
+                var endP = sign > 0f ? e.pts[0] : e.pts[e.pts.Length - 1];
+                int next = -1; float ns = 0f, nsign = 1f;
+                for (int k = 0; k < map.edges.Length && next < 0; k++)
+                {
+                    var f = map.edges[k];
+                    if (k == ei || f.name != e.name || f.link) continue;
+                    if ((f.pts[f.pts.Length - 1] - endP).sqrMagnitude < 1f) { next = k; ns = f.length; nsign = 1f; }
+                    else if ((f.pts[0] - endP).sqrMagnitude < 1f) { next = k; ns = 0f; nsign = -1f; }
+                }
+                if (next < 0) { var pe = e.PointAt(sign > 0f ? 0f : e.length); return (pe, dir, e.YAt(sign > 0f ? 0f : e.length)); }
+                ei = next; e = map.edges[ei]; s = ns; sign = nsign;
+            }
+            return (e.PointAt(s), dir, e.YAt(s));
         }
 
         /// <summary>The point <paramref name="s"/> metres along a route's chain
@@ -259,9 +319,27 @@ namespace PSXRacing.EditorTools
         static readonly string[] Glows = { "PSX/Halo", "PSX/Glow", "PSX/Beam", "PSX/LampCone", "PSX/Sky", "PSX/Rain", "PSX/SunGlare", "PSX/Lens", "PSX/CarLens", "PSX/SpeedBlur", "PSX/ZoneLine", "Hidden/PSX/VolClouds", "PSX/Shadow" };
         static readonly int IdOnId = Shader.PropertyToID("_PSXIdOn"), IdColId = Shader.PropertyToID("_PSXIdCol");
 
+        /// <summary>The last view's tie pixels, and each pair's tie centroid in it
+        /// (screen pixels, the diagnostics' input).</summary>
+        static bool[] lastMask;
+        static readonly Dictionary<string, (long sx, long sy, int n)> lastCentroids = new Dictionary<string, (long, long, int)>();
+        static readonly Dictionary<string, (int a, int b, int k)> lastFirst = new Dictionary<string, (int, int, int)>();
+        static readonly List<string> lastInstances = new List<string>();
+        static string InstancePath(Renderer r)
+        {
+            var t = r.transform; string n = t.name;
+            for (var u = t.parent; u != null && u.parent != null; u = u.parent) n = u.name + "/" + n;
+            return n;
+        }
+
         static int Measure(Camera cam, CityWorld world, float near, Vector3 eye, Quaternion rot, string view,
                            Dictionary<string, Pair> pairs, out int nudged, out int drawn)
         {
+            lastMask = new bool[W * H];
+            lastCentroids.Clear();
+            lastFirst.Clear();
+            lastInstances.Clear();
+            lastInstances.Add("(sky)");
             var labels = new List<string> { "(sky)" };
             var swapped = new List<(Renderer r, Material[] mats)>();
             var off = new List<Renderer>();
@@ -301,6 +379,7 @@ namespace PSXRacing.EditorTools
                         var m = mats[i];
                         int id = labels.Count;
                         labels.Add(Label(r, m));
+                        lastInstances.Add(InstancePath(r) + "#" + i);
                         if (m != null && m.shader != null && m.shader.name != "PSX/Lit")
                         {
                             repl ??= (Material[])mats.Clone();
@@ -315,7 +394,7 @@ namespace PSXRacing.EditorTools
                             made.Add(im);
                         }
                         mpb.Clear();
-                        mpb.SetColor(IdColId, Encode(id));
+                        mpb.SetVector(IdColId, Encode(id));
                         if (mode > 0.5f) mpb.SetFloat(CityTileFade.ModeId, mode);
                         r.SetPropertyBlock(mpb, i);
                     }
@@ -345,6 +424,10 @@ namespace PSXRacing.EditorTools
                     p.px++;
                     p.distSum += Mathf.Max(a[k].a, b[k].a) / 255.0 * 2000.0;
                     p.spots[view] = p.spots.TryGetValue(view, out int n0) ? n0 + 1 : 1;
+                    lastMask[k] = true;
+                    lastCentroids.TryGetValue(key, out var cc);
+                    lastCentroids[key] = (cc.sx + k % W, cc.sy + k / W, cc.n + 1);
+                    if (!lastFirst.ContainsKey(key)) lastFirst[key] = (ia, ib, k);
                 }
             }
             finally
@@ -384,7 +467,104 @@ namespace PSXRacing.EditorTools
             return px;
         }
 
-        static Color Encode(int id) => new Color((id & 255) / 255f, ((id >> 8) & 255) / 255f, ((id >> 16) & 255) / 255f, 1f);
+        /// <summary>Where a view's big fights are: each pair's tie centroid
+        /// ray-cast into the world (the colliders), the road edges and the
+        /// footprint there; a view with many ties is saved with them in magenta.</summary>
+        static void Diagnose(Camera cam, CityWorld world, CityMap map, float near, Vector3 eye, Quaternion rot, string view, int ties, StringBuilder log)
+        {
+            if (ties < 40) return;
+            cam.nearClipPlane = near;
+            cam.transform.SetPositionAndRotation(eye, rot);
+            Physics.SyncTransforms();
+            foreach (var kv in lastCentroids)
+            {
+                if (kv.Value.n < 30) continue;
+                float cx = kv.Value.sx / (float)kv.Value.n, cy = kv.Value.sy / (float)kv.Value.n;
+                string inst = "";
+                if (lastFirst.TryGetValue(kv.Key, out var fp))
+                {
+                    inst = (fp.a < lastInstances.Count ? lastInstances[fp.a] : "#" + fp.a) + " vs " + (fp.b < lastInstances.Count ? lastInstances[fp.b] : "#" + fp.b);
+                    cx = fp.k % W; cy = fp.k / W;
+                }
+                var ray = cam.ViewportPointToRay(new Vector3((cx + 0.5f) / W, (cy + 0.5f) / H, 0f));
+                string where = "no hit";
+                if (Physics.Raycast(ray, out var hit, 3000f, ~0, QueryTriggerInteraction.Ignore))
+                {
+                    var q = new Vector2(hit.point.x, hit.point.z);
+                    var sb = new StringBuilder($"hit {hit.collider.name} ({hit.point.x:0.0},{hit.point.y:0.00},{hit.point.z:0.0}) {hit.distance:0} m");
+                    // every road edge whose line passes within 25 m, nearest first
+                    var near3 = new List<(float d, int ei)>();
+                    for (int ei = 0; ei < map.edges.Length; ei++)
+                    {
+                        var e = map.edges[ei];
+                        float best = float.MaxValue;
+                        for (int k = 0; k + 1 < e.pts.Length; k++)
+                        {
+                            var a = e.pts[k]; var b = e.pts[k + 1];
+                            var ab = b - a; float t = Mathf.Clamp01(Vector2.Dot(q - a, ab) / Mathf.Max(ab.sqrMagnitude, 1e-6f));
+                            best = Mathf.Min(best, Vector2.Distance(q, a + ab * t));
+                        }
+                        if (best < 25f) near3.Add((best, ei));
+                    }
+                    near3.Sort((x, y) => x.d.CompareTo(y.d));
+                    for (int j = 0; j < near3.Count && j < 4; j++)
+                    {
+                        var e = map.edges[near3[j].ei];
+                        sb.Append($"; edge {near3[j].ei} '{e.name}' cls{e.cls} prof{e.profile}{(e.oneway ? " ow" : "")}{(e.link ? " link" : "")}{(e.bridge ? " bridge" : "")} L{e.layer} w{e.width:0.0} at {near3[j].d:0.0} m");
+                    }
+                    var fs = map.footprints;
+                    for (int fi = 0; fi < fs.Length; fi++)
+                    {
+                        var f = fs[fi];
+                        if (f.pts == null || (f.centre - q).sqrMagnitude > 900f) continue;
+                        if (!Inside(f.pts, q)) continue;
+                        sb.Append($"; in footprint {fi} h{f.h:0.0} style{f.style}{(f.gable ? " gable" : "")}{(f.part ? " part" : "")} roof{f.roof} minH{f.minH:0.0} prop{f.propKind}");
+                    }
+                    where = sb.ToString();
+                }
+                log.Append($"[Flicker]   {view} {kv.Key}: {kv.Value.n} px, first at ({cx:0},{cy:0}) [{inst}] -> {where}\n");
+            }
+            if (ties < 300) return;
+            // the view in colour, the ties in magenta
+            var px = RenderColour(cam, world, near, eye, rot);
+            for (int k = 0; k < px.Length; k++) if (lastMask[k]) px[k] = new Color32(255, 0, 255, 255);
+            var tex = new Texture2D(W, H, TextureFormat.RGBA32, false);
+            tex.SetPixels32(px); tex.Apply();
+            string dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Screenshots");
+            File.WriteAllBytes(Path.Combine(dir, "flick_" + view.Replace('@', '_').Replace('/', '_') + ".png"), tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+        }
+
+        static bool Inside(Vector2[] poly, Vector2 q)
+        {
+            bool inside = false;
+            for (int i = 0, j = poly.Length - 1; i < poly.Length; j = i++)
+                if ((poly[i].y > q.y) != (poly[j].y > q.y) && q.x < (poly[j].x - poly[i].x) * (q.y - poly[i].y) / (poly[j].y - poly[i].y) + poly[i].x) inside = !inside;
+            return inside;
+        }
+
+        static Color32[] RenderColour(Camera cam, CityWorld world, float near, Vector3 eye, Quaternion rot)
+        {
+            cam.nearClipPlane = near;
+            cam.transform.SetPositionAndRotation(eye, rot);
+            world.RefreshSkyline(cam);
+            StreetLights.Push(cam.transform.position, cam.transform.forward);
+            var rt = new RenderTexture(W, H, 24, RenderTextureFormat.ARGB32) { filterMode = FilterMode.Point, antiAliasing = 1 };
+            rt.Create();
+            RenderPipeline.SubmitRenderRequest(cam, new RenderPipeline.StandardRequest { destination = rt });
+            var prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            var tex = new Texture2D(W, H, TextureFormat.RGBA32, false);
+            tex.ReadPixels(new Rect(0, 0, W, H), 0, 0);
+            tex.Apply();
+            RenderTexture.active = prev;
+            var px = tex.GetPixels32();
+            Object.DestroyImmediate(tex);
+            rt.Release(); Object.DestroyImmediate(rt);
+            return px;
+        }
+
+        static Vector4 Encode(int id) => new Vector4((id & 255) / 255f, ((id >> 8) & 255) / 255f, ((id >> 16) & 255) / 255f, 1f);
         static int Decode(Color32 c) => c.r | (c.g << 8) | (c.b << 16);
 
         /// <summary>A draw's class, the same in every tile: the object's own

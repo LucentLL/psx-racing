@@ -21,7 +21,7 @@ try {
     $v = if ($Before) { "0" } else { "" }
     $env:PSX_CITY_PROXIES = $v; $env:PSX_CITY_FADE = $v; $env:PSX_CITY_AHEAD = $v
     $env:PSX_PERF_VENUE = $Venue
-    $env:PSX_PERF_AB_SECONDS = "$AbSeconds"
+    $env:PSX_PERF_AB_SECONDS = "$AbSeconds"; $env:PSX_PERF_AB = "popin"
     & powershell -ExecutionPolicy Bypass -File "$PSScriptRoot\perf-probe.ps1" -Tag $Tag -NoSync -NoWatch
 }
 finally {
