@@ -457,6 +457,14 @@ namespace PSXRacing.EditorTools
                 ChaseCamera.PreviewView(ChaseCamera.View.Chase);
                 yield return WaitReal(1f);
                 mainCam = Camera.main;
+                // PSX_PERF_AB=popin: the city-popin switches alone (chase)
+                if (PerfProbe.Env("PSX_PERF_AB", "all") == "popin")
+                {
+                    yield return AB("far buildings (city-popin)", abSecs, off => { CityProxies.Suppress = off; });
+                    yield return AB("tile fade (city-popin)", abSecs, off => { CityTileFade.On = !off; });
+                    yield return AB("build ahead (city-popin)", abSecs, off => { CityWorld.BuildAhead = !off; });
+                    cloudsOnly = true;
+                }
                 // ON = the volumetric clouds, OFF = the old puffs (the dynamic
                 // sky before 2026-10-25), switched without re-applying the hour.
                 if (SkyModePrefs.Dynamic)
@@ -486,6 +494,9 @@ namespace PSXRacing.EditorTools
                 yield return AB("car reflections", abSecs, off => { foreach (var r in Object.FindObjectsByType<CarReflections>(FindObjectsSortMode.None)) r.enabled = !off; });
                 yield return AB("skyline (drawing)", abSecs, off => { foreach (var f in Object.FindObjectsByType<CitySkyline>(FindObjectsSortMode.None)) foreach (var r in f.GetComponentsInChildren<Renderer>(true)) r.forceRenderingOff = off; });
                 yield return AB("far city (drawing)", abSecs, off => { foreach (var f in Object.FindObjectsByType<CityFar>(FindObjectsSortMode.None)) foreach (var r in f.GetComponentsInChildren<Renderer>(true)) r.forceRenderingOff = off; });
+                yield return AB("far buildings (city-popin)", abSecs, off => { CityProxies.Suppress = off; });
+                yield return AB("tile fade (city-popin)", abSecs, off => { CityTileFade.On = !off; });
+                yield return AB("build ahead (city-popin)", abSecs, off => { CityWorld.BuildAhead = !off; });
                 }
                 SetVolClouds(true);
             }
@@ -668,7 +679,7 @@ namespace PSXRacing.EditorTools
             return sb.ToString();
         }
 
-        static readonly string[] WatchPrefixes = { "CityWorld.", "CityFar.", "CitySkyline.", "StreetLights.", "CockpitArms.", "CockpitInterior.", "Inl_RenderPipeline.BeginCameraRendering",
+        static readonly string[] WatchPrefixes = { "CityWorld.", "CityFar.", "CitySkyline.", "CityProxies.", "StreetLights.", "CockpitArms.", "CockpitInterior.", "Inl_RenderPipeline.BeginCameraRendering",
                                                    "Inl_UniversalRenderPipeline.RenderSingleCameraInternal", "GC.Collect", "Physics.BakePhysXCollisionMeshData" };
 
         static bool Watched(string name)

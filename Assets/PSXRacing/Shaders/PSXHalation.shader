@@ -60,6 +60,24 @@ Shader "Hidden/PSX/Halation"
         #define GLOW_KNEE_GAMMA   0.78
         #define GLOW_KNEE_LINEAR  0.57
 
+        // ==== NIGHT-LOOK PASS 5 (2026-10-28): A LIT WINDOW GLOWS IN ITS OWN COLOUR ====
+        // The owner's NFS frames: a city's lit windows carry a soft bloom a
+        // mile out. Ours took the per-channel excess over the knee, and a
+        // window is the one gold (1, .58, .09) at most - only its RED passes
+        // 0.57, so a window's halo, where it had one, was red-orange, and a
+        // dimmer window none. At night, a pixel in the WINDOW band of the
+        // emitter mask (0 < a <= WIN_GLOW_BAND: PSX/Lit's lit windows,
+        // WIN_EMIT, and the crowns' and uplights' washes under them) glows by
+        // its LUMINANCE's excess over WIN_GLOW_KNEE, in its own hue, x
+        // WIN_GLOW_GAIN - never less than the old rule. By day (_PSXNight 0)
+        // the old rule alone: a day frame is bit for bit what it was.
+        #define WIN_GLOW_BAND        0.2501
+        #define WIN_GLOW_KNEE_LINEAR 0.05
+        #define WIN_GLOW_KNEE_GAMMA  0.25
+        #define WIN_GLOW_GAIN        3.0
+        float _PSXNight;
+        // ==== END NIGHT-LOOK PASS 5 ====
+
         struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
         v2f vert (appdata_img v)
@@ -98,10 +116,17 @@ Shader "Hidden/PSX/Halation"
                             // lerp(1, a, 0) is exactly 1: the old rule with the key off.
                             float w = lerp(1.0, s.a, key);
                             #ifndef UNITY_COLORSPACE_GAMMA
-                            sum += max(s.rgb - GLOW_KNEE_LINEAR, 0.0) * w;
+                            float3 ex = max(s.rgb - GLOW_KNEE_LINEAR, 0.0) * w;
+                            float winKnee = WIN_GLOW_KNEE_LINEAR;
                             #else
-                            sum += max(s.rgb - GLOW_KNEE_GAMMA, 0.0) * w;
+                            float3 ex = max(s.rgb - GLOW_KNEE_GAMMA, 0.0) * w;
+                            float winKnee = WIN_GLOW_KNEE_GAMMA;
                             #endif
+                            // NIGHT-LOOK PASS 5: a lit window's glow in its own hue (above)
+                            float winBand = step(1e-3, s.a) * step(s.a, WIN_GLOW_BAND) * key * step(0.01, _PSXNight);
+                            float lumS = dot(s.rgb, float3(0.2126, 0.7152, 0.0722));
+                            float3 exW = s.rgb * (max(lumS - winKnee, 0.0) / max(lumS, 1e-3)) * (w * WIN_GLOW_GAIN * saturate(_PSXNight));
+                            sum += winBand > 0.5 ? max(ex, exW) : ex;
                         }
                     }
                 }

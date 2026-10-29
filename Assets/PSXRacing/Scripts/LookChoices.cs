@@ -44,6 +44,25 @@ namespace PSXRacing
         public static bool SunLift => Env("PSX_G1") ?? SunLiftDefault;
         public static bool CoolNight => Env("PSX_COOLDARKS") ?? CoolNightDefault;
 
+        /// <summary>NIGHT-LOOK PASS 5 (2026-10-28), the owner: "Light haze far
+        /// out only", approved on condition of an A/B first. In the lit city at
+        /// dusk and night only (never by day, never in Fog weather, which has
+        /// its own), anything past <see cref="PSXGlobals.DistHazeStartM"/>
+        /// fades a little toward the sky's own horizon colour (PSX/Lit's
+        /// _PSXDistHaze, PSX/Halo's far lights dim with it): the depth his NFS
+        /// frames have. Never near the car. Ships OFF until he picks it from
+        /// the A/B (NightLookPass "haze" frames); PSX_DISTHAZE=1 in a tool.</summary>
+        public const bool DistantHazeDefault = false;
+        public static bool DistantHaze => Env("PSX_DISTHAZE") ?? DistantHazeDefault;
+
+        /// <summary>NIGHT-LOOK PASS 5's extra A/B: the facades' ONE window colour
+        /// (PSX/Lit FAC_WIN_WARM) as a warm WHITE (sat ~0.3, NFS's measured
+        /// 0.23-0.29) instead of the golden yellow the owner chose on
+        /// 2026-10-26. Still one colour for every lit window and shopfront -
+        /// only which colour. OFF (his yellow); PSX_WARMWIN=1 in a tool.</summary>
+        public const bool WarmWindowsDefault = false;
+        public static bool WarmWindows => Env("PSX_WARMWIN") ?? WarmWindowsDefault;
+
         static bool? Env(string name)
         {
             string v = System.Environment.GetEnvironmentVariable(name);

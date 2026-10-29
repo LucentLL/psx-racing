@@ -474,6 +474,13 @@ namespace PSXRacing
                 globals.night = NightFor(index);
                 globals.gradeNight = GradeNightFor(index);
                 globals.mood = MoodFor(index, urban);
+                // NIGHT-LOOK PASS 5 (2026-10-28): the owner's "light haze far out
+                // only" (LookChoices.DistantHaze, OFF until his A/B) - the lit
+                // city at dusk and night, never by day, never in Fog (it has its
+                // own); and the window colour A/B (LookChoices.WarmWindows, OFF)
+                globals.distHaze = LookChoices.DistantHaze && urban >= 0.99f && weather != Weather.Fog
+                                   && (index == Dusk || index == Night) ? DistHazeAmount : 0f;
+                globals.winWhite = LookChoices.WarmWindows ? 1f : 0f;
                 // And what the hour means for the SUN (the day pass): the
                 // per-pixel, shouldered light; how hard its shadows are; how
                 // much brighter the haze is toward it.
@@ -1212,6 +1219,13 @@ namespace PSXRacing
                 default: return 0f;
             }
         }
+
+        /// <summary>
+        /// NIGHT-LOOK PASS 5: the distant haze's strength when it is on (its
+        /// share of the horizon colour as the distance goes to infinity; ~0.12
+        /// at 2 km, ~0.22 at 3 km, ~0.39 at 8 km - faint by design).
+        /// </summary>
+        public const float DistHazeAmount = 0.45f;
 
         /// <summary>
         /// How much of a city the loaded scene is, for the skyglow and the

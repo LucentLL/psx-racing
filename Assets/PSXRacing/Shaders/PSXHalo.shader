@@ -127,6 +127,12 @@ Shader "PSX/Halo"
             float _PSXFogFar;
             float _PSXFogNear;
             float _PSXFarWorld;     // a global: 1 while the far city is drawn (the header)
+            // a global (CityProxies): how far round the eye every far building
+            // is drawn; a far WINDOW dot (uv1.y -0.75, CityFar) stands only
+            // past it, so a lit window is never drawn twice. 0: no proxies.
+            float _PSXProxyFarM;
+            #define WIN_HANDOVER_M 250.0    // metres past that a window dot comes up over
+            float4 _PSXDistHaze;    // NIGHT-LOOK PASS 5: the distant haze (PSX/Lit's; x 0 = off, the default)
             #define HALO_FULL_FAR  0.96     // ...when the streamed lamps hold whole this far into their end
             #define SKY_OWN_NEAR   5.0      // PSXLit.shader's SKYLINE_OWN_NEAR / FAR, the same numbers
             #define SKY_OWN_FAR    40000.0
@@ -247,6 +253,10 @@ Shader "PSX/Halo"
                     // FAR_FADE_IN from the squeeze's start
                     float ff = _FarFall > 0.0 ? realDist / _FarFall : 0.0;
                     fade = exp(-realDist / SKY_HAZE_M) / (1.0 + ff * ff) * saturate((realDist - sA) / FAR_FADE_IN);
+                    // a window dot (-0.75; a lamp or bead is -0.5) hands over
+                    // to the proxies' own lit windows inside _PSXProxyFarM
+                    if (v.uv1.y < -0.6 && v.uv1.y > -0.95)
+                        fade *= saturate((realDist - _PSXProxyFarM) / WIN_HANDOVER_M);
                 }
                 else if (skyLight)
                 {
@@ -259,6 +269,10 @@ Shader "PSX/Halo"
                         fade *= smoothstep(0.0, 0.06, t) * (1.0 - smoothstep(BEACON_ON - 0.10, BEACON_ON, t));
                     }
                 }
+                // NIGHT-LOOK PASS 5: THE DISTANT HAZE (LookChoices.DistantHaze,
+                // OFF by default) dims a light by its real distance as PSX/Lit
+                // fades the world behind it - never cut, only fainter
+                fade *= 1.0 - _PSXDistHaze.x * (1.0 - exp(-max(realDist - _PSXDistHaze.y, 0.0) * _PSXDistHaze.z));
 
                 // A LENS THAT FACES ONE WAY (a traffic signal's, uv1.y > 0): lit
                 // from in front, nothing from behind or edge-on - the head and

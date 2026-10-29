@@ -86,6 +86,7 @@ namespace PSXRacing.City
             var vf = new int[n * 2];
             var vr = new int[n * 2];
             skylineBuild = true;
+            skylineElemSet = new HashSet<int>(elems);
             try
             {
                 for (int e = 0; e < n; e++)
@@ -99,7 +100,7 @@ namespace PSXRacing.City
                     vr[e * 2] = v1; vr[e * 2 + 1] = roof.Count - v1;
                 }
             }
-            finally { skylineBuild = false; EndFacade(); }
+            finally { skylineBuild = false; skylineElemSet = null; EndFacade(); }
 
             SkylineMesh sm = null;
             int total = fac.Count + roof.Count;
@@ -124,6 +125,18 @@ namespace PSXRacing.City
                 else for (int k = 0; k < fac.Count; k++) facs.Add(Vector4.zero);
                 for (int k = 0; k < roof.Count; k++) facs.Add(Vector4.zero);
                 mesh.SetUVs(1, facs);
+                // city-popin: each building's tile (UV2), for PSX/Lit's tile
+                // fade - a live tile's copy and this one hand its pixels over
+                var tiles = new List<Vector2>(total);
+                for (int k = 0; k < total; k++) tiles.Add(Vector2.zero);
+                for (int e = 0; e < n; e++)
+                {
+                    var fc = map.footprints[elems[e]].centre;
+                    var tl = new Vector2(Mathf.Floor(fc.x / TileSize), Mathf.Floor(fc.y / TileSize));
+                    for (int k = vf[e * 2]; k < vf[e * 2] + vf[e * 2 + 1]; k++) tiles[k] = tl;
+                    for (int k = vr[e * 2]; k < vr[e * 2] + vr[e * 2 + 1]; k++) tiles[fac.Count + k] = tl;
+                }
+                mesh.SetUVs(2, tiles);
                 var idxF = fac.t.ToArray();
                 var idxR = new int[roof.t.Count];
                 for (int k = 0; k < idxR.Length; k++) idxR[k] = roof.t[k] + fac.Count;

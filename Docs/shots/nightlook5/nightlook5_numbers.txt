@@ -1,0 +1,47 @@
+NIGHT-LOOK PASS 5 numbers (2026-10-28, branch night-look off main d133631a). Instrument: Editor/NightLookPass.cs
+(-executeMethod PSXRacing.EditorTools.NightLookPass.RunBatch, PSX_NL_SETS / PSX_NL_TAG; -force-glcore), boxes measured
+with tools/night/nightcity_stats.py maths (lit window = Ycode >= 60 and r > b + 12). BEFORE = main ("base"), AFTER = this
+branch ("v4"). Frames 2000x1125 (CityFarShots' HD path). Spots: tryonA/tryonB = the Tryon Sprint's start line +120 m /
++450 m (South Tryon, South End, chase eye 1.7 m looking up the route), i277s10 / high45 / i77s16 = CityFarShots' eyes.
+
+== THE TRYON SPRINT'S LAMPS (first 2.5 km from the start line: 16 pole-road edges in South End, 18 acorn edges uptown) ==
+main     875 m of 2505 m (34.9%) more than 40 m from any street light; longest dark run 335 m on S Tryon at (-3057,4032)
+pass 5   360 m of 2505 m (14.4%); longest dark run 185 m at (-2906,4218) (the I-277 crossing: no post under or
+         within 20 m of a structure); lamp stations on the route's edges 71 -> 86, standing 64 -> 76
+WHY: a road with a utility-pole line (CityPoles.IsPoleEdge: every street outside uptown/Myers Park) stood NO lamp posts
+(CityMeshes.PlaceLamps returned) - its light is the cobra-head on each pole. But along a city race route RaceRunOff marks
+8 m past the drawn edge (16 m outside bends) as clear zone, and a pole foot is only tried 1.0-3.4 m past the road's clear
+zone (3.5 m on an arterial): every pole along the route was refused, so S Tryon from South End to NoDa had no light.
+FIX: a pole road ON a race route stands its own davit posts (same verge / DOT offset / building / pavement rules);
+in the run-off they break away (no collider), as uptown's acorns already did. CityMeshes.RouteLamps (PSX_ROUTELAMPS=0 = main).
+
+== NIGHT, box stats (before -> after) ==
+tryonB  twrR   win share 33.5% -> 21.3%, win Ycode 141 -> 90, sat .77 -> .55, wall 12 -> 21, contrast 11.8x -> 4.3x
+tryonB  core   win share 18.7% -> 11.9%, win Ycode 137 -> 99, contrast 3.8x -> 2.7x
+i277s10 twr    win share 19.5% -> 10.2%, win Ycode 135 -> 98, sat .77 -> .75, contrast 16.7x -> 12.1x
+high45  skyline win share 14.6% -> 8.5%, win Ycode 153 -> 132
+tryonA  road   Ycode p50 1.0 -> 21.6, p90 3.8 -> 35.1 (lamp pools on S Tryon)
+NFS 2015 reference (owner's frames, not in repo): lit share of a box 1.4-2.4%, lit Ycode 91-136 at sat .23-.29,
+contrast 2.0-7.3x.
+
+== NIGHT, whole frame (bottom 18% dropped; NFS: floor .008-.015, median .09-.17, 27-54% under .10) ==
+tryonB  floor .004 median .067 -> .084, under .10 62.8% -> 55.8%
+tryonA  floor .004 median .075 -> .087, under .10 59.0% -> 54.1%
+i277s10 floor .004 median .139 -> .138, under .10 36.4% -> 38.4%
+high45  floor .004 median .056 -> .054, under .10 76.5% -> 76.8%
+
+== NOON (the day must not move) ==
+i277s10 noon: 3-4 of 2,250,000 px differ (max 25); tryonA noon: 1,776 px differ, ALL in cols 1008-1128 x rows 508-663 =
+the new lamp posts on S Tryon (objects, by day too). Every shader change is gated on _PSXNight or on a switch that
+is 0 by day; noon frames with the posts off were identical across this pass's runs.
+
+== WARM-WHITE WINDOWS A/B (LookChoices.WarmWindows, OFF) ==
+i277s10 win sat .75 -> .35, tryonB .57 -> .31 (NFS .23-.29); same brightness (Ycode 98 -> 100, 94 -> 95).
+
+== DISTANT HAZE A/B (LookChoices.DistantHaze, OFF) - share of pixels changed / mean |d| ==
+high45 night 3.5% / 0.38, high45 dusk 9.0% / 1.25, i77s16 night 1.1% / 0.06, i277s10 night 0.1% / 0.0 (all < 1 km),
+tryonB night 23% / 1.6 (only the damp road's reflection of the far city), tryonB dusk 0%.
+
+== COST of the rooms (editor, GLCore, 2000x1125, 4 x 40 renders each, min of 4) ==
+tryonB_r +0.31 ms, tryonA_r +0.41 ms, tryonB +0.26 ms (medians within +-0.7 ms noise). WebGL 2: PSX/Lit compiles for
+GLES3 (VolCloudsCheck OK); one extra sampler, one tex2Dlod per lit window pixel within 180 m.

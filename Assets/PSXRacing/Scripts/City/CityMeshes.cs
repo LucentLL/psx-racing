@@ -4007,6 +4007,10 @@ namespace PSXRacing.City
         /// two-way trunk or freeway, lights both sides staggered by half of
         /// this.</summary>
         const float LampPitchStreetM = 55f, LampPitchArterialM = 38f, LampPitchTrunkM = 42f, LampPitchFreewayM = 60f;
+        /// <summary>NIGHT-LOOK PASS 5: a pole road on a city race route stands
+        /// its own lamp posts (see <see cref="PlaceLamps"/>). Tools set it
+        /// false for the BEFORE of an A/B; PSX_ROUTELAMPS=0 does the same.</summary>
+        public static bool RouteLamps = System.Environment.GetEnvironmentVariable("PSX_ROUTELAMPS") != "0";
         /// <summary>
         /// UPTOWN'S ACORN POSTS (WP-15; the Street View survey, spot A1): black
         /// pedestrian posts 4.5-5 m tall with an acorn globe, every 20-30 m on
@@ -4156,8 +4160,19 @@ namespace PSXRacing.City
         {
             if (e.link || e.tunnel || e.bridge) return;
             // WP-15: a road with a pole line is lit by the cobra-heads on its
-            // poles (CityPoles); it stands no lamp posts of its own
-            if (CityPoles.Enabled && CityPoles.IsPoleEdge(map, e)) return;
+            // poles (CityPoles); it stands no lamp posts of its own...
+            // NIGHT-LOOK PASS 5 (2026-10-28, the owner's Tryon Sprint frames:
+            // "the street is black with no visible lamp pools"): ...EXCEPT on
+            // a city race route. Its run-off (RaceRunOff, 8 m past the drawn
+            // edge, 16 m outside a bend) is clear zone on the static mask, and a
+            // pole's foot is tried only 1-3.4 m past the road's clear zone - so
+            // along every route outside uptown no pole ever stood, and with
+            // this return no lamp post either: S Tryon from South End to NoDa
+            // (and the Independence Sprint's surface streets) had no light at
+            // all. A route's pole road stands davit posts as any street does -
+            // the same verge, DOT offset, building and pavement rules - and in
+            // the run-off they BREAK AWAY (TryLamp), as uptown's acorns do.
+            if (CityPoles.Enabled && CityPoles.IsPoleEdge(map, e) && !(RouteLamps && RaceRunOff.OnRoute(map, e.index))) return;
             int n = sections.Count;
             if (n < 2) { LampTrace?.Invoke(e.index, -2f, -1); return; }
             if (lampTrims != trims || lampFanReach == null || lampFanReach.Length != map.nodes.Length)
@@ -10707,6 +10722,86 @@ namespace PSXRacing.City
             EmitPanels(tm, style, a, c, y0, y1, outward, u, v);
         }
 
+        /// <summary>The elements the far skyline is emitting (BuildSkyline sets
+        /// it): there a part stands only on what the skyline draws too.</summary>
+        static HashSet<int> skylineElemSet;
+        static CityMap standMap;
+        static Dictionary<int, List<int>> standSiblings;
+
+        /// <summary>Is footprint <paramref name="i"/> drawn by this build as a
+        /// flat-roofed prism (the tile's and the proxies': not hidden, no model,
+        /// no roof shape, not a house; the skyline's: one of its elements)?</summary>
+        static bool DrawnFlat(CityMap map, int i)
+        {
+            var s = map.footprints[i];
+            if (s.hidden || s.propKind != 0 || s.roof != 0 || s.gable || s.style == 3 || s.pts == null || s.pts.Length < 3) return false;
+            if (skylineBuild && !proxyBuild) return skylineElemSet != null && skylineElemSet.Contains(i);
+            return true;
+        }
+
+        /// <summary>
+        /// city-popin: the height over its floor a part's walls start from -
+        /// its own floor (minH), or the roof of the tallest of its building's
+        /// drawn footprints (its outline, a sibling part) whose plan holds it
+        /// and that rises from no higher than where it would start, stacked
+        /// (a tier on a tier on the podium). minH when none holds it.
+        /// </summary>
+        static float StandOnH(CityMap map, int fi, CityMap.Footprint f, CityMap.Footprint gf)
+        {
+            if (!f.part || f.outline < 0 || f.outline >= map.footprints.Length) return f.minH;
+            if (standMap != map)
+            {
+                standMap = map;
+                standSiblings = new Dictionary<int, List<int>>();
+                var all = map.footprints;
+                for (int i = 0; i < all.Length; i++)
+                {
+                    if (!all[i].part || all[i].outline < 0) continue;
+                    if (!standSiblings.TryGetValue(all[i].outline, out var l)) { l = new List<int>(4); standSiblings[all[i].outline] = l; }
+                    l.Add(i);
+                }
+            }
+            var fs = map.footprints;
+            float b = f.minH;
+            standSiblings.TryGetValue(f.outline, out var sib);
+            for (int guard = 0; guard < 8; guard++)
+            {
+                bool moved = false;
+                if (gf != f && b < gf.h - 0.01f && DrawnFlat(map, f.outline) && PlanHolds(gf.pts, f.pts)) { b = gf.h; moved = true; }
+                if (sib != null)
+                    foreach (int si in sib)
+                    {
+                        if (si == fi) continue;
+                        var s = fs[si];
+                        if (s.minH > b + 0.05f || s.h <= b + 0.01f || !DrawnFlat(map, si)) continue;
+                        if (!PlanHolds(s.pts, f.pts)) continue;
+                        b = s.h; moved = true;
+                    }
+                if (!moved) break;
+            }
+            return b;
+        }
+
+        /// <summary>Every corner of <paramref name="inner"/> inside
+        /// <paramref name="outer"/> or within 0.3 m of its edge.</summary>
+        static bool PlanHolds(Vector2[] outer, Vector2[] inner)
+        {
+            if (outer == null || inner == null || outer.Length < 3) return false;
+            foreach (var q in inner)
+            {
+                bool inside = false;
+                for (int i = 0, j = outer.Length - 1; i < outer.Length; j = i++)
+                    if ((outer[i].y > q.y) != (outer[j].y > q.y) &&
+                        q.x < (outer[j].x - outer[i].x) * (q.y - outer[i].y) / (outer[j].y - outer[i].y) + outer[i].x) inside = !inside;
+                if (inside) continue;
+                bool near = false;
+                for (int i = 0, j = outer.Length - 1; i < outer.Length && !near; j = i++)
+                    near = PtSegDist2(q, outer[j], outer[i]) <= 0.09f;
+                if (!near) return false;
+            }
+            return true;
+        }
+
         static int PanelCount(float meters) => skylineBuild || heroOnePanel ? 1 :
             Mathf.Clamp(Mathf.CeilToInt(meters / FacadePanelMax), 1, meters > TallWallM ? TallPanelCap : FacadePanelCap);
 
@@ -10797,7 +10892,9 @@ namespace PSXRacing.City
                 {
                     var centre = f.centre; var u = f.u;
                     float hu = f.hu, hv = f.hv;
-                    int fit = FitHouse(map, trims, ref centre, ref u, ref hu, ref hv, y0, top);
+                    // (a far-building proxy, city-popin: the footprint as mapped -
+                    // the fit's metre is half a pixel past the far plane)
+                    int fit = proxyBuild ? 0 : FitHouse(map, trims, ref centre, ref u, ref hu, ref hv, y0, top);
                     if (fit < 0) { tm.footprintsLeftOut++; return; }
                     if (fit > 0) tm.footprintsCut++;
                     // leftover item 6: its storeys on its own graded pad, its
@@ -10809,6 +10906,7 @@ namespace PSXRacing.City
                         y0 = lo - BuildingSink; top = floorG + f.h;
                     }
                     float eave = floorG + f.h * 0.68f;
+                    if (proxyBuild) y0 -= ProxySkirtM;
                     EmitGableHouse(tm, centre, u, hu, hv, y0, eave, top, Slot.FacadeHouse);
                     tm.houseSeats.Add(new HouseSeat { kind = 1, c = centre, u = u, hu = hu, hv = hv, y0 = y0, floor = floorG });
                     tm.footprintCount++;
@@ -10833,7 +10931,7 @@ namespace PSXRacing.City
                 // Uptown B4: a skyline building's walls run on far below its
                 // ground - the land between the eye and uptown is not drawn
                 // out there, and its base must never hang over the horizon
-                if (skylineBuild) y0 -= SkylineSkirtM;
+                if (skylineBuild) y0 -= proxyBuild ? ProxySkirtM : SkylineSkirtM;
 
                 // Uptown B1: towers, midrises and brick blocks all wear the
                 // facade atlas (one material), each in its own look and tint
@@ -10853,12 +10951,25 @@ namespace PSXRacing.City
                 // shaft) and the eave its roof shape rises from
                 // (the skyline stands every tier on the ground: a tier whose
                 // podium part is left out must not float either)
-                bool floating = f.minH > 0.05f && !skylineBuild;
+                bool floating = f.minH > 0.05f && (!skylineBuild || proxyBuild);
                 float wallY0 = floating ? floorP + f.minH : y0;
+                // city-popin (the flicker finder, 2026-10-28): a part stands ON
+                // what of its own building is drawn round it - its outline, a
+                // lower tier whose plan holds it - not through it. Below that
+                // roof the other's walls are the building, and a part's wall
+                // flush with one of them was the same face twice: they fought
+                // in depth (a 102 m tower's nested tiers by I-277 and Morehead,
+                // each from the ground, flickered from 170 m to 450 m out - 83%
+                // of the finder's tie pixels). A part wholly under that roof is
+                // inside it: nothing of it shows, nothing is drawn twice.
+                float standH = StandOnH(map, fi, f, gf);
+                float outlineTop = standH > f.minH + 0.01f ? floorP + standH : float.NegativeInfinity;
+                bool onOutline = outlineTop > wallY0 + 0.01f;
+                if (onOutline) wallY0 = outlineTop;
                 float eaveY = f.roof != 0 ? Mathf.Max(wallY0, top - f.roofH) : top;
                 // 2026-10-26 (CityMeshes.PartBase.cs): a wall whose foot hangs
                 // over air - its building cut away under it - runs to the ground
-                bool hangs = floating && PartFillDown > 0 && PartHangs(map, fi, fitPoly);
+                bool hangs = floating && !onOutline && !proxyBuild && PartFillDown > 0 && PartHangs(map, fi, fitPoly);
                 AuditFoot(fi, 0, fitPoly, floorP, floating ? wallY0 : floorP, top, hangs);
                 bool retail = f.style == 4 && !floating && !skylineBuild;
                 // Coverage (2026-10-06): a shop outside the core is a strip
@@ -10928,14 +11039,16 @@ namespace PSXRacing.City
 
                 roofScratch.Clear();
                 roofScratch.AddRange(fitPoly);
-                if (f.roof == 0) EarcutInto(buckets[(int)Slot.RoofFlat], roofScratch, top, tm.origin, RoofFlatM);
+                bool underOutline = onOutline && top <= outlineTop + 0.05f;
+                if (underOutline) { }
+                else if (f.roof == 0) EarcutInto(buckets[(int)Slot.RoofFlat], roofScratch, top, tm.origin, RoofFlatM);
                 else
                 {
                     FacadeMetal(true); FacadeCrown(top > facCrownY + 0.3f);
                     EmitRoofShape(tm, f, roofScratch, eaveY, top, wallSlot);
                     FacadeCrown(false); FacadeMetal(f.mat == 4);
                 }
-                if (floating && f.minH > 0.5f) EmitSoffit(tm, roofScratch, wallY0);
+                if (floating && f.minH > 0.5f && !onOutline) EmitSoffit(tm, roofScratch, wallY0);
 
                 // (C: a landmark hero's own crown on the part it stands on)
                 // Skyline tops (2026-10-16): every other tower of 40 m and

@@ -200,6 +200,8 @@ namespace PSXRacing.City
                     var src = k == 0 ? mf : mr0;
                     var m = new Material(src) { name = src.name + " (" + Draws[d].name + ")", hideFlags = HideFlags.DontSave };
                     SetDraw(m, d);
+                    // city-popin: hands its pixels to a live tile's own copy (PSX/Lit)
+                    m.SetFloat(CityTileFade.ModeId, CityTileFade.ModeSkyline);
                     pair[k] = m;
                     sk.mats[d * 2 + k] = m;
                 }
@@ -332,7 +334,11 @@ namespace PSXRacing.City
                 // de < fadeStart and de > midDraw, de = |eye - centre| - reach,
                 // on the squared distance (reach is never negative)
                 float d2 = (eye2 - centre[e]).sqrMagnitude;
-                float near = fadeStart + reach[e], farM = midDraw + reach[e];
+                // city-popin: left out only when ALL of it is nearer than the fade
+                // start (it was: any of it) - PSX/Lit cuts a straddling tower
+                // per pixel, its near part the tile's and its far part this
+                // copy's, so a tower crossing the far plane is never cut there
+                float near = fadeStart - reach[e], farM = midDraw + reach[e];
                 bool hide = (liveOf[e] && (near > 0f && d2 < near * near)) || (mid != null && mid[e] && d2 > farM * farM);
                 if (hide != hidden[e]) { hidden[e] = hide; dirty = true; }
             }
