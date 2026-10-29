@@ -266,36 +266,41 @@ namespace PSXRacing.EditorTools
             int idx = 0;
             float timeScale = CityTrafficCensus.Speed;
             Time.maximumDeltaTime = 0.5f;
-            bool retoured = false;
-            while (idx < spots.Count)
+            int retours = 0;
+            var spare = new List<Spot>();
+            while (true)
             {
                 float left = tStart + budgetS - Time.realtimeSinceStartup;
-                if (left < 15f) { CityTrafficCensus.Line($"  budget spent: {spots.Count - idx} spots left unvisited"); break; }
-                // RE-TOUR once the first spots have measured the pace: keep the
-                // spots the budget can visit (the best gains) and walk them
-                // nearest-first from here - hops between kept spots of the full
-                // tour would build a fresh ring of tiles each (the 2026-10-29
-                // run: 1974 spots planned, a third of an hour of them kept)
-                if (!retoured && idx == 3)
+                if (left < 15f) { CityTrafficCensus.Line($"  budget spent: {spots.Count - idx + spare.Count} spots left unvisited"); break; }
+                // RE-TOUR once the first spots have measured the pace, and again
+                // whenever the walk runs out with time to spare: the spots the
+                // budget can visit (the best gains) walked nearest-first from
+                // here - hops between the kept spots of the full tour would
+                // build a fresh ring of tiles each (2026-10-29: 1974 spots
+                // planned; the first pace kept 388 and the walk ended early)
+                bool ranOut = idx >= spots.Count;
+                if ((retours == 0 && idx == 3) || (ranOut && spare.Count > 0 && left > 60f))
                 {
-                    retoured = true;
+                    retours++;
                     float needEach = streamEst * 0.7f + MinGameS / Mathf.Max(0.5f, rate);
                     int fit = Mathf.Max(1, (int)(left / needEach));
                     var rest = spots.GetRange(idx, spots.Count - idx);
+                    rest.AddRange(spare); spare.Clear();
                     rest.Sort((a, b) => b.gain.CompareTo(a.gain));
-                    if (rest.Count > fit) rest.RemoveRange(fit, rest.Count - fit);
+                    if (rest.Count > fit) { spare.AddRange(rest.GetRange(fit, rest.Count - fit)); rest.RemoveRange(fit, rest.Count - fit); }
                     var walk = new List<Spot>();
-                    Vector2 from = spots[idx - 1].p;
+                    Vector2 from = idx > 0 ? spots[idx - 1].p : map.uptown;
                     while (rest.Count > 0)
                     {
                         int bi = 0; float bd = float.MaxValue;
                         for (int i = 0; i < rest.Count; i++) { float d = (rest[i].p - from).sqrMagnitude; if (d < bd) { bd = d; bi = i; } }
                         walk.Add(rest[bi]); from = rest[bi].p; rest.RemoveAt(bi);
                     }
-                    CityTrafficCensus.Line($"  re-tour after {idx} spots ({rate:0}x, {streamEst:0.0} s of tiles a spot): {walk.Count} of {spots.Count - idx} spots fit the budget");
+                    CityTrafficCensus.Line($"  re-tour {retours} after {idx} spots ({rate:0}x, {streamEst:0.0} s of tiles a spot, {left / 60f:0} min left): {walk.Count} spots walked next, {spare.Count} spare");
                     spots.RemoveRange(idx, spots.Count - idx);
                     spots.AddRange(walk);
                 }
+                if (idx >= spots.Count) break;
                 // drop the least useful spots ahead until each left gets its minimum
                 float need = streamEst + MinGameS / Mathf.Max(0.5f, rate);
                 while (spots.Count - idx > 1 && (spots.Count - idx) * need > left)
@@ -303,6 +308,7 @@ namespace PSXRacing.EditorTools
                     int worst = -1;
                     for (int k = idx + 1; k < spots.Count; k++) if (worst < 0 || spots[k].gain < spots[worst].gain) worst = k;
                     if (worst < 0) break;
+                    spare.Add(spots[worst]);
                     spots.RemoveAt(worst);
                 }
                 float sumG = 0f;
