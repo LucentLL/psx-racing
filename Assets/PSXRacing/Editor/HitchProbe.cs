@@ -211,6 +211,8 @@ namespace PSXRacing.EditorTools
             var standUp = typeof(CityWorld).GetMethod("StandUp", NP);
             var dropTile = typeof(CityWorld).GetMethod("DropTile", NP);
             var liveField = typeof(CityWorld).GetField("live", NP);
+            var beginTrees = typeof(CityWorld).GetMethod("BeginTrees", NP);
+            var runTreeJob = typeof(CityWorld).GetMethod("RunTreeJob", NP);
             var fine = typeof(CityMeshes).GetField("FineSteps", SP);
             bool ab = fine != null && Env("PSX_HITCH_AB", "1") == "1";
             var timings = new List<CityWorld.TileTiming>();
@@ -293,11 +295,30 @@ namespace PSXRacing.EditorTools
                             signMs.Add(ms);
                             standWorst.Add((ms, $"signs/poles slice {tileName}"));
                         }
-                        clock.Restart();
-                        world.PlantTrees(key);
-                        float tm = (float)clock.Elapsed.TotalMilliseconds;
-                        treeMs.Add(tm);
-                        standWorst.Add((tm, $"tree frame {tileName}"));
+                        // the tree frame as play runs it: a step a call (CityWorld.BeginTrees /
+                        // RunTreeJob), or in one go where the world has no sliced tree frames
+                        if (beginTrees != null && runTreeJob != null && CityWorld.SliceTrees)
+                        {
+                            clock.Restart();
+                            bool open = (bool)beginTrees.Invoke(world, new object[] { key });
+                            for (int g = 0; open && g < 100000; g++)
+                            {
+                                if (g > 0) clock.Restart();
+                                bool doneT = (bool)runTreeJob.Invoke(world, new object[] { 0.0 });
+                                float sl = (float)clock.Elapsed.TotalMilliseconds;
+                                treeMs.Add(sl);
+                                standWorst.Add((sl, $"tree slice {tileName}"));
+                                if (doneT) break;
+                            }
+                        }
+                        else
+                        {
+                            clock.Restart();
+                            world.PlantTrees(key);
+                            float tm = (float)clock.Elapsed.TotalMilliseconds;
+                            treeMs.Add(tm);
+                            standWorst.Add((tm, $"tree frame {tileName}"));
+                        }
                         // the whole stood-up tile, trees and furniture included
                         var live = liveField.GetValue(world) as System.Collections.IDictionary;
                         string full = "-";
@@ -341,7 +362,7 @@ namespace PSXRacing.EditorTools
             standMs.Sort(); cookMs.Sort(); signMs.Sort(); treeMs.Sort();
             L($"stand-up: {standMs.Count} tiles p50 {P(standMs, 50):0.0} p95 {P(standMs, 95):0.0} max {P(standMs, 100):0.0} ms (collider cook p95 {P(cookMs, 95):0.0} max {P(cookMs, 100):0.0})");
             L($"signs/poles slices: {signMs.Count} p50 {P(signMs, 50):0.0} p95 {P(signMs, 95):0.0} max {P(signMs, 100):0.0} ms");
-            L($"tree frames: {treeMs.Count} p50 {P(treeMs, 50):0.0} p95 {P(treeMs, 95):0.0} max {P(treeMs, 100):0.0} ms");
+            L($"tree frames ({(beginTrees != null && CityWorld.SliceTrees ? "a step a call, as play slices them" : "one go")}): {treeMs.Count} p50 {P(treeMs, 50):0.0} p95 {P(treeMs, 95):0.0} max {P(treeMs, 100):0.0} ms");
             standWorst.Sort((a, b) => b.ms.CompareTo(a.ms));
             L("  the longest stand-up / signs / tree frames:");
             for (int i = 0; i < Mathf.Min(14, standWorst.Count); i++) L($"    {standWorst[i].ms,6:0.0} ms  {standWorst[i].what}");
@@ -378,7 +399,7 @@ namespace PSXRacing.EditorTools
             string[] roadParts = { "sections", "side flags", "spans", "lamps" };
             return part == 4 ? "sectioning ahead" : part == 5 ? "a neighbour's sections" : part == 10 ? "side flags: setup + structure ends" : part == 11 ? "side flags: spans"
                  : part == 12 ? "side flags: runs + flares" : part == 20 ? "branch: chains" : part == 21 ? "branch: stations"
-                 : part == 22 ? "branch: clips" : part == 23 ? "branch: nose" : part == 6 && phase == 2 ? "outlines ahead" : part == 30 ? "fan floor"
+                 : part == 22 ? "branch: clips" : part == 23 ? "branch: nose" : part == 6 && phase == 2 ? "outlines ahead" : part == 30 ? "fan floor" : part == 31 ? "ground corners" : part == 32 ? "lots" : part == 33 ? "drives"
                  : phase == 2 ? roadParts[Mathf.Clamp(part, 0, 3)] : phase == 9 ? (part == 1 ? "normals (chunks)" : "mesh / item") : "part " + part;
         }
 

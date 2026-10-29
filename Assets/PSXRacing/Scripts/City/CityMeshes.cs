@@ -2294,10 +2294,16 @@ namespace PSXRacing.City
             int ix0 = Mathf.RoundToInt(min.x / cell), iz0 = Mathf.RoundToInt(min.y / cell);
             var heights = new float[stride * stride];
             for (int z = 0; z <= res; z++)
+            {
+                // city-build-hitches: the corners eight rows a step, then the lots, then the drives
+                if (FineSteps && z > 0 && (z & 7) == 0) { yield return 0; stepPhase = 0; stepItem = -z; stepPart = 31; }
                 for (int x = 0; x <= res; x++)
                     heights[z * stride + x] = LatticeVertex(map, ix0 + x, iz0 + z);
+            }
+            if (FineSteps) { yield return 0; stepPhase = 0; stepItem = -1; stepPart = 32; }
             // roads pass L8: the parking lots laid into the lattice
             PrepareTileLots(map, min, min + new Vector2(TileSize, TileSize));
+            if (FineSteps) { yield return 0; stepPhase = 0; stepItem = -1; stepPart = 33; }
             // leftover item 6: and the houses' driveways
             PrepareTileDrives(map, min, min + new Vector2(TileSize, TileSize));
 
