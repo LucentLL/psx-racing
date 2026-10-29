@@ -473,9 +473,9 @@ namespace PSXRacing.City
         static readonly FacadeLook[] FacadeLooks =
         {
             // BUILDING PASS (2026-10-28): the curtain walls re-laid at 8 floors x 8 bays a repeat
-            new FacadeLook(8f, 15.2f, 0.292f, 0.311f, 0.311f),    // silver grid curtain wall: 8 bays of 1.9 m
-            new FacadeLook(8f, 19.2f, 0.054f, 0.065f, 0.076f),    // blue glass: 8 bays of 2.4 m
-            new FacadeLook(8f, 22.8f, 0.053f, 0.074f, 0.075f),    // teal glass: 8 bays of 2.85 m
+            new FacadeLook(8f, 15.2f, 0.288f, 0.306f, 0.306f),    // silver grid curtain wall: 8 bays of 1.9 m
+            new FacadeLook(8f, 19.2f, 0.052f, 0.063f, 0.074f),    // blue glass: 8 bays of 2.4 m
+            new FacadeLook(8f, 22.8f, 0.051f, 0.072f, 0.073f),    // teal glass: 8 bays of 2.85 m
             new FacadeLook(4f, 14.1f, 0.272f, 0.242f, 0.205f),    // precast stone, punched windows
             new FacadeLook(4f, 12.4f, 0.215f, 0.172f, 0.153f),    // brick, punched windows (aspect true at 3.1 m)
             // 2026-10-12: office towers in stone - the tenement (3) read as a

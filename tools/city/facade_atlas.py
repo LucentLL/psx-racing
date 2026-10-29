@@ -155,6 +155,7 @@ def curtain_synth(kind, scale=1, seed=3):
     grain = np.asarray(rgb(os.path.join(SRC, "psx2_metal_panels_4.png")).resize((w, h), Image.BICUBIC)).astype(np.float32).mean(2)
     grain = (grain - grain.mean()) / (grain.std() + 1e-6)
     out = np.zeros((h, w, 3), np.float32)
+    glass_mean = s[lum <= np.percentile(lum, 80)].mean(0) if kind == "silver" else s.reshape(-1, 3).mean(0)
     rng = np.random.default_rng(seed)
     ox, oy = int(rng.integers(0, sb)), int(rng.integers(0, sf))
     for fb in range(8):                              # floor from the BOTTOM
@@ -169,6 +170,11 @@ def curtain_synth(kind, scale=1, seed=3):
             pane = Image.fromarray(np.clip(s[y0:y1, x0:x1], 0, 255).astype(np.uint8))
             gw, gh = cw - mull, chh - span
             pane = np.asarray(pane.resize((gw, gh), Image.BICUBIC)).astype(np.float32)
+            # each pane keeps its own shading but only half its difference
+            # from the sheet's mean pane: at a pane four times the old size
+            # the full spread read as a blotchy checkerboard (and PSX/Lit
+            # adds its own per-pane tint and tilt on top)
+            pane = glass_mean + 0.5 * (pane.mean((0, 1)) - glass_mean) + (pane - pane.mean((0, 1)))
             top = (7 - fb) * chh                     # the cell's image rows
             left = bb * cw
             out[top:top + chh, left:left + cw] = slab
