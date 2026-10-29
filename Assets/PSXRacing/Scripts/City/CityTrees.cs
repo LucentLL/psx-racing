@@ -265,8 +265,26 @@ namespace PSXRacing.City
         public static TreeTile Build(CityMap map, CityMeshes.Trims trims,
             Dictionary<long, List<CityBuildings.B>> buildings, CityMeshes.TileMeshes tm, int tx, int tz)
         {
-            var clock = System.Diagnostics.Stopwatch.StartNew();
             var tt = new TreeTile { tx = tx, tz = tz };
+            foreach (var _ in BuildSteps(map, trims, buildings, tm, tx, tz, tt)) { }
+            return tt;
+        }
+
+        /// <summary>
+        /// <see cref="Build"/> as resumable steps (city-build-hitches,
+        /// 2026-10-29: a tile's tree frame was one frame, up to 63 ms in the
+        /// editor): the occupancy mask, the junction furniture, the poles, the
+        /// signs, the freeway tree walls a few pieces at a time, the planting
+        /// passes a few rows of squares at a time, the lots, the mesh. The same
+        /// code in the same order: a tile planted in steps is the tile planted
+        /// in one go, provided nothing else touches the planting's scratch or
+        /// the builder's lattice between the steps (CityWorld runs no tile job
+        /// and no other tree frame while one is open). tt.ms is the work only.
+        /// </summary>
+        public static IEnumerable<int> BuildSteps(CityMap map, CityMeshes.Trims trims,
+            Dictionary<long, List<CityBuildings.B>> buildings, CityMeshes.TileMeshes tm, int tx, int tz, TreeTile tt)
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             var min = new Vector2(tx * CityMeshes.TileSize, tz * CityMeshes.TileSize);
             float density = Density;
             bool signs = CitySigns.Enabled && CitySignData.Loaded;
@@ -287,7 +305,7 @@ namespace PSXRacing.City
             // the furniture (WP-15): the poles, and the tile's lamps drawn with them
             bool furniture = CityPoles.Enabled || (tm != null && tm.lamps.Count > 0);
             bool junctions = CitySignals.Enabled && CitySignals.AnyIn(map, trims, tx, tz);
-            if (!trees && !signs && !furniture && !junctions) { tt.ms = (float)clock.Elapsed.TotalMilliseconds; return tt; }
+            if (!trees && !signs && !furniture && !junctions) { tt.ms = (float)clock.Elapsed.TotalMilliseconds; yield break; }
             float cap = MaxPerTile * density;
             float scale = wanted > cap ? cap / wanted : 1f;
 
@@ -296,17 +314,21 @@ namespace PSXRacing.City
             var occ = RoadsideOccupancy.Build(map, trims, buildings, tm, tx, tz);
             tt.occ = occ;
             tt.occMs = (float)clock.Elapsed.TotalMilliseconds;
+            clock.Stop(); yield return 0; clock.Start();
             // THE JUNCTION FURNITURE FIRST (the plan's priority: junction
             // furniture, poles, lamps, signs, trees): STOP signs and signal
             // poles take their ground on the mask before anything else
             if (junctions) tt.signals = CitySignals.Build(map, trims, buildings, tm, occ, tx, tz);
+            if (junctions) { clock.Stop(); yield return 0; clock.Start(); }
             // THE POLES NEXT (WP-15): their feet taken on the mask before the
             // signs and trees
             if (furniture) tt.poles = CityPoles.Build(map, trims, buildings, tm, occ, tx, tz);
+            if (furniture) { clock.Stop(); yield return 0; clock.Start(); }
             // THE SIGNS (WP-23; the plan's priority: signs before trees):
             // they take their ground on the mask, and the trees keep off it
             if (signs) tt.signs = CitySigns.Build(map, trims, buildings, tm, occ, tx, tz);
-            if (!trees) { tt.ms = (float)clock.Elapsed.TotalMilliseconds; return tt; }
+            if (!trees) { tt.ms = (float)clock.Elapsed.TotalMilliseconds; yield break; }
+            if (signs) { clock.Stop(); yield return 0; clock.Start(); }
             System.Array.Clear(taken, 0, taken.Length);
             float distUp = Vector2.Distance(min + Vector2.one * (CityMeshes.TileSize * 0.5f), map.uptown);
 
@@ -328,8 +350,10 @@ namespace PSXRacing.City
             // LineStepM, planted out of the share of the square each stands in
             // - so they decide where a wooded square's trees stand, never how
             // many.
+            int wallPieces = 0;
             foreach (var pc in occ.pieces)
             {
+                if ((++wallPieces & 7) == 0) { clock.Stop(); yield return 0; clock.Start(); }
                 if (pc.deck) continue;
                 var e = map.edges[pc.edge];
                 if (e.link || e.cls < 5) continue;
@@ -362,7 +386,10 @@ namespace PSXRacing.City
 
             // PASS 1: every square plants the rest of its share on its free ground
             float pool = 0f;
+            clock.Stop(); yield return 0; clock.Start();
             for (int z = 0; z < Squares; z++)
+            {
+                if (z > 0 && (z & 3) == 0) { clock.Stop(); yield return 0; clock.Start(); }
                 for (int x = 0; x < Squares; x++)
                 {
                     int gx = tx * Squares + x, gz = tz * Squares + z;
@@ -378,11 +405,14 @@ namespace PSXRacing.City
                     }
                     pool += n - placed;
                 }
+            }
 
             // PASS 2: what the road squares could not plant stands beside the
             // roads, square by square in a scrambled order (97 is prime to 256)
+            clock.Stop(); yield return 0; clock.Start();
             for (int visit = 0; visit < Squares * Squares * 2 && pool >= 1f; visit++)
             {
+                if (visit > 0 && (visit & 63) == 0) { clock.Stop(); yield return 0; clock.Start(); }
                 int i = (visit * 97 + 13) % (Squares * Squares), x = i % Squares, z = i / Squares;
                 int gx = tx * Squares + x, gz = tz * Squares + z;
                 float canopy = squareCanopy[i];
@@ -396,11 +426,11 @@ namespace PSXRacing.City
             }
 
             // PASS 3 (the skyline pass): the lots' planted rows
-            if (LotTreesOn) PlantLots(map, occ, tt, tx, tz, min, density, distUp);
+            if (LotTreesOn) { clock.Stop(); yield return 0; clock.Start(); PlantLots(map, occ, tt, tx, tz, min, density, distUp); }
 
+            clock.Stop(); yield return 0; clock.Start();
             BuildMesh(tt);
             tt.ms = (float)clock.Elapsed.TotalMilliseconds;
-            return tt;
         }
 
         // ------------------------------------------------------------------
