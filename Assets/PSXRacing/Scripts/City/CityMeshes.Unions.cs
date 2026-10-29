@@ -1967,7 +1967,7 @@ namespace PSXRacing.City
                         var rm = new Vector2(-tm2.y, tm2.x);
                         float l0 = Vector2.Dot(pm - rm * eM - p, right), l1 = Vector2.Dot(pm + rm * eP - p, right);
                         latLo = Mathf.Min(latLo, Mathf.Min(l0, l1)); latHi = Mathf.Max(latHi, Mathf.Max(l0, l1));
-                        soffitMin = Mathf.Min(soffitMin, me.YAt(ms) - CityElevation.DeckThick);
+                        soffitMin = Mathf.Min(soffitMin, me.YAt(ms) - CityElevation.DeckThick - BentGirderD(map, me));
                     }
                     float b0 = latLo + BentBeamInsetM, b1 = latHi - BentBeamInsetM;
                     if (b1 - b0 < 1f) continue;
@@ -1986,7 +1986,7 @@ namespace PSXRacing.City
                             LineModel.CentreAt(me, ms, out float c, out _);
                             var pm = me.PointAt(ms); var tm2 = me.TangentAt(ms);
                             float lm = Vector2.Dot(pm + new Vector2(-tm2.y, tm2.x) * c - p, right);
-                            if (Mathf.Abs(lm - lat) < bestD) { bestD = Mathf.Abs(lm - lat); y = me.YAt(ms) - CityElevation.DeckThick; }
+                            if (Mathf.Abs(lm - lat) < bestD) { bestD = Mathf.Abs(lm - lat); y = me.YAt(ms) - CityElevation.DeckThick - BentGirderD(map, me); }
                         }
                         return y;
                     }
@@ -2000,13 +2000,21 @@ namespace PSXRacing.City
                         LineModel.CentreAt(me, ms, out float c, out float half);
                         var pm = me.PointAt(ms); var tm2 = me.TangentAt(ms);
                         var cm = pm + new Vector2(-tm2.y, tm2.x) * c;
-                        float hw = Mathf.Max(0.7f, me.width * 0.18f);
+                        float hw = BridgeDetailOn ? Mathf.Clamp(0.45f + 0.012f * me.width, 0.6f, 0.75f) : Mathf.Max(0.7f, me.width * 0.18f);
                         float lat = Vector2.Dot(cm - p, right);
-                        float topY = beam ? Mathf.Lerp(top0, top1, Mathf.InverseLerp(b0, b1, lat)) - BentBeamDepthM : me.YAt(ms) - CityElevation.DeckThick;
+                        float topY = beam ? Mathf.Lerp(top0, top1, Mathf.InverseLerp(b0, b1, lat)) - BentBeamDepthM : me.YAt(ms) - CityElevation.DeckThick - BentGirderD(map, me);
                         if (!beam && PierBlocked(map, me, cm, tm2, hw, topY)) continue;
                         float gy = CityElevation.GroundY(map, cm.x, cm.y);
-                        if (topY - gy < 2.2f) continue;
+                        if (BridgeDetailOn) gy = Mathf.Min(gy, LatticeY(map, cm.x, cm.y));
+                        if (topY - gy < (BridgeDetailOn ? 1.0f : 2.2f)) continue;
                         var cc = new Vector3(cm.x - org.x, 0f, cm.y - org.z);
+                        if (BridgeDetailOn)
+                        {
+                            // the bridges pass: a round column on the structure atlas, solid as drawn
+                            EmitRoundColumn(tm, cc + Vector3.up * (gy - 0.6f), topY + 0.05f, hw);
+                            columns++;
+                            continue;
+                        }
                         var rr = new Vector3(-tm2.y, 0f, tm2.x);
                         var ff = new Vector3(tm2.x, 0f, tm2.y);
                         EmitColumn(con, cc + Vector3.up * (gy - 0.6f), cc + Vector3.up * topY, rr * hw, ff * 0.7f);
@@ -2027,6 +2035,12 @@ namespace PSXRacing.City
                         var fa = f3 * BentBeamHalfAlongM;
                         Vector3 t00 = B0 - fa + Vector3.up * top0, t01 = B0 + fa + Vector3.up * top0, t10 = B1 - fa + Vector3.up * top1, t11 = B1 + fa + Vector3.up * top1;
                         var dn = Vector3.down * BentBeamDepthM;
+                        if (BridgeDetailOn)
+                        {
+                            // the bridges pass: the cap beam on the structure atlas
+                            EmitCap(structBucket, B0 + Vector3.up * top0, B1 + Vector3.up * top1, fa, r3, f3, BentBeamDepthM, BentBeamDepthM, 0f, 0.5f);
+                            goto beamDone;
+                        }
                         var uvA = new Vector2(0.55f, 0f); var uvB = new Vector2(0.7f, 0.15f);
                         con.Down(t00 + dn, t10 + dn, t11 + dn, t01 + dn, uvA, uvB, uvB, uvA);
                         con.Face(t00 + dn, t10 + dn, t10, t00, -f3, uvA, uvB, uvB, uvA);
@@ -2034,6 +2048,7 @@ namespace PSXRacing.City
                         con.Face(t00 + dn, t01 + dn, t01, t00, -r3, uvA, uvB, uvB, uvA);
                         con.Face(t10 + dn, t11 + dn, t11, t10, r3, uvA, uvB, uvB, uvA);
                     }
+                    beamDone:
                     if (pierLog != null)
                     {
                         float gyP = CityElevation.GroundY(map, p.x, p.y);
@@ -2042,6 +2057,10 @@ namespace PSXRacing.City
                     return;
                 }
         }
+
+        /// <summary>The bridges pass: how far below a member's slab its bent's
+        /// beam stands - its girders' depth (none with the pass off).</summary>
+        static float BentGirderD(CityMap map, CityMap.Edge me) => BridgeDetailOn ? PlanOf(map, me).depth : 0f;
 
         /// <summary>Is arc s of the edge inside a run over a deck, as owner or
         /// partner (a lone pier is not nudged into one)?</summary>

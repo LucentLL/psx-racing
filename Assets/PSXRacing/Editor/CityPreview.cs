@@ -326,6 +326,9 @@ namespace PSXRacing.EditorTools
                                               : Eye(f[0].Trim(), "custom", x, z, f[4], k, "custom eye " + item);
                 // (round 7) an eye's 7th field: metres over the 1.2 m eye (the chase camera's height)
                 if (f.Length >= 7 && nv.kind == ViewKind.Eye) nv.rise = float.Parse(f[6], ci);
+                // (the bridges pass) an eye's 8th field: its vertical field of view, degrees
+                // (a phone photo in portrait is a long lens next to the preview's 60)
+                if (f.Length >= 8 && nv.kind == ViewKind.Eye) nv.fov = float.Parse(f[7], ci);
                 yield return nv;
             }
         }
@@ -1551,6 +1554,8 @@ namespace PSXRacing.EditorTools
                     // The kerb faces are their own render-only mesh now (no
                     // collider), exactly as CityWorld stands them up.
                     Wrap(root, tm.kerbs, mats, new[] { CityMeshes.Slot.Concrete });
+                    // the bridges pass: girders, piers, abutments, markers, masts
+                    if (mats.Length > (int)CityMeshes.Slot.Structure) Wrap(root, tm.structure, mats, new[] { CityMeshes.Slot.Structure });
                     Wrap(root, tm.water, mats, new[] { CityMeshes.Slot.Water });
                     Wrap(root, tm.buildings, mats, tm.buildingSlots);
                     roadV += tm.roads != null ? tm.roads.vertexCount : 0;

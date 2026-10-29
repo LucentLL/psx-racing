@@ -20,6 +20,10 @@ namespace PSXRacing.EditorTools
             if (assetPath.EndsWith("/Art/City/Signs/CitySigns.png")) return 512;
             // BUILDING PASS (2026-10-28): the facade atlas is sixteen columns, 2048 x 256
             if (assetPath.Contains("/Art/City/Facade/city_facade_atlas")) return 2048;
+            // THE BRIDGES PASS (2026-10-29): the structure atlas is seven bands
+            // of the owner's 512 pack concrete and steel on one sheet; at 256 a
+            // girder's band would be 32 px for 1.2 m of web
+            if (assetPath.EndsWith("/Art/City/Pack/city_structure.png")) return 512;
             if (MipsFor(assetPath)) return 1024;
             // The converted traffic cars (owner, 2026-09-25: "can we increase
             // the texture size cap?"). A GT2 car was four 256 PS1 pages; its
@@ -40,6 +44,9 @@ namespace PSXRacing.EditorTools
         /// into curved moire bands. Written at their final size, so the 1024
         /// cap never resamples them.</summary>
         public static bool MipsFor(string assetPath) =>
-            assetPath.Contains("/Art/City/Facade/city_facade_atlas");
+            assetPath.Contains("/Art/City/Facade/city_facade_atlas")
+            // the bridges pass: a 300 m girder seen from 400 m is its band's
+            // form lines a texel apart - mips keep it from crawling
+            || assetPath.EndsWith("/Art/City/Pack/city_structure.png");
     }
 }

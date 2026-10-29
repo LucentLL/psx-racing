@@ -412,6 +412,11 @@ namespace PSXRacing.City
             /// a submesh of the ground; after the driving surfaces, so no
             /// existing slot moves.</summary>
             Sidewalk = RoadFirst + RoadClassCount * SurfaceCount,
+            /// <summary>The bridges pass (2026-10-29): girders, piers, caps,
+            /// bearings, abutments, object markers and high masts on the
+            /// structure atlas (Art/City/Pack/city_structure.png) - the tile's
+            /// render-only structure mesh. After the sidewalks, so no slot moves.</summary>
+            Structure,
             COUNT,
         }
 
@@ -823,6 +828,10 @@ namespace PSXRacing.City
             public Vector3 center;   // tile-local
             public Vector3 size;
             public float yawDeg;
+            /// <summary>The bridges pass: a ROUND pier column - CityWorld.Attach
+            /// stands a vertical capsule of <see cref="radius"/> and size.y.</summary>
+            public bool round;
+            public float radius;
         }
 
         /// <summary>
@@ -973,6 +982,16 @@ namespace PSXRacing.City
             /// "Guardrail"): the W-beams, a closed box from the beam's face
             /// back past its posts. Null where the tile has none.</summary>
             public Mesh guardrails;
+            /// <summary>THE BRIDGES PASS (2026-10-29): render-only structure on
+            /// the structure atlas (Slot.Structure) - girders, bearings, pier
+            /// columns and caps, abutments, guardrail object markers, high
+            /// masts. Null where the tile has none.</summary>
+            public Mesh structure;
+            /// <summary>The bridges pass's high masts on this tile: their floods'
+            /// heads (tile-local, for the night glow) and their feet (world plan,
+            /// for the roadside mask).</summary>
+            public readonly List<Vector3> mastHeads = new List<Vector3>();
+            public readonly List<Vector2> mastFeet = new List<Vector2>();
             /// <summary>For the audit: rail run ends this tile decided, by
             /// treatment (W-beam lead-in, sloped past the end, sloped inside).</summary>
             public int railEndsWBeam, railEndsSloped, railEndsInside, railEndsConnected, railEndsKept, railEndsShort;
@@ -2017,6 +2036,7 @@ namespace PSXRacing.City
             foreach (var b in buckets) b.Clear();
             barrierBucket.Clear();
             guardBucket.Clear();
+            structBucket.Clear();
             kerbBucket.Clear();
             stripInner.Clear(); stripInnerSegs.Clear();
             lampBucket.Clear();
@@ -2054,6 +2074,7 @@ namespace PSXRacing.City
             Phase(2);
             foreach (var _ in BuildJunctions(map, trims, tm, min, max)) yield return 0;
             BuildCentreMedians(map, trims, tm, min, max);
+            BuildHighMasts(map, tm, min, max);   // the bridges pass: the interchanges' high masts
             Phase(3);
             stepPhase = 4; stepItem = -1; stepPart = 0;
             BuildWater(map, tm, min, max);
@@ -2100,6 +2121,8 @@ namespace PSXRacing.City
             yield return 0;
             tm.barriers = MeshFromBucket("barriers", barrierBucket);
             tm.guardrails = MeshFromBucket("guardrails", guardBucket);
+            DrawWBeams(tm);   // the bridges pass: galvanized W-beams with the structure
+            tm.structure = MeshFromBucket("structure", structBucket);
             tm.kerbs = MeshFromBucket("kerbs", kerbBucket);
             tm.lampPosts = MeshFromBucket("lamps", lampBucket);
             tm.banks = MeshFromBucket("banks", bankBucket);
@@ -4000,6 +4023,7 @@ namespace PSXRacing.City
                         // across the gap); the partner of a union stands no pier,
                         // its owner a bent under both
                         EmitDeckBox(buckets[(int)Slot.Concrete], A, B, v0, v1, f.l.union, f.r.union);
+                        if (BridgeDetailOn) EmitGirders(map, e, i);   // the bridges pass: girders under the slab
                         sincePier += B.s - A.s;
                         if (sincePier >= PierEvery)
                         {
@@ -4013,6 +4037,7 @@ namespace PSXRacing.City
                         EmitSide(map, trims, tm, e, i, side, v0, v1);
                     if (spanLog != null) RecordSpan(e, A, B, f);   // AuditView's record (audits only)
                 }
+                if (BridgeDetailOn) EmitAbutments(map, trims, tm, e, min, max);   // the bridges pass: backwalls at the fills
 
                 // ---- street lamps ----
                 // Here, while this edge's sections and side flags are still
@@ -5138,6 +5163,7 @@ namespace PSXRacing.City
             int n = sections.Count;
             spanFlags.Clear(); flareL.Clear(); flareR.Clear(); shiftL.Clear(); shiftR.Clear(); taperL.Clear(); taperR.Clear(); wbUL.Clear(); wbUR.Clear(); wbDL.Clear(); wbDR.Clear();
             for (int k = 0; k < n; k++) { spanFlags.Add(default); flareL.Add(0f); flareR.Add(0f); shiftL.Add(0f); shiftR.Add(0f); taperL.Add(1f); taperR.Add(1f); wbUL.Add(float.NaN); wbUR.Add(float.NaN); wbDL.Add(float.NaN); wbDR.Add(float.NaN); }
+            ResetWBeamRuns(n);   // the bridges pass: which grounded rails are W-beam
             dropCache.Clear();
 
             // the window of sections within FlagReachM of the tile
@@ -5440,6 +5466,10 @@ namespace PSXRacing.City
                         i = j;
                     }
 
+            // THE BRIDGES PASS: the grounded drop rails that are W-beam runs
+            // (their ends are planned below as a W-beam's, not a parapet's)
+            MarkWBeamRuns(false);
+
             // THE RAIL END (leftover item 2, 2026-10-03; the owner's W 5th
             // frame: a parapet starting on its approach as a blunt concrete
             // block, its flat grey end square to the traffic). DOT practice,
@@ -5559,6 +5589,9 @@ namespace PSXRacing.City
                     int how = how0;
                     var pk = e.PointAt(sections[k].s);
                     bool mineEnd = pk.x >= min.x && pk.x < max.x && pk.y >= min.y && pk.y < max.y;   // counted by the tile it is in
+                    // the bridges pass: a W-beam run's end is a W-beam's - its
+                    // terminal on the open roadside, or turned down inside the run
+                    if (how != EndConnect && PlanWBeamRunEnd(side, k, dir, how == EndWBeam, mineEnd ? tm : null)) continue;
                     if (how == EndConnect)
                     {
                         // the open stretch to the next barrier, rail at full height
@@ -5614,7 +5647,7 @@ namespace PSXRacing.City
                     }
                     // the concrete carries on past its end, sloped from full
                     // height down to a curb over that length
-                    for (int q = k; q != jx; q += dir) MarkRail(dir > 0 ? q + 1 : q);
+                    for (int q = k; q != jx; q += dir) { MarkRail(dir > 0 ? q + 1 : q); WBeamConcrete(side, dir > 0 ? q + 1 : q); }
                     for (int q = k; ; q += dir)
                     {
                         float d = Mathf.Abs(sections[q].s - sections[k].s);
@@ -5633,6 +5666,12 @@ namespace PSXRacing.City
                     if (mineEnd) tm.railEndsWBeam++;
                 }
             }
+
+            // THE BRIDGES PASS: the runs again (a connection joins them), and
+            // where a W-beam run meets a parapet run on the ground, the
+            // parapet's end sloped down with the beam bolted along it
+            MarkWBeamRuns(true);
+            WBeamHandOvers(w0, w1);
 
             // Run ends, caps and flares, by KIND of barrier: a rail, a
             // retaining wall, a median Jersey barrier. Where one kind hands
@@ -6090,7 +6129,16 @@ namespace PSXRacing.City
                 return;
             }
 
-            if (sf.rail)
+            if (sf.rail && WBeamRunAt(side, i))
+            {
+                // the bridges pass: a warranted drop on the ground is guarded
+                // by W-beam on posts, as a real fill is - not by a parapet
+                float outAm = flare[i - 1] + Mathf.Max(shift[i - 1], VertexRailOut(e, A, side, tm.origin)),
+                      outBm = flare[i] + Mathf.Max(shift[i], VertexRailOut(e, B, side, tm.origin));
+                EmitWBeamRun(tm, e, i, side, outAm, outBm);
+                tm.railMetres += len;
+            }
+            else if (sf.rail)
             {
                 float outAm = flare[i - 1] + Mathf.Max(shift[i - 1], VertexRailOut(e, A, side, tm.origin)),
                       outBm = flare[i] + Mathf.Max(shift[i], VertexRailOut(e, B, side, tm.origin));
@@ -8119,6 +8167,17 @@ namespace PSXRacing.City
                 At(u, out var fp, out var np, out float yp);
                 tm.wbeamPosts.Add(new WBeamPost { at = fp, outward = np, top = yp + WBeamTop(u) - 0.03f });
             }
+            // the bridges pass: the terminal's object marker (OM-3) before its turned-down end
+            if (BridgeDetailOn)
+            {
+                float um = WBeamLenM - WBeamDownM - 0.4f;
+                if (um >= u0 && um < u1)
+                {
+                    At(um, out var fm, out var nm, out float ym);
+                    At(Mathf.Min(WBeamLenM, um + 1f), out var fe, out _, out _);
+                    EmitObjectMarker(fm, nm, new Vector3(fe.x - fm.x, 0f, fe.z - fm.z), ym);
+                }
+            }
         }
         /// <summary>The drawn W-beam's back, metres behind its face
         /// (CityPoles.WBeamBackO): the collider's depth.</summary>
@@ -9417,6 +9476,8 @@ namespace PSXRacing.City
         static readonly float[] PierNudges = { 0f, -5f, 5f, -10f, 10f, -14f, 14f };
         static void EmitPier(CityMap map, Trims trims, CityMap.Edge e, TileMeshes tm, float sAt)
         {
+            // the bridges pass: a hammerhead or a bent, on the structure atlas
+            if (BridgeDetailOn) { EmitBridgePier(map, trims, e, tm, sAt); return; }
             foreach (var dS in PierNudges)
             {
                 float s = sAt + dS;
@@ -9487,7 +9548,7 @@ namespace PSXRacing.City
                 // half width: I-277's e1483 under South Church Street is 17.6 m wide on
                 // its left (an added lane) and a pier stood in it (drive audit WALL)
                 LineModel.Extents(o, at, out float exM, out float exP);
-                if (dist <= Mathf.Max(o.HalfMax, Mathf.Max(exM, exP)) + PierClearM) return true;
+                if (dist <= Mathf.Max(o.HalfMax, Mathf.Max(exM, exP)) + (BridgeDetailOn ? PierClearFor(o, at, p) : PierClearM)) return true;
             }
             // nor in a junction's paved area below the deck (leftover item 3: a
             // crossing's cluster paves the ground between the roads under I-85)

@@ -702,6 +702,7 @@ namespace PSXRacing.City
                 var gains = new List<float>(heads.Capacity);
                 var mercs = new List<bool>(heads.Capacity);   // the 1990s city: mercury heads by street
                 foreach (var l in job.tm.lamps) { heads.Add(job.tm.origin + l.head); gains.Add(LampGain(l)); mercs.Add(l.mercury); }
+                foreach (var h in job.tm.mastHeads) { heads.Add(job.tm.origin + h); gains.Add(MastLightGain); mercs.Add(false); }
                 if (signLamps > 0) { heads.AddRange(st.lamps); for (int k = 0; k < signLamps; k++) { gains.Add(1f); mercs.Add(false); } }
                 if (poleHeads > 0) { heads.AddRange(pt.heads); for (int k = 0; k < poleHeads; k++) { gains.Add(1f); mercs.Add(k < pt.headMercury.Count && pt.headMercury[k]); } }
                 var lt = tile.go.transform.Find("LampLights");
@@ -859,7 +860,7 @@ namespace PSXRacing.City
             // (the tile's roads, fill houses and lamps are in tm, the lots in
             // the building table) and on a later frame: queued here with the
             // lattice this build cached, planted by PlantTrees.
-            if (CityTrees.Enabled || CitySigns.Enabled || CityPoles.Enabled || tm.lamps.Count > 0) treesPending[key] = (tm, CityMeshes.TakeLattice());
+            if (CityTrees.Enabled || CitySigns.Enabled || CityPoles.Enabled || tm.lamps.Count > 0 || tm.mastHeads.Count > 0) treesPending[key] = (tm, CityMeshes.TakeLattice());
             double tTrees = clock.Elapsed.TotalMilliseconds;
 
             // THE LIGHT the street lamps throw (the posts are Attach's). A
@@ -869,12 +870,15 @@ namespace PSXRacing.City
             // tiles up without play) AddComponent runs no Awake at all. It
             // registers every head with StreetLights and builds the halos;
             // dropping the tile destroys it, which takes both back.
-            if (tm.lamps.Count > 0)
+            if (tm.lamps.Count > 0 || tm.mastHeads.Count > 0)
             {
-                var heads = new Vector3[tm.lamps.Count];
-                var gains = new float[tm.lamps.Count];
-                var mercs = new bool[tm.lamps.Count];
-                for (int i = 0; i < heads.Length; i++) { heads[i] = tm.origin + tm.lamps[i].head; gains[i] = LampGain(tm.lamps[i]); mercs[i] = tm.lamps[i].mercury; }
+                int nl = tm.lamps.Count;
+                var heads = new Vector3[nl + tm.mastHeads.Count];
+                var gains = new float[heads.Length];
+                var mercs = new bool[heads.Length];
+                for (int i = 0; i < nl; i++) { heads[i] = tm.origin + tm.lamps[i].head; gains[i] = LampGain(tm.lamps[i]); mercs[i] = tm.lamps[i].mercury; }
+                // the bridges pass: a high mast's ring of sodium floods
+                for (int i = 0; i < tm.mastHeads.Count; i++) { heads[nl + i] = tm.origin + tm.mastHeads[i]; gains[nl + i] = MastLightGain; }
                 var lights = new GameObject("LampLights");
                 lights.transform.SetParent(root.transform, false);
                 var glow = lights.AddComponent<NightGlow>();
@@ -982,6 +986,21 @@ namespace PSXRacing.City
                     meshes.Add(wbm);
                 }
             }
+            if (tm.structure != null)
+            {
+                // THE BRIDGES PASS (2026-10-29): girders, piers, caps, bearings,
+                // abutments, object markers, high masts - RENDER-ONLY on the
+                // structure atlas. Nothing here is cooked: the columns' and
+                // masts' solids are capsules in tm.solids, the decks' surfaces
+                // and rails are the Roads and Barriers meshes they always were.
+                var g = Child(root, "Structure", 0);
+                g.AddComponent<MeshFilter>().sharedMesh = tm.structure;
+                var mr = g.AddComponent<MeshRenderer>();
+                mr.sharedMaterial = matFor != null ? matFor(CityMeshes.Slot.Structure) : null;
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                mr.receiveShadows = false;
+                meshes.Add(tm.structure);
+            }
             if (tm.kerbs != null)
             {
                 // RENDER-ONLY, deliberately: the inch of face under a grounded
@@ -1035,6 +1054,15 @@ namespace PSXRacing.City
                 s.transform.localPosition = box.center;
                 s.transform.localRotation = Quaternion.Euler(0f, box.yawDeg, 0f);
                 s.layer = SolidLayer;
+                if (box.round)
+                {
+                    // the bridges pass: a round column, solid as drawn
+                    var cc = s.AddComponent<CapsuleCollider>();
+                    cc.direction = 1;
+                    cc.radius = box.radius;
+                    cc.height = Mathf.Max(box.size.y, 2f * box.radius);
+                    continue;
+                }
                 var bc = s.AddComponent<BoxCollider>();
                 bc.size = box.size;
             }
@@ -1227,6 +1255,9 @@ namespace PSXRacing.City
         /// ceilings concrete burnt the night interior white (the field is flat:
         /// every floor's lights land on the same texels).</summary>
         const float DeckLightGain = 0.07f;
+        /// <summary>One flood of a high mast's ring (the bridges pass): six of
+        /// them stand over one foot, so each throws a share.</summary>
+        const float MastLightGain = 0.45f;
 
         /// <summary>A lamp post collider's square side: the drawn post's own
         /// (a cobra-head's 0.26 m, an acorn's 0.14 m). It was 0.3 m for both,
@@ -1312,6 +1343,8 @@ namespace PSXRacing.City
                 return SeasonDress.Substitute(table[i]);
             // a kit built before the sidewalks: they wear the pavement concrete
             if (slot == CityMeshes.Slot.Sidewalk) return MatFor(CityMeshes.Slot.Pavement);
+            // ...and one built before the bridges pass: the structure wears the concrete
+            if (slot == CityMeshes.Slot.Structure) return MatFor(CityMeshes.Slot.Concrete);
             return null;
         }
 
