@@ -111,10 +111,13 @@ import { buildRoadProfiles, writeRprf } from './lib/roadprofile.mjs';
 import { applyParts } from './lib/parts.mjs';
 import { findTwins } from './lib/twins.mjs';
 import { buildDecks, writeDecks } from './lib/decks.mjs';
+import { findFrontier, FR_WORLD, FR_MINOR, FR_DROPPED, FR_ONEWAY, FR_ISLAND } from './lib/frontier.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UNITY = join(HERE, '..', '..');
-const CACHE = join(HERE, 'cache');
+// The Overpass cache (gitignored) lives in the main checkout; a worktree points
+// at it with PSX_CITY_CACHE (and PSX_GIS_DIR for 3dep/canopy) instead of a copy.
+const CACHE = process.env.PSX_CITY_CACHE ? resolve(process.env.PSX_CITY_CACHE) : join(HERE, 'cache');
 const SOURCES = join(HERE, 'SOURCES.md');
 const RES = join(UNITY, 'Assets', 'PSXRacing', 'Resources');
 const MANIFEST = join(HERE, 'cache_manifest.json');
@@ -1691,6 +1694,40 @@ const LOTS = existsSync(lotsFile)
   : { lots: [], entrances: [], turns: [], stats: { missing: lotsFile } };
 console.log('lots (L8):', JSON.stringify(LOTS.stats));
 
+// ------------------------------------------- FRNT: the edges of the data
+// Where the map's road data stops but the road goes on (lib/frontier.mjs has
+// the four reasons and the census numbers behind them): the beltway box the
+// arterials were fetched by, the core box the minor streets were fetched by,
+// the ways this exporter drops, and one-ways that run on into what the
+// street query never fetches. The traffic drives off the map there instead
+// of stopping at the end of the data, and the census counts the data's edge
+// apart from the network's faults.
+const FETCH_BOX = [35.03, -81.03, 35.42, -80.62];        // fetch/fetch_ways.mjs BBOX
+const STREETS_BOX = [35.190, -80.880, 35.262, -80.790];  // fetch/fetch_bld.mjs B (streets_core.json)
+const FRONTIER = (() => {
+  const keptIds = new Set(ways.map(w => w.id));
+  const dropWhy = w => {
+    const t = w.tags || {}, hw = t.highway || '';
+    if (t.area === 'yes') return '';
+    const base = hw.endsWith('_link') ? hw.slice(0, -5) : hw;
+    if (t.toll === 'yes') return 'toll, held back';
+    if (base === 'busway') return 'busway';
+    if (!(base in CLS_RANK)) return '';
+    if (base === 'service' && !t.name) return 'unnamed service';
+    if (t.access === 'private' || t.access === 'no') return 'access=' + t.access;
+    return hw.endsWith('_link') ? 'ramp to a toll lane' : 'dropped';
+  };
+  const fr = findFrontier({ nodes, edges, nodeIndex, raw: [...rawWays, ...rawMinor, ...rawAccess], keptIds, dropWhy,
+                            world: FETCH_BOX, core: STREETS_BOX, toLat, toLon, worldMarginDeg: 0 });
+  const s = fr.stats;
+  console.log(`FRNT frontier: ${s.frontier} nodes where the data stops and the road goes on (of ${s.open} open nodes; ${s.realDeadEnds} real dead ends left): ` +
+              `world box ${s[FR_WORLD]}, minor streets outside the core box ${s[FR_MINOR]}, a dropped way ${s[FR_DROPPED]}, a one-way into what the map lacks ${s[FR_ONEWAY]}, a road joined to nothing else ${s[FR_ISLAND]}`);
+  for (const r of fr.rows) if (r.bits & (FR_DROPPED | FR_ONEWAY | FR_ISLAND)) console.log(`  frontier n${r.n} osm ${r.osm} @ ${r.lat.toFixed(5)},${r.lon.toFixed(5)}: ${r.why}`);
+  const fetch = fr.rows.filter(r => (r.bits & (FR_MINOR | FR_ONEWAY | FR_ISLAND)) && !(r.bits & FR_WORLD)).map(r => r.osm);
+  console.log(`FRNT (fetch: the ways at these ${fetch.length} OSM nodes would close the minor-street frontier inside the box) ${fetch.join(',')}`);
+  return fr;
+})();
+
 // ------------------------------------------------------------------ emit
 class Writer {
   constructor() { this.chunks = []; this.buf = Buffer.alloc(1 << 20); this.pos = 0; }
@@ -1927,6 +1964,14 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
   section('LENT', w => {
     w.u32(LOTS.entrances.length);
     for (const t of LOTS.entrances) { w.u32(t.edge); w.f32(t.s); w.i8(t.side); w.f32(t.half); }
+  });
+  // FRNT (road-logic topology, 2026-10-29): the frontier - u32 n | n x { u32
+  // node; u8 why } (1 outside the beltway box, 2 minor streets not fetched
+  // there, 4 goes on as a way this exporter drops, 8 a one-way into what the
+  // map lacks, 16 a road joined to nothing else; lib/frontier.mjs), in node order.
+  section('FRNT', w => {
+    w.u32(FRONTIER.rows.length);
+    for (const r of FRONTIER.rows) { w.u32(r.n); w.u8(r.bits); }
   });
   const align = n => (n + 3) & ~3;
   const assemble = () => {

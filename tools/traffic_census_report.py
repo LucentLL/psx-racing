@@ -23,6 +23,10 @@ K = {
     ("wreck", "car-in-junction"): (7, "two cars collided crossing or turning in one junction: the junction's control lets conflicting movements in together"),
     ("wreck", "car-roads-cross-no-node"): (9, "two roads cross here with no junction node between them: traffic on one cannot see the other (a missing node, or an at-grade crossing that should be a bridge)"),
     ("wreck", "car-roads-overlap"): (8, "two different roads run side by side close enough to collide: a ramp or carriageway laid over another road's lanes, or a merge with no node"),
+    ("wreck", "car-merging-roads"): (8, "two cars on two roads that meet at a node collided short of it: the two roads' lanes run together before the node (a ramp beside lane 0, two approaches at a sharp angle) and one car did not see the other"),
+    ("wreck", "car-parting-roads"): (8, "two cars on two roads that part at a node collided past it: the two roads' lanes still run together after the node (an exit just past the diverge)"),
+    ("wreck", "car-across-node"): (7, "a car ran into one just past the node on the road ahead of it (not the road it planned): a rear-end across the node"),
+    ("wreck", "car-near-node"): (7, "two cars on roads one short edge apart collided: lanes meeting across a short link"),
     ("wreck", "car-same-road"): (6, "two cars on one road collided: lanes too narrow for side-by-side cars here (a taper squeezing the lanes) or a lane change into a car"),
     ("wreck", "unknown"): (6, "a hit with no contact named"),
     ("wreck", "other"): (6, "a hit on something unnamed"),
@@ -165,7 +169,8 @@ def load_edges(path):
                 a, b = q.split(",")
                 pts.append((float(a), float(b)))
             edges[int(p[0])] = dict(cls=int(p[1]), link=p[2] == "1", oneway=p[3] == "1", lim=float(p[4]), drv=p[5] == "1",
-                                    m=float(p[6]), disc=p[7] == "1", name=p[8], pts=pts)
+                                    m=float(p[6]), disc=p[7] == "1", name=p[8], pts=pts,
+                                    a=int(p[10]) if len(p) > 11 and p[10] else -1, b=int(p[11]) if len(p) > 11 and p[11] else -1)
     return edges
 
 
@@ -175,6 +180,13 @@ def split_car_wrecks(events, edges):
     node between them."""
     import re
     rx = re.compile(r"run e(\d+) \S+ dir (-?1) lane (\d+)(?:->(\d+))? of (\d+) ([\d.]+)/([\d.]+) m")
+    near_nodes = None
+    if edges and next(iter(edges.values()))["a"] >= 0:
+        near_nodes = collections.defaultdict(set)
+        for x in edges.values():
+            L = sum(math.dist(x["pts"][i], x["pts"][i + 1]) for i in range(len(x["pts"]) - 1))
+            if L < 60:
+                near_nodes[x["a"]].add(x["b"]); near_nodes[x["b"]].add(x["a"])
     def heading(eid, s):
         pts = edges[eid]["pts"]; acc = 0.0
         for i in range(len(pts) - 1):
@@ -196,6 +208,23 @@ def split_car_wrecks(events, edges):
             e["sub"] = "car-same-road"
             continue
         if ea in edges and eb in edges and len(edges[ea]["pts"]) > 1 and len(edges[eb]["pts"]) > 1:
+            # how the two roads RELATE in the graph first (2026-10-29: every
+            # one of run 1's 98 "overlap" / "cross with no node" collisions was
+            # on two edges sharing a node - merges, diverges, rear-ends across
+            # a node - none on roads laid over each other or crossing unseen)
+            A, B = edges[ea], edges[eb]
+            if A["a"] >= 0 and B["a"] >= 0:
+                da, db = int(a.group(2)), int(b.group(2))
+                endA, startA = (A["b"], A["a"]) if da > 0 else (A["a"], A["b"])
+                endB, startB = (B["b"], B["a"]) if db > 0 else (B["a"], B["b"])
+                if endA == endB:
+                    e["sub"] = "car-merging-roads"; continue
+                if startA == startB:
+                    e["sub"] = "car-parting-roads"; continue
+                if endA == startB or endB == startA or {A["a"], A["b"]} & {B["a"], B["b"]}:
+                    e["sub"] = "car-across-node"; continue
+                if near_nodes is not None and (near_nodes.get(A["a"], set()) | near_nodes.get(A["b"], set())) & {B["a"], B["b"]}:
+                    e["sub"] = "car-near-node"; continue
             d = abs((heading(ea, float(a.group(6))) - heading(eb, float(b.group(6))) + 180) % 360 - 180)
             d = min(d, 180 - d)
             e["sub"] = "car-roads-cross-no-node" if d > 45 else "car-roads-overlap"

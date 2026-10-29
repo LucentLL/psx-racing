@@ -498,6 +498,17 @@ namespace PSXRacing.City
         /// edge, the arc position, the side (+1 left of a->b) and half width.</summary>
         public struct LotEntrance { public int edge; public float s; public sbyte side; public float half; }
         public LotEntrance[] lotEntrances;
+        /// <summary>Section FRNT (road-logic topology, 2026-10-29;
+        /// tools/city/lib/frontier.mjs): per node, why the DATA stops there
+        /// while the real road goes on - 1 outside the beltway box the
+        /// arterials were fetched by, 2 minor streets not fetched there, 4 it
+        /// goes on as a way the exporter drops (toll lanes, unnamed service,
+        /// private), 8 a one-way into what the map lacks; 0 = none. Null in
+        /// older data. Traffic leaves the map at a frontier instead of
+        /// stopping at the end of the data; the census counts it as the
+        /// data's edge.</summary>
+        public byte[] nodeFrontier;
+        public bool Frontier(int n) => nodeFrontier != null && n >= 0 && n < nodeFrontier.Length && nodeFrontier[n] != 0;
         /// <summary>Edges carrying a measured profile (section RPRF; 0 in
         /// older data). See <see cref="Edge.mY"/>.</summary>
         public int measuredEdges;
@@ -1103,6 +1114,18 @@ namespace PSXRacing.City
                     }
                     map.lotEntrances = el.ToArray();
                     Close("LENT");
+                }
+                if (Has("FRNT"))
+                {
+                    Open("FRNT");
+                    int nf = r.ReadInt32();
+                    map.nodeFrontier = new byte[map.nodes.Length];
+                    for (int i = 0; i < nf; i++)
+                    {
+                        int node = r.ReadInt32(); byte why = r.ReadByte();
+                        if (node >= 0 && node < map.nodeFrontier.Length) map.nodeFrontier[node] = why;
+                    }
+                    Close("FRNT");
                 }
                 // RPRF (leftover item 1): the measured road profiles, tiers 1-2
                 if (Has("RPRF"))

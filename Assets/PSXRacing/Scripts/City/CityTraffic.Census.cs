@@ -202,6 +202,7 @@ namespace PSXRacing.City
                 case 2: return "a wreck ahead";
                 case 3: return "the player";
                 case 4: return "a car crossing";
+                case 5: return "a car on another road in its lane";
                 case 11: return "a red";
                 case 12: return "a car in the box on its green";
                 case 13: return "oncoming (left on green)";
@@ -241,6 +242,7 @@ namespace PSXRacing.City
                 case 2: sub = "behind-wreck"; need = 12f; break;
                 case 3: return;
                 case 4: sub = inBox ? "gridlock-box" : "crossing-blocked"; need = 15f; break;
+                case 5: sub = "other-road-in-lane"; need = 15f; break;
                 case 11: sub = "red-never-ends"; need = 60f; break;
                 case 12: sub = "box-blocked-on-green"; need = 25f; break;
                 case 13: case 16: sub = "left-turn-starved"; need = 45f; break;
@@ -551,6 +553,11 @@ namespace PSXRacing.City
         /// end of the city's.</summary>
         bool AtMapEdge(int n, int cls)
         {
+            // the data's own frontier (section FRNT, lib/frontier.mjs): where
+            // the fetch boxes or the exporter's drops end the road, exactly -
+            // the old guess below (400 m from the outermost node) missed most
+            // of them (I-77 at the SC line, Albemarle Road, I-85 north)
+            if (map.nodeFrontier != null) return map.Frontier(n);
             if (!haveBounds || n < 0) return false;
             var p = map.nodes[n];
             float d = Mathf.Min(Mathf.Min(p.x - mapMin.x, mapMax.x - p.x), Mathf.Min(p.y - mapMin.y, mapMax.y - p.y));
@@ -579,7 +586,19 @@ namespace PSXRacing.City
         {
             int ne = map.edges.Length, nn = map.nodes.Length;
             Bounds();
-            report.AppendLine($"  the map: ({mapMin.x:0},{mapMin.y:0})..({mapMax.x:0},{mapMax.y:0}); local streets ({coreMin.x:0},{coreMin.y:0})..({coreMax.x:0},{coreMax.y:0}) - a road cut within 400 m of the map's edge (150 m of the streets' box for a local) is the data's end, not a dead end");
+            if (map.nodeFrontier != null)
+            {
+                int[] why = new int[4]; int fr = 0;
+                for (int n = 0; n < map.nodeFrontier.Length; n++)
+                {
+                    byte b = map.nodeFrontier[n];
+                    if (b == 0) continue;
+                    fr++;
+                    for (int k = 0; k < 4; k++) if ((b & (1 << k)) != 0) why[k]++;
+                }
+                report.AppendLine($"  the data's frontier (section FRNT): {fr} nodes where the data stops and the road goes on - outside the beltway box {why[0]}, minor streets not fetched there {why[1]}, a dropped way {why[2]}, a one-way into what the map lacks {why[3]}: the data's end, not a dead end");
+            }
+            else report.AppendLine($"  the map: ({mapMin.x:0},{mapMin.y:0})..({mapMax.x:0},{mapMax.y:0}); local streets ({coreMin.x:0},{coreMin.y:0})..({coreMax.x:0},{coreMax.y:0}) - a road cut within 400 m of the map's edge (150 m of the streets' box for a local) is the data's end, not a dead end");
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             Vector3 P(Vector2 p, float y) => new Vector3(p.x, y, p.y);
 
@@ -822,6 +841,28 @@ namespace PSXRacing.City
             report.AppendLine($"  ramp merges {merges}: merge zone under 30 m {shortZone}");
         }
 
+        /// <summary>Does part <paramref name="part"/> lead (by next: the arcs
+        /// out, or the reverse arcs in) to the giant part or to the data's
+        /// frontier (CityMap.nodeFrontier)? A search over the vertices
+        /// outside the giant, bounded.</summary>
+        bool Leads(int part, int giant, int[] comp, int V, System.Func<int, int[]> next)
+        {
+            var seen = new HashSet<int>();
+            var stack = new Stack<int>();
+            for (int v = 0; v < V; v++) if (comp[v] == part) { seen.Add(v); stack.Push(v); }
+            while (stack.Count > 0)
+            {
+                int v = stack.Pop();
+                if (comp[v] == giant) return true;
+                var e = map.edges[v >> 1];
+                if (map.Frontier(e.a) || map.Frontier(e.b)) return true;
+                foreach (int w in next(v))
+                    if (seen.Add(w)) stack.Push(w);
+                if (seen.Count > 50000) return true;
+            }
+            return false;
+        }
+
         /// <summary>The directed network (an edge driven one way is a vertex;
         /// a legal move across a node an arc, a U-turn included where the road
         /// is two-way): its strongly connected parts. Everything outside the
@@ -911,6 +952,25 @@ namespace PSXRacing.City
             }
             int giant = 0;
             for (int i = 1; i < comps; i++) if (compLen[i] > compLen[giant]) giant = i;
+            // the reverse arcs (Leads into a part)
+            Dictionary<int, List<int>> pred = null;
+            int[] PredOf(int v)
+            {
+                if (pred == null)
+                {
+                    pred = new Dictionary<int, List<int>>();
+                    for (int u = 0; u < V; u++)
+                    {
+                        if (!Valid(u)) continue;
+                        foreach (int w2 in SuccOf(u))
+                        {
+                            if (!pred.TryGetValue(w2, out var l)) pred[w2] = l = new List<int>(2);
+                            l.Add(u);
+                        }
+                    }
+                }
+                return pred.TryGetValue(v, out var lp) ? lp.ToArray() : System.Array.Empty<int>();
+            }
             float total = 0f;
             for (int i = 0; i < comps; i++) total += compLen[i];
             // the parts outside the giant, biggest first
@@ -928,7 +988,7 @@ namespace PSXRacing.City
                 var m = e.PointAt(e.length * 0.5f);
                 // can it be left (an arc out of it into the giant) or reached?
                 // and does it touch the data's edge (a road cut there)?
-                bool canLeave = false, edgeCut = false;
+                bool canLeave = false, edgeCut = false, canEnter = false;
                 for (int v = 0; v < V; v++)
                 {
                     if (comp[v] != i) continue;
@@ -936,7 +996,20 @@ namespace PSXRacing.City
                     if (!edgeCut && (AtMapEdge(ev.a, ev.cls) || AtMapEdge(ev.b, ev.cls))) edgeCut = true;
                     if (!canLeave) foreach (int w2 in SuccOf(v)) if (comp[w2] == giant) { canLeave = true; break; }
                 }
-                if (edgeCut) { cutParts++; cutKm += compLen[i] / 1000f; continue; }
+                if (map.nodeFrontier != null)
+                {
+                    // with the data's frontier known (section FRNT) a part is
+                    // judged by where its roads LEAD: out of it, on to the rest
+                    // of the city or off the map at a frontier (I-77 south of
+                    // Carowinds runs on into South Carolina, which the data
+                    // lacks), and into it, from either. Run 1's 47 inescapable
+                    // and 13 unreachable parts were nearly all one hop from the
+                    // data's edge (2026-10-29).
+                    canLeave = Leads(i, giant, comp, V, SuccOf);
+                    canEnter = Leads(i, giant, comp, V, PredOf);
+                    if (canLeave && canEnter) { cutParts++; cutKm += compLen[i] / 1000f; continue; }
+                }
+                else if (edgeCut) { cutParts++; cutKm += compLen[i] / 1000f; continue; }
                 logged++;
                 log.Add("route", canLeave ? "unreachable-part" : "inescapable-part", e.a, rep >> 1, -1, new Vector3(m.x, e.YAt(e.length * 0.5f), m.y), -1, 0f, compLen[i] / 1000f, "static",
                         $"{compLen[i] / 1000f:0.00} km of directed road round e{rep >> 1} '{e.name}' cls{e.cls} {(canLeave ? "that no car from the rest of the city can drive into" : "that a car, once in, can never drive out of")}");

@@ -101,8 +101,8 @@
   },
   "outputs": {
     "charlotte_city.bytes": {
-      "bytes": 8340419,
-      "sha256": "ee9be0b01c2cc971bb044d16842f56880826b0522edc2ed4b665eb868c2d5b25"
+      "bytes": 8342447,
+      "sha256": "35573586cc909b2d10e19adbf34938de8d2a2b66c7a7421ae97499eaa8a733e7"
     },
     "charlotte_dem.bytes": {
       "bytes": 3174661,
@@ -114,7 +114,7 @@
     },
     "charlotte_decks.bytes": {
       "bytes": 12772,
-      "sha256": "d03d558ad1af6ae78d2f23da29251713a4b62f148a01dd9f34e49964d7059aeb"
+      "sha256": "4fcd9076affeb8bc8361d732502812aab14cb7a7a6dda83ada82eb8a648355a5"
     },
     "charlotte_routes.json": {
       "bytes": 16883,

@@ -17,6 +17,11 @@
 #   ... -ReportOnly      only re-rank the last census copied back
 #   ... -ThenCheck       run tools\city-traffic-check's play check in the same editor after the tour
 #   ... -Watch           show the tour in a visible editor (it runs hidden: an audit)
+#   ... -Spots f.txt     visit ONLY the places in f.txt ("x,z[,label]" a line), in
+#                        order, an equal share each: a before/after census of fixed spots
+#   ... -SpotSeconds 180 game seconds at each of those spots (0: the budget decides)
+#   ... -Tag name        write to Docs\traffic_census_<name>\ and Docs\ROAD_LOGIC_TRAFFIC_<name>.md
+#                        (a spot census must not overwrite the city-wide one)
 #
 # SANDBOX RULES: waits for another agent's AGENT_LOCK.txt (younger than 90
 # min), writes its own, mirrors ONLY Scripts / Editor / Shaders (never
@@ -24,13 +29,16 @@
 # Docs\traffic_census\raw\ (git-ignored); the report goes to Docs\.
 param([int]$Minutes = 60, [int]$MaxSpots = 0, [int]$Cap = 64, [double]$Speed = 30,
       [switch]$NoShots, [switch]$ShotsOnly, [switch]$ReportOnly, [switch]$ThenCheck, [switch]$Watch, [switch]$NoWatch,
+      [string]$Spots = "", [string]$Tag = "", [int]$SpotSeconds = 0,
       [string]$Me = "city-traffic-census")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXCity" }
 $src  = Split-Path -Parent $PSScriptRoot
 . "$PSScriptRoot\unity-wait.ps1"
 $lock = Join-Path $proj "AGENT_LOCK.txt"
-$raw = Join-Path $src "Docs\traffic_census\raw"
+$outName = if ($Tag) { "traffic_census_$Tag" } else { "traffic_census" }
+$mdName = if ($Tag) { "ROAD_LOGIC_TRAFFIC_$Tag.md" } else { "ROAD_LOGIC_TRAFFIC.md" }
+$raw = Join-Path $src "Docs\$outName\raw"
 New-Item -ItemType Directory -Force $raw | Out-Null
 if (-not (Test-Path "$raw\.gitignore")) { "*" | Out-File -FilePath "$raw\.gitignore" -Encoding ascii }
 
@@ -62,7 +70,7 @@ function Start-LogGuard([string]$Log) {
     }
 }
 function Invoke-Report {
-    & py -3 "$PSScriptRoot\traffic_census_report.py" --raw $raw --out (Join-Path $src "Docs\traffic_census") --md (Join-Path $src "Docs\ROAD_LOGIC_TRAFFIC.md") --top6 (Join-Path $proj "census\top6.txt")
+    & py -3 "$PSScriptRoot\traffic_census_report.py" --raw $raw --out (Join-Path $src "Docs\$outName") --md (Join-Path $src "Docs\$mdName") --top6 (Join-Path $proj "census\top6.txt")
     if ($LASTEXITCODE -ne 0) { "REPORT FAILED ($LASTEXITCODE)"; return $false }
     return $true
 }
@@ -85,6 +93,8 @@ try {
         $env:PSX_CENSUS_CAP = "$Cap"
         $env:PSX_CENSUS_SPEED = "$Speed"
         $env:PSX_CENSUS_THENCHECK = if ($ThenCheck) { "1" } else { "0" }
+        $env:PSX_CENSUS_SPOTS = if ($Spots) { (Resolve-Path $Spots).Path } else { "" }
+        $env:PSX_CENSUS_SPOT_S = "$SpotSeconds"
         $max = $Minutes + 25 + $(if ($ThenCheck) { 25 } else { 0 })
         "census: $Minutes min budget, $(if ($MaxSpots -gt 0) { "$MaxSpots spots" } else { "every spot" }), cap $Cap, time scale up to $Speed$(if ($ThenCheck) { ', then the traffic check' })"
         Remove-Item "$proj\census.log" -ErrorAction SilentlyContinue
