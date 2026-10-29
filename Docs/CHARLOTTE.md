@@ -8043,7 +8043,6 @@ the 18 breaks / 15 boxes above (e15241's foot/pairing at n695/n2940; the 1'47" w
 each carriageway's own approach rail ends sloped ('R<' at e4593 s 0-5) in a 14 m grass median - decide one median or
 none there); the e1880 s 45 gap if RECIP/SEAM go on; the twin hold stays OFF (diag above).
 
-<<<<<<< HEAD
 ## Uptown's skyline and the stadium against the owner's aerial (the skyline pass, 2026-10-29)
 
 The owner: "The uptown skyline does not seem accurate", with a daytime aerial
@@ -8139,7 +8138,6 @@ and then the wooded strips either side come from the canopy as everywhere.
 Open: the photo's woods are denser than the lot rows (canopy cells that are not
 lots, round the rail line, need the corridor first); the noon west faces stay
 darker than the afternoon photograph (that is the hour, not an error).
-=======
 ### REAL HEIGHTS - round 8 (2026-10-29; the owner's three median spots: 0'54" notch, 1'47" box, 4'06" holes)
 
 The owner on the live round 6/7: "rectangle cutouts with holes, spots that go down then back up, and empty box
@@ -8221,4 +8219,3 @@ object, so a round-7 A/B's second pass re-used the first's runs (the preview's o
 the drive audit's tiles were not) - `ResetWorldTrims`. `RunDriveAB` (PSX_DRIVE_AB="base;r8;r8+recip;r8+seam": the
 drive audit per configuration in one job), `RunLookThenDrive`, `PSX_LOOK_AB=round8`, spot probe: each run's road across
 / seams / FILL, the ground-twin WHY per metre, `PSX_SPOT_HEIGHTS=1` (a heights row: v l 0 h H X).
->>>>>>> 8c53f44d
