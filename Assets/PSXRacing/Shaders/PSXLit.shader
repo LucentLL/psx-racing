@@ -241,7 +241,31 @@ Shader "PSX/Lit"
             // night mask are read with the WRAPPED uv's own derivatives, so the
             // mips (the atlas is the one city texture that keeps them) are
             // chosen by distance and not by the wrap's jump.
-            #define FACADE_COLS 8.0
+            // BUILDING PASS (2026-10-28): SIXTEEN columns. Column = alpha / 32
+            // + 8 x the red channel's low bit (CityMeshes.TintR; every other
+            // tint keeps that bit clear). FAC_T_* are the columns' own tables
+            // (tools/city/facade_atlas.py, CityMeshes.FacadeLooks): storeys a
+            // repeat, bays a repeat, a bay in metres, the wall's own linear
+            // level (the structure's stone parts). 0-2 the curtain walls,
+            // re-laid at 8 floors x 8 bays; 7 the structure's parts (drawn as
+            // a surface by the cornices and roof gear: 8 m a repeat up it).
+            #define FACADE_COLS 16.0
+            static const float FAC_T_FLOORS[16] = { 8.0, 8.0, 8.0, 4.0, 4.0, 8.0, 8.0, 2.105, 6.0, 4.0, 4.0, 4.0, 6.0, 4.0, 4.0, 8.0 };
+            static const float FAC_T_BAYS[16]   = { 8.0, 8.0, 8.0, 4.0, 4.0, 8.0, 8.0, 1.0, 3.0, 3.0, 4.0, 6.0, 4.0, 4.0, 4.0, 4.0 };
+            static const float FAC_T_BAYM[16]   = { 1.9, 2.4, 2.85, 3.3, 3.3, 1.9, 1.9, 2.0, 3.4, 2.6, 3.0, 2.2, 2.6, 2.4, 2.6, 3.0 };
+            static const float FAC_T_CLAD[16]   = { 0.33, 0.33, 0.33, 0.33, 0.25, 0.39, 0.60, 0.50, 0.18, 0.43, 0.22, 0.18, 0.21, 0.33, 0.26, 0.44 };
+            // WINDOWS SET INTO THE WALL (the building pass, by day): a punched
+            // window's glass this far behind its wall, drawn whole inside
+            // FAC_INSET_NEAR and gone by FAC_INSET_FAR; the in-plane carry of
+            // the eye's ray at most FAC_INSET_MAX (a grazing look)
+            #define FAC_INSET_M        0.20
+            #define FAC_INSET_NEAR     70.0
+            #define FAC_INSET_FAR      140.0
+            #define FAC_INSET_MAX      0.55
+            #define FAC_REVEAL_JAMB    0.60   // a jamb (the opening's side) of the wall's own texel
+            #define FAC_REVEAL_HEAD    0.42   // the head, in its own shadow (the eye below it)
+            #define FAC_REVEAL_SILL    0.95   // the sill, under the sky (the eye above it)
+            #define FAC_WIN_MASK_GLASS 0.70   // near, a punched window is glass where its mask says (not only where it is dark)
             #define WIRE_MIN_PX        1.0    // a wire is at least this many framebuffer pixels across
             #define WIRE_FADE_NEAR   100.0    // metres: past this a wire fades into the fog...
             #define WIRE_FADE_SPAN    80.0    //   ...wholly fogged this much further out
@@ -285,6 +309,7 @@ Shader "PSX/Lit"
             // ==== NIGHT-LOOK PASS 5 (2026-10-28): globals only (PSXGlobals.Apply), never Properties ====
             sampler2D _PSXRoomTex;      // Resources/CityRooms.png: the rooms' surfaces as luminance (FacRoom)
             float _PSXRoomsOn;          // 1 = the sheet is bound and the rooms are on
+            float _PSXFacInset;         // BUILDING PASS: 1 = punched windows set into the wall (PSX_FAC_INSET=0: flat)
             float4 _PSXDistHaze;        // THE DISTANT HAZE: x amount (0 = off, the default), y start m, z 1/scale m
             float _PSXWinWhite;         // LookChoices.WarmWindows A/B: the one window colour as a warm white
             // ==== END NIGHT-LOOK PASS 5 ====
@@ -918,7 +943,7 @@ Shader "PSX/Lit"
                 float3 normal : NORMAL;
                 float2 uv : TEXCOORD0;
             #if defined(PSX_ATLAS) || defined(PSX_FACADE) || defined(PSX_BAKEDSKY)
-                fixed4 color : COLOR;       // the cell: see _AtlasPx (PSX_FACADE: tint + column; PSX_BAKEDSKY: r = the sky seen)
+                float4 color : COLOR;       // the cell: see _AtlasPx (PSX_FACADE: tint + column; PSX_BAKEDSKY: r = the sky seen) - full precision: its bytes are decoded bit by bit
             #endif
             #ifdef PSX_FURNITURE
                 float2 wire : TEXCOORD1;    // (side -1/+1, half width m); (0, 0) off a wire
@@ -965,7 +990,8 @@ Shader "PSX/Lit"
             #endif
             #ifdef PSX_FACADE
                 // rgb the building's tint (x2), w its atlas column (+0.5: metal)
-                half4 facade : TEXCOORD7;
+                // (float: the column reaches 15 with the LED's 1/80 steps under it)
+                float4 facade : TEXCOORD7;
                 // the wall, as given (full float: metres along a 200 m wall)
                 float4 fac : TEXCOORD8;
             #endif
@@ -1173,7 +1199,9 @@ Shader "PSX/Lit"
                 // the crown's quarter with room to spare)
                 float fcrn = step(7.5, frem - 16.0 * fmet);
                 float fled = frem - 16.0 * fmet - 8.0 * fcrn;
-                o.facade = half4(v.color.rgb * 2.0, fcol + 0.5 * fmet + 0.25 * fcrn + fled / 80.0);
+                // BUILDING PASS: columns 8-15 - the red channel's low bit (CityMeshes.TintR)
+                fcol += 8.0 * fmod(floor(v.color.r * 255.0 + 0.5), 2.0);
+                o.facade = float4(v.color.rgb * 2.0, fcol + 0.5 * fmet + 0.25 * fcrn + fled / 80.0);
                 o.fac = v.fac;
             #endif
                 // CITY POP-IN: this draw's tile in the fade table - a tile's
@@ -1219,11 +1247,62 @@ Shader "PSX/Lit"
                 float facMetal = step(0.375, i.facade.w - facCol);
                 float facCrown = step(0.125, i.facade.w - facCol - 0.5 * facMetal);
                 float facLed = floor((i.facade.w - facCol - 0.5 * facMetal - 0.25 * facCrown) * 80.0 + 0.5);
-                uv = float2((facCol + frac(uv.x)) * (1.0 / FACADE_COLS), uv.y);
-                float4 texF = tex2Dgrad(_MainTex, uv, fdx, fdy);
+                // BUILDING PASS: column 7 drawn as a SURFACE (cornices, canopies,
+                // roof gear: CityMeshes.BuildingDetail.cs) wraps inside its stone
+                // half, or on a metal vertex its aluminium-panel quarter
+                float facC7 = step(6.5, facCol) * step(facCol, 7.5);
+                float facSub = lerp(1.0, lerp(0.5, 0.25, facMetal), facC7);
+                uv = float2((facCol + 0.5 * facMetal * facC7 + frac(uv.x) * facSub) * (1.0 / FACADE_COLS), uv.y);
+                // ==== BUILDING PASS (2026-10-28): WINDOWS SET INTO THE WALL ====
+                // A punched window's glass stands FAC_INSET_M behind its wall. Near
+                // a facade the eye's ray is carried on to that plane (parallax): the
+                // glass seen there, or - where the ray meets the opening's side, head
+                // or sill on the way - the wall's own texel just outside the opening
+                // (what the reveal is built of), shaded as that face (FAC_REVEAL_*).
+                // The night mask (R = A = glass) is the opening, so a lit window is
+                // set in too, its reveal dark. Curtain walls (0-2) are flush; column
+                // 7 is no facade. The wall's own frame (metres per repeat along and
+                // up it) as NIGHT-LOOK PASS 5's rooms solve it. _PSXFacInset 0
+                // (PSX_FAC_INSET=0) is the flat wall as it was.
+                float facReveal = 0.0, facRevealK = 1.0, facWinMask = 0.0;
+                {
+                    float3 insE = _WorldSpaceCameraPos - i.wpos;
+                    float insD = length(insE);
+                    float insOn = _PSXFacInset * step(2.5, facCol) * (1.0 - facC7)
+                                * (1.0 - smoothstep(FAC_INSET_NEAR, FAC_INSET_FAR, insD));
+                    if (insOn > 0.001)
+                    {
+                        float2 iU = float2(fdx.x, fdy.x) * FACADE_COLS, iV = float2(fdx.y, fdy.y);
+                        float iDet = iU.x * iV.y - iV.x * iU.y;
+                        float iInv = abs(iDet) > 1e-14 ? 1.0 / iDet : 0.0;
+                        float3 tU = (dWx * iV.y - dWy * iV.x) * iInv;
+                        float3 tV = (dWy * iU.x - dWx * iU.y) * iInv;
+                        float3 Vn = insE / max(insD, 1e-3);
+                        float3 Nn = normalize(i.wnrm);
+                        float ndv = max(dot(Nn, Vn), 0.12);
+                        float3 dP = (Nn - Vn / ndv) * FAC_INSET_M;
+                        dP *= min(1.0, FAC_INSET_MAX / max(length(dP), 1e-4));
+                        float lu2 = max(dot(tU, tU), 1e-8), lv2 = max(dot(tV, tV), 1e-8);
+                        float2 dRep = float2(dot(dP, tU) / lu2, dot(dP, tV) / lv2) * insOn;
+                        float4 m0 = tex2Dgrad(_NightMask, uv, fdx, fdy);
+                        if (m0.r * m0.a > 0.5)
+                        {
+                            float2 uvG = float2((facCol + frac(winUV.x + dRep.x)) * (1.0 / FACADE_COLS), winUV.y + dRep.y);
+                            float4 mG = tex2Dgrad(_NightMask, uvG, fdx, fdy);
+                            facReveal = 1.0 - step(0.5, mG.r * mG.a);
+                            float mu = abs(dot(dP, tU)) * rsqrt(lu2), mv = abs(dot(dP, tV)) * rsqrt(lv2);
+                            facRevealK = mv > mu ? (dRep.y > 0.0 ? FAC_REVEAL_HEAD : FAC_REVEAL_SILL) : FAC_REVEAL_JAMB;
+                            facWinMask = insOn * (1.0 - facReveal);
+                            uv = uvG;
+                        }
+                    }
+                }
+                // ==== END BUILDING PASS ====
+                float4 texF = tex2Dgrad(_MainTex, uv, fdx * float2(facSub, 1.0), fdy * float2(facSub, 1.0));
                 texF.rgb = PSXTexDecode(texF.rgb, _MainTexRaw);
                 fixed4 tex = texF * _Color;
                 tex.rgb *= i.facade.rgb;
+                tex.rgb *= lerp(1.0, facRevealK, facReveal);   // BUILDING PASS: a reveal, as its face is lit
                 // THE FACADE'S OWN FLOORS (the city-night correction): uv.y
                 // counts repeats up from the building's ground and a repeat is
                 // FacadeLooks' floors (CityMeshes; tools/city/facade_atlas.py),
@@ -1232,10 +1311,11 @@ Shader "PSX/Lit"
                 // height. Storeys and repeats per pixel feed the box filters.
                 // (granite and precast, 5 and 6, are 8 floors a repeat: they
                 // read 16 and 4 here from before they were built, 2026-10-16)
-                float facRows = facCol < 0.5 ? 16.0 : facCol < 1.5 ? 20.0 : facCol < 2.5 ? 24.0
-                              : facCol < 4.5 ? 4.0 : 8.0;
+                // (BUILDING PASS: the columns' own tables, FAC_T_*)
+                int facI = (int)clamp(facCol, 0.0, 15.0);
+                float facRows = FAC_T_FLOORS[facI];
                 float facCurt = step(facCol, 2.5);
-                float facBays = facCol < 0.5 ? 14.0 : 16.0;
+                float facBays = FAC_T_BAYS[facI];
                 float facYF = winUV.y * facRows;
                 float facFpF = max(length(float2(fdx.y, fdy.y)) * facRows, 1e-4);
                 float facFpU = max(length(float2(fdx.x, fdy.x)) * FACADE_COLS, 1e-4);
@@ -1281,9 +1361,9 @@ Shader "PSX/Lit"
                 float fstPlain = step(2.5, fstScheme);
                 float fstStone = max(step(4.5, facCol), fstPlain);  // stone office (5, 6) or a photographed mid-rise
                 // the atlas's storeys and bays a repeat (FacadeLooks), and a bay in metres
-                float fstFloors = facCol < 0.5 ? 16.0 : facCol < 1.5 ? 20.0 : facCol < 2.5 ? 24.0 : facCol < 4.5 ? 4.0 : 8.0;
-                float fstBays = facCol < 0.5 ? 14.0 : facCol < 2.5 ? 16.0 : facCol < 4.5 ? 4.0 : 8.0;
-                float fstBayM = facCol < 0.5 ? 2.17 : facCol < 1.5 ? 2.375 : facCol < 2.5 ? 2.85 : facCol < 4.5 ? 3.3 : 1.9;
+                float fstFloors = facRows;
+                float fstBays = facBays;
+                float fstBayM = FAC_T_BAYM[facI];
                 float sF = winUV.y * fstFloors;                                          // storeys up from the ground floor
                 float sFw = max(length(float2(fdx.y, fdy.y)) * fstFloors, 1e-4);         // ...per pixel
                 float bX = winUV.x * fstBays;                                            // bays along the wall
@@ -1339,7 +1419,7 @@ Shader "PSX/Lit"
                 // of 0.5: facade_atlas.py parts()).
                 float3 fstHue = i.facade.rgb / max(dot(i.facade.rgb, float3(0.3333, 0.3333, 0.3333)), 0.05);
                 float3 metalC = (facKey < 0.35 ? FST_BRONZE_LIN : FST_METAL_LIN) * lerp(float3(1, 1, 1), fstHue, 0.25);
-                float cladLvl = facCol < 3.5 ? 0.33 : facCol < 4.5 ? 0.25 : facCol < 5.5 ? 0.39 : 0.60;
+                float cladLvl = FAC_T_CLAD[facI];
                 float3 stoneC = cladLvl * i.facade.rgb * (abs(facCol - 5.0) < 0.5 ? float3(1.0, 0.985, 0.96) : float3(1, 1, 1));
                 float louv = max(mech, plant);
                 float solidS = fstStone * max(max(pier, fin), max(belt, max(coping, lobbyMull)));
@@ -1629,6 +1709,9 @@ Shader "PSX/Lit"
                     float paneCW = 1.0 - smoothstep(lerp(0.14, 0.16, silver), lerp(0.30, 0.42, silver), lumT) * lerp(0.85, 1.0, silver);
                     float paneM = (1.0 - smoothstep(0.045, 0.11, lumT)) * (1.0 - smoothstep(0.20, 0.45, chromaT));
                     float glass = lerp(paneM, paneCW, curtain);
+                    // BUILDING PASS: near, a punched window is glass where its mask
+                    // says (a pale curtain behind the pane still mirrors the sky)
+                    glass = max(glass, facWinMask * FAC_WIN_MASK_GLASS);
                     float metal = (1.0 - glass) * curtain;
                     glass *= 1.0 - 0.7 * facMetal;
                     metal = lerp(metal, 1.0 - glass, facMetal);
@@ -1794,7 +1877,10 @@ Shader "PSX/Lit"
                     // a storey is resolved once it is two pixels tall; a unit
                     // once it is two pixels both ways
                     float sharpF = saturate(2.0 - 2.0 * facFpF);
-                    float sharpU = saturate(2.0 - 2.0 * (facCurt > 0.5 ? max(facFpF, facFpU * 4.0) : max(facFpF * 2.0, facFpU * 8.0)));
+                    // (BUILDING PASS: a curtain unit is four bays - a quarter repeat of
+                    // 16 bays, a half of the re-laid 8: facBays / 4 units a repeat)
+                    float curtUnits = facBays * 0.25;
+                    float sharpU = saturate(2.0 - 2.0 * (facCurt > 0.5 ? max(facFpF, facFpU * curtUnits) : max(facFpF * 2.0, facFpU * 8.0)));
                     // THE TENANTS (WIN_FULL_FRAC and on): the stack, its lot,
                     // the block along the floor, the window
                     float stackH = 1.0 + floor(frac(bk * 5.31) * 3.0);
@@ -1806,7 +1892,7 @@ Shader "PSX/Lit"
                     float isPart = step(occ, fullP + partP) * (1.0 - isFull);
                     // (NIGHT-LOOK PASS 5: shorter curtain blocks, BLK_CURT_*)
                     float blkW = facCurt > 0.5 ? BLK_CURT_MIN + floor(frac(bk * 7.77) * BLK_CURT_SPAN) : 1.0 + floor(frac(bk * 3.33) * 2.0);
-                    float unitX = facCurt > 0.5 ? floor(winUV.x * 4.0) : floor(winUV.x);
+                    float unitX = facCurt > 0.5 ? floor(winUV.x * curtUnits) : floor(winUV.x);
                     float blk = floor(unitX / blkW);
                     float hb = PSXLitHash(float2(blk + bk * 977.0, storey + bk * 389.0));
                     // ==== NIGHT-LOOK PASS 5: a WINDOW of a curtain wall is its
@@ -1833,7 +1919,7 @@ Shader "PSX/Lit"
                     // skipped one. Only ALONG the floor are bays coarsened, into
                     // runs FAR_BLOCK_PX x FAR_BLOCK_WIDE pixels long, so a tower
                     // shows lit floor strips of varying length on a dark wall.
-                    float upx = facCurt > 0.5 ? facFpU * 4.0 : facFpU;
+                    float upx = facCurt > 0.5 ? facFpU * curtUnits : facFpU;
                     float lvU = max(ceil(log2(max(upx * FAR_BLOCK_PX * FAR_BLOCK_WIDE, 1e-4))), 0.0);
                     float bU = floor(unitX / exp2(lvU));
                     float farOn = step(0.5, facFpF) + step(0.5, lvU);

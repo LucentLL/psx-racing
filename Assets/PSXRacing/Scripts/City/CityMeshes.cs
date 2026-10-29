@@ -472,9 +472,10 @@ namespace PSXRacing.City
         const int LookSilver = 0, LookBlue = 1, LookTeal = 2, LookStone = 3, LookBrick = 4, LookGranite = 5, LookPrecast = 6;
         static readonly FacadeLook[] FacadeLooks =
         {
-            new FacadeLook(16f, 30.4f, 0.248f, 0.269f, 0.270f),   // silver grid curtain wall: 14 bays of 2.2 m
-            new FacadeLook(20f, 38.0f, 0.066f, 0.081f, 0.094f),   // blue glass: 16 bays of 2.4 m
-            new FacadeLook(24f, 45.6f, 0.065f, 0.091f, 0.092f),   // teal glass: 16 bays of 2.85 m
+            // BUILDING PASS (2026-10-28): the curtain walls re-laid at 8 floors x 8 bays a repeat
+            new FacadeLook(8f, 15.2f, 0.292f, 0.311f, 0.311f),    // silver grid curtain wall: 8 bays of 1.9 m
+            new FacadeLook(8f, 19.2f, 0.054f, 0.065f, 0.076f),    // blue glass: 8 bays of 2.4 m
+            new FacadeLook(8f, 22.8f, 0.053f, 0.074f, 0.075f),    // teal glass: 8 bays of 2.85 m
             new FacadeLook(4f, 14.1f, 0.272f, 0.242f, 0.205f),    // precast stone, punched windows
             new FacadeLook(4f, 12.4f, 0.215f, 0.172f, 0.153f),    // brick, punched windows (aspect true at 3.1 m)
             // 2026-10-12: office towers in stone - the tenement (3) read as a
@@ -482,6 +483,18 @@ namespace PSXRacing.City
             // licensed parts: 8 floors x 8 bays of 1.9 m.
             new FacadeLook(8f, 15.2f, 0.265f, 0.258f, 0.245f),    // granite office, punched windows
             new FacadeLook(8f, 15.2f, 0.320f, 0.321f, 0.323f),    // precast office, ribbon windows
+            // BUILDING PASS (CityMeshes.Facades.cs): 7 the structure's parts (drawn
+            // as a surface by the cornices, canopies and roof gear: 8 m a repeat up
+            // it, so its storeys are the wall's), then the Buildings pack's facades
+            new FacadeLook(8f / OfficeFloorM, 2.0f, 0.500f, 0.500f, 0.500f),
+            new FacadeLook(6f, 10.2f, 0.291f, 0.189f, 0.133f),    // 8 red-brown brick, wide sash: 3 bays of 3.4 m
+            new FacadeLook(4f, 7.8f, 0.406f, 0.296f, 0.242f),     // 9 tan glazed brick: 3 bays of 2.6 m
+            new FacadeLook(4f, 12.0f, 0.299f, 0.225f, 0.200f),    // 10 mottled brick, gold frames: 4 bays of 3 m
+            new FacadeLook(4f, 13.2f, 0.211f, 0.206f, 0.204f),    // 11 grey brick tenement: 6 bays of 2.2 m
+            new FacadeLook(6f, 10.4f, 0.297f, 0.232f, 0.196f),    // 12 red brick, patterned piers: 4 bays of 2.6 m
+            new FacadeLook(4f, 9.6f, 0.314f, 0.275f, 0.234f),     // 13 loft: 4 big windows of 2.4 m
+            new FacadeLook(4f, 10.4f, 0.301f, 0.248f, 0.194f),    // 14 tan brick, paired sash: 4 bays of 2.6 m
+            new FacadeLook(8f, 12.0f, 0.268f, 0.261f, 0.247f),    // 15 rendered apartment block: 4 bays of 3 m
         };
         /// <summary>Real storey heights: an office floor, a home's.</summary>
         const float OfficeFloorM = 3.8f, HomeFloorM = 3.1f;
@@ -504,6 +517,17 @@ namespace PSXRacing.City
                     new Vector3(1.12f, 0.98f, 0.94f), new Vector3(0.94f, 0.92f, 0.90f) },
             new[] { new Vector3(1.00f, 1.00f, 1.00f), new Vector3(1.04f, 1.02f, 0.98f), new Vector3(0.94f, 0.95f, 0.97f),
                     new Vector3(1.06f, 1.04f, 1.00f) },
+            // BUILDING PASS: 7 (parts: never picked), 8-14 the photographed brick, 15 the render
+            new[] { new Vector3(1.00f, 1.00f, 1.00f) },
+            new[] { new Vector3(1.00f, 1.00f, 1.00f), new Vector3(1.08f, 1.00f, 0.94f), new Vector3(0.86f, 0.82f, 0.80f), new Vector3(1.12f, 1.05f, 0.98f) },
+            new[] { new Vector3(1.00f, 1.00f, 1.00f), new Vector3(1.05f, 1.00f, 0.95f), new Vector3(0.92f, 0.92f, 0.96f), new Vector3(1.10f, 1.02f, 0.92f) },
+            new[] { new Vector3(1.00f, 1.00f, 1.00f), new Vector3(0.90f, 0.90f, 0.92f), new Vector3(1.08f, 1.00f, 0.94f) },
+            new[] { new Vector3(1.00f, 1.00f, 1.00f), new Vector3(1.06f, 1.02f, 0.96f), new Vector3(0.90f, 0.92f, 0.98f), new Vector3(1.12f, 1.08f, 1.00f) },
+            new[] { new Vector3(1.00f, 1.00f, 1.00f), new Vector3(0.92f, 0.86f, 0.86f), new Vector3(1.10f, 1.00f, 0.92f) },
+            new[] { new Vector3(1.00f, 1.00f, 1.00f), new Vector3(1.06f, 1.02f, 0.96f), new Vector3(0.92f, 0.95f, 1.00f) },
+            new[] { new Vector3(1.00f, 1.00f, 1.00f), new Vector3(1.08f, 1.04f, 0.98f), new Vector3(0.90f, 0.88f, 0.88f) },
+            new[] { new Vector3(1.10f, 1.08f, 1.05f), new Vector3(1.15f, 1.06f, 0.92f), new Vector3(0.92f, 0.95f, 1.00f),
+                    new Vector3(0.95f, 1.02f, 0.92f), new Vector3(0.82f, 0.88f, 1.00f), new Vector3(1.12f, 0.96f, 0.86f) },
         };
         // The building being emitted: its column, its storey and where its
         // ground floor stands. Set by PickFacade, read by EmitFacadeQuad.
@@ -539,20 +563,24 @@ namespace PSXRacing.City
             uint h = FacadeHash(centre);
             float r = (h & 0xFFFF) / 65536f;
             int glass = (int)((h >> 16) % 100u);
+            bool measured = colour.a == 255 || rhythm != 0;   // (BUILDING PASS: before FacadeStructureOff clears the rhythm)
             if (FacadeStructureOff) rhythm = 0;
             int look;
             if (mat == 4) look = LookSilver;
             else if (mat == 1 && colour.a == 255) look = NearestGlass(colour);   // a measured glass colour picks its kind
             else if (mat == 1) look = glass < 40 ? LookBlue : glass < 75 ? LookSilver : LookTeal;
-            else if (mat == 2 || mat == 5) look = LookBrick;
-            else if (mat == 3) look = height >= OfficeTowerM ? OfficeStone(colour, h, rhythm) : LookStone;
+            // BUILDING PASS: untagged brick and stone fan out into their families
+            // (CityMeshes.Facades.cs); a MEASURED building (a tagged colour or
+            // rhythm: OSM, truth/uptown_ref_looks.json, a hero) keeps its look
+            else if (mat == 2 || mat == 5) look = measured ? LookBrick : BrickLook(h, height, use);
+            else if (mat == 3) look = height >= OfficeTowerM ? OfficeStone(colour, h, rhythm) : measured ? LookStone : StoneLook(h, height, use);
             else if (style == 0) look = r < 0.12f ? OfficeStone(colour, h, rhythm) : (glass < 38 ? LookBlue : glass < 72 ? LookSilver : LookTeal);
             else if (style == 1) look = r < 0.36f ? (glass < 45 ? LookBlue : glass < 80 ? LookSilver : LookTeal)
-                                      : r < 0.70f ? LookStone : LookBrick;
-            else look = r < 0.72f ? LookBrick : LookStone;
+                                      : r < 0.70f ? (measured ? LookStone : StoneLook(h, height, use)) : (measured ? LookBrick : BrickLook(h, height, use));
+            else look = r < 0.72f ? (measured ? LookBrick : BrickLook(h, height, use)) : (measured ? LookStone : StoneLook(h, height, use));
             facLook = look;
 
-            bool home = use == 2 || (use == 0 && look == LookBrick);
+            bool home = use == 2 || (use == 0 && IsHomeLook(look));
             float nominal = home ? HomeFloorM : OfficeFloorM;
             float floors = Mathf.Max(1f, Mathf.Round(height / nominal));
             facFloorH = height > 0.5f ? height / floors : nominal;
@@ -573,7 +601,8 @@ namespace PSXRacing.City
                 k = pal[(int)((h >> 8) % (uint)pal.Length)];
             }
             // OSM metal cladding wears the silver grid AS metal (B1b)
-            Bucket.Tint = new Color32(TintByte(k.x), TintByte(k.y), TintByte(k.z), (byte)(look * 32 + (mat == 4 ? FacadeMetalBit : 0) + facLed));
+            // (BUILDING PASS: columns 8-15 carry their high bit in red's low bit - TintR)
+            Bucket.Tint = new Color32(TintR(k.x, look), TintByte(k.y), TintByte(k.z), (byte)((look & 7) * 32 + (mat == 4 ? FacadeMetalBit : 0) + facLed));
         }
 
         /// <summary>A stone wall this tall is an office tower's (granite or
@@ -633,7 +662,7 @@ namespace PSXRacing.City
             uint hs = h * 0x9E3779B1u; hs ^= hs >> 13;
             int p = (int)((hs >> 4) % 100u);
             int scheme;
-            if (look == LookStone || look == LookBrick) scheme = SchemePlain;
+            if (IsPlainLook(look)) scheme = SchemePlain;   // (BUILDING PASS: the photographed masonry too)
             else if (rhythm == RhythmVertical) scheme = SchemeVertical;
             else if (rhythm == RhythmHorizontal) scheme = SchemeHorizontal;
             else if (rhythm == RhythmGrid) scheme = SchemeGrid;
@@ -734,8 +763,10 @@ namespace PSXRacing.City
             return v <= 0.04045f ? v / 12.92f : Mathf.Pow((v + 0.055f) / 1.055f, 2.4f);
         }
 
-        // x2 in the shader: 0.35..1.99 of the texel as painted
-        static byte TintByte(float k) => (byte)Mathf.Clamp(Mathf.RoundToInt(k * 127.5f), 45, 254);
+        // x2 in the shader: 0.35..1.99 of the texel as painted. EVEN (BUILDING
+        // PASS): the red channel's low bit is the facade column's high bit
+        // (TintR), so no tint may set it by accident.
+        static byte TintByte(float k) => (byte)(Mathf.Clamp(Mathf.RoundToInt(k * 127.5f), 45, 254) & 0xFE);
 
         // facade texture footprints in metres (how much wall one repeat covers)
         static readonly Vector2[] FacadeMeters =
@@ -10620,6 +10651,8 @@ namespace PSXRacing.City
                     EmitPanels(tm, Slot.Shops, a, c, y0 + BuildingSink, split, outward, reps, 1f);
                 }
                 else EmitFacadeQuad(tm, wallSlot, a, c, y0, split, outward);
+                // BUILDING PASS (CityMeshes.BuildingDetail.cs): a shopfront's canopy and sign band
+                if (shopFront) EmitStorefront(tm, a, c, y0 + BuildingSink, split, y1, outward);
                 if (y1 > split + 0.2f) EmitFacadeQuad(tm, wallSlot, a, c, split, y1, outward);
                 return;
             }
@@ -11010,6 +11043,10 @@ namespace PSXRacing.City
                     // the parapet's inner face (seen from a deck's roof)
                     if (parapet > 0f) EmitFacadeQuad(tm, wallSlot, c, a, top, top + parapet, -outward);
                 }
+                // BUILDING PASS (CityMeshes.BuildingDetail.cs): a low or mid-rise's
+                // cornice, and its belt course over the ground floor (tiles only)
+                if (DetailFor(f, wallSlot, floating, top - floorP) && !hangs && !OutlineHasParts(map, fi))
+                    EmitCornice(tm, map, fi, f, fitPoly, eaveY + parapet, floorP, retail);
 
                 roofScratch.Clear();
                 roofScratch.AddRange(fitPoly);
@@ -11034,6 +11071,9 @@ namespace PSXRacing.City
                 else if (wallSlot == Slot.FacadeGlass && !retail && !floating && f.roof == 0 && !f.part &&
                          top - floorP >= RoofKitMinH && !OutlineHasParts(map, fi))
                     EmitRoofKit(tm, f, fitPoly, top, top - floorP);
+                // BUILDING PASS: a low or mid-rise flat roof's plant (tiles only)
+                else if (DetailFor(f, wallSlot, floating, top - floorP) && !underOutline && !OutlineHasParts(map, fi))
+                    EmitRoofGear(tm, f, fitPoly, top, top - floorP);
                 EndFacade();
                 if (f.style == 3) tm.houseSeats.Add(new HouseSeat { kind = 2, c = f.centre, u = f.u, hu = f.hu, hv = f.hv, y0 = y0, floor = floorP });
 

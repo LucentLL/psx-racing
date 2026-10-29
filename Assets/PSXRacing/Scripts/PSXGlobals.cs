@@ -173,7 +173,13 @@ namespace PSXRacing
             }
             if (rooms != null) Shader.SetGlobalTexture("_PSXRoomTex", rooms);
             Shader.SetGlobalFloat("_PSXRoomsOn", rooms != null && RoomsOn ? 1f : 0f);
+            // BUILDING PASS (2026-10-28): punched windows set into the wall by day
+            Shader.SetGlobalFloat("_PSXFacInset", FacInsetOn ? 1f : 0f);
         }
+
+        /// <summary>BUILDING PASS: PSX/Lit sets a punched window's glass back
+        /// into its wall (FAC_INSET_*); PSX_FAC_INSET=0 is the flat wall (the A/B).</summary>
+        public static bool FacInsetOn = System.Environment.GetEnvironmentVariable("PSX_FAC_INSET") != "0";
 
         /// <summary>THE DISTANT HAZE (LookChoices.DistantHaze, OFF until the
         /// owner's A/B): how much of the sky's horizon colour the farthest city

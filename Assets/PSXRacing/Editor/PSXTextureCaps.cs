@@ -18,6 +18,8 @@ namespace PSXRacing.EditorTools
             // structure metal on one sheet, so every sign of a tile is one
             // draw. At 256 a bulletin's lettering would be 3 px tall.
             if (assetPath.EndsWith("/Art/City/Signs/CitySigns.png")) return 512;
+            // BUILDING PASS (2026-10-28): the facade atlas is sixteen columns, 2048 x 256
+            if (assetPath.Contains("/Art/City/Facade/city_facade_atlas")) return 2048;
             if (MipsFor(assetPath)) return 1024;
             // The converted traffic cars (owner, 2026-09-25: "can we increase
             // the texture size cap?"). A GT2 car was four 256 PS1 pages; its
