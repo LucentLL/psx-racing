@@ -426,13 +426,22 @@ namespace PSXRacing.City
             int tris = 0;
             if (nextSlots.Count > 0 && nextVBase > 0)
             {
-                back.subMeshCount = nextSlots.Count;
+                // The submesh count only ever GROWS: lowering it makes Unity trim
+                // the index buffer to the remaining submeshes' old ranges, the kept
+                // capacity then lies and the next rebuild writes past the buffer's
+                // end (the traffic census: "Accessing ... bytes at offset 227568 for
+                // mesh index buffer of size 215328", 804 times on long jumps).
+                // Submeshes past this rebuild's slots are left empty.
+                int subs = Mathf.Max(back.subMeshCount, nextSlots.Count);
+                back.subMeshCount = subs;
                 for (int i = 0; i < nextSlots.Count; i++)
                 {
                     int s = nextSlots[i];
                     back.SetSubMesh(i, new SubMeshDescriptor(nextIBase[s], nextICount[s], MeshTopology.Triangles), Quiet);
                     tris += nextICount[s] / 3;
                 }
+                for (int i = nextSlots.Count; i < subs; i++)
+                    back.SetSubMesh(i, new SubMeshDescriptor(0, 0, MeshTopology.Triangles), Quiet);
                 back.bounds = new Bounds(Vector3.zero, Vector3.one * 1e5f);
             }
             var oldShown = new HashSet<long>(shown);
@@ -440,10 +449,12 @@ namespace PSXRacing.City
             (frontCapV, backCapV) = (backCapV, frontCapV);
             (frontCapI, backCapI) = (backCapI, frontCapI);
             frontAny = nextSlots.Count > 0 && nextVBase > 0;
-            var mset = new Material[nextSlots.Count];
+            // one material a submesh, the empty ones (above) included
+            var mset = new Material[frontAny ? Mathf.Max(front.subMeshCount, nextSlots.Count) : nextSlots.Count];
             for (int d = 0; d < mfs.Length; d++)
             {
                 for (int i = 0; i < nextSlots.Count; i++) mset[i] = Mats(nextSlots[i])[d];
+                for (int i = nextSlots.Count; i < mset.Length; i++) mset[i] = mset[0];
                 mfs[d].sharedMesh = frontAny ? front : null;
                 mrs[d].sharedMaterials = mset;
             }
