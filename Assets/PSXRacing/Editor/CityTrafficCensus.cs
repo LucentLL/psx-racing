@@ -382,6 +382,36 @@ namespace PSXRacing.EditorTools
         /// nearest-first tour from uptown.</summary>
         List<Spot> Plan(out float totalW, out float coveredW)
         {
+            // THE SPOT LIST (road-logic lanes, 2026-10-29): PSX_CENSUS_SPOTS
+            // names a file of "x,z" lines (a label after a third comma is
+            // ignored; # comments) - the tour visits exactly those, walked
+            // nearest-first from uptown, each the same share of the budget:
+            // the before/after of a fix at the places it was made for.
+            string list = System.Environment.GetEnvironmentVariable("PSX_CENSUS_SPOTS");
+            if (!string.IsNullOrEmpty(list) && System.IO.File.Exists(list))
+            {
+                var given = new List<Spot>();
+                foreach (var raw in System.IO.File.ReadAllLines(list))
+                {
+                    var ln = raw.Trim();
+                    if (ln.Length == 0 || ln.StartsWith("#")) continue;
+                    var f = ln.Split(',');
+                    if (f.Length < 2 || !float.TryParse(f[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x)
+                        || !float.TryParse(f[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float z)) continue;
+                    given.Add(new Spot { p = new Vector2(x, z), gain = 1000f });
+                }
+                var walk = new List<Spot>();
+                Vector2 from = map.uptown;
+                while (given.Count > 0)
+                {
+                    int bi = 0; float bd = float.MaxValue;
+                    for (int i = 0; i < given.Count; i++) { float d = (given[i].p - from).sqrMagnitude; if (d < bd) { bd = d; bi = i; } }
+                    walk.Add(given[bi]); from = given[bi].p; given.RemoveAt(bi);
+                }
+                totalW = coveredW = walk.Count * 1000f;
+                CityTrafficCensus.Line($"  the spot list {list}: {walk.Count} spots");
+                return walk;
+            }
             var pts = new List<Vector2>(); var ws = new List<float>();
             totalW = 0f;
             for (int i = 0; i < map.edges.Length; i++)
@@ -627,6 +657,11 @@ namespace PSXRacing.EditorTools
                 // above the canopy (13 m put one shot inside a tree), along the move
                 var eye = at - f * 26f + r * 9f + Vector3.up * 24f;
                 yield return Shot(Path.Combine(dir, $"census_top{i}.png"), eye, at + f * 3f);
+                // PSX_CENSUS_SHOTEYE=driver (road-logic lanes): also the lane
+                // paint as a driver sees it - 1.2 m over the road, 16 m short
+                // of the spot along the move, looking down the lanes
+                if (System.Environment.GetEnvironmentVariable("PSX_CENSUS_SHOTEYE") == "driver")
+                    yield return Shot(Path.Combine(dir, $"census_top{i}_driver.png"), at - f * 16f + Vector3.up * 1.2f, at + f * 30f + Vector3.up * 0.4f);
                 CityTrafficCensus.Line($"shot {i}: {label}");
             }
             Done();

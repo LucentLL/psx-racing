@@ -114,7 +114,9 @@ import { buildDecks, writeDecks } from './lib/decks.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const UNITY = join(HERE, '..', '..');
-const CACHE = join(HERE, 'cache');
+// PSX_CITY_CACHE: read the Overpass cache from another checkout (a worktree
+// has none; never copy or junction it in)
+const CACHE = process.env.PSX_CITY_CACHE || join(HERE, 'cache');
 const SOURCES = join(HERE, 'SOURCES.md');
 const RES = join(UNITY, 'Assets', 'PSXRacing', 'Resources');
 const MANIFEST = join(HERE, 'cache_manifest.json');
@@ -650,7 +652,7 @@ const LSET = buildLineSets(edges, profileFor, LC.tapr);
   console.log(`WP-10 lanes: ${st.lane_kept_tagged} short tagged pieces kept (turn bays, drawn one-sided); edges drawn below their own lanes= tag: ${st.lane_below_tag}`);
   console.log(`BLIPS (2026-10-04, rule ${st.blips_left.rule === 'narrow' ? 'ON, gated (PSX_LC_BLIPS=1): wider pieces that move no lane outside them' : st.blips_left.rule === 'all' ? 'ON, full (PSX_LC_BLIPS=all)' : 'OFF (PSX_LC_BLIPS=1 the gated rule, =all the full rule)'}): street pieces wider or narrower than the layout either side with no room for their MUTCD tapers + a class floor at full width: ${st.blips_left.count} left (${st.blips_left.km} km); taken to their neighbours' layout: ${st.lane_fixes.blip} (${st.lane_fix_km.blip} km)${st.blips_left.kept ? `; kept: narrower ${st.blips_left.kept.narrower}, ribbon shift ${st.blips_left.kept.shift}, chain restored ${st.blips_left.kept.chain || 0} (${st.blips_left.chains_restored || 0} chains)` : ''}`);
   for (const w of st.blips_left.where) console.log(`  blip left: ${w}`);
-  console.log(`WP-10 TAPR: ${st.tapr.transitions} lane-count changes, ${st.tapr.oneSided} one-sided, ${st.tapr.twoSided} two-sided, ${st.tapr.tagged} side from tags (L4: ${st.tapr.perDirection} two-way changes per direction - each on its own outside, Q4 - from the line set's split; ${st.tapr.mergeSide} one-way sides from a merging/diverging branch, ${st.tapr.mergeSideLeft} of them left), ${st.tapr.bays} turn bays, ${st.tapr.atJunction} full width at a junction mouth, ${st.tapr.shortened} fitted to the chain, ${st.tapr.absorbed} absorbed (no room), ${st.tapr.reanchored} re-anchored at a junction (> 1 lane off; ${st.tapr.shifts} SHIFT records ease them back past it, L4), ${st.tapr.recentred} untagged junction-mouth lanes opened on the re-centring side`);
+  console.log(`WP-10 TAPR: ${st.tapr.transitions} lane-count changes, ${st.tapr.oneSided} one-sided, ${st.tapr.twoSided} two-sided, ${st.tapr.tagged} side from tags (L4: ${st.tapr.perDirection} two-way changes per direction - each on its own outside, Q4 - from the line set's split; ${st.tapr.mergeSide} one-way sides from a merging/diverging branch, ${st.tapr.mergeSideLeft} of them left), ${st.tapr.bays} turn bays, ${st.tapr.atJunction} full width at a junction mouth, ${st.tapr.shortened} fitted to the chain, ${st.tapr.absorbed} absorbed (no room), ${st.tapr.reanchored} re-anchored at a junction (> 1 lane off; ${st.tapr.shifts} SHIFT records ease them back past it, L4), ${st.tapr.recentred} untagged junction-mouth lanes opened on the re-centring side; one-way turn lanes on both sides (tagSidesBoth): ${st.tapr.owBothSides} split both ways, ${st.tapr.owBothKept} kept one-sided (the split would carry the ribbon farther off its line)`);
   console.log(`WP-10 PARA: before ${JSON.stringify(st.para_before)}; after ${JSON.stringify(st.para_after)}; moved ${st.para_moved.chains} chains (max ${st.para_moved.max_offset_m} m)`);
   {
     const rv = LC.review.filter(r => r.kind === 'para');

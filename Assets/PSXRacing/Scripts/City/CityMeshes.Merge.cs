@@ -123,6 +123,22 @@ namespace PSXRacing.City
             return null;
         }
 
+        /// <summary>TRAFFIC (road-logic lanes, 2026-10-29): a ramp end's merge
+        /// zone at a node, as drawn - the nose N's arc on that branch edge
+        /// (NaN where N lies on an earlier piece of the ramp), N's distance
+        /// from the node along the host (D) and where the aux lane's full width
+        /// ends (xf, the same frame: negative = past the node, downstream of a
+        /// merge, upstream of a diverge). False where no zone was built.</summary>
+        public static bool ZoneFor(int branch, int node, out float sNose, out float noseD, out float fullEnd)
+        {
+            sNose = float.NaN; noseD = 0f; fullEnd = 0f;
+            var z = ZoneAt(branch, node);
+            if (z == null) return false;
+            foreach (var c in zoneCuts[branch]) if (c.z == z && c.edge == branch && c.end) sNose = c.sEnd;
+            noseD = z.D; fullEnd = z.xf;
+            return true;
+        }
+
         /// <summary>The zone whose cut a ramp's arc lies in (not drawn), or null.</summary>
         static MergeZone ZoneCutOwner(CityMap.Edge e, float s)
         {
