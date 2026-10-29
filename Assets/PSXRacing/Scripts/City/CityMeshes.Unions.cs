@@ -145,6 +145,13 @@ namespace PSXRacing.City
             public UnionRun mirror;
             /// <summary>The edges across the median, the first preferred.</summary>
             public int[] across;
+            /// <summary>(round 8) A carried-on end met by a run OWNED ACROSS (the other carriageway
+            /// draws on from there): that run's edge and arc, so both ends draw one cross-line
+            /// (CityMeshes.Medians8 FindSeams); -1 none.</summary>
+            public int seamEdge0 = -1, seamEdge1 = -1;
+            public float seamArc0, seamArc1;
+            /// <summary>(round 8) Laid by the gap fill between two drawn medians.</summary>
+            public bool fill;
             public bool Covers(float s, float slack = 1e-3f) => s >= s0 - slack && s <= s1 + slack;
         }
 
@@ -166,6 +173,7 @@ namespace PSXRacing.City
             int ne = E.Length;
             t.unions = new List<UnionRun>[ne];
             twinEndsOf.Clear();
+            r8ChainPartners = r8Fills = r8Seams = r8DeckEnds = r8Dropped = 0; r8FillM = r8DeckEndM = 0f;
             var pairs = map.deckPairs;
             if (pairs == null) { LastUnionReport = "no twin-deck table"; return; }
             // The solve asks for trims before it marks any structure (its ramp
@@ -290,6 +298,14 @@ namespace PSXRacing.City
             // 3b. the ground twins (2026-10-24): the rest of every freeway's
             // twin carriageways, wherever no deck or approach run reached
             float groundM = GroundTwinRuns(map, t, out int groundRuns);
+            // 3c. (round 8) the short gaps left between two drawn medians: laid
+            r8Fills = R8FillOn ? FillMedianGaps(map, t, out r8FillM) : 0;
+            // 3d. (round 8) a closed end whose owner's deck carries on over a pit: on to the deck's end
+            r8DeckEnds = R8DeckEndOn ? ExtendToDeckEnds(map, t, out r8DeckEndM) : 0;
+            // 3e. (round 8) an owner run inside another owner run on the same side of the same edge
+            // draws nothing the other does not: dropped (two approach walks from one deck end laid
+            // I-77 e1891 0..3 and 0..4.2; the seam of the two at s 3 was a 3 m hole under the rays)
+            if (R8FillOn) r8Dropped = DropContainedRuns(map, t);
 
             // (round 6) a run end within UnionNodeSnapM of its edge's end is AT the
             // node: an approach run starting 0.2 m into the edge after a deck run
@@ -358,6 +374,8 @@ namespace PSXRacing.City
                     if (r.owner) open += (r.open0 ? 1 : 0) + (r.open1 ? 1 : 0);
                 }
             }
+            // (round 8) the carried-on ends met by a run owned across: one cross-line
+            r8Seams = R8SeamOn ? FindSeams(map, t) : 0;
 
             // 5. no short raised island (owner 2026-10-24: "random medians only a
             // few feet long on random side streets where roads split ... they
@@ -386,7 +404,8 @@ namespace PSXRacing.City
             LastUnionMs = (float)clock.Elapsed.TotalMilliseconds;
             LastUnionReport = $"{pairsDrawn} union pairs drawn as one structure ({runs} runs, {deckM:0} m over the decks' ranges; {approachRuns} approach runs, {approachM:0} m; {groundRuns} ground-twin runs, {groundM:0} m; {raisedFlushed} short raised medians made flush); " +
                               $"{pairsSplit} pairs in more than one run or ended by a split level over {UnionSplitDyM} m ({splitRuns} runs{(splitWorst > 0f ? "; worst " + splitWorstAt : "")}); " +
-                              $"{pairsNone} union pairs with no run{(noRun.Length > 0 ? " (" + noRun.ToString().Trim().TrimEnd(';') + ")" : "")}; {open} open run ends; {nodeSnapsFar} run ends put on a node with the next run (round 7); {LastUnionMs:0.0} ms";
+                              $"{pairsNone} union pairs with no run{(noRun.Length > 0 ? " (" + noRun.ToString().Trim().TrimEnd(';') + ")" : "")}; {open} open run ends; {nodeSnapsFar} run ends put on a node with the next run (round 7); " +
+                              $"round 8: {r8Fills} gaps filled ({r8FillM:0} m), {r8Seams} seams across, {r8ChainPartners} partner runs on chain edges, {r8DeckEnds} closed ends carried on to their deck's end over a pit ({r8DeckEndM:0} m), {r8Dropped} owner runs inside another dropped; {LastUnionMs:0.0} ms";
         }
 
         /// <summary>One segment of a pair's walk (pairWalk[i0..i1]) as an owner
@@ -419,6 +438,9 @@ namespace PSXRacing.City
                 AddRun(t, rb);
                 if (ra.mirror == null || yi == pr.b) ra.mirror = rb;
             }
+            // (round 8) an edge across the owner's median reaches that no sample stood beside
+            // (a twin's piece past its node by the run's end): stood down there too
+            AddChainPartners(map, t, ra, A, ra.s0, ra.s1, acrossB);
             if (ra.mirror == null) ra.mirror = new UnionRun { edge = pr.b, nb = pr.a, side = pr.sideB, s0 = 0f, s1 = 0f, median = MedianOfUnion(pr), pair = pi, across = acrossB };
         }
 
@@ -817,7 +839,7 @@ namespace PSXRacing.City
                     for (int k = i0; k < i; k++) if (!metY.Contains(walk[k].Y)) metY.Add(walk[k].Y);
                     var acrossMet = new int[metY.Count];
                     for (int k = 0; k < metY.Count; k++) acrossMet[k] = metY[k].index;
-                    var ra = new UnionRun { edge = X.index, nb = walk[(i0 + i - 1) / 2].Y.index, side = sideX, s0 = x0, s1 = x1, median = r.median, owner = true, pair = r.pair, approach = true, across = acrossMet };
+                    var ra = new UnionRun { edge = X.index, nb = walk[(i0 + i - 1) / 2].Y.index, side = sideX, s0 = x0, s1 = x1, median = r.median, owner = true, pair = r.pair, approach = true, across = WithContinuations(map, t, acrossMet) };
                     AddRun(t, ra);
                     laid += x1 - x0; added++;
                     foreach (var be in metY)
@@ -839,6 +861,7 @@ namespace PSXRacing.City
                         AddRun(t, rb);
                         if (ra.mirror == null || be.index == ra.nb) ra.mirror = rb;
                     }
+                    AddChainPartners(map, t, ra, X, x0, x1, acrossX);   // (round 8)
                     if (ra.mirror == null) ra.mirror = new UnionRun { edge = ra.nb, nb = X.index, side = -sideX, median = r.median, pair = r.pair, approach = true, across = acrossX };
                 }
                 i0 = i;
@@ -1154,7 +1177,7 @@ namespace PSXRacing.City
         /// edge exactly when they stop within a few steps of it, so the two
         /// are one line (Continued) and no end turns down in the other's face,
         /// nor does the carriageway's own Jersey stand up in between.</summary>
-        static void SnapToNeighbours(Trims t, int edge, int side, ref float s0, ref float s1)
+        static void SnapToNeighbours(CityMap map, Trims t, int edge, int side, ref float s0, ref float s1)
         {
             var list = t.unions[edge];
             if (list == null) return;
@@ -1162,8 +1185,12 @@ namespace PSXRacing.City
             foreach (var o in list)
             {
                 if (o.side != side) continue;
-                if (o.s1 <= s0 + 0.5f && s0 - o.s1 <= reach) s0 = o.s1;
-                if (o.s0 >= s1 - 0.5f && o.s0 - s1 <= reach) s1 = o.s0;
+                // (round 8, 4'06" I-77) a partner run's end where its owner's median is DRAWN, not
+                // its padded claim: e1887's own run stopped at e1885's partner run's 15.6 while
+                // e1885's median reached e1887 at 17.6 - a 2 m gap, e15241's parapet beside it
+                DrawnRange(map, o, out float o0, out float o1);
+                if (o1 <= s0 + 0.5f && s0 - o1 <= reach) s0 = o1;
+                if (o0 >= s1 - 0.5f && o0 - s1 <= reach) s1 = o0;
             }
         }
 
@@ -1207,13 +1234,13 @@ namespace PSXRacing.City
             }
             if (x0 <= GroundTwinSnapM && !t.patch[X.a]) x0 = 0f;
             if (X.length - x1 <= GroundTwinSnapM && !t.patch[X.b]) x1 = X.length;
-            SnapToNeighbours(t, X.index, side, ref x0, ref x1);
+            SnapToNeighbours(map, t, X.index, side, ref x0, ref x1);
             // (round 6) a short stretch filling a gap: only when it spans one after snapping
             if (minLen > 0f && x1 - x0 < minLen) return 0f;
             var acrossMet = new int[metY.Count];
             for (int k = 0; k < metY.Count; k++) acrossMet[k] = metY[k].index;
             var ra = new UnionRun { edge = X.index, nb = twinWalk[kMidAll].y, side = side, s0 = x0, s1 = x1, median = DeckPairs.Median.Barrier,
-                                    owner = true, pair = -1, approach = true, across = acrossMet };
+                                    owner = true, pair = -1, approach = true, across = WithContinuations(map, t, acrossMet) };
             AddRun(t, ra);
             var acrossX = ChainAround(map, t, X);
             foreach (var be in metY)
@@ -1237,12 +1264,13 @@ namespace PSXRacing.City
                 if (be.length - hi <= GroundTwinSnapM) hi = be.length;
                 if (hi - lo < 0.25f) continue;
                 int sideB = !TwinSideVoteOn ? SideToward(be, 0.5f * (lo + hi), X.PointAt(twinWalk[kMid].x)) : vote >= 0 ? 1 : -1;
-                SnapToNeighbours(t, be.index, sideB, ref lo, ref hi);
+                SnapToNeighbours(map, t, be.index, sideB, ref lo, ref hi);
                 var rb = new UnionRun { edge = be.index, nb = X.index, side = sideB, s0 = lo, s1 = hi,
                                         median = DeckPairs.Median.Barrier, owner = false, pair = -1, approach = true, across = acrossX, mirror = ra };
                 AddRun(t, rb);
                 if (ra.mirror == null || be.index == ra.nb) ra.mirror = rb;
             }
+            AddChainPartners(map, t, ra, X, x0, x1, acrossX);   // (round 8)
             if (ra.mirror == null) ra.mirror = new UnionRun { edge = ra.nb, nb = X.index, side = -side, median = DeckPairs.Median.Barrier, pair = -1, approach = true, across = acrossX };
             return x1 - x0;
         }
@@ -1426,6 +1454,11 @@ namespace PSXRacing.City
                 if (open1) GroundVEnd(map, e, run.s1, +1, out vO1, out vP1);
             }
             bool vee0 = vO0 || vP0, vee1 = vO1 || vP1, full0 = vO0 && vP0, full1 = vO1 && vP1;
+            // (round 8) a carried-on end met by a run owned across draws THAT run's cross-line
+            // (blended in over the last metres), so the two medians meet on one line
+            Vector3 seamD0 = default, seamD1 = default; float seamL0 = 0f, seamL1 = 0f;
+            if (R8SeamOn && !open0) SeamDelta(map, trims, e, run, 0, out seamD0, out seamL0);
+            if (R8SeamOn && !open1) SeamDelta(map, trims, e, run, 1, out seamD1, out seamL1);
             for (int k = 0; k <= pieces; k++)
             {
                 float f = (float)k / pieces;
@@ -1438,6 +1471,8 @@ namespace PSXRacing.City
                 var pl = e.PointAt(uS[k]);
                 FootAny(map, run.across, pl, out var o, out float tk);
                 var w = FacingEdgeAt(map, trims, o, tk, pl);
+                if (seamL0 > 0f && uS[k] - run.s0 < seamL0) w += seamD0 * (1f - Mathf.Max(0f, uS[k] - run.s0) / seamL0);
+                if (seamL1 > 0f && run.s1 - uS[k] < seamL1) w += seamD1 * (1f - Mathf.Max(0f, run.s1 - uS[k]) / seamL1);
                 uB[k] = w - org;
                 // nothing to span where the two drawn edges touch - or where
                 // the road across is drawn INTO this one (its edge past ours,

@@ -5092,7 +5092,10 @@ namespace PSXRacing.City
             if (trims.patch[node]) return FanCornerRailed(map, trims, node, e, side);
             var o = ThroughPartner(map, e, node);
             if (o == null) return false;
-            return e.ElevatedAt(e.a == node ? 0f : e.length) || o.ElevatedAt(o.a == node ? 0f : o.length);
+            return e.ElevatedAt(e.a == node ? 0f : e.length) || o.ElevatedAt(o.a == node ? 0f : o.length)
+                // (REAL HEIGHTS round 8, the owner's 1'47" "down then back up") a divided freeway's
+                // median-side approach rail across a plain node inside its band (CityMeshes.Medians8)
+                || MedianRailCarriesOn(map, trims, e, o, node, side);
         }
 
         /// <summary>How far apart this road's drawn edge and the through
