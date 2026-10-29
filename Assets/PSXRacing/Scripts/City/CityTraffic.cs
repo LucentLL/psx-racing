@@ -1025,6 +1025,21 @@ namespace PSXRacing.City
             return a.edge2 == b.edge2 && a.dir2 == b.dir2 && (a.laneOut == b.laneOut || a.laneIn == b.laneIn);
         }
 
+        /// <summary>Two turns out of ONE lane (one goes on, one turns left):
+        /// one path until they part, so the follower keeps behind the leader
+        /// while the two are side by side within a car's width (2026-10-29:
+        /// the check saw a straight-on and a left out of one lane overlap in
+        /// the box at node 2301 - SameLeg counts a turn as one leg only to the
+        /// same road out).</summary>
+        static bool OneLaneOut(Car c, int k, Car o, int j)
+        {
+            ref Leg a = ref c.legs[k];
+            ref Leg b = ref o.legs[j];
+            if (!a.turn || !b.turn || a.edge != b.edge || a.dir != b.dir || a.node != b.node || a.laneIn != b.laneIn) return false;
+            Vector2 d = o.pos - c.pos;
+            return Mathf.Abs(c.fwd.x * d.y - c.fwd.y * d.x) < c.halfW + o.halfW + 0.3f;
+        }
+
         /// <summary>Do the two cars use a lane in common on these legs (runs:
         /// the lane it is in, both while changing; a later run the lane it
         /// arrives in)?</summary>
@@ -1065,7 +1080,7 @@ namespace PSXRacing.City
                 {
                     for (int k = 0; k < kc; k++)
                     {
-                        if (!SameLeg(c.legs[k], o.legs[j])) continue;
+                        if (!SameLeg(c.legs[k], o.legs[j]) && !OneLaneOut(c, k, o, j)) continue;
                         known = true;
                         if (!LanesMeet(c, k, o, j)) break;
                         // o's place on the leg less c's: on a RUN by arc position
