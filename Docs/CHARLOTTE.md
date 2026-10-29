@@ -8219,3 +8219,62 @@ object, so a round-7 A/B's second pass re-used the first's runs (the preview's o
 the drive audit's tiles were not) - `ResetWorldTrims`. `RunDriveAB` (PSX_DRIVE_AB="base;r8;r8+recip;r8+seam": the
 drive audit per configuration in one job), `RunLookThenDrive`, `PSX_LOOK_AB=round8`, spot probe: each run's road across
 / seams / FILL, the ground-twin WHY per metre, `PSX_SPOT_HEIGHTS=1` (a heights row: v l 0 h H X).
+## THE BRIDGES AND RAILS PASS (city-bridges-rails, 2026-10-29): structures and guardrails like the owner's I-77 photos
+
+The owner's two photos of I-77 northbound at the Brookshire Freeway (NC 16, left exit 11B): "what bridges, highway signs,
+and guard rails should look like" (signs are a parallel package). Code: `Scripts/City/CityMeshes.Bridges.cs`; one job that
+shoots, measures and audits it: `Editor/CityBridgesPass.cs` (-executeMethod PSXRacing.EditorTools.CityBridgesPass.Run,
+PSX_BR_TAG, PSX_BR_STEPS = stats,shotsab,flicker,drive,launch; shotsab shoots every view with the pass off and on).
+
+- **Structure atlas** `Art/City/Pack/city_structure.png` (512, mips, psx16; `tools/city/structure_atlas.py` from the PSX
+  Textures II 512 pack: concrete_wall_pt_1/_2/_4, concrete_pt_5/_6, rusty_metal_pt_7, metal_roofing_pt_1, metal_panels_pt_4),
+  seven horizontal BANDS that tile in U (girder web with the overhang's shadow, weathering-steel plate with stiffeners,
+  column with its splash-stained foot, cap, undersides, abutment form liner) + a misc row (OM-3 marker, bearing pad,
+  galvanized steel, luminaire housing). `Slot.Structure` (after Sidewalk: no slot moves; kit 98 slots), material
+  `CityStructure.mat`. A tile's `TileMeshes.structure` is RENDER-ONLY (CityWorld.Attach "Structure"): nothing new is cooked.
+- **Girders** under every span on structure (`EmitGirders`): a concrete BOX under links and decks <= 13.5 m (webs from
+  1.15 m inside the edge, battered 0.28/m), else a row of girders 3 m apart, precast concrete or weathering steel (40%, by
+  road name + 600 m cell, so twins match). Depth per edge (`PlanOf`): 1.2 m, 1.7 m over nothing, 0.75 m over water, and
+  never leaving less than 3.8 m between a girder and a road below (slab clearance is the solve's 5.0 m). Run ends closed.
+- **Piers** (`EmitBridgePier`, same 26 m pitch and nudges): a HAMMERHEAD (round 12-sided column 1.2-2.0 m, cap tapering
+  from 1.3-2.2 m over the column to 55% at the tips, a bearing under every girder line) or, wider than 17 m, a
+  MULTI-COLUMN BENT (2-4 columns, 1.15 m cap beam). A cap never reaches over a road passing under it within 4.6 m
+  (`CapBlocked`: the pier moves, else a column with its own cap). Columns stand from min(lattice, ground) - 0.6 m and
+  are solid as CAPSULES the drawn size (`SolidBox.round`; the INVISIBLE solids census samples capsules now).
+  THE PIERS' CLEAR ZONE (`PierClearFor`): a column keeps a fast road's bench (RoadsideRules.CityBenchM: freeway 8 m,
+  ramp 4.5 m) from its pavement - DOT's first choice, move the hazard - except on a divided road's median side, behind
+  its Jersey; streets keep PierClearM 1.5 m. Union bents (`EmitBent`) stand under the girders on round columns too.
+- **Abutments** (`EmitAbutments`): a backwall at every place a deck meets its fill (inside an edge, or at a node where
+  the road it carries on into is on structure), from the slab into the ground, 0.35 m past each edge.
+- **W-beam runs**: a grounded rail span that is a warranted DROP (not an approach, not on a retaining face, not in a
+  squeeze strip, not beside a deck's or retaining face's rail) is W-beam on posts, not the parapet carried along the
+  road. Ends: the lead-in terminal on open roadside (flared, turned down), else turned down inside the run and eased out
+  over the verge; where a run meets a parapet on the ground the parapet slopes down over TaperLenM with the beam bolted
+  along it (`WBeamHandOvers`). Colliders are the drawn beam (as the lead-ins'). All W-beams (lead-ins too) are drawn
+  galvanized with steel posts on the structure atlas (`DrawWBeams`; CityPoles.WBeamMesh stands down). Every turned-down
+  end and terminal gets a 1999 OM-3 object marker (yellow/black, render-only). PSX_CITY_WBEAM_RUNS=0 keeps the concrete.
+- **High masts** (`HighMasts`): inside every freeway/trunk link turning >= 100 degrees (a loop's middle, a big curve's
+  inside), 14 m clear of all pavement, no building or water, 170 m apart; 36.5 m (30.5 m off a trunk) galvanized
+  12-gon pole, ring frame, six HPS floods whose heads join the tile's NightGlow (gain 0.45 each), capsule at its foot,
+  the roadside mask keeps trees off it. PSX_CITY_MASTS=0: none.
+- **Rumble strips**: the freeway profiles (mw*) paint a 0.4 m milled band 0.15 m outside each edge line (grooves a row,
+  19 cm, apart; light/dark around the pavement's mean so it does not stripe at range). Texture only: a span drawn as
+  paint columns (tapers, squeezes, clips) shows its shoulder from the paint-free band, so the band breaks where the
+  lane lines are re-laid (as real strips break at gores). No tyre buzz yet (the wheel would need the hit's profile).
+- PSX_CITY_BRIDGES=0 draws everything as it was (the A/B; the rumble paint follows it).
+- **Measured (PSXBuild, one CityBridgesPass job each, main 70e81508 = before):** drive audit identical - WALLS IN LANES
+  0/0, FALL HOLES 8/8, INVISIBLE lanes 4/4, INVISIBLE solids 59/59 (capsules sampled now), BLUNT 1/1 (routes) 9/9 (box),
+  short rails 24/24, CITY AUDIT 10/10 failures (the median classes are real-heights'); launch audit routes identical
+  (uptown 1 LAUNCH 4 UNLOAD, tryon 0/0, independence 0/1); flicker finder depth ties 2130 -> 2132 px, colour flips
+  3067 -> 3034 (final run; the run before the pier fallback 2129 / 3037). Tiles at the I-77 / I-277 / NC 16 interchange: draws equal where W-beams already stood (the galvanized
+  beams share the structure draw: 20/22/25/19) and +1 on a bridge-only tile; triangles +0-33% (the I-277 viaduct's tile
+  23.1k -> 30.7k: 7.9k of girders, bents and caps), collider triangles unchanged or fewer. Perf probe (UptownLoop, night,
+  rain, editor, uncapped): cockpit avg 25.6 -> 25.0 ms, p95 35.1 -> 35.7; chase avg 19.8 -> 20.8, p95 29.2 -> 31.2,
+  SetPass 330 -> 342 (with the structure in the sun map; it is excluded from it since).
+- Sheet: `Docs/shots/bridges/bridges_rails_sheet.png` (owner photo | before | after at the owner's two spots, the I-277
+  viaduct, the interchange, a ramp guardrail).
+- Open: no guardrail shields a pier (a pier's tile would have to lay a run along another road's edge - two tiles could
+  lay it twice and z-fight); piers move out of the clear zone first, else stand where the old rule put them. The tyre
+  buzz on the rumble strip, wingwalls and slope paving at abutments, an F-shape parapet profile (the parapets share the
+  Jerseys' concrete), and I-77 NB's left side at exit 11B (the photos show the open infield slope; the game stands its
+  median wall there - the medians' rule, not this pass's).

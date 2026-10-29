@@ -537,6 +537,12 @@ namespace PSXRacing.EditorTools
             // cast out and matched to the pavement copy's brightness
             m[(int)CityMeshes.Slot.Sidewalk] = MakeMat("CitySidewalk", CityPackDir + "/concrete_pt_4_walk.png", affine: 0f,
                 wet: WetCityPavement);
+            // the bridges pass: girders, piers, caps, bearings, abutments, the
+            // guardrails' object markers and the high masts, on the structure
+            // atlas (tools/city/structure_atlas.py: the owner's PSX Textures II
+            // concrete and steel in bands that tile along a girder)
+            m[(int)CityMeshes.Slot.Structure] = MakeMat("CityStructure", CityPackDir + "/city_structure.png", affine: 0f,
+                wet: WetCityConcrete);
             m[(int)CityMeshes.Slot.Water] = CityWaterMat();
             // Night windows: the five facades with glass in them carry a mask
             // (Art/City/Night, see WithNightWindows); brick and both roofs are
@@ -825,10 +831,25 @@ namespace PSXRacing.EditorTools
             // and a one-way downtown street included.
             bool carriageway = pr.oneway;
 
+            // THE BRIDGES PASS: a freeway's MILLED SHOULDER RUMBLE STRIPS (the
+            // owner's I-77 photo: corrugations along the left shoulder, a hand
+            // outside the yellow line) - a 0.4 m band on each shoulder 0.15 m
+            // past its edge line, grooves a row (19 cm) apart: each groove in
+            // shadow, each land between two catching the light the way milled
+            // asphalt shows its aggregate (on the dark blacktop a darkening alone
+            // did not read at all), the band's mean the pavement's own so it
+            // does not stripe the shoulder at range.
+            bool rumble = CityMeshes.BridgeDetailOn && pr.kind == RoadProfiles.Kind.Motorway && pr.shl >= 0.8f;
+            float rL0 = pr.shl - 0.55f, rL1 = pr.shl - 0.15f, rR0 = total - pr.shr + 0.15f, rR1 = total - pr.shr + 0.55f;
             WriteTexture(CityTexDir + "/" + RoadTexFile(pr.key, surf), width, h, (x, y) =>
             {
                 float m = (x + 0.5f) / width * total;
                 var px = Grain(x, y, surf);
+                if (rumble && ((m >= rL0 && m < rL1) || (m >= rR0 && m < rR1)))
+                {
+                    float k = (y & 1) == 0 ? 0.70f : 1.40f;
+                    px = new Color32((byte)Mathf.Min(255f, px.r * k), (byte)Mathf.Min(255f, px.g * k), (byte)Mathf.Min(255f, px.b * k), 255);
+                }
                 if (Mathf.Abs(m - leftEdge) < ph) return carriageway ? Yellow : White;
                 if (Mathf.Abs(m - rightEdge) < ph) return White;
                 foreach (var ys in yellowSolid) if (Mathf.Abs(m - ys) < yh) return Yellow;

@@ -1073,6 +1073,8 @@ namespace PSXRacing.City
         public static Mesh WBeamMesh(CityMeshes.TileMeshes tm)
         {
             if (tm == null || tm.wbeams.Count == 0) return null;
+            // the bridges pass draws them (galvanized) with the tile's structure
+            if (CityMeshes.WBeamsOnAtlas) return null;
             Begin();
             foreach (var w in tm.wbeams) EmitWBeam(tm.origin, w);
             foreach (var p in tm.wbeamPosts) EmitWBeamPost(tm.origin, p);
