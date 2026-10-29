@@ -76,10 +76,10 @@ namespace PSXRacing.City
             public static float walkM;
             public static int spans, ramps, cornersPoly, cornersStrip, cornersNone, sideMismatch;
             /// <summary>Why corners were left as verges: shape, arm, width, acute, strip, P.</summary>
-            public static readonly int[] noneWhy = new int[7];
+            public static readonly int[] noneWhy = new int[8];
             public static void Reset() { walkM = 0f; spans = ramps = cornersPoly = cornersStrip = cornersNone = sideMismatch = 0; System.Array.Clear(noneWhy, 0, noneWhy.Length); lotCurbM = 0f; }
             public static string Line() =>
-                $"walks {walkM:0} m in {spans} spans ({ramps} ramp ends), corners {cornersPoly} fanned from P + {cornersStrip} strips, {cornersNone} left as verges (shape/arm/width/acute/strip/P {noneWhy[1]}/{noneWhy[2]}/{noneWhy[3]}/{noneWhy[4]}/{noneWhy[5]}/{noneWhy[6]}), {sideMismatch} side mismatches, lot curbs {lotCurbM:0} m";
+                $"walks {walkM:0} m in {spans} spans ({ramps} ramp ends), corners {cornersPoly} fanned from P + {cornersStrip} strips, {cornersNone} left as verges (shape/arm/width/acute/strip/P/paved {noneWhy[1]}/{noneWhy[2]}/{noneWhy[3]}/{noneWhy[4]}/{noneWhy[5]}/{noneWhy[6]}/{noneWhy[7]}), {sideMismatch} side mismatches, lot curbs {lotCurbM:0} m";
         }
 
         static CityMap walkMapFor;
@@ -188,13 +188,13 @@ namespace PSXRacing.City
         /// continuation of another walk street). Else 0, and the span beside
         /// it is the ramp.
         /// </summary>
-        static void PrepareWalks(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, Vector2 min, Vector2 max)
+        static IEnumerable<int> PrepareWalks(CityMap map, Trims trims, TileMeshes tm, CityMap.Edge e, Vector2 min, Vector2 max)
         {
             int n = sections.Count;
             if (walkL.Length < n) { walkL = new float[n * 2]; walkR = new float[n * 2]; }
             System.Array.Clear(walkL, 0, n); System.Array.Clear(walkR, 0, n);
             walkEdgeNow = e.index;
-            if (!WalkEdge(map, e)) return;
+            if (!WalkEdge(map, e)) yield break;
             var o = tm.origin;
             const float near = 30f;
             for (int side = -1; side <= 1; side += 2)
@@ -203,6 +203,7 @@ namespace PSXRacing.City
                 var arr = WalkArr(side);
                 for (int k = 0; k < n; k++)
                 {
+                    if ((k & 7) == 7) yield return 0;   // WP-09: eight sections a step
                     var S = sections[k];
                     var ed = S.Edge(side);
                     float wx = ed.x + o.x, wz = ed.z + o.z;
@@ -217,7 +218,8 @@ namespace PSXRacing.City
                         if (!WalkEndKeeps(map, trims, e, node, side, pw)) continue;
                     }
                     float w = WalkClear(map, trims, pw, outw, ed.y + CurbH, WalkW);
-                    if (w >= WalkMinM) arr[k] = w;
+                    if (w < WalkMinM || WalkOnPavement(map, trims, pw, outw, w, ed.y, e.index)) continue;
+                    arr[k] = w;
                 }
             }
         }
@@ -230,6 +232,37 @@ namespace PSXRacing.City
             float run = ClearRun(map, trims, p, outw, y, want + WalkPadM, out float otherY);
             if (float.IsNaN(otherY)) return want;
             return Mathf.Min(want, run + VergeClearPadM - WalkPadM);
+        }
+
+        /// <summary>
+        /// Would a walk out from this edge point lie on any pavement - another
+        /// road's ribbon or a junction's fan, at its level? Read at the walk's
+        /// middle, its back and its curb's nose. ClearRun does not meet
+        /// pavement its ray STARTS on, so a walk from an edge drawn inside
+        /// another road (a split, a clipped mouth) passed it: GRASS ON TOP of
+        /// a link's lane at W 5th, a curb in East 7th Street's.
+        /// </summary>
+        static bool WalkOnPavement(CityMap map, Trims trims, Vector2 p, Vector2 outw, float w, float y, int own)
+        {
+            return OnPavement(map, trims, p + outw * (0.5f * w), y, own, own) || OnPavement(map, trims, p + outw * (w - 0.05f), y, own, own);
+        }
+
+        /// <summary>Is the plan point on a drawn road ribbon or fan within a
+        /// car's height of <paramref name="y"/>?</summary>
+        static bool OnPavement(CityMap map, Trims trims, Vector2 q, float y, int skipA = -1, int skipB = -1)
+        {
+            GatherNear(map, q, q, 1f);
+            GatherPavement(map, trims);
+            foreach (int ei in nearEdges)
+            {
+                if (ei == skipA || ei == skipB) continue;   // its own ribbon: the walk starts at its edge
+                var ol = OutlineOf(map, trims, ei);
+                float h = OutlineHeightAt(ol, q);
+                if (!float.IsNaN(h) && Mathf.Abs(h - y) < RoadsideRules.CarBandM) return true;
+            }
+            foreach (int n in nearFans)
+                if (OnFan(FanPolyOf(map, trims, n), q, out float fy) && Mathf.Abs(fy - y) < RoadsideRules.CarBandM) return true;
+            return false;
         }
 
         /// <summary>Does the walk carry on at this end of the edge?</summary>
@@ -341,6 +374,9 @@ namespace PSXRacing.City
             cw.w1 = WalkClear(map, trims, p1, cw.n1, k1.pos.y + CurbH, WalkW);
             noneWhyNow = 3;
             if (cw.w0 < WalkMinM || cw.w1 < WalkMinM) return 0;
+            noneWhyNow = 1;
+            for (int j = g0; j != g1; j = (j + 1) % ring.Count)
+                if (ChordRailed(map, trims, node, ring[j], ring[(j + 1) % ring.Count], origin)) return 0;   // a deck edge or a drop: its face and rail stand
             float c = Vector2.Dot(cw.n0, cw.n1);
             noneWhyNow = 5;
             if (c >= 0.866f) return RingStripFits(ring, cw, origin) ? 2 : 0;
@@ -356,6 +392,7 @@ namespace PSXRacing.City
             float u = (w.x * d1.y - w.y * d1.x) / den;
             var P = b0 + d0 * u;
             cw.P = P;
+            if (OnPavement(map, trims, P, 0.5f * (k0.pos.y + k1.pos.y), k0.edge, k1.edge)) { noneWhyNow = 7; return 0; }
             // P lies toward the junction from both ends (the curb return is
             // longer than the walk is wide), not far, and off other pavement
             var toJ0 = new Vector2(k1.pos.x - k0.pos.x, k1.pos.z - k0.pos.z);
@@ -664,9 +701,9 @@ namespace PSXRacing.City
         //  PSX_CITY_LOTCURBS=0: none.
         // ------------------------------------------------------------------
         public static bool LotCurbsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_LOTCURBS") != "0";
-        static readonly float[] lotCurbU = { -0.02f, 0.10f, 0.22f, 0.40f, 0.65f };
-        static readonly float[] lotCurbH = { -0.02f, 0.13f, 0.15f, 0.10f, -0.03f };
-        static readonly Vector3[] lotCurbA = new Vector3[5], lotCurbB = new Vector3[5];
+        static readonly float[] lotCurbU = { -0.02f, 0.10f, 0.25f, 0.55f };
+        static readonly float[] lotCurbH = { -0.02f, 0.13f, 0.15f, -0.03f };
+        static readonly Vector3[] lotCurbA = new Vector3[4], lotCurbB = new Vector3[4];
         public static float lotCurbM;
 
         static void EmitLotCurbs(CityMap map, TileMeshes tm, Vector2 min)
@@ -690,7 +727,7 @@ namespace PSXRacing.City
                     var d = b - a; float len = d.magnitude;
                     if (len < 0.05f) continue;
                     var outw = new Vector2(d.y, -d.x) / len * sgn;
-                    int k = Mathf.Max(1, Mathf.CeilToInt(len / 2f));
+                    int k = Mathf.Max(1, Mathf.CeilToInt(len / 4f));
                     for (int j = 0; j < k; j++)
                     {
                         var pa = a + d * ((float)j / k); var pb = a + d * ((float)(j + 1) / k);
@@ -698,13 +735,13 @@ namespace PSXRacing.City
                         float uA = uAcc + len * j / k, uB = uAcc + len * (j + 1) / k;
                         if (m.x < min.x || m.x >= min.x + TileSize || m.y < min.y || m.y >= min.y + TileSize) continue;
                         if (!LotCurbHere(map, li, m, outw)) continue;
-                        for (int q = 0; q < 5; q++)
+                        for (int q = 0; q < 4; q++)
                         {
                             var qa = pa + outw * lotCurbU[q]; var qb = pb + outw * lotCurbU[q];
                             lotCurbA[q] = new Vector3(qa.x - o.x, LatticeY(map, qa.x, qa.y) + lotCurbH[q], qa.y - o.z);
                             lotCurbB[q] = new Vector3(qb.x - o.x, LatticeY(map, qb.x, qb.y) + lotCurbH[q], qb.y - o.z);
                         }
-                        for (int q = 0; q < 4; q++)
+                        for (int q = 0; q < 3; q++)
                             bk.Up(lotCurbA[q], lotCurbA[q + 1], lotCurbB[q + 1], lotCurbB[q],
                                   new Vector2(uA / WalkTexM, lotCurbU[q] / WalkTexM), new Vector2(uA / WalkTexM, lotCurbU[q + 1] / WalkTexM),
                                   new Vector2(uB / WalkTexM, lotCurbU[q + 1] / WalkTexM), new Vector2(uB / WalkTexM, lotCurbU[q] / WalkTexM));

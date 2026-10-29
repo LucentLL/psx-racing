@@ -3889,7 +3889,7 @@ namespace PSXRacing.City
                 // way whichever tile draws the span beside it.
                 foreach (var _ in DecideSideFlagsSteps(map, trims, tm, e, min, max)) yield return 0;
                 // streets pass 4: the walk's width at each section, both sides
-                PrepareWalks(map, trims, tm, e, min, max);
+                foreach (var _ in PrepareWalks(map, trims, tm, e, min, max)) yield return 0;
                 yield return 0;
                 stepPart = 2;
 
