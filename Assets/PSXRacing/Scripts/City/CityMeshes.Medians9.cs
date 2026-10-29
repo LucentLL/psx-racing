@@ -43,11 +43,11 @@ namespace PSXRacing.City
         public static bool R9SplitOn = System.Environment.GetEnvironmentVariable("PSX_CITY_R9_SPLIT") != "0";
         public static bool R9BridgeOn = System.Environment.GetEnvironmentVariable("PSX_CITY_R9_BRIDGE") != "0";
         public static bool R9FansOn = System.Environment.GetEnvironmentVariable("PSX_CITY_R9_FANS") != "0";
-        public static bool R9DeckEnd2On = System.Environment.GetEnvironmentVariable("PSX_CITY_R9_DECKEND2") != "0";
+        public static bool R9DeckEnd2On = System.Environment.GetEnvironmentVariable("PSX_CITY_R9_DECKEND2") == "1";   // OFF: see DECKEND2 below
         /// <summary>(round 9) The round's median switches as one set (the look tool's A/B: PSX_LOOK_AB=round9).</summary>
         public static bool[] Round9Flags() => new[] { R9SplitOn, R9BridgeOn, R9FansOn, R9DeckEnd2On };
         public static void SetRound9Flags(bool[] f) { R9SplitOn = f[0]; R9BridgeOn = f[1]; R9FansOn = f[2]; R9DeckEnd2On = f[3]; }
-        public static void SetRound9(bool on) => SetRound9Flags(new[] { on, on, on, on });
+        public static void SetRound9(bool on) => SetRound9Flags(new[] { on, on, on, on && System.Environment.GetEnvironmentVariable("PSX_CITY_R9_DECKEND2") == "1" });
 
         /// <summary>The widest the twins may stand apart where a gap between two shared medians is
         /// bridged (a 10-12 m median keeps its centre Jersey and a paved strip each side).</summary>
@@ -59,7 +59,7 @@ namespace PSXRacing.City
         /// <summary>How far each leg's foot carries on along its carriageway's edge (inset inside
         /// the own Jersey it meets), so a partner whose own Jersey starts a little off the foot
         /// leaves no notch.</summary>
-        const float R9SplitFootM = 1.5f;
+        const float R9SplitFootM = 2.6f;
         static int r9Splits, r9SplitDropped, r9Bridges, r9FanFills, r9DeckEnds2;
         /// <summary>(round 9) fan chords given the median's Jersey (tiles built so far).</summary>
         public static int r9FanChords;
@@ -497,6 +497,11 @@ namespace PSXRacing.City
                 if (!(end == 0 ? M.split0 : M.split1)) continue;
                 CityElevation.ProjectOn(E, X.PointAt(Mathf.Clamp(end == 0 ? M.s0 : M.s1, 0f, X.length)), out float f);
                 if (Mathf.Abs(sb - f) <= reach + 0.6f) return true;
+                // ...or at this partner run's own padded end beside that foot (where twins part, the
+                // spans out to the claim stay union: I-77 e8478's own Jersey started at 9.7, the foot
+                // at 7.7 - turned down there, a 2 m break at uptown 7980 in the second drive)
+                float raw = Mathf.Abs(f - run.s0) <= Mathf.Abs(f - run.s1) ? run.s0 : run.s1;
+                if (Mathf.Abs(sb - raw) <= reach && Mathf.Abs(raw - f) <= R9SplitFootM) return true;
             }
             return false;
         }

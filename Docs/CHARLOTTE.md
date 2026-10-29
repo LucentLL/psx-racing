@@ -8219,6 +8219,80 @@ object, so a round-7 A/B's second pass re-used the first's runs (the preview's o
 the drive audit's tiles were not) - `ResetWorldTrims`. `RunDriveAB` (PSX_DRIVE_AB="base;r8;r8+recip;r8+seam": the
 drive audit per configuration in one job), `RunLookThenDrive`, `PSX_LOOK_AB=round8`, spot probe: each run's road across
 / seams / FILL, the ground-twin WHY per metre, `PSX_SPOT_HEIGHTS=1` (a heights row: v l 0 h H X).
+### REAL HEIGHTS - round 9 (2026-10-29; the last median breaks, gaps and boxes on the race routes)
+
+The owner: "This is not how medians work. They don't just start and stop. Go up and down allowing cars to drive into
+oncoming traffic"; "rectangles and diamonds"; "rectangle cutouts with holes, spots that go down then back up, and empty
+box areas". Round 8 left on the routes 7-8 breaks, 3 open gaps and 10-11 boxes (MEDIAN ACROSS two+ 22 / none 28).
+Every place was looked at first (spot probe with heights + chase/top shots, PSXLab r9_look1): the 28 "none" rays were
+exactly the breaks and gaps, the 22 "two+" rays exactly the boxes. The code is `CityMeshes.Medians9.cs` (new partial)
+plus hooks in `CityMeshes.Unions.cs` and `CityMeshes.cs`.
+
+**1. SPLIT - the median ended where the twins part (Independence 161 / 290 / 2482 / 2600 / 4407, uptown 2211 / 7978).**
+A ground-twin run stops at the last 4 m walk sample inside the 9.5 m band. Two things then went wrong at once: (a) the
+run's end was read as CONTINUED by its own partner run's padded claim across (Continued's twin test: a partner claims
+2 m past its owner's last foot, so the owner's end looked carried on by itself) and drawn with no end at all, and (b)
+each carriageway's own Jersey, starting there, was turned down to a 0.12 m curb over 8 m - a 2-8 m low spot a car
+crosses into oncoming traffic. A real median SPLITS. Now a closed ground end of a Barrier run - or one "continued" only
+by its own partner (`ContinuedButByOwnPartner`) - where both carriageways go on with their own Jersey
+(`OwnBarrierPast`: grounded, barriered, out of fans and rail bands, no median drawn there) is a split
+(`UnionRun.split0/1`): two Jersey legs from the centre line, each flaring 1:6 (a leg 3 x the median's width, 8 m min,
+45% of the run max) to its carriageway's edge with the Jersey's own footprint (traffic face on the edge), full height;
+no centre Jersey in the V, no turned-down nose; the own Jerseys keep full height at that end (`R9KeepJerseyEnd`, also
+at a partner's padded end within the foot's reach); each leg's foot runs on 2.6 m along its edge inside the own Jersey,
+inset 2 cm (`EmitSplitFeet`), and a partner gets a section station on the split's foot (`SplitFeetOn`). A run split
+at both ends shorter than its two legs (a diamond) is not laid. `PSX_CITY_R9_SPLIT=0`: before.
+
+**2. BRIDGE - two shared medians a short way apart, the twins hovering at the band (uptown 8688 / 8727).** I-277 e2141
+-> e2139 -> e8474 against e8488 / e4596: 8.9-10.2 m apart for 45 m between two shared medians; each walk refused the
+samples over 9.5 m and e2139 (35 m) was too short for a run of its own, so the stretch was two own Jerseys 9 m apart (the
+BOX) and a turned-down restart (the OPEN GAP). A gap of up to 60 m between two drawn medians (on an edge, or on through
+its nodes - a ramp's merge node too, `R9Next`) with the twin beside every 2 m within 12 m, at one level, on the ground,
+its side not drawn already, is laid as one median (an owner run per edge, exact partners). `PSX_CITY_R9_BRIDGE=0`.
+
+**3. FANS - junctions on ONE carriageway of a divided road.** (a) Independence 4507-4537 at Norland Road: Norland Rd
+joins only the westbound carriageway (a right-in/right-out); the shared median's walks stopped at that carriageway's
+fan and the eastbound one stood its own Jersey across the 28 m, turned down at both ends - a grass rectangle cut out
+of the median (the owner's "rectangle cutouts") with a BREAK at each end. The bridge carries the median on past a
+twin's fan whose other arms all leave on the twin's outside (`FanOutsideOnly`; the twin's facing edge there is its line
+model = the fan's median-side chord), and that chord draws no kerb or verge under the strip (`MedianChordUnion`: its
+grass stood a hair over the strip). (b) At every right-in/right-out and outside ramp on Independence's busway median
+(Paul Buck Blvd, Woodland Dr, the 6141 ramp ...) a carriageway's own median Jersey ended square, full height and OPEN
+(no end face: EdgeLinesUp reads every fan node as lined up) at its fan: the fan's median side was open for 10-30 m, both
+carriageways' at once at Paul Buck Blvd (13 rays of "none" across the routes' fans, never seen: the census rays start
+between the trims). The chord between the two through arms' median corners now carries the Jersey across
+(`MedianChordJersey`, BuildJunctions) where nothing leaves the node on that side and no shared median is drawn there.
+A node a road crosses or leaves the median at keeps its opening. `PSX_CITY_R9_FANS=0`: before.
+The 1-2 m BOXES at Independence 3163 / 3481 / 3513 / 3731 / 5044 / 6141 and 6053-6061 / 131-155 were not boxes: two
+continuous walls 11-17 m apart (the busway median), counted only because the walk's reason there reads "fan" / "no
+twin" / "owned by" instead of "gap". The census reads a wide median from the walls now (exactly two, each at its own
+carriageway's edge, the edges further apart than the band).
+
+**4. 1'47" - NOT fixed (`PSX_CITY_R9_DECKEND2`, OFF).** The pit past the Elizabeth Ave deck is the twin's bridge
+e2437 starting ~14 m along e2435 (a skewed abutment line), the land under its deck footprint dug to the creek channel
+(the `underDeck` channel rule in CityElevation.Ground: terms 'd'/'D', land -11 m at e2435 s 8-12), and the 8 m lattice
+cells carrying that dip on to s ~17 where the land term is back at the road (spot spec `T`). Two trials of a slab along
+e2435's longer deck (DECKEND2: a partner run whose own deck carries on over a pit gets an owner run along it, its
+ground continuation read from the lattice the land draws) covered most of the pit but left the median-side parapet
+starting square (+1 BLUNT on the route, e2435 s 14.5) or the wall stepping in blocks at the slab's end - worse than the
+pit, so OFF. Next: grade the land under a deck within the abutment band as a spill-through slope from the bridge seat
+(not the channel) in a twin median only, or end both decks on one abutment line.
+
+**Census (drive audit, CityAudit.Median).** MEDIAN ACROSS round 9 line: two+ walls that are a split's V (or 5 m past its
+mouth: its designed end, as a deck's V is) - V class; a wide median read from the walls - WIDE; rays across the routes'
+OWN junction fans: one / two+ / none where nothing leaves into the median (a defect) / none where a road does (an
+opening by design). (Round 8's census read "wide" from the walk's reason only: the base on the new census is CLASSES
+7/3/2 where round 8 reported 7/3/11.)
+
+**Measured** (PSXLab r9_ab2 drives on one census code; HANDOFF.md round 9 'Gates'): Drive audit (PSXLab r9_ab2, same code but before the 7980 fix and with DECKEND2 still on) vs the base = this branch with round 9 off on the SAME census code (r9_ab2/city_drive_r8.txt): MEDIAN CLASSES breaks/gaps/boxes 7/3/2 -> 1/0/0 (round 8's own census reported 8/3/10; the one left, uptown 7980 e8478 s 13 2 m, fixed after: the partner's own Jersey kept full height at its padded end, the final look r9_ab3's spot probe shows it full height); MEDIAN ACROSS two+ 5 -> 0, none 24 -> 1 (= that ray); split V rays 113, WIDE-from-walls 32; fan rays none (nothing leaving into the median) 13 -> 0. WALLS IN LANES 0 = 0; FALL HOLES 8 places all off-route = base; INVISIBLE lanes 4 = 4; INVISIBLE solids 830 = 830 (the base branch's value - round 8's 59 predates the integration's other passes); BLUNT route 1 -> 2 (+1 at e2435 s 14.5 = DECKEND2, now OFF: expected 1). NOT YET MEASURED: launch uniform / census per class / route p99 - the gate job (CityVSmoothCensus.Run, PSX_VS_LAUNCH=uniform, PSX_VS_THEN_DRIVE=1) was started 17:29 on PSXLab with the final defaults: results in C:/Users/mcgee/PSXLab/r9_gate1 (vsmooth_census.txt, city_launch_after.txt, city_drive.txt) when it ends (~18:30). The solve is untouched (medians and fan chords only), so the census/launch are expected equal to round 8's 102/395, routes 0/0/0, p99 1.12/2.11/0.76 - unverified.
+
+**Tools.** `PSX_LOOK_AB=round9` (RunMedianLookAB / RunLookThenDrive; DECKEND2 joins the set only with
+`PSX_CITY_R9_DECKEND2=1`), `PSX_DRIVE_AB` names containing "r9" (round 8 + 9 on), custom view
+`name:along:x:z:road:back[:rise[:fov]]` (the chase view of a place, along its carriageway), spot spec 6th field `T` (the
+land term per column: d deck cap, D deck protect, p cap, f floor, c cut, n natural; and the lowest grass point's
+numbers), world coordinates in the SPOT header. Scratch job scripts (session scratchpad): r9job.ps1, r9look.ps1,
+r9gate.ps1, r9sheet.py. Sheet: Docs/shots/medians9/real_heights_r9_sheet.png.
+
 ## THE BRIDGES AND RAILS PASS (city-bridges-rails, 2026-10-29): structures and guardrails like the owner's I-77 photos
 
 The owner's two photos of I-77 northbound at the Brookshire Freeway (NC 16, left exit 11B): "what bridges, highway signs,
