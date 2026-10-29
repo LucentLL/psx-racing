@@ -2467,8 +2467,9 @@ namespace PSXRacing.EditorTools
                 {
                     var e = map.edges[ei];
                     if (e.link || e.tunnel || e.bridge) continue;
-                    // a road with a pole line is lit by its poles' cobra-heads (the pole audit's)
-                    if (CityPoles.Enabled && CityPoles.IsPoleEdge(map, e)) continue;
+                    // a road with a pole line is lit by its poles' cobra-heads (the pole audit's) -
+                    // except on a city race route, where it stands its own posts (night-look pass 5)
+                    if (CityPoles.Enabled && CityPoles.IsPoleEdge(map, e) && !(CityMeshes.RouteLamps && RaceRunOff.OnRoute(map, e.index))) continue;
                     int k = CityPoles.IsAcornEdge(map, e) ? 3 : e.cls >= 5 ? 2 : e.cls >= 2 ? 1 : 0;
                     for (float s = 0.5f; s < e.length; s += 1f)
                     {
