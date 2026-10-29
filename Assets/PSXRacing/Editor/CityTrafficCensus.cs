@@ -173,6 +173,31 @@ namespace PSXRacing.EditorTools
             EditorApplication.playModeStateChanged -= AfterExit;
             EditorApplication.delayCall += CityTrafficCheck.Run;
         }
+
+        /// <summary>PSX_CENSUS_THENDRIVE=1 (road-logic lanes): after the
+        /// close-ups, the DRIVE AUDIT (CityAudit.RunDrive: walls in lanes,
+        /// fall holes, invisible colliders; city_drive.txt) in the same editor,
+        /// back in edit mode - the paint's after-shots and the data's gate in
+        /// one Unity job.</summary>
+        internal static bool ThenDrive => System.Environment.GetEnvironmentVariable("PSX_CENSUS_THENDRIVE") == "1";
+        internal static void ChainDrive()
+        {
+            EditorApplication.playModeStateChanged += AfterExitDrive;
+            EditorApplication.ExitPlaymode();
+        }
+
+        static void AfterExitDrive(PlayModeStateChange s)
+        {
+            if (s != PlayModeStateChange.EnteredEditMode) return;
+            EditorApplication.playModeStateChanged -= AfterExitDrive;
+            EditorApplication.delayCall += () =>
+            {
+                int code = 0;
+                try { CityAudit.RunDrive(); }
+                catch (System.Exception ex) { Debug.LogException(ex); code = 1; }
+                EditorApplication.Exit(code);
+            };
+        }
     }
 
     /// <summary>What the tour and the close-ups share: the session, the
@@ -672,6 +697,7 @@ namespace PSXRacing.EditorTools
             finished = true;
             CityTrafficCensus.Finish();
             if (CityTrafficCensus.ThenCheck && CityTrafficCensus.failures == 0) CityTrafficCensus.ChainCheck();
+            else if (CityTrafficCensus.ThenDrive) CityTrafficCensus.ChainDrive();
             else EditorApplication.Exit(CityTrafficCensus.failures == 0 ? 0 : 1);
         }
 
