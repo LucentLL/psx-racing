@@ -120,6 +120,8 @@ try {
         $env:PSX_CENSUS_THENCHECK = if ($ThenCheck -and $ShotsOnly) { "1" } else { "0" }
         if ($ThenCheck -and $ShotsOnly) { Remove-Item "$proj\PSXRacing_city_traffic_check.txt" -ErrorAction SilentlyContinue }
         Get-ChildItem "$proj\Screenshots\census_top*.png" -ErrorAction SilentlyContinue | Remove-Item
+        # the list photographed travels with the pictures (the sheet's captions)
+        Copy-Item (Join-Path $proj "census\top6.txt") (Join-Path $raw "shots_top6.txt") -Force
         Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\censusshots.log" -MaxMinutes 30 -UnityArgs @(
             "-batchmode","-projectPath",$proj,
             "-executeMethod","PSXRacing.EditorTools.CityTrafficCensus.Shots",

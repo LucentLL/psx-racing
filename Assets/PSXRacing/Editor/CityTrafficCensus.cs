@@ -624,7 +624,8 @@ namespace PSXRacing.EditorTools
                 yield return null;
                 var f = new Vector3(Mathf.Sin(heading * Mathf.Deg2Rad), 0f, Mathf.Cos(heading * Mathf.Deg2Rad));
                 var r = Vector3.Cross(Vector3.up, f);
-                var eye = at - f * 24f + r * 8f + Vector3.up * 13f;
+                // above the canopy (13 m put one shot inside a tree), along the move
+                var eye = at - f * 26f + r * 9f + Vector3.up * 24f;
                 yield return Shot(Path.Combine(dir, $"census_top{i}.png"), eye, at + f * 3f);
                 CityTrafficCensus.Line($"shot {i}: {label}");
             }

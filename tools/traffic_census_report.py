@@ -110,6 +110,10 @@ COL = {
 }
 DEFAULT_SEV = {"wreck": 7, "contact": 3, "stuck": 4, "lane": 2, "lanes": 3, "merge": 4, "offpave": 4, "wrongway": 6, "route": 4,
                "vertical": 4, "lateral": 3, "conflict": 5, "signal": 8, "control": 4, "speed": 1, "traffic": 2}
+# a condition a car lives in for a while (a bend, a slow crawl through it) is
+# counted once per car, not once per log line
+PER_CAR = {("lateral", "bend-tighter-than-limit"), ("lateral", "ramp-bend-no-limit"), ("lateral", "turn-tighter-than-planned"),
+           ("lateral", "kink"), ("vertical", "crest"), ("vertical", "sag-jolt"), ("vertical", "crest-launch")}
 VISIBLE = {"wreck", "contact", "stuck", "lane", "lanes", "merge", "offpave", "wrongway", "route", "vertical", "lateral", "conflict", "signal", "control"}
 
 
@@ -253,7 +257,9 @@ def make_spot(cat, sub, g):
     elif (cat, sub) == ("lanes", "lanes-misaligned"):
         sev = 3 + min(3.0, worst["value"] / 2)
     static = all(e["move"] == "static" for e in g)
-    return dict(cat=cat, sub=sub, count=n, cars=cars, x=x, z=z, y=ys[len(ys) // 2], hdg=worst["hdg"], sev=sev, score=sev * n,
+    k = cars if (cat, sub) in PER_CAR else n
+    return dict(cat=cat, sub=sub, count=k, cars=cars, x=x, z=z, y=ys[len(ys) // 2], hdg=worst["hdg"], sev=sev, score=sev * k,
+                wx=worst["x"], wz=worst["z"], wy=worst["y"],
                 node=nodes.most_common(1)[0][0] if nodes else -1, edge=edges.most_common(1)[0][0] if edges else -1,
                 edge2=edges2.most_common(1)[0][0] if edges2 else -1, roads=[r for r, _ in roads.most_common(2)],
                 moves=[m for m, _ in moves.most_common(2)], vmax=worst["value"], vmean=sum(e["value"] for e in g) / n,
@@ -267,10 +273,10 @@ def fmt_spot(s, i=None):
     if s["edge2"] >= 0 and s["edge2"] != s["edge"]: ids.append("e%d" % s["edge2"])
     roads = " / ".join(r for r in s["roads"] if r) or "(unnamed)"
     head = ("%d. " % i) if i is not None else ""
-    what = "static" if s["static"] else ("%d events, %d cars" % (s["count"], s["cars"]))
+    what = ("static, %d cars took it" % s["driven"]) if s["static"] and s.get("driven") else "static" if s["static"] else ("%d events, %d cars" % (s["count"], s["cars"]))
     mv = "" if s["static"] or not s["moves"] else " - moves: " + ", ".join(s["moves"])
     return "%s**%s / %s** score %.0f (sev %.1f x %d) - %s - (%.0f, %.0f) - %s - %s%s\n   - why: %s\n   - e.g. %s" % (
-        head, s["cat"], s["sub"], s["score"], s["sev"], s["count"], roads, s["x"], s["z"], ", ".join(ids), what, mv,
+        head, s["cat"], s["sub"], s["score"], s["sev"], max(1, s.get("driven") or 0) if s["static"] and s["cat"] == "lanes" else s["count"], roads, s["x"], s["z"], ", ".join(ids), what, mv,
         s["diag"], (s["detail"] or "")[:300].replace("|", "/"))
 
 
@@ -462,6 +468,21 @@ def main():
             s["score"] = s["sev"] * max(1, s["driven"])
     spots.sort(key=lambda s: -s["score"])
     top = pick_top(spots)
+    # the close-ups already taken: the spots they show (the sheet's captions and
+    # the map's numbers must match the pictures)
+    shot_list = os.path.join(a.raw, "shots_top6.txt")
+    if os.path.exists(shot_list) and os.path.exists(os.path.join(a.raw, "census_top1.png")):
+        shown = []
+        for line in io.open(shot_list, encoding="utf-8"):
+            p = line.rstrip(chr(10)).split("|")
+            if len(p) < 5:
+                continue
+            kind = p[0].split(" ", 1)[0]
+            x, z = float(p[1]), float(p[2])
+            cand = [s for s in spots if s["cat"] + "/" + s["sub"] == kind] or spots
+            shown.append(min(cand, key=lambda s: (s["x"] - x) ** 2 + (s["z"] - z) ** 2))
+        if shown:
+            top = shown
 
     # ---- the hotspot table and the events
     with io.open(os.path.join(a.out, "hotspots.csv"), "w", encoding="utf-8", newline="") as f:
@@ -487,7 +508,7 @@ def main():
         os.makedirs(os.path.dirname(a.top6), exist_ok=True)
         with io.open(a.top6, "w", encoding="utf-8") as f:
             for s in top:
-                f.write("%s/%s %s|%.1f|%.1f|%.1f|%.0f\n" % (s["cat"], s["sub"], (" / ".join(s["roads"]) or "").replace("|", "/"), s["x"], s["z"], s["y"], s["hdg"]))
+                f.write("%s/%s %s|%.1f|%.1f|%.1f|%.0f\n" % (s["cat"], s["sub"], (" / ".join(s["roads"]) or "").replace("|", "/"), s["wx"], s["wz"], s["wy"], s["hdg"]))
 
     # ---- the map and the close-up sheet
     draw_map(edges, spots, top, summary, os.path.join(a.out, "census_map.png"))
@@ -551,8 +572,7 @@ def main():
         L.append("## %s\n" % CAT_NAME[cat])
         L.append("%d events in %d hotspots. Kinds: %s.\n" % (tot[cat], len(cs), ", ".join("%s %d" % (k2.split("/", 1)[1], v) for k2, v in sorted(sub_tot.items()) if k2.split("/", 1)[0] == cat)))
         for i, s in enumerate(cs[:12], 1):
-            extra = " (movement driven %d times)" % s["driven"] if s.get("driven") else ""
-            L.append(fmt_spot(s, i) + extra)
+            L.append(fmt_spot(s, i))
         if len(cs) > 12:
             L.append("\n... and %d more in `hotspots.csv`." % (len(cs) - 12))
         L.append("")
