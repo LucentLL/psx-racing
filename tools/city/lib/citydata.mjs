@@ -104,14 +104,15 @@ class Reader {
 }
 
 /// The section tags of PSXC v2, in file order (a reader skips any other).
-export const CITY_SECTIONS = ['META', 'NODE', 'NAME', 'EDGE', 'PNTS', 'WATR', 'WBED', 'XING', 'SPAN', 'ROUT', 'GHSH', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST', 'CULV', 'LSET', 'TURN', 'LOTS', 'LENT', 'RPRF'];
+export const CITY_SECTIONS = ['META', 'NODE', 'NAME', 'EDGE', 'PNTS', 'WATR', 'WBED', 'XING', 'SPAN', 'ROUT', 'GHSH', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST', 'CULV', 'LSET', 'TURN', 'LOTS', 'LENT', 'FRNT', 'RPRF'];
 /// Sections a file may lack: added after the version-2 layout first shipped,
 /// so a file exported before them still parses (WBED: WP-04b; LANW, TAPR,
 /// PARA and TAGN: WP-10, lib/lineclean.mjs; SPLT: WP-11, lib/splits.mjs;
 /// BRST: the roads pass's B1, lib/bridges.mjs; CULV: B2, lib/culverts.mjs;
 /// LSET: L2, lib/lineset.mjs; TURN, LOTS, LENT: L8, lib/lots.mjs; RPRF: the
-/// measured road profiles, leftover item 1, lib/roadprofile.mjs).
-export const CITY_OPTIONAL = new Set(['WBED', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST', 'CULV', 'LSET', 'TURN', 'LOTS', 'LENT', 'RPRF']);
+/// measured road profiles, leftover item 1, lib/roadprofile.mjs; FRNT: the
+/// frontier, where the data stops and the road goes on, lib/frontier.mjs).
+export const CITY_OPTIONAL = new Set(['WBED', 'LANW', 'TAPR', 'PARA', 'TAGN', 'SPLT', 'BRST', 'CULV', 'LSET', 'TURN', 'LOTS', 'LENT', 'FRNT', 'RPRF']);
 
 /// THE ROADS PASS'S TIERS (plan P0/B1), by the shipped rank (0 local ..
 /// 5 motorway; a link keeps its base): 1 motorway/trunk/primary and links,
@@ -351,11 +352,20 @@ export function parseCity(buf) {
     }
     close('RPRF');
   }
+  // FRNT (lib/frontier.mjs): u32 n | n x { u32 node; u8 why } - the nodes
+  // where the data stops and the road goes on. frontier: Uint8Array(nodes).
+  const frontier = new Uint8Array(nn);
+  if (table && table.has('FRNT')) {
+    open('FRNT');
+    const n = r.u32();
+    for (let k = 0; k < n; k++) { const node = r.u32(), why = r.u8(); if (node < nn) frontier[node] = why; }
+    close('FRNT');
+  }
   // node -> incident edge ends
   const nodeEdges = Array.from({ length: nn }, () => []);
   for (const e of edges) { nodeEdges[e.a].push(e.index); nodeEdges[e.b].push(e.index); }
   return { version, attribution, uptown, nodes, names, edges, waters, crossings, wspans, routes, nodeEdges, sections, pointBytes,
-           graphHash: hash, storedHash, bedSamples, taprOff, tapr, brst, culv, rprfEdges };
+           graphHash: hash, storedHash, bedSamples, taprOff, tapr, brst, culv, rprfEdges, frontier };
 }
 
 export function parseDem(buf) {
