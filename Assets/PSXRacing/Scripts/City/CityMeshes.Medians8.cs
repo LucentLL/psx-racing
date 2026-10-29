@@ -43,6 +43,11 @@ namespace PSXRacing.City
         public static bool R8FillOn = System.Environment.GetEnvironmentVariable("PSX_CITY_R8_FILL") != "0";
         public static bool R8SeamOn = System.Environment.GetEnvironmentVariable("PSX_CITY_R8_SEAM") != "0";
         public static bool R8DeckEndOn = System.Environment.GetEnvironmentVariable("PSX_CITY_R8_DECKEND") != "0";
+        /// <summary>(round 8, OFF: measured worse) PSX_CITY_R8_FILLEND=1: a side with no median whose neighbour's
+        /// run reaches its node gets the median carried on while the twin stays in the band (I-277 e2139, uptown
+        /// 8688 m). The piece is short with a closed far end, so its Jersey is turned down over most of it: the
+        /// two-wall box became an 8 m BREAK (8690-8696 m) in the gate - a box at least walls the median.</summary>
+        public static bool R8FillEndOn = System.Environment.GetEnvironmentVariable("PSX_CITY_R8_FILLEND") == "1";
         /// <summary>(round 8) The round's median switches as one set (the look tool's A/B: PSX_LOOK_AB=round8).</summary>
         public static bool[] Round8Flags() => new[] { R8ChainOn, R8ExactOn, R8FillOn, R8SeamOn, R8DeckEndOn };
         public static void SetRound8Flags(bool[] f) { R8ChainOn = f[0]; R8ExactOn = f[1]; R8FillOn = f[2]; R8SeamOn = f[3]; R8DeckEndOn = f[4]; }
@@ -502,6 +507,7 @@ namespace PSXRacing.City
                             DrawnRange(map, r, out float c0, out float c1);
                             if (c1 - c0 > 0.05f) r8Cov.Add(new Vector2(c0, c1));
                         }
+                    if (r8Cov.Count == 0 && !R8FillEndOn) continue;
                     if (r8Cov.Count == 0)
                     {
                         // (I-277 e2139, uptown 8688 m) no median at all on this side: a run carried on

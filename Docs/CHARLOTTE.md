@@ -8090,7 +8090,8 @@ across a plain two-edge node inside its approach band on both sides, where no un
 two at s 3 was a 3 m hole under the rays (uptown 6579 m): an owner run inside another on the same side is dropped (10
 city-wide). A side with no median at all whose neighbour's run reaches its node, the twin still in the band for less
 than the walk's 12 m minimum (I-277 e2139 at uptown 8688 m: two own Jerseys 8.6 m apart for 9 m, a box), gets the median
-carried on as far as the band holds (FILL, up to 16 m).
+carried on as far as the band holds (up to 16 m) - measured WORSE and left OFF (`PSX_CITY_R8_FILLEND=1`): the piece is
+short with a closed far end, so its Jersey is turned down over most of it and the box became an 8 m BREAK (8690 m).
 
 **Measured** (gate1 = every round-8 switch on, PSXLab; base = the same branch with round 8 off, i.e. main
 70e81508's medians; g1r7 = round 7's gate): launch uniform 102/395, routes 0/0/0, old 109/585; census per class =
@@ -8112,7 +8113,11 @@ busway median at junction fans (Barriers@~1.8 and @13-17 m), each carriageway's 
 because the walk's reason there reads "fan"/"no twin", not "gap" (the round-6 wide rule); the median NOSE at a fan
 (one end across both) is not built. Solve unchanged; union build 0.47 -> 0.56 s.
 
-FINAL_TBD
+**Final drive (r8_final, the shipped set with the e2139 continuation still ON)**: MEDIAN ACROSS 3940/22/28, CLASSES
+8/3/10, WALLS IN LANES 0, FALL HOLES 8 off-route = gate1. With `PSX_CITY_R8_FILLEND` OFF (shipped) the 8690 BREAK goes
+back to round 7's 8688 BOX (two own Jerseys 8.6 m apart for 9 m): expected 7/3/11, not re-measured. RECIP / SEAM apart
+on top of round 8: `C:/Users/mcgee/PSXLab/r8_final/city_drive_r8_recip.txt` and `..._r8_seam.txt` (the job ran on
+after this was written; both stay OFF).
 
 **Tools.** `CityRealHeights.RunMedianLookAB` re-built the union runs per pass at last: CityWorld caches its trims per map
 object, so a round-7 A/B's second pass re-used the first's runs (the preview's own trims were fresh; the spot probe and
