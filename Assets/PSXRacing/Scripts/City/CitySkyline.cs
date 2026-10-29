@@ -258,6 +258,9 @@ namespace PSXRacing.City
             {
                 var f = fs[i];
                 if (f.part || f.gable || f.style == 3 || TowerH(i) < MinHeightM) continue;
+                // a hidden outline with no parts draws nothing (a TWIN, tools/city/lib/twins.mjs:
+                // the same building's other record stands): it takes no tower's place
+                if (f.hidden && !partTop.ContainsKey(i)) continue;
                 if ((f.centre - map.uptown).sqrMagnitude > r2) continue;
                 cand.Add(i);
             }

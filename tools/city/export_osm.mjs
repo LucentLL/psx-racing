@@ -109,6 +109,7 @@ import { encodePdem3 } from './lib/pdem3.mjs';
 import { buildLots } from './lib/lots.mjs';
 import { buildRoadProfiles, writeRprf } from './lib/roadprofile.mjs';
 import { applyParts } from './lib/parts.mjs';
+import { findTwins } from './lib/twins.mjs';
 import { buildDecks, writeDecks } from './lib/decks.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -1993,6 +1994,21 @@ const uptownX = toX(-80.8431), uptownZ = toZ(35.2271);
   // coverage: the outside footprints after every core record (core indices unchanged)
   const all = buildings.concat(PARTS.rescued, PARTS.parts, covBld);
   if (covBld.length) console.log(`  coverage: ${covBld.length} footprints appended at index ${all.length - covBld.length}`);
+  // TWIN FOOTPRINTS (lib/twins.mjs, west-trade-flicker 2026-10-29): one
+  // outline taken twice (a building way and the relation whose outer ring it
+  // is) is every wall twice, and the two fought in depth (West Trade Street).
+  // The lower copy - or one wholly inside a building as tall - is flagged
+  // hidden. Measured on the records as written (f32) over the DEM as written,
+  // so bld_twins.mjs on the shipped file finds exactly these.
+  // PSX_CITY_TWINS=0 leaves them drawn (the bytes before this pass).
+  if (process.env.PSX_CITY_TWINS !== '0') {
+    const twDem = parseDem(OUTPUTS.get('charlotte_dem.bytes'));
+    const recs = all.map(b => ({ pts: b.pts.map(p => [Math.fround(p[0]), Math.fround(p[1])]), h: Math.fround(b.h), part: !!b.part, hidden: !!b.hidden }));
+    const TW = findTwins(recs, (x, z) => twDem.at(x, z));
+    for (const t of TW.twins) all[t.i].hidden = true;
+    console.log(`  twin footprints: ${TW.twins.length} flagged hidden (${TW.twins.filter(t => t.kind === 'same').length} one outline twice, ` +
+                `${TW.twins.filter(t => t.kind === 'inside').length} inside one as tall); ${TW.left.length} pairs share walls and stay drawn`);
+  }
   const w = new Writer();
   w.u32(0x444C4250); // "PBLD"
   w.u32(3);

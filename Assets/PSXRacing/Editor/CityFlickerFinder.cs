@@ -92,6 +92,9 @@ namespace PSXRacing.EditorTools
             var pairsM = new Dictionary<string, Pair>[M];
             var perSpotM = new StringBuilder[M];
             var totalM = new long[M]; var nudgeM = new long[M]; var pxM = new long[M];
+            colourTotal = new long[M]; colourByDraw = new Dictionary<string, int>[M];
+            for (int mi = 0; mi < M; mi++) colourByDraw[mi] = new Dictionary<string, int>();
+            colourMode = 0;
             for (int mi = 0; mi < M; mi++) { pairsM[mi] = new Dictionary<string, Pair>(); perSpotM[mi] = new StringBuilder(); }
             float baseNear = cam.nearClipPlane;
             var log = new StringBuilder();
@@ -120,10 +123,12 @@ namespace PSXRacing.EditorTools
                             {
                             CityProxies.Suppress = !modes[mi];
                             world.RefreshSkyline(cam);
+                            colourMode = mi;
                             var r = Measure(cam, world, near, eye, rot, view, pairsM[mi], out int nudge, out int drawn);
-                            if (modes[mi] == modes[M - 1]) Diagnose(cam, world, map, near, eye, rot, view, r, log);
+                            if (modes[mi] == modes[M - 1]) Diagnose(cam, world, map, near, eye, rot, view, Mathf.Max(r, lastColour), log);
                             totalM[mi] += r; nudgeM[mi] += nudge; pxM[mi] += drawn;
-                            perSpotM[mi].Append($"| {view} | {r} | {nudge} | {drawn} |\n");
+                            colourTotal[mi] += lastColour;
+                            perSpotM[mi].Append($"| {view} | {r} | {lastColour} | {nudge} | {drawn} |\n");
                             }
                         }
                     }
@@ -137,7 +142,11 @@ namespace PSXRacing.EditorTools
                     {
                     var sp = spots.Find(s => s.name == target);
                     if (sp.name == null) continue;
-                    foreach (float backS in new[] { 600f, 300f, -600f })
+                    // PSX_FLICK_SHOT_BACKS (west-trade-flicker): the distances back, e.g. "90,40" for a facade up close
+                    var backsS = new List<float>();
+                    foreach (string b in (System.Environment.GetEnvironmentVariable("PSX_FLICK_SHOT_BACKS") ?? "600,300,-600").Split(','))
+                        if (float.TryParse(b, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float bv)) backsS.Add(bv);
+                    foreach (float backS in backsS)
                     {
                         // -600: from 600 m with the tile builds LATE (only the 3 x 3
                         // round the eye stands): what a car at speed sees
@@ -152,6 +161,17 @@ namespace PSXRacing.EditorTools
                             string name = $"popin_{sp.name}_{back:0}m{(late ? "_late" : "")}_{(on ? "proxies" : "noproxies")}_{tag}";
                             PSXScreenshotTool.ShotAs(cam, name, eye, rot);
                             log.Append($"[Flicker] shot {name}.png ({world.Proxies?.Summary ?? "no proxies"})\n");
+                            // PSX_FLICK_SHOT_BLUR=<mph> (west-trade-flicker): the same frame through the
+                            // game's speed blur (ZOOM, the shipped default, tunnel on the frame centre).
+                            // Edit mode holds every tile share whole, so whatever thins a pole here is the blur.
+                            if (on && float.TryParse(System.Environment.GetEnvironmentVariable("PSX_FLICK_SHOT_BLUR"),
+                                    System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float mph) && mph > 0f)
+                            {
+                                SpeedBlur.Preview(cam, mph * SpeedBlur.MpsPerMph);
+                                PSXScreenshotTool.ShotAs(cam, $"{name}_blur{mph:0}mph", eye, rot);
+                                SpeedBlur.Preview(null, 0f);
+                                log.Append($"[Flicker] shot {name}_blur{mph:0}mph.png\n");
+                            }
                         }
                         world.DropAll();
                     }
@@ -171,13 +191,15 @@ namespace PSXRacing.EditorTools
             for (int mi = 0; mi < M; mi++)
             {
                 string mtag = M > 1 ? tag + (modes[mi] ? "_on" : "_off") : tag;
-                Report(mtag, modes[mi], pairsM[mi], perSpotM[mi], totalM[mi], nudgeM[mi], pxM[mi], root);
-                log.Append($"[Flicker] {mtag}: total {totalM[mi]} tie px of {pxM[mi]} drawn, nudge {nudgeM[mi]}, {pairsM[mi].Count} pairs\n");
+                Report(mtag, modes[mi], pairsM[mi], perSpotM[mi], totalM[mi], nudgeM[mi], pxM[mi], root, colourTotal[mi], colourByDraw[mi]);
+                log.Append($"[Flicker] {mtag}: total {totalM[mi]} tie px of {pxM[mi]} drawn, colour flips {colourTotal[mi]}, nudge {nudgeM[mi]}, {pairsM[mi].Count} pairs\n");
+                foreach (var kv in colourByDraw[mi]) if (kv.Value >= 20) log.Append($"[Flicker] {mtag}: colour flips {kv.Value} on {kv.Key}\n");
             }
             Debug.Log(log.ToString() + $"[Flicker] DONE {tag}");
         }
 
-        static void Report(string tag, bool proxiesOn, Dictionary<string, Pair> pairs, StringBuilder perSpot, long total, long totalNudge, long totalPx, string root)
+        static void Report(string tag, bool proxiesOn, Dictionary<string, Pair> pairs, StringBuilder perSpot, long total, long totalNudge, long totalPx, string root,
+                           long colour, Dictionary<string, int> colourDraws)
         {
             // the ranked list
             var list = new List<Pair>(pairs.Values);
@@ -196,7 +218,14 @@ namespace PSXRacing.EditorTools
                 for (int j = 0; j < sl.Count && j < 3; j++) sb.Append((j > 0 ? ", " : "") + sl[j].Key + " " + sl[j].Value);
                 md.Append($"| {k + 1} | {p.a} | {p.b} | {p.px} | {(p.px > 0 ? p.distSum / p.px : 0):0} | {sb} |\n");
             }
-            md.Append("\n## Per view\n\n| view | tie px | nudge px | drawn px |\n|---|---|---|---|\n").Append(perSpot);
+            // COLOUR FLIPS (west-trade-flicker): the shaded picture changed by the near plane alone -
+            // what a player sees fight, including two surfaces of ONE draw (one ID either way)
+            md.Append($"\n**COLOUR FLIPS: {colour}** px whose shaded colour the x1.01 near plane changes (any visible depth tie, one draw or two).\n\n");
+            md.Append("## Colour flips by draw (the draw on top in the first picture)\n\n| draw | px |\n|---|---|\n");
+            var cl = new List<KeyValuePair<string, int>>(colourDraws);
+            cl.Sort((x, y) => y.Value.CompareTo(x.Value));
+            for (int k = 0; k < cl.Count && k < 20; k++) md.Append($"| {cl[k].Key} | {cl[k].Value} |\n");
+            md.Append("\n## Per view\n\n| view | tie px | colour px | nudge px | drawn px |\n|---|---|---|---|---|\n").Append(perSpot);
             string docs = Path.Combine(root, "Docs");
             Directory.CreateDirectory(docs);
             File.WriteAllText(Path.Combine(docs, $"CITY_FLICKER_{tag}.md"), md.ToString());
@@ -255,7 +284,42 @@ namespace PSXRacing.EditorTools
                     back = bk => WalkBack(map, bei, bs0, bk, dir0),
                 });
             }
+            // West Trade Street westbound (owner's video 2026-10-29: the long tan
+            // building on the right "flickers probably 30 times while driving
+            // by"): its start, its middle, and the next block - footprints
+            // 13904/31553 and 13903/31552, one outline each taken twice
+            StreetSpot(map, spots, "West Trade Street", "wtrade0", new Vector2(-2946f, 5406f));
+            StreetSpot(map, spots, "West Trade Street", "wtrade1", new Vector2(-3005f, 5459f));
+            StreetSpot(map, spots, "West Trade Street", "wtrade2", new Vector2(-3079f, 5525f));
             return spots;
+        }
+
+        /// <summary>A spot on the named street's carriageway nearest
+        /// <paramref name="near"/>, heading the way its edge runs (a one-way
+        /// carriageway's travel), the eye walked back along the street.</summary>
+        static void StreetSpot(CityMap map, List<Spot> spots, string street, string name, Vector2 near)
+        {
+            float best = float.MaxValue; int bei = -1; float bs = 0f;
+            for (int ei = 0; ei < map.edges.Length; ei++)
+            {
+                var e = map.edges[ei];
+                if (e.link || e.name != street) continue;
+                for (float s = 0f; s <= e.length; s += 2f)
+                {
+                    float d = (e.PointAt(s) - near).sqrMagnitude;
+                    if (d < best) { best = d; bei = ei; bs = s; }
+                }
+            }
+            if (bei < 0) { Debug.LogWarning($"[Flicker] no {street} near {near}"); return; }
+            var be = map.edges[bei];
+            var dir0 = (be.PointAt(Mathf.Min(bs + 5f, be.length)) - be.PointAt(Mathf.Max(bs - 5f, 0f))).normalized;
+            float bs0 = bs; int bei0 = bei;
+            spots.Add(new Spot
+            {
+                name = name, at = be.PointAt(bs), dir = dir0, y = be.YAt(bs),
+                back = bk => WalkBack(map, bei0, bs0, bk, dir0),
+            });
+            Debug.Log($"[Flicker] {name}: {street} edge {bei} at {bs:0} m of {be.length:0} ({be.PointAt(bs).x:0}, {be.PointAt(bs).y:0}) heading ({dir0.x:0.00}, {dir0.y:0.00}), {Mathf.Sqrt(best):0.0} m from the asked point");
         }
 
         /// <summary>Back <paramref name="back"/> metres along a named road from
@@ -325,6 +389,12 @@ namespace PSXRacing.EditorTools
         /// <summary>The last view's tie pixels, and each pair's tie centroid in it
         /// (screen pixels, the diagnostics' input).</summary>
         static bool[] lastMask;
+        // COLOUR FLIPS (west-trade-flicker): the last view's count, the run's totals per mode
+        // and per draw, which mode is measuring; a channel sum over this is a visible change
+        static int lastColour, colourMode;
+        static long[] colourTotal = new long[1];
+        static Dictionary<string, int>[] colourByDraw = { new Dictionary<string, int>() };
+        const int ColourFlipMin = 24;
         static readonly Dictionary<string, (long sx, long sy, int n)> lastCentroids = new Dictionary<string, (long, long, int)>();
         static readonly Dictionary<string, (int a, int b, int k)> lastFirst = new Dictionary<string, (int, int, int)>();
         static readonly List<string> lastInstances = new List<string>();
@@ -364,8 +434,21 @@ namespace PSXRacing.EditorTools
             }
             nudged = 0; drawn = 0;
             int ties = 0;
+            bool[] colourFlip = null;
+            lastColour = 0;
             try
             {
+                // COLOUR FLIPS (west-trade-flicker, 2026-10-29): the shaded picture at the
+                // same two near planes, post off. Two buildings in one tile's mesh are ONE
+                // draw - one ID whichever wins - so only the colour shows their fight.
+                if (acd != null) acd.renderPostProcessing = false;
+                {
+                    var ca = Render(cam, near, eye, rot, world);
+                    var cb = Render(cam, near * 1.01f, eye, rot, world);
+                    colourFlip = new bool[ca.Length];
+                    for (int k = 0; k < ca.Length; k++)
+                        colourFlip[k] = Mathf.Abs(ca[k].r - cb[k].r) + Mathf.Abs(ca[k].g - cb[k].g) + Mathf.Abs(ca[k].b - cb[k].b) > ColourFlipMin;
+                }
                 foreach (var r in Object.FindObjectsByType<Renderer>(FindObjectsSortMode.None))
                 {
                     if (!(r is MeshRenderer) && !(r is SkinnedMeshRenderer)) { if (r.enabled && !r.forceRenderingOff) { r.forceRenderingOff = true; off.Add(r); } continue; }
@@ -412,6 +495,21 @@ namespace PSXRacing.EditorTools
                 var a = Render(cam, near, eye, rot, world);
                 var b = Render(cam, near * 1.01f, eye, rot, world);
                 var c = Render(cam, near, eye + rot * Vector3.right * 0.02f, rot, world);
+                // the colour flips, each put on the draw the ID picture has there
+                var cd = colourByDraw[Mathf.Clamp(colourMode, 0, colourByDraw.Length - 1)];
+                for (int k = 0; k < a.Length; k++)
+                {
+                    if (colourFlip == null || !colourFlip[k]) continue;
+                    lastColour++;
+                    int iq = Decode(a[k]);
+                    if (iq != 0) lastMask[k] = true;   // in the magenta picture too (not the sky's own drift)
+                    string lq = iq < labels.Count ? labels[iq] : "#" + iq;
+                    cd[lq] = cd.TryGetValue(lq, out int c0) ? c0 + 1 : 1;
+                    string key = "COLOUR " + lq;
+                    lastCentroids.TryGetValue(key, out var cq);
+                    lastCentroids[key] = (cq.sx + k % W, cq.sy + k / W, cq.n + 1);
+                    if (!lastFirst.ContainsKey(key)) lastFirst[key] = (iq, iq, k);
+                }
                 for (int k = 0; k < a.Length; k++)
                 {
                     int ia = Decode(a[k]), ib = Decode(b[k]), ic = Decode(c[k]);
@@ -519,9 +617,18 @@ namespace PSXRacing.EditorTools
                     for (int fi = 0; fi < fs.Length; fi++)
                     {
                         var f = fs[fi];
-                        if (f.pts == null || (f.centre - q).sqrMagnitude > 900f) continue;
-                        if (!Inside(f.pts, q)) continue;
-                        sb.Append($"; in footprint {fi} h{f.h:0.0} style{f.style}{(f.gable ? " gable" : "")}{(f.part ? " part" : "")} roof{f.roof} minH{f.minH:0.0} prop{f.propKind}");
+                        // (west-trade-flicker: a big building's wall stands far from its centre, and a
+                        // hit ON a wall is on the outline - within 0.5 m of it counts)
+                        float reach = f.hu + f.hv + 30f;
+                        if (f.pts == null || (f.centre - q).sqrMagnitude > reach * reach) continue;
+                        float onWall = float.MaxValue;
+                        for (int k = 0; k < f.pts.Length; k++)
+                        {
+                            var a = f.pts[k]; var ab = f.pts[(k + 1) % f.pts.Length] - a;
+                            onWall = Mathf.Min(onWall, Vector2.Distance(q, a + ab * Mathf.Clamp01(Vector2.Dot(q - a, ab) / Mathf.Max(ab.sqrMagnitude, 1e-6f))));
+                        }
+                        if (!Inside(f.pts, q) && onWall > 0.5f) continue;
+                        sb.Append($"; {(onWall <= 0.5f ? "on" : "in")} footprint {fi} h{f.h:0.0} style{f.style}{(f.gable ? " gable" : "")}{(f.part ? " part" : "")}{(f.hidden ? " hidden" : "")} roof{f.roof} minH{f.minH:0.0} prop{f.propKind}");
                     }
                     where = sb.ToString();
                 }
