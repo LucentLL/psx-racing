@@ -110,15 +110,27 @@ namespace PSXRacing.City
         /// (they are dim and mostly behind the trees), at this brightness.</summary>
         const float StreetLampGain = 0.70f, ArterialLampGain = 0.90f;
         const float StoreyM = 3.6f;
-        /// <summary>The windows' colours: ONE yellow a building type (owner,
-        /// 2026-10-24: "No blue/white windows. Yellow like the NFS screenshot
-        /// I shared", and no second shade): a house's PSX/Lit WIN_WARM, an
-        /// office's FAC_WIN_WARM, a shopfront's WIN_SHOP - the same numbers.
-        /// An office's ground-floor shops take the office yellow (PSX/Lit's
-        /// facade shopfronts do, 2026-10-26), and that yellow is the vibrant
-        /// golden one now (the owner: "washed out yellow vs ... vibrant
-        /// yellow of NFS"), not the cream (1, .64, .24).</summary>
+        /// <summary>The windows' colours, PSX/Lit's numbers (linear): a
+        /// house's WIN_WARM, a shopfront's WIN_SHOP, and an office's TWO
+        /// families (the 1990s city, 2026-10-29, the owner: "yellow and
+        /// white/green were common colors for office lighting"; never blue):
+        /// the vibrant incandescent gold FAC_WIN_GOLD (2026-10-26) and the
+        /// fluorescent white-green FAC_WIN_TUBE measured on his photograph.
+        /// A building is a yellow one, a tube one or mixed by storey stack -
+        /// PSX/Lit's FLUO_* shares (<see cref="OfficeTube"/>).</summary>
         static readonly Color WinWarm = new Color(1.00f, 0.74f, 0.42f), WinOffice = new Color(1.00f, 0.58f, 0.09f), WinShop = new Color(1.00f, 0.80f, 0.48f);
+        static readonly Color WinTube = new Color(0.87f, 0.95f, 0.67f);
+        const float TubeBldgYellow = 0.25f, TubeBldgTube = 0.40f, TubeMixP = 0.70f;
+
+        /// <summary>Whether footprint <paramref name="i"/>'s storey stack
+        /// <paramref name="stack"/> is lit by tubes (a home never is).</summary>
+        static bool OfficeTube(int i, int stack, bool home)
+        {
+            if (home) return false;
+            float kind = Hash(i, 500);
+            float p = kind < TubeBldgYellow ? 0.06f : kind < TubeBldgYellow + TubeBldgTube ? 0.94f : TubeMixP;
+            return Hash(i, 600 + stack) < p;
+        }
 
         // ---- the glow ----
         /// <summary>The lit city's radius round uptown, the height of the lit
@@ -896,12 +908,16 @@ namespace PSXRacing.City
 
         void BuildLights(ICollection<int> skylineOutlines, Dictionary<long, List<CityBuildings.B>> boxes)
         {
-            // the street lamps: the tiles' own plan, post for post
+            // the street lamps: the tiles' own plan, post for post (the far
+            // dots take the bulb's sRGB numbers as they are; a mercury-vapour
+            // street's take its head's the same way, at the bulb's luminance)
+            var mercFar = StreetLights.MercuryLamp;
             foreach (var e in map.edges)
             {
                 if (!CityMeshes.FarLampPlan(map, e, out float gap, out float height, out bool outsideOnly)) continue;
                 bool street = e.cls <= 1;
                 float gain = street ? StreetLampGain : e.cls >= 4 ? 1f : ArterialLampGain;
+                bool merc = CityMeshes.MercuryStreet(e);
                 int count = Mathf.Max(1, Mathf.RoundToInt(e.length / gap));
                 float step = e.length / count;
                 float lateral = e.width * 0.5f + 1.0f;
@@ -916,7 +932,8 @@ namespace PSXRacing.City
                     var right = new Vector2(t.y, -t.x);
                     float side = outsideOnly ? 1f : ((k + e.index) & 1) == 0 ? -1f : 1f;
                     var q = p + right * (side * lateral);
-                    AddLight(new Vector3(q.x, e.YAt(s) + height, q.y), StreetLights.Bulb, gain, LampSize);
+                    // (the 1990s city: a mercury-vapour street's heads, at the bulb's luminance)
+                    AddLight(new Vector3(q.x, e.YAt(s) + height, q.y), merc ? mercFar : StreetLights.Bulb, gain, LampSize);
                     LampCount++;
                 }
             }
@@ -940,7 +957,9 @@ namespace PSXRacing.City
                     continue;
                 }
                 bool shop = f.style == 4;
+                bool home = f.use == 2;
                 int storeys = Mathf.Clamp(Mathf.RoundToInt(f.h / StoreyM), 1, 16);
+                int stackH = 1 + (int)(Hash(i, 700) * 3f);
                 float perim = 0f;
                 for (int k = 0; k < f.pts.Length; k++) perim += Vector2.Distance(f.pts[k], f.pts[(k + 1) % f.pts.Length]);
                 int per = Mathf.Clamp(Mathf.RoundToInt(perim / 40f), 1, 4);
@@ -951,7 +970,7 @@ namespace PSXRacing.City
                     float pLit = shop && st == 0 ? ShopLit : OfficeLit;
                     if (Hash(i, 100 + salt) > pLit) continue;
                     var at = OnOutline(f.pts, Hash(i, 200 + salt), Hash(i, 300 + salt));
-                    var col = WinOffice;
+                    var col = OfficeTube(i, st / stackH, home) ? WinTube : WinOffice;
                     AddLight(new Vector3(at.x, ground + (st + 0.45f) * StoreyM, at.y), col, shop && st == 0 ? 0.70f : 0.55f, WindowSize, win: true);
                     WindowCount++;
                 }

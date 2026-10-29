@@ -24,11 +24,15 @@ namespace PSXRacing
     /// (PSXLamps.cginc, PSXLampField): R the pool (a 28 m windowed disc round
     /// the post), G a wide low glow (40 m: the light the street, the shop
     /// glass and the kerbs scatter onto car sides and the lower storeys),
-    /// B/A the glow-weighted head height, so a deck above the heads or a road
-    /// far under them takes none. No slot limit, no new draw call: a phone
-    /// pays one fetch a pixel, less than the twelve-lamp loop it replaces for
-    /// the street kind. Uptown's heads are white LED, the neighbourhoods'
-    /// warm bulbs (the owner's aerial: orange dots on nearly every street).
+    /// B/G the glow-weighted head height, so a deck above the heads or a road
+    /// far under them takes none, A the MERCURY-VAPOUR heads' part of G (the
+    /// 1990s city, 2026-10-29: by street). No slot limit, no new draw call: a
+    /// phone pays one fetch a pixel, less than the twelve-lamp loop it
+    /// replaces for the street kind. Every head is a warm bulb (the owner's
+    /// aerial: orange dots on nearly every street) or, on some streets, a
+    /// mercury-vapour head; uptown's were white LED until the 1990s city
+    /// (2026-10-29: "LEDs were not common") - its heads keep their light
+    /// (<see cref="UptownGain"/>) in the bulb's colour.
     ///
     /// Only the city marks lamps, so every other venue - the Town, the
     /// mountain and rural roads - never turns the field on and keeps the
@@ -48,17 +52,26 @@ namespace PSXRacing
         public static float FieldPoolGain = 1.8f;
         /// <summary>The glow per lamp, x the lamp's own intensity.</summary>
         public static float FieldGlowGain = 0.30f;
-        /// <summary>Uptown (the Square, Trade x Tryon) - inside it the heads are
-        /// white LED, outside it warm bulbs; metres, world XZ.</summary>
+        /// <summary>Uptown (the Square, Trade x Tryon) - inside it the heads
+        /// give <see cref="UptownGain"/> the light; metres, world XZ.</summary>
         public static Vector2 UptownCentre = new Vector2(-2259f, 4782f);
         // (night v3, 2026-10-06: 700/1300 -> 1000/1500 - E Trade St at
         // McDowell, 1 km out, read half-bulb at sat 0.24 against the refs' 0.05.)
         public static float UptownInnerM = 1000f, UptownOuterM = 1500f;
-        /// <summary>sRGB: an uptown LED head, a neighbourhood bulb. A bulb is
-        /// warm, not sodium: (1, 0.84, 0.52) over the asphalt read as sand
+        /// <summary>sRGB: the white LED head uptown had until 2026-10-29 (only
+        /// its luminance is used now: <see cref="UptownGain"/>), a bulb. A bulb
+        /// is warm, not sodium: (1, 0.84, 0.52) over the asphalt read as sand
         /// (the correction round; PSX/Lit reads the lit asphalt grey).</summary>
         public static readonly Color FieldWhite = new Color(1.00f, 0.98f, 0.94f);
         public static readonly Color FieldWarm = new Color(1.00f, 0.90f, 0.72f);
+        /// <summary>Uptown's heads x this: the old LED white's linear luminance
+        /// over the bulb's (.959 / .810), so uptown's streets keep the light
+        /// they were measured at (night v3) in the 1990s colour.</summary>
+        public static float UptownGain => FieldLum(FieldWhite.linear) / FieldLum(FieldWarm.linear);
+        /// <summary>A mercury-vapour head on the field: <see cref="Mercury"/>
+        /// at the bulb's (FieldWarm's) linear luminance, linear.</summary>
+        static Color FieldMercury => Mercury.linear * (FieldLum(FieldWarm.linear) / FieldLum(Mercury.linear));
+        static float FieldLum(Color c) => 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
         /// <summary>The city's bounce on a tower face at night, linear: the
         /// lit streets' light coming back off the next tower. Ref faces read
         /// Ycode 19-45 against a near-black sky; ours read 4-7.</summary>
@@ -67,6 +80,8 @@ namespace PSXRacing
         public static bool FieldEnabled = System.Environment.GetEnvironmentVariable("PSX_LAMPFIELD") != "0";
         public static bool FieldActive { get; private set; }
         public static int FieldLamps { get; private set; }
+        /// <summary>Of <see cref="FieldLamps"/>, the mercury-vapour heads (the 1990s city).</summary>
+        public static int FieldMercuryLamps { get; private set; }
 
         static int fieldVersion;
         static int builtVersion = -1;
@@ -119,9 +134,11 @@ namespace PSXRacing
             Shader.SetGlobalTexture(FieldTexId, fieldTex);
             Shader.SetGlobalVector(FieldSTId, new Vector4(origin.x, origin.y, 1f / span, 1f));
             Shader.SetGlobalVector(FieldYId, new Vector4(builtBaseY, UptownCentre.x, UptownCentre.y, 1f / Mathf.Max(1f, UptownOuterM - UptownInnerM)));
-            var w = FieldWhite.linear; var k = FieldWarm.linear;
+            // (the 1990s city: _PSXFieldWhite carries the mercury head now,
+            // _PSXFieldWarm.w uptown's gain)
+            var w = FieldMercury; var k = FieldWarm.linear;
             Shader.SetGlobalVector(FieldWhiteId, new Vector4(w.r, w.g, w.b, UptownOuterM));
-            Shader.SetGlobalVector(FieldWarmId, new Vector4(k.r, k.g, k.b, 0f));
+            Shader.SetGlobalVector(FieldWarmId, new Vector4(k.r, k.g, k.b, UptownGain));
             Shader.SetGlobalVector(BounceId, new Vector4(CityBounce.x, CityBounce.y, CityBounce.z, 1f));
         }
 
@@ -149,7 +166,7 @@ namespace PSXRacing
             float inv = 1f / FieldTexelM;
             float rp = FieldPoolM, rg = FieldGlowM;
             int reach = Mathf.CeilToInt(Mathf.Max(rp, rg) * inv);
-            int lamps = 0;
+            int lamps = 0, mercs = 0;
             for (int i = 0; i < high; i++)
             {
                 ref Entry e = ref entries[i];
@@ -158,8 +175,9 @@ namespace PSXRacing
                 float cx = (e.pos.x - origin.x) * inv - 0.5f, cz = (e.pos.z - origin.y) * inv - 0.5f;
                 if (cx < -reach || cz < -reach || cx > FieldRes + reach || cz > FieldRes + reach) continue;
                 lamps++;
+                if (e.mercury) mercs++;
                 float pool = e.intensity * FieldPoolGain, glow = e.intensity * FieldGlowGain;
-                float dy = e.pos.y - baseY;
+                float dy = e.pos.y - baseY, merc = e.mercury ? glow : 0f;
                 int x0 = Mathf.Max(0, Mathf.FloorToInt(cx - reach)), x1 = Mathf.Min(FieldRes - 1, Mathf.CeilToInt(cx + reach));
                 int z0 = Mathf.Max(0, Mathf.FloorToInt(cz - reach)), z1 = Mathf.Min(FieldRes - 1, Mathf.CeilToInt(cz + reach));
                 float irp2 = 1f / (rp * rp), irg2 = 1f / (rg * rg);
@@ -179,14 +197,17 @@ namespace PSXRacing
                         int o = (row + x) * 4;
                         acc[o] += pool * p;
                         acc[o + 1] += glow * g;
-                        acc[o + 2] += g * dy;
-                        acc[o + 3] += g;
+                        // B/G: the head height weighted by the glow; A: the
+                        // mercury heads' part of the glow (the 1990s city)
+                        acc[o + 2] += glow * g * dy;
+                        acc[o + 3] += merc * g;
                     }
                 }
             }
             for (int i = 0; i < n4; i++) halfs[i] = Mathf.FloatToHalf(acc[i]);
             fieldTex.SetPixelData(halfs, 0);
             fieldTex.Apply(false, false);
+            FieldMercuryLamps = mercs;
             return lamps;
         }
     }

@@ -23,8 +23,8 @@ namespace PSXRacing.EditorTools
     ///           must not move).
     ///   haze  - LookChoices.DistantHaze off/on (PSX_DISTHAZE) at tryonB,
     ///           i277s10 and high45 at night, high45 at dusk.
-    ///   warm  - LookChoices.WarmWindows off/on (PSX_WARMWIN) at i277s10 and
-    ///           tryonB at night.
+    ///   crown - CrownFrameShots (the open-frame tower's crown; PSX_CROWN_VIEWS,
+    ///           default sw,swfar), tagged nl5_TAG, in Screenshots\crown.
     ///   time  - the rooms' cost: tryonB and jb_tryon_eye at night, 30 renders
     ///           each with PSXGlobals.RoomsOn and without.
     ///   eye   - CityPreview's jb_tryon_eye, ht_trade_i77, i277b_2745 at night
@@ -83,7 +83,6 @@ namespace PSXRacing.EditorTools
             var go = new GameObject("~nightLook5World");
             var world = go.AddComponent<CityWorld>();
             string hazeEnv = System.Environment.GetEnvironmentVariable("PSX_DISTHAZE");
-            string warmEnv = System.Environment.GetEnvironmentVariable("PSX_WARMWIN");
             try
             {
                 PSXQuality.Current = PSXPixels.HD;
@@ -128,7 +127,7 @@ namespace PSXRacing.EditorTools
                     Object.DestroyImmediate(tex);
                     if (shown != rt) { shown.Release(); Object.DestroyImmediate(shown); }
                     rt.Release(); Object.DestroyImmediate(rt);
-                    Line($"shot nl5_{file}_{tag}: tiles {world.LiveTiles}, lamps registered {StreetLights.Registered}, haze {(globals != null ? globals.distHaze : -1f):0.00}, rooms {(PSXGlobals.RoomsOn ? 1 : 0)}");
+                    Line($"shot nl5_{file}_{tag}: tiles {world.LiveTiles}, lamps registered {StreetLights.Registered}, field {StreetLights.FieldLamps} (mercury {StreetLights.FieldMercuryLamps}), haze {(globals != null ? globals.distHaze : -1f):0.00}, rooms {(PSXGlobals.RoomsOn ? 1 : 0)}");
                 }
                 string HourName(int h) => TimeOfDay.All[h].name.ToLowerInvariant();
 
@@ -174,17 +173,6 @@ namespace PSXRacing.EditorTools
                     }
                     System.Environment.SetEnvironmentVariable("PSX_DISTHAZE", hazeEnv);
                 }
-                if (Has(sets, "warm"))
-                {
-                    foreach (var sp in new[] { "i277s10", "tryonB" })
-                    {
-                        System.Environment.SetEnvironmentVariable("PSX_WARMWIN", "0");
-                        Shoot(sp, TimeOfDay.Night, $"warm_{sp}_night_A_yellow");
-                        System.Environment.SetEnvironmentVariable("PSX_WARMWIN", "1");
-                        Shoot(sp, TimeOfDay.Night, $"warm_{sp}_night_B_white");
-                    }
-                    System.Environment.SetEnvironmentVariable("PSX_WARMWIN", warmEnv);
-                }
                 if (Has(sets, "time"))
                 {
                     foreach (var sp in new[] { "tryonB_r", "tryonA_r", "tryonB" })
@@ -216,7 +204,6 @@ namespace PSXRacing.EditorTools
             finally
             {
                 System.Environment.SetEnvironmentVariable("PSX_DISTHAZE", hazeEnv);
-                System.Environment.SetEnvironmentVariable("PSX_WARMWIN", warmEnv);
                 PSXQuality.Current = keepPixels;
                 RaceHandoff.WeatherOverride = oldWeather;
                 if (world != null) world.DropAll();
@@ -235,6 +222,18 @@ namespace PSXRacing.EditorTools
                     File.Move(f, to);
                     Line("eye " + Path.GetFileName(to));
                 }
+            }
+            if (Has(sets, "crown"))
+            {
+                // the open-frame tower's crown, by CrownFrameShots in its own world
+                string cv = System.Environment.GetEnvironmentVariable("PSX_CROWN_VIEWS");
+                string ct = System.Environment.GetEnvironmentVariable("PSX_CROWN_TAG");
+                if (string.IsNullOrEmpty(cv)) System.Environment.SetEnvironmentVariable("PSX_CROWN_VIEWS", "sw,swfar");
+                System.Environment.SetEnvironmentVariable("PSX_CROWN_TAG", "nl5_" + tag);
+                CrownFrameShots.Run();
+                System.Environment.SetEnvironmentVariable("PSX_CROWN_VIEWS", cv);
+                System.Environment.SetEnvironmentVariable("PSX_CROWN_TAG", ct);
+                Line("crown shots: Screenshots/crown/crown_*_nl5_" + tag + ".png");
             }
             int bad = 0;
             if (Has(sets, "gles"))

@@ -43,14 +43,14 @@
 // a property of the same name would shadow the global and read 0.
 //
 // THE SKYLINE'S LIGHTS (the uptown night pass, 2026-10-16; CityBeacons):
-// uv1.y < 0 marks a light ON A TOWER - a red aviation beacon or a bead of a
-// crown's LED strip - that must be seen from kilometres out, where the tower
+// uv1.y < 0 marks a light ON A TOWER - a red aviation beacon or a steady red
+// obstruction light on a roof corner (no LED strips: the 1990s city) - that must be seen from kilometres out, where the tower
 // itself is drawn by CitySkyline beyond the far plane. Such a halo is moved
 // in along its line of sight exactly as PSX/Lit's skyline switch moves the
 // tower under it (the same squeeze, so it sits on the squeezed crown), hazed
 // by its real distance instead of faded with the fog, and - for uv1.y <= -1 -
 // pulses: a slow beacon flash, BEACON_PERIOD seconds, phase frac(-uv1.y), so
-// the towers do not flash in step. uv1.y = -0.5 is a steady strip bead.
+// the towers do not flash in step. uv1.y = -0.5 is a steady corner light.
 //
 // THE FAR CITY'S LIGHTS (CityFarLights, 2026-10-24; the owner's NFS night
 // frame: "Distant building lights are visible from a mile away"). With
@@ -264,9 +264,11 @@ Shader "PSX/Halo"
                     fade = exp(-realDist / SKY_HAZE_M);
                     if (v.uv1.y <= -1.0)
                     {
-                        // the flash: up fast, held, down slower (an LED beacon's soft edges)
+                        // the flash: an INCANDESCENT beacon's (the 1990s city,
+                        // 2026-10-29) - the filament warms up and cools down,
+                        // softer both ways than the LED's snap it replaced
                         float t = frac(_Time.y / BEACON_PERIOD + frac(-v.uv1.y));
-                        fade *= smoothstep(0.0, 0.06, t) * (1.0 - smoothstep(BEACON_ON - 0.10, BEACON_ON, t));
+                        fade *= smoothstep(0.0, 0.12, t) * (1.0 - smoothstep(BEACON_ON - 0.18, BEACON_ON, t));
                     }
                 }
                 // NIGHT-LOOK PASS 5: THE DISTANT HAZE (LookChoices.DistantHaze,
@@ -284,23 +286,6 @@ Shader "PSX/Halo"
                     float yaw = v.uv1.y - 10.0;
                     float2 toEye = _WorldSpaceCameraPos.xz - wc.xz;
                     facing = smoothstep(0.05, 0.6, dot(float2(sin(yaw), cos(yaw)), toEye) / max(length(toEye), 1e-3));
-                }
-                // A CROWN LINE'S BEAD THAT FACES ONE WAY (2026-10-29, the
-                // open-frame tower; CityBeacons): a tower light whose colour
-                // alpha is under 1 carries the compass yaw its member faces -
-                // 0..126 a face's top edge, 127..253 a corner (seen from three
-                // quarters round) - and is hidden from behind its own tower, as
-                // the tower's glass hides the real one: a far tower's squeezed
-                // copy cannot hide its own back by depth (its lines crossed it
-                // as an X). Every other light keeps alpha 1 (x 1).
-                else if (skyLight && v.color.a < 0.998)
-                {
-                    float code = floor(v.color.a * 255.0 + 0.5);
-                    float corner = step(126.5, code);
-                    float yaw = (code - 127.0 * corner) * (6.2831853 / 127.0);
-                    float2 toEye = _WorldSpaceCameraPos.xz - wc.xz;
-                    float lim = lerp(-0.12, -0.72, corner);
-                    facing = smoothstep(lim, lim + 0.2, dot(float2(sin(yaw), cos(yaw)), toEye) / max(length(toEye), 1e-3));
                 }
                 o.col = float4(_Color.rgb * v.color.rgb * (_Strength * fade * facing), fade * facing);
                 return o;

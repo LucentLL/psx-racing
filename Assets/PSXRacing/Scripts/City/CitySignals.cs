@@ -127,8 +127,13 @@ namespace PSXRacing.City
             }
         }
 
-        // lens colours, lit and dark (sRGB): an LED red, amber, blue-green
-        static readonly Color32[] LitColour = { new Color32(255, 36, 24, 255), new Color32(255, 176, 20, 255), new Color32(40, 255, 150, 255) };
+        // lens colours, lit and dark (sRGB). INCANDESCENT (the 1990s city,
+        // 2026-10-29, the owner: "LEDs were not common"): a 1999 signal is a
+        // filament behind a tinted lens - its red leans orange, its amber is a
+        // yellower gold and its blue-green carries the filament's white; the
+        // LED's saturated red, amber and mint (255,36,24 / 255,176,20 / 40,255,150)
+        // were today's. The halo is softer and wider (HaloSizeM, _Strength).
+        static readonly Color32[] LitColour = { new Color32(255, 62, 30, 255), new Color32(255, 186, 46, 255), new Color32(96, 236, 168, 255) };
         static readonly Color32[] DarkColour = { new Color32(46, 10, 8, 255), new Color32(44, 30, 6, 255), new Color32(6, 36, 24, 255) };
         static readonly Color32 Black = new Color32(0, 0, 0, 255);
 
@@ -204,12 +209,13 @@ namespace PSXRacing.City
             haloMat = new Material(sh) { name = "CitySignalHalos", hideFlags = HideFlags.HideAndDontSave };
             haloMat.SetColor("_Color", Color.white);
             haloMat.SetFloat("_Size", HaloSizeM);
-            haloMat.SetFloat("_Strength", 1.3f);
+            haloMat.SetFloat("_Strength", 1.05f);
             return haloMat;
         }
 
-        /// <summary>A lens halo's half size (a street lamp's is 2.6 m).</summary>
-        public const float HaloSizeM = 1.1f;
+        /// <summary>A lens halo's half size (a street lamp's is 2.6 m): an
+        /// incandescent lens's glow, wider and softer than the LED's 1.1.</summary>
+        public const float HaloSizeM = 1.4f;
 
         sealed class HaloSet { public Mesh mesh; public Renderer r; public byte[] lens; public Color32[] cols; }
         static readonly List<HaloSet> halos = new List<HaloSet>();

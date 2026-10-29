@@ -136,6 +136,26 @@ namespace PSXRacing
         /// road's glints, the halos round the heads, the rain under them.
         /// </summary>
         public static readonly Color Bulb = new Color(1.00f, 0.87f, 0.56f);
+        /// <summary>
+        /// THE 1990s CITY (2026-10-29): a MERCURY-VAPOUR head, authored sRGB
+        /// like <see cref="Bulb"/>. The owner's 1990s photograph of uptown has
+        /// two street lights: sodium starbursts on the main roads (measured hue
+        /// 39, sat 0.42 - our bulb is hue 42, sat 0.44) and white-green heads on
+        /// the side streets and lots, 12 of the 20 heads that could be told
+        /// apart (measured hue 73, sat 0.21, value 0.84 - the same green-white
+        /// the photograph's fluorescent office floors are: both are mercury
+        /// light). Never blue. Chosen by STREET (CityMeshes.MercuryStreet),
+        /// never lamp by lamp; lit at the bulb's own linear luminance
+        /// (<see cref="MercuryGain"/>), so the night's measured brightness
+        /// does not move with the hue.
+        /// </summary>
+        public static readonly Color Mercury = new Color(0.93f, 1.00f, 0.80f);
+        /// <summary>A mercury head as a lamp is registered (sRGB): <see cref="Mercury"/>
+        /// at the bulb's linear luminance.</summary>
+        public static Color MercuryLamp => (Mercury.linear * MercuryGain).gamma;
+        /// <summary>The bulb's linear luminance over the mercury head's (.754 / .940).</summary>
+        public static float MercuryGain => Lum(Bulb.linear) / Mathf.Max(Lum(Mercury.linear), 1e-4f);
+        static float Lum(Color c) => 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
         /// <summary>Pool radius in metres: a 7-9 m pole lights a disc of road
         /// about 15 m each way (the radius is the 3D reach from the head).
         ///
@@ -179,6 +199,7 @@ namespace PSXRacing
             public Kind kind;
             public bool on;
             public bool field;       // a lit city street's lamp: lights through the LampField
+            public bool mercury;     // ...a mercury-vapour head (the field's A channel)
             public float ground;     // the ground under the head (the lamp cone's foot), once known
             public bool groundKnown;
             public bool used;
@@ -233,7 +254,7 @@ namespace PSXRacing
             e.intensity = intensity;
             e.kind = kind;
             e.on = true;
-            e.field = false;
+            e.field = false; e.mercury = false;
             e.groundKnown = false;
             Registered++;
             fieldVersion++;
@@ -256,10 +277,11 @@ namespace PSXRacing
         /// <summary>Mark a registered street lamp as a LIT CITY STREET's
         /// (Charlotte's tiles): its pool is drawn by the <see cref="LampField"/>
         /// at any distance, not by a slot of the table.</summary>
-        public static void MarkField(int handle, bool field)
+        public static void MarkField(int handle, bool field, bool mercury = false)
         {
             if (!Valid(handle, out int slot)) return;
             entries[slot].field = field;
+            entries[slot].mercury = mercury;
             fieldVersion++;
         }
 
@@ -306,7 +328,7 @@ namespace PSXRacing
         {
             if (entries[slot].field) fieldVersion++;
             entries[slot].used = false;
-            entries[slot].field = false;
+            entries[slot].field = false; entries[slot].mercury = false;
             entries[slot].owner = null;
             freeSlots.Add(slot);
             Registered--;

@@ -188,9 +188,6 @@ namespace PSXRacing
         /// gathers as 1 - exp(-(d - start) / <see cref="DistHazeScaleM"/>).</summary>
         [System.NonSerialized] public float distHaze;
         public const float DistHazeStartM = 1000f, DistHazeScaleM = 3000f;
-        /// <summary>LookChoices.WarmWindows (OFF): the facades' one window
-        /// colour as a warm white. Runtime only - TimeOfDay sets it.</summary>
-        [System.NonSerialized] public float winWhite;
         // ==== END NIGHT-LOOK PASS 5 =============================================
 
         /// <summary>
@@ -372,10 +369,9 @@ namespace PSXRacing
             Shader.SetGlobalFloat("_PSXRoadSlush", Mathf.Clamp01(roadSlush));
             Shader.SetGlobalFloat("_PSXRoadSnowFresh", Mathf.Clamp01(roadSnowFresh));
             BindRoadCover();
-            // NIGHT-LOOK PASS 5: the rooms, the distant haze, the window colour A/B
+            // NIGHT-LOOK PASS 5: the rooms, the distant haze
             BindRooms();
             Shader.SetGlobalVector("_PSXDistHaze", new Vector4(Mathf.Clamp01(distHaze), DistHazeStartM, 1f / DistHazeScaleM, 0f));
-            Shader.SetGlobalFloat("_PSXWinWhite", winWhite > 0.5f ? 1f : 0f);
             Shader.SetGlobalFloat("_PSXNight", Mathf.Clamp01(night));
             Shader.SetGlobalFloat("_PSXGradeNight", Mathf.Clamp01(gradeNight));
             Shader.SetGlobalVector("_PSXMood", new Vector4(mood.r, mood.g, mood.b, Mathf.Clamp01(mood.a)));

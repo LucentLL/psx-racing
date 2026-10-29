@@ -5,96 +5,83 @@ namespace PSXRacing.City
     public static partial class CityMeshes
     {
         // ------------------------------------------------------------------
-        //  THE CROWNS REAL CHARLOTTE LIGHTS (the uptown night pass,
-        //  2026-10-16; the owner on UG2's Bayview: "what can be done to make
-        //  the city look at least this good", and on the city: "It should be
-        //  familiar when driving through or viewing from a distance").
+        //  THE CROWNS REAL CHARLOTTE LIGHTS - AS A 1990s CITY LIT THEM
+        //  (the uptown night pass, 2026-10-16; the 1990s city, 2026-10-29).
         //
-        //  Before this every tower of 60 m and more wore a RANDOM accent
-        //  colour on its crown after dark (blue, violet, teal, pink, green by
-        //  a hash of its tint) - a confetti skyline, and not Charlotte's. Now
-        //  a crown is lit in colour only where the real tower is: the table
-        //  below, keyed by the exporter's landmark byte (tools/city/lib/
-        //  parts.mjs, neutral names), gives the tower its LED colour - an
-        //  index into PSX/Lit's crown palette, written into the facade's
-        //  vertex alpha low three bits - and whether its crown carries LED
-        //  edge STRIPS (CityBeacons draws those as beads of light). Every
-        //  other tall tower keeps the floodlit top storeys in warm or cool
-        //  white. Colours are steady: no light shows, no imagery.
+        //  The owner, 2026-10-29, with a 1990s photograph of uptown at dusk:
+        //  "The city (logic and technology) should resemble the 90s even
+        //  though roads and buildings are present day. LEDs were not common."
+        //  His photograph: one tower floodlit white over its whole face, the
+        //  rest dark tops with red aviation lights - no coloured crowns, no
+        //  outlines. So the 2026-10-16 palette (blue, violet, teal, gold,
+        //  green LED crowns, LED lines up the open frame) is gone: a crown is
+        //  FLOODLIT - warm (the photograph's floodlit tower, measured hue 48,
+        //  sat 0.23) or metal halide (a white a little cool, never blue) - or
+        //  DARK. Every tower the table does not name is floodlit or dark by
+        //  its hash (PSX/Lit CROWN_DARK_SHARE, CROWN_WARM_SHARE).
         //
-        //  The palette (PSX/Lit, the crown block): 1 warm white, 2 cool
-        //  white, 3 blue, 4 violet, 5 teal, 6 gold, 7 green. The colours are
-        //  the towers' usual night look as best known on 2026-10-16; the
+        //  The table, keyed by the exporter's landmark byte (tools/city/lib/
+        //  parts.mjs, neutral names), gives a named tower its flood - written
+        //  into the facade's vertex alpha low two bits (FacadeFloodMask; the
+        //  third is FacadeHomeBit) - and whether its light is on its FRAME
+        //  (the open-frame tower: the white members floodlit from the roof,
+        //  the glass under them dark, no floodlit band on the shaft). The
         //  owner, who lives there, corrects them here.
-        //  PSX_CITY_LEDS=0 drops the table (every crown floodlit white).
+        //  PSX_CITY_FLOODS=0 drops the table (every crown by its hash).
         // ------------------------------------------------------------------
         public struct NightCrown
         {
-            public byte landmark, led; public bool strips; public string what;
-            public NightCrown(byte landmark, byte led, bool strips, string what)
-            { this.landmark = landmark; this.led = led; this.strips = strips; this.what = what; }
+            public byte landmark, flood; public bool frame; public string what;
+            public NightCrown(byte landmark, byte flood, bool frame, string what)
+            { this.landmark = landmark; this.flood = flood; this.frame = frame; this.what = what; }
         }
 
-        public const byte LedWarmWhite = 1, LedCoolWhite = 2, LedBlue = 3, LedViolet = 4, LedTeal = 5, LedGold = 6, LedGreen = 7;
+        /// <summary>PSX/Lit's flood codes (facFlood): 0 by the tower's hash,
+        /// 1 warm, 2 metal halide, 3 dark.</summary>
+        public const byte FloodByHash = 0, FloodWarm = 1, FloodHalide = 2, FloodDark = 3;
 
         public static readonly NightCrown[] NightCrowns =
         {
-            new NightCrown(1,  LedWarmWhite, false, "spired crown tower: the crown's rods and needle floodlit"),
-            new NightCrown(2,  LedBlue,      true,  "open-frame tower: LED lines up its corners and along its crown frame, never a wash"),
-            new NightCrown(3,  LedCoolWhite, false, "silver crown tower: the lantern lit white"),
-            new NightCrown(4,  LedWarmWhite, false, "curved-top tower: the curved top floodlit"),
-            new NightCrown(5,  LedWarmWhite, false, "pyramid-top tower: the copper top floodlit"),
-            new NightCrown(9,  LedBlue,      false, "slim residential tower: the crown band"),
-            new NightCrown(15, LedCoolWhite, false, "pointed tower: the crown lit white"),
-            new NightCrown(16, LedCoolWhite, false, "slanted tower: the slanted top lit white"),
+            new NightCrown(1,  FloodHalide, false, "spired crown tower: the crown's rods and needle floodlit white"),
+            new NightCrown(2,  FloodHalide, true,  "open-frame tower: its white frame floodlit from the roof, the glass under it dark"),
+            new NightCrown(3,  FloodHalide, false, "silver crown tower: the lantern floodlit white"),
+            new NightCrown(4,  FloodWarm,   false, "curved-top tower: the curved top floodlit warm"),
+            new NightCrown(5,  FloodWarm,   false, "pyramid-top tower: the copper top floodlit warm"),
+            new NightCrown(9,  FloodDark,   false, "slim residential tower: no crown light (its coloured band is today's)"),
+            new NightCrown(15, FloodHalide, false, "pointed tower: the crown floodlit white"),
+            new NightCrown(16, FloodHalide, false, "slanted tower: the slanted top floodlit white"),
         };
 
-        static readonly bool LedsOff = System.Environment.GetEnvironmentVariable("PSX_CITY_LEDS") == "0";
-        static byte[] ledOfLandmark;
-        static bool[] stripsOfLandmark;
+        static readonly bool FloodsOff = System.Environment.GetEnvironmentVariable("PSX_CITY_FLOODS") == "0";
+        static byte[] floodOfLandmark;
+        static bool[] frameOfLandmark;
 
         static void IndexNightCrowns()
         {
-            ledOfLandmark = new byte[256];
-            stripsOfLandmark = new bool[256];
-            if (LedsOff) return;
-            foreach (var c in NightCrowns) { ledOfLandmark[c.landmark] = c.led; stripsOfLandmark[c.landmark] = c.strips; }
+            floodOfLandmark = new byte[256];
+            frameOfLandmark = new bool[256];
+            if (FloodsOff) return;
+            foreach (var c in NightCrowns) { floodOfLandmark[c.landmark] = c.flood; frameOfLandmark[c.landmark] = c.frame; }
         }
 
-        /// <summary>The LED palette index of a landmark's crown (0: floodlit white).</summary>
-        public static byte NightLedOf(byte landmark)
+        /// <summary>A landmark's crown flood code (0: by the tower's hash).</summary>
+        public static byte NightFloodOf(byte landmark)
         {
-            if (ledOfLandmark == null) IndexNightCrowns();
-            return ledOfLandmark[landmark];
+            if (floodOfLandmark == null) IndexNightCrowns();
+            return floodOfLandmark[landmark];
         }
 
-        /// <summary>Whether a landmark's crown carries LED edge strips.</summary>
-        public static bool NightStripsOf(byte landmark)
+        /// <summary>Whether a landmark's light is on its frame (no floodlit
+        /// band on its shaft; HeroOpenFrame floods the white members).</summary>
+        public static bool NightFrameOf(byte landmark)
         {
-            if (stripsOfLandmark == null) IndexNightCrowns();
-            return stripsOfLandmark[landmark];
+            if (frameOfLandmark == null) IndexNightCrowns();
+            return frameOfLandmark[landmark];
         }
 
-        /// <summary>PSX/Lit's crown palette (linear), for what draws the same
-        /// colour outside the facade: CityBeacons' strip beads.</summary>
-        public static Color LedColour(byte led)
-        {
-            switch (led)
-            {
-                case LedWarmWhite: return new Color(1.00f, 0.86f, 0.66f);
-                case LedCoolWhite: return new Color(0.80f, 0.88f, 1.00f);
-                case LedBlue: return new Color(0.22f, 0.38f, 1.00f);
-                case LedViolet: return new Color(0.55f, 0.26f, 1.00f);
-                case LedTeal: return new Color(0.12f, 0.80f, 0.85f);
-                case LedGold: return new Color(1.00f, 0.66f, 0.22f);
-                case LedGreen: return new Color(0.20f, 0.95f, 0.38f);
-                default: return Color.white;
-            }
-        }
-
-        /// <summary>The building being emitted's LED index: set before
+        /// <summary>The building being emitted's flood code: set before
         /// PickFacade, carried in every facade tint the building writes (the
-        /// alpha's low three bits; the crown bit decides whether the shader
+        /// alpha's low two bits; the crown bit decides whether the shader
         /// uses it), cleared by EndFacade.</summary>
         static byte facLed;
     }

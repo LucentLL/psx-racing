@@ -173,6 +173,8 @@ namespace PSXRacing.City
             public readonly List<(Pole a, Pole b)> spans = new List<(Pole, Pole)>();
             /// <summary>Cobra-head lenses, world: lamps at night.</summary>
             public readonly List<Vector3> heads = new List<Vector3>();
+            /// <summary>Per head: its street's mercury-vapour heads (CityMeshes.MercuryStreet).</summary>
+            public readonly List<bool> headMercury = new List<bool>();
             /// <summary>Poles, wires, heads and the tile's street lamps: one mesh, one material.</summary>
             public Mesh mesh;
             /// <summary>Stations whose foot would be in this tile, and those no pole stood at.</summary>
@@ -673,6 +675,7 @@ namespace PSXRacing.City
                         pt.stations++;
                         pt.poles.Add(d.pole);
                         pt.heads.Add(d.pole.lens);
+                        pt.headMercury.Add(CityMeshes.MercuryStreet(e));
                         int next = SpanFrom(chain, k, out int why);
                         if (next >= 0) pt.spans.Add((d.pole, Decide(chain, next).pole));
                         else switch (why)

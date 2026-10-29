@@ -104,9 +104,10 @@
 // THE LAMP FIELD (the city-night pass, 2026-10-05; StreetLights.Field.cs
 // says why). A lit city street's lamps are not in the table above: every one
 // within 250 m of the eye is splatted top-down into one camera-centred
-// RGBAHalf texture - R the pool, G the wide scattered glow, B/A the
-// glow-weighted head height above _PSXLampFieldY.x - read here with ONE
-// fetch, at any number of lamps. _PSXLampFieldST.w is the switch: only
+// RGBAHalf texture - R the pool, G the wide scattered glow, B/G the
+// glow-weighted head height above _PSXLampFieldY.x, A the MERCURY-VAPOUR
+// lamps' part of G (the 1990s city, 2026-10-29: by street) - read here with
+// ONE fetch, at any number of lamps. _PSXLampFieldST.w is the switch: only
 // Charlotte's tiles mark lamps, so on every other venue it is 0 (pushed 0
 // every frame) and this is one uniform branch - the owner's dark night on
 // the rural, mountain and Town roads is untouched. While it is on, the
@@ -115,8 +116,8 @@
 sampler2D _PSXLampField;
 float4 _PSXLampFieldST;   // xy window origin (world xz), z 1/span, w on
 float4 _PSXLampFieldY;    // x base height, yz uptown centre (xz), w 1/(outer-inner)
-float4 _PSXFieldWhite;    // rgb uptown LED head (linear), w uptown outer radius (m)
-float4 _PSXFieldWarm;     // rgb neighbourhood bulb (linear)
+float4 _PSXFieldWhite;    // rgb a mercury-vapour head (linear, the bulb's luminance), w uptown outer radius (m)
+float4 _PSXFieldWarm;     // rgb the bulb (linear), w uptown's gain (its heads were white LED: the same light, warm)
 
 // How far under the heads the pool and the glow reach: a street is 6-12 m
 // under its heads; a road 20 m under a lit deck is not lit by it, and a
@@ -135,7 +136,7 @@ float3 PSXLampField(float3 wpos, float3 N, float facingOn)
     // fade out over the outer tenth of the window (beyond ~200 m the halos
     // stand for the lamps), and never a NaN from a texel nothing reached
     float2 b = saturate(min(uv, 1.0 - uv) * 10.0);
-    float headY = _PSXLampFieldY.x + f.b / max(f.a, 1e-3);
+    float headY = _PSXLampFieldY.x + f.b / max(f.g, 1e-4);
     float under = headY - wpos.y;
     float vertP = saturate((under + 1.0) * 0.5) * saturate((FIELD_UNDER_M - under) * 0.125);
     float vertG = saturate((under + FIELD_GLOW_UP_M) / FIELD_GLOW_UP_M) * saturate((FIELD_UNDER_M - under) * 0.125);
@@ -145,7 +146,8 @@ float3 PSXLampField(float3 wpos, float3 N, float facingOn)
     float upG = facingOn > 0.5 ? saturate(0.75 + 0.25 * N.y) : 1.0;
     float2 dc = wpos.xz - _PSXLampFieldY.yz;
     float uptown = saturate((_PSXFieldWhite.w - length(dc)) * _PSXLampFieldY.w);
-    float3 hue = lerp(_PSXFieldWarm.rgb, _PSXFieldWhite.rgb, uptown);
+    float3 hue = lerp(_PSXFieldWarm.rgb, _PSXFieldWhite.rgb, saturate(f.a / max(f.g, 1e-4)))
+               * (1.0 + (_PSXFieldWarm.w - 1.0) * uptown);
     return hue * ((max(f.r, 0.0) * vertP * upP + max(f.g, 0.0) * vertG * upG) * (b.x * b.y));
 }
 
@@ -156,7 +158,7 @@ float PSXFieldStreetY(float3 wpos)
 {
     float2 uv = (wpos.xz - _PSXLampFieldST.xy) * _PSXLampFieldST.z;
     float4 f = tex2Dlod(_PSXLampField, float4(uv, 0.0, 0.0));
-    return f.a > 0.02 ? _PSXLampFieldY.x + f.b / f.a - 8.5 : _PSXLampFieldY.x - 1.2;
+    return f.g > 0.008 ? _PSXLampFieldY.x + f.b / f.g - 8.5 : _PSXLampFieldY.x - 1.2;
 }
 
 // THE MIRROR IMAGE OF A LAMP (the car paint, specOn 2 below): see the block

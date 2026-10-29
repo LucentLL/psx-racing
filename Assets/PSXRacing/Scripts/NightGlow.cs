@@ -70,6 +70,7 @@ namespace PSXRacing
         Renderer[] glows;                                     // what the hour switches
         readonly List<Vector3> heads = new List<Vector3>();   // lamp heads, world space
         readonly List<float> gains = new List<float>();       // per head, Init's (1 when none given)
+        readonly List<bool> mercs = new List<bool>();         // per head: a mercury-vapour head (the 1990s city)
         bool explicitHeads;                                   // Init gave them: never re-collect
         bool built;
         GameObject haloGo;
@@ -120,19 +121,28 @@ namespace PSXRacing
         /// short or null): a city tile's acorn posts are pedestrian lamps, a
         /// fraction of a cobra-head (WP-15); their halos come out smaller and
         /// fainter with them (<see cref="BuildHaloMesh(IList{Vector3}, float, IList{float})"/>).</summary>
-        public void Init(IList<Vector3> worldHeads, IList<float> gain)
+        public void Init(IList<Vector3> worldHeads, IList<float> gain) => Init(worldHeads, gain, null);
+
+        /// <summary>As above, a head flagged in <paramref name="mercury"/> a
+        /// MERCURY-VAPOUR head (the 1990s city, 2026-10-29: Charlotte's streets
+        /// by CityMeshes.MercuryStreet): <see cref="StreetLights.MercuryLamp"/>
+        /// on the road, in the lamp field and in its halo.</summary>
+        public void Init(IList<Vector3> worldHeads, IList<float> gain, IList<bool> mercury)
         {
             explicitHeads = true;
-            heads.Clear(); gains.Clear();
+            heads.Clear(); gains.Clear(); mercs.Clear();
             if (worldHeads != null)
                 for (int i = 0; i < worldHeads.Count; i++)
                 {
                     heads.Add(worldHeads[i]);
                     gains.Add(gain != null && i < gain.Count ? gain[i] : 1f);
+                    mercs.Add(mercury != null && i < mercury.Count && mercury[i]);
                 }
             Build();
             Enlist();
         }
+
+        bool Merc(int i) => i < mercs.Count && mercs[i];
 
         /// <summary>
         /// Edit-mode init for one NightGlow, then light (or not) every lamp:
@@ -183,7 +193,7 @@ namespace PSXRacing
         /// </summary>
         void CollectBaked()
         {
-            heads.Clear();
+            heads.Clear(); mercs.Clear();
             var ts = GetComponentsInChildren<Transform>(true);
             for (int i = 0; i < ts.Length; i++)
             {
@@ -229,15 +239,26 @@ namespace PSXRacing
             StreetLights.RemoveAll(this);
             for (int i = 0; i < heads.Count; i++)
             {
-                int h = StreetLights.Add(this, heads[i], StreetLights.StreetRadius, StreetLights.Bulb,
+                int h = StreetLights.Add(this, heads[i], StreetLights.StreetRadius, Merc(i) ? StreetLights.MercuryLamp : StreetLights.Bulb,
                                          StreetLights.StreetIntensity * (i < gains.Count ? gains[i] : 1f), StreetLights.Kind.Street);
-                if (cityField) StreetLights.MarkField(h, true);
+                if (cityField) StreetLights.MarkField(h, true, Merc(i));
             }
         }
 
         void MakeHalo()
         {
-            var mat = HaloMaterial;
+            // a set with a mercury head tints each halo by its vertex colour
+            // (linear) under a white material; every other set is as it was
+            List<Color> tints = null;
+            for (int i = 0; i < heads.Count; i++)
+                if (Merc(i))
+                {
+                    tints = new List<Color>(heads.Count);
+                    Color bulb = StreetLights.Bulb.linear, merc = StreetLights.MercuryLamp.linear;
+                    for (int k = 0; k < heads.Count; k++) tints.Add(Merc(k) ? merc : bulb);
+                    break;
+                }
+            var mat = tints != null ? HaloMaterialTinted : HaloMaterial;
             if (mat == null) return;   // warned once; the lamps still light the road
             haloGo = new GameObject(HaloName);
             haloGo.layer = gameObject.layer;
@@ -245,7 +266,7 @@ namespace PSXRacing
             t.SetParent(transform, false);
             scratch.Clear();
             for (int i = 0; i < heads.Count; i++) scratch.Add(t.InverseTransformPoint(heads[i]));
-            haloMesh = BuildHaloMesh(scratch, 1f, gains);
+            haloMesh = BuildHaloMesh(scratch, 1f, gains, tints);
             var mf = haloGo.AddComponent<MeshFilter>();
             mf.sharedMesh = haloMesh;
             var mr = haloGo.AddComponent<MeshRenderer>();
@@ -326,6 +347,23 @@ namespace PSXRacing
             }
         }
 
+        static Material haloMatTinted;
+        /// <summary>As <see cref="HaloMaterial"/> with a WHITE tint: each halo
+        /// its own colour from its vertex colour (linear), for a set that
+        /// mixes bulbs and mercury heads (the 1990s city).</summary>
+        static Material HaloMaterialTinted
+        {
+            get
+            {
+                if (haloMatTinted != null) return haloMatTinted;
+                var baseMat = HaloMaterial;
+                if (baseMat == null) return null;
+                haloMatTinted = new Material(baseMat) { name = "LampHaloTinted", hideFlags = HideFlags.HideAndDontSave };
+                haloMatTinted.SetColor("_Color", Color.white);
+                return haloMatTinted;
+            }
+        }
+
         /// <summary>
         /// The merged halo mesh PSX/Halo draws: four vertices per halo, all AT
         /// its centre (the shader builds the quad in view space, facing the
@@ -341,7 +379,12 @@ namespace PSXRacing
         /// list is short or null; <see cref="Init(IList{Vector3}, IList{float})"/>):
         /// a dimmer lamp's glow is smaller (<see cref="HaloSizeFor"/>) and
         /// fainter (its tint, the gain).</summary>
-        public static Mesh BuildHaloMesh(IList<Vector3> localCentres, float sizeMul, IList<float> gain)
+        public static Mesh BuildHaloMesh(IList<Vector3> localCentres, float sizeMul, IList<float> gain) => BuildHaloMesh(localCentres, sizeMul, gain, null);
+
+        /// <summary>As above, each halo's vertex colour its LINEAR tint x its
+        /// gain (<see cref="HaloMaterialTinted"/>'s white _Color: the 1990s
+        /// city's mercury heads beside its bulbs); null tints: white x gain.</summary>
+        public static Mesh BuildHaloMesh(IList<Vector3> localCentres, float sizeMul, IList<float> gain, IList<Color> linTint)
         {
             int n = localCentres != null ? localCentres.Count : 0;
             var mesh = new Mesh { name = HaloMeshName };
@@ -370,6 +413,12 @@ namespace PSXRacing
                 var m = g < 1f ? new Vector2(sizeMul * HaloSizeFor(g), 0f) : mul;
                 byte t = (byte)Mathf.RoundToInt(255f * g);
                 var c32 = g < 1f ? new Color32(t, t, t, 255) : white;
+                if (linTint != null && i < linTint.Count)
+                {
+                    var lc = linTint[i];
+                    c32 = new Color32((byte)Mathf.RoundToInt(Mathf.Clamp01(lc.r * g) * 255f), (byte)Mathf.RoundToInt(Mathf.Clamp01(lc.g * g) * 255f),
+                                      (byte)Mathf.RoundToInt(Mathf.Clamp01(lc.b * g) * 255f), 255);
+                }
                 uv1[v] = uv1[v + 1] = uv1[v + 2] = uv1[v + 3] = m;
                 cols[v] = cols[v + 1] = cols[v + 2] = cols[v + 3] = c32;
                 int k = i * 6;

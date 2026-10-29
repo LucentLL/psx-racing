@@ -700,9 +700,10 @@ namespace PSXRacing.City
             {
                 var heads = new List<Vector3>(job.tm.lamps.Count + signLamps + poleHeads);
                 var gains = new List<float>(heads.Capacity);
-                foreach (var l in job.tm.lamps) { heads.Add(job.tm.origin + l.head); gains.Add(LampGain(l)); }
-                if (signLamps > 0) heads.AddRange(st.lamps);
-                if (poleHeads > 0) heads.AddRange(pt.heads);
+                var mercs = new List<bool>(heads.Capacity);   // the 1990s city: mercury heads by street
+                foreach (var l in job.tm.lamps) { heads.Add(job.tm.origin + l.head); gains.Add(LampGain(l)); mercs.Add(l.mercury); }
+                if (signLamps > 0) { heads.AddRange(st.lamps); for (int k = 0; k < signLamps; k++) { gains.Add(1f); mercs.Add(false); } }
+                if (poleHeads > 0) { heads.AddRange(pt.heads); for (int k = 0; k < poleHeads; k++) { gains.Add(1f); mercs.Add(k < pt.headMercury.Count && pt.headMercury[k]); } }
                 var lt = tile.go.transform.Find("LampLights");
                 GameObject lights = lt != null ? lt.gameObject : null;
                 if (lights == null)
@@ -713,7 +714,7 @@ namespace PSXRacing.City
                 var glow = lights.GetComponent<NightGlow>();
                 if (glow == null) glow = lights.AddComponent<NightGlow>();
                 glow.cityField = true;
-                glow.Init(heads, gains);
+                glow.Init(heads, gains, mercs);
             }
             // city-popin: the tree frame (trees, poles, signals, signs) fades in
             // of its own, unless a car is in the tile
@@ -872,12 +873,13 @@ namespace PSXRacing.City
             {
                 var heads = new Vector3[tm.lamps.Count];
                 var gains = new float[tm.lamps.Count];
-                for (int i = 0; i < heads.Length; i++) { heads[i] = tm.origin + tm.lamps[i].head; gains[i] = LampGain(tm.lamps[i]); }
+                var mercs = new bool[tm.lamps.Count];
+                for (int i = 0; i < heads.Length; i++) { heads[i] = tm.origin + tm.lamps[i].head; gains[i] = LampGain(tm.lamps[i]); mercs[i] = tm.lamps[i].mercury; }
                 var lights = new GameObject("LampLights");
                 lights.transform.SetParent(root.transform, false);
                 var glow = lights.AddComponent<NightGlow>();
                 glow.cityField = true;
-                glow.Init(heads, gains);
+                glow.Init(heads, gains, mercs);
             }
 
             int colliders = root.GetComponentsInChildren<Collider>(true).Length;

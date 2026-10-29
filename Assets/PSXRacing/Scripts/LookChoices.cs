@@ -55,13 +55,10 @@ namespace PSXRacing
         public const bool DistantHazeDefault = false;
         public static bool DistantHaze => Env("PSX_DISTHAZE") ?? DistantHazeDefault;
 
-        /// <summary>NIGHT-LOOK PASS 5's extra A/B: the facades' ONE window colour
-        /// (PSX/Lit FAC_WIN_WARM) as a warm WHITE (sat ~0.3, NFS's measured
-        /// 0.23-0.29) instead of the golden yellow the owner chose on
-        /// 2026-10-26. Still one colour for every lit window and shopfront -
-        /// only which colour. OFF (his yellow); PSX_WARMWIN=1 in a tool.</summary>
-        public const bool WarmWindowsDefault = false;
-        public static bool WarmWindows => Env("PSX_WARMWIN") ?? WarmWindowsDefault;
+        // (WarmWindows, NIGHT-LOOK PASS 5's never-shipped A/B - ONE window
+        // colour as a warm white - is gone: the 1990s city, 2026-10-29, lights
+        // offices in two families, incandescent gold and fluorescent white-green,
+        // by building: PSX/Lit FAC_WIN_GOLD / FAC_WIN_TUBE.)
 
         static bool? Env(string name)
         {

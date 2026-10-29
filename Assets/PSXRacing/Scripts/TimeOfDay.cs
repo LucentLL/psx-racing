@@ -477,10 +477,9 @@ namespace PSXRacing
                 // NIGHT-LOOK PASS 5 (2026-10-28): the owner's "light haze far out
                 // only" (LookChoices.DistantHaze, OFF until his A/B) - the lit
                 // city at dusk and night, never by day, never in Fog (it has its
-                // own); and the window colour A/B (LookChoices.WarmWindows, OFF)
+                // own)
                 globals.distHaze = LookChoices.DistantHaze && urban >= 0.99f && weather != Weather.Fog
                                    && (index == Dusk || index == Night) ? DistHazeAmount : 0f;
-                globals.winWhite = LookChoices.WarmWindows ? 1f : 0f;
                 // And what the hour means for the SUN (the day pass): the
                 // per-pixel, shouldered light; how hard its shadows are; how
                 // much brighter the haze is toward it.

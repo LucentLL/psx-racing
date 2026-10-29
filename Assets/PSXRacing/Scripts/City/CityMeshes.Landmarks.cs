@@ -57,8 +57,13 @@ namespace PSXRacing.City
 
         // the facade atlas texels a hero's solid surfaces sample (one texel,
         // so a member reads as one material, and never a window: both are
-        // 0 in the night mask): column 0's white frame, column 3's plain precast
-        static readonly Vector2 HeroMetalUV = new Vector2(0.488f, 0.8125f);
+        // 0 in the night mask): column 0's white frame, column 3's plain precast.
+        // (2026-10-29, the 1990s city: the building pass re-laid column 0 at
+        // 8 floors a repeat, and (0.488, 0.8125) became a GLASS PANE - albedo
+        // (75, 89, 89), night mask glass - so every hero's metal read slate
+        // blue by day and a floodlit member washed teal. Now the left mullion
+        // where a spandrel crosses it: texel 2, (194-220) grey-white, mask 0.)
+        static readonly Vector2 HeroMetalUV = new Vector2(0.0195f, 0.8926f);
         static readonly Vector2 HeroMatteUV = new Vector2(0.113f, 0.732f);
         const int HeroMetalCol = 0, HeroMatteCol = 3;
 
@@ -502,12 +507,18 @@ namespace PSXRacing.City
             // glass twin (OSM maps each face's top twice: as glass and as
             // concrete on the same plan, a metre or so over it) is that same
             // glass, drawn once as the concrete piece's walls (two copies of
-            // one wall fought in depth). Nothing here is floodlit: the real
-            // crown is outlined in LED lines after dark (CityBeacons, the
-            // NightCrowns strips flag), not washed.
+            // one wall fought in depth). After dark (the 1990s city,
+            // 2026-10-29: no LED lines - "LEDs were not common") the WHITE
+            // members are floodlit from the roof as a 1990s crown was, in the
+            // flood NightCrowns gives the tower (metal halide), and the glass
+            // under them stays dark: the frame reads as white lines on the sky.
             var fs = map.footprints;
+            // (the crown's glass marked crown + FloodDark: no wash, and PSX/Lit
+            // lights no office windows in it - nobody works in a crown)
+            if (NightFrameOf(f.landmark)) { FacadeCrown(true); FacadeFlood(FloodDark); }
             var glass = Bucket.Tint;   // the shaft's own facade (PickFacade), before the white
             HeroTint(HeroMetalCol, false, 0.93f, 0.94f, 0.95f);
+            if (NightFrameOf(f.landmark)) { FacadeCrown(true); FacadeFlood(NightFloodOf(f.landmark)); }
             var white = Bucket.Tint;
             HeroNoCollide(true);
             foreach (int pi in heroDropped[hero])

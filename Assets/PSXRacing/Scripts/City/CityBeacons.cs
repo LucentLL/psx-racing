@@ -11,11 +11,12 @@ namespace PSXRacing.City
     ///     <see cref="MinTowerM"/> or more over its ground - one at its highest
     ///     point (a spire's tip, a crown's top), flashing slowly (PSX/Halo:
     ///     BEACON_PERIOD), each tower in its own phase;
-    ///   * LED EDGE STRIPS on the crowns the real towers outline in light
-    ///     (CityMeshes.NightCrowns' strips flag): beads of the tower's LED
-    ///     colour every <see cref="BeadM"/> along the top edges of its crown's
-    ///     members and up its shaft's corners, which merge into lines at a
-    ///     distance (the crown itself is not floodlit).
+    ///   * STEADY RED OBSTRUCTION LIGHTS on the corners of the same towers'
+    ///     roofs - the owner's 1990s photograph of uptown has a red light on
+    ///     each top corner of its towers (the 1990s city, 2026-10-29). The LED
+    ///     edge strips that outlined the open-frame tower's crown (2026-10-29
+    ///     morning) are gone: "LEDs were not common" - its white frame is
+    ///     floodlit instead (CityMeshes.HeroOpenFrame).
     /// Both are halos (PSX/Halo, uv1.y &lt; 0: squeezed onto the far skyline
     /// as PSX/Lit squeezes the tower, hazed by distance rather than faded with
     /// the fog band), ONE mesh and ONE draw for the whole city, built once from
@@ -27,28 +28,21 @@ namespace PSXRacing.City
     {
         /// <summary>A tower this tall over its ground carries a beacon.</summary>
         public const float MinTowerM = 90f;
-        /// <summary>Metres between a strip's beads.</summary>
-        const float BeadM = 1.6f;
-        /// <summary>A tower's non-glass part carries its LED lines when it
-        /// rises to this share of the tower's height (the open frame's
-        /// members: the sloped pieces from its 180 m roof, the bridge, the
-        /// ridge beam), and its shaft's corners carry them when the shaft
-        /// does.</summary>
-        const float FrameFromShare = 0.7f;
-        /// <summary>A member's edge facing in across its tower by more than
-        /// this (its outward side looking at the shaft's middle this far off)
-        /// is the inside of a face and carries no line.</summary>
-        const float InnerM = 5f;
+        /// <summary>A roof corner's light stands on a shaft at least this
+        /// share of its tower's height (a podium's corners carry none).</summary>
+        const float CornerFromShare = 0.6f;
+        /// <summary>Two corner lights nearer than this are one.</summary>
+        const float CornerMinM = 12f;
         /// <summary>Halo half-sizes as multiples of the material's _Size
-        /// (<see cref="NightGlow.HaloSize"/>): a beacon's red glow, a bead.</summary>
-        const float BeaconSize = 1.0f, BeadSize = 0.3f;
+        /// (<see cref="NightGlow.HaloSize"/>): a beacon's red glow, a corner light.</summary>
+        const float BeaconSize = 1.0f, CornerSize = 0.55f;
         static readonly Color BeaconRed = new Color(1.00f, 0.06f, 0.03f);
 
         MeshRenderer mr;
         Mesh mesh;
         Material mat;
         public int BeaconCount { get; private set; }
-        public int BeadCount { get; private set; }
+        public int CornerCount { get; private set; }
 
         /// <summary>Build under the skyline's object from its elements (map
         /// footprint indices) and their drawn bounds; null when there is
@@ -84,41 +78,22 @@ namespace PSXRacing.City
                 beacons++;
             }
 
-            // the crown strips
-            int beads = 0;
-            var stripTowers = new HashSet<int>();
-            foreach (var kv in topOf) if (fs[kv.Key].landmark != 0 && CityMeshes.NightStripsOf(fs[kv.Key].landmark)) stripTowers.Add(kv.Key);
-            foreach (int oi in stripTowers)
+            // THE ROOF CORNERS (the 1990s city): a steady red light on each
+            // corner of the tower's shaft - the tallest of its parts on the
+            // ground, or the outline itself - at its roof
+            int corners = 0;
+            foreach (var kv in topOf)
             {
-                var of = fs[oi];
-                var col = CityMeshes.LedColour(CityMeshes.NightLedOf(of.landmark));
+                var of = fs[kv.Key];
                 float ground = GroundOf(map, of);
-                float towerH = topOf[oi].y - ground;
-                // the shaft: the tallest of the tower's parts on the ground
+                float towerH = kv.Value.y - ground;
+                if (towerH < MinTowerM) continue;
                 int si = -1;
                 for (int i = 0; i < fs.Length; i++)
-                    if (fs[i].part && fs[i].outline == oi && fs[i].minH < 1f && (si < 0 || fs[i].h > fs[si].h)) si = i;
-                var core = si >= 0 ? fs[si].centre : of.centre;
-                int pieces = 0;
-                for (int i = 0; i < fs.Length; i++)
-                {
-                    var f = fs[i];
-                    // the frame the lines run on (2026-10-29, the owner's night
-                    // photograph of the open-frame tower: thin lines up its
-                    // corners and along its crown's members, the glass dark):
-                    // the tower's own pieces that are not glass and rise into
-                    // its top - the frame's members, along their top edges
-                    if (!f.part || f.outline != oi || f.mat == 1 || f.h < FrameFromShare * towerH) continue;
-                    beads += StripPiece(centres, uv1, cols, f, ground, col, core);
-                    pieces++;
-                }
-                // ...and up its vertical edges: OSM's posts on the shaft's
-                // corners fall under the exporter's 2 m2 floor, so the lines
-                // run up the shaft's own corners, to the frame's foot on each
-                if (pieces > 0 && si >= 0 && fs[si].h >= FrameFromShare * towerH)
-                    beads += StripCorners(centres, uv1, cols, fs, oi, si, ground, towerH, col);
-                // no mapped crown pieces: the outline's top ring
-                if (pieces == 0 && !of.hidden) beads += StripRing(centres, uv1, cols, of.pts, ground + of.h, col);
+                    if (fs[i].part && fs[i].outline == kv.Key && fs[i].minH < 1f && (si < 0 || fs[i].h > fs[si].h)) si = i;
+                var shaft = si >= 0 ? fs[si] : of;
+                if (shaft.pts == null || shaft.pts.Length < 3 || shaft.h < CornerFromShare * towerH) continue;
+                corners += Corners(centres, uv1, cols, shaft, ground + shaft.h + 0.4f);
             }
             if (centres.Count == 0) return null;
 
@@ -129,14 +104,13 @@ namespace PSXRacing.City
             go.transform.localScale = Vector3.one;
             var cb = go.AddComponent<CityBeacons>();
             cb.BeaconCount = beacons;
-            cb.BeadCount = beads;
+            cb.CornerCount = corners;
             cb.mesh = BuildMesh(centres, uv1, cols, map.uptown);
             go.AddComponent<MeshFilter>().sharedMesh = cb.mesh;
             cb.mat = new Material(sh) { name = "SkylineLights", hideFlags = HideFlags.HideAndDontSave };
             cb.mat.SetColor("_Color", Color.white);
             cb.mat.SetFloat("_Size", NightGlow.HaloSize);
-            // strength 1: a stronger halo clamps the LED colour pale in the
-            // 8-bit framebuffer (the first cut's blue read as white)
+            // strength 1: a stronger halo clamps the red pale in the 8-bit framebuffer
             cb.mat.SetFloat("_Strength", 1.0f);
             cb.mat.SetFloat("_MinPixels", 1.6f);
             cb.mr = go.AddComponent<MeshRenderer>();
@@ -146,7 +120,7 @@ namespace PSXRacing.City
             cb.mr.receiveShadows = false;
             cb.mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
             cb.mr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
-            Debug.Log($"[CityBeacons] {beacons} aviation beacons (towers of {MinTowerM:0} m+), {beads} crown strip beads on {stripTowers.Count} towers, 1 draw");
+            Debug.Log($"[CityBeacons] {beacons} aviation beacons (towers of {MinTowerM:0} m+), {corners} roof-corner lights, 1 draw");
             return cb;
         }
 
@@ -164,15 +138,13 @@ namespace PSXRacing.City
             return g == float.MaxValue ? 0f : g;
         }
 
-        /// <summary>The tower's four vertical edges: a line up each corner of
-        /// its shaft (the tallest of its parts on the ground; a chamfered
-        /// corner's middle) from the ground to the highest frame member
-        /// standing on the shaft's roof over that corner.</summary>
-        static int StripCorners(List<Vector3> c, List<Vector2> u, List<Color32> k, CityMap.Footprint[] fs, int oi, int si, float ground, float towerH, Color col)
+        /// <summary>A roof's corners: its outline's extreme point toward each
+        /// of the four diagonals of its own axes (a chamfered corner's
+        /// middle), one steady red light on each, none twice.</summary>
+        static int Corners(List<Vector3> c, List<Vector2> u, List<Color32> k, CityMap.Footprint s, float y)
         {
-            var s = fs[si];
             var v = new Vector2(-s.u.y, s.u.x);
-            int beads = 0;
+            var placed = new List<Vector2>(4);
             for (int q = 0; q < 4; q++)
             {
                 var d = ((q & 1) == 0 ? s.u : -s.u) + ((q & 2) == 0 ? v : -v);
@@ -182,106 +154,20 @@ namespace PSXRacing.City
                 int n = 0;
                 foreach (var p in s.pts) if (Vector2.Dot(p - s.centre, d) > most - 2f) { at += p; n++; }
                 at /= n;
-                float top = ground + s.h;
-                foreach (var f in fs)
-                {
-                    if (!f.part || f.outline != oi || f.mat == 1 || f.h < FrameFromShare * towerH || Mathf.Abs(f.minH - s.h) > 0.5f) continue;
-                    bool near = false;
-                    foreach (var p in f.pts) if ((p - at).sqrMagnitude < 25f) { near = true; break; }
-                    if (near) top = Mathf.Max(top, TopAt(f, ground, at));
-                }
-                byte face = FaceCode(d, true);
-                for (float y = ground + BeadM * 0.5f; y < top; y += BeadM) { Add(c, u, k, new Vector3(at.x, y, at.y), BeadSize, -0.5f, col, face); beads++; }
+                bool dup = false;
+                foreach (var o in placed) if ((o - at).sqrMagnitude < CornerMinM * CornerMinM) { dup = true; break; }
+                if (dup) continue;
+                placed.Add(at);
+                Add(c, u, k, new Vector3(at.x, y, at.y), CornerSize, -0.5f, BeaconRed);
             }
-            return beads;
+            return placed.Count;
         }
 
-        /// <summary>PSX/Halo's one-way code for a tower light (its colour
-        /// alpha): the compass yaw <paramref name="outward"/> points along, in
-        /// 127 steps - a face's top edge 0..126, a corner 127..253 (lit three
-        /// quarters round). 255 lights all round.</summary>
-        static byte FaceCode(Vector2 outward, bool corner)
-        {
-            float yaw01 = Mathf.Repeat(Mathf.Atan2(outward.x, outward.y) / (2f * Mathf.PI), 1f);
-            int step = Mathf.RoundToInt(yaw01 * 127f) % 127;
-            return (byte)(step + (corner ? 127 : 0));
-        }
-
-        /// <summary>A part's top over a plan point (a skillion's sloped as
-        /// CityMeshes.EmitRoofShape slopes it), held within the part.</summary>
-        static float TopAt(CityMap.Footprint f, float ground, Vector2 at)
-        {
-            float top = ground + f.h;
-            float rise = f.roof == 4 ? Mathf.Min(f.roofH, f.h - f.minH) : 0f;
-            if (rise <= 0.05f) return top;
-            var dir = f.roofDir >= 0 ? new Vector2(Mathf.Sin(f.roofDir * Mathf.Deg2Rad), Mathf.Cos(f.roofDir * Mathf.Deg2Rad))
-                                     : new Vector2(f.u.y, -f.u.x);
-            float s0 = float.MaxValue, s1 = float.MinValue;
-            foreach (var p in f.pts) { float sp = Vector2.Dot(p, dir); s0 = Mathf.Min(s0, sp); s1 = Mathf.Max(s1, sp); }
-            float y = top - rise * (Vector2.Dot(at, dir) - s0) / Mathf.Max(0.5f, s1 - s0);
-            return Mathf.Clamp(y, ground + f.minH, top);
-        }
-
-        /// <summary>One frame member outlined: its top edges (a skillion's
-        /// sloped as CityMeshes.EmitRoofShape slopes it), each seen only from
-        /// the side it faces; an edge that faces in across the tower (more
-        /// than <see cref="InnerM"/> short of its middle, <paramref name="core"/>)
-        /// is the far face's back and carries none. Not its corners: a line
-        /// down every corner of a sloped member crossed its tower's glass
-        /// with lines the real one does not carry.</summary>
-        static int StripPiece(List<Vector3> c, List<Vector2> u, List<Color32> k, CityMap.Footprint f, float ground, Color col, Vector2 core)
-        {
-            var pts = f.pts;
-            int n = pts.Length;
-            if (n < 3) return 0;
-            float top = ground + f.h;
-            float rise = f.roof == 4 ? Mathf.Min(f.roofH, f.h - f.minH) : 0f;
-            Vector2 dir = Vector2.up; float s0 = 0f, span = 1f;
-            if (rise > 0.05f)
-            {
-                dir = f.roofDir >= 0 ? new Vector2(Mathf.Sin(f.roofDir * Mathf.Deg2Rad), Mathf.Cos(f.roofDir * Mathf.Deg2Rad))
-                                     : new Vector2(f.u.y, -f.u.x);
-                float s1 = float.MinValue; s0 = float.MaxValue;
-                foreach (var p in pts) { float sp = Vector2.Dot(p, dir); s0 = Mathf.Min(s0, sp); s1 = Mathf.Max(s1, sp); }
-                span = Mathf.Max(0.5f, s1 - s0);
-            }
-            float YAt(Vector2 p) => rise > 0.05f ? top - rise * (Vector2.Dot(p, dir) - s0) / span : top;
-            int beads = 0;
-            for (int i = 0; i < n; i++)
-            {
-                var a = pts[i]; var b = pts[(i + 1) % n];
-                float len = Vector2.Distance(a, b);
-                if (len < 0.5f) continue;
-                var outward = new Vector2(b.y - a.y, a.x - b.x) / len;   // CCW outline
-                if (Vector2.Dot(outward, core - (a + b) * 0.5f) > InnerM) continue;
-                byte face = FaceCode(outward, false);
-                int steps = Mathf.Max(1, Mathf.RoundToInt(len / BeadM));
-                for (int s = 0; s < steps; s++)
-                {
-                    var p = Vector2.Lerp(a, b, s / (float)steps);
-                    Add(c, u, k, new Vector3(p.x, YAt(p), p.y), BeadSize, -0.5f, col, face); beads++;
-                }
-            }
-            return beads;
-        }
-
-        static int StripRing(List<Vector3> c, List<Vector2> u, List<Color32> k, Vector2[] pts, float y, Color col)
-        {
-            int beads = 0, n = pts.Length;
-            for (int i = 0; i < n; i++)
-            {
-                var a = pts[i]; var b = pts[(i + 1) % n];
-                int steps = Mathf.Max(1, Mathf.RoundToInt(Vector2.Distance(a, b) / BeadM));
-                for (int s = 0; s < steps; s++) { var p = Vector2.Lerp(a, b, s / (float)steps); Add(c, u, k, new Vector3(p.x, y, p.y), BeadSize, -0.5f, col); beads++; }
-            }
-            return beads;
-        }
-
-        static void Add(List<Vector3> c, List<Vector2> u, List<Color32> k, Vector3 at, float size, float mode, Color col, byte face = 255)
+        static void Add(List<Vector3> c, List<Vector2> u, List<Color32> k, Vector3 at, float size, float mode, Color col)
         {
             c.Add(at); u.Add(new Vector2(size, mode));
             k.Add(new Color32((byte)Mathf.RoundToInt(Mathf.Clamp01(col.r) * 255f), (byte)Mathf.RoundToInt(Mathf.Clamp01(col.g) * 255f),
-                              (byte)Mathf.RoundToInt(Mathf.Clamp01(col.b) * 255f), face));
+                              (byte)Mathf.RoundToInt(Mathf.Clamp01(col.b) * 255f), 255));
         }
 
         /// <summary>The PSX/Halo mesh (NightGlow.BuildHaloMesh's layout: four

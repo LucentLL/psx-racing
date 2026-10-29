@@ -606,7 +606,10 @@ namespace PSXRacing.City
             }
             // OSM metal cladding wears the silver grid AS metal (B1b)
             // (BUILDING PASS: columns 8-15 carry their high bit in red's low bit - TintR)
-            Bucket.Tint = new Color32(TintR(k.x, look), TintByte(k.y), TintByte(k.z), (byte)((look & 7) * 32 + (mat == 4 ? FacadeMetalBit : 0) + facLed));
+            // (the 1990s city: + the crown's flood code, + FacadeHomeBit for a
+            // home - its lit windows incandescent, never the office tubes)
+            Bucket.Tint = new Color32(TintR(k.x, look), TintByte(k.y), TintByte(k.z),
+                                      (byte)((look & 7) * 32 + (mat == 4 ? FacadeMetalBit : 0) + (facLed & FacadeFloodMask) + (home ? FacadeHomeBit : 0)));
         }
 
         /// <summary>A stone wall this tall is an office tower's (granite or
@@ -744,9 +747,17 @@ namespace PSXRacing.City
         /// <see cref="facCrownY"/> up: the walls that cross it are split
         /// there (one more panel row, no draw call).</summary>
         const int FacadeCrownBit = 8;
-        /// <summary>The uptown night pass (2026-10-16): the alpha's low three
-        /// bits are the crown's LED colour (CityMeshes.NightCrowns).</summary>
-        const int FacadeLedMask = 7;
+        /// <summary>The alpha's low three bits (the uptown night pass's LED
+        /// colour until 2026-10-29): the 1990s city's crown FLOOD code in the
+        /// low two (CityMeshes.NightCrowns: 0 by hash, 1 warm, 2 metal halide,
+        /// 3 dark) and the HOME bit (PSX/Lit: incandescent windows only).</summary>
+        const int FacadeLedMask = 7, FacadeFloodMask = 3, FacadeHomeBit = 4;
+        /// <summary>The tint being written's crown flood, the rest kept.</summary>
+        static void FacadeFlood(byte code)
+        {
+            var t = Bucket.Tint;
+            Bucket.Tint = new Color32(t.r, t.g, t.b, (byte)((t.a & ~FacadeFloodMask) | (code & FacadeFloodMask)));
+        }
         public const float CrownMinH = 60f;
         static float facCrownY = float.MaxValue;
         /// <summary>The floodlit band of a tower <paramref name="h"/> tall: a
@@ -841,6 +852,41 @@ namespace PSXRacing.City
             /// the business cabinets and the thin trunks do): drawn and lit,
             /// no collider. The WP-15 review.</summary>
             public bool breakaway;
+            /// <summary>A MERCURY-VAPOUR head, not a bulb: its street's
+            /// (<see cref="MercuryStreet"/>, the 1990s city).</summary>
+            public bool mercury;
+        }
+
+        // ------------------------------------------------------------------
+        //  THE 1990s STREET LIGHTS (2026-10-29). The owner's 1990s photograph
+        //  of uptown: sodium starbursts on the main roads, white-green MERCURY
+        //  VAPOUR heads on the side streets and lots (12 of the 20 heads that
+        //  could be told apart, the big starbursts all sodium). In 1999 the
+        //  arterials had gone to high-pressure sodium and the older streets
+        //  still had their mercury heads. So a whole STREET is one or the other
+        //  - by its name's hash (else its OSM way's), never lamp by lamp:
+        //  trunks and freeways sodium, a collector now and then, a local
+        //  street often. PSX_CITY_MERCURY=0: every head a bulb (the A/B).
+        // ------------------------------------------------------------------
+        public static bool MercuryOff = System.Environment.GetEnvironmentVariable("PSX_CITY_MERCURY") == "0";
+        /// <summary>Share of local streets (classes 0-1) lit by mercury vapour...</summary>
+        public const float MercuryLocalP = 0.45f;
+        /// <summary>...of collectors and arterials (2-3); trunks and freeways (4+) never.</summary>
+        public const float MercuryCollectorP = 0.12f;
+
+        /// <summary>Whether a street's heads are mercury vapour (the same
+        /// answer for every edge of a named street).</summary>
+        public static bool MercuryStreet(CityMap.Edge e)
+        {
+            if (MercuryOff || e == null || e.cls >= 4) return false;
+            uint h = 2166136261u;
+            unchecked
+            {
+                if (!string.IsNullOrEmpty(e.name)) foreach (char ch in e.name) { h ^= ch; h *= 16777619u; }
+                else { h ^= e.wayId; h *= 16777619u; h ^= e.wayId >> 16; h *= 16777619u; }
+                h ^= h >> 15; h *= 0x2C1B3C6Du; h ^= h >> 12;
+            }
+            return (h & 0xFFFF) / 65536f < (e.cls <= 1 ? MercuryLocalP : MercuryCollectorP);
         }
 
         /// <summary>Leftover item 6: a procedural house as a tile drew it.
@@ -4323,7 +4369,7 @@ namespace PSXRacing.City
             var head = new Vector3(headP.x, ground - LampSinkM + height, headP.y) - tm.origin;
             // in a city race route's run-off it breaks away (the WP-15 review)
             bool breakaway = RaceRunOff.Inside(map, trims, footP);
-            tm.lamps.Add(new Lamp { foot = foot, head = head, height = height, kind = kind, breakaway = breakaway });
+            tm.lamps.Add(new Lamp { foot = foot, head = head, height = height, kind = kind, breakaway = breakaway, mercury = MercuryStreet(e) });
             if (kind == LampAcorn) EmitAcorn(foot, head);
             else EmitLamp(foot, head, outw);
             return 0;
@@ -10975,15 +11021,15 @@ namespace PSXRacing.City
                 Slot wallSlot = f.style == 3 ? Slot.FacadeHouse : Slot.FacadeGlass;
                 if (wallSlot == Slot.FacadeGlass)
                 {
-                    facLed = NightLedOf(gf.landmark);   // the uptown night pass: the crown's own colour
+                    facLed = NightFloodOf(gf.landmark);   // the crown's own flood (the 1990s city: NightCrowns)
                     PickFacade(gf.centre, (byte)(f.style == 4 ? 2 : f.style), f.use, f.mat, f.colour, floorP,
                                gf != f ? Mathf.Max(gf.h, 1f) : top - floorP, f.rhythm != 0 ? f.rhythm : gf.rhythm);
                     // the tower's floodlit crown: its top band, whichever part reaches it
-                    // (none on a crown its real tower outlines in LED strips: those
-                    // lines are its light - CityBeacons; 2026-10-29, the open frame
-                    // washed blue read as one big glowing triangle)
+                    // (none on a tower whose light is on its frame - NightCrowns: the
+                    // open frame's white members are floodlit, HeroOpenFrame; washed
+                    // whole, its glass slopes read as one big glowing triangle)
                     float towerH = Mathf.Max(top - floorP, gf.h);
-                    facCrownY = towerH >= CrownMinH && !CrownsOff && !NightStripsOf(gf.landmark) ? floorP + towerH - CrownBandM(towerH) : float.MaxValue;
+                    facCrownY = towerH >= CrownMinH && !CrownsOff && !NightFrameOf(gf.landmark) ? floorP + towerH - CrownBandM(towerH) : float.MaxValue;
                 }
                 // B2: a part's floor (a tier on its podium, a crown on its
                 // shaft) and the eave its roof shape rises from
