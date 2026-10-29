@@ -190,13 +190,37 @@ namespace PSXRacing.City
             return Mathf.Sqrt((nx - eye.x) * (nx - eye.x) + (nz - eye.z) * (nz - eye.z));
         }
 
+        /// <summary>PSX/Halo's _PSXProxyFarM: how far round the eye EVERY far
+        /// building is in the shown mesh. CityFar's footprint window dots
+        /// stand only past it, so a lit window is never drawn twice (a dot on
+        /// the proxy's own lit window); while chunks are still building it is
+        /// the nearest one missing, so no street goes dark. 0 = no proxies.</summary>
+        static readonly int ProxyFarId = Shader.PropertyToID("_PSXProxyFarM");
+
+        float CoveredM()
+        {
+            float R = RadiusM, cover = R;
+            int ecx = ChunkOf(eye.x), ecz = ChunkOf(eye.z);
+            int r = Mathf.CeilToInt(R / ChunkM) + 1;
+            for (int dz = -r; dz <= r; dz++)
+            for (int dx = -r; dx <= r; dx++)
+            {
+                int cx = ecx + dx, cz = ecz + dz;
+                long k = Key(cx, cz);
+                if (shown.Contains(k) || !byChunk.ContainsKey(k)) continue;
+                float d = NearestD(eye, cx, cz);
+                if (d < cover) cover = d;
+            }
+            return cover;
+        }
+
         /// <summary>This camera's far buildings: shown or not, their bounds;
         /// in a tool's shot (edit mode) everything in range is built now.</summary>
         public void Refresh(Camera cam)
         {
             bool on = cam != null && !Suppress && Seasons.CurrentWeather != Weather.Fog;
             CityTileFade.SetProxiesOn(on && frontAny);
-            if (!on) { Show(false); return; }
+            if (!on) { Show(false); Shader.SetGlobalFloat(ProxyFarId, 0f); return; }
             if (eyeValid)
             {
                 var mv = cam.transform.position - eye;
@@ -208,6 +232,7 @@ namespace PSXRacing.City
             eyeValid = true;
             if (!Application.isPlaying) FillNow();
             Show(frontAny);
+            Shader.SetGlobalFloat(ProxyFarId, frontAny ? CoveredM() : 0f);
             if (frontAny)
             {
                 var b = new Bounds(eye, Vector3.one * (cam.farClipPlane * 2.2f));
@@ -450,6 +475,7 @@ namespace PSXRacing.City
             if (back != null) Kill(back);
             foreach (var set in mats) if (set != null) foreach (var m in set) if (m != null) Kill(m);
             CityTileFade.SetProxiesOn(false);
+            Shader.SetGlobalFloat(ProxyFarId, 0f);
         }
 
         static void Kill(Object o)

@@ -127,6 +127,11 @@ Shader "PSX/Halo"
             float _PSXFogFar;
             float _PSXFogNear;
             float _PSXFarWorld;     // a global: 1 while the far city is drawn (the header)
+            // a global (CityProxies): how far round the eye every far building
+            // is drawn; a far WINDOW dot (uv1.y -0.75, CityFar) stands only
+            // past it, so a lit window is never drawn twice. 0: no proxies.
+            float _PSXProxyFarM;
+            #define WIN_HANDOVER_M 250.0    // metres past that a window dot comes up over
             #define HALO_FULL_FAR  0.96     // ...when the streamed lamps hold whole this far into their end
             #define SKY_OWN_NEAR   5.0      // PSXLit.shader's SKYLINE_OWN_NEAR / FAR, the same numbers
             #define SKY_OWN_FAR    40000.0
@@ -247,6 +252,10 @@ Shader "PSX/Halo"
                     // FAR_FADE_IN from the squeeze's start
                     float ff = _FarFall > 0.0 ? realDist / _FarFall : 0.0;
                     fade = exp(-realDist / SKY_HAZE_M) / (1.0 + ff * ff) * saturate((realDist - sA) / FAR_FADE_IN);
+                    // a window dot (-0.75; a lamp or bead is -0.5) hands over
+                    // to the proxies' own lit windows inside _PSXProxyFarM
+                    if (v.uv1.y < -0.6 && v.uv1.y > -0.95)
+                        fade *= saturate((realDist - _PSXProxyFarM) / WIN_HANDOVER_M);
                 }
                 else if (skyLight)
                 {

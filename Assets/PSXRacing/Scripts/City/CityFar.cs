@@ -180,7 +180,7 @@ namespace PSXRacing.City
         readonly Dictionary<long, List<int>> lotCells = new Dictionary<long, List<int>>();
         const float ClearCellM = 64f;
 
-        struct FarLight { public Vector3 p; public Color32 c; public float size; }
+        struct FarLight { public Vector3 p; public Color32 c; public float size; public bool win; }
         readonly Dictionary<long, List<FarLight>> lights = new Dictionary<long, List<FarLight>>();
         Mesh lightMesh;
         MeshRenderer lightR;
@@ -870,7 +870,7 @@ namespace PSXRacing.City
         // ------------------------------------------------------------------
         //  THE FAR LIGHTS
         // ------------------------------------------------------------------
-        void AddLight(Vector3 p, Color c, float gain, float size)
+        void AddLight(Vector3 p, Color c, float gain, float size, bool win = false)
         {
             long k = Key(ChunkOf(p.x), ChunkOf(p.z));
             if (!lights.TryGetValue(k, out var list)) { list = new List<FarLight>(256); lights[k] = list; }
@@ -880,6 +880,7 @@ namespace PSXRacing.City
                 c = new Color32((byte)Mathf.RoundToInt(Mathf.Clamp01(c.r * gain) * 255f), (byte)Mathf.RoundToInt(Mathf.Clamp01(c.g * gain) * 255f),
                                 (byte)Mathf.RoundToInt(Mathf.Clamp01(c.b * gain) * 255f), 255),
                 size = size,
+                win = win,
             });
         }
 
@@ -934,7 +935,7 @@ namespace PSXRacing.City
                     // a house: a lamp in one window, some nights
                     if (Hash(i, 1) > HouseLit) continue;
                     var at = OnOutline(f.pts, Hash(i, 2), Hash(i, 3));
-                    AddLight(new Vector3(at.x, ground + (Hash(i, 4) < 0.6f ? 1.8f : 4.6f), at.y), WinWarm, 0.60f, WindowSize);
+                    AddLight(new Vector3(at.x, ground + (Hash(i, 4) < 0.6f ? 1.8f : 4.6f), at.y), WinWarm, 0.60f, WindowSize, win: true);
                     WindowCount++;
                     continue;
                 }
@@ -951,7 +952,7 @@ namespace PSXRacing.City
                     if (Hash(i, 100 + salt) > pLit) continue;
                     var at = OnOutline(f.pts, Hash(i, 200 + salt), Hash(i, 300 + salt));
                     var col = WinOffice;
-                    AddLight(new Vector3(at.x, ground + (st + 0.45f) * StoreyM, at.y), col, shop && st == 0 ? 0.70f : 0.55f, WindowSize);
+                    AddLight(new Vector3(at.x, ground + (st + 0.45f) * StoreyM, at.y), col, shop && st == 0 ? 0.70f : 0.55f, WindowSize, win: true);
                     WindowCount++;
                 }
             }
@@ -1026,7 +1027,9 @@ namespace PSXRacing.City
                     int v = gv.Count;
                     gv.Add(l.p); gv.Add(l.p); gv.Add(l.p); gv.Add(l.p);
                     gu0.Add(new Vector2(0f, 0f)); gu0.Add(new Vector2(1f, 0f)); gu0.Add(new Vector2(1f, 1f)); gu0.Add(new Vector2(0f, 1f));
-                    var u1 = new Vector2(l.size, -0.5f);
+                    // a footprint's window -0.75: PSX/Halo hands it over to the
+                    // proxies' own lit windows inside _PSXProxyFarM (CityProxies)
+                    var u1 = new Vector2(l.size, l.win ? -0.75f : -0.5f);
                     gu1.Add(u1); gu1.Add(u1); gu1.Add(u1); gu1.Add(u1);
                     gc.Add(l.c); gc.Add(l.c); gc.Add(l.c); gc.Add(l.c);
                     gt.Add(v); gt.Add(v + 1); gt.Add(v + 2); gt.Add(v); gt.Add(v + 2); gt.Add(v + 3);
