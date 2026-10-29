@@ -8085,3 +8085,25 @@ merge / off-pavement hotspots; each spot the same share; ~29 car-hours a run).
   passes (every check's runs equal or fewer but A2 +18, B3 +3, C2 +3 runs). `PSX_LC_OWBOTH=0` = before.
 - **Merge room** in the audit is the drawn merge zone's full-width aux lane (`CityMeshes.ZoneFor`), not
   the ramp's own straightness.
+
+**Measured (spot census, the 40 spots, ~28-29 car-hours each; before = main 3aa4b63a, after = d9e16f43 + data):**
+forced short lane changes 295 -> 87, turns begun from the wrong lane 396 -> 219, forced into tight gaps 10 -> 5,
+lane-change waits 55 -> 50, heading snaps 415 -> 158, turns tighter than planned 225 -> 152, turn clips corner
+132 -> 105 (leaves road 9 -> 9), wrong way across the divider 25 -> 2, car wrecks 54 -> 46, bumps 51 -> 50, barrier
+contacts 14 -> 5; UP: missed turn lanes 67 -> 119 (a car with no room at speed now misses the turn and drives on from
+its lane instead of cutting across - realistic, but counted), no road under a lane 27 -> 43 (holes in the drawn road
+collider, mostly freeway mid-edge - not the lane model; left). Static, city-wide: no continuing lane 1,327 -> 337
+(248 of them the roads' lines jogging or bending inside the box, every lane in its place on its own road), lanes
+misaligned 297 -> 137 (76 jogs); merge room under 30 m 57 -> 38 (the drawn zones; 16 ramps' lanes run on).
+Gates: traffic check OK (ran red 0, rolled STOP 0, wrong way 0, overlap 0); drive audit WALLS IN LANES 0, FALL HOLES
+8 places (deck sides, as before), INVISIBLE 4 (+25 hits on the player car the chained run left in the scene);
+launch audit routes 1/0/0, city-wide 104 (main today in PSXBuild: 1/0/0, 109 - the uptown spot e2422 n3640 is not
+ours); city-play-check cannot run in PSXCity (UptownLoop not in that sandbox's build settings).
+
+**Left:** 89 + 61 straight-throughs whose lanes are laid differently on the two edges (one-way <-> two-way carriageway
+splits 50, a TWLTL opening or closing at a junction 34, one-way lane-count changes 25, one-ways re-anchored across a
+junction 29: each is a chain offset in lineclean, moved at a junction mouth by design - fixing them re-lays the
+chain, with the same ripple the two-sided split needed a guard for); 38 merge zones under 30 m (clamped by a
+junction or a deck); ramps drawn over freeway lanes upstream of their merge (I-85 e2120/e3031, I-77 e2456/e1310:
+the topology package's overlaps); the Park Road / E Tremont loop (n10626/11091/13889: a one-way ring of 6-17 m
+edges round a tiny island - the fans do not cover its turns); missed exits at speed.
