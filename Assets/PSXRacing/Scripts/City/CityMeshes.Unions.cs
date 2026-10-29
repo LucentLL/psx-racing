@@ -152,6 +152,14 @@ namespace PSXRacing.City
             public float seamArc0, seamArc1;
             /// <summary>(round 8) Laid by the gap fill between two drawn medians.</summary>
             public bool fill;
+            /// <summary>(round 9) A closed ground end where both carriageways go on with their own
+            /// Jersey: the median SPLITS there (two legs, one to each), the leg's length along the run.</summary>
+            public bool split0, split1;
+            public float splitLeg0, splitLeg1;
+            /// <summary>(round 9) Which legs of a split meet an approach RAIL, not an own Jersey (bit 0:
+            /// the owner's side, bit 1: the partner's) - only on a run DECKEND2 laid (deckEnd9).</summary>
+            public int splitRail0, splitRail1;
+            public bool deckEnd9;
             public bool Covers(float s, float slack = 1e-3f) => s >= s0 - slack && s <= s1 + slack;
         }
 
@@ -174,6 +182,8 @@ namespace PSXRacing.City
             t.unions = new List<UnionRun>[ne];
             twinEndsOf.Clear();
             r8ChainPartners = r8Fills = r8Seams = r8DeckEnds = r8Dropped = 0; r8FillM = r8DeckEndM = 0f;
+            r9Splits = r9SplitDropped = r9Bridges = r9FanFills = r9DeckEnds2 = 0; r9BridgeM = r9FanFillM = r9DeckEnd2M = 0f;
+            SplitVs.Clear();
             var pairs = map.deckPairs;
             if (pairs == null) { LastUnionReport = "no twin-deck table"; return; }
             // The solve asks for trims before it marks any structure (its ramp
@@ -302,6 +312,11 @@ namespace PSXRacing.City
             r8Fills = R8FillOn ? FillMedianGaps(map, t, out r8FillM) : 0;
             // 3d. (round 8) a closed end whose owner's deck carries on over a pit: on to the deck's end
             r8DeckEnds = R8DeckEndOn ? ExtendToDeckEnds(map, t, out r8DeckEndM) : 0;
+            // 3d2. (round 9) a partner's deck carrying on past the owner's abutment over a pit: the slab along it
+            r9DeckEnds2 = R9DeckEnd2On ? ExtendAlongPartnerDecks(map, t, out r9DeckEnd2M) : 0;
+            // 3d3. (round 9) the gaps between two shared medians, the twins within R9BridgeBandM
+            // (and, FANS, past a twin's fan whose other arms all leave on its outside): bridged
+            if (R9BridgeOn || R9FansOn) r9Bridges = BridgeMedianGaps(map, t, out r9BridgeM, out r9FanFills, out r9FanFillM);
             // 3e. (round 8) an owner run inside another owner run on the same side of the same edge
             // draws nothing the other does not: dropped (two approach walks from one deck end laid
             // I-77 e1891 0..3 and 0..4.2; the seam of the two at s 3 was a 3 m hole under the rays)
@@ -376,6 +391,19 @@ namespace PSXRacing.City
             }
             // (round 8) the carried-on ends met by a run owned across: one cross-line
             r8Seams = R8SeamOn ? FindSeams(map, t) : 0;
+            // (round 9) the closed ground ends where both carriageways go on with their own Jersey:
+            // SPLIT (a V to both); a run split at both ends shorter than its legs is not laid
+            if (R9SplitOn)
+            {
+                r9Splits = MarkSplitEnds(map, t);
+                r9SplitDropped = DropShortSplitRuns(map, t);
+                if (r9SplitDropped > 0)
+                {
+                    for (int ei = 0; ei < ne; ei++)
+                        if (t.unions[ei] != null) foreach (var r in t.unions[ei]) { r.open0 = !Continued(map, t, r, 0); r.open1 = !Continued(map, t, r, 1); }
+                    r9Splits = MarkSplitEnds(map, t);
+                }
+            }
 
             // 5. no short raised island (owner 2026-10-24: "random medians only a
             // few feet long on random side streets where roads split ... they
@@ -405,7 +433,8 @@ namespace PSXRacing.City
             LastUnionReport = $"{pairsDrawn} union pairs drawn as one structure ({runs} runs, {deckM:0} m over the decks' ranges; {approachRuns} approach runs, {approachM:0} m; {groundRuns} ground-twin runs, {groundM:0} m; {raisedFlushed} short raised medians made flush); " +
                               $"{pairsSplit} pairs in more than one run or ended by a split level over {UnionSplitDyM} m ({splitRuns} runs{(splitWorst > 0f ? "; worst " + splitWorstAt : "")}); " +
                               $"{pairsNone} union pairs with no run{(noRun.Length > 0 ? " (" + noRun.ToString().Trim().TrimEnd(';') + ")" : "")}; {open} open run ends; {nodeSnapsFar} run ends put on a node with the next run (round 7); " +
-                              $"round 8: {r8Fills} gaps filled ({r8FillM:0} m), {r8Seams} seams across, {r8ChainPartners} partner runs on chain edges, {r8DeckEnds} closed ends carried on to their deck's end over a pit ({r8DeckEndM:0} m), {r8Dropped} owner runs inside another dropped; {LastUnionMs:0.0} ms";
+                              $"round 8: {r8Fills} gaps filled ({r8FillM:0} m), {r8Seams} seams across, {r8ChainPartners} partner runs on chain edges, {r8DeckEnds} closed ends carried on to their deck's end over a pit ({r8DeckEndM:0} m), {r8Dropped} owner runs inside another dropped; " +
+                              $"{Round9Report()}; {LastUnionMs:0.0} ms";
         }
 
         /// <summary>One segment of a pair's walk (pairWalk[i0..i1]) as an owner
@@ -1454,6 +1483,11 @@ namespace PSXRacing.City
                 if (open0) GroundVEnd(map, e, run.s0, -1, out vO0, out vP0);
                 if (open1) GroundVEnd(map, e, run.s1, +1, out vO1, out vP1);
             }
+            // (round 9) a SPLIT end: the median parts into two legs, each to its own carriageway's
+            // Jersey (their footprint, a 1:6 flare), nothing turned down
+            bool sp0 = R9SplitOn && !deck && open0 && run.split0, sp1 = R9SplitOn && !deck && open1 && run.split1;
+            if (sp0) vO0 = vP0 = true;
+            if (sp1) vO1 = vP1 = true;
             bool vee0 = vO0 || vP0, vee1 = vO1 || vP1, full0 = vO0 && vP0, full1 = vO1 && vP1;
             // (round 8) a carried-on end met by a run owned across draws THAT run's cross-line
             // (blended in over the last metres), so the two medians meet on one line
@@ -1489,8 +1523,8 @@ namespace PSXRacing.City
                 // (round 6) a ground V: its legs as long as a deck's; a full V
                 // takes the end from the Jersey (no turned-down nose there)
                 float legLen = Mathf.Max(TaperLenM, 1.5f * Vector2.Distance(pw, new Vector2(w.x, w.z)));
-                uLeg0[k] = vee0 ? Mathf.Clamp01((uS[k] - run.s0) / legLen) : 1f;
-                uLeg1[k] = vee1 ? Mathf.Clamp01((run.s1 - uS[k]) / legLen) : 1f;
+                uLeg0[k] = vee0 ? Mathf.Clamp01((uS[k] - run.s0) / (sp0 ? run.splitLeg0 : legLen)) : 1f;
+                uLeg1[k] = vee1 ? Mathf.Clamp01((run.s1 - uS[k]) / (sp1 ? run.splitLeg1 : legLen)) : 1f;
                 if (full0) d0 = float.MaxValue;
                 if (full1) d1 = float.MaxValue;
                 uEnd[k] = Mathf.Clamp01(Mathf.Min(d0, d1) / endLen);
@@ -1539,8 +1573,8 @@ namespace PSXRacing.City
                     if (!(full0 && inV0) && !(full1 && inV1))
                         EmitUnionJersey(uA[k], uB[k], uA[k + 1], uB[k + 1], uV[k], uV[k + 1],
                                         deck ? BarrierH : Mathf.Lerp(TaperFootM, BarrierH, uEnd[k]), deck ? BarrierH : Mathf.Lerp(TaperFootM, BarrierH, uEnd[k + 1]));
-                    if (vee0 && inV0) EmitUnionLegs(uA[k], uB[k], uA[k + 1], uB[k + 1], uLeg0[k], uLeg0[k + 1], uV[k], uV[k + 1], vO0, vP0);
-                    if (vee1 && inV1) EmitUnionLegs(uA[k], uB[k], uA[k + 1], uB[k + 1], uLeg1[k], uLeg1[k + 1], uV[k], uV[k + 1], vO1, vP1);
+                    if (vee0 && inV0) EmitUnionLegs(uA[k], uB[k], uA[k + 1], uB[k + 1], uLeg0[k], uLeg0[k + 1], uV[k], uV[k + 1], vO0, vP0, sp0 && (run.splitRail0 & 1) == 0, sp0 && (run.splitRail0 & 2) == 0);
+                    if (vee1 && inV1) EmitUnionLegs(uA[k], uB[k], uA[k + 1], uB[k + 1], uLeg1[k], uLeg1[k + 1], uV[k], uV[k + 1], vO1, vP1, sp1 && (run.splitRail1 & 1) == 0, sp1 && (run.splitRail1 & 2) == 0);
                 }
             }
             // (round 7, the owner's 0'54" on I-277: "rectangle cutouts with holes") a run
@@ -1614,6 +1648,8 @@ namespace PSXRacing.City
                 // (a full ground V has no Jersey end to cap)
                 bool fullV = end == 0 ? full0 : full1;
                 EmitUnionEnd(map, tm, e, run, side, uA[k], uB[k], outw, deck, uV[k], end == 0 ? run.s0 : run.s1, uOut[k] && !fullV ? shape : DeckPairs.Median.Flush);
+                // (round 9) the split's two leg feet, carried on along each carriageway's edge
+                if (end == 0 ? sp0 : sp1) EmitSplitFeet(map, trims, e, run, side, end, uA[k], uB[k], org, uV[k]);
             }
         }
 
@@ -1711,19 +1747,24 @@ namespace PSXRacing.City
             return !EdgeLinesUp(map, trims, e, end == 0 ? e.a : e.b, side, sec, origin);
         }
 
-        static void EmitUnionLegs(Vector3 a0, Vector3 b0, Vector3 a1, Vector3 b1, float f0, float f1, float v0, float v1, bool legA = true, bool legB = true)
+        static void EmitUnionLegs(Vector3 a0, Vector3 b0, Vector3 a1, Vector3 b1, float f0, float f1, float v0, float v1, bool legA = true, bool legB = true, bool jerseyA = false, bool jerseyB = false)
         {
             var g0 = new Vector3(b0.x - a0.x, 0f, b0.z - a0.z); float l0 = g0.magnitude; g0 = l0 > 1e-4f ? g0 / l0 : Vector3.right;
             var g1 = new Vector3(b1.x - a1.x, 0f, b1.z - a1.z); float l1 = g1.magnitude; g1 = l1 > 1e-4f ? g1 / l1 : Vector3.right;
-            float half = 0.5f * (RailW + RailOverhangM);
+            // (round 9) a split's leg meets its carriageway's own Jersey: the Jersey's footprint (its
+            // traffic face on the edge, BarrierW into the median), not a parapet's
+            float halfJ = 0.5f * BarrierW, halfR = 0.5f * (RailW + RailOverhangM);
+            float inJ = -0.5f * BarrierW, inR = 0.5f * (RailW - RailOverhangM);
             float top0 = Mathf.Max(a0.y, b0.y) + BarrierH, top1 = Mathf.Max(a1.y, b1.y) + BarrierH;
             for (int leg = 0; leg < 2; leg++)
             {
                 if (leg == 0 ? !legA : !legB) continue;
                 // the leg's centre line: on the edge at the end (the parapet's
                 // own line there), on the gap's middle TaperLenM back
-                Vector3 e0 = leg == 0 ? a0 - g0 * (0.5f * (RailW - RailOverhangM)) : b0 + g0 * (0.5f * (RailW - RailOverhangM)),
-                        e1 = leg == 0 ? a1 - g1 * (0.5f * (RailW - RailOverhangM)) : b1 + g1 * (0.5f * (RailW - RailOverhangM));
+                bool jl = leg == 0 ? jerseyA : jerseyB;
+                float edgeIn = jl ? inJ : inR, half = jl ? halfJ : halfR;
+                Vector3 e0 = leg == 0 ? a0 - g0 * edgeIn : b0 + g0 * edgeIn,
+                        e1 = leg == 0 ? a1 - g1 * edgeIn : b1 + g1 * edgeIn;
                 Vector3 p0 = Vector3.Lerp(e0, 0.5f * (a0 + b0), f0), p1 = Vector3.Lerp(e1, 0.5f * (a1 + b1), f1);
                 var dir = new Vector2(p1.x - p0.x, p1.z - p0.z);
                 if (dir.sqrMagnitude < 1e-6f) continue;
