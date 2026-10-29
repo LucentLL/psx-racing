@@ -266,10 +266,36 @@ namespace PSXRacing.EditorTools
             int idx = 0;
             float timeScale = CityTrafficCensus.Speed;
             Time.maximumDeltaTime = 0.5f;
+            bool retoured = false;
             while (idx < spots.Count)
             {
                 float left = tStart + budgetS - Time.realtimeSinceStartup;
                 if (left < 15f) { CityTrafficCensus.Line($"  budget spent: {spots.Count - idx} spots left unvisited"); break; }
+                // RE-TOUR once the first spots have measured the pace: keep the
+                // spots the budget can visit (the best gains) and walk them
+                // nearest-first from here - hops between kept spots of the full
+                // tour would build a fresh ring of tiles each (the 2026-10-29
+                // run: 1974 spots planned, a third of an hour of them kept)
+                if (!retoured && idx == 3)
+                {
+                    retoured = true;
+                    float needEach = streamEst * 0.7f + MinGameS / Mathf.Max(0.5f, rate);
+                    int fit = Mathf.Max(1, (int)(left / needEach));
+                    var rest = spots.GetRange(idx, spots.Count - idx);
+                    rest.Sort((a, b) => b.gain.CompareTo(a.gain));
+                    if (rest.Count > fit) rest.RemoveRange(fit, rest.Count - fit);
+                    var walk = new List<Spot>();
+                    Vector2 from = spots[idx - 1].p;
+                    while (rest.Count > 0)
+                    {
+                        int bi = 0; float bd = float.MaxValue;
+                        for (int i = 0; i < rest.Count; i++) { float d = (rest[i].p - from).sqrMagnitude; if (d < bd) { bd = d; bi = i; } }
+                        walk.Add(rest[bi]); from = rest[bi].p; rest.RemoveAt(bi);
+                    }
+                    CityTrafficCensus.Line($"  re-tour after {idx} spots ({rate:0}x, {streamEst:0.0} s of tiles a spot): {walk.Count} of {spots.Count - idx} spots fit the budget");
+                    spots.RemoveRange(idx, spots.Count - idx);
+                    spots.AddRange(walk);
+                }
                 // drop the least useful spots ahead until each left gets its minimum
                 float need = streamEst + MinGameS / Mathf.Max(0.5f, rate);
                 while (spots.Count - idx > 1 && (spots.Count - idx) * need > left)
