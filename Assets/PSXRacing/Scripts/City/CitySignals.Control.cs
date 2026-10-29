@@ -127,6 +127,26 @@ namespace PSXRacing.City
                 }
                 if (i >= 0 && o >= 0 && extra == 0) { twoWay = ti; inArm = i; outArm = o; return true; }
             }
+            // the same shape under two names (a route's ref as the carriageways'
+            // name: "NC 51" opening out of Pineville-Matthews Road): one class,
+            // both carriageways within 35 degrees of the two-way's line
+            foreach (int ti in map.nodeEdges[n])
+            {
+                var t = map.edges[ti];
+                if (t.oneway || t.link || !Usable(t)) continue;
+                int i = -1, o = -1, extra = 0;
+                var back = -Out(t, n);
+                foreach (int ei in map.nodeEdges[n])
+                {
+                    if (ei == ti) continue;
+                    var e = map.edges[ei];
+                    if (!Usable(e) || !e.oneway || e.link || e.cls != t.cls) continue;
+                    if (Vector2.Angle(Out(e, n), back) > 35f) continue;
+                    if (e.b == n) { if (i < 0) i = ei; else extra++; }
+                    else { if (o < 0) o = ei; else extra++; }
+                }
+                if (i >= 0 && o >= 0 && extra == 0) { twoWay = ti; inArm = i; outArm = o; return true; }
+            }
             return false;
         }
 
@@ -308,7 +328,7 @@ namespace PSXRacing.City
                     if (m.oneway && (m.link || string.IsNullOrEmpty(m.name)) && shallow) { Counts.yieldMerges++; continue; }
                     if (m.link)
                     {
-                        if (thrCls >= 3 && thrTwoWay) signal = true;
+                        if (thrCls >= 3 && thrTwoWay && !split) signal = true;
                         else (stops ??= new List<int>()).Add(ei);
                         continue;
                     }
