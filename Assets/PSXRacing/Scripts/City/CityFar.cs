@@ -104,6 +104,18 @@ namespace PSXRacing.City
         /// <summary>The share of windows lit: a house's, a frontage box's, an
         /// office storey's run (the first cut drew 124k windows city-wide).</summary>
         const float HouseLit = 0.22f, BoxLit = 0.20f, OfficeLit = 0.16f, ShopLit = 0.45f;
+        /// <summary>THE CLOCK'S WINDOWS (the 1990s city, 2026-10-29): those
+        /// shares are the LATE NIGHT's. A window dot is placed while its hash
+        /// is under its share x the most its class ever shows - an office x
+        /// <see cref="FarOfficeCap"/> (PSX/Halo FAR_OFFICE_CAP; the near
+        /// facades go to 4.6x at dusk), a home x <see cref="HomeMax"/>, a shop
+        /// x 1 - and carries its RANK (hash / share, x 1/4 in its colour's
+        /// alpha) and its class (its mode): it shows while the hour's
+        /// _PSXWinOccupancy is over its rank. The light table holds only the
+        /// hour's own (<see cref="RebuildLights"/>), and rebuilds when the hour
+        /// changes; PSX/Halo compares in between.</summary>
+        public const float FarOfficeCap = 3f, HomeMax = 2.2f;
+        const float ModeOffice = -0.75f, ModeHome = -0.70f, ModeShop = -0.80f, ModeBoxHome = -0.45f, ModeBoxShop = -0.55f, ModeLamp = -0.5f;
         /// <summary>Halo half-sizes, as multiples of NightGlow.HaloSize.</summary>
         const float LampSize = 0.35f, WindowSize = 0.15f;
         /// <summary>A residential street's posts: every other one is drawn
@@ -192,7 +204,7 @@ namespace PSXRacing.City
         readonly Dictionary<long, List<int>> lotCells = new Dictionary<long, List<int>>();
         const float ClearCellM = 64f;
 
-        struct FarLight { public Vector3 p; public Color32 c; public float size; public bool win; }
+        struct FarLight { public Vector3 p; public Color32 c; public float size; public float mode, rank; }
         readonly Dictionary<long, List<FarLight>> lights = new Dictionary<long, List<FarLight>>();
         Mesh lightMesh;
         MeshRenderer lightR;
@@ -332,7 +344,8 @@ namespace PSXRacing.City
 
             if (lightR != null)
             {
-                if (at != lightAt && budget-- > 0) using (LightsMarker.Auto()) RebuildLights(eye, at);
+                // (THE CLOCK'S WINDOWS: and when the hour's occupancy changes)
+                if ((at != lightAt || Occupancy() != lightOcc) && budget-- > 0) using (LightsMarker.Auto()) RebuildLights(eye, at);
                 bool lit = NightGlow.On && lightsShown > 0;
                 lightR.enabled = lit;
                 lightR.bounds = b;
@@ -882,19 +895,46 @@ namespace PSXRacing.City
         // ------------------------------------------------------------------
         //  THE FAR LIGHTS
         // ------------------------------------------------------------------
-        void AddLight(Vector3 p, Color c, float gain, float size, bool win = false)
+        /// <summary>A light: a lamp (<see cref="ModeLamp"/>, always) or a
+        /// window dot of a class's mode with its rank (THE CLOCK'S WINDOWS).</summary>
+        void AddLight(Vector3 p, Color c, float gain, float size, float mode = ModeLamp, float rank = 0f)
         {
             long k = Key(ChunkOf(p.x), ChunkOf(p.z));
             if (!lights.TryGetValue(k, out var list)) { list = new List<FarLight>(256); lights[k] = list; }
+            // the rank's quarter in the alpha, FLOORED: a dot the table holds
+            // (rank under the hour's share) is never hidden by PSX/Halo's compare
+            byte a = mode == ModeLamp ? (byte)255 : (byte)Mathf.Clamp(Mathf.FloorToInt(rank * 0.25f * 255f), 0, 254);
             list.Add(new FarLight
             {
                 p = p,
                 c = new Color32((byte)Mathf.RoundToInt(Mathf.Clamp01(c.r * gain) * 255f), (byte)Mathf.RoundToInt(Mathf.Clamp01(c.g * gain) * 255f),
-                                (byte)Mathf.RoundToInt(Mathf.Clamp01(c.b * gain) * 255f), 255),
+                                (byte)Mathf.RoundToInt(Mathf.Clamp01(c.b * gain) * 255f), a),
                 size = size,
-                win = win,
+                mode = mode,
+                rank = rank,
             });
         }
+
+        /// <summary>The hour's share a window dot of <paramref name="mode"/>
+        /// shows under (in its late-night shares), from _PSXWinOccupancy;
+        /// lamps always.</summary>
+        static float ShowUnder(float mode, Vector4 occ)
+        {
+            if (mode == ModeLamp) return float.MaxValue;
+            if (mode == ModeOffice) return Mathf.Min(occ.x / PSXGlobals.WinOccNight, FarOfficeCap);
+            if (mode == ModeHome || mode == ModeBoxHome) return occ.y;
+            return occ.z;
+        }
+
+        /// <summary>The hour's occupancy as PSX/Halo reads it (the late night's
+        /// when no hour has set it).</summary>
+        static Vector4 Occupancy()
+        {
+            var v = Shader.GetGlobalVector(OccupancyId);
+            return v.sqrMagnitude < 1e-8f ? new Vector4(PSXGlobals.WinOccNight, 1f, 1f, 0f) : v;
+        }
+        static readonly int OccupancyId = Shader.PropertyToID("_PSXWinOccupancy");
+        Vector4 lightOcc = new Vector4(-1f, -1f, -1f, -1f);
 
         static float Hash(int a, int b)
         {
@@ -949,10 +989,10 @@ namespace PSXRacing.City
                 float ground = CityElevation.BaseY(f.centre.x, f.centre.y);
                 if (f.style == 3 || f.gable)
                 {
-                    // a house: a lamp in one window, some nights
-                    if (Hash(i, 1) > HouseLit) continue;
+                    // a house: a lamp in one window, some nights (more in the evening)
+                    if (Hash(i, 1) > HouseLit * HomeMax) continue;
                     var at = OnOutline(f.pts, Hash(i, 2), Hash(i, 3));
-                    AddLight(new Vector3(at.x, ground + (Hash(i, 4) < 0.6f ? 1.8f : 4.6f), at.y), WinWarm, 0.60f, WindowSize, win: true);
+                    AddLight(new Vector3(at.x, ground + (Hash(i, 4) < 0.6f ? 1.8f : 4.6f), at.y), WinWarm, 0.60f, WindowSize, ModeHome, Hash(i, 1) / HouseLit);
                     WindowCount++;
                     continue;
                 }
@@ -967,11 +1007,14 @@ namespace PSXRacing.City
                 for (int u = 0; u < per; u++)
                 {
                     int salt = st * 8 + u;
-                    float pLit = shop && st == 0 ? ShopLit : OfficeLit;
-                    if (Hash(i, 100 + salt) > pLit) continue;
+                    bool shopFloor = shop && st == 0;
+                    float pLit = shopFloor ? ShopLit : OfficeLit;
+                    float mode = shopFloor ? ModeShop : home ? ModeHome : ModeOffice;
+                    float h = Hash(i, 100 + salt);
+                    if (h > pLit * (shopFloor ? 1f : home ? HomeMax : FarOfficeCap)) continue;
                     var at = OnOutline(f.pts, Hash(i, 200 + salt), Hash(i, 300 + salt));
                     var col = OfficeTube(i, st / stackH, home) ? WinTube : WinOffice;
-                    AddLight(new Vector3(at.x, ground + (st + 0.45f) * StoreyM, at.y), col, shop && st == 0 ? 0.70f : 0.55f, WindowSize, win: true);
+                    AddLight(new Vector3(at.x, ground + (st + 0.45f) * StoreyM, at.y), col, shopFloor ? 0.70f : 0.55f, WindowSize, mode, h / pLit);
                     WindowCount++;
                 }
             }
@@ -986,13 +1029,15 @@ namespace PSXRacing.City
                     n++;
                     if (bx.kind != 0 && !bx.gable) continue;   // a prop model: its own look
                     float pLit = bx.gable ? HouseLit : BoxLit;
-                    if (Hash(n, 7) > pLit) continue;
+                    float hb = Hash(n, 7);
+                    if (hb > pLit * (bx.gable ? HomeMax : 1f)) continue;
                     float ang = Hash(n, 8) * Mathf.PI * 2f;
                     float reach = 0.5f * Mathf.Max(bx.w, bx.d);
                     var at = bx.pos + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * reach;
                     float ground = CityElevation.BaseY(bx.pos.x, bx.pos.y);
                     bool upstairs = bx.h > 5f && Hash(n, 9) < 0.4f;
-                    AddLight(new Vector3(at.x, ground + (upstairs ? 4.6f : 1.8f), at.y), bx.gable ? WinWarm : WinShop, bx.gable ? 0.60f : 0.70f, WindowSize);
+                    AddLight(new Vector3(at.x, ground + (upstairs ? 4.6f : 1.8f), at.y), bx.gable ? WinWarm : WinShop, bx.gable ? 0.60f : 0.70f, WindowSize,
+                             bx.gable ? ModeBoxHome : ModeBoxShop, hb / pLit);
                     WindowCount++;
                 }
             }
@@ -1030,6 +1075,8 @@ namespace PSXRacing.City
         void RebuildLights(Vector3 eye, long at)
         {
             lightAt = at;
+            var occ = lightOcc = Occupancy();
+            float showOffice = ShowUnder(ModeOffice, occ), showHome = ShowUnder(ModeHome, occ), showShop = ShowUnder(ModeShop, occ);
             float R = LightRadiusM;
             int ecx = ChunkOf(eye.x), ecz = ChunkOf(eye.z);
             int r = Mathf.CeilToInt(R / ChunkM) + 1;
@@ -1043,12 +1090,14 @@ namespace PSXRacing.City
                 if (!lights.TryGetValue(Key(cx, cz), out var list)) continue;
                 foreach (var l in list)
                 {
+                    // the hour's window dots only (THE CLOCK'S WINDOWS)
+                    if (l.mode != ModeLamp && l.rank >= (l.mode == ModeOffice ? showOffice : l.mode == ModeHome || l.mode == ModeBoxHome ? showHome : showShop)) continue;
                     int v = gv.Count;
                     gv.Add(l.p); gv.Add(l.p); gv.Add(l.p); gv.Add(l.p);
                     gu0.Add(new Vector2(0f, 0f)); gu0.Add(new Vector2(1f, 0f)); gu0.Add(new Vector2(1f, 1f)); gu0.Add(new Vector2(0f, 1f));
-                    // a footprint's window -0.75: PSX/Halo hands it over to the
-                    // proxies' own lit windows inside _PSXProxyFarM (CityProxies)
-                    var u1 = new Vector2(l.size, l.win ? -0.75f : -0.5f);
+                    // a footprint's window (-0.70..-0.80): PSX/Halo hands it over to
+                    // the proxies' own lit windows inside _PSXProxyFarM (CityProxies)
+                    var u1 = new Vector2(l.size, l.mode);
                     gu1.Add(u1); gu1.Add(u1); gu1.Add(u1); gu1.Add(u1);
                     gc.Add(l.c); gc.Add(l.c); gc.Add(l.c); gc.Add(l.c);
                     gt.Add(v); gt.Add(v + 1); gt.Add(v + 2); gt.Add(v); gt.Add(v + 2); gt.Add(v + 3);

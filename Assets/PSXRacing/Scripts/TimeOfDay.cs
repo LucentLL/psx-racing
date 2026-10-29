@@ -472,6 +472,7 @@ namespace PSXRacing
                 globals.roadSlush = Mathf.Clamp01(wn.road.slush);
                 globals.roadSnowFresh = wn.precip == PrecipKind.Snow ? 1f : 0f;
                 globals.night = NightFor(index);
+                globals.winOccupancy = OccupancyFor(index);
                 globals.gradeNight = GradeNightFor(index);
                 globals.mood = MoodFor(index, urban);
                 // NIGHT-LOOK PASS 5 (2026-10-28): the owner's "light haze far out
@@ -1170,6 +1171,39 @@ namespace PSXRacing
                 case Dawn:   return 0.5f;
                 case Sunset: return 0.3f;
                 default:     return 0f;
+            }
+        }
+
+        /// <summary>
+        /// THE CLOCK'S WINDOWS (the 1990s city, 2026-10-29; the owner: "Yes,
+        /// more lit up earlier in afternoon"). WHICH windows are lit follows
+        /// the clock; how brightly a lit one glows stays on
+        /// <see cref="NightFor"/> (so by day a lit office never glows, and
+        /// noon is unchanged). Until now every share was x the darkness, so
+        /// dusk had FEWER lit offices than 23:15 - backwards.
+        ///   x OFFICES, the mean share of office windows lit. His 1990s
+        ///     photograph at dusk (tools/night/photo_families.py' boxes, lit
+        ///     pixels over a curtain wall's ~0.65 of glass): the five office
+        ///     towers 0.34 / 0.42 / 0.54 / 0.71 / 0.72 of their windows lit,
+        ///     mean 0.55 - so 0.55 from noon through dusk (20:25), 0.40 at
+        ///     08:30 (arriving), 0.06 at 05:40, and the late night (23:15) the
+        ///     0.12 tower NIGHT-LOOK PASS 5 measured.
+        ///   y HOMES, x their late-night share: lit in the evening (2.2 at
+        ///     20:25, 1.6 at 19:10), the late night as before (1), few by day.
+        ///   z SHOPS, x their late-night share (every shopfront lit): open all
+        ///     day and evening, a third at 05:40.
+        /// </summary>
+        public static Vector4 OccupancyFor(int hour)
+        {
+            switch (Mathf.Clamp(hour, 0, All.Length - 1))
+            {
+                case Dawn:      return new Vector4(0.06f, 0.7f, 0.3f, 0f);
+                case Morning:   return new Vector4(0.40f, 0.4f, 1f, 0f);
+                case Noon:      return new Vector4(0.55f, 0.3f, 1f, 0f);
+                case Afternoon: return new Vector4(0.55f, 0.5f, 1f, 0f);
+                case Sunset:    return new Vector4(0.55f, 1.6f, 1f, 0f);
+                case Dusk:      return new Vector4(0.55f, 2.2f, 1f, 0f);
+                default:        return new Vector4(PSXGlobals.WinOccNight, 1f, 1f, 0f);   // Night
             }
         }
 

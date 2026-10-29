@@ -311,6 +311,7 @@ Shader "PSX/Lit"
             float _PSXRoomsOn;          // 1 = the sheet is bound and the rooms are on
             float _PSXFacInset;         // BUILDING PASS: 1 = punched windows set into the wall (PSX_FAC_INSET=0: flat)
             float4 _PSXDistHaze;        // THE DISTANT HAZE: x amount (0 = off, the default), y start m, z 1/scale m
+            float4 _PSXWinOccupancy;    // THE CLOCK'S WINDOWS (TimeOfDay.OccupancyFor): x offices' mean lit share, y home factor, z shop factor
             // ==== END NIGHT-LOOK PASS 5 ====
             float _NightFace;
             float _Shore;
@@ -596,7 +597,7 @@ Shader "PSX/Lit"
             // mask says where the windows are; which of them are lit is a
             // hash, so a street is not a lit grid. Colours are linear.
             #define WIN_CELL_M         23.0   // world cell for the per-building variety, metres
-            #define WIN_LIT_FRAC       0.34   // share of office windows lit at full night (x _PSXNight):
+            #define WIN_LIT_FRAC       0.34   // share of office windows lit at full night (x the clock's home factor, 2026-10-29; was x _PSXNight):
                                               //   dusk (0.75) lights ~25%, night ~34% (Uptown B1; was 0.42)
             // EVERY LIT WINDOW IS ONE YELLOW (owner, 2026-10-24, on the "sky
             // blue windows": "No blue/white windows. Yellow like the NFS
@@ -614,7 +615,7 @@ Shader "PSX/Lit"
             // owner's uptown photographs, lit windows Ycode 106-135 over faces
             // 19-45 (ours 164-193 over 4-7), 6-27% of a tower lit, and whole
             // office FLOORS lit as bands, not only random cells.
-            #define WIN_LIT_FRAC_CITY  0.20   // random lit windows (x _PSXNight)
+            #define WIN_LIT_FRAC_CITY  0.20   // random lit windows (x the clock's home factor; was x _PSXNight)
             #define WIN_BAND_FRAC      0.16   // whole storeys of a building lit
             #define WIN_STOREY_M       3.8
             #define WIN_CITY_GAIN      0.62   // a lit window's glow x this in the city (0.50 until 2026-10-24: the NFS frame's windows are brighter)
@@ -637,8 +638,8 @@ Shader "PSX/Lit"
             // curtain blocks (BLK_CURT_*), and a curtain bay in a lit block is
             // dark one time in CURT_DROP - offices lit desk by desk, each window
             // its own brightness (WIN_DIM_FAC; the hue never moves).
-            #define WIN_FULL_FRAC      0.035  // stacks lit whole (x _PSXNight; 0.13 before pass 5)
-            #define WIN_PART_FRAC      0.36   // stacks lit in blocks (x _PSXNight; 0.50 before)
+            #define WIN_FULL_FRAC      0.035  // stacks lit whole at the late night (WinShares: the clock's; 0.13 before pass 5)
+            #define WIN_PART_FRAC      0.36   // stacks lit in blocks at the late night (WinShares; 0.50 before)
             #define WIN_BLOCK_ON       0.32   // share of a part-lit stack's blocks that are lit (0.46 before)
             #define WIN_DROP           0.12   // a dark window inside a lit punched block
             #define CURT_DROP          0.30   // a dark bay inside a lit curtain block (none before)
@@ -646,6 +647,23 @@ Shader "PSX/Lit"
             #define BLK_CURT_SPAN      3.0    // ...plus 0..2 more (2..5 before)
             #define WIN_DIM_FAC        0.38   // the dimmest lit facade window, as a share of the brightest (WIN_DIM 0.55 before)
             // ==== END NIGHT-LOOK PASS 5 ====
+            // ==== THE CLOCK'S WINDOWS (the 1990s city, 2026-10-29) ====
+            // The owner: "Yes, more lit up earlier in afternoon". WHICH windows
+            // are lit follows the clock (_PSXWinOccupancy, TimeOfDay.OccupancyFor);
+            // how brightly a lit one glows stays on _PSXNight and adapt, so by
+            // day a lit office never glows (and the whole branch is off at
+            // noon). The shares above were x _PSXNight: dusk had FEWER lit
+            // offices than the late night. Now the late night's tower (mean
+            // 0.12, WIN_OCC_NIGHT) is the floor and an occupied hour lights
+            // WHOLE stacks above it - his 1990s photograph at dusk: the office
+            // towers 0.34-0.72 of their windows lit, mean 0.55 - more in some
+            // buildings than others (WIN_BLDG_LO..HI). Homes: the late night's
+            // share x the home factor (lit in the evening, dark late); shops
+            // lit while open (z).
+            #define WIN_OCC_NIGHT      0.12   // the late night's mean office share: PSXGlobals.WinOccNight
+            #define WIN_BLDG_LO        0.5    // a building's share of the occupied excess, by its hash...
+            #define WIN_BLDG_HI        1.5    // ...mean 1
+            #define WIN_HOME_CAP       0.60   // a house's lit share at most (the plain windows)
             #define FAR_BLOCK_PX       2.5    // a far lit run of bays is at least this many pixels...
             #define FAR_BLOCK_WIDE     2.0    // ...times this across (2026-10-17: never coarsened UP a tower)
             #define FAR_COVER          0.65   // the least a far lit floor's window cover is
@@ -823,8 +841,9 @@ Shader "PSX/Lit"
                 float tw = step(PSXLitHash(float2(azc, 97.0)), FAC_NIGHT_TOWER_P);
                 float2 cell = float2(azc, floor(el * 80.0));
                 float hc = PSXLitHash(cell + 431.0);
-                float lit = step(hc, FAC_NIGHT_FLOOR_P) * tw;
-                lit = lerp(lit, FAC_NIGHT_FLOOR_P * FAC_NIGHT_TOWER_P, saturate(dist / FAC_NIGHT_FAR_M));
+                float floorP = min(FAC_NIGHT_FLOOR_P * _PSXWinOccupancy.x / WIN_OCC_NIGHT, 0.85);   // (the clock's)
+                float lit = step(hc, floorP) * tw;
+                lit = lerp(lit, floorP * FAC_NIGHT_TOWER_P, saturate(dist / FAC_NIGHT_FAR_M));
                 // (the 1990s city: each reflected tower its own family, ~0.6 of them tubes)
                 float3 winC = lerp(FAC_WIN_GOLD, FAC_WIN_TUBE, step(PSXLitHash(float2(azc, 53.0)), 0.6));
                 float tower = step(-0.36, el) * (1.0 - smoothstep(0.08, 0.21, el));
@@ -851,6 +870,17 @@ Shader "PSX/Lit"
                 return lerp(FAC_WIN_GOLD, FAC_WIN_TUBE, tube) * (lerp(WIN_DIM_FAC, 1.0, frac(th * 11.3)) * WIN_GAIN * cityGain);
             }
 
+            // THE CLOCK'S WINDOWS: a building's stack shares at this hour -
+            // x lit whole, y lit in blocks - from the occupancy, never the
+            // darkness (a home by the home factor x the late night's share)
+            float2 WinShares(float bk, float home)
+            {
+                float occ = lerp(_PSXWinOccupancy.x, WIN_OCC_NIGHT * _PSXWinOccupancy.y, home);
+                float baseN = saturate(occ / WIN_OCC_NIGHT);
+                float bv = lerp(WIN_BLDG_LO, WIN_BLDG_HI, frac(bk * 7.31 + 0.11));
+                return float2(WIN_FULL_FRAC * baseN + max(occ - WIN_OCC_NIGHT, 0.0) * bv, WIN_PART_FRAC * baseN);
+            }
+
             // ONE STOREY's state along a run of bays (THE FAR FLOORS): its
             // tenant stack lit whole, part-lit in runs (bU, the run at its
             // coarsening level lvU), or dark. rgb its colour, a lit or not.
@@ -859,8 +889,9 @@ Shader "PSX/Lit"
                 float stackH = 1.0 + floor(frac(bk * 5.31) * 3.0);
                 float stack = floor(st / stackH);
                 float occ = PSXLitHash(float2(bk * 211.0 + 3.0, stack + bk * 17.0));
-                float fullP = WIN_FULL_FRAC * _PSXNight * step(1.0, st);
-                float partP = WIN_PART_FRAC * _PSXNight;
+                float2 shares = WinShares(bk, home);   // (the clock's, not the darkness')
+                float fullP = shares.x * step(1.0, st);
+                float partP = shares.y;
                 float isFull = step(occ, fullP);
                 float isPart = step(occ, fullP + partP) * (1.0 - isFull);
                 float hB = PSXLitHash(float2(bU + bk * 977.0 + lvU * 131.0, st + bk * 389.0));
@@ -1923,8 +1954,9 @@ Shader "PSX/Lit"
                     float stackH = 1.0 + floor(frac(bk * 5.31) * 3.0);
                     float stack = floor(storey / stackH);
                     float occ = PSXLitHash(float2(bk * 211.0 + 3.0, stack + bk * 17.0));
-                    float fullP = WIN_FULL_FRAC * _PSXNight * step(1.0, storey);
-                    float partP = WIN_PART_FRAC * _PSXNight;
+                    float2 shares = WinShares(bk, facHome);   // THE CLOCK'S WINDOWS (was x _PSXNight)
+                    float fullP = shares.x * step(1.0, storey);
+                    float partP = shares.y;
                     float isFull = step(occ, fullP);
                     float isPart = step(occ, fullP + partP) * (1.0 - isFull);
                     // (NIGHT-LOOK PASS 5: shorter curtain blocks, BLK_CURT_*)
@@ -1979,7 +2011,8 @@ Shader "PSX/Lit"
                     // under vivid office floors was a second shade, 2026-10-26):
                     // the 1990s city's tubes in some, warm display light in the rest
                     float shopTube = step(frac(bk * 29.17 + 0.61), SHOP_TUBE_P);
-                    unitGlow = lerp(unitGlow, lerp(FAC_WIN_GOLD, FAC_WIN_TUBE, shopTube) * (WIN_GAIN * cityGain), shop);
+                    float shopOpen = step(frac(bk * 61.3 + 0.29), _PSXWinOccupancy.z);   // (the clock: shops lit while open)
+                    unitGlow = lerp(unitGlow, lerp(FAC_WIN_GOLD, FAC_WIN_TUBE, shopTube) * (WIN_GAIN * cityGain * shopOpen), shop);
                     // the curtain's panes, box-filtered: its own mask is all glass
                     // (blue, teal) or a luminance cut of the photo (silver)
                     float pane = (1.0 - PSXPulseBox(facYF, CW_SPANDREL, facFpF))
@@ -2039,14 +2072,18 @@ Shader "PSX/Lit"
                     float2 cell = floor(anchor / WIN_CELL_M);
                     float h = frac(m.g * 7.13 + PSXLitHash(cell + floor(winUV) * float2(131.0, 37.0)));
                     float shop = step(0.5, m.b);
-                    float on = max(shop, step(h, lerp(WIN_LIT_FRAC, WIN_LIT_FRAC_CITY, cityNight) * _PSXNight));
+                    // THE CLOCK'S WINDOWS: the late night's share x the home
+                    // factor (was x _PSXNight), a shopfront while it is open
+                    float homeK = _PSXWinOccupancy.y;
+                    float on = max(shop * step(frac(h * 5.31 + 0.17), _PSXWinOccupancy.z),
+                                   step(h, min(lerp(WIN_LIT_FRAC, WIN_LIT_FRAC_CITY, cityNight) * homeK, WIN_HOME_CAP)));
                     float3 hue = WIN_WARM;
                     // the city's whole lit storeys: one key per building and
                     // storey, so a band runs the width of the building
                     float bk = PSXLitHash(cell);
                     float storey = floor((i.wpos.y - streetY) / WIN_STOREY_M);
                     float bh = PSXLitHash(float2(bk * 113.0 + 7.0, storey));
-                    float band = cityNight * step(bh, WIN_BAND_FRAC * _PSXNight) * step(1.0, storey);
+                    float band = cityNight * step(bh, min(WIN_BAND_FRAC * homeK, WIN_HOME_CAP)) * step(1.0, storey);
                     on = max(on, band);
                     hue = lerp(hue, WIN_SHOP, shop);
                     float bright = lerp(WIN_DIM, 1.0, frac(h * 11.3)) * WIN_GAIN * cityGain;

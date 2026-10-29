@@ -58,6 +58,17 @@ namespace PSXRacing.EditorTools
 
         static bool Has(HashSet<string> sets, string s) => sets.Count == 0 || sets.Contains(s);
 
+        /// <summary>The hours an env var names (TimeOfDay's names, any case).</summary>
+        static List<int> Hours(string env, string def)
+        {
+            string v = System.Environment.GetEnvironmentVariable(env);
+            var list = new List<int>();
+            foreach (var t in (string.IsNullOrEmpty(v) ? def : v).Split(','))
+                for (int i = 0; i < TimeOfDay.All.Length; i++)
+                    if (TimeOfDay.All[i].name.Equals(t.Trim(), System.StringComparison.OrdinalIgnoreCase)) list.Add(i);
+            return list;
+        }
+
         public static int Run()
         {
             tag = System.Environment.GetEnvironmentVariable("PSX_NL_TAG");
@@ -133,8 +144,9 @@ namespace PSXRacing.EditorTools
 
                 if (Has(sets, "shots"))
                 {
+                    // PSX_NL_HOURS (default night,dusk): the hours, by name (THE CLOCK'S WINDOWS)
                     foreach (var sp in new[] { "tryonA", "tryonB", "i277s10", "high45" })
-                        foreach (int h in new[] { TimeOfDay.Night, TimeOfDay.Dusk })
+                        foreach (int h in Hours("PSX_NL_HOURS", "night,dusk"))
                             Shoot(sp, h, $"{sp}_{HourName(h)}");
                     foreach (var sp in new[] { "tryonA", "i277s10" })
                         Shoot(sp, TimeOfDay.Noon, $"{sp}_noon");
@@ -213,9 +225,12 @@ namespace PSXRacing.EditorTools
             if (Has(sets, "eye"))
             {
                 System.Environment.SetEnvironmentVariable("PSX_EYE_VIEWS", "jb_tryon_eye,ht_trade_i77,i277b_2745");
-                System.Environment.SetEnvironmentVariable("PSX_EYE_HOURS", "night");
+                string eyeHours = System.Environment.GetEnvironmentVariable("PSX_NL_EYE_HOURS");
+                eyeHours = string.IsNullOrEmpty(eyeHours) ? "night" : eyeHours;
+                System.Environment.SetEnvironmentVariable("PSX_EYE_HOURS", eyeHours);
                 CityPreview.RunEyePlay();
-                foreach (var f in Directory.GetFiles(dir, "eye_*_night.png"))
+                foreach (var hn in eyeHours.Split(','))
+                foreach (var f in Directory.GetFiles(dir, "eye_*_" + hn.Trim() + ".png"))
                 {
                     string to = Path.Combine(dir, "nl5_" + Path.GetFileNameWithoutExtension(f) + "_" + tag + ".png");
                     if (File.Exists(to)) File.Delete(to);

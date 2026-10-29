@@ -190,6 +190,19 @@ namespace PSXRacing
         public const float DistHazeStartM = 1000f, DistHazeScaleM = 3000f;
         // ==== END NIGHT-LOOK PASS 5 =============================================
 
+        /// <summary>THE CLOCK'S WINDOWS (the 1990s city, 2026-10-29): WHICH
+        /// windows are lit, by the hour (TimeOfDay.OccupancyFor) - x the mean
+        /// share of OFFICE windows lit, y the HOME factor and z the SHOP factor
+        /// (x their late-night shares). How brightly a lit window glows stays
+        /// on <see cref="night"/>. Runtime only; the default is the late night
+        /// (the look before the clock), so a scene TimeOfDay never sets is as
+        /// it was. PSX/Lit and PSX/Halo (CityFar's far windows) read
+        /// _PSXWinOccupancy.</summary>
+        [System.NonSerialized] public Vector4 winOccupancy = new Vector4(WinOccNight, 1f, 1f, 0f);
+        /// <summary>The late night's mean office share (NIGHT-LOOK PASS 5's
+        /// tower: PSX/Lit WIN_OCC_NIGHT).</summary>
+        public const float WinOccNight = 0.12f;
+
         /// <summary>
         /// HOW NIGHT-TIME IT IS, 0..1 (_PSXNight): night 1, dusk 0.75, dawn
         /// 0.5, sunset 0.3, day 0. Written by TimeOfDay.Apply from
@@ -372,6 +385,7 @@ namespace PSXRacing
             // NIGHT-LOOK PASS 5: the rooms, the distant haze
             BindRooms();
             Shader.SetGlobalVector("_PSXDistHaze", new Vector4(Mathf.Clamp01(distHaze), DistHazeStartM, 1f / DistHazeScaleM, 0f));
+            Shader.SetGlobalVector("_PSXWinOccupancy", winOccupancy);
             Shader.SetGlobalFloat("_PSXNight", Mathf.Clamp01(night));
             Shader.SetGlobalFloat("_PSXGradeNight", Mathf.Clamp01(gradeNight));
             Shader.SetGlobalVector("_PSXMood", new Vector4(mood.r, mood.g, mood.b, Mathf.Clamp01(mood.a)));

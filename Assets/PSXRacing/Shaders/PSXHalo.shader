@@ -133,6 +133,11 @@ Shader "PSX/Halo"
             float _PSXProxyFarM;
             #define WIN_HANDOVER_M 250.0    // metres past that a window dot comes up over
             float4 _PSXDistHaze;    // NIGHT-LOOK PASS 5: the distant haze (PSX/Lit's; x 0 = off, the default)
+            // THE CLOCK'S WINDOWS (the 1990s city, 2026-10-29; PSX/Lit's): x the
+            // offices' mean lit share, y the home factor, z the shop factor
+            float4 _PSXWinOccupancy;
+            #define WIN_OCC_NIGHT  0.12     // the late night's office share (PSXGlobals.WinOccNight)
+            #define FAR_OFFICE_CAP 3.0      // a far office stands at most 3x its late-night dots (CityFar.FarOfficeCap)
             #define HALO_FULL_FAR  0.96     // ...when the streamed lamps hold whole this far into their end
             #define SKY_OWN_NEAR   5.0      // PSXLit.shader's SKYLINE_OWN_NEAR / FAR, the same numbers
             #define SKY_OWN_FAR    40000.0
@@ -286,6 +291,21 @@ Shader "PSX/Halo"
                     float yaw = v.uv1.y - 10.0;
                     float2 toEye = _WorldSpaceCameraPos.xz - wc.xz;
                     facing = smoothstep(0.05, 0.6, dot(float2(sin(yaw), cos(yaw)), toEye) / max(length(toEye), 1e-3));
+                }
+                // THE CLOCK'S WINDOWS (CityFar's far window dots): a dot's class
+                // by its mode - a footprint's office -0.75, home -0.70, shop
+                // -0.80 (all handed over above); a frontage box's home -0.45,
+                // shop -0.55 - and its RANK in its colour's alpha (x 4, in its
+                // class's late-night shares): lit while the hour's share is over
+                // it. A lamp (-0.5) and every other halo keep alpha 1, never compared.
+                if (own)
+                {
+                    float m = v.uv1.y;
+                    float cls = (m < -0.6 && m > -0.95) ? (m > -0.725 ? 1.0 : (m < -0.775 ? 2.0 : 0.0))
+                              : (abs(m + 0.45) < 0.02 ? 1.0 : (abs(m + 0.55) < 0.02 ? 2.0 : -1.0));
+                    float rel = cls < 0.5 ? min(_PSXWinOccupancy.x / WIN_OCC_NIGHT, FAR_OFFICE_CAP)
+                              : (cls < 1.5 ? _PSXWinOccupancy.y : _PSXWinOccupancy.z);
+                    if (cls > -0.5 && v.color.a * 4.0 >= rel) o.pos = float4(0.0, 0.0, 0.0, 1.0);
                 }
                 o.col = float4(_Color.rgb * v.color.rgb * (_Strength * fade * facing), fade * facing);
                 return o;
