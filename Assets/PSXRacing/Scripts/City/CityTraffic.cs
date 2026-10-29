@@ -1466,7 +1466,7 @@ namespace PSXRacing.City
                     if (k + 1 < c.legCount && c.legs[k + 1].kind == -1 && degree[L.node] >= 3 && dLine > -1f && dLine < 40f &&
                         OncomingConflict(c, JKey(L.node), L.key, TravelTan(map.edges[L.edge], L.dir, L.s1)))
                     {
-                        if (k == 0 && c.waitKey != L.key && c.speed < 0.5f) { c.waitKey = L.key; Stats.leftYields++; }
+                        if (k == 0 && c.waitKey != L.key && c.speed < 0.5f) { c.waitKey = L.key; c.waitAt = Time.time; Stats.leftYields++; }
                         c.ctlWhy = 6; c.ctlNode = L.node;
                         return Mathf.Max(0f, dLine - 0.6f) + StopS0 - 0.4f;
                     }
@@ -1499,7 +1499,7 @@ namespace PSXRacing.City
                             if (dLine < 40f && dLine > c.speed * c.speed / (2f * 4f) + 1f && ClearingInBox(c, jk, key, u, now)) { c.ctlWhy = 2; c.ctlNode = L.node; return gStop; }
                             if (next == -1 && OncomingConflict(c, jk, key, u))
                             {
-                                if (k == 0 && c.waitKey != key && c.speed < 0.5f && dLine < 4f) { c.waitKey = key; Stats.leftYields++; }
+                                if (k == 0 && c.waitKey != key && c.speed < 0.5f && dLine < 4f) { c.waitKey = key; c.waitAt = Time.time; Stats.leftYields++; }
                                 c.ctlWhy = 3; c.ctlNode = L.node;
                                 return gStop;
                             }
@@ -1631,6 +1631,9 @@ namespace PSXRacing.City
         /// the junction from there now.</summary>
         bool OncomingConflict(Car c, int jk, int key, Vector2 u)
         {
+            // a left turn that has waited 15 s takes a shorter gap (HCM: 4.1 s for a
+            // major-street left; the critical gap falls with the wait)
+            float gapS = c.waitKey == key && Time.time - c.waitAt > 15f ? OncomingGapS * 0.75f : OncomingGapS;
             for (int i = 0; i < live.Count; i++)
             {
                 var o = live[i];
@@ -1646,7 +1649,7 @@ namespace PSXRacing.City
                     if (oa == CitySignals.Aspect.Yellow && o.committed != o.appKey && o.appDist > 0.5f) continue;
                 }
                 float t = o.appDist / Mathf.Max(o.speed, 0.5f);
-                if ((o.speed > 1f && t < OncomingGapS) || (o.appDist < 6f && o.appDist > -2f)) return true;
+                if ((o.speed > 1f && t < gapS) || (o.appDist < 6f && o.appDist > -2f)) return true;
             }
             return false;
         }
