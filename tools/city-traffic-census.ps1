@@ -44,6 +44,23 @@ function Wait-Lock {
     }
 }
 function Write-Lock { "$Me $(Get-Date -Format s)" | Out-File -FilePath $lock -Encoding ascii }
+# A LOG GUARD (2026-10-29: a component that failed every frame with no graphics
+# wrote 1.8 GB of log in ten minutes): a background job stops this project's
+# Unity if its log passes 3 GB - a play-mode job, never an import or a build.
+function Start-LogGuard([string]$Log) {
+    return Start-Job -ArgumentList $Log, $proj -ScriptBlock {
+        param($log, $p)
+        while ($true) {
+            Start-Sleep -Seconds 15
+            if ((Test-Path $log) -and (Get-Item $log).Length -gt 3GB) {
+                Get-CimInstance Win32_Process -Filter "Name='Unity.exe'" | Where-Object { $_.CommandLine -like "*$p*" } |
+                    ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+                "LOG GUARD: $log passed 3 GB - Unity stopped"
+                break
+            }
+        }
+    }
+}
 function Invoke-Report {
     & py -3 "$PSScriptRoot\traffic_census_report.py" --raw $raw --out (Join-Path $src "Docs\traffic_census") --md (Join-Path $src "Docs\ROAD_LOGIC_TRAFFIC.md") --top6 (Join-Path $proj "census\top6.txt")
     if ($LASTEXITCODE -ne 0) { "REPORT FAILED ($LASTEXITCODE)"; return $false }
@@ -70,10 +87,13 @@ try {
         $env:PSX_CENSUS_THENCHECK = if ($ThenCheck) { "1" } else { "0" }
         $max = $Minutes + 25 + $(if ($ThenCheck) { 25 } else { 0 })
         "census: $Minutes min budget, $(if ($MaxSpots -gt 0) { "$MaxSpots spots" } else { "every spot" }), cap $Cap, time scale up to $Speed$(if ($ThenCheck) { ', then the traffic check' })"
+        Remove-Item "$proj\census.log" -ErrorAction SilentlyContinue
+        $guard = Start-LogGuard "$proj\census.log"
         Invoke-UnityJob -Watch:($Watch -and -not $NoWatch) -Log "$proj\census.log" -MaxMinutes $max -UnityArgs @(
             "-batchmode","-nographics","-projectPath",$proj,
             "-executeMethod","PSXRacing.EditorTools.CityTrafficCensus.Run",
             "-logFile","$proj\census.log","-accept-apiupdate") | Out-Null
+        Stop-Job $guard -ErrorAction SilentlyContinue; Receive-Job $guard -ErrorAction SilentlyContinue; Remove-Job $guard -Force -ErrorAction SilentlyContinue
         Select-String -Path "$proj\census.log" -Pattern "error CS" | Select-Object -First 15 | ForEach-Object { $_.Line }
         if (Test-Path "$proj\PSXRacing_city_traffic_census.txt") {
             Get-Content "$proj\PSXRacing_city_traffic_census.txt"

@@ -231,7 +231,7 @@ namespace PSXRacing.EditorTools
     /// <summary>The census's tour (see <see cref="CityTrafficCensus"/>).</summary>
     public class CityTrafficCensusRunner : CityTrafficCensusBase
     {
-        const float PlanRadiusM = 380f, MinGameS = 25f, MaxGameS = 150f;
+        const float PlanRadiusM = 380f, MinGameS = 30f, MaxGameS = 90f;
         readonly List<CityTraffic.CarView> view = new List<CityTraffic.CarView>();
         protected override float HangSeconds => CityTrafficCensus.Minutes * 60f + 900f;
 
