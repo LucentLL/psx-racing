@@ -1353,6 +1353,13 @@ namespace PSXRacing.City
             if (!L0.turn && !c.lc && c.legCount > 1 && Mathf.Clamp(L0.laneOut, 0, Lanes(L0.edge, L0.dir) - 1) != c.lane)
             {
                 float rem = L0.len - c.u;
+                // road-logic lanes: where its lane CLOSES before the node (a
+                // drop's taper, drawn as the paint draws it: LaneBounds), the
+                // car waits where the lane gets too narrow for it, not 6 m
+                // short of the node with its lane gone under it and its side
+                // in the next lane's car (the traffic check's wreck on e16794)
+                float shut = LaneShutAhead(c, ref L0, Mathf.Min(rem, 70f));
+                if (shut < rem) rem = shut + 6f - 2f;
                 if (rem < 40f)
                 {
                     float hold = rem - c.halfL - 6f + StopS0;
@@ -1908,6 +1915,21 @@ namespace PSXRacing.City
             }
         }
 
+        /// <summary>Metres ahead (within look) where the car's own lane gets
+        /// narrower than the car (a taper closing it), or float.MaxValue.</summary>
+        float LaneShutAhead(Car c, ref Leg L, float look)
+        {
+            var e = map.edges[L.edge];
+            float s0 = ArcNow(c), need = 2f * c.halfW + 0.4f;
+            for (float d = 0f; d <= look; d += 3f)
+            {
+                float s = Mathf.Clamp(s0 + L.dir * d, 0f, e.length);
+                if (LaneWidth(e, L.dir, c.lane, s) < need) return d;
+                if (s <= 0f || s >= e.length) break;
+            }
+            return float.MaxValue;
+        }
+
         /// <summary>The free road ahead in a lane of this car's run.</summary>
         /// <summary>A car's arc position on the edge of its current run.</summary>
         static float ArcNow(Car c) => c.legs[0].s0 + c.legs[0].dir * c.u;
@@ -1940,6 +1962,10 @@ namespace PSXRacing.City
             bool pushy = c.mandAt >= 0f && Time.time - c.mandAt > 5f;
             float sc = ArcNow(c);
             float s = Mathf.Clamp(sc, 0f, e.length);
+            // never into a lane too narrow for the car here or just ahead (a
+            // lane a taper is still opening, or closing)
+            float need = 2f * c.halfW + 0.6f;
+            if (LaneWidth(e, L.dir, lane, s) < need || LaneWidth(e, L.dir, lane, Mathf.Clamp(s + L.dir * Mathf.Max(8f, c.speed * 2f), 0f, e.length)) < need) return false;
             var q = PlanPoint(e, s, LaneLat(e, L.dir, lane, s), out var t);
             var tr = t * L.dir;
             for (int i = 0; i < live.Count; i++)
