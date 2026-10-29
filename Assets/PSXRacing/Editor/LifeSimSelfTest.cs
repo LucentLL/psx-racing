@@ -5773,6 +5773,8 @@ namespace PSXRacing.EditorTools
             // cut); C12 still waits for his yes.
             Check(LookChoices.SunLiftDefault && !LookChoices.CoolNightDefault,
                   "G1 ships ON (the owner's D) and cool darks ship OFF until he says yes");
+            // the skyline pass's sky A/B (2026-10-29): a global look change, OFF until he picks it
+            Check(!LookChoices.ClearDayDefault, "the clear-day sky A/B ships OFF until the owner says yes");
             Check(System.Text.RegularExpressions.Regex.IsMatch(
                       System.IO.File.Exists("Assets/PSXRacing/Shaders/PSXBlit.shader") ? System.IO.File.ReadAllText("Assets/PSXRacing/Shaders/PSXBlit.shader") : "",
                       @"#define GRADE_SUN_LIFT_CUT\s+0\.80"),

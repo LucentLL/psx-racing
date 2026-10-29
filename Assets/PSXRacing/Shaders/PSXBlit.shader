@@ -134,6 +134,12 @@ Shader "PSX/Blit"
             float4 _PSXMood;        // rgb = shadow hue at any brightness, a = amount
             float _PSXEmitKey;      // 1 = the halation glows by the emitter mask (alpha)
             float _PSXGradeSun;     // the owner's C11 choice: 0 (ships) .. 1 at a clear sunlit hour
+            float _PSXGradeClear;   // the skyline pass's sky A/B (LookChoices.ClearDay, ships OFF): 1 at a clear sunlit hour
+            // ...where the day's blues keep this much of their colour (the
+            // owner's aerial: a deep blue sky and light blue/teal glass, which
+            // GRADE_SAT_COOL's 0.72 turns grey-blue - its horizon sat 0.26,
+            // ours 0.05 after the grade)
+            #define GRADE_SAT_COOL_CLEAR  0.95
 
             // THE GRADE. Display-space numbers (the grade is done on gamma
             // values, like every grade); tools/grade/grade_proto.py is the
@@ -257,6 +263,8 @@ Shader "PSX/Blit"
                 float keep = lerp(GRADE_SAT_COOL, GRADE_SAT_WARM, warm)
                            + (GRADE_SAT_COOL_NIGHT - GRADE_SAT_COOL) * night * (1.0 - warm);
                 keep *= 1.0 + (GRADE_SAT_NIGHT_BOOST - 1.0) * night;
+                // (the sky A/B: an exact zero term at _PSXGradeClear 0, which ships)
+                keep += (GRADE_SAT_COOL_CLEAR - GRADE_SAT_COOL) * saturate(_PSXGradeClear) * (1.0 - warm) * (1.0 - night);
                 c = l + (c - l) * keep;
                 c = saturate(c);
 

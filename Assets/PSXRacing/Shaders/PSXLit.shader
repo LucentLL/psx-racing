@@ -500,6 +500,53 @@ Shader "PSX/Lit"
             #define FAC_WORLD_GROUND    0.10   // the ground below, linear albedo (roofs, streets, trees)
             #define FAC_DAY_SKY_EXPOSE  0.50   // by day the sky in the glass takes this share of the exposure gap (PSX/CarPaint)
             float4 _PSXPaintWorld;  // x: 1 at a sunlit or low-sun hour (TimeOfDay.Apply), else 0
+            // THE SKYLINE PASS (2026-10-29), the owner's daytime aerial of
+            // uptown from the stadium side: our towers "mostly dark grey/brown
+            // boxes", his "WHITE/CREAM stone towers and LIGHT blue/teal glass".
+            // Measured at the photograph's pose (Editor/SkylineMatchShots.cs):
+            // its glass (550 S Tryon) linear Y 0.22, ours 0.047 at noon and
+            // 0.061 with the photograph's own afternoon sun - glass 4x dark at
+            // any hour - while the stone towers matched it under that sun
+            // (0.20 vs 0.20) and fell to a third at noon, their west faces in
+            // the shade. Three causes, by day only (the night is as shipped):
+            //   * THE CITY'S DAY BOUNCE. A wall's light was the sky's fill
+            //     (cut to 0.35 for the harsh sun) and the sun. A wall in a city
+            //     also sees the sunlit street and the sunlit walls across it -
+            //     its lower half-sky - and in the shade that is most of its
+            //     light: about 15% of a level road's in clear air (half the
+            //     sky's 12% plus a fifth of the ground's light), ours 12.7%.
+            //     FAC_DAY_BOUNCE puts it back on the facades (the roads, cars
+            //     and the owner's shadow calibration untouched).
+            //   * THE MIRRORED HORIZON. Below FAC_CITY_TOP (7 degrees up) a pane
+            //     mirrored "the city", the dark walls a street-level ray meets -
+            //     but a pane 100 m up a tower looks over most of the city to
+            //     the horizon's sky. Now the city's band thins with the pane's
+            //     height (FAC_CITY_CLEAR_*), and the city it does mirror is lit
+            //     with its own bounce under more of the day's haze.
+            //   * THE GLASS ITSELF. A curtain wall of coated glass reflects a
+            //     fifth to a third of the light by day (FAC_GLASS_F0_DAY), and
+            //     its reflection is less tinted than the pane's body seen
+            //     through it (FAC_GLASS_TINT_DAY; 0.35 measured too grey
+            //     against the photograph's blue glass, 0.60 kept it).
+            // PSX_FACDAY=0 (PSXGlobals: _PSXFacDayOff) is the city as it was.
+            #define FAC_DAY_BOUNCE      0.075  // the city's albedo x a wall's view of it (lower half-sky)
+            #define FAC_GLASS_F0_DAY    0.28   // a curtain wall's coated glass face-on, by day (reflective coated: 0.2-0.4)
+            #define FAC_GLASS_TINT_DAY  0.60   // how much the glass's hue colours what it mirrors, by day
+            #define FAC_CITY_CLEAR_FROM 25.0   // a pane this high (m) still mirrors the city's band...
+            #define FAC_CITY_CLEAR_TO   120.0  // ...and from this high only the horizon's sky above level
+            #define FAC_CITY_HAZE_DAY   0.55   // the day's haze over the mirrored city
+            float _PSXFacDayOff;
+            // How much of the day a facade sees (0 at dusk and night: the night is as shipped)
+            inline float FacDay() { return saturate(_PSXPaintWorld.x) * _PSXSunModel * (1.0 - step(0.5, _PSXFacDayOff)); }
+            // The city's light bouncing onto a facade by day (lower half-sky):
+            // the sun on the level ground and the sky's fill, at the city's albedo
+            inline float3 FacDayBounce(float3 N)
+            {
+                // (never normalize(0): a scene that applies no hour has no light direction)
+                float ly = _PSXLightDir.y * rsqrt(max(dot(_PSXLightDir.xyz, _PSXLightDir.xyz), 1e-6));
+                float3 ground = _PSXLightColor.rgb * saturate(ly) + _PSXSkyAmbient.rgb;
+                return ground * (FAC_DAY_BOUNCE * (1.0 - saturate(N.y)) * FacDay());
+            }
             // What a facade pixel mirrors along R. Above FAC_CITY_TOP the
             // hour's sky, adapted and never exposed (C3) - by day with half
             // the exposure gap, as the paint does. Below it THE CITY round the
@@ -509,19 +556,22 @@ Shader "PSX/Lit"
             // sunny side, so a tower's faces differ - under some of the haze;
             // at any other hour the night ground's dark fog colour. Further
             // down, the ground.
-            float3 FacadeEnv(float3 R, float adapt)
+            float3 FacadeEnv(float3 R, float adapt, float paneM)
             {
-                float3 sky = PSXSkyIn(float3(R.x, max(R.y, FAC_CITY_TOP), R.z), FAC_SKY_LOD) * adapt;
+                // (the skyline pass) by day the city's band thins as the pane rises over it
+                float fd = FacDay();
+                float cityTop = FAC_CITY_TOP * (1.0 - fd * smoothstep(FAC_CITY_CLEAR_FROM, FAC_CITY_CLEAR_TO, paneM));
+                float3 sky = PSXSkyIn(float3(R.x, max(R.y, cityTop), R.z), FAC_SKY_LOD) * adapt;
                 float day = saturate(_PSXPaintWorld.x);
                 if (_PSXToneOn > 0.5) sky *= lerp(1.0, lerp(1.0, _PSXExposure, FAC_DAY_SKY_EXPOSE), day);
                 float expoW = PSXExposureGain();
                 float2 lh = _PSXLightDir.xz;
                 float sunSide = saturate(-dot(R.xz, lh) * rsqrt(max(dot(R.xz, R.xz) * dot(lh, lh), 1e-6)));
-                float3 cityLit = (_PSXAmbient.rgb + _PSXLightColor.rgb * (sunSide * FAC_CITY_SUN)) * (expoW * FAC_WORLD_CITY);
+                float3 cityLit = (_PSXAmbient.rgb + _PSXLightColor.rgb * (sunSide * FAC_CITY_SUN) + FacDayBounce(float3(0, 0, 0))) * (expoW * FAC_WORLD_CITY);
                 float3 groundLit = (_PSXSkyAmbient.rgb + _PSXLightColor.rgb * saturate(_PSXLightDir.y)) * (expoW * FAC_WORLD_GROUND);
                 float3 dark = _PSXFogColor.rgb * (GROUND_REFLECT * adapt);
-                float3 city = lerp(dark, lerp(cityLit, sky, FAC_CITY_HAZE), day);
-                float3 env = lerp(city, sky, smoothstep(0.0, FAC_CITY_TOP, R.y));
+                float3 city = lerp(dark, lerp(cityLit, sky, lerp(FAC_CITY_HAZE, FAC_CITY_HAZE_DAY, fd)), day);
+                float3 env = lerp(city, sky, smoothstep(0.0, max(cityTop, 1e-3), R.y));
                 return lerp(env, lerp(dark, groundLit, day), saturate(-R.y * FAC_GROUND_K));
             }
 
@@ -1733,6 +1783,8 @@ Shader "PSX/Lit"
             #ifdef PSX_FACADE
                 light += _PSXCityBounce.rgb * ((1.0 - 0.6 * saturate(N.y)) * _PSXNight * expo
                        * lerp(BOUNCE_HIGH, 1.0, exp2(-max(facYF, 0.0) * WIN_STOREY_M / BOUNCE_FALL_M)));
+                // (the skyline pass) and by day the sunlit city's (0 at dusk and night)
+                light += FacDayBounce(N) * expo;
             #endif
 
                 // THE WET ROAD, one: how wet THIS pixel is - only if it looks
@@ -1801,7 +1853,7 @@ Shader "PSX/Lit"
                     float ndv = saturate(dot(N, V));
                     float fres = pow(1.0 - ndv, 5.0);
                     float3 Rf = reflect(-V, Np);
-                    float3 env = FacadeEnv(Rf, PSXAdaptGain()) * lerp(1.0, facAO, FST_AO_ENV);
+                    float3 env = FacadeEnv(Rf, PSXAdaptGain(), max(facYF, 0.0) * WIN_STOREY_M) * lerp(1.0, facAO, FST_AO_ENV);
                     // the lit city mirrored, in the GLASS only: a white frame
                     // or a crown's concrete is no mirror (the first cut lit
                     // every white mullion and the open frame's crown grey)
@@ -1812,12 +1864,14 @@ Shader "PSX/Lit"
                     // the sun as it lands here: shadowed, exposed, on the lit side only
                     float3 sunE = _PSXLightColor.rgb * (sunVis * PSXExposureGain() * step(0.0, dot(N, L)) * _PSXSunModel);
 
-                    float F = lerp(FAC_WIN_F0, FAC_GLASS_F0, curtain);
+                    // (the skyline pass) a curtain wall's coated glass by day
+                    float facDay = FacDay();
+                    float F = lerp(FAC_WIN_F0, lerp(FAC_GLASS_F0, FAC_GLASS_F0_DAY, facDay), curtain);
                     F += (1.0 - F) * fres;
                     F = saturate(F * paneF);
                     float3 hue = saturate(tex.rgb / max(max(tex.r, max(tex.g, tex.b)), 0.02));
                     float3 glassCol = lit * (FAC_GLASS_DIFF * (1.0 - F))
-                                    + (env + envN) * lerp(float3(1, 1, 1), hue, FAC_GLASS_TINT) * (F * clamp(0.5 + FAC_PANE_PATTERN * lumT, 0.6, 1.4))
+                                    + (env + envN) * lerp(float3(1, 1, 1), hue, lerp(FAC_GLASS_TINT, FAC_GLASS_TINT_DAY, facDay)) * (F * clamp(0.5 + FAC_PANE_PATTERN * lumT, 0.6, 1.4))
                                     + sunE * (pow(ndh, FAC_GLINT_POW) * FAC_GLINT * F);
                     // each pane its own glass, and a few blinds down: the room's light, matte, behind the reflection
                     glassCol *= paneTint;

@@ -753,6 +753,123 @@ namespace PSXRacing.City
         /// parts become BLANK boards on the rim (no screen content). The
         /// corner towers and the outer ring's parts stay OSM's.
         /// </summary>
+        // ------------------------------------------------------------------
+        //  THE STADIUM AS THE OWNER'S AERIAL SHOWS IT (the skyline pass,
+        //  2026-10-29: "ours is a dark grey drum with a dark navy bowl"). OSM
+        //  tags none of its 38 parts, so the ring round the bowl took the
+        //  building's hashed look - a blue glass tower's - and the stands a
+        //  navy. In the photograph: the ring's charcoal panels in a white
+        //  precast grid, white domes on the gate towers, the bowl's back a
+        //  light concrete wall with a row of tall ARCHES (the concourse's
+        //  colonnade), bright teal-blue seats in both decks between light
+        //  concrete fascias, and a big black scoreboard at each end - blank
+        //  here: no name, logo or team mark (the game is sold).
+        //  PSX_CITY_LOOKFIX=0 is the stadium as it was.
+        // ------------------------------------------------------------------
+        /// <summary>The colonnade: arches this far apart round the bowl's back,
+        /// their openings this share of it, from/to this high over the floor.</summary>
+        const float ArchPitchM = 8.5f, ArchOpenShare = 0.62f, ArchFromM = 21f, ArchToM = 34f;
+        /// <summary>A plain white texel of the precast ribbon column (6): the
+        /// middle of a white band (212, linear 0.66; its night mask is no
+        /// window) - the stadium's concrete and its seats' base, matte.</summary>
+        static readonly Vector2 HeroWhiteUV = new Vector2(0.5f, 0.740f);
+        const int HeroWhiteCol = LookPrecast;
+
+        /// <summary>A hero tint that may go darker than the facade's own floor
+        /// (TintByte keeps 0.35 of a texel at least: a seat's teal, a
+        /// scoreboard's black need less red, less of everything).</summary>
+        static void HeroTintLow(int col, bool metal, float r, float g, float b)
+        {
+            byte T(float k) => (byte)(Mathf.Clamp(Mathf.RoundToInt(k * 127.5f), 4, 254) & 0xFE);
+            Bucket.Tint = new Color32(T(r), T(g), T(b), (byte)(col * 32 + (metal ? FacadeMetalBit : 0) + facLed));
+            FacadeCrown(false);
+        }
+
+        /// <summary>The stadium's own parts round the bowl (EmitFootprint,
+        /// after their pick): the ring's charcoal panels in a white precast
+        /// grid - the silver grid's frames, its panes dark: as METAL (B1b),
+        /// so a pane is the panel's matte charcoal under a little of the sky,
+        /// not a curtain wall's glass mirroring all of it.</summary>
+        static void StadiumPartLook(int hero, CityMap.Footprint f, int fi)
+        {
+            if (LookFixOff || Heroes[hero].shape != HeroShape.Bowl || heroAnchorOf[hero] == fi) return;
+            facLook = LookSilver;
+            var t = Bucket.Tint;
+            Bucket.Tint = new Color32(TintR(0.66f, LookSilver), TintByte(0.68f), TintByte(0.72f), (byte)((t.a & 15) | FacadeMetalBit | ((LookSilver & 7) * 32)));
+        }
+
+        /// <summary>A stadium part's roof shape (EmitFootprint): the gate
+        /// towers' domes are white.</summary>
+        static void StadiumRoofLook(int hero, CityMap.Footprint f)
+        {
+            if (LookFixOff || hero < 0 || Heroes[hero].shape != HeroShape.Bowl || f.roof != 2) return;
+            var t = Bucket.Tint;
+            Bucket.Tint = new Color32(TintR(1.99f, LookSilver), TintByte(1.99f), TintByte(1.99f), t.a);
+        }
+
+        /// <summary>The colonnade on the bowl's back: a dark arched opening
+        /// every <see cref="ArchPitchM"/> round the wall (whole arches only,
+        /// none across a corner), a hand's breadth proud of it.</summary>
+        static void BowlArches(TileMeshes tm, List<Vector2> poly, float floor)
+        {
+            HeroTintLow(HeroMatteCol, false, 0.20f, 0.22f, 0.27f);
+            float a0 = floor + ArchFromM, a1 = floor + ArchToM;
+            int n = poly.Count;
+            // round the wall by its length (a curved bowl is many short walls):
+            // an arch every pitch, its opening the chord between the wall's
+            // points either side of its middle, a hand's breadth proud of it;
+            // none across a corner (a turn of CornerMinDeg or more)
+            var cum = new float[n + 1];
+            for (int i = 0; i < n; i++) cum[i + 1] = cum[i] + Vector2.Distance(poly[i], poly[(i + 1) % n]);
+            float total = cum[n];
+            if (total < ArchPitchM * 4f) return;
+            Vector2 At(float s, out int seg)
+            {
+                s = Mathf.Repeat(s, total);
+                seg = 0;
+                while (seg < n - 1 && cum[seg + 1] < s) seg++;
+                float L = Mathf.Max(cum[seg + 1] - cum[seg], 1e-4f);
+                return Vector2.Lerp(poly[seg], poly[(seg + 1) % n], (s - cum[seg]) / L);
+            }
+            int count = Mathf.FloorToInt(total / ArchPitchM);
+            float pitch = total / count;
+            float w = pitch * ArchOpenShare, r = w * 0.5f;
+            float spring = a1 - r;
+            for (int k = 0; k < count; k++)
+            {
+                float sm = (k + 0.5f) * pitch;
+                Vector2 pl = At(sm - r, out int segL), pr = At(sm + r, out int segR);
+                var chord = pr - pl;
+                if (chord.sqrMagnitude < 0.25f * w * w) continue;
+                var d = chord.normalized;
+                // a corner inside the opening: no arch there
+                bool corner = false;
+                for (int s = segL; s != segR && !corner; s = (s + 1) % n)
+                {
+                    var e0 = poly[(s + 1) % n] - poly[s];
+                    var e1 = poly[(s + 2) % n] - poly[(s + 1) % n];
+                    if (Vector2.Angle(e0, e1) >= CornerMinDeg) corner = true;
+                }
+                if (corner) continue;
+                var outw = new Vector2(d.y, -d.x);
+                var face = W3(outw, 0f);
+                {
+                    var c = (pl + pr) * 0.5f + outw * 0.3f;
+                    Vector2 l = c - d * r, rr = c + d * r;
+                    HeroQuad(tm, W3(l, a0), W3(l, spring), W3(rr, spring), W3(rr, a0), face, HeroMatteUV);
+                    // the round head: a fan of four from the spring line's middle
+                    var hub = W3(c, spring);
+                    for (int q = 0; q < 4; q++)
+                    {
+                        float t0 = Mathf.PI * q / 4f, t1 = Mathf.PI * (q + 1) / 4f;
+                        var p0 = W3(c - d * (r * Mathf.Cos(t0)), spring + r * Mathf.Sin(t0));
+                        var p1 = W3(c - d * (r * Mathf.Cos(t1)), spring + r * Mathf.Sin(t1));
+                        HeroTri(tm, hub, p0, p1, face, HeroMatteUV);
+                    }
+                }
+            }
+        }
+
         static bool HeroBowl(TileMeshes tm, int hero, CityMap.Footprint f, List<Vector2> poly, float y0, float floor)
         {
             float rim = f.h;
@@ -760,9 +877,32 @@ namespace PSXRacing.City
             // the outer wall, collided
             PickFacade(f.centre, 1, 3, 3, new Color32(198, 196, 190, 255), floor, rim);
             heroOnePanel = true;
-            Walls(tm, poly, y0, floor + rim);
+            if (!LookFixOff)
+            {
+                // (the skyline pass) light concrete with no office windows: the
+                // structure's own stone strip (column 7: no window in its night
+                // mask), one strip across, laid storey by storey up the wall (so
+                // the night darkens it up the wall as it does every other)
+                facLook = LookParts;
+                Bucket.Tint = new Color32(TintR(0.92f, LookParts), TintByte(0.92f), TintByte(0.90f), (byte)((LookParts & 7) * 32 + facLed));
+                float rep = Mathf.Max(0.5f, facFloorH * FacadeLooks[LookParts].floors);
+                float v0 = (y0 - facBase) / rep, v1 = (floor + rim - facBase) / rep;
+                var wb = buckets[(int)Slot.FacadeGlass];
+                int pn = poly.Count;
+                for (int i = 0; i < pn; i++)
+                {
+                    Vector2 a = poly[i], b = poly[(i + 1) % pn];
+                    var d = b - a;
+                    if (d.sqrMagnitude < 0.04f) continue;
+                    var o = new Vector2(d.y, -d.x).normalized;
+                    wb.Face(Lw(tm, W3(a, y0)), Lw(tm, W3(a, floor + rim)), Lw(tm, W3(b, floor + rim)), Lw(tm, W3(b, y0)), W3(o, 0f),
+                            new Vector2(0.25f, v0), new Vector2(0.25f, v1), new Vector2(0.25f, v1), new Vector2(0.25f, v0));
+                }
+            }
+            else Walls(tm, poly, y0, floor + rim);
             heroOnePanel = false;
             HeroNoCollide(true);
+            if (!LookFixOff && !skylineBuild) BowlArches(tm, poly, floor);
 
             var c = f.centre; var u = f.u; var v = new Vector2(-u.y, u.x);
             // the field's edge: a rounded box along the long axis
@@ -797,12 +937,20 @@ namespace PSXRacing.City
             Vector3 P(int si, int sk) => W3(c + dirs[si] * Mathf.Lerp(rIn[si], rOut[si], S[sk]), floor + Y[sk]);
             for (int k = 0; k + 1 < S.Length; k++)
             {
-                switch (kind[k])
-                {
-                    case 0: HeroTint(HeroMatteCol, false, 0.95f, 0.95f, 0.95f); break;
-                    case 1: HeroTint(HeroMatteCol, false, 0.35f, 0.45f, 1.25f); break;
-                    default: HeroTint(HeroMatteCol, false, 0.38f, 0.38f, 0.42f); break;
-                }
+                if (LookFixOff)
+                    switch (kind[k])
+                    {
+                        case 0: HeroTint(HeroMatteCol, false, 0.95f, 0.95f, 0.95f); break;
+                        case 1: HeroTint(HeroMatteCol, false, 0.35f, 0.45f, 1.25f); break;
+                        default: HeroTint(HeroMatteCol, false, 0.38f, 0.38f, 0.42f); break;
+                    }
+                // (the skyline pass) the photograph's: light concrete rim and club
+                // fascia, sky-blue seats (sunlit (66,158,187): an albedo of about
+                // 0.035, 0.30, 0.50 on the white band's 0.66), a dark field wall
+                else if (kind[k] == 1) HeroTintLow(HeroWhiteCol, false, 0.053f, 0.46f, 0.76f);
+                else if (k == S.Length - 2) HeroTintLow(HeroMatteCol, false, 0.30f, 0.40f, 0.45f);
+                else HeroTintLow(HeroWhiteCol, false, 0.68f, 0.68f, 0.66f);
+                var runUV = LookFixOff || k == S.Length - 2 ? HeroMatteUV : HeroWhiteUV;
                 for (int i = 0; i < n; i++)
                 {
                     int j = (i + 1) % n;
@@ -813,7 +961,7 @@ namespace PSXRacing.City
                     float dy = Y[k] - Y[k + 1];
                     var facing = -radial * dy + Vector3.up * dr;
                     if (facing.sqrMagnitude < 1e-6f) facing = -radial;
-                    HeroQuad(tm, a, b, bq, aq, facing, HeroMatteUV);
+                    HeroQuad(tm, a, b, bq, aq, facing, runUV);
                 }
             }
             // the field: plain turf green, no markings
@@ -824,13 +972,24 @@ namespace PSXRacing.City
                     HeroTri(tm, P(i, S.Length - 1), P((i + 1) % n, S.Length - 1), mid, Vector3.up, HeroMatteUV);
             }
             // the boards: blank, dark, on the rim where OSM has them
-            HeroTint(HeroMetalCol, true, 0.35f, 0.35f, 0.38f, crown: false);
+            // (the skyline pass: a black housing, and on its field side a
+            // blank screen - unlit, no content of any kind)
+            if (LookFixOff) HeroTint(HeroMetalCol, true, 0.35f, 0.35f, 0.38f, crown: false);
+            else HeroTintLow(HeroMatteCol, false, 0.10f, 0.10f, 0.12f);
             var fs = heroMap.footprints;
             foreach (int bi in heroDropped[hero])
             {
                 var b = fs[bi];
                 if (b.h < 50f || 2f * b.hv >= 8f) continue;
-                HeroBox(tm, b.centre, b.u, b.hu, 0.8f, floor + rim - 3f, floor + b.h, HeroMetalUV);
+                HeroBox(tm, b.centre, b.u, b.hu, 0.8f, floor + rim - 3f, floor + b.h, LookFixOff ? HeroMetalUV : HeroMatteUV);
+                if (LookFixOff) continue;
+                var bv = new Vector2(-b.u.y, b.u.x);
+                if (Vector2.Dot(bv, c - b.centre) < 0f) bv = -bv;          // toward the field
+                float sy0 = floor + rim - 1.5f, sy1 = floor + b.h - 1.2f, shu = Mathf.Max(1f, b.hu - 1.2f);
+                Vector2 s0 = b.centre + bv * 0.95f - b.u * shu, s1 = b.centre + bv * 0.95f + b.u * shu;   // 15 cm proud of the housing
+                HeroTintLow(HeroMatteCol, false, 0.12f, 0.15f, 0.22f);
+                HeroQuad(tm, W3(s0, sy0), W3(s0, sy1), W3(s1, sy1), W3(s1, sy0), W3(bv, 0f), HeroMatteUV);
+                HeroTintLow(HeroMatteCol, false, 0.10f, 0.10f, 0.12f);
             }
             HeroNoCollide(false);
             return true;

@@ -8042,3 +8042,99 @@ differ by ~0.5 m (the deck's facing edge vs the ground's), so the ground Jersey 
 the 18 breaks / 15 boxes above (e15241's foot/pairing at n695/n2940; the 1'47" wide median past the e2437/e2438 deck V:
 each carriageway's own approach rail ends sloped ('R<' at e4593 s 0-5) in a 14 m grass median - decide one median or
 none there); the e1880 s 45 gap if RECIP/SEAM go on; the twin hold stays OFF (diag above).
+
+## Uptown's skyline and the stadium against the owner's aerial (the skyline pass, 2026-10-29)
+
+The owner: "The uptown skyline does not seem accurate", with a daytime aerial
+from the stadium side. The instrument is `Editor/SkylineMatchShots.cs`
+(`tools/skyline-match-shots.ps1 -Sets "before=...;after=...;clear=..."`): the
+photograph's pose (CrownFrameShots' match: 800 m out on the stadium's side,
+95 m up, the open-frame tower's top on the photo's pixel, a 70 degree lens),
+I-277 1 km south at chase height, S Tryon at street level; each set its own
+world (`before` = this pass's switches off, `after`, `clear` = the sky A/B
+on), and for the match a table of every tower in the frame - its OSM look, the
+facade the builder picks (`CityMeshes.FacadeProbe`: look, tint, albedo), tile
+or far copy, and the rendered colour at its middle. Sheets:
+`Docs/shots/skyline/` (match before/after, sky A/B at noon, night).
+
+**The photograph is an AFTERNOON frame** (sun from the south-west, behind the
+camera); the matched view the owner saw was our NOON (sun south-south-east),
+which shows every west face in the shade. Measured, linear Y (photo / before
+noon / after noon / before afternoon / after afternoon):
+spired crown tower 0.201 / 0.068 / 0.180 / 0.202 / 0.358; open-frame glass
+0.219 / 0.047 / 0.143 / 0.061 / 0.118 (0.174 with the sky A/B); curved-top
+tower 0.191 / 0.075 / 0.114 / 0.175 / 0.203; stadium seats (66,158,187) /
+(94,92,112) / (75,137,153) / (110,107,123) / (88,156,167).
+
+What was wrong, and the fix at its cause:
+- **Stone towers were mostly the hour**: at the photo's own sun our stone
+  matched it (0.202 vs 0.201); at noon a shaded wall had 0.153 of light
+  (`_PSXAmbient` 0.18 after the harsh-sun fill 0.35, exposure 0.84) - 12.7%
+  of a sunlit road's, where a city wall also sees the sunlit street and the
+  walls across it (15-20%). PSX/Lit `FacDayBounce` (FAC_DAY_BOUNCE 0.075 of
+  the level ground's light on a facade's lower half-sky; facades only - roads,
+  cars and the owner's car-shadow calibration untouched; 0 at dusk and night).
+- **Glass was 4x dark at every hour**: the glass columns are dark (0.05-0.07
+  linear: the sky in them is the shader's), a pane mirrored "the city" (dark)
+  for every ray under 7 degrees up even 150 m up a tower, F0 0.12, and the
+  mirror took 0.85 of the glass's hue. By day now: F0 0.28 (coated curtain
+  walls 0.2-0.4), hue 0.60, the city band thins with the pane's height
+  (25 -> 120 m) and the mirrored city is lit with its bounce under 0.55 of the
+  haze. And a measured LIGHT glass colour (k up to 8) was clamped channel by
+  channel at the tint's 1.99 - every light glass the column's own blue; the
+  channels now scale together (hue kept). `PSX_FACDAY=0` is the old day light.
+- **Parts dropped their tower's measured colour** when OSM tagged them only a
+  material ("concrete"): the spired crown tower's 200 m shaft wore a hashed
+  grey at half the albedo of its own tiers. A part naming only its outline's
+  material keeps the outline's colour (`CityMeshes.FacadeArgs`).
+- **A measured tower drawn on its podium took the podium's height class**
+  (the slim residential tower's 50-storey shaft wore a mid-rise's punched
+  precast): the look and storey height are the whole tower's (`TowerTop`).
+- **The reference model is older than some towers and wrong about one**
+  (`LandmarkLooks`, keyed by the exporter's landmark byte): 9 the slim
+  residential tower is blue glass with a white slab edge every floor (the model:
+  grey stone); 15 the pointed tower (2019; the photo has it half clad, the
+  model a tan stone tower whose pyramid read green - tan glass under a blue
+  sky) is blue glass between light frames under OSM's pyramidal crown part,
+  drawn as a light glinting glass crown (`GlassCrownLook`); 7 the glass setback
+  tower (2021) glass; 8 the brick headquarters (2021) brick (its architect: South
+  End's mills). Shapes stay OSM's.
+- **The stadium** (OSM tags none of its 38 parts, so the ring took a glass
+  tower's hashed look and the stands a navy): the ring is charcoal panels in a
+  white precast grid (the silver grid as metal), the gate towers' domes white,
+  the bowl's back light concrete (column 7's stone strip, no windows, storeys
+  up the wall so the night darkens it) with the concourse COLONNADE - a dark arch
+  every 8.5 m round the wall (`BowlArches`, tiles only), sky-blue seats,
+  light concrete rim and club fascia, and at each end a black scoreboard with a
+  blank unlit screen (no name, logo or mark).
+- **The wood in the foreground**: nothing was ever planted in a parking lot (the
+  mask's lot bit refused every tree), and the stadium's lots are planted rows of
+  oaks (canopy 55-80%). `CityTrees.PlantLots`: where the canopy covers a stall
+  run (>= 0.30), a tree at the head of every 2-5 stalls (back-to-back stalls'
+  tree islands), every other mask rule kept, the tile cap kept.
+- **The sky** (GLOBAL, so an A/B that SHIPS OFF: `LookChoices.ClearDay`,
+  `PSX_CLEARDAY=1`): on a clear morning/noon/afternoon the hour's stops deeper
+  (zenith 0.12,0.34,0.80; horizon a haze-blue 0.58,0.75,0.93 instead of a
+  near-white), the panorama pulled 0.45 toward them so its cumulus sit in a blue
+  sky, the afternoon on the noon's cumulus panorama with a whiter sun (it was an
+  amber haze), and PSX/Blit's day grade lets blues keep 0.95 of their colour
+  (`_PSXGradeClear`; 0.72 drained the photo's blue to grey). Sky sat 0.28 ->
+  0.43 (photo 0.38), horizon 0.05 -> 0.16 (photo 0.26).
+
+Night: lighting and window rules as shipped (every day term is 0 at dusk and
+night; the branch with the switches off renders main's night but for blinking
+beacons and far proxies streaming). The corrected buildings' lit-window
+patterns follow their new tints. Switches: `PSX_CITY_LOOKFIX=0` (looks,
+stadium, glass hue), `PSX_FACDAY=0` (the facades' day light), `PSX_CITY_LOTTREES=0`.
+
+**Not done here - the rail corridor beside the stadium** (its own package; the
+city-bridges-rails branch if it takes freight rail): OSM's railways are already
+cached (`tools/city/cache/layers/railways.json`: the Norfolk Southern Charlotte
+District main line, 10 ways by the stadium, 4 on bridges; NCDOT yard tracks at
+the Gateway station; an Amtrak siding). It needs the ballast bed and the tracks
+from the centrelines, the cut or embankment on the 3DEP ground, the bridges
+where `bridge=yes`, the bed on the roadside mask (so trees and poles keep off),
+and then the wooded strips either side come from the canopy as everywhere.
+Open: the photo's woods are denser than the lot rows (canopy cells that are not
+lots, round the rail line, need the corridor first); the noon west faces stay
+darker than the afternoon photograph (that is the hour, not an error).

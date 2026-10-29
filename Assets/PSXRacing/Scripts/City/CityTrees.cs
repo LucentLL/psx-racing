@@ -214,6 +214,8 @@ namespace PSXRacing.City
         public class TreeTile
         {
             public int tx, tz;
+            /// <summary>Trees the lots planted (PlantLots, the skyline pass).</summary>
+            public int lotPlanted;
             public readonly List<Tree> trees = new List<Tree>();
             public Mesh mesh;
             public RoadsideOccupancy occ;
@@ -393,9 +395,83 @@ namespace PSXRacing.City
                 }
             }
 
+            // PASS 3 (the skyline pass): the lots' planted rows
+            if (LotTreesOn) PlantLots(map, occ, tt, tx, tz, min, density, distUp);
+
             BuildMesh(tt);
             tt.ms = (float)clock.Elapsed.TotalMilliseconds;
             return tt;
+        }
+
+        // ------------------------------------------------------------------
+        //  THE LOTS' TREES (the skyline pass, 2026-10-29). The owner's aerial
+        //  from the stadium side has a WOOD between the camera and the
+        //  stadium where we drew a bare parking lot: the stadium's lots are
+        //  planted, rows of willow oaks between the stall rows (its canopy,
+        //  NLCD 2024, reads 55-80% over them). Nothing was ever planted in a
+        //  lot - the mask's "lot" bit refused every tree - so a lot's share of
+        //  its canopy went to the roadsides, or nowhere. Now a lot plants its
+        //  own: where the canopy map has trees over a stall run, one at the
+        //  head of every few stalls (where back-to-back stalls meet, a tree
+        //  island), as many stalls apart as the canopy is thin. Everything
+        //  else on the mask still refuses them; the lot's paint is untouched.
+        //  PSX_CITY_LOTTREES=0 is the lots as they were.
+        // ------------------------------------------------------------------
+        public static bool LotTreesOn = System.Environment.GetEnvironmentVariable("PSX_CITY_LOTTREES") != "0";
+        /// <summary>A stall run under less canopy than this plants none.</summary>
+        const float LotTreeCanopyMin = 0.30f;
+        /// <summary>The tree stands this far past the stall heads.</summary>
+        const float LotTreeBackM = 0.3f;
+        /// <summary>Set while a lot's tree is being planted: the mask's lot
+        /// bit is no refusal then.</summary>
+        static bool lotNow;
+        /// <summary>Every lot tree planted since a tool last reset it.</summary>
+        public static int LotPlantedTotal;
+
+        static void PlantLots(CityMap map, RoadsideOccupancy occ, TreeTile tt, int tx, int tz, Vector2 min, float density, float distUp)
+        {
+            var ll = CityMeshes.LotsInTile(map, tx, tz);
+            if (ll == null) return;
+            float size = CityMeshes.TileSize;
+            int cap = Mathf.RoundToInt(MaxPerTile * density);   // the tile's cap holds (the draw and the build budget)
+            foreach (int li in ll)
+            {
+                if (tt.trees.Count >= cap) return;
+                var L = map.lots[li];
+                if (L.aisleOnly || L.runFoot == null || L.ring == null) continue;
+                for (int r = 0; r < L.runFoot.Length; r++)
+                {
+                    var u = L.runU != null ? L.runU[r] : L.u;
+                    var v = new Vector2(-u.y, u.x);
+                    int n = L.runN[r];
+                    var mid = L.runFoot[r] + u * (n * 0.5f * CityMeshes.StallW) + v * (CityMeshes.StallD * 0.5f);
+                    float canopy = CityCanopy.CellFraction(mid.x, mid.y);
+                    if (canopy < LotTreeCanopyMin) continue;
+                    int every = canopy >= 0.6f ? 2 : canopy >= 0.45f ? 3 : 5;
+                    for (int k = (r % 2) * (every / 2); k <= n; k += every)
+                    {
+                        var p = L.runFoot[r] + u * (k * CityMeshes.StallW) + v * (CityMeshes.StallD + LotTreeBackM);
+                        if (p.x < min.x || p.y < min.y || p.x >= min.x + size || p.y >= min.y + size) continue;
+                        if (!InRing(L.ring, p)) continue;
+                        if (density < 1f && Hash01(li, r * 512 + k, 950) > density) continue;
+                        lotNow = true;
+                        bool ok = TryPlant(map, occ, tt, p, li, r * 512 + k, 900, canopy, distUp, -1f);
+                        lotNow = false;
+                        if (ok) { tt.lotPlanted++; LotPlantedTotal++; }
+                    }
+                }
+            }
+        }
+
+        static bool InRing(Vector2[] ring, Vector2 p)
+        {
+            bool inside = false;
+            for (int i = 0, j = ring.Length - 1; i < ring.Length; j = i++)
+            {
+                Vector2 a = ring[i], b = ring[j];
+                if ((a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+            }
+            return inside;
         }
 
         /// <summary>A candidate point: free on the mask, clear of the tile's
@@ -407,6 +483,7 @@ namespace PSXRacing.City
             for (int attempt = 0; attempt < 2; attempt++)
             {
                 byte b = occ.At(p);
+                if (lotNow) b &= unchecked((byte)~RoadsideOccupancy.Other);   // (a lot's own tree: PlantLots)
                 if (b != 0) { tt.rejects[FirstBit(b)]++; return false; }
                 if (Taken(occ, p)) { tt.rejects[RejectSpacing]++; return false; }
                 // (the second pass needs only "within nearRoad": it looks no farther)

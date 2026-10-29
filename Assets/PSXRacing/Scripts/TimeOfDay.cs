@@ -505,6 +505,10 @@ namespace PSXRacing
                 // The owner's C11 choice (LookChoices.SunLift, off): the
                 // grade's lift fade under a clear sun.
                 globals.gradeSun = LookChoices.SunLift ? GradeSunFor(index, weather) : 0f;
+                // The skyline pass: the sky A/B's grade term (OFF) and the
+                // facades' day light switch for the before shot
+                globals.gradeClear = ClearDayOn(index, weather) ? 1f : 0f;
+                globals.facDayOff = FacDayOff ? 1f : 0f;
             }
 
             lastSkyPreset = p; lastSkySun = sun; lastSkyIndex = index; lastSkyWeather = weather; skyApplied = true;
@@ -731,6 +735,57 @@ namespace PSXRacing
             return Mathf.Lerp(1f, HarshSunFillNow, up * ShadowFor(hour, w));
         }
 
+        /// <summary>
+        /// THE CLEAR DAY (the skyline pass, 2026-10-29; LookChoices.ClearDay,
+        /// SHIPS OFF until the owner picks it from the A/B sheet). His aerial
+        /// of uptown: "a deep blue sky, cumulus and hard sun" against our
+        /// noon's pale haze. Measured at the same pose: its sky (130,170,209)
+        /// sat 0.38 and its horizon (159,196,215) sat 0.26; ours (137,161,190)
+        /// 0.28 and (175,184,184) 0.05 - and our afternoon's sky an amber
+        /// (171,159,137). Three causes: the hour's stops are pale (the noon
+        /// horizon a near-white 0.72,0.85,0.96 that the edge fade and the
+        /// panorama's own white horizon band are pulled to), the afternoon
+        /// borrows a warm hazy panorama, and the grade drains every blue to
+        /// 0.72 of its colour (PSX/Blit _PSXGradeClear lets a clear day's
+        /// blues keep 0.95). On a clear morning, noon or afternoon only: the
+        /// stops deeper (zenith toward the photograph's, the horizon a light
+        /// haze-blue), the panorama pulled harder toward them so its cumulus
+        /// keep their shape in a blue sky, the afternoon on the noon's
+        /// cumulus panorama with a whiter sun. The sun's height and the harsh
+        /// fill are the hour's; the exposure re-anchors on the sunlit road
+        /// (the owner's road colours hold).
+        /// </summary>
+        public static bool ClearDayOn(int hour, Weather w) =>
+            LookChoices.ClearDay && w == Weather.Clear && IsSunUp(hour);
+
+        static void ClearDaySky(ref Preset p, int hour)
+        {
+            switch (hour)
+            {
+                case Morning:
+                    p.skyTop = new Color(0.15f, 0.36f, 0.80f);
+                    p.skyHorizon = new Color(0.62f, 0.77f, 0.93f);
+                    break;
+                case Noon:
+                    p.skyTop = new Color(0.12f, 0.34f, 0.80f);
+                    p.skyHorizon = new Color(0.58f, 0.75f, 0.93f);
+                    break;
+                default:   // afternoon
+                    p.skyTop = new Color(0.14f, 0.36f, 0.80f);
+                    p.skyHorizon = new Color(0.62f, 0.76f, 0.91f);
+                    p.sunColor = new Color(1.00f, 0.95f, 0.86f);
+                    p.skyTex = All[Noon].skyTex;
+                    p.skyTexElevation = All[Noon].skyTexElevation;
+                    break;
+            }
+            p.skyTint = Mathf.Max(p.skyTint, 0.45f);
+            p.skyExposure = Mathf.Min(p.skyExposure, 1.0f);
+        }
+
+        /// <summary>PSX_FACDAY=0 in a tool: the facades' day light as it was
+        /// before the skyline pass (PSX/Lit's FacDay terms off) - the before shot.</summary>
+        public static bool FacDayOff => System.Environment.GetEnvironmentVariable("PSX_FACDAY") == "0";
+
         /// <summary><see cref="DayFillFor(Preset, int, Weather)"/> for an hour
         /// and a weather straight off the table (tools and the self-test).</summary>
         public static float DayFillFor(int hour, Weather w) => DayFillFor(At(hour), hour, w);
@@ -846,6 +901,9 @@ namespace PSXRacing
             // city night is a murk the cloud holds down rather than a clear
             // sky the weather then greys. See ApplySkyglow.
             ApplySkyglow(ref p, SkyglowFor(index) * urban, index == Night ? NightMurk : 1f);
+
+            // THE SKYLINE PASS's sky A/B (LookChoices.ClearDay, OFF): see ClearDaySky.
+            if (ClearDayOn(index, weather)) ClearDaySky(ref p, index);
 
             // HARSH SUN (the colour pass, review 2026-09-29): see HarshSunFill.
             anchor = p;

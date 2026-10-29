@@ -55,6 +55,17 @@ namespace PSXRacing
         public const bool DistantHazeDefault = false;
         public static bool DistantHaze => Env("PSX_DISTHAZE") ?? DistantHazeDefault;
 
+        /// <summary>THE SKYLINE PASS (2026-10-29), the owner's stadium-side
+        /// aerial of uptown: "deep blue sky, cumulus and hard sun" against our
+        /// pale, hazy, flat noon. A GLOBAL look change (the clear day's sky,
+        /// haze, light and the film grade's hold on blue), so an A/B: OFF
+        /// until the owner picks it from the sheet (Editor/SkylineMatchShots
+        /// with PSX_SKYM_AB=1). PSX_CLEARDAY=1 in a tool; a tool may also force
+        /// it per shot (<see cref="ClearDayForce"/>).</summary>
+        public const bool ClearDayDefault = false;
+        public static bool? ClearDayForce;
+        public static bool ClearDay => ClearDayForce ?? Env("PSX_CLEARDAY") ?? ClearDayDefault;
+
         // (WarmWindows, NIGHT-LOOK PASS 5's never-shipped A/B - ONE window
         // colour as a warm white - is gone: the 1990s city, 2026-10-29, lights
         // offices in two families, incandescent gold and fluorescent white-green,
