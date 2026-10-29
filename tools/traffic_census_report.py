@@ -20,6 +20,10 @@ K = {
     ("wreck", "bank"): (7, "a creek bank rises into the road"),
     ("wreck", "water"): (9, "a lane runs into water"),
     ("wreck", "car"): (7, "two traffic cars collided: their paths conflict here (control, lane mapping or a merge)"),
+    ("wreck", "car-in-junction"): (7, "two cars collided crossing or turning in one junction: the junction's control lets conflicting movements in together"),
+    ("wreck", "car-roads-cross-no-node"): (9, "two roads cross here with no junction node between them: traffic on one cannot see the other (a missing node, or an at-grade crossing that should be a bridge)"),
+    ("wreck", "car-roads-overlap"): (8, "two different roads run side by side close enough to collide: a ramp or carriageway laid over another road's lanes, or a merge with no node"),
+    ("wreck", "car-same-road"): (6, "two cars on one road collided: lanes too narrow for side-by-side cars here (a taper squeezing the lanes) or a lane change into a car"),
     ("wreck", "unknown"): (6, "a hit with no contact named"),
     ("wreck", "other"): (6, "a hit on something unnamed"),
     ("wreck", "player"): (1, "the player (the ghost should never be hit)"),
@@ -31,6 +35,7 @@ K = {
     ("contact", "prop"): (4, "a lane or turn grazes a prop"),
     ("contact", "bank"): (4, "a creek bank touches the car"),
     ("contact", "water"): (5, "water touches the car"),
+    ("contact", "ground-at-road-level"): (0, "the ground surface within a few cm of the lane height beside or under the car (a speculative contact at speed): the verge at the road edge, not ground in the way"),
     ("contact", "car-bump"): (3, "two traffic cars bumped (below the wreck line): their paths touch here"),
     ("contact", "other"): (3, "a touch on something unnamed"),
     ("contact", "unknown"): (3, "a touch on something unnamed"),
@@ -134,6 +139,12 @@ def load_events(path):
                 r["node"] = int(r["node"]); r["edge"] = int(r["edge"]); r["edge2"] = int(r["edge2"])
             except (ValueError, KeyError):
                 continue
+            # a touch of the ground at the lane height is a speculative contact
+            # (PhysX reports surfaces within a step's travel of the box, which
+            # rides 0.22 m up): the verge or the ground under the road at road
+            # level, not ground in the car's way - kept apart, scored 0
+            if r["cat"] == "contact" and r["sub"] in ("ground", "bank") and r["value"] < 0.15:
+                r["sub"] = "ground-at-road-level"
             out.append(r)
     return out
 
@@ -152,6 +163,38 @@ def load_edges(path):
             edges[int(p[0])] = dict(cls=int(p[1]), link=p[2] == "1", oneway=p[3] == "1", lim=float(p[4]), drv=p[5] == "1",
                                     m=float(p[6]), disc=p[7] == "1", name=p[8], pts=pts)
     return edges
+
+
+def split_car_wrecks(events, edges):
+    """A car-on-car wreck by how the two cars' roads relate: in a junction (a
+    turn leg), on one road, or on two roads that overlap or cross without a
+    node between them."""
+    import re
+    rx = re.compile(r"run e(\d+) \S+ dir (-?1) lane (\d+)(?:->(\d+))? of (\d+) ([\d.]+)/([\d.]+) m")
+    def heading(eid, s):
+        pts = edges[eid]["pts"]; acc = 0.0
+        for i in range(len(pts) - 1):
+            d = math.dist(pts[i], pts[i + 1])
+            if acc + d >= s or i == len(pts) - 2:
+                return math.degrees(math.atan2(pts[i + 1][1] - pts[i][1], pts[i + 1][0] - pts[i][0]))
+            acc += d
+        return 0.0
+    for e in events:
+        if e["cat"] != "wreck" or e["sub"] != "car":
+            continue
+        parts = e["detail"].split("| other:")
+        a = rx.search(parts[0]); b = rx.search(parts[1]) if len(parts) > 1 else None
+        if not a or not b:
+            e["sub"] = "car-in-junction"
+            continue
+        ea, eb = int(a.group(1)), int(b.group(1))
+        if ea == eb:
+            e["sub"] = "car-same-road"
+            continue
+        if ea in edges and eb in edges and len(edges[ea]["pts"]) > 1 and len(edges[eb]["pts"]) > 1:
+            d = abs((heading(ea, float(a.group(6))) - heading(eb, float(b.group(6))) + 180) % 360 - 180)
+            d = min(d, 180 - d)
+            e["sub"] = "car-roads-cross-no-node" if d > 45 else "car-roads-overlap"
 
 
 def cluster(events, cell=30.0):
@@ -232,13 +275,17 @@ def fmt_spot(s, i=None):
 
 
 def pick_top(spots, n=6, apart=200.0):
-    out = []
+    """The spots to photograph: by score, one per kind and at most two per
+    category (six bends in a row would show one thing six times), 200 m apart."""
+    out, kinds, cats = [], set(), collections.Counter()
     for s in sorted(spots, key=lambda s: -s["score"]):
-        if s["cat"] not in VISIBLE:
+        if s["cat"] not in VISIBLE or s["sev"] <= 0 or s["static"]:
+            continue
+        if (s["cat"], s["sub"]) in kinds or cats[s["cat"]] >= 2:
             continue
         if any((s["x"] - o["x"]) ** 2 + (s["z"] - o["z"]) ** 2 < apart * apart for o in out):
             continue
-        out.append(s)
+        out.append(s); kinds.add((s["cat"], s["sub"])); cats[s["cat"]] += 1
         if len(out) >= n:
             break
     return out
@@ -288,7 +335,7 @@ def draw_map(edges, spots, top, summary, path, maxpx=2600):
         d.line([P(x, z) for (x, z) in e["pts"]], fill=c, width=wdt)
     # hotspots: biggest first so small ones stay visible on top
     for s in sorted(spots, key=lambda s: -s["score"]):
-        if s["cat"] in ("speed", "traffic"):
+        if s["cat"] in ("speed", "traffic") or s["sev"] <= 0:
             continue
         r = 2.5 + 2.2 * math.log10(1 + s["score"])
         px, pz = P(s["x"], s["z"])
@@ -406,6 +453,7 @@ def main():
         with io.open(mp, encoding="utf-8") as f:
             for r in csv.DictReader(f):
                 moves[(int(r["edge_in"]), int(r["edge_out"]))] += int(r["count"])
+    split_car_wrecks(events, edges)
     spots, glob = cluster(events)
     for s in spots:
         if s["static"] and s["cat"] == "lanes" and s["edge"] >= 0:
@@ -487,9 +535,7 @@ def main():
         if tot[cat]:
             L.append("| %s | %d | %d | %.0f |" % (CAT_NAME[cat], tot[cat], tot_spots[cat], tot_score[cat]))
     L.append("")
-    sub_tot = collections.Counter()
-    for k2, v in summary.get("counts", {}).items():
-        sub_tot[k2] = v
+    sub_tot = collections.Counter(e["cat"] + "/" + e["sub"] for e in events)
     L.append("<details><summary>Every kind, counted</summary>\n")
     for k2 in sorted(sub_tot):
         L.append("- %s: %d" % (k2, sub_tot[k2]))

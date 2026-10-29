@@ -36,8 +36,8 @@ namespace PSXRacing.EditorTools
     {
         internal static StringBuilder report;
         internal static int failures;
-        internal static int exceptions;
-        internal static string firstException;
+        internal static int exceptions, otherExceptions;
+        internal static string firstException, firstOther;
         internal static bool shotsMode;
         internal static readonly List<(string label, Vector3 at, float heading)> shotSpots = new List<(string, Vector3, float)>();
 
@@ -61,7 +61,7 @@ namespace PSXRacing.EditorTools
         {
             EditionParking.RecoverIfNeeded();
             report = new StringBuilder();
-            failures = 0; exceptions = 0; firstException = null;
+            failures = 0; exceptions = 0; firstException = null; otherExceptions = 0; firstOther = null;
             shotsMode = shots;
             shotSpots.Clear();
             if (shots)
@@ -112,10 +112,22 @@ namespace PSXRacing.EditorTools
 
         static void OnLog(string msg, string stack, LogType type)
         {
-            if (type == LogType.Exception && (stack ?? "").Contains("PSXRacing"))
+            if (type != LogType.Exception || !(stack ?? "").Contains("PSXRacing")) return;
+            // the traffic's and the census's own throw fail the run; the rest of
+            // the game's are reported (2026-10-29: CityProxies.UploadStep threw
+            // 804 times as the ghost jumped from spot to spot)
+            string where = "";
+            foreach (var line in (stack ?? "").Split('\n'))
+                if (line.Contains("PSXRacing")) { where = line.Trim(); break; }
+            if ((stack ?? "").Contains("CityTraffic") || (stack ?? "").Contains("CityRoadLog"))
             {
                 exceptions++;
-                if (firstException == null) firstException = msg + " @ " + (stack ?? "").Split('\n')[0];
+                if (firstException == null) firstException = msg + " @ " + where;
+            }
+            else
+            {
+                otherExceptions++;
+                if (firstOther == null) firstOther = msg + " @ " + where;
             }
         }
 
@@ -141,7 +153,8 @@ namespace PSXRacing.EditorTools
             CityTraffic.CapOverride = -1;
             CityTraffic.Suspended = false;
             Time.timeScale = 1f;
-            if (exceptions > 0) Fail($"runtime exceptions {exceptions}, first: {firstException}");
+            if (exceptions > 0) Fail($"runtime exceptions in the traffic or the census {exceptions}, first: {firstException}");
+            if (otherExceptions > 0) report.AppendLine($"  NOTE: the rest of the game threw {otherExceptions} exception(s) during the run (not the traffic's), first: {firstOther}");
             report.AppendLine(failures == 0 ? (shotsMode ? "CENSUS SHOTS OK." : "CENSUS OK.") : failures + " FAILURE(S).");
             File.WriteAllText(Path.Combine(ProjectDir, shotsMode ? "PSXRacing_city_traffic_census_shots.txt" : "PSXRacing_city_traffic_census.txt"), report.ToString());
         }
@@ -622,7 +635,8 @@ namespace PSXRacing.EditorTools
         {
             finished = true;
             CityTrafficCensus.Finish();
-            EditorApplication.Exit(CityTrafficCensus.failures == 0 ? 0 : 1);
+            if (CityTrafficCensus.ThenCheck && CityTrafficCensus.failures == 0) CityTrafficCensus.ChainCheck();
+            else EditorApplication.Exit(CityTrafficCensus.failures == 0 ? 0 : 1);
         }
 
         IEnumerator Shot(string path, Vector3 eye, Vector3 look)

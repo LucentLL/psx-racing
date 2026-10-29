@@ -116,6 +116,9 @@ try {
     if (-not $NoShots -and (Test-Path "$proj\census\top6.txt")) {
         Write-Lock
         Remove-Item "$proj\PSXRacing_city_traffic_census_shots.txt" -ErrorAction SilentlyContinue
+        # -ShotsOnly -ThenCheck: the traffic check follows the close-ups in the same (watched) editor
+        $env:PSX_CENSUS_THENCHECK = if ($ThenCheck -and $ShotsOnly) { "1" } else { "0" }
+        if ($ThenCheck -and $ShotsOnly) { Remove-Item "$proj\PSXRacing_city_traffic_check.txt" -ErrorAction SilentlyContinue }
         Get-ChildItem "$proj\Screenshots\census_top*.png" -ErrorAction SilentlyContinue | Remove-Item
         Invoke-UnityJob -Watch:(Test-PSXWatch -NoWatch:$NoWatch) -Log "$proj\censusshots.log" -MaxMinutes 30 -UnityArgs @(
             "-batchmode","-projectPath",$proj,
@@ -124,6 +127,15 @@ try {
         if (Test-Path "$proj\PSXRacing_city_traffic_census_shots.txt") { Get-Content "$proj\PSXRacing_city_traffic_census_shots.txt" }
         else { "NO SHOTS REPORT. Tail of censusshots.log:"; Get-Content "$proj\censusshots.log" -Tail 30; $code = 1 }
         Get-ChildItem "$proj\Screenshots\census_top*.png" -ErrorAction SilentlyContinue | Copy-Item -Destination $raw
+        if ($ThenCheck -and $ShotsOnly) {
+            if (Test-Path "$proj\PSXRacing_city_traffic_check.txt") {
+                Get-Content "$proj\PSXRacing_city_traffic_check.txt"
+                if (Select-String -Path "$proj\PSXRacing_city_traffic_check.txt" -Pattern "FAIL" -Quiet) { $code = 1 }
+                $shots = Join-Path $src "Docs\shots\citytraffic"
+                New-Item -ItemType Directory -Force $shots | Out-Null
+                Get-ChildItem "$proj\Screenshots\citytraffic_*.png" -ErrorAction SilentlyContinue | Copy-Item -Destination $shots
+            } else { "NO TRAFFIC CHECK REPORT (it runs after the close-ups in the same editor)"; $code = 1 }
+        }
         if (-not (Invoke-Report)) { $code = 1 }
     }
 } finally {

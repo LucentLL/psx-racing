@@ -152,6 +152,10 @@ namespace PSXRacing.City
             // where on the car: across (+ right of travel), along (+ ahead), up from the lane's height
             Vector2 d = new Vector2(point.x, point.z) - c.pos;
             float across = c.fwd.y * d.x - c.fwd.x * d.y, along = Vector2.Dot(d, c.fwd), up = point.y - c.y;
+            // the ground at the lane height is a speculative contact (PhysX
+            // reports surfaces within a step's travel of the box, 0.22 m up):
+            // the verge at the road edge, not ground in the car's way
+            if ((kind == "ground" || kind == "bank") && up < 0.15f) return;
             string where = Mathf.Abs(across) > c.halfW - 0.15f ? (across > 0f ? "its right side" : "its left side")
                          : Mathf.Abs(along) > c.halfL - 0.2f ? (along > 0f ? "its nose" : "its tail") : "its underside";
             Note(c, "contact", kind, up, $"{what} touched {where} ({across:+0.0;-0.0} m across, {along:+0.0;-0.0} along, {up:0.00} m above the lane height); " + Describe(c));
