@@ -577,10 +577,39 @@ namespace PSXRacing.City
             return bl - br;
         }
 
+        /// <summary>The lane line's direction at arc s. ROAD-LOGIC BENDS
+        /// (2026-10-29): it turns SMOOTHLY along each segment, from the bisector
+        /// at one vertex to the bisector at the next, so a car's heading and
+        /// its lane's offset point (PlanPoint) never jump at a vertex. Before,
+        /// it was the segment's own direction: every vertex snapped the car by
+        /// its whole turn and threw a lane 9 m out by 9 m x the turn sideways -
+        /// the census's 1,457 "kinks" (4 deg+ within a metre: the first chord
+        /// of every tight fillet, 5 deg at R 15 m). The drawn line is the same;
+        /// its own corners are linecheck's to count.</summary>
         static Vector2 Bisector(CityMap.Edge e, float s)
         {
-            var t = e.TangentAt(Mathf.Max(0f, s - 0.01f)) + e.TangentAt(Mathf.Min(e.length, s + 0.01f));
-            return t.sqrMagnitude > 1e-8f ? t.normalized : e.TangentAt(s);
+            var P = e.pts;
+            if (P == null || P.Length < 2) return e.TangentAt(s);
+            int i = e.SegmentAt(Mathf.Clamp(s, 0f, e.length), out float t);
+            Vector2 d = P[i + 1] - P[i];
+            float m = d.magnitude;
+            if (m < 1e-5f) return e.TangentAt(s);
+            Vector2 u = d / m;
+            Vector2 b0 = i > 0 ? VertexBisector(P, i, u) : u;
+            Vector2 b1 = i + 2 < P.Length ? VertexBisector(P, i + 1, u) : u;
+            var v = Vector2.LerpUnclamped(b0, b1, Mathf.Clamp01(t));
+            return v.sqrMagnitude > 1e-8f ? v.normalized : u;
+        }
+
+        /// <summary>The bisector of the line's two directions at vertex k (u is
+        /// the direction of one of its segments, the fallback at a fold).</summary>
+        static Vector2 VertexBisector(Vector2[] P, int k, Vector2 u)
+        {
+            Vector2 a = P[k] - P[k - 1], b = P[k + 1] - P[k];
+            float la = a.magnitude, lb = b.magnitude;
+            if (la < 1e-5f || lb < 1e-5f) return u;
+            var v = a / la + b / lb;
+            return v.sqrMagnitude > 1e-6f ? v.normalized : u;
         }
 
         /// <summary>The plan point at arc s, lat off the OSM line, and the
@@ -631,7 +660,11 @@ namespace PSXRacing.City
             float c = Vector2.Distance(p0, p3);
             float a = Mathf.Clamp(Mathf.Abs(Vector2.SignedAngle(t0, t3)), 1f, 179f) * Mathf.Deg2Rad;
             float k = c * (2f / 3f) * Mathf.Tan(a * 0.25f) / Mathf.Sin(a * 0.5f);
-            k = Mathf.Clamp(k, 0.5f, c + 4f);
+            // road-logic-bends: the floor scales with a short chord - a fixed
+            // 0.5 m on a leg of 1-2 m pushed the controls past the arc and the
+            // cubic looped (the census's 6 deg+ heading snaps inside sub-3 m
+            // turn legs)
+            k = Mathf.Clamp(k, Mathf.Min(0.5f, 0.3f * c), c + 4f);
             L.p0 = p0; L.p1 = p0 + t0 * k; L.p2 = p3 - t3 * k; L.p3 = p3;
             L.len = BezLen(L);
         }
@@ -877,6 +910,7 @@ namespace PSXRacing.City
                 if (total <= 1e-5f) break;
             }
             c.keepLane = false;
+            if (kind == 0 && !merge && !exit) StretchStraight(e, dir, req, last.s0, ref sA, e2, dir2, outLane, ref sB);
             last.s1 = sA;
             last.len = Mathf.Abs(last.s1 - last.s0);
             last.laneOut = req;
@@ -936,14 +970,77 @@ namespace PSXRacing.City
             T.y0 = e.YAt(T.sA); T.y1 = e2.YAt(T.sB);
             float turnA = Mathf.Abs(Vector2.SignedAngle(t0, t3)) * Mathf.Deg2Rad;
             float vLim = Mathf.Min(limitMps[T.edge], limitMps[T.edge2]);
+            // ROAD-LOGIC BENDS: the speed of the arc AS DRAWN - its tightest
+            // point, sampled - not the circle through its ends. A cubic whose
+            // mouths sit off the circle (a lane offset, a short leg) bends
+            // tighter than that circle: the census's 1,396
+            // "turn-tighter-than-planned" were cars at the planned speed on it,
+            // and a straight-on connector was taken at the limit however much
+            // its lanes shifted.
+            float kMax = BezMaxCurvature(T);
             if (T.kind == 2) T.vMax = 3f;
-            else if (turnA < 0.17f) T.vMax = vLim;
+            else if (turnA < 0.17f) T.vMax = kMax > 1e-4f ? Mathf.Clamp(Mathf.Sqrt(ALat / kMax), 4f, vLim) : vLim;
             else
             {
                 float chord = Vector2.Distance(p0, p3);
                 float R = chord / Mathf.Max(0.05f, 2f * Mathf.Sin(turnA * 0.5f));
+                if (kMax > 1e-4f) R = Mathf.Min(R, 1f / kMax);
                 T.vMax = Mathf.Clamp(Mathf.Sqrt(ALat * R), 4f, vLim);
             }
+        }
+
+        /// <summary>ROAD-LOGIC BENDS: a STRAIGHT-ON connector whose two lanes do
+        /// not line up across the node (a lane offset left by the lane widths,
+        /// a taper, a lane-count change) was an S of the junction box's few
+        /// metres - 0.9 m across 4.5 m is a 17 deg swerve, the census's
+        /// heading-snaps (1,225 of 2,774 inside straight-on arcs under 8 m,
+        /// 457 more where they hand over). It now begins before the mouth
+        /// and ends after the far one, long enough that its S stays within
+        /// StraightSwerveDeg: up to StraightStretchM more each side, never
+        /// into the run's first 2 m nor past 40% of the next edge.</summary>
+        void StretchStraight(CityMap.Edge e, int dir, int laneIn, float runS0, ref float sA,
+                             CityMap.Edge e2, int dir2, int laneOut, ref float sB)
+        {
+            Vector2 p0 = LanePos(e, dir, laneIn, sA), t0 = TravelTan(e, dir, sA);
+            Vector2 p3 = LanePos(e2, dir2, laneOut, sB), t3 = TravelTan(e2, dir2, sB);
+            // only a near-straight node: a longer cubic across a bend would cut
+            // its corner (4 deg over 45 m is 0.4 m)
+            if (Vector2.Angle(t0, t3) > 4f) return;
+            Vector2 d = p3 - p0, mid = (t0 + t3).normalized;
+            float chord = d.magnitude;
+            if (chord < 0.05f) return;
+            // the S in it: the far mouth's offset across the mean direction (an
+            // arc between the two tangents has none)
+            float gap = Mathf.Abs(mid.x * d.y - mid.y * d.x);
+            float need = 1.5f * gap / Mathf.Tan(StraightSwerveDeg * Mathf.Deg2Rad);
+            if (need <= chord) return;
+            float add = Mathf.Min(StraightStretchM, 0.5f * (need - chord));
+            // back along the run (dir > 0: toward s 0), forward along the next edge
+            float roomA = Mathf.Max(0f, Mathf.Abs(sA - runS0) - 2f);
+            float farB = dir2 > 0 ? e2.length * 0.4f : e2.length * 0.6f;
+            float roomB = Mathf.Max(0f, dir2 > 0 ? farB - sB : sB - farB);
+            float a = Mathf.Min(add, roomA), b = Mathf.Min(add, roomB);
+            sA -= dir * a;
+            sB += dir2 * b;
+        }
+        const float StraightSwerveDeg = 3f, StraightStretchM = 20f;
+
+        /// <summary>The tightest curvature along a turn's cubic (1/m), sampled
+        /// at 16 points: |B' x B''| / |B'|^3.</summary>
+        static float BezMaxCurvature(in Leg L)
+        {
+            float best = 0f;
+            Vector2 a = L.p2 - 2f * L.p1 + L.p0, b = L.p3 - 2f * L.p2 + L.p1;
+            for (int i = 0; i <= 16; i++)
+            {
+                float t = i / 16f;
+                Bez(L, t, out var d);
+                Vector2 dd = 6f * (1f - t) * a + 6f * t * b;
+                float m = d.magnitude;
+                if (m < 1e-3f) continue;
+                best = Mathf.Max(best, Mathf.Abs(d.x * dd.y - d.y * dd.x) / (m * m * m));
+            }
+            return best;
         }
 
         // ======================================================================
@@ -1442,6 +1539,19 @@ namespace PSXRacing.City
                 float lim = L.turn ? Mathf.Min(L.vMax, limitMps[L.edge2] * c.factor) : limitMps[L.edge] * c.factor;
                 float d0 = Mathf.Max(0f, dist);
                 best = Mathf.Min(best, Mathf.Sqrt(lim * lim + 2f * c.bDec * d0));
+                if (!L.turn)
+                {
+                    // THE CURVE ADVISORIES (road-logic-bends, CityCurves - the
+                    // number the exit-speed sign shows and the census measures):
+                    // the lowest on what is left of this run, braked to by its start
+                    float a0 = k == 0 ? L.s0 + L.dir * c.u : L.s0, a1 = L.s0 + L.dir * L.len;
+                    float adv = CityCurves.MinMpsBetween(map, L.edge, a0, a1, out float advAt);
+                    if (adv < float.MaxValue)
+                    {
+                        float va = adv * c.factor, dTo = Mathf.Max(0f, dist + Mathf.Abs(advAt - L.s0));
+                        best = Mathf.Min(best, Mathf.Sqrt(va * va + 2f * c.bDec * dTo));
+                    }
+                }
                 if (!L.turn && L.len > 8f && (k == 0 || dist < 80f))
                 {
                     var e = map.edges[L.edge];

@@ -288,39 +288,15 @@ namespace PSXRacing.City
         }
 
         /// <summary>The speed a ramp's tightest curve within 300 m of the
-        /// diverge asks for, mph, rounded down to 5 (AASHTO's
-        /// V^2 = 15 R (e + f), R in feet, e + f = 0.22); 0 for 50 or more.</summary>
+        /// diverge asks for, mph: THE advisory the traffic drives and the census
+        /// measures (<see cref="CityCurves.ExitMph"/>, road-logic-bends: one
+        /// source of truth - AASHTO's V^2 = 15 R (e + f), R in feet,
+        /// e + f = 0.22, rounded down to 5); no sign for 50 or more, and none
+        /// under 15 (the W13-2 plaques NCDOT stocks).</summary>
         static int CurveMph(CityMap map, CityMap.Edge link)
         {
-            if (link == null) return 0;
-            var pts = new List<Vector2>();
-            var e = link; float s = 0f, walked = 0f;
-            for (int hop = 0; hop < 8 && walked < 300f; hop++)
-            {
-                for (; s <= e.length && walked < 300f; s += 10f, walked += 10f) pts.Add(e.PointAt(s));
-                s -= e.length;
-                CityMap.Edge next = null;
-                foreach (int oi in map.nodeEdges[e.b])
-                {
-                    var o = map.edges[oi];
-                    if (o != e && o.a == e.b && o.link && o.oneway) { next = o; break; }
-                }
-                if (next == null) break;
-                e = next;
-            }
-            float rMin = float.MaxValue;
-            for (int i = 2; i + 2 < pts.Count; i++)
-            {
-                Vector2 a = pts[i - 2], b = pts[i], c = pts[i + 2];
-                float cr = Mathf.Abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
-                if (cr < 1e-3f) continue;
-                float r = (a - b).magnitude * (b - c).magnitude * (c - a).magnitude / (2f * cr);
-                rMin = Mathf.Min(rMin, r);
-            }
-            if (rMin == float.MaxValue) return 0;
-            float mph = Mathf.Sqrt(15f * rMin * 3.2808f * 0.22f);
-            int v = Mathf.FloorToInt(mph / 5f) * 5;
-            return v >= 50 ? 0 : Mathf.Max(15, v);
+            int v = CityCurves.ExitMph(map, link);
+            return v <= 0 || v >= 50 ? 0 : Mathf.Max(15, v);
         }
 
         // ------------------------------------------------------------------
