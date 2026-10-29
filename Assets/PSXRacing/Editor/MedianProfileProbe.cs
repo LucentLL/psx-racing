@@ -166,7 +166,8 @@ namespace PSXRacing.EditorTools
                     near.Remove(ei); near.Insert(0, ei);
                     const string letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
                     if (near.Count > letters.Length) near.RemoveRange(letters.Length, near.Count - letters.Length);
-                    sb.AppendLine($"SPOT e{ei} '{e.name}' s {s0:0}..{s1:0} lat {l0:0.0}..{l1:0.0} (columns lat from {l1:0.0} down to {l0:0.0}, 0.5 m)");
+                    var pa0 = e.PointAt(s0); var pa1 = e.PointAt(s1);
+                    sb.AppendLine($"SPOT e{ei} '{e.name}' s {s0:0}..{s1:0} lat {l0:0.0}..{l1:0.0} (columns lat from {l1:0.0} down to {l0:0.0}, 0.5 m) at ({pa0.x:0.0},{pa0.y:0.0})..({pa1.x:0.0},{pa1.y:0.0})");
                     var secOf = new System.Collections.Generic.Dictionary<int, CityMeshes.AuditView.SectionView[]>();
                     for (int k = 0; k < near.Count; k++)
                     {
@@ -184,12 +185,30 @@ namespace PSXRacing.EditorTools
                         // (round 8) PSX_SPOT_HEIGHTS=1: under each row the top surface against this
                         // road's height: v under -1 m, l -1..-0.3, 0 within 0.3, h to 0.6, H to 1.2, X over
                         var hrow = heightsRow ? new StringBuilder("        heights |") : null;
+                        // (round 9) a 6th field "T": under each row the term that set the land at each
+                        // column (CityElevation.Ground): d deck cap (air under a soffit), D deck protect,
+                        // p a road's cap, f a road's fill floor, c a road's cut, n the natural land; and the
+                        // lowest grass point's numbers
+                        var trow = c.Length >= 6 && c[5].Trim() == "T" ? new StringBuilder("        terms   |") : null;
+                        float lowY = float.MaxValue; string lowNote = null;
                         for (float l = l1; l >= l0 - 1e-3f; l -= 0.5f)
                         {
                             var w = p + right * l;
                             int n = Physics.RaycastNonAlloc(new Vector3(w.x, y + 3f, w.y), Vector3.down, hits, 12f, ~0, QueryTriggerInteraction.Ignore);
                             float top = float.NegativeInfinity; string name = null;
                             for (int i = 0; i < n; i++) if (hits[i].point.y > top) { top = hits[i].point.y; name = hits[i].collider.name; }
+                            if (trow != null)
+                            {
+                                float g = CityElevation.Ground(map, w.x, w.y, out var gt);
+                                bool Eq(float v) => !float.IsNaN(v) && Mathf.Abs(v - g) < 0.005f;
+                                trow.Append(Eq(gt.deckCap) ? 'd' : Eq(gt.deckProtect) ? 'D' : Eq(gt.protect) ? 'p' : Eq(gt.floor) ? 'f' : Eq(gt.cut) ? 'c' : 'n');
+                                if (name != null && !name.Contains("Road") && !name.Contains("Barrier") && !name.Contains("Guardrail") && g < lowY)
+                                {
+                                    lowY = g;
+                                    lowNote = $"lat {l:0.0} land {g - y:+0.00;-0.00} dem {gt.dem - y:+0.00;-0.00} floor {gt.floor - y:+0.00;-0.00} (e{gt.floorEdge}) cut {gt.cut - y:+0.00;-0.00} " +
+                                              $"cap {gt.protect - y:+0.00;-0.00} (e{gt.protectEdge}) deckCap {gt.deckCap - y:+0.00;-0.00} deckProt {gt.deckProtect - y:+0.00;-0.00} (e{gt.deckEdge}) near {gt.nearFloor - y:+0.00;-0.00} (e{gt.nearEdge})";
+                                }
+                            }
                             if (hrow != null)
                             {
                                 float dy = top - y;
@@ -224,6 +243,7 @@ namespace PSXRacing.EditorTools
                         }
                         sb.AppendLine(row.ToString());
                         if (hrow != null) sb.AppendLine(hrow.ToString());
+                        if (trow != null) { sb.AppendLine(trow.ToString()); if (lowNote != null) sb.AppendLine("        lowest  " + lowNote); }
                     }
                     // each edge met: sections in range, union runs, walled spans
                     foreach (int oi in near)

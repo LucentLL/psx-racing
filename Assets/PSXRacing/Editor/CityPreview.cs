@@ -326,6 +326,17 @@ namespace PSXRacing.EditorTools
                 var f = item.Split(':');
                 if (f.Length < 6) continue;
                 float x = float.Parse(f[2], ci), z = float.Parse(f[3], ci), k = float.Parse(f[5], ci);
+                // (round 9) name:along:x:z:road:back[:rise[:fov]] - the chase view of a place: on the
+                // carriageway nearest (x,z) of that road, `back` metres before it along its travel,
+                // looking at the place itself (the driver's approach)
+                if (f[1].Trim() == "along")
+                {
+                    var av = Along(f[0].Trim(), "custom", x, z, f[4], k, 0f, 60f, 1, "custom along " + item);
+                    av.rise = f.Length >= 7 ? float.Parse(f[6], ci) : 1.3f;
+                    if (f.Length >= 8) av.fov = float.Parse(f[7], ci);
+                    yield return av;
+                    continue;
+                }
                 var nv = f[1].Trim() == "top" ? Top(f[0].Trim(), "custom", x, z, f[4], k, "custom top " + item)
                                               : Eye(f[0].Trim(), "custom", x, z, f[4], k, "custom eye " + item);
                 // (round 7) an eye's 7th field: metres over the 1.2 m eye (the chase camera's height)

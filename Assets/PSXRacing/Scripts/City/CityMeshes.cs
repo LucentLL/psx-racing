@@ -3558,6 +3558,14 @@ namespace PSXRacing.City
                         // section added inside a clipped ramp moved its rail (e14947)
                         if (su > sMin + 0.6f && su < sMax - 0.6f && ClipAt(e, su) == null) { sampleS.Add(su); unionEndScratch.Add(su); }
                     }
+            // (round 9) a split end's foot on a partner: its own Jersey starts there
+            if (uruns != null && R9SplitOn)
+            {
+                splitFeetScratch.Clear();
+                SplitFeetOn(map, trims, e, splitFeetScratch);
+                foreach (float su in splitFeetScratch)
+                    if (su > sMin + 0.6f && su < sMax - 0.6f && ClipAt(e, su) == null) { sampleS.Add(su); unionEndScratch.Add(su); }
+            }
             sampleS.Add(sMax);
             sampleS.Sort();
             // Drop near-duplicates (a station on a vertex) — and where one of a
@@ -5592,7 +5600,10 @@ namespace PSXRacing.City
                     // inside its own run, as at a gore.
                     if (openSpan >= 1 && openSpan < n && spanFlags[openSpan][side].union)
                     {
-                        endPlan.Add((k, dir, EndInside, 0f, k));
+                        // (round 9) ...unless that median SPLITS there, its leg meeting this rail at
+                        // full height (DECKEND2's slab over the 1'47" pit): no end of its own
+                        if (!R9KeepJerseyEnd(map, trims, e, side, sections[openSpan - 1].s, sections[openSpan].s, sections[k].s))
+                            endPlan.Add((k, dir, EndInside, 0f, k));
                         continue;
                     }
                     // a rail running into a gore on the ground slopes down
@@ -5815,6 +5826,11 @@ namespace PSXRacing.City
                     // instead of capped square. (A rail stays full height: it
                     // guards a drop. Where one runs out into a gore on a deck,
                     // the nose's V stands in front of its end - EmitNose.)
+                    // (round 9) ...but where the union beside it SPLITS there, its leg meets this
+                    // end at full height: not turned down (the 2-8 m low spot of round 8's BREAKS)
+                    if (ending == KindMedian && otherSpan >= 1 && otherSpan < n && spanFlags[otherSpan][side].union
+                        && R9KeepJerseyEnd(map, trims, e, side, sections[otherSpan - 1].s, sections[otherSpan].s, sections[k].s))
+                        continue;
                     if (ending == KindMedian)
                     {
                         var taper = side < 0 ? taperL : taperR;
@@ -9879,8 +9895,19 @@ namespace PSXRacing.City
                                                           new RailRecord { edge = -1, side = 0, node = n });
                         continue;
                     }
+                    // (round 9, FANS) a shared median carried on past this fan lies over its median
+                    // side: no kerb, verge or corner fill there (the verge's grass stood over the strip)
+                    if (!onStructure && MedianChordUnion(map, trims, n, k0.edge, k0.side, k0.node, k1.edge, k1.side, k1.node)) continue;
                     kerbBucket.WallSloped(k0.pos, k1.pos, k0.pos.y - KerbFaceM, k0.pos.y, k1.pos.y - KerbFaceM, k1.pos.y,
                                           nrm, 0f, 0.6f, 0f, 0.05f);
+                    // (round 9, FANS) the median side of a divided road's fan with nothing leaving
+                    // there (a right-in/right-out, a ramp on the outside): the Jersey carries on across
+                    // it from one arm's own to the next's - they ended square and open at the fan
+                    if (!onStructure && MedianChordJersey(map, trims, n, k0.edge, k0.side, k0.node, k1.edge, k1.side, k1.node))
+                    {
+                        EmitBarrier(k0.pos, k1.pos, nrm, 0f, len / RoadVTile, false, false);
+                        r9FanChords++;
+                    }
                     if (groundLog != null) groundTag = $"fan chord verge node {n} e{k0.edge}-e{k1.edge}";
                     // a curb return's pieces share their cross-sections (plan A10)
                     EmitVergeLine(map, trims, tm, k0.pos, k1.pos, RingOut(corners, i, nrm, true), RingOut(corners, (i + 1) % corners.Count, nrm, false), VergeShoulderM);
