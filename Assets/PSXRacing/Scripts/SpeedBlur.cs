@@ -1123,12 +1123,36 @@ namespace PSXRacing
             // drawn under the blur it is here to escape. hierarchyCount is one
             // integer for the whole canvas, so the check is free and the
             // re-layer runs only on the frame something was added.
+            //
+            // NOT ENOUGH ON ITS OWN (2026-10-29, the owner's "map does not
+            // always appear"): when RaceHUD rebuilt the map - the old one
+            // destroyed and a new one made in the same Update, as a PICTURE
+            // change or a new HUD height does - this never fired. A second
+            // later the count and the count last re-layered both read 15 and
+            // the new map was still on Default, and a NESTED canvas (the
+            // map's roads) is culled by its own layer: the HUD camera drew the
+            // arrow and not the map (MinimapPlayCheck). So the tree is also
+            // walked twice a second whatever the count says - a few dozen
+            // transforms, nothing allocated, only a wrong layer written.
             int count = hudCanvas.transform.hierarchyCount;
-            if (count != layeredCount)
+            if (count != layeredCount || Time.unscaledTime >= nextRelayer)
             {
-                SetLayer(hudCanvas.transform, HudLayer);
+                Relayer(hudCanvas.transform, HudLayer);
                 layeredCount = count;
+                nextRelayer = Time.unscaledTime + RelayerEveryS;
             }
+        }
+
+        float nextRelayer;
+        const float RelayerEveryS = 0.5f;
+
+        /// <summary><see cref="SetLayer"/> without the array: the walk runs
+        /// twice a second for the life of the split.</summary>
+        static void Relayer(Transform t, int layer)
+        {
+            var go = t.gameObject;
+            if (go.layer != layer) go.layer = layer;
+            for (int i = 0, n = t.childCount; i < n; i++) Relayer(t.GetChild(i), layer);
         }
 
         /// <summary>

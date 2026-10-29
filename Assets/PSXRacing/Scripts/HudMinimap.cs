@@ -188,7 +188,43 @@ namespace PSXRacing
             mm.distText = t;
 
             HudOnTop.Apply(root);
+            // Born on the HUD's layer, every part of it: the roads are a
+            // nested Canvas, which a camera culls by ITS OWN layer
+            // (KeepLayer says why that hid the map).
+            int layer = hud.gameObject.layer;
+            foreach (var part in root.GetComponentsInChildren<Transform>(true))
+                part.gameObject.layer = layer;
             return mm;
+        }
+
+        Canvas ownCanvas;
+
+        /// <summary>
+        /// THE ROADS ON THE HUD CANVAS'S LAYER, every frame. The owner,
+        /// 2026-10-29: "Map does not always appear while racing/free roaming"
+        /// - the arrow, the dots and the distance were there, the streets and
+        /// the route were not.
+        ///
+        /// The roads are a nested Canvas (so the per-frame move re-batches
+        /// them alone), and a camera culls a nested canvas by its OWN
+        /// GameObject layer, not its root's. SpeedBlur hands the HUD canvas
+        /// to a camera that draws the UI layer only, and moves the HUD's
+        /// children onto that layer when it notices new ones - but a map made
+        /// after the split (a scene whose blur split first, or any rebuild:
+        /// a PICTURE change, a new HUD height, the touch controls) was born on
+        /// Default and stayed there. MinimapPlayCheck: 0 road pixels after a
+        /// rebuild under the split, 801 with the layer alone corrected. The
+        /// arrow, the dots and the distance are drawn by the HUD canvas
+        /// itself whatever their own layer, which is exactly why only the
+        /// roads went. Two integer reads a frame.
+        /// </summary>
+        void KeepLayer()
+        {
+            if (ownCanvas == null && !TryGetComponent(out ownCanvas)) return;
+            var rootCanvas = ownCanvas.rootCanvas;
+            if (rootCanvas == null || rootCanvas == ownCanvas) return;
+            int want = rootCanvas.gameObject.layer;
+            if (gameObject.layer != want) gameObject.layer = want;
         }
 
         /// <summary>The distance readout's type size, HUD units (the lap
@@ -292,6 +328,7 @@ namespace PSXRacing
         // ------------------------------------------------------------------
         void LateUpdate()
         {
+            KeepLayer();
             if (!Application.isPlaying || car == null) return;
             Tick(Time.unscaledDeltaTime);
         }
