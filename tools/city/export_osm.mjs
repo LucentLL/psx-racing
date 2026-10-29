@@ -312,6 +312,16 @@ function trimHead(w, m) {
   }
   return w;
 }
+// CONNECTORS (road-logic topology, 2026-10-29, the owner's "Close the gaps";
+// fetch/fetch_layers.mjs --only connectors, from fetch/connector_nodes.json):
+// the ways that carry a road on where the data stopped - a ramp's local
+// street, a one-way's alley, the next piece of a road cut at the beltway box.
+// Kept like the campus drive above (by id, named or not), less private and
+// no-access ones; marked so the ground grid keeps the box the network set
+// (lib/frontier.mjs). PSX_CITY_CONNECTORS=0 leaves them out.
+const connFile = join(CACHE, 'layers', 'connectors.json');
+const rawConn = process.env.PSX_CITY_CONNECTORS !== '0' && existsSync(connFile)
+  ? loadJson(connFile).elements.filter(e => e.type === 'way' && e.tags && e.geometry) : [];
 const bldFile = join(CACHE, 'buildings_core.json');
 const rawBld = existsSync(bldFile) ? loadJson(bldFile).elements : [];
 // Coverage (2026-10-06, fetch/fetch_coverage.mjs): the non-residential
@@ -434,6 +444,12 @@ function keepWay(w, minor) {
 for (const w of rawWays) keepWay(w, false);
 for (const w of rawMinor) keepWay(w, true);
 for (const w of rawAccess) keepWay(w, false);   // named by id: kept without a name
+{
+  const before = ways.length;
+  for (const w of rawConn) if (w.tags.access !== 'private' && w.tags.access !== 'no') keepWay(w, false);
+  for (let i = before; i < ways.length; i++) ways[i].connector = true;
+  if (rawConn.length) console.log(`connectors: ${ways.length - before} of ${rawConn.length} fetched ways kept (the rest already in, or private / not a road)`);
+}
 console.log(KEEP_TOLL ? `kept ${ways.length} ways (${tollKept} of them toll: the express lanes and the Monroe Expressway, kept - owner Q3)`
                       : `kept ${ways.length} ways (dropped ${tollDropped} toll ways: held back, see KEEP_TOLL)`);
 // A slip ramp that only ever led to a dropped toll lane now ends in mid-air:
@@ -628,7 +644,7 @@ const uptownXY = [toX(-80.8431), toZ(35.2271)];
 // WP-11's fillet numbers are the smoothness gate's (Editor/SmoothRules.cs):
 // R_min by class (B3), the inner-edge floor, the 2 cm sagitta and the chord cap
 const SR = readSmoothRules(join(UNITY, 'Assets', 'PSXRacing', 'Editor', 'SmoothRules.cs'));
-const LC = lineClean({ ways, edges, nodes, rawWays: [...rawWays, ...rawMinor, ...rawAccess],
+const LC = lineClean({ ways, edges, nodes, rawWays: [...rawWays, ...rawMinor, ...rawAccess],   // (not the connectors: no new pins on the network's lines)
                        rawNodes, toX, toZ, uptown: uptownXY,
                        fillet: { rMinFor: SR.rMinFor, innerEdgeMinR: SR.InnerEdgeMinRM, eps: SR.DensifyEpsM,
                                  chordCap: SR.ChordCapM, collinearDeg: SR.CollinearDeg } });
@@ -750,7 +766,9 @@ const shortLink = (a, b) => shortLinks.has(a + ':' + b);
 // The box the ground grid covers (every road point plus DEM_MARGIN): the
 // DEM below and the water both use it.
 let bbox = { x0: 1e18, x1: -1e18, z0: 1e18, z1: -1e18 };
-for (const e of edges) for (const p of e.pts) {
+// (not the connectors: a continuation past the box must not move the grid
+// under the whole city - it reads the ground at the grid's edge)
+for (const e of edges) if (!e.way.connector) for (const p of e.pts) {
   bbox.x0 = Math.min(bbox.x0, p[0]); bbox.x1 = Math.max(bbox.x1, p[0]);
   bbox.z0 = Math.min(bbox.z0, p[1]); bbox.z1 = Math.max(bbox.z1, p[1]);
 }
@@ -1717,7 +1735,8 @@ const FRONTIER = (() => {
     if (t.access === 'private' || t.access === 'no') return 'access=' + t.access;
     return hw.endsWith('_link') ? 'ramp to a toll lane' : 'dropped';
   };
-  const fr = findFrontier({ nodes, edges, nodeIndex, raw: [...rawWays, ...rawMinor, ...rawAccess], keptIds, dropWhy,
+  const fr = findFrontier({ nodes, edges, nodeIndex, raw: [...rawWays, ...rawMinor, ...rawAccess, ...rawConn], keptIds, dropWhy,
+                            drivable: e => !(e.way.lt && (e.way.lt.sub >= 5 || e.way.lt.unpaved)),
                             world: FETCH_BOX, core: STREETS_BOX, toLat, toLon, worldMarginDeg: 0 });
   const s = fr.stats;
   console.log(`FRNT frontier: ${s.frontier} nodes where the data stops and the road goes on (of ${s.open} open nodes; ${s.realDeadEnds} real dead ends left): ` +
@@ -2233,6 +2252,7 @@ function inputFiles() {
   // B1: the bridge outlines, the culvert lines, the twin-deck overrides
   add('tools/city/cache/bridges_mm.json', OUTLINES_FILE, 'overpass');
   add('tools/city/cache/layers/culverts.json', CULVERTS_FILE, 'overpass');
+  if (rawConn.length) add('tools/city/cache/layers/connectors.json', connFile, 'overpass');   // the frontier's connectors
   // by its pairs only (the note is prose; a checkout's line endings are not data)
   files.push({ label: 'tools/city/deckpairs_overrides.json#pairs', content: Buffer.from(JSON.stringify(BRST.overrides), 'utf8'), kind: 'registry' });
   // SOURCES.md by its Credits only: the rest of the registry is prose that

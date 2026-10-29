@@ -144,7 +144,11 @@ export function buildChains(edges, nodes, acrossNames = false) {
   const nodeEdges = nodeEdgesOf(edges, nodes.length);
   const contA = new Array(edges.length).fill(null), contB = new Array(edges.length).fill(null);
   for (let n = 0; n < nodes.length; n++) {
-    const arms = nodeEdges[n].filter(e => e.a !== e.b && !e.way.roundabout).map(e => ({ e, atA: e.a === n, dir: outDir(e, n) }));
+    // CONNECTORS (export_osm.mjs, 2026-10-29) chain among themselves only: the
+    // network they join keeps the chains it had (lane fixes, TAPR, PARA)
+    const all = nodeEdges[n].filter(e => e.a !== e.b && !e.way.roundabout);
+    for (const kind of [false, true]) {
+    const arms = all.filter(e => !!e.way.connector === kind).map(e => ({ e, atA: e.a === n, dir: outDir(e, n) }));
     if (arms.length < 2) continue;
     const pairs = [];
     for (let i = 0; i < arms.length; i++) for (let j = i + 1; j < arms.length; j++) {
@@ -164,6 +168,7 @@ export function buildChains(edges, nodes, acrossNames = false) {
       used.add(p); used.add(q);
       (p.atA ? contA : contB)[p.e.id] = { e: q.e, atA: q.atA };
       (q.atA ? contA : contB)[q.e.id] = { e: p.e, atA: p.atA };
+    }
     }
   }
   const chainOf = new Int32Array(edges.length).fill(-1);
@@ -926,7 +931,7 @@ export function lineClean(ctx) {
       rFloor: e => Math.max(F.rMinFor(RANK[e.way.rank] + (e.way.link ? '_link' : '')), hwOf(e) + F.innerEdgeMinR),
       emax: e => emaxOf(e.way), hw: hwOf,
       eps: F.eps, chordCap: F.chordCap, collinearDeg: F.collinearDeg, innerMin: F.innerEdgeMinR,
-      through: mitredThrough(edges, nodes, e => profOf(e).width / 2),
+      through: mitredThrough(edges.filter(e => !e.way.connector), nodes, e => profOf(e).width / 2),   // connectors: see fillet.mjs
     });
     stats.fillet = out.stats;
     for (const r of out.review) review.push(r);

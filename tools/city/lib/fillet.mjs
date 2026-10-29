@@ -119,6 +119,12 @@ export function filletGraph(edges, nodes, opts) {
   const loneTurn = loneRule ? Math.max(colTurn, 8 * eps / chordCap) : colTurn;
   const arms = Array.from({ length: nodes.length }, () => []);
   for (const e of edges) if (e.a !== e.b) { arms[e.a].push(e); arms[e.b].push(e); }
+  // CONNECTORS (export_osm.mjs, the frontier's gap-closing ways, 2026-10-29)
+  // are a strand set of their own: the network they join keeps the strands it
+  // had (a road that ended there still ends there for the fillet), so closing
+  // a gap at I-77's end does not re-fit I-77 through uptown.
+  const isC = e => !!(e.way && e.way.connector);
+  const same = (n, e) => arms[n].filter(o => isC(o) === isC(e));
   const two = arms.map(l => l.length === 2 && l[0] !== l[1]);
   const other = (e, n) => e.a === n ? e.b : e.a;
   /// Two one-way arms that BOTH arrive at n or BOTH leave it (a carriageway and
@@ -131,7 +137,12 @@ export function filletGraph(edges, nodes, opts) {
   /// the edge a strand runs on into across node n from e, or null (n ends it)
   const passNext = (n, e) => {
     let o = null;
-    if (two[n]) o = arms[n][0] === e ? arms[n][1] : arms[n][0];
+    const sa = same(n, e);
+    if (sa.length !== arms[n].length) {
+      // a node where connectors meet the network: through its own kind only
+      if (sa.length === 2 && sa[0] !== sa[1]) o = sa[0] === e ? sa[1] : sa[0];
+      else if (!isC(e)) { const t = through.get(n); if (t && (t[0] === e || t[1] === e)) o = t[0] === e ? t[1] : t[0]; }
+    } else if (two[n]) o = arms[n][0] === e ? arms[n][1] : arms[n][0];
     else {
       const t = through.get(n);
       if (t && (t[0] === e || t[1] === e)) o = t[0] === e ? t[1] : t[0];
@@ -159,7 +170,7 @@ export function filletGraph(edges, nodes, opts) {
       const far = other(cur, at);
       const nx = passNext(far, cur);
       if (!nx || used[nx.id]) break;
-      if (!two[far]) junctions++;
+      if (same(far, cur).length !== 2) junctions++;
       cur = nx; at = far;
     }
     strands.push({ seq, closed: closed && seq.length > 1, junctions });

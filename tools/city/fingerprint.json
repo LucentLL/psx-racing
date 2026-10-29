@@ -2,27 +2,27 @@
   "schema": 1,
   "city": {
     "version": 2,
-    "graph_hash": "71f6a394",
-    "nodes": 20196,
-    "edges": 25044,
-    "points": 398280,
+    "graph_hash": "27029ec4",
+    "nodes": 20567,
+    "edges": 25560,
+    "points": 409421,
     "node_degrees": [
       0,
-      926,
-      10990,
-      6068,
-      2088,
-      118,
+      975,
+      11044,
+      6270,
+      2149,
+      123,
       6,
       0
     ],
-    "km": 3844,
-    "bridges": 791,
+    "km": 3946.2,
+    "bridges": 801,
     "tunnels": 8,
-    "links": 2200,
-    "oneway": 13295,
-    "roundabout_edges": 381,
-    "names": 2030,
+    "links": 2213,
+    "oneway": 13500,
+    "roundabout_edges": 388,
+    "names": 2127,
     "waters": 3121,
     "water_points": 56653,
     "water_bed_samples": 71221,
@@ -33,12 +33,12 @@
     "culvert_water_spans": 0,
     "deck_overrides": 0,
     "culvert_crossings": 312,
-    "crossings": 783,
-    "crossings_forced": 783,
-    "water_spans": 252,
+    "crossings": 786,
+    "crossings_forced": 786,
+    "water_spans": 258,
     "controls": {
-      "signal": 1668,
-      "stop": 140,
+      "signal": 1669,
+      "stop": 144,
       "give_way": 5
     },
     "routes": [
@@ -58,18 +58,18 @@
         "length_m": 7014.6
       }
     ],
-    "free_vertices": 353584,
+    "free_vertices": 363650,
     "kinks_per_km": {
-      "ge5": 2.327,
-      "ge10": 0.05,
-      "ge25": 0.022
+      "ge5": 2.45,
+      "ge10": 0.054,
+      "ge25": 0.026
     },
     "kinks": {
-      "ge5": 8928,
-      "ge10": 191,
-      "ge25": 86,
-      "max_deg": 173.1,
-      "folds_over_10cm": 443
+      "ge5": 9649,
+      "ge10": 211,
+      "ge25": 104,
+      "max_deg": 180,
+      "folds_over_10cm": 469
     }
   },
   "dem": {
@@ -101,8 +101,8 @@
   },
   "outputs": {
     "charlotte_city.bytes": {
-      "bytes": 8342447,
-      "sha256": "35573586cc909b2d10e19adbf34938de8d2a2b66c7a7421ae97499eaa8a733e7"
+      "bytes": 8478972,
+      "sha256": "72023e32e9722a4bf174832b8504f4e34b774e662ddd17bbb1d8510a0fc7d5fa"
     },
     "charlotte_dem.bytes": {
       "bytes": 3174661,

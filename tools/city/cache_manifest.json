@@ -128,6 +128,13 @@
       "timestamp_osm_base": "2026-09-28T20:18:06Z"
     },
     {
+      "file": "tools/city/cache/layers/connectors.json",
+      "kind": "overpass",
+      "bytes": 835708,
+      "sha256": "5016ca71bb7c47a5f418d4c087bc6caa6b4f9f97bd4c33f5d15297fc29f67a72",
+      "timestamp_osm_base": "2026-10-29T18:57:20Z"
+    },
+    {
       "file": "tools/city/deckpairs_overrides.json#pairs",
       "kind": "registry",
       "bytes": 2,
