@@ -230,7 +230,9 @@ namespace PSXRacing.City
             // not waited at the red for all of it)
             if (c.why != w.lastWhy) { w.lastWhy = c.why; w.whySince = Time.time; }
             float t = Time.time - Mathf.Max(w.slowSince, w.whySince);
-            bool inBox = L.turn;
+            // in a junction BOX: a turn across a node of three roads or more (not a
+            // carriageway split, not a bend) - a queue standing over a plain vertex is a queue
+            bool inBox = L.turn && IsBox(L.node);
             string sub;
             float need = 10f;
             switch (c.why)
