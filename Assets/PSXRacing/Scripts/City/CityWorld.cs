@@ -568,7 +568,7 @@ namespace PSXRacing.City
             // city-popin: the far buildings' share - small while a tile is
             // being built (smaller still when one next to a car is missing)
             if (Proxies != null)
-                using (ProxyStepMarker.Auto()) Proxies.Step(job != null ? (hurry ? 0.5 : 1.25) : 2.5);
+                using (ProxyStepMarker.Auto()) Proxies.Step(job != null ? (hurry ? 0.4 : 1.0) : 2.0);
 
             // THE TREES ON A FRAME OF THEIR OWN (WP-08; WP-09's third stage,
             // for the trees): a tile's build and its planting never share a

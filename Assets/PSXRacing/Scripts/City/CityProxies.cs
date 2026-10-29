@@ -47,7 +47,7 @@ namespace PSXRacing.City
         const float SwapEveryS = 1.0f;
         /// <summary>A rebuild uploads this many vertices a frame into the
         /// mesh not being drawn, then the two swap.</summary>
-        const int UploadVertsPerFrame = 24576;
+        const int UploadVertsPerFrame = 16384;
 
         CityMap map;
         CityMeshes.Trims trims;
