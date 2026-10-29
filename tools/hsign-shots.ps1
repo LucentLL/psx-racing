@@ -17,7 +17,7 @@
 # sandbox. Never Resources or Art wholesale (the GUID trap). Honours the shared
 # sandbox's AGENT_LOCK.txt. PNGs: <sandbox>\Screenshots\hsigns_<Tag>\.
 param([string]$Tag = "run", [switch]$Data, [switch]$Check, [switch]$NoSync, [string]$Hours = "noon",
-      [string]$Views = "hs_11b_drive,hs_11b_read,hs_11b_gore,hs_i277_4_drive,hs_i277_4_read,hs_i277_2b_drive,hs_i277_2b_read,hs_i85_36_drive,hs_i85_36_read,hs_i85_36_adv,hs_11b_close,hs_i277_4_close,hs_i277_2b_close,hs_i85_36_close,hs_i85_36_advclose,hs_11b_goresign,hs_i85_36_goresign,hs_11b_ramp,hs_i85_36_gore2,hs_i85_36_mile",
+      [string]$Views = "hs_11b_drive,hs_11b_read,hs_11b_gore,hs_i277_4_drive,hs_i277_4_read,hs_i277_2b_drive,hs_i277_2b_read,hs_i85_36_drive,hs_i85_36_read,hs_i85_36_adv,hs_11b_close,hs_i277_4_close,hs_i277_2b_close,hs_i85_36_close,hs_i85_36_advclose,hs_11b_goresign,hs_i85_36_goresign,hs_11b_ramp,hs_i85_36_gore2,hs_i85_36_mile,hs_11b_ramp2,hs_mile_ground,hs_mile_ground2",
       [string]$Owner = "city-highway-signs", [int]$MaxMinutes = 50, [switch]$NoWatch)
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXRec" }

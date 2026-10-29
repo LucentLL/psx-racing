@@ -1064,12 +1064,16 @@ namespace PSXRacing.EditorTools
                 if (imp == null) continue;
                 // 256 everywhere but the exemptions PSXTextureCaps names.
                 int wantMax = PSXTextureCaps.MaxFor(p);
-                bool wantMips = PSXTextureCaps.MipsFor(p);   // the facade atlas only (Uptown B1)
-                bool dirty = imp.filterMode != FilterMode.Point || imp.mipmapEnabled != wantMips ||
+                bool wantMips = PSXTextureCaps.MipsFor(p);   // the facade atlas (Uptown B1) and the guide signs' letters
+                var wantFilter = PSXTextureCaps.FilterFor(p); // point, but the guide signs' letters (trilinear)
+                bool smooth = wantFilter != FilterMode.Point;
+                bool dirty = imp.filterMode != wantFilter || imp.mipmapEnabled != wantMips ||
                              imp.textureCompression != TextureImporterCompression.Uncompressed ||
-                             (wantMax != 256 && imp.maxTextureSize != wantMax);
-                imp.filterMode = FilterMode.Point;
+                             (wantMax != 256 && imp.maxTextureSize != wantMax) ||
+                             (smooth && (imp.anisoLevel != 4 || Mathf.Abs(imp.mipMapBias + 0.4f) > 0.001f));
+                imp.filterMode = wantFilter;
                 imp.mipmapEnabled = wantMips;
+                if (smooth) { imp.anisoLevel = 4; imp.mipMapBias = -0.4f; }
                 imp.textureCompression = TextureImporterCompression.Uncompressed;
                 // 256 is the PS1's own texture-page ceiling, so this is both the
                 // authentic look and a 4x cut in download size for mobile.

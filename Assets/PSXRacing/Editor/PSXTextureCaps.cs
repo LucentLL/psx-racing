@@ -43,6 +43,14 @@ namespace PSXRacing.EditorTools
         /// few texels a floor; without mips a skyline at 600 m aliases them
         /// into curved moire bands. Written at their final size, so the 1024
         /// cap never resamples them.</summary>
+        /// <summary>The highway signs pass (2026-10-29): the guide signs'
+        /// letters are TRILINEAR (with a little anisotropy and a sharpening mip
+        /// bias). Point-sampled, a 16 in. legend read at 2-4x minification lost
+        /// whole strokes - EXIT 36's "6" read as an "S" from 55 m; everything
+        /// else keeps the PSX point filter.</summary>
+        public static UnityEngine.FilterMode FilterFor(string assetPath) =>
+            assetPath.EndsWith("/Art/City/Signs/CityGuide.png") ? UnityEngine.FilterMode.Trilinear : UnityEngine.FilterMode.Point;
+
         public static bool MipsFor(string assetPath) =>
             assetPath.Contains("/Art/City/Facade/city_facade_atlas") ||
             // the guide signs' letters: without mips a legend 200 m off sparkles

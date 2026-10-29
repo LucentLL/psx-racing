@@ -374,9 +374,10 @@ namespace PSXRacing.City
                         break;
                     case GuideKind.Advance:
                         // the mile sign: on two posts past the clear zone where the
-                        // ground is free (NCDOT's suburban habit); the half mile, and a
-                        // mile sign with no room beside the road: overhead
-                        for (int pass = site.miles > 0.75f ? 0 : 1; pass < 2 && !pu.placed; pass++)
+                        // ground is free (NCDOT's suburban habit); the half mile, a
+                        // mile sign with no room beside the road, and every sign for a
+                        // LEFT exit (a sign on the right for a left exit misleads): overhead
+                        for (int pass = site.miles > 0.75f && !ex.left ? 0 : 1; pass < 2 && !pu.placed; pass++)
                             foreach (float off in new[] { 0f, -30f, 30f, -60f, 60f })
                             {
                                 var se = map.edges[site.edge]; float ss = site.s;
