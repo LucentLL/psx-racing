@@ -179,7 +179,9 @@ namespace PSXRacing.EditorTools
         /// fall holes, invisible colliders; city_drive.txt) in the same editor,
         /// back in edit mode - the paint's after-shots and the data's gate in
         /// one Unity job.</summary>
-        internal static bool ThenDrive => System.Environment.GetEnvironmentVariable("PSX_CENSUS_THENDRIVE") == "1";
+        internal static bool ThenDrive => System.Environment.GetEnvironmentVariable("PSX_CENSUS_THENDRIVE") is string v && (v == "1" || v == "audit");
+        /// <summary>PSX_CENSUS_THENDRIVE=audit: the city audit (CityAudit.Run, city_audit.txt) instead.</summary>
+        static bool ThenAudit => System.Environment.GetEnvironmentVariable("PSX_CENSUS_THENDRIVE") == "audit";
         internal static void ChainDrive()
         {
             EditorApplication.playModeStateChanged += AfterExitDrive;
@@ -193,7 +195,7 @@ namespace PSXRacing.EditorTools
             EditorApplication.delayCall += () =>
             {
                 int code = 0;
-                try { CityAudit.RunDrive(); }
+                try { if (ThenAudit) CityAudit.Run(); else CityAudit.RunDrive(); }
                 catch (System.Exception ex) { Debug.LogException(ex); code = 1; }
                 EditorApplication.Exit(code);
             };
