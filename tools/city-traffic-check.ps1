@@ -14,13 +14,13 @@
 # Docs\shots\citytraffic\ (not committed when large).
 #
 # Exit code 0 = the report has no FAIL.
-param([switch]$NoWatch, [int]$MaxMinutes = 40, [switch]$CityPlay, [switch]$SkipTraffic)
+param([switch]$NoWatch, [int]$MaxMinutes = 40, [switch]$CityPlay, [switch]$SkipTraffic, [string]$Me = "city-traffic")
 $ErrorActionPreference = "Stop"
 $proj = if ($env:PSX_SANDBOX) { $env:PSX_SANDBOX } else { "C:\Users\mcgee\PSXBuild" }
 $src  = Split-Path -Parent $PSScriptRoot
 . "$PSScriptRoot\unity-wait.ps1"
 $lock = Join-Path $proj "AGENT_LOCK.txt"
-$me = "city-traffic"
+
 
 function Wait-Lock {
     while (Test-Path $lock) {

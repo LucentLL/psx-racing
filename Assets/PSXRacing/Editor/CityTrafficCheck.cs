@@ -197,6 +197,29 @@ namespace PSXRacing.EditorTools
             CityTraffic.ClockOverride = 17.25f;
             yield return HitTest(traffic, spot);
 
+            // ---- the turns that put a car into a barrier (node 1407 on
+            // 2026-10-26, and any this run), laid out lane by lane
+            stage = "turn probe";
+            var probes = new List<(int n, int a, int b)> { (1407, 1329, 809) };
+            foreach (var w in traffic.WreckLog)
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(w, @"at node (\d+) e(\d+)->e(\d+)");
+                if (m.Success && probes.Count < 5)
+                {
+                    var t = (int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value), int.Parse(m.Groups[3].Value));
+                    if (!probes.Contains(t)) probes.Add(t);
+                }
+            }
+            foreach (var (n, a, b) in probes)
+            {
+                if (n < 0 || n >= map.nodes.Length) continue;
+                var at = map.nodes[n];
+                mode.world.EnsureRing(new Vector3(at.x, 0f, at.y), 1);
+                yield return new WaitForFixedUpdate();
+                yield return new WaitForFixedUpdate();
+                CityTrafficCheck.Line("Turn probe: " + traffic.DescribeTurn(n, a, b).TrimEnd());
+            }
+
             // ---- totals
             var st = traffic.Stats;
             CityTrafficCheck.Line("Totals:");
@@ -229,6 +252,10 @@ namespace PSXRacing.EditorTools
             foreach (var mb in player.GetComponents<MonoBehaviour>())
                 if (mb is PlayerCarInput || mb is StuckRecovery) mb.enabled = !on;
             player.enabled = !on;
+            // with no graphics device the reflection probes log a failed
+            // RenderTexture every frame (gigabytes of log): off
+            if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null)
+                foreach (var r in Object.FindObjectsByType<CarReflections>(FindObjectsInactive.Include)) r.enabled = false;
             if (on)
             {
                 ghostCols.Clear();
