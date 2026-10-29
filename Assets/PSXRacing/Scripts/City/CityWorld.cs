@@ -283,6 +283,27 @@ namespace PSXRacing.City
             return false;
         }
 
+        /// <summary>The share of a frame the open job may take while a car is
+        /// within <see cref="CriticalM"/> of its tile (city-build-hitches).</summary>
+        public static float CriticalSliceBudgetMs = 20f;
+        const float CriticalM = 48f;
+
+        /// <summary>Is a car (the player, or one the world keeps a ring under)
+        /// within <see cref="CriticalM"/> of the open job's tile?</summary>
+        bool JobTileCritical()
+        {
+            if (job == null) return false;
+            float x0 = job.tx * CityMeshes.TileSize, z0 = job.tz * CityMeshes.TileSize;
+            bool Near(Vector3 p)
+            {
+                float nx = Mathf.Clamp(p.x, x0, x0 + CityMeshes.TileSize) - p.x, nz = Mathf.Clamp(p.z, z0, z0 + CityMeshes.TileSize) - p.z;
+                return nx * nx + nz * nz < CriticalM * CriticalM;
+            }
+            if (player != null && Near(player.position)) return true;
+            foreach (var a in anchors) if (a != null && a.gameObject.activeInHierarchy && Near(a.position)) return true;
+            return false;
+        }
+
         /// <summary>Give the open job up: its meshes so far destroyed, the
         /// builder's scratch left for the next job's start to clear.</summary>
         void AbandonJob()
@@ -583,7 +604,18 @@ namespace PSXRacing.City
                         float cx = (tx + 0.5f) * CityMeshes.TileSize - a.position.x;
                         float cz = (tz + 0.5f) * CityMeshes.TileSize - a.position.z;
                         // (ahead: as urgent as the player's tiles in view - a car is on it)
-                        wanted.Add((tx, tz, BuildAhead ? Mathf.Sqrt(cx * cx + cz * cz) / 50f : cx * cx + cz * cz));
+                        // city-build-hitches: by when THIS car is in it (its nearest edge at
+                        // the car's own speed), on the player's clock of seconds: a rival
+                        // reaching a tile still building forced the job's finish (780 ms)
+                        if (NoForcedFinish && BuildAhead)
+                        {
+                            float x0 = tx * CityMeshes.TileSize, z0 = tz * CityMeshes.TileSize;
+                            float nx = Mathf.Clamp(a.position.x, x0, x0 + CityMeshes.TileSize) - a.position.x, nz = Mathf.Clamp(a.position.z, z0, z0 + CityMeshes.TileSize) - a.position.z;
+                            var arb = a.GetComponent<Rigidbody>();
+                            float sa = arb != null ? new Vector2(arb.linearVelocity.x, arb.linearVelocity.z).magnitude : 0f;
+                            wanted.Add((tx, tz, Mathf.Sqrt(nx * nx + nz * nz) / Mathf.Max(6f, sa)));
+                        }
+                        else wanted.Add((tx, tz, BuildAhead ? Mathf.Sqrt(cx * cx + cz * cz) / 50f : cx * cx + cz * cz));
                     }
             }
             // city-build-hitches: a tile next to a car whose trees still wait
@@ -606,9 +638,12 @@ namespace PSXRacing.City
                 {
                     // at speed, while the frame rate holds, a bigger share
                     bool fast = BuildAhead && speed > FastSpeed && frameMsAvg < FastFrameMs;
+                    float budget = hurry ? (fast ? FastUrgentSliceBudgetMs : UrgentSliceBudgetMs) : (fast ? FastSliceBudgetMs : SliceBudgetMs);
+                    // city-build-hitches: a car about to drive onto the tile still building
+                    // spends a bigger share, so it is done over frames, not finished in one
+                    if (NoForcedFinish && JobTileCritical()) budget = Mathf.Max(budget, CriticalSliceBudgetMs);
                     if (job.Done) CompleteJob();
-                    else using (JobStepMarker.Auto()) job.Step(hurry ? (fast ? FastUrgentSliceBudgetMs : UrgentSliceBudgetMs)
-                                                                     : (fast ? FastSliceBudgetMs : SliceBudgetMs));
+                    else using (JobStepMarker.Auto()) job.Step(budget);
                     built = true;
                 }
             }
