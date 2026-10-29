@@ -13,6 +13,7 @@ ap.add_argument('--before', required=True)
 ap.add_argument('--after', required=True)
 ap.add_argument('--shots', required=True)
 ap.add_argument('--out', required=True)
+ap.add_argument('--before-override', default='', help='kind=count,... (a before count re-classified under the after run definition)')
 a = ap.parse_args()
 
 def summary(d):
@@ -22,6 +23,9 @@ def summary(d):
     return json.load(open(p, encoding='utf-8'))
 
 B, A = summary(a.before), summary(a.after)
+for kv in filter(None, a.before_override.split(',')):
+    k, v = kv.split('=')
+    B.setdefault('counts', {})[k] = int(v)
 KINDS = [
     ('control/no-control-major-crossing', 'major roads crossing, no control (static, city-wide)'),
     ('signal/conflicting-green', 'crossing approaches green together (static, city-wide)'),
@@ -29,13 +33,16 @@ KINDS = [
     ('conflict/stop-crossing-flows', 'crossing flows in one box: STOP'),
     ('conflict/yield-crossing-flows', 'crossing flows in one box: yield'),
     ('conflict/uncontrolled-crossing', 'crossing flows in one box: no control'),
-    ('stuck/gridlock-box', 'queue standing in the box 15 s+'),
+    ('stuck/gridlock-box', 'queue standing in a junction box 15 s+ (real boxes, both runs)'),
+    ('stuck/box-blocked-on-green', 'green held 25 s+ by a car in the box'),
+    ('stuck/red-never-ends', 'red held past its plan (+15 s)'),
     ('stuck/crossing-blocked', 'held by a crossing car 15 s+'),
     ('stuck/stop-deadlock', 'waiting 30 s+ at a STOP'),
     ('stuck/yield-starved', 'waiting 40 s+ to yield'),
     ('stuck/left-turn-starved', 'left turn waiting 45 s+'),
     ('stuck/keep-clear-wait', 'held 40 s+ short of a full box (new rule)'),
-    ('wreck/car-in-junction', 'car-on-car wreck in a junction'),
+    ('wreck/car', 'car-on-car wrecks (all)'),
+    ('traffic/overlap', 'traffic cars overlapping (a code fault)'),
     ('contact/car-bump', 'car-on-car bump'),
 ]
 def cnt(s, k): return s.get('counts', {}).get(k, 0)

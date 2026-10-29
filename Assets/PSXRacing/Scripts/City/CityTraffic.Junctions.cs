@@ -173,7 +173,14 @@ namespace PSXRacing.City
             for (int i = 0; i < live.Count; i++)
             {
                 var o = live[i];
-                if (o == c || o.wrecked || o.boxJ != jk || o.inKey == key || o.speed < 0.5f) continue;
+                if (o == c || o.wrecked || o.inKey == key || o.speed < 0.5f || o.rtorKey == o.inKey) continue;
+                // committed to the last phase's yellow and still coming
+                if (o.boxJ != jk)
+                {
+                    if (o.appJ == jk && o.appKey != key && o.committed == o.appKey && o.appDist < 40f && o.appDist > -2f &&
+                        Mathf.Abs(Vector2.Dot(o.appU, u)) < 0.6f) return true;
+                    continue;
+                }
                 if (Mathf.Abs(Vector2.Dot(o.boxU, u)) >= 0.6f) continue;
                 // came in on a signal approach whose phase is over (a car from an
                 // arm with no head, or one standing in the box, is the physics' to avoid)

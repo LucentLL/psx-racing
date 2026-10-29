@@ -609,7 +609,9 @@ namespace PSXRacing.City
                     for (int s = r + 1; s < refs.Count; s++) box = Mathf.Max(box, Vector2.Distance(a.at, refs[s].j.approaches[refs[s].i].at));
                 }
                 float yellow = Mathf.Clamp(Mathf.Ceil((1f + vMax / (2f * 3.05f)) * 2f) / 2f, 3f, 5.5f);
-                float allRed = Mathf.Clamp(Mathf.Ceil((box + 6f) / Mathf.Max(8f, vMax) * 2f) / 2f, 1f, 3f);
+                // the all-red: the box at the speed a car crosses it (about 0.6 of
+                // the limit - the city traffic slows for the turn and the box)
+                float allRed = Mathf.Clamp(Mathf.Ceil((box + 6f) / Mathf.Max(6f, 0.6f * vMax) * 2f) / 2f, 1f, 3f);
                 var green = new float[phases];
                 for (int k = 0; k < phases; k++)
                 {

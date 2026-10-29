@@ -1630,7 +1630,16 @@ namespace PSXRacing.City
             for (int i = 0; i < live.Count; i++)
             {
                 var o = live[i];
-                if (o == c || o.wrecked || o.boxJ != jk || o.inKey == key) continue;
+                if (o == c || o.wrecked || o.inKey == key) continue;
+                // committed to the last phase's yellow and still coming into it
+                if (o.boxJ != jk)
+                {
+                    if (o.appJ == jk && o.appKey != key && o.committed == o.appKey && o.appDist < 30f && o.appDist > -2f &&
+                        Mathf.Abs(Vector2.Dot(o.appU, u)) < 0.6f) return true;
+                    continue;
+                }
+                // a right on red keeps to the near lanes of the street it joins
+                if (o.rtorKey == o.inKey) continue;
                 if (Mathf.Abs(Vector2.Dot(o.boxU, u)) < 0.6f) return true;
             }
             return false;
