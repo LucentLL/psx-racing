@@ -552,6 +552,7 @@ namespace PSXRacing.City
         /// </summary>
         static UnionRun UnionSideHere(CityMap map, Trims trims, CityMap.Edge e, int side, in Section A, in Section B, Vector3 origin)
         {
+            using var _hz = new HitchZone(HitchClock.Unions);   // city-build-hitches: the zone clock
             var run = UnionOn(trims, e.index, side, A.s, B.s);
             if (run == null) return null;
             float sm = 0.5f * (A.s + B.s);
@@ -1871,6 +1872,7 @@ namespace PSXRacing.City
         /// </summary>
         static UnionRun HostUnionHere(CityMap map, Trims trims, CityMap.Edge e, int side, in Section A, in Section B, Vector3 origin, out UnionRun mapped)
         {
+            using var _hz = new HitchZone(HitchClock.Unions);   // city-build-hitches: the zone clock
             mapped = null;
             if (!CollapseHostOn || trims.unions == null) return null;
             var mine = 0.5f * (A.Edge(side) + B.Edge(side)) + origin;

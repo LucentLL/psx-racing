@@ -337,6 +337,9 @@ namespace PSXRacing.City
             int budget = Application.isPlaying ? 1 : 3;
             if (landOk && (at != landAt || landRadius != RadiusM) && budget-- > 0) using (LandMarker.Auto()) RebuildLand(eye, at);
             if (treesOk && at != treeAt && budget-- > 0) using (TreesMarker.Auto()) RebuildTrees(eye, at);
+            // city-build-hitches: a frame with no rebuild works out one chunk's
+            // trees ahead (what the next chunk step will read)
+            else if (treesOk && SliceRebuild && Application.isPlaying && budget > 0 && PrefetchTrees(eye)) budget--;
             ShowLand(landOk && landMesh.vertexCount > 0);
             if (landR != null) foreach (var r in landR) r.bounds = b;
             ShowTrees(treesOk && treesShown > 0);
@@ -843,6 +846,35 @@ namespace PSXRacing.City
         readonly List<Vector3> tv = new List<Vector3>(98304), tn = new List<Vector3>(98304);
         readonly List<Vector2> tuv = new List<Vector2>(98304);
         readonly List<int> tt = new List<int>(147456);
+
+        // ---- city-build-hitches (2026-10-29): the far trees' chunks ahead ----
+        /// <summary>A far-tree rebuild (the eye into a new chunk) worked out
+        /// every chunk in its ring the cache did not hold yet, then laid the
+        /// cards: 21-38 ms frames in the editor. A frame that rebuilds nothing
+        /// now works out one chunk within the ring's reach of the eye's
+        /// neighbouring chunks (a chunk's trees are the map's alone, the same
+        /// whenever they are worked out), so a rebuild only lays cards.
+        /// PSX_CITY_FARPREFETCH=0: as before.</summary>
+        public static bool SliceRebuild = System.Environment.GetEnvironmentVariable("PSX_CITY_FARPREFETCH") != "0";
+
+        bool PrefetchTrees(Vector3 eye)
+        {
+            float R = TreeRadiusM + ChunkM;
+            int ecx = ChunkOf(eye.x), ecz = ChunkOf(eye.z);
+            int r = Mathf.CeilToInt(R / ChunkM) + 1;
+            for (int dz = -r; dz <= r; dz++)
+            for (int dx = -r; dx <= r; dx++)
+            {
+                int cx = ecx + dx, cz = ecz + dz;
+                long k = Key(cx, cz);
+                if (trees.ContainsKey(k)) continue;
+                float nx = Mathf.Clamp(eye.x, cx * ChunkM, (cx + 1) * ChunkM), nz = Mathf.Clamp(eye.z, cz * ChunkM, (cz + 1) * ChunkM);
+                if ((nx - eye.x) * (nx - eye.x) + (nz - eye.z) * (nz - eye.z) > R * R) continue;
+                trees[k] = BuildTreeChunk(cx, cz);
+                return true;
+            }
+            return false;
+        }
 
         void RebuildTrees(Vector3 eye, long at)
         {

@@ -84,6 +84,30 @@ namespace PSXRacing
         public static int FieldMercuryLamps { get; private set; }
 
         static int fieldVersion;
+
+        // ---- city-build-hitches (2026-10-29): the field rebuilt only when it changes ----
+        /// <summary>Every tile stood up or dropped, every tree frame's lamps,
+        /// bumped the field's version and rebuilt it (5-11 ms in the editor,
+        /// two or three times a second at speed at night), though a tile's
+        /// lamps come and go at the ring's edge, half a kilometre out, past
+        /// the window's 256 m and the glow's 40 m. A lamp change now counts
+        /// only where that lamp's splat meets the window last built (the very
+        /// test BuildField skips a lamp by), so the window holds what a rebuild
+        /// would have drawn. (Not bit for bit: a rebuild also re-based the
+        /// head heights on the eye's height then; the 32 m steps still do.)
+        /// PSX_LAMPFIELD_CULL=0: every change rebuilds, as before.</summary>
+        public static bool FieldCull = System.Environment.GetEnvironmentVariable("PSX_LAMPFIELD_CULL") != "0";
+
+        /// <summary>Does a lamp at <paramref name="pos"/> splat into the window
+        /// last built (BuildField's own reach test)? True before any build.</summary>
+        static bool OnFieldWindow(Vector3 pos)
+        {
+            if (float.IsNaN(builtOrigin.x)) return true;
+            float inv = 1f / FieldTexelM;
+            int reach = Mathf.CeilToInt(Mathf.Max(FieldPoolM, FieldGlowM) * inv);
+            float cx = (pos.x - builtOrigin.x) * inv - 0.5f, cz = (pos.z - builtOrigin.y) * inv - 0.5f;
+            return !(cx < -reach || cz < -reach || cx > FieldRes + reach || cz > FieldRes + reach);
+        }
         static int builtVersion = -1;
         static Vector2 builtOrigin = new Vector2(float.NaN, float.NaN);
         static float builtBaseY;
@@ -185,7 +209,18 @@ namespace PSXRacing
                 {
                     float dz = (z - cz) * FieldTexelM;
                     int row = z * FieldRes;
-                    for (int x = x0; x <= x1; x++)
+                    // city-build-hitches: only the texels of the row the glow's
+                    // disc can reach (one texel of margin; the test below still
+                    // decides every one of them, so the field is the same)
+                    int xa = x0, xb = x1;
+                    if (FieldCull)
+                    {
+                        float rm = Mathf.Max(rp, rg) + FieldTexelM, dd = rm * rm - dz * dz;
+                        if (dd < 0f) continue;
+                        float hx = Mathf.Sqrt(dd) * inv + 1f;
+                        xa = Mathf.Max(x0, Mathf.FloorToInt(cx - hx)); xb = Mathf.Min(x1, Mathf.CeilToInt(cx + hx));
+                    }
+                    for (int x = xa; x <= xb; x++)
                     {
                         float dx = (x - cx) * FieldTexelM;
                         float d2 = dx * dx + dz * dz;
@@ -204,7 +239,9 @@ namespace PSXRacing
                     }
                 }
             }
-            for (int i = 0; i < n4; i++) halfs[i] = Mathf.FloatToHalf(acc[i]);
+            // (an untouched texel is +0, whose half is 0: no call for it)
+            if (FieldCull) for (int i = 0; i < n4; i++) halfs[i] = acc[i] == 0f ? (ushort)0 : Mathf.FloatToHalf(acc[i]);
+            else for (int i = 0; i < n4; i++) halfs[i] = Mathf.FloatToHalf(acc[i]);
             fieldTex.SetPixelData(halfs, 0);
             fieldTex.Apply(false, false);
             FieldMercuryLamps = mercs;

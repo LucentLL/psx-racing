@@ -960,8 +960,19 @@ namespace PSXRacing.City
         /// </summary>
         static void PrepareFanFloor(CityMap map, Trims trims, Vector2 min, Vector2 max)
         {
+            foreach (var _ in PrepareFanFloorSteps(map, trims, min, max)) { }
+        }
+
+        /// <summary><see cref="PrepareFanFloor"/> a fan a step (city-build-hitches,
+        /// 2026-10-29: the job's first step triangulated every fan within 50 m
+        /// of the tile the cache did not hold, up to 62 ms in the editor). The
+        /// fans are worked out where the clip table is empty, each the same
+        /// whenever it is (the cache's own reason), so a step between two
+        /// changes nothing. With <see cref="FineSteps"/> off, one step.</summary>
+        static IEnumerable<int> PrepareFanFloorSteps(CityMap map, Trims trims, Vector2 min, Vector2 max)
+        {
             fanFloors.Clear();
-            if (trims == null) return;
+            if (trims == null) yield break;
             if (fanFloorTrims != trims) { fanFloorCache.Clear(); fanFloorTrims = trims; }
             var segs = new HashSet<int>();
             map.EdgeSegsInRect(min - Vector2.one * 50f, max + Vector2.one * 50f, segs);
@@ -1012,6 +1023,7 @@ namespace PSXRacing.City
                             }
                         }
                         fanFloorCache[fk] = rec;
+                        if (FineSteps) { yield return 0; stepPhase = 0; stepItem = fk; stepPart = 30; }   // city-build-hitches: a fan a step
                     }
                     if (rec == null) continue;
                     if (rec.x1 < min.x - 8f || rec.x0 > max.x + 8f || rec.z1 < min.y - 8f || rec.z0 > max.y + 8f) continue;
