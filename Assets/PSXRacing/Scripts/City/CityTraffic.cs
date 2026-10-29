@@ -634,7 +634,8 @@ namespace PSXRacing.City
         }
 
         /// <summary>The major road through an unsigned junction: the two arms
-        /// that carry on from each other (within 40 deg) with the highest rank
+        /// that carry on from each other (within 40 deg, or within 80 under
+        /// one name - a through road that bends at a T) with the highest rank
         /// between them, one of them of the node's top rank; else the single
         /// arm of the top rank. None (-1) where that is ambiguous: two through
         /// pairs of one rank (equal roads crossing), or several top-rank arms
@@ -653,8 +654,9 @@ namespace PSXRacing.City
                 else if (r == top) topN++;
             }
             if (top < 0) return;
-            int bestSum = -1, pairs = 0;
+            int bestSum = -1, pairs = 0, namedPairs = 0;
             float bestAng = 999f;
+            bool bestNamed = false;
             for (int i = 0; i < arms.Count; i++)
             {
                 var a = map.edges[arms[i]];
@@ -664,14 +666,21 @@ namespace PSXRacing.City
                     var b = map.edges[arms[j]];
                     if (arms[j] == arms[i] || b.a == b.b || !routable[arms[j]]) continue;
                     if (Rank(a) != top && Rank(b) != top) continue;
+                    // a road carries on straight (40 deg) - or, by its name, through a bend (80)
+                    bool named = !string.IsNullOrEmpty(a.name) && a.name == b.name;
                     float ang = Vector2.Angle(-ArmOut(a, n), ArmOut(b, n));
-                    if (ang > 40f) continue;
+                    if (ang > (named ? 80f : 40f)) continue;
                     int sum = Rank(a) + Rank(b);
-                    if (sum > bestSum) { bestSum = sum; pairs = 1; bestAng = ang; m1 = arms[i]; m2 = arms[j]; }
-                    else if (sum == bestSum) { pairs++; if (ang < bestAng) { bestAng = ang; m1 = arms[i]; m2 = arms[j]; } }
+                    if (sum > bestSum) { bestSum = sum; pairs = 1; namedPairs = named ? 1 : 0; bestAng = ang; bestNamed = named; m1 = arms[i]; m2 = arms[j]; }
+                    else if (sum == bestSum)
+                    {
+                        pairs++;
+                        if (named) namedPairs++;
+                        if ((named && !bestNamed) || (named == bestNamed && ang < bestAng)) { bestAng = ang; bestNamed = named; m1 = arms[i]; m2 = arms[j]; }
+                    }
                 }
             }
-            if (pairs == 1) return;
+            if (pairs == 1 || (bestNamed && namedPairs == 1)) return;
             m1 = m2 = -1;
             if (pairs == 0 && topN == 1) m1 = topArm;
         }
@@ -769,11 +778,15 @@ namespace PSXRacing.City
                 // turn left, the lane that runs on going straight (one that
                 // ends merges)
                 int nIn = Lanes(e.index, dir), nOut = Lanes(e2i, dir2);
-                bool rampRight = angle <= 0f;
+                bool rampRight = exit ? RampOnRight(e2, dir2, n, TravelTan(e, dir, dir > 0 ? e.length : 0f), angle <= 0f) : angle <= 0f;
                 if (kind == 1) { req = 0; outLane = 0; }
                 else if (kind == -1 || kind == 2) { req = nIn - 1; outLane = nOut - 1; }
                 else if (exit) { req = rampRight ? 0 : nIn - 1; outLane = rampRight ? 0 : nOut - 1; }
-                else if (merge) { bool fromRight = angle >= 0f; req = fromRight ? 0 : nIn - 1; outLane = fromRight ? 0 : nOut - 1; }
+                else if (merge)
+                {
+                    bool fromRight = RampOnRight(e, dir, n, TravelTan(e2, dir2, dir2 > 0 ? 0f : e2.length), angle >= 0f);
+                    req = fromRight ? 0 : nIn - 1; outLane = fromRight ? 0 : nOut - 1;
+                }
                 else MapStraight(e, dir, sA, e2, dir2, sB, refLane, out req, out outLane);
                 // A REPLAN (the lane change its turn needed never found a gap):
                 // only a way on from the lane it is in
@@ -809,6 +822,24 @@ namespace PSXRacing.City
             c.legs[c.legCount++] = T;
             c.legs[c.legCount++] = MakeRun(e2i, dir2, sB, outLane);
             return true;
+        }
+
+        /// <summary>Which side of the freeway a ramp lies on: the ramp's own
+        /// point 40 m from the node (or half its length) against the freeway's
+        /// line through the node. 2026-10-29: the old test, the sign of the
+        /// angle between the end tangents, is a coin toss on a near-parallel
+        /// merge or diverge - the census saw ramps sent to the FAR lane, across
+        /// the freeway, and the mainline hit (node 690). The angle decides
+        /// only when the ramp lies on the line (under half a metre off).</summary>
+        bool RampOnRight(CityMap.Edge ramp, int rampDir, int n, Vector2 fwyTan, bool fallback)
+        {
+            float z = Mathf.Min(40f, ramp.length * 0.5f);
+            bool arrives = (rampDir > 0 ? ramp.b : ramp.a) == n;
+            float s = arrives ? (rampDir > 0 ? ramp.length - z : z) : (rampDir > 0 ? z : ramp.length - z);
+            Vector2 d = ramp.PointAt(s) - map.nodes[n];
+            float cross = fwyTan.x * d.y - fwyTan.y * d.x;
+            if (Mathf.Abs(cross) < 0.5f) return fallback;
+            return cross < 0f;
         }
 
         /// <summary>How far back from its end (dir: the way it is driven) a
