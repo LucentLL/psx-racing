@@ -68,6 +68,10 @@ const LAYERS = {
     'fences, walls, guard rails, gates (WP-24)', 4],
   culverts: [`way["tunnel"="culvert"]({B});out geom;`,
     'culverts (WP-25)', 1],
+  // the highway signs pass (2026-10-29): exit numbers (ref), exit_to and
+  // names at every motorway diverge, for the guide signs' legends
+  junctions: [`node["highway"="motorway_junction"]({B});out;`,
+    'motorway junctions: exit numbers for the guide signs (highway signs pass)', 1],
   // WP-23: where billboards may stand (NC 19A NCAC 02E .0203: commercial or
   // industrial land within 660 ft of the right of way) and where the business
   // pole signs are (a business on the frontage)

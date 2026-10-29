@@ -47,6 +47,8 @@ namespace PSXRacing.City
         public Material paint;
         [Tooltip("WP-23 sign faces.")]
         public Material signs;
+        [Tooltip("The highway signs pass (2026-10-29): the freeway guide signs' atlas - Overpass letters, arrows, borders, the pack's galvanised steel (CitySigns.Guide).")]
+        public Material guide;
         [Tooltip("WP-26..28 junction furniture atlas: STOP signs, signal poles, mast arms, heads, stop bars (CitySignals). The lenses' shared material is made from it at runtime.")]
         public Material signals;
 
@@ -97,6 +99,7 @@ namespace PSXRacing.City
             PSXTexDecode.Stamp(kit.furniture);
             PSXTexDecode.Stamp(kit.paint);
             PSXTexDecode.Stamp(kit.signs);
+            PSXTexDecode.Stamp(kit.guide);
             PSXTexDecode.Stamp(kit.signals);
         }
 

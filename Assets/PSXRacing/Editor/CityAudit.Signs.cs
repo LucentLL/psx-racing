@@ -128,6 +128,15 @@ namespace PSXRacing.EditorTools
                             if (to.magnitude > 0.2f) into.Add(BoxOn(post + to * 0.5f, to, to.magnitude * 0.5f, 0.25f, 0.2f, "a billboard's beam"));
                         }
                         break;
+                    case CitySigns.Kind.Guide:
+                        // a gore sign or an exit-speed advisory: its plate and its breakaway posts
+                        into.Add(BoxOn(f0.centre - n0 * 0.025f, across, f0.w * 0.5f, f0.h * 0.5f, 0.05f, "a guide sign's plate"));
+                        foreach (var pp in new[] { sg.legA, sg.legB })
+                        {
+                            float gy0 = sg.ground - 0.4f;
+                            into.Add(BoxOn(new Vector3(pp.x, (gy0 + sg.bottom) * 0.5f, pp.y), across, 0.05f, (sg.bottom - gy0) * 0.5f, 0.05f, "a guide sign's post"));
+                        }
+                        break;
                     case CitySigns.Kind.Gantry:
                         for (int i = sg.firstFace; i < sg.firstFace + sg.faces; i++)
                         {
@@ -222,7 +231,7 @@ namespace PSXRacing.EditorTools
                 if (n == 0) badWhere[what] = $"({at.x:0.0},{at.y:0.0}) {LatLon(at.x, at.y)} {detail}";
             }
             var perRoute = new int[CitySignData.Routes.Length];
-            int bulletins = 0, posters = 0, poles = 0, polePoi = 0, gantries = 0, osm = 0, posts = 0, lamps = 0, faces = 0, cantilevers = 0;
+            int bulletins = 0, posters = 0, poles = 0, polePoi = 0, gantries = 0, osm = 0, posts = 0, lamps = 0, faces = 0, cantilevers = 0, guideSmall = 0;
             int refusedB = 0, refusedP = 0, refusedG = 0, multiSub = 0, outside = 0, runOff = 0, vetoed = 0, foreign = 0;
             int tilesWith = 0, faceBad = 0, lampBad = 0;
             float worstDot = 1f, worstClear = float.MaxValue, msSum = 0f, msMax = 0f;
@@ -351,16 +360,30 @@ namespace PSXRacing.EditorTools
 
                     // posts and legs, against the geometry and the mask before the signs
                     var feet = new List<Vector2>();
+                    bool breakaway = sg.kind == CitySigns.Kind.Guide;
                     if (sg.kind == CitySigns.Kind.Gantry) { feet.Add(sg.legB); if ((sg.legA - sg.legB).sqrMagnitude > 0.01f) feet.Add(sg.legA); else cantilevers++; }
+                    else if (breakaway) { feet.Add(sg.legA); if ((sg.legA - sg.legB).sqrMagnitude > 0.01f) feet.Add(sg.legB); }
                     else feet.Add(sg.pos);
+                    if (breakaway) guideSmall++;
                     foreach (var f in feet)
                     {
-                        float w = CitySigns.WorstRoad(map, trims, f, out int we, out string what);
-                        if (w < -0.05f) Bad("a post " + what, f, $"{sg.kind} e{we} '{(we >= 0 ? map.edges[we].name : "")}' {w:0.00} m inside");
+                        if (breakaway)
+                        {
+                            // a breakaway post (MUTCD's crashworthy support) may stand in a
+                            // clear zone, as a real gore sign does: never on pavement or under a deck
+                            float pm = CitySigns.PavementMargin(map, trims, f);
+                            if (pm < 0.3f) Bad("a breakaway sign post on pavement or under a deck", f, $"{pm:0.00} m");
+                        }
+                        else
+                        {
+                            float w = CitySigns.WorstRoad(map, trims, f, out int we, out string what);
+                            if (w < -0.05f) Bad("a post " + what, f, $"{sg.kind} e{we} '{(we >= 0 ? map.edges[we].name : "")}' {w:0.00} m inside");
+                        }
                         bool inTile = f.x >= min.x && f.y >= min.y && f.x < min.x + ts && f.y < min.y + ts;
                         if (inTile)
                         {
                             byte b = fresh.At(f);
+                            if (breakaway) b = (byte)(b & ~(RoadsideOccupancy.Clear | RoadsideOccupancy.Sight | RoadsideOccupancy.Pavement));
                             if (b != 0) Bad("a post on a reserved cell of the mask", f, $"{sg.kind} bits {b} ({string.Join(", ", BitList(b))})");
                         }
                         else
@@ -502,6 +525,7 @@ namespace PSXRacing.EditorTools
                     }
                 }
                 if (st.mesh != null) Object.DestroyImmediate(st.mesh);
+                if (st.guideMesh != null) Object.DestroyImmediate(st.guideMesh);
                 if (tt.mesh != null) Object.DestroyImmediate(tt.mesh);
                 DiscardMeshes(tm);
             }
@@ -525,11 +549,14 @@ namespace PSXRacing.EditorTools
                     foreach (var (f, kind) in feet)
                     {
                         byte b = fresh.At(f);
+                        // a breakaway guide-sign post (a gore sign, an advisory) may stand in a clear zone
+                        if (kind == CitySigns.Kind.Guide) b = (byte)(b & ~(RoadsideOccupancy.Clear | RoadsideOccupancy.Sight | RoadsideOccupancy.Pavement));
                         if (b != 0) Bad("a post on a reserved cell of the next tile's mask", f, $"{kind} bits {b} ({string.Join(", ", BitList(b))})");
                         if (tt.occ == null || tt.occ.At(f) == 0) { awayUnmarked++; Bad("a post in the next tile that tile did not mark", f, kind.ToString()); }
                     }
                 if (awayMarks.TryGetValue(k, out var marks)) TreesOnMarks(marks, tt);
                 if (tt.signs != null && tt.signs.mesh != null) Object.DestroyImmediate(tt.signs.mesh);
+                if (tt.signs != null && tt.signs.guideMesh != null) Object.DestroyImmediate(tt.signs.guideMesh);
                 if (tt.mesh != null) Object.DestroyImmediate(tt.mesh);
                 DiscardMeshes(tm);
             }
@@ -623,6 +650,7 @@ namespace PSXRacing.EditorTools
                       $"{clsGot[c]:0} placed for {clsWant[c]:0} ({clsGot[c] / clsKm[c]:0.00} per km against {clsWant[c] / clsKm[c]:0.00}; {clsKm[c]:0} km)");
             }
             double mwKm = 0; foreach (var e in map.edges) if (!e.link && e.cls >= 5 && !e.tunnel) mwKm += e.length / 1000.0 * (e.oneway ? 0.5 : 1.0);
+            Line($"    freeway guide signs on breakaway posts (gore signs, exit-speed advisories): {guideSmall}");
             Line($"    exit gantries {gantries} over {mwKm:0} km of motorway in the audited tiles' reach (NCDOT counts 1.01 per km; one per exit here; {refusedG} exits found no legs)");
         }
 
