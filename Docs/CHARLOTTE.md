@@ -8042,3 +8042,80 @@ differ by ~0.5 m (the deck's facing edge vs the ground's), so the ground Jersey 
 the 18 breaks / 15 boxes above (e15241's foot/pairing at n695/n2940; the 1'47" wide median past the e2437/e2438 deck V:
 each carriageway's own approach rail ends sloped ('R<' at e4593 s 0-5) in a 14 m grass median - decide one median or
 none there); the e1880 s 45 gap if RECIP/SEAM go on; the twin hold stays OFF (diag above).
+
+### REAL HEIGHTS - round 8 (2026-10-29; the owner's three median spots: 0'54" notch, 1'47" box, 4'06" holes)
+
+The owner on the live round 6/7: "rectangle cutouts with holes, spots that go down then back up, and empty box
+areas". His rule: fix the spot he shows. Every one of his three spots was two medians that did not MEET; the code is
+`CityMeshes.Medians8.cs` (new partial) plus hooks in `CityMeshes.Unions.cs` and one line in `RailContinuesPast`.
+
+**0'54" I-277 e2311 s ~1 (uptown 617 m): the notch (CHAIN).** A deck run (owner e2306) hands over to a ground run
+(owner e2317) at node n3523, which stands 1.1 m into the partner's deck e2311 (n3531 is the partner's node). The ground
+run's road across was only the twin pieces its walk met (e9877, e2322), so at n3523 its foot clamped to e9877's END,
+1.1 m back, while the deck run found e2311: two cross-lines 1.1 m apart at the partner edge, the Jersey stepped 0.55 m
+aside with a square end, and the triangle between drawn by neither - a hole to the grass. Fix: a ground/approach run's
+`across` = the twins met PLUS the edges mitred nodes carry them on into (as a deck run's ChainAround), and an edge across
+its median reaches gets an exact partner run (`PSX_CITY_R8_CHAIN=0` = before). Both runs now draw one cross-line at
+n3523. (`PSX_CITY_UNION_SEAM`'s 1.5 m inset overlap is not needed and stays OFF.)
+
+**4'06" I-77 e15241 (uptown 6504-6524 m): a box at the deck start, a hole at its end (EXACT, FILL, SEAM).**
+Partner runs claim half a walk step (2 m) past their owner's last foot and are snapped up to 6 m on to their edge's
+end. (a) e1887's own run snapped its end to e1885's partner run's padded 15.6 while e1885's median reaches e1887 at
+17.6 (the foot of n2945): a 2 m gap and a grass triangle, and e15241's first 2.5 m kept its own deck parapet beside the
+union Jersey (the box). Runs now meet a partner run where its owner's median is DRAWN (`DrawnRange`: the feet of the
+owner's ends), the partner's padded claim kept for Continued (cutting every claim to the feet left 408 run ends open
+instead of 110 - the first look). (b) e15241's partner run claimed 15.8..20 past e1887's start at n695, so the 2.6 m of
+e1894 beside it (57.7..60.3) was refused as "covered" by the walk's 4 m samples - in no run: a hole between the two
+decks, each side's own rail sloped down into it. FILL: every gap of up to 16 m between two drawn medians (on the edge,
+or carried on through its node), with the opposing twin beside in the band at one level and no other run drawing there,
+gets an owner run (e1894 57.7..60.3). (c) Perpendicular feet from two diverging carriageways land up to ~2 m apart,
+so two runs owned on OPPOSITE carriageways never shared a cross-line where one hands over to the other (e1887 s 17.6 vs
+e1885's end at n2945): SEAM links such ends and each draws its end to the other's edge at the other's end, blended in
+over max(3 m, 1.5 x the move).
+
+**1'47" I-277 past the Elizabeth Ave bridge (uptown ~1800 m): the empty box (DECKEND, MEDRAIL).** The one bridge's
+union run (owner e2437) began 8 m into e2437's deck, where the pair table's range began. The two decks end on a skewed
+abutment line (e2438's at n3657, e2437's 7.5 m on at n3295), and past the V's mouth the median was the ground under the
+bridge, more than 1 m below both roads (spot probe heights 'v'): a pit 12 m wide and ~9 m long, walled by each
+carriageway's own rail and the V's legs, the terrain's concrete closing face beyond - the box. A real deck carries its
+median slab to the abutment: a closed end of a Barrier run whose OWNER's deck carries on past it, the twin beside within
+16 m at one level and the land across the gap 0.5 m+ under both roads (at a quarter point), now carries on (slab,
+soffit, Jersey, its V) to where that deck or the pit ends (max 24 m; `PSX_CITY_R8_DECKEND=0`). 22 m on, at n3658 (e2435 -> e4593, a plain node one
+approach band from the bridge), the route's median-side approach rail was capped down to nothing and back up (a 3 m
+notch: RailContinuesPast carried rails uncapped only on structure). A divided freeway's median-side rail now carries on
+across a plain two-edge node inside its approach band on both sides, where no union holds that side
+(`PSX_CITY_R8_MEDRAIL=0`).
+
+**Also this round.** Two approach walks from one deck end laid I-77 e1891 0..3 and 0..4.2 on one side; the seam of the
+two at s 3 was a 3 m hole under the rays (uptown 6579 m): an owner run inside another on the same side is dropped (10
+city-wide). A side with no median at all whose neighbour's run reaches its node, the twin still in the band for less
+than the walk's 12 m minimum (I-277 e2139 at uptown 8688 m: two own Jerseys 8.6 m apart for 9 m, a box), gets the median
+carried on as far as the band holds (FILL, up to 16 m).
+
+**Measured** (gate1 = every round-8 switch on, PSXLab; base = the same branch with round 8 off, i.e. main
+70e81508's medians; g1r7 = round 7's gate): launch uniform 102/395, routes 0/0/0, old 109/585; census per class =
+g1r7 (freeway >0.1% 28900 vs 28901, >0.5% 243 vs 244, TIGHT crest 63 vs 65; ramp/arterial/collector/local identical);
+route p99 1.12/2.11/0.76; WALLS IN LANES 0; FALL HOLES 8 places, all off-route (S Tryon e1107/8, Briar Creek Rd);
+INVISIBLE lanes 4 and BLUNT route 1 (e9877 s 18, the ramp e279's rail end) = base. MEDIAN ACROSS one/two+/none
+3903/35/35 -> 3940/22/28. MEDIAN CLASSES breaks/open gaps/boxes 17/3/15 -> 8/3/10 (r8 without DECKEND/MEDRAIL/
+dedupe: 8/3/12). Gone on the routes: uptown 617 (0'54"), 1670, 1751 (the Elizabeth Ave deck's north end), 2285, 3574,
+4940, 6504/6520 + 6524 (4'06"), 7068/7128/7140/7216 (I-77 e1874/e1254/e6608), independence 218 and the 964 box (e2328's
+deck end, DECKEND). The 1'47" pit is covered (e2437's run 8.0 -> 0.0) and n3658's rail notch is gone (spot probe
+heights: H through e2435 s 22 / e4593 s 0-5). Left (gate1): uptown 2211 (e2144 s 349) and Independence 161/2482/4407/
+4507/4531 - BREAKS where the twins part past the 9.5 m band: the union's closed end turns down beside each
+carriageway's own Jersey's capped start, a 2-8 m low spot the 0.5 m rays pass over (a ground V meeting both own
+Jerseys is the fix; it was not built this round); 7978 (e8478 s 11) the same at an ownership hand-over; 8690 (e2139 s 5)
+was the continuation fill drawn flush (both its ends closed, under MinMedianRunM) - after the gate the fill only
+carries a median on that continues through its node (final drive below); OPEN GAPS 290/2600/8727: twins at 9.4-9.6 m,
+on the band's edge, where neither walk lays the median; BOXES 10, all Independence: walls 11-17 m apart across the
+busway median at junction fans (Barriers@~1.8 and @13-17 m), each carriageway's own Jersey by design - counted only
+because the walk's reason there reads "fan"/"no twin", not "gap" (the round-6 wide rule); the median NOSE at a fan
+(one end across both) is not built. Solve unchanged; union build 0.47 -> 0.56 s.
+
+FINAL_TBD
+
+**Tools.** `CityRealHeights.RunMedianLookAB` re-built the union runs per pass at last: CityWorld caches its trims per map
+object, so a round-7 A/B's second pass re-used the first's runs (the preview's own trims were fresh; the spot probe and
+the drive audit's tiles were not) - `ResetWorldTrims`. `RunDriveAB` (PSX_DRIVE_AB="base;r8;r8+recip;r8+seam": the
+drive audit per configuration in one job), `RunLookThenDrive`, `PSX_LOOK_AB=round8`, spot probe: each run's road across
+/ seams / FILL, the ground-twin WHY per metre, `PSX_SPOT_HEIGHTS=1` (a heights row: v l 0 h H X).
