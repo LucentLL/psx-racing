@@ -373,14 +373,19 @@ namespace PSXRacing.City
                         }
                         break;
                     case GuideKind.Advance:
-                        foreach (float off in new[] { 0f, -30f, 30f, -60f, 60f })
-                        {
-                            var se = map.edges[site.edge]; float ss = site.s;
-                            if (!Slide(map, ref se, ref ss, off) || se.bridge || se.ElevatedAt(ss)) continue;
-                            pu.placed = Overhead(map, trims, pu, se, ss, ex, site);
-                            if (pu.placed) break;
-                            pu.Reset();
-                        }
+                        // the mile sign: on two posts past the clear zone where the
+                        // ground is free (NCDOT's suburban habit); the half mile, and a
+                        // mile sign with no room beside the road: overhead
+                        for (int pass = site.miles > 0.75f ? 0 : 1; pass < 2 && !pu.placed; pass++)
+                            foreach (float off in new[] { 0f, -30f, 30f, -60f, 60f })
+                            {
+                                var se = map.edges[site.edge]; float ss = site.s;
+                                if (!Slide(map, ref se, ref ss, off) || se.bridge || se.ElevatedAt(ss)) continue;
+                                if (pass == 0) { pu.kind = Kind.Guide; pu.breakaway = true; pu.placed = GroundGuide(map, trims, pu, se, ss, ex, site); }
+                                else { pu.kind = Kind.Gantry; pu.breakaway = false; pu.placed = Overhead(map, trims, pu, se, ss, ex, site); }
+                                if (pu.placed) break;
+                                pu.Reset();
+                            }
                         break;
                     case GuideKind.Gore:
                         pu.placed = GoreSign(map, trims, pu, e, ex);
@@ -568,6 +573,47 @@ namespace PSXRacing.City
             return true;
         }
 
+        /// <summary>A ground-mounted advance guide sign: the exit's panel (and
+        /// its tab) on two galvanised posts on the right, past the
+        /// carriageway's clear zone, turned to the drivers 150 m back, its
+        /// bottom 2.1 m over the ground. Records nothing unless it stands.</summary>
+        static bool GroundGuide(CityMap map, CityMeshes.Trims trims, Pure pu, CityMap.Edge e, float s, ExitInfo ex, Site site)
+        {
+            if (!ex.hasData) { why = "no legend"; return false; }
+            var p0 = e.PointAt(s);
+            var t = e.TangentAt(s);
+            var right = RightOf(t);
+            LineModel.Extents(e, s, out float pavR, out _);
+            var panel = ExitLegend(ex, site.miles, false);
+            var tab = TabLegend(ex);
+            float off = pavR + RoadsideOccupancy.ClearZoneOf(e) + 1.0f + panel.w * 0.5f;
+            var g = p0 + right * off;
+            var viewer = Driver(map, e, s, -ViewAheadM, 0f);
+            var vd = new Vector2(viewer.x - g.x, viewer.z - g.y);
+            if (vd.sqrMagnitude < 1f) { why = "no driver"; return false; }
+            vd.Normalize();
+            var across = RightOf(-vd);
+            var a = g - across * (panel.w * 0.5f); var b = g + across * (panel.w * 0.5f);
+            var post0 = g - across * (panel.w * 0.3f); var post1 = g + across * (panel.w * 0.3f);
+            const byte bits = (byte)(BlockBits | RoadsideOccupancy.Sight | RoadsideOccupancy.Corner | RoadsideOccupancy.Other);
+            if (!PureFree(post0, bits) || !PureFree(post1, bits) || !PureSegFree(a, b, BlockBits)) { why = "no room beside the road"; return false; }
+            if (RaceRunOff.Inside(map, trims, post0) || RaceRunOff.Inside(map, trims, post1)) { why = "race run-off"; return false; }
+            if (!OffPoles(a, b, 0.5f)) { pu.wireSteps++; why = "a utility wire"; return false; }
+            SmallSign(map, trims, pu, panel, g, vd, new[] { post0, post1 }, viewer, e, 0.10f, e.YAt(s));
+            if (tab != null)
+            {
+                // the number tab on top, flush with the panel's exit side (its own plate)
+                var f0 = pu.faces[0];
+                var r3 = Vector3.Cross(f0.normal, Vector3.up).normalized;
+                float side = ex.left ? -1f : 1f;
+                var tc = f0.centre + r3 * (side * (panel.w - tab.w) * 0.5f) + Vector3.up * ((panel.h + tab.h) * 0.5f);
+                HangSmall(tab, tc, r3, f0.normal);
+                pu.faces.Add(new Face { centre = tc, normal = f0.normal, w = tab.w, h = tab.h, kind = Kind.Guide, viewer = viewer });
+                var sg = pu.sign; sg.faces = pu.faces.Count; sg.top += tab.h; pu.sign = sg;
+            }
+            return true;
+        }
+
         /// <summary>A panel: its aluminium box (back and edges), the green
         /// backing a hand inside its face, the legend's mosaic on its face, and
         /// the vertical stiffeners that hold it to the truss.</summary>
@@ -718,7 +764,7 @@ namespace PSXRacing.City
                 var post0 = g - across * (legend.w * 0.3f); var post1 = g + across * (legend.w * 0.3f);
                 if (!BreakawayFree(post0) || !BreakawayFree(post1) || PavementMargin(map, trims, p0) < 0.3f || PavementMargin(map, trims, p1) < 0.3f) { why = "the gore's ground taken"; continue; }
                 if (!OffPoles(p0, p1, 0.4f)) { pu.wireSteps++; continue; }
-                SmallSign(map, trims, pu, legend, g, vd, new[] { post0, post1 }, viewer, e);
+                SmallSign(map, trims, pu, legend, g, vd, new[] { post0, post1 }, viewer, e, 0.038f, Mathf.Max(M.YAt(sm), L.YAt(t)));
                 return true;
             }
             return false;
@@ -745,7 +791,7 @@ namespace PSXRacing.City
                 var p0 = g - across * (legend.w * 0.5f); var p1 = g + across * (legend.w * 0.5f);
                 if (!BreakawayFree(g) || PavementMargin(map, trims, p0) < 0.3f || PavementMargin(map, trims, p1) < 0.3f) continue;
                 if (!OffPoles(p0, p1, 0.4f)) { pu.wireSteps++; continue; }
-                SmallSign(map, trims, pu, legend, g, vd, new[] { g }, viewer, L);
+                SmallSign(map, trims, pu, legend, g, vd, new[] { g }, viewer, L, 0.038f, L.YAt(t));
                 return true;
             }
             return false;
@@ -754,10 +800,12 @@ namespace PSXRacing.City
         /// <summary>A small sign on breakaway posts: its face turned to its
         /// driver, its bottom <see cref="SmallSignBottomM"/> over the ground and
         /// the road beside it, square galvanised posts into the ground.</summary>
-        static void SmallSign(CityMap map, CityMeshes.Trims trims, Pure pu, GBlock legend, Vector2 g, Vector2 look, Vector2[] posts, Vector3 viewer, CityMap.Edge e)
+        static void SmallSign(CityMap map, CityMeshes.Trims trims, Pure pu, GBlock legend, Vector2 g, Vector2 look, Vector2[] posts, Vector3 viewer, CityMap.Edge e, float postHalf = 0.038f, float roadY = float.NegativeInfinity)
         {
             float gy = CityMeshes.LatticeAt(map, g.x, g.y);
-            float road = RoadTopAt(map, trims, g, 4f);
+            float road = Mathf.Max(RoadTopAt(map, trims, g, 4f), roadY);
+            // the bottom 2.1 m over the ground AND over the road it serves (a
+            // road on fill: the panel stands on longer posts, not down the bank)
             float baseY = float.IsNegativeInfinity(road) ? gy : Mathf.Max(gy, road);
             float bottom = baseY + SmallSignBottomM;
             var n3 = new Vector3(look.x, 0f, look.y);
@@ -767,9 +815,9 @@ namespace PSXRacing.City
             foreach (var p in posts)
             {
                 float py = CityMeshes.LatticeAt(map, p.x, p.y);
-                var foot = new Vector3(p.x, Mathf.Min(py, baseY) - 0.4f, p.y) - n3 * 0.06f;
-                var head = new Vector3(p.x, bottom + legend.h - 0.05f, p.y) - n3 * 0.06f;
-                GBox((foot + head) * 0.5f, r3, Vector3.up, n3, 0.038f, (head.y - foot.y) * 0.5f, 0.038f, CityGuideFont.Galv, true);
+                var foot = new Vector3(p.x, Mathf.Min(py, baseY) - 0.4f, p.y) - n3 * (0.06f + postHalf);
+                var head = new Vector3(p.x, bottom + legend.h - 0.05f, p.y) - n3 * (0.06f + postHalf);
+                GBox((foot + head) * 0.5f, r3, Vector3.up, n3, postHalf, (head.y - foot.y) * 0.5f, postHalf, CityGuideFont.Galv, true);
                 pu.feet.Add(p);
                 pu.Take(new Mark { a = p, b = p, r = 0.6f + RoadsideOccupancy.CellPadM, bit = RoadsideOccupancy.Other });
             }
@@ -1327,6 +1375,7 @@ namespace PSXRacing.City
                 var pu = PureGuide(map, trims, i);
                 var ex = ExitOf(map, st.exitEdge);
                 string what = st.kind == GuideKind.Advance ? (st.miles < 0.75f ? "advance 1/2 mile" : "advance 1 mile") : st.kind.ToString();
+                if (st.kind == GuideKind.Advance && pu.placed) what += pu.kind == Kind.Guide ? " (ground)" : " (overhead)";
                 string legend = ex.hasData ? $"{(ex.left ? "LEFT " : "")}EXIT {ex.data.number} | {ex.data.route} | {ex.data.dest1} | {ex.data.dest2} | {ex.data.cardinal} || {ex.data.thru} {ex.data.thruCity} | adv {ex.advisoryMph}" : "(no legend data)";
                 whyNot.TryGetValue(i, out string wn);
                 each(what, pu.placed, st.nominal, legend, pu.gquads.Count, pu.faces.Count, pu.faces.Count > 0 ? pu.faces[0].centre : Vector3.zero, wn ?? "");

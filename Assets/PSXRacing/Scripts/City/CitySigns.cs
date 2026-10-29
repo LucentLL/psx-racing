@@ -170,7 +170,7 @@ namespace PSXRacing.City
         static RectInt BulletinCell(int i) => new RectInt(256 * (i % 2), 76 * (i / 2), 256, 76);
         static RectInt PosterCell(int i) => new RectInt(128 * i, 228, 128, 64);
         static RectInt PoleCell(int i) => new RectInt(64 * (i % 8), 292 + 64 * (i / 8), 64, 64);
-        static readonly RectInt GantryThrough = new RectInt(0, 420, 128, 64), GantryExit = new RectInt(128, 420, 128, 64);
+        // (0..256, 420..484: the old code-drawn gantry panels, unused since the guide signs set real legends)
         static readonly RectInt MetalDark = new RectInt(256, 420, 128, 92), MetalLight = new RectInt(384, 420, 128, 92);
         static readonly RectInt LensCell = new RectInt(0, 484, 16, 16), BlackSide = new RectInt(16, 484, 16, 16);
         public const int Bulletins = 6, Posters = 4;

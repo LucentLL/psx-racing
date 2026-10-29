@@ -35,11 +35,17 @@ namespace PSXRacing.EditorTools
                 int quads = 0, faces = 0;
                 var clock = System.Diagnostics.Stopwatch.StartNew();
                 var whys = new Dictionary<string, int>();
+                var perTile = new Dictionary<long, int>();
                 var small = new List<string>();
                 CitySigns.GuideCensus(map, trims, buildings, (what, ok, at, legend, q, f, face, why) =>
                 {
                     tried.TryGetValue(what, out int t); tried[what] = t + 1;
-                    if (ok) { placed.TryGetValue(what, out int p); placed[what] = p + 1; quads += q; faces += f; }
+                    if (ok)
+                    {
+                        placed.TryGetValue(what, out int p); placed[what] = p + 1; quads += q; faces += f;
+                        long tk = ((long)Mathf.FloorToInt(at.x / CityMeshes.TileSize) << 32) ^ (uint)Mathf.FloorToInt(at.y / CityMeshes.TileSize);
+                        perTile.TryGetValue(tk, out int pq); perTile[tk] = pq + q;
+                    }
                     else { string k = what + ": " + why; whys.TryGetValue(k, out int w); whys[k] = w + 1; }
                     if (what == "ExitGantry") lines.Add($"  ({at.x:0},{at.y:0}) {(ok ? "stands " : "NO ROOM (" + why + ")")} {legend}");
                     else if (ok) small.Add($"  {what} of the exit at ({at.x:0},{at.y:0}): face at ({face.x:0.0},{face.y:0.0},{face.z:0.0})");
@@ -51,6 +57,9 @@ namespace PSXRacing.EditorTools
                     log.AppendLine($"  {kv.Key,-18} {p,4} / {kv.Value,4}");
                 }
                 log.AppendLine($"  guide-atlas quads {quads} on {faces} faces (all exits; a tile draws its own few)");
+                int maxQ = 0; long sumQ = 0;
+                foreach (var v in perTile.Values) { maxQ = Mathf.Max(maxQ, v); sumQ += v; }
+                log.AppendLine($"  per tile with guide signs ({perTile.Count} tiles of {CityMeshes.TileSize:0} m): mean {(perTile.Count > 0 ? sumQ / perTile.Count : 0)} quads ({(perTile.Count > 0 ? 4 * sumQ / perTile.Count : 0)} vertices), most {maxQ} quads ({4 * maxQ} vertices); one more draw call on each");
                 log.AppendLine("WHY A SITE FOUND NO ROOM:");
                 foreach (var kv in whys) log.AppendLine($"  {kv.Key}: {kv.Value}");
 
