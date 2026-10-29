@@ -1582,7 +1582,8 @@ namespace PSXRacing.City
         {
             Vector2 at = map.nodes[node];
             if ((playerPos - at).sqrMagnitude < 16f * 16f && playerVel.sqrMagnitude > 0.25f && Mathf.Abs(playerPos3.y - c.y) < LevelM) return false;
-            float need = GapFor(turn, merge);
+            // a driver who has waited a while takes a shorter gap (HCM: the critical gap falls with the wait)
+            float need = GapFor(turn, merge) * (impatient ? 0.8f : 1f);
             for (int i = 0; i < live.Count; i++)
             {
                 var o = live[i];

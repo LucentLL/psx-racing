@@ -51,6 +51,13 @@ namespace PSXRacing.City
     {
         /// <summary>PSX_CITY_WARRANTS=0: OSM's controls only (the A/B).</summary>
         public static bool WarrantsOn = System.Environment.GetEnvironmentVariable("PSX_CITY_WARRANTS") != "0";
+        /// <summary>PSX_CITY_LEGACY_PHASES=1: the old two-group clock (the A/B's before).</summary>
+        public static bool LegacyPhases = System.Environment.GetEnvironmentVariable("PSX_CITY_LEGACY_PHASES") == "1";
+
+        /// <summary>Forget the junctions: the next ask decides them again (a
+        /// tool flipping <see cref="WarrantsOn"/> or <see cref="LegacyPhases"/>;
+        /// built tiles keep what they stood up).</summary>
+        public static void Invalidate() { mapFor = null; trimsFor = null; junctions = null; nodeJunction = null; }
 
         /// <summary>The assignment's counts (the census and the log).</summary>
         public struct ControlCounts
@@ -254,7 +261,15 @@ namespace PSXRacing.City
                         if (kv.Value > r1) { r2 = r1; r1 = kv.Value; n1 = kv.Key; }
                         else if (kv.Value > r2) r2 = kv.Value;
                     }
-                    if (r2 >= 3) { list.Add(new Decision { node = n, signal = true }); continue; }
+                    // two arterials, or two divided (multi-lane) roads: a signal
+                    bool multi = true;
+                    foreach (int ei in armScratch)
+                    {
+                        var e = map.edges[ei];
+                        if (e.link || (e.oneway && e.a == n)) continue;
+                        if (!(e.oneway ? e.lanes >= 2 : e.lanes >= 4)) multi = false;
+                    }
+                    if (r2 >= 3 || (r2 >= 2 && multi)) { list.Add(new Decision { node = n, signal = true }); continue; }
                     if (r1 < 1) { Counts.localLocal++; continue; }
                     var all = new List<int>();
                     foreach (int ei in armScratch)
@@ -289,7 +304,7 @@ namespace PSXRacing.City
                         else (stops ??= new List<int>()).Add(ei);
                         continue;
                     }
-                    if (thrCls >= 3 && m.cls >= 3 && m.name != A.name && m.name != B.name) { signal = true; continue; }
+                    if (thrCls >= 3 && m.cls >= 3 && !string.IsNullOrEmpty(m.name) && m.name != A.name && m.name != B.name) { signal = true; continue; }
                     if (thrCls == 0 && m.cls == 0) { Counts.localLocal++; continue; }
                     (stops ??= new List<int>()).Add(ei);
                 }
@@ -426,6 +441,33 @@ namespace PSXRacing.City
             ResetPlans();
             var sigJ = new List<Junction>();
             foreach (var j in junctions) if (j.signal) sigJ.Add(j);
+            if (LegacyPhases)
+            {
+                // THE OLD RULE (the before of an A/B): the biggest approach's
+                // axis and whatever runs within 45 degrees of it one group, the
+                // rest the other, half the junctions starting on the other
+                foreach (var j in sigJ)
+                {
+                    int best = 0;
+                    for (int i = 1; i < j.approaches.Count; i++)
+                    {
+                        var ei = map.edges[j.approaches[i].edge]; var eb = map.edges[j.approaches[best].edge];
+                        if (ei.cls * 16 + ei.lanes > eb.cls * 16 + eb.lanes) best = i;
+                    }
+                    var axis = j.approaches[best].u;
+                    byte flip = (byte)(Hash01(j.nodes[0], 0, 41) < 0.5f ? 1 : 0);
+                    for (int i = 0; i < j.approaches.Count; i++)
+                    {
+                        var a = j.approaches[i];
+                        a.group = (byte)((Mathf.Abs(Vector2.Dot(a.u, axis)) >= 0.7071f ? 0 : 1) ^ flip);
+                        a.channel = a.group;
+                        j.approaches[i] = a;
+                    }
+                    j.plan = 0; j.phases = 2; j.controller = j.id;
+                }
+                Counts.plans = plans.Count; Counts.channels = chans.Count;
+                return;
+            }
             var jOfNode = new Dictionary<int, int>();
             foreach (var j in sigJ) foreach (int n in j.nodes) jOfNode[n] = j.id;
             // pairs joined by a short carriageway: each its single nearest partner
