@@ -139,11 +139,11 @@ namespace PSXRacing.EditorTools
             Debug.Log("[FarShots] DONE | " + log.ToString().Replace("\n", " | "));
         }
 
-        static int Even(int w) => (w & 1) == 1 ? w + 1 : w;
+        internal static int Even(int w) => (w & 1) == 1 ? w + 1 : w;
 
         /// <summary>Wall time per render, the GPU drained either side
         /// (PictureHeightShots' method).</summary>
-        static float TimeRenders(Camera cam, int w, int h, int n)
+        internal static float TimeRenders(Camera cam, int w, int h, int n)
         {
             var rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32) { filterMode = FilterMode.Point };
             rt.Create();
@@ -172,7 +172,7 @@ namespace PSXRacing.EditorTools
             return (float)sw.Elapsed.TotalMilliseconds / n;
         }
 
-        static Texture2D Read(RenderTexture rt)
+        internal static Texture2D Read(RenderTexture rt)
         {
             var prev = RenderTexture.active;
             RenderTexture.active = rt;
@@ -183,7 +183,7 @@ namespace PSXRacing.EditorTools
             return tex;
         }
 
-        static Texture2D PointTo(Texture2D src, int w, int h)
+        internal static Texture2D PointTo(Texture2D src, int w, int h)
         {
             if (src.width == w && src.height == h) return src;
             var sp = src.GetPixels32();

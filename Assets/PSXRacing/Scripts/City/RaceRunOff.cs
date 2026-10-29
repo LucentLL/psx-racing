@@ -59,6 +59,27 @@ namespace PSXRacing.City
         /// <summary>How many tiles the run-off reaches into.</summary>
         public static int Tiles(CityMap map, CityMeshes.Trims trims) { Ensure(map, trims); return byTile.Count; }
 
+        // NIGHT-LOOK PASS 5 (2026-10-28): the route edges themselves, for
+        // CityMeshes.PlaceLamps (a pole road ON a race route stands its own
+        // breakaway lamp posts: its poles all fall in this run-off).
+        static CityMap routeEdgesFor;
+        static HashSet<int> routeEdges;
+
+        /// <summary>Is this edge part of any city race route?</summary>
+        public static bool OnRoute(CityMap map, int edge)
+        {
+            if (map == null) return false;
+            if (routeEdges == null || routeEdgesFor != map)
+            {
+                routeEdgesFor = map;
+                routeEdges = new HashSet<int>();
+                if (map.routes != null)
+                    foreach (var r in map.routes)
+                        if (r.edges != null) foreach (int ei in r.edges) routeEdges.Add(ei);
+            }
+            return routeEdges.Contains(edge);
+        }
+
         static long Key(int tx, int tz) => ((long)tx << 24) ^ (tz & 0xFFFFFF);
 
         static readonly List<Vector2> pts = new List<Vector2>(4096);
