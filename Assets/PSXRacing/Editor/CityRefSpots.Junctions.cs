@@ -24,6 +24,14 @@ namespace PSXRacing.EditorTools
     {
         struct JShot { public string label; public Vector2 at; public Vector3 eyeA, eyeB, lookA, lookB; public double t; public bool ok; public string note; }
 
+        /// <summary><see cref="RunJunctionShots"/>, then the road meshes hashed
+        /// (<see cref="CityRoadMeshHash"/>), one editor.</summary>
+        public static void RunJunctionShotsAndHash()
+        {
+            RunJunctionShots();
+            CityRoadMeshHash.Run();
+        }
+
         public static void RunJunctionShots()
         {
             var map = CityMap.Get();

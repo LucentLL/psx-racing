@@ -210,6 +210,7 @@ namespace PSXRacing.City
                 case 15: return "a yield";
                 case 16: return "oncoming (left, unsigned)";
                 case 17: return "a full box ahead (keep clear)";
+                case 18: return "cross traffic in a signal's box with no head for it";
                 case 20: return "a dead end";
                 case 21: return "the lane its turn needs";
                 default: return "why " + why;
@@ -256,12 +257,13 @@ namespace PSXRacing.City
                 case 14: sub = "stop-deadlock"; need = 30f; break;
                 case 15: sub = "yield-starved"; need = 40f; break;
                 case 17: sub = "keep-clear-wait"; need = 40f; break;
+                case 18: sub = "headless-yield-wait"; need = 40f; break;
                 case 20: return;
                 case 21: sub = "lane-change-wait"; need = 12f; break;
                 default: sub = inBox ? "crawl-in-turn" : "crawl"; break;
             }
             if (t < need) return;
-            int ev = Note(c, "stuck", sub, t, $"held by {WhyName(c.why)} {c.gap:0.0} m ahead, wants {c.vDesCached:0.0} m/s; " + Describe(c),
+            int ev = Note(c, "stuck", sub, t, $"held by {WhyName(c.why)} {c.gap:0.0} m ahead{Blocker(c)}, wants {c.vDesCached:0.0} m/s; " + Describe(c),
                              node: c.why >= 10 && c.why < 20 ? c.ctlNode : int.MinValue);
             w.stuckEv = ev >= 0 ? ev : -2;
         }

@@ -22,7 +22,9 @@ namespace PSXRacing.City
     ///     <see cref="ThroughArms"/>) STOPs - unless both are local streets
     ///     (the neighbourhood's yield to the through street stays) or it is a
     ///     service drive; a one-way slip or ramp joining at a shallow angle
-    ///     YIELDs (a merge, no sign: the traffic's merge rule);
+    ///     YIELDs (a merge, no sign: the traffic's merge rule); a side road
+    ///     under <see cref="StubM"/> from the junction behind it yields too
+    ///     (a car at its bar would stand in that junction);
     ///   * an arterial meeting an arterial (primary or above, both roads,
     ///     not a slip) and an off-ramp ending at a two-way arterial are
     ///     SIGNALISED (warrants 1-3: those volumes always meet them);
@@ -64,7 +66,7 @@ namespace PSXRacing.City
         {
             public int osmSignals, osmStopJ, osmAllWay, osmYieldJ, warrantSignals, warrantSignalNodes, warrantAllWay,
                        warrantStopJ, warrantStopApp, yieldMerges, splits, splitSides, localLocal, nearSignal, plans, channels,
-                       phases2, phases3, phases4, controllersLinked, axesCapped;
+                       phases2, phases3, phases4, controllersLinked, axesCapped, shortStubs;
         }
         public static ControlCounts Counts;
 
@@ -208,6 +210,22 @@ namespace PSXRacing.City
         //  THE WARRANTS (where OSM says nothing)
         // ==================================================================
 
+        /// <summary>A side road shorter than this from the junction behind it
+        /// gets no warrant STOP: a car standing at the bar would stand in that
+        /// junction too, and the queue behind it in the next (2026-10-29 check:
+        /// the wreck on North College Street's 19 m loop stub e23980 beside
+        /// e23369; Edgehill Road South's 7 m pieces between Queens Road's
+        /// carriageways). It yields - the traffic's rule for an arm with no
+        /// sign, and what it did before the warrants.</summary>
+        public const float StubM = 30f;
+
+        static bool ShortStub(CityMap map, CityMap.Edge m, int n)
+        {
+            if (m.length >= StubM) return false;
+            int far = m.a == n ? m.b : m.a;
+            return far != n && Degree(map, far) >= 3;
+        }
+
         /// <summary>What the warrants decided at one node: the approaches that
         /// STOP (all-way when <c>allWay</c>), or a signal.</summary>
         struct Decision { public int node; public bool signal, allWay; public List<int> stops; }
@@ -329,11 +347,13 @@ namespace PSXRacing.City
                     if (m.link)
                     {
                         if (thrCls >= 3 && thrTwoWay && !split) signal = true;
+                        else if (ShortStub(map, m, n)) Counts.shortStubs++;
                         else (stops ??= new List<int>()).Add(ei);
                         continue;
                     }
                     if (thrCls >= 3 && m.cls >= 3 && !string.IsNullOrEmpty(m.name) && m.name != A.name && m.name != B.name) { signal = true; continue; }
                     if (thrCls == 0 && m.cls == 0) { Counts.localLocal++; continue; }
+                    if (ShortStub(map, m, n)) { Counts.shortStubs++; continue; }
                     (stops ??= new List<int>()).Add(ei);
                 }
                 if (signal) list.Add(new Decision { node = n, signal = true });
@@ -678,7 +698,7 @@ namespace PSXRacing.City
             var k = Counts;
             return $"controls: OSM signals {k.osmSignals} junctions, OSM STOP {k.osmStopJ} ({k.osmAllWay} all-way), OSM yield {k.osmYieldJ}; " +
                    $"warrants (OSM silent): signals {k.warrantSignals} ({k.warrantSignalNodes} nodes), all-way STOP {k.warrantAllWay}, two-way STOP {k.warrantStopJ} junctions ({k.warrantStopApp} approaches), " +
-                   $"merges left to yield {k.yieldMerges}, local x local left to yield {k.localLocal}, next to a signal {k.nearSignal}; carriageway splits (not junctions) {k.splits} (+{k.splitSides} with a side road); " +
+                   $"merges left to yield {k.yieldMerges}, local x local left to yield {k.localLocal}, side roads under {StubM:0} m left to yield {k.shortStubs}, next to a signal {k.nearSignal}; carriageway splits (not junctions) {k.splits} (+{k.splitSides} with a side road); " +
                    $"signal plans {k.plans}, channels {k.channels}, phases 2/3/4: {k.phases2}/{k.phases3}/{k.phases4}, linked controllers {k.controllersLinked}, roads past 4 axes {k.axesCapped}";
         }
     }
