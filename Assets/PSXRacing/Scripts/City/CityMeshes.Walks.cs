@@ -422,7 +422,10 @@ namespace PSXRacing.City
             float u = (w.x * d1.y - w.y * d1.x) / den;
             var P = b0 + d0 * u;
             cw.P = P;
-            if (OnPavement(map, trims, P, 0.5f * (k0.pos.y + k1.pos.y), k0.edge, k1.edge)) { noneWhyNow = 7; return 0; }
+            // a curb return wider than ~3.4 walk widths cuts the corner past the
+            // back-of-walk lines: P stands on the junction's own pavement, and
+            // the walk follows the return as a strip instead
+            if (OnPavement(map, trims, P, 0.5f * (k0.pos.y + k1.pos.y), k0.edge, k1.edge)) { noneWhyNow = 7; return RingStripFits(ring, cw, origin) ? 2 : 0; }
             // P lies toward the junction from both ends (the curb return is
             // longer than the walk is wide), not far, and off other pavement
             var toJ0 = new Vector2(k1.pos.x - k0.pos.x, k1.pos.z - k0.pos.z);
