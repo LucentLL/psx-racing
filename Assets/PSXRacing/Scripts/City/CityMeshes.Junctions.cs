@@ -612,6 +612,8 @@ namespace PSXRacing.City
             into.Clear();
             var cl = t.ClusterOfNode(n);
             void Put(Vector2 p, float y) => into.Add(new Vector3(p.x - origin.x, y + FanProudM, p.y - origin.z));
+            // (round 11, INNERMAJOR: the major pair is found first, so the inside edges' points can keep out of it)
+            R11FanMajor(map, t, n, cl, out int mi0, out int pi0, out int mn0, out float majHw0, out Vector2 nP0, out Vector2 endM0, out Vector2 endP0);
             if (cl != null)
             {
                 foreach (int m in cl.nodes) Put(map.nodes[m], map.nodeY[m]);
@@ -620,6 +622,7 @@ namespace PSXRacing.City
                 {
                     var e = map.edges[ei];
                     if (e.length < 4f) continue;
+                    if (R11InnerMajorOn && mi0 >= 0 && R11InnerOutOfMajor(map, e, mi0, pi0, mn0, majHw0, nP0, endM0, endP0, Put)) continue;
                     for (int q = 1; q <= 3; q++) { float s = e.length * q * 0.25f; Put(e.PointAt(s), e.YAt(s)); }
                 }
             }

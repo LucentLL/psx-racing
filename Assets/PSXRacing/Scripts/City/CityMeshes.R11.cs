@@ -10,7 +10,7 @@ namespace PSXRacing.City
     public static partial class CityMeshes
     {
         /// <summary>(round 11) The tile builder's round-11 switches as one set (the look tool's A/B).</summary>
-        public static bool[] Round11Flags() => new[] { R11GoreStartOn, R11GoreFanOn, R11MitrePokeOn, R11SkirtPaveOn };
+        public static bool[] Round11Flags() => new[] { R11GoreStartOn, R11GoreFanOn, R11MitrePokeOn, R11SkirtPaveOn, R11InnerMajorOn };
         public static void SetRound11Flags(bool[] f)
         {
             if (f == null) return;
@@ -18,6 +18,108 @@ namespace PSXRacing.City
             if (f.Length > 1) R11GoreFanOn = f[1];
             if (f.Length > 2) R11MitrePokeOn = f[2];
             if (f.Length > 3) R11SkirtPaveOn = f[3];
+            if (f.Length > 4) R11InnerMajorOn = f[4];
+        }
+
+        // ------------------------------------------------------------------
+        //  INNERMAJOR (round 10's INVISIBLE lane on Cates Street e21212 s 3,
+        //  "the connector's ribbon 0.18 m over the lane"): a junction cluster's
+        //  inside edge stays out of the major road's pavement. FANMAJOR holds
+        //  the major pair's own pavement at its profile through the junction
+        //  and keeps the minor ARMS' line points out of it; a cluster's inside
+        //  edges' points (the quarter points that carry an inside edge's own
+        //  profile) still went in wherever they fell. At the Cates St / North
+        //  Cedar St cluster (nodes 17829 + 19428) the 9.9 m connector e23417
+        //  leaves the through pair at its centreline and climbs 9.7% east to
+        //  node 19428; its first quarter point (s 2.5, 119.10) lay 1.1 m inside
+        //  the through pair's kerb, among the major's edge points at 118.87:
+        //  a 0.23 m tent across Cates Street's east lane (drawn and solid - the
+        //  car box met it from under its apex, so the audit called it
+        //  invisible). Now an inside edge's point inside the major's pavement
+        //  stays out (the major's own points carry the surface there), and the
+        //  points beyond it lie on a straight grade from the major's height
+        //  where the edge leaves its pavement to the edge's own far end - the
+        //  minor warps outside the major, as AASHTO and FANMAJOR have it.
+        //  PSX_CITY_R11_INNERMAJOR=0: before.
+        // ------------------------------------------------------------------
+        public static bool R11InnerMajorOn = System.Environment.GetEnvironmentVariable("PSX_CITY_R11_INNERMAJOR") != "0";
+        /// <summary>(INNERMAJOR) inside-edge points left out of a major's pavement / re-graded beyond it,
+        /// fan builds since load (a fan is built once per tile it touches).</summary>
+        public static int R11InnerMajorSkips, R11InnerMajorEased;
+
+        /// <summary>(INNERMAJOR) FanSteiner's major pair, as it finds it: the main arm, its
+        /// partner, the node they go through, the widest half-width of their pavement within
+        /// the fan, and each arm's line from the node to its trim (mi = -1: none).</summary>
+        static void R11FanMajor(CityMap map, Trims t, int n, JunctionCluster cl, out int mi, out int pi, out int mn,
+            out float majHw, out Vector2 nP, out Vector2 endM, out Vector2 endP)
+        {
+            mi = pi = -1; mn = n; majHw = 0f;
+            nP = endM = endP = map.nodes[n];
+            if (!R11InnerMajorOn || cl == null || !FanMajorOn || t.fanMain == null || t.fanPartner == null) return;
+            int fk = FanKey(t, n);
+            mi = t.fanMain[fk]; pi = t.fanPartner[fk];
+            if (mi < 0 || pi < 0 || mi == pi) { mi = pi = -1; return; }
+            mn = t.fanMainNode[fk];
+            var P = map.edges[pi];
+            if (mn < 0 || (P.a != mn && P.b != mn)) { mi = pi = -1; mn = n; return; }
+            nP = endM = endP = map.nodes[mn];
+            for (int q = 0; q < 2; q++)
+            {
+                var A = map.edges[q == 0 ? mi : pi];
+                float tA = Mathf.Min(t.TrimAt(A, mn), A.length);
+                float sEnd = A.a == mn ? tA : A.length - tA;
+                if (q == 0) endM = A.PointAt(sEnd); else endP = A.PointAt(sEnd);
+                for (float d = 1.5f; d <= tA - 0.4f; d += Mathf.Min(3f, Mathf.Max(1f, (tA - 1.9f) * 0.5f)))
+                {
+                    float s = A.a == mn ? d : A.length - d;
+                    LineModel.Extents(A, s, out float eM, out float eP);
+                    majHw = Mathf.Max(majHw, Mathf.Max(eM, eP));
+                }
+            }
+        }
+
+        /// <summary>(INNERMAJOR) An inside edge's three points, kept out of the major's pavement:
+        /// false (nothing put) where none of them lies in it.</summary>
+        static bool R11InnerOutOfMajor(CityMap map, CityMap.Edge e, int mi, int pi, int mn, float majHw,
+            Vector2 nP, Vector2 endM, Vector2 endP, System.Action<Vector2, float> put)
+        {
+            bool In(Vector2 q) => DistToSeg(q, nP, endM) < majHw + 0.5f || DistToSeg(q, nP, endP) < majHw + 0.5f;
+            float L = e.length;
+            bool any = false;
+            for (int q = 1; q <= 3 && !any; q++) any = In(e.PointAt(L * q * 0.25f));
+            if (!any) return false;
+            // how far in from each end the edge runs inside the major's pavement
+            const float step = 0.25f;
+            float sA = 0f, sB = 0f;
+            if (In(e.PointAt(0f))) { sA = step; while (sA < L && In(e.PointAt(sA))) sA += step; }
+            if (In(e.PointAt(L))) { sB = step; while (sB < L && In(e.PointAt(L - sB))) sB += step; }
+            float s0 = Mathf.Min(sA, L), s1 = Mathf.Max(L - sB, s0);
+            float y0 = sA > 0f ? R11MajorY(map, mi, pi, mn, nP, endM, endP, e.PointAt(s0)) : e.YAt(0f);
+            float y1 = sB > 0f ? R11MajorY(map, mi, pi, mn, nP, endM, endP, e.PointAt(s1)) : e.YAt(L);
+            bool regrade = (sA > 0f || sB > 0f) && s1 - s0 > 0.5f;
+            for (int q = 1; q <= 3; q++)
+            {
+                float s = L * q * 0.25f;
+                var p = e.PointAt(s);
+                if (In(p)) { R11InnerMajorSkips++; continue; }
+                float y = regrade ? Mathf.Lerp(y0, y1, Mathf.Clamp01((s - s0) / (s1 - s0))) : e.YAt(s);
+                if (Mathf.Abs(y - e.YAt(s)) > 0.005f) R11InnerMajorEased++;
+                put(p, y);
+            }
+            return true;
+        }
+
+        /// <summary>(INNERMAJOR) The major's height at a plan point: the nearer major arm's
+        /// profile where the point projects on its line from the node.</summary>
+        static float R11MajorY(CityMap map, int mi, int pi, int mn, Vector2 nP, Vector2 endM, Vector2 endP, Vector2 q)
+        {
+            bool useM = DistToSeg(q, nP, endM) <= DistToSeg(q, nP, endP);
+            var A = map.edges[useM ? mi : pi];
+            var d = (useM ? endM : endP) - nP;
+            float len = d.magnitude;
+            float along = len > 1e-4f ? Mathf.Clamp(Vector2.Dot(q - nP, d / len), 0f, len) : 0f;
+            float s = A.a == mn ? along : A.length - along;
+            return A.YAt(Mathf.Clamp(s, 0f, A.length));
         }
 
         // ------------------------------------------------------------------

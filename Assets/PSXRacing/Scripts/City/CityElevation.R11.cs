@@ -51,9 +51,16 @@ namespace PSXRacing.City
         //  zone's end and no more than 5 m apart inside it) exactly where the
         //  ribbon runs INTO the host (CityMeshes.SeatIntoOnly), and eased off
         //  beyond on its own profile (ClimbOut, C1 with CLIMBC1).
-        //  PSX_CITY_R11_STREETSEAT=0: before.
+        //  OFF by default (PSX_CITY_R11_STREETSEAT=1 on): the A/B on one load
+        //  (the other round-11 rules on, the gate's uniform sampling) read
+        //  launches 87 -> 89, unloads 373 -> 350 and grades past 16% 3 -> 4 -
+        //  981 street ends seated (348 refused for room to climb out, 256 for
+        //  an edge seated at both ends); the broad first cut (every street
+        //  branch end) read 99 -> 107. A street branch has less room than a
+        //  ramp to climb back to its own line, and the seats steepen what is
+        //  left; the mesh-off "mitred joint" spots stay a mesh question.
         // ------------------------------------------------------------------
-        public static bool R11StreetSeatOn = System.Environment.GetEnvironmentVariable("PSX_CITY_R11_STREETSEAT") != "0";
+        public static bool R11StreetSeatOn = System.Environment.GetEnvironmentVariable("PSX_CITY_R11_STREETSEAT") == "1";
         /// <summary>(round 11, STREETSEAT) Street branch ends seated, last solve; refused for want of
         /// room to climb out, and for an edge seated at both ends (CityMeshes.StreetIntoSeats).</summary>
         public static int R11StreetSeats { get; private set; }
@@ -81,7 +88,7 @@ namespace PSXRacing.City
 
         /// <summary>(round 11) What the round-11 rules did in the last solve (the audits print it).</summary>
         public static string R11Report =>
-            $"round 11: CLIMBC1 {(R11ClimbC1On ? "on" : "OFF")}; STREETSEAT {(R11StreetSeatOn ? "on" : "OFF")}{(CityMeshes.R11StreetNarrowOn ? " (narrow)" : "")}: {R11StreetSeats} street branch ends seated where their ribbon runs into the host ({R11StreetRefusedRoom} refused for room, {R11StreetRefusedBoth} for both ends); seat stations added {SeatStationsAdded}; SPILLUNDER {(R11SpillUnderOn ? "on" : "OFF")}; CRESTCAP {(R11CrestCapOn ? "on (0.30 m)" : "OFF (0.15 m)")}; meshes: GORESTART {(CityMeshes.R11GoreStartOn ? "on" : "OFF")}, GOREFAN {(CityMeshes.R11GoreFanOn ? "on" : "OFF")}, MITREPOKE {(CityMeshes.R11MitrePokeOn ? "on" : "OFF")}";
+            $"round 11: CLIMBC1 {(R11ClimbC1On ? "on" : "OFF")}; STREETSEAT {(R11StreetSeatOn ? "on" : "OFF")}{(CityMeshes.R11StreetNarrowOn ? " (narrow)" : "")}: {R11StreetSeats} street branch ends seated where their ribbon runs into the host ({R11StreetRefusedRoom} refused for room, {R11StreetRefusedBoth} for both ends); seat stations added {SeatStationsAdded}; SPILLUNDER {(R11SpillUnderOn ? "on" : "OFF")}; CRESTCAP {(R11CrestCapOn ? "on (0.30 m)" : "OFF (0.15 m)")}; meshes: GORESTART {(CityMeshes.R11GoreStartOn ? "on" : "OFF")}, GOREFAN {(CityMeshes.R11GoreFanOn ? "on" : "OFF")}, MITREPOKE {(CityMeshes.R11MitrePokeOn ? "on" : "OFF")}, SKIRTPAVE {(CityMeshes.R11SkirtPaveOn ? "on" : "OFF")} ({CityMeshes.R11SkirtPaveFascias} lane hits by the drawn extent), INNERMAJOR {(CityMeshes.R11InnerMajorOn ? "on" : "OFF")} ({CityMeshes.R11InnerMajorSkips} inside-edge points kept out of a major, {CityMeshes.R11InnerMajorEased} re-graded; fan builds since load)";
 
         // ------------------------------------------------------------------
         //  CLIMBC1: a seated branch leaves its host on the host's grade.

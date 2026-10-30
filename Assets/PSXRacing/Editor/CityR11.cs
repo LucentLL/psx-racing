@@ -110,7 +110,7 @@ namespace PSXRacing.EditorTools
                     var e = (bool[])keepE.Clone(); var m = (bool[])keepM.Clone();
                     // PSX_R11_OFFSET="STREETSEAT,..." - the OFF pass turns only these off (default: every round-11 switch)
                     string offSet = System.Environment.GetEnvironmentVariable("PSX_R11_OFFSET");
-                    string[] namesE = { "CLIMBC1", "STREETSEAT", "SPILLUNDER", "CRESTCAP" }, namesM = { "GORESTART", "GOREFAN", "MITREPOKE" };
+                    string[] namesE = { "CLIMBC1", "STREETSEAT", "SPILLUNDER", "CRESTCAP" }, namesM = { "GORESTART", "GOREFAN", "MITREPOKE", "SKIRTPAVE", "INNERMAJOR" };
                     bool Off(string nm) => string.IsNullOrWhiteSpace(offSet) || System.Array.IndexOf(offSet.ToUpperInvariant().Split(','), nm) >= 0;
                     for (int i = 0; i < e.Length; i++) e[i] = keepE[i] && (on || (i < namesE.Length && !Off(namesE[i])));
                     for (int i = 0; i < m.Length; i++) m[i] = keepM[i] && (on || (i < namesM.Length && !Off(namesM[i])));
