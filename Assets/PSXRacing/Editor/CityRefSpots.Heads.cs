@@ -33,6 +33,8 @@ namespace PSXRacing.EditorTools
             /// <summary>... and every head facing it, wherever it hangs.</summary>
             public readonly Dictionary<(int j, int a), int> total = new Dictionary<(int, int), int>();
             public readonly Dictionary<byte, int> how = new Dictionary<byte, int>();
+            public readonly Dictionary<(int j, int a), byte> howBy = new Dictionary<(int, int), byte>();
+            public readonly List<string> diag = new List<string>();
             public double ms;
         }
 
@@ -78,6 +80,7 @@ namespace PSXRacing.EditorTools
                     foreach (bool on in new[] { false, true })
                     {
                         CitySignals.HeadsEvery = on;
+                        CitySignals.DiagNoHead = on;
                         var c = census[on];
                         var t0 = clock.Elapsed.TotalMilliseconds;
                         var occ = RoadsideOccupancy.Build(map, trims, bld, tm, tx, tz);
@@ -90,7 +93,9 @@ namespace PSXRacing.EditorTools
                             c.by[(ah.junction, ah.approach)] = ah.view;
                             c.total[(ah.junction, ah.approach)] = ah.heads;
                             c.how.TryGetValue(ah.how, out int k); c.how[ah.how] = k + 1;
+                            c.howBy[(ah.junction, ah.approach)] = ah.how;
                         }
+                        c.diag.AddRange(st.diag);
                         foreach (var m in new[] { st.mesh, st.lamps, st.halos }) if (m != null) Object.DestroyImmediate(m);
                         c.ms += clock.Elapsed.TotalMilliseconds - t0;
                     }
@@ -136,6 +141,18 @@ namespace PSXRacing.EditorTools
                         if (after < kv.Value) worse++;
                     }
                     log.AppendLine($"BEFORE -> AFTER: {fixedA} approaches that showed no head now show one; approaches with fewer heads than before {worse}");
+                    foreach (var kv in census[false].by)
+                    {
+                        census[true].by.TryGetValue(kv.Key, out int after);
+                        if (after >= kv.Value) continue;
+                        var j = all[kv.Key.j]; var a = j.approaches[kv.Key.a];
+                        census[false].howBy.TryGetValue(kv.Key, out byte hb); census[true].howBy.TryGetValue(kv.Key, out byte ha);
+                        census[false].total.TryGetValue(kv.Key, out int tb); census[true].total.TryGetValue(kv.Key, out int ta);
+                        log.AppendLine($"  FEWER junction {j.id} at ({j.centre.x:0}, {j.centre.y:0}) approach {kv.Key.a} e{a.edge} '{map.edges[a.edge].name}' lanes {a.lanesIn}: in view {kv.Value} -> {after} (facing it anywhere {tb} -> {ta}); carried by {HowName(hb)} -> {HowName(ha)}");
+                    }
+                    CitySignals.DiagNoHead = false;
+                    log.AppendLine($"WHY NONE (each approach left with no head in view: what stands on its view's feet): {census[true].diag.Count}");
+                    foreach (var line in census[true].diag) log.AppendLine("  " + line);
                 }
                 var c1000 = all.Count > 1000 ? all[1000] : null;
                 if (c1000 != null)

@@ -225,6 +225,141 @@ namespace PSXRacing.City
             return !c.legs[1].turn || InTheWay(c, c.legs[1], o, 0f);
         }
 
+        /// <summary>PathHits as a distance (round 3c): how far along its way car c's
+        /// centre goes before its body (its half width and <paramref name="margin"/>:
+        /// a body IN the lanes it sweeps, not one at their edge - a car waiting at a
+        /// side street's line) would meet car o's - the rest of its turn, or its run
+        /// as far as CrossGap looks and the turn after; MaxValue where it does not.</summary>
+        float PathHitAt(Car c, Car o, float margin = 0.4f)
+        {
+            if (c.legCount == 0) return 0f;
+            ref Leg L = ref c.legs[0];
+            float reach = c.halfW + margin;
+            if (L.turn) return L.len <= 0.5f ? 0f : WayHit(c, L, o, Mathf.Clamp01(c.u / L.len), 0f, reach);
+            var e = map.edges[L.edge];
+            var right = new Vector2(o.fwd.y, -o.fwd.x);
+            float rem = L.len - c.u;
+            float win = Mathf.Max(14f, 4f + c.speed + c.halfL + o.halfL + o.halfW);
+            for (float x = 0f; x <= Mathf.Min(rem, win); x += 1f)
+            {
+                var p = PlanPoint(e, Mathf.Clamp(L.s0 + L.dir * (c.u + x), 0f, e.length), c.lat, out _);
+                if (BodyNear(p, o, right, reach)) return x;
+            }
+            if (rem >= win || c.legCount < 2 || !c.legs[1].turn) return float.MaxValue;
+            return WayHit(c, c.legs[1], o, 0f, rem, reach);
+        }
+
+        static bool BodyNear(Vector2 p, Car o, Vector2 right, float reach)
+        {
+            Vector2 d = p - o.pos;
+            float a = Mathf.Max(0f, Mathf.Abs(Vector2.Dot(d, o.fwd)) - o.halfL), b = Mathf.Max(0f, Mathf.Abs(Vector2.Dot(d, right)) - o.halfW);
+            return a * a + b * b < reach * reach;
+        }
+
+        /// <summary>InTheWay as a distance: metres (from <paramref name="baseM"/> on) along
+        /// turn T from <paramref name="t0"/> of it (and 8 m past it) to its first point
+        /// within reach of o's body; MaxValue where none is.</summary>
+        static float WayHit(Car c, in Leg T, Car o, float t0, float baseM, float reach)
+        {
+            var right = new Vector2(o.fwd.y, -o.fwd.x);
+            int n = Mathf.Clamp(Mathf.CeilToInt(T.len * (1f - t0)), 6, 40);
+            float span = T.len * (1f - t0);
+            Vector2 tEnd = (T.p3 - T.p2).sqrMagnitude > 1e-6f ? (T.p3 - T.p2).normalized : c.fwd;
+            for (int i = 0; i <= n + 8; i++)
+            {
+                Vector2 p = i <= n ? Bez(T, t0 + (1f - t0) * i / n, out _) : T.p3 + tEnd * (i - n);
+                if (BodyNear(p, o, right, reach)) return baseM + (i <= n ? span * i / n : span + (i - n));
+            }
+            return float.MaxValue;
+        }
+
+        // ---- LOCKED PAIRS (round 3c recovery) ---------------------------------------
+        const float BackMaxM = 2.0f, BackMps = 0.6f, CreepMps = 0.8f;
+
+        /// <summary>LOCKED (round 3c recovery): c and o stand, each braking for the
+        /// other across its way - after a low-speed touch in a box, or two noses in
+        /// each other's way. After 1.5 s the one further through the box clears it:
+        /// the other backs out of its way (Drive), and it waits for that - then o,
+        /// standing off its way, is passed by the rule above; where the other cannot
+        /// back (a car behind it, the start of its leg) it creeps past at a walk.
+        /// True: c goes on past o now. Never a teleport, never a car taken away.</summary>
+        bool Unlock(Car c, Car o)
+        {
+            if (c.speed > 0.3f || o.speed > 0.3f || o.leadId != c.id || o.leadKind != 4)
+            {
+                if (c.lockWith == o.id) { c.lockWith = -1; c.backedFor = -1; }
+                return false;
+            }
+            if (c.lockWith != o.id) { c.lockWith = o.id; c.lockSince = Time.time; c.backedFor = -1; return false; }
+            if (Time.time - c.lockSince < 1.5f) return false;
+            if (!FurtherThrough(c, o))
+            {
+                // this one gives way: out of the other's way, backing along its own
+                // turn (once a lock), where there is room behind it
+                if (c.backFor != o && c.backedFor != o.id && PathHits(o, c) && CanBack(c))
+                { c.backFor = o; c.backedFor = o.id; c.backed = 0f; Stats.lockBacks++; }
+                return false;
+            }
+            // this one goes: once the other is off its way, or now - creeping - where
+            // the other cannot back out of it
+            if (o.backFor == c) return false;
+            if (o.backedFor != c.id && PathHits(c, o) && CanBack(o)) return false;   // it starts backing on its step
+            if (c.creepPast != o) { c.creepPast = o; Stats.lockCreeps++; }
+            return true;
+        }
+
+        /// <summary>Can car c back out of a lock: in a turn (in the box - never back over
+        /// a stop line), a little way into it, room behind it.</summary>
+        bool CanBack(Car c) => c.legCount > 0 && c.legs[0].turn && c.u > 0.15f && RoomBehind(c);
+
+        /// <summary>Of two cars locked in a box, is c further through it (more of
+        /// its turn behind it; then the lower id)?</summary>
+        static bool FurtherThrough(Car c, Car o)
+        {
+            float fc = c.legCount > 0 && c.legs[0].turn && c.legs[0].len > 0.1f ? c.u / c.legs[0].len : 0f;
+            float fo = o.legCount > 0 && o.legs[0].turn && o.legs[0].len > 0.1f ? o.u / o.legs[0].len : 0f;
+            if (Mathf.Abs(fc - fo) > 0.05f) return fc > fo;
+            return c.id < o.id;
+        }
+
+        /// <summary>Room to back 0.8 m: no car (nor the player) where its body would go.</summary>
+        bool RoomBehind(Car c, float m = 0.8f)
+        {
+            var back = c.pos - c.fwd * m;
+            for (int i = 0; i < live.Count; i++)
+            {
+                var o = live[i];
+                if (o == c || (o.pos - back).sqrMagnitude > 81f) continue;
+                if (Vector2.Dot(o.pos - c.pos, c.fwd) >= 0f) continue;
+                if (RectDepth(back, c.fwd, c.halfL + 0.3f, c.halfW + 0.1f, o.pos, o.fwd, o.halfL, o.halfW) > 0f) return false;
+            }
+            if (Vector2.Dot(playerPos - c.pos, c.fwd) < 0f && (playerPos - back).sqrMagnitude < (c.halfL + 3f) * (c.halfL + 3f)) return false;
+            return true;
+        }
+
+        /// <summary>How deep two rectangles (centre, heading, half length, half width) overlap; 0 apart.</summary>
+        static float RectDepth(Vector2 pa, Vector2 fa, float la, float wa, Vector2 pb, Vector2 fb, float lb, float wb)
+        {
+            float best = float.MaxValue;
+            Vector2 ra = new Vector2(-fa.y, fa.x), rb = new Vector2(-fb.y, fb.x);
+            for (int k = 0; k < 4; k++)
+            {
+                Vector2 ax = k == 0 ? fa : k == 1 ? ra : k == 2 ? fb : rb;
+                float ea = Mathf.Abs(Vector2.Dot(fa, ax)) * la + Mathf.Abs(Vector2.Dot(ra, ax)) * wa;
+                float eb = Mathf.Abs(Vector2.Dot(fb, ax)) * lb + Mathf.Abs(Vector2.Dot(rb, ax)) * wb;
+                float ov = ea + eb - Mathf.Abs(Vector2.Dot(pb - pa, ax));
+                if (ov <= 0f) return 0f;
+                best = Mathf.Min(best, ov);
+            }
+            return best;
+        }
+
+        /// <summary>Round 3c: when it came into the box it is in (boxJ).</summary>
+        static void BoxSince(Car c)
+        {
+            if (c.boxJ != c.boxSinceJ) { c.boxSinceJ = c.boxJ; c.boxSince = Time.time; }
+        }
+
         /// <summary>How near the way a car takes another's body may pass: its half
         /// width and half a metre standing, a tenth of a metre more per m/s (round 3b,
         /// 2026-10-29 check: a car follows its planned arc to within a metre, not half

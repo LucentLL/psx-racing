@@ -829,6 +829,8 @@ namespace PSXRacing.City
             /// <summary>Round 3: the heads every signalised approach of the tile's
             /// junctions shows, and how they are carried (the head census).</summary>
             public readonly List<ApproachHeads> approachHeads = new List<ApproachHeads>();
+            /// <summary>The heads tool's why-none lines (<see cref="DiagNoHead"/>).</summary>
+            public readonly List<string> diag = new List<string>();
             /// <summary>Round 3's fallbacks: far-left mast arms, heads on a pole's
             /// side, post-mounted heads.</summary>
             public int leftArms, poleHeads, postHeads, backSpans, nearSupps;
@@ -861,6 +863,9 @@ namespace PSXRacing.City
         /// the crosswalks' curb ramps.
         /// </summary>
         public static bool HeadsEvery = System.Environment.GetEnvironmentVariable("PSX_CITY_HEADS") != "0";
+        /// <summary>A tool's switch: every approach left with no head in view gets a line on
+        /// <see cref="SignalTile.diag"/> - what stands in each of its view's feet.</summary>
+        public static bool DiagNoHead;
 
         const float PoleW = 0.32f, ArmW = 0.16f, MaxArmM = 14.5f;
         const float HeadW = 0.36f, HeadH = 1.06f, HeadD = 0.26f, LensM = 0.25f, LensStep = 0.34f;
@@ -899,7 +904,13 @@ namespace PSXRacing.City
             Begin();
             try
             {
+                furnished.Clear();
                 foreach (var j in list) Furnish(j, st);
+                // round 3c: every junction's own wire or arms first, then the supplements -
+                // a post or pole one junction adds never takes the corner another's wire
+                // stands on (14 approaches showed fewer heads than before round 3)
+                if (HeadsEvery) foreach (var j in list) if (furnished.ContainsKey(j.id)) FurnishMore(j, st);
+                furnished.Clear();
             }
             finally { occNow = null; }
             var origin = tm != null ? tm.origin : new Vector3(tileMin.x, 0f, tileMin.y);
@@ -932,15 +943,27 @@ namespace PSXRacing.City
             if (furnishHeads.Length < n) { furnishHeads = new int[n]; furnishView = new int[n]; furnishHow = new byte[n]; furnishFar = new float[n]; furnishNear = new bool[n]; }
             for (int i = 0; i < n; i++) { furnishHeads[i] = 0; furnishView[i] = 0; furnishHow[i] = 0; furnishFar[i] = float.MaxValue; furnishNear[i] = false; }
             jPoles.Clear(); poleUsed.Clear();
+            var corner = new Vector2?[n];
             try
             {
                 // each approach's far-right corner
-                var corner = new Vector2?[n];
                 for (int i = 0; i < n; i++)
                     if (FarCorner(j, j.approaches[i], out var f)) corner[i] = f;
-                // outside uptown: a span wire between an opposing pair's corners
+                // outside uptown: a span wire between an opposing pair's corners - on the
+                // corners it stood on before round 3 (the first clear one up to 40 m on): its
+                // heads hang over the lanes, in view, wherever its poles stand (round 3c: 13
+                // of the 14 approaches with fewer heads lost a wire's heads when its corners
+                // were looked for only within the view)
                 howNow = HowSpan;
-                if (!j.uptown && SpanWire(j, corner, st)) st.spanWires++;
+                var wireCorner = corner;
+                if (!j.uptown && HeadsEvery)
+                {
+                    wireCorner = new Vector2?[n];
+                    cornerAny = true;
+                    try { for (int i = 0; i < n; i++) if (FarCorner(j, j.approaches[i], out var f)) wireCorner[i] = f; }
+                    finally { cornerAny = false; }
+                }
+                if (!j.uptown && SpanWire(j, wireCorner, st)) st.spanWires++;
                 else
                 {
                     howNow = HowMast;
@@ -951,8 +974,36 @@ namespace PSXRacing.City
                         else st.refused++;
                     }
                 }
-                // round 3: two faces at least for every approach's through movement
                 if (HeadsEvery)
+                    furnished[j.id] = new FurnishState
+                    {
+                        heads = (int[])furnishHeads.Clone(), view = (int[])furnishView.Clone(), how = (byte[])furnishHow.Clone(),
+                        far = (float[])furnishFar.Clone(), near = (bool[])furnishNear.Clone(),
+                        poles = new List<Vector2>(jPoles), used = new HashSet<int>(poleUsed), corner = corner
+                    };
+            }
+            finally
+            {
+                if (!HeadsEvery)
+                    for (int i = 0; i < n; i++)
+                        st.approachHeads.Add(new ApproachHeads { junction = j.id, approach = i, heads = furnishHeads[i], view = furnishView[i], how = furnishHow[i] });
+                furnishJ = null;
+            }
+        }
+
+        /// <summary>Round 3c: a junction's supplements, after every junction of its tile
+        /// has its own wire or arms (Furnish saved where it got to).</summary>
+        static void FurnishMore(Junction j, SignalTile st)
+        {
+            var fs = furnished[j.id];
+            int n = j.approaches.Count;
+            furnishJ = j;
+            for (int i = 0; i < n; i++) { furnishHeads[i] = fs.heads[i]; furnishView[i] = fs.view[i]; furnishHow[i] = fs.how[i]; furnishFar[i] = fs.far[i]; furnishNear[i] = fs.near[i]; }
+            jPoles.Clear(); jPoles.AddRange(fs.poles); poleUsed.Clear(); poleUsed.UnionWith(fs.used);
+            var corner = fs.corner;
+            try
+            {
+                // round 3: two faces at least for every approach's through movement
                 {
                     // suburban and arterial (span wires): the set-back wire first;
                     // uptown (mast arms): the arms and posts first, the wire last
@@ -979,12 +1030,18 @@ namespace PSXRacing.City
                             st.poleHeads++; st.nearSupps++;
                         }
                     }
+                    // round 3c: still none in view - set back past what fills its corners
+                    for (int i = 0; i < n; i++)
+                        if (furnishView[i] == 0) SetBack(j, i, st);
                 }
             }
             finally
             {
                 for (int i = 0; i < n; i++)
                     st.approachHeads.Add(new ApproachHeads { junction = j.id, approach = i, heads = furnishHeads[i], view = furnishView[i], how = furnishHow[i] });
+                if (DiagNoHead && HeadsEvery)
+                    for (int i = 0; i < n; i++)
+                        if (furnishView[i] == 0) st.diag.Add($"junction {j.id} approach {i} e{j.approaches[i].edge} '{mapNow.edges[j.approaches[i].edge].name}': " + WhyNoFoot(j, i));
                 furnishJ = null;
             }
         }
@@ -992,6 +1049,16 @@ namespace PSXRacing.City
         // ---- round 3: the head census and the fallbacks ---------------------
 
         static Junction furnishJ;
+        /// <summary>Round 3c: where Furnish got to per junction (its wire or arms), for
+        /// FurnishMore's supplements after the tile's every junction has its own.</summary>
+        sealed class FurnishState
+        {
+            public int[] heads, view; public byte[] how; public float[] far; public bool[] near;
+            public List<Vector2> poles; public HashSet<int> used; public Vector2?[] corner;
+        }
+        static readonly Dictionary<int, FurnishState> furnished = new Dictionary<int, FurnishState>();
+        /// <summary>FarCorner looks past the view (as before round 3): a span wire's corners.</summary>
+        static bool cornerAny;
         static int[] furnishHeads = new int[0], furnishView = new int[0];
         /// <summary>Per approach: the nearest far-side head in view (m past the stop
         /// line), and whether one in view stands short of the junction.</summary>
@@ -1091,6 +1158,55 @@ namespace PSXRacing.City
                 poleUsed.Add(pn * 64 + i);
                 st.poleHeads++;
             }
+        }
+
+        /// <summary>Round 3c: an approach still with NO head in view after its wire or arm
+        /// and the supplements (a race run-off, a lot's or a lamp's ground, the junction's
+        /// other roads all round its corners - Dalton Avenue / North Tryon Street): a mast
+        /// arm from a pole set back as far as a set-back wire's (14 m past the pavement),
+        /// far right then far left; a post there; a near-side post from 6 m short of the
+        /// line, right then left. Never in a lane, a building, a run-off, on a curb ramp
+        /// (FootOk, OnCurbRamp), and only where the head is in the driver's view.</summary>
+        static void SetBack(Junction j, int i, SignalTile st)
+        {
+            var a = j.approaches[i];
+            for (int side = 1; side >= -1 && furnishView[i] == 0; side -= 2)
+                if (SideCorner(j, a, side, 1.0f, PoleW * 0.5f, 3f, out var f, BackSpanM))
+                {
+                    howNow = side > 0 ? HowMast : HowMastLeft;
+                    if (MastArm(j, a, f, st, side)) { st.mastArms++; if (side < 0) st.leftArms++; }
+                }
+            for (int side = 1; side >= -1 && furnishView[i] == 0; side -= 2)
+                if (SideCorner(j, a, side, FarPostOffM, SigBaseW * 0.5f, 2.5f, out var f, BackSpanM) && InView(a, f))
+                {
+                    howNow = side > 0 ? HowPostFar : HowPostLeft;
+                    PostHead(a, f, st); st.postHeads++;
+                }
+            for (int side = 1; side >= -1 && furnishView[i] == 0; side -= 2)
+                if (NearSide(j, a, side, out var f))
+                {
+                    howNow = HowPostNear;
+                    PostHead(a, f, st); st.postHeads++;
+                }
+        }
+
+        /// <summary>A near-side post's foot set back: from the stop line to 6 m short of it
+        /// (and 3 m past), 0.9 m to 14 m out past the pavement on <paramref name="side"/>.</summary>
+        static bool NearSide(Junction j, Approach a, int side, out Vector2 foot)
+        {
+            foot = default;
+            float edgeLat = side > 0 ? a.inR : LeftEdge(a);
+            for (float o = 0.9f; o <= BackSpanM; o += 1.0f)
+                for (float t = 0f; t >= ViewNearM; t -= 1f)
+                    for (int k = 0; k < 2; k++)
+                    {
+                        float tt = k == 0 ? t : -t * 0.5f;   // and a little past the line
+                        var f = a.at + a.Right * (edgeLat + side * (0.3f + o)) + a.u * tt;
+                        if (!InView(a, f) || !PostFootOk(j, a, f)) continue;
+                        foot = f;
+                        return true;
+                    }
+            return false;
         }
 
         /// <summary>The junction's pole best placed to carry a head for approach
@@ -1282,6 +1398,52 @@ namespace PSXRacing.City
 
         static float Ground(Vector2 f) => CityMeshes.LatticeAt(mapNow, f.x, f.y);
 
+        /// <summary>The heads tool: what stands on each foot of an approach's view (6 m short
+        /// of its stop line to 55 m past, 1-14 m out from its pavement either side).</summary>
+        static string WhyNoFoot(Junction j, int i)
+        {
+            var a = j.approaches[i];
+            var sb = new System.Text.StringBuilder();
+            float tNode = Vector2.Dot(mapNow.nodes[a.node] - a.at, a.u);
+            sb.Append($"stop line ({a.at.x:0},{a.at.y:0}) u ({a.u.x:0.00},{a.u.y:0.00}), node {tNode:0} m past it, lanes {a.inL:0.0}..{a.inR:0.0}, left edge {LeftEdge(a):0.0}, uptown {j.uptown}; ");
+            foreach (int side in new[] { 1, -1 })
+            {
+                float edgeLat = side > 0 ? a.inR : LeftEdge(a);
+                var cnt = new int[8];
+                string firstOk = null;
+                for (float extra = 1f; extra <= 14f; extra += 1f)
+                    for (float t = ViewNearM; t <= ViewFarM; t += 1.5f)
+                    {
+                        var f = a.at + a.Right * (edgeLat + side * (0.3f + extra)) + a.u * t;
+                        int why = FootWhy(f, 1.0f, PoleW * 0.5f);
+                        if (why == 7) { if (Mathf.Abs(Ground(f) - a.roadY) > 3f) why = 5; else if (OnCurbRamp(j, f, PoleW * 0.5f)) why = 6; }
+                        cnt[why]++;
+                        if (why == 7 && firstOk == null) firstOk = $"({t:0} along, {extra:0} out at {f.x:0},{f.y:0})";
+                    }
+                sb.Append(side > 0 ? "RIGHT" : "LEFT").Append($" building/water/deck {cnt[0]}, lamp/sign/pole {cnt[1]}, race run-off {cnt[2]}, lane {cnt[3]}, junction pavement {cnt[4]}, ground {cnt[5]}, curb ramp {cnt[6]}, clear {cnt[7]}{(firstOk != null ? " first " + firstOk : "")}; ");
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>FootOk's tests one by one: 0 building / water / deck, 1 lamp / sign /
+        /// another pole, 2 a race run-off, 3 a lane, 4 the junction's pavement, 7 clear.</summary>
+        static int FootWhy(Vector2 f, float offM, float r)
+        {
+            var map = mapNow;
+            const byte Solid = RoadsideOccupancy.Building | RoadsideOccupancy.Water | RoadsideOccupancy.Deck;
+            int tx = Mathf.FloorToInt(f.x / CityMeshes.TileSize), tz = Mathf.FloorToInt(f.y / CityMeshes.TileSize);
+            var sm = RoadsideOccupancy.Static(map, trimsNow, buildingsNow, tx, tz);
+            int m = sm.At(f);
+            if (occNow != null && InTile(f)) m |= occNow.At(f);
+            if ((m & Solid) != 0) return 0;
+            if ((m & RoadsideOccupancy.Other) != 0) return 1;
+            if (RaceRunOff.Inside(map, trimsNow, f)) return 2;
+            float d = sm.RoadEdgeDistance(f, offM + r + 2f, out _, out _, out _);
+            if (d < offM + r) return 3;
+            if (CityMeshes.FurnitureOffFans && CityMeshes.JunctionPavementDistance(map, trimsNow, f, offM + r) < offM + r) return 4;
+            return 7;
+        }
+
         static void Claim(Vector2 f, float r)
         {
             if (occNow != null) occNow.MarkDisc(f, r + RoadsideOccupancy.CellPadM, RoadsideOccupancy.Other);
@@ -1390,7 +1552,7 @@ namespace PSXRacing.City
             var node = mapNow.nodes[a.node];
             float t0 = Vector2.Dot(node - a.at, a.u) + 2f;
             for (float extra = 1.2f; extra <= 4.8f; extra += 1.2f)
-                for (float t = t0; t <= t0 + 40f && (!HeadsEvery || t <= ViewFarM); t += 1.5f)
+                for (float t = t0; t <= t0 + 40f && (!HeadsEvery || cornerAny || t <= ViewFarM); t += 1.5f)
                 {
                     var f = a.at + r * (a.inR + 0.3f + extra) + a.u * t;
                     if (!FootOk(f, 1.0f, PoleW * 0.5f)) continue;

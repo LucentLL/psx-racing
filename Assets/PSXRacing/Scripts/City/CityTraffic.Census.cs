@@ -635,7 +635,9 @@ namespace PSXRacing.City
                             var A = j.approaches[a]; var B = j.approaches[b];
                             if (A.edge == B.edge || A.group != B.group) continue;
                             float ang = Vector2.Angle(A.u, B.u);
-                            if (ang < 55f || ang > 125f) continue;
+                            // (round 3c: from 20 degrees - two roads from one side at a skew cross
+                            // too; under 20 a slip lane beside its road's approach)
+                            if (ang < CitySignals.SideDeg || ang > 125f) continue;
                             conflictPairs++;
                             log.Add("signal", "conflicting-green", A.node, A.edge, B.edge, P(j.centre, j.roadY), -1, 0f, 1f, "static",
                                     $"junction {j.id}: approaches e{A.edge} '{map.edges[A.edge].name}' and e{B.edge} '{map.edges[B.edge].name}' cross at {ang:0} deg and are both phase group {A.group}: green together");
@@ -1083,6 +1085,119 @@ namespace PSXRacing.City
                         $"{compLen[i] / 1000f:0.00} km of directed road round e{rep >> 1} '{e.name}' cls{e.cls} {(canLeave ? "that no car from the rest of the city can drive into" : "that a car, once in, can never drive out of")}");
             }
             report.AppendLine($"  directed network: {comps} strongly connected parts; the biggest holds {compLen[giant] / 1000f:0} of {total / 1000f:0} km (directed); outside it {outside / 1000f:0.0} km in {comps - 1} parts ({logged} of 150 m+ logged; {cutParts} more, {cutKm:0.0} km, touch the data's edge and are not counted)");
+        }
+
+        // ---- JUNCTION TRACE (round 3c tool) ----------------------------------------------------
+        // PSX_TRAFFIC_TRACE="node,node,..." (with the census): every 0.1 s, each car within 35 m of
+        // a traced node - its leg, speed, gap and why, and what its crossing scan made of each car
+        // across its way - kept for 8 s and written to PSX_TRAFFIC_TRACE_OUT (traffic_trace.txt)
+        // when two cars there touch (a bump, a wreck, or the bodies overlapping). Off: no cost.
+        static int[] traceNodes;
+        static bool traceRead;
+        static System.IO.StreamWriter traceW;
+        readonly List<(float t, int n, string line)> traceRing = new List<(float, int, string)>();
+        readonly Dictionary<int, StringBuilder> traceWhy = new Dictionary<int, StringBuilder>();
+        readonly Dictionary<int, float> traceDumped = new Dictionary<int, float>();
+        float nextTrace;
+
+        static bool TraceOn
+        {
+            get
+            {
+                if (!traceRead)
+                {
+                    traceRead = true;
+                    var v = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_TRACE");
+                    if (!string.IsNullOrEmpty(v))
+                    {
+                        var ids = new List<int>();
+                        foreach (var t in v.Split(',')) if (int.TryParse(t.Trim(), out int n)) ids.Add(n);
+                        traceNodes = ids.ToArray();
+                        var path = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_TRACE_OUT");
+                        if (string.IsNullOrEmpty(path)) path = "traffic_trace.txt";
+                        traceW = new System.IO.StreamWriter(path, false) { AutoFlush = true };
+                        traceW.WriteLine("# trace nodes " + v);
+                    }
+                }
+                return traceW != null;
+            }
+        }
+
+        int TraceNode(Car c)
+        {
+            if (traceNodes == null) return -1;
+            foreach (int n in traceNodes)
+                if (n >= 0 && n < map.nodes.Length && (map.nodes[n] - c.pos).sqrMagnitude < 35f * 35f) return n;
+            return -1;
+        }
+
+        /// <summary>What the crossing scan made of car o (traced cars only).</summary>
+        void TraceCross(Car c, Car o, string tag, float g)
+        {
+            if (!c.traced) return;
+            if (!traceWhy.TryGetValue(c.id, out var sb)) traceWhy[c.id] = sb = new StringBuilder();
+            sb.Append(' ').Append(o.id).Append(':').Append(tag);
+            if (g < 1e6f) sb.Append(g.ToString("0.0"));
+        }
+
+        void TraceStep(double now)
+        {
+            if (!TraceOn) return;
+            for (int i = 0; i < live.Count; i++) live[i].traced = !live[i].wrecked && live[i].legCount > 0 && TraceNode(live[i]) >= 0;
+            if (Time.time < nextTrace) return;
+            nextTrace = Time.time + 0.1f;
+            float t = Time.time;
+            while (traceRing.Count > 0 && traceRing[0].t < t - 8f) traceRing.RemoveAt(0);
+            for (int i = 0; i < live.Count; i++)
+            {
+                var c = live[i];
+                if (!c.traced) continue;
+                ref Leg L = ref c.legs[0];
+                string asp = "";
+                if (c.appIdx >= 0 && c.appCtl == CtlSignal) asp = " " + CitySignals.AspectOf(apps[c.appIdx].channel, now).ToString()[0];
+                traceWhy.TryGetValue(c.id, out var sb);
+                string line = $"{t:0.0} c{c.id} v{c.speed:0.0} a{c.accel:0.0} {(L.turn ? "T" + (L.kind == -1 ? "L" : L.kind == 1 ? "R" : L.kind == 2 ? "U" : "S") : "R")} n{L.node} e{L.edge}>{(L.turn ? L.edge2 : -1)} u{c.u:0.0}/{L.len:0.0} ln{c.lane}{(c.lc ? ">" + c.laneTo : "")} p({c.pos.x:0.0},{c.pos.y:0.0}) h{Mathf.Atan2(c.fwd.x, c.fwd.y) * Mathf.Rad2Deg:0} gap{(c.gap < 1e6f ? c.gap.ToString("0.0") : "-")} why{c.why} lead{c.leadId} ctl{c.ctlWhy} blk{c.blockId}/{c.blockWhy} box{c.boxJ} app{c.appJ}{asp} com{(c.committed == c.appKey ? 1 : 0)} |{(sb != null ? sb.ToString() : "")}";
+                traceRing.Add((t, TraceNode(c), line));
+            }
+            traceWhy.Clear();
+            // bodies overlapping (the census's test, on the plan's rectangles)
+            for (int i = 0; i < live.Count; i++)
+            {
+                var a = live[i];
+                if (!a.traced) continue;
+                for (int j = i + 1; j < live.Count; j++)
+                {
+                    var b = live[j];
+                    if (!b.traced || (a.pos - b.pos).sqrMagnitude > 64f) continue;
+                    if (RectOverlap(a, b) > 0.05f) TraceDump(a, $"overlap c{a.id} c{b.id} {RectOverlap(a, b):0.00} m");
+                }
+            }
+        }
+
+        /// <summary>How deep two cars' plan rectangles overlap (0: apart).</summary>
+        static float RectOverlap(Car a, Car b)
+        {
+            float best = float.MaxValue;
+            var axes = new[] { a.fwd, new Vector2(-a.fwd.y, a.fwd.x), b.fwd, new Vector2(-b.fwd.y, b.fwd.x) };
+            foreach (var ax in axes)
+            {
+                float ra = Mathf.Abs(Vector2.Dot(a.fwd, ax)) * a.halfL + Mathf.Abs(Vector2.Dot(new Vector2(-a.fwd.y, a.fwd.x), ax)) * a.halfW;
+                float rb = Mathf.Abs(Vector2.Dot(b.fwd, ax)) * b.halfL + Mathf.Abs(Vector2.Dot(new Vector2(-b.fwd.y, b.fwd.x), ax)) * b.halfW;
+                float o = ra + rb - Mathf.Abs(Vector2.Dot(b.pos - a.pos, ax));
+                if (o <= 0f) return 0f;
+                best = Mathf.Min(best, o);
+            }
+            return best;
+        }
+
+        void TraceDump(Car c, string why)
+        {
+            if (traceW == null || !c.traced) return;
+            int n = TraceNode(c);
+            if (traceDumped.TryGetValue(n, out float at) && Time.time - at < 30f) return;
+            traceDumped[n] = Time.time;
+            traceW.WriteLine($"=== {Time.time:0.0} node {n}: {why}");
+            foreach (var r in traceRing) if (r.n == n) traceW.WriteLine(r.line);
         }
     }
 }

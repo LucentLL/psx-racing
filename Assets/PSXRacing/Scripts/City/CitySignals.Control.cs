@@ -475,6 +475,12 @@ namespace PSXRacing.City
         /// <summary>An approach runs along an axis when it is within this of
         /// every approach already on it (as lines).</summary>
         public const float AxisDeg = 50f;
+        /// <summary>Two approaches from the SAME side run one axis only within this of
+        /// each other (a slip lane beside its road's approach); further apart they are
+        /// two roads crossing at a skew (round 3c: Nevin Road and Gibbon Road, node
+        /// 15108, 48 degrees - one axis "as lines", one green, their straights met in
+        /// the box).</summary>
+        public const float SideDeg = 20f;
 
         static float Importance(CityMap map, Approach a)
         {
@@ -571,7 +577,7 @@ namespace PSXRacing.City
                     return x.j.approaches[x.i].edge.CompareTo(y.j.approaches[y.i].edge);
                 });
                 axes.Clear(); axisW.Clear();
-                float cosAxis = Mathf.Cos(AxisDeg * Mathf.Deg2Rad);
+                float cosAxis = Mathf.Cos(AxisDeg * Mathf.Deg2Rad), cosSide = Mathf.Cos(SideDeg * Mathf.Deg2Rad);
                 var axisOf = new int[refs.Count];
                 for (int r = 0; r < refs.Count; r++)
                 {
@@ -580,19 +586,32 @@ namespace PSXRacing.City
                     for (int x = 0; x < axes.Count; x++)
                     {
                         float mn = 1f;
-                        foreach (int q in axes[x]) mn = Mathf.Min(mn, Mathf.Abs(Vector2.Dot(a.u, refs[q].j.approaches[refs[q].i].u)));
+                        foreach (int q in axes[x])
+                        {
+                            float dq = Vector2.Dot(a.u, refs[q].j.approaches[refs[q].i].u);
+                            if (dq > 0f && dq < cosSide) { mn = -1f; break; }   // the same side, a skew apart
+                            mn = Mathf.Min(mn, Mathf.Abs(dq));
+                        }
                         if (mn >= cosAxis && mn > bestMin) { bestMin = mn; best = x; }
                     }
                     if (best < 0 && axes.Count >= 4)
                     {
                         // a fifth road: onto the axis it runs nearest (counted)
                         Counts.axesCapped++;
-                        for (int x = 0; x < axes.Count; x++)
-                        {
-                            float mx = 0f;
-                            foreach (int q in axes[x]) mx = Mathf.Max(mx, Mathf.Abs(Vector2.Dot(a.u, refs[q].j.approaches[refs[q].i].u)));
-                            if (mx > bestMin) { bestMin = mx; best = x; }
-                        }
+                        for (int pass = 0; pass < 2 && best < 0; pass++)
+                            for (int x = 0; x < axes.Count; x++)
+                            {
+                                float mx = 0f;
+                                bool skew = false;
+                                foreach (int q in axes[x])
+                                {
+                                    float dq = Vector2.Dot(a.u, refs[q].j.approaches[refs[q].i].u);
+                                    if (dq > 0f && dq < cosSide) skew = true;
+                                    mx = Mathf.Max(mx, Mathf.Abs(dq));
+                                }
+                                if (pass == 0 && skew) continue;   // not onto a road it crosses at a skew, while another will do
+                                if (mx > bestMin) { bestMin = mx; best = x; }
+                            }
                     }
                     if (best < 0) { axes.Add(new List<int>(4)); axisW.Add(0f); best = axes.Count - 1; }
                     axes[best].Add(r);
