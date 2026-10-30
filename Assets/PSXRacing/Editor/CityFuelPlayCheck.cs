@@ -143,10 +143,15 @@ namespace PSXRacing.EditorTools
             CityFuelPlayCheck.log.AppendLine($"  note station {st.index} ({st.OsmName}) lot at ({st.centre.x:0}, {st.centre.y:0}), " +
                                              $"{Mathf.Sqrt(best):0} m from uptown, {st.drives.Length} driveways, {st.replaced.Length} boxes replaced");
 
-            // its tiles built whole: the station stands with them
+            // its tiles built whole: the station stands with them. NO FRAME
+            // between this and the car's teleport beside the pump: the car is
+            // still where the scene began (1.6 km off), and the streaming's
+            // next Update drops every tile outside its ring - the station and
+            // its pumps with them (the first run, 2026-10-30: "0 pumps within
+            // 20 m"). The new colliders synced for the parking search.
             var lot = new Vector3(st.centre.x, 0f, st.centre.y);
             world.EnsureRing(lot, 1);
-            yield return null;
+            Physics.SyncTransforms();
             var canopyAt = st.World(0f, CityStations.CanV0 + 0.5f * CityStations.CanD);
             GasPump pump = null; float pd = float.MaxValue;
             int near = 0;

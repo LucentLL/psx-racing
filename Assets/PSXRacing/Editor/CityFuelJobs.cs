@@ -94,6 +94,15 @@ namespace PSXRacing.EditorTools
             finally { Save(); }
         }
 
+        /// <summary>FrameCost, then the city refuel check
+        /// (CityFuelPlayCheck.Run: it enters play mode and exits the editor
+        /// itself; run it with no -quit) - two jobs in one Unity run.</summary>
+        public static void FrameCostThenCityCheck()
+        {
+            FrameCost();
+            CityFuelPlayCheck.Run();
+        }
+
         static void DriveAudit()
         {
             CityAudit.RunDrive();
