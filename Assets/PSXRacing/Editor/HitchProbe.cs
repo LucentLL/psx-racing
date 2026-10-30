@@ -195,6 +195,40 @@ namespace PSXRacing.EditorTools
             return order;
         }
 
+        // ---- city perf round 1 (2026-10-30): what each kind of step allocates ----
+        // The WebGL player's GC is non-incremental: every collection is one long
+        // frame (40-100 ms in Firefox with the city loaded), and the tile builder
+        // is most of what fills the heap (the perf tour: ~1 MB/s at speed uptown).
+        // Each new-path step's managed allocation (this thread's counter where the
+        // runtime keeps one, else the used heap's rise - coarse) by its kind.
+        static readonly Dictionary<string, (long bytes, int n)> allocByKind = new Dictionary<string, (long bytes, int n)>();
+        static long allocTotal;
+        static int allocTiles;
+        static bool allocExact;
+        static long AllocNow() => allocExact ? System.GC.GetAllocatedBytesForCurrentThread() : System.GC.GetTotalMemory(false);
+        static void AllocProbe()
+        {
+            long a0 = System.GC.GetAllocatedBytesForCurrentThread();
+            var junk = new byte[64 * 1024];
+            allocExact = System.GC.GetAllocatedBytesForCurrentThread() - a0 >= junk.Length;
+        }
+        static void AddAlloc(string kind, long bytes)
+        {
+            if (bytes <= 0) return;
+            allocByKind.TryGetValue(kind, out var a);
+            allocByKind[kind] = (a.bytes + bytes, a.n + 1);
+            allocTotal += bytes;
+        }
+        static void ReportAlloc()
+        {
+            if (allocTiles == 0) return;
+            L($"ALLOCATED by the new path ({(allocExact ? "GC.GetAllocatedBytesForCurrentThread" : "the used heap's rises - coarse")}): {allocTotal / 1048576.0:0.0} MB over {allocTiles} tiles = {allocTotal / 1048576.0 / allocTiles:0.00} MB a tile");
+            var l = new List<KeyValuePair<string, (long bytes, int n)>>(allocByKind);
+            l.Sort((x, y) => y.Value.bytes.CompareTo(x.Value.bytes));
+            for (int i = 0; i < Mathf.Min(24, l.Count); i++)
+                L($"    {l[i].Value.bytes / 1048576.0,8:0.00} MB {l[i].Value.bytes * 100.0 / Mathf.Max(1, allocTotal),5:0}%  {l[i].Value.n,7} calls {l[i].Value.bytes / 1024.0 / l[i].Value.n,9:0.0} KB a call  {l[i].Key}");
+        }
+
         // ---- every step of every tile ----
         struct StepRec { public float ms; public int phase, item, part; public float[] zones; public string tile; }
         static readonly List<StepRec> bigNew = new List<StepRec>(), bigOld = new List<StepRec>();
@@ -236,6 +270,7 @@ namespace PSXRacing.EditorTools
                 world.EnsureTile(Mathf.FloorToInt(map.uptown.x / CityMeshes.TileSize), Mathf.FloorToInt(map.uptown.y / CityMeshes.TileSize));
                 world.DropAll();
                 timings.Clear();
+                AllocProbe();   // city perf round 1: the allocation counter this runtime keeps (or not)
 
                 var routes = new List<(string name, List<Vector2> line)>();
                 foreach (var id in Env("PSX_HITCH_ROUTES", "uptown,tryon,i77").Split(','))
@@ -274,23 +309,29 @@ namespace PSXRacing.EditorTools
                             for (int g = 0; g < 400 + done.Count * 37 % 900 && !ja.Done; g++) ja.Step(0.0);
                             ja.Abandon(); KillTile(ja.Result); abandonTests++;
                         }
-                        var job = StepThrough(map, k.x, k.y, stepsNew, bigNew, tileName);
+                        var job = StepThrough(map, k.x, k.y, stepsNew, bigNew, tileName, trackAlloc: true);
+                        allocTiles++;
                         string sig = MeshSig(job.Result);
                         if (Env("PSX_HITCH_NORMALS", "1") == "1") NormalsExperiment(job.Result);
                         if (ab) { if (sig == sigOld) abSame++; else { abDiffer++; L($"  A/B MISMATCH tile {tileName}: old steps {sigOld} / new {sig}"); } }
                         // stood up, then its signs/poles a slice a call, then its trees
                         timings.Clear();
+                        var suArgs = new object[] { key, k.x, k.y, job.Result, job.WorkMs, job.Slices, (float)job.MaxSliceMs };
+                        long suA = AllocNow();
                         var clock = System.Diagnostics.Stopwatch.StartNew();
-                        standUp.Invoke(world, new object[] { key, k.x, k.y, job.Result, job.WorkMs, job.Slices, (float)job.MaxSliceMs });
+                        standUp.Invoke(world, suArgs);
                         float su = (float)clock.Elapsed.TotalMilliseconds;
+                        AddAlloc("stand-up", AllocNow() - suA);
                         standMs.Add(su);
                         if (timings.Count > 0) cookMs.Add(timings[0].cookMs);
                         standWorst.Add((su, $"stand-up {tileName} (attach {(timings.Count > 0 ? timings[0].attachMs : 0):0.0}, cook {(timings.Count > 0 ? timings[0].cookMs : 0):0.0}, props {(timings.Count > 0 ? timings[0].propsMs : 0):0.0})"));
                         for (int g = 0; g < 200; g++)
                         {
+                            long sgA = AllocNow();
                             clock.Restart();
                             int r = world.PrepareSigns(key);
                             float ms = (float)clock.Elapsed.TotalMilliseconds;
+                            AddAlloc("signs/poles slice", AllocNow() - sgA);
                             if (r == 0) break;
                             signMs.Add(ms);
                             standWorst.Add((ms, $"signs/poles slice {tileName}"));
@@ -299,12 +340,18 @@ namespace PSXRacing.EditorTools
                         // RunTreeJob), or in one go where the world has no sliced tree frames
                         if (beginTrees != null && runTreeJob != null && CityWorld.SliceTrees)
                         {
+                            var btArgs = new object[] { key };
+                            var rtArgs = new object[] { 0.0 };
+                            long btA = AllocNow();
                             clock.Restart();
-                            bool open = (bool)beginTrees.Invoke(world, new object[] { key });
+                            bool open = (bool)beginTrees.Invoke(world, btArgs);
+                            AddAlloc("tree frame begin", AllocNow() - btA);
                             for (int g = 0; open && g < 100000; g++)
                             {
                                 if (g > 0) clock.Restart();
-                                bool doneT = (bool)runTreeJob.Invoke(world, new object[] { 0.0 });
+                                long tA = AllocNow();
+                                bool doneT = (bool)runTreeJob.Invoke(world, rtArgs);
+                                AddAlloc("tree slice", AllocNow() - tA);
                                 float sl = (float)clock.Elapsed.TotalMilliseconds;
                                 treeMs.Add(sl);
                                 standWorst.Add((sl, $"tree slice {tileName}"));
@@ -351,6 +398,7 @@ namespace PSXRacing.EditorTools
             File.WriteAllText(Path.Combine(ProjectDir, "PSXRacing_hitch_" + Tag + "_hashes.txt"), hashes.ToString());
             L("");
             ReportSteps(ab ? "NEW STEPS" : "STEPS", stepsNew, bigNew);
+            ReportAlloc();
             if (ab) ReportSteps("OLD STEPS (FineSteps off, same run)", stepsOld, bigOld);
             if (ab) L($"A/B: {abSame} tiles identical old steps vs new, {abDiffer} MISMATCH(ES); {abandonTests} of the new builds came after a job given up part way");
             L(basePath.Length > 0 ? $"vs BASE {basePath}: {compared} tiles compared, {same} identical, {differ} MISMATCH(ES)" : "no base given (PSX_HITCH_BASE)");
@@ -368,9 +416,11 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < Mathf.Min(14, standWorst.Count); i++) L($"    {standWorst[i].ms,6:0.0} ms  {standWorst[i].what}");
         }
 
-        static CityMeshes.TileJob StepThrough(CityMap map, int tx, int tz, List<float> steps, List<StepRec> big, string tileName)
+        static CityMeshes.TileJob StepThrough(CityMap map, int tx, int tz, List<float> steps, List<StepRec> big, string tileName, bool trackAlloc = false)
         {
+            long ab0 = trackAlloc ? AllocNow() : 0;
             var job = CityMeshes.Begin(map, CityWorld.SharedTrims, CityWorld.SharedBuildings, tx, tz);
+            if (trackAlloc) AddAlloc("begin (a tile job's start)", AllocNow() - ab0);
             var z0 = new long[CityMeshes.HitchClock.Count];
             CityMeshes.HitchClock.On = true;
             try
@@ -379,8 +429,12 @@ namespace PSXRacing.EditorTools
                 {
                     System.Array.Copy(CityMeshes.HitchClock.Ticks, z0, z0.Length);
                     var c = System.Diagnostics.Stopwatch.StartNew();
+                    long a0 = trackAlloc ? AllocNow() : 0;
                     job.Step(0.0);
+                    long da = trackAlloc ? AllocNow() - a0 : 0;
                     float ms = (float)c.Elapsed.TotalMilliseconds;
+                    if (da > 0)
+                        AddAlloc("step " + CityMeshes.PhaseNames[Mathf.Clamp(CityMeshes.StepPhaseNow, 0, CityMeshes.PhaseNames.Length - 1)] + " " + PartName(CityMeshes.StepPhaseNow, CityMeshes.StepPartNow), da);
                     steps.Add(ms);
                     if (ms > 8f)
                     {

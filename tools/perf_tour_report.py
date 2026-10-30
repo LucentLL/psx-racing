@@ -85,7 +85,9 @@ def main():
                 route = os.path.basename(fr)[len(tag) + 1:-len("_frames.csv")]
                 rows = list(csv.DictReader(open(fr, encoding="utf-8")))
                 snaps = sum(1 for r in rows if r.get("ev") == "SNAP")
-                rows = [r for r in rows if r.get("ev") != "SNAP"]   # a look run's own captures
+                nudges = sum(1 for r in rows if r.get("ev") == "NUDGE")
+                # a look run's own captures, and the frames a held-up car was set on in
+                rows = [r for r in rows if r.get("ev") not in ("SNAP", "NUDGE")]
                 if not rows:
                     continue
                 ms = sorted(f(r, "ms") for r in rows)
@@ -107,6 +109,21 @@ def main():
                 print(f"  {route}: {n} frames, {secs:.0f} s, {dist:.0f} m, avg {dist / max(secs, 1e-3) * 3.6:.0f} km/h")
                 print(f"    avg fps {n * 1000.0 / tot:.1f}  p50 {pct(ms, .5):.1f}  p95 {pct(ms, .95):.1f}  p99 {pct(ms, .99):.1f}  worst {ms[-1]:.1f} ms;"
                       f"  >33 {o33}  >50 {o50}  >100 {o100};  GC {gcs} (frames {', '.join(f'{m:.0f}' for m in gc_ms[:12])})")
+                # the managed heap: what was allocated between collections (the
+                # used heap's rises, frame to frame, where no collection fell)
+                alloc = 0.0
+                for a, b in zip(rows, rows[1:]):
+                    if int(f(b, "gc")) == 0:
+                        rise = f(b, "usedMB") - f(a, "usedMB")
+                        if rise > 0:
+                            alloc += rise
+                used = [f(r, "usedMB") for r in rows]
+                # (allocKB: this thread's own count, where the runtime keeps one)
+                akb = sum(f(r, "allocKB") for r in rows)
+                print(f"    heap used {min(used):.0f}-{max(used):.0f} MB; allocated {alloc:.0f} MB in {secs:.0f} s ({alloc / max(secs, 1e-3):.2f} MB/s)"
+                      + (f"; counted {akb / 1024:.0f} MB ({akb / 1024 / max(secs, 1e-3):.2f} MB/s)" if akb > 0 else "")
+                      + (f"; {snaps} snapshot frames left out" if snaps else "")
+                      + (f"; set on past a hold-up {nudges}x (those frames left out)" if nudges else ""))
                 table.append([tag, route, n, round(n * 1000.0 / tot, 1), round(pct(ms, .5), 1), round(pct(ms, .95), 1),
                               round(pct(ms, .99), 1), round(ms[-1], 1), o33, o50, o100, gcs])
                 for lim in (33.4, 50.0):

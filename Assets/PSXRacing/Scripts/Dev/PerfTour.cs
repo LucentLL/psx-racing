@@ -330,8 +330,14 @@ namespace PSXRacing
         //  one route, driven and timed
         // ------------------------------------------------------------------
         const int Cap = 72000;
+        /// <summary>A route held up this many times is set on 50 m each time
+        /// before it ends as stuck (the city perf round 1 before-runs lost two
+        /// routes to a car that sat behind a queue).</summary>
+        const int MaxNudges = 6;
         // per-frame columns
-        float[] cT, cMs, cOut, cFix, cPhys, cFixS, cUpd, cLate, cRend, cUi, cUsed, cX, cZ, cV;
+        float[] cT, cMs, cOut, cFix, cPhys, cFixS, cUpd, cLate, cRend, cUi, cUsed, cX, cZ, cV, cAlloc;
+        bool allocOk = true;
+        long allocWas;
         byte[] cSteps, cGc, cTiles;
         float[][] cSlot;
         string[] cEv;
@@ -352,7 +358,7 @@ namespace PSXRacing
             if (cT != null) return;
             cT = new float[Cap]; cMs = new float[Cap]; cOut = new float[Cap]; cFix = new float[Cap]; cPhys = new float[Cap];
             cFixS = new float[Cap]; cUpd = new float[Cap]; cLate = new float[Cap]; cRend = new float[Cap]; cUi = new float[Cap];
-            cUsed = new float[Cap]; cX = new float[Cap]; cZ = new float[Cap]; cV = new float[Cap];
+            cUsed = new float[Cap]; cX = new float[Cap]; cZ = new float[Cap]; cV = new float[Cap]; cAlloc = new float[Cap];
             cSteps = new byte[Cap]; cGc = new byte[Cap]; cTiles = new byte[Cap]; cEv = new string[Cap];
             cSlot = new float[(int)PerfClock.Slot.COUNT][];
             for (int s = 0; s < cSlot.Length; s++) cSlot[s] = new float[Cap];
@@ -387,6 +393,18 @@ namespace PSXRacing
             cGc[i] = (byte)Mathf.Clamp(gc - gcWas, 0, 255);
             gcWas = gc;
             cUsed[i] = (float)(System.GC.GetTotalMemory(false) / 1048576.0);
+            // what this thread allocated in the frame, where the runtime counts it
+            if (allocOk)
+            {
+                try
+                {
+                    long ab = System.GC.GetAllocatedBytesForCurrentThread();
+                    cAlloc[i] = allocWas > 0 && ab >= allocWas ? (float)((ab - allocWas) / 1024.0) : 0f;
+                    allocWas = ab;
+                    if (ab == 0) allocOk = false;
+                }
+                catch { allocOk = false; }
+            }
             if (car != null)
             {
                 var p = car.transform.position;
@@ -468,11 +486,19 @@ namespace PSXRacing
             ai.ReseedPath();
             var fuel = car.GetComponent<FuelTank>();
             if (fuel != null) fuel.percent = 100f;
+            // every route on a fresh engine: the AI flat out for minutes cooks one
+            // (EngineTemp: down on power, then seized - the before-runs' later
+            // routes crawled at walking pace and stopped), and a fresh body
+            var heat = car.GetComponent<EngineTemp>();
+            if (heat != null) { heat.StartCold(heat.ambientC); heat.TopUp(100f); }
+            var hits = car.GetComponent<CollisionResponder>();
+            if (hits != null) hits.ResetDamage();
 
             Alloc();
             n = 0; spikes.Length = 0; spikeLines = 0;
             gcWas = System.GC.CollectionCount(0);
             int gc0 = gcWas;
+            allocWas = 0;
             long heap0 = System.GC.GetTotalMemory(false);
             long res0 = UnityEngine.Profiling.Profiler.GetMonoHeapSizeLong();
             // rolling: the clock starts when the car is moving
@@ -486,6 +512,7 @@ namespace PSXRacing
 
             float dist = 0f; var last = car.transform.position;
             float slowFor = 0f;
+            int nudges = 0;
             string end = "time";
             float nextSnap = snapEvery > 0f ? 2f : float.MaxValue;
             int snapN = 0;
@@ -508,6 +535,17 @@ namespace PSXRacing
                 if (step < 60f) dist += step;
                 last = p;
                 if (Mathf.Abs(car.forwardSpeed) < 2f) slowFor += Time.unscaledDeltaTime; else slowFor = 0f;
+                // held up (a queue at a red, a car across the way, a kerb): set on
+                // down the path 50 m, as a respawn would, a few times before giving up
+                if (slowFor > 8f && nudges < MaxNudges)
+                {
+                    int to = Mathf.Min(path.Count - 13, ai.PathIndex + Mathf.CeilToInt(50f / Mathf.Max(0.5f, path.spacing)));
+                    var np = path.GetPoint(to) + Vector3.up * 0.45f;
+                    car.ResetTo(np, Quaternion.LookRotation(Flat(path.GetTangent(to)), Vector3.up), seated: true);
+                    ai.ReseedPath();
+                    nudges++; slowFor = 0f; last = np; evNow = "NUDGE";
+                    continue;
+                }
                 if (slowFor > 12f) { end = "stuck at " + p.x.ToString("0") + "," + p.z.ToString("0"); break; }
                 if (!route.loop && ai.PathIndex >= path.Count - 12) { end = "route end"; break; }
                 if (route.loop && dist >= pathM) { end = "lap"; break; }
@@ -525,7 +563,7 @@ namespace PSXRacing
 
             // ---- the report ----
             var csv = new StringBuilder(n * 160 + 1024);
-            csv.Append("i,t,ms,out,fix,phys,fixs,upd,late,rend,ui,steps,gc,usedMB,x,z,v,tiles,ev");
+            csv.Append("i,t,ms,out,fix,phys,fixs,upd,late,rend,ui,steps,gc,usedMB,x,z,v,tiles,ev,allocKB");
             for (int s = 0; s < cSlot.Length; s++) csv.Append(',').Append(PerfClock.SlotNames[s].Replace(' ', '_'));
             csv.Append('\n');
             var ci = CultureInfo.InvariantCulture;
@@ -535,8 +573,8 @@ namespace PSXRacing
                    .Append(cOut[i].ToString("0.00", ci)).Append(',').Append(cFix[i].ToString("0.00", ci)).Append(',').Append(cPhys[i].ToString("0.00", ci)).Append(',')
                    .Append(cFixS[i].ToString("0.00", ci)).Append(',').Append(cUpd[i].ToString("0.00", ci)).Append(',').Append(cLate[i].ToString("0.00", ci)).Append(',')
                    .Append(cRend[i].ToString("0.00", ci)).Append(',').Append(cUi[i].ToString("0.00", ci)).Append(',').Append(cSteps[i]).Append(',').Append(cGc[i]).Append(',')
-                   .Append(cUsed[i].ToString("0.0", ci)).Append(',').Append(cX[i].ToString("0.0", ci)).Append(',').Append(cZ[i].ToString("0.0", ci)).Append(',')
-                   .Append(cV[i].ToString("0.0", ci)).Append(',').Append(cTiles[i]).Append(',').Append(cEv[i] ?? "");
+                   .Append(cUsed[i].ToString("0.00", ci)).Append(',').Append(cX[i].ToString("0.0", ci)).Append(',').Append(cZ[i].ToString("0.0", ci)).Append(',')
+                   .Append(cV[i].ToString("0.0", ci)).Append(',').Append(cTiles[i]).Append(',').Append(cEv[i] ?? "").Append(',').Append(cAlloc[i].ToString("0.0", ci));
                 for (int s = 0; s < cSlot.Length; s++) csv.Append(',').Append(cSlot[s][i].ToString("0.00", ci));
                 csv.Append('\n');
             }
@@ -547,7 +585,7 @@ namespace PSXRacing
             int over33 = 0, over50 = 0, over100 = 0; double sum = 0;
             for (int i = 0; i < n; i++) { sum += ms[i]; if (ms[i] > 33.4f) over33++; if (ms[i] > 50f) over50++; if (ms[i] > 100f) over100++; }
             var sum1 = new StringBuilder();
-            sum1.AppendLine($"route {id} ({route.name}) {pathM:0} m path; ended: {end}; {secs:0.0} s, {dist:0} m driven, avg {(secs > 0 ? dist / secs * 3.6f : 0):0} km/h");
+            sum1.AppendLine($"route {id} ({route.name}) {pathM:0} m path; ended: {end}; {secs:0.0} s, {dist:0} m driven, avg {(secs > 0 ? dist / secs * 3.6f : 0):0} km/h" + (nudges > 0 ? $"; set on 50 m {nudges}x (held up)" : ""));
             sum1.AppendLine($"frames {n}  avg fps {(sum > 0 ? n * 1000.0 / sum : 0):0.0}  p50 {P(0.5f):0.0}  p95 {P(0.95f):0.0}  p99 {P(0.99f):0.0}  worst {P(1f):0.0} ms");
             sum1.AppendLine($"over 33 ms {over33}  over 50 ms {over50}  over 100 ms {over100}");
             sum1.AppendLine($"gc collections {gcN}  heap used MB {heap0 / 1048576.0:0} -> {heap1 / 1048576.0:0}  reserved MB {res0 / 1048576.0:0} -> {res1 / 1048576.0:0}");
@@ -578,12 +616,20 @@ namespace PSXRacing
                 if (f.Length < 3) continue;
                 float.TryParse(f[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x);
                 float.TryParse(f[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float z);
-                float.TryParse(f[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float yaw);
+                bool hasYaw = float.TryParse(f[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float yaw);
                 string name = f.Length > 3 && f[3].Length > 0 ? f[3] : "shot" + (++k);
                 if (!map.NearestRoadPoint(new Vector2(x, z), 200f, skipLinks: false, out int ei, out float s, out _)) { Say("SHOT " + name + ": no road near"); continue; }
                 var e = map.edges[ei];
                 var q = LineModel.LanePoint(e, s);
                 var pos = new Vector3(q.x, e.YAt(s) + 0.45f, q.y);
+                // a number is a compass yaw; anything else faces along the road
+                // nearest the yaw the spec asks for ("r" its way, "rb" against it)
+                if (!hasYaw)
+                {
+                    var t2 = e.TangentAt(s);
+                    if (f[2].Trim() == "rb") t2 = -t2;
+                    yaw = Mathf.Atan2(t2.x, t2.y) * Mathf.Rad2Deg;
+                }
                 var rot = Quaternion.Euler(0f, yaw, 0f);
                 world.EnsureRing(pos, 1);
                 car.ResetTo(pos, rot, seated: true);
@@ -594,8 +640,9 @@ namespace PSXRacing
                     if (world.LiveTiles >= 25 && world.TreesPending == 0 && !world.TreeJobOpen && Time.realtimeSinceStartup - t0 > 8f) break;
                     yield return null;
                 }
-                // the far layers settle (chunks, proxies, a swap a second)
-                for (int i = 0; i < 240; i++) { car.ResetTo(pos, rot, seated: true); yield return null; }
+                // the far layers settle (chunks, proxies, a swap a second, the fill)
+                float s0 = Time.realtimeSinceStartup;
+                while (Time.realtimeSinceStartup - s0 < 12f) { car.ResetTo(pos, rot, seated: true); yield return null; }
                 yield return new WaitForEndOfFrame();
                 var tex = ScreenCapture.CaptureScreenshotAsTexture();
                 var png = tex.EncodeToPNG();

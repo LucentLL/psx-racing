@@ -100,12 +100,34 @@ if (browser === "firefox") {
     "--new-window", url];
 }
 console.log(`perf tour: ${browser} ${exe}\n  ${url}\n  -> ${out}`);
-const proc = spawn(exe, argv, { stdio: "ignore", detached: false });
+let proc = spawn(exe, argv, { stdio: "ignore", detached: false });
 
 function killByProfile() {
   const name = browser === "firefox" ? "firefox.exe" : "chrome.exe";
   const ps = `Get-CimInstance Win32_Process -Filter "Name='${name}'" | Where-Object { $_.CommandLine -like '*${path.basename(profile)}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`;
   try { execFileSync("powershell", ["-NoProfile", "-Command", ps], { stdio: "ignore" }); } catch { }
+}
+
+// A browser that never came up (2026-10-30: one Firefox launch left its
+// throwaway profile untouched - nothing but user.js - and the tour would have
+// waited out its whole limit): a real start writes the profile within
+// seconds; launched again if not.
+for (let tries = 1; ; tries++) {
+  let up = false;
+  for (let i = 0; i < 40 && !up; i++) {
+    await sleep(1000);
+    up = fs.readdirSync(profile).some(f => f !== "user.js");
+  }
+  if (up) break;
+  if (tries >= 3) {
+    console.log(`BROWSER DID NOT START after ${tries} launches`);
+    killByProfile(); server.close();
+    try { fs.rmSync(profile, { recursive: true, force: true }); } catch { }
+    process.exit(1);
+  }
+  console.log(`the browser did not start (its profile is untouched) - launching again (${tries + 1})`);
+  try { proc.kill(); } catch { }
+  proc = spawn(exe, argv, { stdio: "ignore", detached: false });
 }
 
 let code = 1;
