@@ -207,7 +207,7 @@ namespace PSXRacing.City
             if (L.turn) return L.len <= 0.5f || InTheWay(c, L, o, Mathf.Clamp01(c.u / L.len));
             var e = map.edges[L.edge];
             var right = new Vector2(o.fwd.y, -o.fwd.x);
-            float reach = c.halfW + 0.5f, rem = L.len - c.u;
+            float reach = PathReach(c), rem = L.len - c.u;
             // as far as CrossGap sees a car across (3 m + a second of travel + both
             // bodies): a shorter look let a fast car find a standing one on its
             // lane only inside its stopping distance
@@ -225,6 +225,14 @@ namespace PSXRacing.City
             return !c.legs[1].turn || InTheWay(c, c.legs[1], o, 0f);
         }
 
+        /// <summary>How near the way a car takes another's body may pass: its half
+        /// width and half a metre standing, a tenth of a metre more per m/s (round 3b,
+        /// 2026-10-29 check: a car follows its planned arc to within a metre, not half
+        /// of one - a straight-on at 3.8 m/s and one behind at 7 m/s met a left
+        /// turner standing in the box at node 7681 the plan passed 0.5 m clear of;
+        /// standing pairs keep the half metre, so their locks stay undone).</summary>
+        static float PathReach(Car c) => c.halfW + 0.5f + 0.1f * Mathf.Clamp(c.speed, 0f, 8f);
+
         /// <summary>Is car o's body in the way car c takes through the box
         /// (the turn T from <paramref name="t0"/> of it on, and 8 m on past it,
         /// c's half width and half a metre either side)?</summary>
@@ -232,7 +240,7 @@ namespace PSXRacing.City
         {
             var right = new Vector2(o.fwd.y, -o.fwd.x);
             int n = Mathf.Clamp(Mathf.CeilToInt(T.len * (1f - t0)), 6, 40);
-            float reach = c.halfW + 0.5f;
+            float reach = PathReach(c);
             Vector2 tEnd = (T.p3 - T.p2).sqrMagnitude > 1e-6f ? (T.p3 - T.p2).normalized : c.fwd;
             for (int i = 0; i <= n + 8; i++)
             {
