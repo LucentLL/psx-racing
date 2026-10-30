@@ -21,8 +21,8 @@ commit them again, with the sandbox metas, after a re-bake). 4 Unity runs (the c
    Re-run (in `CityFuelJobs.FrameCostThenCityCheck`, after FrameCost in the same process): pumps stood (4 within 20 m),
    room to park, parked, FUEL offered, out, FILL UP 20% -> 65% and $5000 -> $4996, STOP stops it. 2 FAILs LEFT:
    "and its shop door marker" (StoreDoor.Nearest(lot, 60 m) null) and "the shop's GO INSIDE prompt hangs at this
-   station's door" [GO INSIDE]. Likely cause (unverified): the door registers later than the pumps (not in OnEnable),
-   and the check now looks the same frame the station stands - look for the door after the teleport's frames instead.
+   station's door" [GO INSIDE]. Cause NOT found: StoreDoor registers in OnEnable, as GasPump does, so it is not the frame; look at
+   StoreDoor.Nearest and station 142's shop pose (did its shop part stand?) before the re-run.
    ("installed [off (PSX_CITY_FUEL=0)]" on that run is FrameCost's OFF pass's CityStations.LastReport: cosmetic.)
 4. FRAME COST (CityFuelJobs.FrameCost, 25 tiles a site, stations ON vs OFF): Carowinds tile build p50 100.8 vs 78.1 ms,
    p95 368 vs 383, max 443 vs 385, stand-up max 27.0 vs 1.4 ms, draws in view max 152 vs 128. E Independence p50 39.4
