@@ -831,7 +831,7 @@ namespace PSXRacing.City
             public readonly List<ApproachHeads> approachHeads = new List<ApproachHeads>();
             /// <summary>Round 3's fallbacks: far-left mast arms, heads on a pole's
             /// side, post-mounted heads.</summary>
-            public int leftArms, poleHeads, postHeads, backSpans;
+            public int leftArms, poleHeads, postHeads, backSpans, nearSupps;
             /// <summary>The halos' lens codes (channel << 2 | colour), in mesh order.</summary>
             public ushort[] haloLens;
             public float ms;
@@ -929,8 +929,8 @@ namespace PSXRacing.City
             st.signalJunctions++;
             int n = j.approaches.Count;
             furnishJ = j;
-            if (furnishHeads.Length < n) { furnishHeads = new int[n]; furnishView = new int[n]; furnishHow = new byte[n]; }
-            for (int i = 0; i < n; i++) { furnishHeads[i] = 0; furnishView[i] = 0; furnishHow[i] = 0; }
+            if (furnishHeads.Length < n) { furnishHeads = new int[n]; furnishView = new int[n]; furnishHow = new byte[n]; furnishFar = new float[n]; furnishNear = new bool[n]; }
+            for (int i = 0; i < n; i++) { furnishHeads[i] = 0; furnishView[i] = 0; furnishHow[i] = 0; furnishFar[i] = float.MaxValue; furnishNear[i] = false; }
             jPoles.Clear(); poleUsed.Clear();
             try
             {
@@ -960,6 +960,25 @@ namespace PSXRacing.City
                     for (int i = 0; i < n; i++)
                         if (furnishView[i] < 2) Supplement(j, i, corner[i], st);
                     if (j.uptown) BackSpan(j, st);
+                    // a DEEP junction (a divided road crossed, a wide box: the nearest
+                    // far-side face 120 ft or more past the stop line - Carnegie
+                    // Boulevard at Colony Road, 45 m) reads small from the approach:
+                    // a near-side supplemental face (MUTCD 4D.14), a post beside the
+                    // stop line, else a head on a pole of the junction's there
+                    for (int i = 0; i < n; i++)
+                    {
+                        if (furnishView[i] == 0 || furnishNear[i] || furnishFar[i] < DeepM) continue;
+                        var a = j.approaches[i];
+                        howNow = HowPostNear;
+                        if (NearRight(j, a, out var nf)) { PostHead(a, nf, st); st.postHeads++; st.nearSupps++; }
+                        else if (JunctionPole(a, i, false, out int pn))
+                        {
+                            howNow = HowPole;
+                            PoleHead(a, jPoles[pn], st);
+                            poleUsed.Add(pn * 64 + i);
+                            st.poleHeads++; st.nearSupps++;
+                        }
+                    }
                 }
             }
             finally
@@ -974,6 +993,15 @@ namespace PSXRacing.City
 
         static Junction furnishJ;
         static int[] furnishHeads = new int[0], furnishView = new int[0];
+        /// <summary>Per approach: the nearest far-side head in view (m past the stop
+        /// line), and whether one in view stands short of the junction.</summary>
+        static float[] furnishFar = new float[0];
+        static bool[] furnishNear = new bool[0];
+        /// <summary>120 ft: a far-side face further than this from the stop line takes a
+        /// near-side supplement (the 1971 MUTCD's limit; 2009's 4D.14 asks for judgment
+        /// from 150 ft and requires one past 180 ft; 100 ft put posts at 720 approaches,
+        /// not the period's span-wire look).</summary>
+        const float DeepM = 36.6f;
         static byte[] furnishHow = new byte[0];
         /// <summary>The junction's mast-arm and span poles (a head can go on
         /// their side), and which approach already has one on which pole.</summary>
@@ -1525,7 +1553,14 @@ namespace PSXRacing.City
                     if (furnishJ.approaches[q].edge == a.edge && furnishJ.approaches[q].node == a.node)
                     {
                         furnishHeads[q]++; furnishHow[q] |= howNow;
-                        if (InView(a, new Vector2(c.x, c.z))) furnishView[q]++;
+                        var c2 = new Vector2(c.x, c.z);
+                        if (InView(a, c2))
+                        {
+                            furnishView[q]++;
+                            float along = Vector2.Dot(c2 - a.at, a.u);
+                            if (along < 4f) furnishNear[q] = true;
+                            else furnishFar[q] = Mathf.Min(furnishFar[q], along);
+                        }
                         break;
                     }
             var face = new Vector3(-a.u.x, 0f, -a.u.y);            // toward the drivers

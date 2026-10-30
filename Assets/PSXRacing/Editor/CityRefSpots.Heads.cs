@@ -27,7 +27,7 @@ namespace PSXRacing.EditorTools
     {
         sealed class HeadCensus
         {
-            public int backSpans, junctions, approaches, a0, a1, a2, t0, jAny0, jAll0, spans, masts, leftArms, poleHeads, postHeads, poles, heads, tiles;
+            public int nearSupps, backSpans, junctions, approaches, a0, a1, a2, t0, jAny0, jAll0, spans, masts, leftArms, poleHeads, postHeads, poles, heads, tiles;
             /// <summary>Per (junction, approach): heads in the driver's view (CitySignals.InView).</summary>
             public readonly Dictionary<(int j, int a), int> by = new Dictionary<(int, int), int>();
             /// <summary>... and every head facing it, wherever it hangs.</summary>
@@ -83,7 +83,7 @@ namespace PSXRacing.EditorTools
                         var occ = RoadsideOccupancy.Build(map, trims, bld, tm, tx, tz);
                         var st = CitySignals.Build(map, trims, bld, tm, occ, tx, tz);
                         c.tiles++;
-                        c.spans += st.spanWires; c.masts += st.mastArms; c.leftArms += st.leftArms; c.backSpans += st.backSpans;
+                        c.spans += st.spanWires; c.masts += st.mastArms; c.leftArms += st.leftArms; c.backSpans += st.backSpans; c.nearSupps += st.nearSupps;
                         c.poleHeads += st.poleHeads; c.postHeads += st.postHeads; c.poles += st.poles.Count; c.heads += st.heads.Count;
                         foreach (var ah in st.approachHeads)
                         {
@@ -116,7 +116,7 @@ namespace PSXRacing.EditorTools
                     log.AppendLine($"{(on ? "AFTER (PSX_CITY_HEADS on)" : "BEFORE (PSX_CITY_HEADS=0)")}: {c.junctions} signalised junctions, {c.approaches} approaches");
                     log.AppendLine($"    HEADS IN THE DRIVER'S VIEW (6 m short of the stop line to 55 m past it, 20 m either side): approaches with NONE {c.a0}, ONE {c.a1}, two or more {c.a2}; junctions with an approach with none {c.jAny0} (none on any approach {c.jAll0}), with every approach headed {c.junctions - c.jAny0}");
                     log.AppendLine($"    (approaches with no head facing them anywhere: {c.t0})");
-                    log.AppendLine($"    {c.heads} heads, {c.poles} poles and posts; {c.spans} span wires (set back past a run-off {c.backSpans}), {c.masts} mast arms (far-left {c.leftArms}); heads on a pole's side {c.poleHeads}, post-mounted heads {c.postHeads}; {c.ms:0} ms");
+                    log.AppendLine($"    {c.heads} heads, {c.poles} poles and posts; {c.spans} span wires (set back past a run-off {c.backSpans}), {c.masts} mast arms (far-left {c.leftArms}); heads on a pole's side {c.poleHeads}, post-mounted heads {c.postHeads}; near-side supplements at deep junctions (far faces 120 ft+ past the stop line) {c.nearSupps}; {c.ms:0} ms");
                     log.AppendLine("    carried by (approaches): " + string.Join(", ", c.how.OrderByDescending(kv => kv.Value).Select(kv => $"{HowName(kv.Key)} {kv.Value}")));
                     var zero = c.by.Where(kv => kv.Value == 0).Select(kv => kv.Key).ToList();
                     if (!on) foreach (var z in zero) zeroBefore.Add((all[z.j], z.a));
