@@ -433,6 +433,12 @@ namespace PSXRacing.City
             /// <summary>A CityProps tower stands on this lot instead of an
             /// extruded prism (CityBuildings decides). 0 = none.</summary>
             public byte propKind;
+            /// <summary>City fuel r1: a filling station's model stands IN PLACE
+            /// of this box (OSM's own canopy or kiosk, CityStations.Install):
+            /// hidden as well, and unlike an outline drawn by its parts it is
+            /// not there at all - no prism, no lot pad, no wall to keep clear
+            /// of, no window lit after dark.</summary>
+            public bool replaced;
         }
 
         public string attribution;
@@ -553,6 +559,20 @@ namespace PSXRacing.City
         /// <summary>Where footprint data exists. Inside it the procedural
         /// frontage pass stands down: the real buildings are the buildings.</summary>
         public Rect footprintBounds;
+
+        /// <summary>City fuel r1: the filling stations (charlotte_fuel.bytes,
+        /// <see cref="CityStations"/>), installed at the end of
+        /// <see cref="Parse"/>: their lots, driveways and aisles are in
+        /// <see cref="lots"/> from <see cref="stationLotsFrom"/> on, their curb
+        /// cuts in <see cref="lotEntrances"/>, the boxes they replace hidden.
+        /// Placed stations only; empty without the file.</summary>
+        public CityStations.Station[] stations = System.Array.Empty<CityStations.Station>();
+        /// <summary>The first of <see cref="lots"/> a station added (every OSM
+        /// lot is before it); -1 with none.</summary>
+        public int stationLotsFrom = -1;
+        /// <summary>The stations' file was made for another graph (its curb
+        /// cuts were re-found from their world positions; logged at load).</summary>
+        public bool stationsStale;
 
         // ---- spatial hash over edge SEGMENTS ------------------------------
         public const float Cell = 64f;
@@ -1183,6 +1203,11 @@ namespace PSXRacing.City
             // the twin-deck table (plan B1): from the graph, before the solve
             // that holds each pair to one height
             DeckPairs.Build(map);
+            // city fuel r1: the filling stations join the lots, the curb cuts
+            // and the footprints here, once, so every reader of the map - the
+            // tiles, the houses' pads, the roadside mask, the buildings' claims,
+            // the audits - sees them
+            CityStations.Install(map);
             LastParseMs = (float)parseClock.Elapsed.TotalMilliseconds;
             var clock = System.Diagnostics.Stopwatch.StartNew();
             CityElevation.Solve(map);
@@ -1545,6 +1570,7 @@ namespace PSXRacing.City
                     {
                         var f = footprints[fi];
                         if (nonHouseOnly && (f.style == 3 || f.gable)) continue;
+                        if (f.replaced) continue;   // a filling station stands there instead
                         float reach = r + Mathf.Max(f.hu, f.hv);
                         if ((f.centre - p).sqrMagnitude < reach * reach)
                         {
@@ -1602,6 +1628,7 @@ namespace PSXRacing.City
                     foreach (int fi in footCells[k])
                     {
                         var f = footprints[fi];
+                        if (f.replaced) continue;   // a filling station stands there instead
                         float reach = r + footReach[fi];
                         if ((f.centre - p).sqrMagnitude >= reach * reach) continue;
                         var pts = f.pts;

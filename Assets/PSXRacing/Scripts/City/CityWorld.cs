@@ -160,6 +160,27 @@ namespace PSXRacing.City
         /// <summary>Tiles whose trees are still to plant (the probe's check).</summary>
         public int TreesPending => treesPending.Count;
 
+        // ---- city fuel r1: THE FILLING STATIONS, A STATION A FRAME ---------
+        //
+        // A tile's stations are SEATED at its stand-up (on the ground its
+        // build drew, while that lattice is still the builder's) and STOOD on
+        // later frames, one a frame, nearest the car first, never on a tile's
+        // stand-up frame (the spike: renderers, colliders, cooking). A tile
+        // built whole - under a car, a tool's ring - stands its stations with
+        // it, and a station a car (or a rival) is within StationUrgentM of
+        // stands at once. Each is parented under its tile's root, so a drop
+        // takes it back; a queued one is forgotten with its tile.
+        struct PendingStation { public long key; public int station; public float[] seats; }
+        readonly List<PendingStation> stationQueue = new List<PendingStation>();
+        readonly List<CityStations.Pose> stationPoses = new List<CityStations.Pose>(8);
+        readonly List<CityStations.PartRect> stationRects = new List<CityStations.PartRect>(8);
+        int standUpFrame = -1;
+        const float StationUrgentM = 60f;
+        /// <summary>Stations seated and waiting for a frame of their own.</summary>
+        public int StationsPending => stationQueue.Count;
+        /// <summary>Stations stood since load (the probe's count).</summary>
+        public static int StationsStood { get; private set; }
+
         /// <summary>The live tiles' signs (WP-23), for the tools that look at
         /// them (the sign shots stand their cameras where the drivers are).</summary>
         public IEnumerable<CitySigns.SignTile> LiveSigns => liveSigns.Values;
@@ -496,6 +517,15 @@ namespace PSXRacing.City
                     if (treesPending.ContainsKey(k)) while (PrepareSigns(k) != 0) { }
                     PlantTrees(k);
                 }
+            // ...and its filling stations, every one queued in the ring
+            for (int i = stationQueue.Count - 1; i >= 0; i--)
+            {
+                var q = stationQueue[i];
+                int qx = (int)(q.key >> 24), qz = (int)((q.key << 40) >> 40);
+                if (Mathf.Abs(qx - tx) > r || Mathf.Abs(qz - tz) > r) continue;
+                stationQueue.RemoveAt(i);
+                if (live.TryGetValue(q.key, out var lt)) StandStation(q, lt.go);
+            }
         }
 
         void Update()
@@ -700,6 +730,63 @@ namespace PSXRacing.City
                     }
                 }
             }
+
+            // city fuel r1: a filling station a frame (see stationQueue)
+            if (stationQueue.Count > 0) StandNextStation(p);
+        }
+
+        /// <summary>The queued station nearest the car: stood now if a car is
+        /// at it, else only on a frame that stood no tile up.</summary>
+        void StandNextStation(Vector3 p)
+        {
+            int best = -1; float bestD = float.MaxValue;
+            for (int i = 0; i < stationQueue.Count; i++)
+            {
+                var c = Map.stations[stationQueue[i].station].centre;
+                float d = (new Vector2(p.x, p.z) - c).sqrMagnitude;
+                foreach (var a in anchors)
+                    if (a != null && a.gameObject.activeInHierarchy)
+                        d = Mathf.Min(d, (new Vector2(a.position.x, a.position.z) - c).sqrMagnitude);
+                if (d < bestD) { bestD = d; best = i; }
+            }
+            if (best < 0) return;
+            bool urgent = bestD < StationUrgentM * StationUrgentM;
+            if (!urgent && standUpFrame == Time.frameCount) return;
+            var q = stationQueue[best];
+            stationQueue.RemoveAt(best);
+            if (live.TryGetValue(q.key, out var t)) StandStation(q, t.go);
+        }
+
+        /// <summary>Seat a tile's stations on the ground its build drew (its
+        /// lattice is still the builder's) and stand them now, or queue them.</summary>
+        void QueueStations(long key, int tx, int tz, GameObject root, bool now)
+        {
+            var ids = CityStations.InTile(Map, tx, tz);
+            if (ids.Count == 0) return;
+            foreach (int si in ids)
+            {
+                var st = Map.stations[si];
+                CityStations.Poses(st, stationPoses, stationRects);
+                var seats = new float[stationPoses.Count];
+                for (int i = 0; i < seats.Length; i++) seats[i] = CityStations.SeatOf(Map, st, stationPoses[i]);
+                var q = new PendingStation { key = key, station = si, seats = seats };
+                if (now) StandStation(q, root);
+                else stationQueue.Add(q);
+            }
+        }
+
+        void StandStation(PendingStation q, GameObject tileRoot)
+        {
+            if (tileRoot == null) return;
+            var st = Map.stations[q.station];
+            CityStations.Poses(st, stationPoses, stationRects);
+            var go = CityStations.Stand(st, stationPoses, q.seats, tileRoot.transform);
+            if (go == null) return;
+            // it fades in with its tile's objects, and casts on its first frame
+            if (CityTileFade.On || Proxies != null) CityTileFade.MarkTile(go, CityTileFade.ModeObject, null);
+            SunShadows.Register(go);
+            if (live.TryGetValue(q.key, out var t)) t.colliders += go.GetComponentsInChildren<Collider>(true).Length;
+            StationsStood++;
         }
 
         void OnDestroy()
@@ -717,6 +804,8 @@ namespace PSXRacing.City
             livePoles.Remove(key);
             liveSignals.Remove(key);
             if (Trunks != null) Trunks.RemoveTable(key);
+            for (int i = stationQueue.Count - 1; i >= 0; i--)
+                if (stationQueue[i].key == key) stationQueue.RemoveAt(i);
             if (!live.TryGetValue(key, out var t)) return;
             live.Remove(key);
             CityTileFade.TileDown((int)(key >> 24), (int)((key << 40) >> 40));
@@ -1039,6 +1128,11 @@ namespace PSXRacing.City
                     props++;
                 }
             }
+            // city fuel r1: its filling stations, seated on the ground this
+            // build drew; stood a station a frame from the next frame on, or
+            // now when the tile was built whole (a car is on it)
+            standUpFrame = Time.frameCount;
+            QueueStations(key, tx, tz, root, slices == 0);
             double tProps = clock.Elapsed.TotalMilliseconds;
 
             // THE TREES (WP-08) come after everything they must keep clear of

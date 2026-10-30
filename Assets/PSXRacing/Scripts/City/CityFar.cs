@@ -1016,7 +1016,7 @@ namespace PSXRacing.City
             for (int i = 0; i < fs.Length; i++)
             {
                 var f = fs[i];
-                if (f.part || f.pts == null || f.pts.Length < 3) continue;
+                if (f.part || f.replaced || f.pts == null || f.pts.Length < 3) continue;
                 if (skylineOutlines != null && skylineOutlines.Contains(i)) continue;
                 float ground = CityElevation.BaseY(f.centre.x, f.centre.y);
                 if (f.style == 3 || f.gable)

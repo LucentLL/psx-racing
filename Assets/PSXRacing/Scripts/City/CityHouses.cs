@@ -54,6 +54,14 @@ namespace PSXRacing.City
         public const float PadBlendM = 16f;
         /// <summary>The pad stays this close to the ground at the house's middle.</summary>
         public const float PadMaxM = 1.5f;
+        /// <summary>City fuel r1: a filling station's lot (<see cref="CityStations"/>)
+        /// in the table: graded level like a house's (<see cref="House.Graded"/>),
+        /// but not a home - no driveway of its own (its curb cuts are the
+        /// map's), and its pad is the street's grade at its FRONT, where the
+        /// driveways meet the walk, within <see cref="StationPadMaxM"/> of the
+        /// ground at its middle (a 41 m lot is cut or filled behind).</summary>
+        public const byte StationKind = 7;
+        public const float StationPadMaxM = 3.0f;
         /// <summary>A driveway's width (a single car's, 10 ft) and longest run.</summary>
         public const float DriveW = 3.0f, DriveMaxM = 60f;
         /// <summary>The curb cut's wings at the street, and how far out they run.</summary>
@@ -78,7 +86,8 @@ namespace PSXRacing.City
             public long id;
             /// <summary>0 a blocker (any building that is not a house); 1 a real
             /// footprint's gabled box, 2 a real house polygon, 3 a frontage
-            /// gable, 4 a fill house, 5 the prefab house, 6 a trailer.</summary>
+            /// gable, 4 a fill house, 5 the prefab house, 6 a trailer,
+            /// 7 a filling station's lot (<see cref="StationKind"/>).</summary>
             public byte kind;
             public Vector2 c, u;
             public float hu, hv;
@@ -96,7 +105,10 @@ namespace PSXRacing.City
             /// <summary>Why it has no driveway (null when it has one), and
             /// (the audit's) what stood in the first one's way.</summary>
             public string why, blockedBy;
-            public bool IsHome => kind != 0;
+            /// <summary>A home: graded, and a driveway of its own.</summary>
+            public bool IsHome => kind != 0 && kind != StationKind;
+            /// <summary>Its lot is graded level (a home, or a filling station's forecourt).</summary>
+            public bool Graded => kind != 0;
             public Vector2 V => new Vector2(-u.y, u.x);
         }
 
@@ -162,6 +174,7 @@ namespace PSXRacing.City
                 foreach (int fi in fl)
                 {
                     var f = map.footprints[fi];
+                    if (f.replaced) continue;   // a filling station stands there instead (its lot is below)
                     byte kind = f.propKind != 0 ? (byte)0 : f.gable ? (byte)1 : f.style == 3 ? (byte)2 : (byte)0;
                     Add(t, new House { kind = kind, c = f.centre, u = f.u, hu = f.hu, hv = f.hv }, ref idx);
                 }
@@ -177,6 +190,12 @@ namespace PSXRacing.City
                 }
             FillInto(map, t);
             foreach (var h in t.fill) Add(t, h, ref idx);
+            // city fuel r1: the filling stations' lots, last (every other id as before)
+            foreach (int si in CityStations.InTile(map, tx, tz))
+            {
+                var st = map.stations[si];
+                Add(t, new House { kind = StationKind, c = st.centre, u = st.u, hu = 0.5f * st.lotW, hv = 0.5f * st.lotD, front = -st.v }, ref idx);
+            }
             tiles[k] = t;
             order.Enqueue(k);
             while (order.Count > TileCap) tiles.Remove(order.Dequeue());
@@ -289,6 +308,8 @@ namespace PSXRacing.City
         public static bool OnRealSite(CityMap map, Vector2 c, float r)
         {
             if (!map.FootprintClear(c, r)) return true;
+            // city fuel r1: a filling station's lot, driveway or aisle
+            if (CityStations.Near(map, c, r)) return true;
             if (map.lots == null || map.lots.Length == 0) return false;
             for (int k = 0; k < 5; k++)
             {
@@ -438,12 +459,23 @@ namespace PSXRacing.City
         {
             if (h.padDone) return h.pad;
             h.padDone = true; h.pad = float.NaN;
-            if (!h.IsHome || mapB == null) return h.pad;
+            if (!h.Graded || mapB == null) return h.pad;
             var map = mapB;
-            FindStreet(map, h);
             float mid = NatAt(map, h.c);
-            float front = h.street >= 0 ? NatAt(map, h.c + h.faceN * h.faceDepth) : mid;
-            float P = Mathf.Clamp(front, mid - PadMaxM, mid + PadMaxM);
+            float P;
+            if (h.kind == StationKind)
+            {
+                // a forecourt: the ground at its front line (the back of the
+                // walk, already graded to its street), so its driveways meet
+                // the curb cuts level; the back of the lot is cut or filled
+                P = Mathf.Clamp(NatAt(map, h.c + h.front * h.hv), mid - StationPadMaxM, mid + StationPadMaxM);
+            }
+            else
+            {
+                FindStreet(map, h);
+                float front = h.street >= 0 ? NatAt(map, h.c + h.faceN * h.faceDepth) : mid;
+                P = Mathf.Clamp(front, mid - PadMaxM, mid + PadMaxM);
+            }
             float loMax = float.NegativeInfinity, upMin = float.PositiveInfinity;
             var v = h.V;
             float ex = Mathf.Abs(h.u.x) * h.hu + Mathf.Abs(v.x) * h.hv + PadFlatM;
@@ -480,7 +512,7 @@ namespace PSXRacing.City
             if (!PadsOn || r.carve) return r.nat;   // a creek's or a lake's banks keep their land
             var p = new Vector2(ix * LatCell, iz * LatCell);
             var best = Owner(p, out float bestD);
-            if (best == null || !best.IsHome) return r.nat;
+            if (best == null || !best.Graded) return r.nat;
             float P = PadOf(best);
             if (float.IsNaN(P)) return r.nat;
             float w = bestD <= PadFlatM ? 1f : Mathf.SmoothStep(0f, 1f, (PadBlendM - bestD) / (PadBlendM - PadFlatM));
@@ -513,7 +545,7 @@ namespace PSXRacing.City
             var p = new Vector2(ix * LatCell, iz * LatCell);
             var best = Owner(p, out float bestD);
             if (best == null) return $"nat {r.nat:0.00} no house within {PadBlendM} m";
-            float P = best.IsHome ? PadOf(best) : float.NaN;
+            float P = best.Graded ? PadOf(best) : float.NaN;
             float w = bestD <= PadFlatM ? 1f : Mathf.SmoothStep(0f, 1f, (PadBlendM - bestD) / (PadBlendM - PadFlatM));
             float y = float.IsNaN(P) ? r.nat : r.nat + w * (P - r.nat);
             return $"nat {r.nat:0.00} house {best.id & 0xFFFFF} kind {best.kind} d {bestD:0.0} w {w:0.00} P {P:0.00} -> {y:0.00} limits {r.lo:0.00}..{r.up:0.00}{(r.carve ? " CARVE" : "")}";
@@ -1105,7 +1137,7 @@ namespace PSXRacing.City
             if (!PadsOn || map != mapB) return float.NaN;
             var t = TileOf(Mathf.FloorToInt(c.x / TileM), Mathf.FloorToInt(c.y / TileM));
             foreach (var h in t.houses)
-                if (h.IsHome && (h.c - c).sqrMagnitude < 1e-4f) return PadOf(h);
+                if (h.Graded && (h.c - c).sqrMagnitude < 1e-4f) return PadOf(h);
             return float.NaN;
         }
 
