@@ -52,12 +52,26 @@ namespace PSXRacing.City
                 if (def.skinMaterials != null) foreach (var m in def.skinMaterials) Add(mats, m);
                 Add(mats, def.wheelMaterial); Add(mats, def.lensHeadMaterial); Add(mats, def.lensTailMaterial);
             }
+            // every loaded material of the game's own shaders (the player's car, the
+            // HUD's), and every PSX shader's plain variant - the materials scripts make
+            // at runtime from a shader name (CarLights' lenses and beams, the tyres'
+            // spray, the far layers' copies) use those. The browser before-runs stalled
+            // 0.6-1.1 s in ONE render at the same two places on every run, Chrome and
+            // Firefox alike, with no city work in the frame: a first draw.
+            foreach (var m in Resources.FindObjectsOfTypeAll<Material>())
+                if (m != null && m.shader != null && m.shader.name.StartsWith("PSX")) Add(mats, m);
+            var plains = new List<Material>();
+            foreach (var sh in Resources.FindObjectsOfTypeAll<Shader>())
+            {
+                if (sh == null || !sh.name.StartsWith("PSX") || !sh.isSupported) continue;
+                var plain = new Material(sh) { hideFlags = HideFlags.HideAndDontSave };
+                plain.shaderKeywords = System.Array.Empty<string>();
+                plains.Add(plain);
+                mats.Add(plain);
+            }
             var svc = new ShaderVariantCollection();
             int variants = 0, refused = 0;
             var seen = new HashSet<string>();
-            // the far land's plain PSX/Lit (CityFar clears its copies' keywords)
-            var lit = Shader.Find("PSX/Lit");
-            if (lit != null) { var plain = new Material(lit) { hideFlags = HideFlags.HideAndDontSave }; plain.shaderKeywords = System.Array.Empty<string>(); mats.Add(plain); }
             foreach (var m in mats)
             {
                 var sh = m.shader;
@@ -78,11 +92,12 @@ namespace PSXRacing.City
             }
             double gather = clock.Elapsed.TotalMilliseconds;
             svc.WarmUp();
-            Debug.Log($"[CityShaderWarm] {variants} variants of {seen.Count} shader+keyword sets from {mats.Count} materials warmed in {clock.Elapsed.TotalMilliseconds - gather:0} ms (gathered in {gather:0} ms; {refused} sets no pass type took)");
+            foreach (var p in plains) Object.Destroy(p);
+            Debug.Log($"[CityShaderWarm] {variants} variants of {seen.Count} shader+keyword sets from {mats.Count} materials ({plains.Count} PSX shaders' plain variants) warmed in {clock.Elapsed.TotalMilliseconds - gather:0} ms (gathered in {gather:0} ms; {refused} sets no pass type took)");
             return variants;
         }
 
-        static readonly PassType[] Passes = { PassType.ScriptableRenderPipelineDefaultUnlit, PassType.ScriptableRenderPipeline, PassType.Normal };
+        static readonly PassType[] Passes = { PassType.ScriptableRenderPipelineDefaultUnlit, PassType.ScriptableRenderPipeline, PassType.Normal, PassType.ShadowCaster };
 
         static void Add(HashSet<Material> set, Material m) { if (m != null) set.Add(m); }
     }
