@@ -419,6 +419,25 @@ namespace PSXRacing.City
         }
         readonly Dictionary<long, float> rampClear = new Dictionary<long, float>();
 
+        /// <summary>
+        /// THE MERGE'S FIRST HEADING (round 3e): a merge begun where its ramp's lane is clear of the
+        /// mainline's (RampClear past ZoneBack: a ramp whose line converges over the freeway's lanes)
+        /// leaves the ramp's line half way to the mainline's heading - from the ramp's own heading
+        /// the arc would dip toward the freeway on its way to the added lane (node 707: from 9.1 m
+        /// right of I-277's line to its new kerb lane at 7.9, 6.7 deg converging, the arc ran to 7.0,
+        /// its body 0.3 m into the kerb lane's car; half way, to 7.7, 0.45 m clear). Half the
+        /// angle, a heading change under the census's 6 deg snap. Every other turn: its own heading.
+        /// </summary>
+        Vector2 MergeStart(in Leg T, Vector2 t0, Vector2 t3)
+        {
+            if (!T.merge || T.uHalf) return t0;
+            var e = map.edges[T.edge]; var e2 = map.edges[T.edge2];
+            if (RampClear(e, T.dir, true, T.node, e2, T.dir2) <= ZoneBack(e, T.dir)) return t0;
+            if (Vector2.Angle(t0, t3) > 15f) return t0;
+            var h = t0 + t3;
+            return h.sqrMagnitude > 1e-6f ? h.normalized : t0;
+        }
+
         float RampClearOf(CityMap.Edge ramp, int rampDir, bool arrives, int n, CityMap.Edge fwy, int fwyDir)
         {
             Vector2 tRef = arrives ? TravelTan(fwy, fwyDir, fwyDir > 0 ? 0f : fwy.length) : TravelTan(fwy, fwyDir, fwyDir > 0 ? fwy.length : 0f);
@@ -766,16 +785,17 @@ namespace PSXRacing.City
 
         /// <summary>The tools (round 3e): an edge's lanes over its last <paramref name="span"/> metres
         /// before the node it is driven to - each lane's centre and width, the pavement's edges.</summary>
-        public string LaneProfile(int ei, int dir, float span)
+        public string LaneProfile(int ei, int dir, float span, bool fromStart = false)
         {
             if (map == null || ei < 0 || ei >= map.edges.Length) return "no such edge";
             var e = map.edges[ei];
             var sb = new StringBuilder($"  e{ei} '{e.name}' dir {dir}, {Lanes(ei, dir)} lanes, len {e.length:0.0}, run end s {EndS(e, dir):0.0}:\n");
             for (float x = span; x >= 0f; x -= 3f)
             {
-                float s = Mathf.Clamp(dir > 0 ? e.length - x : x, 0f, e.length);
+                float xx = fromStart ? span - x : x;
+                float s = Mathf.Clamp(fromStart ? (dir > 0 ? xx : e.length - xx) : (dir > 0 ? e.length - xx : xx), 0f, e.length);
                 LineModel.Extents(e, s, out float pM, out float pP);
-                sb.Append($"    {x,4:0} m before its end: pavement -{pM:0.00}..+{pP:0.00};");
+                sb.Append($"    {xx,4:0} m {(fromStart ? "past its start" : "before its end")}: pavement -{pM:0.00}..+{pP:0.00};");
                 for (int l = 0; l < Lanes(ei, dir); l++)
                 {
                     float c = LaneBounds(e, dir, l, s, out float bl, out float br);

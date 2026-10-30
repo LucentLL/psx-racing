@@ -280,6 +280,19 @@ namespace PSXRacing.EditorTools
                         if (e.b == fn && e.a != e.b) CityTrafficCheck.Line("Lane profile probe (East 6th Street, three lanes into one):\n" + traffic.LaneProfile(ei, 1, 30f).TrimEnd());
                     }
             }
+            // and the ramp e388 and I-277 into node 707 (the ramp's line drawn over the freeway's lanes)
+            {
+                int fn = -1; float fd = 40f * 40f;
+                var fp = new Vector2(-1889.5f, 5651.5f);
+                for (int i = 0; i < map.nodes.Length; i++) { float d = (map.nodes[i] - fp).sqrMagnitude; if (d < fd) { fd = d; fn = i; } }
+                if (fn >= 0)
+                    foreach (int ei in map.nodeEdges[fn])
+                    {
+                        var e = map.edges[ei];
+                        if (e.b == fn && e.a != e.b) CityTrafficCheck.Line("Lane profile probe (into the I-277 merge at node 707):\n" + traffic.LaneProfile(ei, 1, 90f).TrimEnd());
+                        else if (e.a == fn && e.a != e.b) CityTrafficCheck.Line("Lane profile probe (out of the I-277 merge at node 707):\n" + traffic.LaneProfile(ei, 1, 45f, true).TrimEnd());
+                    }
+            }
 
             // ---- totals
             var st = traffic.Stats;

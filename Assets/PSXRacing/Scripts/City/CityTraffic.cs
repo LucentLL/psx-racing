@@ -1056,7 +1056,7 @@ namespace PSXRacing.City
             var e = map.edges[T.edge]; var e2 = map.edges[T.edge2];
             Vector2 p0 = LanePos(e, T.dir, T.laneIn, T.sA), t0 = TravelTan(e, T.dir, T.sA);
             Vector2 p3 = LanePos(e2, T.dir2, T.laneOut, T.sB), t3 = TravelTan(e2, T.dir2, T.sB);
-            Shape(ref T, p0, t0, p3, t3);
+            Shape(ref T, p0, MergeStart(T, t0, t3), p3, t3);
             T.y0 = e.YAt(T.sA); T.y1 = e2.YAt(T.sB);
             float turnA = Mathf.Abs(Vector2.SignedAngle(t0, t3)) * Mathf.Deg2Rad;
             float vLim = Mathf.Min(limitMps[T.edge], limitMps[T.edge2]);
@@ -1764,7 +1764,8 @@ namespace PSXRacing.City
                 if (Log != null && (c.lc || c.lane != N.laneIn)) CensusWrongLaneTurn(c, ref N);
                 // the turn starts where the car IS (a lane change still under
                 // way, a lane that ended): the same arc to the same lane
-                Shape(ref N, c.pos, c.tan, N.p3, (N.p3 - N.p2).sqrMagnitude > 1e-6f ? (N.p3 - N.p2).normalized : c.tan);
+                Vector2 nEnd = (N.p3 - N.p2).sqrMagnitude > 1e-6f ? (N.p3 - N.p2).normalized : c.tan;
+                Shape(ref N, c.pos, MergeStart(N, c.tan, nEnd), N.p3, nEnd);
                 if (c.u > N.len) c.u = N.len;
             }
             else
@@ -2697,7 +2698,9 @@ namespace PSXRacing.City
                 if (c.mandAt >= 0f && Time.time - c.mandAt > 14f) { Replan(c); return; }
                 // MANDATORY: to the lane its turn (or the lane that runs on) needs
                 float zone = Mathf.Abs(req - c.lane) * (fwy ? 250f : 110f) + 50f;
-                if (rem < zone && rem > 6f)
+                // (round 3e: and a car standing at its lane's very end - a lane that closes there -
+                // may still change, slowly: it zippers in, the car behind brakes for it)
+                if (rem < zone && (rem > 6f || (c.speed < 1f && rem > 0.05f && LaneShutAhead(c, ref L, 8f) < 8f) || (c.speed < 1f && rem <= 6f && c.mandAt >= 0f && Time.time - c.mandAt > 3f)))
                 {
                     // road-logic lanes: a change is begun only with the room to
                     // finish it (MinChangeS at its speed) - short of that the car
@@ -2832,6 +2835,14 @@ namespace PSXRacing.City
             ref Leg L = ref c.legs[0];
             var e = map.edges[L.edge];
             bool pushy = c.mandAt >= 0f && Time.time - c.mandAt > 5f;
+            // ROUND 3e: THE ZIPPER. A car crawling where its own lane closes or ends (a lane drop:
+            // North Graham Street at node 14352, three lanes into two) takes the gap a crawling car
+            // leaves it in the lane that goes on - a metre each way; before, the 4 m it asked of a
+            // standing queue never came, and the car stood at its lane's end for good (replanned
+            // every 14 s, 78 times in one trace census - and once a car of the lane that goes on
+            // brakes for the body a closing lane squeezes into it, round 3e's sweep, they wait
+            // for each other)
+            bool zip = c.speed < 2f && (L.len - c.u < 15f || LaneShutAhead(c, ref L, 15f) < 15f);
             float sc = ArcNow(c);
             float s = Mathf.Clamp(sc, 0f, e.length);
             // never into a lane too narrow for the car here or just ahead (a
@@ -2859,6 +2870,11 @@ namespace PSXRacing.City
                     d = Vector2.Dot(dp, tr);
                 }
                 float ov = o.wrecked ? 0f : o.speed;
+                if (zip && ov < 2f && !o.wrecked)
+                {
+                    if (d >= 0f ? d - lengths < 1f : -d - lengths < 1f) return false;
+                    continue;
+                }
                 if (d >= 0f) { if (d - lengths < 4f + c.speed * 0.5f + Mathf.Max(0f, c.speed - ov) * 1.5f) return false; }
                 else if (-d - lengths < (pushy ? 3f + ov * 0.3f : 4f + ov * 0.4f + Mathf.Max(0f, ov - c.speed) * 2.5f)) return false;
             }
