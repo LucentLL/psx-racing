@@ -285,6 +285,7 @@ namespace PSXRacing.City
         /// True: c goes on past o now. Never a teleport, never a car taken away.</summary>
         bool Unlock(Car c, Car o)
         {
+            if (c.creepPast == o) return true;   // creeping on past it (Drive ends the creep)
             bool mutual = o.leadId == c.id && o.leadKind == 4;
             // or TOUCHING one held by something else (its own queue): this one backs off it
             bool touching = !mutual && RectDepth(c.pos, c.fwd, c.halfL + 0.15f, c.halfW + 0.15f, o.pos, o.fwd, o.halfL, o.halfW) > 0f;
@@ -312,8 +313,10 @@ namespace PSXRacing.City
             // the other cannot back out of it
             if (o.backFor == c) return false;
             if (o.backedFor != c.id && PathHits(c, o) && CanBack(o)) return false;   // it starts backing on its step
-            if (ClearDist(c, o) == float.MaxValue) return false;   // its way runs on into the other: never pushed through
-            if (c.creepPast != o) { c.creepPast = o; Stats.lockCreeps++; LockNote(c, o, "lock-crept", "locked with a car that cannot back: creeps on past it"); }
+            float need = ClearDist(c, o);
+            if (need == float.MaxValue) return false;   // its way runs on into the other: never pushed through
+            c.creepPast = o; c.creepLeft = need + 0.5f; Stats.lockCreeps++;
+            LockNote(c, o, "lock-crept", $"locked with a car that cannot back: creeps on {need + 0.5f:0.0} m past it");
             return true;
         }
 
@@ -356,6 +359,19 @@ namespace PSXRacing.City
                 else if (first < 0f) first = x;
             }
             return first >= 0f ? first : float.MaxValue;
+        }
+
+        /// <summary>Round 3c: how far car c's centre goes along its way before its BODY
+        /// (0.15 m round it; its corners swing wide of its centre's line in a sharp turn)
+        /// meets o's; MaxValue within <paramref name="look"/> metres.</summary>
+        float SweptHit(Car c, Car o, float look)
+        {
+            for (float x = 0f; x <= look; x += 0.5f)
+            {
+                if (!WayPose(c, x, out var p, out var f)) break;
+                if (RectDepth(p, f, c.halfL + 0.15f, c.halfW + 0.15f, o.pos, o.fwd, o.halfL, o.halfW) > 0f) return x;
+            }
+            return float.MaxValue;
         }
 
         /// <summary>Where car c's centre is, and its heading, x metres on along its plan.</summary>

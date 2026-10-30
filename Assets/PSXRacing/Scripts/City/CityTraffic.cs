@@ -267,7 +267,7 @@ namespace PSXRacing.City
             /// with, each braking for the other, and since when; the car it backs out
             /// of the way of and how far it has backed; the car it creeps past.</summary>
             public int lockWith = -1, backedFor = -1;
-            public float lockSince, backed;
+            public float lockSince, backed, creepLeft;
             public Car backFor, creepPast;
             public float gap;
             public bool leaderInLane;
@@ -1613,8 +1613,10 @@ namespace PSXRacing.City
             }
             if (c.creepPast != null)
             {
+                // creeping on past a car it was locked with: until it has driven the
+                // way it needed to clear it (ClearDist at the start), or the other moves
                 var oc2 = c.creepPast;
-                if (oc2.wrecked || !oc2.active || (oc2.pos - c.pos).sqrMagnitude > 36f || !PathHits(c, oc2)) c.creepPast = null;
+                if (oc2.wrecked || !oc2.active || oc2.speed > 0.5f || c.creepLeft <= 0f || (oc2.pos - c.pos).sqrMagnitude > 64f) c.creepPast = null;
             }
 
             // IDM
@@ -1631,7 +1633,7 @@ namespace PSXRacing.City
             if (gap <= 0.05f) acc = -EmergencyDecel;
             c.accel = acc;
             c.speed = Mathf.Max(0f, v + acc * dt);
-            if (c.creepPast != null) c.speed = Mathf.Min(c.speed, CreepMps);
+            if (c.creepPast != null) { c.speed = Mathf.Min(c.speed, CreepMps); c.creepLeft -= c.speed * dt; }
 
             c.u += c.speed * dt;
             int guard = 0;
@@ -1903,8 +1905,13 @@ namespace PSXRacing.City
                     // A body IN the lanes it sweeps (PathHitAt's 0.4 m), never one a
                     // lane over or at the kerb line
                     float ph = d2 < 25f * 25f ? PathHitAt(c, o) : float.MaxValue;
-                    if (g == float.MaxValue && ph == float.MaxValue) { if (c.traced && d2 < 15f * 15f) TraceCross(c, o, "nc", 1e7f); continue; }
-                    bool onWay = ph < float.MaxValue || (o.speed < 0.5f && PathHits(c, o));
+                    // and the BODY it sweeps past one standing: a sharp turn swings its
+                    // corners wide of the line its centre takes (round 3c final census A: at
+                    // node 8084 a car off the link road turned past the tail of one standing
+                    // in the box, its centre's way 1.3 m clear, its corner 0.18 m in)
+                    float sw = o.speed < 0.5f && ph == float.MaxValue && d2 < 12f * 12f ? SweptHit(c, o, 8f) : float.MaxValue;
+                    if (g == float.MaxValue && ph == float.MaxValue && sw == float.MaxValue) { if (c.traced && d2 < 15f * 15f) TraceCross(c, o, "nc", 1e7f); continue; }
+                    bool onWay = ph < float.MaxValue || sw < float.MaxValue || (o.speed < 0.5f && PathHits(c, o));
                     // a car TURNING curves away from what stands straight ahead of
                     // its nose: one standing beside the arc it takes is not in its
                     // way (2026-10-29 census: 19 "crossing-blocked", 5 before, most
@@ -1926,6 +1933,7 @@ namespace PSXRacing.City
                     if (o.speed > 1.5f && !onWay && CrossGap(o, c, -d) < float.MaxValue && Precedes(c, o)) { if (c.traced) TraceCross(c, o, "pr", g); continue; }
                     if (Unlock(c, o)) { if (c.traced) TraceCross(c, o, "ul", g); continue; }
                     if (ph < float.MaxValue) g = Mathf.Min(g, Mathf.Max(0f, ph - (c.halfL - c.halfW)));
+                    if (sw < float.MaxValue) g = Mathf.Min(g, sw);
                     if (c.traced) TraceCross(c, o, onWay ? "W" : "B", g);
                     if (g < best) { best = g; vL = Mathf.Max(0f, dot * o.speed); c.leadKind = 4; c.leadId = o.id; }
                 }
