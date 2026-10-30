@@ -285,13 +285,21 @@ namespace PSXRacing.City
         /// True: c goes on past o now. Never a teleport, never a car taken away.</summary>
         bool Unlock(Car c, Car o)
         {
-            if (c.speed > 0.3f || o.speed > 0.3f || o.leadId != c.id || o.leadKind != 4)
+            bool mutual = o.leadId == c.id && o.leadKind == 4;
+            // or TOUCHING one held by something else (its own queue): this one backs off it
+            bool touching = !mutual && RectDepth(c.pos, c.fwd, c.halfL + 0.15f, c.halfW + 0.15f, o.pos, o.fwd, o.halfL, o.halfW) > 0f;
+            if (c.speed > 0.3f || o.speed > 0.3f || !(mutual || touching))
             {
                 if (c.lockWith == o.id) { c.lockWith = -1; c.backedFor = -1; }
                 return false;
             }
             if (c.lockWith != o.id) { c.lockWith = o.id; c.lockSince = Time.time; c.backedFor = -1; return false; }
             if (Time.time - c.lockSince < 1.5f) return false;
+            if (touching)
+            {
+                if (c.backFor != o && c.backedFor != o.id && CanBack(c)) { c.backFor = o; c.backedFor = o.id; c.backed = 0f; Stats.lockBacks++; }
+                return false;
+            }
             if (!FurtherThrough(c, o))
             {
                 // this one gives way: out of the other's way, backing along its own

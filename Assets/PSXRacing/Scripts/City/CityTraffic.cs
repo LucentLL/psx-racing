@@ -1598,7 +1598,8 @@ namespace PSXRacing.City
             if (c.backFor != null)
             {
                 var ob = c.backFor;
-                if (ob.wrecked || !ob.active || ob.speed > 0.5f || c.backed >= BackMaxM || c.u < 0.1f || !PathHits(ob, c) || !RoomBehind(c))
+                bool apart = !PathHits(ob, c) && RectDepth(c.pos, c.fwd, c.halfL + 0.3f, c.halfW + 0.3f, ob.pos, ob.fwd, ob.halfL, ob.halfW) <= 0f;
+                if (ob.wrecked || !ob.active || ob.speed > 0.5f || c.backed >= BackMaxM || c.u < 0.1f || apart || !RoomBehind(c))
                     c.backFor = null;
                 else
                 {
@@ -1893,12 +1894,15 @@ namespace PSXRacing.City
                     float g = CrossGap(c, o, d);
                     // ITS WAY, not only its nose's corridor (round 3c census: three pairs
                     // locked after touching in a box - Morehead Road, Nevin Road, Parkwood
-                    // Avenue): a car across at an angle whose body is on the way this car
-                    // takes - its turn's arc, its run to the junction and the turn after -
-                    // is braked for where that way meets it, before the straight corridor
-                    // ahead of the nose reaches it
-                    bool across = Mathf.Abs(dot) < 0.85f;
-                    float ph = across && d2 < 25f * 25f ? PathHitAt(c, o) : float.MaxValue;
+                    // Avenue): a car whose body is on the way this car takes - its turn's
+                    // arc, its run to the junction and the turn after - is braked for where
+                    // that way meets it, before the straight corridor ahead of the nose
+                    // reaches it; at any angle (round 3c trace: at node 8084 a car moving
+                    // off its line turned its nose into the side of one standing on the
+                    // next turn of a two-node box, nearly its own way: 5 cm, locked).
+                    // A body IN the lanes it sweeps (PathHitAt's 0.4 m), never one a
+                    // lane over or at the kerb line
+                    float ph = d2 < 25f * 25f ? PathHitAt(c, o) : float.MaxValue;
                     if (g == float.MaxValue && ph == float.MaxValue) { if (c.traced && d2 < 15f * 15f) TraceCross(c, o, "nc", 1e7f); continue; }
                     bool onWay = ph < float.MaxValue || (o.speed < 0.5f && PathHits(c, o));
                     // a car TURNING curves away from what stands straight ahead of
