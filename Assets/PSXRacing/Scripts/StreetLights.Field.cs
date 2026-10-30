@@ -150,8 +150,10 @@ namespace PSXRacing
                 builtVersion = fieldVersion;
                 builtStreetOn = StreetOn;
                 builtBaseY = Mathf.Round(eye.y);
+                long pc = PerfClock.On ? PerfClock.Now() : 0;   // city perf round 1
                 using (BuildFieldMarker.Auto())
                     FieldLamps = StreetOn ? BuildField(origin, builtBaseY) : 0;
+                if (PerfClock.On) PerfClock.Add(PerfClock.Slot.LampField, pc);
             }
             FieldActive = FieldLamps > 0;
             if (!FieldActive) { FieldOff(); return; }

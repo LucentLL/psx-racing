@@ -110,7 +110,8 @@ namespace PSXRacing
         /// is a browser one; the guard belongs in a build.
         /// </summary>
         void Rearm() =>
-            armed = !Application.isEditor && FindFirstObjectByType<PlayerCarInput>() != null;
+            // (city perf round 1: a perf tour drives on whatever else has the focus)
+            armed = !Application.isEditor && !PerfTour.Active && FindFirstObjectByType<PlayerCarInput>() != null;
 
         void OnApplicationFocus(bool has) { if (has) Thaw(); else Freeze(); }
 

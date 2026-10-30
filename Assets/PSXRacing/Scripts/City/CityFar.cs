@@ -335,11 +335,13 @@ namespace PSXRacing.City
             // land, a forest and a light table: no single frame pays for all
             // three); a tool's shot takes them all at once
             int budget = Application.isPlaying ? 1 : 3;
-            if (landOk && (at != landAt || landRadius != RadiusM) && budget-- > 0) using (LandMarker.Auto()) RebuildLand(eye, at);
-            if (treesOk && at != treeAt && budget-- > 0) using (TreesMarker.Auto()) RebuildTrees(eye, at);
+            long pc = PerfClock.On ? PerfClock.Now() : 0;   // city perf round 1
+            if (landOk && (at != landAt || landRadius != RadiusM) && budget-- > 0) { using (LandMarker.Auto()) RebuildLand(eye, at); if (PerfClock.On) { PerfClock.Add(PerfClock.Slot.FarLand, pc); pc = PerfClock.Now(); } }
+            if (treesOk && at != treeAt && budget-- > 0) { using (TreesMarker.Auto()) RebuildTrees(eye, at); if (PerfClock.On) { PerfClock.Add(PerfClock.Slot.FarTrees, pc); pc = PerfClock.Now(); } }
             // city-build-hitches: a frame with no rebuild works out one chunk's
             // trees ahead (what the next chunk step will read)
             else if (treesOk && SliceRebuild && Application.isPlaying && budget > 0 && PrefetchTrees(eye)) budget--;
+            if (PerfClock.On) { PerfClock.Add(PerfClock.Slot.FarPrefetch, pc); pc = PerfClock.Now(); }
             ShowLand(landOk && landMesh.vertexCount > 0);
             if (landR != null) foreach (var r in landR) r.bounds = b;
             ShowTrees(treesOk && treesShown > 0);
@@ -348,7 +350,7 @@ namespace PSXRacing.City
             if (lightR != null)
             {
                 // (THE CLOCK'S WINDOWS: and when the hour's occupancy changes)
-                if ((at != lightAt || Occupancy() != lightOcc) && budget-- > 0) using (LightsMarker.Auto()) RebuildLights(eye, at);
+                if ((at != lightAt || Occupancy() != lightOcc) && budget-- > 0) { using (LightsMarker.Auto()) RebuildLights(eye, at); if (PerfClock.On) PerfClock.Add(PerfClock.Slot.FarLights, pc); }
                 bool lit = NightGlow.On && lightsShown > 0;
                 lightR.enabled = lit;
                 lightR.bounds = b;

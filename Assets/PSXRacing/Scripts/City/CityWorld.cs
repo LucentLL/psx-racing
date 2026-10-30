@@ -311,6 +311,13 @@ namespace PSXRacing.City
             var j = job;
             job = null;
             if (j == null) return;
+            long pc = PerfClock.On ? PerfClock.Now() : 0;   // city perf round 1
+            try { AbandonNow(j); }
+            finally { if (PerfClock.On) PerfClock.Add(PerfClock.Slot.TileAbandon, pc); }
+        }
+
+        void AbandonNow(CityMeshes.TileJob j)
+        {
             j.Abandon();
             var r = j.Result;
             if (r != null)
@@ -410,12 +417,15 @@ namespace PSXRacing.City
         {
             if (Far != null) using (FarMarker.Auto()) Far.Refresh(cam);
             CityTileFade.Ensure();
+            long pc = PerfClock.On ? PerfClock.Now() : 0;   // city perf round 1
             if (Proxies != null) using (ProxiesMarker.Auto()) Proxies.Refresh(cam);
+            if (PerfClock.On) { PerfClock.Add(PerfClock.Slot.ProxyRefresh, pc); pc = PerfClock.Now(); }
             if (Skyline == null) return;
             // a live tile draws a skyline tower near only once its own copy
             // has faded in over it (city-popin: PSX/Lit hands the pixels over)
             if (isLive == null) isLive = k => live.ContainsKey(k) && CityTileFade.Get((int)(k >> 24), (int)((k << 40) >> 40), CityTileFade.R) >= 1f;
             using (SkylineMarker.Auto()) Skyline.Refresh(cam, isLive);
+            if (PerfClock.On) PerfClock.Add(PerfClock.Slot.Skyline, pc);
         }
 
         void LateUpdate()
@@ -508,7 +518,9 @@ namespace PSXRacing.City
             int ptz = Mathf.FloorToInt(p.z / CityMeshes.TileSize);
             // city-popin: the fades advance; the skyline re-reads its live
             // towers once a tile's own copy is whole; the car's travel
+            long pcf = PerfClock.On ? PerfClock.Now() : 0;   // city perf round 1
             CityTileFade.Tick();
+            if (PerfClock.On) PerfClock.Add(PerfClock.Slot.FadeTick, pcf);
             if (Skyline != null && fadeSeen != CityTileFade.BuildingsVersion) { fadeSeen = CityTileFade.BuildingsVersion; Skyline.LiveVersion++; }
             float dtS = Mathf.Max(Time.unscaledDeltaTime, 1e-4f);
             frameMsAvg = Mathf.Lerp(frameMsAvg, dtS * 1000f, 0.05f);
@@ -643,7 +655,12 @@ namespace PSXRacing.City
                     // spends a bigger share, so it is done over frames, not finished in one
                     if (NoForcedFinish && JobTileCritical()) budget = Mathf.Max(budget, CriticalSliceBudgetMs);
                     if (job.Done) CompleteJob();
-                    else using (JobStepMarker.Auto()) job.Step(budget);
+                    else
+                    {
+                        long pcs = PerfClock.On ? PerfClock.Now() : 0;
+                        using (JobStepMarker.Auto()) job.Step(budget);
+                        if (PerfClock.On) PerfClock.Add(PerfClock.Slot.TileStep, pcs);
+                    }
                     built = true;
                 }
             }
@@ -656,7 +673,11 @@ namespace PSXRacing.City
             // city-popin: the far buildings' share - small while a tile is
             // being built (smaller still when one next to a car is missing)
             if (Proxies != null)
+            {
+                long pcp = PerfClock.On ? PerfClock.Now() : 0;
                 using (ProxyStepMarker.Auto()) Proxies.Step(job != null ? (hurry ? 0.4 : 1.0) : 2.0);
+                if (PerfClock.On) PerfClock.Add(PerfClock.Slot.ProxyStep, pcp);
+            }
 
             // THE TREES ON A FRAME OF THEIR OWN (WP-08; WP-09's third stage,
             // for the trees): a tile's build and its planting never share a
@@ -710,6 +731,13 @@ namespace PSXRacing.City
         }
 
         void DropTile(long key)
+        {
+            long pc = PerfClock.On ? PerfClock.Now() : 0;   // city perf round 1
+            try { DropTileNow(key); }
+            finally { if (PerfClock.On) PerfClock.Add(PerfClock.Slot.TileDrop, pc); }
+        }
+
+        void DropTileNow(long key)
         {
             if (treeSteps != null && treeKey == key) AbandonTrees();   // city-build-hitches
             treesPending.Remove(key);
@@ -784,6 +812,7 @@ namespace PSXRacing.City
             bool more;
             do { more = treeSteps.MoveNext(); } while (more && clock.Elapsed.TotalMilliseconds < budgetMs);
             double ms = clock.Elapsed.TotalMilliseconds;
+            if (PerfClock.On) PerfClock.AddMs(budgetMs == double.MaxValue ? PerfClock.Slot.TreeUrgent : PerfClock.Slot.TreeStep, ms);   // city perf round 1
             treeWorkMs += ms;
             if (more)
             {
@@ -817,6 +846,13 @@ namespace PSXRacing.City
         }
 
         void StandTrees(long key, Tile tile, CityTrees.TreeTile tt, CityMeshes.TileMeshes tm, System.Diagnostics.Stopwatch clock)
+        {
+            long pc = PerfClock.On ? PerfClock.Now() : 0;   // city perf round 1
+            try { StandTreesNow(key, tile, tt, tm, clock); }
+            finally { if (PerfClock.On) PerfClock.Add(PerfClock.Slot.TreeStand, pc); }
+        }
+
+        void StandTreesNow(long key, Tile tile, CityTrees.TreeTile tt, CityMeshes.TileMeshes tm, System.Diagnostics.Stopwatch clock)
         {
             int tx = (int)(key >> 24), tz = (int)((key << 40) >> 40);
             var job = (tm: tm, lattice: (Dictionary<long, float>)null);
@@ -923,6 +959,13 @@ namespace PSXRacing.City
         /// slice finished them, 2 when there is more.</summary>
         public int PrepareSigns(long key)
         {
+            long pc = PerfClock.On ? PerfClock.Now() : 0;   // city perf round 1
+            try { return PrepareSignsNow(key); }
+            finally { if (PerfClock.On) PerfClock.Add(PerfClock.Slot.Signs, pc); }
+        }
+
+        int PrepareSignsNow(long key)
+        {
             using var marker = SignsMarker.Auto();
             if (Map == null) return 0;
             int tx = (int)(key >> 24), tz = (int)((key << 40) >> 40);
@@ -970,6 +1013,7 @@ namespace PSXRacing.City
             var clock = System.Diagnostics.Stopwatch.StartNew();
             CityMeshes.TileMeshes tm;
             using (BuildSyncMarker.Auto()) tm = CityMeshes.Build(Map, nodeTrims, buildings, tx, tz);
+            if (PerfClock.On) PerfClock.AddMs(PerfClock.Slot.TileSync, clock.Elapsed.TotalMilliseconds);   // city perf round 1
             StandUp(key, tx, tz, tm, clock.Elapsed.TotalMilliseconds, 0, 0f);
             return true;
         }
@@ -992,7 +1036,9 @@ namespace PSXRacing.City
             long k = jobKey;
             job = null;
             if (j == null) return;
+            long pc = PerfClock.On ? PerfClock.Now() : 0;   // city perf round 1
             using (FinishMarker.Auto()) j.Finish();
+            if (PerfClock.On) PerfClock.Add(PerfClock.Slot.TileFinish, pc);
             if (live.ContainsKey(k)) return;
             StandUp(k, j.tx, j.tz, j.Result, j.WorkMs, j.Slices, (float)j.MaxSliceMs);
         }
@@ -1001,6 +1047,13 @@ namespace PSXRacing.City
         /// colliders, the prop models, its trees queued, its lamps lit.
         /// <paramref name="buildMs"/> is the build's own work.</summary>
         void StandUp(long key, int tx, int tz, CityMeshes.TileMeshes tm, double buildMs, int slices, float maxSliceMs)
+        {
+            long pc = PerfClock.On ? PerfClock.Now() : 0;   // city perf round 1
+            try { StandUpNow(key, tx, tz, tm, buildMs, slices, maxSliceMs); }
+            finally { if (PerfClock.On) PerfClock.Add(PerfClock.Slot.TileStandUp, pc); }
+        }
+
+        void StandUpNow(long key, int tx, int tz, CityMeshes.TileMeshes tm, double buildMs, int slices, float maxSliceMs)
         {
             using var marker = StandUpMarker.Auto();
             var clock = System.Diagnostics.Stopwatch.StartNew();
