@@ -5583,6 +5583,8 @@ namespace PSXRacing.City
                 for (int k = w0; k <= w1; k++)
                 {
                     int kL = KindAt(k), kR = KindAt(k + 1);
+                    if (e.index == R11RailTraceEdge && (kL != KindNone || kR != KindNone) && kL != kR)
+                        R11RailTrace.Add(R11RailTraceLine(e, tm, side, k, n, kL, kR));
                     if ((k >= 1 && !spanFlags[k].decided) || (k + 1 < n && !spanFlags[k + 1].decided)) continue;
                     bool lineL = kL == KindRail && kR == KindNone, lineR = kR == KindRail && kL == KindNone;
                     if (!lineL && !lineR) continue;

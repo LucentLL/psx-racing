@@ -235,6 +235,7 @@ namespace PSXRacing.EditorTools
                 Line($"judged at: motorway 150, trunk 130, primary 110, secondary 100, tertiary 90, local 70, ramps 70-90 km/h (turns capped by their plan radius, sqrt(G R)); race routes at least {RouteKmh:0} km/h. LAUNCH = the road falls {LaunchSepM:0.00} m below a free-flying car within {FlyM:0} m; UNLOAD = {UnloadSepM:0.00} m");
                 Line(SurveyFit(map));
                 Line("vertical curves: " + (CityElevation.VerticalCurvesOn ? CityElevation.VcurveReport : "OFF (PSX_CITY_VCURVES=0)"));
+                Line(CityElevation.R11Report);
                 Line(GradeLine(map));
 
                 X = new float[1 << 22]; Z = new float[1 << 22]; YE = new float[1 << 22]; YL = new float[1 << 22]; nS = 0;
@@ -639,6 +640,7 @@ namespace PSXRacing.EditorTools
                 for (int i = 0; i < Mathf.Min(60, city.Count); i++) Line("  " + Describe(map, city[i], i + 1));
                 Line("profiles of the worst 12 (every metre from 6 before the break to 10 past: mesh y, data y; F = in the fan):");
                 for (int i = 0; i < Mathf.Min(12, city.Count); i++) Line("  #" + (i + 1) + " " + Profile(map, trims, city[i]));
+                if (Explain) ExplainSpots(map, trims, buildings, city, Line);
                 for (int r = 0; r < map.routes.Length; r++)
                 {
                     Line($"route {map.routes[r].id}, every LAUNCH spot:");
@@ -840,6 +842,107 @@ namespace PSXRacing.EditorTools
                 CityMeshes.RecordTap = false;
                 foreach (var tm in tiles.Values) DestroyMeshes(tm);
             }
+        }
+
+        /// <summary>REAL HEIGHTS round 11 (report only): PSX_LAUNCH_EXPLAIN=1 lists EVERY
+        /// launch spot (and with =2 every unload spot too) with its profile from 6 samples
+        /// before the break to 10 past - the mesh height the path read, the data's, and every
+        /// road surface the 3 x 3 tiles' taps put over the sample (ribbon spans with their
+        /// edge and arcs, gores, fans), so each spot's cause can be named: the path's own
+        /// surface bending, or another surface standing over it.</summary>
+        static readonly string ExplainMode = Environment.GetEnvironmentVariable("PSX_LAUNCH_EXPLAIN");
+        static bool Explain => ExplainMode == "1" || ExplainMode == "2";
+
+        static void ExplainSpots(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings, List<Spot> city, Action<string> Line)
+        {
+            var tiles = new Dictionary<long, CityMeshes.TileMeshes>();
+            topSlotCache.Clear();
+            CityMeshes.RecordTap = true;
+            Line("EXPLAIN (round 11): every " + (ExplainMode == "2" ? "launch and unload" : "launch") + " spot - per sample: mesh/data, then every road surface over it (3 x 3 tiles)");
+            try
+            {
+                int n = 0;
+                foreach (var s in city)
+                {
+                    if (s.sep < (ExplainMode == "2" ? UnloadSepM : LaunchSepM)) continue;
+                    n++;
+                    var pr = paths[s.pathIdx];
+                    Line("  X" + n + " " + Describe(map, s, n));
+                    Line("     " + Profile(map, trims, s));
+                    for (int q = Mathf.Max(0, s.k - 6); q <= Mathf.Min(pr.count - 1, s.k + 10); q++)
+                    {
+                        int i = pr.start + q;
+                        int tx = Mathf.FloorToInt(X[i] / CityMeshes.TileSize), tz = Mathf.FloorToInt(Z[i] / CityMeshes.TileSize);
+                        var sb = new StringBuilder();
+                        string topSlot = "";
+                        for (int dz = -1; dz <= 1; dz++)
+                            for (int dx = -1; dx <= 1; dx++)
+                            {
+                                long key = ((long)(tz + dz) << 32) | (uint)(tx + dx + 100000);
+                                if (!tiles.TryGetValue(key, out var tm)) tiles[key] = tm = CityMeshes.Build(map, trims, buildings, tx + dx, tz + dz);
+                                string h = TapHits(tm, X[i], Z[i]);
+                                if (h != " nothing" && h != " (no tap)") sb.Append(h);
+                                if (dx == 0 && dz == 0 && q >= s.k - 3 && q <= s.k + 6 && !float.IsNaN(Y[i])) topSlot = TopSlot(key, tm, X[i], Z[i], Y[i]);
+                            }
+                        if (topSlot.Length > 0) sb.Append(" top=" + topSlot);
+                        bool fan = q >= pr.nA && q < pr.nA + pr.nF;
+                        Line(string.Format(CultureInfo.InvariantCulture, "       {0}{1} ({2:0.0},{3:0.0}) mesh {4:0.00} data {5:0.00}{6} |{7}",
+                            q == s.k ? ">" : " ", fan ? "F" : " ", X[i], Z[i], Y[i], YE[i], Miss[i] != 255 ? " MISS" + Miss[i] : "", sb.Length == 0 ? " nothing" : sb.ToString()));
+                    }
+                    if (tiles.Count > 400)
+                    {
+                        foreach (var tm in tiles.Values) DestroyMeshes(tm);
+                        tiles.Clear();
+                    }
+                }
+            }
+            finally
+            {
+                CityMeshes.RecordTap = false;
+                foreach (var tm in tiles.Values) DestroyMeshes(tm);
+            }
+        }
+
+        /// <summary>(round 11, EXPLAIN) The slot of the Roads or Ground triangle over (x, z) at height y
+        /// (within 1.5 cm) - what the path read where no tapped surface matches (a lot, a walk).</summary>
+        static readonly Dictionary<long, (Vector3[] v, int[][] t, bool road)[]> topSlotCache = new Dictionary<long, (Vector3[] v, int[][] t, bool road)[]>();
+        static string TopSlot(long key, CityMeshes.TileMeshes tm, float x, float z, float y)
+        {
+            if (!topSlotCache.TryGetValue(key, out var meshes))
+            {
+                if (topSlotCache.Count > 64) topSlotCache.Clear();
+                var l = new List<(Vector3[] v, int[][] t, bool road)>();
+                foreach (var (m0, isRoad0) in new[] { (tm.roads, true), (tm.ground, false) })
+                {
+                    if (m0 == null || m0.vertexCount == 0) continue;
+                    var tt = new int[m0.subMeshCount][];
+                    for (int sub = 0; sub < m0.subMeshCount; sub++) tt[sub] = m0.GetTriangles(sub);
+                    l.Add((m0.vertices, tt, isRoad0));
+                }
+                topSlotCache[key] = meshes = l.ToArray();
+            }
+            foreach (var (v, tris, isRoad) in meshes)
+            {
+                for (int sub = 0; sub < tris.Length; sub++)
+                {
+                    var t = tris[sub];
+                    for (int i = 0; i + 2 < t.Length; i += 3)
+                    {
+                        Vector3 a = v[t[i]] + tm.origin, b = v[t[i + 1]] + tm.origin, cc = v[t[i + 2]] + tm.origin;
+                        float d = (b.z - cc.z) * (a.x - cc.x) + (cc.x - b.x) * (a.z - cc.z);
+                        if (Mathf.Abs(d) < 1e-9f) continue;
+                        float w1 = ((b.z - cc.z) * (x - cc.x) + (cc.x - b.x) * (z - cc.z)) / d;
+                        float w2 = ((cc.z - a.z) * (x - cc.x) + (a.x - cc.x) * (z - cc.z)) / d;
+                        float w3 = 1f - w1 - w2;
+                        if (w1 < -1e-4f || w2 < -1e-4f || w3 < -1e-4f) continue;
+                        float yy = w1 * a.y + w2 * b.y + w3 * cc.y;
+                        if (Mathf.Abs(yy - y) > 0.015f) continue;
+                        if (isRoad) return tm.roadSlots != null && sub < tm.roadSlots.Length ? tm.roadSlots[sub].ToString() : "road" + sub;
+                        return "ground" + sub;
+                    }
+                }
+            }
+            return "";
         }
 
         /// <summary>The tap's surfaces over a plan point: "span e# s a..b y" / "gore host e# y" / "fan n# y".</summary>
