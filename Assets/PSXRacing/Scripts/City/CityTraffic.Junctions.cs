@@ -298,21 +298,21 @@ namespace PSXRacing.City
             if (Time.time - c.lockSince < 1.5f) return false;
             if (touching)
             {
-                if (c.backFor != o && c.backedFor != o.id && CanBack(c)) { c.backFor = o; c.backedFor = o.id; c.backed = 0f; Stats.lockBacks++; LockNote(c, o, "lock-backed", "touching a car held by its own queue: backs off it"); }
+                if (c.backFor != o && c.backedFor != o.id && CanBack(c, o)) { c.backFor = o; c.backedFor = o.id; c.backed = 0f; Stats.lockBacks++; LockNote(c, o, "lock-backed", "touching a car held by its own queue: backs off it"); }
                 return false;
             }
             if (!GoesFirst(c, o))
             {
                 // this one gives way: out of the other's way, backing along its own
                 // turn (once a lock), where there is room behind it
-                if (c.backFor != o && c.backedFor != o.id && PathHits(o, c) && CanBack(c))
+                if (c.backFor != o && c.backedFor != o.id && PathHits(o, c) && CanBack(c, o))
                 { c.backFor = o; c.backedFor = o.id; c.backed = 0f; Stats.lockBacks++; LockNote(c, o, "lock-backed", "locked with the car that goes first: backs out of its way"); }
                 return false;
             }
             // this one goes: once the other is off its way, or now - creeping - where
             // the other cannot back out of it
             if (o.backFor == c) return false;
-            if (o.backedFor != c.id && PathHits(c, o) && CanBack(o)) return false;   // it starts backing on its step
+            if (o.backedFor != c.id && PathHits(c, o) && CanBack(o, c)) return false;   // it starts backing on its step
             float need = ClearDist(c, o);
             if (need == float.MaxValue) return false;   // its way runs on into the other: never pushed through
             c.creepPast = o; c.creepLeft = need + 0.5f; Stats.lockCreeps++;
@@ -330,7 +330,7 @@ namespace PSXRacing.City
         /// <summary>Can car c back out of a lock: in a turn (in the box), or on a run to a
         /// junction with no control (no stop line to back over), a little way into it,
         /// room behind it.</summary>
-        bool CanBack(Car c) => c.legCount > 0 && (c.legs[0].turn || c.legs[0].ctl == CtlNone) && c.u > 0.15f && RoomBehind(c);
+        bool CanBack(Car c, Car from) => c.legCount > 0 && (c.legs[0].turn || c.legs[0].ctl == CtlNone) && c.u > 0.15f && RoomBehind(c, from);
 
         /// <summary>Of two cars locked together, does c go first? The one that clears
         /// the other sooner driving on along its own way - the car across the other's
@@ -410,15 +410,22 @@ namespace PSXRacing.City
         }
 
         /// <summary>Room to back 0.8 m: no car (nor the player) where its body would go.</summary>
-        bool RoomBehind(Car c, float m = 0.8f)
+        bool RoomBehind(Car c, Car from, float m = 0.8f)
         {
+            // where it would be, m back along its own way (a turn's arc swings its body
+            // as it backs): clear of every car round it, not only one behind it
             var back = c.pos - c.fwd * m;
+            var bf = c.fwd;
+            if (c.legCount > 0 && c.legs[0].turn && c.legs[0].len > 0.01f)
+            {
+                back = Bez(c.legs[0], Mathf.Max(0f, c.u - m) / c.legs[0].len, out var bd);
+                if (bd.sqrMagnitude > 1e-6f) bf = bd.normalized;
+            }
             for (int i = 0; i < live.Count; i++)
             {
                 var o = live[i];
-                if (o == c || (o.pos - back).sqrMagnitude > 81f) continue;
-                if (Vector2.Dot(o.pos - c.pos, c.fwd) >= 0f) continue;
-                if (RectDepth(back, c.fwd, c.halfL + 0.3f, c.halfW + 0.1f, o.pos, o.fwd, o.halfL, o.halfW) > 0f) return false;
+                if (o == c || o == from || (o.pos - back).sqrMagnitude > 81f) continue;
+                if (RectDepth(back, bf, c.halfL + 0.3f, c.halfW + 0.2f, o.pos, o.fwd, o.halfL, o.halfW) > 0f) return false;
             }
             if (Vector2.Dot(playerPos - c.pos, c.fwd) < 0f && (playerPos - back).sqrMagnitude < (c.halfL + 3f) * (c.halfL + 3f)) return false;
             return true;

@@ -1599,7 +1599,7 @@ namespace PSXRacing.City
             {
                 var ob = c.backFor;
                 bool apart = !PathHits(ob, c) && RectDepth(c.pos, c.fwd, c.halfL + 0.3f, c.halfW + 0.3f, ob.pos, ob.fwd, ob.halfL, ob.halfW) <= 0f;
-                if (ob.wrecked || !ob.active || ob.speed > 0.5f || c.backed >= BackMaxM || c.u < 0.1f || apart || !RoomBehind(c))
+                if (ob.wrecked || !ob.active || ob.speed > 0.5f || c.backed >= BackMaxM || c.u < 0.1f || apart || !RoomBehind(c, ob))
                     c.backFor = null;
                 else
                 {
@@ -1856,7 +1856,21 @@ namespace PSXRacing.City
                             if (cFirst) break;
                             gap = Mathf.Max(gap, lengths + 1.5f);
                         }
-                        else if (gap <= 0f) break;
+                        else if (gap <= 0f)
+                        {
+                            // o "behind" on the shared leg by the plan, but its BODY ahead and
+                            // in the way this car sweeps - one that began its turn from another
+                            // lane cutting across in the box (round 3c final census B: West W T
+                            // Harris Boulevard, node 7343, a right turned from lane 3 across a
+                            // straight-on from lane 0; the straight ran into its side, 0.8 m,
+                            // locked 4 min) - braked for where the sweep meets it, as one across
+                            if (d2 < 12f * 12f && Vector2.Dot(d, c.fwd) > 0f && o.legCount > 0 && o.legs[0].turn)
+                            {
+                                float swk = SweptHit(c, o, 8f);
+                                if (swk < best) { best = swk; vL = 0f; c.leadKind = 4; c.leadId = o.id; }
+                            }
+                            break;
+                        }
                         float g = gap - lengths;
                         // ACROSS, NOT ROUND: the plan's way to a car on a later
                         // leg can be far longer than the way across - two roads
