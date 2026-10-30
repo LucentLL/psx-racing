@@ -926,7 +926,7 @@ namespace PSXRacing.City
         /// pavement (half a metre) and deck, out of buildings, water, lots,
         /// lamps and race run-off.</summary>
         static bool BreakawayFree(Vector2 p) =>
-            (StaticAt(p) & (RoadsideOccupancy.Building | RoadsideOccupancy.Water | RoadsideOccupancy.Other | S2DeckBit)) == 0 &&
+            (StaticAt(p) & (RoadsideOccupancy.Building | RoadsideOccupancy.Water | RoadsideOccupancy.Other | S2BreakawayKeep)) == 0 &&
             PavementMargin(mapNow, trimsNow, p) >= 0.5f && !RaceRunOff.Inside(mapNow, trimsNow, p) && OffPoles(p, p, 0.5f);
 
         /// <summary>How far a plan point is outside every road's pavement (and a

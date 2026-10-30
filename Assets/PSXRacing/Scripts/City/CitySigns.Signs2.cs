@@ -66,10 +66,11 @@ namespace PSXRacing.City
         public static bool S2Night = S2Env("PSX_CITY_SIGNS2_NIGHT");
         public static bool S2Gores = S2Env("PSX_CITY_SIGNS2_GORES");
 
-        /// <summary>A breakaway post keeps off a deck's margin as well (the
-        /// mask's Deck bit: the sign audit's "under a deck") whenever a switch
-        /// that stands round 2's breakaway signs is on.</summary>
-        static byte S2DeckBit => (S2Curves || S2Gores || S2Density) ? RoadsideOccupancy.Deck : (byte)0;
+        /// <summary>A breakaway post keeps off a deck's margin and a junction's
+        /// corner spot as well (the mask's Deck and Corner bits: the sign
+        /// audit's "under a deck", "corner spot") whenever a switch that stands
+        /// round 2's breakaway signs is on.</summary>
+        static byte S2BreakawayKeep => (S2Curves || S2Gores || S2Density) ? (byte)(RoadsideOccupancy.Deck | RoadsideOccupancy.Corner) : (byte)0;
 
         /// <summary>A DIAGNOSTIC (never shipped on): PSX_SIGNS_DBG_NOBACKING=1 lays
         /// no green backing behind a face's mosaic (the glyph probe's A/B).</summary>
