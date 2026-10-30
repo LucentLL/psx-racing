@@ -5,6 +5,17 @@
     py tools/city/fuel_art.py --sheet X  also write a before/after sheet to X (keep it out of the
                                          repository: its left half is the pack's branded art)
     py tools/city/fuel_art.py --sheet-after X   the shipped textures alone (Docs/shots/city_fuel)
+    py tools/city/fuel_art.py --name PUMP/WREN --sheet-after X
+                                         a trial name (the slash is where the two lettered rows
+                                         break it); writing the textures with a name the game's
+                                         constant does not hold is refused
+
+THE NAME lives in ONE place: Assets/PSXRacing/Scripts/OnFoot/StationBrand.cs
+(StationBrand.Name and StationBrand.Split). This script reads both out of that
+file, and every UI string in the game reads the same constants. A rename: change
+the constant, run this script (it re-letters the pylon, its emissor and the
+badge, then rebuilds the city's sign atlas with signs_atlas.py, which composes
+the badge), commit.
 
 The owner will sell the game (no brands, no trademarks). The Gas_station pack's
 own store is "6twelve" - a parody of a real chain's name and logo - and its
@@ -49,6 +60,8 @@ them; nothing a player sees carries the name.
 """
 import io
 import os
+import re
+import subprocess
 import sys
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -60,7 +73,35 @@ PACK = os.path.join(ART, 'Gas_station', 'Gas_station', 'Textures')
 OUT = os.path.join(REPO, 'Assets', 'PSXRacing', 'Art', 'GasStation', 'Textures')
 FONT = os.path.join(HERE, 'fonts', 'Overpass-Variable.ttf')
 
-NAME_LINES = ('PUMP', 'WREN')
+BRAND_CS = os.path.join(REPO, 'Assets', 'PSXRacing', 'Scripts', 'OnFoot', 'StationBrand.cs')
+
+
+def brand_constant():
+    """(name, split) as StationBrand.cs declares them: the one place the name lives."""
+    src = open(BRAND_CS, encoding='utf-8').read()
+    m = re.search(r'const\s+string\s+Name\s*=\s*"([^"]+)"', src)
+    k = re.search(r'const\s+int\s+Split\s*=\s*(\d+)', src)
+    if not m or not k:
+        sys.exit('fuel_art: no "const string Name" / "const int Split" in ' + BRAND_CS)
+    name, split = m.group(1), int(k.group(1))
+    if not 0 < split < len(name):
+        sys.exit('fuel_art: StationBrand.Split %d does not break "%s" in two rows' % (split, name))
+    return name, split
+
+
+def name_lines():
+    """The two lettered rows: the constant's, or --name TOP/BOTTOM's (a trial)."""
+    name, split = brand_constant()
+    if '--name' in sys.argv:
+        arg = sys.argv[sys.argv.index('--name') + 1].upper()
+        top, _, bottom = arg.partition('/')
+        if not top or not bottom:
+            sys.exit('fuel_art: --name wants the two rows split by a slash, e.g. --name PUMP/WREN')
+        return (top, bottom), (top + bottom) == name and len(top) == split
+    return (name[:split], name[split:]), True
+
+
+NAME_LINES, NAME_IS_CONSTANT = name_lines()
 PRICE = '.99'          # FuelModel.PricePerGallon (0.99 a gallon, 87 REG)
 
 NAVY = (24, 42, 96)
@@ -275,8 +316,15 @@ def sheet(images, path, before_too=True):
 
 def main():
     check = '--check' in sys.argv
+    trial = not NAME_IS_CONSTANT
+    sheets_only = '--sheet' in sys.argv or '--sheet-after' in sys.argv
+    if trial and not check and not sheets_only:
+        sys.exit('fuel_art: --name %s is not StationBrand.Name (%s): change the constant in %s '
+                 'first, so the signs and the UI keep one name' % ('/'.join(NAME_LINES),
+                                                                  brand_constant()[0], BRAND_CS))
     images = compose()
     bad = 0
+    wrote = []
     for name, im in images.items():
         data = encode(im, name)
         path = os.path.join(OUT, name)
@@ -285,10 +333,21 @@ def main():
             if have != data:
                 print('DIFFERS', path); bad += 1
             continue
+        if trial:
+            continue        # a trial name only draws its sheet
         if have == data:
             print('same', path); continue
         open(path, 'wb').write(data)
         print('wrote', path, len(data), 'bytes')
+        wrote.append(name)
+    if wrote and any(n.startswith('6twelve') for n in wrote):
+        # The city's sign atlas composes the badge and the price box: rebuild it in
+        # the same run, so a rename is one command.
+        atlas = os.path.join(HERE, 'signs_atlas.py')
+        print('the badge or the pylon changed: rebuilding the city sign atlas')
+        r = subprocess.run([sys.executable, atlas])
+        if r.returncode:
+            sys.exit('fuel_art: signs_atlas.py failed (%d)' % r.returncode)
     if '--sheet' in sys.argv:
         sheet(images, sys.argv[sys.argv.index('--sheet') + 1])
     if '--sheet-after' in sys.argv:

@@ -326,7 +326,7 @@ namespace PSXRacing.OnFoot
 
             if (storeTarget != null)
             {
-                storeTarget.title = "PUMPWREN";
+                storeTarget.title = StationBrand.Name;
                 storeTarget.detail = "Coffee, food, and somewhere to stand out of the rain.";
                 storeTarget.action = "GO INSIDE";
                 storeTarget.verb = "ENTER";

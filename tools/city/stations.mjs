@@ -6,6 +6,16 @@
 //   node tools/city/stations.mjs --json <file>    also write the whole table (the sheet's input: stations_sheet.py)
 //   node tools/city/stations.mjs --list           print every station, one line each
 //
+// AFTER A RE-EXPORT of the roads or the footprints, ONE command remakes every
+// file made from them, in order, and checks them all:
+//   node tools/city/regen_city.mjs     (export_osm --out, then this --out, then signs.mjs --out)
+// The shipped file is stamped with the graph hash and the footprints' CRC it
+// was made for; --check fails LOUDLY (exit 3, before any work) when either no
+// longer matches the shipped charlotte_city.bytes / charlotte_bld.bytes, and
+// says that command. (The runtime places by world position, so a stale file
+// still stands its stations, but its curb-cut hints and the boxes it hides may
+// be wrong: CityStations logs it.)
+//
 // The owner, 2026-10-30: "gas station models we have to be used where real gas
 // station locations are." Its OWN FILE, like charlotte_signs.bytes: the city
 // export (export_osm.mjs) never writes it, so a re-export of the roads does not
@@ -154,6 +164,38 @@ const bldBytes = readFileSync(join(RES, 'charlotte_bld.bytes'));
 const city = parseCity(cityBytes);
 const bld = parseBld(bldBytes);
 const dem = parseDem(readFileSync(join(RES, 'charlotte_dem.bytes')));
+
+// ------------------------------------------------------------------ the shipped file's stamp
+// PFUL's header carries the graph hash and the footprints' CRC the stations were
+// made for: their edge indices, curb cuts and replaced boxes point into THAT data.
+const hex = v => '0x' + (v >>> 0).toString(16).padStart(8, '0');
+const SHIPPED = join(RES, 'charlotte_fuel.bytes');
+const stamp = { hash: city.storedHash >>> 0, crc: crc32(bldBytes) >>> 0 };
+const staleWhy = (() => {
+  if (!existsSync(SHIPPED)) return ['Resources/charlotte_fuel.bytes is missing'];
+  const sb = readFileSync(SHIPPED);
+  if (sb.length < 18 || sb.toString('latin1', 0, 4) !== 'PFUL') return ['Resources/charlotte_fuel.bytes is not a PFUL file'];
+  const why = [], ver = sb.readInt32LE(4), gh = sb.readUInt32LE(8), bc = sb.readUInt32LE(12);
+  if (ver !== 1) why.push(`its version is ${ver}; this script writes 1`);
+  if (gh !== stamp.hash) why.push(`it was made for graph hash ${hex(gh)}; charlotte_city.bytes now hashes ${hex(stamp.hash)} (the roads were re-exported)`);
+  if (bc !== stamp.crc) why.push(`it was made for buildings CRC ${hex(bc)}; charlotte_bld.bytes is now ${hex(stamp.crc)} (the footprints were re-exported)`);
+  return why;
+})();
+if (staleWhy.length) {
+  const bar = '='.repeat(100);
+  const say = check ? console.error : console.log;
+  if (outDir) console.log('remaking the stations: the shipped charlotte_fuel.bytes is stale (' + staleWhy.join('; ') + ')');
+  else {
+    say(bar);
+    say('STATIONS STALE: Assets/PSXRacing/Resources/charlotte_fuel.bytes no longer matches the city it stands in:');
+    for (const w of staleWhy) say('  - ' + w);
+    say('Its frontage edges, curb cuts and replaced footprints point into the OLD data. Remake every file made');
+    say('from the export, in order (export_osm, then stations.mjs, then signs.mjs, then all three --checks):');
+    say('  node tools/city/regen_city.mjs              (from the repo root; --no-export when the export is done)');
+    say(bar);
+    if (check) process.exit(3);
+  }
+}
 
 // ------------------------------------------------------------------ geometry
 const polyArea = r => { let a = 0; for (let i = 0, n = r.length; i < n; i++) { const p = r[i], q = r[(i + 1) % n]; a += p[0] * q[1] - q[0] * p[1]; } return a / 2; };
@@ -1025,10 +1067,10 @@ if (jsonOut) {
   writeFileSync(jsonOut, JSON.stringify(J));
   console.log('wrote ' + jsonOut);
 }
-const shipped = join(RES, 'charlotte_fuel.bytes');
 if (check) {
-  const same = existsSync(shipped) && Buffer.compare(readFileSync(shipped), bytes) === 0;
-  console.log(same ? 'STATIONS CHECK OK (byte for byte)' : 'STATIONS CHECK: DIFFERS from ' + shipped);
+  const same = existsSync(SHIPPED) && Buffer.compare(readFileSync(SHIPPED), bytes) === 0;
+  console.log(same ? 'STATIONS CHECK OK (byte for byte; stamp ' + hex(stamp.hash) + ' / ' + hex(stamp.crc) + ')'
+                   : 'STATIONS CHECK: DIFFERS from ' + SHIPPED + ' (same roads and footprints: the rules or the inputs changed)');
   process.exitCode = same ? 0 : 1;
 }
 if (outDir) { mkdirSync(outDir, { recursive: true }); writeFileSync(join(outDir, 'charlotte_fuel.bytes'), bytes); console.log('wrote ' + join(outDir, 'charlotte_fuel.bytes')); }

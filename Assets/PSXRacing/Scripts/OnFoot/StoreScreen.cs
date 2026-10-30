@@ -56,13 +56,13 @@ namespace PSXRacing.OnFoot
         };
 
         /// <summary>Custom menu + signage. Left null this is the filling
-        /// stations' PUMPWREN food mart the forecourts have always opened (a
-        /// made-up name, city fuel r1: the pack's own store was a real chain's
-        /// parody); the drive-thrus set their own.</summary>
+        /// stations' food mart the forecourts have always opened, named by
+        /// StationBrand (a made-up name, city fuel r1: the pack's own store was a
+        /// real chain's parody); the drive-thrus set their own.</summary>
         public Item[] stock;
-        public string title = "PUMPWREN";
+        public string title = StationBrand.Name;
         public string subtitle = "OPEN 24 HOURS";
-        public string logPlace = "the Pumpwren";
+        public string logPlace = StationBrand.LogPlace;
 
         Canvas canvas;
         RectTransform panel;

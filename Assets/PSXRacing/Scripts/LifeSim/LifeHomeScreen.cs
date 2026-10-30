@@ -6623,7 +6623,7 @@ namespace PSXRacing.LifeSim
             MenuKit.Label(body, "BUY GROCERIES", 15, new Vector2(0.5f, 1f),
                 new Vector2(ColL, y), TextAnchor.MiddleLeft, MenuKit.Dim, 400f);
             y -= 30f;
-            MenuKit.Para(body, "Also sold out in the world: the PUMPWREN at the pumps, " +
+            MenuKit.Para(body, "Also sold out in the world: the " + PSXRacing.OnFoot.StationBrand.Name + " at the pumps, " +
                 "STACK BURGER drive-thrus and SLICE HOUSE pizzerias around Charlotte " +
                 "and Emerald Isle.", MenuKit.Tiny, new Vector2(0.5f, 1f),
                 new Vector2(ColL, y), out float soldH, TextAnchor.UpperLeft, MenuKit.Dim, ColW);
