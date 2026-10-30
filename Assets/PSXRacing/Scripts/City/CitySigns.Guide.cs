@@ -1602,9 +1602,13 @@ namespace PSXRacing.City
             m.SetVertices(gvs);
             m.SetNormals(gns);
             m.SetUVs(0, guvs);
-            // (signs round 2) the lit panels' night light, read by PSX/Lit's
-            // _NightVtx path; a tile with none carries no UV2 at all
-            if (gLit || gLead) m.SetUVs(2, guv2s);
+            // (signs round 2) the lit panels' night light and the legends' lead,
+            // read by PSX/Lit's _NightVtx path: ALWAYS written, zeros where
+            // neither - a guide mesh with no UV2 got another channel fed to the
+            // shader there (Unity's stand-in for a missing channel): with every
+            // switch off round 1's panels glowed in blocks at night and their
+            // legends led at random; in round 2 a tile of chevrons alone did
+            m.SetUVs(2, guv2s);
             m.SetTriangles(gtris, 0, false);
             m.RecalculateBounds();
             return m;
