@@ -696,16 +696,10 @@ namespace PSXRacing.City
                     if (LaneWidth(T, dT, t, tEnd) >= 2f && LaneWidth(O, 1, j, oStart) >= 2f && LaneJump(T, dT, t, tEnd, O, 1, j, oStart, n) <= 2f)
                     { pair[t, j] = true; usedO[j] = true; anyO = true; }
             if (!anyO) for (int t = 0; t < nT; t++) for (int j = 0; j < nO; j++) { pair[t, j] = true; usedO[j] = true; }
-            // (round 3e: and every lane a move of the arriving carriageway leaves from - a car
-            // standing for its gap in the lane its turn is laid from stands there too: South
-            // Boulevard node 13512, "clear at its lane end" by its one lane that runs on, its
-            // left lane's cars waiting there in the leaving flow's way, a lock, backed 74 times in
-            // one census. The margin stays round 3d's 0.35 m round a 1.0 m half body - wider than
-            // the driving logic's 0.4 m round a car's own 0.9; half a metre made 192 splits yield
-            // to the opposite flow passing, most of them a lane's width apart)
-            var amoves = new System.Collections.Generic.List<Move>(16);
-            MovesOf(A, 1, amoves);
-            foreach (var m in amoves) if (m.req >= 0 && m.req < nA && LaneWidth(A, 1, m.req, aEnd) >= 2f) usedA[m.req] = true;
+            // (round 3e: tested with every lane a move of the arriving carriageway leaves from -
+            // South Boulevard n13512's left lane - this made 190 splits city-wide (14) yield to the
+            // two-way's opposite flow, which only passes them: not shipped; n13512's backing loop
+            // is the hold-back's (Drive), its throat LEFT)
             const float hl = 2.4f, hw = 1.0f, pad = 0.35f;
             var pts = new System.Collections.Generic.List<Vector2>();
             var dirs = new System.Collections.Generic.List<Vector2>();
