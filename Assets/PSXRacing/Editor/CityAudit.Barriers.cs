@@ -219,7 +219,8 @@ namespace PSXRacing.EditorTools
             }
             list.Sort((a, b) => a.len.CompareTo(b.len));
             Line($"SHORT RAILS / PARAPETS (round 4; the tiles above, every road): {runs} rail runs, {shortOn + shortOff} isolated under {ShortBarrierM:0} m inside their edge ({shortOn} on structure {mOn:0} m, {shortOff} on the ground {mOff:0} m)");
-            for (int k = 0; k < Mathf.Min(25, list.Count); k++) Line("    SHORT " + list[k].what);
+            // (round 11) every one up to 60 - the census FAILs on the count, and each one is named
+            for (int k = 0; k < Mathf.Min(60, list.Count); k++) Line("    SHORT " + list[k].what);
             Check(shortOn + shortOff == 0, $"no isolated rail or parapet piece shorter than {ShortBarrierM:0} m inside its edge (short rail census)", shortOn + shortOff);
         }
     }
