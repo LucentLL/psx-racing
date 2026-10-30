@@ -65,7 +65,9 @@ namespace PSXRacing.EditorTools
             kind == CityProps.House ? "house" :
             kind >= CityProps.Trailer0 && kind <= CityProps.Trailer2 ? "trailer" : null;
 
-        class Piece
+        // (internal, city fuel r1: the filling stations' parts are baked with
+        // the same atlas and merge, PSXRacingBuilder.Stations.cs)
+        internal class Piece
         {
             public MeshRenderer r;
             public Mesh mesh;
@@ -73,7 +75,7 @@ namespace PSXRacing.EditorTools
             public Material[] mats;
         }
 
-        class TexInfo
+        internal class TexInfo
         {
             public Texture tex;
             public Color tint;
@@ -216,7 +218,7 @@ namespace PSXRacing.EditorTools
         /// texture never actually cuts (every alpha at or over the cutoff).</summary>
         static readonly Dictionary<Material, bool> atlasable = new Dictionary<Material, bool>();
 
-        static bool Atlasable(Material m)
+        internal static bool Atlasable(Material m)
         {
             if (m == null) return false;
             if (atlasable.TryGetValue(m, out bool known)) return known;
@@ -240,7 +242,7 @@ namespace PSXRacing.EditorTools
             finally { Object.DestroyImmediate(px); }
         }
 
-        static TexInfo FindOrAdd(List<TexInfo> list, Material m)
+        internal static TexInfo FindOrAdd(List<TexInfo> list, Material m)
         {
             var tex = m.mainTexture;
             var tint = m.HasProperty("_Color") ? m.color : Color.white;
@@ -255,7 +257,7 @@ namespace PSXRacing.EditorTools
         /// that fits (16 cells), halved from the least-covered up while it
         /// does not, then the most-covered raised to 128 while there is room.
         /// </summary>
-        static void PlanCells(List<TexInfo> texes)
+        internal static void PlanCells(List<TexInfo> texes)
         {
             texes.Sort((a, b) => b.area.CompareTo(a.area));
             int Units(int s) => (s / 32) * (s / 32);
@@ -303,7 +305,7 @@ namespace PSXRacing.EditorTools
         /// filter that wraps, times its material's tint. Saved beside the
         /// other city art with a point-filtered, mip-less importer, and its
         /// PSX_ATLAS_RECT material.</summary>
-        static Material WriteAtlas(string key, List<TexInfo> texes)
+        internal static Material WriteAtlas(string key, List<TexInfo> texes)
         {
             var atlas = new Texture2D(AtlasPx, AtlasPx, TextureFormat.RGB24, false);
             var fill = new Color32[AtlasPx * AtlasPx];
@@ -634,7 +636,7 @@ namespace PSXRacing.EditorTools
         /// and their colour the cell; every other material as a submesh of
         /// its own, merged across pieces.
         /// </summary>
-        static Mesh MergePieces(List<Piece> pieces, List<TexInfo> texes, Material atlasMat,
+        internal static Mesh MergePieces(List<Piece> pieces, List<TexInfo> texes, Material atlasMat,
                                 List<Material> keptApart, out Material[] mats)
         {
             var V = new List<Vector3>(); var N = new List<Vector3>(); var U = new List<Vector2>(); var C = new List<Color32>();
@@ -724,7 +726,7 @@ namespace PSXRacing.EditorTools
             return mesh;
         }
 
-        static float SurfaceArea(Mesh mesh, int sub, Matrix4x4 M)
+        internal static float SurfaceArea(Mesh mesh, int sub, Matrix4x4 M)
         {
             float area = 0f;
             using (var arr = Mesh.AcquireReadOnlyMeshData(mesh))
@@ -786,7 +788,7 @@ namespace PSXRacing.EditorTools
         /// out at 65, 192 at 190), which moves every cell off its texels and
         /// bleeds the neighbours in along every repeat - black seams down a
         /// house's foundation, the first render of this bake.</summary>
-        static void SaveMesh(Mesh m, string path)
+        internal static void SaveMesh(Mesh m, string path)
         {
             if (m.colors32 == null || m.colors32.Length == 0)
                 MeshUtility.SetMeshCompression(m, ModelImporterMeshCompression.Medium);
@@ -1016,7 +1018,7 @@ namespace PSXRacing.EditorTools
             finally { Object.DestroyImmediate(sheet); }
         }
 
-        static void EnsureFolder(string parent, string name)
+        internal static void EnsureFolder(string parent, string name)
         {
             if (!AssetDatabase.IsValidFolder(parent + "/" + name)) AssetDatabase.CreateFolder(parent, name);
         }

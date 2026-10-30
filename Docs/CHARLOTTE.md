@@ -9227,3 +9227,223 @@ the same frames differ in 0 pixels at noon and in 4-13 sky pixels (the stars) at
 - 8 exits with no gore sign (round 1: 63): 5 "the gore's ground taken where it opens" (a lamp, pole or another sign on
   every station and offset tried before the gore widens 14 m past the need), 3 "never opens past its painted nose
   within 400 m".
+
+## FILLING STATIONS (city-fuel-r1, 2026-10-30): the owner's gas-station model where the real stations are - PHASE A
+
+The owner, 2026-10-30: "While working on the city, I'd like gas station models we have to be used where real gas
+station locations are." PHASE A is the data, the brand-free art and the plan, made without Unity; PHASE B (a
+sandbox) builds and places the stations and wires the pumps. Sheet: `Docs/shots/city_fuel/fuel_stations_sheet.png`;
+the shipped art: `Docs/shots/city_fuel/fuel_art_shipped.png`.
+
+### The stations: `tools/city/stations.mjs` -> `Resources/charlotte_fuel.bytes` (PFUL v1, 34 KB; `--check`)
+Its own file, like `charlotte_signs.bytes`: the city export never writes it, so a re-export does not fight it in a
+binary merge. It READS the shipped `charlotte_city.bytes`, `charlotte_bld.bytes` and `charlotte_dem.bytes`, stamps
+their graph hash and the footprints' CRC-32, and its `--check` fails when either changes: re-run it after an export,
+as signs.mjs (order: export_osm, stations.mjs, signs.mjs). The layout is in the tool's header.
+- **The features.** Every OSM `amenity=fuel` in the beltway box: business.json's 316 (121 nodes, 195 ways out center)
+  plus the 3 fuel multipolygons only the building caches hold = 319 (170 ways outlined by `buildings_core/city.json`,
+  25 site outlines known by their centre alone). 26 more fuel buildings in `buildings_city.json` stand outside the
+  box, beyond the roads: not used. No name, brand or operator tag is read anywhere in the tool.
+- **One station each.** Features within 35 m of each other (the gap between outlines or points) with no drawn road
+  between their centres are one station; within 100 m when either is tagged for trucks (a truck stop's car and truck
+  canopies); one hand merge by id (`tools/city/stations_overrides.json`: a site outline whose box centre falls across
+  Clanton Road from its own canopy). 17 merges: 302 stations.
+- **Classes.** forecourt 285; truck stop 7 (`hgv=yes` / `fuel:HGV_diesel=yes` on a part); big-store fuel point 8
+  (75 m or more from every street, a 4,500 m2 store within 260 m: a warehouse club's or supercenter's fuel centre in
+  its parking field - the eight checked by hand); skipped 2 - closed (OSM's fixme, 32 m from South Boulevard) and one
+  unnamed canopy 104 m from Freedom Drive whose street is not in the city data. Marina, airport, private: none in the
+  data (OSM maps aviation fuel as `aeroway=fuel`, which business.json does not hold; no marina fuel in the box; no
+  `access=private`). One judgement call kept: an unnamed fuel site off Billingsley Road, no canopy or shop drawn,
+  placed as a big-store point - it may be a yard's own pumps.
+- **The model, measured** (Gas_station.fbx in Blender, x0.7823 - its pumps to 2.2 m, `PumpHeightM`): canopy 16.98 x
+  13.06 m (clear 5.1 m), two pump islands 10.96 m apart, two pumps each; shop 11.19 x 12.67 m; restrooms 3.68 x
+  6.10 m; pylon 2.35 m wide, 8.2 m tall; the pack's own lot 28.0 x 41.4 m. Its islands run AWAY from the road; the
+  owner's rule wants them along it, so the canopy MODULE stands turned a quarter (13.06 m along the road, 16.98 deep)
+  and is laid 1-3 times side by side to OSM's canopy length (OSM's canopies: median 31.6 m long, p90 47.7 m).
+  Layouts, each mirrored by placing parts, never by scaling: SHOP BEHIND (the pack's own arrangement: lot 28 x 41.4
+  m), SHOP BESIDE (the pack's layout turned: 41.4 x 28 m, the shop's door toward the pumps), CANOPY ALONE (+6 m round),
+  TRUCK STOP (shop beside, and a two-module truck canopy behind).
+- **Placement (US practice).** The station faces its FRONTAGE: the nearest surface road it could have a driveway on
+  (not a freeway, ramp, roundabout, tunnel or bridge), a bigger road winning a corner (5 m of gap per class). The
+  lot's front line stands at the back of that road's walk (or verge); the canopy and the pylon stand out of its clear
+  zone and out of every other road's pavement, walk and clear zone; the canopy, shop and restrooms stand 1 m clear of
+  every footprint the city draws but the station's own, and the lot lies on other buildings for at most 12 % (the
+  runtime cuts them out); clear of creeks (banks + 2 m), lakes and the other stations. Every layout, mirrored or not,
+  slid along the road up to 24 m and set back up to 50 m (its driveways then run on to it), competes on ONE cost:
+  how far its canopy and shop stand from OSM's own (the shop's target is a tagged kiosk, else the untagged shop
+  beside the fuel), + 0.25 per metre back, + 6 for the second frontage, + 3 per layout down the list, + 12 for the
+  canopy alone, + 20 for a truck stop without its truck canopy. A placement needs a DRIVEWAY: two on a lot 26 m wide
+  or more, one in the middle of a narrower one, each on the surface road nearest that point of the lot's front, its
+  mouth 15 m from every junction node (7.5 m, flagged tight, where the block is short), never on a roundabout, its run
+  over no building and across no other road; a corner lot gets one on its side street too. 30 ft wide (NCDOT 24-36).
+- **The station's own buildings.** The model stands IN PLACE of the box OSM drew for the station - its fuel outlines
+  the city draws (53), and, where OSM tagged no kiosk, the ONE small non-house building nearest the fuel within 25 m
+  (its shop drawn untagged: 134) - only where a part of the model stands on it or the lot covers half of it. Every
+  other building stays and blocks. The file lists each by its polygon's area centroid (from the shipped float32
+  points), for the runtime to match within 0.5 m.
+- **Big-store points** stand where OSM drew the canopy, along its long axis, with no lot of their own driveways: a
+  paved aisle (7.3 m) runs from the pad to the nearest drawn parking lot or road where the pad does not touch one.
+- **Result.** 300 stations placed (and the 2 skipped): shop behind 219 (164 one module, 19 two, 36 three), shop
+  beside 59 (38 / 12 / 9), canopy alone 16 (the 8 big-store points, 8 lots too tight for the shop), truck stop 6 (the
+  seventh truck stop fits only the plain layout). 186 stand within 5 m of OSM's canopy or shop, 248 within 10 m.
+  567 driveways (6 stations tight to a junction); 37 corner lots; 20 steep lots (the ground falls 3 m or more across
+  them: the pad grades it). MISFITS, placed but over 25 m from OSM's own: West Arrowood Road (31 m), Tyvola Road
+  (32 m), Albemarle Road (28 m), Pitts School Road NW near Weddington Road (27 m), Unionville Indian Trail Road West
+  near Independence Boulevard (32 m). Per 256 m tile: 272 tiles hold a station - 245 one, 26 two, one three (East
+  Independence Boulevard near Matthews-Mint Hill Road); at most 4 within 400 m (Carowinds Boulevard).
+
+### The pole signs (`signs.mjs`; `charlotte_signs.bytes` regenerated, `--check` OK)
+A filling station's sign is its own pylon, standing with the model: signs.mjs lists no business cabinet for fuel
+(299 fewer POIs). A station still counts as a business for the zoning and the frontage, so the grid, the routes,
+the billboards, the gantries and the exit legends are byte for byte as before. Until PHASE B stands the stations
+the city's fuel businesses carry no sign.
+
+### No brands (`tools/city/fuel_art.py`, `--check`; the owner will sell the game)
+The pack's store "6twelve" is a real chain's parody (name, mirrored lettering, the numeral logo) and its price
+board names a real oil company's grades at peso prices; its shelves, fridges, stock room and litter are photographs
+of real products. fuel_art.py rebuilds them from the pack's originals in the owner's art folder (read only) under the
+same file names - so the LifeSim's town station, every circuit fuel stop, the city's stations and the walk-in
+garage's crates (`Deposit.jpg`) all change with it:
+- **The store: PUMPWREN** - a made-up name in the owner's own pattern (Curbkite, Pawpixel, Brickmoon) - and plain
+  words; no logo, no phone number. `6twelve.jpg` (the fascia badge: PUMP / WREN, the pack's stripes, FOOD MART, all
+  inside the 31..225 square the shop's face shows), `6twelve_Sign.png` (the pylon: BOTH cabinet faces now carry the
+  face - the pack left the back blank metal - laid mirrored on the back so it reads from behind: PUMP / WREN, FOOD
+  MART, REGULAR 87 over FLIP NUMERALS ".99" - FuelModel.PricePerGallon, the game's one grade - and SELF SERVE; the
+  pack's seven-segment price displays are gone), `6twelve_Sign_Emissor.png` (the lightbox panels glow fluorescent
+  white-green after dark, the tiles do not). The pack's metal, stripes (`Sign.jpg`) and a lightbox white; the
+  lettering is Overpass (OFL, rasterised; the guide signs' face).
+- **Legible real brands found and re-printed soft** (box-filtered to 1/6-1/10 and eased back up: colours and pack
+  shapes kept, no letter or logo; fruit, pizzas and the fridge doors' frames untouched): `Foods_01` (soft drinks,
+  cereal), `Foods_02` (snack bags, soft drinks), `Foods_03` (cookies, candy bars), `Foods_04` (cakes, instant
+  noodles, milk), `Foods_07` (cans, rice, bread, water, sauces, oils), `Sweets_others` (candy, gum, cigarettes),
+  `Refrigerador`, `_01`, `_02` (the three fridge doors: soft drinks, beer, sports and energy drinks), `Deposit`
+  (printed cartons and crates in a foreign script), `Others` (condiment sachets, a printed bag), `Trash` (printed
+  wrappers), `Checker` (a time clock's maker and label: SpawnStation strips its object - it never ships - cleaned
+  all the same). Checked and clean: ICE (the word), Fridge (popsicles), Coffee_machine, ice_slush_machine,
+  Pack_lighters, Management (its card terminal's tiny print is illegible at any size), Camera, Fusible, Sanitary,
+  Bathrooms, Toilets_Sing ("Toilets"), Shelving, Board, Sign (stripes), Fuel_pump, spotlight, Tiles_01. The pack's
+  `Background*.png` skyline is never shipped (SpawnStation strips the backdrop).
+- **The city signs atlas** (`signs_atlas.py`, CitySigns.png recomposed, `--check` OK): its filling-station bulletin,
+  poster and cabinets (cells 0, 1) take the new badge and price box from the repo instead of the pack's parody.
+- **UI**: the store's title "6TWELVE" -> "PUMPWREN" (StoreScreen, ForecourtMode's door prompt, the LifeSim's
+  groceries line); log place "the Pumpwren". The file names keep "6twelve" (the FBX binds its materials to them;
+  nothing a player sees carries it).
+
+### 90s tech (the owner's 2026-10-29 rule)
+No LEDs: the price is flip numerals on an internally lit cabinet (done, in the art). PHASE B: the canopy's
+downlights fluorescent white-green (hue ~78, sat ~0.2; or metal-halide warm), as NightGlow heads like the street
+lamps; the shop's windows the warm yellow family (FAC_WIN_WARM), never blue; the pylon's lightbox through the
+emission map as a night mask.
+
+### Performance budget (the owner just saw 3 FPS; "city perf r1" is on streaming)
+Measured off the pack: a station's exterior is canopy shell 120 tris + 4 pumps 3,696 + shop shell and glazing 854
+(+130 fridge faces dropped: interior) + restrooms 190 + pylon 44 + dumpster 156 = 5,060 tris for one module; each
+more module + 3,816; the 3-module worst ~12,700. The pumps are 73 % of it, so they get a LOD of their own.
+- **City variant, exterior only** (CityPropBaker's pattern): no interior props unless a walk-in is ever wired (the
+  shop's door opens the StoreScreen menu, which needs no room), opaque windows, the fridge faces dropped.
+- **Shared meshes, one atlas material**: the parts baked ONCE (canopy module, pumps x4 detailed, pumps x4 as
+  boxes, shop shell, restrooms + dumpster, pylon; ~9k tris, ~300 KB) on one pack atlas; a station is 4-8 renderers of
+  one material (SRP-batched), or combined per station on its stand-up slice into 2 meshes.
+- **LODs**: LOD0 detailed pumps to 40 m; LOD1 pump boxes to 150 m (1,410 tris one module, 1,800 three); LOD2 one
+  baked far box per layout (~100 tris, 1 draw) to 400 m; culled past it (the far city draws the skyline).
+- **Budget**: per station <= 8 draws and <= 12,700 tris near, 1 draw and ~100 tris far; per tile (at most 3
+  stations) <= 24 draws and <= 39k tris in the worst tile, typically 1 station: ~6 draws, ~5k tris. Colliders boxes
+  only (no MeshCollider: no cooking at stand-up): ~13 a one-module station, ~29 a three; 4 pump triggers a module.
+  Night: 4 canopy light heads a module (<= 36 a tile).
+- **Never all in one frame**: the forecourt pad, the lot paving, the aprons and the walks' curb cuts are part of the
+  ground's own sliced TileJob steps (the stations join map.lots / the aprons at LOAD, once); the station prefab
+  stands up on a frame of its own after the tile's (the trees' queue), one station a frame; its lights join the
+  tile's NightGlow. PHASE B measures the frame cost at the densest spot (Carowinds Boulevard; East Independence
+  Boulevard near Matthews-Mint Hill Road) with CityBudgetProbe and the FPS overlay's CITY line.
+
+### The pumps in free roam (PHASE B)
+Charlotte has a FuelTank on the player car and a RaceHandoffApplier on its session object, but NO ForecourtMode:
+the city builder adds one to GameSystems as the circuits do (not `anywhereInTown`). The station prefab carries a
+GasPump trigger per pump (7 x 3 x 5.5 m, along its island), a StoreDoor at the shop's door and the pack's pump
+meshes. Two changes for STREAMED pumps: ForecourtMode builds its pump prompts once (FindObjectsByType at the first
+get-out) and finds the door with a scene-wide Transform search - both become registries (GasPump and the door
+marker add themselves on enable, drop on disable) and the prompts are rebuilt on every get-out for the pumps near the
+car. The bill, the latch, FILL UP / STOP and the touch FUEL button are GasPump's and ForecourtMode's as they are.
+
+### PHASE B (a sandbox; about 6-8 hours of agent time, 3-4 Unity jobs)
+1. `Scripts/City/CityStations.cs`: read PFUL (refuse on a graph-hash mismatch, warn), at load append each lot to
+   map.lots (aisle-only, paved), its driveways to the aprons (ApronAt: the walks' curb cuts follow), a hole in every
+   OSM lot it overlaps (and their stall lines culled inside it), the replaced footprints hidden, a CityHouses blocker
+   with a graded pad (the house pads' code), a CityBuildings lot with a new prop kind (occupancy claimed before the
+   frontage pass); RoadsideOccupancy marks the lot (no tree, pole, sign or lamp on it).
+2. `Editor/CityPropBaker` + `PSXRacingBuilder`: the city station parts from SpawnStation's measured model (one copy
+   of that code), the canopy module turned a quarter, the PART_CHECK asserts against stations.mjs's numbers, the
+   prefabs per layout with LODs, box colliders, pump triggers, StoreDoor, NightGlow heads.
+3. CityWorld: the station stand-up on its own frame; the minimap's fuel marks if simple.
+4. Charlotte's ForecourtMode + the two registries.
+5. Proof: screenshots from a car at 6+ real stations (uptown W 10th St near N Graham St, an arterial strip -
+   Carowinds Boulevard, a highway exit - Westinghouse Boulevard near I-77, a suburb - Old Monroe Road near Wesley
+   Chapel Road, a truck stop - Clanton Road, a big-store point - Wilkinson Boulevard near Ashley Road) each with its
+   OSM element named; the drive audit clean (no solid without drawn faces, nothing in lanes); a fuel-play-check-style
+   refuel at a city station; the frame cost at the densest spot; then the commit.
+
+### PHASE B, the code (2026-10-30; no sandbox free: typecheck only, the Unity jobs below still to run)
+Commits on city-fuel-r1 after aab9c7fc: 2197f1cd (b, c), 4ed0a9fc (1, 3), b8479e4b (4, a), 3edc3a37 + the far LODs (2).
+- **The name in ONE place** (`Scripts/OnFoot/StationBrand.cs`: `Name` "PUMPWREN", `Split` 4). The store's title and
+  log line, the door prompt and the LifeSim's groceries line read it; `fuel_art.py` reads both constants out of that
+  file (`--name TOP/BOTTOM` draws a trial sheet; writing textures with a name the constant does not hold is refused)
+  and rebuilds the city sign atlas when the badge or the pylon changes. A rename: the constant, one command, a commit.
+- **The merge order** (`tools/city/regen_city.mjs`, ONE command: export_osm --out, stations.mjs --out, signs.mjs
+  --out, then the three --checks; `--no-export`, `--print`, `-- <export args>`). `stations.mjs --check` exits 3 before
+  any work when the shipped file's stamp (graph hash, buildings CRC) no longer matches, with a banner naming what moved
+  and that command. Run here: REGEN OK in 297 s, nothing changed.
+- **`Scripts/City/CityStations.cs`** reads PFUL once, at the end of `CityMap.Parse` (`Install`): each lot appended to
+  `map.lots` (no stalls, cut flush, curbed against grass, a hole under any building left on it), a curb cut per
+  driveway in `map.lotEntrances` (the file's edge/s/side while the graph matches and the mouth is where it says,
+  else re-found from its world position), the paving from the verge's toe to a lot that stands back (and a big-store
+  point's aisle), a hole the size of the station's lot FIRST in every OSM lot it overlaps (and their islands on the
+  forecourt dropped), the replaced boxes hidden and marked `Footprint.replaced` (no prism, proxy, skyline, lit window,
+  house pad, clearance). A stale file logs the regen command and still stands its stations by world position.
+  `CityHouses` grades the lot level (kind 7: `Graded`, not `IsHome` - no driveway of its own): the pad is the ground
+  at its FRONT line within 3 m of its middle, inside the roads' limits. `CityBuildings` claims the lots' 18 m cells
+  before the restaurants and the frontage boxes; the fill houses and restaurants keep off (`CityStations.Near`);
+  `CitySigns` stands no business cabinet within 12 m (the pylon is the sign); the roadside mask, trees and lamps see
+  the lots as lots. An offline harness ran the real C# `Read`/`Parts`/`Poses` under Unity's Mono: the file consumed
+  exactly, all 300 lots and every part's world ring equal to stations.mjs's (worst 0.27 cm).
+- **`Editor/PSXRacingBuilder.Stations.cs`** (`BakeCityStations`, called by BakeCityProps and BuildCityScenesOnly; menu
+  PSX Racing/Bake City Filling Stations) bakes `Resources/CityStations/`: StationCanopy1/2/3 (the module TURNED A
+  QUARTER - the pumps along the frontage - laid 1-3 along the road; pumps detailed to 40 m, the pack's own hose-less
+  68-tri pump to 150 m, roof and legs to 400 m; boxes for the legs (split out of the pack's one 11 m "Pillar"), the
+  islands and the pump bodies; a GasPump volume per pump; 4 CanopyLight markers a module), StationShop (its outside,
+  the badge on its own renderer, glass opaque and lit yellow after dark as a shopfront, one box, the StoreDoor marker
+  1.4 m out from the front door), StationRestrooms, StationDumpster, StationPylon (the lightbox lit in its own colours
+  through the emissor). One 256 px atlas (CityPropBaker's cells) for every opaque pack material but the pumps', the
+  badge's, the glass and the pylon's: 8 draws a station near, 4 far. A PART CHECK fails the bake when the canopy
+  module, shop, restrooms or pylon is off CityStations' table by over 0.15 m.
+- **CityWorld**: a tile's stations are SEATED at its stand-up (the lattice it drew) and STOOD one a frame after it,
+  nearest the car first, never on a tile's stand-up frame; built whole (a car on it, EnsureRing) or a car within 60 m:
+  at once. The canopy's lights: one NightGlow per station, white-green mercury heads in the lamp field.
+- **The pumps**: `GasPump.All` and `StoreDoor.All` register themselves; ForecourtMode rebuilds the pumps' prompts (and
+  re-hangs the door's) on EVERY get-out from them; Charlotte's scenes get a ForecourtMode (as the circuits'). A
+  streamed pump no longer wipes a visit at another station (only a scene's first pump resets the statics), and a pump
+  going away closes the visit only if it held it. CITY edition: the pumps fill free; the shop has no GO INSIDE.
+- **The double-stacked station (a), at its cause**: SpawnStation loaded Gas_station_Props.fbx too - the pack's display
+  of its own props, 151 of its 156 meshes the main file's geometry moved and turned: two shops, two canopies
+  overlapping at one height, ten pumps. Now Gas_station.fbx's ONE layout for the town and the circuits; of the props
+  file only Tree, Tree_01 and Bush are kept (where the pack stands them). Dropped: the duplicates; Fuel_pump_ (a
+  hose-less display pump - an eleventh pump volume in the town; the city's far pump LOD now); Dispenser (a loose
+  nozzle); Management_003 (a third counter monitor). The scale is now the MEDIAN pump's height: the build logged
+  the ten pumps' combined bounds 3.34 units tall (x0.658, pumps 1.85 m) where one pump is 2.81, so the town's and
+  the circuits' stations should come out about a fifth bigger (pumps at PumpHeightM's 2.2 m) and the circuits' pads
+  follow `StationSize()`.
+
+**The Unity jobs PHASE B still needs** (in order, one sandbox):
+1. Import + scene build (BakeCityProps runs BakeCityStations): read PSXRacing_city_stations.txt - every PART CHECK ok
+   (if the scale is not ~0.78 the table and stations.mjs's numbers must follow), the dropped lists sane, the front door
+   found; the town log's pump-height spread line. Commit the baked prefabs, meshes, atlas and materials WITH their
+   .meta files.
+2. Town: before/after screenshots of the station (one canopy, one shop, four pumps, the props' trees); fuel-play-check.
+3. Circuits: the fuel stops at the new scale - the circuits' audits (TrackObstacleAudit, the surface audit), a shot.
+4. Charlotte: screenshots from a car at 6+ stations (the list above), day and night (canopy lights, shop windows, the
+   pylon); the city audits (lots, curbs, the drive audit: nothing solid in a lane), the stations' install line in the
+   log (no table drift, 0 replaced boxes missed, curb cuts re-found 0).
+5. A refuel at a city station: `tools\city-fuel-play-check.ps1` (Editor/CityFuelPlayCheck.cs, written in this round:
+   the plainest one-module station nearest uptown, its tiles built whole, park beside a pump, FUEL offered, out,
+   FILL UP raises the tank, STOP stops it, GO INSIDE at its door) - as the main edition, and with PSX_EDITION=CITY
+   (free fuel, no door prompt).
+6. The frame cost at Carowinds Boulevard and East Independence Boulevard (CityBudgetProbe, FPS overlay CITY line).

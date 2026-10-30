@@ -175,7 +175,9 @@ namespace PSXRacing.City
         static readonly RectInt LensCell = new RectInt(0, 484, 16, 16), BlackSide = new RectInt(16, 484, 16, 16);
         public const int Bulletins = 6, Posters = 4;
         /// <summary>The cabinets a business kind puts up (atlas pole cells,
-        /// every one of pack pictures: 0 6twelve, 1 the 6twelve price board,
+        /// every one of pack pictures: 0 the filling stations' badge, 1 their
+        /// price box (both brand-free: tools/city/fuel_art.py; a station's own
+        /// pylon carries them now, and signs.mjs lists no fuel cabinets),
         /// 2 a burger, 3 the BURGERS tin, 4 a pizza, 5 the PIZZA banner, 6 EAT
         /// GOOD FOOD, 7 a motel's palm beach, 8 a bank's gold bar, 9 a
         /// pharmacy's prescription label, 10 a car wash's wheel and water, 11
@@ -1203,6 +1205,10 @@ namespace PSXRacing.City
         /// <summary>Uptown, inside the I-277 loop, the signs are on the walls:
         /// no business pole sign within this of Trade and Tryon.</summary>
         public const float UptownNoPoleM = 1300f;
+        /// <summary>City fuel r1: no business pole sign within this of a
+        /// filling station's lot or driveway - the station's own price pylon
+        /// stands at its corner.</summary>
+        public const float StationSignClearM = 12f;
         static readonly List<Mark> poleSight = new List<Mark>(64);
 
         static void PoleSigns(CityMap map, CityMeshes.Trims trims, Dictionary<long, List<CityBuildings.B>> buildings,
@@ -1227,6 +1233,8 @@ namespace PSXRacing.City
                 var cells = KindCells[Mathf.Clamp(poi.kind, 0, KindCells.Length - 1)];
                 float w = 2.4f + 0.8f * CityTrees.Hash01(pi, 3, 71);
                 var pnom = q + f * (e.HalfMax + RoadsideOccupancy.ClearZoneOf(e) + w * 0.5f + 0.8f);
+                // city fuel r1: a filling station's sign is its own pylon
+                if (CityStations.Near(map, pnom, StationSignClearM)) { if (InTile(pnom, min, max)) PoleTrace?.Invoke(ei, pnom, "poi at a filling station"); continue; }
                 // a business at the kerb wears its sign on its wall
                 if (NearestBehind(pnom, f, out float wall) != None && wall < SetbackMinM)
                 {
@@ -1268,6 +1276,8 @@ namespace PSXRacing.City
                         if (!landuse && e.cls < 2) continue;
                         // not in a divided road's median, looking across the other carriageway
                         if (RoadBehind(map, ei, nom, f)) continue;
+                        // city fuel r1: not in front of a filling station (its pylon is its sign)
+                        if (CityStations.Near(map, nom, StationSignClearM)) continue;
                         byte what = NearestBehind(nom, f, out float wall);
                         bool store = what == Store && wall >= SetbackMinM;
                         if (InTile(nom, min, max))
@@ -1367,6 +1377,7 @@ namespace PSXRacing.City
                         foreach (int fi in list)
                         {
                             var f = map.footprints[fi];
+                            if (f.replaced) continue;   // a filling station stands there instead
                             if (f.centre.x < lo.x || f.centre.y < lo.y || f.centre.x > hi.x || f.centre.y > hi.y) continue;
                             near.Add((f.centre, f.style == 3 || f.gable ? House : f.style == 0 ? Tower : Store, f.u, f.hu, f.hv));
                         }

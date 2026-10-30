@@ -16,8 +16,11 @@ ones the pack pictures carry.
     `Foods_04.jpg` (a pepperoni pizza) and `Foods.jpg` (bananas, a watermelon);
     the game's own STACK BURGER and SLICE HOUSE are its burger on red and its
     pizza on green;
-  * the Gas_station pack's own fictional brand, `6twelve` (logo and price
-    board), and its striped `Sign.jpg`; the Pizzeria pack's `sign.png` (PIZZA);
+  * the filling stations' own brand-free badge and price box (city fuel r1:
+    tools/city/fuel_art.py remakes the Gas_station pack's `6twelve` parody
+    logo and its price board as PUMPWREN / FOOD MART / REGULAR 87 .99, read
+    here from Assets/PSXRacing/Art/GasStation/Textures), and the pack's
+    striped `Sign.jpg`; the Pizzeria pack's `sign.png` (PIZZA);
   * tin signs from the Pizzeria pack's `Decorative_Sign.png`, chosen after
     LOOKING at every one of its 36: "Burgers - Best in Town", the two "Eat Good
     Food", the dancing couple, and the NORTH CAROLINA licence plate (a made-up
@@ -62,6 +65,7 @@ OUT_DIR = os.path.join(REPO, 'Assets', 'PSXRacing', 'Art', 'City', 'Signs')
 ATLAS = os.path.join(OUT_DIR, 'CitySigns.png')
 MASK = os.path.join(OUT_DIR, 'CitySigns_night.png')
 METAL = os.path.join(REPO, 'Assets', 'PSXRacing', 'Art', 'LifeSim', 'House', 'Textures', 'Metal.jpg')
+FUEL = os.path.join(REPO, 'Assets', 'PSXRacing', 'Art', 'GasStation', 'Textures')   # fuel_art.py's output
 
 N = 512
 # ---- the layout (x, y, w, h), top-left origin; CitySigns.cs mirrors it ----
@@ -76,7 +80,7 @@ BLACK = (16, 484, 16, 16)     # cabinet sides
 WHITE = (32, 484, 16, 16)
 
 # what each business cabinet shows (CitySigns.KindCells picks them by trade)
-POLE_CELLS = ['6twelve', '6twelve prices', 'STACK BURGER', 'BURGERS tin', 'SLICE HOUSE', 'PIZZA banner', 'EAT GOOD FOOD tin',
+POLE_CELLS = ['station badge', 'station price box', 'STACK BURGER', 'BURGERS tin', 'SLICE HOUSE', 'PIZZA banner', 'EAT GOOD FOOD tin',
               'motel (palm beach)', 'bank (gold bar)', 'pharmacy (Rx label)', 'car wash (wheel, water)', 'car lot (NC plate, wheels)',
               'tyres', 'strip mall tenants', 'grocer (produce)', 'lounge (dancers tin)']
 
@@ -171,9 +175,10 @@ def compose():
     foods = pack(r'All\All\Textures\Foods.jpg')
     bananas = black_to_alpha(foods.crop((770, 0, 1024, 256)).copy())
     melon = black_to_alpha(foods.crop((256, 815, 385, 985)).copy())
-    logo6 = pack(r'Gas_station\Gas_station\Textures\6twelve.jpg').crop((30, 30, 226, 226))
-    board6 = pack(r'Gas_station\Gas_station\Textures\6twelve_Sign.png')
-    prices = board6.crop((96, 176, 176, 252))
+    # the filling stations' badge and price box: the brand-free remake (fuel_art.py), not the pack's parody
+    logo6 = Image.open(os.path.join(FUEL, '6twelve.jpg')).convert('RGBA').crop((30, 30, 226, 226))
+    board6 = Image.open(os.path.join(FUEL, '6twelve_Sign.png')).convert('RGBA')
+    prices = board6.crop((95, 168, 165, 238))       # REGULAR 87 over the flip numerals
     stripes = pack(r'Gas_station\Gas_station\Textures\Sign.jpg')
     pizza_banner = pack(r'Pizzeria\Pizzeria\Textures\sign.png').crop((0, 0, 360, 165))
     deco = pack(r'Pizzeria\Pizzeria\Textures\Decorative_Sign.png')
@@ -208,7 +213,7 @@ def compose():
     ground(atlas, (b[1][0] + 78, b[1][1] + 8, 172, 60), WHT)
     paste_fit(atlas, pizza_banner, (b[1][0] + 80, b[1][1] + 10, 168, 56))
 
-    ground(atlas, b[2], WHT)                                             # 6twelve
+    ground(atlas, b[2], WHT)                                             # a filling station
     paste_fit(atlas, stripes, (b[2][0], b[2][1], 256, 12), mode='stretch')
     paste_fit(atlas, logo6, (b[2][0] + 8, b[2][1] + 14, 60, 60))
     paste_fit(atlas, prices, (b[2][0] + 78, b[2][1] + 14, 66, 60))
@@ -246,7 +251,7 @@ def compose():
         x, y, w, hh = f[i]
         paste_fit(atlas, stripes, (x, y if top else y + hh - h, w, h), mode='stretch')
 
-    ground(atlas, f[0], WHT); paste_fit(atlas, logo6, f[0])              # 6twelve
+    ground(atlas, f[0], WHT); paste_fit(atlas, logo6, f[0])              # a filling station's badge
     ground(atlas, f[1], WHT); band(1, h=14)                               # its price board
     paste_fit(atlas, prices, (f[1][0] + 4, f[1][1] + 16, 56, 46))
     ground(atlas, f[2], RED); paste_fit(atlas, burger, (f[2][0] + 4, f[2][1] + 6, 56, 52))       # STACK BURGER

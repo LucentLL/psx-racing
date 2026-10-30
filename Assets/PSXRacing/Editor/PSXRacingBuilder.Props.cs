@@ -127,6 +127,10 @@ namespace PSXRacing.EditorTools
             // made from the prefabs just saved.
             foreach (var line in CityPropBaker.BakeVariants()) Log("  props " + line);
 
+            // city fuel r1: Charlotte's filling stations' parts, from the
+            // Gas_station pack as SpawnStation stands it
+            foreach (var line in BakeCityStations()) Log("  stations " + line);
+
             // The cargo rides along with the props for the same reason it is a
             // prefab at all: a race scene cannot AssetDatabase-load an FBX, and
             // a bake nobody remembers to run is a delivery with no pizza in it.

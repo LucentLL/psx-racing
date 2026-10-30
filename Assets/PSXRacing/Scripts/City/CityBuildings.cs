@@ -48,6 +48,9 @@ namespace PSXRacing.City
             var scratch = new HashSet<int>();
             int placed = 0;
 
+            // city fuel r1: the filling stations' lots claim their cells
+            // before anything else stands (a restaurant, a store, a house)
+            int stationCells = ClaimStations(map, occupied);
             // Restaurants first, so their lots claim occupancy before the
             // frontage loop fills the street with houses.
             int landmarks = PlaceLandmarks(map, byTile, occupied, scratch);
@@ -147,7 +150,7 @@ namespace PSXRacing.City
                     }
                 }
             }
-            Debug.Log($"[City] buildings placed: {placed} (+{landmarks} restaurants, {towers} pack towers on real lots, {map.footprints.Length} footprints)");
+            Debug.Log($"[City] buildings placed: {placed} (+{landmarks} restaurants, {towers} pack towers on real lots, {map.footprints.Length} footprints; {map.stations.Length} filling stations claimed {stationCells} cells)");
             return byTile;
         }
 
@@ -241,6 +244,27 @@ namespace PSXRacing.City
             return 0;
         }
 
+        /// <summary>City fuel r1: every 18 m occupancy cell a filling station's
+        /// lot, driveways or aisle touch (sampled every 4 m along and across
+        /// each, so a turned lot claims its own cells, not its box's).</summary>
+        static int ClaimStations(CityMap map, HashSet<long> occupied)
+        {
+            int n = 0;
+            foreach (var st in map.stations)
+                foreach (var o in st.claims)
+                {
+                    var b = new Vector2(-o.a.y, o.a.x);
+                    int na = Mathf.Max(1, Mathf.CeilToInt(2f * o.ha / 4f)), nb = Mathf.Max(1, Mathf.CeilToInt(2f * o.hb / 4f));
+                    for (int j = 0; j <= nb; j++)
+                        for (int i = 0; i <= na; i++)
+                        {
+                            var p = o.c + o.a * (-o.ha + 2f * o.ha * i / na) + b * (-o.hb + 2f * o.hb * j / nb);
+                            if (occupied.Add(((long)Mathf.FloorToInt(p.x / 18f) << 24) ^ (Mathf.FloorToInt(p.y / 18f) & 0xFFFFFF))) n++;
+                        }
+                }
+            return n;
+        }
+
         /// <summary>Claim every 18 m occupancy cell under a w×d lot centred at
         /// c. All-or-nothing: on any collision nothing is claimed and the slot
         /// is skipped, so a model never interpenetrates a neighbour.</summary>
@@ -295,8 +319,9 @@ namespace PSXRacing.City
                 float setback = e.HalfMax + 6f + def.d * 0.5f;
                 var c = p + nrm * setback;
 
-                // a real building already on the lot wins
+                // a real building already on the lot wins (and a filling station's forecourt)
                 if (map.AnyFootprintNear(c, Mathf.Max(def.w, def.d) * 0.6f + 4f)) continue;
+                if (CityStations.Near(map, c, Mathf.Max(def.w, def.d) * 0.6f + 4f)) continue;
 
                 // same corridor test the frontage loop applies, on the real lot
                 scratch.Clear();

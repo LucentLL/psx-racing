@@ -146,6 +146,23 @@ namespace PSXRacing.EditorTools
             var menu = systems.AddComponent<PauseMenu>();
             menu.playerCar = player;
 
+            // city fuel r1: getting out at the pumps of Charlotte's filling
+            // stations, wired exactly as the circuits wire it (it does nothing
+            // unless GasPump says the car stands at a nozzle; not
+            // anywhereInTown: Charlotte is not a map of doors). The stations'
+            // pumps and shop doors stream in with their tiles and register
+            // themselves (GasPump.All, StoreDoor.All).
+            var forecourt = systems.AddComponent<PSXRacing.OnFoot.ForecourtMode>();
+            forecourt.playerCar = player;
+            forecourt.carInput = player.GetComponent<PlayerCarInput>();
+            forecourt.engine = player.GetComponent<EngineAudio>();
+            var psxCam = GameObject.Find("PSXCamera");
+            if (psxCam != null)
+            {
+                forecourt.raceCamera = psxCam.GetComponent<Camera>();
+                forecourt.chase = psxCam.GetComponent<ChaseCamera>();
+            }
+
             AttachSeasonDress();
 
             string scenePath = ScenePathFor(def);
@@ -488,6 +505,7 @@ namespace PSXRacing.EditorTools
                 psxLit = Shader.Find("PSX/Lit");
                 if (psxLit == null) throw new Exception("PSX/Lit shader not found - did shaders compile?");
                 foreach (var line in CityPropBaker.BakeVariants()) Log("  props " + line);
+                foreach (var line in BakeCityStations()) Log("  stations " + line);
                 int n = 0;
                 foreach (var def in TrackCatalog.Scened)
                     if (def.city) { BuildCityScene(def); n++; }
