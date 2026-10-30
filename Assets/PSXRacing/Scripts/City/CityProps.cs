@@ -90,6 +90,8 @@ namespace PSXRacing.City
         public const int TowerCount = 18;
 
         public static bool IsFood(byte kind) => kind == Burger || kind == Pizzeria;
+        /// <summary>One of the owner's pack towers on a real lot (CityBuildings.SubstituteTowers).</summary>
+        public static bool IsTower(byte kind) => kind >= Tower0 && kind < Tower0 + TowerCount;
         /// <summary>A house or a trailer: a home on a yard (leftover item 6).</summary>
         public static bool IsHome(byte kind) => kind >= House && kind <= Trailer2;
 
@@ -190,6 +192,27 @@ namespace PSXRacing.City
         public static bool UseCityVariants = true;
 
         static readonly Dictionary<byte, GameObject> cityCache = new Dictionary<byte, GameObject>();
+
+        /// <summary>
+        /// City perf round 1 (2026-10-30): every model the city's lots stand,
+        /// loaded at LOAD. A prefab loaded on the first tile that stands one
+        /// (its meshes, its atlas and pack textures through PSXTexDecode) cost
+        /// that tile's stand-up 316 ms in ONE frame in the editor
+        /// (Editor/HitchProbe.cs: "props 316.2"); a browser pays more. Called by
+        /// CityWorld.EnsureInit behind the loading screen; what loads is what
+        /// the tiles would have loaded, once each.
+        /// </summary>
+        public static int WarmCity(Dictionary<long, List<CityBuildings.B>> buildings)
+        {
+            if (buildings == null) return 0;
+            var kinds = new HashSet<byte>();
+            foreach (var kv in buildings)
+                foreach (var b in kv.Value)
+                    if (b.kind != 0) kinds.Add(b.kind);
+            int n = 0;
+            foreach (var k in kinds) if (CityPrefab(k) != null) n++;
+            return n;
+        }
 
         /// <summary>What a streamed city tile instantiates for a lot: the
         /// city variant where one exists, else (or when it is missing, said

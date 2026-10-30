@@ -189,6 +189,10 @@
     // Browsers only count click / tap / keydown as a gesture, so a player on a
     // pad still has to touch a key or the mouse exactly once to get in.
     try { playBtn.focus(); } catch (e) {}
+    // THE PERF TOUR (Scripts/Dev/PerfTour.cs, tools/perf-tour.mjs) starts on
+    // its own: a browser it opens has nobody to press START. This machine only.
+    if (/[?&]perftour(=|&|$)/i.test(location.search) &&
+        /^(127\.0\.0\.1|localhost|\[::1\])$/i.test(location.hostname)) start();
   }).catch(function (err) {
     statusEl.textContent = "FAILED: " + err;
   });

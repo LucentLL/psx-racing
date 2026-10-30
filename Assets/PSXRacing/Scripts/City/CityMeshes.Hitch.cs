@@ -79,6 +79,26 @@ namespace PSXRacing.City
         public static bool BakeColliders => FineSteps && BakeEnv;
         static readonly bool BakeEnv = System.Environment.GetEnvironmentVariable("PSX_CITY_BAKE") != "0";
 
+        /// <summary>City perf round 1 (2026-10-30): a junction's perimeter a
+        /// chord a step, and its corner walks a corner a step - a fan's chords
+        /// (rails with their drop probes, verges, corner fills) were ONE step,
+        /// the longest a tile build had left (up to 70 ms in the editor,
+        /// Editor/HitchProbe.cs "junctions part 0"). Only more yields between
+        /// the same calls in the same order: the tile is the same bit for bit.
+        /// PSX_CITY_CHORDSTEPS=0: as before.</summary>
+        public static bool JunctionChordSteps => FineSteps && ChordStepsEnv;
+        static readonly bool ChordStepsEnv = System.Environment.GetEnvironmentVariable("PSX_CITY_CHORDSTEPS") != "0";
+
+        /// <summary>City perf round 1 (2026-10-30): a tile's meshes went to the
+        /// GPU the first time they were drawn - every one of them in the frame
+        /// the tile stood up in (megabytes of vertices; in Firefox, whose WebGL
+        /// runs in a GPU process of its own, the frames after a stand-up stalled
+        /// in whatever system next touched the GL). In play each is now sent a
+        /// build step of its own (Mesh.UploadMeshData, kept readable: the
+        /// colliders and the tools read them). PSX_CITY_PREUPLOAD=0 (or
+        /// ?ab=CityMeshes.PreUpload:0): at first draw, as before.</summary>
+        public static bool PreUpload = System.Environment.GetEnvironmentVariable("PSX_CITY_PREUPLOAD") != "0";
+
         // ---- MeetPavement's candidates, pruned ----
         /// <summary>No road's pavement reaches further off its OSM line than
         /// the widest corridor (CityElevation.MaxCorridorHalf, plus ten metres
@@ -183,20 +203,38 @@ namespace PSXRacing.City
         // ---- the colliders cooked ahead ----
         static bool cookKnown;
         static MeshColliderCookingOptions cookOpts;
+        /// <summary>City perf round 1 (2026-10-30): a big tile collider's
+        /// cooking was the longest single step left in a tile build (the
+        /// "meshes" phase's bake, 46-56 ms in the editor; Editor/HitchProbe.cs).
+        /// Its "cook for faster simulation" pass is extra pre-processing of the
+        /// mid-phase tree for queries' speed - the triangles, their welding and
+        /// cleaning are the same, so what a wheel or a body meets is the same.
+        /// The tiles' colliders cook without it (and their MeshColliders are
+        /// told so, so nothing is cooked twice). PSX_CITY_FASTCOOK=0: as before.</summary>
+        public static bool FastCook = System.Environment.GetEnvironmentVariable("PSX_CITY_FASTCOOK") != "0";
+        /// <summary>The options a tile collider is cooked with (BakeCollider and
+        /// CityWorld's MeshColliders alike).</summary>
+        public static MeshColliderCookingOptions CookOptions
+        {
+            get
+            {
+                if (!cookKnown)
+                {
+                    var g = new GameObject("~cookOptions") { hideFlags = HideFlags.HideAndDontSave };
+                    cookOpts = g.AddComponent<MeshCollider>().cookingOptions;
+                    Object.DestroyImmediate(g);
+                    cookKnown = true;
+                }
+                return FastCook ? cookOpts & ~MeshColliderCookingOptions.CookForFasterSimulation : cookOpts;
+            }
+        }
         /// <summary>The cooking a MeshCollider does when its mesh is assigned,
         /// done now: CityWorld.Attach's MeshColliders then take the cooked
         /// data. Read off a real MeshCollider, so the options are its own.</summary>
         static void BakeCollider(Mesh m)
         {
             if (m == null) return;
-            if (!cookKnown)
-            {
-                var g = new GameObject("~cookOptions") { hideFlags = HideFlags.HideAndDontSave };
-                cookOpts = g.AddComponent<MeshCollider>().cookingOptions;
-                Object.DestroyImmediate(g);
-                cookKnown = true;
-            }
-            Physics.BakeMesh(m.GetEntityId(), false, cookOpts);
+            Physics.BakeMesh(m.GetEntityId(), false, CookOptions);
         }
 
         // ---- the outlines an edge's side flags will read, one a step ----
@@ -248,8 +286,32 @@ namespace PSXRacing.City
                     foreach (var c in cl) foreach (var H in c.host.edges) foreach (var _ in WarmRaw(map, trims, H)) yield return 0;
                 foreach (var _ in OutlineSteps(map, trims, oi, WarmEvery)) yield return 0;
             }
+            // city perf round 1: and the junction fans those roads end at, a fan a
+            // step (GatherPavement built every fan it met in the side-flags step
+            // that met it first: "gather pavement" 33 ms of a 55 ms step). The
+            // fans are final here as the outlines are (fanPolys is cleared after
+            // the gores, never in the roads phase): the same polygons, sooner.
+            if (WarmFans)
+                for (int w = 0; w < warmEdges.Count; w++)
+                {
+                    var oe = map.edges[warmEdges[w]];
+                    for (int end = 0; end < 2; end++)
+                    {
+                        int nd = end == 0 ? oe.a : oe.b;
+                        if (!trims.patch[nd]) continue;
+                        nd = FanKey(trims, nd);
+                        if (fanPolys.ContainsKey(nd)) continue;
+                        yield return 0;
+                        stepPhase = phase; stepItem = nd; stepPart = 7;
+                        FanPolyOf(map, trims, nd);
+                    }
+                }
             stepPhase = phase; stepItem = item; stepPart = part;
         }
+        /// <summary>City perf round 1: <see cref="WarmOutlinesSteps"/> warms the
+        /// fans too. PSX_CITY_WARMFANS=0: as before.</summary>
+        public static bool WarmFans => WarmOutlines && WarmFansEnv;
+        static readonly bool WarmFansEnv = System.Environment.GetEnvironmentVariable("PSX_CITY_WARMFANS") != "0";
 
         /// <summary>How many sections a warm-ahead step works out (a long
         /// freeway edge has hundreds).</summary>

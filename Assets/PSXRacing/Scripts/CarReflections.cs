@@ -308,6 +308,14 @@ namespace PSXRacing
 
         void LateUpdate()
         {
+            // city perf round 1: on the perf clock (a view of its own, rendered here)
+            long pc = PerfClock.On ? PerfClock.Now() : 0;
+            LateUpdateNow();
+            if (PerfClock.On) PerfClock.Add(PerfClock.Slot.CarReflect, pc);
+        }
+
+        void LateUpdateNow()
+        {
             var ch = ReflectionPrefs.On ? FindChase() : null;
             if (ch == null)
             {

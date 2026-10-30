@@ -30,6 +30,10 @@ namespace PSXRacing.City
         /// <summary>True while a far-building proxy is being emitted (with
         /// <see cref="skylineBuild"/>).</summary>
         static bool proxyBuild;
+        /// <summary>City perf round 1: the pack towers' lots have far proxies
+        /// (their OSM massing) too. PSX_CITY_TOWERPROXY=0 (or
+        /// ?ab=CityMeshes.TowerProxies:0, set before the city loads): none, as before.</summary>
+        public static bool TowerProxies = System.Environment.GetEnvironmentVariable("PSX_CITY_TOWERPROXY") != "0";
         /// <summary>How far a proxy's walls run on below its ground (m).</summary>
         const float ProxySkirtM = 12f;
 
@@ -78,7 +82,66 @@ namespace PSXRacing.City
         /// (UV2). Returns the vertices added (0: nothing drawn - a model's lot,
         /// a part its hero draws...).
         /// </summary>
-        public static int EmitProxy(CityMap map, Trims trims, int fi, ProxyOut o, Vector2 tile)
+        public static int EmitProxy(CityMap map, Trims trims, int fi, ProxyOut o, Vector2 tile) =>
+            EmitProxyCore(map, trims, fi, default, false, o, tile);
+
+        // ---- city perf round 1 (2026-10-30; the owner: "a lot of pop in of distant objects") ----
+        /// <summary>Outside the 8 x 8 km core OpenStreetMap maps buildings for,
+        /// the city's buildings are CityBuildings' lots - the frontage boxes and
+        /// gables, the prefab houses, trailers and restaurants - and none of them
+        /// had a far copy: past the core every building appeared at the 500 m far
+        /// plane. A lot now has a far proxy as a footprint does: its tile's own
+        /// box (the same facade pick, walls and flat roof) or gable, a prefab's
+        /// lot as the box or gable of its size. PSX_CITY_LOTPROXY=0 (or
+        /// ?ab=CityMeshes.LotProxies:0, set before the city loads): none, as before.
+        /// The interior fill houses (CityHouses) have none (their placement is
+        /// worked out a tile at a time, too dear for 2 km round the eye): LEFT.</summary>
+        public static bool LotProxies = System.Environment.GetEnvironmentVariable("PSX_CITY_LOTPROXY") != "0";
+
+        /// <summary>Emit CityBuildings lot <paramref name="b"/> as a far proxy (see
+        /// <see cref="LotProxies"/>). Returns the vertices added.</summary>
+        public static int EmitProxyLot(CityMap map, Trims trims, in CityBuildings.B b, ProxyOut o, Vector2 tile) =>
+            EmitProxyCore(map, trims, -1, b, true, o, tile);
+
+        /// <summary>A lot's far shape, as BuildBuildings stands its box or
+        /// gable (on the lowest drawn ground at its corners, without a graded
+        /// house pad - a metre or so, a pixel out there); a prefab's lot is the
+        /// gable (a home) or the box of its own size.</summary>
+        static void EmitLotShape(CityMap map, TileMeshes tm, in CityBuildings.B b)
+        {
+            if (b.w < 0.5f || b.d < 0.5f || b.h < 0.5f) return;
+            float cy = Mathf.Cos(b.yaw), sy = Mathf.Sin(b.yaw);
+            Vector2 fwd = new Vector2(sy, cy);           // faces the road
+            Vector2 rgt = new Vector2(cy, -sy);
+            Vector2 hw = rgt * (b.w * 0.5f);
+            Vector2 hd = fwd * (b.d * 0.5f);
+            var c1 = b.pos + hw + hd; var c2 = b.pos - hw + hd;
+            var c3 = b.pos - hw - hd; var c4 = b.pos + hw - hd;
+            float g = Mathf.Min(
+                Mathf.Min(CityElevation.GroundY(map, c1.x, c1.y), CityElevation.GroundY(map, c2.x, c2.y)),
+                Mathf.Min(CityElevation.GroundY(map, c3.x, c3.y), CityElevation.GroundY(map, c4.x, c4.y)));
+            // (the tile's own heights: the far land stands sunk under them)
+            float y0 = g - BuildingSink;
+            float y1 = y0 + b.h + BuildingSink;
+            bool gable = b.kind == 0 ? b.gable : CityProps.IsHome(b.kind);
+            if (gable)
+            {
+                EmitGableHouse(tm, b.pos, rgt, b.w * 0.5f, b.d * 0.5f, y0, g - BuildingSink + b.h * 0.7f, y1, Slot.FacadeHouse);
+                return;
+            }
+            PickFacade(b.pos, (byte)(b.style == 0 ? (b.h > 40f ? 0 : 1) : b.style == 1 ? 1 : 2), 0, 0, default, g, b.h);
+            EmitWallStyled(tm, c2, c1, y0, y1, fwd, b.style == 3, false, Slot.FacadeGlass);
+            EmitWallStyled(tm, c1, c4, y0, y1, rgt, b.style == 3, false, Slot.FacadeGlass);
+            EmitWallStyled(tm, c4, c3, y0, y1, -fwd, b.style == 3, false, Slot.FacadeGlass);
+            EmitWallStyled(tm, c3, c2, y0, y1, -rgt, b.style == 3, false, Slot.FacadeGlass);
+            EndFacade();
+            var roof = buckets[(int)Slot.RoofFlat];
+            roof.Up(L(c2, y1, tm), L(c3, y1, tm), L(c4, y1, tm), L(c1, y1, tm),
+                new Vector2(c2.x / RoofFlatM, c2.y / RoofFlatM), new Vector2(c3.x / RoofFlatM, c3.y / RoofFlatM),
+                new Vector2(c4.x / RoofFlatM, c4.y / RoofFlatM), new Vector2(c1.x / RoofFlatM, c1.y / RoofFlatM));
+        }
+
+        static int EmitProxyCore(CityMap map, Trims trims, int fi, CityBuildings.B lot, bool isLot, ProxyOut o, Vector2 tile)
         {
             // what an open tile job may be holding between its steps
             var tint = Bucket.Tint; bool facOn = Bucket.FacOn; var facA = Bucket.FacA; var facDir = Bucket.FacDir;
@@ -98,13 +161,23 @@ namespace PSXRacing.City
             }
             int added = 0;
             skylineBuild = true; proxyBuild = true;
+            // city perf round 1 (the owner: "pop in of distant objects"): a pack
+            // tower's lot stands its MODEL near (CityWorld), which had no far copy
+            // at all - an 8-12 storey building appearing at the far plane. Its
+            // proxy is the lot's own OSM massing, as an unswapped lot's is
+            // (TowerProxies; the model hands over to it past the squeeze's start).
+            var fpx = isLot ? null : map.footprints[fi];
+            byte keptKind = fpx != null ? fpx.propKind : (byte)0;
+            if (fpx != null && TowerProxies && CityProps.IsTower(keptKind)) fpx.propKind = 0;
             try
             {
-                EmitFootprint(map, trims, proxyTm, fi);
+                if (isLot) EmitLotShape(map, proxyTm, lot);
+                else EmitFootprint(map, trims, proxyTm, fi);
                 EndFacade();
             }
             finally
             {
+                if (fpx != null) fpx.propKind = keptKind;
                 skylineBuild = sSky; proxyBuild = sProxy;
                 // copy out what was appended, then cut it off again
                 for (int s = 0; s < buckets.Length; s++)

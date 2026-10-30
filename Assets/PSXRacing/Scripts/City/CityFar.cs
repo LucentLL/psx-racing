@@ -237,6 +237,7 @@ namespace PSXRacing.City
             var sw = System.Diagnostics.Stopwatch.StartNew();
             cf.BuildLights(skylineOutlines, boxes);
             int quads = cf.BuildRoads();
+            cf.lotBoxes = boxes;   // city perf round 1 (THE FAR LAND'S COVER)
             cf.BuildClearance();
             cf.CreateRenderers();
             Debug.Log($"[CityFar] {cf.LampCount} far lamps + {cf.WindowCount} far windows in {cf.lights.Count} chunks, {quads} far road quads ({sw.ElapsedMilliseconds} ms); land {CellM:0} m cells to {RadiusM / 1000f:0.#} km");
@@ -260,12 +261,27 @@ namespace PSXRacing.City
             treeMesh = new Mesh { name = "CityFarTrees", indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
             treeMesh.MarkDynamic();
             treeR = new MeshRenderer[CitySkyline.DrawCount];
+            treeMf = new MeshFilter[CitySkyline.DrawCount];
             for (int d = 0; d < treeR.Length; d++)
             {
                 var tgo = new GameObject("CityFarTrees " + (d + 1)) { hideFlags = HideFlags.DontSave };
                 tgo.transform.SetParent(transform, false);
-                tgo.AddComponent<MeshFilter>().sharedMesh = treeMesh;
+                treeMf[d] = tgo.AddComponent<MeshFilter>();
+                treeMf[d].sharedMesh = treeMesh;
                 treeR[d] = Quiet(tgo.AddComponent<MeshRenderer>());
+            }
+            // city perf round 1: the forest's fill, three more on one small mesh
+            fillMesh = new Mesh { name = "CityFarTreeFill", indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+            fillMesh.MarkDynamic();
+            fillR = new MeshRenderer[CitySkyline.DrawCount];
+            fillMf = new MeshFilter[CitySkyline.DrawCount];
+            for (int d = 0; d < fillR.Length; d++)
+            {
+                var fgo = new GameObject("CityFarTreeFill " + (d + 1)) { hideFlags = HideFlags.DontSave };
+                fgo.transform.SetParent(transform, false);
+                fillMf[d] = fgo.AddComponent<MeshFilter>();
+                fillMf[d].sharedMesh = fillMesh;
+                fillR[d] = Quiet(fgo.AddComponent<MeshRenderer>());
             }
             // the lights: one
             var sh = Shader.Find("PSX/Halo");
@@ -321,7 +337,7 @@ namespace PSXRacing.City
             PushEdge(cam, on);
             PushGlow(on, weather);
             Shader.SetGlobalFloat(FarWorldId, on ? 1f : 0f);
-            if (!on) { ShowLand(false); ShowTrees(false); if (lightR != null) lightR.enabled = false; return; }
+            if (!on) { ShowLand(false); ShowTrees(false); ShowFill(false); if (lightR != null) lightR.enabled = false; return; }
 
             Vector3 eye = cam.transform.position;
             float far = cam.farClipPlane;
@@ -335,11 +351,32 @@ namespace PSXRacing.City
             // land, a forest and a light table: no single frame pays for all
             // three); a tool's shot takes them all at once
             int budget = Application.isPlaying ? 1 : 3;
-            if (landOk && (at != landAt || landRadius != RadiusM) && budget-- > 0) using (LandMarker.Auto()) RebuildLand(eye, at);
-            if (treesOk && at != treeAt && budget-- > 0) using (TreesMarker.Auto()) RebuildTrees(eye, at);
+            long pc = PerfClock.On ? PerfClock.Now() : 0;   // city perf round 1
+            if (landOk && (at != landAt || landRadius != RadiusM) && budget-- > 0) { using (LandMarker.Auto()) RebuildLand(eye, at); if (PerfClock.On) { PerfClock.Add(PerfClock.Slot.FarLand, pc); pc = PerfClock.Now(); } }
+            if (treesOk && at != treeAt && budget-- > 0)
+            {
+                // city perf round 1: staged behind the shown forest once there is one
+                if (StagedTrees && Application.isPlaying && treesShown > 0) StartTreeStage(eye, at);
+                else using (TreesMarker.Auto()) RebuildTrees(eye, at);
+                if (PerfClock.On) { PerfClock.Add(PerfClock.Slot.FarTrees, pc); pc = PerfClock.Now(); }
+            }
+            else if (treesOk && treeStaging && budget-- > 0) { using (TreesMarker.Auto()) StepTreeStage(); if (PerfClock.On) { PerfClock.Add(PerfClock.Slot.FarTrees, pc); pc = PerfClock.Now(); } }
             // city-build-hitches: a frame with no rebuild works out one chunk's
-            // trees ahead (what the next chunk step will read)
-            else if (treesOk && SliceRebuild && Application.isPlaying && budget > 0 && PrefetchTrees(eye)) budget--;
+            // trees ahead (what the next chunk step will read); city perf
+            // round 1: and the land's, which a rebuild built whole in its frame;
+            // a native player's worker threads work out every chunk ahead
+            else if (SliceRebuild && Application.isPlaying && budget > 0)
+            {
+                if (WorkerChunks && CityWorker.Threaded) QueueChunks(eye, treesOk, landOk);
+                else if ((treesOk && PrefetchTrees(eye)) || (landOk && PrefetchLand && PrefetchLandChunk(eye))) budget--;
+            }
+            if (PerfClock.On) { PerfClock.Add(PerfClock.Slot.FarPrefetch, pc); pc = PerfClock.Now(); }
+            // city perf round 1: THE FAR FOREST'S FILL (below), its own small mesh
+            if (ForestFill && treesOk && fillR != null && Application.isPlaying) StepFill(eye, ref budget);
+            else if (ForestFill && treesOk && fillR != null) FillNow(eye);
+            if (PerfClock.On) { PerfClock.Add(PerfClock.Slot.FarOther, pc); pc = PerfClock.Now(); }
+            ShowFill(ForestFill && treesOk && fillShown > 0);
+            if (fillR != null) foreach (var r in fillR) r.bounds = b;
             ShowLand(landOk && landMesh.vertexCount > 0);
             if (landR != null) foreach (var r in landR) r.bounds = b;
             ShowTrees(treesOk && treesShown > 0);
@@ -348,7 +385,9 @@ namespace PSXRacing.City
             if (lightR != null)
             {
                 // (THE CLOCK'S WINDOWS: and when the hour's occupancy changes)
-                if ((at != lightAt || Occupancy() != lightOcc) && budget-- > 0) using (LightsMarker.Auto()) RebuildLights(eye, at);
+                // (city perf round 1: only while they light - by day a chunk step
+                // rebuilt ~50k lights nobody saw; dusk rebuilds them once)
+                if ((NightGlow.On || !DayLightsIdle) && (at != lightAt || Occupancy() != lightOcc) && budget-- > 0) { using (LightsMarker.Auto()) RebuildLights(eye, at); if (PerfClock.On) PerfClock.Add(PerfClock.Slot.FarLights, pc); }
                 bool lit = NightGlow.On && lightsShown > 0;
                 lightR.enabled = lit;
                 lightR.bounds = b;
@@ -365,6 +404,12 @@ namespace PSXRacing.City
         {
             if (treeR == null) return;
             foreach (var r in treeR) if (r.enabled != on) r.enabled = on;
+        }
+
+        void ShowFill(bool on)
+        {
+            if (fillR == null) return;
+            foreach (var r in fillR) if (r.enabled != on) r.enabled = on;
         }
 
         // ------------------------------------------------------------------
@@ -414,30 +459,42 @@ namespace PSXRacing.City
             var g = matFor != null ? matFor(CityMeshes.Slot.Ground) : null;
             var t = CityTrees.MaterialFor(CityTrees.DressNow());
             var rd = matFor != null ? matFor(CityMeshes.SlotOf(roadProfile, CityMeshes.Surface.AsphaltOld)) : null;
+            // city perf round 1 (the owner: "plain green fields in the distance"):
+            // the roofs and the water the far land shows where they really are
+            var rt = matFor != null ? matFor(CityMeshes.Slot.RoofTiles) : null;
+            var rf = matFor != null ? matFor(CityMeshes.Slot.RoofFlat) : null;
+            var wt = matFor != null ? matFor(CityMeshes.Slot.Water) : null;
             if (g == null || t == null || g.mainTexture == null || t.mainTexture == null) return false;
             if (rd == null || rd.mainTexture == null) rd = g;
-            if (g == srcGround && t == srcTrees && rd == srcRoad && landMats != null) return true;
-            srcGround = g; srcTrees = t; srcRoad = rd;
+            if (g == srcGround && t == srcTrees && rd == srcRoad && rt == srcRoofT && rf == srcRoofF && wt == srcWater && landMats != null) return true;
+            srcGround = g; srcTrees = t; srcRoad = rd; srcRoofT = rt; srcRoofF = rf; srcWater = wt;
             Color grass = MeanColour(g.mainTexture, 1, 0, 0);
             Color broad = MeanColour(t.mainTexture, 4, 0, 11) * CanopyShade;
             Color pine = MeanColour(t.mainTexture, 4, 12, 14) * CanopyShade;
             Color asphalt = MeanColour(rd.mainTexture, 1, 0, 0) * (rd.HasProperty("_Color") ? rd.color : Color.white);
-            broad.a = 1f; pine.a = 1f; grass.a = 1f; asphalt.a = 1f;
+            // a roof seen from afar: the shingles' and the gravel's own means, half each
+            Color roofT = rt != null && rt.mainTexture != null ? MeanColour(rt.mainTexture, 1, 0, 0) * (rt.HasProperty("_Color") ? rt.color : Color.white) : asphalt;
+            Color roofF = rf != null && rf.mainTexture != null ? MeanColour(rf.mainTexture, 1, 0, 0) * (rf.HasProperty("_Color") ? rf.color : Color.white) : asphalt;
+            Color roof = new Color(Mathf.LinearToGammaSpace(0.5f * (roofT.linear.r + roofF.linear.r)), Mathf.LinearToGammaSpace(0.5f * (roofT.linear.g + roofF.linear.g)),
+                                   Mathf.LinearToGammaSpace(0.5f * (roofT.linear.b + roofF.linear.b)), 1f);
+            Color water = wt != null && wt.mainTexture != null ? MeanColour(wt.mainTexture, 1, 0, 0) * (wt.HasProperty("_Color") ? wt.color : Color.white) : new Color(0.20f, 0.24f, 0.24f);
+            broad.a = 1f; pine.a = 1f; grass.a = 1f; asphalt.a = 1f; roof.a = 1f; water.a = 1f;
             if (landMats != null) foreach (var m in landMats) Kill(m);
             landMats = new Material[CitySkyline.DrawCount * LandLooks];
             for (int d = 0; d < CitySkyline.DrawCount; d++)
             {
-                landMats[d * LandLooks] = FarMaterial(g, d, "land", 0f, grass, broad, pine, asphalt);
-                landMats[d * LandLooks + 1] = FarMaterial(g, d, "roads", RoadLeadM, grass, broad, pine, asphalt);
+                landMats[d * LandLooks] = FarMaterial(g, d, "land", 0f, grass, broad, pine, asphalt, roof, water);
+                landMats[d * LandLooks + 1] = FarMaterial(g, d, "roads", RoadLeadM, grass, broad, pine, asphalt, roof, water);
                 landR[d].sharedMaterials = new[] { landMats[d * LandLooks], landMats[d * LandLooks + 1] };
             }
-            Debug.Log($"[CityFar] land colours for {t.name}: grass {Hex(grass)}, broadleaf {Hex(broad)}, pine {Hex(pine)}, roads {Hex(asphalt)} ({rd.name})");
+            Debug.Log($"[CityFar] land colours for {t.name}: grass {Hex(grass)}, broadleaf {Hex(broad)}, pine {Hex(pine)}, roads {Hex(asphalt)} ({rd.name}), roofs {Hex(roof)}, water {Hex(water)}");
             return true;
         }
+        Material srcRoofT, srcRoofF, srcWater;
 
         static string Hex(Color c) => "#" + ColorUtility.ToHtmlStringRGB(c);
 
-        Material FarMaterial(Material src, int draw, string what, float lead, Color grass, Color broad, Color pine, Color asphalt)
+        Material FarMaterial(Material src, int draw, string what, float lead, Color grass, Color broad, Color pine, Color asphalt, Color roof, Color water)
         {
             var m = new Material(src) { name = "CityFarLand " + what + " " + (draw + 1), hideFlags = HideFlags.DontSave };
             // the plain PSX/Lit variant: no baked sky in the vertex colour, no atlas
@@ -453,6 +510,8 @@ namespace PSXRacing.City
             m.SetVector("_FarBroad", (Vector4)broad.linear);
             m.SetVector("_FarPine", (Vector4)pine.linear);
             m.SetVector("_FarRoad", (Vector4)asphalt.linear);
+            m.SetVector("_FarRoof", (Vector4)roof.linear);
+            m.SetVector("_FarWater", (Vector4)water.linear);
             m.SetFloat("_Cutoff", 0f);
             m.SetFloat("_Cull", 0f);
             m.SetFloat("_Wet", 0f);
@@ -464,7 +523,8 @@ namespace PSXRacing.City
             // 2: the land (its tint and its woods' crowns); 1 is a far tree card
             m.SetFloat("_SkyFarLand", 2f);
             m.SetFloat("_SkyLeadM", lead);
-            m.SetVector("_FarBump", new Vector4(CanopyM, TreeRadiusM * (1f - TreeHandoverShare), TreeRadiusM, 0f));
+            // (city perf round 1: w, the crowns' unevenness - see RaggedCrowns)
+            m.SetVector("_FarBump", new Vector4(CanopyM, TreeRadiusM * (1f - TreeHandoverShare), TreeRadiusM, RaggedCrowns ? CrownJag : 0f));
             return m;
         }
 
@@ -522,10 +582,10 @@ namespace PSXRacing.City
         /// the canopy standing on it - brought down to a far road within
         /// <see cref="CorridorM"/> and its trees cleared there.
         /// <paramref name="canopy"/> its fraction.</summary>
-        float LandY(float x, float z, out float canopy)
+        float LandY(float x, float z, out float canopy, CityElevation.DemReader dem = null)
         {
             canopy = CityCanopy.Fraction(x, z);
-            float ground = CityElevation.BaseY(x, z) - SinkM;
+            float ground = (dem != null ? dem.BaseY(x, z) : CityElevation.BaseY(x, z)) - SinkM;
             if (NearestRoad(x, z, out float d, out float roadY))
             {
                 // the land down to it over the corridor; its trees cleared
@@ -623,7 +683,9 @@ namespace PSXRacing.City
             return quads;
         }
 
-        LandChunk BuildLandChunk(int cx, int cz)
+        /// <param name="dem">A worker thread's own DEM reader (city perf round 1):
+        /// null on the main thread, which samples CityElevation's.</param>
+        LandChunk BuildLandChunk(int cx, int cz, CityElevation.DemReader dem = null)
         {
             const int N = ChunkCells + 1, B = N + 2;
             var c = new LandChunk { v = new Vector3[N * N], n = new Vector3[N * N] };
@@ -634,7 +696,7 @@ namespace PSXRacing.City
             for (int j = 0; j < B; j++)
             for (int i = 0; i < B; i++)
             {
-                h[j * B + i] = LandY(x0 + (i - 1) * CellM, z0 + (j - 1) * CellM, out float fr);
+                h[j * B + i] = LandY(x0 + (i - 1) * CellM, z0 + (j - 1) * CellM, out float fr, dem);
                 if (i >= 1 && i <= N && j >= 1 && j <= N) f[(j - 1) * N + (i - 1)] = fr;
             }
             for (int j = 0; j < N; j++)
@@ -648,6 +710,7 @@ namespace PSXRacing.City
             c.rv = roadQuads.TryGetValue(Key(cx, cz), out var rq) ? rq.ToArray() : System.Array.Empty<Vector3>();
             var tl = new List<int>(ChunkCells * ChunkCells * 6);
             c.uv = new Vector2[N * N];
+            var segSeen = LandCover ? new HashSet<long>() : null;
             for (int j = 0; j < N; j++)
             for (int i = 0; i < N; i++)
             {
@@ -657,7 +720,17 @@ namespace PSXRacing.City
                 // (CityTrees), mottled node by node
                 float pines = Vector2.Distance(new Vector2(x, z), map.uptown) < OldCityM ? PineShareOld : PineShare;
                 float hp = Hash(Mathf.RoundToInt(x / CellM), Mathf.RoundToInt(z / CellM) + 7919);
-                c.uv[j * N + i] = new Vector2(woods, hp < pines ? 0.85f : 0.1f * hp);
+                float pineV = hp < pines ? 0.85f : 0.1f * hp;
+                if (LandCover)
+                {
+                    // city perf round 1: THE FAR LAND'S COVER - the shares in
+                    // eighths, packed over the pines' share (PSX/Lit unpacks them)
+                    Cover(x, z, segSeen, out float bld, out float pav, out bool lake);
+                    if (lake) { c.uv[j * N + i] = new Vector2(3f, 0f); continue; }
+                    int qb = Mathf.Clamp(Mathf.RoundToInt(bld * 7f), 0, 7), qp = Mathf.Clamp(Mathf.RoundToInt(pav * 7f), 0, 7);
+                    c.uv[j * N + i] = new Vector2(woods, pineV + 2f * (qb + 8 * qp));
+                }
+                else c.uv[j * N + i] = new Vector2(woods, pineV);
             }
             for (int j = 0; j < ChunkCells; j++)
             for (int i = 0; i < ChunkCells; i++)
@@ -736,6 +809,7 @@ namespace PSXRacing.City
                 m.SetFloat("_SkyFarLand", 1f);
                 treeMats[d] = m;
                 treeR[d].sharedMaterial = m;
+                if (fillR != null) fillR[d].sharedMaterial = m;   // city perf round 1: the fill wears the same
             }
             return true;
         }
@@ -771,6 +845,160 @@ namespace PSXRacing.City
                 if (!lotCells.TryGetValue(k, out var list)) { list = new List<int>(8); lotCells[k] = list; }
                 list.Add(i);
             }
+            // city perf round 1: CityBuildings' lots by the 64 m cell their middle is in
+            // (a pack tower's is its footprint's, above) - THE FAR LAND'S COVER
+            if (lotBoxes != null)
+                foreach (var kv in lotBoxes)
+                    foreach (var bb in kv.Value)
+                    {
+                        if (bb.kind != 0 && CityProps.IsTower(bb.kind)) continue;
+                        long k = ClearKey(bb.pos.x, bb.pos.y);
+                        if (!lotBoxCells.TryGetValue(k, out var list)) { list = new List<CityBuildings.B>(8); lotBoxCells[k] = list; }
+                        list.Add(bb);
+                    }
+            // city perf round 1: the parking lots by the 64 m cells their box touches (THE FAR LAND'S COVER)
+            if (map.lots != null)
+                for (int i = 0; i < map.lots.Length; i++)
+                {
+                    var b = map.lots[i].box;
+                    for (int cz = Mathf.FloorToInt(b.y / ClearCellM); cz <= Mathf.FloorToInt(b.w / ClearCellM); cz++)
+                    for (int cx = Mathf.FloorToInt(b.x / ClearCellM); cx <= Mathf.FloorToInt(b.z / ClearCellM); cx++)
+                    {
+                        long k = Key(cx, cz);
+                        if (!parkCells.TryGetValue(k, out var list)) { list = new List<int>(4); parkCells[k] = list; }
+                        list.Add(i);
+                    }
+                }
+        }
+        readonly Dictionary<long, List<int>> parkCells = new Dictionary<long, List<int>>();
+
+        // ---- city perf round 1 (2026-10-30; owner: "plain green fields in the distance") ----
+        /// <summary>THE FAR LAND'S COVER: a far-land node was the grass's
+        /// colour wherever the canopy grid had no woods - Charlotte's houses,
+        /// shops, lots and streets read as a plain green field from a mile out.
+        /// Now each node takes what is really in the 128 m square round it: the
+        /// buildings' share of it (their footprint boxes; the ROOFS' measured
+        /// colour), the pavement's (the streets that have no far ribbon, at
+        /// their width, and the parking lots; the asphalt's), the lakes (the
+        /// water's), and the canopy over all of it as before. PSX/Lit decodes
+        /// the shares from the node's UV (THE FAR LAND'S LOOK). ?ab=CityFar.LandCover:0
+        /// (PSX_CITY_FARCOVER=0): grass and woods only, as before.</summary>
+        public static bool LandCover = System.Environment.GetEnvironmentVariable("PSX_CITY_FARCOVER") != "0";
+        /// <summary>City perf round 1: past the far trees the woods were the
+        /// land raised by its canopy - a smooth swell on the horizon, read as
+        /// green hills. Each 64 m patch's crowns now stand a hash of its place
+        /// between 0.55 and 1.45 of the canopy's height (PSX/Lit _FarBump.w),
+        /// so a far treeline is ragged. ?ab=CityFar.RaggedCrowns:0: smooth.</summary>
+        public static bool RaggedCrowns = System.Environment.GetEnvironmentVariable("PSX_CITY_FARJAG") != "0";
+        const float CrownJag = 1f;
+
+        /// <summary>The buildings' and the pavement's shares of the 128 m
+        /// square round a node, and whether it is in a lake. Reads only data
+        /// built at load (safe on a worker).</summary>
+        void Cover(float x, float z, HashSet<long> segSeen, out float bld, out float pav, out bool lake)
+        {
+            lake = map.InLake(new Vector2(x, z));
+            float h = CellM * 0.5f, area = CellM * CellM;
+            float sx0 = x - h, sx1 = x + h, sz0 = z - h, sz1 = z + h;
+            int ix0 = Mathf.FloorToInt(sx0 / ClearCellM), ix1 = Mathf.FloorToInt((sx1 - 0.01f) / ClearCellM);
+            int iz0 = Mathf.FloorToInt(sz0 / ClearCellM), iz1 = Mathf.FloorToInt((sz1 - 0.01f) / ClearCellM);
+            double b = 0.0, p = 0.0;
+            segSeen.Clear();
+            // outside the OSM core the buildings are CityBuildings' lots and the
+            // interior fill houses (CityHouses): the lots counted as they stand,
+            // the fill by its own odds (below), from the nearest street
+            var node = new Vector2(x, z);
+            bool outside = !map.footprintBounds.Contains(node);
+            float dStreet = float.MaxValue;
+            bool wide = false;
+            for (int cz = iz0; cz <= iz1; cz++)
+            for (int cx = ix0; cx <= ix1; cx++)
+            {
+                long k = Key(cx, cz);
+                if (lotCells.TryGetValue(k, out var lots))
+                    foreach (int i in lots)
+                    {
+                        var f = map.footprints[i];
+                        if (f.centre.x < sx0 || f.centre.x >= sx1 || f.centre.y < sz0 || f.centre.y >= sz1) continue;
+                        b += 4.0 * f.hu * f.hv;
+                    }
+                if (lotBoxCells.TryGetValue(k, out var boxesHere))
+                    foreach (var bb in boxesHere)
+                    {
+                        if (bb.pos.x < sx0 || bb.pos.x >= sx1 || bb.pos.y < sz0 || bb.pos.y >= sz1) continue;
+                        b += bb.w * bb.d;
+                    }
+                if (anyRoadCells.TryGetValue(k, out var segs))
+                    foreach (var sg in segs)
+                    {
+                        var e = map.edges[sg.x];
+                        if (outside)
+                        {
+                            if (e.cls >= CorridorMinCls) wide = true;
+                            else if (!e.link) dStreet = Mathf.Min(dStreet, SegDist(node, e.pts[sg.y], e.pts[sg.y + 1]));
+                        }
+                        // the far roads draw their own ribbons (RoadMinCls)
+                        if (e.cls >= RoadMinCls && !e.link) continue;
+                        if (!segSeen.Add(((long)sg.x << 20) | (uint)sg.y)) continue;
+                        p += ClipLength(e.pts[sg.y], e.pts[sg.y + 1], sx0, sz0, sx1, sz1) * Mathf.Max(e.width, 5f);
+                    }
+                if (parkCells.TryGetValue(k, out var parks))
+                    foreach (int i in parks)
+                    {
+                        if (!segSeen.Add(-1L - i)) continue;
+                        var bx = map.lots[i].box;
+                        float ox = Mathf.Min(bx.z, sx1) - Mathf.Max(bx.x, sx0), oz = Mathf.Min(bx.w, sz1) - Mathf.Max(bx.y, sz0);
+                        if (ox > 0f && oz > 0f) p += ox * oz * 0.8;   // a lot's box holds its islands and edges too
+                    }
+            }
+            // the interior fill houses, expected: CityHouses.FillInto stands one in a
+            // 24 m cell at its keep (by the distance from uptown and from the
+            // nearest street, none past 250 m) - a ~105 m2 roof - and none on a
+            // wide road's corridor (half the square, near one)
+            if (outside)
+            {
+                float dRoad = dStreet < float.MaxValue ? dStreet : 150f;
+                if (dRoad <= 250f)
+                {
+                    float distUp = Vector2.Distance(node, map.uptown);
+                    float keep = distUp < 7000f ? 0.62f : distUp < 12000f ? 0.42f : distUp < 16000f ? 0.22f : 0.07f;
+                    keep *= Mathf.Lerp(1f, 0.3f, Mathf.Clamp01((dRoad - 110f) / 140f));
+                    double free = System.Math.Max(0.0, 1.0 - (b + p) / area);
+                    b += keep * FillHouseShare * (wide ? 0.5 : 1.0) * free * area;
+                }
+            }
+            bld = Mathf.Clamp01((float)(b / area));
+            pav = Mathf.Clamp01((float)(p / area));
+            if (bld + pav > 1f) { float s = 1f / (bld + pav); bld *= s; pav *= s; }
+        }
+        /// <summary>A fill house's roof over its 24 m cell (CityHouses: 9.2-13.6 m x 7.6-10.8 m).</summary>
+        const float FillHouseShare = 105f / (24f * 24f);
+        /// <summary>CityBuildings' lots by the 64 m cell their middle is in (city perf round 1).</summary>
+        readonly Dictionary<long, List<CityBuildings.B>> lotBoxCells = new Dictionary<long, List<CityBuildings.B>>();
+        Dictionary<long, List<CityBuildings.B>> lotBoxes;
+
+        static float SegDist(Vector2 p, Vector2 a, Vector2 b)
+        {
+            var ab = b - a;
+            float len2 = ab.sqrMagnitude;
+            float t = len2 > 1e-6f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / len2) : 0f;
+            return Vector2.Distance(p, a + ab * t);
+        }
+
+        /// <summary>The length of segment a..b inside a box (Liang-Barsky).</summary>
+        static float ClipLength(Vector2 a, Vector2 b, float x0, float z0, float x1, float z1)
+        {
+            float t0 = 0f, t1 = 1f, dx = b.x - a.x, dz = b.y - a.y;
+            bool Clip(float pp, float q)
+            {
+                if (Mathf.Abs(pp) < 1e-9f) return q >= 0f;
+                float r = q / pp;
+                if (pp < 0f) { if (r > t1) return false; if (r > t0) t0 = r; }
+                else { if (r < t0) return false; if (r < t1) t1 = r; }
+                return true;
+            }
+            if (!Clip(-dx, a.x - x0) || !Clip(dx, x1 - a.x) || !Clip(-dz, a.y - z0) || !Clip(dz, z1 - a.y)) return 0f;
+            return (t1 - t0) * Mathf.Sqrt(dx * dx + dz * dz);
         }
 
         /// <summary>A far tree may not stand here: on or beside a road's
@@ -809,7 +1037,7 @@ namespace PSXRacing.City
         /// <summary>One chunk's far trees: a jittered point a
         /// <see cref="TreeCellM"/> cell, kept with the canopy's odds (thinned),
         /// its species, height and width as CityTrees picks them.</summary>
-        List<FarTree> BuildTreeChunk(int cx, int cz)
+        List<FarTree> BuildTreeChunk(int cx, int cz, CityElevation.DemReader dem = null)
         {
             var list = new List<FarTree>(1024);
             int n = Mathf.RoundToInt(ChunkM / TreeCellM);
@@ -833,7 +1061,7 @@ namespace PSXRacing.City
                 float h = (pine ? Mathf.Lerp(15f, 22f, hs) : Mathf.Lerp(11.5f, 16f, hs)) * TreeStandScale;
                 list.Add(new FarTree
                 {
-                    foot = new Vector3(p.x, CityElevation.BaseY(p.x, p.y) - TreeSinkM, p.y),
+                    foot = new Vector3(p.x, (dem != null ? dem.BaseY(p.x, p.y) : CityElevation.BaseY(p.x, p.y)) - TreeSinkM, p.y),
                     h = h,
                     w = pine ? h * 0.62f : h,
                     yaw = Hash(gx + 17, gz + 919) * 180f,
@@ -876,8 +1104,518 @@ namespace PSXRacing.City
             return false;
         }
 
+        // ---- city perf round 1 (2026-10-30): the land's chunks ahead too, and workers ----
+        /// <summary>A land rebuild (the eye into a new 2 km chunk) built every
+        /// chunk of its 9 km ring the cache did not hold, in that one frame -
+        /// a ring's new edge is 7-11 chunks of 361 heights each, the canopy and
+        /// the nearest far road under every one. A frame with no rebuild and
+        /// no tree chunk to work out now works out one land chunk ahead
+        /// (nearest first, ahead of the eye before behind it).</summary>
+        public static bool PrefetchLand = System.Environment.GetEnvironmentVariable("PSX_CITY_FARLAND") != "0";
+        /// <summary>A native player: the far chunks (land and trees) are worked
+        /// out on the city's worker threads (<see cref="CityWorker"/>), every
+        /// one within reach ahead of need; WebGL keeps the main thread's chunk a
+        /// frame. The same builders, the same results (a worker samples the DEM
+        /// through a reader of its own).</summary>
+        public static bool WorkerChunks = System.Environment.GetEnvironmentVariable("PSX_CITY_FARWORKER") != "0";
+        [System.ThreadStatic] static CityElevation.DemReader workerDem;
+        static CityElevation.DemReader WorkerDem => workerDem ??= new CityElevation.DemReader();
+        readonly HashSet<long> askedLand = new HashSet<long>(), askedTrees = new HashSet<long>();
+        const int MaxInFlight = 6;
+
+        /// <summary>The nearest land chunk in (and a chunk past) the land's
+        /// reach that is not built yet, ahead first; false when none.</summary>
+        bool NextMissing(Vector3 eye, float reach, bool landNotTrees, out int bx, out int bz)
+        {
+            bx = bz = 0;
+            int ecx = ChunkOf(eye.x), ecz = ChunkOf(eye.z);
+            int r = Mathf.CeilToInt(reach / ChunkM) + 1;
+            float best = float.MaxValue;
+            for (int dz = -r; dz <= r; dz++)
+            for (int dx = -r; dx <= r; dx++)
+            {
+                int cx = ecx + dx, cz = ecz + dz;
+                long k = Key(cx, cz);
+                if (landNotTrees ? land.ContainsKey(k) || askedLand.Contains(k) : trees.ContainsKey(k) || askedTrees.Contains(k)) continue;
+                float nx = Mathf.Clamp(eye.x, cx * ChunkM, (cx + 1) * ChunkM), nz = Mathf.Clamp(eye.z, cz * ChunkM, (cz + 1) * ChunkM);
+                float d2 = (nx - eye.x) * (nx - eye.x) + (nz - eye.z) * (nz - eye.z);
+                if (d2 > reach * reach) continue;
+                if (d2 < best) { best = d2; bx = cx; bz = cz; }
+            }
+            return best < float.MaxValue;
+        }
+
+        bool PrefetchLandChunk(Vector3 eye)
+        {
+            if (!NextMissing(eye, RadiusM + ChunkM, true, out int cx, out int cz)) return false;
+            land[Key(cx, cz)] = BuildLandChunk(cx, cz);
+            return true;
+        }
+
+        /// <summary>A native player: every far chunk within reach that is
+        /// neither built nor asked for, handed to the workers (a few in flight
+        /// at once); each lands in its table on the main thread.</summary>
+        void QueueChunks(Vector3 eye, bool treesOk, bool landOk)
+        {
+            // the canopy grid and the DEM loaded HERE, on the main thread (their
+            // first reads load them; a worker only ever reads them)
+            if (!CityCanopy.Loaded) return;
+            CityElevation.BaseY(eye.x, eye.z);
+            while (askedLand.Count + askedTrees.Count < MaxInFlight)
+            {
+                if (treesOk && NextMissing(eye, TreeRadiusM + ChunkM, false, out int tx, out int tz)) { AskTreeChunk(tx, tz); continue; }
+                if (landOk && NextMissing(eye, RadiusM + ChunkM, true, out int lx, out int lz)) { AskLandChunk(lx, lz); continue; }
+                break;
+            }
+        }
+
+        // (the closures a worker's job needs, made only when one is asked for: a
+        // lambda's captured locals put the compiler's closure object at the top of
+        // the scope they live in - a loop's body would make one every pass)
+        void AskTreeChunk(int tx, int tz)
+        {
+            long k = Key(tx, tz);
+            askedTrees.Add(k);
+            List<FarTree> got = null;
+            CityWorker.Run(() => got = BuildTreeChunk(tx, tz, WorkerDem), () => { askedTrees.Remove(k); if (got != null && !trees.ContainsKey(k)) trees[k] = got; });
+        }
+
+        void AskLandChunk(int lx, int lz)
+        {
+            long k = Key(lx, lz);
+            askedLand.Add(k);
+            LandChunk got = null;
+            CityWorker.Run(() => got = BuildLandChunk(lx, lz, WorkerDem), () => { askedLand.Remove(k); if (got != null && !land.ContainsKey(k)) land[k] = got; });
+        }
+
+        void AskFillTile(long k, int tx, int tz, float per)
+        {
+            askedFill.Add(k);
+            FarTree[] got = null; float[] gr = null;
+            CityWorker.Run(() => got = BuildFillTile(tx, tz, out gr, per, WorkerDem),
+                           () => { askedFill.Remove(k); if (got != null) { fill[k] = got; fillRank[k] = gr; } });
+        }
+
+        // ---- city perf round 1 (2026-10-30; owner: "Trees abruptly stopped") ----
+        /// <summary>
+        /// THE FAR FOREST'S FILL. The streamed tiles plant their trees at the
+        /// canopy's real density (CityTrees: canopy x area / 95 m2) out to the
+        /// camera's 500 m far plane, and past it the far tree layer stood one
+        /// card a 32 m cell at canopy odds x <see cref="TreeThin"/> - about a
+        /// fifth of the cover: a wood ended in a wall 500 m out, and sparse cards
+        /// on green land stood behind it. The fill carries the near density on
+        /// past the edge: per 16 m square of a 256 m tile, the near rule's
+        /// count, hashed points, the near trees' species and sizes, never on a
+        /// road or in a building (the far layer's own tests); each with a rank,
+        /// and kept while its rank is under the KEEP at its distance - all of
+        /// them out to <see cref="FillFullM"/>, none past <see cref="FillToM"/>,
+        /// a straight fade between - so the forest thins away over half a
+        /// kilometre instead of stopping at a line. Its own small mesh (about
+        /// 60k vertices), rebuilt as the eye crosses a tile, kept for the tile
+        /// the eye is in (the keep is taken a half-diagonal nearer, so the eye
+        /// anywhere in its tile never sees it thinner than its rule). Drawn by
+        /// the far trees' own materials past the squeeze's start (PSX/Lit
+        /// _SkyFarLand 1), so it never stands over a live tile's own trees.
+        /// ?ab=CityFar.ForestFill:0 (PSX_CITY_FARFILL=0): no fill, as before.
+        /// </summary>
+        public static bool ForestFill = System.Environment.GetEnvironmentVariable("PSX_CITY_FARFILL") != "0";
+        public const float FillFullM = 600f, FillToM = 1150f;
+        const float FillSquareM = 16f, FillDensity = 0.85f, FillHalfDiagM = 182f, FillInnerSkipM = 230f;
+        static float FillReachM => Application.isMobilePlatform ? 800f : FillToM;
+        readonly Dictionary<long, FarTree[]> fill = new Dictionary<long, FarTree[]>();
+        readonly Dictionary<long, float[]> fillRank = new Dictionary<long, float[]>();
+        readonly HashSet<long> askedFill = new HashSet<long>();
+        Mesh fillMesh;
+        MeshRenderer[] fillR;
+        long fillAt = long.MinValue;
+        int fillShown;
+        public int FillShown => fillShown;
+        static long TileKeyOf(int tx, int tz) => ((long)tx << 24) ^ (tz & 0xFFFFFF);
+
+        /// <summary>One tile's fill trees (and their ranks): the near rule's
+        /// count per 16 m square, a hashed point each.</summary>
+        /// <param name="per">Trees a fully wooded 16 m square stands (the
+        /// near rule x the device's density: <see cref="FillPer"/>, read on
+        /// the main thread).</param>
+        FarTree[] BuildFillTile(int tx, int tz, out float[] ranks, float per, CityElevation.DemReader dem = null)
+        {
+            var list = new List<FarTree>(512);
+            var rk = new List<float>(512);
+            float T = CityMeshes.TileSize;
+            int n = Mathf.RoundToInt(T / FillSquareM);
+            float x0 = tx * T, z0 = tz * T;
+            for (int j = 0; j < n; j++)
+            for (int i = 0; i < n; i++)
+            {
+                int gx = tx * n + i, gz = tz * n + j;
+                float f = CityCanopy.Fraction(x0 + (i + 0.5f) * FillSquareM, z0 + (j + 0.5f) * FillSquareM);
+                if (f < 0.03f) continue;
+                float want = f * per;
+                int count = Mathf.FloorToInt(want) + (Hash(gx + 7001, gz + 913) < want - Mathf.Floor(want) ? 1 : 0);
+                for (int k = 0; k < count && k < 4; k++)
+                {
+                    var p = new Vector2(x0 + (i + 0.1f + 0.8f * Hash(gx * 5 + k, gz * 3 + 11)) * FillSquareM,
+                                        z0 + (j + 0.1f + 0.8f * Hash(gx * 3 + 17, gz * 5 + k)) * FillSquareM);
+                    if (TreeBlocked(p)) continue;
+                    int hx = gx * 4 + k, hz = gz;
+                    bool old = Vector2.Distance(p, map.uptown) < OldCityM;
+                    bool pine = Hash(hx + 13, hz + 29) < (old ? PineShareOld : PineShare);
+                    float hs = Hash(hx + 211, hz + 7);
+                    var cells = pine ? PineCells : old ? OakCells : BroadCells;
+                    byte cell = cells[Mathf.Min(cells.Length - 1, (int)(Hash(hx + 5, hz + 401) * cells.Length))];
+                    // the near trees' own sizes (CityTrees' heights): the fill IS the near wood
+                    float h = pine ? Mathf.Lerp(15f, 22f, hs) : Mathf.Lerp(11.5f, 16f, hs);
+                    list.Add(new FarTree
+                    {
+                        foot = new Vector3(p.x, (dem != null ? dem.BaseY(p.x, p.y) : CityElevation.BaseY(p.x, p.y)) - TreeSinkM, p.y),
+                        h = h, w = pine ? h * 0.62f : h, yaw = Hash(hx + 17, hz + 919) * 180f, cell = cell,
+                    });
+                    rk.Add(Hash(hx + 3011, hz + 5381));
+                }
+            }
+            ranks = rk.ToArray();
+            return list.ToArray();
+        }
+
+        /// <summary>The keep at a distance: all to FillFullM, none past FillToM.</summary>
+        static float FillKeep(float d) => d <= FillFullM ? 1f : d >= FillReachM ? 0f : 1f - (d - FillFullM) / (FillReachM - FillFullM);
+        static float FillPer => FillSquareM * FillSquareM / CityTrees.CrownM2 * FillDensity * CityTrees.Density;
+        bool fillStale;
+
+        /// <summary>A frame's share of the fill: the tiles it reaches worked
+        /// out (a tile a frame on the main thread; every one ahead on the
+        /// workers), and the mesh rebuilt when the eye is in a new tile and
+        /// every tile it reaches is there.</summary>
+        void StepFill(Vector3 eye, ref int budget)
+        {
+            // a staged rebuild under way takes the frame's share first
+            if (fillStaging && budget > 0) { StepFillStage(); budget--; }
+            float T = CityMeshes.TileSize;
+            int etx = Mathf.FloorToInt(eye.x / T), etz = Mathf.FloorToInt(eye.z / T);
+            long at = TileKeyOf(etx, etz);
+            float cx = (etx + 0.5f) * T, cz = (etz + 0.5f) * T;
+            int r = Mathf.CeilToInt((FillReachM + FillHalfDiagM) / T) + 1;
+            bool missing = false;
+            float per = FillPer;
+            for (int dz = -r; dz <= r; dz++)
+            for (int dx = -r; dx <= r; dx++)
+            {
+                int tx = etx + dx, tz = etz + dz;
+                long k = TileKeyOf(tx, tz);
+                if (fill.ContainsKey(k)) continue;
+                if (!FillTileInReach(tx, tz, cx, cz)) continue;
+                missing = true;
+                if (askedFill.Contains(k)) continue;
+                if (WorkerChunks && CityWorker.Threaded)
+                {
+                    if (askedFill.Count >= MaxInFlight || !CityCanopy.Loaded) continue;
+                    CityElevation.BaseY(eye.x, eye.z);
+                    AskFillTile(k, tx, tz, per);
+                }
+                else if (budget > 0)
+                {
+                    fill[k] = BuildFillTile(tx, tz, out var rr, per);
+                    fillRank[k] = rr;
+                    budget--;
+                }
+            }
+            if (budget <= 0) return;
+            if (at != fillAt)
+            {
+                // a new tile: built when every tile in reach is there - the
+                // old mesh (a tile off) serves meanwhile - or at once when there
+                // is no old mesh or the eye has moved further than a tile on
+                if (missing && fillShown > 0 && Mathf.Abs(TileXOf(fillAt) - etx) <= 1 && Mathf.Abs(TileZOf(fillAt) - etz) <= 1) return;
+            }
+            else if (!fillStale || missing) return;
+            RebuildFill(etx, etz);
+            fillStale = missing;
+            budget--;
+            // the tiles far behind forgotten
+            List<long> drop = null;
+            foreach (var kv in fill)
+                if (Mathf.Abs(TileXOf(kv.Key) - etx) > r + 2 || Mathf.Abs(TileZOf(kv.Key) - etz) > r + 2) (drop ??= new List<long>()).Add(kv.Key);
+            if (drop != null) foreach (var k in drop) { fill.Remove(k); fillRank.Remove(k); }
+        }
+
+        static int TileXOf(long k) => (int)(k >> 24);
+        static int TileZOf(long k) => (int)((k << 40) >> 40);
+
+        /// <summary>Does any part of a tile lie in the fill's band round the
+        /// eye's tile centre (the half-diagonal both ways)?</summary>
+        static bool FillTileInReach(int tx, int tz, float cx, float cz)
+        {
+            float T = CityMeshes.TileSize;
+            float nx = Mathf.Clamp(cx, tx * T, (tx + 1) * T) - cx, nz = Mathf.Clamp(cz, tz * T, (tz + 1) * T) - cz;
+            float dNear = Mathf.Sqrt(nx * nx + nz * nz);
+            float fx = Mathf.Max(Mathf.Abs(tx * T - cx), Mathf.Abs((tx + 1) * T - cx)), fz = Mathf.Max(Mathf.Abs(tz * T - cz), Mathf.Abs((tz + 1) * T - cz));
+            float dFar = Mathf.Sqrt(fx * fx + fz * fz);
+            return dNear - FillHalfDiagM < FillReachM && dFar + FillHalfDiagM > FillInnerSkipM;
+        }
+
+        /// <summary>A tool's shot (edit mode): every tile in reach now, and the mesh.</summary>
+        void FillNow(Vector3 eye)
+        {
+            int big = int.MaxValue;
+            float T = CityMeshes.TileSize;
+            int etx = Mathf.FloorToInt(eye.x / T), etz = Mathf.FloorToInt(eye.z / T);
+            fillAt = long.MinValue;
+            int r = Mathf.CeilToInt((FillReachM + FillHalfDiagM) / T) + 1;
+            for (int dz = -r; dz <= r; dz++)
+            for (int dx = -r; dx <= r; dx++)
+            {
+                long k = TileKeyOf(etx + dx, etz + dz);
+                if (fill.ContainsKey(k) || !FillTileInReach(etx + dx, etz + dz, (etx + 0.5f) * T, (etz + 0.5f) * T)) continue;
+                fill[k] = BuildFillTile(etx + dx, etz + dz, out var rr, FillPer);
+                fillRank[k] = rr;
+            }
+            StepFill(eye, ref big);
+        }
+
+        readonly List<Vector3> fv = new List<Vector3>(65536), fn = new List<Vector3>(65536);
+        readonly List<Vector2> fuv = new List<Vector2>(65536);
+        readonly List<int> ft = new List<int>(98304);
+
+        /// <summary>The fill's mesh for the eye's tile: every fill tree in reach
+        /// whose rank is under its keep, the keep taken a half-diagonal nearer
+        /// than its distance from the tile's centre.</summary>
+        // the fill's own staging (as StagedTrees): its tiles' cards a share a
+        // frame into the second mesh, an attribute a frame, then the swap
+        Mesh fillBack;
+        MeshFilter[] fillMf;
+        bool fillStaging;
+        int fillStageAt, fillUpload, fillStageTx, fillStageTz;
+        readonly List<long> fillStageKeys = new List<long>(256);
+
+        void RebuildFill(int etx, int etz)
+        {
+            if (StagedTrees && Application.isPlaying && fillShown > 0 && fillMf != null)
+            {
+                // staged behind the shown fill
+                fillAt = TileKeyOf(etx, etz);
+                fillStaging = true; fillStageAt = 0; fillUpload = 0; fillStageTx = etx; fillStageTz = etz;
+                fillStageKeys.Clear();
+                int rr = Mathf.CeilToInt((FillReachM + FillHalfDiagM) / CityMeshes.TileSize) + 1;
+                for (int dz = -rr; dz <= rr; dz++)
+                for (int dx = -rr; dx <= rr; dx++) fillStageKeys.Add(TileKeyOf(etx + dx, etz + dz));
+                fv.Clear(); fn.Clear(); fuv.Clear(); ft.Clear();
+                return;
+            }
+            fillStaging = false;
+            RebuildFillWhole(etx, etz);
+        }
+
+        /// <summary>One frame's share of a staged fill rebuild (true: swapped).</summary>
+        bool StepFillStage()
+        {
+            if (!fillStaging) return false;
+            float T = CityMeshes.TileSize;
+            var c = new Vector2((fillStageTx + 0.5f) * T, (fillStageTz + 0.5f) * T);
+            if (fillStageAt < fillStageKeys.Count)
+            {
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                while (fillStageAt < fillStageKeys.Count && clock.Elapsed.TotalMilliseconds < StageMs)
+                {
+                    long k = fillStageKeys[fillStageAt++];
+                    if (fill.TryGetValue(k, out var trees) && fillRank.TryGetValue(k, out var ranks)) AppendFillCards(trees, ranks, c);
+                }
+                return false;
+            }
+            if (fillBack == null) { fillBack = new Mesh { name = "CityFarTreeFill", indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 }; fillBack.MarkDynamic(); }
+            switch (fillUpload++)
+            {
+                case 0: fillBack.Clear(); fillBack.SetVertices(fv); return false;
+                case 1: fillBack.SetNormals(fn); return false;
+                case 2: fillBack.SetUVs(0, fuv); return false;
+            }
+            fillBack.SetTriangles(ft, 0, false);
+            fillBack.bounds = new Bounds(new Vector3(c.x, 0f, c.y), Vector3.one * 1e5f);
+            (fillMesh, fillBack) = (fillBack, fillMesh);
+            foreach (var mf in fillMf) if (mf != null) mf.sharedMesh = fillMesh;
+            fillShown = fv.Count / 8;
+            fillStaging = false;
+            return true;
+        }
+
+        void AppendFillCards(FarTree[] trees, float[] ranks, Vector2 c)
+        {
+            const float pad = 1.5f / 512f;
+            for (int q = 0; q < trees.Length; q++)
+            {
+                var t = trees[q];
+                float d = Vector2.Distance(new Vector2(t.foot.x, t.foot.z), c);
+                if (d + FillHalfDiagM < FillInnerSkipM) continue;
+                if (ranks[q] >= FillKeep(Mathf.Max(0f, d - FillHalfDiagM))) continue;
+                int col = t.cell % 4, row = t.cell / 4;
+                float u0 = col * 0.25f + pad, u1 = (col + 1) * 0.25f - pad;
+                float v0 = row * 0.25f + pad, v1 = (row + 1) * 0.25f - pad;
+                for (int cq = 0; cq < 2; cq++)
+                {
+                    float a = (t.yaw + cq * 90f) * Mathf.Deg2Rad;
+                    float ca = Mathf.Cos(a), sa = Mathf.Sin(a);
+                    var half = new Vector3(ca, 0f, sa) * (t.w * 0.5f);
+                    int v = fv.Count;
+                    fv.Add(t.foot - half); fv.Add(t.foot - half + Vector3.up * t.h);
+                    fv.Add(t.foot + half + Vector3.up * t.h); fv.Add(t.foot + half);
+                    var nrm = new Vector3(sa, 0f, -ca);
+                    fn.Add(nrm); fn.Add(nrm); fn.Add(nrm); fn.Add(nrm);
+                    fuv.Add(new Vector2(u0, v0)); fuv.Add(new Vector2(u0, v1));
+                    fuv.Add(new Vector2(u1, v1)); fuv.Add(new Vector2(u1, v0));
+                    ft.Add(v); ft.Add(v + 1); ft.Add(v + 2);
+                    ft.Add(v); ft.Add(v + 2); ft.Add(v + 3);
+                }
+            }
+        }
+
+        void RebuildFillWhole(int etx, int etz)
+        {
+            float T = CityMeshes.TileSize;
+            fillAt = TileKeyOf(etx, etz);
+            var c = new Vector2((etx + 0.5f) * T, (etz + 0.5f) * T);
+            fv.Clear(); fn.Clear(); fuv.Clear(); ft.Clear();
+            const float pad = 1.5f / 512f;
+            int r = Mathf.CeilToInt((FillReachM + FillHalfDiagM) / T) + 1;
+            for (int dz = -r; dz <= r; dz++)
+            for (int dx = -r; dx <= r; dx++)
+            {
+                long k = TileKeyOf(etx + dx, etz + dz);
+                if (!fill.TryGetValue(k, out var trees) || !fillRank.TryGetValue(k, out var ranks)) continue;
+                for (int q = 0; q < trees.Length; q++)
+                {
+                    var t = trees[q];
+                    float d = Vector2.Distance(new Vector2(t.foot.x, t.foot.z), c);
+                    if (d + FillHalfDiagM < FillInnerSkipM) continue;   // always inside the live ring's own trees
+                    if (ranks[q] >= FillKeep(Mathf.Max(0f, d - FillHalfDiagM))) continue;
+                    int col = t.cell % 4, row = t.cell / 4;
+                    float u0 = col * 0.25f + pad, u1 = (col + 1) * 0.25f - pad;
+                    float v0 = row * 0.25f + pad, v1 = (row + 1) * 0.25f - pad;
+                    for (int cq = 0; cq < 2; cq++)
+                    {
+                        float a = (t.yaw + cq * 90f) * Mathf.Deg2Rad;
+                        float ca = Mathf.Cos(a), sa = Mathf.Sin(a);
+                        var half = new Vector3(ca, 0f, sa) * (t.w * 0.5f);
+                        int v = fv.Count;
+                        fv.Add(t.foot - half); fv.Add(t.foot - half + Vector3.up * t.h);
+                        fv.Add(t.foot + half + Vector3.up * t.h); fv.Add(t.foot + half);
+                        var nrm = new Vector3(sa, 0f, -ca);
+                        fn.Add(nrm); fn.Add(nrm); fn.Add(nrm); fn.Add(nrm);
+                        fuv.Add(new Vector2(u0, v0)); fuv.Add(new Vector2(u0, v1));
+                        fuv.Add(new Vector2(u1, v1)); fuv.Add(new Vector2(u1, v0));
+                        ft.Add(v); ft.Add(v + 1); ft.Add(v + 2);
+                        ft.Add(v); ft.Add(v + 2); ft.Add(v + 3);
+                    }
+                }
+            }
+            fillShown = fv.Count / 8;
+            fillMesh.Clear();
+            fillMesh.SetVertices(fv);
+            fillMesh.SetNormals(fn);
+            fillMesh.SetUVs(0, fuv);
+            fillMesh.SetTriangles(ft, 0, false);
+            fillMesh.bounds = new Bounds(new Vector3(c.x, 0f, c.y), Vector3.one * 1e5f);
+        }
+
+        // ---- city perf round 1 (2026-10-30): the far trees' mesh built behind the one shown ----
+        /// <summary>A far-tree rebuild (the eye into a new 2 km chunk) laid
+        /// some 15k trees' cards into lists and uploaded 116k vertices in ONE
+        /// frame (10.5 ms in the editor, the perf tour; a browser pays two to
+        /// three times that). In play it is now staged: the cards of a chunk
+        /// or two a frame (<see cref="StageMs"/>) into a second mesh, uploaded
+        /// an attribute a frame, then the two swap - the old forest stands until
+        /// the new one is whole (the eye has just crossed a chunk line: the old
+        /// one still reaches 2 km round it). The same cards. ?ab=CityFar.StagedTrees:0:
+        /// in one frame, as before.</summary>
+        public static bool StagedTrees = System.Environment.GetEnvironmentVariable("PSX_CITY_FARSTAGE") != "0";
+        /// <summary>City perf round 1: the far lights' table is not rebuilt
+        /// while the street lights are off (by day). ?ab=CityFar.DayLightsIdle:0: as before.</summary>
+        public static bool DayLightsIdle = System.Environment.GetEnvironmentVariable("PSX_CITY_FARLIGHTSDAY") != "0";
+        const double StageMs = 1.5;
+        Mesh treeBack;
+        MeshFilter[] treeMf;
+        bool treeStaging;
+        int treeStageAt, treeUpload;
+        readonly List<long> treeStageKeys = new List<long>(64);
+
+        void StartTreeStage(Vector3 eye, long at)
+        {
+            treeAt = at;
+            treeStaging = true; treeStageAt = 0; treeUpload = 0;
+            treeStageKeys.Clear();
+            float R = TreeRadiusM;
+            int ecx = ChunkOf(eye.x), ecz = ChunkOf(eye.z);
+            int r = Mathf.CeilToInt(R / ChunkM) + 1;
+            for (int dz = -r; dz <= r; dz++)
+            for (int dx = -r; dx <= r; dx++)
+            {
+                int cx = ecx + dx, cz = ecz + dz;
+                float nx = Mathf.Clamp(eye.x, cx * ChunkM, (cx + 1) * ChunkM), nz = Mathf.Clamp(eye.z, cz * ChunkM, (cz + 1) * ChunkM);
+                if ((nx - eye.x) * (nx - eye.x) + (nz - eye.z) * (nz - eye.z) > R * R) continue;
+                treeStageKeys.Add(Key(cx, cz));
+            }
+            tv.Clear(); tn.Clear(); tuv.Clear(); tt.Clear();
+        }
+
+        /// <summary>One frame's share of the staged rebuild; true when it swapped.</summary>
+        bool StepTreeStage()
+        {
+            if (!treeStaging) return false;
+            if (treeStageAt < treeStageKeys.Count)
+            {
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                while (treeStageAt < treeStageKeys.Count && clock.Elapsed.TotalMilliseconds < StageMs)
+                {
+                    long k = treeStageKeys[treeStageAt++];
+                    if (!trees.TryGetValue(k, out var list)) { list = BuildTreeChunk((int)(k >> 24), (int)((k << 40) >> 40)); trees[k] = list; }
+                    AppendTreeCards(list);
+                }
+                return false;
+            }
+            if (treeBack == null) { treeBack = new Mesh { name = "CityFarTrees", indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 }; treeBack.MarkDynamic(); }
+            switch (treeUpload++)
+            {
+                case 0: treeBack.Clear(); treeBack.SetVertices(tv); return false;
+                case 1: treeBack.SetNormals(tn); return false;
+                case 2: treeBack.SetUVs(0, tuv); return false;
+            }
+            treeBack.SetTriangles(tt, 0, false);
+            treeBack.RecalculateBounds();
+            (treeMesh, treeBack) = (treeBack, treeMesh);
+            if (treeMf != null) foreach (var mf in treeMf) if (mf != null) mf.sharedMesh = treeMesh;
+            treesShown = tv.Count / 8;
+            treeStaging = false;
+            return true;
+        }
+
+        /// <summary>A chunk's far trees as cards (CityTrees.BuildMesh's, the same atlas cells).</summary>
+        void AppendTreeCards(List<FarTree> list)
+        {
+            const float pad = 1.5f / 512f;
+            foreach (var t in list)
+            {
+                int col = t.cell % 4, row = t.cell / 4;
+                float u0 = col * 0.25f + pad, u1 = (col + 1) * 0.25f - pad;
+                float v0 = row * 0.25f + pad, v1 = (row + 1) * 0.25f - pad;
+                for (int q = 0; q < 2; q++)
+                {
+                    float a = (t.yaw + q * 90f) * Mathf.Deg2Rad;
+                    float ca = Mathf.Cos(a), sa = Mathf.Sin(a);
+                    var half = new Vector3(ca, 0f, sa) * (t.w * 0.5f);
+                    int v = tv.Count;
+                    tv.Add(t.foot - half); tv.Add(t.foot - half + Vector3.up * t.h);
+                    tv.Add(t.foot + half + Vector3.up * t.h); tv.Add(t.foot + half);
+                    var nrm = new Vector3(sa, 0f, -ca);
+                    tn.Add(nrm); tn.Add(nrm); tn.Add(nrm); tn.Add(nrm);
+                    tuv.Add(new Vector2(u0, v0)); tuv.Add(new Vector2(u0, v1));
+                    tuv.Add(new Vector2(u1, v1)); tuv.Add(new Vector2(u1, v0));
+                    tt.Add(v); tt.Add(v + 1); tt.Add(v + 2);
+                    tt.Add(v); tt.Add(v + 2); tt.Add(v + 3);
+                }
+            }
+        }
+
         void RebuildTrees(Vector3 eye, long at)
         {
+            treeStaging = false;
             treeAt = at;
             float R = TreeRadiusM;
             int ecx = ChunkOf(eye.x), ecz = ChunkOf(eye.z);
@@ -1149,6 +1887,10 @@ namespace PSXRacing.City
         {
             if (landMesh != null) Kill(landMesh);
             if (treeMesh != null) Kill(treeMesh);
+            // city perf round 1: the staged meshes and the fill's
+            if (treeBack != null) Kill(treeBack);
+            if (fillMesh != null) Kill(fillMesh);
+            if (fillBack != null) Kill(fillBack);
             if (treeMats != null) foreach (var m in treeMats) if (m != null) Kill(m);
             if (lightMesh != null) Kill(lightMesh);
             if (lightMat != null) Kill(lightMat);
