@@ -1188,6 +1188,36 @@ namespace PSXRacing.City
                     howNow = HowPostNear;
                     PostHead(a, f, st); st.postHeads++;
                 }
+            // last: anywhere in the view the corners leave room - the ground between the
+            // stop line and the far side too (an uptown corner's run-off and buildings
+            // leave a foot only there: North Tryon Street at West 8th Street)
+            for (int side = 1; side >= -1 && furnishView[i] == 0; side -= 2)
+                if (ViewFoot(j, a, side, out var f))
+                {
+                    howNow = side > 0 ? HowPostFar : HowPostLeft;
+                    PostHead(a, f, st); st.postHeads++;
+                }
+        }
+
+        /// <summary>The first clear post foot anywhere in approach a's view on
+        /// <paramref name="side"/>: nearest the road first; 12 m past the stop line on
+        /// (a primary face's 40 ft), then back from there to 6 m short of it.</summary>
+        static bool ViewFoot(Junction j, Approach a, int side, out Vector2 foot)
+        {
+            foot = default;
+            float edgeLat = side > 0 ? a.inR : LeftEdge(a);
+            for (float o = 0.9f; o <= BackSpanM; o += 1.2f)
+                for (float k = 0f; k <= (ViewFarM - ViewNearM) / 1.5f; k += 1f)
+                {
+                    float t = 12f + k * 1.5f;
+                    if (t > ViewFarM) t = 12f - (t - ViewFarM);
+                    if (t < ViewNearM) break;
+                    var f = a.at + a.Right * (edgeLat + side * (0.3f + o)) + a.u * t;
+                    if (!InView(a, f) || !PostFootOk(j, a, f)) continue;
+                    foot = f;
+                    return true;
+                }
+            return false;
         }
 
         /// <summary>A near-side post's foot set back: from the stop line to 6 m short of it
@@ -1565,6 +1595,27 @@ namespace PSXRacing.City
 
         /// <summary>Plan positions of up to three heads over an approach's
         /// inbound lanes, as lateral offsets right of its line.</summary>
+        /// <summary>The heads a wire from A to B hangs over approach a's lanes (added to
+        /// <paramref name="hangs"/> when it is given): where each lane offset crosses it.</summary>
+        static int WireHangs(Approach a, Vector2 A, Vector2 B, List<(Vector2 p, float t, int app)> hangs, int q, bool viewOnly)
+        {
+            LaneOffsets(a, laneScratch);
+            int got = 0;
+            foreach (float o in laneScratch)
+            {
+                var p0 = a.at + a.Right * o;
+                if (!Cross(p0, a.u, A, B, out float along, out float t)) continue;
+                if (along < 1f || t < 0.08f || t > 0.92f) continue;
+                if (viewOnly && !InView(a, Vector2.Lerp(A, B, t))) continue;
+                hangs?.Add((Vector2.Lerp(A, B, t), t, q));
+                got++;
+            }
+            return got;
+        }
+
+        /// <summary>LaneOffsets as before round 3 (one lane: one face).</summary>
+        static bool basicOffsets;
+
         static void LaneOffsets(Approach a, List<float> into)
         {
             into.Clear();
@@ -1572,7 +1623,7 @@ namespace PSXRacing.City
             float w = (a.inR - a.inL) / n;
             // round 3: one lane's approach shows TWO faces, 2.4 m (8 ft) apart
             // either side of its middle (MUTCD: two for the through movement)
-            if (HeadsEvery && n <= 1)
+            if (HeadsEvery && !basicOffsets && n <= 1)
             {
                 float m = (a.inL + a.inR) * 0.5f;
                 into.Add(m - 1.2f); into.Add(m + 1.2f);
@@ -1648,16 +1699,18 @@ namespace PSXRacing.City
                     {
                         var a = j.approaches[q];
                         if (want != null && !want[q]) continue;
-                        LaneOffsets(a, laneScratch);
-                        int got = 0;
-                        foreach (float o in laneScratch)
+                        int got = WireHangs(a, A, B, hangs, q, want != null);
+                        // round 3c: a junction's own wire is taken as before round 3 - where
+                        // every approach hangs a head from the lanes it had then; a one-lane
+                        // approach's two faces ride on a wire taken so, never make one
+                        // (junction 214 traded a mast arm's three heads for a wire's two)
+                        if (want == null && HeadsEvery)
                         {
-                            var p0 = a.at + a.Right * o;
-                            if (!Cross(p0, a.u, A, B, out float along, out float t)) continue;
-                            if (along < 1f || t < 0.08f || t > 0.92f) continue;
-                            if (want != null && !InView(a, Vector2.Lerp(A, B, t))) continue;
-                            hangs.Add((Vector2.Lerp(A, B, t), t, q));
-                            got++;
+                            basicOffsets = true;
+                            int got0 = WireHangs(a, A, B, got == 0 ? hangs : null, q, false);
+                            basicOffsets = false;
+                            if (got0 == 0) got = 0;
+                            else if (got == 0) got = got0;
                         }
                         if (got == 0 && want == null) all = false;
                         if (got > 0) wanted++;
