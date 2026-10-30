@@ -806,7 +806,26 @@ namespace PSXRacing.City
                 if (a < 30f && map.nodeEdges[e.a].Count >= 3) return false;
                 if (e.length - b < 30f && map.nodeEdges[e.b].Count >= 3) return false;
             }
+            else if (e.link)
+            {
+                // a ramp's turn INTO the street junction at its end is the junction's, not a curve
+                int endNode = dir > 0 ? e.b : e.a;
+                float toEnd = dir > 0 ? e.length - b : a;
+                if (toEnd < 30f && StreetJunction(map, endNode)) return false;
+            }
             return true;
+        }
+
+        /// <summary>A node where a street (not a ramp, not a freeway) meets two more arms.</summary>
+        static bool StreetJunction(CityMap map, int n)
+        {
+            if (map.nodeEdges[n].Count < 3) return false;
+            foreach (int oi in map.nodeEdges[n])
+            {
+                var o = map.edges[oi];
+                if (!o.link && o.cls < 5) return true;
+            }
+            return false;
         }
 
         /// <summary>Is a ramp span the exit-speed advisory's own curve (within
