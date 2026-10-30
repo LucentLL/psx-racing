@@ -10,8 +10,34 @@ namespace PSXRacing.City
     public static partial class CityMeshes
     {
         /// <summary>(round 11) The tile builder's round-11 switches as one set (the look tool's A/B).</summary>
-        public static bool[] Round11Flags() => new bool[0];
-        public static void SetRound11Flags(bool[] f) { }
+        public static bool[] Round11Flags() => new[] { R11GoreStartOn };
+        public static void SetRound11Flags(bool[] f)
+        {
+            if (f == null) return;
+            if (f.Length > 0) R11GoreStartOn = f[0];
+        }
+
+        // ------------------------------------------------------------------
+        //  GORESTART (round 10's BLUNT, I-277 e9902 s 18): an exit ramp's
+        //  (or any branch's) outer rail that starts where its ribbon comes out
+        //  of its host's pavement. OSM joins a ramp at the end of its taper, so
+        //  its first metres are drawn collapsed onto the host's edge; the
+        //  approach rail it carries (a structure ahead) began on the first span
+        //  past that zone - ON the host's edge line, square to the host's
+        //  traffic in its outside lane. The rail-end plan skipped any end whose
+        //  open span was a collapsed (skip / wedge) span, so nothing turned it.
+        //  DOT: no blunt end faces traffic; here there is no roadside to lead a
+        //  W-beam in along (the host's lanes lie past it), so the run's own first
+        //  TaperLenM is TURNED DOWN - sloped up from a curb's height to full, the
+        //  Roadside Design Guide's sloped end - with no drop exception (what the
+        //  approach rail guards lies ahead of it). PSX_CITY_R11_GORESTART=0: before.
+        // ------------------------------------------------------------------
+        public static bool R11GoreStartOn = System.Environment.GetEnvironmentVariable("PSX_CITY_R11_GORESTART") != "0";
+        const int EndGoreStart = 4;
+        /// <summary>(GORESTART) rail starts turned down, tile builds since load (the probe prints it).</summary>
+        public static int R11GoreStarts;
+        /// <summary>Is this edge a branch at either end (clipped onto a host)?</summary>
+        static bool R11BranchEdge(Trims trims, CityMap.Edge e) => trims.branchA[e.index] >= 0 || trims.branchB[e.index] >= 0;
 
         /// <summary>(round 11, STREETSEAT) Every STREET branch end's seat where its ribbon runs
         /// INTO its host's pavement (the ramps' rule, <see cref="SeatIntoOnly"/>): the solve seats

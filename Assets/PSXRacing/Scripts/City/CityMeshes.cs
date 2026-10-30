@@ -5594,6 +5594,16 @@ namespace PSXRacing.City
                     int dir = lineL ? 1 : -1;
                     int railSpan = lineL ? k : k + 1, openSpan = lineL ? k + 1 : k;
                     if (sections[k].elev || spanFlags[railSpan].elev) continue;
+                    // (round 11, GORESTART) a branch's rail starting where its ribbon comes out of its host's
+                    // pavement (the span before it is the collapsed zone's) stands on the host's edge line
+                    // facing the host's traffic: turned down inside its own run, never left square
+                    if (R11GoreStartOn && openSpan >= 1 && openSpan < n && !spanFlags[openSpan].elev
+                        && (spanFlags[openSpan].skip || spanFlags[openSpan].wedge) && R11BranchEdge(trims, e)
+                        && sections[openSpan - 1].innerSide != side && sections[openSpan].innerSide != side)
+                    {
+                        endPlan.Add((k, dir, EndGoreStart, 0f, k));
+                        continue;
+                    }
                     // ...nor a rail standing at a deck's edge (the deck beside it has its own reasons)
                     // ...nor one handing over to a union's median (its owner
                     // draws that, and turns its own ends)
@@ -5663,6 +5673,20 @@ namespace PSXRacing.City
                     // the bridges pass: a W-beam run's end is a W-beam's - its
                     // terminal on the open roadside, or turned down inside the run
                     if (how != EndConnect && PlanWBeamRunEnd(side, k, dir, how == EndWBeam, mineEnd ? tm : null)) continue;
+                    if (how == EndGoreStart)
+                    {
+                        // (round 11) the run's own first TaperLenM sloped up from a curb (no drop exception:
+                        // what it guards lies ahead of it, and nothing past it but the host's lanes)
+                        for (int j = k; j >= 0 && j < n; j -= dir)
+                        {
+                            float d = Mathf.Abs(sections[j].s - sections[k].s);
+                            if (d >= TaperLenM) break;
+                            taper[j] = Mathf.Min(taper[j], d / TaperLenM);
+                            if (KindAt(dir > 0 ? j : j + 1) != KindRail) break;
+                        }
+                        if (mineEnd) { tm.railEndsInside++; R11GoreStarts++; }
+                        continue;
+                    }
                     if (how == EndConnect)
                     {
                         // the open stretch to the next barrier, rail at full height
