@@ -404,6 +404,9 @@ namespace PSXRacing.City
                     r9Splits = MarkSplitEnds(map, t);
                 }
             }
+            // (round 10, DECKV) a deck end "continued" only by its own partner run's padded claim
+            // across: closed (the deck V), not a hollow square Jersey end (the 1'47" box)
+            r10DeckV = CloseDeckEndsByOwnPartner(map, t);
 
             // 5. no short raised island (owner 2026-10-24: "random medians only a
             // few feet long on random side streets where roads split ... they
@@ -434,7 +437,7 @@ namespace PSXRacing.City
                               $"{pairsSplit} pairs in more than one run or ended by a split level over {UnionSplitDyM} m ({splitRuns} runs{(splitWorst > 0f ? "; worst " + splitWorstAt : "")}); " +
                               $"{pairsNone} union pairs with no run{(noRun.Length > 0 ? " (" + noRun.ToString().Trim().TrimEnd(';') + ")" : "")}; {open} open run ends; {nodeSnapsFar} run ends put on a node with the next run (round 7); " +
                               $"round 8: {r8Fills} gaps filled ({r8FillM:0} m), {r8Seams} seams across, {r8ChainPartners} partner runs on chain edges, {r8DeckEnds} closed ends carried on to their deck's end over a pit ({r8DeckEndM:0} m), {r8Dropped} owner runs inside another dropped; " +
-                              $"{Round9Report()}; {LastUnionMs:0.0} ms";
+                              $"{Round9Report()}; {Round10Report()}; {LastUnionMs:0.0} ms";
         }
 
         /// <summary>One segment of a pair's walk (pairWalk[i0..i1]) as an owner

@@ -22,12 +22,16 @@ namespace PSXRacing.EditorTools
     public static partial class CityAudit
     {
         const float FallStepM = 1f, FallNearRoadM = 12f, FallSpotM = 6f;
-        static int fallRays, fallNone, fallNoneNear;
+        /// <summary>(round 10) A single Roads hit this close to the drawn lattice is a surface laid
+        /// on the land (a lot's pavement), not a deck. PSX_AUDIT_R10_LOTS=0: the old reading.</summary>
+        const float FallOnLatticeM = 0.15f;
+        static readonly bool FallLotsOn = System.Environment.GetEnvironmentVariable("PSX_AUDIT_R10_LOTS") != "0";
+        static int fallRays, fallNone, fallNoneNear, fallOnLattice;
         static readonly List<(Vector2 p, bool near, string note)> fallSpots = new List<(Vector2, bool, string)>();
         static readonly HashSet<int> fallSegs = new HashSet<int>();
         static readonly Dictionary<string, int> fallByTop = new Dictionary<string, int>();
 
-        static void FallHolesReset() { fallRays = fallNone = fallNoneNear = 0; fallSpots.Clear(); fallByTop.Clear(); }
+        static void FallHolesReset() { fallRays = fallNone = fallNoneNear = fallOnLattice = 0; fallSpots.Clear(); fallByTop.Clear(); }
 
         static void FallHoles(CityMap map, CityMeshes.Trims trims, int tx, int tz)
         {
@@ -60,6 +64,13 @@ namespace PSXRacing.EditorTools
                         // drawn under a ribbon); only a DECK with nothing under it is a
                         // hole for a car that leaves it over a gap
                         if (hits.Length > 1 || !OnStructureNear(map, new Vector2(x, z))) continue;
+                        // (round 10) ...and a surface lying ON the lattice is no deck: a parking
+                        // lot's pavement (CityMeshes.Lots: the cell's own pieces, drawn in the
+                        // Roads mesh) beside a bridge's end is the land itself. All 8 places
+                        // the base counted (S Tryon at the I-277 bridge, Briar Creek Rd's lots
+                        // by its two bridges) were lot pavement at the lattice's height, 1.7-8 m
+                        // under the deck beside it. A deck stands 1.75 m+ over the land under it.
+                        if (FallLotsOn && topName == "Roads" && Mathf.Abs(topY - CityMeshes.LatticeAt(map, x, z)) < FallOnLatticeM) { fallOnLattice++; continue; }
                         under = $" (nothing under the deck surface {topName} at y {topY:0.00})";
                         fallByTop[topName] = (fallByTop.TryGetValue(topName, out int fc) ? fc : 0) + 1;
                     }
@@ -118,6 +129,8 @@ namespace PSXRacing.EditorTools
             Line($"FALL HOLES (round 4; a ray down every {FallStepM:0} m of every route tile, the game's colliders): {fallRays} rays, {fallNone} meet nothing ({fallNoneNear} within {FallNearRoadM:0} m of a road's pavement); distinct places (6 m) {places}, {placesNear} near a road");
             var bt = new StringBuilder("  by the top surface (no land under it):");
             foreach (var kv in fallByTop) bt.Append($" {kv.Key} {kv.Value};");
+            // (round 10) the rays whose one surface is a lot's pavement on the lattice by a bridge (not holes)
+            bt.Append($" | a lone Roads surface on the lattice (a lot's pavement, the land itself; round 10{(FallLotsOn ? "" : ", PSX_AUDIT_R10_LOTS=0: counted as holes")}): {fallOnLattice} rays");
             Line(bt.ToString());
             int shown = 0;
             foreach (var s in fallSpots)

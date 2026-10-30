@@ -8293,6 +8293,118 @@ land term per column: d deck cap, D deck protect, p cap, f floor, c cut, n natur
 numbers), world coordinates in the SPOT header. Scratch job scripts (session scratchpad): r9job.ps1, r9look.ps1,
 r9gate.ps1, r9sheet.py. Sheet: Docs/shots/medians9/real_heights_r9_sheet.png.
 
+### REAL HEIGHTS - round 10 (2026-10-29; the 1'47" box at last, and the drive audit's last drivability defects)
+
+The owner's 1'47" (UptownLoop, I-277 past the Elizabeth Ave bridge, uptown ~1800 m) and, city-wide (free roam is the
+whole city), the drive audit's last drivability defects: FALL HOLES 8, INVISIBLE lanes 4, BLUNT on the route 1. The
+regenerated city data (integration-1029b: lanes + topology + the OSM gap fetch) renumbered most edges: the 1'47" decks are
+e2448 (the route's, round 9's e2438) and e2447 (the twin's, e2437), the route's approach e2445 (e2435) -> e4608 (e4593),
+the twin's e2152 (e2142). Code: `Scripts/City/CityElevation.R10.cs` and `CityMeshes.Medians10.cs` (new partials) with hooks
+in `CityElevation.cs` (UnionAbutments / CarryDeckTo, Ground), `CityMeshes.Unions.cs` (after the open flags),
+`CityMeshes.Medians9.cs` (R9KeepJerseyEnd); census `Editor/CityAudit.Holes.cs`; tools `Editor/CityR10.cs`.
+
+**1. 1'47" - FIXED.** What stood there (spot probe with terms, chase / high / top shots, PSXLab r10_look1-4): the union
+slab between the two decks (owner run e2447; partner runs on e2448 and e2445 0..6.5) ended on the skewed abutment line and
+its Jersey stopped SQUARE and hollow at the slab's end; the route's own median parapet started square 7 m to its right;
+the twin's rail started square behind; between the three a sunken grass box, the land -11 m at e2445 s 8-12 - in the
+regenerated data the E 10th St valley under the bridge's end (round 9 read it as the creek channel). Three causes:
+- (a) ONE ABUTMENT LINE (plan L3, `UnionAbutments`) squares a union's two deck ends to the pair's CHORD. On this curving
+  pair that line crossed e2445 4.9 m past the twin's own abutment (n3305): e2445 s 7.3-12.3 was structure over nothing - no
+  floor held the land beside it and its soffit's air cap dug its footprint.
+- (b) The union run's end at e2447 s 0 was "continued" only by its OWN partner run's padded claim (Continued's twin test:
+  round 9's open item 2, fixed there only for ground ends that split): drawn with no end at all - no V, no end face.
+- (c) Nothing held the median between twin decks at an abutment: beside a deck no floor pins the land, and the approaches'
+  fills fall 1V:2H-1V:4H into whatever is under the bridge; the 8 m lattice carried the dip past the end.
+
+The fix, one switch each (=0 the before):
+- `PSX_CITY_R10_ABUTFOOT` - a carry that would put a deck end more than `R10AbutTolM` (1.5 m) past the twin's own deck
+  end, square to its OWN road, is cut back to that end: both decks end on the real skewed abutment line (e2445's deck
+  12.3 -> 7.5). City-wide 16 ends (the chord-square line 1.5-4.9 m past the twin's end: 9 carries cut back to the twin's
+  end, 7 ends left where they were); every other carry is as it was (within 1.5 m of the twin's foot, most under 1 m).
+- `PSX_CITY_R10_DECKV` - a deck run's end that only its own partner run "continues" is CLOSED: the deck V (its legs from
+  the Jersey to each carriageway's edge at the slab's end, meeting that carriageway's own rail, which keeps its full
+  height there - `R10DeckVEndNear` in R9KeepJerseyEnd) and the slab's end face; the V goes into the MEDIAN census's V class
+  like a split's. 9 deck ends city-wide.
+- `PSX_CITY_R10_SPILL` - in a twin deck's median (a union pair's deck, or the deck it carries on into through a two-arm
+  node; the median side of a one-way carriageway, up to 8 m past its pavement), within 24 m of the deck's end, the land is
+  held at least on the spill-through slope from the bridge seat (deck - 0.55 - 0.15 m, falling 1V:2H under the deck), and
+  the soffit's air cap tapers from 1.2 m to 0.15 m over the last 4 m (the land meets the seat, never the soffit's plane).
+  A road's cap still keeps it under every pavement.
+
+The lowest land per row of the spot probe (e2445's frame, CityElevation.Ground at 0.5 m columns), base -> after: s 8-12
+-11.24..-10.80 -> -1.18 (s 8, the twin's abutment side), -0.69 (s 9), -0.19..-0.17 (s 10-12); s 7 -0.95; s 13 on -0.16 as
+before. From the driver's seat the union Jersey now runs on as the V's leg into the route's own
+rail, the other leg into the twin's; the wide median beyond is grass at grade (sheet, row 1). LEFT: a 1 m sliver at e2445 s
+7, lat 9-13.5 - behind the route's rail start, inside the V's mouth - where the DRAWN 8 m lattice still dips below -1 m
+toward one vertex under the route deck's own last metres (over the E 10th St valley, -8.9 m; under a deck's own pavement
+SPILL does not hold the land); not visible from the road in the shots.
+
+**2. FALL HOLES (8 places, all off-route) - census false positives, census corrected.** All 8 (68 rays: S Tryon St at the
+I-277 bridge x2, Briar Creek Rd's lots by its bridges x6) were a ray whose one surface is a parking lot's pavement:
+`CityMeshes.Lots` lays a lot as the lattice cell's own pieces in the Roads mesh, at exactly the lattice's height (the probe:
+129.48 / 108.26 / 103.77 m = the lattice at each), and the audit reads a lone Roads hit "on structure near" (a bridge's end
+within its half width + 1 m) as a deck with nothing under it. A deck never lies on the lattice (the solve keeps 1.75 m+ of
+air under a soffit). `CityAudit.Holes`: a lone Roads hit within 0.15 m of the drawn lattice is a surface on the land, not a
+hole (`PSX_AUDIT_R10_LOTS=0`: the old reading). No geometry changed; the sheet's row 2 shows the two places.
+
+**3. INVISIBLE lanes (4) - LEFT, each cause found.**
+- North Tryon St e14645 s ~118 (box; from the Tryon route's own direction the same plate is a DRAWN face 0.3-1.2 m into
+  its left lane under the E 12th St bridge e1336 / ramp bridge e2387): a near-vertical Roads plate drawn on one side
+  only. It is not a closing face (the skirt log at the point - `CityR10` face probe - holds only 0.55 m deck fascias at
+  134.8 m and render-only paved steps at 128.8 m): a road or fan sheet spanning the street and the bridge level. Needs
+  its triangles' provenance (the ramps e157 / e2387 climbing onto the bridge are the suspects).
+- East Trade St e6167 s 35 lat -6.7 (x2, CEILING): a paved sidewalk strip (Ground mesh, 122.92 m) lies over the junction
+  fan's asphalt (122.76 m) for its first ~0.5 m; the audit's lane sample at the fan's edge is under it. Its edge is a
+  16 cm curb with its kerb drawn; the fault is the strip overlapping the fan (junction / verge geometry).
+- Cates St e21212 s 3: the 9.9 m unnamed connector e23417 (the OSM gap fetch) leaves the Cates / N Cedar node climbing
+  9.5 %; its ribbon overlaps Cates's lane at the node 0.18 m up and the car box meets its underside edge. Junction
+  geometry (no fan holds the three arms together) - the junctions package.
+
+**4. BLUNT on the route (1) - LEFT.** I-277 e9902 s 18 (uptown ~607 m, by the 0'54" spot): the exit ramp e279's outer
+rail starts square on e9902's edge line where the ramp comes out of its host (its first 20.9 m are collapsed into I-277's
+pavement); the rail-end plan never reaches that start. A first rule (turn the start down inside its run when the span
+before is a collapsed / wedge span) did not fire at it in two looks and was removed; the cause is pinned for the ramp-gore
+pass.
+
+**Measured** (PSXLab, the same census code; base = f96586ce measured first, after = this branch, every round-10 switch on):
+
+| gate (PSXLab) | base f96586ce | after real-heights-r10 |
+|---|---|---|
+| launch, uniform: city-wide LAUNCH / UNLOAD | 99 / 401 | 99 / 401 |
+| launch routes uptown / tryon / independence | 0/0, 0/0, 0/0 | 0/0, 0/0, 0/0 |
+| census freeway >0.1/0.5/1/2 % / joints; curves; TIGHT sag/crest | 29137/240/76/17/3; 1620; 229/66 | 29135/240/76/17/3; 1618; 228/66 |
+| census ramp | 45295/1972/453/122/10; 6507; 1342/349 | identical |
+| census arterial | 167631/2063/765/227/15; 18874; 2361/652 | 167633/2063/765/227/15; 18873; 2360/652 |
+| census collector | 148279/5388/242/69/152; 18605; 1702/373 | 148279/5388/242/69/152; 18604; 1702/373 |
+| census local | 97401/21447/99/9/78; 15024; 1662/101 | identical |
+| route p99 uptown / tryon / independence (g) | 1.12 / 2.11 / 0.76 | 1.12 / 2.11 / 0.76 |
+| WALLS IN LANES | 0 | 0 |
+| FALL HOLES (places near a road) | 8 | 0 (the same 68 rays, now read as lot pavement on the lattice) |
+| INVISIBLE lanes / solids | 4 / 816 | 4 / 816 |
+| BLUNT on the routes | 1 | 1 |
+| MEDIAN CLASSES breaks / open gaps / boxes | 0 / 0 / 0 | 0 / 0 / 0 |
+| MEDIAN ACROSS one / two+ / none (6626 rays) | 3852 / 0 / 0 | 3829 / 0 / 0 |
+| ...V class / wide (reported) | 115 / 2659 | 143 / 2654 |
+| route rail ends met square (reported) | 7 | 6 |
+| CITY AUDIT failures | 6 | 5 |
+| flicker: depth-tie px / colour flips | 2123 / 3294 | 2125 / 3301 |
+
+Every change explained: no road height moved (structure flags at 16 deck ends and land only), so the census moves by the
+drawn sections at those ends alone (freeway >0.1 % -2 and curves -2, arterial >0.1 % +2 and curves -1, TIGHT sag -1
+each, 4 fewer drawn sections city-wide); launch and p99 identical. MEDIAN ACROSS: 28 rays now cross a deck V (DECKV's
+designed ends, the 1'47" one and Independence's e2338) and are its V class, as round 9's splits are. The flicker
+finder's +2 px / +7 flips are scattered +-1 px in views no round-10 rule touches (tryon0-2, uptown0, with identical
+drawn pixel counts) and +6 tree flips: run-to-run noise. Route rail ends 7 -> 6: the 1'47" parapet start (inside the V's
+leg now). At Independence the DECKV V at e2338's end moved one "other road" rail end 12 m (e2339 -> e2341's rail end
+met ahead along its edge line, at the V's mouth); other-road rail ends 35 = 35. Reports: PSXLab r10_base / r10_after
+(vsmooth_census.txt, city_launch_after.txt, city_drive.txt, CITY_FLICKER_r10*.md).
+
+**Tools.** `Editor/CityR10.cs`: `Probe` / `LookAB` (-executeMethod PSXRacing.EditorTools.CityR10.LookAB; PSX_LOOK_PASSES):
+PSX_R10_TRACE (each structure step's station flags), PSX_R10_POINTS ("label:x:z" a ray down with every collider met and
+the land's terms; "label:x:z:y" a face probe with the closing-face log; a label starting "L" adds the 7 x 7 lattice
+corners), the abutment carries' log, the deck V ends closed. Scratch (session scratchpad): r10job.ps1, r10gate.ps1,
+r10look*.ps1, r10sync.py (+ _classify), r10sheet.py, r10gatesum.py. Sheet: Docs/shots/medians10/real_heights_r10_sheet.png.
+
 ## THE BRIDGES AND RAILS PASS (city-bridges-rails, 2026-10-29): structures and guardrails like the owner's I-77 photos
 
 The owner's two photos of I-77 northbound at the Brookshire Freeway (NC 16, left exit 11B): "what bridges, highway signs,
