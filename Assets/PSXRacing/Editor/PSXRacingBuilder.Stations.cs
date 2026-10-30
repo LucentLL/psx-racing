@@ -227,11 +227,18 @@ namespace PSXRacing.EditorTools
 
                 // ---- THE PART CHECK
                 bool partsOk = true;
+                // A part stands centred in its rectangle: it may come out SMALLER
+                // than the table (the first bake, 2026-10-30: the shop 10.67 x
+                // 12.23 m against 11.19 x 12.67 - the Blender measure counted the
+                // shell's loose vertices; it fits its lot with 0.2-0.3 m to spare),
+                // never LARGER by more than the tolerance (it would overflow its
+                // lot), and never far smaller (the wrong object was measured).
                 void PartCheck(string what, float got, float want)
                 {
-                    bool ok = Mathf.Abs(got - want) <= CityStations.PartTolM;
+                    bool ok = got <= want + CityStations.PartTolM && got >= want - 1.0f;
                     partsOk &= ok;
-                    report.Add($"{(ok ? "part check ok" : "FAILED part check")}: {what} {got:0.00} m (CityStations {want:0.00})");
+                    string fit = got < want - CityStations.PartTolM ? $", fits its rectangle with {0.5f * (want - got):0.00} m a side" : "";
+                    report.Add($"{(ok ? "part check ok" : "FAILED part check")}: {what} {got:0.00} m (CityStations {want:0.00}{fit})");
                 }
                 float W = Along(cb, vAxis), D = Along(cb, uAxis);
                 PartCheck("canopy module along the road", W, CityStations.CanW);
