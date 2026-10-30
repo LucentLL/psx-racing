@@ -8405,6 +8405,359 @@ the land's terms; "label:x:z:y" a face probe with the closing-face log; a label 
 corners), the abutment carries' log, the deck V ends closed. Scratch (session scratchpad): r10job.ps1, r10gate.ps1,
 r10look*.ps1, r10sync.py (+ _classify), r10sheet.py, r10gatesum.py. Sheet: Docs/shots/medians10/real_heights_r10_sheet.png.
 
+### REAL HEIGHTS - round 11 (2026-10-30; the city-wide launches by class, and round 10's leftovers)
+
+Base 4827fa53 (integration-1029e: main de4a7a10 + real-heights-r10 + city-signs-r2), branch `real-heights-r11`, sandbox
+PSXLab (its stale data brought to 4827fa53 by explicit path: CityGuide.png / .mat, charlotte_city.bytes,
+charlotte_signs.bytes; no scene build - the city audits read Resources). No city data regenerated; nothing in the
+exporter. Code: `Scripts/City/CityElevation.R11.cs` and `Scripts/City/CityMeshes.R11.cs` (new partials) with hooks in
+`CityElevation.cs` (ClimbOut, PrepareSeats, Ground's deck branch), `CityElevation.VSmooth.cs` (BuildBounds),
+`CityMeshes.cs` (the rail-end plan, the gore, BuildSectionsSteps), `CityMeshes.Junctions.cs` (FanSteiner),
+`CityMeshes.Skirts.cs` (OverRoad, LanesUnder); audits `Editor/CityAudit.Invisible.cs` (the ceiling probe),
+`Editor/CityAudit.Barriers.cs` (the short rail list prints every run); tools `Editor/CityR11.cs`,
+`Editor/CityLaunchAudit.cs` (PSX_LAUNCH_EXPLAIN, report only).
+
+**How the launches were read.** `PSX_LAUNCH_EXPLAIN=1` (=2 with the unloads) prints, for every spot, the samples from 6
+before the break to 10 past it: the mesh height the path read, the data's, every road surface the 3 x 3 tiles' taps put
+over the sample (ribbon spans with their edge and arcs, gores, fans) and the slot of the triangle read. Each spot is
+then classed by WHAT THE CAR DROVE ON (scratch r11explain.py): FOREIGN span / fan / gore - another road's surface more
+than 4 cm over the path's own; OWN-FAN - the junction fan's own triangles; OWN - the path's own ribbon bends (the
+profile).
+
+**1. Launches city-wide** (the gate's uniform sampling; LAUNCH = the road falls 0.15 m or more under a car flown off it
+at its judged speed): **99 -> 86**, routes 0 / 0 / 0 kept. By place (6 m): 14 no longer launch (5 gone, 9 still unloads:
+section 2), 1 new, 3 worse by more than 3 cm, 5 better by more than 3 cm.
+
+| the audit's cause | launch base -> after | unload base -> after |
+|---|---|---|
+| mitred joint | 30 -> 23 | 121 -> 96 |
+| junction fan | 21 -> 20 | 118 -> 116 |
+| ramp seat (climb-out) | 16 -> 13 | 60 -> 58 |
+| junction node | 18 -> 17 | 52 -> 50 |
+| terrain profile | 10 -> 9 | 42 -> 44 |
+| crossing hump at a node | 1 -> 1 | 2 -> 2 |
+| node | 2 -> 2 | 1 -> 1 |
+| bridge deck | 1 -> 1 | 2 -> 1 |
+| crossing hump | 0 -> 0 | 1 -> 1 |
+| raised (approach cone) | 0 -> 0 | 1 -> 1 |
+| junction node (raised: cone) | 0 -> 0 | 1 -> 1 |
+| **all** | **99 -> 86** | **401 -> 371** |
+
+| what the car drove on (EXPLAIN) | launch base -> after | unload base -> after |
+|---|---|---|
+| FOREIGN span (another road's ribbon over the path's own) | 40 -> 30 | 85 -> 59 |
+| OWN (the path's own profile) | 23 -> 23 | 165 -> 163 |
+| OWN-FAN (the fan's own triangles) | 16 -> 16 | 107 -> 105 |
+| FOREIGN fan (another junction's fan) | 17 -> 16 | 35 -> 38 |
+| FOREIGN gore | 3 -> 1 | 6 -> 3 |
+| UNTAPPED (a lot, a walk) | 0 -> 0 | 3 -> 3 |
+
+What took them (by mechanism - the base spot's EXPLAIN class against the rule that addresses it; the A/B on one load
+read 99 -> 87 for the solve and tile rules together, INNERMAJOR then 87 -> 86):
+- GOREFAN: Christenbury Parkway e14530 off Cox Mill Road (node 4212), the base's #2 at 0.75 m - the gore painted at the
+  host's height over the fan's lower surface (FOREIGN gore +0.24); e13339 at node 6006 (FOREIGN gore +0.16).
+- CRESTCAP: Carolina Place Parkway node 8632 (+1.6% -> -8.2%, OWN), e4546 at node 6092 (OWN); the census's crests short
+  of their radius for the 0.15 m "lowering cap": 54 -> 8 city-wide.
+- MITREPOKE: Pavilion Boulevard, South Trade Street (node 6815), IKEA Boulevard, Stallings Road (node 8502), Poplar Tent
+  Road - each a branch's last quad over the other through arm (FOREIGN span +0.06..0.16).
+- CLIMBC1: e13224 (FOREIGN span +0.34), e8410 at node 10079 (OWN), e2921, e3187 at node 4455 - ramp climb-outs; the
+  census's ramp sags "seated on its host" 335 -> 297, ramp breaks over 0.5% 1972 -> 1825.
+- INNERMAJOR: Crownpoint Executive Drive node 1103 (0.15 -> under), Grace Street 0.70 -> 0.51.
+- NEW: e7688 (-18593, 12403), 0.21 m at 70 km/h, ramp seat (climb-out): the seat ends at s 4 while the tile draws the
+  ramp collapsed onto e93 to s 6.7; CLIMBC1's climb-out stands 0.19 m over e93 where the ribbon comes out (the cosine
+  stayed under the line). A seat zone shorter than the clip is that class's own cause (left).
+- WORSE: Highland Street e20296 at node 12833 0.28 -> 0.44 (the movement through the mitred node doubles back over
+  e20296's clipped last spans: the path's own folds); South Boulevard e7288 at node 8870 0.42 -> 0.47 (the branch
+  e13286's last quad crosses the mitre onto e7288's first 1.2 m, +0.09..0.13: MITREPOKE brings down the VERTICES lying
+  on e7288's pavement, and here the quad's corners lie on the host's side - its interior pokes); Christenbury Road
+  e19307 0.15 -> 0.19.
+
+The worst that remain, each named:
+1. Tyvola Road node 545, ramp e302 (0.89 m at 90 km/h): e302 and Tyvola's east arm e13588 reach their fan trims (31 / 30
+   m out) side by side - corners 1.7 m apart - 0.36 m apart in height (110.09 / 109.73); the movement into e302 crosses
+   the fan's low side (109.8) and climbs 0.29 m onto e302's mouth. A ramp running alongside its host inside a fan is
+   neither seated (its ribbon never runs INTO Tyvola's pavement) nor clipped (a fan arm, not a branch).
+2. Beatties Ford Road e9647 at node 634 (0.69 m, a turn): the neighbouring junction's fan (node 10184) overlaps the
+   mitred node's area 0.28 m higher.
+3. Salome Church Road e1668 (0.65 m at 100 km/h): +9.3% -> +5.4% at s 14 of the branch leaving mitred node 2642, the
+   mesh off its data (the host e1666's ribbon under the gore).
+4. e299 at node 470 (0.60 m at 90 km/h): the link e262's ribbon 0.23 m over the path inside the fan.
+5. Coronet Way e21779 at node 18369 (0.57 m): +2.1% -> -19.4%, a 5 m arm into the fan (FOREIGN fan +0.12).
+6. Grace Street e24581 at node 18405 (0.51 m): the 9 m stub between two junctions 0.67 m apart in height; half of it
+   inside the far junction's fan (node 6555), drawn at the through road's height over the stub's own.
+7. Spratt Street e21193 s 192 (0.51 m): the fan of node 17808 0.26 m over the street's end.
+
+Every remaining launch, one row each (street, edge, node, place, judged / lift-off speed, separation, grade break, the
+audit's cause, what the car drove on):
+
+| # | street (edge, class) | node | at (x, z) | km/h judged (lift-off) | sep m | grade in -> out | audit's cause | what the car drove on |
+|---|---|---|---|---|---|---|---|---|
+| 1 | (unnamed) (e302, cls5) | n545 | (-6678, -2372) | 90 (39) | 0.89 | +4.3% -> -2.0% | junction node (through) | OWN |
+| 2 | Beatties Ford Road (e9647, cls2) | n634 | (-3556, 6922) | 70 (24) | 0.69 | +3.4% -> -6.6% | mitred joint @mesh-off-data (turn) | FOREIGN fan n10184 +0.28 |
+| 3 | Salome Church Road (e1668, cls2) | n2642 | (9043, 16698) | 100 (51) | 0.65 | +9.3% -> +5.4% | junction node @mesh-off-data (through) | OWN |
+| 4 | (unnamed) (e299, cls5) | n470 | (-7132, 7246) | 90 (55) | 0.60 | +3.4% -> +3.3% | junction node @mesh-off-data (through) | FOREIGN span e262 +0.23 |
+| 5 | Coronet Way (e21779, cls0) | n18369 | (-4842, 6949) | 70 (17) | 0.57 | +2.1% -> -19.4% | mitred joint @mesh-off-data (through) | FOREIGN fan n18369 +0.12 |
+| 6 | Grace Street (e24581, cls0) | n18405 | (1011, 5485) | 70 (35) | 0.51 | +14.6% -> +0.4% | junction node @mesh-off-data (through) | FOREIGN fan n6555 +0.29 |
+| 7 | Spratt Street (e21193, cls0) | - | (-1852, 6096) | 70 (35) | 0.51 | +7.7% -> -2.2% | mitred joint @mesh-off-data (edge) | FOREIGN fan n17808 +0.26 |
+| 8 | South Boulevard (e7288, cls2) | n8870 | (-5913, -8110) | 100 (51) | 0.47 | -1.1% -> -6.9% | mitred joint (through) | FOREIGN span e13286 +0.09 |
+| 9 | Highland Street (e20296, cls2) | n12833 | (-18100, 11686) | 100 (52) | 0.44 | -1.3% -> -4.9% | junction fan (through) | OWN-FAN |
+| 10 | (unnamed) (e24521, cls0) | - | (-346, 2987) | 70 (48) | 0.43 | +10.5% -> +3.3% | terrain profile @mesh-off-data (edge) | FOREIGN span e13368 +0.25 |
+| 11 | (unnamed) (e171, cls3) | n297 | (6911, 12480) | 80 (51) | 0.41 | +0.6% -> -1.7% | junction fan @seam (through) | OWN-FAN |
+| 12 | Todd Road (e13148, cls1) | n8859 | (-13115, 6338) | 90 (67) | 0.40 | +19.5% -> +2.3% | mitred joint @mesh-off-data (through) | FOREIGN span e13150 +0.38 |
+| 13 | North Josh Birmingham Parkway (e3746, cls2) | n5178 | (-11177, 5764) | 70 (29) | 0.40 | +2.1% -> -7.2% | junction fan (through) | OWN-FAN |
+| 14 | Magnolia Avenue (e21885, cls0) | n18465 | (-3362, 2033) | 70 (44) | 0.37 | +10.7% -> +0.6% | junction fan (through) | OWN-FAN |
+| 15 | (unnamed) (e14981, cls5) | n2961 | (-6580, -2391) | 90 (47) | 0.34 | +6.4% -> +0.6% | bridge deck @mesh-off-data (through) | FOREIGN span e1903 +0.07 |
+| 16 | (unnamed) (e3981, cls2) | n5488 | (-8888, 1411) | 70 (51) | 0.33 | +0.6% -> -6.3% | ramp seat (climb-out) @mesh-off-data (through) | FOREIGN span e25229 +0.27 |
+| 17 | Hawthorne Lane (e18822, cls1) | n16351 | (-474, 3401) | 90 (64) | 0.33 | +7.4% -> +0.5% | junction fan (through) | OWN-FAN |
+| 18 | (unnamed) (e8371, cls3) | - | (-13190, 6002) | 80 (57) | 0.31 | +1.4% -> -3.6% | ramp seat (climb-out) @mesh-off-data (edge) | FOREIGN span e10251 +0.06 |
+| 19 | (unnamed) (e2437, cls3) | n3656 | (-4487, 4980) | 80 (56) | 0.31 | +4.8% -> -5.6% | junction fan (through) | OWN-FAN |
+| 20 | (unnamed) (e13311, cls2) | n13147 | (5820, 16768) | 70 (56) | 0.31 | -3.2% -> -9.8% | ramp seat (climb-out) @mesh-off-data (through) | FOREIGN span e25207 +0.25 |
+| 21 | (unnamed) (e5330, cls3) | - | (-11554, 5645) | 80 (58) | 0.29 | -0.2% -> -4.6% | terrain profile @mesh-off-data (edge) | FOREIGN span e6006 +0.22 |
+| 22 | IKEA Boulevard (e13422, cls1) | n12086 | (5130, 12530) | 90 (64) | 0.29 | -0.1% -> -9.9% | junction fan (through) | OWN-FAN |
+| 23 | (unnamed) (e5330, cls3) | n3155 | (-11563, 5645) | 80 (58) | 0.29 | +4.2% -> -0.1% | terrain profile @mesh-off-data (turn) | FOREIGN span e6006 +0.22 |
+| 24 | Shamrock Drive (e426, cls1) | n773 | (3806, 5810) | 90 (66) | 0.28 | +2.5% -> -1.8% | junction fan (through) | FOREIGN span e18910 +0.17 |
+| 25 | (unnamed) (e3215, cls3) | n4490 | (7433, 8219) | 80 (60) | 0.28 | +4.2% -> -0.3% | ramp seat (climb-out) @mesh-off-data (through) | FOREIGN span e6359 +0.21 |
+| 26 | (unnamed) (e9340, cls3) | - | (-10517, -11164) | 110 (82) | 0.28 | +4.1% -> -0.9% | mitred joint (edge) | OWN |
+| 27 | West Morehead Street (e13536, cls3) | n13288 | (-4814, 4816) | 110 (90) | 0.27 | +11.4% -> +7.3% | junction fan (through) | OWN-FAN |
+| 28 | South Boulevard (e7014, cls2) | n774 | (-5674, -6978) | 100 (74) | 0.27 | +2.6% -> -0.6% | junction node (through) | OWN |
+| 29 | South Indian Trail Road (e9430, cls2) | n9279 | (12640, -12935) | 100 (75) | 0.27 | +6.6% -> +0.0% | junction fan (through) | OWN-FAN |
+| 30 | East 13th Street (e11002, cls2) | n6343 | (-1430, 5507) | 100 (78) | 0.26 | +0.5% -> -4.0% | junction fan @mesh-off-data (through) | OWN-FAN |
+| 31 | (unnamed) (e24628, cls0) | n14964 | (-1381, 1345) | 70 (49) | 0.26 | -1.7% -> -12.2% | terrain profile @mesh-off-data (through) | OWN |
+| 32 | East Sugar Creek Road (e15414, cls3) | - | (3418, 6455) | 110 (89) | 0.25 | +7.7% -> +6.8% | junction node @mesh-off-data (edge) | FOREIGN fan n8987 +0.10 |
+| 33 | South Tryon Street (e16330, cls3) | n13717 | (-12718, -7458) | 110 (81) | 0.25 | +2.8% -> -0.8% | junction fan (through) | FOREIGN fan n13711 +0.06 |
+| 34 | Queens Road (e14257, cls2) | n13656 | (-1387, 2004) | 100 (84) | 0.25 | +8.5% -> +5.0% | junction node @mesh-off-data (through) | OWN |
+| 35 | (unnamed) (e10187, cls5) | n6525 | (-2653, -13460) | 90 (70) | 0.25 | +5.7% -> -2.4% | terrain profile (turn) | OWN |
+| 36 | (unnamed) (e4945, cls4) | - | (-7329, 10748) | 80 (63) | 0.25 | +3.0% -> -1.7% | ramp seat (climb-out) @mesh-off-data (edge) | FOREIGN span e10909 +0.07 |
+| 37 | Ballantyne Corporate Place (e4310, cls1) | n5861 | (-2360, -14354) | 90 (67) | 0.25 | +4.2% -> -0.6% | junction node @mesh-off-data (through) | OWN |
+| 38 | (unnamed) (e3218, cls3) | n4493 | (7393, 8154) | 80 (63) | 0.24 | +5.9% -> +0.2% | ramp seat (climb-out) @mesh-off-data (turn) | FOREIGN span e16114 +0.17 |
+| 39 | (unnamed) (e5229, cls3) | - | (-3600, 18037) | 80 (63) | 0.24 | +7.3% -> +1.0% | ramp seat (climb-out) @mesh-off-data (edge) | FOREIGN fan n2528 +0.12 |
+| 40 | University Pointe Boulevard (e2278, cls1) | n3482 | (5314, 12497) | 90 (46) | 0.24 | +6.5% -> +1.8% | mitred joint (through) | FOREIGN span e18983 +0.05 |
+| 41 | Pineville-Matthews Road (e2196, cls3) | n3361 | (-1677, -10886) | 110 (81) | 0.24 | -0.7% -> -4.9% | mitred joint (through) | FOREIGN span e15908 +0.07 |
+| 42 | (unnamed) (e254, cls5) | n457 | (-7153, 7034) | 90 (39) | 0.22 | +3.0% -> +1.2% | crossing hump at a node (through) | FOREIGN gore host e2899 +0.09 |
+| 43 | West Boulevard (e12584, cls3) | - | (-6949, 3079) | 110 (91) | 0.22 | -4.2% -> -5.3% | terrain profile @mesh-off-data (edge) | OWN |
+| 44 | (unnamed) (e13193, cls3) | n6355 | (-1635, 6124) | 80 (66) | 0.22 | +4.2% -> +0.1% | junction node @mesh-off-data (through) | FOREIGN span e14116 +0.16 |
+| 45 | Dilworth Mews Court (e21187, cls0) | n17493 | (-3496, 2341) | 47 (32) | 0.21 | +14.2% -> +7.2% | junction node @mesh-off-data (turn) | FOREIGN fan n17801 +0.27 |
+| 46 | (unnamed) (e7688, cls1) | - | (-18593, 12403) | 70 (59) | 0.21 | +9.1% -> +10.1% | ramp seat (climb-out) @mesh-off-data (edge) | OWN |
+| 47 | (unnamed) (e5197, cls4) | n6835 | (5409, -66) | 80 (67) | 0.21 | +4.3% -> +0.0% | junction fan (through) | FOREIGN fan n6963 +0.10 |
+| 48 | South Kings Drive (e5395, cls2) | n7070 | (-1672, 2307) | 100 (83) | 0.21 | +2.7% -> -1.9% | mitred joint (through) | OWN |
+| 49 | East Sugar Creek Road (e4968, cls3) | n6571 | (2623, 7066) | 80 (69) | 0.21 | +0.2% -> -4.5% | junction fan @mesh-off-data (through) | FOREIGN span e4967 +0.11 |
+| 50 | (unnamed) (e3216, cls3) | n3272 | (7312, 5935) | 80 (70) | 0.20 | +7.5% -> +1.3% | ramp seat (climb-out) @mesh-off-data (turn) | FOREIGN span e2126 +0.09 |
+| 51 | (unnamed) (e1907, cls5) | n2967 | (-6581, -2372) | 90 (76) | 0.20 | +0.1% -> -4.1% | ramp seat (climb-out) @mesh-off-data (through) | FOREIGN span e14987 +0.09 |
+| 52 | (unnamed) (e5404, cls2) | - | (-296, -2646) | 70 (33) | 0.20 | -5.0% -> -5.6% | terrain profile @mesh-off-data (edge) | OWN |
+| 53 | Sharon Road West (e7013, cls2) | n8595 | (-5677, -7268) | 100 (87) | 0.20 | -1.0% -> -4.2% | mitred joint (through) | OWN |
+| 54 | IBM Drive (e18873, cls1) | n4368 | (3720, 14345) | 90 (78) | 0.20 | -2.9% -> -5.6% | mitred joint (through) | OWN |
+| 55 | Rhyne Rd and Moores Chapel Rd Roundabout (e5679, cls2) | n7387 | (-13821, 9948) | 100 (79) | 0.19 | +2.7% -> -4.9% | terrain profile @mesh-off-data (through) | OWN |
+| 56 | (unnamed) (e5306, cls2) | n6969 | (5175, -46) | 70 (52) | 0.19 | +3.8% -> -2.2% | junction node @mesh-off-data (through) | OWN |
+| 57 | South Trade Street (e12133, cls2) | n6826 | (8001, -8720) | 100 (72) | 0.19 | +0.0% -> -3.9% | junction fan (through) | OWN-FAN |
+| 58 | West Boulevard (e15096, cls3) | n12622 | (-6955, 3070) | 110 (65) | 0.19 | +6.2% -> +2.8% | mitred joint (through) | FOREIGN span e12585 +0.04 |
+| 59 | East Woodlawn Road (e13627, cls3) | n11268 | (-2892, -1368) | 110 (97) | 0.19 | +4.2% -> +2.4% | mitred joint @mesh-off-data (through) | FOREIGN span e10193 +0.15 |
+| 60 | (unnamed) (e4928, cls4) | - | (-2851, -14416) | 80 (36) | 0.19 | +2.5% -> -1.2% | ramp seat (climb-out) @mesh-off-data (edge) | OWN |
+| 61 | (unnamed) (e5614, cls2) | n7309 | (5860, -13858) | 100 (88) | 0.19 | +0.3% -> -5.5% | terrain profile (through) | OWN |
+| 62 | Christenbury Road (e19307, cls1) | n14219 | (7350, 21676) | 90 (79) | 0.19 | -1.4% -> -4.0% | mitred joint (through) | OWN |
+| 63 | (unnamed) (e4, cls5) | - | (-10474, -10426) | 90 (74) | 0.18 | +0.6% -> -3.4% | ramp seat (climb-out) @mesh-off-data (edge) | FOREIGN span e1466 +0.30 |
+| 64 | (unnamed) (e23975, cls0) | - | (-3280, 3520) | 70 (39) | 0.18 | +0.0% -> -7.2% | node @mesh-off-data (edge) | FOREIGN span e23976 +0.15 |
+| 65 | West 12th Street (e9802, cls2) | n706 | (-1632, 5513) | 100 (80) | 0.18 | -0.9% -> -6.1% | junction node @mesh-off-data (through) | FOREIGN fan n10405 +0.14 |
+| 66 | Griffith Lakes Parkway (e25418, cls0) | n13929 | (693, 16409) | 70 (62) | 0.18 | -0.2% -> -7.8% | junction node @mesh-off-data (through) | FOREIGN fan n13928 +0.20 |
+| 67 | North Davidson Street (e13576, cls2) | n13306 | (-1070, 4942) | 100 (43) | 0.18 | +0.3% -> -3.0% | junction node @mesh-off-data (through) | FOREIGN fan n4183 +0.20 |
+| 68 | Mattoon Street (e22330, cls0) | n18804 | (-4067, 7408) | 70 (40) | 0.18 | +13.3% -> +1.5% | junction node @mesh-off-data (through) | FOREIGN fan n18803 +0.25 |
+| 69 | (unnamed) (e386, cls5) | n703 | (-8143, -5209) | 90 (84) | 0.17 | +2.4% -> +0.2% | mitred joint (through) | FOREIGN fan n703 +0.09 |
+| 70 | West 8th Street (e21000, cls0) | - | (-2064, 5236) | 70 (64) | 0.17 | +5.7% -> +0.0% | node @mesh-off-data (edge) | FOREIGN span e20999 +0.12 |
+| 71 | (unnamed) (e8371, cls3) | - | (-13170, 6019) | 80 (65) | 0.17 | +8.8% -> +0.7% | ramp seat (climb-out) @mesh-off-data (edge) | OWN |
+| 72 | West Morehead Street (e13533, cls3) | n13285 | (-4842, 4814) | 110 (79) | 0.17 | +3.7% -> +0.5% | junction node @mesh-off-data (through) | FOREIGN fan n13286 +0.27 |
+| 73 | Rea Road (e12656, cls2) | n11687 | (117, -13298) | 100 (94) | 0.17 | +3.7% -> +0.3% | mitred joint (through) | FOREIGN span e10918 +0.11 |
+| 74 | Statesville Road (e8753, cls3) | n10284 | (-2156, 18022) | 110 (105) | 0.17 | +5.2% -> -0.7% | junction fan (through) | OWN-FAN |
+| 75 | (unnamed) (e9497, cls2) | - | (8225, -13521) | 100 (87) | 0.17 | -3.1% -> -7.0% | mitred joint @mesh-off-data (edge) | FOREIGN span e9505 +0.10 |
+| 76 | South Boulevard (e16935, cls2) | n8871 | (-5882, -8214) | 100 (56) | 0.16 | +6.1% -> +3.6% | mitred joint (through) | FOREIGN span e7288 +0.05 |
+| 77 | West Boulevard (e15698, cls3) | n5205 | (-9696, 2314) | 110 (105) | 0.16 | -4.3% -> -5.6% | mitred joint (through) | OWN |
+| 78 | Old Statesville Road (e2194, cls3) | - | (-688, 19859) | 110 (88) | 0.16 | +8.6% -> +4.9% | mitred joint @mesh-off-data (edge) | FOREIGN span e8718 +0.18 |
+| 79 | Tilley Morris Road (e5615, cls2) | - | (5888, -13901) | 100 (83) | 0.16 | +5.3% -> +0.7% | mitred joint @seam @mesh-off-data (edge) | OWN |
+| 80 | North Tryon Street (e3131, cls3) | n4399 | (6179, 13502) | 110 (106) | 0.16 | +2.9% -> +0.0% | junction fan (through) | OWN-FAN |
+| 81 | North Davidson Street (e13576, cls2) | n4183 | (-1052, 4952) | 100 (97) | 0.16 | +3.4% -> -0.3% | junction fan (through) | OWN-FAN |
+| 82 | South Boulevard (e7853, cls2) | n9531 | (-5342, -3723) | 100 (93) | 0.16 | -2.6% -> -4.2% | junction fan (through) | OWN-FAN |
+| 83 | Old Statesville Road (e6516, cls3) | - | (-697, 19861) | 110 (105) | 0.16 | +0.0% -> -4.6% | mitred joint (edge) | FOREIGN span e8718 +0.05 |
+| 84 | Yadkin Avenue (e23671, cls0) | n19110 | (601, 6274) | 70 (68) | 0.16 | +6.0% -> +0.2% | junction fan (through) | OWN-FAN |
+| 85 | South Kings Drive (e16627, cls2) | n7069 | (-1671, 2318) | 100 (96) | 0.15 | +2.7% -> +1.1% | mitred joint @mesh-off-data (through) | OWN |
+| 86 | Newberry Street (e25152, cls0) | n6998 | (-10139, 5395) | 70 (70) | 0.15 | +6.0% -> -0.2% | junction node @mesh-off-data (through) | FOREIGN fan n13301 +0.11 |
+
+**2. Unloads** (UNLOAD = 0.05-0.15 m): **401 -> 371**. Of the 14 launches above, 5 are gone (under 0.05 m: Christenbury
+Parkway 0.75, e13224 0.29, IKEA Boulevard 0.19, Poplar Tent Road 0.17, e13339 0.17) and 9 are under the launch line but
+still unloads, 0.11-0.15 m (Pavilion Boulevard, e4546, Carolina Place Parkway, South Trade Street, e8410, e2921,
+Stallings Road, Crownpoint Executive Drive, e3187) - the rules took them down, not off. The class that fell is FOREIGN
+span (85 -> 59: the same mechanisms as the launches'); the two big classes stand. OWN 163 - the through pair's crest at
+a mitred or junction node drawn short of the radius the speed asks (Stallings Road +3.6% -> +0.1% at 100 km/h, Clanton
+Road +6.0% -> +3.2%, East Woodlawn Road +3.1% -> +0.5% at 110 km/h). OWN-FAN 105 - through movements across a fan, whose
+triangles carry each arm's grade to the major road's edge, the minor road's two arms not one chain through the node
+(Senator Royal Drive -7.5% -> -9.7%, the link e11207 0.0% -> -4.6%, South Boulevard at node 3089 +3.0% -> +0.3%).
+Neither was changed this round (Left). **3. Round 10's leftovers.**
+- **North Tryon "plate" (INVISIBLE sweep, e14645 s 121, lane +7.7) - FIXED (SKIRTPAVE).** What draws it (face probe:
+  `Roads tile -7,21`, Concrete slot, untapped, a 0.5 m x 6.6 m quad, normal (-0.66, 0, -0.75)): the skirt pass's
+  RETAINING face, closing the E 12th St ramps' sheet (134.67 m) straight down to 128.06 m. OverRoad would give that edge
+  a fascia over another road, but it asks the tile's OWN drawn pavement first and the map's lanes only within 3 m of the
+  tile's border - and North Tryon's quad there (s 117.2-122.7, 10.4 m long) is drawn by tile -6,21 and reaches 4.3 m
+  into tile -7,21. Tile -7,21 found no pavement under the sheet's edge, and the face stood in N Tryon's left lane, drawn
+  toward one side. (The first cut - the added lane counted as a lane - was not the cause: the gate after it still read
+  the plate.) Now the map's lanes are asked within a section spacing (12 m) of the border: a fascia.
+- **East Trade Street x2 (INVISIBLE ceiling, e6167 s 35, lat -6.7) - no fault in the geometry; the probe corrected.**
+  Face probe at the hit (-2010.69, 122.92, 4413.06): no fan triangle within 0.4 m (round 10's "walk over the fan edge"
+  was a misreading); under the point a parking-lot piece (Roads slot 93, the lattice's height, 122.76-122.80) and over
+  it a WALK's outer ramp (Ground, 122.97 at the walk down to 122.76 at the lot), drawn facing up. The audit's lane is
+  there because past e6167's last drawn section (s 29.3) it follows the arm's line model, which shifts the pavement 2.2
+  m to the SW over s 12-29, into node 7879's merge fan (the one-way pair e6167 / e9383 into the two-way e15289); the
+  fan's kerb tapers the other way (from e6167's corner to e15289's), so at s 35 the probe's lane runs 0.8-1.3 m outside
+  the drawn kerb, over the walk. It took the buried lot as the lane's surface and met the walk ramp's underside 0.16 m
+  up - a place no car can stand (a car there is ON the walk). The ceiling probe now skips a lane surface that lies under
+  a drawn ground sheet (0.02-0.30 m over it at the same plan point; `PSX_INVIS_SHEET=0` before) and counts those. Left
+  as named: the line model's shift past the trim (the kerb's taper is the junction's; for junctions).
+- **Cates Street (INVISIBLE sweep, e21212 s 3, lane -1.5, "+0.18 over the lane") - FIXED (INNERMAJOR).** The Cates St
+  collider is the drawn fan itself (one mesh): the junction cluster n17829 + n19428 (Cates St / North Cedar St through,
+  the 9.9 m connector e23417 east to node 19428). The fan's Steiner point at e23417's first quarter (s 2.5, 119.10) lay
+  1.1 m inside the through pair's kerb, among the through road's own edge points (118.87): a 0.23 m tent across Cates
+  St's east lane, drawn and solid; the car box met its slope from under the apex, so the audit read "no drawn face
+  toward the car". After (face probe, the same point): one flat fan triangle (118.86-118.88, normal (0, 1, 0)); the
+  quarter point inside the kerb is out, the next two re-graded 119.34 -> 118.94 and 119.57 -> 119.35 - the connector now
+  climbs from the kerb, about 17% over its last 5 m to node 19428 (119.77), which stands 0.9 m over Cates St 6 m from
+  its kerb (below, Left).
+- **BLUNT, I-277 e9902 s 18 (ramp e279's outer rail) - FIXED (GORESTART).** Rail trace (tiles -7,20/-7,21): the rail
+  starts at e279 s 20.87 after the span the tile collapsed onto e9902's edge (skip + wedge); the rail-end plan skipped
+  every end whose open span was such a span, so the run began square, on the host's edge line, facing e9902's outside
+  lane. Now that start is turned down over its own first TaperLenM (the sloped end; no other road to lead a W-beam in
+  along). The drive audit's BLUNT on the routes 1 -> 0; the shot shows the parapet's start sloped down.
+- **The 1'47" sliver (e2445 s 7, lat 9-13.5) - FIXED (SPILLUNDER).** The lattice vertex under the route deck's last
+  metres ((-1000, 4448): e2445 s 7.0, 5.7 m inside its pavement, 0.5 m from its deck end at 7.5) took the E 10th St
+  valley (-8.9 m in round 10's probe): SPILL held the median land only BESIDE a twin deck. It now holds the deck's own
+  median half within 12 m of its end too: that vertex is at 108.18 (the seat's spill slope, 0.96 m under the deck's
+  109.14), and the drawn lattice at s 7, lat 9 / 11 / 13.5 is 108.07 / 108.00 / 108.10 against the land's 108.18 (OFF on
+  the same load: 104.37 / 106.95 / 108.10 - the triangle down to the valley vertex). Past the deck's end, at s 9 lat 11,
+  the drawn lattice stays 0.69 m under the land (108.23 / 108.92) in both - another vertex, on the twin's side (Left).
+
+**The rules**, one switch each (`=0` the before; STREETSEAT is `=1` to turn on):
+- `PSX_CITY_R11_CLIMBC1` (solve, ClimbOut) - a seated branch leaves its host on the host's GRADE: the climb-out faded
+  the seat's offset on a cosine (zero slope at the seat's end), so the branch left on its OWN grade while the seated
+  stations behind it ran on the host's - a grade break the size of the difference at the seat's last station (e3981
+  +0.7% -> -6.3%, e3215 +4.5% -> -0.3%), which the drawn profile may not round there (a seat end moves 0.10 m at most).
+  Now a cubic Hermite carries the seat's value and slope off, over a fade long enough that neither end bends sharper
+  than the road's crest radius (CrestR), within the span to the next fixed station.
+- `PSX_CITY_R11_CRESTCAP` (solve, VSmooth bounds) - the drawn profile may lower a crest 0.30 m, not 0.15: a curve lowers
+  its apex A L / 8, so at 0.15 m a 9.8% crest (Carolina Place Parkway, node 8632, +1.6% -> -8.2%) got 12 m of the 24.5 m
+  its road's crest radius asks. The land, fans, minor arms, walks and lots follow the drawn road; structure keeps 3 cm.
+- `PSX_CITY_R11_SPILLUNDER` (solve, Ground) - the 1'47" sliver: round 10's SPILL held a twin deck's median land on the
+  spill-through slope from its seat BESIDE the deck only; now under the deck's own median half too, within 12 m of the
+  deck's end (a real abutment's spill slope runs under the bridge's end).
+- `PSX_CITY_R11_GOREFAN` (tile) - no painted gore inside a junction's fan: a branch clipped onto its host at a FAN node
+  had its gore painted from the node out at the host's height, over the fan's own (lower) surface - Christenbury Parkway
+  e14530 off Cox Mill Road (node 4212): 0.24 m in a metre, the base's #2 launch. The gore starts where the fan ends.
+- `PSX_CITY_R11_MITREPOKE` (tile) - at a mitred node a branch's last quad (square to its own line) runs over the OTHER
+  through arm's first metres at the branch's height; within 4 m of the node each branch vertex lying on that arm's drawn
+  pavement and less than MitreSnapMaxM over it comes a centimetre under it (round 5's MitreSnap, which did this for a
+  divided road's split only).
+- `PSX_CITY_R11_GORESTART` (tile, rails) - BLUNT: an exit ramp's outer rail that starts where its ribbon comes out of
+  its host's pavement (the span before it collapsed onto the host's edge) was skipped by the rail-end plan and stood
+  square to the host's outside lane (I-277 e9902 s 18, ramp e279); now its first TaperLenM is turned down (the sloped
+  end), no drop exception.
+- `PSX_CITY_R11_SKIRTPAVE` (tile, skirts) - N Tryon: the skirt pass closes a sheet's open edge with a face down to the
+  land except over another road (OverRoad: a fascia then), and it asks the TILE'S OWN drawn pavement first, the map's
+  lanes only within 3 m of the tile's border. North Tryon's ribbon quad under the E 12th St ramps' sheet is drawn by the
+  next tile and reaches 4.3 m into this one, so the sheet's edge found no pavement and got a 6.6 m face down into the
+  lane. The map's lanes are now asked within a section spacing (12 m) of the border, and they include what the line
+  model draws beyond the designed lanes, less a shoulder's metre.
+- `PSX_CITY_R11_INNERMAJOR` (tile, fans) - Cates: FANMAJOR holds the major pair's pavement through a junction and keeps
+  the minor ARMS' points out of it; a cluster's inside edges' quarter points still went in wherever they fell. At the
+  Cates St / North Cedar St cluster (nodes 17829 + 19428) the 9.9 m connector e23417 leaves the through pair at its
+  centreline and climbs 9.7% east; its first quarter point (s 2.5, 119.10) lay 1.1 m inside the through pair's kerb,
+  among the major's edge points at 118.87: a 0.23 m tent across Cates St's east lane, drawn AND solid (the car box met
+  it from under its apex, so the audit read "no drawn face toward the car"). Now an inside edge's point inside the
+  major's pavement stays out, and the points beyond lie on a straight grade from the major's height where the edge
+  leaves its pavement to the edge's far end.
+- `PSX_CITY_R11_STREETSEAT` - OFF (tested, not shipped): street branches seated where their ribbon runs into the host
+  (the ramps' rule). A/B on one load: launches 87 -> 89 (4 fixed, 6 new, Salome Church 0.65 -> 0.97), unloads 373 ->
+  350, grades past 16% 3 -> 4; the first, broad cut 99 -> 107. A street has less room than a ramp to climb back to its
+  own line.
+- Audit (`Editor/CityAudit.Invisible.cs`, `PSX_INVIS_SHEET`) - E Trade: the INVISIBLE ceiling probe no longer asks a
+  lane "surface" that lies under a drawn ground sheet (0.02-0.30 m over it at the same plan point); counted and printed.
+
+**Measured** (PSXLab; base = pristine 4827fa53 measured first with the same audits; after = beb0d7a3 for the census,
+launch and flicker - the road surfaces of the final commit; the drive audit re-run on a9cfd7da after SKIRTPAVE's
+tile-border fix):
+
+| gate (PSXLab) | base 4827fa53 | after real-heights-r11 |
+|---|---|---|
+| census freeway >0.1/0.5/1/2% / node joints, TIGHT sag/crest | 29135/240/76/17/3, 228/66 | 29116/232/75/17/3, 234/62 |
+| census ramp | 45295/1972/453/122/10, 1342/349 | 45562/1825/403/107/11, 1372/322 |
+| census arterial | 167633/2063/765/227/15, 2360/652 | 167663/2083/787/228/16, 2364/667 |
+| census collector | 148279/5388/242/69/152, 1702/373 | 148283/5393/246/72/152, 1705/383 |
+| census local | 97401/21447/99/9/78, 1662/101 | 97410/21453/92/9/78, 1658/99 |
+| route p99 uptown / tryon / independence (g) | 1.12 / 2.11 / 0.76 | 1.08 / 2.11 / 0.75 |
+| LAUNCH / UNLOAD city-wide (uniform) | 99 / 401 | 86 / 371 |
+| ...on the routes uptown / tryon / independence | 0/0, 0/0, 0/0 | 0/0, 0/0, 0/0 |
+| ...old sampling (reported) | 104 / 605 | 94 / 580 |
+| grades past 16% (+ slivers) | 3 (+7) | 3 (+7) |
+| WALLS IN LANES | 0 | 0 |
+| FALL HOLES | 0 | 0 |
+| INVISIBLE lanes / solids | 4 / 124 | 0 / 124 |
+| BLUNT on the routes / in the box | 1 / 9 | 0 / 8 |
+| MEDIAN CLASSES breaks / open gaps / boxes | 0 / 0 / 0 | 0 / 0 / 0 |
+| MEDIAN ACROSS one / two+ / none | 3829 / 0 / 0 | 3829 / 0 / 0 |
+| short rail census (isolated runs under 30 m) | 25 | 26 (+1: e1418's right rail, 28.9 m - below) |
+| CITY AUDIT failures | 5 | 3 |
+| flicker: depth-tie px / colour flips | 2125 / 3241 | 2105 / 3214 |
+| traffic check: traffic-on-traffic wrecks | - | 0 (0 bumps; 316 spawned; CITY TRAFFIC OK) |
+
+Every change explained. The census moves both ways and is one gate with every rule on (not split by rule): ramps read
+better at every size (breaks over 0.5% 1972 -> 1825, over 1% 453 -> 403, over 2% 122 -> 107, TIGHT crest 349 -> 322;
+ramp sags short of their radius "seated on its host" 335 -> 297 - CLIMBC1 carries the seat's grade off, so a climb-out
+no longer kinks at the seat's last station); the crests short of their road's radius drop 1601 -> 1524 city-wide, the
+0.15 m lowering cap's 54 -> 8 (CRESTCAP), and where that cap no longer binds the chain's own end does (chain-end crests
+33 -> 44). Arterial and collector read a little more (arterial over 1% 765 -> 787, collector over 2% 69 -> 72, TIGHT
+crest 652 -> 667 / 373 -> 383): those roads' crests drawn deeper and longer - a longer curve is more sections over the
+0.1% line and, still short of the radius it asks, still TIGHT; the launch audit and the route p99 read the same roads
+better (launch 99 -> 86, p99 1.12 -> 1.08 / 2.11 / 0.76 -> 0.75). The old-sampling launch audit (reported) 104 / 605 ->
+94 / 580. The flicker finder reads both lower (-20 tie px, -27 colour flips); per view a few px either way (the most:
+uptown2 at 400 m -15 tie px, i277s at 150 m +13 colour px). Short rails +1: e1418's right rail (the link at (-1650,
+3752), s 54.0-82.9) reads 28.9 m, under the census's 30 m - a run its warrant drew 30 m or more at base, its ends moved
+with the link's climb-out profile (CLIMBC1). INVISIBLE lanes 4 -> 0: N Tryon (SKIRTPAVE), Cates (INNERMAJOR) and E Trade
+x2 (the ceiling probe; 7 such probes skipped in the box, and no "drawn face in a lane" report lost). BLUNT on the routes
+1 -> 0 (GORESTART; the box's 9 -> 8 is the same end). CITY AUDIT failures 5 -> 3: the box's 8 blunt ends (other roads,
+as at base), the 26 short rails, the 124 bare solids (= base). Reports: PSXLab r11_base / r11_after (vsmooth_census.txt,
+city_launch_after.*, city_drive.txt, CITY_FLICKER_r11*.md) and r11_drive_final (the final commit's drive audit).
+
+**Shots** (`Docs/shots/heights11/real_heights_r11_sheet.png`; LookAB on one load, round 11 OFF then ON, the driver's
+height 1.1 m, and top views): the base's five worst launches and each leftover. What shows: North Tryon's plate (the
+thin post in the left lane under the deck, gone) and e279's rail start (square, then sloped down). What reads the same
+in the pictures, its before / after in the probes' numbers above: Christenbury's gore and Cates' tent (centimetres to
+a quarter metre, inside the junction), and the 1'47" sliver (under the deck's end - seen neither from the road, from
+6 m up, from above nor from E 10th St under the bridge, as round 10 found). East Trade Street's row is the same picture
+(no geometry changed there); the base's worst #1, #4 and #5 are left, named above.
+
+**Left.**
+- The 86 launches (table above), by what the car drives on: FOREIGN span 30 - a branch's or ramp's own ribbon over the
+  path where its seat zone ends before the tile's clip does (e7688, the 13 "ramp seat" spots), a branch's last quad
+  crossing a mitre (South Boulevard node 8870: the quad must be clipped at the mitre, not its vertices moved), another
+  road's ribbon inside a fan (e299 / e262); OWN 23 - crests at junction and mitred nodes the drawn profile does not
+  round (chain ends; Salome Church Road, e302's 6.3% at Tyvola); OWN-FAN 16 and FOREIGN fan 16 - fan surfaces: two fans
+  overlapping at different heights (Beatties Ford Road's node 10184, Spratt Street's 17808), two arms' mouths side by
+  side at different heights (Tyvola Road node 545), a short stub between two junctions (Grace Street).
+- Unloads 371: mostly the fan's own surface and the minor road's grade through a junction (a minor through pair is not
+  one chain in the drawn profile; the fan carries each minor arm's grade to the major's edge).
+- STREETSEAT (off): a street branch's mesh-off spots need the clip, not a seat - draw the branch at its own height where
+  the tile collapses it, or end the clip where the branch leaves the host's height.
+- East Trade Street: the arm's line model shifts e6167's pavement 2.2 m SW toward node 7879 while the merge fan's kerb
+  tapers NE - the fan's chord or the line model (junctions).
+- Cates Street: the connector e23417 now climbs from the through road's kerb (about 0.95 m over the last 5 m to node
+  19428, which stands 0.9 m over Cates St 6 m from its kerb) - node 19428's height is the question (3DEP / the cluster).
+- Highland Street node 12833 (0.28 -> 0.44): the launch audit's movement through the mitred node doubles back over
+  e20296's clipped spans - check the movement path before the mesh.
+- e1418's right rail (28.9 m, short rail census): its run's ends.
+
+**Tools.** `Editor/CityLaunchAudit.cs` PSX_LAUNCH_EXPLAIN=1|2 (above; report only, off in the gates).
+`Editor/CityR11.cs`: `Probe` (PSX_R11_FACES "label:x:y:z[:r]" every Roads / Ground / Barriers / Kerbs triangle near a
+point with the tap record that drew it - span, fan, gore, "untapped"; PSX_R11_RAILTRACE + PSX_R11_RAILAT the rail-end
+plan's view of one edge, each barrier kind change with its span flags; PSX_R11_EDGES stations, sections, nodes;
+PSX_R11_AT "edge:s:lat" a point's land with its term and the drawn lattice; PSX_R11_NODES a node's fan ring and Steiner
+points), `LaunchAB` (the gate's uniform launch audit with round 11 OFF then ON on one load, then the probe;
+PSX_R11_OFFSET names the rules the OFF pass drops), `LookAB` (shots and the probe OFF / ON). Scratch (session
+scratchpad): r11job.ps1, r11gate.ps1, r11ab.ps1, r11look*.ps1, r11drive.ps1, r11chain.ps1, r11sync.py (+ _classify),
+r11explain.py, r11table.py, r11causes.py, r11csvcmp.py, r11cmp.py, r11gatesum.py, r11rows.py, r11sheet.py.
+
 ## THE BRIDGES AND RAILS PASS (city-bridges-rails, 2026-10-29): structures and guardrails like the owner's I-77 photos
 
 The owner's two photos of I-77 northbound at the Brookshire Freeway (NC 16, left exit 11B): "what bridges, highway signs,
