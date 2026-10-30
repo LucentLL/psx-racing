@@ -297,28 +297,91 @@ namespace PSXRacing.City
             if (Time.time - c.lockSince < 1.5f) return false;
             if (touching)
             {
-                if (c.backFor != o && c.backedFor != o.id && CanBack(c)) { c.backFor = o; c.backedFor = o.id; c.backed = 0f; Stats.lockBacks++; }
+                if (c.backFor != o && c.backedFor != o.id && CanBack(c)) { c.backFor = o; c.backedFor = o.id; c.backed = 0f; Stats.lockBacks++; LockNote(c, o, "lock-backed", "touching a car held by its own queue: backs off it"); }
                 return false;
             }
-            if (!FurtherThrough(c, o))
+            if (!GoesFirst(c, o))
             {
                 // this one gives way: out of the other's way, backing along its own
                 // turn (once a lock), where there is room behind it
                 if (c.backFor != o && c.backedFor != o.id && PathHits(o, c) && CanBack(c))
-                { c.backFor = o; c.backedFor = o.id; c.backed = 0f; Stats.lockBacks++; }
+                { c.backFor = o; c.backedFor = o.id; c.backed = 0f; Stats.lockBacks++; LockNote(c, o, "lock-backed", "locked with the car that goes first: backs out of its way"); }
                 return false;
             }
             // this one goes: once the other is off its way, or now - creeping - where
             // the other cannot back out of it
             if (o.backFor == c) return false;
             if (o.backedFor != c.id && PathHits(c, o) && CanBack(o)) return false;   // it starts backing on its step
-            if (c.creepPast != o) { c.creepPast = o; Stats.lockCreeps++; }
+            if (ClearDist(c, o) == float.MaxValue) return false;   // its way runs on into the other: never pushed through
+            if (c.creepPast != o) { c.creepPast = o; Stats.lockCreeps++; LockNote(c, o, "lock-crept", "locked with a car that cannot back: creeps on past it"); }
             return true;
         }
 
-        /// <summary>Can car c back out of a lock: in a turn (in the box - never back over
-        /// a stop line), a little way into it, room behind it.</summary>
-        bool CanBack(Car c) => c.legCount > 0 && c.legs[0].turn && c.u > 0.15f && RoomBehind(c);
+        /// <summary>The census's record of a lock undone (not a fault: the recovery at work).</summary>
+        void LockNote(Car c, Car o, string sub, string what)
+        {
+            if (Log == null) return;
+            Note(c, "traffic", sub, Time.time - c.lockSince, what + " after " + (Time.time - c.lockSince).ToString("0.0") + " s; " + Describe(c) + " | other: " + Describe(o));
+        }
+
+        /// <summary>Can car c back out of a lock: in a turn (in the box), or on a run to a
+        /// junction with no control (no stop line to back over), a little way into it,
+        /// room behind it.</summary>
+        bool CanBack(Car c) => c.legCount > 0 && (c.legs[0].turn || c.legs[0].ctl == CtlNone) && c.u > 0.15f && RoomBehind(c);
+
+        /// <summary>Of two cars locked together, does c go first? The one that clears
+        /// the other sooner driving on along its own way - the car across the other's
+        /// nose, not the nose (round 3c final census 1: at node 9907, North Tryon
+        /// Street, an uncontrolled crossing, the car on its run touched the side of one
+        /// crossing; "further through" by share of the turn tied and the lower id - the
+        /// nose - was sent on into the other's side); then the one further through
+        /// the box, then the lower id.</summary>
+        bool GoesFirst(Car c, Car o)
+        {
+            float dc = ClearDist(c, o), dO = ClearDist(o, c);
+            if (Mathf.Abs(dc - dO) > 0.25f) return dc < dO;
+            return FurtherThrough(c, o);
+        }
+
+        /// <summary>How far car c drives along its way before its body (and 0.3 m) is
+        /// clear of o's and stays clear over the next 10 m; MaxValue where its way runs
+        /// on into o.</summary>
+        float ClearDist(Car c, Car o)
+        {
+            float first = -1f;
+            for (float x = 0f; x <= 10f; x += 0.5f)
+            {
+                if (!WayPose(c, x, out var p, out var f)) break;
+                if (RectDepth(p, f, c.halfL + 0.3f, c.halfW + 0.3f, o.pos, o.fwd, o.halfL, o.halfW) > 0f) first = -1f;
+                else if (first < 0f) first = x;
+            }
+            return first >= 0f ? first : float.MaxValue;
+        }
+
+        /// <summary>Where car c's centre is, and its heading, x metres on along its plan.</summary>
+        bool WayPose(Car c, float x, out Vector2 p, out Vector2 f)
+        {
+            float u = c.u + x;
+            for (int k = 0; k < c.legCount; k++)
+            {
+                ref Leg L = ref c.legs[k];
+                if (u > L.len && k < c.legCount - 1) { u -= L.len; continue; }
+                u = Mathf.Min(u, L.len);
+                if (L.turn)
+                {
+                    p = Bez(L, L.len > 0.01f ? u / L.len : 1f, out var d);
+                    f = d.sqrMagnitude > 1e-6f ? d.normalized : c.fwd;
+                    return true;
+                }
+                var e = map.edges[L.edge];
+                float s = Mathf.Clamp(L.s0 + L.dir * u, 0f, e.length);
+                p = PlanPoint(e, s, k == 0 ? c.lat : LaneLat(e, L.dir, L.laneIn, s), out var tan);
+                f = tan * L.dir;
+                return true;
+            }
+            p = c.pos; f = c.fwd;
+            return false;
+        }
 
         /// <summary>Of two cars locked in a box, is c further through it (more of
         /// its turn behind it; then the lower id)?</summary>
