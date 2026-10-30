@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using PSXRacing.LifeSim;
@@ -93,6 +94,19 @@ namespace PSXRacing
         static FuelTank tank;
         static CarController car;
 
+        /// <summary>
+        /// EVERY PUMP STANDING NOW, each added as it is enabled and dropped as
+        /// it goes (city fuel r1, 2026-10-30). Charlotte's filling stations
+        /// stream in and out with their tiles, so a list made once - a
+        /// FindObjectsByType at the first get-out - holds dead pumps and misses
+        /// the ones standing up later. ForecourtMode reads this on every
+        /// get-out.
+        /// </summary>
+        public static IReadOnlyList<GasPump> All => all;
+        static readonly List<GasPump> all = new List<GasPump>();
+        /// <summary>The scene whose forecourt the statics below belong to.</summary>
+        static UnityEngine.SceneManagement.Scene sceneOf;
+
         // ---- the visit ----
         /// <summary>Sub-dollar remainder carried between frames AND between
         /// volumes. Fuel is billed per percent at a fractional rate; rounding
@@ -106,6 +120,12 @@ namespace PSXRacing
 
         void Awake()
         {
+            // A STREAMED PUMP (a Charlotte station standing up with its tile)
+            // must not wipe a visit in progress at another station: only the
+            // first pump of a scene starts the forecourt afresh.
+            var scene = gameObject.scene;
+            if (scene == sceneOf && all.Count > 0) return;
+            sceneOf = scene;
             // A fresh scene starts with an empty forecourt. These are statics,
             // so without this the prompt from the last race survives the load.
             //
@@ -129,9 +149,19 @@ namespace PSXRacing
             visitOpen = false;
         }
 
+        void OnEnable()
+        {
+            if (!all.Contains(this)) all.Add(this);
+        }
+
         void OnDisable()
         {
-            if (visitOpen) CloseVisit();
+            all.Remove(this);
+            // The visit is settled when the pump holding it goes, or the last
+            // pump does (the scene is closing). A station streaming OUT far
+            // away while the car is at another one leaves its visit alone.
+            if (visitOpen && (active == this || active == null && all.Count == 0)) CloseVisit();
+            if (active == this) active = null;
         }
 
         void OnTriggerEnter(Collider other) => TryClaim(other);

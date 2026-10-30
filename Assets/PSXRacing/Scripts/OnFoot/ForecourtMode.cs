@@ -537,12 +537,64 @@ namespace PSXRacing.OnFoot
 
         void BuildTargets()
         {
-            Transform door = NearestNamed("StoreDoor");
+            // The pumps' prompts and the shop door's are hung on every get-out
+            // (PlaceTargets): the pumps and doors near the car are not the same
+            // ones twice in a city that streams its stations.
+            carTarget = MakeTarget(playerCar != null ? playerCar.transform : null, "CarTarget", 3.6f);
 
-            // A prompt on EVERY pump: see pumpTargets.
-            pumpTargets.Clear();
-            foreach (var gp in FindObjectsByType<GasPump>(FindObjectsSortMode.None))
+            if (carTarget != null) carTarget.onUse = () =>
             {
+                if (phase != Phase.Afoot) return;
+                string no = GetInRefusal?.Invoke();
+                if (no != null) { screen?.Toast(no); return; }
+                StartCoroutine(GetIn());
+            };
+        }
+
+        /// <summary>
+        /// THE SHOP DOOR NEAREST WHERE YOU ARE, EVERY TIME. The targets were
+        /// hung once, on the first get-out of the session, nearest the car
+        /// then - so at any other forecourt the door prompt was on the first
+        /// one's door. And THE PUMPS' PROMPTS, rebuilt every get-out (city fuel
+        /// r1): one on every pump standing near the car, from
+        /// <see cref="GasPump.All"/>. Charlotte's stations stand up and go with
+        /// their tiles, so a list hung once at the first get-out held pumps
+        /// long gone and none of the station the car is at now. A prompt (or
+        /// the door's) whose pump went with its tile was destroyed with it;
+        /// it is simply made again.
+        /// </summary>
+        void PlaceTargets()
+        {
+            RebuildPumpTargets();
+            var door = NearestDoor();
+            if (door == null) return;
+            if (storeTarget == null)
+            {
+                storeTarget = MakeTarget(door, "StoreTarget", 4.2f);
+                if (storeTarget != null) storeTarget.onUse = OpenStore;
+            }
+            if (storeTarget != null)
+            {
+                storeTarget.transform.SetParent(door, false);
+                storeTarget.transform.localPosition = Vector3.zero;
+            }
+        }
+
+        /// <summary>A pump further than this from the car is another
+        /// forecourt's: no prompt on it.</summary>
+        const float PumpReachM = 80f;
+
+        /// <summary>A prompt on EVERY pump near the car: see pumpTargets.</summary>
+        void RebuildPumpTargets()
+        {
+            foreach (var t in pumpTargets) if (t != null) Destroy(t.gameObject);
+            pumpTargets.Clear();
+            Vector3 at = playerCar != null ? playerCar.transform.position : transform.position;
+            var pumps = GasPump.All;
+            for (int i = 0; i < pumps.Count; i++)
+            {
+                var gp = pumps[i];
+                if (gp == null || (gp.transform.position - at).sqrMagnitude > PumpReachM * PumpReachM) continue;
                 var pumpTarget = MakeTarget(gp.transform, "PumpTarget", 2.8f);
                 if (pumpTarget == null) continue;
                 pumpTargets.Add(pumpTarget);
@@ -559,33 +611,16 @@ namespace PSXRacing.OnFoot
                     screen?.Invalidate();
                 };
             }
-            storeTarget = MakeTarget(door, "StoreTarget", 4.2f);
-            carTarget = MakeTarget(playerCar != null ? playerCar.transform : null, "CarTarget", 3.6f);
-
-            if (storeTarget != null) storeTarget.onUse = OpenStore;
-            if (carTarget != null) carTarget.onUse = () =>
-            {
-                if (phase != Phase.Afoot) return;
-                string no = GetInRefusal?.Invoke();
-                if (no != null) { screen?.Toast(no); return; }
-                StartCoroutine(GetIn());
-            };
         }
 
-        /// <summary>
-        /// THE SHOP DOOR NEAREST WHERE YOU ARE, EVERY TIME. The targets were
-        /// hung once, on the first get-out of the session, nearest the car
-        /// then - so at any other forecourt the door prompt was on the first
-        /// one's door. (The pumps each carry their own now.)
-        /// </summary>
-        void PlaceTargets()
+        /// <summary>The shop door nearest the parked car: the registered
+        /// markers (<see cref="StoreDoor"/>), else - a scene built before the
+        /// marker had its component - the scene-wide search by name.</summary>
+        Transform NearestDoor()
         {
-            var door = NearestNamed("StoreDoor");
-            if (storeTarget != null && door != null)
-            {
-                storeTarget.transform.SetParent(door, false);
-                storeTarget.transform.localPosition = Vector3.zero;
-            }
+            if (playerCar == null) return null;
+            var d = StoreDoor.Nearest(playerCar.transform.position);
+            return d != null ? d : NearestNamed(StoreDoor.ObjectName);
         }
 
         /// <summary>The nearest object with this name to the parked car. The

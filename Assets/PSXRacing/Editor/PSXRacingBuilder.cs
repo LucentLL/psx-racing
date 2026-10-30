@@ -6331,6 +6331,37 @@ namespace PSXRacing.EditorTools
         }
 
         /// <summary>
+        /// THE PACK'S SECOND FILE IS NOT A SECOND STATION (city fuel r1,
+        /// 2026-10-30). Gas_station_Props.fbx is the pack's display of its own
+        /// props: a second canopy (with its four pumps, pillars, islands and
+        /// twelve lamps), a second shop shell, the restrooms and the price
+        /// pylon turned a quarter, the dumpster and every shelf, fridge, box
+        /// and candy bar of the shop laid out in a row - 151 of its 156 meshes
+        /// the same geometry as Gas_station.fbx's (same triangles, same size,
+        /// same materials, only moved and turned). Loading both stood TWO
+        /// stations in one: two shops, two canopies overlapping at one height
+        /// (a flickering roof), ten pumps. And the scale was measured off the
+        /// ten pumps' COMBINED bounds, which the scene build logged as 3.34
+        /// units tall (x0.658) where one pump is 2.81 in Blender - pumps 1.85 m,
+        /// the "eight feet tall" the PumpHeightM note below fixed. The scale is
+        /// now the median of the pumps' own heights, and the log says how far
+        /// they spread (the first build after this names what stood taller).
+        /// Now: Gas_station.fbx's ONE layout - the one Charlotte's
+        /// stations are cut from - and of the props file only what is not a
+        /// duplicate and belongs outdoors: its single trees and bush
+        /// (<see cref="StationPropsKept"/>, where the pack stands them, beside
+        /// the canopy). Not kept, and why:
+        ///   * Fuel_pump_ - the pack's hose-less low-poly pump (68 tris), on
+        ///     display beside a full one: in the town it was an eleventh pump
+        ///     with its own fuelling volume and nothing to hold. Charlotte's
+        ///     stations use it as their pumps' far LOD (BakeCityStations).
+        ///   * Dispenser - a loose fuel nozzle, on display.
+        ///   * Management_003 - a third copy of the counter's monitor, turned.
+        ///   * everything else - the duplicates above.
+        /// </summary>
+        static readonly string[] StationPropsKept = { "Tree", "Tree_01", "Bush" };
+
+        /// <summary>
         /// One station, stripped of its display backdrop, scaled off its own
         /// pumps and trimmed to the lot. The single place any of that happens —
         /// the measuring pass and the placing pass have to agree exactly, and
@@ -6339,13 +6370,23 @@ namespace PSXRacing.EditorTools
         static GameObject SpawnStation(string name, out List<Transform> pumps)
         {
             var root = new GameObject(name);
-            foreach (var file in new[] { "Gas_station.fbx", "Gas_station_Props.fbx" })
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(Root + "/Art/GasStation/Gas_station.fbx");
+            if (prefab == null) Log("WARN: missing Gas_station.fbx");
+            else
             {
-                var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(Root + "/Art/GasStation/" + file);
-                if (prefab == null) { Log("WARN: missing " + file); continue; }
                 var inst = (GameObject)UnityEngine.Object.Instantiate(prefab);
-                inst.name = Path.GetFileNameWithoutExtension(file);
+                inst.name = "Gas_station";
                 inst.transform.SetParent(root.transform, false);
+            }
+            var props = AssetDatabase.LoadAssetAtPath<GameObject>(Root + "/Art/GasStation/Gas_station_Props.fbx");
+            if (props != null)
+            {
+                var inst = (GameObject)UnityEngine.Object.Instantiate(props);
+                inst.name = "Gas_station_Props";
+                inst.transform.SetParent(root.transform, false);
+                int dropped = KeepOnly(inst, StationPropsKept);
+                Log($"Station: one layout (Gas_station.fbx); of Gas_station_Props.fbx kept {inst.transform.childCount} " +
+                    $"({string.Join(", ", StationPropsKept)}), dropped {dropped} objects (its duplicate station, its props display).");
             }
             StripBackdrop(root);
 
@@ -6353,7 +6394,11 @@ namespace PSXRacing.EditorTools
             float scale = 1f;
             if (pumps.Count > 0)
             {
-                float h = PumpBounds(pumps).size.y;
+                // ONE pump's height (the median of them all), never the height
+                // of their combined bounds: pumps standing on two floors made
+                // that 19% taller than a pump and the station 16% too small.
+                float h = MedianPumpHeight(pumps, out float spread);
+                if (spread > 0.05f * h) Log($"WARN: the station's {pumps.Count} pumps differ in height or floor by {spread:0.00} units - scaled off the median");
                 if (h > 0.01f) scale = PumpHeightM / h;
             }
             else
@@ -6377,6 +6422,41 @@ namespace PSXRacing.EditorTools
                 $"{pumps.Count} pump(s) spread over " +
                 $"{pumpSpread.x:0.0} x {pumpSpread.z:0.0} m.");
             return root;
+        }
+
+        /// <summary>Keep, under <paramref name="inst"/>, only the objects named
+        /// in <paramref name="keep"/> (moved up to it, where they stood);
+        /// everything else is destroyed. The count destroyed.</summary>
+        static int KeepOnly(GameObject inst, string[] keep)
+        {
+            var kept = new List<Transform>();
+            foreach (var t in inst.GetComponentsInChildren<Transform>(true))
+                if (t != inst.transform && System.Array.IndexOf(keep, t.name) >= 0) kept.Add(t);
+            foreach (var t in kept) t.SetParent(inst.transform, true);
+            var doomed = new List<GameObject>();
+            foreach (Transform c in inst.transform) if (!kept.Contains(c)) doomed.Add(c.gameObject);
+            int n = 0;
+            foreach (var go in doomed) n += go.GetComponentsInChildren<Transform>(true).Length;
+            foreach (var go in doomed) UnityEngine.Object.DestroyImmediate(go);
+            return n;
+        }
+
+        /// <summary>The median of the pumps' own heights, and how far the
+        /// tallest and shortest are apart (in the model's units).</summary>
+        static float MedianPumpHeight(List<Transform> pumps, out float spread)
+        {
+            var hs = new List<float>(pumps.Count);
+            float lo = float.MaxValue, hi = float.MinValue;
+            foreach (var p in pumps)
+            {
+                var b = CombinedBounds(p.gameObject);
+                hs.Add(b.size.y);
+                lo = Mathf.Min(lo, b.min.y); hi = Mathf.Max(hi, b.max.y);
+            }
+            hs.Sort();
+            float med = hs[hs.Count / 2];
+            spread = Mathf.Max(hs[hs.Count - 1] - hs[0], (hi - lo) - med);
+            return med;
         }
 
         static void StripBackdrop(GameObject root)
@@ -6992,11 +7072,13 @@ namespace PSXRacing.EditorTools
             toward.Normalize();
             float reach = Mathf.Abs(toward.x) * shop.extents.x +
                           Mathf.Abs(toward.z) * shop.extents.z;
-            var storeDoor = new GameObject("StoreDoor");
+            var storeDoor = new GameObject(PSXRacing.OnFoot.StoreDoor.ObjectName);
             storeDoor.transform.SetParent(parent, false);
             Vector3 doorAt = shop.center + toward * (reach + 1.4f);
             doorAt.y = eyeY;
             storeDoor.transform.position = doorAt;
+            // ForecourtMode finds it in StoreDoor.All (city fuel r1)
+            storeDoor.AddComponent<PSXRacing.OnFoot.StoreDoor>();
         }
 
         /// <summary>The circuit wiring: piece colliders and the shop door.

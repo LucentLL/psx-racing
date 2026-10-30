@@ -146,6 +146,23 @@ namespace PSXRacing.EditorTools
             var menu = systems.AddComponent<PauseMenu>();
             menu.playerCar = player;
 
+            // city fuel r1: getting out at the pumps of Charlotte's filling
+            // stations, wired exactly as the circuits wire it (it does nothing
+            // unless GasPump says the car stands at a nozzle; not
+            // anywhereInTown: Charlotte is not a map of doors). The stations'
+            // pumps and shop doors stream in with their tiles and register
+            // themselves (GasPump.All, StoreDoor.All).
+            var forecourt = systems.AddComponent<PSXRacing.OnFoot.ForecourtMode>();
+            forecourt.playerCar = player;
+            forecourt.carInput = player.GetComponent<PlayerCarInput>();
+            forecourt.engine = player.GetComponent<EngineAudio>();
+            var psxCam = GameObject.Find("PSXCamera");
+            if (psxCam != null)
+            {
+                forecourt.raceCamera = psxCam.GetComponent<Camera>();
+                forecourt.chase = psxCam.GetComponent<ChaseCamera>();
+            }
+
             AttachSeasonDress();
 
             string scenePath = ScenePathFor(def);
