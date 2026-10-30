@@ -510,8 +510,10 @@ namespace PSXRacing.City
         /// s0..s1) at a split end keeps its full height (it meets the split's leg).</summary>
         static bool R9KeepJerseyEnd(CityMap map, Trims t, CityMap.Edge e, int side, float s0, float s1, float sb)
         {
-            if (!R9SplitOn || t.unions == null) return false;
-            return SplitEndNear(map, UnionOn(t, e.index, side, s0, s1), e, sb, 0.7f);
+            if (t.unions == null) return false;
+            var u = UnionOn(t, e.index, side, s0, s1);
+            // (round 10, DECKV) ...or a deck V's leg meets it where DECKV closed the run's end
+            return (R9SplitOn && SplitEndNear(map, u, e, sb, 0.7f)) || R10DeckVEndNear(map, u, e, sb, 0.7f);
         }
 
         /// <summary>(round 9, the section stations) the feet of the split ends a partner run stands

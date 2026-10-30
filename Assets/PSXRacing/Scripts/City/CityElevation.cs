@@ -1086,14 +1086,19 @@ namespace PSXRacing.City
 
             // 9. mark structure LAST, from the facts: decks over crossings,
             // embankments everywhere else.
+            R10TraceStep(map, "begin");
             MarkStructure(map);
+            R10TraceStep(map, "mark");
             InheritSeatStructure(map);
+            R10TraceStep(map, "inherit");
             AlignTwinStructure(map);
+            R10TraceStep(map, "align");
             // the twin-deck table on what is on structure NOW (critic C1):
             // decks only the solve made, side by side, are pairs too
             DeckPairs.Complete(map);
             // plan L3: a union's two decks end on ONE abutment line
             UnionAbutments(map);
+            R10TraceStep(map, "abutments");
             MeasureTwinDy(map);
             MeasureSags(map);
             RealReport = MeasureReal(map);
@@ -5527,6 +5532,7 @@ namespace PSXRacing.City
         static void UnionAbutments(CityMap map)
         {
             AbutmentPairs = AbutmentEnds = AbutmentStations = AbutmentSkipped = 0; AbutmentMaxM = 0f;
+            R10AbutReset();
             if (!TwinHoldsOn || map.deckPairs == null) return;
             for (int pass = 0; pass < 2; pass++)
                 foreach (var pr in map.deckPairs)
@@ -5552,7 +5558,8 @@ namespace PSXRacing.City
                         if (Mathf.Abs(ta - tb) < 0.05f) continue;
                         var shortEnd = ta < tb ? ea : eb;
                         float target = Mathf.Max(ta, tb);
-                        int r = CarryDeckTo(map, shortEnd, u * end, target);
+                        // (round 10) the twin's own deck end: the carry never passes it square to its road
+                        int r = CarryDeckTo(map, shortEnd, u * end, target, ta < tb ? eb.p : ea.p);
                         if (r > 0) { AbutmentEnds++; moved = true; AbutmentMaxM = Mathf.Max(AbutmentMaxM, Mathf.Abs(ta - tb)); }
                         else if (r < 0 && pass == 0) AbutmentSkipped++;
                     }
@@ -5624,17 +5631,46 @@ namespace PSXRacing.City
         /// and a station is inserted on the line itself, off structure, so the
         /// structure ends there. 1 = carried; 0 = nothing to do; -1 = left
         /// (a junction, a deck beyond, or further than TwinAlignMaxM).</summary>
-        static int CarryDeckTo(CityMap map, DeckEnd d, Vector2 axis, float target)
+        static int CarryDeckTo(CityMap map, DeckEnd d, Vector2 axis, float target, Vector2 twinEnd)
         {
             var e = map.edges[d.edge];
             float s = d.s; int dir = d.dir;
             float t0 = Vector2.Dot(e.PointAt(s), axis);
             if (target - t0 < 0.05f) return 0;
             if (target - t0 > TwinAlignMaxM) return -1;
+            // (round 10, ABUTFOOT) this end is already square with the twin's own deck end (or past
+            // it) along its own road: the whole carry lies past the twin's abutment
+            if (R10AtOrPastFoot(e, s, dir, twinEnd))
+            {
+                float pastAll = (target - t0) + Mathf.Max(0f, Vector2.Dot(e.PointAt(s) - twinEnd, e.TangentAt(s) * dir));
+                if (pastAll > R10AbutTolM)
+                {
+                    R10AbutPastFoot++;
+                    if (R10AbutLog.Length < 20000) R10AbutLog.Append($" e{e.index} s{s:0.0}: at the twin's end already, the line {pastAll:0.0} m past it{(R10AbutFootOn ? " (kept)" : "")};");
+                    if (R10AbutFootOn) { R10AbutLimited++; R10AbutLimitMaxM = Mathf.Max(R10AbutLimitMaxM, pastAll); return 0; }
+                }
+            }
             // march out in half metres, through two-arm nodes
             var path = new List<(CityMap.Edge e, float from, float to)>(2);
             float cur = s, tPrev = t0, walked = 0f;
             bool reached = false;
+            // (round 10) where the march passed the twin end's perpendicular: how far it had walked, and
+            // the path to there (a carry the line takes more than R10AbutTolM past it is cut back to it)
+            float footWalked = -1f, footAt = 0f, footFrom = 0f; int footPath = -1, footDir = 0; CityMap.Edge footE = null;
+            bool CutToFoot(float walkedAtLine, string where)
+            {
+                if (footWalked < 0f) return false;
+                float past = walkedAtLine - footWalked;
+                if (past <= R10AbutTolM) return false;
+                R10AbutPastFoot++;
+                if (R10AbutLog.Length < 20000) R10AbutLog.Append($" e{footE.index} {d.s:0.0}->{footAt:0.0}: the line ran {past:0.0} m past the twin's end{where}{(R10AbutFootOn ? ", cut back" : "")};");
+                if (!R10AbutFootOn) return false;
+                R10AbutLimited++; R10AbutLimitMaxM = Mathf.Max(R10AbutLimitMaxM, past);
+                path.RemoveRange(footPath, path.Count - footPath);
+                path.Add((footE, footFrom, footAt));
+                dir = footDir;
+                return true;
+            }
             for (int guard = 0; guard < 120 && !reached; guard++)
             {
                 float next = cur + dir * 0.5f;
@@ -5647,17 +5683,23 @@ namespace PSXRacing.City
                     dir = o.a == node ? 1 : -1;
                     e = o; s = cur = o.a == node ? 0f : o.length;
                     tPrev = Vector2.Dot(e.PointAt(cur), axis);
-                    if (tPrev >= target) { path.Add((e, s, s)); reached = true; }
+                    if (tPrev >= target) { path.Add((e, s, s)); reached = true; CutToFoot(walked, " (node)"); }
                     continue;
                 }
                 float tn = Vector2.Dot(e.PointAt(next), axis);
                 walked += 0.5f;
                 if (walked > TwinAlignMaxM * 2f) return -1;
+                if (footWalked < 0f && R10PassesFoot(e, cur, next, dir, twinEnd, out float fFoot))
+                {
+                    footWalked = walked - 0.5f + 0.5f * fFoot;
+                    footAt = Mathf.Lerp(cur, next, fFoot); footFrom = s; footPath = path.Count; footDir = dir; footE = e;
+                }
                 if (tn >= target)
                 {
                     float f = tn > tPrev ? Mathf.Clamp01((target - tPrev) / (tn - tPrev)) : 1f;
                     path.Add((e, s, Mathf.Lerp(cur, next, f)));
                     reached = true;
+                    CutToFoot(walked - 0.5f + 0.5f * f, "");
                     break;
                 }
                 tPrev = tn; cur = next;
@@ -6007,6 +6049,7 @@ namespace PSXRacing.City
             float floorClampMax = float.MinValue, floorDesignMax = float.MinValue;
             int floorClampEdge = -1, floorTrueEdge = -1;
             bool underDeck = false;
+            float r10Spill = float.MinValue;
             terms.dem = baseY;
             foreach (var packed in segScratch)
             {
@@ -6047,11 +6090,21 @@ namespace PSXRacing.City
                     // to the middle of the gap the median slab spans, where
                     // the twin's own cap takes over.
                     float capR = hw + CapPadM;
-                    if (TwinHoldsOn && map.deckUnionsOf != null && map.deckUnionsOf[ei] != null)
+                    float capAir = UnderDeckAir;
+                    bool unionDeck = TwinHoldsOn && map.deckUnionsOf != null && map.deckUnionsOf[ei] != null;
+                    if (unionDeck)
                         capR = Mathf.Max(capR, DeckPairs.UnionCapReach(map, e, at, -e.SideOf(si, p2), hw));
+                    // (round 10, SPILL) a twin deck's median by its abutment - the union's deck, or the
+                    // deck it carries on into through a two-arm node (I-277 e2445 past e2448's end): the
+                    // spill-through slope from the bridge seat holds it, the soffit's air tapering to the seat
+                    if (R10SpillOn && dist > hw && R10TwinMedianSide(map, e, si, p2, past, unionDeck))
+                    {
+                        float sp = R10SpillFloor(map, e, at, out float dEnd);
+                        if (sp > float.MinValue) { r10Spill = Mathf.Max(r10Spill, sp); capAir = R10CapAir(dEnd); }
+                    }
                     if (dist <= capR) underDeck = true;
-                    if (dist <= capR && deckY - DeckThick - UnderDeckAir < deckCap)
-                    { deckCap = deckY - DeckThick - UnderDeckAir; terms.deckEdge = ei; }
+                    if (dist <= capR && deckY - DeckThick - capAir < deckCap)
+                    { deckCap = deckY - DeckThick - capAir; terms.deckEdge = ei; }
                     // ...and its pavement is protected like any road's: the
                     // lattice cells it touches never stand above it.
                     float ch = Mathf.Min(e.CorridorHalf, MaxCorridorHalf);
@@ -6128,6 +6181,9 @@ namespace PSXRacing.City
             // St, dug only to the soffit's air). A true foot still holds it:
             // another road's own pavement and verge.
             if (underDeck && chanV < float.MaxValue) floorClampMax = Mathf.Min(floorClampMax, chanV);
+            // (round 10, SPILL) ...and in a twin deck's median by its abutment the spill-through slope
+            // from the seat holds it, channel or valley under it (the soffit's air still caps it)
+            if (r10Spill > floorClampMax) { floorClampMax = r10Spill; floorClampEdge = terms.deckEdge; }
             terms.floorEdge = floorClampMax > floorMax ? floorClampEdge : floorTrueEdge;
             floorMax = Mathf.Max(floorMax, floorClampMax);
             if (floorMax < floorDesignMax - 1e-4f && floorDesignMax > baseY) terms.channel = Mathf.Max(floorMax, baseY);
