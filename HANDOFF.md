@@ -2,7 +2,7 @@
 
 Branch `city-perf-r1` (worktree `C:\Users\mcgee\PSX Racing-perf`, off integration-1030b 82c83a3c), head 588965f3 (the code; the HANDOFF commits on top).
 Sandbox `C:\Users\mcgee\PSXPerf` (left on the WebGL target, unlocked, no Unity running). Code only: no data change,
-no exporter change; nothing in CityElevation / CityTraffic / the bends refit. MERGEABLE: YES - code only, every fix behind its switch; HitchProbe 80 of 80 tiles identical to the base; the WebGL after player run in Firefox and Chrome on every route, Noon and night; the editor check clean.
+no exporter change; nothing in CityElevation / CityTraffic / the bends refit. MERGEABLE: YES - code only, every fix behind its switch; HitchProbe 80 of 80 tiles identical to the base twice (after the fixes on the WebGL target, and on the final code on the Standalone target); the WebGL after player run in Firefox and Chrome on every route, Noon and night; the Windows player run with and without the worker threads; the editor check and both players' logs clean.
 
 ## What the owner saw ("59, dropped as low as 3 ... 16 outside uptown ... pop in ... trees abruptly stopped, plain green fields")
 - THE 3 FPS: (1) a 0.6-1.1 s first-draw stall at the SAME places every run, in Firefox AND Chrome (the Uptown Loop at
@@ -20,8 +20,9 @@ no exporter change; nothing in CityElevation / CityTraffic / the bends refit. ME
 - THE GREEN FIELDS: the far land was grass + canopy only - no roofs, no pavement, no water.
 
 ## Frame tables
-Scripted free roam, the AI at the wheel through the traffic, Noon, 150 s a route, a 1280x720 window, GTX 980 (ANGLE
-D3D11), i7-10700K; "load" = the other sandboxes' Unity jobs at the start (they come in bursts - see above).
+Scripted free roam, the AI at the wheel through the traffic, Noon, 150 s a route, a 1280x720 window, this PC
+(i7-10700K, RTX 3070 - the browsers' WebGL (ANGLE, D3D11) reports it masked, "GTX 980, or similar"); "load" = the
+other sandboxes' Unity jobs at the start (they come in bursts - see above).
 BEFORE =ce025654's city code with the fixed tour (PerfTour from b53c573e: a fresh engine a route - the AI cooked the
 engine and the first before-runs crawled -, set on 50 m past a hold-up). AFTER = 588965f3.
 
@@ -121,7 +122,44 @@ Chrome: 10.7 ms (car reflections 2.4).
   show the far forest and land.
 
 ## Windows (Mono) vs web
-(the Windows (Mono) runs were still going when this was written - see the next commit)
+The Windows player: `C:\Users\mcgee\PSXPerf\Builds\Win64\PSXRacing.exe` (Mono - this editor has no Windows IL2CPP -,
+Direct3D 12, a 1280x720 window, 525 MB; built from f8f28c32 = the after code). BEFORE = the before2 source (ce025654 + the
+tour). Its frame-rate setting MAX is the display's refresh as Unity reads it - 60 here - so its frames are capped at 60:
+compare the frames over 33 / 50 / 100 ms and the main thread's busy time, not the fps. The tours leave the player's
+PlayerPrefs (HKCU\Software\PSX Racing) as they found them (there were none: removed after each run).
+
+| run | route | frames | km/h | avg fps | p50 | p95 | p99 | worst | >33 | >50 | >100 | GC | load |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| win_before | uptown | 8980 | 137 | 59.9 | 16.6 | 22.0 | 26.8 | 160 | 18 | 5 | 1 | 14 | 1 jobs, CPU 11% |
+| win_before | tryon | 8998 | 113 | 60.0 | 16.6 | 20.7 | 24.1 | 54 | 6 | 2 | 0 | 9 | 1 jobs, CPU 11% |
+| win_before | trade | 6668 | 88 | 60.0 | 16.6 | 20.8 | 24.6 | 54 | 7 | 1 | 0 | 7 | 1 jobs, CPU 11% |
+| win_before | independence | 8998 | 152 | 60.0 | 16.7 | 20.3 | 24.4 | 52 | 9 | 1 | 0 | 7 | 1 jobs, CPU 11% |
+| win_before | i77s | 8993 | 144 | 60.0 | 16.6 | 20.3 | 24.2 | 60 | 15 | 3 | 0 | 7 | 1 jobs, CPU 11% |
+| win_after | uptown | 8992 | 153 | 59.9 | 16.6 | 21.8 | 26.2 | 53 | 18 | 2 | 0 | 14 | 1 jobs, CPU 4% |
+| win_after | tryon | 8997 | 120 | 60.0 | 16.6 | 20.6 | 24.1 | 48 | 9 | 0 | 0 | 8 | 1 jobs, CPU 4% |
+| win_after | trade | 6417 | 92 | 60.0 | 16.7 | 20.6 | 24.3 | 52 | 8 | 1 | 0 | 7 | 1 jobs, CPU 4% |
+| win_after | independence | 8997 | 155 | 60.0 | 16.7 | 19.9 | 24.1 | 59 | 14 | 3 | 0 | 8 | 1 jobs, CPU 4% |
+| win_after | i77s | 8992 | 178 | 59.9 | 16.6 | 20.5 | 24.5 | 57 | 17 | 4 | 0 | 8 | 1 jobs, CPU 4% |
+| win_after_nothreads | uptown | 8990 | 156 | 59.9 | 16.6 | 21.9 | 25.8 | 54 | 18 | 2 | 0 | 14 | 1 jobs, CPU 12% |
+| win_after_nothreads | tryon | 8999 | 122 | 60.0 | 16.6 | 20.7 | 24.4 | 49 | 11 | 0 | 0 | 8 | 1 jobs, CPU 12% |
+| win_after_nothreads | trade | 6340 | 92 | 59.3 | 16.6 | 21.1 | 29.3 | 81 | 44 | 17 | 0 | 6 | 1 jobs, CPU 12% |
+| win_after_nothreads | independence | 8995 | 160 | 60.0 | 16.6 | 20.9 | 25.3 | 61 | 18 | 2 | 0 | 8 | 1 jobs, CPU 12% |
+| win_after_nothreads | i77s | 8925 | 184 | 59.5 | 16.6 | 21.6 | 28.3 | 102 | 46 | 14 | 1 | 9 | 1 jobs, CPU 12% |
+
+- The main thread's busy time a frame (fixed + update + late + render + UI, ms): Windows after 6.6-10.8 (uptown 10.8:
+  tile slices 5.6 - the 6 ms "fast" budget at 60 fps -, render 1.5 - D3D12's render thread does the rest -, car
+  reflections 1.0), Chrome 7.7-10.1, Firefox 12.8-16.0 (render 5-6, car reflections 3.4-3.8). The same game has 6-10 ms
+  of headroom a frame natively at 60; the browsers spend it on WebGL's draw calls and Firefox's GPU process.
+- Worst frames on Windows after: 48-59 ms (before: up to 160); what is left: guide-sign decisions in a signs slice
+  (35-53 ms - LEFT), one car-reflections frame (85 ms, the no-threads run), and the PC's CPU bursts. Mono's GC: 7-14 a
+  route, short (never the largest part of a frame over 50 ms).
+- THREADS (CityWorker: the far land / tree chunks and the forest fill's tiles on 2 workers): the far layers' share of the
+  main thread 0.05-0.07 ms a frame with the workers, 0.05-0.11 without (PSX_CITY_THREADS=0 - the web's single-thread
+  path, run natively), their worst frame 1.9-5.9 ms vs 2.8-20.9 ms. Both paths clean (no exception in either player
+  log). The far layers were never the big cost; the prize for threads is the tile builder (5.6 ms a frame uptown on
+  Windows, 2.7 in Firefox) - the design below.
+- The shader warm-up on D3D12 takes 2-5 ms (96 variants; WarmUp is partial on D3D12 and native compiles are fast); the
+  web is where it matters (the 0.6-1.1 s stalls).
 
 ## Threading (native players) - design, what shipped, what is next
 ONE code path: a unit of city work is written once, as a resumable iterator or a pure function over
