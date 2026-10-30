@@ -215,6 +215,10 @@ namespace PSXRacing.City
             public Vector2 legA, legB;
             public float clearance;
             public int firstFace, faces;
+            /// <summary>(signs round 2) Its solid posts' range in the tile's
+            /// <see cref="Sink.posts"/>: a sign bridge's leg is two posts on two
+            /// footings, parts of ONE structure (the audit's clash check).</summary>
+            public int firstPost, postCount;
             /// <summary>The point that decided which tile it belongs to (a
             /// post's nominal place; a gantry's first choice of station).</summary>
             public Vector2 owner;
@@ -522,6 +526,7 @@ namespace PSXRacing.City
         {
             if (!pu.placed) return;
             int first = st.faces.Count;
+            int firstPost = st.posts.Count;
             st.faces.AddRange(pu.faces);
             st.posts.AddRange(pu.posts);
             st.lamps.AddRange(pu.lamps);
@@ -529,6 +534,7 @@ namespace PSXRacing.City
             st.marks.AddRange(pu.marks);
             var sg = pu.sign;
             sg.firstFace = first;
+            sg.firstPost = firstPost; sg.postCount = pu.posts.Count;
             st.signs.Add(sg);
             foreach (var op in pu.ops) BoxNow(op.c, op.x, op.y, op.z, op.hx, op.hy, op.hz, op.front, op.sides, op.hasBack ? op.back : (RectInt?)null);
             foreach (var q in pu.gquads) GQuadNow(q);

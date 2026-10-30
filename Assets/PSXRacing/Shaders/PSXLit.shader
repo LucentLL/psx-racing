@@ -786,6 +786,7 @@ Shader "PSX/Lit"
             #define SIGN_GAIN          0.85   // a lit sign face after dark, as a share of its texel (WP-23)
             #define GUIDE_LIT_GAIN     1.6    // signs round 2: a lit guide panel at its lamps (UV2.x 1), over its headlight-lit face
             #define GUIDE_LEAD_STEPS   3.0    // signs round 2: a guide legend's depth lead over its backing, 24-bit depth steps
+            #define GUIDE_LEAD_MAX     1.0    // ...and its most, metres: binds only past ~430 m in the cockpit, where nothing a metre in front of a face overlaps it on screen
             #define CROWN_GAIN         0.42   // a floodlit crown's wash at full night, x its texel (leftovers 2026-10-05; 0.55 washed a close crown as bright as its lit windows)
             // THE 1990s CITY (2026-10-29): no LED crowns, no LED lines. A tower
             // top is floodlit WARM (the owner's photograph's floodlit tower,
@@ -1355,12 +1356,14 @@ Shader "PSX/Lit"
                 // 24-bit depth buffer toward the eye along its own ray - the same
                 // pixel - so the green backing a few cm behind it (only there to
                 // fill a hairline crack of the mosaic) never wins the depth test
-                // in bands at a distance (I-85 exit 36's "6"). At most 0.25 m.
+                // in bands at a distance (I-85 exit 36's "6"). At most
+                // GUIDE_LEAD_MAX: the catwalk and the luminaires below a panel
+                // (0.85-0.95 m in front) cover its foot on screen only within ~12 m.
                 if (_NightVtx > 0.5 && v.uv2.y > 0.5)
                 {
                     float3 relL = wpos - _WorldSpaceCameraPos;
                     float dL = length(relL);
-                    float leadL = min(GUIDE_LEAD_STEPS * 2.0 * dL * dL / (max(_ProjectionParams.y, 1e-3) * 16777216.0), 0.25);
+                    float leadL = min(GUIDE_LEAD_STEPS * 2.0 * dL * dL / (max(_ProjectionParams.y, 1e-3) * 16777216.0), GUIDE_LEAD_MAX);
                     float4 cL = mul(UNITY_MATRIX_VP, float4(wpos - relL * (leadL / max(dL, 1e-3)), 1.0));
                     o.pos.z = cL.z / max(cL.w, 1e-6) * o.pos.w;
                 }

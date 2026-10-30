@@ -66,6 +66,11 @@ namespace PSXRacing.City
         public static bool S2Night = S2Env("PSX_CITY_SIGNS2_NIGHT");
         public static bool S2Gores = S2Env("PSX_CITY_SIGNS2_GORES");
 
+        /// <summary>A breakaway post keeps off a deck's margin as well (the
+        /// mask's Deck bit: the sign audit's "under a deck") whenever a switch
+        /// that stands round 2's breakaway signs is on.</summary>
+        static byte S2DeckBit => (S2Curves || S2Gores || S2Density) ? RoadsideOccupancy.Deck : (byte)0;
+
         /// <summary>A DIAGNOSTIC (never shipped on): PSX_SIGNS_DBG_NOBACKING=1 lays
         /// no green backing behind a face's mosaic (the glyph probe's A/B).</summary>
         public static bool DbgNoBacking = System.Environment.GetEnvironmentVariable("PSX_SIGNS_DBG_NOBACKING") == "1";
@@ -660,6 +665,7 @@ namespace PSXRacing.City
             curveSpansSeen = curveSpansSigned = curveSpansCovered = curveSpansKink = curveSpansSmall = curveSpansCarried = curveSpansTwin = 0;
             var order = new List<CityCurves.Span>();
             var warnAt = new List<(Vector2 p, Vector2 t)>();
+            var chevAt = new List<(Vector2 p, Vector2 t)>();
             for (int ei = 0; ei < map.edges.Length; ei++)
             {
                 var e = map.edges[ei];
@@ -727,6 +733,13 @@ namespace PSXRacing.City
                             {
                                 float sc = dir > 0 ? s : c1 - (s - c0);
                                 sc = Mathf.Clamp(sc, 2f, e.length - 2f);
+                                // one curve split by a node: its two spans' chevrons do not double up there
+                                var cp = e.PointAt(sc); var ct = e.TangentAt(sc) * dir;
+                                bool dup = false;
+                                foreach (var (q, tq) in chevAt)
+                                    if ((q - cp).sqrMagnitude < gap * gap * 0.25f && Vector2.Dot(tq, ct) > 0.5f) { dup = true; break; }
+                                if (dup) continue;
+                                chevAt.Add((cp, ct));
                                 sites.Add(new Site { kind = GuideKind.Chevron, exitEdge = -1, edge = ei, s = sc, nominal = e.PointAt(sc), dir = (sbyte)dir,
                                                      side = (sbyte)(leftHand ? 1 : -1), sym = 0, leftHand = leftHand, mph = sp.mph, size = 0.61f, plaque = 0.762f });
                             }
@@ -885,9 +898,12 @@ namespace PSXRacing.City
             float diag = chevron ? site.size : site.size * 1.41421f;           // the face's width across
             float faceH = chevron ? site.plaque : site.size * 1.41421f;
             float lateral = (e.link || e.cls >= 5) ? 1.83f : 0.6f;
+            // a chevron slides at most a third of its spacing, so two never meet
+            float maxAlong = chevron ? ChevronFt(site.mph) * 0.3048f / 3f + 0.05f : 14f;
             foreach (float along in new[] { 0f, -4f, 4f, -8f, 8f, -14f, 14f })
                 foreach (float outM in new[] { 0f, 1.5f, 3f })
                 {
+                    if (Mathf.Abs(along) > maxAlong) continue;
                     float s = site.s + along * site.dir;
                     if (s < 1f || s > e.length - 1f) continue;
                     if (e.bridge || e.ElevatedAt(s)) continue;
@@ -900,7 +916,7 @@ namespace PSXRacing.City
                     var g = p + right * (site.side * off);
                     var viewer = Driver(map, e, s, -site.dir * (chevron ? 60f : 100f), AutoLane);
                     var vd = new Vector2(viewer.x - g.x, viewer.z - g.y);
-                    if (vd.sqrMagnitude < 1f) continue;
+                    if (vd.sqrMagnitude < 30f * 30f) continue;     // no road far enough back to turn to
                     vd.Normalize();
                     if (Vector2.Dot(vd, -tr) < 0.5f) continue;      // the face would not look up the road
                     var across = RightOf(-vd);

@@ -516,13 +516,24 @@ namespace PSXRacing.EditorTools
                     }
                 }
 
-                // every solid post, for the clash check
-                foreach (var p in st.posts)
+                // every solid post, for the clash check - one id per SIGN (signs
+                // round 2: a sign bridge's leg is two posts on two footings, parts
+                // of one structure, not two signs in one another)
+                var postIdOf = new int[st.posts.Count];
+                for (int pIdx = 0; pIdx < postIdOf.Length; pIdx++) postIdOf[pIdx] = ++postId;
+                foreach (var sgPost in st.signs)
+                    if (sgPost.postCount > 1)
+                    {
+                        int oneId = ++postId;
+                        for (int pIdx = sgPost.firstPost; pIdx < sgPost.firstPost + sgPost.postCount && pIdx < postIdOf.Length; pIdx++) postIdOf[pIdx] = oneId;
+                    }
+                for (int pIdx = 0; pIdx < st.posts.Count; pIdx++)
                 {
+                    var p = st.posts[pIdx];
                     var c = new Vector2(p.centre.x, p.centre.z);
                     long k = ((long)Mathf.FloorToInt(c.x / 4f) << 32) ^ (uint)Mathf.FloorToInt(c.y / 4f);
                     if (!postCells.TryGetValue(k, out var l)) postCells[k] = l = new List<(Vector2, float, int)>();
-                    l.Add((c, 0.5f * Mathf.Sqrt(p.size.x * p.size.x + p.size.z * p.size.z), ++postId));
+                    l.Add((c, 0.5f * Mathf.Sqrt(p.size.x * p.size.x + p.size.z * p.size.z), postIdOf[pIdx]));
                 }
                 // commercial frontage along the collectors and bigger in this tile (per side)
                 frontSegs.Clear(); frontEdges.Clear();
