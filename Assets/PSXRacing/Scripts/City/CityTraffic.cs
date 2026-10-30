@@ -1921,10 +1921,15 @@ namespace PSXRacing.City
                             // for 75 s - a known pair, never one the lock recovery sees). Both
                             // cars weigh the same two sweeps, so they agree.
                             float swC = float.MaxValue;
-                            if (d2 < 15f * 15f && (o.speed < 3f || c.speed < 3f))
+                            // (looked for from as far as the faster of the two needs to stop: census A
+                            // on 29ebc63a, the Nevin Road box at node 8083 / 8084 - a straight at 15.8 m/s
+                            // held for a car crawling on the link e14992 whose body lies on e6381 9.5 m
+                            // on, seen at 15 m, too late: 8.8 m/s into it; round 3c's final_a the same)
+                            float seeR = 15f + 1.5f * Mathf.Max(c.speed, o.speed);
+                            if (d2 < seeR * seeR && (o.speed < 3f || c.speed < 3f))
                             {
-                                if (Vector2.Dot(d, c.fwd) > -2f) swC = SweptHit(c, o, Mathf.Min(20f, dC + 2f * o.halfL + 4f));
-                                float swO = Vector2.Dot(-d, o.fwd) > -2f ? SweptHit(o, c, Mathf.Min(20f, dO + 2f * c.halfL + 4f)) : float.MaxValue;
+                                if (Vector2.Dot(d, c.fwd) > -2f) swC = SweptHit(c, o, Mathf.Min(45f, dC + 2f * o.halfL + 4f));
+                                float swO = Vector2.Dot(-d, o.fwd) > -2f ? SweptHit(o, c, Mathf.Min(45f, dO + 2f * c.halfL + 4f)) : float.MaxValue;
                                 // one meets the other's body and the other does not - or, both
                                 // meeting, one goes clearly further first: that one goes first
                                 bool oneWay = (swC < float.MaxValue) != (swO < float.MaxValue);
