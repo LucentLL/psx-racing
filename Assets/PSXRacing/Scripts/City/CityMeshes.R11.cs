@@ -32,6 +32,20 @@ namespace PSXRacing.City
             return result;
         }
 
+        /// <summary>(round 11, the launch audit's EXPLAIN) A fan's interior points (FanSteiner: cluster
+        /// members, the major pair's pavement, the arms' lines) as "(x,z) y" in world space.</summary>
+        public static string R11FanPoints(CityMap map, Trims trims, int n)
+        {
+            if (!trims.patch[n]) return "";
+            var pts = new List<Vector3>(32);
+            FanSteiner(map, trims, FanKey(trims, n), Vector3.zero, pts);
+            var sb = new System.Text.StringBuilder(" steiner:");
+            foreach (var p in pts) sb.Append($" ({p.x:0.0},{p.z:0.0}) {p.y - FanProudM:0.00};");
+            FanCentre(map, trims, FanKey(trims, n), out var c, out float cy);
+            sb.Append($" centre ({c.x:0.0},{c.y:0.0}) {cy:0.00}");
+            return sb.ToString();
+        }
+
         // ---- debug: the rail-end plan on one edge -------------------------------------
         /// <summary>PSX_R11_RAILTRACE=edge: every barrier kind change the rail-end plan sees
         /// on that edge (each side), with the flags that decide whether it is planned

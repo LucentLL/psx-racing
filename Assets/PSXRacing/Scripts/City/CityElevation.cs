@@ -2512,6 +2512,9 @@ namespace PSXRacing.City
                 var mine = new List<int>();
                 for (int i = first; i <= last; i++)
                 {
+                    // (round 11, STREETSEAT) a street branch's node end stays the junction's: seated, it
+                    // would pin the node and stand every other arm's landing down there
+                    if (!e.link && (i == 0 || i == n - 1)) continue;
                     int h = seat.HostAt(e.PointAt(e.stS[i]), out float hs);
                     if (h < 0 || h == ei) continue;
                     e.stSeat ??= new bool[n];

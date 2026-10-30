@@ -869,6 +869,7 @@ namespace PSXRacing.EditorTools
                     var pr = paths[s.pathIdx];
                     Line("  X" + n + " " + Describe(map, s, n));
                     Line("     " + Profile(map, trims, s));
+                    if (pr.node >= 0) Line("     " + CityMeshes.DescribeNode(map, trims, pr.node) + CityMeshes.R11FanPoints(map, trims, pr.node));
                     for (int q = Mathf.Max(0, s.k - 6); q <= Mathf.Min(pr.count - 1, s.k + 10); q++)
                     {
                         int i = pr.start + q;
