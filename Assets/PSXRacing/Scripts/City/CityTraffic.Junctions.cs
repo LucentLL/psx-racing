@@ -30,6 +30,12 @@ namespace PSXRacing.City
     {
         /// <summary>Carriageway splits (CitySignals.SplitArms): not boxes.</summary>
         bool[] splitNode;
+        /// <summary>Round 3d: splits whose leaving carriageway runs within a body of the
+        /// arriving one's lane end (TightSplit): boxes, the arriving carriageway yielding; and
+        /// per directed edge (key) the arc of such an approach's line (NaN: its lane end).</summary>
+        bool[] tightSplit;
+        float[] holdS;
+        public static int TightSplits;
 
         /// <summary>The critical gaps (HCM 2010 Exhibit 19-10 less ~1 s: the
         /// city's drivers pull out briskly). Round 2's half second less made
@@ -246,7 +252,20 @@ namespace PSXRacing.City
                 if (BodyNear(p, o, right, reach)) return x;
             }
             if (rem >= win || c.legCount < 2 || !c.legs[1].turn) return float.MaxValue;
-            return WayHit(c, c.legs[1], o, 0f, rem, reach);
+            float wh = WayHit(c, c.legs[1], o, 0f, rem, reach);
+            // CHANGING LANES INTO IT (round 3d, trace 1: node 9907, a car moving from lane 0 to
+            // lane 1 on the last 18 m of e9370 saw a car standing by its turn only once in it,
+            // at 3.8 m/s with 0.8 m left - PopLeg lays the turn again from where the car IS when
+            // it gets there, not from the lane's mouth): also along the turn laid from the
+            // lateral place it is in now
+            if (c.lc)
+            {
+                var T2 = c.legs[1];
+                Vector2 tA = TravelTan(e, L.dir, L.s1);
+                Shape(ref T2, PlanPoint(e, L.s1, c.lat, out _), tA, T2.p3, (T2.p3 - T2.p2).sqrMagnitude > 1e-6f ? (T2.p3 - T2.p2).normalized : tA);
+                wh = Mathf.Min(wh, WayHit(c, T2, o, 0f, rem, reach));
+            }
+            return wh;
         }
 
         static bool BodyNear(Vector2 p, Car o, Vector2 right, float reach)
@@ -323,6 +342,7 @@ namespace PSXRacing.City
         /// <summary>The census's record of a lock undone (not a fault: the recovery at work).</summary>
         void LockNote(Car c, Car o, string sub, string what)
         {
+            TraceMoment(c, $"{sub} c{c.id} with c{o.id}");
             if (Log == null) return;
             Note(c, "traffic", sub, Time.time - c.lockSince, what + " after " + (Time.time - c.lockSince).ToString("0.0") + " s; " + Describe(c) + " | other: " + Describe(o));
         }
@@ -492,11 +512,154 @@ namespace PSXRacing.City
             int nn = map.nodes.Length;
             splitNode = new bool[nn];
             for (int i = 0; i < nn; i++) if (degree[i] >= 3) splitNode[i] = CitySignals.SplitArms(map, i, out _, out _, out _);
+            // TIGHT SPLITS (round 3d): a split whose leaving carriageway runs within a body of
+            // the arriving one's lane end is a junction after all - the arriving carriageway
+            // yields there, at a line set back to where its cars stand clear, and keeps the box
+            tightSplit = new bool[nn];
+            holdS = new float[map.edges.Length * 2];
+            for (int i = 0; i < holdS.Length; i++) holdS[i] = float.NaN;
+            var sb = new System.Text.StringBuilder();
+            TightSplits = 0;
+            for (int i = 0; i < nn; i++)
+            {
+                if (degree[i] < 3) continue;
+                if (nodeJunction[i] >= 0 && junctionSignal[nodeJunction[i]]) { if (splitNode[i]) tightWhy[i] = "the signal's"; continue; }
+                // a split in shape, whatever its names and classes (North Tryon / North Church at
+                // node 9907): a two-way, a one-way arriving and a one-way leaving on its far side
+                // (the arms by their shape: SplitArms' own come from the data's SPLT records)
+                if (!SplitShape(i, out int tw, out int ia, out int oa)) { if (splitNode[i]) tightWhy[i] = "not a split's shape"; continue; }
+                if (approachOf.ContainsKey((ia << 1) | 1)) { tightWhy[i] = "the arriving carriageway has a sign"; continue; }
+                if (!TightSplit(i, tw, ia, oa, out float sh)) continue;
+                tightSplit[i] = true; splitNode[i] = false;
+                holdS[(ia << 1) | 1] = sh;
+                majorA[i] = tw; majorB[i] = -1;
+                if (TightSplits++ < 40) sb.Append(" n").Append(i).Append(" e").Append(ia).Append(" hold ").Append((map.edges[ia].length - sh).ToString("0.0")).Append(" m");
+            }
+            Debug.Log($"[CityTraffic] tight splits (the arriving carriageway yields at a line set back): {TightSplits}:{sb}");
+        }
+
+        /// <summary>
+        /// A TIGHT SPLIT (round 3d, trace 1 at node 9907, North Tryon Street / North Church
+        /// Street): CitySignals.SplitArms takes a two-way opening into its one-way pair for a
+        /// carriageway split - "not a junction: its flows never cross" - so it has no control,
+        /// no box and both flows the way (and the warrants skip it besides: it is 18 m from the
+        /// signal at node 10758). But the data lays the leaving carriageway (North Church,
+        /// e8228) 2.2 m from the arriving one's lane (North Tryon northbound, e15469) where they
+        /// meet the node: the northbound queue from node 10758's red backs through it, its last
+        /// car stands with its nose in the node, and the southbound way into North Church runs
+        /// within 0.4 m of that nose - a lock nose to nose, undone by backing and creeping with
+        /// a touch (trace 1: four touches in 600 s; final_c: crossing-blocked 3, car wrecks 2).
+        /// The right of way must be given (MUTCD 2B.10, a YIELD at an entrance where it is
+        /// needed): here the arriving carriageway yields to the two-way's flow into the leaving
+        /// one, at a line where a car of it stands clear of that flow, and the box is kept clear
+        /// (MUTCD R10-7) - the junction's own rules (KeepClearHold, CanGo).
+        /// True: a car on the arriving carriageway with its nose at its lane end would stand in
+        /// the leaving flow's way (its bodies along the leaving lanes' first 20 m and their
+        /// connectors from the two-way's lanes, 0.35 m round it); <paramref name="sHold"/>: the
+        /// arc on the arriving edge its nose stays behind (the first place back that is clear).
+        /// </summary>
+        bool TightSplit(int n, int tw, int ia, int oa, out float sHold)
+        {
+            sHold = 0f;
+            if (ia < 0 || oa < 0 || tw < 0) { tightWhy[n] = "arms"; return false; }
+            var A = map.edges[ia]; var O = map.edges[oa]; var T = map.edges[tw];
+            if (!A.oneway || A.b != n || !O.oneway || O.a != n || !routable[ia] || !routable[oa] || !routable[tw]) { tightWhy[n] = "not a split's arms"; return false; }
+            int dT = T.b == n ? 1 : -1;            // the two-way's flow arriving here (it leaves by O)
+            if (dT < 0 && T.oneway) { tightWhy[n] = "one-way"; return false; }
+            float aEnd = EndS(A, 1), oStart = Back(O, n), tEnd = EndS(T, dT);
+            int nA = Lanes(ia, 1), nO = Lanes(oa, 1), nT = Lanes(tw, dT);
+            // THE LANES THE TRAFFIC USES (MapStraight's: a lane that runs on within 2 m): the
+            // arriving lanes that run on into the two-way, the leaving lanes the two-way's flow
+            // runs on into (North Tryon's e15469 has three lanes and North Church's e8228 two, one
+            // each is driven - the others lie over each other); none found, all of them
+            int dF = T.a == n ? 1 : -1, nF = Lanes(tw, dF);
+            float sF = dF > 0 ? Back(T, n) : T.length - Back(T, n);
+            var usedA = new bool[nA];
+            bool anyA = false;
+            for (int i = 0; i < nA; i++)
+            {
+                if (LaneWidth(A, 1, i, aEnd) < 2f) continue;
+                for (int j = 0; j < nF && !usedA[i]; j++)
+                    if (LaneWidth(T, dF, j, sF) >= 2f && LaneJump(A, 1, i, aEnd, T, dF, j, sF, n) <= 2f) usedA[i] = true;
+                anyA |= usedA[i];
+            }
+            if (!anyA) for (int i = 0; i < nA; i++) usedA[i] = LaneWidth(A, 1, i, aEnd) >= 2f;
+            var usedO = new bool[nO];
+            var pair = new bool[nT, nO];
+            bool anyO = false;
+            for (int t = 0; t < nT; t++)
+                for (int j = 0; j < nO; j++)
+                    if (LaneWidth(T, dT, t, tEnd) >= 2f && LaneWidth(O, 1, j, oStart) >= 2f && LaneJump(T, dT, t, tEnd, O, 1, j, oStart, n) <= 2f)
+                    { pair[t, j] = true; usedO[j] = true; anyO = true; }
+            if (!anyO) for (int t = 0; t < nT; t++) for (int j = 0; j < nO; j++) { pair[t, j] = true; usedO[j] = true; }
+            const float hl = 2.4f, hw = 1.0f, pad = 0.35f;
+            var pts = new System.Collections.Generic.List<Vector2>();
+            var dirs = new System.Collections.Generic.List<Vector2>();
+            for (int j = 0; j < nO; j++)
+            {
+                if (!usedO[j]) continue;
+                for (float x = 0f; x <= 20f && oStart + x <= O.length; x += 1f)
+                { pts.Add(LanePos(O, 1, j, oStart + x)); dirs.Add(TravelTan(O, 1, oStart + x)); }
+                Vector2 q = LanePos(O, 1, j, oStart);
+                for (int t = 0; t < nT; t++)
+                {
+                    if (!pair[t, j]) continue;
+                    Vector2 p0 = LanePos(T, dT, t, tEnd), seg = q - p0;
+                    if (seg.sqrMagnitude < 0.01f) continue;
+                    for (int k = 0; k <= 6; k++) { pts.Add(p0 + seg * (k / 6f)); dirs.Add(seg.normalized); }
+                }
+            }
+            bool Clear(float s)
+            {
+                float sc = Mathf.Max(0f, s - hl);
+                for (int i = 0; i < nA; i++)
+                {
+                    if (!usedA[i]) continue;
+                    Vector2 c = LanePos(A, 1, i, sc), f = TravelTan(A, 1, sc);
+                    for (int k = 0; k < pts.Count; k++)
+                        if ((pts[k] - c).sqrMagnitude < 64f && RectDepth(c, f, hl + pad, hw + pad, pts[k], dirs[k], hl, hw) > 0f) return false;
+                }
+                return true;
+            }
+            if (Clear(aEnd)) { tightWhy[n] = "clear at its lane end"; return false; }   // a split as drawn
+            // a THROAT: clear a few metres back (the carriageways part there); two carriageways
+            // laid within a body of each other for longer are a road of their own, not this
+            for (float back = 0.5f; back <= TightBackM; back += 0.5f)
+                if (aEnd - back > 1f && Clear(aEnd - back)) { sHold = aEnd - back; tightWhy[n] = $"tight: clear {back:0.0} m back of its lane end"; return true; }
+            tightWhy[n] = $"no clear place within {TightBackM:0} m";
+            return false;
+        }
+
+        /// <summary>Why TightSplit decided as it did, per split-shaped node (the trace's facts).</summary>
+        readonly System.Collections.Generic.Dictionary<int, string> tightWhy = new System.Collections.Generic.Dictionary<int, string>();
+
+        /// <summary>How far back of its lane end a tight split's arriving carriageway may be held.</summary>
+        const float TightBackM = 12f;
+
+        /// <summary>A node in a split's shape whatever its names and classes: three arms, a
+        /// two-way, a one-way arriving and a one-way leaving, both one-ways on the two-way's far
+        /// side (within 60 degrees of its line).</summary>
+        bool SplitShape(int n, out int tw, out int ia, out int oa)
+        {
+            tw = ia = oa = -1;
+            int arms = 0;
+            foreach (int ei in map.nodeEdges[n])
+            {
+                var e = map.edges[ei];
+                if (e.a == e.b || !routable[ei]) continue;
+                arms++;
+                if (!e.oneway) { if (tw >= 0) return false; tw = ei; }
+                else if (e.b == n) { if (ia >= 0) return false; ia = ei; }
+                else { if (oa >= 0) return false; oa = ei; }
+            }
+            if (arms != 3 || tw < 0 || ia < 0 || oa < 0) return false;
+            Vector2 back = -ArmOut(map.edges[tw], n);
+            return Vector2.Angle(ArmOut(map.edges[ia], n), back) < 60f && Vector2.Angle(ArmOut(map.edges[oa], n), back) < 60f;
         }
 
         /// <summary>Is node n a junction box (three roads or more, not a
         /// carriageway split, not a mitred bend)?</summary>
-        bool IsBox(int n) => degree[n] >= 3 && !splitNode[n] && !trims.mitre[n];
+        bool IsBox(int n) => degree[n] >= 3 && !splitNode[n] && (!trims.mitre[n] || (tightSplit != null && tightSplit[n]));
 
         /// <summary>
         /// DON'T BLOCK THE BOX: should the car hold short of the junction at
