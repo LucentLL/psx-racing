@@ -872,9 +872,14 @@ namespace PSXRacing.City
             // the drawn pavement of this tile decides; the map only within 3 m
             // of the tile's border, where the pavement under may be the next
             // tile's (North Tryon Street under the ramp e2382, 1.4 m over it)
-            float T = TileSize;
-            bool nearBorder = M.x < 3f || M.z < 3f || M.x > T - 3f || M.z > T - 3f;
+            // (round 11, SKIRTPAVE) ...within a section spacing of it: the next tile's ribbon quad
+            // reaches that far past the border (North Tryon Street e14645 s 118-123, drawn by tile
+            // -6,21, ran 4.3 m into tile -7,21 under the E 12th St ramps' sheet - which got a 6.6 m
+            // face down into the lane, round 10's INVISIBLE lane)
+            float T = TileSize, mB = R11SkirtPaveOn ? R11SkirtBorderM : 3f;
+            bool nearBorder = M.x < mB || M.z < mB || M.x > T - mB || M.z > T - mB;
             if (float.IsNegativeInfinity(under) && !nearBorder) return false;
+            bool past3 = float.IsNegativeInfinity(under) && !(M.x < 3f || M.z < 3f || M.x > T - 3f || M.z > T - 3f);
             float lane = float.NegativeInfinity;
             for (int k = 0; k <= 2; k++)
             {
@@ -884,6 +889,7 @@ namespace PSXRacing.City
             // over a shoulder, a fan, a gore - not a lane: the face stands
             // where a retaining face would
             if (float.IsNegativeInfinity(lane)) return false;
+            if (past3) R11SkirtBorderEdges++;
             float dk = Mathf.Min(CityElevation.DeckThick, Mathf.Min(A.y, B.y) - lane - CarClearM);
             if (dk > 0.05f)
             {

@@ -124,23 +124,28 @@ namespace PSXRacing.City
 
         // ------------------------------------------------------------------
         //  SKIRTPAVE (round 10's INVISIBLE lane at North Tryon Street e14645
-        //  s ~118, under the E 12th St bridge and its ramps): the skirt pass
+        //  s ~121, under the E 12th St bridge and its ramps): the skirt pass
         //  closes a sheet's open edge with a face straight down to the land,
-        //  except over another road's LANES (OverRoad: a fascia instead). The
-        //  lanes it asks are the map's designed lanes; North Tryon's left side
-        //  there is drawn 9.4 m wide (an added lane), so a ground sheet at the
-        //  ramps' level (134.67 m) over that lane counted as over a shoulder and
-        //  got a 6.6 m concrete face from 128.06 m up - in the Roads collider,
-        //  one face of it drawn toward the route, the other side not: the probe's
-        //  triangle (Roads/Concrete, untapped, normal (-0.66, 0, -0.75)). Now the
-        //  lanes OverRoad asks include what the line model draws beyond the
+        //  except over another road (OverRoad: a fascia instead). OverRoad asks
+        //  the tile's OWN drawn pavement first, and the map's lanes only within
+        //  3 m of the tile's border, where the pavement under may be the next
+        //  tile's. North Tryon's ribbon quad there (s 117-123) is drawn by tile
+        //  -6,21 and reaches 4.3 m into tile -7,21, under the ramps' sheet
+        //  (134.67 m) - past the 3 m, so tile -7,21 found no pavement under the
+        //  sheet's edge and closed it with a 6.6 m concrete face from 128.06 m
+        //  up, in N Tryon's left lane: in the Roads collider, drawn toward one
+        //  side only (the probe's triangle: Roads / Concrete, untapped, normal
+        //  (-0.66, 0, -0.75)). Now the map's lanes are asked within a section
+        //  spacing of the border (R11SkirtBorderM: a neighbour's quad reaches
+        //  that far), and they include what the line model draws beyond the
         //  designed lanes, less a shoulder's metre (R11SkirtShoulderM): such a
         //  sheet edge takes the fascia. PSX_CITY_R11_SKIRTPAVE=0: before.
         // ------------------------------------------------------------------
         public static bool R11SkirtPaveOn = System.Environment.GetEnvironmentVariable("PSX_CITY_R11_SKIRTPAVE") != "0";
-        public const float R11SkirtShoulderM = 1.0f;
-        /// <summary>(SKIRTPAVE) lane hits only the drawn extent gave, tile builds since load.</summary>
-        public static int R11SkirtPaveFascias;
+        public const float R11SkirtShoulderM = 1.0f, R11SkirtBorderM = 12f;
+        /// <summary>(SKIRTPAVE) lane hits only the drawn extent gave; open edges that took a fascia
+        /// from the map's lanes 3-12 m inside a tile's border - tile builds since load.</summary>
+        public static int R11SkirtPaveFascias, R11SkirtBorderEdges;
 
         // ------------------------------------------------------------------
         //  MITREPOKE: a branch's last metres over the OTHER through arm.
