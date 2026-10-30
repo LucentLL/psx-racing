@@ -262,6 +262,7 @@ namespace PSXRacing.EditorTools
                     var root = new GameObject(CityStations.CanopyPrefab + n);
                     made.Add(root);
                     var shellPieces = new List<CityPropBaker.Piece>();
+                    var farShellPieces = new List<CityPropBaker.Piece>();   // the far box: roof and legs only
                     var nearPumps = new List<CityPropBaker.Piece>();
                     var farPumps = new List<CityPropBaker.Piece>();
                     int triggers = 0, solids = 0;
@@ -269,6 +270,7 @@ namespace PSXRacing.EditorTools
                     {
                         var shift = new Vector3((k - 0.5f * (n - 1)) * W, 0f, 0f);
                         shellPieces.AddRange(Pieces(canopy, r => true, shift));
+                        farShellPieces.AddRange(Pieces(canopy, r => r == ceiling || Starts(r.name, "Pillar"), shift));
                         var M = Matrix4x4.Translate(shift) * canopy.ToLocal;
                         foreach (var p in pumps)
                         {
@@ -326,9 +328,11 @@ namespace PSXRacing.EditorTools
                     var shellR = MergedRenderer(root, "Shell", shellPieces, texes, atlasMat, StationPrefabDir + "/" + root.name + "_shell.asset");
                     var nearR = MergedRenderer(root, "Pumps", nearPumps, null, null, StationPrefabDir + "/" + root.name + "_pumps.asset");
                     var farR = farPumps.Count > 0 ? MergedRenderer(root, "PumpsFar", farPumps, null, null, StationPrefabDir + "/" + root.name + "_pumpsfar.asset") : null;
-                    StationLods(root, (new Renderer[] { shellR, nearR }, PumpNearM), (farR != null ? new Renderer[] { shellR, farR } : new Renderer[] { shellR, nearR }, PumpFarM), (new Renderer[] { shellR }, StationFarM));
+                    var boxR = MergedRenderer(root, "ShellFar", farShellPieces, texes, atlasMat, StationPrefabDir + "/" + root.name + "_far.asset");
+                    StationLods(root, (new Renderer[] { shellR, nearR }, PumpNearM), (farR != null ? new Renderer[] { shellR, farR } : new Renderer[] { shellR, nearR }, PumpFarM),
+                                (new Renderer[] { boxR ?? shellR }, StationFarM));
                     SaveStationPrefab(root, report, $"{n} module(s): {triggers} pumps, {solids} boxes, {4 * n} lights, " +
-                        $"{TrisOf(shellR)} + {TrisOf(nearR)} tris near ({TrisOf(farR)} pumps far)");
+                        $"{TrisOf(shellR)} + {TrisOf(nearR)} tris near, {TrisOf(shellR)} + {TrisOf(farR)} to {PumpFarM:0} m, {TrisOf(boxR)} to {StationFarM:0} m");
                 }
 
                 // ---- THE SHOP: its outside; the badge on its own renderer; glass lit
@@ -337,6 +341,10 @@ namespace PSXRacing.EditorTools
                     made.Add(root);
                     var shellR = MergedRenderer(root, "Shell", Pieces(shop, r => !HasBadge(r, Badge), Vector3.zero), texes, atlasMat, StationPrefabDir + "/StationShop_shell.asset");
                     var badgeR = MergedRenderer(root, "Badge", Pieces(shop, r => HasBadge(r, Badge), Vector3.zero), null, null, StationPrefabDir + "/StationShop_badge.asset");
+                    // the far box: the walls, the roof and the glass (lit at night: a
+                    // forecourt's shop window is the strip's light from afar)
+                    var farR = MergedRenderer(root, "ShellFar", Pieces(shop, r => r == shell || r.name == "6twelve.003" || glassSlots.ContainsKey(r), Vector3.zero),
+                                              texes, atlasMat, StationPrefabDir + "/StationShop_far.asset");
                     var lb = TransformedBounds(shop.ToLocal, sb);
                     AddBox(root, "ShopSolid", lb.center, lb.size, SolidLayer);
                     // the door marker: 1.4 m out from the front door, at eye height
@@ -345,8 +353,9 @@ namespace PSXRacing.EditorTools
                     door.transform.SetParent(root.transform, false);
                     door.transform.localPosition = new Vector3(doorX, 1.2f, lb.min.z - 1.4f);
                     door.AddComponent<PSXRacing.OnFoot.StoreDoor>();
-                    StationLods(root, (new Renderer[] { shellR, badgeR }, PumpFarM), (new Renderer[] { shellR }, StationFarM));
-                    SaveStationPrefab(root, report, $"front door {(frontDoor != null ? frontDoor.name : "NOT FOUND (door marker at the front's middle)")}, {TrisOf(shellR)} + {TrisOf(badgeR)} tris");
+                    StationLods(root, (new Renderer[] { shellR, badgeR }, PumpFarM), (new Renderer[] { farR ?? shellR }, StationFarM));
+                    SaveStationPrefab(root, report, $"front door {(frontDoor != null ? frontDoor.name : "NOT FOUND (door marker at the front's middle)")}, " +
+                        $"{TrisOf(shellR)} + {TrisOf(badgeR)} tris to {PumpFarM:0} m, {TrisOf(farR)} to {StationFarM:0} m");
                 }
                 // ---- THE RESTROOMS, THE DUMPSTER, THE PYLON
                 foreach (var (part, name, keepM, box) in new[]

@@ -1,4 +1,4 @@
-# HANDOFF - CITY FUEL round 1, PHASE A (2026-10-30): filling stations where the real ones are - the data, the brand-free art, the plan
+# HANDOFF - CITY FUEL round 1, PHASE A + PHASE B code (2026-10-30): filling stations where the real ones are
 
 Branch `city-fuel-r1` (worktree `C:\Users\mcgee\PSX Racing-fuel`, off integration-1030b 82c83a3c = main d73ca5bd +
 heights r11 + junctions r3d). No Unity run (PHASE A); PHASE B needs a sandbox. Full write-up: Docs/CHARLOTTE.md
@@ -17,6 +17,13 @@ heights r11 + junctions r3d). No Unity run (PHASE A); PHASE B needs a sandbox. F
   ForecourtMode, LifeHomeScreen). Typecheck OK.
 - NOT YET (PHASE B): nothing in the game reads charlotte_fuel.bytes, so until it lands the city's fuel businesses show
   NO sign (their cabinets are gone from the data). Merge PHASE A only together with PHASE B.
+- PHASE B CODE (2026-10-30, no sandbox yet; typecheck OK, offline C# harness OK): `CityStations.cs` installs the
+  stations into the map at parse (lots, curb cuts, holes, replaced boxes, pads, claims); `PSXRacingBuilder.Stations.cs`
+  bakes the part prefabs (canopy turned a quarter, LODs, boxes, pump volumes, door, 90s lights); CityWorld stands a
+  station a frame; GasPump/StoreDoor registries, ForecourtMode in Charlotte; SpawnStation stands ONE layout (the
+  double stack's cause: Gas_station_Props.fbx is a second copy; the town/circuit stations grow ~a fifth to 2.2 m
+  pumps); the name in ONE place (StationBrand.cs); `tools/city/regen_city.mjs` = export -> stations -> signs, and
+  `stations.mjs --check` exits 3 on a stale stamp. UNITY JOBS STILL NEEDED: Docs/CHARLOTTE.md "PHASE B, the code".
 
 # HANDOFF - REAL HEIGHTS round 11 (2026-10-30): the city-wide launches by class; round 10's leftovers
 

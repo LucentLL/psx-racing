@@ -545,6 +545,7 @@ namespace PSXRacing.City
             var holes = new List<Vector2[]>();
             if (map.footprints.Length == 0) return holes;
             var lb = BoxOf(st.lotRing);
+            float reach = 0.5f * Mathf.Sqrt(st.lotW * st.lotW + st.lotD * st.lotD);
             int tx0 = Mathf.FloorToInt((lb.x - 80f) / CityMeshes.TileSize), tx1 = Mathf.FloorToInt((lb.z + 80f) / CityMeshes.TileSize);
             int tz0 = Mathf.FloorToInt((lb.y - 80f) / CityMeshes.TileSize), tz1 = Mathf.FloorToInt((lb.w + 80f) / CityMeshes.TileSize);
             for (int tz = tz0; tz <= tz1; tz++)
@@ -556,6 +557,8 @@ namespace PSXRacing.City
                     {
                         var f = map.footprints[fi];
                         if (f.replaced || f.part || f.pts == null || f.pts.Length < 3) continue;
+                        float fr = reach + f.hu + f.hv;   // (the OBB's half sides bound its reach)
+                        if ((f.centre - st.centre).sqrMagnitude > fr * fr) continue;
                         var ring = f.gable ? ObbRing(f) : f.pts;
                         if (!Meets(BoxOf(ring), lb) || !Overlaps(ring, st.lotRing)) continue;
                         holes.Add(ring);
