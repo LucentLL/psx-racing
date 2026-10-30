@@ -65,9 +65,10 @@ namespace PSXRacing.EditorTools
                         var sb = new StringBuilder();
                         var trims = CityMeshes.NodeTrims(map);
                         var buildings = CityBuildings.Precompute(map);
-                        sb.AppendLine($"R11 PROBE ({(on ? "round 11 ON" : "round 11 OFF")})");
+                        sb.AppendLine($"R11 PROBE ({(on ? "round 11 ON" : "round 11 OFF")}); {CityElevation.R11Report}");
                         Faces(map, trims, buildings, sb);
                         RailTrace(map, trims, buildings, sb);
+                        AtEdgesNodes(map, trims, sb);
                         File.WriteAllText(Path.Combine(Root, "r11_probe" + sfx + ".txt"), sb.ToString());
                     }
                     catch (System.Exception ex) { Debug.LogWarning("[R11] probe: " + ex); }
@@ -172,36 +173,48 @@ namespace PSXRacing.EditorTools
                 Faces(map, trims, buildings, sb);
                 RailTrace(map, trims, buildings, sb);
                 sb.AppendLine($"  tile-build counters since load: GORESTART rail starts turned down {CityMeshes.R11GoreStarts}, GOREFAN gore samples left to fans {CityMeshes.R11GoreFanSkips}, MITREPOKE vertices down {CityMeshes.R11PokeSnaps}, SPILLUNDER ground samples held {CityElevation.R11SpillUnderHits}");
-                // PSX_R11_AT="edge:s:lat;...": the world point at arc s, lat m to the LEFT of the edge's travel
-                // (+ = left), its land (with the term that set it) and the drawn 8 m lattice there
-                foreach (var t in (System.Environment.GetEnvironmentVariable("PSX_R11_AT") ?? "").Split(';'))
-                {
-                    var f = t.Split(':');
-                    if (f.Length < 3 || !int.TryParse(f[0].Trim().TrimStart('e'), out int ei) || ei < 0 || ei >= map.edges.Length) continue;
-                    var e = map.edges[ei];
-                    float s = float.Parse(f[1], ci), lat = float.Parse(f[2], ci);
-                    var tn = e.TangentAt(s);
-                    var p = e.PointAt(s) + new Vector2(-tn.y, tn.x) * lat;
-                    float g = CityElevation.Ground(map, p.x, p.y, out var gt);
-                    sb.AppendLine($"AT e{ei} s {s:0.0} lat {lat:+0.0;-0.0}: ({p.x:0.00},{p.y:0.00}) road y {e.YAt(s):0.00}{(e.ElevatedAt(s) ? " ELEV" : "")} land {g:0.00} lattice {CityMeshes.LatticeAt(map, p.x, p.y):0.00} (dem {gt.dem:0.00} floor {gt.floor:0.00} e{gt.floorEdge} cut {gt.cut:0.00} cap {gt.protect:0.00} e{gt.protectEdge} deckCap {gt.deckCap:0.00} deckProt {gt.deckProtect:0.00} e{gt.deckEdge} channel {gt.channel:0.00})");
-                }
-                foreach (var t in (System.Environment.GetEnvironmentVariable("PSX_R11_EDGES") ?? "").Split(','))
-                {
-                    if (!int.TryParse(t.Trim().TrimStart('e'), out int ei) || ei < 0 || ei >= map.edges.Length) continue;
-                    var e = map.edges[ei];
-                    var st = new StringBuilder();
-                    for (int i = 0; i < e.stS.Length; i++) st.Append($" {e.stS[i]:0.0}:{e.stY[i]:0.00}{(e.stElev[i] ? "d" : "")}{(e.SeatedAt(i) ? "s" : "")}");
-                    sb.AppendLine($"EDGE e{ei} '{e.name}'{(e.link ? " L" : "")} cls{e.cls} len {e.length:0.0} w {e.width:0.0} oneway {e.oneway} a=n{e.a} b=n{e.b} trims {trims.atA[ei]:0.0}/{trims.atB[ei]:0.0} branch a e{trims.branchA[ei]} b e{trims.branchB[ei]}");
-                    sb.AppendLine("  stations" + st);
-                    sb.Append(CityMeshes.DescribeSections(map, trims, e));
-                    sb.AppendLine("  node a: " + CityMeshes.DescribeNode(map, trims, e.a));
-                    sb.AppendLine("  node b: " + CityMeshes.DescribeNode(map, trims, e.b));
-                }
+                AtEdgesNodes(map, trims, sb);
             }
             catch (System.Exception ex) { sb.AppendLine("THREW " + ex); Debug.LogException(ex); }
             File.WriteAllText(Path.Combine(Root, "r11_probe.txt"), sb.ToString());
             Debug.Log("[R11] probe done");
             if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        /// <summary>PSX_R11_AT ("edge:s:lat;..." the world point at arc s, lat m to the LEFT of the edge's
+        /// travel: its land with the term that set it, and the drawn 8 m lattice), PSX_R11_EDGES ("e1,e2":
+        /// stations, drawn sections, both nodes) and PSX_R11_NODES ("n1,n2": the node, its fan ring and
+        /// Steiner points).</summary>
+        static void AtEdgesNodes(CityMap map, CityMeshes.Trims trims, StringBuilder sb)
+        {
+            foreach (var t in (System.Environment.GetEnvironmentVariable("PSX_R11_AT") ?? "").Split(';'))
+            {
+                var f = t.Split(':');
+                if (f.Length < 3 || !int.TryParse(f[0].Trim().TrimStart('e'), out int ei) || ei < 0 || ei >= map.edges.Length) continue;
+                var e = map.edges[ei];
+                float s = float.Parse(f[1], ci), lat = float.Parse(f[2], ci);
+                var tn = e.TangentAt(s);
+                var p = e.PointAt(s) + new Vector2(-tn.y, tn.x) * lat;
+                float g = CityElevation.Ground(map, p.x, p.y, out var gt);
+                sb.AppendLine($"AT e{ei} s {s:0.0} lat {lat:+0.0;-0.0}: ({p.x:0.00},{p.y:0.00}) road y {e.YAt(s):0.00}{(e.ElevatedAt(s) ? " ELEV" : "")} land {g:0.00} lattice {CityMeshes.LatticeAt(map, p.x, p.y):0.00} (dem {gt.dem:0.00} floor {gt.floor:0.00} e{gt.floorEdge} cut {gt.cut:0.00} cap {gt.protect:0.00} e{gt.protectEdge} deckCap {gt.deckCap:0.00} deckProt {gt.deckProtect:0.00} e{gt.deckEdge} channel {gt.channel:0.00})");
+            }
+            foreach (var t in (System.Environment.GetEnvironmentVariable("PSX_R11_EDGES") ?? "").Split(','))
+            {
+                if (!int.TryParse(t.Trim().TrimStart('e'), out int ei) || ei < 0 || ei >= map.edges.Length) continue;
+                var e = map.edges[ei];
+                var st = new StringBuilder();
+                for (int i = 0; i < e.stS.Length; i++) st.Append($" {e.stS[i]:0.0}:{e.stY[i]:0.00}{(e.stElev[i] ? "d" : "")}{(e.SeatedAt(i) ? "s" : "")}");
+                sb.AppendLine($"EDGE e{ei} '{e.name}'{(e.link ? " L" : "")} cls{e.cls} len {e.length:0.0} w {e.width:0.0} oneway {e.oneway} a=n{e.a} b=n{e.b} trims {trims.atA[ei]:0.0}/{trims.atB[ei]:0.0} branch a e{trims.branchA[ei]} b e{trims.branchB[ei]}");
+                sb.AppendLine("  stations" + st);
+                sb.Append(CityMeshes.DescribeSections(map, trims, e));
+                sb.AppendLine("  node a: " + CityMeshes.DescribeNode(map, trims, e.a));
+                sb.AppendLine("  node b: " + CityMeshes.DescribeNode(map, trims, e.b));
+            }
+            foreach (var t in (System.Environment.GetEnvironmentVariable("PSX_R11_NODES") ?? "").Split(','))
+            {
+                if (!int.TryParse(t.Trim().TrimStart('n'), out int n) || n < 0 || n >= map.nodes.Length) continue;
+                sb.AppendLine("NODE " + CityMeshes.DescribeNode(map, trims, n) + CityMeshes.R11FanPoints(map, trims, n));
+            }
         }
 
         // ---- faces: which drawn triangle stands at a point, and what drew it -------------
