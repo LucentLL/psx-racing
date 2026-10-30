@@ -70,16 +70,37 @@ namespace PSXRacing.EditorTools
                 Phase("town after", () => TownShots(town, "after"));
                 Phase("circuits", Circuits);
                 Phase("charlotte", Charlotte);
-                Phase("drive audit", () =>
-                {
-                    CityAudit.RunDrive();
-                    var f = Path.Combine(Root, "city_drive.txt");
-                    if (!File.Exists(f)) { R("drive audit: no city_drive.txt"); return; }
-                    foreach (var l in File.ReadAllLines(f))
-                        if (l.Contains("FAIL") || l.Contains("ok   ") || l.StartsWith("drive audit")) R("  drive: " + l.Trim());
-                });
+                Phase("drive audit", DriveAudit);
             }
             finally { Save(); }
+        }
+
+        /// <summary>The stations' parts baked again (BakeCityStations: the
+        /// solids fitted to what is drawn) and the drive audit on them, in one
+        /// Unity run (PSX_DRIVE_ROUTES picks its routes).</summary>
+        public static void BakeAndDrive()
+        {
+            rep = new StringBuilder("==== BakeAndDrive " + DateTime.Now.ToString("s") + "\n");
+            try
+            {
+                bool ok = true;
+                Phase("stations bake", () =>
+                {
+                    foreach (var l in PSXRacingBuilder.BakeCityStations()) { R("  bake: " + l); if (l.StartsWith("FAILED")) ok = false; }
+                });
+                if (ok) Phase("drive audit", DriveAudit);
+                else R("stations bake FAILED: no drive audit");
+            }
+            finally { Save(); }
+        }
+
+        static void DriveAudit()
+        {
+            CityAudit.RunDrive();
+            var f = Path.Combine(Root, "city_drive.txt");
+            if (!File.Exists(f)) { R("drive audit: no city_drive.txt"); return; }
+            foreach (var l in File.ReadAllLines(f))
+                if (l.Contains("FAIL") || l.Contains("ok   ") || l.StartsWith("drive audit") || l.Contains("SOLIDS:")) R("  drive: " + l.Trim());
         }
 
         // ---- the town ----------------------------------------------------

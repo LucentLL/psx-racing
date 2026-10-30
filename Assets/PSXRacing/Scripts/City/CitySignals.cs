@@ -821,8 +821,12 @@ namespace PSXRacing.City
         {
             public int tx, tz;
             public Mesh mesh, lamps, halos;
-            /// <summary>Signal poles (solid), world: foot and top.</summary>
-            public readonly List<(Vector3 foot, float top)> poles = new List<(Vector3, float)>();
+            /// <summary>Signal poles (solid), world: foot, top and the box's
+            /// width, the drawn post's (city fuel r1: the drive audit's
+            /// INVISIBLE COLLIDERS: solids met 750 pedestal boxes 0.36 m wide
+            /// round a 0.115 m post, 12 cm off every face; a pedestal is now
+            /// its post's box and its cast base's).</summary>
+            public readonly List<(Vector3 foot, float top, float w)> poles = new List<(Vector3, float, float)>();
             public readonly List<Head> heads = new List<Head>();
             public readonly List<Stop> stops = new List<Stop>();
             public int junctions, signalJunctions, mastArms, spanWires, stopBars, refused;
@@ -1393,7 +1397,8 @@ namespace PSXRacing.City
             Box(new Vector3(foot.x, (y0 + b1) * 0.5f, foot.y), across * (SigBaseW * 0.5f), Vector3.up * ((b1 - y0) * 0.5f), face * (SigBaseW * 0.5f), CellMetal, true);
             // the slip fitter under the housing
             Box(new Vector3(foot.x, bottom - 0.05f, foot.y), across * 0.06f, Vector3.up * 0.05f, face * 0.06f, CellBlack, false);
-            st.poles.Add((new Vector3(foot.x, y0, foot.y), y1));
+            st.poles.Add((new Vector3(foot.x, y0, foot.y), y1, SigPostW));
+            st.poles.Add((new Vector3(foot.x, y0, foot.y), b1, SigBaseW));
             Claim(foot, SigBaseW * 0.5f);
             EmitHead(new Vector3(foot.x, bottom + HeadH * 0.5f, foot.y), a, st);
         }
@@ -1661,7 +1666,7 @@ namespace PSXRacing.City
             var f3 = new Vector3(foot.x, g - FootSinkM, foot.y);
             var u3 = new Vector3(a.u.x, 0f, a.u.y); var r3 = new Vector3(r.x, 0f, r.y);
             Box(new Vector3(foot.x, (f3.y + top) * 0.5f, foot.y), r3 * (PoleW * 0.5f), Vector3.up * ((top - f3.y) * 0.5f), u3 * (PoleW * 0.5f), CellMetal, true);
-            st.poles.Add((f3, top));
+            st.poles.Add((f3, top, PoleColliderW));
             // the arm, out over the lanes
             float armL = reach + 0.4f;
             var armMid = new Vector3(foot.x, armY, foot.y) - r3 * (armL * 0.5f);
@@ -1725,7 +1730,7 @@ namespace PSXRacing.City
                         float g = Ground(P);
                         var f3 = new Vector3(P.x, g - FootSinkM, P.y);
                         Box(new Vector3(P.x, (f3.y + top) * 0.5f, P.y), Vector3.right * (PoleW * 0.5f), Vector3.up * ((top - f3.y) * 0.5f), Vector3.forward * (PoleW * 0.5f), CellMetal, true);
-                        st.poles.Add((f3, top));
+                        st.poles.Add((f3, top, PoleColliderW));
                         Claim(P, PoleW);
                     }
                     var wa = new Vector3(A.x, attach, A.y); var wb = new Vector3(B.x, attach, B.y);
@@ -1981,11 +1986,11 @@ namespace PSXRacing.City
                 var c = new GameObject(CitySigns.PostName) { layer = CityWorld.SolidLayer };
                 c.transform.SetParent(root.transform, false);
                 var origin = root.transform.position;
-                foreach (var (foot, top) in st.poles)
+                foreach (var (foot, top, w) in st.poles)
                 {
                     var bc = c.AddComponent<BoxCollider>();
                     bc.center = new Vector3(foot.x, (foot.y + top) * 0.5f, foot.z) - origin;
-                    bc.size = new Vector3(PoleColliderW, top - foot.y, PoleColliderW);
+                    bc.size = new Vector3(w, top - foot.y, w);
                 }
             }
             return meshes;

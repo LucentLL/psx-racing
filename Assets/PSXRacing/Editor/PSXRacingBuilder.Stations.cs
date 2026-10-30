@@ -82,6 +82,7 @@ namespace PSXRacing.EditorTools
         {
             if (log == null) log = new System.Text.StringBuilder();
             var report = new List<string>();
+            var fits = new List<string>();   // FitSolid's line per box
             GameObject src = null, props = null;
             var made = new List<GameObject>();
             try
@@ -281,6 +282,7 @@ namespace PSXRacing.EditorTools
                         var M = Matrix4x4.Translate(shift) * canopy.ToLocal;
                         foreach (var p in pumps)
                         {
+                            int own = nearPumps.Count;   // this pump's pieces start here
                             foreach (var r in p.GetComponentsInChildren<MeshRenderer>(false))
                                 nearPumps.Add(new CityPropBaker.Piece { r = r, mesh = r.GetComponent<MeshFilter>().sharedMesh, toRoot = M * r.transform.localToWorldMatrix, mats = r.sharedMaterials });
                             var pb = CombinedBounds(p.gameObject);
@@ -296,8 +298,9 @@ namespace PSXRacing.EditorTools
                                 farPumps.Add(new CityPropBaker.Piece { r = farPump, mesh = farPump.GetComponent<MeshFilter>().sharedMesh, toRoot = M * farM, mats = new[] { pumpMat ?? farPump.sharedMaterial } });
                                 bodyB = TransformedBounds(farM * farPump.transform.worldToLocalMatrix, lb);   // the body, no hoses
                             }
-                            // its solid body and its fuelling volume, in the canopy's frame
-                            var localBody = TransformedBounds(M, bodyB);
+                            // its solid body (fitted to the pump as drawn: FitSolid) and
+                            // its fuelling volume, in the canopy's frame
+                            var localBody = FitSolid(TransformedBounds(M, bodyB), nearPumps.GetRange(own, nearPumps.Count - own), "pump", fits);
                             AddBox(root, "PumpSolid", localBody.center, localBody.size, SolidLayer);
                             solids++;
                             var vol = new GameObject("Pump");
@@ -360,6 +363,8 @@ namespace PSXRacing.EditorTools
                         float glassZ = shop.ToLocal.MultiplyPoint3x4(frontDoor.bounds.center).z;
                         if (glassZ > lb.min.z && glassZ < lb.center.z) lb.SetMinMax(new Vector3(lb.min.x, lb.min.y, glassZ), lb.max);
                     }
+                    // its sides and back on the walls, not out at the roof's eaves
+                    lb = FitSolid(lb, Pieces(shop, x => true, Vector3.zero), "shop", fits);
                     AddBox(root, "ShopSolid", lb.center, lb.size, SolidLayer);
                     // the door marker: 1.4 m out from the front door, at eye height
                     float doorX = frontDoor != null ? shop.ToLocal.MultiplyPoint3x4(frontDoor.bounds.center).x : 0f;
@@ -384,10 +389,15 @@ namespace PSXRacing.EditorTools
                     bool own = part == sign;   // the pylon keeps its night material
                     var r = MergedRenderer(root, "Shell", Pieces(part, x => true, Vector3.zero), own ? null : texes, own ? null : atlasMat, StationPrefabDir + "/" + name + "_shell.asset");
                     var lb = TransformedBounds(part.ToLocal, box);
+                    if (part == wc) lb = FitSolid(lb, Pieces(part, x => true, Vector3.zero), "restrooms", fits);   // on its walls, not its eaves
                     AddBox(root, "Solid", lb.center, lb.size, SolidLayer);
                     StationLods(root, (new Renderer[] { r }, keepM));
                     SaveStationPrefab(root, report, $"{TrisOf(r)} tris, kept to {keepM:0} m");
                 }
+                // the solids as fitted, one line a kind (a canopy's pumps alike)
+                var fitCount = new Dictionary<string, int>();
+                foreach (var f in fits) { fitCount.TryGetValue(f, out int k); fitCount[f] = k + 1; }
+                foreach (var kv in fitCount) report.Add($"solid fit: {kv.Key}{(kv.Value > 1 ? $" (x{kv.Value})" : "")}");
                 AssetDatabase.SaveAssets();
                 if (!partsOk) report.Add("FAILED: a part does not match CityStations' table - the stations would stand on lots sized for another model");
             }
@@ -459,6 +469,124 @@ namespace PSXRacing.EditorTools
             for (int i = 0; i < 8; i++)
                 o.Encapsulate(M.MultiplyPoint3x4(new Vector3((i & 1) == 0 ? b.min.x : b.max.x, (i & 2) == 0 ? b.min.y : b.max.y, (i & 4) == 0 ? b.min.z : b.max.z)));
             return o;
+        }
+
+        /// <summary>
+        /// A SOLID ON WHAT IS DRAWN (city fuel r1; the drive audit's INVISIBLE
+        /// COLLIDERS: solids samples the middle of each side face of a box, and
+        /// wants a drawn face within 5 cm). <paramref name="box"/>, in the
+        /// part's frame, with each side face moved to the OUTERMOST drawn face a
+        /// level ray from the box's middle meets inside the box (+ 5 cm): the
+        /// walls, not a roof's eaves above them; the pump's body, not its hoses
+        /// beyond the hose-less pump's box. The rays run at the box's middle
+        /// height, or where that line crosses an opening (the pack's pump has a
+        /// slot through it at half its height) at the nearest height below
+        /// where all four meet a face and the four face middles verify within
+        /// 3.5 cm of a drawn triangle; the box then reaches as far under the
+        /// floor as keeps that height its middle (its top stays the part's top;
+        /// below the floor is solid ground anyway). The box as given, and a
+        /// NOTE, when no height verifies. Boxes only: nothing is cooked.
+        /// </summary>
+        static Bounds FitSolid(Bounds box, List<CityPropBaker.Piece> drawn, string what, List<string> fits)
+        {
+            var T = new List<Vector3>();
+            var reach = box; reach.Expand(1f);
+            foreach (var pc in drawn)
+            {
+                if (pc.mesh == null) continue;
+                using (var arr = Mesh.AcquireReadOnlyMeshData(pc.mesh))
+                {
+                    var d = arr[0];
+                    var v = new Unity.Collections.NativeArray<Vector3>(d.vertexCount, Unity.Collections.Allocator.Temp);
+                    d.GetVertices(v);
+                    for (int s = 0; s < d.subMeshCount; s++)
+                    {
+                        var sm = d.GetSubMesh(s);
+                        if (sm.topology != MeshTopology.Triangles || sm.indexCount < 3) continue;
+                        var idx = new Unity.Collections.NativeArray<int>(sm.indexCount, Unity.Collections.Allocator.Temp);
+                        d.GetIndices(idx, s, true);
+                        for (int i = 0; i + 2 < idx.Length; i += 3)
+                        {
+                            Vector3 a = pc.toRoot.MultiplyPoint3x4(v[idx[i]]), b = pc.toRoot.MultiplyPoint3x4(v[idx[i + 1]]), c = pc.toRoot.MultiplyPoint3x4(v[idx[i + 2]]);
+                            var tb = new Bounds(a, Vector3.zero); tb.Encapsulate(b); tb.Encapsulate(c);
+                            if (!reach.Intersects(tb)) continue;
+                            T.Add(a); T.Add(b); T.Add(c);
+                        }
+                        idx.Dispose();
+                    }
+                    v.Dispose();
+                }
+            }
+            float top = box.max.y, bottom = box.min.y;
+            for (int step = 0; step < 200; step++)
+            {
+                float y = box.center.y - 0.05f * step;
+                if (y < bottom + 0.1f) break;
+                var o = new Vector3(box.center.x, y, box.center.z);
+                float xp = OutermostHit(T, o, Vector3.right, box.extents.x + 0.05f), xm = OutermostHit(T, o, Vector3.left, box.extents.x + 0.05f);
+                float zp = OutermostHit(T, o, Vector3.forward, box.extents.z + 0.05f), zm = OutermostHit(T, o, Vector3.back, box.extents.z + 0.05f);
+                if (xp <= 0.02f || xm <= 0.02f || zp <= 0.02f || zm <= 0.02f) continue;
+                var fit = new Bounds();
+                fit.SetMinMax(new Vector3(o.x - xm, 2f * y - top, o.z - zm), new Vector3(o.x + xp, top, o.z + zp));
+                // the audit's four samples: each side face's middle, at the box's middle height
+                var fc = fit.center; var e = fit.extents; float worst = 0f;
+                foreach (var f in new[] { new Vector3(e.x, 0f, 0f), new Vector3(-e.x, 0f, 0f), new Vector3(0f, 0f, e.z), new Vector3(0f, 0f, -e.z) })
+                    worst = Mathf.Max(worst, NearestTriangle(T, fc + f));
+                if (worst > 0.035f) continue;
+                fits.Add($"{what} {box.size.x:0.00} x {box.size.z:0.00} -> {fit.size.x:0.00} x {fit.size.z:0.00} m, sampled {y - bottom:0.00} m up" +
+                         (step > 0 ? $" (its middle line crosses an opening; the box from {fit.min.y - bottom:0.00} m)" : "") + $", faces within {worst * 100f:0.0} cm");
+                return fit;
+            }
+            fits.Add($"NOTE {what}: no level line through its middle meets a drawn face on all four sides ({T.Count / 3} triangles) - the box kept as it was");
+            return box;
+        }
+
+        /// <summary>The farthest hit (either side of a triangle) along the
+        /// ray within maxT; 0 when it meets none.</summary>
+        static float OutermostHit(List<Vector3> T, Vector3 o, Vector3 dir, float maxT)
+        {
+            float best = 0f;
+            for (int i = 0; i + 2 < T.Count; i += 3)
+            {
+                Vector3 a = T[i], e1 = T[i + 1] - a, e2 = T[i + 2] - a, pv = Vector3.Cross(dir, e2);
+                float det = Vector3.Dot(e1, pv);
+                if (Mathf.Abs(det) < 1e-9f) continue;
+                float inv = 1f / det; var tv = o - a;
+                float u = Vector3.Dot(tv, pv) * inv; if (u < 0f || u > 1f) continue;
+                var qv = Vector3.Cross(tv, e1);
+                float w = Vector3.Dot(dir, qv) * inv; if (w < 0f || u + w > 1f) continue;
+                float t = Vector3.Dot(e2, qv) * inv;
+                if (t > 0f && t <= maxT && t > best) best = t;
+            }
+            return best;
+        }
+
+        /// <summary>The distance from p to the nearest triangle (Ericson's
+        /// closest point on a triangle).</summary>
+        static float NearestTriangle(List<Vector3> T, Vector3 p)
+        {
+            float best = float.MaxValue;
+            for (int i = 0; i + 2 < T.Count; i += 3)
+            {
+                Vector3 a = T[i], b = T[i + 1], c = T[i + 2], q;
+                Vector3 ab = b - a, ac = c - a, ap = p - a;
+                float d1 = Vector3.Dot(ab, ap), d2 = Vector3.Dot(ac, ap);
+                if (d1 <= 0f && d2 <= 0f) q = a;
+                else
+                {
+                    Vector3 bp = p - b; float d3 = Vector3.Dot(ab, bp), d4 = Vector3.Dot(ac, bp);
+                    Vector3 cp = p - c; float d5 = Vector3.Dot(ab, cp), d6 = Vector3.Dot(ac, cp);
+                    float vc = d1 * d4 - d3 * d2, vb = d5 * d2 - d1 * d6, va = d3 * d6 - d5 * d4;
+                    if (d3 >= 0f && d4 <= d3) q = b;
+                    else if (vc <= 0f && d1 >= 0f && d3 <= 0f) q = a + ab * (d1 / (d1 - d3));
+                    else if (d6 >= 0f && d5 <= d6) q = c;
+                    else if (vb <= 0f && d2 >= 0f && d6 <= 0f) q = a + ac * (d2 / (d2 - d6));
+                    else if (va <= 0f && d4 - d3 >= 0f && d5 - d6 >= 0f) q = b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
+                    else { float den = 1f / (va + vb + vc); q = a + ab * (vb * den) + ac * (vc * den); }
+                }
+                best = Mathf.Min(best, (p - q).sqrMagnitude);
+            }
+            return best == float.MaxValue ? float.MaxValue : Mathf.Sqrt(best);
         }
 
         static void AddBox(GameObject root, string name, Vector3 centre, Vector3 size, int layer)
