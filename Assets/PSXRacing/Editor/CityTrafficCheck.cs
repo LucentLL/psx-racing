@@ -71,6 +71,8 @@ namespace PSXRacing.EditorTools
             EditorSettings.enterPlayModeOptionsEnabled = true;
             EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload;
             Application.logMessageReceived += OnLog;
+            if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null)
+                Check(ProbeLogCapture(), "stack traces off (null graphics device): an error's call stack is still read when it is logged (the CityTraffic error count)");
             EditorApplication.playModeStateChanged += OnState;
             EditorApplication.EnterPlaymode();
         }
@@ -86,7 +88,33 @@ namespace PSXRacing.EditorTools
                 exceptions++;
                 if (firstException == null) firstException = msg + " @ " + (stack ?? "").Split('\n')[0];
             }
-            else if (type == LogType.Error && (msg.Contains("CityTraffic") || (stack ?? "").Contains("CityTraffic"))) trafficErrors++;
+            else if (type == LogType.Error || type == LogType.Assert)
+            {
+                bool ours = msg.Contains("CityTraffic") || (stack ?? "").Contains("CityTraffic");
+                // stacks are off under the null graphics device (Run): an engine
+                // error raised inside CityTraffic's own calls (a NaN velocity, a
+                // bad transform) names it only in its call stack - read that here,
+                // the callback runs inside the log call on the main thread. The
+                // runtime class only: this callback's own frames are the check's.
+                if (!ours && string.IsNullOrEmpty(stack)) ours = System.Environment.StackTrace.Contains("PSXRacing.City.CityTraffic");
+                if (ours) trafficErrors++;
+                if (probing && string.IsNullOrEmpty(stack) && System.Environment.StackTrace.Contains(nameof(ProbeLogCapture))) probeSeen = true;
+            }
+        }
+
+        static bool probing, probeSeen;
+
+        /// <summary>Stacks off: does an error logged from here reach <see cref="OnLog"/>
+        /// with this method in the managed stack (what the CityTraffic error
+        /// count relies on then)? The probe's own error is not counted.</summary>
+        static bool ProbeLogCapture()
+        {
+            probing = true; probeSeen = false;
+            int before = trafficErrors;
+            Debug.LogError("[check] log capture probe (expected, not counted)");
+            trafficErrors = before;
+            probing = false;
+            return probeSeen;
         }
 
         static void OnState(PlayModeStateChange s)

@@ -826,10 +826,41 @@ namespace PSXRacing.City
             public readonly List<Head> heads = new List<Head>();
             public readonly List<Stop> stops = new List<Stop>();
             public int junctions, signalJunctions, mastArms, spanWires, stopBars, refused;
+            /// <summary>Round 3: the heads every signalised approach of the tile's
+            /// junctions shows, and how they are carried (the head census).</summary>
+            public readonly List<ApproachHeads> approachHeads = new List<ApproachHeads>();
+            /// <summary>Round 3's fallbacks: far-left mast arms, heads on a pole's
+            /// side, post-mounted heads.</summary>
+            public int leftArms, poleHeads, postHeads, backSpans;
             /// <summary>The halos' lens codes (channel << 2 | colour), in mesh order.</summary>
             public ushort[] haloLens;
             public float ms;
         }
+
+        /// <summary>The heads facing one signalised approach (junction id, its
+        /// index in Junction.approaches) and what carries them (How* bits).</summary>
+        public struct ApproachHeads { public int junction, approach, heads, view; public byte how; }
+        public const byte HowSpan = 1, HowMast = 2, HowMastLeft = 4, HowPole = 8, HowPostFar = 16, HowPostLeft = 32, HowPostNear = 64;
+
+        /// <summary>
+        /// ROAD LOGIC JUNCTIONS, ROUND 3 - EVERY SIGNALISED APPROACH SHOWS ITS
+        /// HEADS (PSX_CITY_HEADS=0: the before). The span wire and the far-right
+        /// mast arm could both be refused - every foot on the occupancy mask, the
+        /// arm out of reach - and nothing else was tried, so a signal ran with no
+        /// head in its drivers' view (Colony Road at Carnegie Boulevard). Now:
+        /// one lane's approach hangs TWO heads 2.4 m apart (MUTCD: two signal
+        /// faces at least for the through movement, 8 ft apart), and an approach
+        /// short of two after the wire or its arm gets, in this order, a mast
+        /// arm from its FAR-LEFT corner (the one corner free), a head on the
+        /// side of the pole already standing at its far-right corner, a
+        /// post-mounted head (a 1990s pedestal: 4.5 in post, three 12 in
+        /// incandescent sections, the housing's bottom 2.9 m up) at the far-right
+        /// corner, the far-left, then beside its stop line. Every new foot passes
+        /// the same test as the poles' (off every lane and fan, no building, lot,
+        /// driveway, water, deck, lamp or sign, no race run-off) and keeps off
+        /// the crosswalks' curb ramps.
+        /// </summary>
+        public static bool HeadsEvery = System.Environment.GetEnvironmentVariable("PSX_CITY_HEADS") != "0";
 
         const float PoleW = 0.32f, ArmW = 0.16f, MaxArmM = 14.5f;
         const float HeadW = 0.36f, HeadH = 1.06f, HeadD = 0.26f, LensM = 0.25f, LensStep = 0.34f;
@@ -896,18 +927,301 @@ namespace PSXRacing.City
                 return;
             }
             st.signalJunctions++;
-            // each approach's far-right corner
-            var corner = new Vector2?[j.approaches.Count];
-            for (int i = 0; i < j.approaches.Count; i++)
-                if (FarCorner(j, j.approaches[i], out var f)) corner[i] = f;
-            // outside uptown: a span wire between an opposing pair's corners
-            if (!j.uptown && SpanWire(j, corner, st)) { st.spanWires++; return; }
-            for (int i = 0; i < j.approaches.Count; i++)
+            int n = j.approaches.Count;
+            furnishJ = j;
+            if (furnishHeads.Length < n) { furnishHeads = new int[n]; furnishView = new int[n]; furnishHow = new byte[n]; }
+            for (int i = 0; i < n; i++) { furnishHeads[i] = 0; furnishView[i] = 0; furnishHow[i] = 0; }
+            jPoles.Clear(); poleUsed.Clear();
+            try
             {
-                if (corner[i] == null) { st.refused++; continue; }
-                if (MastArm(j, j.approaches[i], corner[i].Value, st)) st.mastArms++;
-                else st.refused++;
+                // each approach's far-right corner
+                var corner = new Vector2?[n];
+                for (int i = 0; i < n; i++)
+                    if (FarCorner(j, j.approaches[i], out var f)) corner[i] = f;
+                // outside uptown: a span wire between an opposing pair's corners
+                howNow = HowSpan;
+                if (!j.uptown && SpanWire(j, corner, st)) st.spanWires++;
+                else
+                {
+                    howNow = HowMast;
+                    for (int i = 0; i < n; i++)
+                    {
+                        if (corner[i] == null) { st.refused++; continue; }
+                        if (MastArm(j, j.approaches[i], corner[i].Value, st, 1)) st.mastArms++;
+                        else st.refused++;
+                    }
+                }
+                // round 3: two faces at least for every approach's through movement
+                if (HeadsEvery)
+                {
+                    // suburban and arterial (span wires): the set-back wire first;
+                    // uptown (mast arms): the arms and posts first, the wire last
+                    if (!j.uptown) BackSpan(j, st);
+                    for (int i = 0; i < n; i++)
+                        if (furnishView[i] < 2) Supplement(j, i, corner[i], st);
+                    if (j.uptown) BackSpan(j, st);
+                }
             }
+            finally
+            {
+                for (int i = 0; i < n; i++)
+                    st.approachHeads.Add(new ApproachHeads { junction = j.id, approach = i, heads = furnishHeads[i], view = furnishView[i], how = furnishHow[i] });
+                furnishJ = null;
+            }
+        }
+
+        // ---- round 3: the head census and the fallbacks ---------------------
+
+        static Junction furnishJ;
+        static int[] furnishHeads = new int[0], furnishView = new int[0];
+        static byte[] furnishHow = new byte[0];
+        /// <summary>The junction's mast-arm and span poles (a head can go on
+        /// their side), and which approach already has one on which pole.</summary>
+        static readonly List<Vector2> jPoles = new List<Vector2>(8);
+        static readonly HashSet<int> poleUsed = new HashSet<int>();
+        static byte howNow;
+
+        /// <summary>IN THE DRIVER'S VIEW (MUTCD 4D.14: a primary face 40 to 180 ft beyond
+        /// the stop line, a near-side face a supplement): from 6 m short of the stop
+        /// line to 55 m past it, within 20 m either side of the lanes' middle. A
+        /// head the first clear corner put 60 m on down the road (Colony Road at
+        /// Carnegie Boulevard) is not one the driver reads.</summary>
+        public const float ViewNearM = -6f, ViewFarM = 55f, ViewLatM = 20f;
+
+        public static bool InView(Approach a, Vector2 p)
+        {
+            var d = p - a.at;
+            float along = Vector2.Dot(d, a.u), lat = Vector2.Dot(d, a.Right) - (a.inL + a.inR) * 0.5f;
+            return along >= ViewNearM && along <= ViewFarM && Mathf.Abs(lat) <= ViewLatM;
+        }
+
+        /// <summary>The housing's bottom over the ground of a post- or
+        /// pole-mounted head (MUTCD: 8 to 15 ft over the sidewalk), the
+        /// pedestal's post (4.5 in) and its cast base.</summary>
+        const float PostHeadBottomM = 2.9f, SigPostW = 0.115f, SigBaseW = 0.34f, SigBaseH = 0.42f;
+
+        /// <summary>Approaches with NO head in view: a span wire between corners SET
+        /// BACK past whatever keeps the near ones clear (a city race route's 8 m
+        /// run-off either side - Tryon Street uptown and north - lots, lamps), its
+        /// heads over those approaches only, in their view.</summary>
+        static void BackSpan(Junction j, SignalTile st)
+        {
+            int n = j.approaches.Count;
+            bool[] want = null;
+            for (int i = 0; i < n; i++) if (furnishView[i] == 0) { if (want == null) want = new bool[n]; want[i] = true; }
+            if (want == null) return;
+            var back = new Vector2?[n];
+            for (int i = 0; i < n; i++)
+                if (SideCorner(j, j.approaches[i], 1, 1.0f, PoleW * 0.5f, 3f, out var fb, BackSpanM)) back[i] = fb;
+            howNow = HowSpan;
+            if (SpanWire(j, back, st, want)) { st.spanWires++; st.backSpans++; }
+        }
+
+        /// <summary>An approach short of two faces after its wire or arm: a far-left
+        /// mast arm (none at all), a head on its far-right pole, post-mounted heads
+        /// at the far-right corner, the far-left, beside the stop line.</summary>
+        static void Supplement(Junction j, int i, Vector2? farRight, SignalTile st)
+        {
+            var a = j.approaches[i];
+            if (furnishView[i] == 0 && SideCorner(j, a, -1, 1.0f, PoleW * 0.5f, 3f, out var fl))
+            {
+                howNow = HowMastLeft;
+                if (MastArm(j, a, fl, st, -1)) { st.mastArms++; st.leftArms++; }
+            }
+            // a head on the side of a pole of this junction's own on the far side
+            // (its far-right, the cross street's that stands at its far left)
+            for (int k = 0; k < 2 && furnishView[i] < 2; k++)
+            {
+                if (!JunctionPole(a, i, true, out int pi)) break;
+                howNow = HowPole;
+                PoleHead(a, jPoles[pi], st);
+                poleUsed.Add(pi * 64 + i);
+                st.poleHeads++;
+            }
+            for (int pass = 0; pass < 3 && furnishView[i] < 2; pass++)
+            {
+                Vector2 f;
+                bool ok;
+                if (pass == 0)
+                {
+                    howNow = HowPostFar;
+                    ok = farRight != null && InView(a, farRight.Value) && PostFootOk(j, a, farRight.Value, FarPostOffM);
+                    f = ok ? farRight.Value : default;
+                    if (!ok) ok = SideCorner(j, a, 1, FarPostOffM, SigBaseW * 0.5f, 2.5f, out f);
+                }
+                else if (pass == 1) { howNow = HowPostLeft; ok = SideCorner(j, a, -1, FarPostOffM, SigBaseW * 0.5f, 2.5f, out f); }
+                else { howNow = HowPostNear; ok = NearRight(j, a, out f); }
+                if (!ok) continue;
+                PostHead(a, f, st);
+                st.postHeads++;
+            }
+            // last: a near-side head on a pole of the junction's beside the approach
+            if (furnishView[i] < 2 && JunctionPole(a, i, false, out int pn))
+            {
+                howNow = HowPole;
+                PoleHead(a, jPoles[pn], st);
+                poleUsed.Add(pn * 64 + i);
+                st.poleHeads++;
+            }
+        }
+
+        /// <summary>The junction's pole best placed to carry a head for approach
+        /// a (index i): on its far side in the driver's view (<paramref name="far"/>),
+        /// else beside it short of the junction; none it already uses.</summary>
+        static bool JunctionPole(Approach a, int i, bool far, out int best)
+        {
+            best = -1;
+            float bestScore = float.MaxValue, mid = (a.inL + a.inR) * 0.5f;
+            for (int k = 0; k < jPoles.Count; k++)
+            {
+                if (poleUsed.Contains(k * 64 + i)) continue;
+                var d = jPoles[k] - a.at;
+                float along = Vector2.Dot(d, a.u), lat = Vector2.Dot(d, a.Right) - mid;
+                if (Mathf.Abs(lat) > ViewLatM) continue;
+                if (far ? (along < 4f || along > ViewFarM) : (along < ViewNearM || along >= 4f)) continue;
+                float score = Mathf.Abs(lat) + Mathf.Abs(along - 20f) * 0.3f;
+                if (score < bestScore) { bestScore = score; best = k; }
+            }
+            return best >= 0;
+        }
+
+        /// <summary>A post-mounted head's foot: the poles' test, its own ground
+        /// near the road's, off the crosswalks' curb ramps.</summary>
+        static bool PostFootOk(Junction j, Approach a, Vector2 f, float offM = 0.6f)
+            => FootOk(f, offM, SigBaseW * 0.5f) && Mathf.Abs(Ground(f) - a.roadY) <= 2.5f && !OnCurbRamp(j, f, SigBaseW * 0.5f);
+
+        /// <summary>A far-corner post keeps the poles' 1 m off the pavement (a turn that
+        /// clips the corner's kerb must not reach it); beside the stop line a STOP
+        /// sign's 0.6 m (MUTCD: 2 ft behind the kerb face).</summary>
+        const float FarPostOffM = 1.0f;
+
+        /// <summary>A set-back span wire's poles: up to this far past the pavement
+        /// (a race run-off's 8 m and a pole's room).</summary>
+        const float BackSpanM = 14f;
+
+        /// <summary>The approach's far corner on its right (<paramref name="side"/>
+        /// 1, FarCorner's walk) or its LEFT (-1: along the line just outside the
+        /// road's left pavement edge - beyond the oncoming lanes, or a divided
+        /// road's median - on across the junction): the first clear spot.</summary>
+        static bool SideCorner(Junction j, Approach a, int side, float offM, float r, float dyMax, out Vector2 foot, float maxOut = 4.8f)
+        {
+            foot = default;
+            var rt = a.Right;
+            var node = mapNow.nodes[a.node];
+            float t0 = Vector2.Dot(node - a.at, a.u) + 2f;
+            float edgeLat = side > 0 ? a.inR : LeftEdge(a);
+            for (float extra = offM + r; extra <= maxOut; extra += 1.2f)
+                for (float t = t0; t <= t0 + 40f && t <= ViewFarM; t += 1.5f)
+                {
+                    var f = a.at + rt * (edgeLat + side * (0.3f + extra)) + a.u * t;
+                    if (!FootOk(f, offM, r)) continue;
+                    if (Mathf.Abs(Ground(f) - a.roadY) > dyMax) continue;
+                    if (OnCurbRamp(j, f, r)) continue;
+                    foot = f;
+                    return true;
+                }
+            return false;
+        }
+
+        /// <summary>The road's left pavement edge at the stop line, as an offset
+        /// right of the approach's line (negative: its left).</summary>
+        static float LeftEdge(Approach a)
+        {
+            var e = mapNow.edges[a.edge];
+            bool towardB = e.b == a.node;
+            // PaveEdgeM: side > 0 the extent right of a->b, else left of it
+            float left = towardB ? e.PaveEdgeM(a.sStop, -1) : e.PaveEdgeM(a.sStop, 1);
+            return Mathf.Min(a.inL, -left);
+        }
+
+        /// <summary>Beside the stop line on the right (a STOP sign's walk): a
+        /// near-side post-mounted head.</summary>
+        static bool NearRight(Junction j, Approach a, out Vector2 foot)
+        {
+            foot = default;
+            var r = a.Right;
+            foreach (float o in StopOut)
+                foreach (float t in StopAlong)
+                {
+                    var f = a.at + r * (a.inR + 0.3f + o) + a.u * t;
+                    if (!PostFootOk(j, a, f)) continue;
+                    foot = f;
+                    return true;
+                }
+            return false;
+        }
+
+        static Dictionary<int, List<Crosswalk>> cwByJunction;
+        static List<Crosswalk> cwByJunctionOf;
+
+        /// <summary>Is a foot of radius r on a curb ramp: the landing behind
+        /// either end of one of the junction's crosswalks (its width and 0.6 m
+        /// either side along the road, 2.5 m back from the pavement edge)?</summary>
+        static bool OnCurbRamp(Junction j, Vector2 f, float r)
+        {
+            if (crosswalks == null || crosswalks.Count == 0) return false;
+            if (cwByJunctionOf != crosswalks || cwByJunction == null)
+            {
+                cwByJunction = new Dictionary<int, List<Crosswalk>>();
+                foreach (var cw in crosswalks)
+                {
+                    if (!cwByJunction.TryGetValue(cw.junction, out var l)) cwByJunction[cw.junction] = l = new List<Crosswalk>(4);
+                    l.Add(cw);
+                }
+                cwByJunctionOf = crosswalks;
+            }
+            if (!cwByJunction.TryGetValue(j.id, out var mine)) return false;
+            foreach (var cw in mine)
+            {
+                var e = mapNow.edges[cw.edge];
+                float sMid = (cw.sNear + cw.sFar) * 0.5f, halfAlong = Mathf.Abs(cw.sFar - cw.sNear) * 0.5f + 0.6f;
+                var c = e.PointAt(sMid);
+                var t = e.TangentAt(sMid);
+                var rgt = new Vector2(t.y, -t.x);
+                Vector2 d = f - c;
+                float along = Mathf.Abs(Vector2.Dot(d, t)), across = Vector2.Dot(d, rgt);
+                if (along > halfAlong + r) continue;
+                // right of a->b: the eMinus extent; left: ePlus
+                float edge = across >= 0f ? e.PaveEdgeM(sMid, 1) : e.PaveEdgeM(sMid, -1);
+                float out_ = Mathf.Abs(across) - edge;
+                if (out_ > -r && out_ < 2.5f + r) return true;
+            }
+            return false;
+        }
+
+        /// <summary>A head on the side of the pole at <paramref name="pole"/>,
+        /// facing the approach at a post-mounted head's height.</summary>
+        static void PoleHead(Approach a, Vector2 pole, SignalTile st)
+        {
+            var face = new Vector3(-a.u.x, 0f, -a.u.y);
+            var across = new Vector3(-face.z, 0f, face.x);
+            float bottom = Mathf.Max(Ground(pole), a.roadY) + PostHeadBottomM;
+            var p3 = new Vector3(pole.x, bottom + HeadH * 0.5f, pole.y);
+            float off = PoleW * 0.5f + 0.1f + HeadD * 0.5f;
+            // the two brackets from the pole to the housing's back
+            for (int k = -1; k <= 1; k += 2)
+                Box(p3 + Vector3.up * (k * HeadH * 0.3f) + face * (off * 0.5f), across * 0.03f, Vector3.up * 0.03f, face * (off * 0.5f), CellBlack, false);
+            EmitHead(p3 + face * off, a, st);
+        }
+
+        /// <summary>A pedestal: a post-mounted three-section head at
+        /// <paramref name="foot"/> facing the approach (its post and cast base on
+        /// the atlas's metal, solid like the other poles).</summary>
+        static void PostHead(Approach a, Vector2 foot, SignalTile st)
+        {
+            var face = new Vector3(-a.u.x, 0f, -a.u.y);
+            var across = new Vector3(-face.z, 0f, face.x);
+            float g = Ground(foot);
+            float bottom = Mathf.Max(g, a.roadY) + PostHeadBottomM;
+            float y0 = g - FootSinkM, y1 = bottom - 0.02f;
+            Box(new Vector3(foot.x, (y0 + y1) * 0.5f, foot.y), across * (SigPostW * 0.5f), Vector3.up * ((y1 - y0) * 0.5f), face * (SigPostW * 0.5f), CellMetal, true);
+            float b1 = g + SigBaseH;
+            Box(new Vector3(foot.x, (y0 + b1) * 0.5f, foot.y), across * (SigBaseW * 0.5f), Vector3.up * ((b1 - y0) * 0.5f), face * (SigBaseW * 0.5f), CellMetal, true);
+            // the slip fitter under the housing
+            Box(new Vector3(foot.x, bottom - 0.05f, foot.y), across * 0.06f, Vector3.up * 0.05f, face * 0.06f, CellBlack, false);
+            st.poles.Add((new Vector3(foot.x, y0, foot.y), y1));
+            Claim(foot, SigBaseW * 0.5f);
+            EmitHead(new Vector3(foot.x, bottom + HeadH * 0.5f, foot.y), a, st);
         }
 
         // ---- where a foot may stand ---------------------------------------
@@ -1048,7 +1362,7 @@ namespace PSXRacing.City
             var node = mapNow.nodes[a.node];
             float t0 = Vector2.Dot(node - a.at, a.u) + 2f;
             for (float extra = 1.2f; extra <= 4.8f; extra += 1.2f)
-                for (float t = t0; t <= t0 + 40f; t += 1.5f)
+                for (float t = t0; t <= t0 + 40f && (!HeadsEvery || t <= ViewFarM); t += 1.5f)
                 {
                     var f = a.at + r * (a.inR + 0.3f + extra) + a.u * t;
                     if (!FootOk(f, 1.0f, PoleW * 0.5f)) continue;
@@ -1066,22 +1380,34 @@ namespace PSXRacing.City
             into.Clear();
             int n = a.lanesIn;
             float w = (a.inR - a.inL) / n;
+            // round 3: one lane's approach shows TWO faces, 2.4 m (8 ft) apart
+            // either side of its middle (MUTCD: two for the through movement)
+            if (HeadsEvery && n <= 1)
+            {
+                float m = (a.inL + a.inR) * 0.5f;
+                into.Add(m - 1.2f); into.Add(m + 1.2f);
+                return;
+            }
             if (n <= 3) for (int k = 0; k < n; k++) into.Add(a.inL + w * (k + 0.5f));
             else { into.Add(a.inL + w * 0.5f); into.Add(a.inL + w * (n * 0.5f)); into.Add(a.inR - w * 0.5f); }
         }
         static readonly List<float> laneScratch = new List<float>(4);
 
-        static bool MastArm(Junction j, Approach a, Vector2 foot, SignalTile st)
+        /// <summary>A mast arm from <paramref name="foot"/> out over the inbound
+        /// lanes: from the right of them (<paramref name="side"/> 1, the far-right
+        /// corner) or their left (-1, round 3's far-left corner).</summary>
+        static bool MastArm(Junction j, Approach a, Vector2 foot, SignalTile st, int side)
         {
-            var r = a.Right;
+            var r = a.Right * side;
             float latF = Vector2.Dot(foot - a.at, r);
             LaneOffsets(a, laneScratch);
             float armY = j.roadY + HeadClearM + HeadH + 0.2f;
             float g = Ground(foot);
             var heads = new List<Vector2>(3);
             float reach = 0f;
-            foreach (float o in laneScratch)
+            foreach (float o0 in laneScratch)
             {
+                float o = o0 * side;
                 float d = latF - o;
                 if (d < 0.8f || d > MaxArmM - 0.3f) continue;
                 heads.Add(foot - r * d);
@@ -1089,6 +1415,7 @@ namespace PSXRacing.City
             }
             if (heads.Count == 0) return false;
             Claim(foot, PoleW);
+            if (furnishJ != null) jPoles.Add(foot);
             float top = armY + 0.6f;
             var f3 = new Vector3(foot.x, g - FootSinkM, foot.y);
             var u3 = new Vector3(a.u.x, 0f, a.u.y); var r3 = new Vector3(r.x, 0f, r.y);
@@ -1111,7 +1438,7 @@ namespace PSXRacing.City
         /// pair, a head hung over each inbound lane of every approach where
         /// its line crosses the wire. False (nothing emitted) where no pair
         /// strings one that every approach can hang a head from.</summary>
-        static bool SpanWire(Junction j, Vector2?[] corner, SignalTile st)
+        static bool SpanWire(Junction j, Vector2?[] corner, SignalTile st, bool[] want = null)
         {
             int n = j.approaches.Count;
             for (int i = 0; i < n; i++)
@@ -1122,12 +1449,15 @@ namespace PSXRacing.City
                     Vector2 A = corner[i].Value, B = corner[k].Value;
                     float span = Vector2.Distance(A, B);
                     if (span < 10f || span > 70f) continue;
-                    // every approach must hang at least one head from it
+                    // every approach must hang at least one head from it (round 3's
+                    // set-back wire: the wanted ones only, in their view, one at least)
                     var hangs = new List<(Vector2 p, float t, int app)>();
                     bool all = true;
+                    int wanted = 0;
                     for (int q = 0; q < n && all; q++)
                     {
                         var a = j.approaches[q];
+                        if (want != null && !want[q]) continue;
                         LaneOffsets(a, laneScratch);
                         int got = 0;
                         foreach (float o in laneScratch)
@@ -1135,12 +1465,14 @@ namespace PSXRacing.City
                             var p0 = a.at + a.Right * o;
                             if (!Cross(p0, a.u, A, B, out float along, out float t)) continue;
                             if (along < 1f || t < 0.08f || t > 0.92f) continue;
+                            if (want != null && !InView(a, Vector2.Lerp(A, B, t))) continue;
                             hangs.Add((Vector2.Lerp(A, B, t), t, q));
                             got++;
                         }
-                        if (got == 0) all = false;
+                        if (got == 0 && want == null) all = false;
+                        if (got > 0) wanted++;
                     }
-                    if (!all) continue;
+                    if (!all || wanted == 0) continue;
 
                     float sag = 0.025f * span;
                     float attach = j.roadY + HeadClearM + HeadH + 0.35f + sag + 0.2f;
@@ -1163,6 +1495,7 @@ namespace PSXRacing.City
                         Box(new Vector3(onWire.x, (hangTop + headTop) * 0.5f, onWire.z), Vector3.right * 0.02f, Vector3.up * ((hangTop - headTop) * 0.5f), Vector3.forward * 0.02f, CellBlack, true);
                         EmitHead(new Vector3(onWire.x, headTop - HeadH * 0.5f, onWire.z), a, st);
                     }
+                    if (furnishJ != null) { jPoles.Add(A); jPoles.Add(B); }
                     return true;
                 }
             return false;
@@ -1187,6 +1520,14 @@ namespace PSXRacing.City
         /// the three lenses on the lamp mesh, a halo in front of each.</summary>
         static void EmitHead(Vector3 c, Approach a, SignalTile st)
         {
+            if (furnishJ != null)
+                for (int q = 0; q < furnishJ.approaches.Count; q++)
+                    if (furnishJ.approaches[q].edge == a.edge && furnishJ.approaches[q].node == a.node)
+                    {
+                        furnishHeads[q]++; furnishHow[q] |= howNow;
+                        if (InView(a, new Vector2(c.x, c.z))) furnishView[q]++;
+                        break;
+                    }
             var face = new Vector3(-a.u.x, 0f, -a.u.y);            // toward the drivers
             var across = new Vector3(-face.z, 0f, face.x);
             Box(c, across * (HeadW * 0.5f), Vector3.up * (HeadH * 0.5f), face * (HeadD * 0.5f), CellBlack, false);
