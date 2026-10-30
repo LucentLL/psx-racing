@@ -502,13 +502,24 @@ function nodeFor(id, xz) {
   return n;
 }
 
+// CONNECTOR CUTS (gap audit, Docs/gap_audit.md): the network's own use of each
+// node, connectors left out. A network way cut ONLY because a connector uses
+// one of its nodes is marked there (connCutB on the piece before, connCutA on
+// the piece after), and the network's line work runs across the cut as across
+// the one piece the way was without the connector (lib/lineclean.mjs
+// connectorCuts): re-run on the two pieces, Douglas-Peucker had re-fitted the
+// whole of each (Industrial Drive 0.47 m off its old line 480 m from the
+// connector).
+const netUse = new Map();
+for (const w of ways) if (!w.connector) for (const id of w.nodes) netUse.set(id, (netUse.get(id) || 0) + 1);
 const edges = [];
 const edgeDedup = new Set();
 for (const w of ways) {
-  let start = 0;
+  let start = 0, startConn = false;
   for (let i = 1; i < w.nodes.length; i++) {
     const last = i === w.nodes.length - 1;
     if (!last && nodeUse.get(w.nodes[i]) < 2) continue;
+    const connCut = !last && !w.connector && (netUse.get(w.nodes[i]) || 0) < 2;
     // cut [start..i]
     const pts = [];
     for (let k = start; k <= i; k++) {
@@ -525,10 +536,13 @@ for (const w of ways) {
       const key = `${Math.min(a, b)}:${Math.max(a, b)}:${pts.length}:${mid[0].toFixed(0)}:${mid[1].toFixed(0)}`;
       if (!edgeDedup.has(key) && L > 0.2) {
         edgeDedup.add(key);
-        edges.push({ id: edges.length, way: w, a, b, pts, len: L, seq: edges.length });
+        const e = { id: edges.length, way: w, a, b, pts, len: L, seq: edges.length };
+        if (startConn) e.connCutA = true;
+        if (connCut) e.connCutB = true;
+        edges.push(e);
       }
     }
-    start = i;
+    start = i; startConn = connCut;
   }
 }
 console.log(`graph: ${edges.length} edges, ${nodes.length} nodes`);
@@ -629,8 +643,11 @@ function nearestOnEdge(e, x, z) {
       acc += segL;
     }
     pieces.push({ a: curA, b: e.b, pts: curPts });
-    // first piece replaces the edge in place; the rest append
+    // first piece replaces the edge in place; the rest append (a connector
+    // cut's mark stays on the piece at that end: the weld is a real junction)
     let first = true;
+    const cutB = !!e.connCutB;
+    delete e.connCutB;
     for (const pc of pieces) {
       const clean = [pc.pts[0]];
       for (let k = 1; k < pc.pts.length; k++)
@@ -639,8 +656,10 @@ function nearestOnEdge(e, x, z) {
       if (clean.length < 2) continue;
       let L = 0;
       for (let k = 1; k < clean.length; k++) L += Math.hypot(clean[k][0] - clean[k - 1][0], clean[k][1] - clean[k - 1][1]);
+      let made = e;
       if (first) { e.a = pc.a; e.b = pc.b; e.pts = clean; e.len = L; first = false; }
-      else edges.push({ id: edges.length, way: e.way, a: pc.a, b: pc.b, pts: clean, len: L, seq: e.seq + 0.5 });
+      else edges.push(made = { id: edges.length, way: e.way, a: pc.a, b: pc.b, pts: clean, len: L, seq: e.seq + 0.5 });
+      if (cutB && pc === pieces[pieces.length - 1]) made.connCutB = true;
     }
   }
   console.log(`dead ends ${deadEnds}, welded ${welded} onto host edges (${splitsByEdge.size} hosts split)`);
