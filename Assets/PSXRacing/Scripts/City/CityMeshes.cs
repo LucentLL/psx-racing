@@ -2905,6 +2905,9 @@ namespace PSXRacing.City
                 var cutBy = ZoneCutOwner(smp.E, smp.sE);
                 bool inCut = cutBy != null;
                 bool ok = !inCut && smp.gap > GoreMinGapM && smp.hostArc > 0.5f && smp.hostArc < host.Length - 0.5f;
+                // (round 11, GOREFAN) no gore quad where the junction's fan paves: inside the fan it stood at the
+                // host's height over the fan's own surface (Christenbury Parkway's 0.24 m spike in node 4212's fan)
+                if (ok && R11GoreFanOn && trims.patch[node] && smp.hostArc < trims.TrimAt(M, node)) { ok = false; R11GoreFanSkips++; }
                 // The gore's long sides are chords between samples six metres
                 // apart, on each road's offset line; the roads draw their edges
                 // mitred at every polyline vertex. On the outside of any bend
@@ -7137,6 +7140,8 @@ namespace PSXRacing.City
             var o = tm.origin;
             bool anyMeet = false;
             bool split = MitreSnapOn && ((trims.branchA[e.index] >= 0 && trims.mitre[e.a]) || (trims.branchB[e.index] >= 0 && trims.mitre[e.b]));
+            // (round 11, MITREPOKE) any branch at a mitred node: its last metres over the other through arm
+            bool poke = !split && R11MitrePokeOn && ((trims.branchA[e.index] >= 0 && trims.mitre[e.a]) || (trims.branchB[e.index] >= 0 && trims.mitre[e.b]));
             for (int k = 0; k < raw.Count; k++)
             {
                 var sec = raw[k];
@@ -7147,6 +7152,7 @@ namespace PSXRacing.City
                 anyMeet |= meets && (d.x < -1e-3f || d.y < -1e-3f);
                 meetD.Add(d);
                 if (split && !sec.elev) MitreSnap(map, trims, e, ref sec);
+                if (poke && !sec.elev) R11MitrePoke(map, trims, e, ref sec);
                 sec.L -= o; sec.R -= o;
                 sections.Add(sec);
                 if (every > 0 && (k + 1) % every == 0) yield return 0;   // city-build-hitches

@@ -10,14 +10,28 @@ namespace PSXRacing.City
     public static partial class CityElevation
     {
         /// <summary>(round 11) The solve-side switches as one set (the look tool's A/B).</summary>
-        public static bool[] Round11Flags() => new[] { R11ClimbC1On, R11StreetSeatOn, R11SpillUnderOn };
+        public static bool[] Round11Flags() => new[] { R11ClimbC1On, R11StreetSeatOn, R11SpillUnderOn, R11CrestCapOn };
         public static void SetRound11Flags(bool[] f)
         {
             if (f == null) return;
             if (f.Length > 0) R11ClimbC1On = f[0];
             if (f.Length > 1) R11StreetSeatOn = f[1];
             if (f.Length > 2) R11SpillUnderOn = f[2];
+            if (f.Length > 3) R11CrestCapOn = f[3];
         }
+
+        // ------------------------------------------------------------------
+        //  CRESTCAP: the drawn profile may lower a crest 0.30 m, not 0.15.
+        //  A crest's curve lowers its apex by A L / 8; at 0.15 m a 9.8% crest
+        //  (Carolina Place Parkway at node 8632, +1.6% -> -8.2%) got a 12 m
+        //  curve of the 24.5 m its road's crest radius asks, and the car left
+        //  the road over it at 76 km/h of a 90 km/h road. The land, the fans
+        //  (MarkNodes), the minor arms (their eases), the walks and the lots
+        //  all follow the drawn road, so a deeper apex opens no gap; structure
+        //  keeps its 3 cm. PSX_CITY_R11_CRESTCAP=0: before (0.15 m).
+        // ------------------------------------------------------------------
+        public static bool R11CrestCapOn = System.Environment.GetEnvironmentVariable("PSX_CITY_R11_CRESTCAP") != "0";
+        static float R11CrestLowerMax => R11CrestCapOn ? 0.30f : VsLowerMaxM;
 
         // ------------------------------------------------------------------
         //  STREETSEAT: a street branch is ON its host where its ribbon is.
@@ -64,7 +78,7 @@ namespace PSXRacing.City
 
         /// <summary>(round 11) What the round-11 rules did in the last solve (the audits print it).</summary>
         public static string R11Report =>
-            $"round 11: CLIMBC1 {(R11ClimbC1On ? "on" : "OFF")}; STREETSEAT {(R11StreetSeatOn ? "on" : "OFF")}: {R11StreetSeats} street branch ends seated where their ribbon runs into the host; seat stations added {SeatStationsAdded}";
+            $"round 11: CLIMBC1 {(R11ClimbC1On ? "on" : "OFF")}; STREETSEAT {(R11StreetSeatOn ? "on" : "OFF")}: {R11StreetSeats} street branch ends seated where their ribbon runs into the host; seat stations added {SeatStationsAdded}; SPILLUNDER {(R11SpillUnderOn ? "on" : "OFF")}; CRESTCAP {(R11CrestCapOn ? "on (0.30 m)" : "OFF (0.15 m)")}; meshes: GORESTART {(CityMeshes.R11GoreStartOn ? "on" : "OFF")}, GOREFAN {(CityMeshes.R11GoreFanOn ? "on" : "OFF")}, MITREPOKE {(CityMeshes.R11MitrePokeOn ? "on" : "OFF")}";
 
         // ------------------------------------------------------------------
         //  CLIMBC1: a seated branch leaves its host on the host's grade.

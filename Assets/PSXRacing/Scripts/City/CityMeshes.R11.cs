@@ -10,12 +10,83 @@ namespace PSXRacing.City
     public static partial class CityMeshes
     {
         /// <summary>(round 11) The tile builder's round-11 switches as one set (the look tool's A/B).</summary>
-        public static bool[] Round11Flags() => new[] { R11GoreStartOn };
+        public static bool[] Round11Flags() => new[] { R11GoreStartOn, R11GoreFanOn, R11MitrePokeOn };
         public static void SetRound11Flags(bool[] f)
         {
             if (f == null) return;
             if (f.Length > 0) R11GoreStartOn = f[0];
+            if (f.Length > 1) R11GoreFanOn = f[1];
+            if (f.Length > 2) R11MitrePokeOn = f[2];
         }
+
+        // ------------------------------------------------------------------
+        //  MITREPOKE: a branch's last metres over the OTHER through arm.
+        //  At a mitred node a branch (clipped onto the through arm it leaves)
+        //  ends in a section square to its own line at the node, and the
+        //  through arm beyond the node meets its host on the mitre - so the
+        //  branch's last quad runs on over that other arm's first metre or
+        //  two, at the branch's height. Where the two roads' grades part at the
+        //  node (South Boulevard at node 8870: the branch e13286 on -1%, the
+        //  through arm e7288 falling at 7%) it stood 5-13 cm over the other
+        //  arm's lanes and a car on that arm met it as a kerb (the launch
+        //  audit's "mitred joint" spots on a through path, the other road a
+        //  branch of the one it continues). Round 5's MitreSnap does this for a
+        //  divided road's split only, within 20 m of the node (OFF: all 57k
+        //  branch vertices city-wide cost the census). Here: every branch, only
+        //  within R11PokeReachM of the node - the poke itself - each vertex
+        //  lying on the other arm's drawn pavement and above it by less than
+        //  MitreSnapMaxM comes down a centimetre under it, so the through arm is
+        //  the surface on top. PSX_CITY_R11_MITREPOKE=0: before.
+        // ------------------------------------------------------------------
+        public static bool R11MitrePokeOn = System.Environment.GetEnvironmentVariable("PSX_CITY_R11_MITREPOKE") != "0";
+        public const float R11PokeReachM = 4f;
+        /// <summary>(MITREPOKE) vertices brought down, tile builds since load.</summary>
+        public static int R11PokeSnaps;
+
+        static void R11MitrePoke(CityMap map, Trims trims, CityMap.Edge e, ref Section sec)
+        {
+            for (int end = 0; end < 2; end++)
+            {
+                int n = end == 0 ? e.a : e.b;
+                int host = end == 0 ? trims.branchA[e.index] : trims.branchB[e.index];
+                if (host < 0 || !trims.mitre[n]) continue;
+                if ((end == 0 ? sec.s : e.length - sec.s) > R11PokeReachM) continue;
+                for (int k = 0; k < 2; k++)
+                {
+                    int oi = k == 0 ? trims.throughA[n] : trims.throughB[n];
+                    if (oi < 0 || oi == host || oi == e.index) continue;
+                    var ol = RawOutlineOf(map, trims, oi);
+                    if (ol.L == null) continue;
+                    for (int side = -1; side <= 1; side += 2)
+                    {
+                        var v = sec.Edge(side);
+                        float h = OutlineHeightAt(ol, new Vector2(v.x, v.z));
+                        if (float.IsNaN(h)) continue;
+                        float want = h - MitreSnapProudM;
+                        if (v.y <= want || v.y - want > MitreSnapMaxM) continue;
+                        v.y = want;
+                        if (side < 0) { sec.L = v; sec.snapL = true; } else { sec.R = v; sec.snapR = true; }
+                        R11PokeSnaps++;
+                    }
+                }
+            }
+        }
+
+        // ------------------------------------------------------------------
+        //  GOREFAN: no painted gore inside a junction's fan.
+        //  A branch clipped onto its host at a FAN node (a fork drawn as a
+        //  junction: Christenbury Parkway's e14530 off Cox Mill Road at node
+        //  4212, trims 25 m) still had its gore painted from the node out, at
+        //  the host's height an inch down - but inside the fan the junction's
+        //  own surface paves (a TIN between the arms' corners, the major road
+        //  held), and where that surface lies lower the gore stood over it:
+        //  0.24 m in one metre, the launch audit's #2 (lift-off from 17 km/h).
+        //  The gore starts where the fan ends. PSX_CITY_R11_GOREFAN=0: before.
+        // ------------------------------------------------------------------
+        public static bool R11GoreFanOn = System.Environment.GetEnvironmentVariable("PSX_CITY_R11_GOREFAN") != "0";
+        /// <summary>(GOREFAN) gore samples left to the fan (a sample whose host-chain arc from the
+        /// node is inside the host's own trim there: the fan's ground), tile builds since load.</summary>
+        public static int R11GoreFanSkips;
 
         // ------------------------------------------------------------------
         //  GORESTART (round 10's BLUNT, I-277 e9902 s 18): an exit ramp's
