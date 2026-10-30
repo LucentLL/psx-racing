@@ -146,13 +146,25 @@ namespace PSXRacing
             if (!mayRebuild && fieldTex != null && builtStreetOn == StreetOn) origin = builtOrigin;
             else if (origin != builtOrigin || builtVersion != fieldVersion || builtStreetOn != StreetOn)
             {
-                builtOrigin = origin;
-                builtVersion = fieldVersion;
-                builtStreetOn = StreetOn;
-                builtBaseY = Mathf.Round(eye.y);
                 long pc = PerfClock.On ? PerfClock.Now() : 0;   // city perf round 1
-                using (BuildFieldMarker.Auto())
-                    FieldLamps = StreetOn ? BuildField(origin, builtBaseY) : 0;
+                // city perf round 1: a step of a window already shown is built
+                // over frames behind it (FieldSliced); the first window, a
+                // street-lights switch and the editor's tools build it whole
+                if (FieldSliced && Application.isPlaying && fieldTex != null && builtStreetOn == StreetOn && StreetOn)
+                {
+                    using (BuildFieldMarker.Auto()) StepPending(origin, Mathf.Round(eye.y));
+                    origin = builtOrigin;
+                }
+                else
+                {
+                    pendOn = false;
+                    builtOrigin = origin;
+                    builtVersion = fieldVersion;
+                    builtStreetOn = StreetOn;
+                    builtBaseY = Mathf.Round(eye.y);
+                    using (BuildFieldMarker.Auto())
+                        FieldLamps = StreetOn ? BuildField(origin, builtBaseY) : 0;
+                }
                 if (PerfClock.On) PerfClock.Add(PerfClock.Slot.LampField, pc);
             }
             FieldActive = FieldLamps > 0;
@@ -175,26 +187,128 @@ namespace PSXRacing
             Shader.SetGlobalVector(BounceId, Vector4.zero);
         }
 
+        static Texture2D NewFieldTex() => new Texture2D(FieldRes, FieldRes, TextureFormat.RGBAHalf, false, true)
+        {
+            name = "PSXLampField", filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.DontSave,
+        };
+
         /// <summary>Splat every marked, lit lamp whose glow reaches the window.</summary>
         static int BuildField(Vector2 origin, float baseY)
         {
             int n4 = FieldRes * FieldRes * 4;
             if (acc == null || acc.Length != n4) { acc = new float[n4]; halfs = new ushort[n4]; }
             System.Array.Clear(acc, 0, n4);
-            if (fieldTex == null)
+            if (fieldTex == null) fieldTex = NewFieldTex();
+            int lamps = 0, mercs = 0;
+            SplatLamps(origin, baseY, 0, high, ref lamps, ref mercs, double.MaxValue);
+            ConvertRows(0, FieldRes);
+            fieldTex.SetPixelData(halfs, 0);
+            fieldTex.Apply(false, false);
+            FieldMercuryLamps = mercs;
+            return lamps;
+        }
+
+        // ---- city perf round 1 (2026-10-30): the window's step built over frames ----
+        /// <summary>A rebuild - the window's 32 m step, about once a second at
+        /// 100 km/h: a splat of every lamp in reach, 262k half conversions and a
+        /// 512 KB upload - took 9-10 ms in ONE frame in the editor (the perf
+        /// tour), two to three times that in a browser. A step of a window
+        /// already shown is now built behind it into a second texture, a slice
+        /// a frame (<see cref="SliceMs"/>), the shown one drawn until the new one
+        /// is whole and then the two swap: the eye is never more than a step
+        /// from the shown window's centre, and its 512 m holds the 40 m glows
+        /// of everything round it. The same splat, the same field (a lamp
+        /// change mid-build shows on the next one). PSX_LAMPFIELD_SLICE=0 (or
+        /// ?ab=StreetLights.FieldSliced:0): whole, as before.</summary>
+        public static bool FieldSliced = System.Environment.GetEnvironmentVariable("PSX_LAMPFIELD_SLICE") != "0";
+        const double SliceMs = 1.5;
+        static Texture2D fieldBack;
+        static bool pendOn;
+        static int pendStage, pendLamp, pendRow, pendLamps, pendMercs, pendVersion, pendFrame = -1;
+        static Vector2 pendOrigin;
+        static float pendBaseY;
+
+        /// <summary>One frame's share of the window being built for
+        /// <paramref name="origin"/>; the swap when it is done.</summary>
+        static void StepPending(Vector2 origin, float baseY)
+        {
+            if (pendFrame == Time.frameCount) return;   // a frame's share, whatever the cameras
+            pendFrame = Time.frameCount;
+            int n4 = FieldRes * FieldRes * 4;
+            // a build is for the window the eye is in now; a step on starts it again
+            if (!pendOn || pendOrigin != origin)
             {
-                fieldTex = new Texture2D(FieldRes, FieldRes, TextureFormat.RGBAHalf, false, true)
-                {
-                    name = "PSXLampField", filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp,
-                    hideFlags = HideFlags.DontSave,
-                };
+                pendOn = true; pendStage = 0; pendLamp = 0; pendRow = 0; pendLamps = 0; pendMercs = 0;
+                pendOrigin = origin; pendBaseY = baseY; pendVersion = fieldVersion;
+                if (acc == null || acc.Length != n4) { acc = new float[n4]; halfs = new ushort[n4]; }
             }
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            if (pendStage == 0)
+            {
+                // the clear, in rows (a 1 MB clear is itself a millisecond in a browser)
+                int rows = FieldRes / 4;
+                System.Array.Clear(acc, pendRow * FieldRes * 4, rows * FieldRes * 4);
+                pendRow += rows;
+                if (pendRow < FieldRes) return;
+                pendRow = 0; pendStage = 1;
+                if (clock.Elapsed.TotalMilliseconds >= SliceMs) return;
+            }
+            if (pendStage == 1)
+            {
+                pendLamp = SplatLamps(pendOrigin, pendBaseY, pendLamp, high, ref pendLamps, ref pendMercs, SliceMs - clock.Elapsed.TotalMilliseconds);
+                if (pendLamp < high) return;
+                pendStage = 2;
+                if (clock.Elapsed.TotalMilliseconds >= SliceMs) return;
+            }
+            if (pendStage == 2)
+            {
+                while (pendRow < FieldRes && clock.Elapsed.TotalMilliseconds < SliceMs)
+                {
+                    int r1 = Mathf.Min(FieldRes, pendRow + 32);
+                    ConvertRows(pendRow, r1);
+                    pendRow = r1;
+                }
+                if (pendRow < FieldRes) return;
+                pendStage = 3;
+                return;   // the upload on a frame of its own
+            }
+            // the upload, and the swap
+            if (fieldBack == null) fieldBack = NewFieldTex();
+            fieldBack.SetPixelData(halfs, 0);
+            fieldBack.Apply(false, false);
+            (fieldTex, fieldBack) = (fieldBack, fieldTex);
+            builtOrigin = pendOrigin;
+            builtBaseY = pendBaseY;
+            builtVersion = pendVersion;
+            builtStreetOn = StreetOn;
+            FieldLamps = pendLamps;
+            FieldMercuryLamps = pendMercs;
+            pendOn = false;
+        }
+
+        /// <summary>Convert accumulator rows [r0, r1) to halves.</summary>
+        static void ConvertRows(int r0, int r1)
+        {
+            int i0 = r0 * FieldRes * 4, i1 = r1 * FieldRes * 4;
+            // (an untouched texel is +0, whose half is 0: no call for it)
+            if (FieldCull) for (int i = i0; i < i1; i++) halfs[i] = acc[i] == 0f ? (ushort)0 : Mathf.FloatToHalf(acc[i]);
+            else for (int i = i0; i < i1; i++) halfs[i] = Mathf.FloatToHalf(acc[i]);
+        }
+
+        /// <summary>Splat lamps [<paramref name="from"/>, <paramref name="to"/>)
+        /// into the accumulator for a window, until <paramref name="budgetMs"/>
+        /// is spent; returns the next lamp to splat.</summary>
+        static int SplatLamps(Vector2 origin, float baseY, int from, int to, ref int lamps, ref int mercs, double budgetMs)
+        {
             float inv = 1f / FieldTexelM;
             float rp = FieldPoolM, rg = FieldGlowM;
             int reach = Mathf.CeilToInt(Mathf.Max(rp, rg) * inv);
-            int lamps = 0, mercs = 0;
-            for (int i = 0; i < high; i++)
+            var clock = budgetMs < double.MaxValue ? System.Diagnostics.Stopwatch.StartNew() : null;
+            int i = from;
+            for (; i < to; i++)
             {
+                if (clock != null && ((i - from) & 15) == 15 && clock.Elapsed.TotalMilliseconds >= budgetMs) break;
                 ref Entry e = ref entries[i];
                 if (!e.used || !e.field || !e.on || e.kind != Kind.Street || e.intensity <= 0f) continue;
                 if (e.owned && e.owner == null) continue;
@@ -241,13 +355,7 @@ namespace PSXRacing
                     }
                 }
             }
-            // (an untouched texel is +0, whose half is 0: no call for it)
-            if (FieldCull) for (int i = 0; i < n4; i++) halfs[i] = acc[i] == 0f ? (ushort)0 : Mathf.FloatToHalf(acc[i]);
-            else for (int i = 0; i < n4; i++) halfs[i] = Mathf.FloatToHalf(acc[i]);
-            fieldTex.SetPixelData(halfs, 0);
-            fieldTex.Apply(false, false);
-            FieldMercuryLamps = mercs;
-            return lamps;
+            return i;
         }
     }
 }

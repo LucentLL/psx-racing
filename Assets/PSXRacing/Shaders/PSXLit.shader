@@ -352,6 +352,11 @@ Shader "PSX/Lit"
             // from _FarBump.y metres out to all of it by _FarBump.z (inside
             // that the far trees are the woods; their cards stand on the land).
             float4 _FarGround, _FarBroad, _FarPine, _FarRoad, _FarBump;
+            // THE FAR LAND'S COVER (city perf round 1, CityFar.LandCover): the
+            // roofs' and the water's measured colours; a node's y packs the
+            // buildings' and the pavement's shares of its square in eighths
+            // over the pines' share (y = pine + 2 (bld + 8 pav)), x 3 a lake
+            float4 _FarRoof, _FarWater;
             // THE TERRAIN DETAIL (TerrainDetail.cs; the GT4 study, gap 4): a
             // luminance-only sheet, one class per channel at mean 0.5, read at
             // a world-space repeat and multiplied into the albedo near the eye.
@@ -1200,7 +1205,12 @@ Shader "PSX/Lit"
                 {
                     float3 bw = mul(unity_ObjectToWorld, v.vertex).xyz;
                     float bd = length(bw.xz - _WorldSpaceCameraPos.xz);
-                    bw.y += _FarBump.x * saturate(v.uv.x) * smoothstep(_FarBump.y, max(_FarBump.z, _FarBump.y + 1.0), bd);
+                    // (city perf round 1: _FarBump.w the crowns' own unevenness - each
+                    // node's wood a hash of its place taller or lower, so a far
+                    // treeline is ragged as a canopy is, not a smooth hill; 0 = smooth)
+                    float jag = frac(sin(dot(floor(bw.xz / 64.0), float2(12.9898, 78.233))) * 43758.5453);
+                    float crown = lerp(1.0, 0.55 + 0.9 * jag, _FarBump.w);
+                    bw.y += _FarBump.x * crown * saturate(v.uv.x) * smoothstep(_FarBump.y, max(_FarBump.z, _FarBump.y + 1.0), bd);
                     v.vertex = mul(unity_WorldToObject, float4(bw, 1.0));
                 }
                 float4 clipPos;
@@ -1279,8 +1289,17 @@ Shader "PSX/Lit"
                 // with no new interpolator
                 if (_SkyFarLand > 1.5)
                 {
-                    float3 farTint = v.uv.x > 1.5 ? _FarRoad.rgb
-                                   : lerp(_FarGround.rgb, lerp(_FarBroad.rgb, _FarPine.rgb, saturate(v.uv.y)), saturate(v.uv.x));
+                    // THE FAR LAND'S COVER (above): the open ground is the grass,
+                    // the roofs and the pavement by their shares, the woods over it
+                    float coverQ = floor(v.uv.y * 0.5);
+                    float farPine = saturate(v.uv.y - 2.0 * coverQ);
+                    float farBld = fmod(coverQ, 8.0) / 7.0, farPav = floor(coverQ / 8.0) / 7.0;
+                    float farSum = max(1.0, farBld + farPav);
+                    farBld /= farSum; farPav /= farSum;
+                    float3 farOpen = _FarGround.rgb * saturate(1.0 - farBld - farPav) + _FarRoof.rgb * farBld + _FarRoad.rgb * farPav;
+                    float3 farTint = v.uv.x > 2.5 ? _FarWater.rgb
+                                   : v.uv.x > 1.5 ? _FarRoad.rgb
+                                   : lerp(farOpen, lerp(_FarBroad.rgb, _FarPine.rgb, farPine), saturate(v.uv.x));
                     amb *= farTint;
                     sunL *= farTint;
                 }

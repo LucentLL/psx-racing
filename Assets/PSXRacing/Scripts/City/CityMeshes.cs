@@ -2159,6 +2159,15 @@ namespace PSXRacing.City
                     stepItem = 8;
                     BakeCollider(cm);
                 }
+            // city perf round 1: each mesh sent to the GPU a step each (CityMeshes.PreUpload)
+            if (PreUpload && Application.isPlaying)
+                foreach (var um in new[] { tm.ground, tm.roads, tm.buildings, tm.water, tm.structure, tm.barriers, tm.guardrails, tm.kerbs, tm.lampPosts, tm.banks })
+                {
+                    if (um == null) continue;
+                    yield return 0;
+                    stepItem = 9;
+                    um.UploadMeshData(false);
+                }
             Phase(9);
         }
 
@@ -9891,6 +9900,8 @@ namespace PSXRacing.City
                     {
                         var kg = corners[i];
                         if (kg.arc || kg.mouthNext) continue;
+                        // city perf round 1: a corner walk a step (JunctionChordSteps)
+                        if (JunctionChordSteps) { yield return 0; stepPhase = 3; stepItem = n; stepPart = 41; }
                         int kind = CornerWalkOf(map, trims, n, corners, i, tm.origin, out var cwk);
                         if (kind == 0) { WalkStats.cornersNone++; WalkStats.noneWhy[noneWhyNow]++; continue; }
                         EmitCornerWalk(map, trims, tm, corners, kind, cwk);
@@ -9901,6 +9912,10 @@ namespace PSXRacing.City
                     var k0 = corners[i];
                     var k1 = corners[(i + 1) % corners.Count];
                     if (walkGroupOf.Contains(i)) continue;   // its walk and verges are laid
+                    // city perf round 1: the perimeter a chord a step (JunctionChordSteps):
+                    // a junction's chords - rails, verges, corner fills, each with its
+                    // drop probes - were one step, up to 70 ms in the editor (HitchProbe)
+                    if (JunctionChordSteps && i > 0) { yield return 0; stepPhase = 3; stepItem = n; stepPart = 40; }
                     // road mouth - but an envelope stretch between two
                     // DIFFERENT arms that faces open ground is a free edge
                     // (owner 2026-10-04, W Trade St at Graham St: the

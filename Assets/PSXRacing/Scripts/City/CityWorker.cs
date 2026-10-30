@@ -69,7 +69,8 @@ namespace PSXRacing.City
             var j = new Job { work = work, apply = apply };
             if (!Threaded)
             {
-                work();
+                try { work(); }
+                catch (System.Exception e) { j.Error = e; UnityEngine.Debug.LogException(e); }
                 j.finished = true;
                 apply?.Invoke();
                 return j;
@@ -92,7 +93,9 @@ namespace PSXRacing.City
             }
             foreach (var j in ready)
             {
-                if (j.Error != null) { UnityEngine.Debug.LogException(j.Error); continue; }
+                // a failed job's apply still runs (with nothing made): its caller
+                // forgets the ask, so the work is neither lost nor held in flight
+                if (j.Error != null) UnityEngine.Debug.LogException(j.Error);
                 try { j.apply?.Invoke(); }
                 catch (System.Exception e) { UnityEngine.Debug.LogException(e); }
             }

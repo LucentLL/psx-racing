@@ -188,7 +188,10 @@ namespace PSXRacing.City
         static void CookCollider(GameObject g, Mesh m)
         {
             cookClock.Restart();
-            g.AddComponent<MeshCollider>().sharedMesh = m;
+            var mc = g.AddComponent<MeshCollider>();
+            // city perf round 1: the options its mesh was cooked ahead with (CityMeshes.FastCook)
+            if (CityMeshes.FastCook) mc.cookingOptions = CityMeshes.CookOptions;
+            mc.sharedMesh = m;
             cookClock.Stop();
             cookTicks += cookClock.ElapsedTicks;
         }
@@ -304,6 +307,57 @@ namespace PSXRacing.City
             return false;
         }
 
+        // ---- city perf round 1 (2026-10-30): the city's share paced by the clock ----
+        /// <summary>The tile and tree slices were ms a FRAME (4 / 6 / 10 / 12 /
+        /// 20): when the frames slow down - a browser's slower code, a busy PC,
+        /// a phone - the build falls behind the car by the same factor, the car
+        /// reaches a tile still building, and that tile is finished (or built
+        /// whole) in ONE frame: the WebGL player's 300-600 ms hitches. Now a
+        /// frame's share is also at least <see cref="PaceShareSlow"/> /
+        /// <see cref="PaceShareFast"/> of the time the frame itself took (the
+        /// share of the CPU the city may use, not a slice of a 60 Hz frame), and
+        /// the job whose tile the car is closing on is spread over the frames
+        /// left before the car gets there (its work left estimated from the
+        /// tiles built so far), up to <see cref="PaceCapMs"/>. PSX_CITY_PACE=0
+        /// (or ?ab=CityWorld.PaceBuilds:0): as before.</summary>
+        public static bool PaceBuilds = System.Environment.GetEnvironmentVariable("PSX_CITY_PACE") != "0";
+        /// <summary>A car IN a tile whose trees still wait planted them all in
+        /// one frame; now at <see cref="PaceCapMs"/> a frame (a few frames: the
+        /// trunks round a car on the road stand a frame or two later).
+        /// ?ab=CityWorld.UrgentTreesPaced:0: in one frame, as before.</summary>
+        public static bool UrgentTreesPaced = System.Environment.GetEnvironmentVariable("PSX_CITY_URGENTTREES") != "0";
+        public const float PaceShareSlow = 0.25f, PaceShareFast = 0.35f, PaceCapMs = 28f;
+        /// <summary>A built tile's own work, ms, as the last tiles took it
+        /// (an average that follows the city: uptown's tiles are heavier).</summary>
+        float tileWorkAvg = 80f;
+
+        float Paced(float budget, float speed)
+        {
+            float dt = Mathf.Min(Time.unscaledDeltaTime, 0.1f) * 1000f;
+            float share = speed > FastSpeed ? PaceShareFast : PaceShareSlow;
+            return Mathf.Min(Mathf.Max(budget, dt * share), Mathf.Max(budget, PaceCapMs));
+        }
+
+        /// <summary>The share that finishes the open job before the car
+        /// (closing on its tile along <paramref name="dir"/>) is within a car
+        /// length of it, with a margin.</summary>
+        float DeadlineBudget(float budget, Vector3 p, Vector2 dir, float speed)
+        {
+            if (job == null) return budget;
+            float T = CityMeshes.TileSize;
+            float x0 = job.tx * T, z0 = job.tz * T;
+            float nx = Mathf.Clamp(p.x, x0, x0 + T) - p.x, nz = Mathf.Clamp(p.z, z0, z0 + T) - p.z;
+            float d = Mathf.Sqrt(nx * nx + nz * nz);
+            var rel = new Vector2(x0 + 0.5f * T - p.x, z0 + 0.5f * T - p.z);
+            float cosA = rel.sqrMagnitude > 1f ? Vector2.Dot(rel.normalized, dir) : 1f;
+            float closing = 1f + speed * Mathf.Max(cosA, 0f);
+            float tEnter = Mathf.Max(d - 6f, 0f) / closing;
+            float dt = Mathf.Clamp(Time.unscaledDeltaTime, 1f / 240f, 0.1f);
+            float remain = Mathf.Max(tileWorkAvg - (float)job.WorkMs, 0.15f * tileWorkAvg);
+            float framesLeft = Mathf.Max(1f, tEnter / dt);
+            return Mathf.Clamp(1.5f * remain / framesLeft, budget, Mathf.Max(budget, PaceCapMs));
+        }
+
         /// <summary>Give the open job up: its meshes so far destroyed, the
         /// builder's scratch left for the next job's start to clear.</summary>
         void AbandonJob()
@@ -344,6 +398,10 @@ namespace PSXRacing.City
 
         void Awake() => EnsureInit();
 
+        /// <summary>City perf round 1: the city's lazy tables and its lots'
+        /// models made at load, behind the loading screen (EnsureInit).</summary>
+        public static bool WarmAtLoad = System.Environment.GetEnvironmentVariable("PSX_CITY_WARM") != "0";
+
         bool inited;
         /// <summary>Load the map and the placement tables. Idempotent, and
         /// called from every entry point rather than trusted to Awake: a
@@ -366,6 +424,24 @@ namespace PSXRacing.City
             buildings = cachedBuildings;
             // the pole lines (WP-15), once a map, at load rather than on a tree frame
             CityPoles.Warm(Map);
+            // city perf round 1: the other lazy city-wide tables and the lots'
+            // models, at load too (each cost its first tile one frame of
+            // 250-320 ms in the editor: Editor/HitchProbe.cs); PSX_CITY_WARM=0: as before
+            if (WarmAtLoad && Application.isPlaying)
+            {
+                var wc = System.Diagnostics.Stopwatch.StartNew();
+                CitySigns.Warm(Map);
+                double tSigns = wc.Elapsed.TotalMilliseconds;
+                CitySignals.AnyIn(Map, nodeTrims, 0, 0);
+                double tSignals = wc.Elapsed.TotalMilliseconds;
+                int models = CityProps.WarmCity(buildings);
+                double tModels = wc.Elapsed.TotalMilliseconds;
+                // the traffic's cars (the pool builds one a frame and every key is
+                // used as it fills: each model's first load was that frame's)
+                int cars = 0;
+                foreach (var key in TrafficSystem.Keys) if (CarModelLibrary.Load(key) != null) cars++;
+                Debug.Log($"[CityWorld] warmed at load: guide sites {tSigns:0} ms, junction controls {tSignals - tSigns:0} ms, {models} lot models {tModels - tSignals:0} ms, {cars} traffic models {wc.Elapsed.TotalMilliseconds - tModels:0} ms");
+            }
             BuildFoodIndex();
             // the trunk table, on a child of its own that no scene saves
             var tgo = new GameObject("CityTreeTrunks") { hideFlags = HideFlags.DontSave };
@@ -382,7 +458,11 @@ namespace PSXRacing.City
             // city-popin (2026-10-28): the tile fade table, and every building
             // the skyline does not draw as a far proxy out to ~2 km
             CityTileFade.Ensure();
-            Proxies = CityProxies.Create(transform, Map, nodeTrims, MatFor, Skyline != null ? Skyline.Outlines : null);
+            // (city perf round 1: with CityBuildings' lots - CityMeshes.LotProxies)
+            Proxies = CityProxies.Create(transform, Map, nodeTrims, MatFor, Skyline != null ? Skyline.Outlines : null, buildings);
+            // city perf round 1: every variant the city draws with, compiled behind the loading screen
+            if (WarmAtLoad && Application.isPlaying)
+                CityShaderWarm.Warm(new[] { Skyline != null ? Skyline.gameObject : null, Far != null ? Far.gameObject : null, Proxies != null ? Proxies.gameObject : null });
         }
 
         /// <summary>The far buildings (city-popin): every footprint the
@@ -510,6 +590,8 @@ namespace PSXRacing.City
 
         void Update()
         {
+            // city perf round 1: what the worker threads finished, into the world
+            CityWorker.Pump();
             // the one clock every signal head in the city runs on
             CitySignals.Tick(Time.timeAsDouble);
             if (player == null || Map == null) return;
@@ -654,6 +736,8 @@ namespace PSXRacing.City
                     // city-build-hitches: a car about to drive onto the tile still building
                     // spends a bigger share, so it is done over frames, not finished in one
                     if (NoForcedFinish && JobTileCritical()) budget = Mathf.Max(budget, CriticalSliceBudgetMs);
+                    // city perf round 1: by the clock, and by when the car gets there
+                    if (PaceBuilds) budget = Mathf.Max(Paced(budget, speed), DeadlineBudget(budget, p, dir, speed));
                     if (job.Done) CompleteJob();
                     else
                     {
@@ -712,11 +796,26 @@ namespace PSXRacing.City
                     // no job may be open across them (WP-09)
                     if (job != null) { if (NoForcedFinish) AbandonJob(); else CompleteJob(); }   // city-build-hitches
                     bool fastT = BuildAhead && speed > FastSpeed && frameMsAvg < FastFrameMs;
-                    if (treeSteps != null && !(urgent && best != treeKey)) { using (PlantMarker.Auto()) RunTreeJob(urgent ? double.MaxValue : fastT ? FastSliceBudgetMs : SliceBudgetMs); }
+                    float treeBudget = fastT ? FastSliceBudgetMs : SliceBudgetMs;
+                    if (PaceBuilds) treeBudget = Paced(treeBudget, speed);   // city perf round 1
+                    // city perf round 1: a car in a tile whose trees still wait takes
+                    // the urgent share over a few frames, not the whole frame in one
+                    double urgentBudget = PaceBuilds && UrgentTreesPaced ? PaceCapMs : double.MaxValue;
+                    if (treeSteps != null && !(urgent && best != treeKey)) { using (PlantMarker.Auto()) RunTreeJob(urgent ? urgentBudget : treeBudget); }
+                    else if (urgent && urgentBudget < double.MaxValue)
+                    {
+                        // (another tile's frame still open: it goes on first at the same
+                        // share - its scratch and lattice are the planting's - then this one)
+                        using (PlantMarker.Auto())
+                        {
+                            if (treeSteps != null) RunTreeJob(urgentBudget);
+                            else if (BeginTrees(best)) RunTreeJob(urgentBudget);
+                        }
+                    }
                     else if (urgent) PlantTrees(best);
                     else if (PrepareSigns(best) == 0)
                     {
-                        if (SliceTrees) { using (PlantMarker.Auto()) if (BeginTrees(best)) RunTreeJob(fastT ? FastSliceBudgetMs : SliceBudgetMs); }
+                        if (SliceTrees) { using (PlantMarker.Auto()) if (BeginTrees(best)) RunTreeJob(treeBudget); }
                         else PlantTrees(best);
                     }
                 }
@@ -1040,6 +1139,7 @@ namespace PSXRacing.City
             using (FinishMarker.Auto()) j.Finish();
             if (PerfClock.On) PerfClock.Add(PerfClock.Slot.TileFinish, pc);
             if (live.ContainsKey(k)) return;
+            tileWorkAvg = Mathf.Lerp(tileWorkAvg, (float)j.WorkMs, 0.25f);   // city perf round 1
             StandUp(k, j.tx, j.tz, j.Result, j.WorkMs, j.Slices, (float)j.MaxSliceMs);
         }
 
@@ -1090,6 +1190,10 @@ namespace PSXRacing.City
                         0f, b.yaw * Mathf.Rad2Deg + def.yawOffsetDeg, 0f);
                     if (b.scale.sqrMagnitude > 0.01f) go.transform.localScale = b.scale;
                     props++;
+                    // city perf round 1: a pack tower hands over to its far proxy past
+                    // the squeeze's start, as the tile's own buildings do (TowerProxies)
+                    if (CityMeshes.TowerProxies && Proxies != null && CityProps.IsTower(b.kind) && (CityTileFade.On || Proxies != null))
+                        CityTileFade.MarkTile(go, CityTileFade.ModeBuildings, null);
                 }
             }
             double tProps = clock.Elapsed.TotalMilliseconds;

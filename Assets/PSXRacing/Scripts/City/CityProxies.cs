@@ -63,10 +63,17 @@ namespace PSXRacing.City
         }
         readonly Dictionary<long, Chunk> built = new Dictionary<long, Chunk>();
 
+        // city perf round 1: CityBuildings' lots by chunk (CityMeshes.LotProxies)
+        readonly Dictionary<long, List<CityBuildings.B>> lotsByChunk = new Dictionary<long, List<CityBuildings.B>>();
+        public int Lots { get; private set; }
+        public int EmittedLots { get; private set; }
+
         // the chunk being emitted
         long jobKey;
         List<int> jobList;
         int jobAt;
+        List<CityBuildings.B> jobLots;
+        int jobLotAt;
         bool jobOpen;
         readonly CityMeshes.ProxyOut jobOut = new CityMeshes.ProxyOut();
         double jobMs;
@@ -115,7 +122,8 @@ namespace PSXRacing.City
         /// skyline does not (its towers and mid-rises, and any part of them),
         /// that no model stands on and no part draws for it.</summary>
         public static CityProxies Create(Transform parent, CityMap map, CityMeshes.Trims trims,
-                                         System.Func<CityMeshes.Slot, Material> matFor, ICollection<int> skylineOutlines)
+                                         System.Func<CityMeshes.Slot, Material> matFor, ICollection<int> skylineOutlines,
+                                         Dictionary<long, List<CityBuildings.B>> lots = null)
         {
             if (!Enabled || map == null || map.footprints == null) return null;
             var go = new GameObject("CityProxies") { hideFlags = HideFlags.DontSave };
@@ -131,7 +139,8 @@ namespace PSXRacing.City
             {
                 var f = fs[i];
                 if (f.hidden || f.pts == null || f.pts.Length < 3) continue;
-                if (f.propKind != 0) { models++; continue; }
+                // (city perf round 1: a pack tower's lot has its massing for a proxy)
+                if (f.propKind != 0 && !(CityMeshes.TowerProxies && CityProps.IsTower(f.propKind))) { models++; continue; }
                 if (skylineOutlines != null && (skylineOutlines.Contains(i) || (f.part && f.outline >= 0 && skylineOutlines.Contains(f.outline)))) { sky++; continue; }
                 long k = Key(ChunkOf(f.centre.x), ChunkOf(f.centre.y));
                 if (!cp.byChunk.TryGetValue(k, out var list)) { list = new List<int>(64); cp.byChunk[k] = list; }
@@ -139,6 +148,20 @@ namespace PSXRacing.City
                 cp.Footprints++;
                 if (f.gable || f.style == 3) houses++;
             }
+            // city perf round 1: CityBuildings' lots (CityMeshes.LotProxies) by
+            // chunk too - past the OSM core they are the city's buildings
+            if (CityMeshes.LotProxies && lots != null)
+                foreach (var kv in lots)
+                    foreach (var b in kv.Value)
+                    {
+                        // a pack tower stands on a footprint: that one's proxy is its (TowerProxies)
+                        if (b.kind != 0 && CityProps.IsTower(b.kind)) continue;
+                        long k = Key(ChunkOf(b.pos.x), ChunkOf(b.pos.y));
+                        if (!cp.lotsByChunk.TryGetValue(k, out var ll)) { ll = new List<CityBuildings.B>(32); cp.lotsByChunk[k] = ll; }
+                        ll.Add(b);
+                        cp.Lots++;
+                        if (!cp.byChunk.ContainsKey(k)) cp.byChunk[k] = new List<int>(0);
+                    }
             for (int d = 0; d < CitySkyline.DrawCount; d++)
             {
                 var dgo = new GameObject("CityProxies " + (d + 1)) { hideFlags = HideFlags.DontSave };
@@ -157,7 +180,7 @@ namespace PSXRacing.City
             cp.back = new Mesh { name = "CityProxies B", hideFlags = HideFlags.DontSave };
             cp.front.MarkDynamic(); cp.back.MarkDynamic();
             CityTileFade.Ensure();
-            Debug.Log($"[CityProxies] {cp.Footprints} footprints ({houses} houses) in {cp.byChunk.Count} chunks of {ChunkM:0} m to {RadiusM:0} m; left out: {sky} the skyline draws, {models} model lots");
+            Debug.Log($"[CityProxies] {cp.Footprints} footprints ({houses} houses) + {cp.Lots} lots in {cp.byChunk.Count} chunks of {ChunkM:0} m to {RadiusM:0} m; left out: {sky} the skyline draws, {models} model lots");
             return cp;
         }
 
@@ -300,6 +323,8 @@ namespace PSXRacing.City
             jobKey = best;
             jobList = byChunk[best];
             jobAt = 0;
+            jobLots = lotsByChunk.TryGetValue(best, out var jl) ? jl : null;
+            jobLotAt = 0;
             jobOut.Clear();
             jobOpen = true;
             jobMs = 0.0;
@@ -321,9 +346,21 @@ namespace PSXRacing.City
                 EmittedFootprints++;
                 if (clock.Elapsed.TotalMilliseconds >= budgetMs) break;
             }
+            // city perf round 1: then the chunk's lots (CityMeshes.LotProxies). Their
+            // tiles' fill houses have no proxies, so a lot's never takes over from
+            // its tile's copy: it stands past the squeeze's start, and nearer only
+            // where its tile is not up yet (the tile tagged as not covered)
+            if (jobAt >= jobList.Count && jobLots != null)
+                while (jobLotAt < jobLots.Count && clock.Elapsed.TotalMilliseconds < budgetMs)
+                {
+                    var b = jobLots[jobLotAt++];
+                    int tx = Mathf.FloorToInt(b.pos.x / CityMeshes.TileSize), tz = Mathf.FloorToInt(b.pos.y / CityMeshes.TileSize);
+                    CityMeshes.EmitProxyLot(map, trims, b, jobOut, new Vector2(tx + 512f, tz));
+                    EmittedLots++;
+                }
             double ms = clock.Elapsed.TotalMilliseconds;
             jobMs += ms; EmitMsTotal += ms;
-            if (jobAt < jobList.Count) return;
+            if (jobAt < jobList.Count || (jobLots != null && jobLotAt < jobLots.Count)) return;
             // the chunk is done
             var ch = new Chunk { key = jobKey, v = jobOut.v.ToArray(), t = new int[(int)CityMeshes.Slot.COUNT][] };
             ch.cx = (int)(jobKey >> 24); ch.cz = (int)((jobKey << 40) >> 40);
