@@ -9442,5 +9442,8 @@ Commits on city-fuel-r1 after aab9c7fc: 2197f1cd (b, c), 4ed0a9fc (1, 3), b8479e
 4. Charlotte: screenshots from a car at 6+ stations (the list above), day and night (canopy lights, shop windows, the
    pylon); the city audits (lots, curbs, the drive audit: nothing solid in a lane), the stations' install line in the
    log (no table drift, 0 replaced boxes missed, curb cuts re-found 0).
-5. A refuel at a city station (fuel-play-check pointed at Charlotte) and GO INSIDE (main edition).
+5. A refuel at a city station: `tools\city-fuel-play-check.ps1` (Editor/CityFuelPlayCheck.cs, written in this round:
+   the plainest one-module station nearest uptown, its tiles built whole, park beside a pump, FUEL offered, out,
+   FILL UP raises the tank, STOP stops it, GO INSIDE at its door) - as the main edition, and with PSX_EDITION=CITY
+   (free fuel, no door prompt).
 6. The frame cost at Carowinds Boulevard and East Independence Boulevard (CityBudgetProbe, FPS overlay CITY line).
