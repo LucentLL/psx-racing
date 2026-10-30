@@ -2694,8 +2694,21 @@ namespace PSXRacing
                 if (currentGear < gearRatios.Length && wheelSpin < 0.5f &&
                     (currentRPM > upshiftRPM || NextGearPullsHarder(currentRPM, accelPedal)))
                     ShiftTo(currentGear + 1);
-                else if (currentRPM < downshiftRPM && currentGear > 1)
-                    ShiftTo(currentGear - 1);
+                else
+                {
+                    // THE KICKDOWN (KickdownGear) - not with the rears already
+                    // spinning, where a lower gear only spins them harder, and
+                    // not in a slide or a handbrake window: a drift holds its
+                    // gear, and the drift layer was tuned on that.
+                    int down = wheelSpin < KickdownMaxWheelSpin && !Drifting &&
+                               !handbrakeInput && EbrakeTimer <= 0f
+                        ? KickdownGear(speed, accelPedal, currentGear)
+                        : currentGear;
+                    if (down < currentGear)
+                        ShiftTo(down);
+                    else if (currentRPM < downshiftRPM && currentGear > 1)
+                        ShiftTo(currentGear - 1);
+                }
             }
         }
 
@@ -4388,6 +4401,76 @@ namespace PSXRacing
                 if (KinematicRPM(mps, g) <= ceiling) return g;
             return gearRatios.Length;
         }
+
+        /// <summary>
+        /// THE KICKDOWN. Owner, 2026-10-30: "the car does not downshift after
+        /// deceleration without braking. Ex: letting off the gas or slowing
+        /// down due to terrain. Car stays in high gear and bogs while trying
+        /// to accelerate again."
+        ///
+        /// The only way down was <see cref="downshiftRPM"/>, 3.4 x idle, and
+        /// that is a COAST schedule: a lift or a climb keeps the tall gear
+        /// until the revs fall that far, which is the lift-off feel the
+        /// engine-brake numbers were tuned on, so it stays. What was missing
+        /// is the pedal coming back. Nothing read it, so the throttle went
+        /// back on at the bottom of the band in the tallest gear - under a
+        /// turbo's threshold (CarTune.BoostAvailable starts at 20-40% of the
+        /// rev range) and off the meat of every curve.
+        ///
+        /// So with the pedal down the box goes straight - skipping gears, as
+        /// a real kickdown does - to the gear that pulls hardest at this road
+        /// speed: the curve's torque at the revs the gear would land on times
+        /// its ratio, which at one speed is the gear making the most power.
+        /// Only gears under a ceiling count, and the ceiling rises with the
+        /// pedal: a light squeeze lifts the floor a little, a full pedal may
+        /// take the revs to <see cref="RollingGearHeadroom"/> of the upshift
+        /// point - the margin a rolling start is picked with, so the box never
+        /// kicks into a gear it would change straight back out of. A lower
+        /// gear has to beat the current one by <see cref="KickdownPullMargin"/>,
+        /// a margin over the wheelspin flare in the revs the upshift reads,
+        /// and ties keep the taller gear, so from the pick the gear above pulls less
+        /// and <see cref="NextGearPullsHarder"/> - the same comparison the
+        /// other way - cannot send it back up: the two rules do not hunt.
+        /// Pure, like <see cref="GearForSpeed"/>, so the self-test can ask it.
+        /// </summary>
+        public int KickdownGear(float mps, float pedal, int fromGear)
+        {
+            if (gearRatios == null || fromGear <= 1 || fromGear > gearRatios.Length) return fromGear;
+            float t = Mathf.InverseLerp(KickdownPedalStart, 1f, pedal);
+            if (t <= 0f) return fromGear;
+            float ceiling = upshiftRPM * Mathf.Lerp(KickdownLightHeadroom, RollingGearHeadroom, t);
+            float fromPull = GearPull(mps, fromGear);
+            int best = fromGear;
+            float bestPull = fromPull * KickdownPullMargin;
+            for (int g = fromGear - 1; g >= 1; g--)
+            {
+                // Every gear below revs higher still.
+                if (KinematicRPM(mps, g) > ceiling) break;
+                float pull = GearPull(mps, g);
+                if (pull > bestPull) { best = g; bestPull = pull; }
+            }
+            return best;
+        }
+
+        /// <summary>Pedal under which the box never kicks down: a lift, a
+        /// feathered cruise.</summary>
+        public const float KickdownPedalStart = 0.25f;
+        /// <summary>The kickdown ceiling just past KickdownPedalStart, as a
+        /// fraction of upshiftRPM; it rises to RollingGearHeadroom at full
+        /// pedal. On the built-in RX-7 that is 3,960 rpm rising to 6,480.</summary>
+        public const float KickdownLightHeadroom = 0.55f;
+        /// <summary>How much harder a lower gear must pull to be worth a shift.</summary>
+        public const float KickdownPullMargin = 1.05f;
+        /// <summary>The kickdown waits while the driven wheels spin harder
+        /// than this (wheelSpin, 0..1).</summary>
+        const float KickdownMaxWheelSpin = 0.25f;
+
+        /// <summary>A gear's drive at this road speed, per unit of final drive:
+        /// the curve's torque at the revs it would land on (idle at the
+        /// least - below that the clutch slips) times its ratio.</summary>
+        float GearPull(float mps, int gear) =>
+            GetTorqueAtRPM(Mathf.Max(idleRPM, KinematicRPM(mps, gear))) *
+            Mathf.Abs(gearRatios[Mathf.Clamp(gear, 1, gearRatios.Length) - 1]);
 
         /// <summary>
         /// Put the car on the road ALREADY MOVING, where it stands and the way

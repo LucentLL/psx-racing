@@ -3334,7 +3334,99 @@ namespace PSXRacing.EditorTools
                 CheckRollingGear(CarCatalog.All[CarCatalog.All.Count - 1],
                                  CarCatalog.All[CarCatalog.All.Count - 1].name);
             }
+
+            // ---- the kickdown --------------------------------------------
+            CheckKickdown(null, "built-in RX-7");
+            foreach (var s in CarCatalog.All)
+                if (s == CarCatalog.All[0] || s == CarCatalog.All[CarCatalog.All.Count - 1] ||
+                    s.name.Contains("CIVIC SiR-II (EG) `95"))
+                    CheckKickdown(s, s.name);
+            CheckKickdownCatalog();
         }
+
+        /// <summary>
+        /// THE KICKDOWN for one car (CarController.KickdownGear), the owner's
+        /// "stays in high gear and bogs while trying to accelerate again".
+        /// Over every gear and every rev from the coast floor to the upshift
+        /// point: a lift or a light pedal never moves the box, a deeper pedal
+        /// never picks a taller gear than a lighter one, and a kickdown never
+        /// lands where it would change straight back up - over the
+        /// rolling-start ceiling, or with the gear above pulling as hard.
+        /// </summary>
+        static void CheckKickdown(CarSpec spec, string who)
+        {
+            var car = TuneBenchCar(spec ?? CarCatalog.All[0]);
+            if (spec != null) car.ApplySpec(spec);
+            else car.wheelRadius = 0.31f;     // as CheckRollingGear
+
+            if (spec == null)
+            {
+                // Fifth at 3,500 rpm (124 km/h), just over the 3,400 coast
+                // floor. Floored, the ceiling is 6,480: fourth would be 4,342
+                // rpm x 1.000 (312 Nm), third 6,040 x 1.391 (311 Nm), so third.
+                // Half pedal, the ceiling is 4,800: fourth.
+                float at = 3500f / car.KinematicRPM(1f, 5);
+                int full = car.KickdownGear(at, 1f, 5), half = car.KickdownGear(at, 0.5f, 5),
+                    light = car.KickdownGear(at, 0.2f, 5);
+                Check(full == 3, who + ": floored at 3,500 rpm in fifth, the box kicks down to third", full);
+                Check(half == 4, who + ": half pedal there, fourth", half);
+                Check(light == 5, who + ": a light pedal holds fifth", light);
+            }
+
+            float ceiling = car.upshiftRPM * CarController.RollingGearHeadroom;
+            string bad = null;
+            for (int g = 2; g <= car.gearRatios.Length && bad == null; g++)
+                for (float rpm = car.downshiftRPM; rpm <= car.upshiftRPM && bad == null; rpm += 200f)
+                {
+                    float mps = rpm / car.KinematicRPM(1f, g);
+                    int lift = car.KickdownGear(mps, 0f, g);
+                    int light = car.KickdownGear(mps, CarController.KickdownPedalStart, g);
+                    int half = car.KickdownGear(mps, 0.5f, g);
+                    int full = car.KickdownGear(mps, 1f, g);
+                    string at = "gear " + g + " at " + rpm.ToString("0") + " rpm: ";
+                    if (lift != g || light != g)
+                        bad = at + "a lift or a light pedal took gear " + Mathf.Min(lift, light);
+                    else if (half > g || full > half)
+                        bad = at + "half pedal " + half + ", full " + full;
+                    else if (full < g && car.KinematicRPM(mps, full) > ceiling)
+                        bad = at + "kicked to " + full + " at " + car.KinematicRPM(mps, full).ToString("0") +
+                              " rpm, over the " + ceiling.ToString("0") + " ceiling";
+                    else if (full < g && GearPull(car, mps, full + 1) >= GearPull(car, mps, full))
+                        bad = at + "kicked to " + full + " and gear " + (full + 1) + " pulls as hard";
+                }
+            Check(bad == null, who + ": every kickdown deepens with the pedal, stays under the ceiling " +
+                               "and pulls harder than the gear above", bad);
+            TuneDrop(car);
+        }
+
+        /// <summary>
+        /// The owner's case on every car in the catalog: top gear a tenth over
+        /// its own coast floor - where a lift or a climb leaves it - and the
+        /// pedal floored. The box has to come down.
+        /// </summary>
+        static void CheckKickdownCatalog()
+        {
+            var car = TuneBenchCar(CarCatalog.All[0]);
+            int stuck = 0;
+            string names = "";
+            foreach (var s in CarCatalog.All)
+            {
+                car.ApplySpec(s);
+                int top = car.gearRatios.Length;
+                float mps = car.downshiftRPM * 1.1f / car.KinematicRPM(1f, top);
+                if (car.KickdownGear(mps, 1f, top) < top) continue;
+                stuck++;
+                if (stuck <= 5) names += (names.Length > 0 ? ", " : "") + s.name;
+            }
+            Check(stuck == 0, "kickdown: every catalog car floored in top gear just over its coast floor " +
+                              "comes down (" + CarCatalog.All.Count + " cars)",
+                  stuck == 0 ? null : stuck + " stuck: " + names);
+            TuneDrop(car);
+        }
+
+        static float GearPull(CarController car, float mps, int gear) =>
+            car.GetTorqueAtRPM(Mathf.Max(car.idleRPM, car.KinematicRPM(mps, gear))) *
+            Mathf.Abs(car.gearRatios[gear - 1]);
 
         /// <summary>
         /// The rolling-start gear picks for one car, built-in or catalog. Stood
