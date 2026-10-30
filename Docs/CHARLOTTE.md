@@ -8504,3 +8504,261 @@ the gore (OSM topology); ramp e251, whose posted 35 mph advisory (OSM) is over i
 whose two mouths almost touch (the 67 heading snaps left: junction trims); the vertical class (crests and steps on Billy Graham Pkwy and junction lips:
 the drawn profile, not touched here); no curve warning signs (W1-2 + W13-1P) yet - the advisories
 reach the player only through the exit sign.
+
+## HIGHWAY SIGNS - round 2 (city-signs-r2, 2026-10-29)
+
+Round 1 (city-highway-signs, merged at b94cbfe4) stood Charlotte's freeway guide signs from the map's own words
+(`Scripts/City/CitySigns.Guide.cs`, `CitySignData.cs`, `tools/city/signs.mjs`, the Overpass atlas
+`tools/city/guide_atlas.py`). Round 2 works its open list. New code: `Scripts/City/CitySigns.Signs2.cs` (the switches,
+the new signs, the layout check, the census numbers); round 1's structures in `CitySigns.Guide.cs` call into it; small
+hooks in `CityWorld.cs` (sign luminaires to the tile's NightGlow), `NightGlow.cs` (halo-only heads), `PSXLit.shader`
+(`_NightVtx`: UV2 light and the legend lead), `CityMeshes.cs` / `CityMeshes.Bridges.cs` (two read-only accessors),
+`PSXRacingBuilder.City.cs` and `Materials/CityGuide.mat` (the guide material's night flags), `Editor/CityAudit.Signs.cs`
+(bridge-mounted panels; the clash check per sign). Data: the guide atlas (new cells) and `charlotte_signs.bytes`
+regenerated from the shared cache (the base's file predated integration-1029d's map: 195 -> 197 exits, 2 fewer business
+POIs). Routes stay WORDS - no shield, logo or brand anywhere.
+Rules are cited by the 2009 MUTCD's numbers (the 1988 edition the 1990s used is drawn where they differ: the E11-1
+EXIT ONLY panel, no 2009-only signs such as the Hairpin W1-11 or the 270-degree loop W1-15).
+
+| Switch (all ON; `=0` restores round 1's) | What |
+|---|---|
+| `PSX_CITY_SIGNS2=0` | every switch below off at once |
+| `PSX_CITY_SIGNS2_LEGS` | a sign bridge's leg collides where it is drawn |
+| `PSX_CITY_SIGNS2_GLYPH` | every legend mosaic leads its green backing in depth |
+| `PSX_CITY_SIGNS2_DENSITY` | overhead structures to real practice |
+| `PSX_CITY_SIGNS2_BRIDGE` | exit/advance signs on an overpass fascia or on their own deck where the freeway is on structure |
+| `PSX_CITY_SIGNS2_CURVES` | W1 curve/turn warnings + W13-1P plaques, W1-8 chevrons |
+| `PSX_CITY_SIGNS2_EXITONLY` | EXIT ONLY panels on lane drops |
+| `PSX_CITY_SIGNS2_NIGHT` | overhead signs lit as the 1990s lit them |
+| `PSX_CITY_SIGNS2_GORES` | gore signs where the gore visibly opens |
+
+Tools: `CitySigns.SetSigns2(bool)`; `HighwaySignsCheck.Run` with `PSX_HSIGN_BOTH=1` writes the census with round 1's
+signs (`city_hsigns_r1.txt`) and round 2's (`city_hsigns.txt`) in one run, each with the LAYOUT CHECK, the SHOT SPOTS and
+the GLYPH PROBE; `CityPreview.RunEyePlay` with `PSX_EYE_SIGNS2_AB=1` shoots every frame both ways (`_r1` / `_r2`),
+`PSX_EYE_LOOKS` (`name:x:z:road:lookX:lookZ:lens`) adds eye views onto a point, `PSX_EYE_GUIDEVARS`
+(`filter:aniso:bias` or `noback`) re-shoots a frame with the guide atlas sampled otherwise or without the backing.
+`PSX_SIGNS_DBG_NOBACKING=1` is that diagnostic as an environment switch (never shipped on).
+
+### 1. Sign-bridge legs collide as drawn (`LEGS`)
+Round 1 put ONE 0.7 x 1.4 m box round each two-post leg, so the drive audit read the air between the two posts as an
+invisible solid (173 leg boxes: 692 of the base's 816 INVISIBLE SOLIDS samples). Now each leg is what `EndFrame`
+draws: per post a box on the 8-sided post's flats (circumradius 0.17 m: 0.314 m across, yaw -22.5 deg so four of its
+faces lie ON four of the prism's) from 0.3 m into the ground to the truss top, and one on its concrete footing
+(0.36 m: 0.665 m across, 0.4 m down to 0.55 m up). Four boxes a leg instead of one; no collision removed (a car
+still stops at each post).
+
+### 2. The "6" of I-85 exit 36 - the cause, and the fix for every legend (`GLYPH`)
+The atlas was right (its "6" cell is whole at every mip), the UVs and the mosaic were right (the glyph probe: one site,
+41 quads, the legend at +1 mm, the green backing at -46 mm, nothing else), and the "S" did not care how the atlas was
+sampled: point, bilinear, trilinear and anisotropic all read "3 S" from 56 m. Shot with NO backing it read "36". The
+backing - a solid green quad a few cm behind every mosaic, there to fill a hairline crack where a T-junction of the
+mosaic opens - WON THE DEPTH TEST over the legend in bands once the depth buffer's step at the sign's distance passed the
+gap (4.6 cm on a small sign, 9.5 cm on a panel: z^2 / (near x 2^24), 2x on OpenGL's -1..1 depth). Whole letters then
+went the backing's flat green: the "6"'s lower left at 56 m on a near plane of a centimetre (the shot camera; the base
+as shipped draws "3 S" there too). In the game (near plane 6.7 cm in the cockpit, 12 cm in the chase view) the step
+reaches a small sign's 4.6 cm from ~160-215 m and a panel's 9.5 cm from ~230-310 m. Fix, for every legend mosaic
+(panels, tabs, gore signs, plaques, EXIT ONLY): its vertices carry UV2.y = 1 and PSX/Lit pulls them `GUIDE_LEAD_STEPS` =
+3 steps of a 24-bit buffer (x2 for OpenGL) toward the eye along their own view ray - the same pixel, a nearer depth - so
+the backing only shows through a crack. The pull is capped at 1 m (`GUIDE_LEAD_MAX`: the catwalk and the luminaires
+0.85-0.95 m in front of a panel's foot overlap it on screen only within ~12 m, where the pull is millimetres); the cap
+binds past ~430 m in the cockpit and the legend still leads by more than a step to ~770 m. A uniform branch on the guide
+material (`_NightVtx`), no extra draw. Every guide mesh carries UV2 - zeros where a vertex has no lamp light and no lead:
+with the channel missing Unity fed the shader another one there (a test build with every switch off glowed in blocks at
+night until it did).
+
+### 3. Overhead density (`DENSITY`)
+MUTCD 2E.33: "Advance Guide signs should be placed at 1/2 mile and at 1 mile in advance of the exit", not overlapping
+the previous exit's signing; "At minor interchanges, only one Advance Guide sign should be used"; a sign under half a
+mile out gives its distance to the nearest quarter mile. MUTCD 2A.17's factors for overhead signs (left exits, lane
+drops, three or more lanes, ...). NCDOT's inventory: ~1.01 overhead structures per km of freeway.
+- The 1 MILE sign is left out where the previous exit diverges less than a mile + 150 m back on the same carriageway,
+  and at a MINOR interchange (an exit to a street: no route on its sign).
+- Closer than half a mile + 150 m: ONE advance sign half way back ("1/4 MILE", "1/2 MILE", "3/4 MILE" as the quarter
+  rounds - the atlas's own fraction glyphs); under 300 m none.
+- The advance signs AND the exit direction sign are POST-MOUNTED past the clear zone (round 1's two-post ground sign,
+  breakaway, no collider) unless a 2A.17 factor holds: a left exit, a lane drop (EXIT ONLY is overhead, 2E.24), more
+  than three THROUGH lanes (the fewest lanes over the 400 m before it: a deceleration lane does not count); overhead
+  only as a fallback.
+- An overhead advance panel whose station falls within 150 m of another exit's sign bridge would hang on that bridge
+  (in place of its pull-through); with the half-way rule above no station does (0 shared).
+
+### 4. Bridge-mounted signs (`BRIDGE`)
+MUTCD 2E.25: "Overcrossing structures can often serve for the support of overhead signs." Where an exit's carriageway
+is on structure for the 130 m round 1 searched (no ground for legs: 11 exits, 8 round uptown on I-277 / I-77 and 3 at
+I-485's interchanges) - or a structure's legs found no room - the exit direction sign:
+- hangs on the FASCIA of the first overpass crossing the carriageway within 300 m before the exit (a road on structure
+  crossing at 45 deg or more, its deck at least the solve's clearance over the freeway): over the exit's lanes where
+  their middle meets the fascia; the panel's back 0.35 m off the parapet's outer face (the rail's 0.3 m past the drawn
+  edge) on galvanised brackets - an upright behind the panel every 2.4 m, struts back to the slab and to the rail - so
+  it can never z-fight the fascia; parallel to the fascia where that still faces its drivers (the audit's 0.9), turned
+  to them up to 35 deg; its foot at the bridge's SOFFIT (slab + girders, `CityMeshes.GirderDepthOf`), never under 16 ft
+  over the roads below it; lit from luminaires on arms over its top (never in front of its tab);
+- else stands as a sign bridge BOLTED TO ITS OWN DECK (an elevated freeway's): the legs on steel base plates down the
+  deck's sides, outside its rails, where no other pavement or deck is. None stands today: the three exits that reach
+  this step have a twin deck or other pavement against both edges all along the 130 m ("no legs").
+An overhead advance sign that finds only deck looks for an overpass within -140..+120 m of its station. Kind `Bridge` in
+the sign audit: no ground feet, its own clearance check (16 ft over the roads under it).
+
+### 5. Curve warnings (`CURVES`)
+From `CityCurves` (the one source of advisories) on freeways, ramps and arterials (primary/trunk), each direction:
+- a span is signed where its advisory is 10 mph or more under the posted limit (Table 2C-5: the W1 sign and the
+  W13-1P plaque "Required" from 10 mph; a ramp without a posted limit runs at 45 mph, the traffic's cap);
+- only a CURVE: its heading turns 15 deg or more over a run of 6 m or more (30 deg on an arterial), an arterial's
+  30 m or more from a junction of three arms and a ramp's not its turn into the street junction at its end (a polyline
+  kink, a junction's own turn, are not curves); not the exit-speed advisory's own curve (the W13-2 at the gore says
+  it); a curve split by a node is signed once, where it begins; a second sign within 40 m of one already standing for
+  the same traffic is not added;
+- Turn (W1-1) at an advisory of 30 mph or less, Curve (W1-2) over (2C.07); two opposite curves under 600 ft apart get
+  one Reverse Turn / Reverse Curve (W1-3 / W1-4) with the lower speed;
+- at Table 2C-4's Condition B distance before the curve (deceleration from the posted speed to the advisory,
+  interpolated, never under 100 ft), walked back along the same road across its nodes;
+- on breakaway posts (no collider), the near edge 6 ft off a freeway's or ramp's pavement, 2 ft off a street's (2A.19),
+  the plaque's foot 6 ft over the road (2A.18: a secondary sign a foot under 7 ft), turned to its drivers 100 m back;
+  sizes from Table 2C-2 (freeway 48 in + 30 in plaque, ramp / multi-lane 36 + 24, single lane 30 + 18); a
+  supplementary sign on the left of a multi-lane one-way carriageway where the median has room (2A.16, 2C.04);
+- W1-8 chevrons through a SHARP ramp curve (Table 2C-5 asks for them from 15 mph under; the 1990s used them on
+  loops and hooks: 25 mph or less, turning 75 deg or more), on its outside, at Table 2C-6's spacing (40 ft at 15 mph
+  or less, 80 ft at 20-30), 5 ft up (2C.09: 4 ft at least), each turned to its drivers 60 m back; a chevron slides
+  off a blocked spot by at most a third of its spacing (two never meet), and a curve split by a node does not
+  double its chevrons there;
+- every warning's post off a deck's 1 m margin and a junction's corner spot as well as off the pavement (the sign
+  audit's "under a deck" and "corner spot": round 2's breakaway posts, gore and ground guide signs too), and a warning
+  needs a driver at least 30 m back to turn to (a road that begins at the curve gets none).
+The diamonds and the chevron are whole cells of the guide atlas (black symbol and border on yellow, flipped for a
+curve to the left; the diamond's quad takes its four points), the plaque a mosaic of the atlas's yellow set: no text
+beyond "nn MPH".
+
+### 6. EXIT ONLY (`EXITONLY`)
+A lane drop (MUTCD 2E.24: "the EXIT ONLY (down arrow) sign panel shall be used on all signing of lane drops on all
+overhead Advance Guide signs ... the number of arrows ... shall correspond to the number of dropped lanes"): the
+through lanes that run at least a mile before the diverge (the graph's lanes - the lanes pass's line set - the fewest
+over that mile; OSM turn:lanes marking the exit side's lanes for the turn only says the same) and do not go on along
+the freeway after it, no more than the ramp carries; none where the exit carries the through route ("signs should be
+used without the EXIT ONLY panel"). The panel (1988 E11-1 style): a yellow band across the foot of the guide sign,
+black border, "EXIT" and "ONLY" either side of a black down arrow over each dropped lane on an advance sign (the
+arrows follow the panel's place over the lanes, kept between the words), the two words alone on the exit direction
+sign whose up-diagonal arrow says where; on a lane station that lacks the lane yet, fewer arrows. New atlas cell: the
+black down arrow on yellow. Lane-drop exits are always signed overhead (2E.24).
+
+### 7. Night: lit overhead signs, 1990s (`NIGHT`)
+MUTCD 2E.06: "Overhead sign installations should be illuminated unless an engineering study shows that
+retroreflectorization alone will perform effectively" - and in the 1990s NCDOT's were: mercury-vapour luminaires on a
+catwalk under the panels, aimed up. Every overhead panel (sign bridges, cantilevers, deck- and bridge-mounted) gets:
+- the CATWALK: a galvanised grating from the panels' back plane to 0.85 m in front of their faces, 0.30 m under the
+  lowest panel's foot, and its kick plate (its lowest point ~5.2 m, 17 ft, over the road);
+- a LUMINAIRE every ~2.8 m of panel width: an aluminium housing on an arm at the catwalk's front edge (over the top,
+  on arms, on a bridge-mounted sign);
+- the LIGHT: each face vertex carries its share in UV2.x - 1 at the lamps' edge falling to 0.38 at the far edge (a
+  lamps-below design's fall-off) and brighter over each lamp - and PSX/Lit's `_NightVtx` path adds the
+  texel x the lamps' colour (`StreetLights.Mercury`, the owner's photo's mercury white-green; never blue-white) x
+  `GUIDE_LIT_GAIN` 1.6 x the night's own fade; brightest-to-dimmest about 3.2 : 1 (sign-lighting practice keeps it
+  under 6 : 1);
+- the lamps as HALO DOTS only: appended to the tile's NightGlow as mercury heads past its lamp list
+  (`NightGlow.Init(..., haloOnlyFrom)`), so they cost no draw and take no slot of the lamp table (they light their
+  panel through its vertices, not the road).
+Ground-mounted signs, gore signs, plaques and warnings stay retroreflective only (the headlights and the street lamps
+light them).
+
+### 8. Gores (`GORES`)
+Round 1's 63 exits without a gore sign: 38 "no gore within 170 m" (the search clamped to the ramp's and the
+freeway's FIRST edges and stopped at 170 m) and 25 "ground taken". And of the 134 it stood, 21 stood on
+the PAINTED gore, the chevron-hatched pavement CityMeshes lays between the ramp and the freeway until they part by
+4.5 m (`CityMeshes.GorePaintedGapM`): round 1 asked only for the legend's width + 1.4 m (~2.7 m). MUTCD 2E.37: "The
+Exit Gore sign shall be located in the gore." Now the search walks the ramp's whole link chain (to 400 m) against the
+freeway's chain, and the sign stands where the gap is the painted gore's 4.5 m + 1.2 m or more (and wide enough for the
+sign): on the grass past the nose; it slides across the gore (0.4 / 0.5 / 0.6 of the gap) off a lamp, a pole, a deck's
+margin, a corner spot or another sign's ground; it gives up where the gore has widened 14 m past that (no longer at
+its nose).
+
+### Measured: the census (all 197 exits; round 1 = the same build with `PSX_CITY_SIGNS2=0`)
+`HighwaySignsCheck.Run` with `PSX_HSIGN_BOTH=1` on PSXCity (integration-1029d data + this branch's sign data). Freeway:
+450.6 km of one-way carriageway = 225.3 km of route; /km = structures per km of route.
+
+| | round 1 | round 2 |
+|---|---|---|
+| OVERHEAD STRUCTURES (sign bridges + cantilevers) | 388 (153 + 235) = **1.72 /km** | 295 (119 + 176) = **1.31 /km** |
+| ... with the bridge-mounted panels | 1.72 /km | 302 = **1.34 /km** (7, all on an overpass's fascia: 6 exit direction, 1 advance) |
+| exit direction signs standing (of 197) | 174 (all overhead) | 180: 135 overhead, 39 post-mounted, 6 bridge-mounted |
+| advance signs standing / sited | 298 / 354 (214 overhead, 84 post-mounted) | 219 / 248 (160 overhead, 58 post-mounted, 1 bridge-mounted) |
+| 1 MILE left out: previous exit under a mile + 150 m back / minor interchange; none under 300 m | - | 78 / 59; 5 |
+| advance panels hung on another exit's sign bridge | - | 0 (no station within 150 m of one) |
+| EXIT ONLY panels | 0 | 63 on the 32 lane-drop exits (32 exit direction + 31 advance; one arrow each) |
+| curve warnings standing (left supplementary) / refused | 0 | 207 (5) / 78 "no free ground at the curve" |
+| W1-8 chevrons standing / refused | 0 | 920 / 114 "no free ground at the curve" |
+| CityCurves spans looked at | - | 4,339: signed 265; under 10 mph below the limit 2,412; not a curve 1,530; the exit-speed sign's own curve 51; carried on across a node 81 |
+| gore signs standing (of 197) / on the PAINTED gore (gap under 4.5 m, measured along both chains) | 134 / 21 | 189 / 1 |
+| sign-lighting luminaires (halo dots) | 0 | 1,031 |
+| LAYOUT CHECK (every face: legend past its edge / quads overlapping / two signs in one plane) | 1,311 faces: 0 / 0 / 0 OK | 2,318 faces: 0 / 0 / 0 OK |
+| LEGEND FACE (every letter has its atlas cell) | OK | OK |
+
+Why 1.31 and not NCDOT's ~1.01: the rule keeps a sign overhead wherever a MUTCD 2A.17 factor holds - more than three
+through lanes, a lane drop (32 exits: EXIT ONLY is an overhead panel), a left exit - and falls back to overhead where
+the post-mounted sign finds no room past the clear zone. The census does not split the 295 by reason; that split is
+the next step if the owner wants the number lower.
+
+### Gates (PSXCity, before = the base de4a7a10's code, after = this branch; same sandbox, same scene)
+| gate | before | after |
+|---|---|---|
+| drive audit WALLS IN LANES (race routes) | 0 | 0 |
+| drive audit FALL HOLES (places) | 8 | 8 |
+| INVISIBLE COLLIDERS: lanes | 4 | 4 |
+| INVISIBLE COLLIDERS: solids (samples with no drawn face within 5 cm) | 816 (173 sign-leg boxes) | **124 (0 sign-leg boxes)** |
+| drawn faces standing in a lane (reported) | 123 | 123 |
+| BLUNT rail ends routes / box; short rails | 1 / 9; 25 | 1 / 9; 25 |
+| CITY AUDIT (drive) | 6 failures | the same 6 |
+| flicker finder (`tools/city-flicker.ps1`, 91 views, OpenGL core): depth-tie px / the ranked surface pairs | 2,126 / 60 pairs | 2,126 / 57 the same (each -1..+3 px), 3 swapped at the list's 2 px tail, none a sign's |
+| ... per view: depth-tie px / colour px | - | -3..+2 / -11..+2 |
+| colour flips (any visible tie), all draws / the guide-sign draw | 3,304 / 173 | 3,236 / 106 |
+| sign audit (`CityAudit.RunSigns`, 3,537 tiles): failing checks | 1: a tree on a business pole sign's ground | the same 1 |
+| ... posts on pavement, in a clear zone, under a deck, on a corner spot; two signs' posts in one another; faces not turned to their traffic; signs placed twice | 0; 0; 0; 0 | 0; 0; 0; 0 |
+| ... exit gantries (cantilevers) / breakaway guide signs / solid posts and legs | 387 (234) / 326 / 865 | 301 (175; + 7 on overpasses) / 1,384 / 1,989 |
+| data: `export_osm.mjs --check`; `signs.mjs` | - | EXPORT CHECK OK (city, DEM, buildings, decks, routes byte for byte); `charlotte_signs.bytes` regenerated from the same cache, SIGNS CHECK OK |
+
+- The drive audit ran on 90c7c61d; what came after (e5b58568, 5e9c0d08, da73f907) moves only breakaway signs, which
+  have no collider, and the guide mesh's UV2 - the colliders it measures are the same.
+- The first round-2 sign audit (on a7cbae25) failed three checks; fixed in e5b58568 / 5e9c0d08, the table is after:
+  23 breakaway posts on a reserved cell (a deck's 1 m margin; after that fix 3 more on a junction's corner spot):
+  round 2's breakaway posts now keep off both; two chevrons slid onto one spot (a chevron now slides at most a third
+  of its spacing); one W1 at dot 0.861 to its driver, whom the walk back could not take 100 m up the road (a warning
+  now needs one 30 m back); and 413 "two signs' posts in one another" that were each leg's own two footings (0.9 m
+  apart, 0.665 m across): the check now gives one id per sign, not per post, and still catches two signs.
+- The guide draw's 106 colour flips left are not the legends (106 with the lead's cap at 0.25 m or 1 m), the catwalks
+  and luminaires (`PSX_CITY_SIGNS2_NIGHT=0`: 105) or the warnings (`PSX_CITY_SIGNS2_CURVES=0`: 106): they are in the
+  structures and sign boxes both rounds draw; not broken down further.
+
+### Cost (WebGL; the city is CPU-bound)
+- Atlas: `CityGuide.png` stays 1024 x 512 (+3.2 KB PNG): new cells W1-1 / W1-2 / W1-3 / W1-4 (96 px), the black down
+  arrow on yellow, the W1-8 chevron. Still one material, one atlas.
+- Draws: one guide mesh per tile, as round 1 - tiles that draw one 421 -> 570 (the warnings stand on ramps and arterials
+  round-1 tiles had no sign on); the luminaires' halos join the tile's NightGlow (one draw a tile, made for a tile
+  that had no lamp of its own).
+- Triangles: guide quads city-wide 250,120 -> 237,046 (fewer structures, more signs); per tile mean 594 -> 415 quads
+  (1,188 -> 830 triangles), most 2,497 -> 2,709 quads (5,418 triangles, 10,836 vertices).
+- Vertex size: every guide mesh carries UV2, 8 bytes a vertex (13 KB for the mean tile's 1,663 vertices).
+- Shader: two uniform branches on the guide material (`_NightVtx`: the lead in the vertex stage, the lamp light in the
+  fragment); every other PSX/Lit material skips both.
+
+### Shots
+`Docs/shots/highway_signs/highway_signs_r2_sheet.png` (every frame labelled; `CityPreview.RunEyePlay`, PSXCity, OpenGL
+core): I-77 northbound at exit 11B, noon and night, the BASE (integration-1029d's code, atlas and sign data) beside
+round 2; I-277's left exit 2B advance sign on the overpass fascia (before: no sign) noon / night / zoom; a W1-1 +
+15 MPH before a loop ramp with its chevrons; EXIT ONLY on I-77 southbound for exits 11 B-A; and the "6": the base
+("3 S"), round 1 point-sampled (still "S"), round 1 without the backing ("36"), round 2 with the gore sign where round 1
+stood it ("36") and round 2 as shipped (the sign past the painted nose, "36"). `PSX_CITY_SIGNS2=0` draws as the base:
+the same frames differ in 0 pixels at noon and in 4-13 sky pixels (the stars) at night.
+
+### Left
+- Density 1.31 /km, not 1.01 (above).
+- Five of round 1's 11 exits on structure still have no exit direction sign: I-277 exit 1B (I-77 South), I-277 exit
+  2A (NC 16 South, Kenilworth Ave) and I-77 exit 10A (US 29, Morehead St) - "no legs": no overpass within 300 m and
+  both deck edges have other pavement or a twin deck against them at every station of the 130 m; I-277 exit 2A (NC 16,
+  Fourth St: no overpass, the nearest structure an I-277 edge at 8 deg - alongside, not across) and I-277 exit 5A
+  (I-77: the overpass too skewed). Six now stand: exit 1C to I-77 North twice (from I-277 and from US 74), I-277's
+  Sixth St exit, I-77 exit 1B to I-485, I-485 exit 23C (NC 115), US 74 exit 253B to I-485.
+- 17 exit direction signs no room in all (round 1: 23): 6 a utility wire through the structure, 6 an arm over 22 m with
+  no overpass before the exit, the 5 above.
+- 78 curve warnings and 114 chevrons with no free ground at any station tried at the curve; 29 advance sites
+  unsigned (25 an arm over 22 m, 3 on structure with no overpass, 1 no room beside the road; round 1: 56).
+- 8 exits with no gore sign (round 1: 63): 5 "the gore's ground taken where it opens" (a lamp, pole or another sign on
+  every station and offset tried before the gore widens 14 m past the need), 3 "never opens past its painted nose
+  within 400 m".
