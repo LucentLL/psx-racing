@@ -921,6 +921,15 @@ namespace PSXRacing.City
                 float lat = Vector2.Dot(p - foot, new Vector2(-tan.y, tan.x));
                 LineModel.CentreAt(e, s, out float c, out float hw);   // the designed lanes (cheap; no squeeze)
                 if (lat >= c - hw && lat <= c + hw) best = h;
+                // (round 11, SKIRTPAVE) ...and a lane the line model ADDS on one side (its drawn extent, less
+                // a shoulder's metre): North Tryon Street's left side under the E 12th St ramps is drawn
+                // 9.4 m out, its designed lanes stop short, and a sheet at the ramps' level over that lane
+                // stood a 6.6 m retaining face in it (round 10's INVISIBLE lane) instead of a fascia
+                else if (R11SkirtPaveOn)
+                {
+                    LineModel.Extents(e, s, out float eM, out float eP);
+                    if (lat >= -(eM - R11SkirtShoulderM) && lat <= eP - R11SkirtShoulderM) { best = h; R11SkirtPaveFascias++; }
+                }
             }
             return best;
         }

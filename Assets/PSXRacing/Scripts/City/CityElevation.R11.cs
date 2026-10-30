@@ -54,8 +54,11 @@ namespace PSXRacing.City
         //  PSX_CITY_R11_STREETSEAT=0: before.
         // ------------------------------------------------------------------
         public static bool R11StreetSeatOn = System.Environment.GetEnvironmentVariable("PSX_CITY_R11_STREETSEAT") != "0";
-        /// <summary>(round 11, STREETSEAT) Street branch ends seated, last solve.</summary>
+        /// <summary>(round 11, STREETSEAT) Street branch ends seated, last solve; refused for want of
+        /// room to climb out, and for an edge seated at both ends (CityMeshes.StreetIntoSeats).</summary>
         public static int R11StreetSeats { get; private set; }
+        public static int R11StreetRefusedRoom { get; private set; }
+        public static int R11StreetRefusedBoth { get; private set; }
 
         // ------------------------------------------------------------------
         //  SPILLUNDER (the 1'47" sliver): round 10's SPILL held a twin deck's
@@ -78,7 +81,7 @@ namespace PSXRacing.City
 
         /// <summary>(round 11) What the round-11 rules did in the last solve (the audits print it).</summary>
         public static string R11Report =>
-            $"round 11: CLIMBC1 {(R11ClimbC1On ? "on" : "OFF")}; STREETSEAT {(R11StreetSeatOn ? "on" : "OFF")}: {R11StreetSeats} street branch ends seated where their ribbon runs into the host; seat stations added {SeatStationsAdded}; SPILLUNDER {(R11SpillUnderOn ? "on" : "OFF")}; CRESTCAP {(R11CrestCapOn ? "on (0.30 m)" : "OFF (0.15 m)")}; meshes: GORESTART {(CityMeshes.R11GoreStartOn ? "on" : "OFF")}, GOREFAN {(CityMeshes.R11GoreFanOn ? "on" : "OFF")}, MITREPOKE {(CityMeshes.R11MitrePokeOn ? "on" : "OFF")}";
+            $"round 11: CLIMBC1 {(R11ClimbC1On ? "on" : "OFF")}; STREETSEAT {(R11StreetSeatOn ? "on" : "OFF")}{(CityMeshes.R11StreetNarrowOn ? " (narrow)" : "")}: {R11StreetSeats} street branch ends seated where their ribbon runs into the host ({R11StreetRefusedRoom} refused for room, {R11StreetRefusedBoth} for both ends); seat stations added {SeatStationsAdded}; SPILLUNDER {(R11SpillUnderOn ? "on" : "OFF")}; CRESTCAP {(R11CrestCapOn ? "on (0.30 m)" : "OFF (0.15 m)")}; meshes: GORESTART {(CityMeshes.R11GoreStartOn ? "on" : "OFF")}, GOREFAN {(CityMeshes.R11GoreFanOn ? "on" : "OFF")}, MITREPOKE {(CityMeshes.R11MitrePokeOn ? "on" : "OFF")}";
 
         // ------------------------------------------------------------------
         //  CLIMBC1: a seated branch leaves its host on the host's grade.

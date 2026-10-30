@@ -108,8 +108,12 @@ namespace PSXRacing.EditorTools
                 {
                     if ((on && passes == "off") || (!on && passes == "on")) continue;
                     var e = (bool[])keepE.Clone(); var m = (bool[])keepM.Clone();
-                    for (int i = 0; i < e.Length; i++) e[i] = on && keepE[i];
-                    for (int i = 0; i < m.Length; i++) m[i] = on && keepM[i];
+                    // PSX_R11_OFFSET="STREETSEAT,..." - the OFF pass turns only these off (default: every round-11 switch)
+                    string offSet = System.Environment.GetEnvironmentVariable("PSX_R11_OFFSET");
+                    string[] namesE = { "CLIMBC1", "STREETSEAT", "SPILLUNDER", "CRESTCAP" }, namesM = { "GORESTART", "GOREFAN", "MITREPOKE" };
+                    bool Off(string nm) => string.IsNullOrWhiteSpace(offSet) || System.Array.IndexOf(offSet.ToUpperInvariant().Split(','), nm) >= 0;
+                    for (int i = 0; i < e.Length; i++) e[i] = keepE[i] && (on || (i < namesE.Length && !Off(namesE[i])));
+                    for (int i = 0; i < m.Length; i++) m[i] = keepM[i] && (on || (i < namesM.Length && !Off(namesM[i])));
                     CityElevation.SetRound11Flags(e); CityMeshes.SetRound11Flags(m);
                     CityElevation.KeepTerrainProfiles = true;
                     CityElevation.Solve(map);
@@ -164,9 +168,10 @@ namespace PSXRacing.EditorTools
                 if (map == null) throw new System.Exception("no city data");
                 var trims = CityMeshes.NodeTrims(map);
                 var buildings = CityBuildings.Precompute(map);
-                sb.AppendLine($"R11 PROBE - solve {CityMap.LastSolveMs:0} ms");
+                sb.AppendLine($"R11 PROBE - solve {CityMap.LastSolveMs:0} ms; {CityElevation.R11Report}");
                 Faces(map, trims, buildings, sb);
                 RailTrace(map, trims, buildings, sb);
+                sb.AppendLine($"  tile-build counters since load: GORESTART rail starts turned down {CityMeshes.R11GoreStarts}, GOREFAN gore samples left to fans {CityMeshes.R11GoreFanSkips}, MITREPOKE vertices down {CityMeshes.R11PokeSnaps}, SPILLUNDER ground samples held {CityElevation.R11SpillUnderHits}");
                 // PSX_R11_AT="edge:s:lat;...": the world point at arc s, lat m to the LEFT of the edge's travel
                 // (+ = left), its land (with the term that set it) and the drawn 8 m lattice there
                 foreach (var t in (System.Environment.GetEnvironmentVariable("PSX_R11_AT") ?? "").Split(';'))

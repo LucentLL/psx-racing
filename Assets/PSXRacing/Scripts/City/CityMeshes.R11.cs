@@ -10,14 +10,35 @@ namespace PSXRacing.City
     public static partial class CityMeshes
     {
         /// <summary>(round 11) The tile builder's round-11 switches as one set (the look tool's A/B).</summary>
-        public static bool[] Round11Flags() => new[] { R11GoreStartOn, R11GoreFanOn, R11MitrePokeOn };
+        public static bool[] Round11Flags() => new[] { R11GoreStartOn, R11GoreFanOn, R11MitrePokeOn, R11SkirtPaveOn };
         public static void SetRound11Flags(bool[] f)
         {
             if (f == null) return;
             if (f.Length > 0) R11GoreStartOn = f[0];
             if (f.Length > 1) R11GoreFanOn = f[1];
             if (f.Length > 2) R11MitrePokeOn = f[2];
+            if (f.Length > 3) R11SkirtPaveOn = f[3];
         }
+
+        // ------------------------------------------------------------------
+        //  SKIRTPAVE (round 10's INVISIBLE lane at North Tryon Street e14645
+        //  s ~118, under the E 12th St bridge and its ramps): the skirt pass
+        //  closes a sheet's open edge with a face straight down to the land,
+        //  except over another road's LANES (OverRoad: a fascia instead). The
+        //  lanes it asks are the map's designed lanes; North Tryon's left side
+        //  there is drawn 9.4 m wide (an added lane), so a ground sheet at the
+        //  ramps' level (134.67 m) over that lane counted as over a shoulder and
+        //  got a 6.6 m concrete face from 128.06 m up - in the Roads collider,
+        //  one face of it drawn toward the route, the other side not: the probe's
+        //  triangle (Roads/Concrete, untapped, normal (-0.66, 0, -0.75)). Now the
+        //  lanes OverRoad asks include what the line model draws beyond the
+        //  designed lanes, less a shoulder's metre (R11SkirtShoulderM): such a
+        //  sheet edge takes the fascia. PSX_CITY_R11_SKIRTPAVE=0: before.
+        // ------------------------------------------------------------------
+        public static bool R11SkirtPaveOn = System.Environment.GetEnvironmentVariable("PSX_CITY_R11_SKIRTPAVE") != "0";
+        public const float R11SkirtShoulderM = 1.0f;
+        /// <summary>(SKIRTPAVE) lane hits only the drawn extent gave, tile builds since load.</summary>
+        public static int R11SkirtPaveFascias;
 
         // ------------------------------------------------------------------
         //  MITREPOKE: a branch's last metres over the OTHER through arm.
@@ -113,9 +134,19 @@ namespace PSXRacing.City
         /// <summary>(round 11, STREETSEAT) Every STREET branch end's seat where its ribbon runs
         /// INTO its host's pavement (the ramps' rule, <see cref="SeatIntoOnly"/>): the solve seats
         /// it there as it seats a ramp (CityElevation.PrepareSeats).</summary>
-        public static List<Seat> StreetIntoSeats(CityMap map, Trims trims)
+        public static List<Seat> StreetIntoSeats(CityMap map, Trims trims) => StreetIntoSeats(map, trims, out _, out _);
+
+        /// <summary>(round 11, STREETSEAT) ...only where the climb-out has room: the seat must end on
+        /// the branch's first piece with at least <see cref="R11StreetClimbMinM"/> of it left past the
+        /// zone, the offset there (host's height less the branch's own, as the profiles stand when the
+        /// seats are prepared) easable within R11StreetClimbGrade of extra grade over what is left, and
+        /// the edge seated at one end only (a slip street seated at both ends had a 14% step between
+        /// the two: Pineville-Matthews Road's e14962 in AB1).</summary>
+        public static List<Seat> StreetIntoSeats(CityMap map, Trims trims, out int refusedRoom, out int refusedBoth)
         {
-            var result = new List<Seat>();
+            refusedRoom = refusedBoth = 0;
+            var cand = new List<(Seat seat, int ei)>();
+            var ends = new Dictionary<int, int>();
             for (int ei = 0; ei < map.edges.Length; ei++)
                 for (int end = 0; end < 2; end++)
                 {
@@ -124,10 +155,32 @@ namespace PSXRacing.City
                     var L = map.edges[ei];
                     if (L.link || L.a == L.b) continue;
                     var seat = SeatOf(map, trims, L, map.edges[hostIdx], end == 0 ? L.a : L.b, true);
-                    if (seat != null) result.Add(seat);
+                    if (seat == null || seat.pieces.Count == 0) continue;
+                    if (R11StreetNarrowOn)
+                    {
+                        var (pe, s0, s1, dir) = seat.pieces[seat.pieces.Count - 1];
+                        if (pe != L.index || seat.pieces.Count > 1) { refusedRoom++; continue; }
+                        float zoneEnd = dir > 0 ? s1 : s0, left = dir > 0 ? L.length - s1 : s0;
+                        if (left < R11StreetClimbMinM) { refusedRoom++; continue; }
+                        int h = seat.HostAt(L.PointAt(zoneEnd), out float hs);
+                        if (h < 0) { refusedRoom++; continue; }
+                        float off = Mathf.Abs(map.edges[h].YAt(hs) - L.YAt(zoneEnd));
+                        if (off > R11StreetClimbGrade * left) { refusedRoom++; continue; }
+                    }
+                    cand.Add((seat, ei));
+                    ends[ei] = ends.TryGetValue(ei, out int c) ? c + 1 : 1;
                 }
+            var result = new List<Seat>();
+            foreach (var (seat, ei) in cand)
+            {
+                if (R11StreetNarrowOn && ends[ei] > 1) { refusedBoth++; continue; }
+                result.Add(seat);
+            }
             return result;
         }
+        /// <summary>(STREETSEAT, narrow) the switch (on: only seats with room to climb out).</summary>
+        public static bool R11StreetNarrowOn = System.Environment.GetEnvironmentVariable("PSX_CITY_R11_STREETNARROW") != "0";
+        public const float R11StreetClimbMinM = 20f, R11StreetClimbGrade = 0.02f;
 
         /// <summary>(round 11, the launch audit's EXPLAIN) A fan's interior points (FanSteiner: cluster
         /// members, the major pair's pavement, the arms' lines) as "(x,z) y" in world space.</summary>

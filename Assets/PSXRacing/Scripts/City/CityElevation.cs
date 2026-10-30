@@ -2379,8 +2379,8 @@ namespace PSXRacing.City
             R11StreetSeats = 0;
             if (R11StreetSeatOn && CityMeshes.SeatIntoOnly)
             {
-                var ss = CityMeshes.StreetIntoSeats(map, seatTrims);
-                R11StreetSeats = ss.Count;
+                var ss = CityMeshes.StreetIntoSeats(map, seatTrims, out int refusedRoom, out int refusedBoth);
+                R11StreetSeats = ss.Count; R11StreetRefusedRoom = refusedRoom; R11StreetRefusedBoth = refusedBoth;
                 seats.AddRange(ss);
             }
             // REAL HEIGHTS round 3 (CityMeshes.SeatIntoOnly): the seat zone is
