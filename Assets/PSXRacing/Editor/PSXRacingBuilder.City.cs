@@ -505,6 +505,7 @@ namespace PSXRacing.EditorTools
                 psxLit = Shader.Find("PSX/Lit");
                 if (psxLit == null) throw new Exception("PSX/Lit shader not found - did shaders compile?");
                 foreach (var line in CityPropBaker.BakeVariants()) Log("  props " + line);
+                foreach (var line in BakeCityStations()) Log("  stations " + line);
                 int n = 0;
                 foreach (var def in TrackCatalog.Scened)
                     if (def.city) { BuildCityScene(def); n++; }

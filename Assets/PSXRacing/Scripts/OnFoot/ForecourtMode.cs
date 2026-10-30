@@ -566,6 +566,16 @@ namespace PSXRacing.OnFoot
         void PlaceTargets()
         {
             RebuildPumpTargets();
+            // The CITY edition has no career, so the shop is a building, not a
+            // counter (as the drive-thrus there: DriveThru.Serves): the store
+            // menu pays from the career's pocket and feeds its hunger clock.
+            // The pumps still fill - free, GasPump.Life - and nothing prompts
+            // at the door.
+            if (!Edition.HasCareer)
+            {
+                if (storeTarget != null) { Destroy(storeTarget.gameObject); storeTarget = null; }
+                return;
+            }
             var door = NearestDoor();
             if (door == null) return;
             if (storeTarget == null)
