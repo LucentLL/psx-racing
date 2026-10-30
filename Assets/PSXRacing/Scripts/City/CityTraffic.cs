@@ -197,6 +197,9 @@ namespace PSXRacing.City
             public float factor, timeGap, aMax, bDec;
             public int lane, laneFrom, laneTo;
             public bool lc;
+            /// <summary>Round 3e: changing lanes on the run before a junction, it holds short of
+            /// the mouth till the change is done.</summary>
+            public bool lcHold;
             public float lcT, lcDur, nextLc;
             /// <summary>The pose placed this step: plan point, heading, the
             /// travel tangent, height, lateral off the OSM line (runs).</summary>
@@ -1654,6 +1657,25 @@ namespace PSXRacing.City
                 }
             }
             else c.mandAt = -1f;
+            // ROUND 3e: A LANE CHANGE IS DONE SHORT OF THE JUNCTION (census final_a on WIP 5: a car
+            // still changing lanes as it came to a junction's mouth took its turn from where it was -
+            // "it cuts across in the box" - 219 times at junctions of three roads or more, 108 in the
+            // base: the zipper's metre gaps in a queue and the standing change at a lane's end began
+            // more changes a few metres short of the line, and the light went green mid-change). A car
+            // changing lanes slowly on the run before a junction that would come to the mouth before
+            // its change is done holds short of it till it is - its body square in the lane its turn
+            // is laid from (a plain vertex's connector keeps its lane through it: no hold there)
+            if (c.lcHold && !c.lc) c.lcHold = false;
+            if (!L0.turn && c.lc && c.legCount > 1 && c.legs[1].turn && degree[c.legs[1].node] >= 3)
+            {
+                float tLeft = (1f - c.lcT) * c.lcDur, remL = L0.len - c.u;
+                if (!c.lcHold && c.speed < 6f && tLeft > 0.1f && remL - 0.5f < Mathf.Max(c.speed, 0.3f) * tLeft) c.lcHold = true;
+                if (c.lcHold)
+                {
+                    float hold = remL - c.halfL - 0.5f + StopS0;
+                    if (hold < gap) { gap = Mathf.Max(0.05f, hold); vL = 0f; why = 22; }
+                }
+            }
             c.gap = gap;
             c.why = why;
 
@@ -2214,6 +2236,15 @@ namespace PSXRacing.City
         /// first; then the moving one, then the lower id.</summary>
         static bool Precedes(Car a, Car b)
         {
+            // ROUND 3e: A RAMP'S MERGE GIVES WAY TO THE ROAD IT JOINS (census final_a on WIP 5, the
+            // I-77 merge at node 4134: a merge begun where its ramp's lane is clear of I-77's
+            // (RampClear, 49 m out) is a "turn" for 74 m, and a car in its turn went first here -
+            // the merging car held on beside the kerb lane's car at 5.7 m/s, the two bodies met 16 m
+            // short of the node, locked, backed and wrecked; five ramp cars stalled behind them).
+            // Merging traffic yields to the traffic on the road it enters - not to one whose body
+            // is on its way already (LeaderGap's onWay)
+            bool mga = a.legCount > 0 && a.legs[0].turn && a.legs[0].merge, mgb = b.legCount > 0 && b.legs[0].turn && b.legs[0].merge;
+            if (mga != mgb) return mgb;
             bool ta = a.legCount > 0 && a.legs[0].turn, tb = b.legCount > 0 && b.legs[0].turn;
             if (ta != tb) return ta;
             // round 3c: a car in the junction when the signal changes clears it before
@@ -3128,7 +3159,7 @@ namespace PSXRacing.City
             c.bDec = Random.Range(2.0f, 3.0f);
             c.committed = c.stopKey = c.goKey = c.redStopKey = c.lineKey = c.waitKey = -1;
             c.rtorKey = c.rtorStopKey = c.clearKey = c.entryKey = c.blockId = -1; c.hN = 0;
-            c.mandAt = -1f; c.lastTraffic = null; c.lastTrafficAt = -9f; c.keepLane = false; c.vTick = 0; c.forkMissKey = -1; c.holdFor = null;
+            c.mandAt = -1f; c.lastTraffic = null; c.lastTrafficAt = -9f; c.keepLane = false; c.vTick = 0; c.forkMissKey = -1; c.holdFor = null; c.lcHold = false;
             c.bornAt = Time.time;
             if (Log != null) CensusSpawned(c);
             c.tan = TravelTan(e, dir, s);

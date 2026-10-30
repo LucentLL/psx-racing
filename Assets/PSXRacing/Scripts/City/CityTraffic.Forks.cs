@@ -777,9 +777,62 @@ namespace PSXRacing.City
                         if (b != a && MovesCross(A, list[b], out float at)) crosses.Append($" | MEETS lane {list[b].req}'s way to e{list[b].e2} lane {list[b].outLane} at {at * 100f:0}% of its arc");
                     var e2 = map.edges[A.e2];
                     sb.AppendLine($"      lane {A.req} (lat {LaneLat(e, dir, A.req, A.T.sA):0.00}) -> e{A.e2} '{e2.name}'{(e2.link ? " link" : "")} lane {A.outLane} of {Lanes(A.e2, A.dir2)} (lat {LaneLat(e2, A.dir2, A.outLane, A.T.sB):0.00}), " +
-                                  $"{MoveName(A.kind, A.T.exit, A.T.merge)}, arc {A.T.len:0.0} m{(crosses.Length > 0 ? crosses.ToString() : " | meets no other lane's way")}");
+                                  $"{MoveName(A.kind, A.T.exit, A.T.merge)}, arc {A.T.len:0.0} m (leaves {(dir > 0 ? e.length - A.T.sA : A.T.sA):0.0} m before the node, joins {(A.dir2 > 0 ? A.T.sB : e2.length - A.T.sB):0.0} m past it){(crosses.Length > 0 ? crosses.ToString() : " | meets no other lane's way")}");
+                    if (A.T.merge) sb.AppendLine(MergeClearance(n, A.T) + $" | RampClear {RampClear(e, dir, true, n, e2, A.dir2):0} m, ZoneBack {ZoneBack(e, dir):0} m");
                 }
             }
+            return sb.ToString();
+        }
+
+        /// <summary>The tools (round 3e, V6: the I-77 merge at node 4134): a merge's way against the
+        /// mainline's lanes - the nearest lane centre (the arm arriving with it, and the other lanes
+        /// of the road it joins over their first 40 m) every 4 m of its arc; two bodies abreast touch
+        /// under about 2 m.</summary>
+        string MergeClearance(int n, in Leg T)
+        {
+            var sb = new StringBuilder("        merge way vs the mainline's lanes (centre to centre):");
+            var e2 = map.edges[T.edge2];
+            Vector2 tRef = TravelTan(e2, T.dir2, T.dir2 > 0 ? 0f : e2.length);
+            CityMap.Edge m = null; int dm = 0;
+            foreach (int mi in map.nodeEdges[n])
+            {
+                var o = map.edges[mi];
+                if (mi == T.edge || mi == T.edge2 || o.a == o.b || o.link || !routable[mi]) continue;
+                int d = o.b == n ? 1 : -1;
+                if (d < 0 && o.oneway) continue;
+                if (Vector2.Angle(TravelTan(o, d, d > 0 ? o.length : 0f), tRef) < 35f) { m = o; dm = d; break; }
+            }
+            if (m == null) return sb.Append(" no mainline arm").ToString();
+            int nm = Lanes(m.index, dm), n2 = Lanes(e2.index, T.dir2);
+            sb.Append($" mainline e{m.index} lanes at its end");
+            for (int k = 0; k < nm; k++) sb.Append($" {k}:{LaneLat(m, dm, k, dm > 0 ? m.length : 0f):0.00}");
+            sb.Append($"; e{e2.index} lanes at its start");
+            for (int j = 0; j < n2; j++) sb.Append($" {j}:{LaneLat(e2, T.dir2, j, T.dir2 > 0 ? 0f : e2.length):0.00}");
+            sb.Append(";");
+            float len = Mathf.Max(0.1f, T.len), worst = float.MaxValue, worstAt = 0f; string worstWhere = "";
+            for (float x = 0f; x <= len + 0.01f; x += 4f)
+            {
+                var p = Bez(T, Mathf.Clamp01(x / len), out _);
+                float best = float.MaxValue; string where = "";
+                for (int k = 0; k < nm; k++)
+                    for (float s = 0f; s <= Mathf.Min(m.length, 130f); s += 1f)
+                    {
+                        float dd = Vector2.Distance(p, LanePos(m, dm, k, dm > 0 ? m.length - s : s));
+                        if (dd < best) { best = dd; where = $"e{m.index} lane {k}"; }
+                    }
+                for (int j = 0; j < n2; j++)
+                {
+                    if (j == T.laneOut) continue;
+                    for (float s = 0f; s <= Mathf.Min(e2.length, 40f); s += 1f)
+                    {
+                        float dd = Vector2.Distance(p, LanePos(e2, T.dir2, j, T.dir2 > 0 ? s : e2.length - s));
+                        if (dd < best) { best = dd; where = $"e{e2.index} lane {j}"; }
+                    }
+                }
+                sb.Append($" {x:0} m {best:0.00} ({where});");
+                if (best < worst) { worst = best; worstAt = x; worstWhere = where; }
+            }
+            sb.Append($" NEAREST {worst:0.00} m ({worstWhere}) at {worstAt:0} m of {len:0.0}");
             return sb.ToString();
         }
 

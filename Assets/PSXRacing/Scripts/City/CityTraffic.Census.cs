@@ -214,6 +214,7 @@ namespace PSXRacing.City
                 case 18: return "cross traffic in a signal's box with no head for it";
                 case 20: return "a dead end";
                 case 21: return "the lane its turn needs";
+                case 22: return "its lane change, done short of the junction (round 3e)";
                 default: return "why " + why;
             }
         }
@@ -262,6 +263,7 @@ namespace PSXRacing.City
                 case 18: sub = "headless-yield-wait"; need = 40f; break;
                 case 20: return;
                 case 21: sub = "lane-change-wait"; need = 12f; break;
+                case 22: sub = "lane-change-finish"; need = 12f; break;
                 default: sub = inBox ? "crawl-in-turn" : "crawl"; break;
             }
             if (t < need) return;
