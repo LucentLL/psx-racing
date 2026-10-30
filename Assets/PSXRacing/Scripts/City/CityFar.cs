@@ -1163,24 +1163,37 @@ namespace PSXRacing.City
             CityElevation.BaseY(eye.x, eye.z);
             while (askedLand.Count + askedTrees.Count < MaxInFlight)
             {
-                if (treesOk && NextMissing(eye, TreeRadiusM + ChunkM, false, out int tx, out int tz))
-                {
-                    long k = Key(tx, tz);
-                    askedTrees.Add(k);
-                    List<FarTree> got = null;
-                    CityWorker.Run(() => got = BuildTreeChunk(tx, tz, WorkerDem), () => { askedTrees.Remove(k); if (got != null && !trees.ContainsKey(k)) trees[k] = got; });
-                    continue;
-                }
-                if (landOk && NextMissing(eye, RadiusM + ChunkM, true, out int lx, out int lz))
-                {
-                    long k = Key(lx, lz);
-                    askedLand.Add(k);
-                    LandChunk got = null;
-                    CityWorker.Run(() => got = BuildLandChunk(lx, lz, WorkerDem), () => { askedLand.Remove(k); if (got != null && !land.ContainsKey(k)) land[k] = got; });
-                    continue;
-                }
+                if (treesOk && NextMissing(eye, TreeRadiusM + ChunkM, false, out int tx, out int tz)) { AskTreeChunk(tx, tz); continue; }
+                if (landOk && NextMissing(eye, RadiusM + ChunkM, true, out int lx, out int lz)) { AskLandChunk(lx, lz); continue; }
                 break;
             }
+        }
+
+        // (the closures a worker's job needs, made only when one is asked for: a
+        // lambda's captured locals put the compiler's closure object at the top of
+        // the scope they live in - a loop's body would make one every pass)
+        void AskTreeChunk(int tx, int tz)
+        {
+            long k = Key(tx, tz);
+            askedTrees.Add(k);
+            List<FarTree> got = null;
+            CityWorker.Run(() => got = BuildTreeChunk(tx, tz, WorkerDem), () => { askedTrees.Remove(k); if (got != null && !trees.ContainsKey(k)) trees[k] = got; });
+        }
+
+        void AskLandChunk(int lx, int lz)
+        {
+            long k = Key(lx, lz);
+            askedLand.Add(k);
+            LandChunk got = null;
+            CityWorker.Run(() => got = BuildLandChunk(lx, lz, WorkerDem), () => { askedLand.Remove(k); if (got != null && !land.ContainsKey(k)) land[k] = got; });
+        }
+
+        void AskFillTile(long k, int tx, int tz, float per)
+        {
+            askedFill.Add(k);
+            FarTree[] got = null; float[] gr = null;
+            CityWorker.Run(() => got = BuildFillTile(tx, tz, out gr, per, WorkerDem),
+                           () => { askedFill.Remove(k); if (got != null) { fill[k] = got; fillRank[k] = gr; } });
         }
 
         // ---- city perf round 1 (2026-10-30; owner: "Trees abruptly stopped") ----
@@ -1297,11 +1310,7 @@ namespace PSXRacing.City
                 {
                     if (askedFill.Count >= MaxInFlight || !CityCanopy.Loaded) continue;
                     CityElevation.BaseY(eye.x, eye.z);
-                    askedFill.Add(k);
-                    FarTree[] got = null; float[] gr = null;
-                    int ftx = tx, ftz = tz;
-                    CityWorker.Run(() => got = BuildFillTile(ftx, ftz, out gr, per, WorkerDem),
-                                   () => { askedFill.Remove(k); if (got != null) { fill[k] = got; fillRank[k] = gr; } });
+                    AskFillTile(k, tx, tz, per);
                 }
                 else if (budget > 0)
                 {
