@@ -2848,7 +2848,11 @@ namespace PSXRacing.City
             // never into a lane too narrow for the car here or just ahead (a
             // lane a taper is still opening, or closing)
             float need = 2f * c.halfW + 0.6f;
-            if (LaneWidth(e, L.dir, lane, s) < need || LaneWidth(e, L.dir, lane, Mathf.Clamp(s + L.dir * Mathf.Max(8f, c.speed * 2f), 0f, e.length)) < need) return false;
+            // (round 3e: a car zippering out of a closing lane may pass through a lane that closes
+            // further on - North Graham Street's node 14352, lanes 0 and 1 both closing into lane 2:
+            // a car in lane 0 refused lane 1 for its narrowing 8 m on and stood 26 minutes - wide
+            // enough for it here is enough, it goes on over)
+            if (LaneWidth(e, L.dir, lane, s) < need || (!zip && LaneWidth(e, L.dir, lane, Mathf.Clamp(s + L.dir * Mathf.Max(8f, c.speed * 2f), 0f, e.length)) < need)) return false;
             var q = PlanPoint(e, s, LaneLat(e, L.dir, lane, s), out var t);
             var tr = t * L.dir;
             for (int i = 0; i < live.Count; i++)
