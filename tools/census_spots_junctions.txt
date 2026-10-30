@@ -1,0 +1,42 @@
+# road-logic junctions: the census spots of the control / signal / crossing-flow / box / STOP classes
+# (Docs/ROAD_LOGIC_TRAFFIC.md run 1, 2026-10-29). x,z,label
+-3159,5578,gridlock-box Johnson and Wales Way / North Irwin Aven n11905
+8106,-6920,gridlock-box Matthews Township Parkway n9359
+5202,1899,gridlock-box North Sharon Amity Road / Albemarle Road n11937
+534,-10789,gridlock-box Rea Road / Pineville-Matthews Road n12474
+-2503,-10748,gridlock-box Carmel Road n10468
+-16866,6595,gridlock-box Moores Chapel Loop n4993
+-1272,1759,gridlock-box Queens Road West / Queens Road n6376
+-674,16746,gridlock-box West W T Harris Boulevard / Old Statesvi n8079
+-4079,24747,gridlock-box Reese Boulevard n10347
+9271,16739,gridlock-box Pavilion Boulevard n6456
+11559,18341,gridlock-box Morehead Road n98
+3764,14794,gridlock-box Medical Plaza Drive n4355
+-1424,6820,stop-deadlock Razades Way n19566
+-4392,6928,stop-deadlock Roslyn Avenue n18532
+1718,5343,stop-deadlock Fort Street n18074
+1300,6703,stop-deadlock East 35th Street n18666
+-4017,2911,stop-deadlock Hawkins Street n12973
+3363,3452,left-turn-starved Central Avenue n9658
+2216,12395,left-turn-starved North Graham Street n8971
+-2971,7855,yield-starved Heil Place / Mulberry Avenue n17716
+-1864,2782,yield-starved Kenilworth Avenue n11947
+-3356,5081,yield-starved Clarkson Green Street n18727
+7741,21293,crossing-blocked Christenbury Parkway n10837
+-3733,5837,signal-crossing-flows West Trade Street n10936
+1447,12901,signal-crossing-flows  n8064
+12923,-9661,signal-crossing-flows Guion Lane n8394
+917,3546,stop-crossing-flows Commonwealth Avenue n7263
+631,4663,stop-crossing-flows Thomas Avenue n18265
+-2197,193,stop-crossing-flows Maryland Avenue n1338
+6795,14228,yield-crossing-flows North Tryon Street n7102
+145,5477,yield-crossing-flows Parkwood Avenue n12147
+-190,5416,yield-crossing-flows North McDowell Street n17440
+143,7117,uncontrolled-crossing North Tryon Street n9885
+-5020,1082,uncontrolled-crossing Clanton Road n7795
+-5823,1442,conflicting-green Clanton Road n3965
+-3169,18239,conflicting-green  n1577
+6837,16357,conflicting-green West Mallard Creek Church Road n10534
+5243,-138,no-control-major-crossing Monroe Road n11452
+-392,-3687,no-control-major-crossing Colony Road n4640
+-3000,4819,no-control-major-crossing South Graham Street n4862

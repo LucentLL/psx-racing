@@ -1,0 +1,64 @@
+SIGNAL HEADS: 877 tiles own a signalised junction, built as play builds them (meshes, occupancy with the tile's houses and lamps); 165553 ms
+BEFORE (PSX_CITY_HEADS=0): 1010 signalised junctions, 3390 approaches
+    HEADS IN THE DRIVER'S VIEW (6 m short of the stop line to 55 m past it, 20 m either side): approaches with NONE 409, ONE 1033, two or more 1948; junctions with an approach with none 265 (none on any approach 14), with every approach headed 745
+    (approaches with no head facing them anywhere: 344)
+    5910 heads, 2191 poles and posts; 574 span wires (set back past a run-off 0), 1043 mast arms (far-left 0); heads on a pole's side 0, post-mounted heads 0; near-side supplements at deep junctions (far faces 120 ft+ past the stop line) 0; 5350 ms
+    carried by (approaches): span wire 2003, mast arm 1043, nothing 344
+      junction 311 at (5522, 11796) 35.290703,-80.757006 'University City Boulevard / North Tryon Street': 5 of 6 approaches with no head (e4058, e4042, e13223, e4047, e2273)
+      junction 130 at (-2009, 4996) 35.229517,-80.839785 'West 7th Street / East 7th Street / North Tryon Street' uptown: 4 of 4 approaches with no head (e613, e891, e5906, e16456)
+      junction 285 at (-3175, 3898) 35.219633,-80.852594 'Carson Boulevard / South Tryon Street': 4 of 4 approaches with no head (e18606, e13641, e13642, e16631)
+      junction 597 at (3552, -9397) 35.100001,-80.778654 'Pineville-Matthews Road / Providence Road': 4 of 5 approaches with no head (e10417, e15788, e5178, e6483)
+      junction 701 at (-11601, 15682) 35.325673,-80.945205 'Brookshire Boulevard / Mount Holly-Huntersville Road': 4 of 6 approaches with no head (e7522, e14671, e10273, e17950)
+      junction 724 at (-839, 6085) 35.239318,-80.826918 'Dalton Avenue / North Tryon Street': 4 of 4 approaches with no head (e6408, e10849, e6410, e15293)
+      junction 871 at (4337, -13318) 35.064723,-80.770035 'Providence Road / Ballantyne Commons Parkway': 4 of 7 approaches with no head (e9616, e14215, e14221, e14219)
+      junction 67 at (-2349, 3827) 35.219001,-80.843521 'East Brooklyn Village Avenue / South Davidson Street' uptown: 3 of 5 approaches with no head (e16683, e5349, e14075)
+      junction 86 at (-1914, 5078) 35.230256,-80.838736 'West 8th Street / East 8th Street / North Tryon Street' uptown: 3 of 4 approaches with no head (e437, e16456, e16457)
+      junction 101 at (-2451, 3936) 35.219977,-80.844636 'South Boulevard / East Brooklyn Village Avenue / South Caldwell Street' uptown: 3 of 5 approaches with no head (e5924, e13338, e10760)
+      junction 107 at (-2610, 4486) 35.224923,-80.846387 'East Martin Luther King Jr Boulevard / South Tryon Street' uptown: 3 of 3 approaches with no head (e764, e967, e14180)
+      junction 112 at (-1816, 5163) 35.231016,-80.837659 'East 9th Street / West 9th Street / North Tryon Street' uptown: 3 of 4 approaches with no head (e887, e16457, e16458)
+      junction 124 at (-2205, 4828) 35.228007,-80.841936 'North Tryon Street / West 5th Street' uptown: 3 of 3 approaches with no head (e579, e5905, e13622)
+      junction 174 at (-2105, 4914) 35.228776,-80.840839 'North Tryon Street / East 6th Street' uptown: 3 of 3 approaches with no head (e5905, e5906, e16823)
+      junction 211 at (-3169, 18239) 35.348680,-80.852526 'West W T Harris Boulevard / Perimeter Parkway': 3 of 8 approaches with no head (e6574, e5642, e8791)
+      junction 294 at (-1929, 13938) 35.309975,-80.838899 'Statesville Road / Sunset Road / Old Statesville Road': 3 of 4 approaches with no head (e1408, e3640, e11826)
+      junction 304 at (-2804, 4323) 35.223461,-80.848519 'East Brooklyn Village Avenue / West Brooklyn Village Avenue / South Tryon Street' uptown: 3 of 4 approaches with no head (e1431, e13611, e14179)
+      junction 317 at (-10413, -10572) 35.089428,-80.932149 'Carowinds Boulevard / Springhill Farm Road / Highway 21': 3 of 5 approaches with no head (e1466, e2657, e2644)
+      junction 327 at (-3581, 18059) 35.347058,-80.857064 'Northlake Centre Parkway / West W T Harris Boulevard / Reames Road': 3 of 7 approaches with no head (e11024, e15744, e5229)
+      junction 340 at (-2961, -14437) 35.054648,-80.850245 'Johnston Road / Ballantyne Commons Parkway': 3 of 4 approaches with no head (e1802, e4927, e12150)
+      junction 396 at (-4720, 5146) 35.230869,-80.869582 'Freedom Drive / Westley Village Road': 3 of 4 approaches with no head (e9785, e24819, e2415)
+      junction 400 at (-2119, 20513) 35.369142,-80.840989 'Statesville Road / Alexandriana Road': 3 of 4 approaches with no head (e8723, e8727, e8730)
+      junction 420 at (-2414, 4651) 35.226413,-80.844227 'East 4th Street / South Tryon Street' uptown: 3 of 3 approaches with no head (e2871, e6258, e11472)
+      junction 457 at (7415, 8202) 35.258361,-80.736200 'The Plaza / East W T Harris Boulevard': 3 of 5 approaches with no head (e15311, e3213, e3215)
+      junction 507 at (-13986, 710) 35.190951,-80.971421 'West Boulevard': 3 of 4 approaches with no head (e15021, e15026, e15027)
+AFTER (PSX_CITY_HEADS on): 1010 signalised junctions, 3390 approaches
+    HEADS IN THE DRIVER'S VIEW (6 m short of the stop line to 55 m past it, 20 m either side): approaches with NONE 7, ONE 66, two or more 3317; junctions with an approach with none 6 (none on any approach 0), with every approach headed 1004
+    (approaches with no head facing them anywhere: 7)
+    8039 heads, 2979 poles and posts; 719 span wires (set back past a run-off 145), 1099 mast arms (far-left 81); heads on a pole's side 171, post-mounted heads 442; near-side supplements at deep junctions (far faces 120 ft+ past the stop line) 400; 1583 ms
+    carried by (approaches): span wire 2022, mast arm 743, mast arm+post near-right 263, span wire+post near-right 109, pole side 51, span wire+pole side 49, far-left mast arm 49, pole side+post near-right 21, post near-right 18, far-left mast arm+pole side 17, far-left mast arm+post near-right 14, mast arm+pole side 12, nothing 7, span wire+pole side+post near-right 4, post far-right 3, post far-left 3, span wire+post far-right 2, span wire+post far-right+post near-right 2, far-left mast arm+post far-left 1
+      junction 420 at (-2414, 4651) 35.226413,-80.844227 'East 4th Street / South Tryon Street' uptown: 2 of 3 approaches with no head (e6258, e11472)
+      junction 48 at (-5336, -10773) 35.087620,-80.876345 'NC 51': 1 of 2 approaches with no head (e9693)
+      junction 316 at (-10873, -9877) 35.095686,-80.937202 'Carowinds Boulevard / Avenue of the Carolinas': 1 of 3 approaches with no head (e9573)
+      junction 567 at (9912, 24574) 35.405683,-80.708752 'Poplar Tent Road': 1 of 2 approaches with no head (e4427)
+      junction 660 at (6590, -1466) 35.171367,-80.745272 'East Independence Boulevard': 1 of 2 approaches with no head (e5594)
+      junction 672 at (-2053, 4274) 35.223018,-80.840270 'South Caldwell Street / East 4th Street' uptown: 1 of 4 approaches with no head (e5783)
+BEFORE -> AFTER: 402 approaches that showed no head now show one; approaches with fewer heads than before 0
+WHY NONE (each approach left with no head in view: what stands on its view's feet): 7
+  junction 48 approach 0 e9693 'NC 51': stop line (-5330,-10761) u (-0.88,-0.48), node 1 m past it, lanes -7.3..7.3, left edge -7.6, uptown False; RIGHT building/water/deck 0, lamp/sign/pole 0, race run-off 0, lane 571, junction pavement 0, ground 0, curb ramp 0, clear 3 first (51 along, 14 out at -5385,-10767); LEFT building/water/deck 0, lamp/sign/pole 0, race run-off 0, lane 574, junction pavement 0, ground 0, curb ramp 0, clear 0; 
+  junction 316 approach 1 e9573 '': stop line (-10876,-9885) u (0.87,-0.50), node 10 m past it, lanes -1.8..1.8, left edge -2.1, uptown False; RIGHT building/water/deck 0, lamp/sign/pole 0, race run-off 0, lane 574, junction pavement 0, ground 0, curb ramp 0, clear 0; LEFT building/water/deck 0, lamp/sign/pole 0, race run-off 0, lane 574, junction pavement 0, ground 0, curb ramp 0, clear 0; 
+  junction 660 approach 0 e5594 '': stop line (6567,-1458) u (0.65,-0.76), node 21 m past it, lanes -2.1..3.3, left edge -2.4, uptown False; RIGHT building/water/deck 0, lamp/sign/pole 1, race run-off 0, lane 573, junction pavement 0, ground 0, curb ramp 0, clear 0; LEFT building/water/deck 0, lamp/sign/pole 0, race run-off 0, lane 571, junction pavement 0, ground 0, curb ramp 0, clear 3 first (51 along, 14 out at 6613,-1486); 
+  junction 672 approach 0 e5783 '': stop line (-2065,4286) u (-0.89,0.45), node 1 m past it, lanes -1.8..1.8, left edge -2.1, uptown True; RIGHT building/water/deck 0, lamp/sign/pole 170, race run-off 0, lane 404, junction pavement 0, ground 0, curb ramp 0, clear 0; LEFT building/water/deck 269, lamp/sign/pole 214, race run-off 0, lane 91, junction pavement 0, ground 0, curb ramp 0, clear 0; 
+  junction 420 approach 1 e6258 'South Tryon Street': stop line (-2399,4663) u (-0.76,-0.65), node 18 m past it, lanes 2.0..9.1, left edge -5.8, uptown True; RIGHT building/water/deck 391, lamp/sign/pole 0, race run-off 145, lane 38, junction pavement 0, ground 0, curb ramp 0, clear 0; LEFT building/water/deck 254, lamp/sign/pole 0, race run-off 298, lane 22, junction pavement 0, ground 0, curb ramp 0, clear 0; 
+  junction 420 approach 2 e11472 'South Tryon Street': stop line (-2433,4634) u (0.76,0.65), node 26 m past it, lanes -1.7..1.8, left edge -9.4, uptown True; RIGHT building/water/deck 113, lamp/sign/pole 0, race run-off 461, lane 0, junction pavement 0, ground 0, curb ramp 0, clear 0; LEFT building/water/deck 401, lamp/sign/pole 0, race run-off 127, lane 46, junction pavement 0, ground 0, curb ramp 0, clear 0; 
+  junction 567 approach 1 e4427 '': stop line (9895,24570) u (0.90,-0.43), node 14 m past it, lanes -3.7..3.7, left edge -4.0, uptown False; RIGHT building/water/deck 0, lamp/sign/pole 0, race run-off 0, lane 574, junction pavement 0, ground 0, curb ramp 0, clear 0; LEFT building/water/deck 0, lamp/sign/pole 4, race run-off 0, lane 570, junction pavement 0, ground 0, curb ramp 0, clear 0; 
+  junction 1000 (16307, 17473) approach 0 e19499 'Roberta Road' lanes 2: heads 0 -> 2
+  junction 1000 (16307, 17473) approach 1 e19544 'Roberta Road' lanes 2: heads 2 -> 2
+  junction 1000 (16307, 17473) approach 2 e20693 'Pitts School Road Southwest' lanes 2: heads 2 -> 2
+shot j724_a0: junction 724 at (-839, 6085) 35.239318,-80.826918, approach 0 e6408 'Dalton Avenue' (2 lanes in), 22 m short of its stop line, clock 44.5 s (Green): heads 0 -> 1
+    after  head -6.0 m past the stop line, 6.6 m right of the lanes' middle, 3.4 m up
+shot j724_a1: junction 724 at (-839, 6085) 35.239318,-80.826918, approach 1 e10849 'North Tryon Street' (3 lanes in), 22 m short of its stop line, clock 5.0 s (Green): heads 0 -> 2
+    after  head 32.6 m past the stop line, 0.0 m right of the lanes' middle, 5.7 m up
+    after  head 32.6 m past the stop line, 3.6 m right of the lanes' middle, 5.7 m up
+shot j724_a2: junction 724 at (-839, 6085) 35.239318,-80.826918, approach 2 e6410 '' (1 lanes in), 22 m short of its stop line, clock 76.0 s (Green): heads 0 -> 2
+    after  head 16.7 m past the stop line, -1.2 m right of the lanes' middle, 5.5 m up
+    after  head 16.7 m past the stop line, 1.2 m right of the lanes' middle, 5.5 m up
+shot j724_a3: junction 724 at (-839, 6085) 35.239318,-80.826918, approach 3 e15293 'North Tryon Street' (3 lanes in), 22 m short of its stop line, clock 5.0 s (Green): heads 0 -> 1
+    after  head -4.0 m past the stop line, 18.5 m right of the lanes' middle, 3.4 m up

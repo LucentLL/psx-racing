@@ -217,6 +217,35 @@ namespace PSXRacing.City
             // per-approach state
             public int committed = -1, stopKey = -1, goKey = -1, redStopKey = -1, lineKey = -1, waitKey = -1;
             public float stopAt, lineD, waitAt;
+            /// <summary>Junction logic (CityTraffic.Junctions): held short of a
+            /// full box this step; the approach it turns right on red from, the
+            /// approach it stopped at on the red, when; the last box it held for.</summary>
+            public bool heldClear;
+            public int rtorKey = -1, rtorStopKey = -1, clearKey = -1;
+            public float rtorAt;
+            /// <summary>The approach it came into the box by: a car on a
+            /// cluster's internal run (a divided road's median, a one-way
+            /// pair's square) is still in the box it entered, from there.</summary>
+            public int entryKey = -1;
+            /// <summary>When it was given the way at a STOP or a yield (its
+            /// claim lapses once it stands there).</summary>
+            public float goAt;
+            /// <summary>THE HORIZON (CityTraffic.Junctions.Horizon): the
+            /// junctions ahead on its plan, up to the first control and within
+            /// HorizonM - which, its line's distance, the way in, the control
+            /// there, the turn it makes there.</summary>
+            public int hN;
+            public readonly int[] hJ = new int[HorizonN], hKey = new int[HorizonN], hIdx = new int[HorizonN];
+            public readonly float[] hDist = new float[HorizonN];
+            public readonly Vector2[] hU = new Vector2[HorizonN];
+            public readonly byte[] hCtl = new byte[HorizonN];
+            public readonly sbyte[] hTurn = new sbyte[HorizonN], hLeg = new sbyte[HorizonN];
+            /// <summary>The census's why: the car it braked for this step (-1 none).</summary>
+            public int leadId = -1;
+            /// <summary>What held it at its line this step (the census's why):
+            /// the car (-1: none, -2: the player) and the rule (Junctions.Block*).</summary>
+            public int blockId = -1;
+            public byte blockWhy;
             /// <summary>Since when it has waited for a gap to reach the lane its
             /// turn needs (-1: not waiting).</summary>
             public float mandAt = -1f;
@@ -228,6 +257,18 @@ namespace PSXRacing.City
             public float vDesCached;
             /// <summary>The next Extend keeps the lane it is in (a replan).</summary>
             public bool keepLane;
+            /// <summary>Near a node the junction trace watches (a tool: PSX_TRAFFIC_TRACE).</summary>
+            public bool traced;
+            /// <summary>Round 3c: the junction box it is in (boxJ) and since when - of
+            /// two crossing in one box, the one in it first clears it first.</summary>
+            public int boxSinceJ = -1;
+            public float boxSince;
+            /// <summary>Round 3c recovery (Junctions.Unlock): the car it has stood locked
+            /// with, each braking for the other, and since when; the car it backs out
+            /// of the way of and how far it has backed; the car it creeps past.</summary>
+            public int lockWith = -1, backedFor = -1, convergeNoted = -1;
+            public float lockSince, backed, creepLeft;
+            public Car backFor, creepPast;
             public float gap;
             public bool leaderInLane;
             public float leaderV;
@@ -258,7 +299,7 @@ namespace PSXRacing.City
         bool[] noWayOn;
         float maxSpawnW;
 
-        struct App { public int junction; public bool signal, allWay; public float sStop; public byte group; }
+        struct App { public int junction; public bool signal, allWay, yield, warrant, noRtor; public float sStop; public byte group; public int channel; }
         readonly List<App> apps = new List<App>();
         readonly Dictionary<int, int> approachOf = new Dictionary<int, int>();
 
@@ -278,7 +319,8 @@ namespace PSXRacing.City
             public int spawned, recycled, wrecks, laneChanges, mandatory, keepRight, merges, exits,
                 redStops, greenGoes, yellowGoes, ranRed, stopSignStops, stopRolls, yields, uTurns, deadEnds,
                 maxQueue, leftYields, bumps, replans, slowSteps,
-                lanesBack, remaps, lateHolds;
+                rightOnRed, sneakLefts, keepClearHolds, lanesBack, remaps, lateHolds,
+                lockBacks, lockCreeps, convergeHolds;
         }
         public Counters Stats;
         public readonly List<string> WreckLog = new List<string>();
@@ -536,9 +578,11 @@ namespace PSXRacing.City
                         var e = map.edges[a.edge];
                         int key = (a.edge << 1) | (e.b == a.node ? 1 : 0);
                         approachOf[key] = apps.Count;
-                        apps.Add(new App { junction = j.id, signal = j.signal, allWay = j.allWay, sStop = a.sStop, group = a.group });
+                        apps.Add(new App { junction = j.id, signal = j.signal, allWay = j.allWay, sStop = a.sStop, group = a.group, channel = a.channel,
+                                           yield = !j.signal && a.ctl == 1, warrant = j.warrant, noRtor = j.NoTurnOnRed });
                     }
                 }
+            PrepareJunctions();
         }
 
         static float DefaultLimit(int cls)
@@ -722,10 +766,17 @@ namespace PSXRacing.City
         byte CtlAt(CityMap.Edge e, int dir, out int app)
         {
             int key = (e.index << 1) | (dir > 0 ? 1 : 0);
-            if (approachOf.TryGetValue(key, out app)) return apps[app].signal ? CtlSignal : CtlStop;
+            if (approachOf.TryGetValue(key, out app)) return apps[app].signal ? CtlSignal : apps[app].yield ? CtlYield : CtlStop;
             app = -1;
             int n = dir > 0 ? e.b : e.a;
-            if (degree[n] < 3 || nodeJunction[n] >= 0 || trims.mitre[n] || trims.Internal(e.index)) return CtlNone;
+            // (a tight split is a junction even where the meshes mitre it - North Tryon / North
+            // Church at node 9907, round 3d)
+            if (degree[n] < 3 || (trims.mitre[n] && !(tightSplit != null && tightSplit[n])) || trims.Internal(e.index)) return CtlNone;
+            // a signal's arm with no head of its own goes with the junction; at a
+            // STOP or yield junction an arm without its sign still gives way
+            // unless it is the major road (an arm MakeApproach could not stand a
+            // sign on - a stub, a stop line on structure - was left uncontrolled)
+            if (nodeJunction[n] >= 0 && junctionSignal[nodeJunction[n]]) return CtlNone;
             int topCls = -1;
             foreach (int ei in map.nodeEdges[n])
             {
@@ -755,6 +806,9 @@ namespace PSXRacing.City
         void MajorAt(int n, out int m1, out int m2)
         {
             m1 = m2 = -1;
+            // a CARRIAGEWAY SPLIT is not a junction (CitySignals.SplitArms): its
+            // two-way arm and arriving carriageway both have the way, a side road yields
+            if (CitySignals.SplitArms(map, n, out int sTwo, out int sIn, out _)) { m1 = sTwo; m2 = sIn; return; }
             var arms = map.nodeEdges[n];
             int top = -1, topN = 0, topArm = -1;
             foreach (int ei in arms)
@@ -953,7 +1007,13 @@ namespace PSXRacing.City
                 if (total <= 1e-5f) break;
             }
             c.keepLane = false;
-            if (kind == 0 && !merge && !exit) StretchStraight(e, dir, req, last.s0, ref sA, e2, dir2, outLane, ref sB);
+            // (round 3d: never back past the line it may have to stop at - a STOP, a yield, a signal:
+            // the controls hold a car on its run, and a run cut short of its stop bar moved its line
+            // back to the turn's start, up to 20 m short of the box; trace 4 at node 7054, Ardsley
+            // Road's STOP: a car came up to that line too fast, was "past it" 1 m on and crossed
+            // Queens Road unstopped, 9 m/s in front of a car at 14 m/s)
+            float backMax = last.ctl == CtlNone ? float.MaxValue : last.app >= 0 ? Mathf.Max(0f, (sA - apps[last.app].sStop) * dir) : 0f;
+            if (kind == 0 && !merge && !exit) StretchStraight(e, dir, req, last.s0, ref sA, e2, dir2, outLane, ref sB, backMax);
             last.s1 = sA;
             last.len = Mathf.Abs(last.s1 - last.s0);
             last.laneOut = req;
@@ -1042,7 +1102,7 @@ namespace PSXRacing.City
         /// StraightSwerveDeg: up to StraightStretchM more each side, never
         /// into the run's first 2 m nor past 40% of the next edge.</summary>
         void StretchStraight(CityMap.Edge e, int dir, int laneIn, float runS0, ref float sA,
-                             CityMap.Edge e2, int dir2, int laneOut, ref float sB)
+                             CityMap.Edge e2, int dir2, int laneOut, ref float sB, float backMax = float.MaxValue)
         {
             Vector2 p0 = LanePos(e, dir, laneIn, sA), t0 = TravelTan(e, dir, sA);
             Vector2 p3 = LanePos(e2, dir2, laneOut, sB), t3 = TravelTan(e2, dir2, sB);
@@ -1059,7 +1119,7 @@ namespace PSXRacing.City
             if (need <= chord) return;
             float add = Mathf.Min(StraightStretchM, 0.5f * (need - chord));
             // back along the run (dir > 0: toward s 0), forward along the next edge
-            float roomA = Mathf.Max(0f, Mathf.Abs(sA - runS0) - 2f);
+            float roomA = Mathf.Min(backMax, Mathf.Max(0f, Mathf.Abs(sA - runS0) - 2f));
             float farB = dir2 > 0 ? e2.length * 0.4f : e2.length * 0.6f;
             float roomB = Mathf.Max(0f, dir2 > 0 ? farB - sB : sB - farB);
             float a = Mathf.Min(add, roomA), b = Mathf.Min(add, roomB);
@@ -1392,7 +1452,7 @@ namespace PSXRacing.City
             playerVel = new Vector2(pv.x, pv.z);
             double now = Time.timeAsDouble;
 
-            for (int i = 0; i < live.Count; i++) if (!live[i].wrecked) Facts(live[i]);
+            for (int i = 0; i < live.Count; i++) if (!live[i].wrecked) { Facts(live[i]); BoxSince(live[i]); Horizon(live[i], now); }
             for (int i = 0; i < live.Count; i++)
             {
                 var c = live[i];
@@ -1417,6 +1477,9 @@ namespace PSXRacing.City
                 if (c.offMap && !c.wrecked && Remaining(c) < 0.5f + c.speed * dt) Recycle(i);
             }
             if (Log != null) CensusStep(dt);
+            // the junction trace (a tool, PSX_TRAFFIC_TRACE): in the census and, round 3d, in the
+            // traffic check too (its wrecks are at its own uptown spot); unset, it costs nothing
+            if (TraceOn) TraceStep(now);
             clock.Stop();
             float ms = (float)clock.Elapsed.TotalMilliseconds;
             StepMsSum += ms; StepCount++;
@@ -1437,7 +1500,8 @@ namespace PSXRacing.City
                 c.boxJ = JKey(L.node);
                 c.boxKind = L.kind;
                 c.boxU = (L.p1 - L.p0).sqrMagnitude > 1e-6f ? (L.p1 - L.p0).normalized : c.tan;
-                c.inKey = (L.edge << 1) | (L.dir > 0 ? 1 : 0);
+                // across a cluster's second node it is still in the box it entered
+                c.inKey = trims.Internal(L.edge) && c.entryKey >= 0 ? c.entryKey : (L.edge << 1) | (L.dir > 0 ? 1 : 0);
                 if (L.uHalf) return;   // round a bulb: its second half next, no approach yet
                 if (c.legCount > 1)
                 {
@@ -1454,12 +1518,28 @@ namespace PSXRacing.City
             c.appDist = LineAt(L) - c.u - c.halfL;
             c.appU = TravelTan(map.edges[L.edge], L.dir, L.s1);
             c.turnNext = c.legCount > 1 ? c.legs[1].kind : (sbyte)0;
-            if (trims.Internal(L.edge)) { c.boxJ = c.appJ; c.boxKind = c.turnNext; c.boxU = c.tan; }
+            if (trims.Internal(L.edge)) { c.boxJ = c.appJ; c.boxKind = c.turnNext; c.boxU = c.tan; if (c.entryKey >= 0) c.inKey = c.entryKey; }
         }
 
         /// <summary>Metres from a run's start to its stop line (its end when
         /// the approach has no bar).</summary>
-        float LineAt(in Leg L) => L.app >= 0 ? Mathf.Min(Mathf.Abs(apps[L.app].sStop - L.s0), L.len) : L.len;
+        float LineAt(in Leg L)
+        {
+            if (L.app >= 0) return Mathf.Min(Mathf.Abs(apps[L.app].sStop - L.s0), L.len);
+            // a tight split's arriving carriageway (round 3d, Junctions.TightSplit): its
+            // yield line set back to where its cars stand clear of the leaving flow
+            if (!L.turn && holdS != null && L.key >= 0 && L.key < holdS.Length && !float.IsNaN(holdS[L.key]))
+                return Mathf.Clamp((holdS[L.key] - L.s0) * L.dir, 0f, L.len);
+            return L.len;
+        }
+
+        /// <summary>A run that ends merging (a one-way slip or ramp joining
+        /// at a shallow angle: its yield wants a gap in one lane, not a crossing).</summary>
+        bool MergeArm(in Leg L)
+        {
+            var e = map.edges[L.edge];
+            return e.oneway && (e.link || string.IsNullOrEmpty(e.name));
+        }
 
         void Drive(Car c, float dt, double now)
         {
@@ -1471,12 +1551,14 @@ namespace PSXRacing.City
                 bool bump = knock < BumpMps && c.lastTraffic != null && Time.time - c.lastTrafficAt < 0.3f;
                 if (!bump)
                 {
+                    if (c.traced) TraceDump(c, "wreck c" + c.id + " knocked " + knock.ToString("0.0") + (c.lastTraffic != null ? " by c" + c.lastTraffic.id : ""));
                     Wreck(c, (c.lastContact ?? "?") + ", knocked " + knock.ToString("0.0") + " m/s; " + Describe(c) +
                              (c.lastTraffic != null && Time.time - c.lastTrafficAt < 0.3f ? " | other: " + Describe(c.lastTraffic) : ""));
                     return;
                 }
                 if (Time.time - c.lastBumpAt > 2f)
                 {
+                    if (c.traced) TraceDump(c, "bump c" + c.id + " " + knock.ToString("0.0") + " by c" + c.lastTraffic.id);
                     Stats.bumps++;
                     if (Log != null) Note(c, "contact", "car-bump", knock, "a bump below the wreck line: " + Describe(c) + " | other: " + Describe(c.lastTraffic));
                     if (BumpLog.Count < 40) BumpLog.Add(knock.ToString("0.0") + " m/s: " + Describe(c) + " | other: " + Describe(c.lastTraffic));
@@ -1498,7 +1580,14 @@ namespace PSXRacing.City
                 if (end < gap) { gap = end; vL = 0f; why = 20; }
             }
             // the lane its turn needs not reached yet: wait short of the
-            // junction for a gap rather than cut across a lane in the turn
+            // junction for a gap rather than cut across a lane in the turn -
+            // not on a run with no room to change lanes on (inside a junction's
+            // cluster, a piece under 20 m between two nodes): it would stand
+            // in the box for 14 s and replan, at a carriageway split into a
+            // U-turn across the oncoming lanes (2026-10-29 census: greens held
+            // 25 s+ by cars waiting for their lane on 2-17 m internal runs;
+            // South Kings Drive's 10 m piece, a U-turn and a lock head to head).
+            // It takes its turn from the lane it is in.
             ref Leg L0 = ref c.legs[0];
             if (!L0.turn && !c.lc && c.legCount > 1 && Mathf.Clamp(L0.laneOut, 0, Lanes(L0.edge, L0.dir) - 1) != c.lane)
             {
@@ -1510,7 +1599,7 @@ namespace PSXRacing.City
                 // in the next lane's car (the traffic check's wreck on e16794)
                 float shut = LaneShutAhead(c, ref L0, Mathf.Min(rem, 70f));
                 if (shut < rem) rem = shut + 6f - 2f;
-                if (rem < 40f)
+                if (rem < 40f && !trims.Internal(L0.edge) && map.edges[L0.edge].length >= 20f)
                 {
                     float hold = rem - c.halfL - 6f + StopS0;
                     if (hold < gap) { gap = Mathf.Max(0.05f, hold); vL = 0f; why = 21; }
@@ -1520,6 +1609,34 @@ namespace PSXRacing.City
             else c.mandAt = -1f;
             c.gap = gap;
             c.why = why;
+
+            // BACKING OUT OF THE WAY (round 3c recovery, Junctions.Unlock): locked with a
+            // car further through the box, this one backs along its own way at a walk
+            // until its body is off the other's way (2 m at most, never into a car or
+            // the player behind it, never off the start of its leg)
+            if (c.backFor != null)
+            {
+                var ob = c.backFor;
+                bool apart = !PathHits(ob, c) && RectDepth(c.pos, c.fwd, c.halfL + 0.3f, c.halfW + 0.3f, ob.pos, ob.fwd, ob.halfL, ob.halfW) <= 0f;
+                if (ob.wrecked || !ob.active || ob.speed > 0.5f || c.backed >= BackMaxM || c.u < 0.1f || apart || !RoomBehind(c, ob))
+                    c.backFor = null;
+                else
+                {
+                    float db = Mathf.Min(BackMps * dt, Mathf.Min(c.u - 0.05f, BackMaxM - c.backed));
+                    c.u -= db; c.backed += db;
+                    c.speed = 0f; c.accel = 0f;
+                    Place(c, dt, false);
+                    if (c.lights != null) c.lights.externalBrake = true;
+                    return;
+                }
+            }
+            if (c.creepPast != null)
+            {
+                // creeping on past a car it was locked with: until it has driven the
+                // way it needed to clear it (ClearDist at the start), or the other moves
+                var oc2 = c.creepPast;
+                if (oc2.wrecked || !oc2.active || oc2.speed > 0.5f || c.creepLeft <= 0f || (oc2.pos - c.pos).sqrMagnitude > 64f) c.creepPast = null;
+            }
 
             // IDM
             float v = c.speed;
@@ -1535,6 +1652,7 @@ namespace PSXRacing.City
             if (gap <= 0.05f) acc = -EmergencyDecel;
             c.accel = acc;
             c.speed = Mathf.Max(0f, v + acc * dt);
+            if (c.creepPast != null) { c.speed = Mathf.Min(c.speed, CreepMps); c.creepLeft -= c.speed * dt; }
 
             c.u += c.speed * dt;
             int guard = 0;
@@ -1560,11 +1678,22 @@ namespace PSXRacing.City
                 if (old.kind == 2) Stats.uTurns++;
                 if (Log != null) CensusTurnDone(c, ref old);
             }
+            else if (!trims.Internal(old.edge)) c.entryKey = old.key;
             for (int k = 1; k < c.legCount; k++) c.legs[k - 1] = c.legs[k];
             c.legCount--;
             ref Leg N = ref c.legs[0];
             if (N.turn)
             {
+                // A PLAIN VERTEX IS NO PLACE TO CHANGE LANES (round 3d, trace 2: node 14236, West
+                // 4th Street, a 2-lane one-way cut into 7.7-18 m pieces - too short for the lane
+                // change its next junction wants): a car come to a vertex's straight connector in
+                // the other lane than it was laid from took it from where it was to the other
+                // lane's end, a 3.7 m swerve inside 5.7 m across the car beside it (c62 heading -44
+                // to -101 deg in 2 m into c8, 0.13 m; c23 the other way into c57, 0.20 m; round 3c's
+                // final_b check, 4.8 m/s, the same vertex). It keeps its own lane through the
+                // vertex now (the lane there that lines up with it) and changes on a run
+                if (!c.lc && c.lane != N.laneIn && N.kind == 0 && !N.merge && !N.exit && !N.uHalf && degree[N.node] == 2)
+                    KeepLaneThrough(c, ref N);
                 if (Log != null && (c.lc || c.lane != N.laneIn)) CensusWrongLaneTurn(c, ref N);
                 // the turn starts where the car IS (a lane change still under
                 // way, a lane that ended): the same arc to the same lane
@@ -1576,6 +1705,27 @@ namespace PSXRacing.City
                 c.lane = N.laneIn; c.lc = false;
             }
             c.committed = -1; c.stopKey = -1; c.goKey = -1; c.waitKey = -1;
+        }
+
+        /// <summary>Re-lay a plain vertex's straight connector from the lane the car is in to
+        /// the lane beyond that lines up with it (within a metre; none: the connector as
+        /// planned), and the run after it from that lane (round 3d).</summary>
+        void KeepLaneThrough(Car c, ref Leg N)
+        {
+            var e = map.edges[N.edge]; var e2 = map.edges[N.edge2];
+            if (c.lane < 0 || c.lane >= Lanes(N.edge, N.dir)) return;
+            int nOut = Lanes(N.edge2, N.dir2), bj = -1;
+            float bd = 1.0f;
+            for (int j = 0; j < nOut; j++)
+            {
+                if (LaneWidth(e2, N.dir2, j, N.sB) < 2f) continue;
+                float d = LaneJump(e, N.dir, c.lane, N.sA, e2, N.dir2, j, N.sB, N.node);
+                if (d < bd) { bd = d; bj = j; }
+            }
+            if (bj < 0) return;
+            N.laneIn = c.lane; N.laneOut = bj;
+            ShapeTurn(ref N);
+            if (c.legCount > 1 && !c.legs[1].turn && c.legs[1].edge == N.edge2) c.legs[1].laneIn = bj;
         }
 
         // ---- speed -----------------------------------------------------------
@@ -1632,7 +1782,11 @@ namespace PSXRacing.City
             if (a.turn != b.turn || a.edge != b.edge || a.dir != b.dir) return false;
             if (!a.turn) return true;
             if (a.uHalf != b.uHalf) return false;   // the two halves of a bulb U-turn
-            return a.edge2 == b.edge2 && a.dir2 == b.dir2 && (a.laneOut == b.laneOut || a.laneIn == b.laneIn);
+            // one arc only where both begin it at one place (round 3d, trace 3 at node 7054: two
+            // straights from Ardsley Road into Queens Road West, one laid from 14 m further back
+            // than the other - "metres into it" set the one standing at its STOP behind the one
+            // that had begun its turn back in the queue, and that one drove through it, 5.9 m/s)
+            return a.edge2 == b.edge2 && a.dir2 == b.dir2 && (a.laneOut == b.laneOut || a.laneIn == b.laneIn) && Mathf.Abs(a.sA - b.sA) < 1f;
         }
 
         /// <summary>Two turns out of ONE lane (one goes on, one turns left):
@@ -1646,8 +1800,17 @@ namespace PSXRacing.City
             ref Leg a = ref c.legs[k];
             ref Leg b = ref o.legs[j];
             if (!a.turn || !b.turn || a.edge != b.edge || a.dir != b.dir || a.node != b.node || a.laneIn != b.laneIn) return false;
-            Vector2 d = o.pos - c.pos;
-            return Mathf.Abs(c.fwd.x * d.y - c.fwd.y * d.x) < c.halfW + o.halfW + 0.3f;
+            // its centre or its REAR still across this car's way (2026-10-29: a slow
+            // right turn - a right on red - swings its nose out of the lane long
+            // before its tail clears it; the straight-on car behind ran into it)
+            float reach = c.halfW + o.halfW + 0.3f;
+            Vector2 d = o.pos - c.pos, r = d - o.fwd * o.halfL;
+            if (Mathf.Abs(c.fwd.x * d.y - c.fwd.y * d.x) < reach || Mathf.Abs(c.fwd.x * r.y - c.fwd.y * r.x) < reach) return true;
+            // round 3: released only when the leader's BODY is clear of the way this
+            // car sweeps through its own turn (2026-10-29 check: a straight behind a
+            // right at node 7288 and one beside a left at node 14049 let go at 2.1 m
+            // off the heading line, the bodies still met in the arc)
+            return InTheWay(c, a, o, k == 0 && a.len > 0.1f ? Mathf.Clamp01(c.u / a.len) : 0f);
         }
 
         /// <summary>Do the two cars use a lane in common on these legs (runs:
@@ -1672,7 +1835,7 @@ namespace PSXRacing.City
         {
             float best = float.MaxValue; vL = 0f;
             c.leaderInLane = false;
-            c.leadKind = 0;
+            c.leadKind = 0; c.leadId = -1;
             int kc = Mathf.Min(c.legCount, 5);
             cumC[0] = -c.u;
             for (int k = 0; k < kc; k++) cumC[k + 1] = cumC[k] + c.legs[k].len;
@@ -1687,10 +1850,10 @@ namespace PSXRacing.City
                 {
                     float b0 = best;
                     if (Mathf.Abs(o.rb.position.y - c.y) < LevelM) Obstacle(c, o.pos, 2.4f, Vector2.zero, ref best, ref vL);
-                    if (best < b0) c.leadKind = 2;
+                    if (best < b0) { c.leadKind = 2; c.leadId = o.id; }
                     continue;
                 }
-                bool known = false;
+                bool known = false, lanesApartLater = false;
                 float oc = -o.u;
                 int jo = Mathf.Min(o.legCount, 3);
                 for (int j = 0; j < jo && !known; j++)
@@ -1699,7 +1862,20 @@ namespace PSXRacing.City
                     {
                         if (!SameLeg(c.legs[k], o.legs[j]) && !OneLaneOut(c, k, o, j)) continue;
                         known = true;
-                        if (!LanesMeet(c, k, o, j)) break;
+                        if (!LanesMeet(c, k, o, j))
+                        {
+                            // two lanes of one run whose next turns end in ONE lane
+                            // (CityTraffic.Junctions.JoinAhead)
+                            if (!c.legs[k].turn && k + 1 < kc && j + 1 < o.legCount) JoinAhead(c, k, o, j, oc, ref best, ref vL);
+                            // lanes apart only on a LATER leg (two roads into one road's
+                            // two lanes): until then they are on roads of their own, and
+                            // where those run together short of the node the bodies meet
+                            // all the same (2026-10-29 check: East 13th Street into North
+                            // Tryon Street, a shallow merge, 0.86 m overlap) - seen as a
+                            // car on another road below
+                            if (k > 0 && j > 0 && !SameLeg(c.legs[0], o.legs[0])) lanesApartLater = true;
+                            break;
+                        }
                         // o's place on the leg less c's: on a RUN by arc position
                         // (two cars' runs on one edge start where each joined it
                         // - a car born mid-edge starts there), on a turn by the
@@ -1731,23 +1907,98 @@ namespace PSXRacing.City
                             if (rc == ro) cFirst = tC < tO || (Mathf.Approximately(tC, tO) && c.id < o.id);
                             else if (rc > ro) cFirst = !(gap - lengths > 6f + c.speed * 0.8f || tC - tO > 2.5f);
                             else cFirst = -gap - lengths > 6f + o.speed * 0.8f || tO - tC > 2.5f;
+                            // ALREADY THERE (round 3d): the second can give way only while it is
+                            // short of where the two ways meet. One standing (or crawling) there
+                            // already - its body on the way the other sweeps into the shared lane
+                            // - cannot: the one whose body is on the other's way goes first, the
+                            // other brakes for that body (round 3c's check: node 7519, a straight
+                            // on its fresh green at 8.3 m/s into a left from the last phase standing
+                            // 6.8 m from the end of its turn, both into e6418 lane 2 - the straight
+                            // the higher stream, the left not "clearly ahead" by 4.7 m, so the
+                            // straight went first and ignored it; final_d: Lynhaven Street node
+                            // 18758, a straight creeping in its queue at 1.2 m/s into a right
+                            // standing in the box, both into e25027 lane 0, overlapping 0.75 m
+                            // for 75 s - a known pair, never one the lock recovery sees). Both
+                            // cars weigh the same two sweeps, so they agree.
+                            float swC = float.MaxValue;
+                            // (looked for from as far as the faster of the two needs to stop: census A
+                            // on 29ebc63a, the Nevin Road box at node 8083 / 8084 - a straight at 15.8 m/s
+                            // held for a car crawling on the link e14992 whose body lies on e6381 9.5 m
+                            // on, seen at 15 m, too late: 8.8 m/s into it; round 3c's final_a the same)
+                            float seeR = 15f + 1.5f * Mathf.Max(c.speed, o.speed);
+                            if (d2 < seeR * seeR && (o.speed < 3f || c.speed < 3f))
+                            {
+                                if (Vector2.Dot(d, c.fwd) > -2f) swC = SweptHit(c, o, Mathf.Min(45f, dC + 2f * o.halfL + 4f));
+                                float swO = Vector2.Dot(-d, o.fwd) > -2f ? SweptHit(o, c, Mathf.Min(45f, dO + 2f * c.halfL + 4f)) : float.MaxValue;
+                                // one meets the other's body and the other does not - or, both
+                                // meeting, one goes clearly further first: that one goes first
+                                bool oneWay = (swC < float.MaxValue) != (swO < float.MaxValue);
+                                bool both = swC < float.MaxValue && swO < float.MaxValue && Mathf.Abs(swC - swO) > 0.5f;
+                                if (oneWay || both)
+                                {
+                                    bool byRank = cFirst;
+                                    cFirst = swC > swO;
+                                    // the stream rule would have sent this car on into the other's body
+                                    if (byRank && !cFirst && c.convergeNoted != o.id)
+                                    {
+                                        c.convergeNoted = o.id; Stats.convergeHolds++;
+                                        TraceMoment(c, $"converge-held c{c.id} for c{o.id}: its body {swC:0.0} m on the way (the stream rule said go)");
+                                        if (Log != null) Note(c, "traffic", "converge-held", swC, "the higher stream held for one already where the two ways meet (" + swC.ToString("0.0") + " m on): " + Describe(c) + " | other: " + Describe(o));
+                                    }
+                                }
+                            }
                             if (cFirst) break;
-                            gap = Mathf.Max(gap, lengths + 1.5f);
+                            // braked for where its body meets the other's (the plan's gap where
+                            // that is nearer), not a yield line short of the leg it is past
+                            if (swC < float.MaxValue) gap = lengths + Mathf.Max(0f, gap > lengths ? Mathf.Min(swC, gap - lengths) : swC);
+                            else gap = Mathf.Max(gap, lengths + 1.5f);
                         }
-                        else if (gap <= 0f) break;
+                        else if (gap <= 0f)
+                        {
+                            // o "behind" on the shared leg by the plan, but its BODY ahead and
+                            // in the way this car sweeps - one that began its turn from another
+                            // lane cutting across in the box (round 3c final census B: West W T
+                            // Harris Boulevard, node 7343, a right turned from lane 3 across a
+                            // straight-on from lane 0; the straight ran into its side, 0.8 m,
+                            // locked 4 min) - braked for where the sweep meets it, as one across
+                            if (d2 < 12f * 12f && Vector2.Dot(d, c.fwd) > 0f && o.legCount > 0 && o.legs[0].turn)
+                            {
+                                float swk = SweptHit(c, o, 8f);
+                                if (swk < best) { best = swk; vL = 0f; c.leadKind = 4; c.leadId = o.id; }
+                            }
+                            break;
+                        }
+                        // A LEADER WAITING FOR THIS ONE (round 3d, the census's crossing-blocked at
+                        // the Lynhaven Street cluster, nodes 20223 / 20224 in final_c): the car ahead
+                        // by the plan stands braking for THIS car's body on its way (the rule above,
+                        // or its crossing scan) while this one waits for it as its leader - neither
+                        // ever moves. Where this car's own way is clear of that one's body, it goes
+                        if (gap > 0f && d2 < 12f * 12f && o.speed < 3f && o.leadId == c.id && o.leadKind == 4 && SweptHit(c, o, 8f) == float.MaxValue)
+                        { if (c.traced) TraceCross(c, o, "lw", 1e7f); break; }
                         float g = gap - lengths;
+                        // ACROSS, NOT ROUND: the plan's way to a car on a later
+                        // leg can be far longer than the way across - two roads
+                        // laid side by side, a jughandle's hairpin (2026-10-29 check:
+                        // North College Street's loop, e23369 beside e23980, the
+                        // car behind ran into one 15 m on by the plan, 4 m away)
+                        if ((k > 0 || j > 0) && g > 0.5f && d2 < 30f * 30f)
+                        {
+                            float ph = CrossGap(c, o, d);
+                            if (ph < g) g = Mathf.Max(0f, ph);
+                        }
                         if (g < best)
                         {
                             best = g; vL = o.speed;
                             c.leaderInLane = k == 0 && j == 0;
                             c.leaderV = o.speed;
-                            c.leadKind = 1;
+                            c.leadKind = 1; c.leadId = o.id;
                         }
                         break;
                     }
                     oc += o.legs[j].len;
                 }
-                if (known || d2 > 90f * 90f || Mathf.Abs(o.y - c.y) > LevelM) continue;
+                if (c.traced && known && !lanesApartLater && d2 < 15f * 15f) TraceCross(c, o, "kn", 1e7f);
+                if ((known && !lanesApartLater) || d2 > 90f * 90f || Mathf.Abs(o.y - c.y) > LevelM) continue;
                 // not on this car's plan: its neighbour lanes and the oncoming
                 // lanes of its own run are kept apart by the lanes
                 if (o.legCount > 0 && !o.legs[0].turn && c.legCount > 0 && !c.legs[0].turn && o.legs[0].edge == c.legs[0].edge) continue;
@@ -1761,13 +2012,48 @@ namespace PSXRacing.City
                     // id) goes, so they never wait for each other
                     if (d2 > 40f * 40f) continue;
                     float g = CrossGap(c, o, d);
-                    if (g == float.MaxValue) continue;
+                    // ITS WAY, not only its nose's corridor (round 3c census: three pairs
+                    // locked after touching in a box - Morehead Road, Nevin Road, Parkwood
+                    // Avenue): a car whose body is on the way this car takes - its turn's
+                    // arc, its run to the junction and the turn after - is braked for where
+                    // that way meets it, before the straight corridor ahead of the nose
+                    // reaches it; at any angle (round 3c trace: at node 8084 a car moving
+                    // off its line turned its nose into the side of one standing on the
+                    // next turn of a two-node box, nearly its own way: 5 cm, locked).
+                    // A body IN the lanes it sweeps (PathHitAt's 0.4 m), never one a
+                    // lane over or at the kerb line
+                    float ph = d2 < 25f * 25f ? PathHitAt(c, o) : float.MaxValue;
+                    // and the BODY it sweeps past one standing: a sharp turn swings its
+                    // corners wide of the line its centre takes (round 3c final census A: at
+                    // node 8084 a car off the link road turned past the tail of one standing
+                    // in the box, its centre's way 1.3 m clear, its corner 0.18 m in)
+                    float sw = o.speed < 0.5f && ph == float.MaxValue && d2 < 12f * 12f ? SweptHit(c, o, 8f) : float.MaxValue;
+                    if (g == float.MaxValue && ph == float.MaxValue && sw == float.MaxValue) { if (c.traced && d2 < 15f * 15f) TraceCross(c, o, "nc", 1e7f); continue; }
+                    bool onWay = ph < float.MaxValue || sw < float.MaxValue || (o.speed < 0.5f && PathHits(c, o));
+                    // a car TURNING curves away from what stands straight ahead of
+                    // its nose: one standing beside the arc it takes is not in its
+                    // way (2026-10-29 census: 19 "crossing-blocked", 5 before, most
+                    // of them pairs standing for good, each "crossing" the other -
+                    // a turn braked for a nose its straight corridor met and its
+                    // arc did not, and the other waited for the turn in the box)
+                    // (round 3: a car on its RUN too - its lane's line and its next turn,
+                    // not its straight corridor: the mutual locks, a run car's nose in a
+                    // turner's arc and the turner standing across the run car's corridor)
+                    if (o.speed < 0.5f && !onWay) { if (c.traced) TraceCross(c, o, "sp", g); continue; }
                     // c goes first and o, still moving, waits for it; a car standing
                     // with its nose in the lane is braked for whoever it is (the
                     // census: a ramp car stopped at a stop line inside Sunset
-                    // Road, run into by the car that "went first")
-                    if (o.speed > 1.5f && CrossGap(o, c, -d) < float.MaxValue && Precedes(c, o)) continue;
-                    if (g < best) { best = g; vL = Mathf.Max(0f, dot * o.speed); c.leadKind = 4; }
+                    // Road, run into by the car that "went first"). Not past one
+                    // whose body is on its way already (round 3c: the car that "went
+                    // first" by its lower id ran into one creeping out of the box
+                    // from the last phase, its exit's queue moving off at 1 m/s -
+                    // a car on the way cannot wait itself out of it)
+                    if (o.speed > 1.5f && !onWay && CrossGap(o, c, -d) < float.MaxValue && Precedes(c, o)) { if (c.traced) TraceCross(c, o, "pr", g); continue; }
+                    if (Unlock(c, o)) { if (c.traced) TraceCross(c, o, "ul", g); continue; }
+                    if (ph < float.MaxValue) g = Mathf.Min(g, Mathf.Max(0f, ph - (c.halfL - c.halfW)));
+                    if (sw < float.MaxValue) g = Mathf.Min(g, sw);
+                    if (c.traced) TraceCross(c, o, onWay ? "W" : "B", g);
+                    if (g < best) { best = g; vL = Mathf.Max(0f, dot * o.speed); c.leadKind = 4; c.leadId = o.id; }
                 }
                 else if (dot > 0f)
                 {
@@ -1785,13 +2071,13 @@ namespace PSXRacing.City
                     // this one behind it).
                     float b0 = best;
                     Obstacle(c, o.pos, o.halfL, o.fwd * o.speed, ref best, ref vL, o.halfW + 0.3f, true);
-                    if (best < b0) c.leadKind = 5;
+                    if (best < b0) { c.leadKind = 5; c.leadId = o.id; }
                 }
             }
             // the player
             float bp = best;
             if (Mathf.Abs(playerPos3.y - c.y) < LevelM) Obstacle(c, playerPos, 2.3f, playerVel, ref best, ref vL);
-            if (best < bp) c.leadKind = 3;
+            if (best < bp) { c.leadKind = 3; c.leadId = -2; }
             return best;
         }
 
@@ -1814,12 +2100,17 @@ namespace PSXRacing.City
         }
 
         /// <summary>Of two cars each across the other's path, does a go first?
-        /// The one already turning in the box, then the moving one, then the
-        /// lower id.</summary>
+        /// The one already turning in the box; of two in one box, the one in it
+        /// first; then the moving one, then the lower id.</summary>
         static bool Precedes(Car a, Car b)
         {
             bool ta = a.legCount > 0 && a.legs[0].turn, tb = b.legCount > 0 && b.legs[0].turn;
             if (ta != tb) return ta;
+            // round 3c: a car in the junction when the signal changes clears it before
+            // the cross street's first car (NC G.S. 20-155: vehicles lawfully within the
+            // intersection; the census: a car held in the box by its exit's queue,
+            // the cross street's green came in and the lower id "went first" into it)
+            if (ta && a.boxJ >= 0 && a.boxJ == b.boxJ && Mathf.Abs(a.boxSince - b.boxSince) > 0.5f) return a.boxSince < b.boxSince;
             bool ma = a.speed > 1f, mb = b.speed > 1f;
             if (ma != mb) return ma;
             return a.id < b.id;
@@ -1865,22 +2156,56 @@ namespace PSXRacing.City
         float ControlGap(Car c, double now)
         {
             c.ctlWhy = 0;
+            c.heldClear = false;
+            c.blockId = -1; c.blockWhy = 0;
+            bool boxSeen = false;
             float dist = -c.u;
             for (int k = 0; k < c.legCount && dist < 160f; k++)
             {
                 ref Leg L = ref c.legs[k];
                 if (L.turn) { dist += L.len; continue; }
                 float dLine = dist + LineAt(L) - c.halfL;       // front bumper to the line
+                // DON'T BLOCK THE BOX (CityTraffic.Junctions): the first junction
+                // ahead, whatever controls it, not entered while its way out is full
+                if (!boxSeen && k + 1 < c.legCount && c.legs[k + 1].turn && degree[L.node] >= 3)
+                {
+                    boxSeen = true;
+                    if (KeepClearHold(c, k, dLine))
+                    {
+                        if (k == 0 && c.clearKey != L.key && c.speed < 0.5f) { c.clearKey = L.key; Stats.keepClearHolds++; }
+                        // a STOP's full stop counts while it waits (the all-way's order)
+                        if (L.ctl == CtlStop && k == 0 && c.stopKey != L.key && c.speed < 0.3f && dLine < 2.0f) { c.stopKey = L.key; c.stopAt = Time.time; }
+                        c.heldClear = true; c.ctlWhy = WhyKeepClear; c.ctlNode = L.node; c.blockWhy = BlockFullExit;
+                        return Mathf.Max(0f, dLine - 0.6f) + StopS0 - 0.4f;
+                    }
+                }
                 if (L.ctl == CtlNone)
                 {
                     // an uncontrolled junction: a LEFT turn across the other
                     // direction still waits for a gap in it
                     if (k + 1 < c.legCount && c.legs[k + 1].kind == -1 && degree[L.node] >= 3 && dLine > -1f && dLine < 40f &&
-                        OncomingConflict(c, JKey(L.node), L.key, TravelTan(map.edges[L.edge], L.dir, L.s1)))
+                        OncomingConflict(c, k, JKey(L.node), L.key, TravelTan(map.edges[L.edge], L.dir, L.s1)))
                     {
-                        if (k == 0 && c.waitKey != L.key && c.speed < 0.5f) { c.waitKey = L.key; Stats.leftYields++; }
+                        // (k 1: it waits in the turn before - a short run between two
+                        // nodes - and its wait counts there too: the opposite left's
+                        // order reads it)
+                        if ((k == 0 || (k == 1 && c.legs[0].turn)) && c.waitKey != L.key && c.speed < 0.5f) { c.waitKey = L.key; c.waitAt = Time.time; Stats.leftYields++; }
                         c.ctlWhy = 6; c.ctlNode = L.node;
                         return Mathf.Max(0f, dLine - 0.6f) + StopS0 - 0.4f;
+                    }
+                    // a signal's box with no head for this way (CityTraffic.Junctions.InnerYield):
+                    // inside its cluster from a stand, or on an arm it stood no head on
+                    if (k + 1 < c.legCount && c.legs[k + 1].turn && !c.legs[k + 1].merge && !c.legs[k + 1].exit &&
+                        nodeJunction[L.node] >= 0 && junctionSignal[nodeJunction[L.node]] && dLine > -1f)
+                    {
+                        bool inner = trims.Internal(L.edge);
+                        bool canStop = c.speed < 3f || dLine > c.speed * c.speed / (2f * 4.5f);
+                        if ((inner ? c.speed < 3f && dLine < 6f : dLine < 30f && canStop) &&
+                            InnerYield(c, k, JKey(L.node), L.key, TravelTan(map.edges[L.edge], L.dir, L.s1), now))
+                        {
+                            c.ctlWhy = WhyHeadless; c.ctlNode = L.node;
+                            return Mathf.Max(0f, dLine - 0.6f) + StopS0 - 0.4f;
+                        }
                     }
                     dist += L.len;
                     continue;
@@ -1893,7 +2218,23 @@ namespace PSXRacing.City
                     if (c.lineKey == key && c.lineD > 0f && dLine <= 0f) LineCrossed(c, L, now);
                     c.lineKey = key; c.lineD = dLine;
                 }
-                if (dLine < -1.0f) { dist += L.len; continue; }  // past it
+                if (dLine < -1.0f)
+                {
+                    // past it - unless STANDING on its run over a signal's line (round 3d, trace 2's
+                    // check at node 7519: a car its queue had carried 1.8 m over West Trade Street's
+                    // line stood there through the yellow, not committed; "past it", no control held
+                    // it, and when its leader moved off 3 s into the red it followed into the box,
+                    // into North Church Street's fresh green: 5.4 / 6.4 m/s, a wreck - and no red run
+                    // counted, it crossed its line on the green). Over the line is not in the box:
+                    // such a car waits for its next green
+                    bool holdPast = L.ctl == CtlSignal && k == 0 && c.speed <= 1f && c.committed != L.key && c.rtorKey != L.key &&
+                                    CitySignals.AspectOf(apps[L.app].channel, now) != CitySignals.Aspect.Green;
+                    // ... and a STOP or a yield is not passed by overshooting its line: not given
+                    // the way, the car is held while its body is still over its run (trace 4,
+                    // Ardsley Road's STOP at node 7054: 1 m over, "past it", across Queens Road)
+                    holdPast |= (L.ctl == CtlStop || L.ctl == CtlYield) && k == 0 && c.goKey != L.key && dLine > -2f * c.halfL - 0.5f;
+                    if (!holdPast) { dist += L.len; continue; }
+                }
                 float gStop = Mathf.Max(0f, dLine - 0.6f) + StopS0 - 0.4f;
                 sbyte next = k + 1 < c.legCount ? c.legs[k + 1].kind : (sbyte)0;
                 int jk = JKey(L.node);
@@ -1901,25 +2242,57 @@ namespace PSXRacing.City
                 {
                     case CtlSignal:
                     {
-                        var asp = CitySignals.AspectOf(apps[L.app].group, now);
+                        var asp = CitySignals.AspectOf(apps[L.app].channel, now);
                         if (asp == CitySignals.Aspect.Green)
                         {
                             // moving off the line: the junction clear of anyone
-                            // still crossing it from the other phase first
-                            if (c.speed < 3f && dLine < 6f && CrossInBox(c, jk, key, u)) { c.ctlWhy = 2; c.ctlNode = L.node; return gStop; }
-                            if (next == -1 && OncomingConflict(c, jk, key, u))
+                            // still crossing it from the other phase first; coming
+                            // up to it, one still clearing it from the last phase
+                            if (c.speed < 3f && dLine < 6f && CrossInBox(c, k, jk, key, u)) { c.ctlWhy = 2; c.ctlNode = L.node; return gStop; }
+                            if (dLine < 40f && dLine > c.speed * c.speed / (2f * 4f) + 1f && CitySignals.GreenAge(apps[L.app].channel, now) < 8f &&
+                                ClearingInBox(c, jk, key, u, now))
                             {
-                                if (k == 0 && c.waitKey != key && c.speed < 0.5f && dLine < 4f) { c.waitKey = key; Stats.leftYields++; }
+                                c.ctlWhy = 2; c.ctlNode = L.node;
+                                if (c.traced && k == 0) TraceMoment(c, $"fresh green held: c{c.id} {c.speed:0.0} m/s {dLine:0.0} m short of its line for c{c.blockId} still clearing the box (green {CitySignals.GreenAge(apps[L.app].channel, now):0.0} s old)");
+                                return gStop;
+                            }
+                            if (next == -1 && OncomingConflict(c, k, jk, key, u))
+                            {
+                                if (k == 0 && c.waitKey != key && c.speed < 0.5f && dLine < 4f) { c.waitKey = key; c.waitAt = Time.time; Stats.leftYields++; }
                                 c.ctlWhy = 3; c.ctlNode = L.node;
                                 return gStop;
                             }
                             return float.MaxValue;
                         }
-                        if (c.committed == key) return float.MaxValue;
-                        if (asp == CitySignals.Aspect.Yellow && dLine < c.speed * c.speed / (2f * YellowDecel) + 0.5f)
+                        if (c.committed == key || (c.rtorKey == key && next == 1)) return float.MaxValue;
+                        // COMMITTED TO THE YELLOW only a car that cannot stop for it - one MOVING
+                        // (round 3d, trace 2's check at node 7519: a car standing 0.2 m short of
+                        // its line behind its leader when West Trade's light turned yellow was
+                        // "committed" - 0.2 m < v^2/2a + 0.5 m with v = 0 - and went when the
+                        // leader moved, 3 s into the red, into North Church Street's fresh green
+                        // at 5.4 / 6.4 m/s: a wreck the check counts as a yellow go, RAN RED 0;
+                        // the fresh green's car had nothing to wait for - one standing short of
+                        // its line is not coming). A car standing at, or a little over, its line
+                        // when the light changes waits for its next green
+                        if (asp == CitySignals.Aspect.Yellow && c.speed > 1f && dLine < c.speed * c.speed / (2f * YellowDecel) + 0.5f)
                         { c.committed = key; return float.MaxValue; }
-                        if (dLine < 0f) { c.committed = key; return float.MaxValue; }   // already over it
+                        if (dLine < 0f && c.speed > 1f) { c.committed = key; return float.MaxValue; }   // already over it, going
+                        // the permissive left that waited through its green goes
+                        // on the yellow once the oncoming stop for it
+                        if (asp == CitySignals.Aspect.Yellow && next == -1 && k == 0 && c.waitKey == key && dLine < 6f)
+                        {
+                            if (!OncomingConflict(c, k, jk, key, u)) { c.committed = key; Stats.sneakLefts++; return float.MaxValue; }
+                            c.ctlWhy = 3; c.ctlNode = L.node;
+                            return gStop;
+                        }
                         if (k == 0 && c.speed < 0.3f && dLine < 3f && c.redStopKey != key) { c.redStopKey = key; Stats.redStops++; }
+                        // RIGHT ON RED after the full stop, clear of the cross street
+                        if (asp == CitySignals.Aspect.Red && next == 1 && k == 0 && !apps[L.app].noRtor)
+                        {
+                            if (c.speed < 0.3f && dLine < 3f && c.rtorStopKey != key) { c.rtorStopKey = key; c.rtorAt = Time.time; }
+                            if (c.rtorStopKey == key && Time.time - c.rtorAt >= StopHoldS && RtorClear(c, jk, key, u, now))
+                            { c.rtorKey = key; return float.MaxValue; }
+                        }
                         c.ctlWhy = 1; c.ctlNode = L.node;
                         return gStop;
                     }
@@ -1930,7 +2303,8 @@ namespace PSXRacing.City
                         c.ctlWhy = 4; c.ctlNode = L.node;
                         if (c.stopKey != key || Time.time - c.stopAt < StopHoldS) return gStop;
                         bool allWay = apps[L.app].allWay;
-                        if (CanGo(c, jk, key, L.node, u, allWay ? 1 : 2, Time.time - c.stopAt > 8f)) { c.goKey = key; c.ctlWhy = 0; return float.MaxValue; }
+                        if (CanGo(c, jk, key, L.node, u, allWay ? 1 : 2, Time.time - c.stopAt > 8f, next, MergeArm(L), Time.time - c.stopAt > 20f, ClearS(c, k, dLine), k))
+                        { c.goKey = key; c.goAt = Time.time; c.ctlWhy = 0; return float.MaxValue; }
                         return gStop;
                     }
                     case CtlYield:
@@ -1938,9 +2312,9 @@ namespace PSXRacing.City
                         if (c.goKey == key) return float.MaxValue;
                         if (dLine > 30f) return float.MaxValue;
                         bool waiting = c.waitKey == key && c.speed < 0.5f;
-                        if (CanGo(c, jk, key, L.node, u, 2, waiting && Time.time - c.waitAt > 6f))
+                        if (CanGo(c, jk, key, L.node, u, 2, waiting && Time.time - c.waitAt > 6f, next, MergeArm(L), waiting && Time.time - c.waitAt > 20f, ClearS(c, k, dLine), k))
                         {
-                            if (dLine < 8f) c.goKey = key;
+                            if (dLine < 8f && c.goKey != key) { c.goKey = key; c.goAt = Time.time; }
                             return float.MaxValue;
                         }
                         if (k == 0 && c.waitKey != key && c.speed < 0.5f) { c.waitKey = key; c.waitAt = Time.time; Stats.yields++; }
@@ -1957,9 +2331,10 @@ namespace PSXRacing.City
         {
             if (L.ctl == CtlSignal)
             {
-                var asp = CitySignals.AspectOf(apps[L.app].group, now);
+                var asp = CitySignals.AspectOf(apps[L.app].channel, now);
                 if (asp == CitySignals.Aspect.Green) Stats.greenGoes++;
                 else if (asp == CitySignals.Aspect.Yellow || c.committed == L.key) Stats.yellowGoes++;
+                else if (c.rtorKey == L.key) Stats.rightOnRed++;
                 else Stats.ranRed++;
             }
             else if (L.ctl == CtlStop)
@@ -1972,62 +2347,218 @@ namespace PSXRacing.City
         /// junction from another way (nor the player in it); at an all-way stop
         /// nobody who stopped before it still waiting; at a minor road nothing
         /// coming on the major one.</summary>
-        bool CanGo(Car c, int jk, int key, int node, Vector2 u, int mode, bool impatient)
+        bool CanGo(Car c, int jk, int key, int node, Vector2 u, int mode, bool impatient, sbyte turn = 0, bool merge = false, bool veryImpatient = false, float clearS = 0f, int k = -1)
         {
             Vector2 at = map.nodes[node];
-            if ((playerPos - at).sqrMagnitude < 16f * 16f && playerVel.sqrMagnitude > 0.25f && Mathf.Abs(playerPos3.y - c.y) < LevelM) return false;
+            if ((playerPos - at).sqrMagnitude < 16f * 16f && playerVel.sqrMagnitude > 0.25f && Mathf.Abs(playerPos3.y - c.y) < LevelM)
+            { c.blockId = -2; c.blockWhy = BlockPlayer; return false; }
+            // a driver who has waited a while takes a shorter gap (HCM: the
+            // critical gap falls with the wait): after 8 s a fifth less; after
+            // 20 s joining the near lane (a right, a merge) about the follow-up
+            // headway (HCM 3.3 s), crossing about the old flat 4.5 s. Never less
+            // than the time it takes to get clear across the box from here and
+            // a margin (ClearS: a long box, a slow start - round 2's census, a
+            // STOP car took 5 s to cross Queens Road's 18 m box on a 5.5 s gap)
+            bool joins = turn == 1 || merge;
+            float need = GapFor(turn, merge) * (veryImpatient ? (joins ? 0.65f : 0.72f) : impatient ? 0.8f : 1f);
+            if (!merge) need = Mathf.Max(need, clearS + (impatient ? 1.0f : 1.5f));
             for (int i = 0; i < live.Count; i++)
             {
                 var o = live[i];
                 if (o == c || o.wrecked) continue;
-                if (o.boxJ == jk && o.inKey != key) return false;
-                if (o.appJ != jk || o.appKey == key) continue;
-                if (mode == 1 && !impatient && o.stopKey == o.appKey && o.goKey != o.appKey && o.stopAt < c.stopAt) return false;
-                if (mode != 2) continue;
-                float t = o.appDist / Mathf.Max(o.speed, 0.5f);
-                if (o.appCtl == CtlNone)
+                // in the box from another way - unless the two do not cross (the
+                // same way in; opposite ways, neither turning left)
+                // (at a tight split the two flows pass within a body of each other: opposite
+                // ways are not apart there - round 3d, Junctions.TightSplit)
+                if (o.boxJ == jk && o.inKey != key && (tightSplit[node] || !Compatible(u, turn, o.boxU, o.boxKind))) { c.blockId = o.id; c.blockWhy = BlockInBox; return false; }
+                if (o.appJ == jk && o.appKey != key)
                 {
-                    // the major road: a gap in it
-                    if ((o.speed > 1f && t < MajorGapS) || o.appDist < MajorNearM) return false;
+                    // a car given the way and about to enter the box holds it
+                    // (its claim) - while it goes: one given it that stands there
+                    // (held by what is in its way) lets the next one by
+                    if (o.goKey == o.appKey && o.appDist < 4f && o.appDist > -3f && (o.speed > 0.5f || Time.time - o.goAt < 3f) &&
+                        !Compatible(u, turn, o.appU, o.turnNext)) { c.blockId = o.id; c.blockWhy = BlockClaim; return false; }
+                    if (mode == 1 && !impatient && o.stopKey == o.appKey && o.goKey != o.appKey && o.stopAt < c.stopAt &&
+                        !o.heldClear && !Compatible(u, turn, o.appU, o.turnNext)) { c.blockId = o.id; c.blockWhy = BlockOrder; return false; }
                 }
-                else if (o.appCtl == CtlYield && !impatient && u.x * o.appU.y - u.y * o.appU.x > 0.3f)
+                if (mode != 2) continue;
+                // THE HORIZON: a car on its way here, the next junction on its
+                // plan or one past a node or two short of it (2026-10-29: a car
+                // one edge back was not seen, and a STOP pulled out across it)
+                for (int h = 0; h < o.hN; h++)
                 {
-                    // two yields of one rank: the car from the right goes first
-                    if ((o.speed > 1f && t < 3f) || (o.appDist < 5f && o.appDist > -2f && o.goKey != o.appKey)) return false;
+                    if (o.hJ[h] != jk) continue;
+                    if (o.hKey[h] == key) break;
+                    float d = o.hDist[h], t = d / Mathf.Max(o.speed, 0.5f);
+                    if (o.hCtl[h] == CtlNone)
+                    {
+                        // the major road: a gap in it, by this car's movement; a car
+                        // standing in its queue leaves the way - as does one standing for
+                        // THIS car (round 3d: one over its line, held there, in its way)
+                        if (h == 0 && StandingInQueue(o)) break;
+                        if (h == 0 && o.speed < 0.5f && o.leadId == c.id) break;
+                        if ((o.speed > 1f && t < need) || (h == 0 && d < MajorNearM && d > -2f)) { c.blockId = o.id; c.blockWhy = BlockMajor; return false; }
+                    }
+                    else if (h == 0 && o.hCtl[h] == CtlYield && !impatient && u.x * o.hU[h].y - u.y * o.hU[h].x > 0.3f)
+                    {
+                        // two yields of one rank: the car from the right goes first
+                        if ((o.speed > 1f && t < 3f) || (d < 5f && d > -2f && o.goKey != o.appKey)) { c.blockId = o.id; c.blockWhy = BlockRight; return false; }
+                    }
+                    break;
+                }
+            }
+            // THE SECOND CARRIAGEWAY (round 3d, trace 3's facts at Queens Road): across a divided
+            // road whose median is an internal run of the box (Queens Road West over Queens
+            // Road's one-way pair - its STOP at node 6391, junction 1592, then e16461's 20 m, 2 m
+            // of it a run, to node 7054, junction 1651, where an internal run has no control and
+            // Queens Road's northbound carriageway e9103 has the way) a gap is wanted in BOTH
+            // carriageways before it goes: the STOP saw only the near one, and the car given the
+            // way crossed the far one unlooked (final_c: 4.9 m/s into a Queens Road straight at
+            // 12.7 m/s in node 7054's box, a wreck and the census's one overlap)
+            // (and every one after it while the way runs on through internal runs of the box:
+            // trace 5, Queens Road West's left at node 7054 then across Queens Road's e5381 at
+            // node 5741 - three crossings after one STOP)
+            float d2m = 0f;
+            for (int kk = k; kk >= 0 && mode == 2 && kk < 8 && SecondCrossing(c, kk, out int n2, out int key2, out Vector2 u2, out sbyte turn2, out float dd); kk += 2)
+            {
+                d2m += dd;
+                int jk2 = JKey(n2);
+                float need2 = need + d2m / 4f;
+                for (int i = 0; i < live.Count; i++)
+                {
+                    var o = live[i];
+                    if (o == c || o.wrecked) continue;
+                    if (o.boxJ == jk2 && o.inKey != key2 && o.speed > 0.5f && !Compatible(u2, turn2, o.boxU, o.boxKind)) { c.blockId = o.id; c.blockWhy = BlockInBox; return false; }
+                    for (int h = 0; h < o.hN; h++)
+                    {
+                        if (o.hJ[h] != jk2) continue;
+                        if (o.hKey[h] == key2 || o.hCtl[h] != CtlNone) break;     // the major flow there only
+                        if (h == 0 && StandingInQueue(o)) break;
+                        if (h == 0 && o.speed < 0.5f && o.leadId == c.id) break;
+                        float d = o.hDist[h], t = d / Mathf.Max(o.speed, 0.5f);
+                        if ((o.speed > 1f && t < need2) || (h == 0 && d < MajorNearM && d > -2f)) { c.blockId = o.id; c.blockWhy = BlockMajor; return false; }
+                        break;
+                    }
                 }
             }
             return true;
         }
 
+        /// <summary>Round 3d: is the way past this STOP or yield (run k, its turn) an internal run of
+        /// the box to a second node of it with no control there - the median of a divided road -
+        /// and the turn there? The far node, the internal run's key and travel, the turn's kind, and
+        /// how far the car goes from its line to there.</summary>
+        bool SecondCrossing(Car c, int k, out int n2, out int key2, out Vector2 u2, out sbyte turn2, out float d2m)
+        {
+            n2 = -1; key2 = -1; u2 = Vector2.zero; turn2 = 0; d2m = 0f;
+            if (k + 3 >= c.legCount) return false;
+            ref Leg T1 = ref c.legs[k + 1];
+            ref Leg R = ref c.legs[k + 2];
+            ref Leg T2 = ref c.legs[k + 3];
+            if (!T1.turn || R.turn || !T2.turn || !trims.Internal(R.edge) || R.ctl != CtlNone) return false;
+            if (!IsBox(R.node) || (nodeJunction[R.node] >= 0 && junctionSignal[nodeJunction[R.node]])) return false;
+            n2 = R.node; key2 = R.key; turn2 = T2.kind;
+            u2 = TravelTan(map.edges[R.edge], R.dir, R.s1);
+            d2m = T1.len + R.len;
+            return true;
+        }
+
         /// <summary>Anyone in the junction now who came in from a crossing
         /// approach (a car still clearing it on the last of its phase).</summary>
-        bool CrossInBox(Car c, int jk, int key, Vector2 u)
+        bool CrossInBox(Car c, int k, int jk, int key, Vector2 u)
         {
+            bool havePath = k + 1 < c.legCount && c.legs[k + 1].turn;
             for (int i = 0; i < live.Count; i++)
             {
                 var o = live[i];
-                if (o == c || o.wrecked || o.boxJ != jk || o.inKey == key) continue;
-                if (Mathf.Abs(Vector2.Dot(o.boxU, u)) < 0.6f) return true;
+                if (o == c || o.wrecked || o.inKey == key) continue;
+                // committed to the last phase's yellow and still coming into it
+                // (moving, there in a few seconds - one standing in a queue short
+                // of the line is not coming)
+                if (o.boxJ != jk)
+                {
+                    if (o.appJ == jk && o.appKey != key && o.committed == o.appKey && o.appDist < 30f && o.appDist > -2f &&
+                        o.speed > 2f && o.appDist < o.speed * 4f &&
+                        Mathf.Abs(Vector2.Dot(o.appU, u)) < 0.6f) { c.blockId = o.id; c.blockWhy = BlockYellowIn; return true; }
+                    continue;
+                }
+                // a right on red keeps to the near lanes of the street it joins
+                if (o.rtorKey == o.inKey) continue;
+                if (Mathf.Abs(Vector2.Dot(o.boxU, u)) >= 0.6f) continue;
+                // one STANDING in the box (a queue its exit holds) holds this
+                // green only where it stands in the way this car takes through
+                // (2026-10-29 census: 57 greens held 25 s+ by a car standing in a
+                // far corner of a divided crossing, out of everyone's way)
+                // (round 3c: ... and only where the way it goes on by does not cross this
+                // car's either - at Parkwood Avenue / Seigle Avenue a car held mid-box by its
+                // exit's queue moved off as the cross street's green came in, into the side
+                // of the first car through)
+                if (o.speed < 1f && havePath && !InTheWay(c, c.legs[k + 1], o) && !LeftsCross(c, k, o)) continue;
+                c.blockId = o.id; c.blockWhy = BlockInBox;
+                return true;
             }
             return false;
         }
 
         /// <summary>A left turn on a green: anything coming the other way (not
-        /// itself turning left) within a few seconds of the line, or crossing
-        /// the junction from there now.</summary>
-        bool OncomingConflict(Car c, int jk, int key, Vector2 u)
+        /// itself turning left, unless the two lefts' ways cross) within a few
+        /// seconds of the line, or crossing the junction from there now.</summary>
+        bool OncomingConflict(Car c, int k, int jk, int key, Vector2 u)
         {
+            // a left turn that has waited 15 s takes a shorter gap (HCM: 4.1 s for a
+            // major-street left; the critical gap falls with the wait)
+            float gapS = c.waitKey == key && Time.time - c.waitAt > 15f ? OncomingGapS * 0.75f : OncomingGapS;
+            int node = c.legs[k].node;
             for (int i = 0; i < live.Count; i++)
             {
                 var o = live[i];
                 if (o == c || o.wrecked) continue;
-                if (o.boxJ == jk && o.boxKind != -1 && Vector2.Dot(o.boxU, u) < -0.5f && o.inKey != key) return true;
-                if (o.appJ != jk || o.appKey == key || o.turnNext == -1) continue;
-                if (Vector2.Dot(o.appU, u) > -0.5f) continue;
-                if (o.appCtl == CtlSignal && o.appIdx >= 0 &&
-                    CitySignals.AspectOf(apps[o.appIdx].group, Time.timeAsDouble) == CitySignals.Aspect.Red) continue;
-                float t = o.appDist / Mathf.Max(o.speed, 0.5f);
-                if ((o.speed > 1f && t < OncomingGapS) || (o.appDist < 6f && o.appDist > -2f)) return true;
+                // IN THE BOX from the other way: at this car's node, or its way
+                // through crossing this car's turn - a junction of several nodes
+                // (a one-way pair's square) has the other carriageway's cars in
+                // its box too, out of this turn's way (2026-10-29 census: two
+                // lefts in Carmel Road's square at Pineville-Matthews each waited
+                // for the other, on opposite sides of the square, for good)
+                if (o.boxJ == jk && Vector2.Dot(o.boxU, u) < -0.5f && o.inKey != key &&
+                    (o.boxKind != -1 && o.legCount > 0 && o.legs[0].turn && o.legs[0].node == node || LeftsCross(c, k, o)))
+                { c.blockId = o.id; c.blockWhy = BlockOncoming; return true; }
+                // THE HORIZON: oncoming on its way here, its next junction or one
+                // a node or two further (CityTraffic.Junctions.Horizon)
+                for (int h = 0; h < o.hN; h++)
+                {
+                    if (o.hJ[h] != jk) continue;
+                    if (o.hKey[h] == key || Vector2.Dot(o.hU[h], u) > -0.5f) break;
+                    // one at a STOP or a yield, not given the way, gives it to this
+                    // car (2026-10-29 census: a left off the major road waited for a
+                    // STOP car "oncoming" at its bar, the STOP car for the left)
+                    if ((o.hCtl[h] == CtlStop || o.hCtl[h] == CtlYield) && o.goKey != o.hKey[h]) break;
+                    if (o.hTurn[h] == -1)
+                    {
+                        // two opposite LEFTS pass in front of each other - where the
+                        // box leaves room: where their ways cross (a skewed or tight
+                        // box; 2026-10-29 census, Queens Road at node 7026: two lefts
+                        // met nose to nose and stood locked 4 min), the one that waited
+                        // first goes (both standing: the longer wait, then the lower id)
+                        if (!LeftsCross(c, k, o, o.hLeg[h] + 1)) break;
+                        float cw = c.waitKey == key ? c.waitAt : float.MaxValue, ow = o.waitKey == o.hKey[h] ? o.waitAt : float.MaxValue;
+                        if (c.speed < 0.5f && o.speed < 0.5f && (cw < ow || (cw == ow && c.id < o.id))) break;
+                    }
+                    if (o.hCtl[h] == CtlSignal && o.hIdx[h] >= 0)
+                    {
+                        var oa = CitySignals.AspectOf(apps[o.hIdx[h]].channel, Time.timeAsDouble);
+                        if (oa == CitySignals.Aspect.Red) break;
+                        // on its yellow and not committed to it: it stops
+                        if (oa == CitySignals.Aspect.Yellow && o.committed != o.hKey[h] && o.hDist[h] > 0.5f) break;
+                    }
+                    float d = o.hDist[h], t = d / Mathf.Max(o.speed, 0.5f);
+                    // one standing at its line held by what stays there a while
+                    // (the box, a car across it, a full exit) is not about to come:
+                    // a left may go in front of it. Not one in a queue that rolls
+                    // (the car ahead), nor one waiting for its lane: they go any moment
+                    if (h == 0 && o.speed < 0.5f && (o.why == 4 || o.why == 12 || o.why == 10 + WhyKeepClear || o.why == 10 + WhyHeadless)) break;
+                    if ((o.speed > 1f && t < gapS) || (h == 0 && d < 6f && d > -2f)) { c.blockId = o.id; c.blockWhy = BlockOncoming; return true; }
+                    break;
+                }
             }
             return false;
         }
@@ -2118,6 +2649,13 @@ namespace PSXRacing.City
             c.deadEnd = false; c.offMap = false;
             c.mandAt = -1f;
             c.keepLane = true;
+            // a right on red it was given is for the right it no longer takes (round 3d, trace 7 at
+            // node 10758 beside 9907: a car held in lane 2 by its lane wait was given its right on
+            // red, replanned after 14 s to a left from lane 2, and went on the red with it - across
+            // West 30th Street's green, a wreck); nor do the claims at its line carry over
+            if (c.rtorKey == L.key) c.rtorKey = -1;
+            c.rtorStopKey = -1;
+            if (c.goKey == L.key) c.goKey = -1;
             Stats.replans++;
             EnsurePlan(c);
         }
@@ -2458,6 +2996,7 @@ namespace PSXRacing.City
             c.aMax = Random.Range(1.4f, 2.2f);
             c.bDec = Random.Range(2.0f, 3.0f);
             c.committed = c.stopKey = c.goKey = c.redStopKey = c.lineKey = c.waitKey = -1;
+            c.rtorKey = c.rtorStopKey = c.clearKey = c.entryKey = c.blockId = -1; c.hN = 0;
             c.mandAt = -1f; c.lastTraffic = null; c.lastTrafficAt = -9f; c.keepLane = false; c.vTick = 0;
             c.bornAt = Time.time;
             if (Log != null) CensusSpawned(c);

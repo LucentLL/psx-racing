@@ -209,11 +209,17 @@ namespace PSXRacing.City
                 case 14: return "a STOP";
                 case 15: return "a yield";
                 case 16: return "oncoming (left, unsigned)";
+                case 17: return "a full box ahead (keep clear)";
+                case 18: return "cross traffic in a signal's box with no head for it";
                 case 20: return "a dead end";
                 case 21: return "the lane its turn needs";
                 default: return "why " + why;
             }
         }
+
+        /// <summary>The red its signal approach shows for, one cycle (0: not at a signal).</summary>
+        float RedS(Car c) => c.legCount > 0 && !c.legs[0].turn && c.legs[0].app >= 0 && apps[c.legs[0].app].signal
+            ? CitySignals.RedS(apps[c.legs[0].app].channel) : 0f;
 
         void Stuck(Car c, Watch w, ref Leg L)
         {
@@ -229,7 +235,9 @@ namespace PSXRacing.City
             // not waited at the red for all of it)
             if (c.why != w.lastWhy) { w.lastWhy = c.why; w.whySince = Time.time; }
             float t = Time.time - Mathf.Max(w.slowSince, w.whySince);
-            bool inBox = L.turn;
+            // in a junction BOX: a turn across a node of three roads or more (not a
+            // carriageway split, not a bend) - a queue standing over a plain vertex is a queue
+            bool inBox = L.turn && IsBox(L.node);
             string sub;
             float need = 10f;
             switch (c.why)
@@ -243,19 +251,24 @@ namespace PSXRacing.City
                 case 3: return;
                 case 4: sub = inBox ? "gridlock-box" : "crossing-blocked"; need = 15f; break;
                 case 5: sub = "other-road-in-lane"; need = 15f; break;
-                case 11: sub = "red-never-ends"; need = 60f; break;
+                case 11: sub = "red-never-ends"; need = Mathf.Max(60f, RedS(c) + 15f); break;
                 case 12: sub = "box-blocked-on-green"; need = 25f; break;
                 case 13: case 16: sub = "left-turn-starved"; need = 45f; break;
                 case 14: sub = "stop-deadlock"; need = 30f; break;
                 case 15: sub = "yield-starved"; need = 40f; break;
+                case 17: sub = "keep-clear-wait"; need = 40f; break;
+                case 18: sub = "headless-yield-wait"; need = 40f; break;
                 case 20: return;
                 case 21: sub = "lane-change-wait"; need = 12f; break;
                 default: sub = inBox ? "crawl-in-turn" : "crawl"; break;
             }
             if (t < need) return;
-            int ev = Note(c, "stuck", sub, t, $"held by {WhyName(c.why)} {c.gap:0.0} m ahead, wants {c.vDesCached:0.0} m/s; " + Describe(c),
+            int ev = Note(c, "stuck", sub, t, $"held by {WhyName(c.why)} {c.gap:0.0} m ahead{Blocker(c)}, wants {c.vDesCached:0.0} m/s; " + Describe(c),
                              node: c.why >= 10 && c.why < 20 ? c.ctlNode : int.MinValue);
             w.stuckEv = ev >= 0 ? ev : -2;
+            // the junction trace (round 3d): a pair standing for good is a moment worth its 8 s
+            if (c.traced && (sub == "crossing-blocked" || sub == "gridlock-box" || sub == "stop-deadlock"))
+                TraceMoment(c, $"stuck {sub} c{c.id} {t:0} s: held by {WhyName(c.why)}{Blocker(c)}");
         }
 
         // ---- the road under it -------------------------------------------------------
@@ -625,13 +638,29 @@ namespace PSXRacing.City
                             var A = j.approaches[a]; var B = j.approaches[b];
                             if (A.edge == B.edge || A.group != B.group) continue;
                             float ang = Vector2.Angle(A.u, B.u);
-                            if (ang < 55f || ang > 125f) continue;
+                            // (round 3c: from 20 degrees - two roads from one side at a skew cross
+                            // too; under 20 a slip lane beside its road's approach)
+                            if (ang < CitySignals.SideDeg || ang > 125f) continue;
                             conflictPairs++;
                             log.Add("signal", "conflicting-green", A.node, A.edge, B.edge, P(j.centre, j.roadY), -1, 0f, 1f, "static",
                                     $"junction {j.id}: approaches e{A.edge} '{map.edges[A.edge].name}' and e{B.edge} '{map.edges[B.edge].name}' cross at {ang:0} deg and are both phase group {A.group}: green together");
                         }
                 }
-            report.AppendLine($"  signals: {sigJ} signalised junctions, {stopJ} STOP junctions ({allWay} all-way); crossing approaches green together: {conflictPairs} pairs");
+            report.AppendLine($"  signals: {sigJ} signalised junctions, {stopJ} STOP / yield junctions ({allWay} all-way); crossing approaches green together: {conflictPairs} pairs");
+            report.AppendLine("  " + CitySignals.ControlReport());
+            // the warrants' signals and all-way stops, where (the owner checks them against the streets)
+            if (js != null)
+            {
+                int ws = 0, wa = 0;
+                foreach (var j in js)
+                {
+                    if (!j.warrant || !(j.signal || j.allWay)) continue;
+                    if (j.signal ? ws++ >= 40 : wa++ >= 25) continue;
+                    var names = new HashSet<string>();
+                    foreach (var a in j.approaches) names.Add(string.IsNullOrEmpty(map.edges[a.edge].name) ? "(unnamed " + (map.edges[a.edge].link ? "ramp" : "road") + ")" : map.edges[a.edge].name);
+                    report.AppendLine($"    warrant {(j.signal ? $"signal ({j.phases} phases)" : "all-way STOP")} at ({j.centre.x:0},{j.centre.y:0}) node {j.nodes[0]}: {string.Join(" / ", names)}");
+                }
+            }
 
             // ---- 2. JUNCTION CONTROL where no signal or STOP stands: big roads
             // crossing with nobody given the way
@@ -1059,6 +1088,192 @@ namespace PSXRacing.City
                         $"{compLen[i] / 1000f:0.00} km of directed road round e{rep >> 1} '{e.name}' cls{e.cls} {(canLeave ? "that no car from the rest of the city can drive into" : "that a car, once in, can never drive out of")}");
             }
             report.AppendLine($"  directed network: {comps} strongly connected parts; the biggest holds {compLen[giant] / 1000f:0} of {total / 1000f:0} km (directed); outside it {outside / 1000f:0.0} km in {comps - 1} parts ({logged} of 150 m+ logged; {cutParts} more, {cutKm:0.0} km, touch the data's edge and are not counted)");
+        }
+
+        // ---- JUNCTION TRACE (round 3c tool) ----------------------------------------------------
+        // PSX_TRAFFIC_TRACE="node,node,..." (with the census): every 0.1 s, each car within 35 m of
+        // a traced node - its leg, speed, gap and why, and what its crossing scan made of each car
+        // across its way - kept for 8 s and written to PSX_TRAFFIC_TRACE_OUT (traffic_trace.txt)
+        // when two cars there touch (a bump, a wreck, or the bodies overlapping). Off: no cost.
+        static int[] traceNodes;
+        static readonly List<Vector2> tracePlaces = new List<Vector2>();
+        static bool traceRead, traceFacts;
+        static System.IO.StreamWriter traceW;
+        readonly List<(float t, int n, string line)> traceRing = new List<(float, int, string)>();
+        readonly Dictionary<int, StringBuilder> traceWhy = new Dictionary<int, StringBuilder>();
+        readonly Dictionary<int, float> traceDumped = new Dictionary<int, float>();
+        float nextTrace;
+
+        static bool TraceOn
+        {
+            get
+            {
+                if (!traceRead)
+                {
+                    traceRead = true;
+                    var v = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_TRACE");
+                    if (!string.IsNullOrEmpty(v))
+                    {
+                        var ids = new List<int>();
+                        foreach (var t in v.Split(','))
+                        {
+                            // "x:z" (round 3d): the node nearest that place, found once the map is
+                            // there (node ids differ between road data; a place does not)
+                            var xz = t.Trim().Split(':');
+                            if (xz.Length == 2 && float.TryParse(xz[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float tx) &&
+                                float.TryParse(xz[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float tz))
+                                tracePlaces.Add(new Vector2(tx, tz));
+                            else if (int.TryParse(t.Trim(), out int n)) ids.Add(n);
+                        }
+                        traceNodes = ids.ToArray();
+                        var path = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_TRACE_OUT");
+                        if (string.IsNullOrEmpty(path)) path = "traffic_trace.txt";
+                        traceW = new System.IO.StreamWriter(path, false) { AutoFlush = true };
+                        traceW.WriteLine("# trace nodes " + v);
+                    }
+                }
+                return traceW != null;
+            }
+        }
+
+        int TraceNode(Car c)
+        {
+            if (traceNodes == null) return -1;
+            foreach (int n in traceNodes)
+                if (n >= 0 && n < map.nodes.Length && (map.nodes[n] - c.pos).sqrMagnitude < 35f * 35f) return n;
+            return -1;
+        }
+
+        /// <summary>What the crossing scan made of car o (traced cars only).</summary>
+        void TraceCross(Car c, Car o, string tag, float g)
+        {
+            if (!c.traced) return;
+            if (!traceWhy.TryGetValue(c.id, out var sb)) traceWhy[c.id] = sb = new StringBuilder();
+            sb.Append(' ').Append(o.id).Append(':').Append(tag);
+            if (g < 1e6f) sb.Append(g.ToString("0.0"));
+        }
+
+        void TraceStep(double now)
+        {
+            if (!TraceOn) return;
+            if (tracePlaces.Count > 0 && map != null)
+            {
+                // a place: its nearest junction node (three roads or more; else any node) within 40 m
+                var ids = new List<int>(traceNodes);
+                foreach (var at in tracePlaces)
+                {
+                    int bestN = -1; float bestD = 40f * 40f; bool bestJ = false;
+                    for (int n = 0; n < map.nodes.Length; n++)
+                    {
+                        float dd = (map.nodes[n] - at).sqrMagnitude;
+                        bool j = degree[n] >= 3;
+                        if (dd < 40f * 40f && ((j && !bestJ) || (j == bestJ && dd < bestD))) { bestN = n; bestD = dd; bestJ = j; }
+                    }
+                    traceW.WriteLine($"# trace place ({at.x:0},{at.y:0}) -> node {bestN}" + (bestN >= 0 ? $" ({map.nodes[bestN].x:0.0},{map.nodes[bestN].y:0.0}) degree {degree[bestN]} junction {nodeJunction[bestN]}" : " (none within 40 m)"));
+                    if (bestN >= 0 && !ids.Contains(bestN)) ids.Add(bestN);
+                }
+                tracePlaces.Clear();
+                traceNodes = ids.ToArray();
+            }
+            if (!traceFacts && map != null && traceNodes != null)
+            {
+                // the traced nodes' facts (round 3d): what the traffic makes of each junction
+                traceFacts = true;
+                // and the nodes a short arm (under 25 m) away: one box with it
+                var factNodes = new List<int>(traceNodes);
+                foreach (int n in traceNodes)
+                {
+                    if (n < 0 || n >= map.nodes.Length) continue;
+                    foreach (int ei in map.nodeEdges[n])
+                    {
+                        var e = map.edges[ei];
+                        int far = e.a == n ? e.b : e.a;
+                        if (e.a != e.b && e.length < 25f && !factNodes.Contains(far)) factNodes.Add(far);
+                    }
+                }
+                foreach (int n in factNodes)
+                {
+                    if (n < 0 || n >= map.nodes.Length) continue;
+                    var fs = new StringBuilder($"# node {n} ({map.nodes[n].x:0.0},{map.nodes[n].y:0.0}) degree {degree[n]} junction {nodeJunction[n]}" +
+                                               $"{(nodeJunction[n] >= 0 && junctionSignal[nodeJunction[n]] ? " (signal)" : "")} split {splitNode[n]} tight {tightSplit[n]}{(tightWhy.TryGetValue(n, out string tw) ? " (" + tw + ")" : "")} box {IsBox(n)} mitre {trims.mitre[n]} major e{majorA[n]}/e{majorB[n]}:");
+                    foreach (int ei in map.nodeEdges[n])
+                    {
+                        var e = map.edges[ei];
+                        if (e.a == e.b) continue;
+                        int dir = e.b == n ? 1 : -1;
+                        string ctl = e.oneway && dir < 0 ? "leaves" : CtlName(CtlAt(e, dir, out int fa)) + (e.oneway && dir < 0 ? "" : approachOf.TryGetValue((ei << 1) | (dir > 0 ? 1 : 0), out int fai) ? $" (j{apps[fai].junction} grp{apps[fai].group} ch{apps[fai].channel})" : "");
+                        fs.Append($" e{ei}{(routable[ei] ? "" : " (not routable)")} '{e.name}' cls{e.cls}{(e.oneway ? " oneway" : "")}{(trims.Internal(ei) ? " internal" : "")} {ctl} len {e.length:0.0} lanes {Lanes(ei, dir)}{(!float.IsNaN(holdS[(ei << 1) | (dir > 0 ? 1 : 0)]) ? " hold@" + holdS[(ei << 1) | (dir > 0 ? 1 : 0)].ToString("0.0") : "")};");
+                    }
+                    traceW.WriteLine(fs.ToString());
+                }
+            }
+            for (int i = 0; i < live.Count; i++) live[i].traced = !live[i].wrecked && live[i].legCount > 0 && TraceNode(live[i]) >= 0;
+            if (Time.time < nextTrace) return;
+            nextTrace = Time.time + 0.1f;
+            float t = Time.time;
+            while (traceRing.Count > 0 && traceRing[0].t < t - 8f) traceRing.RemoveAt(0);
+            for (int i = 0; i < live.Count; i++)
+            {
+                var c = live[i];
+                if (!c.traced) continue;
+                ref Leg L = ref c.legs[0];
+                string asp = "";
+                if (c.appIdx >= 0 && c.appCtl == CtlSignal) asp = " " + CitySignals.AspectOf(apps[c.appIdx].channel, now).ToString()[0];
+                traceWhy.TryGetValue(c.id, out var sb);
+                string line = $"{t:0.0} c{c.id} v{c.speed:0.0} a{c.accel:0.0} {(L.turn ? "T" + (L.kind == -1 ? "L" : L.kind == 1 ? "R" : L.kind == 2 ? "U" : "S") : "R")} n{L.node} e{L.edge}>{(L.turn ? L.edge2 : -1)} u{c.u:0.0}/{L.len:0.0} ln{c.lane}{(c.lc ? ">" + c.laneTo : "")} p({c.pos.x:0.0},{c.pos.y:0.0}) h{Mathf.Atan2(c.fwd.x, c.fwd.y) * Mathf.Rad2Deg:0} gap{(c.gap < 1e6f ? c.gap.ToString("0.0") : "-")} why{c.why} lead{c.leadId} ctl{c.ctlWhy} blk{c.blockId}/{c.blockWhy} box{c.boxJ} app{c.appJ}{asp} com{(c.committed == c.appKey ? 1 : 0)} |{(sb != null ? sb.ToString() : "")}";
+                traceRing.Add((t, TraceNode(c), line));
+            }
+            traceWhy.Clear();
+            // bodies overlapping (the census's test, on the plan's rectangles); and (round 3d)
+            // two cars crossing each other in one box, both moving (the census's conflict test:
+            // a near miss is traced too, not only a touch)
+            for (int i = 0; i < live.Count; i++)
+            {
+                var a = live[i];
+                if (!a.traced) continue;
+                for (int j = i + 1; j < live.Count; j++)
+                {
+                    var b = live[j];
+                    if (!b.traced || (a.pos - b.pos).sqrMagnitude > 64f) continue;
+                    if (RectOverlap(a, b) > 0.05f) TraceDump(a, $"overlap c{a.id} c{b.id} {RectOverlap(a, b):0.00} m");
+                    else if (a.boxJ >= 0 && a.boxJ == b.boxJ && a.inKey != b.inKey && a.speed > 2f && b.speed > 2f &&
+                             a.legCount > 0 && a.legs[0].turn && b.legCount > 0 && b.legs[0].turn &&
+                             (a.pos - b.pos).sqrMagnitude < 36f && Mathf.Abs(Vector2.Dot(a.fwd, b.fwd)) < 0.5f)
+                        TraceDump(a, $"conflict c{a.id} c{b.id} {(a.pos - b.pos).magnitude:0.0} m, both moving in one box ({a.speed:0.0} / {b.speed:0.0} m/s)", true);
+                }
+            }
+        }
+
+        /// <summary>A traced car's moment worth the 8 s before it (round 3d: a converging
+        /// hold, a lock undone) - dumped as a touch is.</summary>
+        void TraceMoment(Car c, string why) { if (c.traced) TraceDump(c, why, true); }
+
+        /// <summary>How deep two cars' plan rectangles overlap (0: apart).</summary>
+        static float RectOverlap(Car a, Car b)
+        {
+            float best = float.MaxValue;
+            var axes = new[] { a.fwd, new Vector2(-a.fwd.y, a.fwd.x), b.fwd, new Vector2(-b.fwd.y, b.fwd.x) };
+            foreach (var ax in axes)
+            {
+                float ra = Mathf.Abs(Vector2.Dot(a.fwd, ax)) * a.halfL + Mathf.Abs(Vector2.Dot(new Vector2(-a.fwd.y, a.fwd.x), ax)) * a.halfW;
+                float rb = Mathf.Abs(Vector2.Dot(b.fwd, ax)) * b.halfL + Mathf.Abs(Vector2.Dot(new Vector2(-b.fwd.y, b.fwd.x), ax)) * b.halfW;
+                float o = ra + rb - Mathf.Abs(Vector2.Dot(b.pos - a.pos, ax));
+                if (o <= 0f) return 0f;
+                best = Mathf.Min(best, o);
+            }
+            return best;
+        }
+
+        void TraceDump(Car c, string why, bool moment = false)
+        {
+            if (traceW == null || !c.traced) return;
+            int n = TraceNode(c);
+            // a moment (round 3d: a near miss, a hold, a lock undone) never keeps a touch's dump out
+            int dk = moment ? n + (1 << 24) : n;
+            if (traceDumped.TryGetValue(dk, out float at) && Time.time - at < 30f) return;
+            traceDumped[dk] = Time.time;
+            traceW.WriteLine($"=== {Time.time:0.0} node {n}: {why}");
+            foreach (var r in traceRing) if (r.n == n) traceW.WriteLine(r.line);
         }
     }
 }

@@ -66,7 +66,7 @@ namespace PSXRacing.City
     /// by vertex colour on a phase change. No per-light draw, no per-frame
     /// work between phase changes.
     /// </summary>
-    public static class CitySignals
+    public static partial class CitySignals
     {
         /// <summary>Tools switch the junction furniture off for an A/B.</summary>
         public static bool Enabled = true;
@@ -83,27 +83,36 @@ namespace PSXRacing.City
 
         public enum Aspect : byte { Red = 0, Yellow = 1, Green = 2 }
 
-        /// <summary>What a phase group (0 or 1) shows at clock time t (seconds).
-        /// THE one clock: every head in the city, and later the traffic.</summary>
-        public static Aspect AspectOf(int group, double t)
+        /// <summary>What a CHANNEL (a phase of a plan at an offset,
+        /// CitySignals.Control) shows at clock time t (seconds). THE one
+        /// clock: every head in the city and the traffic. Channels 0 and 1 are
+        /// the old two-phase clock (a group number read as a channel).</summary>
+        public static Aspect AspectOf(int channel, double t)
         {
-            double u = t % CycleS;
-            if (u < 0) u += CycleS;
-            if (group != 0) { u -= HalfCycleS; if (u < 0) u += CycleS; }
-            if (u < GreenS) return Aspect.Green;
-            if (u < GreenS + YellowS) return Aspect.Yellow;
+            if (channel < 0 || channel >= chans.Count)
+            {
+                double w = t % CycleS;
+                if (w < 0) w += CycleS;
+                if (channel != 0) { w -= HalfCycleS; if (w < 0) w += CycleS; }
+                return w < GreenS ? Aspect.Green : w < GreenS + YellowS ? Aspect.Yellow : Aspect.Red;
+            }
+            var c = chans[channel];
+            double u = (t + c.offset - c.start) % c.cycle;
+            if (u < 0) u += c.cycle;
+            if (u < c.green) return Aspect.Green;
+            if (u < c.green + c.yellow) return Aspect.Yellow;
             return Aspect.Red;
         }
 
-        /// <summary>What an approach's head shows now (the later traffic
-        /// package's question).</summary>
-        public static Aspect AspectNow(Approach a) => AspectOf(a.group, Now);
+        /// <summary>What an approach's head shows now.</summary>
+        public static Aspect AspectNow(Approach a) => AspectOf(a.channel, Now);
 
         /// <summary>The clock's last time (<see cref="Tick"/>).</summary>
         public static double Now { get; private set; }
 
-        static int lastState = -1;
-        static bool lastNight;
+        static byte[] lastAspect = new byte[0];
+        static bool[] changedNow = new bool[0];
+        static bool lastNight, lampsDirty = true;
 
         /// <summary>
         /// Advance the one clock (CityWorld.Update; a tool calls it once after
@@ -113,18 +122,38 @@ namespace PSXRacing.City
         public static void Tick(double t)
         {
             Now = t;
-            int state = (int)AspectOf(0, t) * 3 + (int)AspectOf(1, t);
+            int n = Mathf.Max(2, chans.Count);
+            if (lastAspect.Length != n)
+            {
+                lastAspect = new byte[n]; changedNow = new bool[n];
+                for (int i = 0; i < n; i++) lastAspect[i] = 255;
+                lampsDirty = true;
+            }
+            bool any = false;
+            for (int i = 0; i < n; i++)
+            {
+                byte s = (byte)AspectOf(i, t);
+                if (s == lastAspect[i]) continue;
+                lastAspect[i] = s; changedNow[i] = true; any = true;
+            }
             bool night = NightGlow.On;
-            if (state == lastState && night == lastNight) return;
-            lastState = state; lastNight = night;
+            bool nightFlip = night != lastNight;
+            if (!any && !nightFlip && !lampsDirty) return;
+            lastNight = night;
             WriteLamps();
+            lampsDirty = false;
+            // the halos: only the tiles that hold a channel that changed
             for (int i = halos.Count - 1; i >= 0; i--)
             {
                 var h = halos[i];
                 if (h.r == null || h.mesh == null) { halos.RemoveAt(i); continue; }
                 h.r.enabled = night;
-                if (night) Recolour(h);
+                if (!night) continue;
+                bool touch = nightFlip || h.chans == null;
+                if (!touch) foreach (int c in h.chans) if (c < n && changedNow[c]) { touch = true; break; }
+                if (touch) Recolour(h);
             }
+            if (any) System.Array.Clear(changedNow, 0, n);
         }
 
         // lens colours, lit and dark (sRGB). INCANDESCENT (the 1990s city,
@@ -137,22 +166,29 @@ namespace PSXRacing.City
         static readonly Color32[] DarkColour = { new Color32(46, 10, 8, 255), new Color32(44, 30, 6, 255), new Color32(6, 36, 24, 255) };
         static readonly Color32 Black = new Color32(0, 0, 0, 255);
 
-        static bool Lit(int group, int colour) => (int)AspectOf(group, Now) == colour;
+        static bool Lit(int channel, int colour) =>
+            (channel < lastAspect.Length && lastAspect[channel] != 255 ? lastAspect[channel] : (int)AspectOf(channel, Now)) == colour;
 
         static Texture2D lampTex;
         static Material lampMat, haloMat;
         static bool warned;
 
+        static Color32[] lampPx;
+
+        /// <summary>The lens texture's height: a row per channel, a power of two.</summary>
+        static int LampRows => Mathf.NextPowerOfTwo(Mathf.Max(2, chans.Count));
+
         static void WriteLamps()
         {
             if (lampTex == null) return;
-            var px = new Color32[8];
-            for (int g = 0; g < 2; g++)
+            int rows = lampTex.height, used = Mathf.Max(2, chans.Count);
+            if (lampPx == null || lampPx.Length != rows * 4) lampPx = new Color32[rows * 4];
+            for (int g = 0; g < rows; g++)
             {
-                for (int c = 0; c < 3; c++) px[g * 4 + c] = Lit(g, c) ? LitColour[c] : DarkColour[c];
-                px[g * 4 + 3] = Black;
+                for (int c = 0; c < 3; c++) lampPx[g * 4 + c] = g < used && Lit(g, c) ? LitColour[c] : DarkColour[c];
+                lampPx[g * 4 + 3] = Black;
             }
-            lampTex.SetPixels32(px);
+            lampTex.SetPixels32(lampPx);
             lampTex.Apply(false, false);
         }
 
@@ -167,20 +203,29 @@ namespace PSXRacing.City
         /// <summary>
         /// THE LENSES' ONE MATERIAL: the kit's signal material without its
         /// atlas keyword, emissive (a lens is its own light, and at night an
-        /// emitter the halation glows by), on a 4 x 2 texture - a column per
-        /// lens colour, a row per phase group - that <see cref="Tick"/>
-        /// rewrites when a phase changes. Every lens in the city samples it.
+        /// emitter the halation glows by), on a 4 x N texture - a column per
+        /// lens colour, a row per CHANNEL (a plan's phase at an offset) - that
+        /// <see cref="Tick"/> rewrites when a channel changes. Every lens in
+        /// the city samples it.
         /// </summary>
         public static Material LampMaterial()
         {
-            if (lampMat != null) return lampMat;
+            if (lampMat != null && lampTex != null && lampTex.height == LampRows) return lampMat;
+            if (lampMat != null && lampTex != null)
+            {
+                // the plans changed (another map): the texture at the new height
+                lampTex.Reinitialize(4, LampRows);
+                lampPx = null;
+                WriteLamps();
+                return lampMat;
+            }
             var baseMat = StaticMaterial();
             if (baseMat == null)
             {
                 if (!warned) { warned = true; Debug.LogWarning("[City] the city kit has no signals material - the signal heads are not drawn (run a city build: PSXRacingBuilder.EnsureCityKit)."); }
                 return null;
             }
-            lampTex = new Texture2D(4, 2, TextureFormat.RGBA32, false)
+            lampTex = new Texture2D(4, LampRows, TextureFormat.RGBA32, false)
             {
                 name = "CitySignalLamps", filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp,
                 hideFlags = HideFlags.HideAndDontSave,
@@ -194,7 +239,7 @@ namespace PSXRacing.City
             lampMat.color = Color.white;
             lampMat.SetFloat("_Emission", 1f);
             PSXTexDecode.Stamp(lampMat);
-            lastState = -1;
+            lampsDirty = true;
             WriteLamps();
             return lampMat;
         }
@@ -217,14 +262,14 @@ namespace PSXRacing.City
         /// incandescent lens's glow, wider and softer than the LED's 1.1.</summary>
         public const float HaloSizeM = 1.4f;
 
-        sealed class HaloSet { public Mesh mesh; public Renderer r; public byte[] lens; public Color32[] cols; }
+        sealed class HaloSet { public Mesh mesh; public Renderer r; public ushort[] lens; public int[] chans; public Color32[] cols; }
         static readonly List<HaloSet> halos = new List<HaloSet>();
 
         static void Recolour(HaloSet h)
         {
             for (int i = 0; i < h.lens.Length; i++)
             {
-                int g = h.lens[i] >> 2, c = h.lens[i] & 3;
+                int g = h.lens[i] >> 2, c = h.lens[i] & 3;   // the channel, the colour
                 var col = Lit(g, c) ? LitColour[c] : Black;
                 int v = i * 4;
                 h.cols[v] = h.cols[v + 1] = h.cols[v + 2] = h.cols[v + 3] = col;
@@ -283,10 +328,17 @@ namespace PSXRacing.City
                 foreach (var jj in junctions) foreach (int m in jj.nodes) nodeJunction[m] = jj;
             }
             if (!nodeJunction.TryGetValue(n, out var j)) return 0;
+            if (j.warrant) return 0;                                  // the paint answers to OSM's controls
             if (j.signal) return 4;
             if (j.allWay) return 3;
-            foreach (var a in j.approaches) if (a.node == n && (a.edge == edgeA || a.edge == edgeB)) throughStops = true;
-            return 2;
+            bool any = false;
+            foreach (var a in j.approaches)
+            {
+                if (a.ctl != 2) continue;
+                any = true;
+                if (a.node == n && (a.edge == edgeA || a.edge == edgeB)) throughStops = true;
+            }
+            return any ? 2 : 0;
         }
         static Dictionary<int, Junction> nodeJunction;
 
@@ -324,7 +376,13 @@ namespace PSXRacing.City
             public float inL, inR;
             public int lanesIn;
             public float roadY;
+            /// <summary>Signals: the junction's phase (0 = the main road's) and
+            /// the clock's channel its heads show.</summary>
             public byte group;
+            public ushort channel;
+            /// <summary>STOP and yield junctions: 2 STOP, 1 YIELD (a give_way
+            /// tag: no sign of ours, no bar - the road paint's yield line).</summary>
+            public byte ctl;
             public Vector2 Right => new Vector2(u.y, -u.x);
         }
 
@@ -337,6 +395,20 @@ namespace PSXRacing.City
             public int[] nodes;
             public readonly List<Approach> approaches = new List<Approach>();
             public bool uptown;
+            /// <summary>Decided by the MUTCD warrants where OSM says nothing
+            /// (CitySignals.Control); the road paint ignores it.</summary>
+            public bool warrant;
+            /// <summary>Crosswalks on its arms (the plan walks them).</summary>
+            public bool walks;
+            /// <summary>Signals: the plan, its phases, the controller it runs
+            /// in (its own id, or the junction it is linked to).</summary>
+            public int plan = -1, controller = -1;
+            public byte phases;
+            /// <summary>Signals: no right turn on red (uptown's walked
+            /// junctions, where the city posts NO TURN ON RED).</summary>
+            public bool NoTurnOnRed => signal && uptown && walks;
+            /// <summary>Only yields (give_way tags): no STOP here.</summary>
+            public bool YieldOnly { get { foreach (var a in approaches) if (a.ctl != 1) return false; return !signal && approaches.Count > 0; } }
         }
 
         static CityMap mapFor;
@@ -407,6 +479,8 @@ namespace PSXRacing.City
             crosswalks = new List<Crosswalk>();
             crosswalkAt = new Dictionary<long, int>();
             CrosswalkJunctions = 0; CrosswalkArmsSkipped = 0;
+            Counts = default;
+            ResetPlans();
             if (map == null || map.tagged == null) return;
             int nn = map.nodes.Length;
 
@@ -457,10 +531,13 @@ namespace PSXRacing.City
 
             var keys = new List<int>(clusters.Keys);
             keys.Sort();
-            foreach (int root in keys)
+            foreach (int root in keys) if (BuildCluster(clusters[root], root, false)) Counts.osmSignals++;
+
+            // one signalised junction per cluster: its approaches, its crosswalks
+            // (OSM's only: a warrant's leaves the road paint as it was)
+            bool BuildCluster(List<int> ns, int root, bool warrant)
             {
-                var ns = clusters[root];
-                var j = new Junction { signal = true, nodes = ns.ToArray() };
+                var j = new Junction { signal = true, nodes = ns.ToArray(), warrant = warrant };
                 int arms = 0;
                 // roads pass L7 (Q5 a): a tier-1 signalised junction (its best
                 // arm tier 1) has a crosswalk on every arm that takes one
@@ -472,7 +549,7 @@ namespace PSXRacing.City
                         if (e.a == e.b || inCluster[e.a == n ? e.b : e.a] == root) continue;
                         tier = Mathf.Min(tier, CityTier.Of(e));
                     }
-                bool walks = CrosswalksOn && tier == CityTier.T1;
+                bool walks = !warrant && CrosswalksOn && tier == CityTier.T1;
                 cwPending.Clear();
                 int skipped = 0;
                 foreach (int n in ns)
@@ -494,8 +571,10 @@ namespace PSXRacing.City
                         }
                         if (MakeApproach(map, trims, e, n, out var a, cw ? CrossStopBackM : StopBackM)) j.approaches.Add(a);
                     }
-                if (arms < 3 || j.approaches.Count < 2) continue;
+                if (arms < 3 || j.approaches.Count < 2) return false;
+                for (int i = 0; i < j.approaches.Count; i++) { var ap = j.approaches[i]; ap.ctl = 4; j.approaches[i] = ap; }
                 Finish(map, j, root);
+                j.walks = cwPending.Count > 0;
                 if (cwPending.Count > 0) CrosswalkJunctions++;
                 CrosswalkArmsSkipped += skipped;
                 foreach (var c in cwPending)
@@ -505,18 +584,20 @@ namespace PSXRacing.City
                     crosswalkAt[((long)c.edge << 1) | (ce.b == c.node ? 1L : 0L)] = crosswalks.Count;
                     crosswalks.Add(cc);
                 }
+                return true;
             }
 
             // ---- stops
             var flags = LoadStopFlags();
             var stopAt = new Dictionary<int, Junction>();
             var seen = new HashSet<long>();
-            void AddStop(int n, CityMap.Edge e, bool allWay)
+            void AddStop(int n, CityMap.Edge e, bool allWay, byte ctl = 2, bool warrant = false)
             {
                 if (inCluster[n] >= 0 || sig[n]) return;              // a signal wins
                 if (!seen.Add(((long)e.index << 1) | (e.b == n ? 1L : 0L))) return;
                 if (!MakeApproach(map, trims, e, n, out var a)) return;
-                if (!stopAt.TryGetValue(n, out var j)) stopAt[n] = j = new Junction { signal = false, nodes = new[] { n } };
+                a.ctl = ctl;
+                if (!stopAt.TryGetValue(n, out var j)) stopAt[n] = j = new Junction { signal = false, nodes = new[] { n }, warrant = warrant };
                 j.approaches.Add(a);
                 j.allWay |= allWay;
             }
@@ -573,13 +654,99 @@ namespace PSXRacing.City
                     AddStop(n, e, false);
                 }
             }
+            // ---- yields (highway=give_way): the tagged way's approach that is
+            // not the node's through road, or the approach it stands on
+            foreach (var t in map.tagged)
+            {
+                if (t.kind != 1 || t.edge < 0 || t.edge >= map.edges.Length) continue;
+                var e = map.edges[t.edge];
+                float d0 = t.s, d1 = e.length - t.s;
+                int n = d0 <= d1 ? e.a : e.b;
+                if (Degree(map, n) < 3) continue;
+                if (Mathf.Min(d0, d1) < 1.5f)
+                {
+                    ThroughArms(map, n, out int t1, out int t2);
+                    foreach (int ei in map.nodeEdges[n])
+                    {
+                        var o = map.edges[ei];
+                        if (o.wayId != t.wayId || ei == t1 || ei == t2) continue;
+                        if (o.oneway && o.a == n) continue;
+                        AddStop(n, o, false, 1);
+                    }
+                }
+                else if (Mathf.Min(d0, d1) <= StopSnapM)
+                {
+                    if (e.oneway && e.a == n) continue;
+                    AddStop(n, e, false, 1);
+                }
+            }
+
+            // ---- THE WARRANTS where OSM says nothing (CitySignals.Control)
+            if (WarrantsOn)
+            {
+                var taken = new bool[nn];
+                var sigMember = new bool[nn];
+                for (int i = 0; i < nn; i++) { sigMember[i] = member[i] || sig[i]; taken[i] = sigMember[i]; }
+                foreach (var kv in stopAt) taken[kv.Key] = true;
+                var wsig = new bool[nn];
+                foreach (var d in Warrants(map, trims, taken, sigMember))
+                {
+                    if (d.signal) { wsig[d.node] = true; Counts.warrantSignalNodes++; continue; }
+                    foreach (int ei in d.stops) AddStop(d.node, map.edges[ei], d.allWay, 2, true);
+                }
+                // the warrants' signals: one junction per cluster, as OSM's
+                for (int i = 0; i < nn; i++)
+                {
+                    if (!wsig[i]) continue;
+                    foreach (int ei in map.nodeEdges[i])
+                    {
+                        var e = map.edges[ei];
+                        if (e.a == e.b || e.length > ClusterM) continue;
+                        int o = e.a == i ? e.b : e.a;
+                        if (wsig[o]) Union(i, o);
+                    }
+                }
+                var wcl = new Dictionary<int, List<int>>();
+                for (int i = 0; i < nn; i++)
+                {
+                    if (!wsig[i]) continue;
+                    int r = Find(i);
+                    if (!wcl.TryGetValue(r, out var l)) wcl[r] = l = new List<int>(4);
+                    l.Add(i);
+                }
+                var wkeys = new List<int>(wcl.Keys);
+                wkeys.Sort();
+                foreach (int r in wkeys)
+                {
+                    var ns = wcl[r];
+                    ns.Sort();
+                    int root = ns[0];
+                    foreach (int n in ns) inCluster[n] = root;
+                    if (BuildCluster(ns, root, true)) Counts.warrantSignals++;
+                    else foreach (int n in ns) inCluster[n] = -1;
+                }
+            }
+
             var stopKeys = new List<int>(stopAt.Keys);
             stopKeys.Sort();
-            foreach (int n in stopKeys) Finish(map, stopAt[n], n);
+            foreach (int n in stopKeys)
+            {
+                var sj = stopAt[n];
+                if (inCluster[n] >= 0) continue;                       // a warrant's signal took it
+                Finish(map, sj, n);
+                bool stopsHere = false;
+                foreach (var a in sj.approaches) if (a.ctl == 2) stopsHere = true;
+                if (!stopsHere) Counts.osmYieldJ++;
+                else if (sj.warrant) { if (sj.allWay) Counts.warrantAllWay++; else Counts.warrantStopJ++; Counts.warrantStopApp += sj.approaches.Count; }
+                else { Counts.osmStopJ++; if (sj.allWay) Counts.osmAllWay++; }
+            }
+
+            // ---- the signals' phases and plans, over every signal junction
+            PlanSignals(map);
 
             int sigs = 0, sigApp = 0, stops = 0, stopApp = 0;
             foreach (var j in junctions) { if (j.signal) { sigs++; sigApp += j.approaches.Count; } else { stops++; stopApp += j.approaches.Count; } }
-            Debug.Log($"[City] junction controls: {sigs} signalised junctions ({sigApp} approaches), {stops} stop-controlled ({stopApp} approaches) from {map.tagged.Length} tagged nodes, {flags.Count} stop tags");
+            Debug.Log($"[City] junction controls: {sigs} signalised junctions ({sigApp} approaches), {stops} stop/yield-controlled ({stopApp} approaches) from {map.tagged.Length} tagged nodes, {flags.Count} stop tags; " + ControlReport());
         }
 
         /// <summary>The approach an edge makes into node n, if it makes one.</summary>
@@ -635,25 +802,8 @@ namespace PSXRacing.City
             foreach (var a in j.approaches) y = Mathf.Max(y, a.roadY);
             j.roadY = y;
             j.uptown = CityPoles.Uptown(map, j.centre);
-            if (j.signal)
-            {
-                // the main road: the biggest approach; within 45 degrees of it
-                // is its pair, the rest the other; half start on the other
-                int best = 0;
-                for (int i = 1; i < j.approaches.Count; i++)
-                {
-                    var ei = map.edges[j.approaches[i].edge]; var eb = map.edges[j.approaches[best].edge];
-                    if (ei.cls * 16 + ei.lanes > eb.cls * 16 + eb.lanes) best = i;
-                }
-                var axis = j.approaches[best].u;
-                byte flip = (byte)(Hash01(seed, 0, 41) < 0.5f ? 1 : 0);
-                for (int i = 0; i < j.approaches.Count; i++)
-                {
-                    var a = j.approaches[i];
-                    a.group = (byte)((Mathf.Abs(Vector2.Dot(a.u, axis)) >= 0.7071f ? 0 : 1) ^ flip);
-                    j.approaches[i] = a;
-                }
-            }
+            // a signal's phases, plan and channels: PlanSignals, once every
+            // junction stands (two may run as one controller)
             junctions.Add(j);
             long k = Key(Mathf.FloorToInt(j.centre.x / CityMeshes.TileSize), Mathf.FloorToInt(j.centre.y / CityMeshes.TileSize));
             if (!byTile.TryGetValue(k, out var l)) byTile[k] = l = new List<Junction>(4);
@@ -664,7 +814,7 @@ namespace PSXRacing.City
         //  A TILE
         // ==================================================================
 
-        public struct Head { public Vector3 pos; public Vector2 face; public byte group; }
+        public struct Head { public Vector3 pos; public Vector2 face; public byte group; public ushort channel; }
         public struct Stop { public Vector3 foot; public Vector2 face; public int edge; }
 
         public sealed class SignalTile
@@ -676,10 +826,46 @@ namespace PSXRacing.City
             public readonly List<Head> heads = new List<Head>();
             public readonly List<Stop> stops = new List<Stop>();
             public int junctions, signalJunctions, mastArms, spanWires, stopBars, refused;
-            /// <summary>The halos' lens codes (group << 2 | colour), in mesh order.</summary>
-            public byte[] haloLens;
+            /// <summary>Round 3: the heads every signalised approach of the tile's
+            /// junctions shows, and how they are carried (the head census).</summary>
+            public readonly List<ApproachHeads> approachHeads = new List<ApproachHeads>();
+            /// <summary>The heads tool's why-none lines (<see cref="DiagNoHead"/>).</summary>
+            public readonly List<string> diag = new List<string>();
+            /// <summary>Round 3's fallbacks: far-left mast arms, heads on a pole's
+            /// side, post-mounted heads.</summary>
+            public int leftArms, poleHeads, postHeads, backSpans, nearSupps;
+            /// <summary>The halos' lens codes (channel << 2 | colour), in mesh order.</summary>
+            public ushort[] haloLens;
             public float ms;
         }
+
+        /// <summary>The heads facing one signalised approach (junction id, its
+        /// index in Junction.approaches) and what carries them (How* bits).</summary>
+        public struct ApproachHeads { public int junction, approach, heads, view; public byte how; }
+        public const byte HowSpan = 1, HowMast = 2, HowMastLeft = 4, HowPole = 8, HowPostFar = 16, HowPostLeft = 32, HowPostNear = 64;
+
+        /// <summary>
+        /// ROAD LOGIC JUNCTIONS, ROUND 3 - EVERY SIGNALISED APPROACH SHOWS ITS
+        /// HEADS (PSX_CITY_HEADS=0: the before). The span wire and the far-right
+        /// mast arm could both be refused - every foot on the occupancy mask, the
+        /// arm out of reach - and nothing else was tried, so a signal ran with no
+        /// head in its drivers' view (Colony Road at Carnegie Boulevard). Now:
+        /// one lane's approach hangs TWO heads 2.4 m apart (MUTCD: two signal
+        /// faces at least for the through movement, 8 ft apart), and an approach
+        /// short of two after the wire or its arm gets, in this order, a mast
+        /// arm from its FAR-LEFT corner (the one corner free), a head on the
+        /// side of the pole already standing at its far-right corner, a
+        /// post-mounted head (a 1990s pedestal: 4.5 in post, three 12 in
+        /// incandescent sections, the housing's bottom 2.9 m up) at the far-right
+        /// corner, the far-left, then beside its stop line. Every new foot passes
+        /// the same test as the poles' (off every lane and fan, no building, lot,
+        /// driveway, water, deck, lamp or sign, no race run-off) and keeps off
+        /// the crosswalks' curb ramps.
+        /// </summary>
+        public static bool HeadsEvery = System.Environment.GetEnvironmentVariable("PSX_CITY_HEADS") != "0";
+        /// <summary>A tool's switch: every approach left with no head in view gets a line on
+        /// <see cref="SignalTile.diag"/> - what stands in each of its view's feet.</summary>
+        public static bool DiagNoHead;
 
         const float PoleW = 0.32f, ArmW = 0.16f, MaxArmM = 14.5f;
         const float HeadW = 0.36f, HeadH = 1.06f, HeadD = 0.26f, LensM = 0.25f, LensStep = 0.34f;
@@ -718,7 +904,13 @@ namespace PSXRacing.City
             Begin();
             try
             {
+                furnished.Clear();
                 foreach (var j in list) Furnish(j, st);
+                // round 3c: every junction's own wire or arms first, then the supplements -
+                // a post or pole one junction adds never takes the corner another's wire
+                // stands on (14 approaches showed fewer heads than before round 3)
+                if (HeadsEvery) foreach (var j in list) if (furnished.ContainsKey(j.id)) FurnishMore(j, st);
+                furnished.Clear();
             }
             finally { occNow = null; }
             var origin = tm != null ? tm.origin : new Vector3(tileMin.x, 0f, tileMin.y);
@@ -732,28 +924,478 @@ namespace PSXRacing.City
         static void Furnish(Junction j, SignalTile st)
         {
             st.junctions++;
-            // the stop bars, every approach
-            foreach (var a in j.approaches) { StopBar(a); st.stopBars++; }
+            // the stop bars: every signal approach and every STOP (a yield
+            // has the road paint's yield line)
+            foreach (var a in j.approaches) { if (!j.signal && a.ctl != 2) continue; StopBar(a); st.stopBars++; }
             if (!j.signal)
             {
                 foreach (var a in j.approaches)
+                {
+                    if (a.ctl != 2) continue;
                     if (PlaceStop(a, out var s)) { st.stops.Add(s); EmitStopSign(s, a); }
                     else st.refused++;
+                }
                 return;
             }
             st.signalJunctions++;
-            // each approach's far-right corner
-            var corner = new Vector2?[j.approaches.Count];
-            for (int i = 0; i < j.approaches.Count; i++)
-                if (FarCorner(j, j.approaches[i], out var f)) corner[i] = f;
-            // outside uptown: a span wire between an opposing pair's corners
-            if (!j.uptown && SpanWire(j, corner, st)) { st.spanWires++; return; }
-            for (int i = 0; i < j.approaches.Count; i++)
+            int n = j.approaches.Count;
+            furnishJ = j;
+            if (furnishHeads.Length < n) { furnishHeads = new int[n]; furnishView = new int[n]; furnishHow = new byte[n]; furnishFar = new float[n]; furnishNear = new bool[n]; }
+            for (int i = 0; i < n; i++) { furnishHeads[i] = 0; furnishView[i] = 0; furnishHow[i] = 0; furnishFar[i] = float.MaxValue; furnishNear[i] = false; }
+            jPoles.Clear(); poleUsed.Clear();
+            var corner = new Vector2?[n];
+            try
             {
-                if (corner[i] == null) { st.refused++; continue; }
-                if (MastArm(j, j.approaches[i], corner[i].Value, st)) st.mastArms++;
-                else st.refused++;
+                // each approach's far-right corner
+                for (int i = 0; i < n; i++)
+                    if (FarCorner(j, j.approaches[i], out var f)) corner[i] = f;
+                // outside uptown: a span wire between an opposing pair's corners - on the
+                // corners it stood on before round 3 (the first clear one up to 40 m on): its
+                // heads hang over the lanes, in view, wherever its poles stand (round 3c: 13
+                // of the 14 approaches with fewer heads lost a wire's heads when its corners
+                // were looked for only within the view)
+                howNow = HowSpan;
+                var wireCorner = corner;
+                if (!j.uptown && HeadsEvery)
+                {
+                    wireCorner = new Vector2?[n];
+                    cornerAny = true;
+                    try { for (int i = 0; i < n; i++) if (FarCorner(j, j.approaches[i], out var f)) wireCorner[i] = f; }
+                    finally { cornerAny = false; }
+                }
+                if (!j.uptown && SpanWire(j, wireCorner, st)) st.spanWires++;
+                else
+                {
+                    howNow = HowMast;
+                    for (int i = 0; i < n; i++)
+                    {
+                        if (corner[i] == null) { st.refused++; continue; }
+                        if (MastArm(j, j.approaches[i], corner[i].Value, st, 1)) st.mastArms++;
+                        else st.refused++;
+                    }
+                }
+                if (HeadsEvery)
+                    furnished[j.id] = new FurnishState
+                    {
+                        heads = (int[])furnishHeads.Clone(), view = (int[])furnishView.Clone(), how = (byte[])furnishHow.Clone(),
+                        far = (float[])furnishFar.Clone(), near = (bool[])furnishNear.Clone(),
+                        poles = new List<Vector2>(jPoles), used = new HashSet<int>(poleUsed), corner = corner
+                    };
             }
+            finally
+            {
+                if (!HeadsEvery)
+                    for (int i = 0; i < n; i++)
+                        st.approachHeads.Add(new ApproachHeads { junction = j.id, approach = i, heads = furnishHeads[i], view = furnishView[i], how = furnishHow[i] });
+                furnishJ = null;
+            }
+        }
+
+        /// <summary>Round 3c: a junction's supplements, after every junction of its tile
+        /// has its own wire or arms (Furnish saved where it got to).</summary>
+        static void FurnishMore(Junction j, SignalTile st)
+        {
+            var fs = furnished[j.id];
+            int n = j.approaches.Count;
+            furnishJ = j;
+            for (int i = 0; i < n; i++) { furnishHeads[i] = fs.heads[i]; furnishView[i] = fs.view[i]; furnishHow[i] = fs.how[i]; furnishFar[i] = fs.far[i]; furnishNear[i] = fs.near[i]; }
+            jPoles.Clear(); jPoles.AddRange(fs.poles); poleUsed.Clear(); poleUsed.UnionWith(fs.used);
+            var corner = fs.corner;
+            try
+            {
+                // round 3: two faces at least for every approach's through movement
+                {
+                    // suburban and arterial (span wires): the set-back wire first;
+                    // uptown (mast arms): the arms and posts first, the wire last
+                    if (!j.uptown) BackSpan(j, st);
+                    for (int i = 0; i < n; i++)
+                        if (furnishView[i] < 2) Supplement(j, i, corner[i], st);
+                    if (j.uptown) BackSpan(j, st);
+                    // a DEEP junction (a divided road crossed, a wide box: the nearest
+                    // far-side face 120 ft or more past the stop line - Carnegie
+                    // Boulevard at Colony Road, 45 m) reads small from the approach:
+                    // a near-side supplemental face (MUTCD 4D.14), a post beside the
+                    // stop line, else a head on a pole of the junction's there
+                    for (int i = 0; i < n; i++)
+                    {
+                        if (furnishView[i] == 0 || furnishNear[i] || furnishFar[i] < DeepM) continue;
+                        var a = j.approaches[i];
+                        howNow = HowPostNear;
+                        if (NearRight(j, a, out var nf)) { PostHead(a, nf, st); st.postHeads++; st.nearSupps++; }
+                        else if (JunctionPole(a, i, false, out int pn))
+                        {
+                            howNow = HowPole;
+                            PoleHead(a, jPoles[pn], st);
+                            poleUsed.Add(pn * 64 + i);
+                            st.poleHeads++; st.nearSupps++;
+                        }
+                    }
+                    // round 3c: still none in view - set back past what fills its corners
+                    for (int i = 0; i < n; i++)
+                        if (furnishView[i] == 0) SetBack(j, i, st);
+                }
+            }
+            finally
+            {
+                for (int i = 0; i < n; i++)
+                    st.approachHeads.Add(new ApproachHeads { junction = j.id, approach = i, heads = furnishHeads[i], view = furnishView[i], how = furnishHow[i] });
+                if (DiagNoHead && HeadsEvery)
+                    for (int i = 0; i < n; i++)
+                        if (furnishView[i] == 0) st.diag.Add($"junction {j.id} approach {i} e{j.approaches[i].edge} '{mapNow.edges[j.approaches[i].edge].name}': " + WhyNoFoot(j, i));
+                furnishJ = null;
+            }
+        }
+
+        // ---- round 3: the head census and the fallbacks ---------------------
+
+        static Junction furnishJ;
+        /// <summary>Round 3c: where Furnish got to per junction (its wire or arms), for
+        /// FurnishMore's supplements after the tile's every junction has its own.</summary>
+        sealed class FurnishState
+        {
+            public int[] heads, view; public byte[] how; public float[] far; public bool[] near;
+            public List<Vector2> poles; public HashSet<int> used; public Vector2?[] corner;
+        }
+        static readonly Dictionary<int, FurnishState> furnished = new Dictionary<int, FurnishState>();
+        /// <summary>FarCorner looks past the view (as before round 3): a span wire's corners.</summary>
+        static bool cornerAny;
+        static int[] furnishHeads = new int[0], furnishView = new int[0];
+        /// <summary>Per approach: the nearest far-side head in view (m past the stop
+        /// line), and whether one in view stands short of the junction.</summary>
+        static float[] furnishFar = new float[0];
+        static bool[] furnishNear = new bool[0];
+        /// <summary>120 ft: a far-side face further than this from the stop line takes a
+        /// near-side supplement (the 1971 MUTCD's limit; 2009's 4D.14 asks for judgment
+        /// from 150 ft and requires one past 180 ft; 100 ft put posts at 720 approaches,
+        /// not the period's span-wire look).</summary>
+        const float DeepM = 36.6f;
+        static byte[] furnishHow = new byte[0];
+        /// <summary>The junction's mast-arm and span poles (a head can go on
+        /// their side), and which approach already has one on which pole.</summary>
+        static readonly List<Vector2> jPoles = new List<Vector2>(8);
+        static readonly HashSet<int> poleUsed = new HashSet<int>();
+        static byte howNow;
+
+        /// <summary>IN THE DRIVER'S VIEW (MUTCD 4D.14: a primary face 40 to 180 ft beyond
+        /// the stop line, a near-side face a supplement): from 6 m short of the stop
+        /// line to 55 m past it, within 20 m either side of the lanes' middle. A
+        /// head the first clear corner put 60 m on down the road (Colony Road at
+        /// Carnegie Boulevard) is not one the driver reads.</summary>
+        public const float ViewNearM = -6f, ViewFarM = 55f, ViewLatM = 20f;
+
+        public static bool InView(Approach a, Vector2 p)
+        {
+            var d = p - a.at;
+            float along = Vector2.Dot(d, a.u), lat = Vector2.Dot(d, a.Right) - (a.inL + a.inR) * 0.5f;
+            return along >= ViewNearM && along <= ViewFarM && Mathf.Abs(lat) <= ViewLatM;
+        }
+
+        /// <summary>The housing's bottom over the ground of a post- or
+        /// pole-mounted head (MUTCD: 8 to 15 ft over the sidewalk), the
+        /// pedestal's post (4.5 in) and its cast base.</summary>
+        const float PostHeadBottomM = 2.9f, SigPostW = 0.115f, SigBaseW = 0.34f, SigBaseH = 0.42f;
+
+        /// <summary>Approaches with NO head in view: a span wire between corners SET
+        /// BACK past whatever keeps the near ones clear (a city race route's 8 m
+        /// run-off either side - Tryon Street uptown and north - lots, lamps), its
+        /// heads over those approaches only, in their view.</summary>
+        static void BackSpan(Junction j, SignalTile st)
+        {
+            int n = j.approaches.Count;
+            bool[] want = null;
+            for (int i = 0; i < n; i++) if (furnishView[i] == 0) { if (want == null) want = new bool[n]; want[i] = true; }
+            if (want == null) return;
+            var back = new Vector2?[n];
+            for (int i = 0; i < n; i++)
+                if (SideCorner(j, j.approaches[i], 1, 1.0f, PoleW * 0.5f, 3f, out var fb, BackSpanM)) back[i] = fb;
+            howNow = HowSpan;
+            if (SpanWire(j, back, st, want)) { st.spanWires++; st.backSpans++; }
+        }
+
+        /// <summary>An approach short of two faces after its wire or arm: a far-left
+        /// mast arm (none at all), a head on its far-right pole, post-mounted heads
+        /// at the far-right corner, the far-left, beside the stop line.</summary>
+        static void Supplement(Junction j, int i, Vector2? farRight, SignalTile st)
+        {
+            var a = j.approaches[i];
+            if (furnishView[i] == 0 && SideCorner(j, a, -1, 1.0f, PoleW * 0.5f, 3f, out var fl))
+            {
+                howNow = HowMastLeft;
+                if (MastArm(j, a, fl, st, -1)) { st.mastArms++; st.leftArms++; }
+            }
+            // a head on the side of a pole of this junction's own on the far side
+            // (its far-right, the cross street's that stands at its far left)
+            for (int k = 0; k < 2 && furnishView[i] < 2; k++)
+            {
+                if (!JunctionPole(a, i, true, out int pi)) break;
+                howNow = HowPole;
+                PoleHead(a, jPoles[pi], st);
+                poleUsed.Add(pi * 64 + i);
+                st.poleHeads++;
+            }
+            for (int pass = 0; pass < 3 && furnishView[i] < 2; pass++)
+            {
+                Vector2 f;
+                bool ok;
+                if (pass == 0)
+                {
+                    howNow = HowPostFar;
+                    ok = farRight != null && InView(a, farRight.Value) && PostFootOk(j, a, farRight.Value, FarPostOffM);
+                    f = ok ? farRight.Value : default;
+                    if (!ok) ok = SideCorner(j, a, 1, FarPostOffM, SigBaseW * 0.5f, 2.5f, out f);
+                }
+                else if (pass == 1) { howNow = HowPostLeft; ok = SideCorner(j, a, -1, FarPostOffM, SigBaseW * 0.5f, 2.5f, out f); }
+                else { howNow = HowPostNear; ok = NearRight(j, a, out f); }
+                if (!ok) continue;
+                PostHead(a, f, st);
+                st.postHeads++;
+            }
+            // last: a near-side head on a pole of the junction's beside the approach
+            if (furnishView[i] < 2 && JunctionPole(a, i, false, out int pn))
+            {
+                howNow = HowPole;
+                PoleHead(a, jPoles[pn], st);
+                poleUsed.Add(pn * 64 + i);
+                st.poleHeads++;
+            }
+        }
+
+        /// <summary>Round 3c: an approach still with NO head in view after its wire or arm
+        /// and the supplements (a race run-off, a lot's or a lamp's ground, the junction's
+        /// other roads all round its corners - Dalton Avenue / North Tryon Street): a mast
+        /// arm from a pole set back as far as a set-back wire's (14 m past the pavement),
+        /// far right then far left; a post there; a near-side post from 6 m short of the
+        /// line, right then left. Never in a lane, a building, a run-off, on a curb ramp
+        /// (FootOk, OnCurbRamp), and only where the head is in the driver's view.</summary>
+        static void SetBack(Junction j, int i, SignalTile st)
+        {
+            var a = j.approaches[i];
+            for (int side = 1; side >= -1 && furnishView[i] == 0; side -= 2)
+                if (SideCorner(j, a, side, 1.0f, PoleW * 0.5f, 3f, out var f, BackSpanM))
+                {
+                    howNow = side > 0 ? HowMast : HowMastLeft;
+                    if (MastArm(j, a, f, st, side)) { st.mastArms++; if (side < 0) st.leftArms++; }
+                }
+            for (int side = 1; side >= -1 && furnishView[i] == 0; side -= 2)
+                if (SideCorner(j, a, side, FarPostOffM, SigBaseW * 0.5f, 2.5f, out var f, BackSpanM) && InView(a, f))
+                {
+                    howNow = side > 0 ? HowPostFar : HowPostLeft;
+                    PostHead(a, f, st); st.postHeads++;
+                }
+            for (int side = 1; side >= -1 && furnishView[i] == 0; side -= 2)
+                if (NearSide(j, a, side, out var f))
+                {
+                    howNow = HowPostNear;
+                    PostHead(a, f, st); st.postHeads++;
+                }
+            // last: anywhere in the view the corners leave room - the ground between the
+            // stop line and the far side too (an uptown corner's run-off and buildings
+            // leave a foot only there: North Tryon Street at West 8th Street)
+            for (int side = 1; side >= -1 && furnishView[i] == 0; side -= 2)
+                if (ViewFoot(j, a, side, out var f))
+                {
+                    howNow = side > 0 ? HowPostFar : HowPostLeft;
+                    PostHead(a, f, st); st.postHeads++;
+                }
+        }
+
+        /// <summary>The first clear post foot anywhere in approach a's view on
+        /// <paramref name="side"/>: nearest the road first; 12 m past the stop line on
+        /// (a primary face's 40 ft), then back from there to 6 m short of it.</summary>
+        static bool ViewFoot(Junction j, Approach a, int side, out Vector2 foot)
+        {
+            foot = default;
+            float edgeLat = side > 0 ? a.inR : LeftEdge(a);
+            for (float o = 0.9f; o <= BackSpanM; o += 1.2f)
+                for (float k = 0f; k <= (ViewFarM - ViewNearM) / 1.5f; k += 1f)
+                {
+                    float t = 12f + k * 1.5f;
+                    if (t > ViewFarM) t = 12f - (t - ViewFarM);
+                    if (t < ViewNearM) break;
+                    var f = a.at + a.Right * (edgeLat + side * (0.3f + o)) + a.u * t;
+                    if (!InView(a, f) || !PostFootOk(j, a, f)) continue;
+                    foot = f;
+                    return true;
+                }
+            return false;
+        }
+
+        /// <summary>A near-side post's foot set back: from the stop line to 6 m short of it
+        /// (and 3 m past), 0.9 m to 14 m out past the pavement on <paramref name="side"/>.</summary>
+        static bool NearSide(Junction j, Approach a, int side, out Vector2 foot)
+        {
+            foot = default;
+            float edgeLat = side > 0 ? a.inR : LeftEdge(a);
+            for (float o = 0.9f; o <= BackSpanM; o += 1.0f)
+                for (float t = 0f; t >= ViewNearM; t -= 1f)
+                    for (int k = 0; k < 2; k++)
+                    {
+                        float tt = k == 0 ? t : -t * 0.5f;   // and a little past the line
+                        var f = a.at + a.Right * (edgeLat + side * (0.3f + o)) + a.u * tt;
+                        if (!InView(a, f) || !PostFootOk(j, a, f)) continue;
+                        foot = f;
+                        return true;
+                    }
+            return false;
+        }
+
+        /// <summary>The junction's pole best placed to carry a head for approach
+        /// a (index i): on its far side in the driver's view (<paramref name="far"/>),
+        /// else beside it short of the junction; none it already uses.</summary>
+        static bool JunctionPole(Approach a, int i, bool far, out int best)
+        {
+            best = -1;
+            float bestScore = float.MaxValue, mid = (a.inL + a.inR) * 0.5f;
+            for (int k = 0; k < jPoles.Count; k++)
+            {
+                if (poleUsed.Contains(k * 64 + i)) continue;
+                var d = jPoles[k] - a.at;
+                float along = Vector2.Dot(d, a.u), lat = Vector2.Dot(d, a.Right) - mid;
+                if (Mathf.Abs(lat) > ViewLatM) continue;
+                if (far ? (along < 4f || along > ViewFarM) : (along < ViewNearM || along >= 4f)) continue;
+                float score = Mathf.Abs(lat) + Mathf.Abs(along - 20f) * 0.3f;
+                if (score < bestScore) { bestScore = score; best = k; }
+            }
+            return best >= 0;
+        }
+
+        /// <summary>A post-mounted head's foot: the poles' test, its own ground
+        /// near the road's, off the crosswalks' curb ramps.</summary>
+        static bool PostFootOk(Junction j, Approach a, Vector2 f, float offM = 0.6f)
+            => FootOk(f, offM, SigBaseW * 0.5f) && Mathf.Abs(Ground(f) - a.roadY) <= 2.5f && !OnCurbRamp(j, f, SigBaseW * 0.5f);
+
+        /// <summary>A far-corner post keeps the poles' 1 m off the pavement (a turn that
+        /// clips the corner's kerb must not reach it); beside the stop line a STOP
+        /// sign's 0.6 m (MUTCD: 2 ft behind the kerb face).</summary>
+        const float FarPostOffM = 1.0f;
+
+        /// <summary>A set-back span wire's poles: up to this far past the pavement
+        /// (a race run-off's 8 m and a pole's room).</summary>
+        const float BackSpanM = 14f;
+
+        /// <summary>The approach's far corner on its right (<paramref name="side"/>
+        /// 1, FarCorner's walk) or its LEFT (-1: along the line just outside the
+        /// road's left pavement edge - beyond the oncoming lanes, or a divided
+        /// road's median - on across the junction): the first clear spot.</summary>
+        static bool SideCorner(Junction j, Approach a, int side, float offM, float r, float dyMax, out Vector2 foot, float maxOut = 4.8f)
+        {
+            foot = default;
+            var rt = a.Right;
+            var node = mapNow.nodes[a.node];
+            float t0 = Vector2.Dot(node - a.at, a.u) + 2f;
+            float edgeLat = side > 0 ? a.inR : LeftEdge(a);
+            for (float extra = offM + r; extra <= maxOut; extra += 1.2f)
+                for (float t = t0; t <= t0 + 40f && t <= ViewFarM; t += 1.5f)
+                {
+                    var f = a.at + rt * (edgeLat + side * (0.3f + extra)) + a.u * t;
+                    if (!FootOk(f, offM, r)) continue;
+                    if (Mathf.Abs(Ground(f) - a.roadY) > dyMax) continue;
+                    if (OnCurbRamp(j, f, r)) continue;
+                    foot = f;
+                    return true;
+                }
+            return false;
+        }
+
+        /// <summary>The road's left pavement edge at the stop line, as an offset
+        /// right of the approach's line (negative: its left).</summary>
+        static float LeftEdge(Approach a)
+        {
+            var e = mapNow.edges[a.edge];
+            bool towardB = e.b == a.node;
+            // PaveEdgeM: side > 0 the extent right of a->b, else left of it
+            float left = towardB ? e.PaveEdgeM(a.sStop, -1) : e.PaveEdgeM(a.sStop, 1);
+            return Mathf.Min(a.inL, -left);
+        }
+
+        /// <summary>Beside the stop line on the right (a STOP sign's walk): a
+        /// near-side post-mounted head.</summary>
+        static bool NearRight(Junction j, Approach a, out Vector2 foot)
+        {
+            foot = default;
+            var r = a.Right;
+            foreach (float o in StopOut)
+                foreach (float t in StopAlong)
+                {
+                    var f = a.at + r * (a.inR + 0.3f + o) + a.u * t;
+                    if (!PostFootOk(j, a, f)) continue;
+                    foot = f;
+                    return true;
+                }
+            return false;
+        }
+
+        static Dictionary<int, List<Crosswalk>> cwByJunction;
+        static List<Crosswalk> cwByJunctionOf;
+
+        /// <summary>Is a foot of radius r on a curb ramp: the landing behind
+        /// either end of one of the junction's crosswalks (its width and 0.6 m
+        /// either side along the road, 2.5 m back from the pavement edge)?</summary>
+        static bool OnCurbRamp(Junction j, Vector2 f, float r)
+        {
+            if (crosswalks == null || crosswalks.Count == 0) return false;
+            if (cwByJunctionOf != crosswalks || cwByJunction == null)
+            {
+                cwByJunction = new Dictionary<int, List<Crosswalk>>();
+                foreach (var cw in crosswalks)
+                {
+                    if (!cwByJunction.TryGetValue(cw.junction, out var l)) cwByJunction[cw.junction] = l = new List<Crosswalk>(4);
+                    l.Add(cw);
+                }
+                cwByJunctionOf = crosswalks;
+            }
+            if (!cwByJunction.TryGetValue(j.id, out var mine)) return false;
+            foreach (var cw in mine)
+            {
+                var e = mapNow.edges[cw.edge];
+                float sMid = (cw.sNear + cw.sFar) * 0.5f, halfAlong = Mathf.Abs(cw.sFar - cw.sNear) * 0.5f + 0.6f;
+                var c = e.PointAt(sMid);
+                var t = e.TangentAt(sMid);
+                var rgt = new Vector2(t.y, -t.x);
+                Vector2 d = f - c;
+                float along = Mathf.Abs(Vector2.Dot(d, t)), across = Vector2.Dot(d, rgt);
+                if (along > halfAlong + r) continue;
+                // right of a->b: the eMinus extent; left: ePlus
+                float edge = across >= 0f ? e.PaveEdgeM(sMid, 1) : e.PaveEdgeM(sMid, -1);
+                float out_ = Mathf.Abs(across) - edge;
+                if (out_ > -r && out_ < 2.5f + r) return true;
+            }
+            return false;
+        }
+
+        /// <summary>A head on the side of the pole at <paramref name="pole"/>,
+        /// facing the approach at a post-mounted head's height.</summary>
+        static void PoleHead(Approach a, Vector2 pole, SignalTile st)
+        {
+            var face = new Vector3(-a.u.x, 0f, -a.u.y);
+            var across = new Vector3(-face.z, 0f, face.x);
+            float bottom = Mathf.Max(Ground(pole), a.roadY) + PostHeadBottomM;
+            var p3 = new Vector3(pole.x, bottom + HeadH * 0.5f, pole.y);
+            float off = PoleW * 0.5f + 0.1f + HeadD * 0.5f;
+            // the two brackets from the pole to the housing's back
+            for (int k = -1; k <= 1; k += 2)
+                Box(p3 + Vector3.up * (k * HeadH * 0.3f) + face * (off * 0.5f), across * 0.03f, Vector3.up * 0.03f, face * (off * 0.5f), CellBlack, false);
+            EmitHead(p3 + face * off, a, st);
+        }
+
+        /// <summary>A pedestal: a post-mounted three-section head at
+        /// <paramref name="foot"/> facing the approach (its post and cast base on
+        /// the atlas's metal, solid like the other poles).</summary>
+        static void PostHead(Approach a, Vector2 foot, SignalTile st)
+        {
+            var face = new Vector3(-a.u.x, 0f, -a.u.y);
+            var across = new Vector3(-face.z, 0f, face.x);
+            float g = Ground(foot);
+            float bottom = Mathf.Max(g, a.roadY) + PostHeadBottomM;
+            float y0 = g - FootSinkM, y1 = bottom - 0.02f;
+            Box(new Vector3(foot.x, (y0 + y1) * 0.5f, foot.y), across * (SigPostW * 0.5f), Vector3.up * ((y1 - y0) * 0.5f), face * (SigPostW * 0.5f), CellMetal, true);
+            float b1 = g + SigBaseH;
+            Box(new Vector3(foot.x, (y0 + b1) * 0.5f, foot.y), across * (SigBaseW * 0.5f), Vector3.up * ((b1 - y0) * 0.5f), face * (SigBaseW * 0.5f), CellMetal, true);
+            // the slip fitter under the housing
+            Box(new Vector3(foot.x, bottom - 0.05f, foot.y), across * 0.06f, Vector3.up * 0.05f, face * 0.06f, CellBlack, false);
+            st.poles.Add((new Vector3(foot.x, y0, foot.y), y1));
+            Claim(foot, SigBaseW * 0.5f);
+            EmitHead(new Vector3(foot.x, bottom + HeadH * 0.5f, foot.y), a, st);
         }
 
         // ---- where a foot may stand ---------------------------------------
@@ -785,6 +1427,52 @@ namespace PSXRacing.City
         }
 
         static float Ground(Vector2 f) => CityMeshes.LatticeAt(mapNow, f.x, f.y);
+
+        /// <summary>The heads tool: what stands on each foot of an approach's view (6 m short
+        /// of its stop line to 55 m past, 1-14 m out from its pavement either side).</summary>
+        static string WhyNoFoot(Junction j, int i)
+        {
+            var a = j.approaches[i];
+            var sb = new System.Text.StringBuilder();
+            float tNode = Vector2.Dot(mapNow.nodes[a.node] - a.at, a.u);
+            sb.Append($"stop line ({a.at.x:0},{a.at.y:0}) u ({a.u.x:0.00},{a.u.y:0.00}), node {tNode:0} m past it, lanes {a.inL:0.0}..{a.inR:0.0}, left edge {LeftEdge(a):0.0}, uptown {j.uptown}; ");
+            foreach (int side in new[] { 1, -1 })
+            {
+                float edgeLat = side > 0 ? a.inR : LeftEdge(a);
+                var cnt = new int[8];
+                string firstOk = null;
+                for (float extra = 1f; extra <= 14f; extra += 1f)
+                    for (float t = ViewNearM; t <= ViewFarM; t += 1.5f)
+                    {
+                        var f = a.at + a.Right * (edgeLat + side * (0.3f + extra)) + a.u * t;
+                        int why = FootWhy(f, 1.0f, PoleW * 0.5f);
+                        if (why == 7) { if (Mathf.Abs(Ground(f) - a.roadY) > 3f) why = 5; else if (OnCurbRamp(j, f, PoleW * 0.5f)) why = 6; }
+                        cnt[why]++;
+                        if (why == 7 && firstOk == null) firstOk = $"({t:0} along, {extra:0} out at {f.x:0},{f.y:0})";
+                    }
+                sb.Append(side > 0 ? "RIGHT" : "LEFT").Append($" building/water/deck {cnt[0]}, lamp/sign/pole {cnt[1]}, race run-off {cnt[2]}, lane {cnt[3]}, junction pavement {cnt[4]}, ground {cnt[5]}, curb ramp {cnt[6]}, clear {cnt[7]}{(firstOk != null ? " first " + firstOk : "")}; ");
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>FootOk's tests one by one: 0 building / water / deck, 1 lamp / sign /
+        /// another pole, 2 a race run-off, 3 a lane, 4 the junction's pavement, 7 clear.</summary>
+        static int FootWhy(Vector2 f, float offM, float r)
+        {
+            var map = mapNow;
+            const byte Solid = RoadsideOccupancy.Building | RoadsideOccupancy.Water | RoadsideOccupancy.Deck;
+            int tx = Mathf.FloorToInt(f.x / CityMeshes.TileSize), tz = Mathf.FloorToInt(f.y / CityMeshes.TileSize);
+            var sm = RoadsideOccupancy.Static(map, trimsNow, buildingsNow, tx, tz);
+            int m = sm.At(f);
+            if (occNow != null && InTile(f)) m |= occNow.At(f);
+            if ((m & Solid) != 0) return 0;
+            if ((m & RoadsideOccupancy.Other) != 0) return 1;
+            if (RaceRunOff.Inside(map, trimsNow, f)) return 2;
+            float d = sm.RoadEdgeDistance(f, offM + r + 2f, out _, out _, out _);
+            if (d < offM + r) return 3;
+            if (CityMeshes.FurnitureOffFans && CityMeshes.JunctionPavementDistance(map, trimsNow, f, offM + r) < offM + r) return 4;
+            return 7;
+        }
 
         static void Claim(Vector2 f, float r)
         {
@@ -894,7 +1582,7 @@ namespace PSXRacing.City
             var node = mapNow.nodes[a.node];
             float t0 = Vector2.Dot(node - a.at, a.u) + 2f;
             for (float extra = 1.2f; extra <= 4.8f; extra += 1.2f)
-                for (float t = t0; t <= t0 + 40f; t += 1.5f)
+                for (float t = t0; t <= t0 + 40f && (!HeadsEvery || cornerAny || t <= ViewFarM); t += 1.5f)
                 {
                     var f = a.at + r * (a.inR + 0.3f + extra) + a.u * t;
                     if (!FootOk(f, 1.0f, PoleW * 0.5f)) continue;
@@ -907,27 +1595,60 @@ namespace PSXRacing.City
 
         /// <summary>Plan positions of up to three heads over an approach's
         /// inbound lanes, as lateral offsets right of its line.</summary>
+        /// <summary>The heads a wire from A to B hangs over approach a's lanes (added to
+        /// <paramref name="hangs"/> when it is given): where each lane offset crosses it.</summary>
+        static int WireHangs(Approach a, Vector2 A, Vector2 B, List<(Vector2 p, float t, int app)> hangs, int q, bool viewOnly)
+        {
+            LaneOffsets(a, laneScratch);
+            int got = 0;
+            foreach (float o in laneScratch)
+            {
+                var p0 = a.at + a.Right * o;
+                if (!Cross(p0, a.u, A, B, out float along, out float t)) continue;
+                if (along < 1f || t < 0.08f || t > 0.92f) continue;
+                if (viewOnly && !InView(a, Vector2.Lerp(A, B, t))) continue;
+                hangs?.Add((Vector2.Lerp(A, B, t), t, q));
+                got++;
+            }
+            return got;
+        }
+
+        /// <summary>LaneOffsets as before round 3 (one lane: one face).</summary>
+        static bool basicOffsets;
+
         static void LaneOffsets(Approach a, List<float> into)
         {
             into.Clear();
             int n = a.lanesIn;
             float w = (a.inR - a.inL) / n;
+            // round 3: one lane's approach shows TWO faces, 2.4 m (8 ft) apart
+            // either side of its middle (MUTCD: two for the through movement)
+            if (HeadsEvery && !basicOffsets && n <= 1)
+            {
+                float m = (a.inL + a.inR) * 0.5f;
+                into.Add(m - 1.2f); into.Add(m + 1.2f);
+                return;
+            }
             if (n <= 3) for (int k = 0; k < n; k++) into.Add(a.inL + w * (k + 0.5f));
             else { into.Add(a.inL + w * 0.5f); into.Add(a.inL + w * (n * 0.5f)); into.Add(a.inR - w * 0.5f); }
         }
         static readonly List<float> laneScratch = new List<float>(4);
 
-        static bool MastArm(Junction j, Approach a, Vector2 foot, SignalTile st)
+        /// <summary>A mast arm from <paramref name="foot"/> out over the inbound
+        /// lanes: from the right of them (<paramref name="side"/> 1, the far-right
+        /// corner) or their left (-1, round 3's far-left corner).</summary>
+        static bool MastArm(Junction j, Approach a, Vector2 foot, SignalTile st, int side)
         {
-            var r = a.Right;
+            var r = a.Right * side;
             float latF = Vector2.Dot(foot - a.at, r);
             LaneOffsets(a, laneScratch);
             float armY = j.roadY + HeadClearM + HeadH + 0.2f;
             float g = Ground(foot);
             var heads = new List<Vector2>(3);
             float reach = 0f;
-            foreach (float o in laneScratch)
+            foreach (float o0 in laneScratch)
             {
+                float o = o0 * side;
                 float d = latF - o;
                 if (d < 0.8f || d > MaxArmM - 0.3f) continue;
                 heads.Add(foot - r * d);
@@ -935,6 +1656,7 @@ namespace PSXRacing.City
             }
             if (heads.Count == 0) return false;
             Claim(foot, PoleW);
+            if (furnishJ != null) jPoles.Add(foot);
             float top = armY + 0.6f;
             var f3 = new Vector3(foot.x, g - FootSinkM, foot.y);
             var u3 = new Vector3(a.u.x, 0f, a.u.y); var r3 = new Vector3(r.x, 0f, r.y);
@@ -957,7 +1679,7 @@ namespace PSXRacing.City
         /// pair, a head hung over each inbound lane of every approach where
         /// its line crosses the wire. False (nothing emitted) where no pair
         /// strings one that every approach can hang a head from.</summary>
-        static bool SpanWire(Junction j, Vector2?[] corner, SignalTile st)
+        static bool SpanWire(Junction j, Vector2?[] corner, SignalTile st, bool[] want = null)
         {
             int n = j.approaches.Count;
             for (int i = 0; i < n; i++)
@@ -968,25 +1690,32 @@ namespace PSXRacing.City
                     Vector2 A = corner[i].Value, B = corner[k].Value;
                     float span = Vector2.Distance(A, B);
                     if (span < 10f || span > 70f) continue;
-                    // every approach must hang at least one head from it
+                    // every approach must hang at least one head from it (round 3's
+                    // set-back wire: the wanted ones only, in their view, one at least)
                     var hangs = new List<(Vector2 p, float t, int app)>();
                     bool all = true;
+                    int wanted = 0;
                     for (int q = 0; q < n && all; q++)
                     {
                         var a = j.approaches[q];
-                        LaneOffsets(a, laneScratch);
-                        int got = 0;
-                        foreach (float o in laneScratch)
+                        if (want != null && !want[q]) continue;
+                        int got = WireHangs(a, A, B, hangs, q, want != null);
+                        // round 3c: a junction's own wire is taken as before round 3 - where
+                        // every approach hangs a head from the lanes it had then; a one-lane
+                        // approach's two faces ride on a wire taken so, never make one
+                        // (junction 214 traded a mast arm's three heads for a wire's two)
+                        if (want == null && HeadsEvery)
                         {
-                            var p0 = a.at + a.Right * o;
-                            if (!Cross(p0, a.u, A, B, out float along, out float t)) continue;
-                            if (along < 1f || t < 0.08f || t > 0.92f) continue;
-                            hangs.Add((Vector2.Lerp(A, B, t), t, q));
-                            got++;
+                            basicOffsets = true;
+                            int got0 = WireHangs(a, A, B, got == 0 ? hangs : null, q, false);
+                            basicOffsets = false;
+                            if (got0 == 0) got = 0;
+                            else if (got == 0) got = got0;
                         }
-                        if (got == 0) all = false;
+                        if (got == 0 && want == null) all = false;
+                        if (got > 0) wanted++;
                     }
-                    if (!all) continue;
+                    if (!all || wanted == 0) continue;
 
                     float sag = 0.025f * span;
                     float attach = j.roadY + HeadClearM + HeadH + 0.35f + sag + 0.2f;
@@ -1009,6 +1738,7 @@ namespace PSXRacing.City
                         Box(new Vector3(onWire.x, (hangTop + headTop) * 0.5f, onWire.z), Vector3.right * 0.02f, Vector3.up * ((hangTop - headTop) * 0.5f), Vector3.forward * 0.02f, CellBlack, true);
                         EmitHead(new Vector3(onWire.x, headTop - HeadH * 0.5f, onWire.z), a, st);
                     }
+                    if (furnishJ != null) { jPoles.Add(A); jPoles.Add(B); }
                     return true;
                 }
             return false;
@@ -1033,6 +1763,21 @@ namespace PSXRacing.City
         /// the three lenses on the lamp mesh, a halo in front of each.</summary>
         static void EmitHead(Vector3 c, Approach a, SignalTile st)
         {
+            if (furnishJ != null)
+                for (int q = 0; q < furnishJ.approaches.Count; q++)
+                    if (furnishJ.approaches[q].edge == a.edge && furnishJ.approaches[q].node == a.node)
+                    {
+                        furnishHeads[q]++; furnishHow[q] |= howNow;
+                        var c2 = new Vector2(c.x, c.z);
+                        if (InView(a, c2))
+                        {
+                            furnishView[q]++;
+                            float along = Vector2.Dot(c2 - a.at, a.u);
+                            if (along < 4f) furnishNear[q] = true;
+                            else furnishFar[q] = Mathf.Min(furnishFar[q], along);
+                        }
+                        break;
+                    }
             var face = new Vector3(-a.u.x, 0f, -a.u.y);            // toward the drivers
             var across = new Vector3(-face.z, 0f, face.x);
             Box(c, across * (HeadW * 0.5f), Vector3.up * (HeadH * 0.5f), face * (HeadD * 0.5f), CellBlack, false);
@@ -1045,20 +1790,20 @@ namespace PSXRacing.City
                 var lc = c + Vector3.up * dy + face * (HeadD * 0.5f + 0.012f);
                 // its visor
                 Box(c + Vector3.up * (dy + LensM * 0.5f + 0.02f) + face * (HeadD * 0.5f + 0.09f), across * (LensM * 0.6f), Vector3.up * 0.015f, face * 0.09f, CellBlack, true);
-                LensQuad(lc, face, across, a.group, k);
+                LensQuad(lc, face, across, a.channel, k);
                 haloCentres.Add(lc + face * 0.08f);
-                haloLens.Add((byte)(a.group << 2 | LensCode(k)));
+                haloLens.Add((ushort)(a.channel << 2 | LensCode(k)));
                 haloYaw.Add(Mathf.Atan2(face.x, face.z));
             }
-            st.heads.Add(new Head { pos = c, face = new Vector2(face.x, face.z), group = a.group });
+            st.heads.Add(new Head { pos = c, face = new Vector2(face.x, face.z), group = a.group, channel = a.channel });
         }
 
         /// <summary>The texture column of lens k (0 top = red, 1 yellow, 2 green).</summary>
         static int LensCode(int k) => k == 0 ? (int)Aspect.Red : k == 1 ? (int)Aspect.Yellow : (int)Aspect.Green;
 
-        static void LensQuad(Vector3 c, Vector3 n, Vector3 across, int group, int k)
+        static void LensQuad(Vector3 c, Vector3 n, Vector3 across, int channel, int k)
         {
-            var uv = new Vector2((LensCode(k) + 0.5f) / 4f, (group + 0.5f) / 2f);
+            var uv = new Vector2((LensCode(k) + 0.5f) / 4f, (channel + 0.5f) / LampRows);
             var u = across * (LensM * 0.5f); var v = Vector3.up * (LensM * 0.5f);
             int i = lv.Count;
             lv.Add(c - u - v); lv.Add(c - u + v); lv.Add(c + u + v); lv.Add(c + u - v);
@@ -1081,7 +1826,7 @@ namespace PSXRacing.City
         static readonly List<Vector2> luv = new List<Vector2>(512);
         static readonly List<int> lt = new List<int>(768);
         static readonly List<Vector3> haloCentres = new List<Vector3>(256);
-        static readonly List<byte> haloLens = new List<byte>(256);
+        static readonly List<ushort> haloLens = new List<ushort>(256);
         static readonly List<float> haloYaw = new List<float>(256);
 
         static void Begin()
@@ -1117,7 +1862,7 @@ namespace PSXRacing.City
             return m;
         }
 
-        static Mesh EndHalos(Vector3 origin, out byte[] codes)
+        static Mesh EndHalos(Vector3 origin, out ushort[] codes)
         {
             codes = null;
             if (haloCentres.Count == 0) return null;
@@ -1221,7 +1966,9 @@ namespace PSXRacing.City
                 meshes.Add(m);
                 if (name == "SignalHalos" && mat != null)
                 {
-                    var h = new HaloSet { mesh = m, r = mr, lens = st.haloLens, cols = new Color32[m.vertexCount] };
+                    var hc = new HashSet<int>();
+                    if (st.haloLens != null) foreach (var code in st.haloLens) hc.Add(code >> 2);
+                    var h = new HaloSet { mesh = m, r = mr, lens = st.haloLens, chans = new List<int>(hc).ToArray(), cols = new Color32[m.vertexCount] };
                     halos.Add(h);
                     if (NightGlow.On) Recolour(h);
                 }
