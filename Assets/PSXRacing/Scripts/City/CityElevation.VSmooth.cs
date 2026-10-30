@@ -890,7 +890,7 @@ namespace PSXRacing.City
                 {
                     hi[i] = e.link || e.cls >= 4 ? VsRaiseMaxM : VsRaiseStreetM; hc[i] = VsCauseRaise;
                     bool st = e.stElev != null && e.stElev[i];
-                    lo[i] = st ? -VsLowerStructM : -VsLowerMaxM; lc[i] = st ? VsCauseStructure : VsCauseLower;
+                    lo[i] = st ? -VsLowerStructM : -R11CrestLowerMax; lc[i] = st ? VsCauseStructure : VsCauseLower;
                 }
             }
             void LowerCap(CityMap.Edge e, float s0, float s1, float cap, byte cause)

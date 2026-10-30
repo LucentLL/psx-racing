@@ -49,6 +49,18 @@ namespace PSXRacing.EditorTools
         /// stand (the drive audit's WALL probe keeps the same).</summary>
         const float RailClearM = 0.6f;
 
+        /// <summary>(round 11) PSX_INVIS_SHEET=0: a lane surface under a drawn ground sheet is asked as before.</summary>
+        static readonly bool InvisSheetOn = System.Environment.GetEnvironmentVariable("PSX_INVIS_SHEET") != "0";
+        static int ceilUnderSheet;
+        /// <summary>(round 11) Does a drawn Ground surface (a walk's ramp, grass) lie just over this lane surface
+        /// at the plan point the hits were taken at?</summary>
+        static bool UnderGroundSheet(RaycastHit[] buf, int nd, float sy)
+        {
+            for (int i = 0; i < nd; i++)
+                if (buf[i].collider.name == "Ground" && buf[i].point.y > sy + 0.02f && buf[i].point.y < sy + 0.30f) return true;
+            return false;
+        }
+
         /// <summary>The lane's own surface under a plan point: the highest
         /// Roads hit within 0.6 m of the solve's height.</summary>
         static bool LaneSurface(Vector3 w, float y, RaycastHit[] buf, out float sy)
@@ -324,6 +336,7 @@ namespace PSXRacing.EditorTools
             }
 
             int stations = 0, sweeps = 0, rays = 0, invis = 0, visIn = 0, trunksIn = 0, solidsChecked = 0, solidsBare = 0;
+            ceilUnderSheet = 0;
             // WALLS IN LANES (2026-10-04, the owner's "stray medians on 277"): a
             // drawn face on a race route met between the route edge's DESIGNED
             // edge lines (the line model's, unsqueezed, unclipped) - a wall in
@@ -571,6 +584,12 @@ namespace PSXRacing.EditorTools
                             for (int i = 0; i < nd; i++)
                                 if (hitBuf[i].collider.name == "Roads" && Mathf.Abs(hitBuf[i].point.y - y) < 0.6f && hitBuf[i].point.y > sy) sy = hitBuf[i].point.y;
                             if (float.IsNegativeInfinity(sy)) continue;
+                            // (round 11) a "lane surface" lying UNDER a drawn ground sheet - East Trade Street e6167
+                            // s 35: past its last drawn section the lane follows the arm's line model 1.3 m outside the
+                            // merge fan's kerb, where a walk's outer ramp lies over a lot piece 0.16 m down - is no
+                            // place a car stands (it is on the sheet), so its "ceiling" is the sheet's own underside;
+                            // the drive audit's grass / off-surface classes own a lane on Ground
+                            if (InvisSheetOn && UnderGroundSheet(hitBuf, nd, sy)) { ceilUnderSheet++; continue; }
                             // the trunk table: a capsule in the lane
                             if (world.Trunks != null)
                             {
@@ -669,7 +688,7 @@ namespace PSXRacing.EditorTools
                 Object.DestroyImmediate(go);
             }
             string Kinds(Dictionary<string, int> d) { var sb = new StringBuilder(); foreach (var kv in d) sb.Append($" {kv.Key} {kv.Value};"); return sb.Length > 0 ? sb.ToString() : " none"; }
-            Line($"  LANES: {stations} stations, {sweeps} car-box sweeps, {rays} rays; hits with no drawn face toward the car (INVISIBLE) {invis}:{Kinds(invisByKind)}; tree trunks in a lane {trunksIn}; drawn faces standing in a lane (reported) {visIn}:{Kinds(visByKind)}");
+            Line($"  LANES: {stations} stations, {sweeps} car-box sweeps, {rays} rays; hits with no drawn face toward the car (INVISIBLE) {invis}:{Kinds(invisByKind)}; tree trunks in a lane {trunksIn}; drawn faces standing in a lane (reported) {visIn}:{Kinds(visByKind)}; ceiling probes skipped under a drawn ground sheet (round 11) {ceilUnderSheet}");
             Line($"  SOLIDS: {solidsChecked} samples of collider-only Solid-layer colliders, {solidsBare} with no drawn face within {InvisTolM * 100f:0} cm:{Kinds(bareByKind)}; meshes not readable (skipped) {unreadable}; {clock.Elapsed.TotalSeconds:0} s");
             Check(invis + trunksIn == 0, "no collider stands in a lane without a drawn face (INVISIBLE COLLIDERS: lanes)", invis + trunksIn);
             Line($"  WALLS IN LANES (race routes; a drawn barrier, rail or solid met more than a rail's 0.3 m inset inside the route edge's designed edge lines): {wallsInLanes} hits at {wallNotes.Count} places");

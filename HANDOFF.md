@@ -1,3 +1,50 @@
+# HANDOFF - REAL HEIGHTS round 11 (2026-10-30): the city-wide launches by class; round 10's leftovers
+
+Branch `real-heights-r11` (worktree `C:\Users\mcgee\PSX Racing-heights11`, off integration-1029e 4827fa53 = main
+de4a7a10 + real-heights-r10 + city-signs-r2), sandbox `C:\Users\mcgee\PSXLab` (AGENT_LOCK "real-heights-r11", removed).
+Full write-up: Docs/CHARLOTTE.md "REAL HEIGHTS - round 11" (every remaining launch named in a table there). Sheet:
+`Docs/shots/heights11/real_heights_r11_sheet.png`. No city data regenerated (code only); nothing in the exporter, the
+line clean-up, CityTraffic or the bends refit.
+Code: `Scripts/City/CityElevation.R11.cs`, `Scripts/City/CityMeshes.R11.cs` (new partials) + hooks in `CityElevation.cs`
+(ClimbOut, PrepareSeats, Ground's deck branch), `CityElevation.VSmooth.cs` (BuildBounds), `CityMeshes.cs` (rail-end
+plan, gore, BuildSectionsSteps), `CityMeshes.Junctions.cs` (FanSteiner), `CityMeshes.Skirts.cs` (OverRoad, LanesUnder);
+audits `Editor/CityAudit.Invisible.cs` (ceiling probe), `Editor/CityAudit.Barriers.cs` (short rail list prints all);
+tools `Editor/CityR11.cs`, `Editor/CityLaunchAudit.cs` (EXPLAIN, report only).
+
+## Shipped (ON by default; each `PSX_CITY_R11_<NAME>=0` is the before)
+- CLIMBC1 (seated branch leaves on the host's grade: Hermite, C1), CRESTCAP (drawn crests may lower 0.30 m, was 0.15),
+  SPILLUNDER (1'47" sliver: spill slope held under the deck's own median half, 12 m), GOREFAN (no gore inside a fan),
+  MITREPOKE (a branch's last 4 m over the other through arm comes under it), GORESTART (BLUNT: a branch's outer rail
+  starting past its collapsed zone is turned down), SKIRTPAVE (N Tryon: the map's lanes asked within 12 m of a tile's
+  border; added lanes count), INNERMAJOR (Cates: a cluster's inside-edge points stay out of the major's pavement).
+- Audit: the INVISIBLE ceiling probe skips a lane surface under a drawn ground sheet (E Trade; `PSX_INVIS_SHEET=0`).
+- STREETSEAT tested and left OFF (`=1` on): A/B launches 87 -> 89, grades past 16% 3 -> 4.
+
+## Numbers (PSXLab, base 4827fa53 -> after)
+- Launches city-wide 99 -> 86 (14 fixed, 1 new: e7688 climb-out 0.21; worse: Highland St 0.28 -> 0.44, South Blvd
+  0.42 -> 0.47, Christenbury Rd 0.15 -> 0.19); routes 0 / 0 / 0; unloads 401 -> 371; route p99 1.12 / 2.11 / 0.76 ->
+  1.08 / 2.11 / 0.75; grades past 16% 3 (+7) = base. By the audit's cause: mitred joint 30 -> 23, junction fan 21 -> 20,
+  junction node 18 -> 17, ramp seat 16 -> 13, terrain 10 -> 9. By what the car drove on: FOREIGN span 40 -> 30, OWN 23,
+  OWN-FAN 16, FOREIGN fan 17 -> 16, FOREIGN gore 3 -> 1.
+- Drive audit (final commit): WALLS 0, FALL HOLES 0, INVISIBLE lanes 4 -> 0 (solids 124 = base), BLUNT routes 1 -> 0
+  (box 9 -> 8), MEDIAN 0/0/0, ACROSS 3829/0/0, short rails 25 -> 26 (e1418's right rail 28.9 m, its climb-out moved),
+  CITY AUDIT failures 5 -> 3. Flicker 2125 / 3241 -> 2105 / 3214. Traffic check: 0 traffic-on-traffic wrecks, CITY
+  TRAFFIC OK (citytraffic.log deleted).
+- Census: ramps better (>0.5% 1972 -> 1825, >2% 122 -> 107), crests short of radius 1601 -> 1524; arterial >1% 765 ->
+  787 and TIGHT crest 652 -> 667 (deeper, longer crests still short of their radius).
+
+## Left
+- 86 launches named one by one in CHARLOTTE.md's table: FOREIGN span 30 (seat zone shorter than the tile's clip - e7688
+  and the "ramp seat" class; a branch quad across a mitre - South Blvd n8870; ribbons inside fans), OWN 23 (crests at
+  chain ends), fans 32 (overlapping fans, side-by-side mouths at different heights - Tyvola n545 0.89 m, the worst).
+- Unloads 371: the fan's own surface and minor through pairs not chained through junctions.
+- E Trade: e6167's line model shifts SW into node 7879's merge fan while its kerb tapers NE (junctions).
+- Cates connector e23417 now ~17% over its last 5 m (node 19428 0.9 m over Cates St, 6 m from its kerb: the data).
+- 1'47": past the deck end (e2445 s 9) the lattice is still 0.69 m under the land (another vertex; unchanged).
+- STREETSEAT (off): a street branch's mesh-off spots need the clip fixed, not a seat.
+
+MERGEABLE: yes (one rule set, every switch =0 the before; no data; routes unchanged; gates above). Commits on real-heights-r11: 6796ff26..HEAD (tools + rules), the docs commit last.
+
 # HANDOFF - REAL HEIGHTS round 10 (2026-10-29): the 1'47" box at last; the drive audit's last drivability defects
 
 Branch `real-heights-r10` (worktree `C:\Users\mcgee\PSX Racing-medians10`, off integration-1029c f96586ce = main 1f9ace37 +

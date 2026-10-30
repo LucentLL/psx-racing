@@ -2905,6 +2905,9 @@ namespace PSXRacing.City
                 var cutBy = ZoneCutOwner(smp.E, smp.sE);
                 bool inCut = cutBy != null;
                 bool ok = !inCut && smp.gap > GoreMinGapM && smp.hostArc > 0.5f && smp.hostArc < host.Length - 0.5f;
+                // (round 11, GOREFAN) no gore quad where the junction's fan paves: inside the fan it stood at the
+                // host's height over the fan's own surface (Christenbury Parkway's 0.24 m spike in node 4212's fan)
+                if (ok && R11GoreFanOn && trims.patch[node] && smp.hostArc < trims.TrimAt(M, node)) { ok = false; R11GoreFanSkips++; }
                 // The gore's long sides are chords between samples six metres
                 // apart, on each road's offset line; the roads draw their edges
                 // mitred at every polyline vertex. On the outside of any bend
@@ -5583,6 +5586,8 @@ namespace PSXRacing.City
                 for (int k = w0; k <= w1; k++)
                 {
                     int kL = KindAt(k), kR = KindAt(k + 1);
+                    if (e.index == R11RailTraceEdge && (kL != KindNone || kR != KindNone) && kL != kR)
+                        R11RailTrace.Add(R11RailTraceLine(e, tm, side, k, n, kL, kR));
                     if ((k >= 1 && !spanFlags[k].decided) || (k + 1 < n && !spanFlags[k + 1].decided)) continue;
                     bool lineL = kL == KindRail && kR == KindNone, lineR = kR == KindRail && kL == KindNone;
                     if (!lineL && !lineR) continue;
@@ -5592,6 +5597,16 @@ namespace PSXRacing.City
                     int dir = lineL ? 1 : -1;
                     int railSpan = lineL ? k : k + 1, openSpan = lineL ? k + 1 : k;
                     if (sections[k].elev || spanFlags[railSpan].elev) continue;
+                    // (round 11, GORESTART) a branch's rail starting where its ribbon comes out of its host's
+                    // pavement (the span before it is the collapsed zone's) stands on the host's edge line
+                    // facing the host's traffic: turned down inside its own run, never left square
+                    if (R11GoreStartOn && openSpan >= 1 && openSpan < n && !spanFlags[openSpan].elev
+                        && (spanFlags[openSpan].skip || spanFlags[openSpan].wedge) && R11BranchEdge(trims, e)
+                        && sections[openSpan - 1].innerSide != side && sections[openSpan].innerSide != side)
+                    {
+                        endPlan.Add((k, dir, EndGoreStart, 0f, k));
+                        continue;
+                    }
                     // ...nor a rail standing at a deck's edge (the deck beside it has its own reasons)
                     // ...nor one handing over to a union's median (its owner
                     // draws that, and turns its own ends)
@@ -5661,6 +5676,20 @@ namespace PSXRacing.City
                     // the bridges pass: a W-beam run's end is a W-beam's - its
                     // terminal on the open roadside, or turned down inside the run
                     if (how != EndConnect && PlanWBeamRunEnd(side, k, dir, how == EndWBeam, mineEnd ? tm : null)) continue;
+                    if (how == EndGoreStart)
+                    {
+                        // (round 11) the run's own first TaperLenM sloped up from a curb (no drop exception:
+                        // what it guards lies ahead of it, and nothing past it but the host's lanes)
+                        for (int j = k; j >= 0 && j < n; j -= dir)
+                        {
+                            float d = Mathf.Abs(sections[j].s - sections[k].s);
+                            if (d >= TaperLenM) break;
+                            taper[j] = Mathf.Min(taper[j], d / TaperLenM);
+                            if (KindAt(dir > 0 ? j : j + 1) != KindRail) break;
+                        }
+                        if (mineEnd) { tm.railEndsInside++; R11GoreStarts++; }
+                        continue;
+                    }
                     if (how == EndConnect)
                     {
                         // the open stretch to the next barrier, rail at full height
@@ -7111,6 +7140,8 @@ namespace PSXRacing.City
             var o = tm.origin;
             bool anyMeet = false;
             bool split = MitreSnapOn && ((trims.branchA[e.index] >= 0 && trims.mitre[e.a]) || (trims.branchB[e.index] >= 0 && trims.mitre[e.b]));
+            // (round 11, MITREPOKE) any branch at a mitred node: its last metres over the other through arm
+            bool poke = !split && R11MitrePokeOn && ((trims.branchA[e.index] >= 0 && trims.mitre[e.a]) || (trims.branchB[e.index] >= 0 && trims.mitre[e.b]));
             for (int k = 0; k < raw.Count; k++)
             {
                 var sec = raw[k];
@@ -7121,6 +7152,7 @@ namespace PSXRacing.City
                 anyMeet |= meets && (d.x < -1e-3f || d.y < -1e-3f);
                 meetD.Add(d);
                 if (split && !sec.elev) MitreSnap(map, trims, e, ref sec);
+                if (poke && !sec.elev) R11MitrePoke(map, trims, e, ref sec);
                 sec.L -= o; sec.R -= o;
                 sections.Add(sec);
                 if (every > 0 && (k + 1) % every == 0) yield return 0;   // city-build-hitches

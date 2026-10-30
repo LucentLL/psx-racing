@@ -2375,6 +2375,14 @@ namespace PSXRacing.City
             var seatTrims = CityMeshes.ComputeTrims(map);
             solveTrims = seatTrims;
             var seats = CityMeshes.BranchSeats(map, seatTrims);
+            // (round 11, STREETSEAT) a street branch too, where its ribbon runs into its host's pavement
+            R11StreetSeats = 0;
+            if (R11StreetSeatOn && CityMeshes.SeatIntoOnly)
+            {
+                var ss = CityMeshes.StreetIntoSeats(map, seatTrims, out int refusedRoom, out int refusedBoth);
+                R11StreetSeats = ss.Count; R11StreetRefusedRoom = refusedRoom; R11StreetRefusedBoth = refusedBoth;
+                seats.AddRange(ss);
+            }
             // REAL HEIGHTS round 3 (CityMeshes.SeatIntoOnly): the seat zone is
             // where the ramp's ribbon is IN its host's pavement, and it ends
             // between stations 8-10 m apart. A station at its end, and none
@@ -2504,6 +2512,9 @@ namespace PSXRacing.City
                 var mine = new List<int>();
                 for (int i = first; i <= last; i++)
                 {
+                    // (round 11, STREETSEAT) a street branch's node end stays the junction's: seated, it
+                    // would pin the node and stand every other arm's landing down there
+                    if (!e.link && (i == 0 || i == n - 1)) continue;
                     int h = seat.HostAt(e.PointAt(e.stS[i]), out float hs);
                     if (h < 0 || h == ei) continue;
                     e.stSeat ??= new bool[n];
@@ -2687,6 +2698,21 @@ namespace PSXRacing.City
                 }
                 float dFar = e.stY[far] - OwnAt(e.stS[far]);
                 float lFrom = Mathf.Min(spanM, Mathf.Max(30f, Mathf.Abs(dFrom) / 0.015f)), lFar = Mathf.Min(spanM, Mathf.Max(30f, Mathf.Abs(dFar) / 0.015f));
+                // (round 11, CLIMBC1) the offset leaves the seat on the seat's own grade (C1)
+                if (R11ClimbC1On)
+                {
+                    float mFrom = R11SeatGradeOff(e, from, dir, OwnAt, spanM);
+                    float mFar = farSeated ? R11SeatGradeOff(e, far, -dir, OwnAt, spanM) : 0f;
+                    float rc = CrestR(e);
+                    lFrom = R11ClimbLen(dFrom, mFrom, lFrom, spanM, rc);
+                    lFar = R11ClimbLen(dFar, mFar, lFar, spanM, rc);
+                    for (int i = from + dir; i != far; i += dir)
+                    {
+                        float a = Mathf.Abs(e.stS[i] - e.stS[from]), b = Mathf.Abs(e.stS[far] - e.stS[i]);
+                        e.stY[i] = OwnAt(e.stS[i]) + R11Ease(dFrom, mFrom, lFrom, a) + R11Ease(dFar, mFar, lFar, b);
+                    }
+                    return movesM;
+                }
                 for (int i = from + dir; i != far; i += dir)
                 {
                     float a = Mathf.Abs(e.stS[i] - e.stS[from]), b = Mathf.Abs(e.stS[far] - e.stS[i]);
@@ -6101,6 +6127,12 @@ namespace PSXRacing.City
                     {
                         float sp = R10SpillFloor(map, e, at, out float dEnd);
                         if (sp > float.MinValue) { r10Spill = Mathf.Max(r10Spill, sp); capAir = R10CapAir(dEnd); }
+                    }
+                    // (round 11, SPILLUNDER) ...and under the deck's own median half, by its end
+                    else if (R10SpillOn && R11SpillUnderOn && dist <= hw && R10TwinMedianSide(map, e, si, p2, 0f, unionDeck))
+                    {
+                        float sp = R10SpillFloor(map, e, at, out float dEnd);
+                        if (sp > float.MinValue && dEnd <= R11SpillUnderM) { r10Spill = Mathf.Max(r10Spill, sp); capAir = R10CapAir(dEnd); R11SpillUnderHits++; }
                     }
                     if (dist <= capR) underDeck = true;
                     if (dist <= capR && deckY - DeckThick - capAir < deckCap)
