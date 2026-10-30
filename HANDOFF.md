@@ -1,3 +1,62 @@
+# HANDOFF - ROAD LOGIC JUNCTIONS ROUND 3e (2026-10-30; MERGEABLE: yes)
+
+Branch `road-logic-junctions-r3e` (worktree `C:\Users\mcgee\PSX Racing-junctions`), head code e7d7429d + this docs commit, base 82c83a3c (integration-1030b = main d73ca5bd + heights r11 + round 3d). Sandbox PSXRec (lock "road-logic-junctions-r3e", removed; no Unity on it). Data = 82c83a3c's new data (code only, no data change). Scope cut by the coordinator mid-round (usage): items 1-3 kept, the rest are next steps below. Scratchpad tools in `r3e\` (r3e_tool.ps1 / r3e_job.ps1 lock-safe runners, r3e_trace.ps1, r3e_table.py, r3e_worse.py, nodes_near.mjs / edge_dump.mjs / rampgap.mjs, out\ every report / trace / check, runs\ the intermediate censuses).
+
+## Gates (final code e7d7429d, PSXRec, new data)
+- Base census junctions_r3e_base (82c83a3c, 40 spots x 300 s): overlap 0, wreck/car 26 (130.6 car-h, 3032 km). Docs/traffic_census_junctions_r3e_base.
+- Final census junctions_r3e_final_c: 126.7 car-h, 2979 km - overlap 0, wreck/car 10 (base 26), car bumps 16 (35), lock-backed 10 (105); no trace dump at any traced node. Docs/traffic_census_junctions_r3e_final_c.
+- Traffic checks (-NoWatch, PSXRec), every run in order: (1) the base census's check (82c83a3c): FAILED - 4 traffic-on-traffic wrecks, node 706 (car 31 lane 0 -> ramp e388 x car 17 lane 1 -> e10600, 3.6 / 6.9 m/s) and node 707 (car 24 on e388 into car 20 in I-277 lane 1, 7.9 / 10.9 m/s): the causes below; (2-4) V1, V2, V3 (pre-WIP-1 trees and WIP 1): OK, OK, OK (V3: one Ground hit at 1.0 m/s on East 3rd e1307, Roads at nodes 1487 / 9006 - heights r12's); (5) final_a's check on WIP 5: OK; (6) final_b's check on WIP 5: stopped mid-run (WIP 6 replaced that code), no result; (7) final_c's check on WIP 6: OK; (8) check2c: OK; (9) check3c: OK (Roads at 1487 / 9006, heights r12's). Every OK: 0 traffic-on-traffic wrecks, 0 bumps; 7-9 are three OK in a row on the final code
+- Road meshes: CityRoadMeshHash ALL 44a98126e503e967 (Docs/road_mesh_hash_r3e_final.txt) = 82c83a3c's on the new data (Docs/road_mesh_hash_base1030b.txt).
+- Signal heads: 3390 approaches = base; none in view 7 = base; junctions with an approach with none 6 = base, with none on any approach 0; no approach with fewer in-view heads than the base
+- Drive audit INVISIBLE COLLIDERS solids: 82c83a3c in PSXRec 2910 bare samples (CityPost 690 colliders = 2760 + 40 other colliders = 150) -> 150, no CityPost entry (150 is PSXRec's own floor - 82c83a3c's non-CityPost samples: pizzeria door hinges, trailers, houses, a tower, a Buildings collider; PSXBuild's 124 is the same measure on that sandbox, sandbox-sensitive).
+- tools\typecheck.ps1: OK.
+
+## Causes and fixes
+- INVISIBLE POLE COLLIDERS (blocked round 3d): CitySignals.Attach gave every st.poles entry the 0.36 m box sized for a 0.32 m signal pole; round 3's pedestals (PostHead: post-mounted / near-side heads) draw a 0.115 m post on a 0.34 m base, so each pedestal's box floated with no drawn face. FIX: a pedestal's colliders are its post and its base as drawn, turned to the approach (postBoxes); pole boxes unchanged; nothing removed.
+- NODE 706, WEST 12TH STREET INTO THE I-277 RAMP (the class: lane use by side at splits): e9802 (2 lanes) forks into ramp e388 (1 lane, 13 deg left) and e10600 (2 lanes, 2 deg right); MapStraight mapped each in-lane to the nearest lane of each branch, and the ramp's lane starts on the street's centre line, so the RIGHT lane took the LEFT branch; their lanes cross in the ramp's first 7 m and nothing paired them (one leg kept apart by lanes). FIXES (CityTraffic.Forks.cs): lane use by side at every fork (683 nodes; turn:lanes where tagged; the boundary lane an option lane where the counts need it; the allotment whose ways keep apart); a branch's way without a sideways S (ForkStretch); lanes kept in order across a box; a wrong-lane car changes on the run before, never squeezes into the fork, else takes its lane's branch; two ways of one approach that still meet are ordered (CrossAhead: a body already there, then the one in its turn, then the nearer); the probe lists every way a move meets. CROSSING PAIRS city-wide (census static audit): before (PSX_TRAFFIC_FORKLANES=0) 892 nodes / 1121 pairs (straight x straight 622) -> after 446 / 548 (48); the rest are turn pairs (before = after) and narrow lanes - next step. Node 706 lane map before: lane 0 -> e388 MEETS lane 1 -> e10600 lane 1; after: e388 from lane 1 only (18.8 m arc), e10600 from lanes 0 and 1, no way meets another. Node 706 traced in every census and check: no dump at node 706 (no near miss, no touch) in the final census, its check, check2c or check3c.
+- THE e388 RAMP END AT (-1867,5636) (node 707, I-277; the base check's wreck and PSXBuild's 0.14 m overlap): OSM joins the ramp to the freeway's centre-line node, so the ramp's line runs over I-277's lanes 0/1 for its last ~45 m while the merge began 20 m out (ZoneBack). FIXES: a merge begins no nearer the node than where the ramp's lane is a lane's width clear of every mainline lane (RampClear: 79 m here) and leaves half way to the mainline's heading (MergeStart); its way now stays 2.48 m or more from every I-277 lane centre (the census merge probe). WIP 6: RampClear's long merges (I-77 nodes 4134 and 649 in the first finals: a merging car held on beside the kerb lane's car - a car in its "turn" went first - two wrecks, merge stalls) - a ramp's merge now gives way to the road it joins (Precedes).
+- Also shipped (found on the way, each traced): East 6th e16828 / node 15151 (a body squeezed into the next lane by Place's clamp is braked for: SweptHit for two cars of one run); the zipper at a lane drop (North Graham n14352: 239 replans -> 0) and, from it, a lane change done short of the junction (WIP 6: still-changing turns at junctions 219 -> 4 of 75 in V7); round 3d LEFT 1-3 (the creep never pushes into overlap; the backing loop holds back; Fort Street's all-way STOP lines set back where a waiting car stands in another's way - 86 approaches, worst 6 m).
+
+## Classes (base -> final_c, count and per 1000 km)
+| class | base (131 car-h, 3032 km) | final_c (127 car-h, 2979 km) |
+|---|---|---|
+| wreck/car | 26 (8.6) | 10 (3.4) |
+| contact/car-bump | 35 (11.5) | 16 (5.4) |
+| stuck/gridlock-box | 71 (23.4) | 67 (22.5) |
+| stuck/crossing-blocked | 4 (1.3) | 6 (2.0) |
+| stuck/box-blocked-on-green | 10 (3.3) | 4 (1.3) |
+| stuck/keep-clear-wait | 9 (3.0) | 8 (2.7) |
+| stuck/yield-starved | 4 (1.3) | 6 (2.0) |
+| stuck/left-turn-starved | 7 (2.3) | 4 (1.3) |
+| stuck/stop-deadlock | 15 (4.9) | 4 (1.3) |
+| stuck/lane-change-wait | 130 (42.9) | 95 (31.9) |
+| conflict/lane-crossing | 0 (0.0) | 6 (2.0) |
+| lane/turn-from-wrong-lane | 361 (119.1) | 265 (88.9) |
+| lane/missed-turn-lane | 420 (138.5) | 245 (82.2) |
+| lane/forced-short-change | 213 (70.3) | 185 (62.1) |
+| lane/forced-into-tight-gap | 25 (8.2) | 26 (8.7) |
+| wrongway/across-divider | 27 (8.9) | 29 (9.7) |
+| traffic/lock-backed | 105 (34.6) | 10 (3.4) |
+| traffic/lock-crept | 2 (0.7) | 7 (2.3) |
+| traffic/converge-held | 12 (4.0) | 6 (2.0) |
+| control/no-control-major-crossing | 18 (5.9) | 18 (6.0) |
+| offpave/turn-clips-corner | 466 (153.7) | 426 (143.0) |
+| contact/ground | 32 (10.6) | 36 (12.1) |
+| wreck/ground | 13 (4.3) | 19 (6.4) |
+| wreck/road-surface | 57 (18.8) | 43 (14.4) |
+| wreck/barrier | 13 (4.3) | 20 (6.7) |
+| wreck/pole | 3 (1.0) | 1 (0.3) |
+
+Worse than the base, named: conflict/lane-crossing and lanes/lane-crossing-pair 548 are round 3e's new logging / static audit; wreck/barrier, contact/barrier and stuck/behind-wreck are Independence Boulevard n8465's barrier in the straight e6873 -> e6844 (base's top place, 17 vs 13 wrecks); wreck/ground, contact/ground and merge/ramp-waiting are the ramp e6819 at n8420 and the base's ground places (Camden Road n13538, Cox Mill Road n15702); merge/merge-stalled 0 -> 3 (n581, n2938) is the new merge yield; stuck/crossing-blocked 4 -> 6, yield-starved 4 -> 6, lock-crept 2 -> 7, forced-into-tight-gap 25 -> 26 (the zipper's pushy change after a wait, East Morehead n13110), wrongway/across-divider 27 -> 29 (West Sugar Creek n15139, Monroe Road n15287 - the base's places, geometry) and route/u-turn-forced 19 -> 27 (Medical Plaza Drive n4381: "no other legal way on") are small counts at scattered places - next round; every static class (route, speed, lanes, vertical, control) has the base's count, its rate moved only with the 2% fewer km driven. The WIP 5 finals (final_a / final_b, overlap 1 / 0, wreck/car 28 / 28) are kept in the scratchpad's runs\ as intermediate runs.
+
+## Next steps (deferred by the scope cut)
+- Node 6343 (bends r3's check wreck): not covered by my traces; no event there in my base / final censuses.
+- Node 9909 (North Church / West 28th): the right e8229 -> e22532 is a 30.1 m arc (R ~24 m, mouths ~17 m out) that cuts ~1 m over the drawn kerb return - front-right off the road, the underside 0.31 m into the ground bank (V7's trace census: 2 road-surface wrecks there on that right).
+- Concord Mills Boulevard median U-turn n4283: e3045 hooks 138 deg into e14524 on a 5.8 m arc (R ~2 m) at the 4 m/s turn floor (0.8 g): the body swings ~3 m wide onto the link's own queue (first finals: 5 wrecks). Drafted, not shipped: no 4 m/s floor on a tight arc (sqrt(ALat R) down to 2.5 m/s) - scratch r3e\patch_v8.py.
+- I-77 n4134: the merge's way passes 1.64 m from the kerb lane's centre at the node (the added lane opens half a lane from it); join where the added lane is open.
+- Queens Road n7054 / n5741 (round 3d's three-node crossing): V7 trace - a STOP deadlock and a bump at 7054.
+- The 7 headless approaches (round 3c's reasons); South Boulevard n13512's throat; West Sugar Creek's across-divider geometry; the classes above marked worse, with their named causes.
+
 # HANDOFF - REAL HEIGHTS round 11 (2026-10-30): the city-wide launches by class; round 10's leftovers
 
 Branch `real-heights-r11` (worktree `C:\Users\mcgee\PSX Racing-heights11`, off integration-1029e 4827fa53 = main
