@@ -312,14 +312,16 @@ namespace PSXRacing.City
         /// 20): when the frames slow down - a browser's slower code, a busy PC,
         /// a phone - the build falls behind the car by the same factor, the car
         /// reaches a tile still building, and that tile is finished (or built
-        /// whole) in ONE frame: the WebGL player's 300-600 ms hitches. Now a
-        /// frame's share is also at least <see cref="PaceShareSlow"/> /
-        /// <see cref="PaceShareFast"/> of the time the frame itself took (the
-        /// share of the CPU the city may use, not a slice of a 60 Hz frame), and
-        /// the job whose tile the car is closing on is spread over the frames
-        /// left before the car gets there (its work left estimated from the
-        /// tiles built so far), up to <see cref="PaceCapMs"/>. PSX_CITY_PACE=0
-        /// (or ?ab=CityWorld.PaceBuilds:0): as before.</summary>
+        /// whole) in ONE frame: the WebGL player's 300-600 ms hitches. Now,
+        /// while a tile round the car is missing (hurry), a frame's share is
+        /// also at least <see cref="PaceShareSlow"/> / <see cref="PaceShareFast"/>
+        /// of the time the frame itself took (the share of the CPU the city may
+        /// use, not a slice of a 60 Hz frame), and the job whose tile the car is
+        /// closing on is spread over the frames left before the car gets there
+        /// (its work left estimated from the tiles built so far), up to
+        /// <see cref="PaceCapMs"/>. While the build is ahead (the browser
+        /// before-runs never fell behind: no forced finish, no urgent trees)
+        /// nothing changes. PSX_CITY_PACE=0 (or ?ab=CityWorld.PaceBuilds:0): as before.</summary>
         public static bool PaceBuilds = System.Environment.GetEnvironmentVariable("PSX_CITY_PACE") != "0";
         /// <summary>A car IN a tile whose trees still wait planted them all in
         /// one frame; now at <see cref="PaceCapMs"/> a frame (a few frames: the
@@ -736,8 +738,11 @@ namespace PSXRacing.City
                     // city-build-hitches: a car about to drive onto the tile still building
                     // spends a bigger share, so it is done over frames, not finished in one
                     if (NoForcedFinish && JobTileCritical()) budget = Mathf.Max(budget, CriticalSliceBudgetMs);
-                    // city perf round 1: by the clock, and by when the car gets there
-                    if (PaceBuilds) budget = Mathf.Max(Paced(budget, speed), DeadlineBudget(budget, p, dir, speed));
+                    // city perf round 1: by the clock while the ring is behind (hurry: a
+                    // tile round the car missing - the before-runs, at the browsers'
+                    // frame rates, never were: no frame paid for it there), and by
+                    // when the car gets to the open job's tile
+                    if (PaceBuilds) budget = Mathf.Max(hurry ? Paced(budget, speed) : budget, DeadlineBudget(budget, p, dir, speed));
                     if (job.Done) CompleteJob();
                     else
                     {
@@ -797,7 +802,6 @@ namespace PSXRacing.City
                     if (job != null) { if (NoForcedFinish) AbandonJob(); else CompleteJob(); }   // city-build-hitches
                     bool fastT = BuildAhead && speed > FastSpeed && frameMsAvg < FastFrameMs;
                     float treeBudget = fastT ? FastSliceBudgetMs : SliceBudgetMs;
-                    if (PaceBuilds) treeBudget = Paced(treeBudget, speed);   // city perf round 1
                     // city perf round 1: a car in a tile whose trees still wait takes
                     // the urgent share over a few frames, not the whole frame in one
                     double urgentBudget = PaceBuilds && UrgentTreesPaced ? PaceCapMs : double.MaxValue;
