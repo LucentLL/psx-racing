@@ -2847,6 +2847,13 @@ namespace PSXRacing.City
         // ======================================================================
         void Update()
         {
+            long pc = PerfClock.On ? PerfClock.Now() : 0;   // city perf round 1
+            UpdateNow();
+            if (PerfClock.On) PerfClock.Add(PerfClock.Slot.TrafficUpdate, pc);
+        }
+
+        void UpdateNow()
+        {
             if (player == null || map == null) return;
             if (Suspended)
             {
