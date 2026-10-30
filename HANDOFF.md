@@ -1,3 +1,220 @@
+# HANDOFF - CITY PERF ROUND 1 (2026-10-30): free roam's frames in the real player (Firefox, Chrome, Windows); the forest edge, the green fields, the pop-in
+
+Branch `city-perf-r1` (worktree `C:\Users\mcgee\PSX Racing-perf`, off integration-1030b 82c83a3c), head 588965f3 (the code; the HANDOFF commits on top).
+Sandbox `C:\Users\mcgee\PSXPerf` (left on the WebGL target, unlocked, no Unity running). Code only: no data change,
+no exporter change; nothing in CityElevation / CityTraffic / the bends refit. MERGEABLE: YES - code only, every fix behind its switch; HitchProbe 80 of 80 tiles identical to the base; the WebGL after player run in Firefox and Chrome on every route, Noon and night; the editor check clean.
+
+## What the owner saw ("59, dropped as low as 3 ... 16 outside uptown ... pop in ... trees abruptly stopped, plain green fields")
+- THE 3 FPS: (1) a 0.6-1.1 s first-draw stall at the SAME places every run, in Firefox AND Chrome (the Uptown Loop at
+  (-1322, 5116), Independence at (1962, 2452); at night 0.6-1.0 s more) - a shader program compiled in the frame it is
+  first drawn; (2) Firefox only: clusters of 40-140 ms frames in random systems (late scripts, UI, render, even physics)
+  for 1-2 s - Firefox runs WebGL in a GPU process and the content process blocks behind it - and they come with the
+  PC's CPU: frames over 50 ms were 0.28% with the total CPU under 40%, 0.75% at 40-60%, 5.6% over 60% (Firefox
+  before, uptown; `cpu_trace.csv`, the other sandboxes' Unity jobs come in bursts); Chrome under the same load: 0.0-0.1%;
+  (3) the WebGL GC: non-incremental, every collection one 35-96 ms frame, 3-7 a 150 s route (the city builder's
+  garbage, ~0.9 MB/s, 1.4 MB/s at speed uptown).
+- THE POP-IN: past the 500 m far plane only OSM footprints (the 8 x 8 km core) and the skyline had far copies. A pack
+  tower's lot (a model) had none; outside the core every CityBuildings lot (frontage boxes, gables, prefab houses,
+  restaurants) had none; the interior fill houses have none (LEFT).
+- THE FOREST EDGE: near trees stand at the canopy's real density to 500 m; past it the far layer stood ~1/5 of it.
+- THE GREEN FIELDS: the far land was grass + canopy only - no roofs, no pavement, no water.
+
+## Frame tables
+Scripted free roam, the AI at the wheel through the traffic, Noon, 150 s a route, a 1280x720 window, GTX 980 (ANGLE
+D3D11), i7-10700K; "load" = the other sandboxes' Unity jobs at the start (they come in bursts - see above).
+BEFORE =ce025654's city code with the fixed tour (PerfTour from b53c573e: a fresh engine a route - the AI cooked the
+engine and the first before-runs crawled -, set on 50 m past a hold-up). AFTER = 588965f3.
+
+| browser | route | build | avg fps | p50 | p95 | p99 | worst ms | >33 | >50 | >100 | GC | km/h | load |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| Firefox | uptown | before | 49.3 | 19.0 | 30.0 | 54.0 | 682 | 266 | 87 | 8 | 7 | 151 | 2 jobs, CPU 15% |
+| Firefox | uptown | after | 54.5 | 18.0 | 26.0 | 35.0 | 160 | 107 | 15 | 1 | 7 | 148 | 2 jobs, CPU 19% |
+| Firefox | tryon | before | 56.0 | 17.0 | 25.0 | 35.0 | 83 | 106 | 6 | 0 | 4 | 124 | 2 jobs, CPU 15% |
+| Firefox | tryon | after | 59.8 | 16.0 | 23.0 | 33.0 | 51 | 84 | 1 | 0 | 4 | 110 | 2 jobs, CPU 19% |
+| Firefox | trade | before | 55.2 | 17.0 | 25.0 | 34.0 | 63 | 59 | 4 | 0 | 3 | 93 | 2 jobs, CPU 15% |
+| Firefox | trade | after | 58.8 | 16.0 | 23.0 | 34.0 | 67 | 78 | 2 | 0 | 4 | 86 | 2 jobs, CPU 19% |
+| Firefox | independence | before | 57.8 | 16.0 | 24.0 | 34.0 | 1109 | 94 | 7 | 1 | 3 | 156 | 2 jobs, CPU 15% |
+| Firefox | independence | after | 58.7 | 16.0 | 25.0 | 38.0 | 105 | 161 | 27 | 1 | 4 | 147 | 2 jobs, CPU 19% |
+| Firefox | i77s | before | 57.5 | 16.0 | 24.0 | 36.0 | 71 | 124 | 5 | 0 | 3 | 181 | 2 jobs, CPU 15% |
+| Firefox | i77s | after | 59.7 | 16.0 | 24.0 | 34.0 | 80 | 107 | 10 | 0 | 3 | 171 | 2 jobs, CPU 19% |
+| Chrome | uptown | before | 75.6 | 12.1 | 20.4 | 26.2 | 642 | 21 | 8 | 2 | 7 | 151 | 3 jobs, CPU 26% |
+| Chrome | uptown | after | 93.4 | 9.4 | 17.3 | 21.0 | 125 | 11 | 2 | 1 | 7 | 146 | 1 jobs, CPU 17% |
+| Chrome | tryon | before | 84.9 | 10.7 | 19.2 | 25.5 | 58 | 15 | 2 | 0 | 4 | 117 | 3 jobs, CPU 26% |
+| Chrome | tryon | after | 106.4 | 8.3 | 15.5 | 19.1 | 52 | 9 | 3 | 0 | 4 | 111 | 1 jobs, CPU 17% |
+| Chrome | trade | before | 85.4 | 10.7 | 18.2 | 23.5 | 54 | 9 | 1 | 0 | 3 | 91 | 3 jobs, CPU 26% |
+| Chrome | trade | after | 104.7 | 8.6 | 15.1 | 18.4 | 56 | 4 | 1 | 0 | 3 | 87 | 1 jobs, CPU 17% |
+| Chrome | independence | before | 91.7 | 10.0 | 16.9 | 20.8 | 978 | 11 | 3 | 1 | 3 | 153 | 3 jobs, CPU 26% |
+| Chrome | independence | after | 109.0 | 8.2 | 14.7 | 18.8 | 61 | 3 | 1 | 0 | 3 | 150 | 1 jobs, CPU 17% |
+| Chrome | i77s | before | 101.4 | 9.0 | 16.0 | 19.1 | 52 | 6 | 1 | 0 | 4 | 174 | 3 jobs, CPU 26% |
+| Chrome | i77s | after | 113.8 | 8.0 | 14.2 | 18.1 | 55 | 4 | 1 | 0 | 4 | 171 | 1 jobs, CPU 17% |
+
+Night (Firefox, 120 s): uptown before 50.0 fps, p99 34, worst 609, >50 11, GC 6; i77s before 60.2 fps, p99 30, worst 956, >50 4, GC 3; uptown after 58.7 fps, p99 29, worst 156, >50 6, GC 6; i77s after 63.0 fps, p99 28, worst 54, >50 3, GC 3
+An intermediate after build (104eece1) doubled the GCs (Firefox 3-4 -> 6-9 a route): `CityFar.StepFill`'s worker
+lambdas made a closure object every pass of its 225-tile loop every frame (~11 KB a frame) - fixed in 588965f3
+(the asks in methods of their own); 588965f3's allocation is the before's again (0.87-0.94 MB/s; uptown 1.43).
+
+What is left over 50 ms after (Firefox): the GC (1-7 a route), CarReflections (2-7; see below), and the CPU-burst
+clusters (independence's 27 >50: 17 in two bursts with the PC's CPU over 60%). Chrome: 1-3 a route - the GC
+(uptown: one render, one outside the loop).
+A frame's steady cost (Firefox uptown after, ms): render 6.1, late scripts 4.2 of which CarReflections 3.8 (one
+paint face a frame), update 3.3 (tile slices 2.7), outside the loop 2.0, UI 1.5, fixed 1.0 = 18.4 ms.
+Chrome: 10.7 ms (car reflections 2.4).
+
+## Each hitch cause and its fix (every fix has its switch: `PSX_...=0` / `?ab=Class.Field:0` on a perf tour)
+- First-draw shader compiles (0.6-1.1 s, both browsers) -> `CityShaderWarm` (PSX_CITY_WARMSHADERS): every variant of
+  the city kit, far layers, proxies, traffic models, every loaded PSX material and every PSX shader's plain variant,
+  compiled behind the loading screen (+2 s to free roam's load). After: gone (worst 682 -> 160, 1109 -> 105; Chrome
+  642 -> 125, 978 -> 61).
+- First use of city-wide tables and lot models in a tile's frame (HitchProbe: EnsureSites 249-263 ms, a prefab's first
+  load 118-316 ms) -> `CityWorld.WarmAtLoad` (PSX_CITY_WARM): guide sites 197 ms, 11 lot models 271 ms, 19 traffic
+  models 71 ms at load.
+- Collider cooking in a build step (46-56 ms) -> `CityMeshes.FastCook`: without "cook for faster simulation" (same
+  triangles); max 6.9 ms.
+- A junction's perimeter in one step (up to 70 ms) -> `CityMeshes.JunctionChordSteps`: a chord / corner walk a step.
+- Junction fans built inside a side-flags step (33 of 55 ms) -> `CityMeshes.WarmFans` (in the roads phase's warm-up).
+  HitchProbe (editor, 80 tiles uptown + Tryon, base 82c83a3c -> after): steps over 8 ms 342 -> 93, over 16.7 48 -> 7,
+  over 33 12 -> 1, longest 70.1 -> 46.1 ms (gores "branch: nose", LEFT); 80 of 80 tiles identical to the base.
+- A tile's meshes uploaded in its stand-up frame (megabytes; Firefox's GPU process falls behind) ->
+  `CityMeshes.PreUpload` (PSX_CITY_PREUPLOAD): a mesh a build step (UploadMeshData, kept readable).
+- The lamp field's 32 m step in one frame (9-10 ms in the editor; 3-5 ms in the browsers) -> `StreetLights.FieldSliced`
+  (PSX_LAMPFIELD_SLICE): built behind the shown window, 1.5 ms a frame, swapped.
+- A far-tree rebuild in one frame (116k vertices; 10.5 ms in the editor) -> `CityFar.StagedTrees`: built behind the
+  shown mesh, an attribute a frame, swapped; land chunks prefetched (a ring edge of 7-11 was built in one frame);
+  `DayLightsIdle`: the far lights' table is not rebuilt by day.
+- A build falling behind the car on slow frames -> `CityWorld.PaceBuilds`: while a tile round the car is missing, a
+  slice is at least 25% (35% at speed) of the frame's own time, and the open job is spread over the frames left before
+  the car reaches it (cap 28 ms); a car IN a tile whose trees wait plants them at the cap a frame (UrgentTreesPaced).
+  The browser runs never fell behind (no sync build, forced finish, urgent tree frame or abandon, before or after).
+
+## Phase 2 - the look, its cost, the same-spot shots
+- `CityFar.ForestFill` (PSX_CITY_FARFILL): the near rule's density (canopy x area / 95 m2, the near trees' species and
+  sizes) on past the far plane to 600 m, faded out by rank to 1150 m (800 m on a phone); its own mesh, staged.
+- `CityFar.LandCover` (PSX_CITY_FARCOVER): a far-land node's 128 m square: buildings' share (OSM footprints,
+  CityBuildings' lots, and outside the core the fill houses by CityHouses' own odds) in the roofs' measured colour,
+  pavement (streets without a far ribbon, parking lots) in the asphalt's, lakes in the water's; PSX/Lit unpacks it.
+  `RaggedCrowns`: woods past the far trees 0.55-1.45 of their canopy's height by place (a ragged treeline).
+- `CityMeshes.TowerProxies`: a pack tower's lot gets its OSM massing as a far proxy; the model hands over past the
+  squeeze's start. `CityMeshes.LotProxies` (PSX_CITY_LOTPROXY): 5,190 CityBuildings lots city-wide get far proxies (the
+  tile's own box / gable; a prefab's lot the box or gable of its size), drawn past the squeeze's start and near where
+  their tile is not up.
+- COST (Firefox, after player, look off vs on, same build): uptown 54.6 vs 54.5 fps, p99 39 vs 35; I-77 south 61.9 vs
+  59.7 fps, p95 20 vs 24 (different runs, load 1 vs 2 jobs) - under ~1 ms a frame. Load +2 s (the shader warm).
+- SHOTS (Firefox, after player, the look OFF via ab then ON, the same spots, from the car on the road; left BEFORE,
+  right AFTER): 
+  - C:\Users\mcgee\PSXPerf_out\look\perf_r1_look_brookshire_fwy_bridge.png
+  - C:\Users\mcgee\PSXPerf_out\look\perf_r1_look_catawba_i85_bridge.png
+  - C:\Users\mcgee\PSXPerf_out\look\perf_r1_look_catawba_wilkinson_bridge.png
+  - C:\Users\mcgee\PSXPerf_out\look\perf_r1_look_i485_north_bridge.png
+  - C:\Users\mcgee\PSXPerf_out\look\perf_r1_look_i485_northwest_bridge.png
+  - C:\Users\mcgee\PSXPerf_out\look\perf_r1_look_i77_core_edge.png
+  - C:\Users\mcgee\PSXPerf_out\look\perf_r1_look_i77_south_a.png
+  - C:\Users\mcgee\PSXPerf_out\look\perf_r1_look_i77_south_b.png
+  - C:\Users\mcgee\PSXPerf_out\look\perf_r1_look_independence_east.png
+  - C:\Users\mcgee\PSXPerf_out\look\perf_r1_look_independence_mid.png
+  - C:\Users\mcgee\PSXPerf_out\look\perf_r1_look_johnston_rd_bridge.png
+  - C:\Users\mcgee\PSXPerf_out\look\perf_r1_look_nc16_lake_bridge.png
+  - C:\Users\mcgee\PSXPerf_out\look\perf_r1_look_sugar_creek_bridge.png
+  - C:\Users\mcgee\PSXPerf_out\look\perf_r1_look_tryon_south.png
+  - C:\Users\mcgee\PSXPerf_out\look\perf_r1_look_uptown_east.png
+  - C:\Users\mcgee\PSXPerf_out\look\perf_r1_look_uptown_sw.png
+  At road level on the freeways the near trees hide the far layers (little to see between the pairs); the bridges' pairs
+  show the far forest and land.
+
+## Windows (Mono) vs web
+(the Windows (Mono) runs were still going when this was written - see the next commit)
+
+## Threading (native players) - design, what shipped, what is next
+ONE code path: a unit of city work is written once, as a resumable iterator or a pure function over
+data that no longer changes once the city has loaded. A native player (Windows, Android) runs it on
+`CityWorker` threads; the WebGL player runs the SAME code on the main thread in its budgeted slices
+(`CityWorker.Threaded` is false there - no threads in the browser). Only the APPLY half (GameObjects,
+Mesh upload, renderer state, physics scene changes - Unity's main-thread-only calls) runs on the main
+thread, small and bounded.
+- SHIPPED: the far layers (`CityFar`): land chunks (19 x 19 heights, canopy, the far land's cover),
+  far-tree chunks and the forest fill's tiles are worked out on up to 2 below-normal threads ahead of
+  need (`CityElevation.DemReader`: a DEM reader per thread - `BaseY`'s shared block cache is not
+  thread-safe); the main thread drops each result in its table (`CityWorker.Pump`, once a frame in
+  `CityWorld.Update`). WebGL: a chunk a frame on the main thread, the same builders.
+- NEXT, in order of payoff and risk:
+  1. the far meshes' assembly (lists of 60k-300k vertices) into `Mesh.MeshData` on a worker, applied
+     with `ApplyAndDisposeWritableMeshData` (one call), double-buffered as now;
+  2. the proxies' chunk emission (`CityMeshes.EmitProxy` / `EmitProxyLot`): pure once its scratch is
+     per job;
+  3. the lamp field's splat: a Burst `IJobParallelFor` (Burst and Collections ship with URP; the
+     WebGL build already links a Burst side module, `lib_burst_generated.wasm`) - runs on the main
+     thread in the browser, still faster;
+  4. THE BIG ONE - the tile builder (`CityMeshes.TileJob`) and the tree frames: today 4-6 ms of
+     every streaming frame. Blocking it: static scratch shared by every job (-> a build context per
+     job), lazily filled caches the main thread reads too (road sections/outlines, the DEM block cache,
+     RoadsideOccupancy - filled ahead and immutable, or per thread like `DemReader`), Unity objects
+     made inside steps (`MeshFrom`'s `new Mesh` -> plain arrays, an apply step makes the meshes).
+     `Physics.BakeMesh` is already thread-safe. Gate: HitchProbe's tile hashes bit-identical threaded
+     vs not; the drive/launch/median/flicker gates unchanged.
+  5. CityTraffic stays on the main thread (it drives Rigidbodies each physics step).
+- EXPECTED GAIN (native): the main thread keeps only the apply (stand-up 1-3 ms a tile, uploads);
+  tiles build at full core speed ahead of the car, so a bigger ring (3 = 7 x 7) and a longer far
+  plane become affordable on a desktop - the real pop-in fix for Windows. WebGL: unchanged by threads.
+- RISKS: data races are silent (a corrupt tile, a rare crash) - hence pure-or-nothing and the hash
+  gate; Mono's GC stops every thread (worker garbage still pauses the main thread); a phone has 2-4
+  big cores (one worker, below normal); results must not depend on which thread or when (everything
+  here is hash-seeded already).
+- BAKED OFFLINE INSTEAD (export time): far land heights + canopy per 128 m node: ~245 x 245 nodes
+  city-wide, u16 + u8 = ~0.2 MB (+0.1 MB compressed for web and phone) - removes the runtime DEM and
+  corridor sampling for far land entirely; road sections/outlines per edge: tens of MB, not for web or
+  phone; whole tiles: GBs (~1,500 tiles x 1-5 MB) - a Windows release could stream baked tiles from
+  disk, never the web (GitHub's 100 MB file wall) or a phone; far trees: no (hash-seeded generation is
+  cheaper than the download); the interior fill houses' table (for their far proxies): ~100k houses x
+  ~20 B = ~2 MB raw, ~1 MB compressed - worth it for all three.
+
+## Android (release target) - what it will need (not built this round)
+- Build: a `PSXBuildAndroid` like `Editor/PSXBuildWin64.cs` - IL2CPP, ARM64 only, Vulkan then GLES3,
+  ASTC (the WebGL RGB565 overrides do not apply); the four on-demand bundles built for Android (the
+  bundle builders take a target); StreamingAssets in the AAB or Play Asset Delivery (150 MB base limit:
+  charlotte 13.8 MB, engines 40.6 MB, Enhanced textures as a fast-follow pack).
+- Thermal: 30-45 min sessions throttle a phone 30-50% - budget for a warm phone. Memory: the managed
+  heap with Charlotte loaded measures ~290-390 MB in the browser (~1 GB in the editor); fine on a
+  6-8 GB phone, but its GC wants the allocation rate down as on the web (below).
+- Threads: CityWorker runs 1-2 workers (processorCount / 4, capped 2) below normal; pin to 1 on a phone.
+- The perf tour runs on a native player: `adb shell am start ... -e unity "-perftour routes=...&secs=150 -perfout <dir>"`.
+
+| budget | Windows | web (desktop) | web phone / Android |
+|---|---|---|---|
+| far plane | 500 m; 750 m once tiles build on workers (ring 3) | 500 m | 400 m |
+| tile ring | 2 (5 x 5) -> 3 with threaded builds | 2 | 2 |
+| tile slice | worker (main thread: stand-up only) | 4 / 6 ms, paced 25 / 35% of the frame while behind, cap 28 ms | as web today; a phone tier to add: 20%, cap 16 ms |
+| proxies (OSM footprints + lots) | 2 km -> 3 km | 2 km | 1.2 km |
+| far trees | 2.2 km | 2.2 km | 1.4 km |
+| forest fill (near density) | to 1.15 km | to 1.15 km | to 0.8 km |
+| far land | 9 km | 9 km | 6 km |
+| far lights | 8 km | 8 km | 5 km |
+| near tree density | 1.0 | 1.0 | 0.6 |
+| traffic cap | 48 -> 64 | 48 | 24 (off by default on phones) |
+| lamp field | 256 px / 512 m | same | 128 px |
+| LODs | tiles have none: needed for Android (building detail past 150 m off; the proxies' look past 300 m) |
+
+## LEFT
+- GC (the main web hitch left): the city builder's garbage, ~1.5 MB a tile (HitchProbe, coarse - the editor's Boehm
+  Mono keeps no per-thread count): signs/poles slices 24%, road spans 14%, meshes 12%, tree slices 9%, stand-up 9%.
+  Next: an allocation profile with call stacks (a development build), then pooling in those five.
+- CarReflections: 3.4-3.8 ms of every Firefox frame (one paint face a frame), the biggest single cost after the
+  renderer, and 2-7 of the >50 ms frames: a face every other frame would save ~1.8 ms - an owner call (the paint's
+  reflections are "the things I notice most").
+- Firefox under CPU load: its GPU process; nothing in the game can stop the PC's other work stalling it.
+- Pop-in still: the interior fill houses (no far proxy: their placement is a tile at a time - bake their table at export,
+  ~1 MB), guide-sign gantries, high masts, bridge girders and piers, billboards, signals, poles and lamp posts (near
+  only, the 500 m far plane); the far land's box window dots double the lot proxies' own lit windows at night.
+- Steps still over 16 ms: gores "branch: nose" (outline / raw sections miss: the clip table is in flux during gores;
+  up to 46 ms), footprints (24 ms), sign guide decisions (20-38 ms a decision, unsliced).
+- The perf tour's career: a fresh random starting car a session (the shots' pairs show different cars).
+
+## How to run the instrument
+- WebGL: `node tools/perf-tour.mjs <Build/WebGL> --browser firefox|chrome --out <dir> --hour Noon --secs 150
+  [--routes uptown,tryon,trade,independence,i77s] [--ab Class.Field:0,...] [--shots "x,z,r|rb|yaw,name;..."]`
+  (a VISIBLE browser on a throwaway profile, the player served from 127.0.0.1); Windows:
+  `PSXRacing.exe -perftour "routes=...&secs=150&tag=win" -perfout <dir>`; the editor: `Editor/PerfTourEditor.cs`.
+  Read: `py tools/perf_tour_report.py <dir> [--worst 12] [--csv t.csv]`. Inert unless asked for (?perftour on a local
+  host, -perftour). HitchProbe now reports allocation by step kind.
+
 # HANDOFF - REAL HEIGHTS round 11 (2026-10-30): the city-wide launches by class; round 10's leftovers
 
 Branch `real-heights-r11` (worktree `C:\Users\mcgee\PSX Racing-heights11`, off integration-1029e 4827fa53 = main
