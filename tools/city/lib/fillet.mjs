@@ -137,10 +137,18 @@ export function mitredThrough(edges, nodes, hwOf) {
   return out;
 }
 
-/// opts: { rFloor(e), emax(e), hw(e), eps, chordCap, collinearDeg, through (mitredThrough's map) }
+/// opts: { rFloor(e), emax(e), hw(e), eps, chordCap, collinearDeg, through (mitredThrough's map),
+///         cutNodes, cutCarry (lineclean's connector cuts: Sets of node indices) }
 export function filletGraph(edges, nodes, opts) {
   const { rFloor, emax, hw, eps = 0.02, chordCap = 10, collinearDeg = 0.02, through = new Map(),
           innerMin = 3, loneRule = true } = opts;
+  // CONNECTOR CUTS (lineclean.mjs connectorCuts; gap audit): a network way cut
+  // only where a connector uses its node is filleted as the one piece it was.
+  // A cut node the line had as a vertex is filleted as that free vertex was
+  // (never held, its node placed on the arc); one put on the line (cutCarry) is
+  // not a vertex of the line at all: carried, and placed where it projects
+  // onto the line drawn. The connector's end follows the node.
+  const cutNodes = opts.cutNodes || new Set(), cutCarry = opts.cutCarry || new Set();
   // BENDS (road-logic-bends): the strand collapse before the shares (runStrand)
   // OFF BY DEFAULT (2026-10-29 gate): measured on PSXCity it cut the freeway
   // spikes 109 -> 30 but each carriageway of a divided road is re-fitted on its
@@ -156,10 +164,18 @@ export function filletGraph(edges, nodes, opts) {
   // CONNECTORS (export_osm.mjs, the frontier's gap-closing ways, 2026-10-29)
   // are a strand set of their own: the network they join keeps the strands it
   // had (a road that ended there still ends there for the fillet), so closing
-  // a gap at I-77's end does not re-fit I-77 through uptown.
+  // a gap at I-77's end does not re-fit I-77 through uptown. A connector
+  // strand ENDS at a node it shares with the network (gap audit,
+  // Docs/gap_audit.md): two connectors meeting at a network road's end are a
+  // junction there, not a 2-arm corner to round - run across, they moved the
+  // network's node onto their arc and its arm followed it (Lancaster Highway's
+  // end 6.6 m off its OSM node, 51 roads in all). The node is the network's: a
+  // connector's end follows wherever the network's own fillet puts it.
   const isC = e => !!(e.way && e.way.connector);
   const same = (n, e) => arms[n].filter(o => isC(o) === isC(e));
   const two = arms.map(l => l.length === 2 && l[0] !== l[1]);
+  /// a 2-arm node of the strand set of e's kind (connectors ignored on the network's)
+  const twoOf = (n, e) => { const l = same(n, e); return l.length === 2 && l[0] !== l[1]; };
   const other = (e, n) => e.a === n ? e.b : e.a;
   /// Two one-way arms that BOTH arrive at n or BOTH leave it (a carriageway and
   /// its ramp meeting nose to nose at a dead-end fork, review 2026-09-30: I-85
@@ -173,9 +189,11 @@ export function filletGraph(edges, nodes, opts) {
     let o = null;
     const sa = same(n, e);
     if (sa.length !== arms[n].length) {
-      // a node where connectors meet the network: through its own kind only
-      if (sa.length === 2 && sa[0] !== sa[1]) o = sa[0] === e ? sa[1] : sa[0];
-      else if (!isC(e)) { const t = through.get(n); if (t && (t[0] === e || t[1] === e)) o = t[0] === e ? t[1] : t[0]; }
+      // a node where connectors meet the network: the network's strands run
+      // through it as they did without them; a connector's end there
+      if (isC(e)) o = null;
+      else if (sa.length === 2 && sa[0] !== sa[1]) o = sa[0] === e ? sa[1] : sa[0];
+      else { const t = through.get(n); if (t && (t[0] === e || t[1] === e)) o = t[0] === e ? t[1] : t[0]; }
     } else if (two[n]) o = arms[n][0] === e ? arms[n][1] : arms[n][0];
     else {
       const t = through.get(n);
@@ -305,6 +323,20 @@ export function filletGraph(edges, nodes, opts) {
       }
       W.push(V[i]);
     }
+    // CONNECTOR CUTS (cutCarry): a cut node put on the line is no vertex of it -
+    // carried by the vertex before it and placed where it projects onto the line
+    // drawn (below), as a merged corner's nodes are
+    const carried = [];   // { node, v }: carried nodes, v = the kept vertex before (merges follow .into)
+    if (cutCarry.size && W.length > 2) {
+      const W2 = [W[0]];
+      for (let i = 1; i < W.length - 1; i++) {
+        const v = W[i];
+        if (v.nodes.length && v.nodes.every(n => cutCarry.has(n))) { for (const n of v.nodes) carried.push({ node: n, v: W2[W2.length - 1] }); continue; }
+        W2.push(v);
+      }
+      W2.push(W[W.length - 1]);
+      if (W2.length !== W.length) { W.length = 0; W.push(...W2); }
+    }
     const fixedEnd = i => i === 0 || i === W.length - 1;
     const RF = v => Math.max(...v.cls.map(rFloor));   // the class floor (the stricter arm at a class change)
     const EM = v => Math.min(...v.cls.map(emax));
@@ -323,11 +355,12 @@ export function filletGraph(edges, nodes, opts) {
     // ends and every junction (3+ arm) vertex fixed; a dropped 2-arm node is
     // carried by the kept vertex before it and projected onto the line drawn,
     // as a merged corner's nodes are. PSX_FILLET_BENDS=0 is the before.
-    const carried = [];   // { node, v }: dropped 2-arm nodes, v = the kept vertex before (merges follow .into)
+    // (carried, above: the dropped 2-arm nodes join it, v = the kept vertex before)
     if (collapseEps > 0 && W.length > 3) {
       const m0 = W.length, keep = new Uint8Array(m0);
       keep[0] = keep[m0 - 1] = 1;
-      for (let i = 1; i < m0 - 1; i++) if (W[i].nodes.some(n => !two[n])) keep[i] = 1;
+      // (a junction of the strand's own kind: a connector at a network 2-arm node is not one)
+      for (let i = 1; i < m0 - 1; i++) if (W[i].nodes.some(n => !twoOf(n, seq[0].e))) keep[i] = 1;
       const rdpSpan = (a, b) => {
         const stack = [[a, b]];
         while (stack.length) {
@@ -500,7 +533,7 @@ export function filletGraph(edges, nodes, opts) {
       const ends = new Set([seq[0].at, other(seq[seq.length - 1].e, seq[seq.length - 1].at)]);
       for (let i = 1; i + 1 < W.length; i++) {
         if (!(T[i] > 1e-4) || R[i] >= W[i].hw + innerMin - 1e-6) continue;
-        const h = W[i].nodes.find(n => !ends.has(n));
+        const h = W[i].nodes.find(n => !ends.has(n) && !cutNodes.has(n));   // (a cut vertex: a free vertex's, never held)
         if (h !== undefined) return h;
       }
     }
@@ -543,7 +576,7 @@ export function filletGraph(edges, nodes, opts) {
       const cS = Math.sqrt(8 * eps * r * r / (r + v.hw));
       const chord = cS <= chordCap ? cS : Math.max(chordCap, 8 * eps * r / chordCap);
       let n = Math.max(1, Math.ceil(r * Math.abs(d) / chord));
-      const single = !v.merged && v.nodes.length === 1;
+      const single = !v.merged && v.nodes.length === 1 && !cutNodes.has(v.nodes[0]);   // (a cut node: projected, as a free vertex's arc is drawn)
       if (single && n % 2) n++;
       push(t0);
       const a0 = Math.atan2(t0[1] - cen[1], t0[0] - cen[0]);

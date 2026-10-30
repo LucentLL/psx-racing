@@ -131,6 +131,45 @@ function nodeEdgesOf(edges, nn) {
   return ne;
 }
 
+/// CONNECTOR CUTS (gap audit, Docs/gap_audit.md; export_osm.mjs marks them
+/// connCutB / connCutA): a network way cut ONLY because a connector uses one of
+/// its nodes. Every rule of the network's own line work runs across such a cut
+/// as across the one piece the way was without the connector - chains pair
+/// across it whatever the angle, simplify and PARA's samples run across it,
+/// and where the line had no vertex there the cut node is put ON the line
+/// (projected) and carried by the doglegs and the fillet, the connector's end
+/// following it. e1 ends at node n and e2 starts there, one network way.
+function isCutPair(e1, e2, n) {
+  if (e1.way !== e2.way || e1.way.connector) return false;
+  return (!!e1.connCutB && e1.b === n && !!e2.connCutA && e2.a === n) || (!!e2.connCutB && e2.b === n && !!e1.connCutA && e1.a === n);
+}
+/// The cuts of a graph: next (piece -> the piece after it across a cut), prev,
+/// nodes (the cut nodes), runs (maximal runs of pieces joined at cuts, in way
+/// order; every edge is in exactly one), runOf (edge -> run), connAt (node ->
+/// the connector edges there).
+export function connectorCuts(edges) {
+  const net = new Map(), connAt = new Map();
+  for (const e of edges) {
+    if (e.a === e.b) continue;
+    const m = e.way.connector ? connAt : net;
+    for (const n of [e.a, e.b]) { let l = m.get(n); if (!l) m.set(n, l = []); l.push(e); }
+  }
+  const next = new Map(), prev = new Map(), nodes = new Set();
+  for (const e of edges) {
+    if (!e.connCutB || e.way.connector) continue;
+    const l = net.get(e.b) || [];
+    if (l.length !== 2) continue;
+    const f = l[0] === e ? l[1] : l[0];
+    if (f === e || !isCutPair(e, f, e.b) || f.a !== e.b) continue;
+    next.set(e, f); prev.set(f, e); nodes.add(e.b);
+  }
+  const runs = [], runOf = new Map();
+  const take = e0 => { const run = []; for (let f = e0, g = 0; f && !runOf.has(f) && g < 100000; f = next.get(f), g++) { run.push(f); runOf.set(f, run); } runs.push(run); };
+  for (const e of edges) if (!prev.has(e) && !runOf.has(e)) take(e);
+  for (const e of edges) if (!runOf.has(e)) take(e);      // a ring of cuts only: from anywhere
+  return { next, prev, nodes, runs, runOf, connAt };
+}
+
 /// CHAINS: one road through its nodes. At each node the arms pair up as
 /// continuations - same one-way-ness (one arriving, one leaving on a one-way
 /// road), turning less than 45 degrees, and the same name unless it is a
@@ -150,6 +189,9 @@ export function buildChains(edges, nodes, acrossNames = false) {
     for (const kind of [false, true]) {
     const arms = all.filter(e => !!e.way.connector === kind).map(e => ({ e, atA: e.a === n, dir: outDir(e, n) }));
     if (arms.length < 2) continue;
+    // a network way cut only where a connector uses its node (connectorCuts)
+    // runs on across the cut whatever its angle there: the one piece it was
+    const cutPair = !kind && arms.length === 2 && isCutPair(arms[0].e, arms[1].e, n);
     const pairs = [];
     for (let i = 0; i < arms.length; i++) for (let j = i + 1; j < arms.length; j++) {
       const p = arms[i], q = arms[j], wp = p.e.way, wq = q.e.way;
@@ -158,7 +200,7 @@ export function buildChains(edges, nodes, acrossNames = false) {
       const d = p.dir[0] * q.dir[0] + p.dir[1] * q.dir[1];
       if (arms.length > 2 && !(wp.name && wp.name === wq.name) && !(wp.link && wq.link)
           && !(acrossNames && d < -0.94 && wp.rank === wq.rank && wp.link === wq.link)) continue;
-      if (d > -0.7) continue;
+      if (d > -0.7 && !cutPair) continue;
       pairs.push([d, p, q]);
     }
     pairs.sort((x, y) => x[0] - y[0]);
@@ -283,6 +325,9 @@ export function lineClean(ctx) {
   stats.pinned_vertices = pinned.size;
 
   for (const e of edges) { e.lanes = e.way.lanes; e.turn = e.way.turn; }
+  // the connector cuts (connectorCuts) and the cut nodes put on the line (step 3)
+  const CUTS = connectorCuts(edges);
+  const cutCarry = new Set();
 
   // ---------------------------------------------------- 2. lane counts
   let { chains, chainOf } = buildChains(edges, nodes);
@@ -338,10 +383,12 @@ export function lineClean(ctx) {
   /// Does node n draw a fan (CityMeshes.ComputeTrims' rule, replicated):
   /// three or more arms, and not a road going through with only branches
   /// (arms within 60 degrees of another, the lesser one clipped) beside it.
+  /// (CONNECTORS: a network road's chain sees the network's arms only - the
+  /// fan it drew without them - a connector's chain every arm; gap audit)
   const fanMemo = new Map();
-  const fanNode = n => {
-    if (fanMemo.has(n)) return fanMemo.get(n);
-    const arms = armsN[n].filter(e => e.a !== e.b).map(e => ({ e, d: outDir(e, n), link: !!e.way.link, rank: e.way.rank, w: profOf(e).width }));
+  const fanNode = (n, c = false) => {
+    if (fanMemo.has(n + (c ? 'c' : ''))) return fanMemo.get(n + (c ? 'c' : ''));
+    const arms = armsN[n].filter(e => e.a !== e.b && (c || !e.way.connector)).map(e => ({ e, d: outDir(e, n), link: !!e.way.link, rank: e.way.rank, w: profOf(e).width }));
     let fan = arms.length >= 3;
     if (fan) {
       let tA = -1, tB = -1, best = 1;
@@ -366,7 +413,7 @@ export function lineClean(ctx) {
         for (let k = 0; k < arms.length; k++) if (!isT(k) && !clipped[k]) { fan = true; break; }
       }
     }
-    fanMemo.set(n, fan);
+    fanMemo.set(n + (c ? 'c' : ''), fan);
     return fan;
   };
   /// The length a blip B between two runs like A needs (0: the rule does not
@@ -389,7 +436,8 @@ export function lineClean(ctx) {
     const k0 = B.items[0], k1 = B.items[B.items.length - 1];
     const n0 = chain[k0].fwd ? chain[k0].e.a : chain[k0].e.b;
     const n1 = chain[k1].fwd ? chain[k1].e.b : chain[k1].e.a;
-    return (fanNode(n0) ? 0 : tIn) + (fanNode(n1) ? 0 : tOut) + floor;
+    const c = !!way.connector;
+    return (fanNode(n0, c) ? 0 : tIn) + (fanNode(n1, c) ? 0 : tOut) + floor;
   };
   for (const chain of chains) {
     for (let guard = 0; guard < 200; guard++) {
@@ -433,19 +481,40 @@ export function lineClean(ctx) {
   // ---------------------------------------------------- doglegs, counted
   const nodeDeg = new Int32Array(nodes.length);
   for (const e of edges) { nodeDeg[e.a]++; nodeDeg[e.b]++; }
+  // CONNECTORS (export_osm.mjs, the frontier's gap-closing ways, 2026-10-29)
+  // are a strand set of their own here too, as in buildChains and the fillet
+  // (gap audit, Docs/gap_audit.md): the network's strands, and its junction
+  // ends, are the ones it had without them - a connector at a network node
+  // neither ends a network strand nor carries one on - and a connector strand
+  // ENDS at a node it shares with the network. Before this the network's dead
+  // end where a connector carried on became a plain 2-arm node, and the
+  // corner where the two met was read as a Z: Sloan Street's end moved 12.3 m
+  // off its OSM node, West Boulevard's 5.2 m. A network node the fix moves
+  // takes the connectors' ends with it (connAt).
+  const nodeDegNet = new Int32Array(nodes.length);
+  const connAt = new Map();
+  for (const e of edges) {
+    if (!e.way.connector) { nodeDegNet[e.a]++; nodeDegNet[e.b]++; continue; }
+    for (const n of e.a === e.b ? [e.a] : [e.a, e.b]) { let l = connAt.get(n); if (!l) connAt.set(n, l = []); l.push(e); }
+  }
   /// Strands: edges joined through plain 2-arm nodes (not links, not roundabouts).
   function strands() {
     const ne = nodeEdgesOf(edges, nodes.length);
     const seen = new Uint8Array(edges.length);
     const out = [];
     const ok = e => !e.way.roundabout && !e.way.link && e.a !== e.b;
-    const through = n => ne[n].length === 2 && ne[n][0] !== ne[n][1] && ok(ne[n][0]) && ok(ne[n][1]);
+    // the two arms of e's own kind a strand runs on through n, or null (n ends it)
+    const through = (n, e) => {
+      const c = !!e.way.connector, l = ne[n].filter(o => !!o.way.connector === c);
+      if (l.length !== 2 || l[0] === l[1] || !ok(l[0]) || !ok(l[1])) return null;
+      return c && l.length !== ne[n].length ? null : l;
+    };
     for (const e0 of edges) {
       if (seen[e0.id] || !ok(e0)) continue;
       // walk back to a strand end
       let e = e0, atStart = e0.a, guard = 0;
-      while (through(atStart) && guard++ < 10000) {
-        const o = ne[atStart][0] === e ? ne[atStart][1] : ne[atStart][0];
+      for (let l; (l = through(atStart, e)) && guard++ < 10000;) {
+        const o = l[0] === e ? l[1] : l[0];
         if (o === e0) break;
         atStart = o.a === atStart ? o.b : o.a; e = o;
       }
@@ -458,10 +527,11 @@ export function lineClean(ctx) {
         const fwd = cur.a === n;
         list.push({ e: cur, fwd });
         n = fwd ? cur.b : cur.a;
-        if (!through(n)) break;
-        cur = ne[n][0] === cur ? ne[n][1] : ne[n][0];
+        const l = through(n, cur);
+        if (!l) break;
+        cur = l[0] === cur ? l[1] : l[0];
       }
-      if (list.length) out.push({ list, startNode: atStart, endNode: n });
+      if (list.length) out.push({ list, startNode: atStart, endNode: n, conn: !!e.way.connector });
     }
     return out;
   }
@@ -474,7 +544,9 @@ export function lineClean(ctx) {
         const k = fwd ? q : n - 1 - q;
         if (i > 0 && q === 0) continue;               // the shared node, already added
         const isNode = q === 0 || q === n - 1;
-        V.push({ p: P[k], e, k, node: isNode ? (k === 0 ? e.a : e.b) : -1 });
+        const node = isNode ? (k === 0 ? e.a : e.b) : -1;
+        if (node >= 0 && cutCarry.has(node) && q === n - 1 && i + 1 < st.list.length) continue;   // a carried cut: not a vertex of the line
+        V.push({ p: P[k], e, k, node });
       }
     });
     return V;
@@ -482,7 +554,8 @@ export function lineClean(ctx) {
   function findDoglegs(st, fix) {
     let found = 0;
     const jogs = [];
-    const endJ = n => nodeDeg[n] >= 3;
+    // a junction end, of the strand's own kind (a connector's: any 3+ arms)
+    const endJ = n => (st.conn ? nodeDeg[n] : nodeDegNet[n]) >= 3;
     const d0 = endJ(st.startNode) ? 15 : 0, d1 = endJ(st.endNode) ? 15 : 0;
     /// The Z at vertices i, i+1: its jog in metres, or -1.
     const zAt = (V, s, L, i) => {
@@ -521,8 +594,33 @@ export function lineClean(ctx) {
           if (e.a === v.node) e.pts[0] = np.slice();
           if (e.b === v.node) e.pts[e.pts.length - 1] = np.slice();
         }
+        // the connectors' ends at a network node it moves go with it
+        if (!st.conn) for (const e of connAt.get(v.node) || []) {
+          if (e.a === v.node) e.pts[0] = np.slice();
+          if (e.b === v.node) e.pts[e.pts.length - 1] = np.slice();
+          e.len = polyLen(e.pts);
+        }
+        // a cut vertex put on the line is carried from here (without the
+        // connector it was a free vertex, and this drops it)
+        if (CUTS.nodes.has(v.node)) cutCarry.add(v.node);
       }
       for (const { e } of st.list) { e.pts = e.pts.filter(Boolean); e.len = polyLen(e.pts); }
+    }
+    // the carried cuts back onto the line as it now runs between their neighbours
+    if (fix && found && !st.conn) for (let i = 1; i < st.list.length; i++) {
+      const X = st.list[i - 1].e, Y = st.list[i].e;
+      const n = X.b === Y.a ? X.b : X.a === Y.b ? X.a : -1;
+      if (n < 0 || !cutCarry.has(n)) continue;
+      const xs = X.b === n ? X.pts[X.pts.length - 2] : X.pts[1], ys = Y.a === n ? Y.pts[1] : Y.pts[Y.pts.length - 2];
+      const dx = ys[0] - xs[0], dz = ys[1] - xs[1], L2 = dx * dx + dz * dz, o = nodes[n];
+      let t = L2 > 0 ? ((o[0] - xs[0]) * dx + (o[1] - xs[1]) * dz) / L2 : 0; t = Math.max(0, Math.min(1, t));
+      const J = [xs[0] + dx * t, xs[1] + dz * t];
+      nodes[n] = J;
+      for (const e of [X, Y, ...(connAt.get(n) || [])]) {
+        if (e.a === n) e.pts[0] = J.slice();
+        if (e.b === n) e.pts[e.pts.length - 1] = J.slice();
+        e.len = polyLen(e.pts);
+      }
     }
     return { found, jogs };
   }
@@ -552,11 +650,10 @@ export function lineClean(ctx) {
   stats.simplify_held = { taper_ends: holdEnd.reduce((a, v) => a + ((v & 3) ? 1 : 0), 0), structure: holdEnd.reduce((a, v) => a + ((v & 4) ? 1 : 0), 0) };
   const DP_M = 0.5;   // the plan's SimplifyEpsM (SmoothRules: the gate's WAVE rule follows it)
   let ptsBefore = 0, ptsAfter = 0;
-  for (const e of edges) {
-    ptsBefore += e.pts.length;
-    if ((holdEnd[e.id] & 4) || e.way.link || e.way.roundabout || e.pts.length <= 2) { ptsAfter += e.pts.length; continue; }
-    const P = e.pts, n = P.length;
-    const held = k => isPinned(P[k]) || (k === 1 && (holdEnd[e.id] & 1)) || (k === n - 2 && (holdEnd[e.id] & 2));
+  /// one line's simplify: P its points, hold its holdEnd bits; returns the kept points (P's own)
+  const simplifyLine = (P, hold) => {
+    const n = P.length;
+    const held = k => isPinned(P[k]) || (k === 1 && (hold & 1)) || (k === n - 2 && (hold & 2));
     const Q = [P[0]];
     for (let k = 1; k < n - 1; k++) {
       if (!held(k) && (dist(P[k], Q[Q.length - 1]) < 2 || dist(P[k], P[n - 1]) < 2)) continue;
@@ -567,8 +664,8 @@ export function lineClean(ctx) {
     const out = [Q[0]];
     let from = 0;
     const heldQ = new Set();
-    if (holdEnd[e.id] & 1 && n > 2) heldQ.add(P[1]);
-    if (holdEnd[e.id] & 2 && n > 2) heldQ.add(P[n - 2]);
+    if (hold & 1 && n > 2) heldQ.add(P[1]);
+    if (hold & 2 && n > 2) heldQ.add(P[n - 2]);
     for (let k = 1; k < Q.length; k++) {
       if (k === Q.length - 1 || isPinned(Q[k]) || heldQ.has(Q[k])) {
         const part = DP_M > 0 ? rdp(Q.slice(from, k + 1), DP_M) : Q.slice(from, k + 1);
@@ -576,11 +673,69 @@ export function lineClean(ctx) {
         from = k;
       }
     }
-    e.pts = out;
-    e.len = polyLen(out);
-    ptsAfter += out.length;
+    return out;
+  };
+  // CONNECTOR CUTS (connectorCuts, above): the pieces of one network way cut
+  // only where a connector uses its node are simplified as the one line they
+  // were without the connector. A cut vertex the line keeps stays (it is an OSM
+  // vertex of the road); one it drops is put back ON the simplified line, where
+  // the OSM node projects onto it, and carried on (cutCarry: the doglegs and the
+  // fillet do not see it) - the road keeps exactly the line it had, and the
+  // connector meets it there, its end moved with the node.
+  let cutRuns = 0, cutProjected = 0, cutProjMax = 0;
+  for (const run of CUTS.runs) {
+    for (const e of run) ptsBefore += e.pts.length;
+    if (run.length === 1) {
+      const e = run[0];
+      if ((holdEnd[e.id] & 4) || e.way.link || e.way.roundabout || e.pts.length <= 2) { ptsAfter += e.pts.length; continue; }
+      e.pts = simplifyLine(e.pts, holdEnd[e.id]);
+      e.len = polyLen(e.pts);
+      ptsAfter += e.pts.length;
+      continue;
+    }
+    // the run as one line: its points, and where each junction vertex is in it
+    const P = [...run[0].pts], cut = [];
+    for (let i = 1; i < run.length; i++) { cut.push(P.length - 1); for (let k = 1; k < run[i].pts.length; k++) P.push(run[i].pts[k]); }
+    const hold = (holdEnd[run[0].id] & 1) | (holdEnd[run[run.length - 1].id] & 2) | (run.some(e => holdEnd[e.id] & 4) ? 4 : 0);
+    const w = run[0].way;
+    if ((hold & 4) || w.link || w.roundabout || P.length <= 2) { for (const e of run) ptsAfter += e.pts.length; continue; }
+    cutRuns++;
+    const at = new Map(P.map((p, k) => [p, k]));
+    const kept = simplifyLine(P, hold).map(p => at.get(p));
+    const keptSet = new Set(kept);
+    // the line cut at each junction: a kept vertex as it is, a dropped one at
+    // its projection onto the kept segment it falls in
+    const Q = kept.map(k => P[k].slice()), qk = kept.slice();   // qk: the P index of each (fractional for a projection)
+    for (let r = 0; r < cut.length; r++) {
+      const kJ = cut[r], node = run[r].b;
+      if (keptSet.has(kJ)) continue;
+      let j = 1; while (j < qk.length - 1 && qk[j] < kJ) j++;
+      const A = Q[j - 1], B = Q[j], o = P[kJ];
+      const dx = B[0] - A[0], dz = B[1] - A[1], L2 = dx * dx + dz * dz;
+      let t = L2 > 0 ? ((o[0] - A[0]) * dx + (o[1] - A[1]) * dz) / L2 : 0; t = Math.max(0, Math.min(1, t));
+      const J = [A[0] + dx * t, A[1] + dz * t];
+      Q.splice(j, 0, J); qk.splice(j, 0, kJ);
+      cutProjMax = Math.max(cutProjMax, dist(J, o)); cutProjected++;
+      nodes[node] = J.slice();
+      cutCarry.add(node);
+      for (const c of CUTS.connAt.get(node) || []) {
+        if (c.a === node) c.pts[0] = J.slice();
+        if (c.b === node) c.pts[c.pts.length - 1] = J.slice();
+        c.len = polyLen(c.pts);
+      }
+    }
+    let i0 = 0;
+    for (let r = 0; r < run.length; r++) {
+      const i1 = r < cut.length ? qk.indexOf(cut[r]) : Q.length - 1;
+      const piece = Q.slice(i0, i1 + 1).map(p => p.slice());
+      run[r].pts = piece;
+      run[r].len = polyLen(piece);
+      ptsAfter += piece.length;
+      i0 = i1;
+    }
   }
   stats.points = { before: ptsBefore, after_simplify: ptsAfter };
+  stats.connector_cuts = { runs: cutRuns, projected: cutProjected, projected_max_m: +cutProjMax.toFixed(3) };
 
   // ---------------------------------------------------- 4. doglegs
   {
@@ -669,10 +824,11 @@ export function lineClean(ctx) {
   /// (a merge) or ends (a diverge) on the branch's side of travel; null when
   /// there is no such branch or two disagree. travel: the chain's direction
   /// of travel at the node; merge: the branch arrives (else it leaves).
-  const branchSide = (node, travel, merge, inChain) => {
+  const branchSide = (node, travel, merge, inChain, cK = false) => {
     let side = null;
     for (const b of armsAt[node]) {
       if (inChain.has(b) || b.a === b.b || !b.way.oneway) continue;
+      if (!cK && b.way.connector) continue;              // a network chain's branches are the network's (gap audit)
       if (merge ? b.b !== node : b.a !== node) continue;
       const bo = outDir(b, node);
       const bt = merge ? [-bo[0], -bo[1]] : bo;          // the branch's own travel at the node
@@ -695,6 +851,13 @@ export function lineClean(ctx) {
     const runs = runsOf(chain);
     if (runs.length < 2) continue;
     const inChain = new Set(chain.map(c => c.e));
+    // CONNECTORS (gap audit, Docs/gap_audit.md): a network chain's junction
+    // mouths are the network's own (3+ network arms), as it had them without
+    // the connectors - counted with them, a connector at a lane change re-chose
+    // its side and re-anchored the run after it: 14 ways' lanes moved 1.8-3.7 m
+    // off where they were, 10 of them further from their OSM line. A
+    // connector's chain sees every arm.
+    const cK = !!chain[0].e.way.connector, degOf = n => cK ? nodeDeg[n] : nodeDegNet[n];
     // per transition: which ribbon edge of the WIDER run moves, in CHAIN frame
     // ('L', 'R'; 'D' per direction: dLc / dRc, how far the left and right
     // edges move going from run i to run i + 1, signed, summing to the
@@ -726,7 +889,7 @@ export function lineClean(ctx) {
           const node = gain ? (weF ? we.a : we.b) : (weF ? we.b : we.a);
           const od = outDir(we, node);
           const travel = gain ? od : [-od[0], -od[1]];
-          const bs = nodeDeg[node] >= 3 ? branchSide(node, travel, gain, inChain) : null;
+          const bs = degOf(node) >= 3 ? branchSide(node, travel, gain, inChain, cK) : null;
           if (bs) { side = bs; src = 4; tStats.mergeSide++; if (bs === 'L') tStats.mergeSideLeft++; mergeNodes.add(node); }
           else { side = 'R'; src = 0; }
         }
@@ -821,7 +984,7 @@ export function lineClean(ctx) {
       for (let i = 0; i < runs.length; i++) {
         if (i > 0) {
           const t = i - 1, dw = W[i] - W[i - 1];
-          if (sides[t] !== 'D' && srcs[t] < 2 && !locked[t] && nodeDeg[startNode(runs[i].items[0])] >= 3) {
+          if (sides[t] !== 'D' && srcs[t] < 2 && !locked[t] && degOf(startNode(runs[i].items[0])) >= 3) {
             const cR = cur - dw / 2, cL = cur + dw / 2;
             const pick = Math.abs(cR) < Math.abs(cL) - 0.01 ? 'R' : Math.abs(cL) < Math.abs(cR) - 0.01 ? 'L' : sides[t];
             if (pick !== sides[t]) { sides[t] = pick; tStats.recentred++; }
@@ -840,7 +1003,7 @@ export function lineClean(ctx) {
             } else tStats.owBothSides++;
           }
           if (sides[t] !== 'D') { dLc[t] = sides[t] === 'L' ? dw : 0; dRc[t] = sides[t] === 'R' ? dw : 0; }
-          else if (nodeDeg[startNode(runs[i].items[0])] < 3 && Math.abs(cur + (dLc[t] - dRc[t]) / 2) > LANE / 2 + 0.05) {
+          else if (degOf(startNode(runs[i].items[0])) < 3 && Math.abs(cur + (dLc[t] - dRc[t]) / 2) > LANE / 2 + 0.05) {
             // MID-BLOCK, a per-direction change that would carry the ribbon
             // more than half a lane off its line (a 2+1 swapped to 1+2 inside
             // a run moves the centre, not the edges: the relay draws it): the
@@ -855,7 +1018,7 @@ export function lineClean(ctx) {
           cur += (dLc[t] - dRc[t]) / 2;
         }
         for (const k of runs[i].items) {
-          if (Math.abs(cur) > LANE_REANCHOR && nodeDeg[startNode(k)] >= 3 && !mergeNodes.has(startNode(k))) {
+          if (Math.abs(cur) > LANE_REANCHOR && degOf(startNode(k)) >= 3 && !mergeNodes.has(startNode(k))) {
             reShift.push({ k, cur });
             cur = 0; tStats.reanchored++;
           }
@@ -902,7 +1065,7 @@ export function lineClean(ctx) {
                 : isAdd ? Math.max(floor, 15 * dw)
                 : Math.max(floor, mutcdLen(dw, mphOf(e.way)));
         let flags = (bayF[i] ? 1 : 0) | (gain ? 0 : 4) | (srcs[i] < 2 ? 8 : 0);
-        if (nodeDeg[node] >= 3) {
+        if (degOf(node) >= 3) {
           // at a JUNCTION the lane opens or ends full width at the mouth - a
           // turn bay runs full width to the stop line (review 2: 1,010 changes
           // on a junction node carried a taper that pinched the bay to nothing
@@ -974,7 +1137,7 @@ export function lineClean(ctx) {
   stats.tapr = tStats;
 
   // ---------------------------------------------------- 6. PARA
-  const paraOut = paraResolve({ edges, nodes, chains, chainOf, edgeOffset, isPinned, stats, review, uptown });
+  const paraOut = paraResolve({ edges, nodes, chains, chainOf, edgeOffset, isPinned, stats, review, uptown, cuts: CUTS, carry: cutCarry });
 
   // ---------------------------------------------------- 7. WP-11 fillets
   // every 2-arm node and free vertex rounded at its class radius, arcs
@@ -1002,6 +1165,7 @@ export function lineClean(ctx) {
       rDesign: e => bendsDesignR(mphOf(e.way)),
       eps: F.eps, chordCap: F.chordCap, collinearDeg: F.collinearDeg, innerMin: F.innerEdgeMinR,
       through: mitredThrough(edges.filter(e => !e.way.connector), nodes, e => profOf(e).width / 2),   // connectors: see fillet.mjs
+      cutNodes: CUTS.nodes, cutCarry,   // the connector cuts (connectorCuts, step 3)
     });
     stats.fillet = out.stats;
     for (const r of out.review) review.push(r);
@@ -1044,8 +1208,35 @@ export function lineClean(ctx) {
 /// really meets (a split, a merge: the gore and the median taper there are
 /// WP-11's and WP-18b's). Three passes; what is left outside those attach
 /// zones is the review list.
-function paraResolve({ edges, nodes, chains, chainOf, edgeOffset, isPinned, stats, review, uptown }) {
+function paraResolve({ edges, nodes, chains, chainOf, edgeOffset, isPinned, stats, review, uptown, cuts = connectorCuts(edges), carry = new Set() }) {
   const STEP = 5, CELL = 32;
+  /// the length of the run of cut pieces e is on (connectorCuts): the edge it was
+  const runLen = e => { let L = 0; for (const x of cuts.runOf.get(e)) L += x.len; return L; };
+  /// A carried cut at e's start / end (put on the line by step 3): the vertex
+  /// the segment it lies on starts from (A) / ends at (B) without the
+  /// connector, past any other carried cut, and how far e's end is from it.
+  const carriedLeft = e => {
+    let acc = 0;
+    for (let f = e, g = 0; g < 1000; g++) {
+      const p = cuts.prev.get(f);
+      if (!p || !carry.has(f.a)) return f === e ? null : { A: f.pts[0], d: acc };
+      const P = p.pts, A = P[P.length - 2];
+      acc += dist(A, f.pts[0]);
+      if (P.length > 2 || !carry.has(p.a)) return { A, d: acc };
+      f = p;
+    }
+    return null;
+  };
+  const carriedRight = e => {
+    for (let f = e, g = 0; g < 1000; g++) {
+      const n = cuts.next.get(f);
+      if (!n || !carry.has(f.b)) return f === e ? null : { B: f.pts[f.pts.length - 1] };
+      const P = n.pts, B = P[1];
+      if (P.length > 2 || !carry.has(n.b)) return { B };
+      f = n;
+    }
+    return null;
+  };
   const isToll = e => !!e.way.toll;
   const gapOf = (E, F) => (E.way.oneway && F.way.oneway && E.way.name && E.way.name === F.way.name) || isToll(E) !== isToll(F) ? 1.2 : 1.0;
   /// Facing half width as R4 draws it (WP-10, 11 and 11b ship together):
@@ -1071,6 +1262,24 @@ function paraResolve({ edges, nodes, chains, chainOf, edgeOffset, isPinned, stat
   const capOf = e => e.way.rank >= 4 ? 6.0 : 4.0;
   let convAny = new Set();
   const inCore = (x, z) => Math.abs(x - uptown[0]) <= 4000 && Math.abs(z - uptown[1]) <= 4000;
+  /// the nodes a network (not connector) edge touches
+  const netAt = new Uint8Array(nodes.length);
+  for (const e of edges) if (!e.way.connector) { netAt[e.a] = 1; netAt[e.b] = 1; }
+  /// CONNECTOR PINS (gap audit, Docs/gap_audit.md): a connector chain meets the
+  /// network at the nodes it shares with it, and the network's node stays where
+  /// the network's own chains put it (below) - so a connector is pushed only
+  /// away from there: its push is eased to nothing at such a node over
+  /// PIN_M * 0.7, and its samples within PIN_M of one are exempt, as a pair is
+  /// near the node it really meets at. (Without the exemption the pinned end
+  /// never cleared and every pass pushed the rest further: 3.8 m, 20 passes.)
+  const PIN_M = 40;
+  const pinsOf = new Map();   // connector chain -> its network nodes
+  chains.forEach((c, ci) => {
+    if (!c.length || !c[0].e.way.connector) return;
+    const s = new Set(); for (const { e } of c) for (const n of [e.a, e.b]) if (netAt[n]) s.add(n);
+    if (s.size) pinsOf.set(ci, [...s]);
+  });
+  const pinNear = (e, x, z) => { const l = pinsOf.get(chainOf[e.id]); if (!l) return false; for (const n of l) if (Math.hypot(nodes[n][0] - x, nodes[n][1] - z) < PIN_M) return true; return false; };
 
   // convergence nodes: two arms leaving one node within 50 degrees of each
   // other (a divided road's split, a ramp's merge, a fork). The pair is
@@ -1197,13 +1406,18 @@ function paraResolve({ edges, nodes, chains, chainOf, edgeOffset, isPinned, stat
     const convBy = new Map();
     for (const c of conv) for (const k of [c.ci + ':' + c.cj, c.cj + ':' + c.ci]) { let l = convBy.get(k); if (!l) convBy.set(k, l = []); l.push(c); }
     const out = [];
-    for (const E of edges) {
-      if (E.way.roundabout) continue;
-      const P = E.pts, S = cumS(P), L = S[S.length - 1];
-      const n = Math.max(1, Math.ceil(L / STEP));
-      let k = 1;
+    // sampled along each run of pieces joined at connector cuts as along the
+    // one edge it was without the connector (a lone edge: its own run)
+    for (const run of cuts.runs) {
+      if (run[0].way.roundabout) continue;
+      const Ss = run.map(e => cumS(e.pts)), Lr = Ss.reduce((a, S) => a + S[S.length - 1], 0);
+      const n = Math.max(1, Math.ceil(Lr / STEP));
+      let r = 0, off = 0, k = 1;
       for (let q = 0; q <= n; q++) {
-        const s = Math.min(L, q * L / n);
+        const sr = Math.min(Lr, q * Lr / n);
+        while (r < run.length - 1 && sr > off + Ss[r][Ss[r].length - 1]) { off += Ss[r][Ss[r].length - 1]; r++; k = 1; }
+        const E = run[r], P = E.pts, S = Ss[r], L = S[S.length - 1];
+        const s = Math.min(L, Math.max(0, sr - off));
         while (k < P.length - 1 && S[k] < s) k++;
         const segL = S[k] - S[k - 1] || 1, t = (s - S[k - 1]) / segL;
         const x = P[k - 1][0] + (P[k][0] - P[k - 1][0]) * t, z = P[k - 1][1] + (P[k][1] - P[k - 1][1]) * t;
@@ -1227,12 +1441,13 @@ function paraResolve({ edges, nodes, chains, chainOf, edgeOffset, isPinned, stat
             // same road, a junction arm) is no carriageway alongside
             const along = Math.abs((qx - x) * tx + (qz - z) * tz);
             if ((u <= 0 || u >= 1) && along > 1.0) continue;
-            const cur = best.get(fid);
-            if (!cur || d < cur.d) best.set(fid, { d, qx, qz, ux: dx / (Math.sqrt(L2) || 1), uz: dz / (Math.sqrt(L2) || 1), sF: sOfPt(F, j, u) });
+            const fk = cuts.runOf.get(F)[0].id;   // (a run of cut pieces is one F, as it was one edge)
+            const cur = best.get(fk);
+            if (!cur || d < cur.d) best.set(fk, { d, qx, qz, ux: dx / (Math.sqrt(L2) || 1), uz: dz / (Math.sqrt(L2) || 1), sF: sOfPt(F, j, u), F });
           }
         }
-        for (const [fid, b] of best) {
-          const F = edges[fid];
+        for (const [, b] of best) {
+          const F = b.F;
           if (Math.abs(tx * b.ux + tz * b.uz) < Math.cos(30 / DEG)) continue;    // not parallel
           if (b.d < 0.5) continue;                                              // they cross here
           const lx = -tz, lz = tx;                                              // E's left
@@ -1256,8 +1471,10 @@ function paraResolve({ edges, nodes, chains, chainOf, edgeOffset, isPinned, stat
           // A surface street's slip lane or median connector (a *_link below
           // trunk, under 200 m) is junction channelisation: an island between
           // it and the street, drawn by the junction cluster (WP-19).
-          const slip = e => e.way.link && e.way.rank < 4 && e.len < 200;
+          const slip = e => e.way.link && e.way.rank < 4 && runLen(e) < 200;
           if (!exempt && (slip(E) || slip(F))) exempt = true;
+          // a connector near the network node it meets (CONNECTOR PINS)
+          if (!exempt && ((E.way.connector && pinNear(E, x, z)) || (F.way.connector && pinNear(F, b.qx, b.qz)))) exempt = true;
           out.push({ E, s, x, z, u: (onLeft ? -1 : 1) * (deficit + 0.3) * sh, deficit, F, exempt, sh });
         }
       }
@@ -1348,6 +1565,13 @@ function paraResolve({ edges, nodes, chains, chainOf, edgeOffset, isPinned, stat
           for (let j = 0; j < nb; j++) U[j] *= SMOOTH(Math.abs(j * STEP - sAt) / (0.7 * c.R));
         }
       }
+      // a connector's push eased to nothing at the network nodes it meets (CONNECTOR PINS)
+      for (const n of pinsOf.get(ci) || []) for (let i = 0; i < chain.length; i++) {
+        const e = chain[i].e;
+        const sAt = e.a === n ? (chain[i].fwd ? s0[i] : s0[i] + e.len) : e.b === n ? (chain[i].fwd ? s0[i] + e.len : s0[i]) : -1;
+        if (sAt < 0) continue;
+        for (let j = 0; j < nb; j++) U[j] *= SMOOTH(Math.abs(j * STEP - sAt) / (0.7 * PIN_M));
+      }
       let umax = 0; for (let j = 0; j < nb; j++) umax = Math.max(umax, Math.abs(U[j]));
       // never past the chain's cap at any point, over all passes. The cap is
       // on the RIBBON's move off its OSM line: a TAPR offset that carries the
@@ -1383,6 +1607,25 @@ function paraResolve({ edges, nodes, chains, chainOf, edgeOffset, isPinned, stat
         const Pts = e.pts, S = cumS(Pts);
         const out = [Pts[0]];
         for (let k = 1; k < Pts.length; k++) {
+          // a segment ending at a carried cut (connectorCuts) is densified as
+          // the one segment it was without the connector, each point on its piece
+          const Lc = k === 1 ? carriedLeft(e) : null, Rc = k === Pts.length - 1 ? carriedRight(e) : null;
+          if (Lc || Rc) {
+            const A = Lc ? Lc.A : Pts[k - 1], B = Rc ? Rc.B : Pts[k];
+            const Lv = dist(A, B), m = Math.floor(Lv / STEP);
+            const a0 = Lc ? Lc.d : 0, a1 = a0 + (S[k] - S[k - 1]);
+            for (let q = 1; q < m; q++) {
+              const av = q * Lv / m;
+              if (av <= a0 || av >= a1) continue;           // the piece before's / after's part
+              const sl = S[k - 1] + (av - a0);
+              const sc = s0[i] + (fwd ? sl : e.len - sl);
+              if (Math.abs(Uat(sc - STEP) - Uat(sc + STEP)) < 1e-4) continue;
+              const t = q / m;
+              out.push([A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t]);
+            }
+            out.push(Pts[k]);
+            continue;
+          }
           const segL = S[k] - S[k - 1];
           const m = Math.floor(segL / STEP);
           for (let q = 1; q < m; q++) {
@@ -1421,6 +1664,7 @@ function paraResolve({ edges, nodes, chains, chainOf, edgeOffset, isPinned, stat
           newOuts[pi][pk] = np;
         }
       }
+      const connChain = !!chain[0].e.way.connector;
       chain.forEach(({ e }, i) => {
         const o = outs[i], m2 = newOuts[i];
         for (const [k, nd] of [[0, e.a], [o.length - 1, e.b]]) {
@@ -1429,7 +1673,14 @@ function paraResolve({ edges, nodes, chains, chainOf, edgeOffset, isPinned, stat
             const dd = [m2[k][0] - o[k][0], m2[k][1] - o[k][1]];
             ownDisp.set(key, dd);
             const cur = nodeDisp.get(nd) || [0, 0];
-            nodeDisp.set(nd, [cur[0] + dd[0], cur[1] + dd[1]]);
+            // CONNECTORS (gap audit, Docs/gap_audit.md): a connector pushed
+            // clear of a road does not carry a node it shares with the network
+            // - the network's end stays where its own chains put it, and the
+            // connector eases back onto it (below) - before this the network's
+            // end followed the connector: four ramps' ends 0.7-1.0 m off their
+            // OSM nodes, Yorkmont Road's 0.3 m
+            if (connChain && netAt[nd]) nodeDisp.set(nd, cur);
+            else nodeDisp.set(nd, [cur[0] + dd[0], cur[1] + dd[1]]);
           }
         }
         const moved2 = m2.slice();
