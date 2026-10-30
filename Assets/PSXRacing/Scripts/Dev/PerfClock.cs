@@ -30,6 +30,8 @@ namespace PSXRacing
             TreeStep, TreeUrgent, TreeStand, Signs,
             ProxyStep, ProxyRefresh, FarLand, FarTrees, FarPrefetch, FarLights, FarOther, Skyline, FadeTick,
             TrafficUpdate, TrafficFixed, LampField,
+            // (the late scripts that render a view of their own: CarReflections' paint faces, the HUD's minimap)
+            CarReflect, Minimap,
             COUNT
         }
 
@@ -39,6 +41,7 @@ namespace PSXRacing
             "tree step", "tree urgent", "tree stand", "signs",
             "proxy step", "proxy refresh", "far land", "far trees", "far prefetch", "far lights", "far other", "skyline", "fade tick",
             "traffic update", "traffic fixed", "lamp field",
+            "car reflections", "minimap",
         };
 
         static readonly double ToMs = 1000.0 / Stopwatch.Frequency;

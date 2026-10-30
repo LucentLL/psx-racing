@@ -20,6 +20,8 @@ import sys
 CITY_UPDATE = ["tile_step", "tile_finish", "tile_sync_build", "tile_stand-up", "tile_abandon", "tile_drop",
                "tree_step", "tree_urgent", "tree_stand", "signs", "proxy_step", "fade_tick"]
 CITY_LATE = ["proxy_refresh", "far_land", "far_trees", "far_prefetch", "far_lights", "far_other", "skyline"]
+# late scripts that render a view of their own (on the clock from city perf round 1's after builds)
+VIEW_LATE = ["car_reflections", "minimap"]
 
 
 def pct(s, q):
@@ -38,7 +40,7 @@ def f(row, k):
 
 def buckets(r):
     b = {}
-    for k in CITY_UPDATE + CITY_LATE:
+    for k in CITY_UPDATE + CITY_LATE + VIEW_LATE:
         b[k] = f(r, k)
     b["traffic_fixed"] = f(r, "traffic_fixed")
     b["lamp_field"] = f(r, "lamp_field")
@@ -46,7 +48,7 @@ def buckets(r):
     b["fixed_scripts"] = max(0.0, f(r, "fixs") - b["traffic_fixed"])
     b["fixed_other"] = max(0.0, f(r, "fix") - f(r, "phys") - f(r, "fixs"))
     b["update_scripts"] = max(0.0, f(r, "upd") - sum(b[k] for k in CITY_UPDATE))
-    b["late_scripts"] = max(0.0, f(r, "late") - sum(b[k] for k in CITY_LATE))
+    b["late_scripts"] = max(0.0, f(r, "late") - sum(b[k] for k in CITY_LATE + VIEW_LATE))
     b["render"] = max(0.0, f(r, "rend") - b["lamp_field"])
     b["ui"] = f(r, "ui")
     b["outside_loop"] = f(r, "out")

@@ -330,7 +330,9 @@ namespace PSXRacing
         {
             KeepLayer();
             if (!Application.isPlaying || car == null) return;
+            long pc = PerfClock.On ? PerfClock.Now() : 0;   // city perf round 1: on the perf clock
             Tick(Time.unscaledDeltaTime);
+            if (PerfClock.On) PerfClock.Add(PerfClock.Slot.Minimap, pc);
         }
 
         /// <summary>Tools only: lay the map out for the car where it stands
