@@ -346,6 +346,13 @@ namespace PSXRacing.EditorTools
                     var farR = MergedRenderer(root, "ShellFar", Pieces(shop, r => r == shell || r.name == "6twelve.003" || glassSlots.ContainsKey(r), Vector3.zero),
                                               texes, atlasMat, StationPrefabDir + "/StationShop_far.asset");
                     var lb = TransformedBounds(shop.ToLocal, sb);
+                    // the box's front at the glass, not at the fascia over the
+                    // entrance (no invisible wall under the overhang)
+                    if (frontDoor != null)
+                    {
+                        float glassZ = shop.ToLocal.MultiplyPoint3x4(frontDoor.bounds.center).z;
+                        if (glassZ > lb.min.z && glassZ < lb.center.z) lb.SetMinMax(new Vector3(lb.min.x, lb.min.y, glassZ), lb.max);
+                    }
                     AddBox(root, "ShopSolid", lb.center, lb.size, SolidLayer);
                     // the door marker: 1.4 m out from the front door, at eye height
                     float doorX = frontDoor != null ? shop.ToLocal.MultiplyPoint3x4(frontDoor.bounds.center).x : 0f;

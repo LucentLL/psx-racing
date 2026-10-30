@@ -387,7 +387,7 @@ namespace PSXRacing.City
             LastReport = $"{map.stations.Length} stations ({notPlaced} not placed), {paves} paved driveways/aisles, " +
                          $"{cuts} curb cuts ({refound} re-found{(cutsLost > 0 ? $", {cutsLost} with no road" : "")}), " +
                          $"{hidden} boxes replaced ({hideMissed} not found), {osmHoled} OSM lots holed ({islands} islands dropped), " +
-                         $"{bldHoles} buildings kept on forecourts, {clock.ElapsedMilliseconds} ms";
+                         $"{bldHoles} buildings kept on forecourts, table drift {tableOff}, {clock.ElapsedMilliseconds} ms";
             Debug.Log("[City] filling stations: " + LastReport);
             if (tableOff > 0)
                 Debug.LogError($"[City] filling stations: {tableOff} lots disagree with CityStations.Parts - the C# layout table has drifted from tools/city/stations.mjs layout()");
