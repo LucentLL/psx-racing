@@ -191,8 +191,10 @@ namespace PSXRacing.City
 
         /// <summary>Gantry: any overhead sign structure (the exit direction
         /// sign, an advance sign); Guide: a small freeway sign on breakaway
-        /// posts (the gore sign, the exit-speed advisory).</summary>
-        public enum Kind : byte { Bulletin, Poster, PoleSign, Gantry, Guide }
+        /// posts (the gore sign, the exit-speed advisory, a curve warning or a
+        /// chevron); Bridge (signs round 2): guide panels hung on the fascia of
+        /// an overpass on brackets - no ground, no legs of their own.</summary>
+        public enum Kind : byte { Bulletin, Poster, PoleSign, Gantry, Guide, Bridge }
 
         /// <summary>A face that shows to traffic: its centre, outward normal,
         /// size, and the driver it was turned to (on a carriageway, at eye
@@ -232,6 +234,10 @@ namespace PSXRacing.City
             public readonly List<(Vector3 centre, Vector3 size, float yawDeg)> posts = new List<(Vector3, Vector3, float)>();
             /// <summary>Floodlight heads, world (lamps at night).</summary>
             public readonly List<Vector3> lamps = new List<Vector3>();
+            /// <summary>(signs round 2) The guide signs' mercury-vapour
+            /// luminaires, world: halo dots only at night (they light their
+            /// panel, through its vertices, not the road).</summary>
+            public readonly List<Vector3> guideLamps = new List<Vector3>();
         }
 
         public class SignTile : Sink
@@ -290,15 +296,17 @@ namespace PSXRacing.City
             public int wireSteps;
             /// <summary>On breakaway posts (a guide sign at a gore or a ramp): may stand in a clear zone.</summary>
             public bool breakaway;
+            /// <summary>(signs round 2) A structure that carries another exit's advance panel drew it.</summary>
+            public bool extraDrawn;
             internal readonly List<BoxOp> ops = new List<BoxOp>();
             /// <summary>Its quads on the guide atlas (CitySigns.Guide).</summary>
             internal readonly List<GQuad> gquads = new List<GQuad>();
             /// <summary>Forget a placement that did not stand (its owner point kept).</summary>
             internal void Reset()
             {
-                faces.Clear(); posts.Clear(); lamps.Clear(); marks.Clear(); feet.Clear(); spans.Clear(); ops.Clear(); gquads.Clear();
+                faces.Clear(); posts.Clear(); lamps.Clear(); guideLamps.Clear(); marks.Clear(); feet.Clear(); spans.Clear(); ops.Clear(); gquads.Clear();
                 lo = Vector2.one * float.MaxValue; hi = Vector2.one * float.MinValue;
-                placed = false;
+                placed = false; extraDrawn = false;
                 var o = sign.owner; sign = default; sign.owner = o;
             }
             public Vector2 lo = Vector2.one * float.MaxValue, hi = Vector2.one * float.MinValue;
@@ -517,15 +525,17 @@ namespace PSXRacing.City
             st.faces.AddRange(pu.faces);
             st.posts.AddRange(pu.posts);
             st.lamps.AddRange(pu.lamps);
+            st.guideLamps.AddRange(pu.guideLamps);
             st.marks.AddRange(pu.marks);
             var sg = pu.sign;
             sg.firstFace = first;
             st.signs.Add(sg);
             foreach (var op in pu.ops) BoxNow(op.c, op.x, op.y, op.z, op.hx, op.hy, op.hz, op.front, op.sides, op.hasBack ? op.back : (RectInt?)null);
-            foreach (var q in pu.gquads) GQuadNow(q.a, q.b, q.c, q.d, q.n, q.ua, q.ub, q.uc, q.ud);
+            foreach (var q in pu.gquads) GQuadNow(q);
             switch (sg.kind)
             {
                 case Kind.Gantry: st.gantries++; break;
+                case Kind.Bridge: st.gantries++; break;
                 case Kind.Guide: st.guides++; break;
                 case Kind.Bulletin: st.bulletins++; break;
                 case Kind.Poster: st.posters++; break;
@@ -1548,7 +1558,7 @@ namespace PSXRacing.City
         static readonly List<Vector2> uvs = new List<Vector2>(4096);
         static readonly List<int> tris = new List<int>(8192);
 
-        static void Begin() { vs.Clear(); ns.Clear(); uvs.Clear(); tris.Clear(); gvs.Clear(); gns.Clear(); guvs.Clear(); gtris.Clear(); }
+        static void Begin() { vs.Clear(); ns.Clear(); uvs.Clear(); tris.Clear(); gvs.Clear(); gns.Clear(); guvs.Clear(); guv2s.Clear(); gLit = false; gLead = false; gtris.Clear(); }
 
         static Mesh End(Vector2 min)
         {

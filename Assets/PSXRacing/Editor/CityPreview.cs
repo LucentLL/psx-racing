@@ -1432,9 +1432,9 @@ namespace PSXRacing.EditorTools
             var log = new System.Text.StringBuilder();
             try
             {
-                foreach (var v in NamedViews)
+                foreach (var v in EyeViews())
                 {
-                    if (v.kind != ViewKind.Eye || !names.Contains(v.name)) continue;
+                    if (v.kind != ViewKind.Eye || (!names.Contains(v.name) && v.group != "looks")) continue;
                     // a ground view (coverage, 2026-10-06: a parking lot) stands on the lattice, no road
                     CityMap.Edge e = null; float s = 0f;
                     if (!v.ground && !SnapNamed(map, v.at, v.road, out e, out s)) { Debug.LogError($"[EyePlay] {v.name}: no road '{v.road}'"); continue; }
@@ -1452,18 +1452,43 @@ namespace PSXRacing.EditorTools
                                                         : eye + new Vector3(Mathf.Sin(h), 0f, Mathf.Cos(h)) * 60f + Vector3.down * 1.0f;
                     var rot = Quaternion.LookRotation(look - eye);
                     world.EnsureRing(eye, world.ring);
+                    // (signs round 2) PSX_EYE_SIGNS2_AB=1: each frame with round 1's
+                    // signs (_r1: every PSX_CITY_SIGNS2 switch off) and round 2's (_r2)
+                    bool abSigns = System.Environment.GetEnvironmentVariable("PSX_EYE_SIGNS2_AB") == "1";
+                    // (signs round 2, a diagnostic) PSX_EYE_GUIDEVARS: a ',' list of the
+                    // guide atlas's sampling to shoot each frame with - filter:aniso:bias
+                    // (trilinear:4:-0.4 is the import), or "noback" (no backing behind the mosaics)
+                    var guideVars = (System.Environment.GetEnvironmentVariable("PSX_EYE_GUIDEVARS") ?? "").Split(',');
+                    var gtex = CitySigns.GuideMaterial() != null ? CitySigns.GuideMaterial().mainTexture : null;
                     foreach (int hour in hours)
-                    {
-                        TimeOfDay.Apply(hour, sun);
-                        NightGlow.PreviewAll(hour >= TimeOfDay.Dusk);
-                        if (globals != null) globals.Apply();
-                        cam.transform.SetPositionAndRotation(eye, rot);
-                        world.RefreshSkyline(cam);
-                        float oldFov = cam.fieldOfView;
-                        if (v.lens > 0f) cam.fieldOfView = v.lens;
-                        PSXScreenshotTool.ShotAs(cam, $"eye_{v.name}_{TimeOfDay.All[hour].name.ToLowerInvariant()}", eye, rot);
-                        cam.fieldOfView = oldFov;
-                    }
+                        foreach (int ab in abSigns ? new[] { 0, 1 } : new[] { -1 })
+                            foreach (string gv in guideVars)
+                            {
+                                bool rebuild = ab >= 0;
+                                FilterMode keepF = gtex != null ? gtex.filterMode : FilterMode.Point; int keepA = gtex != null ? gtex.anisoLevel : 0; float keepB = gtex != null ? gtex.mipMapBias : 0f;
+                                if (gv == "noback") { CitySigns.DbgNoBacking = true; CitySigns.ClearCache(); rebuild = true; }
+                                else if (gv.Length > 0 && gtex != null)
+                                {
+                                    var f = gv.Split(':');
+                                    gtex.filterMode = f[0] == "point" ? FilterMode.Point : f[0] == "bilinear" ? FilterMode.Bilinear : FilterMode.Trilinear;
+                                    if (f.Length > 1) gtex.anisoLevel = int.Parse(f[1]);
+                                    if (f.Length > 2) gtex.mipMapBias = float.Parse(f[2], System.Globalization.CultureInfo.InvariantCulture);
+                                }
+                                if (ab >= 0) CitySigns.SetSigns2(ab == 1);
+                                if (rebuild) { world.DropAll(); world.EnsureRing(eye, world.ring); }
+                                TimeOfDay.Apply(hour, sun);
+                                NightGlow.PreviewAll(hour >= TimeOfDay.Dusk);
+                                if (globals != null) globals.Apply();
+                                cam.transform.SetPositionAndRotation(eye, rot);
+                                world.RefreshSkyline(cam);
+                                float oldFov = cam.fieldOfView;
+                                if (v.lens > 0f) cam.fieldOfView = v.lens;
+                                string vtag = gv.Length == 0 ? "" : "_v" + gv.Replace(":", "_").Replace("-", "m").Replace(".", "p");
+                                PSXScreenshotTool.ShotAs(cam, $"eye_{v.name}_{TimeOfDay.All[hour].name.ToLowerInvariant()}{(ab < 0 ? "" : ab == 0 ? "_r1" : "_r2")}{vtag}", eye, rot);
+                                cam.fieldOfView = oldFov;
+                                if (gv == "noback") { CitySigns.DbgNoBacking = false; CitySigns.ClearCache(); world.DropAll(); world.EnsureRing(eye, world.ring); }
+                                else if (gv.Length > 0 && gtex != null) { gtex.filterMode = keepF; gtex.anisoLevel = keepA; gtex.mipMapBias = keepB; }
+                            }
                     log.Append($"{v.name}: eye ({eye.x:0.0},{eye.y:0.00},{eye.z:0.0}) on {(e != null ? "e" + e.index + " '" + e.name + "'" : "the ground")}, tiles {world.LiveTiles}\n");
                     world.DropAll();
                 }
@@ -1561,6 +1586,27 @@ namespace PSXRacing.EditorTools
                 Object.DestroyImmediate(go);
             }
             Debug.Log("[EyePlay] " + log.ToString().Replace("\n", " | "));
+        }
+
+        /// <summary>The named views, plus (signs round 2) PSX_EYE_LOOKS: a ';'
+        /// list of name:x:z:road:lookX:lookZ:lens[:rise] - an eye on the road
+        /// nearest (x,z) looking at (lookX,lookZ) through a lens of that many
+        /// degrees, shot whenever it is set (group "looks").</summary>
+        static IEnumerable<NamedView> EyeViews()
+        {
+            foreach (var v in NamedViews) yield return v;
+            string s = System.Environment.GetEnvironmentVariable("PSX_EYE_LOOKS");
+            if (string.IsNullOrWhiteSpace(s)) yield break;
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            foreach (var item in s.Split(';'))
+            {
+                var f = item.Split(':');
+                if (f.Length < 7) continue;
+                var nv = new NamedView { name = f[0].Trim(), group = "looks", kind = ViewKind.Eye, at = new Vector2(float.Parse(f[1], ci), float.Parse(f[2], ci)),
+                                         road = f[3], lookAt = new Vector2(float.Parse(f[4], ci), float.Parse(f[5], ci)), fov = 60f, lens = float.Parse(f[6], ci), ring = 1, what = "look " + item };
+                if (f.Length >= 8) nv.rise = float.Parse(f[7], ci);
+                yield return nv;
+            }
         }
 
         static List<GameObject> BuildRing(CityMap map, CityMeshes.Trims trims,

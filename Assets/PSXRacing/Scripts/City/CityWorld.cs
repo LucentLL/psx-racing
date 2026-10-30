@@ -874,15 +874,19 @@ namespace PSXRacing.City
             // tile's street lamps: one NightGlow, one halo draw a tile
             int signLamps = st != null && st.mesh != null ? st.lamps.Count : 0;
             int poleHeads = pt != null ? pt.heads.Count : 0;
-            if (signLamps + poleHeads > 0)
+            // (signs round 2) the guide signs' mercury sign-lighting luminaires: halos only
+            int guideLamps = st != null && st.guideMesh != null ? st.guideLamps.Count : 0;
+            if (signLamps + poleHeads + guideLamps > 0)
             {
-                var heads = new List<Vector3>(job.tm.lamps.Count + signLamps + poleHeads);
+                var heads = new List<Vector3>(job.tm.lamps.Count + signLamps + poleHeads + guideLamps);
                 var gains = new List<float>(heads.Capacity);
                 var mercs = new List<bool>(heads.Capacity);   // the 1990s city: mercury heads by street
                 foreach (var l in job.tm.lamps) { heads.Add(job.tm.origin + l.head); gains.Add(LampGain(l)); mercs.Add(l.mercury); }
                 foreach (var h in job.tm.mastHeads) { heads.Add(job.tm.origin + h); gains.Add(MastLightGain); mercs.Add(false); }
                 if (signLamps > 0) { heads.AddRange(st.lamps); for (int k = 0; k < signLamps; k++) { gains.Add(1f); mercs.Add(false); } }
                 if (poleHeads > 0) { heads.AddRange(pt.heads); for (int k = 0; k < poleHeads; k++) { gains.Add(1f); mercs.Add(k < pt.headMercury.Count && pt.headMercury[k]); } }
+                int lampHeads = heads.Count;
+                if (guideLamps > 0) { heads.AddRange(st.guideLamps); for (int k = 0; k < guideLamps; k++) { gains.Add(GuideLampHalo); mercs.Add(true); } }
                 var lt = tile.go.transform.Find("LampLights");
                 GameObject lights = lt != null ? lt.gameObject : null;
                 if (lights == null)
@@ -893,7 +897,7 @@ namespace PSXRacing.City
                 var glow = lights.GetComponent<NightGlow>();
                 if (glow == null) glow = lights.AddComponent<NightGlow>();
                 glow.cityField = true;
-                glow.Init(heads, gains, mercs);
+                glow.Init(heads, gains, mercs, lampHeads);
             }
             // city-popin: the tree frame (trees, poles, signals, signs) fades in
             // of its own, unless a car is in the tile
@@ -1461,6 +1465,10 @@ namespace PSXRacing.City
         /// <summary>One flood of a high mast's ring (the bridges pass): six of
         /// them stand over one foot, so each throws a share.</summary>
         const float MastLightGain = 0.45f;
+        /// <summary>(signs round 2) A guide sign's luminaire as a halo: a 175 W
+        /// sign light is a fraction of a cobra-head (NightGlow.HaloSizeFor: a
+        /// little over half the size).</summary>
+        const float GuideLampHalo = 0.2f;
 
         /// <summary>A lamp post collider's square side: the drawn post's own
         /// (a cobra-head's 0.26 m, an acorn's 0.14 m). It was 0.3 m for both,

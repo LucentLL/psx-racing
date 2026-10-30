@@ -66,7 +66,7 @@
 // All OSM-derived data (c) OpenStreetMap contributors, ODbL 1.0.
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { brotliCompressSync, constants as Z } from 'node:zlib';
 import { demLattice, LAT0, LON0, M_LAT, M_LON } from './lib/canopygrid.mjs';
@@ -74,7 +74,8 @@ import { parseCity } from './lib/citydata.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RES = join(HERE, '..', '..', 'Assets', 'PSXRacing', 'Resources');
-const CACHE = join(HERE, 'cache');
+// a worktree points at main's cache with PSX_CITY_CACHE, as export_osm.mjs does
+const CACHE = process.env.PSX_CITY_CACHE ? resolve(process.env.PSX_CITY_CACHE) : join(HERE, 'cache');
 const args = process.argv.slice(2);
 const oi = args.indexOf('--out');
 const outDir = oi >= 0 ? args[oi + 1] : null;

@@ -274,7 +274,19 @@ namespace PSXRacing.EditorTools
                 Log("WARN: " + tex + " missing (py tools/city/guide_atlas.py) - Charlotte's freeway guide signs will not draw.");
                 return null;
             }
-            return MakeMat("CityGuide", tex, affine: 0f);
+            var mat = MakeMat("CityGuide", tex, affine: 0f);
+            // (signs round 2) the overhead panels LIT at night by their 1990s
+            // mercury-vapour luminaires: each vertex's share in UV2 (CitySigns),
+            // the lamps' white-green (StreetLights.Mercury); a mesh with no UV2
+            // (ground signs, PSX_CITY_SIGNS2_NIGHT=0) stays retroreflective only
+            if (mat != null && mat.HasProperty("_NightVtx"))
+            {
+                mat.SetFloat("_NightVtx", 1f);
+                mat.SetColor("_NightTint", StreetLights.Mercury);
+                EditorUtility.SetDirty(mat);
+            }
+            else if (mat != null) Log("WARN: PSX/Lit has no _NightVtx - the guide signs stay unlit at night.");
+            return mat;
         }
 
         /// <summary>

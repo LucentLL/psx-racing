@@ -41,5 +41,11 @@ namespace PSXRacing.City
         public static readonly RectInt Galv = new RectInt(0, 448, 64, 64);
         public static readonly RectInt Alum = new RectInt(64, 448, 64, 64);
         public static readonly RectInt Concrete = new RectInt(128, 448, 64, 64);
+        public static readonly RectInt W1Turn = new RectInt(432, 201, 96, 96);
+        public static readonly RectInt W1Curve = new RectInt(534, 201, 96, 96);
+        public static readonly RectInt W1RevTurn = new RectInt(636, 201, 96, 96);
+        public static readonly RectInt W1RevCurve = new RectInt(738, 201, 96, 96);
+        public static readonly RectInt ArrowDownBlack = new RectInt(856, 374, 34, 59);
+        public static readonly RectInt Chevron = new RectInt(896, 374, 48, 59);
     }
 }
