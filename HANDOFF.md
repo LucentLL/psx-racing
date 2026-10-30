@@ -1,3 +1,14 @@
+# HANDOFF - REAL HEIGHTS round 11 (2026-10-30): the city-wide launches by class; round 10's leftovers
+
+**IN PROGRESS (02:30): the final gate runs on PSXLab (r11gate.ps1 -Tag after, code = commit beb0d7a3); then the traffic
+check, the OFF/ON shots, the sheet, the write-up.** Branch `real-heights-r11` (worktree `C:\Users\mcgee\PSX Racing-heights11`,
+off integration-1029e 4827fa53), sandbox `C:\Users\mcgee\PSXLab`. No city data regenerated (code only; exporter untouched).
+Done so far (A/B on one load, the gate's uniform sampling): launches city-wide 99 -> 87 with the round-11 rules (19 fixed,
+1 new; routes 0/0 kept), unloads 401 -> 373; STREETSEAT tested and left OFF (87 -> 89, grades past 16% 3 -> 4). Rules
+(each `PSX_CITY_R11_<NAME>=0` the before): CLIMBC1, CRESTCAP, SPILLUNDER (solve); GOREFAN, MITREPOKE, GORESTART, SKIRTPAVE,
+INNERMAJOR (tile); audit: INVISIBLE ceiling probe skips a lane surface under a drawn ground sheet (PSX_INVIS_SHEET=0 before).
+Left: the gate numbers, traffic check, shots + sheet (Docs/shots/heights11/), CHARLOTTE.md "REAL HEIGHTS - round 11".
+
 # HANDOFF - REAL HEIGHTS round 10 (2026-10-29): the 1'47" box at last; the drive audit's last drivability defects
 
 Branch `real-heights-r10` (worktree `C:\Users\mcgee\PSX Racing-medians10`, off integration-1029c f96586ce = main 1f9ace37 +
