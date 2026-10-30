@@ -511,8 +511,19 @@ namespace PSXRacing.City
             var r2 = new Vector2(r3.x, r3.z);
             // the legend (the exit direction sign; an advance sign's distance)
             bool advance = site.kind == GuideKind.Advance;
-            int dropHere = S2ExitOnly ? ex.dropped : 0;
-            var panel = ExitLegend(ex, advance ? site.miles : 0f, !advance, dropHere, null);
+            // a lane drop's EXIT ONLY panel as Overhead lays it: the dropped lanes
+            // this station has; on an advance sign a down arrow over each of them
+            int dropHere = 0; List<float> dropXs = null;
+            if (S2ExitOnly && ex.dropped > 0)
+            {
+                dropHere = Mathf.Clamp(ex.dropped - Mathf.Max(0, LanesOn(map.edges[site.exitEdge]) - LanesOn(ce)), 0, Mathf.Min(ex.dropped, total - 1));
+                if (advance && dropHere > 0)
+                {
+                    dropXs = new List<float>();
+                    for (int i = 0; i < dropHere; i++) dropXs.Add(LaneX(ex.left ? i : total - 1 - i) - exitMid);
+                }
+            }
+            var panel = ExitLegend(ex, advance ? site.miles : 0f, !advance, dropHere, dropXs);
             var tab = string.IsNullOrEmpty(ex.data.number) && !ex.left ? null : TabLegend(ex);
             // where the exit lanes' middle meets the fascia (along the traffic)
             var Pm = leftEdge + right * exitMid;
