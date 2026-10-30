@@ -823,6 +823,12 @@ namespace PSXRacing.City
             public Mesh mesh, lamps, halos;
             /// <summary>Signal poles (solid), world: foot and top.</summary>
             public readonly List<(Vector3 foot, float top)> poles = new List<(Vector3, float)>();
+            /// <summary>Round 3e: the pedestals' colliders as their posts are drawn (a post-mounted
+            /// head's 0.115 m post and its 0.34 m cast base, turned to face the approach): world
+            /// centre, size (x across, y up, z along the face) and the face's yaw. A pole of
+            /// <see cref="poles"/> with an entry here gets these instead of the pole's box.</summary>
+            public readonly List<(Vector3 centre, Vector3 size, float yaw)> postBoxes = new List<(Vector3, Vector3, float)>();
+            public readonly HashSet<int> postPoles = new HashSet<int>();
             public readonly List<Head> heads = new List<Head>();
             public readonly List<Stop> stops = new List<Stop>();
             public int junctions, signalJunctions, mastArms, spanWires, stopBars, refused;
@@ -1393,7 +1399,14 @@ namespace PSXRacing.City
             Box(new Vector3(foot.x, (y0 + b1) * 0.5f, foot.y), across * (SigBaseW * 0.5f), Vector3.up * ((b1 - y0) * 0.5f), face * (SigBaseW * 0.5f), CellMetal, true);
             // the slip fitter under the housing
             Box(new Vector3(foot.x, bottom - 0.05f, foot.y), across * 0.06f, Vector3.up * 0.05f, face * 0.06f, CellBlack, false);
+            // (round 3e) its collider is the post and the base as they are drawn - not a signal
+            // pole's 0.36 m box round a 0.115 m post, 12 cm of it in the air with no drawn face
+            // (integration-1030b's drive audit: 690 CityPost colliders BARE, solids 124 -> 2884)
+            st.postPoles.Add(st.poles.Count);
             st.poles.Add((new Vector3(foot.x, y0, foot.y), y1));
+            float yaw = Mathf.Atan2(face.x, face.z) * Mathf.Rad2Deg;
+            st.postBoxes.Add((new Vector3(foot.x, (y0 + y1) * 0.5f, foot.y), new Vector3(SigPostW + 0.04f, y1 - y0, SigPostW + 0.04f), yaw));
+            st.postBoxes.Add((new Vector3(foot.x, (y0 + b1) * 0.5f, foot.y), new Vector3(SigBaseW + 0.02f, b1 - y0, SigBaseW + 0.02f), yaw));
             Claim(foot, SigBaseW * 0.5f);
             EmitHead(new Vector3(foot.x, bottom + HeadH * 0.5f, foot.y), a, st);
         }
@@ -1981,11 +1994,22 @@ namespace PSXRacing.City
                 var c = new GameObject(CitySigns.PostName) { layer = CityWorld.SolidLayer };
                 c.transform.SetParent(root.transform, false);
                 var origin = root.transform.position;
-                foreach (var (foot, top) in st.poles)
+                for (int i = 0; i < st.poles.Count; i++)
                 {
+                    if (st.postPoles.Contains(i)) continue;   // a pedestal: its own boxes below
+                    var (foot, top) = st.poles[i];
                     var bc = c.AddComponent<BoxCollider>();
                     bc.center = new Vector3(foot.x, (foot.y + top) * 0.5f, foot.z) - origin;
                     bc.size = new Vector3(PoleColliderW, top - foot.y, PoleColliderW);
+                }
+                // round 3e: each pedestal's post and base, turned as they are drawn
+                foreach (var (centre, size, yaw) in st.postBoxes)
+                {
+                    var g = new GameObject(CitySigns.PostName) { layer = CityWorld.SolidLayer };
+                    g.transform.SetParent(c.transform, false);
+                    g.transform.position = centre;
+                    g.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+                    g.AddComponent<BoxCollider>().size = size;
                 }
             }
             return meshes;

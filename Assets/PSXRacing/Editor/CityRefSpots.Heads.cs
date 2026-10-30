@@ -151,6 +151,21 @@ namespace PSXRacing.EditorTools
                         log.AppendLine($"  FEWER junction {j.id} at ({j.centre.x:0}, {j.centre.y:0}) approach {kv.Key.a} e{a.edge} '{map.edges[a.edge].name}' lanes {a.lanesIn}: in view {kv.Value} -> {after} (facing it anywhere {tb} -> {ta}); carried by {HowName(hb)} -> {HowName(ha)}");
                     }
                     CitySignals.DiagNoHead = false;
+                    // round 3e: every approach's heads (PSX_HEADS_DUMP = a CSV path) - two runs
+                    // (two code bases, one sandbox and data) compared approach by approach
+                    var dump = System.Environment.GetEnvironmentVariable("PSX_HEADS_DUMP");
+                    if (!string.IsNullOrEmpty(dump))
+                    {
+                        var csv = new StringBuilder("junction,approach,edge,node,inview_before,inview_after,total_before,total_after\n");
+                        foreach (var kv in census[true].by.OrderBy(kv => kv.Key.j).ThenBy(kv => kv.Key.a))
+                        {
+                            var a = all[kv.Key.j].approaches[kv.Key.a];
+                            census[false].by.TryGetValue(kv.Key, out int vb);
+                            census[false].total.TryGetValue(kv.Key, out int tb); census[true].total.TryGetValue(kv.Key, out int ta);
+                            csv.Append($"{kv.Key.j},{kv.Key.a},{a.edge},{a.node},{vb},{kv.Value},{tb},{ta}\n");
+                        }
+                        File.WriteAllText(dump, csv.ToString());
+                    }
                     log.AppendLine($"WHY NONE (each approach left with no head in view: what stands on its view's feet): {census[true].diag.Count}");
                     foreach (var line in census[true].diag) log.AppendLine("  " + line);
                 }

@@ -257,6 +257,8 @@ namespace PSXRacing.City
             public float vDesCached;
             /// <summary>The next Extend keeps the lane it is in (a replan).</summary>
             public bool keepLane;
+            /// <summary>Round 3e: the run (key) on which it gave up a fork's branch its lane does not serve.</summary>
+            public int forkMissKey = -1;
             /// <summary>Near a node the junction trace watches (a tool: PSX_TRAFFIC_TRACE).</summary>
             public bool traced;
             /// <summary>Round 3c: the junction box it is in (boxJ) and since when - of
@@ -269,6 +271,11 @@ namespace PSXRacing.City
             public int lockWith = -1, backedFor = -1, convergeNoted = -1;
             public float lockSince, backed, creepLeft;
             public Car backFor, creepPast;
+            /// <summary>Round 3e: the car it backed out of the way of, where that one stood, and
+            /// until when it holds back for it (it never drives back into the body it backed off).</summary>
+            public Car holdFor;
+            public Vector2 holdAt;
+            public float holdUntil;
             public float gap;
             public bool leaderInLane;
             public float leaderV;
@@ -364,32 +371,41 @@ namespace PSXRacing.City
             LineModel.Extents(e2, sB, out float eM, out float eP);
             int mask = ~((1 << 2) | roadMask);
             int nIn = Lanes(eIn, dir), nOut = Lanes(eOut, dir2);
+            // (round 3e) the moves as Extend lays them (LayMove), and every other move of this
+            // approach whose arc crosses each one's (a crossing pair is a conflict, not nothing)
+            var others = new List<Move>(32);
+            MovesOf(e, dir, others);
+            bool anyMain = AnyMainline(e, dir, node);
+            TurnOnlyLanes(e, dir, node, out int lo, out int ro);
+            NodeTurns(e, dir, node, out bool hl, out bool hr);
+            var fu = ForkLanesOn ? ForkOf(e, dir) : null;
+            if (fu != null) sb.AppendLine("  a FORK (lane use by side, round 3e), leftmost branch first: " + ForkText(fu));
             for (int lane = 0; lane < nIn; lane++)
             {
-                int req, outLane;
-                float aAbs = Mathf.Abs(ang);
-                TurnOnlyLanes(e, dir, node, out int lo, out int ro);
-                NodeTurns(e, dir, node, out bool hl, out bool hr);
-                if (aAbs >= 35f && aAbs <= 150f) TurnLane(ang > 0f ? (lo != 0 ? lo : 1 << (nIn - 1)) : (ro != 0 ? ro : 1), lane, nIn, nOut, ang > 0f, out req, out outLane);
-                else MapStraight(e, dir, sA, e2, dir2, sB, lane, node, StraightAvoid(lo, ro, hl, hr, nIn), out req, out outLane);
-                var T = new Leg();
-                Shape(ref T, LanePos(e, dir, req, sA), TravelTan(e, dir, sA), LanePos(e2, dir2, outLane, sB), TravelTan(e2, dir2, sB));
+                LayMove(e, dir, node, e2, dir2, ang, anyMain, dir > 0 ? 0f : e.length, EndS(e, dir), lane, lo, ro, hl, hr,
+                        out sbyte mk, out bool mx, out bool mm, out float mA, out float mB, out int req, out int outLane);
+                var T = new Leg { turn = true, edge = eIn, dir = (sbyte)dir, edge2 = eOut, dir2 = (sbyte)dir2, node = node, laneIn = req, laneOut = outLane, kind = mk, exit = mx, merge = mm, sA = mA, sB = mB };
+                ShapeTurn(ref T);
+                var me = new Move { e2 = eOut, dir2 = dir2, req = req, outLane = outLane, kind = mk, T = T };
+                var cross = new System.Text.StringBuilder();
+                foreach (var om in others)
+                    if (MovesCross(me, om, out float at)) cross.Append($" | MEETS lane {om.req}'s way to e{om.e2} lane {om.outLane} ({MoveName(om.kind, om.T.exit, om.T.merge)}) at {at * 100f:0}% of this arc");
                 var hits = new System.Text.StringBuilder();
                 var seen = new HashSet<Collider>();
                 for (int i = 0; i <= 28; i++)
                 {
                     Vector2 p; float y;
-                    if (i <= 16) { p = Bez(T, i / 16f, out _); y = Mathf.Lerp(e.YAt(sA), e2.YAt(sB), i / 16f); }
+                    if (i <= 16) { p = Bez(T, i / 16f, out _); y = Mathf.Lerp(e.YAt(mA), e2.YAt(mB), i / 16f); }
                     else
                     {
-                        float s = Mathf.Clamp(sB + dir2 * (i - 16) * 2f, 0f, e2.length);
+                        float s = Mathf.Clamp(mB + dir2 * (i - 16) * 2f, 0f, e2.length);
                         p = LanePos(e2, dir2, outLane, s); y = e2.YAt(s);
                     }
                     foreach (var col in Physics.OverlapBox(new Vector3(p.x, y + 0.9f, p.y), new Vector3(0.9f, 0.6f, 0.9f), Quaternion.identity, mask, QueryTriggerInteraction.Ignore))
                         if (seen.Add(col)) hits.Append($" | {col.name} ({LayerMask.LayerToName(col.gameObject.layer)}) {(i <= 16 ? "turn " + (i * 100 / 16) + "%" : "run +" + ((i - 16) * 2) + " m")} at ({p.x:0.0},{p.y:0.0})");
                 }
-                sb.AppendLine($"  lane {lane}: from lane {req} to lane {outLane} of {nOut}; ends lat {LaneLat(e, dir, req, sA):0.00} -> {LaneLat(e2, dir2, outLane, sB):0.00} " +
-                              $"(out pavement -{eM:0.0}..+{eP:0.0}, divider {LineModel.DividerLat(e2):0.0}), path {T.len:0.0} m{(hits.Length > 0 ? hits.ToString() : " | meets nothing")}");
+                sb.AppendLine($"  lane {lane}: from lane {req} to lane {outLane} of {nOut} ({MoveName(mk, mx, mm)}); ends lat {LaneLat(e, dir, req, mA):0.00} -> {LaneLat(e2, dir2, outLane, mB):0.00} " +
+                              $"(out pavement -{eM:0.0}..+{eP:0.0}, divider {LineModel.DividerLat(e2):0.0}), path {T.len:0.0} m{(hits.Length > 0 ? hits.ToString() : " | meets no collider")}{(cross.Length > 0 ? cross.ToString() : " | meets no other lane's way")}");
             }
             return sb.ToString();
         }
@@ -957,48 +973,19 @@ namespace PSXRacing.City
                 (e2i, dir2, _, angle) = options[pick];
                 e2 = map.edges[e2i];
 
-                float aAbs = Mathf.Abs(angle);
-                kind = e2i == e.index || aAbs > 150f ? (sbyte)2 : aAbs < 35f ? (sbyte)0 : angle > 0f ? (sbyte)-1 : (sbyte)1;
-                exit = kind == 0 && !e.link && e2.link && anyMainline && e.cls >= 4;
-                merge = kind == 0 && e.link && !e2.link && e2.cls >= 4;
-                // A RAMP WHOSE LANES RUN ON (road-logic lanes): where OSM adds
-                // the ramp's lanes to the road it joins (I-485's six lanes past
-                // the ramp at node 3697: three and three), or the lanes that
-                // leave with an exit are the road's own (an exit-only lane),
-                // it is no merge - every lane runs straight on and nobody
-                // changes lanes. Before, all three ramp lanes funnelled into
-                // the kerb lane: forced lane changes, merges begun from the
-                // wrong lane, the heading snapping where the arc met lane 0.
-                if ((merge || exit) && RampLanesRunOn(e, dir, e2, dir2, n, merge)) merge = exit = false;
-
-                // where the turn starts and ends: the junction's mouths, or a
-                // long run through a freeway merge or diverge
-                sA = last.s1;
-                if (merge) sA = dir > 0 ? e.length - ZoneBack(e, dir) : ZoneBack(e, dir);
-                if (exit) sA = dir > 0 ? Mathf.Max(e.length - 25f, e.length * 0.4f) : Mathf.Min(25f, e.length * 0.6f);
-                if (merge) sB = dir2 > 0 ? Mathf.Min(25f, e2.length * 0.6f) : Mathf.Max(e2.length - 25f, e2.length * 0.4f);
-                else if (exit) sB = dir2 > 0 ? ZoneBack(e2, -dir2) : e2.length - ZoneBack(e2, -dir2);
-                else sB = dir2 > 0 ? Back(e2, n) : e2.length - Back(e2, n);
-                // never behind where the run started
-                if ((sA - last.s0) * dir < 0f) sA = last.s0;
-
-                // the lanes: the kerb lane to turn right, the inside lane to
-                // turn left - or, where turn:lanes marks them, any of the
-                // turn's own lanes (a double left: the one nearest) - the lane
-                // that runs on going straight (one that ends merges; never a
-                // lane marked for a turn this node has)
-                int nIn = Lanes(e.index, dir), nOut = Lanes(e2i, dir2);
-                bool rampRight = exit ? RampOnRight(e2, dir2, n, TravelTan(e, dir, dir > 0 ? e.length : 0f), angle <= 0f) : angle <= 0f;
-                if (kind == 1) TurnLane(rightOnly != 0 ? rightOnly : 1, refLane, nIn, nOut, false, out req, out outLane);
-                else if (kind == -1) TurnLane(leftOnly != 0 ? leftOnly : 1 << (nIn - 1), refLane, nIn, nOut, true, out req, out outLane);
-                else if (kind == 2) { req = nIn - 1; outLane = nOut - 1; }
-                else if (exit) { req = rampRight ? 0 : nIn - 1; outLane = rampRight ? 0 : nOut - 1; }
-                else if (merge)
-                {
-                    bool fromRight = RampOnRight(e, dir, n, TravelTan(e2, dir2, dir2 > 0 ? 0f : e2.length), angle >= 0f);
-                    req = fromRight ? 0 : nIn - 1; outLane = fromRight ? 0 : nOut - 1;
-                }
-                else MapStraight(e, dir, sA, e2, dir2, sB, refLane, n, StraightAvoid(leftOnly, rightOnly, hasLeft, hasRight, nIn), out req, out outLane);
+                // THE MOVE (round 3e: CityTraffic.Forks.LayMove, shared with the turn probe and
+                // the census's crossing audit): its kind; a freeway exit or merge - or A RAMP
+                // WHOSE LANES RUN ON (road-logic lanes: where OSM adds the ramp's lanes to the
+                // road it joins, I-485's six lanes past the ramp at node 3697, or the lanes that
+                // leave with an exit are the road's own, it is no merge - every lane runs
+                // straight on; before, all three ramp lanes funnelled into the kerb lane); where
+                // its turn starts and ends (the junction's mouths, or a long run through a
+                // freeway merge or diverge); and its lanes - the kerb lane to turn right, the
+                // inside lane to turn left, or where turn:lanes marks them any of the turn's own
+                // lanes, the lane that runs on going straight (one that ends merges; never a
+                // lane marked for a turn this node has; at a fork a lane of the branch's side)
+                LayMove(e, dir, n, e2, dir2, angle, anyMainline, last.s0, last.s1, refLane, leftOnly, rightOnly, hasLeft, hasRight,
+                        out kind, out exit, out merge, out sA, out sB, out req, out outLane);
                 // A REPLAN (the lane change its turn needed never found a gap):
                 // only a way on from the lane it is in
                 if (!c.keepLane || li != 0 || req == refLane || attempt >= options.Count) break;
@@ -1317,9 +1304,11 @@ namespace PSXRacing.City
                 int avoid = StraightAvoid(lo, ro, hl, hr, nIn);
                 int pIn = li - 2 == 0 ? c.lane : P.laneIn;
                 int bi = -1, bj = -1; float bs = float.MaxValue;
+                // (round 3e: a fork's branch from a lane of its side only)
+                int forkOk = ForkAllow(e, T.dir, T.node, T.edge2, T.dir2);
                 for (int i = 0; i < nIn; i++)
                 {
-                    if ((avoid & (1 << i)) != 0 || LaneWidth(e, T.dir, i, T.sA) < 2f) continue;
+                    if ((avoid & (1 << i)) != 0 || (forkOk & (1 << i)) == 0 || LaneWidth(e, T.dir, i, T.sA) < 2f) continue;
                     for (int j = 0; j < nOut; j++)
                     {
                         if (LaneWidth(e2, T.dir2, j, T.sB) < 2f) continue;
@@ -1413,22 +1402,65 @@ namespace PSXRacing.City
             int nIn = Lanes(e.index, dir), nOut = Lanes(e2.index, dir2);
             refLane = Mathf.Clamp(refLane, 0, nIn - 1);
             req = refLane; outLane = Mathf.Clamp(refLane, 0, nOut - 1);
-            float bestScore = float.MaxValue;
-            for (int i = 0; i < nIn; i++)
+            // ROUND 3e: AT A FORK the lanes by side (CityTraffic.Forks: the left lanes to the
+            // left branch, the right lanes to the right one, an option lane where the counts
+            // need it) - an allotted lane takes its branch however its lane lies; and the lanes
+            // that run on keep their order (two lanes never swap across a box)
+            int allow = ForkAllow(e, dir, node, e2.index, dir2);
+            bool fork = allow != (1 << nIn) - 1;
+            int nm = Mathf.Min(nIn, MapJ.Length);
+            for (int i = 0; i < nm; i++)
             {
+                MapJ[i] = -1; MapD[i] = float.MaxValue;
                 if (LaneWidth(e, dir, i, sA) < 2f) continue;          // a lane its taper ends
-                int bj = 0; float bd = float.MaxValue;
                 for (int j = 0; j < nOut; j++)
                 {
                     if (LaneWidth(e2, dir2, j, sB) < 2f) continue;    // a lane not yet opened
                     float d = LaneJump(e, dir, i, sA, e2, dir2, j, sB, node);
-                    if (d < bd) { bd = d; bj = j; }
+                    if (d < MapD[i]) { MapD[i] = d; MapJ[i] = j; }
                 }
-                if (bd > 2.0f) continue;
-                float score = Mathf.Abs(i - refLane) * 10f + bd + ((avoid & (1 << i)) != 0 ? 1000f : 0f);
+                if (MapJ[i] < 0) continue;
+                bool mine = (allow & (1 << i)) != 0;
+                if (fork && !mine) MapJ[i] = -2;                       // the other side's lane: last resort
+                else if (MapD[i] > 2.0f && !(fork && mine)) MapJ[i] = -1;
+            }
+            if (ForkLanesOn)
+            {
+                int prev = -1;
+                for (int i = 0; i < nm; i++)
+                {
+                    if (MapJ[i] < 0) continue;
+                    if (MapJ[i] < prev) { MapJ[i] = prev; MapD[i] = LaneJump(e, dir, i, sA, e2, dir2, prev, sB, node); }
+                    prev = MapJ[i];
+                }
+            }
+            float bestScore = float.MaxValue;
+            for (int i = 0; i < nm; i++)
+            {
+                int bj = MapJ[i];
+                if (bj == -2)
+                {
+                    // a lane of the other side of a fork: only where no lane of this side runs on
+                    // (round 3e; the census's crossing audit counts what that leaves)
+                    bj = 0; float bd2 = float.MaxValue;
+                    for (int j = 0; j < nOut; j++)
+                    {
+                        if (LaneWidth(e2, dir2, j, sB) < 2f) continue;
+                        float d = LaneJump(e, dir, i, sA, e2, dir2, j, sB, node);
+                        if (d < bd2) { bd2 = d; bj = j; }
+                    }
+                    if (bd2 > 2.0f) continue;
+                    float sc2 = 5000f + Mathf.Abs(i - refLane) * 10f + bd2;
+                    if (sc2 < bestScore) { bestScore = sc2; req = i; outLane = bj; }
+                    continue;
+                }
+                if (bj < 0) continue;
+                float score = Mathf.Abs(i - refLane) * 10f + Mathf.Min(MapD[i], 9f) + ((avoid & (1 << i)) != 0 ? 1000f : 0f);
                 if (score < bestScore) { bestScore = score; req = i; outLane = bj; }
             }
         }
+        static readonly int[] MapJ = new int[8];
+        static readonly float[] MapD = new float[8];
 
         // ======================================================================
         //  The loop
@@ -1458,9 +1490,12 @@ namespace PSXRacing.City
                 var c = live[i];
                 if (c.wrecked)
                 {
-                    // where physics has it now: an obstacle for the rest
+                    // where physics has it now: an obstacle for the rest (round 3e: and which way
+                    // it lies - a wreck's body is braked for where it is, SweptHit in LeaderGap)
                     var wp = c.rb.position;
                     c.pos = new Vector2(wp.x, wp.z);
+                    var wf = c.rb.rotation * Vector3.forward;
+                    if (wf.x * wf.x + wf.z * wf.z > 1e-4f) c.fwd = new Vector2(wf.x, wf.z).normalized;
                     SpinWheels(c, Vector3.Dot(c.rb.linearVelocity, c.go.transform.forward), dt);
                     continue;
                 }
@@ -1599,11 +1634,23 @@ namespace PSXRacing.City
                 // in the next lane's car (the traffic check's wreck on e16794)
                 float shut = LaneShutAhead(c, ref L0, Mathf.Min(rem, 70f));
                 if (shut < rem) rem = shut + 6f - 2f;
-                if (rem < 40f && !trims.Internal(L0.edge) && map.edges[L0.edge].length >= 20f)
+                bool waitable = !trims.Internal(L0.edge) && map.edges[L0.edge].length >= 20f;
+                if (rem < 40f && waitable)
                 {
                     float hold = rem - c.halfL - 6f + StopS0;
                     if (hold < gap) { gap = Mathf.Max(0.05f, hold); vL = 0f; why = 21; }
                     if (c.mandAt < 0f && c.speed < 0.5f) c.mandAt = Time.time;
+                }
+                // ROUND 3e: A FORK'S BRANCH ITS LANE DOES NOT SERVE, on a piece with no lane wait (a
+                // short or internal run) and no room left to change at its speed: it takes the
+                // branch its own lane serves (a missed branch) - never a cut across the other lane's
+                // way in the box (node 706: c4 from lane 0 into the ramp on the left, 12 m of West
+                // 12th Street after North Church Street to get over in). Once a run.
+                else if (!waitable && c.forkMissKey != L0.key && c.legs[1].turn && ForkBranch(c.legs[1]) && !ForkServes(c.legs[1], c.lane) &&
+                         L0.len - c.u - 4f < Mathf.Max(c.speed, 3f) * MinChangeS)
+                {
+                    c.forkMissKey = L0.key;
+                    Replan(c, "its lane does not serve that branch of the fork and this piece leaves no room to change");
                 }
             }
             else c.mandAt = -1f;
@@ -1619,7 +1666,15 @@ namespace PSXRacing.City
                 var ob = c.backFor;
                 bool apart = !PathHits(ob, c) && RectDepth(c.pos, c.fwd, c.halfL + 0.3f, c.halfW + 0.3f, ob.pos, ob.fwd, ob.halfL, ob.halfW) <= 0f;
                 if (ob.wrecked || !ob.active || ob.speed > 0.5f || c.backed >= BackMaxM || c.u < 0.1f || apart || !RoomBehind(c, ob))
+                {
+                    // ROUND 3e (round 3d's LEFT 2, the backing loop: the Carmel Road square n10492, South
+                    // Boulevard n13512 - 74 backs at one place in the base census): backed off, it then
+                    // drove on again into the same body - the goer, held by its own queue, had not moved -
+                    // touched, and backed again, a lock's "backed for" forgotten each time the touch
+                    // ended. It holds back now until that car has moved on (or 20 s)
+                    if (!ob.wrecked && ob.active) { c.holdFor = ob; c.holdAt = ob.pos; c.holdUntil = Time.time + 20f; }
                     c.backFor = null;
+                }
                 else
                 {
                     float db = Mathf.Min(BackMps * dt, Mathf.Min(c.u - 0.05f, BackMaxM - c.backed));
@@ -1652,7 +1707,19 @@ namespace PSXRacing.City
             if (gap <= 0.05f) acc = -EmergencyDecel;
             c.accel = acc;
             c.speed = Mathf.Max(0f, v + acc * dt);
-            if (c.creepPast != null) { c.speed = Mathf.Min(c.speed, CreepMps); c.creepLeft -= c.speed * dt; }
+            if (c.creepPast != null)
+            {
+                c.speed = Mathf.Min(c.speed, CreepMps);
+                // ROUND 3e (round 3d's LEFT 1): a creep never pushes one body into the other - where
+                // its next step would overlap the car it creeps past it stands (the pair stays locked
+                // rather than touching: Fort Street n18110 and Lynhaven n18758 at 0.8 m/s; South
+                // Boulevard n13512 three wrecks in one trace census - the solver's separation of two
+                // overlapping bodies knocks both over the wreck line)
+                if (WayPose(c, c.speed * dt + 0.05f, out var np, out var nf) &&
+                    RectDepth(np, nf, c.halfL, c.halfW, c.creepPast.pos, c.creepPast.fwd, c.creepPast.halfL, c.creepPast.halfW) > 0f)
+                    c.speed = 0f;
+                c.creepLeft -= c.speed * dt;
+            }
 
             c.u += c.speed * dt;
             int guard = 0;
@@ -1849,9 +1916,35 @@ namespace PSXRacing.City
                 if (o.wrecked)
                 {
                     float b0 = best;
-                    if (Mathf.Abs(o.rb.position.y - c.y) < LevelM) Obstacle(c, o.pos, 2.4f, Vector2.zero, ref best, ref vL);
+                    if (Mathf.Abs(o.rb.position.y - c.y) < LevelM)
+                    {
+                        Obstacle(c, o.pos, 2.4f, Vector2.zero, ref best, ref vL);
+                        // ROUND 3e: A WRECK IN THE BOX, where its body lies on this car's way - not
+                        // only one in its lane's corridor (V2's census, North College Street node
+                        // 9006: three cars at 11-13 m/s on into ones the road-surface step at East
+                        // 13th Street had wrecked in their left turn, off the straight lane's line)
+                        if (d2 < 40f * 40f)
+                        {
+                            float sww = SweptHit(c, o, Mathf.Min(40f, 6f + c.speed * 2.5f));
+                            if (sww < best) { best = sww; vL = 0f; }
+                        }
+                    }
                     if (best < b0) { c.leadKind = 2; c.leadId = o.id; }
                     continue;
+                }
+                // ROUND 3e: two ways of ONE approach that cross (a fork's lanes, a turn begun from
+                // the wrong lane): ordered here - the plan's pairing below keeps the two apart by
+                // their lanes on the run and never looks at where their ways go (node 706)
+                if (d2 < 40f * 40f && Mathf.Abs(o.y - c.y) < LevelM) CrossAhead(c, o, ref best, ref vL);
+                // ROUND 3e: held back for the car it backed out of the way of, until that one moves on
+                if (c.holdFor == o)
+                {
+                    if (!o.active || o.wrecked || (o.pos - c.holdAt).sqrMagnitude > 1f || Time.time > c.holdUntil) c.holdFor = null;
+                    else
+                    {
+                        float swh = SweptHit(c, o, 3f);
+                        if (swh < float.MaxValue && Mathf.Max(0.05f, swh - 0.6f) < best) { best = Mathf.Max(0.05f, swh - 0.6f); vL = 0f; c.leadKind = 4; c.leadId = o.id; }
+                    }
                 }
                 bool known = false, lanesApartLater = false;
                 float oc = -o.u;
@@ -1867,6 +1960,22 @@ namespace PSXRacing.City
                             // two lanes of one run whose next turns end in ONE lane
                             // (CityTraffic.Junctions.JoinAhead)
                             if (!c.legs[k].turn && k + 1 < kc && j + 1 < o.legCount) JoinAhead(c, k, o, j, oc, ref best, ref vL);
+                            // ROUND 3e: A BODY IN THE LANE IT SWEEPS. Two cars of one run in two
+                            // lanes are kept apart by their lanes - unless one's body is in the lane
+                            // the other sweeps: a lane closing under it (a drop's taper, the pavement
+                            // squeezing it over - Place keeps a car on the pavement), a change part
+                            // done. Braked for where the sweep meets it, whatever the join order says
+                            // (East 6th Street at node 15151, three lanes into one: the lane-2 car
+                            // the join's first went on at 9.1 m/s into the one standing in lane 1)
+                            if (k == 0 && j == 0 && !c.legs[0].turn && d2 < 20f * 20f && Vector2.Dot(d, c.fwd) > 0f)
+                            {
+                                float swb = SweptHit(c, o, Mathf.Min(20f, 4f + c.speed * 1.5f + c.halfL));
+                                if (swb < float.MaxValue && swb < best)
+                                {
+                                    best = swb; vL = Mathf.Max(0f, Vector2.Dot(o.fwd, c.fwd) * o.speed); c.leadKind = 1; c.leadId = o.id;
+                                    if (c.traced) TraceCross(c, o, "L", swb);
+                                }
+                            }
                             // lanes apart only on a LATER leg (two roads into one road's
                             // two lanes): until then they are on roads of their own, and
                             // where those run together short of the node the bodies meet
@@ -2595,7 +2704,9 @@ namespace PSXRacing.City
                     // slows for the gap (the hold in Step), and at speed past
                     // the point it could still stop it drives on from its lane
                     // (a missed exit), never a 1.5 s swerve into the node
-                    bool straightNext = c.legCount > 1 && c.legs[1].turn && c.legs[1].kind == 0 && !c.legs[1].merge && !c.legs[1].exit;
+                    // (round 3e: a fork's branch is a turn here - no squeezed change into a fork:
+                    // the car holds for its gap, or at speed with no room takes its lane's branch)
+                    bool straightNext = c.legCount > 1 && c.legs[1].turn && c.legs[1].kind == 0 && !c.legs[1].merge && !c.legs[1].exit && !ForkBranch(c.legs[1]);
                     if (!straightNext && c.speed > 3f && rem - 4f < c.speed * MinChangeS)
                     {
                         Stats.lateHolds++;
@@ -2997,7 +3108,7 @@ namespace PSXRacing.City
             c.bDec = Random.Range(2.0f, 3.0f);
             c.committed = c.stopKey = c.goKey = c.redStopKey = c.lineKey = c.waitKey = -1;
             c.rtorKey = c.rtorStopKey = c.clearKey = c.entryKey = c.blockId = -1; c.hN = 0;
-            c.mandAt = -1f; c.lastTraffic = null; c.lastTrafficAt = -9f; c.keepLane = false; c.vTick = 0;
+            c.mandAt = -1f; c.lastTraffic = null; c.lastTrafficAt = -9f; c.keepLane = false; c.vTick = 0; c.forkMissKey = -1; c.holdFor = null;
             c.bornAt = Time.time;
             if (Log != null) CensusSpawned(c);
             c.tan = TravelTan(e, dir, s);

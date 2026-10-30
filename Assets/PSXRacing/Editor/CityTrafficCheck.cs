@@ -257,6 +257,29 @@ namespace PSXRacing.EditorTools
                 yield return new WaitForFixedUpdate();
                 CityTrafficCheck.Line("Turn probe: " + traffic.DescribeTurn(n, a, b).TrimEnd());
             }
+            // (round 3e) the lane map at West 12th Street's fork into the I-277 ramp (node 706 on
+            // 2026-10-30's data; found by its place): every approach's moves and what crosses
+            // and the ramp's merge into I-277 at its far end (node 707, the base check's second wreck)
+            foreach (var (fx, fz, what) in new[] { (-1638f, 5518f, "West 12th Street / I-277 ramp fork"), (-1889.5f, 5651.5f, "the West 12th Street ramp's merge into I-277") })
+            {
+                int fn = -1; float fd = 40f * 40f;
+                var fp = new Vector2(fx, fz);
+                for (int i = 0; i < map.nodes.Length; i++) { float d = (map.nodes[i] - fp).sqrMagnitude; if (d < fd) { fd = d; fn = i; } }
+                if (fn >= 0) CityTrafficCheck.Line($"Lane map probe ({what}):\n" + traffic.LaneMap(fn, "now").TrimEnd());
+            }
+            // and East 6th Street's three lanes into one at node 15151 (round 3d final_b's wreck):
+            // its lanes over the last 30 m, as the traffic lays them
+            {
+                int fn = -1; float fd = 40f * 40f;
+                var fp = new Vector2(-2051f, 4857.3f);
+                for (int i = 0; i < map.nodes.Length; i++) { float d = (map.nodes[i] - fp).sqrMagnitude; if (d < fd) { fd = d; fn = i; } }
+                if (fn >= 0)
+                    foreach (int ei in map.nodeEdges[fn])
+                    {
+                        var e = map.edges[ei];
+                        if (e.b == fn && e.a != e.b) CityTrafficCheck.Line("Lane profile probe (East 6th Street, three lanes into one):\n" + traffic.LaneProfile(ei, 1, 30f).TrimEnd());
+                    }
+            }
 
             // ---- totals
             var st = traffic.Stats;

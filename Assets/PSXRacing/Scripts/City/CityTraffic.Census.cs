@@ -203,6 +203,7 @@ namespace PSXRacing.City
                 case 3: return "the player";
                 case 4: return "a car crossing";
                 case 5: return "a car on another road in its lane";
+                case 6: return "a car of its own approach whose way crosses its own (round 3e)";
                 case 11: return "a red";
                 case 12: return "a car in the box on its green";
                 case 13: return "oncoming (left on green)";
@@ -251,6 +252,7 @@ namespace PSXRacing.City
                 case 3: return;
                 case 4: sub = inBox ? "gridlock-box" : "crossing-blocked"; need = 15f; break;
                 case 5: sub = "other-road-in-lane"; need = 15f; break;
+                case 6: sub = "lane-crossing-wait"; need = 15f; break;
                 case 11: sub = "red-never-ends"; need = Mathf.Max(60f, RedS(c) + 15f); break;
                 case 12: sub = "box-blocked-on-green"; need = 25f; break;
                 case 13: case 16: sub = "left-turn-starved"; need = 45f; break;
@@ -490,6 +492,22 @@ namespace PSXRacing.City
                 for (int j = i + 1; j < live.Count; j++)
                 {
                     var b = live[j];
+                    // ROUND 3e: two of ONE approach in their turns, both moving, their ways crossing
+                    // ahead of both (a fork's lanes, a turn begun from the wrong lane: node 706)
+                    if (!b.wrecked && b.boxJ == a.boxJ && b.speed >= 2f && (a.pos - b.pos).sqrMagnitude < 6f * 6f &&
+                        Mathf.Abs(a.y - b.y) < LevelM && CrossingInBox(a, b))
+                    {
+                        int ck = a.boxJ ^ (1 << 30);
+                        boxCool.TryGetValue(ck, out float untilX);
+                        if (Time.time >= untilX)
+                        {
+                            boxCool[ck] = Time.time + 3f;
+                            Note(a, "conflict", "lane-crossing", (a.pos - b.pos).magnitude,
+                                 $"two cars of one approach cross each other's way in the box {(a.pos - b.pos).magnitude:0.0} m apart (lanes {a.legs[0].laneIn} / {b.legs[0].laneIn} into e{a.legs[0].edge2} / e{b.legs[0].edge2}); A: {Describe(a)} | B: {Describe(b)}",
+                                 edge2: b.legs[0].edge2);
+                        }
+                        continue;
+                    }
                     if (b.wrecked || b.boxJ != a.boxJ || b.inKey == a.inKey || b.speed < 2f || b.legCount == 0 || !b.legs[0].turn) continue;
                     if ((a.pos - b.pos).sqrMagnitude > 5f * 5f || Mathf.Abs(a.y - b.y) > LevelM) continue;
                     if (Mathf.Abs(Vector2.Dot(a.fwd, b.fwd)) > 0.5f) continue;
@@ -872,6 +890,8 @@ namespace PSXRacing.City
             report.AppendLine($"  straight-throughs {straights}: no lane continues {noLane}, lanes misaligned (as many lanes, not lined up) {misaligned}" +
                               $"; of them the roads' lines jog or bend inside the box, every lane in its place on its own road: {jogNo} / {jogMis}" +
                               $" (the old test, mouth against the near lane's normal, which reads a bend as a jump: {oldNoLane} / {oldMis})");
+            // ---- 6b. (round 3e) ONE APPROACH'S WAYS THAT CROSS: before / after the fork rule
+            CrossingAudit(log, report);
 
             // ---- 7. RAMPS: the room a merge is driven over
             int shortZone = 0, merges = 0, zoned = 0, runOn = 0, oldShort = 0;
@@ -1201,7 +1221,7 @@ namespace PSXRacing.City
                         var e = map.edges[ei];
                         if (e.a == e.b) continue;
                         int dir = e.b == n ? 1 : -1;
-                        string ctl = e.oneway && dir < 0 ? "leaves" : CtlName(CtlAt(e, dir, out int fa)) + (e.oneway && dir < 0 ? "" : approachOf.TryGetValue((ei << 1) | (dir > 0 ? 1 : 0), out int fai) ? $" (j{apps[fai].junction} grp{apps[fai].group} ch{apps[fai].channel})" : "");
+                        string ctl = e.oneway && dir < 0 ? "leaves" : CtlName(CtlAt(e, dir, out int fa)) + (e.oneway && dir < 0 ? "" : approachOf.TryGetValue((ei << 1) | (dir > 0 ? 1 : 0), out int fai) ? $" (j{apps[fai].junction} grp{apps[fai].group} ch{apps[fai].channel} line@{apps[fai].sStop:0.0})" : "");
                         fs.Append($" e{ei}{(routable[ei] ? "" : " (not routable)")} '{e.name}' cls{e.cls}{(e.oneway ? " oneway" : "")}{(trims.Internal(ei) ? " internal" : "")} {ctl} len {e.length:0.0} lanes {Lanes(ei, dir)}{(!float.IsNaN(holdS[(ei << 1) | (dir > 0 ? 1 : 0)]) ? " hold@" + holdS[(ei << 1) | (dir > 0 ? 1 : 0)].ToString("0.0") : "")};");
                     }
                     traceW.WriteLine(fs.ToString());
@@ -1236,6 +1256,8 @@ namespace PSXRacing.City
                     var b = live[j];
                     if (!b.traced || (a.pos - b.pos).sqrMagnitude > 64f) continue;
                     if (RectOverlap(a, b) > 0.05f) TraceDump(a, $"overlap c{a.id} c{b.id} {RectOverlap(a, b):0.00} m");
+                    else if (a.boxJ >= 0 && a.boxJ == b.boxJ && a.speed > 1f && b.speed > 1f && (a.pos - b.pos).sqrMagnitude < 36f && CrossingInBox(a, b))
+                        TraceDump(a, $"lane-crossing c{a.id} c{b.id} {(a.pos - b.pos).magnitude:0.0} m, one approach's ways crossing in its box ({a.speed:0.0} / {b.speed:0.0} m/s, lanes {a.legs[0].laneIn} / {b.legs[0].laneIn})", true);
                     else if (a.boxJ >= 0 && a.boxJ == b.boxJ && a.inKey != b.inKey && a.speed > 2f && b.speed > 2f &&
                              a.legCount > 0 && a.legs[0].turn && b.legCount > 0 && b.legs[0].turn &&
                              (a.pos - b.pos).sqrMagnitude < 36f && Mathf.Abs(Vector2.Dot(a.fwd, b.fwd)) < 0.5f)

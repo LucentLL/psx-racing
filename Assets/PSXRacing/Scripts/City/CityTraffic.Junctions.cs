@@ -411,7 +411,14 @@ namespace PSXRacing.City
                 }
                 var e = map.edges[L.edge];
                 float s = Mathf.Clamp(L.s0 + L.dir * u, 0f, e.length);
-                p = PlanPoint(e, s, k == 0 ? c.lat : LaneLat(e, L.dir, L.laneIn, s), out var tan);
+                // (round 3e) on its run where its lane takes it - a lane a taper narrows moves
+                // its centre - and, as Place lays it, never off the pavement (a car squeezed over
+                // by a closing lane sweeps where it will be, not where it is: East 6th Street)
+                float lat = k == 0 ? (c.lc ? c.lat : LaneLat(e, L.dir, c.lane, s)) : LaneLat(e, L.dir, L.laneIn, s);
+                LineModel.Extents(e, s, out float pM, out float pP);
+                float lo = -pM + c.halfW + 0.05f, hi = pP - c.halfW - 0.05f;
+                if (hi > lo) lat = Mathf.Clamp(lat, lo, hi);
+                p = PlanPoint(e, s, lat, out var tan);
                 f = tan * L.dir;
                 return true;
             }
@@ -536,6 +543,103 @@ namespace PSXRacing.City
                 if (TightSplits++ < 40) sb.Append(" n").Append(i).Append(" e").Append(ia).Append(" hold ").Append((map.edges[ia].length - sh).ToString("0.0")).Append(" m");
             }
             Debug.Log($"[CityTraffic] tight splits (the arriving carriageway yields at a line set back): {TightSplits}:{sb}");
+            StopSetBacks(js);
+        }
+
+        /// <summary>Round 3e: STOP / yield lines the traffic holds at set back (PSX_TRAFFIC_STOPBACK=0: at the bar).</summary>
+        public static bool StopBackOn = System.Environment.GetEnvironmentVariable("PSX_TRAFFIC_STOPBACK") != "0";
+        public static int StopBacks, StopBackNone;
+        public static float StopBackWorst;
+        const float StopBackMaxM = 6f;
+
+        /// <summary>
+        /// THE STOP LINE A CAR STANDS CLEAR AT (round 3e; round 3d's LEFT 4, Fort Street /
+        /// Brook Road, node 18110: an all-way STOP of one-lane roads, a mitred 2-3 m box - the car
+        /// waiting at Fort Street's bar (1.2 m short of the mouth, CitySignals.StopBackM) stood
+        /// with its nose in the way of the car the all-way order had let go from the next
+        /// approach, that one stopped for its body, and the waiting one waited for the one in
+        /// the box: crossing-blocked in every run, the lock recovery's creep touching). MUTCD
+        /// 3B.16: a stop line is placed where a stopped vehicle leaves the turning paths clear,
+        /// set back where they need it. Here: at every STOP and yield junction, a car standing
+        /// at an approach's line in any of its lanes (2.4 x 1.0 m half body, 0.3 m round it) is
+        /// tested against every other way through the junction (every arm's moves, lane by lane,
+        /// as Extend lays them); where it stands in one, the TRAFFIC's line (App.sStop - the
+        /// drawn bar, its sign and the heads stay where they are) goes back, 0.5 m at a time,
+        /// to the first place it is clear - at most 6 m, and never closer than a car and a metre
+        /// to the run's start; no clear place within that: the bar, as before (counted).
+        /// </summary>
+        void StopSetBacks(System.Collections.Generic.IReadOnlyList<CitySignals.Junction> js)
+        {
+            StopBacks = StopBackNone = 0; StopBackWorst = 0f;
+            if (!StopBackOn || js == null) return;
+            const float hl = 2.4f, hw = 1.0f, pad = 0.3f;
+            var list = new System.Collections.Generic.List<Move>(32);
+            var pts = new System.Collections.Generic.List<Vector2>(512);
+            var dirs = new System.Collections.Generic.List<Vector2>(512);
+            var from = new System.Collections.Generic.List<int>(512);
+            var sb = new System.Text.StringBuilder();
+            foreach (var j in js)
+            {
+                if (j.signal || j.approaches.Count == 0) continue;
+                // every way through the junction: each arm arriving at each of its nodes
+                pts.Clear(); dirs.Clear(); from.Clear();
+                foreach (int n in j.nodes)
+                    foreach (int ei in map.nodeEdges[n])
+                    {
+                        var e = map.edges[ei];
+                        if (e.a == e.b || !routable[ei]) continue;
+                        int dir = e.b == n ? 1 : -1;
+                        if (dir < 0 && e.oneway) continue;
+                        int key = (ei << 1) | (dir > 0 ? 1 : 0);
+                        MovesOf(e, dir, list);
+                        foreach (var m in list)
+                        {
+                            int ns = Mathf.Clamp(Mathf.CeilToInt(m.T.len), 2, 40);
+                            for (int i = 0; i <= ns; i++)
+                            {
+                                var p = Bez(m.T, (float)i / ns, out var d);
+                                pts.Add(p); dirs.Add(d.sqrMagnitude > 1e-6f ? d.normalized : TravelTan(e, dir, m.T.sA)); from.Add(key);
+                            }
+                        }
+                    }
+                for (int ai = 0; ai < j.approaches.Count; ai++)
+                {
+                    var a = j.approaches[ai];
+                    var e = map.edges[a.edge];
+                    int dir = e.b == a.node ? 1 : -1;
+                    int key = (a.edge << 1) | (dir > 0 ? 1 : 0);
+                    if (!approachOf.TryGetValue(key, out int app) || !routable[a.edge]) continue;
+                    int nIn = Lanes(a.edge, dir);
+                    bool Clear(float sLine)
+                    {
+                        for (int lane = 0; lane < nIn; lane++)
+                        {
+                            float sc = Mathf.Clamp(sLine - dir * hl, 0f, e.length);
+                            Vector2 c = LanePos(e, dir, lane, sc), f = TravelTan(e, dir, sc);
+                            for (int k = 0; k < pts.Count; k++)
+                                if (from[k] != key && (pts[k] - c).sqrMagnitude < 49f && RectDepth(c, f, hl + pad, hw + pad, pts[k], dirs[k], hl, hw) > 0f) return false;
+                        }
+                        return true;
+                    }
+                    float s0 = apps[app].sStop;
+                    if (Clear(s0)) continue;
+                    // never closer than a car and a metre to where a run on this edge starts
+                    float sMin = dir > 0 ? Back(e, e.a) + 2f * hl + 1f : e.length - Back(e, e.b) - 2f * hl - 1f;
+                    bool found = false;
+                    for (float back = 0.5f; back <= StopBackMaxM + 1e-3f; back += 0.5f)
+                    {
+                        float s = s0 - dir * back;
+                        if ((s - sMin) * dir < 0f) break;
+                        if (!Clear(s)) continue;
+                        var ap = apps[app]; ap.sStop = s; apps[app] = ap;
+                        StopBacks++; StopBackWorst = Mathf.Max(StopBackWorst, back); found = true;
+                        if (StopBacks <= 30) sb.Append(" e").Append(a.edge).Append(" n").Append(a.node).Append(' ').Append(back.ToString("0.0")).Append(" m");
+                        break;
+                    }
+                    if (!found) StopBackNone++;
+                }
+            }
+            Debug.Log($"[CityTraffic] STOP / yield lines set back to where a standing car is clear of the junction's other ways: {StopBacks} approaches (worst {StopBackWorst:0.0} m), no clear place within {StopBackMaxM:0} m {StopBackNone}:{sb}");
         }
 
         /// <summary>
@@ -592,7 +696,15 @@ namespace PSXRacing.City
                     if (LaneWidth(T, dT, t, tEnd) >= 2f && LaneWidth(O, 1, j, oStart) >= 2f && LaneJump(T, dT, t, tEnd, O, 1, j, oStart, n) <= 2f)
                     { pair[t, j] = true; usedO[j] = true; anyO = true; }
             if (!anyO) for (int t = 0; t < nT; t++) for (int j = 0; j < nO; j++) { pair[t, j] = true; usedO[j] = true; }
-            const float hl = 2.4f, hw = 1.0f, pad = 0.35f;
+            // (round 3e: and every lane a move of the arriving carriageway leaves from - a car
+            // standing for its gap in the lane its turn is laid from stands there too: South
+            // Boulevard node 13512, "clear at its lane end" by its one lane that runs on, its
+            // left lane's cars waiting there in the leaving flow's way, a lock, backed 74 times in
+            // one census; and the driving logic's own margin, half a metre (PathReach standing))
+            var amoves = new System.Collections.Generic.List<Move>(16);
+            MovesOf(A, 1, amoves);
+            foreach (var m in amoves) if (m.req >= 0 && m.req < nA && LaneWidth(A, 1, m.req, aEnd) >= 2f) usedA[m.req] = true;
+            const float hl = 2.4f, hw = 1.0f, pad = 0.5f;
             var pts = new System.Collections.Generic.List<Vector2>();
             var dirs = new System.Collections.Generic.List<Vector2>();
             for (int j = 0; j < nO; j++)
